@@ -130,8 +130,8 @@ export const MoveToTrigger = ({
 	);
 
 	const handleCreateFolder = useCallback(
-		async (name: string): Promise<MoveMailboxOption> => {
-			const folder = await createFolder(name);
+		async (name: string, signal?: AbortSignal): Promise<MoveMailboxOption> => {
+			const folder = await createFolder(name, signal);
 			return { id: folder.id, label: folder.label };
 		},
 		[createFolder],

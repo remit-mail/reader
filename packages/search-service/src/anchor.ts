@@ -1,5 +1,4 @@
 import type { VectorStoreService } from "./backends/memory.js";
-import type { EmbeddingService } from "./embeddings.js";
 import { buildTextPreview } from "./search.js";
 import type { ChunkType, VectorRecord } from "./types.js";
 
@@ -46,6 +45,40 @@ export const poolChunkVectors = (vectors: number[][]): number[] => {
 	return sum.map((value) => value / norm);
 };
 
+/**
+ * Stamped when none of a message's pooled chunks carry an `embeddingId` (RFC
+ * 039 / #349) — vectors written before that metadata field existed. Distinct
+ * from every real `EmbeddingService.embeddingId` value, so a drift check that
+ * compares against the current model ("does this anchor match what's
+ * configured now?") never mistakes an unknown-provenance vector for current;
+ * it is always treated as needing a fresh anchor.
+ */
+export const UNKNOWN_CHUNK_EMBEDDING_ID = "unknown";
+
+/**
+ * Derive the single `embeddingId` the pooled chunk records were actually
+ * embedded under (#349) — never the caller's currently-configured embedder,
+ * which may have changed since these chunks were last (re-)indexed. All
+ * chunks for one message are written by the same index-time pass, so they
+ * must agree; a chunk with no recorded `embeddingId` (pre-dating that field)
+ * counts as `UNKNOWN_CHUNK_EMBEDDING_ID`. Disagreement — including a mix of a
+ * known id and an unknown one — throws rather than silently picking one,
+ * consistent with `poolChunkVectors`'s "let it crash" stance on a dimension
+ * mismatch.
+ */
+export const deriveAnchorEmbeddingId = (records: VectorRecord[]): string => {
+	const ids = new Set(
+		records.map((r) => r.metadata.embeddingId ?? UNKNOWN_CHUNK_EMBEDDING_ID),
+	);
+	if (ids.size > 1) {
+		throw new Error(
+			`Chunk embeddingId mismatch pooling anchor from ${records.length} records: ${[...ids].join(", ")}`,
+		);
+	}
+	const [id] = ids;
+	return id;
+};
+
 // The chunk types whose text carries the semantic meaning of "messages like
 // this" — subject and body. Structured chunks (sender, recipient, attachment,
 // entities) are excluded from the re-embeddable source text; they add no signal
@@ -80,7 +113,6 @@ export const buildAnchorSourceText = (
 
 export interface AnchorBuildDeps {
 	store: Pick<VectorStoreService, "getByMessage">;
-	embedder: Pick<EmbeddingService, "embeddingId">;
 }
 
 export interface AnchorBuildParams {
@@ -97,8 +129,13 @@ export interface AnchorBuildParams {
  * `FilterAnchor` row (and leave `Filter.hasAnchor` false) rather than persist an
  * empty anchor.
  *
- * `anchorEmbeddingId` is the current embedder's identifier — the model the
- * chunk vectors were embedded under, which the indexing pipeline keeps current.
+ * `anchorEmbeddingId` is derived from the pooled records' own
+ * `metadata.embeddingId` (#349) — the model that actually produced those
+ * vectors, which is not necessarily the currently-configured embedder. A
+ * message indexed under an older model keeps its old-space vectors until
+ * something re-indexes it; stamping the current embedder's id there would
+ * mislabel a stale vector as current and permanently defeat any drift check
+ * that trusts the stamp.
  */
 export const buildMessageAnchor = async (
 	deps: AnchorBuildDeps,
@@ -116,7 +153,7 @@ export const buildMessageAnchor = async (
 
 	return {
 		anchorEmbedding: poolChunkVectors(records.map((r) => r.vector)),
-		anchorEmbeddingId: deps.embedder.embeddingId,
+		anchorEmbeddingId: deriveAnchorEmbeddingId(records),
 		anchorSourceText: buildAnchorSourceText(
 			records.map((r) => ({
 				chunkType: r.metadata.chunkType,

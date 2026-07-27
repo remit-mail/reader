@@ -164,6 +164,7 @@ export const ruleToDraft = (
 		matchOperator: predicate.matchOperator,
 		literalClauses: predicate.literalClauses,
 		moveMailboxId: rule.moveMailboxId,
+		labelId: rule.labelId,
 		expiresAt:
 			rule.scope === "until"
 				? pickedDateToExpiresAt(rule.until ?? "")

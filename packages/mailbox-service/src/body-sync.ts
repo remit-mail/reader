@@ -169,6 +169,20 @@ const alreadyDenormalized = (
 	(update.snippet === undefined || row.snippet === update.snippet) &&
 	(update.listId === undefined || row.listId === update.listId);
 
+/**
+ * RFC 034 Decision 3.1: `Message.category` is written once and never mutated
+ * after — RFC 030's message-list GSI sort key depends on it never churning.
+ * "Already decided" is any real category; `uncategorized` and the field being
+ * absent (rows written before the column existed) both mean "not yet decided"
+ * and must still classify. The one rule every re-entrant classification path
+ * shares — {@link BodySyncService.backfillClassification} and
+ * {@link BodySyncService.applyPostStoreSteps} both defer to it.
+ */
+const hasDecidedCategory = (
+	category: ThreadMessageCategory | undefined,
+): boolean =>
+	category !== undefined && category !== MessageCategory.uncategorized;
+
 export const toParsedBody = (parsed: ParsedMail): ParsedBody => ({
 	text: parsed.text ?? null,
 	html: typeof parsed.html === "string" ? parsed.html : null,
@@ -808,9 +822,20 @@ export class BodySyncService {
 		// a filter); the verdict is folded in whenever Remit decided to act.
 		// Written LAST so bodyStorageKey — the skip-guard signal — is only durable
 		// once the parsed cache AND the move (when any) are.
+		//
+		// `category` is RFC 034 D3.1's write-once field (RFC 030's message-list
+		// GSI sort key depends on it never churning). This step re-enters on an
+		// already-classified message through two shipped paths — the `NoSuchKey`
+		// fallback in `fetchAndGetBody` and `syncBodies(..., force: true)` — so a
+		// real, previously-decided category is carried forward unchanged instead
+		// of the just-recomputed one, the same rule `backfillClassification` uses.
+		const existingMessage = await this.messageService.get(messageId);
 		const update: UpdateMessageInput = {
 			bodyStorageKey: bodyRef.uri,
 			...classification,
+			category: hasDecidedCategory(existingMessage.category)
+				? existingMessage.category
+				: classification.category,
 			...(moved ? { movedByRemit: true } : {}),
 			...(resolved.verdict ? { placementVerdict: resolved.verdict } : {}),
 			...(filterMove ? { filterMove } : {}),
@@ -962,12 +987,7 @@ export class BodySyncService {
 		accountConfigId: string,
 	): Promise<void> {
 		if (!message.bodyStorageKey) return;
-		if (
-			message.category !== undefined &&
-			message.category !== MessageCategory.uncategorized
-		) {
-			return;
-		}
+		if (hasDecidedCategory(message.category)) return;
 
 		const body = await this.storageService.retrieve(message.bodyStorageKey);
 		const parsed = await parseMessageBody(body);

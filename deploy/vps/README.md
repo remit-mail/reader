@@ -463,6 +463,25 @@ looks right. See the Backups section in `remit.env.template` for the variables
 (`BACKUP_AGE_RECIPIENT`, `BACKUP_RCLONE_REMOTE`, and the `RCLONE_CONFIG_*` vars
 for your provider).
 
+## ListId backfill for pre-upgrade mail
+
+Filters can match on a mailing list's `List-Id`, but the field is only
+populated at body-sync time — mail synced before this shipped keeps it empty,
+so a `ListId` clause under-matches the back catalogue. A one-time backfill
+derives it from each message's already-stored raw source (no IMAP refetch)
+and writes only that field:
+
+```bash
+docker compose -f docker-compose.sqlite.yml --env-file .env run --rm backend \
+  node backfill-list-id.mjs
+```
+
+Safe to interrupt: it checkpoints to `/data/sqlite/list-id-backfill-checkpoint.json`
+after every batch and resumes from there on the next run, and a message
+already backfilled (or one that never carried a `List-Id`) is left alone on a
+rerun. Run it once after upgrading; there is no need to run it again unless a
+later run is interrupted before completion.
+
 ## Known gap: account deletion's AWS-only steps
 
 The `account-worker` deletion cascade calls AWS-only services directly (identity

@@ -21,6 +21,7 @@ import {
 	demoVocabularyRule,
 	type FilterRule,
 	type FolderOption,
+	type LabelOption,
 	matchJoinWord,
 	matchOperatorLabel,
 	type PreviewCount,
@@ -43,6 +44,11 @@ const render = (element: Parameters<typeof renderToString>[0]) =>
 const FOLDERS: FolderOption[] = [
 	{ id: "mbx-inbox", label: "Inbox" },
 	{ id: "mbx-archive", label: "Archive" },
+];
+
+const LABELS: LabelOption[] = [
+	{ id: "lbl-receipts", name: "Receipts", color: "Blue" },
+	{ id: "lbl-travel", name: "Travel", color: "Green" },
 ];
 
 const READY: PreviewCount = { status: "ready", count: 47 };
@@ -161,10 +167,20 @@ describe("commitBlockedReason", () => {
 		);
 	});
 
-	it("asks for a folder when none is chosen", () => {
+	it("asks for a folder or a label when neither action is chosen", () => {
 		assert.match(
 			commitBlockedReason({ ...base, moveMailboxId: undefined }, fresh) ?? "",
-			/Pick a folder/,
+			/Pick a folder to move into, or a label to apply/,
+		);
+	});
+
+	it("a label alone is a sufficient action, no folder needed", () => {
+		assert.equal(
+			commitBlockedReason(
+				{ ...base, moveMailboxId: undefined, labelId: "lbl-1" },
+				fresh,
+			),
+			undefined,
 		);
 	});
 
@@ -505,10 +521,33 @@ describe("FilterRuleEditor", () => {
 		assert.match(html, /from sender/);
 	});
 
-	it("reserves a disabled label slot next to the move action", () => {
-		const html = editor();
-		assert.match(html, /label them…/);
-		assert.match(html, /Labeling isn.+available yet/);
+	it("offers the account's labels as the apply-label action", () => {
+		const html = editor({ labels: LABELS });
+		assert.match(html, /aria-label="Label to apply"/);
+		assert.match(html, /Receipts/);
+		assert.match(html, /Travel/);
+	});
+
+	it("renders a chip for the selected label", () => {
+		const html = editor({
+			labels: LABELS,
+			rule: { ...demoRule, labelId: "lbl-receipts" },
+		});
+		assert.match(html, /Receipts/);
+	});
+
+	it("offers no create option without onCreateLabel", () => {
+		const html = editor({ labels: LABELS });
+		assert.doesNotMatch(html, /New label…/);
+	});
+
+	it("offers the create option when onCreateLabel is wired", () => {
+		const html = editor({
+			labels: LABELS,
+			onCreateLabel: () =>
+				Promise.resolve({ id: "lbl-new", name: "New", color: "Default" }),
+		});
+		assert.match(html, /New label…/);
 	});
 
 	it("shows the scope toggle and names a standing rule", () => {
@@ -555,35 +594,48 @@ describe("FilterRuleEditor", () => {
 		assert.match(editor(), /47 messages match/);
 	});
 
-	it("renders scope and expiry read-only when the lifecycle is locked", () => {
+	it("keeps scope and expiry live and editable on an anchor-locked (existing) filter (reader #266)", () => {
 		const html = editor({
 			rule: { ...demoRule, scope: "until", until: "2027-09-01" },
-			lifecycleLocked: true,
+			anchorLocked: true,
 		});
-		// No live scope toggle, no editable date input — a static summary and a note.
-		assert.doesNotMatch(html, /aria-label="Rule scope"/);
-		assert.doesNotMatch(html, /aria-label="Expiry date"/);
-		assert.match(html, /Until 2027-09-01/);
-		assert.match(html, /set when a filter is created/);
-		// The name stays editable.
+		assert.match(html, /aria-label="Rule scope"/);
+		assert.match(html, /aria-label="Expiry date"/);
 		assert.match(html, /aria-label="Rule name"/);
 	});
 
-	it("names the similar-mail match in the locked note only when a widen is present", () => {
+	it("drops the once option from the scope toggle on an anchor-locked filter", () => {
+		const locked = editor({ anchorLocked: true });
+		assert.doesNotMatch(locked, />Just once</);
+		const unlocked = editor({ anchorLocked: false });
+		assert.match(unlocked, />Just once</);
+	});
+
+	it("locks the widen chip and explains why only when one is present", () => {
 		const withWiden = editor({
 			rule: { ...demoRule, widen: { anchorCount: 2 } },
-			lifecycleLocked: true,
+			anchorLocked: true,
 		});
-		assert.match(
+		assert.doesNotMatch(
 			withWiden,
-			/similar-mail match are set when a filter is created/,
+			/aria-label="Remove the similar-mail widen"/,
 		);
+		assert.match(withWiden, /similar-mail match is fixed to the message/);
+
 		const literal = editor({
 			rule: { ...demoRule, widen: undefined },
-			lifecycleLocked: true,
+			anchorLocked: true,
 		});
-		assert.match(literal, /scope and expiry are set when a filter is created/);
-		assert.doesNotMatch(literal, /similar-mail match/);
+		assert.doesNotMatch(literal, /similar-mail match is fixed/);
+	});
+
+	it("never offers to add a widen on an anchor-locked filter, even when the deployment can serve it", () => {
+		const html = editor({
+			rule: { ...demoRule, widen: undefined },
+			anchorLocked: true,
+			semanticAvailable: true,
+		});
+		assert.doesNotMatch(html, /…and similar/);
 	});
 });
 

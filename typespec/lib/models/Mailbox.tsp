@@ -287,6 +287,7 @@ model MailboxResponse {
       | "lastSyncUid"
       | "highWaterMarkUid"
       | "lastMessageSyncAt"
+      | "syncStatus"
       | "createdAt"
       | "updatedAt"
   >;

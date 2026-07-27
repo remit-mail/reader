@@ -123,6 +123,17 @@ export {
 	ImapFlowConnection,
 } from "./imapflow-connection.js";
 export {
+	backfillListIds,
+	type ListIdBackfillCheckpoint,
+	type ListIdBackfillCheckpointStore,
+	type ListIdBackfillDeps,
+	type ListIdBackfillLogger,
+	type ListIdBackfillOptions,
+	type ListIdBackfillProgress,
+	type ListIdBackfillResult,
+	type ListIdBackfillTotals,
+} from "./list-id-backfill.js";
+export {
 	guardConnectionCursor,
 	guardMailboxCursor,
 	isCursorRebuildNeeded,

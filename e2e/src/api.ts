@@ -16,6 +16,8 @@ export interface Mailbox {
 	fullPath: string;
 	specialUse?: string;
 	messageCount?: number;
+	/** `pending` until the imap-worker confirms the folder on the server, then `synced`. */
+	syncStatus?: "synced" | "pending" | "failed" | "deleting";
 }
 
 /**
@@ -86,6 +88,16 @@ export interface Filter {
 export interface CreateFilterInput {
 	name: string;
 	scope: "Standing" | "Temporary";
+	expiresAt?: string;
+	matchOperator?: "And" | "Or";
+	literalClauses?: { field: "From" | "Subject" | "HasWords"; value: string }[];
+	actionLabelId?: string;
+	actionMailboxId?: string;
+}
+
+export interface UpdateFilterInput {
+	name?: string;
+	scope?: "Standing" | "Temporary";
 	expiresAt?: string;
 	matchOperator?: "And" | "Or";
 	literalClauses?: { field: "From" | "Subject" | "HasWords"; value: string }[];
@@ -399,6 +411,23 @@ export class ApiClient {
 			`/accounts/${accountId}/filters`,
 		);
 		return result.items ?? [];
+	}
+
+	/**
+	 * Patch a filter's mutable fields (reader #266: scope and expiresAt joined
+	 * name/predicate/action as updatable; the anchor stayed out of the update
+	 * surface entirely).
+	 */
+	updateFilter(
+		accountId: string,
+		filterId: string,
+		input: UpdateFilterInput,
+	): Promise<Filter> {
+		return this.json(
+			"PATCH",
+			`/accounts/${accountId}/filters/${filterId}`,
+			input,
+		);
 	}
 
 	deleteFilter(accountId: string, filterId: string): Promise<Response> {

@@ -5,6 +5,7 @@ import { AddressDetailOperations, AddressOperations } from "./address.js";
 import { ConfigOperations } from "./config.js";
 import { FilterDetailOperations, FilterOperations } from "./filter.js";
 import { FolderRoleOperations } from "./folder-role.js";
+import { LabelDetailOperations, LabelOperations } from "./label.js";
 import {
 	MailboxDetailOperations,
 	MailboxOperations,
@@ -33,6 +34,8 @@ export const handlers: Record<OperationIds, OperationHandler<any>> = {
 	...FolderRoleOperations,
 	...FilterOperations,
 	...FilterDetailOperations,
+	...LabelOperations,
+	...LabelDetailOperations,
 	...OrganizeOperations,
 	...OrganizeJobDetailOperations,
 	...TrashOperations,

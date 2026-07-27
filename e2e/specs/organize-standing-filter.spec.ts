@@ -1,7 +1,8 @@
 /**
  * Automated organizing (issue #213): a standing filter created by Organize
  * keeps working on future mail, and Settings › Filters is where it is seen and
- * managed.
+ * managed. Scope and expiry are mutable on an existing filter (reader #266);
+ * the semantic anchor is not.
  *
  * The organize sheet widens a selection with a semantic preview before it
  * commits a filter, and that vector index is deliberately not built on the e2e
@@ -26,6 +27,8 @@ const DESKTOP = { width: 1512, height: 864 };
 const RUN_TAG = `e2e-${Date.now()}`;
 const STANDING_NAME = `${RUN_TAG} standing`;
 const TEMPORARY_NAME = `${RUN_TAG} temporary`;
+const SCOPE_EDIT_NAME = `${RUN_TAG} scope-edit`;
+const ANCHOR_GUARD_NAME = `${RUN_TAG} anchor-guard`;
 
 const seeded: string[] = [];
 
@@ -101,5 +104,64 @@ test.describe("Automated organizing — standing filters", () => {
 			{ timeoutMs: 20_000, what: "the deleted standing filter to be gone" },
 		);
 		expect(remaining.map((filter) => filter.name)).not.toContain(STANDING_NAME);
+	});
+
+	test("editing scope and expiry updates the row, and reactivates a lapsed filter (reader #266)", async ({
+		api,
+		page,
+		run,
+	}) => {
+		const filter = await api.createFilter(run.accountId, {
+			name: SCOPE_EDIT_NAME,
+			scope: "Standing",
+			literalClauses: [{ field: "From", value: "scope-edit@example.com" }],
+			actionMailboxId: run.inboxId,
+		});
+		seeded.push(filter.filterId);
+
+		const lapsed = await api.updateFilter(run.accountId, filter.filterId, {
+			scope: "Temporary",
+			expiresAt: "2020-01-01T00:00:00+00:00",
+		});
+		expect(lapsed.scope).toBe("Temporary");
+		expect(lapsed.state).toBe("Expired");
+
+		await page.goto("/settings/filters");
+		const row = page.getByRole("listitem").filter({ hasText: SCOPE_EDIT_NAME });
+		await expect(row).toBeVisible({ timeout: 30_000 });
+		await expect(row.getByText("Expired", { exact: true })).toBeVisible();
+
+		// Moving back to Standing clears expiresAt and reactivates the filter —
+		// it is not stuck Expired just because it once lapsed.
+		const reactivated = await api.updateFilter(run.accountId, filter.filterId, {
+			scope: "Standing",
+		});
+		expect(reactivated.scope).toBe("Standing");
+		expect(reactivated.state).toBe("Active");
+		expect(reactivated.expiresAt).toBeUndefined();
+
+		await page.reload();
+		await expect(row.getByText("Active", { exact: true })).toBeVisible({
+			timeout: 30_000,
+		});
+	});
+
+	test("rejects an anchor mutation attempt on update (reader #266)", async ({
+		api,
+		run,
+	}) => {
+		const filter = await api.createFilter(run.accountId, {
+			name: ANCHOR_GUARD_NAME,
+			scope: "Standing",
+			actionMailboxId: run.inboxId,
+		});
+		seeded.push(filter.filterId);
+
+		const response = await api.request(
+			"PATCH",
+			`/accounts/${run.accountId}/filters/${filter.filterId}`,
+			{ anchorMessageId: "11111111-1111-4111-8111-111111111111" },
+		);
+		expect(response.status).toBe(400);
 	});
 });

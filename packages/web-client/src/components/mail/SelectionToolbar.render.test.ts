@@ -7,6 +7,7 @@
 
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
+import { labelOperationsListLabelsQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { createElement } from "react";
 import { createDomHarness, type DomHarness } from "../../test-support/dom";
 import { SelectionToolbar } from "./SelectionToolbar";
@@ -20,8 +21,19 @@ afterEach(() => {
 
 type ToolbarProps = Parameters<typeof SelectionToolbar>[0];
 
-const mount = (props: Partial<ToolbarProps> = {}): DomHarness => {
+const mount = (
+	props: Partial<ToolbarProps> = {},
+	options: { labels?: { labelId: string; name: string; color: string }[] } = {},
+): DomHarness => {
 	harness = createDomHarness();
+	if (props.accountId) {
+		harness.queryClient.setQueryData(
+			labelOperationsListLabelsQueryKey({
+				path: { accountId: props.accountId },
+			}),
+			{ items: options.labels ?? [] },
+		);
+	}
 	harness.renderApp(
 		createElement(SelectionToolbar, {
 			selectedCount: 2,
@@ -60,6 +72,44 @@ describe("SelectionToolbar", () => {
 		});
 		assert.ok(dom.query('[aria-label="Move selected messages"]'));
 		assert.ok(dom.query('[aria-label="Organize similar messages"]'));
+	});
+
+	it("hides the label trigger without a materialized selection (issue #26)", () => {
+		const dom = mount({
+			accountId: "acc-1",
+			currentMailboxId: "mbx-inbox",
+		});
+		assert.equal(
+			dom.query('[aria-label="Apply label to selected messages"]'),
+			null,
+		);
+	});
+
+	it("hides the label trigger when the account has no labels yet", () => {
+		const dom = mount(
+			{
+				accountId: "acc-1",
+				currentMailboxId: "mbx-inbox",
+				selectedMessageIds: ["m1", "m2"],
+			},
+			{ labels: [] },
+		);
+		assert.equal(
+			dom.query('[aria-label="Apply label to selected messages"]'),
+			null,
+		);
+	});
+
+	it("offers the label trigger once a selection, account, and mailbox are all known", () => {
+		const dom = mount(
+			{
+				accountId: "acc-1",
+				currentMailboxId: "mbx-inbox",
+				selectedMessageIds: ["m1", "m2"],
+			},
+			{ labels: [{ labelId: "l1", name: "Receipts", color: "Blue" }] },
+		);
+		assert.ok(dom.query('[aria-label="Apply label to selected messages"]'));
 	});
 
 	it("withdraws Organize and explains why when the selection spans accounts", () => {

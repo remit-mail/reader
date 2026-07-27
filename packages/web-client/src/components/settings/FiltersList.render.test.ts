@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { RemitImapFilterResponse } from "@remit/api-http-client/types.gen.ts";
+import type { LabelOption } from "@remit/ui";
 import React, { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { FiltersList } from "./FiltersList";
@@ -34,11 +35,13 @@ const filter = (
 const render = (
 	filters: RemitImapFilterResponse[],
 	semanticUnavailable = false,
+	labelById: Map<string, LabelOption> = new Map(),
 ) =>
 	renderToString(
 		createElement(FiltersList, {
 			filters,
 			mailboxName: (id: string) => (id === "mbx-travel" ? "Travel" : undefined),
+			labelById,
 			onEdit: () => undefined,
 			onDelete: () => undefined,
 			semanticUnavailable,
@@ -78,6 +81,19 @@ describe("FiltersList", () => {
 	it("shows no widen chip for a purely literal filter", () => {
 		const html = render([filter({ hasAnchor: false })]);
 		assert.doesNotMatch(html, /similar/i);
+	});
+
+	it("shows the applied label's chip when the filter has a label action (issue #26)", () => {
+		const labelById = new Map<string, LabelOption>([
+			["lbl-1", { id: "lbl-1", name: "Receipts", color: "Blue" }],
+		]);
+		const html = render([filter({ actionLabelId: "lbl-1" })], false, labelById);
+		assert.match(html, /Receipts/);
+	});
+
+	it("shows no label chip when the filter has no label action", () => {
+		const html = render([filter({ actionLabelId: "None" })]);
+		assert.doesNotMatch(html, /bg-blue-500|bg-red-500|bg-green-500/);
 	});
 
 	it("keeps an expired temporary filter visible and marks it Expired (RFC 034 Decision 1.2)", () => {

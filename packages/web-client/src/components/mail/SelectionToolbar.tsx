@@ -1,6 +1,7 @@
 import { Banner, type BannerTone, Checkbox, ProgressBar } from "@remit/ui";
 import { Loader2, MailOpen, Sparkles, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import { MoveToTrigger } from "./MoveToTrigger";
 
 export interface SelectionToolbarNotice {
@@ -34,6 +35,12 @@ interface SelectionToolbarProps {
 	 */
 	accountId?: string;
 	currentMailboxId?: string;
+	/**
+	 * The materialized selection, for the apply-label action (issue #26). Only
+	 * `Apply` is offered from here — "just these" — never `appliedByFilterId`.
+	 * Absent (or accountId/currentMailboxId absent) hides the label trigger.
+	 */
+	selectedMessageIds?: string[];
 	/**
 	 * When the user's selection spans multiple accounts the toolbar
 	 * disables Move and surfaces this hint inline next to the button.
@@ -89,6 +96,7 @@ export const SelectionToolbar = ({
 	isMoving = false,
 	accountId,
 	currentMailboxId,
+	selectedMessageIds,
 	moveDisabledHint,
 	selectAll,
 	statusLabel,
@@ -107,6 +115,8 @@ export const SelectionToolbar = ({
 	const showVerbs = !isRunning && !isCounting;
 
 	const canShowMove = !!onMove && !!accountId && !!currentMailboxId;
+	const canShowLabel =
+		!!accountId && !!currentMailboxId && !!selectedMessageIds?.length;
 	// Organize has no escalated-predicate path — it acts on the materialized
 	// selection — so it's withdrawn the moment the selection escalates or a run
 	// takes over (any state that names itself through `statusLabel`).
@@ -192,6 +202,17 @@ export const SelectionToolbar = ({
 								disabledHint={moveDisabledHint}
 								variant="icon-only"
 								label="Move selected messages"
+							/>
+						)}
+					{showVerbs &&
+						canShowLabel &&
+						accountId &&
+						currentMailboxId &&
+						selectedMessageIds && (
+							<LabelApplyTrigger
+								accountId={accountId}
+								mailboxId={currentMailboxId}
+								messageIds={selectedMessageIds}
 							/>
 						)}
 					{showVerbs && (

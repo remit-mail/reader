@@ -28,10 +28,7 @@ const build = (): BuildFilterAnchor => {
 	const embedder = buildEmbeddingServiceFromEnv();
 	const store = buildVectorStoreFromEnv(embedder.dimensions);
 	return (accountConfigId, anchorMessageId) =>
-		buildMessageAnchor(
-			{ store, embedder },
-			{ accountConfigId, anchorMessageId },
-		);
+		buildMessageAnchor({ store }, { accountConfigId, anchorMessageId });
 };
 
 export const buildFilterAnchor: BuildFilterAnchor = (

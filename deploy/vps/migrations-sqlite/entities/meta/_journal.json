@@ -50,6 +50,13 @@
       "when": 1784925493039,
       "tag": "0006_supreme_human_torch",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1785060335033,
+      "tag": "0007_clammy_green_goblin",
+      "breakpoints": true
     }
   ]
 }

@@ -459,6 +459,37 @@ describe("DefaultSearchService idempotent indexing", () => {
 	});
 });
 
+describe("chunk embeddingId provenance (#349)", () => {
+	it("prepareVectors stamps every chunk with the embedder that produced its vector", async () => {
+		const embedder = createDeterministicEmbeddingService({ dimensions: 128 });
+		const service = new DefaultSearchService({
+			embedder,
+			store: new MemoryVectorStore(),
+		});
+
+		const records = await service.prepareVectors(aliceParams(invoiceBody));
+
+		assert.ok(records.length > 0);
+		for (const record of records) {
+			assert.equal(record.metadata.embeddingId, embedder.embeddingId);
+		}
+	});
+
+	it("indexIncremental stamps every re-embedded chunk with the embedder that produced its vector", async () => {
+		const embedder = createDeterministicEmbeddingService({ dimensions: 128 });
+		const store = new MemoryVectorStore();
+		const service = new DefaultSearchService({ embedder, store });
+
+		await service.indexIncremental(aliceParams(invoiceBody));
+		const stored = await store.getByMessage("msg-alice");
+
+		assert.ok(stored.length > 0);
+		for (const record of stored) {
+			assert.equal(record.metadata.embeddingId, embedder.embeddingId);
+		}
+	});
+});
+
 class CountingEmbedder implements EmbeddingService {
 	readonly embeddingId: string;
 	readonly dimensions: number;

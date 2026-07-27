@@ -49,6 +49,16 @@ export interface ChunkMetadata {
 	 */
 	contentHash?: string;
 	/**
+	 * `<modelId>@<dimensions>` id of the embedder that produced this chunk's
+	 * vector, stored at index time (see `EmbeddingService.embeddingId`). Lets a
+	 * consumer that pools chunk vectors — `buildMessageAnchor` — recover which
+	 * model actually produced them instead of assuming the currently configured
+	 * embedder. Absent on vectors written before this field existed; re-embedded
+	 * organically on next touch like `contentHash`/`textPreview` above, no
+	 * backfill.
+	 */
+	embeddingId?: string;
+	/**
 	 * Prefix of the chunk's embeddable text, stored at index time and used for the
 	 * literal-match re-rank in search.ts. Bounded independently by char count
 	 * (`TEXT_PREVIEW_MAX_CHARS`) and UTF-8 byte size (`TEXT_PREVIEW_MAX_BYTES`,

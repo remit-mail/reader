@@ -10,7 +10,7 @@
  */
 import type { SettingsNavItem } from "@remit/ui";
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { Filter, FolderTree, Inbox, Palette, Users } from "lucide-react";
+import { Filter, FolderTree, Inbox, Palette, Tag, Users } from "lucide-react";
 import { AdvancedNavIcon } from "@/components/settings/AdvancedNavIcon";
 
 /* ------------------------------------------------------------------ */
@@ -35,6 +35,11 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
 		icon: <Filter className="size-4" />,
 	},
 	{
+		id: "labels",
+		label: "Labels",
+		icon: <Tag className="size-4" />,
+	},
+	{
 		id: "appearance",
 		label: "Appearance",
 		icon: <Palette className="size-4" />,
@@ -47,6 +52,7 @@ export const SETTINGS_ID_TO_PATH: Record<string, string> = {
 	senders: "/settings/senders",
 	folders: "/settings/folders",
 	filters: "/settings/filters",
+	labels: "/settings/labels",
 	appearance: "/settings/appearance",
 	advanced: "/settings/advanced",
 };

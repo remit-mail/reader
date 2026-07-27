@@ -3,7 +3,7 @@ import type {
 	IMessageLabelRepository,
 	MessageLabelItem,
 } from "@remit/data-ports";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { deterministicBase36Id } from "../id.js";
 import { messageLabelTable } from "../schema.js";
@@ -77,6 +77,15 @@ export class MessageLabelRepo implements IMessageLabelRepository {
 		return rows.map(rowToMessageLabel);
 	}
 
+	async listByMessageIds(messageIds: string[]): Promise<MessageLabelItem[]> {
+		if (messageIds.length === 0) return [];
+		const rows = await this.db
+			.select()
+			.from(messageLabelTable)
+			.where(inArray(messageLabelTable.messageId, messageIds));
+		return rows.map(rowToMessageLabel);
+	}
+
 	async listByLabelId(
 		accountConfigId: string,
 		labelId: string,
@@ -92,5 +101,19 @@ export class MessageLabelRepo implements IMessageLabelRepository {
 			)
 			.orderBy(desc(messageLabelTable.createdAt));
 		return rows.map(rowToMessageLabel);
+	}
+
+	async removeAllByLabelId(
+		accountConfigId: string,
+		labelId: string,
+	): Promise<void> {
+		await this.db
+			.delete(messageLabelTable)
+			.where(
+				and(
+					eq(messageLabelTable.accountConfigId, accountConfigId),
+					eq(messageLabelTable.labelId, labelId),
+				),
+			);
 	}
 }

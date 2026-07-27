@@ -6,11 +6,13 @@ import {
 	type ClauseField,
 	clauseFieldLabel,
 	demoFolders,
+	demoLabels,
 	demoRule,
 	demoSenderFallbackRule,
 	demoVocabularyRule,
 	type FilterRule,
 	type FolderOption,
+	type LabelOption,
 	type PreviewCount,
 	type RuleClause,
 } from "./filter-rule.js";
@@ -51,11 +53,18 @@ const READY = (count: number, stale?: boolean): PreviewCount => ({
 function LiveEditor({
 	initialRule,
 	semanticAvailable = true,
+	labels = demoLabels,
 	onCreateFolder,
+	onCreateLabel,
 }: {
 	initialRule: FilterRule;
 	semanticAvailable?: boolean;
-	onCreateFolder?: (name: string) => Promise<FolderOption>;
+	labels?: LabelOption[];
+	onCreateFolder?: (
+		name: string,
+		signal?: AbortSignal,
+	) => Promise<FolderOption>;
+	onCreateLabel?: (name: string) => Promise<LabelOption>;
 }) {
 	const [rule, setRule] = useState<FilterRule>(initialRule);
 	const [clauseEdit, setClauseEdit] = useState<ClauseEditState | undefined>();
@@ -123,6 +132,8 @@ function LiveEditor({
 		},
 		onChangeMove: (moveMailboxId) =>
 			setRule((r) => ({ ...r, moveMailboxId: moveMailboxId || undefined })),
+		onChangeLabel: (labelId) =>
+			setRule((r) => ({ ...r, labelId: labelId || undefined })),
 		onChangeScope: (scope) => setRule((r) => ({ ...r, scope })),
 		onChangeName: (name) => setRule((r) => ({ ...r, name })),
 		onChangeUntil: (until) => setRule((r) => ({ ...r, until })),
@@ -132,10 +143,12 @@ function LiveEditor({
 		<FilterRuleEditor
 			rule={rule}
 			folders={demoFolders}
+			labels={labels}
 			preview={preview}
 			semanticAvailable={semanticAvailable}
 			clauseEdit={clauseEdit}
 			onCreateFolder={onCreateFolder}
+			onCreateLabel={onCreateLabel}
 			onCommit={() => {}}
 			onCancel={() => {}}
 			{...handlers}
@@ -167,6 +180,259 @@ const mockCreateFolder = (name: string): Promise<FolderOption> =>
 export const WithNewFolderOption: Story = {
 	render: () => (
 		<LiveEditor initialRule={demoRule} onCreateFolder={mockCreateFolder} />
+	),
+};
+
+/**
+ * Drive the destination field into its create sub-form: pick "＋ New folder…",
+ * type a name, and press "Create folder". Used by the pending and error stories
+ * below so each lands in the state it documents without a manual click-through.
+ */
+async function openCreateAndSubmit(
+	canvasElement: HTMLElement,
+	folderName: string,
+) {
+	const setSelectValue = Object.getOwnPropertyDescriptor(
+		HTMLSelectElement.prototype,
+		"value",
+	)?.set;
+	const setInputValue = Object.getOwnPropertyDescriptor(
+		HTMLInputElement.prototype,
+		"value",
+	)?.set;
+	const select = canvasElement.querySelector<HTMLSelectElement>(
+		'select[aria-label="Destination folder"]',
+	);
+	if (!select) return;
+	setSelectValue?.call(select, CREATE_FOLDER_STORY_VALUE);
+	select.dispatchEvent(new Event("change", { bubbles: true }));
+	const input = canvasElement.querySelector<HTMLInputElement>(
+		'input[aria-label="New folder name"]',
+	);
+	if (!input) return;
+	setInputValue?.call(input, folderName);
+	input.dispatchEvent(new Event("input", { bubbles: true }));
+	const createButton = Array.from(
+		canvasElement.querySelectorAll<HTMLButtonElement>("button"),
+	).find((button) => button.textContent?.trim() === "Create folder");
+	createButton?.click();
+}
+
+/** Matches the internal CREATE_FOLDER_VALUE option in the destination select. */
+const CREATE_FOLDER_STORY_VALUE = "__filter_create_folder__";
+
+/** Mirrors the web-client wait's honest timeout copy. */
+const TIMEOUT_MESSAGE =
+	"The folder was created but the mail server hasn't confirmed it yet, so nothing was attached to it. It's in your folder list — try again in a moment.";
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 60));
+
+const neverResolvesCreateFolder = (): Promise<FolderOption> =>
+	new Promise<FolderOption>(() => undefined);
+
+const rejectingCreateFolder = (message: string) => (): Promise<FolderOption> =>
+	Promise.reject(new Error(message));
+
+/** Rejects the first attempt, resolves the retry — the resume the hook performs. */
+const failThenSucceedCreateFolder = () => {
+	let attempts = 0;
+	return (name: string): Promise<FolderOption> => {
+		attempts += 1;
+		return attempts === 1
+			? Promise.reject(new Error(TIMEOUT_MESSAGE))
+			: Promise.resolve({ id: "mbx-created", label: name });
+	};
+};
+
+/** Never resolves on its own; rejects with an AbortError when the signal aborts. */
+const abortAwareCreateFolder = (
+	_name: string,
+	signal?: AbortSignal,
+): Promise<FolderOption> =>
+	new Promise<FolderOption>((_resolve, reject) => {
+		signal?.addEventListener("abort", () =>
+			reject(new DOMException("Aborted", "AbortError")),
+		);
+	});
+
+/**
+ * The folder is a dependent write for the filter, so creating it waits for the
+ * mail server to confirm the folder before it can be picked as the destination.
+ * The wait shows as "Creating folder…" — held for the whole confirmation, not
+ * just a fast optimistic round-trip.
+ */
+export const NewFolderCreating: Story = {
+	name: "New folder — creating (waiting for the server)",
+	render: () => (
+		<LiveEditor
+			initialRule={demoRule}
+			onCreateFolder={neverResolvesCreateFolder}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		await openCreateAndSubmit(canvasElement, "Receipts");
+	},
+};
+
+/**
+ * The folder create failed on the mail server. The rule is not committed against
+ * a folder that does not exist: the error is surfaced inline with the create form
+ * still open, so the create can be retried or cancelled.
+ */
+export const NewFolderCreateFailed: Story = {
+	name: "New folder — create failed (retry / cancel)",
+	render: () => (
+		<LiveEditor
+			initialRule={demoRule}
+			onCreateFolder={rejectingCreateFolder(
+				"The folder couldn't be created on the mail server. Please try again.",
+			)}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		await openCreateAndSubmit(canvasElement, "Receipts");
+	},
+};
+
+/**
+ * The folder create was never confirmed within the wait bound. Distinct from a
+ * hard failure — the message names the timeout — and, like a failure, leaves no
+ * folder selected, so no filter is written against it.
+ */
+export const NewFolderCreateTimedOut: Story = {
+	name: "New folder — create timed out (retry / cancel)",
+	render: () => (
+		<LiveEditor
+			initialRule={demoRule}
+			onCreateFolder={rejectingCreateFolder(TIMEOUT_MESSAGE)}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		await openCreateAndSubmit(canvasElement, "Receipts");
+	},
+};
+
+/**
+ * Retry is a resume: the first attempt times out (the folder was made but not yet
+ * confirmed), and pressing "Create folder" again with the same name resolves —
+ * the hook re-waits on the folder it already made rather than re-creating it, so
+ * the retry the failure message points at actually works.
+ */
+export const NewFolderCreateRetrySucceeds: Story = {
+	name: "New folder — retry resumes and succeeds",
+	render: () => (
+		<LiveEditor
+			initialRule={demoRule}
+			onCreateFolder={failThenSucceedCreateFolder()}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		await openCreateAndSubmit(canvasElement, "Receipts");
+		await tick();
+		const retry = Array.from(
+			canvasElement.querySelectorAll<HTMLButtonElement>("button"),
+		).find((button) => button.textContent?.trim() === "Create folder");
+		retry?.click();
+	},
+};
+
+/**
+ * Cancelling while "Creating folder…" is in flight aborts the wait: the create
+ * promise rejects with an AbortError the field swallows, so no destination binds
+ * after the user backed out — the sub-form just closes.
+ */
+export const NewFolderCreateCancelledMidWait: Story = {
+	name: "New folder — cancel aborts the wait",
+	render: () => (
+		<LiveEditor
+			initialRule={demoRule}
+			onCreateFolder={abortAwareCreateFolder}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		await openCreateAndSubmit(canvasElement, "Receipts");
+		await tick();
+		const cancel = Array.from(
+			canvasElement.querySelectorAll<HTMLButtonElement>("button"),
+		).find((button) => button.textContent?.trim() === "Cancel");
+		cancel?.click();
+	},
+};
+
+/** No labels exist yet in the account — the select offers only "No label". */
+export const NoLabels: Story = {
+	render: () => <LiveEditor initialRule={demoRule} labels={[]} />,
+};
+
+/** A rule that already applies a label — the chip renders next to the select. */
+export const WithLabelSelected: Story = {
+	render: () => (
+		<LiveEditor initialRule={{ ...demoRule, labelId: "lbl-receipts" }} />
+	),
+};
+
+/** Many labels in the account — the select scrolls rather than the layout growing. */
+export const ManyLabels: Story = {
+	render: () => (
+		<LiveEditor
+			initialRule={demoRule}
+			labels={Array.from({ length: 20 }, (_, i) => ({
+				id: `lbl-${i}`,
+				name: `Label ${i + 1}`,
+				color: demoLabels[i % demoLabels.length].color,
+			}))}
+		/>
+	),
+};
+
+/** A long label name truncates in the chip rather than overflowing the row. */
+export const LongLabelNames: Story = {
+	render: () => (
+		<LiveEditor
+			initialRule={{ ...demoRule, labelId: "lbl-long" }}
+			labels={[
+				{
+					id: "lbl-long",
+					name: "Quarterly compliance filings that need a second look",
+					color: "Purple",
+				},
+				...demoLabels,
+			]}
+		/>
+	),
+};
+
+let newLabelSeq = 0;
+const mockCreateLabel = (name: string): Promise<LabelOption> =>
+	new Promise((resolve) => {
+		newLabelSeq += 1;
+		setTimeout(
+			() => resolve({ id: `lbl-new-${newLabelSeq}`, name, color: "Default" }),
+			400,
+		);
+	});
+
+/**
+ * The label select offers a "＋ New label…" option because `onCreateLabel` is
+ * wired (issue #26). Choosing it reveals a name field; on resolve the label is
+ * added to the select and picked as the action. Without the prop the option
+ * never shows — the editor stays data-agnostic.
+ */
+export const WithNewLabelOption: Story = {
+	render: () => (
+		<LiveEditor initialRule={demoRule} onCreateLabel={mockCreateLabel} />
+	),
+};
+
+const mockCreateLabelFailure = (): Promise<LabelOption> =>
+	new Promise((_resolve, reject) => {
+		setTimeout(() => reject(new Error("That name is already taken.")), 400);
+	});
+
+/** Creating a label from the picker can fail — the field stays open with the reason. */
+export const LabelCreateError: Story = {
+	render: () => (
+		<LiveEditor initialRule={demoRule} onCreateLabel={mockCreateLabelFailure} />
 	),
 };
 
@@ -254,11 +520,13 @@ export const DegradedStandingWiden: Story = {
 };
 
 /**
- * Editing a persisted filter (RFC 038 D6): scope and expiry render read-only,
- * with a note that they — and the semantic anchor — are fixed at creation. The
- * name and the literal clauses stay editable; the widen chip is display-only.
+ * Editing a persisted filter (RFC 038 D6, reader #266): scope and expiry stay
+ * live and editable — a standing filter can move to "until a date" and back,
+ * or its date can change. The semantic anchor is the one thing fixed at
+ * creation: the widen chip renders display-only with a one-line note, and
+ * "Just once" drops out of the scope toggle since no saved filter can hold it.
  */
-export const LifecycleLocked: Story = {
+export const AnchorLocked: Story = {
 	args: {
 		rule: {
 			...demoRule,
@@ -269,7 +537,7 @@ export const LifecycleLocked: Story = {
 		folders: demoFolders,
 		preview: READY(31),
 		semanticAvailable: false,
-		lifecycleLocked: true,
+		anchorLocked: true,
 	},
 };
 

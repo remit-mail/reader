@@ -144,11 +144,13 @@ export {
 	commitBlockedReason,
 	commitLabel,
 	demoFolders,
+	demoLabels,
 	demoRule,
 	demoSenderFallbackRule,
 	demoVocabularyRule,
 	type FilterRule,
 	type FolderOption,
+	type LabelOption,
 	type MatchOperator,
 	matchJoinWord,
 	matchOperatorLabel,
@@ -221,6 +223,11 @@ export {
 	KeyboardHintBar,
 	type KeyboardHintBarProps,
 } from "./components/keyboard-hint-bar.js";
+export {
+	LabelChip,
+	type LabelChipData,
+	type LabelChipProps,
+} from "./components/label-chip.js";
 export { ListItem, type ListItemProps } from "./components/list-item.js";
 export {
 	type MailAction,
@@ -555,6 +562,12 @@ export {
 	sanitizeInlineStyle,
 	sanitizeStyleElementCss,
 } from "./lib/email-sanitizer.js";
+export {
+	isLabelColorValue,
+	type LabelColorValue,
+	labelColorOptions,
+	labelDotClass,
+} from "./lib/label-color.js";
 export {
 	LIST_ROW_ATTRIBUTE,
 	LIST_ROW_SELECTOR,

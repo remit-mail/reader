@@ -1,5 +1,11 @@
 import type { RemitImapFilterResponse } from "@remit/api-http-client/types.gen.ts";
-import { Badge, Button, WidenChip } from "@remit/ui";
+import {
+	Badge,
+	Button,
+	LabelChip,
+	type LabelOption,
+	WidenChip,
+} from "@remit/ui";
 import { Trash2 } from "lucide-react";
 import {
 	filterDisplayStatus,
@@ -11,6 +17,8 @@ interface FiltersListProps {
 	filters: RemitImapFilterResponse[];
 	/** Resolve a destination mailbox id to a folder name for display. */
 	mailboxName: (mailboxId: string) => string | undefined;
+	/** Resolve a label id to its name/color for the applied-label chip (issue #26). */
+	labelById: Map<string, LabelOption>;
 	/** Open the row's rule in the editor (RFC 038 D6). */
 	onEdit: (filterId: string) => void;
 	onDelete: (filterId: string) => void;
@@ -35,6 +43,7 @@ interface FiltersListProps {
 export function FiltersList({
 	filters,
 	mailboxName,
+	labelById,
 	onEdit,
 	onDelete,
 	deletingFilterId,
@@ -58,6 +67,10 @@ export function FiltersList({
 				const folder =
 					filter.actionMailboxId !== NO_ACTION
 						? mailboxName(filter.actionMailboxId)
+						: undefined;
+				const label =
+					filter.actionLabelId !== NO_ACTION
+						? labelById.get(filter.actionLabelId)
 						: undefined;
 				const expiresLabel = formatExpiresAt(filter.expiresAt);
 
@@ -94,14 +107,25 @@ export function FiltersList({
 										? " · always"
 										: ""}
 							</p>
-							{filter.hasAnchor && (
+							{(filter.hasAnchor || label) && (
 								<div className="mt-1.5 flex flex-wrap gap-1.5">
-									<WidenChip
-										widen={{
-											anchorCount: 1,
-											...(semanticUnavailable ? { inactive: true } : {}),
-										}}
-									/>
+									{filter.hasAnchor && (
+										<WidenChip
+											widen={{
+												anchorCount: 1,
+												...(semanticUnavailable ? { inactive: true } : {}),
+											}}
+										/>
+									)}
+									{label && (
+										<LabelChip
+											label={{
+												labelId: label.id,
+												name: label.name,
+												color: label.color,
+											}}
+										/>
+									)}
 								</div>
 							)}
 						</button>
