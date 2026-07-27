@@ -143,6 +143,32 @@ is_profile_service() {
 	return 1
 }
 
+# What `ps --status` filters on. A container under `restart: unless-stopped`
+# whose process keeps exiting is reported `restarting`, never `running` — the
+# state a wrapper that only asks for `running` walks straight past, and then
+# stops anyway.
+state_of() {
+	[ -f "$S/up-$1" ] || {
+		printf 'exited'
+		return 0
+	}
+	for _r in $(val restarting ""); do
+		if [ "$_r" = "$1" ]; then
+			printf 'restarting'
+			return 0
+		fi
+	done
+	printf 'running'
+}
+
+# `up` refuses to start these, so a restore can be watched failing.
+up_refuses() {
+	for _f in $(val up_fail ""); do
+		[ "$_f" = "$1" ] && return 0
+	done
+	return 1
+}
+
 compose_cmd() {
 	_all_profiles=0
 	while [ $# -gt 0 ]; do
@@ -174,8 +200,9 @@ compose_cmd() {
 		;;
 	stop)
 		# The suite's hook for killing the wrapper mid-run: hang where a real
-		# stop would take its time.
-		if [ -f "$S/hang-stop" ]; then sleep 30; fi
+		# stop would take its time. A named stop hangs before it stops anything
+		# (the update suite's window); an unscoped one hangs after, which is the
+		# window `restart` has to survive — everything down, nothing restored.
 		_named=""
 		for _a in "$@"; do
 			case "$_a" in
@@ -184,6 +211,7 @@ compose_cmd() {
 			esac
 		done
 		if [ -n "$_named" ]; then
+			if [ -f "$S/hang-stop" ]; then sleep 30; fi
 			for _s in $_named; do rm -f "$S/up-$_s"; done
 			exit 0
 		fi
@@ -195,6 +223,7 @@ compose_cmd() {
 			rm -f "$S/up-$_s"
 		done
 		rm -f "$S/up-migrate" "$S/up-volume-init" "$S/up-updater"
+		if [ -f "$S/hang-stop" ]; then sleep 30; fi
 		exit 0
 		;;
 	down)
@@ -230,10 +259,17 @@ compose_cmd() {
 				_svcs="$_svcs $_s"
 			done
 		fi
+		_failed=0
 		for _s in $_svcs; do
+			if up_refuses "$_s"; then
+				printf 'Error response from daemon: %s failed to start\n' "$_s" >&2
+				_failed=1
+				continue
+			fi
 			recreate "$_s"
 			: >"$S/up-$_s"
 		done
+		if [ "$_failed" = "1" ]; then exit 1; fi
 		if [ "${FAKE_REAL_DB:-0}" = "1" ]; then
 			case " $_svcs " in
 			*" migrate "*) apply_migrate ;;
@@ -262,11 +298,33 @@ compose_cmd() {
 	ps)
 		case " $* " in
 		*" --services "*)
+			# --status is repeatable and filters on the container's state, so a
+			# caller asking only for `running` never hears about a crash-looping
+			# one. Unfiltered means every state, `exited` included.
+			_want=""
+			_prev=""
+			_every=0
+			for _a in "$@"; do
+				[ "$_prev" = "--status" ] && _want="$_want $_a"
+				case "$_a" in
+				--status=*) _want="$_want ${_a#--status=}" ;;
+				-a | --all) _every=1 ;;
+				esac
+				_prev=$_a
+			done
+			if [ -z "$_want" ]; then
+				_want="running restarting"
+				[ "$_every" = "1" ] && _want="$_want exited paused created"
+			fi
 			# `ps` reports a profile container whether or not the profile is
 			# named — unlike `stop`, `down` and `config`. That asymmetry is why
 			# `remit update` already survived profiles and `remit purge` did not.
 			for _s in $(val services "queue backend caddy web apisix"); do
-				if [ -f "$S/up-$_s" ]; then printf '%s\n' "$_s"; fi
+				[ -f "$S/cid-$_s" ] || continue
+				_st=$(state_of "$_s")
+				case " $_want " in
+				*" $_st "*) printf '%s\n' "$_s" ;;
+				esac
 			done
 			exit 0
 			;;

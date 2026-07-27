@@ -174,13 +174,87 @@ compose_all() {
 
 # Containers that exist only because an optional profile was turned on. `remit`
 # never starts these, so a command that stops them has to tell the operator how
-# to get them back.
+# to get them back. The single reader of profile state: every command that
+# stops, restores or reports on the optional profiles goes through this.
+#
+# Both live states, not only `running`. Compose reports a crash-looping
+# container as `restarting`, and a container this deployment is trying and
+# failing to run is one the operator has enabled — filtering it out has a
+# command stop it and then decline to restore it, which turns a container
+# visibly failing every few seconds into one that is silently gone. `exited` is
+# excluded on purpose: that is a container something stopped deliberately
+# (`remit down`, or the operator), and starting it back is not this wrapper's
+# call.
 running_profile_services() {
 	_always=$(compose config --services 2>/dev/null)
-	compose_all ps --services --status running 2>/dev/null | while IFS= read -r _svc; do
+	compose_all ps --services --status running --status restarting 2>/dev/null | while IFS= read -r _svc; do
 		[ -n "$_svc" ] || continue
 		printf '%s\n' "$_always" | grep -qx "$_svc" || printf '%s ' "$_svc"
 	done
+}
+
+# Of a list of services, the ones no longer in a live state. What a restore has
+# to check before it reports success: `compose up -d` exiting 0 is not the same
+# as the container being there afterwards.
+stopped_among() {
+	_live=$(compose_all ps --services --status running --status restarting 2>/dev/null)
+	for _svc in $1; do
+		printf '%s\n' "$_live" | grep -qx "$_svc" || printf '%s ' "$_svc"
+	done
+}
+
+# Profile services that have a container and are not live. Either a restore
+# tried and failed, or the container was already stopped before the command ran.
+# The operator's next move is the same for both, and without the line they get
+# neither: a profile that sheds one container per restart, in silence, is how a
+# box ends up with dozzle serving and no metrics behind it.
+stopped_profile_services() {
+	_always=$(compose config --services 2>/dev/null)
+	_live=$(compose_all ps --services --status running --status restarting 2>/dev/null)
+	compose_all ps -a --services 2>/dev/null | while IFS= read -r _svc; do
+		[ -n "$_svc" ] || continue
+		printf '%s\n' "$_always" | grep -qx "$_svc" && continue
+		printf '%s\n' "$_live" | grep -qx "$_svc" && continue
+		printf '%s ' "$_svc"
+	done
+}
+
+# The one incantation that brings an optional profile back. `remit` never starts
+# a profile on its own, so every command that can leave one down owes the
+# operator this line, and there is one copy of it to owe.
+profile_recovery_hint() {
+	printf '  %s\n' "${1% }"
+	printf "Bring them back with:\n"
+	printf "  docker compose -f %s --env-file .env --profile observability up -d\n" "$COMPOSE_FILE"
+}
+
+# The profile services a `restart` stopped, written before anything stops.
+#
+# A shell variable dies with the process, and the window between the stop and
+# the restore is exactly where this command fails: `apply` calls die on the bad
+# .env edit that this command exists to apply, and an interrupted ssh session
+# takes the rest. Either way the record is what says the operator had these
+# running, so it goes on disk beside the .env it is about, and the next
+# `restart` consumes it. `update` keeps the same kind of record in its
+# breadcrumb, but it has `update --recover` to act on one; `restart` has no
+# recover subcommand, so the next run of the command itself is the consumer.
+PROFILE_HOLD="$REMIT_DIR/.remit-profiles-held"
+
+profile_hold_write() {
+	if [ -z "$1" ]; then
+		rm -f "$PROFILE_HOLD"
+		return 0
+	fi
+	printf '%s\n' "$1" >"$PROFILE_HOLD"
+}
+
+profile_hold_read() {
+	cat "$PROFILE_HOLD" 2>/dev/null || true
+}
+
+# Each name once, order preserved.
+uniq_services() {
+	for _svc in $1; do printf '%s\n' "$_svc"; done | awk '!seen[$0]++' | tr '\n' ' '
 }
 
 require_deployment() {
@@ -294,14 +368,16 @@ cmd_restart() {
 	if [ -n "${1:-}" ] && [ "$1" != "--hard" ]; then
 		die "restart: unknown option '$1'"
 	fi
-	# Recorded before anything moves and brought back after, the same shape
-	# `update` uses for the services it holds down. An unscoped `up` never names
-	# a service behind a profile, so without this the line printed at the end is
-	# false for the observability containers: a raised REMIT_METRICS_RETENTION
-	# never reaches VictoriaMetrics and the operator keeps losing data at the old
-	# retention with nothing to see. Only services already running are restored,
-	# so a profile nobody turned on stays off.
-	_profiled=$(running_profile_services)
+	# An unscoped `up` never names a service behind a profile, so without this
+	# the line printed at the end is false for the observability containers: a
+	# raised REMIT_METRICS_RETENTION never reaches VictoriaMetrics and the
+	# operator keeps losing data at the old retention with nothing to see.
+	#
+	# What is live now, plus whatever a previous run stopped and never got to
+	# restore. Only services that were up are restored, so a profile nobody
+	# turned on stays off.
+	_profiled=$(uniq_services "$(running_profile_services) $(profile_hold_read)")
+	profile_hold_write "$_profiled"
 	if [ "${1:-}" = "--hard" ]; then
 		# All profiles, or --hard stops the always-on services and leaves the
 		# optional ones up on the configuration it just claimed to replace.
@@ -310,12 +386,41 @@ cmd_restart() {
 	# up -d, never `compose restart`: restart reuses existing containers and
 	# ignores .env changes, so config edits appear to apply but do not.
 	apply
-	if [ -n "$_profiled" ]; then
-		# shellcheck disable=SC2086 # the recorded service list, split on purpose
-		compose up -d $_profiled
-	fi
+	restore_profiles "$_profiled"
 	report_serving
 	printf 'Configuration in %s/.env is live.\n' "$REMIT_DIR"
+	# Last, because it is the one line here the operator has to act on, and the
+	# address still leads the part that says the command worked.
+	report_profiles_down
+}
+
+# The optional profiles, after the always-on stack is back. A failure here is
+# not fatal — the deployment is serving and the operator still wants the origin
+# printed — but it must not be silent either: nothing else brings these back.
+# What was recorded and did not come back stays on disk, so the next `restart`
+# tries again; everything still stopped is named, whether this run tried it or
+# left it alone, because the operator's move is the same line either way.
+#
+# Only reached with something to restore, so a deployment that ran `remit down`
+# — every profile container stopped on purpose — says nothing.
+PROFILES_DOWN=""
+
+restore_profiles() {
+	PROFILES_DOWN=""
+	if [ -z "$1" ]; then
+		profile_hold_write ""
+		return 0
+	fi
+	# shellcheck disable=SC2086 # the recorded service list, split on purpose
+	compose up -d $1 || true
+	profile_hold_write "$(stopped_among "$1")"
+	PROFILES_DOWN=$(stopped_profile_services)
+}
+
+report_profiles_down() {
+	[ -n "$PROFILES_DOWN" ] || return 0
+	printf "\nStopped, and this restart did not bring them back:\n"
+	profile_recovery_hint "$PROFILES_DOWN"
 }
 
 cmd_logs() {
@@ -1949,10 +2054,14 @@ cmd_down() {
 	# `remit restart` starts the always-on services. Anything behind a profile
 	# was turned on by an explicit command and comes back the same way, so name
 	# it here rather than leaving the operator to find it stopped later.
+	#
+	# Stopping is the contract of this command, so the hold record goes with it:
+	# a `restart` killed before it restored must not have `remit down` followed
+	# by `remit restart` quietly undo the stop the operator asked for.
+	profile_hold_write ""
 	if [ -n "$_profiled" ]; then
-		printf "\nAlso stopped, and not started by 'remit restart':\n  %s\n" "$_profiled"
-		printf "Bring them back with:\n"
-		printf "  docker compose -f %s --env-file .env --profile observability up -d\n" "$COMPOSE_FILE"
+		printf "\nAlso stopped, and not started by 'remit restart':\n"
+		profile_recovery_hint "$_profiled"
 	fi
 }
 
@@ -2032,6 +2141,9 @@ EOF
 	# under restart: unless-stopped, its volume keeps the per-account series, and
 	# the network cannot be removed because something is still on it.
 	compose_all down -v --remove-orphans
+	# Nothing survives this, so a record of what to bring back is a record of
+	# containers that no longer exist.
+	profile_hold_write ""
 	printf "\nremit is purged. %s/.env and the compose files are untouched;\n" "$REMIT_DIR"
 	printf "'remit restart' brings up an empty stack.\n"
 }

@@ -2,3 +2,8 @@
 # The updater's bind-identity probe writes and deletes this on each boot; a kill
 # mid-write can leave one behind. It never belongs in git.
 .remit-mount-identity
+
+# `remit restart` records the profile services it stopped here, and clears the
+# file once they are back. A run killed in between leaves one for the next
+# restart to act on. Deployment state, never source.
+.remit-profiles-held

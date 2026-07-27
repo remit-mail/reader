@@ -43,7 +43,7 @@ const ALWAYS_ON =
 	"queue backend caddy web apisix imap-worker smtp-worker account-worker search-index-worker updater";
 const PROFILE_SERVICES = "dozzle victoriametrics";
 
-function sandbox({ profileRunning = true } = {}) {
+function sandbox({ profileRunning = true, stopped = [], scenario = {} } = {}) {
 	const dir = mkdtempSync(join(TMP_ROOT, "remit-profiles-"));
 	sandboxes.push(dir);
 	const deployment = join(dir, "deployment");
@@ -69,6 +69,7 @@ function sandbox({ profileRunning = true } = {}) {
 			`all_services=${ALWAYS_ON} migrate volume-init`,
 			`profile_services=${PROFILE_SERVICES}`,
 			"profile_volumes=victoriametrics_data",
+			...Object.entries(scenario).map(([k, v]) => `${k}=${v}`),
 			"",
 		].join("\n"),
 	);
@@ -82,6 +83,11 @@ function sandbox({ profileRunning = true } = {}) {
 		writeFileSync(join(fake, `cid-${svc}`), `c${svc}${seq}`);
 		writeFileSync(join(fake, `svc-c${svc}${seq}`), svc);
 		if (svc !== "migrate") writeFileSync(join(fake, `up-${svc}`), "");
+	}
+	// A container that exists but is not up: something stopped it, and nothing
+	// this wrapper does will start it back.
+	for (const svc of stopped) {
+		rmSync(join(fake, `up-${svc}`), { force: true });
 	}
 	writeFileSync(join(fake, "seq"), String(seq));
 
@@ -115,6 +121,20 @@ function sandbox({ profileRunning = true } = {}) {
 				return null;
 			}
 		},
+		// The record a restart leaves beside .env so the next one can finish what
+		// it started.
+		held() {
+			try {
+				return readFileSync(join(deployment, ".remit-profiles-held"), "utf8")
+					.trim()
+					.split(/\s+/)
+					.filter(Boolean);
+			} catch {
+				return null;
+			}
+		},
+		fake,
+		env,
 		volumesRemoved() {
 			try {
 				return readFileSync(join(fake, "volumes-removed"), "utf8")
@@ -267,7 +287,11 @@ describe("remit restart --hard applies .env to the optional profiles too", () =>
 		}
 	});
 
-	it("recreates them, so a changed retention actually reaches them", () => {
+	// The new container id is all the stand-in can see: it says compose was asked
+	// to `up` the service, which is what carries a .env edit into a container.
+	// That the edit then takes effect is a Compose property, verified against a
+	// real deployment rather than here.
+	it("asks compose to recreate their containers", () => {
 		for (const service of PROFILE_SERVICES.split(" ")) {
 			assert.notEqual(
 				box.cid(service),
@@ -275,6 +299,120 @@ describe("remit restart --hard applies .env to the optional profiles too", () =>
 				`${service} kept its container, so it is still on the old .env while restart says the file is live`,
 			);
 		}
+	});
+
+	it("keeps no record once everything is back", () => {
+		assert.equal(box.held(), null);
+	});
+});
+
+// A container whose process keeps exiting is `restarting`, never `running`. It
+// is also the one an operator is most likely to be restarting the stack to fix,
+// so recording only `running` has --hard stop it and then decline to bring it
+// back — a container failing loudly every few seconds replaced by one that is
+// silently gone.
+describe("remit restart --hard restores a crash-looping profile service", () => {
+	const box = sandbox({ scenario: { restarting: "victoriametrics" } });
+	const result = box.run(["restart", "--hard"]);
+
+	it("succeeds", () => {
+		assert.equal(result.status, 0, result.stderr);
+	});
+
+	it("brings it back rather than leaving it stopped", () => {
+		assert.equal(
+			box.isUp("victoriametrics"),
+			true,
+			"a crash-looping container was stopped by --hard and never restored",
+		);
+	});
+
+	it("restores the healthy profile services with it", () => {
+		assert.equal(box.isUp("dozzle"), true);
+	});
+});
+
+// The window between the stop and the restore is where this command fails:
+// `apply` dies on the bad .env edit it exists to apply, and a dropped ssh
+// session takes the rest. A shell variable does not survive either.
+describe("a restart killed mid-run leaves a record the next one acts on", () => {
+	const box = sandbox();
+	writeFileSync(join(box.fake, "hang-stop"), "");
+	const killed = spawnSync(
+		"sh",
+		["-c", `timeout -s KILL 2 sh ${REMIT} restart --hard`],
+		{ env: box.env, encoding: "utf8" },
+	);
+	rmSync(join(box.fake, "hang-stop"));
+
+	it("did not get to restore anything", () => {
+		assert.notEqual(killed.status, 0, "the run was supposed to be killed");
+		assert.equal(box.isUp("victoriametrics"), false);
+	});
+
+	it("wrote the record before it stopped anything", () => {
+		assert.deepEqual(box.held()?.sort(), ["dozzle", "victoriametrics"]);
+	});
+
+	it("the next restart brings them back and clears the record", () => {
+		const result = box.run(["restart"]);
+		assert.equal(result.status, 0, result.stderr);
+		for (const service of PROFILE_SERVICES.split(" ")) {
+			assert.equal(
+				box.isUp(service),
+				true,
+				`${service} stayed down after a second restart, with nothing to say so`,
+			);
+		}
+		assert.equal(box.held(), null);
+	});
+});
+
+describe("remit down discards a record left by a killed restart", () => {
+	const box = sandbox();
+	writeFileSync(join(box.fake, "hang-stop"), "");
+	spawnSync("sh", ["-c", `timeout -s KILL 2 sh ${REMIT} restart --hard`], {
+		env: box.env,
+		encoding: "utf8",
+	});
+	rmSync(join(box.fake, "hang-stop"));
+	box.run(["down"]);
+
+	it("clears it, because stopping is what down was asked for", () => {
+		assert.equal(box.held(), null);
+	});
+
+	it("so the next restart leaves the profile stopped", () => {
+		const result = box.run(["restart"]);
+		assert.equal(result.status, 0, result.stderr);
+		for (const service of PROFILE_SERVICES.split(" ")) {
+			assert.equal(
+				box.isUp(service),
+				false,
+				`${service} was restarted after 'remit down' said it would not be`,
+			);
+		}
+	});
+});
+
+describe("a profile service the restore cannot start is reported, not swallowed", () => {
+	const box = sandbox({ scenario: { up_fail: "victoriametrics" } });
+	const result = box.run(["restart", "--hard"]);
+
+	it("still serves, and still says so", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.isUp("backend"), true);
+		assert.match(result.stdout, /Open https:\/\/mail\.example\.test/);
+	});
+
+	it("names what is down and how to start it", () => {
+		assert.match(result.stdout, /did not bring them back/);
+		assert.match(result.stdout, /victoriametrics/);
+		assert.match(result.stdout, /--profile observability up -d/);
+	});
+
+	it("keeps the record, so the next restart tries again", () => {
+		assert.deepEqual(box.held(), ["victoriametrics"]);
 	});
 });
 
@@ -287,7 +425,7 @@ describe("remit restart applies .env to a running profile without --hard", () =>
 		assert.equal(result.status, 0, result.stderr);
 	});
 
-	it("recreates the running profile container", () => {
+	it("asks compose to recreate the running profile container", () => {
 		assert.notEqual(
 			box.cid("victoriametrics"),
 			before,
@@ -314,5 +452,46 @@ describe("remit restart --hard starts no profile that was not running", () => {
 				`${service} was created by a restart on a deployment that never enabled the profile`,
 			);
 		}
+	});
+});
+
+// The profile is not one container. Restoring what was up while saying nothing
+// about what was not is how a deployment sheds the metrics half of the profile
+// and keeps reporting that the .env is live.
+describe("a half-stopped profile is named, not shed quietly", () => {
+	const box = sandbox({ stopped: ["victoriametrics"] });
+	const result = box.run(["restart", "--hard"]);
+
+	it("restores the container that was up", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.isUp("dozzle"), true);
+	});
+
+	it("does not start the one something stopped on purpose", () => {
+		assert.equal(box.isUp("victoriametrics"), false);
+	});
+
+	it("says which one is down and how to start it", () => {
+		assert.match(result.stdout, /did not bring them back/);
+		assert.match(result.stdout, /victoriametrics/);
+		assert.match(result.stdout, /--profile observability up -d/);
+	});
+});
+
+// After 'remit down' every profile container is stopped on purpose, and the
+// contract is that restart leaves them that way. Nothing to report.
+describe("a stack brought back after remit down says nothing about profiles", () => {
+	const box = sandbox();
+	box.run(["down"]);
+	const result = box.run(["restart"]);
+
+	it("serves again", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.isUp("backend"), true);
+	});
+
+	it("prints no profile advice", () => {
+		assert.doesNotMatch(result.stdout, /did not bring them back/);
+		assert.doesNotMatch(result.stdout, /--profile/);
 	});
 });

@@ -675,8 +675,16 @@ remit_victoriametrics_data` discards the history.
 to bring them back — `remit restart` starts the always-on services only, because
 nothing behind a profile is started for you. While they are running, `remit
 restart` does apply an `.env` edit to them like it does to everything else, so a
-changed `REMIT_METRICS_RETENTION` takes effect. `remit purge` destroys both
-containers and the metrics volume with the rest of the deployment.
+changed `REMIT_METRICS_RETENTION` takes effect. A container that is crash-looping
+counts as running for this: it is one the deployment is trying to run, and fixing
+the `.env` that broke it is what `remit restart` is for. `remit purge` destroys
+both containers and the metrics volume with the rest of the deployment.
+
+`remit restart` writes the profile services it stopped to `.remit-profiles-held`
+before it stops anything, and clears the file once they are back. If a restart is
+killed in between — a dropped ssh session, or a bad `.env` edit that fails the
+start — the next `remit restart` reads that file and finishes the job. Anything
+it still cannot start is named, with the command that starts it.
 
 ### Reach them
 
