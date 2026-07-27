@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { FilterMatchOperator } from "@remit/domain-enums";
+import type { FilterAnchorItem, FilterItem } from "@remit/data-ports";
+import { NotFoundError } from "@remit/data-ports/errors";
+import { FilterMatchOperator, FilterState } from "@remit/domain-enums";
 import type {
 	AnchorPayload,
 	ChunkMetadata,
@@ -68,15 +70,51 @@ const predicate = (
 	...over,
 });
 
+/** A standing filter fixture — the "other" filters the precedence check reads. */
+const filterItem = (over: Partial<FilterItem> = {}): FilterItem => ({
+	filterId: "filter-other",
+	accountConfigId: ACCOUNT_CONFIG_ID,
+	name: "other filter",
+	scope: "Standing",
+	state: FilterState.Active,
+	hasAnchor: false,
+	ruleChangedAt: 0,
+	matchOperator: FilterMatchOperator.And,
+	literalClauses: [],
+	actionLabelId: "None",
+	actionMailboxId: "None",
+	createdAt: 0,
+	updatedAt: 0,
+	...over,
+});
+
 /**
  * A client that records MessageLabel writes and blows up if the back-apply path
  * ever touches Filter/FilterAnchor — the RFC 034 guardrail: this scope never
  * persists a standing rule.
+ *
+ * `activeFilters`/`filterAnchorRows`/`threadMessages` model the account's
+ * *other*, already-existing standing filters and message rows the exclusive-
+ * move precedence check (reader #350) reads — empty by default, so every
+ * existing test (which never seeded a competing filter) is unaffected and the
+ * precedence check is a same-length no-op.
  */
-const trackingClient = () => {
+const trackingClient = (
+	seed: {
+		activeFilters?: FilterItem[];
+		filterAnchorRows?: FilterAnchorItem[];
+		threadMessages?: Record<
+			string,
+			{ fromEmail?: string; fromName?: string; subject?: string }
+		>;
+	} = {},
+) => {
 	const labeled: Array<{ messageId: string; labelId: string }> = [];
 	let filterWrites = 0;
 	let filterAnchorWrites = 0;
+	const activeFilters = seed.activeFilters ?? [];
+	const filterAnchorRows = seed.filterAnchorRows ?? [];
+	const threadMessages = seed.threadMessages ?? {};
 	const client = {
 		messageLabel: {
 			apply: async (input: {
@@ -100,17 +138,36 @@ const trackingClient = () => {
 		mailbox: {
 			resolveAccountId: async () => "acct-1",
 		},
+		threadMessage: {
+			get: async (_accountConfigId: string, messageId: string) => {
+				const row = threadMessages[messageId];
+				if (!row) {
+					throw new NotFoundError("ThreadMessage not found");
+				}
+				return {
+					threadMessageId: messageId,
+					fromEmail: row.fromEmail,
+					fromName: row.fromName,
+					subject: row.subject,
+				} as never;
+			},
+		},
 		filter: {
 			create: async () => {
 				filterWrites += 1;
 				return {} as never;
 			},
+			listByAccountAndState: async () => activeFilters,
+			refreshExpiry: async (filter: FilterItem) => filter,
 		},
 		filterAnchor: {
 			put: async () => {
 				filterAnchorWrites += 1;
 				return {} as never;
 			},
+			get: async (_accountConfigId: string, filterId: string) =>
+				filterAnchorRows.find((row) => row.filterId === filterId) ?? null,
+			listByAccountConfig: async () => filterAnchorRows,
 		},
 	} as unknown as RemitClient;
 	return {
@@ -160,19 +217,30 @@ const trackingMoveService = () => {
  * Deps whose semantic side is the in-memory vector store — the vector-backed
  * deployment. `listAccountFilterMessages` returns the given corpus (empty by
  * default), and constructing the semantic side is tracked so a literal-only
- * predicate can be shown never to build it.
+ * predicate can be shown never to build it. `filterAnchorRows` seeds the
+ * account's *persisted* FilterAnchor rows (empty by default) — the reverse
+ * lookup back-apply's anchor consultation reads (reader #350) — and `embed`
+ * is a deterministic stand-in for the configured embedding model, used only
+ * by the exclusive-move precedence check.
  */
 const matchDeps = (
 	store: ReturnType<typeof createMemoryVectorStore>,
 	corpus: OrganizeCandidate[] = [],
+	filterAnchorRows: FilterAnchorItem[] = [],
 ): OrganizeMatchDeps & { semanticBuilds: () => number } => {
 	let semanticBuilds = 0;
 	return {
 		semantic: () => {
 			semanticBuilds += 1;
-			return { buildAnchor: async () => anchorPayload, vectorStore: store };
+			return {
+				buildAnchor: async () => anchorPayload,
+				vectorStore: store,
+				embed: async (text: string) =>
+					text.includes("reservation") ? ANCHOR_VECTOR : ORTHOGONAL_VECTOR,
+			};
 		},
 		listAccountFilterMessages: async () => corpus,
+		filterAnchors: { listByAccountConfig: async () => filterAnchorRows },
 		semanticBuilds: () => semanticBuilds,
 	};
 };
@@ -201,9 +269,13 @@ const vectorlessDeps = (
 						throw moduleNotFound();
 					},
 				},
+				embed: async () => {
+					throw moduleNotFound();
+				},
 			};
 		},
 		listAccountFilterMessages: async () => corpus,
+		filterAnchors: { listByAccountConfig: async () => [] },
 		semanticUsed: () => semanticUsed,
 	};
 };
@@ -305,6 +377,77 @@ describe("matchOrganize", () => {
 	});
 });
 
+describe("matchOrganize honors the persisted FilterAnchor (reader #350)", () => {
+	it("still matches by reading the persisted anchor after the anchor message is purged", async () => {
+		const store = createMemoryVectorStore();
+		const matching = ["msg-1", "msg-2"];
+		await store.upsert([
+			...matching.map((id) => bodyChunk(id, ANCHOR_VECTOR)),
+			bodyChunk("msg-miss", ORTHOGONAL_VECTOR),
+		]);
+
+		const persistedAnchor: FilterAnchorItem = {
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			filterId: "filter-a",
+			anchorEmbedding: ANCHOR_VECTOR,
+			anchorEmbeddingId: "test-model@4",
+			anchorSourceText: "book me a table",
+			anchorMessageId: "msg-anchor",
+			createdAt: 0,
+			updatedAt: 0,
+		};
+
+		let buildAnchorCalls = 0;
+		const deps: OrganizeMatchDeps = {
+			semantic: () => ({
+				buildAnchor: async () => {
+					// The live path: the anchor message's chunks are gone (purged),
+					// exactly what buildMessageAnchor returns in that case today.
+					buildAnchorCalls += 1;
+					return null;
+				},
+				vectorStore: store,
+				embed: async () => ANCHOR_VECTOR,
+			}),
+			listAccountFilterMessages: async () => [],
+			filterAnchors: { listByAccountConfig: async () => [persistedAnchor] },
+		};
+
+		const { messageIds } = await matchOrganize(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate(),
+		);
+
+		assert.deepEqual(
+			[...messageIds].sort(),
+			matching,
+			"the persisted anchor vector still finds the same matches the live message would have",
+		);
+		assert.equal(
+			buildAnchorCalls,
+			0,
+			"a persisted anchor must be read instead of re-deriving one from the (now-gone) live message",
+		);
+	});
+
+	it("falls back to deriving the anchor from the live message when no filter was ever anchored on it", async () => {
+		const store = createMemoryVectorStore();
+		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
+
+		// No persisted FilterAnchor names this anchorMessageId — an ad hoc "all
+		// like these" widen over a bare message selection, never tied to a
+		// standing filter.
+		const { messageIds } = await matchOrganize(
+			matchDeps(store),
+			ACCOUNT_CONFIG_ID,
+			predicate(),
+		);
+
+		assert.deepEqual(messageIds, ["msg-1"]);
+	});
+});
+
 describe("matchOrganize on a deployment without the vector pipeline", () => {
 	const ORIGINAL = process.env.DATA_BACKEND;
 	beforeEach(() => {
@@ -403,8 +546,10 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 					query: async () => [],
 					getByMessage: async () => [],
 				},
+				embed: async () => [],
 			}),
 			listAccountFilterMessages: async () => [],
+			filterAnchors: { listByAccountConfig: async () => [] },
 		};
 
 		await assert.rejects(
@@ -437,7 +582,7 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 
 		const tracked = trackingClient();
 		const result = await applyOrganize(
-			{ client: tracked.client },
+			{ client: tracked.client, match: matchDeps(store) },
 			ACCOUNT_CONFIG_ID,
 			applied.messageIds,
 			p,
@@ -473,7 +618,7 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 		);
 		const tracked = trackingClient();
 		const result = await applyOrganize(
-			{ client: tracked.client },
+			{ client: tracked.client, match: matchDeps(store) },
 			ACCOUNT_CONFIG_ID,
 			matched,
 			p,
@@ -500,7 +645,11 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 		const tracked = trackingClient();
 		const mover = trackingMoveService();
 		const result = await applyOrganize(
-			{ client: tracked.client, moveService: mover.moveService },
+			{
+				client: tracked.client,
+				moveService: mover.moveService,
+				match: matchDeps(store),
+			},
 			ACCOUNT_CONFIG_ID,
 			matched,
 			p,
@@ -546,7 +695,11 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 		const tracked = trackingClient();
 		const mover = trackingMoveService();
 		const result = await applyOrganize(
-			{ client: tracked.client, moveService: mover.moveService },
+			{
+				client: tracked.client,
+				moveService: mover.moveService,
+				match: matchDeps(store),
+			},
 			ACCOUNT_CONFIG_ID,
 			matched,
 			p,
@@ -578,13 +731,21 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 		const mover = trackingMoveService();
 
 		const first = await applyOrganize(
-			{ client: tracked.client, moveService: mover.moveService },
+			{
+				client: tracked.client,
+				moveService: mover.moveService,
+				match: matchDeps(store),
+			},
 			ACCOUNT_CONFIG_ID,
 			matched,
 			p,
 		);
 		const second = await applyOrganize(
-			{ client: tracked.client, moveService: mover.moveService },
+			{
+				client: tracked.client,
+				moveService: mover.moveService,
+				match: matchDeps(store),
+			},
 			ACCOUNT_CONFIG_ID,
 			matched,
 			p,
@@ -601,6 +762,154 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 			[...mover.destinations().entries()].sort(),
 			matching.map((id): [string, string] => [id, "mbox-target"]),
 			"each message rests in the requested mailbox exactly once",
+		);
+	});
+});
+
+describe("applyOrganize resolves move precedence against current Active filters (reader #350)", () => {
+	it("suppresses an out-ranked move but still applies the label", async () => {
+		const store = createMemoryVectorStore();
+		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
+		// The back-applied filter — "move to mbox-old" — is out-ranked by a
+		// more-recently-changed standing filter that currently claims msg-1 for a
+		// different destination.
+		const p = predicate({
+			actionLabelId: "lbl-1",
+			actionMailboxId: "mbox-old",
+		});
+		const newerFilter = filterItem({
+			filterId: "filter-newer",
+			ruleChangedAt: 1_000,
+			actionMailboxId: "mbox-new",
+			literalClauses: [{ field: "Subject", value: "reservation" }],
+		});
+
+		const { messageIds: matched } = await matchOrganize(
+			matchDeps(store),
+			ACCOUNT_CONFIG_ID,
+			p,
+		);
+		const tracked = trackingClient({
+			activeFilters: [newerFilter],
+			threadMessages: { "msg-1": { subject: "Dinner reservation" } },
+		});
+		const mover = trackingMoveService();
+		const result = await applyOrganize(
+			{
+				client: tracked.client,
+				moveService: mover.moveService,
+				match: matchDeps(store),
+			},
+			ACCOUNT_CONFIG_ID,
+			matched,
+			p,
+		);
+
+		assert.equal(result.applied, 1, "a suppressed move is not a failure");
+		assert.equal(result.failed, 0);
+		assert.deepEqual(
+			tracked.labeled,
+			[{ messageId: "msg-1", labelId: "lbl-1" }],
+			"the additive label still applies even though the move is suppressed",
+		);
+		assert.deepEqual(
+			mover.moves,
+			[],
+			"the exclusive move is skipped in favor of the newer filter's own move",
+		);
+	});
+
+	it("moves the message when no other Active filter currently outranks it", async () => {
+		const store = createMemoryVectorStore();
+		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
+		const p = predicate({ actionMailboxId: "mbox-target" });
+		// A different standing filter matches this message too, but agrees on the
+		// same destination — nothing to defer to.
+		const agreeingFilter = filterItem({
+			filterId: "filter-agrees",
+			ruleChangedAt: 1_000,
+			actionMailboxId: "mbox-target",
+			literalClauses: [{ field: "Subject", value: "reservation" }],
+		});
+
+		const { messageIds: matched } = await matchOrganize(
+			matchDeps(store),
+			ACCOUNT_CONFIG_ID,
+			p,
+		);
+		const tracked = trackingClient({
+			activeFilters: [agreeingFilter],
+			threadMessages: { "msg-1": { subject: "Dinner reservation" } },
+		});
+		const mover = trackingMoveService();
+		const result = await applyOrganize(
+			{
+				client: tracked.client,
+				moveService: mover.moveService,
+				match: matchDeps(store),
+			},
+			ACCOUNT_CONFIG_ID,
+			matched,
+			p,
+		);
+
+		assert.equal(result.applied, 1);
+		assert.equal(result.failed, 0);
+		assert.deepEqual(
+			mover.moves.map((m) => m.messageId),
+			["msg-1"],
+			"the move proceeds exactly as it would have before this check existed",
+		);
+	});
+
+	it("suppresses an out-ranked move by a newer *semantic* filter's persisted anchor", async () => {
+		const store = createMemoryVectorStore();
+		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
+		const p = predicate({ actionMailboxId: "mbox-old" });
+		const newerSemanticFilter = filterItem({
+			filterId: "filter-newer-semantic",
+			ruleChangedAt: 1_000,
+			actionMailboxId: "mbox-new",
+			hasAnchor: true,
+		});
+		const persistedAnchor: FilterAnchorItem = {
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			filterId: "filter-newer-semantic",
+			anchorEmbedding: ANCHOR_VECTOR,
+			anchorEmbeddingId: "test-model@4",
+			anchorSourceText: "book me a table",
+			anchorMessageId: "msg-anchor-2",
+			createdAt: 0,
+			updatedAt: 0,
+		};
+
+		const { messageIds: matched } = await matchOrganize(
+			matchDeps(store),
+			ACCOUNT_CONFIG_ID,
+			p,
+		);
+		const tracked = trackingClient({
+			activeFilters: [newerSemanticFilter],
+			filterAnchorRows: [persistedAnchor],
+			threadMessages: { "msg-1": { subject: "Dinner reservation" } },
+		});
+		const mover = trackingMoveService();
+		const result = await applyOrganize(
+			{
+				client: tracked.client,
+				moveService: mover.moveService,
+				match: matchDeps(store, [], [persistedAnchor]),
+			},
+			ACCOUNT_CONFIG_ID,
+			matched,
+			p,
+		);
+
+		assert.equal(result.applied, 1);
+		assert.deepEqual(
+			mover.moves,
+			[],
+			"a newer semantic filter's own persisted anchor outranks the move",
 		);
 	});
 });
@@ -702,7 +1011,7 @@ describe("matchOrganize with ListId and FromDomain clauses", () => {
 
 		const tracked = trackingClient();
 		const result = await applyOrganize(
-			{ client: tracked.client },
+			{ client: tracked.client, match: deps },
 			ACCOUNT_CONFIG_ID,
 			applied.messageIds,
 			p,
