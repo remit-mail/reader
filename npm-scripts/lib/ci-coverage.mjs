@@ -14,20 +14,34 @@
 //   1. every `test:*` and `check:*` script in the root manifest is reached,
 //      whether by name or through the file it runs;
 //   2. every `test:*` and `check:*` script in a workspace manifest is reached,
-//      either by a runner that collects it or by name — the root manifest was
-//      the whole guard once, and a suite living in a package was invisible to
-//      it (#446);
+//      by a runner that collects it or by an invocation that names its package —
+//      the root manifest was the whole guard once, and a suite living in a
+//      package was invisible to it (#446);
 //   3. every `*.test.mjs` file is either collected by the runner `test:ci`
 //      drives or reached directly, so a suite nothing runs is an error.
 //
-// A workspace script is matched by name alone, because that is how the
-// invocations that reach one are written: `npm run test:typecheck --workspaces`
-// names no package, and a script that cds into its own directory names none
-// either. Two packages sharing a script name therefore stand or fall together.
+// Claim 2 is per package, never per name. `npm run test:unit` reaches whichever
+// package the invocation names — `-w`, `--workspace`, or `--prefix`, by
+// directory or by package name — and `--workspaces` reaches all of them. An
+// invocation that names none reaches the root manifest and stops there. Matching
+// on the bare name instead would let one package's wiring excuse every other
+// package's script of the same name, which is #446 again with an extra step.
 //
-// Reachability is textual, so it proves wiring rather than that a job's
-// conditions let it run. The wiring is the part people forget.
-const SCRIPT_INVOCATION = /\bnpm run ([\w:.-]+)/g;
+// What this proves is wiring, and only wiring. It is textual, so it cannot see
+// whether a job's `if:` lets the step run; and it counts a script as covered
+// when something invokes it, never asking whether the invocation matches any
+// files. `node --test` on a glob that matches nothing exits 0, so a wired
+// script that runs no tests satisfies this guard in silence. Reaching for it as
+// proof that a suite has tests is a misread — it proves only that a suite with
+// tests would have run them.
+// The script name plus the rest of its command, which is where the flags that
+// say *which* package it runs in live. Cut at the first shell separator so a
+// second command on the same line cannot lend its `-w` to the first.
+const SCRIPT_INVOCATION = /\bnpm run ([\w:.-]+)((?:(?!\bnpm run\b)[^\n])*)/g;
+const COMMAND_END = /\s(?:&&|\|\||;|\|)/;
+const ALL_WORKSPACES = /\s--workspaces\b/;
+const NAMED_WORKSPACE =
+	/\s(?:-w|--workspace|--prefix)[\s=]+["']?([\w@/.-]+)["']?/;
 const FILE_INVOCATION =
 	/\b(?:node|bash|sh|tsx)\s+((?:--?\S+\s+)*[\w./-]+\.(?:mjs|cjs|js|sh)(?:\s+[\w./-]+\.(?:mjs|cjs|js|sh))*)/g;
 const FILE_ARGUMENT = /[\w./-]+\.(?:mjs|cjs|js|sh)/g;
@@ -49,10 +63,22 @@ export function stripComments(text, kind) {
 		.replace(/(\s)\/\/.*$/gm, "$1");
 }
 
+// Where an `npm run` lands: `"*"` for every workspace, a package's directory or
+// name for one of them, and `null` for the manifest the command already sits in.
+export function runTarget(rest) {
+	const command = rest.split(COMMAND_END)[0];
+	if (ALL_WORKSPACES.test(command)) return "*";
+	return command.match(NAMED_WORKSPACE)?.[1] ?? null;
+}
+
 export function invocations(source) {
 	const scripts = new Set();
+	const runs = [];
 	const files = new Set();
-	for (const [, name] of source.matchAll(SCRIPT_INVOCATION)) scripts.add(name);
+	for (const [, name, rest] of source.matchAll(SCRIPT_INVOCATION)) {
+		scripts.add(name);
+		runs.push({ name, target: runTarget(rest) });
+	}
 	// `node --test a.test.mjs b.test.mjs` runs every file it is given, not just
 	// the first, so each trailing path counts as reached.
 	for (const [, args] of source.matchAll(FILE_INVOCATION)) {
@@ -63,7 +89,7 @@ export function invocations(source) {
 	for (const [, file] of source.matchAll(QUOTED_PATH)) {
 		files.add(file.replace(/^\.\//, ""));
 	}
-	return { scripts, files };
+	return { scripts, runs, files };
 }
 
 // Roots are the workflow sources; every script body and script file they reach
@@ -71,15 +97,17 @@ export function invocations(source) {
 export function reachable({ scripts, workflowSources, readFile }) {
 	const reachedScripts = new Set();
 	const reachedFiles = new Set();
-	// Every script name an expanded source invokes, whether or not the root
-	// manifest defines it. `npm run test:typecheck --workspaces` names a script
-	// that exists only in the packages, and that naming is what reaches them.
-	const namedScripts = new Set();
+	// The invocations that cross into the packages, kept with the package each
+	// one names: `--workspaces` runs a script the root manifest does not define,
+	// and that naming is the only thing that reaches it.
+	const workspaceRuns = [];
 	const queue = [];
 
-	const visit = ({ scripts: named, files }) => {
+	const visit = ({ scripts: named, runs, files }) => {
+		for (const run of runs) {
+			if (run.target !== null) workspaceRuns.push(run);
+		}
 		for (const name of named) {
-			namedScripts.add(name);
 			if (name in scripts && !reachedScripts.has(name)) {
 				reachedScripts.add(name);
 				queue.push({ kind: "script", id: name });
@@ -105,7 +133,7 @@ export function reachable({ scripts, workflowSources, readFile }) {
 		const source = readFile(node.id);
 		if (source !== null) visit(invocations(stripComments(source, "js")));
 	}
-	return { reachedScripts, reachedFiles, namedScripts };
+	return { reachedScripts, reachedFiles, workspaceRuns };
 }
 
 export function isGuarded(name) {
@@ -120,7 +148,7 @@ export function workspaceScriptId(workspace, name) {
 
 export function coverageViolations({
 	scripts,
-	workspaceScripts = {},
+	workspaces = [],
 	workflowSources,
 	testFiles,
 	collectedFiles,
@@ -129,7 +157,7 @@ export function coverageViolations({
 	allowUnreachable = {},
 }) {
 	const violations = [];
-	const { reachedScripts, reachedFiles, namedScripts } = reachable({
+	const { reachedScripts, reachedFiles, workspaceRuns } = reachable({
 		scripts,
 		workflowSources,
 		readFile,
@@ -143,23 +171,43 @@ export function coverageViolations({
 			reachedFiles.has(file),
 		);
 
-	const collected = new Set(collectedScripts);
-	const isWorkspaceReached = (workspace, name) =>
-		collected.has(workspaceScriptId(workspace, name)) || namedScripts.has(name);
+	// Seeded with what the runner behind `test:ci` collects and what CI names,
+	// then grown one package at a time: a reached script's body reaches further
+	// scripts of that same package, never of any other. drizzle-service's
+	// `test:run` reaches its own `test:run:pg`; nobody else acquires one.
+	const targets = (workspace) => [workspace.dir, workspace.packageName];
+	const isTargeted = (run, workspace) =>
+		run.target === "*" || targets(workspace).includes(run.target);
 
-	// A reached workspace script names further scripts of its own — the split
-	// dialect runs in drizzle-service are `test:run:pg` and `test:run:sqlite`,
-	// reached by nothing but the `test:run` the runner collects. Expanded to a
-	// fixpoint so a chain of them is followed, not just the first link.
+	const reachedInWorkspace = new Set(collectedScripts);
+	const reach = (workspace, name) => {
+		const id = workspaceScriptId(workspace.dir, name);
+		if (reachedInWorkspace.has(id)) return false;
+		reachedInWorkspace.add(id);
+		return true;
+	};
+
+	for (const workspace of workspaces) {
+		for (const run of workspaceRuns) {
+			if (isTargeted(run, workspace)) reach(workspace, run.name);
+		}
+	}
 	for (let grew = true; grew; ) {
 		grew = false;
-		for (const [workspace, manifest] of Object.entries(workspaceScripts)) {
-			for (const [name, body] of Object.entries(manifest)) {
-				if (!isWorkspaceReached(workspace, name)) continue;
-				for (const next of invocations(body).scripts) {
-					if (namedScripts.has(next)) continue;
-					namedScripts.add(next);
-					grew = true;
+		for (const workspace of workspaces) {
+			for (const [name, body] of Object.entries(workspace.scripts)) {
+				const id = workspaceScriptId(workspace.dir, name);
+				if (!reachedInWorkspace.has(id)) continue;
+				for (const run of invocations(body).runs) {
+					// A workspace script's own `npm run x` runs x in that package,
+					// unless it names another outright.
+					const within =
+						run.target === null
+							? [workspace]
+							: workspaces.filter((other) => isTargeted(run, other));
+					for (const target of within) {
+						if (reach(target, run.name)) grew = true;
+					}
 				}
 			}
 		}
@@ -171,11 +219,12 @@ export function coverageViolations({
 			name,
 			reached: () => isRootReached(name),
 		})),
-		...Object.entries(workspaceScripts).flatMap(([workspace, manifest]) =>
-			Object.keys(manifest).map((name) => ({
-				id: workspaceScriptId(workspace, name),
+		...workspaces.flatMap((workspace) =>
+			Object.keys(workspace.scripts).map((name) => ({
+				id: workspaceScriptId(workspace.dir, name),
 				name,
-				reached: () => isWorkspaceReached(workspace, name),
+				reached: () =>
+					reachedInWorkspace.has(workspaceScriptId(workspace.dir, name)),
 			})),
 		),
 	];

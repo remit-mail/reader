@@ -8,7 +8,7 @@
  * Downloads the MiniLM model on first run, so it is gated behind RUN_INTEG_TESTS
  * and excluded from the default unit-test path.
  *
- *   npm run test:integ -w packages/search-service
+ *   npm run test:integ:model -w packages/search-service
  */
 import assert from "node:assert";
 import { mkdtempSync, rmSync } from "node:fs";

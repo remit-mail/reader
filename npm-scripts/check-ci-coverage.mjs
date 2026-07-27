@@ -52,21 +52,26 @@ const manifest = JSON.parse(
 // Every manifest in the tree except the root's. A test script is guarded
 // wherever it lives, so which directories happen to be npm workspaces today is
 // not the question — `e2e` is its own project and its suite still has to run.
-async function collectWorkspaceScripts() {
+// The package name rides along because an invocation may name a package either
+// way: `npm run generate:routes -w @remit/web-client` and `-w packages/web-client`
+// reach the same scripts.
+async function collectWorkspaces() {
 	const manifests = await collectFiles(
 		repoRoot,
 		(name) => name === "package.json",
 	);
-	const byWorkspace = {};
+	const found = [];
 	for (const file of manifests) {
 		if (file === "package.json") continue;
-		const scripts = JSON.parse(
-			await readFile(join(repoRoot, file), "utf8"),
-		).scripts;
-		if (!scripts) continue;
-		byWorkspace[dirname(file)] = scripts;
+		const parsed = JSON.parse(await readFile(join(repoRoot, file), "utf8"));
+		if (!parsed.scripts) continue;
+		found.push({
+			dir: dirname(file),
+			packageName: parsed.name,
+			scripts: parsed.scripts,
+		});
 	}
-	return byWorkspace;
+	return found;
 }
 
 // What the runner behind `test:ci` would execute. Asking the runner rather than
@@ -94,7 +99,7 @@ const readSource = (file) => {
 
 const violations = coverageViolations({
 	scripts: manifest.scripts ?? {},
-	workspaceScripts: await collectWorkspaceScripts(),
+	workspaces: await collectWorkspaces(),
 	workflowSources,
 	testFiles: await collectFiles(repoRoot, (name) => name.endsWith(".test.mjs")),
 	collectedFiles: await discoverScriptSuites(repoRoot),
