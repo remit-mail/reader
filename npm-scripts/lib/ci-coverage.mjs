@@ -20,6 +20,22 @@
 //   3. every `*.test.mjs` file is either collected by the runner `test:ci`
 //      drives or reached directly, so a suite nothing runs is an error.
 //
+// Claim 2 counts what CI actually collects, not what the runner would collect
+// if CI asked for everything. `test:ci` takes a `TEST_EXCLUDE` list from the
+// workflow that runs it and drops those packages from the run, so the guard
+// reads that list out of the same workflow files it reads the job steps from
+// (#448). Seeding the guard with an unexcluded discovery let one word in
+// `ci.yml` delete a package's whole suite and still report green — the hole the
+// guard exists to close, one level up.
+//
+// An excluded package is not automatically uncovered: web-client is excluded
+// because its suite fans out across the shard matrix, which runs
+// `packages/web-client/scripts/test-shard.mjs` rather than `npm run test:run -w`.
+// That is coverage by another route, so the guard learns it from the runner file
+// CI reaches rather than from an allow-list naming the package. Naming it would
+// claim the suite cannot run, which is false, and would re-bury #448 under an
+// exemption.
+//
 // Claim 2 is per package, never per name. `npm run test:unit` reaches whichever
 // package the invocation names — `-w`, `--workspace`, or `--prefix`, by
 // directory or by package name — and `--workspaces` reaches all of them. An
@@ -33,7 +49,18 @@
 // files. `node --test` on a glob that matches nothing exits 0, so a wired
 // script that runs no tests satisfies this guard in silence. Reaching for it as
 // proof that a suite has tests is a misread — it proves only that a suite with
-// tests would have run them.
+// tests would have run them. The runner route in claim 2 inherits this: it
+// credits a runner that selects no files. `test-shard.mjs` throws when a shard
+// selects nothing, so the shard matrix is not silently empty — that is the
+// runner's own guard, not something this one checks.
+//
+// Reached and executed are two different sets, and claim 2's runner route needs
+// the second. A path quoted anywhere in a reached file counts as reached, which
+// is right for "is this file wired" and wrong for "does this file run" — a
+// `paths:` trigger filter naming a runner, or a step that echoes its path, would
+// otherwise credit a package's whole test suite to a string.
+import { WORKSPACE_SCRIPT } from "./workspace-suites.mjs";
+
 // The script name plus the rest of its command, which is where the flags that
 // say *which* package it runs in live. Cut at the first shell separator so a
 // second command on the same line cannot lend its `-w` to the first.
@@ -49,6 +76,14 @@ const FILE_ARGUMENT = /[\w./-]+\.(?:mjs|cjs|js|sh)/g;
 // script, and the command form above cannot see across the argument array.
 const QUOTED_PATH = /["'`]([\w./-]+\.(?:mjs|cjs|js|sh))["'`]/g;
 const GUARDED_PREFIXES = ["test:", "check:"];
+// The env var `test-parallel.mjs` reads, wherever a workflow sets it. Only a
+// literal list of package directory names is legible; anything else is rejected
+// by name below rather than passed on as a package that does not exist.
+const TEST_EXCLUDE = /^[^\S\n]*TEST_EXCLUDE:[^\S\n]*(\S.*)$/gm;
+const PACKAGE_NAME = /^[\w.-]+$/;
+// node's own test runner, spawned as an argument. `--test-reporter` and
+// `--test-coverage-include` are not it.
+const DRIVES_NODE_TEST = /(?:^|[^\w-])--test(?![\w-])/;
 
 // A `#` line in a workflow, or a `//` line in a script, names work without
 // running it: `images.yml` documents `npm run images:publish` in its header
@@ -63,6 +98,88 @@ export function stripComments(text, kind) {
 		.replace(/(\s)\/\/.*$/gm, "$1");
 }
 
+// The packages CI hands to `test:ci` as `TEST_EXCLUDE`, read from the workflow
+// files rather than taken as an argument so the guard and the runner cannot
+// drift — drifting is the failure this closes, not a side effect of it.
+//
+// The union across every occurrence, because a name CI drops anywhere is a name
+// the guard must account for. Two jobs excluding different packages would
+// over-report, and that is the safe direction: over-reporting is visible on the
+// commit that adds the second job, an unrun suite is not.
+export function testExclusions(workflowSources) {
+	const names = new Set();
+	for (const source of workflowSources) {
+		for (const [, value] of stripComments(source, "yaml").matchAll(
+			TEST_EXCLUDE,
+		)) {
+			for (const entry of value.replace(/^["']|["']$/g, "").split(",")) {
+				const name = entry.trim();
+				if (!name) continue;
+				// A value the workflow builds at run time reads as a package name
+				// that does not exist, and `discoverWorkspaces` would then send the
+				// reader looking for it. Say what actually happened instead.
+				if (!PACKAGE_NAME.test(name)) {
+					throw new Error(
+						`TEST_EXCLUDE must be a literal comma-separated list of package ` +
+							`directory names, and "${name}" is not one. A value built at run ` +
+							`time — a \${{ }} expression, a block scalar, a repository ` +
+							`variable — cannot be read out of the workflow text, so nothing ` +
+							`can tell which packages the run drops.`,
+					);
+				}
+				names.add(name);
+			}
+		}
+	}
+	return [...names].sort();
+}
+
+// Exclusions the runner was handed that no workflow file declares. The guard
+// reads `TEST_EXCLUDE` out of the workflow text, so an exclusion arriving any
+// other way — a repository variable, an exported shell var, a composite action
+// — is one the guard cannot see, and it would drop a package's whole suite from
+// a run that still reports green. Checked in the direction that leaves local
+// runs alone: excluding less than the workflows declare is fine, excluding
+// something they do not is the hole.
+export function undeclaredExclusions(exclude, workflowSources) {
+	const declared = new Set(testExclusions(workflowSources));
+	return exclude.filter((name) => !declared.has(name));
+}
+
+// The packages whose suite a runner CI executes runs. A package's tests do not
+// have to arrive through `npm run test:run -w <package>`: web-client's arrive
+// through the shard matrix, which runs a file inside the package.
+//
+// The file has to be one CI executes, never one merely named. A path string in
+// a `paths:` filter, in an `echo`, or in a comment is not a run, and crediting a
+// package's entire suite to a string is how this route would fail open — the
+// same shape as the two holes before it, one level down.
+//
+// What the route does not prove: that the `--test` token belongs to a spawn of
+// node, that the spawn targets this package's tests, or that any test matched.
+// A build script CI runs that carries `--test` among dev-mode flags is credited.
+// It is evidence that the package holds a runner CI runs, not that the runner
+// runs this package's suite; the difference can only be closed by executing the
+// file, which a textual guard does not do.
+export function workspacesWithReachedRunner({
+	workspaces,
+	executedFiles,
+	readFile,
+}) {
+	const covered = new Set();
+	for (const file of executedFiles) {
+		const source = readFile(file);
+		if (source === null) continue;
+		if (!DRIVES_NODE_TEST.test(stripComments(source, "js"))) continue;
+		// The innermost package containing the runner owns it.
+		const owner = workspaces
+			.filter((workspace) => file.startsWith(`${workspace.dir}/`))
+			.sort((a, b) => b.dir.length - a.dir.length)[0];
+		if (owner) covered.add(owner);
+	}
+	return [...covered];
+}
+
 // Where an `npm run` lands: `"*"` for every workspace, a package's directory or
 // name for one of them, and `null` for the manifest the command already sits in.
 export function runTarget(rest) {
@@ -71,10 +188,18 @@ export function runTarget(rest) {
 	return command.match(NAMED_WORKSPACE)?.[1] ?? null;
 }
 
+// `files` is every path this source names; `executed` is the subset it runs.
+// The two differ by `QUOTED_PATH`, which finds a path anywhere a source quotes
+// one — an `execFileSync` argument array, but equally a `paths:` filter or an
+// `echo`. A quoted path is enough to call a file wired, and not enough to call
+// it run: the array-form spawn and the trigger filter are indistinguishable
+// textually, so the narrower set takes only the unambiguous command form and
+// leaves a genuine array-form runner to fail loudly rather than pass quietly.
 export function invocations(source) {
 	const scripts = new Set();
 	const runs = [];
 	const files = new Set();
+	const executed = new Set();
 	for (const [, name, rest] of source.matchAll(SCRIPT_INVOCATION)) {
 		scripts.add(name);
 		runs.push({ name, target: runTarget(rest) });
@@ -83,13 +208,15 @@ export function invocations(source) {
 	// the first, so each trailing path counts as reached.
 	for (const [, args] of source.matchAll(FILE_INVOCATION)) {
 		for (const file of args.match(FILE_ARGUMENT) ?? []) {
-			files.add(file.replace(/^\.\//, ""));
+			const path = file.replace(/^\.\//, "");
+			files.add(path);
+			executed.add(path);
 		}
 	}
 	for (const [, file] of source.matchAll(QUOTED_PATH)) {
 		files.add(file.replace(/^\.\//, ""));
 	}
-	return { scripts, runs, files };
+	return { scripts, runs, files, executed };
 }
 
 // Roots are the workflow sources; every script body and script file they reach
@@ -101,39 +228,53 @@ export function reachable({ scripts, workflowSources, readFile }) {
 	// one names: `--workspaces` runs a script the root manifest does not define,
 	// and that naming is the only thing that reaches it.
 	const workspaceRuns = [];
+	// The reached files CI runs rather than only names. A file a source merely
+	// quotes does not pass execution on to what its own body runs, so a runner
+	// named in a `paths:` filter cannot lend its execution to anything.
+	const executedFiles = new Set();
 	const queue = [];
+	const seen = new Set();
 
-	const visit = ({ scripts: named, runs, files }) => {
+	const push = (node) => {
+		const key = `${node.kind}\0${node.id}\0${node.executed}`;
+		if (seen.has(key)) return;
+		seen.add(key);
+		queue.push(node);
+	};
+
+	const visit = ({ scripts: named, runs, files, executed }, running) => {
 		for (const run of runs) {
 			if (run.target !== null) workspaceRuns.push(run);
 		}
 		for (const name of named) {
-			if (name in scripts && !reachedScripts.has(name)) {
-				reachedScripts.add(name);
-				queue.push({ kind: "script", id: name });
-			}
+			if (!(name in scripts)) continue;
+			reachedScripts.add(name);
+			push({ kind: "script", id: name, executed: running });
 		}
 		for (const file of files) {
-			if (!reachedFiles.has(file)) {
-				reachedFiles.add(file);
-				queue.push({ kind: "file", id: file });
-			}
+			reachedFiles.add(file);
+			const runsIt = running && executed.has(file);
+			if (runsIt) executedFiles.add(file);
+			push({ kind: "file", id: file, executed: runsIt });
 		}
 	};
 
+	// A workflow step is the one thing that runs unconditionally by construction.
 	for (const source of workflowSources) {
-		visit(invocations(stripComments(source, "yaml")));
+		visit(invocations(stripComments(source, "yaml")), true);
 	}
 	while (queue.length > 0) {
 		const node = queue.shift();
 		if (node.kind === "script") {
-			visit(invocations(scripts[node.id]));
+			visit(invocations(scripts[node.id]), node.executed);
 			continue;
 		}
 		const source = readFile(node.id);
-		if (source !== null) visit(invocations(stripComments(source, "js")));
+		if (source !== null) {
+			visit(invocations(stripComments(source, "js")), node.executed);
+		}
 	}
-	return { reachedScripts, reachedFiles, workspaceRuns };
+	return { reachedScripts, reachedFiles, executedFiles, workspaceRuns };
 }
 
 export function isGuarded(name) {
@@ -153,15 +294,17 @@ export function coverageViolations({
 	testFiles,
 	collectedFiles,
 	collectedScripts = [],
+	excludedWorkspaces = [],
 	readFile = () => null,
 	allowUnreachable = {},
 }) {
 	const violations = [];
-	const { reachedScripts, reachedFiles, workspaceRuns } = reachable({
-		scripts,
-		workflowSources,
-		readFile,
-	});
+	const { reachedScripts, reachedFiles, executedFiles, workspaceRuns } =
+		reachable({
+			scripts,
+			workflowSources,
+			readFile,
+		});
 
 	// A script CI never names, whose file CI runs directly, is covered: the
 	// script is an alias for work that happens either way.
@@ -179,6 +322,7 @@ export function coverageViolations({
 	const isTargeted = (run, workspace) =>
 		run.target === "*" || targets(workspace).includes(run.target);
 
+	const excludedSet = new Set(excludedWorkspaces);
 	const reachedInWorkspace = new Set(collectedScripts);
 	const reach = (workspace, name) => {
 		const id = workspaceScriptId(workspace.dir, name);
@@ -187,6 +331,13 @@ export function coverageViolations({
 		return true;
 	};
 
+	for (const workspace of workspacesWithReachedRunner({
+		workspaces,
+		executedFiles,
+		readFile,
+	})) {
+		reach(workspace, WORKSPACE_SCRIPT);
+	}
 	for (const workspace of workspaces) {
 		for (const run of workspaceRuns) {
 			if (isTargeted(run, workspace)) reach(workspace, run.name);
@@ -223,6 +374,10 @@ export function coverageViolations({
 			Object.keys(workspace.scripts).map((name) => ({
 				id: workspaceScriptId(workspace.dir, name),
 				name,
+				excluded:
+					name === WORKSPACE_SCRIPT && excludedSet.has(workspace.dir)
+						? workspace.dir
+						: null,
 				reached: () =>
 					reachedInWorkspace.has(workspaceScriptId(workspace.dir, name)),
 			})),
@@ -242,6 +397,15 @@ export function coverageViolations({
 		}
 		// A missing reason is reported once, below, rather than twice here.
 		if (entry.id in allowUnreachable) continue;
+		// An excluded package's suite reads as wired — `test:ci` is in a job step
+		// — while running nowhere, so the message has to name the exclusion or the
+		// reader goes looking for a step that is already there (#448).
+		if (entry.excluded) {
+			violations.push(
+				`script "${entry.id}" runs nowhere: TEST_EXCLUDE drops ${entry.excluded} from test:ci and no runner CI reaches runs its tests — take it out of TEST_EXCLUDE, or point a job at a runner inside the package`,
+			);
+			continue;
+		}
 		violations.push(
 			`script "${entry.id}" is not reached by any workflow: name it in a job step, or drop it`,
 		);

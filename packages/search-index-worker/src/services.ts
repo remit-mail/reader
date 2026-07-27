@@ -73,8 +73,6 @@ export const getServices = async (): Promise<Services> => {
 	return cached;
 };
 
-export const createServices = (overrides: Services): Services => overrides;
-
 /** Reset the singleton — test use only. */
 export const _resetForTest = (): void => {
 	cached = undefined;
