@@ -86,9 +86,9 @@ const deleteMessage = async (
 // upsert per message means a record S3 Vectors rejects (e.g. a metadata
 // ValidationException) dead-letters on its own — its siblings in the
 // batch still index instead of retrying forever behind a poison record.
-// Exported so the long-running Postgres consumer (`consumer.ts`) and the
-// bulk reindex script (`reindex.ts`) can process one message at a time
-// outside the Lambda batch shape, reusing this exact logic.
+// Exported so the long-running Postgres consumer (`consumer.ts`) can
+// process one message at a time outside the Lambda batch shape, reusing
+// this exact logic.
 export const upsertMessage = async (
 	message: Extract<ParsedQueueMessage, { kind: "upsert" }>,
 	services: Services,

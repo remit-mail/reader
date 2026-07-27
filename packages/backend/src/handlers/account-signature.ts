@@ -56,18 +56,6 @@ export const groupSignaturesByAccount = (
 };
 
 /**
- * Load every signature in an account configuration in one query, grouped by
- * account. Callers reading multiple accounts (GET /config) use this once.
- */
-export const loadSignaturesForConfig = async (
-	accountSetting: IAccountSettingRepository,
-	accountConfigId: string,
-): Promise<Map<string, AccountSignature>> => {
-	const settings = await accountSetting.listByAccountConfig(accountConfigId);
-	return groupSignaturesByAccount(settings);
-};
-
-/**
  * Resolve the signature for a single account by reading just its two composite
  * rows. Used by the account create/update handlers, which act on one account.
  */

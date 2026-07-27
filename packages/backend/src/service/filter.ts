@@ -38,15 +38,3 @@ export const buildFilterAnchor: BuildFilterAnchor = (
 	if (!cached) cached = build();
 	return cached(accountConfigId, anchorMessageId);
 };
-
-/** Inject the anchor builder — test use only. */
-export const _setBuildFilterAnchorForTest = (
-	override: BuildFilterAnchor,
-): void => {
-	cached = override;
-};
-
-/** Reset the singleton — test use only. */
-export const _resetBuildFilterAnchorForTest = (): void => {
-	cached = null;
-};
