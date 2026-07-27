@@ -28,7 +28,9 @@ process.stdout.write = ((
 	return (originalWrite as (...args: unknown[]) => boolean)(chunk, ...rest);
 }) as typeof process.stdout.write;
 
-const { createLogger, logger, withLogContext } = await import("./logger.js");
+const { createLogger, logger, withLogContext, withTelemetry } = await import(
+	"./logger.js"
+);
 
 const parse = (): Line[] =>
 	written
@@ -351,5 +353,78 @@ describe("withLogContext", () => {
 		assert.equal(line.requestId, "from-callsite");
 		const repeats = written.join("").match(/"requestId"/g) ?? [];
 		assert.equal(repeats.length, 1);
+	});
+});
+
+describe("withTelemetry", () => {
+	const context = {
+		awsRequestId: "req-1",
+		functionName: "test-function",
+	} as unknown as Parameters<Parameters<typeof withTelemetry>[0]>[1];
+
+	it("puts its own start line inside the scope", async () => {
+		const lines = await captureAsync(async () => {
+			await withTelemetry(async () => "ok")({}, context);
+		});
+		const started = lines.find(
+			(line) => line.msg === "Lambda invocation started",
+		);
+		assert.ok(started, "expected the start line");
+		assert.equal(started.requestId, "req-1");
+	});
+
+	// The line an operator correlates from is written after the handler has
+	// unwound, which is exactly what a scope opened inside the handler misses.
+	it("puts its own failure line inside the scope", async () => {
+		const lines = await captureAsync(async () => {
+			await assert.rejects(
+				withTelemetry(async () => {
+					throw new Error("boom");
+				})({}, context),
+			);
+		});
+		const failed = lines.find(
+			(line) => line.msg === "Lambda invocation failed",
+		);
+		assert.ok(failed, "expected the failure line");
+		assert.equal(failed.requestId, "req-1");
+	});
+
+	it("carries the same requestId onto the handler's own lines", async () => {
+		const lines = await captureAsync(async () => {
+			await withTelemetry(async () => {
+				logger.warn("from the handler");
+				return "ok";
+			})({}, context);
+		});
+		assert.deepEqual(
+			[...new Set(lines.map((line) => line.requestId))],
+			["req-1"],
+		);
+	});
+
+	it("keeps concurrent invocations apart", async () => {
+		const invoke = (id: string, delayMs: number) =>
+			withTelemetry(async () => {
+				await new Promise((resolve) => setTimeout(resolve, delayMs));
+				logger.warn(`handled ${id}`);
+			})({}, {
+				awsRequestId: id,
+				functionName: "test-function",
+			} as unknown as typeof context);
+
+		const lines = await captureAsync(async () => {
+			await Promise.all([invoke("slow", 10), invoke("fast", 1)]);
+		});
+
+		assert.deepEqual(
+			lines
+				.filter((line) => String(line.msg).startsWith("handled "))
+				.map((line) => [line.msg, line.requestId]),
+			[
+				["handled fast", "fast"],
+				["handled slow", "slow"],
+			],
+		);
 	});
 });

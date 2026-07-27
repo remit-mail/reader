@@ -288,7 +288,7 @@ app.all(/(.*)/, async (req: Request, res: Response) => {
 	) {
 		const parsed = await safeJsonParse<unknown>(body).catch(() => undefined);
 		if (parsed === undefined) {
-			console.error("[dev-server] Failed to parse JSON body");
+			logger.error("Failed to parse JSON body");
 		} else if (
 			parsed &&
 			typeof parsed === "object" &&
@@ -313,18 +313,29 @@ app.all(/(.*)/, async (req: Request, res: Response) => {
 
 const port = env.SERVER_PORT;
 
+// This file is the backend image's entrypoint, so its startup output is the
+// first thing a log collector reads from the container. It goes through the
+// logger for the same reason every other line does: one JSON object per line is
+// the contract in deploy/vps/README.md, and a banner printed alongside it is a
+// line the pipeline cannot parse.
+//
+// This is also the everyday `npm run dev` server, so the addresses stay whole
+// and clickable — `url`, not a port a developer has to assemble one themselves.
 app.listen(Number(port), "0.0.0.0", () => {
-	console.log(`Remit Backend running on http://localhost:${port}`);
-	console.log(
-		`OpenAPI documentation available at http://localhost:${port}/api-docs`,
+	// biome-ignore lint/plugin/no-logger-info: the configuration a container came up on is an audit-grade signal
+	logger.info(
+		{
+			port: Number(port),
+			url: `http://localhost:${port}`,
+			dynamodbPort: env.DYNAMODB_PORT,
+			dynamodbTable: env.DYNAMODB_TABLE_NAME,
+			nodeEnv: env.NODE_ENV,
+			...(isSelfHostBackend
+				? {}
+				: { apiDocsUrl: `http://localhost:${port}/api-docs` }),
+		},
+		"Backend listening",
 	);
-
-	console.table({
-		SERVER_PORT: port,
-		DYNAMODB_PORT: env.DYNAMODB_PORT,
-		DYNAMODB_TABLE: env.DYNAMODB_TABLE_NAME,
-		NODE_ENV: env.NODE_ENV,
-	});
 
 	process.send?.("ready");
 });

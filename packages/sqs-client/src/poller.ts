@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { inspect } from "node:util";
 import {
 	DeleteMessageCommand,
@@ -75,8 +76,6 @@ const pollTarget = async (
 	const maxMessages = target.maxMessages ?? DEFAULT_MAX_MESSAGES;
 	const visibilityTimeout =
 		target.visibilityTimeoutSeconds ?? DEFAULT_VISIBILITY_TIMEOUT_SECONDS;
-	const lambdaContext = { functionName: target.functionName } as Context;
-
 	log.info({ queue: queueName, maxMessages }, "poller: started");
 
 	// Always long-poll (SQS max WaitTimeSeconds). An empty long poll is free
@@ -146,8 +145,26 @@ const pollTarget = async (
 		);
 		if (messages.length === 0) continue;
 
+		// One batch is one handler invocation, so the id is minted per batch: it is
+		// the `requestId` every line of that invocation is grouped by (see
+		// deploy/vps/README.md, "Logs"). A context built once per target would put
+		// the whole queue's lifetime under one id, which correlates nothing.
+		//
+		// Minted before the poller's own bracketing lines rather than next to the
+		// handler call: grouping on the id has to reach the line saying whether the
+		// message was deleted or left for redelivery, which is what someone looks
+		// for after a failure.
+		const lambdaContext = {
+			functionName: target.functionName,
+			awsRequestId: randomUUID(),
+		} as Context;
+
 		log.info(
-			{ queue: queueName, count: messages.length },
+			{
+				queue: queueName,
+				count: messages.length,
+				requestId: lambdaContext.awsRequestId,
+			},
 			"poller: invoking handler",
 		);
 
@@ -198,6 +215,7 @@ const pollTarget = async (
 				queue: queueName,
 				deleted: succeeded.length,
 				leftForRedelivery: failedIds.size,
+				requestId: lambdaContext.awsRequestId,
 			},
 			"poller: batch processed",
 		);
