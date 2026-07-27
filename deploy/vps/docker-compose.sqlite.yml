@@ -341,8 +341,14 @@ services:
     # Read-only, though that is a weaker guarantee than it looks: :ro stops a
     # write to the socket file, not a write-shaped Docker API call over it.
     # DOZZLE_ENABLE_ACTIONS is what keeps this container from driving the daemon.
+    #
+    # The source is configurable because a Podman host has no
+    # /var/run/docker.sock and refuses the mount rather than creating it, so the
+    # profile does not start there at all without REMIT_DOZZLE_SOCKET pointed at
+    # /run/podman/podman.sock. The target stays /var/run/docker.sock, which is
+    # where dozzle looks by default.
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${REMIT_DOZZLE_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock:ro
     restart: unless-stopped
 
   # One binary: it scrapes the /metrics endpoints itself, stores the series, and
@@ -357,9 +363,10 @@ services:
       - -promscrape.config=/etc/victoriametrics/scrape.yml
       - -storageDataPath=/victoria-metrics-data
       - -retentionPeriod=${REMIT_METRICS_RETENTION:-30d}
-      # Left to itself VictoriaMetrics sizes its caches against 60% of host RAM.
-      # This deployment scrapes a few hundred series on a VPS that also has to
-      # sync mail, and the README advertises a small idle footprint.
+      # Caps VictoriaMetrics' caches, which it otherwise sizes against 60% of
+      # host RAM. Not a cap on process RSS — this bounds the one allocation that
+      # scales with the host rather than with the workload, on a VPS that also
+      # has to sync mail.
       - -memory.allowedBytes=256MB
       # Its own internal series are not one of D3's signals and are not worth the
       # cardinality here.
@@ -438,7 +445,8 @@ volumes:
   # The backend<->updater control seam: request.json and state.json, and nothing
   # else. Mounted into those two services only.
   updater_control:
-  # The metrics history, written only by the observability profile. Created but
-  # left empty when the profile is off, and safe to remove: it holds a
-  # reconstructible view of the past, never state the stack reads back.
+  # The metrics history, written only by the observability profile — and created
+  # only when that profile runs, since compose creates a volume with the service
+  # that mounts it. Safe to remove: it holds a reconstructible view of the past,
+  # never state the stack reads back. `remit purge` destroys it with the rest.
   victoriametrics_data:

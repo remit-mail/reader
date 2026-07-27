@@ -119,17 +119,50 @@ recreate() {
 
 svc_of() { cat "$S/svc-$1" 2>/dev/null || printf unknown; }
 
+# Services that exist only while a profile is active. An unscoped `stop`, `down`
+# or `config` walks straight past them; `ps` does not, which is the asymmetry the
+# wrapper has to be written against.
+profile_services() { val profile_services ""; }
+
+# Volumes the project declares. The ones a profile-only service mounts are
+# invisible to an unscoped `config --volumes`, so a purge confirmation derived
+# from that list understates what it destroys.
+volume_names() {
+	for _v in $(val volumes "sqlite_data message_storage queue_data caddy_data caddy_config updater_state updater_control"); do
+		printf '%s\n' "$_v"
+	done
+	if [ "$_all_profiles" = "1" ]; then
+		for _v in $(val profile_volumes ""); do printf '%s\n' "$_v"; done
+	fi
+}
+
+is_profile_service() {
+	for _p in $(profile_services); do
+		[ "$_p" = "$1" ] && return 0
+	done
+	return 1
+}
+
 compose_cmd() {
+	_all_profiles=0
 	while [ $# -gt 0 ]; do
 		case "$1" in
-		--project-directory | -f | --env-file | --profile) shift 2 ;;
+		--profile)
+			[ "$2" = "*" ] && _all_profiles=1
+			shift 2
+			;;
+		--project-directory | -f | --env-file) shift 2 ;;
 		-*) shift ;;
 		*) break ;;
 		esac
 	done
 	_sub=$1
 	shift
-	log "compose $_sub $*"
+	if [ "$_all_profiles" = "1" ]; then
+		log "compose --profile=* $_sub $*"
+	else
+		log "compose $_sub $*"
+	fi
 
 	case "$_sub" in
 	pull)
@@ -157,9 +190,26 @@ compose_cmd() {
 		# An unscoped stop skips services behind an inactive profile, which is
 		# what leaves the backup sidecar running and racing the restore.
 		for _s in $(val services "queue backend caddy web apisix"); do
-			if [ "$_s" != "backup" ]; then rm -f "$S/up-$_s"; fi
+			if [ "$_s" = "backup" ]; then continue; fi
+			if [ "$_all_profiles" = "0" ] && is_profile_service "$_s"; then continue; fi
+			rm -f "$S/up-$_s"
 		done
 		rm -f "$S/up-migrate" "$S/up-volume-init" "$S/up-updater"
+		exit 0
+		;;
+	down)
+		for _s in $(val services "queue backend caddy web apisix") migrate volume-init updater; do
+			if [ "$_all_profiles" = "0" ] && is_profile_service "$_s"; then continue; fi
+			rm -f "$S/up-$_s" "$S/cid-$_s"
+		done
+		# -v takes the volumes with it, and only the ones compose can see.
+		case " $* " in
+		*" -v "* | *" --volumes "*)
+			for _v in $(volume_names); do
+				printf '%s\n' "$_v" >>"$S/volumes-removed"
+			done
+			;;
+		esac
 		exit 0
 		;;
 	up)
@@ -187,9 +237,15 @@ compose_cmd() {
 	config)
 		case " $* " in
 		*" --services "*)
+			# Never the profile services: compose omits them from an unscoped
+			# config, which is what makes `config --services` the wrong list to
+			# derive "everything" from.
 			for _s in $(val all_services "queue migrate volume-init backend apisix web caddy imap-worker smtp-worker account-worker search-index-worker"); do
 				printf '%s\n' "$_s"
 			done
+			;;
+		*" --volumes "*)
+			volume_names
 			;;
 		esac
 		exit 0
@@ -197,6 +253,9 @@ compose_cmd() {
 	ps)
 		case " $* " in
 		*" --services "*)
+			# `ps` reports a profile container whether or not the profile is
+			# named — unlike `stop`, `down` and `config`. That asymmetry is why
+			# `remit update` already survived profiles and `remit purge` did not.
 			for _s in $(val services "queue backend caddy web apisix"); do
 				if [ -f "$S/up-$_s" ]; then printf '%s\n' "$_s"; fi
 			done

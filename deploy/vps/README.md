@@ -185,7 +185,7 @@ backed up by the nightly snapshot below (see [Backups](#backups)).
 
 The idle footprint stays small: removing a database server leaves the embedding
 model in `search-index-worker` as the largest resident once indexing has run.
-The `observability` profile adds about 65 MB resident on top of that, measured
+The `observability` profile adds about 30 MB resident on top of that, measured
 rather than estimated — see [Looking at the box](#looking-at-the-box).
 
 ## Search
@@ -397,13 +397,24 @@ One host setting needs attention before the first start, checked by the
 installer:
 
 - **Short image names.** The `ghcr.io/remit-mail/reader/*` images are fully
-  qualified and unaffected; the upstream images (`caddy`, `alpine`)
-  are pulled by short name. A fresh Podman install has no
-  unqualified-search-registries and refuses them
+  qualified and unaffected; the upstream images (`caddy`, `alpine`, and
+  `amir20/dozzle` and `victoriametrics/victoria-metrics` behind the
+  `observability` profile) are pulled by short name. A fresh Podman install has
+  no unqualified-search-registries and refuses them
   (`short-name "caddy:2-alpine" did not resolve to an alias`). Fix:
   ```
   echo 'unqualified-search-registries = ["docker.io"]' | sudo tee /etc/containers/registries.conf
   ```
+
+- **The observability profile's log viewer needs the socket path.** dozzle reads
+  container logs from the host socket, and the compose default is Docker's
+  `/var/run/docker.sock`. That path does not exist on a Podman host, and Podman
+  refuses the mount rather than creating it, so `--profile observability up -d`
+  fails outright. Point it at Podman's socket in `.env`:
+  ```
+  REMIT_DOZZLE_SOCKET=/run/podman/podman.sock
+  ```
+  `victoriametrics` needs nothing — it reads over the network, not the socket.
 
 Rootless Podman also runs the stack, with one more setting:
 `net.ipv4.ip_unprivileged_port_start=80` (`sysctl -w`, or persist it in
@@ -616,6 +627,11 @@ docker compose -f docker-compose.sqlite.yml --env-file .env rm -f dozzle victori
 The metrics survive that; they are on their own volume. `docker volume rm
 remit_victoriametrics_data` discards the history.
 
+`remit down` stops these two along with everything else and prints the command
+to bring them back — `remit restart` starts the always-on services only, because
+nothing behind a profile is started for you. `remit purge` destroys both
+containers and the metrics volume with the rest of the deployment.
+
 ### Reach them
 
 **Neither is on the public origin, and neither has a password.** Both bind
@@ -650,6 +666,9 @@ Change the loopback ports in `.env` if something else on the host already holds
 one: `REMIT_DOZZLE_PORT` and `REMIT_VMUI_PORT`. The `127.0.0.1` in front of them
 is not configurable.
 
+On Podman, set `REMIT_DOZZLE_SOCKET=/run/podman/podman.sock` as well — see
+[Podman](#podman).
+
 ### First queries
 
 In `vmui`, the query box takes PromQL. Start with these:
@@ -669,23 +688,32 @@ nothing happened.
 
 ### What it costs
 
-Measured on an idle stack with all six targets scraped, 65 series total:
+Measured against a month of stored series, not an empty start:
 
 | | Resident memory | Disk |
 |---|---|---|
-| `dozzle` | 12–13 MB | none — it stores nothing |
-| `victoriametrics` | 49–56 MB | 2.2 MB per 30 days at this series count |
+| `dozzle` | ~10 MB | none — it stores nothing |
+| `victoriametrics` | 14 MB at start, ~21 MB settled | under 3 MB per 30 days |
 
-About 65 MB together. VictoriaMetrics is capped at 256 MB
-(`-memory.allowedBytes`) rather than left to size its caches against host RAM,
-which is its default and wrong for a 4 GB box that also has to sync mail.
+About 30 MB together at rest. A query spanning the whole retention window is the
+expensive thing either does: `victoriametrics` reached 37 MB straight after
+running every query in the table above across 30 days, and released it.
 
-Retention defaults to **30 days** and is set with `REMIT_METRICS_RETENTION` in
-`.env` (`90d`, `12m`, `1y` — VictoriaMetrics duration syntax). The 2.2 MB above
-is a measurement, not a projection: 30 days of these 65 series, imported with
-values noisier than the real ones, occupied 2.2 MB on disk. Accounts add a
-handful of series each, so a year of history on a busy self-host box is still
-tens of MB. Set retention by how far back you want to look, not by disk.
+`-memory.allowedBytes=256MB` bounds VictoriaMetrics' **caches**, which it
+otherwise sizes against 60% of host RAM. It is not a ceiling on process memory —
+a bulk import will exceed it — but this deployment writes 88 series every 30
+seconds, so the cache sizing is the only part that would scale with the host
+rather than with the work.
+
+Retention defaults to **30 days**, set with `REMIT_METRICS_RETENTION` in `.env`.
+The suffixes are `h d w M y`, and **`M` is months while `m` is minutes** —
+`12m` is twelve minutes and VictoriaMetrics rejects it outright, so write twelve
+months as `12M`. `30d`, `90d`, `1w`, `12M` and `1y` are all accepted.
+
+The disk figure is a measurement: 30 days of these series backfilled at a 30 s
+step occupied 0.7 MB when the values sit still, 2.8 MB when they move. Accounts
+add a handful of series each, so a year of history is still tens of MB. Set
+retention by how far back you want to look, not by disk.
 
 Metrics live on their own `victoriametrics_data` volume and are never backed up.
 They are a reconstructible view of the past; losing them costs history, not
