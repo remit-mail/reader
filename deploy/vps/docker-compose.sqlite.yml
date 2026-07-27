@@ -103,12 +103,13 @@ services:
     image: ghcr.io/remit-mail/reader/backend:${REMIT_TAG:-latest}
     user: root
     entrypoint:
-      ["sh", "-c", "mkdir -p /data/storage /data/sqlite /data/queue /data/heartbeat && chown -R node:node /data/storage /data/sqlite /data/queue /data/heartbeat"]
+      ["sh", "-c", "mkdir -p /data/storage /data/sqlite /data/queue /data/heartbeat /data/doctor && chown -R node:node /data/storage /data/sqlite /data/queue /data/heartbeat /data/doctor"]
     volumes:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite
       - queue_data:/data/queue
       - heartbeat:/data/heartbeat
+      - doctor_state:/data/doctor
 
   # ---------------------------------------------------------------------
   # App plane
@@ -371,6 +372,74 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------
+  # The checker (standalone-observability D7 to D12). Always on, never behind a
+  # profile: the operator who most needs an alert is the one who installed
+  # nothing, and an alerting stack that lives behind an optional profile only
+  # ever reaches an operator who opted into it.
+  #
+  # Its own container, and not a job inside the backend, because an alerter
+  # inside the backend dies with the thing it is meant to report. Same shape as
+  # `updater` — `restart: unless-stopped` and its own private state volume, for
+  # the same reason: a job that has to outlive the failure of what it watches
+  # cannot share its lifecycle.
+  #
+  # ITS TWO MOUNTS, AND NO OTHERS:
+  #   heartbeat:ro   the eleven poll-loop timestamps the workers write (D1). It
+  #                  reads them; it never writes one.
+  #   doctor_state   its own volume, for the last announced verdict. Shared with
+  #                  no other service, so a restart cannot re-announce a
+  #                  condition already reported.
+  #
+  # NO DOCKER SOCKET. D1 put worker liveness on a file precisely so that reading
+  # it does not require the daemon; a second socket-mounting container on a mail
+  # server, added for an alert, is a cost this design does not pay.
+  #
+  # NO `env_file`. Every other app service takes the whole .env; this one takes
+  # the variables named below and nothing else. It is the only container in the
+  # stack that opens a connection to a third-party endpoint on the internet, so
+  # it holds no database path, no auth secret and no provider credential — there
+  # is nothing for a template bug to put in a payload.
+  #
+  # It depends on volume-init and on nothing else. Waiting for `backend` to be
+  # healthy would make it start last during exactly the outage it exists to
+  # report.
+  #
+  # `remit doctor` reaches it with:
+  #   docker compose exec -T doctor node check.mjs [--json]
+  # which runs a fresh check, prints it, and exits non-zero when degraded.
+  # ---------------------------------------------------------------------
+  doctor:
+    image: ghcr.io/remit-mail/reader/doctor:${REMIT_TAG:-latest}
+    environment:
+      # Alerting. Setting DOCTOR_WEBHOOK_URL without DOCTOR_HEARTBEAT_URL fails
+      # this container at startup, by design (D11): a webhook nothing watches
+      # cannot tell a quiet week from a dead box, and the half-configuration
+      # that looks armed and is not must not be reachable.
+      DOCTOR_WEBHOOK_URL: ${DOCTOR_WEBHOOK_URL:-}
+      DOCTOR_HEARTBEAT_URL: ${DOCTOR_HEARTBEAT_URL:-}
+      DOCTOR_WEBHOOK_TEMPLATE: ${DOCTOR_WEBHOOK_TEMPLATE:-}
+      DOCTOR_WEBHOOK_CONTENT_TYPE: ${DOCTOR_WEBHOOK_CONTENT_TYPE:-}
+      # Thresholds and cadence. Every one has a default; these exist so an
+      # operator who moved a related setting (a longer sync tick, a slower
+      # server) can move the check with it.
+      DOCTOR_INTERVAL_SECONDS: ${DOCTOR_INTERVAL_SECONDS:-}
+      DOCTOR_DWELL_CHECKS: ${DOCTOR_DWELL_CHECKS:-}
+      DOCTOR_SYNC_AGE_MAX_SECONDS: ${DOCTOR_SYNC_AGE_MAX_SECONDS:-}
+      DOCTOR_HEARTBEAT_MAX_AGE_SECONDS: ${DOCTOR_HEARTBEAT_MAX_AGE_SECONDS:-}
+      DOCTOR_AUTH_FAILURE_HOLD_SECONDS: ${DOCTOR_AUTH_FAILURE_HOLD_SECONDS:-}
+      # Named DOCTOR_LOG_LEVEL rather than LOG_LEVEL because the block above is
+      # DOCTOR_* only, on purpose. A plain LOG_LEVEL could never reach this
+      # container, so the per-check verdict line could never be turned on.
+      DOCTOR_LOG_LEVEL: ${DOCTOR_LOG_LEVEL:-}
+    volumes:
+      - heartbeat:/data/heartbeat:ro
+      - doctor_state:/data/doctor
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------
   # Backup sidecar (RFC 036 D6) — off by default. Enable with
   # `docker compose -f docker-compose.sqlite.yml --profile backup up -d`.
   # VACUUM INTO snapshots of the two database files, then age + rclone,
@@ -560,3 +629,8 @@ volumes:
   # and read every age at once; the workers themselves never read each other's
   # files.
   heartbeat:
+  # The checker's own state (D8/D9): the last verdict it announced and the
+  # counter totals a delta is measured against. Private to `doctor`, so a
+  # restart — a reboot, a `remit update` — does not re-announce a condition
+  # already reported. Safe to remove; the cost is at most one repeated alert.
+  doctor_state:

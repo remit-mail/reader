@@ -1,0 +1,29 @@
+{
+	"name": "@remit/doctor",
+	"version": "0.0.1",
+	"type": "module",
+	"main": "src/index.ts",
+	"types": "src/index.ts",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"scripts": {
+		"start": "node --import tsx src/main.ts",
+		"check": "node --import tsx src/cli.ts",
+		"test:typecheck": "tsgo --noEmit",
+		"test:run": "node --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-lines=95 --test 'src/**/*.test.ts'",
+		"test": "npm run test:typecheck && npm run test:run"
+	},
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/remit-mail/reader.git",
+		"directory": "packages/doctor"
+	}
+}
