@@ -1,6 +1,7 @@
 import {
 	DeleteMessageCommand,
 	ReceiveMessageCommand,
+	type ReceiveMessageCommandOutput,
 } from "@aws-sdk/client-sqs";
 import type {
 	Context,
@@ -50,6 +51,7 @@ const pollTarget = async (
 	target: QueuePollerTarget,
 	log: QueuePollerLog,
 	isShuttingDown: () => boolean,
+	shutdownSignal: AbortSignal,
 ): Promise<void> => {
 	const queueName = new URL(target.queueUrl).pathname.split("/").pop();
 	const sqs = createQueueProducer({ queueUrl: target.queueUrl });
@@ -68,15 +70,29 @@ const pollTarget = async (
 	const LONG_POLL_WAIT_SECONDS = 20;
 
 	while (!isShuttingDown()) {
-		const response = await sqs.send(
-			new ReceiveMessageCommand({
-				QueueUrl: target.queueUrl,
-				MaxNumberOfMessages: maxMessages,
-				WaitTimeSeconds: LONG_POLL_WAIT_SECONDS,
-				VisibilityTimeout: visibilityTimeout,
-				MessageSystemAttributeNames: ["ApproximateReceiveCount"],
-			}),
-		);
+		let response: ReceiveMessageCommandOutput;
+		try {
+			// Abort the receive on shutdown. Without this, a container stopped
+			// while idle waits out the current 20s long poll before the loop
+			// checks the flag again, and a self-update then burns the whole
+			// stop grace on every idle worker — the bulk of the visible restart
+			// downtime. The abort ends the in-flight receive at once; an
+			// in-flight handler below is never interrupted, so a message being
+			// processed still finishes cleanly.
+			response = await sqs.send(
+				new ReceiveMessageCommand({
+					QueueUrl: target.queueUrl,
+					MaxNumberOfMessages: maxMessages,
+					WaitTimeSeconds: LONG_POLL_WAIT_SECONDS,
+					VisibilityTimeout: visibilityTimeout,
+					MessageSystemAttributeNames: ["ApproximateReceiveCount"],
+				}),
+				{ abortSignal: shutdownSignal },
+			);
+		} catch (error) {
+			if (shutdownSignal.aborted) break;
+			throw error;
+		}
 
 		if (!response.Messages || response.Messages.length === 0) {
 			continue;
@@ -158,9 +174,11 @@ const pollTarget = async (
 
 /**
  * Runs every target's poll loop concurrently until a shutdown signal is
- * received (default: SIGINT, SIGTERM), then lets each loop finish its
- * current iteration and returns. Rejects (crashes the process) if any loop
- * throws — a stuck poller should exit loudly, not degrade silently.
+ * received (default: SIGINT, SIGTERM). The signal aborts each loop's in-flight
+ * long-poll receive so an idle worker returns at once instead of waiting out
+ * the current 20s poll; a loop mid-handler finishes that handler first. Rejects
+ * (crashes the process) if any loop throws — a stuck poller should exit loudly,
+ * not degrade silently.
  */
 export const runQueuePoller = async (
 	options: RunQueuePollerOptions,
@@ -174,9 +192,13 @@ export const runQueuePoller = async (
 
 	let shuttingDown = false;
 	const isShuttingDown = () => shuttingDown;
+	// Aborted alongside the flag so a loop currently blocked in its long-poll
+	// receive returns at once, rather than after up to WaitTimeSeconds.
+	const shutdown = new AbortController();
 	const onSignal = (signal: NodeJS.Signals) => {
 		log.info({ signal }, "poller: shutdown signal received");
 		shuttingDown = true;
+		shutdown.abort();
 	};
 	for (const signal of signals) {
 		process.on(signal, onSignal);
@@ -185,6 +207,8 @@ export const runQueuePoller = async (
 	log.info({ queues: targets.map((t) => t.queueUrl) }, "poller: starting");
 
 	await Promise.all(
-		targets.map((target) => pollTarget(target, log, isShuttingDown)),
+		targets.map((target) =>
+			pollTarget(target, log, isShuttingDown, shutdown.signal),
+		),
 	);
 };

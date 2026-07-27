@@ -81,6 +81,57 @@ describe("runQueuePoller", () => {
 		assert.deepEqual(deletedReceiptHandles, ["receipt-m1"]);
 	});
 
+	it("aborts an in-flight idle long-poll on signal instead of waiting it out", async () => {
+		let receiveCalls = 0;
+		let sawAbortSignal = false;
+
+		const sendMock = mock.method(
+			SQSClient.prototype,
+			"send",
+			// biome-ignore lint/suspicious/noExplicitAny: minimal SDK command shape
+			async function (this: SQSClient, command: any, options?: any) {
+				if (command.constructor.name === "ReceiveMessageCommand") {
+					receiveCalls++;
+					if (receiveCalls > 1) {
+						throw new Error(
+							"a second ReceiveMessage was issued — the abort did not end the poll",
+						);
+					}
+					const signal: AbortSignal | undefined = options?.abortSignal;
+					sawAbortSignal = signal instanceof AbortSignal;
+					// Model an empty long poll that only ever ends because it is
+					// aborted: request shutdown, then resolve solely on abort. A
+					// poller that waited out WaitTimeSeconds would hang this test.
+					process.emit("SIGWINCH", "SIGWINCH");
+					return await new Promise((_resolve, reject) => {
+						const fail = () =>
+							reject(
+								Object.assign(new Error("aborted"), { name: "AbortError" }),
+							);
+						if (signal?.aborted) return fail();
+						signal?.addEventListener("abort", fail, { once: true });
+					});
+				}
+				throw new Error(`unexpected command: ${command.constructor.name}`);
+			},
+		);
+
+		try {
+			await runQueuePoller({
+				targets: [
+					{ queueUrl: QUEUE_URL, handler: mock.fn(), functionName: "test-fn" },
+				],
+				log: buildLog(),
+				signals: ["SIGWINCH"],
+			});
+		} finally {
+			sendMock.mock.restore();
+		}
+
+		assert.ok(sawAbortSignal, "the receive was issued without an abort signal");
+		assert.equal(receiveCalls, 1);
+	});
+
 	it("throws when constructed with no targets", async () => {
 		await assert.rejects(
 			() => runQueuePoller({ targets: [], log: buildLog() }),
