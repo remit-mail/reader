@@ -33,13 +33,18 @@ const anchorOnlyFilter = (destinationMailboxId: string): FilterItem =>
 		updatedAt: 1,
 	}) as unknown as FilterItem;
 
+const CURRENT_MODEL = "test-model@3";
+
 const repos = (filter: FilterItem): FilterConfigDeps => ({
 	filterService: {
 		listByAccountAndState: async () => [filter],
 		refreshExpiry: async (f: FilterItem) => f,
 	} as unknown as IFilterRepository,
 	filterAnchorService: {
-		get: async () => ({ anchorEmbedding: [1, 0, 0] }),
+		get: async () => ({
+			anchorEmbedding: [1, 0, 0],
+			anchorEmbeddingId: CURRENT_MODEL,
+		}),
 	} as unknown as IFilterAnchorRepository,
 	messageLabelService: {} as unknown as IMessageLabelRepository,
 	placementMoveService: {} as unknown as PlacementMoveService,
@@ -75,6 +80,7 @@ describe("buildFilterConfig", () => {
 				embedCalls += 1;
 				return [1, 0, 0];
 			},
+			embeddingId: CURRENT_MODEL,
 		};
 		const config = buildFilterConfig(
 			repos(anchorOnlyFilter("mbx-archive")),
@@ -96,6 +102,7 @@ describe("buildFilterConfig", () => {
 	it("does not match when the message embedding diverges from the anchor", async () => {
 		const embedder: MessageEmbedder = {
 			embed: async () => [0, 1, 0],
+			embeddingId: CURRENT_MODEL,
 		};
 		const config = buildFilterConfig(
 			repos(anchorOnlyFilter("mbx-archive")),

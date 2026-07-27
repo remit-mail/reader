@@ -1,5 +1,11 @@
 import { inspect } from "node:util";
-import { createLogger, type Logger, withTelemetry } from "@remit/logger-lambda";
+import {
+	createLogger,
+	type Logger,
+	queueNameFromEventSource,
+	recordQueueEvent,
+	withTelemetry,
+} from "@remit/logger-lambda";
 import type { SQSEvent, SQSHandler } from "aws-lambda";
 import {
 	type CascadeEntity,
@@ -285,6 +291,7 @@ export const handler: SQSHandler = withTelemetry(async (event: SQSEvent) => {
 			"Processing account finalize event",
 		);
 
+		const start = Date.now();
 		const work =
 			finalizeEvent.type === "FinalizeAccountDataPurge"
 				? processAccountDataPurgeFinalize(finalizeEvent, log)
@@ -299,6 +306,13 @@ export const handler: SQSHandler = withTelemetry(async (event: SQSEvent) => {
 				);
 				return true;
 			});
+
+		recordQueueEvent({
+			queue: queueNameFromEventSource(record.eventSourceARN),
+			eventType: finalizeEvent.type,
+			outcome: failed ? "failure" : "success",
+			durationMs: Date.now() - start,
+		});
 
 		if (failed) {
 			batchItemFailures.push({ itemIdentifier: record.messageId });

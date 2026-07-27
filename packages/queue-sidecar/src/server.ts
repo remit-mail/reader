@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer, type Server } from "node:http";
 import {
+	metricsContentType,
+	renderMetrics,
+} from "@remit/logger-lambda/metrics";
+import { collectQueueDepths } from "./metrics.js";
+import {
 	type BatchErrorEntry,
 	type BatchSuccessEntry,
 	errorResponse,
@@ -382,6 +387,26 @@ export const createSidecarServer = (options: CreateSidecarOptions): Server => {
 		if (req.method === "GET" && req.url === "/health") {
 			res.writeHead(200, { "content-type": "text/plain" });
 			res.end("ok");
+			return;
+		}
+		// Queue and dead-letter depth (standalone-observability D2/D3), on the port
+		// the SQS protocol already answers on. The depths are read here rather than
+		// counted as messages move: the store is the only thing that knows them,
+		// and each is two counts over a `(queue_name, id)` index range with a
+		// `visible_at` filter per row — a table that is empty in steady state.
+		if (req.method === "GET" && req.url === "/metrics") {
+			Promise.resolve()
+				.then(() => collectQueueDepths(store))
+				.then(renderMetrics)
+				.then((body) => {
+					res.writeHead(200, { "content-type": metricsContentType });
+					res.end(body);
+				})
+				.catch((error: unknown) => {
+					log.error({ error: String(error) }, "sidecar: metrics failed");
+					res.writeHead(500, { "content-type": "text/plain" });
+					res.end(`metrics collection failed: ${String(error)}\n`);
+				});
 			return;
 		}
 		if (req.method !== "POST") {

@@ -85,15 +85,20 @@ export function labelRepositoryConformance(
 			const accountConfigId = harness.makeId();
 			const other = harness.makeId();
 
-			const first = await repo.create({ accountConfigId, name: "First" });
-			const second = await repo.create({ accountConfigId, name: "Second" });
+			// Created concurrently so their `createdAt` millisecond can tie (as it
+			// reliably does against the synchronous sqlite driver): the keyset's
+			// `labelId` tiebreak then decides order, so this asserts pagination is
+			// exhaustive and duplicate-free rather than a specific creation order.
+			const created = await Promise.all([
+				repo.create({ accountConfigId, name: "First" }),
+				repo.create({ accountConfigId, name: "Second" }),
+			]);
 			await repo.create({ accountConfigId: other, name: "Foreign" });
 
 			const page1 = await repo.listPageByAccountConfig(accountConfigId, {
 				limit: 1,
 			});
 			assert.equal(page1.items.length, 1);
-			assert.equal(page1.items[0]?.labelId, first.labelId);
 			assert.ok(page1.continuationToken);
 
 			const page2 = await repo.listPageByAccountConfig(accountConfigId, {
@@ -101,8 +106,20 @@ export function labelRepositoryConformance(
 				continuationToken: page1.continuationToken,
 			});
 			assert.equal(page2.items.length, 1);
-			assert.equal(page2.items[0]?.labelId, second.labelId);
 			assert.equal(page2.continuationToken, undefined);
+
+			const seen = new Set([
+				...page1.items.map((label) => label.labelId),
+				...page2.items.map((label) => label.labelId),
+			]);
+			assert.equal(
+				seen.size,
+				created.length,
+				"every label is paged exactly once",
+			);
+			for (const label of created) {
+				assert.ok(seen.has(label.labelId));
+			}
 		});
 
 		test("delete removes the row", async () => {

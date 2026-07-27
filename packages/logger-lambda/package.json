@@ -8,6 +8,10 @@
 		".": {
 			"types": "./src/index.ts",
 			"default": "./src/index.ts"
+		},
+		"./metrics": {
+			"types": "./src/metrics.ts",
+			"default": "./src/metrics.ts"
 		}
 	},
 	"scripts": {
@@ -17,9 +21,9 @@
 		"build": "npm run test:typecheck"
 	},
 	"dependencies": {
-		"@aws-lambda-powertools/metrics": "^2",
 		"@types/aws-lambda": "*",
-		"pino": "^10"
+		"pino": "^10",
+		"prom-client": "^15.1.3"
 	},
 	"license": "MIT",
 	"publishConfig": {
