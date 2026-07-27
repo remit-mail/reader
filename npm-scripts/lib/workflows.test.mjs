@@ -22,7 +22,10 @@ describe("readWorkflowSources", () => {
 		mkdirSync(join(dir, ".github/workflows"), { recursive: true });
 		mkdirSync(join(dir, ".github/actions/setup"), { recursive: true });
 		writeFileSync(join(dir, ".github/workflows/ci.yml"), "name: CI\n");
-		writeFileSync(join(dir, ".github/actions/setup/action.yml"), "name: setup\n");
+		writeFileSync(
+			join(dir, ".github/actions/setup/action.yml"),
+			"name: setup\n",
+		);
 		writeFileSync(join(dir, ".github/workflows/notes.md"), "ignored\n");
 
 		const { files, sources } = await readWorkflowSources(dir);

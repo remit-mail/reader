@@ -570,7 +570,9 @@ describe("workspacesWithReachedRunner", () => {
 	it("credits nothing for an executed file that runs no tests", () => {
 		const covered = workspacesWithReachedRunner({
 			workspaces: [pkg("packages/web-client", { "test:run": "node --test" })],
-			executedFiles: new Set(["packages/web-client/scripts/coverage-merge.mjs"]),
+			executedFiles: new Set([
+				"packages/web-client/scripts/coverage-merge.mjs",
+			]),
 			readFile: () => "readFileSync(lcov)",
 		});
 		assert.deepEqual(covered, []);
