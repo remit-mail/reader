@@ -33,6 +33,7 @@ import { ConversationView } from "@/components/mail/ConversationView";
 import { DailyBrief } from "@/components/mail/DailyBrief";
 import { IntelligencePane } from "@/components/mail/IntelligencePane";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
+import type { OpenMessageOptions } from "@/components/mail/ThreadListInteraction";
 import { useDeleteMessages } from "@/hooks/useDeleteMessages";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { type ThreadActions, useThreadActions } from "@/hooks/useThreadActions";
@@ -56,7 +57,7 @@ interface BriefPaneContextValue {
 	selectedThread: RemitImapThreadMessageResponse | undefined;
 	/** The conversation to open — the loaded thread, or a tapped "Related" hit. */
 	conversation: ConversationTarget | undefined;
-	onSelectMessage: (id: string) => void;
+	onSelectMessage: (id: string, options?: OpenMessageOptions) => void;
 	onSelectSearchResult: (result: SearchResult) => void;
 	onCloseThread: () => void;
 	/**
@@ -120,7 +121,7 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 	);
 
 	const handleSelectMessage = useCallback(
-		(id: string) => {
+		(id: string, options?: OpenMessageOptions) => {
 			navigate({
 				to: "/mail",
 				search: (prev) => ({
@@ -129,6 +130,7 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 					selectedThreadId: undefined,
 					selectedMailboxId: undefined,
 				}),
+				replace: options?.replace,
 			});
 		},
 		[navigate],

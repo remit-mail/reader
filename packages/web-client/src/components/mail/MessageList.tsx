@@ -21,6 +21,7 @@ import {
 	type EscalationSearchQuery,
 	useEscalatedActions,
 } from "@/hooks/useEscalatedActions";
+import { useFollowFocusOpen } from "@/hooks/useFollowFocusOpen";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import {
@@ -245,12 +246,32 @@ export const MessageList = ({
 
 	// Roving focus cursor (#429): the keyboard "where am I" pointer, distinct
 	// from the open thread (`selectedMessageId` in the URL). j/k move this
-	// cursor without opening; Enter opens the focused row → sets selected. It
-	// seeds from the open thread so opening a message also focuses its row, and
-	// click-to-open keeps working unchanged (the route still navigates).
-	const [focusedMessageId, setFocusedMessageId] = useState<string | undefined>(
+	// cursor; Enter opens the focused row → sets selected, and on desktop the
+	// reading pane follows the cursor of its own accord (see the follow-focus
+	// wiring below). It seeds from the open thread so opening a message also
+	// focuses its row, and click-to-open keeps working unchanged (the route
+	// still navigates).
+	const [focusedMessageId, setFocusedId] = useState<string | undefined>(
 		selectedMessageId,
 	);
+
+	// Which of those moves came from a keyboard command, so the reading pane can
+	// follow the cursor without following a click that already opened its own row.
+	const [keyboardFocusedMessageId, setKeyboardFocusedMessageId] = useState<
+		string | undefined
+	>();
+
+	// Every non-keyboard move — a click, Tab, a thread opening, a refetch snapping
+	// the cursor to a survivor — drops the keyboard mark, so nothing follows it.
+	// A row taking DOM focus as the *consequence* of a keyboard move arrives here
+	// with the id that move just set; keeping the mark in that case is what stops
+	// the browser's own focus event from cancelling the load the move started.
+	const setFocusedMessageId = useCallback((id: string | undefined) => {
+		setKeyboardFocusedMessageId((current) =>
+			current === id ? current : undefined,
+		);
+		setFocusedId(id);
+	}, []);
 
 	// Density toggle: comfortable (default) or compact (mutt mode).
 	// Persisted to localStorage so the choice survives reloads.
@@ -448,7 +469,8 @@ export const MessageList = ({
 			}
 			pendingDomFocusRef.current = thread.messageId;
 			cursorMovedByPointerRef.current = false;
-			setFocusedMessageId(thread.messageId);
+			setKeyboardFocusedMessageId(thread.messageId);
+			setFocusedId(thread.messageId);
 		},
 		[threads, isMultiSelectMode, toggleCheck],
 	);
@@ -564,10 +586,12 @@ export const MessageList = ({
 			selectRange(orderedIds, target);
 			// Shift+arrow moves the focus cursor (not the open thread) and grows
 			// the selection from the anchor — the keyboard equivalent of
-			// shift-click.
+			// shift-click. It is building a range, not reading, so the reading pane
+			// stays on whatever is open rather than chasing the range's edge.
 			pendingDomFocusRef.current = target;
 			cursorMovedByPointerRef.current = false;
-			setFocusedMessageId(target);
+			setKeyboardFocusedMessageId(undefined);
+			setFocusedId(target);
 		},
 		[orderedIds, focusedMessageId, selectRange],
 	);
@@ -620,6 +644,34 @@ export const MessageList = ({
 			search: (prev) => ({ ...prev, selectedMessageId: focusedMessageId }),
 		});
 	}, [focusedMessageId, navigate, mailboxId]);
+
+	// The reading pane follows the cursor on desktop: j/k load the row they land
+	// on, without the user having to press Enter for every message. It replaces
+	// the history entry rather than pushing one — a preview the cursor produced
+	// is not a navigation the user asked for, and Back should still leave the
+	// mailbox instead of walking the cursor's path back up the list.
+	//
+	// Suspended while rows are selected: the cursor is then picking out a set,
+	// and the selection toolbar — not a message — is what the user is looking at.
+	// Suspended off desktop too, where the reading pane replaces the list
+	// entirely, so following the cursor would throw the user off the list.
+	const followFocusOpen = useCallback(
+		(messageId: string) => {
+			navigate({
+				to: "/mail/$mailboxId",
+				params: { mailboxId },
+				search: (prev) => ({ ...prev, selectedMessageId: messageId }),
+				replace: true,
+			});
+		},
+		[navigate, mailboxId],
+	);
+	useFollowFocusOpen({
+		keyboardFocusedMessageId,
+		openMessageId: selectedMessageId,
+		enabled: isDesktop && selectedCount === 0,
+		open: followFocusOpen,
+	});
 
 	// Toolbar Trash2: confirm-delete the current selection.
 	const handleDelete = useCallback(() => {
@@ -742,6 +794,7 @@ export const MessageList = ({
 		mailboxId,
 		isDesktop,
 		runChunkedConfirmDelete,
+		setFocusedMessageId,
 	]);
 
 	// Every way out of the confirmation that isn't the delete — Escape, Cancel,
@@ -756,7 +809,7 @@ export const MessageList = ({
 		pendingDomFocusRef.current = restoreTo;
 		cursorMovedByPointerRef.current = false;
 		setFocusedMessageId(restoreTo);
-	}, []);
+	}, [setFocusedMessageId]);
 
 	// Mark read, bounded and escalated alike (#114). Both go through the same
 	// chunked run: the bulk flags call caps at 100 ids, so a selection past
@@ -925,7 +978,7 @@ export const MessageList = ({
 			cursorMovedByPointerRef.current = false;
 			setFocusedMessageId(selectedMessageId);
 		}
-	}, [selectedMessageId]);
+	}, [selectedMessageId, setFocusedMessageId]);
 
 	// Keep the focus cursor valid as the thread list changes (after delete /
 	// move / refetch). If the focused row vanished, snap to the nearest
@@ -934,7 +987,7 @@ export const MessageList = ({
 		if (!focusedMessageId) return;
 		if (threads.some((t) => t.messageId === focusedMessageId)) return;
 		setFocusedMessageId(threads[0]?.messageId);
-	}, [threads, focusedMessageId]);
+	}, [threads, focusedMessageId, setFocusedMessageId]);
 
 	// Bridge the roving cursor + selection up to the route's global keyboard
 	// dispatcher (#429) so the action verbs can target the focused row, or the
@@ -1364,10 +1417,13 @@ export const MessageList = ({
 
 	// A row focused by Tab or click becomes the cursor, so the keys act on what
 	// the browser says is focused.
-	const handleRowFocus = useCallback((messageId: string) => {
-		cursorMovedByPointerRef.current = true;
-		setFocusedMessageId(messageId);
-	}, []);
+	const handleRowFocus = useCallback(
+		(messageId: string) => {
+			cursorMovedByPointerRef.current = true;
+			setFocusedMessageId(messageId);
+		},
+		[setFocusedMessageId],
+	);
 
 	// The virtualized list body: rows + search header + load-more indicator.
 	// Passed to MessageListPane as `listBody` so the kit provides the chrome

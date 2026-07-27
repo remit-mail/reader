@@ -28,6 +28,7 @@ import {
 	useState,
 } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useFollowFocusOpen } from "@/hooks/useFollowFocusOpen";
 import { useListCursor } from "@/hooks/useListCursor";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
@@ -127,10 +128,19 @@ const useRenderedRowIds = (
 	return rowIds;
 };
 
+/**
+ * How a row was opened. `replace: true` marks a reading-pane preview the cursor
+ * produced rather than a navigation the user asked for, so Back still leaves the
+ * list instead of walking the cursor's path back up it.
+ */
+export interface OpenMessageOptions {
+	replace?: boolean;
+}
+
 interface ThreadListInteractionProps {
 	selectedMessageId: string | undefined;
 	/** Opens a row — the same navigation a click performs. */
-	onOpen: (messageId: string) => void;
+	onOpen: (messageId: string, options?: OpenMessageOptions) => void;
 	/** Deletes a set of messages. Absent disables the delete key for this list. */
 	onDeleteMessages?: (messageIds: string[]) => void;
 	isDeleting?: boolean;
@@ -211,6 +221,20 @@ export function ThreadListInteraction({
 	const openFocused = useCallback(() => {
 		if (focusedMessageId) onOpen(focusedMessageId);
 	}, [focusedMessageId, onOpen]);
+
+	// The reading pane follows the cursor on desktop. Suspended while rows are
+	// selected: the cursor is then picking out a set, and the selection bar — not
+	// a message — is what the user is looking at.
+	const followOpen = useCallback(
+		(messageId: string) => onOpen(messageId, { replace: true }),
+		[onOpen],
+	);
+	useFollowFocusOpen({
+		keyboardFocusedMessageId: cursor.keyboardFocusedMessageId,
+		openMessageId: selectedMessageId,
+		enabled: isDesktop && selectedCount === 0,
+		open: followOpen,
+	});
 
 	// Pending move-to-Trash, awaiting confirmation. The ids are snapshotted at
 	// request time so a selection change behind the dialog cannot retarget it —

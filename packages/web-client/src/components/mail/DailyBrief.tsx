@@ -27,7 +27,8 @@
  *
  * Loading: skeleton rows on first paint, patch-in-place on refetch.
  * Error: per-section; the brief still renders other sections.
- * Empty: "You're caught up" message.
+ * Empty: "You're caught up", but only once the server confirms no sync is
+ * running — while one is, the same empty list says it is still syncing.
  */
 import {
 	mailboxOperationsListMailboxesOptions,
@@ -36,6 +37,7 @@ import {
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import {
 	type BriefCategoryFilter,
+	BriefEmpty,
 	BriefSection,
 	briefFilterConfig,
 	type FilterSheetProps,
@@ -49,7 +51,7 @@ import {
 } from "@remit/ui";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { AlertCircle, RefreshCw, Sparkles } from "lucide-react";
+import { AlertCircle, RefreshCw } from "lucide-react";
 import {
 	type ReactNode,
 	type RefObject,
@@ -59,6 +61,10 @@ import {
 	useState,
 } from "react";
 import { useJunkMailbox } from "@/hooks/useArchiveMailbox";
+import {
+	isSyncingPhase,
+	useInitialSyncProgress,
+} from "@/hooks/useInitialSyncProgress";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
@@ -86,6 +92,7 @@ import { MobileOrganizeFlow } from "./organize/MobileOrganizeFlow";
 import { OrganizeDialog } from "./organize/OrganizeDialog";
 import { SelectionToolbar } from "./SelectionToolbar";
 import {
+	type OpenMessageOptions,
 	ThreadListInteraction,
 	useThreadListSelection,
 } from "./ThreadListInteraction";
@@ -257,7 +264,7 @@ export const resolveBriefSelectionScope = (
 	const mailboxIds = new Set<string>();
 	for (const row of rows) {
 		if (!selectedIds.has(row.id)) continue;
-		accountIds.add(row.accountId);
+		if (row.accountId) accountIds.add(row.accountId);
 		if (row.mailboxId) mailboxIds.add(row.mailboxId);
 	}
 	if (accountIds.size > 1) {
@@ -506,7 +513,7 @@ interface DailyBriefProps {
 	accounts: RemitImapAccountResponse[];
 	selectedMessageId?: string;
 	/** Opens an in-list brief row (resolved by messageId against the loaded list). */
-	onSelectMessage?: (id: string) => void;
+	onSelectMessage?: (id: string, options?: OpenMessageOptions) => void;
 	/**
 	 * Opens a search result. A semantic "Related" hit carries its thread + mailbox
 	 * so it opens even when its message isn't in the loaded brief list.
@@ -768,11 +775,34 @@ export function DailyBrief({
 	const caughtUp =
 		sections.length === 0 && selectedAccountId === "all" && sq.length === 0;
 
-	const stateBody = isLoading ? (
+	// "Caught up" is a claim about the user's mail, so it may only be made once
+	// the server has confirmed no sync is running (#452). The config snapshot
+	// that carries these accounts is fetched once (staleTime Infinity), so its
+	// syncPhase is a seed rather than a reading: it says a sync WAS running when
+	// the accounts loaded, which is enough to start the live poll before the list
+	// paints — the post-onboarding case that produced the false claim.
+	const briefAccountIds = useMemo(
+		() => nonMuted.map((a) => a.accountId),
+		[nonMuted],
+	);
+	const seededSyncing = useMemo(
+		() => nonMuted.some((a) => isSyncingPhase(a.syncPhase)),
+		[nonMuted],
+	);
+	const syncProgress = useInitialSyncProgress(
+		briefAccountIds,
+		caughtUp || seededSyncing,
+	);
+
+	const briefSkeleton = (
 		<div className="h-full overflow-y-auto">
 			<SectionSkeleton />
 			<SectionSkeleton />
 		</div>
+	);
+
+	const stateBody = isLoading ? (
+		briefSkeleton
 	) : isError ? (
 		<div className="flex h-full flex-col items-center justify-center gap-3 py-12 text-sm text-fg-muted">
 			<AlertCircle className="size-8 text-danger" />
@@ -787,11 +817,17 @@ export function DailyBrief({
 			</button>
 		</div>
 	) : caughtUp ? (
-		<div className="flex h-full flex-col items-center justify-center gap-2 py-12 text-center px-4">
-			<Sparkles className="size-8 text-fg-subtle" />
-			<p className="text-sm font-medium text-fg">You're caught up</p>
-			<p className="text-xs text-fg-subtle">Nothing needs attention.</p>
-		</div>
+		syncProgress.resolved ? (
+			<BriefEmpty
+				sync={
+					syncProgress.syncing
+						? { synced: syncProgress.synced, total: syncProgress.total }
+						: undefined
+				}
+			/>
+		) : (
+			briefSkeleton
+		)
 	) : (
 		<BriefListBody
 			sections={sections}
@@ -807,7 +843,7 @@ export function DailyBrief({
 	return (
 		<ThreadListInteraction
 			selectedMessageId={selectedMessageId}
-			onOpen={(id) => onSelectMessage?.(id)}
+			onOpen={(id, options) => onSelectMessage?.(id, options)}
 			onDeleteMessages={onDeleteMessages}
 			commandsRef={commandsRef}
 			onTriageContextChange={onTriageContextChange}
