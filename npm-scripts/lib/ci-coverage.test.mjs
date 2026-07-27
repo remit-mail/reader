@@ -44,6 +44,26 @@ describe("invocations", () => {
 		const { files } = invocations("node ./npm-scripts/x.mjs");
 		assert.deepEqual([...files], ["npm-scripts/x.mjs"]);
 	});
+
+	it("separates the files a source runs from the ones it only names", () => {
+		const { files, executed } = invocations(
+			'node npm-scripts/run.mjs\necho "npm-scripts/named.mjs"',
+		);
+		assert.deepEqual([...files].sort(), [
+			"npm-scripts/named.mjs",
+			"npm-scripts/run.mjs",
+		]);
+		assert.deepEqual([...executed], ["npm-scripts/run.mjs"]);
+	});
+
+	// A `paths:` filter quoting a runner is a normal, unrelated edit, and it
+	// reads exactly like an `execFileSync` argument array.
+	it("does not read a quoted path as something the source runs", () => {
+		const { executed } = invocations(
+			'    paths:\n      - "packages/web-client/scripts/test-shard.mjs"',
+		);
+		assert.deepEqual([...executed], []);
+	});
 });
 
 describe("stripComments", () => {
@@ -101,6 +121,46 @@ describe("reachable", () => {
 			readFile: (file) => (file === "a.mjs" ? "node b.mjs" : "node a.mjs"),
 		});
 		assert.deepEqual([...reachedFiles].sort(), ["a.mjs", "b.mjs"]);
+	});
+
+	it("reaches a quoted path without counting it as executed", () => {
+		const { reachedFiles, executedFiles } = reachable({
+			scripts: {},
+			workflowSources: ['run: echo "npm-scripts/x.mjs"'],
+			readFile: noFiles,
+		});
+		assert.ok(reachedFiles.has("npm-scripts/x.mjs"));
+		assert.deepEqual([...executedFiles], []);
+	});
+
+	it("carries execution through a file CI runs", () => {
+		const { executedFiles } = reachable({
+			scripts: { "test:ci": "node a.mjs" },
+			workflowSources: ["npm run test:ci"],
+			readFile: (file) => (file === "a.mjs" ? "node b.mjs" : null),
+		});
+		assert.deepEqual([...executedFiles].sort(), ["a.mjs", "b.mjs"]);
+	});
+
+	// Otherwise a runner named in a `paths:` filter lends its execution to
+	// everything its own body happens to run.
+	it("does not let a file that is only named run anything of its own", () => {
+		const { reachedFiles, executedFiles } = reachable({
+			scripts: {},
+			workflowSources: ['run: echo "a.mjs"'],
+			readFile: (file) => (file === "a.mjs" ? "node b.mjs" : null),
+		});
+		assert.ok(reachedFiles.has("b.mjs"));
+		assert.deepEqual([...executedFiles], []);
+	});
+
+	it("counts a file as executed once any source runs it, named elsewhere or not", () => {
+		const { executedFiles } = reachable({
+			scripts: {},
+			workflowSources: ['run: echo "a.mjs"', "run: node a.mjs"],
+			readFile: (file) => (file === "a.mjs" ? "node b.mjs" : null),
+		});
+		assert.deepEqual([...executedFiles].sort(), ["a.mjs", "b.mjs"]);
 	});
 });
 
@@ -446,6 +506,21 @@ describe("testExclusions", () => {
 	it("reads nothing when no workflow excludes anything", () => {
 		assert.deepEqual(testExclusions(["run: npm run test:ci"]), []);
 	});
+
+	// Both fail closed either way. The point is the message: `discoverWorkspaces`
+	// would report `>-` as a package that does not exist and send the reader
+	// looking for it.
+	it("says a block scalar is not a literal list", () => {
+		assert.throws(() => testExclusions(["TEST_EXCLUDE: >-\n  web-client"]), {
+			message: /must be a literal comma-separated list/,
+		});
+	});
+
+	it("says an expression cannot be read out of the workflow text", () => {
+		assert.throws(() => testExclusions(["TEST_EXCLUDE: ${{ matrix.drop }}"]), {
+			message: /cannot be read out of the workflow text/,
+		});
+	});
 });
 
 describe("undeclaredExclusions", () => {
@@ -480,10 +555,10 @@ describe("undeclaredExclusions", () => {
 const runner = (dir) => `${dir}/scripts/test-shard.mjs`;
 
 describe("workspacesWithReachedRunner", () => {
-	it("credits the package a reached runner file lives in", () => {
+	it("credits the package an executed runner file lives in", () => {
 		const covered = workspacesWithReachedRunner({
 			workspaces: [pkg("packages/web-client", { "test:run": "node --test" })],
-			reachedFiles: new Set([runner("packages/web-client")]),
+			executedFiles: new Set([runner("packages/web-client")]),
 			readFile: () => 'spawn(node, ["--test", ...files])',
 		});
 		assert.deepEqual(
@@ -492,10 +567,10 @@ describe("workspacesWithReachedRunner", () => {
 		);
 	});
 
-	it("credits nothing for a reached file that runs no tests", () => {
+	it("credits nothing for an executed file that runs no tests", () => {
 		const covered = workspacesWithReachedRunner({
 			workspaces: [pkg("packages/web-client", { "test:run": "node --test" })],
-			reachedFiles: new Set(["packages/web-client/scripts/coverage-merge.mjs"]),
+			executedFiles: new Set(["packages/web-client/scripts/coverage-merge.mjs"]),
 			readFile: () => "readFileSync(lcov)",
 		});
 		assert.deepEqual(covered, []);
@@ -506,25 +581,41 @@ describe("workspacesWithReachedRunner", () => {
 	it("does not read a --test- prefixed flag as node's test runner", () => {
 		const covered = workspacesWithReachedRunner({
 			workspaces: [pkg("packages/a", { "test:run": "node --test" })],
-			reachedFiles: new Set(["packages/a/scripts/merge.mjs"]),
+			executedFiles: new Set(["packages/a/scripts/merge.mjs"]),
 			readFile: () => '"--test-coverage-lines=86", "--test-reporter=spec"',
 		});
 		assert.deepEqual(covered, []);
 	});
 
-	it("does not credit a runner named only in a comment", () => {
+	it("does not credit a runner whose --test sits in a comment", () => {
 		const covered = workspacesWithReachedRunner({
 			workspaces: [pkg("packages/a", { "test:run": "node --test" })],
-			reachedFiles: new Set(["packages/a/scripts/build.mjs"]),
+			executedFiles: new Set(["packages/a/scripts/build.mjs"]),
 			readFile: () => "// spawn(node, [--test])\nbuild()",
 		});
 		assert.deepEqual(covered, []);
 	});
 
+	// The route's stated limit, pinned so the header and the code agree: a file
+	// CI runs that carries the token is credited, whatever it does with it. The
+	// only way past this is to execute the file.
+	it("credits a script CI runs that carries --test among other flags", () => {
+		const covered = workspacesWithReachedRunner({
+			workspaces: [pkg("packages/a", { "test:run": "node --test" })],
+			executedFiles: new Set(["packages/a/scripts/build.mjs"]),
+			readFile: () =>
+				'const flags = ci ? ["--production"] : ["--test", "--watch"];',
+		});
+		assert.deepEqual(
+			covered.map((workspace) => workspace.dir),
+			["packages/a"],
+		);
+	});
+
 	it("does not credit a runner that lives outside every package", () => {
 		const covered = workspacesWithReachedRunner({
 			workspaces: [pkg("packages/a", { "test:run": "node --test" })],
-			reachedFiles: new Set(["npm-scripts/test-script-suites.mjs"]),
+			executedFiles: new Set(["npm-scripts/test-script-suites.mjs"]),
 			readFile: () => 'spawnSync("node", ["--test", ...suites])',
 		});
 		assert.deepEqual(covered, []);
@@ -536,7 +627,7 @@ describe("workspacesWithReachedRunner", () => {
 				pkg("packages/a", { "test:run": "node --test" }),
 				pkg("packages/a/nested", { "test:run": "node --test" }),
 			],
-			reachedFiles: new Set(["packages/a/nested/run.mjs"]),
+			executedFiles: new Set(["packages/a/nested/run.mjs"]),
 			readFile: () => 'spawn("node", ["--test"])',
 		});
 		assert.deepEqual(
@@ -595,6 +686,48 @@ describe("coverageViolations for an excluded package", () => {
 			workspaces: [pkg("packages/web-client", { "test:run": "node --test" })],
 			workflowSources: ["run: npm run test:ci\nTEST_EXCLUDE: web-client"],
 			collectedScripts: [],
+			excludedWorkspaces: ["packages/web-client"],
+			readFile: (file) =>
+				file === "packages/web-client/scripts/test-shard.mjs"
+					? 'spawn(process.execPath, ["--test", ...relFiles])'
+					: null,
+			...noSuites,
+		});
+		assert.equal(violations.length, 1);
+		assert.match(violations[0], /"packages\/web-client#test:run" runs nowhere/);
+	});
+
+	// A path string is not a run. Both of these left web-client's suite running
+	// nowhere while the guard printed `CI coverage OK`.
+	it("rejects an excluded package whose runner a step only echoes", () => {
+		const violations = coverageViolations({
+			scripts: { "test:ci": "node npm-scripts/test-parallel.mjs" },
+			workspaces: [pkg("packages/web-client", { "test:run": "node --test" })],
+			workflowSources: [
+				"run: npm run test:ci\nTEST_EXCLUDE: web-client\n" +
+					"run: echo 'packages/web-client/scripts/test-shard.mjs'",
+			],
+			excludedWorkspaces: ["packages/web-client"],
+			readFile: (file) =>
+				file === "packages/web-client/scripts/test-shard.mjs"
+					? 'spawn(process.execPath, ["--test", ...relFiles])'
+					: null,
+			...noSuites,
+		});
+		assert.equal(violations.length, 1);
+		assert.match(violations[0], /"packages\/web-client#test:run" runs nowhere/);
+	});
+
+	it("rejects an excluded package whose runner appears in a paths filter", () => {
+		const violations = coverageViolations({
+			scripts: { "test:ci": "node npm-scripts/test-parallel.mjs" },
+			workspaces: [pkg("packages/web-client", { "test:run": "node --test" })],
+			workflowSources: [
+				"on:\n  push:\n    paths:\n" +
+					'      - "packages/web-client/scripts/test-shard.mjs"\n' +
+					"jobs:\n  t:\n    steps:\n" +
+					"      - run: npm run test:ci\n        env:\n          TEST_EXCLUDE: web-client",
+			],
 			excludedWorkspaces: ["packages/web-client"],
 			readFile: (file) =>
 				file === "packages/web-client/scripts/test-shard.mjs"

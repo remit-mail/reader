@@ -8,10 +8,22 @@ import { join, relative } from "node:path";
 
 export const WORKFLOWS_DIR = ".github";
 
+// A tree with no `.github` reads as no workflows rather than as an error. The
+// runner calls this on every `test:ci`, and a source tarball or a docker build
+// context has no workflows to run the tests from — dying there would stop the
+// suites over a check that has nothing to check. The guard calls it too, and
+// answers "nothing CI reaches", which is loud on its own.
 export async function readWorkflowSources(root) {
 	const files = [];
 	const walk = async (current) => {
-		for (const entry of await readdir(current, { withFileTypes: true })) {
+		let entries;
+		try {
+			entries = await readdir(current, { withFileTypes: true });
+		} catch (error) {
+			if (error.code === "ENOENT") return;
+			throw error;
+		}
+		for (const entry of entries) {
 			const full = join(current, entry.name);
 			if (entry.isDirectory()) {
 				await walk(full);

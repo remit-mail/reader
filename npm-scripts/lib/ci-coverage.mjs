@@ -49,7 +49,16 @@
 // files. `node --test` on a glob that matches nothing exits 0, so a wired
 // script that runs no tests satisfies this guard in silence. Reaching for it as
 // proof that a suite has tests is a misread — it proves only that a suite with
-// tests would have run them.
+// tests would have run them. The runner route in claim 2 inherits this: it
+// credits a runner that selects no files. `test-shard.mjs` throws when a shard
+// selects nothing, so the shard matrix is not silently empty — that is the
+// runner's own guard, not something this one checks.
+//
+// Reached and executed are two different sets, and claim 2's runner route needs
+// the second. A path quoted anywhere in a reached file counts as reached, which
+// is right for "is this file wired" and wrong for "does this file run" — a
+// `paths:` trigger filter naming a runner, or a step that echoes its path, would
+// otherwise credit a package's whole test suite to a string.
 import { WORKSPACE_SCRIPT } from "./workspace-suites.mjs";
 
 // The script name plus the rest of its command, which is where the flags that
@@ -68,10 +77,10 @@ const FILE_ARGUMENT = /[\w./-]+\.(?:mjs|cjs|js|sh)/g;
 const QUOTED_PATH = /["'`]([\w./-]+\.(?:mjs|cjs|js|sh))["'`]/g;
 const GUARDED_PREFIXES = ["test:", "check:"];
 // The env var `test-parallel.mjs` reads, wherever a workflow sets it. Only a
-// literal value is legible: a list built from a repository variable or a matrix
-// expression is invisible to a textual guard, and reaches `discoverWorkspaces`
-// as a name matching no workspace, which is an error rather than a silent pass.
+// literal list of package directory names is legible; anything else is rejected
+// by name below rather than passed on as a package that does not exist.
 const TEST_EXCLUDE = /^[^\S\n]*TEST_EXCLUDE:[^\S\n]*(\S.*)$/gm;
+const PACKAGE_NAME = /^[\w.-]+$/;
 // node's own test runner, spawned as an argument. `--test-reporter` and
 // `--test-coverage-include` are not it.
 const DRIVES_NODE_TEST = /(?:^|[^\w-])--test(?![\w-])/;
@@ -103,8 +112,22 @@ export function testExclusions(workflowSources) {
 		for (const [, value] of stripComments(source, "yaml").matchAll(
 			TEST_EXCLUDE,
 		)) {
-			for (const name of value.replace(/^["']|["']$/g, "").split(",")) {
-				if (name.trim()) names.add(name.trim());
+			for (const entry of value.replace(/^["']|["']$/g, "").split(",")) {
+				const name = entry.trim();
+				if (!name) continue;
+				// A value the workflow builds at run time reads as a package name
+				// that does not exist, and `discoverWorkspaces` would then send the
+				// reader looking for it. Say what actually happened instead.
+				if (!PACKAGE_NAME.test(name)) {
+					throw new Error(
+						`TEST_EXCLUDE must be a literal comma-separated list of package ` +
+							`directory names, and "${name}" is not one. A value built at run ` +
+							`time — a \${{ }} expression, a block scalar, a repository ` +
+							`variable — cannot be read out of the workflow text, so nothing ` +
+							`can tell which packages the run drops.`,
+					);
+				}
+				names.add(name);
 			}
 		}
 	}
@@ -123,18 +146,28 @@ export function undeclaredExclusions(exclude, workflowSources) {
 	return exclude.filter((name) => !declared.has(name));
 }
 
-// The packages whose suite a reached runner file runs. A package's tests do not
+// The packages whose suite a runner CI executes runs. A package's tests do not
 // have to arrive through `npm run test:run -w <package>`: web-client's arrive
-// through the shard matrix, which runs a file inside the package. The file has
-// to be reached by CI and has to drive node's test runner, so a build script or
-// a coverage merger that happens to sit in the package excuses nothing.
+// through the shard matrix, which runs a file inside the package.
+//
+// The file has to be one CI executes, never one merely named. A path string in
+// a `paths:` filter, in an `echo`, or in a comment is not a run, and crediting a
+// package's entire suite to a string is how this route would fail open — the
+// same shape as the two holes before it, one level down.
+//
+// What the route does not prove: that the `--test` token belongs to a spawn of
+// node, that the spawn targets this package's tests, or that any test matched.
+// A build script CI runs that carries `--test` among dev-mode flags is credited.
+// It is evidence that the package holds a runner CI runs, not that the runner
+// runs this package's suite; the difference can only be closed by executing the
+// file, which a textual guard does not do.
 export function workspacesWithReachedRunner({
 	workspaces,
-	reachedFiles,
+	executedFiles,
 	readFile,
 }) {
 	const covered = new Set();
-	for (const file of reachedFiles) {
+	for (const file of executedFiles) {
 		const source = readFile(file);
 		if (source === null) continue;
 		if (!DRIVES_NODE_TEST.test(stripComments(source, "js"))) continue;
@@ -155,10 +188,18 @@ export function runTarget(rest) {
 	return command.match(NAMED_WORKSPACE)?.[1] ?? null;
 }
 
+// `files` is every path this source names; `executed` is the subset it runs.
+// The two differ by `QUOTED_PATH`, which finds a path anywhere a source quotes
+// one — an `execFileSync` argument array, but equally a `paths:` filter or an
+// `echo`. A quoted path is enough to call a file wired, and not enough to call
+// it run: the array-form spawn and the trigger filter are indistinguishable
+// textually, so the narrower set takes only the unambiguous command form and
+// leaves a genuine array-form runner to fail loudly rather than pass quietly.
 export function invocations(source) {
 	const scripts = new Set();
 	const runs = [];
 	const files = new Set();
+	const executed = new Set();
 	for (const [, name, rest] of source.matchAll(SCRIPT_INVOCATION)) {
 		scripts.add(name);
 		runs.push({ name, target: runTarget(rest) });
@@ -167,13 +208,15 @@ export function invocations(source) {
 	// the first, so each trailing path counts as reached.
 	for (const [, args] of source.matchAll(FILE_INVOCATION)) {
 		for (const file of args.match(FILE_ARGUMENT) ?? []) {
-			files.add(file.replace(/^\.\//, ""));
+			const path = file.replace(/^\.\//, "");
+			files.add(path);
+			executed.add(path);
 		}
 	}
 	for (const [, file] of source.matchAll(QUOTED_PATH)) {
 		files.add(file.replace(/^\.\//, ""));
 	}
-	return { scripts, runs, files };
+	return { scripts, runs, files, executed };
 }
 
 // Roots are the workflow sources; every script body and script file they reach
@@ -185,39 +228,53 @@ export function reachable({ scripts, workflowSources, readFile }) {
 	// one names: `--workspaces` runs a script the root manifest does not define,
 	// and that naming is the only thing that reaches it.
 	const workspaceRuns = [];
+	// The reached files CI runs rather than only names. A file a source merely
+	// quotes does not pass execution on to what its own body runs, so a runner
+	// named in a `paths:` filter cannot lend its execution to anything.
+	const executedFiles = new Set();
 	const queue = [];
+	const seen = new Set();
 
-	const visit = ({ scripts: named, runs, files }) => {
+	const push = (node) => {
+		const key = `${node.kind}\0${node.id}\0${node.executed}`;
+		if (seen.has(key)) return;
+		seen.add(key);
+		queue.push(node);
+	};
+
+	const visit = ({ scripts: named, runs, files, executed }, running) => {
 		for (const run of runs) {
 			if (run.target !== null) workspaceRuns.push(run);
 		}
 		for (const name of named) {
-			if (name in scripts && !reachedScripts.has(name)) {
-				reachedScripts.add(name);
-				queue.push({ kind: "script", id: name });
-			}
+			if (!(name in scripts)) continue;
+			reachedScripts.add(name);
+			push({ kind: "script", id: name, executed: running });
 		}
 		for (const file of files) {
-			if (!reachedFiles.has(file)) {
-				reachedFiles.add(file);
-				queue.push({ kind: "file", id: file });
-			}
+			reachedFiles.add(file);
+			const runsIt = running && executed.has(file);
+			if (runsIt) executedFiles.add(file);
+			push({ kind: "file", id: file, executed: runsIt });
 		}
 	};
 
+	// A workflow step is the one thing that runs unconditionally by construction.
 	for (const source of workflowSources) {
-		visit(invocations(stripComments(source, "yaml")));
+		visit(invocations(stripComments(source, "yaml")), true);
 	}
 	while (queue.length > 0) {
 		const node = queue.shift();
 		if (node.kind === "script") {
-			visit(invocations(scripts[node.id]));
+			visit(invocations(scripts[node.id]), node.executed);
 			continue;
 		}
 		const source = readFile(node.id);
-		if (source !== null) visit(invocations(stripComments(source, "js")));
+		if (source !== null) {
+			visit(invocations(stripComments(source, "js")), node.executed);
+		}
 	}
-	return { reachedScripts, reachedFiles, workspaceRuns };
+	return { reachedScripts, reachedFiles, executedFiles, workspaceRuns };
 }
 
 export function isGuarded(name) {
@@ -242,11 +299,12 @@ export function coverageViolations({
 	allowUnreachable = {},
 }) {
 	const violations = [];
-	const { reachedScripts, reachedFiles, workspaceRuns } = reachable({
-		scripts,
-		workflowSources,
-		readFile,
-	});
+	const { reachedScripts, reachedFiles, executedFiles, workspaceRuns } =
+		reachable({
+			scripts,
+			workflowSources,
+			readFile,
+		});
 
 	// A script CI never names, whose file CI runs directly, is covered: the
 	// script is an alias for work that happens either way.
@@ -275,7 +333,7 @@ export function coverageViolations({
 
 	for (const workspace of workspacesWithReachedRunner({
 		workspaces,
-		reachedFiles,
+		executedFiles,
 		readFile,
 	})) {
 		reach(workspace, WORKSPACE_SCRIPT);

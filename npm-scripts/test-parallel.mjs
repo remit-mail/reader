@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
 import { availableParallelism } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { undeclaredExclusions } from "./lib/ci-coverage.mjs";
 import { readWorkflowSources } from "./lib/workflows.mjs";
@@ -10,7 +10,12 @@ import {
 	WORKSPACE_SCRIPT,
 } from "./lib/workspace-suites.mjs";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+// The tree to run, this repo unless a path is given. The suite points it at a
+// fixture tree so the exclusion check below is exercised as the runner calls
+// it, not only as a pure function.
+const root = resolve(
+	process.argv[2] ?? join(dirname(fileURLToPath(import.meta.url)), ".."),
+);
 
 function runUnit({ name, command: [file, args] }) {
 	return new Promise((resolve) => {
