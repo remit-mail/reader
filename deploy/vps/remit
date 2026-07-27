@@ -265,6 +265,16 @@ require_deployment() {
 		die "no $COMPOSE_FILE in $REMIT_DIR — point \$REMIT_DIR at the install directory, or run install.sh"
 	[ -f "$REMIT_DIR/.env" ] ||
 		die "no .env in $REMIT_DIR — point \$REMIT_DIR at the install directory, or run install.sh"
+	# A present-but-unreadable .env is a local permission error, not a missing
+	# deployment. `docker compose --env-file .env` fails on it with "permission
+	# denied", which the pull-failure heuristic would otherwise read as a registry
+	# refusal (reader#273). Name it for what it is, and where it comes from.
+	[ -r "$REMIT_DIR/.env" ] ||
+		die "cannot read $REMIT_DIR/.env — the file exists but this user cannot read it.
+An earlier in-container update rewrote it as root before reader#273; check its
+owner with 'ls -l $REMIT_DIR/.env' and give it back to yourself:
+  sudo chown \$(id -u):\$(id -g) $REMIT_DIR/.env
+This is a local file-permission error, not a registry or network problem."
 }
 
 get_var() {
@@ -275,12 +285,50 @@ get_var() {
 	' "$REMIT_DIR/.env"
 }
 
+# Rewriting a file the operator owns must not change who owns it. Inside the
+# updater container this wrapper runs as root against the bind-mounted
+# deployment directory, so a plain write-temp-then-rename lands the replacement
+# root:root and locks the host user out of their own .env — a host-side
+# `docker compose --env-file .env` then dies on EACCES with the updater already
+# down and no operator on the box to chown it back (reader#273). Capture the
+# original's owner and mode before the write and restore them onto the
+# replacement; chown/chmod only take effect as root and degrade to no-ops at an
+# unprivileged shell, where the operator already owns everything anyway.
+
+# Emits "uid gid mode" for a path, coreutils `-c` first and BSD `-f` as the
+# fallback. Always succeeds: a stat that is absent or errors yields nothing and
+# still returns 0, so under set -eu it degrades to a no-op restore — the rewrite
+# still lands (root-owned, as before this existed) rather than aborting the whole
+# update before the tag is even written (reader#273).
+owner_mode_of() {
+	stat -c '%u %g %a' "$1" 2>/dev/null && return 0
+	stat -f '%u %g %Lp' "$1" 2>/dev/null || return 0
+}
+
+# Restores a captured "uid gid [mode]" onto a path, before it is renamed into
+# place. Best-effort by design: a chown that cannot run is the unprivileged
+# shell where it is already unnecessary.
+restore_owner_mode() {
+	_target=$1
+	# shellcheck disable=SC2086 # "uid gid [mode]" is split into fields on purpose
+	set -- $2
+	[ -n "${1:-}" ] && [ -n "${2:-}" ] || return 0
+	chown "$1:$2" "$_target" 2>/dev/null || true
+	if [ -n "${3:-}" ]; then
+		chmod "$3" "$_target" 2>/dev/null || true
+	fi
+	return 0
+}
+
 # The temp file holds FAKE_KMS_DATAKEY like the .env it replaces, so it is
 # created under a 077 umask rather than chmod'd after the write: a chmod after
-# the fact leaves the secrets world-readable for the length of the write.
+# the fact leaves the secrets world-readable for the length of the write. The
+# original's owner and mode are then restored onto it, so the rename preserves
+# who owns .env rather than adopting the temp file's writer (reader#273).
 set_var() {
 	_k=$1
 	_v=$2
+	_own=$(owner_mode_of "$REMIT_DIR/.env")
 	rm -f "$REMIT_DIR/.env.tmp"
 	(
 		umask 077
@@ -291,6 +339,7 @@ set_var() {
 			END { if (!done) print k "=" v }
 		' "$REMIT_DIR/.env" >"$REMIT_DIR/.env.tmp"
 	)
+	restore_owner_mode "$REMIT_DIR/.env.tmp" "$_own"
 	mv "$REMIT_DIR/.env.tmp" "$REMIT_DIR/.env"
 }
 
@@ -1590,6 +1639,11 @@ assert_bind_identity() {
 	_id_marker="$REMIT_DIR/.remit-mount-identity"
 	_id_token="identity-$(epoch)-$$"
 	printf '%s' "$_id_token" >"$_id_marker" 2>/dev/null || return 1
+	# Written as root in the updater; inherit the deployment directory's owner so
+	# a marker that outlives an interrupted preflight is not a stray root-owned
+	# file in the operator's directory (reader#273). The directory's uid:gid, not
+	# its mode — the marker is transient and its own mode does not matter.
+	restore_owner_mode "$_id_marker" "$(stat -c '%u %g' "$REMIT_DIR" 2>/dev/null || stat -f '%u %g' "$REMIT_DIR" 2>/dev/null)"
 	_id_seen=$(capped_run "$HELPER_RUN_TIMEOUT" docker run --rm -v "$REMIT_DIR:$REMIT_DIR" --entrypoint sh "$HELPER_IMAGE" \
 		-c "cat '$REMIT_DIR/.remit-mount-identity' 2>/dev/null" 2>/dev/null || true)
 	rm -f "$_id_marker"
