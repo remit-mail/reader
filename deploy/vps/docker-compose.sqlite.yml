@@ -298,6 +298,87 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------
+  # Observability profile (standalone-observability D13) — off by default, the
+  # same shape as `backup`. Enable with
+  # `docker compose -f docker-compose.sqlite.yml --env-file .env --profile observability up -d`.
+  #
+  # Two containers, for the two questions history answers: what did this service
+  # print, and what has this series done over the last month. Neither is required
+  # to run the stack, and an operator who already runs a scraper or a log shipper
+  # should point it at the containers instead (README.md, "Metrics").
+  #
+  # BOTH PUBLISH ON 127.0.0.1 ONLY, AND NEITHER GETS A CADDY ROUTE. dozzle serves
+  # every container's log lines with no authentication of its own, and on this box
+  # those lines are the richest source of exactly the personal data the design
+  # keeps out of an alert payload; vmui serves every series, per-account labels
+  # included. The loopback bind is the access control: the reader is someone who
+  # can already open a shell on the host. Reach either from a laptop with an SSH
+  # tunnel or over the box's tailnet address. The port numbers below are
+  # configurable; the `127.0.0.1` in front of them is not, and must not be
+  # removed.
+  # ---------------------------------------------------------------------
+  # Every container on the host daemon, not only this stack's. Scoping it to the
+  # compose project is one environment variable, and it is not set: it protects
+  # nothing (the socket is readable either way) and it gives the tool a way to
+  # show an empty list that reads exactly like a broken daemon.
+  dozzle:
+    image: amir20/dozzle:v10.6.11
+    profiles: ["observability"]
+    environment:
+      # The two outbound connections dozzle makes on its own: anonymous usage
+      # analytics, and a GitHub poll for its own newer releases. Nothing leaves
+      # this box that the operator did not ask to leave it.
+      DOZZLE_NO_ANALYTICS: "true"
+      DOZZLE_RELEASE_CHECK_MODE: manual
+      # Both already default to false; they are set here because the default is
+      # the security property, and a default is not a decision until it is
+      # written down. Actions let a browser with no credentials stop, start and
+      # restart this stack's containers; shell gives it a root shell inside one.
+      DOZZLE_ENABLE_ACTIONS: "false"
+      DOZZLE_ENABLE_SHELL: "false"
+    ports:
+      - "127.0.0.1:${REMIT_DOZZLE_PORT:-9999}:8080"
+    # Read-only, though that is a weaker guarantee than it looks: :ro stops a
+    # write to the socket file, not a write-shaped Docker API call over it.
+    # DOZZLE_ENABLE_ACTIONS is what keeps this container from driving the daemon.
+    #
+    # The source is configurable because a Podman host has no
+    # /var/run/docker.sock and refuses the mount rather than creating it, so the
+    # profile does not start there at all without REMIT_DOZZLE_SOCKET pointed at
+    # /run/podman/podman.sock. The target stays /var/run/docker.sock, which is
+    # where dozzle looks by default.
+    volumes:
+      - ${REMIT_DOZZLE_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+  # One binary: it scrapes the /metrics endpoints itself, stores the series, and
+  # serves vmui for queries and graphs — no separate agent, and no Grafana.
+  # No dashboards ship. vmui answers "what is the DLQ depth" and "when did that
+  # account last sync" with a query; a curated dashboard hardcodes metric names
+  # and breaks on the first rename, and a broken panel reads as a broken system.
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.148.0
+    profiles: ["observability"]
+    command:
+      - -promscrape.config=/etc/victoriametrics/scrape.yml
+      - -storageDataPath=/victoria-metrics-data
+      - -retentionPeriod=${REMIT_METRICS_RETENTION:-30d}
+      # Caps VictoriaMetrics' caches, which it otherwise sizes against 60% of
+      # host RAM. Not a cap on process RSS — this bounds the one allocation that
+      # scales with the host rather than with the workload, on a VPS that also
+      # has to sync mail.
+      - -memory.allowedBytes=256MB
+      # Its own internal series are not one of D3's signals and are not worth the
+      # cardinality here.
+      - -selfScrapeInterval=0
+    ports:
+      - "127.0.0.1:${REMIT_VMUI_PORT:-8428}:8428"
+    volumes:
+      - ./observability/scrape.yml:/etc/victoriametrics/scrape.yml:ro
+      - victoriametrics_data:/victoria-metrics-data
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------
   # Self-update driver (RFC 037 D4) — the remit wrapper in a container. The app
   # asks for an update by writing request.json onto updater_control; this
   # service watches that file and runs the same deploy/vps/remit an operator
@@ -364,3 +445,8 @@ volumes:
   # The backend<->updater control seam: request.json and state.json, and nothing
   # else. Mounted into those two services only.
   updater_control:
+  # The metrics history, written only by the observability profile — and created
+  # only when that profile runs, since compose creates a volume with the service
+  # that mounts it. Safe to remove: it holds a reconstructible view of the past,
+  # never state the stack reads back. `remit purge` destroys it with the rest.
+  victoriametrics_data:

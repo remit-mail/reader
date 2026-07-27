@@ -151,6 +151,34 @@ compose() {
 		"$@"
 }
 
+# Compose only sees a service whose profile is active. Every command that claims
+# to act on the whole deployment — stopping it, destroying it, listing what it
+# would destroy — has to say so, or it acts on the always-on services and
+# reports as though it acted on all of them. `remit purge` left dozzle running
+# with the docker socket and the metrics volume on disk for exactly that reason.
+#
+# Use this for the commands whose contract is "everything". Not for `up`: that
+# would start the optional profiles on a deployment that never asked for them.
+compose_all() {
+	docker compose \
+		--project-directory "$REMIT_DIR" \
+		-f "$REMIT_DIR/$COMPOSE_FILE" \
+		--env-file "$REMIT_DIR/.env" \
+		--profile '*' \
+		"$@"
+}
+
+# Containers that exist only because an optional profile was turned on. `remit`
+# never starts these, so a command that stops them has to tell the operator how
+# to get them back.
+running_profile_services() {
+	_always=$(compose config --services 2>/dev/null)
+	compose_all ps --services --status running 2>/dev/null | while IFS= read -r _svc; do
+		[ -n "$_svc" ] || continue
+		printf '%s\n' "$_always" | grep -qx "$_svc" || printf '%s ' "$_svc"
+	done
+}
+
 require_deployment() {
 	[ -f "$REMIT_DIR/$COMPOSE_FILE" ] ||
 		die "no $COMPOSE_FILE in $REMIT_DIR — point \$REMIT_DIR at the install directory, or run install.sh"
@@ -1887,9 +1915,11 @@ report_last_run() {
 
 cmd_down() {
 	require_deployment
+	_profiled=$(running_profile_services)
 	# stop, never `down`: the sqlite_data and message_storage volumes hold every
-	# account, credential and message body on this box.
-	compose stop
+	# account, credential and message body on this box. All profiles, or the
+	# line below claims nothing is served while an optional UI keeps serving.
+	compose_all stop
 	_origin=$(get_var PUBLIC_ORIGIN 2>/dev/null || true)
 	if [ -n "$_origin" ]; then
 		printf "remit is stopped: %s serves nothing until 'remit restart'.\n" "$_origin"
@@ -1897,6 +1927,44 @@ cmd_down() {
 		printf "remit is stopped: nothing is served until 'remit restart'.\n"
 	fi
 	printf "No data was removed — accounts, mail and settings come back with it.\n"
+	# `remit restart` starts the always-on services. Anything behind a profile
+	# was turned on by an explicit command and comes back the same way, so name
+	# it here rather than leaving the operator to find it stopped later.
+	if [ -n "$_profiled" ]; then
+		printf "\nAlso stopped, and not started by 'remit restart':\n  %s\n" "$_profiled"
+		printf "Bring them back with:\n"
+		printf "  docker compose -f %s --env-file .env --profile observability up -d\n" "$COMPOSE_FILE"
+	fi
+}
+
+# What each volume costs the operator, for the purge confirmation. A name with
+# no entry here still gets listed, labelled as undescribed: the list is derived
+# from the compose file so that a volume added later cannot go missing from the
+# message an operator reads at the moment they confirm destroying their data.
+volume_purpose() {
+	case "$1" in
+	sqlite_data) printf 'every account, message index, tag and setting' ;;
+	message_storage) printf 'the cached message bodies' ;;
+	queue_data) printf 'work still queued' ;;
+	caddy_data) printf 'the TLS certificates, including the internal root CA' ;;
+	caddy_config) printf "caddy's own state" ;;
+	updater_state) printf 'the update run log and the pre-update snapshots' ;;
+	updater_control) printf 'the backend/updater request seam' ;;
+	victoriametrics_data) printf 'the metrics history, if you ran the observability profile' ;;
+	*) printf 'added after this message was written — see %s' "$COMPOSE_FILE" ;;
+	esac
+}
+
+# Every volume the project declares, all profiles. An empty list would be a
+# confirmation prompt that understates what it is about to destroy, so it is a
+# failure rather than an empty section.
+purge_volume_list() {
+	_vols=$(compose_all config --volumes 2>/dev/null | grep -v '^[[:space:]]*$' || true)
+	[ -n "$_vols" ] ||
+		die "cannot read the volume list from $COMPOSE_FILE — refusing to ask you to confirm a purge without showing what it destroys"
+	printf '%s\n' "$_vols" | while IFS= read -r _v; do
+		printf '  %-21s %s\n' "$_v" "$(volume_purpose "$_v")"
+	done
 }
 
 # The one destructive command. --yes is the confirmation: the wrapper has to
@@ -1919,11 +1987,9 @@ purge would destroy this deployment's data. Nothing has been touched.
 
 It removes every container and network, and these volumes:
 
-  sqlite_data      every account, message index, tag and setting
-  message_storage  the cached message bodies
-  queue_data       work still queued
-  caddy_data       the TLS certificates, including the internal root CA
-  caddy_config     caddy's own state
+EOF
+		purge_volume_list >&2
+		cat >&2 <<EOF
 
 Your accounts and everything you have organised in the app are gone with
 sqlite_data and do not come back. Message bodies do: they are a cache of IMAP,
@@ -1942,7 +2008,11 @@ Run 'remit purge --yes' if this is what you want.
 EOF
 		exit 1
 	fi
-	compose down -v --remove-orphans
+	# All profiles: without it the optional containers survive the command whose
+	# whole contract is that nothing is left, dozzle keeps the docker socket
+	# under restart: unless-stopped, its volume keeps the per-account series, and
+	# the network cannot be removed because something is still on it.
+	compose_all down -v --remove-orphans
 	printf "\nremit is purged. %s/.env and the compose files are untouched;\n" "$REMIT_DIR"
 	printf "'remit restart' brings up an empty stack.\n"
 }

@@ -1,0 +1,46 @@
+# What VictoriaMetrics scrapes when the `observability` profile is on
+# (docs/design/standalone-observability.md D2/D3/D13).
+#
+# Six targets: the two services that already had a listener, and the four
+# workers whose only listener is /metrics. Every one is a compose service name
+# on the internal network — nothing here reaches outside the stack, and nothing
+# outside the stack reaches these ports.
+#
+# Ports are the ones the services listen on and are not configurable: `backend`
+# and `queue` serve /metrics on their existing port, and the workers on 9464
+# (METRICS_PORT). Change one of those and this file has to change with it.
+
+global:
+  # A sync round is minutes and the freshness window is 60 s, so a 15 s scrape
+  # would only buy resolution on nothing. 30 s keeps the series count, the disk
+  # and the scrape cost of six Node processes all small.
+  scrape_interval: 30s
+  # Well under the interval: a scrape that hangs must fail and show as a down
+  # target rather than overlapping the next one. A /metrics response here reads
+  # the database for the sync-age and queue-depth gauges, so it is not free.
+  scrape_timeout: 10s
+
+scrape_configs:
+  # One job, because these are one deployment. `service` is the label to group
+  # and filter on; `instance` carries host:port and is rarely what you want.
+  - job_name: remit
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:8080"]
+        labels:
+          service: backend
+      - targets: ["queue:9324"]
+        labels:
+          service: queue
+      - targets: ["imap-worker:9464"]
+        labels:
+          service: imap-worker
+      - targets: ["smtp-worker:9464"]
+        labels:
+          service: smtp-worker
+      - targets: ["account-worker:9464"]
+        labels:
+          service: account-worker
+      - targets: ["search-index-worker:9464"]
+        labels:
+          service: search-index-worker

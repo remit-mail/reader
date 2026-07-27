@@ -2,7 +2,8 @@
 
 A single-VM deployment: Docker Compose on one small box, running the published
 `ghcr.io/remit-mail/reader/*` images plus two upstream images (`caddy`,
-`alpine`). All relational state lives in two SQLite files on one
+`alpine`) and, behind optional profiles, two more (`dozzle`,
+`victoria-metrics`). All relational state lives in two SQLite files on one
 local volume — there is no database server to run. Message bodies are cached
 on a second volume and can always be re-synced from IMAP.
 
@@ -171,6 +172,8 @@ itself (Settings → Add account).
 | `migrate` | `ghcr.io/remit-mail/reader/backend` (command override) | One-shot: applies the SQLite migrations and the FTS5 search index before any app service starts. |
 | `volume-init` | `ghcr.io/remit-mail/reader/backend` (entrypoint override) | One-shot: fixes ownership of the data volumes so the non-root app user can write them. |
 | `backup` | `alpine:3.23` | Off by default (`profiles: ["backup"]`). Nightly encrypted database snapshot. See [Backups](#backups). |
+| `dozzle` | `amir20/dozzle` | Off by default (`profiles: ["observability"]`). Live log tail and search. Binds `127.0.0.1` only. See [Looking at the box](#looking-at-the-box). |
+| `victoriametrics` | `victoriametrics/victoria-metrics` | Off by default (`profiles: ["observability"]`). Scrapes the `/metrics` endpoints, stores the series, serves the query UI. Binds `127.0.0.1` only. |
 
 The relational store and the better-auth identity tables share one file
 (`/data/sqlite/remit.db`); the vector store keeps its data in a second file
@@ -182,6 +185,8 @@ backed up by the nightly snapshot below (see [Backups](#backups)).
 
 The idle footprint stays small: removing a database server leaves the embedding
 model in `search-index-worker` as the largest resident once indexing has run.
+The `observability` profile adds about 30 MB resident on top of that, measured
+rather than estimated — see [Looking at the box](#looking-at-the-box).
 
 ## Search
 
@@ -392,13 +397,24 @@ One host setting needs attention before the first start, checked by the
 installer:
 
 - **Short image names.** The `ghcr.io/remit-mail/reader/*` images are fully
-  qualified and unaffected; the upstream images (`caddy`, `alpine`)
-  are pulled by short name. A fresh Podman install has no
-  unqualified-search-registries and refuses them
+  qualified and unaffected; the upstream images (`caddy`, `alpine`, and
+  `amir20/dozzle` and `victoriametrics/victoria-metrics` behind the
+  `observability` profile) are pulled by short name. A fresh Podman install has
+  no unqualified-search-registries and refuses them
   (`short-name "caddy:2-alpine" did not resolve to an alias`). Fix:
   ```
   echo 'unqualified-search-registries = ["docker.io"]' | sudo tee /etc/containers/registries.conf
   ```
+
+- **The observability profile's log viewer needs the socket path.** dozzle reads
+  container logs from the host socket, and the compose default is Docker's
+  `/var/run/docker.sock`. That path does not exist on a Podman host, and Podman
+  refuses the mount rather than creating it, so `--profile observability up -d`
+  fails outright. Point it at Podman's socket in `.env`:
+  ```
+  REMIT_DOZZLE_SOCKET=/run/podman/podman.sock
+  ```
+  `victoriametrics` needs nothing — it reads over the network, not the socket.
 
 Rootless Podman also runs the stack, with one more setting:
 `net.ipv4.ip_unprivileged_port_start=80` (`sysctl -w`, or persist it in
@@ -535,7 +551,9 @@ host ports remain caddy's 80 and 443.
 Point any scraper you already run at the containers: Prometheus, VictoriaMetrics,
 Grafana Alloy, a Datadog agent, an OpenTelemetry collector. Nothing is ever
 pushed, so an operator who runs no scraper pays for an unused route and the box
-makes no outbound connection.
+makes no outbound connection. If you run none and want one on the box, the
+optional `observability` profile is a scraper and a query UI in one container —
+see [Looking at the box](#looking-at-the-box).
 
 | Series | From |
 |---|---|
@@ -574,6 +592,132 @@ Read a series from the host with `docker compose exec`:
 docker compose -f docker-compose.sqlite.yml --env-file .env exec queue \
   node -e 'require("http").get("http://127.0.0.1:9324/metrics",r=>r.pipe(process.stdout))'
 ```
+
+## Looking at the box
+
+The `observability` profile puts two UIs on the box: one for logs, one for
+metrics. It is off unless you ask for it, and it is for operators who want
+history and a chart rather than a point-in-time answer. If you already run
+Prometheus, Grafana, a Datadog agent or an OpenTelemetry collector, don't enable
+it — point what you have at the `/metrics` endpoints above.
+
+- **dozzle** — every container's log, live, with search across services. This is
+  `remit logs` with a scrollback and a filter box. It stores nothing.
+- **VictoriaMetrics** — scrapes the six `/metrics` endpoints, keeps the series,
+  and serves `vmui` to query and graph them. It answers "when did that account
+  last sync" and "has this DLQ ever been non-zero", which no live view can.
+
+No dashboards ship. `vmui` is the interface: type a query, get a graph.
+
+### Turn it on
+
+```bash
+cd <install dir>
+docker compose -f docker-compose.sqlite.yml --env-file .env --profile observability up -d
+```
+
+Both containers come back on reboot and survive `remit update`, which restarts
+whatever was running. Turn the profile off again with:
+
+```bash
+docker compose -f docker-compose.sqlite.yml --env-file .env stop dozzle victoriametrics
+docker compose -f docker-compose.sqlite.yml --env-file .env rm -f dozzle victoriametrics
+```
+
+The metrics survive that; they are on their own volume. `docker volume rm
+remit_victoriametrics_data` discards the history.
+
+`remit down` stops these two along with everything else and prints the command
+to bring them back — `remit restart` starts the always-on services only, because
+nothing behind a profile is started for you. `remit purge` destroys both
+containers and the metrics volume with the rest of the deployment.
+
+### Reach them
+
+**Neither is on the public origin, and neither has a password.** Both bind
+`127.0.0.1` on the box and get no Caddy route. dozzle shows every log line the
+stack writes, which on a mail server includes addresses and subjects in error
+messages; `vmui` shows every series, per-account labels included. The loopback
+bind is what protects them — do not "fix" it by publishing the port or adding a
+Caddy route.
+
+So you reach them from your laptop over an SSH tunnel:
+
+```bash
+ssh -N -L 9999:127.0.0.1:9999 -L 8428:127.0.0.1:8428 you@your-box
+```
+
+Then open <http://127.0.0.1:9999> for logs and
+<http://127.0.0.1:8428/vmui/> for metrics.
+
+On a tailnet, `tailscale serve` reaches them without a tunnel. It terminates on
+the box and forwards to loopback, so the compose bind does not change:
+
+```bash
+tailscale serve --bg --https 8443 http://127.0.0.1:8428
+tailscale serve --bg --https 9443 http://127.0.0.1:9999
+```
+
+That makes both readable by every device on your tailnet, not only by you.
+Neither asks for a password, so treat it as the same decision as handing out a
+shell on the box.
+
+Change the loopback ports in `.env` if something else on the host already holds
+one: `REMIT_DOZZLE_PORT` and `REMIT_VMUI_PORT`. The `127.0.0.1` in front of them
+is not configurable.
+
+On Podman, set `REMIT_DOZZLE_SOCKET=/run/podman/podman.sock` as well — see
+[Podman](#podman).
+
+### First queries
+
+In `vmui`, the query box takes PromQL. Start with these:
+
+| Question | Query |
+|---|---|
+| Is anything quarantined? | `remit_queue_messages{role="dead_letter"} > 0` |
+| Is work piling up? | `remit_queue_messages{role="work"}` |
+| When did each account last finish a sync round? | `remit_account_sync_age_seconds` |
+| Is an account's password or OAuth grant broken? | `increase(remit_imap_failures_total{kind="auth"}[1h])` |
+| Which handlers are failing? | `sum by (queue, event_type) (increase(remit_queue_event_duration_seconds_count{outcome="failure"}[1h]))` |
+| Is a service being scraped at all? | `up` — `0` means the endpoint stopped answering |
+
+`up` is the one to check first when a graph goes flat: a series that stops
+because the container died looks exactly like a series that stops because
+nothing happened.
+
+### What it costs
+
+Measured against a month of stored series, not an empty start:
+
+| | Resident memory | Disk |
+|---|---|---|
+| `dozzle` | ~10 MB | none — it stores nothing |
+| `victoriametrics` | 14 MB at start, ~21 MB settled | under 3 MB per 30 days |
+
+About 30 MB together at rest. A query spanning the whole retention window is the
+expensive thing either does: `victoriametrics` reached 37 MB straight after
+running every query in the table above across 30 days, and released it.
+
+`-memory.allowedBytes=256MB` bounds VictoriaMetrics' **caches**, which it
+otherwise sizes against 60% of host RAM. It is not a ceiling on process memory —
+a bulk import will exceed it — but this deployment writes 88 series every 30
+seconds, so the cache sizing is the only part that would scale with the host
+rather than with the work.
+
+Retention defaults to **30 days**, set with `REMIT_METRICS_RETENTION` in `.env`.
+The suffixes are `h d w M y`, and **`M` is months while `m` is minutes** —
+`12m` is twelve minutes and VictoriaMetrics rejects it outright, so write twelve
+months as `12M`. `30d`, `90d`, `1w`, `12M` and `1y` are all accepted.
+
+The disk figure is a measurement: 30 days of these series backfilled at a 30 s
+step occupied 0.7 MB when the values sit still, 2.8 MB when they move. Accounts
+add a handful of series each, so a year of history is still tens of MB. Set
+retention by how far back you want to look, not by disk.
+
+Metrics live on their own `victoriametrics_data` volume and are never backed up.
+They are a reconstructible view of the past; losing them costs history, not
+state.
 
 ## Queue failures: watch the dead-letter queues
 
