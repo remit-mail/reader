@@ -11,6 +11,7 @@ import type { SelectionModifiers } from "@/hooks/useSelection";
 import { toDisplayCategory } from "@/lib/display-category";
 import { formatEmailDate } from "@/lib/format";
 import { MessageListItem } from "./MessageListItem";
+import { useModifierSelect } from "./useModifierSelect";
 
 interface MailboxLinkSearch {
 	selectedMessageId?: string;
@@ -99,6 +100,11 @@ export const SwipeableMessageRow = ({
 		onToggleCheck(thread.messageId);
 	}, [onToggleCheck, thread.messageId]);
 
+	// The swipe row is the layout tier's row, not the input device's: a mouse at
+	// a narrow width still gets it, and a shift or cmd click on it belongs to
+	// selection rather than to the anchor's own new-window/new-tab gesture.
+	const modifierSelect = useModifierSelect(thread.messageId, onRowSelect);
+
 	if (isDesktop || isMultiSelectMode) {
 		return (
 			<MessageListItem
@@ -141,7 +147,12 @@ export const SwipeableMessageRow = ({
 						selectedMessageId: thread.messageId,
 					})}
 					data-message-row
-					onClick={onOpenClick}
+					onMouseDown={modifierSelect.onMouseDown}
+					onContextMenu={modifierSelect.onContextMenu}
+					onClick={(e) => {
+						if (modifierSelect.claimClick(e)) return;
+						onOpenClick(e);
+					}}
 				>
 					{children}
 				</Link>

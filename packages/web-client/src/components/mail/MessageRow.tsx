@@ -28,6 +28,7 @@ import { type MouseEvent, memo, type ReactNode, useCallback } from "react";
 import type { SelectionModifiers } from "@/hooks/useSelection";
 import { cn } from "@/lib/utils";
 import { useThreadRowInteraction } from "./ThreadListInteraction";
+import { modifiersOf, useModifierSelect } from "./useModifierSelect";
 
 interface MailboxLinkSearch {
 	selectedMessageId?: string;
@@ -125,21 +126,18 @@ const MessageRowComponent = ({
 		[onToggleCheck, messageId],
 	);
 
-	// Desktop mouse selection semantics. Plain click falls through to the Link's
-	// navigation (or `onClick` on a non-linking row); shift / cmd / ctrl click is
-	// routed to selection and the navigation is suppressed.
-	//
-	// A modified click must preventDefault: the router skips navigation for any
-	// modified click and leaves the anchor's own default in place, which in a
-	// browser means shift-click opens a new window and cmd-click a new tab.
-	// Shift-click also drags a native text selection across the rows it spans,
-	// so drop it — the row highlight is the selection the user asked for.
+	const modifierSelect = useModifierSelect(messageId, onRowSelect);
+
+	// A plain click falls through to the Link's navigation (or `onClick` on a
+	// non-linking row). A modified click belongs to selection and is consumed by
+	// `claimClick`, whichever of the press or the click the engine delivered.
 	//
 	// On mobile, once selection mode is active (#92) a plain tap toggles the row
 	// instead of opening it — the same tap-to-toggle contract every reference
 	// mail client uses once you're mid-selection.
 	const handleRowClick = useCallback(
 		(e: MouseEvent) => {
+			if (modifierSelect.claimClick(e)) return;
 			if (!isDesktop) {
 				if (isMultiSelectMode) {
 					e.preventDefault();
@@ -150,20 +148,13 @@ const MessageRowComponent = ({
 				onClick?.();
 				return;
 			}
-			const modifiers = {
-				shiftKey: e.shiftKey,
-				metaKey: e.metaKey,
-				ctrlKey: e.ctrlKey,
-			};
-			if (onRowSelect?.(messageId, modifiers)) {
-				e.preventDefault();
-				e.stopPropagation();
-				if (modifiers.shiftKey) window.getSelection()?.removeAllRanges();
-				return;
-			}
+			// A plain desktop click collapses any multi-selection and re-anchors it
+			// before the row opens.
+			onRowSelect?.(messageId, modifiersOf(e));
 			onClick?.();
 		},
 		[
+			modifierSelect,
 			isDesktop,
 			isMultiSelectMode,
 			onToggleCheck,
@@ -171,16 +162,6 @@ const MessageRowComponent = ({
 			onClick,
 			messageId,
 		],
-	);
-
-	// Shift-click starts a native text selection on mousedown; suppressing it
-	// there keeps the drag from painting a text range over the rows.
-	const handleRowMouseDown = useCallback(
-		(e: MouseEvent) => {
-			if (!isDesktop) return;
-			if (e.shiftKey) e.preventDefault();
-		},
-		[isDesktop],
 	);
 
 	const handleLongPress = useCallback(() => {
@@ -222,7 +203,8 @@ const MessageRowComponent = ({
 				: {}),
 			tabIndex: isTabStop ? 0 : -1,
 			onClick: handleRowClick,
-			onMouseDown: handleRowMouseDown,
+			onMouseDown: modifierSelect.onMouseDown,
+			onContextMenu: modifierSelect.onContextMenu,
 			onMouseEnter: prefetchMessage,
 			onFocus: handleRowFocus,
 		},
