@@ -408,6 +408,11 @@ services:
       DOCTOR_DWELL_CHECKS: ${DOCTOR_DWELL_CHECKS:-}
       DOCTOR_SYNC_AGE_MAX_SECONDS: ${DOCTOR_SYNC_AGE_MAX_SECONDS:-}
       DOCTOR_HEARTBEAT_MAX_AGE_SECONDS: ${DOCTOR_HEARTBEAT_MAX_AGE_SECONDS:-}
+      DOCTOR_AUTH_FAILURE_HOLD_SECONDS: ${DOCTOR_AUTH_FAILURE_HOLD_SECONDS:-}
+      # Named DOCTOR_LOG_LEVEL rather than LOG_LEVEL because the block above is
+      # DOCTOR_* only, on purpose. A plain LOG_LEVEL could never reach this
+      # container, so the per-check verdict line could never be turned on.
+      DOCTOR_LOG_LEVEL: ${DOCTOR_LOG_LEVEL:-}
     volumes:
       - heartbeat:/data/heartbeat:ro
       - doctor_state:/data/doctor

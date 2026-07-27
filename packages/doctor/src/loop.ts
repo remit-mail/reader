@@ -2,15 +2,16 @@ import { attempt } from "./attempt.js";
 import type { DoctorConfig } from "./config.js";
 import { advance } from "./dwell.js";
 import type { Log } from "./log.js";
-import type { DoctorState } from "./state.js";
+import type { CounterState, DoctorState } from "./state.js";
 import type { CheckResult } from "./verdict.js";
+import type { Delivery } from "./webhook.js";
 
 export interface LoopDependencies {
 	readonly runCheck: (
-		counters: Readonly<Record<string, number>>,
+		counters: Readonly<Record<string, CounterState>>,
 	) => Promise<CheckResult>;
 	readonly saveState: (state: DoctorState) => Promise<void>;
-	readonly postWebhook: (result: CheckResult) => Promise<void>;
+	readonly postWebhook: (result: CheckResult) => Promise<Delivery>;
 	readonly pingDeadMan: () => Promise<void>;
 	readonly now: () => Date;
 	readonly log: Log;
@@ -19,12 +20,23 @@ export interface LoopDependencies {
 /**
  * One turn of the loop: check, decide, announce a settled change, record, ping.
  *
- * The state is written before the webhook is posted. A transition is spent when
- * it is decided, not when it is delivered (D8/D12): a checker that crashed
- * between the two would otherwise come back and announce the same condition
- * again, and a repeated alert is the noise the dwell rule exists to remove. A
- * delivery that fails is reported in the log and caught by the dead-man's
- * switch, which is what notices a webhook path that has stopped working.
+ * A transition is spent when the endpoint has answered about it, not when it is
+ * decided. A payload an endpoint rejects (4xx) is a decision that repeating
+ * cannot change, so `firedVerdict` advances and the operator gets one error
+ * line. A payload that never arrived — a timeout, a refused connection, a 5xx —
+ * is not a decision, so `firedVerdict` is left where it was and the next check
+ * announces the same transition again. `candidateRuns` is already pinned at the
+ * dwell count, so the retry is immediate rather than another three checks away.
+ *
+ * The dead-man's switch cannot cover a lost delivery. It is a different URL at
+ * a different provider and it answers 200 all week while a webhook is down, so
+ * without the retry one transient 5xx on the firing check is an outage the
+ * operator is never told about, and the next thing they hear is the recovery.
+ *
+ * The state is written after the attempt, which means a crash in the gap
+ * between a delivered alert and the write re-announces once on restart. That is
+ * the cheaper of the two failures: a duplicate is noise, a dropped outage alert
+ * is the thing this exists to prevent.
  *
  * The dead-man ping is last and unconditional on the verdict. It reports that
  * the checker is running, not what the checker found — a scrape failure
@@ -54,20 +66,32 @@ export const runOnce = async (
 		"doctor: check complete",
 	);
 
-	await deps.saveState(transition.state);
-
+	let next = transition.state;
 	const fired = transition.fires;
 	if (fired !== undefined && config.webhookUrl !== undefined) {
 		const delivery = await attempt(deps.postWebhook(result));
-		if (delivery.ok) {
+		const outcome: Delivery = delivery.ok
+			? delivery.value
+			: { kind: "unreachable", detail: delivery.error };
+		if (outcome.kind === "sent") {
 			deps.log.info({ verdict: fired }, "doctor: alert sent");
-		} else {
+		} else if (outcome.kind === "rejected") {
 			deps.log.error(
-				{ verdict: fired, error: delivery.error },
-				"doctor: alert delivery failed; the transition is spent",
+				{ verdict: fired, error: outcome.detail },
+				"doctor: the webhook refused this payload; the transition is spent",
+			);
+		} else {
+			// Roll the announcement back. Everything else the check learned —
+			// the counter baselines, the settled run — is kept.
+			next = { ...next, firedVerdict: state.firedVerdict };
+			deps.log.error(
+				{ verdict: fired, error: outcome.detail },
+				"doctor: the webhook could not be reached; retrying on the next check",
 			);
 		}
 	}
+
+	await deps.saveState(next);
 
 	if (config.deadManUrl !== undefined) {
 		const ping = await attempt(deps.pingDeadMan());
@@ -76,7 +100,7 @@ export const runOnce = async (
 		}
 	}
 
-	return transition.state;
+	return next;
 };
 
 export interface RunLoopOptions {

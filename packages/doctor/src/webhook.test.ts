@@ -170,7 +170,7 @@ describe("what a payload may carry", () => {
 describe("postWebhook", () => {
 	it("posts the rendered body with the declared content type", async () => {
 		let seen: { url: string; init: RequestInit } | undefined;
-		await postWebhook(
+		const outcome = await postWebhook(
 			{
 				url: "https://hooks.example/x",
 				template: undefined,
@@ -189,22 +189,53 @@ describe("postWebhook", () => {
 			"content-type": "application/json",
 		});
 		assert.doesNotThrow(() => JSON.parse(String(seen?.init.body)));
+		assert.deepEqual(outcome, { kind: "sent" });
 	});
 
-	it("reports a rejected payload rather than swallowing it", async () => {
-		await assert.rejects(
-			postWebhook(
-				{
-					url: "https://hooks.example/x",
-					template: undefined,
-					contentType: "application/json",
-					timeoutMs: 1000,
-				},
-				result("healthy"),
-				(async () =>
-					new Response("no_text", { status: 400 })) as unknown as typeof fetch,
-			),
-			/HTTP 400/,
+	const deliver = (responder: () => Promise<Response>) =>
+		postWebhook(
+			{
+				url: "https://hooks.example/x",
+				template: undefined,
+				contentType: "application/json",
+				timeoutMs: 1000,
+			},
+			result("healthy"),
+			responder as unknown as typeof fetch,
+		);
+
+	// The split that decides whether a transition is spent or retried. A wrong
+	// answer either way is a real cost: retrying a 4xx forever, or losing an
+	// outage alert to one transient 503.
+	it("reads a 4xx as the endpoint refusing this payload", async () => {
+		for (const status of [400, 401, 403, 404, 410, 422]) {
+			assert.deepEqual(
+				await deliver(async () => new Response("no", { status })),
+				{ kind: "rejected", detail: `HTTP ${status}` },
+			);
+		}
+	});
+
+	it("reads a 5xx, a 429 and a transport failure as never having arrived", async () => {
+		for (const status of [500, 502, 503, 504, 429]) {
+			assert.deepEqual(
+				await deliver(async () => new Response("", { status })),
+				{ kind: "unreachable", detail: `HTTP ${status}` },
+			);
+		}
+		assert.deepEqual(
+			await deliver(async () => {
+				throw new Error("socket hang up");
+			}),
+			{ kind: "unreachable", detail: "socket hang up" },
+		);
+	});
+
+	it("never throws, so the loop always reaches the dead-man ping", async () => {
+		await assert.doesNotReject(
+			deliver(async () => {
+				throw new Error("boom");
+			}),
 		);
 	});
 });

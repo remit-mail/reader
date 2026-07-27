@@ -1,6 +1,6 @@
 import { runCheck } from "./check.js";
 import { loadConfig } from "./config.js";
-import { describeError, log } from "./log.js";
+import { describeError, log, setLogLevel } from "./log.js";
 import {
 	exitCodeFor,
 	NO_VERDICT_EXIT_CODE,
@@ -28,6 +28,7 @@ const json = process.argv.includes("--json");
 
 const check = async (): Promise<number> => {
 	const config = loadConfig();
+	setLogLevel(config.logLevel);
 	const state = await readState(config.stateDir);
 	const result = await runCheck(config, state.counters);
 	process.stdout.write(json ? renderJson(result) : renderLines(result));

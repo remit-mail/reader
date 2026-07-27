@@ -24,7 +24,9 @@ const result = (verdict: Verdict): CheckResult => ({
 						detail: undefined,
 					},
 				],
-	counters: { "imap-worker:imap_auth_failures": 1 },
+	counters: {
+		"imap-worker:imap_auth_failures": { total: 1, lastRoseAt: null },
+	},
 });
 
 interface Recorder {
@@ -54,6 +56,7 @@ const recorder = (
 			},
 			postWebhook: async (check) => {
 				posted.push(check.verdict);
+				return { kind: "sent" as const };
 			},
 			pingDeadMan: async () => {
 				pings.push(pings.length);
@@ -99,27 +102,85 @@ describe("runOnce", () => {
 	it("carries the counter baseline forward into the persisted state", async () => {
 		const rec = recorder(["healthy"]);
 		const state = await runOnce(rec.deps, configured, initialState);
-		assert.deepEqual(state.counters, { "imap-worker:imap_auth_failures": 1 });
+		assert.deepEqual(state.counters, {
+			"imap-worker:imap_auth_failures": { total: 1, lastRoseAt: null },
+		});
 	});
 
-	it("spends the transition when delivery fails, rather than retrying every check", async () => {
-		const rec = recorder(
-			["degraded", "degraded", "degraded", "degraded", "degraded"],
-			{
-				postWebhook: async () => {
-					throw new Error("HTTP 400");
-				},
+	it("spends the transition on a payload the endpoint refused", async () => {
+		// A 4xx is the endpoint deciding about this body — a template written
+		// wrong, a revoked URL. Repeating it produces the same answer forever.
+		let attempts = 0;
+		const rec = recorder(new Array(6).fill("degraded"), {
+			postWebhook: async () => {
+				attempts += 1;
+				return { kind: "rejected" as const, detail: "HTTP 400" };
 			},
-		);
+		});
+		let state = initialState;
+		for (let turn = 0; turn < 6; turn += 1) {
+			state = await runOnce(rec.deps, configured, state);
+		}
+		assert.equal(attempts, 1);
+		assert.equal(state.firedVerdict, "degraded");
+		assert.equal(rec.pings.length, 6);
+	});
+
+	it("retries a transition the endpoint never received, on the next check", async () => {
+		// One transient 5xx on the firing check used to lose the outage alert
+		// outright: the dead-man's switch is a different URL at a different
+		// provider and keeps answering 200 while the webhook is down.
+		let attempts = 0;
+		const rec = recorder(new Array(6).fill("degraded"), {
+			postWebhook: async () => {
+				attempts += 1;
+				return attempts < 3
+					? { kind: "unreachable" as const, detail: "HTTP 503" }
+					: { kind: "sent" as const };
+			},
+		});
+		let state = initialState;
+		for (let turn = 0; turn < 6; turn += 1) {
+			state = await runOnce(rec.deps, configured, state);
+			if (turn < 2) assert.equal(state.firedVerdict, "healthy", `turn ${turn}`);
+		}
+		// Tried on the settling check and on each of the two after it, then landed
+		// and stopped.
+		assert.equal(attempts, 3);
+		assert.equal(state.firedVerdict, "degraded");
+	});
+
+	it("treats a thrown delivery as unreachable, not as a decision", async () => {
+		let attempts = 0;
+		const rec = recorder(new Array(5).fill("degraded"), {
+			postWebhook: async () => {
+				attempts += 1;
+				throw new Error("socket hang up");
+			},
+		});
 		let state = initialState;
 		for (let turn = 0; turn < 5; turn += 1) {
 			state = await runOnce(rec.deps, configured, state);
 		}
-		assert.equal(state.firedVerdict, "degraded");
-		assert.equal(rec.pings.length, 5);
+		assert.equal(attempts, 3);
+		assert.equal(state.firedVerdict, "healthy");
 	});
 
-	it("still pings when the webhook throws", async () => {
+	it("keeps the settled run while retrying, so the retry is not another dwell away", async () => {
+		const rec = recorder(new Array(4).fill("degraded"), {
+			postWebhook: async () => ({
+				kind: "unreachable" as const,
+				detail: "HTTP 503",
+			}),
+		});
+		let state = initialState;
+		for (let turn = 0; turn < 4; turn += 1) {
+			state = await runOnce(rec.deps, configured, state);
+		}
+		assert.equal(state.candidateRuns, 3);
+	});
+
+	it("still pings when the webhook cannot be delivered", async () => {
 		const rec = recorder(["degraded", "degraded", "degraded"], {
 			postWebhook: async () => {
 				throw new Error("HTTP 400");
@@ -141,7 +202,7 @@ describe("runOnce", () => {
 		await assert.doesNotReject(runOnce(rec.deps, configured, initialState));
 	});
 
-	it("records the decision before it announces it, so a crash cannot double-announce", async () => {
+	it("records the decision only after the endpoint has answered about it", async () => {
 		const order: string[] = [];
 		const rec = recorder(["degraded", "degraded", "degraded"], {
 			saveState: async () => {
@@ -149,13 +210,17 @@ describe("runOnce", () => {
 			},
 			postWebhook: async () => {
 				order.push("post");
+				return { kind: "sent" as const };
 			},
 		});
 		let state = initialState;
 		for (let turn = 0; turn < 3; turn += 1) {
 			state = await runOnce(rec.deps, configured, state);
 		}
-		assert.deepEqual(order, ["save", "save", "save", "post"]);
+		// The write follows the post, so a crash in the gap re-announces once.
+		// A duplicate is noise; a dropped outage alert is the failure this exists
+		// to prevent.
+		assert.deepEqual(order, ["save", "save", "post", "save"]);
 	});
 
 	it("sends nothing at all when no webhook is configured", async () => {

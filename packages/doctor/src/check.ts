@@ -1,6 +1,7 @@
 import type { DoctorConfig } from "./config.js";
 import { readHeartbeats } from "./heartbeats.js";
 import { type Fetcher, scrapeAll } from "./scrape.js";
+import type { CounterState } from "./state.js";
 import { type CheckResult, evaluate } from "./verdict.js";
 
 /**
@@ -11,7 +12,7 @@ import { type CheckResult, evaluate } from "./verdict.js";
  */
 export const runCheck = async (
 	config: DoctorConfig,
-	previousCounters: Readonly<Record<string, number>>,
+	previousCounters: Readonly<Record<string, CounterState>>,
 	now: Date = new Date(),
 	fetcher: Fetcher = fetch,
 ): Promise<CheckResult> => {
@@ -29,6 +30,7 @@ export const runCheck = async (
 		previousCounters,
 		heartbeatMaxAgeSeconds: config.heartbeatMaxAgeSeconds,
 		syncAgeMaxSeconds: config.syncAgeMaxSeconds,
+		authFailureHoldSeconds: config.authFailureHoldSeconds,
 		now,
 	});
 };

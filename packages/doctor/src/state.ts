@@ -12,15 +12,32 @@ import type { Verdict } from "./verdict.js";
  * reported, which is precisely the noise D8 exists to remove — and a checker
  * with `restart: unless-stopped` restarts on every `remit update`.
  */
+export const STATE_VERSION = 2;
+
+/**
+ * A counter's last observed total, and when it last went up.
+ *
+ * The total is the baseline a delta is measured against. `lastRoseAt` is what
+ * makes the signal a condition rather than an instant: authentication failures
+ * arrive in one burst per sync tick, so the quiet hour between two bursts is
+ * not a recovery, and a reason that is true for one check in sixty can never
+ * satisfy a three-check dwell.
+ */
+export interface CounterState {
+	readonly total: number;
+	/** Epoch milliseconds, or `null` when it has not risen since first seen. */
+	readonly lastRoseAt: number | null;
+}
+
 export interface DoctorState {
-	readonly version: 1;
+	readonly version: typeof STATE_VERSION;
 	/** The last verdict actually sent. Never null: a fresh install is healthy. */
 	readonly firedVerdict: Verdict;
 	/** The verdict the run below is counting. */
 	readonly candidateVerdict: Verdict;
 	/** Consecutive checks that have agreed on `candidateVerdict`. */
 	readonly candidateRuns: number;
-	readonly counters: Readonly<Record<string, number>>;
+	readonly counters: Readonly<Record<string, CounterState>>;
 	readonly updatedAt: string | undefined;
 }
 
@@ -32,7 +49,7 @@ export interface DoctorState {
  * is wrong.
  */
 export const initialState: DoctorState = {
-	version: 1,
+	version: STATE_VERSION,
 	firedVerdict: "healthy",
 	candidateVerdict: "healthy",
 	candidateRuns: 0,
@@ -43,11 +60,18 @@ export const initialState: DoctorState = {
 const isVerdict = (value: unknown): value is Verdict =>
 	value === "healthy" || value === "degraded";
 
-const isCounters = (value: unknown): value is Record<string, number> =>
+const isCounterState = (value: unknown): value is CounterState =>
+	typeof value === "object" &&
+	value !== null &&
+	typeof (value as CounterState).total === "number" &&
+	(typeof (value as CounterState).lastRoseAt === "number" ||
+		(value as CounterState).lastRoseAt === null);
+
+const isCounters = (value: unknown): value is Record<string, CounterState> =>
 	typeof value === "object" &&
 	value !== null &&
 	!Array.isArray(value) &&
-	Object.values(value).every((entry) => typeof entry === "number");
+	Object.values(value).every(isCounterState);
 
 /**
  * A state file this version does not recognise is replaced by the baseline, not
@@ -59,7 +83,7 @@ export const parseState = async (raw: string): Promise<DoctorState> => {
 	if (typeof parsed !== "object" || parsed === null) return initialState;
 	const candidate = parsed as Record<string, unknown>;
 	if (
-		candidate.version !== 1 ||
+		candidate.version !== STATE_VERSION ||
 		!isVerdict(candidate.firedVerdict) ||
 		!isVerdict(candidate.candidateVerdict) ||
 		typeof candidate.candidateRuns !== "number" ||
@@ -68,7 +92,7 @@ export const parseState = async (raw: string): Promise<DoctorState> => {
 		return initialState;
 	}
 	return {
-		version: 1,
+		version: STATE_VERSION,
 		firedVerdict: candidate.firedVerdict,
 		candidateVerdict: candidate.candidateVerdict,
 		candidateRuns: candidate.candidateRuns,

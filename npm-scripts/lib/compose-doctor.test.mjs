@@ -137,6 +137,8 @@ describe("the checker's compose surface", () => {
 			"DOCTOR_DWELL_CHECKS",
 			"DOCTOR_SYNC_AGE_MAX_SECONDS",
 			"DOCTOR_HEARTBEAT_MAX_AGE_SECONDS",
+			"DOCTOR_AUTH_FAILURE_HOLD_SECONDS",
+			"DOCTOR_LOG_LEVEL",
 		]) {
 			assert.ok(
 				environment.some((entry) => entry.startsWith(`${name}: `)),

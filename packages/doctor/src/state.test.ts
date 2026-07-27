@@ -8,6 +8,7 @@ import {
 	initialState,
 	parseState,
 	readState,
+	STATE_VERSION,
 	stateFile,
 	writeState,
 } from "./state.js";
@@ -15,11 +16,13 @@ import {
 const temporaryDir = () => mkdtemp(join(tmpdir(), "remit-doctor-state-"));
 
 const state: DoctorState = {
-	version: 1,
+	version: STATE_VERSION,
 	firedVerdict: "degraded",
 	candidateVerdict: "degraded",
 	candidateRuns: 3,
-	counters: { "imap-worker:imap_auth_failures": 4 },
+	counters: {
+		"imap-worker:imap_auth_failures": { total: 4, lastRoseAt: 1785142027000 },
+	},
 	updatedAt: "2026-07-27T10:00:00.000Z",
 };
 
@@ -32,20 +35,20 @@ describe("parseState", () => {
 		assert.deepEqual(await parseState("not json at all"), initialState);
 		assert.deepEqual(await parseState("null"), initialState);
 		assert.deepEqual(await parseState('"a string"'), initialState);
-		assert.deepEqual(await parseState('{"version":2}'), initialState);
+		assert.deepEqual(await parseState('{"version":3}'), initialState);
 		assert.deepEqual(
-			await parseState('{"version":1,"firedVerdict":"broken"}'),
+			await parseState('{"version":2,"firedVerdict":"broken"}'),
 			initialState,
 		);
 		assert.deepEqual(
 			await parseState(
-				'{"version":1,"firedVerdict":"healthy","candidateVerdict":"healthy","candidateRuns":"three","counters":{}}',
+				'{"version":2,"firedVerdict":"healthy","candidateVerdict":"healthy","candidateRuns":"three","counters":{}}',
 			),
 			initialState,
 		);
 		assert.deepEqual(
 			await parseState(
-				'{"version":1,"firedVerdict":"healthy","candidateVerdict":"healthy","candidateRuns":1,"counters":{"a":"b"}}',
+				'{"version":2,"firedVerdict":"healthy","candidateVerdict":"healthy","candidateRuns":1,"counters":{"a":"b"}}',
 			),
 			initialState,
 		);
@@ -55,9 +58,21 @@ describe("parseState", () => {
 		assert.equal(initialState.firedVerdict, "healthy");
 	});
 
+	it("resets a state file written by the version before the counter timestamps", async () => {
+		// v1 stored `counters` as bare totals, which cannot say when a counter last
+		// rose. Reading one as a baseline would leave the auth signal unable to
+		// hold, so the file is replaced; the cost is at most one repeated alert.
+		assert.deepEqual(
+			await parseState(
+				'{"version":1,"firedVerdict":"degraded","candidateVerdict":"degraded","candidateRuns":3,"counters":{"imap-worker:imap_auth_failures":4}}',
+			),
+			initialState,
+		);
+	});
+
 	it("tolerates a missing updatedAt", async () => {
 		const parsed = await parseState(
-			'{"version":1,"firedVerdict":"healthy","candidateVerdict":"healthy","candidateRuns":1,"counters":{}}',
+			'{"version":2,"firedVerdict":"healthy","candidateVerdict":"healthy","candidateRuns":1,"counters":{}}',
 		);
 		assert.equal(parsed.updatedAt, undefined);
 	});

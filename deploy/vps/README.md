@@ -652,13 +652,23 @@ It is degraded when any of these is true:
 | `scrape_failed` | A service is not answering `/metrics` |
 | `worker_heartbeat_stale` | A worker's slowest poll loop has not written for 7 minutes, or has written nothing at all |
 | `account_sync_stalled` | An account has not completed a sync round in 3 hours |
-| `mail_auth_failing` | An IMAP or SMTP authentication failure counter rose since the previous check |
+| `mail_auth_failing` | An IMAP or SMTP authentication failure counter has gone up in the last 3 hours |
 | `dead_letter_queue_not_empty` | Anything is quarantined on any DLQ |
+| `signal_missing` | A service answered `/metrics` but exported none of the series the check reads |
 
 A signal that cannot be evaluated is degraded, never skipped. An endpoint that
-refuses the connection, a heartbeat file that is absent, a scrape that times out
-— each of them reads as a problem, because a `healthy` produced by a check that
-failed to look is the worst answer available.
+refuses the connection, a heartbeat file that is absent, a scrape that times out,
+a 200 that carries none of the series being read — each of them reads as a
+problem, because a `healthy` produced by a check that failed to look is the worst
+answer available.
+
+Authentication is a counter, so the signal is the increase, not the total — a
+counter that has been non-zero since March is not news. The increase happens on
+one check, and the retries arrive one burst per sync tick, so the condition is
+held open for three hours after the last one: the quiet hour between two bursts
+is not a recovery. `DOCTOR_AUTH_FAILURE_HOLD_SECONDS` moves that window, and it
+should stay above `MAILBOX_SYNC_TICK_INTERVAL_SECONDS` for the same reason the
+sync-age threshold does.
 
 ### Turn it on
 
@@ -750,10 +760,23 @@ from signals it could not read: a scrape failure degrades the verdict and still
 pings, because the checker is working. A check that threw before producing one
 does not.
 
-Delivery is best-effort. If Slack is down, or your template is rejected with a
-400, that transition is spent and the next thing you hear is the recovery — the
-failure is on one `error` line in `remit logs doctor`, and a webhook path that has
-stopped working is what the dead-man's switch is for.
+Delivery is retried when, and only when, retrying could help.
+
+A **4xx** is the endpoint deciding about your payload — a template written wrong,
+a URL that was revoked. Repeating it produces the same answer forever, so that
+transition is spent and you get one `error` line in `remit logs doctor` naming
+the status.
+
+A **timeout, a refused connection, a 5xx or a 429** says nothing about the
+payload, so the announcement is not recorded and the next check sends it again.
+A webhook that is down for a minute delays the alert by a minute; it does not
+lose it. A permanently unreachable URL costs one `error` line per interval, which
+is the loud failure rather than the silent one.
+
+The dead-man's switch does **not** cover this. It is a different URL at a
+different provider and it keeps answering while your webhook is down — that is
+why the retry is in the checker and not left to your monitor. What the switch
+covers is the checker itself not running.
 
 ### Reading the verdict by hand
 

@@ -1,7 +1,7 @@
 import { runCheck } from "./check.js";
 import { loadConfig } from "./config.js";
 import { pingDeadMan } from "./deadman.js";
-import { describeError, log } from "./log.js";
+import { describeError, log, setLogLevel } from "./log.js";
 import { runLoop, sleep } from "./loop.js";
 import { readState, writeState } from "./state.js";
 import { postWebhook } from "./webhook.js";
@@ -21,6 +21,8 @@ const config = await Promise.resolve()
 		log.error({ error: describeError(error) }, "doctor: refusing to start");
 		return process.exit(1);
 	});
+
+setLogLevel(config.logLevel);
 
 const controller = new AbortController();
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

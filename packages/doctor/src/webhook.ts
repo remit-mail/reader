@@ -1,3 +1,4 @@
+import { attempt } from "./attempt.js";
 import type { Fetcher } from "./scrape.js";
 import type { CheckResult, Verdict } from "./verdict.js";
 
@@ -105,25 +106,50 @@ export const buildBody = (
 	);
 
 /**
- * Posts, and reports whether it landed. Delivery is best-effort by design: a
- * webhook that is down, or that rejects the template the operator wrote, is
- * caught by the dead-man's switch rather than by a retry queue in a container
- * whose reason for existing is that it stays simple enough to keep running.
+ * What happened to one delivery attempt, split by whether attempting again
+ * could plausibly work.
+ *
+ * `rejected` is a decision the endpoint made about this payload — a template
+ * the operator wrote wrong, a revoked URL. Repeating it produces the same
+ * answer forever, so the transition is spent and the operator gets one error
+ * line naming the status.
+ *
+ * `unreachable` is not a decision. A timeout, a refused connection, a 5xx or a
+ * 429 says nothing about the payload, and a transition dropped for one of them
+ * is an outage nobody is ever told about: the dead-man's switch cannot catch it,
+ * because it is a different URL at a different provider and it keeps answering
+ * 200 while the webhook is down.
  */
+export type Delivery =
+	| { readonly kind: "sent" }
+	| { readonly kind: "rejected"; readonly detail: string }
+	| { readonly kind: "unreachable"; readonly detail: string };
+
+// 429 is the endpoint asking for later, not refusing the content.
+const isRetryable = (status: number): boolean =>
+	status >= 500 || status === 429;
+
 export const postWebhook = async (
 	request: WebhookRequest,
 	result: CheckResult,
 	fetcher: Fetcher = fetch,
-): Promise<void> => {
-	const response = await fetcher(request.url, {
-		method: "POST",
-		headers: { "content-type": request.contentType },
-		body: buildBody(result, request.template, request.contentType),
-		signal: AbortSignal.timeout(request.timeoutMs),
-	});
-	if (!response.ok) {
-		throw new Error(`webhook rejected the payload: HTTP ${response.status}`);
+): Promise<Delivery> => {
+	const attempted = await attempt(
+		fetcher(request.url, {
+			method: "POST",
+			headers: { "content-type": request.contentType },
+			body: buildBody(result, request.template, request.contentType),
+			signal: AbortSignal.timeout(request.timeoutMs),
+		}),
+	);
+	if (!attempted.ok) {
+		return { kind: "unreachable", detail: attempted.error };
 	}
+	const { status } = attempted.value;
+	if (attempted.value.ok) return { kind: "sent" };
+	return isRetryable(status)
+		? { kind: "unreachable", detail: `HTTP ${status}` }
+		: { kind: "rejected", detail: `HTTP ${status}` };
 };
 
 export type { Verdict };

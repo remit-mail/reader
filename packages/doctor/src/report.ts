@@ -23,18 +23,56 @@ import type { CheckResult } from "./verdict.js";
  * `detail` carries the account ids behind them and is printed here because this
  * output never leaves the box; nothing in the alert path reads it.
  */
+
+/**
+ * One record is one line, whatever the value contains.
+ *
+ * A queue name may hold a newline — the exposition format escapes it, and the
+ * parser decodes it back into a real one — and a caught error's message may
+ * hold anything. Either would split a record in two, and a caller parsing by
+ * position reads the remainder as a record with a garbage key: half a reason
+ * silently dropped, with nothing to say it happened. The JSON rendering and the
+ * webhook body escape their way out of this; a line format cannot, so the
+ * control characters are collapsed before they get in.
+ */
+const DELETE = 0x7f;
+const LAST_CONTROL = 0x1f;
+
+const isControl = (code: number): boolean =>
+	code <= LAST_CONTROL || code === DELETE;
+
+// Written as a code-point scan rather than a character class: a regular
+// expression carrying literal control characters is exactly the pattern the
+// lint rule exists to catch, and spelling the range out reads better anyway.
+const oneLine = (value: string): string => {
+	let out = "";
+	let pending = false;
+	for (const character of value) {
+		if (isControl(character.charCodeAt(0))) {
+			pending = out !== "";
+			continue;
+		}
+		if (pending) {
+			out += " ";
+			pending = false;
+		}
+		out += character;
+	}
+	return out;
+};
+
 export const renderLines = (result: CheckResult): string => {
 	const lines = [
 		`verdict ${result.verdict}`,
 		`checked-at ${result.checkedAt}`,
-		`summary ${result.summary}`,
+		`summary ${oneLine(result.summary)}`,
 	];
 	for (const reason of result.reasons) {
-		lines.push(`reason ${reason.code} ${reason.summary}`);
+		lines.push(`reason ${reason.code} ${oneLine(reason.summary)}`);
 	}
 	for (const reason of result.reasons) {
 		if (reason.detail !== undefined) {
-			lines.push(`detail ${reason.code} ${reason.detail}`);
+			lines.push(`detail ${reason.code} ${oneLine(reason.detail)}`);
 		}
 	}
 	return `${lines.join("\n")}\n`;

@@ -78,7 +78,7 @@ A new wrapper command that reads the signals in D3, computes a verdict, and prin
 
 The signals are on the compose network and `remit` is a POSIX shell script whose only tool is `docker`, so `remit doctor` does not scrape anything itself. It runs `compose exec -T doctor` against the service in D9 — the container that already scrapes the D2 endpoints and already mounts the heartbeat volume — and formats what comes back. The verdict is computed in one place and read three ways: at a shell, as an exit code, and as an alert.
 
-A signal that cannot be evaluated is `degraded`, never skipped: an endpoint that refuses the connection, a scrape that times out, a heartbeat file that is absent. If the `doctor` container itself does not answer the exec, the wrapper reports `degraded` for that reason alone. A verdict of `healthy` produced by a check that failed to look is the worst outcome available, so no path produces one.
+A signal that cannot be evaluated is `degraded`, never skipped: an endpoint that refuses the connection, a scrape that times out, a heartbeat file that is absent, a 200 that carries none of the series being read. The last of those is not hypothetical — a renamed metric or a collector that starts returning nothing instead of throwing would otherwise render as "nothing wrong". If the `doctor` container itself does not answer the exec, the wrapper reports `degraded` for that reason alone. A verdict of `healthy` produced by a check that failed to look is the worst outcome available, so no path produces one.
 
 This is where DLQ depth is surfaced, and the README's one-liner section is deleted when it lands. `remit doctor` is what most self-hosters will actually run, and it is the only observability surface that requires the operator to install nothing and configure nothing.
 
@@ -114,6 +114,10 @@ What this gives up: no rate alerts, no "error rate doubled", no trend. What it b
 
 A verdict fires when it changes and the new verdict has held for three consecutive checks: `healthy` → `degraded`, and `degraded` → `healthy`. Never on an unchanged verdict, however long it persists. The last fired verdict and the run of agreeing checks are persisted, so a restart of the container does not re-announce a condition already reported.
 
+A transition is spent when the endpoint has answered about it, not when it is decided. A delivery that never arrived leaves the last fired verdict where it was, and the next check announces the same transition again; the run of agreeing checks is already at the dwell count, so the retry is immediate. This is a property of D8 and not of D12, because it is the record of what has been announced that has to stay honest. The cost is that a crash between a delivered alert and the write re-announces once — a duplicate, against a dropped outage alert, which is the failure this design exists to remove.
+
+A signal that is true for a single check cannot satisfy this rule, so any such signal has to be held open for as long as the condition it reports lasts. Authentication failures are the case: they are counter increases, arriving one burst per sync tick, and they are held for a window wider than that tick.
+
 Without the dwell rule, transition-only firing is the loudest possible response to a flapping signal: a verdict that oscillates every check sends two messages per cycle, which is worse than the periodic posting this decision rejects. A DLQ message an operator replays and that fails again, or sync age sitting on its threshold for an account on a slow server, both produce that shape.
 
 What this costs: detection is three check intervals late. At a 60 s interval, an outage is reported up to three minutes after it starts, and a recovery up to three minutes after it clears — the only alert this design sends is one a human reads, and no human acts inside three minutes on a mailbox that stopped syncing.
@@ -148,7 +152,9 @@ What this costs: an operator who wants a webhook must also have somewhere to poi
 
 Configuration is a URL, an optional payload template with a small substitution set (verdict, summary, reasons), and an optional content type. The default template is Slack-shaped JSON, which Mattermost and Discord also accept; a plain-text content type covers ntfy and anything else that takes a raw body.
 
-Substituted values are escaped for the declared content type — JSON string escaping for a JSON body, none for a plain-text one. Reasons are assembled from queue and service names today, so nothing in them needs escaping yet, and a payload that a webhook rejects with a 400 fails silently under D8: the transition is spent, and the next thing the operator hears is the recovery.
+Substituted values are escaped for the declared content type — JSON string escaping for a JSON body, none for a plain-text one. Reasons are assembled from queue and service names, and a queue name can carry a quote or a newline, so the escaping is exercised rather than theoretical.
+
+A payload the endpoint **rejects** with a 4xx is a decision about that body — a template the operator wrote wrong, a revoked URL — so repeating it changes nothing: the transition is spent and the operator gets one error line naming the status. A payload that **never arrived** — a timeout, a refused connection, a 5xx, a 429 — is not a decision, and is retried on the next check (D8).
 
 A named integration per service — a Slack block builder, a Discord embed shape, a PagerDuty Events API client, a Teams card — makes every new provider our maintenance. A template covers providers we have never heard of, and the operator owns it.
 
@@ -193,7 +199,7 @@ VictoriaMetrics rather than Prometheus + Grafana because it is one container ins
 
 **Will this slow my VM down?** The metrics endpoints do work only when scraped, and the series count is in the hundreds. The `doctor` container wakes on an interval, scrapes, compares and sleeps. The `observability` profile is off unless you turn it on; dozzle idles in the tens of MB and stores nothing.
 
-**What happens if Slack is down?** The POST fails, that check reports nothing, and the next settled transition tries again. Alerting is best-effort by design — the dead-man's switch (D11) is what catches a delivery path that has stopped working, because your monitor notices the missing heartbeat whether the cause was a dead VM or a dead webhook.
+**What happens if Slack is down?** The transition is not recorded as announced, and the next check sends it again — a webhook down for a minute delays the alert by a minute rather than losing it. The dead-man's switch does not help here and is not asked to: it is a different URL at a different provider and keeps answering while Slack does not. It covers the checker not running. A payload Slack *rejects* is the other case — that is a decision about the body, so it is not retried.
 
 **Do I need the metrics stack to get alerts?** No. D7 runs on a stock install with two lines in `.env`. The `observability` profile is for querying history, not for being told something broke.
 

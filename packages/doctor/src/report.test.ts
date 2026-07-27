@@ -88,6 +88,53 @@ describe("the line format", () => {
 			assert.ok(!line.includes("\n"));
 		}
 	});
+
+	// A queue name can hold a newline: the exposition format escapes it and the
+	// parser decodes it back. Split across two lines, a caller reading by
+	// position takes the remainder as a record with a garbage key and silently
+	// drops half the reason. The JSON body escapes its way out of this; a line
+	// format cannot.
+	it("keeps a newline in a value from splitting the record", () => {
+		const nasty: CheckResult = {
+			...degraded,
+			reasons: [
+				{
+					code: "dead_letter_queue_not_empty",
+					summary:
+						'2 messages are quarantined on 1 dead-letter queue (bad\nname"x)',
+					detail: "first\r\nsecond",
+				},
+			],
+		};
+		const out = renderLines(nasty);
+		assert.equal(out.trimEnd().split("\n").length, 5);
+		const records = parseLines(out);
+		assert.deepEqual(
+			records.filter(([key]) => key === "reason").map(([, value]) => value),
+			[
+				'dead_letter_queue_not_empty 2 messages are quarantined on 1 dead-letter queue (bad name"x)',
+			],
+		);
+		assert.deepEqual(
+			records.filter(([key]) => key === "detail").map(([, value]) => value),
+			["dead_letter_queue_not_empty first second"],
+		);
+	});
+
+	it("collapses every C0 control character, not only the newline", () => {
+		const out = renderLines({
+			...degraded,
+			reasons: [
+				{
+					code: "scrape_failed",
+					summary: "a\u0000b\u001bc\u007fd",
+					detail: undefined,
+				},
+			],
+		});
+		assert.equal(out.trimEnd().split("\n").length, 4);
+		assert.match(out, /reason scrape_failed a b c d/);
+	});
 });
 
 describe("the json format", () => {

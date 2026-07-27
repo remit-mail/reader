@@ -1,6 +1,7 @@
 import type { HeartbeatReading } from "./heartbeats.js";
 import { seriesNamed } from "./prometheus.js";
 import type { ScrapeResult } from "./scrape.js";
+import type { CounterState } from "./state.js";
 
 export type Verdict = "healthy" | "degraded";
 
@@ -9,7 +10,8 @@ export type ReasonCode =
 	| "worker_heartbeat_stale"
 	| "dead_letter_queue_not_empty"
 	| "account_sync_stalled"
-	| "mail_auth_failing";
+	| "mail_auth_failing"
+	| "signal_missing";
 
 /**
  * One thing that is wrong.
@@ -40,18 +42,19 @@ export interface CheckResult {
 	 * unchanged for any service that did not answer this time, so a scrape
 	 * failure cannot manufacture a delta when the service comes back.
 	 */
-	readonly counters: Readonly<Record<string, number>>;
+	readonly counters: Readonly<Record<string, CounterState>>;
 }
 
 export interface VerdictThresholds {
 	readonly heartbeatMaxAgeSeconds: number;
 	readonly syncAgeMaxSeconds: number;
+	readonly authFailureHoldSeconds: number;
 }
 
 export interface VerdictInput extends VerdictThresholds {
 	readonly scrapes: readonly ScrapeResult[];
 	readonly heartbeats: readonly HeartbeatReading[];
-	readonly previousCounters: Readonly<Record<string, number>>;
+	readonly previousCounters: Readonly<Record<string, CounterState>>;
 	readonly now: Date;
 }
 
@@ -168,20 +171,29 @@ const stalledSync = (
 
 interface CounterReading {
 	readonly key: string;
-	readonly total: number | undefined;
+	/** `undefined` when the exporting service did not answer this check. */
+	readonly state: CounterState | undefined;
+	/** How much it went up by, when this check is the one that saw it rise. */
 	readonly delta: number | undefined;
 }
 
 /**
  * Authentication failures are counters, and a counter that has been non-zero
  * since March is not news — an alert on the total fires forever after one
- * expired grant. The signal is the increase since the previous check, which is
- * the one piece of history a checker with a state volume can hold without a
- * time-series database.
+ * expired grant. The increase since the previous check is the one piece of
+ * history a checker with a state volume can hold without a time-series
+ * database.
  *
- * A service that did not answer has no reading: its previous total is carried
+ * That increase is true for exactly one check, which is not long enough to
+ * satisfy a dwell, so `lastRoseAt` turns the instant into a condition: the
+ * signal stays on until the counter has stopped rising for the hold window.
+ * Failures arrive in one burst per sync tick, so the quiet stretch between two
+ * bursts is not a recovery and must not read as one.
+ *
+ * A service that did not answer has no reading: its previous state is carried
  * forward untouched, so the delta on its return is measured against what it
- * last really exported rather than against a zero nobody observed.
+ * last really exported rather than against a zero nobody observed — and its
+ * `lastRoseAt` keeps holding the condition open across the outage.
  *
  * A total below the previous one is the exporter having restarted, not work
  * being undone, so the whole current total counts as new.
@@ -191,40 +203,103 @@ const readCounter = (
 	key: string,
 	service: string,
 	metric: string,
-	previous: Readonly<Record<string, number>>,
+	previous: Readonly<Record<string, CounterState>>,
+	now: number,
 ): CounterReading => {
+	const before = previous[key];
 	const scrape = scrapes.find((candidate) => candidate.service === service);
 	if (scrape === undefined || scrape.error !== undefined) {
-		return { key, total: undefined, delta: undefined };
+		return { key, state: before, delta: undefined };
 	}
 	const total = seriesNamed(scrape.samples, metric)
 		.filter((sample) => sample.labels.kind === "auth")
 		.reduce((sum, sample) => sum + sample.value, 0);
-	const before = previous[key];
-	if (before === undefined) return { key, total, delta: undefined };
-	return { key, total, delta: total < before ? total : total - before };
+	if (before === undefined) {
+		// First sight of the counter is a baseline, not an event. Whatever it
+		// already holds happened before this checker was watching.
+		return { key, state: { total, lastRoseAt: null }, delta: undefined };
+	}
+	const delta = total < before.total ? total : total - before.total;
+	if (delta <= 0) return { key, state: { ...before, total }, delta: undefined };
+	return { key, state: { total, lastRoseAt: now }, delta };
 };
 
+const PROTOCOL: Readonly<Record<string, string>> = {
+	[IMAP_AUTH]: "IMAP",
+	[SMTP_AUTH]: "SMTP",
+};
+
+/**
+ * Failing while the counter is still rising, and for `holdSeconds` after the
+ * last rise. The summary says how long ago rather than how many, because the
+ * count is an artefact of the retry cadence and the age is the fact the
+ * operator acts on.
+ */
 const authFailures = (
 	readings: readonly CounterReading[],
+	holdSeconds: number,
+	now: number,
 ): Reason | undefined => {
-	const rising = readings.filter(
-		(reading) => reading.delta !== undefined && reading.delta > 0,
-	);
-	if (rising.length === 0) return undefined;
-	const parts = rising.map((reading) => {
-		const protocol = reading.key.startsWith("imap") ? "IMAP" : "SMTP";
-		return `${protocol} (${reading.delta} new)`;
+	const failing = readings.filter((reading) => {
+		const rose = reading.state?.lastRoseAt;
+		return (
+			rose !== undefined && rose !== null && now - rose <= holdSeconds * 1000
+		);
+	});
+	if (failing.length === 0) return undefined;
+	const parts = failing.map((reading) => {
+		const since = Math.max(0, now - (reading.state?.lastRoseAt ?? now)) / 1000;
+		return `${PROTOCOL[reading.key] ?? "mail"} (last failure ${formatDuration(Math.round(since))} ago)`;
 	});
 	return {
 		code: "mail_auth_failing",
+		// No address and no account id: the counters carry neither, and the
+		// operator identifies the mailbox by running `remit doctor` on the box.
 		summary: `mail authentication is failing: ${parts.join(", ")}`,
 		detail: undefined,
 	};
 };
 
+/**
+ * A 200 that carries no samples is not a healthy service. A metric rename, a
+ * collector that starts returning nothing instead of throwing, or a target on
+ * the wrong port that happens to answer 200 would all render as "nothing
+ * wrong", which is the `healthy`-produced-by-a-check-that-failed-to-look that
+ * D4 rules out.
+ *
+ * Only `remit_queue_messages` is required. It is the one series a working
+ * deployment always exports — the queue set is declared in `queues.json` and
+ * the sidecar renders a sample per queue whether or not anything is on it.
+ * `remit_account_sync_age_seconds` is legitimately empty on a fresh install
+ * with no mailbox yet, and the auth counters do not exist until something has
+ * failed once, so neither can be required without alerting on a healthy
+ * install.
+ */
+const REQUIRED_SERIES: readonly { service: string; metric: string }[] = [
+	{ service: "queue", metric: "remit_queue_messages" },
+];
+
+const missingSeries = (
+	scrapes: readonly ScrapeResult[],
+): Reason | undefined => {
+	const missing = REQUIRED_SERIES.filter(({ service, metric }) => {
+		const scrape = scrapes.find((candidate) => candidate.service === service);
+		if (scrape === undefined || scrape.error !== undefined) return false;
+		return seriesNamed(scrape.samples, metric).length === 0;
+	});
+	if (missing.length === 0) return undefined;
+	return {
+		code: "signal_missing",
+		summary: `${missing.length} ${plural(missing.length, "signal", "signals")} answered but exported nothing (${missing.map(({ service }) => service).join(", ")})`,
+		detail: missing
+			.map(({ service, metric }) => `${service}: ${metric} absent`)
+			.join("; "),
+	};
+};
+
 const ORDER: readonly ReasonCode[] = [
 	"scrape_failed",
+	"signal_missing",
 	"worker_heartbeat_stale",
 	"account_sync_stalled",
 	"mail_auth_failing",
@@ -240,6 +315,7 @@ const ORDER: readonly ReasonCode[] = [
  * available.
  */
 export const evaluate = (input: VerdictInput): CheckResult => {
+	const now = input.now.getTime();
 	const counters = [
 		readCounter(
 			input.scrapes,
@@ -247,6 +323,7 @@ export const evaluate = (input: VerdictInput): CheckResult => {
 			"imap-worker",
 			"remit_imap_failures_total",
 			input.previousCounters,
+			now,
 		),
 		readCounter(
 			input.scrapes,
@@ -254,14 +331,16 @@ export const evaluate = (input: VerdictInput): CheckResult => {
 			"smtp-worker",
 			"remit_smtp_failures_total",
 			input.previousCounters,
+			now,
 		),
 	];
 
 	const found = [
 		scrapeFailures(input.scrapes),
+		missingSeries(input.scrapes),
 		staleHeartbeats(input.heartbeats, input.heartbeatMaxAgeSeconds),
 		stalledSync(input.scrapes, input.syncAgeMaxSeconds),
-		authFailures(counters),
+		authFailures(counters, input.authFailureHoldSeconds, now),
 		deadLetterDepth(input.scrapes),
 	].filter((reason): reason is Reason => reason !== undefined);
 
@@ -271,7 +350,7 @@ export const evaluate = (input: VerdictInput): CheckResult => {
 
 	const nextCounters = { ...input.previousCounters };
 	for (const reading of counters) {
-		if (reading.total !== undefined) nextCounters[reading.key] = reading.total;
+		if (reading.state !== undefined) nextCounters[reading.key] = reading.state;
 	}
 
 	const verdict: Verdict = reasons.length === 0 ? "healthy" : "degraded";

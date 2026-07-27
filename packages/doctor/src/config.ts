@@ -22,6 +22,7 @@ export interface DoctorConfig {
 	readonly heartbeatServices: readonly string[];
 	readonly heartbeatMaxAgeSeconds: number;
 	readonly syncAgeMaxSeconds: number;
+	readonly authFailureHoldSeconds: number;
 	readonly stateDir: string;
 	readonly dwellChecks: number;
 	readonly webhookUrl: string | undefined;
@@ -29,6 +30,7 @@ export interface DoctorConfig {
 	readonly webhookContentType: ContentType;
 	readonly deadManUrl: string | undefined;
 	readonly requestTimeoutMs: number;
+	readonly logLevel: string | undefined;
 }
 
 /**
@@ -64,8 +66,28 @@ const DEFAULT_HEARTBEAT_MAX_AGE_SECONDS = 420;
  */
 const DEFAULT_SYNC_AGE_MAX_SECONDS = 3 * 60 * 60;
 
+/**
+ * How long after the last authentication failure the condition still counts as
+ * failing. Three hours, for the same reason the sync-age threshold is three
+ * hours: authentication is retried on the sync tick, so the failures arrive in
+ * one burst per tick and the gaps between bursts are not recoveries.
+ *
+ * The signal is a counter delta, which is true for exactly one check. Without a
+ * hold the reason appears on one check in sixty and the three-check dwell never
+ * settles, so the one class of failure that never resolves itself would be the
+ * one that never alerts.
+ */
+const DEFAULT_AUTH_FAILURE_HOLD_SECONDS = 3 * 60 * 60;
+
 /** D8's number. Configurable so an operator can trade latency for quiet. */
 const DEFAULT_DWELL_CHECKS = 3;
+
+/**
+ * A dwell longer than this is indistinguishable from alerting being off, and a
+ * container that starts cleanly and never speaks is the worst way to learn that.
+ * An hour of agreeing checks is already far past any deliberate setting.
+ */
+const MAX_DWELL_CHECKS = 60;
 
 const DEFAULT_INTERVAL_SECONDS = 60;
 const DEFAULT_SCRAPE_TIMEOUT_SECONDS = 10;
@@ -91,6 +113,29 @@ const positiveNumber = (env: Env, name: string, fallback: number): number => {
 	const parsed = Number(raw);
 	if (!Number.isFinite(parsed) || parsed <= 0) {
 		throw new Error(`${name} must be a positive number, got: ${raw}`);
+	}
+	return parsed;
+};
+
+/**
+ * A count, not a measurement. `2.5` would persist a fractional run in the state
+ * file, and a very large value silently turns alerting off while the container
+ * starts cleanly and pings its dead-man forever — the failure mode with no
+ * symptom, which is the one this whole design exists to remove.
+ */
+const boundedCount = (
+	env: Env,
+	name: string,
+	fallback: number,
+	max: number,
+): number => {
+	const raw = text(env, name);
+	if (raw === undefined) return fallback;
+	const parsed = Number(raw);
+	if (!Number.isInteger(parsed) || parsed < 1 || parsed > max) {
+		throw new Error(
+			`${name} must be a whole number of checks between 1 and ${max}, got: ${raw}`,
+		);
 	}
 	return parsed;
 };
@@ -165,17 +210,27 @@ export const loadConfig = (env: Env = process.env): DoctorConfig => {
 			"DOCTOR_SYNC_AGE_MAX_SECONDS",
 			DEFAULT_SYNC_AGE_MAX_SECONDS,
 		),
+		authFailureHoldSeconds: positiveNumber(
+			env,
+			"DOCTOR_AUTH_FAILURE_HOLD_SECONDS",
+			DEFAULT_AUTH_FAILURE_HOLD_SECONDS,
+		),
 		stateDir: text(env, "DOCTOR_STATE_DIR") ?? "/data/doctor",
-		dwellChecks: positiveNumber(
+		dwellChecks: boundedCount(
 			env,
 			"DOCTOR_DWELL_CHECKS",
 			DEFAULT_DWELL_CHECKS,
+			MAX_DWELL_CHECKS,
 		),
 		webhookUrl,
 		webhookTemplate: text(env, "DOCTOR_WEBHOOK_TEMPLATE"),
 		webhookContentType:
 			text(env, "DOCTOR_WEBHOOK_CONTENT_TYPE") ?? DEFAULT_CONTENT_TYPE,
 		deadManUrl,
+		// `DOCTOR_LOG_LEVEL`, because the compose service passes DOCTOR_* variables
+		// and nothing else — a plain LOG_LEVEL could never reach this container, so
+		// the per-check verdict line could never be turned on.
+		logLevel: text(env, "DOCTOR_LOG_LEVEL") ?? text(env, "LOG_LEVEL"),
 		requestTimeoutMs:
 			positiveNumber(
 				env,
