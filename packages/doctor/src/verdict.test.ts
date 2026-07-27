@@ -394,6 +394,22 @@ describe("evaluate", () => {
 		assert.equal(result.verdict, "degraded");
 		assert.equal(result.reasons[0].code, "signal_missing");
 		assert.match(result.reasons[0].summary, /queue/);
+		assert.match(result.reasons[0].detail ?? "", /absent from the response/);
+	});
+
+	it("degrades when a required target is not in the target set at all", () => {
+		const result = evaluate(
+			input({
+				// A DOCTOR_TARGETS with no queue endpoint. Nothing errors, nothing is
+				// empty — the dead-letter signal is just silently not being read, and
+				// reading that as healthy is the headline check failing open.
+				scrapes: [HEALTHY_SCRAPES[0], ...HEALTHY_SCRAPES.slice(2)],
+			}),
+		);
+		assert.equal(result.verdict, "degraded");
+		assert.equal(result.reasons[0].code, "signal_missing");
+		assert.match(result.reasons[0].summary, /queue/);
+		assert.match(result.reasons[0].detail ?? "", /no configured target/);
 	});
 
 	it("does not require a series from a target that never answered", () => {

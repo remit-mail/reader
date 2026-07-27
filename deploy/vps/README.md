@@ -666,9 +666,25 @@ Authentication is a counter, so the signal is the increase, not the total — a
 counter that has been non-zero since March is not news. The increase happens on
 one check, and the retries arrive one burst per sync tick, so the condition is
 held open for three hours after the last one: the quiet hour between two bursts
-is not a recovery. `DOCTOR_AUTH_FAILURE_HOLD_SECONDS` moves that window, and it
-should stay above `MAILBOX_SYNC_TICK_INTERVAL_SECONDS` for the same reason the
-sync-age threshold does.
+is not a recovery.
+
+Three hours is the sync-age threshold, deliberately. A broken password sets off
+both reasons — authentication is failing, and the account stops completing sync
+rounds — and matching the two windows means they clear together, so you get one
+recovery message instead of two arriving hours apart.
+
+**Fixing the password does not produce an immediate all-clear.** The condition
+holds for the full window after the last failure, so expect the recovery about
+three hours after you fix it, not three minutes. The same applies to anything
+else that was wrong at the same time: if the stack recovers while an
+authentication hold is still open, the verdict stays `degraded` until the hold
+expires, and the all-clear for all of it waits that long. `remit doctor` shows
+the real state immediately — the delay is in the announcement, not in the check.
+
+`DOCTOR_AUTH_FAILURE_HOLD_SECONDS` moves the window. Keep it above
+`MAILBOX_SYNC_TICK_INTERVAL_SECONDS`, or a healthy gap between two retries reads
+as a recovery; keeping it equal to `DOCTOR_SYNC_AGE_MAX_SECONDS` is what buys
+the single recovery message.
 
 ### Turn it on
 

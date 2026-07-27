@@ -25,6 +25,19 @@ export type ReasonCode =
  * `detail` is what the operator needs at a shell on the box to act on the
  * reason — the account ids behind "2 of 5 accounts". It is printed by the exec
  * seam and never sent anywhere.
+ *
+ * The boundary is enforced by a test, not by the type: `verdict.test.ts` runs
+ * every reason over a scrape whose `account_id`, `folder` and `mailbox` labels
+ * are a sentinel and asserts no summary contains it. That is a tripwire, not a
+ * guarantee — it cannot catch a NEW reason derived from a series the fixture
+ * does not carry, and the `deepEqual` on the reason-code set only makes such a
+ * reason noticeable, not safe.
+ *
+ * The thing that would actually scale this to reasons nobody has written yet is
+ * a branded `Summary` type that only a sanitising constructor can produce, so
+ * interpolating a raw label into one is a compile error rather than a review
+ * catch. If you are adding a reason and reaching for a label value here, that is
+ * the change to make first.
  */
 export interface Reason {
 	readonly code: ReasonCode;
@@ -282,18 +295,27 @@ const REQUIRED_SERIES: readonly { service: string; metric: string }[] = [
 const missingSeries = (
 	scrapes: readonly ScrapeResult[],
 ): Reason | undefined => {
-	const missing = REQUIRED_SERIES.filter(({ service, metric }) => {
+	const missing = REQUIRED_SERIES.flatMap(({ service, metric }) => {
 		const scrape = scrapes.find((candidate) => candidate.service === service);
-		if (scrape === undefined || scrape.error !== undefined) return false;
-		return seriesNamed(scrape.samples, metric).length === 0;
+		// Not configured at all is missing, not fine. A `DOCTOR_TARGETS` with no
+		// queue endpoint would otherwise read healthy with the dead-letter signal
+		// silently gone — the epic's headline check failing open, and the one
+		// failure mode with no symptom.
+		if (scrape === undefined) {
+			return [{ service, why: `${metric} has no configured target` }];
+		}
+		// A target that did not answer is already `scrape_failed`. Saying it twice
+		// tells the operator nothing and costs a line in the alert.
+		if (scrape.error !== undefined) return [];
+		return seriesNamed(scrape.samples, metric).length === 0
+			? [{ service, why: `${metric} absent from the response` }]
+			: [];
 	});
 	if (missing.length === 0) return undefined;
 	return {
 		code: "signal_missing",
-		summary: `${missing.length} ${plural(missing.length, "signal", "signals")} answered but exported nothing (${missing.map(({ service }) => service).join(", ")})`,
-		detail: missing
-			.map(({ service, metric }) => `${service}: ${metric} absent`)
-			.join("; "),
+		summary: `${missing.length} ${plural(missing.length, "signal", "signals")} the check depends on ${plural(missing.length, "is", "are")} not being read (${missing.map(({ service }) => service).join(", ")})`,
+		detail: missing.map(({ service, why }) => `${service}: ${why}`).join("; "),
 	};
 };
 
