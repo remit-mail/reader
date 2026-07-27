@@ -28,28 +28,43 @@ afterEach(() => {
 	http = undefined;
 });
 
-const PREDICATE: OrganizeMatchPredicate = {
+const COUNTABLE: OrganizeMatchPredicate = {
+	matchOperator: "And",
+	literalClauses: [{ field: "From", value: "receipts@shop.example" }],
+};
+
+/**
+ * A free-text search converts to a body-content clause, which the vector-free
+ * matcher refuses. The seed must not ask.
+ */
+const UNCOUNTABLE: OrganizeMatchPredicate = {
 	matchOperator: "And",
 	literalClauses: [{ field: "HasWords", value: "receipts" }],
 };
 
-function Probe() {
-	const seed = useSearchFilterSeed("acc-1", PREDICATE);
-	return createElement(
-		"div",
-		null,
-		JSON.stringify({
-			seedCount: seed.seedCount ?? null,
-			isPending: seed.isPending,
-			isError: seed.isError,
-		}),
-	);
+function probeFor(predicate: OrganizeMatchPredicate) {
+	return function Probe() {
+		const seed = useSearchFilterSeed("acc-1", predicate);
+		return createElement(
+			"div",
+			null,
+			JSON.stringify({
+				seedCount: seed.seedCount ?? null,
+				isPending: seed.isPending,
+				isError: seed.isError,
+				uncountable: seed.uncountable,
+			}),
+		);
+	};
 }
 
-const mount = (responder: (call: HttpCall) => unknown): DomHarness => {
+const mount = (
+	responder: (call: HttpCall) => unknown,
+	predicate: OrganizeMatchPredicate = COUNTABLE,
+): DomHarness => {
 	http = mockFetch(responder);
 	harness = createDomHarness();
-	harness.renderApp(createElement(Probe));
+	harness.renderApp(createElement(probeFor(predicate)));
 	return harness;
 };
 
@@ -70,7 +85,7 @@ describe("useSearchFilterSeed", () => {
 		assert.equal(previews.length, 1);
 		assert.equal(previews[0].body?.anchorMessageId, undefined);
 		assert.deepEqual(previews[0].body?.literalClauses, [
-			{ field: "HasWords", value: "receipts" },
+			{ field: "From", value: "receipts@shop.example" },
 		]);
 	});
 
@@ -79,5 +94,25 @@ describe("useSearchFilterSeed", () => {
 		await dom.flush();
 		await dom.flush();
 		assert.equal(state(dom).isError, true);
+	});
+
+	it("never asks for a count the matcher cannot produce", async () => {
+		const dom = mount(
+			(call) =>
+				call.path.endsWith("/organize/preview")
+					? { matchedCount: 12, messageIds: [] }
+					: {},
+			UNCOUNTABLE,
+		);
+		await dom.flush();
+		await dom.flush();
+		assert.equal(http?.to("/organize/preview").length, 0);
+		// Not pending and not an error — the editor opens, it just has no number.
+		assert.deepEqual(state(dom), {
+			seedCount: null,
+			isPending: false,
+			isError: false,
+			uncountable: true,
+		});
 	});
 });
