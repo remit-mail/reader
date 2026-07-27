@@ -187,9 +187,10 @@ const MessageRowComponent = ({
 		onLongPress?.(messageId);
 	}, [onLongPress, messageId]);
 
+	// Threshold comes from useLongPress' default so the plain row and the
+	// swipeable row can't drift apart on timing.
 	const { longPressProps } = useLongPress({
 		onLongPress: handleLongPress,
-		delayMs: 500,
 		accessibilityDescription: isChecked ? "Deselect message" : "Select message",
 	});
 

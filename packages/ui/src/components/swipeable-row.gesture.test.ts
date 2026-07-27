@@ -11,6 +11,13 @@
  * The fix tags SwipeableRow's own axis-abort cancel so it can tell the two
  * apart; these tests exercise both paths against the real hook, not a
  * description of the fix.
+ *
+ * The second: a finger held on glass drifts, and it drifts past the distance
+ * at which the drag starts tracking. Cancelling the press there meant a real
+ * hold on a phone never entered selection mode — the row followed the drift
+ * and snapped back, and nothing else happened. The drift cases below run
+ * against the anchor (`linkComponent`) row the mailbox list actually renders,
+ * which is also where the native link menu has to stay suppressed.
  */
 
 import assert from "node:assert/strict";
@@ -116,6 +123,45 @@ function mount(handlers: Handlers) {
 	return row;
 }
 
+// The mailbox list renders the open affordance as a real anchor via
+// `linkComponent`; the native long-press menu only bites on an `<a href>`.
+function mountAnchor(handlers: Handlers) {
+	act(() => {
+		root.render(
+			createElement(SwipeableRow, {
+				thread,
+				selectionMode: false,
+				checked: false,
+				active: false,
+				peek: "none",
+				onPeek: handlers.onPeek,
+				onToggleCheck: () => undefined,
+				onLongPress: handlers.onLongPress,
+				onOpen: handlers.onOpen,
+				onAct: () => undefined,
+				linkComponent: ({ onOpenClick, children, ...rowProps }) =>
+					createElement(
+						"a",
+						{ ...rowProps, id: "row", href: "/thread/1", onClick: onOpenClick },
+						children,
+					),
+			}),
+		);
+	});
+	const row = dom.window.document.getElementById("row");
+	assert.ok(row, "anchor row did not mount");
+	return row;
+}
+
+function contextMenu(row: Element) {
+	const event = new dom.window.MouseEvent("contextmenu", {
+		bubbles: true,
+		cancelable: true,
+	});
+	row.dispatchEvent(event);
+	return event;
+}
+
 // Each dispatch is wrapped in a synchronous act() so React commits the
 // resulting state update before the next call reads it. Without this, a
 // handler in the next dispatch can close over a stale pre-commit value (a
@@ -195,7 +241,7 @@ describe("SwipeableRow gesture wiring (react-aria long press + axis arbitration)
 		);
 	});
 
-	it("a horizontal drag past the axis threshold cancels the long press and commits a swipe peek, not onOpen", async () => {
+	it("a horizontal drag past the escape distance cancels the long press and commits a swipe peek, not onOpen", async () => {
 		let longPressed = 0;
 		let opened = 0;
 		let committed: SwipePeek | undefined;
@@ -221,7 +267,7 @@ describe("SwipeableRow gesture wiring (react-aria long press + axis arbitration)
 		assert.equal(committed, "leading");
 	});
 
-	it("a vertical drag past the axis threshold cancels the long press and lets scroll win (no peek, no open)", async () => {
+	it("a vertical drag past the escape distance cancels the long press and lets scroll win (no peek, no open)", async () => {
 		let longPressed = 0;
 		let opened = 0;
 		let peeked = 0;
@@ -254,5 +300,85 @@ describe("SwipeableRow gesture wiring (react-aria long press + axis arbitration)
 		await wait(THRESHOLD_WAIT);
 
 		assert.equal(longPressed, 1);
+	});
+
+	it("a hold that drifts past the axis threshold still enters selection mode", async () => {
+		// The reported phone bug: the row tracked the drift (the visible shiver)
+		// and the press died, but the drift was too short to commit a peek, so
+		// the whole gesture produced nothing.
+		let longPressed = 0;
+		let opened = 0;
+		const peeks: SwipePeek[] = [];
+		const row = mountAnchor({
+			onLongPress: () => longPressed++,
+			onOpen: () => opened++,
+			onPeek: (next) => peeks.push(next),
+		});
+
+		pointerDown(row, 100, 200);
+		pointerMove(row, 103, 201);
+		pointerMove(row, 106, 203);
+		pointerMove(row, 109, 205);
+		pointerMove(row, 112, 206); // dx=12 — past the axis threshold, under the escape
+		await wait(THRESHOLD_WAIT);
+		pointerUp(row);
+
+		assert.equal(longPressed, 1);
+		assert.equal(opened, 0);
+		assert.deepEqual(peeks, [], "drift must not commit or reset a peek");
+	});
+
+	it("a hold that drifts vertically past the axis threshold still enters selection mode", async () => {
+		let longPressed = 0;
+		const peeks: SwipePeek[] = [];
+		const row = mountAnchor({
+			onLongPress: () => longPressed++,
+			onOpen: () => undefined,
+			onPeek: (next) => peeks.push(next),
+		});
+
+		pointerDown(row, 100, 200);
+		pointerMove(row, 101, 206);
+		pointerMove(row, 102, 213); // dy=13 — past the axis threshold, under the escape
+		await wait(THRESHOLD_WAIT);
+		pointerUp(row);
+
+		assert.equal(longPressed, 1);
+		assert.deepEqual(peeks, []);
+	});
+
+	it("an aborted short drag opens nothing on release", async () => {
+		// The drag claimed the axis but never reached the escape distance, so the
+		// press was still live. react-aria synthesizes a click for an unresolved
+		// press, which on the anchor row is a navigation.
+		let clicks = 0;
+		const row = mountAnchor({
+			onLongPress: () => undefined,
+			onOpen: () => undefined,
+			onPeek: () => undefined,
+		});
+		row.addEventListener("click", () => clicks++);
+
+		pointerDown(row, 100, 200);
+		pointerMove(row, 120, 201); // dx=20 — past the axis threshold, under the escape
+		pointerUp(row);
+		await wait(200); // react-aria synthesizes its click 80ms after release
+
+		assert.equal(clicks, 0);
+	});
+
+	it("suppresses the native link menu raised over a drifting hold", async () => {
+		// Android Chrome raises the anchor's context menu at its own threshold,
+		// which can land mid-drift and ahead of the app's long press.
+		const row = mountAnchor({
+			onLongPress: () => undefined,
+			onOpen: () => undefined,
+			onPeek: () => undefined,
+		});
+
+		pointerDown(row, 100, 200);
+		pointerMove(row, 112, 206);
+
+		assert.equal(contextMenu(row).defaultPrevented, true);
 	});
 });

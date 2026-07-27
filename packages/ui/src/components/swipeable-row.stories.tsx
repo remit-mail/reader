@@ -193,6 +193,60 @@ export const LongPressToSelect: Story = {
 };
 
 /**
+ * The same gesture with a real finger's drift. A hand holding still on glass
+ * wanders several pixels over the 500ms hold — further than the distance at
+ * which the drag starts tracking the row, which is why a hold used to nudge
+ * the row and then do nothing. The swipe only takes the gesture once it has
+ * travelled far enough to commit a peek, so the drifting hold below still ends
+ * in selection mode. The play step drives the press, the drift and the hold.
+ */
+export const LongPressWithDrift: Story = {
+	name: "Long press with finger drift (interactive)",
+	render: () => {
+		const [selected, setSelected] = useState(false);
+		return (
+			<div className="space-y-2">
+				<AnchorRow
+					selectionMode={selected}
+					checked={selected}
+					onLongPress={() => setSelected(true)}
+				/>
+				<p data-testid="drift-outcome" className="text-xs text-fg-muted">
+					{selected
+						? "Drifting hold entered selection mode."
+						: "Waiting for the drifting hold…"}
+				</p>
+			</div>
+		);
+	},
+	play: async ({ canvasElement }) => {
+		const anchor = canvasElement.querySelector<HTMLAnchorElement>("a[href]");
+		if (!anchor) return;
+		const touch = (type: string, clientX: number, clientY: number) =>
+			anchor.dispatchEvent(
+				new PointerEvent(type, {
+					bubbles: true,
+					pointerType: "touch",
+					pointerId: 1,
+					clientX,
+					clientY,
+				}),
+			);
+		touch("pointerdown", 100, 200);
+		for (const [x, y] of [
+			[103, 201],
+			[106, 203],
+			[109, 205],
+			[112, 206],
+		]) {
+			touch("pointermove", x, y);
+		}
+		await new Promise((resolve) => setTimeout(resolve, 700));
+		touch("pointerup", 112, 206);
+	},
+};
+
+/**
  * A touch long press over a link row normally raises the browser's own link
  * context menu ("Open in new tab / Copy link address"), which collides with the
  * long-press-to-select gesture above. `useLongPress` suppresses that menu when

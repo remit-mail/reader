@@ -16,20 +16,36 @@ export type SwipePeek = "none" | "leading" | "trailing";
 /** Width a peeked row settles at to reveal its action; also the drag distance
  *  past which a release commits the peek rather than snapping back. */
 const SWIPE_ACTION_WIDTH = 72;
-/** Movement (px) before a pointer drag claims the horizontal (swipe) axis; below
- *  this a press is still a tap / long-press and vertical scroll wins. */
+/** Movement (px) before a pointer drag claims an axis; below this a press is
+ *  still a tap / long-press and vertical scroll wins. Claiming an axis only
+ *  decides what the row tracks — it does not decide the long press. */
 const SWIPE_AXIS_THRESHOLD = 10;
+/**
+ * Movement (px) along the claimed axis before a drag takes the gesture away
+ * from a still-pending long press.
+ *
+ * A finger resting on glass for the 500ms hold drifts, and it drifts further
+ * than the axis threshold — that threshold is calibrated for a drag starting
+ * to track, which has to feel immediate. Killing the press at that distance
+ * meant a real hold read as a swipe: the row followed the drift, the press
+ * died, and on release the drift was too short to commit a peek, so the
+ * gesture produced nothing at all.
+ *
+ * The escape distance is the commit distance, so the swipe only takes the
+ * gesture once it has moved far enough to actually produce a peek. Below it a
+ * release snaps back, which is to say the swipe was never worth the press.
+ */
+const LONG_PRESS_ESCAPE = SWIPE_ACTION_WIDTH / 2;
 
 /**
- * Tags a pointercancel dispatched by this component's own axis arbitration
- * (see `cancelLongPress` below) so `onPointerCancel` can tell it apart from
- * one react-aria dispatches itself when its own long press fires, or a
- * genuine browser-triggered cancel. Both of those arrive with no axis
- * claimed yet and must reset gesture state silently; a tagged one arrives
- * *because* `onPointerMove` just claimed an axis and is already handling
- * gesture state inline, so `onPointerCancel` must ignore it — otherwise it
- * re-reads a gesture with no axis claimed and mistakes the abort for a tap,
- * firing a spurious onOpen/onToggleCheck.
+ * Tags a pointercancel dispatched by this component's own arbitration (see
+ * `cancelLongPress` below) so `onPointerCancel` can tell it apart from one
+ * react-aria dispatches itself when its own long press fires, or a genuine
+ * browser-triggered cancel. Both of those end the gesture and must reset it
+ * silently; a tagged one arrives *because* `onPointerMove`/`onPointerUp` is
+ * already handling that gesture inline, so `onPointerCancel` must ignore it —
+ * otherwise it drops the drag and the release reads as a tap, firing a
+ * spurious onOpen/onToggleCheck.
  */
 const AXIS_CANCEL = "__swipeableRowAxisCancel";
 
@@ -104,7 +120,8 @@ export function SwipeableRow({
 		startX: number;
 		startY: number;
 		axis: "none" | "horizontal" | "vertical";
-		moved: boolean;
+		/** The drag has passed LONG_PRESS_ESCAPE and already cancelled the press. */
+		escaped: boolean;
 	} | null>(null);
 	const [dragX, setDragX] = useState<number | null>(null);
 
@@ -131,7 +148,7 @@ export function SwipeableRow({
 			startX: e.clientX,
 			startY: e.clientY,
 			axis: "none",
-			moved: false,
+			escaped: false,
 		};
 	};
 
@@ -143,18 +160,24 @@ export function SwipeableRow({
 		const dy = e.clientY - g.startY;
 		if (g.axis === "none") {
 			if (Math.abs(dy) > SWIPE_AXIS_THRESHOLD && Math.abs(dy) > Math.abs(dx)) {
-				// vertical scroll wins: abandon the swipe + long-press, let the list scroll
+				// vertical scroll wins: stop tracking the swipe, let the list scroll
 				g.axis = "vertical";
-				cancelLongPress(e);
-				gesture.current = null;
-				return;
-			}
-			if (Math.abs(dx) > SWIPE_AXIS_THRESHOLD) {
+			} else if (
+				Math.abs(dx) > SWIPE_AXIS_THRESHOLD &&
+				Math.abs(dx) > Math.abs(dy)
+			) {
 				g.axis = "horizontal";
-				g.moved = true;
-				cancelLongPress(e);
 				e.currentTarget.setPointerCapture(e.pointerId);
 			}
+		}
+		if (g.axis === "none") return;
+		// The drag only takes the gesture from a pending long press once it has
+		// travelled the commit distance along the axis it claimed (see
+		// LONG_PRESS_ESCAPE). Latched so the cancel is dispatched once.
+		const travel = g.axis === "horizontal" ? Math.abs(dx) : Math.abs(dy);
+		if (!g.escaped && travel > LONG_PRESS_ESCAPE) {
+			g.escaped = true;
+			cancelLongPress(e);
 		}
 		if (g.axis !== "horizontal") return;
 		const base = peekOffset(peek);
@@ -165,18 +188,25 @@ export function SwipeableRow({
 		setDragX(next);
 	};
 
-	const onPointerUp = () => {
+	const onPointerUp = (e: React.PointerEvent) => {
 		const g = gesture.current;
 		gesture.current = null;
 		const offset = dragX;
 		setDragX(null);
-		// g is null when the gesture was already consumed (long-press fired, or
-		// a vertical scroll took over) — those handle themselves, so do nothing.
+		// g is null when the gesture was already consumed (the long press fired,
+		// or a real cancel arrived) — those handle themselves, so do nothing.
 		if (!g) return;
-		if (g.axis === "horizontal" && offset !== null) {
-			onPeek(commitPeek(offset));
+		// A drag that claimed an axis but never escaped left react-aria's press
+		// live, and an unresolved press synthesizes a click on release — which on
+		// the anchor row means navigating. The drag was neither a swipe nor a
+		// tap, so end the press with it.
+		if (g.axis !== "none" && !g.escaped) cancelLongPress(e);
+		if (g.axis === "horizontal") {
+			if (offset !== null) onPeek(commitPeek(offset));
 			return;
 		}
+		// The list scrolled under the finger; the release is not a tap.
+		if (g.axis === "vertical") return;
 		// a tap: no axis claimed
 		if (selectionMode) {
 			onToggleCheck();
@@ -192,11 +222,10 @@ export function SwipeableRow({
 	};
 
 	// A genuine cancel — react-aria's own dispatch when its long press fires,
-	// or a real browser-triggered interruption — always resets silently, never
-	// as a tap-to-open/toggle/peek-commit. An axis-claim cancel (tagged, see
-	// AXIS_CANCEL) is a no-op here: onPointerMove already handled that gesture
-	// inline, either continuing to track it (horizontal) or nulling it itself
-	// (vertical) — see the comment there.
+	// or a real browser-triggered interruption (the browser taking over the
+	// pan, say) — always resets silently, never as a tap-to-open/toggle/peek
+	// -commit. This component's own cancel (tagged, see AXIS_CANCEL) is a no-op
+	// here: the handler that dispatched it owns that gesture's state.
 	const onPointerCancel = (e: React.PointerEvent) => {
 		const tagged = (e.nativeEvent as unknown as Record<string, boolean>)[
 			AXIS_CANCEL
