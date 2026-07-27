@@ -224,6 +224,10 @@ model Message {
   @visibility(Lifecycle.Read)
   filterMove?: MessageFilterMove;
 
+  @doc("Body-sync timestamp (epoch millis) the classifier's placement verdict was first decided, whether the verdict was to move the message or to leave it in place. Absent means placement has never been evaluated for this message. Guards `computePlacement` against a re-entrant body-sync pass (`fetchAndGetBody`'s `NoSuchKey` fallback, `syncBodies(..., force: true)`) re-deciding — and possibly reversing — a placement a user has since overridden by hand. `movedByRemit` remains the guard for a message that was placement-decided before this field existed.")
+  @visibility(Lifecycle.Read)
+  placementDecidedAt?: int64;
+
   @visibility(Lifecycle.Read)
   @createdAt
   createdAt: int64;

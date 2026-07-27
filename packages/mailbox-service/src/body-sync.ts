@@ -74,6 +74,7 @@ type ThreadMessageCategory = ThreadMessageItem["category"];
 interface PlacementOutcome {
 	verdict?: MessagePlacementVerdict;
 	move?: { destinationMailboxId: string; destinationPath: string };
+	placementDecidedAt?: number;
 }
 
 /**
@@ -184,6 +185,19 @@ const hasDecidedCategory = (
 	category: ThreadMessageCategory | undefined,
 ): boolean =>
 	category !== undefined && category !== MessageCategory.uncategorized;
+
+/**
+ * Issue #383 (RFC 039 Non-goals): whether {@link BodySyncService.computePlacement}
+ * has already produced a verdict for this message — moved, left in place, or
+ * archived, confident or unsure alike. Absence means placement has genuinely
+ * never been evaluated. The same two re-entrant paths `hasDecidedCategory`
+ * guards (`fetchAndGetBody`'s `NoSuchKey` fallback, `syncBodies(..., force:
+ * true)`) also re-enter `computePlacement`; without this guard a message a
+ * user manually rescued (never touched by Remit, so `movedByRemit` never
+ * recorded anything) can be silently re-evaluated and moved right back.
+ */
+const hasDecidedPlacement = (placementDecidedAt: number | undefined): boolean =>
+	placementDecidedAt !== undefined;
 
 export const toParsedBody = (parsed: ParsedMail): ParsedBody => ({
 	text: parsed.text ?? null,
@@ -867,6 +881,11 @@ export class BodySyncService {
 		// this guard a re-entrant pass would let a *later* override silently
 		// rewrite a category already decided on an earlier message, which is
 		// exactly the churn RFC 030's GSI-safety argument forbids.
+		//
+		// `resolved.placementDecidedAt` (issue #383) guards the same two
+		// re-entrant paths for placement: `computePlacement` already declined to
+		// recompute a verdict once this field is set, so it is only ever present
+		// here on the pass that first decided it.
 		const existingMessage = await this.messageService.get(messageId);
 		const finalCategory = hasDecidedCategory(existingMessage.category)
 			? existingMessage.category
@@ -889,6 +908,9 @@ export class BodySyncService {
 			...(moved ? { movedByRemit: true } : {}),
 			...(resolved.verdict ? { placementVerdict: resolved.verdict } : {}),
 			...(filterMove ? { filterMove } : {}),
+			...(resolved.placementDecidedAt
+				? { placementDecidedAt: resolved.placementDecidedAt }
+				: {}),
 		};
 		await this.messageService.update(messageId, update);
 		this.log.info({ messageId, storageKey: bodyRef.uri }, "Body stored");
@@ -1320,8 +1342,11 @@ export class BodySyncService {
 	 *
 	 * Returns a {@link PlacementOutcome}: a `verdict` to persist whenever Remit
 	 * decided to act (action != leave), confident and unsure alike, so the
-	 * distribution is queryable on the message; and a `move` to enqueue only for
-	 * a confident verdict.
+	 * distribution is queryable on the message; a `move` to enqueue only for a
+	 * confident verdict; and `placementDecidedAt` whenever a verdict — including
+	 * "leave" — was genuinely computed (issue #383), so a re-entrant call short-
+	 * circuits instead of re-deciding a placement the user may have since
+	 * overridden by hand.
 	 *
 	 * Always logs a structured verdict line for confident, actionable verdicts so
 	 * the real distribution is observable on a live mailbox.
@@ -1334,7 +1359,7 @@ export class BodySyncService {
 	 * alertable field instead of failing the surrounding message store. The empty
 	 * {@link PlacementOutcome} means "no action", whether Remit genuinely decided
 	 * to leave the message alone or placement itself failed; the alert log is
-	 * what distinguishes the latter.
+	 * what distinguishes the latter, and neither case marks the message decided.
 	 */
 	private async resolvePlacement(
 		messageId: string,
@@ -1378,6 +1403,16 @@ export class BodySyncService {
 		const { mailboxSpecialUseService } = placementConfig;
 
 		const message = await this.messageService.get(messageId);
+
+		// Issue #383: placement is meant to run once per message (RFC 039
+		// Non-goals). Once a verdict has EVER been decided for this message —
+		// moved, left in place, or archived — a re-entrant pass (the `NoSuchKey`
+		// fallback in `fetchAndGetBody`, `syncBodies(..., force: true)`) must not
+		// recompute it: a message a user has since moved by hand (which never
+		// touches `movedByRemit`) would otherwise be silently re-evaluated
+		// against the same signals that placed it in the first place.
+		if (hasDecidedPlacement(message.placementDecidedAt)) return {};
+
 		const junkMailbox = await mailboxSpecialUseService.findBySpecialUse(
 			accountId,
 			MailboxSpecialUse.Junk,
@@ -1421,14 +1456,16 @@ export class BodySyncService {
 		// audit record of its own. `flags.autoArchive` (issue #300) is a distinct,
 		// lower-priority filing preference: it only files a message away when
 		// `blocked`/DKIM/DMARC had nothing to say, never overriding a confident
-		// junk/inbox verdict computed above.
+		// junk/inbox verdict computed above. Still marked decided (issue #383):
+		// "leave" is itself a verdict, not "not yet evaluated".
 		if (verdict.action === "leave") {
-			return this.resolveAutoArchive(
+			const outcome = await this.resolveAutoArchive(
 				mailboxSpecialUseService,
 				message,
 				accountId,
 				signals.autoArchive,
 			);
+			return { ...outcome, placementDecidedAt: Date.now() };
 		}
 
 		// Audit verdict — recorded for every actionable verdict (both
@@ -1452,12 +1489,12 @@ export class BodySyncService {
 		// Only a confident verdict moves mail. An unsure verdict is recorded
 		// but never enqueues a move.
 		if (verdict.confidence !== "confident") {
-			return { verdict: audit };
+			return { verdict: audit, placementDecidedAt: audit.decidedAt };
 		}
 
 		const target =
 			verdict.action === "move-to-inbox" ? inboxMailbox : junkMailbox;
-		if (!target) return { verdict: audit };
+		if (!target) return { verdict: audit, placementDecidedAt: audit.decidedAt };
 
 		// Structured verdict line — emitted for confident, actionable verdicts
 		// so the real verdict distribution is observable on a live mailbox.
@@ -1480,6 +1517,7 @@ export class BodySyncService {
 				destinationMailboxId: target.mailboxId,
 				destinationPath: target.fullPath,
 			},
+			placementDecidedAt: audit.decidedAt,
 		};
 	}
 
