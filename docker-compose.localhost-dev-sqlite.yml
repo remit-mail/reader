@@ -1,0 +1,223 @@
+# One-command local SQLite + better-auth Remit stack.
+#
+# The SQLite sibling of docker-compose.localhost-dev-generic.yml, and the reason
+# to prefer it: SQLite is the backend the product ships (deploy/vps/docker-compose.sqlite.yml),
+# so a dev session here exercises the code path a real install runs. The Postgres
+# stack's outbox relay lives outside this repository, which is why semantic search
+# never indexed anything there; on this stack the relay is the `search-index-worker`
+# service below and the vector index fills as mail arrives.
+#
+# Same ports as the Postgres stack — web on 4123, backend on 4124 — because the
+# TLS front-end on 4143 proxies to 4123 and bookmarks point at it.
+#
+# App containers run in dev mode straight from the bind-mounted worktree with host
+# networking, so every service is reachable on localhost and vite serves HMR from
+# the working tree. node:24 base; host node_modules are same-arch and reused via
+# the bind mount.
+#
+# Data lives in .remit/dev-sqlite inside the worktree, not in a docker volume:
+# two SQLite files (the app/auth database and sqlite-vec's vector store) plus the
+# message bodies. `down` keeps it; deleting that directory is what resets the
+# stack to a fresh install.
+
+name: remit-sqlite-dev
+
+services:
+  elasticmq:
+    image: softwaremill/elasticmq-native:1.6.9
+    container_name: remit-sqlite-dev-elasticmq
+    ports:
+      - "9324:9324"
+      - "9325:9325"
+    volumes:
+      - ./elasticmq.conf:/opt/elasticmq.conf:ro
+    restart: unless-stopped
+
+  # One-shot migrator, ordered before every app service — the same shape the
+  # published stack runs (deploy/vps/docker-compose.sqlite.yml) and the same
+  # artifact: packages/migrate imports its SQL as text, which only esbuild
+  # resolves, so the entrypoint is bundled first and then run rather than
+  # executed through tsx. Its drizzle folders are relative to deploy/vps, which
+  # is why it runs from there; every path in the env file is absolute so the
+  # database it opens is the one the app services open.
+  migrate:
+    image: node:24
+    container_name: remit-sqlite-dev-migrate
+    user: "1000:1000"
+    working_dir: /app
+    network_mode: host
+    env_file:
+      - localhost-dev-sqlite.env
+    volumes:
+      - .:/app
+    command:
+      - sh
+      - -c
+      - >-
+        mkdir -p /app/.remit/dev-sqlite/storage &&
+        node npm-scripts/docker-bundle.mjs backend-migrate &&
+        cd deploy/vps &&
+        node ../../dist-docker/backend/migrate.mjs
+    restart: "no"
+
+  backend:
+    image: node:24
+    container_name: remit-sqlite-dev-backend
+    user: "1000:1000"
+    working_dir: /app
+    network_mode: host
+    env_file:
+      - localhost-dev-sqlite.env
+    volumes:
+      - .:/app
+    command:
+      - node
+      - --env-file=localhost-dev-sqlite.env
+      - --import
+      - tsx
+      - packages/backend/dev-server/server.ts
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      elasticmq:
+        condition: service_started
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:4124/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
+      start_interval: 2s
+    restart: unless-stopped
+
+  # Drains the elasticmq queues by invoking the production worker handler, the
+  # same wiring the e2e/CI stack uses. Runs against the same SQLite file and
+  # storage as the backend, so a triggered sync flows mailboxes -> messages ->
+  # body: metadata sync emits the SYNC_MESSAGE_BODY cue and this worker drains
+  # `remit-body`, writing body.eml.
+  #
+  # The search-index queue is deliberately blanked here. The shim would poll it
+  # too, and then two processes would each load a 500 MB embedding model to
+  # index the same mail; on the published stack that queue belongs to the
+  # search-index-worker alone, and it does here as well.
+  imap-worker:
+    image: node:24
+    container_name: remit-sqlite-dev-imap-worker
+    user: "1000:1000"
+    working_dir: /app
+    network_mode: host
+    env_file:
+      - localhost-dev-sqlite.env
+    environment:
+      SQS_QUEUE_URL_SEARCH_INDEX: ""
+    volumes:
+      - .:/app
+    command:
+      - node
+      - --env-file=localhost-dev-sqlite.env
+      - --import
+      - tsx
+      - packages/imap-worker/src/e2e-processor-shim.ts
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      elasticmq:
+        condition: service_started
+    restart: unless-stopped
+
+  # Semantic search, both halves of it (RFC 036 D2). SQLite has no cross-process
+  # NOTIFY, so the outbox drain that merely backstops Postgres is the primary
+  # mechanism here: poller.ts starts a 2-second poll over the committed-but-
+  # unrelayed outbox rows, puts them on the search-index queue, and consumes that
+  # same queue with the production handler — embedding each message and writing
+  # the vector into LOCAL_VECTORDB_PATH. Without this service the outbox fills
+  # and message_embedding stays empty, which is exactly what happened on the
+  # Postgres stack, whose relay is not in this repository.
+  search-index-worker:
+    image: node:24
+    container_name: remit-sqlite-dev-search-index-worker
+    user: "1000:1000"
+    working_dir: /app
+    network_mode: host
+    env_file:
+      - localhost-dev-sqlite.env
+    volumes:
+      - .:/app
+    command:
+      - node
+      - --env-file=localhost-dev-sqlite.env
+      - --import
+      - tsx
+      - packages/search-index-worker/src/poller.ts
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      elasticmq:
+        condition: service_started
+    restart: unless-stopped
+
+  # Periodic mailbox-sync scheduler (#1247, restructured #1251) — the local-dev
+  # equivalent of production's EventBridge-scheduled Lambda. Ticks
+  # `runSchedulerTick` on a plain loop at the tick cadence
+  # (MAILBOX_SYNC_TICK_INTERVAL_SECONDS, shortened — see localhost-dev-sqlite.env),
+  # enqueuing SYNC_MAILBOXES onto `remit-mailboxes.fifo` for the imap-worker above
+  # to drain.
+  scheduler:
+    image: node:24
+    container_name: remit-sqlite-dev-scheduler
+    user: "1000:1000"
+    working_dir: /app
+    network_mode: host
+    env_file:
+      - localhost-dev-sqlite.env
+    volumes:
+      - .:/app
+    command:
+      - node
+      - --env-file=localhost-dev-sqlite.env
+      - --import
+      - tsx
+      - packages/imap-worker/src/scheduler/local-runner.ts
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      elasticmq:
+        condition: service_started
+    restart: unless-stopped
+
+  web:
+    image: node:24
+    container_name: remit-sqlite-dev-web
+    user: "1000:1000"
+    working_dir: /app
+    network_mode: host
+    environment:
+      HOME: /tmp
+      VITE_PROXY_BACKEND_PORT: "4124"
+    volumes:
+      - .:/app
+    command:
+      - npm
+      - run
+      - dev
+      - -w
+      - "@remit/web-client"
+      - --
+      - --port
+      - "4123"
+      - --host
+      - "0.0.0.0"
+      - --strictPort
+    depends_on:
+      backend:
+        condition: service_started
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:4123/config.js',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+      start_interval: 2s
+    restart: unless-stopped
