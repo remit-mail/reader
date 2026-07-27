@@ -233,6 +233,28 @@ $out"
 	*) die "'docker compose' on this host is not the real Compose v2 plugin (podman-compose is not supported):
 $out" ;;
 	esac
+	# 2.30 is where `--profile '*'` came in. Below it the flag matches no
+	# profile, so every command whose contract is "everything" — 'remit down',
+	# 'remit purge', 'remit restart --hard' — degrades to acting on the always-on
+	# services while reporting as though it acted on all of them. That failure is
+	# invisible at the moment it happens, so it is asserted here instead.
+	local ver major minor
+	ver="${out#*Docker Compose version }"
+	ver="${ver#v}"
+	ver="${ver%%[!0-9.]*}"
+	major="${ver%%.*}"
+	minor="${ver#*.}"
+	minor="${minor%%.*}"
+	case "$major$minor" in
+	*[!0-9]* | "") die "cannot read the Compose version from '$out'. reader needs Compose 2.30 or newer." ;;
+	esac
+	if [ "$major" -lt 2 ] || { [ "$major" -eq 2 ] && [ "$minor" -lt 30 ]; }; then
+		die "this host has Compose $ver; reader needs 2.30 or newer.
+
+Below 2.30 '--profile *' selects no profile, so 'remit down', 'remit purge' and
+'remit restart --hard' would quietly skip every optional profile while reporting
+that they covered the whole deployment. Update the compose plugin and re-run."
+	fi
 	local err
 	err="$(docker info 2>&1)" || die "the container daemon is not reachable:
 $err"
