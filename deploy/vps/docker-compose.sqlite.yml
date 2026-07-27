@@ -69,6 +69,12 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+      # start_interval probes every second while the container is still inside
+      # start_period, so "healthy" is discovered within ~1s of the port
+      # answering during a boot or a self-update swap — the interval above still
+      # governs the steady state, so this does not turn the check hot once up.
+      start_period: 30s
+      start_interval: 1s
     restart: unless-stopped
 
   # ---------------------------------------------------------------------
@@ -136,6 +142,10 @@ services:
       timeout: 5s
       retries: 10
       start_period: 60s
+      # Probe every second while inside start_period so a boot or self-update
+      # swap flips to "healthy" within ~1s of the port answering; the 5s
+      # interval above still governs the steady state.
+      start_interval: 1s
     restart: unless-stopped
 
   apisix:
@@ -156,6 +166,10 @@ services:
       timeout: 5s
       retries: 10
       start_period: 60s
+      # Probe every second while inside start_period so a boot or self-update
+      # swap flips to "healthy" within ~1s of the port answering; the 5s
+      # interval above still governs the steady state.
+      start_interval: 1s
     restart: unless-stopped
 
   web:
@@ -173,6 +187,10 @@ services:
       timeout: 5s
       retries: 10
       start_period: 60s
+      # Probe every second while inside start_period so a boot or self-update
+      # swap flips to "healthy" within ~1s of the port answering; the 5s
+      # interval above still governs the steady state.
+      start_interval: 1s
     restart: unless-stopped
 
   caddy:

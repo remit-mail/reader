@@ -85,9 +85,12 @@ SNAPSHOT_LIB_MOUNT="${REMIT_UPDATE_SNAPSHOT_LIB-$REMIT_DIR/backup/snapshot-db.sh
 # healthy-but-slow upgrade is worse than waiting.
 GATE_BUDGET_SECONDS="${REMIT_UPDATE_GATE_BUDGET:-300}"
 
-# Condition 4 is three consecutive answers 5 seconds apart, which is also the
-# rhythm every other condition is re-read on.
-GATE_PROBE_INTERVAL="${REMIT_UPDATE_PROBE_INTERVAL:-5}"
+# Condition 4 is three consecutive answers 2 seconds apart, which is also the
+# rhythm every other condition is re-read on. Still three real answers over a
+# real interval — the window is what shrank, so a backend that is up is
+# discovered in a few seconds rather than ~10, without weakening the "does not
+# just flap once" guarantee.
+GATE_PROBE_INTERVAL="${REMIT_UPDATE_PROBE_INTERVAL:-2}"
 
 # Nothing is served and no worker runs between the snapshot and the verdict, so
 # nothing is written, sent, purged or indexed in the window. volume-init joins
@@ -1473,12 +1476,21 @@ assert_bind_identity() {
 	[ "$_id_seen" = "$_id_token" ]
 }
 
-# Every service except the updater, by name. Never a bare `compose stop`: in the
-# updater container that stops the very service this code runs in, and
-# `restart: unless-stopped` does not resurrect an explicitly-stopped container —
-# the run dies with the site down and no process left to finish or roll back
-# (reader#271). The updater is excluded here for the same reason the gate and
-# come-up sets never name it: it drives the update and replaces itself last.
+# Every service except the updater and caddy, by name. Never a bare
+# `compose stop`: in the updater container that stops the very service this code
+# runs in, and `restart: unless-stopped` does not resurrect an explicitly-stopped
+# container — the run dies with the site down and no process left to finish or
+# roll back (reader#271). The updater is excluded here for the same reason the
+# gate and come-up sets never name it: it drives the update and replaces itself
+# last.
+#
+# caddy is excluded too, and stays up across the whole window. It is not
+# version-pinned and holds no app volume, so nothing collides by leaving it
+# running; its reverse_proxy already re-dials a swapped upstream for
+# lb_try_duration (caddy/routes.caddy), so a request that lands while the app
+# plane is down is held and served once the new stack answers rather than
+# meeting a refused connection. Stopping it was the whole of the visible outage:
+# the front door went dark for the entire stop→healthy window.
 #
 # Two passes, because the stop set is not one list. `compose config --services`
 # names the always-on services; `backup` sits behind an inactive profile and is
@@ -1486,12 +1498,12 @@ assert_bind_identity() {
 # `restart: unless-stopped` that opens remit.db read-write every interval, a
 # collision during the restore.
 stop_everything() {
-	_stopset=$(compose config --services 2>/dev/null | grep -vx updater | tr '\n' ' ')
+	_stopset=$(compose config --services 2>/dev/null | grep -vxE 'updater|caddy' | tr '\n' ' ')
 	if [ -n "$_stopset" ]; then
 		# shellcheck disable=SC2086 # a service list, split on purpose
 		compose stop $_stopset
 	fi
-	_left=$(compose ps --services --status running 2>/dev/null | grep -vx updater | tr '\n' ' ')
+	_left=$(compose ps --services --status running 2>/dev/null | grep -vxE 'updater|caddy' | tr '\n' ' ')
 	if [ -n "$_left" ]; then
 		# shellcheck disable=SC2086 # a service list, split on purpose
 		compose stop $_left

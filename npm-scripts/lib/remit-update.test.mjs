@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import {
 	copyFileSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
@@ -1130,6 +1131,45 @@ describe("the updater never stops itself (reader#271)", () => {
 		for (const line of stops) {
 			assert.notEqual(line.trim(), "compose stop");
 		}
+	});
+});
+
+describe("caddy stays up across the whole update (front door never goes dark)", () => {
+	// caddy is not version-pinned and holds no app volume, so nothing collides by
+	// leaving it running; its reverse_proxy re-dials a swapped upstream for
+	// lb_try_duration, so a request that lands while the app plane is down is held
+	// and served rather than meeting a refused connection. Stopping it was the
+	// whole of the user-visible outage, so the stop set must never name it.
+	const box = sandbox({ scenario: { probe: "ok" } });
+	box.run(["update"]);
+	const stops = box
+		.log()
+		.split("\n")
+		.filter((l) => l.startsWith("compose stop"));
+
+	it("never names caddy in any stop set", () => {
+		assert.ok(stops.length > 0, "nothing was stopped");
+		for (const line of stops) {
+			assert.ok(
+				!line.split(/\s+/).includes("caddy"),
+				`a stop named caddy: ${line}`,
+			);
+		}
+	});
+
+	it("still stops the app plane it must (backend, workers)", () => {
+		const stopped = stops.join(" ").split(/\s+/);
+		assert.ok(stopped.includes("backend"));
+		assert.ok(stopped.includes("imap-worker"));
+	});
+
+	it("leaves caddy running after the update commits", () => {
+		// The fake tracks a service as up via its up-<svc> marker; a still-serving
+		// caddy is the point, so assert it directly against the fake's state.
+		assert.ok(
+			existsSync(join(box.fake, "up-caddy")),
+			"caddy was taken down during the update",
+		);
 	});
 });
 
