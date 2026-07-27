@@ -181,7 +181,7 @@ export const TARGETS = [
 	// service overrides CMD to run this instead of server.mjs.
 	{
 		name: "backend-migrate",
-		entry: "deploy/vps/migrate/run-migrate.ts",
+		entry: "packages/migrate/src/run-migrate.ts",
 		outfile: "dist-docker/backend/migrate.mjs",
 		// better-sqlite3 is a native module reached only on the
 		// DATA_BACKEND=sqlite branch (RFC 036 D5), via a dynamic import esbuild

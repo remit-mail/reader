@@ -1,5 +1,5 @@
 // Complete SQLite drizzle schema for committed-migration GENERATION only
-// (RFC 036 D5) — consumed by deploy/vps/migrate/drizzle.entities.sqlite.config.ts
+// (RFC 036 D5) — consumed by packages/migrate/drizzle.entities.sqlite.config.ts
 // and the drift guard (npm-scripts/check-vps-migrations.mjs), never at runtime.
 //
 // The SQLite twin of schema-full.ts: the sqlite-dialect entity package

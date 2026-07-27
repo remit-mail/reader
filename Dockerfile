@@ -82,7 +82,7 @@ RUN npm run build:dist -w packages/web-client -- --auth better-auth
 # Bakes the generated route table into the apisix image. backend:8080 is the
 # in-network service name/port every runtime target below also uses.
 RUN APISIX_BACKEND_HOST=backend APISIX_BACKEND_PORT=8080 \
-	node --import tsx apisix/generate-config.ts
+	node --import tsx packages/apisix/generate-config.ts
 
 # One esbuild bundle per service entrypoint — see npm-scripts/docker-bundle.mjs
 # for the recipe (ESM, minified, CJS-require banner) and the external/native
@@ -422,8 +422,8 @@ CMD ["node", "server.mjs"]
 # apisix — stock image, generated route table baked in (RFC 035 D5 parity).
 ########################################################################
 FROM docker.io/apache/apisix:3.13.0-debian AS apisix
-COPY --from=builder /app/apisix/config.yaml /usr/local/apisix/conf/config.yaml
-COPY --from=builder /app/apisix/apisix.yaml /usr/local/apisix/conf/apisix.yaml
+COPY --from=builder /app/packages/apisix/config.yaml /usr/local/apisix/conf/config.yaml
+COPY --from=builder /app/packages/apisix/apisix.yaml /usr/local/apisix/conf/apisix.yaml
 # The upstream image's docker-entrypoint.sh only trusts config.yaml's
 # etcd-less (data_plane/yaml) setup when this is set — without it, the
 # entrypoint ignores config.yaml's config_provider and always runs

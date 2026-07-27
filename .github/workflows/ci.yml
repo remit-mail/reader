@@ -106,6 +106,14 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # What the step above is worth depends on what it reaches, and it reaches
+      # only the workspaces. This proves that is every TypeScript file in the
+      # tree (#440). It belongs to this job because it expands the tsconfigs
+      # with the compiler's own resolver, so it needs the install — the
+      # install-free `validate` job carries only the pure decisions it rests on.
+      - name: Typecheck reaches every TypeScript file
+        run: npm run check:typecheck-coverage
+
   # Every workspace suite except web-client. web-client dominated the single
   # `test` job — its single-process coverage run was the whole critical path — so
   # it fans out
@@ -183,7 +191,7 @@ jobs:
   # The other lane is the `e2e` job in images.yml. That one runs on main against
   # the published roster and is the deploy gate. Neither replaces the other: this
   # lane has no packaged edge, so the Caddy and APISIX assertions are skipped by
-  # name here (e2e/src/stack.ts) and only the image lane covers them.
+  # name here (packages/e2e/src/stack.ts) and only the image lane covers them.
   #
   # Pull requests only. On main this would re-test from source what images.yml is
   # already testing as shipped. The gate below knows this skip is legitimate and
@@ -226,8 +234,8 @@ jobs:
           name: e2e-dev-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             e2e-dev-stack.log
-            e2e/playwright-report/
-            e2e/test-results/
+            packages/e2e/playwright-report/
+            packages/e2e/test-results/
           retention-days: 14
           if-no-files-found: warn
 

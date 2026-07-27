@@ -85,12 +85,12 @@ packages/web-client/visual-regression/__screenshots__
 # Black-box e2e suite: the generated stack .env, the run state global setup
 # writes, and Playwright's own output.
 deploy/vps/.env
-e2e/.state/
-e2e/test-results/
-e2e/playwright-report/
+packages/e2e/.state/
+packages/e2e/test-results/
+packages/e2e/playwright-report/
 
 # Generated APISIX route table (from OpenAPI)
-apisix/apisix.yaml
+packages/apisix/apisix.yaml
 
 # Local esbuild output from npm-scripts/docker-bundle.mjs (produced inside
 # the Docker builder stage normally; only appears on disk if run directly).

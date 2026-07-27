@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const read = (...parts) => readFileSync(join(ROOT, ...parts), "utf8");
 
-const RUN_MIGRATE = read("deploy", "vps", "migrate", "run-migrate.ts");
+const RUN_MIGRATE = read("packages", "migrate", "src", "run-migrate.ts");
 const REPAIR_CALL = "repairThreadMessageCategoryStep(";
 
 function section(source, from, to) {
@@ -69,7 +69,7 @@ describe("the category repair ships inside the migrate entrypoint", () => {
 
 	it("is bundled into the backend image as migrate.mjs", () => {
 		const bundle = read("npm-scripts", "docker-bundle.mjs");
-		assert.match(bundle, /deploy\/vps\/migrate\/run-migrate\.ts/);
+		assert.match(bundle, /packages\/migrate\/src\/run-migrate\.ts/);
 		assert.match(bundle, /dist-docker\/backend\/migrate\.mjs/);
 		assert.match(read("Dockerfile"), /migrate\.mjs \.\/migrate\.mjs/);
 	});

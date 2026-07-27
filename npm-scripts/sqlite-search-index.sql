@@ -1,6 +1,6 @@
 -- SQLite full-text search objects (RFC 036 D4) — the sqlite counterpart of
 -- npm-scripts/pg-search-index.sql, applied by the migrator as its final
--- idempotent step (deploy/vps/migrate/run-migrate.ts) and by the test harness
+-- idempotent step (packages/migrate/src/run-migrate.ts) and by the test harness
 -- (packages/drizzle-service/src/test-db-sqlite.ts) so repos run the exact
 -- search path they ship on.
 --

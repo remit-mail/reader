@@ -599,7 +599,7 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 	});
 
 	// Global setup seeds a classification fixture whose sender display name is
-	// literally "npm" (`e2e/src/classification-fixtures.ts`, the "reported npm
+	// literally "npm" (`packages/e2e/src/classification-fixtures.ts`, the "reported npm
 	// shape" case), which a bare "npm" search would also match. `npmbulk` reads
 	// the same as the issue's driving "search npm" case without colliding with
 	// that fixture. `RUN_TAG` is the one substring common to every fixture below,
