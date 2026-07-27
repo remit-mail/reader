@@ -42,11 +42,13 @@ services:
   migrate:
     image: node:24
     container_name: remit-sqlite-dev-migrate
-    user: "1000:1000"
+    user: "${REMIT_DEV_UID:-1000}:${REMIT_DEV_GID:-1000}"
     working_dir: /app
     network_mode: host
     env_file:
       - localhost-dev-sqlite.env
+      - path: localhost-dev-sqlite.local.env
+        required: false
     volumes:
       - .:/app
     command:
@@ -62,11 +64,13 @@ services:
   backend:
     image: node:24
     container_name: remit-sqlite-dev-backend
-    user: "1000:1000"
+    user: "${REMIT_DEV_UID:-1000}:${REMIT_DEV_GID:-1000}"
     working_dir: /app
     network_mode: host
     env_file:
       - localhost-dev-sqlite.env
+      - path: localhost-dev-sqlite.local.env
+        required: false
     volumes:
       - .:/app
     command:
@@ -103,11 +107,13 @@ services:
   imap-worker:
     image: node:24
     container_name: remit-sqlite-dev-imap-worker
-    user: "1000:1000"
+    user: "${REMIT_DEV_UID:-1000}:${REMIT_DEV_GID:-1000}"
     working_dir: /app
     network_mode: host
     env_file:
       - localhost-dev-sqlite.env
+      - path: localhost-dev-sqlite.local.env
+        required: false
     environment:
       SQS_QUEUE_URL_SEARCH_INDEX: ""
     volumes:
@@ -136,11 +142,13 @@ services:
   search-index-worker:
     image: node:24
     container_name: remit-sqlite-dev-search-index-worker
-    user: "1000:1000"
+    user: "${REMIT_DEV_UID:-1000}:${REMIT_DEV_GID:-1000}"
     working_dir: /app
     network_mode: host
     env_file:
       - localhost-dev-sqlite.env
+      - path: localhost-dev-sqlite.local.env
+        required: false
     volumes:
       - .:/app
     command:
@@ -162,11 +170,13 @@ services:
   account-worker:
     image: node:24
     container_name: remit-sqlite-dev-account-worker
-    user: "1000:1000"
+    user: "${REMIT_DEV_UID:-1000}:${REMIT_DEV_GID:-1000}"
     working_dir: /app
     network_mode: host
     env_file:
       - localhost-dev-sqlite.env
+      - path: localhost-dev-sqlite.local.env
+        required: false
     volumes:
       - .:/app
     command:
@@ -191,11 +201,13 @@ services:
   scheduler:
     image: node:24
     container_name: remit-sqlite-dev-scheduler
-    user: "1000:1000"
+    user: "${REMIT_DEV_UID:-1000}:${REMIT_DEV_GID:-1000}"
     working_dir: /app
     network_mode: host
     env_file:
       - localhost-dev-sqlite.env
+      - path: localhost-dev-sqlite.local.env
+        required: false
     volumes:
       - .:/app
     command:
@@ -214,7 +226,7 @@ services:
   web:
     image: node:24
     container_name: remit-sqlite-dev-web
-    user: "1000:1000"
+    user: "${REMIT_DEV_UID:-1000}:${REMIT_DEV_GID:-1000}"
     working_dir: /app
     network_mode: host
     environment:

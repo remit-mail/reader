@@ -71,7 +71,10 @@ export const useFollowFocusOpen = ({
 		}
 		if (messageId === undefined) return;
 		if (messageId === openMessageId) return;
-		if (messageId === declinedRef.current) return;
+		if (messageId === declinedRef.current) {
+			declinedRef.current = undefined;
+			return;
+		}
 		const timer = setTimeout(() => openRef.current(messageId), delayMs);
 		return () => clearTimeout(timer);
 	}, [enabled, keyboardFocusedMessageId, openMessageId, delayMs]);
