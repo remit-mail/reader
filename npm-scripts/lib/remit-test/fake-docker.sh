@@ -354,6 +354,34 @@ compose_cmd() {
 		done
 		exit 0
 		;;
+	exec)
+		# The D4 seam `remit doctor` drives: `exec -T doctor node check.mjs
+		# [--json]`. What the checker printed comes from $S/exec-out (or
+		# exec-out-json), what it logged from $S/exec-err, and what it exited
+		# with from the scenario. A service with no live container is refused
+		# the way compose refuses it — non-zero, a complaint on stderr, and
+		# nothing at all on stdout.
+		_svc=""
+		_wantjson=0
+		for _a in "$@"; do
+			case "$_a" in
+			--json) _wantjson=1 ;;
+			-*) ;;
+			*)
+				if [ -z "$_svc" ]; then _svc=$_a; fi
+				;;
+			esac
+		done
+		if [ ! -f "$S/up-$_svc" ]; then
+			printf 'service "%s" is not running container #1\n' "$_svc" >&2
+			exit 1
+		fi
+		_outfile="$S/exec-out"
+		if [ "$_wantjson" = "1" ]; then _outfile="$S/exec-out-json"; fi
+		if [ -f "$_outfile" ]; then cat "$_outfile"; fi
+		if [ -f "$S/exec-err" ]; then cat "$S/exec-err" >&2; fi
+		exit "$(val exec_exit 0)"
+		;;
 	*) exit 0 ;;
 	esac
 }

@@ -134,6 +134,12 @@ Usage: remit <command> [args]
   purge --yes          Destroy the deployment: containers and every data
                        volume, accounts included. Without --yes it only says
                        what would go. Use 'down' to merely stop serving.
+  doctor [--json]      Report whether anything is wrong: work quarantined on a
+                       dead-letter queue, an account that stopped syncing, a
+                       worker that stopped polling, mail authentication
+                       failing. Exits 0 healthy, 1 degraded, 2 when no verdict
+                       could be produced, so cron or an external monitor can
+                       call it directly.
   config               Print the effective configuration, secrets redacted.
   check-categories     Report whether the mail list's category column agrees
                        with the messages it copies, per cause. Reads the
@@ -2285,6 +2291,112 @@ cmd_check_categories() {
 	compose run --rm --no-deps migrate node migrate.mjs --check
 }
 
+# --- doctor (docs/design/standalone-observability.md D4) --------------------
+#
+# The verdict is computed in the `doctor` container and nowhere else. The
+# signals behind it are on the compose network and this is a POSIX shell script
+# whose only tool is docker, so this command scrapes nothing and decides
+# nothing: it execs the checker, prints what comes back verbatim, and carries
+# its exit code out.
+#
+# One fresh check per invocation. Not the alerting loop's last verdict — that
+# is the settled one the dwell rule announces, deliberately up to three checks
+# behind what is true now, and "is anything wrong" is a question about now.
+DOCTOR_SERVICE=doctor
+
+# The checker's own two renderings, each recognised by the one field both
+# carry. Anything else on stdout — docker's "no such service", an empty stream
+# from a container that died mid-check — is not a verdict, and printing it as
+# though it were is the one outcome D4 forbids.
+doctor_has_verdict() {
+	if [ "$1" = "1" ]; then
+		grep -q '"verdict"[[:space:]]*:' "$2"
+	else
+		grep -q '^verdict ' "$2"
+	fi
+}
+
+# What docker said, cut to its first non-empty line with control characters
+# removed. The line format is one record per line and a JSON string carries no
+# raw newline, so a multi-line complaint is cut rather than escaped into
+# either; its first line is the part that names the cause.
+doctor_first_line() {
+	awk 'NF { print; exit }' "$1" 2>/dev/null | tr -d '[:cntrl:]'
+}
+
+# A check that could not look reports `degraded`, never healthy and never a
+# stack trace: an exec that does not answer is itself the finding. Rendered in
+# the checker's own two formats, so a caller parsing either does not have to
+# special-case the one answer it most needs to read. The exit code is what
+# separates this from a verdict the checker produced.
+doctor_no_verdict() {
+	_summary="remit is degraded: the health checker did not answer"
+	_why="the doctor container did not answer 'compose exec', so nothing about this stack was checked"
+	if [ "$1" = "1" ]; then
+		if [ -n "$2" ]; then
+			_detail=$(printf '"%s"' "$(json_escape "$2")")
+		else
+			_detail=null
+		fi
+		printf '{\n  "verdict": "degraded",\n  "checkedAt": "%s",\n  "summary": "%s",\n  "reasons": [\n    {\n      "code": "checker_unreachable",\n      "summary": "%s",\n      "detail": %s\n    }\n  ]\n}\n' \
+			"$(iso_now)" "$_summary" "$_why" "$_detail"
+		return 0
+	fi
+	printf 'verdict degraded\n'
+	printf 'checked-at %s\n' "$(iso_now)"
+	printf 'summary %s\n' "$_summary"
+	printf 'reason checker_unreachable %s\n' "$_why"
+	if [ -n "$2" ]; then
+		printf 'detail checker_unreachable %s\n' "$2"
+	fi
+}
+
+cmd_doctor() {
+	require_deployment
+	_json=0
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--json) _json=1 ;;
+		*) die "doctor: unknown option '$1'" ;;
+		esac
+		shift
+	done
+
+	_out=$(mktemp) || die "doctor: cannot create a temporary file for the verdict"
+	_err=$(mktemp) || die "doctor: cannot create a temporary file for the log"
+	_rc=0
+	if [ "$_json" = "1" ]; then
+		compose exec -T "$DOCTOR_SERVICE" node check.mjs --json >"$_out" 2>"$_err" || _rc=$?
+	else
+		compose exec -T "$DOCTOR_SERVICE" node check.mjs >"$_out" 2>"$_err" || _rc=$?
+	fi
+	# The checker logs to stderr precisely so a log line cannot corrupt what is
+	# parsed on stdout, and docker's own complaints arrive the same way. Both
+	# belong in front of the operator; neither belongs in the verdict.
+	cat "$_err" >&2
+
+	if doctor_has_verdict "$_json" "$_out"; then
+		cat "$_out"
+		rm -f "$_out" "$_err"
+		# 0 healthy, 1 degraded. A process that printed a verdict and then died
+		# some other way still did not report a healthy stack.
+		case "$_rc" in
+		0 | 1) exit "$_rc" ;;
+		*) exit 1 ;;
+		esac
+	fi
+
+	_detail=$(doctor_first_line "$_err")
+	rm -f "$_out" "$_err"
+	doctor_no_verdict "$_json" "$_detail"
+	# The hint goes to stderr because stdout above is a closed vocabulary a
+	# caller parses. `doctor` is an always-on service, not one of the optional
+	# profiles, so getting it back is a plain restart of the stack.
+	printf "%s: the 'doctor' service is part of the stack, not behind a profile.\n" "$PROG" >&2
+	printf "'%s status' shows what is running; '%s restart' starts what is not.\n" "$PROG" "$PROG" >&2
+	exit 2
+}
+
 main() {
 	[ $# -gt 0 ] || {
 		usage >&2
@@ -2299,6 +2411,7 @@ main() {
 	update) cmd_update "$@" ;;
 	down) cmd_down "$@" ;;
 	purge) cmd_purge "$@" ;;
+	doctor) cmd_doctor "$@" ;;
 	config) cmd_config "$@" ;;
 	check-categories) cmd_check_categories "$@" ;;
 	cert) cmd_cert "$@" ;;
