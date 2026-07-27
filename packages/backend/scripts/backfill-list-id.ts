@@ -57,12 +57,13 @@ const run = async (): Promise<void> => {
 		{ checkpointStore: fileCheckpointStore, logger },
 	);
 
-	console.log("[backfill-list-id] done", result);
+	// biome-ignore lint/plugin/no-logger-info: a completed full-corpus backfill is an audit-grade signal
+	logger.info({ result }, "backfill done");
 };
 
 run()
 	.then(() => process.exit(0))
 	.catch((error: unknown) => {
-		console.error("[backfill-list-id] failed", error);
+		logger.error({ error }, "backfill failed");
 		process.exit(1);
 	});

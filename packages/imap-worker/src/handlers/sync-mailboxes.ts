@@ -183,6 +183,7 @@ const syncMailboxesForAccount = async (
 	const mailboxSyncService = new MailboxSyncService(
 		mailboxService,
 		mailboxSpecialUseService,
+		log,
 	);
 
 	const result = await mailboxSyncService

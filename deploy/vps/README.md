@@ -530,9 +530,11 @@ it is not a surprise.
 ## Logs
 
 Every service writes one JSON object per line to stdout — the queue sidecar puts
-its failures on stderr, and `remit logs` shows both. Nothing writes a log file,
-and nothing rotates one, so the container runtime's log driver is the only
-shipping mechanism involved.
+its failures on stderr, and `remit logs` shows both. That includes the first line
+a container writes: there is no startup banner, no table of settings, and no
+plain-text progress from the `migrate` one-shot. Nothing writes a log file, and
+nothing rotates one, so the container runtime's log driver is the only shipping
+mechanism involved.
 
 These field names are the contract. They are what a Vector, Alloy, Fluent Bit or
 Promtail pipeline parses, and they do not change without a note in the release:
@@ -557,6 +559,11 @@ Everything else on a line is a field the call site added, at the top level, neve
 nested: `accountId`, `mailboxId`, `messageId`, `queue`, `requestId`, `path`,
 `method`. Treat the set as open — a new field appears without warning, a
 documented one does not disappear without a note.
+
+`requestId` is the correlation key, and it covers a whole invocation: every line
+a request or a queue message produces carries the same value, including the
+`Lambda invocation failed` line written after the handler has already given up.
+Grouping on it yields the complete story of one unit of work.
 
 `level`, `time`, `service` and `msg` are reserved. A call-site field using one of
 those names is dropped rather than written, so a line is always one well-formed

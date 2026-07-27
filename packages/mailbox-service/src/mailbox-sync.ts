@@ -78,18 +78,32 @@ export interface SyncAccountInfo {
 }
 
 /**
+ * Logger interface for MailboxSyncService
+ */
+export interface MailboxSyncLogger {
+	info(obj: Record<string, unknown>, msg: string): void;
+}
+
+const noopLogger: MailboxSyncLogger = {
+	info: () => {},
+};
+
+/**
  * Service for synchronizing mailbox metadata between IMAP and the data backend.
  */
 export class MailboxSyncService {
 	private mailboxService: IMailboxRepository;
 	private specialUseService: IMailboxSpecialUseRepository;
+	private log: MailboxSyncLogger;
 
 	constructor(
 		mailboxService: IMailboxRepository,
 		specialUseService: IMailboxSpecialUseRepository,
+		logger?: MailboxSyncLogger,
 	) {
 		this.mailboxService = mailboxService;
 		this.specialUseService = specialUseService;
+		this.log = logger ?? noopLogger;
 	}
 
 	/**
@@ -146,8 +160,13 @@ export class MailboxSyncService {
 							account.accountId,
 							existing.mailboxId,
 						);
-						console.info(
-							`Deleted non-selectable mailbox: ${existing.mailboxId} (${existing.fullPath})`,
+						this.log.info(
+							{
+								mailboxId: existing.mailboxId,
+								fullPath: existing.fullPath,
+								reason: "non-selectable",
+							},
+							"Deleted mailbox",
 						);
 						result.deleted++;
 					}
@@ -164,8 +183,13 @@ export class MailboxSyncService {
 							account.accountId,
 							existing.mailboxId,
 						);
-						console.info(
-							`Deleted duplicate special-use mailbox: ${existing.mailboxId} (${existing.fullPath})`,
+						this.log.info(
+							{
+								mailboxId: existing.mailboxId,
+								fullPath: existing.fullPath,
+								reason: "duplicate-special-use",
+							},
+							"Deleted mailbox",
 						);
 						result.deleted++;
 					}
@@ -238,8 +262,13 @@ export class MailboxSyncService {
 			// pending rows to the create/rename flow that owns them.
 			if (existing.syncStatus === MailboxSyncStatus.pending) continue;
 			await this.mailboxService.delete(account.accountId, existing.mailboxId);
-			console.info(
-				`Deleted mailbox: ${existing.mailboxId} (${existing.fullPath})`,
+			this.log.info(
+				{
+					mailboxId: existing.mailboxId,
+					fullPath: existing.fullPath,
+					reason: "not-on-server",
+				},
+				"Deleted mailbox",
 			);
 			result.deleted++;
 		}
@@ -419,12 +448,18 @@ export class MailboxSyncService {
 				mailbox.mailboxId,
 				parsed.specialUse,
 			);
-			console.info(
-				`Created mailbox: ${mailbox.mailboxId} (${mailboxInfo.fullPath}) [special-use: ${parsed.specialUse.join(", ")}]`,
+			this.log.info(
+				{
+					mailboxId: mailbox.mailboxId,
+					fullPath: mailboxInfo.fullPath,
+					specialUse: parsed.specialUse,
+				},
+				"Created mailbox",
 			);
 		} else {
-			console.info(
-				`Created mailbox: ${mailbox.mailboxId} (${mailboxInfo.fullPath})`,
+			this.log.info(
+				{ mailboxId: mailbox.mailboxId, fullPath: mailboxInfo.fullPath },
+				"Created mailbox",
 			);
 		}
 
@@ -504,8 +539,13 @@ export class MailboxSyncService {
 				`specialUse: [${(existing.specialUse ?? []).join(",")}] -> [${parsed.specialUse.join(",")}]`,
 			);
 
-		console.info(
-			`Updating mailbox: ${existing.mailboxId} (${mailboxInfo.fullPath}) [${changes.join(", ")}]`,
+		this.log.info(
+			{
+				mailboxId: existing.mailboxId,
+				fullPath: mailboxInfo.fullPath,
+				changes,
+			},
+			"Updating mailbox",
 		);
 
 		// Update mailbox with fresh status. ElectroDB rejects empty sets, so we
@@ -557,8 +597,9 @@ export class MailboxSyncService {
 
 		if (parsed.specialUse.length > 0) {
 			await this.specialUseService.createMany(mailboxId, parsed.specialUse);
-			console.info(
-				`Synced special-use for ${mailboxInfo.fullPath}: ${parsed.specialUse.join(", ")}`,
+			this.log.info(
+				{ fullPath: mailboxInfo.fullPath, specialUse: parsed.specialUse },
+				"Synced special-use",
 			);
 		}
 	};
@@ -619,8 +660,13 @@ export class MailboxSyncService {
 		}
 
 		// This is a duplicate - another folder has the attribute
-		console.info(
-			`Skipping duplicate folder "${mailbox.fullPath}" - "${claimedPath}" has \\${expectedSpecialUse} attribute`,
+		this.log.info(
+			{
+				fullPath: mailbox.fullPath,
+				claimedPath,
+				specialUse: expectedSpecialUse,
+			},
+			"Skipping duplicate folder",
 		);
 		return true;
 	};

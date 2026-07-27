@@ -8,9 +8,6 @@ import pg from "pg";
 import outboxTriggerSql from "../../../npm-scripts/pg-outbox-trigger.sql";
 import searchIndexSql from "../../../npm-scripts/pg-search-index.sql";
 import sqliteSearchIndexSql from "../../../npm-scripts/sqlite-search-index.sql";
-// Reached by relative path for the same reason the .sql files above are: this
-// entrypoint is bundled by esbuild, not resolved as a workspace dependency, and
-// the repair module imports nothing so bundling it drags in no schema or driver.
 import {
 	type CategoryDivergenceReport,
 	checkThreadMessageCategory,
@@ -21,6 +18,10 @@ import {
 	readResidual,
 	repairThreadMessageCategory,
 } from "../../../packages/drizzle-service/src/repair/thread-message-category.js";
+// Reached by relative path for the same reason the .sql files above are: this
+// entrypoint is bundled by esbuild, not resolved as a workspace dependency, and
+// the repair module imports nothing so bundling it drags in no schema or driver.
+import { logger } from "../../../packages/logger-lambda/src/logger.js";
 
 /**
  * One-shot migrator for the VPS/self-host compose stack (RFC 035 D8). Runs
@@ -77,6 +78,15 @@ import {
  */
 type Mode = "migrate" | "check";
 
+// A schema change applied to someone's database is an audit-grade signal, and
+// this one-shot's output is the only record that it ran and what it did — it
+// must not sit below the default threshold. One wrapper so the exception is one
+// decision rather than one per step.
+const report = (fields: Record<string, unknown>, msg: string): void => {
+	// biome-ignore lint/plugin/no-logger-info: a migration step is an audit-grade signal
+	logger.info(fields, msg);
+};
+
 const parseMode = (argv: readonly string[]): Mode => {
 	if (argv.length === 0) {
 		return "migrate";
@@ -91,7 +101,7 @@ const parseMode = (argv: readonly string[]): Mode => {
 
 const logReport = (report: CategoryDivergenceReport): void => {
 	for (const line of formatCheckReport(report)) {
-		console.log(`[migrate:category-check] ${line}`);
+		report({ step: "category-check" }, line);
 	}
 };
 
@@ -100,7 +110,7 @@ const logReport = (report: CategoryDivergenceReport): void => {
  * re-read the residual. The before-numbers are the evidence an upgrade leaves
  * behind, the skip is what keeps a steady-state boot from taking SQLite's write
  * lock, and the re-read is what distinguishes "nothing to do" from "did not run"
- * — a repair that never ran logs no `[migrate:category-repair]` line at all.
+ * — a repair that never ran logs no `step: "category-repair"` line at all.
  */
 const repairThreadMessageCategoryStep = async (
 	client: RepairSqlClient,
@@ -110,7 +120,7 @@ const repairThreadMessageCategoryStep = async (
 
 	const log = (lines: readonly string[]): void => {
 		for (const line of lines) {
-			console.log(`[migrate:category-repair] ${line}`);
+			report({ step: "category-repair" }, line);
 		}
 	};
 
@@ -180,24 +190,24 @@ const runPostgres = async (mode: Mode): Promise<void> => {
 			return;
 		}
 
-		console.log("[migrate] enabling extensions: vector, unaccent, pg_trgm");
+		report({}, "enabling extensions: vector, unaccent, pg_trgm");
 		await pool.query("CREATE EXTENSION IF NOT EXISTS vector;");
 		await pool.query("CREATE EXTENSION IF NOT EXISTS unaccent;");
 		await pool.query("CREATE EXTENSION IF NOT EXISTS pg_trgm;");
 
-		console.log("[migrate] applying entity schema migrations");
+		report({}, "applying entity schema migrations");
 		await migrate(drizzle(pool), {
 			migrationsFolder: "migrations/entities",
 			migrationsTable: "__drizzle_migrations_entities",
 		});
 
-		console.log("[migrate] applying auth schema migrations");
+		report({}, "applying auth schema migrations");
 		await migrate(drizzle(pool), {
 			migrationsFolder: "migrations/auth",
 			migrationsTable: "__drizzle_migrations_auth",
 		});
 
-		console.log("[migrate] applying instance-owner schema migrations");
+		report({}, "applying instance-owner schema migrations");
 		await migrate(drizzle(pool), {
 			migrationsFolder: "migrations/meta",
 			migrationsTable: "__drizzle_migrations_meta",
@@ -207,10 +217,10 @@ const runPostgres = async (mode: Mode): Promise<void> => {
 		// supply the column and the filter's index, before the idempotent DDL step.
 		await repairThreadMessageCategoryStep(repairClient);
 
-		console.log("[migrate] installing outbox notify trigger");
+		report({}, "installing outbox notify trigger");
 		await pool.query(outboxTriggerSql);
 
-		console.log("[migrate] installing search index objects");
+		report({}, "installing search index objects");
 		await pool.query(searchIndexSql);
 	} finally {
 		await pool.end();
@@ -256,19 +266,19 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 
 		const db = sqliteDrizzle(sqlite);
 
-		console.log("[migrate] applying entity schema migrations (sqlite)");
+		report({}, "applying entity schema migrations (sqlite)");
 		sqliteMigrate(db, {
 			migrationsFolder: "migrations-sqlite/entities",
 			migrationsTable: "__drizzle_migrations_entities",
 		});
 
-		console.log("[migrate] applying auth schema migrations (sqlite)");
+		report({}, "applying auth schema migrations (sqlite)");
 		sqliteMigrate(db, {
 			migrationsFolder: "migrations-sqlite/auth",
 			migrationsTable: "__drizzle_migrations_auth",
 		});
 
-		console.log("[migrate] applying instance-owner schema migrations (sqlite)");
+		report({}, "applying instance-owner schema migrations (sqlite)");
 		sqliteMigrate(db, {
 			migrationsFolder: "migrations-sqlite/meta",
 			migrationsTable: "__drizzle_migrations_meta",
@@ -298,7 +308,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		// every row. An external-content index cannot be scanned bare (its
 		// computed `sender` has no content-table column), so the guard, not a
 		// NOT-IN diff, is what keeps this from double-indexing.
-		console.log("[migrate] installing FTS5 search index objects (sqlite)");
+		report({}, "installing FTS5 search index objects (sqlite)");
 		const installSearchIndex = sqlite.transaction(() => {
 			const ftsExisted = sqlite
 				.prepare(
@@ -307,7 +317,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 				.get();
 			sqlite.exec(sqliteSearchIndexSql);
 			if (!ftsExisted) {
-				console.log("[migrate] backfilling FTS5 index from existing threads");
+				report({}, "backfilling FTS5 index from existing threads");
 				sqlite.exec(
 					`INSERT INTO thread_message_fts(rowid, subject, sender)
 					 SELECT rowid, coalesce(subject, ''),
@@ -329,12 +339,12 @@ const run = async (): Promise<void> => {
 	} else {
 		await runPostgres(mode);
 	}
-	console.log(`[migrate] done (${mode})`);
+	report({ mode }, "migrate done");
 };
 
 run()
 	.then(() => process.exit(0))
 	.catch((error: unknown) => {
-		console.error("[migrate] failed", error);
+		logger.error({ error }, "migrate failed");
 		process.exit(1);
 	});

@@ -10,6 +10,7 @@ import {
 	GenerateDataKeyCommand,
 	KMSClient,
 } from "@aws-sdk/client-kms";
+import { logger } from "@remit/logger-lambda";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
@@ -144,9 +145,7 @@ const getFakeDataKey = (): Buffer => {
 
 const createFakeDataKeyProvider = (): DataKeyProvider => ({
 	async generateDataKey() {
-		console.warn(
-			"WARNING: Using FAKE KMS Data Key Provider. DO NOT USE IN PRODUCTION.",
-		);
+		logger.warn("Using the fake KMS data key provider; not for production");
 		// Use the fixed data key derived from FAKE_KMS_DATAKEY
 		const plaintext = getFakeDataKey();
 
@@ -159,9 +158,7 @@ const createFakeDataKeyProvider = (): DataKeyProvider => ({
 	},
 
 	async decryptDataKey(encrypted: Uint8Array) {
-		console.warn(
-			"WARNING: Using FAKE KMS Data Key Provider. DO NOT USE IN PRODUCTION.",
-		);
+		logger.warn("Using the fake KMS data key provider; not for production");
 		const buf = Buffer.from(encrypted);
 
 		// Check for our marker prefix

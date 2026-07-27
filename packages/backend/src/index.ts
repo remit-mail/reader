@@ -144,11 +144,11 @@ const readOriginHeader = (
 // A scope, not `logger.setBindings`: this process serves requests concurrently,
 // and bindings on the shared logger belong to whichever request wrote them last,
 // so a line gets attributed to the wrong request. The scope follows the request
-// through its own async continuations and nothing else.
+// through its own async continuations and nothing else. It nests inside the one
+// `withTelemetry` opens, which is where `requestId` comes from.
 const rawHandler = async (event: APIGatewayProxyEvent, context: Context) =>
 	withLogContext(
 		{
-			requestId: context.awsRequestId,
 			path: event.path,
 			method: event.httpMethod,
 		},
