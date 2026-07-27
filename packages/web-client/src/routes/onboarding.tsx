@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
 import { completeOnboarding } from "@/lib/onboarding-completion";
@@ -16,19 +16,24 @@ export const Route = createFileRoute("/onboarding")({
 });
 
 function OnboardingPage() {
-	const navigate = useNavigate();
 	const telemetry = useTelemetry();
 	const queryClient = useQueryClient();
 
+	// A client-side navigation carries the query cache with it, and the /mail
+	// first-run guard reads config from that cache — a stale zero-account entry
+	// bounces the user straight back into the wizard. A document load starts
+	// from an empty cache, so the guard sees the account that was just created.
 	const handleComplete = useCallback(
 		(_accountId: string) => {
 			void completeOnboarding({
 				queryClient,
 				recordCompleted: () => telemetry.recordEvent("onboarding.completed"),
-				navigateToInbox: () => void navigate({ to: "/mail" }),
+				navigateToInbox: () => {
+					window.location.assign("/mail");
+				},
 			});
 		},
-		[navigate, telemetry, queryClient],
+		[telemetry, queryClient],
 	);
 
 	return <OnboardingWizard skipWelcome={false} onComplete={handleComplete} />;
