@@ -91,19 +91,6 @@ export const groupAccountOverrides = (
 };
 
 /**
- * Load every account's display-name/mute overrides for an account configuration
- * in one query, grouped by accountId. Callers reading multiple accounts
- * (GET /config) use this once.
- */
-export const loadAccountOverridesForConfig = async (
-	accountSetting: IAccountSettingRepository,
-	accountConfigId: string,
-): Promise<Map<string, AccountOverrides>> => {
-	const settings = await accountSetting.listByAccountConfig(accountConfigId);
-	return groupAccountOverrides(settings);
-};
-
-/**
  * Resolve one account's display-name/mute overrides by reading just its two
  * composite rows. Used by the account create/update handlers.
  */
