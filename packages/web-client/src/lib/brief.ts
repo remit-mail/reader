@@ -24,7 +24,11 @@
  * a high-volume mailbox read≠handled and unread≠important; unread is a
  * user-selectable filter chip instead.
  *
- * Muted senders (filtered by the caller) and empty sections are excluded.
+ * Muted senders and empty sections are excluded. Mute filtering happens in
+ * `excludeMutedSenders`, applied by the caller to the raw thread rows before
+ * `toThreadRowData`/grouping — the server denormalizes `muted` onto each row
+ * from the From address's flags (RFC 039 Decision 3, issue #301), so no
+ * client-side Address lookup is needed.
  */
 
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
@@ -65,6 +69,19 @@ export function toThreadRowData(
 		category: toDisplayCategory(thread.category),
 		suspicious,
 	};
+}
+
+/**
+ * Excludes rows whose From address is muted (`thread.muted === true`,
+ * denormalized server-side from `Address.flags.muted`). Muting hides a
+ * sender from the brief only — it never deletes, marks read, or moves their
+ * mail, so callers outside the brief (mailbox listings, search) must not
+ * apply this filter.
+ */
+export function excludeMutedSenders(
+	threads: RemitImapThreadMessageResponse[],
+): RemitImapThreadMessageResponse[] {
+	return threads.filter((t) => t.muted !== true);
 }
 
 /**

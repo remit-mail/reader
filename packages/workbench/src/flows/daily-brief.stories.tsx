@@ -103,7 +103,12 @@ export const CategoryDriven: Story = {
 	),
 };
 
-/** Nothing needs attention — the brief says so and stays out of the way. */
+/**
+ * Nothing needs attention — the brief says so and stays out of the way.
+ * Renders identically whether the inbox is genuinely empty or every
+ * candidate sender is muted (issue #301): `sections` is empty either way,
+ * and the brief carries no separate "all muted" state.
+ */
 export const CaughtUp: Story = {
 	render: () => (
 		<AppShell

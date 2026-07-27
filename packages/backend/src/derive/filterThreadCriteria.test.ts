@@ -29,6 +29,7 @@ const row = (
 	createdAt: 0,
 	updatedAt: 0,
 	senderTrust: SenderTrust.Unknown,
+	muted: false,
 	...overrides,
 });
 

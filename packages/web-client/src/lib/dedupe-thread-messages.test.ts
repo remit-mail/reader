@@ -24,6 +24,7 @@ function threadMessage(
 		hasStars: false,
 		star: "none",
 		senderTrust: "unknown",
+		muted: false,
 		createdAt: 0,
 		updatedAt: 0,
 		...overrides,

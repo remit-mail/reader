@@ -28,6 +28,7 @@ const make = (
 	hasAttachment: false,
 	star: "none",
 	hasStars,
+	muted: false,
 	createdAt: 0,
 	updatedAt: 0,
 });

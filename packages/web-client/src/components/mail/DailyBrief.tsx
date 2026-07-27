@@ -41,6 +41,7 @@ import { useSemanticSearch } from "@/hooks/useSemanticSearch";
 import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
 import { sortAccountsByCreatedAt } from "@/lib/account-order";
 import {
+	excludeMutedSenders,
 	groupBriefSections,
 	matchesBriefSearch,
 	matchesSearchTokens,
@@ -275,12 +276,14 @@ export function DailyBrief({
 	// `BriefSections` filter row's job, so the full per-category sections are
 	// handed to it; it groups, narrows, and flattens.
 	const filteredRows = useMemo<ThreadRowData[]>(() => {
-		const briefRows = (threadsData?.items ?? []).map(toThreadRowData);
+		const briefRows = excludeMutedSenders(threadsData?.items ?? []).map(
+			toThreadRowData,
+		);
 		// No free text: the brief list as it comes, order untouched.
 		const rows = sq
 			? mergeSearchRows(
 					briefRows.filter((t) => matchesBriefSearch(t, sq)),
-					(searchData?.items ?? []).map(toThreadRowData),
+					excludeMutedSenders(searchData?.items ?? []).map(toThreadRowData),
 				)
 			: briefRows;
 		return rows.filter(
