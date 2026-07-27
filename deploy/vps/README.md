@@ -188,6 +188,24 @@ model in `search-index-worker` as the largest resident once indexing has run.
 The `observability` profile adds about 30 MB resident on top of that, measured
 rather than estimated — see [Looking at the box](#looking-at-the-box).
 
+Each worker's health is a heartbeat. A worker polls one queue per kind of work —
+`imap-worker` six of them — and each of those loops rewrites its own timestamp
+file on the `heartbeat` volume every poll cycle. The check reads the oldest of a
+worker's files, so one wedged queue is enough to report it: a loop hung in a
+socket read never exits, the container stays up, `restart: unless-stopped` never
+fires, and mail quietly stops moving while its siblings keep polling. That is
+the failure nothing else reports.
+
+A file counts as stale after seven minutes, comfortably longer than the slowest
+legitimate handler so a slow mailbox never reads as a hang, and the container is
+marked unhealthy after three consecutive failing checks — about nine minutes
+after a loop stops. Nothing restarts on it. An unhealthy worker is a condition
+to look at: `remit logs <service>`, then `docker compose restart <service>` if
+you want it recycled.
+
+A healthy worker means its loops are turning, not that the work is succeeding.
+For that, see [Queue failures](#queue-failures-watch-the-dead-letter-queues).
+
 ## The category repair
 
 The mail list filters on `thread_message.category`, a copy of `message.category`

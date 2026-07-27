@@ -7,8 +7,8 @@ import { runQueuePoller } from "./poller.js";
 const QUEUE_URL = "http://localhost:9324/000000000000/remit-test";
 
 const buildLog = () => ({
-	info: mock.fn(() => {}),
-	error: mock.fn(() => {}),
+	info: mock.fn((_fields: Record<string, unknown>, _message: string) => {}),
+	error: mock.fn((_fields: Record<string, unknown>, _message: string) => {}),
 });
 
 const buildMessage = (id: string) => ({
@@ -79,6 +79,102 @@ describe("runQueuePoller", () => {
 		// m1 succeeded (not in batchItemFailures) -> deleted. m2 failed -> left
 		// for redelivery, matching the SQS batchItemFailures contract.
 		assert.deepEqual(deletedReceiptHandles, ["receipt-m1"]);
+	});
+
+	it("gives every target its own heartbeat, beaten at the top of each receive attempt", async () => {
+		const beatsByQueue = new Map<string, number>();
+		let receiveCalls = 0;
+
+		const sendMock = mock.method(
+			SQSClient.prototype,
+			"send",
+			// biome-ignore lint/suspicious/noExplicitAny: minimal SDK command shape, not worth typing per-command here
+			async function (this: SQSClient, command: any) {
+				if (command.constructor.name !== "ReceiveMessageCommand") {
+					throw new Error(`unexpected command: ${command.constructor.name}`);
+				}
+				// Two empty receives per target, then shut down: the heartbeat has
+				// to be written before the receive, and on an empty poll too — an
+				// idle queue is the normal state of a healthy worker.
+				receiveCalls++;
+				if (receiveCalls >= 4) process.emit("SIGWINCH", "SIGWINCH");
+				return { Messages: [] };
+			},
+		);
+
+		try {
+			await runQueuePoller({
+				targets: [
+					{ queueUrl: QUEUE_URL, handler: async () => {}, functionName: "a" },
+					{
+						queueUrl: `${QUEUE_URL}-2`,
+						handler: async () => {},
+						functionName: "b",
+					},
+				],
+				log: buildLog(),
+				signals: ["SIGWINCH"],
+				createHeartbeat: (name) => async () => {
+					beatsByQueue.set(name, (beatsByQueue.get(name) ?? 0) + 1);
+				},
+			});
+		} finally {
+			sendMock.mock.restore();
+		}
+
+		assert.ok(receiveCalls >= 4, `only ${receiveCalls} receives ran`);
+		// One heartbeat per queue, named after it: a wedged loop has to go stale
+		// on its own rather than ride on a sibling that is still turning.
+		assert.deepEqual([...beatsByQueue.keys()].sort(), [
+			"remit-test",
+			"remit-test-2",
+		]);
+		assert.equal(
+			[...beatsByQueue.values()].reduce((sum, count) => sum + count, 0),
+			receiveCalls,
+		);
+	});
+
+	it("keeps polling and logs when a heartbeat write fails", async () => {
+		let receiveCalls = 0;
+		const log = buildLog();
+
+		const sendMock = mock.method(
+			SQSClient.prototype,
+			"send",
+			// biome-ignore lint/suspicious/noExplicitAny: minimal SDK command shape, not worth typing per-command here
+			async function (this: SQSClient, command: any) {
+				if (command.constructor.name !== "ReceiveMessageCommand") {
+					throw new Error(`unexpected command: ${command.constructor.name}`);
+				}
+				receiveCalls++;
+				if (receiveCalls >= 2) process.emit("SIGWINCH", "SIGWINCH");
+				return { Messages: [] };
+			},
+		);
+
+		try {
+			// A full disk is the likeliest cause, and the moment the loop must stay
+			// up: the healthcheck reports the missed beat by itself.
+			await runQueuePoller({
+				targets: [
+					{ queueUrl: QUEUE_URL, handler: async () => {}, functionName: "a" },
+				],
+				log,
+				signals: ["SIGWINCH"],
+				createHeartbeat: () => () =>
+					Promise.reject(new Error("ENOSPC: no space left on device")),
+			});
+		} finally {
+			sendMock.mock.restore();
+		}
+
+		assert.ok(receiveCalls >= 2, `only ${receiveCalls} receives ran`);
+		const failures = log.error.mock.calls.filter(
+			(call) => call.arguments[1] === "poller: heartbeat write failed",
+		);
+		assert.equal(failures.length, receiveCalls);
+		assert.match(String(failures[0]?.arguments[0]?.error), /ENOSPC/);
 	});
 
 	it("throws when constructed with no targets", async () => {

@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import {
 	DeleteMessageCommand,
 	ReceiveMessageCommand,
@@ -8,6 +9,11 @@ import type {
 	SQSEvent,
 	SQSHandler,
 } from "aws-lambda";
+import {
+	clearHeartbeats,
+	createHeartbeat,
+	type Heartbeat,
+} from "./heartbeat.js";
 import { createQueueProducer } from "./producer.js";
 
 /**
@@ -41,17 +47,28 @@ export interface RunQueuePollerOptions {
 	readonly targets: readonly QueuePollerTarget[];
 	readonly log: QueuePollerLog;
 	readonly signals?: readonly NodeJS.Signals[];
+	/** One per target. Defaults to a file under `WORKER_HEARTBEAT_PREFIX`. */
+	readonly createHeartbeat?: (name: string) => Heartbeat;
 }
 
-const DEFAULT_MAX_MESSAGES = 10; // SQS API limit
+// One message per receive, not the SQS maximum of 10. Handlers process a batch
+// sequentially, so a batch of ten is ten handler runs between two heartbeats:
+// ten stalled SMTP sends at nodemailer's 300 s socket timeout is 50 minutes of
+// legitimate silence, and a threshold that tolerates it detects nothing. At one
+// message the quiet stretch a healthy loop can produce is one handler run, and
+// the extra receive per message is a millisecond against the local queue
+// sidecar — the same total work either way.
+const DEFAULT_MAX_MESSAGES = 1;
 const DEFAULT_VISIBILITY_TIMEOUT_SECONDS = 300;
 
 const pollTarget = async (
 	target: QueuePollerTarget,
 	log: QueuePollerLog,
 	isShuttingDown: () => boolean,
+	buildHeartbeat: (name: string) => Heartbeat,
 ): Promise<void> => {
 	const queueName = new URL(target.queueUrl).pathname.split("/").pop();
+	const heartbeat = buildHeartbeat(queueName ?? target.functionName);
 	const sqs = createQueueProducer({ queueUrl: target.queueUrl });
 	const maxMessages = target.maxMessages ?? DEFAULT_MAX_MESSAGES;
 	const visibilityTimeout =
@@ -68,6 +85,22 @@ const pollTarget = async (
 	const LONG_POLL_WAIT_SECONDS = 20;
 
 	while (!isShuttingDown()) {
+		// Top of the receive attempt, before the long poll: this loop's own file,
+		// so a loop that stops turning — wedged in a socket read, or in a handler
+		// that never returns — goes stale on its own however busy its siblings are.
+		//
+		// A write that fails must not take the worker down with it. A full disk is
+		// the likeliest cause and the moment the loop should stay up, failing
+		// records into the dead-letter queues with logs rather than crash-looping
+		// on the monitoring. The missed beat is itself the signal: the healthcheck
+		// goes stale, which is what this file exists to report.
+		await heartbeat().catch((error) => {
+			log.error(
+				{ queue: queueName, error: inspect(error) },
+				"poller: heartbeat write failed",
+			);
+		});
+
 		const response = await sqs.send(
 			new ReceiveMessageCommand({
 				QueueUrl: target.queueUrl,
@@ -129,9 +162,9 @@ const pollTarget = async (
 		);
 		const succeeded = messages.filter((m) => !failedIds.has(m.messageId));
 
-		// Batch is capped at maxMessages (SQS API limit: 10), so a handful of
-		// concurrent DeleteMessage calls is safe and avoids paying N sequential
-		// round trips between every receive/handler cycle.
+		// Batch is capped at maxMessages (one by default, 10 is the SQS ceiling),
+		// so a handful of concurrent DeleteMessage calls is safe and avoids paying
+		// N sequential round trips between every receive/handler cycle.
 		await Promise.all(
 			succeeded.map((message) =>
 				sqs.send(
@@ -161,16 +194,28 @@ const pollTarget = async (
  * received (default: SIGINT, SIGTERM), then lets each loop finish its
  * current iteration and returns. Rejects (crashes the process) if any loop
  * throws — a stuck poller should exit loudly, not degrade silently.
+ *
+ * Every loop writes its own heartbeat file (see heartbeat.ts) at the top of its
+ * receive attempt, which is how a loop that hangs instead of throwing — the
+ * case this cannot make loud by itself — becomes visible.
  */
 export const runQueuePoller = async (
 	options: RunQueuePollerOptions,
 ): Promise<void> => {
 	const { targets, log } = options;
 	const signals = options.signals ?? ["SIGINT", "SIGTERM"];
+	const buildHeartbeat = options.createHeartbeat ?? createHeartbeat;
 
 	if (targets.length === 0) {
 		throw new Error("runQueuePoller: no targets configured");
 	}
+
+	// Files from the previous run of this service, before its loops write again:
+	// the healthcheck reads the oldest file it finds, so one left behind by a
+	// queue this version no longer polls would fail the check forever.
+	await clearHeartbeats().catch((error) => {
+		log.error({ error: inspect(error) }, "poller: heartbeat cleanup failed");
+	});
 
 	let shuttingDown = false;
 	const isShuttingDown = () => shuttingDown;
@@ -185,6 +230,8 @@ export const runQueuePoller = async (
 	log.info({ queues: targets.map((t) => t.queueUrl) }, "poller: starting");
 
 	await Promise.all(
-		targets.map((target) => pollTarget(target, log, isShuttingDown)),
+		targets.map((target) =>
+			pollTarget(target, log, isShuttingDown, buildHeartbeat),
+		),
 	);
 };
