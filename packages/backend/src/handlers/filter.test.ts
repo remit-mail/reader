@@ -199,6 +199,7 @@ describe("createFilterWithAnchor (#351)", () => {
 		state: FilterState.Active,
 		hasAnchor: false,
 		ruleChangedAt: 1_700_000_000,
+		actionChangedAt: 1_700_000_000,
 		matchOperator: FilterMatchOperator.And,
 		literalClauses: [],
 		actionLabelId: "None",

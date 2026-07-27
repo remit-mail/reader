@@ -134,10 +134,14 @@ export const cosineSimilarity = (
 };
 
 /**
- * The move a message ends in when several filters matched: the most-recently
- * *changed* filter wins (RFC 034 Decision 3.2), tie-broken on `filterId` for the
- * unreachable identical-timestamp case. `ruleChangedAt` — not `updatedAt` — is
- * the signal, so a cosmetic rename never flips an exclusive move.
+ * The move a message ends in when several filters matched: the filter whose
+ * predicate or action was most recently *changed* wins (RFC 034 Decision 3.2),
+ * tie-broken on `filterId` for the unreachable identical-timestamp case.
+ * `actionChangedAt` — not `ruleChangedAt` — is the signal: `ruleChangedAt` also
+ * bumps on a scope/expiry-only edit (reader #266), which changes a filter's
+ * lifecycle, not what it matches or does, and must not reorder exclusive-move
+ * precedence (reader #384). Nor is it `updatedAt`, so a cosmetic rename never
+ * flips an exclusive move either.
  */
 export const selectMoveWinner = (
 	candidates: readonly FilterItem[],
@@ -148,12 +152,12 @@ export const selectMoveWinner = (
 			winner = candidate;
 			continue;
 		}
-		if (candidate.ruleChangedAt > winner.ruleChangedAt) {
+		if (candidate.actionChangedAt > winner.actionChangedAt) {
 			winner = candidate;
 			continue;
 		}
 		if (
-			candidate.ruleChangedAt === winner.ruleChangedAt &&
+			candidate.actionChangedAt === winner.actionChangedAt &&
 			candidate.filterId > winner.filterId
 		) {
 			winner = candidate;

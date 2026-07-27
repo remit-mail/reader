@@ -494,6 +494,7 @@ export type CreateFilterInput = Omit<
 	| "state"
 	| "hasAnchor"
 	| "ruleChangedAt"
+	| "actionChangedAt"
 	| "matchOperator"
 	| "literalClauses"
 	| "actionLabelId"
@@ -510,10 +511,12 @@ export type CreateFilterInput = Omit<
 // ruleChangedAt is never client-supplied: FilterService derives it, bumping
 // only when the predicate, the action, scope, or expiresAt is present in the
 // update (RFC 034 Decision 3.2, reader #266) — a cosmetic `name` rename must
-// not move it. `scope` is updatable here (reader #266): the handler resolves
-// the merged scope/expiresAt/ttl/state before calling through to the repo, so
-// this type must carry `scope` as a valid key, unlike the API-facing
-// `UpdateFilterInput` for that same reason.
+// not move it. actionChangedAt is likewise server-derived, bumping only for
+// the narrower predicate/action subset (reader #384) that selectMoveWinner
+// reads for exclusive-move precedence. `scope` is updatable here (reader
+// #266): the handler resolves the merged scope/expiresAt/ttl/state before
+// calling through to the repo, so this type must carry `scope` as a valid
+// key, unlike the API-facing `UpdateFilterInput` for that same reason.
 export type UpdateFilterInput = Partial<
 	Omit<CreateFilterInput, "accountConfigId">
 >;

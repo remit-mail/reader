@@ -77,9 +77,13 @@ model Filter {
   @visibility(Lifecycle.Read)
   hasAnchor: boolean = false;
 
-  @doc("Epoch seconds, written only when the predicate (literalClauses, hasAnchor) or the action (actionLabelId, actionMailboxId) changes — never on a cosmetic rename. Backs most-recently-changed-filter-wins precedence for the exclusive move action (RFC 034 Decision 3.2). Distinct from ElectroDB's own updatedAt, which bumps on any write.")
+  @doc("Epoch seconds, written whenever the predicate, the action, the scope, or the expiry changes (reader #266) — never on a cosmetic rename. This is the broad \"the user asserted something new about this rule\" signal the settings UI uses to decide whether to re-offer a lapsed filter's back-application. It is deliberately NOT the precedence signal for the exclusive move action — see actionChangedAt for that (RFC 034 Decision 3.2, reader #384). Distinct from ElectroDB's own updatedAt, which bumps on any write.")
   @visibility(Lifecycle.Read)
   ruleChangedAt: int64;
+
+  @doc("Epoch seconds, written only when the predicate (literalClauses, hasAnchor) or the action (actionLabelId, actionMailboxId) changes — never on scope, expiresAt, or a cosmetic rename. Backs most-recently-changed-filter-wins precedence for the exclusive move action (RFC 034 Decision 3.2). Split out from ruleChangedAt (reader #384): extending a filter's expiry or flipping its scope changes its lifecycle, not what it matches or does, so it must not promote the filter to move-winner.")
+  @visibility(Lifecycle.Read)
+  actionChangedAt: int64;
 
   @doc("How literalClauses combine. Meaningless when literalClauses is empty.")
   @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
@@ -93,7 +97,7 @@ model Filter {
   @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
   actionLabelId: string = "None";
 
-  @doc("Mailbox matched messages are moved into — exclusive action, since a message lives in exactly one mailbox (RFC 034 Decision 3.1). On conflict between filters, the one with the latest ruleChangedAt wins. `\"None\"` means no move action.")
+  @doc("Mailbox matched messages are moved into — exclusive action, since a message lives in exactly one mailbox (RFC 034 Decision 3.1). On conflict between filters, the one with the latest actionChangedAt wins. `\"None\"` means no move action.")
   @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
   actionMailboxId: string = "None";
 
@@ -131,10 +135,13 @@ model CreateFilterInput {
   Input for updating a filter (RFC 034, reader #266). The name, predicate,
   action, scope, and expiresAt are all updatable; `ttl` is always
   server-derived from `scope`/`expiresAt`, never client-supplied, and
-  `state`/`hasAnchor`/`ruleChangedAt`/`filterId` are server-derived too. A
-  patch touching the predicate, the action, `scope`, or `expiresAt` bumps
-  `ruleChangedAt`; a name-only rename never does (RFC 034 Decision 3.2, reader
-  #266).
+  `state`/`hasAnchor`/`ruleChangedAt`/`actionChangedAt`/`filterId` are
+  server-derived too. A patch touching the predicate, the action, `scope`, or
+  `expiresAt` bumps `ruleChangedAt`; a name-only rename never does (RFC 034
+  Decision 3.2, reader #266). Only a patch touching the predicate or the
+  action bumps `actionChangedAt`, the narrower signal exclusive-move
+  precedence reads (reader #384) — a scope/expiresAt-only edit leaves it
+  untouched.
   
   The semantic anchor has no field here at all — it is set once, from
   `anchorMessageId`, only on `CreateFilterInput`. Repointing an anchor would

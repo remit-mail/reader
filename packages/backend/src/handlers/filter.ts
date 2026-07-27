@@ -187,6 +187,7 @@ const toFilterResponse = (item: FilterItem): FilterResponse => ({
 	state: item.state,
 	hasAnchor: item.hasAnchor,
 	ruleChangedAt: item.ruleChangedAt,
+	actionChangedAt: item.actionChangedAt,
 	matchOperator: item.matchOperator,
 	literalClauses: item.literalClauses,
 	actionLabelId: item.actionLabelId,

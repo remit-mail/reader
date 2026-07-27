@@ -23,6 +23,7 @@ const filter = (
 	state: "Active",
 	hasAnchor: true,
 	ruleChangedAt: 0,
+	actionChangedAt: 0,
 	matchOperator: "And",
 	literalClauses: [],
 	actionLabelId: "None",
