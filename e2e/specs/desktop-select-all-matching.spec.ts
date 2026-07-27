@@ -31,6 +31,24 @@ const toolbarText = (page: Page, text: string): Locator => page.getByText(text);
  *  its own bottom. */
 const LOAD_MORE_TRIGGER_PX = 200;
 
+/** The page size `useEscalatedActions` pages its own counting and run requests
+ *  at, which is what tells them apart from the list's browsing query. */
+const ESCALATION_PAGE_SIZE = "100";
+
+/**
+ * The list's own browsing request for one query. Never `useEscalatedActions`'s
+ * counting or run requests: since #306 the browsing query sends the list page
+ * size explicitly, so the page size asked for is what separates the two.
+ */
+const isBrowsingSearchRequest = (url: string, query: string): boolean => {
+	const parsed = new URL(url);
+	return (
+		parsed.pathname.endsWith("/threads/search") &&
+		parsed.searchParams.get("query") === query &&
+		parsed.searchParams.get("limit") !== ESCALATION_PAGE_SIZE
+	);
+};
+
 /** The virtualizer's scroll container: the one listbox holding message rows. */
 const messageListScroller = (page: Page): Locator =>
 	page
@@ -48,30 +66,35 @@ const gotoSearch = async (
 	mailboxId: string,
 	query: string,
 ): Promise<void> => {
+	// Wait for the query's own page to land. The committed search re-keys the
+	// list query and the previous rows stand until it answers, so a select-all
+	// taken before then covers the mailbox's rows instead of the query's. This
+	// used to be waited out through the count in the results header; that number
+	// is gone since #306 — a page length labelled a result total contradicts the
+	// completeness a filtered empty state asserts in the same view — and the
+	// response it stood in for is the exact signal.
+	const answered = page.waitForResponse(
+		(response) =>
+			isBrowsingSearchRequest(response.url(), query) && response.ok(),
+		{ timeout: 30_000 },
+	);
 	await page.goto(`/mail/${mailboxId}?q=${encodeURIComponent(query)}`);
+	await answered;
 	await expect(rows(page).first()).toBeVisible({ timeout: 30_000 });
-};
-
-const expectSearchResultsCount = async (
-	page: Page,
-	query: string,
-	count: number,
-): Promise<void> => {
-	await expect(
-		page.getByText(
-			`${count} ${count === 1 ? "result" : "results"} for “${query}”`,
-		),
-	).toBeVisible({ timeout: 30_000 });
+	await expect(page.getByText(`Results for “${query}”`)).toBeVisible({
+		timeout: 30_000,
+	});
 };
 
 /**
- * Forces `hasMore` true for one mailbox search term without seeding the 500+
- * real messages that would trigger it honestly (the server's default page size).
- * Only the general unbounded list request is touched — identified by having no
- * `limit` param, the browsing query's shape, never `useEscalatedActions`'s own
- * 100-id-paged counting/run requests. Real items are handed through untouched;
- * only a `continuationToken` is injected when the response lacked one. Returns a
- * release that stops forcing.
+ * Forces `hasMore` true for one mailbox search term without seeding more
+ * matches than a page holds. Only the list's own browsing request is touched;
+ * `useEscalatedActions`'s counting and run requests are handed straight through,
+ * identified by the page size they ask for. That is the one thing separating
+ * them: since #306 the browsing query sends the list page size explicitly, so
+ * "carries no `limit`" no longer identifies anything. Real items are handed
+ * through untouched; only a `continuationToken` is injected when the response
+ * lacked one. Returns a release that stops forcing.
  */
 const forceMoreMatchesThanLoaded = async (
 	page: Page,
@@ -79,12 +102,7 @@ const forceMoreMatchesThanLoaded = async (
 ): Promise<() => void> => {
 	let forcing = true;
 	await page.route("**/threads/search?*", async (route) => {
-		const url = new URL(route.request().url());
-		if (
-			!forcing ||
-			url.searchParams.has("limit") ||
-			url.searchParams.get("query") !== query
-		) {
+		if (!forcing || !isBrowsingSearchRequest(route.request().url(), query)) {
 			await route.continue();
 			return;
 		}
@@ -143,12 +161,12 @@ const searchWithMoreMatchesThanLoaded = async (
 		release();
 		throw error;
 	}
-	await expectSearchResultsCount(page, query, expectedCount);
 	return release;
 };
 
-/** Under `THREAD_SEARCH`'s default page the whole set loads at once, so
- *  select-all covers it; comfortably clears the desktop load-more trigger. */
+/** Under the list's own page size the whole set loads at once, so select-all
+ *  covers it and `hasMore` has to be forced; comfortably clears the desktop
+ *  load-more trigger. */
 const COUNT = 40;
 const QUERY = "npmdesk";
 const RUN_TAG = `run${Date.now()}dk`;

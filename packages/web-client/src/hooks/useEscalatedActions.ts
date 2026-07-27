@@ -33,7 +33,14 @@ import {
  *  filters the visible list is searching with, minus pagination/count knobs. */
 export type EscalationSearchQuery = Pick<
 	NonNullable<ThreadOperationsSearchThreadsData["query"]>,
-	"order" | "query" | "subject" | "from" | "unread" | "starred" | "attachments"
+	| "order"
+	| "query"
+	| "subject"
+	| "from"
+	| "unread"
+	| "starred"
+	| "attachments"
+	| "category"
 >;
 
 /**

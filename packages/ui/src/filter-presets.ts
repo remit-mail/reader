@@ -28,34 +28,19 @@ export interface FilterPreset {
 }
 
 /**
- * The Unclassified chip D6 requires, built and storied but not offered yet.
- *
- * This module is a runtime dependency of three live surfaces that filter over
- * the loaded window, so a chip in the list below is a chip a user can click
- * today. Offering it before #306 makes the predicate a server-side `where`
- * would add a fresh instance of the bug this epic exists to fix: a category
- * whose mail sits below the newest page reads as a category with no mail.
- *
- * #306 splices this entry into `MESSAGE_CATEGORIES` after `Personal` — matching
- * `briefCategories`' order — and deletes this constant.
- */
-export const UNCLASSIFIED_CATEGORY: FilterSheetCategory = {
-	id: "uncategorized",
-	label: "Unclassified",
-	tone: "neutral",
-};
-
-/**
  * Content-type categories, mirroring the `MessageCategory` enum
  * (@remit/remit-imap) by value. The leading "all" clears the category. Per
  * message, not per mailbox — so they apply in the brief and an inbox alike.
  *
- * `uncategorized` is absent on purpose and is not folded into `personal`
- * (issue #45) — see `UNCLASSIFIED_CATEGORY`.
+ * `uncategorized` is a category of its own here, never folded into `personal`
+ * (issue #45): mail the classifier has not reached is a pending state with a
+ * name, and it carries its own label and tone so the two can never read alike.
+ * It sits after `Personal` to match `briefCategories`' order.
  */
 const MESSAGE_CATEGORIES: FilterSheetCategory[] = [
 	{ id: "all", label: "All", tone: "neutral" },
 	{ id: "personal", label: "Personal", tone: "accent" },
+	{ id: "uncategorized", label: "Unclassified", tone: "neutral" },
 	{ id: "transactional", label: "Transactional", tone: "positive" },
 	{ id: "newsletter", label: "Newsletter", tone: "neutral" },
 	{ id: "marketing", label: "Marketing", tone: "warning" },

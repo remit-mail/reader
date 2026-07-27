@@ -28,13 +28,13 @@ import {
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import {
 	inboxFilterConfig,
+	type MessageListFilter,
 	ReadingPaneEmpty,
 	type RescueCandidate,
 	type SearchResult,
 	useAppShellLayout,
 } from "@remit/ui";
 import {
-	keepPreviousData,
 	useInfiniteQuery,
 	useMutation,
 	useQueryClient,
@@ -100,13 +100,20 @@ import {
 	type ConversationTarget,
 } from "@/lib/conversation-target";
 import { dedupeThreadMessages } from "@/lib/dedupe-thread-messages";
-import { applyInboxFilters } from "@/lib/inbox-filters";
+import {
+	filterReach,
+	hasInboxFilter,
+	type InboxFilterCriteria,
+	inboxFilterParams,
+	sameInboxFilter,
+} from "@/lib/inbox-filters";
 import { readIntelligencePref } from "@/lib/intelligence-pref";
 import { useMailContext } from "@/lib/mail-context";
 import { isRescueCandidate } from "@/lib/rescue-candidates";
 import { recordRescueSentToJunk } from "@/lib/rescue-telemetry";
 import {
 	isSearchPending as computeIsSearchPending,
+	resolveOpenThread,
 	resolveSelectedThread,
 } from "@/lib/search-pending";
 import { normalizeSearchQuery } from "@/lib/search-query";
@@ -137,19 +144,25 @@ interface MailboxPaneContextValue {
 	unreadCount: number;
 	isDraftsMailbox: boolean;
 	// Rescue-from-Spam: true on the account's Junk/Spam folder, with the
-	// suspected-safe messages over the loaded pages. Drives the rescue banner
-	// + flow above the spam list.
+	// suspected-safe messages `useRescueCandidates` fetched. Drives the rescue
+	// banner + flow above the spam list.
 	isSpamFolder: boolean;
 	rescueCandidates: RescueCandidate[];
-	// Inbox filter (category + Unread/Flagged/Attachment), applied client-side
-	// over the loaded threads. Owned here so the list, triage and adjacency all
-	// see the same filtered set; the open thread still resolves against the raw
-	// set so a filter never closes the reading pane.
+	// Inbox filter (category + Unread/Flagged/Attachment). The chips are search
+	// parameters: the server returns the filtered page, so `threads` is the
+	// answer to the active predicate over the whole mailbox rather than a
+	// narrowed copy of the loaded window (#306).
 	filterCategory: string;
 	filterAttributes: ReadonlySet<string>;
 	onSelectFilterCategory: (id: string) => void;
 	onToggleFilterAttribute: (id: string) => void;
 	onClearFilters: () => void;
+	/**
+	 * The active category filter as the empty state renders it — its label, the
+	 * way out of it, and how much of the mailbox the request reached. Undefined
+	 * when no category is selected.
+	 */
+	listFilter: MessageListFilter | undefined;
 	intelligenceOpen: boolean;
 	onToggleIntelligence: () => void;
 	/**
@@ -195,6 +208,18 @@ interface MailboxPaneContextValue {
 	nextMessageId: string | undefined;
 	previousMessageId: string | undefined;
 }
+
+/** The server's own default page size (`DEFAULT_THREADS_PAGE_SIZE`), sent so the
+ *  filtered path pages like the unfiltered one. */
+const THREADS_PAGE_SIZE = 50;
+
+/** Chip id → the label the empty state names the filter by. `all` is absent:
+ *  it is how the category is cleared, not a category. */
+const CATEGORY_LABELS = new Map(
+	inboxFilterConfig()
+		.categories.filter((category) => category.id !== "all")
+		.map((category) => [category.id, category.label]),
+);
 
 const MailboxPaneCtx = createContext<MailboxPaneContextValue | null>(null);
 
@@ -246,8 +271,31 @@ function MailboxPaneProvider({
 		tokenContext,
 	);
 	const fromToken = searchTokens.find((t) => t.type === "from");
+
+	const [filterCategory, setFilterCategory] = useState("all");
+	const [filterAttributes, setFilterAttributes] = useState<ReadonlySet<string>>(
+		new Set(),
+	);
+	const filterCriteria: InboxFilterCriteria = useMemo(
+		() => ({ category: filterCategory, attributes: filterAttributes }),
+		[filterCategory, filterAttributes],
+	);
+	const filterParams = useMemo(
+		() => inboxFilterParams(filterCriteria),
+		[filterCriteria],
+	);
+
+	// The chips are query parameters, not a browser-side pass over the loaded
+	// pages: a category whose mail sits below the newest page is why the filter
+	// showed an empty inbox at all (#306). `listThreads` takes no filters, so any
+	// active chip routes the listing through `searchThreads` — one predicate, one
+	// query key, so the key and the branch below cannot diverge.
+	const hasServerFilter = hasSearchQuery || hasInboxFilter(filterCriteria);
 	const searchThreadsQuery = {
 		order: "desc" as const,
+		// Explicit: an unspecified limit clamps to THREAD_SEARCH_MAX_LIMIT (500),
+		// so switching paths without it multiplies the page size by ten.
+		limit: THREADS_PAGE_SIZE,
 		...(freeText ? { query: freeText } : {}),
 		...(fromToken ? { from: fromToken.value } : {}),
 		...(searchTokens.some((t) => t.type === "hasAttachment")
@@ -256,9 +304,10 @@ function MailboxPaneProvider({
 		...(searchTokens.some((t) => t.type === "isUnread")
 			? { unread: true }
 			: {}),
+		...filterParams,
 	};
 
-	const queryKey = hasSearchQuery
+	const queryKey = hasServerFilter
 		? threadOperationsSearchThreadsQueryKey({
 				path: { mailboxId },
 				query: searchThreadsQuery,
@@ -280,7 +329,7 @@ function MailboxPaneProvider({
 	} = useInfiniteQuery({
 		queryKey,
 		queryFn: async ({ pageParam }) => {
-			if (hasSearchQuery) {
+			if (hasServerFilter) {
 				const { data } = await threadOperationsSearchThreads({
 					path: { mailboxId },
 					query: {
@@ -300,8 +349,14 @@ function MailboxPaneProvider({
 		},
 		initialPageParam: undefined as string | undefined,
 		getNextPageParam: (lastPage) => lastPage.continuationToken,
-		enabled: hasSearchQuery ? normalizedSearchQuery.length > 0 : true,
-		placeholderData: keepPreviousData,
+		// Previous rows while the next page is in flight, but only under the
+		// filter that fetched them — a chip change restarts the list on the
+		// skeleton rather than showing the old predicate's mail under the new
+		// chip for one round trip.
+		placeholderData: (previousData, previousQuery) =>
+			sameInboxFilter(previousQuery?.queryKey, filterParams)
+				? previousData
+				: undefined,
 	});
 
 	const handleDeselectIfRemoved = useCallback(
@@ -337,19 +392,13 @@ function MailboxPaneProvider({
 			onAfterOptimisticRemove: handleDeselectIfRemoved,
 		});
 
-	const rawThreads = dropDeletedThreads(
+	// The server answered the active predicate, so these rows are the list: the
+	// dedupe spans pages and the deleted drop repeats the server's own
+	// `excludeDeleted`, and neither result changes when another page loads.
+	const threads = dropDeletedThreads(
 		dedupeThreadMessages(
 			threadsData?.pages.flatMap((page) => page.items ?? []) ?? [],
 		),
-	);
-
-	const [filterCategory, setFilterCategory] = useState("all");
-	const [filterAttributes, setFilterAttributes] = useState<ReadonlySet<string>>(
-		new Set(),
-	);
-	const threads = useMemo(
-		() => applyInboxFilters(rawThreads, filterCategory, filterAttributes),
-		[rawThreads, filterCategory, filterAttributes],
 	);
 
 	const onSelectFilterCategory = useCallback((id: string) => {
@@ -368,11 +417,36 @@ function MailboxPaneProvider({
 		setFilterAttributes(new Set());
 	}, []);
 
+	// The empty state has to say how much was read, and the reach comes off the
+	// request rather than the call site: the day a chip is answered over a window
+	// instead of the whole mailbox, the sentence changes with it.
+	const filterLabel = CATEGORY_LABELS.get(filterCategory);
+	const listFilter: MessageListFilter | undefined = filterLabel
+		? {
+				label: filterLabel,
+				reach: filterReach(searchThreadsQuery),
+				onClear: onClearFilters,
+			}
+		: undefined;
+
 	const isSearchPending = computeIsSearchPending(searchInput, searchQuery);
-	// Resolve the open thread against the raw set so an active filter never
-	// empties the reading pane on a message the user explicitly opened.
-	const selectedThread = resolveSelectedThread(
-		rawThreads,
+	const listedThread = resolveSelectedThread(
+		threads,
+		selectedMessageId,
+		isSearchPending,
+	);
+	// There is no unfiltered set in the client any more, so a chip the open
+	// message does not match would otherwise close the reading pane under the
+	// user. Snapshot what they opened and let it answer for itself.
+	const [openedThread, setOpenedThread] = useState<
+		RemitImapThreadMessageResponse | undefined
+	>(undefined);
+	useEffect(() => {
+		if (listedThread) setOpenedThread(listedThread);
+	}, [listedThread]);
+	const selectedThread = resolveOpenThread(
+		listedThread,
+		openedThread,
 		selectedMessageId,
 		isSearchPending,
 	);
@@ -444,9 +518,10 @@ function MailboxPaneProvider({
 		onSetIntelligenceOpen,
 	]);
 
-	const mailboxUnseenCount = useCurrentMailboxUnseenCount({ accounts });
-	const unreadCount =
-		mailboxUnseenCount ?? rawThreads.filter((t) => !t.isRead).length;
+	// The mailbox's own unseen total. A count over the loaded pages undercounts
+	// every mailbox larger than one page and creeps upward as the user scrolls,
+	// so there is no fallback: until the mailbox resolves there is no number.
+	const unreadCount = useCurrentMailboxUnseenCount({ accounts }) ?? 0;
 
 	const queryClient = useQueryClient();
 	const { pushError } = useErrorBanners();
@@ -745,6 +820,7 @@ function MailboxPaneProvider({
 		onSelectFilterCategory,
 		onToggleFilterAttribute,
 		onClearFilters,
+		listFilter,
 		intelligenceOpen,
 		onToggleIntelligence,
 		searchPredicate: hasSearchQuery ? searchThreadsQuery : undefined,
@@ -817,6 +893,7 @@ function MailboxList() {
 		onSelectFilterCategory,
 		onToggleFilterAttribute,
 		onClearFilters,
+		listFilter,
 		searchPredicate,
 	} = useMailboxPane();
 	const { searchQuery, searchInput, accounts, resultFolderIndex } =
@@ -909,6 +986,8 @@ function MailboxList() {
 			isLoadingMore={isLoadingMore}
 			accountId={mailboxAccountId}
 			listTitle={listTitle}
+			listFilter={listFilter}
+			listScopeLabel={listTitle}
 			hideHeader
 			onTriageContextChange={onTriageContextChange}
 			commandsRef={listCommandsRef}

@@ -1,6 +1,6 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react";
 import type { ReactNode } from "react";
-import { inboxFilterConfig, UNCLASSIFIED_CATEGORY } from "../filter-presets.js";
+import { inboxFilterConfig } from "../filter-presets.js";
 import type { ThreadRowData } from "./app-shell-types.js";
 import { FilterSheet } from "./filter-sheet.js";
 import {
@@ -89,7 +89,7 @@ function FilteredShell({
 	return (
 		<div className="flex h-full flex-col">
 			<FilterSheet
-				categories={[...preset.categories, UNCLASSIFIED_CATEGORY]}
+				categories={preset.categories}
 				filters={preset.filters}
 				selectedCategory={category}
 				activeFilters={new Set<string>()}
@@ -220,7 +220,7 @@ export const FilteredEmptyUnclassified: Story = {
 		scopeLabel: "Inbox",
 	},
 	render: (args) => (
-		<FilteredShell category={UNCLASSIFIED_CATEGORY.id}>
+		<FilteredShell category="uncategorized">
 			<MessageListEmpty {...args} />
 		</FilteredShell>
 	),

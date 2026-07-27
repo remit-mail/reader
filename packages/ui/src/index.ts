@@ -249,6 +249,7 @@ export {
 } from "./components/message-header.js";
 export { MessageListPane } from "./components/message-list-pane.js";
 export {
+	type FilterReach,
 	type ListState,
 	MessageListEmpty,
 	type MessageListEmptyProps,
@@ -545,7 +546,6 @@ export {
 	type FilterPreset,
 	flaggedFilterConfig,
 	inboxFilterConfig,
-	UNCLASSIFIED_CATEGORY,
 } from "./filter-presets.js";
 export {
 	buildCidResolver,

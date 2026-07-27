@@ -1,106 +1,134 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import { applyInboxFilters } from "./inbox-filters.js";
+import {
+	filterReach,
+	hasInboxFilter,
+	type InboxFilterCriteria,
+	inboxFilterParams,
+	sameInboxFilter,
+} from "./inbox-filters.js";
 
-// Only the fields the filter reads, following the fixture idiom in
-// starred-rows.test.ts.
-const thread = (
-	fields: Partial<RemitImapThreadMessageResponse> & { messageId: string },
-): RemitImapThreadMessageResponse =>
-	({ isRead: false, ...fields }) as unknown as RemitImapThreadMessageResponse;
+const criteria = (
+	category: string,
+	attributes: string[] = [],
+): InboxFilterCriteria => ({ category, attributes: new Set(attributes) });
 
-const personal = thread({ messageId: "m1", category: "personal" });
-const unclassified = thread({ messageId: "m2", category: "uncategorized" });
-const preClassification = thread({ messageId: "m3" });
+/** The shape `threadOperationsSearchThreadsQueryKey` produces. */
+const key = (query: Record<string, unknown>): unknown => [
+	{ _id: "threadOperationsSearchThreads", path: { mailboxId: "mb1" }, query },
+];
 
-const ids = (threads: RemitImapThreadMessageResponse[]): string[] =>
-	threads.map((t) => t.messageId);
-
-describe("applyInboxFilters", () => {
-	test("returns the loaded list when nothing narrows it", () => {
-		const threads = [personal, unclassified, preClassification];
-		assert.deepEqual(applyInboxFilters(threads, "all", new Set()), threads);
+describe("hasInboxFilter", () => {
+	test("an untouched chip row narrows nothing", () => {
+		assert.equal(hasInboxFilter(criteria("all")), false);
 	});
 
-	test("matches a thread whose category is set", () => {
-		assert.deepEqual(
-			ids(applyInboxFilters([personal, unclassified], "personal", new Set())),
-			["m1"],
-		);
+	test("a category or an attribute is a filter", () => {
+		assert.equal(hasInboxFilter(criteria("personal")), true);
+		assert.equal(hasInboxFilter(criteria("all", ["unread"])), true);
 	});
 
-	test("counts a thread with no category as unclassified (#45)", () => {
-		// A pre-classification thread already renders an `uncategorized` badge,
-		// so the Unclassified chip has to find the row the user can see. Reading
-		// the response field raw made that row vanish under its own chip.
-		assert.deepEqual(
-			ids(
-				applyInboxFilters(
-					[personal, unclassified, preClassification],
-					"uncategorized",
-					new Set(),
-				),
-			),
-			["m2", "m3"],
-		);
+	test("an id that names no category narrows nothing", () => {
+		assert.equal(hasInboxFilter(criteria("nonsense")), false);
 	});
+});
 
-	test("never lets unclassified mail answer to personal (#45)", () => {
-		assert.deepEqual(
-			applyInboxFilters(
-				[unclassified, preClassification],
-				"personal",
-				new Set(),
-			),
-			[],
-		);
-	});
-
-	test("applies attribute predicates alongside a category", () => {
-		const read = thread({
-			messageId: "m4",
-			category: "personal",
-			isRead: true,
+describe("inboxFilterParams", () => {
+	test("sends the category to the server instead of filtering here (#306)", () => {
+		assert.deepEqual(inboxFilterParams(criteria("personal")), {
+			category: ["personal"],
 		});
-		assert.deepEqual(
-			ids(applyInboxFilters([personal, read], "personal", new Set(["unread"]))),
-			["m1"],
-		);
 	});
 
-	test("applies attribute predicates without a category", () => {
-		const read = thread({
-			messageId: "m4",
-			category: "newsletter",
-			isRead: true,
+	test("asks for unclassified mail by name, never as absence (#45)", () => {
+		assert.deepEqual(inboxFilterParams(criteria("uncategorized")), {
+			category: ["uncategorized"],
 		});
+	});
+
+	test("sets no category parameter for `all`", () => {
+		assert.deepEqual(inboxFilterParams(criteria("all")), {});
+	});
+
+	test("maps each attribute chip onto the parameter the API names", () => {
 		assert.deepEqual(
-			ids(applyInboxFilters([personal, read], "all", new Set(["unread"]))),
-			["m1"],
+			inboxFilterParams(criteria("all", ["unread", "flagged", "attachment"])),
+			{ unread: true, starred: true, attachments: true },
 		);
 	});
 
-	test("matches starred and attachment threads", () => {
-		const starred = thread({ messageId: "m5", hasStars: true });
-		const withAttachment = thread({ messageId: "m6", hasAttachment: true });
-		const plain = thread({ messageId: "m7" });
-		const threads = [starred, withAttachment, plain];
-		assert.deepEqual(
-			ids(applyInboxFilters(threads, "all", new Set(["flagged"]))),
-			["m5"],
-		);
-		assert.deepEqual(
-			ids(applyInboxFilters(threads, "all", new Set(["attachment"]))),
-			["m6"],
+	test("carries a category and its attributes together", () => {
+		assert.deepEqual(inboxFilterParams(criteria("social", ["unread"])), {
+			category: ["social"],
+			unread: true,
+		});
+	});
+
+	test("ignores an attribute id with no parameter behind it", () => {
+		assert.deepEqual(inboxFilterParams(criteria("all", ["nonsense"])), {});
+	});
+});
+
+describe("filterReach", () => {
+	test("a category is a column on the row, so the whole folder was read", () => {
+		assert.equal(
+			filterReach({ category: ["personal"], unread: true }),
+			"whole-folder",
 		);
 	});
 
-	test("ignores an attribute id with no predicate behind it", () => {
-		const threads = [personal, unclassified];
-		assert.deepEqual(
-			applyInboxFilters(threads, "all", new Set(["nonsense"])),
-			threads,
+	test("an unfiltered request still reaches the whole folder", () => {
+		assert.equal(filterReach({ order: "desc" }), "whole-folder");
+	});
+
+	test("an off-row criterion bounds the read, whatever else is set", () => {
+		assert.equal(
+			filterReach({ category: ["personal"], senderTrust: ["unknown"] }),
+			"loaded-pages",
 		);
+		assert.equal(filterReach({ dkimMismatch: true }), "loaded-pages");
+		assert.equal(filterReach({ dkimMismatch: false }), "loaded-pages");
+	});
+
+	test("an empty trust list bounds nothing", () => {
+		assert.equal(filterReach({ senderTrust: [] }), "whole-folder");
+	});
+});
+
+describe("sameInboxFilter", () => {
+	test("holds across a query the user is still typing", () => {
+		assert.equal(
+			sameInboxFilter(key({ query: "inv", category: ["personal"] }), {
+				category: ["personal"],
+			}),
+			true,
+		);
+	});
+
+	test("fails the moment the category changes", () => {
+		assert.equal(
+			sameInboxFilter(key({ category: ["personal"] }), {
+				category: ["social"],
+			}),
+			false,
+		);
+	});
+
+	test("fails when a chip is cleared", () => {
+		assert.equal(sameInboxFilter(key({ category: ["personal"] }), {}), false);
+		assert.equal(
+			sameInboxFilter(key({ unread: true }), { category: ["personal"] }),
+			false,
+		);
+	});
+
+	test("holds between the unfiltered listing and an unfiltered search", () => {
+		assert.equal(sameInboxFilter(key({ order: "desc" }), {}), true);
+	});
+
+	test("answers false for a key it cannot read", () => {
+		assert.equal(sameInboxFilter(undefined, {}), false);
+		assert.equal(sameInboxFilter([], {}), false);
+		assert.equal(sameInboxFilter([{ path: { mailboxId: "mb1" } }], {}), false);
 	});
 });
