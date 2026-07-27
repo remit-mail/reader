@@ -15,6 +15,10 @@ The visible half of `docs/architecture/folder-rename-and-delete.md`. Decisions t
 | `failed` | present | Rename failed |
 | `failed` | absent | Delete failed |
 
+Six presentations over two fields, matching the six states in the architecture doc. `synced` with a `pendingPath` is not a case to render — the invariant makes it unreachable — so the derivation may treat it as healthy without a branch for it.
+
+A seventh presentation is derived, not read: an unsettled folder whose `updatedAt` is far older than a settle takes reads as taking longer than expected (below).
+
 A folder is navigable when it is `synced`, `failed`, or renaming. Creating and deleting folders are not: a creating folder holds nothing yet, and a deleting folder's mail is going away.
 
 ## Folder rows
@@ -35,6 +39,10 @@ Row detail line: `Couldn’t rename to “Q3 Receipts”.`
 
 **Delete failed** — badge `Delete failed`, failure tone. Actions: `Retry delete` and `Keep this folder`.
 Row detail line: `Couldn’t delete this folder. Nothing was removed.`
+
+**Taking longer than expected** — a `pending` or `deleting` row whose `updatedAt` is older than the long-wait threshold. Badge `Deleting — taking longer than expected` / `Creating — taking longer than expected` / `Renaming — taking longer than expected`, in a muted tone, not the failure tone. **No action.**
+
+There is deliberately nothing to press. The two ways a mutation hangs are a DLQ'd queue message and a worker that is down (D8), and neither is fixable from here; a Retry that only re-enqueues would let someone press it repeatedly against a broken worker and read an operational failure as their own mistake. The row states the situation and stops. Threshold: a multiple of `MAILBOX_SYNC_TIMEOUT_MS`, not the same value — a large folder legitimately takes longer than the dialog's wait, and this label must not appear on a delete that is simply big.
 
 In the sidebar, where there is no room for row actions, a failed folder carries the badge and links to Settings › Folders. The retry lives in one place.
 
@@ -76,9 +84,29 @@ The 30s threshold and the poll interval are `MAILBOX_SYNC_TIMEOUT_MS` and `MAILB
 - INBOX rename: `The inbox can’t be renamed.`
 - has children: `“Receipts” has folders inside it. Delete those first.`
 - reserved leaf name, shown inline on the rename field as it is typed: `“Archive” is reserved for a system folder. Pick another name.`
-- bound references (D16), shown on the delete control: `“Receipts” is used by 2 filters and the Archive role. Change those first.` The tooltip names them; the dialog is never opened.
 
-A 400 arriving anyway — another client created a child folder or a filter in the meantime — renders in the dialog's failed state with the server's message.
+A 400 arriving anyway — another client created a child folder in the meantime — renders in the dialog's failed state with the server's message.
+
+D16's bound-references refusal is **not** one of these. A static tooltip cannot carry it: the reason is per-folder, dynamic, and has to name and link the things that are bound. It gets its own stage, below.
+
+## Bound references: the delete wizard's first stage
+
+`Delete` stays enabled. The refusal renders inside the wizard as its **first** stage, before the empty-check and before any move — a precondition on the folder, not on its mail, and checking it later would let a user move thousands of messages and only then be told to go and edit a filter (D13).
+
+Stage copy, when anything is bound:
+
+> ### “Receipts” is in use
+> Two things point at this folder. Change them and they’ll stop:
+> - **Invoices → Receipts** — filter · `Edit filter`
+> - **Archive** — folder role · `Change role`
+>
+> `Close`
+
+One row per binding, each naming the thing and linking to where it is changed. Filters link to the filter editor; roles link to the folder-roles section of Settings › Folders. No `Delete anyway`, and no count anywhere — `2 filters` tells the user nothing they can act on.
+
+This fires on ordinary configurations, not unusual ones, so it is a normal path through the wizard rather than an error state: no failure tone, no alarm.
+
+The client already reads the account's filters and appointments, so no new fetch is needed and the folder list gains no bindings read. The server's 400 stays authoritative for the race — another client binding a filter between the check and the delete renders in the dialog's failed phase with the server's message.
 
 ### 422: the folder you pointed at is not ready
 
@@ -104,7 +132,7 @@ Validation reuses `validateNewFolderName` / `composeFolderPath`. Three refusals 
 
 ## Delete wizard
 
-`DeleteFolderDialog` keeps its stages. Two changes:
+`DeleteFolderDialog` gains the bound-references stage above as its first, and keeps its existing stages after it. Two further changes:
 
 The empty-check gate reads the mailbox row's `messageCount` rather than paging threads (D13). That figure is as fresh as the last completed sweep round, not live, so the wizard drives a sync round and then reads it — and the copy must not imply otherwise. `Waiting for the mail server to confirm the moved mail…` while the round runs; on the count not reaching zero, the existing copy: `Some mail is still in “Receipts”. Re-open delete to finish removing this folder.`
 

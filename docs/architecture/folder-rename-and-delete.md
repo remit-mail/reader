@@ -30,6 +30,8 @@ The backfill is not optional and is not a nicety: the transitions in D3 are SQL 
 
 SQLite cannot alter nullability, so drizzle-kit emits a copy-and-swap, and it does not emit data migrations. The backfill therefore lands as its own earlier migration — `drizzle-kit generate --custom`, whose entire purpose is a hand-written statement with a generated journal entry and snapshot — carrying `UPDATE mailbox SET sync_status = 'synced' WHERE sync_status IS NULL;`. The generated schema migration follows it. Drizzle's SQLite migrator runs every pending file in one folder inside a single `BEGIN`/`COMMIT` (`sqlite-core/dialect.cjs:662-695`), so the two are ordered within one transaction and the rebuild's `INSERT … SELECT` sees no NULLs. Nothing generated is hand-edited.
 
+Postgres needs the same two files in the same order, for the same reason: `PgDialect.migrate` wraps all pending migrations in one `session.transaction` (`pg-core/dialect.cjs:62`), and `ALTER COLUMN … SET NOT NULL` fails on existing NULLs exactly as the SQLite rebuild does. The Postgres entity migration set is not in this tree, so this is a constraint on whoever adds it rather than work in this slice.
+
 *Buys:* one field answers "is a mutation in flight on this folder", with no fourth case for every reader to remember, and the CAS predicates become total. *Gives up:* a table rebuild on every existing instance, in the migrate one-shot that gates all six services — which is why the backfill is a separate, ordered file rather than an edit to the generated one.
 
 ### D2. `fullPath` is always a path the server holds; the rename target lives in `pendingPath`
@@ -46,9 +48,15 @@ The confirmed path is the one ImapFlow resolved, not one the server echoed. IMAP
 
 `MailboxRepo` gains a transition that sets state only when the row is in an accepted from-state, as one `UPDATE … WHERE … syncStatus IN (…) RETURNING`. No `mailbox_lock` row participates: a second mechanism that can disagree with `syncStatus` is worse than one that is enforced. The predicate being on `syncStatus` rather than on `updatedAt` also means an unrelated metadata write — the sweep persisting fresh counters — cannot make a transition lose.
 
+The predicate is over the states this document defines, not over the enum. There are six states and four enum values, so `syncStatus` alone cannot express them: `pending` covers both a create and a rename in flight, and `failed` covers both a failed rename and a failed delete. The transition therefore also takes an optional `pendingPath` predicate — a value to match, or explicitly absent — and every caller that means one of the six states supplies it.
+
+Without it there is a reachable failure with no bug anywhere in the sequence. A create settles; its SQS acknowledgement is lost; the user renames the folder, which is legal from `synced`; the create is redelivered, and a guard reading `pending` alone passes it; CREATE collides and ImapFlow reports the collision as `{created: false}` rather than an error, which #346 correctly treats as success; the create settle then writes `synced` while `pendingPath` is still set. The row is now `synced` with a rename target on it — a seventh state — and the rename settle's own guard no longer matches, so it logs `already-settled`, the RENAME never runs, nothing is marked `failed`, no retry is offered, and by scope decision there is no sweep to notice.
+
+**Invariant: `pendingPath` is non-null only while `syncStatus` is `pending` or `failed`.** The seventh state cannot occur because the create settle's predicate requires `pendingPath` absent, so it does not match a row a rename has claimed; the CAS returns nothing and the create resolves as superseded, which is correct — the folder exists and the rename is the live intent. The invariant holds by construction rather than by convention, because D3 already makes the transition the only writer of either field. It is not expressible as a database CHECK: the generator's `@check` decorator targets a single property, and this spans two columns.
+
 The lock is enforced rather than remembered: `syncStatus` and `pendingPath` come off `UpdateMailboxInput`, so the transition is the only way to write them and bypassing it is a type error. Two current callers move onto it — the worker's INBOX backstop and the sweep's explicit `synced` insert.
 
-The all-or-nothing subtree check is the UPDATEs' own affected-row count against the resolved row count, with the from-state predicate on each UPDATE. A read-then-write check would be safe on SQLite only because `runInTransaction` serializes every top-level write behind one queue, and would leave the race open on Postgres under READ COMMITTED.
+The all-or-nothing subtree check is the UPDATEs' own affected-row count against the resolved row count, with the from-state predicate on each UPDATE. A read-then-write check would be safe on SQLite only because `runInTransaction` serializes every top-level write behind one queue, and would leave the race open on Postgres under READ COMMITTED. The same applies to the per-row settle in D15: with the `pendingPath` predicate on the transition it is one conditional write, not a read followed by a write.
 
 A client that loses the compare-and-set gets **409** with a message naming the intent already in flight — `A delete is already in progress for "Receipts".` Existence is established by the handler's `assertMailboxInAccount` read beforehand, so a lost CAS is a conflict; the one case where the row disappeared in between is classified by a single primary-key read on the conflict path and reported as 404.
 
@@ -101,11 +109,15 @@ The removal is ordered, batched, and resumable rather than one transaction:
 3. The mailbox's own child rows go: `mailbox_special_use_entry`, `mailbox_attribute_entry`, `mailbox_flag`, `mailbox_lock`, and the mailbox's `message_flag_push` and `message_placement_move` rows.
 4. Last, one commit removes the mailbox row.
 
+The `mailbox_lock` deletion is inert today: no production caller acquires a mailbox lock — `withMailboxLock` is referenced only by the repo and the account cascade — and it releases in a `finally` when one does. It is in the list so the list is total, not because anything depends on it.
+
 `filter` also carries `mailbox_id` and is never touched here — D16 is why it never needs to be.
 
 Because the row stays `deleting` until the final commit, a redelivery re-enters the handler, D10's intent guard sees the intent still standing, and the cleanup resumes where it stopped. That is what makes batching safe without a sweep.
 
-*Buys:* no orphaned rows, no deleted mail in the search index, and a bounded write per transaction instead of one unbounded one. *Gives up:* the cleanup is not atomic with the row removal, so a crash mid-way leaves a `deleting` folder with some mail already gone — visibly mid-delete, and resumable, but not a clean rollback. On SQLite each batch holds the global write slot (`tx.ts`, RFC 036 D3), so deleting a large folder measurably delays other writes; 100 messages across eleven tables is the accepted bound.
+Batching introduces one state the transition table does not name: a delete whose queue message exhausts `maxReceiveCount` and lands in the DLQ leaves the row `deleting` indefinitely, with some of the folder's mail possibly already removed. There is deliberately **no user-facing retry** for it. The intent is durable and correctly recorded, so nothing is lost or ambiguous; what has failed is the worker or a dependency it needs, and a button that only re-enqueues would let a user press it repeatedly against a broken worker while making the failure look like theirs to fix. The DLQ alarm owns this, and the folder row says honestly that it is taking longer than expected (D11).
+
+*Buys:* no orphaned rows, no deleted mail in the search index, and a bounded write per transaction instead of one unbounded one. *Gives up:* the cleanup is not atomic with the row removal, so a crash mid-way leaves a `deleting` folder with some mail already gone — visibly mid-delete, and resumable, but not a clean rollback. On SQLite each batch holds the global write slot (`tx.ts`, RFC 036 D3), so deleting a large folder measurably delays other writes; 100 messages across eleven tables is the accepted bound. And a DLQ'd delete is visible but not actionable by the person it affects, which is the honest position rather than a comfortable one.
 
 ### D9. A surviving folder name is a successful delete
 
@@ -115,7 +127,7 @@ The tagged OK is the confirmation. Deleting a folder that has children removes t
 
 ### D10. A worker re-reads the intent before touching the server
 
-Each handler proceeds only if the row still carries the intent it was enqueued for — `pending` with a matching `pendingPath` for rename, `deleting` for delete, `pending` for create. Otherwise it resolves the job successfully without an IMAP call, logging the outcome as `superseded` or `already-settled`. A redelivered `MAILBOX_RENAME` therefore does not re-issue a rename from a path that has already moved, and a settle whose CAS finds the row already in its target state acks rather than failing. Failing would hold back every later job in the account's FIFO group, which is #339.
+Each handler proceeds only if the row still carries the intent it was enqueued for, and the guard names one of the six states rather than one of the four enum values (D3): `pending` with `pendingPath` matching the event's target for rename, `pending` with `pendingPath` **absent** for create, `deleting` for delete. Otherwise it resolves the job successfully without an IMAP call, logging the outcome as `superseded` or `already-settled`. The create guard's absence check is what stops a redelivered create issuing a pointless CREATE against a folder a rename has since claimed, and it is the same predicate the create's settling write carries, so the guard and the settle cannot disagree. A redelivered `MAILBOX_RENAME` therefore does not re-issue a rename from a path that has already moved, and a settle whose CAS finds the row already in its target state acks rather than failing. Failing would hold back every later job in the account's FIFO group, which is #339.
 
 This is not a substitute for the tagged-NO handling from #346. Another client can still change the server under an intent that is current, so `NONEXISTENT` and `ALREADYEXISTS` stay classified as they are — with `NONEXISTENT` during a rename routed to D8's removal rather than deleting the mailbox row on its own.
 
@@ -127,7 +139,9 @@ One guard belongs with this: `ImapFlow.mailboxRename` returns `undefined` when t
 
 `excludeDeletingMailboxes` is removed and `pendingPath` joins `syncStatus` on `MailboxResponse` (`syncStatus` landed with #348). A folder mid-mutation renders distinguishably from a healthy one and from a failed one, and a failed folder carries a route back to a retry. PR #346 made every reader correctly skip a folder the server does not hold, which turned a stuck mutation into a folder that silently disappears; this is the correction.
 
-*Buys:* a stuck mutation is discoverable by the person it affects, without log access. *Gives up:* every surface listing folders now has states to render, and the folder list stops being a list of folders that certainly exist — callers that assumed a listed folder is navigable have to say what they mean.
+One presentation is not a state on the row: an unsettled folder whose mutation has been in flight far longer than a settle takes reads as `Deleting — taking longer than expected` rather than as an indefinite `Deleting…`. It is derived from the row's `updatedAt`, not stored, and it carries no action, because for the two ways a mutation can hang — a DLQ'd message (D8) or a worker that is down — there is nothing the person looking at it can do from here.
+
+*Buys:* a stuck mutation is discoverable by the person it affects, without log access. *Gives up:* every surface listing folders now has states to render, and the folder list stops being a list of folders that certainly exist — callers that assumed a listed folder is navigable have to say what they mean. The long-wait label is honest but powerless, and a user who sees it can only wait or tell someone.
 
 ### D12. The dependents' R2 choices
 
@@ -150,6 +164,8 @@ A rename-pending folder is skipped by message sync even though its `fullPath` is
 The delete wizard's "move the mail elsewhere first" is a message move the user chose, then a folder delete. They are separate operations and the API has no combined form.
 
 The constraint: the delete intent may only be recorded once every moved message is confirmed on the server, because DELETE destroys whatever is still in the folder. The gate reads the mailbox row's `messageCount` rather than paging threads — nothing scans a mailbox to answer a state question.
+
+D16's bindings check runs **before** the move stage, not with the delete. It is a precondition on the folder, not on its mail, so it can be answered immediately — and checking it at the point the intent is recorded would let a user move thousands of messages out of a folder and only then be told to go and edit a filter. The two gates are independent and ordered cheapest-first.
 
 `messageCount` is a sweep-round figure, not a live one: it refreshes when the sweep runs STATUS on the folder, and the sweep skips `pending` and `deleting` rows (`mailbox-sync.ts:183-186`). So the gate reads "the folder was empty as of the last completed sweep round", and the wizard drives a sync round before reading it. That is the freshness bound, and it is the real one.
 
@@ -175,19 +191,23 @@ No row can be left behind, because nothing other than this settle can move a `pe
 
 ### D16. A folder that durable references are bound to cannot be deleted
 
-`filter.actionMailboxId` and folder role appointments both name a mailbox and both outlive it. Appointments are `account_setting` rows whose value is a mailboxId string (`folder-role-appointments.ts:118-140`), so a `mailbox_id` column scan does not even find them, and `filter` has no enabled flag — its `actionMailboxId` sentinel `"None"` means "no move action", so clearing the target silently turns a move-filter into a filter that does something else.
+Refusing makes D12's first row total: a binding is only ever created against a settled folder, and only ever removed by the user, so a `mailboxId` that names nothing never exists. That is the reason to prefer it. Every reader of a filter's `actionMailboxId` or a role appointment can treat the reference as resolvable — no "target missing" branch, no degraded mode to define, no repair path to keep working. It removes code rather than adding a check.
 
-Three products were available: delete the bound filters, clear their target, or refuse the delete. Deleting the user's filters as a side effect of deleting a folder is not defensible; clearing the target changes what a filter does without saying so. So the delete is refused with **400**, naming what is bound — `"Receipts" is used by 2 filters and the Archive role. Change those first.` Filters are per-account-config and few, so the check lists them and reads `actionMailboxId`; appointments come from the existing per-account appointment map.
+The alternatives both cost more than they look. `filter` has no enabled flag, and its `actionMailboxId` sentinel `"None"` means "no move action", so clearing the target does not disable a filter — it silently turns a move-filter into one that does something else. Deleting the bound filters outright is not a decision a folder delete gets to make. Both also leave every reader needing the missing-target branch that refusal deletes.
 
-This makes #365's invariant total: a binding can only be created against a settled folder, and can only be removed by the user, so a dangling reference never exists at all.
+So the delete is refused with **400**. Appointments are `account_setting` rows whose value is a mailboxId string (`folder-role-appointments.ts:118-140`), so a `mailbox_id` column scan does not find them; the check reads the existing per-account appointment map and lists the account-config's filters, which are few, matching `actionMailboxId`.
 
-*Buys:* no dangling references, no silently rewritten user configuration, and no unbind path to design or maintain. *Gives up:* deleting a folder can require the user to go and edit filters first, which is friction the other two options do not have; and the check costs a filter list plus an appointment read on every delete.
+The error **names** what is bound, and links to it. `"Receipts" is used by the filter "Invoices → Receipts" and the Archive role.` A count is not actionable — the user has to be told which filter, and given somewhere to go. This matters more than it would for a rarer refusal, because a filter pointing at a folder is what filters are for: this fires on ordinary, correct configurations, not on unusual ones.
+
+*Buys:* a dangling reference cannot exist, so no reader needs a missing-target branch and no unbind path has to be designed or maintained — a simplification, not only a hazard avoided. No user configuration is ever rewritten as a side effect. *Gives up:* deleting a folder routinely requires editing a filter first, and "routinely" is the honest word — this is the common case, not an edge one. That friction is the price of the invariant, and it is why the error has to be a link rather than a sentence.
 
 ### D17. `(accountId, fullPath)` becomes unique
 
 D7, D14 and the transition table all lean on "no duplicate row can be created". That is currently a property of the code paths, not of the schema: there is no unique index on the pair in either dialect, which is precisely what makes the duplicate-row bug silent instead of loud. Two hand-rolled guards now depend on it. A constraint makes the duplicate impossible rather than unlikely, and turns the failure into an error at the moment of the mistake.
 
 The generator supports it — `@compositeUnique` exists in `@kattebak/typespec-drizzle-orm-generator` — though this schema has never used it, so this is the first adoption. It cannot ride along with D1's migration: existing installs can already hold duplicate `(accountId, fullPath)` rows via #318, and adding the index would fail their migrate one-shot. It lands after a dedupe that keeps the row holding the mail and removes the others through D8's path.
+
+The survivor is chosen by `COUNT(*)` over `message` for each `mailboxId`, not by the row's `message_count`. `message_count` is the server-reported figure, so duplicates sharing a path carry the same honest number; and because the sweep joins on a Map keyed by `fullPath`, only one of a duplicate pair is ever refreshed, leaving the other stale or zero by insertion order. Choosing on it would pick by an accident of iteration — and this rule decides which of the user's mail is deleted, so it counts the rows that actually exist. Ties break on the oldest `created_at`.
 
 *Buys:* the invariant the rest of the design assumes becomes enforced, and any future writer that would duplicate a path fails immediately instead of silently. *Gives up:* the first use of a generator feature in this schema, and a dedupe migration over existing data that must choose a survivor — which is a judgement, not a mechanical merge. Sequenced last for that reason.
 
@@ -199,6 +219,8 @@ The generator supports it — `@compositeUnique` exists in `@kattebak/typespec-d
 `deleting` — a delete is in flight; the server still holds `fullPath`.
 `failed-rename` — `failed` with `pendingPath`. The server holds `fullPath`; the rename did not land.
 `failed-delete` — `failed` with no `pendingPath`. The server holds `fullPath`; the delete did not land.
+
+Six states over two columns, which is why every guard and every transition predicate names a state and not a `syncStatus` value (D3). `synced` with a `pendingPath` set is the seventh combination and is not a state: the invariant is that `pendingPath` is non-null only while `syncStatus` is `pending` or `failed`, and the create settle's predicate requiring `pendingPath` absent is what makes it unreachable.
 
 | # | From | To | Trigger |
 | --- | --- | --- | --- |
@@ -253,6 +275,10 @@ The rest stays in scope, including the parts a simplicity gate would cut. Making
 **How does a user get out of `failed`?** Retry, which re-records the same intent on the same row, or dismiss, which returns it to `synced` and leaves the folder as it is. Neither creates a second folder.
 
 **A rename half-landed and the sweep added a folder underneath it. Does the rename get stuck?** No. The settle applies to the rows that recorded the intent, identified by their own state, so a row that appeared afterwards is simply not part of it. That is D15, and it is why the settle is not all-or-nothing even though the intent is.
+
+**Four enum values but six states — does that not go wrong somewhere?** It did, in an earlier draft. A guard reading `pending` alone cannot tell a create in flight from a rename in flight, and a redelivered create could then settle a row a rename had claimed, leaving it `synced` with a rename target on it and the rename silently never running. Every guard and predicate now names a state, using the `pendingPath` value as well as `syncStatus`, and the combination that would have resulted is unreachable rather than merely unlikely.
+
+**A delete has said "Deleting…" for an hour. What do I do?** Nothing you can do from the UI, and it says so rather than offering a button. The intent is recorded and unambiguous; what has failed is the worker or something it depends on, which is what the DLQ alarm is for. A retry control here would only re-enqueue, and pressing it against a broken worker would make an operational failure look like a user error.
 
 **Deleting a folder wiped its mail from the server. Why keep local rows at all?** It does not — a confirmed delete removes the folder's mail through the same primitive the rest of the codebase uses, which also clears it from the search index. Today they are orphaned and stay searchable, which is a bug this closes.
 
