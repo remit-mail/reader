@@ -506,7 +506,9 @@ EOF
 
                 $remit cert
 
-              then import reader-root.crt on every machine you browse from.
+              then import reader-root.crt on every machine you browse from —
+              or skip the shell and download it from Settings > Advanced once
+              signed in.
 EOF
 	fi
 }

@@ -175,6 +175,11 @@ services:
 
   web:
     image: ghcr.io/remit-mail/reader/web:${REMIT_TAG:-latest}
+    # server.mjs rewrites config.js's tlsMode from this at startup — the
+    # Settings > Advanced download row derives its visibility from that value,
+    # so a self-host image build never has to bake TLS_MODE in.
+    environment:
+      TLS_MODE: ${TLS_MODE:-off}
     depends_on:
       backend:
         condition: service_healthy

@@ -295,7 +295,13 @@ remit cert
 Then import `reader-root.crt` into the client's trust store (macOS Keychain, the
 Windows cert store, `/usr/local/share/ca-certificates` +
 `update-ca-certificates` on Linux, or the browser's own authorities). Skipping
-this is fine — it only means the browser warning stays.
+this is fine, but a browser's click-through exception is pinned to the leaf
+certificate, which Caddy reissues every 12 hours — so the warning (and the
+click-through) comes back twice a day. Trusting the root CA once per device is
+what makes it go away for good.
+
+The same file is also a download in the app: Settings › Advanced offers it
+directly, for a client that has no shell access to the box.
 
 `tailscale` needs two things beyond `TLS_MODE`: enable HTTPS for your tailnet
 (Tailscale admin console → DNS → **Enable HTTPS**), and set `TAILSCALED_SOCKET`

@@ -5,5 +5,18 @@
 # and its host is the name on the certificate.
 {$PUBLIC_ORIGIN} {
 	tls internal
+
+	# The same root CA `remit cert` exports (README: TLS), also reachable from
+	# Settings > Advanced. Declared before the routes.caddy import so it is
+	# evaluated before that file's catch-all reverse_proxy would otherwise
+	# swallow it.
+	route /tls-root-ca.crt {
+		root * /data/caddy/pki/authorities/local
+		header Content-Disposition "attachment; filename=\"reader-root.crt\""
+		header Content-Type "application/x-x509-ca-cert"
+		rewrite * /root.crt
+		file_server
+	}
+
 	import /etc/caddy/routes.caddy
 }

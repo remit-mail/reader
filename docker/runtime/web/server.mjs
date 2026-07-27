@@ -8,12 +8,25 @@
 // doesn't look like a file (no extension in its last path segment) serves
 // index.html, so client-side routes (TanStack Router) resolve on refresh.
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import http from "node:http";
 import { extname, join, normalize, sep } from "node:path";
 
 const DIST_DIR = process.env.WEB_DIST_DIR ?? "/app/dist";
 const PORT = Number(process.env.PORT ?? "8080");
+
+// dist/config.js is whatever this image was built with (packages/web-client's
+// build-time default, or a --auth cognito build's own values) — not something
+// this server should overwrite, since that would silently drop every field it
+// doesn't know about and turn a write failure (read-only dist/) into a crash
+// before `listen`. TLS_MODE is the one value this container's own environment
+// knows that the build did not, chosen per-deployment in .env at `docker
+// compose up` time; append it to the baked config in memory and serve
+// `/config.js` from there instead of touching disk.
+const bakedConfig = await readFile(join(DIST_DIR, "config.js"), "utf8").catch(
+	() => "window.__REMIT_CONFIG__ = {};\n",
+);
+const CONFIG_JS = `${bakedConfig}\nwindow.__REMIT_CONFIG__.tlsMode = ${JSON.stringify(process.env.TLS_MODE ?? "off")};\n`;
 
 const MIME_TYPES = {
 	".html": "text/html; charset=utf-8",
@@ -81,6 +94,16 @@ const server = http.createServer(async (req, res) => {
 		res
 			.writeHead(200, { "Content-Type": "application/json" })
 			.end(JSON.stringify({ status: "ok" }));
+		return;
+	}
+
+	if (req.url === "/config.js") {
+		res
+			.writeHead(200, {
+				"Content-Type": MIME_TYPES[".js"],
+				"Cache-Control": "no-cache",
+			})
+			.end(CONFIG_JS);
 		return;
 	}
 
