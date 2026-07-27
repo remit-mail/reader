@@ -14,6 +14,7 @@
  */
 import { ApiClient, fetchBearerToken, signUp, waitFor } from "./api.js";
 import { imap, imapFromStack, mintImapUser } from "./env.js";
+import { appendMessages, type Message } from "./imap.js";
 
 interface StorageStateCookie {
 	name: string;
@@ -59,8 +60,15 @@ const cookiesToStorageState = (cookie: string): StorageState => ({
 	origins: [],
 });
 
+/**
+ * @param seed Mail put in the mailbox before the account is connected. Mail
+ * appended after onboarding does not reliably reach the classification path on
+ * a triggered sync, so a spec whose subject is the category of its fixtures has
+ * to seed here or it measures that instead.
+ */
 export const provisionIsolatedRun = async (
 	label: string,
+	seed: Message[] = [],
 ): Promise<IsolatedRun> => {
 	const credentials = {
 		email: `e2e-iso-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@remit.test`,
@@ -72,6 +80,7 @@ export const provisionIsolatedRun = async (
 	const api = new ApiClient({ ...credentials, token });
 
 	const imapUser = mintImapUser();
+	if (seed.length > 0) await appendMessages(imapUser, seed);
 	const { accountId } = await api.createAccount({
 		email: imapUser,
 		displayName: label,

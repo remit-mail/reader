@@ -258,6 +258,36 @@ export const NarrowExternalSelectionBar: Story = {
 	decorators: [narrowFrame],
 };
 
+/** An empty mailbox, unfiltered: one plain line and no completeness claim. */
+export const EmptyState: Story = {
+	args: {
+		isDesktop: true,
+		flatList: true,
+		listState: "empty",
+	},
+	decorators: [desktopFrame],
+};
+
+/**
+ * The same pane under a category filter — the composition the inbox ships
+ * (#306). The pane forwards the filter and the scope to the empty state, so a
+ * narrowed list states what was read instead of reading as an empty mailbox.
+ */
+export const FilteredEmptyState: Story = {
+	args: {
+		isDesktop: true,
+		flatList: true,
+		listState: "empty",
+		listFilter: {
+			label: "Personal",
+			reach: "whole-folder",
+			onClear: () => undefined,
+		},
+		listScopeLabel: "Inbox",
+	},
+	decorators: [desktopFrame],
+};
+
 /** Fail-loud error state — the specific failure detail is surfaced under the
  *  headline (not a bare "something went wrong"), with a way back (Retry) and a
  *  place for the failure to go (Report a problem). */

@@ -121,6 +121,37 @@ describe("MessageListPane", () => {
 		assert.match(html, /Report a problem/);
 	});
 
+	it("forwards the filter to the empty state so a narrowed list says so (#306)", () => {
+		const html = renderToString(
+			createElement(MessageListPane, {
+				...baseProps,
+				isDesktop: true,
+				listState: "empty",
+				listFilter: {
+					label: "Personal",
+					reach: "whole-folder",
+					onClear: () => undefined,
+				},
+				listScopeLabel: "Inbox",
+			}),
+		);
+		assert.match(html, /No Personal mail in Inbox/);
+		assert.match(html, /Every message in this folder was checked\./);
+		assert.doesNotMatch(html, /No messages in this mailbox/);
+	});
+
+	it("keeps the plain empty copy when nothing narrows the list", () => {
+		const html = renderToString(
+			createElement(MessageListPane, {
+				...baseProps,
+				isDesktop: true,
+				listState: "empty",
+			}),
+		);
+		assert.match(html, /No messages in this mailbox/);
+		assert.doesNotMatch(html, /Every message in this folder was checked\./);
+	});
+
 	it("renders the selectionBar slot instead of the pane header when provided", () => {
 		const html = renderToString(
 			createElement(MessageListPane, {

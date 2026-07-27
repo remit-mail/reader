@@ -443,6 +443,32 @@ export class ApiClient {
 	}
 
 	/**
+	 * The filtered per-mailbox listing the inbox chips issue, paged to
+	 * exhaustion so a spec reads the whole match set rather than whatever fits
+	 * in one page — which is the distinction the filter itself is about (#306).
+	 */
+	async searchThreads(
+		mailboxId: string,
+		query: { category?: string; limit?: number } = {},
+	): Promise<Thread[]> {
+		const items: Thread[] = [];
+		let continuationToken: string | undefined;
+		do {
+			const params = new URLSearchParams({ order: "desc" });
+			if (query.category) params.set("category", query.category);
+			if (query.limit !== undefined) params.set("limit", String(query.limit));
+			if (continuationToken) params.set("continuationToken", continuationToken);
+			const result = await this.json<ResultList<Thread>>(
+				"GET",
+				`/mailboxes/${mailboxId}/threads/search?${params.toString()}`,
+			);
+			items.push(...(result.items ?? []));
+			continuationToken = result.continuationToken;
+		} while (continuationToken);
+		return items;
+	}
+
+	/**
 	 * A whole conversation. The endpoint is deliberately not given a mailbox: a
 	 * thread spans every folder the account holds a message in. No `order` is
 	 * sent either — oldest first is what the endpoint promises (#81), and the

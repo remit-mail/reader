@@ -2,6 +2,8 @@ import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/type
 import {
 	Banner,
 	type Density,
+	type MessageListFilter,
+	MessageListLoadingMore,
 	MessageListPane,
 	SELECTION_SHEET_TEASER_HEIGHT,
 	SelectionSheet,
@@ -124,6 +126,15 @@ interface MessageListProps {
 	 */
 	listMeta?: string;
 	/**
+	 * The active category filter, when the view has one. The empty state needs
+	 * it to say it is filtered and how much of the collection the request
+	 * reached; without it a narrowed list renders as an empty mailbox, which is
+	 * the shape #315's bug hid behind.
+	 */
+	listFilter?: MessageListFilter;
+	/** Name of the collection being listed, e.g. "Inbox", for the empty state. */
+	listScopeLabel?: string;
+	/**
 	 * Triage-layer context bridge (#429). The roving focus cursor and the
 	 * multi-selection live here; the parent route's global keyboard dispatcher
 	 * needs them to target the action verbs (reply/star/…) at the
@@ -179,17 +190,17 @@ const readStoredDensity = (): Density => {
 	return "comfortable";
 };
 
-const SearchResultsHeader = ({
-	query,
-	count,
-}: {
-	query: string;
-	count: number;
-}) => (
+/**
+ * Names what the list is showing. No number: the only figure available here is
+ * the length of the loaded pages, and a page length presented as a result total
+ * contradicts the completeness the filtered empty state states in the same view
+ * (#306). The exact count is #307's.
+ */
+const SearchResultsHeader = ({ query }: { query: string }) => (
 	<div className="flex items-center gap-2 px-3 py-2 border-b border-line bg-surface-sunken/30">
 		<Search className="size-4 text-fg-muted" />
 		<span className="text-sm text-fg-muted">
-			{count} {count === 1 ? "result" : "results"} for &ldquo;{query}&rdquo;
+			Results for &ldquo;{query}&rdquo;
 		</span>
 	</div>
 );
@@ -214,6 +225,8 @@ export const MessageList = ({
 	accountId,
 	listTitle,
 	listMeta,
+	listFilter,
+	listScopeLabel,
 	onTriageContextChange,
 	commandsRef,
 	hideHeader = false,
@@ -1363,7 +1376,7 @@ export const MessageList = ({
 	const virtualBody = (
 		<>
 			{isSearching && searchQuery && (
-				<SearchResultsHeader query={searchQuery} count={threads.length} />
+				<SearchResultsHeader query={searchQuery} />
 			)}
 			<div
 				ref={parentRef}
@@ -1427,11 +1440,7 @@ export const MessageList = ({
 						);
 					})}
 				</div>
-				{isLoadingMore && (
-					<div className="flex justify-center py-4">
-						<div className="h-5 w-5 animate-spin rounded-full border-2 border-fg-muted border-t-transparent" />
-					</div>
-				)}
+				{isLoadingMore && <MessageListLoadingMore />}
 			</div>
 		</>
 	);
@@ -1469,6 +1478,8 @@ export const MessageList = ({
 				flatList
 				listState={listState}
 				searchQuery={isSearching ? searchQuery : undefined}
+				listFilter={listFilter}
+				listScopeLabel={listScopeLabel}
 				errorMessage={errorMessage}
 				onRetry={onRetry}
 				onReportError={handleReportError}

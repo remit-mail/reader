@@ -10,7 +10,11 @@
 
 import assert from "node:assert";
 import { describe, test } from "node:test";
-import { isSearchPending, resolveSelectedThread } from "./search-pending.ts";
+import {
+	isSearchPending,
+	resolveOpenThread,
+	resolveSelectedThread,
+} from "./search-pending.ts";
 
 describe("isSearchPending (reading-pane suppression guard)", () => {
 	test("no search: both empty — not pending", () => {
@@ -57,5 +61,39 @@ describe("resolveSelectedThread (#623 reading-pane resolution)", () => {
 	test("settled query with no selection — no thread", () => {
 		const selectedThread = resolveSelectedThread(threads, undefined, false);
 		assert.equal(selectedThread, undefined);
+	});
+});
+
+describe("resolveOpenThread (#306 filtered list)", () => {
+	const listed = { messageId: "msg-001", subject: "listed" };
+	const snapshot = { messageId: "msg-001", subject: "snapshot" };
+
+	test("prefers the row the list returned", () => {
+		assert.equal(resolveOpenThread(listed, snapshot, "msg-001", false), listed);
+	});
+
+	test("keeps the open thread when a filter pages it out of the list", () => {
+		assert.equal(
+			resolveOpenThread(undefined, snapshot, "msg-001", false),
+			snapshot,
+		);
+	});
+
+	test("drops a snapshot of a message that is no longer selected", () => {
+		assert.equal(
+			resolveOpenThread(undefined, snapshot, "msg-002", false),
+			undefined,
+		);
+		assert.equal(
+			resolveOpenThread(undefined, snapshot, undefined, false),
+			undefined,
+		);
+	});
+
+	test("a pending search still closes the pane (#539)", () => {
+		assert.equal(
+			resolveOpenThread(undefined, snapshot, "msg-001", true),
+			undefined,
+		);
 	});
 });

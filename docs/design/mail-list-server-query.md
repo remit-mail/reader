@@ -23,7 +23,7 @@ Not in scope, tracked separately — #305, #307, #308, #310, #311, #312, #313, #
 
 Exact counts and every surface that would render one; the Flagged and brief filters; the brief's sections; the Spam offer's number; the four duplicated predicate tables and the five duplicated category tables. Each is genuine rot. None of it is required to make a filtered inbox return the mail it holds.
 
-One consequence to state plainly rather than discover later: **`SearchResultsHeader` keeps rendering a page length as a result count** (`MessageList.tsx:1364-1366`). #306 does not make that worse — before and after, the number is the length of the loaded pages — and it does not make it better. #307 owns it.
+One consequence was stated plainly here and then reversed: `SearchResultsHeader` was to keep rendering a page length as a result count (`MessageList.tsx:1364-1366`), on the grounds that #306 made it neither worse nor better. **Amended in #306** — see D20. The number sat next to a component asserting the whole folder was checked, so the header now names the query and shows no number. The exact count is still #307's.
 
 ## Corrections to issues in this epic
 
@@ -297,7 +297,7 @@ With a search query as well: headline `No results for “invoice” in Personal`
 
 **S4 — filter changed, pagination restarted.** The loading skeleton. Never the previous predicate's rows, never an empty state.
 
-**S5 — filtered, with results.** Rows. The filter's identity is already visible in the collapsed chip summary (`packages/ui/src/components/filter-sheet.tsx:155-180`), so no new header is introduced — and the existing `SearchResultsHeader` count stays as wrong as it is today, owned by #307.
+**S5 — filtered, with results.** Rows. The filter's identity is already visible in the collapsed chip summary (`packages/ui/src/components/filter-sheet.tsx:155-180`), so no new header is introduced. The existing `SearchResultsHeader` drops its number rather than keeping a page length labelled a total (D20, amended); the exact count is #307's.
 
 **S6 — filtered, fetching a further page.** Rows plus `Loading more…`. Today it is a bare spinner (`MessageList.tsx:1429-1433`), which is one of the ways "not fetched yet" reads as "nothing there".
 
@@ -311,9 +311,9 @@ Failure case: a surface renders the plain empty state under an active filter bec
 
 No count request, no result-header change, no footer total. `Showing 50 of 4,753` was the best cure for this class of bug and it needs an exact count, so it goes to #305 and #307 with the rest.
 
-What that costs, stated rather than hidden: after #306 a user with an active filter sees a correct list and, if they are also searching, a header whose number is still the count of loaded pages. The filtered-empty case — the reported bug — is fully addressed, because S2 needs no number. The partially-loaded case is not improved.
+**Amended in #306: no number is rendered, rather than a wrong one.** The paragraph that stood here accepted a search header still counting loaded pages. It cannot stand next to S2: the same view would assert that every message in the folder was checked and label a page length a result total. Since no count is requested in this scope, the header names the query — `Results for “invoice”` — and shows no figure. The rule is that nothing this slice makes visible states a number it cannot support; the exact count, the selection counts and the shown-of-total footer are #305 and #307.
 
-Buys: the epic ships without a count on any seam, and the "no new API surface" claim holds literally. Gives up: the honest-number work that motivated half the audit is deferred, and one wrong number stays on screen in the search case.
+Buys: the epic ships without a count on any seam, the "no new API surface" claim holds literally, and no rendered figure contradicts the completeness sentence. Gives up: the honest-number work that motivated half the audit is deferred, so a search result set has no size on screen at all until #307.
 
 ### D21 — `uncategorized` becomes filterable now; the rest of the category cleanup is deferred
 

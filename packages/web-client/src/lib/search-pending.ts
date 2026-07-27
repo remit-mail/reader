@@ -22,3 +22,28 @@ export const resolveSelectedThread = <T extends { messageId: string }>(
 	if (pending || !selectedMessageId) return undefined;
 	return threads.find((t) => t.messageId === selectedMessageId);
 };
+
+/**
+ * The thread the reading pane shows, once the list is a server-side query
+ * (#306).
+ *
+ * The list used to hold every loaded row and filter a copy, so an open thread
+ * could always be found again in the unfiltered set. A filtered list is now the
+ * server's answer to one predicate, and a chip the open message does not match
+ * pages it out — so what the user opened is kept as a snapshot and answers for
+ * itself until they open something else. That is a derivation over the user's
+ * own selection, which stays on this side of the boundary.
+ *
+ * The snapshot is ignored while a search debounce is pending, so the pane still
+ * clears the instant a new search starts (#539).
+ */
+export const resolveOpenThread = <T extends { messageId: string }>(
+	listed: T | undefined,
+	opened: T | undefined,
+	selectedMessageId: string | undefined,
+	pending: boolean,
+): T | undefined => {
+	if (listed) return listed;
+	if (pending || !selectedMessageId) return undefined;
+	return opened?.messageId === selectedMessageId ? opened : undefined;
+};

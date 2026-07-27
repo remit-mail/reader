@@ -5,7 +5,6 @@ import {
 	type FilterAccount,
 	flaggedFilterConfig,
 	inboxFilterConfig,
-	UNCLASSIFIED_CATEGORY,
 } from "./filter-presets.js";
 
 const accounts: FilterAccount[] = [
@@ -23,6 +22,7 @@ describe("briefFilterConfig", () => {
 			[
 				"all",
 				"personal",
+				"uncategorized",
 				"transactional",
 				"newsletter",
 				"marketing",
@@ -100,26 +100,31 @@ describe("flaggedFilterConfig", () => {
 	});
 });
 
-describe("UNCLASSIFIED_CATEGORY", () => {
-	it("is held out of every shipped preset until the server filters it", () => {
+describe("the Unclassified category", () => {
+	it("is offered by every shipped preset", () => {
 		for (const preset of [
 			briefFilterConfig(),
 			inboxFilterConfig(),
 			flaggedFilterConfig(),
 		]) {
 			assert.equal(
-				preset.categories.some((c) => c.id === UNCLASSIFIED_CATEGORY.id),
-				false,
+				preset.categories.some((c) => c.id === "uncategorized"),
+				true,
 			);
 		}
 	});
 
+	it("follows Personal, the order the brief already uses", () => {
+		const ids = inboxFilterConfig().categories.map((c) => c.id);
+		assert.equal(ids.indexOf("uncategorized"), ids.indexOf("personal") + 1);
+	});
+
 	it("carries its own label and tone, never personal's (#45)", () => {
-		const personal = briefFilterConfig().categories.find(
-			(c) => c.id === "personal",
-		);
-		assert.equal(UNCLASSIFIED_CATEGORY.label, "Unclassified");
-		assert.notEqual(UNCLASSIFIED_CATEGORY.label, personal?.label);
-		assert.notEqual(UNCLASSIFIED_CATEGORY.tone, personal?.tone);
+		const categories = briefFilterConfig().categories;
+		const unclassified = categories.find((c) => c.id === "uncategorized");
+		const personal = categories.find((c) => c.id === "personal");
+		assert.equal(unclassified?.label, "Unclassified");
+		assert.notEqual(unclassified?.label, personal?.label);
+		assert.notEqual(unclassified?.tone, personal?.tone);
 	});
 });
