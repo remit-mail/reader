@@ -129,8 +129,8 @@ if (cluster.isPrimary) {
 		isShuttingDown = true;
 	});
 
-	// Minimal Lambda Context: `withTelemetry` only reads `functionName` and adds
-	// it to the logger; the prod handler never touches the rest.
+	// Minimal Lambda Context: `withTelemetry` only reads `functionName`, for the
+	// line it logs per invocation; the prod handler never touches the rest.
 	const lambdaContext = {
 		functionName: `e2e-imap-worker-${queueName}`,
 	} as Context;

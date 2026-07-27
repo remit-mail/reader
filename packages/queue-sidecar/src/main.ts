@@ -4,15 +4,30 @@ import { bootstrapQueues, loadQueuesConfig } from "./queues-config.js";
 import { createSidecarServer, type SidecarLog } from "./server.js";
 import { QueueStore } from "./store.js";
 
+// The same field names @remit/logger-lambda writes — see deploy/vps/README.md
+// ("Logs"), which is the contract an operator's log pipeline parses. Written by
+// hand rather than through that package: the sidecar depends on nothing but its
+// SQLite driver, and a logger is not the reason to change that.
+const service = process.env.REMIT_SERVICE_NAME ?? "queue-sidecar";
+
+const line = (
+	level: "info" | "error",
+	fields: Record<string, unknown>,
+	msg: string,
+) =>
+	`${JSON.stringify({
+		level,
+		time: new Date().toISOString(),
+		service,
+		...fields,
+		msg,
+	})}\n`;
+
 const log: SidecarLog = {
 	info: (fields, message) =>
-		process.stdout.write(
-			`${JSON.stringify({ level: "info", message, ...fields })}\n`,
-		),
+		process.stdout.write(line("info", fields, message)),
 	error: (fields, message) =>
-		process.stderr.write(
-			`${JSON.stringify({ level: "error", message, ...fields })}\n`,
-		),
+		process.stderr.write(line("error", fields, message)),
 };
 
 const port = Number(process.env.QUEUE_SIDECAR_PORT ?? "9324");
