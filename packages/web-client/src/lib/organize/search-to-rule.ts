@@ -18,7 +18,8 @@ import {
  * The mapping is honest about what a filter cannot carry. A facet with no clause
  * equivalent is never silently folded into the rule: a folder scope is reported
  * as dropped-and-kept-out (the filter matches everywhere, not just there), the
- * attribute facets (attachment / unread / date) are reported as left out, and a
+ * attribute facets (attachment / read state / starred / category / date) are
+ * reported as left out, and a
  * free-text query kept as a literal `HasWords` clause is reported as having lost
  * its semantic "similar mail" reach on a deployment that cannot embed the query
  * (D5). Pure functions only — the capability is injected, not probed here.
@@ -72,15 +73,18 @@ interface ConvertOptions {
 const FACET_HAS_NO_CLAUSE: ReadonlySet<SearchToken["type"]> = new Set([
 	"hasAttachment",
 	"isUnread",
+	"isRead",
+	"isStarred",
+	"category",
 	"before",
 	"after",
 ]);
 
 /**
  * Convert the current search into a rule's clauses and a record of what could not
- * be carried. Terms become a `HasWords` clause; a `from:` facet a `From` clause;
- * an `in:` facet a kept-out folder scope; `account:` the target account; the
- * attribute facets are dropped. The search's terms are ANDed with its facets, so
+ * be carried. Terms become a `HasWords` clause; a `from:` facet a `From` clause
+ * and a `subject:` facet a `Subject` clause; an `in:` facet a kept-out folder
+ * scope; `account:` the target account; the attribute facets are dropped. The search's terms are ANDed with its facets, so
  * the rule matches all of them (`all`).
  */
 export const convertSearchToRule = (
@@ -95,6 +99,10 @@ export const convertSearchToRule = (
 	for (const token of parsed.tokens) {
 		if (token.type === "from") {
 			clauses.push({ field: "From", value: token.value });
+			continue;
+		}
+		if (token.type === "subject") {
+			clauses.push({ field: "Subject", value: token.value });
 			continue;
 		}
 		if (token.type === "in") {

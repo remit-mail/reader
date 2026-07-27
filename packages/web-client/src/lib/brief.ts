@@ -212,10 +212,20 @@ export function matchesSearchTokens(
 					t.fromName.toLowerCase().includes(needle)
 				);
 			}
+			case "subject":
+				return t.subject.toLowerCase().includes(token.value.toLowerCase());
+			// A row with no category is `uncategorized` — the pending state has a
+			// name (issue #45), so `category:unclassified` finds it.
+			case "category":
+				return (t.category ?? "uncategorized") === token.category;
 			case "hasAttachment":
 				return t.hasAttachment === true;
 			case "isUnread":
 				return !t.isRead;
+			case "isRead":
+				return t.isRead === true;
+			case "isStarred":
+				return t.starred === true;
 			case "after":
 				return t.sentDate != null && t.sentDate >= token.epochSeconds * 1000;
 			case "before":

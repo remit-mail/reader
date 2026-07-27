@@ -433,6 +433,73 @@ describe("matchesSearchTokens", () => {
 		);
 	});
 
+	test("is:read requires isRead true", () => {
+		const isRead: SearchToken = { type: "isRead", raw: "is:read" };
+		assert.strictEqual(
+			matchesSearchTokens(row({ id: "1", isRead: true }), [isRead]),
+			true,
+		);
+		assert.strictEqual(
+			matchesSearchTokens(row({ id: "1", isRead: false }), [isRead]),
+			false,
+		);
+	});
+
+	test("is:starred requires starred true", () => {
+		const isStarred: SearchToken = { type: "isStarred", raw: "is:starred" };
+		assert.strictEqual(
+			matchesSearchTokens(row({ id: "1", starred: true }), [isStarred]),
+			true,
+		);
+		assert.strictEqual(
+			matchesSearchTokens(row({ id: "1" }), [isStarred]),
+			false,
+		);
+	});
+
+	test("subject: matches the subject, case-insensitively", () => {
+		const subject: SearchToken = {
+			type: "subject",
+			raw: "subject:roadmap",
+			value: "RoadMap",
+		};
+		assert.strictEqual(
+			matchesSearchTokens(row({ id: "1", subject: "Q3 roadmap" }), [subject]),
+			true,
+		);
+		assert.strictEqual(
+			matchesSearchTokens(row({ id: "2", subject: "Invoice" }), [subject]),
+			false,
+		);
+	});
+
+	test("category: matches the row's category, unclassified included", () => {
+		const personal: SearchToken = {
+			type: "category",
+			raw: "category:personal",
+			value: "personal",
+			category: "personal",
+		};
+		const unclassified: SearchToken = {
+			type: "category",
+			raw: "category:unclassified",
+			value: "unclassified",
+			category: "uncategorized",
+		};
+		assert.strictEqual(
+			matchesSearchTokens(row({ id: "1", category: "personal" }), [personal]),
+			true,
+		);
+		assert.strictEqual(
+			matchesSearchTokens(row({ id: "2", category: "marketing" }), [personal]),
+			false,
+		);
+		assert.strictEqual(
+			matchesSearchTokens(row({ id: "3" }), [unclassified]),
+			true,
+		);
+	});
+
 	test("after:/before: compare against sentDate (ms)", () => {
 		const jan15 = row({
 			id: "1",
