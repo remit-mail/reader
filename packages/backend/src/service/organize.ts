@@ -1,11 +1,19 @@
-import type { FilterItem, OrganizeJobRequestItem } from "@remit/data-ports";
-import { FilterClauseField } from "@remit/domain-enums";
+import type {
+	FilterItem,
+	IFilterAnchorRepository,
+	OrganizeJobRequestItem,
+} from "@remit/data-ports";
+import { NotFoundError } from "@remit/data-ports/errors";
+import { FilterClauseField, FilterState } from "@remit/domain-enums";
 import {
+	buildMatchText,
+	cosineSimilarity,
 	DEFAULT_SEMANTIC_MATCH_THRESHOLD,
 	type FilterMessage,
 	literalClausesMatch,
 	NO_ACTION,
 	PlacementMoveService,
+	selectMoveWinner,
 } from "@remit/mailbox-service";
 import {
 	type AnchorPayload,
@@ -79,6 +87,15 @@ export interface OrganizeSemanticDeps {
 		anchorMessageId: string,
 	) => Promise<AnchorPayload | null>;
 	vectorStore: Pick<VectorStoreService, "query" | "getByMessage">;
+	/**
+	 * Embed one candidate message's text — used only by the cross-filter
+	 * precedence check ({@link findCurrentMoveWinner}) to compare a message
+	 * against a *different* Active filter's persisted anchor, the same
+	 * comparison `FilterPipeline.filterMatches` runs at index time. Never
+	 * called by the anchor widen itself, which only ever runs a vector-store
+	 * kNN read (see `semantic-capability.ts`).
+	 */
+	embed: (text: string) => Promise<number[]>;
 }
 
 /**
@@ -107,6 +124,17 @@ export interface OrganizeMatchDeps {
 		accountConfigId: string,
 		limit: number,
 	) => Promise<OrganizeCandidate[]>;
+	/**
+	 * Every persisted FilterAnchor for the account — read-only, always
+	 * available (never gated behind {@link semantic}, since it never touches
+	 * the vector store). A back-apply predicate carries only a bare
+	 * `anchorMessageId`, never a `filterId` (RFC 034 recap: this job is
+	 * deliberately not a Filter), so this is how {@link matchSemantic} finds
+	 * "the standing filter this anchor came from," if one still exists, to
+	 * read its fixed-at-save-time vector instead of re-deriving one from the
+	 * anchor message's current chunks (reader #350 / RFC 039 Decision 1).
+	 */
+	filterAnchors: Pick<IFilterAnchorRepository, "listByAccountConfig">;
 }
 
 /** The matched ids plus whether the semantic widen was skipped as unavailable. */
@@ -152,23 +180,61 @@ const filterMessageFromChunks = (
 };
 
 /**
- * The semantic (anchor) arm: pool the anchor vector from the anchor message's
- * existing chunk vectors, fan out with a k-NN query gated on the cosine
- * threshold, then refine by literal clauses reconstructed from the same chunk
- * vectors. Every read here goes through the vector store; a deployment without
- * the vector pipeline fails on the first call, which {@link matchOrganize}
- * catches. Returns null when the anchor message has no vectors to pool.
+ * The persisted FilterAnchor whose `anchorMessageId` matches this predicate's
+ * anchor, if the account has a standing filter built from that message (RFC
+ * 034 Decision 2 / RFC 039 Decision 1, reader #350). A back-apply predicate
+ * never carries a `filterId` — this job structurally is not a Filter — so the
+ * only way to recover "the filter this anchor came from" is by the value it
+ * was anchored on. The scan is over one account's (small, bounded) anchor
+ * rows, read-only, and never touches the vector store. Returns `undefined`
+ * when no standing filter was ever anchored on this message (or it has since
+ * been deleted), in which case the caller falls back to deriving the anchor
+ * live from the message's current chunk vectors, exactly as before.
+ */
+const findPersistedAnchor = async (
+	filterAnchors: Pick<IFilterAnchorRepository, "listByAccountConfig">,
+	accountConfigId: string,
+	anchorMessageId: string,
+): Promise<AnchorPayload | undefined> => {
+	const anchors = await filterAnchors.listByAccountConfig(accountConfigId);
+	const persisted = anchors.find(
+		(anchor) => anchor.anchorMessageId === anchorMessageId,
+	);
+	if (!persisted) return undefined;
+	return {
+		anchorEmbedding: persisted.anchorEmbedding,
+		anchorEmbeddingId: persisted.anchorEmbeddingId,
+		anchorSourceText: persisted.anchorSourceText,
+	};
+};
+
+/**
+ * The semantic (anchor) arm: read the anchor vector — the persisted
+ * `FilterAnchor` for a message a standing filter was built from (fixed at
+ * save time, unaffected by the anchor message's later deletion or
+ * re-chunking), or else pool it fresh from the anchor message's existing
+ * chunk vectors, the same as before this filter existed or ever had one.
+ * Fan out with a k-NN query gated on the cosine threshold, then refine by
+ * literal clauses reconstructed from the same chunk vectors. Every read here
+ * goes through the vector store; a deployment without the vector pipeline
+ * fails on the first call, which {@link matchOrganize} catches. Returns null
+ * when neither a persisted anchor nor the message's own chunk vectors exist
+ * to pool.
  */
 const matchSemantic = async (
-	semantic: OrganizeSemanticDeps,
+	deps: OrganizeMatchDeps,
 	accountConfigId: string,
 	predicate: OrganizePredicate,
 	limit: number,
 ): Promise<string[] | null> => {
-	const anchor = await semantic.buildAnchor(
-		accountConfigId,
-		predicate.anchorMessageId,
-	);
+	const semantic = deps.semantic();
+	const anchor =
+		(await findPersistedAnchor(
+			deps.filterAnchors,
+			accountConfigId,
+			predicate.anchorMessageId,
+		)) ??
+		(await semantic.buildAnchor(accountConfigId, predicate.anchorMessageId));
 	if (!anchor) return null;
 	const threshold =
 		predicate.similarityThreshold ?? DEFAULT_SEMANTIC_MATCH_THRESHOLD;
@@ -302,7 +368,7 @@ export const matchOrganize = async (
 
 	try {
 		const semanticIds = await matchSemantic(
-			deps.semantic(),
+			deps,
 			accountConfigId,
 			predicate,
 			limit,
@@ -343,6 +409,7 @@ const buildSemanticFromEnv = (): OrganizeSemanticDeps => {
 		buildAnchor: (accountConfigId, anchorMessageId) =>
 			buildMessageAnchor({ store }, { accountConfigId, anchorMessageId }),
 		vectorStore: store,
+		embed: async (text) => (await embedder.embed([text]))[0],
 	};
 	return cachedSemantic;
 };
@@ -404,6 +471,7 @@ export const buildOrganizeMatchDeps = (
 ): OrganizeMatchDeps => ({
 	semantic: buildSemanticFromEnv,
 	listAccountFilterMessages: listAccountFilterMessagesFromClient(client),
+	filterAnchors: client.filterAnchor,
 });
 
 /**
@@ -433,6 +501,13 @@ export const buildOrganizeMoveService = (
 export interface ApplyOrganizeDeps {
 	client: RemitClient;
 	moveService?: PlacementMoveService;
+	/**
+	 * The same matcher deps {@link matchOrganize} uses — reused here only for
+	 * their vector-store/embedder access, to compare a candidate message
+	 * against a *different* filter's persisted anchor when checking exclusive-
+	 * move precedence (RFC 039 Decision 2, reader #350).
+	 */
+	match: OrganizeMatchDeps;
 }
 
 export interface ApplyOrganizeResult {
@@ -441,12 +516,173 @@ export interface ApplyOrganizeResult {
 }
 
 /**
+ * The vector-free literal-match projection of one already-stored message,
+ * read from its ThreadMessage row — the same fields and the same fidelity
+ * tradeoff {@link listAccountFilterMessagesFromClient} accepts for the
+ * back-apply predicate's own literal clauses (full-fidelity From/Subject/
+ * ListId, empty body text, so a `HasWords` clause on a *different* filter
+ * cannot be proven to currently match here). `undefined` when the message no
+ * longer exists.
+ */
+const findFilterMessageForPrecedence = async (
+	client: Pick<RemitClient, "threadMessage">,
+	accountConfigId: string,
+	messageId: string,
+): Promise<FilterMessage | undefined> => {
+	const row = await client.threadMessage
+		.get(accountConfigId, messageId)
+		.catch((error: unknown) => {
+			if (error instanceof NotFoundError) return undefined;
+			throw error;
+		});
+	if (!row) return undefined;
+	return {
+		from: row.fromEmail ?? "",
+		fromName: row.fromName ?? "",
+		subject: row.subject ?? "",
+		text: "",
+		listId: row.listId ?? "",
+	};
+};
+
+/**
+ * Whether one *other* Active filter with a move action currently matches this
+ * message — mirrors `FilterPipeline.filterMatches` (mailbox-service
+ * filters/pipeline.ts) exactly: literal clauses first, then, for a filter
+ * with a semantic anchor, its own persisted `FilterAnchor` compared against
+ * the candidate's embedding. A stale/incompatible anchor on the *other*
+ * filter is isolated to that filter (skipped, not thrown) — the same
+ * resilience `filterMatches` gives index-time matching, so one bad anchor
+ * elsewhere never breaks this back-apply's move.
+ */
+const filterCurrentlyMatches = async (
+	filterAnchorService: Pick<IFilterAnchorRepository, "get">,
+	accountConfigId: string,
+	filter: FilterItem,
+	msg: FilterMessage,
+	embed: () => Promise<number[] | null>,
+): Promise<boolean> => {
+	if (!literalClausesMatch(filter.literalClauses, filter.matchOperator, msg)) {
+		return false;
+	}
+	if (!filter.hasAnchor) {
+		return filter.literalClauses.length > 0;
+	}
+	const anchor = await filterAnchorService.get(
+		accountConfigId,
+		filter.filterId,
+	);
+	if (!anchor) return false;
+	const vector = await embed();
+	if (!vector) return false;
+	try {
+		return (
+			cosineSimilarity(vector, anchor.anchorEmbedding) >=
+			DEFAULT_SEMANTIC_MATCH_THRESHOLD
+		);
+	} catch {
+		return false;
+	}
+};
+
+/**
+ * The filter that currently wins this message's exclusive move, evaluated
+ * fresh against every Active filter with a move action — the same
+ * cross-filter arbitration index-time matching runs
+ * (`FilterPipeline`/`selectMoveWinner`), never the back-apply job's own
+ * snapshotted predicate (RFC 039 Decision 2, reader #350). This is what lets
+ * back-apply defer to a filter created or edited *after* the job was
+ * requested. `movers` is fetched once per {@link applyOrganize} call, not
+ * once per message — a back-apply pass runs in one short burst, so the
+ * account's Active filter set does not need re-reading per message.
+ *
+ * Returns `undefined` — meaning "nothing else contests this move" — whenever
+ * there are no other Active mover filters, or the message's own projection
+ * cannot be built (deleted between match and apply). Both are the common
+ * case and the safe default: proceed with the requested move exactly as
+ * before this check existed.
+ */
+const findCurrentMoveWinner = async (
+	deps: {
+		client: Pick<RemitClient, "threadMessage" | "filterAnchor">;
+		match: OrganizeMatchDeps;
+	},
+	movers: readonly FilterItem[],
+	accountConfigId: string,
+	messageId: string,
+): Promise<FilterItem | undefined> => {
+	if (movers.length === 0) return undefined;
+	const msg = await findFilterMessageForPrecedence(
+		deps.client,
+		accountConfigId,
+		messageId,
+	);
+	if (!msg) return undefined;
+
+	let messageEmbedding: number[] | null | undefined;
+	const embed = async (): Promise<number[] | null> => {
+		if (messageEmbedding !== undefined) return messageEmbedding;
+		try {
+			messageEmbedding = await deps.match.semantic().embed(buildMatchText(msg));
+		} catch (error) {
+			if (!noteSemanticCapabilityAbsence(error)) throw error;
+			messageEmbedding = null;
+		}
+		return messageEmbedding;
+	};
+
+	const matched: FilterItem[] = [];
+	for (const filter of movers) {
+		const isMatch = await filterCurrentlyMatches(
+			deps.client.filterAnchor,
+			accountConfigId,
+			filter,
+			msg,
+			embed,
+		);
+		if (isMatch) matched.push(filter);
+	}
+	return selectMoveWinner(matched);
+};
+
+/**
+ * Every currently-Active filter with a move action, its lazy Temporary-expiry
+ * check already applied — the fixed candidate set {@link findCurrentMoveWinner}
+ * arbitrates against for every message in this pass. Empty (and read exactly
+ * once) when no move action was requested, so a label-only back-apply never
+ * pays for this at all.
+ */
+const listCurrentMovers = async (
+	client: Pick<RemitClient, "filter">,
+	accountConfigId: string,
+): Promise<FilterItem[]> => {
+	const active = await client.filter.listByAccountAndState(
+		accountConfigId,
+		FilterState.Active,
+	);
+	const movers: FilterItem[] = [];
+	for (const filter of active) {
+		if (filter.actionMailboxId === NO_ACTION) continue;
+		const usable = await client.filter.refreshExpiry(filter);
+		if (usable.state === FilterState.Active) movers.push(usable);
+	}
+	return movers;
+};
+
+/**
  * Apply the back-apply action to every matched message, reusing the index-time
  * apply plumbing: an idempotent MessageLabel upsert (additive) with
  * `appliedByFilterId` deliberately ABSENT — this path attributes to no filter,
  * exactly like a hand-applied label (RFC 034 Decision 3.3) — and an idempotent
  * folder move (exclusive). One poisoned message never fails the batch; it is
  * counted as failed and the pass continues.
+ *
+ * Before an exclusive move, resolves whether a *different* Active filter
+ * currently wins that message (RFC 039 Decision 2, reader #350): if so, the
+ * move is skipped for that message — the label action above, if requested,
+ * still applies, since labels are additive and always safe. A message with no
+ * contesting filter, or whose own back-applied filter is still the current
+ * winner, moves exactly as before this check existed.
  */
 export const applyOrganize = async (
 	deps: ApplyOrganizeDeps,
@@ -454,11 +690,15 @@ export const applyOrganize = async (
 	messageIds: readonly string[],
 	predicate: OrganizePredicate,
 ): Promise<ApplyOrganizeResult> => {
-	const { client, moveService } = deps;
+	const { client, moveService, match } = deps;
 	const applyLabel =
 		predicate.actionLabelId !== NO_ACTION && predicate.actionLabelId !== "";
 	const applyMove =
 		predicate.actionMailboxId !== NO_ACTION && predicate.actionMailboxId !== "";
+
+	const movers = applyMove
+		? await listCurrentMovers(client, accountConfigId)
+		: [];
 
 	const applyToMessage = async (messageId: string): Promise<void> => {
 		if (applyLabel) {
@@ -469,6 +709,18 @@ export const applyOrganize = async (
 			});
 		}
 		if (applyMove) {
+			const winner = await findCurrentMoveWinner(
+				{ client, match },
+				movers,
+				accountConfigId,
+				messageId,
+			);
+			if (winner && winner.actionMailboxId !== predicate.actionMailboxId) {
+				// A more-recently-changed filter currently claims this message's
+				// move (RFC 034 Decision 3.2) — defer to it. The label above, if
+				// requested, has already applied; only the move is suppressed.
+				return;
+			}
 			if (!moveService) {
 				// An exclusive move was requested but this caller wired no move
 				// service. Never silently pretend it applied — surface it as a
