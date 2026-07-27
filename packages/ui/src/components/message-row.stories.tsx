@@ -73,6 +73,81 @@ const withCategory: ThreadRowData = {
 	category: "newsletter",
 };
 
+const noLabel: ThreadRowData = {
+	id: "r-no-label",
+	accountId: "a1",
+	fromName: "Jordan Lee",
+	fromEmail: "jordan@example.com",
+	subject: "Lunch on Friday?",
+	snippet: "Thinking the usual place, around noon.",
+	timeLabel: "10:03",
+	isRead: true,
+};
+
+const oneLabel: ThreadRowData = {
+	id: "r-one-label",
+	accountId: "a1",
+	fromName: "Stripe",
+	fromEmail: "receipts@stripe.com",
+	subject: "Your receipt from Acme Co",
+	snippet: "Payment of $42.00 was successful.",
+	timeLabel: "9:10",
+	isRead: true,
+	labels: [{ labelId: "l1", name: "Receipts", color: "Blue" }],
+};
+
+const twoLabels: ThreadRowData = {
+	id: "r-two-labels",
+	accountId: "a1",
+	fromName: "United Airlines",
+	fromEmail: "noreply@united.com",
+	subject: "Your itinerary for SFO → JFK",
+	snippet: "Check-in opens 24 hours before departure.",
+	timeLabel: "Yesterday",
+	isRead: false,
+	labels: [
+		{ labelId: "l1", name: "Receipts", color: "Blue" },
+		{ labelId: "l2", name: "Travel", color: "Green" },
+	],
+};
+
+const severalLabels: ThreadRowData = {
+	id: "r-several-labels",
+	accountId: "a1",
+	fromName: "Finance Team",
+	fromEmail: "finance@example.com",
+	subject: "Q3 budget review — action needed",
+	snippet: "Please review the attached numbers before Thursday.",
+	timeLabel: "Mon",
+	isRead: false,
+	labels: [
+		{ labelId: "l1", name: "Receipts", color: "Blue" },
+		{ labelId: "l2", name: "Travel", color: "Green" },
+		{ labelId: "l3", name: "Urgent", color: "Red" },
+		{ labelId: "l4", name: "Work", color: "Purple" },
+	],
+};
+
+const longLabelName: ThreadRowData = {
+	id: "r-long-label",
+	accountId: "a1",
+	fromName: "Compliance",
+	fromEmail: "compliance@example.com",
+	subject: "Filing due end of quarter",
+	snippet: "One outstanding item on the checklist.",
+	timeLabel: "Tue",
+	isRead: true,
+	labels: [
+		{
+			labelId: "l5",
+			name: "Quarterly compliance filings that need a second look",
+			color: "Purple",
+		},
+	],
+};
+
+const labeled = [noLabel, oneLabel, twoLabels, severalLabels, longLabelName];
+
 const all = [read, unread, starred, suspicious, withAttachment, withCategory];
 
 const meta: Meta = {
@@ -146,6 +221,63 @@ export const Selectable: Story = {
 				}}
 			/>
 			<ComfortableRow thread={withCategory} />
+		</List>
+	),
+};
+
+/**
+ * Labels (issue #26) alongside the existing read/unread, attachment and
+ * category affordances — no label, one, two, several, and a long name that
+ * truncates rather than growing the row. Comfortable density renders the
+ * chips; compact does not (see `CompactLabels` below).
+ */
+export const ComfortableLabels: Story = {
+	render: () => (
+		<List>
+			{labeled.map((thread) => (
+				<ComfortableRow key={thread.id} thread={thread} />
+			))}
+		</List>
+	),
+};
+
+/** The same labeled threads on the dark theme. */
+export const ComfortableLabelsDark: Story = {
+	name: "Comfortable Labels (dark)",
+	parameters: { theme: "dark" },
+	render: () => (
+		<List>
+			{labeled.map((thread) => (
+				<ComfortableRow key={thread.id} thread={thread} />
+			))}
+		</List>
+	),
+};
+
+/**
+ * The same labeled threads in compact density. `CompactRowBody` carries no
+ * label rendering today — this documents that as the approved current
+ * behavior, not an oversight in the story.
+ */
+export const CompactLabels: Story = {
+	render: () => (
+		<List>
+			{labeled.map((thread) => (
+				<CompactRow key={thread.id} thread={thread} />
+			))}
+		</List>
+	),
+};
+
+/** Compact density, dark theme. */
+export const CompactLabelsDark: Story = {
+	name: "Compact Labels (dark)",
+	parameters: { theme: "dark" },
+	render: () => (
+		<List>
+			{labeled.map((thread) => (
+				<CompactRow key={thread.id} thread={thread} />
+			))}
 		</List>
 	),
 };
