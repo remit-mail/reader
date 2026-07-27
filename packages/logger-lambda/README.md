@@ -92,5 +92,5 @@ one adds to the bindings of the one it runs inside.
 | -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `LOG_LEVEL`          | `info`  | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`. An unrecognised value logs one warning and falls back to the default. |
 | `REMIT_SERVICE_NAME` | `remit` | The `service` field on every line. Stamped into each service bundle at build time by `npm-scripts/docker-bundle.mjs`.                 |
-| `METRICS_PORT`       | `9464`  | Port `startMetricsServer` binds. |
+| `METRICS_PORT`       | `9464`  | Port `startMetricsServer` binds. Empty is unset and takes the default; anything that is not a port number in 0–65535 logs one error and serves no metrics, rather than falling back. A service that cannot be scraped is a smaller failure than one that reports on the wrong port. |
 | `METRICS_HOST`       | `0.0.0.0` | Interface `startMetricsServer` binds. Set `127.0.0.1` when the service runs as a host process rather than a container. |

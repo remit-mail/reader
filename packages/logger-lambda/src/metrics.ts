@@ -230,6 +230,31 @@ const reportToStderr = (error: Error): void => {
 	);
 };
 
+const MAX_PORT = 65535;
+
+const isBindablePort = (port: number): boolean =>
+	Number.isInteger(port) && port >= 0 && port <= MAX_PORT;
+
+// `listen` rejects anything outside 0..65535 by throwing ERR_SOCKET_BAD_PORT
+// synchronously, which the `'error'` handler never sees. A blank value is a
+// variable someone left empty rather than a request for port 0, so it reads as
+// unset; anything else that does not parse is a typo worth naming.
+const configuredPort = (override: number | undefined): number | Error => {
+	if (override !== undefined) {
+		return isBindablePort(override)
+			? override
+			: new Error(`not a port number: ${override}`);
+	}
+	const configured = (process.env.METRICS_PORT ?? "").trim();
+	if (configured === "") {
+		return DEFAULT_METRICS_PORT;
+	}
+	const parsed = Number(configured);
+	return isBindablePort(parsed)
+		? parsed
+		: new Error(`METRICS_PORT is not a port number: ${configured}`);
+};
+
 /**
  * The listener D2 adds to each worker image, for `/metrics` alone. Bound to the
  * compose network and never published to the host: the only host ports in the
@@ -239,8 +264,10 @@ const reportToStderr = (error: Error): void => {
  * later tick, by which time the poll loop is already running, so an unhandled
  * `'error'` event here would kill a worker in the middle of syncing mail —
  * 9464 is the OpenTelemetry Prometheus exporter's default, so a collector on
- * the same host is a real trigger. An observability endpoint must never be able
- * to stop mail from arriving; absent metrics are the correct failure.
+ * the same host is a real trigger. A port that is not a port at all is refused
+ * the same way, before `listen` can throw it at the caller. An observability
+ * endpoint must never be able to stop mail from arriving; absent metrics are
+ * the correct failure.
  *
  * Unreferenced from the event loop, so it never keeps a worker alive past the
  * end of its poll loop.
@@ -248,14 +275,18 @@ const reportToStderr = (error: Error): void => {
 export const startMetricsServer = (
 	options: MetricsServerOptions = {},
 ): Server => {
-	const port =
-		options.port ??
-		Number(process.env.METRICS_PORT ?? String(DEFAULT_METRICS_PORT));
 	const host = options.host ?? process.env.METRICS_HOST ?? "0.0.0.0";
 	const onError = options.onError ?? reportToStderr;
 	const server = createServer(createMetricsRequestListener());
 	server.unref();
 	server.on("error", onError);
+
+	const port = configuredPort(options.port);
+	if (port instanceof Error) {
+		onError(port);
+		return server;
+	}
+
 	server.listen(port, host);
 	return server;
 };

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import {
@@ -401,5 +402,81 @@ describe("the /metrics endpoint", () => {
 		await new Promise<void>((resolve) => server.once("listening", resolve));
 		delete process.env.METRICS_PORT;
 		assert.ok((server.address() as AddressInfo).port > 0);
+	});
+
+	const startWithMetricsPort = (value: string, reported: Error[]) => {
+		process.env.METRICS_PORT = value;
+		try {
+			return startMetricsServer({
+				host: "127.0.0.1",
+				onError: (error) => reported.push(error),
+			});
+		} finally {
+			delete process.env.METRICS_PORT;
+		}
+	};
+
+	for (const value of ["nine-thousand", "99999", "-1", "9464.5"]) {
+		it(`refuses to bind METRICS_PORT=${value} instead of taking the worker down`, () => {
+			const reported: Error[] = [];
+			const server = startWithMetricsPort(value, reported);
+			assert.equal(server.listening, false);
+			assert.equal(reported.length, 1);
+			assert.match(reported[0].message, /METRICS_PORT/);
+			assert.ok(reported[0].message.includes(value));
+		});
+	}
+
+	it("treats a blank METRICS_PORT as unconfigured", async () => {
+		const reported: Error[] = [];
+		const server = startWithMetricsPort("  ", reported);
+		servers.push(server);
+		const bound = await new Promise<boolean>((resolve) => {
+			server.once("listening", () => resolve(true));
+			server.once("error", () => resolve(false));
+		});
+		if (!bound) {
+			// 9464 is already taken on this host, which is itself proof the
+			// fallback resolved to it: an ephemeral port is never in use.
+			assert.match(String(reported[0]), /EADDRINUSE/);
+			return;
+		}
+		assert.deepEqual(reported, []);
+		assert.equal((server.address() as AddressInfo).port, DEFAULT_METRICS_PORT);
+	});
+
+	it("refuses an out-of-range port passed by a caller", () => {
+		const reported: Error[] = [];
+		const server = startMetricsServer({
+			port: 70000,
+			host: "127.0.0.1",
+			onError: (error) => reported.push(error),
+		});
+		assert.equal(server.listening, false);
+		assert.equal(reported.length, 1);
+		assert.match(reported[0].message, /70000/);
+	});
+
+	it("reports a malformed port as one JSON line on stderr by default", () => {
+		const written: string[] = [];
+		const restore = process.stderr.write.bind(process.stderr);
+		process.env.METRICS_PORT = "not-a-port";
+		process.stderr.write = ((chunk: string) => {
+			written.push(String(chunk));
+			return true;
+		}) as typeof process.stderr.write;
+		let server: Server;
+		try {
+			server = startMetricsServer({ host: "127.0.0.1" });
+		} finally {
+			process.stderr.write = restore;
+			delete process.env.METRICS_PORT;
+		}
+
+		assert.equal(server.listening, false);
+		assert.equal(written.length, 1);
+		const line = JSON.parse(written[0]) as { level: string; error: string };
+		assert.equal(line.level, "error");
+		assert.match(line.error, /not-a-port/);
 	});
 });
