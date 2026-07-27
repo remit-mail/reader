@@ -16,15 +16,14 @@
  * deliberately, both noted where they're used:
  *
  * - The "search has more matches than are loaded" affordance only appears once
- *   a mailbox search's first (unbounded) page comes back with a
- *   `continuationToken` — which needs >500 real matching messages, since that
- *   is the server's default page size (`THREAD_SEARCH_MAX_LIMIT`). Seeding
- *   500+ IMAP messages just to flip one boolean is wasteful, so the
- *   escalation-availability trigger is forced via `page.route`, injecting a
- *   `continuationToken` into that one response. Everything downstream —
- *   `escalate()`'s own counting (a *different* request, paged at limit=100)
- *   and the delete it drives — is completely real against the messages seeded
- *   below and is never touched by the mock.
+ *   a mailbox search's first page comes back with a `continuationToken`. Since
+ *   #306 the list asks for its own page size (`LIST_PAGE_SIZE`), so a fixture
+ *   larger than one page triggers it honestly and the npmbulk block below does
+ *   exactly that. For a fixture that fits in one page the trigger is still
+ *   forced via `page.route`, injecting a `continuationToken` into that one
+ *   response. Everything downstream — `escalate()`'s own counting (a *different*
+ *   request, paged at limit=100) and the delete it drives — is completely real
+ *   against the messages seeded below and is never touched by the mock.
  * - Partial failure is simulated by mocking the bulk-delete endpoint's first
  *   response (the boundary the brief calls out) — the ids it reports failed
  *   are read back out of the real outgoing request, and Retry's follow-up call
@@ -40,6 +39,29 @@ const MOBILE = { width: 390, height: 844 };
 test.use({ viewport: MOBILE });
 
 const rows = (page: Page): Locator => page.locator("[data-message-row]");
+
+/** The page size the mailbox list asks for (`DEFAULT_THREADS_PAGE_SIZE`, sent
+ *  explicitly since #306), so a larger match set loads this many rows and
+ *  legitimately reports more to come. */
+const LIST_PAGE_SIZE = 50;
+
+/** The page size `useEscalatedActions` pages its own counting and run requests
+ *  at, which is what tells them apart from the list's browsing query. */
+const ESCALATION_PAGE_SIZE = "100";
+
+/**
+ * The list's own browsing request for one query. Never `useEscalatedActions`'s
+ * counting or run requests: since #306 the browsing query sends the list page
+ * size explicitly, so the page size asked for is what separates the two.
+ */
+const isBrowsingSearchRequest = (url: string, query: string): boolean => {
+	const parsed = new URL(url);
+	return (
+		parsed.pathname.endsWith("/threads/search") &&
+		parsed.searchParams.get("query") === query &&
+		parsed.searchParams.get("limit") !== ESCALATION_PAGE_SIZE
+	);
+};
 
 /**
  * Simulates a long press with real pointer events (not a synthetic touch), the
@@ -154,47 +176,48 @@ const gotoInbox = async (page: Page, mailboxId: string): Promise<void> => {
  * takeover closed and the real filtered list rendered directly — the same
  * entry point `mailbox-navigation.spec.ts` uses — so this drives search that
  * way rather than through the takeover UI.
+ *
+ * That the takeover is closed used to be checked by asserting no "Search mail"
+ * textbox was visible. That assertion could only ever pass: it ran between
+ * `page.goto` resolving and React mounting, when no textbox existed yet, and the
+ * header legitimately carries the committed query in a field once it has
+ * rendered. What actually distinguishes the two surfaces is the rows: only the
+ * real `MessageList` renders `[data-message-row]`, and only the committed search
+ * renders the results header, so both are asserted instead.
  */
 const gotoSearch = async (
 	page: Page,
 	mailboxId: string,
 	query: string,
 ): Promise<void> => {
+	// Wait for the query's own page to land. The committed search re-keys the
+	// list query and the previous rows stand until it answers, so a select-all
+	// taken before then covers the mailbox's rows instead of the query's. This
+	// used to be waited out through the count in the results header; that number
+	// is gone since #306 — a page length labelled a result total contradicts the
+	// completeness a filtered empty state asserts in the same view — and the
+	// response it stood in for is the exact signal.
+	const answered = page.waitForResponse(
+		(response) =>
+			isBrowsingSearchRequest(response.url(), query) && response.ok(),
+		{ timeout: 30_000 },
+	);
 	await page.goto(`/mail/${mailboxId}?q=${encodeURIComponent(query)}`);
-	await expect(page.getByRole("textbox", { name: "Search mail" })).toBeHidden();
+	await answered;
+	await expect(rows(page).first()).toBeVisible({ timeout: 30_000 });
+	await expect(page.getByText(`Results for “${query}”`)).toBeVisible({
+		timeout: 30_000,
+	});
 };
 
 /**
- * Waits for the search results header's count (`MessageList.tsx`'s
- * `SearchResultsHeader`, driven by `threads.length` — every row the list has
- * actually fetched) to reach `count`. `[data-message-row]`'s own count is NOT
- * a substitute for this once a result set is larger than roughly a screenful:
- * `@tanstack/react-virtual` only mounts DOM nodes for rows in or near the
- * viewport, so `rows(page)` plateaus at whatever fits on screen (~15-20 rows
- * on this viewport) regardless of how many are actually loaded and selectable
- * — bounded select-all still selects every loaded row (`orderedIds` reads the
- * full `threads` array, not the DOM), so the count below, not a DOM row
- * count, is what proves the list truly loaded all of them.
- */
-const expectSearchResultsCount = async (
-	page: Page,
-	query: string,
-	count: number,
-): Promise<void> => {
-	await expect(
-		page.getByText(
-			`${count} ${count === 1 ? "result" : "results"} for “${query}”`,
-		),
-	).toBeVisible({ timeout: 30_000 });
-};
-
-/**
- * Forces `hasMore` true for one mailbox search term without seeding the 500+
- * real messages that would trigger it honestly (see file header). Only the
- * general, unbounded list request for the given query is touched — identified
- * by having no `limit` param, which is how `MailboxPane`'s browsing query
- * (unlike `useEscalatedActions`'s own 100-id-paged counting/delete requests)
- * calls the endpoint. Real items from the real backend are left untouched;
+ * Forces `hasMore` true for one mailbox search term without seeding more matches
+ * than a page holds (see file header). Only the list's own browsing request for
+ * the given query is touched; `useEscalatedActions`'s counting and delete
+ * requests are handed straight through, identified by the page size they ask
+ * for. That is the one thing separating the two: since #306 the browsing query
+ * sends the list page size explicitly, so "carries no `limit`" no longer
+ * identifies anything. Real items from the real backend are left untouched;
  * only a `continuationToken` is added when the response didn't already carry
  * one.
  *
@@ -212,12 +235,7 @@ const forceMoreMatchesThanLoaded = async (
 ): Promise<() => void> => {
 	let forcing = true;
 	await page.route("**/threads/search?*", async (route) => {
-		const url = new URL(route.request().url());
-		if (
-			!forcing ||
-			url.searchParams.has("limit") ||
-			url.searchParams.get("query") !== query
-		) {
+		if (!forcing || !isBrowsingSearchRequest(route.request().url(), query)) {
 			await route.continue();
 			return;
 		}
@@ -292,18 +310,20 @@ const expectListOutgrowsLoadMoreTrigger = async (
  * Runs a search whose result set claims more matches exist beyond the loaded
  * rows, which is the only state the escalation affordance appears in. Owns both
  * halves of that: the forced `hasMore`, and the fixture size that makes forcing
- * it safe. Returns `forceMoreMatchesThanLoaded`'s release.
+ * it safe. `loadedCount` is how many rows the list ends up holding — the whole
+ * match set when it fits in one page, `LIST_PAGE_SIZE` when it does not. Returns
+ * `forceMoreMatchesThanLoaded`'s release.
  */
 const searchWithMoreMatchesThanLoaded = async (
 	page: Page,
 	mailboxId: string,
 	query: string,
-	expectedCount: number,
+	loadedCount: number,
 ): Promise<() => void> => {
 	const release = await forceMoreMatchesThanLoaded(page, query);
 	try {
 		await gotoSearch(page, mailboxId, query);
-		await expectListOutgrowsLoadMoreTrigger(page, query, expectedCount);
+		await expectListOutgrowsLoadMoreTrigger(page, query, loadedCount);
 	} catch (error) {
 		// A list already inside the trigger keeps paging the phantom token for as
 		// long as it is forced, which buries the assertion above under a test
@@ -311,7 +331,6 @@ const searchWithMoreMatchesThanLoaded = async (
 		release();
 		throw error;
 	}
-	await expectSearchResultsCount(page, query, expectedCount);
 	return release;
 };
 
@@ -586,14 +605,13 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 	// that fixture. `RUN_TAG` is the one substring common to every fixture below,
 	// used only for seeding/cleanup bookkeeping.
 	const RUN_TAG = `run${Date.now()}`;
-	// Big enough that the search results fill more than one screen, which
-	// `searchWithMoreMatchesThanLoaded` requires and checks: its forced
-	// `continuationToken` makes the list believe another page exists, and a
-	// result set that fits on screen sits permanently inside `MessageList`'s
-	// 200px load-more trigger and pages that phantom token forever, appending
-	// the first page again on every pass. At 72px a row (`COMFORTABLE_ITEM_HEIGHT`)
-	// this clears an 844px viewport several times over, and it stays clear even at
-	// compact density's 32px.
+	// Larger than one list page, so the server's own `continuationToken` puts the
+	// list in the "more matches than are loaded" state with nothing mocked: the
+	// escalation this block drives really does reach past the rows on screen.
+	// It also fills more than one screen several times over at 72px a row
+	// (`COMFORTABLE_ITEM_HEIGHT`), which keeps the list clear of `MessageList`'s
+	// 200px load-more trigger — a list sitting inside it pages on its own and the
+	// loaded count would not hold still.
 	const NPM_MAIN_COUNT = 105;
 	const NPM_LATE_COUNT = 5;
 	const mainSubject = (i: number) => `npmbulk publish notice ${RUN_TAG} #${i}`;
@@ -645,18 +663,20 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 		run,
 		api,
 	}) => {
+		// The list holds one page; the match set is twice that, which is what makes
+		// the escalation offer honest here.
 		await searchWithMoreMatchesThanLoaded(
 			page,
 			run.inboxId,
 			"npmbulk",
-			NPM_MAIN_COUNT,
+			LIST_PAGE_SIZE,
 		);
 
 		await selectTwoFromTop(page);
 		await expandSheet(page);
 		await selectAllCheckbox(page).click();
 		await expect(selectionStatus(page)).toHaveText(
-			`All ${NPM_MAIN_COUNT} loaded selected`,
+			`All ${LIST_PAGE_SIZE} loaded selected`,
 		);
 
 		const escalate = selectionNotice(page).getByRole("button", {
@@ -694,11 +714,13 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 		run,
 		api,
 	}) => {
+		// The list holds one page; the match set is twice that, which is what makes
+		// the escalation offer honest here.
 		await searchWithMoreMatchesThanLoaded(
 			page,
 			run.inboxId,
 			"npmbulk",
-			NPM_MAIN_COUNT,
+			LIST_PAGE_SIZE,
 		);
 
 		await selectTwoFromTop(page);
