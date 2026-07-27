@@ -1,5 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { logger } from "@remit/logger-lambda";
+import {
+	metricsContentType,
+	onScrape,
+	renderMetrics,
+	setAccountSyncAges,
+} from "@remit/logger-lambda/metrics";
 import { isStorageNotFoundError } from "@remit/storage-service";
 import type { APIGatewayProxyResult } from "aws-lambda";
 import { env } from "expect-env";
@@ -17,6 +24,7 @@ import { resolveContentPath } from "./content-path.js";
 import { parseAllowedOrigins, resolveAllowOrigin } from "./cors.js";
 import { createLambdaContext, createLambdaEvent } from "./lambda-helpers.js";
 import { checkRelationalStore } from "./relational-health.js";
+import { collectAccountSyncAges } from "./sync-age.js";
 
 const app = express();
 
@@ -135,6 +143,35 @@ app.get("/health", async (_req: Request, res: Response) => {
 		timestamp: new Date().toISOString(),
 		service: "remit-backend-local",
 	});
+});
+
+// The scrape endpoint (standalone-observability D2), on the port this server
+// already serves on and never routed through Caddy — deploy/vps/caddy/routes.caddy
+// proxies /api/*, /content/* and /health, and everything else goes to the static
+// web server, so there is no path from the public origin to this route.
+//
+// The per-account sync age is a database read, so it is collected when a scrape
+// arrives rather than tracked as syncs complete. A read that fails fails the
+// scrape: a signal that could not be evaluated must not render as a healthy
+// number. Only the self-host backends have a store to read here — the
+// AWS-local dev path composes its client from outside this module.
+if (isSelfHostBackend) {
+	onScrape(async () => {
+		const client = await getClient();
+		setAccountSyncAges(await collectAccountSyncAges(client, Date.now()));
+	});
+}
+
+app.get("/metrics", async (_req: Request, res: Response) => {
+	const body = await renderMetrics().catch((error: unknown) => {
+		logger.error({ error: String(error) }, "Metrics collection failed");
+		return null;
+	});
+	if (body === null) {
+		res.status(500).type("text/plain").send("metrics collection failed\n");
+		return;
+	}
+	res.setHeader("content-type", metricsContentType).send(body);
 });
 
 // Swagger UI exposes the full API schema, so it must never be on the public

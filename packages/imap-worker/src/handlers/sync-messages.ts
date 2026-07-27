@@ -14,7 +14,7 @@ import type {
 	IUnitOfWork,
 } from "@remit/data-ports";
 import { SyncPhase } from "@remit/domain-enums";
-import { type Logger, MetricUnit, metrics } from "@remit/logger-lambda";
+import { type Logger, recordImapFailure } from "@remit/logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
 	createManagedConnectionFactory,
@@ -420,22 +420,13 @@ const syncMailboxMessages = async (
 		"Message sync batch complete",
 	);
 
-	if (result.syncedCount > 0) {
-		metrics.addMetric(
-			"imapMessagesSynced",
-			MetricUnit.Count,
-			result.syncedCount,
-		);
-	}
-
 	// A stalled cursor is the one failure on this path that produces no error:
 	// unapplicable messages are caught and held back, so the round returns
 	// normally, the SQS record is deleted, and neither redrive nor the DLQ ever
-	// engages. Without this metric the mailbox stops syncing behind a worker
-	// that looks healthy. It is emitted as a count so a sustained non-zero
-	// value alarms, per-mailbox detail being in the accompanying ERROR log.
+	// engages. Without this counter the mailbox stops syncing behind a worker
+	// that looks healthy. Per-mailbox detail is in the accompanying ERROR log.
 	if (result.cursorStalled) {
-		metrics.addMetric("imapSyncCursorStalled", MetricUnit.Count, 1);
+		recordImapFailure("SYNC_MESSAGES_CURSOR_STALLED", "other");
 	}
 
 	// Emit body sync events for the messages we just synced. Each event carries

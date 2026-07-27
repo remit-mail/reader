@@ -20,8 +20,10 @@
 		"test": "npm run test:typecheck && npm run test:run"
 	},
 	"dependencies": {
+		"@remit/logger-lambda": "*",
 		"better-sqlite3": "^12.11.1",
-		"@types/better-sqlite3": "^7.6.13"
+		"@types/better-sqlite3": "^7.6.13",
+		"prom-client": "^15.1.3"
 	},
 	"devDependencies": {
 		"@aws-sdk/client-sqs": "*",

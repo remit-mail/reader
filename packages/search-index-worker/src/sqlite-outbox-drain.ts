@@ -29,6 +29,7 @@ const DRAIN_INTERVAL_MS = 2_000;
 // out of the Lambda bundle).
 interface SqliteStatement {
 	all(...params: unknown[]): unknown[];
+	get(...params: unknown[]): unknown;
 	run(...params: unknown[]): unknown;
 }
 interface SqliteDatabase {
@@ -66,6 +67,23 @@ export class SqliteOutboxStore implements OutboxStore {
 		return rows.map((row) => row.id);
 	}
 
+	/**
+	 * The search index backlog (standalone-observability D3): rows committed but
+	 * not yet relayed onto the queue. Counted per row rather than per distinct
+	 * event, so it is the work outstanding and not the number of messages it
+	 * concerns.
+	 */
+	async countUnprocessedRows(): Promise<number> {
+		const placeholders = DRAIN_EVENTS.map(() => "?").join(", ");
+		const row = this.db
+			.prepare(
+				`SELECT COUNT(*) AS n FROM outbox
+				 WHERE event IN (${placeholders}) AND processed_at IS NULL`,
+			)
+			.get(...DRAIN_EVENTS) as { n: number };
+		return row.n;
+	}
+
 	async markRowsProcessed(ids: string[]): Promise<void> {
 		if (ids.length === 0) return;
 		const placeholders = ids.map(() => "?").join(", ");
@@ -80,6 +98,8 @@ export class SqliteOutboxStore implements OutboxStore {
 
 export interface RunningDrain {
 	stop(): Promise<void>;
+	/** Undrained outbox rows, read fresh — the D3 search index backlog. */
+	countBacklog(): Promise<number>;
 }
 
 export interface SqliteOutboxDrainConfig {
@@ -111,11 +131,8 @@ export const startSqliteOutboxDrain = async (
 	sqlite.pragma("synchronous = NORMAL");
 
 	const sqs = createSqsClient(queueUrl);
-	const relay = new OutboxRelay({
-		store: new SqliteOutboxStore(sqlite),
-		sqs,
-		queueUrl,
-	});
+	const store = new SqliteOutboxStore(sqlite);
+	const relay = new OutboxRelay({ store, sqs, queueUrl });
 
 	let draining = false;
 	let inFlight: Promise<unknown> = Promise.resolve();
@@ -139,6 +156,7 @@ export const startSqliteOutboxDrain = async (
 	timer.unref();
 
 	return {
+		countBacklog: () => store.countUnprocessedRows(),
 		stop: async () => {
 			clearInterval(timer);
 			await inFlight;

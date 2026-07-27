@@ -28,6 +28,40 @@ export const handler = async (event: SQSEvent) => {
 };
 ```
 
+## Metrics
+
+`@remit/logger-lambda/metrics` owns the process-wide Prometheus registry every
+service renders at `/metrics`, and the recorders that write to it. See
+[docs/design/standalone-observability.md](../../docs/design/standalone-observability.md)
+for the signal set and why it is pulled rather than pushed.
+
+```typescript
+import {
+  onScrape,
+  recordImapFailure,
+  startMetricsServer,
+} from "@remit/logger-lambda/metrics";
+
+// A service with no listener of its own gets one for /metrics alone. A port it
+// cannot bind is reported and then dropped: the process keeps doing its work
+// and serves no metrics.
+startMetricsServer();
+
+// Counters and histograms are written where the work happens.
+recordImapFailure("SYNC_MESSAGES", "auth");
+
+// A gauge whose value is a read is collected when a scrape arrives. A collector
+// that throws fails the scrape rather than rendering a stale or zero value.
+onScrape(async () => setBacklog(await countUndrainedRows()));
+```
+
+A signal only one service can answer for is declared by that service against the
+exported `registry` — see `search-index-worker/src/metrics.ts` and
+`queue-sidecar/src/metrics.ts`. Declaring it here would render it in every
+process that imports this module, including the four that cannot know its value.
+
+`withTelemetry` records handler duration and outcome into the same registry.
+
 Both argument orders work: `(bindings, message)` and `(message, bindings)`.
 Bindings land at the top level of the line, never nested. A value under `error`
 that is an `Error` is expanded to `type`, `message` and `stack`; anything else is
@@ -58,3 +92,5 @@ one adds to the bindings of the one it runs inside.
 | -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `LOG_LEVEL`          | `info`  | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent`. An unrecognised value logs one warning and falls back to the default. |
 | `REMIT_SERVICE_NAME` | `remit` | The `service` field on every line. Stamped into each service bundle at build time by `npm-scripts/docker-bundle.mjs`.                 |
+| `METRICS_PORT`       | `9464`  | Port `startMetricsServer` binds. |
+| `METRICS_HOST`       | `0.0.0.0` | Interface `startMetricsServer` binds. Set `127.0.0.1` when the service runs as a host process rather than a container. |
