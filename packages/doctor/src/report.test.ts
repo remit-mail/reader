@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { exitCodeFor, renderJson, renderLines } from "./report.js";
+import {
+	exitCodeFor,
+	renderJson,
+	renderLines,
+	writeVerdict,
+} from "./report.js";
 import type { CheckResult } from "./verdict.js";
 
 const degraded: CheckResult = {
@@ -161,5 +166,58 @@ describe("exit codes", () => {
 	it("is zero on healthy and non-zero on degraded, so cron can use it directly", () => {
 		assert.equal(exitCodeFor(healthy), 0);
 		assert.equal(exitCodeFor(degraded), 1);
+	});
+});
+
+describe("writeVerdict", () => {
+	// The whole point: `process.exit` discards a write the kernel could not
+	// take, so the verdict has to be out of the process before the code is
+	// returned. A stream that reports back-pressure and drains later is what a
+	// pipe under `compose exec -T` does with a long degraded verdict.
+	const backPressured = () => {
+		const chunks: string[] = [];
+		let drain: (() => void) | undefined;
+		return {
+			chunks,
+			release: () => drain?.(),
+			stream: {
+				write(text: string) {
+					chunks.push(text);
+					return false;
+				},
+				once(event: string, listener: () => void) {
+					if (event === "drain") drain = listener;
+					return this;
+				},
+			} as unknown as NodeJS.WritableStream,
+		};
+	};
+
+	it("does not resolve until the stream drains", async () => {
+		const sink = backPressured();
+		let settled = false;
+		const done = writeVerdict(sink.stream, renderLines(degraded)).then(() => {
+			settled = true;
+		});
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.equal(settled, false, "resolved before the stream drained");
+		sink.release();
+		await done;
+		assert.equal(sink.chunks.join(""), renderLines(degraded));
+	});
+
+	it("resolves straight away when the write was taken", async () => {
+		const chunks: string[] = [];
+		const stream = {
+			write(text: string) {
+				chunks.push(text);
+				return true;
+			},
+			once() {
+				assert.fail("waited on drain after a write that was taken");
+			},
+		} as unknown as NodeJS.WritableStream;
+		await writeVerdict(stream, renderJson(healthy));
+		assert.equal(chunks.join(""), renderJson(healthy));
 	});
 });

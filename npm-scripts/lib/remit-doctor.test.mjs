@@ -196,6 +196,31 @@ describe("remit doctor --json passes the object through", () => {
 	});
 });
 
+describe("the checker's records pass through untouched", () => {
+	// The wrapper reads the verdict's value and nothing else, so a reason code
+	// it has never heard of and a value carrying whatever the checker put in it
+	// arrive byte-identical. The checker collapses control characters into its
+	// one-record-per-line contract; nothing here re-does that work or depends
+	// on it having been done.
+	const exotic = [
+		"verdict degraded",
+		"checked-at 2026-07-27T08:50:01.029Z",
+		"summary remit is degraded",
+		'reason brand_new_code 2 messages on a queue called "a\\b" — 1 of 3',
+		"detail brand_new_code 0f8a…: 40122s, 91cd…: 12s",
+		"",
+	].join("\n");
+	const result = sandbox({ lines: exotic, exitCode: 1 }).run(["doctor"]);
+
+	it("prints exactly what came back", () => {
+		assert.equal(result.stdout, exotic);
+	});
+
+	it("exits on the verdict, not on the codes it recognises", () => {
+		assert.equal(result.status, 1);
+	});
+});
+
 describe("the checker's logs never reach stdout", () => {
 	const box = sandbox({
 		lines: HEALTHY_LINES,

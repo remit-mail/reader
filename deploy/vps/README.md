@@ -673,6 +673,7 @@ It is degraded when any of these is true:
 | `mail_auth_failing` | An IMAP or SMTP authentication failure counter has gone up in the last 3 hours |
 | `dead_letter_queue_not_empty` | Anything is quarantined on any DLQ |
 | `signal_missing` | A service answered `/metrics` but exported none of the series the check reads |
+| `checker_unreachable` | No usable verdict came back from the checker at all. Produced by `remit doctor`, never by the checker, so it never reaches a webhook — see [Is anything wrong](#is-anything-wrong-remit-doctor) |
 
 A signal that cannot be evaluated is degraded, never skipped. An endpoint that
 refuses the connection, a heartbeat file that is absent, a scrape that times out,
@@ -814,14 +815,7 @@ covers is the checker itself not running.
 
 ### Reading the verdict by hand
 
-```bash
-docker compose -f docker-compose.sqlite.yml --env-file .env exec -T doctor node check.mjs
-docker compose -f docker-compose.sqlite.yml --env-file .env exec -T doctor node check.mjs --json
-```
-
-Both run a fresh check and exit `0` when healthy, `1` when degraded, and `2` when
-the checker could not produce a verdict at all. The first prints one record per
-line; the second prints the same verdict as a JSON object.
+`remit doctor`, from anywhere — see [Is anything wrong](#is-anything-wrong-remit-doctor).
 
 ## Looking at the box
 
@@ -977,11 +971,12 @@ reason account_sync_stalled 1 of 3 accounts has not completed a sync in over 3h
 detail account_sync_stalled 0f8a…: 40122s
 ```
 
-It checks the same five conditions the alert fires on — a service not answering
-`/metrics`, a worker's poll loop gone stale, an account that has not completed a
-sync round, mail authentication failing, anything quarantined on a dead-letter
-queue — and it reports the account ids behind them, which an alert payload never
-carries. Each run is a fresh check, not the alerter's last verdict.
+It checks the same conditions the alert fires on — a service not answering
+`/metrics` or answering without the series, a worker's poll loop gone stale, an
+account that has not completed a sync round, mail authentication failing,
+anything quarantined on a dead-letter queue ([the table](#alerts)) — and it
+reports the account ids behind them, which an alert payload never carries. Each
+run is a fresh check, not the alerter's last verdict.
 
 **The exit code is the point.** `0` healthy, `1` degraded, `2` when no verdict
 could be produced, so it is a monitoring check as it stands:
