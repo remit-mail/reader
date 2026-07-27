@@ -8,6 +8,8 @@ import { QueueStore } from "./store.js";
 // ("Logs"), which is the contract an operator's log pipeline parses. Written by
 // hand rather than through that package: the sidecar depends on nothing but its
 // SQLite driver, and a logger is not the reason to change that.
+const service = process.env.REMIT_SERVICE_NAME ?? "queue-sidecar";
+
 const line = (
 	level: "info" | "error",
 	fields: Record<string, unknown>,
@@ -16,7 +18,7 @@ const line = (
 	`${JSON.stringify({
 		level,
 		time: new Date().toISOString(),
-		service: "queue-sidecar",
+		service,
 		...fields,
 		msg,
 	})}\n`;

@@ -481,23 +481,35 @@ Promtail pipeline parses, and they do not change without a note in the release:
 |---|---|---|
 | `level` | yes | `trace`, `debug`, `info`, `warn`, `error` or `fatal`, lowercase. |
 | `time` | yes | When the line was written, RFC 3339 with millisecond precision, always UTC (`2026-01-30T09:12:44.117Z`). |
-| `service` | yes | Which service wrote it: `backend`, `imap-worker`, `smtp-worker`, `account-worker`, `search-index-worker`, `queue-sidecar`. Stamped into the image at build time, so it is the service and not the container name. |
+| `service` | yes | Which service wrote it. Stamped into the image at build time, so it is the service and not the container name. |
 | `msg` | yes | The human-readable message. An empty string on a line that carries only fields. |
-| `err` | no | A serialised error — `type`, `message`, `stack`. |
+| `error` | no | On a failure line. An object with `type`, `message` and `stack` where the failure was an exception; a plain string where the call site only had one. |
+| `stack` | no | A stack trace as a top-level string, on the backend's error paths, alongside a string `error`. |
+| `name` | no | An exception class name, on the same backend paths. |
+
+`service` is one of `backend`, `imap-worker`, `smtp-worker`, `account-worker`,
+`search-index-worker`, `queue-sidecar`, `pg-index-worker`, or — from the
+one-shot commands that run out of the backend image — `backend-migrate` and
+`backend-backfill-list-id`. Migrations log under their own name, not the
+backend's.
 
 Everything else on a line is a field the call site added, at the top level, never
 nested: `accountId`, `mailboxId`, `messageId`, `queue`, `requestId`, `path`,
 `method`. Treat the set as open — a new field appears without warning, a
 documented one does not disappear without a note.
 
+`level`, `time`, `service` and `msg` are reserved. A call-site field using one of
+those names is dropped rather than written, so a line is always one well-formed
+object and its level always means what it says.
+
 There is no `pid` and no `hostname`. One container runs one service, and the
 container name and id already reach the collector from the log driver.
 
 Two consequences worth planning a pipeline around. **A message body, a subject
 and an address never appear in a field of their own**, but a message that a
-handler failed on can put an address inside `msg` or inside `err.message`, so
-treat log lines as personal data and give them the retention you give the
-mailbox. And **lines are not ordered across services** — `time` is each
+handler failed on can put an address inside `msg`, inside `error` or inside a
+stack, so treat log lines as personal data and give them the retention you give
+the mailbox. And **lines are not ordered across services** — `time` is each
 container's own clock, so sort on it rather than on arrival.
 
 `LOG_LEVEL` in `.env` sets the threshold for the application services; unset it
@@ -509,6 +521,7 @@ the service logs at `info`. The queue sidecar has no threshold — it writes onl
 ```bash
 remit logs backend | jq -c 'select(.level=="error")'
 remit logs | jq -r 'select(.accountId=="…") | "\(.time) \(.service) \(.msg)"'
+remit logs imap-worker | jq -r 'select(.error) | .error.stack // .stack // .error'
 ```
 
 ## Queue failures: watch the dead-letter queues

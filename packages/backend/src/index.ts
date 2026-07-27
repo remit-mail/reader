@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inspect } from "node:util";
-import { logger, withTelemetry } from "@remit/logger-lambda";
+import { logger, withLogContext, withTelemetry } from "@remit/logger-lambda";
 import type { APIGatewayProxyEvent, Context } from "aws-lambda";
 import {
 	type Document,
@@ -141,30 +141,36 @@ const readOriginHeader = (
 	return undefined;
 };
 
-const rawHandler = async (event: APIGatewayProxyEvent, context: Context) => {
-	logger.setBindings({
-		requestId: context.awsRequestId,
-		path: event.path,
-		method: event.httpMethod,
-	});
+// A scope, not `logger.setBindings`: this process serves requests concurrently,
+// and bindings on the shared logger belong to whichever request wrote them last,
+// so a line gets attributed to the wrong request. The scope follows the request
+// through its own async continuations and nothing else.
+const rawHandler = async (event: APIGatewayProxyEvent, context: Context) =>
+	withLogContext(
+		{
+			requestId: context.awsRequestId,
+			path: event.path,
+			method: event.httpMethod,
+		},
+		async () => {
+			logger.debug(
+				{ method: event.httpMethod, path: event.path },
+				"Request received",
+			);
 
-	logger.debug(
-		{ method: event.httpMethod, path: event.path },
-		"Request received",
+			const origin = readOriginHeader(event.headers);
+
+			if (usesBetterAuthJwt()) {
+				const denied = await authenticatePostgresRequest(event);
+				if (denied) return denied;
+			}
+
+			return runWithRequestContext({ origin }, () =>
+				api
+					.handleRequest(normalizeRequest(event), event, context)
+					.catch(handleError),
+			);
+		},
 	);
-
-	const origin = readOriginHeader(event.headers);
-
-	if (usesBetterAuthJwt()) {
-		const denied = await authenticatePostgresRequest(event);
-		if (denied) return denied;
-	}
-
-	return runWithRequestContext({ origin }, () =>
-		api
-			.handleRequest(normalizeRequest(event), event, context)
-			.catch(handleError),
-	);
-};
 
 export const handler = withTelemetry(rawHandler);

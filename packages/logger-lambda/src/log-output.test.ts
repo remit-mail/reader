@@ -28,7 +28,14 @@ process.stdout.write = ((
 	return (originalWrite as (...args: unknown[]) => boolean)(chunk, ...rest);
 }) as typeof process.stdout.write;
 
-const { createLogger, logger } = await import("./logger.js");
+const { createLogger, logger, withLogContext } = await import("./logger.js");
+
+const parse = (): Line[] =>
+	written
+		.join("")
+		.split("\n")
+		.filter((line) => line.length > 0)
+		.map((line) => JSON.parse(line) as Line);
 
 const capture = (emit: () => void): Line[] => {
 	written.length = 0;
@@ -38,11 +45,18 @@ const capture = (emit: () => void): Line[] => {
 	} finally {
 		capturing = false;
 	}
-	return written
-		.join("")
-		.split("\n")
-		.filter((line) => line.length > 0)
-		.map((line) => JSON.parse(line) as Line);
+	return parse();
+};
+
+const captureAsync = async (emit: () => Promise<void>): Promise<Line[]> => {
+	written.length = 0;
+	capturing = true;
+	try {
+		await emit();
+	} finally {
+		capturing = false;
+	}
+	return parse();
 };
 
 const one = (emit: () => void): Line => {
@@ -141,6 +155,14 @@ describe("log output", () => {
 		assert.equal(line.msg, "child log");
 	});
 
+	it("a call-site field shadowing a child binding is written once", () => {
+		const child = createLogger().child({ queue: "from-child" });
+		const [line] = capture(() => child.warn({ queue: "from-callsite" }, "x"));
+		assert.equal(line.queue, "from-callsite");
+		const repeats = written.join("").match(/"queue"/g) ?? [];
+		assert.equal(repeats.length, 1, "one key per line, not two");
+	});
+
 	it("a child inherits the bindings its parent had when it was created", () => {
 		const parent = createLogger();
 		parent.setBindings({ accountId: "a1" });
@@ -180,19 +202,154 @@ describe("log output", () => {
 		assert.equal(line.msg, "shared");
 	});
 
-	it("serialises an Error under err", () => {
-		const line = one(() =>
-			createLogger().error({ err: new Error("kaboom") }, "handler failed"),
-		);
-		const err = line.err as Record<string, unknown>;
-		assert.equal(err.message, "kaboom");
-		assert.equal(err.type, "Error");
-		assert.equal(typeof err.stack, "string");
-	});
-
 	it("carries no pid or hostname", () => {
 		const line = one(() => createLogger().warn("lean"));
 		assert.equal(line.pid, undefined);
 		assert.equal(line.hostname, undefined);
+	});
+
+	it("drops a call-site field using a reserved name", () => {
+		const [line] = capture(() =>
+			createLogger().warn(
+				{ level: "trace", time: "1999", service: "other", msg: "hijack" },
+				"collide",
+			),
+		);
+		assert.equal(line.level, "warn");
+		assert.equal(line.service, "test-service");
+		assert.equal(line.msg, "collide");
+		for (const key of ['"level"', '"time"', '"service"', '"msg"']) {
+			const repeats = written.join("").match(new RegExp(key, "g")) ?? [];
+			assert.equal(repeats.length, 1, `${key} is written once`);
+		}
+	});
+});
+
+// The shapes the worker and backend failure paths actually produce. A contract
+// test that asserts a key no call site writes is how a serialisation regression
+// stays green, so each case below names the call site it mirrors.
+describe("error serialisation", () => {
+	it("expands an Error logged under error — imap-worker/src/index.ts", () => {
+		const line = one(() =>
+			createLogger().error(
+				{ error: new Error("boom"), messageId: "m1" },
+				"Event processing failed",
+			),
+		);
+		const error = line.error as Record<string, unknown>;
+		assert.equal(error.type, "Error");
+		assert.equal(error.message, "boom");
+		assert.match(String(error.stack), /^Error: boom\n\s+at /);
+		assert.equal(line.messageId, "m1");
+	});
+
+	it("keeps a subclass name and its own properties", () => {
+		class UpstreamError extends Error {
+			readonly statusCode = 502;
+		}
+		const line = one(() =>
+			createLogger().error({ error: new UpstreamError("gone") }, "failed"),
+		);
+		const error = line.error as Record<string, unknown>;
+		assert.equal(error.type, "UpstreamError");
+		assert.equal(error.statusCode, 502);
+	});
+
+	it("leaves a string alone — backend/src/error.ts", () => {
+		const failure = new Error("ElectroError: bad key");
+		const line = one(() =>
+			createLogger().error(
+				{ error: failure.message, name: failure.name, stack: failure.stack },
+				"Unhandled Error",
+			),
+		);
+		assert.equal(line.error, "ElectroError: bad key");
+		assert.equal(line.name, "Error");
+		assert.match(String(line.stack), /^Error: ElectroError: bad key\n\s+at /);
+	});
+
+	it("leaves a plain object alone — backend/src/response.ts", () => {
+		const line = one(() =>
+			createLogger().error(
+				{ "problematicValue_/items": { path: "/items", error: "too long" } },
+				"Response validation failed",
+			),
+		);
+		assert.deepEqual(line["problematicValue_/items"], {
+			path: "/items",
+			error: "too long",
+		});
+	});
+
+	it("expands an Error under err too", () => {
+		const line = one(() =>
+			createLogger().error({ err: new Error("kaboom") }, "handler failed"),
+		);
+		const err = line.err as Record<string, unknown>;
+		assert.equal(err.type, "Error");
+		assert.equal(err.message, "kaboom");
+	});
+});
+
+describe("withLogContext", () => {
+	it("adds its bindings to every line written inside it", () => {
+		const line = one(() =>
+			withLogContext({ requestId: "r1", path: "/one" }, () => {
+				logger.warn("inside");
+			}),
+		);
+		assert.equal(line.requestId, "r1");
+		assert.equal(line.path, "/one");
+	});
+
+	it("does not leak past the scope", () => {
+		withLogContext({ requestId: "r1" }, () => {});
+		const line = one(() => logger.warn("outside"));
+		assert.equal(line.requestId, undefined);
+	});
+
+	it("keeps overlapping scopes apart across awaits", async () => {
+		const request = (id: string, delayMs: number) =>
+			withLogContext({ requestId: id }, async () => {
+				await new Promise((resolve) => setTimeout(resolve, delayMs));
+				logger.warn(`handled ${id}`);
+			});
+
+		// The slow request opens its scope first and logs last, which is exactly
+		// the interleaving a shared mutable binding gets wrong.
+		const lines = await captureAsync(async () => {
+			await Promise.all([request("slow", 10), request("fast", 1)]);
+		});
+
+		assert.deepEqual(
+			lines.map((line) => [line.msg, line.requestId]),
+			[
+				["handled fast", "fast"],
+				["handled slow", "slow"],
+			],
+		);
+	});
+
+	it("nests, adding to the scope it runs inside", () => {
+		const line = one(() =>
+			withLogContext({ requestId: "r1" }, () =>
+				withLogContext({ accountId: "a1" }, () => {
+					logger.warn("nested scope");
+				}),
+			),
+		);
+		assert.equal(line.requestId, "r1");
+		assert.equal(line.accountId, "a1");
+	});
+
+	it("a call-site field wins over a scope binding, and is written once", () => {
+		const [line] = capture(() =>
+			withLogContext({ requestId: "from-scope" }, () => {
+				logger.warn({ requestId: "from-callsite" }, "x");
+			}),
+		);
+		assert.equal(line.requestId, "from-callsite");
+		const repeats = written.join("").match(/"requestId"/g) ?? [];
+		assert.equal(repeats.length, 1);
 	});
 });

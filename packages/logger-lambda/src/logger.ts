@@ -1,6 +1,7 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Metrics, MetricUnit } from "@aws-lambda-powertools/metrics";
 import type { Context } from "aws-lambda";
-import { pino } from "pino";
+import { pino, stdSerializers } from "pino";
 
 type LogBindings = Record<string, unknown>;
 
@@ -29,15 +30,36 @@ const level =
 const isBindings = (value: unknown): value is LogBindings =>
 	typeof value === "object" && value !== null;
 
+// Written by the writer itself, so a binding of the same name would be a second
+// occurrence of the key on the line and every JSON parser takes the last one —
+// a call-site field named `level` would silently retag the line. Dropped rather
+// than renamed: a field the operator cannot rely on is worse than an absent one.
+const RESERVED = ["level", "time", "service", "msg"] as const;
+
+const withoutReserved = (fields: LogBindings): LogBindings => {
+	let kept: LogBindings | undefined;
+	for (const key of RESERVED) {
+		if (!(key in fields)) continue;
+		kept ??= { ...fields };
+		delete kept[key];
+	}
+	return kept ?? fields;
+};
+
 // One JSON object per line on stdout: `level` as a lowercase name, `time` as
 // RFC 3339, `service` naming the image, `msg` always present, and every binding
 // at the top level. The field contract is documented in deploy/vps/README.md
 // under "Logs" — log-shipping rules are written against these names.
+//
+// `error` carries an Error at most call sites in this repo, so it is serialised
+// the way pino serialises `err`: a bare Error spreads to nothing, which is how a
+// stack trace disappears from a worker failure line.
 const root = pino({
 	level,
 	base: { service: process.env.REMIT_SERVICE_NAME ?? "remit" },
 	timestamp: pino.stdTimeFunctions.isoTime,
 	formatters: { level: (label: string) => ({ level: label }) },
+	serializers: { error: stdSerializers.err },
 });
 
 type PinoLogger = typeof root;
@@ -82,10 +104,23 @@ export interface Logger {
 	setBindings(bindings: LogBindings): void;
 }
 
-// `persistent` is merged into every line and mutated in place by setBindings,
-// rather than handed to pino's own setBindings: pino appends to a cached
-// bindings string, so a per-request call on a long-lived logger would repeat
-// the key on every later line and grow without bound.
+// Bindings from a scope opened by withLogContext. A server handling requests
+// concurrently cannot carry per-request fields on a shared logger instance:
+// whichever request wrote last owns them until the next one overwrites them.
+const scope = new AsyncLocalStorage<LogBindings>();
+
+/**
+ * Runs `fn` with `bindings` on every line any logger writes inside it,
+ * including asynchronous continuations. Scopes nest: an inner call adds to the
+ * bindings of the one it runs inside.
+ */
+export const withLogContext = <T>(bindings: LogBindings, fn: () => T): T =>
+	scope.run({ ...scope.getStore(), ...bindings }, fn);
+
+// Every binding is merged into one object here rather than handed to pino:
+// pino's own child/setBindings append to a cached string it writes verbatim, so
+// a shadowing key would appear twice on one line, and a per-request setBindings
+// on a long-lived logger would grow that string without bound.
 const createAdapter = (target: PinoLogger, persistent: LogBindings): Logger => {
 	const emit = (
 		level: EmitLevel,
@@ -93,7 +128,10 @@ const createAdapter = (target: PinoLogger, persistent: LogBindings): Logger => {
 		second?: LogBindings | string,
 	): void => {
 		const [fields, message] = normalize(first, second);
-		target[level]({ ...persistent, ...fields }, message);
+		target[level](
+			withoutReserved({ ...persistent, ...scope.getStore(), ...fields }),
+			message,
+		);
 	};
 
 	return {
@@ -110,7 +148,7 @@ const createAdapter = (target: PinoLogger, persistent: LogBindings): Logger => {
 		fatal: (first: LogBindings | string, second?: LogBindings | string): void =>
 			emit("fatal", first, second),
 		child: (bindings: LogBindings): Logger =>
-			createAdapter(target.child({ ...persistent, ...bindings }), {}),
+			createAdapter(target, { ...persistent, ...bindings }),
 		setBindings: (bindings: LogBindings): void => {
 			Object.assign(persistent, bindings);
 		},
@@ -148,7 +186,7 @@ export const withTelemetry = <TEvent, TResult>(
 			return result;
 		} catch (err) {
 			metrics.addMetric("errorCount", MetricUnit.Count, 1);
-			logger.error("Lambda invocation failed", { error: String(err) });
+			logger.error("Lambda invocation failed", { error: err });
 			throw err;
 		} finally {
 			metrics.publishStoredMetrics();
