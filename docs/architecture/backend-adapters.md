@@ -1,284 +1,236 @@
 # Backend adapters
 
-A backend adapter is an implementation of the `@remit/data-ports` interfaces plus one exported factory that returns them. It is not a dialect of a shared implementation, and it does not share a database-handle type with any other adapter.
+A backend adapter is an implementation of the `@remit/data-ports` interfaces plus one factory that returns them. It is not a dialect of a shared implementation, and it shares no database-handle type with any other adapter.
 
-This document answers issue #466. Its requirements are referenced as R1–R7 and are not restated. Decisions are numbered D1–D9 so a reviewer can disagree with one by name.
+This document answers issue #466. Its requirements are referenced as R1–R7 and are not restated.
 
 ## What is in the tree
 
-Facts this design is built on, all verifiable in the current `main`:
+Facts this design is built on, all checkable in `main` at `bec2c304`:
 
-- `packages/data-ports/src` is 35 files: 23 repository interfaces, the item/input/option types, `errors`, `id`, `wellknown`, `account-settings`, `update-manifest`, and a conformance harness with one suite. No file outside its tests imports `drizzle-orm`, names a dialect, or names a SQL type. Its `package.json` publishes MIT with `access: public` and already exposes `./conformance` as a subpath export.
-- `packages/drizzle-service` implements both dialects in one body. 25 non-test files name `NodePgDatabase`, `PgDatabase`, or import from `drizzle-orm/pg-core`; 8 more take `Db<TSchema>`, which is that same Postgres type.
-- `SQL_DIALECT` in `src/dialect.ts` is read from `process.env.DATA_BACKEND` at module load. Exactly four modules consume it: `tx.ts`, `repos/thread-search-predicates.ts`, `schema/active-entities.ts`, `schema/outbox.ts`. Two of those four resolve the branch with `as unknown as typeof pg…`.
-- The same global selects the test suite. `test:run:pg` runs `src/**/!(*.sqlite).test.ts` under `localhost-test-unit.env` (`DATA_BACKEND=postgres`); `test:run:sqlite` runs `src/**/*.sqlite.test.ts` under `DATA_BACKEND=sqlite`. 25 files in the first set, 10 in the second.
-- The shipped self-host stack is SQLite only. `deploy/vps/docker-compose.sqlite.yml` pins `DATA_BACKEND: sqlite`, `deploy/vps/e2e.env` sets `sqlite`, and `deploy/` contains no Postgres compose file. Nothing reader ships runs the Postgres adapter.
-- `packages/backend/src/service/dynamodb.ts` selects a backend by branching on `process.env.DATA_BACKEND` over two lazy in-package imports, with an injected third case. `setClient` takes a whole `RemitClient` — repositories plus storage, search, secrets, and the queue services. `RemitClientRepositories`, the data-only half, already exists next to it in `create-remit-client.ts`.
-- `remit-lambda-bundles.test.ts` does not exist in this repository. It asserts on built Lambda bundles in the closed platform repo. Nothing in this tree asserts on bundle contents.
-- `packages/auth-service` has the same two-dialect split and already resolves it by injection: `AuthConfig.provider` is a constructor argument, not a module global. It reads `DATA_BACKEND` only in `resolveDataConnectionConfig`, to derive that argument.
+- `packages/data-ports/src` is 35 files: 23 interfaces in `src/interfaces/` (21 repositories plus `IUnitOfWork` and `IFilterAnchorTransaction`, neither of which is a repository), the item/input/option types, `errors`, `id`, `wellknown`, `account-settings`, `update-manifest`, and a conformance harness with one suite. No file outside its tests imports `drizzle-orm`, names a dialect, or names a SQL type. It publishes MIT with `access: public` and already exposes `./conformance` as a subpath export.
+- 33 non-test files import a Postgres drizzle type — `NodePgDatabase`, `PgDatabase`, `drizzle-orm/pg-core`, or `drizzle-orm/node-postgres`. Five of them are `packages/auth-service`, which is better-auth's own identity schema and implements no port.
+- 15 cast expressions across 6 files carry the dialect over the type system: `packages/backend/src/service/compose-sqlite.ts:51,53`, `compose-postgres.ts:43,45`, `packages/search-index-worker/src/data-ports.ts:54,55,92,93`, `packages/smtp-worker/src/data-ports.ts:50,51,85,86`, `packages/drizzle-service/src/sqlite-client.ts:44`, `schema/active-entities.ts:18`, `schema/outbox.ts:73`. Two of those files are themselves named `data-ports.ts` and import `drizzle-orm/node-postgres`.
+- `SQL_DIALECT` in `packages/drizzle-service/src/dialect.ts` is read from `process.env.DATA_BACKEND` at module load. Exactly four modules consume it: `tx.ts`, `repos/thread-search-predicates.ts`, `schema/active-entities.ts`, `schema/outbox.ts`.
+- The same global selects the test suite. `test:run:pg` runs `src/**/!(*.sqlite).test.ts` under `localhost-test-unit.env` (`DATA_BACKEND=postgres`, against `embedded-postgres`); `test:run:sqlite` runs `src/**/*.sqlite.test.ts`. 25 files in the first set, 10 in the second.
+- `packages/backend/src/service/dynamodb.ts` branches on `process.env.DATA_BACKEND` over two lazy in-package imports, with an injected third case reached through `setClient`. It is published as `@remit/backend/client`.
+- `remit-lambda-bundles.test.ts` does not exist in this repository; the only mention is a comment at `packages/backend/src/service/dynamodb.ts:26`. Nothing in this tree asserts on bundle contents.
 
-The consequence R1 names is real but narrower than it reads: the dialect does not leak into `data-ports`. It leaks into `@remit/drizzle-service`'s exported constructors, and from there into `compose-sqlite.ts`, which casts a better-sqlite3 handle to `NodePgDatabase` to satisfy them.
+### Postgres is deployed nowhere
+
+Checked, because the whole plan turns on it:
+
+- `deploy/` contains `docker-compose.sqlite.yml`, `.dovecot.yml` and `.e2e.yml`. There is no Postgres compose file, and no `infra/` or CDK directory.
+- `packages/migrate/src/run-migrate.ts:237-245` **refuses to start** on any other value: `DATA_BACKEND=<x> is not supported: this stack runs SQLite`. It throws before opening a connection. A shipped stack cannot boot on Postgres.
+- `deploy/vps/remit.env.template:169-174` says the same: "All relational state is SQLite… `docker-compose.sqlite.yml` pins `DATA_BACKEND` and both database paths itself, so this value is here for completeness rather than as a choice."
+- `.github/workflows/ci.yml` names Postgres once, in a comment. No workflow sets `DATA_BACKEND=postgres`.
+
+The two remaining Postgres branches in shipped code are unreachable for the same reason: `packages/search-service/src/from-env.ts:73` selects a pgvector store on `DATA_BACKEND === "postgres"`, and `packages/auth-service/src/config.ts:43` defaults better-auth to the `pg` provider on any value that is not `sqlite`. Neither can be reached in a stack whose migrator refuses to run.
+
+What does exist is 25 embedded-Postgres test files in `drizzle-service`, running on every PR. That is a second-engine test signal, not a deployment.
 
 ## Decisions
 
-### D1. `data-ports` stays the contract; `@remit/data-service` is added beside it (answers R7)
+### D1. The in-tree Postgres adapter is deleted, and it is deleted first
 
-`data-ports` is already the contract. It holds every interface, is dialect-free, is published MIT and public, and has the conformance subpath. Replacing it would be a rename with no change of content, and it would break the out-of-tree consumers already importing it.
+Issue #466 left this as a separate call. This is the call: **reader stops carrying a Postgres adapter**, because nothing in this repository deploys one and the migrator refuses to start against one. Issue #466's "not in scope" section is unchanged by it — removing the generated Postgres entity package was never on the table and is not here either.
 
-`@remit/data-service` is the selection and composition layer. It owns three things and nothing else:
+The split matters more than the deletion, so it is stated by name.
 
-1. The `RemitClient` and `RemitClientRepositories` shapes, moved out of `packages/backend/src/service/create-remit-client.ts`.
-2. The adapter registry (D3).
-3. The per-process port subsets that exist today as `packages/search-index-worker/src/data-ports.ts` and `packages/smtp-worker/src/data-ports.ts`, each with its own registry.
+**Leaves the runtime:**
 
-The registry is runtime state and `RemitClient` references `StorageService`, `SearchService`, `SecretsService` and `mailbox-service` types. Neither belongs in the contract package, which must stay importable by an adapter that has none of those.
+- `packages/backend/src/service/compose-postgres.ts`
+- the Postgres half of `packages/drizzle-service` — `dialect.ts`, `schema/active-entities.ts`, `pgOutboxTable` in `schema/outbox.ts`, the Postgres arms of `tx.ts` and `repos/thread-search-predicates.ts`, and `db.ts`'s `PgDatabase` typing
+- the 15 casts, the `node-postgres` and `pg-core` imports, and the `pg` / `postgres` / `embedded-postgres` dependencies of `drizzle-service`
+- the `DATA_BACKEND === "postgres"` arms in `getClient()`, both worker `data-ports.ts` files, `compose-relational.ts`, `deletion-capabilities.ts`, `search-service/src/from-env.ts`, `search-index-worker/src/services.ts`, and `auth-service/src/config.ts`
 
-*Buys:* an out-of-tree composition root depends on `@remit/data-service` instead of `@remit/backend`, so registering an adapter no longer drags the API process into its graph. Three registries collapse to one. *Gives up:* one more package in the workspace, and a moved import path in every consumer of `RemitClient`.
+**Keeps being generated and published, untouched:**
 
-### D2. Nothing replaces `Db<TSchema>` on the shared surface (answers R1, R2)
+- `@remit/drizzle-pg-schema` — the TypeSpec source, the `typespec-electrodb-emitter` run that produces it, its entry in `npm-scripts/lib/generated-packages.mjs`, and its release on merge to main
+- `@remit/data-ports` — the contract the out-of-tree Postgres adapter implements, including its conformance subpath
 
-`Db<TSchema>` is a repository constructor parameter, not a port type. No interface in `data-ports` mentions it. The correct replacement is its absence: each adapter types its own repos against its own handle, privately, and exports one factory.
+Postgres support for the closed repository is therefore intact and, after this, first-class: it consumes the published entity package and the published contract instead of importing repositories out of an open-core module that was typed for it. What ends is reader carrying and shipping the implementation.
 
-```ts
-// @remit/sqlite-adapter — internal, not exported from the package index
-type Db<TSchema extends Record<string, unknown>> = BetterSQLite3Database<TSchema>;
+Everything else in this document is a consequence. With one dialect in the tree, `dialect.ts` has no readers, `active-entities.ts` has nothing to select, `outbox.ts` has one table, the `isSqlite()` branches have one arm, and all 15 casts have nothing to bridge. None of that is designed; it falls out.
 
-class LabelRepo implements ILabelRepository {
-	constructor(private readonly db: Db<Record<string, unknown>>) {}
-}
-```
+*Buys:* no dialect global, no cast, no copy-then-cutover migration, no new package, no registry, and one implementation in the tree instead of one implementation typed as another. *Gives up:* the 25 embedded-Postgres test files, which are today the only signal that the repository behaviour is not accidentally SQLite-specific. D6 says what happens to them, and it is the reason they are converted rather than deleted.
 
-```ts
-// @remit/sqlite-adapter — the whole exported surface
-import type { RemitClientRepositories } from "@remit/data-service";
+An earlier draft of this document kept Postgres and built a registry, a new package, and a package-copy migration to keep both dialects green through the transition. All three existed only to survive keeping a backend nothing runs.
 
-export function buildSqliteRepositories(options: {
-	filename: string;
-}): Promise<RemitClientRepositories>;
-```
+### D2. `Db<TSchema>` is retyped in place; nothing replaces it on a shared surface (R1, R2)
 
-The shared vocabulary is therefore `RemitClientRepositories` over the 23 `data-ports` interfaces, plus one factory signature per adapter. `schema/active-entities.ts` is deleted: the SQLite adapter imports `@remit/drizzle-sqlite-schema` directly, an out-of-tree Postgres adapter imports `@remit/drizzle-pg-schema` directly, and neither package stops being generated or published (`npm-scripts/lib/generated-packages.mjs` is unchanged).
-
-The three hard parts R7 names are addressed next. Two of them are already dialect-neutral in the contract and need only to be stated as rules; the third cannot be made neutral and is handled by declaring the difference.
-
-#### Pagination
-
-Already neutral. The types stay as they are:
+`Db<TSchema>` is a repository constructor parameter, not a port type. No interface in `data-ports` mentions it. Its correct replacement is the SQLite handle, in the same file:
 
 ```ts
-export type ResultList<T> = { items: T[]; continuationToken: string | undefined };
-export type ListOptions = { limit?: number; continuationToken?: string };
+// packages/drizzle-service/src/db.ts
+export type Db<TSchema extends Record<string, unknown>> =
+	BetterSQLite3Database<TSchema>;
 ```
 
-What is missing is the contract around them, which the conformance suite must assert:
+and it stops being exported from the package index. What crosses the package boundary is `RemitClientRepositories` over the `data-ports` interfaces, which already exists in `packages/backend/src/service/create-remit-client.ts` and already names no dialect.
+
+`schema/active-entities.ts` is deleted; the schema facade imports `@remit/drizzle-sqlite-schema` directly. `schema/outbox.ts` keeps `sqliteOutboxTable` and drops `pgOutboxTable` and the cast.
+
+The retype is type-level only. The SQLite tables and the better-sqlite3 handle already run at runtime today, through the cast at `active-entities.ts:18` — the types have been lying about what executes since RFC 036. The exposure is that removing the cast surfaces type errors it was masking, which is a schedule risk on the slice, not a behaviour risk on the deployment.
+
+### D3. `data-ports` stays the contract, and no second package is added (R7)
+
+Neither reading of R7 is taken. `data-ports` stays. `data-service` is not created.
+
+The case for a selection package was that an out-of-tree composition root should not have to depend on `@remit/backend` to call `setClient`. `@remit/backend/client` is already a subpath export pointing at exactly that file (`packages/backend/package.json`), so the seam is already reachable without the API's runtime. A package would move code without changing what anyone can import.
+
+*Gives up:* an out-of-tree root keeps a package-level dependency on `@remit/backend`, and `setClient` keeps taking a whole `RemitClient` rather than only repositories. *Buys:* nothing new to publish, version, or keep in step.
+
+### D4. Selection is injection, with no environment read and no registry (R3)
+
+After D1 there is one in-tree adapter, so `getClient()` reduces to:
+
+```ts
+export const getClient = (): Promise<RemitClient> => {
+	if (!clientPromise) {
+		clientPromise = injected
+			? Promise.resolve(injected)
+			: import("./compose-sqlite.js").then((m) => m.buildSqliteClient());
+	}
+	return clientPromise;
+};
+```
+
+No `DATA_BACKEND` read anywhere in the selection path. A process that is handed an adapter calls `setClient(client)` and never reaches the import. A process that is not gets the one composition this build contains.
+
+R3 also asks that two adapters be able to coexist in one process, justified in the issue by a migration and a cross-backend conformance run. Both justifications are out-of-tree work once Postgres is: an out-of-tree adapter runs conformance in its own repository, and there is no second in-tree backend to migrate to. The thing that made two adapters *impossible* was `SQL_DIALECT`, a module-load read that no amount of injection could work around, and D1 removes it. A name-keyed registry over `setClient` is additive and costs one file whenever something actually needs it.
+
+This is the point most worth disagreeing with: R3's letter asks for the registry and this decision supplies only the property underneath it.
+
+### D5. The composition root is renamed, not moved (R6)
+
+`packages/backend/src/service/dynamodb.ts` becomes `service/data-client.ts`, and `@remit/backend/client` points at the new path. `compose-postgres.ts` is deleted. `compose-sqlite.ts` loses its two casts and keeps its name, which is now accurate.
+
+`@remit/drizzle-service` keeps its name. It is a drizzle service; it is now a SQLite one, which its description says. Renaming a published package to improve an adjective is not worth the coordination.
+
+### D6. Conformance grows out of the Postgres test conversion, not ahead of demand (R4)
+
+R4 has two halves and only one is open. The mechanism already works: `@remit/data-ports/conformance` is a published subpath, `RepositoryConformanceHarness` is a stable four-member shape, and `label.conformance.test.ts` / `label.conformance.sqlite.test.ts` already prove one suite running against two different harnesses. An out-of-tree adapter can run it today. The document records this rather than proposing it.
+
+What is open is coverage: 1 of 21 repository ports has a suite. Writing the other 20 speculatively, for adapters that do not exist, is the largest block of work in the plan and the least anchored.
+
+So the coverage is produced as a by-product of work that has to happen anyway. D1 requires converting 25 embedded-Postgres test files to SQLite. Each converted file is read once, and the split is made then: assertions about **port behaviour** (a create derives this field, a delete makes a get throw, a page is exhaustive and duplicate-free) move into a conformance suite in `data-ports`; assertions about **SQL behaviour** (a savepoint rolls back, an FTS5 predicate matches, a serialized write does not join an open transaction) stay as SQLite tests in the adapter. No file is converted twice and no suite is written for a port whose tests said nothing portable.
+
+Two things this cannot cover:
+
+- The harness yields one repository, a teardown, an id minter and a not-found predicate. That is enough for the repository ports and not enough for C5–C8, which need at least two repositories plus a reader outside the transaction. A unit-of-work suite takes a different harness, and it is the one place a new shape is needed:
+
+  ```ts
+  export interface UnitOfWorkConformanceHarness {
+      createRepositories(): Promise<
+          UnitOfWorkRepositories & { unitOfWork: IUnitOfWork }
+      >;
+      readOutsideTransaction<T>(
+          read: (repos: UnitOfWorkRepositories) => Promise<T>,
+      ): Promise<T>;
+      teardown(): Promise<void>;
+      makeId(): string;
+  }
+  ```
+
+- `@remit/data-ports` publishes raw TypeScript (`"main": "src/index.ts"`), and the suites are written against `node:test`. An out-of-tree adapter therefore needs a TypeScript loader and the node runner, not only the runner. Both are cheap and neither is free.
+
+### D7. The port-contract rules
+
+These are the rules the conformance suite asserts. They replace nothing in the type system — `ResultList`, `ListOptions`, `SearchOptions` and `IUnitOfWork` are already dialect-free and are unchanged.
+
+**Pagination.**
 
 - **C1.** A continuation token is opaque. No caller decodes one.
-- **C2.** A token is valid only against the adapter instance that minted it, for the same query and the same ordering. Feeding a token to a different adapter, or to the same query with a changed order, is undefined and may throw.
-- **C3.** An absent token means the listing is exhausted. A short page does not mean exhausted, and an exhausted listing does not require an empty final page.
-- **C4.** A token that does not decode is a `BadRequestError`. It is never read as "first page" — that reading silently restarted paging under a fresh token (#136).
+- **C2.** A token is valid only against the adapter instance that minted it, for the same query and the same ordering.
+- **C3.** An absent token means the listing is exhausted. A short page does not mean exhausted.
+- **C4.** A token that does not decode is a `BadRequestError` — never read as "first page", which silently restarted paging under a fresh token (#136). This applies to `ResultList.continuationToken` only. `AccountSchedulerPage.cursor` (`packages/data-ports/src/types.ts:42-45`) is a raw backend-native token with no decode step on the reader's side, so C1–C3 apply to it and C4 does not.
 
-`AccountSchedulerPage.cursor` is the same shape under a different name, for internal paging that never crosses a trust boundary. It keeps its name and gains C1–C4 minus the salt/tamper requirement it never had.
-
-#### Transactions
-
-Already neutral. `IUnitOfWork` is unchanged:
-
-```ts
-export interface IUnitOfWork {
-	transaction<T>(fn: (repos: UnitOfWorkRepositories) => Promise<T>): Promise<T>;
-}
-```
-
-The rules the port carries:
+**Transactions.**
 
 - **C5.** Every write made through the callback's repositories commits together or not at all. A throw rolls the whole set back.
-- **C6.** A `transaction` opened inside another on the same adapter joins the outer unit. It does not start a second independent one.
-- **C7.** The port has no isolation level, no explicit savepoint, and no read-consistency guarantee. An adapter's mechanism is private.
-- **C8.** `unitOfWork` is optional on the client. Its absence means the adapter has no cross-entity atomicity, and callers branch on presence — not on a backend name and not on a supplied boolean.
+- **C6.** A `transaction` opened inside another on the same adapter joins the outer unit; it does not start a second independent one.
+- **C7.** The port carries no isolation level, no explicit savepoint, and no read-consistency guarantee. Everything in `packages/drizzle-service/src/tx.ts` — the SAVEPOINT bracket, the `AsyncLocalStorage` nesting flag, the serialization queue, the write-builder Proxy — is below this line and stays private to the adapter.
+- **C8.** `unitOfWork` is optional on the client, and its absence is resolved by the *composition*, not by each caller. `packages/mailbox-service/src/message-sync.ts:240-246` substitutes a `PassThroughUnitOfWork` when none is supplied, which is the correct behaviour for an adapter with no cross-entity transaction and is not a branch any caller should be writing. An earlier draft said callers branch on presence; they do not, and the substitution is the contract.
 
-Everything in `packages/drizzle-service/src/tx.ts` is below C7: the SAVEPOINT bracket, the `AsyncLocalStorage` nesting flag, the async queue that serializes top-level units on the shared connection, and the write-builder Proxy. It is a property of one file-backed SQLite connection, not of a port. It moves into the SQLite adapter intact and loses its `isSqlite()` branch, because the file then has one dialect.
+**Text matching.** This is the one place adapters legitimately disagree, and the earlier draft got the facts wrong. `npm-scripts/sqlite-search-index.sql:38` uses `tokenize='trigram remove_diacritics 1'`, so SQLite *does* fold diacritics — but only on the FTS5 path. A term under three code points fails `isTrigramIndexable` and takes the `LIKE` fallback at `packages/drizzle-service/src/repos/thread-search-predicates.ts:66-73`, which does not fold. One adapter, two behaviours, selected by term length.
 
-#### SQL-shaped predicates
+- **C9.** The floor is verbatim substring: a term that appears exactly in the subject or the From line matches. That is satisfiable by Postgres `unaccent`+`lower`, by SQLite on both its paths, and by DynamoDB `contains()`. The conformance suite asserts this and nothing more.
+- **C10.** Case folding and diacritic folding are **not** in the contract. Postgres folds both. SQLite folds both above three code points and neither below. DynamoDB `contains()` folds neither. A suite that asserted case-insensitivity would fail the DynamoDB adapter on `INVOICE` against `invoice` on its first run, and D6 makes the same suite the acceptance test for every adapter.
 
-`SearchOptions` is already neutral and stays as it is. `subjectMatch`/`fromMatch` return drizzle `SQL` and are private to the relational adapter; no port sees them.
+An earlier draft proposed an `AdapterDescriptor.textMatching` enum for this. It is dropped: no value in it is correct for SQLite, whose behaviour depends on the term rather than the adapter; two adapters both declaring "folds diacritics" would still disagree, because `unaccent` and `remove_diacritics 1` are not the same function; and it had no accessor and no reader. The difference is documented here, where a caller choosing a backend can read it, rather than typed where nothing consumes it.
 
-This is the one place where the contract cannot mean the same thing on every adapter, and the design does not pretend otherwise. Postgres matches through `remit_immutable_unaccent(lower(…))` against a trigram GIN index and folds diacritics. SQLite matches through an FTS5 trigram index that lower-cases but does not unaccent, and falls back to a `LIKE` scan under three characters. DynamoDB `contains()` does neither.
+### D8. The bundle property, and its missing in-tree guard (R5)
 
-- **C9.** `query` splits on whitespace; every term must match subject OR From. Matching is substring and case-insensitive for ASCII. This is the floor, and the conformance suite asserts exactly this.
-- **C10.** Diacritic folding is not in the contract. An adapter declares what it does as a value on its descriptor; a caller that needs the guarantee reads the value.
+The property holds today because `service/dynamodb.ts:31-40` reaches the relational composition only through `import()`, and the Lambda esbuild build marks `@remit/drizzle-service` and `drizzle-orm` external. D4 preserves the exact mechanism: the fallback in `getClient()` stays a dynamic `import()` and never becomes a static one. That is a rule on the diff, not an emergent property, and it is stated here because it is the one line in this plan that could silently invert R5.
 
-```ts
-export interface AdapterDescriptor {
-	name: string;
-	textMatching: "ascii-fold" | "unicode-fold";
-}
-```
+`remit-lambda-bundles.test.ts` asserts on the produced bundle rather than the source shape, so it keeps enforcing the property unchanged. It is in the closed repository, which means this tree cannot see a regression it causes. Reader carries no bundle assertion of its own: `npm-scripts/docker-bundle.mjs` produces one bundle per service image and nothing tests what is inside them. S5 adds that test, and it is independent of every other slice so it can land first.
 
-No boolean, and no contract version field: `@remit/data-ports` is a published package and its semver is the contract version.
+### D9. `DATA_BACKEND` keeps its remaining jobs; no new variable
 
-### D3. Selection is registration; `DATA_BACKEND` selects among registered adapters only (answers R3)
+An earlier draft moved the auth and content-signing predicates onto a new `AUTH_MODE`. That is dropped.
 
-```ts
-// @remit/data-service
-export type RepositoriesFactory = () => Promise<RemitClientRepositories>;
+`AUTH_MODE` does not exist in the tree, and introducing it means a variable that gates JWT verification and content-URL signing across a compose file, an env template, the e2e env, and the AWS side of the closed repository. `packages/backend/src/data-backend.ts:16-19` records that this exact predicate already shipped broken once — guarding it on `=== "postgres"` alone left the SQLite deployment with no claim injection and unsigned `/content/*`. A second variable that can be absent on an upgraded box reintroduces that failure with a new trigger.
 
-export function registerBackend(
-	name: string,
-	factory: RepositoriesFactory,
-	descriptor: AdapterDescriptor,
-): void;
+After D1, `isSelfHostSqlBackend()` is `DATA_BACKEND === "sqlite"`: one value, one meaning, pinned in `docker-compose.sqlite.yml:32` rather than left to the user's env file. The Postgres arm is deleted along with the adapter.
 
-export function getRepositories(name?: string): Promise<RemitClientRepositories>;
-export function registeredBackends(): string[];
-```
+*Gives up:* the variable still answers two questions — which adapter, and which deployment mode. *Buys:* they cannot diverge while there is one adapter, and no new way to 500 an upgraded box.
 
-A process that is handed an adapter looks like this, and reads no environment variable to get one:
-
-```ts
-// deploy/vps entry point
-import { registerBackend, getRepositories } from "@remit/data-service";
-import { buildSqliteRepositories, descriptor } from "@remit/sqlite-adapter";
-
-registerBackend("sqlite", () => buildSqliteRepositories({ filename: env.SQLITE_DB_PATH }), descriptor);
-const repositories = await getRepositories();
-```
-
-```ts
-// a Lambda entry point in the closed repo
-registerBackend("dynamodb", () => buildDynamoRepositories(config), descriptor);
-```
-
-Two adapters coexist because the registry is a map of memoized factories, not a single promise:
-
-```ts
-registerBackend("postgres", () => buildPostgresRepositories(pgConfig), pgDescriptor);
-registerBackend("sqlite", () => buildSqliteRepositories({ filename }), sqliteDescriptor);
-
-const from = await getRepositories("postgres");
-const to = await getRepositories("sqlite");
-```
-
-`getRepositories()` with no argument resolves the sole registered adapter when there is one, and otherwise the one named by `DATA_BACKEND`. That is the variable's only remaining job, and it selects among adapters actually registered in this build: an unknown name is an error that lists what is registered, instead of a dynamic import of a module that may not be installed.
-
-This is only true once no module reads the variable at import time. `SQL_DIALECT` is exactly that read, and D8 is how it goes.
-
-### D4. `service/dynamodb.ts` is deleted, not renamed (answers R6)
-
-Its three cases split by concern. The registry moves to `packages/data-service/src/registry.ts`. `create-remit-client.ts` moves to `packages/data-service/src/client.ts`. `compose-sqlite.ts` becomes `buildSqliteRepositories` inside the SQLite adapter. `compose-postgres.ts` is deleted with the rest of the in-tree Postgres adapter (D5).
-
-`setClient(client: RemitClient)` becomes `registerBackend(name, factory)` where the factory returns `RemitClientRepositories`. The narrowing is deliberate: an out-of-tree adapter today has to build reader's storage, search, and secrets services to register at all, because `setClient` takes the whole client. Under the new seam an adapter supplies data and the process supplies the rest, which is already how `RemitClientDeps` is shaped.
-
-### D5. The in-tree Postgres adapter is removed
-
-This is the decision most likely to be disagreed with, and it is unavoidable once R1 and R2 are taken together. With no shared handle type, one repository body cannot serve both dialects: drizzle's `PgDatabase` and `BetterSQLite3Database` are nominally distinct, their table types (`PgTable`/`SQLiteTable`) are distinct, and drizzle exposes no cross-dialect base with a working query builder. Two dialects in one tree therefore means either the cast that exists today, or 29 repository files kept in lockstep by hand.
-
-Reader ships SQLite. `deploy/` has no Postgres compose file. The Postgres adapter's home is the closed repository, where it is deployed, alongside the DynamoDB adapter it will now sit beside as a peer.
-
-*Buys:* one dialect in the tree, the four `isSqlite()` branches and both casts deleted, no duplicated repository body, and the closed backends stop being an exception carved into an open-core module. *Gives up:* 25 embedded-Postgres test files, which are today the only second-engine signal on the repository behaviour. That signal moves out of tree, which is why D6 comes first in the slicing plan — the conformance suite has to be able to carry it before the Postgres tests leave.
-
-`@remit/drizzle-pg-schema` keeps being generated and published, unchanged. This removes an adapter, not an entity package.
-
-### D6. Conformance ships from `@remit/data-ports/conformance`, one suite per port (answers R4)
-
-The subpath export exists. What is missing is 22 of the 23 suites and a single entry point.
-
-```ts
-// @remit/data-ports/conformance
-export interface RepositoryConformanceHarness<TRepo> {
-	createRepository(): Promise<TRepo>;
-	teardown(): Promise<void>;
-	makeId(): string;
-	isNotFoundError(error: unknown): boolean;
-}
-
-export function labelRepositoryConformance(h: RepositoryConformanceHarness<ILabelRepository>): void;
-export function mailboxRepositoryConformance(h: RepositoryConformanceHarness<IMailboxRepository>): void;
-// …one per port
-
-export function allRepositoryConformance(harnesses: {
-	label: RepositoryConformanceHarness<ILabelRepository>;
-	mailbox: RepositoryConformanceHarness<IMailboxRepository>;
-	// …every port, all required
-}): void;
-```
-
-An out-of-tree adapter adds `@remit/data-ports` as a dev dependency, writes one harness per port, and runs `node --test` over a file that calls `allRepositoryConformance`. Nothing else is exported and nothing else is needed. The harness keys are required, not optional: an adapter that cannot satisfy a port calls the individual suites it can and the omission is visible at the call site rather than hidden behind a flag.
-
-The cost to state: the suites are written against `node:test`. That is in the platform rather than a dependency, and both `data-ports` and `drizzle-service` already run under it, but an adapter that standardises on another runner has to run this one as a second runner. A framework-neutral spec that each runner adapts costs more than the difference is worth.
-
-### D7. The bundle property gets stronger, and its in-tree guard is missing (answers R5)
-
-Today `service/dynamodb.ts` reaches `@remit/drizzle-service` through `import()`, and the Lambda esbuild build marks both it and `drizzle-orm` external. Under D3 a Lambda entry point registers DynamoDB and never names the relational adapter, so the module is not in the graph at all — not deferred, absent. The property holds by construction rather than by an externals list.
-
-`remit-lambda-bundles.test.ts` asserts on the produced bundle, not on the source shape, so it keeps enforcing the property unchanged. It is in the closed repository, which means this tree cannot see a regression it causes. That gap exists today and is not created here, but the honest reading of R5 is that reader carries no bundle assertion of its own: `npm-scripts/docker-bundle.mjs` produces one bundle per service image and nothing tests what is inside them. Slice S8 adds that test.
-
-### D8. The dialect global is removed by a package copy, not by an edit
-
-`SQL_DIALECT` is read at module load in `schema/active-entities.ts`, which every repository in the package reads its tables from. The first edit that removes that branch changes the table types for all 29 repository files at once and breaks 25 of the 35 test files in the same commit. There is no first repository to convert.
-
-So the branch is not edited. `packages/sqlite-adapter` is added as a copy of `drizzle-service` with the branches already resolved: `active-entities.ts` deleted, `outbox.ts` reduced to the SQLite table, `tx.ts` reduced to the savepoint path, `thread-search-predicates.ts` reduced to the FTS5 path, every repository retyped to `BetterSQLite3Database`. It runs the conformance suite plus the ported `*.sqlite.test.ts` files with no `DATA_BACKEND` set. `drizzle-service` is untouched and keeps running both its suites until the cutover. Both packages are green in the same CI run, and the breaking change lands in a directory nothing depends on yet.
-
-### D9. The auth and content predicates stop reading `DATA_BACKEND`
-
-`isSelfHostSqlBackend()` and `usesBetterAuthJwt()` in `packages/backend/src/data-backend.ts` gate JWT verification and content-URL signing (`dev-server/content-auth.ts` reads the predicate, not the variable). `packages/auth-service/src/config.ts` derives its drizzle provider from the variable directly, and `dev-server/server.ts` and `dev-server/relational-health.ts` branch on it. None of these is a question about the data backend; each asks whether this is the self-host stack.
-
-They read `AUTH_MODE` (`better-auth` | `cognito`), set in `docker-compose.sqlite.yml`, `remit.env.template`, `e2e.env`, and on the AWS side. Without this, `DATA_BACKEND` remains a process-wide fact under a new name and D3 buys nothing.
+The two non-selection readers that survive keep reading it for their own reasons: `packages/migrate/src/run-migrate.ts:237` refuses anything but `sqlite`, which is the guard that makes the rest of this document true, and it stays. The Postgres arms of `packages/search-service/src/from-env.ts:73` and `packages/search-index-worker/src/services.ts:41` are deleted together — they are one decision expressed twice (the guard exists so a missing `PG_CONNECTION_URL` cannot silently land vectors in the in-memory store), and splitting them across two mechanisms would recreate exactly the bug the guard was written to prevent.
 
 ## Slicing plan
 
-Each slice is independently mergeable with a green CI run.
+Each slice is independently mergeable with a green CI run. There is no window in which two copies of anything coexist, because nothing is copied.
 
-**S1 — Conformance covers every port.** Suites for the remaining 22 interfaces plus `allRepositoryConformance`, run against the existing repos on both dialects through the existing `label.conformance.test.ts` / `label.conformance.sqlite.test.ts` pattern. No production code changes. This is the net that makes every later slice checkable, and it must land before D5 removes the Postgres tests.
+**S1 — Delete the deployment-side Postgres path.** `compose-postgres.ts`, the `DATA_BACKEND === "postgres"` arm of `getClient()`, the Postgres branches of both worker `data-ports.ts` files, `compose-relational.ts` and `deletion-capabilities.ts`, the pgvector arm of `from-env.ts:73` with its guard at `services.ts:41`, and the `pg` default in `auth-service/src/config.ts`. `drizzle-service` is untouched and still runs both suites. Nothing in the tree used any of it; the tests that assert `DATA_BACKEND=postgres` composes go with it.
 
-**S2 — `@remit/data-service` exists.** `RemitClient`, `RemitClientRepositories`, `buildSharedDeps`, and the registry move out of `packages/backend/src/service/`. `backend` re-exports them so no consumer moves yet. `registerBackend`/`getRepositories` are added; `service/dynamodb.ts` becomes a shim over the registry with the env branch intact, so out-of-tree `setClient` callers keep working. Behaviour is unchanged.
+**S2 — Convert the 25 embedded-Postgres test files to SQLite.** This is D6's split, done once per file: port assertions become conformance suites in `data-ports`, SQL assertions become adapter tests. `test:run:pg`, `localhost-test-unit.env`'s `DATA_BACKEND=postgres`, and the `embedded-postgres` dev dependency go. The dialect global still exists and still reads `sqlite` — the suite now sets it uniformly, so the source is unaffected.
 
-**S3 — Entry points register.** Every in-tree entry point (backend server, imap-worker, smtp-worker, account-worker, search-index-worker, dev-server) calls `registerBackend` at startup. The env branch stays as the fallback. Two adapters in one process becomes possible at this point; the three worker-local registries in `*/src/data-ports.ts` collapse into the shared one.
+**S3 — Delete the dialect global and the Postgres half of `drizzle-service`.** `dialect.ts` and `schema/active-entities.ts` deleted, `schema/outbox.ts` reduced to one table, `tx.ts` and `thread-search-predicates.ts` reduced to one arm, `db.ts` retyped to `BetterSQLite3Database`, the remaining casts removed, `@remit/drizzle-pg-schema` dropped from the package's dependencies. This is the slice that surfaces whatever the cast was masking, and by S2 it has no test files left to break.
 
-**S4 — `AUTH_MODE`.** D9. Isolated from everything above and below it.
+**S4 — Rename the composition root.** `service/dynamodb.ts` → `service/data-client.ts`, `@remit/backend/client` repointed.
 
-**S5 — `packages/sqlite-adapter`.** D8. The copy, with the branches resolved and the casts gone. `drizzle-service` untouched.
+**S5 — In-tree bundle guard.** A test over `npm-scripts/docker-bundle.mjs` output asserting the per-image dependency floor: no `better-sqlite3` in an image that touches no data, no DynamoDB SDK in a self-host image, no `drizzle-orm` reachable from a Lambda-shaped entry point. Independent of S1–S4; it can land first, and should, because it is the only in-tree check on D8.
 
-**S6 — Cutover.** The sqlite compose stack, the e2e stack, and the dev server register `@remit/sqlite-adapter`. `compose-sqlite.ts` is deleted. `drizzle-service` still builds and still runs both suites, now used by nothing.
-
-**S7 — Deletion.** `drizzle-service`, `compose-postgres.ts`, `service/dynamodb.ts`, `localhost-test-unit.env`'s `DATA_BACKEND=postgres`, and the env branch in the registry. `getRepositories()` resolves the sole registered adapter.
-
-**S8 — Bundle guard.** A test over `npm-scripts/docker-bundle.mjs` output asserting the per-image dependency floor: no `better-sqlite3` in an image that touches no data, no DynamoDB SDK in a self-host image, no `drizzle-orm` reachable from a Lambda-shaped entry point.
-
-S1 and S4 are independent of the rest and of each other. S2→S3→S5→S6→S7 is a chain. S8 can land any time after S3.
+**Coordination precondition on S1 and S3.** Both are breaking changes to published packages. `@remit/drizzle-service` publishes on merge to main (`.github/workflows/publish.yml`, gated on `NPM_PUBLISH_ENABLED`), and S3 removes exports an out-of-tree Postgres adapter would import. S1 removes `buildPostgresClient`. Neither lands before the out-of-tree Postgres adapter exists and consumes `@remit/drizzle-pg-schema` directly. `setClient` is not removed by any slice, so out-of-tree DynamoDB callers are unaffected; S4 moves the file behind the same `@remit/backend/client` specifier.
 
 ## Change surface
 
-Counted from `main`, non-test files whose exported signature changes:
+Non-test files whose exported signature changes:
 
 | Group | Files |
 | --- | --- |
-| `drizzle-service` repos, schema facades, `db.ts`, `dialect.ts`, `tx.ts`, `sqlite-client.ts`, test harnesses, `repair/` | 34 |
-| Backend composition — `service/dynamodb.ts`, `create-remit-client.ts`, `compose-postgres.ts`, `compose-sqlite.ts` | 4 |
-| Worker seams — `search-index-worker/src/data-ports.ts`, `smtp-worker/src/data-ports.ts`, `account-worker/src/compose-relational.ts`, `account-worker/src/deletion-capabilities.ts` | 4 |
-| **Total signature changes** | **42** |
+| `drizzle-service` — repos, schema facades, `db.ts`, `dialect.ts`, `tx.ts`, `sqlite-client.ts`, test harnesses, `repair/` | 34 |
+| Backend composition — `service/dynamodb.ts`, `compose-postgres.ts`, `compose-sqlite.ts` | 3 |
+| Worker and cascade seams — `search-index-worker/src/data-ports.ts`, `smtp-worker/src/data-ports.ts`, `account-worker/src/compose-relational.ts`, `account-worker/src/deletion-capabilities.ts` | 4 |
+| **Total signature changes** | **41** |
 
-Not counted as signature changes:
+Of the 34 in `drizzle-service`, two are deletions (`dialect.ts`, `schema/active-entities.ts`); most of the rest are a one-line handle-type change.
 
-- 5 files in `packages/auth-service` name a Postgres drizzle type (`auth.ts`, `auth.gen.ts`, `verifier.ts`, `schema/auth-schema.ts`, `schema/meta-schema.ts`). They are better-auth's own identity schema, do not implement `data-ports`, and already inject their provider. Only `config.ts` changes, under D9.
-- 15 non-test files read `process.env.DATA_BACKEND`. Five of them select repositories and are already counted above (`service/dynamodb.ts`, both worker `data-ports.ts`, `compose-relational.ts`, `dialect.ts`). Four are the deployment-mode question D9 renames (`backend/src/data-backend.ts`, `dev-server/server.ts`, `dev-server/relational-health.ts`, `auth-service/src/config.ts`). Three read it as an adapter capability and become a descriptor read (`search-index-worker/src/sqlite-outbox-drain.ts`, `search-index-worker/src/services.ts`, `account-worker/src/config.ts`). Two keep reading a deployment variable because they choose something other than an adapter — which migration sets to apply (`packages/migrate/src/run-migrate.ts`) and which vector store to open (`search-service/src/from-env.ts`).
-- 35 test files in `drizzle-service` move to the new adapter or are deleted with the Postgres path; 4 test files elsewhere change with their subject.
+Also touched, without a signature change:
 
-Around 90 files are touched. 42 change a signature, which matches the issue's estimate.
+- 15 non-test files read `process.env.DATA_BACKEND`. Six select repositories and are already counted above (`service/dynamodb.ts`, both worker `data-ports.ts`, `compose-relational.ts`, `deletion-capabilities.ts`, `dialect.ts`). Four lose a Postgres arm (`search-service/src/from-env.ts`, `search-index-worker/src/services.ts`, `search-index-worker/src/sqlite-outbox-drain.ts`, `auth-service/src/config.ts`). Four simplify to a single-valued predicate (`backend/src/data-backend.ts`, `dev-server/server.ts`, `dev-server/relational-health.ts`, `account-worker/src/config.ts`). One is unchanged (`packages/migrate/src/run-migrate.ts`).
+- 25 test files convert from embedded-Postgres to SQLite or to conformance suites; 10 SQLite test files stay; 4 test files elsewhere lose their Postgres cases.
+- 2 build inputs: `localhost-test-unit.env` and `packages/drizzle-service/package.json`'s test scripts.
+
+Around 100 files are touched, 41 of which change a signature. `packages/drizzle-service` is 98 files, 95 under `src/`; this plan edits and deletes within it rather than copying it, so the touched count is the file count and not twice it.
 
 ## FAQ
 
-**Does reader lose Postgres?** Reader loses the Postgres adapter from this tree. The generated `@remit/drizzle-pg-schema` keeps being emitted and published, and the adapter itself lives where it is deployed. If an in-tree Postgres adapter is wanted later it is a package that imports `data-ports` and the pg entity package, like any other.
+**Does reader lose Postgres?** Reader loses the Postgres adapter from this tree, which nothing in this tree deploys — the migrator refuses to start on it. The generated `@remit/drizzle-pg-schema` keeps being emitted and published, and the adapter itself belongs where it is deployed.
 
-**Why not keep one repository body and parameterize it over the dialect?** Because drizzle gives no cross-dialect base to write it against. `PgDatabase` and `BetterSQLite3Database` are distinct types, `PgTable` and `SQLiteTable` are distinct types, and a shared body needs either the cast that exists today or a hand-written facade over drizzle's query builder — a larger and less honest abstraction than two adapters.
+**What breaks for someone running Postgres today?** Nothing supported. A stack that runs `deploy/vps` cannot be on Postgres, because `packages/migrate/src/run-migrate.ts:237` refuses to apply migrations to anything else. Someone running the packages directly against Postgres, outside the shipped stack, is on an unsupported path and is the case D1 decides against.
 
-**Isn't `data-service` a bad name when it holds `RemitClient`, which is mostly not data?** It holds the client shape and the registry, and it builds neither storage nor search. The name is the one the issue proposed and the scope is stated in D1.
+**Why not keep both dialects and just remove the cast?** Because one repository body cannot be typed for both. `PgDatabase` and `BetterSQLite3Database` are distinct types, `PgTable` and `SQLiteTable` are distinct types, and drizzle exposes no cross-dialect base with a working query builder. Two dialects in one body means either the cast that exists today or 29 repository files kept in step by hand.
 
-**How does an out-of-tree adapter know the contract changed?** `@remit/data-ports` is a published package. A new port or a changed signature is a version bump, and the conformance suite for the new port fails against an adapter that has not implemented it.
+**Aren't the 25 Postgres tests worth keeping as a second-engine check?** They check that the repositories work on Postgres, which becomes a property of a repository this one does not contain. What is worth keeping is the portable half of what they assert, which is why S2 converts them into conformance suites rather than deleting them.
 
-**What stops an adapter passing conformance and still being wrong?** Nothing, for anything the suite does not assert. That is why S1 is first and why D5 is ordered behind it: the Postgres test files leave only after the behaviour they cover is expressed as suites every adapter runs.
+**Where did the registry go?** It was justified by two adapters in one process, and both cited uses — a cross-backend migration, a conformance run across dialects — stop existing in this tree once Postgres does. `setClient` is already injection. The registry is additive over it whenever something needs it.
 
-**Can two adapters really run in one process, or is that theoretical?** The registry is a map. The blockers are `SQL_DIALECT` and `active-entities.ts`, both module-load reads, and both are gone after S5. A migration that reads one adapter and writes another is then a script with two `getRepositories` calls.
+**What actually made two adapters impossible — the singleton or the env branch?** Neither. `SQL_DIALECT` did: a module-load read that fixes the table types for every repository in the process, which no amount of injection could route around. It goes in S3.
 
-**Why does `AUTH_MODE` belong in a data-backend refactor?** It does not belong to it conceptually, which is the point. Those predicates ask a deployment question through the data backend's variable, and while they do, `DATA_BACKEND` stays a process-wide fact and D3 is cosmetic.
+**Why not rename `@remit/drizzle-service` now that it is SQLite-only?** A published rename costs a coordinated change in every consumer, in and out of tree, to make an adjective more accurate. The description field says SQLite.
 
-**Is the search-semantics difference (C10) a real problem for callers?** Today it is silent: the same query returns different results on Postgres and SQLite and nothing says so. C10 does not remove the difference, it names it and puts it where a caller can read it.
+**Does anything still read `DATA_BACKEND` after this?** Yes, deliberately. `run-migrate.ts` refuses anything but `sqlite`, which is the guard the rest of this document depends on. The auth and content predicates read it as a deployment-mode question, pinned in `docker-compose.sqlite.yml:32` — an earlier draft moved them to a new `AUTH_MODE`, and D9 says why that trades a naming complaint for a way to 500 an upgraded box.
+
+**How does an out-of-tree adapter know the contract changed?** `@remit/data-ports` is a published package, so a new port or a changed signature is a version bump, and the suite for the new port fails against an adapter that has not implemented it. It does not know about a rule that has no suite, which is the cost of D6's demand-driven coverage.
