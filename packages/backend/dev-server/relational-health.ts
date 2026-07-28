@@ -21,23 +21,9 @@ const pingSqlite = async (): Promise<void> => {
 	}
 };
 
-const pingPostgres = async (): Promise<void> => {
-	const { Client } = await import("pg");
-	const client = new Client({
-		connectionString: process.env.PG_CONNECTION_URL,
-		connectionTimeoutMillis: 3000,
-	});
-	await client.connect();
-	try {
-		await client.query("SELECT 1");
-	} finally {
-		await client.end();
-	}
-};
-
 /**
- * A trivial read against whichever relational store DATA_BACKEND selects — the
- * dependency `/health` must actually exercise (RFC 037 D5, R9) so a backend that
+ * A trivial read against the relational store — the dependency `/health` must
+ * actually exercise (RFC 037 D5, R9) so a backend that
  * booted with an unusable database reports unhealthy instead of a bare 200. The
  * AWS/DynamoDB path has no relational store and is never checked.
  */
@@ -45,11 +31,7 @@ export const checkRelationalStore = async (): Promise<boolean> => {
 	if (!isSelfHostSqlBackend()) return true;
 
 	try {
-		if (process.env.DATA_BACKEND === "sqlite") {
-			await pingSqlite();
-		} else {
-			await pingPostgres();
-		}
+		await pingSqlite();
 		return true;
 	} catch {
 		return false;

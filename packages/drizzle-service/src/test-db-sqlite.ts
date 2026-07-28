@@ -12,14 +12,9 @@ const searchIndexDdl = (): string =>
 		"utf8",
 	);
 
-// SQLite counterpart of repos/test-helpers.ts's embedded-Postgres harness
-// (RFC 036 D1). A real better-sqlite3 database (in-memory by default) with the
-// schema pushed from the drizzle table objects — the sqlite `pushSchema` — so a
-// repo runs against the exact dialect it ships on, no hand-maintained DDL.
-//
-// The tests that use it run in a `DATA_BACKEND=sqlite` process (see
-// test:run:sqlite), so the schema facades resolve to the sqlite tables and the
-// repos take the sqlite transaction / predicate paths.
+// A real better-sqlite3 database (in-memory by default) with the schema pushed
+// from the drizzle table objects — the sqlite `pushSchema` — so a repo runs
+// against the exact engine it ships on, no hand-maintained DDL.
 
 export type SqliteTestDb<TSchema extends Record<string, unknown>> = Db<TSchema>;
 
@@ -36,7 +31,7 @@ export async function createSqliteTestDb<
 	const sqlite = new Database(options?.filename ?? ":memory:");
 	sqlite.pragma("foreign_keys = ON");
 
-	const db = drizzle(sqlite, { schema }) as unknown as SqliteTestDb<TSchema>;
+	const db: SqliteTestDb<TSchema> = drizzle(sqlite, { schema });
 
 	// pushSQLiteSchema derives the CREATE statements from the table objects;
 	// better-sqlite3 rejects its own `apply()` (it issues the DDL through a

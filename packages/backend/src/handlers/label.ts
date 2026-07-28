@@ -11,7 +11,7 @@ import type {
 } from "@remit/data-ports";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
-import { getClient } from "../service/dynamodb.js";
+import { getClient } from "../service/data-client.js";
 import type {
 	LabelDetailOperationIds,
 	LabelOperationIds,

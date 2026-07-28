@@ -5,7 +5,7 @@ import { fanoutHandler, finalizeHandler } from "./index.js";
 
 /**
  * Production queue poller. No e2e shim exists for account-worker today —
- * the deletion cascade is not exercised on the Postgres/compose stack in
+ * the deletion cascade is not exercised on the compose stack in
  * CI (see AGENTS.md worker roster notes). This is the standalone
  * production entrypoint for the dedicated image.
  *

@@ -9,9 +9,7 @@ describe("usesBetterAuthJwt", () => {
 		else process.env.DATA_BACKEND = ORIGINAL;
 	});
 
-	it("is true for the self-host SQL backends", () => {
-		process.env.DATA_BACKEND = "postgres";
-		assert.equal(usesBetterAuthJwt(), true);
+	it("is true for the self-host SQL backend", () => {
 		process.env.DATA_BACKEND = "sqlite";
 		assert.equal(usesBetterAuthJwt(), true);
 	});

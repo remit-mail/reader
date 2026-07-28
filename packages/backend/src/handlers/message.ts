@@ -41,7 +41,7 @@ import {
 	getContentDeliveryDomain,
 } from "../derive/contentUrl.js";
 import { deriveSenderTrust } from "../derive/senderTrust.js";
-import { getClient } from "../service/dynamodb.js";
+import { getClient } from "../service/data-client.js";
 import type {
 	MessageBulkOperationIds,
 	MessageOperationIds,

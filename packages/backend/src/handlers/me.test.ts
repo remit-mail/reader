@@ -8,7 +8,7 @@ import {
 	_resetForTest,
 	type RemitClient,
 	setClient,
-} from "../service/dynamodb.js";
+} from "../service/data-client.js";
 import { MeOperations } from "./me.js";
 
 const listQuarantine = MeOperations.MeOperations_listQuarantine as unknown as (

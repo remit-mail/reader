@@ -80,12 +80,4 @@ describe("checkRelationalStore", () => {
 		chmodSync(dbPath, 0o400);
 		assert.equal(await checkRelationalStore(), false);
 	});
-
-	it("is false when Postgres connection fails", async () => {
-		process.env.DATA_BACKEND = "postgres";
-		process.env.PG_CONNECTION_URL =
-			"postgresql://remit:remit@127.0.0.1:1/nonexistent";
-
-		assert.equal(await checkRelationalStore(), false);
-	});
 });

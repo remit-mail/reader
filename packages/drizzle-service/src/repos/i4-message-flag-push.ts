@@ -1,8 +1,8 @@
 import { and, eq } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { Db } from "../db.js";
 import { messageFlagPushTable } from "../schema/i4-message-flag-push.js";
 
-type DB = NodePgDatabase<Record<string, unknown>>;
+type DB = Db<Record<string, unknown>>;
 
 export type FlagPushOperation = "add" | "remove";
 export type MessageFlagPushState =
@@ -47,7 +47,7 @@ function rowToItem(
 }
 
 /**
- * Postgres counterpart to `MessageFlagPushService` (remit-electrodb-service).
+ * Relational counterpart to `MessageFlagPushService` (remit-electrodb-service).
  * Same public shape (`put`/`find`/`updateState`/`delete`/`listByAccountId`/
  * `listByMailboxId`) so both backends satisfy the same structural contract
  * for read-time unseenCount prediction (issue #1273, epic #1281 invariant 4)

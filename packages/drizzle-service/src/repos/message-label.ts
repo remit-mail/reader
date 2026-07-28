@@ -4,11 +4,11 @@ import type {
 	MessageLabelItem,
 } from "@remit/data-ports";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { Db } from "../db.js";
 import { deterministicBase36Id } from "../id.js";
 import { messageLabelTable } from "../schema.js";
 
-type DB = NodePgDatabase<Record<string, unknown>>;
+type DB = Db<Record<string, unknown>>;
 
 function rowToMessageLabel(
 	row: typeof messageLabelTable.$inferSelect,

@@ -5,14 +5,14 @@ import type {
 	MessageFlagItem,
 } from "@remit/data-ports";
 import { and, eq, inArray } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import {
 	type MessageDataSchema,
 	messageFlagTable,
 } from "../schema/message-data.js";
 
-type DB = NodePgDatabase<MessageDataSchema>;
+type DB = Db<MessageDataSchema>;
 
 function rowToMessageFlag(
 	row: typeof messageFlagTable.$inferSelect,

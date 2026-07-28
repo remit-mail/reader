@@ -17,7 +17,7 @@ import {
 	filterByOffRowCriteria,
 	hasOffRowCriteria,
 } from "../derive/filterThreadCriteria.js";
-import { getClient } from "../service/dynamodb.js";
+import { getClient } from "../service/data-client.js";
 import type {
 	OperationHandler,
 	ThreadDetailOperationIds,

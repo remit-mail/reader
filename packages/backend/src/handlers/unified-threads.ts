@@ -9,7 +9,7 @@ import type { Context } from "openapi-backend";
 import pMap from "p-map";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import { enrichThreadRows } from "../derive/enrichThreadRows.js";
-import { getClient } from "../service/dynamodb.js";
+import { getClient } from "../service/data-client.js";
 import type { OperationHandler, UnifiedThreadOperationIds } from "../types.js";
 import {
 	groupAccountOverrides,

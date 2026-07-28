@@ -1,4 +1,4 @@
-import { entities } from "./active-entities.js";
+import * as entities from "@remit/drizzle-sqlite-schema";
 import { outboxTable } from "./outbox.js";
 
 export { outboxTable };

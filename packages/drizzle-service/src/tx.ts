@@ -2,14 +2,13 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { type SQL, sql } from "drizzle-orm";
 import type { Db } from "./db.js";
-import { isSqlite } from "./dialect.js";
 
-// Runs a write set in one transaction, on either dialect (RFC 036 D1).
+// Runs a write set in one transaction.
 //
-// Postgres uses drizzle's own `db.transaction()`. better-sqlite3 cannot: its
-// native transaction runner rejects a callback that returns a promise, and the
-// repos' write sets are async. SQLite instead brackets the callback with a
-// SAVEPOINT — a savepoint opens a transaction when none is active and commits
+// better-sqlite3's native transaction runner rejects a callback that returns a
+// promise, and the repos' write sets are async, so drizzle's own
+// `db.transaction()` cannot be used. The callback is bracketed with a SAVEPOINT
+// instead — a savepoint opens a transaction when none is active and commits
 // when the outermost one is released.
 //
 // All writers on this backend share one better-sqlite3 connection (RFC 036 D3),
@@ -66,10 +65,6 @@ export async function runInTransaction<
 	TSchema extends Record<string, unknown>,
 	T,
 >(db: Db<TSchema>, fn: (tx: Db<TSchema>) => Promise<T>): Promise<T> {
-	if (!isSqlite()) {
-		return db.transaction(fn);
-	}
-
 	if (inSqliteTx.getStore()) {
 		// Already inside a top-level transaction on this connection — nest with a
 		// savepoint, do not re-queue.
@@ -184,8 +179,7 @@ function wrapWriteBuilder<B extends object>(builder: B): B {
 // savepoint DDL, already inside a serialized unit), `transaction`, and reads —
 // reads are not serialized, so a read issued during another unit's open
 // transaction can still observe uncommitted rows; the wrapper closes the
-// write-side rollback hazard, not read isolation. On Postgres this is never
-// applied.
+// write-side rollback hazard, not read isolation.
 export function serializeSqliteWrites<TDb extends Db<Record<string, unknown>>>(
 	db: TDb,
 ): TDb {

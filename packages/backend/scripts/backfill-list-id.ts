@@ -7,7 +7,7 @@ import {
 	type ListIdBackfillCheckpoint,
 	type ListIdBackfillCheckpointStore,
 } from "@remit/mailbox-service";
-import { getClient } from "../src/service/dynamodb.js";
+import { getClient } from "../src/service/data-client.js";
 
 /**
  * One-time, full-corpus `ThreadMessage.listId` backfill (issue #263). Ships as

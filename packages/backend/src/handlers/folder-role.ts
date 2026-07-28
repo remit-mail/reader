@@ -4,7 +4,7 @@ import type {
 } from "@remit/api-openapi-types";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
-import { getClient } from "../service/dynamodb.js";
+import { getClient } from "../service/data-client.js";
 import type { FolderRoleOperationIds, OperationHandler } from "../types.js";
 import { toAccountResponse } from "./account-guards.js";
 import { loadAccountOverrides } from "./account-overrides.js";

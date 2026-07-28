@@ -4,10 +4,10 @@ import type {
 	IFilterAnchorRepository,
 } from "@remit/data-ports";
 import { and, eq } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { Db } from "../db.js";
 import { filterAnchorTable } from "../schema.js";
 
-type DB = NodePgDatabase<Record<string, unknown>>;
+type DB = Db<Record<string, unknown>>;
 
 function rowToFilterAnchor(
 	row: typeof filterAnchorTable.$inferSelect,
@@ -25,9 +25,9 @@ function rowToFilterAnchor(
 }
 
 /**
- * Postgres counterpart to `FilterAnchorService` (remit-electrodb-service). The
+ * Relational counterpart to `FilterAnchorService` (remit-electrodb-service). The
  * anchor vector is persisted inline on the row (RFC 034 Decision 2.1/2.3); the
- * pgvector store's per-message chunk vectors are read only by the search
+ * vector store's per-message chunk vectors are read only by the search
  * service when it builds the anchor, never re-derived here at match time.
  */
 export class FilterAnchorRepo implements IFilterAnchorRepository {

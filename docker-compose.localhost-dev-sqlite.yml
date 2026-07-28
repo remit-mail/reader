@@ -132,13 +132,12 @@ services:
     restart: unless-stopped
 
   # Semantic search, both halves of it (RFC 036 D2). SQLite has no cross-process
-  # NOTIFY, so the outbox drain that merely backstops Postgres is the primary
-  # mechanism here: poller.ts starts a 2-second poll over the committed-but-
-  # unrelayed outbox rows, puts them on the search-index queue, and consumes that
-  # same queue with the production handler — embedding each message and writing
-  # the vector into LOCAL_VECTORDB_PATH. Without this service the outbox fills
-  # and message_embedding stays empty, which is exactly what happened on the
-  # Postgres stack, whose relay is not in this repository.
+  # NOTIFY, so the outbox drain is the primary relay mechanism here: poller.ts
+  # starts a 2-second poll over the committed-but-unrelayed outbox rows, puts
+  # them on the search-index queue, and consumes that same queue with the
+  # production handler — embedding each message and writing the vector into
+  # LOCAL_VECTORDB_PATH. Without this service the outbox fills and
+  # message_embedding stays empty.
   search-index-worker:
     image: node:24
     container_name: remit-sqlite-dev-search-index-worker

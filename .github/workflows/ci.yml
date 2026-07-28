@@ -301,7 +301,7 @@ jobs:
           cd "$tmp"
           npm init -y >/dev/null
           npm install @remit/backend --loglevel=error
-          node -e "for (const p of ['@remit/backend','@remit/data-ports','@remit/drizzle-service','@remit/domain-enums','@remit/api-openapi-types','@remit/mailbox-service','@remit/search-service','@remit/storage-service','@remit/auth-service','@remit/secrets-service','@remit/sqs-client','@remit/mail-oauth-service','@remit/logger-lambda','@remit/api-zod-schemas','@remit/drizzle-pg-schema','@remit/drizzle-sqlite-schema']) require.resolve(p)"
+          node -e "for (const p of ['@remit/backend','@remit/data-ports','@remit/drizzle-service','@remit/domain-enums','@remit/api-openapi-types','@remit/mailbox-service','@remit/search-service','@remit/storage-service','@remit/auth-service','@remit/secrets-service','@remit/sqs-client','@remit/mail-oauth-service','@remit/logger-lambda','@remit/api-zod-schemas','@remit/drizzle-sqlite-schema']) require.resolve(p)"
 
       # Consumer-side acceptance for the web client's published build surface:
       # off the packed tarball, assert the harness toolchain is declared (not

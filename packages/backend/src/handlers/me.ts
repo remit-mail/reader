@@ -13,7 +13,7 @@ import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
-import { getClient } from "../service/dynamodb.js";
+import { getClient } from "../service/data-client.js";
 import { sqsClient } from "../service/sqs.js";
 import type { MeOperationIds, OperationHandler } from "../types.js";
 import { toVipSuggestionEntry } from "./vip-suggestions.js";

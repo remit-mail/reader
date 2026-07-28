@@ -8,7 +8,7 @@ const PATH = "accounts/cfg-alice/acc-alice/messages/msg-1/parts/1.2";
 const now = () => Math.floor(Date.now() / 1000);
 
 describe("authorizeContentRequest", () => {
-	it("is a no-op outside Postgres mode (AWS serves unsigned URLs)", () => {
+	it("is a no-op on the AWS path (unsigned URLs)", () => {
 		const result = authorizeContentRequest({
 			dataBackend: undefined,
 			secret: undefined,
@@ -20,10 +20,10 @@ describe("authorizeContentRequest", () => {
 		assert.deepEqual(result, { authorized: true });
 	});
 
-	it("authorizes a validly signed request in Postgres mode", () => {
+	it("authorizes a validly signed request on the self-host stack", () => {
 		const { exp, sig } = createContentSigner(SECRET)(PATH);
 		const result = authorizeContentRequest({
-			dataBackend: "postgres",
+			dataBackend: "sqlite",
 			secret: SECRET,
 			relativePath: PATH,
 			exp: String(exp),
@@ -35,7 +35,7 @@ describe("authorizeContentRequest", () => {
 
 	it("returns 401 when the signature is absent", () => {
 		const result = authorizeContentRequest({
-			dataBackend: "postgres",
+			dataBackend: "sqlite",
 			secret: SECRET,
 			relativePath: PATH,
 			exp: undefined,
@@ -49,7 +49,7 @@ describe("authorizeContentRequest", () => {
 	it("returns 403 for a signature minted for another account's path", () => {
 		const { exp, sig } = createContentSigner(SECRET)(PATH);
 		const result = authorizeContentRequest({
-			dataBackend: "postgres",
+			dataBackend: "sqlite",
 			secret: SECRET,
 			relativePath: "accounts/cfg-bob/acc-bob/messages/msg-9/parts/1.2",
 			exp: String(exp),
@@ -63,7 +63,7 @@ describe("authorizeContentRequest", () => {
 	it("returns 403 for an expired signature", () => {
 		const { exp, sig } = createContentSigner(SECRET, -20)(PATH);
 		const result = authorizeContentRequest({
-			dataBackend: "postgres",
+			dataBackend: "sqlite",
 			secret: SECRET,
 			relativePath: PATH,
 			exp: String(exp),
@@ -74,9 +74,9 @@ describe("authorizeContentRequest", () => {
 		assert.equal(result.authorized === false && result.status, 403);
 	});
 
-	it("fails closed with 500 in Postgres mode when no signing secret is configured", () => {
+	it("fails closed with 500 when no signing secret is configured", () => {
 		const result = authorizeContentRequest({
-			dataBackend: "postgres",
+			dataBackend: "sqlite",
 			secret: undefined,
 			relativePath: PATH,
 			exp: "123",
@@ -87,7 +87,7 @@ describe("authorizeContentRequest", () => {
 		assert.equal(result.authorized === false && result.status, 500);
 	});
 
-	it("enforces signatures in SQLite mode the same as Postgres", () => {
+	it("enforces signatures on every self-host request", () => {
 		const { exp, sig } = createContentSigner(SECRET)(PATH);
 		const valid = authorizeContentRequest({
 			dataBackend: "sqlite",

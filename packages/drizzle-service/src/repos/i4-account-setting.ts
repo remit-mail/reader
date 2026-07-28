@@ -6,10 +6,10 @@ import type {
 	UpsertAccountSettingInput,
 } from "@remit/data-ports";
 import { eq } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { Db } from "../db.js";
 import { accountSettingTable } from "../schema/i4-account-setting.js";
 
-type DB = NodePgDatabase<Record<string, unknown>>;
+type DB = Db<Record<string, unknown>>;
 
 // The PG store derives its own deterministic id from the composite key. It is
 // stable within this backend but not byte-identical to the DDB base36 UUIDv5

@@ -52,10 +52,10 @@ export const graceSeconds = graceSecondsRaw
 let cascadeServicesPromise: Promise<CascadeServices> | null = null;
 
 // Every cascade service is a `RemitClient` repository, so the whole enumeration
-// runs on whatever backend `getClient()` selected — DynamoDB (ElectroDB),
-// Postgres, or SQLite (Drizzle). Filter/FilterAnchor/Label/MessageLabel (Smart
-// Organize, RFC 034) are present on all three backends via the client, so they
-// need no backend-specific wiring here.
+// runs on whatever backend `getClient()` resolved — DynamoDB (ElectroDB) or
+// SQLite (Drizzle). Filter/FilterAnchor/Label/MessageLabel (Smart Organize,
+// RFC 034) are present on both via the client, so they need no
+// backend-specific wiring here.
 export const getCascadeServices = (): Promise<CascadeServices> => {
 	if (!cascadeServicesPromise) {
 		cascadeServicesPromise = getClient().then((remitClient) => ({

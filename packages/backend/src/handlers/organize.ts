@@ -11,7 +11,7 @@ import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
-import { getClient, type RemitClient } from "../service/dynamodb.js";
+import { getClient, type RemitClient } from "../service/data-client.js";
 import {
 	buildOrganizeMatchDeps,
 	matchOrganize,

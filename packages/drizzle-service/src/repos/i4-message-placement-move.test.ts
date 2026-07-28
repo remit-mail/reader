@@ -3,7 +3,7 @@ import { after, before, describe, test } from "node:test";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
 import { MessagePlacementMoveRepo } from "./i4-message-placement-move.js";
 
-describe("MessagePlacementMoveRepo (Postgres counterpart to MessagePlacementMoveService)", () => {
+describe("MessagePlacementMoveRepo (relational counterpart to MessagePlacementMoveService)", () => {
 	let db: TestDb;
 	let close: () => Promise<void>;
 	let repo: MessagePlacementMoveRepo;

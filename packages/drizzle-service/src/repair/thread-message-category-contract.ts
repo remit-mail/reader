@@ -1,8 +1,6 @@
 /**
  * The behaviour `thread_message.category`'s repair (#321) must have, asserted
- * against a real engine of each dialect from one place: the statement ships in
- * two dialects and an assertion that only ran on one of them is how a dialect
- * quietly stops being repaired.
+ * against a real engine from one place.
  *
  * Every seed is raw SQL against the real column names, so it exercises the same
  * statement text the migrator runs rather than a drizzle re-spelling of it.
@@ -493,7 +491,7 @@ export const describeRepairContract = (
 			for (const stale of [
 				"2026-07-08",
 				"drizzle push",
-				"Postgres instance whose column was added",
+				"instance whose column was added",
 			]) {
 				assert.ok(
 					!text.includes(stale),

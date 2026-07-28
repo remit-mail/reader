@@ -1,1 +1,1 @@
-export { organizeJobRequests as organizeJobRequestTable } from "@remit/drizzle-pg-schema";
+export { organizeJobRequests as organizeJobRequestTable } from "@remit/drizzle-sqlite-schema";

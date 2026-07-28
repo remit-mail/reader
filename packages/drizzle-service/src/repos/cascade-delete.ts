@@ -1,5 +1,5 @@
 import { and, eq, inArray, or, type SQL } from "drizzle-orm";
-import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { Db } from "../db.js";
 import { accountTable } from "../schema/i4-account-config.js";
 import { accountSettingTable } from "../schema/i4-account-setting.js";
 import { addressTable } from "../schema/i4-address.js";
@@ -24,13 +24,13 @@ export interface CascadeDeleteLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
 }
 
-type CascadeDb = NodePgDatabase<Record<string, unknown>>;
+type CascadeDb = Db<Record<string, unknown>>;
 
 /**
  * Per-message entity types. Their rows are removed with the message subtree by
  * message id, so their individually-enumerated keys are not deleted one by one —
  * the DynamoDB cascade enumerates them only because BatchWriteItem needs each
- * full key; Postgres deletes them set-wise by message id.
+ * full key; the relational cascade deletes them set-wise by message id.
  */
 const MESSAGE_CHILD_TYPES = new Set([
 	"MessageFlag",
@@ -70,7 +70,7 @@ const groupByType = (
 };
 
 /**
- * Postgres equivalent of the DynamoDB BatchWriteItem cascade: delete every
+ * Relational equivalent of the DynamoDB BatchWriteItem cascade: delete every
  * enumerated row for an account/tenant in one transaction. Message subtrees
  * (message + nine child tables) are deleted set-wise by message id and emit a
  * `message.removed` outbox row each for search-index cleanup; the remaining
@@ -199,22 +199,9 @@ export type CascadeDeleter = (
 ) => Promise<void>;
 
 /**
- * Bind a cascade deleter to one Postgres connection. The account worker builds
- * this once at module load on the `DATA_BACKEND=postgres` path and reuses it
- * across invocations; the underlying pool is shared with no per-purge setup.
- */
-export const createCascadeDeleter = (connectionUrl: string): CascadeDeleter => {
-	const db = drizzle(connectionUrl) as CascadeDb;
-	return (entities, log) => runDrizzleCascadeDelete(db, entities, log);
-};
-
-/**
- * SQLite twin of {@link createCascadeDeleter} (RFC 036). Opens the shared SQLite
- * file through the same serialized connection every writer uses and binds a
- * cascade deleter to it. `runDrizzleCascadeDelete` deletes through the
- * dialect-selected entity tables (`active-entities`, SQLite on this backend), so
- * the same enumerated `CascadeEntity[]` drives an identical cascade over SQLite.
- * Async because opening the SQLite handle loads the native binding lazily.
+ * Open the shared SQLite file through the same serialized connection every
+ * writer uses and bind a cascade deleter to it. Async because opening the
+ * SQLite handle loads the native binding lazily.
  */
 export const createSqliteCascadeDeleter = async (
 	dbPath: string,
@@ -222,6 +209,5 @@ export const createSqliteCascadeDeleter = async (
 	const { db } = await createSqliteDatabase(messageDataSchema, {
 		filename: dbPath,
 	});
-	const cascadeDb = db as unknown as CascadeDb;
-	return (entities, log) => runDrizzleCascadeDelete(cascadeDb, entities, log);
+	return (entities, log) => runDrizzleCascadeDelete(db, entities, log);
 };

@@ -6,13 +6,13 @@ import type {
 	UpdateOrganizeJobRequestInput,
 } from "@remit/data-ports";
 import { eq } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
 import { organizeJobRequestTable } from "../schema/i4-organize-job-request.js";
 
-type DB = NodePgDatabase<Record<string, unknown>>;
+type DB = Db<Record<string, unknown>>;
 
 function rowToItem(
 	row: typeof organizeJobRequestTable.$inferSelect,

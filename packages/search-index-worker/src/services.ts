@@ -18,7 +18,7 @@ export interface Services {
 	searchService: SearchService;
 	resolveAccountId?: SearchIndexDataPorts["resolveAccountId"];
 	/**
-	 * Fired once per upsert outcome — the pg-only work-summary signal
+	 * Fired once per upsert outcome — the relational work-summary signal
 	 * (`consumer.ts` wires this to `IndexWorkStats`). `undefined` on the Lambda
 	 * path, where it never fires and so never affects behavior.
 	 */
@@ -34,24 +34,17 @@ export const getServices = async (): Promise<Services> => {
 
 	const storageService = createStorageService();
 
-	// The worker must have a durable vector store — a typo'd or missing S3 (or,
-	// on Postgres, PG_CONNECTION_URL) env var must not silently succeed by
-	// falling back to the throwaway in-memory store (which emits success
-	// metrics but drops every vector).
-	const isPostgres = process.env.DATA_BACKEND === "postgres";
-	const pgConnectionUrl = process.env.PG_CONNECTION_URL;
+	// The worker must have a durable vector store — a typo'd or missing env var
+	// must not silently succeed by falling back to the throwaway in-memory store
+	// (which emits success metrics but drops every vector).
 	const localPath = process.env.LOCAL_VECTORDB_PATH;
 	const bucket = process.env.S3_VECTORS_BUCKET_NAME;
 	const indexName = process.env.S3_VECTORS_INDEX_NAME;
-	if (
-		!(isPostgres && pgConnectionUrl) &&
-		!localPath &&
-		!(bucket && indexName)
-	) {
+	if (!localPath && !(bucket && indexName)) {
 		throw new Error(
-			"Vector store is not configured: set PG_CONNECTION_URL for the Postgres " +
-				"backend, LOCAL_VECTORDB_PATH for local dev, or both " +
-				"S3_VECTORS_BUCKET_NAME and S3_VECTORS_INDEX_NAME for production.",
+			"Vector store is not configured: set LOCAL_VECTORDB_PATH for local dev, " +
+				"or both S3_VECTORS_BUCKET_NAME and S3_VECTORS_INDEX_NAME for " +
+				"production.",
 		);
 	}
 

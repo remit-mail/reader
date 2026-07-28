@@ -25,7 +25,7 @@ import {
 	buildEmbeddingServiceFromEnv,
 	buildVectorStoreFromEnv,
 } from "@remit/search-service/from-env";
-import type { RemitClient } from "./dynamodb.js";
+import type { RemitClient } from "./data-client.js";
 import { noteSemanticCapabilityAbsence } from "./semantic-capability.js";
 
 /**

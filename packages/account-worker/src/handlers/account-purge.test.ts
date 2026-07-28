@@ -106,18 +106,18 @@ describe("processAccountDataPurge", () => {
 		);
 	});
 
-	it("skips vector deletes on the postgres backend, still enqueuing finalize", async () => {
+	it("skips vector deletes on the relational backend, still enqueuing finalize", async () => {
 		const sent: Sent[] = [];
 		await processAccountDataPurge(
 			event,
 			noopLog,
-			baseDeps(sent, { dataBackend: "postgres" }),
+			baseDeps(sent, { dataBackend: "sqlite" }),
 		);
 
 		assert.equal(
 			sent.some((m) => m.queueUrl === "http://queue/search"),
 			false,
-			"no search-index enqueue on postgres",
+			"no search-index enqueue on the relational backend",
 		);
 		assert.deepEqual(
 			sent

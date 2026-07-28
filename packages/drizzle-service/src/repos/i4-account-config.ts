@@ -9,7 +9,7 @@ import type {
 	UpdateAccountConfigInput,
 } from "@remit/data-ports";
 import { and, asc, eq, gt, inArray, or } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
@@ -19,7 +19,7 @@ import {
 } from "../schema/i4-account-config.js";
 import { addressTable } from "../schema/i4-address.js";
 
-type DB = NodePgDatabase<Record<string, unknown>>;
+type DB = Db<Record<string, unknown>>;
 
 function rowToAccountConfig(
 	row: typeof accountConfigTable.$inferSelect,

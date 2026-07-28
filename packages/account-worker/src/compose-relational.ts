@@ -2,7 +2,6 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	type CascadeDeleter,
-	createCascadeDeleter,
 	createSqliteCascadeDeleter,
 } from "@remit/drizzle-service";
 import type { Logger } from "@remit/logger-lambda";
@@ -30,22 +29,15 @@ const deleteStoragePrefix = async (
 	log.info({ keyPrefix, target }, "Filesystem storage prefix cleanup complete");
 };
 
-// The Drizzle cascade deleter is opened once, on first use, and reused. On
-// Postgres it binds to `PG_CONNECTION_URL`; on SQLite it opens the shared file
-// at `SQLITE_DB_PATH` (the native binding loads there, hence async). Built
-// lazily so the fanout worker — which signs out but never cascade-deletes —
-// does not open a database handle it will not use.
+// The Drizzle cascade deleter is opened once, on first use, and reused: it
+// opens the shared file at `SQLITE_DB_PATH` (the native binding loads there,
+// hence async). Built lazily so the fanout worker — which signs out but never
+// cascade-deletes — does not open a database handle it will not use.
 let deleterPromise: Promise<CascadeDeleter> | undefined;
 
-const buildDeleter = async (): Promise<CascadeDeleter> => {
-	if (process.env.DATA_BACKEND === "sqlite") {
-		return createSqliteCascadeDeleter(env.SQLITE_DB_PATH);
-	}
-	return createCascadeDeleter(env.PG_CONNECTION_URL);
-};
-
 const getDeleter = (): Promise<CascadeDeleter> => {
-	if (!deleterPromise) deleterPromise = buildDeleter();
+	if (!deleterPromise)
+		deleterPromise = createSqliteCascadeDeleter(env.SQLITE_DB_PATH);
 	return deleterPromise;
 };
 
@@ -60,7 +52,7 @@ const getDeleter = (): Promise<CascadeDeleter> => {
  *   backend with no response cache (`deploy/vps/caddy/routes.caddy`), so there
  *   is nothing to invalidate.
  * - `deleteStoragePrefix`: recursive filesystem removal.
- * - `cascadeDelete`: the Drizzle cascade over Postgres or SQLite. Message
+ * - `cascadeDelete`: the Drizzle cascade over SQLite. Message
  *   subtrees emit `message.removed` outbox rows the search-index worker relays.
  */
 export const buildRelationalDeletionCapabilities =

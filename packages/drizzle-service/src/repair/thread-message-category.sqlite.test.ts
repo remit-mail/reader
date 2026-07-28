@@ -15,7 +15,6 @@ import {
 import { describeRepairContract } from "./thread-message-category-contract.js";
 
 const sqliteClient = (sqlite: Database.Database): RepairSqlClient => ({
-	dialect: "sqlite",
 	all: async (sql) => sqlite.prepare(sql).all(),
 	run: async (sql) => sqlite.prepare(sql).run().changes,
 });
@@ -88,7 +87,7 @@ describe("thread_message.category repair — SQLite's write lock", () => {
 		writer.exec("BEGIN IMMEDIATE");
 		try {
 			assert.throws(
-				() => reader.prepare(repairStatement("sqlite")).run(),
+				() => reader.prepare(repairStatement()).run(),
 				(error: unknown) =>
 					error instanceof Error &&
 					"code" in error &&

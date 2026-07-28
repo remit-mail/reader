@@ -56,7 +56,7 @@ const hasLocalBypass = (): boolean =>
 	Boolean(process.env.LOCAL_ACCOUNT_CONFIG_ID);
 
 /**
- * Authenticate a Postgres-mode request from a better-auth RS256 JWT.
+ * Authenticate a self-host request from a better-auth RS256 JWT.
  *
  * On a valid token the verified `sub` is injected into the event's authorizer
  * claims, exactly where the Cognito authorizer puts it, so every downstream
@@ -68,7 +68,7 @@ const hasLocalBypass = (): boolean =>
  * When the edge tier (APISIX) has already verified and injected claims, this is
  * a no-op — the backend trusts pre-populated claims and re-verifies otherwise.
  */
-export const authenticatePostgresRequest = async (
+export const authenticateSelfHostRequest = async (
 	event: APIGatewayProxyEvent,
 ): Promise<APIGatewayProxyResult | null> => {
 	const existingSub = event.requestContext?.authorizer?.claims?.sub;

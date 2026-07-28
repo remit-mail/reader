@@ -12,8 +12,8 @@
       "default": "./src/index.ts"
     },
     "./client": {
-      "types": "./src/service/dynamodb.ts",
-      "default": "./src/service/dynamodb.ts"
+      "types": "./src/service/data-client.ts",
+      "default": "./src/service/data-client.ts"
     },
     "./create-remit-client": {
       "types": "./src/service/create-remit-client.ts",
