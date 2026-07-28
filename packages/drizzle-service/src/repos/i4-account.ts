@@ -9,7 +9,7 @@ import type {
 } from "@remit/data-ports";
 import { SyncPhase } from "@remit/domain-enums";
 import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
 import { decodeToken, encodeToken, resultList } from "../pagination.js";
@@ -17,7 +17,7 @@ import { accountTable } from "../schema/i4-account-config.js";
 import { mailboxTable } from "../schema/i4-mailbox.js";
 import { rowToMailbox } from "./i4-mailbox.js";
 
-type DB = NodePgDatabase<Record<string, unknown>>;
+type DB = Db<Record<string, unknown>>;
 
 export function rowToAccount(
 	row: typeof accountTable.$inferSelect,

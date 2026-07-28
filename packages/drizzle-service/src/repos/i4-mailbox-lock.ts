@@ -4,11 +4,11 @@ import type {
 	WithMailboxLockResult,
 } from "@remit/data-ports";
 import { and, eq, lt } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { Db } from "../db.js";
 import { randomId } from "../id.js";
 import { mailboxLockTable } from "../schema/i4-mailbox-lock.js";
 
-type DB = NodePgDatabase<Record<string, unknown>>;
+type DB = Db<Record<string, unknown>>;
 
 const TTL_SECONDS = 3600;
 

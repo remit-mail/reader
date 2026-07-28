@@ -24,17 +24,12 @@
 		"./sqlite-vec": {
 			"types": "./src/sqlite-vec.ts",
 			"default": "./src/sqlite-vec.ts"
-		},
-		"./pgvector": {
-			"types": "./src/pgvector.ts",
-			"default": "./src/pgvector.ts"
 		}
 	},
 	"scripts": {
 		"test:typecheck": "tsgo --noEmit",
-		"test:run": "node --env-file=../../localhost-test-unit.env --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=82 --test 'src/**/*.test.ts'",
+		"test:run": "node --env-file=../../localhost-test-unit.env --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=90 --test 'src/**/*.test.ts'",
 		"test:integ:local": "RUN_INTEG_TESTS=1 node --env-file=../../localhost-test-unit.env --import tsx --test 'src/backends/sqlite-vec.integ.test.ts'",
-		"test:integ:pg": "RUN_INTEG_TESTS=1 node --env-file=../../localhost-test-unit.env --import tsx --test 'src/backends/pgvector.integ.test.ts'",
 		"test:integ:model": "RUN_INTEG_TESTS=1 node --env-file=../../localhost-test-unit.env --import tsx --test 'src/semantic-search.integ.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run"
 	},
@@ -44,14 +39,12 @@
 		"@remit/api-openapi-types": "*",
 		"better-sqlite3": "^12.11.1",
 		"p-limit": "^6.2.0",
-		"pg": "^8.0.0",
 		"sqlite-vec": "^0.1.9",
 		"zod": "*",
 		"@aws-sdk/client-bedrock-runtime": "*",
 		"@aws-sdk/client-s3vectors": "*",
 		"@smithy/types": "^4.16.1",
-		"@types/better-sqlite3": "^7.6.13",
-		"@types/pg": "^8.20.0"
+		"@types/better-sqlite3": "^7.6.13"
 	},
 	"devDependencies": {
 		"@remit/storage-service": "*",

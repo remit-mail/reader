@@ -14,7 +14,7 @@ import { assertLocalBypassNotInDeployedEnv } from "./auth.js";
 import { usesBetterAuthJwt } from "./data-backend.js";
 import { handleError } from "./error.js";
 import { handlers } from "./handlers/index.js";
-import { authenticatePostgresRequest } from "./jwt-auth.js";
+import { authenticateSelfHostRequest } from "./jwt-auth.js";
 import { normalizeRequest } from "./request.js";
 import { runWithRequestContext } from "./request-context.js";
 import { formatResponse, postResponseHandler } from "./response.js";
@@ -161,7 +161,7 @@ const rawHandler = async (event: APIGatewayProxyEvent, context: Context) =>
 			const origin = readOriginHeader(event.headers);
 
 			if (usesBetterAuthJwt()) {
-				const denied = await authenticatePostgresRequest(event);
+				const denied = await authenticateSelfHostRequest(event);
 				if (denied) return denied;
 			}
 

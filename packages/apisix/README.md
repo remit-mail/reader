@@ -1,4 +1,4 @@
-# APISIX edge auth tier (Postgres-parity)
+# APISIX edge auth tier (self-host parity)
 
 APISIX runs in **standalone, etcd-less** mode as the edge that verifies
 better-auth RS256 JWTs before any request reaches the backend. The same gateway
@@ -25,11 +25,11 @@ parity — this is the local incarnation.
 # 1. Backend must be reachable from the container. Run it with a base URL the
 #    container can resolve (host.docker.internal) so the token issuer, the
 #    discovery doc, and the JWKS all agree:
-DATA_BACKEND=postgres SERVER_PORT=5436 \
-  PG_CONNECTION_URL=postgresql://remit:remit@localhost:5432/remit_test \
+DATA_BACKEND=sqlite SERVER_PORT=5436 \
+  SQLITE_DB_PATH=.remit/remit.db \
   BETTER_AUTH_URL=http://host.docker.internal:5436 \
   BETTER_AUTH_SECRET=e2e-better-auth-secret-at-least-32-chars-long \
-  npm run run:backend:pg   # (or set the same env on start:backend:pg)
+  npm run dev:sqlite
 
 # 2. Start the edge (regenerates routes, pulls apache/apisix, runs on :9080)
 npm run apisix:start

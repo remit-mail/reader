@@ -2,10 +2,10 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { usesBetterAuthJwt } from "../data-backend.js";
 
 /**
- * Signed-URL scheme for `/content/*` on the Postgres stack.
+ * Signed-URL scheme for `/content/*` on the self-host stack.
  *
  * On AWS the same bytes are guarded by CloudFront + a Lambda@Edge JWT verifier.
- * The Postgres stack serves `/content/*` straight from the backend container,
+ * The self-host stack serves `/content/*` straight from the backend container,
  * and a bearer token cannot ride along on an `<img src>` / `<a href>` content
  * load rendered inside email HTML. So the backend signs each content URL when
  * it hands the SPA a `BodyPartResponse.contentUrl`, and the `/content` route
@@ -37,7 +37,7 @@ export const CONTENT_URL_TTL_SECONDS = 3600;
  * separation via a fixed label keeps the content-signing key distinct from the
  * raw better-auth secret, so a compromise of one signing space does not reveal
  * the other. Reusing `BETTER_AUTH_SECRET` as the master means no new secret has
- * to be provisioned on the Postgres stack — it is already required there.
+ * to be provisioned on the self-host stack — it is already required there.
  */
 const deriveSigningKey = (masterSecret: string): Buffer =>
 	createHmac("sha256", masterSecret).update(KEY_DERIVATION_LABEL).digest();
@@ -78,19 +78,19 @@ export const createContentSigner = (
 
 /**
  * Build the content-URL signer for the current environment, or `undefined` when
- * signing does not apply. Signing is enforced on the self-host SQL backends
- * (postgres and sqlite), which serve `/content/*` straight from the backend
- * container; on AWS the Lambda@Edge JWT verifier guards `/content/*` and the URL
- * stays unsigned so CloudFront/S3 behaviour is unchanged. Throws on those
- * backends when the master secret is missing, so a misconfigured deploy fails
- * loud rather than shipping unsigned (unauthenticated) content URLs.
+ * signing does not apply. Signing is enforced on the self-host SQL backend,
+ * which serves `/content/*` straight from the backend container; on AWS the
+ * Lambda@Edge JWT verifier guards `/content/*` and the URL stays unsigned so
+ * CloudFront/S3 behaviour is unchanged. Throws on the self-host backend when the
+ * master secret is missing, so a misconfigured deploy fails loud rather than
+ * shipping unsigned (unauthenticated) content URLs.
  */
 export const getContentSigner = (): ContentSigner | undefined => {
 	if (!usesBetterAuthJwt()) return undefined;
 	const secret = process.env.BETTER_AUTH_SECRET;
 	if (!secret || secret.length === 0) {
 		throw new Error(
-			"a self-host SQL backend (postgres/sqlite) requires BETTER_AUTH_SECRET to sign content URLs",
+			"the self-host SQL backend requires BETTER_AUTH_SECRET to sign content URLs",
 		);
 	}
 	return createContentSigner(secret);

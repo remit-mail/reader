@@ -3,7 +3,7 @@ import { logger } from "@remit/logger-lambda";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import { getAccountConfigIdFromEvent } from "../auth.js";
-import { getClient } from "../service/dynamodb.js";
+import { getClient } from "../service/data-client.js";
 import {
 	type FireAndForgetLogger,
 	fireAndForget,

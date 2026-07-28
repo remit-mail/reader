@@ -1,3 +1,3 @@
-import { entities } from "./active-entities.js";
+import * as entities from "@remit/drizzle-sqlite-schema";
 
 export const threadMessageTable = entities.threadMessages;

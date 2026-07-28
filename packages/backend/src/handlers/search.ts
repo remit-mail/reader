@@ -6,7 +6,7 @@ import type { SearchResult } from "@remit/search-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
-import { getClient } from "../service/dynamodb.js";
+import { getClient } from "../service/data-client.js";
 import {
 	isSemanticSearchUnavailable,
 	noteSemanticCapabilityAbsence,

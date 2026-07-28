@@ -16,7 +16,7 @@ import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getMsOAuthConfig } from "../config/msoauth.js";
 import { safeJsonParse } from "../json.js";
-import { getClient } from "../service/dynamodb.js";
+import { getClient } from "../service/data-client.js";
 import type { MicrosoftOAuthOperationIds, OperationHandler } from "../types.js";
 import { triggerAccountSyncSafe } from "./account.js";
 import { findActiveDuplicateMailbox } from "./account-guards.js";

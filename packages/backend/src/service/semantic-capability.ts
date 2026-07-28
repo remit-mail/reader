@@ -35,7 +35,7 @@ import { isSelfHostSqlBackend } from "../data-backend.js";
  * the FTS/literal engine is the primary search surface on these profiles and is
  * unaffected. The absence is remembered so subsequent requests short-circuit.
  *
- * Scoped to the self-host SQL backends: on AWS the pipeline (Bedrock +
+ * Scoped to the self-host SQL backend: on AWS the pipeline (Bedrock +
  * S3 Vectors) is bundled, so a module-resolution failure there is a broken
  * deploy and must keep failing loud. Falling back to the FTS engine here
  * instead was considered and rejected — it would fabricate relevance scores and

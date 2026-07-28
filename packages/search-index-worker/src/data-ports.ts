@@ -2,10 +2,6 @@ import type {
 	IAccountRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
-// Type-only: erased at build, so it carries no runtime dependency on
-// drizzle-orm. The value import lives inside `buildPostgresDataPorts` as a
-// dynamic `import()` — see the comment there for why.
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 
 export interface SearchIndexDataPorts {
 	account: IAccountRepository;
@@ -25,54 +21,13 @@ export interface SearchIndexDataPorts {
 	resolveAccountId?: (messageId: string) => Promise<string | null>;
 }
 
-// `@remit/drizzle-service` and `drizzle-orm/node-postgres` are loaded
-// lazily, inside this function, instead of as static top-level imports. This
-// branch only ever runs when `DATA_BACKEND === "postgres"` — true for the
-// local Postgres-parity dev stack, never on the deployed Lambda — but a static
-// import is bundled (and evaluated at module load) regardless of whether the
-// branch that uses it ever runs. `@remit/drizzle-service` and
-// `drizzle-orm` are marked `external` for the Lambda esbuild build (see
-// LAMBDA_ESBUILD_OPTIONS), so esbuild leaves this `import()` unresolved in the
-// bundle; it is only ever reached — and only ever needs to resolve — on the
-// Postgres path, which runs via `tsx` (no bundling, real module resolution)
-// and always has both packages installed. Mirrors
-// `packages/backend/src/service/dynamodb.ts`'s `buildPostgresClient`.
-const buildPostgresDataPorts = async (): Promise<SearchIndexDataPorts> => {
-	const pgConnectionUrl = process.env.PG_CONNECTION_URL;
-	if (!pgConnectionUrl) throw new Error("PG_CONNECTION_URL is required");
-
-	const {
-		AccountRepo,
-		DrizzleMessageRepository,
-		DrizzleThreadMessageRepository,
-		MailboxRepo,
-		messageDataSchema,
-	} = await import("@remit/drizzle-service");
-	const { drizzle } = await import("drizzle-orm/node-postgres");
-
-	const db = drizzle(pgConnectionUrl, { schema: messageDataSchema });
-	const genericDb = db as unknown as NodePgDatabase<Record<string, unknown>>;
-	const messageDataDb = db as unknown as NodePgDatabase<
-		typeof messageDataSchema
-	>;
-
-	const message = new DrizzleMessageRepository(messageDataDb);
-	const mailbox = new MailboxRepo(genericDb);
-
-	return {
-		account: new AccountRepo(genericDb),
-		threadMessage: new DrizzleThreadMessageRepository(pgConnectionUrl),
-		resolveAccountId: async (messageId) => {
-			const row = await message.get(messageId);
-			return mailbox.resolveAccountId(row.mailboxId);
-		},
-	};
-};
-
-// The SQLite twin of `buildPostgresDataPorts` (RFC 036): the same Drizzle repos
-// over the one shared SQLite file instead of a Postgres connection string.
-// `createSqliteDatabase` (and better-sqlite3 behind it) is kept external from
-// this worker's DynamoDB Lambda bundle by the same dynamic-import treatment.
+// `@remit/drizzle-service` is loaded lazily, inside this function, instead of as
+// a static top-level import. A static import is bundled (and evaluated at module
+// load) regardless of whether the branch that uses it ever runs; the package is
+// marked `external` for the Lambda esbuild build (see LAMBDA_ESBUILD_OPTIONS),
+// so esbuild leaves this `import()` unresolved in the bundle. It resolves only
+// where the relational composition actually runs, which has the package
+// installed. Mirrors `packages/backend/src/service/data-client.ts`.
 const buildSqliteDataPorts = async (): Promise<SearchIndexDataPorts> => {
 	const sqliteDbPath = process.env.SQLITE_DB_PATH;
 	if (!sqliteDbPath) throw new Error("SQLITE_DB_PATH is required");
@@ -89,17 +44,13 @@ const buildSqliteDataPorts = async (): Promise<SearchIndexDataPorts> => {
 	const { db } = await createSqliteDatabase(messageDataSchema, {
 		filename: sqliteDbPath,
 	});
-	const genericDb = db as unknown as NodePgDatabase<Record<string, unknown>>;
-	const messageDataDb = db as unknown as NodePgDatabase<
-		typeof messageDataSchema
-	>;
 
-	const message = new DrizzleMessageRepository(messageDataDb);
-	const mailbox = new MailboxRepo(genericDb);
+	const message = new DrizzleMessageRepository(db);
+	const mailbox = new MailboxRepo(db);
 
 	return {
-		account: new AccountRepo(genericDb),
-		threadMessage: new DrizzleThreadMessageRepository(genericDb),
+		account: new AccountRepo(db),
+		threadMessage: new DrizzleThreadMessageRepository(db),
 		resolveAccountId: async (messageId) => {
 			const row = await message.get(messageId);
 			return mailbox.resolveAccountId(row.mailboxId);
@@ -107,40 +58,28 @@ const buildSqliteDataPorts = async (): Promise<SearchIndexDataPorts> => {
 	};
 };
 
-/**
- * Select the account + threadMessage data ports from the environment, mirroring
- * `buildVectorStoreFromEnv`'s `DATA_BACKEND` selection so one handler serves
- * the DynamoDB (AWS, production), Postgres (pg-parity), and SQLite
- * (single-box, RFC 036) stacks:
- *
- * - `DATA_BACKEND=postgres` → Drizzle repos over `PG_CONNECTION_URL`.
- * - `DATA_BACKEND=sqlite` → Drizzle repos over the shared `SQLITE_DB_PATH` file.
- * - otherwise → ElectroDB services over `DYNAMODB_TABLE_NAME` (unchanged from
- *   the pre-convergence worker — this is the production path).
- *
- * The DynamoDB ports are injected by the composition root, which lives outside
- * this shared, open-core module and is never imported here.
- */
 let injectedDataPorts: SearchIndexDataPorts | null = null;
 
 /**
  * Register the DynamoDB-backed search-index data ports from the composition
- * root. The relational backends compose in-package above and never touch this
+ * root. The relational backend composes in-package above and never touches this
  * seam.
  */
 export const setSearchIndexDataPorts = (ports: SearchIndexDataPorts): void => {
 	injectedDataPorts = ports;
 };
 
+/**
+ * The search-index data ports for this process: the ones a composition root
+ * registered, or — for a process that registered none — the SQLite composition
+ * this build contains. `SQLITE_DB_PATH` is that composition's precondition, not
+ * a backend selection.
+ */
 export const buildDataPortsFromEnv =
 	async (): Promise<SearchIndexDataPorts> => {
-		if (process.env.DATA_BACKEND === "postgres")
-			return buildPostgresDataPorts();
-		if (process.env.DATA_BACKEND === "sqlite") return buildSqliteDataPorts();
-		if (!injectedDataPorts) {
-			throw new Error(
-				"no DynamoDB search-index data ports registered — register them with setSearchIndexDataPorts() from your composition root",
-			);
-		}
-		return injectedDataPorts;
+		if (injectedDataPorts) return injectedDataPorts;
+		if (process.env.SQLITE_DB_PATH) return buildSqliteDataPorts();
+		throw new Error(
+			"no search-index data ports registered — register them with setSearchIndexDataPorts() from your composition root",
+		);
 	};

@@ -6,7 +6,7 @@ import type {
 	MessageItem,
 } from "@remit/data-ports";
 import { and, asc, eq, gt, inArray, or } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+
 import type { Db } from "../db.js";
 import {
 	CreateFailedConflictError,
@@ -99,15 +99,12 @@ function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 
 /**
  * Emitted into the transactional outbox when a message's rows are deleted, so
- * the pg-index worker relays a search-index REMOVE and the vectors are dropped.
- * The Postgres-parity equivalent of the DynamoDB stream's REMOVE record.
+ * the search-index worker relays a search-index REMOVE and the vectors are
+ * dropped.
  */
 export const MESSAGE_REMOVED_EVENT = "message.removed";
 
-export type SubtreeDb = Pick<
-	NodePgDatabase<Record<string, unknown>>,
-	"delete" | "insert"
->;
+export type SubtreeDb = Pick<Db<Record<string, unknown>>, "delete" | "insert">;
 
 /**
  * Delete a message and its whole per-message subtree by message id — the nine
@@ -201,7 +198,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		};
 
 		// Faithful to ElectroDB message.create: a duplicate messageId throws
-		// CreateFailedConflictError. The plain insert raises a PG unique
+		// CreateFailedConflictError. The plain insert raises a unique-constraint
 		// violation, which rolls back the transaction so NO outbox row is
 		// written; we surface it as the domain conflict error.
 		try {
@@ -397,7 +394,8 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		// A non-empty bodyStorageKey means body-sync just persisted the parsed
 		// body, so the message now has embeddable content and its threadMessage
 		// exists. Append a search-index event in the same transaction as the write
-		// (transactional outbox) — the pg-index worker relays it to SQS and embeds.
+		// (transactional outbox) — the search-index worker relays it to SQS and
+		// embeds.
 		// The outbox is append-only: the worker's content-hash gate makes a
 		// redundant pass near-free.
 		const bodySynced =
@@ -540,7 +538,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		// mailbox and its COPYUID). The message's search vectors still carry the
 		// old mailbox in their metadata and their body is unchanged, so a normal
 		// re-index would skip them on content hash. Enqueue a move re-index event
-		// in the same transaction as the update; the pg-index worker drains it
+		// in the same transaction as the update; the search-index worker drains it
 		// with force, refreshing the stored mailbox metadata.
 		const rows = await runInTransaction(this.db, async (tx) => {
 			const updated = await tx

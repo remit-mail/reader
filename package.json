@@ -60,7 +60,6 @@
     "allowUnreachable": {
       "packages/mailbox-service#test:integ": "speaks IMAP to a mokapi server on localhost:143, and this repository has no mokapi: no compose service, no image, and no start:mokapi script for the one its header cites",
       "packages/mailbox-service#test:e2e": "reads a mailfuzz corpus already delivered to INBOX. Run against the e2e Dovecot 19 of its 22 tests pass and 3 fail on an empty search(ALL) — that Dovecot hands every user an empty maildir on purpose (docker-compose.dovecot.yml), so wiring it needs the suite to APPEND the mail it reads",
-      "packages/search-service#test:integ:pg": "needs a Postgres with the vector extension on PG_CONNECTION_URL, which no job runs; sqlite-vec, the backend the self-host default ships, is covered by test:integ:local in test-rest",
       "packages/search-service#test:integ:model": "fetches 87MB of MiniLM weights from huggingface.co on first run, which is a third-party dependency taken mid-test rather than declared in the lockfile",
       "packages/smtp-service#test:integ": "speaks SMTP to a mokapi server on localhost:2525, and this repository has no mokapi: no compose service, no image, and no start:mokapi script for the one its header cites"
     }

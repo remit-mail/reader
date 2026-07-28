@@ -2,7 +2,7 @@ import { verifyContentSignature } from "../src/derive/contentSignature.js";
 
 /**
  * Decide whether a `/content` request is authorized. Enforcement applies on the
- * self-host SQL backends (postgres and sqlite), where this server is the
+ * self-host SQL backend (sqlite), where this server is the
  * deployed backend container and content URLs are signed. On AWS-local dev
  * (`DATA_BACKEND` unset) `/content` is served straight from the filesystem
  * stand-in for CloudFront and URLs are unsigned, so the check is a no-op.
@@ -25,7 +25,7 @@ export const authorizeContentRequest = (
 ):
 	| { authorized: true }
 	| { authorized: false; status: number; reason: string } => {
-	if (input.dataBackend !== "postgres" && input.dataBackend !== "sqlite") {
+	if (input.dataBackend !== "sqlite") {
 		return { authorized: true };
 	}
 

@@ -1,7 +1,5 @@
-// SQLite twin of meta-schema.ts. Same shape in the SQLite dialect — used only
-// to generate the committed SQLite migrations
-// (deploy/vps/migrations-sqlite/meta); the Postgres schema stays the source
-// for the pg migrations.
+// The instance-owner singleton, used to generate the committed SQLite
+// migrations (deploy/vps/migrations-sqlite/meta).
 import { sql } from "drizzle-orm";
 import { check, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 

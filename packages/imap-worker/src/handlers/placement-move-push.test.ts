@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it, mock } from "node:test";
-import { getClient } from "@remit/backend/client";
+import { afterEach, before, describe, it, mock } from "node:test";
+import { getClient, type RemitClient, setClient } from "@remit/backend/client";
 import type { Logger } from "@remit/logger-lambda";
 import type { IImapConnection } from "@remit/mailbox-service";
 import type { PlacementMovePushEvent } from "../events.js";
@@ -294,6 +294,21 @@ describe("handlePlacementMovePush — deleted mailbox is terminal (#287/#289)", 
 		eventId: "pm-evt-zzz",
 		timestamp: 1700000000000,
 	};
+
+	// The client is supplied by injection (`setClient`), so these tests register
+	// the repositories they then mock rather than reaching a composition.
+	before(() => {
+		setClient({
+			account: { get: async () => undefined },
+			message: { get: async () => undefined },
+			mailbox: { get: async () => undefined },
+			placementMove: {
+				find: async () => undefined,
+				updateState: async () => undefined,
+				delete: async () => undefined,
+			},
+		} as unknown as RemitClient);
+	});
 
 	afterEach(() => mock.restoreAll());
 

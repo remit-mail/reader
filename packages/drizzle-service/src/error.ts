@@ -1,4 +1,4 @@
-// Re-export the shared error contract so an error thrown by a pg repo is the
+// Re-export the shared error contract so an error thrown by a repo here is the
 // same class the backend handlers and workers already catch (they import these
 // from @remit/data-ports/errors). Defining parallel classes here made
 // `instanceof NotFoundError` false across the adapter boundary — a fresh user's
@@ -14,7 +14,6 @@ export class NotImplementedError extends Error {
 	statusCode = 501;
 }
 
-const PG_UNIQUE_VIOLATION = "23505";
 // better-sqlite3 raises a `SqliteError` whose `.code` is one of these for a
 // primary-key or unique-index collision (RFC 036 D1).
 const SQLITE_UNIQUE_VIOLATIONS = new Set([
@@ -23,13 +22,11 @@ const SQLITE_UNIQUE_VIOLATIONS = new Set([
 ]);
 
 // Drizzle wraps the underlying driver error and carries the original (with its
-// SQLSTATE / SQLite `code`) on `.cause`, so walk the cause chain — covers both
-// the pg and better-sqlite3 drivers.
+// SQLite `code`) on `.cause`, so walk the cause chain.
 export const isUniqueViolation = (error: unknown): boolean => {
 	let current: unknown = error;
 	while (current) {
 		const code = (current as { code?: string }).code;
-		if (code === PG_UNIQUE_VIOLATION) return true;
 		if (code !== undefined && SQLITE_UNIQUE_VIOLATIONS.has(code)) return true;
 		current = (current as { cause?: unknown }).cause;
 	}

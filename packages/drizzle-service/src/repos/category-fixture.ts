@@ -1,8 +1,8 @@
 import type { ThreadMessageItem } from "@remit/data-ports";
 
 /**
- * The measured category shape of the owner's INBOX, shared by the sqlite and
- * Postgres category suites (#304).
+ * The measured category shape of the owner's INBOX, shared by the category
+ * suites (#304).
  *
  * It lives in one module because the shape is the load-bearing part of the
  * regression: a filter resolved over the page the server returned is empty at
@@ -30,23 +30,6 @@ export const LIVE_TOTALS: CategoryTotals = {
 	automated: 2680,
 	newsletter: 2295,
 	transactional: 429,
-	social: 88,
-};
-
-/**
- * The same shape with the four common categories trimmed, for the Postgres twin.
- *
- * The rare tail is untouched — `social` stays at its measured 88 — so every
- * assertion the suites make about a rare category holds identically. What
- * shrinks is the bulk that only exists to make the common categories common,
- * which the Postgres suite does not assert on and which costs ~20s of seeding.
- */
-export const TRIMMED_TOTALS: CategoryTotals = {
-	personal: 700,
-	marketing: 500,
-	automated: 400,
-	newsletter: 200,
-	transactional: 130,
 	social: 88,
 };
 

@@ -85,8 +85,8 @@ export interface RemitClient {
 
 	// Smart Organize (RFC 034, epic #1280). Present on both backends
 	// (`FilterService`/`LabelService`/… on DynamoDB, `FilterRepo`/`LabelRepo`/…
-	// on Postgres) so the matching pipeline and filter CRUD run unchanged on
-	// either. The Postgres side has no TTL reaper for expired Temporary filters;
+	// relationally) so the matching pipeline and filter CRUD run unchanged on
+	// either. The relational side has no TTL reaper for expired Temporary filters;
 	// match-time correctness gates on `expiresAt` (RFC 034 Decision 1.1), never
 	// on the row still existing, so the missing reaper is housekeeping only.
 	filter: IFilterRepository;
@@ -99,7 +99,7 @@ export interface RemitClient {
 	label: ILabelRepository;
 	messageLabel: IMessageLabelRepository;
 
-	// Atomic write set for a message save. Present on Postgres (real
+	// Atomic write set for a message save. Present on the relational backend (real
 	// transaction); absent on DynamoDB, where callers fall back to per-repo
 	// writes with that backend's own (non-transactional) guarantees.
 	unitOfWork?: IUnitOfWork;
@@ -123,16 +123,16 @@ export interface RemitClient {
 
 	// Pending placement-move markers (issue #1271). Present on both backends
 	// (`MessagePlacementMoveService` on DynamoDB, `MessagePlacementMoveRepo` on
-	// Postgres) so a caller never needs to guess which backend is active. Used
+	// relationally) so a caller never needs to guess which backend is active. Used
 	// for read-time count prediction (epic #1281 invariant 4) and by the
 	// account-worker cascade delete. Written by the imap-worker's bulk
 	// body-sync path through this `placementMove`, so the placement producer
-	// runs on whatever backend is active — DynamoDB, Postgres, or SQLite.
+	// runs on whatever backend is active — DynamoDB or SQLite.
 	placementMove: IMessagePlacementMoveRepository;
 
 	// Pending flag-push markers (issue #1273). Present on both backends
 	// (`MessageFlagPushService` on DynamoDB, `MessageFlagPushRepo` on
-	// Postgres). Used for read-time unseenCount prediction (epic #1281
+	// relationally). Used for read-time unseenCount prediction (epic #1281
 	// invariant 4), by the account-worker cascade delete, and by the periodic
 	// per-mailbox sync tick to re-arm a marker stuck `pending`. Unlike
 	// `placementMove`, this one IS written on both backends — `flagQueue`

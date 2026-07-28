@@ -25,7 +25,6 @@ import {
 	OutboxMessageRepo,
 	QuarantineRepo,
 } from "@remit/drizzle-service";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { env } from "expect-env";
 import {
 	buildSharedDeps,
@@ -34,25 +33,20 @@ import {
 	type RemitClientRepositories,
 } from "./create-remit-client.js";
 
-// The SQLite backend (RFC 036). Mirrors the Postgres composition — the same
-// dialect-neutral Drizzle repos, wired to one shared SQLite file instead of a
-// Postgres server — with two differences the file topology forces (D3): every
-// repo runs on the single serialized connection `createSqliteDatabase` opens
-// (writes cannot bypass serialization, so a plain repo write never joins an
-// open transaction's savepoint), and `threadMessage` takes that shared handle
-// rather than its own connection string, so its writes enlist in the same
-// unit-of-work transaction and the same write queue as everything else.
+// The SQLite adapter composition (RFC 036). Every repo runs on the single
+// serialized connection `createSqliteDatabase` opens (D3), so a plain repo
+// write cannot bypass serialization and join an open transaction's savepoint,
+// and `threadMessage` takes that same shared handle, so its writes enlist in
+// the same unit-of-work transaction and the same write queue as everything
+// else.
 export const buildSqliteClient = async (): Promise<RemitClient> => {
 	const sqliteDbPath = env.SQLITE_DB_PATH;
 
 	const { db } = await createSqliteDatabase(messageDataSchema, {
 		filename: sqliteDbPath,
 	});
-	const genericDb = db as unknown as NodePgDatabase<Record<string, unknown>>;
-
-	const messageDataDb = db as unknown as NodePgDatabase<
-		typeof messageDataSchema
-	>;
+	const genericDb = db;
+	const messageDataDb = db;
 
 	const repositories: RemitClientRepositories = {
 		accountConfig: new AccountConfigRepo(genericDb),

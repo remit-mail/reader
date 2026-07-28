@@ -6,10 +6,10 @@ import type {
 } from "@remit/data-ports";
 import { deriveQuarantineId } from "@remit/data-ports/id";
 import { desc, eq } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { Db } from "../db.js";
 import { quarantineTable } from "../schema/quarantine.js";
 
-type DB = NodePgDatabase<Record<string, unknown>>;
+type DB = Db<Record<string, unknown>>;
 
 function rowToItem(row: typeof quarantineTable.$inferSelect): QuarantineItem {
 	return {

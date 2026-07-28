@@ -143,7 +143,6 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 	// point at a live instance.
 	const sqlite = new Database(dbPath, { readonly: mode === "check" });
 	const sqliteRepairClient: RepairSqlClient = {
-		dialect: "sqlite",
 		all: async (sql) => sqlite.prepare(sql).all(),
 		run: async (sql) => sqlite.prepare(sql).run().changes,
 	};

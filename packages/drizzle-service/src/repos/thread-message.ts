@@ -19,7 +19,6 @@ import {
 	type SQL,
 	sql,
 } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
 import shortUuid from "short-uuid";
 import { v5 as uuidv5 } from "uuid";
 import type { Db } from "../db.js";
@@ -90,7 +89,6 @@ function decodeAccountCursor(token: string): AccountCursor {
 
 // ─── Schema ──────────────────────────────────────────────────────────────────
 
-const SCHEMA = { threadMessage: threadMessageTable };
 type Row = typeof threadMessageTable.$inferSelect;
 
 // ─── Row mapping ─────────────────────────────────────────────────────────────
@@ -128,9 +126,9 @@ function toItem(row: Row): ThreadMessageItem {
 
 // ─── Search predicates ────────────────────────────────────────────────────────
 
-// The accent-/case-insensitive substring predicates are the one text-search
-// seam that differs by dialect; they live in ./thread-search-predicates.ts
-// (Postgres: unaccent + pg_trgm; SQLite: a folded LIKE fallback, RFC 036 D4).
+// The accent-/case-insensitive substring predicates are the one engine-specific
+// text-search seam; they live in ./thread-search-predicates.ts (the FTS5 trigram
+// index, with a folded LIKE fallback below three characters, RFC 036 D4).
 
 // Translate SearchOptions into SQL conditions: subject/from/query as indexed
 // text predicates, the rest as plain column equalities. A multi-word `query`
@@ -196,22 +194,12 @@ export class DrizzleThreadMessageRepository
 {
 	private db: Db<Record<string, unknown>>;
 
-	constructor(connectionOrDb: string | Db<Record<string, unknown>>) {
-		this.db =
-			typeof connectionOrDb === "string"
-				? drizzle(connectionOrDb, { schema: SCHEMA })
-				: connectionOrDb;
+	constructor(db: Db<Record<string, unknown>>) {
+		this.db = db;
 	}
 
 	async close(): Promise<void> {
-		// The underlying driver differs by dialect: a pg Pool closes with `end()`,
-		// a better-sqlite3 Database with `close()`. Feature-detect so a sqlite
-		// handle never hits a missing `end()`.
 		const client = (this.db as unknown as { $client?: unknown }).$client;
-		if (client && typeof (client as { end?: unknown }).end === "function") {
-			await (client as { end: () => Promise<void> }).end();
-			return;
-		}
 		if (client && typeof (client as { close?: unknown }).close === "function") {
 			(client as { close: () => void }).close();
 		}
@@ -831,8 +819,8 @@ export class DrizzleThreadMessageRepository
 	 * the boolean filters) runs in SQL over the whole mailbox via the trigram
 	 * indexes, ordered by sent_date with an id tiebreak. `limit` is a page size
 	 * over MATCHES (clamped to THREAD_SEARCH_MAX_LIMIT); the DynamoDB name is
-	 * kept for interface parity, but there is no recent-window read bound —
-	 * Postgres indexes the text, so a match anywhere in the mailbox is reachable.
+	 * kept for interface parity, but there is no recent-window read bound — the
+	 * text is indexed, so a match anywhere in the mailbox is reachable.
 	 *
 	 * Cursor: the last returned row `(sentDate, threadMessageId)`. A full page
 	 * yields a cursor so callers can resume.

@@ -4,11 +4,11 @@ import type {
 	MailboxSpecialUseValue,
 } from "@remit/data-ports";
 import { eq } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { Db } from "../db.js";
 import { randomId } from "../id.js";
 import { mailboxSpecialUseTable, mailboxTable } from "../schema/i4-mailbox.js";
 
-type DB = NodePgDatabase<Record<string, unknown>>;
+type DB = Db<Record<string, unknown>>;
 
 function rowToSpecialUse(
 	row: typeof mailboxSpecialUseTable.$inferSelect,

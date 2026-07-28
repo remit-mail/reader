@@ -3,7 +3,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import {
 	_setVerifierForTest,
-	authenticatePostgresRequest,
+	authenticateSelfHostRequest,
 } from "./jwt-auth.js";
 
 const buildEvent = (
@@ -34,7 +34,7 @@ test("valid token injects verified sub into authorizer claims", async () => {
 		headers: { Authorization: "Bearer good.token.here" },
 	});
 
-	const result = await authenticatePostgresRequest(event);
+	const result = await authenticateSelfHostRequest(event);
 
 	assert.equal(result, null);
 	assert.equal(event.requestContext.authorizer?.claims?.sub, "user-abc");
@@ -49,7 +49,7 @@ test("invalid token returns 401 and does not inject claims", async () => {
 		headers: { authorization: "Bearer bad.token" },
 	});
 
-	const result = await authenticatePostgresRequest(event);
+	const result = await authenticateSelfHostRequest(event);
 
 	assert.equal(result?.statusCode, 401);
 	assert.equal(event.requestContext.authorizer, undefined);
@@ -59,7 +59,7 @@ test("no token with a local bypass configured is allowed", async () => {
 	process.env.LOCAL_ACCOUNT_CONFIG_ID = "some-config-id";
 	const event = buildEvent();
 
-	const result = await authenticatePostgresRequest(event);
+	const result = await authenticateSelfHostRequest(event);
 
 	assert.equal(result, null);
 });
@@ -67,7 +67,7 @@ test("no token with a local bypass configured is allowed", async () => {
 test("no token and no bypass returns 401", async () => {
 	const event = buildEvent();
 
-	const result = await authenticatePostgresRequest(event);
+	const result = await authenticateSelfHostRequest(event);
 
 	assert.equal(result?.statusCode, 401);
 });
@@ -82,7 +82,7 @@ test("pre-injected claims (edge tier) short-circuit verification", async () => {
 		} as unknown as APIGatewayProxyEvent["requestContext"],
 	});
 
-	const result = await authenticatePostgresRequest(event);
+	const result = await authenticateSelfHostRequest(event);
 
 	assert.equal(result, null);
 	assert.equal(event.requestContext.authorizer?.claims?.sub, "edge-user");

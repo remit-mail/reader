@@ -12,10 +12,9 @@ import { serializeSqliteWrites } from "./tx.js";
 // serialization (RFC 036 D3). `run`/`transaction`/reads pass through by design —
 // see the wrapper's comment.
 //
-// better-sqlite3 and its drizzle driver are imported dynamically so the Postgres
-// path never loads the native binding, and so the whole module stays out of the
-// DynamoDB Lambda bundle (this package is `external` there — see
-// remit-backend/src/service/dynamodb.ts).
+// better-sqlite3 and its drizzle driver are imported dynamically so the whole
+// module stays out of the DynamoDB Lambda bundle (this package is `external`
+// there — see remit-backend/src/service/data-client.ts).
 
 export interface SqliteClientOptions {
 	filename: string;
@@ -41,7 +40,7 @@ export async function createSqliteDatabase<
 	sqlite.pragma("synchronous = NORMAL");
 	sqlite.pragma("foreign_keys = ON");
 
-	const base = drizzle(sqlite, { schema }) as unknown as Db<TSchema>;
+	const base: Db<TSchema> = drizzle(sqlite, { schema });
 
 	return {
 		db: serializeSqliteWrites(base),

@@ -3,7 +3,6 @@ export {
 	type CascadeDeleteLogger,
 	type CascadeDeleter,
 	type CascadeEntity,
-	createCascadeDeleter,
 	createSqliteCascadeDeleter,
 	runDrizzleCascadeDelete,
 } from "./repos/cascade-delete.js";

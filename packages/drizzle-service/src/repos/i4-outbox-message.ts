@@ -6,12 +6,12 @@ import type {
 	UpdateOutboxMessageInput,
 } from "@remit/data-ports";
 import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { Db } from "../db.js";
 import { ForbiddenError, NotFoundError } from "../error.js";
 import { decodeToken, resultList } from "../pagination.js";
 import { outboxMessageTable } from "../schema/i4-outbox-message.js";
 
-type DB = NodePgDatabase<Record<string, unknown>>;
+type DB = Db<Record<string, unknown>>;
 
 function rowToOutboxMessage(
 	row: typeof outboxMessageTable.$inferSelect,

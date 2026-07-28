@@ -19,7 +19,7 @@ export interface BuildContentUrlInput {
 	messageId: string;
 	partPath: string;
 	/**
-	 * When present (Postgres stack), append an `exp`/`sig` signature scoped to
+	 * When present (self-host stack), append an `exp`/`sig` signature scoped to
 	 * this account's storage path. Absent on AWS, where Lambda@Edge guards the
 	 * URL and the path stays unsigned. See `contentSignature.ts`.
 	 */

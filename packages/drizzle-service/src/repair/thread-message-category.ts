@@ -9,7 +9,7 @@
  * before that read path goes live — otherwise the filter under-returns mail
  * with nothing masking it.
  *
- * One set-based statement per dialect. The value it copies is reachable through
+ * One set-based statement. The value it copies is reachable through
  * `message`'s primary key, so the write is single-valued by construction and
  * there is no checkpointing, batching or resumability here: an interrupted run
  * leaves a consistent table and the next start finishes the job.
@@ -33,14 +33,11 @@
  *  - It never overwrites a row that was written after the statement began. The
  *    migrate one-shot normally runs with every app service stopped, but
  *    `docker compose up -d` can restart it while workers still run, so the
- *    quiet window is not assumed. On SQLite writers are serialized, so a
- *    concurrent body-sync write lands wholly before or wholly after and both
- *    orders converge on the same value. On Postgres READ COMMITTED an UPDATE
- *    re-evaluates its WHERE clause against the version a concurrent
- *    transaction just committed, but still reads other tables at its original
- *    snapshot — so without the `updated_at` guard it could write a
- *    pre-classification value over the fresh one. The guard makes that row fail
- *    the re-check and the writer's value stands.
+ *    quiet window is not assumed. Writers are serialized, so a concurrent
+ *    body-sync write lands wholly before or wholly after and both orders
+ *    converge on the same value. The `updated_at` guard is the backstop: a row
+ *    a concurrent writer touched after the statement began fails the re-check,
+ *    so the writer's value stands rather than being reverted.
  *
  * The guard covers a writer whose transaction begins after the statement. A
  * writer that began before it and commits during it carries an older stamp and
@@ -75,15 +72,11 @@
  * bumped it would both lie about the row and defeat its own guard.
  */
 
-export type RepairDialect = "sqlite" | "postgres";
-
 /**
  * The smallest surface the repair needs, so this module imports nothing and can
- * be driven by the migrator's `better-sqlite3` handle, its `pg.Pool`, or a test
- * harness of either dialect.
+ * be driven by the migrator's `better-sqlite3` handle or a test harness.
  */
 export interface RepairSqlClient {
-	readonly dialect: RepairDialect;
 	all(sql: string): Promise<unknown[]>;
 	run(sql: string): Promise<number>;
 }
@@ -95,12 +88,9 @@ export interface RepairSqlClient {
  */
 const PENDING = "uncategorized";
 
-const nowMillis = (dialect: RepairDialect): string =>
-	dialect === "sqlite"
-		? "CAST(unixepoch('subsec') * 1000 AS INTEGER)"
-		: "CAST(EXTRACT(EPOCH FROM now()) * 1000 AS bigint)";
+const NOW_MILLIS = "CAST(unixepoch('subsec') * 1000 AS INTEGER)";
 
-export const repairStatement = (dialect: RepairDialect): string =>
+export const repairStatement = (): string =>
 	`UPDATE thread_message
 SET category = (
 	SELECT m.category FROM message m WHERE m.message_id = thread_message.message_id
@@ -111,7 +101,7 @@ WHERE EXISTS (
 	  AND m.category <> thread_message.category
 	  AND m.category <> '${PENDING}'
 )
-  AND thread_message.updated_at <= ${nowMillis(dialect)}`;
+  AND thread_message.updated_at <= ${NOW_MILLIS}`;
 
 const BUCKETS_SQL = `SELECT t.category AS row_category, m.category AS message_category, count(*) AS row_count
 FROM thread_message t
@@ -145,9 +135,9 @@ FROM (
  * every run until the stamp is corrected, which is a different thing to tell an
  * operator and would otherwise be indistinguishable in the output.
  */
-const residualSql = (dialect: RepairDialect): string =>
+const residualSql = (): string =>
 	`SELECT count(*) AS row_count,
-	coalesce(sum(CASE WHEN t.updated_at > ${nowMillis(dialect)} THEN 1 ELSE 0 END), 0) AS ahead_of_clock
+	coalesce(sum(CASE WHEN t.updated_at > ${NOW_MILLIS} THEN 1 ELSE 0 END), 0) AS ahead_of_clock
 FROM thread_message t
 JOIN message m ON m.message_id = t.message_id
 WHERE m.category <> t.category
@@ -220,7 +210,7 @@ const columnOf = (row: unknown, column: string): unknown => {
 	return row[column];
 };
 
-// node-postgres hands back bigint aggregates as strings, so a count is a number
+// A driver may hand back a bigint aggregate as a string, so a count is a number
 // or the decimal text of one, and anything else is a query that changed shape.
 const countOf = (row: unknown, column: string): number => {
 	const value = columnOf(row, column);
@@ -328,14 +318,14 @@ export const repairThreadMessageCategory = async (
 	client: RepairSqlClient,
 ): Promise<RepairResult> => {
 	const startedAt = Date.now();
-	const rowsWritten = await client.run(repairStatement(client.dialect));
+	const rowsWritten = await client.run(repairStatement());
 	return { rowsWritten, elapsedMs: Date.now() - startedAt };
 };
 
 export const readResidual = async (
 	client: RepairSqlClient,
 ): Promise<CategoryResidual> => {
-	const [row] = await client.all(residualSql(client.dialect));
+	const [row] = await client.all(residualSql());
 	return {
 		repairable: countOf(row, "row_count"),
 		aheadOfClock: countOf(row, "ahead_of_clock"),

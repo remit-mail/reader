@@ -11,13 +11,13 @@ import {
 	FilterState,
 } from "@remit/domain-enums";
 import { and, asc, eq, gt, or } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
 import { filterTable } from "../schema.js";
 
-type DB = NodePgDatabase<Record<string, unknown>>;
+type DB = Db<Record<string, unknown>>;
 
 const RULE_ASSERTION_FIELDS = [
 	"hasAnchor",
@@ -293,7 +293,7 @@ export class FilterRepo implements IFilterRepository {
 	 * comparison. A no-op for a Standing filter (no `expiresAt`) or one already
 	 * Expired.
 	 *
-	 * Postgres has no TTL reaper, so an Expired Temporary row is never deleted by
+	 * There is no TTL reaper here, so an Expired Temporary row is never deleted by
 	 * a background sweep the way DynamoDB reaps it via the `ttl` attribute. That
 	 * is correct by design: RFC 034 Decision 1.1 makes match-time correctness
 	 * depend on the `expiresAt`/`now` comparison, never on the row's existence —

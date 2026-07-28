@@ -1,12 +1,9 @@
 import assert from "node:assert";
-import { readFileSync } from "node:fs";
 import { after, before, describe, test } from "node:test";
-import { fileURLToPath } from "node:url";
 import type { CreateThreadMessageInput } from "@remit/data-ports";
-import { sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
 import shortUuid from "short-uuid";
 import { threadMessageTable } from "../schema/thread-message.js";
+import { createSqliteTestDb } from "../test-db-sqlite.js";
 import {
 	clampThreadSearchLimit,
 	DrizzleThreadMessageRepository,
@@ -17,50 +14,6 @@ import {
 
 const translator = shortUuid.createTranslator(shortUuid.constants.uuid25Base36);
 const uuid = () => translator.generate();
-
-const PG_URL =
-	process.env.PG_CONNECTION_URL ??
-	"postgresql://remit:remit@localhost:5432/remit_test";
-
-// These suites connect to a real Postgres (pg_trgm/unaccent search DDL, which
-// embedded-postgres cannot provide), so they run only in the dedicated pg job
-// that provisions Postgres — mirroring the RUN_INTEG_TESTS gate used across the
-// integration suites. The pure-unit describe below always runs.
-const RUN_INTEG = process.env.RUN_INTEG_TESTS === "1";
-
-const DDL = `
-CREATE TABLE IF NOT EXISTS thread_message (
-  thread_message_id TEXT PRIMARY KEY,
-  account_config_id TEXT NOT NULL,
-  thread_id         TEXT NOT NULL,
-  message_id        TEXT NOT NULL,
-  mailbox_id        TEXT NOT NULL,
-  uid               INTEGER NOT NULL,
-  message_id_header TEXT,
-  in_reply_to       TEXT,
-  reference_order   INTEGER NOT NULL DEFAULT 0,
-  from_email        TEXT,
-  from_name         TEXT,
-  subject           TEXT,
-  internal_date     BIGINT NOT NULL,
-  sent_date         BIGINT NOT NULL,
-  is_read           BOOLEAN NOT NULL,
-  has_attachment    BOOLEAN NOT NULL,
-  star              TEXT NOT NULL DEFAULT 'none',
-  has_stars         BOOLEAN NOT NULL,
-  is_deleted        BOOLEAN NOT NULL,
-  snippet           TEXT,
-  created_at        BIGINT NOT NULL,
-  updated_at        BIGINT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS tm_by_date_idx ON thread_message (account_config_id, sent_date);
-CREATE INDEX IF NOT EXISTS tm_by_mailbox_idx ON thread_message (account_config_id, mailbox_id, sent_date);
-CREATE INDEX IF NOT EXISTS tm_by_attachment_idx ON thread_message (account_config_id, has_attachment, sent_date);
-CREATE INDEX IF NOT EXISTS tm_by_starred_idx ON thread_message (account_config_id, has_stars, sent_date);
-CREATE INDEX IF NOT EXISTS tm_by_mailbox_readstatus_idx ON thread_message (account_config_id, mailbox_id, is_read, sent_date);
-CREATE INDEX IF NOT EXISTS tm_by_thread_idx ON thread_message (thread_id, internal_date);
-CREATE INDEX IF NOT EXISTS tm_by_message_idx ON thread_message (message_id);
-`;
 
 function makeInput(
 	accountConfigId: string,
@@ -85,24 +38,13 @@ function makeInput(
 	};
 }
 
-// The trigram search columns/indexes live in an idempotent SQL script applied
-// after `drizzle-kit push` (kept out of the drizzle schema — see the script
-// header). Apply it here too so the test table matches production.
-const SEARCH_DDL = readFileSync(
-	fileURLToPath(
-		new URL("../../../../npm-scripts/pg-search-index.sql", import.meta.url),
-	),
-	"utf8",
-);
-
-async function setupDb(): Promise<void> {
-	const db = drizzle(PG_URL, { schema: { threadMessage: threadMessageTable } });
-	await db.execute(sql.raw(DDL));
-	await db.execute(sql.raw(SEARCH_DDL));
-	const client = (db as unknown as { $client: { end(): Promise<void> } })
-		.$client;
-	await client.end();
-}
+// A real better-sqlite3 database with the FTS5 trigram objects the migrator
+// installs, so the search predicates run their shipped path.
+const setupDb = () =>
+	createSqliteTestDb(
+		{ threadMessage: threadMessageTable },
+		{ searchIndex: true },
+	);
 
 // ─── clampThreadSearchLimit unit tests ───────────────────────────────────────
 
@@ -135,22 +77,22 @@ describe("clampThreadSearchLimit", () => {
 // These six scenarios mirror the canonical DynamoDB test suite in
 // packages/remit-electrodb-service/src/models/thread-message.test.ts.
 
-describe("DrizzleThreadMessageRepository.searchByMailboxWindow / countByMailbox", {
-	skip: !RUN_INTEG,
-}, () => {
+describe("DrizzleThreadMessageRepository.searchByMailboxWindow / countByMailbox", () => {
 	let repo: DrizzleThreadMessageRepository;
+	let close: () => Promise<void>;
 	const cleanup: Array<() => Promise<void>> = [];
 
 	before(async () => {
-		await setupDb();
-		repo = new DrizzleThreadMessageRepository(PG_URL);
+		const harness = await setupDb();
+		close = harness.close;
+		repo = new DrizzleThreadMessageRepository(harness.db);
 	});
 
 	after(async () => {
 		for (const fn of cleanup.reverse()) {
 			await fn();
 		}
-		await repo.close();
+		await close();
 	});
 
 	async function seed(
@@ -248,8 +190,8 @@ describe("DrizzleThreadMessageRepository.searchByMailboxWindow / countByMailbox"
 	// ── Scenario 4 ────────────────────────────────────────────────────────────
 	// Matching runs over the WHOLE mailbox via the trigram index, so an old
 	// match well behind the recent rows is still found and paged (the DynamoDB
-	// recent-window bound does not apply on Postgres — the improvement over #443
-	// on the DDB path).
+	// recent-window bound does not apply here — the improvement over #443 on the
+	// DDB path).
 	test("an old match behind the recent rows is still found — matching is whole-mailbox, not window-bounded", async () => {
 		const acct = uuid();
 		const mbx = uuid();
@@ -387,22 +329,22 @@ describe("DrizzleThreadMessageRepository.searchByMailboxWindow / countByMailbox"
 // one query, so matching must span the caller-supplied mailbox scope rather
 // than a single mailbox.
 
-describe("DrizzleThreadMessageRepository.searchByDate", {
-	skip: !RUN_INTEG,
-}, () => {
+describe("DrizzleThreadMessageRepository.searchByDate", () => {
 	let repo: DrizzleThreadMessageRepository;
+	let close: () => Promise<void>;
 	const cleanup: Array<() => Promise<void>> = [];
 
 	before(async () => {
-		await setupDb();
-		repo = new DrizzleThreadMessageRepository(PG_URL);
+		const harness = await setupDb();
+		close = harness.close;
+		repo = new DrizzleThreadMessageRepository(harness.db);
 	});
 
 	after(async () => {
 		for (const fn of cleanup.reverse()) {
 			await fn();
 		}
-		await repo.close();
+		await close();
 	});
 
 	async function seed(
@@ -659,25 +601,25 @@ describe("DrizzleThreadMessageRepository.searchByDate", {
 
 // ─── Native text-search semantics ─────────────────────────────────────────────
 // The type-ahead search box lowercases the query before sending it. These tests
-// pin the Postgres-native behaviour: case- and accent-insensitive substring
+// pin the engine-native behaviour: case- and accent-insensitive substring
 // matching over the whole mailbox, scoped to the account/mailbox.
 
-describe("DrizzleThreadMessageRepository — native text search", {
-	skip: !RUN_INTEG,
-}, () => {
+describe("DrizzleThreadMessageRepository — native text search", () => {
 	let repo: DrizzleThreadMessageRepository;
+	let close: () => Promise<void>;
 	const cleanup: Array<() => Promise<void>> = [];
 
 	before(async () => {
-		await setupDb();
-		repo = new DrizzleThreadMessageRepository(PG_URL);
+		const harness = await setupDb();
+		close = harness.close;
+		repo = new DrizzleThreadMessageRepository(harness.db);
 	});
 
 	after(async () => {
 		for (const fn of cleanup.reverse()) {
 			await fn();
 		}
-		await repo.close();
+		await close();
 	});
 
 	async function seed(
@@ -834,22 +776,22 @@ describe("DrizzleThreadMessageRepository — native text search", {
 
 // ─── Smoke tests for the full interface ──────────────────────────────────────
 
-describe("DrizzleThreadMessageRepository — core CRUD", {
-	skip: !RUN_INTEG,
-}, () => {
+describe("DrizzleThreadMessageRepository — core CRUD", () => {
 	let repo: DrizzleThreadMessageRepository;
+	let close: () => Promise<void>;
 	const cleanup: Array<() => Promise<void>> = [];
 
 	before(async () => {
-		await setupDb();
-		repo = new DrizzleThreadMessageRepository(PG_URL);
+		const harness = await setupDb();
+		close = harness.close;
+		repo = new DrizzleThreadMessageRepository(harness.db);
 	});
 
 	after(async () => {
 		for (const fn of cleanup.reverse()) {
 			await fn();
 		}
-		await repo.close();
+		await close();
 	});
 
 	test("create and get round-trip", async () => {

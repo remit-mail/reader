@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { Db } from "../db.js";
 import { messagePlacementMoveTable } from "../schema/i4-message-placement-move.js";
 
-type DB = NodePgDatabase<Record<string, unknown>>;
+type DB = Db<Record<string, unknown>>;
 
 export type MessagePlacementMoveState =
 	| "pending"
@@ -44,7 +44,8 @@ function rowToItem(
 }
 
 /**
- * Postgres counterpart to `MessagePlacementMoveService` (remit-electrodb-service).
+ * Relational counterpart to `MessagePlacementMoveService`
+ * (remit-electrodb-service).
  * Same public shape (`put`/`find`/`delete`/`listByAccountId`) so both backends
  * satisfy the same structural contract for read-time count prediction
  * (`mailbox.ts`'s `loadPendingMoves`, epic #1281 invariant 4).

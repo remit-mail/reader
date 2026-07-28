@@ -9,7 +9,7 @@ import type {
 	VectorRecord,
 } from "@remit/search-service";
 import { createMemoryVectorStore } from "@remit/search-service";
-import type { RemitClient } from "./dynamodb.js";
+import type { RemitClient } from "./data-client.js";
 import {
 	applyOrganize,
 	matchOrganize,

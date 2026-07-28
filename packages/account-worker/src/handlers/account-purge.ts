@@ -196,11 +196,11 @@ export const processAccountDataPurge = async (
 
 	const messageIds = [...new Set(items.map((i) => i.messageId))];
 
-	// On Postgres the destructive delete emits a `message.removed` outbox row per
-	// message, which the pg-index worker relays as a search-index REMOVE; enqueuing
-	// here too would double the removal. On DynamoDB this fanout is the sole
-	// producer of the vector deletes (#457).
-	if (dataBackend !== "postgres") {
+	// On the relational backend the destructive delete emits a `message.removed`
+	// outbox row per message, which the search-index worker relays as a
+	// search-index REMOVE; enqueuing here too would double the removal. On
+	// DynamoDB this fanout is the sole producer of the vector deletes (#457).
+	if (dataBackend !== "sqlite") {
 		await enqueueVectorDeletes(
 			sqsFor(searchIndexQueueUrl),
 			searchIndexQueueUrl,

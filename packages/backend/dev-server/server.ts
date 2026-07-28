@@ -17,7 +17,7 @@ import express, {
 } from "express";
 import { handler, OpenAPISpec } from "../src/index.js";
 import { safeJsonParse } from "../src/json.js";
-import { getClient } from "../src/service/dynamodb.js";
+import { getClient } from "../src/service/data-client.js";
 import { authorizeContentRequest } from "./content-auth.js";
 import { serveContent } from "./content-handler.js";
 import { resolveContentPath } from "./content-path.js";
@@ -28,15 +28,13 @@ import { collectAccountSyncAges } from "./sync-age.js";
 
 const app = express();
 
-// The self-host relational backends — Postgres and, from RFC 036, SQLite — both
-// run better-auth and the APISIX edge; the AWS-local (DynamoDB) dev path runs
-// neither. Everything gated on "not the AWS-local path" keys off this.
-const isSelfHostBackend =
-	process.env.DATA_BACKEND === "postgres" ||
-	process.env.DATA_BACKEND === "sqlite";
+// The self-host relational backend runs better-auth and the APISIX edge; the
+// AWS-local (DynamoDB) dev path runs neither. Everything gated on "not the
+// AWS-local path" keys off this.
+const isSelfHostBackend = process.env.DATA_BACKEND === "sqlite";
 
 // CORS is driven by CORS_ALLOWED_ORIGINS (comma-separated, or `*`). On the
-// self-host backends it is required config — refuse to start if unset, so the
+// self-host backend it is required config — refuse to start if unset, so the
 // deployed edge is never accidentally wide open by omission. On the AWS-local
 // dev path it defaults to `*` to keep the existing local flow working.
 const configuredCorsOrigins = parseAllowedOrigins(
@@ -218,7 +216,7 @@ const STORAGE_BASE = resolve(
 app.get(/^\/content\/.+$/, async (req: Request, res: Response) => {
 	const storageKey = req.path.replace(/^\/content\//, "");
 
-	// On the Postgres stack this route is the deployed content-delivery surface;
+	// On the self-host stack this route is the deployed content-delivery surface;
 	// require a valid signed URL (HMAC + expiry, scoped to the owning account)
 	// before touching storage. Bearer auth can't ride on an `<img src>` content
 	// load, so the signature carried in the query string is the authorization.

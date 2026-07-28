@@ -33,14 +33,11 @@ describe("noteSemanticCapabilityAbsence", () => {
 		_resetSemanticCapabilityForTest();
 	});
 
-	it("absorbs a missing-module failure on the self-host SQL backends and remembers it", () => {
-		for (const backend of ["sqlite", "postgres"]) {
-			_resetSemanticCapabilityForTest();
-			process.env.DATA_BACKEND = backend;
-			assert.equal(isSemanticSearchUnavailable(), false);
-			assert.equal(noteSemanticCapabilityAbsence(moduleNotFound()), true);
-			assert.equal(isSemanticSearchUnavailable(), true);
-		}
+	it("absorbs a missing-module failure on the self-host SQL backend and remembers it", () => {
+		process.env.DATA_BACKEND = "sqlite";
+		assert.equal(isSemanticSearchUnavailable(), false);
+		assert.equal(noteSemanticCapabilityAbsence(moduleNotFound()), true);
+		assert.equal(isSemanticSearchUnavailable(), true);
 	});
 
 	it("absorbs a dlopen failure (musl loading a glibc extension)", () => {
@@ -53,16 +50,13 @@ describe("noteSemanticCapabilityAbsence", () => {
 	});
 
 	it("absorbs an embedding-model load failure (e2e-dev from source, HuggingFace fetch failed) and remembers it", () => {
-		for (const backend of ["sqlite", "postgres"]) {
-			_resetSemanticCapabilityForTest();
-			process.env.DATA_BACKEND = backend;
-			assert.equal(isSemanticSearchUnavailable(), false);
-			assert.equal(noteSemanticCapabilityAbsence(modelUnavailable()), true);
-			assert.equal(isSemanticSearchUnavailable(), true);
-		}
+		process.env.DATA_BACKEND = "sqlite";
+		assert.equal(isSemanticSearchUnavailable(), false);
+		assert.equal(noteSemanticCapabilityAbsence(modelUnavailable()), true);
+		assert.equal(isSemanticSearchUnavailable(), true);
 	});
 
-	it("rethrows genuine query errors on the self-host SQL backends", () => {
+	it("rethrows genuine query errors on the self-host SQL backend", () => {
 		process.env.DATA_BACKEND = "sqlite";
 		assert.equal(
 			noteSemanticCapabilityAbsence(new Error("SQLITE_BUSY")),

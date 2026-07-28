@@ -2,10 +2,12 @@
 // (RFC 036 D5) — consumed by packages/migrate/drizzle.entities.sqlite.config.ts
 // and the drift guard (npm-scripts/check-vps-migrations.mjs), never at runtime.
 //
-// The SQLite twin of schema-full.ts: the sqlite-dialect entity package
-// wholesale (`sqliteTable`/`text(json)`/`integer`) plus the raw sqlite outbox
-// infra table. Kept separate from the runtime facade (../schema/active-entities)
-// because drizzle-kit's `generate --dialect sqlite` needs the real sqlite table
-// objects, not the pg-cast the repos consume.
+// It pulls the generated entity package in wholesale, so a new TypeSpec entity
+// flows into the committed migration with nothing to hand-maintain. The only
+// addition is the `outbox` infra table, which has no entity.
+//
+// schema.ts stays the app/dev surface (single `*Table` alias per table, what
+// the repos and `pushSchema` need); this file exposes canonical names, so it
+// must not be fed to `pushSchema` alongside schema.ts (duplicate index names).
 export * from "@remit/drizzle-sqlite-schema";
-export { sqliteOutboxTable as outboxTable } from "./schema/outbox.js";
+export { outboxTable } from "./schema/outbox.js";

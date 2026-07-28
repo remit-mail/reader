@@ -29,7 +29,7 @@ describe("resolveSelfSignUpEnabled", () => {
 });
 
 const baseConfig = {
-	connectionString: "postgresql://remit:remit@localhost:5432/remit_test",
+	connectionString: ":memory:",
 	secret: "signup-test-secret-value-32chars-minimum",
 	baseURL: "http://localhost:3000",
 };
@@ -45,9 +45,8 @@ describe("createAuth self-signup gate", () => {
 		assert.equal(closed.options.emailAndPassword?.disableSignUp, true);
 	});
 
-	it("selects the sqlite drizzle provider when configured", async () => {
+	it("drives the sqlite drizzle provider", async () => {
 		const auth = await createAuth({
-			provider: "sqlite",
 			connectionString: ":memory:",
 			secret: baseConfig.secret,
 			baseURL: baseConfig.baseURL,

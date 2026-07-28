@@ -24,8 +24,8 @@ export interface VectorStoreService {
 	getByMessage(messageId: string): Promise<VectorRecord[]>;
 	/**
 	 * Release any held connections (e.g. a pooled database client). Optional — the
-	 * in-memory and file backends hold nothing; the pgvector backend closes its
-	 * pool so a short-lived process (a test, a one-shot reindex) can exit cleanly.
+	 * in-memory backend holds nothing; a pooled backend closes its pool so a
+	 * short-lived process (a test, a one-shot reindex) can exit cleanly.
 	 */
 	close?(): Promise<void>;
 }

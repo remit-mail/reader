@@ -11,7 +11,7 @@ import {
 	applyPendingMoveCountPrediction,
 	type PendingUnseenFlagPush,
 } from "../derive/pendingMoveCounts.js";
-import { getClient } from "../service/dynamodb.js";
+import { getClient } from "../service/data-client.js";
 import type {
 	MailboxDetailOperationIds,
 	MailboxOperationIds,
@@ -139,7 +139,7 @@ export const assertMailboxInAccount = (
  * `applyPendingMoveCountPrediction`'s read-time adjustment only, never mutates
  * stored counts (epic #1281 invariant 4). Markers are written by the
  * imap-worker bulk sync path through `RemitClient.placementMove` on every
- * backend, so this is a real signal on Postgres too.
+ * backend, so this is a real signal on the self-host stack too.
  */
 const loadPendingMoves = (
 	client: Awaited<ReturnType<typeof getClient>>,
@@ -150,7 +150,7 @@ const loadPendingMoves = (
  * Every pending `\Seen` flag-push marker (issue #1273) for an account —
  * `\Flagged` (star) markers are excluded, since only read/unread state feeds
  * `unseenCount`'s prediction. `RemitClient.flagPush` is present and WRITTEN
- * on both backends, so this is a real signal on Postgres too.
+ * on both backends, so this is a real signal on the self-host stack too.
  */
 const loadPendingUnseenFlagPushes = async (
 	client: Awaited<ReturnType<typeof getClient>>,

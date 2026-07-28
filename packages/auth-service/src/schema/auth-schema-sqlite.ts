@@ -1,9 +1,15 @@
-// SQLite twin of auth-schema.ts (RFC 036 D5). Same five better-auth identity
-// tables in the SQLite dialect — the shape better-auth's drizzle adapter emits
-// with `provider: "sqlite"`: `sqliteTable`, `text` unchanged, `boolean` and
-// `timestamp` mapped to `integer` (mode boolean / timestamp). Used only to
-// generate the committed sqlite migrations (deploy/vps/migrations-sqlite/auth);
-// the Postgres schema stays the source for the pg migrations.
+// The five better-auth identity tables, in the shape better-auth's drizzle
+// adapter emits with `provider: "sqlite"`. Used to generate the committed
+// sqlite migrations (deploy/vps/migrations-sqlite/auth).
+//
+// Hand-maintained, deliberately. The `@better-auth/cli generate` command no
+// longer emits this shape: it writes `mode: "timestamp_ms"` where these columns
+// store seconds, and a SQL `DEFAULT (cast(unixepoch('subsecond') * 1000 as
+// integer))` where these use a JS-side `$defaultFn` and the committed migration
+// has no DEFAULT clause. Taking its output would reinterpret every timestamp on
+// every deployed instance and rewrite all five tables. Match better-auth's
+// runtime expectations by hand when a version bump changes them, and let
+// vps-migrations-drift.sqlite.test.ts catch the migration side.
 import { relations } from "drizzle-orm";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 

@@ -8,8 +8,8 @@ import type {
 } from "@remit/data-ports";
 import { MailboxCursorState, MailboxSyncStatus } from "@remit/domain-enums";
 import { and, asc, eq, gt, inArray, or } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import shortUuid from "short-uuid";
+import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { decodeToken, resultList } from "../pagination.js";
 import { mailboxTable } from "../schema/i4-mailbox.js";
@@ -19,7 +19,7 @@ const base36Translator = shortUuid.createTranslator(
 );
 const generateMailboxId = () => base36Translator.fromUUID(randomUUID());
 
-type DB = NodePgDatabase<Record<string, unknown>>;
+type DB = Db<Record<string, unknown>>;
 
 export function rowToMailbox(
 	row: typeof mailboxTable.$inferSelect,

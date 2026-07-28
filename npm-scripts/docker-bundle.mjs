@@ -69,11 +69,6 @@ const DIRNAME_DEFINES = {
 	__filename: "import.meta.filename",
 };
 
-// pg is a pure-JS driver but probes for the optional native `pg-native`
-// add-on via a runtime require esbuild can't resolve statically; keep it
-// external everywhere it's used and install it in the runtime stage instead.
-const PG = "pg";
-
 // better-sqlite3 is a native module (a `.node` binding it locates relative to
 // its own install tree). It is reached only on the DATA_BACKEND=sqlite branch
 // (RFC 036), through a dynamic `import()` inside @remit/drizzle-service —
@@ -118,27 +113,27 @@ export const TARGETS = [
 	{
 		name: "backend",
 		entry: "packages/backend/dev-server/server.ts",
-		external: [PG, SQLITE],
+		external: [SQLITE],
 	},
 	{
 		name: "imap-worker",
 		entry: "packages/imap-worker/src/poller.ts",
-		external: [PG, SQLITE],
+		external: [SQLITE],
 	},
 	{
 		name: "smtp-worker",
 		entry: "packages/smtp-worker/src/poller.ts",
-		external: [PG, SQLITE],
+		external: [SQLITE],
 	},
 	{
 		name: "account-worker",
 		entry: "packages/account-worker/src/poller.ts",
-		external: [PG, SQLITE],
+		external: [SQLITE],
 	},
 	{
 		name: "search-index-worker",
 		entry: "packages/search-index-worker/src/poller.ts",
-		external: [PG, SQLITE, ...SEARCH_NATIVE],
+		external: [SQLITE, ...SEARCH_NATIVE],
 	},
 	// The self-host queue backend (ADR: SQLite-backed SQS sidecar). better-sqlite3
 	// is a native module reached through @remit/queue-sidecar's store; keep it
@@ -178,7 +173,7 @@ export const TARGETS = [
 		// DATA_BACKEND=sqlite branch (RFC 036 D5), via a dynamic import esbuild
 		// leaves unresolved; keep it external and install it in the runtime
 		// stage, the same treatment pg gets.
-		external: [PG, SQLITE],
+		external: [SQLITE],
 		loader: { ".sql": "text" },
 	},
 	// Same "backend image with a command" shape as backend-migrate, for the
@@ -188,7 +183,7 @@ export const TARGETS = [
 		name: "backend-backfill-list-id",
 		entry: "packages/backend/scripts/backfill-list-id.ts",
 		outfile: "dist-docker/backend/backfill-list-id.mjs",
-		external: [PG, SQLITE],
+		external: [SQLITE],
 	},
 ];
 

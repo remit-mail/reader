@@ -6,13 +6,13 @@ import type {
 	UpdateLabelInput,
 } from "@remit/data-ports";
 import { and, asc, eq, gt, or } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
 import { labelTable } from "../schema.js";
 
-type DB = NodePgDatabase<Record<string, unknown>>;
+type DB = Db<Record<string, unknown>>;
 
 const normalize = (name: string): string => name.trim().toLowerCase();
 
