@@ -23,11 +23,9 @@
     "test:typecheck": "tsgo --noEmit -p tsconfig.json",
     "test:run": "node --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=94 --test 'src/**/*.test.ts'",
     "test": "npm run test:typecheck && npm run test:run",
-    "auth:schema:generate": "npx @better-auth/cli generate --config src/auth.gen.ts --output src/schema/auth-schema-sqlite.ts -y",
     "fix": "biome check --write src"
   },
   "devDependencies": {
-    "@better-auth/cli": "^1.4.21",
     "tsx": "*"
   },
   "dependencies": {
