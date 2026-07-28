@@ -16,6 +16,7 @@
 import {
 	flaggedFilterConfig,
 	MessageListPane,
+	parseSearchTokens,
 	type ThreadRowData,
 } from "@remit/ui";
 import { type RefObject, useCallback, useMemo, useState } from "react";
@@ -32,7 +33,6 @@ import {
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import { useMailContext } from "@/lib/mail-context";
 import { rowToSearchResult } from "@/lib/search-result";
-import { parseSearchTokens } from "@/lib/search-tokens";
 import { dedupeByThread } from "@/lib/starred-rows";
 import { MailViewChrome } from "./MailViewChrome";
 import type { MessageListCommands } from "./MessageList";

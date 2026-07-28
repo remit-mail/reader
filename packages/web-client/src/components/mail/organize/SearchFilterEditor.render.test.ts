@@ -9,12 +9,12 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { mailboxOperationsListMailboxesQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import { createElement } from "react";
-import { convertSearchToRule } from "@/lib/organize/search-to-rule";
 import {
+	convertSearchToRule,
 	parseSearchTokens,
 	type SearchTokenContext,
-} from "@/lib/search-tokens";
+} from "@remit/ui";
+import { createElement } from "react";
 import { createDomHarness, type DomHarness } from "../../../test-support/dom";
 import { makeMailbox } from "../../../test-support/fixtures";
 import {

@@ -25,6 +25,7 @@ import type {
 import {
 	LIST_ROW_SELECTOR,
 	OutboxRow,
+	parseSearchTokens,
 	ReadingPaneEmpty,
 	useRovingFocus,
 } from "@remit/ui";
@@ -61,7 +62,6 @@ import {
 } from "@/lib/outbox-search";
 import { isOutboxListRow, isUnsendableStatus } from "@/lib/outbox-status";
 import { normalizeSearchQuery } from "@/lib/search-query";
-import { parseSearchTokens } from "@/lib/search-tokens";
 import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */

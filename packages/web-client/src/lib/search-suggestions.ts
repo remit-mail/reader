@@ -1,7 +1,7 @@
 /**
  * What to offer while a search query is being typed (#428 follow-up).
  *
- * The search box takes a vocabulary of `name:value` tokens (`lib/search-tokens.ts`)
+ * The search box takes a vocabulary of `name:value` tokens (`@remit/ui`'s `search-tokens.ts`)
  * that nothing on screen announces, so the tokens are only useful to someone who
  * already knows they exist. This turns the query and the caret into the list of
  * completions for the term under the caret: token names while a bare word is
@@ -29,7 +29,7 @@ import {
 	searchTokenTerm,
 	splitSearchTerm,
 	splitSearchWords,
-} from "./search-tokens.js";
+} from "@remit/ui";
 
 /** How many suggestions the list shows at most. */
 export const SEARCH_SUGGESTION_LIMIT = 8;

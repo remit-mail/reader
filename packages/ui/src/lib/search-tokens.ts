@@ -20,11 +20,12 @@
  * | `account:`             | —                  | —                      |
  *
  * A token an engine has no parameter for is applied client-side over the rows
- * that engine returned (`matchesSearchTokens` in `lib/brief.ts`), never dropped.
+ * that engine returned (`matchesSearchTokens` in the web client's `lib/brief.ts`),
+ * never dropped.
  *
  * `in:<mailbox>` and `account:<name>` resolve against a name index the caller
  * supplies via `SearchTokenContext` (built from the loaded mailboxes/accounts —
- * see `lib/search-token-index.ts`). An unresolvable name (no index, or no
+ * see the web client's `lib/search-token-index.ts`). An unresolvable name (no index, or no
  * match in it) is left as free text rather than becoming a chip for a filter
  * that can't actually apply. `category:` resolves the same way against a fixed
  * vocabulary, so `category:nonsense` stays free text too.

@@ -34,6 +34,7 @@
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { MessageCategory } from "@remit/domain-enums";
 import type {
+	SearchToken,
 	SenderTrustLevel,
 	ThreadCategory,
 	ThreadRowData,
@@ -41,7 +42,6 @@ import type {
 } from "@remit/ui";
 import { toDisplayCategory } from "./display-category.js";
 import { formatEmailDate } from "./format.js";
-import type { SearchToken } from "./search-tokens.js";
 
 /**
  * Map a `RemitImapThreadMessageResponse` to the `ThreadRowData` shape used by

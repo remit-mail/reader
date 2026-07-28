@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { parseSearchTokens } from "@remit/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { parseSearchTokens } from "@/lib/search-tokens";
 import { SearchFilterDialog } from "./SearchFilterDialog";
 
 // The node test loader transpiles remit-ui's `.tsx` with the classic JSX

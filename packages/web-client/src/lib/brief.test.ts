@@ -1,7 +1,7 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import type { ThreadRowData } from "@remit/ui";
+import type { SearchToken, ThreadRowData } from "@remit/ui";
 import {
 	excludeMutedSenders,
 	groupBriefSections,
@@ -10,7 +10,6 @@ import {
 	mergeSearchRows,
 	toThreadRowData,
 } from "./brief.js";
-import type { SearchToken } from "./search-tokens.js";
 
 function threadResponse(
 	overrides: Partial<RemitImapThreadMessageResponse> = {},

@@ -2,6 +2,7 @@ import { organizeOperationsPreviewOrganizeMutation } from "@remit/api-http-clien
 import type { PreviewCount } from "@remit/ui";
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import type { OrganizeMatchPredicate } from "@/lib/organize/organize-model";
 import { buildOrganizeInput } from "@/lib/organize/organize-model";
 import {
 	derivePreview,
@@ -11,7 +12,6 @@ import {
 	predicateSignature,
 	UNCOUNTABLE_PREDICATE_REASON,
 } from "@/lib/organize/rule-model";
-import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
 
 /**
  * The live match count for the edited rule (RFC 038 D1). Every predicate change

@@ -39,10 +39,14 @@
  * `resultsScopeForRoute` and `lib/spam-offer.ts`.
  */
 import {
+	convertSearchToRule,
 	type FilterSheetProps,
+	isConvertible,
 	MailHeader,
 	MakeFilterAction,
 	MobileSearchView,
+	parseSearchTokens,
+	removeSearchToken,
 	type SearchCaretRequest,
 	type SearchFieldSuggest,
 	type SearchResult,
@@ -51,6 +55,7 @@ import {
 	type SearchScope,
 	type Suggestion,
 	SuggestList,
+	searchTokenLabel,
 	useAppShellLayout,
 	useSuggestList,
 } from "@remit/ui";
@@ -68,19 +73,10 @@ import { useSearchScope } from "@/hooks/useSearchScope";
 import { useSearchSuggestions } from "@/hooks/useSearchSuggestions";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useMailContext } from "@/lib/mail-context";
-import {
-	convertSearchToRule,
-	isConvertible,
-} from "@/lib/organize/search-to-rule";
 import { loadRecentSearches, saveRecentSearch } from "@/lib/recent-searches";
 import { resultsScopeForRoute, routeMailboxId } from "@/lib/search-scope";
 import { applySearchSuggestion } from "@/lib/search-suggestions";
 import { showInlineSearchResults } from "@/lib/search-surface";
-import {
-	parseSearchTokens,
-	removeSearchToken,
-	searchTokenLabel,
-} from "@/lib/search-tokens";
 import { spamOfferForResults } from "@/lib/spam-offer";
 import { SearchFilterDialog } from "./organize/SearchFilterDialog";
 

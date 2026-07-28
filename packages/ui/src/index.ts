@@ -599,6 +599,11 @@ export {
 	labelDotClass,
 } from "./lib/label-color.js";
 export {
+	derivePropertyClauses,
+	normalizeSubject,
+	sharedSubjectFragment,
+} from "./lib/property-prefill.js";
+export {
 	LIST_ROW_ATTRIBUTE,
 	LIST_ROW_SELECTOR,
 	type RovingOrientation,
@@ -606,6 +611,41 @@ export {
 	type UseRovingFocusOptions,
 	useRovingFocus,
 } from "./lib/roving-focus.js";
+export {
+	buildSearchRule,
+	convertSearchToRule,
+	type DroppedFacet,
+	isConvertible,
+	type ScopedOutFolder,
+	type SearchConversion,
+} from "./lib/search-to-rule.js";
+export {
+	type ParsedSearchQuery,
+	parseSearchTokens,
+	quoteSearchTokenValue,
+	removeSearchToken,
+	resolveCategory,
+	SEARCH_TOKEN_SPECS,
+	type SearchQueryWord,
+	type SearchTermParts,
+	type SearchToken,
+	type SearchTokenContext,
+	type SearchTokenName,
+	type SearchTokenSpec,
+	type SearchTokenValueOption,
+	type SearchTokenValueSource,
+	searchTokenLabel,
+	searchTokenSpec,
+	searchTokenTerm,
+	splitSearchTerm,
+	splitSearchWords,
+} from "./lib/search-tokens.js";
+export {
+	collapsibleDomain,
+	deriveSenderClauses,
+	distinctSenders,
+	senderDomain,
+} from "./lib/sender-fallback.js";
 export {
 	type SuggestAction,
 	type SuggestKeyState,

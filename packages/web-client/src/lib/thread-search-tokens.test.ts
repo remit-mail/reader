@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
+import { parseSearchTokens, type SearchToken } from "@remit/ui";
 import type { InboxFilterParams } from "./inbox-filters.js";
-import { parseSearchTokens, type SearchToken } from "./search-tokens.js";
 import {
 	applyResidualTokens,
 	threadSearchTokens,

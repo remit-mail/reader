@@ -16,7 +16,7 @@
  * if the filter had been honored, that case returns nothing and the list says
  * why — see `outboxQueryIsUnsupported`.
  */
-import type { ParsedSearchQuery } from "./search-tokens";
+import type { ParsedSearchQuery } from "@remit/ui";
 
 /** The outbox row fields a query is matched against. */
 export interface OutboxSearchRow {

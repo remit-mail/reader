@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseSearchTokens, type SearchTokenContext } from "../search-tokens";
 import {
 	buildSearchRule,
 	convertSearchToRule,
 	isConvertible,
 } from "./search-to-rule";
+import { parseSearchTokens, type SearchTokenContext } from "./search-tokens";
 
 const CONTEXT: SearchTokenContext = {
 	mailboxesByName: new Map([["archive", "mbx-archive"]]),

@@ -1,13 +1,12 @@
 import { organizeOperationsPreviewOrganizeMutation } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import { deriveSenderClauses, distinctSenders } from "@remit/ui";
 import { useMutation } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { buildOrganizeInput } from "@/lib/organize/organize-model";
 import {
+	buildOrganizeInput,
 	buildSenderFallbackDraft,
-	deriveSenderClauses,
-	distinctSenders,
 	type OrganizeMatchPredicate,
-} from "@/lib/organize/sender-fallback";
+} from "@/lib/organize/organize-model";
 
 /**
  * "Select similar messages" (the widen step) with a sender-derived fallback for

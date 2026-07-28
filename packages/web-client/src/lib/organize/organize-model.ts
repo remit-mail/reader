@@ -5,6 +5,7 @@ import type {
 	RemitImapFilterScope,
 	RemitImapOrganizeInput,
 } from "@remit/api-http-client/types.gen.ts";
+import { deriveSenderClauses } from "@remit/ui";
 
 /**
  * The four commit scopes the smart-organize sentence offers (RFC 034 recap):
@@ -55,6 +56,28 @@ export interface OrganizeDraft {
 	 */
 	expiresAt?: string;
 }
+
+/**
+ * The predicate the widen previewed, handed to the organize sentence so the set
+ * it previews equals the set every commit scope acts on. Either the semantic
+ * anchor or the sender-derived literal fallback, never both.
+ */
+export type OrganizeMatchPredicate = Pick<
+	RemitImapOrganizeInput,
+	"anchorMessageId" | "matchOperator" | "literalClauses"
+>;
+
+/**
+ * The literal predicate that stands in for the semantic anchor: the sender `From`
+ * clauses combined with `Or` and no anchor. The preview, the one-time back-apply,
+ * and the standing filter all carry exactly this.
+ */
+export const buildSenderFallbackDraft = (
+	senders: readonly string[],
+): OrganizeDraft => ({
+	matchOperator: "Or",
+	literalClauses: deriveSenderClauses(senders),
+});
 
 /**
  * Whether the draft carries a committable action — a move destination and/or

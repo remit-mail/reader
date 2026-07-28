@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { parseSearchTokens } from "@remit/ui";
 import {
 	activeSearchTerm,
 	applySearchSuggestion,
@@ -9,7 +10,6 @@ import {
 	type SearchSuggestionData,
 	searchSuggestionRequest,
 } from "./search-suggestions.js";
-import { parseSearchTokens } from "./search-tokens.js";
 
 const DATA: SearchSuggestionData = {
 	mailboxes: [{ value: "Archive" }, { value: "Sent Items" }],

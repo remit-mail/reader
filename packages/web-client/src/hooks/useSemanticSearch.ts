@@ -1,12 +1,12 @@
 import { semanticSearchOperationsSemanticSearchOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapSemanticSearchResult } from "@remit/api-http-client/types.gen.ts";
 import { MessageCategory } from "@remit/domain-enums";
+import { parseSearchTokens, type SearchToken } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
 import { useMailContext } from "@/lib/mail-context";
 import { normalizeSearchQuery } from "@/lib/search-query";
 import { semanticMailboxScope } from "@/lib/search-scope";
-import { parseSearchTokens, type SearchToken } from "@/lib/search-tokens";
 import { useSearchTokenContext } from "./useSearchTokenContext";
 
 /** Cap the "Related" section; the literal "Top matches" is the primary surface. */

@@ -1,8 +1,10 @@
 import { mailboxOperationsListMailboxesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import {
+	buildSearchRule,
 	type FilterRule,
 	FilterRuleEditor,
 	type FolderOption,
+	type SearchConversion,
 	SearchConversionNoticeView,
 } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
@@ -18,10 +20,6 @@ import {
 	ruleToDraft,
 	SUPPORTED_CLAUSE_FIELDS,
 } from "@/lib/organize/rule-model";
-import {
-	buildSearchRule,
-	type SearchConversion,
-} from "@/lib/organize/search-to-rule";
 import {
 	CommitError,
 	FilterSaved,

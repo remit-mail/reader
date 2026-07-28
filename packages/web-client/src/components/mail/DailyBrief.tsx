@@ -43,6 +43,7 @@ import {
 	type FilterSheetProps,
 	type FilterSheetSource,
 	KeyboardHintBar,
+	parseSearchTokens,
 	SELECTION_SHEET_TEASER_HEIGHT,
 	type SearchResult,
 	SelectionSheet,
@@ -82,7 +83,6 @@ import {
 import { isServerError } from "@/lib/error-classifier";
 import { useMailContext } from "@/lib/mail-context";
 import { relatedSearchResults, rowToSearchResult } from "@/lib/search-result";
-import { parseSearchTokens } from "@/lib/search-tokens";
 import { shouldShowSelectionSheet } from "@/lib/selection-sheet-mode";
 import { MailListHeader, type MailListHeaderProps } from "./MailListHeader";
 import type { MessageListCommands } from "./MessageList";

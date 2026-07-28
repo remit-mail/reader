@@ -23,9 +23,9 @@
  */
 
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
+import type { SearchToken } from "@remit/ui";
 import { matchesSearchTokens, toThreadRowData } from "./brief.js";
 import type { InboxFilterParams, ThreadSearchQuery } from "./inbox-filters.js";
-import type { SearchToken } from "./search-tokens.js";
 
 /** The search parameters the tokens themselves set. */
 export type ThreadSearchTokenParams = Pick<

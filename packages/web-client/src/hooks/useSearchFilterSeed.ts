@@ -1,9 +1,9 @@
 import { organizeOperationsPreviewOrganizeMutation } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { useMutation } from "@tanstack/react-query";
 import { useCallback, useEffect } from "react";
+import type { OrganizeMatchPredicate } from "@/lib/organize/organize-model";
 import { buildOrganizeInput } from "@/lib/organize/organize-model";
 import { isEvaluablePredicate } from "@/lib/organize/rule-model";
-import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
 
 interface SearchFilterSeed {
 	/** The live count for the converted literal predicate, seeding the editor. */

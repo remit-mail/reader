@@ -29,6 +29,7 @@ import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/type
 import {
 	inboxFilterConfig,
 	type MessageListFilter,
+	parseSearchTokens,
 	ReadingPaneEmpty,
 	type RescueCandidate,
 	type SearchResult,
@@ -122,7 +123,6 @@ import {
 	relatedSearchResults,
 	threadToSearchResult,
 } from "@/lib/search-result";
-import { parseSearchTokens } from "@/lib/search-tokens";
 import { useTelemetry } from "@/lib/telemetry-context";
 import {
 	applyResidualTokens,

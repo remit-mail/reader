@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { createElement } from "react";
-import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
+import type { OrganizeMatchPredicate } from "@/lib/organize/organize-model";
 import { createDomHarness, type DomHarness } from "../test-support/dom";
 import {
 	type HttpCall,

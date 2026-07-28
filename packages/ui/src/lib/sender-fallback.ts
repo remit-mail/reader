@@ -1,16 +1,12 @@
-import type {
-	RemitImapFilterClause,
-	RemitImapOrganizeInput,
-} from "@remit/api-http-client/types.gen.ts";
+import type { RemitImapFilterClause } from "@remit/api-http-client/types.gen.ts";
 import { getDomain } from "tldts";
-import type { OrganizeDraft } from "./organize-model";
 
 /**
- * The widen fallback for a deployment that ships no vector pipeline (self-host
- * sqlite — semantic-capability.ts). The semantic anchor matches nothing there,
- * so a widen degrades to the literal vocabulary RFC 031 already matches
- * vector-free: one `From` clause per distinct sender in the selection, combined
- * with `Or`, no anchor. The same predicate matches at index time (RFC 034), so a
+ * The widen fallback for a semantic anchor that cannot run — the embedding
+ * backend is unreachable, or the mail it would read has not been indexed yet. A
+ * widen then degrades to the literal vocabulary RFC 031 already matches without
+ * vectors: one `From` clause per distinct sender in the selection, combined with
+ * `Or`, no anchor. The same predicate matches at index time (RFC 034), so a
  * standing filter built from it keeps working on future mail.
  */
 
@@ -83,25 +79,3 @@ export const deriveSenderClauses = (
 	if (domain !== null) return [{ field: "FromDomain", value: domain }];
 	return distinctSenders(senders).map((value) => ({ field: "From", value }));
 };
-
-/**
- * The literal predicate that stands in for the semantic anchor: the sender `From`
- * clauses combined with `Or` and no anchor. The preview, the one-time back-apply,
- * and the standing filter all carry exactly this.
- */
-export const buildSenderFallbackDraft = (
-	senders: readonly string[],
-): OrganizeDraft => ({
-	matchOperator: "Or",
-	literalClauses: deriveSenderClauses(senders),
-});
-
-/**
- * The predicate the widen previewed, handed to the organize sentence so the set
- * it previews equals the set every commit scope acts on. Either the semantic
- * anchor or the sender-derived literal fallback, never both.
- */
-export type OrganizeMatchPredicate = Pick<
-	RemitImapOrganizeInput,
-	"anchorMessageId" | "matchOperator" | "literalClauses"
->;

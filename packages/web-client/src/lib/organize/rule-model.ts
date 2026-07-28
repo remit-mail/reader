@@ -7,10 +7,9 @@ import type {
 	RuleMatchMode,
 	RuleScope,
 } from "@remit/ui";
+import { derivePropertyClauses } from "@remit/ui";
 import { pickedDateToExpiresAt } from "./filter-status";
-import type { OrganizeDraft } from "./organize-model";
-import { derivePropertyClauses } from "./property-prefill";
-import type { OrganizeMatchPredicate } from "./sender-fallback";
+import type { OrganizeDraft, OrganizeMatchPredicate } from "./organize-model";
 
 /**
  * The clause fields the Organize editor may offer (RFC 038 D2). Gated on what

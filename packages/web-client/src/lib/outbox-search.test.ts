@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { parseSearchTokens } from "@remit/ui";
 import { matchesOutboxSearch, outboxQueryIsUnsupported } from "./outbox-search";
-import { parseSearchTokens } from "./search-tokens";
 
 const row = {
 	subject: "Q3 Invoice",

@@ -3,12 +3,12 @@ import type {
 	FilterRule,
 	MatchOperator,
 	RuleScope,
-} from "@remit/ui";
+} from "../components/filter-rule.js";
 import {
 	type ParsedSearchQuery,
 	type SearchToken,
 	searchTokenLabel,
-} from "../search-tokens";
+} from "./search-tokens.js";
 
 /**
  * Filter-from-search (RFC 038 D5). A search is literal terms and facets; a filter
