@@ -111,7 +111,9 @@ describe("MessageList escalation reaches desktop (#212)", () => {
 	});
 
 	it("feeds the bar the shared escalation state", () => {
-		const bar = source.match(/<SelectionTopBar[\s\S]*?\/>/)?.[0] ?? "";
+		// Up to the bar's own closing tag, at its own indent — a nested slot
+		// element closes first and would cut the match short.
+		const bar = source.match(/<SelectionTopBar[\s\S]*?\n\t\t\/>/)?.[0] ?? "";
 		assert.match(bar, /statusLabel=\{selectionStatusLabel\}/);
 		assert.match(bar, /notice=\{selectionNotice\}/);
 		assert.match(bar, /progress=\{selectionProgress\}/);

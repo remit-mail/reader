@@ -16,12 +16,21 @@ export interface PopoverMenuProps {
 	triggerLabel: string;
 	/** Trigger glyph. Defaults to the vertical ellipsis (kebab). */
 	triggerIcon?: ReactNode;
+	/** Visible trigger text. Without it the trigger is the glyph alone. */
+	triggerText?: string;
 	items: PopoverMenuItem[];
 	/** Which edge the menu aligns to. Defaults to "end" (right). */
 	align?: "start" | "end";
 	/** Touch-sizes the trigger to ≥44px. Defaults to true. */
 	touch?: boolean;
 	className?: string;
+	triggerClassName?: string;
+	/**
+	 * Extra rows below the items — a nested trigger whose own list is too long
+	 * or too dynamic to flatten into `items`, e.g. the label picker. Present
+	 * children keep the menu alive even with no items of its own.
+	 */
+	children?: ReactNode;
 }
 
 /**
@@ -29,16 +38,19 @@ export interface PopoverMenuProps {
  * dismissed on outside-click or Escape. Built on the kit `Button` for the
  * trigger; rows are ≥44px for touch ergonomics. The home for the secondary
  * actions an overflow menu collects (mark read/unread, …) so the live client
- * stops hand-rolling the same popover. Renders nothing when `items` is empty —
- * an empty kebab is dead weight, not a disabled control.
+ * stops hand-rolling the same popover. Renders nothing when there are no items
+ * and no children — an empty kebab is dead weight, not a disabled control.
  */
 export function PopoverMenu({
 	triggerLabel,
 	triggerIcon,
+	triggerText,
 	items,
 	align = "end",
 	touch = true,
 	className,
+	triggerClassName,
+	children,
 }: PopoverMenuProps) {
 	const [open, setOpen] = useState(false);
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -64,7 +76,7 @@ export function PopoverMenu({
 		};
 	}, [open]);
 
-	if (items.length === 0) return null;
+	if (items.length === 0 && !children) return null;
 
 	return (
 		<div ref={containerRef} className={cn("relative", className)}>
@@ -76,8 +88,10 @@ export function PopoverMenu({
 				aria-label={triggerLabel}
 				aria-haspopup="menu"
 				aria-expanded={open}
-				className={cn(touch && "min-h-11 min-w-11 px-0")}
-			/>
+				className={cn(touch && "min-h-11 min-w-11 px-0", triggerClassName)}
+			>
+				{triggerText}
+			</Button>
 			{open && (
 				<div
 					role="menu"
@@ -103,6 +117,7 @@ export function PopoverMenu({
 							{item.label}
 						</button>
 					))}
+					{children}
 				</div>
 			)}
 		</div>

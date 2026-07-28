@@ -148,6 +148,29 @@ describe("SelectionTopBar", () => {
 		assert.doesNotMatch(row(html, "actions"), /aria-label="Mark as read"/);
 	});
 
+	it("keeps the overflow menu for an overflowSlot with no verbs of its own", () => {
+		const html = renderToString(
+			createElement(SelectionTopBar, {
+				...handlers,
+				count: 2,
+				overflowSlot: createElement("span", null, "Apply label"),
+			}),
+		);
+		assert.match(html, /aria-label="More actions"/);
+	});
+
+	it("withdraws the overflowSlot while busy", () => {
+		const html = renderToString(
+			createElement(SelectionTopBar, {
+				...handlers,
+				count: 2,
+				isBusy: true,
+				overflowSlot: createElement("span", null, "Apply label"),
+			}),
+		);
+		assert.doesNotMatch(html, /aria-label="More actions"/);
+	});
+
 	it("renders no overflow trigger when neither overflow verb is wired", () => {
 		const html = renderToString(
 			createElement(SelectionTopBar, { ...handlers, count: 2 }),

@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { FolderInput } from "lucide-react";
+import { FolderInput, Tag } from "lucide-react";
+import { PopoverMenu } from "./popover-menu.js";
 import { SelectionTopBar } from "./selection-top-bar.js";
 
 const meta: Meta<typeof SelectionTopBar> = {
@@ -38,6 +39,23 @@ const MoveSlot = () => (
 	</button>
 );
 
+/** Stand-in for the caller's apply-label picker, whose list belongs to the
+ *  account. A worded row, so it reads as one of the menu's actions. */
+const LabelSlot = () => (
+	<PopoverMenu
+		triggerLabel="Apply label to selected messages"
+		triggerIcon={<Tag className="size-4 text-fg-subtle" />}
+		triggerText="Apply label"
+		align="start"
+		touch={false}
+		triggerClassName="min-h-11 w-full justify-start gap-3 px-4 py-2.5 text-sm font-normal text-fg"
+		items={[
+			{ key: "work", label: "Work", onSelect: () => undefined },
+			{ key: "receipts", label: "Receipts", onSelect: () => undefined },
+		]}
+	/>
+);
+
 const selectAll = {
 	checked: false,
 	indeterminate: true,
@@ -68,6 +86,19 @@ export const One: Story = {
 
 export const Many: Story = {
 	args: { count: 3, selectAll, moveSlot: <MoveSlot /> },
+};
+
+/**
+ * The overflow menu with the account's label picker at its foot. Labels carry
+ * no verb on the bar (#477), so this is where applying one lives.
+ */
+export const WithLabelPicker: Story = {
+	args: {
+		count: 3,
+		selectAll,
+		moveSlot: <MoveSlot />,
+		overflowSlot: <LabelSlot />,
+	},
 };
 
 /** A selection spanning folders or accounts has no move target and no

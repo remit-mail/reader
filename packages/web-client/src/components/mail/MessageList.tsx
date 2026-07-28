@@ -50,6 +50,7 @@ import {
 	shouldExitSelectionOnNavigate,
 } from "@/lib/selection-mode";
 import { cn } from "@/lib/utils";
+import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import { MoveToTrigger } from "./MoveToTrigger";
 import { MobileOrganizeFlow } from "./organize/MobileOrganizeFlow";
 import { OrganizeDialog } from "./organize/OrganizeDialog";
@@ -1346,6 +1347,16 @@ export const MessageList = ({
 			}
 			onMarkRead={handleMarkAsRead}
 			moveSlot={selectionMoveSlot}
+			overflowSlot={
+				accountId && mailboxId && selectedCount > 0 ? (
+					<LabelApplyTrigger
+						variant="menu-row"
+						accountId={accountId}
+						mailboxId={mailboxId}
+						messageIds={Array.from(selectedIds)}
+					/>
+				) : undefined
+			}
 			isBusy={selectionIsBusy}
 			isCounting={escalation.phase.kind === "counting"}
 			selectAll={selectionSelectAll}

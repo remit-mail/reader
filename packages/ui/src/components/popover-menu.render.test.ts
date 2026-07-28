@@ -29,4 +29,26 @@ describe("PopoverMenu", () => {
 		);
 		assert.equal(html, "");
 	});
+
+	it("stays alive for children alone, so a nested picker is reachable", () => {
+		const html = renderToString(
+			createElement(
+				PopoverMenu,
+				{ triggerLabel: "More actions", items: [] },
+				createElement("span", null, "Apply label"),
+			),
+		);
+		assert.match(html, /aria-label="More actions"/);
+	});
+
+	it("renders the trigger text beside its glyph", () => {
+		const html = renderToString(
+			createElement(PopoverMenu, {
+				triggerLabel: "Apply label to selected messages",
+				triggerText: "Apply label",
+				items: [item],
+			}),
+		);
+		assert.match(html, /Apply label</);
+	});
 });

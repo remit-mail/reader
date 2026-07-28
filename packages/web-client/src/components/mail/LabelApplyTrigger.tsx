@@ -13,6 +13,12 @@ interface LabelApplyTriggerProps {
 	accountId: string;
 	mailboxId: string;
 	messageIds: string[];
+	/**
+	 * `menu-row` renders the trigger as a labelled full-width row, for use
+	 * inside the selection bar's overflow menu, where a bare glyph among
+	 * worded rows reads as a stray icon.
+	 */
+	variant?: "icon-only" | "menu-row";
 }
 
 /**
@@ -26,6 +32,7 @@ export function LabelApplyTrigger({
 	accountId,
 	mailboxId,
 	messageIds,
+	variant = "icon-only",
 }: LabelApplyTriggerProps) {
 	const { labels } = useLabelList(accountId);
 	const { applyLabel } = useApplyLabel({ accountId, mailboxId });
@@ -50,6 +57,20 @@ export function LabelApplyTrigger({
 	);
 
 	if (items.length === 0) return null;
+
+	if (variant === "menu-row") {
+		return (
+			<PopoverMenu
+				triggerLabel="Apply label to selected messages"
+				triggerIcon={<Tag className="size-4 text-fg-subtle" />}
+				triggerText="Apply label"
+				items={items}
+				align="start"
+				touch={false}
+				triggerClassName="min-h-11 w-full justify-start gap-3 px-4 py-2.5 text-sm font-normal text-fg"
+			/>
+		);
+	}
 
 	return (
 		<PopoverMenu

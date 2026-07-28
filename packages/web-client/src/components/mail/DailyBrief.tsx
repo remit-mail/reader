@@ -81,6 +81,7 @@ import { isServerError } from "@/lib/error-classifier";
 import { useMailContext } from "@/lib/mail-context";
 import { relatedSearchResults, rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
+import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import { MailListHeader, type MailListHeaderProps } from "./MailListHeader";
 import type { MessageListCommands } from "./MessageList";
 import { MessageRow } from "./MessageRow";
@@ -420,6 +421,16 @@ function BriefSelectionChrome({
 							currentMailboxId={scope.mailboxId}
 							onMove={isMoving ? () => {} : handleMove}
 							label="Move selected messages"
+						/>
+					) : undefined
+				}
+				overflowSlot={
+					scope.accountId && scope.mailboxId && selectedCount > 0 ? (
+						<LabelApplyTrigger
+							variant="menu-row"
+							accountId={scope.accountId}
+							mailboxId={scope.mailboxId}
+							messageIds={selectedMessageIds}
 						/>
 					) : undefined
 				}

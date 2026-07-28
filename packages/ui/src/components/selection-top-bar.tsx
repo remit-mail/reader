@@ -53,6 +53,12 @@ export interface SelectionTopBarProps {
 	 */
 	moveSlot?: ReactNode;
 	/**
+	 * Extra rows at the foot of the overflow menu — the apply-label picker,
+	 * whose list belongs to the account rather than to the bar. Withdrawn while
+	 * `isBusy` or `isCounting`, like the other overflow verbs.
+	 */
+	overflowSlot?: ReactNode;
+	/**
 	 * True while a delete or move mutation is in flight. Delete shows a spinner
 	 * and every other verb drops out — nothing here disables, states that
 	 * cannot act are hidden instead.
@@ -127,8 +133,8 @@ function SelectAllToggle({
  * and the verbs in place of that title, in the same place at the top of the
  * pane.
  *
- * Delete, Move and Organize carry a glyph; Junk and Mark read live in the
- * overflow menu. Select-all is a labelled control — permanent from 768px up,
+ * Delete, Move and Organize carry a glyph; Junk, Mark read and whatever
+ * `overflowSlot` adds live in the overflow menu. Select-all is a labelled control — permanent from 768px up,
  * where row one has the room to carry it, and a second row below that, where
  * row one is a count and the verbs. A back arrow leaves selection at every
  * width, so a partial selection is always one press from being dropped.
@@ -142,6 +148,7 @@ export function SelectionTopBar({
 	onJunk,
 	onMarkRead,
 	moveSlot,
+	overflowSlot,
 	isBusy = false,
 	isCounting = false,
 	selectAll,
@@ -246,7 +253,9 @@ export function SelectionTopBar({
 						triggerLabel="More actions"
 						items={overflowItems}
 						className="shrink-0"
-					/>
+					>
+						{!isBusy && !isCounting && overflowSlot}
+					</PopoverMenu>
 				)}
 			</div>
 			{selecting && selectAll && (
