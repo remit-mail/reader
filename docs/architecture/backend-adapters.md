@@ -90,13 +90,33 @@ export const getClient = (): Promise<RemitClient> => {
 	if (!clientPromise) {
 		clientPromise = injected
 			? Promise.resolve(injected)
-			: import("./compose-sqlite.js").then((m) => m.buildSqliteClient());
+			: buildRelationalClient();
 	}
 	return clientPromise;
 };
 ```
 
-No `DATA_BACKEND` read anywhere in the selection path. A process that is handed an adapter calls `setClient(client)` and never reaches the import. A process that is not gets the one composition this build contains.
+No `DATA_BACKEND` read anywhere in the selection path. A process that is handed an adapter calls `setClient(client)` and never reaches the fallback. A process that is not gets the one composition this build contains.
+
+**The cost: the fallback has to keep an error case the env branch was carrying.** Today `dynamodb.ts:41-45` throws `no DynamoDB client registered — register one with setClient() from your composition root` when a process reaches the client without having injected one. That message exists because the env branch told two failures apart: a relational process (which composes in-package) and a DynamoDB process that got its cold-start ordering wrong. Collapsing the branch loses the distinction, and a Lambda with that ordering bug would instead either fail on module resolution — inside a bundle where `@remit/drizzle-service` is deliberately external, so the failure names a missing module rather than a missing registration — or, worse, succeed at opening an empty SQLite file and serve an empty mailbox.
+
+So `buildRelationalClient()` is not a bare `import()`. It refuses when this process is not the one that composes in-package, and it raises the same named error:
+
+```ts
+const buildRelationalClient = async (): Promise<RemitClient> => {
+	if (!process.env.SQLITE_DB_PATH) {
+		throw new Error(
+			"no client registered — register one with setClient() from your composition root",
+		);
+	}
+	const m = await import("./compose-sqlite.js");
+	return m.buildSqliteClient();
+};
+```
+
+`SQLITE_DB_PATH` is the discriminator because it is what the relational composition actually needs — `compose-sqlite.ts:46` reads it through `expect-env`, so a missing value was always going to fail, and this only moves the failure ahead of the dynamic import and gives it the actionable message. It is a *precondition check*, not a backend selection: it never picks between two adapters, and it stays a dynamic `import()` (D8). `docker-compose.sqlite.yml` pins the path, so the check cannot misfire on a self-host box.
+
+*Gives up:* one environment read survives in the selection path, as a guard rather than a branch. *Buys:* the misconfiguration a DynamoDB process is most likely to hit still fails loudly and says what to do, instead of silently opening an empty database.
 
 R3 also asks that two adapters be able to coexist in one process, justified in the issue by a migration and a cross-backend conformance run. Both justifications are out-of-tree work once Postgres is: an out-of-tree adapter runs conformance in its own repository, and there is no second in-tree backend to migrate to. The thing that made two adapters *impossible* was `SQL_DIALECT`, a module-load read that no amount of injection could work around, and D1 removes it. A name-keyed registry over `setClient` is additive and costs one file whenever something actually needs it.
 
@@ -134,6 +154,8 @@ Two things this cannot cover:
   ```
 
 - `@remit/data-ports` publishes raw TypeScript (`"main": "src/index.ts"`), and the suites are written against `node:test`. An out-of-tree adapter therefore needs a TypeScript loader and the node runner, not only the runner. Both are cheap and neither is free.
+
+With one engine left in the tree, every suite is written against and validated by that engine, so a rule that is really SQLite's behaviour can be written into the contract without anything here disagreeing — a `unit-of-work` suite would pin C5 and C6 to a serialized single-connection adapter. The first out-of-tree adapter to run the suite is the acceptance event, not the suite going green here.
 
 ### D7. The port-contract rules
 
@@ -184,7 +206,13 @@ Each slice is independently mergeable with a green CI run. There is no window in
 
 **S1 — Delete the deployment-side Postgres path.** `compose-postgres.ts`, the `DATA_BACKEND === "postgres"` arm of `getClient()`, the Postgres branches of both worker `data-ports.ts` files, `compose-relational.ts` and `deletion-capabilities.ts`, the pgvector arm of `from-env.ts:73` with its guard at `services.ts:41`, and the `pg` default in `auth-service/src/config.ts`. `drizzle-service` is untouched and still runs both suites. Nothing in the tree used any of it; the tests that assert `DATA_BACKEND=postgres` composes go with it.
 
-**S2 — Convert the 25 embedded-Postgres test files to SQLite.** This is D6's split, done once per file: port assertions become conformance suites in `data-ports`, SQL assertions become adapter tests. `test:run:pg`, `localhost-test-unit.env`'s `DATA_BACKEND=postgres`, and the `embedded-postgres` dev dependency go. The dialect global still exists and still reads `sqlite` — the suite now sets it uniformly, so the source is unaffected.
+**S2 — Convert the 25 embedded-Postgres test files to SQLite. This is the risky slice.** Not S3, and not a transcription pass.
+
+17 of the 25 have no SQLite counterpart today: `pagination`, `filter`, `filter-anchor`, `filter-anchor-transaction`, `i4-account`, `i4-account-config`, `i4-account-export-request`, `i4-account-setting`, `i4-address`, `i4-mailbox-lock`, `i4-message-flag-push`, `i4-message-placement-move`, `i4-organize-job-request`, `i4-outbox-message`, `message-label`, `quarantine`, and `repos/thread-message-category`. Those repositories have never been executed against SQLite by any test. `i4-outbox-message.test.ts` is the sharpest case: `schema/outbox.ts:72-73` selects a *different table object* per dialect, so that repository's tests have only ever run against `pgOutboxTable` while production has only ever run against `sqliteOutboxTable`.
+
+That is the strongest argument for doing this, and it is also why the slice is not mechanical: it is where latent SQLite bugs surface — column-type and default differences (`jsonb` vs `text(json)`, `timestamp` vs `integer`), `returning()` behaviour, and anything the repositories assumed from Postgres. Budget it as a bug-fixing slice with an unknown tail, not a rename. Landing it before S3 is deliberate: the failures show up while the Postgres path still exists to compare against.
+
+The split is D6's, made once per file: port assertions become conformance suites in `data-ports`, SQL assertions become adapter tests. `test:run:pg`, `localhost-test-unit.env`'s `DATA_BACKEND=postgres`, and the `embedded-postgres` dev dependency go. The dialect global still exists and still reads `sqlite` — the suite now sets it uniformly, so the source is unaffected.
 
 **S3 — Delete the dialect global and the Postgres half of `drizzle-service`.** `dialect.ts` and `schema/active-entities.ts` deleted, `schema/outbox.ts` reduced to one table, `tx.ts` and `thread-search-predicates.ts` reduced to one arm, `db.ts` retyped to `BetterSQLite3Database`, the remaining casts removed, `@remit/drizzle-pg-schema` dropped from the package's dependencies. This is the slice that surfaces whatever the cast was masking, and by S2 it has no test files left to break.
 
