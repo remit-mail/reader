@@ -40,6 +40,7 @@
  */
 import {
 	type FilterSheetProps,
+	isConvertible,
 	MailHeader,
 	MakeFilterAction,
 	MobileSearchView,
@@ -68,10 +69,7 @@ import { useSearchScope } from "@/hooks/useSearchScope";
 import { useSearchSuggestions } from "@/hooks/useSearchSuggestions";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useMailContext } from "@/lib/mail-context";
-import {
-	convertSearchToRule,
-	isConvertible,
-} from "@/lib/organize/search-to-rule";
+import { convertSearchToRule } from "@/lib/organize/search-to-rule";
 import { loadRecentSearches, saveRecentSearch } from "@/lib/recent-searches";
 import { resultsScopeForRoute, routeMailboxId } from "@/lib/search-scope";
 import { applySearchSuggestion } from "@/lib/search-suggestions";

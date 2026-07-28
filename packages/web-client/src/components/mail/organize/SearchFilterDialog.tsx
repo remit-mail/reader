@@ -1,12 +1,9 @@
-import { Button, Dialog } from "@remit/ui";
+import { Button, buildSearchRule, Dialog } from "@remit/ui";
 import { Loader2 } from "lucide-react";
 import { useMemo } from "react";
 import { useSearchFilterSeed } from "@/hooks/useSearchFilterSeed";
 import { rulePredicate } from "@/lib/organize/rule-model";
-import {
-	buildSearchRule,
-	convertSearchToRule,
-} from "@/lib/organize/search-to-rule";
+import { convertSearchToRule } from "@/lib/organize/search-to-rule";
 import type { ParsedSearchQuery } from "@/lib/search-tokens";
 import { SearchFilterEditor } from "./SearchFilterEditor";
 

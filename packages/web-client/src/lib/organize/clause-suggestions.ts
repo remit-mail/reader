@@ -1,5 +1,4 @@
-import type { ClauseField, Suggestion } from "@remit/ui";
-import { senderDomain } from "./sender-fallback";
+import { type ClauseField, type Suggestion, senderDomain } from "@remit/ui";
 
 /**
  * Values worth offering while a clause is being typed. The rule editor's value

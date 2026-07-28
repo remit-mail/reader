@@ -1,15 +1,15 @@
-import type {
-	ClauseField,
-	FilterRule,
-	MatchOperator,
-	PreviewCount,
-	RuleClause,
-	RuleMatchMode,
-	RuleScope,
+import {
+	type ClauseField,
+	derivePropertyClauses,
+	type FilterRule,
+	type MatchOperator,
+	type PreviewCount,
+	type RuleClause,
+	type RuleMatchMode,
+	type RuleScope,
 } from "@remit/ui";
 import { pickedDateToExpiresAt } from "./filter-status";
 import type { OrganizeDraft } from "./organize-model";
-import { derivePropertyClauses } from "./property-prefill";
 import type { OrganizeMatchPredicate } from "./sender-fallback";
 
 /**
