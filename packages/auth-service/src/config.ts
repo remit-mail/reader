@@ -29,7 +29,6 @@ export const resolveSelfSignUpEnabled = (
 };
 
 export interface DataConnectionConfig {
-	provider: "pg" | "sqlite";
 	connectionString: string;
 }
 
@@ -39,7 +38,6 @@ export interface DataConnectionConfig {
  * database file, so the locator is `SQLITE_DB_PATH`.
  */
 export const resolveDataConnectionConfig = (): DataConnectionConfig => ({
-	provider: "sqlite",
 	connectionString: required("SQLITE_DB_PATH", process.env.SQLITE_DB_PATH),
 });
 

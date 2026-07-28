@@ -5,7 +5,7 @@
  * native extension.
  *
  * Gated behind RUN_INTEG_TESTS because it loads the native better-sqlite3 and
- * sqlite-vec binaries, matching the pgvector integration suite.
+ * sqlite-vec binaries.
  *
  *   npm run test:integ:local -w packages/search-service
  */

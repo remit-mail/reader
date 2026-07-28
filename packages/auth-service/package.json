@@ -1,7 +1,7 @@
 {
   "name": "@remit/auth-service",
   "version": "0.0.1",
-  "description": "better-auth identity service for the Postgres-parity stack (pg-parity)",
+  "description": "better-auth identity service for the self-host stack",
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
@@ -23,14 +23,11 @@
     "test:typecheck": "tsgo --noEmit -p tsconfig.json",
     "test:run": "node --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=94 --test 'src/**/*.test.ts'",
     "test": "npm run test:typecheck && npm run test:run",
-    "auth:schema:generate": "npx @better-auth/cli generate --config src/auth.gen.ts --output src/schema/auth-schema.ts -y",
-    "auth:schema:push": "npx drizzle-kit push",
+    "auth:schema:generate": "npx @better-auth/cli generate --config src/auth.gen.ts --output src/schema/auth-schema-sqlite.ts -y",
     "fix": "biome check --write src"
   },
   "devDependencies": {
     "@better-auth/cli": "^1.4.21",
-    "drizzle-kit": "^0.31.1",
-    "embedded-postgres": "^18.4.0-beta.17",
     "tsx": "*"
   },
   "dependencies": {
@@ -38,7 +35,6 @@
     "better-sqlite3": "^12.11.1",
     "drizzle-orm": "^0.45.2",
     "jose": "^6.2.3",
-    "pg": "^8.0.0",
     "@types/better-sqlite3": "^7.6.13"
   },
   "license": "MIT",

@@ -35,8 +35,9 @@
  *    `docker compose up -d` can restart it while workers still run, so the
  *    quiet window is not assumed. Writers are serialized, so a concurrent
  *    body-sync write lands wholly before or wholly after and both orders
- *    converge on the same value. The `updated_at` guard is what makes a row a
- *    concurrent writer touched fail the re-check, so the writer's value stands.
+ *    converge on the same value. The `updated_at` guard is the backstop: a row
+ *    a concurrent writer touched after the statement began fails the re-check,
+ *    so the writer's value stands rather than being reverted.
  *
  * The guard covers a writer whose transaction begins after the statement. A
  * writer that began before it and commits during it carries an older stamp and

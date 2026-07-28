@@ -2,19 +2,14 @@ import type { Auth as BetterAuthInstance } from "better-auth";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { jwt } from "better-auth/plugins";
-import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
-import pg from "pg";
-import * as authSchema from "./schema/auth-schema.js";
 import * as authSchemaSqlite from "./schema/auth-schema-sqlite.js";
 
 export interface AuthConfig {
 	/**
-	 * The relational backend better-auth runs on, off `DATA_BACKEND` (RFC 036).
-	 * `pg` (the default) reads `connectionString` as a Postgres URL; `sqlite`
-	 * reads it as the path to the shared database file (D3), and drives the
-	 * SQLite identity schema through the drizzle adapter's `sqlite` provider.
+	 * Path to the shared database file (RFC 036 D3). The identity tables live
+	 * beside the app tables and are driven through the drizzle adapter's
+	 * `sqlite` provider.
 	 */
-	provider?: "pg" | "sqlite";
 	connectionString: string;
 	secret: string;
 	baseURL: string;
@@ -27,31 +22,22 @@ export interface AuthConfig {
 	selfSignUpEnabled: boolean;
 }
 
-// The drizzle adapter better-auth runs against, chosen by backend. better-sqlite3
-// and its drizzle driver are imported dynamically so the Postgres path never
-// loads the native binding, and the module stays out of any bundle that never
-// runs on SQLite. On SQLite the auth connection sets the same WAL/busy_timeout
+// The drizzle adapter better-auth runs against. better-sqlite3 and its drizzle
+// driver are imported dynamically so the module stays out of any bundle that
+// never opens the database. The auth connection sets the same WAL/busy_timeout
 // coordination every writer uses (RFC 036 D3) — it shares the file with the app
 // tables through its own connection.
 const buildAuthAdapter = async (config: AuthConfig) => {
-	if (config.provider === "sqlite") {
-		const { default: Database } = await import("better-sqlite3");
-		const { drizzle } = await import("drizzle-orm/better-sqlite3");
-		const sqlite = new Database(config.connectionString);
-		sqlite.pragma("journal_mode = WAL");
-		sqlite.pragma("busy_timeout = 5000");
-		sqlite.pragma("synchronous = NORMAL");
-		sqlite.pragma("foreign_keys = ON");
-		return drizzleAdapter(drizzle(sqlite, { schema: authSchemaSqlite }), {
-			provider: "sqlite",
-			schema: authSchemaSqlite,
-		});
-	}
-
-	const pool = new pg.Pool({ connectionString: config.connectionString });
-	return drizzleAdapter(drizzlePg(pool, { schema: authSchema }), {
-		provider: "pg",
-		schema: authSchema,
+	const { default: Database } = await import("better-sqlite3");
+	const { drizzle } = await import("drizzle-orm/better-sqlite3");
+	const sqlite = new Database(config.connectionString);
+	sqlite.pragma("journal_mode = WAL");
+	sqlite.pragma("busy_timeout = 5000");
+	sqlite.pragma("synchronous = NORMAL");
+	sqlite.pragma("foreign_keys = ON");
+	return drizzleAdapter(drizzle(sqlite, { schema: authSchemaSqlite }), {
+		provider: "sqlite",
+		schema: authSchemaSqlite,
 	});
 };
 
@@ -63,7 +49,7 @@ const intEnv = (name: string, fallback: number): number => {
 };
 
 /**
- * Build a better-auth instance bound to the pg-parity Postgres.
+ * Build a better-auth instance bound to the self-host database file.
  *
  * RS256 is deliberate: the edge tier (APISIX, or the dev-server verifier)
  * follows JWKS key rotation offline, so signing must be asymmetric. The JWKS is

@@ -221,10 +221,8 @@ describe("syncMessageBody — DLQ propagation (integrated, #1270)", () => {
 	const cappedMailbox = (): MailboxItem =>
 		({ fullPath: "INBOX" }) as unknown as MailboxItem;
 
-	// On the DynamoDB path (main repo, DATA_BACKEND unset) the client is injected
-	// by the composition root; register a client whose repositories these tests
-	// then mock. On the relational path (reader, DATA_BACKEND=postgres) getClient
-	// builds its own client and this injection is inert.
+	// The client is supplied by injection (`setClient`), so these tests register
+	// the repositories they then mock rather than reaching a composition.
 	before(() => {
 		setClient({
 			account: { get: async () => cappedAccount() },

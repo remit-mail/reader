@@ -1,17 +1,15 @@
--- SQLite full-text search objects (RFC 036 D4) — the sqlite counterpart of
--- npm-scripts/pg-search-index.sql, applied by the migrator as its final
--- idempotent step (packages/migrate/src/run-migrate.ts) and by the test harness
--- (packages/drizzle-service/src/test-db-sqlite.ts) so repos run the exact
--- search path they ship on.
+-- SQLite full-text search objects (RFC 036 D4), applied by the migrator as its
+-- final idempotent step (packages/migrate/src/run-migrate.ts) and by the test
+-- harness (packages/drizzle-service/src/test-db-sqlite.ts) so repos run the
+-- exact search path they ship on.
 --
--- An external-content FTS5 table over the same two folded texts the Postgres
--- GIN indexes cover: the subject, and the sender (from_name + from_email). The
+-- An external-content FTS5 table over two folded texts: the subject, and the
+-- sender (from_name + from_email). The
 -- trigram tokenizer with remove_diacritics 1 makes MATCH an accent- and
 -- case-insensitive substring search — the same contract the UI has today, with
--- the two named per-target differences D4 accepts (a different diacritic-fold
--- table than Postgres unaccent, and sub-3-character queries falling back to an
+-- the one difference D4 accepts: sub-3-character queries fall back to an
 -- unindexed folded LIKE scan in the query predicate, since trigram needs three
--- characters). Requires SQLite >= 3.45 for the trigram tokenizer's
+-- characters. Requires SQLite >= 3.45 for the trigram tokenizer's
 -- remove_diacritics support; better-sqlite3 bundles a newer build.
 --
 -- content='thread_message' with content_rowid='rowid' links the index to the

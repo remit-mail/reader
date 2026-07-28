@@ -1,4 +1,4 @@
-# APISIX standalone (etcd-less) — the Postgres-parity edge auth tier.
+# APISIX standalone (etcd-less) — the self-host edge auth tier.
 # Routes/upstreams come from apisix.yaml (generated), not a control plane.
 deployment:
   role: data_plane

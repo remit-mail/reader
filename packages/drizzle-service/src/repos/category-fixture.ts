@@ -34,23 +34,6 @@ export const LIVE_TOTALS: CategoryTotals = {
 };
 
 /**
- * The same shape with the four common categories trimmed.
- *
- * The rare tail is untouched — `social` stays at its measured 88 — so every
- * assertion the suites make about a rare category holds identically. What
- * shrinks is the bulk that only exists to make the common categories common,
- * which no suite asserts on and which costs ~20s of seeding.
- */
-export const TRIMMED_TOTALS: CategoryTotals = {
-	personal: 700,
-	marketing: 500,
-	automated: 400,
-	newsletter: 200,
-	transactional: 130,
-	social: 88,
-};
-
-/**
  * The newest 100 rows of that INBOX, as measured. Two of the 4,753 personal
  * messages and two of the 88 social ones are in it, which is why selecting
  * either chip over the newest page returns almost nothing.
