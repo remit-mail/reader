@@ -259,9 +259,12 @@ test.describe("Multi-select", () => {
 	test("cmd/ctrl+A selects every loaded row", async ({ page, run }) => {
 		await page.keyboard.press("ControlOrMeta+a");
 
-		await expect(selectionCount(page)).toHaveText(
-			`${run.seededSubjects.length} messages selected`,
-		);
+		// The bar names the scope once its select-all control reads as checked:
+		// a bare count beside a ticked box reads as "everything", which is only
+		// true for a selection escalated past the loaded page.
+		await expect(
+			page.getByText(`All ${run.seededSubjects.length} loaded selected`),
+		).toBeVisible();
 	});
 
 	test("Escape clears the selection", async ({ page }) => {
