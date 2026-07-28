@@ -219,7 +219,7 @@ test.describe("Desktop select-all-matching over search results", () => {
 		await searchWithMoreMatchesThanLoaded(page, run.inboxId, QUERY, COUNT);
 
 		// Enter selection with a modifier-click (no navigation), then tick the
-		// toolbar's select-all-loaded box — the control desktop gains in #212.
+		// bar's select-all-loaded control — inline from 768px up.
 		await rows(page)
 			.first()
 			.click({ modifiers: ["ControlOrMeta"] });
@@ -249,7 +249,7 @@ test.describe("Desktop select-all-matching over search results", () => {
 
 		// The run ends and selection exits — the toolbar goes away.
 		await expect(
-			page.getByRole("button", { name: "Clear selection" }),
+			page.getByRole("button", { name: "Cancel selection" }),
 		).toBeHidden({ timeout: 30_000 });
 
 		// The load-bearing check: the real backend. The inbox no longer matches,

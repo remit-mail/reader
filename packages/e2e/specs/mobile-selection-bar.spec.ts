@@ -1,13 +1,11 @@
 /**
- * Mobile selection sheet (issue #210).
+ * Mobile selection bar (issues #210, #480).
  *
- * The mobile multi-select surface is a peeking bottom sheet, not the old top
- * bar: selecting two or more rows raises a slim teaser; a tap expands it to the
- * quick actions (Delete / Move / Junk) and the select-similar entries; a tap
- * collapses it back with the selection intact. This spec drives that surface
- * end to end against the real backend — a delete through the sheet actually
- * removes the rows, a move actually files them — and restores the shared
- * inbox's baseline count that the serial suite depends on.
+ * The list header is the selection surface: ticking a row replaces the mailbox
+ * title with the count and the verbs, in place, at the top of the pane. This
+ * spec drives that surface end to end against the real backend — a delete
+ * through the bar actually removes the rows, a move actually files them — and
+ * restores the shared inbox's baseline count that the serial suite depends on.
  */
 import type { Locator, Page } from "@playwright/test";
 import { waitFor } from "../src/api.js";
@@ -38,12 +36,9 @@ const longPress = async (page: Page, row: Locator): Promise<void> => {
 const rowToggle = (row: Locator): Locator =>
 	row.getByRole("button", { name: /^(Select|Deselect) message$/ });
 
-/** The peeking sheet, identified by its stable data hook. */
-const selectionSheet = (page: Page): Locator =>
-	page.locator("[data-selection-sheet]");
-
-const grabber = (page: Page): Locator =>
-	page.getByRole("slider", { name: /(Expand|Collapse) selection actions/ });
+/** The selection bar, identified by its stable data hook. */
+const selectionBar = (page: Page): Locator =>
+	page.locator("[data-selection-bar]");
 
 const cancelSelectionButton = (page: Page): Locator =>
 	page.getByRole("button", { name: "Cancel selection" });
@@ -54,38 +49,26 @@ const deleteButton = (page: Page): Locator =>
 const moveButton = (page: Page): Locator =>
 	page.getByRole("button", { name: "Move selected messages", exact: true });
 
-/** The sheet's count/status line (its first `role="status"`). */
+/** The bar's count/status line (its first `role="status"`). */
 const selectionStatus = (page: Page): Locator =>
-	selectionSheet(page).getByRole("status").first();
+	selectionBar(page).getByRole("status").first();
 
 const confirmDialog = (page: Page): Locator => page.getByRole("dialog");
-
-/** Tap the grabber to expand the sheet, until the in-sheet actions are reachable. */
-const expandSheet = async (page: Page): Promise<void> => {
-	if (
-		await cancelSelectionButton(page)
-			.isVisible()
-			.catch(() => false)
-	)
-		return;
-	await grabber(page).click();
-	await expect(cancelSelectionButton(page)).toBeVisible();
-};
 
 const gotoInbox = async (page: Page, mailboxId: string): Promise<void> => {
 	await page.goto(`/mail/${mailboxId}`);
 	await expect(rows(page).first()).toBeVisible({ timeout: 30_000 });
 };
 
-/** Select the two given rows so the teaser rises. */
+/** Select the two given rows. */
 const selectTwo = async (page: Page, a: Locator, b: Locator): Promise<void> => {
 	await longPress(page, a);
 	await rowToggle(b).click();
-	await expect(selectionSheet(page)).toBeVisible();
+	await expect(selectionBar(page)).toBeVisible();
 	await expect(selectionStatus(page)).toHaveText("2 messages selected");
 };
 
-test.describe("Mobile selection sheet", () => {
+test.describe("Mobile selection bar", () => {
 	test.beforeEach(async ({ page, run }) => {
 		await gotoInbox(page, run.inboxId);
 		await expect(rows(page)).toHaveCount(run.seededSubjects.length, {
@@ -93,57 +76,43 @@ test.describe("Mobile selection sheet", () => {
 		});
 	});
 
-	test("the teaser rises at two selected, not at one", async ({ page }) => {
-		await longPress(page, rows(page).first());
-		// One selected: selection mode is entered (the row shows its toggle) but
-		// the sheet stays down — the prototype's two-row threshold.
-		await expect(rowToggle(rows(page).first())).toHaveAccessibleName(
-			"Deselect message",
-		);
-		await expect(selectionSheet(page)).toBeHidden();
-
-		await rowToggle(rows(page).nth(1)).click();
-		await expect(selectionSheet(page)).toBeVisible();
-		await expect(selectionStatus(page)).toHaveText("2 messages selected");
-		await expect(page.getByText("Swipe up for actions")).toBeVisible();
-	});
-
-	test("expands and collapses by tap; the selection survives both", async ({
+	test("the bar takes the title's place from the first ticked row", async ({
 		page,
 	}) => {
-		await selectTwo(page, rows(page).first(), rows(page).nth(1));
-
-		await grabber(page).click();
-		await expect(deleteButton(page)).toBeVisible();
-		await expect(cancelSelectionButton(page)).toBeVisible();
-
-		await grabber(page).click();
-		await expect(page.getByText("Swipe up for actions")).toBeVisible();
-		// The selection is unchanged across the collapse.
-		await expect(selectionStatus(page)).toHaveText("2 messages selected");
+		await longPress(page, rows(page).first());
 		await expect(rowToggle(rows(page).first())).toHaveAccessibleName(
 			"Deselect message",
 		);
+		await expect(selectionBar(page)).toBeVisible();
+		await expect(selectionStatus(page)).toHaveText("1 message selected");
+		// Row one is the count and the verbs; select-all takes a row of its own.
+		await expect(deleteButton(page)).toBeVisible();
+		await expect(
+			selectionBar(page).getByRole("checkbox", { name: "Select all" }),
+		).toBeVisible();
+
+		await rowToggle(rows(page).nth(1)).click();
+		await expect(selectionStatus(page)).toHaveText("2 messages selected");
 	});
 
-	test("Cancel in the expanded sheet exits selection", async ({ page }) => {
+	test("the back arrow leaves selection", async ({ page }) => {
 		await selectTwo(page, rows(page).first(), rows(page).nth(1));
-		await expandSheet(page);
 
 		await cancelSelectionButton(page).click();
 
-		await expect(selectionSheet(page)).toBeHidden();
+		await expect(selectionBar(page)).toBeHidden();
+		await expect(rowToggle(rows(page).first())).toBeHidden();
 	});
 
-	test("Delete via the sheet removes the rows and keeps the list", async ({
+	test("Delete via the bar removes the rows and keeps the list", async ({
 		page,
 		run,
 		api,
 	}) => {
 		// Scratch messages, not the globally seeded set: the serial suite asserts
 		// the inbox holds exactly `seededSubjects`, so this appends its own, deletes
-		// them through the sheet, and the count check restores the baseline.
-		const tag = `sheet-delete ${Date.now()}`;
+		// them through the bar, and the count check restores the baseline.
+		const tag = `bar-delete ${Date.now()}`;
 		const subjects = [`${tag} A`, `${tag} B`];
 		await appendMessages(
 			run.imapUser,
@@ -164,14 +133,13 @@ test.describe("Mobile selection sheet", () => {
 			.locator("[data-message-row]")
 			.filter({ hasText: subjects[1] });
 		await selectTwo(page, first, second);
-		await expandSheet(page);
 
 		await deleteButton(page).click();
 		const dialog = confirmDialog(page);
 		await expect(dialog).toHaveAccessibleName("Move 2 messages to Trash?");
 		await dialog.getByRole("button", { name: "Move to Trash" }).click();
 
-		await expect(selectionSheet(page)).toBeHidden();
+		await expect(selectionBar(page)).toBeHidden();
 		// Single-pane mobile stays on the list — the delete must not open a
 		// neighbour (#202) — and the completion banner is the signal it landed.
 		await expect(page).not.toHaveURL(/selectedMessageId=/);
@@ -186,12 +154,12 @@ test.describe("Mobile selection sheet", () => {
 		}
 	});
 
-	test("Move via the sheet files the messages and clears the selection", async ({
+	test("Move via the bar files the messages and clears the selection", async ({
 		page,
 		run,
 		api,
 	}) => {
-		const tag = `sheet-move ${Date.now()}`;
+		const tag = `bar-move ${Date.now()}`;
 		const subjects = [`${tag} A`, `${tag} B`];
 		await appendMessages(
 			run.imapUser,
@@ -212,13 +180,12 @@ test.describe("Mobile selection sheet", () => {
 			.locator("[data-message-row]")
 			.filter({ hasText: subjects[1] });
 		await selectTwo(page, first, second);
-		await expandSheet(page);
 
 		await moveButton(page).click();
 		// Archive is a standard destination in the picker on this account.
 		await page.getByRole("option", { name: "Move to Archive" }).click();
 
-		await expect(selectionSheet(page)).toBeHidden();
+		await expect(selectionBar(page)).toBeHidden();
 		// The moved rows leave the inbox, restoring the baseline the suite expects.
 		await expect(async () => {
 			await page.reload();

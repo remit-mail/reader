@@ -43,7 +43,7 @@ export function MessageListPane({
 	isDesktop,
 	initialTouchState,
 	selectionBar,
-	selectionSheet,
+	paneOverlay,
 	listBody,
 	hideHeader = false,
 }: Pick<
@@ -86,12 +86,11 @@ export function MessageListPane({
 	 */
 	selectionBar?: ReactNode;
 	/**
-	 * The mobile multi-select surface: a peeking bottom sheet overlaid on the
-	 * list, distinct from `selectionBar` (which replaces the header at the top).
-	 * Rendered as the last child so it sits above the rows; the caller pads the
-	 * list's own bottom so no row hides behind the teaser.
+	 * An overlay covering the pane, above the rows — the guided organize flow.
+	 * The pane is the positioned ancestor it measures against, and it is
+	 * rendered last so it sits over everything the pane draws.
 	 */
-	selectionSheet?: ReactNode;
+	paneOverlay?: ReactNode;
 	/**
 	 * Overrides the row-rendering section of the non-brief list — the whole
 	 * scrollable body including virtualization, swipe-triage and any load-more
@@ -166,6 +165,7 @@ export function MessageListPane({
 			{selectionBar ??
 				(inBuiltinSelection ? (
 					<SelectionTopBar
+						title={listTitle}
 						count={checkedIds.size}
 						onCancel={cancelSelection}
 						onMarkRead={cancelSelection}
@@ -273,7 +273,7 @@ export function MessageListPane({
 			)}
 
 			{isDesktop && <KeyboardHintBar />}
-			{selectionSheet}
+			{paneOverlay}
 		</section>
 	);
 }

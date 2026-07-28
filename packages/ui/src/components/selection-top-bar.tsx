@@ -1,8 +1,16 @@
-import { Loader2, MailOpen, Trash2, X } from "lucide-react";
+import {
+	ArrowLeft,
+	Loader2,
+	MailOpen,
+	ShieldAlert,
+	Sparkles,
+	Trash2,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { Banner, type BannerTone } from "./banner.js";
 import { Button } from "./button.js";
 import { Checkbox } from "./checkbox.js";
+import { PopoverMenu, type PopoverMenuItem } from "./popover-menu.js";
 import { ProgressBar } from "./progress-bar.js";
 
 const formatCount = (n: number): string => n.toLocaleString();
@@ -18,40 +26,50 @@ export interface SelectionTopBarNotice {
 	action?: SelectionTopBarNoticeAction;
 }
 
+export interface SelectionTopBarSelectAll {
+	checked: boolean;
+	indeterminate?: boolean;
+	onChange: () => void;
+}
+
 export interface SelectionTopBarProps {
+	/** Names the surface while nothing is ticked — the mailbox, the brief. */
+	title: string;
 	count: number;
+	/** Leaves selection, from the back arrow at the head of the bar. */
 	onCancel: () => void;
 	onDelete: () => void;
-	/** Optional — hide the mark-read button when omitted, or while `isBusy`. */
+	/** Opens Organize for the selection. Omitted where organize cannot be
+	 *  scoped to one account. */
+	onOrganize?: () => void;
+	/** Moves the selection to Junk. Omitted in Junk itself, or with no Junk
+	 *  folder appointed. */
+	onJunk?: () => void;
+	/** Optional — dropped from the overflow menu while `isBusy`. */
 	onMarkRead?: () => void;
 	/**
-	 * Slot for a move-to-folder trigger. Rendered between mark-read and delete.
-	 * Kept as a render prop so the caller controls API dependencies.
+	 * The Move verb. A render prop because the trigger owns the folder picker
+	 * and its API dependencies; the bar only gives it a place in the verb row.
 	 */
 	moveSlot?: ReactNode;
 	/**
-	 * True while a delete or move mutation is in flight. The delete button
-	 * shows a spinner and mark-read is hidden (never disabled — nothing here
-	 * disables, states that can't act are hidden instead).
+	 * True while a delete or move mutation is in flight. Delete shows a spinner
+	 * and every other verb drops out — nothing here disables, states that
+	 * cannot act are hidden instead.
 	 */
 	isBusy?: boolean;
 	/**
 	 * True while a search result set is still paging to find its total. Hides
-	 * delete — the count it would act on isn't known yet.
+	 * the verbs — the count they would act on isn't known yet.
 	 */
 	isCounting?: boolean;
 	/**
-	 * Select-all control rendered between cancel and the count label. Presence
-	 * of this prop is what renders the checkbox — omit it for a bar with no
-	 * select-all affordance. `indeterminate` renders the some-selected tri-state
-	 * (`Checkbox`'s dash), `checked` is the all-selected state. The checkbox
-	 * itself stays visually small; a wrapping 44px hit area makes it tappable.
+	 * The labelled select-all control. Inline in the bar from 768px up, whether
+	 * or not anything is ticked; below that it takes a second row while
+	 * selecting, so row one stays a count and a row of verbs. `indeterminate`
+	 * renders the some-selected tri-state.
 	 */
-	selectAll?: {
-		checked: boolean;
-		indeterminate?: boolean;
-		onChange: () => void;
-	};
+	selectAll?: SelectionTopBarSelectAll;
 	/**
 	 * Overrides the default "{count} messages selected" text. Required once the
 	 * count's scope is anything other than "every loaded row is selected" —
@@ -74,21 +92,55 @@ export interface SelectionTopBarProps {
 	 * Toned status line below the action row, sometimes carrying an action
 	 * button — a cross-account move restriction, a "Select all N matching…"
 	 * escalation, a "Stop" during counting, or a partial-failure "Retry N".
-	 * Replaces the old `moveDisabledHint`/`failureHint` pair: a caller shows
-	 * at most one notice at a time.
 	 */
 	notice?: SelectionTopBarNotice;
 }
 
+/** Words, not a bare box: a tick with no legend never says what "all" covers. */
+function SelectAllToggle({
+	selectAll,
+	selecting,
+	className,
+}: {
+	selectAll: SelectionTopBarSelectAll;
+	selecting: boolean;
+	className: string;
+}) {
+	return (
+		<Checkbox
+			className={className}
+			checked={selectAll.checked}
+			indeterminate={selectAll.indeterminate}
+			onChange={selectAll.onChange}
+			label={
+				<span className="font-medium text-accent">
+					{selectAll.checked && selecting ? "Deselect all" : "Select all"}
+				</span>
+			}
+		/>
+	);
+}
+
 /**
- * Replaces the list header in narrow-width multi-select: a count plus the bulk
- * verbs (cancel, mark read, move, delete). Real Buttons that never disable.
+ * The list header and the selection action bar, as one surface. With nothing
+ * ticked it names the mailbox; from the first ticked row it carries the count
+ * and the verbs in place of that title, in the same place at the top of the
+ * pane.
+ *
+ * Delete, Move and Organize carry a glyph; Junk and Mark read live in the
+ * overflow menu. Select-all is a labelled control — permanent from 768px up,
+ * where row one has the room to carry it, and a second row below that, where
+ * row one is a count and the verbs. A back arrow leaves selection at every
+ * width, so a partial selection is always one press from being dropped.
  */
 export function SelectionTopBar({
+	title,
 	count,
 	onCancel,
-	onMarkRead,
 	onDelete,
+	onOrganize,
+	onJunk,
+	onMarkRead,
 	moveSlot,
 	isBusy = false,
 	isCounting = false,
@@ -97,68 +149,118 @@ export function SelectionTopBar({
 	progress,
 	notice,
 }: SelectionTopBarProps) {
+	const selecting = count > 0 || isCounting;
 	const defaultLabel = selectAll?.checked
 		? `All ${formatCount(count)} loaded selected`
 		: `${formatCount(count)} ${count === 1 ? "message" : "messages"} selected`;
 
+	const overflowItems: PopoverMenuItem[] = [];
+	if (onJunk && !isBusy && !isCounting) {
+		overflowItems.push({
+			key: "junk",
+			label: "Junk",
+			icon: <ShieldAlert className="size-4" />,
+			onSelect: onJunk,
+		});
+	}
+	if (onMarkRead && !isBusy && !isCounting) {
+		overflowItems.push({
+			key: "mark-read",
+			label: "Mark read",
+			icon: <MailOpen className="size-4" />,
+			onSelect: onMarkRead,
+		});
+	}
+
 	return (
-		<header className="flex shrink-0 flex-col border-b border-line bg-surface-sunken">
-			<div className="flex h-pane-header items-center gap-2 px-row-inset">
-				<Button
-					variant="ghost"
-					size="touch"
-					icon={<X className="size-4" />}
-					onClick={onCancel}
-					aria-label="Cancel selection"
-					className="-ml-2 shrink-0"
-				/>
-				{selectAll && (
-					// biome-ignore lint/a11y/noLabelWithoutControl: label wraps Checkbox's own input, giving the 20px control a real 44px hit area
-					<label className="-ml-1.5 flex size-11 shrink-0 cursor-pointer items-center justify-center">
-						<Checkbox
-							aria-label="Select all"
-							checked={selectAll.checked}
-							indeterminate={selectAll.indeterminate}
-							onChange={selectAll.onChange}
-						/>
-					</label>
-				)}
-				<span
-					className="min-w-0 flex-1 truncate text-sm font-medium text-fg"
-					role="status"
-					aria-live="polite"
-				>
-					{statusLabel ?? defaultLabel}
-				</span>
-				{onMarkRead && !isBusy && (
+		<header
+			data-selection-bar=""
+			className="flex shrink-0 flex-col border-b border-line bg-surface-sunken"
+		>
+			<div
+				data-selection-bar-row="actions"
+				className="flex h-pane-header items-center gap-1 px-row-inset"
+			>
+				{selecting && (
 					<Button
 						variant="ghost"
 						size="touch"
-						icon={<MailOpen className="size-4" />}
-						onClick={onMarkRead}
-						aria-label="Mark as read"
+						icon={<ArrowLeft className="size-5" />}
+						onClick={onCancel}
+						aria-label="Cancel selection"
+						className="-ml-2 shrink-0"
+					/>
+				)}
+				{selectAll && (
+					<SelectAllToggle
+						selectAll={selectAll}
+						selecting={selecting}
+						className="hidden shrink-0 pr-2 md:flex"
+					/>
+				)}
+				{selecting ? (
+					<span
+						className="min-w-0 flex-1 truncate px-1 text-sm font-medium text-fg"
+						role="status"
+						aria-live="polite"
+					>
+						{statusLabel ?? defaultLabel}
+					</span>
+				) : (
+					<h1 className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-fg">
+						{title}
+					</h1>
+				)}
+				{selecting && !isCounting && (
+					<>
+						<Button
+							variant="ghost"
+							size="touch"
+							icon={
+								isBusy ? (
+									<Loader2 className="size-5 animate-spin" />
+								) : (
+									<Trash2 className="size-5 text-danger" />
+								)
+							}
+							onClick={isBusy ? undefined : onDelete}
+							aria-label="Move selected messages to Trash"
+							aria-busy={isBusy || undefined}
+							className="shrink-0"
+						/>
+						{!isBusy && moveSlot}
+						{!isBusy && onOrganize && (
+							<Button
+								variant="ghost"
+								size="touch"
+								icon={<Sparkles className="size-5" />}
+								onClick={onOrganize}
+								aria-label="Organize selected messages"
+								className="shrink-0"
+							/>
+						)}
+					</>
+				)}
+				{selecting && (
+					<PopoverMenu
+						triggerLabel="More actions"
+						items={overflowItems}
 						className="shrink-0"
 					/>
 				)}
-				{moveSlot}
-				{!isCounting && (
-					<Button
-						variant="ghost"
-						size="touch"
-						icon={
-							isBusy ? (
-								<Loader2 className="size-4 animate-spin" />
-							) : (
-								<Trash2 className="size-4 text-danger" />
-							)
-						}
-						onClick={isBusy ? undefined : onDelete}
-						aria-label="Move selected messages to Trash"
-						aria-busy={isBusy || undefined}
-						className="ml-4 shrink-0"
-					/>
-				)}
 			</div>
+			{selecting && selectAll && (
+				<div
+					data-selection-bar-row="select-all"
+					className="px-row-inset pb-2 md:hidden"
+				>
+					<SelectAllToggle
+						selectAll={selectAll}
+						selecting={selecting}
+						className="w-full"
+					/>
+				</div>
+			)}
 			{progress && (
 				<div className="px-row-inset pb-2">
 					<ProgressBar

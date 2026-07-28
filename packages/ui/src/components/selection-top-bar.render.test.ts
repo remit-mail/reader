@@ -5,6 +5,7 @@ import { renderToString } from "react-dom/server";
 import { SelectionTopBar } from "./selection-top-bar.js";
 
 const handlers = {
+	title: "Inbox",
 	onCancel: () => undefined,
 	onDelete: () => undefined,
 };
@@ -19,12 +20,39 @@ const text = (html: string) =>
 		.replace(/&#x27;/g, "'")
 		.replace(/&amp;/g, "&");
 
+/** The bar's own rows, sliced out of the rendered markup so an assertion can
+ *  say which row a control landed on. Row one is the count and the verbs; the
+ *  select-all row exists only below 768px, while selecting. */
+const row = (html: string, name: "actions" | "select-all"): string => {
+	const open = html.indexOf(`data-selection-bar-row="${name}"`);
+	assert.notEqual(open, -1, `no ${name} row rendered`);
+	const rest = html.slice(open);
+	const next = rest.indexOf("data-selection-bar-row=", 1);
+	return next === -1 ? rest : rest.slice(0, next);
+};
+
+const hasRow = (html: string, name: "actions" | "select-all"): boolean =>
+	html.includes(`data-selection-bar-row="${name}"`);
+
+const INLINE_SELECT_ALL = /hidden shrink-0 pr-2 md:flex/;
+
+const selectAll = { checked: false, onChange: () => undefined };
+
 describe("SelectionTopBar", () => {
-	it("renders singular copy for one message", () => {
+	it("names the mailbox when nothing is ticked", () => {
+		const html = renderToString(
+			createElement(SelectionTopBar, { ...handlers, count: 0 }),
+		);
+		assert.match(text(html), /Inbox/);
+		assert.doesNotMatch(text(html), /messages selected/);
+	});
+
+	it("replaces the title with the count from the first ticked row", () => {
 		const html = renderToString(
 			createElement(SelectionTopBar, { ...handlers, count: 1 }),
 		);
 		assert.match(text(html), /1 message selected/);
+		assert.doesNotMatch(text(html), /Inbox/);
 	});
 
 	it("renders plural copy for many messages", () => {
@@ -41,75 +69,128 @@ describe("SelectionTopBar", () => {
 		assert.match(text(html), /3,412 messages selected/);
 	});
 
-	it("renders cancel and delete controls", () => {
+	describe("at 375px", () => {
 		const html = renderToString(
-			createElement(SelectionTopBar, { ...handlers, count: 2 }),
+			createElement(SelectionTopBar, {
+				...handlers,
+				count: 3,
+				selectAll,
+				onOrganize: () => undefined,
+				moveSlot: createElement(
+					"button",
+					{ type: "button", "aria-label": "Move selected messages" },
+					"Move",
+				),
+			}),
 		);
-		assert.match(html, /aria-label="Cancel selection"/);
-		assert.match(html, /aria-label="Move selected messages to Trash"/);
+
+		it("carries the count and the three verbs on row one", () => {
+			const actions = row(html, "actions");
+			assert.match(actions, /3 messages selected/);
+			assert.match(actions, /aria-label="Move selected messages to Trash"/);
+			assert.match(actions, /aria-label="Move selected messages"/);
+			assert.match(actions, /aria-label="Organize selected messages"/);
+		});
+
+		it("puts select-all on a second row, out of the way of the verbs", () => {
+			assert.ok(hasRow(html, "select-all"));
+			const secondRow = row(html, "select-all");
+			assert.match(secondRow, /Select all/);
+			assert.match(
+				secondRow,
+				/md:hidden/,
+				"the second row exists only below 768px",
+			);
+			assert.match(
+				row(html, "actions"),
+				INLINE_SELECT_ALL,
+				"the inline copy is the one that stands down below 768px",
+			);
+		});
+
+		it("offers a back arrow to leave selection", () => {
+			assert.match(row(html, "actions"), /aria-label="Cancel selection"/);
+		});
 	});
 
-	it("renders cancel, mark-read and delete at the 44px touch size", () => {
+	describe("at 1024px", () => {
+		it("keeps select-all inline in the bar with zero rows ticked", () => {
+			const html = renderToString(
+				createElement(SelectionTopBar, { ...handlers, count: 0, selectAll }),
+			);
+			const actions = row(html, "actions");
+			assert.match(actions, /Select all/);
+			assert.match(actions, INLINE_SELECT_ALL, "inline from 768px up");
+			assert.doesNotMatch(
+				actions,
+				/aria-label="Cancel selection"/,
+				"nothing to leave with nothing ticked",
+			);
+			assert.equal(
+				hasRow(html, "select-all"),
+				false,
+				"no second row when nothing is ticked",
+			);
+		});
+	});
+
+	it("renders Junk and Mark read in the overflow menu, not the verb row", () => {
 		const html = renderToString(
 			createElement(SelectionTopBar, {
 				...handlers,
 				count: 2,
+				onJunk: () => undefined,
 				onMarkRead: () => undefined,
 			}),
 		);
-		const buttonCount = (html.match(/h-11 w-11/g) ?? []).length;
-		assert.equal(buttonCount, 3, "cancel, mark-read and delete are all 44px");
+		assert.match(html, /aria-label="More actions"/);
+		assert.match(html, /aria-haspopup="menu"/);
+		assert.doesNotMatch(row(html, "actions"), /aria-label="Mark as read"/);
 	});
 
-	it("spaces delete at least 16px from its preceding sibling", () => {
+	it("renders no overflow trigger when neither overflow verb is wired", () => {
 		const html = renderToString(
 			createElement(SelectionTopBar, { ...handlers, count: 2 }),
 		);
-		assert.match(
-			html,
-			/class="[^"]*\bml-4\b[^"]*"[^>]*aria-label="Move selected messages to Trash"/,
-		);
+		assert.doesNotMatch(html, /aria-label="More actions"/);
 	});
 
-	it("renders mark-read control when onMarkRead is provided", () => {
+	it("drops the overflow verbs while busy instead of disabling them", () => {
 		const html = renderToString(
 			createElement(SelectionTopBar, {
 				...handlers,
 				count: 2,
 				onMarkRead: () => undefined,
-			}),
-		);
-		assert.match(html, /aria-label="Mark as read"/);
-	});
-
-	it("omits mark-read control when onMarkRead is absent", () => {
-		const html = renderToString(
-			createElement(SelectionTopBar, { ...handlers, count: 2 }),
-		);
-		assert.doesNotMatch(html, /aria-label="Mark as read"/);
-	});
-
-	it("hides mark-read while busy instead of disabling it", () => {
-		const html = renderToString(
-			createElement(SelectionTopBar, {
-				...handlers,
-				count: 2,
-				onMarkRead: () => undefined,
+				onJunk: () => undefined,
 				isBusy: true,
 			}),
 		);
-		assert.doesNotMatch(html, /aria-label="Mark as read"/);
+		assert.doesNotMatch(html, /aria-label="More actions"/);
 	});
 
-	it("hides delete while counting", () => {
+	it("renders the verbs at the 44px touch size", () => {
+		const html = renderToString(
+			createElement(SelectionTopBar, {
+				...handlers,
+				count: 2,
+				onOrganize: () => undefined,
+			}),
+		);
+		const buttonCount = (html.match(/h-11 w-11/g) ?? []).length;
+		assert.equal(buttonCount, 3, "back, delete and organize are all 44px");
+	});
+
+	it("hides the verbs while counting", () => {
 		const html = renderToString(
 			createElement(SelectionTopBar, {
 				...handlers,
 				count: 0,
 				isCounting: true,
+				onOrganize: () => undefined,
 			}),
 		);
 		assert.doesNotMatch(html, /aria-label="Move selected messages to Trash"/);
+		assert.doesNotMatch(html, /aria-label="Organize selected messages"/);
 	});
 
 	it("renders statusLabel in place of the count copy when provided", () => {
@@ -122,13 +203,6 @@ describe("SelectionTopBar", () => {
 		);
 		assert.match(text(html), /Deleting 1,200 of 3,412…/);
 		assert.doesNotMatch(text(html), /3,412 messages selected/);
-	});
-
-	it("falls back to the count copy when statusLabel is absent", () => {
-		const html = renderToString(
-			createElement(SelectionTopBar, { ...handlers, count: 2 }),
-		);
-		assert.match(text(html), /2 messages selected/);
 	});
 
 	it("marks the count/status line as a polite live region", () => {
@@ -145,10 +219,10 @@ describe("SelectionTopBar", () => {
 		const html = renderToString(
 			createElement(SelectionTopBar, { ...handlers, count: 2 }),
 		);
-		assert.doesNotMatch(html, /aria-label="Select all"/);
+		assert.doesNotMatch(text(html), /Select all/);
 	});
 
-	it("renders the select-all control, unchecked, in the some-selected state", () => {
+	it("renders select-all unchecked in the some-selected state", () => {
 		const html = renderToString(
 			createElement(SelectionTopBar, {
 				...handlers,
@@ -160,15 +234,11 @@ describe("SelectionTopBar", () => {
 				},
 			}),
 		);
-		assert.match(html, /aria-label="Select all"/);
-		assert.doesNotMatch(
-			html,
-			/aria-label="Select all"[^>]*checked=""/,
-			"some-selected is not the checked state",
-		);
+		assert.match(text(html), /Select all/);
+		assert.doesNotMatch(html, /type="checkbox"[^>]*checked=""/);
 	});
 
-	it("renders the select-all control checked in the all-selected state", () => {
+	it("names the control by what pressing it does once everything is ticked", () => {
 		const html = renderToString(
 			createElement(SelectionTopBar, {
 				...handlers,
@@ -180,11 +250,8 @@ describe("SelectionTopBar", () => {
 				},
 			}),
 		);
-		assert.match(
-			html,
-			/aria-label="Select all"[^>]*checked=""/,
-			"all-selected renders the checkbox checked",
-		);
+		assert.match(html, /type="checkbox"[^>]*checked=""/);
+		assert.match(text(html), /Deselect all/);
 	});
 
 	it("names the loaded scope by default once select-all is checked", () => {
@@ -200,7 +267,6 @@ describe("SelectionTopBar", () => {
 			}),
 		);
 		assert.match(text(html), /All 47 loaded selected/);
-		assert.doesNotMatch(text(html), /^47 messages selected/);
 	});
 
 	it("lets statusLabel override the scoped default for an escalated selection", () => {
@@ -213,20 +279,6 @@ describe("SelectionTopBar", () => {
 			}),
 		);
 		assert.match(text(html), /All 3,412 matching "npm" selected/);
-	});
-
-	it("gives the select-all checkbox a 44px hit area", () => {
-		const html = renderToString(
-			createElement(SelectionTopBar, {
-				...handlers,
-				count: 2,
-				selectAll: {
-					checked: false,
-					onChange: () => undefined,
-				},
-			}),
-		);
-		assert.match(html, /<label[^>]*size-11[^>]*>/);
 	});
 
 	it("renders the notice text and tone", () => {
@@ -245,7 +297,6 @@ describe("SelectionTopBar", () => {
 	});
 
 	it("renders the notice's action as a real button, not prose", () => {
-		const onRetry = () => undefined;
 		const html = renderToString(
 			createElement(SelectionTopBar, {
 				...handlers,
@@ -253,7 +304,7 @@ describe("SelectionTopBar", () => {
 				notice: {
 					tone: "danger",
 					text: "3,072 moved to Trash. 340 couldn't be deleted.",
-					action: { label: "Retry 340", onClick: onRetry },
+					action: { label: "Retry 340", onClick: () => undefined },
 				},
 			}),
 		);
@@ -289,18 +340,5 @@ describe("SelectionTopBar", () => {
 			createElement(SelectionTopBar, { ...handlers, count: 2 }),
 		);
 		assert.doesNotMatch(html, /role="progressbar"/);
-	});
-
-	it("omitting every new prop renders exactly the pre-existing bar shape", () => {
-		const html = renderToString(
-			createElement(SelectionTopBar, { ...handlers, count: 2 }),
-		);
-		assert.doesNotMatch(
-			html,
-			/aria-label="Select all"/,
-			"no select-all control",
-		);
-		assert.match(text(html), /2 messages selected/, "default count copy");
-		assert.doesNotMatch(html, /role="progressbar"/, "no progress bar");
 	});
 });

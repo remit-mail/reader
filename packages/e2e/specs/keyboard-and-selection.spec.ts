@@ -231,10 +231,10 @@ test.describe("Multi-select", () => {
 
 		await expect(selectionCount(page)).toHaveText("2 messages selected");
 		await expect(
-			page.getByRole("button", { name: "Delete selected messages" }),
+			page.getByRole("button", { name: "Move selected messages to Trash" }),
 		).toBeVisible();
 		await expect(
-			page.getByRole("button", { name: "Clear selection" }),
+			page.getByRole("button", { name: "Cancel selection" }),
 		).toBeVisible();
 	});
 

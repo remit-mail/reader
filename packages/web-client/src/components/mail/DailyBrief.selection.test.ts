@@ -5,10 +5,9 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 /**
- * The brief raises two selection surfaces — the desktop toolbar and the touch
- * sheet — and they offer the same verbs. Select-all was wired into the sheet
- * only, so the same list could be selected whole on a phone and not on a
- * desktop (#453).
+ * The brief raises one selection surface at every width, and select-all is on
+ * it — wired into the touch sheet alone, the same list could be selected whole
+ * on a phone and not on a desktop (#453).
  *
  * As with `MessageList.selection.test.ts`, `DailyBrief` weaves routing, the
  * cursor and several data hooks together, so the rule is enforced by reading
@@ -27,20 +26,14 @@ const chromeBody = (): string => {
 };
 
 describe("the brief's select-all", () => {
-	it("reaches the desktop toolbar and the touch sheet from one derivation", () => {
+	it("reaches the one selection bar from one derivation", () => {
 		const body = chromeBody();
 		const derivations = body.match(/const selectAll = useMemo\(/g) ?? [];
-		assert.equal(
-			derivations.length,
-			1,
-			"one select-all, so the two surfaces cannot drift",
-		);
+		assert.equal(derivations.length, 1, "one select-all");
+		const bars = body.match(/<SelectionTopBar\b/g) ?? [];
+		assert.equal(bars.length, 1, "one surface, at every width (#480)");
 		const wired = body.match(/selectAll=\{selectAll\}/g) ?? [];
-		assert.equal(
-			wired.length,
-			2,
-			"both SelectionToolbar and SelectionSheet take it",
-		);
+		assert.equal(wired.length, 1, "the bar takes it");
 	});
 
 	it("is offered only when there are rows to select", () => {

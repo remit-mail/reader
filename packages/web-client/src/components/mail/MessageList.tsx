@@ -5,8 +5,7 @@ import {
 	type MessageListFilter,
 	MessageListLoadingMore,
 	MessageListPane,
-	SELECTION_SHEET_TEASER_HEIGHT,
-	SelectionSheet,
+	SelectionTopBar,
 } from "@remit/ui";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -50,15 +49,10 @@ import {
 	deriveIsMultiSelectMode,
 	shouldExitSelectionOnNavigate,
 } from "@/lib/selection-mode";
-import {
-	resolveSelectionSheetMode,
-	shouldShowSelectionSheet,
-} from "@/lib/selection-sheet-mode";
 import { cn } from "@/lib/utils";
 import { MoveToTrigger } from "./MoveToTrigger";
 import { MobileOrganizeFlow } from "./organize/MobileOrganizeFlow";
 import { OrganizeDialog } from "./organize/OrganizeDialog";
-import { SelectionToolbar } from "./SelectionToolbar";
 import { SwipeableMessageRow } from "./SwipeableMessageRow";
 
 /**
@@ -1282,37 +1276,15 @@ export const MessageList = ({
 							}
 						: undefined;
 
-	// The mobile sheet has no inline hint slot, so the cross-account move
-	// restriction rides in as the lowest-priority notice.
-	const mobileNotice =
+	// The bar shows one notice at a time, so the cross-account move restriction
+	// rides in behind the escalation states.
+	const selectionNotice =
 		escalationNotice ??
 		(moveDisabledHint
 			? { tone: "warning" as const, text: moveDisabledHint }
 			: undefined);
 
-	// Mobile: which content the peeking sheet routes to, from the escalation
-	// machinery. `running` (a chunked delete/move/mark-read) and `counting` (a
-	// predicate still paging) replace the idle quick actions with status and
-	// progress; `escalated` keeps the verbs over the whole predicate.
-	const mobileMode = resolveSelectionSheetMode({
-		isRunning: escalation.isRunning,
-		isCounting: escalation.phase.kind === "counting",
-		isEscalated: escalation.phase.kind === "escalated",
-	});
-
-	// The sheet is the sole mobile selection surface. It rises at 2+ selected
-	// (the prototype threshold) or in any non-idle escalation state — a single
-	// selected row enters selection mode without raising it, matching today.
-	const showMobileSheet =
-		!isDesktop &&
-		isMultiSelectMode &&
-		shouldShowSelectionSheet(
-			selectionCount,
-			mobileMode,
-			mobileNotice !== undefined,
-		);
-
-	const mobileMoveSlot =
+	const selectionMoveSlot =
 		(onMoveMessages || escalation.phase.kind === "escalated") &&
 		accountId &&
 		mailboxId ? (
@@ -1325,9 +1297,8 @@ export const MessageList = ({
 			/>
 		) : undefined;
 
-	// The guided organize flow (issue #211) overlays the same positioned pane
-	// ancestor as the sheet, so it is rendered from the sheet slot. The sheet
-	// stays mounted underneath as the flow's dimmed backdrop.
+	// The guided organize flow (issue #211) covers the pane, which is its
+	// positioned ancestor.
 	const mobileOrganizeFlow =
 		mobileOrganizeEntry && accountId && !isDesktop && selectedCount > 0 ? (
 			<MobileOrganizeFlow
@@ -1343,72 +1314,46 @@ export const MessageList = ({
 			/>
 		) : undefined;
 
-	const mobileSelectionSheet = showMobileSheet ? (
-		<SelectionSheet
+	// Organize acts on the materialized selection within one account, so it is
+	// withdrawn the moment the selection escalates to a predicate or a run
+	// takes over — both of which name themselves through `statusLabel`.
+	const canOrganize =
+		!!accountId && !!mailboxId && !moveDisabledHint && !selectionStatusLabel;
+
+	// One selection surface at every width: the list header carries the count
+	// and the verbs from the first ticked row, and the escalation states
+	// (issue #212) — the offer, counting, the escalated predicate, a chunked
+	// run's progress — ride on the same bar rather than a second one.
+	const isSelecting = hasSelection || escalation.phase.kind !== "idle";
+	const activeSelectionBar = isSelecting ? (
+		<SelectionTopBar
+			title={listTitle}
 			count={selectionCount}
-			mode={mobileMode}
 			onCancel={handleSelectionCancel}
 			onDelete={handleSelectionDelete}
+			onOrganize={
+				canOrganize
+					? () =>
+							isDesktop
+								? setOrganizeOpen(true)
+								: setMobileOrganizeEntry("select-similar")
+					: undefined
+			}
 			onJunk={
 				junkMailboxId && junkMailboxId !== mailboxId && !moveDisabledHint
 					? handleJunk
 					: undefined
 			}
 			onMarkRead={handleMarkAsRead}
-			onSelectSimilar={
-				accountId ? () => setMobileOrganizeEntry("select-similar") : undefined
-			}
-			onSomethingElse={
-				accountId ? () => setMobileOrganizeEntry("something-else") : undefined
-			}
-			moveSlot={mobileMoveSlot}
+			moveSlot={selectionMoveSlot}
 			isBusy={selectionIsBusy}
+			isCounting={escalation.phase.kind === "counting"}
 			selectAll={selectionSelectAll}
 			statusLabel={selectionStatusLabel}
 			progress={selectionProgress}
-			notice={mobileNotice}
+			notice={selectionNotice}
 		/>
 	) : undefined;
-
-	// Both mobile overlays share the pane's positioned ancestor via the sheet
-	// slot: the peeking sheet, and the guided organize flow above it.
-	const mobileSelectionSurface =
-		mobileSelectionSheet || mobileOrganizeFlow ? (
-			<>
-				{mobileSelectionSheet}
-				{mobileOrganizeFlow}
-			</>
-		) : undefined;
-
-	// Desktop selection toolbar replaces the pane header when any rows are
-	// selected. It gains the same search-escalation states the mobile sheet
-	// carries (issue #212) — the offer, counting, the escalated predicate and a
-	// chunked run's progress — from the shared derivations above; the
-	// cross-account move hint stays inline (the toolbar has a slot for it).
-	const desktopSelectionBar =
-		hasSelection && isDesktop ? (
-			<SelectionToolbar
-				selectedCount={selectionCount}
-				onDelete={handleSelectionDelete}
-				onClearSelection={handleSelectionCancel}
-				onMarkAsRead={handleMarkAsRead}
-				onMove={onMoveMessages ? handleMoveSelected : undefined}
-				onOrganize={() => setOrganizeOpen(true)}
-				isDeleting={isDeleting}
-				isMoving={isMoving}
-				accountId={accountId}
-				currentMailboxId={mailboxId}
-				selectedMessageIds={Array.from(selectedIds)}
-				moveDisabledHint={moveDisabledHint}
-				selectAll={escalationEnabled ? selectionSelectAll : undefined}
-				statusLabel={selectionStatusLabel}
-				isCounting={escalation.phase.kind === "counting"}
-				progress={selectionProgress}
-				notice={escalationNotice}
-			/>
-		) : undefined;
-
-	const activeSelectionBar = desktopSelectionBar;
 
 	// Roving tabindex: exactly one row is in the tab order, so Tab moves focus
 	// into the list at the cursor and Shift+Tab moves back out to the side panel
@@ -1440,13 +1385,6 @@ export const MessageList = ({
 				aria-multiselectable
 				aria-label={listTitle}
 				className="flex-1 overflow-y-auto"
-				// Pad the list so its last rows clear the peeking teaser (~56px)
-				// rather than hiding behind it.
-				style={
-					showMobileSheet
-						? { paddingBottom: SELECTION_SHEET_TEASER_HEIGHT }
-						: undefined
-				}
 			>
 				{/* Virtualizer scaffolding — presentational so the listbox sees the
 				    rows as its options rather than these positioning wrappers. */}
@@ -1551,7 +1489,7 @@ export const MessageList = ({
 				isDesktop={isDesktop}
 				hideHeader={hideHeader}
 				selectionBar={activeSelectionBar}
-				selectionSheet={mobileSelectionSurface}
+				paneOverlay={mobileOrganizeFlow}
 				listBody={listState === "ready" ? virtualBody : undefined}
 			/>
 			<ConfirmDialog

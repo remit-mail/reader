@@ -6,8 +6,6 @@ import {
 	defaultKeyboardHints,
 	KeyboardHintBar,
 	MailHeader,
-	SELECTION_SHEET_TEASER_HEIGHT,
-	SelectionSheet,
 	SelectionTopBar,
 	type ThreadRowData,
 	type ThreadSection,
@@ -332,7 +330,7 @@ function BriefMultiSelectScreen({ touch = false }: { touch?: boolean }) {
 				className="relative flex h-[760px] flex-col overflow-hidden border border-line bg-canvas"
 				style={{ width: touch ? 390 : 420 }}
 			>
-				{touch ? (
+				{touch && checked.size === 0 ? (
 					<MailHeader
 						title="Daily brief"
 						unreadCount={briefUnseen}
@@ -345,18 +343,21 @@ function BriefMultiSelectScreen({ touch = false }: { touch?: boolean }) {
 					/>
 				) : (
 					<SelectionTopBar
+						title="Daily brief"
 						count={checked.size}
 						onCancel={clear}
 						onDelete={clear}
+						onOrganize={clear}
+						onJunk={clear}
 						onMarkRead={clear}
+						selectAll={{
+							checked: false,
+							indeterminate: checked.size > 0,
+							onChange: clear,
+						}}
 					/>
 				)}
-				<div
-					className="min-h-0 flex-1"
-					style={
-						touch ? { paddingBottom: SELECTION_SHEET_TEASER_HEIGHT } : undefined
-					}
-				>
+				<div className="min-h-0 flex-1">
 					<div className="h-full overflow-y-auto">
 						{sections.map((section) => (
 							<BriefSection
@@ -367,16 +368,6 @@ function BriefMultiSelectScreen({ touch = false }: { touch?: boolean }) {
 						))}
 					</div>
 				</div>
-				{touch && checked.size > 0 && (
-					<SelectionSheet
-						count={checked.size}
-						onCancel={clear}
-						onDelete={clear}
-						onMarkRead={clear}
-						onSelectSimilar={() => undefined}
-						onSomethingElse={() => undefined}
-					/>
-				)}
 			</div>
 		</BriefCheckedContext.Provider>
 	);
@@ -385,10 +376,8 @@ function BriefMultiSelectScreen({ touch = false }: { touch?: boolean }) {
 /**
  * Desktop multi-select on the brief. The bar takes the header's place for as
  * long as rows are selected — the same slot, verbs and copy the mailbox list
- * raises, because it is the same bar. (`SelectionTopBar` is the kit twin of the
- * web client's `SelectionToolbar`; the account-scoped Move and Apply-label
- * triggers need live folder data and are covered by the web client's own
- * `SelectionToolbar` stories.)
+ * raises, because it is the same bar. (The account-scoped Move trigger needs
+ * live folder data, so this story leaves its slot empty.)
  *
  * The checked rows span two category sections: a range follows the rows in the
  * order they are on screen, so it crosses a section header rather than stopping
@@ -400,11 +389,9 @@ export const MultiSelect: Story = {
 };
 
 /**
- * Touch multi-select on the brief: the header stays, and the peeking selection
- * sheet carries the verbs. It rises at two or more selected — a single row
- * enters selection mode (checkboxes on the rows) without taking over the
- * chrome. The list pads its own bottom by the teaser's height so no row hides
- * behind it.
+ * Touch multi-select on the brief: the same bar, at phone width. Row one is
+ * the count and the verbs with a back arrow out of selection; select-all takes
+ * a second row of its own below 768px.
  */
 export const MultiSelectPhone: Story = {
 	parameters: { layout: "centered" },

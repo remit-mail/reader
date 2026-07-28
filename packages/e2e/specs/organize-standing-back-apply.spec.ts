@@ -97,7 +97,7 @@ test.describe("Standing filter back-applies over existing mail", () => {
 			await row(SUBJECTS[1]).click({ modifiers: ["ControlOrMeta"] });
 
 			await page
-				.getByRole("button", { name: "Organize similar messages" })
+				.getByRole("button", { name: "Organize selected messages" })
 				.click();
 
 			const destination = page.getByRole("combobox", {

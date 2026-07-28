@@ -7,8 +7,11 @@ const meta: Meta<typeof SelectionTopBar> = {
 	component: SelectionTopBar,
 	parameters: { layout: "padded" },
 	args: {
+		title: "Inbox",
 		onCancel: () => undefined,
 		onMarkRead: () => undefined,
+		onJunk: () => undefined,
+		onOrganize: () => undefined,
 		onDelete: () => undefined,
 	},
 	// Full viewport width — a fixed w-[390px] wrapper inside a 390px Storybook
@@ -31,23 +34,58 @@ const MoveSlot = () => (
 		aria-label="Move selected messages"
 		className="inline-flex size-11 shrink-0 items-center justify-center rounded text-fg-muted hover:bg-surface-raised"
 	>
-		<FolderInput className="size-4" />
+		<FolderInput className="size-5" />
 	</button>
 );
 
-export const One: Story = { args: { count: 1 } };
-
-export const Many: Story = { args: { count: 3 } };
-
-export const WithoutMarkRead: Story = {
-	args: { count: 2, onMarkRead: undefined },
+const selectAll = {
+	checked: false,
+	indeterminate: true,
+	onChange: () => undefined,
 };
 
-export const Busy: Story = { args: { count: 2, isBusy: true } };
+/**
+ * Nothing ticked: the surface is the list header and names the mailbox. From
+ * 768px up the select-all control is already there — the same bar, one state
+ * earlier, rather than a second surface that appears on the first tick.
+ */
+export const Idle: Story = {
+	args: {
+		count: 0,
+		selectAll: { checked: false, onChange: () => undefined },
+	},
+};
+
+/**
+ * One ticked row. The count takes the title's place, and the verbs arrive with
+ * it: Delete, Move and Organize carry a glyph, Junk and Mark read live under
+ * the kebab. Below 768px select-all takes a second row, so row one stays a
+ * count and a row of verbs with a back arrow out of selection.
+ */
+export const One: Story = {
+	args: { count: 1, selectAll, moveSlot: <MoveSlot /> },
+};
+
+export const Many: Story = {
+	args: { count: 3, selectAll, moveSlot: <MoveSlot /> },
+};
+
+/** A selection spanning folders or accounts has no move target and no
+ *  account to file a rule under: the bar carries Delete and the overflow. */
+export const WithoutMoveOrOrganize: Story = {
+	args: { count: 2, onOrganize: undefined, selectAll },
+};
+
+/** A mutation in flight: Delete carries the spinner and every other verb
+ *  stands down, because nothing else can act until it lands. */
+export const Busy: Story = {
+	args: { count: 2, isBusy: true, moveSlot: <MoveSlot />, selectAll },
+};
 
 export const CrossAccountHint: Story = {
 	args: {
 		count: 4,
+		selectAll,
 		notice: {
 			tone: "warning",
 			text: "Move only works within one account — clear selection or pick messages from a single account",
@@ -55,28 +93,16 @@ export const CrossAccountHint: Story = {
 	},
 };
 
-/** Some but not all loaded rows checked: the select-all control renders the
- *  `Checkbox` tri-state dash, not the box or the tick. */
-export const SelectAll: Story = {
-	args: {
-		count: 3,
-		selectAll: {
-			checked: false,
-			indeterminate: true,
-			onChange: () => undefined,
-		},
-	},
-};
-
 /**
- * Every loaded row checked. The count line names its scope by default —
- * "All 47 loaded selected" — instead of a bare "47 messages selected" next
- * to a fully ticked box, which reads as "everything" to anyone who has used
- * a select-all checkbox before.
+ * Every loaded row checked. The control now says what pressing it does, and
+ * the count line names its scope by default — "All 47 loaded selected" —
+ * instead of a bare "47 messages selected" next to a fully ticked box, which
+ * reads as "everything" to anyone who has used a select-all checkbox before.
  */
 export const AllSelected: Story = {
 	args: {
 		count: 47,
+		moveSlot: <MoveSlot />,
 		selectAll: {
 			checked: true,
 			indeterminate: false,
@@ -143,9 +169,8 @@ export const Escalated: Story = {
 
 /**
  * While a search result set is still paging, the exact count isn't known
- * yet — a running total instead of a static "Counting…", delete hidden
- * (nothing to act on with an unknown total), and an explicit Stop rather
- * than overloading the X (which still means "cancel selection").
+ * yet — a running total instead of a static "Counting…", the verbs hidden
+ * (nothing to act on with an unknown total), and an explicit Stop.
  */
 export const Counting: Story = {
 	args: {
@@ -182,7 +207,7 @@ export const CountingLargeResultSet: Story = {
 /**
  * A bulk delete in progress reports a running total via `statusLabel` and a
  * determinate `ProgressBar`; the delete button shows its busy spinner (never
- * disables) and mark-read is hidden — nothing here can act mid-delete.
+ * disables) and the overflow verbs drop out — nothing here can act mid-delete.
  */
 export const DeletingWithProgress: Story = {
 	args: {
@@ -210,22 +235,9 @@ export const PartialFailure: Story = {
 };
 
 /**
- * count === 0 is unreachable in production: both the kit
- * (`message-list-pane.tsx`'s `toggleCheck`) and the web-client
- * (`MessageList.tsx`'s multi-select effect) auto-exit selection mode the
- * instant the last checked row is unchecked. `SelectionTopBar` itself has no
- * floor on `count` — this story pins the contract that no caller should ever
- * leave it mounted here.
- */
-export const ZeroSelected: Story = {
-	args: { count: 0 },
-};
-
-/**
  * A move over an escalated selection: same chunked run as a delete, worded for
  * the action that is running and toned as ordinary progress rather than
- * destructive. Mark-read and the move slot are hidden while it runs — nothing
- * here can act mid-run.
+ * destructive.
  */
 export const MovingWithProgress: Story = {
 	args: {

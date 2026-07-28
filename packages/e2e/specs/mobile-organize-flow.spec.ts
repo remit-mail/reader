@@ -1,12 +1,11 @@
 /**
  * Guided mobile organize flow (issue #211).
  *
- * From the mobile selection sheet, "Select similar messages" widens the
- * selection with the read-only matcher, shows a brief widening state, then opens
- * the filter-rule chip editor (RFC 038 D1) inside a bottom sheet on that widened
- * set. The editor commits at one of three scopes — apply once, keep doing this,
- * or until a date. This spec drives that surface end to end on a mobile
- * viewport.
+ * Organize on the selection bar widens the selection with the read-only
+ * matcher, shows a brief widening state, then opens the filter-rule chip editor
+ * (RFC 038 D1) on that widened set. The editor commits at one of three scopes —
+ * apply once, keep doing this, or until a date. This spec drives that surface
+ * end to end on a mobile viewport.
  *
  * The widen is a semantic query, and the vector index is deliberately not built
  * on the e2e lane (see issue #219 and organize-standing-filter.spec.ts). So the
@@ -51,59 +50,26 @@ const longPress = async (page: Page, row: Locator): Promise<void> => {
 const rowToggle = (row: Locator): Locator =>
 	row.getByRole("button", { name: /^(Select|Deselect) message$/ });
 
-const selectionSheet = (page: Page): Locator =>
-	page.locator("[data-selection-sheet]");
+const selectionBar = (page: Page): Locator =>
+	page.locator("[data-selection-bar]");
 
-const grabber = (page: Page): Locator =>
-	page.getByRole("slider", { name: /(Expand|Collapse) selection actions/ });
-
-const selectSimilarButton = (page: Page): Locator =>
-	page.getByRole("button", { name: /Select similar messages/ });
-
-const somethingElseButton = (page: Page): Locator =>
-	page.getByRole("button", { name: /Something else/ });
+/** The bar's Organize verb, which opens the guided flow on the selection. */
+const organizeButton = (page: Page): Locator =>
+	page.getByRole("button", { name: "Organize selected messages" });
 
 const destinationSelect = (page: Page): Locator =>
 	page.getByLabel("Destination folder");
-
-/**
- * The X, which is only rendered while the sheet is expanded — so its presence is
- * the reliable "expanded" signal. The smart-flow rows are not: the sheet keeps
- * them mounted (translated off-screen and `inert`) while collapsed for the
- * collapse animation, and Playwright's `isVisible` reports an off-screen element
- * as visible, so gating on them leaves the sheet collapsed and the tap lands on
- * an inert button.
- */
-const cancelSelectionButton = (page: Page): Locator =>
-	page.getByRole("button", { name: "Cancel selection" });
 
 const gotoInbox = async (page: Page, mailboxId: string): Promise<void> => {
 	await page.goto(`/mail/${mailboxId}`);
 	await expect(rows(page).first()).toBeVisible({ timeout: 30_000 });
 };
 
-/** Tap the grabber to expand the sheet until the smart-flow rows are actionable. */
-const expandSheet = async (page: Page): Promise<void> => {
-	if (
-		await cancelSelectionButton(page)
-			.isVisible()
-			.catch(() => false)
-	)
-		return;
-	await grabber(page).click();
-	await expect(cancelSelectionButton(page)).toBeVisible();
-};
-
-/** Select the two given rows so the teaser rises, then expand it. */
-const selectTwoAndExpand = async (
-	page: Page,
-	a: Locator,
-	b: Locator,
-): Promise<void> => {
+/** Select the two given rows, so the bar carries the verbs. */
+const selectTwo = async (page: Page, a: Locator, b: Locator): Promise<void> => {
 	await longPress(page, a);
 	await rowToggle(b).click();
-	await expect(selectionSheet(page)).toBeVisible();
-	await expandSheet(page);
+	await expect(selectionBar(page)).toBeVisible();
 };
 
 /**
@@ -216,8 +182,8 @@ test.describe("Guided mobile organize flow", () => {
 		);
 
 		try {
-			await selectTwoAndExpand(page, first, second);
-			await selectSimilarButton(page).click();
+			await selectTwo(page, first, second);
+			await organizeButton(page).click();
 
 			await expect(page.getByText("Finding similar messages…")).toBeVisible();
 			await expect(page.getByText(/2 messages match/)).toBeVisible();
@@ -230,7 +196,7 @@ test.describe("Guided mobile organize flow", () => {
 				timeout: 15_000,
 			});
 			await page.getByRole("button", { name: "Done" }).click();
-			await expect(selectionSheet(page)).toBeHidden();
+			await expect(selectionBar(page)).toBeHidden();
 		} finally {
 			await cleanup();
 		}
@@ -293,8 +259,8 @@ test.describe("Guided mobile organize flow", () => {
 		);
 
 		try {
-			await selectTwoAndExpand(page, first, second);
-			await selectSimilarButton(page).click();
+			await selectTwo(page, first, second);
+			await organizeButton(page).click();
 
 			await expect(page.getByText(/3 messages match/)).toBeVisible();
 
@@ -311,7 +277,7 @@ test.describe("Guided mobile organize flow", () => {
 				timeout: 15_000,
 			});
 			await page.getByRole("button", { name: "Done" }).click();
-			await expect(selectionSheet(page)).toBeHidden();
+			await expect(selectionBar(page)).toBeHidden();
 		} finally {
 			await cleanup();
 		}
@@ -360,8 +326,8 @@ test.describe("Guided mobile organize flow", () => {
 		);
 
 		try {
-			await selectTwoAndExpand(page, first, second);
-			await selectSimilarButton(page).click();
+			await selectTwo(page, first, second);
+			await organizeButton(page).click();
 
 			// No dead end: the editor opens and states the empty count plainly.
 			await expect(page.getByText(/No mail matches yet/)).toBeVisible();
@@ -373,47 +339,7 @@ test.describe("Guided mobile organize flow", () => {
 				timeout: 15_000,
 			});
 			await page.getByRole("button", { name: "Done" }).click();
-			await expect(selectionSheet(page)).toBeHidden();
-		} finally {
-			await cleanup();
-		}
-	});
-
-	test("Something else seeds the sentence from a shortcut", async ({
-		page,
-		run,
-		api,
-	}) => {
-		const { first, second, cleanup } = await seedScratch(
-			page,
-			run,
-			api,
-			`organize-else ${Date.now()}`,
-		);
-
-		await stubPreview(page, {
-			matchedCount: 5,
-			messageIds: ["stub-1", "stub-2", "stub-3", "stub-4", "stub-5"],
-		});
-
-		try {
-			await selectTwoAndExpand(page, first, second);
-			await somethingElseButton(page).click();
-
-			await expect(page.getByText("What should Remit do?")).toBeVisible();
-			await expect(
-				page.getByPlaceholder("Tell Remit what to do…"),
-			).toBeVisible();
-
-			// A shortcut seeds the folder, then the flow widens into the editor.
-			await page.getByRole("button", { name: "File in Archive" }).click();
-			await expect(page.getByText(/5 messages match/)).toBeVisible();
-
-			// The seeded folder carried through, so the commit is actionable
-			// without re-picking one.
-			await expect(
-				page.getByRole("button", { name: "Apply now" }),
-			).toBeEnabled();
+			await expect(selectionBar(page)).toBeHidden();
 		} finally {
 			await cleanup();
 		}
