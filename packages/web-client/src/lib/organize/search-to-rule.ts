@@ -34,20 +34,22 @@ interface ConvertOptions {
 	searchHadSemanticReach: boolean;
 }
 
-const FACET_HAS_NO_CLAUSE: ReadonlySet<string> = new Set<DroppedFacetType>([
-	"hasAttachment",
-	"isUnread",
-	"isRead",
-	"isStarred",
-	"category",
-	"before",
-	"after",
-]);
+type NoClauseFacet = Extract<SearchToken["type"], DroppedFacetType>;
+
+const FACET_HAS_NO_CLAUSE: ReadonlySet<SearchToken["type"]> =
+	new Set<NoClauseFacet>([
+		"hasAttachment",
+		"isUnread",
+		"isRead",
+		"isStarred",
+		"category",
+		"before",
+		"after",
+	]);
 
 const hasNoClauseEquivalent = (
 	type: SearchToken["type"],
-): type is Extract<SearchToken["type"], DroppedFacetType> =>
-	FACET_HAS_NO_CLAUSE.has(type);
+): type is NoClauseFacet => FACET_HAS_NO_CLAUSE.has(type);
 
 /**
  * Convert the current search into a rule's clauses and a record of what could not

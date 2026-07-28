@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { isConvertible } from "@remit/ui";
 import { parseSearchTokens, type SearchTokenContext } from "../search-tokens";
 import { convertSearchToRule } from "./search-to-rule";
 
@@ -107,5 +108,19 @@ describe("convertSearchToRule — semantic honesty (RFC 038 D5)", () => {
 		});
 		assert.equal(conversion.keptTerms, false);
 		assert.equal(conversion.droppedSemantic, false);
+	});
+});
+
+describe("convertSearchToRule — nothing left to make a filter from", () => {
+	it("yields no clause for a query of only dropped facets", () => {
+		assert.equal(isConvertible(convert("has:attachment")), false);
+	});
+
+	it("yields no clause for a bare folder scope", () => {
+		assert.equal(isConvertible(convert("in:archive")), false);
+	});
+
+	it("yields a clause once a term rides along with the folder scope", () => {
+		assert.equal(isConvertible(convert("in:archive receipts")), true);
 	});
 });

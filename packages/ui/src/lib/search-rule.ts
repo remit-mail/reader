@@ -1,16 +1,8 @@
 /**
- * Filter-from-search (RFC 038 D5). A search is literal terms and facets; a filter
- * is clause chips. This is the rule a converted search opens on, and the shape
- * that conversion hands over — `search-conversion.ts` beside it owns the copy
- * that states what was left behind.
- *
- * The shape is honest about what a filter cannot carry. A facet with no clause
- * equivalent is never silently folded into the rule: a folder scope is reported
- * as dropped-and-kept-out (the filter matches everywhere, not just there), the
- * attribute facets (attachment / read state / starred / category / date) are
- * reported as left out, and free text kept as a literal `HasWords` clause is
- * reported as having lost its semantic "similar mail" reach on a deployment that
- * could embed the query (D5).
+ * What a search converts to, and the rule built from it (RFC 038 D5). The shape
+ * carries the clauses alongside everything the search held that a filter cannot,
+ * so a conversion can never drop a facet without saying so; `search-conversion.ts`
+ * beside it owns the copy that states it.
  */
 
 import type {

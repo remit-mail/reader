@@ -616,7 +616,6 @@ export {
 	type DroppedFacet,
 	type DroppedFacetType,
 	isConvertible,
-	type ScopedOutFolder,
 	type SearchConversion,
 } from "./lib/search-rule.js";
 export {
