@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { OrganizeInput } from "@remit/api-openapi-types";
+import { BadRequestError } from "@remit/data-ports/errors";
 import { FilterMatchOperator } from "@remit/domain-enums";
+import { handleError } from "../error.js";
 import { predicateFromInput } from "./organize.js";
 
 const input = (over: Partial<OrganizeInput> = {}): OrganizeInput => ({
@@ -39,5 +41,23 @@ describe("predicateFromInput (move back-apply accepted)", () => {
 		const predicate = predicateFromInput(input());
 		assert.equal(predicate.actionMailboxId, "None");
 		assert.equal(predicate.actionLabelId, "None");
+	});
+});
+
+// previewOrganize rejects a body-content (HasWords) clause by throwing
+// BadRequestError (see service/organize.test.ts for the throw site). Proving
+// the 4xx actually reaches the wire — not just that the right class is
+// thrown — means proving the shared error handler maps it, since a plain
+// Error would otherwise fall through to a 500 (reader #457).
+describe("previewOrganize rejected-rule response (reader #457)", () => {
+	it("maps a rejected HasWords clause to a 400 naming the reason, not a 500", async () => {
+		const error = new BadRequestError(
+			"Organize literal matching cannot evaluate a body-content (HasWords) clause without the vector pipeline — it requires the semantic widen path",
+		);
+
+		const response = await handleError(error);
+
+		assert.equal(response.statusCode, 400);
+		assert.match(JSON.parse(response.body).message, /HasWords/);
 	});
 });

@@ -3,7 +3,7 @@ import type {
 	IFilterAnchorRepository,
 	OrganizeJobRequestItem,
 } from "@remit/data-ports";
-import { NotFoundError } from "@remit/data-ports/errors";
+import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { FilterClauseField, FilterState } from "@remit/domain-enums";
 import {
 	buildMatchText,
@@ -280,16 +280,14 @@ const matchSemantic = async (
  * happened to be indexed. Body-content matching therefore requires the widen
  * (vector) path — {@link matchSemantic} reconstructs body text from chunk
  * previews there. This guard keeps the two matchers from diverging silently: a
- * body-content clause reaching the vector-free path fails loud instead of
- * returning a wrong set. It is unreachable today — no product surface emits a
- * `HasWords` clause (the organize UI sends empty `literalClauses`, the filter
- * builder emits none) — and stays a fail-fast for any future surface that does.
+ * body-content clause reaching the vector-free path is rejected instead of
+ * returning a wrong set.
  */
 const assertNoBodyContentClause = (
 	clauses: OrganizePredicate["literalClauses"],
 ): void => {
 	if (clauses.some((clause) => clause.field === FilterClauseField.HasWords)) {
-		throw new Error(
+		throw new BadRequestError(
 			"Organize literal matching cannot evaluate a body-content (HasWords) clause without the vector pipeline — it requires the semantic widen path",
 		);
 	}

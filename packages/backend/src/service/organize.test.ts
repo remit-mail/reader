@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import type { FilterAnchorItem, FilterItem } from "@remit/data-ports";
-import { NotFoundError } from "@remit/data-ports/errors";
+import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { FilterMatchOperator, FilterState } from "@remit/domain-enums";
 import type {
 	AnchorPayload,
@@ -487,7 +487,7 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 		);
 	});
 
-	it("fails loud on a body-content (HasWords) clause rather than matching it against a preview", async () => {
+	it("rejects a body-content (HasWords) clause as a 400 rather than matching it against a preview", async () => {
 		const deps = vectorlessDeps([
 			candidate("msg-1", { subject: "Dinner reservation" }),
 		]);
@@ -499,7 +499,12 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 					anchorMessageId: "None",
 					literalClauses: [{ field: "HasWords", value: "invoice" }],
 				}),
-			/HasWords/,
+			(error: unknown) => {
+				assert.ok(error instanceof BadRequestError);
+				assert.equal(error.statusCode, 400);
+				assert.match(error.message, /HasWords/);
+				return true;
+			},
 			"the vector-free literal path must not silently narrow a body match to a preview",
 		);
 		assert.equal(deps.semanticUsed(), false);
