@@ -1,5 +1,5 @@
-import type { RemitImapFilterClause } from "@remit/api-http-client/types.gen.ts";
-import { deriveSenderClauses, distinctSenders } from "./sender-fallback";
+import type { RuleClause } from "../components/filter-rule.js";
+import { deriveSenderClauses, distinctSenders } from "./sender-derivation.js";
 
 /**
  * The opening clauses for a rule matched on properties alone — no semantic
@@ -7,9 +7,9 @@ import { deriveSenderClauses, distinctSenders } from "./sender-fallback";
  * prefill reads it in the order the evidence is strongest:
  *
  * 1. One sender across the whole selection, or several that collapse to one
- *    registrable domain — the sender-fallback derivation (#251, #262) already
- *    decides between a `From` and a `FromDomain` clause, and this reuses it
- *    rather than deciding again.
+ *    registrable domain — the sender derivation (#251, #262) already decides
+ *    between a `From` and a `FromDomain` clause, and this reuses it rather than
+ *    deciding again.
  * 2. Mixed senders — what the messages share is their subject, so match on the
  *    part the subjects have in common instead.
  * 3. Neither — no clauses. The editor opens empty and asks for one; a wrong
@@ -135,7 +135,7 @@ export const sharedSubjectFragment = (
 export const derivePropertyClauses = (
 	senders: readonly string[],
 	subjects: readonly string[],
-): RemitImapFilterClause[] => {
+): Omit<RuleClause, "id">[] => {
 	const senderClauses = deriveSenderClauses(senders);
 	// One sender across the selection, or several on one registrable domain:
 	// a single sharp clause, and sharper than any subject fragment.
@@ -146,6 +146,6 @@ export const derivePropertyClauses = (
 	const fragment = sharedSubjectFragment(subjects);
 	if (fragment !== undefined) return [{ field: "Subject", value: fragment }];
 	// Mixed senders with nothing shared in their subjects: one `From` chip each,
-	// the widen fallback's own derivation (#251).
+	// the sender derivation's own answer (#251).
 	return senderClauses;
 };

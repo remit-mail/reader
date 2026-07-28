@@ -599,6 +599,11 @@ export {
 	labelDotClass,
 } from "./lib/label-color.js";
 export {
+	derivePropertyClauses,
+	normalizeSubject,
+	sharedSubjectFragment,
+} from "./lib/property-prefill.js";
+export {
 	LIST_ROW_ATTRIBUTE,
 	LIST_ROW_SELECTOR,
 	type RovingOrientation,
@@ -606,6 +611,19 @@ export {
 	type UseRovingFocusOptions,
 	useRovingFocus,
 } from "./lib/roving-focus.js";
+export {
+	buildSearchRule,
+	type DroppedFacet,
+	type DroppedFacetType,
+	isConvertible,
+	type SearchConversion,
+} from "./lib/search-rule.js";
+export {
+	collapsibleDomain,
+	deriveSenderClauses,
+	distinctSenders,
+	senderDomain,
+} from "./lib/sender-derivation.js";
 export {
 	type SuggestAction,
 	type SuggestKeyState,

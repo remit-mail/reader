@@ -11,7 +11,7 @@ import {
 	derivePropertyClauses,
 	normalizeSubject,
 	sharedSubjectFragment,
-} from "./property-prefill";
+} from "./property-prefill.js";
 
 describe("normalizeSubject", () => {
 	it("strips stacked reply, forward, and list decorations", () => {

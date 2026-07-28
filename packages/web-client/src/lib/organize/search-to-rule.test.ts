@@ -1,11 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { isConvertible } from "@remit/ui";
 import { parseSearchTokens, type SearchTokenContext } from "../search-tokens";
-import {
-	buildSearchRule,
-	convertSearchToRule,
-	isConvertible,
-} from "./search-to-rule";
+import { convertSearchToRule } from "./search-to-rule";
 
 const CONTEXT: SearchTokenContext = {
 	mailboxesByName: new Map([["archive", "mbx-archive"]]),
@@ -114,33 +111,16 @@ describe("convertSearchToRule — semantic honesty (RFC 038 D5)", () => {
 	});
 });
 
-describe("isConvertible / buildSearchRule", () => {
-	it("is not convertible when the search yields no clause", () => {
+describe("convertSearchToRule — nothing left to make a filter from", () => {
+	it("yields no clause for a query of only dropped facets", () => {
 		assert.equal(isConvertible(convert("has:attachment")), false);
+	});
+
+	it("yields no clause for a bare folder scope", () => {
 		assert.equal(isConvertible(convert("in:archive")), false);
 	});
 
-	it("is convertible once a term or sender is present", () => {
+	it("yields a clause once a term rides along with the folder scope", () => {
 		assert.equal(isConvertible(convert("in:archive receipts")), true);
-	});
-
-	it("builds a standing rule with stable clause ids, no widen, empty name", () => {
-		const rule = buildSearchRule(convert("from:a@b.com nightly"));
-		assert.equal(rule.scope, "standing");
-		assert.equal(rule.widen, undefined);
-		assert.equal(rule.name, "");
-		assert.deepEqual(
-			rule.clauses.map((clause) => clause.id),
-			["search-0", "search-1"],
-		);
-	});
-
-	it("honors an explicit scope and move target", () => {
-		const rule = buildSearchRule(convert("nightly"), {
-			scope: "once",
-			moveMailboxId: "mbx-archive",
-		});
-		assert.equal(rule.scope, "once");
-		assert.equal(rule.moveMailboxId, "mbx-archive");
 	});
 });
