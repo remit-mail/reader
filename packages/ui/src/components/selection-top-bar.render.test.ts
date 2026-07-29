@@ -47,6 +47,60 @@ describe("SelectionTopBar", () => {
 		assert.doesNotMatch(text(html), /messages selected/);
 	});
 
+	it("carries the list header's own chrome while nothing is ticked", () => {
+		const html = renderToString(
+			createElement(SelectionTopBar, {
+				...handlers,
+				count: 0,
+				navSlot: createElement("button", { type: "button" }, "Menu"),
+				titleMeta: createElement("span", null, "12 unread"),
+				searchSlot: createElement("button", { type: "button" }, "Search"),
+			}),
+		);
+		assert.match(text(html), /Menu/);
+		assert.match(text(html), /12 unread/);
+		assert.match(text(html), /Search/);
+	});
+
+	it("hands the row to the count and the verbs from the first ticked row", () => {
+		const html = renderToString(
+			createElement(SelectionTopBar, {
+				...handlers,
+				count: 1,
+				navSlot: createElement("button", { type: "button" }, "Menu"),
+				titleMeta: createElement("span", null, "12 unread"),
+				searchSlot: createElement("button", { type: "button" }, "Search"),
+			}),
+		);
+		assert.match(text(html), /1 message selected/);
+		assert.doesNotMatch(text(html), /12 unread/);
+		assert.doesNotMatch(text(html), /Search/);
+	});
+
+	it("lets the expanded search field take the title's place while idle", () => {
+		const html = renderToString(
+			createElement(SelectionTopBar, {
+				...handlers,
+				count: 0,
+				searchField: createElement("input", { "aria-label": "Search mail" }),
+			}),
+		);
+		assert.match(html, /aria-label="Search mail"/);
+		assert.doesNotMatch(text(html), /Inbox/);
+	});
+
+	it("offers Something else as an overflow verb, never a glyph", () => {
+		const html = renderToString(
+			createElement(SelectionTopBar, {
+				...handlers,
+				count: 2,
+				onSomethingElse: () => undefined,
+			}),
+		);
+		assert.match(html, /aria-label="More actions"/);
+		assert.doesNotMatch(row(html, "actions"), /aria-label="Something else"/);
+	});
+
 	it("replaces the title with the count from the first ticked row", () => {
 		const html = renderToString(
 			createElement(SelectionTopBar, { ...handlers, count: 1 }),

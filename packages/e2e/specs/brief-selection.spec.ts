@@ -87,7 +87,7 @@ test.describe("Daily brief selection (#203)", () => {
 		await expect(rowToggle(briefRow(page, subjects[0]))).toHaveAccessibleName(
 			"Deselect message",
 		);
-		await expect(selectionBar(page)).toBeVisible();
+		await expect(selectionStatus(page)).toBeVisible();
 		await expect(selectionStatus(page)).toHaveText("1 message selected");
 
 		await rowToggle(briefRow(page, subjects[1])).click();
@@ -103,7 +103,7 @@ test.describe("Daily brief selection (#203)", () => {
 		// The brief stays on the list — no message opens — and the selected rows
 		// leave it.
 		await expect(page).not.toHaveURL(/selectedMessageId=/);
-		await expect(selectionBar(page)).toBeHidden();
+		await expect(selectionStatus(page)).toBeHidden();
 		await expect(briefRow(page, subjects[0])).toBeHidden();
 		await expect(briefRow(page, subjects[1])).toBeHidden();
 

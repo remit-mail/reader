@@ -62,6 +62,22 @@ export const Empty: Story = {
  * Its own trigger is a worded row, so it reads as one of the menu's actions
  * rather than a stray glyph.
  */
+/**
+ * A list longer than the viewport. The panel scrolls within its own bounds, so
+ * the last row is reachable on a phone instead of running off the bottom.
+ */
+export const ManyItems: Story = {
+	args: {
+		triggerLabel: "More actions",
+		items: Array.from({ length: 24 }, (_, i) => ({
+			key: `label-${i}`,
+			label: `Label ${i + 1}`,
+			icon: <Tag className="size-4" />,
+			onSelect: () => undefined,
+		})),
+	},
+};
+
 export const WithNestedPicker: Story = {
 	args: {
 		triggerLabel: "More actions",
@@ -79,6 +95,7 @@ export const WithNestedPicker: Story = {
 				triggerIcon={<Tag className="size-4 text-fg-subtle" />}
 				triggerText="Apply label"
 				align="start"
+				nested
 				touch={false}
 				triggerClassName="min-h-11 w-full justify-start gap-3 px-4 py-2.5 text-sm font-normal text-fg"
 				items={[

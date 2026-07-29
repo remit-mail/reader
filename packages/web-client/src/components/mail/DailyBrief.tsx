@@ -63,6 +63,7 @@ import {
 	isSyncingPhase,
 	useInitialSyncProgress,
 } from "@/hooks/useInitialSyncProgress";
+import { useLabelList } from "@/hooks/useLabels";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
@@ -78,6 +79,7 @@ import {
 	toThreadRowData,
 } from "@/lib/brief";
 import { isServerError } from "@/lib/error-classifier";
+import type { ListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
 import { relatedSearchResults, rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
@@ -324,6 +326,7 @@ function BriefSelectionChrome({
 		[rows, selectedIds],
 	);
 	const { junkMailboxId } = useJunkMailbox(scope.accountId);
+	const { labels } = useLabelList(scope.accountId);
 	const { moveMessages, isPending: isMoving } = useMoveMessages({
 		mailboxId: scope.mailboxId ?? "",
 		accountId: scope.accountId,
@@ -397,48 +400,59 @@ function BriefSelectionChrome({
 		? { tone: "warning" as const, text: scope.moveDisabledHint }
 		: undefined;
 
-	const selectionBar =
-		selectedCount > 0 ? (
-			<SelectionTopBar
-				title={header.title}
-				count={selectedCount}
-				onCancel={exitSelection}
-				onDelete={requestDeleteSelection}
-				onOrganize={
-					scoped
-						? () =>
-								isDesktop
-									? setOrganizeOpen(true)
-									: setMobileOrganizeEntry("select-similar")
-						: undefined
-				}
-				onJunk={canJunk ? handleJunk : undefined}
-				onMarkRead={onMarkMessagesRead ? handleMarkAsRead : undefined}
-				moveSlot={
-					scoped && scope.accountId && scope.mailboxId ? (
-						<MoveToTrigger
-							accountId={scope.accountId}
-							currentMailboxId={scope.mailboxId}
-							onMove={isMoving ? () => {} : handleMove}
-							label="Move selected messages"
-						/>
-					) : undefined
-				}
-				overflowSlot={
-					scope.accountId && scope.mailboxId && selectedCount > 0 ? (
-						<LabelApplyTrigger
-							variant="menu-row"
-							accountId={scope.accountId}
-							mailboxId={scope.mailboxId}
-							messageIds={selectedMessageIds}
-						/>
-					) : undefined
-				}
-				isBusy={isMoving}
-				selectAll={selectAll}
-				notice={notice}
-			/>
-		) : undefined;
+	const selectionBar = (chrome: ListHeaderChrome) => (
+		<SelectionTopBar
+			title={chrome.title}
+			navSlot={chrome.navSlot}
+			titleMeta={chrome.titleMeta}
+			searchSlot={chrome.searchSlot}
+			searchField={chrome.searchField}
+			count={selectedCount}
+			onCancel={exitSelection}
+			onDelete={requestDeleteSelection}
+			onOrganize={
+				scoped
+					? () =>
+							isDesktop
+								? setOrganizeOpen(true)
+								: setMobileOrganizeEntry("select-similar")
+					: undefined
+			}
+			onJunk={canJunk ? handleJunk : undefined}
+			onMarkRead={onMarkMessagesRead ? handleMarkAsRead : undefined}
+			onSomethingElse={
+				scoped && !isDesktop
+					? () => setMobileOrganizeEntry("something-else")
+					: undefined
+			}
+			moveSlot={
+				scoped && scope.accountId && scope.mailboxId ? (
+					<MoveToTrigger
+						accountId={scope.accountId}
+						currentMailboxId={scope.mailboxId}
+						onMove={isMoving ? () => {} : handleMove}
+						label="Move selected messages"
+					/>
+				) : undefined
+			}
+			overflowSlot={
+				scope.accountId &&
+				scope.mailboxId &&
+				selectedCount > 0 &&
+				labels.length > 0 ? (
+					<LabelApplyTrigger
+						variant="menu-row"
+						accountId={scope.accountId}
+						mailboxId={scope.mailboxId}
+						messageIds={selectedMessageIds}
+					/>
+				) : undefined
+			}
+			isBusy={isMoving}
+			selectAll={selectAll}
+			notice={notice}
+		/>
+	);
 
 	const organizeFlow =
 		mobileOrganizeEntry &&

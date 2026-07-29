@@ -192,9 +192,6 @@ interface MailboxPaneContextValue {
 		hasList: boolean;
 		blocksKeyboard: boolean;
 	}) => void;
-	/** Whether the list currently holds a selection, so the list header can
-	 *  stand down and let the list's own selection bar take its place. */
-	listSelectionActive: boolean;
 	/** Where the list publishes the commands the keyboard layer drives. */
 	listCommandsRef: RefObject<MessageListCommands | null>;
 	onRetry: () => void;
@@ -870,7 +867,6 @@ function MailboxPaneProvider({
 		hasMore: hasNextPage,
 		isLoadingMore: isFetchingNextPage,
 		onTriageContextChange: handleTriageContextChange,
-		listSelectionActive: triageSelectedIds.length > 0,
 		listCommandsRef,
 		onRetry: () => refetch(),
 		toolbarComposeRequest: toolbarActions.composeRequest,
@@ -925,7 +921,6 @@ function MailboxList() {
 		isSpamFolder,
 		rescueCandidates,
 		onTriageContextChange,
-		listSelectionActive,
 		listCommandsRef,
 		onRetry,
 		filterCategory,
@@ -1076,7 +1071,6 @@ function MailboxList() {
 			// the "Select all N matching" escalation are reachable on desktop (#212).
 			// The typing/uncommitted state still shows the two-engine panel.
 			searchResultsInBody
-			bodyOwnsSelectionBar={listSelectionActive}
 		>
 			{body}
 		</MailViewChrome>

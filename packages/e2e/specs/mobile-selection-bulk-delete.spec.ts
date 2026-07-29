@@ -134,7 +134,7 @@ const selectionNotice = (page: Page): Locator =>
 const selectTwoFromTop = async (page: Page): Promise<void> => {
 	await longPress(page, rows(page).first());
 	await rowToggle(rows(page).nth(1)).click();
-	await expect(selectionBar(page)).toBeVisible();
+	await expect(selectionStatus(page)).toBeVisible();
 	await expect(selectionStatus(page)).toHaveText("2 messages selected");
 };
 
@@ -339,7 +339,7 @@ test.describe("Entering selection mode", () => {
 	}) => {
 		await rows(page).first().click();
 		await page.waitForURL(/selectedMessageId=/);
-		await expect(selectionBar(page)).toBeHidden();
+		await expect(selectionStatus(page)).toBeHidden();
 	});
 
 	test("avatar tap enters selection mode — long-press is not the only way in", async ({
@@ -358,7 +358,7 @@ test.describe("Entering selection mode", () => {
 		await longPress(page, rows(page).first());
 
 		await rowToggle(rows(page).nth(1)).click();
-		await expect(selectionBar(page)).toBeVisible();
+		await expect(selectionStatus(page)).toBeVisible();
 		await expect(selectionStatus(page)).toHaveText("2 messages selected");
 
 		// Back to one selected: the count follows, selection mode stays.
@@ -377,7 +377,7 @@ test.describe("Entering selection mode", () => {
 		// A tap on the row itself (not the dedicated toggle button) must behave
 		// the same as tapping the toggle: select the row, never navigate.
 		await rows(page).nth(1).click();
-		await expect(selectionBar(page)).toBeVisible();
+		await expect(selectionStatus(page)).toBeVisible();
 		await expect(selectionStatus(page)).toHaveText("2 messages selected");
 		await expect(page).not.toHaveURL(/selectedMessageId=/);
 		await expect(rowToggle(rows(page).nth(1))).toHaveAccessibleName(
@@ -451,7 +451,7 @@ test.describe("Bounded select-all", () => {
 
 		await cancelSelectionButton(page).click();
 
-		await expect(selectionBar(page)).toBeHidden();
+		await expect(selectionStatus(page)).toBeHidden();
 	});
 
 	test("deselecting the last row exits selection mode automatically", async ({
@@ -466,7 +466,7 @@ test.describe("Bounded select-all", () => {
 
 		// Back to the idle affordance — selection mode exited.
 		await expect(entryToggle(rows(page).first())).toBeVisible();
-		await expect(selectionBar(page)).toBeHidden();
+		await expect(selectionStatus(page)).toBeHidden();
 	});
 });
 
@@ -539,7 +539,7 @@ test.describe("Confirm dialog", () => {
 			.getByRole("button", { name: "Move to Trash" })
 			.click();
 
-		await expect(selectionBar(page)).toBeHidden();
+		await expect(selectionStatus(page)).toBeHidden();
 
 		// Single-pane mobile stays on the list — the delete must not navigate into
 		// the surviving neighbour's conversation (#202), so there is no reading

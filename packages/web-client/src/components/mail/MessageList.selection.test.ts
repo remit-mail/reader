@@ -127,6 +127,23 @@ describe("MessageList escalation reaches desktop (#212)", () => {
 		assert.doesNotMatch(source, /<SelectionSheet\b/);
 		assert.doesNotMatch(source, /<SelectionToolbar\b/);
 	});
+
+	it("mounts that surface unconditionally — it is the list header", () => {
+		// Gated on a selection, the bar's zero-ticked state (the mailbox name,
+		// and select-all inline from 768px up) reaches nothing.
+		assert.match(source, /const activeSelectionBar = \(\s*<SelectionTopBar/);
+		assert.match(source, /title=\{listHeaderChrome\.title \|\| listTitle\}/);
+		assert.match(source, /navSlot=\{listHeaderChrome\.navSlot\}/);
+	});
+
+	it("keeps the free-text organize entry reachable, in the overflow", () => {
+		assert.match(source, /onSomethingElse=\{/);
+		assert.match(source, /setMobileOrganizeEntry\("something-else"\)/);
+	});
+
+	it("offers the label picker only when the account has labels", () => {
+		assert.match(source, /labels\.length > 0 \? \(/);
+	});
 });
 
 /**

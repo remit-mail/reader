@@ -1,7 +1,7 @@
 /**
  * MailViewChrome — the shared list-pane chrome for the inbox and flagged views.
  *
- * Wraps the header-only `MailListHeader` and slots the `FilterSheet` expando
+ * Wraps `MailListHeader` and slots the `FilterSheet` expando
  * directly into its body, exactly as the kit story does. The caller supplies the
  * filter preset (`inboxFilterConfig` / `flaggedFilterConfig`) and owns the
  * category / attribute / source selection state. The same filter config feeds
@@ -57,8 +57,6 @@ interface MailViewChromeProps {
 	 * its multi-select `MessageList` (#212); flagged leaves it unset.
 	 */
 	searchResultsInBody?: boolean;
-	/** The list body raises the selection bar itself; see `MailListHeader`. */
-	bodyOwnsSelectionBar?: boolean;
 }
 
 export function MailViewChrome({
@@ -81,7 +79,6 @@ export function MailViewChrome({
 	searchResultsLabel,
 	relatedResultsLabel,
 	searchResultsInBody,
-	bodyOwnsSelectionBar,
 }: MailViewChromeProps) {
 	const [expanded, setExpanded] = useState(false);
 	// A query owns the pane: the filter chrome and the search's own affordance
@@ -119,7 +116,6 @@ export function MailViewChrome({
 			searchResultsLabel={searchResultsLabel}
 			relatedResultsLabel={relatedResultsLabel}
 			searchResultsInBody={searchResultsInBody}
-			bodyOwnsSelectionBar={bodyOwnsSelectionBar}
 		>
 			{searching ? (
 				<div className="h-full overflow-y-auto">{children}</div>

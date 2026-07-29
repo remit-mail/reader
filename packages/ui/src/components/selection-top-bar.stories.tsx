@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { FolderInput, Tag } from "lucide-react";
+import { FolderInput, Menu, Search, Tag } from "lucide-react";
+import { Button } from "./button.js";
 import { PopoverMenu } from "./popover-menu.js";
+import { SearchBar } from "./search-bar.js";
 import { SelectionTopBar } from "./selection-top-bar.js";
 
 const meta: Meta<typeof SelectionTopBar> = {
@@ -13,6 +15,7 @@ const meta: Meta<typeof SelectionTopBar> = {
 		onMarkRead: () => undefined,
 		onJunk: () => undefined,
 		onOrganize: () => undefined,
+		onSomethingElse: () => undefined,
 		onDelete: () => undefined,
 	},
 	// Full viewport width — a fixed w-[390px] wrapper inside a 390px Storybook
@@ -47,6 +50,7 @@ const LabelSlot = () => (
 		triggerIcon={<Tag className="size-4 text-fg-subtle" />}
 		triggerText="Apply label"
 		align="start"
+		nested
 		touch={false}
 		triggerClassName="min-h-11 w-full justify-start gap-3 px-4 py-2.5 text-sm font-normal text-fg"
 		items={[
@@ -62,6 +66,32 @@ const selectAll = {
 	onChange: () => undefined,
 };
 
+/** The list header's own chrome, which the bar carries while nothing is
+ *  ticked. The live app builds these in `MailListHeader`. */
+const chrome = {
+	navSlot: (
+		<Button
+			variant="ghost"
+			size="touch"
+			icon={<Menu className="size-5" />}
+			aria-label="Menu"
+			className="-ml-2 shrink-0"
+		/>
+	),
+	titleMeta: (
+		<span className="shrink-0 text-2xs text-fg-subtle">15,338 unread</span>
+	),
+	searchSlot: (
+		<Button
+			variant="ghost"
+			size="touch"
+			icon={<Search className="size-5" />}
+			aria-label="Search"
+			className="shrink-0"
+		/>
+	),
+};
+
 /**
  * Nothing ticked: the surface is the list header and names the mailbox. From
  * 768px up the select-all control is already there — the same bar, one state
@@ -69,19 +99,51 @@ const selectAll = {
  */
 export const Idle: Story = {
 	args: {
+		...chrome,
 		count: 0,
 		selectAll: { checked: false, onChange: () => undefined },
 	},
 };
 
+/** The same idle bar with search expanded over the title, which is what the
+ *  tablet header does once a query is in play. */
+export const IdleSearching: Story = {
+	args: {
+		...chrome,
+		count: 0,
+		selectAll: { checked: false, onChange: () => undefined },
+		searchField: (
+			<>
+				<div className="min-w-0 flex-1">
+					<SearchBar
+						value="npm"
+						onChange={() => undefined}
+						onClear={() => undefined}
+						globalFocusKey={false}
+						showClearButton={false}
+					/>
+				</div>
+				<Button
+					variant="ghost"
+					size="touch"
+					icon={<Search className="size-5" />}
+					aria-label="Close search"
+					className="shrink-0"
+				/>
+			</>
+		),
+	},
+};
+
 /**
- * One ticked row. The count takes the title's place, and the verbs arrive with
- * it: Delete, Move and Organize carry a glyph, Junk and Mark read live under
- * the kebab. Below 768px select-all takes a second row, so row one stays a
- * count and a row of verbs with a back arrow out of selection.
+ * One ticked row. The count takes the title's place and the header's own
+ * chrome stands down; the verbs arrive with it: Delete, Move and Organize
+ * carry a glyph, Junk, Mark read and Something else live under the kebab.
+ * Below 768px select-all takes a second row, so row one stays a count and a
+ * row of verbs with a back arrow out of selection.
  */
 export const One: Story = {
-	args: { count: 1, selectAll, moveSlot: <MoveSlot /> },
+	args: { ...chrome, count: 1, selectAll, moveSlot: <MoveSlot /> },
 };
 
 export const Many: Story = {

@@ -21,6 +21,7 @@ import {
 	useEscalatedActions,
 } from "@/hooks/useEscalatedActions";
 import { useFollowFocusOpen } from "@/hooks/useFollowFocusOpen";
+import { useLabelList } from "@/hooks/useLabels";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import {
@@ -45,6 +46,7 @@ import {
 } from "@/lib/escalation-label";
 import { formatDeleteToTrashTitle, formatNumber } from "@/lib/format";
 import { tabStopId } from "@/lib/list-focus";
+import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import {
 	deriveIsMultiSelectMode,
 	shouldExitSelectionOnNavigate,
@@ -238,6 +240,8 @@ export const MessageList = ({
 		"select-similar" | "something-else" | null
 	>(null);
 	const isSearching = !!searchQuery?.trim();
+	const listHeaderChrome = useListHeaderChrome();
+	const { labels } = useLabelList(accountId);
 
 	// Roving focus cursor (#429): the keyboard "where am I" pointer, distinct
 	// from the open thread (`selectedMessageId` in the URL). j/k move this
@@ -1321,14 +1325,19 @@ export const MessageList = ({
 	const canOrganize =
 		!!accountId && !!mailboxId && !moveDisabledHint && !selectionStatusLabel;
 
-	// One selection surface at every width: the list header carries the count
-	// and the verbs from the first ticked row, and the escalation states
-	// (issue #212) — the offer, counting, the escalated predicate, a chunked
-	// run's progress — ride on the same bar rather than a second one.
-	const isSelecting = hasSelection || escalation.phase.kind !== "idle";
-	const activeSelectionBar = isSelecting ? (
+	// One selection surface at every width, always mounted: it is the list
+	// header. With nothing ticked it names the mailbox and carries the header's
+	// own chrome; from the first ticked row the count and the verbs take that
+	// title's place, and the escalation states (issue #212) — the offer,
+	// counting, the escalated predicate, a chunked run's progress — ride on the
+	// same bar rather than a second one.
+	const activeSelectionBar = (
 		<SelectionTopBar
-			title={listTitle}
+			title={listHeaderChrome.title || listTitle}
+			navSlot={listHeaderChrome.navSlot}
+			titleMeta={listHeaderChrome.titleMeta}
+			searchSlot={listHeaderChrome.searchSlot}
+			searchField={listHeaderChrome.searchField}
 			count={selectionCount}
 			onCancel={handleSelectionCancel}
 			onDelete={handleSelectionDelete}
@@ -1346,9 +1355,14 @@ export const MessageList = ({
 					: undefined
 			}
 			onMarkRead={handleMarkAsRead}
+			onSomethingElse={
+				canOrganize && !isDesktop
+					? () => setMobileOrganizeEntry("something-else")
+					: undefined
+			}
 			moveSlot={selectionMoveSlot}
 			overflowSlot={
-				accountId && mailboxId && selectedCount > 0 ? (
+				accountId && mailboxId && selectedCount > 0 && labels.length > 0 ? (
 					<LabelApplyTrigger
 						variant="menu-row"
 						accountId={accountId}
@@ -1364,7 +1378,7 @@ export const MessageList = ({
 			progress={selectionProgress}
 			notice={selectionNotice}
 		/>
-	) : undefined;
+	);
 
 	// Roving tabindex: exactly one row is in the tab order, so Tab moves focus
 	// into the list at the cursor and Shift+Tab moves back out to the side panel

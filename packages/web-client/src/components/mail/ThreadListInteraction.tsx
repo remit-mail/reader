@@ -16,6 +16,7 @@
  * are not rendered: focus stops moving, the highlight disappears, and the next
  * verb acts on a message the user cannot see.
  */
+import { SelectionTopBar } from "@remit/ui";
 import {
 	createContext,
 	type ReactNode,
@@ -34,9 +35,9 @@ import { useIsDesktop } from "@/hooks/useMediaQuery";
 import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
 import { formatDeleteToTrashTitle } from "@/lib/format";
 import { tabStopId } from "@/lib/list-focus";
+import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import type { MessageListCommands } from "./MessageList";
 import type { MessageRowSelection } from "./MessageRow";
-import { SelectionToolbar } from "./SelectionToolbar";
 
 interface ThreadRowInteraction {
 	focused: boolean;
@@ -416,25 +417,35 @@ export function ThreadListInteraction({
 }
 
 interface ThreadListSelectionBarProps {
+	/** The view's own name, used until the enclosing header supplies one. */
+	title: string;
 	onMarkAsRead?: (messageIds: string[]) => void;
 	isDeleting?: boolean;
 }
 
 /**
- * Reduced selection bar for Flagged, mounted inside `ThreadListInteraction`.
+ * The starred list's header, which is also its selection bar — the same
+ * surface the mailbox list and the brief raise.
  *
- * Move is not offered here: Flagged spans accounts and mailboxes, and a move
- * picker needs one account and one source folder to be honest about where the
- * messages go. Delete and mark-read carry no such scope. The brief resolves
- * that scope from the selection instead and mounts the mailbox list's full
- * `SelectionToolbar` — see `DailyBrief`.
+ * Move is not offered here: starred mail spans accounts and mailboxes, and a
+ * move picker needs one account and one source folder to be honest about where
+ * the messages go. Delete and mark-read carry no such scope.
  */
 export function ThreadListSelectionBar({
+	title,
 	onMarkAsRead,
 	isDeleting,
 }: ThreadListSelectionBarProps) {
-	const { selectedIds, selectedCount, exitSelection, requestDeleteSelection } =
-		useThreadListSelection();
+	const chrome = useListHeaderChrome();
+	const {
+		selectedIds,
+		selectedCount,
+		exitSelection,
+		requestDeleteSelection,
+		orderedIds,
+		allSelected,
+		toggleAllLoaded,
+	} = useThreadListSelection();
 
 	const handleMarkAsRead = useCallback(() => {
 		onMarkAsRead?.(Array.from(selectedIds));
@@ -442,12 +453,26 @@ export function ThreadListSelectionBar({
 	}, [onMarkAsRead, selectedIds, exitSelection]);
 
 	return (
-		<SelectionToolbar
-			selectedCount={selectedCount}
+		<SelectionTopBar
+			title={chrome.title || title}
+			navSlot={chrome.navSlot}
+			titleMeta={chrome.titleMeta}
+			searchSlot={chrome.searchSlot}
+			searchField={chrome.searchField}
+			count={selectedCount}
+			onCancel={exitSelection}
 			onDelete={requestDeleteSelection}
-			onClearSelection={exitSelection}
-			onMarkAsRead={onMarkAsRead ? handleMarkAsRead : undefined}
-			isDeleting={isDeleting}
+			onMarkRead={onMarkAsRead ? handleMarkAsRead : undefined}
+			isBusy={isDeleting}
+			selectAll={
+				orderedIds.length > 0
+					? {
+							checked: allSelected,
+							indeterminate: selectedCount > 0 && !allSelected,
+							onChange: toggleAllLoaded,
+						}
+					: undefined
+			}
 		/>
 	);
 }

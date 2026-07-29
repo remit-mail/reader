@@ -66,6 +66,7 @@ export function LabelApplyTrigger({
 				triggerText="Apply label"
 				items={items}
 				align="start"
+				nested
 				touch={false}
 				triggerClassName="min-h-11 w-full justify-start gap-3 px-4 py-2.5 text-sm font-normal text-fg"
 			/>

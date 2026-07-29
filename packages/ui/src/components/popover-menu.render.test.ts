@@ -41,6 +41,18 @@ describe("PopoverMenu", () => {
 		assert.match(html, /aria-label="More actions"/);
 	});
 
+	it("makes a nested menu a menuitem of the menu it sits in", () => {
+		const html = renderToString(
+			createElement(PopoverMenu, {
+				triggerLabel: "Apply label to selected messages",
+				items: [item],
+				nested: true,
+			}),
+		);
+		assert.match(html, /aria-label="Apply label[^>]*role="menuitem"/);
+		assert.match(html, /role="none"/);
+	});
+
 	it("renders the trigger text beside its glyph", () => {
 		const html = renderToString(
 			createElement(PopoverMenu, {

@@ -5,6 +5,7 @@ import {
 	ShieldAlert,
 	Sparkles,
 	Trash2,
+	Wand2,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { Banner, type BannerTone } from "./banner.js";
@@ -47,6 +48,26 @@ export interface SelectionTopBarProps {
 	onJunk?: () => void;
 	/** Optional — dropped from the overflow menu while `isBusy`. */
 	onMarkRead?: () => void;
+	/**
+	 * Opens the free-text organize panel. An overflow verb rather than a glyph:
+	 * it collapses a verb, a destination and a scope into one tap, which is the
+	 * opposite of what the bar's own verbs do.
+	 */
+	onSomethingElse?: () => void;
+	/**
+	 * The list header's own chrome, rendered only while nothing is ticked: the
+	 * nav button, the unread count beside the title, and the search affordance.
+	 * The bar is the list header, so these live here rather than on a second
+	 * row above it.
+	 */
+	navSlot?: ReactNode;
+	titleMeta?: ReactNode;
+	searchSlot?: ReactNode;
+	/**
+	 * The expanded search field, which owns the title's place for as long as it
+	 * is up. Idle only — a ticked row hands the row back to the count.
+	 */
+	searchField?: ReactNode;
 	/**
 	 * The Move verb. A render prop because the trigger owns the folder picker
 	 * and its API dependencies; the bar only gives it a place in the verb row.
@@ -147,6 +168,11 @@ export function SelectionTopBar({
 	onOrganize,
 	onJunk,
 	onMarkRead,
+	onSomethingElse,
+	navSlot,
+	titleMeta,
+	searchSlot,
+	searchField,
 	moveSlot,
 	overflowSlot,
 	isBusy = false,
@@ -178,6 +204,14 @@ export function SelectionTopBar({
 			onSelect: onMarkRead,
 		});
 	}
+	if (onSomethingElse && !isBusy && !isCounting) {
+		overflowItems.push({
+			key: "something-else",
+			label: "Something else",
+			icon: <Wand2 className="size-4" />,
+			onSelect: onSomethingElse,
+		});
+	}
 
 	return (
 		<header
@@ -188,7 +222,7 @@ export function SelectionTopBar({
 				data-selection-bar-row="actions"
 				className="flex h-pane-header items-center gap-1 px-row-inset"
 			>
-				{selecting && (
+				{selecting ? (
 					<Button
 						variant="ghost"
 						size="touch"
@@ -197,6 +231,8 @@ export function SelectionTopBar({
 						aria-label="Cancel selection"
 						className="-ml-2 shrink-0"
 					/>
+				) : (
+					navSlot
 				)}
 				{selectAll && (
 					<SelectAllToggle
@@ -213,10 +249,18 @@ export function SelectionTopBar({
 					>
 						{statusLabel ?? defaultLabel}
 					</span>
+				) : searchField ? (
+					<div className="flex min-w-0 flex-1 items-center gap-1">
+						{searchField}
+					</div>
 				) : (
-					<h1 className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-fg">
-						{title}
-					</h1>
+					<>
+						<h1 className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-fg">
+							{title}
+						</h1>
+						{titleMeta}
+						{searchSlot}
+					</>
 				)}
 				{selecting && !isCounting && (
 					<>

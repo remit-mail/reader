@@ -170,7 +170,7 @@ test.describe("Keyboard navigation", () => {
 
 test.describe("Multi-select", () => {
 	const selectionCount = (page: Page): Locator =>
-		page.getByText(/\d+ messages? selected/);
+		page.locator("[data-selection-bar]").getByRole("status").first();
 
 	test("shift-click selects the range between two rows", async ({ page }) => {
 		await rows(page).nth(0).click();
@@ -262,9 +262,9 @@ test.describe("Multi-select", () => {
 		// The bar names the scope once its select-all control reads as checked:
 		// a bare count beside a ticked box reads as "everything", which is only
 		// true for a selection escalated past the loaded page.
-		await expect(
-			page.getByText(`All ${run.seededSubjects.length} loaded selected`),
-		).toBeVisible();
+		await expect(selectionCount(page)).toHaveText(
+			`All ${run.seededSubjects.length} loaded selected`,
+		);
 	});
 
 	test("Escape clears the selection", async ({ page }) => {

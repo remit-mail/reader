@@ -2,13 +2,11 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { SelectionToolbar } from "./SelectionToolbar";
 
 /**
- * The desktop bulk-action bar. It keeps its bounded verbs (mark-read, move,
- * delete, organize) and, from issue #212, gains the search-escalation states
- * the mobile `SelectionSheet` already carries: the "Select all N matching…"
- * offer, a running count, the escalated predicate, a chunked run's progress,
- * and a partial-failure Retry. Both surfaces read the same derivations in
- * `MessageList`, so these stories and the kit `SelectionTopBar` stories track
- * the one state matrix.
+ * The superseded desktop bulk-action bar. Every list now raises the kit
+ * `SelectionTopBar` instead, at every width (#480); this stays only for the
+ * states it still documents — the "Select all N matching…" offer, a running
+ * count, the escalated predicate, a chunked run's progress, and a
+ * partial-failure Retry (#212) — which the bar carries in the same shapes.
  *
  * The Move verb needs the account-scoped `MoveToTrigger` (its own query and
  * folder data), so it is left out here to keep these stories provider-free —

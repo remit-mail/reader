@@ -39,4 +39,15 @@ describe("the brief's select-all", () => {
 	it("is offered only when there are rows to select", () => {
 		assert.match(chromeBody(), /orderedIds\.length > 0/);
 	});
+
+	it("mounts the bar unconditionally — it is the list header (#480)", () => {
+		assert.match(
+			chromeBody(),
+			/const selectionBar = \(chrome: ListHeaderChrome\) => \(\s*<SelectionTopBar/,
+		);
+	});
+
+	it("keeps the free-text organize entry reachable, in the overflow", () => {
+		assert.match(chromeBody(), /onSomethingElse=\{/);
+	});
 });

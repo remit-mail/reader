@@ -39,11 +39,12 @@
  * `resultsScopeForRoute` and `lib/spam-offer.ts`.
  */
 import {
+	Button,
 	type FilterSheetProps,
 	isConvertible,
-	MailHeader,
 	MakeFilterAction,
 	MobileSearchView,
+	SearchBar,
 	type SearchCaretRequest,
 	type SearchFieldSuggest,
 	type SearchResult,
@@ -56,6 +57,7 @@ import {
 	useSuggestList,
 } from "@remit/ui";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { Menu, Search, X } from "lucide-react";
 import {
 	type ReactNode,
 	useCallback,
@@ -68,6 +70,10 @@ import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
 import { useSearchScope } from "@/hooks/useSearchScope";
 import { useSearchSuggestions } from "@/hooks/useSearchSuggestions";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
+import {
+	type ListHeaderChrome,
+	ListHeaderChromeContext,
+} from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
 import { convertSearchToRule } from "@/lib/organize/search-to-rule";
 import { loadRecentSearches, saveRecentSearch } from "@/lib/recent-searches";
@@ -88,18 +94,13 @@ export interface MailListHeaderProps {
 	/** The list body (filter sheet / sections / virtualized rows). */
 	children: ReactNode;
 	/**
-	 * Replaces the header for as long as a selection is active — the same slot
-	 * contract the kit `MessageListPane` gives the mailbox list, so every list
-	 * puts its bulk-action bar in the same place.
+	 * The header itself, built from the chrome this component owns. Views whose
+	 * selection state sits above this one (the brief) render their bar here;
+	 * views whose selection sits below it (the mailbox list, starred) leave this
+	 * unset and render the bar in their own pane header slot, reading the same
+	 * chrome from `useListHeaderChrome`.
 	 */
-	selectionBar?: ReactNode;
-	/**
-	 * The body raises the selection bar itself, in its own pane header slot
-	 * (the mailbox list's `MessageListPane`). The header stands down while it
-	 * is up, so the count and the verbs take the mailbox title's place instead
-	 * of stacking under it.
-	 */
-	bodyOwnsSelectionBar?: boolean;
+	selectionBar?: (chrome: ListHeaderChrome) => ReactNode;
 	/**
 	 * An overlay covering the pane, above the list (the guided organize flow).
 	 * The pane is the positioned ancestor it measures against.
@@ -141,7 +142,6 @@ export function MailListHeader({
 	unreadCount,
 	children,
 	selectionBar,
-	bodyOwnsSelectionBar = false,
 	paneOverlay,
 	footer,
 	searchFilter,
@@ -345,11 +345,9 @@ export function MailListHeader({
 						: "Add a sender or words to filter on",
 				}
 			: undefined;
-	// A selection replaces the header with its bulk-action bar and owns the pane;
-	// the search affordance stands down until the selection clears.
-	const selecting = selectionBar !== undefined || bodyOwnsSelectionBar;
-	const makeFilterAction =
-		makeFilter && !selecting ? <MakeFilterAction {...makeFilter} /> : null;
+	const makeFilterAction = makeFilter ? (
+		<MakeFilterAction {...makeFilter} />
+	) : null;
 	const filterDialog =
 		filterOpen && targetAccountId ? (
 			<SearchFilterDialog
@@ -429,37 +427,79 @@ export function MailListHeader({
 		children
 	);
 
-	return (
-		<section className="relative flex h-full w-full flex-col bg-surface">
-			{selectionBar ??
-				(bodyOwnsSelectionBar ? null : (
-					<MailHeader
-						title={title}
-						unreadCount={unreadCount}
-						// Desktop mounts the app top bar, which owns search for the whole
-						// shell — the list header shows no field there, so the page never
-						// has two search inputs competing for "/" and for focus. Below
-						// desktop the header keeps a compact magnifier: on phone it opens
-						// the full-screen takeover above, on tablet it expands over the
-						// title. `isSinglePaneTier` is the same predicate the shell gates
-						// the top bar on, so the two cannot drift into zero or two fields.
-						isDesktop={false}
-						showSearch={isSinglePaneTier(tier)}
-						onMenuClick={() => layout?.openNav()}
-						searchValue={searchInput}
-						onSearchChange={onSearchChange}
-						onSearchClear={onSearchClear}
-						searchOpen={searchOpen}
-						onSearchOpenChange={setSearchOpen}
-						searchSuggest={searchSuggest}
+	// Desktop mounts the app top bar, which owns search for the whole shell — the
+	// list header shows no field there, so the page never has two search inputs
+	// competing for "/" and for focus. Below desktop the header keeps a compact
+	// magnifier: on phone it opens the full-screen takeover above, on tablet it
+	// expands over the title. `isSinglePaneTier` is the same predicate the shell
+	// gates the top bar on, so the two cannot drift into zero or two fields.
+	const ownsSearch = isSinglePaneTier(tier);
+	const searchExpanded = ownsSearch && (searchOpen || hasQuery);
+	const chrome: ListHeaderChrome = {
+		title,
+		navSlot: layout && !layout.showNavPane && (
+			<Button
+				variant="ghost"
+				size="touch"
+				icon={<Menu className="size-5" />}
+				onClick={() => layout.openNav()}
+				aria-label="Menu"
+				className="-ml-2 shrink-0"
+			/>
+		),
+		titleMeta: (
+			<span className="shrink-0 text-2xs text-fg-subtle">
+				{unreadCount.toLocaleString()} unread
+			</span>
+		),
+		searchSlot: ownsSearch && !searchExpanded && (
+			<Button
+				variant="ghost"
+				size="touch"
+				icon={<Search className="size-5" />}
+				onClick={() => setSearchOpen(true)}
+				aria-label="Search"
+				className="shrink-0"
+			/>
+		),
+		searchField: searchExpanded && (
+			<>
+				<div className="min-w-0 flex-1">
+					<SearchBar
+						value={searchInput}
+						onChange={onSearchChange}
+						onClear={onSearchClear}
+						globalFocusKey={false}
+						showClearButton={false}
+						suggest={searchSuggest}
 					/>
-				))}
-			{suggestList}
-			{makeFilterAction}
-			<div className="min-h-0 flex-1">{body}</div>
-			{footer}
-			{filterDialog}
-			{paneOverlay}
-		</section>
+				</div>
+				<Button
+					variant="ghost"
+					size="touch"
+					icon={<X className="size-5" />}
+					onClick={() => {
+						onSearchClear();
+						setSearchOpen(false);
+					}}
+					aria-label="Close search"
+					className="shrink-0"
+				/>
+			</>
+		),
+	};
+
+	return (
+		<ListHeaderChromeContext.Provider value={chrome}>
+			<section className="relative flex h-full w-full flex-col bg-surface">
+				{selectionBar?.(chrome)}
+				{suggestList}
+				{makeFilterAction}
+				<div className="min-h-0 flex-1">{body}</div>
+				{footer}
+				{filterDialog}
+				{paneOverlay}
+			</section>
+		</ListHeaderChromeContext.Provider>
 	);
 }

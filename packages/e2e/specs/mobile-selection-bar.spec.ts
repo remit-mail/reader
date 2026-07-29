@@ -64,7 +64,7 @@ const gotoInbox = async (page: Page, mailboxId: string): Promise<void> => {
 const selectTwo = async (page: Page, a: Locator, b: Locator): Promise<void> => {
 	await longPress(page, a);
 	await rowToggle(b).click();
-	await expect(selectionBar(page)).toBeVisible();
+	await expect(selectionStatus(page)).toBeVisible();
 	await expect(selectionStatus(page)).toHaveText("2 messages selected");
 };
 
@@ -83,7 +83,7 @@ test.describe("Mobile selection bar", () => {
 		await expect(rowToggle(rows(page).first())).toHaveAccessibleName(
 			"Deselect message",
 		);
-		await expect(selectionBar(page)).toBeVisible();
+		await expect(selectionStatus(page)).toBeVisible();
 		await expect(selectionStatus(page)).toHaveText("1 message selected");
 		// Row one is the count and the verbs; select-all takes a row of its own.
 		await expect(deleteButton(page)).toBeVisible();
@@ -100,7 +100,7 @@ test.describe("Mobile selection bar", () => {
 
 		await cancelSelectionButton(page).click();
 
-		await expect(selectionBar(page)).toBeHidden();
+		await expect(selectionStatus(page)).toBeHidden();
 		await expect(rowToggle(rows(page).first())).toBeHidden();
 	});
 
@@ -139,7 +139,7 @@ test.describe("Mobile selection bar", () => {
 		await expect(dialog).toHaveAccessibleName("Move 2 messages to Trash?");
 		await dialog.getByRole("button", { name: "Move to Trash" }).click();
 
-		await expect(selectionBar(page)).toBeHidden();
+		await expect(selectionStatus(page)).toBeHidden();
 		// Single-pane mobile stays on the list — the delete must not open a
 		// neighbour (#202) — and the completion banner is the signal it landed.
 		await expect(page).not.toHaveURL(/selectedMessageId=/);
@@ -185,7 +185,7 @@ test.describe("Mobile selection bar", () => {
 		// Archive is a standard destination in the picker on this account.
 		await page.getByRole("option", { name: "Move to Archive" }).click();
 
-		await expect(selectionBar(page)).toBeHidden();
+		await expect(selectionStatus(page)).toBeHidden();
 		// The moved rows leave the inbox, restoring the baseline the suite expects.
 		await expect(async () => {
 			await page.reload();

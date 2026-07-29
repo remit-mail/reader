@@ -2,6 +2,7 @@ import {
 	AppShell,
 	type BriefCategoryFilter,
 	BriefSection,
+	Button,
 	ComfortableRow,
 	defaultKeyboardHints,
 	KeyboardHintBar,
@@ -11,6 +12,7 @@ import {
 	type ThreadSection,
 } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { Menu, Search } from "lucide-react";
 import { createContext, useContext, useMemo, useState } from "react";
 import {
 	briefSections,
@@ -330,33 +332,47 @@ function BriefMultiSelectScreen({ touch = false }: { touch?: boolean }) {
 				className="relative flex h-[760px] flex-col overflow-hidden border border-line bg-canvas"
 				style={{ width: touch ? 390 : 420 }}
 			>
-				{touch && checked.size === 0 ? (
-					<MailHeader
-						title="Daily brief"
-						unreadCount={briefUnseen}
-						isDesktop={false}
-						onMenuClick={() => undefined}
-						searchValue={searchValue}
-						onSearchChange={setSearchValue}
-						searchOpen={searchOpen}
-						onSearchOpenChange={setSearchOpen}
-					/>
-				) : (
-					<SelectionTopBar
-						title="Daily brief"
-						count={checked.size}
-						onCancel={clear}
-						onDelete={clear}
-						onOrganize={clear}
-						onJunk={clear}
-						onMarkRead={clear}
-						selectAll={{
-							checked: false,
-							indeterminate: checked.size > 0,
-							onChange: clear,
-						}}
-					/>
-				)}
+				<SelectionTopBar
+					title="Daily brief"
+					navSlot={
+						<Button
+							variant="ghost"
+							size="touch"
+							icon={<Menu className="size-5" />}
+							aria-label="Menu"
+							className="-ml-2 shrink-0"
+						/>
+					}
+					titleMeta={
+						<span className="shrink-0 text-2xs text-fg-subtle">
+							{briefUnseen.toLocaleString()} unread
+						</span>
+					}
+					searchSlot={
+						touch ? (
+							<Button
+								variant="ghost"
+								size="touch"
+								icon={<Search className="size-5" />}
+								onClick={() => setSearchOpen(true)}
+								aria-label="Search"
+								className="shrink-0"
+							/>
+						) : undefined
+					}
+					count={checked.size}
+					onCancel={clear}
+					onDelete={clear}
+					onOrganize={clear}
+					onJunk={clear}
+					onMarkRead={clear}
+					onSomethingElse={clear}
+					selectAll={{
+						checked: false,
+						indeterminate: checked.size > 0,
+						onChange: clear,
+					}}
+				/>
 				<div className="min-h-0 flex-1">
 					<div className="h-full overflow-y-auto">
 						{sections.map((section) => (
