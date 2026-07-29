@@ -70,15 +70,18 @@ const isMailboxPresentUpstream = (error: unknown): boolean => {
  * Pinned invariant for the whole-chain terminal guards below.
  *
  * Each handler wraps its `MailboxManagementService.sync*` chain in a try/catch
- * that treats a NotFoundError as terminal (ack with a WARN, issue #289). That
- * is only sound because `syncCreate` / `syncRename` / `syncDelete` — and their
- * error-recovery branches here — touch nothing but the single target mailbox
- * row via `mailboxService.get/update/delete(accountId, mailboxId)`. So the only
- * row a NotFoundError can refer to is that target, and its absence can only mean
- * the user deleted the folder mid-sync — never an unrelated missing entity that
- * should have been retried. If a sync method ever reads or writes a second
- * entity, narrow these catches (match the mailboxId / re-check existence) before
- * a NotFoundError from elsewhere is silently acked.
+ * that treats a NotFoundError as terminal (ack with a WARN, issue #289). That is
+ * only sound while the sole row a NotFoundError can refer to is the target
+ * mailbox, so its absence can only mean the user deleted the folder mid-sync —
+ * never an unrelated missing entity that should have been retried.
+ *
+ * `syncCreate` and `syncDelete` hold to that by touching nothing but the target
+ * row. `syncRename` also writes the renamed subtree's descendant rows, and keeps
+ * the invariant by absorbing their NotFoundErrors itself: a descendant deleted
+ * mid-settle never reaches these catches. Any sync method that reads or writes a
+ * second entity owes the same, or these catches must be narrowed (match the
+ * mailboxId / re-check existence) before a NotFoundError from elsewhere is
+ * silently acked.
  */
 
 /**

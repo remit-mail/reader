@@ -221,7 +221,18 @@ export class MailboxManagementService {
 			syncStatus: MailboxSyncStatus.synced,
 		});
 
-		await this.settleRenamedSubtree(accountId, newPath, connection);
+		// The server rename is done and the row records it. The settle is repair
+		// work on top of that, so nothing it hits — the listing included — may reach
+		// the caller's failure path, which rolls the row back to a path the server
+		// no longer has and hands it to the reconcile sweep to reap.
+		await this.settleRenamedSubtree(accountId, newPath, connection).catch(
+			(error: unknown) => {
+				this.log.error(
+					{ mailboxId, newPath, error },
+					"Renamed subtree left pending",
+				);
+			},
+		);
 
 		return { success: true };
 	};

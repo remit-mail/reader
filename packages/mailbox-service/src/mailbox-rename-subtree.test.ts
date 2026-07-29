@@ -62,6 +62,14 @@ const connectionListing = (paths: string[]): IImapConnection =>
 			})),
 	}) as unknown as IImapConnection;
 
+const connectionWithoutListing = (): IImapConnection =>
+	({
+		renameMailbox: async () => undefined,
+		listMailboxes: async () => {
+			throw new Error("IMAP connection lost");
+		},
+	}) as unknown as IImapConnection;
+
 /**
  * The local rename writes the new path across the whole subtree and marks every
  * row pending, so a reconcile in that window cannot reap them (#290). These
@@ -188,5 +196,30 @@ describe("MailboxManagementService.syncRename — subtree settle", () => {
 
 		assert.equal(result.success, true);
 		assert.equal(statusOf("mbx-child"), MailboxSyncStatus.synced);
+	});
+
+	it("reports the rename as done when the listing it settles against fails", async () => {
+		// The listing runs after the server rename has landed. Letting it fail the
+		// rename would send the caller down its IMAP-failure path, restoring a path
+		// the server no longer has and marking the row failed — which drops the
+		// pending marker that keeps the reconcile sweep from reaping it. A
+		// descendant left pending is the safe outcome.
+		const { repo, statusOf } = store([
+			row("mbx-parent", "Projects", MailboxSyncStatus.pending),
+			row("mbx-child", "Projects/2026", MailboxSyncStatus.pending),
+		]);
+		const service = new MailboxManagementService(repo);
+
+		const result = await service.syncRename(
+			"acc-1",
+			"mbx-parent",
+			"Work",
+			"Projects",
+			async () => connectionWithoutListing(),
+		);
+
+		assert.equal(result.success, true);
+		assert.equal(statusOf("mbx-parent"), MailboxSyncStatus.synced);
+		assert.equal(statusOf("mbx-child"), MailboxSyncStatus.pending);
 	});
 });
