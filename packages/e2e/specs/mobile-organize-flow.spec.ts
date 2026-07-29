@@ -281,6 +281,80 @@ test.describe("Organize through the selection wizard", () => {
 		}
 	});
 
+	test("closing while the rule is saving still runs the pass over existing mail", async ({
+		page,
+		run,
+		api,
+	}) => {
+		const tag = `wizard-close ${Date.now()}`;
+		const { first, second, cleanup } = await seedScratch(page, run, api, tag);
+
+		// The create is held long enough for the saving screen — which offers a
+		// Close — to be the screen when Close is pressed.
+		await page.route(/\/filters$/, async (route) => {
+			if (route.request().method() !== "POST") return route.continue();
+			await new Promise((resolve) => setTimeout(resolve, 2_000));
+			await route.fulfill({
+				status: 201,
+				contentType: "application/json",
+				body: JSON.stringify({
+					filterId: "filter-1",
+					name: tag,
+					scope: "Standing",
+				}),
+			});
+		});
+
+		// The pass over the mail already in the mailbox, counted rather than
+		// watched: nothing is on screen to watch it by the time it starts.
+		const passes: string[] = [];
+		await page.route(/\/organize$/, (route) => {
+			passes.push(route.request().url());
+			return route.fulfill({
+				status: 200,
+				contentType: "application/json",
+				body: JSON.stringify({
+					organizeJobId: "job-1",
+					state: "Running",
+					matchedCount: 2,
+					appliedCount: 0,
+					failedCount: 0,
+				}),
+			});
+		});
+
+		try {
+			await selectTwo(page, first, second);
+			await barOrganize(page).click();
+			await expect(wizardStep(page)).toHaveText(/^Step 1 of 5 · Apply to$/, {
+				timeout: 20_000,
+			});
+			await advanceTo(page, "Folder");
+			await pickFolder(page, "Archive");
+			await advanceTo(page, "Rule");
+			await page.getByText("Keep doing this", { exact: true }).click();
+			await advanceTo(page, "Name");
+			await page.getByLabel("Rule name").fill(tag);
+			await advanceTo(page, "Review");
+
+			await commitButton(page, "Save rule").click();
+			await expect(page.getByText("Saving rule…")).toBeVisible({
+				timeout: 20_000,
+			});
+
+			// Out of the wizard while the create is still in flight. The rule is
+			// saved either way; the pass behind it must not be lost with the screen.
+			await dismissRun(page, "Close");
+			await expect(wizardStep(page)).toHaveCount(0);
+
+			await expect(async () => {
+				expect(passes.length).toBeGreaterThan(0);
+			}).toPass({ timeout: 20_000 });
+		} finally {
+			await cleanup();
+		}
+	});
+
 	test("Continue says what is missing instead of going nowhere", async ({
 		page,
 		run,

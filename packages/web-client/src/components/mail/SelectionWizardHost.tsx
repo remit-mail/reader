@@ -182,13 +182,11 @@ function SelectionWizardSession({
 	const [bulkRun, setBulkRun] = useState<
 		{ matched: number; outcome?: BulkRunOutcome } | undefined
 	>(undefined);
-	// The predicate to run over the mail already in the mailbox once a filter is
-	// created. Undefined when the rule cannot be back-applied — a `HasWords`
-	// clause the vector-free pass cannot evaluate — in which case the filter still
-	// saves and applies to incoming mail. Kept, not cleared, so a failed start can
-	// be retried.
+	// The predicate the create chains its pass to. Undefined when the rule cannot
+	// be back-applied — a `HasWords` clause the vector-free pass cannot evaluate —
+	// in which case the filter still saves and applies to incoming mail. Kept, not
+	// cleared, so a failed start can be retried.
 	const [backApplyDraft, setBackApplyDraft] = useState<OrganizeDraft>();
-	const backApplyStarted = useRef(false);
 	const commitSent = useRef(false);
 
 	const messageIds = useMemo(
@@ -466,6 +464,9 @@ function SelectionWizardSession({
 		[verb, named.moveMailboxId, junkMailboxId, runAction],
 	);
 
+	const { start: startJob } = organizeJob;
+	const { createFilterAsync } = createFilter;
+
 	const sendCommit = useCallback(() => {
 		const scope = organizeScopeFor({ mode, ruleScope: named.scope });
 		const organizeDraft = buildWizardDraft({
@@ -480,19 +481,26 @@ function SelectionWizardSession({
 		setCommittedScope(scope);
 
 		if (scope === "standing" || scope === "temporary") {
-			backApplyStarted.current = false;
-			setBackApplyDraft(
-				canBackApplyDraft(organizeDraft) ? organizeDraft : undefined,
-			);
-			createFilter.createFilter(
+			// Creating a filter also moves the mail that already matches, not only
+			// the mail that arrives next. The pass is chained to the create's own
+			// request rather than to this screen: the screen offers a Close while
+			// the create is still in flight, and a rule that saved with no pass
+			// behind it — and nothing left to retry from — is a silent no-op.
+			const backApply = canBackApplyDraft(organizeDraft)
+				? organizeDraft
+				: undefined;
+			setBackApplyDraft(backApply);
+			void createFilterAsync(
 				organizeDraft,
 				scope,
 				(named.name ?? "").trim(),
-			);
+			).then((created) => {
+				if (created && backApply) startJob(backApply);
+			});
 			return;
 		}
 		if (scope === "all-like-these" && widenedRunsAsJob(verb)) {
-			organizeJob.start(organizeDraft);
+			startJob(organizeDraft);
 			return;
 		}
 		void runBulk(scope === "just-these" ? messageIds : matchedIds);
@@ -503,8 +511,8 @@ function SelectionWizardSession({
 		verb,
 		messageIds,
 		matchedIds,
-		createFilter,
-		organizeJob,
+		createFilterAsync,
+		startJob,
 		runBulk,
 	]);
 
@@ -521,23 +529,6 @@ function SelectionWizardSession({
 		goToStep("run");
 		sendCommit();
 	}, [blockedReason, current, goToStep, sendCommit]);
-
-	// Creating a filter also moves the mail that already matches, not only the
-	// mail that arrives next. The filter is created first so the rule is live
-	// before the pass; `backApplyStarted` guards the one-shot start against
-	// re-firing on re-render.
-	const { start: startJob } = organizeJob;
-	useEffect(() => {
-		if (
-			!backApplyDraft ||
-			backApplyStarted.current ||
-			!createFilter.isSuccess
-		) {
-			return;
-		}
-		backApplyStarted.current = true;
-		startJob(backApplyDraft);
-	}, [backApplyDraft, createFilter.isSuccess, startJob]);
 
 	const jobSnapshot = useCallback((): RunSnapshot => {
 		const progress = organizeJob.progress;
