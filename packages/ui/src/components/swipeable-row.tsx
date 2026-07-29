@@ -1,4 +1,3 @@
-import type { DOMAttributes } from "@react-types/shared";
 import { Check, Mail, MailOpen, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { mergeProps } from "react-aria";
@@ -64,26 +63,6 @@ export function commitPeek(offset: number): SwipePeek {
 	return "none";
 }
 
-/**
- * Props the row's interactive (open) element must receive — the swipe gesture
- * handlers (merged with react-aria's long-press props: pointer handlers,
- * `aria-describedby`, and friends), the transform/transition style, the row
- * body, plus an onClick that suppresses navigation when the row is peeked. A
- * consumer passes `linkComponent` to render these on a real anchor (e.g. a
- * router Link) so the open affordance is a true `<a href>` — keeping
- * open-in-new-tab, middle-click, deep-link and a11y — instead of the default
- * JS-only `<button onOpen>`.
- */
-export interface SwipeableRowOpenProps extends DOMAttributes {
-	className: string;
-	style: React.CSSProperties;
-	/** Wire to the anchor's onClick. When the row is peeked it calls
-	 *  preventDefault so a tap closes the peek instead of navigating; otherwise
-	 *  it is a no-op and the anchor's native navigation proceeds. */
-	onOpenClick: (e: { preventDefault: () => void }) => void;
-	children: React.ReactNode;
-}
-
 export function SwipeableRow({
 	thread,
 	selectionMode,
@@ -95,7 +74,6 @@ export function SwipeableRow({
 	onLongPress,
 	onOpen,
 	onAct,
-	linkComponent,
 }: {
 	thread: ThreadRowData;
 	selectionMode: boolean;
@@ -109,12 +87,6 @@ export function SwipeableRow({
 	/** Tapping a revealed action performs it: "leading" = toggle read,
 	 *  "trailing" = delete. */
 	onAct: (side: "leading" | "trailing") => void;
-	/** Render the open affordance as a real anchor (router Link / `<a href>`)
-	 *  instead of the default `<button onOpen>`. Receives the gesture handlers,
-	 *  style, peek-aware onClickCapture and row body to spread onto the anchor.
-	 *  When provided, a plain tap navigates via the anchor's native click (so
-	 *  deep-link/middle-click work); onOpen is not called for the tap. */
-	linkComponent?: (props: SwipeableRowOpenProps) => React.ReactNode;
 }) {
 	const gesture = useRef<{
 		startX: number;
@@ -197,9 +169,8 @@ export function SwipeableRow({
 		// or a real cancel arrived) — those handle themselves, so do nothing.
 		if (!g) return;
 		// A drag that claimed an axis but never escaped left react-aria's press
-		// live, and an unresolved press synthesizes a click on release — which on
-		// the anchor row means navigating. The drag was neither a swipe nor a
-		// tap, so end the press with it.
+		// live, and an unresolved press synthesizes a click on release. The drag
+		// was neither a swipe nor a tap, so end the press with it.
 		if (g.axis !== "none" && !g.escaped) cancelLongPress(e);
 		if (g.axis === "horizontal") {
 			if (offset !== null) onPeek(commitPeek(offset));
@@ -216,8 +187,6 @@ export function SwipeableRow({
 			onPeek("none");
 			return;
 		}
-		// A real anchor handles the open via its native click — don't double-fire.
-		if (linkComponent) return;
 		onOpen();
 	};
 
@@ -242,12 +211,6 @@ export function SwipeableRow({
 		onPointerCancel,
 	});
 
-	// A tap on a peeked anchor must close the peek, not navigate; suppress the
-	// native click in that case. onPointerUp already snapped it closed.
-	const onOpenClick = (e: { preventDefault: () => void }) => {
-		if (peek !== "none") e.preventDefault();
-	};
-
 	const offset = dragX ?? peekOffset(peek);
 	const revealed: SwipePeek =
 		offset > 0 ? "leading" : offset < 0 ? "trailing" : "none";
@@ -255,12 +218,9 @@ export function SwipeableRow({
 	const interactiveClassName = cn(
 		// opaque bg so the row occludes the action behind it until peeked
 		"relative touch-pan-y bg-surface",
-		// This row's long press enters selection mode; without these, Android
-		// Chrome opens the link context menu / starts text selection and iOS
-		// Safari fires the callout, racing the app's handler. useLongPress
-		// suppresses the touch-fired contextmenu; the callout fires no
-		// cancelable event, so CSS is the only lever left for it.
-		"select-none [-webkit-touch-callout:none]",
+		// This row's long press enters selection mode; without this, the hold
+		// starts a native text selection across the row's subject and snippet.
+		"select-none",
 		comfortableRowClass({ active: checked || active }),
 	);
 	const interactiveStyle: React.CSSProperties = {
@@ -297,14 +257,14 @@ export function SwipeableRow({
 			)}
 			{/*
 			 * Tappable, focusable entry point into selection mode — long-press is
-			 * never the only way in. Nested inside the row's own open control
-			 * (button or, via linkComponent, an anchor); mirrors the leading-slot
-			 * toggle already shipped in the web client's row.
+			 * never the only way in. A span, not a <button>: it sits inside the
+			 * row's own open button, which may not nest one. The checkbox role and
+			 * label are what the user and the test suite address, so both stay.
 			 */}
-			{/* biome-ignore lint/a11y/useSemanticElements: a native <input type="checkbox"> can't host the Avatar as its visible content; role="checkbox" on a button mirrors the row-checkbox pattern already shipped in MessageListItem.tsx */}
-			<button
-				type="button"
+			{/* biome-ignore lint/a11y/useSemanticElements: a native <input type="checkbox"> can't host the Avatar as its visible content, and a nested <button> inside the row's own button is invalid HTML */}
+			<span
 				role="checkbox"
+				tabIndex={0}
 				aria-checked={checked}
 				aria-label={`Select message from ${thread.fromName}`}
 				onPointerDown={stopRowGesture}
@@ -315,10 +275,16 @@ export function SwipeableRow({
 					e.stopPropagation();
 					onLongPress();
 				}}
+				onKeyDown={(e) => {
+					if (e.key !== "Enter" && e.key !== " ") return;
+					e.preventDefault();
+					e.stopPropagation();
+					onLongPress();
+				}}
 				className="-m-2 inline-flex size-11 shrink-0 items-center justify-center rounded-full"
 			>
 				<Avatar name={thread.fromName} email={thread.fromEmail} size="sm" />
-			</button>
+			</span>
 			<ComfortableRowTextContent thread={thread} />
 		</>
 	);
@@ -350,29 +316,21 @@ export function SwipeableRow({
 				</button>
 			)}
 
-			{/* In selection mode the row is tap-to-toggle, never a navigation link —
-			    keep the button so a checkbox tap can't open a thread. */}
-			{linkComponent && !selectionMode ? (
-				linkComponent({
-					...gestureProps,
-					className: interactiveClassName,
-					style: interactiveStyle,
-					onOpenClick,
-					children: body,
-				})
-			) : (
-				// biome-ignore lint/a11y/useAriaPropsSupportedByRole: role is only ever "checkbox" (aria-checked's owning role) when selectionMode is true; the ternaries are linked, biome can't see that statically
-				<button
-					type="button"
-					role={selectionMode ? "checkbox" : undefined}
-					aria-checked={selectionMode ? checked : undefined}
-					{...gestureProps}
-					className={interactiveClassName}
-					style={interactiveStyle}
-				>
-					{body}
-				</button>
-			)}
+			{/* `data-message-row` is the mail app's row marker: its key dispatcher
+			    reads it to tell a row apart from a control nested inside one, and
+			    the e2e suite locates rows by it. */}
+			{/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: role is only ever "checkbox" (aria-checked's owning role) when selectionMode is true; the ternaries are linked, biome can't see that statically */}
+			<button
+				type="button"
+				role={selectionMode ? "checkbox" : undefined}
+				aria-checked={selectionMode ? checked : undefined}
+				data-message-row
+				{...gestureProps}
+				className={interactiveClassName}
+				style={interactiveStyle}
+			>
+				{body}
+			</button>
 		</div>
 	);
 }

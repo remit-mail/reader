@@ -3,11 +3,7 @@ import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import type { ThreadRowData } from "./app-shell-types.js";
-import {
-	SwipeableRow,
-	type SwipeableRowOpenProps,
-	type SwipePeek,
-} from "./swipeable-row.js";
+import { SwipeableRow, type SwipePeek } from "./swipeable-row.js";
 
 const thread: ThreadRowData = {
 	id: "thread-1",
@@ -63,45 +59,14 @@ describe("SwipeableRow", () => {
 		assert.match(read, /aria-label="Mark as unread"/);
 	});
 
-	it("renders the open affordance as a button by default", () => {
-		const html = render("none");
-		assert.match(html, /<button[^>]*>/);
-		assert.doesNotMatch(html, /<a /);
-	});
-
-	it("renders the open affordance as a real anchor when linkComponent is given", () => {
-		const html = renderToString(
-			createElement(SwipeableRow, {
-				...baseProps,
-				peek: "none",
-				linkComponent: ({ className, children }: SwipeableRowOpenProps) =>
-					createElement(
-						"a",
-						{ href: "/mail/m1?selectedMessageId=t1", className },
-						children,
-					),
-			}),
-		);
-		assert.match(html, /<a [^>]*href="\/mail\/m1\?selectedMessageId=t1"/);
-		assert.match(html, /Q3 planning notes/);
-	});
-
-	it("keeps the button (not the anchor) in selection mode even with a linkComponent", () => {
-		const html = renderToString(
-			createElement(SwipeableRow, {
-				...baseProps,
-				selectionMode: true,
-				peek: "none",
-				linkComponent: ({ className, children }: SwipeableRowOpenProps) =>
-					createElement(
-						"a",
-						{ href: "/should-not-render", className },
-						children,
-					),
-			}),
-		);
-		assert.doesNotMatch(html, /<a /);
-		assert.match(html, /<button[^>]*>/);
+	it("opens through a button, never an anchor (#116)", () => {
+		for (const html of [
+			render("none"),
+			render("none", { selectionMode: true }),
+		]) {
+			assert.match(html, /<button[^>]*data-message-row/);
+			assert.doesNotMatch(html, /<a /);
+		}
 	});
 
 	it("gives the row checkbox semantics while in selection mode", () => {

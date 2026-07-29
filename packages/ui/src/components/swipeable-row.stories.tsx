@@ -69,31 +69,6 @@ export const SelectionChecked: Story = {
 	args: { peek: "none", selectionMode: true, checked: true },
 };
 
-/**
- * The open affordance is rendered as a real `<a href>` via `linkComponent`,
- * so deep-link, middle-click and open-in-new-tab work. Consumers pass their
- * router's Link; here a plain anchor stands in. Inspect the DOM: the row is an
- * anchor, not a button.
- */
-export const AsAnchor: Story = {
-	name: "As anchor (linkComponent)",
-	args: {
-		peek: "none",
-		linkComponent: ({ onOpenClick, children, ...rowProps }) => (
-			<a
-				{...rowProps}
-				href="/mail/inbox?selectedMessageId=thread-1"
-				onClick={(e) => {
-					e.preventDefault();
-					onOpenClick(e);
-				}}
-			>
-				{children}
-			</a>
-		),
-	},
-};
-
 export const Acting: Story = {
 	name: "Acting (interactive)",
 	render: () => {
@@ -130,7 +105,7 @@ export const Acting: Story = {
 	},
 };
 
-function AnchorRow({
+function GestureRow({
 	onLongPress,
 	selectionMode,
 	checked,
@@ -147,22 +122,13 @@ function AnchorRow({
 				selectionMode={selectionMode ?? false}
 				checked={checked ?? false}
 				onLongPress={onLongPress ?? (() => undefined)}
-				linkComponent={({ onOpenClick, children, ...rowProps }) => (
-					<a
-						{...rowProps}
-						href="/mail/inbox?selectedMessageId=thread-1"
-						onClick={(e) => {
-							e.preventDefault();
-							onOpenClick(e);
-						}}
-					>
-						{children}
-					</a>
-				)}
 			/>
 		</PhoneFrame>
 	);
 }
+
+const rowElement = (canvasElement: HTMLElement) =>
+	canvasElement.querySelector<HTMLButtonElement>("button[data-message-row]");
 
 /**
  * The long press is the way into multi-select on touch. Press and hold the row
@@ -177,7 +143,7 @@ export const LongPressToSelect: Story = {
 		const [selected, setSelected] = useState(false);
 		return (
 			<div className="space-y-2">
-				<AnchorRow
+				<GestureRow
 					selectionMode={selected}
 					checked={selected}
 					onLongPress={() => setSelected((v) => !v)}
@@ -206,7 +172,7 @@ export const LongPressWithDrift: Story = {
 		const [selected, setSelected] = useState(false);
 		return (
 			<div className="space-y-2">
-				<AnchorRow
+				<GestureRow
 					selectionMode={selected}
 					checked={selected}
 					onLongPress={() => setSelected(true)}
@@ -220,10 +186,10 @@ export const LongPressWithDrift: Story = {
 		);
 	},
 	play: async ({ canvasElement }) => {
-		const anchor = canvasElement.querySelector<HTMLAnchorElement>("a[href]");
-		if (!anchor) return;
+		const row = rowElement(canvasElement);
+		if (!row) return;
 		const touch = (type: string, clientX: number, clientY: number) =>
-			anchor.dispatchEvent(
+			row.dispatchEvent(
 				new PointerEvent(type, {
 					bubbles: true,
 					pointerType: "touch",
@@ -247,30 +213,29 @@ export const LongPressWithDrift: Story = {
 };
 
 /**
- * A touch long press over a link row normally raises the browser's own link
- * context menu ("Open in new tab / Copy link address"), which collides with the
- * long-press-to-select gesture above. `useLongPress` suppresses that menu when
- * the press came from touch or pen, while leaving a mouse right-click's menu
- * alone. The play step drives a synthetic touch press then a contextmenu and
- * writes the outcome below.
+ * A touch long press over a row normally raises the browser's own context menu,
+ * which collides with the long-press-to-select gesture above. `useLongPress`
+ * suppresses that menu when the press came from touch or pen, while leaving a
+ * mouse right-click's menu alone. The play step drives a synthetic touch press
+ * then a contextmenu and writes the outcome below.
  */
 export const TouchContextMenuSuppressed: Story = {
 	name: "Touch context menu suppressed",
 	render: () => (
 		<div className="space-y-2">
-			<AnchorRow />
+			<GestureRow />
 			<p data-testid="context-menu-outcome" className="text-xs text-fg-muted">
 				Waiting for a touch press…
 			</p>
 		</div>
 	),
 	play: async ({ canvasElement }) => {
-		const anchor = canvasElement.querySelector<HTMLAnchorElement>("a[href]");
+		const row = rowElement(canvasElement);
 		const outcome = canvasElement.querySelector<HTMLParagraphElement>(
 			'[data-testid="context-menu-outcome"]',
 		);
-		if (!anchor || !outcome) return;
-		anchor.dispatchEvent(
+		if (!row || !outcome) return;
+		row.dispatchEvent(
 			new PointerEvent("pointerdown", {
 				bubbles: true,
 				pointerType: "touch",
@@ -281,7 +246,7 @@ export const TouchContextMenuSuppressed: Story = {
 			bubbles: true,
 			cancelable: true,
 		});
-		anchor.dispatchEvent(menu);
+		row.dispatchEvent(menu);
 		outcome.textContent = menu.defaultPrevented
 			? "Native context menu suppressed on touch."
 			: "Native context menu allowed.";
