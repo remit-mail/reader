@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { FolderInput, Menu, Search, Tag } from "lucide-react";
+import { Menu, Search, Tag } from "lucide-react";
 import { Button } from "./button.js";
 import { PopoverMenu } from "./popover-menu.js";
 import { SearchBar } from "./search-bar.js";
@@ -14,8 +14,8 @@ const meta: Meta<typeof SelectionTopBar> = {
 		onCancel: () => undefined,
 		onMarkRead: () => undefined,
 		onJunk: () => undefined,
+		onMove: () => undefined,
 		onOrganize: () => undefined,
-		onSomethingElse: () => undefined,
 		onDelete: () => undefined,
 	},
 	// Full viewport width — a fixed w-[390px] wrapper inside a 390px Storybook
@@ -29,18 +29,6 @@ const meta: Meta<typeof SelectionTopBar> = {
 export default meta;
 
 type Story = StoryObj<typeof SelectionTopBar>;
-
-/** Stand-in for the caller's move-to-folder trigger, which owns its own
- *  folder-picker data. The bar only reserves the slot. */
-const MoveSlot = () => (
-	<button
-		type="button"
-		aria-label="Move selected messages"
-		className="inline-flex size-11 shrink-0 items-center justify-center rounded text-fg-muted hover:bg-surface-raised"
-	>
-		<FolderInput className="size-5" />
-	</button>
-);
 
 /** Stand-in for the caller's apply-label picker, whose list belongs to the
  *  account. A worded row, so it reads as one of the menu's actions. */
@@ -147,16 +135,17 @@ export const IdleSearching: Story = {
 /**
  * One ticked row. The count takes the title's place and the header's own
  * chrome stands down; the verbs arrive with it: Delete, Move and Organize
- * carry a glyph, Junk, Mark read and Something else live under the kebab.
- * Below 768px select-all takes a second row, so row one stays a count and a
+ * carry a glyph, Junk and Mark read live under the kebab. Every one of them
+ * opens the wizard. Below 768px select-all takes a second row, so row one
+ * stays a count and a
  * row of verbs with a back arrow out of selection.
  */
 export const One: Story = {
-	args: { ...chrome, count: 1, selectAll, moveSlot: <MoveSlot /> },
+	args: { ...chrome, count: 1, selectAll },
 };
 
 export const Many: Story = {
-	args: { count: 3, selectAll, moveSlot: <MoveSlot /> },
+	args: { count: 3, selectAll },
 };
 
 /**
@@ -167,7 +156,6 @@ export const WithLabelPicker: Story = {
 	args: {
 		count: 3,
 		selectAll,
-		moveSlot: <MoveSlot />,
 		overflowSlot: <LabelSlot />,
 	},
 };
@@ -175,13 +163,13 @@ export const WithLabelPicker: Story = {
 /** A selection spanning folders or accounts has no move target and no
  *  account to file a rule under: the bar carries Delete and the overflow. */
 export const WithoutMoveOrOrganize: Story = {
-	args: { count: 2, onOrganize: undefined, selectAll },
+	args: { count: 2, onMove: undefined, onOrganize: undefined, selectAll },
 };
 
 /** A mutation in flight: Delete carries the spinner and every other verb
  *  stands down, because nothing else can act until it lands. */
 export const Busy: Story = {
-	args: { count: 2, isBusy: true, moveSlot: <MoveSlot />, selectAll },
+	args: { count: 2, isBusy: true, selectAll },
 };
 
 export const CrossAccountHint: Story = {
@@ -204,7 +192,6 @@ export const CrossAccountHint: Story = {
 export const AllSelected: Story = {
 	args: {
 		count: 47,
-		moveSlot: <MoveSlot />,
 		selectAll: {
 			checked: true,
 			indeterminate: false,
@@ -260,7 +247,6 @@ export const Escalated: Story = {
 	args: {
 		count: 3412,
 		statusLabel: 'All 3,412 matching "npm" selected',
-		moveSlot: <MoveSlot />,
 		notice: {
 			tone: "info",
 			text: "",
@@ -367,7 +353,6 @@ export const MarkingReadWithProgress: Story = {
 export const PartialFailureMove: Story = {
 	args: {
 		count: 340,
-		moveSlot: <MoveSlot />,
 		notice: {
 			tone: "danger",
 			text: "3,072 moved. 340 couldn't be moved.",

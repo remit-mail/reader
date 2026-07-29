@@ -47,7 +47,11 @@ describe("the brief's select-all", () => {
 		);
 	});
 
-	it("keeps the free-text organize entry reachable, in the overflow", () => {
-		assert.match(chromeBody(), /onSomethingElse=\{/);
+	it("sends every verb on the bar into the wizard (#477 1.4)", () => {
+		const body = chromeBody();
+		for (const verb of ["delete", "move", "junk", "markRead", "organize"]) {
+			assert.match(body, new RegExp(`startWizard\\("${verb}"\\)`));
+		}
+		assert.doesNotMatch(body, /onSomethingElse/);
 	});
 });

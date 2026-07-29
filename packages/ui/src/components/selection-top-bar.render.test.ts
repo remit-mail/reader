@@ -109,16 +109,18 @@ describe("SelectionTopBar", () => {
 		);
 	});
 
-	it("offers Something else as an overflow verb, never a glyph", () => {
+	it("keeps Junk and Mark read in the overflow menu, never as glyphs", () => {
 		const html = renderToString(
 			createElement(SelectionTopBar, {
 				...handlers,
 				count: 2,
-				onSomethingElse: () => undefined,
+				onJunk: () => undefined,
+				onMarkRead: () => undefined,
 			}),
 		);
 		assert.match(html, /aria-label="More actions"/);
-		assert.doesNotMatch(row(html, "actions"), /aria-label="Something else"/);
+		assert.doesNotMatch(row(html, "actions"), /aria-label="Junk"/);
+		assert.doesNotMatch(row(html, "actions"), /aria-label="Mark read"/);
 	});
 
 	it("replaces the title with the count from the first ticked row", () => {
@@ -150,11 +152,7 @@ describe("SelectionTopBar", () => {
 				count: 3,
 				selectAll,
 				onOrganize: () => undefined,
-				moveSlot: createElement(
-					"button",
-					{ type: "button", "aria-label": "Move selected messages" },
-					"Move",
-				),
+				onMove: () => undefined,
 			}),
 		);
 

@@ -360,10 +360,10 @@ function BriefMultiSelectScreen({ touch = false }: { touch?: boolean }) {
 					count={checked.size}
 					onCancel={clear}
 					onDelete={clear}
+					onMove={clear}
 					onOrganize={clear}
 					onJunk={clear}
 					onMarkRead={clear}
-					onSomethingElse={clear}
 					selectAll={{
 						checked: false,
 						indeterminate: checked.size > 0,

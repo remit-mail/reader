@@ -46,6 +46,7 @@ import {
 	SelectionTopBar,
 	type ThreadRowData,
 	type ThreadSection,
+	type Verb,
 } from "@remit/ui";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -54,7 +55,6 @@ import {
 	type ReactNode,
 	type RefObject,
 	useCallback,
-	useEffect,
 	useMemo,
 	useState,
 } from "react";
@@ -65,7 +65,6 @@ import {
 } from "@/hooks/useInitialSyncProgress";
 import { useLabelList } from "@/hooks/useLabels";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
-import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useSemanticSearch } from "@/hooks/useSemanticSearch";
 import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
@@ -83,13 +82,15 @@ import type { ListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
 import { relatedSearchResults, rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
+import { useOpenWizard } from "@/lib/wizard-history";
 import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import { MailListHeader, type MailListHeaderProps } from "./MailListHeader";
 import type { MessageListCommands } from "./MessageList";
 import { MessageRow } from "./MessageRow";
-import { MoveToTrigger } from "./MoveToTrigger";
-import { MobileOrganizeFlow } from "./organize/MobileOrganizeFlow";
-import { OrganizeDialog } from "./organize/OrganizeDialog";
+import {
+	SelectionWizardHost,
+	type WizardSelectionMessage,
+} from "./SelectionWizardHost";
 import {
 	type OpenMessageOptions,
 	ThreadListInteraction,
@@ -293,7 +294,6 @@ interface BriefSelectionChromeProps {
 	>;
 	/** The rows the list is showing, for resolving the selection's scope. */
 	rows: readonly ThreadRowData[];
-	isDesktop: boolean;
 	onMarkMessagesRead?: (messageIds: string[]) => void;
 	children: ReactNode;
 }
@@ -307,7 +307,6 @@ interface BriefSelectionChromeProps {
 function BriefSelectionChrome({
 	header,
 	rows,
-	isDesktop,
 	onMarkMessagesRead,
 	children,
 }: BriefSelectionChromeProps) {
@@ -315,7 +314,6 @@ function BriefSelectionChrome({
 		selectedIds,
 		selectedCount,
 		exitSelection,
-		requestDeleteSelection,
 		orderedIds,
 		allSelected,
 		toggleAllLoaded,
@@ -327,57 +325,40 @@ function BriefSelectionChrome({
 	);
 	const { junkMailboxId } = useJunkMailbox(scope.accountId);
 	const { labels } = useLabelList(scope.accountId);
-	const { moveMessages, isPending: isMoving } = useMoveMessages({
-		mailboxId: scope.mailboxId ?? "",
-		accountId: scope.accountId,
-	});
 
-	const [organizeOpen, setOrganizeOpen] = useState(false);
-	const [mobileOrganizeEntry, setMobileOrganizeEntry] = useState<
-		"select-similar" | "something-else" | null
-	>(null);
-
-	// An emptied selection takes the flows it opened with it, so a later
-	// re-selection can't reopen one on a stale entry.
-	useEffect(() => {
-		if (selectedCount > 0) return;
-		setOrganizeOpen(false);
-		setMobileOrganizeEntry(null);
-	}, [selectedCount]);
+	const openWizard = useOpenWizard();
+	// The verb the bar was pressed for. The wizard is open for as long as the URL
+	// holds a step, so a back that pops the last one closes it.
+	const [wizardVerb, setWizardVerb] = useState<Verb>("organize");
+	const startWizard = useCallback(
+		(verb: Verb) => {
+			setWizardVerb(verb);
+			openWizard("match");
+		},
+		[openWizard],
+	);
 
 	const selectedMessageIds = useMemo(
 		() => Array.from(selectedIds),
 		[selectedIds],
 	);
-	const selectedSenders = useMemo(() => {
-		const emails: string[] = [];
-		for (const row of rows) {
-			if (selectedIds.has(row.id) && row.fromEmail) emails.push(row.fromEmail);
-		}
-		return emails;
-	}, [rows, selectedIds]);
-
-	const handleMarkAsRead = useCallback(() => {
-		onMarkMessagesRead?.(selectedMessageIds);
-		exitSelection();
-	}, [onMarkMessagesRead, selectedMessageIds, exitSelection]);
-
-	const handleMove = useCallback(
-		(destinationMailboxId: string) => {
-			if (selectedMessageIds.length === 0) return;
-			moveMessages(selectedMessageIds, destinationMailboxId);
-			exitSelection();
-		},
-		[moveMessages, selectedMessageIds, exitSelection],
+	// The ticked rows as the wizard reads them — the sample under every screen
+	// that names a match, and the senders its widen falls back to.
+	const wizardSelection = useMemo<WizardSelectionMessage[]>(
+		() =>
+			rows
+				.filter((row) => selectedIds.has(row.id))
+				.map((row) => ({
+					id: row.id,
+					sender: row.fromName,
+					email: row.fromEmail,
+					subject: row.subject,
+					date: row.timeLabel,
+				})),
+		[rows, selectedIds],
 	);
 
-	const handleJunk = useCallback(() => {
-		if (junkMailboxId) handleMove(junkMailboxId);
-	}, [junkMailboxId, handleMove]);
-
-	const scoped = !!scope.accountId && !!scope.mailboxId;
-	const canJunk =
-		scoped && !!junkMailboxId && junkMailboxId !== scope.mailboxId;
+	const canJunk = !!junkMailboxId && junkMailboxId !== scope.mailboxId;
 
 	// One select-all for both surfaces: the desktop toolbar and the touch sheet
 	// offer the same control over the same rendered rows, so the verb a phone
@@ -410,31 +391,12 @@ function BriefSelectionChrome({
 			idleSlot={chrome.makeFilterSlot}
 			count={selectedCount}
 			onCancel={exitSelection}
-			onDelete={requestDeleteSelection}
-			onOrganize={
-				scoped
-					? () =>
-							isDesktop
-								? setOrganizeOpen(true)
-								: setMobileOrganizeEntry("select-similar")
-					: undefined
-			}
-			onJunk={canJunk ? handleJunk : undefined}
-			onMarkRead={onMarkMessagesRead ? handleMarkAsRead : undefined}
-			onSomethingElse={
-				scoped && !isDesktop
-					? () => setMobileOrganizeEntry("something-else")
-					: undefined
-			}
-			moveSlot={
-				scoped && scope.accountId && scope.mailboxId ? (
-					<MoveToTrigger
-						accountId={scope.accountId}
-						currentMailboxId={scope.mailboxId}
-						onMove={isMoving ? () => {} : handleMove}
-						label="Move selected messages"
-					/>
-				) : undefined
+			onDelete={() => startWizard("delete")}
+			onMove={() => startWizard("move")}
+			onOrganize={() => startWizard("organize")}
+			onJunk={canJunk ? () => startWizard("junk") : undefined}
+			onMarkRead={
+				onMarkMessagesRead ? () => startWizard("markRead") : undefined
 			}
 			overflowSlot={
 				scope.accountId &&
@@ -448,48 +410,24 @@ function BriefSelectionChrome({
 					/>
 				) : undefined
 			}
-			isBusy={isMoving}
 			selectAll={selectAll}
 			notice={notice}
 		/>
 	);
 
-	const organizeFlow =
-		mobileOrganizeEntry &&
-		scope.accountId &&
-		!isDesktop &&
-		selectedCount > 0 ? (
-			<MobileOrganizeFlow
-				entry={mobileOrganizeEntry}
-				accountId={scope.accountId}
-				selectedMessageIds={selectedMessageIds}
-				selectedSenders={selectedSenders}
-				junkMailboxId={junkMailboxId}
-				onClose={() => {
-					setMobileOrganizeEntry(null);
-					exitSelection();
-				}}
-			/>
-		) : undefined;
-
 	return (
 		<>
-			<MailListHeader
-				{...header}
-				selectionBar={selectionBar}
-				paneOverlay={organizeFlow}
-			>
+			<MailListHeader {...header} selectionBar={selectionBar}>
 				{children}
 			</MailListHeader>
-			{organizeOpen && scope.accountId && (
-				<OrganizeDialog
-					open={organizeOpen}
-					accountId={scope.accountId}
-					selectedMessageIds={selectedMessageIds}
-					selectedSenders={selectedSenders}
-					onClose={() => setOrganizeOpen(false)}
-				/>
-			)}
+			<SelectionWizardHost
+				verb={wizardVerb}
+				accountId={scope.accountId}
+				mailboxId={scope.mailboxId}
+				selection={wizardSelection}
+				crossAccount={scope.moveDisabledHint !== undefined}
+				onFinished={exitSelection}
+			/>
 		</>
 	);
 }
@@ -850,7 +788,6 @@ export function DailyBrief({
 					onSelectSearchResult,
 				}}
 				rows={filteredRows}
-				isDesktop={isDesktop}
 				onMarkMessagesRead={onMarkMessagesRead}
 			>
 				<div className="flex h-full flex-col">

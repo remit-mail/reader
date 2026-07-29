@@ -581,7 +581,7 @@ describe("SelectionWizard", () => {
 				wizardProps({ verb: "organize", steps, step: "properties" }),
 			),
 		);
-		assert.match(text(html), /Step 1 of 4 · Apply to/);
+		assert.match(text(html), /Step 1 of 5 · Apply to/);
 		assert.match(html, /What should this apply to\?/);
 		assert.match(html, /These 2 messages/);
 		assert.doesNotMatch(html, /Match properties/);
@@ -657,13 +657,16 @@ describe("SelectionWizard", () => {
 				}),
 			),
 		);
-		assert.match(html, /Add a property to match on\./);
-		assert.match(html, /aria-disabled="true"/);
+		assert.match(text(html), /Add a property to match on\./);
+		assert.match(html, /opacity-55/);
+		// Nothing disables (#477 1.7), and `aria-disabled` disables it for
+		// everyone driving the page by anything other than a mouse.
+		assert.doesNotMatch(html, /aria-disabled/);
 		assert.doesNotMatch(html, /<button[^>]*disabled=""/);
 	});
 
-	it("holds the blocked reason back until Continue is pressed", () => {
-		const html = renderToString(
+	it("carries the blocked reason on the control before it is pressed, and shows it after", () => {
+		const quiet = renderToString(
 			createElement(
 				SelectionWizard,
 				wizardProps({
@@ -672,8 +675,23 @@ describe("SelectionWizard", () => {
 				}),
 			),
 		);
-		assert.doesNotMatch(html, /Add a property to match on\./);
-		assert.match(html, /aria-disabled="true"/);
+		// Described, so it is heard on the control; not on screen until pressed.
+		assert.match(quiet, /aria-describedby="/);
+		assert.match(quiet, /sr-only/);
+		assert.doesNotMatch(quiet, /role="status"/);
+
+		const nudged = renderToString(
+			createElement(
+				SelectionWizard,
+				wizardProps({
+					step: "properties",
+					blockedReason: "Add a property to match on.",
+					nudged: true,
+				}),
+			),
+		);
+		assert.match(nudged, /role="status"/);
+		assert.doesNotMatch(nudged, /sr-only/);
 	});
 
 	it("commits under the scope's own label, in the verb's own tone", () => {

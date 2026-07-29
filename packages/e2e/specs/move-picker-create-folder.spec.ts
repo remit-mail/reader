@@ -1,8 +1,8 @@
 /**
- * Creating a folder from the message move picker (PR #282). Selecting a message
- * and opening "Move selected messages" offers, when the typed name matches no
- * existing folder, a `Create "<name>"` row that creates the folder and moves the
- * message into it in one action.
+ * Creating a folder from the move picker (PR #282). Move on the selection bar
+ * opens the wizard, and its folder step offers, when the typed name matches no
+ * existing folder, a `Create "<name>"` row that creates the folder and takes it
+ * as the destination; the review screen is what commits the move.
  *
  * This drives that row against the real build and backend: the message lands in
  * a folder that did not exist when the run started, and the folder is real.
@@ -21,6 +21,13 @@ import { baseUrl } from "../src/env.js";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages } from "../src/imap.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
+import {
+	advanceTo,
+	barMove,
+	commitButton,
+	dismissRun,
+	wizardStep,
+} from "../src/wizard.js";
 
 const DESKTOP = { width: 1512, height: 864 };
 
@@ -84,19 +91,30 @@ test.describe("Create folder from the move picker", () => {
 			.first()
 			.click({ modifiers: ["ControlOrMeta"] });
 
-		await page
-			.getByRole("button", { name: "Move selected messages", exact: true })
-			.click();
+		await barMove(page).click();
+		await expect(wizardStep(page)).toHaveText(/^Step 1 of 4 · Apply to$/, {
+			timeout: 20_000,
+		});
+		await advanceTo(page, "Folder");
 
 		const picker = page.getByRole("searchbox", { name: "Filter folders" });
 		await expect(picker).toBeVisible({ timeout: 10_000 });
 		await picker.fill(FOLDER_NAME);
 		await page.getByRole("button", { name: `Create "${FOLDER_NAME}"` }).click();
 
+		// The created folder is the destination only once the mail server has
+		// confirmed it, which is what the step waits for.
+		await expect(page.getByText(`Moving to ${FOLDER_NAME}.`)).toBeVisible({
+			timeout: 60_000,
+		});
+
+		await advanceTo(page, "Review");
+		await commitButton(page, "Move").click();
+		await expect(page.getByText("Moved 1")).toBeVisible({ timeout: 60_000 });
+		await dismissRun(page);
+
 		// Selection ends when the move runs.
-		await expect(
-			page.getByRole("button", { name: "Move selected messages", exact: true }),
-		).toBeHidden({ timeout: 60_000 });
+		await expect(barMove(page)).toBeHidden({ timeout: 60_000 });
 
 		// The folder is real and holds the message — the create-and-move ran on
 		// the backend, not just the optimistic cache.

@@ -40,16 +40,23 @@ import { composeFolderPath, validateNewFolderName } from "@/lib/new-folder";
  * `mutation` is exposed for callers that drive their own form state and want the
  * optimistic, non-waiting create (the standalone settings create).
  */
-export function useCreateMailbox(accountId: string) {
+export function useCreateMailbox(accountId: string | undefined) {
 	const queryClient = useQueryClient();
 
-	const { data } = useQuery(
-		mailboxOperationsListMailboxesOptions({ path: { accountId } }),
-	);
+	// Held by surfaces that are mounted before a selection has named an account —
+	// the selection wizard sits beside every list — so the folder list is only
+	// asked for once there is an account to ask about.
+	const { data } = useQuery({
+		...mailboxOperationsListMailboxesOptions({
+			path: { accountId: accountId ?? "" },
+		}),
+		enabled: !!accountId,
+	});
 
 	const mutation = useMutation({
 		...mailboxOperationsCreateMailboxMutation(),
 		onSuccess: () => {
+			if (!accountId) return;
 			queryClient.invalidateQueries({
 				queryKey: mailboxOperationsListMailboxesQueryKey({
 					path: { accountId },
@@ -64,6 +71,11 @@ export function useCreateMailbox(accountId: string) {
 
 	const createFolder = useCallback(
 		async (name: string, signal?: AbortSignal): Promise<FolderOption> => {
+			if (!accountId) {
+				throw new Error(
+					"No account to create the folder in. Pick messages from a single account first.",
+				);
+			}
 			const fullPath = composeFolderPath(name);
 			let mailboxId = pendingByPath.current.get(fullPath);
 			if (!mailboxId) {

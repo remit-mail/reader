@@ -80,24 +80,25 @@ describe("stepsFor — the step ids for every verb × match mode × scope", () =
 		]);
 	});
 
-	it("gives Organize a scope step, and a naming step only where the scope persists", () => {
+	it("gives Organize a destination and a scope step, and a naming step only where the scope persists", () => {
 		assert.deepEqual(stepsFor({ verb: "organize", mode: "selected" }), [
 			"match",
+			"folder",
 			"rule",
 			"review",
 			"run",
 		]);
 		assert.deepEqual(
 			stepsFor({ verb: "organize", mode: "selected", scope: "once" }),
-			["match", "rule", "review", "run"],
+			["match", "folder", "rule", "review", "run"],
 		);
 		assert.deepEqual(
 			stepsFor({ verb: "organize", mode: "similar", scope: "standing" }),
-			["match", "rule", "name", "review", "run"],
+			["match", "folder", "rule", "name", "review", "run"],
 		);
 		assert.deepEqual(
 			stepsFor({ verb: "organize", mode: "properties", scope: "until" }),
-			["match", "properties", "rule", "name", "review", "run"],
+			["match", "properties", "folder", "rule", "name", "review", "run"],
 		);
 	});
 
@@ -109,7 +110,7 @@ describe("stepsFor — the step ids for every verb × match mode × scope", () =
 				scope: "standing",
 				fromSearch: true,
 			}),
-			["properties", "rule", "name", "review", "run"],
+			["properties", "folder", "rule", "name", "review", "run"],
 		);
 		assert.deepEqual(
 			stepsFor({ verb: "move", mode: "properties", fromSearch: true }),
@@ -171,14 +172,21 @@ describe("stepsFor — a branching answer only adds or drops a step after itself
 			mode: "selected",
 			scope: "standing",
 		});
-		assert.deepEqual(standing, ["match", "rule", "name", "review", "run"]);
+		assert.deepEqual(standing, [
+			"match",
+			"folder",
+			"rule",
+			"name",
+			"review",
+			"run",
+		]);
 
 		const once = stepsFor({
 			verb: "organize",
 			mode: "selected",
 			scope: "once",
 		});
-		assert.deepEqual(once, ["match", "rule", "review", "run"]);
+		assert.deepEqual(once, ["match", "folder", "rule", "review", "run"]);
 
 		// The user is on Review when they go back and change the scope to once.
 		// Held by number, index 3 lands them on Run — the action taken without the
@@ -222,7 +230,7 @@ describe("stepsFor — a branching answer only adds or drops a step after itself
 		const shortened = stepsFor({ verb: "organize", mode: "selected" });
 		assert.equal(shortened.includes("properties"), false);
 		assert.equal(stepIndex(shortened, "properties"), 0);
-		assert.equal(stepIndex(shortened, "rule"), 1);
+		assert.equal(stepIndex(shortened, "rule"), 2);
 	});
 });
 
@@ -367,6 +375,27 @@ describe("stepBlockedReason", () => {
 		assert.equal(
 			stepBlockedReason("review", draft(), { status: "ready", count: 4 }),
 			undefined,
+		);
+	});
+
+	it("refuses to commit a match that reaches nothing", () => {
+		// A settled zero is a whole answer: committing it would report a bulk
+		// action over no mail. The reload path lands here too — the step comes
+		// back in the URL and the ticked rows do not come back with it.
+		const reason = stepBlockedReason("review", draft(), {
+			status: "ready",
+			count: 0,
+		});
+		assert.ok(reason);
+		assert.match(reason, /nothing to do/);
+		// A zero that is still being recounted is not that answer yet.
+		assert.equal(
+			stepBlockedReason("review", draft(), {
+				status: "ready",
+				count: 0,
+				stale: true,
+			}),
+			ruleBlockedCopy.recounting,
 		);
 	});
 

@@ -1,30 +1,38 @@
 /**
- * Guided mobile organize flow (issue #211).
+ * Organizing through the selection wizard (#483, epic #477).
  *
- * Organize on the selection bar widens the selection with the read-only
- * matcher, shows a brief widening state, then opens the filter-rule chip editor
- * (RFC 038 D1) on that widened set. "Something else" is the same flow entered
- * from the bar's overflow menu, seeded by a shortcut instead of a widen. The editor commits at one of three scopes —
- * apply once, keep doing this, or until a date. This spec drives that surface
- * end to end on a mobile viewport.
+ * Organize on the selection bar opens the wizard: what the action applies to,
+ * where it files, how long it holds, a name if it persists, a review, and a run
+ * screen carrying the outcome. This spec drives that surface end to end on a
+ * mobile viewport.
  *
- * The widen is a semantic query, and the vector index is deliberately not built
- * on the e2e lane (see issue #219 and organize-standing-filter.spec.ts). So the
- * `POST /organize/preview` response is stubbed per scenario to control the
- * matched set — the semantic matcher itself is covered by the colocated
- * mobile-organize-flow unit tests. Downstream of the editor, the one-time
- * back-apply job and the standing filter, both of which re-run the same absent
- * index server-side, are stubbed so the flow's progress and success states are
- * exercised deterministically. Real filter CRUD is covered by
- * organize-standing-filter.spec.ts.
+ * The semantic widen is a vector query and the index is deliberately not built
+ * on the e2e lane (see issue #219 and organize-standing-filter.spec.ts), so the
+ * scenarios here take the ticked-list door, whose count is the selection itself
+ * and needs no index. Downstream of the review screen, the back-apply job and
+ * the filter create both re-run that absent index server-side, so they are
+ * stubbed per scenario and the run screen's states are exercised
+ * deterministically. Real filter CRUD is covered by
+ * organize-standing-filter.spec.ts, and a real folder create against Dovecot by
+ * organize-standing-back-apply.spec.ts.
  *
  * Each test appends its own tagged scratch and cleans it up, so the serial
  * suite's exact inbox-count invariant is restored on the way out.
  */
 import type { Locator, Page } from "@playwright/test";
-import type { ApiClient } from "../src/api.js";
+import { type ApiClient, waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages } from "../src/imap.js";
+import {
+	advanceTo,
+	barOrganize,
+	commitButton,
+	dismissRun,
+	expectBlockedReason,
+	pickFolder,
+	wizardContinue,
+	wizardStep,
+} from "../src/wizard.js";
 
 const MOBILE = { width: 390, height: 844 };
 test.use({ viewport: MOBILE });
@@ -56,19 +64,6 @@ const rowToggle = (row: Locator): Locator =>
  *  would otherwise answer to `role="status"` first. */
 const selectionStatus = (page: Page): Locator =>
 	page.locator("[data-selection-count]");
-
-/** "Something else" is an overflow verb, reached through the bar's kebab. */
-const somethingElse = async (page: Page): Promise<void> => {
-	await page.getByRole("button", { name: "More actions" }).click();
-	await page.getByRole("menuitem", { name: "Something else" }).click();
-};
-
-/** The bar's Organize verb, which opens the guided flow on the selection. */
-const organizeButton = (page: Page): Locator =>
-	page.getByRole("button", { name: "Organize selected messages" });
-
-const destinationSelect = (page: Page): Locator =>
-	page.getByLabel("Destination folder");
 
 const gotoInbox = async (page: Page, mailboxId: string): Promise<void> => {
 	await page.goto(`/mail/${mailboxId}`);
@@ -123,111 +118,183 @@ const seedScratch = async (
 	return { first, second, cleanup };
 };
 
-/**
- * Stub the widen so the matched set is deterministic without a vector index.
- * The small delay keeps the brief widening state observable before the sentence.
- */
-const stubPreview = async (
-	page: Page,
-	body: { matchedCount: number; messageIds: string[] },
-): Promise<void> => {
-	await page.route(/\/organize\/preview$/, async (route) => {
-		await new Promise((resolve) => setTimeout(resolve, 400));
-		await route.fulfill({
+/** The back-apply job, stubbed: create returns a running job, the poll a complete one. */
+const stubJob = async (page: Page, matched: number): Promise<void> => {
+	await page.route(/\/organize$/, (route) =>
+		route.fulfill({
 			status: 200,
 			contentType: "application/json",
-			body: JSON.stringify(body),
-		});
-	});
+			body: JSON.stringify({
+				organizeJobId: "job-1",
+				state: "Running",
+				matchedCount: matched,
+				appliedCount: 0,
+				failedCount: 0,
+			}),
+		}),
+	);
+	await page.route(/\/organize\/job-1$/, (route) =>
+		route.fulfill({
+			status: 200,
+			contentType: "application/json",
+			body: JSON.stringify({
+				organizeJobId: "job-1",
+				state: "Complete",
+				matchedCount: matched,
+				appliedCount: matched,
+				failedCount: 0,
+			}),
+		}),
+	);
 };
 
-test.describe("Guided mobile organize flow", () => {
+test.describe("Organize through the selection wizard", () => {
 	test.beforeEach(async ({ page, run }) => {
 		await gotoInbox(page, run.inboxId);
 	});
 
-	test("Select similar widens, then runs the organize job to a done summary", async ({
+	test("the ticked list, filed once, runs to a done summary", async ({
 		page,
 		run,
 		api,
 	}) => {
-		const { first, second, cleanup } = await seedScratch(
-			page,
-			run,
-			api,
-			`organize-job ${Date.now()}`,
-		);
-
-		await stubPreview(page, {
-			matchedCount: 2,
-			messageIds: ["stub-1", "stub-2"],
-		});
-		// The async back-apply needs the same absent index, so the job is stubbed:
-		// create returns a running job, the poll returns a completed one.
-		await page.route(/\/organize$/, (route) =>
-			route.fulfill({
-				status: 200,
-				contentType: "application/json",
-				body: JSON.stringify({
-					organizeJobId: "job-1",
-					state: "Running",
-					matchedCount: 2,
-					appliedCount: 0,
-					failedCount: 0,
-				}),
-			}),
-		);
-		await page.route(/\/organize\/job-1$/, (route) =>
-			route.fulfill({
-				status: 200,
-				contentType: "application/json",
-				body: JSON.stringify({
-					organizeJobId: "job-1",
-					state: "Complete",
-					matchedCount: 2,
-					appliedCount: 2,
-					failedCount: 0,
-				}),
-			}),
-		);
+		const tag = `wizard-once ${Date.now()}`;
+		const { first, second, cleanup } = await seedScratch(page, run, api, tag);
 
 		try {
 			await selectTwo(page, first, second);
-			await organizeButton(page).click();
+			await barOrganize(page).click();
 
-			await expect(page.getByText("Finding similar messages…")).toBeVisible();
-			await expect(page.getByText(/2 messages match/)).toBeVisible();
-
-			await destinationSelect(page).selectOption({ label: "Archive" });
-			// One-time apply is the default scope.
-			await page.getByRole("button", { name: "Apply now" }).click();
-
-			await expect(page.getByText(/2 of 2 moved/)).toBeVisible({
-				timeout: 15_000,
+			// The ticked list is its own count, and the sample under it is the mail
+			// the action covers — never a named match with no members on screen.
+			await expect(wizardStep(page)).toHaveText(/^Step 1 of 5 · Apply to$/, {
+				timeout: 20_000,
 			});
-			await page.getByRole("button", { name: "Done" }).click();
+			await expect(page.getByText("These 2 messages")).toBeVisible();
+			await expect(page.getByText("2 messages match")).toBeVisible();
+
+			await advanceTo(page, "Folder");
+			await pickFolder(page, "Archive");
+			await expect(page.getByText("Moving to Archive.")).toBeVisible();
+
+			await advanceTo(page, "Rule");
+			await page.getByText("Just once", { exact: true }).click();
+			await advanceTo(page, "Review");
+
+			await expect(page.getByText(/2 messages to Archive/)).toBeVisible();
+
+			await commitButton(page, "Apply now").click();
+			await expect(wizardStep(page)).toHaveText(/· Run$/);
+			await expect(page.getByText("Organized 2")).toBeVisible({
+				timeout: 30_000,
+			});
+
+			await dismissRun(page);
+			await expect(selectionStatus(page)).toBeHidden();
+
+			// Server truth: the two messages really left the inbox for Archive,
+			// not just the screen.
+			const mailboxes = await api.listMailboxes(run.accountId);
+			const archive = mailboxes.find((m) => m.fullPath === "Archive");
+			if (!archive) throw new Error("the account has no Archive mailbox");
+			await waitFor(
+				() => api.searchMatchingMessageIds(run.inboxId, tag),
+				(ids) => ids.length === 0,
+				{ timeoutMs: 60_000, what: "the filed scratch to leave the inbox" },
+			);
+			await waitFor(
+				() => api.searchMatchingMessageIds(archive.mailboxId, tag),
+				(ids) => ids.length === 2,
+				{ timeoutMs: 60_000, what: "the filed scratch to land in Archive" },
+			);
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("choosing until a date saves one temporary filter with a zoned expiry", async ({
+		page,
+		run,
+		api,
+	}) => {
+		const tag = `wizard-until ${Date.now()}`;
+		const { first, second, cleanup } = await seedScratch(page, run, api, tag);
+
+		// Every create the flow sends, so "exactly one" is assertable rather than
+		// assumed. Real filter CRUD is covered elsewhere; this pins the body.
+		const creates: { scope?: string; expiresAt?: string; name?: string }[] = [];
+		await page.route(/\/filters$/, async (route) => {
+			if (route.request().method() !== "POST") return route.continue();
+			creates.push(route.request().postDataJSON());
+			await route.fulfill({
+				status: 201,
+				contentType: "application/json",
+				body: JSON.stringify({
+					filterId: "filter-1",
+					name: tag,
+					scope: "Temporary",
+				}),
+			});
+		});
+		await stubJob(page, 2);
+
+		try {
+			await selectTwo(page, first, second);
+			await barOrganize(page).click();
+			await expect(wizardStep(page)).toHaveText(/^Step 1 of 5 · Apply to$/, {
+				timeout: 20_000,
+			});
+
+			await advanceTo(page, "Folder");
+			await pickFolder(page, "Archive");
+			await advanceTo(page, "Rule");
+
+			// The scope is the second branching answer: it adds the naming step
+			// after the step it is given on.
+			await page.getByText("Until a date", { exact: true }).click();
+			await expect(wizardStep(page)).toHaveText(/^Step 3 of 6 · Rule$/);
+			await page.getByLabel("Stops on").fill("2030-06-30");
+
+			await advanceTo(page, "Name");
+			await page.getByLabel("Rule name").fill(tag);
+			await advanceTo(page, "Review");
+
+			await commitButton(page, "Save until then").click();
+			await expect(wizardStep(page)).toHaveText(/· Run$/);
+			await expect(page.getByText("Rule saved and applied")).toBeVisible({
+				timeout: 30_000,
+			});
+
+			expect(creates).toHaveLength(1);
+			expect(creates[0].scope).toBe("Temporary");
+			expect(creates[0].name).toBe(tag);
+			// The wizard collects a civil date; the draft carries the instant it
+			// means, with the zone offset it was picked in (#477 5.4).
+			expect(creates[0].expiresAt).toMatch(
+				/^2030-06-30T23:59:59[+-]\d{2}:\d{2}$/,
+			);
+
+			await dismissRun(page);
 			await expect(selectionStatus(page)).toBeHidden();
 		} finally {
 			await cleanup();
 		}
 	});
 
-	test("Select similar commits a standing filter, then back-applies it", async ({
+	test("closing while the rule is saving still runs the pass over existing mail", async ({
 		page,
 		run,
 		api,
 	}) => {
-		const tag = `organize-filter ${Date.now()}`;
+		const tag = `wizard-close ${Date.now()}`;
 		const { first, second, cleanup } = await seedScratch(page, run, api, tag);
 
-		await stubPreview(page, {
-			matchedCount: 3,
-			messageIds: ["stub-1", "stub-2", "stub-3"],
-		});
-		// Real filter CRUD is covered elsewhere; here the standing-scope commit
-		// wiring is exercised against a stubbed create so it stays deterministic.
-		await page.route(/\/filters$/, (route) =>
-			route.fulfill({
+		// The create is held long enough for the saving screen — which offers a
+		// Close — to be the screen when Close is pressed.
+		await page.route(/\/filters$/, async (route) => {
+			if (route.request().method() !== "POST") return route.continue();
+			await new Promise((resolve) => setTimeout(resolve, 2_000));
+			await route.fulfill({
 				status: 201,
 				contentType: "application/json",
 				body: JSON.stringify({
@@ -235,161 +302,107 @@ test.describe("Guided mobile organize flow", () => {
 					name: tag,
 					scope: "Standing",
 				}),
-			}),
-		);
-		// Creating a standing filter now runs the retroactive back-apply, so the
-		// commit flows into the same job the one-time scope runs. The job re-uses
-		// the absent index server-side, so it is stubbed exactly as the one-time
-		// case above: create returns a running job, the poll returns it complete.
-		await page.route(/\/organize$/, (route) =>
-			route.fulfill({
+			});
+		});
+
+		// The pass over the mail already in the mailbox, counted rather than
+		// watched: nothing is on screen to watch it by the time it starts.
+		const passes: string[] = [];
+		await page.route(/\/organize$/, (route) => {
+			passes.push(route.request().url());
+			return route.fulfill({
 				status: 200,
 				contentType: "application/json",
 				body: JSON.stringify({
 					organizeJobId: "job-1",
 					state: "Running",
-					matchedCount: 3,
+					matchedCount: 2,
 					appliedCount: 0,
 					failedCount: 0,
 				}),
-			}),
-		);
-		await page.route(/\/organize\/job-1$/, (route) =>
-			route.fulfill({
-				status: 200,
-				contentType: "application/json",
-				body: JSON.stringify({
-					organizeJobId: "job-1",
-					state: "Complete",
-					matchedCount: 3,
-					appliedCount: 3,
-					failedCount: 0,
-				}),
-			}),
-		);
-
-		try {
-			await selectTwo(page, first, second);
-			await organizeButton(page).click();
-
-			await expect(page.getByText(/3 messages match/)).toBeVisible();
-
-			await destinationSelect(page).selectOption({ label: "Archive" });
-			// The scope control's radios are sr-only; the visible label is the click
-			// surface (what a user taps), so drive it, not the hidden input.
-			await page.getByText("Keep doing this", { exact: true }).click();
-			await page.getByLabel("Rule name").fill(tag);
-			await page.getByRole("button", { name: "Save rule" }).click();
-
-			// The rule saved, then its back-apply moved the mail already matching —
-			// the summary the standing scope now reaches, not a bare "Filter saved".
-			await expect(page.getByText(/3 of 3 moved/)).toBeVisible({
-				timeout: 15_000,
 			});
-			await page.getByRole("button", { name: "Done" }).click();
-			await expect(selectionStatus(page)).toBeHidden();
-		} finally {
-			await cleanup();
-		}
-	});
-
-	test("a widen that matches nothing opens an honest, still-applicable rule", async ({
-		page,
-		run,
-		api,
-	}) => {
-		const { first, second, cleanup } = await seedScratch(
-			page,
-			run,
-			api,
-			`organize-empty ${Date.now()}`,
-		);
-
-		await stubPreview(page, { matchedCount: 0, messageIds: [] });
-		// Applying an empty rule is still a one-time back-apply job; it just moves
-		// nothing. Stub it so the flow stays deterministic on the index-free lane.
-		await page.route(/\/organize$/, (route) =>
-			route.fulfill({
-				status: 200,
-				contentType: "application/json",
-				body: JSON.stringify({
-					organizeJobId: "job-1",
-					state: "Running",
-					matchedCount: 0,
-					appliedCount: 0,
-					failedCount: 0,
-				}),
-			}),
-		);
-		await page.route(/\/organize\/job-1$/, (route) =>
-			route.fulfill({
-				status: 200,
-				contentType: "application/json",
-				body: JSON.stringify({
-					organizeJobId: "job-1",
-					state: "Complete",
-					matchedCount: 0,
-					appliedCount: 0,
-					failedCount: 0,
-				}),
-			}),
-		);
-
-		try {
-			await selectTwo(page, first, second);
-			await organizeButton(page).click();
-
-			// No dead end: the editor opens and states the empty count plainly.
-			await expect(page.getByText(/No mail matches yet/)).toBeVisible();
-
-			await destinationSelect(page).selectOption({ label: "Archive" });
-			await page.getByRole("button", { name: "Apply now" }).click();
-
-			await expect(page.getByText(/0 of 0 moved/)).toBeVisible({
-				timeout: 15_000,
-			});
-			await page.getByRole("button", { name: "Done" }).click();
-			await expect(selectionStatus(page)).toBeHidden();
-		} finally {
-			await cleanup();
-		}
-	});
-
-	test("Something else seeds the sentence from a shortcut", async ({
-		page,
-		run,
-		api,
-	}) => {
-		const { first, second, cleanup } = await seedScratch(
-			page,
-			run,
-			api,
-			`organize-else ${Date.now()}`,
-		);
-
-		await stubPreview(page, {
-			matchedCount: 5,
-			messageIds: ["stub-1", "stub-2", "stub-3", "stub-4", "stub-5"],
 		});
 
 		try {
 			await selectTwo(page, first, second);
-			await somethingElse(page);
+			await barOrganize(page).click();
+			await expect(wizardStep(page)).toHaveText(/^Step 1 of 5 · Apply to$/, {
+				timeout: 20_000,
+			});
+			await advanceTo(page, "Folder");
+			await pickFolder(page, "Archive");
+			await advanceTo(page, "Rule");
+			await page.getByText("Keep doing this", { exact: true }).click();
+			await advanceTo(page, "Name");
+			await page.getByLabel("Rule name").fill(tag);
+			await advanceTo(page, "Review");
 
-			await expect(page.getByText("What should Remit do?")).toBeVisible();
+			await commitButton(page, "Save rule").click();
+			await expect(page.getByText("Saving rule…")).toBeVisible({
+				timeout: 20_000,
+			});
+
+			// Out of the wizard while the create is still in flight. The rule is
+			// saved either way; the pass behind it must not be lost with the screen.
+			await dismissRun(page, "Close");
+			await expect(wizardStep(page)).toHaveCount(0);
+
+			await expect(async () => {
+				expect(passes.length).toBeGreaterThan(0);
+			}).toPass({ timeout: 20_000 });
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("Continue says what is missing instead of going nowhere", async ({
+		page,
+		run,
+		api,
+	}) => {
+		const { first, second, cleanup } = await seedScratch(
+			page,
+			run,
+			api,
+			`wizard-blocked ${Date.now()}`,
+		);
+
+		try {
+			await selectTwo(page, first, second);
+			await barOrganize(page).click();
+			await advanceTo(page, "Folder");
+
+			// Nothing disables: Continue stays pressable, and pressing it says
+			// what the step is still missing (#477 1.7).
+			await wizardContinue(page).click();
+			await expectBlockedReason(page, "Pick a destination first.");
+			await expect(wizardStep(page)).toHaveText(/· Folder$/);
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("the free-text organize panel is gone from the bar", async ({
+		page,
+		run,
+		api,
+	}) => {
+		const { first, second, cleanup } = await seedScratch(
+			page,
+			run,
+			api,
+			`wizard-no-else ${Date.now()}`,
+		);
+
+		try {
+			await selectTwo(page, first, second);
+			await page.getByRole("button", { name: "More actions" }).click();
 			await expect(
-				page.getByPlaceholder("Tell Remit what to do…"),
+				page.getByRole("menuitem", { name: "Something else" }),
+			).toHaveCount(0);
+			await expect(
+				page.getByRole("menuitem", { name: "Mark read" }),
 			).toBeVisible();
-
-			// A shortcut seeds the folder, then the flow widens into the editor.
-			await page.getByRole("button", { name: "File in Archive" }).click();
-			await expect(page.getByText(/5 messages match/)).toBeVisible();
-
-			// The seeded folder carried through, so the commit is actionable
-			// without re-picking one.
-			await expect(
-				page.getByRole("button", { name: "Apply now" }),
-			).toBeEnabled();
 		} finally {
 			await cleanup();
 		}

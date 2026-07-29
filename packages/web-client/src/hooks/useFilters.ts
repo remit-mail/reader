@@ -60,7 +60,7 @@ export const useCreateFilter = (accountId: string | undefined) => {
 			});
 		},
 	});
-	const { mutate } = mutation;
+	const { mutate, mutateAsync } = mutation;
 
 	const createFilter = useCallback(
 		(
@@ -77,8 +77,37 @@ export const useCreateFilter = (accountId: string | undefined) => {
 		[accountId, mutate],
 	);
 
+	/**
+	 * The same create, resolved once the server has the filter, for work that has
+	 * to follow it — the pass over the mail already in the mailbox. Chaining that
+	 * to the request rather than to the surface is what keeps it running when the
+	 * surface is closed while the create is still in flight.
+	 *
+	 * `false` means the create did not land. The failure itself is on `isError`,
+	 * which is what the surface reports and retries from, so it is not raised a
+	 * second time here.
+	 */
+	const createFilterAsync = useCallback(
+		async (
+			draft: OrganizeDraft,
+			scope: Extract<OrganizeScope, "standing" | "temporary">,
+			name: string,
+		): Promise<boolean> => {
+			if (!accountId) return false;
+			return mutateAsync({
+				path: { accountId },
+				body: buildCreateFilterInput(draft, scope, name),
+			}).then(
+				() => true,
+				() => false,
+			);
+		},
+		[accountId, mutateAsync],
+	);
+
 	return {
 		createFilter,
+		createFilterAsync,
 		isPending: mutation.isPending,
 		isSuccess: mutation.isSuccess,
 		isError: mutation.isError,

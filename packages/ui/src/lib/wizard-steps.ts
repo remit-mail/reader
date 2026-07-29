@@ -112,8 +112,9 @@ export interface WizardAnswers {
 
 /**
  * The steps this flow walks, in order. The property door earns an editor step,
- * Move earns a destination step, Organize earns a scope step, and a scope that
- * persists earns a naming step.
+ * Move and Organize both earn a destination step — a rule that moves nothing is
+ * a rule with nothing to commit — Organize earns a scope step after it, and a
+ * scope that persists earns a naming step.
  */
 export const stepsFor = ({
 	verb,
@@ -129,9 +130,9 @@ export const stepsFor = ({
 	if (verb === "move") return [...opening, "folder", "review", "run"];
 	if (verb === "organize") {
 		if (scope === "standing" || scope === "until") {
-			return [...opening, "rule", "name", "review", "run"];
+			return [...opening, "folder", "rule", "name", "review", "run"];
 		}
-		return [...opening, "rule", "review", "run"];
+		return [...opening, "folder", "rule", "review", "run"];
 	}
 	return [...opening, "review", "run"];
 };
@@ -200,6 +201,27 @@ export const unreadableDraftClauses = (draft: WizardDraft): RuleClause[] =>
  */
 export type MatchCount = PreviewCount | { status: "uncounted" };
 
+/**
+ * Why a selection spanning accounts cannot become a rule (#477 5.5). A filter
+ * belongs to the account it was created for, so the two persisting scopes have
+ * nothing to attach to; the one-off scope acts on the messages themselves and is
+ * unaffected.
+ */
+export const crossAccountRuleReason =
+	"A rule only works within one account — clear the selection, or pick messages from a single account.";
+
+/** The same restriction on the step that asks for a folder. */
+export const crossAccountDestinationReason =
+	"A destination only works within one account — clear the selection, or pick messages from a single account.";
+
+/**
+ * The match reached nothing, so committing it would report a bulk action that
+ * touched no mail. Reachable both from a predicate that matches nothing and from
+ * a wizard restored by a reload, whose ticked rows did not come back with it.
+ */
+const EMPTY_MATCH =
+	"This matches no messages, so there is nothing to do. Go back and change what it applies to.";
+
 /** A clause chip that was added but never filled in. The rule editor has no equivalent — it holds its draft until the value is typed. */
 const INCOMPLETE_CLAUSE = "Fill in every property, or take the empty one off.";
 const NO_DESTINATION = "Pick a destination first.";
@@ -244,9 +266,11 @@ export const stepBlockedReason = (
 	}
 	if (step === "name" && !draft.name?.trim()) return ruleBlockedCopy.unnamed;
 	if (step === "review") {
-		return count.status === "uncounted"
-			? undefined
-			: previewSettledReason(count);
+		if (count.status === "uncounted") return undefined;
+		if (count.status === "ready" && count.count === 0 && !count.stale) {
+			return EMPTY_MATCH;
+		}
+		return previewSettledReason(count);
 	}
 	return undefined;
 };
@@ -364,7 +388,7 @@ export const runCopy = ({
 			title: standing ? "Rule saved and applied" : `${past} ${applied}`,
 			detail: standing
 				? `${applied} of ${matched} already in your mailbox ${done}. New mail follows the rule as it arrives.`
-				: `Every message the match reached was ${done}.`,
+				: `Every message the match reached was ${done}. Your mail server is still catching up, so the list can lag behind.`,
 			tone: "success",
 			dismissLabel: "Done",
 		};

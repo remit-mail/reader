@@ -28,12 +28,22 @@ import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
  * `seedCount` is the opening count a widen probe already knows; omit it (as the
  * settings editor does, having no probe) to open on `loading` and preview the
  * loaded predicate immediately.
+ *
+ * `matchedIds` are the ids that count was counted over — the server's own
+ * answer, bounded to the same cap the apply pass uses. A caller applying an
+ * action the back-apply job cannot express (a delete, a read flag) acts on
+ * exactly these rather than paging the list in the browser (#477 5.3).
  */
+export interface RulePreview {
+	count: PreviewCount;
+	matchedIds: readonly string[];
+}
+
 export const useRulePreview = (
 	accountId: string | undefined,
 	predicate: OrganizeMatchPredicate,
 	seedCount?: number,
-): PreviewCount => {
+): RulePreview => {
 	const mutation = useMutation(organizeOperationsPreviewOrganizeMutation());
 	const { mutateAsync } = mutation;
 	const currentSignature = predicateSignature(predicate);
@@ -68,6 +78,7 @@ export const useRulePreview = (
 					if (latestRequested.current !== signature) return;
 					setState({
 						count: response.matchedCount,
+						matchedIds: response.messageIds,
 						previewedSignature: signature,
 					});
 				})
@@ -95,7 +106,16 @@ export const useRulePreview = (
 	]);
 
 	if (!countable) {
-		return { status: "error", reason: UNCOUNTABLE_PREDICATE_REASON };
+		return {
+			count: { status: "error", reason: UNCOUNTABLE_PREDICATE_REASON },
+			matchedIds: [],
+		};
 	}
-	return derivePreview(state, currentSignature);
+	return {
+		count: derivePreview(state, currentSignature),
+		matchedIds:
+			state.previewedSignature === currentSignature
+				? (state.matchedIds ?? [])
+				: [],
+	};
 };

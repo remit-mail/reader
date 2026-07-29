@@ -54,13 +54,6 @@ export interface MailContextValue {
 	onToggleIntelligence: () => void;
 	/** Set the pane open/closed and persist the choice (desktop default-open). */
 	onSetIntelligenceOpen: (open: boolean) => void;
-	/**
-	 * How many rows the list has ticked. The selection is owned by the list, and
-	 * surfaces mounted beside it — the selection wizard (#477) — need the same
-	 * number the bar is counting rather than one of their own.
-	 */
-	selectedCount: number;
-	onSelectedCountChange: (count: number) => void;
 }
 
 export const MailContext = createContext<MailContextValue | null>(null);
@@ -85,8 +78,6 @@ export const useMailContext = (): MailContextValue => {
 			intelligenceOpen: false,
 			onToggleIntelligence: () => {},
 			onSetIntelligenceOpen: () => {},
-			selectedCount: 0,
-			onSelectedCountChange: () => {},
 		}
 	);
 };

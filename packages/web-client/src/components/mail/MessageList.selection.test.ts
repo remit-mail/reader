@@ -78,8 +78,9 @@ describe("MessageList escalated actions", () => {
 
 	it("keeps mark-read and the move slot on an escalated selection", () => {
 		// The bar always carries the mark-read verb (it drops it itself while
-		// counting or busy); an escalated selection must never lose it.
-		assert.match(source, /onMarkRead=\{handleMarkAsRead\}/);
+		// counting or busy); an escalated selection must never lose it — it falls
+		// back to the predicate run, which the wizard cannot take.
+		assert.match(source, /: handleMarkAsRead\s*\}/);
 		// The move slot is offered for a bounded selection or an escalated one —
 		// #114's rule that an escalated selection is never delete-only.
 		assert.match(
@@ -142,9 +143,13 @@ describe("MessageList escalation reaches desktop (#212)", () => {
 		assert.match(source, /navSlot=\{listHeaderChrome\.navSlot\}/);
 	});
 
-	it("keeps the free-text organize entry reachable, in the overflow", () => {
-		assert.match(source, /onSomethingElse=\{/);
-		assert.match(source, /setMobileOrganizeEntry\("something-else"\)/);
+	it("sends every verb on the bar into the wizard (#477 1.4)", () => {
+		const bar = source.match(/<SelectionTopBar[\s\S]*?\n\t\t\/>/)?.[0] ?? "";
+		for (const verb of ["delete", "move", "junk", "markRead", "organize"]) {
+			assert.match(bar, new RegExp(`startWizard\\("${verb}"\\)`));
+		}
+		// The one selection surface has no second organize entry beside them.
+		assert.doesNotMatch(source, /onSomethingElse/);
 	});
 
 	it("offers the label picker only when the account has labels", () => {
