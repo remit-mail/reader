@@ -54,9 +54,11 @@ const rowToggle = (row: Locator): Locator =>
 const selectionBar = (page: Page): Locator =>
 	page.locator("[data-selection-bar]");
 
-/** The bar's count line, which is up only while rows are ticked. */
+/** The bar's count line, which is up only while rows are ticked. Located by
+ *  its own hook: the bar also holds the search field, whose own live region
+ *  would otherwise answer to `role="status"` first. */
 const selectionStatus = (page: Page): Locator =>
-	selectionBar(page).getByRole("status").first();
+	page.locator("[data-selection-count]");
 
 /** "Something else" is an overflow verb, reached through the bar's kebab. */
 const somethingElse = async (page: Page): Promise<void> => {

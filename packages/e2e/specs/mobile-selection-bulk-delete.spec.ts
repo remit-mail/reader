@@ -121,14 +121,14 @@ const selectAllCheckbox = (page: Page): Locator =>
 	page.getByRole("checkbox", { name: "Select all" });
 
 /**
- * The bar's count label and its notice banner are both `role="status"`
- * (`selection-top-bar.tsx`); the count label renders first, the notice — when
- * present, below the action row — second.
+ * The bar's count label and its notice banner, each by its own hook: the bar
+ * also holds the search field, whose own live region would otherwise answer to
+ * `role="status"` first.
  */
 const selectionStatus = (page: Page): Locator =>
-	selectionBar(page).getByRole("status").first();
+	page.locator("[data-selection-count]");
 const selectionNotice = (page: Page): Locator =>
-	selectionBar(page).getByRole("status").nth(1);
+	page.locator("[data-selection-notice]");
 
 /** Long-press the first row, then tap a second row's toggle. */
 const selectTwoFromTop = async (page: Page): Promise<void> => {

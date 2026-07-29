@@ -243,6 +243,7 @@ export function SelectionTopBar({
 				)}
 				{selecting ? (
 					<span
+						data-selection-count=""
 						className="min-w-0 flex-1 truncate px-1 text-sm font-medium text-fg"
 						role="status"
 						aria-live="polite"
@@ -325,6 +326,7 @@ export function SelectionTopBar({
 			)}
 			{notice && (
 				<Banner
+					data-selection-notice=""
 					tone={notice.tone}
 					variant="soft"
 					role="status"

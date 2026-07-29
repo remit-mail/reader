@@ -170,7 +170,7 @@ test.describe("Keyboard navigation", () => {
 
 test.describe("Multi-select", () => {
 	const selectionCount = (page: Page): Locator =>
-		page.locator("[data-selection-bar]").getByRole("status").first();
+		page.locator("[data-selection-count]");
 
 	test("shift-click selects the range between two rows", async ({ page }) => {
 		await rows(page).nth(0).click();

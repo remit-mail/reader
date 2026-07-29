@@ -49,9 +49,11 @@ const deleteButton = (page: Page): Locator =>
 const moveButton = (page: Page): Locator =>
 	page.getByRole("button", { name: "Move selected messages", exact: true });
 
-/** The bar's count/status line (its first `role="status"`). */
+/** The bar's count line, which is up only while rows are ticked. Located by
+ *  its own hook: the bar also holds the search field, whose own live region
+ *  would otherwise answer to `role="status"` first. */
 const selectionStatus = (page: Page): Locator =>
-	selectionBar(page).getByRole("status").first();
+	page.locator("[data-selection-count]");
 
 const confirmDialog = (page: Page): Locator => page.getByRole("dialog");
 
