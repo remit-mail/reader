@@ -1,4 +1,4 @@
-import type { IMailboxRepository } from "@remit/data-ports";
+import type { IMailboxRepository, MailboxItem } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import type { IImapConnection } from "./types.js";
 
@@ -215,12 +215,45 @@ export class MailboxManagementService {
 		);
 
 		// Clear oldPath and mark as synced
-		await this.mailboxService.update(accountId, mailboxId, {
+		const renamed = await this.mailboxService.update(accountId, mailboxId, {
 			oldPath: undefined,
 			syncStatus: MailboxSyncStatus.synced,
 		});
 
+		await this.settleRenamedSubtree(accountId, renamed);
+
 		return { success: true };
+	};
+
+	/**
+	 * IMAP RENAME moves the whole subtree in one command, so the descendants the
+	 * local rename marked pending are on the server the moment the parent's is.
+	 * Nothing else settles them: the reconcile sweep treats pending as in-flight
+	 * and leaves it alone, and a descendant left pending is read as off-server, so
+	 * its sync events are terminally acked and its mail never arrives.
+	 *
+	 * The settle is scoped by the new prefix and takes only pending rows, which is
+	 * what keeps it from overreaching. A second rename in flight has already moved
+	 * its descendants under a different prefix, so this sweep cannot see them and
+	 * cannot declare them landed early. A descendant the user deleted or whose own
+	 * operation failed carries `deleting` or `failed`, and that verdict stands.
+	 */
+	private settleRenamedSubtree = async (
+		accountId: string,
+		renamed: MailboxItem,
+	): Promise<void> => {
+		const descendants = await this.mailboxService.findByPathPrefix(
+			accountId,
+			renamed.fullPath,
+			renamed.hierarchyDelimiter,
+		);
+
+		for (const descendant of descendants) {
+			if (descendant.syncStatus !== MailboxSyncStatus.pending) continue;
+			await this.mailboxService.update(accountId, descendant.mailboxId, {
+				syncStatus: MailboxSyncStatus.synced,
+			});
+		}
 	};
 
 	/**
