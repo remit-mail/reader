@@ -26,6 +26,7 @@ import {
 	ESCALATED_SCOPE_FALLBACK,
 	escalatedMatchLabel,
 	type MatchCount,
+	type MatchDoor,
 	type MatchMode,
 	matchDoorHint,
 	matchDoorLabel,
@@ -418,7 +419,12 @@ export function FooterNav({
 export interface MatchStepProps {
 	selectedCount: number;
 	mode: MatchMode;
-	onModeChange: (mode: MatchMode) => void;
+	/**
+	 * Answers the door. Typed to the three doors rather than to every mode, so
+	 * no driver can set `escalated` from a screen — the list escalates a
+	 * selection, the wizard never does.
+	 */
+	onModeChange: (mode: MatchDoor) => void;
 	/**
 	 * Similar-mail matching cannot run right now. A runtime state, not a property
 	 * of the deployment: the door stays pressable and dimmed.
@@ -991,6 +997,9 @@ export function RunStepBody(props: RunStepProps) {
 	const { matched, applied, failures } = props;
 	const outcome = runOutcomeOf(props);
 	const copy = runCopy(outcome);
+	// A stopped run never sent these, so nothing rejected them.
+	const failureBadge =
+		props.state === "runStopped" ? "Never sent" : "Server rejected";
 
 	return (
 		<div className="space-y-4 pt-2">
@@ -1021,7 +1030,7 @@ export function RunStepBody(props: RunStepProps) {
 									{message.subject}
 								</p>
 								<Badge className="mt-1" tone="warning">
-									Server rejected
+									{failureBadge}
 								</Badge>
 							</li>
 						))}

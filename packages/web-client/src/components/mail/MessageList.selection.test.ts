@@ -141,30 +141,29 @@ describe("MessageList escalation reaches desktop (#212)", () => {
 		assert.match(source, /navSlot=\{listHeaderChrome\.navSlot\}/);
 	});
 
-	it("sends every verb on the bar into the wizard (#477 1.4)", () => {
+	it("carries every verb the bar can offer (#477 1.4)", () => {
+		// That each of them opens the wizard is `selection-verbs.test.ts`, over
+		// every surface at once. What this pins is that none of them was dropped
+		// from the one bar the mailbox raises.
 		const bar = source.match(/<SelectionTopBar[\s\S]*?\n\t\t\/>/)?.[0] ?? "";
-		for (const verb of ["delete", "move", "junk", "markRead", "organize"]) {
-			assert.match(bar, new RegExp(`startWizard\\("${verb}"\\)`));
+		for (const prop of [
+			"onDelete",
+			"onMove",
+			"onOrganize",
+			"onJunk",
+			"onMarkRead",
+		]) {
+			assert.match(bar, new RegExp(`${prop}=`));
 		}
 		// The one selection surface has no second organize entry beside them.
 		assert.doesNotMatch(source, /onSomethingElse/);
 	});
 
-	it("sends the keyboard's delete of a selection into the same wizard", () => {
-		// Two entry points to one verb confirming two different ways is exactly
-		// the drift the wizard replaced. The confirmation dialog is left to the
-		// single row under the cursor, which is not a selection at all.
-		assert.match(
-			source,
-			/if \(hasSelection\) \{\s*startWizard\("delete"\);\s*return true;/,
-		);
-	});
-
-	it("suspends the keyboard layer while the wizard is up", () => {
-		assert.match(
-			source,
-			/blocksKeyboard: confirmOpen \|\| wizardStep !== undefined/,
-		);
+	it("keeps Organize reachable over a predicate rather than dropping it", () => {
+		// A verb that vanishes when a selection escalates leaves the user no route
+		// at all: the make-filter affordance it defers to is hidden while rows are
+		// ticked (#477 1.7).
+		assert.match(source, /if \(escalatedSelection\) \{\s*startFromSearch\(\);/);
 	});
 
 	it("offers the label picker only when the account has labels", () => {

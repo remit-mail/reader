@@ -288,6 +288,12 @@ export const stepBlockedReason = (
  * Where the run step lands. Three of these never reach a job: a filter saved
  * with nothing to back-apply, a back-apply whose request never started, and a
  * create that failed outright.
+ *
+ * `backApplyFailed` and `runStopped` are two different endings and must not be
+ * confused. A back-apply that failed was run by the server, which reports how
+ * many messages it could not apply the rule to. A run that stopped hit an
+ * infrastructure failure part-way: the batches it never reached were never
+ * sent, so nothing rejected them and nothing happened to them.
  */
 export type RunState =
 	| "saving"
@@ -296,6 +302,7 @@ export type RunState =
 	| "backApplyFailed"
 	| "backApplyStartFailed"
 	| "filterSaved"
+	| "runStopped"
 	| "commitFailed";
 
 /**
@@ -367,7 +374,8 @@ export const runCopy = ({
 		showProgress:
 			state === "backApplyRunning" ||
 			state === "backApplyComplete" ||
-			state === "backApplyFailed",
+			state === "backApplyFailed" ||
+			state === "runStopped",
 		failureListLabel: `Not ${done}`,
 	};
 
@@ -408,11 +416,21 @@ export const runCopy = ({
 			title: standing
 				? "Rule saved — some mail stayed put"
 				: `Not everything was ${done}`,
-			detail: `${applied} of ${matched} ${done} · ${failed} rejected by the mail server.${
+			detail: `${applied} of ${matched} ${done} · the mail server rejected ${failed}.${
 				standing
 					? " The rule itself is saved and keeps working on new mail."
 					: ""
 			}`,
+			tone: "warning",
+			dismissLabel: "Close",
+			retryLabel: `Retry ${failed}`,
+		};
+	}
+	if (state === "runStopped") {
+		return {
+			...shared,
+			title: `Stopped after ${applied}`,
+			detail: `${applied} of ${matched} ${done}. The run stopped before it reached the rest, so nothing was sent for them and nothing has happened to them.`,
 			tone: "warning",
 			dismissLabel: "Close",
 			retryLabel: `Retry ${failed}`,

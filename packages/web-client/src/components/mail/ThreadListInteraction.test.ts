@@ -9,6 +9,7 @@
  */
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
+import type { Verb } from "@remit/ui";
 import type { JSDOM } from "jsdom";
 import { act, createElement, createRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -68,8 +69,10 @@ const rowElements = (ids: string[]) =>
 function mountList(options: {
 	initialIds: string[];
 	onDeleteMessages?: (ids: string[]) => void;
+	onSelectionVerb?: (verb: Verb) => void;
 }) {
 	const onDeleteMessages = options.onDeleteMessages ?? (() => undefined);
+	const onSelectionVerb = options.onSelectionVerb ?? (() => undefined);
 	const commandsRef = createRef<MessageListCommands | null>();
 	let setIds: ((ids: string[]) => void) | undefined;
 	const Harness = () => {
@@ -81,6 +84,7 @@ function mountList(options: {
 				selectedMessageId: undefined,
 				onOpen: () => undefined,
 				onDeleteMessages,
+				onSelectionVerb,
 				commandsRef,
 			},
 			...rowElements(ids),
@@ -146,6 +150,71 @@ describe("ThreadListInteraction — the cursor follows the rendered rows", () =>
 	});
 });
 
+/**
+ * The provider runs no verb over a selection. Every one of them is handed out
+ * to be opened on the wizard, which is the only place a bulk action is named
+ * before it reaches the mail server (#477 1.4, #508). A verb aimed at the bare
+ * cursor is one message rather than a bulk action, and only Delete is this
+ * list's — it keeps its confirmation.
+ */
+describe("ThreadListInteraction — a verb over a selection goes to the wizard", () => {
+	const selectRow = (
+		list: ReturnType<typeof mountList>,
+		toggleFirst = true,
+	) => {
+		act(() => list.commands().focusFirst());
+		if (toggleFirst) act(() => list.commands().toggleSelect());
+	};
+
+	for (const verb of [
+		"delete",
+		"move",
+		"junk",
+		"markRead",
+		"organize",
+	] as const) {
+		it(`hands ${verb} over rather than running it`, () => {
+			const handed: Verb[] = [];
+			const deleted: string[][] = [];
+			const list = mountList({
+				initialIds: ["m1", "m2"],
+				onDeleteMessages: (ids) => deleted.push(ids),
+				onSelectionVerb: (v) => handed.push(v),
+			});
+
+			selectRow(list);
+			act(() => {
+				assert.equal(list.commands().requestVerb(verb), true);
+			});
+
+			assert.deepEqual(handed, [verb]);
+			assert.deepEqual(deleted, [], "nothing runs from here");
+			assert.equal(
+				Array.from(
+					dom.window.document.querySelectorAll<HTMLButtonElement>("button"),
+				).some((b) => b.textContent === "Move to Trash"),
+				false,
+				"no second confirmation stands in for the review screen",
+			);
+		});
+	}
+
+	it("leaves a verb aimed at the bare cursor to the pane, except delete", () => {
+		const handed: Verb[] = [];
+		const list = mountList({
+			initialIds: ["m1", "m2"],
+			onSelectionVerb: (v) => handed.push(v),
+		});
+
+		act(() => list.commands().focusFirst());
+		act(() => {
+			assert.equal(list.commands().requestVerb("markRead"), false);
+			assert.equal(list.commands().requestVerb("junk"), false);
+		});
+		assert.deepEqual(handed, [], "one row is not a selection");
+	});
+});
+
 describe("ThreadListInteraction — delete confirms first", () => {
 	const confirmButton = () =>
 		Array.from(
@@ -161,7 +230,7 @@ describe("ThreadListInteraction — delete confirms first", () => {
 
 		act(() => list.commands().focusFirst());
 		act(() => {
-			assert.equal(list.commands().requestDelete(), true);
+			assert.equal(list.commands().requestVerb("delete"), true);
 		});
 		assert.deepEqual(deleted, [], "nothing is deleted before confirming");
 		assert.ok(confirmButton(), "the confirmation is on screen");
@@ -179,11 +248,11 @@ describe("ThreadListInteraction — delete confirms first", () => {
 
 		act(() => list.commands().focusFirst());
 		act(() => {
-			list.commands().requestDelete();
+			list.commands().requestVerb("delete");
 		});
 		act(() => {
 			assert.equal(
-				list.commands().requestDelete(),
+				list.commands().requestVerb("delete"),
 				true,
 				"the second press belongs to the dialog",
 			);
@@ -197,7 +266,7 @@ describe("ThreadListInteraction — delete confirms first", () => {
 			onDeleteMessages: () => undefined,
 		});
 		act(() => {
-			assert.equal(list.commands().requestDelete(), false);
+			assert.equal(list.commands().requestVerb("delete"), false);
 		});
 	});
 });
@@ -227,6 +296,7 @@ function mountSelectableList(initialIds: string[]) {
 				selectedMessageId: undefined,
 				onOpen: () => undefined,
 				onDeleteMessages: () => undefined,
+				onSelectionVerb: () => undefined,
 				commandsRef,
 			},
 			...rowElements(ids),

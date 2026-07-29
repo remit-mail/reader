@@ -872,6 +872,45 @@ test.describe("Search-scoped escalated move and mark-read", () => {
 		);
 	});
 
+	test("the keyboard reaches no verb over the predicate that the bar would have reviewed", async ({
+		page,
+		run,
+		api,
+	}) => {
+		await escalate(page);
+
+		// The hole this closes: a shortcut aimed at a selection ran the verb
+		// outright, so "select all 3,412 matching" plus one keystroke filed the lot
+		// with nothing named and nothing to cancel. Both keys now land on the same
+		// review screen the bar's verbs land on.
+		await page.keyboard.press("!");
+		await expect(wizardStep(page)).toHaveText(/^Step 1 of 3 · Apply to$/, {
+			timeout: 20_000,
+		});
+		await expect(
+			page.getByText(`Every message matching "${QUERY}"`),
+		).toBeVisible();
+		await page.getByRole("button", { name: "Cancel", exact: true }).click();
+		await expect(wizardStep(page)).toHaveCount(0);
+
+		await page.keyboard.press("u");
+		await expect(wizardStep(page)).toHaveText(/^Step 1 of 3 · Apply to$/, {
+			timeout: 20_000,
+		});
+		await advanceTo(page, "Review");
+		await expect(
+			page.getByText(`Mark read all ${COUNT} messages matching "${QUERY}"`),
+		).toBeVisible();
+
+		// Nothing left for the mail server while both screens were up: the whole
+		// fixture set is still where it was, unread and in the inbox.
+		const untouched = await api.searchMatchingMessageIds(run.inboxId, QUERY);
+		expect(untouched).toHaveLength(COUNT);
+
+		await page.getByRole("button", { name: "Cancel", exact: true }).click();
+		await expect(wizardStep(page)).toHaveCount(0);
+	});
+
 	test("move pages the predicate and files every match in the destination", async ({
 		page,
 		run,

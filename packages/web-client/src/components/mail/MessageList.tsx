@@ -53,7 +53,7 @@ import {
 	shouldExitSelectionOnNavigate,
 } from "@/lib/selection-mode";
 import { cn } from "@/lib/utils";
-import { useOpenWizard, useWizardStepValue } from "@/lib/wizard-history";
+import { useSelectionWizard, useWizardStepValue } from "@/lib/wizard-history";
 import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import {
 	type EscalatedSelection,
@@ -81,12 +81,15 @@ export interface MessageListCommands {
 	/** Returns true when there was a selection to clear — Esc consumes it. */
 	clearSelection: () => boolean;
 	/**
-	 * Opens the wizard on Delete for the selection, or the move-to-Trash
-	 * confirmation for the focused row when nothing is selected. Returns false
-	 * when there is nothing to delete, so the route can fall back to its own
-	 * reading-pane delete.
+	 * Runs a verb over the list's selection by opening the wizard on it, which is
+	 * where every selection action is reviewed before it reaches the mail server
+	 * (#477 1.4, #508). Returns false when the list did not take the press, so
+	 * the pane's own verb can act on the focused row instead — a verb aimed at
+	 * one row is not a bulk action and does not walk the wizard. Delete is the
+	 * exception with nothing ticked: the list still claims it, to confirm the
+	 * move to Trash and then place the cursor on a surviving row.
 	 */
-	requestDelete: () => boolean;
+	requestVerb: (verb: Verb) => boolean;
 	toggleDensity: () => void;
 }
 
@@ -232,12 +235,9 @@ export const MessageList = ({
 	const parentRef = useRef<HTMLDivElement>(null);
 	const navigate = useNavigate();
 	const isDesktop = useIsDesktop();
+	const wizard = useSelectionWizard();
+	const { verb: wizardVerb, start: startWizard, startFromSearch } = wizard;
 	const wizardStep = useWizardStepValue();
-	const openWizard = useOpenWizard();
-	// The verb the bar was pressed for. The wizard itself is open for as long as
-	// the URL holds a step, so a back that pops the last one closes it without
-	// anything here having to hear about it.
-	const [wizardVerb, setWizardVerb] = useState<Verb>("organize");
 	const isSearching = !!searchQuery?.trim();
 	const listHeaderChrome = useListHeaderChrome();
 	const { labels } = useLabelList(accountId);
@@ -504,9 +504,9 @@ export const MessageList = ({
 		],
 	);
 
-	// Open the delete confirmation for an explicit set of ids. All delete
-	// entry points (toolbar Trash2, Delete/Backspace key) funnel through here
-	// so the move-to-Trash confirmation is consistent.
+	// Open the delete confirmation for the row under the cursor. A delete over a
+	// selection is a bulk action and walks the wizard instead, so this is the one
+	// delete the dialog still covers.
 	const requestDelete = useCallback(
 		(ids: string[]) => {
 			if (!onDeleteMessages || ids.length === 0) return;
@@ -514,19 +514,6 @@ export const MessageList = ({
 			setPendingDelete(ids);
 		},
 		[onDeleteMessages, focusedMessageId],
-	);
-
-	// Every verb on the bar opens the wizard (#477 1.4), whatever the selection
-	// is: the ticked rows, a selection spanning accounts — the wizard is where
-	// that restriction is stated, on the step that needs one account (#477 5.5) —
-	// or the predicate the list escalated to, which the wizard names on its match
-	// step and counts on its review screen before anything is sent (#508).
-	const startWizard = useCallback(
-		(verb: Verb) => {
-			setWizardVerb(verb);
-			openWizard("match");
-		},
-		[openWizard],
 	);
 
 	// Keyboard shift-arrow range extend: move focus one row in `direction` and
@@ -561,35 +548,41 @@ export const MessageList = ({
 		}
 	}, [orderedIds, selectAll]);
 
-	// Delete / Backspace: the same delete the bar's Trash carries when rows are
-	// ticked, so it ends on the wizard's review screen rather than a second
-	// confirmation of its own. With nothing ticked it is a single-row delete of
-	// whatever the cursor is on, which the confirmation still covers.
-	// Returns true when it took the keypress, so the route's fallback delete
-	// (which skips the confirmation) doesn't also fire.
-	const handleDeleteKey = useCallback((): boolean => {
-		// The confirmation is already asking about a delete: the keypress belongs
-		// to it, and answering it is the Confirm button's job. Claiming the press
-		// here is what stops a second Delete from reaching an unconfirmed delete.
-		if (pendingDelete !== null) return true;
-		if (hasSelection) {
-			startWizard("delete");
-			return true;
-		}
-		if (!onDeleteMessages) return false;
-		if (focusedMessageId) {
+	// A keyboard verb, routed the same way the bar routes its own. Over a
+	// selection every verb opens the wizard, so the keyboard cannot reach a bulk
+	// action the bar would have reviewed. Over a bare cursor only Delete is the
+	// list's, and it keeps the confirmation and the cursor hand-back.
+	const requestVerb = useCallback(
+		(verb: Verb): boolean => {
+			// The confirmation is already asking about a delete: the keypress belongs
+			// to it, and answering it is the Confirm button's job. Claiming the press
+			// here is what stops a second Delete from reaching an unconfirmed delete.
+			if (pendingDelete !== null) return true;
+			if (hasSelection) {
+				// Every verb on the bar opens the wizard (#477 1.4), whatever the
+				// selection is: the ticked rows, a selection spanning accounts — the
+				// wizard is where that restriction is stated, on the step that needs
+				// one account (#477 5.5) — or the predicate the list escalated to,
+				// which the wizard names on its match step and counts on its review
+				// screen before anything is sent (#508).
+				startWizard(verb);
+				return true;
+			}
+			if (verb !== "delete" || !onDeleteMessages || !focusedMessageId) {
+				return false;
+			}
 			requestDelete([focusedMessageId]);
 			return true;
-		}
-		return false;
-	}, [
-		pendingDelete,
-		onDeleteMessages,
-		hasSelection,
-		startWizard,
-		focusedMessageId,
-		requestDelete,
-	]);
+		},
+		[
+			pendingDelete,
+			onDeleteMessages,
+			hasSelection,
+			startWizard,
+			focusedMessageId,
+			requestDelete,
+		],
+	);
 
 	// Enter: open the focused row in the reading pane (sets selected/URL). This
 	// is the focus→open transition of the 2-state model.
@@ -642,7 +635,6 @@ export const MessageList = ({
 					total: escalation.phase.total,
 					searchQuery: searchPredicate ?? {},
 					run: (action: EscalatedAction) => escalation.runAction(action),
-					progress: escalation.progress,
 				}
 			: undefined;
 
@@ -759,6 +751,21 @@ export const MessageList = ({
 		return undefined;
 	}, [selectedCount, selectedIds, threads]);
 
+	// Organize builds a rule out of clauses, and a search predicate is not a set
+	// of clauses — its facets have no `ClauseField`. Over an escalated selection
+	// the verb therefore opens the wizard through the search entry instead, on the
+	// property step with the query already converted (#477 1.8): the same door the
+	// make-filter affordance opens, which the bar hides while rows are ticked. The
+	// control stays pressable and lands somewhere that works (#477 1.7) rather
+	// than disappearing the moment a selection escalates.
+	const organizeSelection = useCallback(() => {
+		if (escalatedSelection) {
+			startFromSearch();
+			return;
+		}
+		startWizard("organize");
+	}, [escalatedSelection, startFromSearch, startWizard]);
+
 	// Swipe-to-delete single message
 	const handleSwipeDelete = useCallback(
 		(messageId: string) => {
@@ -854,14 +861,14 @@ export const MessageList = ({
 			focusedMessageId,
 			selectedIds: Array.from(selectedIds),
 			hasList: commandsAvailable,
-			blocksKeyboard: confirmOpen || wizardStep !== undefined,
+			blocksKeyboard: confirmOpen || wizard.isOpen,
 		});
 	}, [
 		focusedMessageId,
 		selectedIds,
 		commandsAvailable,
 		confirmOpen,
-		wizardStep,
+		wizard.isOpen,
 		onTriageContextChange,
 	]);
 
@@ -886,18 +893,12 @@ export const MessageList = ({
 	// only the ids that left and keeping every survivor — K-9's
 	// `selected.intersect(uniqueIds)`, the reference behavior #92's D2 cites.
 	// Wiping the whole selection because one id left (#111) cost the other 49
-	// rows on an ordinary refresh, and could take the post-delete Retry
-	// selection with it: `processRunOutcome` materializes the failed ids as
-	// the new selection and resets this effect to live by returning escalation
-	// to idle, so the cache invalidation's refetch ran this same effect against
-	// the retry set — a clear here would have dropped the Retry notice
-	// (gated on `selectedCount > 0`) along with it.
+	// rows on an ordinary refresh.
 	// Skipped while an escalated run is active: `selectedIds` there is a stale
 	// loaded-rows snapshot from the moment escalation started (the real
 	// selection is the predicate, D2), not something a background refetch
 	// reshuffling `threads` should be allowed to narrow out from under a count
-	// or a delete in progress — that would silently exit selection mode
-	// mid-run.
+	// or a run in progress — that would silently exit selection mode mid-run.
 	useEffect(() => {
 		if (escalation.phase.kind !== "idle" || escalation.isRunning) return;
 		intersectWith(threads.map((t) => t.messageId));
@@ -989,7 +990,7 @@ export const MessageList = ({
 				exitSelection();
 				return true;
 			},
-			requestDelete: handleDeleteKey,
+			requestVerb,
 			toggleDensity,
 		};
 		return () => {
@@ -1009,7 +1010,7 @@ export const MessageList = ({
 		handleSelectAll,
 		hasSelection,
 		exitSelection,
-		handleDeleteKey,
+		requestVerb,
 		toggleDensity,
 	]);
 
@@ -1153,13 +1154,7 @@ export const MessageList = ({
 			onCancel={handleSelectionCancel}
 			onDelete={() => startWizard("delete")}
 			onMove={() => startWizard("move")}
-			// Organize builds a rule out of clauses, and a search predicate is not
-			// a set of clauses — its facets have no `ClauseField`. Converting the
-			// query into one is the make-filter affordance above the results
-			// (#477 1.8), which is a door of its own rather than this verb.
-			onOrganize={
-				escalatedSelection ? undefined : () => startWizard("organize")
-			}
+			onOrganize={organizeSelection}
 			onJunk={
 				junkMailboxId && junkMailboxId !== mailboxId
 					? () => startWizard("junk")
@@ -1328,6 +1323,7 @@ export const MessageList = ({
 				selection={wizardSelection}
 				crossAccount={moveDisabledHint !== undefined}
 				escalated={escalatedSelection}
+				escalatedProgress={escalation.progress}
 				onFinished={exitSelection}
 			/>
 		</>

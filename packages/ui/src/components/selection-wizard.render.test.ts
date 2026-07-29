@@ -539,6 +539,23 @@ describe("RunStepBody", () => {
 		assert.match(html, /The rule itself is saved/);
 	});
 
+	it("says a stopped run was never sent rather than rejected", () => {
+		const html = renderToString(
+			createElement(RunStepBody, {
+				...runProps,
+				state: "runStopped",
+				scope: "once",
+				matched: 4,
+				applied: 2,
+				failures: messages,
+			}),
+		);
+		assert.match(html, /Stopped after 2/);
+		assert.match(html, /nothing was sent for them/);
+		assert.match(html, /Never sent/);
+		assert.doesNotMatch(html, /Server rejected/);
+	});
+
 	it("ends a one-off run on its own count", () => {
 		const html = renderToString(
 			createElement(RunStepBody, { ...runProps, scope: "once" }),

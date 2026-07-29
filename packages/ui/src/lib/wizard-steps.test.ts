@@ -478,6 +478,7 @@ describe("runCopy", () => {
 			"backApplyFailed",
 			"backApplyStartFailed",
 			"filterSaved",
+			"runStopped",
 			"commitFailed",
 		];
 		for (const state of states) {
@@ -500,6 +501,23 @@ describe("runCopy", () => {
 		const once = outcome("backApplyFailed", "once");
 		assert.equal(once.title, "Not everything was moved");
 		assert.doesNotMatch(once.detail, /rule/);
+	});
+
+	it("separates a run that stopped from a pass the server rejected", () => {
+		// The bulk endpoints accept every id in a call that returns, so the only
+		// failure the chunked runner can observe is a call that threw — and
+		// everything after it was never sent. Saying the mail server rejected
+		// those states a cause that did not happen.
+		const stopped = outcome("runStopped", "once");
+		assert.equal(stopped.title, "Stopped after 10");
+		assert.match(stopped.detail, /nothing was sent for them/);
+		assert.doesNotMatch(stopped.detail, /rejected/);
+		assert.equal(stopped.retryLabel, "Retry 2");
+		assert.equal(stopped.showProgress, true);
+
+		// The back-apply pass is run by the server, which reports what it could
+		// not apply — a rejection, and worded as one.
+		assert.match(outcome("backApplyFailed", "once").detail, /rejected/);
 	});
 
 	it("ends a one-off run on its own count and a saved rule on the rule", () => {

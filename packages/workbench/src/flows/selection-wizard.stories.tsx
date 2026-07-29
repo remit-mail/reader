@@ -397,7 +397,12 @@ function WizardDriver({
 		? crossAccountDestinationReason
 		: undefined;
 
-	const failures = runState === "backApplyFailed" ? covered.slice(0, 2) : [];
+	// Both endings name what they did not reach; only the badge on each row
+	// differs, because only one of them ever sent those messages.
+	const failures =
+		runState === "backApplyFailed" || runState === "runStopped"
+			? covered.slice(0, 2)
+			: [];
 	const applied =
 		runState === "backApplyRunning" ? 0 : covered.length - failures.length;
 
@@ -1683,6 +1688,27 @@ export const EscalatedRunning: Story = {
 			openAt={{
 				...escalatedEntry("delete", "run"),
 				runState: "backApplyRunning",
+			}}
+		/>
+	),
+};
+
+/**
+ * The run stopped part-way. The batches it never reached were never sent, so
+ * nothing rejected them and nothing has happened to them — which is what the
+ * screen says, rather than reporting a mail server that refused them. Retry
+ * re-resolves the predicate; every verb it carries is idempotent.
+ */
+export const EscalatedStopped: Story = {
+	name: "Select all matching — stopped part-way",
+	render: () => (
+		<SelectionFlow
+			messages={SELECTION_SEARCH_SAMPLE}
+			title={RESULTS_TITLE}
+			preselected={4}
+			openAt={{
+				...escalatedEntry("delete", "run"),
+				runState: "runStopped",
 			}}
 		/>
 	),

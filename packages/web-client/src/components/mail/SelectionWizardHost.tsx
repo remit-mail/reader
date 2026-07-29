@@ -8,6 +8,7 @@ import {
 	deriveSenderClauses,
 	dominantSender,
 	type MatchCount,
+	type MatchDoor,
 	type MatchMode,
 	type MoveMailboxOption,
 	type RuleClause,
@@ -108,8 +109,6 @@ export interface EscalatedSelection {
 	 * screen is what now stands in front of it.
 	 */
 	run: (action: EscalatedAction) => Promise<BulkRunOutcome>;
-	/** How far that run has got, for the run screen's bar. */
-	progress?: BulkActionProgress;
 }
 
 export interface SelectionWizardHostProps {
@@ -124,6 +123,14 @@ export interface SelectionWizardHostProps {
 	crossAccount?: boolean;
 	/** Present when the selection is a predicate rather than the ticked rows. */
 	escalated?: EscalatedSelection;
+	/**
+	 * How far the escalated runner has got. Read live and passed apart from
+	 * {@link EscalatedSelection}, which the wizard holds for the whole walk: the
+	 * list's escalation returns to idle when a run ends, so a progress reading
+	 * taken off the held predicate would be frozen at `undefined` for every
+	 * retry after the first and the bar would never move.
+	 */
+	escalatedProgress?: BulkActionProgress;
 	/** The wizard is done with the selection, and the list drops it. */
 	onFinished: () => void;
 }
@@ -238,6 +245,7 @@ function SelectionWizardSession({
 	selection,
 	crossAccount = false,
 	escalated: escalatedSelection,
+	escalatedProgress,
 	searchConversion,
 	onFinished,
 	step,
@@ -255,9 +263,14 @@ function SelectionWizardSession({
 	// the loaded rows instead of over the predicate.
 	const [escalated] = useState(() => escalatedSelection);
 	const fromSearch = conversion !== undefined;
-	const [mode, setMode] = useState<MatchMode>(
-		escalated ? "escalated" : fromSearch ? "properties" : "selected",
+	// The door the wizard is on. An escalated predicate is not one of them and is
+	// not held here: it is a property of the selection the list handed over, so
+	// the mode below is derived rather than settable. No screen can escalate a
+	// selection, and the commit path can be typed to the doors.
+	const [door, setDoor] = useState<MatchDoor>(
+		fromSearch ? "properties" : "selected",
 	);
+	const mode: MatchMode = escalated ? "escalated" : door;
 	const [draft, setDraft] = useState<WizardDraft>(() =>
 		conversion
 			? {
@@ -440,8 +453,8 @@ function SelectionWizardSession({
 	);
 
 	const changeMode = useCallback(
-		(next: MatchMode) => {
-			setMode(next);
+		(next: MatchDoor) => {
+			setDoor(next);
 			setDraft((held) => ({
 				...held,
 				widen:
@@ -461,7 +474,7 @@ function SelectionWizardSession({
 	// semantic match without saying so (#477 3.6).
 	const takeSemanticFallback = useCallback(() => {
 		setSemanticFallbackTaken(true);
-		setMode("properties");
+		setDoor("properties");
 		setDraft((held) => ({
 			...held,
 			widen: undefined,
@@ -595,9 +608,9 @@ function SelectionWizardSession({
 			void runEscalated();
 			return;
 		}
-		const scope = organizeScopeFor({ mode, ruleScope: named.scope });
+		const scope = organizeScopeFor({ mode: door, ruleScope: named.scope });
 		const organizeDraft = buildWizardDraft({
-			mode,
+			mode: door,
 			ruleScope: named.scope,
 			anchorMessageId,
 			clauses: named.clauses,
@@ -634,7 +647,7 @@ function SelectionWizardSession({
 	}, [
 		escalated,
 		runEscalated,
-		mode,
+		door,
 		named,
 		anchorMessageId,
 		verb,
@@ -683,15 +696,21 @@ function SelectionWizardSession({
 		return NOT_STARTED;
 	}, [organizeJob]);
 
+	// Every row the wizard has seen a description of, so a run that names what it
+	// did not reach can name it rather than listing an id.
 	const rowsById = useMemo(() => {
 		const rows = new Map<string, WizardMessage>();
-		for (const message of [...selection, ...matchSample.messages]) {
+		for (const message of [
+			...selection,
+			...matchSample.messages,
+			...escalatedSample.messages,
+		]) {
 			rows.set(message.id, message);
 		}
 		return rows;
-	}, [selection, matchSample.messages]);
+	}, [selection, matchSample.messages, escalatedSample.messages]);
 
-	const runProgress = escalated ? escalatedSelection?.progress : bulk.progress;
+	const runProgress = escalated ? escalatedProgress : bulk.progress;
 
 	const bulkSnapshot = useCallback((): RunSnapshot => {
 		if (!bulkRun) return NOT_STARTED;
@@ -710,28 +729,36 @@ function SelectionWizardSession({
 			};
 		}
 		const stopped = outcome.cancelled || outcome.error !== undefined;
-		if (outcome.done === 0 && stopped) {
+		if (!stopped) {
+			return {
+				state: "backApplyComplete",
+				matched: Math.max(matched, outcome.done),
+				applied: outcome.done,
+				failed: 0,
+				failures: [],
+			};
+		}
+		if (outcome.done === 0) {
 			return { ...NOT_STARTED, state: "commitFailed" };
 		}
+		// The run stopped part-way. Nothing here was rejected: a returned bulk call
+		// accepts every id in it, so the only failure this layer sees is a call that
+		// threw, and everything after it was never sent. A bounded run hands back
+		// exactly those ids; a predicate run re-resolves its match on every pass and
+		// has no remainder to hand back, so what is left is the difference between
+		// the count and what the run covered.
 		const failures = outcome.failedIds
 			.map((id) => rowsById.get(id))
 			.filter((message): message is WizardMessage => message !== undefined);
-		// A predicate run hands back no ids for what it never reached — it resolves
-		// the match fresh on every run, so there is no remainder to name — and what
-		// is outstanding is the difference between the count and what it covered. A
-		// run that stopped having covered everything it counted still leaves at
-		// least one, because the count is the older of the two readings.
-		const outstanding =
+		const unreached =
 			outcome.failedIds.length > 0
 				? outcome.failedIds.length
-				: stopped
-					? Math.max(matched - outcome.done, 1)
-					: 0;
+				: Math.max(matched - outcome.done, 1);
 		return {
-			state: outstanding > 0 ? "backApplyFailed" : "backApplyComplete",
+			state: "runStopped",
 			matched: Math.max(matched, outcome.done),
 			applied: outcome.done,
-			failed: outstanding,
+			failed: unreached,
 			failures,
 		};
 	}, [bulkRun, runProgress, rowsById]);

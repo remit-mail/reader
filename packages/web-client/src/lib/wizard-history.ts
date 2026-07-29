@@ -17,9 +17,9 @@
  * rewinds every entry the wizard owns.
  */
 
-import { type StepId, stepIndex } from "@remit/ui";
+import { type StepId, stepIndex, type Verb } from "@remit/ui";
 import { useNavigate, useRouter, useSearch } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 
 const stepId = z.enum([
@@ -99,6 +99,46 @@ export const useOpenWizard = (): ((
 		},
 		[navigate],
 	);
+};
+
+export interface SelectionWizardControl {
+	/** The verb the wizard was opened for, for the host that renders it. */
+	verb: Verb;
+	/** Opens the wizard on a verb, from the match step — every bar verb, and
+	 *  every keyboard verb aimed at a selection, comes through here. */
+	start: (verb: Verb) => void;
+	/** Opens it on the search entry instead: the property step, with the query
+	 *  converted (#477 1.8). The route for a verb whose match is a predicate
+	 *  rather than a set of clauses. */
+	startFromSearch: () => void;
+	/**
+	 * A step is held, so the wizard owns the screen. Every selection surface
+	 * suspends its keyboard layer on this: a shortcut acting behind the screen
+	 * already asking about an action is a second flow nobody asked for.
+	 */
+	isOpen: boolean;
+}
+
+/**
+ * The wizard as a selection surface drives it. The step lives in the URL and
+ * the verb beside it in state, in one place rather than one copy per surface —
+ * three of them had drifted apart on which verbs they even offered.
+ */
+export const useSelectionWizard = (): SelectionWizardControl => {
+	const step = useWizardStepValue();
+	const openWizard = useOpenWizard();
+	const [verb, setVerb] = useState<Verb>("organize");
+	const start = useCallback(
+		(next: Verb) => {
+			setVerb(next);
+			openWizard("match");
+		},
+		[openWizard],
+	);
+	const startFromSearch = useCallback(() => {
+		openWizard("properties", "search");
+	}, [openWizard]);
+	return { verb, start, startFromSearch, isOpen: step !== undefined };
 };
 
 export interface WizardStepNavigation {

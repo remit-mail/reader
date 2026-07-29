@@ -17,6 +17,7 @@ import {
 	flaggedFilterConfig,
 	MessageListPane,
 	type ThreadRowData,
+	type Verb,
 } from "@remit/ui";
 import { type RefObject, useCallback, useMemo, useState } from "react";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
@@ -35,6 +36,7 @@ import { useMailContext } from "@/lib/mail-context";
 import { rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { dedupeByThread } from "@/lib/starred-rows";
+import { useSelectionWizard } from "@/lib/wizard-history";
 import { MailViewChrome } from "./MailViewChrome";
 import type { MessageListCommands } from "./MessageList";
 import { MessageRow } from "./MessageRow";
@@ -55,17 +57,24 @@ const FILTER_PREDICATES: Record<string, (t: ThreadRowData) => boolean> = {
 };
 
 /**
- * The wizard, on the one surface whose bar borrows it rather than raising it.
+ * The wizard this view's verbs walk, and the one its search entry lands on.
  *
- * The list header offers "make this a filter" wherever a search is active, and
- * the step that affordance pushes has to be answered on the view that offered
- * it — an affordance whose press lands on nothing is the dead button clause 1.7
- * exists to prevent. Starred spans accounts and mailboxes, so a rule made from
- * the ticked rows has no single account to belong to; a rule made from the
- * query belongs to the account the query names, which the host reads for
- * itself.
+ * The bar's Delete and Mark read open it on the ticked rows, so a bulk action
+ * here is reviewed exactly as it is on the mailbox list. The list header also
+ * offers "make this a filter" wherever a search is active, and the step that
+ * affordance pushes has to be answered on the view that offered it — an
+ * affordance whose press lands on nothing is the dead button clause 1.7 exists
+ * to prevent. Starred spans accounts and mailboxes, so a rule made from the
+ * ticked rows has no single account to belong to; a rule made from the query
+ * belongs to the account the query names, which the host reads for itself.
  */
-function StarredWizardHost({ rows }: { rows: readonly ThreadRowData[] }) {
+function StarredWizardHost({
+	rows,
+	verb,
+}: {
+	rows: readonly ThreadRowData[];
+	verb: Verb;
+}) {
 	const { selectedIds, exitSelection } = useThreadListSelection();
 	const selection = useMemo<WizardSelectionMessage[]>(
 		() =>
@@ -82,7 +91,7 @@ function StarredWizardHost({ rows }: { rows: readonly ThreadRowData[] }) {
 	);
 	return (
 		<SelectionWizardHost
-			verb="organize"
+			verb={verb}
 			selection={selection}
 			crossAccount
 			onFinished={exitSelection}
@@ -98,7 +107,6 @@ interface FlaggedListProps {
 	/** Cursor / selection / display order, reported up to the triage layer. */
 	onTriageContextChange?: (context: TriageContextUpdate) => void;
 	onDeleteMessages: (messageIds: string[]) => void;
-	onMarkMessagesRead?: (messageIds: string[]) => void;
 }
 
 export function FlaggedList({
@@ -107,11 +115,11 @@ export function FlaggedList({
 	commandsRef,
 	onTriageContextChange,
 	onDeleteMessages,
-	onMarkMessagesRead,
 }: FlaggedListProps) {
 	const { searchQuery, resultFolderIndex } = useMailContext();
 	const tokenContext = useSearchTokenContext();
 	const isDesktop = useIsDesktop();
+	const wizard = useSelectionWizard();
 
 	const [selectedCategory, setSelectedCategory] = useState("all");
 	const [activeFilters, setActiveFilters] = useState<ReadonlySet<string>>(
@@ -234,6 +242,8 @@ export function FlaggedList({
 				selectedMessageId={selectedMessageId}
 				onOpen={(id, options) => onSelectMessage?.(id, options)}
 				onDeleteMessages={onDeleteMessages}
+				onSelectionVerb={wizard.start}
+				wizardOpen={wizard.isOpen}
 				commandsRef={commandsRef}
 				onTriageContextChange={onTriageContextChange}
 			>
@@ -251,18 +261,13 @@ export function FlaggedList({
 					onSelectThread={onSelectMessage}
 					onSelectBriefCategory={() => undefined}
 					isDesktop={isDesktop}
-					selectionBar={
-						<ThreadListSelectionBar
-							title="Starred"
-							onMarkAsRead={onMarkMessagesRead}
-						/>
-					}
+					selectionBar={<ThreadListSelectionBar title="Starred" />}
 					listBody={
 						chrome.searchResults ??
 						(listState === "ready" ? listBody : undefined)
 					}
 				/>
-				<StarredWizardHost rows={rows} />
+				<StarredWizardHost rows={rows} verb={wizard.verb} />
 			</ThreadListInteraction>
 		</MailViewChrome>
 	);
