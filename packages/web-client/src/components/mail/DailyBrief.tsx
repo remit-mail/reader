@@ -314,7 +314,6 @@ function BriefSelectionChrome({
 		selectedIds,
 		selectedCount,
 		exitSelection,
-		requestDeleteSelection,
 		orderedIds,
 		allSelected,
 		toggleAllLoaded,
@@ -359,14 +358,7 @@ function BriefSelectionChrome({
 		[rows, selectedIds],
 	);
 
-	const handleMarkAsRead = useCallback(() => {
-		onMarkMessagesRead?.(selectedMessageIds);
-		exitSelection();
-	}, [onMarkMessagesRead, selectedMessageIds, exitSelection]);
-
-	const scoped = !!scope.accountId && !!scope.mailboxId;
-	const canJunk =
-		scoped && !!junkMailboxId && junkMailboxId !== scope.mailboxId;
+	const canJunk = !!junkMailboxId && junkMailboxId !== scope.mailboxId;
 
 	// One select-all for both surfaces: the desktop toolbar and the touch sheet
 	// offer the same control over the same rendered rows, so the verb a phone
@@ -399,16 +391,12 @@ function BriefSelectionChrome({
 			idleSlot={chrome.makeFilterSlot}
 			count={selectedCount}
 			onCancel={exitSelection}
-			onDelete={scoped ? () => startWizard("delete") : requestDeleteSelection}
-			onMove={scoped ? () => startWizard("move") : undefined}
-			onOrganize={scoped ? () => startWizard("organize") : undefined}
+			onDelete={() => startWizard("delete")}
+			onMove={() => startWizard("move")}
+			onOrganize={() => startWizard("organize")}
 			onJunk={canJunk ? () => startWizard("junk") : undefined}
 			onMarkRead={
-				onMarkMessagesRead
-					? scoped
-						? () => startWizard("markRead")
-						: handleMarkAsRead
-					: undefined
+				onMarkMessagesRead ? () => startWizard("markRead") : undefined
 			}
 			overflowSlot={
 				scope.accountId &&

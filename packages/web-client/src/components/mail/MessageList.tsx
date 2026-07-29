@@ -881,16 +881,14 @@ export const MessageList = ({
 		return undefined;
 	}, [selectedCount, selectedIds, threads]);
 
-	// Every verb on the bar opens the wizard on the ticked rows (#477 1.4). It is
-	// withdrawn the moment the selection escalates to a predicate or a run takes
+	// Every verb on the bar opens the wizard on the ticked rows (#477 1.4),
+	// including a selection spanning accounts — the wizard is where that
+	// restriction is stated, on the step that needs one account (#477 5.5). It is
+	// withdrawn only once the selection escalates to a predicate or a run takes
 	// over: an escalated selection is a predicate, which no bounded list of ids
 	// stands in for (#477 3.1), and keeps the bar's own chunked runner.
 	const canOpenWizard =
-		!!accountId &&
-		!!mailboxId &&
-		!moveDisabledHint &&
-		escalation.phase.kind === "idle" &&
-		!escalation.isRunning;
+		escalation.phase.kind === "idle" && !escalation.isRunning;
 
 	const startWizard = useCallback(
 		(verb: Verb) => {
@@ -1355,10 +1353,12 @@ export const MessageList = ({
 			moveSlot={selectionMoveSlot}
 			onOrganize={canOpenWizard ? () => startWizard("organize") : undefined}
 			onJunk={
-				junkMailboxId && junkMailboxId !== mailboxId && !moveDisabledHint
+				junkMailboxId && junkMailboxId !== mailboxId
 					? canOpenWizard
 						? () => startWizard("junk")
-						: handleJunk
+						: !moveDisabledHint
+							? handleJunk
+							: undefined
 					: undefined
 			}
 			onMarkRead={

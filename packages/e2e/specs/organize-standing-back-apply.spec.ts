@@ -35,6 +35,7 @@ import {
 	advanceTo,
 	barOrganize,
 	commitButton,
+	expectBlockedReason,
 	wizardContinue,
 	wizardStep,
 } from "../src/wizard.js";
@@ -47,6 +48,9 @@ const FOLDER_NAME = `E2E BackApply ${STAMP}`;
 const RULE_NAME = `E2E BackApply rule ${STAMP}`;
 
 const SUBJECTS = [1, 2, 3].map((n) => `E2E Keep ${STAMP} #${n}`);
+
+/** The folder list the create's confirmation poll re-reads. */
+const MAILBOX_LIST = /\/mailboxes(\?.*)?$/;
 
 test.describe("Standing filter back-applies over existing mail", () => {
 	let run: IsolatedRun;
@@ -111,7 +115,15 @@ test.describe("Standing filter back-applies over existing mail", () => {
 
 			await advanceTo(page, "Folder");
 
-			// Create the destination from the step's own picker.
+			// A real create, with the confirmation the step waits on held back, so
+			// the wait is observable rather than a race against a fast server. The
+			// folder is created for real; only the poll that confirms it is slowed.
+			await page.route(MAILBOX_LIST, async (route) => {
+				if (route.request().method() !== "GET") return route.continue();
+				await new Promise((resolve) => setTimeout(resolve, 3_000));
+				await route.continue();
+			});
+
 			await page.getByLabel("Filter folders").fill(FOLDER_NAME);
 			await page
 				.getByRole("button", { name: `Create "${FOLDER_NAME}"` })
@@ -124,8 +136,10 @@ test.describe("Standing filter back-applies over existing mail", () => {
 				page.getByText("Waiting for the mail server to confirm the folder…"),
 			).toBeVisible({ timeout: 20_000 });
 			await wizardContinue(page).click();
-			await expect(page.getByText("Pick a destination first.")).toBeVisible();
+			await expectBlockedReason(page, "Pick a destination first.");
 			await expect(wizardStep(page)).toHaveText(/· Folder$/);
+
+			await page.unroute(MAILBOX_LIST);
 
 			const created = await waitFor(
 				() => api.listMailboxes(run.accountId),

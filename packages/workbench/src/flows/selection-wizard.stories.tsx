@@ -1,6 +1,8 @@
 import {
 	Checkbox,
 	type ClauseEditState,
+	crossAccountDestinationReason,
+	crossAccountRuleReason,
 	demoClauseSuggestions,
 	derivePropertyClauses,
 	deriveSenderClauses,
@@ -203,8 +205,16 @@ interface WizardEntry {
 	startMode?: MatchMode;
 	scope?: RuleScope;
 	semanticUnavailable?: boolean;
+	/** What the mail server said when the widen was asked to run and failed. */
+	semanticError?: string;
+	/** The selection spans accounts, so no folder and no rule can be reached. */
+	crossAccount?: boolean;
 	runState?: RunState;
+	/** How many the mail server rejected beyond the ones the run can name. */
+	failedBeyondNamed?: number;
 	sampleEmpty?: SampleEmptyReason;
+	/** The rows are still arriving, which is not the same answer as no rows. */
+	sampleLoading?: boolean;
 	/** How the mail server answers a folder create on the folder step. */
 	folderCreate?: "confirms" | "never confirms" | "fails";
 }
@@ -354,11 +364,17 @@ function WizardDriver({
 	const blockedReason = stepBlockedReason(current, draft, count);
 
 	const sample = {
-		messages: entry.sampleEmpty ? [] : covered,
+		messages: entry.sampleEmpty || entry.sampleLoading ? [] : covered,
 		count,
 		label: mode === "selected" ? "Your selection" : "A sample of what matches",
 		emptyReason: entry.sampleEmpty,
+		loading: entry.sampleLoading,
 	};
+
+	const restriction = entry.crossAccount ? crossAccountRuleReason : undefined;
+	const destinationRestriction = entry.crossAccount
+		? crossAccountDestinationReason
+		: undefined;
 
 	const failures = runState === "backApplyFailed" ? covered.slice(0, 2) : [];
 	const applied =
@@ -429,7 +445,8 @@ function WizardDriver({
 				selectedCount: selected.length,
 				mode,
 				onModeChange: setMode,
-				semanticUnavailable: entry.semanticUnavailable,
+				semanticUnavailable: entry.semanticUnavailable || !!entry.semanticError,
+				semanticErrorDetail: entry.semanticError,
 				semanticFallbackTaken,
 				onSemanticFallback: fallBackToProperties,
 				sample,
@@ -476,8 +493,14 @@ function WizardDriver({
 				mailboxId,
 				onSelect: setMailboxId,
 				onCreateFolder: createFolder,
+				restriction: destinationRestriction,
 			}}
-			rule={{ draft, onScopeChange: setScope, onUntilChange: setUntil }}
+			rule={{
+				draft,
+				onScopeChange: setScope,
+				onUntilChange: setUntil,
+				restriction,
+			}}
 			name={{ name: ruleName, onNameChange: setTypedName }}
 			review={{
 				verb: entry.verb,
@@ -498,6 +521,7 @@ function WizardDriver({
 				matched: covered.length,
 				applied,
 				failures,
+				failedCount: entry.failedBeyondNamed ?? failures.length,
 				onRetry: () =>
 					setRunState(
 						runState === "commitFailed" ? "saving" : "backApplyRunning",
@@ -1414,6 +1438,95 @@ export const RunOnceDone: Story = {
 				startAt: "run",
 				scope: "once",
 				runState: "backApplyComplete",
+			}}
+		/>
+	),
+};
+
+/**
+ * A selection spanning accounts. A folder and a filter both belong to one
+ * account, so neither step can be answered — and each says so, in place, rather
+ * than offering an empty picker or a scope that cannot be saved (#477 5.5).
+ */
+export const CrossAccountDestination: Story = {
+	name: "Folder — selection spans accounts",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{ verb: "organize", startAt: "folder", crossAccount: true }}
+		/>
+	),
+};
+
+export const CrossAccountRule: Story = {
+	name: "Rule — selection spans accounts",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{
+				verb: "organize",
+				startAt: "rule",
+				scope: "standing",
+				crossAccount: true,
+			}}
+		/>
+	),
+};
+
+/**
+ * The widen was asked to run and the mail server refused. The door dims like
+ * any other door that cannot run, and carries the server's own words rather
+ * than a generic line.
+ */
+export const MatchWidenFailed: Story = {
+	name: "Apply to — the widen failed",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{
+				verb: "organize",
+				startAt: "match",
+				semanticError: "The matcher is not reachable right now.",
+			}}
+		/>
+	),
+};
+
+/**
+ * A widened match reaches mail the list never loaded, so its rows are fetched
+ * from the server that matched them. No rows yet is not the same answer as no
+ * rows at all — saying "nothing matches" here is the wrong conclusion (#477 3.5).
+ */
+export const MatchSampleLoading: Story = {
+	name: "Apply to — the sample is still arriving",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{
+				verb: "organize",
+				startAt: "match",
+				startMode: "similar",
+				sampleLoading: true,
+			}}
+		/>
+	),
+};
+
+/**
+ * A back-apply the server ran itself reports how many it could not apply
+ * without handing back the messages behind them, so the count stands alone.
+ */
+export const RunFailedBeyondNamed: Story = {
+	name: "Run — more rejected than can be named",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{
+				verb: "organize",
+				startAt: "run",
+				scope: "standing",
+				runState: "backApplyFailed",
+				failedBeyondNamed: 9,
 			}}
 		/>
 	),

@@ -662,6 +662,7 @@ export {
 	backExits,
 	clauseSentence,
 	clauseWords,
+	crossAccountDestinationReason,
 	crossAccountRuleReason,
 	type MatchCount,
 	type MatchDescription,

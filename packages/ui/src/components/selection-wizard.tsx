@@ -134,7 +134,16 @@ export function WizardScreen({
 }: WizardScreenProps) {
 	const active = stepIndex(steps, step);
 	return (
-		<div className="fixed inset-0 z-50 flex flex-col font-sans text-fg md:items-center md:justify-center md:bg-black/40 md:p-6">
+		// A modal at every width: full-bleed below 768px it covers the list rather
+		// than sitting beside it, so the list behind must leave the accessibility
+		// tree with it — otherwise the verbs that opened the wizard are still
+		// reachable underneath the screen that replaced them.
+		<div
+			role="dialog"
+			aria-modal="true"
+			aria-label={title}
+			className="fixed inset-0 z-50 flex flex-col font-sans text-fg md:items-center md:justify-center md:bg-black/40 md:p-6"
+		>
 			<div className="flex min-h-0 w-full flex-1 flex-col bg-canvas md:h-[45rem] md:max-h-[calc(100dvh-3rem)] md:w-[35rem] md:max-w-[calc(100vw-3rem)] md:flex-none md:overflow-hidden md:rounded-xl md:border md:border-line md:shadow-lg">
 				<header className="shrink-0 border-b border-line px-3 pb-2 pt-3">
 					<div className="flex items-center gap-1">
@@ -191,6 +200,12 @@ export interface ChoiceCardProps {
 	children?: ReactNode;
 }
 
+/**
+ * Nothing disables (#477 1.7). An unavailable choice is dimmed and stays
+ * pressable, because pressing it is what takes the user somewhere that works —
+ * `aria-disabled` would announce it as a control that does nothing and take that
+ * away. What makes it unavailable is announced with it instead.
+ */
 export function ChoiceCard({
 	selected,
 	title,
@@ -199,13 +214,14 @@ export function ChoiceCard({
 	onSelect,
 	children,
 }: ChoiceCardProps) {
+	const hintId = useId();
 	return (
 		<div className="space-y-1.5">
 			<button
 				type="button"
 				onClick={onSelect}
 				aria-pressed={selected}
-				aria-disabled={unavailable || undefined}
+				aria-describedby={unavailable && children ? hintId : undefined}
 				className={cn(
 					"flex w-full items-start gap-3 rounded-lg border p-3 text-left transition-colors",
 					selected
@@ -229,7 +245,7 @@ export function ChoiceCard({
 					</span>
 				</span>
 			</button>
-			{children}
+			{children && <div id={hintId}>{children}</div>}
 		</div>
 	);
 }
@@ -245,6 +261,12 @@ export interface SelectionSampleProps {
 	label: string;
 	/** Why there are no rows. Defaults to nothing matching, never to a bare empty state. */
 	emptyReason?: SampleEmptyReason;
+	/**
+	 * The rows are still being fetched. No rows yet is not the same answer as no
+	 * rows at all, and "nothing matches" beside a server count that says otherwise
+	 * is the wrong conclusion (#477 3.5).
+	 */
+	loading?: boolean;
 }
 
 const sampleFooter = (count: MatchCount, shown: number): string => {
@@ -267,6 +289,7 @@ export function SelectionSample({
 	count,
 	label,
 	emptyReason,
+	loading,
 }: SelectionSampleProps) {
 	return (
 		<section className="flex flex-col rounded-lg border border-line bg-surface">
@@ -275,7 +298,9 @@ export function SelectionSample({
 			</h2>
 			{messages.length === 0 ? (
 				<p className="px-3 py-4 text-xs text-fg-muted">
-					{sampleEmptyCopy(emptyReason ?? "noMatch")}
+					{loading
+						? "Fetching the messages this covers…"
+						: sampleEmptyCopy(emptyReason ?? "noMatch")}
 				</p>
 			) : (
 				<>
@@ -317,6 +342,13 @@ export interface FooterNavProps {
 	nudged?: boolean;
 }
 
+/**
+ * Nothing disables (#477 1.7). A Continue with an answer still missing is dimmed
+ * and stays pressable — and stays pressable to assistive technology too, which
+ * `aria-disabled` would have taken away along with the reason. The reason is on
+ * the control the whole time it applies, through `aria-describedby`; pressing it
+ * is what brings the reason on screen.
+ */
 export function FooterNav({
 	backLabel = "Back",
 	onBack,
@@ -326,10 +358,15 @@ export function FooterNav({
 	blockedReason,
 	nudged,
 }: FooterNavProps) {
+	const reasonId = useId();
 	return (
 		<div className="space-y-2">
-			{nudged && blockedReason && (
-				<p role="status" className="px-1 text-2xs text-warning">
+			{blockedReason && (
+				<p
+					id={reasonId}
+					role={nudged ? "status" : undefined}
+					className={cn("px-1 text-2xs text-warning", !nudged && "sr-only")}
+				>
 					{blockedReason}
 				</p>
 			)}
@@ -347,7 +384,7 @@ export function FooterNav({
 					variant={nextVariant}
 					size="touch"
 					onClick={onNext}
-					aria-disabled={blockedReason ? true : undefined}
+					aria-describedby={blockedReason ? reasonId : undefined}
 					className={cn("flex-1", blockedReason && "opacity-55")}
 				>
 					{nextLabel}
@@ -367,6 +404,12 @@ export interface MatchStepProps {
 	 * of the deployment: the door stays pressable and dimmed.
 	 */
 	semanticUnavailable?: boolean;
+	/**
+	 * What the mail server said when the widen was asked to run and failed. A
+	 * failure is a reason the door cannot run, so it dims the door like any other
+	 * — with the server's own words under it rather than a generic line.
+	 */
+	semanticErrorDetail?: string;
 	/** The dimmed door was pressed and the senders were filled in instead. */
 	semanticFallbackTaken?: boolean;
 	onSemanticFallback: () => void;
@@ -378,6 +421,7 @@ export function MatchStepBody({
 	mode,
 	onModeChange,
 	semanticUnavailable,
+	semanticErrorDetail,
 	semanticFallbackTaken,
 	onSemanticFallback,
 	sample,
@@ -402,6 +446,11 @@ export function MatchStepBody({
 					title={matchDoorLabel("similar", selectedCount)}
 					description={matchDoorHint("similar")}
 				>
+					{semanticErrorDetail && (
+						<p role="status" className="px-1 text-2xs text-danger">
+							Couldn't find similar messages: {semanticErrorDetail}
+						</p>
+					)}
 					{semanticFallbackTaken && (
 						<p role="status" className="px-1 text-2xs text-fg-subtle">
 							Similar-mail matching is unavailable right now — matching on the
@@ -569,6 +618,12 @@ export interface FolderStepProps {
 		name: string,
 		signal?: AbortSignal,
 	) => Promise<MoveMailboxOption>;
+	/**
+	 * Why there is no folder list to choose from — a selection spanning accounts
+	 * has no single account whose folders these could be (#477 5.5). Said here
+	 * rather than left as an empty picker.
+	 */
+	restriction?: string;
 }
 
 export function FolderStepBody({
@@ -576,14 +631,21 @@ export function FolderStepBody({
 	mailboxId,
 	onSelect,
 	onCreateFolder,
+	restriction,
 }: FolderStepProps) {
 	const chosen = mailboxes.find((mailbox) => mailbox.id === mailboxId);
 	return (
 		<div className="flex min-h-0 flex-col gap-3">
-			<p className="px-1 text-xs text-fg-muted">
-				{chosen
-					? `Moving to ${chosen.label}.`
-					: "Search for a folder, or type a name that doesn't exist yet to make one."}
+			<p
+				className={cn(
+					"px-1 text-xs",
+					restriction ? "text-warning" : "text-fg-muted",
+				)}
+			>
+				{restriction ??
+					(chosen
+						? `Moving to ${chosen.label}.`
+						: "Search for a folder, or type a name that doesn't exist yet to make one.")}
 			</p>
 			<div className="overflow-hidden rounded-lg border border-line bg-surface">
 				<MoveMailboxPicker
@@ -870,7 +932,8 @@ const runIcon = (tone: RunCopy["tone"]): ReactNode => {
 
 export function RunStepBody(props: RunStepProps) {
 	const { matched, applied, failures } = props;
-	const copy = runCopy(runOutcomeOf(props));
+	const outcome = runOutcomeOf(props);
+	const copy = runCopy(outcome);
 
 	return (
 		<div className="space-y-4 pt-2">
@@ -884,7 +947,7 @@ export function RunStepBody(props: RunStepProps) {
 				<ProgressBar
 					value={applied}
 					max={matched}
-					tone={applied < matched ? "warning" : "success"}
+					tone={outcome.failed > 0 ? "warning" : "success"}
 				/>
 			)}
 
@@ -1039,12 +1102,17 @@ export function SelectionWizard(props: SelectionWizardProps) {
 		if (step === "run") return <RunFooter {...stepProps(props.run, step)} />;
 		if (step === "review") {
 			const review = stepProps(props.review, step);
+			// The commit is a Continue like any other: a match that reaches nothing,
+			// or a count still moving, dims it and says so rather than committing a
+			// bulk action over nothing and reporting it as done.
 			return (
 				<FooterNav
 					onBack={onBack}
 					nextLabel={review.scope ? commitLabel(review.scope) : label}
 					nextVariant={destructive ? "danger" : "primary"}
 					onNext={onCommit}
+					blockedReason={props.blockedReason}
+					nudged={props.nudged}
 				/>
 			);
 		}

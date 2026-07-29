@@ -2,6 +2,7 @@ import { mailboxOperationsListMailboxesOptions } from "@remit/api-http-client/@t
 import {
 	type ClauseDraft,
 	type ClauseEditState,
+	crossAccountDestinationReason,
 	crossAccountRuleReason,
 	derivePropertyClauses,
 	deriveSenderClauses,
@@ -172,6 +173,7 @@ export function SelectionWizardHost({
 	// be retried.
 	const [backApplyDraft, setBackApplyDraft] = useState<OrganizeDraft>();
 	const backApplyStarted = useRef(false);
+	const commitSent = useRef(false);
 
 	const messageIds = useMemo(
 		() => selection.map((message) => message.id),
@@ -213,7 +215,7 @@ export function SelectionWizardHost({
 		open && widened ? accountId : undefined,
 		predicate,
 	);
-	const matchSample = useMatchSample(matchedIds);
+	const matchSample = useMatchSample(widened ? matchedIds : []);
 
 	const count: MatchCount = widened
 		? previewCount
@@ -239,7 +241,7 @@ export function SelectionWizardHost({
 			),
 		[mailboxesData?.items, folderAppointments, mailboxId],
 	);
-	const { createFolder } = useCreateMailbox(accountId ?? "");
+	const { createFolder } = useCreateMailbox(accountId);
 
 	const folderLabel = mailboxes.find(
 		(mailbox) => mailbox.id === draft.moveMailboxId,
@@ -289,16 +291,23 @@ export function SelectionWizardHost({
 	// is how a footer comes to name a screen nobody is looking at.
 	const current = steps[stepIndex(steps, step ?? OPENING_STEP)];
 
-	// A filter belongs to one account, so a selection spanning accounts can
-	// choose the one-off scope and nothing else (#477 5.5).
-	const ruleRestriction =
-		crossAccount || !accountId ? crossAccountRuleReason : undefined;
-	const blockedReason =
-		current === "rule" &&
-		ruleRestriction &&
-		(named.scope === "standing" || named.scope === "until")
+	// A filter and a folder both belong to one account, so a selection spanning
+	// accounts reaches neither and is told so on the step that asks (#477 5.5).
+	// The one-off scope acts on the messages themselves and is unaffected.
+	const accountScoped = !crossAccount && !!accountId;
+	const ruleRestriction = accountScoped ? undefined : crossAccountRuleReason;
+	const folderRestriction = accountScoped
+		? undefined
+		: crossAccountDestinationReason;
+	const restrictionFor = (step: StepId): string | undefined => {
+		if (step === "folder") return folderRestriction;
+		if (step !== "rule") return undefined;
+		return named.scope === "standing" || named.scope === "until"
 			? ruleRestriction
-			: stepBlockedReason(current, named, count);
+			: undefined;
+	};
+	const blockedReason =
+		restrictionFor(current) ?? stepBlockedReason(current, named, count);
 
 	const seedPropertyClauses = useCallback(
 		() => withIds(derivePropertyClauses(senders, subjects), "seed"),
@@ -336,6 +345,18 @@ export function SelectionWizardHost({
 		}));
 		goToStep("properties");
 	}, [senders, goToStep]);
+
+	// The probe lands after the door is on screen, so it can report the widen
+	// unavailable while the user is already holding it. The fallback is taken then
+	// rather than left as a door that counts nothing: the property step says, in
+	// so many words, that these are the senders it substituted (#477 3.6).
+	const semanticUnavailable = widen.semanticUnavailable || widen.isError;
+	useEffect(() => {
+		if (mode !== "similar" || !semanticUnavailable || semanticFallbackTaken) {
+			return;
+		}
+		takeSemanticFallback();
+	}, [mode, semanticUnavailable, semanticFallbackTaken, takeSemanticFallback]);
 
 	const startAddClause = useCallback(() => {
 		setClauseEdit({ mode: "add", draft: { field: "From", value: "" } });
@@ -402,7 +423,11 @@ export function SelectionWizardHost({
 						done: 0,
 						failedIds: [...ids],
 						cancelled: false,
-						error: new Error("No destination for this action."),
+						error: new Error(
+							verb === "junk"
+								? "This account has no Junk folder appointed, so there is nowhere to file these. Appoint one under Settings › Folders."
+								: "No destination was chosen, so there is nowhere to file these. Go back and pick a folder.",
+						),
 					},
 				});
 				return;
@@ -414,7 +439,7 @@ export function SelectionWizardHost({
 		[verb, named.moveMailboxId, junkMailboxId, runAction],
 	);
 
-	const commit = useCallback(() => {
+	const sendCommit = useCallback(() => {
 		const scope = organizeScopeFor({ mode, ruleScope: named.scope });
 		const organizeDraft = buildWizardDraft({
 			mode,
@@ -426,7 +451,6 @@ export function SelectionWizardHost({
 			until: named.until,
 		});
 		setCommittedScope(scope);
-		goToStep("run");
 
 		if (scope === "standing" || scope === "temporary") {
 			backApplyStarted.current = false;
@@ -452,11 +476,24 @@ export function SelectionWizardHost({
 		verb,
 		messageIds,
 		matchedIds,
-		goToStep,
 		createFilter,
 		organizeJob,
 		runBulk,
 	]);
+
+	// Two presses land in the same frame before either navigate settles, and both
+	// would send. The guard is a ref rather than the committed scope because that
+	// is state, and state has not been applied yet by the second press.
+	const commit = useCallback(() => {
+		if (blockedReason) {
+			setNudgedStep(current);
+			return;
+		}
+		if (commitSent.current) return;
+		commitSent.current = true;
+		goToStep("run");
+		sendCommit();
+	}, [blockedReason, current, goToStep, sendCommit]);
 
 	// Creating a filter also moves the mail that already matches, not only the
 	// mail that arrives next. The filter is created first so the rule is live
@@ -501,11 +538,11 @@ export function SelectionWizardHost({
 
 	const rowsById = useMemo(() => {
 		const rows = new Map<string, WizardMessage>();
-		for (const message of [...selection, ...matchSample]) {
+		for (const message of [...selection, ...matchSample.messages]) {
 			rows.set(message.id, message);
 		}
 		return rows;
-	}, [selection, matchSample]);
+	}, [selection, matchSample.messages]);
 
 	const bulkSnapshot = useCallback((): RunSnapshot => {
 		if (!bulkRun) return NOT_STARTED;
@@ -552,18 +589,21 @@ export function SelectionWizardHost({
 		return bulkSnapshot();
 	};
 
+	// Retry stays on the run screen: it re-sends the same commit rather than
+	// walking back to Review, which would push an entry the wizard does not own
+	// and leave Cancel rewinding to a step instead of out.
 	const retry = (): void => {
 		if (committedScope === "standing" || committedScope === "temporary") {
 			if (createFilter.isError) {
 				createFilter.reset();
-				goToStep("review");
+				sendCommit();
 				return;
 			}
 			if (backApplyDraft) startJob(backApplyDraft);
 			return;
 		}
 		if (committedScope === "all-like-these" && widenedRunsAsJob(verb)) {
-			commit();
+			sendCommit();
 			return;
 		}
 		const outstanding = bulkRun?.outcome?.failedIds ?? [];
@@ -588,6 +628,11 @@ export function SelectionWizardHost({
 	// pushed entry, so without this the button pops back to Review, where the
 	// commit is offered a second time; the run screen holds the outcome, which is
 	// what makes rewinding the entries under it safe (#477 1.6).
+	//
+	// The rewind `dismiss` performs is `router.history.go(-N)`, which the history
+	// classifies as `"GO"` — so it does not re-enter this blocker and recurse.
+	// `selection-wizard-history.spec.ts` walks a real browser back off the run
+	// screen, which is what pins that classification.
 	useBlocker({
 		shouldBlockFn: ({ action }) => {
 			if (action !== "BACK") return false;
@@ -601,15 +646,15 @@ export function SelectionWizardHost({
 	if (!step) return null;
 
 	const run = runSnapshot();
-	const sampleLabel = widened ? "A sample of what matches" : "Your selection";
 	const sample = {
-		messages: widened ? matchSample : selection,
+		messages: widened ? matchSample.messages : selection,
 		count,
-		label: sampleLabel,
+		label: widened ? "A sample of what matches" : "Your selection",
 		emptyReason:
-			mode === "similar" && widen.semanticUnavailable
+			mode === "similar" && semanticUnavailable
 				? ("notIndexed" as const)
 				: ("noMatch" as const),
+		loading: widened && (count.status === "loading" || matchSample.isPending),
 	};
 
 	return (
@@ -627,7 +672,9 @@ export function SelectionWizardHost({
 				selectedCount: selection.length,
 				mode,
 				onModeChange: changeMode,
-				semanticUnavailable: widen.semanticUnavailable,
+				semanticUnavailable,
+				semanticErrorDetail:
+					widen.error instanceof Error ? widen.error.message : undefined,
 				semanticFallbackTaken,
 				onSemanticFallback: takeSemanticFallback,
 				sample,
@@ -655,6 +702,7 @@ export function SelectionWizardHost({
 				onSelect: (moveMailboxId) =>
 					setDraft((held) => ({ ...held, moveMailboxId })),
 				onCreateFolder: accountId ? createFolder : undefined,
+				restriction: folderRestriction,
 			}}
 			rule={{
 				draft: named,

@@ -378,6 +378,27 @@ describe("stepBlockedReason", () => {
 		);
 	});
 
+	it("refuses to commit a match that reaches nothing", () => {
+		// A settled zero is a whole answer: committing it would report a bulk
+		// action over no mail. The reload path lands here too — the step comes
+		// back in the URL and the ticked rows do not come back with it.
+		const reason = stepBlockedReason("review", draft(), {
+			status: "ready",
+			count: 0,
+		});
+		assert.ok(reason);
+		assert.match(reason, /nothing to do/);
+		// A zero that is still being recounted is not that answer yet.
+		assert.equal(
+			stepBlockedReason("review", draft(), {
+				status: "ready",
+				count: 0,
+				stale: true,
+			}),
+			ruleBlockedCopy.recounting,
+		);
+	});
+
 	it("waits on no count where a widened door never had one", () => {
 		assert.equal(stepBlockedReason("review", draft(), UNCOUNTED), undefined);
 	});

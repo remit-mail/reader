@@ -20,7 +20,7 @@
  * suite's exact inbox-count invariant is restored on the way out.
  */
 import type { Locator, Page } from "@playwright/test";
-import type { ApiClient } from "../src/api.js";
+import { type ApiClient, waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages } from "../src/imap.js";
 import {
@@ -28,6 +28,7 @@ import {
 	barOrganize,
 	commitButton,
 	dismissRun,
+	expectBlockedReason,
 	pickFolder,
 	wizardContinue,
 	wizardStep,
@@ -157,12 +158,8 @@ test.describe("Organize through the selection wizard", () => {
 		run,
 		api,
 	}) => {
-		const { first, second, cleanup } = await seedScratch(
-			page,
-			run,
-			api,
-			`wizard-once ${Date.now()}`,
-		);
+		const tag = `wizard-once ${Date.now()}`;
+		const { first, second, cleanup } = await seedScratch(page, run, api, tag);
 
 		try {
 			await selectTwo(page, first, second);
@@ -194,6 +191,22 @@ test.describe("Organize through the selection wizard", () => {
 
 			await dismissRun(page);
 			await expect(selectionStatus(page)).toBeHidden();
+
+			// Server truth: the two messages really left the inbox for Archive,
+			// not just the screen.
+			const mailboxes = await api.listMailboxes(run.accountId);
+			const archive = mailboxes.find((m) => m.fullPath === "Archive");
+			if (!archive) throw new Error("the account has no Archive mailbox");
+			await waitFor(
+				() => api.searchMatchingMessageIds(run.inboxId, tag),
+				(ids) => ids.length === 0,
+				{ timeoutMs: 60_000, what: "the filed scratch to leave the inbox" },
+			);
+			await waitFor(
+				() => api.searchMatchingMessageIds(archive.mailboxId, tag),
+				(ids) => ids.length === 2,
+				{ timeoutMs: 60_000, what: "the filed scratch to land in Archive" },
+			);
 		} finally {
 			await cleanup();
 		}
@@ -288,7 +301,7 @@ test.describe("Organize through the selection wizard", () => {
 			// Nothing disables: Continue stays pressable, and pressing it says
 			// what the step is still missing (#477 1.7).
 			await wizardContinue(page).click();
-			await expect(page.getByText("Pick a destination first.")).toBeVisible();
+			await expectBlockedReason(page, "Pick a destination first.");
 			await expect(wizardStep(page)).toHaveText(/· Folder$/);
 		} finally {
 			await cleanup();

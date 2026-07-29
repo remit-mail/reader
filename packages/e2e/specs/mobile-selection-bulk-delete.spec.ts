@@ -493,7 +493,9 @@ test.describe("Confirm dialog", () => {
 		// one sentence and closes with the messages themselves.
 		await expect(page.getByText(/Delete 2 messages/)).toBeVisible();
 
-		await page.getByRole("button", { name: "Cancel" }).click();
+		// The wizard's own Cancel, not the selection bar's "Cancel selection"
+		// behind it: the wizard is a modal, and this names only its control.
+		await page.getByRole("button", { name: "Cancel", exact: true }).click();
 
 		await expect(wizardStep(page)).toHaveCount(0);
 		await expect(rows(page)).toHaveCount(run.seededSubjects.length);

@@ -19,6 +19,21 @@ export const advanceTo = async (page: Page, step: string): Promise<void> => {
 	});
 };
 
+/**
+ * The reason a blocked Continue gives once it is pressed. The reason is on the
+ * control the whole time it applies, for anything reading the page through the
+ * accessibility tree; it becomes a live region — and visible — only on the
+ * press, which is the state this asserts.
+ */
+export const expectBlockedReason = async (
+	page: Page,
+	reason: string,
+): Promise<void> => {
+	await expect(
+		page.getByRole("status").filter({ hasText: reason }),
+	).toBeVisible();
+};
+
 /** Pick a destination on the folder step. */
 export const pickFolder = async (page: Page, label: string): Promise<void> => {
 	await page.getByRole("option", { name: `Move to ${label}` }).click();
