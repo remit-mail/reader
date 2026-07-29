@@ -70,12 +70,21 @@ const VERB_COPY: Record<Verb, VerbCopy> = {
 export const verbCopy = (verb: Verb): VerbCopy => VERB_COPY[verb];
 
 /**
- * What the action is applied to. The two widened doors are the shipped
- * `RuleMatchMode` values; `selected` is not one of them and is not a match mode
- * at all — it is the bounded list of ticked message ids, which no predicate
- * stands in for.
+ * The three choices the match step offers a ticked selection. The two widened
+ * doors are the shipped `RuleMatchMode` values; `selected` is not one of them
+ * and is not a match mode at all — it is the bounded list of ticked message
+ * ids, which no predicate stands in for.
  */
-export type MatchMode = "selected" | RuleMatchMode;
+export type MatchDoor = "selected" | RuleMatchMode;
+
+/**
+ * What the action is applied to. Beside the three doors sits `escalated`: the
+ * selection the list escalated to a predicate, every message matching the query
+ * it is showing rather than the rows on screen. It is offered no doors, because
+ * the predicate is already the match and there is nothing left to widen; the
+ * step names what it covers instead.
+ */
+export type MatchMode = MatchDoor | "escalated";
 
 export type StepId =
 	| "match"
@@ -454,7 +463,7 @@ export const clauseSentence = (
 
 /** What a match door is called, with the ticked count the widen anchors on. */
 export const matchDoorLabel = (
-	mode: MatchMode,
+	mode: MatchDoor,
 	selectedCount: number,
 ): string => {
 	if (mode === "selected") return `These ${selectedCount} messages`;
@@ -463,16 +472,48 @@ export const matchDoorLabel = (
 };
 
 /** One line saying what a match door actually does, so the choice is never a guess. */
-export const matchDoorHint = (mode: MatchMode): string =>
+export const matchDoorHint = (mode: MatchDoor): string =>
 	mode === "selected"
 		? "Only the messages ticked in the list."
 		: matchModeHint(mode);
+
+/**
+ * What an escalated predicate covers, in the words the list already used to
+ * escalate it — `matching "npm"`. Named where the doors would be, because a
+ * predicate that reaches past the loaded rows has nothing left to widen.
+ */
+export const escalatedMatchLabel = (scope: string): string =>
+	`Every message ${scope}`;
+
+/** The fallback when the list hands over no words for its predicate. */
+export const ESCALATED_SCOPE_FALLBACK = "the list is showing";
+
+/** Why the escalated match step states one thing instead of offering three. */
+export const ESCALATED_MATCH_HINT =
+	"This reaches every match on the mail server, including the ones the list has not loaded. The search is already the match, so there is nothing to widen.";
+
+/**
+ * What the count on an escalated review does and does not promise (#109). The
+ * predicate is resolved once for the count and again for the run, so the run
+ * covers whatever matches at the moment it runs — which can be more than the
+ * number beside it.
+ */
+export const ESCALATED_REVIEW_WARNING =
+	"This covers messages not shown in the list, and anything else matching by the time it runs.";
 
 export interface MatchDescription {
 	mode: MatchMode;
 	selectedCount: number;
 	clauses: readonly RuleClause[];
 	matchOperator: MatchOperator;
+	/** What an escalated predicate covers, in the list's own words. */
+	escalatedScope?: string;
+	/**
+	 * The server's count of that predicate. Stated with the match rather than
+	 * left to the sample's footer: an escalated selection is the one match whose
+	 * size is the whole reason to look before it runs.
+	 */
+	escalatedCount?: number;
 }
 
 /** The match on the review screen's labelled list — short enough for one row. */
@@ -481,10 +522,15 @@ export const matchSummary = ({
 	selectedCount,
 	clauses,
 	matchOperator,
-}: MatchDescription): string =>
-	mode === "properties"
+	escalatedScope,
+}: MatchDescription): string => {
+	if (mode === "escalated") {
+		return escalatedMatchLabel(escalatedScope ?? ESCALATED_SCOPE_FALLBACK);
+	}
+	return mode === "properties"
 		? clauseSentence(clauses, matchOperator)
 		: matchDoorLabel(mode, selectedCount);
+};
 
 /** The match inside the review screen's one sentence, in the object position. */
 export const matchPhrase = ({
@@ -492,8 +538,16 @@ export const matchPhrase = ({
 	selectedCount,
 	clauses,
 	matchOperator,
+	escalatedScope,
+	escalatedCount,
 }: MatchDescription): string => {
 	if (mode === "selected") return `${selectedCount} messages`;
+	if (mode === "escalated") {
+		const scope = escalatedScope ?? ESCALATED_SCOPE_FALLBACK;
+		return escalatedCount === undefined
+			? `every message ${scope}`
+			: `all ${escalatedCount.toLocaleString()} messages ${scope}`;
+	}
 	if (mode === "similar") {
 		return `mail ${widenChipLabel({ anchorCount: selectedCount }).toLowerCase()}`;
 	}

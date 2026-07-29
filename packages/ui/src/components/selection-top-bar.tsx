@@ -45,12 +45,6 @@ export interface SelectionTopBarProps {
 	 * a selection spanning accounts, or a surface with no owning mailbox.
 	 */
 	onMove?: () => void;
-	/**
-	 * The Move verb for a selection the wizard cannot take: an escalated
-	 * predicate, which no bounded list of ids stands in for, so it keeps the
-	 * caller's own folder picker. Rendered only in `onMove`'s place.
-	 */
-	moveSlot?: ReactNode;
 	/** Opens Organize for the selection. Omitted where organize cannot be
 	 *  scoped to one account. */
 	onOrganize?: () => void;
@@ -124,7 +118,7 @@ export interface SelectionTopBarProps {
 	/**
 	 * Toned status line below the action row, sometimes carrying an action
 	 * button — a cross-account move restriction, a "Select all N matching…"
-	 * escalation, a "Stop" during counting, or a partial-failure "Retry N".
+	 * escalation, or a "Stop" during counting.
 	 */
 	notice?: SelectionTopBarNotice;
 }
@@ -172,7 +166,6 @@ export function SelectionTopBar({
 	onCancel,
 	onDelete,
 	onMove,
-	moveSlot,
 	onOrganize,
 	onJunk,
 	onMarkRead,
@@ -278,19 +271,16 @@ export function SelectionTopBar({
 							aria-busy={isBusy || undefined}
 							className="shrink-0"
 						/>
-						{!isBusy &&
-							(onMove ? (
-								<Button
-									variant="ghost"
-									size="touch"
-									icon={<FolderInput className="size-5" />}
-									onClick={onMove}
-									aria-label="Move selected messages"
-									className="shrink-0"
-								/>
-							) : (
-								moveSlot
-							))}
+						{!isBusy && onMove && (
+							<Button
+								variant="ghost"
+								size="touch"
+								icon={<FolderInput className="size-5" />}
+								onClick={onMove}
+								aria-label="Move selected messages"
+								className="shrink-0"
+							/>
+						)}
 						{!isBusy && onOrganize && (
 							<Button
 								variant="ghost"

@@ -97,8 +97,8 @@ export interface UseEscalatedActionsResult {
 	 * Runs `action` in chunks. Pass `ids` for a materialized (bounded)
 	 * selection; omit it to run against the escalated predicate (`phase` must
 	 * be "escalated"). Resolves once the run ends for any reason — cancelled,
-	 * errored, or complete — with a `done`/`failedIds` outcome the caller feeds
-	 * to `resolveSelectionAfterRun` to decide what selection looks like next.
+	 * errored, or complete — with a `done`/`failedIds` outcome the caller reads
+	 * to decide what is still outstanding.
 	 * Infrastructure failures are reported through the app's existing
 	 * escalation seam (`pushError`, which itself escalates a 5xx/exception to
 	 * the fatal overlay) — not swallowed here.

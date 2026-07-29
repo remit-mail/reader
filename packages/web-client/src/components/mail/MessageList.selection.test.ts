@@ -59,44 +59,42 @@ describe("MessageList selection mode", () => {
 });
 
 /**
- * An escalated selection is a predicate, so it has no id list to hand the
- * optimistic move/mark-read mutations — before #114 the bar simply dropped
- * both, leaving "select all 1,284 matching npm" able to delete and nothing
- * else. All three actions now page the predicate through the same run.
+ * An escalated selection is a predicate, and it walks the same wizard every
+ * other selection walks (#508). The list hands the wizard the predicate — the
+ * words it names it with, the count it was escalated to, and the chunked runner
+ * that re-resolves it — and keeps no second confirmation of its own.
  */
 describe("MessageList escalated actions", () => {
-	it("routes move and mark-read through the predicate run when escalated", () => {
+	it("hands the escalated predicate to the wizard rather than running it here", () => {
 		assert.match(
 			source,
-			/escalation\.phase\.kind === "escalated"\)\s*\{\s*void runEscalatedAction\(MARK_READ_ACTION\);/,
+			/const escalatedSelection: EscalatedSelection \| undefined =\s*escalation\.phase\.kind === "escalated"/,
 		);
 		assert.match(
 			source,
-			/escalation\.phase\.kind === "escalated"\)\s*\{\s*void runEscalatedAction\(\{ kind: "move", destinationMailboxId \}\);/,
+			/scope: describeSearchScope\(searchPredicate \?\? \{\}\)/,
 		);
+		assert.match(source, /total: escalation\.phase\.total/);
+		assert.match(
+			source,
+			/run: \(action: EscalatedAction\) => escalation\.runAction\(action\)/,
+		);
+		const host = source.match(/<SelectionWizardHost[\s\S]*?\/>/)?.[0] ?? "";
+		assert.match(host, /escalated=\{escalatedSelection\}/);
 	});
 
-	it("keeps mark-read and the move slot on an escalated selection", () => {
-		// The bar always carries the mark-read verb (it drops it itself while
-		// counting or busy); an escalated selection must never lose it — it falls
-		// back to the predicate run, which the wizard cannot take.
-		assert.match(source, /: handleMarkAsRead\s*\}/);
-		// The move slot is offered for a bounded selection or an escalated one —
-		// #114's rule that an escalated selection is never delete-only.
-		assert.match(
-			source,
-			/onMoveMessages \|\| escalation\.phase\.kind === "escalated"/,
-		);
+	it("keeps no predicate confirmation of its own", () => {
+		// The review screen names what the predicate covers; a second dialog
+		// asking the same question is the drift the wizard exists to end.
+		assert.doesNotMatch(source, /source: "predicate"/);
+		assert.doesNotMatch(source, /requestEscalatedDelete/);
+		assert.doesNotMatch(source, /pendingDeleteIsEstimate/);
 	});
 
-	it("words progress and completion per action instead of per delete", () => {
+	it("words the bar's progress per action instead of per delete", () => {
 		assert.match(
 			source,
 			/bulkActionProgressLabel\(\s*escalation\.runningAction\.kind,/,
-		);
-		assert.match(
-			source,
-			/bulkActionCompletionText\(action\.kind, outcome\.done\)/,
 		);
 	});
 });
@@ -152,20 +150,37 @@ describe("MessageList escalation reaches desktop (#212)", () => {
 		assert.doesNotMatch(source, /onSomethingElse/);
 	});
 
+	it("sends the keyboard's delete of a selection into the same wizard", () => {
+		// Two entry points to one verb confirming two different ways is exactly
+		// the drift the wizard replaced. The confirmation dialog is left to the
+		// single row under the cursor, which is not a selection at all.
+		assert.match(
+			source,
+			/if \(hasSelection\) \{\s*startWizard\("delete"\);\s*return true;/,
+		);
+	});
+
+	it("suspends the keyboard layer while the wizard is up", () => {
+		assert.match(
+			source,
+			/blocksKeyboard: confirmOpen \|\| wizardStep !== undefined/,
+		);
+	});
+
 	it("offers the label picker only when the account has labels", () => {
 		assert.match(source, /labels\.length > 0 \? \(/);
 	});
 });
 
 /**
- * A bounded confirm-delete used to open the surviving neighbour by writing
+ * A confirmed delete used to open the surviving neighbour by writing
  * `selectedMessageId` into the URL. On desktop that fills the reading pane
  * beside the list; on a single-pane mobile layout the same navigation replaced
- * the list with a full-screen message, so a bulk delete read as "jumped into a
- * random message" rather than "the rows are gone" (#202). Mobile now stays on
- * the list and raises the same completion banner a chunked run does.
+ * the list with a full-screen message, so the delete read as "jumped into a
+ * random message" rather than "the row is gone" (#202). Mobile now stays on the
+ * list and raises a completion banner instead.
  */
-describe("MessageList bounded delete stays on the list on mobile (#202)", () => {
+describe("MessageList confirmed delete stays on the list on mobile (#202)", () => {
 	it("only the desktop two-pane opens the surviving neighbour after a delete", () => {
 		assert.match(
 			source,

@@ -236,12 +236,10 @@ export const EscalationAvailable: Story = {
  * query's total, not a materialized id count, and the notice offers a way
  * back to the bounded selection.
  *
- * Every verb the bar carries stays available here (#114). An escalated
- * selection is a predicate rather than an id list, so the web-client runs
- * move and mark-read by paging that predicate the same way delete does —
- * from the bar's side nothing changes, which is the point: an escalated
- * selection that could only be deleted forced anyone wanting to file those
- * messages back to the loaded page.
+ * Every verb the bar carries stays available here (#114), and every one of
+ * them opens the wizard, which names the predicate and states its count before
+ * anything runs (#508). From the bar's side nothing changes, which is the
+ * point: an escalated selection is a selection.
  */
 export const Escalated: Story = {
 	args: {
@@ -307,22 +305,6 @@ export const DeletingWithProgress: Story = {
 };
 
 /**
- * After a bulk delete finishes with some batches failed: the count reflects
- * only what's still selected — the failures — not the original selection,
- * and Retry is a real button naming how many.
- */
-export const PartialFailure: Story = {
-	args: {
-		count: 340,
-		notice: {
-			tone: "danger",
-			text: "3,072 moved to Trash. 340 couldn't be deleted.",
-			action: { label: "Retry 340", onClick: () => undefined },
-		},
-	},
-};
-
-/**
  * A move over an escalated selection: same chunked run as a delete, worded for
  * the action that is running and toned as ordinary progress rather than
  * destructive.
@@ -343,20 +325,5 @@ export const MarkingReadWithProgress: Story = {
 		statusLabel: "Marking 1,200 of 3,412 as read…",
 		isBusy: true,
 		progress: { value: 1200, max: 3412, tone: "info" },
-	},
-};
-
-/**
- * Partial failure of a move rather than a delete: the notice names the action
- * that ran, and Retry resends that same action against what is still selected.
- */
-export const PartialFailureMove: Story = {
-	args: {
-		count: 340,
-		notice: {
-			tone: "danger",
-			text: "3,072 moved. 340 couldn't be moved.",
-			action: { label: "Retry 340", onClick: () => undefined },
-		},
 	},
 };

@@ -21,6 +21,10 @@ import { Fragment, type ReactNode, useEffect, useId, useRef } from "react";
 import { cn } from "../lib/cn.js";
 import {
 	backExits,
+	ESCALATED_MATCH_HINT,
+	ESCALATED_REVIEW_WARNING,
+	ESCALATED_SCOPE_FALLBACK,
+	escalatedMatchLabel,
 	type MatchCount,
 	type MatchMode,
 	matchDoorHint,
@@ -429,6 +433,12 @@ export interface MatchStepProps {
 	/** The dimmed door was pressed and the senders were filled in instead. */
 	semanticFallbackTaken?: boolean;
 	onSemanticFallback: () => void;
+	/**
+	 * What the escalated predicate covers, in the words the list escalated it
+	 * with. Read only while the mode is `escalated`, where it replaces the three
+	 * doors: the predicate is the match already.
+	 */
+	escalatedScope?: string;
 	sample: SelectionSampleProps;
 }
 
@@ -440,8 +450,24 @@ export function MatchStepBody({
 	semanticErrorDetail,
 	semanticFallbackTaken,
 	onSemanticFallback,
+	escalatedScope,
 	sample,
 }: MatchStepProps) {
+	if (mode === "escalated") {
+		return (
+			<>
+				<div className="rounded-lg border border-accent bg-accent-soft p-3">
+					<p className="text-sm font-medium text-fg">
+						{escalatedMatchLabel(escalatedScope ?? ESCALATED_SCOPE_FALLBACK)}
+					</p>
+					<p className="mt-1 text-xs text-fg-muted">{ESCALATED_MATCH_HINT}</p>
+				</div>
+				<div className="mt-4">
+					<SelectionSample {...sample} />
+				</div>
+			</>
+		);
+	}
 	return (
 		<>
 			<div className="space-y-2">
@@ -821,6 +847,8 @@ export interface ReviewStepProps {
 	until?: string;
 	/** Present when the flow reached the naming step. */
 	ruleName?: string;
+	/** What the escalated predicate covers, in the list's own words. */
+	escalatedScope?: string;
 	sample: SelectionSampleProps;
 }
 
@@ -834,10 +862,21 @@ export function ReviewStepBody({
 	scope,
 	until,
 	ruleName,
+	escalatedScope,
 	sample,
 }: ReviewStepProps) {
 	const { label } = verbCopy(verb);
-	const description = { mode, selectedCount, clauses, matchOperator };
+	const description = {
+		mode,
+		selectedCount,
+		clauses,
+		matchOperator,
+		escalatedScope,
+		// A count still moving is not a number to commit against, and the footer
+		// under the review's Continue already says so.
+		escalatedCount:
+			sample.count.status === "ready" ? sample.count.count : undefined,
+	};
 	const widened = mode !== "selected";
 	const persists = scope === "standing" || scope === "until";
 
@@ -860,7 +899,9 @@ export function ReviewStepBody({
 				{widened && (
 					<p className="mt-2 flex items-start gap-1.5 text-xs text-warning">
 						<AlertTriangle className="mt-px size-3.5 shrink-0" />
-						This covers messages not shown in the list.
+						{mode === "escalated"
+							? ESCALATED_REVIEW_WARNING
+							: "This covers messages not shown in the list."}
 					</p>
 				)}
 			</div>
@@ -1148,10 +1189,17 @@ export function SelectionWizard(props: SelectionWizardProps) {
 		return runCopy(runOutcomeOf(stepProps(props.run, step))).screenTitle;
 	};
 
+	// An escalated predicate is offered no doors, so the screen states what it
+	// covers rather than asking a question with one answer.
+	const subtitle =
+		step === "match" && props.match?.mode === "escalated"
+			? "What this applies to"
+			: screen.subtitle;
+
 	return (
 		<WizardScreen
 			title={title()}
-			subtitle={screen.subtitle}
+			subtitle={subtitle}
 			steps={steps}
 			step={step}
 			onBack={onBack}

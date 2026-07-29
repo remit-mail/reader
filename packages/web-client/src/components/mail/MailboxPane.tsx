@@ -1013,7 +1013,6 @@ function MailboxList() {
 			searchQuery={searchQuery}
 			searchPredicate={searchPredicate}
 			onDeleteMessages={onDeleteMessages}
-			onMoveMessages={onMoveMessages}
 			isDeleting={isDeleting}
 			isMoving={isMoving}
 			onLoadMore={onLoadMore}

@@ -152,21 +152,11 @@ export const formatEmailDate = (date: Date | string | number): string => {
 /**
  * Confirmation title for the move-to-Trash delete flow. Reflects that delete
  * moves messages to Trash (not a permanent delete) and pluralizes on count.
- * Thousands-separated: at escalated-selection scale this is exactly the digit
- * count someone checks against what they meant to select.
- *
- * `isEstimate` marks an escalated-predicate count (#109): it was paged to a
- * total once, and the delete itself re-pages the same predicate independently
- * — mail arriving or leaving between the two can make them differ. "about"
- * says so up front instead of stating a number the run may not honour; a
- * materialized (bounded) selection's count is exact and never passes it.
+ * The count is always a concrete list of ids — every predicate delete ends on
+ * the wizard's review screen instead, which states what the predicate covers.
  */
-export const formatDeleteToTrashTitle = (
-	count: number,
-	isEstimate = false,
-): string => {
+export const formatDeleteToTrashTitle = (count: number): string => {
 	const quantity = count === 1 ? "1" : formatNumber(count);
 	const noun = count === 1 ? "message" : "messages";
-	const prefix = isEstimate ? "about " : "";
-	return `Move ${prefix}${quantity} ${noun} to Trash?`;
+	return `Move ${quantity} ${noun} to Trash?`;
 };

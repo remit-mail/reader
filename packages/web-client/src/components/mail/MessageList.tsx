@@ -33,15 +33,11 @@ import {
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import {
 	bulkActionCompletionText,
-	bulkActionPartialText,
 	bulkActionProgressLabel,
 	bulkActionProgressTone,
 } from "@/lib/bulk-action-copy";
 import {
-	BULK_ACTION_CHUNK_SIZE,
-	resolveSelectionAfterRun,
-} from "@/lib/bulk-actions";
-import {
+	describeSearchScope,
 	escalatedStatusLabel,
 	escalationActionLabel,
 } from "@/lib/escalation-label";
@@ -59,8 +55,8 @@ import {
 import { cn } from "@/lib/utils";
 import { useOpenWizard, useWizardStepValue } from "@/lib/wizard-history";
 import { LabelApplyTrigger } from "./LabelApplyTrigger";
-import { MoveToTrigger } from "./MoveToTrigger";
 import {
+	type EscalatedSelection,
 	SelectionWizardHost,
 	type WizardSelectionMessage,
 } from "./SelectionWizardHost";
@@ -85,9 +81,10 @@ export interface MessageListCommands {
 	/** Returns true when there was a selection to clear — Esc consumes it. */
 	clearSelection: () => boolean;
 	/**
-	 * Opens the move-to-Trash confirmation for the selection, or the focused row
-	 * when nothing is selected. Returns false when there is nothing to delete, so
-	 * the route can fall back to its own reading-pane delete.
+	 * Opens the wizard on Delete for the selection, or the move-to-Trash
+	 * confirmation for the focused row when nothing is selected. Returns false
+	 * when there is nothing to delete, so the route can fall back to its own
+	 * reading-pane delete.
 	 */
 	requestDelete: () => boolean;
 	toggleDensity: () => void;
@@ -110,7 +107,6 @@ interface MessageListProps {
 	 */
 	searchPredicate?: EscalationSearchQuery;
 	onDeleteMessages?: (messageIds: string[]) => void;
-	onMoveMessages?: (messageIds: string[], destinationMailboxId: string) => void;
 	isDeleting?: boolean;
 	isMoving?: boolean;
 	onLoadMore?: () => void;
@@ -158,9 +154,11 @@ interface MessageListProps {
 		 */
 		hasList: boolean;
 		/**
-		 * Whether the list has a modal open that owns the keyboard. The route
-		 * suspends the whole triage layer while it does, so no shortcut can act
-		 * behind the dialog — a second Delete press must not reach a delete.
+		 * Whether the list has a modal open that owns the keyboard — the delete
+		 * confirmation, or the wizard. The route suspends the whole triage layer
+		 * while it does, so no shortcut can act behind it: a second Delete press
+		 * must not reach a delete, and none may start a second flow behind the
+		 * screen already asking about one.
 		 */
 		blocksKeyboard: boolean;
 	}) => void;
@@ -180,11 +178,6 @@ const COMFORTABLE_ITEM_HEIGHT = 72;
 const COMPACT_ITEM_HEIGHT = 32;
 const OVERSCAN_COUNT = 5;
 const DENSITY_STORAGE_KEY = "remit:list-density";
-
-// Stable action values for the two bulk actions that carry no parameters, so
-// the callbacks running them keep stable dependencies.
-const DELETE_ACTION: EscalatedAction = { kind: "delete" };
-const MARK_READ_ACTION: EscalatedAction = { kind: "markRead" };
 
 const readStoredDensity = (): Density => {
 	try {
@@ -222,7 +215,6 @@ export const MessageList = ({
 	searchQuery,
 	searchPredicate,
 	onDeleteMessages,
-	onMoveMessages,
 	isDeleting = false,
 	isMoving = false,
 	onLoadMore,
@@ -322,18 +314,12 @@ export const MessageList = ({
 	// it back to the count, and across that render the two disagree.
 	const isMultiSelectMode = deriveIsMultiSelectMode(selectedCount, isDesktop);
 
-	// Pending delete, awaiting confirmation. `null` means the dialog is closed.
-	// `source: "ids"` snapshots the concrete ids at request time so a selection
-	// change behind the dialog can't retarget the delete — every keyboard/desktop
-	// entry point, and any bounded mobile delete, uses this. `source: "predicate"`
-	// is mobile-only: an escalated selection has no materialized id list to
-	// snapshot (D2, issue #92) — only the count it was confirmed against.
-	type PendingDelete =
-		| { source: "ids"; ids: string[] }
-		| { source: "predicate"; total: number };
-	const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(
-		null,
-	);
+	// The one delete that does not walk the wizard: the Delete key with nothing
+	// ticked, which acts on the row under the cursor. The ids are snapshotted at
+	// request time so a cursor move behind the dialog cannot retarget it. Every
+	// delete over a selection — ticked or escalated — goes through the wizard's
+	// review screen instead.
+	const [pendingDelete, setPendingDelete] = useState<string[] | null>(null);
 
 	// Search-scoped escalated selection + chunked bulk actions (issues #92, #212):
 	// available on both surfaces, and only while search has more matches than
@@ -361,20 +347,11 @@ export const MessageList = ({
 		clearSelection();
 	}, [clearSelection, clearEscalation, escalationPhaseKind]);
 
-	// Non-null exactly once a bounded/escalated run just ended with some ids
-	// the action never reached: which action ran and the count that DID succeed,
-	// so the partial-failure notice can say "N moved to Trash" alongside
-	// "Retry" and Retry can resend the same action. `selectedIds` (materialized
-	// to the failed ids) is the source of truth for how many are left; this only
-	// supplies the other half of that sentence.
-	const [lastRun, setLastRun] = useState<{
-		action: EscalatedAction;
-		succeeded: number;
-	} | null>(null);
 	// Transient, manually-dismissed success banner shown in place of the
-	// selection bar once a chunked/escalated run finishes cleanly — see
-	// `processRunOutcome`. Honest about IMAP's async catch-up rather than
-	// claiming a finality the bulk endpoint's response doesn't have.
+	// selection bar once a single-row delete lands on mobile, where the list
+	// stays up and nothing else says it happened (#202). Honest about IMAP's
+	// async catch-up rather than claiming a finality the bulk endpoint's
+	// response doesn't have.
 	const [completionBanner, setCompletionBanner] = useState<string | null>(null);
 
 	// Set when a keyboard command moves the roving cursor. Real DOM focus then
@@ -406,37 +383,6 @@ export const MessageList = ({
 	// press. The route suspends the whole keyboard layer for the dialog instead.
 	const commandsAvailable = !isLoading && threads.length > 0;
 	const confirmOpen = pendingDelete !== null;
-
-	// Single choke point for what selection looks like once a chunked/escalated
-	// run ends, for any reason (issue #92 requirement 10). A clean run with
-	// nothing left over exits selection mode and hands off to a transient
-	// completion banner instead of silently claiming a finality the bulk
-	// endpoint's response doesn't have (IMAP applies the move asynchronously).
-	// Anything left over becomes the new bounded selection — precisely what
-	// Retry resends, per `resolveSelectionAfterRun`.
-	const processRunOutcome = useCallback(
-		(
-			action: EscalatedAction,
-			outcome: Parameters<typeof resolveSelectionAfterRun>[0],
-		) => {
-			const { exit, retryIds } = resolveSelectionAfterRun(outcome);
-			if (exit) {
-				setCompletionBanner(
-					bulkActionCompletionText(action.kind, outcome.done),
-				);
-				setLastRun(null);
-				exitSelection();
-				return;
-			}
-			if (retryIds.length > 0) {
-				setLastRun({ action, succeeded: outcome.done });
-				selectAll(retryIds);
-				return;
-			}
-			setLastRun(null);
-		},
-		[exitSelection, selectAll],
-	);
 
 	const virtualizer = useVirtualizer({
 		count: threads.length,
@@ -565,19 +511,23 @@ export const MessageList = ({
 		(ids: string[]) => {
 			if (!onDeleteMessages || ids.length === 0) return;
 			focusBeforeConfirmRef.current = focusedMessageId ?? null;
-			setPendingDelete({ source: "ids", ids });
+			setPendingDelete(ids);
 		},
 		[onDeleteMessages, focusedMessageId],
 	);
 
-	// Open the delete confirmation for the escalated predicate. `escalation.phase`
-	// must already be "escalated" — the selection bar's onDelete (both surfaces)
-	// only wires this up in that state.
-	const requestEscalatedDelete = useCallback(() => {
-		if (escalation.phase.kind !== "escalated") return;
-		focusBeforeConfirmRef.current = focusedMessageId ?? null;
-		setPendingDelete({ source: "predicate", total: escalation.phase.total });
-	}, [escalation.phase, focusedMessageId]);
+	// Every verb on the bar opens the wizard (#477 1.4), whatever the selection
+	// is: the ticked rows, a selection spanning accounts — the wizard is where
+	// that restriction is stated, on the step that needs one account (#477 5.5) —
+	// or the predicate the list escalated to, which the wizard names on its match
+	// step and counts on its review screen before anything is sent (#508).
+	const startWizard = useCallback(
+		(verb: Verb) => {
+			setWizardVerb(verb);
+			openWizard("match");
+		},
+		[openWizard],
+	);
 
 	// Keyboard shift-arrow range extend: move focus one row in `direction` and
 	// extend the selection range from the existing anchor to the new focus —
@@ -611,8 +561,10 @@ export const MessageList = ({
 		}
 	}, [orderedIds, selectAll]);
 
-	// Delete / Backspace: confirm-delete the selection, or the focused row when
-	// nothing is selected.
+	// Delete / Backspace: the same delete the bar's Trash carries when rows are
+	// ticked, so it ends on the wizard's review screen rather than a second
+	// confirmation of its own. With nothing ticked it is a single-row delete of
+	// whatever the cursor is on, which the confirmation still covers.
 	// Returns true when it took the keypress, so the route's fallback delete
 	// (which skips the confirmation) doesn't also fire.
 	const handleDeleteKey = useCallback((): boolean => {
@@ -620,11 +572,11 @@ export const MessageList = ({
 		// to it, and answering it is the Confirm button's job. Claiming the press
 		// here is what stops a second Delete from reaching an unconfirmed delete.
 		if (pendingDelete !== null) return true;
-		if (!onDeleteMessages) return false;
-		if (selectedCount > 0) {
-			requestDelete(Array.from(selectedIds));
+		if (hasSelection) {
+			startWizard("delete");
 			return true;
 		}
+		if (!onDeleteMessages) return false;
 		if (focusedMessageId) {
 			requestDelete([focusedMessageId]);
 			return true;
@@ -633,8 +585,8 @@ export const MessageList = ({
 	}, [
 		pendingDelete,
 		onDeleteMessages,
-		selectedCount,
-		selectedIds,
+		hasSelection,
+		startWizard,
 		focusedMessageId,
 		requestDelete,
 	]);
@@ -678,61 +630,30 @@ export const MessageList = ({
 		open: followFocusOpen,
 	});
 
-	// Toolbar Trash2: confirm-delete the current selection.
-	const handleDelete = useCallback(() => {
-		if (selectedCount > 0) {
-			requestDelete(Array.from(selectedIds));
-		}
-	}, [requestDelete, selectedCount, selectedIds]);
+	// The escalated selection as the wizard walks it (#508): the words the bar
+	// already names the predicate with, the count it was escalated to, and the
+	// chunked runner that re-resolves it. The wizard's review screen stands in
+	// front of that runner and its run screen drives it, so nothing here reports
+	// an outcome of its own.
+	const escalatedSelection: EscalatedSelection | undefined =
+		escalation.phase.kind === "escalated"
+			? {
+					scope: describeSearchScope(searchPredicate ?? {}),
+					total: escalation.phase.total,
+					searchQuery: searchPredicate ?? {},
+					run: (action: EscalatedAction) => escalation.runAction(action),
+					progress: escalation.progress,
+				}
+			: undefined;
 
-	// Confirm handler for the escalated predicate, or a bounded selection past
-	// the 100-id bulk-call cap (>100 loaded rows selected — rare, but the write
-	// side would 400 on a single call past that). Neither case gets the
-	// cursor-repositioning treatment below: the run takes real time and the
-	// user's attention is on the progress bar, not the roving cursor, and
-	// rows update via cache invalidation once the run ends rather than an
-	// optimistic per-row removal.
-	// Runs one bulk action and hands its outcome to the single choke point that
-	// decides what selection looks like afterwards. `ids` omitted means the
-	// escalated predicate (#114) — delete, move and mark-read all take this
-	// path, so an escalated selection is never delete-only.
-	const runEscalatedAction = useCallback(
-		async (action: EscalatedAction, ids?: string[]) => {
-			const outcome = await escalation.runAction(action, ids);
-			processRunOutcome(action, outcome);
-		},
-		[escalation, processRunOutcome],
-	);
-
-	const runChunkedConfirmDelete = useCallback(
-		async (ids: string[] | undefined) => {
-			setPendingDelete(null);
-			focusBeforeConfirmRef.current = null;
-			await runEscalatedAction(DELETE_ACTION, ids);
-		},
-		[runEscalatedAction],
-	);
-
-	// Confirm handler: run the actual bulk delete, then clear selection and
-	// move focus to a sensible neighbor (the row after the first deleted one).
+	// Confirm handler: run the actual delete, then clear selection and move
+	// focus to a sensible neighbor (the row after the first deleted one).
 	const handleConfirmDelete = useCallback(() => {
 		if (!pendingDelete) return;
 
-		if (pendingDelete.source === "predicate") {
-			void runChunkedConfirmDelete(undefined);
-			return;
-		}
-
-		const { ids } = pendingDelete;
+		const ids = pendingDelete;
 		if (ids.length === 0) {
 			setPendingDelete(null);
-			return;
-		}
-		if (ids.length > BULK_ACTION_CHUNK_SIZE) {
-			// Selection stays put (still `ids`) for the duration of the run —
-			// `processRunOutcome` is the one place that clears it, on success,
-			// or replaces it with whatever's left to retry.
-			void runChunkedConfirmDelete(ids);
 			return;
 		}
 
@@ -784,9 +705,9 @@ export const MessageList = ({
 			}
 		}
 
-		// Mobile keeps the list up, so it needs its own signal the delete landed —
-		// the transient completion banner a chunked run already raises (#202). On
-		// desktop the rows leaving the list beside the reading pane is signal enough.
+		// Mobile keeps the list up, so it needs its own signal the delete landed
+		// (#202). On desktop the rows leaving the list beside the reading pane is
+		// signal enough.
 		if (!isDesktop) {
 			setCompletionBanner(bulkActionCompletionText("delete", ids.length));
 		}
@@ -798,7 +719,6 @@ export const MessageList = ({
 		navigate,
 		mailboxId,
 		isDesktop,
-		runChunkedConfirmDelete,
 		setFocusedMessageId,
 	]);
 
@@ -815,48 +735,6 @@ export const MessageList = ({
 		cursorMovedByPointerRef.current = false;
 		setFocusedMessageId(restoreTo);
 	}, [setFocusedMessageId]);
-
-	// Mark read, bounded and escalated alike (#114). Both go through the same
-	// chunked run: the bulk flags call caps at 100 ids, so a selection past
-	// that would 400 as a single call, and an escalated selection has no id
-	// list at all — it pages its predicate instead.
-	const handleMarkAsRead = useCallback(() => {
-		if (escalation.phase.kind === "escalated") {
-			void runEscalatedAction(MARK_READ_ACTION);
-			return;
-		}
-		if (selectedCount === 0) return;
-		void runEscalatedAction(MARK_READ_ACTION, Array.from(selectedIds));
-	}, [escalation.phase, runEscalatedAction, selectedCount, selectedIds]);
-
-	// Move to a chosen folder, escalated selections included (#114).
-	const handleMoveSelected = useCallback(
-		(destinationMailboxId: string) => {
-			if (escalation.phase.kind === "escalated") {
-				void runEscalatedAction({ kind: "move", destinationMailboxId });
-				return;
-			}
-			if (!onMoveMessages || selectedCount === 0) return;
-			onMoveMessages(Array.from(selectedIds), destinationMailboxId);
-			exitSelection();
-		},
-		[
-			escalation.phase,
-			runEscalatedAction,
-			onMoveMessages,
-			selectedCount,
-			selectedIds,
-			exitSelection,
-		],
-	);
-
-	// Junk quick action (mobile sheet): move the selection to the appointed Junk
-	// mailbox. Reuses the same bounded/escalated move path as any other move, so
-	// the chunked run and the cross-account guard apply unchanged.
-	const handleJunk = useCallback(() => {
-		if (!junkMailboxId) return;
-		handleMoveSelected(junkMailboxId);
-	}, [junkMailboxId, handleMoveSelected]);
 
 	// Cross-account guard: every selected thread row must belong to the
 	// same account as the current mailbox. The list is already scoped to
@@ -880,23 +758,6 @@ export const MessageList = ({
 		}
 		return undefined;
 	}, [selectedCount, selectedIds, threads]);
-
-	// Every verb on the bar opens the wizard on the ticked rows (#477 1.4),
-	// including a selection spanning accounts — the wizard is where that
-	// restriction is stated, on the step that needs one account (#477 5.5). It is
-	// withdrawn only once the selection escalates to a predicate or a run takes
-	// over: an escalated selection is a predicate, which no bounded list of ids
-	// stands in for (#477 3.1), and keeps the bar's own chunked runner.
-	const canOpenWizard =
-		escalation.phase.kind === "idle" && !escalation.isRunning;
-
-	const startWizard = useCallback(
-		(verb: Verb) => {
-			setWizardVerb(verb);
-			openWizard("match");
-		},
-		[openWizard],
-	);
 
 	// Swipe-to-delete single message
 	const handleSwipeDelete = useCallback(
@@ -925,17 +786,6 @@ export const MessageList = ({
 		[isDesktop, select],
 	);
 
-	// The selection bar's Trash tap (both surfaces): an escalated selection has
-	// no materialized ids to hand `requestDelete`, so it opens the predicate
-	// confirmation instead.
-	const handleSelectionDelete = useCallback(() => {
-		if (escalation.phase.kind === "escalated") {
-			requestEscalatedDelete();
-			return;
-		}
-		handleDelete();
-	}, [escalation.phase, requestEscalatedDelete, handleDelete]);
-
 	// The selection bar's X (both surfaces): means "stop what's happening"
 	// throughout, not just "cancel selection" (issue #92 — the review flagged
 	// the X reading as ambiguous once a run is going). Counting and a chunked
@@ -954,21 +804,6 @@ export const MessageList = ({
 	const handleClearEscalation = useCallback(() => {
 		escalation.clear();
 	}, [escalation]);
-
-	// Partial-failure notice's Retry: rerun the same action against exactly the
-	// ids it never reached last time (`selectedIds`, materialized there by
-	// `processRunOutcome`) — never the original selection. A retried delete
-	// keeps going through the confirmation path so the dialog's own state is
-	// cleared with it.
-	const handleRetryFailed = useCallback(() => {
-		if (!lastRun) return;
-		const ids = Array.from(selectedIds);
-		if (lastRun.action.kind === "delete") {
-			void runChunkedConfirmDelete(ids);
-			return;
-		}
-		void runEscalatedAction(lastRun.action, ids);
-	}, [lastRun, runChunkedConfirmDelete, runEscalatedAction, selectedIds]);
 
 	// Scroll the roving focus cursor into view as it moves (j/k). Falls back to
 	// the open thread when nothing is focused yet.
@@ -1019,13 +854,14 @@ export const MessageList = ({
 			focusedMessageId,
 			selectedIds: Array.from(selectedIds),
 			hasList: commandsAvailable,
-			blocksKeyboard: confirmOpen,
+			blocksKeyboard: confirmOpen || wizardStep !== undefined,
 		});
 	}, [
 		focusedMessageId,
 		selectedIds,
 		commandsAvailable,
 		confirmOpen,
+		wizardStep,
 		onTriageContextChange,
 	]);
 
@@ -1262,10 +1098,8 @@ export const MessageList = ({
 
 	// At most one escalation notice at a time, ranked by how actionable it is:
 	// an in-progress counting/escalated state and its own action always wins;
-	// otherwise a fresh escalation offer; otherwise a just-finished partial
-	// failure's Retry. The (rare) cross-account move hint is layered on per
-	// surface below — the desktop toolbar shows it inline, the mobile sheet
-	// folds it in as the lowest-priority notice.
+	// otherwise a fresh escalation offer. The (rare) cross-account move hint is
+	// layered on behind them below.
 	const escalationNotice =
 		escalation.phase.kind === "counting"
 			? {
@@ -1291,36 +1125,7 @@ export const MessageList = ({
 								onClick: escalation.escalate,
 							},
 						}
-					: lastRun !== null && selectedCount > 0
-						? {
-								tone: "danger" as const,
-								text: bulkActionPartialText(
-									lastRun.action.kind,
-									lastRun.succeeded,
-									selectedCount,
-								),
-								action: {
-									label: `Retry ${formatNumber(selectedCount)}`,
-									onClick: handleRetryFailed,
-								},
-							}
-						: undefined;
-
-	// An escalated selection is a predicate the wizard cannot take, so Move there
-	// keeps the caller's own folder picker and the chunked predicate run (#114).
-	const selectionMoveSlot =
-		!canOpenWizard &&
-		(onMoveMessages || escalation.phase.kind === "escalated") &&
-		accountId &&
-		mailboxId ? (
-			<MoveToTrigger
-				accountId={accountId}
-				currentMailboxId={mailboxId}
-				onMove={isDeleting || isMoving ? () => {} : handleMoveSelected}
-				disabledHint={moveDisabledHint}
-				label="Move selected messages"
-			/>
-		) : undefined;
+					: undefined;
 
 	// The bar shows one notice at a time, so the cross-account move restriction
 	// rides in behind the escalation states.
@@ -1346,24 +1151,21 @@ export const MessageList = ({
 			idleSlot={listHeaderChrome.makeFilterSlot}
 			count={selectionCount}
 			onCancel={handleSelectionCancel}
-			onDelete={
-				canOpenWizard ? () => startWizard("delete") : handleSelectionDelete
+			onDelete={() => startWizard("delete")}
+			onMove={() => startWizard("move")}
+			// Organize builds a rule out of clauses, and a search predicate is not
+			// a set of clauses — its facets have no `ClauseField`. Converting the
+			// query into one is the make-filter affordance above the results
+			// (#477 1.8), which is a door of its own rather than this verb.
+			onOrganize={
+				escalatedSelection ? undefined : () => startWizard("organize")
 			}
-			onMove={canOpenWizard ? () => startWizard("move") : undefined}
-			moveSlot={selectionMoveSlot}
-			onOrganize={canOpenWizard ? () => startWizard("organize") : undefined}
 			onJunk={
 				junkMailboxId && junkMailboxId !== mailboxId
-					? canOpenWizard
-						? () => startWizard("junk")
-						: !moveDisabledHint
-							? handleJunk
-							: undefined
+					? () => startWizard("junk")
 					: undefined
 			}
-			onMarkRead={
-				canOpenWizard ? () => startWizard("markRead") : handleMarkAsRead
-			}
+			onMarkRead={() => startWizard("markRead")}
 			overflowSlot={
 				accountId && mailboxId && selectedCount > 0 && labels.length > 0 ? (
 					<LabelApplyTrigger
@@ -1465,20 +1267,6 @@ export const MessageList = ({
 		</>
 	);
 
-	const pendingDeleteCount = pendingDelete
-		? pendingDelete.source === "ids"
-			? pendingDelete.ids.length
-			: pendingDelete.total
-		: 0;
-
-	// The predicate case (#109): `pendingDelete.total` is `countMatches`'s
-	// frozen page-through, and the delete itself re-pages the same predicate a
-	// second, independent time. Mail arriving or leaving between the two can
-	// make them differ, so the dialog says "about" instead of promising an
-	// exact number it may not honour. A materialized (bounded) selection's
-	// count is exact — it's the delete's own input, not an estimate of it.
-	const pendingDeleteIsEstimate = pendingDelete?.source === "predicate";
-
 	return (
 		<>
 			{completionBanner && !isDesktop && (
@@ -1525,15 +1313,8 @@ export const MessageList = ({
 			/>
 			<ConfirmDialog
 				isOpen={pendingDelete !== null}
-				title={formatDeleteToTrashTitle(
-					pendingDeleteCount,
-					pendingDeleteIsEstimate,
-				)}
-				description={
-					pendingDeleteIsEstimate
-						? "This count is a snapshot — new mail arriving during the delete won't be included. You can restore what's deleted from Trash later."
-						: "You can restore them from Trash later."
-				}
+				title={formatDeleteToTrashTitle(pendingDelete?.length ?? 0)}
+				description="You can restore them from Trash later."
 				confirmLabel="Move to Trash"
 				destructive
 				isBusy={isDeleting}
@@ -1546,6 +1327,7 @@ export const MessageList = ({
 				mailboxId={mailboxId}
 				selection={wizardSelection}
 				crossAccount={moveDisabledHint !== undefined}
+				escalated={escalatedSelection}
 				onFinished={exitSelection}
 			/>
 		</>

@@ -5,7 +5,6 @@ import {
 	bulkActionCompletionText,
 	bulkActionFailureDetail,
 	bulkActionFailureTitle,
-	bulkActionPartialText,
 	bulkActionProgressLabel,
 	bulkActionProgressTone,
 } from "./bulk-action-copy.js";
@@ -46,23 +45,6 @@ describe("bulkActionCompletionText", () => {
 	});
 });
 
-describe("bulkActionPartialText", () => {
-	test("splits what landed from what is still selected", () => {
-		assert.equal(
-			bulkActionPartialText("delete", 3072, 340),
-			"3,072 moved to Trash. 340 couldn't be deleted.",
-		);
-		assert.equal(
-			bulkActionPartialText("move", 3072, 340),
-			"3,072 moved. 340 couldn't be moved.",
-		);
-		assert.equal(
-			bulkActionPartialText("markRead", 3072, 340),
-			"3,072 marked as read. 340 couldn't be marked as read.",
-		);
-	});
-});
-
 describe("bulkActionFailureTitle", () => {
 	test("reports where a partly-done run stopped", () => {
 		assert.equal(
@@ -87,7 +69,6 @@ describe("every action carries its own wording", () => {
 	test("no two actions share a sentence", () => {
 		const sentences: Array<(kind: BulkActionKind) => string> = [
 			(kind) => bulkActionCompletionText(kind, 5),
-			(kind) => bulkActionPartialText(kind, 5, 2),
 			(kind) => bulkActionFailureTitle(kind, 0),
 			(kind) => bulkActionFailureTitle(kind, 5),
 			bulkActionFailureDetail,

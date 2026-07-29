@@ -275,29 +275,3 @@ export interface BulkRunOutcome {
 	cancelled: boolean;
 	error?: unknown;
 }
-
-export interface SelectionAfterRun {
-	/** The action reached everything targeted — selection mode should exit. */
-	exit: boolean;
-	/** The bounded selection to leave in place, empty when exiting. */
-	retryIds: string[];
-}
-
-/**
- * What a caller does with selection once a run ends, for any reason. Every id
- * the action never reached — a chunk the bounded run skipped because it was
- * stopped or errored — belongs in `retryIds`: it is exactly what Retry should
- * resend, and it is what stays selected so the count on screen never claims
- * more was done than actually was (#92 requirement 8).
- */
-export const resolveSelectionAfterRun = (
-	outcome: BulkRunOutcome,
-): SelectionAfterRun => {
-	if (outcome.failedIds.length > 0) {
-		return { exit: false, retryIds: outcome.failedIds };
-	}
-	if (outcome.cancelled || outcome.error) {
-		return { exit: false, retryIds: [] };
-	}
-	return { exit: true, retryIds: [] };
-};

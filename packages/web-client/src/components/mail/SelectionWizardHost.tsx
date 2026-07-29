@@ -36,15 +36,16 @@ import { useClauseSuggestions } from "@/hooks/useClauseSuggestions";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import {
 	type EscalatedAction,
+	type EscalationSearchQuery,
 	useEscalatedActions,
 } from "@/hooks/useEscalatedActions";
 import { useCreateFilter } from "@/hooks/useFilters";
-import { useMatchSample } from "@/hooks/useMatchSample";
+import { useMatchSample, useSearchMatchSample } from "@/hooks/useMatchSample";
 import { useOrganizeJob } from "@/hooks/useOrganizeJob";
 import { useOrganizeWiden } from "@/hooks/useOrganizeWiden";
 import { useRulePreview } from "@/hooks/useRulePreview";
 import { useSelectedSubjects } from "@/hooks/useSelectedSubjects";
-import type { BulkRunOutcome } from "@/lib/bulk-actions";
+import type { BulkActionProgress, BulkRunOutcome } from "@/lib/bulk-actions";
 import { getMailboxDisplayName } from "@/lib/folder-roles";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
@@ -87,6 +88,30 @@ interface SelectionWizardSessionProps extends SelectionWizardHostProps {
 	searchConversion?: SearchConversion;
 }
 
+/**
+ * The selection the list escalated to a predicate — every message matching the
+ * query it is showing, rather than the rows on screen (#508). The wizard walks
+ * it exactly as it walks a ticked selection: the same screens, the same review
+ * before anything is sent. What differs is that the match has no member list,
+ * so the count and the sample both come from the server that resolved it.
+ */
+export interface EscalatedSelection {
+	/** What the predicate covers, in the words the list escalated it with. */
+	scope: string;
+	/** The server's count of the whole match, which the run is offered against. */
+	total: number;
+	/** The predicate itself, which the sample and the run both re-resolve. */
+	searchQuery: EscalationSearchQuery;
+	/**
+	 * Runs one verb over the whole predicate, paging it server-side. The chunked
+	 * runner the list already owns: the run screen drives it, and the review
+	 * screen is what now stands in front of it.
+	 */
+	run: (action: EscalatedAction) => Promise<BulkRunOutcome>;
+	/** How far that run has got, for the run screen's bar. */
+	progress?: BulkActionProgress;
+}
+
 export interface SelectionWizardHostProps {
 	/** What the bar was pressed for. Every verb walks the same wizard. */
 	verb: Verb;
@@ -97,6 +122,8 @@ export interface SelectionWizardHostProps {
 	selection: readonly WizardSelectionMessage[];
 	/** The ticked rows span more than one account, so no rule can be created. */
 	crossAccount?: boolean;
+	/** Present when the selection is a predicate rather than the ticked rows. */
+	escalated?: EscalatedSelection;
 	/** The wizard is done with the selection, and the list drops it. */
 	onFinished: () => void;
 }
@@ -169,6 +196,26 @@ const widenedRunsAsJob = (verb: Verb): boolean =>
 	verb === "move" || verb === "junk" || verb === "organize";
 
 /**
+ * The commit pressed with nowhere for the mail to go. A verb that files mail
+ * needs a destination, and reaching the run screen without one is a failure the
+ * screen states along with the way out of it — never a control that does
+ * nothing.
+ */
+const noDestinationOutcome = (
+	verb: Verb,
+	ids: readonly string[],
+): BulkRunOutcome => ({
+	done: 0,
+	failedIds: [...ids],
+	cancelled: false,
+	error: new Error(
+		verb === "junk"
+			? "This account has no Junk folder appointed, so there is nowhere to file these. Appoint one under Settings › Folders."
+			: "No destination was chosen, so there is nowhere to file these. Go back and pick a folder.",
+	),
+});
+
+/**
  * Where the wizard meets the app (#483). The steps and their bodies belong to
  * `@remit/ui`; everything that talks to a server is here: the widen, the live
  * count, the folder create, the bulk call, the back-apply job and the filter.
@@ -190,6 +237,7 @@ function SelectionWizardSession({
 	mailboxId,
 	selection,
 	crossAccount = false,
+	escalated: escalatedSelection,
 	searchConversion,
 	onFinished,
 	step,
@@ -201,9 +249,14 @@ function SelectionWizardSession({
 	// still settling underneath cannot rewrite the notice a user is reading while
 	// the clauses beside it stay as they were seeded.
 	const [conversion] = useState(() => searchConversion);
+	// The predicate this walk is for, held for the walk. The list's escalation
+	// returns to idle the moment a run ends, and a wizard reading it live would
+	// lose the match its run screen is reporting on — and would offer a retry over
+	// the loaded rows instead of over the predicate.
+	const [escalated] = useState(() => escalatedSelection);
 	const fromSearch = conversion !== undefined;
 	const [mode, setMode] = useState<MatchMode>(
-		fromSearch ? "properties" : "selected",
+		escalated ? "escalated" : fromSearch ? "properties" : "selected",
 	);
 	const [draft, setDraft] = useState<WizardDraft>(() =>
 		conversion
@@ -243,7 +296,13 @@ function SelectionWizardSession({
 	const subjects = useSelectedSubjects(messageIds);
 	const { junkMailboxId } = useJunkMailbox(accountId);
 
-	const widen = useOrganizeWiden(accountId, anchorMessageId, senders);
+	// No door is offered over an escalated predicate, so nothing here has a widen
+	// to probe for.
+	const widen = useOrganizeWiden(
+		escalated ? undefined : accountId,
+		anchorMessageId,
+		senders,
+	);
 	const { preview: probeWiden } = widen;
 	// The similar door has to know before it is pressed whether it can run, so
 	// the probe fires with the wizard rather than with the door (#477 3.6).
@@ -251,7 +310,10 @@ function SelectionWizardSession({
 		probeWiden();
 	}, [probeWiden]);
 
-	const widened = mode !== "selected";
+	// A door the wizard resolves itself, through the preview endpoint. The
+	// escalated predicate is resolved by the list before the wizard opens, and
+	// the ticked list is its own answer, so neither is previewed.
+	const previewed = mode === "similar" || mode === "properties";
 	const literalPredicate: OrganizeMatchPredicate = useMemo(
 		() => ({
 			matchOperator: draft.matchOperator === "all" ? "And" : "Or",
@@ -268,14 +330,21 @@ function SelectionWizardSession({
 	// in the browser (#477 5.3). The ticked list is its own count, so no request
 	// is made for it.
 	const { count: previewCount, matchedIds } = useRulePreview(
-		widened ? accountId : undefined,
+		previewed ? accountId : undefined,
 		predicate,
 	);
-	const matchSample = useMatchSample(widened ? matchedIds : []);
+	const matchSample = useMatchSample(previewed ? matchedIds : []);
+	// The escalated match's own members, read from the search that resolved it.
+	const escalatedSample = useSearchMatchSample(
+		escalated ? mailboxId : undefined,
+		escalated?.searchQuery,
+	);
 
-	const count: MatchCount = widened
-		? previewCount
-		: { status: "ready", count: selection.length };
+	const count: MatchCount = escalated
+		? { status: "ready", count: escalated.total }
+		: previewed
+			? previewCount
+			: { status: "ready", count: selection.length };
 
 	const { data: mailboxesData } = useQuery({
 		...mailboxOperationsListMailboxesOptions({
@@ -486,16 +555,7 @@ function SelectionWizardSession({
 			if (!action) {
 				setBulkRun({
 					matched: ids.length,
-					outcome: {
-						done: 0,
-						failedIds: [...ids],
-						cancelled: false,
-						error: new Error(
-							verb === "junk"
-								? "This account has no Junk folder appointed, so there is nowhere to file these. Appoint one under Settings › Folders."
-								: "No destination was chosen, so there is nowhere to file these. Go back and pick a folder.",
-						),
-					},
+					outcome: noDestinationOutcome(verb, ids),
 				});
 				return;
 			}
@@ -506,10 +566,35 @@ function SelectionWizardSession({
 		[verb, named.moveMailboxId, junkMailboxId, runAction],
 	);
 
+	// The escalated predicate, run by the chunked runner the list already owns.
+	// It pages the match on the server rather than acting on ids the browser
+	// loaded, so the verb reaches every message the review screen counted.
+	const runEscalated = useCallback(async () => {
+		if (!escalated) return;
+		const action = bulkActionFor(verb, named.moveMailboxId, junkMailboxId);
+		if (!action) {
+			setBulkRun({
+				matched: escalated.total,
+				outcome: noDestinationOutcome(verb, []),
+			});
+			return;
+		}
+		setBulkRun({ matched: escalated.total });
+		const outcome = await escalated.run(action);
+		setBulkRun({ matched: escalated.total, outcome });
+	}, [escalated, verb, named.moveMailboxId, junkMailboxId]);
+
 	const { start: startJob } = organizeJob;
 	const { createFilterAsync } = createFilter;
 
 	const sendCommit = useCallback(() => {
+		// An escalated predicate is not a rule and has no scope to reconstruct: it
+		// is the search the list is showing, applied once, by the runner that
+		// resolved it.
+		if (escalated) {
+			void runEscalated();
+			return;
+		}
 		const scope = organizeScopeFor({ mode, ruleScope: named.scope });
 		const organizeDraft = buildWizardDraft({
 			mode,
@@ -547,6 +632,8 @@ function SelectionWizardSession({
 		}
 		void runBulk(scope === "just-these" ? messageIds : matchedIds);
 	}, [
+		escalated,
+		runEscalated,
 		mode,
 		named,
 		anchorMessageId,
@@ -604,35 +691,53 @@ function SelectionWizardSession({
 		return rows;
 	}, [selection, matchSample.messages]);
 
+	const runProgress = escalated ? escalatedSelection?.progress : bulk.progress;
+
 	const bulkSnapshot = useCallback((): RunSnapshot => {
 		if (!bulkRun) return NOT_STARTED;
 		const { matched, outcome } = bulkRun;
 		if (!outcome) {
+			const applied = runProgress?.done ?? 0;
+			// A predicate matches more by the time the run re-pages it than the count
+			// saw, so what it has covered can overtake what it was offered against.
+			// The bar never reads more done than out of, and neither does this.
 			return {
 				state: "backApplyRunning",
-				matched,
-				applied: bulk.progress?.done ?? 0,
+				matched: Math.max(matched, applied),
+				applied,
 				failed: 0,
 				failures: [],
 			};
 		}
-		if (outcome.done === 0 && (outcome.error || outcome.failedIds.length > 0)) {
+		const stopped = outcome.cancelled || outcome.error !== undefined;
+		if (outcome.done === 0 && stopped) {
 			return { ...NOT_STARTED, state: "commitFailed" };
 		}
 		const failures = outcome.failedIds
 			.map((id) => rowsById.get(id))
 			.filter((message): message is WizardMessage => message !== undefined);
+		// A predicate run hands back no ids for what it never reached — it resolves
+		// the match fresh on every run, so there is no remainder to name — and what
+		// is outstanding is the difference between the count and what it covered. A
+		// run that stopped having covered everything it counted still leaves at
+		// least one, because the count is the older of the two readings.
+		const outstanding =
+			outcome.failedIds.length > 0
+				? outcome.failedIds.length
+				: stopped
+					? Math.max(matched - outcome.done, 1)
+					: 0;
 		return {
-			state:
-				outcome.failedIds.length > 0 ? "backApplyFailed" : "backApplyComplete",
-			matched,
+			state: outstanding > 0 ? "backApplyFailed" : "backApplyComplete",
+			matched: Math.max(matched, outcome.done),
 			applied: outcome.done,
-			failed: outcome.failedIds.length,
+			failed: outstanding,
 			failures,
 		};
-	}, [bulkRun, bulk.progress, rowsById]);
+	}, [bulkRun, runProgress, rowsById]);
 
 	const runSnapshot = (): RunSnapshot => {
+		if (escalated) return bulkSnapshot();
 		if (committedScope === "standing" || committedScope === "temporary") {
 			if (createFilter.isError)
 				return { ...NOT_STARTED, state: "commitFailed" };
@@ -653,6 +758,12 @@ function SelectionWizardSession({
 	// walking back to Review, which would push an entry the wizard does not own
 	// and leave Cancel rewinding to a step instead of out.
 	const retry = (): void => {
+		// The predicate is re-resolved, not resumed: every verb it carries is
+		// idempotent, so the messages the first pass already reached are a no-op.
+		if (escalated) {
+			void runEscalated();
+			return;
+		}
 		if (committedScope === "standing" || committedScope === "temporary") {
 			if (createFilter.isError) {
 				createFilter.reset();
@@ -704,15 +815,22 @@ function SelectionWizardSession({
 	});
 
 	const run = runSnapshot();
+	const sampleMessages = escalated
+		? escalatedSample.messages
+		: previewed
+			? matchSample.messages
+			: selection;
 	const sample = {
-		messages: widened ? matchSample.messages : selection,
+		messages: sampleMessages,
 		count,
-		label: widened ? "A sample of what matches" : "Your selection",
+		label: mode === "selected" ? "Your selection" : "A sample of what matches",
 		emptyReason:
 			mode === "similar" && semanticUnavailable
 				? ("notIndexed" as const)
 				: ("noMatch" as const),
-		loading: widened && (count.status === "loading" || matchSample.isPending),
+		loading: escalated
+			? escalatedSample.isPending
+			: previewed && (count.status === "loading" || matchSample.isPending),
 	};
 
 	return (
@@ -735,6 +853,7 @@ function SelectionWizardSession({
 					widen.error instanceof Error ? widen.error.message : undefined,
 				semanticFallbackTaken,
 				onSemanticFallback: takeSemanticFallback,
+				escalatedScope: escalated?.scope,
 				sample,
 			}}
 			properties={{
@@ -786,6 +905,7 @@ function SelectionWizardSession({
 				scope: named.scope,
 				until: named.until,
 				ruleName: steps.includes("name") ? named.name : undefined,
+				escalatedScope: escalated?.scope,
 				sample,
 			}}
 			run={{
@@ -836,6 +956,7 @@ export function SelectionWizardHost(props: SelectionWizardHostProps) {
 						accountId: conversion.targetAccountId ?? accounts[0]?.accountId,
 						selection: EMPTY_SELECTION,
 						crossAccount: false,
+						escalated: undefined,
 						searchConversion: conversion,
 					}
 				: {})}

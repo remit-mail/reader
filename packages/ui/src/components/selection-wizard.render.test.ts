@@ -257,6 +257,36 @@ describe("MatchStepBody", () => {
 		assert.doesNotMatch(html, /disabled=""/);
 		assert.match(html, /matching on the\s+senders instead/);
 	});
+
+	it("names what an escalated predicate covers instead of offering doors", () => {
+		const html = renderToString(
+			createElement(MatchStepBody, {
+				...matchProps,
+				mode: "escalated",
+				escalatedScope: 'matching "npm"',
+				sample: {
+					messages,
+					count: counted(1284),
+					label: "A sample of what matches",
+				},
+			}),
+		);
+		assert.match(html, /Every message matching &quot;npm&quot;/);
+		assert.match(html, /nothing to widen/);
+		// The three doors are gone: a predicate is the match already.
+		assert.doesNotMatch(html, /These 2 messages/);
+		assert.doesNotMatch(html, /Similar to these/);
+		assert.doesNotMatch(html, /Its properties/);
+		// The members of the match still close the screen (#477 2.3).
+		assert.match(html, /Booking confirmation/);
+	});
+
+	it("falls back to naming the list rather than naming nothing", () => {
+		const html = renderToString(
+			createElement(MatchStepBody, { ...matchProps, mode: "escalated" }),
+		);
+		assert.match(html, /Every message the list is showing/);
+	});
 });
 
 describe("PropertiesStepBody", () => {
@@ -437,6 +467,29 @@ describe("ReviewStepBody", () => {
 		);
 		assert.match(html, /covers messages not shown in the list/);
 		assert.match(html, /not known until the run finishes/);
+	});
+
+	it("states an escalated predicate and the count the server gave it", () => {
+		const html = renderToString(
+			createElement(ReviewStepBody, {
+				...reviewProps,
+				verb: "delete",
+				mode: "escalated",
+				escalatedScope: 'matching "npm"',
+				folder: undefined,
+				sample: {
+					messages,
+					count: counted(1284),
+					label: "A sample of what matches",
+				},
+			}),
+		);
+		assert.match(
+			text(html),
+			/Delete<\/span> all 1,284 messages matching &quot;npm&quot;/,
+		);
+		// The count is one reading of a live predicate, and the run takes another.
+		assert.match(html, /anything else matching by the time it runs/);
 	});
 
 	it("names the rule and its stop date once the scope persists", () => {

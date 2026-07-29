@@ -204,6 +204,14 @@ interface WizardEntry {
 	fromSearch?: boolean;
 	startAt?: StepId;
 	startMode?: MatchMode;
+	/**
+	 * The list escalated the selection to a predicate — every message matching
+	 * the query rather than the ticked rows. The wizard is offered no doors over
+	 * it: the predicate is already the match.
+	 */
+	escalatedScope?: string;
+	/** The server's count of that predicate, which the review states. */
+	escalatedTotal?: number;
 	scope?: RuleScope;
 	semanticUnavailable?: boolean;
 	/** What the mail server said when the widen was asked to run and failed. */
@@ -283,7 +291,9 @@ function WizardDriver({
 	const fromSearch = Boolean(entry.fromSearch && conversion);
 	const senders = selected.map((message) => message.email);
 
+	const escalated = entry.escalatedScope;
 	const [mode, setMode] = useState<MatchMode>(() => {
+		if (escalated) return "escalated";
 		if (fromSearch) return "properties";
 		if (entry.startMode) return entry.startMode;
 		return entry.startAt === "properties" ? "properties" : "selected";
@@ -344,7 +354,7 @@ function WizardDriver({
 	});
 	const ruleName = typedName ?? suggestedName;
 
-	const covered = fromSearch ? results : selected;
+	const covered = fromSearch || escalated ? results : selected;
 	// A body-text clause cannot be counted before it is saved: the vector-free
 	// matcher refuses to evaluate it, so the app never asks. That is a stated
 	// answer, not a count of zero, and the sample it leaves empty has to say so.
@@ -355,9 +365,11 @@ function WizardDriver({
 	// count, and the app's would come from the preview endpoint (#477 5.3).
 	const count: MatchCount = uncountable
 		? { status: "error", reason: UNCOUNTABLE_PREDICATE_REASON }
-		: mode === "selected"
-			? { status: "ready", count: selected.length }
-			: { status: "uncounted" };
+		: escalated
+			? { status: "ready", count: entry.escalatedTotal ?? results.length }
+			: mode === "selected"
+				? { status: "ready", count: selected.length }
+				: { status: "uncounted" };
 
 	const draft: WizardDraft = {
 		clauses,
@@ -458,6 +470,7 @@ function WizardDriver({
 				semanticErrorDetail: entry.semanticError,
 				semanticFallbackTaken,
 				onSemanticFallback: fallBackToProperties,
+				escalatedScope: escalated,
 				sample,
 			}}
 			properties={{
@@ -523,6 +536,7 @@ function WizardDriver({
 				scope,
 				until,
 				ruleName: steps.includes("name") ? ruleName : undefined,
+				escalatedScope: escalated,
 				sample,
 			}}
 			run={{
@@ -1577,6 +1591,98 @@ export const RunFailedBeyondNamed: Story = {
 				scope: "standing",
 				runState: "backApplyFailed",
 				failedBeyondNamed: 9,
+			}}
+		/>
+	),
+};
+
+/* ------------------------------------------------------------------ */
+/* Select-all-matching — the selection that is a predicate            */
+/* ------------------------------------------------------------------ */
+
+const ESCALATED_SCOPE = `matching "${QUERY}"`;
+const ESCALATED_TOTAL = 1284;
+
+const escalatedEntry = (verb: Verb, startAt: StepId): WizardEntry => ({
+	verb,
+	startAt,
+	escalatedScope: ESCALATED_SCOPE,
+	escalatedTotal: ESCALATED_TOTAL,
+});
+
+/**
+ * PRIMARY — the selection the list escalated past its loaded rows. The match
+ * step names what the predicate covers instead of offering three ways to widen
+ * it: there is nothing to widen, the search is already the match. The sample
+ * beneath comes from the server that resolved it, not from the rows on screen.
+ */
+export const EscalatedApplyTo: Story = {
+	name: "Select all matching — apply to",
+	render: () => (
+		<SelectionFlow
+			messages={SELECTION_SEARCH_SAMPLE}
+			title={RESULTS_TITLE}
+			preselected={4}
+			openAt={escalatedEntry("delete", "match")}
+		/>
+	),
+};
+
+/**
+ * The review the predicate now ends on. It states the server's count in the
+ * sentence, warns that the run covers whatever matches by the time it goes, and
+ * closes with the sample — the screen that replaced the bar's confirmation.
+ */
+export const EscalatedReview: Story = {
+	name: "Select all matching — review",
+	render: () => (
+		<SelectionFlow
+			messages={SELECTION_SEARCH_SAMPLE}
+			title={RESULTS_TITLE}
+			preselected={4}
+			openAt={escalatedEntry("delete", "review")}
+		/>
+	),
+};
+
+export const EscalatedReviewDesktop: Story = {
+	name: "Select all matching — review, desktop",
+	globals: { viewport: { value: "desktop" } },
+	render: () => (
+		<SelectionFlow
+			backdrop={<DesktopSearchBackdrop />}
+			messages={SELECTION_SEARCH_SAMPLE}
+			title={RESULTS_TITLE}
+			preselected={4}
+			openAt={escalatedEntry("delete", "review")}
+		/>
+	),
+};
+
+/** A move over the predicate still asks where, on the step that asks it. */
+export const EscalatedMoveFolder: Story = {
+	name: "Select all matching — move, folder",
+	render: () => (
+		<SelectionFlow
+			messages={SELECTION_SEARCH_SAMPLE}
+			title={RESULTS_TITLE}
+			preselected={4}
+			openAt={escalatedEntry("move", "folder")}
+		/>
+	),
+};
+
+/** The chunked runner, driven by the run screen rather than by the bar. */
+export const EscalatedRunning: Story = {
+	name: "Select all matching — running",
+	render: () => (
+		<SelectionFlow
+			messages={SELECTION_SEARCH_SAMPLE}
+			title={RESULTS_TITLE}
+			preselected={4}
+			openAt={{
+				...escalatedEntry("delete", "run"),
+				runState: "backApplyRunning",
 			}}
 		/>
 	),

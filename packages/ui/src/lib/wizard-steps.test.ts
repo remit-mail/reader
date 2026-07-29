@@ -9,6 +9,9 @@ import {
 	backExits,
 	clauseSentence,
 	clauseWords,
+	ESCALATED_MATCH_HINT,
+	ESCALATED_REVIEW_WARNING,
+	escalatedMatchLabel,
 	type MatchCount,
 	type MatchMode,
 	matchDoorHint,
@@ -30,7 +33,7 @@ import {
 } from "./wizard-steps.js";
 
 const VERBS: Verb[] = ["delete", "move", "junk", "markRead", "organize"];
-const MODES: MatchMode[] = ["selected", "similar", "properties"];
+const MODES: MatchMode[] = ["selected", "similar", "properties", "escalated"];
 const SCOPES: (RuleScope | undefined)[] = [
 	undefined,
 	"once",
@@ -585,6 +588,15 @@ describe("sample and door vocabulary", () => {
 		assert.match(sampleEmptyCopy("notIndexed"), /isn't indexed yet/);
 	});
 
+	it("states what an escalated predicate covers instead of a door", () => {
+		assert.equal(
+			escalatedMatchLabel('matching "npm"'),
+			'Every message matching "npm"',
+		);
+		assert.match(ESCALATED_MATCH_HINT, /nothing to widen/);
+		assert.match(ESCALATED_REVIEW_WARNING, /by the time it runs/);
+	});
+
 	it("names each door and what it does", () => {
 		assert.equal(matchDoorLabel("selected", 3), "These 3 messages");
 		assert.equal(matchDoorLabel("similar", 3), "Similar to these 3");
@@ -658,6 +670,55 @@ describe("the match as words", () => {
 				matchOperator: "any",
 			}),
 			'From "noreply@booking.com" or Subject "trip"',
+		);
+	});
+
+	it("summarises an escalated predicate by what it covers", () => {
+		assert.equal(
+			matchSummary({
+				mode: "escalated",
+				selectedCount: 4,
+				clauses,
+				matchOperator: "all",
+				escalatedScope: 'matching "npm"',
+			}),
+			'Every message matching "npm"',
+		);
+		assert.equal(
+			matchSummary({
+				mode: "escalated",
+				selectedCount: 4,
+				clauses,
+				matchOperator: "all",
+			}),
+			"Every message the list is showing",
+		);
+	});
+
+	it("phrases an escalated predicate with the count the server gave it", () => {
+		assert.equal(
+			matchPhrase({
+				mode: "escalated",
+				selectedCount: 4,
+				clauses,
+				matchOperator: "all",
+				escalatedScope: 'matching "npm"',
+				escalatedCount: 3412,
+			}),
+			'all 3,412 messages matching "npm"',
+		);
+	});
+
+	it("claims no number while the count is still being taken", () => {
+		assert.equal(
+			matchPhrase({
+				mode: "escalated",
+				selectedCount: 4,
+				clauses,
+				matchOperator: "all",
+				escalatedScope: 'matching "npm"',
+			}),
+			'every message matching "npm"',
 		);
 	});
 
