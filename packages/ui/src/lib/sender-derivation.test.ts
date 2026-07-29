@@ -4,6 +4,8 @@ import {
 	collapsibleDomain,
 	deriveSenderClauses,
 	distinctSenders,
+	dominantSender,
+	senderLabel,
 } from "./sender-derivation.js";
 
 describe("distinctSenders", () => {
@@ -102,5 +104,56 @@ describe("deriveSenderClauses", () => {
 		assert.deepEqual(deriveSenderClauses(["a@foo.co.uk", "b@foo.co.uk"]), [
 			{ field: "FromDomain", value: "foo.co.uk" },
 		]);
+	});
+});
+
+describe("dominantSender", () => {
+	const envelope = (normalizedEmail: string, displayName?: string) => ({
+		normalizedEmail,
+		displayName,
+	});
+
+	it("takes the sender carrying most of the selection", () => {
+		assert.deepEqual(
+			dominantSender([
+				envelope("noreply@booking.com", "Booking.com"),
+				envelope("automated@airbnb.com", "Airbnb"),
+				envelope("noreply@booking.com", "Booking.com"),
+			]),
+			envelope("noreply@booking.com", "Booking.com"),
+		);
+	});
+
+	it("counts one address writing under two names as one sender", () => {
+		assert.deepEqual(
+			dominantSender([
+				envelope("info@klm.com", "KLM"),
+				envelope("INFO@klm.com", "KLM Royal Dutch Airlines"),
+				envelope("noreply@sixt.com", "Sixt"),
+			]),
+			envelope("info@klm.com", "KLM"),
+		);
+	});
+
+	it("has no answer for an empty selection", () => {
+		assert.equal(dominantSender([]), undefined);
+		assert.equal(dominantSender([envelope("  ")]), undefined);
+	});
+});
+
+describe("senderLabel", () => {
+	it("reads the display name, and the address when there is none", () => {
+		assert.equal(
+			senderLabel({ normalizedEmail: "a@b.example", displayName: "Ada" }),
+			"Ada",
+		);
+		assert.equal(
+			senderLabel({ normalizedEmail: "a@b.example", displayName: "  " }),
+			"a@b.example",
+		);
+		assert.equal(
+			senderLabel({ normalizedEmail: "a@b.example" }),
+			"a@b.example",
+		);
 	});
 });
