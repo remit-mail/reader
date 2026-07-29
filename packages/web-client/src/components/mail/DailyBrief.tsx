@@ -46,7 +46,6 @@ import {
 	SelectionTopBar,
 	type ThreadRowData,
 	type ThreadSection,
-	type Verb,
 } from "@remit/ui";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -82,7 +81,10 @@ import type { ListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
 import { relatedSearchResults, rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
-import { useOpenWizard } from "@/lib/wizard-history";
+import {
+	type SelectionWizardControl,
+	useSelectionWizard,
+} from "@/lib/wizard-history";
 import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import { MailListHeader, type MailListHeaderProps } from "./MailListHeader";
 import type { MessageListCommands } from "./MessageList";
@@ -294,7 +296,8 @@ interface BriefSelectionChromeProps {
 	>;
 	/** The rows the list is showing, for resolving the selection's scope. */
 	rows: readonly ThreadRowData[];
-	onMarkMessagesRead?: (messageIds: string[]) => void;
+	/** The wizard every verb on this bar opens, shared with the keyboard layer. */
+	wizard: SelectionWizardControl;
 	children: ReactNode;
 }
 
@@ -307,7 +310,7 @@ interface BriefSelectionChromeProps {
 function BriefSelectionChrome({
 	header,
 	rows,
-	onMarkMessagesRead,
+	wizard,
 	children,
 }: BriefSelectionChromeProps) {
 	const {
@@ -325,18 +328,6 @@ function BriefSelectionChrome({
 	);
 	const { junkMailboxId } = useJunkMailbox(scope.accountId);
 	const { labels } = useLabelList(scope.accountId);
-
-	const openWizard = useOpenWizard();
-	// The verb the bar was pressed for. The wizard is open for as long as the URL
-	// holds a step, so a back that pops the last one closes it.
-	const [wizardVerb, setWizardVerb] = useState<Verb>("organize");
-	const startWizard = useCallback(
-		(verb: Verb) => {
-			setWizardVerb(verb);
-			openWizard("match");
-		},
-		[openWizard],
-	);
 
 	const selectedMessageIds = useMemo(
 		() => Array.from(selectedIds),
@@ -391,13 +382,11 @@ function BriefSelectionChrome({
 			idleSlot={chrome.makeFilterSlot}
 			count={selectedCount}
 			onCancel={exitSelection}
-			onDelete={() => startWizard("delete")}
-			onMove={() => startWizard("move")}
-			onOrganize={() => startWizard("organize")}
-			onJunk={canJunk ? () => startWizard("junk") : undefined}
-			onMarkRead={
-				onMarkMessagesRead ? () => startWizard("markRead") : undefined
-			}
+			onDelete={() => wizard.start("delete")}
+			onMove={() => wizard.start("move")}
+			onOrganize={() => wizard.start("organize")}
+			onJunk={canJunk ? () => wizard.start("junk") : undefined}
+			onMarkRead={() => wizard.start("markRead")}
 			overflowSlot={
 				scope.accountId &&
 				scope.mailboxId &&
@@ -426,7 +415,7 @@ function BriefSelectionChrome({
 			selectionBar={selectionBar}
 			paneOverlay={
 				<SelectionWizardHost
-					verb={wizardVerb}
+					verb={wizard.verb}
 					accountId={scope.accountId}
 					mailboxId={scope.mailboxId}
 					selection={wizardSelection}
@@ -459,7 +448,6 @@ interface DailyBriefProps {
 	/** Cursor / selection / display order, reported up to the triage layer. */
 	onTriageContextChange?: (context: TriageContextUpdate) => void;
 	onDeleteMessages: (messageIds: string[]) => void;
-	onMarkMessagesRead?: (messageIds: string[]) => void;
 }
 
 export function DailyBrief({
@@ -470,11 +458,11 @@ export function DailyBrief({
 	commandsRef,
 	onTriageContextChange,
 	onDeleteMessages,
-	onMarkMessagesRead,
 }: DailyBriefProps) {
 	const { searchQuery, resultFolderIndex } = useMailContext();
 	const tokenContext = useSearchTokenContext();
 	const isDesktop = useIsDesktop();
+	const wizard = useSelectionWizard();
 
 	const nonMuted = useMemo(
 		() => sortAccountsByCreatedAt(accounts.filter((a) => !a.muted?.value)),
@@ -780,10 +768,13 @@ export function DailyBrief({
 			selectedMessageId={selectedMessageId}
 			onOpen={(id, options) => onSelectMessage?.(id, options)}
 			onDeleteMessages={onDeleteMessages}
+			onSelectionVerb={wizard.start}
+			wizardOpen={wizard.isOpen}
 			commandsRef={commandsRef}
 			onTriageContextChange={onTriageContextChange}
 		>
 			<BriefSelectionChrome
+				wizard={wizard}
 				header={{
 					title: "Daily brief",
 					unreadCount: totalUnseen,
@@ -796,7 +787,6 @@ export function DailyBrief({
 					onSelectSearchResult,
 				}}
 				rows={filteredRows}
-				onMarkMessagesRead={onMarkMessagesRead}
 			>
 				<div className="flex h-full flex-col">
 					{failedAccounts.map((account) => (

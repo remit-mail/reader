@@ -59,44 +59,42 @@ describe("MessageList selection mode", () => {
 });
 
 /**
- * An escalated selection is a predicate, so it has no id list to hand the
- * optimistic move/mark-read mutations — before #114 the bar simply dropped
- * both, leaving "select all 1,284 matching npm" able to delete and nothing
- * else. All three actions now page the predicate through the same run.
+ * An escalated selection is a predicate, and it walks the same wizard every
+ * other selection walks (#508). The list hands the wizard the predicate — the
+ * words it names it with, the count it was escalated to, and the chunked runner
+ * that re-resolves it — and keeps no second confirmation of its own.
  */
 describe("MessageList escalated actions", () => {
-	it("routes move and mark-read through the predicate run when escalated", () => {
+	it("hands the escalated predicate to the wizard rather than running it here", () => {
 		assert.match(
 			source,
-			/escalation\.phase\.kind === "escalated"\)\s*\{\s*void runEscalatedAction\(MARK_READ_ACTION\);/,
+			/const escalatedSelection: EscalatedSelection \| undefined =\s*escalation\.phase\.kind === "escalated"/,
 		);
 		assert.match(
 			source,
-			/escalation\.phase\.kind === "escalated"\)\s*\{\s*void runEscalatedAction\(\{ kind: "move", destinationMailboxId \}\);/,
+			/scope: describeSearchScope\(searchPredicate \?\? \{\}\)/,
 		);
+		assert.match(source, /total: escalation\.phase\.total/);
+		assert.match(
+			source,
+			/run: \(action: EscalatedAction\) => escalation\.runAction\(action\)/,
+		);
+		const host = source.match(/<SelectionWizardHost[\s\S]*?\/>/)?.[0] ?? "";
+		assert.match(host, /escalated=\{escalatedSelection\}/);
 	});
 
-	it("keeps mark-read and the move slot on an escalated selection", () => {
-		// The bar always carries the mark-read verb (it drops it itself while
-		// counting or busy); an escalated selection must never lose it — it falls
-		// back to the predicate run, which the wizard cannot take.
-		assert.match(source, /: handleMarkAsRead\s*\}/);
-		// The move slot is offered for a bounded selection or an escalated one —
-		// #114's rule that an escalated selection is never delete-only.
-		assert.match(
-			source,
-			/onMoveMessages \|\| escalation\.phase\.kind === "escalated"/,
-		);
+	it("keeps no predicate confirmation of its own", () => {
+		// The review screen names what the predicate covers; a second dialog
+		// asking the same question is the drift the wizard exists to end.
+		assert.doesNotMatch(source, /source: "predicate"/);
+		assert.doesNotMatch(source, /requestEscalatedDelete/);
+		assert.doesNotMatch(source, /pendingDeleteIsEstimate/);
 	});
 
-	it("words progress and completion per action instead of per delete", () => {
+	it("words the bar's progress per action instead of per delete", () => {
 		assert.match(
 			source,
 			/bulkActionProgressLabel\(\s*escalation\.runningAction\.kind,/,
-		);
-		assert.match(
-			source,
-			/bulkActionCompletionText\(action\.kind, outcome\.done\)/,
 		);
 	});
 });
@@ -143,13 +141,29 @@ describe("MessageList escalation reaches desktop (#212)", () => {
 		assert.match(source, /navSlot=\{listHeaderChrome\.navSlot\}/);
 	});
 
-	it("sends every verb on the bar into the wizard (#477 1.4)", () => {
+	it("carries every verb the bar can offer (#477 1.4)", () => {
+		// That each of them opens the wizard is `selection-verbs.test.ts`, over
+		// every surface at once. What this pins is that none of them was dropped
+		// from the one bar the mailbox raises.
 		const bar = source.match(/<SelectionTopBar[\s\S]*?\n\t\t\/>/)?.[0] ?? "";
-		for (const verb of ["delete", "move", "junk", "markRead", "organize"]) {
-			assert.match(bar, new RegExp(`startWizard\\("${verb}"\\)`));
+		for (const prop of [
+			"onDelete",
+			"onMove",
+			"onOrganize",
+			"onJunk",
+			"onMarkRead",
+		]) {
+			assert.match(bar, new RegExp(`${prop}=`));
 		}
 		// The one selection surface has no second organize entry beside them.
 		assert.doesNotMatch(source, /onSomethingElse/);
+	});
+
+	it("keeps Organize reachable over a predicate rather than dropping it", () => {
+		// A verb that vanishes when a selection escalates leaves the user no route
+		// at all: the make-filter affordance it defers to is hidden while rows are
+		// ticked (#477 1.7).
+		assert.match(source, /if \(escalatedSelection\) \{\s*startFromSearch\(\);/);
 	});
 
 	it("offers the label picker only when the account has labels", () => {
@@ -158,14 +172,14 @@ describe("MessageList escalation reaches desktop (#212)", () => {
 });
 
 /**
- * A bounded confirm-delete used to open the surviving neighbour by writing
+ * A confirmed delete used to open the surviving neighbour by writing
  * `selectedMessageId` into the URL. On desktop that fills the reading pane
  * beside the list; on a single-pane mobile layout the same navigation replaced
- * the list with a full-screen message, so a bulk delete read as "jumped into a
- * random message" rather than "the rows are gone" (#202). Mobile now stays on
- * the list and raises the same completion banner a chunked run does.
+ * the list with a full-screen message, so the delete read as "jumped into a
+ * random message" rather than "the row is gone" (#202). Mobile now stays on the
+ * list and raises a completion banner instead.
  */
-describe("MessageList bounded delete stays on the list on mobile (#202)", () => {
+describe("MessageList confirmed delete stays on the list on mobile (#202)", () => {
 	it("only the desktop two-pane opens the surviving neighbour after a delete", () => {
 		assert.match(
 			source,

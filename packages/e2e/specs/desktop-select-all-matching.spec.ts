@@ -6,6 +6,11 @@
  * matching set, verified against the real backend rather than the bar's own
  * copy.
  *
+ * Since #508 that verb walks the selection wizard, so the claim held against
+ * the backend is made twice: nothing has moved while the review screen is
+ * naming the predicate and its server count, and everything has once the run
+ * screen says so.
+ *
  * The default Playwright project is Desktop Chrome (≥1024 wide), so the desktop
  * two-pane layout renders — no viewport override.
  *
@@ -20,6 +25,13 @@ import { ApiClient, waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages } from "../src/imap.js";
 import { readRunState } from "../src/state.js";
+import {
+	advanceTo,
+	commitButton,
+	dismissRun,
+	pickFolder,
+	wizardStep,
+} from "../src/wizard.js";
 
 const rows = (page: Page): Locator => page.locator("[data-message-row]");
 
@@ -210,7 +222,7 @@ test.describe("Desktop select-all-matching over search results", () => {
 		}
 	});
 
-	test("offers the escalation once every loaded row is selected, then runs a Move over the whole matching set", async ({
+	test("offers the escalation once every loaded row is selected, then reviews and runs a Move over the whole matching set", async ({
 		page,
 		run,
 		api,
@@ -240,11 +252,38 @@ test.describe("Desktop select-all-matching over search results", () => {
 			toolbarText(page, `All ${COUNT} matching "${QUERY}" selected`),
 		).toBeVisible({ timeout: 15_000 });
 
-		// Every verb runs over the predicate (#114). Move it to Archive.
+		// Every verb runs over the predicate (#114), and every one of them opens
+		// the wizard (#508). Move it to Archive.
 		await page
 			.getByRole("button", { name: "Move selected messages", exact: true })
 			.click();
-		await page.getByRole("option", { name: "Move to Archive" }).click();
+		await expect(wizardStep(page)).toHaveText(/^Step 1 of 4 · Apply to$/, {
+			timeout: 20_000,
+		});
+		// The match step names what the predicate covers; there is nothing to
+		// widen, so it offers no doors.
+		await expect(
+			page.getByText(`Every message matching "${QUERY}"`),
+		).toBeVisible();
+
+		await advanceTo(page, "Folder");
+		await pickFolder(page, "Archive");
+		await advanceTo(page, "Review");
+
+		// The review names the server's count before any mail is touched.
+		await expect(
+			page.getByText(
+				`Move all ${COUNT} messages matching "${QUERY}" to Archive`,
+			),
+		).toBeVisible();
+		const untouched = await api.searchMatchingMessageIds(run.inboxId, QUERY);
+		expect(untouched).toHaveLength(COUNT);
+
+		await commitButton(page, "Move").click();
+		await expect(page.getByText(`Moved ${COUNT}`)).toBeVisible({
+			timeout: 30_000,
+		});
+		await dismissRun(page);
 
 		// The run ends and selection exits — the toolbar goes away.
 		await expect(

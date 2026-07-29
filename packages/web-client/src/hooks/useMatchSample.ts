@@ -1,7 +1,14 @@
-import { messageOperationsDescribeMessageOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import type { RemitImapDescribeMessageResponse } from "@remit/api-http-client/types.gen.ts";
+import {
+	messageOperationsDescribeMessageOptions,
+	threadOperationsSearchThreadsOptions,
+} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import type {
+	RemitImapDescribeMessageResponse,
+	RemitImapThreadMessageResponse,
+} from "@remit/api-http-client/types.gen.ts";
 import { senderLabel, type WizardMessage } from "@remit/ui";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
+import type { EscalationSearchQuery } from "@/hooks/useEscalatedActions";
 import { formatEmailDate } from "@/lib/format";
 
 /**
@@ -43,6 +50,40 @@ const toWizardMessage = (
 		date: formatEmailDate(envelope.date),
 	};
 };
+
+/**
+ * The members of an escalated predicate's match (#508). The predicate is the
+ * search the list is showing, so the search endpoint that resolved it is what
+ * names its members — one bounded request rather than the browser's own loaded
+ * rows, which stop at the page the list happens to have reached.
+ */
+export const useSearchMatchSample = (
+	mailboxId: string | undefined,
+	query: EscalationSearchQuery | undefined,
+): MatchSample => {
+	const enabled = mailboxId !== undefined && query !== undefined;
+	const { data, isLoading } = useQuery({
+		...threadOperationsSearchThreadsOptions({
+			path: { mailboxId: mailboxId ?? "" },
+			query: { ...query, limit: SAMPLE_LIMIT },
+		}),
+		enabled,
+		staleTime: 30_000,
+	});
+	return {
+		messages: (data?.items ?? []).map(toSearchWizardMessage),
+		isPending: enabled && isLoading,
+	};
+};
+
+const toSearchWizardMessage = (
+	row: RemitImapThreadMessageResponse,
+): WizardMessage => ({
+	id: row.messageId,
+	sender: row.fromName || row.fromEmail || "Unknown",
+	subject: row.subject ?? "(No subject)",
+	date: formatEmailDate(row.sentDate),
+});
 
 export const useMatchSample = (messageIds: readonly string[]): MatchSample =>
 	useQueries({

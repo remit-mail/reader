@@ -59,14 +59,6 @@ export const bulkActionCompletionText = (
 ): string =>
 	`${formatNumber(done)} ${pastTense[kind]}. Your mail server is still catching up.`;
 
-/** Shown when part of a run landed and the rest is still selected for Retry. */
-export const bulkActionPartialText = (
-	kind: BulkActionKind,
-	succeeded: number,
-	remaining: number,
-): string =>
-	`${formatNumber(succeeded)} ${pastTense[kind]}. ${formatNumber(remaining)} ${negated[kind]}.`;
-
 /** Error-banner title for a run stopped by an infrastructure failure. */
 export const bulkActionFailureTitle = (
 	kind: BulkActionKind,

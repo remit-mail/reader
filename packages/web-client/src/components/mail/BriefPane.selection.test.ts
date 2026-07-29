@@ -47,6 +47,5 @@ describe("BriefPane phone selection surface (#203)", () => {
 		const next = source.indexOf("\nfunction ", start + 1);
 		const body = source.slice(start, next === -1 ? undefined : next);
 		assert.match(body, /onDeleteMessages=\{onDeleteMessages\}/);
-		assert.match(body, /onMarkMessagesRead=\{onMarkMessagesRead\}/);
 	});
 });

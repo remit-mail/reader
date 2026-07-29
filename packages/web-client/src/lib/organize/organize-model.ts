@@ -6,7 +6,7 @@ import type {
 	RemitImapOrganizeInput,
 } from "@remit/api-http-client/types.gen.ts";
 import type {
-	MatchMode,
+	MatchDoor,
 	MatchOperator,
 	RuleClause,
 	RuleScope,
@@ -105,7 +105,13 @@ export const buildOrganizeInput = (
  * it holds, and the four `OrganizeScope` values fall out of the pair.
  */
 export interface WizardCommitAnswers {
-	mode: MatchMode;
+	/**
+	 * The door the match came through. An escalated predicate is not one: it has
+	 * no clauses to build a rule from and no anchor to widen, so a scope
+	 * reconstructed for it would be a rule matching everything. Typed to the
+	 * three doors so that cannot be written rather than merely not written.
+	 */
+	mode: MatchDoor;
 	/** Absent on the verbs that never reach the scope step — those act once. */
 	ruleScope?: RuleScope;
 }

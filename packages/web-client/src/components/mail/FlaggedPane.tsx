@@ -64,7 +64,6 @@ interface FlaggedPaneContextValue {
 	/** Keyboard, multi-select and next/previous, shared with the mailbox view. */
 	triage: TriageContext;
 	onDeleteMessages: (messageIds: string[]) => void;
-	onMarkMessagesRead: (messageIds: string[]) => void;
 	nextMessageId: string | undefined;
 	previousMessageId: string | undefined;
 }
@@ -145,10 +144,6 @@ function FlaggedPaneProvider({
 		mailboxId: selectedThread?.mailboxId ?? "",
 		messages: threads,
 	});
-	const handleMarkMessagesRead = useCallback(
-		(messageIds: string[]) => toggleReadFor(messageIds, true),
-		[toggleReadFor],
-	);
 
 	const focusedThreadId = triage.focusedMessageId;
 	const focusedThread = useMemo(
@@ -167,20 +162,18 @@ function FlaggedPaneProvider({
 			reply: () => actions.requestCompose("reply"),
 			replyAll: () => actions.requestCompose("reply_all"),
 			forward: () => actions.requestCompose("forward"),
+			// The list takes any verb aimed at its selection and opens the wizard
+			// on it, so a shortcut can never reach a bulk action the bar would have
+			// reviewed. What comes back here is a verb aimed at the bare cursor.
 			delete: () => {
-				if (triage.listCommandsRef.current?.requestDelete()) return;
+				if (triage.listCommandsRef.current?.requestVerb("delete")) return;
 				triageActions.deleteThread();
 			},
 			toggleStar: triageActions.toggleStar,
 			toggleRead: () => {
-				const ids =
-					triage.selectedIds.length > 0
-						? triage.selectedIds
-						: triageTarget
-							? [triageTarget.messageId]
-							: [];
-				if (ids.length === 0) return;
-				toggleReadFor(ids, !(triageTarget?.isRead ?? false));
+				if (triage.listCommandsRef.current?.requestVerb("markRead")) return;
+				if (!triageTarget) return;
+				toggleReadFor([triageTarget.messageId], !triageTarget.isRead);
 			},
 			goBrief: () => navigate({ to: "/mail" }),
 			goSettings: () => navigate({ to: "/settings" }),
@@ -195,7 +188,6 @@ function FlaggedPaneProvider({
 		actions,
 		triage,
 		onDeleteMessages: deleteMessages,
-		onMarkMessagesRead: handleMarkMessagesRead,
 		nextMessageId,
 		previousMessageId,
 	};
@@ -211,13 +203,8 @@ function FlaggedPaneProvider({
 
 /** Flat starred list. Mount in the `list` slot of `AppShellSlotted`. */
 function FlaggedListSlot() {
-	const {
-		selectedMessageId,
-		onSelectMessage,
-		triage,
-		onDeleteMessages,
-		onMarkMessagesRead,
-	} = useFlaggedPane();
+	const { selectedMessageId, onSelectMessage, triage, onDeleteMessages } =
+		useFlaggedPane();
 	return (
 		<FlaggedList
 			selectedMessageId={selectedMessageId}
@@ -225,7 +212,6 @@ function FlaggedListSlot() {
 			commandsRef={triage.listCommandsRef}
 			onTriageContextChange={triage.onTriageContextChange}
 			onDeleteMessages={onDeleteMessages}
-			onMarkMessagesRead={onMarkMessagesRead}
 		/>
 	);
 }

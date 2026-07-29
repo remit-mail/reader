@@ -6,7 +6,6 @@ import {
 	countMatches,
 	type FetchIdsPageResult,
 	honestProgress,
-	resolveSelectionAfterRun,
 	runChunkedAction,
 	runPredicateAction,
 } from "./bulk-actions.js";
@@ -352,65 +351,6 @@ describe("countMatches", () => {
 		const outcome = await countMatches(fetch, () => undefined, neverCancelled);
 		assert.equal(outcome.error, boom);
 		assert.equal(outcome.total, 0);
-	});
-});
-
-describe("resolveSelectionAfterRun", () => {
-	test("a clean run with nothing failed exits selection mode", () => {
-		assert.deepEqual(
-			resolveSelectionAfterRun({
-				done: 3412,
-				failedIds: [],
-				cancelled: false,
-			}),
-			{ exit: true, retryIds: [] },
-		);
-	});
-
-	test("unreached ids stay selected for a precise retry, even alongside a clean stop", () => {
-		assert.deepEqual(
-			resolveSelectionAfterRun({
-				done: 3072,
-				failedIds: ["a", "b"],
-				cancelled: false,
-			}),
-			{ exit: false, retryIds: ["a", "b"] },
-		);
-	});
-
-	test("a clean cancel with nothing yet confirmed failed leaves nothing to retry, but does not exit", () => {
-		assert.deepEqual(
-			resolveSelectionAfterRun({
-				done: 100,
-				failedIds: [],
-				cancelled: true,
-			}),
-			{ exit: false, retryIds: [] },
-		);
-	});
-
-	test("an infra failure with nothing left unreached still keeps selection mode open", () => {
-		assert.deepEqual(
-			resolveSelectionAfterRun({
-				done: 0,
-				failedIds: [],
-				cancelled: false,
-				error: new Error("network blip"),
-			}),
-			{ exit: false, retryIds: [] },
-		);
-	});
-
-	test("failedIds wins over cancelled/error when both are present", () => {
-		assert.deepEqual(
-			resolveSelectionAfterRun({
-				done: 10,
-				failedIds: ["x"],
-				cancelled: true,
-				error: new Error("boom"),
-			}),
-			{ exit: false, retryIds: ["x"] },
-		);
 	});
 });
 

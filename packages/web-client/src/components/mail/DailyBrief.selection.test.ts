@@ -47,11 +47,29 @@ describe("the brief's select-all", () => {
 		);
 	});
 
-	it("sends every verb on the bar into the wizard (#477 1.4)", () => {
+	it("carries every verb the bar can offer (#477 1.4)", () => {
+		// That each of them opens the wizard is `selection-verbs.test.ts`, over
+		// every surface at once. What this pins is that none of them was dropped
+		// from the bar the brief raises.
 		const body = chromeBody();
-		for (const verb of ["delete", "move", "junk", "markRead", "organize"]) {
-			assert.match(body, new RegExp(`startWizard\\("${verb}"\\)`));
+		for (const prop of [
+			"onDelete",
+			"onMove",
+			"onOrganize",
+			"onJunk",
+			"onMarkRead",
+		]) {
+			assert.match(body, new RegExp(`${prop}=`));
 		}
 		assert.doesNotMatch(body, /onSomethingElse/);
+	});
+
+	it("drives the wizard and the keyboard layer from one control", () => {
+		// Two copies of "which verb is the wizard on" is how the brief came to
+		// offer a verb the mailbox list did not, and how its keyboard came to act
+		// behind a wizard the bar had opened.
+		assert.match(source, /const wizard = useSelectionWizard\(\);/);
+		assert.match(source, /onSelectionVerb={wizard.start}/);
+		assert.match(source, /wizardOpen={wizard.isOpen}/);
 	});
 });

@@ -68,7 +68,6 @@ interface BriefPaneContextValue {
 	/** Keyboard, multi-select and next/previous, shared with the mailbox view. */
 	triage: TriageContext;
 	onDeleteMessages: (messageIds: string[]) => void;
-	onMarkMessagesRead: (messageIds: string[]) => void;
 	nextMessageId: string | undefined;
 	previousMessageId: string | undefined;
 }
@@ -206,10 +205,6 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 		mailboxId: selectedThread?.mailboxId ?? "",
 		messages: briefThreads,
 	});
-	const handleMarkMessagesRead = useCallback(
-		(messageIds: string[]) => toggleReadFor(messageIds, true),
-		[toggleReadFor],
-	);
 
 	const focusedThreadId = triage.focusedMessageId;
 	const focusedThread = useMemo(
@@ -228,20 +223,18 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 			reply: () => actions.requestCompose("reply"),
 			replyAll: () => actions.requestCompose("reply_all"),
 			forward: () => actions.requestCompose("forward"),
+			// The list takes any verb aimed at its selection and opens the wizard
+			// on it, so a shortcut can never reach a bulk action the bar would have
+			// reviewed. What comes back here is a verb aimed at the bare cursor.
 			delete: () => {
-				if (triage.listCommandsRef.current?.requestDelete()) return;
+				if (triage.listCommandsRef.current?.requestVerb("delete")) return;
 				triageActions.deleteThread();
 			},
 			toggleStar: triageActions.toggleStar,
 			toggleRead: () => {
-				const ids =
-					triage.selectedIds.length > 0
-						? triage.selectedIds
-						: triageTarget
-							? [triageTarget.messageId]
-							: [];
-				if (ids.length === 0) return;
-				toggleReadFor(ids, !(triageTarget?.isRead ?? false));
+				if (triage.listCommandsRef.current?.requestVerb("markRead")) return;
+				if (!triageTarget) return;
+				toggleReadFor([triageTarget.messageId], !triageTarget.isRead);
 			},
 			goFlagged: () => navigate({ to: "/mail/flagged" }),
 			goSettings: () => navigate({ to: "/settings" }),
@@ -258,7 +251,6 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 		actions,
 		triage,
 		onDeleteMessages: deleteMessages,
-		onMarkMessagesRead: handleMarkMessagesRead,
 		nextMessageId,
 		previousMessageId,
 	};
@@ -280,7 +272,6 @@ function BriefList() {
 		onSelectSearchResult,
 		triage,
 		onDeleteMessages,
-		onMarkMessagesRead,
 	} = useBriefPane();
 	const { accounts } = useMailContext();
 
@@ -293,7 +284,6 @@ function BriefList() {
 			commandsRef={triage.listCommandsRef}
 			onTriageContextChange={triage.onTriageContextChange}
 			onDeleteMessages={onDeleteMessages}
-			onMarkMessagesRead={onMarkMessagesRead}
 		/>
 	);
 }

@@ -695,21 +695,24 @@ function MailboxPaneProvider({
 		if (selectedThread) setToolbarComposeRequest("forward");
 	}, [ensureFocusedOpen, selectedThread, setToolbarComposeRequest]);
 
-	const triageTargetMessageIds = useCallback((): string[] => {
-		if (triageSelectedIds.length > 0) return triageSelectedIds;
-		return messageIdsForFocusedThread(focusedThread);
-	}, [triageSelectedIds, messageIdsForFocusedThread, focusedThread]);
+	const triageTargetMessageIds = useCallback(
+		(): string[] => messageIdsForFocusedThread(focusedThread),
+		[messageIdsForFocusedThread, focusedThread],
+	);
 
-	// Prefer the list's delete: it confirms the move to Trash and then places the
-	// cursor on a surviving row. Falls back to the reading pane's message when no
-	// list is mounted or nothing in it is targeted.
+	// Every verb the list can take, it takes: over a selection it opens the
+	// wizard, which is where a bulk action is reviewed before it reaches the mail
+	// server (#477 1.4, #508). What falls through is aimed at the bare cursor, or
+	// at the reading pane when no list is mounted — one message, not a bulk
+	// action, and the pane acts on it directly.
 	const triageDeleteAction = useCallback(() => {
-		if (listCommandsRef.current?.requestDelete()) return;
+		if (listCommandsRef.current?.requestVerb("delete")) return;
 		const ids = triageTargetMessageIds();
 		if (ids.length > 0) triageDelete(ids);
 	}, [listCommandsRef, triageTargetMessageIds, triageDelete]);
 
 	const triageMarkJunk = useCallback(() => {
+		if (listCommandsRef.current?.requestVerb("junk")) return;
 		if (!junkMailboxId) return;
 		const ids = triageTargetMessageIds();
 		if (ids.length === 0) return;
@@ -720,6 +723,7 @@ function MailboxPaneProvider({
 		});
 		triageMove(ids, junkMailboxId);
 	}, [
+		listCommandsRef,
 		junkMailboxId,
 		triageTargetMessageIds,
 		triageMove,
@@ -727,6 +731,10 @@ function MailboxPaneProvider({
 		focusedThread,
 	]);
 
+	// Star is the one verb that acts on a selection from here. It is not on the
+	// selection bar and not one of the five the wizard walks: it sets a flag on
+	// mail that is already in front of the user and unsets it the same way, so
+	// there is nothing for a review screen to name and nothing to undo.
 	const triageStar = useCallback(() => {
 		if (triageSelectedIds.length > 0) {
 			const nextStarred = !(focusedThread?.hasStars ?? false);
@@ -743,11 +751,17 @@ function MailboxPaneProvider({
 	}, [triageSelectedIds, threads, focusedThread, focusedToggleStar]);
 
 	const triageToggleRead = useCallback(() => {
+		if (listCommandsRef.current?.requestVerb("markRead")) return;
 		const ids = triageTargetMessageIds();
 		if (ids.length === 0) return;
 		const nextRead = !(focusedThread?.isRead ?? false);
 		triageToggleReadFor(ids, nextRead);
-	}, [triageTargetMessageIds, focusedThread, triageToggleReadFor]);
+	}, [
+		listCommandsRef,
+		triageTargetMessageIds,
+		focusedThread,
+		triageToggleReadFor,
+	]);
 
 	const triageMute = useCallback(() => {
 		if (!focusedAddressId) return;
@@ -1013,7 +1027,6 @@ function MailboxList() {
 			searchQuery={searchQuery}
 			searchPredicate={searchPredicate}
 			onDeleteMessages={onDeleteMessages}
-			onMoveMessages={onMoveMessages}
 			isDeleting={isDeleting}
 			isMoving={isMoving}
 			onLoadMore={onLoadMore}

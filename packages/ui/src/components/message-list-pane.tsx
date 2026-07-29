@@ -1,6 +1,6 @@
 import { Menu } from "lucide-react";
 import type { ReactNode } from "react";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { LIST_ROW_SELECTOR, useRovingFocus } from "../lib/roving-focus.js";
 import type { AppShellProps, TouchSeed } from "./app-shell-types.js";
 import { BriefSections } from "./brief-sections.js";
@@ -125,7 +125,27 @@ export function MessageListPane({
 			? new Set(seededRows.slice(0, 2).map((t) => t.id))
 			: new Set(),
 	);
+	// What the fallback bar's verbs have done to the mock rows. A demo bar whose
+	// Trash only closes the bar is a Trash that deletes nothing, which is the one
+	// thing a selection bar must never be — so these verbs act on the rows the
+	// mock owns, the same way `refresh` below fakes a refresh visibly.
+	const [trashedIds, setTrashedIds] = useState<ReadonlySet<string>>(new Set());
+	const [readIds, setReadIds] = useState<ReadonlySet<string>>(new Set());
 	const [refreshing, setRefreshing] = useState(false);
+	const touchSections = useMemo(
+		() =>
+			trashedIds.size === 0 && readIds.size === 0
+				? sections
+				: sections.map((section) => ({
+						...section,
+						threads: section.threads
+							.filter((thread) => !trashedIds.has(thread.id))
+							.map((thread) =>
+								readIds.has(thread.id) ? { ...thread, isRead: true } : thread,
+							),
+					})),
+		[sections, trashedIds, readIds],
+	);
 	const initialPeek: SwipePeek | undefined =
 		initialTouchState === "peek-trailing"
 			? "trailing"
@@ -150,6 +170,14 @@ export function MessageListPane({
 		setSelectionMode(false);
 		setCheckedIds(new Set());
 	};
+	const trashChecked = () => {
+		setTrashedIds((prev) => new Set([...prev, ...checkedIds]));
+		cancelSelection();
+	};
+	const markCheckedRead = () => {
+		setReadIds((prev) => new Set([...prev, ...checkedIds]));
+		cancelSelection();
+	};
 	const refresh = () => {
 		setRefreshing(true);
 		setTimeout(() => setRefreshing(false), 1400);
@@ -168,8 +196,8 @@ export function MessageListPane({
 						title={listTitle}
 						count={checkedIds.size}
 						onCancel={cancelSelection}
-						onMarkRead={cancelSelection}
-						onDelete={cancelSelection}
+						onMarkRead={markCheckedRead}
+						onDelete={trashChecked}
 					/>
 				) : hideHeader ? null : (
 					<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
@@ -230,7 +258,7 @@ export function MessageListPane({
 				listBody
 			) : touchTriage ? (
 				<TouchListBody
-					sections={sections}
+					sections={touchSections}
 					selectedThreadId={selectedThreadId}
 					selectionMode={selectionMode}
 					checkedIds={checkedIds}

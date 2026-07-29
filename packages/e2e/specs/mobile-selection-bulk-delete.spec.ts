@@ -3,31 +3,27 @@
  *
  * The driving case the issue names: search "npm", long-press into selection
  * mode, select everything that matches, delete it. The highest-value claim in
- * this file is that the number the UI ever reports as *deleted* — the
- * completion banner, the partial-failure notice — always matches what
- * actually gets removed; every delete here is verified against the real
- * backend (message ids paged over the API, or subjects read straight off
- * IMAP), never against UI text alone. The confirm dialog's pre-delete count is
- * a labeled estimate, not that claim (#109): `countMatches` and the delete
- * itself re-page the same predicate independently, so mail arriving or
- * leaving in between can make the two disagree.
+ * this file is that the number the UI reports as *deleted* on the run screen
+ * always matches what actually gets removed; every delete here is verified
+ * against the real backend (message ids paged over the API, or subjects read
+ * straight off IMAP), never against UI text alone.
  *
- * Two things this harness cannot reproduce cheaply are worked around
- * deliberately, both noted where they're used:
+ * The review screen's count is a different claim (#109): the predicate is
+ * resolved once for the count and again for the run, so mail arriving in
+ * between makes the two disagree — which the review says on the screen, and
+ * the escalated-delete test below drives on purpose.
  *
- * - The "search has more matches than are loaded" affordance only appears once
- *   a mailbox search's first page comes back with a `continuationToken`. Since
- *   #306 the list asks for its own page size (`LIST_PAGE_SIZE`), so a fixture
- *   larger than one page triggers it honestly and the npmbulk block below does
- *   exactly that. For a fixture that fits in one page the trigger is still
- *   forced via `page.route`, injecting a `continuationToken` into that one
- *   response. Everything downstream — `escalate()`'s own counting (a *different*
- *   request, paged at limit=100) and the delete it drives — is completely real
- *   against the messages seeded below and is never touched by the mock.
- * - Partial failure is simulated by mocking the bulk-delete endpoint's first
- *   response (the boundary the brief calls out) — the ids it reports failed
- *   are read back out of the real outgoing request, and Retry's follow-up call
- *   is left unmocked, so it actually deletes them.
+ * The one thing this harness cannot reproduce cheaply is worked around
+ * deliberately, noted where it is used: the "search has more matches than are
+ * loaded" affordance only appears once a mailbox search's first page comes
+ * back with a `continuationToken`. Since #306 the list asks for its own page
+ * size (`LIST_PAGE_SIZE`), so a fixture larger than one page triggers it
+ * honestly and the npmbulk block below does exactly that. For a fixture that
+ * fits in one page the trigger is still forced via `page.route`, injecting a
+ * `continuationToken` into that one response. Everything downstream —
+ * `escalate()`'s own counting (a *different* request, paged at limit=100) and
+ * the run it drives — is completely real against the messages seeded below and
+ * is never touched by the mock.
  */
 import type { Locator, Page } from "@playwright/test";
 import { ApiClient, waitFor } from "../src/api.js";
@@ -38,6 +34,7 @@ import {
 	advanceTo,
 	commitButton,
 	dismissRun,
+	pickFolder,
 	wizardStep,
 } from "../src/wizard.js";
 
@@ -137,8 +134,6 @@ const selectTwoFromTop = async (page: Page): Promise<void> => {
 	await expect(selectionStatus(page)).toBeVisible();
 	await expect(selectionStatus(page)).toHaveText("2 messages selected");
 };
-
-const confirmDialog = (page: Page): Locator => page.getByRole("dialog");
 
 const gotoInbox = async (page: Page, mailboxId: string): Promise<void> => {
 	await page.goto(`/mail/${mailboxId}`);
@@ -662,14 +657,28 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 			{ timeout: 15_000 },
 		);
 
+		// The predicate opens the same wizard a ticked selection does (#508). Its
+		// match step names what the predicate covers rather than offering three
+		// ways to widen a match that is already the widest it gets.
 		await deleteButton(page).click();
-		// "about": an escalated-predicate count, not a materialized selection
-		// (#109) — countMatches and the delete itself re-page the same
-		// predicate independently, so the dialog never claims an exact number.
-		await expect(confirmDialog(page)).toHaveAccessibleName(
-			`Move about ${NPM_MAIN_COUNT} messages to Trash?`,
-		);
-		await confirmDialog(page).getByRole("button", { name: "Cancel" }).click();
+		await expect(wizardStep(page)).toHaveText(/^Step 1 of 3 · Apply to$/, {
+			timeout: 20_000,
+		});
+		await expect(
+			page.getByText('Every message matching "npmbulk"'),
+		).toBeVisible();
+
+		await advanceTo(page, "Review");
+		// The count the server gave the predicate, stated before anything runs.
+		await expect(
+			page.getByText(
+				`Delete all ${NPM_MAIN_COUNT} messages matching "npmbulk"`,
+			),
+		).toBeVisible();
+
+		// The wizard's own Cancel, not the bar's "Cancel selection" behind it.
+		await page.getByRole("button", { name: "Cancel", exact: true }).click();
+		await expect(wizardStep(page)).toHaveCount(0);
 
 		// Nothing was sent — the real backend still has every fixture.
 		const stillThere = await api.searchMatchingMessageIds(
@@ -722,27 +731,29 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 		);
 
 		await deleteButton(page).click();
-		// The pre-arrival count, honestly labeled as an estimate rather than
-		// asserted as the number that gets deleted (#109): "about" says up front
-		// that countMatches and the delete re-page the same predicate
-		// independently, so this can't be a promise. What must NOT be stale is
-		// the completion banner below, which reports the real delivered total.
-		await expect(confirmDialog(page)).toHaveAccessibleName(
-			`Move about ${NPM_MAIN_COUNT} messages to Trash?`,
-		);
-		await confirmDialog(page)
-			.getByRole("button", { name: "Move to Trash" })
-			.click();
-
-		await expect(selectionStatus(page)).toBeHidden({ timeout: 30_000 });
-		// The honest number: the actual count the run deleted, including the
-		// late arrivals the pre-confirm estimate above never saw — never the
-		// stale estimate itself.
+		await advanceTo(page, "Review");
+		// The pre-arrival count, stated on the review screen with the warning
+		// that the run covers whatever matches by the time it goes (#109): the
+		// count and the run resolve the predicate independently, so the number
+		// here is a reading, not a promise. What must NOT be stale is the run
+		// screen below, which reports the real delivered total.
 		await expect(
 			page.getByText(
-				`${realTotalAtExecution} moved to Trash. Your mail server is still catching up.`,
+				`Delete all ${NPM_MAIN_COUNT} messages matching "npmbulk"`,
 			),
 		).toBeVisible();
+		await expect(
+			page.getByText(/anything else matching by the time it runs/),
+		).toBeVisible();
+		await commitButton(page, "Delete").click();
+
+		// The honest number: the actual count the run deleted, including the
+		// late arrivals the count above never saw — never the stale reading.
+		await expect(page.getByText(`Deleted ${realTotalAtExecution}`)).toBeVisible(
+			{ timeout: 30_000 },
+		);
+		await dismissRun(page);
+		await expect(selectionStatus(page)).toBeHidden({ timeout: 30_000 });
 
 		// The load-bearing assertion: what the real backend now shows as matching
 		// "npmbulk" — not the UI's own claim — is zero. Every fixture, including
@@ -837,13 +848,17 @@ test.describe("Search-scoped escalated move and mark-read", () => {
 		await escalate(page);
 
 		await markRead(page);
-
-		await expect(selectionStatus(page)).toBeHidden({ timeout: 30_000 });
+		await advanceTo(page, "Review");
 		await expect(
-			page.getByText(
-				`${COUNT} marked as read. Your mail server is still catching up.`,
-			),
+			page.getByText(`Mark read all ${COUNT} messages matching "${QUERY}"`),
 		).toBeVisible();
+		await commitButton(page, "Mark read").click();
+
+		await expect(page.getByText(`Marked read ${COUNT}`)).toBeVisible({
+			timeout: 30_000,
+		});
+		await dismissRun(page);
+		await expect(selectionStatus(page)).toBeHidden({ timeout: 30_000 });
 
 		// The load-bearing check: the real backend, not the UI's own claim. Every
 		// fixture thread now reads as read.
@@ -857,6 +872,45 @@ test.describe("Search-scoped escalated move and mark-read", () => {
 		);
 	});
 
+	test("the keyboard reaches no verb over the predicate that the bar would have reviewed", async ({
+		page,
+		run,
+		api,
+	}) => {
+		await escalate(page);
+
+		// The hole this closes: a shortcut aimed at a selection ran the verb
+		// outright, so "select all 3,412 matching" plus one keystroke filed the lot
+		// with nothing named and nothing to cancel. Both keys now land on the same
+		// review screen the bar's verbs land on.
+		await page.keyboard.press("!");
+		await expect(wizardStep(page)).toHaveText(/^Step 1 of 3 · Apply to$/, {
+			timeout: 20_000,
+		});
+		await expect(
+			page.getByText(`Every message matching "${QUERY}"`),
+		).toBeVisible();
+		await page.getByRole("button", { name: "Cancel", exact: true }).click();
+		await expect(wizardStep(page)).toHaveCount(0);
+
+		await page.keyboard.press("u");
+		await expect(wizardStep(page)).toHaveText(/^Step 1 of 3 · Apply to$/, {
+			timeout: 20_000,
+		});
+		await advanceTo(page, "Review");
+		await expect(
+			page.getByText(`Mark read all ${COUNT} messages matching "${QUERY}"`),
+		).toBeVisible();
+
+		// Nothing left for the mail server while both screens were up: the whole
+		// fixture set is still where it was, unread and in the inbox.
+		const untouched = await api.searchMatchingMessageIds(run.inboxId, QUERY);
+		expect(untouched).toHaveLength(COUNT);
+
+		await page.getByRole("button", { name: "Cancel", exact: true }).click();
+		await expect(wizardStep(page)).toHaveCount(0);
+	});
+
 	test("move pages the predicate and files every match in the destination", async ({
 		page,
 		run,
@@ -865,13 +919,22 @@ test.describe("Search-scoped escalated move and mark-read", () => {
 		await escalate(page);
 
 		await moveButton(page).click();
+		await advanceTo(page, "Folder");
 		// Archive is a standard destination in the picker on this account.
-		await page.getByRole("option", { name: "Move to Archive" }).click();
-
-		await expect(selectionStatus(page)).toBeHidden({ timeout: 30_000 });
+		await pickFolder(page, "Archive");
+		await advanceTo(page, "Review");
 		await expect(
-			page.getByText(`${COUNT} moved. Your mail server is still catching up.`),
+			page.getByText(
+				`Move all ${COUNT} messages matching "${QUERY}" to Archive`,
+			),
 		).toBeVisible();
+		await commitButton(page, "Move").click();
+
+		await expect(page.getByText(`Moved ${COUNT}`)).toBeVisible({
+			timeout: 30_000,
+		});
+		await dismissRun(page);
+		await expect(selectionStatus(page)).toBeHidden({ timeout: 30_000 });
 
 		// The move left the inbox empty of the fixtures and filled Archive with
 		// them — checked against the backend, paged independently of the UI.
