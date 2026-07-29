@@ -1,11 +1,11 @@
 import {
 	ArrowLeft,
+	FolderInput,
 	Loader2,
 	MailOpen,
 	ShieldAlert,
 	Sparkles,
 	Trash2,
-	Wand2,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { Banner, type BannerTone } from "./banner.js";
@@ -40,6 +40,17 @@ export interface SelectionTopBarProps {
 	/** Leaves selection, from the back arrow at the head of the bar. */
 	onCancel: () => void;
 	onDelete: () => void;
+	/**
+	 * Opens the wizard on Move. Omitted where a destination cannot be resolved —
+	 * a selection spanning accounts, or a surface with no owning mailbox.
+	 */
+	onMove?: () => void;
+	/**
+	 * The Move verb for a selection the wizard cannot take: an escalated
+	 * predicate, which no bounded list of ids stands in for, so it keeps the
+	 * caller's own folder picker. Rendered only in `onMove`'s place.
+	 */
+	moveSlot?: ReactNode;
 	/** Opens Organize for the selection. Omitted where organize cannot be
 	 *  scoped to one account. */
 	onOrganize?: () => void;
@@ -48,12 +59,6 @@ export interface SelectionTopBarProps {
 	onJunk?: () => void;
 	/** Optional — dropped from the overflow menu while `isBusy`. */
 	onMarkRead?: () => void;
-	/**
-	 * Opens the free-text organize panel. An overflow verb rather than a glyph:
-	 * it collapses a verb, a destination and a scope into one tap, which is the
-	 * opposite of what the bar's own verbs do.
-	 */
-	onSomethingElse?: () => void;
 	/**
 	 * The list header's own chrome, rendered only while nothing is ticked: the
 	 * nav button, the unread count beside the title, and the search affordance.
@@ -74,11 +79,6 @@ export interface SelectionTopBarProps {
 	 * bar over, so the second way into the same wizard stands down.
 	 */
 	idleSlot?: ReactNode;
-	/**
-	 * The Move verb. A render prop because the trigger owns the folder picker
-	 * and its API dependencies; the bar only gives it a place in the verb row.
-	 */
-	moveSlot?: ReactNode;
 	/**
 	 * Extra rows at the foot of the overflow menu — the apply-label picker,
 	 * whose list belongs to the account rather than to the bar. Withdrawn while
@@ -171,16 +171,16 @@ export function SelectionTopBar({
 	count,
 	onCancel,
 	onDelete,
+	onMove,
+	moveSlot,
 	onOrganize,
 	onJunk,
 	onMarkRead,
-	onSomethingElse,
 	navSlot,
 	titleMeta,
 	searchSlot,
 	searchField,
 	idleSlot,
-	moveSlot,
 	overflowSlot,
 	isBusy = false,
 	isCounting = false,
@@ -211,15 +211,6 @@ export function SelectionTopBar({
 			onSelect: onMarkRead,
 		});
 	}
-	if (onSomethingElse && !isBusy && !isCounting) {
-		overflowItems.push({
-			key: "something-else",
-			label: "Something else",
-			icon: <Wand2 className="size-4" />,
-			onSelect: onSomethingElse,
-		});
-	}
-
 	return (
 		<header
 			data-selection-bar=""
@@ -287,7 +278,19 @@ export function SelectionTopBar({
 							aria-busy={isBusy || undefined}
 							className="shrink-0"
 						/>
-						{!isBusy && moveSlot}
+						{!isBusy &&
+							(onMove ? (
+								<Button
+									variant="ghost"
+									size="touch"
+									icon={<FolderInput className="size-5" />}
+									onClick={onMove}
+									aria-label="Move selected messages"
+									className="shrink-0"
+								/>
+							) : (
+								moveSlot
+							))}
 						{!isBusy && onOrganize && (
 							<Button
 								variant="ghost"

@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import type { RuleClause } from "@remit/ui";
 import {
 	buildCreateFilterInput,
 	buildOrganizeInput,
+	buildWizardDraft,
 	hasCommittableAction,
 	NO_ACTION,
 	type OrganizeDraft,
+	organizeScopeFor,
 } from "./organize-model";
 
 const baseDraft = (overrides: Partial<OrganizeDraft> = {}): OrganizeDraft => ({
@@ -128,5 +131,112 @@ describe("buildCreateFilterInput", () => {
 			"Receipts",
 		);
 		assert.equal(input.actionLabelId, "lbl-1");
+	});
+});
+
+describe("organizeScopeFor", () => {
+	it("reads the ticked list at scope once as just-these", () => {
+		assert.equal(organizeScopeFor({ mode: "selected" }), "just-these");
+		assert.equal(
+			organizeScopeFor({ mode: "selected", ruleScope: "once" }),
+			"just-these",
+		);
+	});
+
+	it("reads either widened door at scope once as all-like-these", () => {
+		assert.equal(organizeScopeFor({ mode: "similar" }), "all-like-these");
+		assert.equal(
+			organizeScopeFor({ mode: "properties", ruleScope: "once" }),
+			"all-like-these",
+		);
+	});
+
+	it("reads the two persisting scopes off the scope answer alone", () => {
+		for (const mode of ["selected", "similar", "properties"] as const) {
+			assert.equal(
+				organizeScopeFor({ mode, ruleScope: "standing" }),
+				"standing",
+			);
+			assert.equal(organizeScopeFor({ mode, ruleScope: "until" }), "temporary");
+		}
+	});
+});
+
+describe("buildWizardDraft", () => {
+	const clauses: RuleClause[] = [
+		{ id: "c1", field: "From", value: "noreply@booking.com" },
+	];
+
+	it("turns the until scope's civil date into a zoned expiresAt", () => {
+		const draft = buildWizardDraft({
+			mode: "properties",
+			ruleScope: "until",
+			clauses,
+			matchOperator: "any",
+			moveMailboxId: "mbx-2",
+			until: "2026-09-30",
+		});
+		assert.match(
+			draft.expiresAt ?? "",
+			/^2026-09-30T23:59:59[+-]\d{2}:\d{2}$/,
+			"the day the rule stops on becomes an instant with an offset",
+		);
+	});
+
+	it("carries no expiry for the scopes that never expire", () => {
+		for (const ruleScope of ["once", "standing"] as const) {
+			const draft = buildWizardDraft({
+				mode: "properties",
+				ruleScope,
+				clauses,
+				matchOperator: "all",
+				until: "2026-09-30",
+			});
+			assert.equal(draft.expiresAt, undefined);
+		}
+	});
+
+	it("anchors on the ticked messages only while the similar door is matching", () => {
+		const anchored = buildWizardDraft({
+			mode: "similar",
+			anchorMessageId: "msg-1",
+			clauses: [],
+			matchOperator: "all",
+		});
+		assert.equal(anchored.anchorMessageId, "msg-1");
+
+		const literal = buildWizardDraft({
+			mode: "properties",
+			anchorMessageId: "msg-1",
+			clauses,
+			matchOperator: "any",
+		});
+		assert.equal("anchorMessageId" in literal, false);
+	});
+
+	it("maps the wizard's operator onto the API's", () => {
+		assert.equal(
+			buildWizardDraft({ mode: "properties", clauses, matchOperator: "all" })
+				.matchOperator,
+			"And",
+		);
+		assert.equal(
+			buildWizardDraft({ mode: "properties", clauses, matchOperator: "any" })
+				.matchOperator,
+			"Or",
+		);
+	});
+
+	it("sends the clause field and value, and nothing the chip carries besides", () => {
+		const draft = buildWizardDraft({
+			mode: "properties",
+			clauses: [
+				{ id: "c1", field: "Subject", value: "receipt", derived: true },
+			],
+			matchOperator: "all",
+		});
+		assert.deepEqual(draft.literalClauses, [
+			{ field: "Subject", value: "receipt" },
+		]);
 	});
 });

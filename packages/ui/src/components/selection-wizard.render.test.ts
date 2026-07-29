@@ -581,7 +581,7 @@ describe("SelectionWizard", () => {
 				wizardProps({ verb: "organize", steps, step: "properties" }),
 			),
 		);
-		assert.match(text(html), /Step 1 of 4 · Apply to/);
+		assert.match(text(html), /Step 1 of 5 · Apply to/);
 		assert.match(html, /What should this apply to\?/);
 		assert.match(html, /These 2 messages/);
 		assert.doesNotMatch(html, /Match properties/);

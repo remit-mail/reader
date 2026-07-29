@@ -74,7 +74,7 @@ export function FilterEditor({
 	const [offerReapply, setOfferReapply] = useState(false);
 	const nextClauseId = useRef(0);
 
-	const preview = useRulePreview(accountId, rulePredicate(rule));
+	const { count: preview } = useRulePreview(accountId, rulePredicate(rule));
 	const update = useUpdateFilter(accountId, filter.filterId);
 	const organizeJob = useOrganizeJob(accountId);
 	const { createFolder } = useCreateMailbox(accountId);

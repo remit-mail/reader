@@ -52,6 +52,21 @@ export const ownedHistoryEntries = (
 export const useWizardStepValue = (): StepId | undefined =>
 	useSearch({ from: "/mail", select: (search) => search.wizard });
 
+/**
+ * Opens the wizard on a step, from a surface that does not drive it — a verb on
+ * the selection bar. The push is the wizard's first owned entry, so the back
+ * that leaves it lands on the list with the selection still ticked.
+ */
+export const useOpenWizard = (): ((step: StepId) => void) => {
+	const navigate = useNavigate();
+	return useCallback(
+		(step: StepId) => {
+			navigate({ to: ".", search: (prev) => ({ ...prev, wizard: step }) });
+		},
+		[navigate],
+	);
+};
+
 export interface WizardStepNavigation {
 	step: StepId | undefined;
 	goToStep: (step: StepId) => void;

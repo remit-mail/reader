@@ -1,26 +1,27 @@
 /**
- * Creating a standing filter runs the retroactive back-apply — the behavior the
- * standing scope used to skip — and does so against a folder created from inside
- * the rule editor.
+ * Creating a standing filter runs the retroactive back-apply, against a folder
+ * created from inside the wizard's Move step.
  *
  * The exact reported flow: a selection is organized into a rule, a fresh folder
- * is created from the rule editor's destination affordance, and the rule is saved
- * with "Keep doing this". Before this change a standing save landed straight on
- * "Filter saved" and touched nothing already in the mailbox; now it enters the
- * back-apply, the same job the one-time scope runs.
+ * is created on the folder step, and the rule is saved with "Keep doing this".
+ * A standing save enters the back-apply, the same job the one-time scope runs,
+ * rather than landing straight on "Filter saved".
+ *
+ * Creating a folder is an IMAP mutation and the move that follows is a
+ * dependent write, and the decision is wait (docs/architecture/imap-mutations.md):
+ * the step holds Continue until the mail server confirms the folder, so the
+ * filter saved next cannot point at a pending row. That gate is asserted here
+ * against the real server rather than a stub — it is the whole reason the step
+ * waits.
  *
  * What this lane proves, in server truth: the standing filter is created and
- * points at the newly-created folder (not a dangling row), the folder is
- * materialized on Dovecot, and the save enters the back-apply rather than the old
- * immediate "Filter saved". The destination binds only after the folder reports
- * `syncStatus: synced` — the editor waits for the mail server to confirm the
- * folder before the filter can be committed against it, so the dependent write
- * never binds to a pending row. What it does not run to completion is the move: the
+ * points at the newly-created folder (not a dangling row), and the folder is
+ * materialized on Dovecot. What it does not run to completion is the move: the
  * back-apply job is processed by the account-worker, which the source-built
  * e2e-dev stack does not start (only backend, imap-worker and web), so the job
- * stays queued here. The move/apply logic and the folder-identity fix are covered
- * by the mailbox-service and web-client unit suites; the mobile organize spec
- * drives the job's progress-to-summary states over a stubbed job.
+ * stays queued here. The move/apply logic is covered by the mailbox-service and
+ * web-client unit suites; the mobile organize spec drives the run screen's
+ * progress-to-summary states over a stubbed job.
  *
  * Runs as its own throwaway user (src/provision.ts): the flow files a filter and
  * a folder that would otherwise disturb the shared onboarded account.
@@ -30,6 +31,13 @@ import { baseUrl } from "../src/env.js";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages, listServerMailboxes } from "../src/imap.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
+import {
+	advanceTo,
+	barOrganize,
+	commitButton,
+	wizardContinue,
+	wizardStep,
+} from "../src/wizard.js";
 
 const DESKTOP = { width: 1512, height: 864 };
 
@@ -49,7 +57,7 @@ test.describe("Standing filter back-applies over existing mail", () => {
 		api = new ApiClient(run);
 	});
 
-	test("creating a standing rule with a new folder enters the back-apply and points the filter at the folder", async ({
+	test("a folder created on the Move step holds Continue until the server confirms it, and the standing rule binds to it", async ({
 		browser,
 	}) => {
 		test.setTimeout(600_000);
@@ -96,23 +104,28 @@ test.describe("Standing filter back-applies over existing mail", () => {
 			await row(SUBJECTS[0]).click({ modifiers: ["ControlOrMeta"] });
 			await row(SUBJECTS[1]).click({ modifiers: ["ControlOrMeta"] });
 
+			await barOrganize(page).click();
+			await expect(wizardStep(page)).toHaveText(/^Step 1 of 5 · Apply to$/, {
+				timeout: 30_000,
+			});
+
+			await advanceTo(page, "Folder");
+
+			// Create the destination from the step's own picker.
+			await page.getByLabel("Filter folders").fill(FOLDER_NAME);
 			await page
-				.getByRole("button", { name: "Organize selected messages" })
+				.getByRole("button", { name: `Create "${FOLDER_NAME}"` })
 				.click();
 
-			const destination = page.getByRole("combobox", {
-				name: "Destination folder",
-			});
-			await expect(destination).toBeVisible({ timeout: 30_000 });
-
-			// Create the move destination from inside the editor.
-			await destination.selectOption({ label: "＋ New folder…" });
-			const newFolderField = page.getByRole("textbox", {
-				name: "New folder name",
-			});
-			await expect(newFolderField).toBeVisible({ timeout: 10_000 });
-			await newFolderField.fill(FOLDER_NAME);
-			await page.getByRole("button", { name: "Create folder" }).click();
+			// The wait is on screen, and Continue cannot leave the step while it
+			// runs — the destination is a dependent write and the folder is not a
+			// valid target until the mail server confirms it.
+			await expect(
+				page.getByText("Waiting for the mail server to confirm the folder…"),
+			).toBeVisible({ timeout: 20_000 });
+			await wizardContinue(page).click();
+			await expect(page.getByText("Pick a destination first.")).toBeVisible();
+			await expect(wizardStep(page)).toHaveText(/· Folder$/);
 
 			const created = await waitFor(
 				() => api.listMailboxes(run.accountId),
@@ -125,10 +138,9 @@ test.describe("Standing filter back-applies over existing mail", () => {
 			const folder = created.find((b) => b.fullPath === FOLDER_NAME);
 			if (!folder) throw new Error("unreachable: folder matched but not found");
 
-			// The destination is a dependent write: the editor holds "Creating
-			// folder…" and binds the destination only once the folder is confirmed
-			// on the server, so the filter saved next cannot point at a pending row.
-			await expect(destination).toHaveValue(folder.mailboxId, {
+			// The create resolved with the path the server normalized to, and only
+			// then did the step take it as the destination.
+			await expect(page.getByText(`Moving to ${FOLDER_NAME}.`)).toBeVisible({
 				timeout: 60_000,
 			});
 			const atBind = await api.listMailboxes(run.accountId);
@@ -137,18 +149,19 @@ test.describe("Standing filter back-applies over existing mail", () => {
 			).toBe("synced");
 
 			// Keep doing this — a standing rule, named.
+			await advanceTo(page, "Rule");
 			await page.getByText("Keep doing this", { exact: true }).click();
+			await advanceTo(page, "Name");
 			await page.getByLabel("Rule name").fill(RULE_NAME);
+			await advanceTo(page, "Review");
 
-			const save = page.getByRole("button", { name: "Save rule" });
-			await expect(save).toBeEnabled({ timeout: 60_000 });
-			await save.click();
+			await commitButton(page, "Save rule").click();
 
 			// The save enters the back-apply — the state the standing scope used to
 			// skip — rather than landing straight on a bare "Filter saved".
-			await expect(page.getByText(/Organizing/i)).toBeVisible({
-				timeout: 60_000,
-			});
+			await expect(
+				page.getByText(/Moving the mail already in your mailbox/),
+			).toBeVisible({ timeout: 60_000 });
 
 			// The standing filter was created and points at the newly-created folder,
 			// not the inbox and not a dangling row.
@@ -165,7 +178,7 @@ test.describe("Standing filter back-applies over existing mail", () => {
 			await context.close();
 		}
 
-		// Server truth: the folder the editor created really exists on Dovecot, so
+		// Server truth: the folder the wizard created really exists on Dovecot, so
 		// the rule's destination is a real synced folder.
 		await waitFor(
 			() => listServerMailboxes(run.imapUser),

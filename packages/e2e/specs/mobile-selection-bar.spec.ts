@@ -11,6 +11,13 @@ import type { Locator, Page } from "@playwright/test";
 import { waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages } from "../src/imap.js";
+import {
+	advanceTo,
+	commitButton,
+	dismissRun,
+	pickFolder,
+	wizardStep,
+} from "../src/wizard.js";
 
 const MOBILE = { width: 390, height: 844 };
 test.use({ viewport: MOBILE });
@@ -54,8 +61,6 @@ const moveButton = (page: Page): Locator =>
  *  would otherwise answer to `role="status"` first. */
 const selectionStatus = (page: Page): Locator =>
 	page.locator("[data-selection-count]");
-
-const confirmDialog = (page: Page): Locator => page.getByRole("dialog");
 
 const gotoInbox = async (page: Page, mailboxId: string): Promise<void> => {
 	await page.goto(`/mail/${mailboxId}`);
@@ -136,20 +141,20 @@ test.describe("Mobile selection bar", () => {
 			.filter({ hasText: subjects[1] });
 		await selectTwo(page, first, second);
 
+		// Delete opens the wizard, and the run screen is the signal it landed.
 		await deleteButton(page).click();
-		const dialog = confirmDialog(page);
-		await expect(dialog).toHaveAccessibleName("Move 2 messages to Trash?");
-		await dialog.getByRole("button", { name: "Move to Trash" }).click();
+		await expect(wizardStep(page)).toHaveText(/^Step 1 of 3 · Apply to$/, {
+			timeout: 20_000,
+		});
+		await advanceTo(page, "Review");
+		await commitButton(page, "Delete").click();
+		await expect(page.getByText("Deleted 2")).toBeVisible({ timeout: 30_000 });
+		await dismissRun(page);
 
 		await expect(selectionStatus(page)).toBeHidden();
 		// Single-pane mobile stays on the list — the delete must not open a
-		// neighbour (#202) — and the completion banner is the signal it landed.
+		// neighbour (#202).
 		await expect(page).not.toHaveURL(/selectedMessageId=/);
-		await expect(
-			page.getByText(
-				"2 moved to Trash. Your mail server is still catching up.",
-			),
-		).toBeVisible();
 		await expect(rows(page)).toHaveCount(run.seededSubjects.length);
 		for (const subject of subjects) {
 			await expect(page.getByText(subject, { exact: true })).toBeHidden();
@@ -184,8 +189,16 @@ test.describe("Mobile selection bar", () => {
 		await selectTwo(page, first, second);
 
 		await moveButton(page).click();
+		await expect(wizardStep(page)).toHaveText(/^Step 1 of 4 · Apply to$/, {
+			timeout: 20_000,
+		});
+		await advanceTo(page, "Folder");
 		// Archive is a standard destination in the picker on this account.
-		await page.getByRole("option", { name: "Move to Archive" }).click();
+		await pickFolder(page, "Archive");
+		await advanceTo(page, "Review");
+		await commitButton(page, "Move").click();
+		await expect(page.getByText("Moved 2")).toBeVisible({ timeout: 30_000 });
+		await dismissRun(page);
 
 		await expect(selectionStatus(page)).toBeHidden();
 		// The moved rows leave the inbox, restoring the baseline the suite expects.

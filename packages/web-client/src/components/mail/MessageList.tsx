@@ -6,6 +6,7 @@ import {
 	MessageListLoadingMore,
 	MessageListPane,
 	SelectionTopBar,
+	type Verb,
 } from "@remit/ui";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -44,7 +45,11 @@ import {
 	escalatedStatusLabel,
 	escalationActionLabel,
 } from "@/lib/escalation-label";
-import { formatDeleteToTrashTitle, formatNumber } from "@/lib/format";
+import {
+	formatDeleteToTrashTitle,
+	formatEmailDate,
+	formatNumber,
+} from "@/lib/format";
 import { tabStopId } from "@/lib/list-focus";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import {
@@ -52,11 +57,13 @@ import {
 	shouldExitSelectionOnNavigate,
 } from "@/lib/selection-mode";
 import { cn } from "@/lib/utils";
-import { useWizardStepValue } from "@/lib/wizard-history";
+import { useOpenWizard, useWizardStepValue } from "@/lib/wizard-history";
 import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import { MoveToTrigger } from "./MoveToTrigger";
-import { MobileOrganizeFlow } from "./organize/MobileOrganizeFlow";
-import { OrganizeDialog } from "./organize/OrganizeDialog";
+import {
+	SelectionWizardHost,
+	type WizardSelectionMessage,
+} from "./SelectionWizardHost";
 import { SwipeableMessageRow } from "./SwipeableMessageRow";
 
 /**
@@ -234,13 +241,11 @@ export const MessageList = ({
 	const navigate = useNavigate();
 	const isDesktop = useIsDesktop();
 	const wizardStep = useWizardStepValue();
-	const [organizeOpen, setOrganizeOpen] = useState(false);
-	// Mobile only: which selection-sheet entry opened the guided organize flow
-	// (`null` when closed). Desktop uses `organizeOpen` + `OrganizeDialog`
-	// instead — a sheet is a touch pattern (issue #211).
-	const [mobileOrganizeEntry, setMobileOrganizeEntry] = useState<
-		"select-similar" | "something-else" | null
-	>(null);
+	const openWizard = useOpenWizard();
+	// The verb the bar was pressed for. The wizard itself is open for as long as
+	// the URL holds a step, so a back that pops the last one closes it without
+	// anything here having to hear about it.
+	const [wizardVerb, setWizardVerb] = useState<Verb>("organize");
 	const isSearching = !!searchQuery?.trim();
 	const listHeaderChrome = useListHeaderChrome();
 	const { labels } = useLabelList(accountId);
@@ -316,13 +321,6 @@ export const MessageList = ({
 	// in multi-select mode (#115). A separate flag needs an effect to reconcile
 	// it back to the count, and across that render the two disagree.
 	const isMultiSelectMode = deriveIsMultiSelectMode(selectedCount, isDesktop);
-
-	// When the selection empties — cancel, a completed action, a mailbox switch —
-	// the guided organize entry must reset too, so a later re-selection doesn't
-	// reopen the flow on a stale entry (issue #211).
-	useEffect(() => {
-		if (selectedCount === 0) setMobileOrganizeEntry(null);
-	}, [selectedCount]);
 
 	// Pending delete, awaiting confirmation. `null` means the dialog is closed.
 	// `source: "ids"` snapshots the concrete ids at request time so a selection
@@ -511,17 +509,23 @@ export const MessageList = ({
 	// false for a plain click (caller lets the Link navigate).
 	const orderedIds = useMemo(() => threads.map((t) => t.messageId), [threads]);
 
-	// Sender addresses of the checked rows, for the organize widen's literal
-	// fallback when this deployment ships no vector pipeline (the sheet matches
-	// all mail from these senders). Read off the already-loaded thread rows, so
-	// no extra round-trip; the widen hook dedupes.
-	const selectedSenders = useMemo(() => {
-		const emails: string[] = [];
+	// The checked rows as the wizard reads them: the sample it shows under every
+	// screen that names a match, and the senders its widen falls back to on a
+	// deployment with no vector pipeline. Read off the already-loaded thread rows,
+	// so no extra round-trip.
+	const wizardSelection = useMemo<WizardSelectionMessage[]>(() => {
+		const rows: WizardSelectionMessage[] = [];
 		for (const thread of threads) {
 			if (!selectedIds.has(thread.messageId)) continue;
-			if (thread.fromEmail) emails.push(thread.fromEmail);
+			rows.push({
+				id: thread.messageId,
+				sender: thread.fromName ?? thread.fromEmail ?? "Unknown",
+				email: thread.fromEmail ?? "",
+				subject: thread.subject ?? "(No subject)",
+				date: formatEmailDate(thread.sentDate),
+			});
 		}
-		return emails;
+		return rows;
 	}, [threads, selectedIds]);
 	const handleRowSelect = useCallback(
 		(messageId: string, modifiers: SelectionModifiers): boolean => {
@@ -876,6 +880,25 @@ export const MessageList = ({
 		}
 		return undefined;
 	}, [selectedCount, selectedIds, threads]);
+
+	// Every verb on the bar opens the wizard on the ticked rows (#477 1.4). It is
+	// withdrawn the moment the selection escalates to a predicate or a run takes
+	// over: an escalated selection is a predicate, which no bounded list of ids
+	// stands in for (#477 3.1), and keeps the bar's own chunked runner.
+	const canOpenWizard =
+		!!accountId &&
+		!!mailboxId &&
+		!moveDisabledHint &&
+		escalation.phase.kind === "idle" &&
+		!escalation.isRunning;
+
+	const startWizard = useCallback(
+		(verb: Verb) => {
+			setWizardVerb(verb);
+			openWizard("match");
+		},
+		[openWizard],
+	);
 
 	// Swipe-to-delete single message
 	const handleSwipeDelete = useCallback(
@@ -1285,15 +1308,10 @@ export const MessageList = ({
 							}
 						: undefined;
 
-	// The bar shows one notice at a time, so the cross-account move restriction
-	// rides in behind the escalation states.
-	const selectionNotice =
-		escalationNotice ??
-		(moveDisabledHint
-			? { tone: "warning" as const, text: moveDisabledHint }
-			: undefined);
-
+	// An escalated selection is a predicate the wizard cannot take, so Move there
+	// keeps the caller's own folder picker and the chunked predicate run (#114).
 	const selectionMoveSlot =
+		!canOpenWizard &&
 		(onMoveMessages || escalation.phase.kind === "escalated") &&
 		accountId &&
 		mailboxId ? (
@@ -1306,28 +1324,13 @@ export const MessageList = ({
 			/>
 		) : undefined;
 
-	// The guided organize flow (issue #211) covers the pane, which is its
-	// positioned ancestor.
-	const mobileOrganizeFlow =
-		mobileOrganizeEntry && accountId && !isDesktop && selectedCount > 0 ? (
-			<MobileOrganizeFlow
-				entry={mobileOrganizeEntry}
-				accountId={accountId}
-				selectedMessageIds={Array.from(selectedIds)}
-				selectedSenders={selectedSenders}
-				junkMailboxId={junkMailboxId}
-				onClose={() => {
-					setMobileOrganizeEntry(null);
-					exitSelection();
-				}}
-			/>
-		) : undefined;
-
-	// Organize acts on the materialized selection within one account, so it is
-	// withdrawn the moment the selection escalates to a predicate or a run
-	// takes over — both of which name themselves through `statusLabel`.
-	const canOrganize =
-		!!accountId && !!mailboxId && !moveDisabledHint && !selectionStatusLabel;
+	// The bar shows one notice at a time, so the cross-account move restriction
+	// rides in behind the escalation states.
+	const selectionNotice =
+		escalationNotice ??
+		(moveDisabledHint
+			? { tone: "warning" as const, text: moveDisabledHint }
+			: undefined);
 
 	// One selection surface at every width, always mounted: it is the list
 	// header. With nothing ticked it names the mailbox and carries the header's
@@ -1345,27 +1348,22 @@ export const MessageList = ({
 			idleSlot={listHeaderChrome.makeFilterSlot}
 			count={selectionCount}
 			onCancel={handleSelectionCancel}
-			onDelete={handleSelectionDelete}
-			onOrganize={
-				canOrganize
-					? () =>
-							isDesktop
-								? setOrganizeOpen(true)
-								: setMobileOrganizeEntry("select-similar")
-					: undefined
+			onDelete={
+				canOpenWizard ? () => startWizard("delete") : handleSelectionDelete
 			}
+			onMove={canOpenWizard ? () => startWizard("move") : undefined}
+			moveSlot={selectionMoveSlot}
+			onOrganize={canOpenWizard ? () => startWizard("organize") : undefined}
 			onJunk={
 				junkMailboxId && junkMailboxId !== mailboxId && !moveDisabledHint
-					? handleJunk
+					? canOpenWizard
+						? () => startWizard("junk")
+						: handleJunk
 					: undefined
 			}
-			onMarkRead={handleMarkAsRead}
-			onSomethingElse={
-				canOrganize && !isDesktop
-					? () => setMobileOrganizeEntry("something-else")
-					: undefined
+			onMarkRead={
+				canOpenWizard ? () => startWizard("markRead") : handleMarkAsRead
 			}
-			moveSlot={selectionMoveSlot}
 			overflowSlot={
 				accountId && mailboxId && selectedCount > 0 && labels.length > 0 ? (
 					<LabelApplyTrigger
@@ -1520,7 +1518,6 @@ export const MessageList = ({
 				isDesktop={isDesktop}
 				hideHeader={hideHeader}
 				selectionBar={activeSelectionBar}
-				paneOverlay={mobileOrganizeFlow}
 				listBody={
 					listHeaderChrome.searchResults ??
 					(listState === "ready" ? virtualBody : undefined)
@@ -1543,15 +1540,14 @@ export const MessageList = ({
 				onConfirm={handleConfirmDelete}
 				onCancel={handleCancelDelete}
 			/>
-			{organizeOpen && accountId && (
-				<OrganizeDialog
-					open={organizeOpen}
-					accountId={accountId}
-					selectedMessageIds={Array.from(selectedIds)}
-					selectedSenders={selectedSenders}
-					onClose={() => setOrganizeOpen(false)}
-				/>
-			)}
+			<SelectionWizardHost
+				verb={wizardVerb}
+				accountId={accountId}
+				mailboxId={mailboxId}
+				selection={wizardSelection}
+				crossAccount={moveDisabledHint !== undefined}
+				onFinished={exitSelection}
+			/>
 		</>
 	);
 };

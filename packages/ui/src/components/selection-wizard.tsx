@@ -28,6 +28,7 @@ import {
 	matchPhrase,
 	matchSummary,
 	type RunCopy,
+	type RunOutcome,
 	type RunState,
 	runCopy,
 	type SampleEmptyReason,
@@ -611,16 +612,26 @@ export interface RuleStepProps {
 	draft: WizardDraft;
 	onScopeChange: (scope: RuleScope) => void;
 	onUntilChange: (until: string) => void;
+	/**
+	 * Why the two persisting scopes cannot be reached from here — a selection
+	 * spanning accounts has no single account to create the rule for (#477 5.5).
+	 * They stay pressable and say this; the one-off scope is unaffected.
+	 */
+	restriction?: string;
 }
 
 export function RuleStepBody({
 	draft,
 	onScopeChange,
 	onUntilChange,
+	restriction,
 }: RuleStepProps) {
 	const untilId = useId();
 	const { scope, until = "" } = draft;
 	const unreadable = unreadableDraftClauses(draft).length > 0;
+	const restricted = restriction && (
+		<p className="px-1 text-2xs text-warning">{restriction}</p>
+	);
 
 	return (
 		<div className="space-y-2">
@@ -638,16 +649,21 @@ export function RuleStepBody({
 			</ChoiceCard>
 			<ChoiceCard
 				selected={scope === "standing"}
+				unavailable={Boolean(restriction)}
 				onSelect={() => onScopeChange("standing")}
 				title={scopeLabel("standing")}
 				description="Saves a rule and applies it to new mail as it arrives, and to the mail already in your mailbox. You'll name it next."
-			/>
+			>
+				{restricted}
+			</ChoiceCard>
 			<ChoiceCard
 				selected={scope === "until"}
+				unavailable={Boolean(restriction)}
 				onSelect={() => onScopeChange("until")}
 				title={scopeLabel("until")}
 				description="The same rule, and it stops on a day you pick."
 			>
+				{restricted}
 				{scope === "until" && (
 					<div className="rounded-lg border border-line bg-surface p-2">
 						<FieldLabel htmlFor={untilId}>Stops on</FieldLabel>
@@ -753,7 +769,7 @@ export function ReviewStepBody({
 				<p className="text-sm text-fg">
 					<span className="font-semibold">{label}</span>{" "}
 					{matchPhrase(description)}
-					{verb === "move" && folder ? ` to ${folder}` : ""}
+					{folder ? ` to ${folder}` : ""}
 					{persists && (
 						<>
 							{" "}
@@ -818,9 +834,24 @@ export interface RunStepProps {
 	applied: number;
 	/** The messages the mail server rejected, named one by one. */
 	failures: readonly WizardMessage[];
+	/**
+	 * How many the mail server rejected, when that is more than can be named. A
+	 * server-side pass reports its own failure count without handing back the
+	 * messages behind it; defaults to the ones named here.
+	 */
+	failedCount?: number;
 	onRetry: () => void;
 	onDismiss: () => void;
 }
+
+const runOutcomeOf = (props: RunStepProps): RunOutcome => ({
+	state: props.state,
+	verb: props.verb,
+	scope: props.scope,
+	matched: props.matched,
+	applied: props.applied,
+	failed: props.failedCount ?? props.failures.length,
+});
 
 const runIcon = (tone: RunCopy["tone"]): ReactNode => {
 	if (tone === "progress") {
@@ -837,22 +868,9 @@ const runIcon = (tone: RunCopy["tone"]): ReactNode => {
 	);
 };
 
-export function RunStepBody({
-	state,
-	verb,
-	scope,
-	matched,
-	applied,
-	failures,
-}: RunStepProps) {
-	const copy = runCopy({
-		state,
-		verb,
-		scope,
-		matched,
-		applied,
-		failed: failures.length,
-	});
+export function RunStepBody(props: RunStepProps) {
+	const { matched, applied, failures } = props;
+	const copy = runCopy(runOutcomeOf(props));
 
 	return (
 		<div className="space-y-4 pt-2">
@@ -866,7 +884,7 @@ export function RunStepBody({
 				<ProgressBar
 					value={applied}
 					max={matched}
-					tone={failures.length > 0 ? "warning" : "success"}
+					tone={applied < matched ? "warning" : "success"}
 				/>
 			)}
 
@@ -894,24 +912,9 @@ export function RunStepBody({
 	);
 }
 
-export function RunFooter({
-	state,
-	verb,
-	scope,
-	matched,
-	applied,
-	failures,
-	onRetry,
-	onDismiss,
-}: RunStepProps) {
-	const copy = runCopy({
-		state,
-		verb,
-		scope,
-		matched,
-		applied,
-		failed: failures.length,
-	});
+export function RunFooter(props: RunStepProps) {
+	const { onRetry, onDismiss } = props;
+	const copy = runCopy(runOutcomeOf(props));
 
 	if (copy.retryLabel === undefined) {
 		return (
@@ -1058,8 +1061,7 @@ export function SelectionWizard(props: SelectionWizardProps) {
 
 	const title = (): string => {
 		if (step !== "run") return screen.title ?? label;
-		const run = stepProps(props.run, step);
-		return runCopy({ ...run, failed: run.failures.length }).screenTitle;
+		return runCopy(runOutcomeOf(stepProps(props.run, step))).screenTitle;
 	};
 
 	return (

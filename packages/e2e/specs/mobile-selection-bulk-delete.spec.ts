@@ -34,6 +34,12 @@ import { ApiClient, waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages } from "../src/imap.js";
 import { readRunState } from "../src/state.js";
+import {
+	advanceTo,
+	commitButton,
+	dismissRun,
+	wizardStep,
+} from "../src/wizard.js";
 
 const MOBILE = { width: 390, height: 844 };
 test.use({ viewport: MOBILE });
@@ -472,24 +478,24 @@ test.describe("Confirm dialog", () => {
 		});
 	});
 
-	test("shows the count and the Move-to-Trash wording; cancelling deletes nothing", async ({
+	test("names what the delete covers, and cancelling it deletes nothing", async ({
 		page,
 		run,
 	}) => {
 		await selectTwoFromTop(page);
 
 		await deleteButton(page).click();
+		await expect(wizardStep(page)).toHaveText(/^Step 1 of 3 · Apply to$/, {
+			timeout: 20_000,
+		});
+		await advanceTo(page, "Review");
+		// A named match is never an unseen bulk action: the review states it as
+		// one sentence and closes with the messages themselves.
+		await expect(page.getByText(/Delete 2 messages/)).toBeVisible();
 
-		const dialog = confirmDialog(page);
-		await expect(dialog).toBeVisible();
-		await expect(dialog).toHaveAccessibleName("Move 2 messages to Trash?");
-		await expect(
-			dialog.getByText("You can restore them from Trash later."),
-		).toBeVisible();
+		await page.getByRole("button", { name: "Cancel" }).click();
 
-		await dialog.getByRole("button", { name: "Cancel" }).click();
-
-		await expect(dialog).toBeHidden();
+		await expect(wizardStep(page)).toHaveCount(0);
 		await expect(rows(page)).toHaveCount(run.seededSubjects.length);
 	});
 
@@ -529,9 +535,10 @@ test.describe("Confirm dialog", () => {
 		await expect(selectionStatus(page)).toHaveText("2 messages selected");
 
 		await deleteButton(page).click();
-		await confirmDialog(page)
-			.getByRole("button", { name: "Move to Trash" })
-			.click();
+		await advanceTo(page, "Review");
+		await commitButton(page, "Delete").click();
+		await expect(page.getByText("Deleted 2")).toBeVisible({ timeout: 30_000 });
+		await dismissRun(page);
 
 		await expect(selectionStatus(page)).toBeHidden();
 
@@ -542,13 +549,6 @@ test.describe("Confirm dialog", () => {
 			page.getByRole("button", { name: "Back to messages" }),
 		).toBeHidden();
 		await expect(page).not.toHaveURL(/selectedMessageId=/);
-		// The completion banner is the signal the delete landed, since the list
-		// gives no navigation cue that anything changed.
-		await expect(
-			page.getByText(
-				"2 moved to Trash. Your mail server is still catching up.",
-			),
-		).toBeVisible();
 		await expect(rows(page)).toHaveCount(run.seededSubjects.length);
 		for (const subject of subjects) {
 			await expect(page.getByText(subject, { exact: true })).toBeHidden();

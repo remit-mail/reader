@@ -112,8 +112,9 @@ export interface WizardAnswers {
 
 /**
  * The steps this flow walks, in order. The property door earns an editor step,
- * Move earns a destination step, Organize earns a scope step, and a scope that
- * persists earns a naming step.
+ * Move and Organize both earn a destination step — a rule that moves nothing is
+ * a rule with nothing to commit — Organize earns a scope step after it, and a
+ * scope that persists earns a naming step.
  */
 export const stepsFor = ({
 	verb,
@@ -129,9 +130,9 @@ export const stepsFor = ({
 	if (verb === "move") return [...opening, "folder", "review", "run"];
 	if (verb === "organize") {
 		if (scope === "standing" || scope === "until") {
-			return [...opening, "rule", "name", "review", "run"];
+			return [...opening, "folder", "rule", "name", "review", "run"];
 		}
-		return [...opening, "rule", "review", "run"];
+		return [...opening, "folder", "rule", "review", "run"];
 	}
 	return [...opening, "review", "run"];
 };
@@ -199,6 +200,15 @@ export const unreadableDraftClauses = (draft: WizardDraft): RuleClause[] =>
  * (#477 3.3), so there is nothing to wait for and nothing to display.
  */
 export type MatchCount = PreviewCount | { status: "uncounted" };
+
+/**
+ * Why a selection spanning accounts cannot become a rule (#477 5.5). A filter
+ * belongs to the account it was created for, so the two persisting scopes have
+ * nothing to attach to; the one-off scope acts on the messages themselves and is
+ * unaffected.
+ */
+export const crossAccountRuleReason =
+	"A rule only works within one account — clear the selection, or pick messages from a single account.";
 
 /** A clause chip that was added but never filled in. The rule editor has no equivalent — it holds its draft until the value is typed. */
 const INCOMPLETE_CLAUSE = "Fill in every property, or take the empty one off.";

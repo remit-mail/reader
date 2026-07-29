@@ -170,7 +170,7 @@ export function OrganizeRuleEditor({
 		return { id: label.labelId, name: label.name, color: label.color };
 	};
 
-	const preview = useRulePreview(
+	const { count: preview } = useRulePreview(
 		accountId,
 		rulePredicate(rule, anchorMessageId),
 		seedCount,

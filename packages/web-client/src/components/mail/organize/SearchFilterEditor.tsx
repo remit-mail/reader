@@ -78,7 +78,11 @@ export function SearchFilterEditor({
 		[mailboxesData?.items],
 	);
 
-	const preview = useRulePreview(accountId, rulePredicate(rule), seedCount);
+	const { count: preview } = useRulePreview(
+		accountId,
+		rulePredicate(rule),
+		seedCount,
+	);
 
 	const organizeJob = useOrganizeJob(accountId);
 	const createFilter = useCreateFilter(accountId);

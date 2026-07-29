@@ -4,12 +4,11 @@
  * managed. Scope and expiry are mutable on an existing filter (reader #266);
  * the semantic anchor is not.
  *
- * The organize sheet widens a selection with a semantic preview before it
- * commits a filter, and that vector index is deliberately not built on the e2e
- * lane (localhost-e2e-dev.env). So the loop is driven where it is observable:
- * the filters are seeded against the same `POST /accounts/{id}/filters` the
- * sheet ultimately calls, and the Settings › Filters UI is asserted over the
- * result — a standing filter reads Active, a lapsed temporary one reads Expired
+ * The wizard widens a selection with a semantic preview before it commits a
+ * filter, and that vector index is deliberately not built on the e2e lane
+ * (localhost-e2e-dev.env). So the loop is driven where it is observable: the
+ * filters are seeded against the same `POST /accounts/{id}/filters` the wizard
+ * ultimately calls, and the Settings › Filters UI is asserted over the result — a standing filter reads Active, a lapsed temporary one reads Expired
  * and is never dropped, and deleting one through the UI removes it.
  *
  * The filters are the only state this spec adds, and they touch nothing the

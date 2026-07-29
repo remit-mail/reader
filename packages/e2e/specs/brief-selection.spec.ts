@@ -19,6 +19,13 @@
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages } from "../src/imap.js";
+import {
+	advanceTo,
+	barDelete,
+	commitButton,
+	dismissRun,
+	wizardStep,
+} from "../src/wizard.js";
 
 const TABLET = { width: 800, height: 1106 };
 test.use({ viewport: TABLET });
@@ -39,11 +46,6 @@ const rowToggle = (row: Locator): Locator =>
  *  would otherwise answer to `role="status"` first. */
 const selectionStatus = (page: Page): Locator =>
 	page.locator("[data-selection-count]");
-
-const deleteButton = (page: Page): Locator =>
-	page.getByRole("button", { name: "Move selected messages to Trash" });
-
-const confirmDialog = (page: Page): Locator => page.getByRole("dialog");
 
 test.describe("Daily brief selection (#203)", () => {
 	const tag = `briefsel${Date.now()}`;
@@ -93,10 +95,17 @@ test.describe("Daily brief selection (#203)", () => {
 		await expect(selectionStatus(page)).toHaveText("2 messages selected");
 		await expect(page).not.toHaveURL(/selectedMessageId=/);
 
-		await deleteButton(page).click();
-		const dialog = confirmDialog(page);
-		await expect(dialog).toHaveAccessibleName("Move 2 messages to Trash?");
-		await dialog.getByRole("button", { name: "Move to Trash" }).click();
+		// Delete opens the wizard, the same surface every other verb opens, and
+		// ends on a review screen naming what it covers (#477 1.4).
+		await barDelete(page).click();
+		await expect(wizardStep(page)).toHaveText(/^Step 1 of 3 · Apply to$/, {
+			timeout: 20_000,
+		});
+		await advanceTo(page, "Review");
+		await expect(page.getByText(/Delete 2 messages/)).toBeVisible();
+		await commitButton(page, "Delete").click();
+		await expect(page.getByText("Deleted 2")).toBeVisible({ timeout: 30_000 });
+		await dismissRun(page);
 
 		// The brief stays on the list — no message opens — and the selected rows
 		// leave it.

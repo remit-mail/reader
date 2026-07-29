@@ -254,6 +254,8 @@ export const ruleToDraft = (
 export interface PreviewState {
 	/** The last count that came back, `undefined` before the first lands. */
 	count?: number;
+	/** The ids that count was counted over, as the server bounded them. */
+	matchedIds?: readonly string[];
 	/** The signature the {@link count} was counted for. */
 	previewedSignature?: string;
 	/** The signature the last error was raised for. */
