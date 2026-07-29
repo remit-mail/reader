@@ -695,10 +695,10 @@ function MailboxPaneProvider({
 		if (selectedThread) setToolbarComposeRequest("forward");
 	}, [ensureFocusedOpen, selectedThread, setToolbarComposeRequest]);
 
-	const triageTargetMessageIds = useCallback((): string[] => {
-		if (triageSelectedIds.length > 0) return triageSelectedIds;
-		return messageIdsForFocusedThread(focusedThread);
-	}, [triageSelectedIds, messageIdsForFocusedThread, focusedThread]);
+	const triageTargetMessageIds = useCallback(
+		(): string[] => messageIdsForFocusedThread(focusedThread),
+		[messageIdsForFocusedThread, focusedThread],
+	);
 
 	// Every verb the list can take, it takes: over a selection it opens the
 	// wizard, which is where a bulk action is reviewed before it reaches the mail
@@ -731,6 +731,10 @@ function MailboxPaneProvider({
 		focusedThread,
 	]);
 
+	// Star is the one verb that acts on a selection from here. It is not on the
+	// selection bar and not one of the five the wizard walks: it sets a flag on
+	// mail that is already in front of the user and unsets it the same way, so
+	// there is nothing for a review screen to name and nothing to undo.
 	const triageStar = useCallback(() => {
 		if (triageSelectedIds.length > 0) {
 			const nextStarred = !(focusedThread?.hasStars ?? false);

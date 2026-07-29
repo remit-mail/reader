@@ -482,6 +482,11 @@ export const MobilePhishing: Story = {
  * header is REPLACED by the selection bar (cancel + count + mark-read + delete,
  * real Buttons, never disabled), and each selected row's avatar becomes a
  * checkbox. Seeded with the first two rows checked.
+ *
+ * The verbs act on the mock's own rows — trashed rows leave the list, marked
+ * ones lose their unread dot. The app supplies its own bar here, where each
+ * verb opens the selection wizard instead; what this pins is the shape of the
+ * surface, not what a verb does to real mail.
  */
 export const MobileSelectionMode: Story = {
 	parameters: mobileParams,
