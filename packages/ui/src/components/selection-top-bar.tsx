@@ -101,7 +101,7 @@ export interface SelectionTopBarProps {
 	 * Overrides the default "{count} messages selected" text. Required once the
 	 * count's scope is anything other than "every loaded row is selected" —
 	 * an escalated selection ("All 3,412 matching \"npm\" selected"), a
-	 * counting state ("Counting… 1,900 so far"), or bulk-delete progress
+	 * counting state ("Counting matches…"), or bulk-delete progress
 	 * ("Deleting 1,200 of 3,412…"). When `selectAll.checked` is true and this
 	 * is omitted, the default text names the loaded-scope itself ("All 47
 	 * loaded selected") rather than a bare count — a ticked select-all box

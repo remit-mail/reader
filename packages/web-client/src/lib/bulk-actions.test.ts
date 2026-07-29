@@ -3,7 +3,6 @@ import { describe, test } from "node:test";
 import {
 	BULK_ACTION_CHUNK_SIZE,
 	chunkIds,
-	countMatches,
 	type FetchIdsPageResult,
 	honestProgress,
 	runChunkedAction,
@@ -297,67 +296,10 @@ describe("runPredicateAction", () => {
 	});
 });
 
-describe("countMatches", () => {
-	const neverCancelled = () => false;
-
-	test("counts across every page until the token is exhausted", async () => {
-		let call = 0;
-		const pages: FetchIdsPageResult[] = [
-			{ ids: ids(500, "a"), continuationToken: "t1" },
-			{ ids: ids(500, "b"), continuationToken: "t2" },
-			{ ids: ids(412, "c") },
-		];
-		const fetch = async () => pages[call++];
-		const outcome = await countMatches(fetch, () => undefined, neverCancelled);
-		assert.deepEqual(outcome, { total: 1412, cancelled: false });
-	});
-
-	test("reports a running total after each page", async () => {
-		let call = 0;
-		const pages: FetchIdsPageResult[] = [
-			{ ids: ids(500), continuationToken: "t1" },
-			{ ids: ids(300) },
-		];
-		const fetch = async () => pages[call++];
-		const progressCalls: number[] = [];
-		await countMatches(fetch, (n) => progressCalls.push(n), neverCancelled);
-		assert.deepEqual(progressCalls, [500, 800]);
-	});
-
-	test("cancelling mid-count stops paging and reports what it had so far", async () => {
-		let call = 0;
-		let cancelled = false;
-		const fetch = async (): Promise<FetchIdsPageResult> => {
-			call++;
-			return { ids: ids(500), continuationToken: "more" };
-		};
-		const outcome = await countMatches(
-			fetch,
-			() => {
-				cancelled = true;
-			},
-			() => cancelled,
-		);
-		assert.equal(outcome.cancelled, true);
-		assert.equal(call, 1);
-		assert.equal(outcome.total, 500);
-	});
-
-	test("an infra failure while paging stops the count and reports the error", async () => {
-		const boom = new Error("network blip");
-		const fetch = async (): Promise<FetchIdsPageResult> => {
-			throw boom;
-		};
-		const outcome = await countMatches(fetch, () => undefined, neverCancelled);
-		assert.equal(outcome.error, boom);
-		assert.equal(outcome.total, 0);
-	});
-});
-
 describe("honestProgress", () => {
-	// Regression for #109: `countMatches` and `runPredicateAction` page the
-	// same predicate independently, so the delete can outrun the frozen
-	// `total` it started with when the result set grows in between.
+	// Regression for #109: the count and `runPredicateAction` resolve the same
+	// predicate independently, so the delete can outrun the frozen `total` it
+	// started with when the result set grows in between.
 	test("leaves an on-track progress reading untouched", () => {
 		assert.deepEqual(honestProgress({ done: 50, total: 100 }), {
 			done: 50,

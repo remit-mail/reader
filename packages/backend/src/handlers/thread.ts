@@ -131,7 +131,6 @@ export interface ThreadSearchClient extends EnrichClient {
 			mailboxId: string,
 			search: ThreadSearch,
 			options?: {
-				limit?: number;
 				excludeDeleted?: boolean;
 				order?: "asc" | "desc";
 			},
@@ -160,8 +159,12 @@ export type ThreadSearchParams = {
  * Run a per-mailbox thread search: select the index/window read, optionally
  * count, and resolve off-row criteria by enriching+filtering the window. The
  * `results` toggle omits `items` (count-only) and `count` adds the match count.
- * Off-row criteria force a window read+enrich even in count-only mode, since no
- * Select:COUNT can see fields that aren't on the row.
+ *
+ * `count` names the whole match, never the page: a page size bounds the rows a
+ * response carries and has no bearing on how many messages match (#509). The
+ * one exception is an off-row criterion, which no Select:COUNT can see — those
+ * force a window read+enrich even in count-only mode, and the count that comes
+ * back is over the enriched window, which the API documents as such.
  */
 export const executeThreadSearch = async (
 	client: ThreadSearchClient,
@@ -226,11 +229,6 @@ export const executeThreadSearch = async (
 			accountConfigId,
 		);
 		response.continuationToken = window.continuationToken;
-		// The window read already yielded the exact match set, so the count is
-		// its length — no separate Select:COUNT, and count == items.length by
-		// construction.
-		if (wantCount) response.count = response.items.length;
-		return response;
 	}
 
 	if (wantCount) {
@@ -238,7 +236,7 @@ export const executeThreadSearch = async (
 			accountConfigId,
 			mailboxId,
 			search,
-			{ limit: params.limit, excludeDeleted: true, order: params.order },
+			{ excludeDeleted: true, order: params.order },
 		);
 	}
 

@@ -214,14 +214,14 @@ export const runPredicateAction = async (
 
 /**
  * Corrects a progress reading so its `total` can never read as less than
- * `done` (#109). `runPredicateAction`'s `total` is `countMatches`'s frozen
- * page-through, taken before the run re-pages the same predicate a second,
- * independent time; if more matches arrived in between, `done` can overtake
- * it mid-run and a raw "Deleting 1,340 of 1,284" would follow. Widening the
- * denominator to match keeps the bar's ratio sane (never past 100%) without
- * claiming the original count was exact — the honest fix is admitting the
- * estimate grew, not re-paging to reconcile it (the result set is live; a
- * second count taken any later is no less stale than the first).
+ * `done` (#109). `runPredicateAction`'s `total` is the count the server gave
+ * before the run resolved the same predicate a second, independent time; if
+ * more matches arrived in between, `done` can overtake it mid-run and a raw
+ * "Deleting 1,340 of 1,284" would follow. Widening the denominator to match
+ * keeps the bar's ratio sane (never past 100%) without claiming the original
+ * count was exact — the honest fix is admitting the reading grew, not taking a
+ * second count to reconcile it (the result set is live; a count taken any
+ * later is no less stale than the first).
  */
 export const honestProgress = (
 	progress: BulkActionProgress,
@@ -229,45 +229,6 @@ export const honestProgress = (
 	done: progress.done,
 	total: Math.max(progress.total, progress.done),
 });
-
-export interface CountMatchesResult {
-	total: number;
-	cancelled: boolean;
-	error?: unknown;
-}
-
-/**
- * Pages the full predicate result set to find its exact total — the only way,
- * short of a server-side total (out of scope, see issue #92), since search has
- * no total-count field beyond a small capped-window estimate. Reports a
- * running count via `onProgress` so a long count reads as progressing rather
- * than hung, and checks `isCancelled` between pages so Stop takes effect
- * within one page's latency.
- */
-export const countMatches = async (
-	fetchIdsPage: FetchIdsPage,
-	onProgress: (countSoFar: number) => void,
-	isCancelled: () => boolean,
-): Promise<CountMatchesResult> => {
-	let total = 0;
-	let token: string | undefined;
-
-	do {
-		if (isCancelled()) {
-			return { total, cancelled: true };
-		}
-		const fetched = await attempt(fetchIdsPage(token));
-		if (!fetched.ok) {
-			return { total, cancelled: false, error: fetched.error };
-		}
-		const page = fetched.value;
-		total += page.ids.length;
-		onProgress(total);
-		token = page.continuationToken;
-	} while (token);
-
-	return { total, cancelled: false };
-};
 
 export interface BulkRunOutcome {
 	done: number;

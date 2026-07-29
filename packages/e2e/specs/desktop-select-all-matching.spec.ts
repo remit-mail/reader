@@ -42,21 +42,22 @@ const toolbarText = (page: Page, text: string): Locator => page.getByText(text);
  *  its own bottom. */
 const LOAD_MORE_TRIGGER_PX = 200;
 
-/** The page size `useEscalatedActions` pages its own counting and run requests
- *  at, which is what tells them apart from the list's browsing query. */
+/** The page size `useEscalatedActions` pages its run requests at, which is what
+ *  tells them apart from the list's browsing query. */
 const ESCALATION_PAGE_SIZE = "100";
 
 /**
  * The list's own browsing request for one query. Never `useEscalatedActions`'s
- * counting or run requests: since #306 the browsing query sends the list page
- * size explicitly, so the page size asked for is what separates the two.
+ * count or run requests: the count asks for `count=true` and no rows, and the
+ * run pages at its own size, which since #306 the browsing query never uses.
  */
 const isBrowsingSearchRequest = (url: string, query: string): boolean => {
 	const parsed = new URL(url);
 	return (
 		parsed.pathname.endsWith("/threads/search") &&
 		parsed.searchParams.get("query") === query &&
-		parsed.searchParams.get("limit") !== ESCALATION_PAGE_SIZE
+		parsed.searchParams.get("limit") !== ESCALATION_PAGE_SIZE &&
+		parsed.searchParams.get("count") !== "true"
 	);
 };
 
@@ -100,12 +101,10 @@ const gotoSearch = async (
 /**
  * Forces `hasMore` true for one mailbox search term without seeding more
  * matches than a page holds. Only the list's own browsing request is touched;
- * `useEscalatedActions`'s counting and run requests are handed straight through,
- * identified by the page size they ask for. That is the one thing separating
- * them: since #306 the browsing query sends the list page size explicitly, so
- * "carries no `limit`" no longer identifies anything. Real items are handed
- * through untouched; only a `continuationToken` is injected when the response
- * lacked one. Returns a release that stops forcing.
+ * `useEscalatedActions`'s count and run requests are handed straight through,
+ * identified by what they ask for — a count with no rows, or the run's own page
+ * size. Real items are handed through untouched; only a `continuationToken` is
+ * injected when the response lacked one. Returns a release that stops forcing.
  */
 const forceMoreMatchesThanLoaded = async (
 	page: Page,
@@ -247,7 +246,7 @@ test.describe("Desktop select-all-matching over search results", () => {
 		await offer.click();
 
 		// Past counting: the selection is now the predicate, its total named. The
-		// count is real — escalate() pages the match set itself at limit=100.
+		// count is real — escalate() asks the server how many match, unmocked.
 		await expect(
 			toolbarText(page, `All ${COUNT} matching "${QUERY}" selected`),
 		).toBeVisible({ timeout: 15_000 });

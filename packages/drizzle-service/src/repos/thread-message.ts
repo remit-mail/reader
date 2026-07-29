@@ -876,21 +876,19 @@ export class DrizzleThreadMessageRepository
 	}
 
 	/**
-	 * COUNT of matches over the SAME predicate as `searchByMailboxWindow`, capped
-	 * at the same clamped limit so `count` never exceeds one page — count equals
-	 * `items.length` whenever both are issued with the same limit.
+	 * COUNT of matches over the SAME predicate as `searchByMailboxWindow`, over
+	 * the whole mailbox. `THREAD_SEARCH_MAX_LIMIT` bounds a page of rows; a count
+	 * returns no rows, so it is answered in full however many messages match.
 	 */
 	async countByMailbox(
 		accountConfigId: string,
 		mailboxId: string,
 		search: SearchOptions,
 		options?: {
-			limit?: number;
 			excludeDeleted?: boolean;
 			order?: "asc" | "desc";
 		},
 	): Promise<number> {
-		const cap = clampThreadSearchLimit(options?.limit);
 		const [{ count }] = await this.db
 			.select({ count: sql<number>`cast(count(*) as int)` })
 			.from(threadMessageTable)
@@ -904,7 +902,7 @@ export class DrizzleThreadMessageRepository
 					...buildSearchConditions(search),
 				),
 			);
-		return Math.min(count, cap);
+		return count;
 	}
 
 	async listAllByAccount(

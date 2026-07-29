@@ -241,15 +241,15 @@ describe("DrizzleThreadMessageRepository.searchByMailboxWindow / countByMailbox"
 			acct,
 			mbx,
 			{ subject: "match" },
-			{ excludeDeleted: true, limit: 2 },
+			{ excludeDeleted: true },
 		);
-		assert.equal(count, 2, "count is capped at the page limit when more match");
+		assert.equal(count, 4, "count names every match, not one page of them");
 	});
 
 	// ── Scenario 5 ────────────────────────────────────────────────────────────
-	// desc default: the first page holds the newest matches; count equals the
-	// page length when more rows match than the limit.
-	test("desc page holds the newest matches and count equals items.length", async () => {
+	// desc default: the first page holds the newest matches; the count names the
+	// whole match set behind that page.
+	test("desc page holds the newest matches and the count names the whole match", async () => {
 		const acct = uuid();
 		const mbx = uuid();
 		const now = Date.now();
@@ -277,14 +277,13 @@ describe("DrizzleThreadMessageRepository.searchByMailboxWindow / countByMailbox"
 			acct,
 			mbx,
 			{ subject: "alpha" },
-			{ excludeDeleted: true, limit: 2 },
+			{ excludeDeleted: true },
 		);
-		assert.equal(count, window.items.length, "count == items.length");
-		assert.equal(count, 2);
+		assert.equal(count, 5, "every alpha row is counted, not the page of two");
 	});
 
 	// ── Scenario 6 ────────────────────────────────────────────────────────────
-	// order:asc returns the OLDEST matches first; count agrees with the page.
+	// order:asc returns the OLDEST matches first; the count is order-independent.
 	test("order:asc returns the oldest matches first", async () => {
 		const acct = uuid();
 		const mbx = uuid();
@@ -317,10 +316,9 @@ describe("DrizzleThreadMessageRepository.searchByMailboxWindow / countByMailbox"
 			acct,
 			mbx,
 			{ subject: "beta" },
-			{ excludeDeleted: true, limit: 2, order: "asc" },
+			{ excludeDeleted: true, order: "asc" },
 		);
-		assert.equal(count, window.items.length, "count == items.length for asc");
-		assert.equal(count, 2);
+		assert.equal(count, 5, "asc counts the whole match set too");
 	});
 });
 

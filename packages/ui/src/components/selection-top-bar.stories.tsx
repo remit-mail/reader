@@ -254,34 +254,20 @@ export const Escalated: Story = {
 };
 
 /**
- * While a search result set is still paging, the exact count isn't known
- * yet — a running total instead of a static "Counting…", the verbs hidden
- * (nothing to act on with an unknown total), and an explicit Stop.
+ * While the server is answering how many messages the search matches, the total
+ * isn't on screen yet — the verbs are hidden (nothing to act on without it) and
+ * Stop drops the escalation.
  */
 export const Counting: Story = {
 	args: {
 		count: 0,
 		isCounting: true,
-		statusLabel: "Counting… 1,900 so far",
+		statusLabel: "Counting matches…",
 		selectAll: {
 			checked: true,
 			indeterminate: false,
 			onChange: () => undefined,
 		},
-		notice: {
-			tone: "info",
-			text: "",
-			action: { label: "Stop", onClick: () => undefined },
-		},
-	},
-};
-
-/** Past ~10s the counting state says so, rather than looking stuck. */
-export const CountingLargeResultSet: Story = {
-	args: {
-		count: 0,
-		isCounting: true,
-		statusLabel: "Counting… 12,400 so far. This is a big result set.",
 		notice: {
 			tone: "info",
 			text: "",

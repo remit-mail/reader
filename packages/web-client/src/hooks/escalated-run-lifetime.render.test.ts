@@ -42,10 +42,12 @@ interface MailServer {
 /**
  * A search that pages `TOTAL` ids at the hook's own page size, keyed by the
  * query, so a run started against one predicate is distinguishable from a run
- * that followed the list onto a later one.
+ * that followed the list onto a later one. A count-only request is answered
+ * with the whole match set in one response, as the server answers it.
  */
 const searchPage = (url: URL): unknown => {
 	const query = url.searchParams.get("query") ?? "";
+	if (url.searchParams.get("results") === "false") return { count: TOTAL };
 	const served = Number(url.searchParams.get("continuationToken") ?? "0");
 	const size = Math.min(PAGE_SIZE, Math.max(TOTAL - served, 0));
 	return {
