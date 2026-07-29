@@ -21,6 +21,7 @@ import { Fragment, type ReactNode, useEffect, useId, useRef } from "react";
 import { cn } from "../lib/cn.js";
 import {
 	backExits,
+	type MatchCount,
 	type MatchMode,
 	matchDoorHint,
 	matchDoorLabel,
@@ -34,8 +35,10 @@ import {
 	sampleEmptyCopy,
 	stepIndex,
 	stepLabel,
+	unreadableDraftClauses,
 	type Verb,
 	verbCopy,
+	type WizardDraft,
 } from "../lib/wizard-steps.js";
 import { Badge } from "./badge.js";
 import { Button } from "./button.js";
@@ -50,10 +53,8 @@ import {
 	type ClauseField,
 	commitLabel,
 	type MatchOperator,
-	matchesBodyText,
 	matchJoinWord,
 	matchOperatorLabel,
-	type PreviewCount,
 	previewCountSummary,
 	type RuleClause,
 	type RuleScope,
@@ -237,25 +238,22 @@ export interface SelectionSampleProps {
 	/**
 	 * The server's count of what the match covers (#477 5.3), carrying whether it
 	 * is still moving so nothing commits against a number that is about to change.
-	 * Absent for a widened door, which carries no count at all until it has run.
+	 * `uncounted` is the widened door, which carries no count until it has run.
 	 */
-	preview?: PreviewCount;
+	count: MatchCount;
 	label: string;
 	/** Why there are no rows. Defaults to nothing matching, never to a bare empty state. */
 	emptyReason?: SampleEmptyReason;
 }
 
-const sampleFooter = (
-	preview: PreviewCount | undefined,
-	shown: number,
-): string => {
-	if (preview === undefined) {
+const sampleFooter = (count: MatchCount, shown: number): string => {
+	if (count.status === "uncounted") {
 		return "The first matches. The total is not known until the run finishes.";
 	}
-	if (preview.status === "ready" && preview.count > shown && !preview.stale) {
-		return `and ${preview.count - shown} more`;
+	if (count.status === "ready" && count.count > shown && !count.stale) {
+		return `and ${count.count - shown} more`;
 	}
-	return previewCountSummary(preview);
+	return previewCountSummary(count);
 };
 
 /**
@@ -265,7 +263,7 @@ const sampleFooter = (
  */
 export function SelectionSample({
 	messages,
-	preview,
+	count,
 	label,
 	emptyReason,
 }: SelectionSampleProps) {
@@ -298,7 +296,7 @@ export function SelectionSample({
 						))}
 					</ul>
 					<p className="shrink-0 border-t border-line px-3 py-2 text-2xs text-fg-subtle">
-						{sampleFooter(preview, messages.length)}
+						{sampleFooter(count, messages.length)}
 					</p>
 				</>
 			)}
@@ -604,27 +602,25 @@ export function FolderStepBody({
 }
 
 export interface RuleStepProps {
-	scope?: RuleScope;
-	onScopeChange: (scope: RuleScope) => void;
-	/** ISO 8601 civil date (`YYYY-MM-DD`). */
-	until: string;
-	onUntilChange: (until: string) => void;
 	/**
-	 * The rule's clauses. A `HasWords` clause is only readable by the index-time
-	 * matcher, so this is where a one-time apply says it cannot serve one.
+	 * The rule so far. The scope and its stop date are answered here; the rest is
+	 * read, because whether a one-time apply can serve this rule depends on what
+	 * is matching it — a body-text clause is unreadable under the literal matcher
+	 * and perfectly readable under the semantic widen.
 	 */
-	clauses: readonly RuleClause[];
+	draft: WizardDraft;
+	onScopeChange: (scope: RuleScope) => void;
+	onUntilChange: (until: string) => void;
 }
 
 export function RuleStepBody({
-	scope,
+	draft,
 	onScopeChange,
-	until,
 	onUntilChange,
-	clauses,
 }: RuleStepProps) {
 	const untilId = useId();
-	const bodyText = clauses.some((clause) => matchesBodyText(clause.field));
+	const { scope, until = "" } = draft;
+	const unreadable = unreadableDraftClauses(draft).length > 0;
 
 	return (
 		<div className="space-y-2">
@@ -634,7 +630,7 @@ export function RuleStepBody({
 				title={scopeLabel("once")}
 				description="A one-off tidy-up. Nothing changes for future mail."
 			>
-				{bodyText && (
+				{unreadable && (
 					<p className="px-1 text-2xs text-warning">
 						{ruleBlockedCopy.bodyTextOnce}
 					</p>

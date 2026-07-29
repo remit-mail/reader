@@ -20,6 +20,7 @@ import {
 	type RuleClause,
 	type RuleMatchMode,
 	type RuleScope,
+	type RuleWiden,
 	ruleBlockedCopy,
 	unreadableBodyClauses,
 	widenChipLabel,
@@ -158,6 +159,13 @@ export const backExits = (steps: readonly StepId[], step: StepId): boolean =>
 export interface WizardDraft {
 	clauses: readonly RuleClause[];
 	matchOperator: MatchOperator;
+	/**
+	 * The semantic widen the similar door rides on. Present makes the widen the
+	 * matcher, and it reads message bodies — so a body-text clause the user left
+	 * behind on the property door is readable here, and must not be held against
+	 * a one-time apply.
+	 */
+	widen?: RuleWiden;
 	/** The Move destination. Absent until the folder step is answered. */
 	moveMailboxId?: string;
 	/** Absent until the scope step is answered. */
@@ -170,11 +178,27 @@ export interface WizardDraft {
 const asRule = (draft: WizardDraft, scope: RuleScope): FilterRule => ({
 	clauses: [...draft.clauses],
 	matchOperator: draft.matchOperator,
+	widen: draft.widen,
 	moveMailboxId: draft.moveMailboxId,
 	scope,
 	until: draft.until,
 	name: draft.name,
 });
+
+/**
+ * The draft's body-text clauses that nothing on its current match path can read.
+ * Empty whenever the semantic widen is carrying the match, because the widen
+ * reads bodies; empty for a rule with no body-text clause at all.
+ */
+export const unreadableDraftClauses = (draft: WizardDraft): RuleClause[] =>
+	unreadableBodyClauses(asRule(draft, draft.scope ?? "once"));
+
+/**
+ * The count the wizard is committing against. `uncounted` is a stated answer,
+ * not a missing one: neither widened door carries a count until it has run
+ * (#477 3.3), so there is nothing to wait for and nothing to display.
+ */
+export type MatchCount = PreviewCount | { status: "uncounted" };
 
 /** A clause chip that was added but never filled in. The rule editor has no equivalent — it holds its draft until the value is typed. */
 const INCOMPLETE_CLAUSE = "Fill in every property, or take the empty one off.";
@@ -196,7 +220,7 @@ const NO_SCOPE = "Choose one of the three first.";
 export const stepBlockedReason = (
 	step: StepId,
 	draft: WizardDraft,
-	preview?: PreviewCount,
+	count: MatchCount,
 ): string | undefined => {
 	if (step === "properties") {
 		if (draft.clauses.length === 0) return ruleBlockedCopy.noMatch;
@@ -210,10 +234,7 @@ export const stepBlockedReason = (
 	}
 	if (step === "rule") {
 		if (!draft.scope) return NO_SCOPE;
-		if (
-			draft.scope === "once" &&
-			unreadableBodyClauses(asRule(draft, draft.scope)).length > 0
-		) {
+		if (draft.scope === "once" && unreadableDraftClauses(draft).length > 0) {
 			return ruleBlockedCopy.bodyTextOnce;
 		}
 		if (draft.scope === "until" && !draft.until?.trim()) {
@@ -222,8 +243,11 @@ export const stepBlockedReason = (
 		return undefined;
 	}
 	if (step === "name" && !draft.name?.trim()) return ruleBlockedCopy.unnamed;
-	// A widened door has no count to settle, so there is nothing to wait for.
-	if (step === "review" && preview) return previewSettledReason(preview);
+	if (step === "review") {
+		return count.status === "uncounted"
+			? undefined
+			: previewSettledReason(count);
+	}
 	return undefined;
 };
 
@@ -305,7 +329,8 @@ export const runCopy = ({
 	const standing = scope === "standing" || scope === "until";
 	const inFlight = state === "saving" || state === "backApplyRunning";
 	const shared = {
-		screenTitle: inFlight ? label : "Done",
+		// A create that failed did not finish, so the header does not say it did.
+		screenTitle: inFlight || state === "commitFailed" ? label : "Done",
 		showProgress:
 			state === "backApplyRunning" ||
 			state === "backApplyComplete" ||

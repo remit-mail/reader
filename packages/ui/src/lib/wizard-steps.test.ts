@@ -9,6 +9,7 @@ import {
 	backExits,
 	clauseSentence,
 	clauseWords,
+	type MatchCount,
 	type MatchMode,
 	matchDoorHint,
 	matchDoorLabel,
@@ -22,6 +23,7 @@ import {
 	stepIndex,
 	stepLabel,
 	stepsFor,
+	unreadableDraftClauses,
 	type Verb,
 	verbCopy,
 	type WizardDraft,
@@ -248,6 +250,8 @@ describe("backExits", () => {
 	});
 });
 
+const UNCOUNTED: MatchCount = { status: "uncounted" };
+
 describe("stepBlockedReason", () => {
 	const draft = (over: Partial<WizardDraft> = {}): WizardDraft => ({
 		clauses: [],
@@ -257,13 +261,14 @@ describe("stepBlockedReason", () => {
 
 	it("names what the properties step is missing, in the rule editor's words", () => {
 		assert.equal(
-			stepBlockedReason("properties", draft()),
+			stepBlockedReason("properties", draft(), UNCOUNTED),
 			ruleBlockedCopy.noMatch,
 		);
 		assert.equal(
 			stepBlockedReason(
 				"properties",
 				draft({ clauses: [clause("From", " ")] }),
+				UNCOUNTED,
 			),
 			"Fill in every property, or take the empty one off.",
 		);
@@ -271,6 +276,7 @@ describe("stepBlockedReason", () => {
 			stepBlockedReason(
 				"properties",
 				draft({ clauses: [clause("From", "a@b.example")] }),
+				UNCOUNTED,
 			),
 			undefined,
 		);
@@ -278,11 +284,15 @@ describe("stepBlockedReason", () => {
 
 	it("names what the folder step is missing", () => {
 		assert.equal(
-			stepBlockedReason("folder", draft()),
+			stepBlockedReason("folder", draft(), UNCOUNTED),
 			"Pick a destination first.",
 		);
 		assert.equal(
-			stepBlockedReason("folder", draft({ moveMailboxId: "mbx-travel" })),
+			stepBlockedReason(
+				"folder",
+				draft({ moveMailboxId: "mbx-travel" }),
+				UNCOUNTED,
+			),
 			undefined,
 		);
 	});
@@ -290,42 +300,53 @@ describe("stepBlockedReason", () => {
 	it("says a one-time apply cannot read message bodies, where the scope is chosen", () => {
 		const clauses = [clause("HasWords", "boarding pass")];
 		assert.equal(
-			stepBlockedReason("rule", draft({ clauses, scope: "once" })),
+			stepBlockedReason("rule", draft({ clauses, scope: "once" }), UNCOUNTED),
 			ruleBlockedCopy.bodyTextOnce,
 		);
 		assert.equal(
-			stepBlockedReason("rule", draft({ clauses, scope: "standing" })),
+			stepBlockedReason(
+				"rule",
+				draft({ clauses, scope: "standing" }),
+				UNCOUNTED,
+			),
 			undefined,
 		);
 	});
 
 	it("names what the scope step is missing", () => {
 		assert.equal(
-			stepBlockedReason("rule", draft()),
+			stepBlockedReason("rule", draft(), UNCOUNTED),
 			"Choose one of the three first.",
 		);
 		assert.equal(
-			stepBlockedReason("rule", draft({ scope: "until" })),
+			stepBlockedReason("rule", draft({ scope: "until" }), UNCOUNTED),
 			ruleBlockedCopy.noUntilDate,
 		);
 		assert.equal(
-			stepBlockedReason("rule", draft({ scope: "until", until: "2026-09-01" })),
+			stepBlockedReason(
+				"rule",
+				draft({ scope: "until", until: "2026-09-01" }),
+				UNCOUNTED,
+			),
 			undefined,
 		);
 		assert.equal(
-			stepBlockedReason("rule", draft({ scope: "once" })),
+			stepBlockedReason("rule", draft({ scope: "once" }), UNCOUNTED),
 			undefined,
 		);
 	});
 
 	it("names what the naming step is missing", () => {
-		assert.equal(stepBlockedReason("name", draft()), ruleBlockedCopy.unnamed);
 		assert.equal(
-			stepBlockedReason("name", draft({ name: "  " })),
+			stepBlockedReason("name", draft(), UNCOUNTED),
 			ruleBlockedCopy.unnamed,
 		);
 		assert.equal(
-			stepBlockedReason("name", draft({ name: "Receipts" })),
+			stepBlockedReason("name", draft({ name: "  " }), UNCOUNTED),
+			ruleBlockedCopy.unnamed,
+		);
+		assert.equal(
+			stepBlockedReason("name", draft({ name: "Receipts" }), UNCOUNTED),
 			undefined,
 		);
 	});
@@ -350,12 +371,46 @@ describe("stepBlockedReason", () => {
 	});
 
 	it("waits on no count where a widened door never had one", () => {
-		assert.equal(stepBlockedReason("review", draft()), undefined);
+		assert.equal(stepBlockedReason("review", draft(), UNCOUNTED), undefined);
+	});
+
+	it("lets the semantic widen carry a clause the literal matcher cannot read", () => {
+		// The clause was added on the property door, then the user went back and
+		// took "Similar to these". The widen is the matcher now and it reads
+		// bodies, so a one-off apply is fine — and the property step is not even in
+		// this step list, so a block here would name a clause on no reachable
+		// screen.
+		const clauses = [clause("HasWords", "boarding pass")];
+		const similar = draft({
+			clauses,
+			scope: "once",
+			widen: { anchorCount: 3 },
+		});
+		assert.equal(
+			stepsFor({ verb: "organize", mode: "similar", scope: "once" }).includes(
+				"properties",
+			),
+			false,
+		);
+		assert.deepEqual(unreadableDraftClauses(similar), []);
+		assert.equal(stepBlockedReason("rule", similar, UNCOUNTED), undefined);
+	});
+
+	it("holds a one-off apply again once the widen cannot be evaluated", () => {
+		const blocked = draft({
+			clauses: [clause("HasWords", "boarding pass")],
+			scope: "once",
+			widen: { anchorCount: 3, inactive: true },
+		});
+		assert.equal(
+			stepBlockedReason("rule", blocked, UNCOUNTED),
+			ruleBlockedCopy.bodyTextOnce,
+		);
 	});
 
 	it("blocks nothing on the steps that ask nothing", () => {
 		for (const step of ["match", "run"] as StepId[]) {
-			assert.equal(stepBlockedReason(step, draft()), undefined);
+			assert.equal(stepBlockedReason(step, draft(), UNCOUNTED), undefined);
 		}
 	});
 
@@ -367,7 +422,7 @@ describe("stepBlockedReason", () => {
 		};
 		assert.equal(
 			commitBlockedReason(rule, { status: "ready", count: 0 }),
-			stepBlockedReason("properties", draft()),
+			stepBlockedReason("properties", draft(), UNCOUNTED),
 		);
 	});
 });
@@ -476,6 +531,22 @@ describe("runCopy", () => {
 		);
 		assert.equal(outcome("saving", "once").title, "Applying…");
 		assert.equal(outcome("saving", "standing").title, "Saving rule…");
+	});
+
+	it("heads the screen Done only once something finished", () => {
+		assert.equal(outcome("saving", "standing").screenTitle, "Move");
+		assert.equal(outcome("backApplyRunning", "standing").screenTitle, "Move");
+		// Nothing was created, so nothing was done.
+		assert.equal(outcome("commitFailed", "standing").screenTitle, "Move");
+
+		for (const state of [
+			"backApplyComplete",
+			"backApplyFailed",
+			"backApplyStartFailed",
+			"filterSaved",
+		] as RunState[]) {
+			assert.equal(outcome(state, "standing").screenTitle, "Done", state);
+		}
 	});
 });
 

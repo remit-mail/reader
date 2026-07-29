@@ -9,11 +9,11 @@ import {
 	inboxFilterConfig,
 	isConvertible,
 	MakeFilterAction,
+	type MatchCount,
 	type MatchMode,
 	type MatchOperator,
 	type MoveMailboxOption,
 	PopoverMenu,
-	type PreviewCount,
 	type RuleClause,
 	type RuleScope,
 	type RunState,
@@ -23,6 +23,7 @@ import {
 	type SearchConversionNotice,
 	SelectionWizard,
 	type StepId,
+	senderLabel,
 	stepBlockedReason,
 	stepIndex,
 	stepsFor,
@@ -323,10 +324,11 @@ function WizardDriver({
 	const current = steps[index];
 
 	const folder = mailboxes.find((mailbox) => mailbox.id === mailboxId);
+	const leadSender = dominantSender(envelopesOf(selected));
 	const suggestedName = suggestRuleName({
 		match:
 			mode === "properties" ? clauses[0]?.value.trim() || undefined : undefined,
-		sender: dominantSender(envelopesOf(selected))?.displayName,
+		sender: leadSender && senderLabel(leadSender),
 		folder: folder?.label,
 	});
 	const ruleName = typedName ?? suggestedName;
@@ -334,24 +336,26 @@ function WizardDriver({
 	const covered = fromSearch ? results : selected;
 	// A widened door has no count until it has run; the ticked list is its own
 	// count, and the app's would come from the preview endpoint (#477 5.3).
-	const preview: PreviewCount | undefined =
+	const count: MatchCount =
 		mode === "selected"
 			? { status: "ready", count: selected.length }
-			: undefined;
+			: { status: "uncounted" };
 
 	const draft: WizardDraft = {
 		clauses,
 		matchOperator,
+		// The similar door rides the semantic widen, which reads message bodies.
+		widen: mode === "similar" ? { anchorCount: selected.length } : undefined,
 		moveMailboxId: mailboxId,
 		scope,
 		until,
 		name: ruleName,
 	};
-	const blockedReason = stepBlockedReason(current, draft, preview);
+	const blockedReason = stepBlockedReason(current, draft, count);
 
 	const sample = {
 		messages: entry.sampleEmpty ? [] : covered,
-		preview,
+		count,
 		label: mode === "selected" ? "Your selection" : "A sample of what matches",
 		emptyReason: entry.sampleEmpty,
 	};
@@ -461,7 +465,11 @@ function WizardDriver({
 				conversionNotice:
 					fromSearch && conversion ? noticeFor(conversion) : undefined,
 				semanticFallbackTaken,
-				sample: { ...sample, label: "What this matches", preview: undefined },
+				sample: {
+					...sample,
+					label: "What this matches",
+					count: { status: "uncounted" },
+				},
 			}}
 			folder={{
 				mailboxes,
@@ -469,13 +477,7 @@ function WizardDriver({
 				onSelect: setMailboxId,
 				onCreateFolder: createFolder,
 			}}
-			rule={{
-				scope,
-				onScopeChange: setScope,
-				until,
-				onUntilChange: setUntil,
-				clauses,
-			}}
+			rule={{ draft, onScopeChange: setScope, onUntilChange: setUntil }}
 			name={{ name: ruleName, onNameChange: setTypedName }}
 			review={{
 				verb: entry.verb,

@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import type { StepId } from "../lib/wizard-steps.js";
+import type { MatchCount, StepId, WizardDraft } from "../lib/wizard-steps.js";
 import { stepsFor } from "../lib/wizard-steps.js";
-import type { PreviewCount, RuleClause } from "./filter-rule.js";
+import type { RuleClause } from "./filter-rule.js";
 import {
 	FolderStepBody,
 	MatchStepBody,
@@ -46,9 +46,10 @@ const clauses: RuleClause[] = [
 	{ id: "c2", field: "Subject", value: "confirmation" },
 ];
 
-const counted = (count: number): PreviewCount => ({ status: "ready", count });
+const counted = (count: number): MatchCount => ({ status: "ready", count });
+const UNCOUNTED: MatchCount = { status: "uncounted" };
 
-const sample = { messages, preview: counted(2), label: "Your selection" };
+const sample = { messages, count: counted(2), label: "Your selection" };
 
 const matchProps = {
 	selectedCount: 2,
@@ -68,7 +69,7 @@ const propertiesProps = {
 	onChangeDraft: noop,
 	onSubmitClause: noop,
 	onCancelClause: noop,
-	sample: { messages, label: "What this matches" },
+	sample: { messages, count: UNCOUNTED, label: "What this matches" },
 };
 
 const folderProps = {
@@ -82,11 +83,16 @@ const folderProps = {
 	onCreateFolder: () => Promise.resolve({ id: "mbx-new", label: "Hotels" }),
 };
 
-const ruleProps = {
-	onScopeChange: noop,
-	until: "",
-	onUntilChange: noop,
+const draft = (over: Partial<WizardDraft> = {}): WizardDraft => ({
 	clauses,
+	matchOperator: "all",
+	...over,
+});
+
+const ruleProps = {
+	draft: draft(),
+	onScopeChange: noop,
+	onUntilChange: noop,
 };
 
 const nameProps = { name: "Travel confirmations", onNameChange: noop };
@@ -134,6 +140,7 @@ describe("SelectionSample", () => {
 		const html = renderToString(
 			createElement(SelectionSample, {
 				messages: [],
+				count: counted(0),
 				label: "What this matches",
 				emptyReason: "noMatch",
 			}),
@@ -145,6 +152,7 @@ describe("SelectionSample", () => {
 		const html = renderToString(
 			createElement(SelectionSample, {
 				messages: [],
+				count: counted(0),
 				label: "What this matches",
 				emptyReason: "notIndexed",
 			}),
@@ -155,14 +163,22 @@ describe("SelectionSample", () => {
 
 	it("still explains itself when no reason was given", () => {
 		const html = renderToString(
-			createElement(SelectionSample, { messages: [], label: "Sample" }),
+			createElement(SelectionSample, {
+				messages: [],
+				count: counted(0),
+				label: "Sample",
+			}),
 		);
 		assert.match(html, /Nothing matches this yet/);
 	});
 
 	it("says the total is unknown when the match has not run", () => {
 		const html = renderToString(
-			createElement(SelectionSample, { messages, label: "First matches" }),
+			createElement(SelectionSample, {
+				messages,
+				count: UNCOUNTED,
+				label: "First matches",
+			}),
 		);
 		assert.match(html, /not known until the run finishes/);
 	});
@@ -171,7 +187,7 @@ describe("SelectionSample", () => {
 		const html = renderToString(
 			createElement(SelectionSample, {
 				messages,
-				preview: counted(9),
+				count: counted(9),
 				label: "What this covers",
 			}),
 		);
@@ -183,7 +199,7 @@ describe("SelectionSample", () => {
 		const loading = renderToString(
 			createElement(SelectionSample, {
 				messages,
-				preview: { status: "loading" },
+				count: { status: "loading" },
 				label: "What this covers",
 			}),
 		);
@@ -192,7 +208,7 @@ describe("SelectionSample", () => {
 		const stale = renderToString(
 			createElement(SelectionSample, {
 				messages,
-				preview: { status: "ready", count: 9, stale: true },
+				count: { status: "ready", count: 9, stale: true },
 				label: "What this covers",
 			}),
 		);
@@ -302,9 +318,16 @@ describe("FolderStepBody", () => {
 });
 
 describe("RuleStepBody", () => {
+	const bodyTextClause: RuleClause[] = [
+		{ id: "c1", field: "HasWords", value: "boarding pass" },
+	];
+
 	it("offers the three scopes", () => {
 		const html = renderToString(
-			createElement(RuleStepBody, { ...ruleProps, scope: "once" }),
+			createElement(RuleStepBody, {
+				...ruleProps,
+				draft: draft({ scope: "once" }),
+			}),
 		);
 		assert.match(html, /Just once/);
 		assert.match(html, /Keep doing this/);
@@ -315,7 +338,30 @@ describe("RuleStepBody", () => {
 		const html = renderToString(
 			createElement(RuleStepBody, {
 				...ruleProps,
-				clauses: [{ id: "c1", field: "HasWords", value: "boarding pass" }],
+				draft: draft({ clauses: bodyTextClause }),
+			}),
+		);
+		assert.match(html, /can&#x27;t read message bodies/);
+	});
+
+	it("says nothing about message bodies when the widen is the matcher", () => {
+		const html = renderToString(
+			createElement(RuleStepBody, {
+				...ruleProps,
+				draft: draft({ clauses: bodyTextClause, widen: { anchorCount: 3 } }),
+			}),
+		);
+		assert.doesNotMatch(html, /can&#x27;t read message bodies/);
+	});
+
+	it("warns again once the widen the rule carried cannot be evaluated", () => {
+		const html = renderToString(
+			createElement(RuleStepBody, {
+				...ruleProps,
+				draft: draft({
+					clauses: bodyTextClause,
+					widen: { anchorCount: 3, inactive: true },
+				}),
 			}),
 		);
 		assert.match(html, /can&#x27;t read message bodies/);
@@ -325,8 +371,7 @@ describe("RuleStepBody", () => {
 		const html = renderToString(
 			createElement(RuleStepBody, {
 				...ruleProps,
-				scope: "until",
-				until: "2026-09-01",
+				draft: draft({ scope: "until", until: "2026-09-01" }),
 			}),
 		);
 		assert.match(html, /Stops on/);
@@ -363,7 +408,11 @@ describe("ReviewStepBody", () => {
 			createElement(ReviewStepBody, {
 				...reviewProps,
 				mode: "similar",
-				sample: { messages, label: "A sample of what matches" },
+				sample: {
+					messages,
+					count: UNCOUNTED,
+					label: "A sample of what matches",
+				},
 			}),
 		);
 		assert.match(html, /covers messages not shown in the list/);
@@ -582,6 +631,19 @@ describe("SelectionWizard", () => {
 			createElement(SelectionWizard, wizardProps({ steps, step: "run" })),
 		);
 		assert.match(ended, /<h1[^>]*>Done<\/h1>/);
+
+		const failed = renderToString(
+			createElement(
+				SelectionWizard,
+				wizardProps({
+					steps,
+					step: "run",
+					run: { ...runProps, state: "commitFailed" },
+				}),
+			),
+		);
+		assert.match(failed, /<h1[^>]*>Move<\/h1>/);
+		assert.doesNotMatch(failed, /<h1[^>]*>Done<\/h1>/);
 	});
 
 	it("keeps a blocked Continue pressable and dimmed, and says what is missing", () => {
