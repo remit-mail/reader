@@ -143,7 +143,7 @@ interface ThreadListInteractionProps {
 	/** Opens a row — the same navigation a click performs. */
 	onOpen: (messageId: string, options?: OpenMessageOptions) => void;
 	/** Deletes a set of messages. Absent disables the delete key for this list. */
-	onDeleteMessages?: (messageIds: string[]) => void;
+	onDeleteMessages: (messageIds: string[]) => void;
 	isDeleting?: boolean;
 	commandsRef?: RefObject<MessageListCommands | null>;
 	onTriageContextChange?: (context: TriageContextUpdate) => void;
@@ -242,14 +242,11 @@ export function ThreadListInteraction({
 	// the same contract the mailbox list's delete has.
 	const [pendingDelete, setPendingDelete] = useState<string[] | null>(null);
 
-	const requestDeleteIds = useCallback(
-		(ids: string[]): boolean => {
-			if (!onDeleteMessages || ids.length === 0) return false;
-			setPendingDelete(ids);
-			return true;
-		},
-		[onDeleteMessages],
-	);
+	const requestDeleteIds = useCallback((ids: string[]): boolean => {
+		if (ids.length === 0) return false;
+		setPendingDelete(ids);
+		return true;
+	}, []);
 
 	const requestDeleteSelection = useCallback(() => {
 		requestDeleteIds(Array.from(selectedIds));
@@ -273,7 +270,7 @@ export function ThreadListInteraction({
 
 	const confirmDelete = useCallback(() => {
 		if (pendingDelete === null) return;
-		onDeleteMessages?.(pendingDelete);
+		onDeleteMessages(pendingDelete);
 		setPendingDelete(null);
 		exitSelection();
 	}, [pendingDelete, onDeleteMessages, exitSelection]);
@@ -459,6 +456,7 @@ export function ThreadListSelectionBar({
 			titleMeta={chrome.titleMeta}
 			searchSlot={chrome.searchSlot}
 			searchField={chrome.searchField}
+			idleSlot={chrome.makeFilterSlot}
 			count={selectedCount}
 			onCancel={exitSelection}
 			onDelete={requestDeleteSelection}

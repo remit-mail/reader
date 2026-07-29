@@ -407,6 +407,7 @@ function BriefSelectionChrome({
 			titleMeta={chrome.titleMeta}
 			searchSlot={chrome.searchSlot}
 			searchField={chrome.searchField}
+			idleSlot={chrome.makeFilterSlot}
 			count={selectedCount}
 			onCancel={exitSelection}
 			onDelete={requestDeleteSelection}
@@ -441,7 +442,6 @@ function BriefSelectionChrome({
 				selectedCount > 0 &&
 				labels.length > 0 ? (
 					<LabelApplyTrigger
-						variant="menu-row"
 						accountId={scope.accountId}
 						mailboxId={scope.mailboxId}
 						messageIds={selectedMessageIds}
@@ -512,7 +512,7 @@ interface DailyBriefProps {
 	commandsRef?: RefObject<MessageListCommands | null>;
 	/** Cursor / selection / display order, reported up to the triage layer. */
 	onTriageContextChange?: (context: TriageContextUpdate) => void;
-	onDeleteMessages?: (messageIds: string[]) => void;
+	onDeleteMessages: (messageIds: string[]) => void;
 	onMarkMessagesRead?: (messageIds: string[]) => void;
 }
 

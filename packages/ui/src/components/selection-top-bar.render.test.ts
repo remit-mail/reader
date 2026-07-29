@@ -89,6 +89,26 @@ describe("SelectionTopBar", () => {
 		assert.doesNotMatch(text(html), /Inbox/);
 	});
 
+	it("carries the make-filter row while nothing is ticked, and drops it once something is", () => {
+		const idleSlot = createElement("button", { type: "button" }, "Make filter");
+		assert.match(
+			text(
+				renderToString(
+					createElement(SelectionTopBar, { ...handlers, count: 0, idleSlot }),
+				),
+			),
+			/Make filter/,
+		);
+		assert.doesNotMatch(
+			text(
+				renderToString(
+					createElement(SelectionTopBar, { ...handlers, count: 2, idleSlot }),
+				),
+			),
+			/Make filter/,
+		);
+	});
+
 	it("offers Something else as an overflow verb, never a glyph", () => {
 		const html = renderToString(
 			createElement(SelectionTopBar, {

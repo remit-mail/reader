@@ -34,10 +34,6 @@ const briefRow = (page: Page, subject: string): Locator =>
 const rowToggle = (row: Locator): Locator =>
 	row.getByRole("button", { name: /^(Select|Deselect) message$/ });
 
-/** The selection bar, identified by its stable data hook. */
-const selectionBar = (page: Page): Locator =>
-	page.locator("[data-selection-bar]");
-
 /** The bar's count line, which is up only while rows are ticked. Located by
  *  its own hook: the bar also holds the search field, whose own live region
  *  would otherwise answer to `role="status"` first. */

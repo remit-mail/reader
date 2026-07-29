@@ -1,0 +1,76 @@
+/**
+ * The list header survives a search (#480).
+ *
+ * The header and the selection bar are one surface, and for the mailbox list
+ * and Starred that surface is rendered by the list body. Swapping the body for
+ * the read-only results panel therefore takes the header with it unless the
+ * panel goes where the rows go instead — the pane loses its title, its unread
+ * count and its selection bar, and on tablet the field being typed into is
+ * destroyed mid-keystroke.
+ *
+ * Driven at tablet width, where the list header owns the search field itself
+ * (`isSinglePaneTier`), so both failures are reachable: Starred keeps the panel
+ * for any query, and the mailbox route keeps it until the query commits.
+ */
+import type { Locator, Page } from "@playwright/test";
+import { expect, test } from "../src/fixtures.js";
+
+const TABLET = { width: 800, height: 1106 };
+test.use({ viewport: TABLET });
+
+const listHeader = (page: Page): Locator =>
+	page.locator("[data-selection-bar]");
+
+const searchField = (page: Page): Locator =>
+	page.getByRole("textbox", { name: "Search mail" });
+
+const openHeaderSearch = async (page: Page): Promise<void> => {
+	await page.getByRole("button", { name: "Search", exact: true }).click();
+	await expect(searchField(page)).toBeVisible();
+};
+
+test.describe("The list header survives a search", () => {
+	test("Starred keeps its header while the results panel is up", async ({
+		page,
+		run,
+	}) => {
+		await page.goto("/mail");
+		const sidebar = page.getByRole("navigation", {
+			name: "Mailboxes",
+			exact: true,
+		});
+		await expect(sidebar).toBeVisible({ timeout: 20_000 });
+		await sidebar.getByRole("link", { name: "Starred", exact: true }).click();
+		await page.waitForURL(/\/mail\/flagged/);
+		await expect(listHeader(page)).toBeVisible({ timeout: 30_000 });
+		await expect(listHeader(page).getByText("Starred")).toBeVisible();
+
+		await openHeaderSearch(page);
+		await searchField(page).fill(run.preFlaggedSubject.slice(0, 6));
+
+		// Starred answers any query with the read-only panel, and it has no
+		// header of its own — the pane's one header has to still be there.
+		await expect(listHeader(page)).toBeVisible();
+		await expect(searchField(page)).toBeVisible();
+	});
+
+	test("the mailbox header keeps the field it is being typed into", async ({
+		page,
+		run,
+	}) => {
+		await page.goto(`/mail/${run.inboxId}`);
+		await expect(listHeader(page)).toBeVisible({ timeout: 30_000 });
+
+		await openHeaderSearch(page);
+		await searchField(page).click();
+		await page.keyboard.type("a");
+		// The panel takes over the rows the moment a character lands. A header
+		// that goes with them takes the focused field down too, losing the caret
+		// and everything typed before the debounce commits.
+		await page.keyboard.type("bcdef");
+
+		await expect(searchField(page)).toHaveValue("abcdef");
+		await expect(searchField(page)).toBeFocused();
+		await expect(listHeader(page)).toBeVisible();
+	});
+});

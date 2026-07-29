@@ -220,13 +220,20 @@ export function MailListHeader({
 			if (suggestion) applySuggestion(suggestion);
 		},
 	});
-	const searchSuggest: SearchFieldSuggest = {
-		comboboxProps: suggest.comboboxProps,
-		onKeyDown: suggest.handleKeyDown,
-		onCaretChange: setCaretPosition,
-		onFocusChange: setFieldFocused,
-		...(caretRequest ? { caret: caretRequest } : {}),
-	};
+	// Stable while nothing about the field changes: it reaches the list through
+	// the header chrome, and a fresh object every render would re-render the
+	// virtualized body for nothing.
+	const { comboboxProps, handleKeyDown } = suggest;
+	const searchSuggest = useMemo<SearchFieldSuggest>(
+		() => ({
+			comboboxProps,
+			onKeyDown: handleKeyDown,
+			onCaretChange: setCaretPosition,
+			onFocusChange: setFieldFocused,
+			...(caretRequest ? { caret: caretRequest } : {}),
+		}),
+		[comboboxProps, handleKeyDown, caretRequest],
+	);
 	// Under the field and in flow, on both tiers: a phone's soft keyboard owns
 	// the lower half of the screen, and a list floating over the field would
 	// cover the query it is completing.
@@ -345,6 +352,8 @@ export function MailListHeader({
 						: "Add a sender or words to filter on",
 				}
 			: undefined;
+	// Handed to the bar rather than rendered here: the bar knows whether rows
+	// are ticked, and a selection's own verbs own the surface while they are up.
 	const makeFilterAction = makeFilter ? (
 		<MakeFilterAction {...makeFilter} />
 	) : null;
@@ -358,6 +367,125 @@ export function MailListHeader({
 				onClose={() => setFilterOpen(false)}
 			/>
 		) : null;
+
+	// Tablet + desktop keep the inline toolbar search; while a query is being
+	// typed the list-pane body swaps to the same sectioned results the phone
+	// takeover shows, under the same FilterSheet. A view whose own body renders
+	// the committed search as a selectable list (`searchResultsInBody`, the
+	// mailbox route) keeps the panel only until the query commits to the URL,
+	// then hands back to its `MessageList` so the multi-select toolbar and the
+	// escalation are reachable (#212). Clearing the query restores the normal list.
+	const showInlineResults = showInlineSearchResults({
+		tier,
+		hasLiveInput: hasQuery,
+		hasCommittedQuery: searchQuery.trim().length > 0,
+		bodyRendersCommittedResults: searchResultsInBody,
+	});
+	const handleSelectInlineResult = (result: SearchResult) => {
+		setRecentSearches(saveRecentSearch(searchInput));
+		onSelectSearchResult?.(result);
+	};
+	const results = (
+		<SearchResults
+			value={searchInput}
+			sections={sections}
+			loading={resultsLoading}
+			onSelectResult={handleSelectInlineResult}
+			tokens={tokenChips}
+			scope={resultsScope}
+		/>
+	);
+	// The header lives inside `children` for every view whose selection sits
+	// below this one, so swapping the body out from here would take the header
+	// with it — the pane would lose its title, its search field mid-keystroke,
+	// and its selection bar. Those views get the panel through the chrome and
+	// put it where their own rows go; the brief, whose header this component
+	// renders, keeps the plain swap.
+	const bodyOwnsHeader = selectionBar === undefined;
+	const resultsPane = showInlineResults ? (
+		<div className="h-full overflow-y-auto">{results}</div>
+	) : null;
+	const body = resultsPane && !bodyOwnsHeader ? resultsPane : children;
+	const chromeResults = resultsPane && bodyOwnsHeader ? resultsPane : null;
+
+	// Desktop mounts the app top bar, which owns search for the whole shell — the
+	// list header shows no field there, so the page never has two search inputs
+	// competing for "/" and for focus. Below desktop the header keeps a compact
+	// magnifier: on phone it opens the full-screen takeover above, on tablet it
+	// expands over the title. `isSinglePaneTier` is the same predicate the shell
+	// gates the top bar on, so the two cannot drift into zero or two fields.
+	const ownsSearch = isSinglePaneTier(tier);
+	const searchExpanded = ownsSearch && (searchOpen || hasQuery);
+	const chrome = useMemo<ListHeaderChrome>(
+		() => ({
+			title,
+			searchResults: chromeResults,
+			makeFilterSlot: makeFilterAction,
+			navSlot: layout && !layout.showNavPane && (
+				<Button
+					variant="ghost"
+					size="touch"
+					icon={<Menu className="size-5" />}
+					onClick={() => layout.openNav()}
+					aria-label="Menu"
+					className="-ml-2 shrink-0"
+				/>
+			),
+			titleMeta: (
+				<span className="shrink-0 text-2xs text-fg-subtle">
+					{unreadCount.toLocaleString()} unread
+				</span>
+			),
+			searchSlot: ownsSearch && !searchExpanded && (
+				<Button
+					variant="ghost"
+					size="touch"
+					icon={<Search className="size-5" />}
+					onClick={() => setSearchOpen(true)}
+					aria-label="Search"
+					className="shrink-0"
+				/>
+			),
+			searchField: searchExpanded && (
+				<>
+					<div className="min-w-0 flex-1">
+						<SearchBar
+							value={searchInput}
+							onChange={onSearchChange}
+							onClear={onSearchClear}
+							globalFocusKey={false}
+							showClearButton={false}
+							suggest={searchSuggest}
+						/>
+					</div>
+					<Button
+						variant="ghost"
+						size="touch"
+						icon={<X className="size-5" />}
+						onClick={() => {
+							onSearchClear();
+							setSearchOpen(false);
+						}}
+						aria-label="Close search"
+						className="shrink-0"
+					/>
+				</>
+			),
+		}),
+		[
+			title,
+			unreadCount,
+			layout,
+			ownsSearch,
+			searchExpanded,
+			searchInput,
+			onSearchChange,
+			onSearchClear,
+			searchSuggest,
+			chromeResults,
+			makeFilterAction,
+		],
+	);
 
 	if (tier === "phone" && searchOpen) {
 		const handleSelectResult = (result: SearchResult) => {
@@ -392,109 +520,11 @@ export function MailListHeader({
 		);
 	}
 
-	// Tablet + desktop keep the inline toolbar search; while a query is being
-	// typed the list-pane body swaps to the same sectioned results the phone
-	// takeover shows, under the same FilterSheet. A view whose own body renders
-	// the committed search as a selectable list (`searchResultsInBody`, the
-	// mailbox route) keeps the panel only until the query commits to the URL,
-	// then hands back to its `MessageList` so the multi-select toolbar and the
-	// escalation are reachable (#212). Clearing the query restores the normal list.
-	const showInlineResults = showInlineSearchResults({
-		tier,
-		hasLiveInput: hasQuery,
-		hasCommittedQuery: searchQuery.trim().length > 0,
-		bodyRendersCommittedResults: searchResultsInBody,
-	});
-	const handleSelectInlineResult = (result: SearchResult) => {
-		setRecentSearches(saveRecentSearch(searchInput));
-		onSelectSearchResult?.(result);
-	};
-	const results = (
-		<SearchResults
-			value={searchInput}
-			sections={sections}
-			loading={resultsLoading}
-			onSelectResult={handleSelectInlineResult}
-			tokens={tokenChips}
-			scope={resultsScope}
-		/>
-	);
-	// The filter chrome is not rendered while a query is active — see `makeFilter`
-	// above — so the results panel gets the plain scroll container either way.
-	const body = showInlineResults ? (
-		<div className="h-full overflow-y-auto">{results}</div>
-	) : (
-		children
-	);
-
-	// Desktop mounts the app top bar, which owns search for the whole shell — the
-	// list header shows no field there, so the page never has two search inputs
-	// competing for "/" and for focus. Below desktop the header keeps a compact
-	// magnifier: on phone it opens the full-screen takeover above, on tablet it
-	// expands over the title. `isSinglePaneTier` is the same predicate the shell
-	// gates the top bar on, so the two cannot drift into zero or two fields.
-	const ownsSearch = isSinglePaneTier(tier);
-	const searchExpanded = ownsSearch && (searchOpen || hasQuery);
-	const chrome: ListHeaderChrome = {
-		title,
-		navSlot: layout && !layout.showNavPane && (
-			<Button
-				variant="ghost"
-				size="touch"
-				icon={<Menu className="size-5" />}
-				onClick={() => layout.openNav()}
-				aria-label="Menu"
-				className="-ml-2 shrink-0"
-			/>
-		),
-		titleMeta: (
-			<span className="shrink-0 text-2xs text-fg-subtle">
-				{unreadCount.toLocaleString()} unread
-			</span>
-		),
-		searchSlot: ownsSearch && !searchExpanded && (
-			<Button
-				variant="ghost"
-				size="touch"
-				icon={<Search className="size-5" />}
-				onClick={() => setSearchOpen(true)}
-				aria-label="Search"
-				className="shrink-0"
-			/>
-		),
-		searchField: searchExpanded && (
-			<>
-				<div className="min-w-0 flex-1">
-					<SearchBar
-						value={searchInput}
-						onChange={onSearchChange}
-						onClear={onSearchClear}
-						globalFocusKey={false}
-						showClearButton={false}
-						suggest={searchSuggest}
-					/>
-				</div>
-				<Button
-					variant="ghost"
-					size="touch"
-					icon={<X className="size-5" />}
-					onClick={() => {
-						onSearchClear();
-						setSearchOpen(false);
-					}}
-					aria-label="Close search"
-					className="shrink-0"
-				/>
-			</>
-		),
-	};
-
 	return (
 		<ListHeaderChromeContext.Provider value={chrome}>
 			<section className="relative flex h-full w-full flex-col bg-surface">
 				{selectionBar?.(chrome)}
 				{suggestList}
-				{makeFilterAction}
 				<div className="min-h-0 flex-1">{body}</div>
 				{footer}
 				{filterDialog}

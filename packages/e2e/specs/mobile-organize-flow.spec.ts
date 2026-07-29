@@ -51,9 +51,6 @@ const longPress = async (page: Page, row: Locator): Promise<void> => {
 const rowToggle = (row: Locator): Locator =>
 	row.getByRole("button", { name: /^(Select|Deselect) message$/ });
 
-const selectionBar = (page: Page): Locator =>
-	page.locator("[data-selection-bar]");
-
 /** The bar's count line, which is up only while rows are ticked. Located by
  *  its own hook: the bar also holds the search field, whose own live region
  *  would otherwise answer to `role="status"` first. */

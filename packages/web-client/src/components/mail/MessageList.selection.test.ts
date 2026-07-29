@@ -125,7 +125,6 @@ describe("MessageList escalation reaches desktop (#212)", () => {
 		const bars = source.match(/<SelectionTopBar\b/g) ?? [];
 		assert.equal(bars.length, 1, "one bar, so no two surfaces can drift");
 		assert.doesNotMatch(source, /<SelectionSheet\b/);
-		assert.doesNotMatch(source, /<SelectionToolbar\b/);
 	});
 
 	it("mounts that surface unconditionally — it is the list header", () => {

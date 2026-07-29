@@ -106,12 +106,21 @@ export const Idle: Story = {
 };
 
 /** The same idle bar with search expanded over the title, which is what the
- *  tablet header does once a query is in play. */
+ *  tablet header does once a query is in play, and the make-filter row the
+ *  search offers under it. */
 export const IdleSearching: Story = {
 	args: {
 		...chrome,
 		count: 0,
 		selectAll: { checked: false, onChange: () => undefined },
+		idleSlot: (
+			<button
+				type="button"
+				className="flex min-h-11 w-full items-center px-row-inset text-left text-sm text-accent"
+			>
+				Make this a filter
+			</button>
+		),
 		searchField: (
 			<>
 				<div className="min-w-0 flex-1">

@@ -1338,6 +1338,7 @@ export const MessageList = ({
 			titleMeta={listHeaderChrome.titleMeta}
 			searchSlot={listHeaderChrome.searchSlot}
 			searchField={listHeaderChrome.searchField}
+			idleSlot={listHeaderChrome.makeFilterSlot}
 			count={selectionCount}
 			onCancel={handleSelectionCancel}
 			onDelete={handleSelectionDelete}
@@ -1364,7 +1365,6 @@ export const MessageList = ({
 			overflowSlot={
 				accountId && mailboxId && selectedCount > 0 && labels.length > 0 ? (
 					<LabelApplyTrigger
-						variant="menu-row"
 						accountId={accountId}
 						mailboxId={mailboxId}
 						messageIds={Array.from(selectedIds)}
@@ -1494,7 +1494,9 @@ export const MessageList = ({
 				listMeta={listMeta}
 				sections={sections}
 				flatList
-				listState={listState}
+				// The results panel is a body, not a list state: it stands in for the
+				// rows and must not fall behind a skeleton while the query re-keys.
+				listState={listHeaderChrome.searchResults ? "ready" : listState}
 				searchQuery={isSearching ? searchQuery : undefined}
 				listFilter={listFilter}
 				listScopeLabel={listScopeLabel}
@@ -1515,7 +1517,10 @@ export const MessageList = ({
 				hideHeader={hideHeader}
 				selectionBar={activeSelectionBar}
 				paneOverlay={mobileOrganizeFlow}
-				listBody={listState === "ready" ? virtualBody : undefined}
+				listBody={
+					listHeaderChrome.searchResults ??
+					(listState === "ready" ? virtualBody : undefined)
+				}
 			/>
 			<ConfirmDialog
 				isOpen={pendingDelete !== null}

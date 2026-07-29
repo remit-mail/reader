@@ -69,6 +69,12 @@ export interface SelectionTopBarProps {
 	 */
 	searchField?: ReactNode;
 	/**
+	 * A row below the action row, up only while nothing is ticked — the
+	 * search's make-this-a-filter affordance. A selection's own verbs take the
+	 * bar over, so the second way into the same wizard stands down.
+	 */
+	idleSlot?: ReactNode;
+	/**
 	 * The Move verb. A render prop because the trigger owns the folder picker
 	 * and its API dependencies; the bar only gives it a place in the verb row.
 	 */
@@ -173,6 +179,7 @@ export function SelectionTopBar({
 	titleMeta,
 	searchSlot,
 	searchField,
+	idleSlot,
 	moveSlot,
 	overflowSlot,
 	isBusy = false,
@@ -303,6 +310,7 @@ export function SelectionTopBar({
 					</PopoverMenu>
 				)}
 			</div>
+			{!selecting && idleSlot}
 			{selecting && selectAll && (
 				<div
 					data-selection-bar-row="select-all"

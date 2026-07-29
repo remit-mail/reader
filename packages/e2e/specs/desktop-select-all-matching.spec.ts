@@ -1,13 +1,13 @@
 /**
  * Desktop advanced selection (issue #212): "Select all N matching '<query>'"
- * over search results. Desktop had none of the escalation machinery — its
- * `SelectionToolbar` carried bounded verbs only. This drives the flow it now
- * gains: search, select every loaded row, take the escalation offer, and run a
- * verb over the whole matching set, verified against the real backend rather
- * than the toolbar's own copy.
+ * over search results. Desktop had none of the escalation machinery — its bar
+ * carried bounded verbs only. This drives the flow it now gains: search, select
+ * every loaded row, take the escalation offer, and run a verb over the whole
+ * matching set, verified against the real backend rather than the bar's own
+ * copy.
  *
  * The default Playwright project is Desktop Chrome (≥1024 wide), so the desktop
- * two-pane layout and its top `SelectionToolbar` render — no viewport override.
+ * two-pane layout renders — no viewport override.
  *
  * Search is driven through the literal `threads/search` path (a committed `q=`
  * URL), never the semantic engine: the e2e lane builds no vector index and runs
@@ -23,8 +23,7 @@ import { readRunState } from "../src/state.js";
 
 const rows = (page: Page): Locator => page.locator("[data-message-row]");
 
-/** The desktop bulk-action toolbar's status/count line and its escalation
- *  notice — both plain text in `SelectionToolbar`, located by their copy. */
+/** The selection bar's count line and its escalation notice, located by copy. */
 const toolbarText = (page: Page, text: string): Locator => page.getByText(text);
 
 /** `MessageList`'s load-more threshold — it pages when scrolled this close to

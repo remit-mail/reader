@@ -306,8 +306,6 @@ function crossSectionRange(sections: ThreadSection[]): string[] {
 }
 
 function BriefMultiSelectScreen({ touch = false }: { touch?: boolean }) {
-	const [searchValue, setSearchValue] = useState("");
-	const [searchOpen, setSearchOpen] = useState(false);
 	const sections = useMemo(() => briefSections(), []);
 	const [checked, setChecked] = useState<ReadonlySet<string>>(
 		() => new Set(crossSectionRange(sections)),
@@ -354,7 +352,6 @@ function BriefMultiSelectScreen({ touch = false }: { touch?: boolean }) {
 								variant="ghost"
 								size="touch"
 								icon={<Search className="size-5" />}
-								onClick={() => setSearchOpen(true)}
 								aria-label="Search"
 								className="shrink-0"
 							/>

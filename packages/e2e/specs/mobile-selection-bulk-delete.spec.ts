@@ -95,12 +95,6 @@ const entryToggle = (row: Locator): Locator => row.getByRole("checkbox");
 const rowToggle = (row: Locator): Locator =>
 	row.getByRole("button", { name: /^(Select|Deselect) message$/ });
 
-/** The selection bar in the list header, identified by its stable data hook
- *  (`selection-top-bar.tsx`). It takes the title's place from the first
- *  ticked row. */
-const selectionBar = (page: Page): Locator =>
-	page.locator("[data-selection-bar]");
-
 const cancelSelectionButton = (page: Page): Locator =>
 	page.getByRole("button", { name: "Cancel selection" });
 
