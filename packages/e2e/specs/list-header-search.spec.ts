@@ -44,10 +44,12 @@ test.describe("The list header survives a search", () => {
 		await searchField(page).fill("zzz");
 
 		// Starred answers any query with the read-only panel, and it has no
-		// header of its own — the pane's one header has to still be there.
+		// header of its own — the pane's one header has to still be there, with
+		// the field it owns. (The field takes the title's place while it is up,
+		// which is why "Starred" is not asserted again here.)
 		await expect(listHeader(page)).toBeVisible();
-		await expect(listHeader(page).getByText("Starred")).toBeVisible();
-		await expect(searchField(page)).toBeVisible();
+		await expect(listHeader(page).getByLabel("Search mail")).toBeVisible();
+		await expect(searchField(page)).toHaveValue("zzz");
 	});
 
 	test("the mailbox header keeps the field it is being typed into", async ({

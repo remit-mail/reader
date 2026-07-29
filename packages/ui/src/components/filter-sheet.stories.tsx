@@ -62,10 +62,12 @@ function ControlledShell({
 	withSources = true,
 	singleAccount = false,
 	sourcesNote,
+	hideChrome = false,
 }: {
 	initialCategory?: string;
 	initialFilters?: Set<string>;
 	initialExpanded?: boolean;
+	hideChrome?: boolean;
 	initialSource?: string;
 	withSources?: boolean;
 	singleAccount?: boolean;
@@ -85,6 +87,7 @@ function ControlledShell({
 	return (
 		<div className="h-[600px] w-[390px]">
 			<FilterSheet
+				hideChrome={hideChrome}
 				categories={CATEGORIES}
 				filters={FILTERS}
 				sources={sources}
@@ -155,4 +158,15 @@ export const CollapsedWithSourceSelected: Story = {
 
 export const SingleAccount: Story = {
 	render: () => <ControlledShell singleAccount />,
+};
+
+/**
+ * The same shell with the filter row dropped, which is what a live search does:
+ * a query narrows the same list by the same intent, so the two never share the
+ * row. The children stay exactly where they were — swapping their parent for a
+ * plain container instead would remount everything under it, including a search
+ * field being typed into.
+ */
+export const ChromeHidden: Story = {
+	render: () => <ControlledShell hideChrome />,
 };

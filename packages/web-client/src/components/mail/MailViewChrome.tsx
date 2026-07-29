@@ -117,11 +117,12 @@ export function MailViewChrome({
 			relatedResultsLabel={relatedResultsLabel}
 			searchResultsInBody={searchResultsInBody}
 		>
-			{searching ? (
-				<div className="h-full overflow-y-auto">{children}</div>
-			) : (
-				<FilterSheet {...filterConfig}>{children}</FilterSheet>
-			)}
+			{/* One shell either way: the children's parent must not change when a
+			    query starts, or everything under it — including the header's own
+			    search field — remounts mid-keystroke. */}
+			<FilterSheet {...filterConfig} hideChrome={searching}>
+				{children}
+			</FilterSheet>
 		</MailListHeader>
 	);
 }
