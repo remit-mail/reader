@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-	buildSearchRule,
 	isConvertible,
 	type SearchConversion,
+	searchConversionNotice,
 } from "./search-rule.js";
 
 const conversion = (
@@ -43,31 +43,32 @@ describe("isConvertible", () => {
 	});
 });
 
-describe("buildSearchRule", () => {
-	it("builds a standing rule with stable clause ids, no widen, empty name", () => {
-		const rule = buildSearchRule(
+describe("searchConversionNotice", () => {
+	it("names the folder the search was scoped to and every facet dropped", () => {
+		const notice = searchConversionNotice(
 			conversion({
-				clauses: [
-					{ field: "From", value: "a@b.com" },
-					{ field: "HasWords", value: "nightly" },
-				],
+				clauses: [{ field: "HasWords", value: "npm" }],
+				keptTerms: true,
+				scopedOut: { mailboxId: "mbx-archive", label: "Archive" },
+				droppedFacets: [{ type: "isUnread", label: "Unread" }],
+				droppedSemantic: true,
 			}),
 		);
-		assert.equal(rule.scope, "standing");
-		assert.equal(rule.widen, undefined);
-		assert.equal(rule.name, "");
-		assert.deepEqual(
-			rule.clauses.map((clause) => clause.id),
-			["search-0", "search-1"],
-		);
+		assert.deepEqual(notice, {
+			scopedOutFolder: "Archive",
+			droppedFacets: ["Unread"],
+			droppedSemantic: true,
+		});
 	});
 
-	it("honors an explicit scope and move target", () => {
-		const rule = buildSearchRule(
-			conversion({ clauses: [{ field: "HasWords", value: "nightly" }] }),
-			{ scope: "once", moveMailboxId: "mbx-archive" },
+	it("states nothing for a conversion that carried everything", () => {
+		const notice = searchConversionNotice(
+			conversion({ clauses: [{ field: "From", value: "a@b.com" }] }),
 		);
-		assert.equal(rule.scope, "once");
-		assert.equal(rule.moveMailboxId, "mbx-archive");
+		assert.deepEqual(notice, {
+			scopedOutFolder: undefined,
+			droppedFacets: [],
+			droppedSemantic: false,
+		});
 	});
 });

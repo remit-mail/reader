@@ -20,18 +20,27 @@ export const advanceTo = async (page: Page, step: string): Promise<void> => {
 };
 
 /**
- * The reason a blocked Continue gives once it is pressed. The reason is on the
- * control the whole time it applies, for anything reading the page through the
- * accessibility tree; it becomes a live region — and visible — only on the
- * press, which is the state this asserts.
+ * The announcement a blocked control makes when it is pressed. The reason is on
+ * the control the whole time it applies, for anything reading the page through
+ * the accessibility tree; the live region it is written into is empty until the
+ * press, which is what these two assert either side of.
  */
+const announcedReason = (page: Page, reason: string): Locator =>
+	page.getByRole("status").filter({ hasText: reason });
+
 export const expectBlockedReason = async (
 	page: Page,
 	reason: string,
 ): Promise<void> => {
-	await expect(
-		page.getByRole("status").filter({ hasText: reason }),
-	).toBeVisible();
+	await expect(announcedReason(page, reason)).toBeVisible();
+};
+
+/** Nothing has been announced yet, because nothing has been pressed. */
+export const expectNoBlockedReason = async (
+	page: Page,
+	reason: string,
+): Promise<void> => {
+	await expect(announcedReason(page, reason)).toHaveCount(0);
 };
 
 /** Pick a destination on the folder step. */

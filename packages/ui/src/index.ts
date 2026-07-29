@@ -68,6 +68,10 @@ export {
 	type BannerVariant,
 } from "./components/banner.js";
 export {
+	BlockedReason,
+	type BlockedReasonProps,
+} from "./components/blocked-reason.js";
+export {
 	BottomSheet,
 	type BottomSheetProps,
 } from "./components/bottom-sheet.js";
@@ -174,6 +178,7 @@ export {
 	type RuleWiden,
 	ruleBlockedCopy,
 	scopeLabel,
+	UNCOUNTABLE_PREDICATE_REASON,
 	unreadableBodyClauses,
 	widenChipLabel,
 } from "./components/filter-rule.js";
@@ -628,11 +633,11 @@ export {
 } from "./lib/roving-focus.js";
 export { type RuleNameParts, suggestRuleName } from "./lib/rule-name.js";
 export {
-	buildSearchRule,
 	type DroppedFacet,
 	type DroppedFacetType,
 	isConvertible,
 	type SearchConversion,
+	searchConversionNotice,
 } from "./lib/search-rule.js";
 export {
 	collapsibleDomain,

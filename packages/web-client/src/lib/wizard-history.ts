@@ -38,6 +38,33 @@ export const wizardStepFromParam = (value: unknown): StepId | undefined => {
 };
 
 /**
+ * Which affordance opened the wizard. Absent is the selection bar; `search` is
+ * the make-filter affordance in the search results header, whose clauses come
+ * from the query rather than from ticked rows (#477 1.8).
+ *
+ * It rides the URL beside the step for the same reason the step does: a
+ * reloaded document has to know which walk it is in the middle of, and the
+ * query it was seeded from is in the URL already. It decides two things and no
+ * more — which step the wizard opens on, and whether the query seeds the
+ * clauses (#477 3.4). One host answers either way.
+ */
+const wizardEntry = z.literal("search");
+
+export type WizardEntry = z.infer<typeof wizardEntry>;
+
+export const wizardEntryFromParam = (
+	value: unknown,
+): WizardEntry | undefined => {
+	const parsed = wizardEntry.safeParse(value);
+	return parsed.success ? parsed.data : undefined;
+};
+
+export const wizardEntryValue = z.unknown().transform(wizardEntryFromParam);
+
+export const useWizardEntryValue = (): WizardEntry | undefined =>
+	useSearch({ from: "/mail", select: (search) => search.wizardFrom });
+
+/**
  * The route's `wizard` field. A value the wizard cannot be on reads as no step
  * rather than as a validation failure, so a truncated or hand-typed link lands
  * on the mail list instead of the router's error screen.
@@ -54,14 +81,21 @@ export const useWizardStepValue = (): StepId | undefined =>
 
 /**
  * Opens the wizard on a step, from a surface that does not drive it — a verb on
- * the selection bar. The push is the wizard's first owned entry, so the back
- * that leaves it lands on the list with the selection still ticked.
+ * the selection bar, or the make-filter affordance on a search. The push is the
+ * wizard's first owned entry, so the back that leaves it lands on the list with
+ * the selection still ticked.
  */
-export const useOpenWizard = (): ((step: StepId) => void) => {
+export const useOpenWizard = (): ((
+	step: StepId,
+	entry?: WizardEntry,
+) => void) => {
 	const navigate = useNavigate();
 	return useCallback(
-		(step: StepId) => {
-			navigate({ to: ".", search: (prev) => ({ ...prev, wizard: step }) });
+		(step: StepId, entry?: WizardEntry) => {
+			navigate({
+				to: ".",
+				search: (prev) => ({ ...prev, wizard: step, wizardFrom: entry }),
+			});
 		},
 		[navigate],
 	);
@@ -78,10 +112,15 @@ export const useWizardStep = (openingStep: StepId): WizardStepNavigation => {
 	const router = useRouter();
 	const navigate = useNavigate();
 	const step = useWizardStepValue();
+	const entry = useWizardEntryValue();
 	// Whether this document loaded already holding a step, which is the one
 	// entrance that leaves the wizard unrooted. A step the app itself pushed
 	// arrives rooted, so re-rooting it would duplicate the entry underneath it.
 	const loadedHoldingStep = useRef(step !== undefined);
+	// The entry that step was reached by, so the root the wizard is put back on
+	// carries neither the step nor the affordance that opened it, and the entry
+	// pushed over it carries both.
+	const loadedEntry = useRef(entry);
 	const pushedTo = useRef<StepId | undefined>(undefined);
 
 	// Two taps on Continue land before the URL settles, and both would push the
@@ -94,15 +133,24 @@ export const useWizardStep = (openingStep: StepId): WizardStepNavigation => {
 	useEffect(() => {
 		if (!loadedHoldingStep.current) return;
 		loadedHoldingStep.current = false;
+		const openingEntry = loadedEntry.current;
 		void (async () => {
 			await navigate({
 				to: ".",
-				search: (prev) => ({ ...prev, wizard: undefined }),
+				search: (prev) => ({
+					...prev,
+					wizard: undefined,
+					wizardFrom: undefined,
+				}),
 				replace: true,
 			});
 			await navigate({
 				to: ".",
-				search: (prev) => ({ ...prev, wizard: openingStep }),
+				search: (prev) => ({
+					...prev,
+					wizard: openingStep,
+					wizardFrom: openingEntry,
+				}),
 			});
 		})();
 	}, [openingStep, navigate]);

@@ -186,7 +186,7 @@ function Harness({
 	sections,
 	preset,
 	scope,
-	makeFilterDisabledReason,
+	makeFilterBlockedReason,
 	suggestions = [],
 }: {
 	initialValue?: string;
@@ -196,7 +196,7 @@ function Harness({
 	preset: Preset;
 	scope?: SearchScope;
 	/** Renders the conversion inert with a reason; it is offered either way. */
-	makeFilterDisabledReason?: string;
+	makeFilterBlockedReason?: string;
 	/** Completions for the term being typed. */
 	suggestions?: Suggestion[];
 }) {
@@ -282,7 +282,7 @@ function Harness({
 			scope={scope}
 			makeFilter={{
 				onClick: () => undefined,
-				disabledReason: makeFilterDisabledReason,
+				blockedReason: makeFilterBlockedReason,
 			}}
 			suggest={{
 				comboboxProps: suggest.comboboxProps,
@@ -343,9 +343,9 @@ export const ScopedSearch: Story = {
 };
 
 /**
- * A query with nothing a filter could match on: the conversion is offered inert
- * with the reason, rather than withheld and leaving the row to appear and vanish
- * as the user types.
+ * A query with nothing a filter could match on: the conversion stays offered and
+ * dimmed, rather than withheld and leaving the row to appear and vanish as the
+ * user types. Pressing it puts the reason on screen.
  */
 export const NothingToConvert: Story = {
 	render: () => (
@@ -353,7 +353,7 @@ export const NothingToConvert: Story = {
 			initialValue="has:attachment"
 			sections={resultSections}
 			preset="inbox"
-			makeFilterDisabledReason="Add a sender or words to filter on"
+			makeFilterBlockedReason="Add a sender or words to filter on"
 		/>
 	),
 };

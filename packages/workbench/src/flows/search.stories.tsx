@@ -192,7 +192,7 @@ export const NothingToConvert: Story = {
 			searchSections={searchSectionsWithoutSpam}
 			searchScope={folderScope}
 			searchTokens={["has: attachment"]}
-			makeFilterDisabledReason="Add a sender or words to filter on"
+			makeFilterBlockedReason="Add a sender or words to filter on"
 		/>
 	),
 };

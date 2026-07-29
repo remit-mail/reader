@@ -190,15 +190,18 @@ export const WithMakeFilter: Story = {
 	),
 };
 
-/** The filter offer disabled — a search of only non-clause facets has nothing to convert. */
-export const MakeFilterDisabled: Story = {
+/**
+ * The filter offer dimmed — a search of only non-clause facets has nothing to
+ * convert. It stays pressable, and pressing it puts the reason on screen.
+ */
+export const MakeFilterBlocked: Story = {
 	render: () => (
 		<Harness
 			value="has:attachment"
 			sections={resultSections}
 			makeFilter={{
 				onClick: () => {},
-				disabledReason: "Add a sender or words to filter on",
+				blockedReason: "Add a sender or words to filter on",
 			}}
 		/>
 	),

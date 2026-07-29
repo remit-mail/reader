@@ -415,20 +415,28 @@ function BriefSelectionChrome({
 		/>
 	);
 
+	// Mounted as the pane's overlay rather than beside the header: the brief hands
+	// its body over to the search results panel while a query is being typed, and
+	// the wizard is not part of the body it hands over. The overlay slot also puts
+	// it inside the list header's chrome, which is where the converted query it
+	// opens on comes from.
 	return (
-		<>
-			<MailListHeader {...header} selectionBar={selectionBar}>
-				{children}
-			</MailListHeader>
-			<SelectionWizardHost
-				verb={wizardVerb}
-				accountId={scope.accountId}
-				mailboxId={scope.mailboxId}
-				selection={wizardSelection}
-				crossAccount={scope.moveDisabledHint !== undefined}
-				onFinished={exitSelection}
-			/>
-		</>
+		<MailListHeader
+			{...header}
+			selectionBar={selectionBar}
+			paneOverlay={
+				<SelectionWizardHost
+					verb={wizardVerb}
+					accountId={scope.accountId}
+					mailboxId={scope.mailboxId}
+					selection={wizardSelection}
+					crossAccount={scope.moveDisabledHint !== undefined}
+					onFinished={exitSelection}
+				/>
+			}
+		>
+			{children}
+		</MailListHeader>
 	);
 }
 

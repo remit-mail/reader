@@ -1,3 +1,4 @@
+import type { SearchConversion } from "@remit/ui";
 import { createContext, type ReactNode, useContext } from "react";
 
 /**
@@ -31,6 +32,15 @@ export interface ListHeaderChrome {
 	searchResults: ReactNode;
 	/** The search's make-this-a-filter row, up only while nothing is ticked. */
 	makeFilterSlot: ReactNode;
+	/**
+	 * The active query as clauses, which is what the wizard's search entry opens
+	 * on (#484). It travels with the chrome for the same reason the rest does:
+	 * the query belongs to `MailListHeader` and the wizard is mounted by the body
+	 * below it, and one conversion computed in one place is what keeps the reason
+	 * the affordance gives and the clauses the wizard seeds from disagreeing.
+	 * Absent when no query is up.
+	 */
+	searchConversion?: SearchConversion;
 }
 
 const NO_CHROME: ListHeaderChrome = {

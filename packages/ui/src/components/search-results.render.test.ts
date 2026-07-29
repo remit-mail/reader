@@ -99,16 +99,17 @@ describe("SearchResults", () => {
 		assert.doesNotMatch(html, /disabled=""/);
 	});
 
-	it("disables the filter offer with its reason when nothing converts", () => {
+	it("keeps the filter offer pressable when nothing converts, carrying its reason", () => {
 		const html = renderToString(
 			createElement(SearchResults, {
 				value: "has:attachment",
 				sections: [{ id: "results", label: "Results", results: [] }],
-				makeFilter: { onClick: noop, disabledReason: "Add a sender or words" },
+				makeFilter: { onClick: noop, blockedReason: "Add a sender or words" },
 			}),
 		);
 		assert.match(html, /Make this a filter/);
-		assert.match(html, /disabled/);
+		assert.doesNotMatch(html, /disabled/);
+		assert.match(html, /aria-describedby/);
 		assert.match(html, /Add a sender or words/);
 	});
 

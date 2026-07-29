@@ -43,7 +43,7 @@ import {
 	searchInputForView,
 	shouldMirrorQuery,
 } from "@/lib/search-view";
-import { wizardStepValue } from "@/lib/wizard-history";
+import { wizardEntryValue, wizardStepValue } from "@/lib/wizard-history";
 import "@/lib/client";
 
 // `MailContext` / `useMailContext` live in `@/lib/mail-context` so the provider
@@ -57,6 +57,8 @@ const mailSearchSchema = z.object({
 	// The selection wizard's step (#477 clause 1.6). The router owns history, so
 	// the step is a validated search param rather than a raw pushState entry.
 	wizard: wizardStepValue,
+	// Which affordance opened it, so a reload lands back on the walk it was in.
+	wizardFrom: wizardEntryValue,
 });
 
 export const Route = createFileRoute("/mail")({

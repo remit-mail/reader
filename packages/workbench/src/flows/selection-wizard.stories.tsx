@@ -22,14 +22,15 @@ import {
 	type SampleEmptyReason,
 	type SearchChip,
 	type SearchConversion,
-	type SearchConversionNotice,
 	SelectionWizard,
 	type StepId,
+	searchConversionNotice,
 	senderLabel,
 	stepBlockedReason,
 	stepIndex,
 	stepsFor,
 	suggestRuleName,
+	UNCOUNTABLE_PREDICATE_REASON,
 	type Verb,
 	verbCopy,
 	type WizardDraft,
@@ -212,6 +213,8 @@ interface WizardEntry {
 	runState?: RunState;
 	/** How many the mail server rejected beyond the ones the run can name. */
 	failedBeyondNamed?: number;
+	/** The property door carries a body-text clause, which has no count to show. */
+	bodyTextClause?: boolean;
 	sampleEmpty?: SampleEmptyReason;
 	/** The rows are still arriving, which is not the same answer as no rows. */
 	sampleLoading?: boolean;
@@ -228,12 +231,6 @@ const withIds = (
 		id: `${prefix}-${index}`,
 		derived: true,
 	}));
-
-const noticeFor = (conversion: SearchConversion): SearchConversionNotice => ({
-	scopedOutFolder: conversion.scopedOut?.label,
-	droppedFacets: conversion.droppedFacets.map((facet) => facet.label),
-	droppedSemantic: conversion.droppedSemantic,
-});
 
 const envelopesOf = (messages: SelectionMessage[]): EnvelopeAddress[] =>
 	messages.map((message) => ({
@@ -291,20 +288,24 @@ function WizardDriver({
 		if (entry.startMode) return entry.startMode;
 		return entry.startAt === "properties" ? "properties" : "selected";
 	});
-	const [clauses, setClauses] = useState<RuleClause[]>(() =>
-		fromSearch && conversion
-			? conversion.clauses.map((clause, index) => ({
-					...clause,
-					id: `search-${index}`,
-				}))
-			: withIds(
-					derivePropertyClauses(
-						senders,
-						selected.map((message) => message.subject),
-					),
-					"seed",
-				),
-	);
+	const [clauses, setClauses] = useState<RuleClause[]>(() => {
+		if (fromSearch && conversion) {
+			return conversion.clauses.map((clause, index) => ({
+				...clause,
+				id: `search-${index}`,
+			}));
+		}
+		if (entry.bodyTextClause) {
+			return [{ id: "body-text", field: "HasWords", value: "invoice" }];
+		}
+		return withIds(
+			derivePropertyClauses(
+				senders,
+				selected.map((message) => message.subject),
+			),
+			"seed",
+		);
+	});
 	const [matchOperator, setMatchOperator] = useState<MatchOperator>(
 		conversion?.matchOperator ?? "all",
 	);
@@ -344,10 +345,17 @@ function WizardDriver({
 	const ruleName = typedName ?? suggestedName;
 
 	const covered = fromSearch ? results : selected;
+	// A body-text clause cannot be counted before it is saved: the vector-free
+	// matcher refuses to evaluate it, so the app never asks. That is a stated
+	// answer, not a count of zero, and the sample it leaves empty has to say so.
+	const uncountable =
+		mode === "properties" &&
+		clauses.some((clause) => clause.field === "HasWords");
 	// A widened door has no count until it has run; the ticked list is its own
 	// count, and the app's would come from the preview endpoint (#477 5.3).
-	const count: MatchCount =
-		mode === "selected"
+	const count: MatchCount = uncountable
+		? { status: "error", reason: UNCOUNTABLE_PREDICATE_REASON }
+		: mode === "selected"
 			? { status: "ready", count: selected.length }
 			: { status: "uncounted" };
 
@@ -364,7 +372,8 @@ function WizardDriver({
 	const blockedReason = stepBlockedReason(current, draft, count);
 
 	const sample = {
-		messages: entry.sampleEmpty || entry.sampleLoading ? [] : covered,
+		messages:
+			uncountable || entry.sampleEmpty || entry.sampleLoading ? [] : covered,
 		count,
 		label: mode === "selected" ? "Your selection" : "A sample of what matches",
 		emptyReason: entry.sampleEmpty,
@@ -480,7 +489,9 @@ function WizardDriver({
 					clauseEdit?.draft.value ?? "",
 				),
 				conversionNotice:
-					fromSearch && conversion ? noticeFor(conversion) : undefined,
+					fromSearch && conversion
+						? searchConversionNotice(conversion)
+						: undefined,
 				semanticFallbackTaken,
 				sample: {
 					...sample,
@@ -607,7 +618,7 @@ function SelectionFlow({
 			{conversion && ids.length === 0 && (
 				<MakeFilterAction
 					onClick={() => setEntry({ verb: "organize", fromSearch: true })}
-					disabledReason={
+					blockedReason={
 						isConvertible(conversion)
 							? undefined
 							: "Add a sender or words to filter on"
@@ -866,6 +877,24 @@ export const SearchConvertedPlain: Story = {
 		<SelectionFlow
 			messages={SELECTION_SEARCH_SAMPLE}
 			title={RESULTS_TITLE}
+			conversion={PLAIN_CONVERSION}
+			openAt={{ verb: "organize", fromSearch: true }}
+		/>
+	),
+};
+
+/**
+ * Searching Starred, where the list header's affordance is borrowed by a bar
+ * the view does not own. It is the same entry and the same wizard: every
+ * surface that puts the row on screen answers the step it pushes, or the press
+ * lands on nothing.
+ */
+export const SearchConvertedFromStarred: Story = {
+	name: "Search — make this a filter, from Starred",
+	render: () => (
+		<SelectionFlow
+			messages={SELECTION_SEARCH_SAMPLE}
+			title="Starred"
 			conversion={PLAIN_CONVERSION}
 			openAt={{ verb: "organize", fromSearch: true }}
 		/>
@@ -1221,6 +1250,27 @@ export const OrganizeNothingMatches: Story = {
 				verb: "organize",
 				startAt: "properties",
 				sampleEmpty: "noMatch",
+			}}
+		/>
+	),
+};
+
+/**
+ * A body-text clause has no count and never will: the vector-free matcher
+ * refuses to read message bodies, so there is nothing to ask and nothing to
+ * show. The sample says that, because the alternative — an empty list under
+ * "nothing matches this yet" — is not merely unexplained but wrong.
+ */
+export const OrganizeUncountable: Story = {
+	name: "Organize — the count that can't be taken",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{
+				verb: "organize",
+				startAt: "properties",
+				startMode: "properties",
+				bodyTextClause: true,
 			}}
 		/>
 	),

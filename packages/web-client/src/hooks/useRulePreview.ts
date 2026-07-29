@@ -1,5 +1,5 @@
 import { organizeOperationsPreviewOrganizeMutation } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import type { PreviewCount } from "@remit/ui";
+import { type PreviewCount, UNCOUNTABLE_PREDICATE_REASON } from "@remit/ui";
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { buildOrganizeInput } from "@/lib/organize/organize-model";
@@ -9,7 +9,6 @@ import {
 	PREVIEW_DEBOUNCE_MS,
 	type PreviewState,
 	predicateSignature,
-	UNCOUNTABLE_PREDICATE_REASON,
 } from "@/lib/organize/rule-model";
 import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
 

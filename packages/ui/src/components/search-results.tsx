@@ -1,6 +1,7 @@
 import { ChevronDown, Clock, Filter } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { cn } from "../lib/cn.js";
+import { BlockedReason } from "./blocked-reason.js";
 import type { FolderRole } from "./folder-role.js";
 import { type SearchResult, SearchResultRow } from "./search-result-row.js";
 import { SearchTokenChips } from "./search-token-chip.js";
@@ -86,21 +87,22 @@ export interface SearchResultsProps {
 	scope?: SearchScope;
 	/**
 	 * "Make this a filter" (RFC 038 D5) — offered above the results while a query
-	 * is active, converting the search to a pre-filled rule. Omit to drop the
-	 * affordance; a `disabledReason` renders it inert with the reason (a search of
-	 * only non-clause facets has nothing to convert).
+	 * is active, opening the selection wizard on clauses derived from it. Omit to
+	 * drop the affordance; a `blockedReason` dims it and states what is missing (a
+	 * search of only non-clause facets has nothing to convert).
 	 */
 	makeFilter?: MakeFilterActionProps;
 }
 
 export interface MakeFilterActionProps {
 	onClick: () => void;
-	/** Renders the action inert and states why, e.g. nothing in the query converts. */
-	disabledReason?: string;
+	/** What the query is still missing. Dims the action; never disables it. */
+	blockedReason?: string;
 }
 
 /**
- * "Make this a filter" — the conversion entry offered while a search is active.
+ * "Make this a filter" — the wizard's second entry, offered while a search is
+ * active.
  *
  * A standalone row rather than a part of the results body, because a search is
  * shown in more than one way: the read-only `SearchResults` panel, and a list
@@ -108,34 +110,47 @@ export interface MakeFilterActionProps {
  * not to either rendering, so the caller mounts it above whichever body is up and
  * it stays put when the body swaps. `SearchResults` renders it inline as a
  * convenience for callers that show only the panel.
+ *
+ * Nothing disables (#477 1.7). A query with nothing to convert dims the action
+ * and leaves it pressable — pressing it is what brings the reason on screen,
+ * which `disabled` would take away along with the control itself.
  */
 export function MakeFilterAction({
 	onClick,
-	disabledReason,
+	blockedReason,
 }: MakeFilterActionProps) {
-	const disabled = disabledReason !== undefined;
+	const reasonId = useId();
+	const [nudged, setNudged] = useState(false);
 	return (
 		<div className="border-b border-line px-row-inset py-1.5">
 			<button
 				type="button"
-				onClick={onClick}
-				disabled={disabled}
-				title={disabledReason}
+				onClick={() => {
+					if (blockedReason) {
+						setNudged(true);
+						return;
+					}
+					onClick();
+				}}
+				aria-describedby={blockedReason ? reasonId : undefined}
 				className={cn(
 					"flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs font-medium transition-colors",
-					disabled
-						? "cursor-not-allowed text-fg-subtle"
+					blockedReason
+						? "text-fg-subtle opacity-55"
 						: "text-accent hover:bg-surface-sunken",
 				)}
 			>
 				<Filter className="size-3.5 shrink-0" aria-hidden="true" />
 				<span>Make this a filter</span>
-				{disabled && (
-					<span className="ml-auto truncate text-2xs font-normal text-fg-subtle">
-						{disabledReason}
-					</span>
-				)}
 			</button>
+			{blockedReason && (
+				<BlockedReason
+					id={reasonId}
+					reason={blockedReason}
+					nudged={nudged}
+					className="px-2 pt-1 text-2xs text-warning"
+				/>
+			)}
 		</div>
 	);
 }
@@ -286,12 +301,7 @@ export function SearchResults({
 	const chips = tokens && tokens.length > 0 && (
 		<SearchTokenChips tokens={tokens} />
 	);
-	const filterAction = makeFilter && (
-		<MakeFilterAction
-			onClick={makeFilter.onClick}
-			disabledReason={makeFilter.disabledReason}
-		/>
-	);
+	const filterAction = makeFilter && <MakeFilterAction {...makeFilter} />;
 
 	if (loading) {
 		return (

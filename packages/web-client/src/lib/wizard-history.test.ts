@@ -15,6 +15,8 @@ import {
 } from "@remit/ui";
 import {
 	ownedHistoryEntries,
+	wizardEntryFromParam,
+	wizardEntryValue,
 	wizardStepFromParam,
 	wizardStepValue,
 } from "./wizard-history.js";
@@ -72,6 +74,17 @@ describe("re-rooting a wizard that was loaded into", () => {
 		);
 	});
 
+	// The root is the wizard-closed state, so it carries neither the step nor
+	// the affordance that opened it; otherwise closing the wizard leaves the
+	// entry marker behind in the address bar (#484).
+	it("puts the wizard back on a root that names no entry", () => {
+		assert.match(source, /wizard: undefined,\s*\n\s*wizardFrom: undefined,/);
+		assert.match(
+			source,
+			/wizard: openingStep,\s*\n\s*wizardFrom: openingEntry,/,
+		);
+	});
+
 	it("is never armed by a step the app pushed", () => {
 		const goToStep = source.slice(source.indexOf("const goToStep"));
 		assert.doesNotMatch(goToStep, /loadedHoldingStep/);
@@ -104,6 +117,24 @@ describe("the wizard step in the URL", () => {
 			assert.equal(parsed.data, undefined);
 		}
 		assert.equal(wizardStepValue.parse("review"), "review");
+	});
+});
+
+describe("which affordance opened the wizard", () => {
+	it("reads the search entry, and everything else as the selection bar", () => {
+		assert.equal(wizardEntryFromParam("search"), "search");
+		for (const value of [undefined, "", "Search", "bar", 1, null, {}]) {
+			assert.equal(wizardEntryFromParam(value), undefined);
+		}
+	});
+
+	it("never fails validation, so a mistyped link still lands on the mail", () => {
+		for (const value of ["nope", "SEARCH", 7, [], null, undefined]) {
+			const parsed = wizardEntryValue.safeParse(value);
+			assert.ok(parsed.success);
+			assert.equal(parsed.data, undefined);
+		}
+		assert.equal(wizardEntryValue.parse("search"), "search");
 	});
 });
 

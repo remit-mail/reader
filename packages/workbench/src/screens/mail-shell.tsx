@@ -92,7 +92,7 @@ export interface MailShellProps {
 	 * non-clause facets has nothing to convert. The affordance itself is offered
 	 * for every active query, as the route does.
 	 */
-	makeFilterDisabledReason?: string;
+	makeFilterBlockedReason?: string;
 	recentSearches?: string[];
 	savedSearches?: string[];
 	/**
@@ -117,7 +117,7 @@ interface SearchState {
 	tokens: { label: string; onRemove: () => void }[];
 	recentSearches?: string[];
 	/** "Make this a filter" — the pane offers it for every active query. */
-	makeFilter?: { onClick: () => void; disabledReason?: string };
+	makeFilter?: { onClick: () => void; blockedReason?: string };
 	suggestions?: Suggestion[];
 }
 
@@ -393,7 +393,7 @@ export function MailShell({
 	searchLoading,
 	searchScope,
 	searchTokens = [],
-	makeFilterDisabledReason,
+	makeFilterBlockedReason,
 	recentSearches,
 	savedSearches = [],
 	searchSuggestions,
@@ -425,7 +425,7 @@ export function MailShell({
 		...(searchSuggestions ? { suggestions: searchSuggestions } : {}),
 		makeFilter: {
 			onClick: () => undefined,
-			disabledReason: makeFilterDisabledReason,
+			blockedReason: makeFilterBlockedReason,
 		},
 	};
 
