@@ -1,12 +1,12 @@
 /**
  * Guided mobile organize flow (issue #211).
  *
- * From the mobile selection sheet, "Select similar messages" widens the
- * selection with the read-only matcher, shows a brief widening state, then opens
- * the filter-rule chip editor (RFC 038 D1) inside a bottom sheet on that widened
- * set. The editor commits at one of three scopes — apply once, keep doing this,
- * or until a date. This spec drives that surface end to end on a mobile
- * viewport.
+ * Organize on the selection bar widens the selection with the read-only
+ * matcher, shows a brief widening state, then opens the filter-rule chip editor
+ * (RFC 038 D1) on that widened set. "Something else" is the same flow entered
+ * from the bar's overflow menu, seeded by a shortcut instead of a widen. The editor commits at one of three scopes —
+ * apply once, keep doing this, or until a date. This spec drives that surface
+ * end to end on a mobile viewport.
  *
  * The widen is a semantic query, and the vector index is deliberately not built
  * on the e2e lane (see issue #219 and organize-standing-filter.spec.ts). So the
@@ -51,59 +51,35 @@ const longPress = async (page: Page, row: Locator): Promise<void> => {
 const rowToggle = (row: Locator): Locator =>
 	row.getByRole("button", { name: /^(Select|Deselect) message$/ });
 
-const selectionSheet = (page: Page): Locator =>
-	page.locator("[data-selection-sheet]");
+/** The bar's count line, which is up only while rows are ticked. Located by
+ *  its own hook: the bar also holds the search field, whose own live region
+ *  would otherwise answer to `role="status"` first. */
+const selectionStatus = (page: Page): Locator =>
+	page.locator("[data-selection-count]");
 
-const grabber = (page: Page): Locator =>
-	page.getByRole("slider", { name: /(Expand|Collapse) selection actions/ });
+/** "Something else" is an overflow verb, reached through the bar's kebab. */
+const somethingElse = async (page: Page): Promise<void> => {
+	await page.getByRole("button", { name: "More actions" }).click();
+	await page.getByRole("menuitem", { name: "Something else" }).click();
+};
 
-const selectSimilarButton = (page: Page): Locator =>
-	page.getByRole("button", { name: /Select similar messages/ });
-
-const somethingElseButton = (page: Page): Locator =>
-	page.getByRole("button", { name: /Something else/ });
+/** The bar's Organize verb, which opens the guided flow on the selection. */
+const organizeButton = (page: Page): Locator =>
+	page.getByRole("button", { name: "Organize selected messages" });
 
 const destinationSelect = (page: Page): Locator =>
 	page.getByLabel("Destination folder");
-
-/**
- * The X, which is only rendered while the sheet is expanded — so its presence is
- * the reliable "expanded" signal. The smart-flow rows are not: the sheet keeps
- * them mounted (translated off-screen and `inert`) while collapsed for the
- * collapse animation, and Playwright's `isVisible` reports an off-screen element
- * as visible, so gating on them leaves the sheet collapsed and the tap lands on
- * an inert button.
- */
-const cancelSelectionButton = (page: Page): Locator =>
-	page.getByRole("button", { name: "Cancel selection" });
 
 const gotoInbox = async (page: Page, mailboxId: string): Promise<void> => {
 	await page.goto(`/mail/${mailboxId}`);
 	await expect(rows(page).first()).toBeVisible({ timeout: 30_000 });
 };
 
-/** Tap the grabber to expand the sheet until the smart-flow rows are actionable. */
-const expandSheet = async (page: Page): Promise<void> => {
-	if (
-		await cancelSelectionButton(page)
-			.isVisible()
-			.catch(() => false)
-	)
-		return;
-	await grabber(page).click();
-	await expect(cancelSelectionButton(page)).toBeVisible();
-};
-
-/** Select the two given rows so the teaser rises, then expand it. */
-const selectTwoAndExpand = async (
-	page: Page,
-	a: Locator,
-	b: Locator,
-): Promise<void> => {
+/** Select the two given rows, so the bar carries the verbs. */
+const selectTwo = async (page: Page, a: Locator, b: Locator): Promise<void> => {
 	await longPress(page, a);
 	await rowToggle(b).click();
-	await expect(selectionSheet(page)).toBeVisible();
-	await expandSheet(page);
+	await expect(selectionStatus(page)).toBeVisible();
 };
 
 /**
@@ -216,8 +192,8 @@ test.describe("Guided mobile organize flow", () => {
 		);
 
 		try {
-			await selectTwoAndExpand(page, first, second);
-			await selectSimilarButton(page).click();
+			await selectTwo(page, first, second);
+			await organizeButton(page).click();
 
 			await expect(page.getByText("Finding similar messages…")).toBeVisible();
 			await expect(page.getByText(/2 messages match/)).toBeVisible();
@@ -230,7 +206,7 @@ test.describe("Guided mobile organize flow", () => {
 				timeout: 15_000,
 			});
 			await page.getByRole("button", { name: "Done" }).click();
-			await expect(selectionSheet(page)).toBeHidden();
+			await expect(selectionStatus(page)).toBeHidden();
 		} finally {
 			await cleanup();
 		}
@@ -293,8 +269,8 @@ test.describe("Guided mobile organize flow", () => {
 		);
 
 		try {
-			await selectTwoAndExpand(page, first, second);
-			await selectSimilarButton(page).click();
+			await selectTwo(page, first, second);
+			await organizeButton(page).click();
 
 			await expect(page.getByText(/3 messages match/)).toBeVisible();
 
@@ -311,7 +287,7 @@ test.describe("Guided mobile organize flow", () => {
 				timeout: 15_000,
 			});
 			await page.getByRole("button", { name: "Done" }).click();
-			await expect(selectionSheet(page)).toBeHidden();
+			await expect(selectionStatus(page)).toBeHidden();
 		} finally {
 			await cleanup();
 		}
@@ -360,8 +336,8 @@ test.describe("Guided mobile organize flow", () => {
 		);
 
 		try {
-			await selectTwoAndExpand(page, first, second);
-			await selectSimilarButton(page).click();
+			await selectTwo(page, first, second);
+			await organizeButton(page).click();
 
 			// No dead end: the editor opens and states the empty count plainly.
 			await expect(page.getByText(/No mail matches yet/)).toBeVisible();
@@ -373,7 +349,7 @@ test.describe("Guided mobile organize flow", () => {
 				timeout: 15_000,
 			});
 			await page.getByRole("button", { name: "Done" }).click();
-			await expect(selectionSheet(page)).toBeHidden();
+			await expect(selectionStatus(page)).toBeHidden();
 		} finally {
 			await cleanup();
 		}
@@ -397,8 +373,8 @@ test.describe("Guided mobile organize flow", () => {
 		});
 
 		try {
-			await selectTwoAndExpand(page, first, second);
-			await somethingElseButton(page).click();
+			await selectTwo(page, first, second);
+			await somethingElse(page);
 
 			await expect(page.getByText("What should Remit do?")).toBeVisible();
 			await expect(

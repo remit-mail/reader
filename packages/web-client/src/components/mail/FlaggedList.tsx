@@ -30,6 +30,7 @@ import {
 	toThreadRowData,
 } from "@/lib/brief";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
+import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
 import { rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
@@ -55,7 +56,7 @@ interface FlaggedListProps {
 	commandsRef?: RefObject<MessageListCommands | null>;
 	/** Cursor / selection / display order, reported up to the triage layer. */
 	onTriageContextChange?: (context: TriageContextUpdate) => void;
-	onDeleteMessages?: (messageIds: string[]) => void;
+	onDeleteMessages: (messageIds: string[]) => void;
 	onMarkMessagesRead?: (messageIds: string[]) => void;
 }
 
@@ -146,42 +147,32 @@ export function FlaggedList({
 		window.open(url, "_blank", "noopener,noreferrer");
 	}, []);
 
+	const chrome = useListHeaderChrome();
 	const listBody = (
-		<ThreadListInteraction
-			selectedMessageId={selectedMessageId}
-			onOpen={(id, options) => onSelectMessage?.(id, options)}
-			onDeleteMessages={onDeleteMessages}
-			commandsRef={commandsRef}
-			onTriageContextChange={onTriageContextChange}
-		>
-			<div className="flex h-full min-h-0 flex-col">
-				{onDeleteMessages ? (
-					<ThreadListSelectionBar onMarkAsRead={onMarkMessagesRead} />
-				) : null}
-				<div className="flex-1 overflow-y-auto">
-					<div className="divide-y divide-line">
-						{rows.map((thread) => (
-							<MessageRow
-								key={thread.id}
-								thread={thread}
-								active={thread.id === selectedMessageId}
-								onClick={() => onSelectMessage?.(thread.id)}
-							/>
-						))}
-					</div>
-					{hasNextPage ? (
-						<button
-							type="button"
-							className="w-full py-3 text-sm text-muted hover:text-fg disabled:opacity-50"
-							onClick={() => fetchNextPage()}
-							disabled={isFetchingNextPage}
-						>
-							{isFetchingNextPage ? "Loading…" : "Load more"}
-						</button>
-					) : null}
+		<div className="flex h-full min-h-0 flex-col">
+			<div className="flex-1 overflow-y-auto">
+				<div className="divide-y divide-line">
+					{rows.map((thread) => (
+						<MessageRow
+							key={thread.id}
+							thread={thread}
+							active={thread.id === selectedMessageId}
+							onClick={() => onSelectMessage?.(thread.id)}
+						/>
+					))}
 				</div>
+				{hasNextPage ? (
+					<button
+						type="button"
+						className="w-full py-3 text-sm text-muted hover:text-fg disabled:opacity-50"
+						onClick={() => fetchNextPage()}
+						disabled={isFetchingNextPage}
+					>
+						{isFetchingNextPage ? "Loading…" : "Load more"}
+					</button>
+				) : null}
 			</div>
-		</ThreadListInteraction>
+		</div>
 	);
 
 	return (
@@ -198,22 +189,39 @@ export function FlaggedList({
 			searchLoading={isLoading}
 			onSelectSearchResult={(result) => onSelectMessage?.(result.id)}
 		>
-			<MessageListPane
-				listTitle="Starred"
-				sections={[{ id: "flagged", threads: rows }]}
-				flatList
-				hideHeader
-				listState={listState}
-				searchQuery={sq ? searchQuery : undefined}
-				errorMessage={isError ? formatErrorMessage(error) : undefined}
-				onRetry={() => refetch()}
-				onReportError={handleReportError}
-				selectedThreadId={selectedMessageId}
-				onSelectThread={onSelectMessage}
-				onSelectBriefCategory={() => undefined}
-				isDesktop={isDesktop}
-				listBody={listState === "ready" ? listBody : undefined}
-			/>
+			<ThreadListInteraction
+				selectedMessageId={selectedMessageId}
+				onOpen={(id, options) => onSelectMessage?.(id, options)}
+				onDeleteMessages={onDeleteMessages}
+				commandsRef={commandsRef}
+				onTriageContextChange={onTriageContextChange}
+			>
+				<MessageListPane
+					listTitle="Starred"
+					sections={[{ id: "flagged", threads: rows }]}
+					flatList
+					hideHeader
+					listState={chrome.searchResults ? "ready" : listState}
+					searchQuery={sq ? searchQuery : undefined}
+					errorMessage={isError ? formatErrorMessage(error) : undefined}
+					onRetry={() => refetch()}
+					onReportError={handleReportError}
+					selectedThreadId={selectedMessageId}
+					onSelectThread={onSelectMessage}
+					onSelectBriefCategory={() => undefined}
+					isDesktop={isDesktop}
+					selectionBar={
+						<ThreadListSelectionBar
+							title="Starred"
+							onMarkAsRead={onMarkMessagesRead}
+						/>
+					}
+					listBody={
+						chrome.searchResults ??
+						(listState === "ready" ? listBody : undefined)
+					}
+				/>
+			</ThreadListInteraction>
 		</MailViewChrome>
 	);
 }

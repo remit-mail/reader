@@ -213,13 +213,9 @@ export const CustomListBody: Story = {
 };
 
 /**
- * External `selectionBar` slot mechanism, exercised at desktop width with
- * `SelectionTopBar` as a convenient stand-in node — any slot content works
- * here, the point is that the pane header is replaced. This is NOT a
- * production composition: the live desktop toolbar is `SelectionToolbar`
- * (web-client only, not in this kit); `MessageList.tsx` only ever puts
- * `SelectionTopBar` in this slot when `!isDesktop` — see `NarrowExternalSelectionBar`
- * below for that production-accurate case.
+ * The `selectionBar` slot at desktop width, holding the same
+ * `SelectionTopBar` the narrow story below holds. One surface at every
+ * width: from 768px up the labelled select-all sits inline in the bar.
  */
 export const ExternalSelectionBar: Story = {
 	args: {
@@ -227,10 +223,18 @@ export const ExternalSelectionBar: Story = {
 		flatList: true,
 		selectionBar: (
 			<SelectionTopBar
+				title="Inbox"
 				count={2}
 				onCancel={() => undefined}
 				onMarkRead={() => undefined}
+				onJunk={() => undefined}
+				onOrganize={() => undefined}
 				onDelete={() => undefined}
+				selectAll={{
+					checked: false,
+					indeterminate: true,
+					onChange: () => undefined,
+				}}
 			/>
 		),
 	},
@@ -238,9 +242,8 @@ export const ExternalSelectionBar: Story = {
 };
 
 /**
- * The production composition (`MessageList.tsx:798` gates on `!isDesktop`):
- * `SelectionTopBar` in the `selectionBar` slot at narrow width. Desktop never
- * renders this component in the slot — only `NarrowTouchList`'s width does.
+ * The same bar at phone width: select-all moves to a second row so row one
+ * stays a count and the verbs, with a back arrow out of selection.
  */
 export const NarrowExternalSelectionBar: Story = {
 	args: {
@@ -248,10 +251,18 @@ export const NarrowExternalSelectionBar: Story = {
 		flatList: true,
 		selectionBar: (
 			<SelectionTopBar
+				title="Inbox"
 				count={2}
 				onCancel={() => undefined}
 				onMarkRead={() => undefined}
+				onJunk={() => undefined}
+				onOrganize={() => undefined}
 				onDelete={() => undefined}
+				selectAll={{
+					checked: false,
+					indeterminate: true,
+					onChange: () => undefined,
+				}}
 			/>
 		),
 	},

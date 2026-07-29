@@ -69,6 +69,7 @@ function mountList(options: {
 	initialIds: string[];
 	onDeleteMessages?: (ids: string[]) => void;
 }) {
+	const onDeleteMessages = options.onDeleteMessages ?? (() => undefined);
 	const commandsRef = createRef<MessageListCommands | null>();
 	let setIds: ((ids: string[]) => void) | undefined;
 	const Harness = () => {
@@ -79,7 +80,7 @@ function mountList(options: {
 			{
 				selectedMessageId: undefined,
 				onOpen: () => undefined,
-				onDeleteMessages: options.onDeleteMessages,
+				onDeleteMessages,
 				commandsRef,
 			},
 			...rowElements(ids),
@@ -222,7 +223,12 @@ function mountSelectableList(initialIds: string[]) {
 		setIds = set;
 		return createElement(
 			ThreadListInteraction,
-			{ selectedMessageId: undefined, onOpen: () => undefined, commandsRef },
+			{
+				selectedMessageId: undefined,
+				onOpen: () => undefined,
+				onDeleteMessages: () => undefined,
+				commandsRef,
+			},
 			...rowElements(ids),
 			createElement(Probe, { key: "probe" }),
 		);

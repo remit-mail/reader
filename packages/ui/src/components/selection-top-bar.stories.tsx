@@ -1,5 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { FolderInput } from "lucide-react";
+import { FolderInput, Menu, Search, Tag } from "lucide-react";
+import { Button } from "./button.js";
+import { PopoverMenu } from "./popover-menu.js";
+import { SearchBar } from "./search-bar.js";
 import { SelectionTopBar } from "./selection-top-bar.js";
 
 const meta: Meta<typeof SelectionTopBar> = {
@@ -7,8 +10,12 @@ const meta: Meta<typeof SelectionTopBar> = {
 	component: SelectionTopBar,
 	parameters: { layout: "padded" },
 	args: {
+		title: "Inbox",
 		onCancel: () => undefined,
 		onMarkRead: () => undefined,
+		onJunk: () => undefined,
+		onOrganize: () => undefined,
+		onSomethingElse: () => undefined,
 		onDelete: () => undefined,
 	},
 	// Full viewport width — a fixed w-[390px] wrapper inside a 390px Storybook
@@ -31,23 +38,156 @@ const MoveSlot = () => (
 		aria-label="Move selected messages"
 		className="inline-flex size-11 shrink-0 items-center justify-center rounded text-fg-muted hover:bg-surface-raised"
 	>
-		<FolderInput className="size-4" />
+		<FolderInput className="size-5" />
 	</button>
 );
 
-export const One: Story = { args: { count: 1 } };
+/** Stand-in for the caller's apply-label picker, whose list belongs to the
+ *  account. A worded row, so it reads as one of the menu's actions. */
+const LabelSlot = () => (
+	<PopoverMenu
+		triggerLabel="Apply label to selected messages"
+		triggerIcon={<Tag className="size-4 text-fg-subtle" />}
+		triggerText="Apply label"
+		align="start"
+		nested
+		touch={false}
+		triggerClassName="min-h-11 w-full justify-start gap-3 px-4 py-2.5 text-sm font-normal text-fg"
+		items={[
+			{ key: "work", label: "Work", onSelect: () => undefined },
+			{ key: "receipts", label: "Receipts", onSelect: () => undefined },
+		]}
+	/>
+);
 
-export const Many: Story = { args: { count: 3 } };
-
-export const WithoutMarkRead: Story = {
-	args: { count: 2, onMarkRead: undefined },
+const selectAll = {
+	checked: false,
+	indeterminate: true,
+	onChange: () => undefined,
 };
 
-export const Busy: Story = { args: { count: 2, isBusy: true } };
+/** The list header's own chrome, which the bar carries while nothing is
+ *  ticked. The live app builds these in `MailListHeader`. */
+const chrome = {
+	navSlot: (
+		<Button
+			variant="ghost"
+			size="touch"
+			icon={<Menu className="size-5" />}
+			aria-label="Menu"
+			className="-ml-2 shrink-0"
+		/>
+	),
+	titleMeta: (
+		<span className="shrink-0 text-2xs text-fg-subtle">15,338 unread</span>
+	),
+	searchSlot: (
+		<Button
+			variant="ghost"
+			size="touch"
+			icon={<Search className="size-5" />}
+			aria-label="Search"
+			className="shrink-0"
+		/>
+	),
+};
+
+/**
+ * Nothing ticked: the surface is the list header and names the mailbox. From
+ * 768px up the select-all control is already there — the same bar, one state
+ * earlier, rather than a second surface that appears on the first tick.
+ */
+export const Idle: Story = {
+	args: {
+		...chrome,
+		count: 0,
+		selectAll: { checked: false, onChange: () => undefined },
+	},
+};
+
+/** The same idle bar with search expanded over the title, which is what the
+ *  tablet header does once a query is in play, and the make-filter row the
+ *  search offers under it. */
+export const IdleSearching: Story = {
+	args: {
+		...chrome,
+		count: 0,
+		selectAll: { checked: false, onChange: () => undefined },
+		idleSlot: (
+			<button
+				type="button"
+				className="flex min-h-11 w-full items-center px-row-inset text-left text-sm text-accent"
+			>
+				Make this a filter
+			</button>
+		),
+		searchField: (
+			<>
+				<div className="min-w-0 flex-1">
+					<SearchBar
+						value="npm"
+						onChange={() => undefined}
+						onClear={() => undefined}
+						globalFocusKey={false}
+						showClearButton={false}
+					/>
+				</div>
+				<Button
+					variant="ghost"
+					size="touch"
+					icon={<Search className="size-5" />}
+					aria-label="Close search"
+					className="shrink-0"
+				/>
+			</>
+		),
+	},
+};
+
+/**
+ * One ticked row. The count takes the title's place and the header's own
+ * chrome stands down; the verbs arrive with it: Delete, Move and Organize
+ * carry a glyph, Junk, Mark read and Something else live under the kebab.
+ * Below 768px select-all takes a second row, so row one stays a count and a
+ * row of verbs with a back arrow out of selection.
+ */
+export const One: Story = {
+	args: { ...chrome, count: 1, selectAll, moveSlot: <MoveSlot /> },
+};
+
+export const Many: Story = {
+	args: { count: 3, selectAll, moveSlot: <MoveSlot /> },
+};
+
+/**
+ * The overflow menu with the account's label picker at its foot. Labels carry
+ * no verb on the bar (#477), so this is where applying one lives.
+ */
+export const WithLabelPicker: Story = {
+	args: {
+		count: 3,
+		selectAll,
+		moveSlot: <MoveSlot />,
+		overflowSlot: <LabelSlot />,
+	},
+};
+
+/** A selection spanning folders or accounts has no move target and no
+ *  account to file a rule under: the bar carries Delete and the overflow. */
+export const WithoutMoveOrOrganize: Story = {
+	args: { count: 2, onOrganize: undefined, selectAll },
+};
+
+/** A mutation in flight: Delete carries the spinner and every other verb
+ *  stands down, because nothing else can act until it lands. */
+export const Busy: Story = {
+	args: { count: 2, isBusy: true, moveSlot: <MoveSlot />, selectAll },
+};
 
 export const CrossAccountHint: Story = {
 	args: {
 		count: 4,
+		selectAll,
 		notice: {
 			tone: "warning",
 			text: "Move only works within one account — clear selection or pick messages from a single account",
@@ -55,28 +195,16 @@ export const CrossAccountHint: Story = {
 	},
 };
 
-/** Some but not all loaded rows checked: the select-all control renders the
- *  `Checkbox` tri-state dash, not the box or the tick. */
-export const SelectAll: Story = {
-	args: {
-		count: 3,
-		selectAll: {
-			checked: false,
-			indeterminate: true,
-			onChange: () => undefined,
-		},
-	},
-};
-
 /**
- * Every loaded row checked. The count line names its scope by default —
- * "All 47 loaded selected" — instead of a bare "47 messages selected" next
- * to a fully ticked box, which reads as "everything" to anyone who has used
- * a select-all checkbox before.
+ * Every loaded row checked. The control now says what pressing it does, and
+ * the count line names its scope by default — "All 47 loaded selected" —
+ * instead of a bare "47 messages selected" next to a fully ticked box, which
+ * reads as "everything" to anyone who has used a select-all checkbox before.
  */
 export const AllSelected: Story = {
 	args: {
 		count: 47,
+		moveSlot: <MoveSlot />,
 		selectAll: {
 			checked: true,
 			indeterminate: false,
@@ -143,9 +271,8 @@ export const Escalated: Story = {
 
 /**
  * While a search result set is still paging, the exact count isn't known
- * yet — a running total instead of a static "Counting…", delete hidden
- * (nothing to act on with an unknown total), and an explicit Stop rather
- * than overloading the X (which still means "cancel selection").
+ * yet — a running total instead of a static "Counting…", the verbs hidden
+ * (nothing to act on with an unknown total), and an explicit Stop.
  */
 export const Counting: Story = {
 	args: {
@@ -182,7 +309,7 @@ export const CountingLargeResultSet: Story = {
 /**
  * A bulk delete in progress reports a running total via `statusLabel` and a
  * determinate `ProgressBar`; the delete button shows its busy spinner (never
- * disables) and mark-read is hidden — nothing here can act mid-delete.
+ * disables) and the overflow verbs drop out — nothing here can act mid-delete.
  */
 export const DeletingWithProgress: Story = {
 	args: {
@@ -210,22 +337,9 @@ export const PartialFailure: Story = {
 };
 
 /**
- * count === 0 is unreachable in production: both the kit
- * (`message-list-pane.tsx`'s `toggleCheck`) and the web-client
- * (`MessageList.tsx`'s multi-select effect) auto-exit selection mode the
- * instant the last checked row is unchecked. `SelectionTopBar` itself has no
- * floor on `count` — this story pins the contract that no caller should ever
- * leave it mounted here.
- */
-export const ZeroSelected: Story = {
-	args: { count: 0 },
-};
-
-/**
  * A move over an escalated selection: same chunked run as a delete, worded for
  * the action that is running and toned as ordinary progress rather than
- * destructive. Mark-read and the move slot are hidden while it runs — nothing
- * here can act mid-run.
+ * destructive.
  */
 export const MovingWithProgress: Story = {
 	args: {

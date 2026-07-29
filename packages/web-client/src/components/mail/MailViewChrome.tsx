@@ -1,7 +1,7 @@
 /**
  * MailViewChrome — the shared list-pane chrome for the inbox and flagged views.
  *
- * Wraps the header-only `MailListHeader` and slots the `FilterSheet` expando
+ * Wraps `MailListHeader` and slots the `FilterSheet` expando
  * directly into its body, exactly as the kit story does. The caller supplies the
  * filter preset (`inboxFilterConfig` / `flaggedFilterConfig`) and owns the
  * category / attribute / source selection state. The same filter config feeds
@@ -117,11 +117,12 @@ export function MailViewChrome({
 			relatedResultsLabel={relatedResultsLabel}
 			searchResultsInBody={searchResultsInBody}
 		>
-			{searching ? (
-				<div className="h-full overflow-y-auto">{children}</div>
-			) : (
-				<FilterSheet {...filterConfig}>{children}</FilterSheet>
-			)}
+			{/* One shell either way: the children's parent must not change when a
+			    query starts, or everything under it — including the header's own
+			    search field — remounts mid-keystroke. */}
+			<FilterSheet {...filterConfig} hideChrome={searching}>
+				{children}
+			</FilterSheet>
 		</MailListHeader>
 	);
 }

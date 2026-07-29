@@ -69,6 +69,9 @@ function Probe({
 /** The account id in `/accounts/{id}/sync/status`. */
 const accountOf = (path: string): string => path.split("/")[2] ?? "";
 
+const progress = (dom: DomHarness): InitialSyncProgress =>
+	JSON.parse(dom.text());
+
 const mount = async (
 	accountIds: string[],
 	answer: (accountId: string) => unknown,
@@ -77,13 +80,16 @@ const mount = async (
 	http = mockFetch((call) => answer(accountOf(call.path)));
 	harness = createDomHarness();
 	harness.renderApp(createElement(Probe, { accountIds, enabled }));
-	await harness.flush();
-	await harness.flush();
+	// Settle on the hook's own answer rather than on a fixed number of turns:
+	// a query that lands on a timer instead of a microtask needs real time to
+	// pass, and a loaded machine is where that difference shows up.
+	for (let turn = 0; turn < 20; turn += 1) {
+		await harness.flush();
+		if (progress(harness).resolved) break;
+		await harness.wait(1);
+	}
 	return harness;
 };
-
-const progress = (dom: DomHarness): InitialSyncProgress =>
-	JSON.parse(dom.text());
 
 describe("isSyncingPhase", () => {
 	it("is true only for the phases a running sync round writes", () => {

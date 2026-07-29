@@ -180,7 +180,7 @@ export const MoveToTrigger = ({
 			title={disabledHint}
 			className={variant === "icon-only" ? ICON_TRIGGER : COMPACT_TRIGGER}
 		>
-			<FolderInput className="size-4" />
+			<FolderInput className={variant === "icon-only" ? "size-5" : "size-4"} />
 			{variant === "compact" && <span className="hidden sm:inline">Move</span>}
 		</button>
 	);

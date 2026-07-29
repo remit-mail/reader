@@ -95,67 +95,40 @@ const entryToggle = (row: Locator): Locator => row.getByRole("checkbox");
 const rowToggle = (row: Locator): Locator =>
 	row.getByRole("button", { name: /^(Select|Deselect) message$/ });
 
-/** The peeking mobile selection sheet, identified by its stable data hook
- *  (`selection-sheet.tsx`). It rises at two or more selected. */
-const selectionSheet = (page: Page): Locator =>
-	page.locator("[data-selection-sheet]");
-
-/** The sheet's drag grabber — tapping it toggles the teaser/expanded snap. */
-const grabber = (page: Page): Locator =>
-	page.getByRole("slider", { name: /(Expand|Collapse) selection actions/ });
-
 const cancelSelectionButton = (page: Page): Locator =>
 	page.getByRole("button", { name: "Cancel selection" });
 
 const deleteButton = (page: Page): Locator =>
 	page.getByRole("button", { name: "Move selected messages to Trash" });
 
-/** The sheet's Move quick action (the move-to-folder trigger). */
+/** The bar's Move verb (the move-to-folder trigger). */
 const moveButton = (page: Page): Locator =>
 	page.getByRole("button", { name: "Move selected messages", exact: true });
 
-/** The sheet's Mark-as-read verb, carried in the expanded grabber header. */
-const markReadButton = (page: Page): Locator =>
-	page.getByRole("button", { name: "Mark as read" });
+/** Mark read is an overflow verb, reached through the bar's kebab. */
+const markRead = async (page: Page): Promise<void> => {
+	await page.getByRole("button", { name: "More actions" }).click();
+	await page.getByRole("menuitem", { name: "Mark read" }).click();
+};
 
 const selectAllCheckbox = (page: Page): Locator =>
 	page.getByRole("checkbox", { name: "Select all" });
 
 /**
- * The sheet's count label and its notice banner are both `role="status"`
- * (`selection-sheet.tsx`); the count label (the always-visible teaser) renders
- * first, the notice — when present, in the expanded body — second.
+ * The bar's count label and its notice banner, each by its own hook: the bar
+ * also holds the search field, whose own live region would otherwise answer to
+ * `role="status"` first.
  */
 const selectionStatus = (page: Page): Locator =>
-	selectionSheet(page).getByRole("status").first();
+	page.locator("[data-selection-count]");
 const selectionNotice = (page: Page): Locator =>
-	selectionSheet(page).getByRole("status").nth(1);
+	page.locator("[data-selection-notice]");
 
-/**
- * Tap the grabber to expand the sheet so its in-sheet actions (delete,
- * select-all, cancel, the escalation notice) become reachable — the teaser
- * only shows the count and the swipe hint.
- */
-const expandSheet = async (page: Page): Promise<void> => {
-	if (
-		await cancelSelectionButton(page)
-			.isVisible()
-			.catch(() => false)
-	)
-		return;
-	await grabber(page).click();
-	await expect(cancelSelectionButton(page)).toBeVisible();
-};
-
-/**
- * Long-press the first row, then tap a second row's toggle, so the teaser rises
- * — its threshold is two selected (a single selection enters selection mode but
- * raises no sheet, matching the prototype).
- */
+/** Long-press the first row, then tap a second row's toggle. */
 const selectTwoFromTop = async (page: Page): Promise<void> => {
 	await longPress(page, rows(page).first());
 	await rowToggle(rows(page).nth(1)).click();
-	await expect(selectionSheet(page)).toBeVisible();
+	await expect(selectionStatus(page)).toBeVisible();
 	await expect(selectionStatus(page)).toHaveText("2 messages selected");
 };
 
@@ -347,12 +320,12 @@ test.describe("Entering selection mode", () => {
 	}) => {
 		await longPress(page, rows(page).first());
 
-		// One selected: selection mode is entered, but the sheet stays down until
-		// two are selected (its threshold, matching the prototype).
+		// One selected: selection mode is entered and the bar takes the title's
+		// place with the count.
 		await expect(rowToggle(rows(page).first())).toHaveAccessibleName(
 			"Deselect message",
 		);
-		await expect(selectionSheet(page)).toBeHidden();
+		await expect(selectionStatus(page)).toHaveText("1 message selected");
 	});
 
 	test("a short tap still opens the message outside selection mode", async ({
@@ -360,7 +333,7 @@ test.describe("Entering selection mode", () => {
 	}) => {
 		await rows(page).first().click();
 		await page.waitForURL(/selectedMessageId=/);
-		await expect(selectionSheet(page)).toBeHidden();
+		await expect(selectionStatus(page)).toBeHidden();
 	});
 
 	test("avatar tap enters selection mode — long-press is not the only way in", async ({
@@ -379,12 +352,12 @@ test.describe("Entering selection mode", () => {
 		await longPress(page, rows(page).first());
 
 		await rowToggle(rows(page).nth(1)).click();
-		await expect(selectionSheet(page)).toBeVisible();
+		await expect(selectionStatus(page)).toBeVisible();
 		await expect(selectionStatus(page)).toHaveText("2 messages selected");
 
-		// Back to one selected: the sheet drops but selection mode stays.
+		// Back to one selected: the count follows, selection mode stays.
 		await rowToggle(rows(page).nth(1)).click();
-		await expect(selectionSheet(page)).toBeHidden();
+		await expect(selectionStatus(page)).toHaveText("1 message selected");
 		await expect(rowToggle(rows(page).first())).toHaveAccessibleName(
 			"Deselect message",
 		);
@@ -398,7 +371,7 @@ test.describe("Entering selection mode", () => {
 		// A tap on the row itself (not the dedicated toggle button) must behave
 		// the same as tapping the toggle: select the row, never navigate.
 		await rows(page).nth(1).click();
-		await expect(selectionSheet(page)).toBeVisible();
+		await expect(selectionStatus(page)).toBeVisible();
 		await expect(selectionStatus(page)).toHaveText("2 messages selected");
 		await expect(page).not.toHaveURL(/selectedMessageId=/);
 		await expect(rowToggle(rows(page).nth(1))).toHaveAccessibleName(
@@ -406,7 +379,7 @@ test.describe("Entering selection mode", () => {
 		);
 
 		await rows(page).nth(1).click();
-		await expect(selectionSheet(page)).toBeHidden();
+		await expect(selectionStatus(page)).toHaveText("1 message selected");
 		await expect(page).not.toHaveURL(/selectedMessageId=/);
 	});
 
@@ -429,8 +402,8 @@ test.describe("Entering selection mode", () => {
 		await page.mouse.move(box.x + 10, y, { steps: 10 });
 		await page.mouse.up();
 
-		// Scoped to the row: the sheet carries its own "Mark as read" verb for the
-		// whole selection, which is not a swipe action.
+		// Scoped to the row: the bar carries its own mark-read verb for the whole
+		// selection, which is not a swipe action.
 		await expect(
 			row.getByRole("button", { name: "Delete message" }),
 		).toBeHidden();
@@ -460,7 +433,6 @@ test.describe("Bounded select-all", () => {
 		run,
 	}) => {
 		await selectTwoFromTop(page);
-		await expandSheet(page);
 		await selectAllCheckbox(page).click();
 
 		await expect(selectionStatus(page)).toHaveText(
@@ -468,13 +440,12 @@ test.describe("Bounded select-all", () => {
 		);
 	});
 
-	test("the X clears the selection", async ({ page }) => {
+	test("the back arrow clears the selection", async ({ page }) => {
 		await selectTwoFromTop(page);
-		await expandSheet(page);
 
 		await cancelSelectionButton(page).click();
 
-		await expect(selectionSheet(page)).toBeHidden();
+		await expect(selectionStatus(page)).toBeHidden();
 	});
 
 	test("deselecting the last row exits selection mode automatically", async ({
@@ -489,7 +460,7 @@ test.describe("Bounded select-all", () => {
 
 		// Back to the idle affordance — selection mode exited.
 		await expect(entryToggle(rows(page).first())).toBeVisible();
-		await expect(selectionSheet(page)).toBeHidden();
+		await expect(selectionStatus(page)).toBeHidden();
 	});
 });
 
@@ -506,7 +477,6 @@ test.describe("Confirm dialog", () => {
 		run,
 	}) => {
 		await selectTwoFromTop(page);
-		await expandSheet(page);
 
 		await deleteButton(page).click();
 
@@ -530,8 +500,8 @@ test.describe("Confirm dialog", () => {
 	}) => {
 		// Scratch messages, not the globally seeded ones: the suite runs serially
 		// over one shared mailbox and other specs assert the inbox holds exactly
-		// `seededSubjects` — this appends two (the sheet's threshold), deletes them
-		// through the sheet, and the count below proves the baseline is restored.
+		// `seededSubjects` — this appends two, deletes them through the bar, and
+		// the count below proves the baseline is restored.
 		const stamp = Date.now();
 		const subjects = [
 			`Selection-mode exit scratch ${stamp} A`,
@@ -557,14 +527,13 @@ test.describe("Confirm dialog", () => {
 			page.locator("[data-message-row]").filter({ hasText: subjects[1] }),
 		).click();
 		await expect(selectionStatus(page)).toHaveText("2 messages selected");
-		await expandSheet(page);
 
 		await deleteButton(page).click();
 		await confirmDialog(page)
 			.getByRole("button", { name: "Move to Trash" })
 			.click();
 
-		await expect(selectionSheet(page)).toBeHidden();
+		await expect(selectionStatus(page)).toBeHidden();
 
 		// Single-pane mobile stays on the list — the delete must not navigate into
 		// the surviving neighbour's conversation (#202), so there is no reading
@@ -673,7 +642,6 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 		);
 
 		await selectTwoFromTop(page);
-		await expandSheet(page);
 		await selectAllCheckbox(page).click();
 		await expect(selectionStatus(page)).toHaveText(
 			`All ${LIST_PAGE_SIZE} loaded selected`,
@@ -724,7 +692,6 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 		);
 
 		await selectTwoFromTop(page);
-		await expandSheet(page);
 		await selectAllCheckbox(page).click();
 		await selectionNotice(page)
 			.getByRole("button", { name: 'Select all matching "npmbulk"' })
@@ -765,7 +732,7 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 			.getByRole("button", { name: "Move to Trash" })
 			.click();
 
-		await expect(selectionSheet(page)).toBeHidden({ timeout: 30_000 });
+		await expect(selectionStatus(page)).toBeHidden({ timeout: 30_000 });
 		// The honest number: the actual count the run deleted, including the
 		// late arrivals the pre-confirm estimate above never saw — never the
 		// stale estimate itself.
@@ -850,7 +817,6 @@ test.describe("Search-scoped escalated move and mark-read", () => {
 			COUNT,
 		);
 		await selectTwoFromTop(page);
-		await expandSheet(page);
 		await selectAllCheckbox(page).click();
 		await selectionNotice(page)
 			.getByRole("button", { name: `Select all matching "${QUERY}"` })
@@ -868,9 +834,9 @@ test.describe("Search-scoped escalated move and mark-read", () => {
 	}) => {
 		await escalate(page);
 
-		await markReadButton(page).click();
+		await markRead(page);
 
-		await expect(selectionSheet(page)).toBeHidden({ timeout: 30_000 });
+		await expect(selectionStatus(page)).toBeHidden({ timeout: 30_000 });
 		await expect(
 			page.getByText(
 				`${COUNT} marked as read. Your mail server is still catching up.`,
@@ -900,7 +866,7 @@ test.describe("Search-scoped escalated move and mark-read", () => {
 		// Archive is a standard destination in the picker on this account.
 		await page.getByRole("option", { name: "Move to Archive" }).click();
 
-		await expect(selectionSheet(page)).toBeHidden({ timeout: 30_000 });
+		await expect(selectionStatus(page)).toBeHidden({ timeout: 30_000 });
 		await expect(
 			page.getByText(`${COUNT} moved. Your mail server is still catching up.`),
 		).toBeVisible();

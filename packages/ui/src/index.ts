@@ -484,6 +484,7 @@ export {
 	type SelectionTopBarNotice,
 	type SelectionTopBarNoticeAction,
 	type SelectionTopBarProps,
+	type SelectionTopBarSelectAll,
 } from "./components/selection-top-bar.js";
 export {
 	FolderStepBody,

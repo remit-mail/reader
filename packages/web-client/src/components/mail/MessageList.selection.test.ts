@@ -70,8 +70,8 @@ describe("MessageList escalated actions", () => {
 	});
 
 	it("keeps mark-read and the move slot on an escalated selection", () => {
-		// The mobile sheet always carries the mark-read verb (it hides it itself
-		// while counting or busy); an escalated selection must never lose it.
+		// The bar always carries the mark-read verb (it drops it itself while
+		// counting or busy); an escalated selection must never lose it.
 		assert.match(source, /onMarkRead=\{handleMarkAsRead\}/);
 		// The move slot is offered for a bounded selection or an escalated one —
 		// #114's rule that an escalated selection is never delete-only.
@@ -95,9 +95,8 @@ describe("MessageList escalated actions", () => {
 
 /**
  * Advanced selection is no longer mobile-only (#212): the escalation engine is
- * opened to desktop, and the desktop `SelectionToolbar` renders the same
- * offer → counting → escalated → progress → notice states the mobile sheet
- * carries, from one shared set of derivations so the two surfaces never drift.
+ * opened to every width, and the one selection bar renders the
+ * offer → counting → escalated → progress → notice states.
  */
 describe("MessageList escalation reaches desktop (#212)", () => {
 	it("no longer gates the escalation engine on the mobile viewport", () => {
@@ -111,39 +110,38 @@ describe("MessageList escalation reaches desktop (#212)", () => {
 		);
 	});
 
-	it("feeds the desktop toolbar the shared escalation state", () => {
-		const toolbar = source.match(/<SelectionToolbar[\s\S]*?\/>/)?.[0] ?? "";
-		assert.match(toolbar, /statusLabel=\{selectionStatusLabel\}/);
-		assert.match(toolbar, /notice=\{escalationNotice\}/);
-		assert.match(toolbar, /progress=\{selectionProgress\}/);
-		// Desktop wires select-all only while searching — the mobile sheet carries
-		// it for any bounded selection.
-		assert.match(
-			toolbar,
-			/selectAll=\{escalationEnabled \? selectionSelectAll : undefined\}/,
-		);
-		assert.match(
-			toolbar,
-			/isCounting=\{escalation\.phase\.kind === "counting"\}/,
-		);
+	it("feeds the bar the shared escalation state", () => {
+		// Up to the bar's own closing tag, at its own indent — a nested slot
+		// element closes first and would cut the match short.
+		const bar = source.match(/<SelectionTopBar[\s\S]*?\n\t\t\/>/)?.[0] ?? "";
+		assert.match(bar, /statusLabel=\{selectionStatusLabel\}/);
+		assert.match(bar, /notice=\{selectionNotice\}/);
+		assert.match(bar, /progress=\{selectionProgress\}/);
+		assert.match(bar, /selectAll=\{selectionSelectAll\}/);
+		assert.match(bar, /isCounting=\{escalation\.phase\.kind === "counting"\}/);
 	});
 
-	it("drives both surfaces from the same derivations", () => {
-		// The sheet and the toolbar read the same status label, select-all control
-		// and progress — a second copy for desktop is exactly the drift this
-		// guards against.
-		for (const shared of [
-			"selectionStatusLabel",
-			"selectionSelectAll",
-			"selectionProgress",
-			"selectionCount",
-		]) {
-			const uses = source.match(new RegExp(`\\b${shared}\\b`, "g")) ?? [];
-			assert.ok(
-				uses.length >= 3,
-				`${shared} should be defined once and read by both surfaces`,
-			);
-		}
+	it("raises one selection surface, at every width (#480)", () => {
+		const bars = source.match(/<SelectionTopBar\b/g) ?? [];
+		assert.equal(bars.length, 1, "one bar, so no two surfaces can drift");
+		assert.doesNotMatch(source, /<SelectionSheet\b/);
+	});
+
+	it("mounts that surface unconditionally — it is the list header", () => {
+		// Gated on a selection, the bar's zero-ticked state (the mailbox name,
+		// and select-all inline from 768px up) reaches nothing.
+		assert.match(source, /const activeSelectionBar = \(\s*<SelectionTopBar/);
+		assert.match(source, /title=\{listHeaderChrome\.title \|\| listTitle\}/);
+		assert.match(source, /navSlot=\{listHeaderChrome\.navSlot\}/);
+	});
+
+	it("keeps the free-text organize entry reachable, in the overflow", () => {
+		assert.match(source, /onSomethingElse=\{/);
+		assert.match(source, /setMobileOrganizeEntry\("something-else"\)/);
+	});
+
+	it("offers the label picker only when the account has labels", () => {
+		assert.match(source, /labels\.length > 0 \? \(/);
 	});
 });
 

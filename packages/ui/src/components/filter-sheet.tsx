@@ -63,6 +63,14 @@ export interface FilterSheetProps {
 	 */
 	onExpandedChange?: (expanded: boolean) => void;
 	/**
+	 * Drop the filter row and its panel, keeping the shell and the children
+	 * exactly where they are. A search narrows the same list by the same intent
+	 * and takes the filter's place, and swapping the children's parent for a
+	 * plain container instead would remount everything under it — including a
+	 * search field being typed into.
+	 */
+	hideChrome?: boolean;
+	/**
 	 * The list rendered below the filter. The expanded panel is inline: it pushes
 	 * this content down (the list reflows), it does not overlay it.
 	 */
@@ -112,6 +120,7 @@ export function FilterSheet({
 	onToggleFilter,
 	onClear,
 	onExpandedChange,
+	hideChrome = false,
 	children,
 }: FilterSheetProps) {
 	const isControlled = expandedProp !== undefined;
@@ -268,42 +277,44 @@ export function FilterSheet({
 			{/* The toggle is a div-button (not a real <button>) so the Clear
 			    control can be a real nested <button> without invalid
 			    button-in-button nesting. */}
-			{/* biome-ignore lint/a11y/useSemanticElements: nested <button> inside would be invalid button-in-button */}
-			<div
-				role="button"
-				tabIndex={0}
-				aria-expanded={open}
-				aria-label={open ? "Collapse filters" : "Expand filters"}
-				onClick={() => setOpen(!open)}
-				onKeyDown={(e) => {
-					if (!isSelfRowActivation(e)) return;
-					e.preventDefault();
-					setOpen(!open);
-				}}
-				className="flex h-section-row w-full shrink-0 cursor-pointer items-center gap-1.5 overflow-x-hidden border-b border-line bg-surface-sunken px-row-inset text-left hover:bg-surface"
-			>
-				{summaryChips}
-				{hasActive && (
-					<button
-						type="button"
-						aria-label="Clear filters"
-						onClick={(e) => {
-							e.stopPropagation();
-							clearAll();
-						}}
-						className="flex size-6 items-center justify-center text-fg-subtle hover:text-fg-muted"
-					>
-						<Close className="size-3" />
-					</button>
-				)}
-				<ChevronDown
-					className={cn(
-						"ml-auto size-3 shrink-0 text-fg-subtle transition-transform duration-200",
-						open ? "rotate-180" : "rotate-0",
+			{!hideChrome && (
+				// biome-ignore lint/a11y/useSemanticElements: nested <button> inside would be invalid button-in-button
+				<div
+					role="button"
+					tabIndex={0}
+					aria-expanded={open}
+					aria-label={open ? "Collapse filters" : "Expand filters"}
+					onClick={() => setOpen(!open)}
+					onKeyDown={(e) => {
+						if (!isSelfRowActivation(e)) return;
+						e.preventDefault();
+						setOpen(!open);
+					}}
+					className="flex h-section-row w-full shrink-0 cursor-pointer items-center gap-1.5 overflow-x-hidden border-b border-line bg-surface-sunken px-row-inset text-left hover:bg-surface"
+				>
+					{summaryChips}
+					{hasActive && (
+						<button
+							type="button"
+							aria-label="Clear filters"
+							onClick={(e) => {
+								e.stopPropagation();
+								clearAll();
+							}}
+							className="flex size-6 items-center justify-center text-fg-subtle hover:text-fg-muted"
+						>
+							<Close className="size-3" />
+						</button>
 					)}
-				/>
-			</div>
-			{open && (
+					<ChevronDown
+						className={cn(
+							"ml-auto size-3 shrink-0 text-fg-subtle transition-transform duration-200",
+							open ? "rotate-180" : "rotate-0",
+						)}
+					/>
+				</div>
+			)}
+			{open && !hideChrome && (
 				<div className="shrink-0">
 					{sourceRow}
 					{categoryRow}

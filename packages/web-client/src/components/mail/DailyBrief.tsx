@@ -16,9 +16,8 @@
  * the phone search takeover keeps its own copy of the filter sheet.
  *
  * Multi-select is the mailbox list's, not a copy of it: the same
- * `ThreadListInteraction` cursor and `useSelection` state, the same
- * `SelectionToolbar` replacing the pane header on desktop, and the same
- * peeking `SelectionSheet` on touch. A shift-range spans the rendered rows in
+ * `ThreadListInteraction` cursor and `useSelection` state, and the same
+ * `SelectionTopBar` in place of the pane header. A shift-range spans the rendered rows in
  * document order, so it crosses category sections exactly as the eye reads
  * them and never picks up a row hidden behind "Show N more" or a collapsed
  * header. Folder-scoped verbs (Move, Apply label, Organize) resolve their
@@ -43,9 +42,8 @@ import {
 	type FilterSheetProps,
 	type FilterSheetSource,
 	KeyboardHintBar,
-	SELECTION_SHEET_TEASER_HEIGHT,
 	type SearchResult,
-	SelectionSheet,
+	SelectionTopBar,
 	type ThreadRowData,
 	type ThreadSection,
 } from "@remit/ui";
@@ -65,6 +63,7 @@ import {
 	isSyncingPhase,
 	useInitialSyncProgress,
 } from "@/hooks/useInitialSyncProgress";
+import { useLabelList } from "@/hooks/useLabels";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
@@ -80,17 +79,17 @@ import {
 	toThreadRowData,
 } from "@/lib/brief";
 import { isServerError } from "@/lib/error-classifier";
+import type { ListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
 import { relatedSearchResults, rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
-import { shouldShowSelectionSheet } from "@/lib/selection-sheet-mode";
+import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import { MailListHeader, type MailListHeaderProps } from "./MailListHeader";
 import type { MessageListCommands } from "./MessageList";
 import { MessageRow } from "./MessageRow";
 import { MoveToTrigger } from "./MoveToTrigger";
 import { MobileOrganizeFlow } from "./organize/MobileOrganizeFlow";
 import { OrganizeDialog } from "./organize/OrganizeDialog";
-import { SelectionToolbar } from "./SelectionToolbar";
 import {
 	type OpenMessageOptions,
 	ThreadListInteraction,
@@ -290,7 +289,7 @@ interface BriefSelectionChromeProps {
 	/** Everything the header needs when no selection is active. */
 	header: Omit<
 		MailListHeaderProps,
-		"children" | "selectionBar" | "selectionSheet"
+		"children" | "selectionBar" | "paneOverlay"
 	>;
 	/** The rows the list is showing, for resolving the selection's scope. */
 	rows: readonly ThreadRowData[];
@@ -300,10 +299,9 @@ interface BriefSelectionChromeProps {
 }
 
 /**
- * The brief's selection chrome: the same two surfaces the mailbox list raises,
- * in the same places. Desktop replaces the pane header with `SelectionToolbar`;
- * touch leaves the header alone and raises the peeking `SelectionSheet` at two
- * or more selected. The selection itself comes from the enclosing
+ * The brief's selection chrome: the same surface the mailbox list raises, in
+ * the same place. The pane header carries the count and the verbs from the
+ * first ticked row. The selection itself comes from the enclosing
  * `ThreadListInteraction`, so the brief and the mailbox list run one model.
  */
 function BriefSelectionChrome({
@@ -328,6 +326,7 @@ function BriefSelectionChrome({
 		[rows, selectedIds],
 	);
 	const { junkMailboxId } = useJunkMailbox(scope.accountId);
+	const { labels } = useLabelList(scope.accountId);
 	const { moveMessages, isPending: isMoving } = useMoveMessages({
 		mailboxId: scope.mailboxId ?? "",
 		accountId: scope.accountId,
@@ -395,33 +394,65 @@ function BriefSelectionChrome({
 		[orderedIds.length, allSelected, selectedCount, toggleAllLoaded],
 	);
 
-	const selectionBar =
-		isDesktop && selectedCount > 0 ? (
-			<SelectionToolbar
-				selectedCount={selectedCount}
-				onDelete={requestDeleteSelection}
-				onClearSelection={exitSelection}
-				onMarkAsRead={onMarkMessagesRead ? handleMarkAsRead : undefined}
-				onMove={scoped ? handleMove : undefined}
-				onOrganize={() => setOrganizeOpen(true)}
-				isMoving={isMoving}
-				accountId={scope.accountId}
-				currentMailboxId={scope.mailboxId}
-				selectedMessageIds={selectedMessageIds}
-				moveDisabledHint={scope.moveDisabledHint}
-				selectAll={selectAll}
-			/>
-		) : undefined;
-
-	// The mobile sheet has no inline hint slot, so the scope restriction rides
-	// in as a notice — the same fold-in the mailbox list does.
+	// The bar shows one notice at a time, so the scope restriction rides in as
+	// a notice — the same fold-in the mailbox list does.
 	const notice = scope.moveDisabledHint
 		? { tone: "warning" as const, text: scope.moveDisabledHint }
 		: undefined;
-	const showSheet =
-		!isDesktop &&
-		selectedCount > 0 &&
-		shouldShowSelectionSheet(selectedCount, "idle", notice !== undefined);
+
+	const selectionBar = (chrome: ListHeaderChrome) => (
+		<SelectionTopBar
+			title={chrome.title}
+			navSlot={chrome.navSlot}
+			titleMeta={chrome.titleMeta}
+			searchSlot={chrome.searchSlot}
+			searchField={chrome.searchField}
+			idleSlot={chrome.makeFilterSlot}
+			count={selectedCount}
+			onCancel={exitSelection}
+			onDelete={requestDeleteSelection}
+			onOrganize={
+				scoped
+					? () =>
+							isDesktop
+								? setOrganizeOpen(true)
+								: setMobileOrganizeEntry("select-similar")
+					: undefined
+			}
+			onJunk={canJunk ? handleJunk : undefined}
+			onMarkRead={onMarkMessagesRead ? handleMarkAsRead : undefined}
+			onSomethingElse={
+				scoped && !isDesktop
+					? () => setMobileOrganizeEntry("something-else")
+					: undefined
+			}
+			moveSlot={
+				scoped && scope.accountId && scope.mailboxId ? (
+					<MoveToTrigger
+						accountId={scope.accountId}
+						currentMailboxId={scope.mailboxId}
+						onMove={isMoving ? () => {} : handleMove}
+						label="Move selected messages"
+					/>
+				) : undefined
+			}
+			overflowSlot={
+				scope.accountId &&
+				scope.mailboxId &&
+				selectedCount > 0 &&
+				labels.length > 0 ? (
+					<LabelApplyTrigger
+						accountId={scope.accountId}
+						mailboxId={scope.mailboxId}
+						messageIds={selectedMessageIds}
+					/>
+				) : undefined
+			}
+			isBusy={isMoving}
+			selectAll={selectAll}
+			notice={notice}
+		/>
+	);
 
 	const organizeFlow =
 		mobileOrganizeEntry &&
@@ -441,64 +472,14 @@ function BriefSelectionChrome({
 			/>
 		) : undefined;
 
-	const selectionSheet =
-		showSheet || organizeFlow ? (
-			<>
-				{showSheet && (
-					<SelectionSheet
-						count={selectedCount}
-						onCancel={exitSelection}
-						onDelete={requestDeleteSelection}
-						onJunk={canJunk ? handleJunk : undefined}
-						onMarkRead={onMarkMessagesRead ? handleMarkAsRead : undefined}
-						onSelectSimilar={
-							scoped
-								? () => setMobileOrganizeEntry("select-similar")
-								: undefined
-						}
-						onSomethingElse={
-							scoped
-								? () => setMobileOrganizeEntry("something-else")
-								: undefined
-						}
-						moveSlot={
-							scoped && scope.accountId && scope.mailboxId ? (
-								<MoveToTrigger
-									accountId={scope.accountId}
-									currentMailboxId={scope.mailboxId}
-									onMove={isMoving ? () => {} : handleMove}
-									label="Move selected messages"
-								/>
-							) : undefined
-						}
-						isBusy={isMoving}
-						selectAll={selectAll}
-						notice={notice}
-					/>
-				)}
-				{organizeFlow}
-			</>
-		) : undefined;
-
 	return (
 		<>
 			<MailListHeader
 				{...header}
 				selectionBar={selectionBar}
-				selectionSheet={selectionSheet}
+				paneOverlay={organizeFlow}
 			>
-				{/* Shrink the body by the teaser's height rather than letting the
-				    last rows hide behind it. */}
-				<div
-					className="h-full"
-					style={
-						showSheet
-							? { paddingBottom: SELECTION_SHEET_TEASER_HEIGHT }
-							: undefined
-					}
-				>
-					{children}
-				</div>
+				{children}
 			</MailListHeader>
 			{organizeOpen && scope.accountId && (
 				<OrganizeDialog
@@ -531,7 +512,7 @@ interface DailyBriefProps {
 	commandsRef?: RefObject<MessageListCommands | null>;
 	/** Cursor / selection / display order, reported up to the triage layer. */
 	onTriageContextChange?: (context: TriageContextUpdate) => void;
-	onDeleteMessages?: (messageIds: string[]) => void;
+	onDeleteMessages: (messageIds: string[]) => void;
 	onMarkMessagesRead?: (messageIds: string[]) => void;
 }
 

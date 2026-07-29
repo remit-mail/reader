@@ -557,6 +557,7 @@ export const MobileBulkDeleteBusy: Story = {
 			isDesktop={false}
 			selectionBar={
 				<SelectionTopBar
+					title="Inbox"
 					count={3412}
 					onCancel={() => undefined}
 					onDelete={() => undefined}
