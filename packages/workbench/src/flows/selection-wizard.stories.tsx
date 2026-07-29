@@ -22,9 +22,9 @@ import {
 	type SampleEmptyReason,
 	type SearchChip,
 	type SearchConversion,
-	type SearchConversionNotice,
 	SelectionWizard,
 	type StepId,
+	searchConversionNotice,
 	senderLabel,
 	stepBlockedReason,
 	stepIndex,
@@ -228,12 +228,6 @@ const withIds = (
 		id: `${prefix}-${index}`,
 		derived: true,
 	}));
-
-const noticeFor = (conversion: SearchConversion): SearchConversionNotice => ({
-	scopedOutFolder: conversion.scopedOut?.label,
-	droppedFacets: conversion.droppedFacets.map((facet) => facet.label),
-	droppedSemantic: conversion.droppedSemantic,
-});
 
 const envelopesOf = (messages: SelectionMessage[]): EnvelopeAddress[] =>
 	messages.map((message) => ({
@@ -480,7 +474,9 @@ function WizardDriver({
 					clauseEdit?.draft.value ?? "",
 				),
 				conversionNotice:
-					fromSearch && conversion ? noticeFor(conversion) : undefined,
+					fromSearch && conversion
+						? searchConversionNotice(conversion)
+						: undefined,
 				semanticFallbackTaken,
 				sample: {
 					...sample,
@@ -607,7 +603,7 @@ function SelectionFlow({
 			{conversion && ids.length === 0 && (
 				<MakeFilterAction
 					onClick={() => setEntry({ verb: "organize", fromSearch: true })}
-					disabledReason={
+					blockedReason={
 						isConvertible(conversion)
 							? undefined
 							: "Add a sender or words to filter on"

@@ -11,6 +11,7 @@ import type {
 	MatchOperator,
 	RuleScope,
 } from "../components/filter-rule.js";
+import type { SearchConversionNotice } from "../components/search-conversion.js";
 
 /**
  * A search facet a filter has no clause for. Attachment, read state, starred,
@@ -67,6 +68,19 @@ export interface SearchConversion {
  */
 export const isConvertible = (conversion: SearchConversion): boolean =>
 	conversion.clauses.length > 0;
+
+/**
+ * The conversion as the notice reads it. One mapping, beside both shapes, so
+ * every surface that opens on a converted search states the same losses in the
+ * same words.
+ */
+export const searchConversionNotice = (
+	conversion: SearchConversion,
+): SearchConversionNotice => ({
+	scopedOutFolder: conversion.scopedOut?.label,
+	droppedFacets: conversion.droppedFacets.map((facet) => facet.label),
+	droppedSemantic: conversion.droppedSemantic,
+});
 
 interface BuildRuleOptions {
 	scope?: RuleScope;

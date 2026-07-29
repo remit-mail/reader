@@ -4,6 +4,7 @@ import {
 	buildSearchRule,
 	isConvertible,
 	type SearchConversion,
+	searchConversionNotice,
 } from "./search-rule.js";
 
 const conversion = (
@@ -69,5 +70,35 @@ describe("buildSearchRule", () => {
 		);
 		assert.equal(rule.scope, "once");
 		assert.equal(rule.moveMailboxId, "mbx-archive");
+	});
+});
+
+describe("searchConversionNotice", () => {
+	it("names the folder the search was scoped to and every facet dropped", () => {
+		const notice = searchConversionNotice(
+			conversion({
+				clauses: [{ field: "HasWords", value: "npm" }],
+				keptTerms: true,
+				scopedOut: { mailboxId: "mbx-archive", label: "Archive" },
+				droppedFacets: [{ type: "isUnread", label: "Unread" }],
+				droppedSemantic: true,
+			}),
+		);
+		assert.deepEqual(notice, {
+			scopedOutFolder: "Archive",
+			droppedFacets: ["Unread"],
+			droppedSemantic: true,
+		});
+	});
+
+	it("states nothing for a conversion that carried everything", () => {
+		const notice = searchConversionNotice(
+			conversion({ clauses: [{ field: "From", value: "a@b.com" }] }),
+		);
+		assert.deepEqual(notice, {
+			scopedOutFolder: undefined,
+			droppedFacets: [],
+			droppedSemantic: false,
+		});
 	});
 });

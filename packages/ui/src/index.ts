@@ -633,6 +633,7 @@ export {
 	type DroppedFacetType,
 	isConvertible,
 	type SearchConversion,
+	searchConversionNotice,
 } from "./lib/search-rule.js";
 export {
 	collapsibleDomain,

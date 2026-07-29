@@ -86,7 +86,14 @@ import {
 	searchTokenLabel,
 } from "@/lib/search-tokens";
 import { spamOfferForResults } from "@/lib/spam-offer";
-import { SearchFilterDialog } from "./organize/SearchFilterDialog";
+import { useOpenWizard } from "@/lib/wizard-history";
+import {
+	SelectionWizardHost,
+	type WizardSelectionMessage,
+} from "./SelectionWizardHost";
+
+/** A search entry has nothing ticked; its match is the query's clauses (#477 3.2). */
+const EMPTY_SELECTION: readonly WizardSelectionMessage[] = [];
 
 export interface MailListHeaderProps {
 	title: string;
@@ -169,7 +176,7 @@ export function MailListHeader({
 	const tier = useLayoutTier();
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [recentSearches, setRecentSearches] = useState(loadRecentSearches);
-	const [filterOpen, setFilterOpen] = useState(false);
+	const openWizard = useOpenWizard();
 
 	// Leaving the view ends the search: the shell drops the query, and the chrome
 	// it opened — the phone takeover, the expanded tablet field — closes with it
@@ -320,14 +327,14 @@ export function MailListHeader({
 			}
 		: routeScope;
 
-	// Make-this-a-filter (RFC 038 D5): convert the current search to a pre-filled
-	// rule and open the shared chip editor. The filter is created for the account
-	// an `account:` facet names, else the primary account. The literal filter
-	// cannot reproduce the search's semantic reach, so the conversion states it
-	// whenever the search surfaced a "Related" section — a direct signal, read
-	// here from the semantic results, never a capability probe. Disabled with a
-	// reason when the search has no clause to filter on (only non-clause facets,
-	// or a bare folder scope).
+	// Make-this-a-filter (#477 clause 1.8): the search is the wizard's second
+	// entry. It opens on the properties step with the clauses `convertSearchToRule`
+	// derives from the query, nothing ticked, and the notice for what the query
+	// could not be turned into. The rule is created for the account an `account:`
+	// facet names, else the primary account. The literal filter cannot reproduce
+	// the search's semantic reach, so the conversion states it whenever the search
+	// surfaced a "Related" section — a direct signal, read here from the semantic
+	// results, never a capability probe.
 	//
 	// It belongs to the search, not to any one way of showing it. The affordance
 	// therefore sits in the pane, above whichever body is up — the read-only
@@ -341,13 +348,15 @@ export function MailListHeader({
 	const accountToken = parsed.tokens.find((token) => token.type === "account");
 	const targetAccountId = accountToken?.accountId ?? accounts[0]?.accountId;
 	const searchHadSemanticReach = related.length > 0;
+	const conversion = useMemo(
+		() => convertSearchToRule(parsed, { searchHadSemanticReach }),
+		[parsed, searchHadSemanticReach],
+	);
 	const makeFilter =
 		hasQuery && targetAccountId
 			? {
-					onClick: () => setFilterOpen(true),
-					disabledReason: isConvertible(
-						convertSearchToRule(parsed, { searchHadSemanticReach }),
-					)
+					onClick: () => openWizard("properties", "search"),
+					blockedReason: isConvertible(conversion)
 						? undefined
 						: "Add a sender or words to filter on",
 				}
@@ -357,14 +366,17 @@ export function MailListHeader({
 	const makeFilterAction = makeFilter ? (
 		<MakeFilterAction {...makeFilter} />
 	) : null;
-	const filterDialog =
-		filterOpen && targetAccountId ? (
-			<SearchFilterDialog
-				open={filterOpen}
+	// The same wizard the selection bar opens, hosted here because this is where
+	// the query lives. Only one of the two mounts answers a given walk — the URL
+	// says which affordance opened it.
+	const searchWizard =
+		hasQuery && targetAccountId ? (
+			<SelectionWizardHost
+				verb="organize"
 				accountId={targetAccountId}
-				parsed={parsed}
-				searchHadSemanticReach={searchHadSemanticReach}
-				onClose={() => setFilterOpen(false)}
+				mailboxId={scopedMailboxId}
+				selection={EMPTY_SELECTION}
+				searchConversion={conversion}
 			/>
 		) : null;
 
@@ -515,7 +527,7 @@ export function MailListHeader({
 					suggest={searchSuggest}
 					suggestList={suggestList}
 				/>
-				{filterDialog}
+				{searchWizard}
 			</>
 		);
 	}
@@ -527,7 +539,7 @@ export function MailListHeader({
 				{suggestList}
 				<div className="min-h-0 flex-1">{body}</div>
 				{footer}
-				{filterDialog}
+				{searchWizard}
 				{paneOverlay}
 			</section>
 		</ListHeaderChromeContext.Provider>
