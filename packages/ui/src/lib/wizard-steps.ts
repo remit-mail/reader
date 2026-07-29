@@ -10,14 +10,18 @@
 
 import {
 	clauseFieldLabel,
+	type FilterRule,
 	type MatchOperator,
-	matchesBodyText,
 	matchJoinWord,
 	matchModeHint,
 	matchModeLabel,
+	type PreviewCount,
+	previewSettledReason,
 	type RuleClause,
 	type RuleMatchMode,
 	type RuleScope,
+	ruleBlockedCopy,
+	unreadableBodyClauses,
 	widenChipLabel,
 } from "../components/filter-rule.js";
 
@@ -138,50 +142,88 @@ export const stepsFor = ({
 export const stepIndex = (steps: readonly StepId[], step: StepId): number =>
 	Math.max(0, steps.indexOf(step));
 
-export interface StepAnswers {
+/**
+ * Whether Back leaves the wizard rather than moving a step. The opening step has
+ * nothing behind it, and the Run step's action has already happened — walking
+ * back to Review from there would offer to commit it a second time.
+ */
+export const backExits = (steps: readonly StepId[], step: StepId): boolean =>
+	stepIndex(steps, step) === 0 || step === "run";
+
+/**
+ * The rule as the wizard has it so far. The same fields `FilterRule` carries,
+ * with the two the wizard has not asked for yet left absent — a rule is only a
+ * whole rule from the review step on.
+ */
+export interface WizardDraft {
 	clauses: readonly RuleClause[];
-	folder?: string;
+	matchOperator: MatchOperator;
+	/** The Move destination. Absent until the folder step is answered. */
+	moveMailboxId?: string;
+	/** Absent until the scope step is answered. */
 	scope?: RuleScope;
 	/** ISO 8601 civil date (`YYYY-MM-DD`) the `until` scope stops on. */
 	until?: string;
-	ruleName?: string;
+	name?: string;
 }
+
+const asRule = (draft: WizardDraft, scope: RuleScope): FilterRule => ({
+	clauses: [...draft.clauses],
+	matchOperator: draft.matchOperator,
+	moveMailboxId: draft.moveMailboxId,
+	scope,
+	until: draft.until,
+	name: draft.name,
+});
+
+/** A clause chip that was added but never filled in. The rule editor has no equivalent — it holds its draft until the value is typed. */
+const INCOMPLETE_CLAUSE = "Fill in every property, or take the empty one off.";
+const NO_DESTINATION = "Pick a destination first.";
+const NO_SCOPE = "Choose one of the three first.";
 
 /**
  * What the step is still missing, or `undefined` when it is answered. Nothing
  * disables: Continue stays pressable and dimmed, and pressing it says this.
  *
+ * Every gap the rule editor also has says it in the rule editor's words
+ * (`ruleBlockedCopy`), so the two surfaces cannot drift. Only the three gaps
+ * that exist because the wizard asks one question per screen are its own.
+ *
  * A `HasWords` clause is only readable by the index-time matcher, so a one-time
- * apply cannot serve it. That is stated here, where the scope is chosen, rather
- * than by refusing the clause on the step that offered it.
+ * apply cannot serve it. That is stated on the scope step rather than by
+ * refusing the clause on the step that offered it.
  */
 export const stepBlockedReason = (
 	step: StepId,
-	{ clauses, folder, scope, until, ruleName }: StepAnswers,
+	draft: WizardDraft,
+	preview?: PreviewCount,
 ): string | undefined => {
 	if (step === "properties") {
-		if (clauses.length === 0) return "Add a property to match on.";
-		if (clauses.some((clause) => clause.value.trim() === "")) {
-			return "Fill in every property, or take the empty one off.";
+		if (draft.clauses.length === 0) return ruleBlockedCopy.noMatch;
+		if (draft.clauses.some((clause) => clause.value.trim() === "")) {
+			return INCOMPLETE_CLAUSE;
 		}
 		return undefined;
 	}
 	if (step === "folder") {
-		return folder ? undefined : "Pick a destination first.";
+		return draft.moveMailboxId ? undefined : NO_DESTINATION;
 	}
 	if (step === "rule") {
-		if (!scope) return "Choose one of the three first.";
-		if (scope === "once" && clauses.some((c) => matchesBodyText(c.field))) {
-			return "Applying once can't read message bodies. Keep doing this instead, or drop the “has the words” property.";
+		if (!draft.scope) return NO_SCOPE;
+		if (
+			draft.scope === "once" &&
+			unreadableBodyClauses(asRule(draft, draft.scope)).length > 0
+		) {
+			return ruleBlockedCopy.bodyTextOnce;
 		}
-		if (scope === "until" && !until?.trim()) {
-			return "Pick the date this rule should stop on.";
+		if (draft.scope === "until" && !draft.until?.trim()) {
+			return ruleBlockedCopy.noUntilDate;
 		}
 		return undefined;
 	}
-	if (step === "name" && !ruleName?.trim()) {
-		return "Give the rule a name so you can find it later.";
-	}
+	if (step === "name" && !draft.name?.trim()) return ruleBlockedCopy.unnamed;
+	// A widened door has no count to settle, so there is nothing to wait for.
+	if (step === "review" && preview) return previewSettledReason(preview);
 	return undefined;
 };
 
@@ -229,6 +271,8 @@ export interface RunOutcome {
 }
 
 export interface RunCopy {
+	/** The header title. Names the verb while the job runs, then reads as an ending. */
+	screenTitle: string;
 	title: string;
 	detail: string;
 	tone: "progress" | "success" | "warning" | "danger";
@@ -259,7 +303,9 @@ export const runCopy = ({
 	const { label, present, past } = verbCopy(verb);
 	const done = past.toLowerCase();
 	const standing = scope === "standing" || scope === "until";
+	const inFlight = state === "saving" || state === "backApplyRunning";
 	const shared = {
+		screenTitle: inFlight ? label : "Done",
 		showProgress:
 			state === "backApplyRunning" ||
 			state === "backApplyComplete" ||
@@ -404,80 +450,4 @@ export const matchPhrase = ({
 	}
 	if (clauses.length === 0) return "every message";
 	return `every message where ${clauseSentence(clauses, matchOperator)}`;
-};
-
-export const folderParent = (path: string): string => {
-	const cut = path.lastIndexOf("/");
-	return cut === -1 ? "" : path.slice(0, cut);
-};
-
-export const folderLeaf = (path: string): string =>
-	path.slice(path.lastIndexOf("/") + 1);
-
-export const folderDepth = (path: string): number => path.split("/").length - 1;
-
-/**
- * Puts every child straight after its parent so the list reads as a tree, while
- * leaving the order of unrelated folders alone. A folder whose parent is missing
- * from the list renders as a root rather than disappearing.
- */
-export const orderFolders = (paths: readonly string[]): string[] => {
-	const emitted = new Set<string>();
-	const out: string[] = [];
-
-	const emit = (path: string) => {
-		if (emitted.has(path)) return;
-		emitted.add(path);
-		out.push(path);
-		for (const candidate of paths) {
-			if (folderParent(candidate) === path) emit(candidate);
-		}
-	};
-
-	for (const path of paths) {
-		const parent = folderParent(path);
-		if (parent && paths.includes(parent)) continue;
-		emit(path);
-	}
-	return out;
-};
-
-/** The sender carrying most of the ticked rows, or `undefined` when there are none. */
-export const dominantSender = (
-	senders: readonly string[],
-): string | undefined => {
-	const counts = new Map<string, number>();
-	for (const sender of senders) {
-		counts.set(sender, (counts.get(sender) ?? 0) + 1);
-	}
-	let best: string | undefined;
-	let bestCount = 0;
-	for (const [sender, count] of counts) {
-		if (count <= bestCount) continue;
-		best = sender;
-		bestCount = count;
-	}
-	return best;
-};
-
-export interface RuleNameParts {
-	/** What a property match is anchored on — the leading clause value. */
-	match?: string;
-	/** The sender carrying most of the ticked rows. */
-	sender?: string;
-	/** The destination, once one has been chosen. */
-	folder?: string;
-}
-
-/** The name the wizard can infer from what it already knows. Always editable. */
-export const suggestRuleName = ({
-	match,
-	sender,
-	folder,
-}: RuleNameParts): string => {
-	const subject = match ?? sender;
-	if (!subject) return folder ? `Mail to ${folder}` : "";
-	if (folder) return `${subject} → ${folder}`;
-	if (match) return `Mail matching ${match}`;
-	return `Mail from ${subject}`;
 };

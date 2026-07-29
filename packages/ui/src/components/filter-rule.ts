@@ -242,14 +242,46 @@ export function commitLabel(scope: RuleScope): string {
 }
 
 /**
+ * Why a rule cannot be committed yet, one message per unmet condition. Any
+ * surface that asks for a rule — the editor in one pass, the wizard one step at
+ * a time — says the same thing about the same gap, because there is one string
+ * for it.
+ */
+export const ruleBlockedCopy = {
+	noMatch: "Add a clause so the rule has something to match.",
+	// A one-time apply runs the vector-free matcher, which cannot read message
+	// bodies. Saved as a rule the same clause works, so say that rather than
+	// refusing the clause outright.
+	bodyTextOnce:
+		"Applying once can't read message bodies. Save this as a rule instead, or drop the “has the words” clause.",
+	noAction: "Pick a folder to move into, or a label to apply.",
+	unnamed: "Name this rule so you can find it later.",
+	noUntilDate: "Pick the date this rule should stop on.",
+	counting: "Counting matches — save once the count settles.",
+	recounting: "Recounting matches — save once the count settles.",
+} as const;
+
+/**
+ * Why the count on screen is not yet the count that will be applied, or
+ * `undefined` once it has settled. This is what makes RFC 038's
+ * previewed-set-equals-applied-set contract structural rather than a promise:
+ * no surface can commit a rule whose match count is still moving.
+ */
+export function previewSettledReason(
+	preview: PreviewCount,
+): string | undefined {
+	if (preview.status === "loading") return ruleBlockedCopy.counting;
+	if (preview.status === "ready" && preview.stale)
+		return ruleBlockedCopy.recounting;
+	return undefined;
+}
+
+/**
  * Why the rule cannot be saved yet, or `undefined` when it is ready. A rule
  * needs at least one live way to match, at least one action — move and/or
  * label, either satisfies this (issue #26) — and, for the two persisted
- * scopes, a name and, for `until`, a date. It also needs a settled preview:
- * the rule is committable only when the count on screen is the count that
- * will be applied. That makes RFC 038's previewed-set-equals-applied-set
- * contract structural — a consumer cannot save a rule whose match count is
- * still moving. Never disable a control without saying why (ux.md).
+ * scopes, a name and, for `until`, a date. It also needs a settled preview.
+ * Never disable a control without saying why (ux.md).
  */
 export function commitBlockedReason(
 	rule: FilterRule,
@@ -258,26 +290,17 @@ export function commitBlockedReason(
 	const hasMatch =
 		rule.clauses.length > 0 ||
 		(rule.widen !== undefined && !rule.widen.inactive);
-	if (!hasMatch) return "Add a clause so the rule has something to match.";
-	// A one-time apply runs the vector-free matcher, which cannot read message
-	// bodies. Saved as a rule the same clause works, so say that rather than
-	// refusing the clause outright.
+	if (!hasMatch) return ruleBlockedCopy.noMatch;
 	if (rule.scope === "once" && unreadableBodyClauses(rule).length > 0)
-		return "Applying once can't read message bodies. Save this as a rule instead, or drop the “has the words” clause.";
-	if (!rule.moveMailboxId && !rule.labelId)
-		return "Pick a folder to move into, or a label to apply.";
+		return ruleBlockedCopy.bodyTextOnce;
+	if (!rule.moveMailboxId && !rule.labelId) return ruleBlockedCopy.noAction;
 	if (
 		(rule.scope === "standing" || rule.scope === "until") &&
 		(rule.name ?? "").trim() === ""
 	)
-		return "Name this rule so you can find it later.";
-	if (rule.scope === "until" && !rule.until)
-		return "Pick the date this rule should stop on.";
-	if (preview.status === "loading")
-		return "Counting matches — save once the count settles.";
-	if (preview.status === "ready" && preview.stale)
-		return "Recounting matches — save once the count settles.";
-	return undefined;
+		return ruleBlockedCopy.unnamed;
+	if (rule.scope === "until" && !rule.until) return ruleBlockedCopy.noUntilDate;
+	return previewSettledReason(preview);
 }
 
 export const demoFolders: FolderOption[] = [

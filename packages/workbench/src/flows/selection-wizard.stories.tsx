@@ -1,15 +1,19 @@
 import {
 	Checkbox,
+	type ClauseEditState,
+	demoClauseSuggestions,
 	derivePropertyClauses,
 	deriveSenderClauses,
 	dominantSender,
-	type FolderDraft,
+	type EnvelopeAddress,
 	inboxFilterConfig,
 	isConvertible,
 	MakeFilterAction,
 	type MatchMode,
 	type MatchOperator,
+	type MoveMailboxOption,
 	PopoverMenu,
+	type PreviewCount,
 	type RuleClause,
 	type RuleScope,
 	type RunState,
@@ -20,10 +24,12 @@ import {
 	SelectionWizard,
 	type StepId,
 	stepBlockedReason,
+	stepIndex,
 	stepsFor,
 	suggestRuleName,
 	type Verb,
 	verbCopy,
+	type WizardDraft,
 } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
@@ -196,9 +202,10 @@ interface WizardEntry {
 	startMode?: MatchMode;
 	scope?: RuleScope;
 	semanticUnavailable?: boolean;
-	creatingFolder?: boolean;
 	runState?: RunState;
 	sampleEmpty?: SampleEmptyReason;
+	/** How the mail server answers a folder create on the folder step. */
+	folderCreate?: "confirms" | "never confirms" | "fails";
 }
 
 const withIds = (
@@ -216,6 +223,37 @@ const noticeFor = (conversion: SearchConversion): SearchConversionNotice => ({
 	droppedFacets: conversion.droppedFacets.map((facet) => facet.label),
 	droppedSemantic: conversion.droppedSemantic,
 });
+
+const envelopesOf = (messages: SelectionMessage[]): EnvelopeAddress[] =>
+	messages.map((message) => ({
+		normalizedEmail: message.email,
+		displayName: message.sender,
+	}));
+
+const MAILBOXES: MoveMailboxOption[] = SELECTION_FOLDERS.map((path) => ({
+	id: `mbx-${path.toLowerCase().replace(/\//g, "-")}`,
+	label: path,
+	searchValue: path,
+}));
+
+/** A create that resolves only once the mail server has confirmed the folder. */
+const folderCreators: Record<
+	NonNullable<WizardEntry["folderCreate"]>,
+	(name: string, signal?: AbortSignal) => Promise<MoveMailboxOption>
+> = {
+	confirms: (name) =>
+		Promise.resolve({ id: `mbx-${name.toLowerCase()}`, label: name }),
+	"never confirms": (_name, signal) =>
+		new Promise((_resolve, reject) => {
+			signal?.addEventListener("abort", () =>
+				reject(new DOMException("Aborted", "AbortError")),
+			);
+		}),
+	fails: () =>
+		Promise.reject(
+			new Error("The mail server refused the folder. Please try again."),
+		),
+};
 
 /**
  * The answers a story holds while the wizard renders them. The app holds the
@@ -259,67 +297,68 @@ function WizardDriver({
 	const [matchOperator, setMatchOperator] = useState<MatchOperator>(
 		conversion?.matchOperator ?? "all",
 	);
-	const [folders, setFolders] = useState<string[]>(SELECTION_FOLDERS);
-	const [folder, setFolder] = useState<string>();
+	const [clauseEdit, setClauseEdit] = useState<ClauseEditState>();
+	const [mailboxes, setMailboxes] = useState<MoveMailboxOption[]>(MAILBOXES);
+	const [mailboxId, setMailboxId] = useState<string>();
 	const [scope, setScope] = useState<RuleScope | undefined>(
 		entry.scope ?? (entry.startAt === "name" ? "standing" : undefined),
 	);
 	const [until, setUntil] = useState("");
 	const [typedName, setTypedName] = useState<string>();
-	const [draft, setDraft] = useState<FolderDraft | undefined>(
-		entry.creatingFolder ? { anchor: "", parent: "", name: "" } : undefined,
-	);
-	const [createError, setCreateError] = useState<string>();
 	const [semanticFallbackTaken, setSemanticFallbackTaken] = useState(
 		Boolean(entry.semanticUnavailable) &&
 			(entry.startMode === "properties" || entry.startAt === "properties"),
 	);
 	const [nudged, setNudged] = useState(false);
 	const [clauseSeq, setClauseSeq] = useState(0);
+	const [runState, setRunState] = useState<RunState>(
+		entry.runState ?? "backApplyComplete",
+	);
 	const [step, setStep] = useState<StepId>(
 		entry.startAt ?? (fromSearch ? "properties" : "match"),
 	);
 
 	const steps = stepsFor({ verb: entry.verb, mode, scope, fromSearch });
-	const index = Math.max(0, steps.indexOf(step));
+	const index = stepIndex(steps, step);
+	const current = steps[index];
 
+	const folder = mailboxes.find((mailbox) => mailbox.id === mailboxId);
 	const suggestedName = suggestRuleName({
 		match:
 			mode === "properties" ? clauses[0]?.value.trim() || undefined : undefined,
-		sender: dominantSender(selected.map((message) => message.sender)),
-		folder,
+		sender: dominantSender(envelopesOf(selected))?.displayName,
+		folder: folder?.label,
 	});
 	const ruleName = typedName ?? suggestedName;
 
-	const blockedReason = stepBlockedReason(step, {
+	const covered = fromSearch ? results : selected;
+	// A widened door has no count until it has run; the ticked list is its own
+	// count, and the app's would come from the preview endpoint (#477 5.3).
+	const preview: PreviewCount | undefined =
+		mode === "selected"
+			? { status: "ready", count: selected.length }
+			: undefined;
+
+	const draft: WizardDraft = {
 		clauses,
-		folder,
+		matchOperator,
+		moveMailboxId: mailboxId,
 		scope,
 		until,
-		ruleName,
-	});
+		name: ruleName,
+	};
+	const blockedReason = stepBlockedReason(current, draft, preview);
 
-	const covered = fromSearch ? results : selected;
 	const sample = {
 		messages: entry.sampleEmpty ? [] : covered,
-		total: mode === "selected" ? selected.length : undefined,
+		preview,
 		label: mode === "selected" ? "Your selection" : "A sample of what matches",
 		emptyReason: entry.sampleEmpty,
 	};
 
-	const runState = entry.runState ?? "backApplyComplete";
 	const failures = runState === "backApplyFailed" ? covered.slice(0, 2) : [];
 	const applied =
 		runState === "backApplyRunning" ? 0 : covered.length - failures.length;
-
-	const back = () => {
-		setNudged(false);
-		if (index === 0) {
-			onExit();
-			return;
-		}
-		setStep(steps[index - 1]);
-	};
 
 	const advance = () => {
 		if (blockedReason) {
@@ -336,34 +375,47 @@ function WizardDriver({
 		setMode("properties");
 	};
 
-	const createFolder = () => {
-		if (!draft) return;
-		const name = draft.name.trim();
-		if (!name) {
-			setCreateError("Type a name for the folder.");
-			return;
+	const submitClause = () => {
+		if (!clauseEdit) return;
+		if (clauseEdit.clauseId) {
+			setClauses(
+				clauses.map((clause) =>
+					clause.id === clauseEdit.clauseId
+						? { ...clause, ...clauseEdit.draft, derived: undefined }
+						: clause,
+				),
+			);
+		} else {
+			setClauseSeq(clauseSeq + 1);
+			setClauses([
+				...clauses,
+				{ id: `clause-${clauseSeq + 1}`, ...clauseEdit.draft },
+			]);
 		}
-		if (name.includes("/")) {
-			setCreateError("A name can't contain a slash — pick a parent instead.");
-			return;
-		}
-		const path = draft.parent ? `${draft.parent}/${name}` : name;
-		if (folders.includes(path)) {
-			setCreateError(`${path} already exists.`);
-			return;
-		}
-		setFolders([...folders, path]);
-		setFolder(path);
-		setDraft(undefined);
-		setCreateError(undefined);
+		setClauseEdit(undefined);
 	};
+
+	const createFolder = (name: string, signal?: AbortSignal) =>
+		folderCreators[entry.folderCreate ?? "confirms"](name, signal).then(
+			(created) => {
+				setMailboxes((known) =>
+					known.some((mailbox) => mailbox.id === created.id)
+						? known
+						: [...known, created],
+				);
+				return created;
+			},
+		);
 
 	return (
 		<SelectionWizard
 			verb={entry.verb}
 			steps={steps}
-			step={steps[index]}
-			onBack={back}
+			step={current}
+			onBack={() => {
+				setNudged(false);
+				setStep(steps[index - 1]);
+			}}
 			onExit={onExit}
 			onContinue={advance}
 			onCommit={() => setStep("run")}
@@ -382,43 +434,40 @@ function WizardDriver({
 				clauses,
 				matchOperator,
 				onMatchOperatorChange: setMatchOperator,
-				onClauseChange: (next) =>
-					setClauses(
-						clauses.map((clause) => (clause.id === next.id ? next : clause)),
-					),
-				onClauseRemove: (id) =>
-					setClauses(clauses.filter((clause) => clause.id !== id)),
-				onClauseAdd: () => {
-					setClauseSeq(clauseSeq + 1);
-					setClauses([
-						...clauses,
-						{ id: `clause-${clauseSeq + 1}`, field: "From", value: "" },
-					]);
+				clauseEdit,
+				onStartAddClause: () =>
+					setClauseEdit({ mode: "add", draft: { field: "From", value: "" } }),
+				onStartEditClause: (clauseId) => {
+					const clause = clauses.find((entry) => entry.id === clauseId);
+					if (!clause) return;
+					setClauseEdit({
+						mode: "edit",
+						clauseId,
+						draft: { field: clause.field, value: clause.value },
+					});
 				},
+				onRemoveClause: (id) =>
+					setClauses(clauses.filter((clause) => clause.id !== id)),
+				onChangeDraft: (nextDraft) =>
+					setClauseEdit(
+						clauseEdit ? { ...clauseEdit, draft: nextDraft } : undefined,
+					),
+				onSubmitClause: submitClause,
+				onCancelClause: () => setClauseEdit(undefined),
+				clauseSuggestions: demoClauseSuggestions(
+					clauseEdit?.draft.field ?? "From",
+					clauseEdit?.draft.value ?? "",
+				),
 				conversionNotice:
 					fromSearch && conversion ? noticeFor(conversion) : undefined,
 				semanticFallbackTaken,
-				sample: { ...sample, label: "What this matches", total: undefined },
+				sample: { ...sample, label: "What this matches", preview: undefined },
 			}}
 			folder={{
-				folders,
-				folder,
-				onFolderSelect: setFolder,
-				draft,
-				onDraftOpen: (anchor) => {
-					setDraft({ anchor, parent: anchor, name: "" });
-					setCreateError(undefined);
-				},
-				onDraftChange: (next) => {
-					setDraft(next);
-					setCreateError(undefined);
-				},
-				onDraftClose: () => {
-					setDraft(undefined);
-					setCreateError(undefined);
-				},
-				onCreate: createFolder,
-				createError,
+				mailboxes,
+				mailboxId,
+				onSelect: setMailboxId,
+				onCreateFolder: createFolder,
 			}}
 			rule={{
 				scope,
@@ -434,7 +483,7 @@ function WizardDriver({
 				selectedCount: selected.length,
 				clauses,
 				matchOperator,
-				folder,
+				folder: folder?.label,
 				scope,
 				until,
 				ruleName: steps.includes("name") ? ruleName : undefined,
@@ -447,7 +496,10 @@ function WizardDriver({
 				matched: covered.length,
 				applied,
 				failures,
-				onRetry: () => undefined,
+				onRetry: () =>
+					setRunState(
+						runState === "commitFailed" ? "saving" : "backApplyRunning",
+					),
 				onDismiss: onExit,
 			}}
 		/>
@@ -617,6 +669,30 @@ const meta: Meta = {
 export default meta;
 
 type Story = StoryObj;
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+const clickByText = (root: HTMLElement, label: string) => {
+	const button = Array.from(
+		root.querySelectorAll<HTMLButtonElement>("button"),
+	).find((candidate) => candidate.textContent?.trim() === label);
+	button?.click();
+};
+
+/** Types into the Move picker's search, which is also where a new folder is named. */
+const typeFolderName = async (root: HTMLElement, name: string) => {
+	const input = root.querySelector<HTMLInputElement>(
+		'input[aria-label="Filter folders"]',
+	);
+	if (!input) return;
+	const setter = Object.getOwnPropertyDescriptor(
+		HTMLInputElement.prototype,
+		"value",
+	)?.set;
+	setter?.call(input, name);
+	input.dispatchEvent(new Event("input", { bubbles: true }));
+	await tick();
+};
 
 const QUERY = "npm";
 const RESULTS_TITLE = `Results for "${QUERY}"`;
@@ -898,15 +974,57 @@ export const MoveFolder: Story = {
 	),
 };
 
-/** The folder step with the inline create form open at the top level. */
+/** Typing a name no folder carries offers to make it. */
 export const MoveNewFolder: Story = {
 	name: "Move — new folder",
 	render: () => (
 		<SelectionFlow
 			preselected={3}
-			openAt={{ verb: "move", startAt: "folder", creatingFolder: true }}
+			openAt={{ verb: "move", startAt: "folder" }}
 		/>
 	),
+	play: async ({ canvasElement }) => {
+		await typeFolderName(canvasElement, "Hotels");
+	},
+};
+
+/**
+ * Creating a folder is an IMAP mutation and the move that follows waits on it,
+ * so the create holds until the mail server confirms the folder. The wait is on
+ * screen and a second press cannot start a second create.
+ */
+export const MoveNewFolderCreating: Story = {
+	name: "Move — new folder, waiting for the server",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{
+				verb: "move",
+				startAt: "folder",
+				folderCreate: "never confirms",
+			}}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		await typeFolderName(canvasElement, "Hotels");
+		clickByText(canvasElement, 'Create "Hotels"');
+	},
+};
+
+/** The create failed on the mail server. No folder is picked, and it says so. */
+export const MoveNewFolderCreateFailed: Story = {
+	name: "Move — new folder, create failed",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{ verb: "move", startAt: "folder", folderCreate: "fails" }}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		await typeFolderName(canvasElement, "Hotels");
+		clickByText(canvasElement, 'Create "Hotels"');
+		await tick();
+	},
 };
 
 export const MoveReview: Story = {

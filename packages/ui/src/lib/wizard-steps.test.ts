@@ -2,18 +2,18 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { RuleClause, RuleScope } from "../components/filter-rule.js";
 import {
+	commitBlockedReason,
+	ruleBlockedCopy,
+} from "../components/filter-rule.js";
+import {
+	backExits,
 	clauseSentence,
 	clauseWords,
-	dominantSender,
-	folderDepth,
-	folderLeaf,
-	folderParent,
 	type MatchMode,
 	matchDoorHint,
 	matchDoorLabel,
 	matchPhrase,
 	matchSummary,
-	orderFolders,
 	type RunState,
 	runCopy,
 	type StepId,
@@ -22,9 +22,9 @@ import {
 	stepIndex,
 	stepLabel,
 	stepsFor,
-	suggestRuleName,
 	type Verb,
 	verbCopy,
+	type WizardDraft,
 } from "./wizard-steps.js";
 
 const VERBS: Verb[] = ["delete", "move", "junk", "markRead", "organize"];
@@ -163,30 +163,57 @@ describe("stepsFor — a branching answer only adds or drops a step after itself
 		}
 	});
 
-	it("never leaves a held step pointing past the end of a shortened list", () => {
-		for (const verb of VERBS) {
-			for (const mode of MODES) {
-				for (const scope of SCOPES) {
-					const before = stepsFor({ verb, mode, scope });
-					for (const nextMode of MODES) {
-						for (const nextScope of SCOPES) {
-							const after = stepsFor({
-								verb,
-								mode: nextMode,
-								scope: nextScope,
-							});
-							for (const held of before) {
-								const index = stepIndex(after, held);
-								assert.ok(
-									index >= 0 && index < after.length,
-									`${held} strands at ${index} in ${after.join(",")}`,
-								);
-							}
-						}
-					}
-				}
-			}
+	it("keeps the user on the step they were looking at when the list shortens", () => {
+		const standing = stepsFor({
+			verb: "organize",
+			mode: "selected",
+			scope: "standing",
+		});
+		assert.deepEqual(standing, ["match", "rule", "name", "review", "run"]);
+
+		const once = stepsFor({
+			verb: "organize",
+			mode: "selected",
+			scope: "once",
+		});
+		assert.deepEqual(once, ["match", "rule", "review", "run"]);
+
+		// The user is on Review when they go back and change the scope to once.
+		// Held by number, index 3 lands them on Run — the action taken without the
+		// review screen they were standing on. Held by id, Review is still Review.
+		assert.equal(once[standing.indexOf("review")], "run");
+		assert.equal(once[stepIndex(once, "review")], "review");
+
+		// And the step the answer dropped resolves to the opening step rather than
+		// to whatever now sits at its old number.
+		assert.equal(once[standing.indexOf("name")], "review");
+		assert.equal(once[stepIndex(once, "name")], "match");
+
+		// A step both lists hold stays the same step, whichever way the answer went.
+		for (const held of ["match", "rule", "review", "run"] as StepId[]) {
+			assert.equal(once[stepIndex(once, held)], held);
+			assert.equal(standing[stepIndex(standing, held)], held);
 		}
+	});
+
+	it("keeps the properties step from stranding when the door changes", () => {
+		const withEditor = stepsFor({ verb: "move", mode: "properties" });
+		const withoutEditor = stepsFor({ verb: "move", mode: "selected" });
+		assert.deepEqual(withEditor, [
+			"match",
+			"properties",
+			"folder",
+			"review",
+			"run",
+		]);
+		assert.deepEqual(withoutEditor, ["match", "folder", "review", "run"]);
+
+		const heldByNumber = withEditor.indexOf("properties");
+		assert.equal(withoutEditor[heldByNumber], "folder");
+		assert.equal(
+			withoutEditor[stepIndex(withoutEditor, "properties")],
+			"match",
+		);
 	});
 
 	it("resolves a step the answers dropped back to the opening step", () => {
@@ -197,89 +224,151 @@ describe("stepsFor — a branching answer only adds or drops a step after itself
 	});
 });
 
+describe("backExits", () => {
+	it("leaves the wizard from the opening step, which has nothing behind it", () => {
+		const steps = stepsFor({ verb: "move", mode: "selected" });
+		assert.equal(backExits(steps, "match"), true);
+		assert.equal(backExits(steps, "folder"), false);
+		assert.equal(backExits(steps, "review"), false);
+	});
+
+	it("leaves the wizard from the run, whose action has already happened", () => {
+		const steps = stepsFor({ verb: "move", mode: "selected" });
+		assert.equal(backExits(steps, "run"), true);
+	});
+
+	it("leaves the wizard from the properties step a search opened on", () => {
+		const steps = stepsFor({
+			verb: "organize",
+			mode: "properties",
+			fromSearch: true,
+		});
+		assert.equal(backExits(steps, "properties"), true);
+		assert.equal(backExits(steps, "rule"), false);
+	});
+});
+
 describe("stepBlockedReason", () => {
-	it("names what the properties step is missing", () => {
+	const draft = (over: Partial<WizardDraft> = {}): WizardDraft => ({
+		clauses: [],
+		matchOperator: "all",
+		...over,
+	});
+
+	it("names what the properties step is missing, in the rule editor's words", () => {
 		assert.equal(
-			stepBlockedReason("properties", { clauses: [] }),
-			"Add a property to match on.",
+			stepBlockedReason("properties", draft()),
+			ruleBlockedCopy.noMatch,
 		);
 		assert.equal(
-			stepBlockedReason("properties", { clauses: [clause("From", "  ")] }),
+			stepBlockedReason(
+				"properties",
+				draft({ clauses: [clause("From", " ")] }),
+			),
 			"Fill in every property, or take the empty one off.",
 		);
 		assert.equal(
-			stepBlockedReason("properties", {
-				clauses: [clause("From", "a@b.example")],
-			}),
+			stepBlockedReason(
+				"properties",
+				draft({ clauses: [clause("From", "a@b.example")] }),
+			),
 			undefined,
 		);
 	});
 
 	it("names what the folder step is missing", () => {
 		assert.equal(
-			stepBlockedReason("folder", { clauses: [] }),
+			stepBlockedReason("folder", draft()),
 			"Pick a destination first.",
 		);
 		assert.equal(
-			stepBlockedReason("folder", { clauses: [], folder: "Travel" }),
+			stepBlockedReason("folder", draft({ moveMailboxId: "mbx-travel" })),
 			undefined,
 		);
 	});
 
 	it("says a one-time apply cannot read message bodies, where the scope is chosen", () => {
 		const clauses = [clause("HasWords", "boarding pass")];
-		assert.match(
-			stepBlockedReason("rule", { clauses, scope: "once" }) ?? "",
-			/can't read message bodies/,
+		assert.equal(
+			stepBlockedReason("rule", draft({ clauses, scope: "once" })),
+			ruleBlockedCopy.bodyTextOnce,
 		);
 		assert.equal(
-			stepBlockedReason("rule", { clauses, scope: "standing" }),
+			stepBlockedReason("rule", draft({ clauses, scope: "standing" })),
 			undefined,
 		);
 	});
 
 	it("names what the scope step is missing", () => {
 		assert.equal(
-			stepBlockedReason("rule", { clauses: [] }),
+			stepBlockedReason("rule", draft()),
 			"Choose one of the three first.",
 		);
 		assert.equal(
-			stepBlockedReason("rule", { clauses: [], scope: "until" }),
-			"Pick the date this rule should stop on.",
+			stepBlockedReason("rule", draft({ scope: "until" })),
+			ruleBlockedCopy.noUntilDate,
 		);
 		assert.equal(
-			stepBlockedReason("rule", {
-				clauses: [],
-				scope: "until",
-				until: "2026-09-01",
-			}),
+			stepBlockedReason("rule", draft({ scope: "until", until: "2026-09-01" })),
 			undefined,
 		);
 		assert.equal(
-			stepBlockedReason("rule", { clauses: [], scope: "once" }),
+			stepBlockedReason("rule", draft({ scope: "once" })),
 			undefined,
 		);
 	});
 
 	it("names what the naming step is missing", () => {
+		assert.equal(stepBlockedReason("name", draft()), ruleBlockedCopy.unnamed);
 		assert.equal(
-			stepBlockedReason("name", { clauses: [] }),
-			"Give the rule a name so you can find it later.",
+			stepBlockedReason("name", draft({ name: "  " })),
+			ruleBlockedCopy.unnamed,
 		);
 		assert.equal(
-			stepBlockedReason("name", { clauses: [], ruleName: "  " }),
-			"Give the rule a name so you can find it later.",
-		);
-		assert.equal(
-			stepBlockedReason("name", { clauses: [], ruleName: "Receipts" }),
+			stepBlockedReason("name", draft({ name: "Receipts" })),
 			undefined,
 		);
 	});
 
+	it("holds the commit until the server's count has settled", () => {
+		assert.equal(
+			stepBlockedReason("review", draft(), { status: "loading" }),
+			ruleBlockedCopy.counting,
+		);
+		assert.equal(
+			stepBlockedReason("review", draft(), {
+				status: "ready",
+				count: 4,
+				stale: true,
+			}),
+			ruleBlockedCopy.recounting,
+		);
+		assert.equal(
+			stepBlockedReason("review", draft(), { status: "ready", count: 4 }),
+			undefined,
+		);
+	});
+
+	it("waits on no count where a widened door never had one", () => {
+		assert.equal(stepBlockedReason("review", draft()), undefined);
+	});
+
 	it("blocks nothing on the steps that ask nothing", () => {
-		for (const step of ["match", "review", "run"] as StepId[]) {
-			assert.equal(stepBlockedReason(step, { clauses: [] }), undefined);
+		for (const step of ["match", "run"] as StepId[]) {
+			assert.equal(stepBlockedReason(step, draft()), undefined);
 		}
+	});
+
+	it("says the same thing the rule editor says about the same gap", () => {
+		const rule = {
+			clauses: [],
+			matchOperator: "all" as const,
+			scope: "standing" as const,
+		};
+		assert.equal(
+			commitBlockedReason(rule, { status: "ready", count: 0 }),
+			stepBlockedReason("properties", draft()),
+		);
 	});
 });
 
@@ -509,55 +598,5 @@ describe("the match as words", () => {
 			}),
 			"every message",
 		);
-	});
-});
-
-describe("folder paths", () => {
-	it("splits a path into its parent and its leaf", () => {
-		assert.equal(folderParent("Travel/2026"), "Travel");
-		assert.equal(folderParent("Travel"), "");
-		assert.equal(folderLeaf("Travel/2026"), "2026");
-		assert.equal(folderDepth("Travel/2026/Q1"), 2);
-	});
-
-	it("puts every child straight after its parent", () => {
-		assert.deepEqual(
-			orderFolders(["Archive", "Travel/2026", "Travel", "Receipts"]),
-			["Archive", "Travel", "Travel/2026", "Receipts"],
-		);
-	});
-
-	it("renders a folder whose parent is missing as a root", () => {
-		assert.deepEqual(orderFolders(["Archive", "Travel/2026"]), [
-			"Archive",
-			"Travel/2026",
-		]);
-	});
-});
-
-describe("rule naming", () => {
-	it("takes the sender carrying most of the ticked rows", () => {
-		assert.equal(
-			dominantSender(["Booking.com", "Airbnb", "Booking.com"]),
-			"Booking.com",
-		);
-		assert.equal(dominantSender([]), undefined);
-	});
-
-	it("suggests a name from what the wizard already knows", () => {
-		assert.equal(
-			suggestRuleName({ match: "Your receipt", folder: "Receipts" }),
-			"Your receipt → Receipts",
-		);
-		assert.equal(
-			suggestRuleName({ match: "Your receipt" }),
-			"Mail matching Your receipt",
-		);
-		assert.equal(
-			suggestRuleName({ sender: "Booking.com" }),
-			"Mail from Booking.com",
-		);
-		assert.equal(suggestRuleName({ folder: "Travel" }), "Mail to Travel");
-		assert.equal(suggestRuleName({}), "");
 	});
 });

@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import type { StepId } from "../lib/wizard-steps.js";
 import { stepsFor } from "../lib/wizard-steps.js";
-import type { RuleClause } from "./filter-rule.js";
+import type { PreviewCount, RuleClause } from "./filter-rule.js";
 import {
 	FolderStepBody,
 	MatchStepBody,
@@ -18,6 +18,7 @@ import {
 	SelectionWizard,
 	type SelectionWizardProps,
 	type WizardMessage,
+	type WizardScreenProps,
 } from "./selection-wizard.js";
 
 const noop = () => {};
@@ -45,7 +46,9 @@ const clauses: RuleClause[] = [
 	{ id: "c2", field: "Subject", value: "confirmation" },
 ];
 
-const sample = { messages, total: 2, label: "Your selection" };
+const counted = (count: number): PreviewCount => ({ status: "ready", count });
+
+const sample = { messages, preview: counted(2), label: "Your selection" };
 
 const matchProps = {
 	selectedCount: 2,
@@ -59,20 +62,24 @@ const propertiesProps = {
 	clauses,
 	matchOperator: "all" as const,
 	onMatchOperatorChange: noop,
-	onClauseChange: noop,
-	onClauseRemove: noop,
-	onClauseAdd: noop,
+	onStartAddClause: noop,
+	onStartEditClause: noop,
+	onRemoveClause: noop,
+	onChangeDraft: noop,
+	onSubmitClause: noop,
+	onCancelClause: noop,
 	sample: { messages, label: "What this matches" },
 };
 
 const folderProps = {
-	folders: ["Archive", "Travel/2026", "Travel"],
-	folder: "Travel",
-	onFolderSelect: noop,
-	onDraftOpen: noop,
-	onDraftChange: noop,
-	onDraftClose: noop,
-	onCreate: noop,
+	mailboxes: [
+		{ id: "mbx-archive", label: "Archive" },
+		{ id: "mbx-travel", label: "Travel" },
+		{ id: "mbx-inbox", label: "Inbox", isCurrent: true },
+	],
+	mailboxId: "mbx-travel",
+	onSelect: noop,
+	onCreateFolder: () => Promise.resolve({ id: "mbx-new", label: "Hotels" }),
 };
 
 const ruleProps = {
@@ -160,16 +167,37 @@ describe("SelectionSample", () => {
 		assert.match(html, /not known until the run finishes/);
 	});
 
-	it("counts the rest when the total is known", () => {
+	it("counts the rest once the server's count has settled", () => {
 		const html = renderToString(
 			createElement(SelectionSample, {
 				messages,
-				total: 9,
+				preview: counted(9),
 				label: "What this covers",
 			}),
 		);
 		assert.match(text(html), /and 7 more/);
 		assert.doesNotMatch(html, /not known until the run finishes/);
+	});
+
+	it("says a count that is still moving is still moving", () => {
+		const loading = renderToString(
+			createElement(SelectionSample, {
+				messages,
+				preview: { status: "loading" },
+				label: "What this covers",
+			}),
+		);
+		assert.match(loading, /Counting matches/);
+
+		const stale = renderToString(
+			createElement(SelectionSample, {
+				messages,
+				preview: { status: "ready", count: 9, stale: true },
+				label: "What this covers",
+			}),
+		);
+		assert.match(text(stale), /recounting/);
+		assert.doesNotMatch(text(stale), /and 7 more/);
 	});
 });
 
@@ -196,14 +224,32 @@ describe("MatchStepBody", () => {
 });
 
 describe("PropertiesStepBody", () => {
-	it("renders one editable row per clause and the join between them", () => {
+	it("renders the rule as the shipped chips, with the join between them", () => {
 		const html = renderToString(
 			createElement(PropertiesStepBody, propertiesProps),
 		);
 		assert.match(html, /noreply@booking\.com/);
-		assert.match(html, /Remove the From property/);
-		assert.match(html, /Taken from the messages you picked/);
-		assert.match(html, /Add another property/);
+		assert.match(html, /Remove From clause/);
+		assert.match(html, /from sender/);
+		assert.match(html, /Add clause/);
+		assert.match(html, /Match operator/);
+	});
+
+	it("opens the shipped clause editor on the clause being amended", () => {
+		const html = renderToString(
+			createElement(PropertiesStepBody, {
+				...propertiesProps,
+				clauseEdit: {
+					mode: "edit",
+					clauseId: "c1",
+					draft: { field: "From", value: "noreply@booking.com" },
+				},
+				clauseSuggestions: [{ value: "noreply@ryanair.com" }],
+			}),
+		);
+		assert.match(html, /Clause field/);
+		assert.match(html, /Clause value/);
+		assert.doesNotMatch(html, /Add clause/);
 	});
 
 	it("carries the conversion notice when a search opened it", () => {
@@ -230,28 +276,28 @@ describe("PropertiesStepBody", () => {
 				clauses: [clauses[0]],
 			}),
 		);
-		assert.doesNotMatch(html, /How the properties combine/);
+		assert.doesNotMatch(html, /Match operator/);
 	});
 });
 
 describe("FolderStepBody", () => {
-	it("puts every child straight after its parent", () => {
+	it("offers the destinations the app ordered, and names the one chosen", () => {
 		const html = renderToString(createElement(FolderStepBody, folderProps));
-		assert.ok(html.indexOf(">Travel<") < html.indexOf(">2026<"));
-		assert.match(html, /New folder inside Travel/);
+		assert.ok(html.indexOf(">Archive<") < html.indexOf(">Travel<"));
+		assert.match(text(html), /Moving to Travel\./);
+		assert.match(html, /Move to Archive/);
 	});
 
-	it("shows the wait for the mail server, and a create failure, on the step", () => {
+	it("marks the folder the mail is already in rather than offering it", () => {
+		const html = renderToString(createElement(FolderStepBody, folderProps));
+		assert.match(html, /Inbox \(current folder\)/);
+	});
+
+	it("says how to make a folder when none is chosen yet", () => {
 		const html = renderToString(
-			createElement(FolderStepBody, {
-				...folderProps,
-				draft: { anchor: "", parent: "", name: "Hotels" },
-				creating: true,
-				createError: "The mail server refused the name.",
-			}),
+			createElement(FolderStepBody, { ...folderProps, mailboxId: undefined }),
 		);
-		assert.match(html, /Waiting for the mail server to confirm/);
-		assert.match(html, /The mail server refused the name\./);
+		assert.match(text(html), /type a name that doesn&#x27;t exist yet/);
 	});
 });
 
@@ -476,6 +522,66 @@ describe("SelectionWizard", () => {
 			createElement(SelectionWizard, wizardProps({ steps, step: "folder" })),
 		);
 		assert.match(text(html), /Step 3 of 5 · Folder/);
+	});
+
+	it("renders the header, the rail and the body from one resolved step", () => {
+		const steps = stepsFor({ verb: "organize", mode: "selected" });
+		const html = renderToString(
+			createElement(
+				SelectionWizard,
+				wizardProps({ verb: "organize", steps, step: "properties" }),
+			),
+		);
+		assert.match(text(html), /Step 1 of 4 · Apply to/);
+		assert.match(html, /What should this apply to\?/);
+		assert.match(html, /These 2 messages/);
+		assert.doesNotMatch(html, /Match properties/);
+		assert.doesNotMatch(html, /Add clause/);
+	});
+
+	it("leaves the wizard on Back from the opening step and from the run", () => {
+		const steps = stepsFor({ verb: "move", mode: "selected" });
+		let backs = 0;
+		let exits = 0;
+		const handlers = {
+			onBack: () => {
+				backs += 1;
+			},
+			onExit: () => {
+				exits += 1;
+			},
+		};
+		const pressBack = (step: StepId) => {
+			const screen = SelectionWizard(wizardProps({ steps, step, ...handlers }));
+			(screen.props as WizardScreenProps).onBack();
+		};
+
+		pressBack("match");
+		pressBack("run");
+		assert.deepEqual({ backs, exits }, { backs: 0, exits: 2 });
+
+		pressBack("folder");
+		assert.deepEqual({ backs, exits }, { backs: 1, exits: 2 });
+	});
+
+	it("flips the header from the verb to Done once the job has ended", () => {
+		const steps = stepsFor({ verb: "move", mode: "selected" });
+		const running = renderToString(
+			createElement(
+				SelectionWizard,
+				wizardProps({
+					steps,
+					step: "run",
+					run: { ...runProps, state: "backApplyRunning" },
+				}),
+			),
+		);
+		assert.match(running, /<h1[^>]*>Move<\/h1>/);
+
+		const ended = renderToString(
+			createElement(SelectionWizard, wizardProps({ steps, step: "run" })),
+		);
+		assert.match(ended, /<h1[^>]*>Done<\/h1>/);
 	});
 
 	it("keeps a blocked Continue pressable and dimmed, and says what is missing", () => {

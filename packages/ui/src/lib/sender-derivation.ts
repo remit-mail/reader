@@ -10,6 +10,7 @@
  */
 
 import { getDomain } from "tldts";
+import type { EnvelopeAddress } from "../components/address-display.js";
 import type { RuleClause } from "../components/filter-rule.js";
 
 /**
@@ -83,3 +84,37 @@ export const deriveSenderClauses = (
 		(value): Omit<RuleClause, "id"> => ({ field: "From", value }),
 	);
 };
+
+/**
+ * The sender carrying most of a selection, or `undefined` when it carries none.
+ * Whole envelope addresses rather than bare strings: this reads the display name
+ * a person recognises, where the clause derivations above read the address a
+ * matcher compares, and the two are not interchangeable.
+ *
+ * Counted on the normalized address, so one sender writing under two display
+ * names is one sender; the answer is the first envelope seen for the winner.
+ */
+export const dominantSender = (
+	senders: readonly EnvelopeAddress[],
+): EnvelopeAddress | undefined => {
+	const counts = new Map<string, { sender: EnvelopeAddress; count: number }>();
+	for (const sender of senders) {
+		const key = sender.normalizedEmail.trim().toLowerCase();
+		if (key === "") continue;
+		const seen = counts.get(key);
+		if (seen) seen.count += 1;
+		else counts.set(key, { sender, count: 1 });
+	}
+	let best: EnvelopeAddress | undefined;
+	let bestCount = 0;
+	for (const { sender, count } of counts.values()) {
+		if (count <= bestCount) continue;
+		best = sender;
+		bestCount = count;
+	}
+	return best;
+};
+
+/** What a sender is called on screen — the display name, or the address when it has none. */
+export const senderLabel = (sender: EnvelopeAddress): string =>
+	sender.displayName?.trim() || sender.normalizedEmail;

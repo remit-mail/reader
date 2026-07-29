@@ -14,24 +14,18 @@ import {
 	ArrowLeft,
 	ArrowRight,
 	Check,
-	FolderInput,
-	FolderPlus,
 	Loader2,
-	Plus,
 	X,
 } from "lucide-react";
-import type { ReactNode, Ref } from "react";
-import { useId } from "react";
+import { Fragment, type ReactNode, useEffect, useId, useRef } from "react";
 import { cn } from "../lib/cn.js";
 import {
-	folderDepth,
-	folderLeaf,
+	backExits,
 	type MatchMode,
 	matchDoorHint,
 	matchDoorLabel,
 	matchPhrase,
 	matchSummary,
-	orderFolders,
 	type RunCopy,
 	type RunState,
 	runCopy,
@@ -47,24 +41,36 @@ import { Badge } from "./badge.js";
 import { Button } from "./button.js";
 import { FieldLabel } from "./field-label.js";
 import {
+	AddChipButton,
+	ClauseChip,
+	type ClauseDraft,
+	ClauseEditor,
+} from "./filter-clause-chip.js";
+import {
 	type ClauseField,
-	clauseFieldHint,
-	clauseFieldLabel,
-	clauseFieldOrder,
 	commitLabel,
 	type MatchOperator,
 	matchesBodyText,
 	matchJoinWord,
 	matchOperatorLabel,
+	type PreviewCount,
+	previewCountSummary,
 	type RuleClause,
 	type RuleScope,
+	ruleBlockedCopy,
 	scopeLabel,
 } from "./filter-rule.js";
+import type { ClauseEditState } from "./filter-rule-editor.js";
 import { Input } from "./input.js";
+import {
+	type MoveMailboxOption,
+	MoveMailboxPicker,
+} from "./move-mailbox-picker.js";
 import { ProgressBar } from "./progress-bar.js";
 import type { SearchConversionNotice } from "./search-conversion.js";
 import { SearchConversionNoticeView } from "./search-conversion-notice.js";
-import { Select } from "./select.js";
+import { SegmentedControl, type SegmentedOption } from "./segmented-control.js";
+import type { Suggestion } from "./suggest-list.js";
 
 /** A row of the match, as the sample and the failure list render it. */
 export interface WizardMessage {
@@ -229,14 +235,28 @@ export function ChoiceCard({
 export interface SelectionSampleProps {
 	messages: readonly WizardMessage[];
 	/**
-	 * How many the match covers. Absent for a widened door, which carries no count
-	 * until it has run — the sample then says the total is not yet known.
+	 * The server's count of what the match covers (#477 5.3), carrying whether it
+	 * is still moving so nothing commits against a number that is about to change.
+	 * Absent for a widened door, which carries no count at all until it has run.
 	 */
-	total?: number;
+	preview?: PreviewCount;
 	label: string;
 	/** Why there are no rows. Defaults to nothing matching, never to a bare empty state. */
 	emptyReason?: SampleEmptyReason;
 }
+
+const sampleFooter = (
+	preview: PreviewCount | undefined,
+	shown: number,
+): string => {
+	if (preview === undefined) {
+		return "The first matches. The total is not known until the run finishes.";
+	}
+	if (preview.status === "ready" && preview.count > shown && !preview.stale) {
+		return `and ${preview.count - shown} more`;
+	}
+	return previewCountSummary(preview);
+};
 
 /**
  * The members of the match, closing every screen that names one. A named match
@@ -245,7 +265,7 @@ export interface SelectionSampleProps {
  */
 export function SelectionSample({
 	messages,
-	total,
+	preview,
 	label,
 	emptyReason,
 }: SelectionSampleProps) {
@@ -277,17 +297,9 @@ export function SelectionSample({
 							</li>
 						))}
 					</ul>
-					{total === undefined ? (
-						<p className="shrink-0 border-t border-line px-3 py-2 text-2xs text-fg-subtle">
-							The first matches. The total is not known until the run finishes.
-						</p>
-					) : (
-						total > messages.length && (
-							<p className="shrink-0 border-t border-line px-3 py-2 text-2xs text-fg-subtle">
-								and {total - messages.length} more
-							</p>
-						)
-					)}
+					<p className="shrink-0 border-t border-line px-3 py-2 text-2xs text-fg-subtle">
+						{sampleFooter(preview, messages.length)}
+					</p>
 				</>
 			)}
 		</section>
@@ -412,78 +424,27 @@ export function MatchStepBody({
 	);
 }
 
-const CLAUSE_PLACEHOLDER: Record<ClauseField, string> = {
-	From: "noreply@booking.com",
-	Subject: "Booking confirmation",
-	HasWords: "boarding pass",
-	ListId: "python-dev.python.org",
-	FromDomain: "booking.com",
-};
-
-function ClauseRow({
-	clause,
-	onChange,
-	onRemove,
-}: {
-	clause: RuleClause;
-	onChange: (next: RuleClause) => void;
-	onRemove: () => void;
-}) {
-	const label = clauseFieldLabel(clause.field);
-	const hint = clauseFieldHint(clause.field);
-	return (
-		<div className="space-y-2 rounded-lg border border-line bg-surface p-2">
-			<div className="flex items-center gap-2">
-				<Select
-					aria-label="Property"
-					value={clause.field}
-					onChange={(event) =>
-						onChange({ ...clause, field: event.target.value as ClauseField })
-					}
-					className="h-9 min-w-0 flex-1"
-				>
-					{clauseFieldOrder.map((field) => (
-						<option key={field} value={field}>
-							{clauseFieldLabel(field)}
-						</option>
-					))}
-				</Select>
-				<Input
-					aria-label={`${label} value`}
-					value={clause.value}
-					placeholder={CLAUSE_PLACEHOLDER[clause.field]}
-					autoComplete="off"
-					onChange={(event) =>
-						onChange({ ...clause, value: event.target.value })
-					}
-					className="h-9 min-w-0 flex-1"
-				/>
-				<button
-					type="button"
-					onClick={onRemove}
-					aria-label={`Remove the ${label} property`}
-					className="flex size-9 shrink-0 items-center justify-center rounded-md text-fg-subtle hover:bg-surface-sunken hover:text-fg"
-				>
-					<X className="size-4" />
-				</button>
-			</div>
-			{clause.derived && (
-				<p className="px-1 text-2xs text-fg-subtle">
-					Taken from the messages you picked. Change it or take it off.
-				</p>
-			)}
-			{hint && <p className="px-1 text-2xs text-fg-subtle">{hint}</p>}
-		</div>
-	);
-}
+const MATCH_OPERATOR_OPTIONS: SegmentedOption<MatchOperator>[] = [
+	{ value: "all", label: matchOperatorLabel("all") },
+	{ value: "any", label: matchOperatorLabel("any") },
+];
 
 export interface PropertiesStepProps {
 	clauses: readonly RuleClause[];
 	matchOperator: MatchOperator;
 	onMatchOperatorChange: (operator: MatchOperator) => void;
-	onClauseChange: (clause: RuleClause) => void;
-	onClauseRemove: (id: string) => void;
-	onClauseAdd: () => void;
+	/** The clause being added or amended, or absent when none is. */
+	clauseEdit?: ClauseEditState;
+	onStartAddClause: () => void;
+	onStartEditClause: (clauseId: string) => void;
+	onRemoveClause: (clauseId: string) => void;
+	onChangeDraft: (draft: ClauseDraft) => void;
+	onSubmitClause: () => void;
+	onCancelClause: () => void;
+	/** The fields this deployment can actually match on. Defaults to the whole vocabulary. */
+	clauseFields?: ClauseField[];
+	/** Values worth offering for the field being edited — never a constraint. */
+	clauseSuggestions?: readonly Suggestion[];
 	/** What converting a search left behind, when a query is what opened this. */
 	conversionNotice?: SearchConversionNotice;
 	/** The similar door was dimmed and these are the senders it fell back to. */
@@ -491,19 +452,31 @@ export interface PropertiesStepProps {
 	sample: SelectionSampleProps;
 }
 
+/**
+ * The clauses as the rule editor renders them — the same chips, the same inline
+ * editor and the same value suggestions — so a rule reads identically whether it
+ * was built here or in Settings.
+ */
 export function PropertiesStepBody({
 	clauses,
 	matchOperator,
 	onMatchOperatorChange,
-	onClauseChange,
-	onClauseRemove,
-	onClauseAdd,
+	clauseEdit,
+	onStartAddClause,
+	onStartEditClause,
+	onRemoveClause,
+	onChangeDraft,
+	onSubmitClause,
+	onCancelClause,
+	clauseFields,
+	clauseSuggestions,
 	conversionNotice,
 	semanticFallbackTaken,
 	sample,
 }: PropertiesStepProps) {
+	const join = matchJoinWord(matchOperator);
 	return (
-		<div className="space-y-3">
+		<div className="space-y-4">
 			{semanticFallbackTaken && (
 				<p role="status" className="px-1 text-xs text-fg-muted">
 					Similar-mail matching is unavailable right now. These are the senders
@@ -515,44 +488,56 @@ export function PropertiesStepBody({
 				<SearchConversionNoticeView notice={conversionNotice} />
 			)}
 
-			{clauses.length > 1 && (
-				<Select
-					aria-label="How the properties combine"
-					value={matchOperator}
-					onChange={(event) =>
-						onMatchOperatorChange(event.target.value as MatchOperator)
+			<div className="flex flex-wrap items-center gap-1.5">
+				{clauses.map((clause, index) => (
+					<Fragment key={clause.id}>
+						{index > 0 && (
+							<span className="text-2xs font-medium uppercase text-fg-subtle">
+								{join}
+							</span>
+						)}
+						<ClauseChip
+							clause={clause}
+							onEdit={() => onStartEditClause(clause.id)}
+							onRemove={() => onRemoveClause(clause.id)}
+						/>
+					</Fragment>
+				))}
+				{!clauseEdit && (
+					<AddChipButton label="Add clause" onClick={onStartAddClause} />
+				)}
+			</div>
+
+			{clauseEdit && (
+				<ClauseEditor
+					draft={clauseEdit.draft}
+					mode={clauseEdit.mode}
+					fields={clauseFields}
+					suggestions={clauseSuggestions}
+					onChangeField={(field) =>
+						onChangeDraft({ ...clauseEdit.draft, field })
 					}
-					className="h-9 w-full"
-				>
-					<option value="all">{matchOperatorLabel("all")}</option>
-					<option value="any">{matchOperatorLabel("any")}</option>
-				</Select>
+					onChangeValue={(value) =>
+						onChangeDraft({ ...clauseEdit.draft, value })
+					}
+					onSubmit={onSubmitClause}
+					onCancel={onCancelClause}
+				/>
 			)}
 
-			{clauses.map((clause, i) => (
-				<div key={clause.id} className="space-y-3">
-					{i > 0 && (
-						<p className="px-1 text-2xs font-medium uppercase tracking-wide text-fg-subtle">
-							{matchJoinWord(matchOperator)}
-						</p>
-					)}
-					<ClauseRow
-						clause={clause}
-						onChange={onClauseChange}
-						onRemove={() => onClauseRemove(clause.id)}
+			{clauses.length > 1 && (
+				<div className="flex items-center gap-2">
+					<span className="text-xs text-fg-muted">Match</span>
+					<SegmentedControl
+						name="wizard-match-operator"
+						size="sm"
+						aria-label="Match operator"
+						options={MATCH_OPERATOR_OPTIONS}
+						value={matchOperator}
+						onChange={onMatchOperatorChange}
 					/>
 				</div>
-			))}
-
-			<Button
-				variant="secondary"
-				size="touch"
-				onClick={onClauseAdd}
-				icon={<Plus className="size-4" />}
-				className="w-full"
-			>
-				Add another property
-			</Button>
+			)}
 
 			<p className="px-1 text-xs text-fg-muted">
 				We started you off from what you were looking at. Change any of it —
@@ -564,155 +549,56 @@ export function PropertiesStepBody({
 	);
 }
 
-/** Where the inline new-folder form is anchored, the parent it will use, and its name. */
-export interface FolderDraft {
-	/** The folder row the form opened from; "" anchors it under the New folder action. */
-	anchor: string;
-	/** "" means top level. */
-	parent: string;
-	name: string;
-}
-
 export interface FolderStepProps {
-	folders: readonly string[];
-	folder?: string;
-	onFolderSelect: (path: string) => void;
-	draft?: FolderDraft;
-	onDraftOpen: (anchor: string) => void;
-	onDraftChange: (draft: FolderDraft) => void;
-	onDraftClose: () => void;
-	onCreate: () => void;
 	/**
-	 * The mail server has not confirmed the folder yet. Creating one is an IMAP
-	 * mutation and the move that follows waits for it, so the step shows the wait
-	 * rather than offering a folder that may not exist.
+	 * The destinations, already filtered, ordered and labelled by the app
+	 * (`buildMoveTargets`). The wizard does not reorder them: a second ordering
+	 * beside the one the Move picker already applies would fight it.
 	 */
-	creating?: boolean;
-	/** Why the folder could not be created, stated on the step that tried. */
-	createError?: string;
-	draftInputRef?: Ref<HTMLInputElement>;
+	mailboxes: readonly MoveMailboxOption[];
+	/** The destination chosen so far. */
+	mailboxId?: string;
+	onSelect: (mailboxId: string) => void;
+	/**
+	 * Creating a folder is an IMAP mutation and the move that follows is a
+	 * dependent write, so this resolves only once the mail server confirms the
+	 * folder (docs/architecture/imap-mutations.md). The picker holds the wait,
+	 * refuses a second submit while it runs, and states a failure where it
+	 * happened. Absent offers no create.
+	 */
+	onCreateFolder?: (
+		name: string,
+		signal?: AbortSignal,
+	) => Promise<MoveMailboxOption>;
 }
 
 export function FolderStepBody({
-	folders,
-	folder,
-	onFolderSelect,
-	draft,
-	onDraftOpen,
-	onDraftChange,
-	onDraftClose,
-	onCreate,
-	creating,
-	createError,
-	draftInputRef,
+	mailboxes,
+	mailboxId,
+	onSelect,
+	onCreateFolder,
 }: FolderStepProps) {
-	const nameId = useId();
-	const parentId = useId();
-	const ordered = orderFolders(folders);
-
-	const draftForm = draft && (
-		<div className="space-y-3 border-t border-line bg-surface-sunken px-3 py-3">
-			<div>
-				<FieldLabel htmlFor={nameId}>Folder name</FieldLabel>
-				<Input
-					id={nameId}
-					ref={draftInputRef}
-					value={draft.name}
-					placeholder="Hotels"
-					onChange={(event) =>
-						onDraftChange({ ...draft, name: event.target.value })
-					}
+	const chosen = mailboxes.find((mailbox) => mailbox.id === mailboxId);
+	return (
+		<div className="flex min-h-0 flex-col gap-3">
+			<p className="px-1 text-xs text-fg-muted">
+				{chosen
+					? `Moving to ${chosen.label}.`
+					: "Search for a folder, or type a name that doesn't exist yet to make one."}
+			</p>
+			<div className="overflow-hidden rounded-lg border border-line bg-surface">
+				<MoveMailboxPicker
+					mailboxes={mailboxes}
+					onSelect={onSelect}
+					onCreateFolder={onCreateFolder}
+					autoFocus
+					labels={{
+						searchPlaceholder: "Move to…",
+						optionLabel: (label) => `Move to ${label}`,
+						createPending: "Waiting for the mail server to confirm the folder…",
+					}}
 				/>
 			</div>
-			<div>
-				<FieldLabel htmlFor={parentId}>Inside</FieldLabel>
-				<Select
-					id={parentId}
-					value={draft.parent}
-					onChange={(event) =>
-						onDraftChange({ ...draft, parent: event.target.value })
-					}
-				>
-					<option value="">Top level</option>
-					{ordered.map((path) => (
-						<option key={path} value={path}>
-							{path}
-						</option>
-					))}
-				</Select>
-			</div>
-			{createError && (
-				<p role="status" className="text-2xs text-danger">
-					{createError}
-				</p>
-			)}
-			{creating && (
-				<p
-					role="status"
-					className="flex items-center gap-2 text-2xs text-fg-muted"
-				>
-					<Loader2 className="size-3.5 animate-spin" />
-					Waiting for the mail server to confirm the folder…
-				</p>
-			)}
-			<div className="flex items-center gap-2">
-				<Button variant="ghost" onClick={onDraftClose} className="shrink-0">
-					Cancel
-				</Button>
-				<Button variant="primary" onClick={onCreate} className="flex-1">
-					Create folder
-				</Button>
-			</div>
-		</div>
-	);
-
-	return (
-		<div className="overflow-hidden rounded-lg border border-line bg-surface">
-			<button
-				type="button"
-				onClick={() => onDraftOpen("")}
-				className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm font-medium text-accent hover:bg-surface-sunken"
-			>
-				<FolderPlus className="size-4 shrink-0" />
-				New folder
-			</button>
-			{draft?.anchor === "" && draftForm}
-			<ul className="divide-y divide-line border-t border-line">
-				{ordered.map((path) => (
-					<li key={path}>
-						<div className="flex items-center">
-							<button
-								type="button"
-								onClick={() => onFolderSelect(path)}
-								className="flex min-w-0 flex-1 items-center gap-3 px-3 py-3 text-left text-sm hover:bg-surface-sunken"
-							>
-								{folderDepth(path) > 0 && (
-									<span
-										aria-hidden
-										className="shrink-0"
-										style={{ width: folderDepth(path) * 14 }}
-									/>
-								)}
-								<FolderInput className="size-4 shrink-0 text-fg-subtle" />
-								<span className="min-w-0 flex-1 truncate">
-									{folderLeaf(path)}
-								</span>
-								{folder === path && <Check className="size-4 text-accent" />}
-							</button>
-							<button
-								type="button"
-								onClick={() => onDraftOpen(path)}
-								aria-label={`New folder inside ${path}`}
-								title={`New folder inside ${path}`}
-								className="flex size-11 shrink-0 items-center justify-center rounded-md text-fg-subtle hover:bg-surface-sunken hover:text-fg"
-							>
-								<FolderPlus className="size-4" />
-							</button>
-						</div>
-						{draft?.anchor === path && draftForm}
-					</li>
-				))}
-			</ul>
 		</div>
 	);
 }
@@ -750,9 +636,7 @@ export function RuleStepBody({
 			>
 				{bodyText && (
 					<p className="px-1 text-2xs text-warning">
-						Applying once can't read message bodies, and this rule matches on
-						the words inside them. Keep doing this instead, and the rule reads
-						every message as it is indexed.
+						{ruleBlockedCopy.bodyTextOnce}
 					</p>
 				)}
 			</ChoiceCard>
@@ -787,11 +671,22 @@ export function RuleStepBody({
 export interface NameStepProps {
 	name: string;
 	onNameChange: (name: string) => void;
-	inputRef?: Ref<HTMLInputElement>;
+	/**
+	 * Continue was pressed while the name was still missing. The field takes
+	 * focus, so the answer the message asks for is one keystroke away rather than
+	 * one more tap.
+	 */
+	nudged?: boolean;
 }
 
-export function NameStepBody({ name, onNameChange, inputRef }: NameStepProps) {
+export function NameStepBody({ name, onNameChange, nudged }: NameStepProps) {
 	const nameId = useId();
+	const inputRef = useRef<HTMLInputElement>(null);
+
+	useEffect(() => {
+		if (nudged) inputRef.current?.focus();
+	}, [nudged]);
+
 	return (
 		<>
 			<FieldLabel htmlFor={nameId}>Rule name</FieldLabel>
@@ -806,7 +701,10 @@ export function NameStepBody({ name, onNameChange, inputRef }: NameStepProps) {
 						<button
 							type="button"
 							aria-label="Clear name"
-							onClick={() => onNameChange("")}
+							onClick={() => {
+								onNameChange("");
+								inputRef.current?.focus();
+							}}
 							className="-mr-1 flex size-7 shrink-0 items-center justify-center rounded-full text-fg-subtle hover:bg-surface hover:text-fg"
 						>
 							<X className="size-4" />
@@ -1065,8 +963,17 @@ const SCREEN_COPY: Record<StepId, { title?: string; subtitle?: string }> = {
 export interface SelectionWizardProps {
 	verb: Verb;
 	steps: readonly StepId[];
-	/** Held by id, so an answer that shortens the list cannot strand it. */
+	/**
+	 * Held by id, so an answer that shortens the list cannot strand it. A step the
+	 * current answers dropped resolves to the opening step, and the header, the
+	 * rail and the body all read that one resolved step.
+	 */
 	step: StepId;
+	/**
+	 * Moves back one step. Not called on a step where Back leaves the wizard
+	 * (`backExits`) — the opening step has nothing behind it, and the Run step's
+	 * action has already happened — where `onExit` is called instead.
+	 */
 	onBack: () => void;
 	onExit: () => void;
 	onContinue: () => void;
@@ -1099,9 +1006,13 @@ const stepProps = <T,>(props: T | undefined, step: StepId): T => {
  * without either growing its own copy of them.
  */
 export function SelectionWizard(props: SelectionWizardProps) {
-	const { verb, steps, step, onBack, onExit, onContinue, onCommit } = props;
+	const { verb, steps, onExit, onContinue, onCommit } = props;
 	const { label, destructive } = verbCopy(verb);
+	// Resolved once. Rendering the header from the resolved step and the body
+	// from the held one is how a rail and a screen come to disagree.
+	const step = steps[stepIndex(steps, props.step)];
 	const screen = SCREEN_COPY[step];
+	const onBack = backExits(steps, step) ? onExit : props.onBack;
 
 	const body = (): ReactNode => {
 		if (step === "match")
@@ -1114,8 +1025,11 @@ export function SelectionWizard(props: SelectionWizardProps) {
 		}
 		if (step === "rule")
 			return <RuleStepBody {...stepProps(props.rule, step)} />;
-		if (step === "name")
-			return <NameStepBody {...stepProps(props.name, step)} />;
+		if (step === "name") {
+			return (
+				<NameStepBody {...stepProps(props.name, step)} nudged={props.nudged} />
+			);
+		}
 		if (step === "review") {
 			return <ReviewStepBody {...stepProps(props.review, step)} />;
 		}
@@ -1146,9 +1060,15 @@ export function SelectionWizard(props: SelectionWizardProps) {
 		);
 	};
 
+	const title = (): string => {
+		if (step !== "run") return screen.title ?? label;
+		const run = stepProps(props.run, step);
+		return runCopy({ ...run, failed: run.failures.length }).screenTitle;
+	};
+
 	return (
 		<WizardScreen
-			title={screen.title ?? label}
+			title={title()}
 			subtitle={screen.subtitle}
 			steps={steps}
 			step={step}
