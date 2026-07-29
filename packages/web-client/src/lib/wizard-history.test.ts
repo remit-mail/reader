@@ -15,6 +15,8 @@ import {
 } from "@remit/ui";
 import {
 	ownedHistoryEntries,
+	wizardEntryFromParam,
+	wizardEntryValue,
 	wizardStepFromParam,
 	wizardStepValue,
 } from "./wizard-history.js";
@@ -62,10 +64,15 @@ const prefixThrough = (steps: readonly StepId[], step: StepId): StepId[] =>
  * step the app itself pushed must never be re-rooted, or the push that opens
  * the wizard from a verb (#483) duplicates the entry underneath it and the
  * first back after Cancel appears to do nothing.
+ *
+ * Two mounts stand beside the same list — the selection bar's and the search's
+ * (#484) — so the decision also carries which of them owns the held step. The
+ * mount that does not own it re-rooting as well is the same duplicate entry
+ * arriving from the other direction.
  */
 describe("re-rooting a wizard that was loaded into", () => {
 	it("decides from what the first render held, not from a flag", () => {
-		assert.match(source, /useRef\(step !== undefined\)/);
+		assert.match(source, /useRef\(hosts && step !== undefined\)/);
 		assert.match(
 			source,
 			/if \(!loadedHoldingStep\.current\) return;\s*\n\s*loadedHoldingStep\.current = false;/,
@@ -104,6 +111,24 @@ describe("the wizard step in the URL", () => {
 			assert.equal(parsed.data, undefined);
 		}
 		assert.equal(wizardStepValue.parse("review"), "review");
+	});
+});
+
+describe("which affordance opened the wizard", () => {
+	it("reads the search entry, and everything else as the selection bar", () => {
+		assert.equal(wizardEntryFromParam("search"), "search");
+		for (const value of [undefined, "", "Search", "bar", 1, null, {}]) {
+			assert.equal(wizardEntryFromParam(value), undefined);
+		}
+	});
+
+	it("never fails validation, so a mistyped link still lands on the mail", () => {
+		for (const value of ["nope", "SEARCH", 7, [], null, undefined]) {
+			const parsed = wizardEntryValue.safeParse(value);
+			assert.ok(parsed.success);
+			assert.equal(parsed.data, undefined);
+		}
+		assert.equal(wizardEntryValue.parse("search"), "search");
 	});
 });
 
