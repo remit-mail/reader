@@ -45,9 +45,16 @@ describe("MessageList selection mode", () => {
 	it("turns the back gesture into an exit, and only while selecting", () => {
 		assert.match(
 			source,
-			/shouldExitSelectionOnNavigate\(action, hasSelection\)/,
+			/shouldExitSelectionOnNavigate\(action, hasSelection, wizardStep\)/,
 		);
 		assert.match(source, /disabled: !hasSelection/);
+	});
+
+	it("leaves the back gesture to the wizard while the wizard is open", () => {
+		assert.match(
+			source,
+			/disabled: !hasSelection \|\| wizardStep !== undefined/,
+		);
 	});
 });
 

@@ -36,6 +36,7 @@ import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
 import { formatDeleteToTrashTitle } from "@/lib/format";
 import { tabStopId } from "@/lib/list-focus";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
+import { useMailContext } from "@/lib/mail-context";
 import type { MessageListCommands } from "./MessageList";
 import type { MessageRowSelection } from "./MessageRow";
 
@@ -185,6 +186,14 @@ export function ThreadListInteraction({
 	const toggleAllLoaded = useCallback(() => {
 		if (orderedIds.length > 0) toggleAll(orderedIds);
 	}, [orderedIds, toggleAll]);
+
+	// The selection wizard is mounted on the route, above this provider, and
+	// acts on these rows — so it reads the count from here rather than keeping
+	// one of its own (#477).
+	const { onSelectedCountChange } = useMailContext();
+	useEffect(() => {
+		onSelectedCountChange(selectedCount);
+	}, [selectedCount, onSelectedCountChange]);
 
 	// A row that leaves the list — a chip filter, a collapsed section, a
 	// completed delete — cannot stay selected. Survivors keep their selection.

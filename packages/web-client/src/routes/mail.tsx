@@ -21,6 +21,7 @@ import { FlaggedPane } from "@/components/mail/FlaggedPane";
 import { MailboxPane } from "@/components/mail/MailboxPane";
 import { MailNav } from "@/components/mail/MailNav";
 import { OutboxPane } from "@/components/mail/OutboxPane";
+import { SelectionWizardHost } from "@/components/mail/SelectionWizardHost";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
@@ -43,6 +44,7 @@ import {
 	searchInputForView,
 	shouldMirrorQuery,
 } from "@/lib/search-view";
+import { wizardStepValue } from "@/lib/wizard-history";
 import "@/lib/client";
 
 // `MailContext` / `useMailContext` live in `@/lib/mail-context` so the provider
@@ -53,6 +55,9 @@ export { useMailContext } from "@/lib/mail-context";
 
 const mailSearchSchema = z.object({
 	q: z.string().optional(),
+	// The selection wizard's step (#477 clause 1.6). The router owns history, so
+	// the step is a validated search param rather than a raw pushState entry.
+	wizard: wizardStepValue,
 });
 
 export const Route = createFileRoute("/mail")({
@@ -92,6 +97,9 @@ function MailLayout() {
 	// collapse preference there (#782). DKIM-mismatch auto-open still fires on
 	// every tier. Explicit toggles persist the user's choice.
 	const [intelligenceOpen, setIntelligenceOpen] = useState(false);
+	// The list owns the selection; the wizard is mounted here, beside it, and
+	// counts the same rows the selection bar is counting.
+	const [selectedCount, setSelectedCount] = useState(0);
 	const handleSetIntelligenceOpen = useCallback((open: boolean) => {
 		setIntelligenceOpen(open);
 		writeIntelligencePref(open);
@@ -304,6 +312,8 @@ function MailLayout() {
 		intelligenceOpen,
 		onToggleIntelligence: handleToggleIntelligence,
 		onSetIntelligenceOpen: handleSetIntelligenceOpen,
+		selectedCount,
+		onSelectedCountChange: setSelectedCount,
 	};
 
 	// Single nav node: the kit renders it as a pane (≥1024px) or inside its
@@ -468,6 +478,7 @@ function MailLayout() {
 				isOpen={showShortcuts}
 				onClose={() => setShowShortcuts(false)}
 			/>
+			<SelectionWizardHost verb="organize" selectedCount={selectedCount} />
 			{/* Outlet is required for TanStack Router to activate child routes.
 			    Routes that manage their own rendering (brief, mailbox, outbox) return
 			    null from their component — the parent shell owns the layout. */}
