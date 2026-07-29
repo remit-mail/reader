@@ -106,6 +106,10 @@ const deps = (): MailboxManagementDeps =>
 					h.calls.push({ method: "mailbox.update", args });
 					if (h.mailboxUpdateError) throw h.mailboxUpdateError;
 				},
+				findByPathPrefix: async (...args: unknown[]) => {
+					h.calls.push({ method: "mailbox.findByPathPrefix", args });
+					return [];
+				},
 				delete: record("mailbox.delete"),
 			},
 			secrets: {},

@@ -99,7 +99,7 @@ const boxStatus = (path: string): ImapBoxStatus => ({
 const recordingRepo = () => {
 	const updates: Array<{ mailboxId: string; patch: Record<string, unknown> }> =
 		[];
-	const repo = {
+	const repo: Pick<IMailboxRepository, "update" | "findByPathPrefix"> = {
 		update: async (
 			_accountId: string,
 			mailboxId: string,
@@ -108,8 +108,9 @@ const recordingRepo = () => {
 			updates.push({ mailboxId, patch });
 			return {} as never;
 		},
-	} as unknown as IMailboxRepository;
-	return { repo, updates };
+		findByPathPrefix: async () => [],
+	};
+	return { repo: repo as IMailboxRepository, updates };
 };
 
 const stubConnection = (

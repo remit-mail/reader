@@ -1,7 +1,7 @@
 import type { IMailboxRepository, MailboxItem } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 
-const isNotFoundError = (error: unknown): boolean =>
+export const isNotFoundError = (error: unknown): boolean =>
 	error instanceof Error && error.name === "NotFoundError";
 
 /**

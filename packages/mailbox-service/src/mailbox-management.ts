@@ -1,5 +1,6 @@
-import type { IMailboxRepository, MailboxItem } from "@remit/data-ports";
+import type { IMailboxRepository } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
+import { isNotFoundError } from "./mailbox-presence.js";
 import type { IImapConnection } from "./types.js";
 
 /**
@@ -215,12 +216,12 @@ export class MailboxManagementService {
 		);
 
 		// Clear oldPath and mark as synced
-		const renamed = await this.mailboxService.update(accountId, mailboxId, {
+		await this.mailboxService.update(accountId, mailboxId, {
 			oldPath: undefined,
 			syncStatus: MailboxSyncStatus.synced,
 		});
 
-		await this.settleRenamedSubtree(accountId, renamed);
+		await this.settleRenamedSubtree(accountId, newPath, connection);
 
 		return { success: true };
 	};
@@ -232,27 +233,40 @@ export class MailboxManagementService {
 	 * and leaves it alone, and a descendant left pending is read as off-server, so
 	 * its sync events are terminally acked and its mail never arrives.
 	 *
-	 * The settle is scoped by the new prefix and takes only pending rows, which is
-	 * what keeps it from overreaching. A second rename in flight has already moved
-	 * its descendants under a different prefix, so this sweep cannot see them and
-	 * cannot declare them landed early. A descendant the user deleted or whose own
-	 * operation failed carries `deleting` or `failed`, and that verdict stands.
+	 * A descendant is settled only where the server's own listing holds its path.
+	 * A local path the server has not materialized is still in flight behind
+	 * another queued operation, and stripping its pending marker would expose the
+	 * row to the reconcile sweep.
 	 */
 	private settleRenamedSubtree = async (
 		accountId: string,
-		renamed: MailboxItem,
+		newPath: string,
+		connection: IImapConnection,
 	): Promise<void> => {
+		const listed = await connection.listMailboxes();
+		const onServer = new Set(listed.map((mailbox) => mailbox.fullPath));
+		const delimiter =
+			listed.find((mailbox) => mailbox.fullPath === newPath)?.delimiter ??
+			listed[0]?.delimiter ??
+			"/";
+
 		const descendants = await this.mailboxService.findByPathPrefix(
 			accountId,
-			renamed.fullPath,
-			renamed.hierarchyDelimiter,
+			newPath,
+			delimiter,
 		);
 
 		for (const descendant of descendants) {
 			if (descendant.syncStatus !== MailboxSyncStatus.pending) continue;
-			await this.mailboxService.update(accountId, descendant.mailboxId, {
-				syncStatus: MailboxSyncStatus.synced,
-			});
+			if (!onServer.has(descendant.fullPath)) continue;
+			await this.mailboxService
+				.update(accountId, descendant.mailboxId, {
+					syncStatus: MailboxSyncStatus.synced,
+				})
+				.catch((error: unknown) => {
+					if (isNotFoundError(error)) return;
+					throw error;
+				});
 		}
 	};
 
