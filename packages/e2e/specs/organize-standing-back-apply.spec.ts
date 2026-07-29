@@ -52,6 +52,9 @@ const SUBJECTS = [1, 2, 3].map((n) => `E2E Keep ${STAMP} #${n}`);
 /** The folder list the create's confirmation poll re-reads. */
 const MAILBOX_LIST = /\/mailboxes(\?.*)?$/;
 
+/** How many of those polls are held back, so the wait is observable. */
+const STALLED_POLLS = 3;
+
 test.describe("Standing filter back-applies over existing mail", () => {
 	let run: IsolatedRun;
 	let api: ApiClient;
@@ -117,10 +120,17 @@ test.describe("Standing filter back-applies over existing mail", () => {
 
 			// A real create, with the confirmation the step waits on held back, so
 			// the wait is observable rather than a race against a fast server. The
-			// folder is created for real; only the poll that confirms it is slowed.
+			// folder is created for real; only the first few polls that confirm it
+			// are slowed, and the handler stands down on its own — unrouting it
+			// while a delayed poll is still in flight is what "Route is already
+			// handled" means.
+			let stalled = 0;
 			await page.route(MAILBOX_LIST, async (route) => {
 				if (route.request().method() !== "GET") return route.continue();
-				await new Promise((resolve) => setTimeout(resolve, 3_000));
+				if (stalled < STALLED_POLLS) {
+					stalled += 1;
+					await new Promise((resolve) => setTimeout(resolve, 2_000));
+				}
 				await route.continue();
 			});
 
@@ -138,8 +148,6 @@ test.describe("Standing filter back-applies over existing mail", () => {
 			await wizardContinue(page).click();
 			await expectBlockedReason(page, "Pick a destination first.");
 			await expect(wizardStep(page)).toHaveText(/· Folder$/);
-
-			await page.unroute(MAILBOX_LIST);
 
 			const created = await waitFor(
 				() => api.listMailboxes(run.accountId),
