@@ -52,6 +52,7 @@ import {
 	shouldExitSelectionOnNavigate,
 } from "@/lib/selection-mode";
 import { cn } from "@/lib/utils";
+import { useWizardStepValue } from "@/lib/wizard-history";
 import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import { MoveToTrigger } from "./MoveToTrigger";
 import { MobileOrganizeFlow } from "./organize/MobileOrganizeFlow";
@@ -232,6 +233,7 @@ export const MessageList = ({
 	const parentRef = useRef<HTMLDivElement>(null);
 	const navigate = useNavigate();
 	const isDesktop = useIsDesktop();
+	const wizardStep = useWizardStepValue();
 	const [organizeOpen, setOrganizeOpen] = useState(false);
 	// Mobile only: which selection-sheet entry opened the guided organize flow
 	// (`null` when closed). Desktop uses `organizeOpen` + `OrganizeDialog`
@@ -1060,12 +1062,14 @@ export const MessageList = ({
 	// — is never blocked, and the blocker is off entirely with nothing selected.
 	useBlocker({
 		shouldBlockFn: ({ action }) => {
-			if (!shouldExitSelectionOnNavigate(action, hasSelection)) return false;
+			if (!shouldExitSelectionOnNavigate(action, hasSelection, wizardStep)) {
+				return false;
+			}
 			exitSelection();
 			return true;
 		},
 		enableBeforeUnload: false,
-		disabled: !hasSelection,
+		disabled: !hasSelection || wizardStep !== undefined,
 	});
 
 	// Load more when scrolling near the bottom
