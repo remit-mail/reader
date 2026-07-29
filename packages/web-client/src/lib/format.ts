@@ -19,13 +19,6 @@ export const formatNumber = (
 	return new Intl.NumberFormat(getLocale(), options).format(value);
 };
 
-/**
- * Format a number as compact (1.2K, 3.4M, etc.)
- */
-export const formatCompactNumber = (value: number): string => {
-	return formatNumber(value, { notation: "compact", compactDisplay: "short" });
-};
-
 const EPOCH_STRING = /^-?\d+$/;
 
 /**
@@ -154,40 +147,6 @@ export const formatEmailDate = (date: Date | string | number): string => {
 		return formatDate(d, { month: "short", day: "numeric" });
 	}
 	return formatDate(d, { month: "short", day: "numeric", year: "numeric" });
-};
-
-/**
- * Format file size in human-readable format.
- */
-export const formatFileSize = (bytes: number): string => {
-	const units = ["byte", "kilobyte", "megabyte", "gigabyte"] as const;
-	let unitIndex = 0;
-	let size = bytes;
-
-	while (size >= 1024 && unitIndex < units.length - 1) {
-		size /= 1024;
-		unitIndex++;
-	}
-
-	return formatNumber(size, {
-		style: "unit",
-		unit: units[unitIndex],
-		unitDisplay: "short",
-		maximumFractionDigits: 1,
-	});
-};
-
-/**
- * Format a list of items (e.g., "Alice, Bob, and Carol").
- */
-export const formatList = (
-	items: string[],
-	type: "conjunction" | "disjunction" = "conjunction",
-): string => {
-	return new Intl.ListFormat(getLocale(), {
-		style: "long",
-		type,
-	}).format(items);
 };
 
 /**

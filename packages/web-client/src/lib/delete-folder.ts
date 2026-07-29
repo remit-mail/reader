@@ -134,15 +134,6 @@ export function moveProgressLabel(progress: MoveProgress): string {
 	return `Moved ${progress.moved} of ${progress.total}`;
 }
 
-export type DeleteStage =
-	| "confirm-empty"
-	| "choose-fate"
-	| "confirm-delete-all"
-	| "pick-destination"
-	| "moving"
-	| "deleting"
-	| "error";
-
 /** Where the wizard opens: a straight confirm for an empty folder, otherwise the fate step. */
 export function initialStage(
 	messageCount: number,

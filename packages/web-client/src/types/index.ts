@@ -65,9 +65,3 @@ export interface Account {
 	createdAt: string;
 	updatedAt: string;
 }
-
-export interface PaginatedResponse<T> {
-	data: T[];
-	nextCursor?: string;
-	hasMore: boolean;
-}
