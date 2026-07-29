@@ -92,5 +92,10 @@
     "tsx": "^4",
     "typescript": "^5.9.3",
     "typespec-electrodb-emitter": "^3.2.2"
+  },
+  "overrides": {
+    "ajv": "^8.18.0",
+    "fast-uri": "^3.1.4",
+    "tar": "^7.5.21"
   }
 }
