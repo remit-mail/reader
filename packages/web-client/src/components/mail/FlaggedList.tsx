@@ -39,15 +39,56 @@ import { MailViewChrome } from "./MailViewChrome";
 import type { MessageListCommands } from "./MessageList";
 import { MessageRow } from "./MessageRow";
 import {
+	SelectionWizardHost,
+	type WizardSelectionMessage,
+} from "./SelectionWizardHost";
+import {
 	type OpenMessageOptions,
 	ThreadListInteraction,
 	ThreadListSelectionBar,
+	useThreadListSelection,
 } from "./ThreadListInteraction";
 
 const FILTER_PREDICATES: Record<string, (t: ThreadRowData) => boolean> = {
 	unread: (t) => !t.isRead,
 	attachment: (t) => t.hasAttachment === true,
 };
+
+/**
+ * The wizard, on the one surface whose bar borrows it rather than raising it.
+ *
+ * The list header offers "make this a filter" wherever a search is active, and
+ * the step that affordance pushes has to be answered on the view that offered
+ * it — an affordance whose press lands on nothing is the dead button clause 1.7
+ * exists to prevent. Starred spans accounts and mailboxes, so a rule made from
+ * the ticked rows has no single account to belong to; a rule made from the
+ * query belongs to the account the query names, which the host reads for
+ * itself.
+ */
+function StarredWizardHost({ rows }: { rows: readonly ThreadRowData[] }) {
+	const { selectedIds, exitSelection } = useThreadListSelection();
+	const selection = useMemo<WizardSelectionMessage[]>(
+		() =>
+			rows
+				.filter((row) => selectedIds.has(row.id))
+				.map((row) => ({
+					id: row.id,
+					sender: row.fromName,
+					email: row.fromEmail,
+					subject: row.subject,
+					date: row.timeLabel,
+				})),
+		[rows, selectedIds],
+	);
+	return (
+		<SelectionWizardHost
+			verb="organize"
+			selection={selection}
+			crossAccount
+			onFinished={exitSelection}
+		/>
+	);
+}
 
 interface FlaggedListProps {
 	selectedMessageId?: string;
@@ -221,6 +262,7 @@ export function FlaggedList({
 						(listState === "ready" ? listBody : undefined)
 					}
 				/>
+				<StarredWizardHost rows={rows} />
 			</ThreadListInteraction>
 		</MailViewChrome>
 	);

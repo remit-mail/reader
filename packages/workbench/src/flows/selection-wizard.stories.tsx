@@ -883,6 +883,24 @@ export const SearchConvertedPlain: Story = {
 	),
 };
 
+/**
+ * Searching Starred, where the list header's affordance is borrowed by a bar
+ * the view does not own. It is the same entry and the same wizard: every
+ * surface that puts the row on screen answers the step it pushes, or the press
+ * lands on nothing.
+ */
+export const SearchConvertedFromStarred: Story = {
+	name: "Search — make this a filter, from Starred",
+	render: () => (
+		<SelectionFlow
+			messages={SELECTION_SEARCH_SAMPLE}
+			title="Starred"
+			conversion={PLAIN_CONVERSION}
+			openAt={{ verb: "organize", fromSearch: true }}
+		/>
+	),
+};
+
 /** Nothing in the query converts, so the affordance says so rather than opening. */
 export const SearchNotConvertible: Story = {
 	name: "Search — nothing to filter on",
