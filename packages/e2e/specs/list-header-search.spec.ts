@@ -21,8 +21,10 @@ test.use({ viewport: TABLET });
 const listHeader = (page: Page): Locator =>
 	page.locator("[data-selection-bar]");
 
-const searchField = (page: Page): Locator =>
-	page.getByRole("textbox", { name: "Search mail" });
+/** The header's field. Located by label, not by role: the completions wiring
+ *  makes it a combobox, and the app top bar's copy of the same field a plain
+ *  textbox. */
+const searchField = (page: Page): Locator => page.getByLabel("Search mail");
 
 const openHeaderSearch = async (page: Page): Promise<void> => {
 	await page.getByRole("button", { name: "Search", exact: true }).click();
@@ -32,25 +34,19 @@ const openHeaderSearch = async (page: Page): Promise<void> => {
 test.describe("The list header survives a search", () => {
 	test("Starred keeps its header while the results panel is up", async ({
 		page,
-		run,
 	}) => {
-		await page.goto("/mail");
-		const sidebar = page.getByRole("navigation", {
-			name: "Mailboxes",
-			exact: true,
-		});
-		await expect(sidebar).toBeVisible({ timeout: 20_000 });
-		await sidebar.getByRole("link", { name: "Starred", exact: true }).click();
-		await page.waitForURL(/\/mail\/flagged/);
+		// By URL: below desktop the nav is a slide-over, not a standing pane.
+		await page.goto("/mail/flagged");
 		await expect(listHeader(page)).toBeVisible({ timeout: 30_000 });
 		await expect(listHeader(page).getByText("Starred")).toBeVisible();
 
 		await openHeaderSearch(page);
-		await searchField(page).fill(run.preFlaggedSubject.slice(0, 6));
+		await searchField(page).fill("zzz");
 
 		// Starred answers any query with the read-only panel, and it has no
 		// header of its own — the pane's one header has to still be there.
 		await expect(listHeader(page)).toBeVisible();
+		await expect(listHeader(page).getByText("Starred")).toBeVisible();
 		await expect(searchField(page)).toBeVisible();
 	});
 
