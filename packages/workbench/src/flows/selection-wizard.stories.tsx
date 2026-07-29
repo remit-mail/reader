@@ -30,6 +30,7 @@ import {
 	stepIndex,
 	stepsFor,
 	suggestRuleName,
+	UNCOUNTABLE_PREDICATE_REASON,
 	type Verb,
 	verbCopy,
 	type WizardDraft,
@@ -212,6 +213,8 @@ interface WizardEntry {
 	runState?: RunState;
 	/** How many the mail server rejected beyond the ones the run can name. */
 	failedBeyondNamed?: number;
+	/** The property door carries a body-text clause, which has no count to show. */
+	bodyTextClause?: boolean;
 	sampleEmpty?: SampleEmptyReason;
 	/** The rows are still arriving, which is not the same answer as no rows. */
 	sampleLoading?: boolean;
@@ -285,20 +288,24 @@ function WizardDriver({
 		if (entry.startMode) return entry.startMode;
 		return entry.startAt === "properties" ? "properties" : "selected";
 	});
-	const [clauses, setClauses] = useState<RuleClause[]>(() =>
-		fromSearch && conversion
-			? conversion.clauses.map((clause, index) => ({
-					...clause,
-					id: `search-${index}`,
-				}))
-			: withIds(
-					derivePropertyClauses(
-						senders,
-						selected.map((message) => message.subject),
-					),
-					"seed",
-				),
-	);
+	const [clauses, setClauses] = useState<RuleClause[]>(() => {
+		if (fromSearch && conversion) {
+			return conversion.clauses.map((clause, index) => ({
+				...clause,
+				id: `search-${index}`,
+			}));
+		}
+		if (entry.bodyTextClause) {
+			return [{ id: "body-text", field: "HasWords", value: "invoice" }];
+		}
+		return withIds(
+			derivePropertyClauses(
+				senders,
+				selected.map((message) => message.subject),
+			),
+			"seed",
+		);
+	});
 	const [matchOperator, setMatchOperator] = useState<MatchOperator>(
 		conversion?.matchOperator ?? "all",
 	);
@@ -338,10 +345,17 @@ function WizardDriver({
 	const ruleName = typedName ?? suggestedName;
 
 	const covered = fromSearch ? results : selected;
+	// A body-text clause cannot be counted before it is saved: the vector-free
+	// matcher refuses to evaluate it, so the app never asks. That is a stated
+	// answer, not a count of zero, and the sample it leaves empty has to say so.
+	const uncountable =
+		mode === "properties" &&
+		clauses.some((clause) => clause.field === "HasWords");
 	// A widened door has no count until it has run; the ticked list is its own
 	// count, and the app's would come from the preview endpoint (#477 5.3).
-	const count: MatchCount =
-		mode === "selected"
+	const count: MatchCount = uncountable
+		? { status: "error", reason: UNCOUNTABLE_PREDICATE_REASON }
+		: mode === "selected"
 			? { status: "ready", count: selected.length }
 			: { status: "uncounted" };
 
@@ -358,7 +372,8 @@ function WizardDriver({
 	const blockedReason = stepBlockedReason(current, draft, count);
 
 	const sample = {
-		messages: entry.sampleEmpty || entry.sampleLoading ? [] : covered,
+		messages:
+			uncountable || entry.sampleEmpty || entry.sampleLoading ? [] : covered,
 		count,
 		label: mode === "selected" ? "Your selection" : "A sample of what matches",
 		emptyReason: entry.sampleEmpty,
@@ -1217,6 +1232,27 @@ export const OrganizeNothingMatches: Story = {
 				verb: "organize",
 				startAt: "properties",
 				sampleEmpty: "noMatch",
+			}}
+		/>
+	),
+};
+
+/**
+ * A body-text clause has no count and never will: the vector-free matcher
+ * refuses to read message bodies, so there is nothing to ask and nothing to
+ * show. The sample says that, because the alternative — an empty list under
+ * "nothing matches this yet" — is not merely unexplained but wrong.
+ */
+export const OrganizeUncountable: Story = {
+	name: "Organize — the count that can't be taken",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{
+				verb: "organize",
+				startAt: "properties",
+				startMode: "properties",
+				bodyTextClause: true,
 			}}
 		/>
 	),

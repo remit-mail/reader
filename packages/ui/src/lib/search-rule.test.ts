@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-	buildSearchRule,
 	isConvertible,
 	type SearchConversion,
 	searchConversionNotice,
@@ -41,35 +40,6 @@ describe("isConvertible", () => {
 			),
 			true,
 		);
-	});
-});
-
-describe("buildSearchRule", () => {
-	it("builds a standing rule with stable clause ids, no widen, empty name", () => {
-		const rule = buildSearchRule(
-			conversion({
-				clauses: [
-					{ field: "From", value: "a@b.com" },
-					{ field: "HasWords", value: "nightly" },
-				],
-			}),
-		);
-		assert.equal(rule.scope, "standing");
-		assert.equal(rule.widen, undefined);
-		assert.equal(rule.name, "");
-		assert.deepEqual(
-			rule.clauses.map((clause) => clause.id),
-			["search-0", "search-1"],
-		);
-	});
-
-	it("honors an explicit scope and move target", () => {
-		const rule = buildSearchRule(
-			conversion({ clauses: [{ field: "HasWords", value: "nightly" }] }),
-			{ scope: "once", moveMailboxId: "mbx-archive" },
-		);
-		assert.equal(rule.scope, "once");
-		assert.equal(rule.moveMailboxId, "mbx-archive");
 	});
 });
 

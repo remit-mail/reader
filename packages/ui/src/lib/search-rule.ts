@@ -1,16 +1,11 @@
 /**
- * What a search converts to, and the rule built from it (RFC 038 D5). The shape
- * carries the clauses alongside everything the search held that a filter cannot,
- * so a conversion can never drop a facet without saying so; `search-conversion.ts`
- * beside it owns the copy that states it.
+ * What a search converts to (RFC 038 D5). The shape carries the clauses
+ * alongside everything the search held that a filter cannot, so a conversion can
+ * never drop a facet without saying so; `search-conversion.ts` beside it owns
+ * the copy that states it.
  */
 
-import type {
-	ClauseField,
-	FilterRule,
-	MatchOperator,
-	RuleScope,
-} from "../components/filter-rule.js";
+import type { ClauseField, MatchOperator } from "../components/filter-rule.js";
 import type { SearchConversionNotice } from "../components/search-conversion.js";
 
 /**
@@ -80,31 +75,4 @@ export const searchConversionNotice = (
 	scopedOutFolder: conversion.scopedOut?.label,
 	droppedFacets: conversion.droppedFacets.map((facet) => facet.label),
 	droppedSemantic: conversion.droppedSemantic,
-});
-
-interface BuildRuleOptions {
-	scope?: RuleScope;
-	moveMailboxId?: string;
-}
-
-/**
- * The rule the editor opens on, from a conversion. A search-derived rule defaults
- * to a standing filter — "make this a filter" is a request to keep applying it —
- * and the editor lets the user drop it back to a one-time apply. It carries no
- * widen: a free-text query has no message anchor, so the semantic chip is not
- * offered on this surface (its loss is stated in the conversion notice instead).
- */
-export const buildSearchRule = (
-	conversion: SearchConversion,
-	{ scope = "standing", moveMailboxId }: BuildRuleOptions = {},
-): FilterRule => ({
-	clauses: conversion.clauses.map((clause, index) => ({
-		id: `search-${index}`,
-		field: clause.field,
-		value: clause.value,
-	})),
-	matchOperator: conversion.matchOperator,
-	moveMailboxId,
-	scope,
-	name: "",
 });

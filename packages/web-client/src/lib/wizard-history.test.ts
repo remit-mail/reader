@@ -64,18 +64,24 @@ const prefixThrough = (steps: readonly StepId[], step: StepId): StepId[] =>
  * step the app itself pushed must never be re-rooted, or the push that opens
  * the wizard from a verb (#483) duplicates the entry underneath it and the
  * first back after Cancel appears to do nothing.
- *
- * Two mounts stand beside the same list — the selection bar's and the search's
- * (#484) — so the decision also carries which of them owns the held step. The
- * mount that does not own it re-rooting as well is the same duplicate entry
- * arriving from the other direction.
  */
 describe("re-rooting a wizard that was loaded into", () => {
 	it("decides from what the first render held, not from a flag", () => {
-		assert.match(source, /useRef\(hosts && step !== undefined\)/);
+		assert.match(source, /useRef\(step !== undefined\)/);
 		assert.match(
 			source,
 			/if \(!loadedHoldingStep\.current\) return;\s*\n\s*loadedHoldingStep\.current = false;/,
+		);
+	});
+
+	// The root is the wizard-closed state, so it carries neither the step nor
+	// the affordance that opened it; otherwise closing the wizard leaves the
+	// entry marker behind in the address bar (#484).
+	it("puts the wizard back on a root that names no entry", () => {
+		assert.match(source, /wizard: undefined,\s*\n\s*wizardFrom: undefined,/);
+		assert.match(
+			source,
+			/wizard: openingStep,\s*\n\s*wizardFrom: openingEntry,/,
 		);
 	});
 

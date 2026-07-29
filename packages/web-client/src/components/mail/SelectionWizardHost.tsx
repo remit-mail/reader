@@ -46,6 +46,8 @@ import { useRulePreview } from "@/hooks/useRulePreview";
 import { useSelectedSubjects } from "@/hooks/useSelectedSubjects";
 import type { BulkRunOutcome } from "@/lib/bulk-actions";
 import { getMailboxDisplayName } from "@/lib/folder-roles";
+import { useListHeaderChrome } from "@/lib/list-header-chrome";
+import { useMailContext } from "@/lib/mail-context";
 import { buildMoveTargets } from "@/lib/move-targets";
 import {
 	buildWizardDraft,
@@ -75,6 +77,14 @@ interface SelectionWizardSessionProps extends SelectionWizardHostProps {
 	goToStep: (step: StepId) => void;
 	goBack: () => void;
 	closeWizard: (steps: readonly StepId[], step: StepId) => void;
+	/**
+	 * The wizard was entered by converting a search rather than by ticking rows
+	 * (#477 1.8). The conversion seeds the clauses on the properties step and the
+	 * notice above them, and nothing else: every step after that is the one a
+	 * selection from the inbox walks (#477 3.4). Absent for the selection bar's
+	 * entry.
+	 */
+	searchConversion?: SearchConversion;
 }
 
 export interface SelectionWizardHostProps {
@@ -87,16 +97,25 @@ export interface SelectionWizardHostProps {
 	selection: readonly WizardSelectionMessage[];
 	/** The ticked rows span more than one account, so no rule can be created. */
 	crossAccount?: boolean;
-	/**
-	 * The wizard was entered by converting a search rather than by ticking rows
-	 * (#477 1.8). The conversion seeds the clauses on the properties step and the
-	 * notice above them, and nothing else: every step after that is the one a
-	 * selection from the inbox walks (#477 3.4).
-	 */
-	searchConversion?: SearchConversion;
 	/** The wizard is done with the selection, and the list drops it. */
-	onFinished?: () => void;
+	onFinished: () => void;
 }
+
+/**
+ * A search entry with no query behind it — a link typed by hand, or one whose
+ * query is gone. It opens the same properties step with nothing seeded, which
+ * the step already states, rather than a wizard that renders nothing.
+ */
+const NO_CONVERSION: SearchConversion = {
+	clauses: [],
+	matchOperator: "all",
+	droppedFacets: [],
+	keptTerms: false,
+	droppedSemantic: false,
+};
+
+/** A search entry has nothing ticked; its match is the query's clauses (#477 3.2). */
+const EMPTY_SELECTION: readonly WizardSelectionMessage[] = [];
 
 /** How far a commit has got, whichever of the three ways it took. */
 interface RunSnapshot {
@@ -178,15 +197,19 @@ function SelectionWizardSession({
 	goBack,
 	closeWizard,
 }: SelectionWizardSessionProps) {
-	const fromSearch = searchConversion !== undefined;
+	// The query as it read when the wizard opened. Held for the walk, so a search
+	// still settling underneath cannot rewrite the notice a user is reading while
+	// the clauses beside it stay as they were seeded.
+	const [conversion] = useState(() => searchConversion);
+	const fromSearch = conversion !== undefined;
 	const [mode, setMode] = useState<MatchMode>(
 		fromSearch ? "properties" : "selected",
 	);
 	const [draft, setDraft] = useState<WizardDraft>(() =>
-		searchConversion
+		conversion
 			? {
-					clauses: withIds(searchConversion.clauses, "search"),
-					matchOperator: searchConversion.matchOperator,
+					clauses: withIds(conversion.clauses, "search"),
+					matchOperator: conversion.matchOperator,
 				}
 			: EMPTY_DRAFT,
 	);
@@ -657,7 +680,7 @@ function SelectionWizardSession({
 	// aimed at are no longer a selection waiting to be acted on.
 	const dismiss = useCallback(() => {
 		closeWizard(steps, current);
-		onFinished?.();
+		onFinished();
 	}, [closeWizard, steps, current, onFinished]);
 
 	// Hardware back on the run screen leaves the wizard, the movement the header
@@ -728,8 +751,8 @@ function SelectionWizardSession({
 				onCancelClause: () => setClauseEdit(undefined),
 				clauseFields: SUPPORTED_CLAUSE_FIELDS,
 				clauseSuggestions,
-				conversionNotice: searchConversion
-					? searchConversionNotice(searchConversion)
+				conversionNotice: conversion
+					? searchConversionNotice(conversion)
 					: undefined,
 				semanticFallbackTaken,
 				sample: { ...sample, label: "What this matches" },
@@ -781,27 +804,41 @@ function SelectionWizardSession({
 }
 
 /**
- * The wizard's mount point, beside the list that opens it. It owns the step in
- * the URL and the history entries the wizard walks; the walk itself is a
- * separate component, mounted only while a step is held, so every answer it
- * collects is gone by the time the next one starts.
+ * The wizard's mount point, and the only one: both entries walk this host, so
+ * there is one owner of the step in the URL and of the history entries the
+ * wizard pushes. The walk itself is a separate component, mounted only while a
+ * step is held, so every answer it collects is gone by the time the next one
+ * starts.
  *
- * A search opens the same wizard from a different surface, so both mounts stand
- * beside the same list. The URL says which affordance opened it, and only the
- * matching mount answers — otherwise one press would put two wizards on screen
- * and count the history entries to rewind twice.
+ * The URL says which affordance opened the wizard, and that decides two things
+ * and no more: which step it opens on, and whether the query seeds the clauses.
+ * A search entry ticks nothing and its rule belongs to the account the query
+ * names, so the selection the bar would have handed over is not the one it
+ * walks.
  */
 export function SelectionWizardHost(props: SelectionWizardHostProps) {
-	const fromSearch = props.searchConversion !== undefined;
-	const hosts = (useWizardEntryValue() === "search") === fromSearch;
+	const fromSearch = useWizardEntryValue() === "search";
+	const { searchConversion } = useListHeaderChrome();
+	const { accounts } = useMailContext();
 	const { step, goToStep, goBack, closeWizard } = useWizardStep(
 		fromSearch ? "properties" : "match",
-		hosts,
 	);
-	if (!step || !hosts) return null;
+	if (!step) return null;
+	const conversion = fromSearch
+		? (searchConversion ?? NO_CONVERSION)
+		: undefined;
 	return (
 		<SelectionWizardSession
 			{...props}
+			{...(conversion
+				? {
+						verb: "organize" as const,
+						accountId: conversion.targetAccountId ?? accounts[0]?.accountId,
+						selection: EMPTY_SELECTION,
+						crossAccount: false,
+						searchConversion: conversion,
+					}
+				: {})}
 			step={step}
 			goToStep={goToStep}
 			goBack={goBack}

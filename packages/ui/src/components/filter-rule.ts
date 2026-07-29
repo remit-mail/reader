@@ -262,6 +262,16 @@ export const ruleBlockedCopy = {
 } as const;
 
 /**
+ * What the count region says when there is no count to be had. The vector-free
+ * matcher will not read message bodies, so a `HasWords` clause cannot be counted
+ * before it is saved — which is a different answer from a count of zero, and
+ * the only one that keeps an empty sample from reading as "this matches
+ * nothing".
+ */
+export const UNCOUNTABLE_PREDICATE_REASON =
+	"Can't count matches — “has the words” reads message bodies, which only a saved rule does.";
+
+/**
  * Why the count on screen is not yet the count that will be applied, or
  * `undefined` once it has settled. This is what makes RFC 038's
  * previewed-set-equals-applied-set contract structural rather than a promise:

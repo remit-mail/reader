@@ -4,7 +4,10 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import type { MatchCount, StepId, WizardDraft } from "../lib/wizard-steps.js";
 import { stepsFor } from "../lib/wizard-steps.js";
-import type { RuleClause } from "./filter-rule.js";
+import {
+	type RuleClause,
+	UNCOUNTABLE_PREDICATE_REASON,
+} from "./filter-rule.js";
 import {
 	FolderStepBody,
 	MatchStepBody,
@@ -170,6 +173,23 @@ describe("SelectionSample", () => {
 			}),
 		);
 		assert.match(html, /Nothing matches this yet/);
+	});
+
+	// A count that could not be taken is not a count of zero. A body-text clause
+	// is the case that makes the difference load-bearing: it matches, once a
+	// saved rule is what runs it, so "nothing matches this yet" is wrong rather
+	// than merely unexplained (#477 3.5).
+	it("says a count could not be taken instead of that nothing matched", () => {
+		const html = renderToString(
+			createElement(SelectionSample, {
+				messages: [],
+				count: { status: "error", reason: UNCOUNTABLE_PREDICATE_REASON },
+				label: "What this matches",
+				emptyReason: "noMatch",
+			}),
+		);
+		assert.match(text(html), /only a saved rule does/);
+		assert.doesNotMatch(html, /Nothing matches this yet/);
 	});
 
 	it("says the total is unknown when the match has not run", () => {
@@ -665,33 +685,35 @@ describe("SelectionWizard", () => {
 		assert.doesNotMatch(html, /<button[^>]*disabled=""/);
 	});
 
-	it("carries the blocked reason on the control before it is pressed, and shows it after", () => {
+	it("carries the blocked reason on the control before it is pressed, and announces it after", () => {
+		const reason = "Add a property to match on.";
 		const quiet = renderToString(
 			createElement(
 				SelectionWizard,
-				wizardProps({
-					step: "properties",
-					blockedReason: "Add a property to match on.",
-				}),
+				wizardProps({ step: "properties", blockedReason: reason }),
 			),
 		);
-		// Described, so it is heard on the control; not on screen until pressed.
+		// Described, so it is heard on the control; not on screen and nothing
+		// announced until the control is pressed.
 		assert.match(quiet, /aria-describedby="/);
-		assert.match(quiet, /sr-only/);
-		assert.doesNotMatch(quiet, /role="status"/);
+		assert.match(quiet, /<p id="[^"]*"[^>]*sr-only/);
+		assert.match(quiet, /role="status"[^>]*><\/span>/);
 
 		const nudged = renderToString(
 			createElement(
 				SelectionWizard,
 				wizardProps({
 					step: "properties",
-					blockedReason: "Add a property to match on.",
+					blockedReason: reason,
 					nudged: true,
 				}),
 			),
 		);
-		assert.match(nudged, /role="status"/);
-		assert.doesNotMatch(nudged, /sr-only/);
+		// The reason is written into the live region, which is what a screen
+		// reader announces — marking the description live would announce nothing.
+		assert.doesNotMatch(nudged, /role="status"[^>]*><\/span>/);
+		assert.match(nudged, new RegExp(`role="status"[^>]*>${reason}`));
+		assert.doesNotMatch(nudged, /<p id="[^"]*"[^>]*sr-only/);
 	});
 
 	it("commits under the scope's own label, in the verb's own tone", () => {

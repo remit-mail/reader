@@ -87,13 +87,6 @@ import {
 } from "@/lib/search-tokens";
 import { spamOfferForResults } from "@/lib/spam-offer";
 import { useOpenWizard } from "@/lib/wizard-history";
-import {
-	SelectionWizardHost,
-	type WizardSelectionMessage,
-} from "./SelectionWizardHost";
-
-/** A search entry has nothing ticked; its match is the query's clauses (#477 3.2). */
-const EMPTY_SELECTION: readonly WizardSelectionMessage[] = [];
 
 export interface MailListHeaderProps {
 	title: string;
@@ -109,8 +102,11 @@ export interface MailListHeaderProps {
 	 */
 	selectionBar?: (chrome: ListHeaderChrome) => ReactNode;
 	/**
-	 * An overlay covering the pane, above the list (the guided organize flow).
-	 * The pane is the positioned ancestor it measures against.
+	 * An overlay covering the pane, above the list (the selection wizard). Kept
+	 * out of the body and rendered on both the ordinary layout and the phone
+	 * search takeover, so a surface that covers the screen is not taken down by
+	 * whatever the body swapped to underneath it. Inside the chrome provider, so
+	 * an overlay a view mounts from above still reads the search state.
 	 */
 	paneOverlay?: ReactNode;
 	/** Pinned below the scrollable list (e.g. the keyboard hint bar). */
@@ -330,11 +326,12 @@ export function MailListHeader({
 	// Make-this-a-filter (#477 clause 1.8): the search is the wizard's second
 	// entry. It opens on the properties step with the clauses `convertSearchToRule`
 	// derives from the query, nothing ticked, and the notice for what the query
-	// could not be turned into. The rule is created for the account an `account:`
-	// facet names, else the primary account. The literal filter cannot reproduce
-	// the search's semantic reach, so the conversion states it whenever the search
-	// surfaced a "Related" section — a direct signal, read here from the semantic
-	// results, never a capability probe.
+	// could not be turned into. The conversion is computed once, here, and handed
+	// to the wizard through the chrome — the reason the affordance gives and the
+	// clauses the wizard seeds from are the same answer. The literal filter cannot
+	// reproduce the search's semantic reach, so the conversion states it whenever
+	// the search surfaced a "Related" section — a direct signal, read here from
+	// the semantic results, never a capability probe.
 	//
 	// It belongs to the search, not to any one way of showing it. The affordance
 	// therefore sits in the pane, above whichever body is up — the read-only
@@ -345,40 +342,32 @@ export function MailListHeader({
 	// the URL, taking the affordance down with it a few hundred milliseconds after
 	// it appeared, and leaving the brief (which keeps the panel for any query) as
 	// the only place it survived.
-	const accountToken = parsed.tokens.find((token) => token.type === "account");
-	const targetAccountId = accountToken?.accountId ?? accounts[0]?.accountId;
 	const searchHadSemanticReach = related.length > 0;
 	const conversion = useMemo(
 		() => convertSearchToRule(parsed, { searchHadSemanticReach }),
 		[parsed, searchHadSemanticReach],
 	);
-	const makeFilter =
-		hasQuery && targetAccountId
-			? {
-					onClick: () => openWizard("properties", "search"),
-					blockedReason: isConvertible(conversion)
-						? undefined
-						: "Add a sender or words to filter on",
-				}
-			: undefined;
+	const searchConversion = hasQuery ? conversion : undefined;
+	const makeFilter = hasQuery
+		? {
+				// The wizard is a full-screen surface, so the phone takeover it was
+				// pressed from stands down rather than sitting under it — and the list
+				// underneath, which hosts the wizard, is mounted again by the time the
+				// step lands.
+				onClick: () => {
+					setSearchOpen(false);
+					openWizard("properties", "search");
+				},
+				blockedReason: isConvertible(conversion)
+					? undefined
+					: "Add a sender or words to filter on",
+			}
+		: undefined;
 	// Handed to the bar rather than rendered here: the bar knows whether rows
 	// are ticked, and a selection's own verbs own the surface while they are up.
 	const makeFilterAction = makeFilter ? (
 		<MakeFilterAction {...makeFilter} />
 	) : null;
-	// The same wizard the selection bar opens, hosted here because this is where
-	// the query lives. Only one of the two mounts answers a given walk — the URL
-	// says which affordance opened it.
-	const searchWizard =
-		hasQuery && targetAccountId ? (
-			<SelectionWizardHost
-				verb="organize"
-				accountId={targetAccountId}
-				mailboxId={scopedMailboxId}
-				selection={EMPTY_SELECTION}
-				searchConversion={conversion}
-			/>
-		) : null;
 
 	// Tablet + desktop keep the inline toolbar search; while a query is being
 	// typed the list-pane body swaps to the same sectioned results the phone
@@ -433,6 +422,7 @@ export function MailListHeader({
 			title,
 			searchResults: chromeResults,
 			makeFilterSlot: makeFilterAction,
+			searchConversion,
 			navSlot: layout && !layout.showNavPane && (
 				<Button
 					variant="ghost"
@@ -496,6 +486,7 @@ export function MailListHeader({
 			searchSuggest,
 			chromeResults,
 			makeFilterAction,
+			searchConversion,
 		],
 	);
 
@@ -506,7 +497,7 @@ export function MailListHeader({
 			onSelectSearchResult?.(result);
 		};
 		return (
-			<>
+			<ListHeaderChromeContext.Provider value={chrome}>
 				<MobileSearchView
 					value={searchInput}
 					onChange={onSearchChange}
@@ -527,8 +518,8 @@ export function MailListHeader({
 					suggest={searchSuggest}
 					suggestList={suggestList}
 				/>
-				{searchWizard}
-			</>
+				{paneOverlay}
+			</ListHeaderChromeContext.Provider>
 		);
 	}
 
@@ -539,7 +530,6 @@ export function MailListHeader({
 				{suggestList}
 				<div className="min-h-0 flex-1">{body}</div>
 				{footer}
-				{searchWizard}
 				{paneOverlay}
 			</section>
 		</ListHeaderChromeContext.Provider>

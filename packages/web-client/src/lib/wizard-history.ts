@@ -44,9 +44,9 @@ export const wizardStepFromParam = (value: unknown): StepId | undefined => {
  *
  * It rides the URL beside the step for the same reason the step does: a
  * reloaded document has to know which walk it is in the middle of, and the
- * query it was seeded from is in the URL already. It changes nothing about how
- * the wizard behaves once it is open (#477 3.4) — it only says which surface
- * hosts it, so two mounts of the same host cannot both answer one step.
+ * query it was seeded from is in the URL already. It decides two things and no
+ * more — which step the wizard opens on, and whether the query seeds the
+ * clauses (#477 3.4). One host answers either way.
  */
 const wizardEntry = z.literal("search");
 
@@ -108,25 +108,19 @@ export interface WizardStepNavigation {
 	closeWizard: (steps: readonly StepId[], step: StepId) => void;
 }
 
-/**
- * The step in the URL and the movements between them.
- *
- * `hosts` is whether this mount is the one the held step belongs to. Both the
- * selection bar's host and the search's host stay mounted beside the list, and
- * exactly one of them owns any given walk; the other must not re-root the
- * wizard, or the entries to rewind on the way out are counted twice.
- */
-export const useWizardStep = (
-	openingStep: StepId,
-	hosts = true,
-): WizardStepNavigation => {
+export const useWizardStep = (openingStep: StepId): WizardStepNavigation => {
 	const router = useRouter();
 	const navigate = useNavigate();
 	const step = useWizardStepValue();
+	const entry = useWizardEntryValue();
 	// Whether this document loaded already holding a step, which is the one
 	// entrance that leaves the wizard unrooted. A step the app itself pushed
 	// arrives rooted, so re-rooting it would duplicate the entry underneath it.
-	const loadedHoldingStep = useRef(hosts && step !== undefined);
+	const loadedHoldingStep = useRef(step !== undefined);
+	// The entry that step was reached by, so the root the wizard is put back on
+	// carries neither the step nor the affordance that opened it, and the entry
+	// pushed over it carries both.
+	const loadedEntry = useRef(entry);
 	const pushedTo = useRef<StepId | undefined>(undefined);
 
 	// Two taps on Continue land before the URL settles, and both would push the
@@ -139,15 +133,24 @@ export const useWizardStep = (
 	useEffect(() => {
 		if (!loadedHoldingStep.current) return;
 		loadedHoldingStep.current = false;
+		const openingEntry = loadedEntry.current;
 		void (async () => {
 			await navigate({
 				to: ".",
-				search: (prev) => ({ ...prev, wizard: undefined }),
+				search: (prev) => ({
+					...prev,
+					wizard: undefined,
+					wizardFrom: undefined,
+				}),
 				replace: true,
 			});
 			await navigate({
 				to: ".",
-				search: (prev) => ({ ...prev, wizard: openingStep }),
+				search: (prev) => ({
+					...prev,
+					wizard: openingStep,
+					wizardFrom: openingEntry,
+				}),
 			});
 		})();
 	}, [openingStep, navigate]);

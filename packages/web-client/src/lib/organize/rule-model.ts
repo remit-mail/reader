@@ -207,10 +207,6 @@ export const isEvaluablePredicate = (
 	predicate.anchorMessageId !== undefined ||
 	!predicate.literalClauses.some((clause) => clause.field === "HasWords");
 
-/** What the count says when the predicate cannot be counted at all. */
-export const UNCOUNTABLE_PREDICATE_REASON =
-	"Can't count matches — “has the words” reads message bodies, which only a saved rule does.";
-
 /**
  * A stable key for a predicate's match set. Two predicates with the same key
  * match the same messages; a change to the key is what marks the live count

@@ -42,6 +42,7 @@ import {
 	type WizardDraft,
 } from "../lib/wizard-steps.js";
 import { Badge } from "./badge.js";
+import { BlockedReason } from "./blocked-reason.js";
 import { Button } from "./button.js";
 import { FieldLabel } from "./field-label.js";
 import {
@@ -280,6 +281,25 @@ const sampleFooter = (count: MatchCount, shown: number): string => {
 };
 
 /**
+ * What an empty sample says. A count that could not be taken says so; only a
+ * count that came back empty may say nothing matches (#477 3.5).
+ *
+ * A body-text clause is the case that makes the difference load-bearing: the
+ * vector-free matcher refuses to evaluate it, so there is no count and no rows,
+ * and "nothing matches this yet" is not merely unexplained but wrong — the rule
+ * matches, once a saved rule is what runs it.
+ */
+const sampleEmptyLine = (
+	count: MatchCount,
+	emptyReason: SampleEmptyReason | undefined,
+	loading: boolean | undefined,
+): string => {
+	if (loading) return "Fetching the messages this covers…";
+	if (count.status === "error") return count.reason;
+	return sampleEmptyCopy(emptyReason ?? "noMatch");
+};
+
+/**
  * The members of the match, closing every screen that names one. A named match
  * with no members shown is an unseen bulk action, so the rows scroll in their own
  * bounded region rather than truncating.
@@ -298,9 +318,7 @@ export function SelectionSample({
 			</h2>
 			{messages.length === 0 ? (
 				<p className="px-3 py-4 text-xs text-fg-muted">
-					{loading
-						? "Fetching the messages this covers…"
-						: sampleEmptyCopy(emptyReason ?? "noMatch")}
+					{sampleEmptyLine(count, emptyReason, loading)}
 				</p>
 			) : (
 				<>
@@ -345,9 +363,8 @@ export interface FooterNavProps {
 /**
  * Nothing disables (#477 1.7). A Continue with an answer still missing is dimmed
  * and stays pressable — and stays pressable to assistive technology too, which
- * `aria-disabled` would have taken away along with the reason. The reason is on
- * the control the whole time it applies, through `aria-describedby`; pressing it
- * is what brings the reason on screen.
+ * `aria-disabled` would have taken away along with the reason. `BlockedReason`
+ * carries the two ways that reason reaches the user.
  */
 export function FooterNav({
 	backLabel = "Back",
@@ -362,13 +379,12 @@ export function FooterNav({
 	return (
 		<div className="space-y-2">
 			{blockedReason && (
-				<p
+				<BlockedReason
 					id={reasonId}
-					role={nudged ? "status" : undefined}
-					className={cn("px-1 text-2xs text-warning", !nudged && "sr-only")}
-				>
-					{blockedReason}
-				</p>
+					reason={blockedReason}
+					nudged={nudged}
+					className="px-1 text-2xs text-warning"
+				/>
 			)}
 			<div className="flex items-center gap-3">
 				<Button

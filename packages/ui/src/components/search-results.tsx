@@ -1,6 +1,7 @@
 import { ChevronDown, Clock, Filter } from "lucide-react";
 import { useId, useState } from "react";
 import { cn } from "../lib/cn.js";
+import { BlockedReason } from "./blocked-reason.js";
 import type { FolderRole } from "./folder-role.js";
 import { type SearchResult, SearchResultRow } from "./search-result-row.js";
 import { SearchTokenChips } from "./search-token-chip.js";
@@ -119,17 +120,14 @@ export function MakeFilterAction({
 	blockedReason,
 }: MakeFilterActionProps) {
 	const reasonId = useId();
-	// Which reason was pressed against, so a query that changed under it stops
-	// announcing an answer that no longer applies.
-	const [nudgedFor, setNudgedFor] = useState<string>();
-	const nudged = blockedReason !== undefined && nudgedFor === blockedReason;
+	const [nudged, setNudged] = useState(false);
 	return (
 		<div className="border-b border-line px-row-inset py-1.5">
 			<button
 				type="button"
 				onClick={() => {
 					if (blockedReason) {
-						setNudgedFor(blockedReason);
+						setNudged(true);
 						return;
 					}
 					onClick();
@@ -146,16 +144,12 @@ export function MakeFilterAction({
 				<span>Make this a filter</span>
 			</button>
 			{blockedReason && (
-				<p
+				<BlockedReason
 					id={reasonId}
-					role={nudged ? "status" : undefined}
-					className={cn(
-						"px-2 pt-1 text-2xs text-warning",
-						!nudged && "sr-only",
-					)}
-				>
-					{blockedReason}
-				</p>
+					reason={blockedReason}
+					nudged={nudged}
+					className="px-2 pt-1 text-2xs text-warning"
+				/>
 			)}
 		</div>
 	);
