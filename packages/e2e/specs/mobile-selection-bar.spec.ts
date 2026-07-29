@@ -111,7 +111,7 @@ test.describe("Mobile selection bar", () => {
 		await expect(rowToggle(rows(page).first())).toBeHidden();
 	});
 
-	test("Delete via the bar removes the rows and keeps the list", async ({
+	test("a second delete through the bar commits like the first", async ({
 		page,
 		run,
 		api,
@@ -119,8 +119,12 @@ test.describe("Mobile selection bar", () => {
 		// Scratch messages, not the globally seeded set: the serial suite asserts
 		// the inbox holds exactly `seededSubjects`, so this appends its own, deletes
 		// them through the bar, and the count check restores the baseline.
+		//
+		// Two walks, not one: everything a walk answers belongs to that walk, and a
+		// single-commit test cannot see a guard that survives the wizard closing —
+		// it shows up as a Delete on the second selection that does nothing at all.
 		const tag = `bar-delete ${Date.now()}`;
-		const subjects = [`${tag} A`, `${tag} B`];
+		const subjects = [`${tag} A`, `${tag} B`, `${tag} C`, `${tag} D`];
 		await appendMessages(
 			run.imapUser,
 			subjects.map((subject) => ({ subject })),
@@ -133,29 +137,37 @@ test.describe("Mobile selection bar", () => {
 			await expect(rows(page)).toHaveCount(withExtra, { timeout: 5_000 });
 		}).toPass({ timeout: 60_000 });
 
-		const first = page
-			.locator("[data-message-row]")
-			.filter({ hasText: subjects[0] });
-		const second = page
-			.locator("[data-message-row]")
-			.filter({ hasText: subjects[1] });
-		await selectTwo(page, first, second);
+		const row = (subject: string) =>
+			page.locator("[data-message-row]").filter({ hasText: subject });
 
-		// Delete opens the wizard, and the run screen is the signal it landed.
-		await deleteButton(page).click();
-		await expect(wizardStep(page)).toHaveText(/^Step 1 of 3 · Apply to$/, {
-			timeout: 20_000,
+		const deleteThrough = async (a: string, b: string) => {
+			await selectTwo(page, row(a), row(b));
+			// Delete opens the wizard, and the run screen is the signal it landed.
+			await deleteButton(page).click();
+			await expect(wizardStep(page)).toHaveText(/^Step 1 of 3 · Apply to$/, {
+				timeout: 20_000,
+			});
+			await advanceTo(page, "Review");
+			await commitButton(page, "Delete").click();
+			await expect(page.getByText("Deleted 2")).toBeVisible({
+				timeout: 30_000,
+			});
+			await dismissRun(page);
+			await expect(selectionStatus(page)).toBeHidden();
+		};
+
+		await deleteThrough(subjects[0], subjects[1]);
+		await expect(rows(page)).toHaveCount(run.seededSubjects.length + 2, {
+			timeout: 30_000,
 		});
-		await advanceTo(page, "Review");
-		await commitButton(page, "Delete").click();
-		await expect(page.getByText("Deleted 2")).toBeVisible({ timeout: 30_000 });
-		await dismissRun(page);
+		await deleteThrough(subjects[2], subjects[3]);
 
-		await expect(selectionStatus(page)).toBeHidden();
 		// Single-pane mobile stays on the list — the delete must not open a
 		// neighbour (#202).
 		await expect(page).not.toHaveURL(/selectedMessageId=/);
-		await expect(rows(page)).toHaveCount(run.seededSubjects.length);
+		await expect(rows(page)).toHaveCount(run.seededSubjects.length, {
+			timeout: 30_000,
+		});
 		for (const subject of subjects) {
 			await expect(page.getByText(subject, { exact: true })).toBeHidden();
 		}

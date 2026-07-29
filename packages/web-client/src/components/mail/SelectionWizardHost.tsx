@@ -68,6 +68,14 @@ export interface WizardSelectionMessage extends WizardMessage {
 	email: string;
 }
 
+interface SelectionWizardSessionProps extends SelectionWizardHostProps {
+	/** The step the URL holds. The session is mounted only while there is one. */
+	step: StepId;
+	goToStep: (step: StepId) => void;
+	goBack: () => void;
+	closeWizard: (steps: readonly StepId[], step: StepId) => void;
+}
+
 export interface SelectionWizardHostProps {
 	/** What the bar was pressed for. Every verb walks the same wizard. */
 	verb: Verb;
@@ -141,18 +149,26 @@ const widenedRunsAsJob = (verb: Verb): boolean =>
  * Every commit routes through `organize-model.ts`, so the four `OrganizeScope`
  * values are reconstructed in one place from the two answers the wizard asks
  * for — what the action covers, and how long it holds.
+ *
+ * One walk of the wizard, and only that. Everything the walk answers — the door,
+ * the draft, whether a commit has been sent — lives here rather than in the host
+ * that mounts it, so closing the wizard takes all of it with the screen. Held a
+ * level up, on a component the list mounts for as long as it is on screen, the
+ * first commit's guard would still be up when the next selection reached Review,
+ * and the second one would press a control that does nothing at all.
  */
-export function SelectionWizardHost({
+function SelectionWizardSession({
 	verb,
 	accountId,
 	mailboxId,
 	selection,
 	crossAccount = false,
 	onFinished,
-}: SelectionWizardHostProps) {
-	const { step, goToStep, goBack, closeWizard } = useWizardStep(OPENING_STEP);
-	const open = step !== undefined;
-
+	step,
+	goToStep,
+	goBack,
+	closeWizard,
+}: SelectionWizardSessionProps) {
 	const [mode, setMode] = useState<MatchMode>("selected");
 	const [draft, setDraft] = useState<WizardDraft>(EMPTY_DRAFT);
 	const [clauseEdit, setClauseEdit] = useState<ClauseEditState | undefined>(
@@ -192,8 +208,8 @@ export function SelectionWizardHost({
 	// The similar door has to know before it is pressed whether it can run, so
 	// the probe fires with the wizard rather than with the door (#477 3.6).
 	useEffect(() => {
-		if (open) probeWiden();
-	}, [open, probeWiden]);
+		probeWiden();
+	}, [probeWiden]);
 
 	const widened = mode !== "selected";
 	const literalPredicate: OrganizeMatchPredicate = useMemo(
@@ -212,7 +228,7 @@ export function SelectionWizardHost({
 	// in the browser (#477 5.3). The ticked list is its own count, so no request
 	// is made for it.
 	const { count: previewCount, matchedIds } = useRulePreview(
-		open && widened ? accountId : undefined,
+		widened ? accountId : undefined,
 		predicate,
 	);
 	const matchSample = useMatchSample(widened ? matchedIds : []);
@@ -289,7 +305,7 @@ export function SelectionWizardHost({
 	// The step the screens are on, which is the held one only while the answers
 	// still hold it. Reading the URL's step here and the resolved one on screen
 	// is how a footer comes to name a screen nobody is looking at.
-	const current = steps[stepIndex(steps, step ?? OPENING_STEP)];
+	const current = steps[stepIndex(steps, step)];
 
 	// A filter and a folder both belong to one account, so a selection spanning
 	// accounts reaches neither and is told so on the step that asks (#477 5.5).
@@ -351,12 +367,23 @@ export function SelectionWizardHost({
 	// rather than left as a door that counts nothing: the property step says, in
 	// so many words, that these are the senders it substituted (#477 3.6).
 	const semanticUnavailable = widen.semanticUnavailable || widen.isError;
+	// Only while the door is the screen: the probe re-fires when the anchor
+	// changes under a background refetch, and a late answer that moved the step
+	// from Review would push an entry the wizard does not own and leave the count
+	// it rewinds by wrong.
 	useEffect(() => {
+		if (current !== "match") return;
 		if (mode !== "similar" || !semanticUnavailable || semanticFallbackTaken) {
 			return;
 		}
 		takeSemanticFallback();
-	}, [mode, semanticUnavailable, semanticFallbackTaken, takeSemanticFallback]);
+	}, [
+		current,
+		mode,
+		semanticUnavailable,
+		semanticFallbackTaken,
+		takeSemanticFallback,
+	]);
 
 	const startAddClause = useCallback(() => {
 		setClauseEdit({ mode: "add", draft: { field: "From", value: "" } });
@@ -640,10 +667,8 @@ export function SelectionWizardHost({
 			return true;
 		},
 		enableBeforeUnload: false,
-		disabled: !open || current !== "run",
+		disabled: current !== "run",
 	});
-
-	if (!step) return null;
 
 	const run = runSnapshot();
 	const sample = {
@@ -738,6 +763,26 @@ export function SelectionWizardHost({
 				onRetry: retry,
 				onDismiss: dismiss,
 			}}
+		/>
+	);
+}
+
+/**
+ * The wizard's mount point, beside the list that opens it. It owns the step in
+ * the URL and the history entries the wizard walks; the walk itself is a
+ * separate component, mounted only while a step is held, so every answer it
+ * collects is gone by the time the next one starts.
+ */
+export function SelectionWizardHost(props: SelectionWizardHostProps) {
+	const { step, goToStep, goBack, closeWizard } = useWizardStep(OPENING_STEP);
+	if (!step) return null;
+	return (
+		<SelectionWizardSession
+			{...props}
+			step={step}
+			goToStep={goToStep}
+			goBack={goBack}
+			closeWizard={closeWizard}
 		/>
 	);
 }
