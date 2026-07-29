@@ -738,7 +738,7 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 			.getByRole("button", { name: "Move to Trash" })
 			.click();
 
-		await expect(selectionBar(page)).toBeHidden({ timeout: 30_000 });
+		await expect(selectionStatus(page)).toBeHidden({ timeout: 30_000 });
 		// The honest number: the actual count the run deleted, including the
 		// late arrivals the pre-confirm estimate above never saw — never the
 		// stale estimate itself.
@@ -842,7 +842,7 @@ test.describe("Search-scoped escalated move and mark-read", () => {
 
 		await markRead(page);
 
-		await expect(selectionBar(page)).toBeHidden({ timeout: 30_000 });
+		await expect(selectionStatus(page)).toBeHidden({ timeout: 30_000 });
 		await expect(
 			page.getByText(
 				`${COUNT} marked as read. Your mail server is still catching up.`,
@@ -872,7 +872,7 @@ test.describe("Search-scoped escalated move and mark-read", () => {
 		// Archive is a standard destination in the picker on this account.
 		await page.getByRole("option", { name: "Move to Archive" }).click();
 
-		await expect(selectionBar(page)).toBeHidden({ timeout: 30_000 });
+		await expect(selectionStatus(page)).toBeHidden({ timeout: 30_000 });
 		await expect(
 			page.getByText(`${COUNT} moved. Your mail server is still catching up.`),
 		).toBeVisible();
