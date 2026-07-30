@@ -381,19 +381,26 @@ const NewFolderAction = ({
 			aria-label={ariaLabel}
 			className={cn(
 				ROW_BASE,
-				"w-full bg-accent-2-soft font-medium text-accent-2 active:bg-accent-2/25",
+				"group relative w-full font-medium text-accent-2",
 			)}
 		>
+			{/* The tint starts at the row's indent, so nested actions read as a
+			    staircase instead of merging into one block. */}
+			<span
+				aria-hidden="true"
+				className="absolute inset-y-0 right-0 bg-accent-2-soft transition-colors group-active:bg-accent-2/25"
+				style={{ left: depth * INDENT_STEP }}
+			/>
 			{depth > 0 && (
 				<span
 					aria-hidden="true"
-					className="shrink-0"
+					className="relative shrink-0"
 					style={{ width: depth * INDENT_STEP }}
 				/>
 			)}
-			<span aria-hidden="true" className="size-4 shrink-0" />
-			<FolderPlus className="size-4 shrink-0" aria-hidden="true" />
-			<span className="min-w-0 flex-1 truncate">{label}</span>
+			<span aria-hidden="true" className="relative size-4 shrink-0" />
+			<FolderPlus className="relative size-4 shrink-0" aria-hidden="true" />
+			<span className="relative min-w-0 flex-1 truncate">{label}</span>
 		</button>
 		{separated && (
 			<span
@@ -770,7 +777,7 @@ export const FolderTreePicker = ({
 	};
 
 	return (
-		<div className="flex min-h-0 flex-col">
+		<div className="flex min-h-0 w-full min-w-0 flex-col">
 			<Input
 				variant="inline"
 				className="border-b border-line px-3 py-2"
