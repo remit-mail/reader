@@ -6,7 +6,7 @@ import type {
 	RemitImapFolderAppointment,
 	RemitImapMailboxResponse,
 } from "@remit/api-http-client/types.gen.ts";
-import { buildMoveOptions } from "./move-options.js";
+import { buildMoveOptions, folderDelimiter } from "./move-options.js";
 
 const englishBundle = JSON.parse(
 	readFileSync(
@@ -100,16 +100,15 @@ describe("buildMoveOptions", () => {
 		assert.equal(labelOf(options, "mb-receipts"), "Receipts");
 	});
 
-	test("the full provider path stays searchable", () => {
+	test("a role label keeps the provider path it nests under", () => {
 		const options = buildMoveOptions({
 			mailboxes: applePaths,
 			folderAppointments: appleAppointments,
 			translator: translate,
 		});
-		assert.equal(
-			options.find((option) => option.id === "mb-trash")?.searchValue,
-			"INBOX/Deleted Messages",
-		);
+		const trash = options.find((option) => option.id === "mb-trash");
+		assert.equal(trash?.label, "Trash");
+		assert.equal(trash?.path, "INBOX/Deleted Messages");
 	});
 
 	test("the current mailbox is marked and nothing else is", () => {
@@ -136,5 +135,20 @@ describe("buildMoveOptions", () => {
 			options.some((option) => option.id === "mb-receipts"),
 			false,
 		);
+	});
+});
+
+describe("folderDelimiter", () => {
+	test("takes the account's own hierarchy separator", () => {
+		assert.equal(
+			folderDelimiter([
+				make({ mailboxId: "mb-1", fullPath: "INBOX", hierarchyDelimiter: "." }),
+			]),
+			".",
+		);
+	});
+
+	test("falls back to a slash when there are no mailboxes yet", () => {
+		assert.equal(folderDelimiter([]), "/");
 	});
 });

@@ -1,8 +1,8 @@
 /**
  * Creating a folder from the move picker (PR #282). Move on the selection bar
- * opens the wizard, and its folder step offers, when the typed name matches no
- * existing folder, a `Create "<name>"` row that creates the folder and takes it
- * as the destination; the review screen is what commits the move.
+ * opens the wizard, and its folder step offers a "New folder" row that names,
+ * creates and takes the folder as the destination; the review screen is what
+ * commits the move.
  *
  * This drives that row against the real build and backend: the message lands in
  * a folder that did not exist when the run started, and the folder is real.
@@ -25,6 +25,7 @@ import {
 	advanceTo,
 	barMove,
 	commitButton,
+	createFolderInPicker,
 	dismissRun,
 	wizardStep,
 } from "../src/wizard.js";
@@ -97,10 +98,10 @@ test.describe("Create folder from the move picker", () => {
 		});
 		await advanceTo(page, "Folder");
 
-		const picker = page.getByRole("searchbox", { name: "Filter folders" });
-		await expect(picker).toBeVisible({ timeout: 10_000 });
-		await picker.fill(FOLDER_NAME);
-		await page.getByRole("button", { name: `Create "${FOLDER_NAME}"` }).click();
+		await expect(
+			page.getByRole("searchbox", { name: "Filter folders" }),
+		).toBeVisible({ timeout: 10_000 });
+		await createFolderInPicker(page, FOLDER_NAME);
 
 		// The created folder is the destination only once the mail server has
 		// confirmed it, which is what the step waits for.

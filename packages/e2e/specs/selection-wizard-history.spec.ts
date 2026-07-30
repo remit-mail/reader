@@ -82,7 +82,7 @@ test.describe("Selection wizard history", () => {
 
 		// Archive is a standard destination on this account. A rule with nowhere
 		// to file has nothing to commit, so the step is answered before Continue.
-		await page.getByRole("option", { name: "Move to Archive" }).click();
+		await page.getByRole("treeitem", { name: "Move to Archive" }).click();
 		await continueButton(page).click();
 		await expect(stepRail(page)).toHaveText(/^Step 3 of 5 · Rule$/);
 		await expect(page).toHaveURL(/[?&]wizard=rule/);

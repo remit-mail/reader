@@ -331,12 +331,6 @@ export {
 	type MobileSearchViewProps,
 } from "./components/mobile-search-view.js";
 export {
-	type MoveMailboxOption,
-	MoveMailboxPicker,
-	type MoveMailboxPickerLabels,
-	type MoveMailboxPickerProps,
-} from "./components/move-mailbox-picker.js";
-export {
 	NavSidebar,
 	type NavSidebarProps,
 } from "./components/nav-sidebar.js";

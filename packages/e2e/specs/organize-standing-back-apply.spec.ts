@@ -35,6 +35,7 @@ import {
 	advanceTo,
 	barOrganize,
 	commitButton,
+	createFolderInPicker,
 	expectBlockedReason,
 	wizardContinue,
 	wizardStep,
@@ -134,10 +135,7 @@ test.describe("Standing filter back-applies over existing mail", () => {
 				await route.continue();
 			});
 
-			await page.getByLabel("Filter folders").fill(FOLDER_NAME);
-			await page
-				.getByRole("button", { name: `Create "${FOLDER_NAME}"` })
-				.click();
+			await createFolderInPicker(page, FOLDER_NAME);
 
 			// The wait is on screen, and Continue cannot leave the step while it
 			// runs — the destination is a dependent write and the folder is not a

@@ -1,5 +1,5 @@
 import { mailboxOperationsListMailboxesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import { type MoveMailboxOption, MoveMailboxPicker } from "@remit/ui";
+import { Button, type FolderTreeNode, FolderTreePicker } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { FolderInput } from "lucide-react";
 import {
@@ -17,7 +17,7 @@ import { useFolderAppointments } from "@/hooks/useArchiveMailbox";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
-import { buildMoveOptions } from "@/lib/move-options";
+import { buildMoveOptions, folderDelimiter } from "@/lib/move-options";
 import { cn } from "@/lib/utils";
 
 interface MoveToTriggerProps {
@@ -66,6 +66,7 @@ export const MoveToTrigger = ({
 	label,
 }: MoveToTriggerProps) => {
 	const [isOpen, setIsOpen] = useState(false);
+	const [pickedId, setPickedId] = useState<string>();
 	const isDesktop = useIsDesktop();
 	const containerRef = useRef<HTMLDivElement>(null);
 	const triggerLabel = label ?? "Move to folder";
@@ -88,9 +89,9 @@ export const MoveToTrigger = ({
 		enabled: isOpen,
 	});
 	const folderAppointments = useFolderAppointments(accountId);
-	const { createFolder } = useCreateMailbox(accountId);
+	const { createFolderIn } = useCreateMailbox(accountId);
 
-	const options = useMemo<MoveMailboxOption[]>(
+	const options = useMemo<FolderTreeNode[]>(
 		() =>
 			buildMoveOptions({
 				mailboxes: mailboxesResponse?.items ?? [],
@@ -105,22 +106,23 @@ export const MoveToTrigger = ({
 			translator,
 		],
 	);
+	const delimiter = folderDelimiter(mailboxesResponse?.items ?? []);
 
-	const handleSelect = useCallback(
-		(destinationMailboxId: string) => {
-			setIsOpen(false);
-			onMove(destinationMailboxId);
-		},
-		[onMove],
-	);
+	const picked = options.find((option) => option.id === pickedId);
 
-	const handleCreateFolder = useCallback(
-		async (name: string, signal?: AbortSignal): Promise<MoveMailboxOption> => {
-			const folder = await createFolder(name, signal);
-			return { id: folder.id, label: folder.label };
-		},
-		[createFolder],
-	);
+	const close = useCallback(() => {
+		setIsOpen(false);
+		setPickedId(undefined);
+	}, []);
+
+	// Tapping a folder both picks it and opens it, so the move waits for a
+	// confirmation — otherwise the first tap would fire before the user could
+	// reach anything nested inside it.
+	const handleMove = useCallback(() => {
+		if (!picked) return;
+		close();
+		onMove(picked.id);
+	}, [picked, close, onMove]);
 
 	// Desktop popover: dismiss on outside click + Escape.
 	useEffect(() => {
@@ -130,11 +132,11 @@ export const MoveToTrigger = ({
 				containerRef.current &&
 				!containerRef.current.contains(event.target as Node)
 			) {
-				setIsOpen(false);
+				close();
 			}
 		};
 		const handleKey = (event: KeyboardEvent) => {
-			if (event.key === "Escape") setIsOpen(false);
+			if (event.key === "Escape") close();
 		};
 		document.addEventListener("mousedown", handlePointer);
 		document.addEventListener("keydown", handleKey);
@@ -142,7 +144,7 @@ export const MoveToTrigger = ({
 			document.removeEventListener("mousedown", handlePointer);
 			document.removeEventListener("keydown", handleKey);
 		};
-	}, [isOpen, isDesktop]);
+	}, [isOpen, isDesktop, close]);
 
 	const isTriggerDisabled = disabled || !!disabledHint;
 
@@ -156,10 +158,10 @@ export const MoveToTrigger = ({
 			}}
 			aria-label={triggerLabel}
 			// Mobile opens a vaul Drawer (modal dialog), desktop opens a
-			// non-modal popover whose only content is the listbox of
-			// destinations. Reflect each surface accurately so screen readers
-			// announce the right structure.
-			aria-haspopup={isDesktop ? "listbox" : "dialog"}
+			// non-modal popover whose only content is the folder tree. Reflect
+			// each surface accurately so screen readers announce the right
+			// structure.
+			aria-haspopup={isDesktop ? "tree" : "dialog"}
 			aria-expanded={isOpen}
 			aria-controls={isOpen ? popoverId : undefined}
 			title={disabledHint}
@@ -182,33 +184,44 @@ export const MoveToTrigger = ({
 			/>
 		</div>
 	) : (
-		<MoveMailboxPicker
-			mailboxes={options}
-			onSelect={handleSelect}
-			onCreateFolder={handleCreateFolder}
-			onCancel={() => setIsOpen(false)}
-			autoFocus={!isDesktop}
+		<FolderTreePicker
+			folders={options}
+			selectedId={pickedId}
+			delimiter={delimiter}
+			onSelect={setPickedId}
+			onCreateFolder={createFolderIn}
+			onCancel={close}
 			labels={{
-				createLabel: (folderName) => `Create "${folderName}"`,
-				searchPlaceholder: t("move_picker_placeholder", {
-					defaultValue: "Move to…",
+				filterPlaceholder: t("move_picker_filter_placeholder", {
+					defaultValue: "Filter folders…",
 				}),
-				searchAriaLabel: t("move_picker_filter_label", {
+				filterAriaLabel: t("move_picker_filter_label", {
 					defaultValue: "Filter folders",
 				}),
-				optionLabel: (folderLabel) => `Move to ${folderLabel}`,
-				currentSuffix: "(current folder)",
-				currentTag: "current",
-				emptyMessage: (query) => `No folders match "${query}"`,
 			}}
 		/>
+	);
+
+	const confirmBar = picked && (
+		<div className="shrink-0 border-t border-line p-2">
+			<Button
+				variant="primary"
+				onClick={handleMove}
+				className="h-11 w-full font-semibold"
+			>
+				{`Move to ${picked.label}`}
+			</Button>
+		</div>
 	);
 
 	if (!isDesktop) {
 		return (
 			<>
 				{TriggerButton}
-				<Drawer.Root open={isOpen} onOpenChange={setIsOpen}>
+				<Drawer.Root
+					open={isOpen}
+					onOpenChange={(next) => (next ? setIsOpen(true) : close())}
+				>
 					<Drawer.Portal>
 						<Drawer.Overlay className="fixed inset-0 z-40 bg-black/40" />
 						<Drawer.Content
@@ -220,7 +233,10 @@ export const MoveToTrigger = ({
 							<Drawer.Title className="px-4 py-2 text-base font-semibold border-b border-line">
 								Move to folder
 							</Drawer.Title>
-							<div className="flex-1 overflow-hidden">{pickerBody}</div>
+							<div className="flex min-h-0 flex-1 overflow-hidden">
+								{pickerBody}
+							</div>
+							{confirmBar}
 						</Drawer.Content>
 					</Drawer.Portal>
 				</Drawer.Root>
@@ -240,6 +256,7 @@ export const MoveToTrigger = ({
 					)}
 				>
 					{pickerBody}
+					{confirmBar}
 				</div>
 			)}
 		</div>

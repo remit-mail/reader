@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { type ReactNode, useState } from "react";
 import type { StepId } from "../lib/wizard-steps.js";
 import { type FolderTreeNode, FolderTreePicker } from "./folder-tree-picker.js";
-import { FooterNav, WizardScreen } from "./selection-wizard.js";
+import { FolderStepBody, FooterNav, WizardScreen } from "./selection-wizard.js";
 
 const folders: FolderTreeNode[] = [
 	{ id: "mbx-inbox", label: "Inbox", path: "INBOX", isCurrent: true },
@@ -332,30 +332,17 @@ function WizardFolderStep() {
 				/>
 			}
 		>
-			<div className="flex min-h-0 flex-col gap-3">
-				<p className="px-1 text-xs text-fg-muted">
-					{chosen
-						? `Moving to ${chosen.label}.`
-						: "Tap a folder to open it, or make a new one where you want it."}
-				</p>
-				<div className="flex min-h-0 flex-1 overflow-hidden rounded-lg border border-line bg-surface">
-					<FolderTreePicker
-						folders={known}
-						selectedId={selected}
-						onSelect={setSelected}
-						onCreateFolder={(name, parentPath) =>
-							createFolder(name, parentPath).then((created) => {
-								setKnown((current) => [...current, created]);
-								return created;
-							})
-						}
-						labels={{
-							createPending:
-								"Waiting for the mail server to confirm the folder…",
-						}}
-					/>
-				</div>
-			</div>
+			<FolderStepBody
+				folders={known}
+				mailboxId={selected}
+				onSelect={setSelected}
+				onCreateFolder={(name, parentPath) =>
+					createFolder(name, parentPath).then((created) => {
+						setKnown((current) => [...current, created]);
+						return created;
+					})
+				}
+			/>
 		</WizardScreen>
 	);
 }

@@ -1,7 +1,8 @@
 /**
  * The move-to-folder picker. It only fetches folders once it is opened, it
- * marks the folder the messages are already in rather than offering it as a
- * destination, and on desktop Escape or a click outside puts it away.
+ * opens on the account's top level with nested folders behind the one holding
+ * them, it marks the folder the messages are already in rather than offering it
+ * as a destination, and on desktop Escape or a click outside puts it away.
  */
 
 import assert from "node:assert/strict";
@@ -54,8 +55,12 @@ const mount = (
 const FOLDERS = [
 	makeMailbox({ mailboxId: "mbx-inbox", fullPath: "INBOX" }),
 	makeMailbox({ mailboxId: "mbx-work", fullPath: "Work" }),
+	makeMailbox({ mailboxId: "mbx-clients", fullPath: "Work/Clients" }),
 	makeMailbox({ mailboxId: "mbx-receipts", fullPath: "Receipts" }),
 ];
+
+const rowText = (dom: DomHarness): string[] =>
+	dom.queryAll("[role=treeitem]").map((row) => row.textContent ?? "");
 
 describe("MoveToTrigger", () => {
 	it("reports itself as collapsed until it is opened", () => {
@@ -63,10 +68,10 @@ describe("MoveToTrigger", () => {
 		const trigger = dom.byLabel("Move to folder");
 		assert.equal(trigger.getAttribute("aria-expanded"), "false");
 		assert.equal(trigger.getAttribute("aria-controls"), null);
-		assert.equal(dom.query('[role="listbox"], input'), null);
+		assert.equal(dom.query('[role="tree"], input'), null);
 	});
 
-	it("opens a listbox of destinations and marks the folder we are in", () => {
+	it("opens the top level and marks the folder we are in", () => {
 		const dom = mount({ mailboxes: FOLDERS });
 		dom.click(dom.byLabel("Move to folder"));
 
@@ -74,9 +79,7 @@ describe("MoveToTrigger", () => {
 			dom.byLabel("Move to folder").getAttribute("aria-expanded"),
 			"true",
 		);
-		const labels = dom
-			.queryAll("[role=option]")
-			.map((option) => option.textContent ?? "");
+		const labels = rowText(dom);
 		assert.ok(labels.some((label) => label.includes("Work")));
 		assert.ok(labels.some((label) => label.includes("Receipts")));
 
@@ -86,20 +89,46 @@ describe("MoveToTrigger", () => {
 		assert.ok(current, "the source folder is marked as the current one");
 	});
 
-	it("moves to the folder the user picks and closes itself", () => {
+	it("keeps a nested folder behind the folder that holds it", () => {
+		const dom = mount({ mailboxes: FOLDERS });
+		dom.click(dom.byLabel("Move to folder"));
+		assert.equal(
+			rowText(dom).some((label) => label.includes("Clients")),
+			false,
+		);
+
+		dom.click(dom.byLabel("Move to Work"));
+		assert.ok(rowText(dom).some((label) => label.includes("Clients")));
+	});
+
+	it("waits for the move to be confirmed, then closes itself", () => {
 		const moved: string[] = [];
 		const dom = mount({
 			mailboxes: FOLDERS,
 			onMove: (id) => moved.push(id),
 		});
 		dom.click(dom.byLabel("Move to folder"));
-		dom.click(dom.byText("[role=option]", "Work"));
 
+		// Picking a folder also opens it, so the move is a separate press —
+		// otherwise the first tap would fire before anything nested was reachable.
+		dom.click(dom.byLabel("Move to Work"));
+		assert.deepEqual(moved, []);
+
+		dom.click(dom.byText("button", "Move to Work"));
 		assert.deepEqual(moved, ["mbx-work"]);
 		assert.equal(
 			dom.byLabel("Move to folder").getAttribute("aria-expanded"),
 			"false",
 		);
+	});
+
+	it("names the destination on the button that runs the move", () => {
+		const dom = mount({ mailboxes: FOLDERS });
+		dom.click(dom.byLabel("Move to folder"));
+		dom.click(dom.byLabel("Move to Work"));
+		dom.click(dom.byLabel("Move to Clients"));
+
+		assert.match(dom.text(), /Move to Clients/);
 	});
 
 	it("closes on Escape and on a click outside it", () => {
@@ -144,7 +173,7 @@ describe("MoveToTrigger", () => {
 
 	it("asks for the folder list only once the picker is opened", () => {
 		const dom = mount();
-		assert.equal(dom.queryAll("[role=option]").length, 0);
+		assert.equal(dom.queryAll("[role=treeitem]").length, 0);
 		dom.click(dom.byLabel("Move to folder"));
 		// No cached mailboxes and no network in the test harness: the picker
 		// shows its loading state rather than an empty list of destinations.
