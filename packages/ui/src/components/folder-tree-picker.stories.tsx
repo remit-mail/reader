@@ -127,7 +127,10 @@ function Picker({
 	);
 }
 
-/** The list at rest: top level only, one tap deep into anything. */
+/**
+ * The list at rest: top level only, one tap deep into anything, with the pinned
+ * "New folder" carrying the kit's dashed add affordance.
+ */
 export const Default: Story = {
 	name: "Default (collapsed to top level)",
 	render: () => <Picker />,
@@ -208,7 +211,8 @@ const expand = async (canvasElement: HTMLElement, ...labels: string[]) => {
 
 /**
  * One tap picks the destination and opens it. The children arrive indented,
- * with "New folder" sitting at the end of them as the last folder inside.
+ * with a quieter "New folder" at the end of them — the same action as the
+ * pinned one, subordinate to the folder it sits in.
  */
 export const Expanded: Story = {
 	name: "A folder opened (children and its New folder)",
@@ -218,7 +222,10 @@ export const Expanded: Story = {
 	},
 };
 
-/** Three levels open at once, each with its own place to add a folder. */
+/**
+ * One open branch, three levels deep: the ancestors stay open because the
+ * folder you opened lives inside them.
+ */
 export const DeepExpansion: Story = {
 	name: "Opened three levels deep",
 	render: () => <Picker />,
@@ -250,9 +257,9 @@ export const CreateTopLevel: Story = {
 };
 
 /**
- * The folder you opened is the answer to "inside where": the action sits among
- * its children and the form states the parent as text, so there is no second
- * choice to make.
+ * The folder you opened is the answer to "inside where": the form takes the
+ * place of the action it came from, among that folder's children, and states
+ * the parent as text — so there is no second choice to make.
  */
 export const CreateSubfolder: Story = {
 	name: "Create a folder inside an opened one",
@@ -353,10 +360,16 @@ function WizardFolderStep() {
 	);
 }
 
-/** The pattern at the size it is used: the wizard's folder step on a phone. */
+/**
+ * The pattern at the size it is used: the wizard's folder step on a phone, with
+ * a folder open so both create actions are on screen at once.
+ */
 export const PhoneWizardStep: Story = {
 	name: "Phone — wizard folder step",
 	parameters: { layout: "fullscreen" },
 	globals: { viewport: { value: "mobile" } },
 	render: () => <WizardFolderStep />,
+	play: async ({ canvasElement }) => {
+		await expand(canvasElement, "Travel");
+	},
 };

@@ -361,46 +361,53 @@ interface Draft {
 	parentLabel: string;
 }
 
+/**
+ * How loudly a create action asks to be noticed. The pinned top-level one takes
+ * the kit's dashed "add" affordance; the one inside an opened folder stays
+ * neutral so it reads as the last thing in that folder rather than as a rival
+ * to the pinned one.
+ */
+type CreateProminence = "prominent" | "quiet";
+
 const NewFolderAction = ({
 	label,
 	ariaLabel,
 	depth,
+	prominence,
 	separated,
 	onOpen,
 }: {
 	label: string;
 	ariaLabel: string;
 	depth: number;
+	prominence: CreateProminence;
 	separated: boolean;
 	onOpen: () => void;
 }) => (
-	<div className="relative">
+	<div className={cn("relative", prominence === "prominent" && "p-2")}>
 		<button
 			type="button"
 			onClick={onOpen}
 			aria-label={ariaLabel}
+			data-prominence={prominence}
 			className={cn(
 				ROW_BASE,
-				"group relative w-full font-medium text-accent-2",
+				"w-full active:bg-surface-sunken",
+				prominence === "prominent"
+					? "rounded-lg border border-line-strong border-dashed font-medium text-fg-muted hover:border-accent-2 hover:text-accent-2"
+					: "text-fg-subtle hover:bg-surface-raised hover:text-fg-muted",
 			)}
 		>
-			{/* The tint starts at the row's indent, so nested actions read as a
-			    staircase instead of merging into one block. */}
-			<span
-				aria-hidden="true"
-				className="absolute inset-y-0 right-0 bg-accent-2-soft transition-colors group-active:bg-accent-2/25"
-				style={{ left: depth * INDENT_STEP }}
-			/>
 			{depth > 0 && (
 				<span
 					aria-hidden="true"
-					className="relative shrink-0"
+					className="shrink-0"
 					style={{ width: depth * INDENT_STEP }}
 				/>
 			)}
-			<span aria-hidden="true" className="relative size-4 shrink-0" />
-			<FolderPlus className="relative size-4 shrink-0" aria-hidden="true" />
-			<span className="relative min-w-0 flex-1 truncate">{label}</span>
+			<span aria-hidden="true" className="size-4 shrink-0" />
+			<FolderPlus className="size-4 shrink-0" aria-hidden="true" />
+			<span className="min-w-0 flex-1 truncate">{label}</span>
 		</button>
 		{separated && (
 			<span
@@ -439,6 +446,7 @@ export const FolderTreePicker = ({
 	const nameFieldId = useId();
 	const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
 	const nameRef = useRef<HTMLInputElement>(null);
+	const formRef = useRef<HTMLDivElement>(null);
 	const roving = useRef(false);
 	const createAbort = useRef<AbortController | null>(null);
 	useEffect(() => () => createAbort.current?.abort(), []);
@@ -481,14 +489,22 @@ export const FolderTreePicker = ({
 		rowRefs.current[focusedIndex]?.focus();
 	}, [focusedIndex]);
 
-	const setExpanded = useCallback((path: string, open: boolean) => {
-		setOpened((current) => {
-			const next = new Set(current);
-			if (open) next.add(path);
-			else next.delete(path);
-			return next;
-		});
-	}, []);
+	/**
+	 * One open branch: opening a folder closes every folder that is not an
+	 * ancestor of it, so the list never grows past what a phone screen holds.
+	 * Its ancestors stay open because otherwise it could not be on screen.
+	 */
+	const setExpanded = useCallback(
+		(path: string, open: boolean) => {
+			setOpened((current) => {
+				if (open) return new Set([...folderAncestors(path, delimiter), path]);
+				const next = new Set(current);
+				next.delete(path);
+				return next;
+			});
+		},
+		[delimiter],
+	);
 
 	const activateRow = useCallback(
 		(row: FolderTreeRow) => {
@@ -521,8 +537,15 @@ export const FolderTreePicker = ({
 		[text.topLevel],
 	);
 
+	/**
+	 * The whole form is brought into view, buttons included — focusing the field
+	 * would otherwise scroll to the field alone and leave Create below the fold,
+	 * under a footer or a soft keyboard.
+	 */
 	useEffect(() => {
-		if (draft) nameRef.current?.focus();
+		if (!draft) return;
+		nameRef.current?.focus({ preventScroll: true });
+		formRef.current?.scrollIntoView({ block: "nearest" });
 	}, [draft]);
 
 	const submitDraft = useCallback(() => {
@@ -622,7 +645,10 @@ export const FolderTreePicker = ({
 	);
 
 	const draftForm = draft && (
-		<div className="space-y-3 border-y border-line bg-surface-sunken px-3 py-3">
+		<div
+			ref={formRef}
+			className="space-y-3 border-y border-line bg-surface-sunken px-3 py-3"
+		>
 			<div>
 				<FieldLabel htmlFor={nameFieldId}>{text.nameLabel}</FieldLabel>
 				<Input
@@ -655,21 +681,24 @@ export const FolderTreePicker = ({
 					{draftError}
 				</p>
 			)}
+			{/* Sized to their labels rather than to the pane: a full-width primary
+			    here reads as loudly as the wizard's Continue below it, and making a
+			    folder is the smaller commitment of the two. */}
 			<div className="flex items-center gap-2">
 				<Button
 					variant="ghost"
-					size="touch"
+					size="md"
 					onClick={closeDraft}
-					className="w-auto shrink-0 px-3"
+					className="min-h-11 shrink-0"
 				>
 					{text.cancel}
 				</Button>
 				<Button
-					variant="primary"
-					size="touch"
+					variant="secondary"
+					size="md"
 					onClick={submitDraft}
 					disabled={creating}
-					className="w-auto flex-1 px-3"
+					className="min-h-11 shrink-0"
 				>
 					{creating ? text.createPending : text.create}
 				</Button>
@@ -806,15 +835,19 @@ export const FolderTreePicker = ({
 			/>
 
 			{onCreateFolder && (
-				<div className="shrink-0 border-b border-line">
-					<NewFolderAction
-						label={text.newFolder}
-						ariaLabel={text.newFolder}
-						depth={0}
-						separated={false}
-						onOpen={() => openDraft(null)}
-					/>
-					{draft?.anchorId === null && draftForm}
+				<div className="shrink-0 border-b border-line" data-create-anchor="top">
+					{draft?.anchorId === null ? (
+						draftForm
+					) : (
+						<NewFolderAction
+							label={text.newFolder}
+							ariaLabel={text.newFolder}
+							depth={0}
+							prominence="prominent"
+							separated={false}
+							onOpen={() => openDraft(null)}
+						/>
+					)}
 				</div>
 			)}
 
@@ -830,7 +863,7 @@ export const FolderTreePicker = ({
 				<div
 					role="tree"
 					aria-label={text.treeAriaLabel}
-					className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+					className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-24"
 					onKeyDown={handleTreeKeyDown}
 				>
 					{(
@@ -846,15 +879,23 @@ export const FolderTreePicker = ({
 						const separated = position < all.length - 1;
 						if (entry.kind === "create") {
 							return (
-								<div key={`new:${entry.parent.id}`} role="none">
-									<NewFolderAction
-										label={text.newFolder}
-										ariaLabel={text.newSubfolder(entry.parent.label)}
-										depth={entry.depth}
-										separated={separated}
-										onOpen={() => openDraft(entry.parent)}
-									/>
-									{draft?.anchorId === entry.parent.id && draftForm}
+								<div
+									key={`new:${entry.parent.id}`}
+									role="none"
+									data-create-anchor={entry.parent.id}
+								>
+									{draft?.anchorId === entry.parent.id ? (
+										draftForm
+									) : (
+										<NewFolderAction
+											label={text.newFolder}
+											ariaLabel={text.newSubfolder(entry.parent.label)}
+											depth={entry.depth}
+											prominence="quiet"
+											separated={separated}
+											onOpen={() => openDraft(entry.parent)}
+										/>
+									)}
 								</div>
 							);
 						}
