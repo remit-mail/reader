@@ -353,7 +353,7 @@ describe("the /metrics endpoint", () => {
 			onError: (error) => reported.push(error),
 		});
 		servers.push(server);
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		await new Promise<void>((resolve) => server.once("error", () => resolve()));
 		assert.equal(reported.length, 1);
 		assert.match(String(reported[0]), /EADDRINUSE/);
 		// The port that was already bound still answers: nothing died.
@@ -370,7 +370,7 @@ describe("the /metrics endpoint", () => {
 		}) as typeof process.stderr.write;
 		const server = startMetricsServer({ port: held, host: "127.0.0.1" });
 		servers.push(server);
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		await new Promise<void>((resolve) => server.once("error", () => resolve()));
 		process.stderr.write = restore;
 
 		assert.equal(written.length, 1);

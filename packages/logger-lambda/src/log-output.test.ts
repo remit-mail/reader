@@ -67,6 +67,23 @@ const one = (emit: () => void): Line => {
 	return lines[0];
 };
 
+// Both scopes have to be open at the same moment for a leak to be observable;
+// a gate each side waits on pins that interleaving.
+const gate = (): { reached: Promise<void>; pass: () => void } => {
+	let pass!: () => void;
+	const reached = new Promise<void>((resolve) => {
+		pass = () => resolve();
+	});
+	return { reached, pass };
+};
+
+// Sorted by message, so the comparison covers every line exactly once without
+// naming the order the scheduler happened to finish them in.
+const requestIdPerMessage = (lines: Line[]): [string, unknown][] =>
+	lines
+		.map((line): [string, unknown] => [String(line.msg), line.requestId])
+		.sort(([left], [right]) => left.localeCompare(right));
+
 describe("log output", () => {
 	it("writes one JSON object per line on stdout", () => {
 		const log = createLogger();
@@ -311,25 +328,30 @@ describe("withLogContext", () => {
 	});
 
 	it("keeps overlapping scopes apart across awaits", async () => {
-		const request = (id: string, delayMs: number) =>
-			withLogContext({ requestId: id }, async () => {
-				await new Promise((resolve) => setTimeout(resolve, delayMs));
-				logger.warn(`handled ${id}`);
-			});
+		const slowStarted = gate();
+		const fastLogged = gate();
 
 		// The slow request opens its scope first and logs last, which is exactly
 		// the interleaving a shared mutable binding gets wrong.
 		const lines = await captureAsync(async () => {
-			await Promise.all([request("slow", 10), request("fast", 1)]);
+			await Promise.all([
+				withLogContext({ requestId: "slow" }, async () => {
+					slowStarted.pass();
+					await fastLogged.reached;
+					logger.warn("handled slow");
+				}),
+				withLogContext({ requestId: "fast" }, async () => {
+					await slowStarted.reached;
+					logger.warn("handled fast");
+					fastLogged.pass();
+				}),
+			]);
 		});
 
-		assert.deepEqual(
-			lines.map((line) => [line.msg, line.requestId]),
-			[
-				["handled fast", "fast"],
-				["handled slow", "slow"],
-			],
-		);
+		assert.deepEqual(requestIdPerMessage(lines), [
+			["handled fast", "fast"],
+			["handled slow", "slow"],
+		]);
 	});
 
 	it("nests, adding to the scope it runs inside", () => {
@@ -404,23 +426,34 @@ describe("withTelemetry", () => {
 	});
 
 	it("keeps concurrent invocations apart", async () => {
-		const invoke = (id: string, delayMs: number) =>
-			withTelemetry(async () => {
-				await new Promise((resolve) => setTimeout(resolve, delayMs));
-				logger.warn(`handled ${id}`);
-			})({}, {
+		const slowStarted = gate();
+		const fastLogged = gate();
+
+		const invoke = (id: string, handler: () => Promise<void>) =>
+			withTelemetry(handler)({}, {
 				awsRequestId: id,
 				functionName: "test-function",
 			} as unknown as typeof context);
 
 		const lines = await captureAsync(async () => {
-			await Promise.all([invoke("slow", 10), invoke("fast", 1)]);
+			await Promise.all([
+				invoke("slow", async () => {
+					slowStarted.pass();
+					await fastLogged.reached;
+					logger.warn("handled slow");
+				}),
+				invoke("fast", async () => {
+					await slowStarted.reached;
+					logger.warn("handled fast");
+					fastLogged.pass();
+				}),
+			]);
 		});
 
 		assert.deepEqual(
-			lines
-				.filter((line) => String(line.msg).startsWith("handled "))
-				.map((line) => [line.msg, line.requestId]),
+			requestIdPerMessage(
+				lines.filter((line) => String(line.msg).startsWith("handled ")),
+			),
 			[
 				["handled fast", "fast"],
 				["handled slow", "slow"],
