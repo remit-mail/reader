@@ -83,23 +83,16 @@ export function DeleteFolderDialog({
 		onClose();
 	}, [cancel, onClose]);
 
-	// `buildMoveOptions` carries the label and the searchable path but not the
-	// provider path the tree nests by, so the path is joined back on by id here.
-	const destinations = useMemo<FolderTreeNode[]>(() => {
-		const pathById = new Map(
-			mailboxes.map((mailbox) => [mailbox.mailboxId, mailbox.fullPath]),
-		);
-		return buildMoveOptions({
-			mailboxes,
-			folderAppointments: appointments,
-			excludeMailboxId: folder.mailboxId,
-			translator,
-		}).map((option) => ({
-			id: option.id,
-			label: option.label,
-			path: pathById.get(option.id) ?? option.label,
-		}));
-	}, [mailboxes, appointments, folder.mailboxId, translator]);
+	const destinations = useMemo<FolderTreeNode[]>(
+		() =>
+			buildMoveOptions({
+				mailboxes,
+				folderAppointments: appointments,
+				excludeMailboxId: folder.mailboxId,
+				translator,
+			}),
+		[mailboxes, appointments, folder.mailboxId, translator],
+	);
 
 	const name = useMemo(
 		() =>

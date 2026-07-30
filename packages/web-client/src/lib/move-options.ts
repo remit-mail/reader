@@ -2,7 +2,7 @@ import type {
 	RemitImapFolderAppointment,
 	RemitImapMailboxResponse,
 } from "@remit/api-http-client/types.gen.ts";
-import type { FolderTreeNode, MoveMailboxOption } from "@remit/ui";
+import type { FolderTreeNode } from "@remit/ui";
 import { excludeFolder } from "./delete-folder.js";
 import { buildMailboxRoleMap, labelForMailbox } from "./folder-roles.js";
 import { buildMoveTargets } from "./move-targets.js";
@@ -18,12 +18,6 @@ interface MoveOptionsInput {
 	excludeMailboxId?: string;
 	translator?: Translator;
 }
-
-/**
- * A destination as both pickers read it: the tree nests and filters on `path`,
- * the flat list matches on `searchValue`.
- */
-export type MoveDestination = MoveMailboxOption & FolderTreeNode;
 
 /**
  * The account's hierarchy separator, which the tree splits paths on. Every
@@ -46,7 +40,7 @@ export const buildMoveOptions = ({
 	currentMailboxId,
 	excludeMailboxId,
 	translator,
-}: MoveOptionsInput): MoveDestination[] => {
+}: MoveOptionsInput): FolderTreeNode[] => {
 	const targets = buildMoveTargets(mailboxes, folderAppointments);
 	const roleMap = buildMailboxRoleMap(folderAppointments);
 	const destinations = excludeMailboxId
@@ -56,7 +50,6 @@ export const buildMoveOptions = ({
 		id: mailbox.mailboxId,
 		label: labelForMailbox(mailbox, roleMap.get(mailbox.mailboxId), translator),
 		path: mailbox.fullPath,
-		searchValue: mailbox.fullPath,
 		isCurrent: mailbox.mailboxId === currentMailboxId,
 	}));
 };

@@ -7,6 +7,7 @@ import {
 	derivePropertyClauses,
 	deriveSenderClauses,
 	dominantSender,
+	type FolderTreeNode,
 	type MatchCount,
 	type MatchDoor,
 	type MatchMode,
@@ -49,11 +50,7 @@ import { useSelectedSubjects } from "@/hooks/useSelectedSubjects";
 import type { BulkActionProgress, BulkRunOutcome } from "@/lib/bulk-actions";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
-import {
-	buildMoveOptions,
-	folderDelimiter,
-	type MoveDestination,
-} from "@/lib/move-options";
+import { buildMoveOptions, folderDelimiter } from "@/lib/move-options";
 import {
 	buildWizardDraft,
 	canBackApplyDraft,
@@ -391,7 +388,7 @@ function SelectionWizardSession({
 	});
 	const folderAppointments = useFolderAppointments(accountId);
 	const translator = useFolderLabelTranslator();
-	const mailboxes = useMemo<MoveDestination[]>(
+	const mailboxes = useMemo<FolderTreeNode[]>(
 		() =>
 			buildMoveOptions({
 				mailboxes: mailboxesData?.items ?? [],

@@ -111,18 +111,6 @@ describe("buildMoveOptions", () => {
 		assert.equal(trash?.path, "INBOX/Deleted Messages");
 	});
 
-	test("the full provider path stays searchable", () => {
-		const options = buildMoveOptions({
-			mailboxes: applePaths,
-			folderAppointments: appleAppointments,
-			translator: translate,
-		});
-		assert.equal(
-			options.find((option) => option.id === "mb-trash")?.searchValue,
-			"INBOX/Deleted Messages",
-		);
-	});
-
 	test("the current mailbox is marked and nothing else is", () => {
 		const options = buildMoveOptions({
 			mailboxes: applePaths,
