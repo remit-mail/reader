@@ -208,6 +208,10 @@ export {
 	roleIcon,
 } from "./components/folder-role.js";
 export {
+	FolderRow,
+	type FolderRowProps,
+} from "./components/folder-row.js";
+export {
 	type FolderTreeNode,
 	FolderTreePicker,
 	type FolderTreePickerLabels,
@@ -322,6 +326,16 @@ export {
 	NavSidebar,
 	type NavSidebarProps,
 } from "./components/nav-sidebar.js";
+export {
+	NewFolderAction,
+	type NewFolderActionProps,
+	type NewFolderProminence,
+} from "./components/new-folder-action.js";
+export {
+	NewFolderForm,
+	type NewFolderFormLabels,
+	type NewFolderFormProps,
+} from "./components/new-folder-form.js";
 export { OutboxRow, type OutboxRowProps } from "./components/outbox-row.js";
 export {
 	type OutboxStatus,
@@ -619,6 +633,25 @@ export {
 	sanitizeInlineStyle,
 	sanitizeStyleElementCss,
 } from "./lib/email-sanitizer.js";
+export {
+	collapseFolderTree,
+	filterFolderTree,
+	folderAncestors,
+	folderDepth,
+	folderParent,
+	matchesQuery,
+	orderFolderNodes,
+	queryExpandedPaths,
+	withCreateRows,
+} from "./lib/folder-tree.js";
+export {
+	findFirstFocusable,
+	findLastFocusable,
+	findNextFocusable,
+	findParentRow,
+	isFocusable,
+	isSelectable,
+} from "./lib/folder-tree-focus.js";
 export {
 	isLabelColorValue,
 	type LabelColorValue,
