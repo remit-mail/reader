@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { logger } from "@remit/logger-lambda";
 import {
@@ -29,15 +29,29 @@ const CHECKPOINT_PATH =
 	process.env.LIST_ID_BACKFILL_CHECKPOINT_PATH ??
 	"/data/sqlite/list-id-backfill-checkpoint.json";
 
+const isCheckpoint = (value: unknown): value is ListIdBackfillCheckpoint => {
+	if (typeof value !== "object" || value === null) return false;
+	if (!("accountConfigId" in value)) return false;
+	const candidate = value as Record<string, unknown>;
+	return (
+		typeof candidate.accountConfigId === "string" &&
+		(candidate.continuationToken === undefined ||
+			typeof candidate.continuationToken === "string")
+	);
+};
+
 const fileCheckpointStore: ListIdBackfillCheckpointStore = {
 	load: async () => {
 		if (!existsSync(CHECKPOINT_PATH)) return undefined;
 		const raw = await readFile(CHECKPOINT_PATH, "utf8");
-		return JSON.parse(raw) as ListIdBackfillCheckpoint;
+		const parsed: unknown = JSON.parse(raw);
+		return isCheckpoint(parsed) ? parsed : undefined;
 	},
 	save: async (checkpoint) => {
 		await mkdir(dirname(CHECKPOINT_PATH), { recursive: true });
-		await writeFile(CHECKPOINT_PATH, JSON.stringify(checkpoint));
+		const staging = `${CHECKPOINT_PATH}.writing`;
+		await writeFile(staging, JSON.stringify(checkpoint));
+		await rename(staging, CHECKPOINT_PATH);
 	},
 	clear: async () => {
 		await rm(CHECKPOINT_PATH, { force: true });
