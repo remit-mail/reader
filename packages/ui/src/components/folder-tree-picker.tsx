@@ -1,4 +1,4 @@
-import { Check, Folder, FolderPlus, Search } from "lucide-react";
+import { Check, ChevronRight, Folder, FolderPlus, Search } from "lucide-react";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	useCallback,
@@ -112,6 +112,13 @@ const ROW_BASE =
 
 const INDENT_STEP = 14;
 
+/**
+ * Where a row's text starts: `px-3` plus the chevron and folder icon columns
+ * with their gaps. The hairline separator is inset to it, so the line begins
+ * under the label the way a native mobile list draws it.
+ */
+const ROW_TEXT_INSET = 60;
+
 const folderParent = (path: string, delimiter: string): string => {
 	const cut = path.lastIndexOf(delimiter);
 	return cut === -1 ? "" : path.slice(0, cut);
@@ -119,6 +126,16 @@ const folderParent = (path: string, delimiter: string): string => {
 
 const folderDepth = (path: string, delimiter: string): number =>
 	path.split(delimiter).length - 1;
+
+const folderAncestors = (path: string, delimiter: string): string[] => {
+	const out: string[] = [];
+	let parent = folderParent(path, delimiter);
+	while (parent) {
+		out.push(parent);
+		parent = folderParent(parent, delimiter);
+	}
+	return out;
+};
 
 /**
  * Puts every child straight after its parent so the list reads as a tree, while
@@ -164,17 +181,47 @@ export interface FolderTreeRow {
 	 * it is, not as an answer to what was typed.
 	 */
 	context: boolean;
+	/** Its children and its create action are on screen. */
+	expanded: boolean;
 }
 
+/**
+ * The ancestors a query has to open for its matches to be on screen. Held apart
+ * from what the user opened by hand, so clearing the filter puts the list back
+ * the way they left it.
+ */
+const queryExpandedPaths = (
+	folders: readonly FolderTreeNode[],
+	query: string,
+	delimiter: string,
+): Set<string> => {
+	const out = new Set<string>();
+	if (!query) return out;
+	for (const folder of folders) {
+		if (!matchesQuery(folder, query)) continue;
+		for (const ancestor of folderAncestors(folder.path, delimiter)) {
+			out.add(ancestor);
+		}
+	}
+	return out;
+};
+
+/**
+ * The rows a filtered tree shows: every match, plus the ancestors holding it on
+ * screen. Depth still comes from the path, so a match stays indented under the
+ * branch it belongs to.
+ */
 const filterFolderTree = (
 	ordered: readonly FolderTreeNode[],
 	query: string,
 	delimiter: string,
+	expanded: ReadonlySet<string> = new Set(),
 ): FolderTreeRow[] => {
 	const row = (folder: FolderTreeNode, context: boolean): FolderTreeRow => ({
 		folder,
 		depth: folderDepth(folder.path, delimiter),
 		context,
+		expanded: expanded.has(folder.path),
 	});
 	if (!query) return ordered.map((folder) => row(folder, false));
 
@@ -184,10 +231,8 @@ const filterFolderTree = (
 	}
 	const visible = new Set(matched);
 	for (const path of matched) {
-		let parent = folderParent(path, delimiter);
-		while (parent) {
-			visible.add(parent);
-			parent = folderParent(parent, delimiter);
+		for (const ancestor of folderAncestors(path, delimiter)) {
+			visible.add(ancestor);
 		}
 	}
 	return ordered
@@ -195,24 +240,91 @@ const filterFolderTree = (
 		.map((folder) => row(folder, !matched.has(folder.path)));
 };
 
+/**
+ * The unfiltered list: roots always, and a child only while every ancestor it
+ * has on screen is open. A folder whose parent is absent from the list is a
+ * root, so it never hides behind something that was never there.
+ */
+const collapseFolderTree = (
+	ordered: readonly FolderTreeNode[],
+	expanded: ReadonlySet<string>,
+	delimiter: string,
+): FolderTreeRow[] => {
+	const present = new Set(ordered.map((folder) => folder.path));
+	return ordered
+		.filter((folder) =>
+			folderAncestors(folder.path, delimiter).every(
+				(ancestor) => !present.has(ancestor) || expanded.has(ancestor),
+			),
+		)
+		.map((folder) => ({
+			folder,
+			depth: folderDepth(folder.path, delimiter),
+			context: false,
+			expanded: expanded.has(folder.path),
+		}));
+};
+
+export type FolderTreeDisplayRow =
+	| { kind: "folder"; row: FolderTreeRow; index: number }
+	| { kind: "create"; parent: FolderTreeNode; depth: number };
+
+/**
+ * Drops a create action at the end of every open folder's children, so "New
+ * folder" reads as the last folder inside the one you opened.
+ */
+const withCreateRows = (
+	rows: readonly FolderTreeRow[],
+	delimiter: string,
+): FolderTreeDisplayRow[] => {
+	const out: FolderTreeDisplayRow[] = [];
+	const open: FolderTreeRow[] = [];
+
+	const closeDownTo = (path: string | null) => {
+		while (open.length > 0) {
+			const last = open[open.length - 1];
+			if (!last) break;
+			if (path?.startsWith(`${last.folder.path}${delimiter}`)) break;
+			open.pop();
+			out.push({
+				kind: "create",
+				parent: last.folder,
+				depth: last.depth + 1,
+			});
+		}
+	};
+
+	rows.forEach((row, index) => {
+		closeDownTo(row.folder.path);
+		out.push({ kind: "folder", row, index });
+		if (row.expanded) open.push(row);
+	});
+	closeDownTo(null);
+	return out;
+};
+
+/** Every folder can hold a new one, so every row but a context row can open. */
+const isFocusable = (row: FolderTreeRow | undefined): boolean =>
+	row !== undefined && !row.context;
+
 const isSelectable = (row: FolderTreeRow | undefined): boolean =>
 	row !== undefined && !row.folder.isCurrent && !row.context;
 
-const findFirstSelectable = (rows: readonly FolderTreeRow[]): number => {
+const findFirstFocusable = (rows: readonly FolderTreeRow[]): number => {
 	for (let i = 0; i < rows.length; i += 1) {
-		if (isSelectable(rows[i])) return i;
+		if (isFocusable(rows[i])) return i;
 	}
 	return -1;
 };
 
-const findLastSelectable = (rows: readonly FolderTreeRow[]): number => {
+const findLastFocusable = (rows: readonly FolderTreeRow[]): number => {
 	for (let i = rows.length - 1; i >= 0; i -= 1) {
-		if (isSelectable(rows[i])) return i;
+		if (isFocusable(rows[i])) return i;
 	}
 	return -1;
 };
 
-const findNextSelectable = (
+const findNextFocusable = (
 	rows: readonly FolderTreeRow[],
 	from: number,
 	step: 1 | -1,
@@ -222,7 +334,22 @@ const findNextSelectable = (
 	const start = from < 0 ? (step === 1 ? -1 : count) : from;
 	for (let offset = 1; offset <= count; offset += 1) {
 		const candidate = (((start + step * offset) % count) + count) % count;
-		if (isSelectable(rows[candidate])) return candidate;
+		if (isFocusable(rows[candidate])) return candidate;
+	}
+	return -1;
+};
+
+const findParentRow = (
+	rows: readonly FolderTreeRow[],
+	from: number,
+	delimiter: string,
+): number => {
+	const child = rows[from];
+	if (!child) return -1;
+	const parent = folderParent(child.folder.path, delimiter);
+	if (!parent) return -1;
+	for (let i = from - 1; i >= 0; i -= 1) {
+		if (rows[i]?.folder.path === parent) return isFocusable(rows[i]) ? i : -1;
 	}
 	return -1;
 };
@@ -234,11 +361,55 @@ interface Draft {
 	parentLabel: string;
 }
 
+const NewFolderAction = ({
+	label,
+	ariaLabel,
+	depth,
+	separated,
+	onOpen,
+}: {
+	label: string;
+	ariaLabel: string;
+	depth: number;
+	separated: boolean;
+	onOpen: () => void;
+}) => (
+	<div className="relative">
+		<button
+			type="button"
+			onClick={onOpen}
+			aria-label={ariaLabel}
+			className={cn(
+				ROW_BASE,
+				"w-full bg-accent-2-soft font-medium text-accent-2 active:bg-accent-2/25",
+			)}
+		>
+			{depth > 0 && (
+				<span
+					aria-hidden="true"
+					className="shrink-0"
+					style={{ width: depth * INDENT_STEP }}
+				/>
+			)}
+			<span aria-hidden="true" className="size-4 shrink-0" />
+			<FolderPlus className="size-4 shrink-0" aria-hidden="true" />
+			<span className="min-w-0 flex-1 truncate">{label}</span>
+		</button>
+		{separated && (
+			<span
+				aria-hidden="true"
+				className="pointer-events-none absolute right-0 bottom-0 h-px bg-line"
+				style={{ left: ROW_TEXT_INSET + depth * INDENT_STEP }}
+			/>
+		)}
+	</div>
+);
+
 /**
- * Browsable destination picker: the folders as a tree you look through and tap,
- * with a filter for narrowing a long list and folder creation in place. Data
- * stays app-shaped — the kit owns ordering, filtering, focus and the create
- * wait; the app owns labels, paths and the move itself.
+ * Browsable destination picker: the folders as a tree that starts at its top
+ * level, opens a folder where you tap it, and makes a new folder wherever you
+ * are looking. Data stays app-shaped — the kit owns ordering, filtering, focus
+ * and the create wait; the app owns labels, paths and the move itself.
  */
 export const FolderTreePicker = ({
 	folders,
@@ -251,6 +422,7 @@ export const FolderTreePicker = ({
 }: FolderTreePickerProps) => {
 	const text = { ...defaultLabels, ...labels };
 	const [query, setQuery] = useState("");
+	const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
 	const [draft, setDraft] = useState<Draft | null>(null);
 	const [draftName, setDraftName] = useState("");
 	const [draftError, setDraftError] = useState<string>();
@@ -265,19 +437,33 @@ export const FolderTreePicker = ({
 	useEffect(() => () => createAbort.current?.abort(), []);
 
 	const trimmedQuery = query.trim().toLowerCase();
+	const ordered = useMemo(
+		() => orderFolderNodes(folders, delimiter),
+		[folders, delimiter],
+	);
+
+	const expanded = useMemo(() => {
+		const auto = queryExpandedPaths(ordered, trimmedQuery, delimiter);
+		if (auto.size === 0) return opened;
+		return new Set([...opened, ...auto]);
+	}, [ordered, opened, trimmedQuery, delimiter]);
+
 	const rows = useMemo(
 		() =>
-			filterFolderTree(
-				orderFolderNodes(folders, delimiter),
-				trimmedQuery,
-				delimiter,
-			),
-		[folders, trimmedQuery, delimiter],
+			trimmedQuery
+				? filterFolderTree(ordered, trimmedQuery, delimiter, expanded)
+				: collapseFolderTree(ordered, expanded, delimiter),
+		[ordered, trimmedQuery, delimiter, expanded],
+	);
+
+	const displayRows = useMemo(
+		() => (onCreateFolder ? withCreateRows(rows, delimiter) : undefined),
+		[rows, delimiter, onCreateFolder],
 	);
 
 	useEffect(() => {
 		setFocusedIndex((current) =>
-			isSelectable(rows[current]) ? current : findFirstSelectable(rows),
+			isFocusable(rows[current]) ? current : findFirstFocusable(rows),
 		);
 	}, [rows]);
 
@@ -287,6 +473,23 @@ export const FolderTreePicker = ({
 		if (focusedIndex < 0) return;
 		rowRefs.current[focusedIndex]?.focus();
 	}, [focusedIndex]);
+
+	const setExpanded = useCallback((path: string, open: boolean) => {
+		setOpened((current) => {
+			const next = new Set(current);
+			if (open) next.add(path);
+			else next.delete(path);
+			return next;
+		});
+	}, []);
+
+	const activateRow = useCallback(
+		(row: FolderTreeRow) => {
+			if (isSelectable(row)) onSelect(row.folder.id);
+			setExpanded(row.folder.path, !row.expanded);
+		},
+		[onSelect, setExpanded],
+	);
 
 	const closeDraft = useCallback(() => {
 		createAbort.current?.abort();
@@ -327,11 +530,13 @@ export const FolderTreePicker = ({
 		createAbort.current?.abort();
 		const controller = new AbortController();
 		createAbort.current = controller;
-		onCreateFolder(name, draft.parentPath, controller.signal)
+		const parentPath = draft.parentPath;
+		onCreateFolder(name, parentPath, controller.signal)
 			.then((created) => {
 				setCreating(false);
 				setDraft(null);
 				setDraftName("");
+				if (parentPath) setExpanded(parentPath, true);
 				onSelect(created.id);
 			})
 			.catch((error: unknown) => {
@@ -347,6 +552,7 @@ export const FolderTreePicker = ({
 		creating,
 		draftName,
 		onSelect,
+		setExpanded,
 		text.nameRequired,
 		text.createError,
 	]);
@@ -358,21 +564,43 @@ export const FolderTreePicker = ({
 				roving.current = true;
 				setFocusedIndex(next);
 			};
+			const focused = rows[focusedIndex];
 			switch (event.key) {
 				case "ArrowDown":
-					return move(findNextSelectable(rows, focusedIndex, 1));
+					return move(findNextFocusable(rows, focusedIndex, 1));
 				case "ArrowUp":
-					return move(findNextSelectable(rows, focusedIndex, -1));
+					return move(findNextFocusable(rows, focusedIndex, -1));
 				case "Home":
-					return move(findFirstSelectable(rows));
+					return move(findFirstFocusable(rows));
 				case "End":
-					return move(findLastSelectable(rows));
+					return move(findLastFocusable(rows));
+				case "ArrowRight": {
+					if (!isFocusable(focused) || !focused) return;
+					event.preventDefault();
+					if (!focused.expanded) {
+						setExpanded(focused.folder.path, true);
+						return;
+					}
+					const next = focusedIndex + 1;
+					if (isFocusable(rows[next])) move(next);
+					return;
+				}
+				case "ArrowLeft": {
+					if (!isFocusable(focused) || !focused) return;
+					event.preventDefault();
+					if (focused.expanded) {
+						setExpanded(focused.folder.path, false);
+						return;
+					}
+					const parent = findParentRow(rows, focusedIndex, delimiter);
+					if (parent >= 0) move(parent);
+					return;
+				}
 				case "Enter":
 				case " ": {
-					const target = rows[focusedIndex];
-					if (!isSelectable(target) || !target) return;
+					if (!isFocusable(focused) || !focused) return;
 					event.preventDefault();
-					onSelect(target.folder.id);
+					activateRow(focused);
 					return;
 				}
 				case "Escape":
@@ -383,7 +611,7 @@ export const FolderTreePicker = ({
 					return;
 			}
 		},
-		[rows, focusedIndex, onSelect, onCancel],
+		[rows, focusedIndex, delimiter, activateRow, setExpanded, onCancel],
 	);
 
 	const draftForm = draft && (
@@ -442,6 +670,105 @@ export const FolderTreePicker = ({
 		</div>
 	);
 
+	const renderFolderRow = (
+		row: FolderTreeRow,
+		index: number,
+		separated: boolean,
+	) => {
+		const { folder, depth } = row;
+		const selectable = isSelectable(row);
+		const focusable = isFocusable(row);
+		const indent = depth > 0 && (
+			<span
+				aria-hidden="true"
+				className="shrink-0"
+				style={{ width: depth * INDENT_STEP }}
+			/>
+		);
+		const chevron = (
+			<ChevronRight
+				className={cn(
+					"size-4 shrink-0 text-fg-subtle transition-transform",
+					row.expanded && "rotate-90",
+				)}
+				aria-hidden="true"
+			/>
+		);
+		const icon = (
+			<Folder className="size-4 shrink-0 text-fg-subtle" aria-hidden="true" />
+		);
+		const separator = separated && (
+			<span
+				aria-hidden="true"
+				className="pointer-events-none absolute right-0 bottom-0 h-px bg-line"
+				style={{ left: ROW_TEXT_INSET + depth * INDENT_STEP }}
+			/>
+		);
+		if (!focusable) {
+			return (
+				<div className="relative flex items-center">
+					{/* biome-ignore lint/a11y/useFocusableInteractive: an ancestor held on screen by a match below it — a branch, not a destination */}
+					<div
+						role="treeitem"
+						aria-level={depth + 1}
+						aria-selected={false}
+						aria-expanded={row.expanded}
+						aria-label={`${folder.label} ${text.contextSuffix}`}
+						className={cn(ROW_BASE, "opacity-60")}
+					>
+						{indent}
+						{chevron}
+						{icon}
+						<span className="min-w-0 flex-1 truncate">{folder.label}</span>
+					</div>
+					{separator}
+				</div>
+			);
+		}
+		return (
+			<div className="relative flex items-center">
+				<button
+					ref={(node) => {
+						rowRefs.current[index] = node;
+					}}
+					type="button"
+					role="treeitem"
+					aria-level={depth + 1}
+					aria-selected={selectable ? folder.id === selectedId : false}
+					aria-expanded={row.expanded}
+					aria-current={folder.isCurrent ? "true" : undefined}
+					aria-label={
+						selectable
+							? text.optionLabel(folder.label)
+							: `${folder.label} ${text.currentSuffix}`
+					}
+					tabIndex={index === focusedIndex ? 0 : -1}
+					onClick={() => activateRow(row)}
+					onFocus={() => setFocusedIndex(index)}
+					className={cn(
+						ROW_BASE,
+						"hover:bg-surface-raised active:bg-surface-sunken",
+						folder.isCurrent && "text-fg-muted",
+					)}
+				>
+					{indent}
+					{chevron}
+					{icon}
+					<span className="min-w-0 flex-1 truncate">{folder.label}</span>
+					{folder.isCurrent && (
+						<span className="shrink-0 text-xs text-fg-muted">
+							{text.currentTag}
+						</span>
+					)}
+					{selectable && folder.id === selectedId && (
+						<Check className="size-4 shrink-0 text-accent" aria-hidden="true" />
+					)}
+				</button>
+				{separator}
+			</div>
+		);
+	};
+
 	return (
 		<div className="flex min-h-0 flex-col">
 			<Input
@@ -459,9 +786,9 @@ export const FolderTreePicker = ({
 					}
 					if (event.key !== "ArrowDown") return;
 					event.preventDefault();
-					const first = isSelectable(rows[focusedIndex])
+					const first = isFocusable(rows[focusedIndex])
 						? focusedIndex
-						: findFirstSelectable(rows);
+						: findFirstFocusable(rows);
 					if (first < 0) return;
 					roving.current = true;
 					setFocusedIndex(first);
@@ -472,15 +799,14 @@ export const FolderTreePicker = ({
 			/>
 
 			{onCreateFolder && (
-				<div className="shrink-0">
-					<button
-						type="button"
-						onClick={() => openDraft(null)}
-						className="flex min-h-11 w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-medium text-accent-2 hover:bg-surface-raised"
-					>
-						<FolderPlus className="size-4 shrink-0" aria-hidden="true" />
-						{text.newFolder}
-					</button>
+				<div className="shrink-0 border-b border-line">
+					<NewFolderAction
+						label={text.newFolder}
+						ariaLabel={text.newFolder}
+						depth={0}
+						separated={false}
+						onOpen={() => openDraft(null)}
+					/>
 					{draft?.anchorId === null && draftForm}
 				</div>
 			)}
@@ -500,91 +826,34 @@ export const FolderTreePicker = ({
 					className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
 					onKeyDown={handleTreeKeyDown}
 				>
-					{rows.map((row, index) => {
-						const { folder, depth } = row;
-						const selectable = isSelectable(row);
-						const indent = depth > 0 && (
-							<span
-								aria-hidden="true"
-								className="shrink-0"
-								style={{ width: depth * INDENT_STEP }}
-							/>
-						);
-						const icon = (
-							<Folder
-								className="size-4 shrink-0 text-fg-subtle"
-								aria-hidden="true"
-							/>
-						);
-						return (
-							<div key={folder.id} role="none">
-								<div className="flex items-center">
-									{selectable ? (
-										<button
-											ref={(node) => {
-												rowRefs.current[index] = node;
-											}}
-											type="button"
-											role="treeitem"
-											aria-level={depth + 1}
-											aria-selected={folder.id === selectedId}
-											aria-label={text.optionLabel(folder.label)}
-											tabIndex={index === focusedIndex ? 0 : -1}
-											onClick={() => onSelect(folder.id)}
-											onFocus={() => setFocusedIndex(index)}
-											className={cn(ROW_BASE, "hover:bg-surface-raised")}
-										>
-											{indent}
-											{icon}
-											<span className="min-w-0 flex-1 truncate">
-												{folder.label}
-											</span>
-											{folder.id === selectedId && (
-												<Check
-													className="size-4 shrink-0 text-accent"
-													aria-hidden="true"
-												/>
-											)}
-										</button>
-									) : (
-										// biome-ignore lint/a11y/useFocusableInteractive: a marker row, not a destination — focus belongs to the selectable rows
-										<div
-											role="treeitem"
-											aria-level={depth + 1}
-											aria-selected={false}
-											aria-current={folder.isCurrent ? "true" : undefined}
-											aria-label={`${folder.label} ${
-												folder.isCurrent
-													? text.currentSuffix
-													: text.contextSuffix
-											}`}
-											className={cn(ROW_BASE, "opacity-60")}
-										>
-											{indent}
-											{icon}
-											<span className="min-w-0 flex-1 truncate">
-												{folder.label}
-											</span>
-											{folder.isCurrent && (
-												<span className="shrink-0 text-xs text-fg-muted">
-													{text.currentTag}
-												</span>
-											)}
-										</div>
-									)}
-									{onCreateFolder && (
-										<button
-											type="button"
-											onClick={() => openDraft(folder)}
-											aria-label={text.newSubfolder(folder.label)}
-											title={text.newSubfolder(folder.label)}
-											className="flex size-11 shrink-0 items-center justify-center text-fg-subtle hover:bg-surface-raised hover:text-fg"
-										>
-											<FolderPlus className="size-4" aria-hidden="true" />
-										</button>
-									)}
+					{(
+						displayRows ??
+						rows.map(
+							(row, index): FolderTreeDisplayRow => ({
+								kind: "folder",
+								row,
+								index,
+							}),
+						)
+					).map((entry, position, all) => {
+						const separated = position < all.length - 1;
+						if (entry.kind === "create") {
+							return (
+								<div key={`new:${entry.parent.id}`} role="none">
+									<NewFolderAction
+										label={text.newFolder}
+										ariaLabel={text.newSubfolder(entry.parent.label)}
+										depth={entry.depth}
+										separated={separated}
+										onOpen={() => openDraft(entry.parent)}
+									/>
+									{draft?.anchorId === entry.parent.id && draftForm}
 								</div>
-								{draft?.anchorId === folder.id && draftForm}
+							);
+						}
+						return (
+							<div key={entry.row.folder.id} role="none">
+								{renderFolderRow(entry.row, entry.index, separated)}
 							</div>
 						);
 					})}
@@ -595,16 +864,23 @@ export const FolderTreePicker = ({
 };
 
 /**
- * Pure ordering, filtering and roving-focus helpers, exposed for unit testing
- * without a DOM. Consumers should use {@link FolderTreePicker}.
+ * Pure ordering, filtering, expansion and roving-focus helpers, exposed for unit
+ * testing without a DOM. Consumers should use {@link FolderTreePicker}.
  */
 export const folderTreePickerInternals = {
 	folderParent,
 	folderDepth,
+	folderAncestors,
 	orderFolderNodes,
 	filterFolderTree,
+	collapseFolderTree,
+	queryExpandedPaths,
+	withCreateRows,
 	matchesQuery,
-	findFirstSelectable,
-	findLastSelectable,
-	findNextSelectable,
+	isFocusable,
+	isSelectable,
+	findFirstFocusable,
+	findLastFocusable,
+	findNextFocusable,
+	findParentRow,
 };

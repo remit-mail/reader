@@ -1,5 +1,6 @@
 /**
- * The inline create form: where it opens, what it says the parent is, and how it
+ * Opening folders, and the inline create form that sits at the end of an opened
+ * folder's children: where it opens, what it says the parent is, and how it
  * behaves while the mail server is confirming the folder. Mounted against jsdom
  * for the anchoring, the field state and the async resolve. React is imported
  * after the jsdom globals are installed so the controlled value tracker binds to
@@ -11,6 +12,7 @@ import type { JSDOM } from "jsdom";
 import type {
 	act as reactAct,
 	createElement as reactCreateElement,
+	useState as reactUseState,
 } from "react";
 import type { Root, createRoot as reactCreateRoot } from "react-dom/client";
 import type {
@@ -30,6 +32,7 @@ let container: HTMLElement;
 let root: Root;
 let act: typeof reactAct;
 let createElement: typeof reactCreateElement;
+let useState: typeof reactUseState;
 let createRoot: typeof reactCreateRoot;
 let FolderTreePicker: typeof FolderTreePickerType;
 
@@ -55,6 +58,7 @@ before(async () => {
 	const react = await import("react");
 	act = react.act;
 	createElement = react.createElement;
+	useState = react.useState;
 	({ createRoot } = await import("react-dom/client"));
 	({ FolderTreePicker } = await import("./folder-tree-picker.js"));
 });
@@ -76,9 +80,9 @@ afterEach(async () => {
 	container.remove();
 });
 
-const mount = async (
-	props: Partial<Parameters<typeof FolderTreePickerType>[0]> = {},
-) => {
+type PickerProps = Partial<Parameters<typeof FolderTreePickerType>[0]>;
+
+const mount = async (props: PickerProps = {}) => {
 	await act(async () => {
 		root.render(
 			createElement(FolderTreePicker, {
@@ -90,10 +94,33 @@ const mount = async (
 	});
 };
 
+/** Holds the chosen destination the way the app does, so a tap can be undone. */
+const mountControlled = async (props: PickerProps = {}) => {
+	const Controlled = () => {
+		const [selected, setSelected] = useState<string>();
+		return createElement(FolderTreePicker, {
+			folders,
+			selectedId: selected,
+			onSelect: setSelected,
+			...props,
+		});
+	};
+	await act(async () => {
+		root.render(createElement(Controlled));
+	});
+};
+
 const click = async (element: Element | null | undefined) => {
 	assert.ok(element, "control not rendered");
 	await act(async () => {
 		(element as HTMLElement).click();
+	});
+};
+
+const focus = async (element: Element | null | undefined) => {
+	assert.ok(element, "control not rendered");
+	await act(async () => {
+		(element as HTMLElement).focus();
 	});
 };
 
@@ -121,6 +148,16 @@ const typeName = async (value: string) => {
 	});
 };
 
+const open = async (...labels: string[]) => {
+	for (const label of labels) {
+		await click(byAriaLabel(`Move to ${label}`));
+	}
+};
+
+/** The block holding a folder's create action and any form opened from it. */
+const createBlockOf = (label: string): Element | null =>
+	byAriaLabel(`New folder inside ${label}`)?.closest('[role="none"]') ?? null;
+
 const rowOf = (label: string): Element | null =>
 	byAriaLabel(`Move to ${label}`)?.closest('[role="none"]') ?? null;
 
@@ -130,44 +167,118 @@ const created = (name: string, parentPath: string): FolderTreeNode => ({
 	path: parentPath ? `${parentPath}/${name}` : name,
 });
 
+const resolving = (name: string, parentPath: string) =>
+	Promise.resolve(created(name, parentPath));
+
+describe("opening folders", () => {
+	it("starts at the top level with everything closed", async () => {
+		await mount({});
+		assert.ok(byAriaLabel("Move to Travel"));
+		assert.ok(byAriaLabel("Move to Archive"));
+		assert.equal(byAriaLabel("Move to Hotels"), null);
+		assert.equal(
+			byAriaLabel("Move to Travel")?.getAttribute("aria-expanded"),
+			"false",
+		);
+	});
+
+	it("picks the destination and opens it in one tap", async () => {
+		const selected: string[] = [];
+		await mount({ onSelect: (id) => selected.push(id) });
+		await open("Travel");
+		assert.deepEqual(selected, ["travel"]);
+		assert.ok(byAriaLabel("Move to Hotels"));
+		assert.equal(
+			byAriaLabel("Move to Travel")?.getAttribute("aria-expanded"),
+			"true",
+		);
+		assert.equal(
+			byAriaLabel("Move to Hotels")?.getAttribute("aria-level"),
+			"2",
+		);
+	});
+
+	it("closes on a second tap and keeps the destination", async () => {
+		await mountControlled();
+		await open("Travel");
+		assert.equal(
+			byAriaLabel("Move to Travel")?.getAttribute("aria-selected"),
+			"true",
+		);
+		await open("Travel");
+		assert.equal(byAriaLabel("Move to Hotels"), null);
+		assert.equal(
+			byAriaLabel("Move to Travel")?.getAttribute("aria-selected"),
+			"true",
+		);
+		assert.equal(
+			byAriaLabel("Move to Travel")?.getAttribute("aria-expanded"),
+			"false",
+		);
+	});
+
+	it("opens the current folder without ever picking it", async () => {
+		const selected: string[] = [];
+		await mount({ onSelect: (id) => selected.push(id) });
+		await click(byAriaLabel("Inbox (current folder)"));
+		assert.deepEqual(selected, []);
+		assert.equal(
+			byAriaLabel("Inbox (current folder)")?.getAttribute("aria-expanded"),
+			"true",
+		);
+	});
+});
+
 describe("create form anchoring", () => {
-	it("opens under the row whose affordance was pressed", async () => {
-		await mount({ onCreateFolder: (n, p) => Promise.resolve(created(n, p)) });
+	it("offers the action at the end of an opened folder's children", async () => {
+		await mount({ onCreateFolder: resolving });
+		assert.equal(byAriaLabel("New folder inside Travel"), null);
+		await open("Travel");
+		assert.ok(byAriaLabel("New folder inside Travel"));
+		assert.equal(byAriaLabel("New folder inside Hotels"), null);
+	});
+
+	it("opens the form under the action it was pressed from", async () => {
+		await mount({ onCreateFolder: resolving });
+		await open("Travel");
 		await click(byAriaLabel("New folder inside Travel"));
-		assert.ok(rowOf("Travel")?.querySelector("input"));
-		assert.equal(rowOf("Hotels")?.querySelector("input"), null);
+		assert.ok(createBlockOf("Travel")?.querySelector("input"));
+		assert.equal(rowOf("Travel")?.querySelector("input"), null);
 	});
 
 	it("states the parent as fixed text rather than a second choice", async () => {
-		await mount({ onCreateFolder: (n, p) => Promise.resolve(created(n, p)) });
+		await mount({ onCreateFolder: resolving });
+		await open("Travel");
 		await click(byAriaLabel("New folder inside Travel"));
-		assert.match(rowOf("Travel")?.textContent ?? "", /Inside\s*Travel/);
+		assert.match(createBlockOf("Travel")?.textContent ?? "", /Inside\s*Travel/);
 		assert.equal(container.querySelector("select"), null);
 	});
 
-	it("moves the form when another row opens it", async () => {
-		await mount({ onCreateFolder: (n, p) => Promise.resolve(created(n, p)) });
+	it("moves the form when the action inside another folder opens it", async () => {
+		await mount({ onCreateFolder: resolving });
+		await open("Travel", "Hotels");
 		await click(byAriaLabel("New folder inside Travel"));
 		await click(byAriaLabel("New folder inside Hotels"));
-		assert.equal(rowOf("Travel")?.querySelector("input"), null);
-		assert.ok(rowOf("Hotels")?.querySelector("input"));
+		assert.equal(createBlockOf("Travel")?.querySelector("input"), null);
+		assert.ok(createBlockOf("Hotels")?.querySelector("input"));
 	});
 
-	it("creates at top level from the row above the tree", async () => {
-		await mount({ onCreateFolder: (n, p) => Promise.resolve(created(n, p)) });
-		await click(byText("New folder"));
-		assert.equal(rowOf("Travel")?.querySelector("input"), null);
+	it("creates at top level from the action pinned above the tree", async () => {
+		await mount({ onCreateFolder: resolving });
+		await click(byAriaLabel("New folder"));
 		assert.ok(nameField());
 		assert.match(container.textContent ?? "", /Inside\s*Top level/);
 	});
 
 	it("offers a subfolder inside the current folder", async () => {
-		await mount({ onCreateFolder: (n, p) => Promise.resolve(created(n, p)) });
+		await mount({ onCreateFolder: resolving });
+		await click(byAriaLabel("Inbox (current folder)"));
 		assert.ok(byAriaLabel("New folder inside Inbox"));
 	});
 
 	it("closes on Cancel", async () => {
-		await mount({ onCreateFolder: (n, p) => Promise.resolve(created(n, p)) });
+		await mount({ onCreateFolder: resolving });
+		await open("Travel");
 		await click(byAriaLabel("New folder inside Travel"));
 		await click(byText("Cancel"));
 		assert.equal(nameField(), null);
@@ -175,7 +286,7 @@ describe("create form anchoring", () => {
 });
 
 describe("create wait", () => {
-	it("passes the row's path as the parent and selects what comes back", async () => {
+	it("passes the opened folder's path as the parent and selects what comes back", async () => {
 		const calls: Array<[string, string]> = [];
 		const selected: string[] = [];
 		await mount({
@@ -185,11 +296,12 @@ describe("create wait", () => {
 				return Promise.resolve(created(name, parentPath));
 			},
 		});
+		await open("Travel");
 		await click(byAriaLabel("New folder inside Travel"));
 		await typeName("Hotels 2");
 		await click(byText("Create folder"));
 		assert.deepEqual(calls, [["Hotels 2", "Travel"]]);
-		assert.deepEqual(selected, ["made"]);
+		assert.deepEqual(selected, ["travel", "made"]);
 		assert.equal(nameField(), null);
 	});
 
@@ -201,6 +313,7 @@ describe("create wait", () => {
 				return new Promise<FolderTreeNode>(() => undefined);
 			},
 		});
+		await open("Travel");
 		await click(byAriaLabel("New folder inside Travel"));
 		await typeName("Hotels 2");
 		await click(byText("Create folder"));
@@ -216,12 +329,13 @@ describe("create wait", () => {
 			onCreateFolder: () =>
 				Promise.reject(new Error("The mail server refused that name.")),
 		});
+		await open("Travel");
 		await click(byAriaLabel("New folder inside Travel"));
 		await typeName("Hotels 2");
 		await click(byText("Create folder"));
 		const alert = container.querySelector('[role="alert"]');
 		assert.equal(alert?.textContent, "The mail server refused that name.");
-		assert.ok(rowOf("Travel")?.querySelector("input"));
+		assert.ok(createBlockOf("Travel")?.querySelector("input"));
 	});
 
 	it("says what is missing instead of going dead on an empty name", async () => {
@@ -232,6 +346,7 @@ describe("create wait", () => {
 				return Promise.resolve(created(n, p));
 			},
 		});
+		await open("Travel");
 		await click(byAriaLabel("New folder inside Travel"));
 		await click(byText("Create folder"));
 		assert.equal(attempts, 0);
@@ -255,8 +370,8 @@ describe("create wait", () => {
 				});
 			},
 		});
-		await click(byAriaLabel("New folder inside Travel"));
-		await typeName("Hotels 2");
+		await click(byAriaLabel("New folder"));
+		await typeName("Insurance");
 		await click(byText("Create folder"));
 		await act(async () => {
 			root.unmount();
@@ -284,7 +399,8 @@ describe("filter and keyboard", () => {
 		});
 	};
 
-	const press = async (target: Element, key: string) => {
+	const press = async (target: Element | null | undefined, key: string) => {
+		assert.ok(target, "control not rendered");
 		await act(async () => {
 			target.dispatchEvent(
 				new dom.window.KeyboardEvent("keydown", { key, bubbles: true }),
@@ -292,13 +408,30 @@ describe("filter and keyboard", () => {
 		});
 	};
 
-	it("narrows to the match and keeps its parent as context, not a target", async () => {
+	const focused = (): string | null =>
+		dom.window.document.activeElement?.getAttribute("aria-label") ?? null;
+
+	it("opens the ancestors a match hides behind", async () => {
 		await mount({});
+		assert.equal(byAriaLabel("Move to Hotels"), null);
 		await typeFilter("hotels");
 		assert.ok(byAriaLabel("Move to Hotels"));
 		assert.equal(byAriaLabel("Move to Travel"), null);
 		assert.ok(byAriaLabel("Travel (containing folder)"));
+		assert.equal(
+			byAriaLabel("Travel (containing folder)")?.getAttribute("aria-expanded"),
+			"true",
+		);
 		assert.equal(byAriaLabel("Move to Archive"), null);
+	});
+
+	it("puts the list back the way it was left when the filter clears", async () => {
+		await mount({});
+		await open("Travel");
+		await typeFilter("archive");
+		assert.equal(byAriaLabel("Move to Hotels"), null);
+		await typeFilter("");
+		assert.ok(byAriaLabel("Move to Hotels"));
 	});
 
 	it("says so when nothing matches", async () => {
@@ -307,56 +440,54 @@ describe("filter and keyboard", () => {
 		assert.match(container.textContent ?? "", /No folders match "zzz"/);
 	});
 
-	it("selects the focused row on Enter", async () => {
+	it("picks and opens the focused row on Enter", async () => {
 		const selected: string[] = [];
 		await mount({ onSelect: (id) => selected.push(id) });
-		const first = byAriaLabel("Move to Travel");
-		assert.ok(first);
-		await press(first, "Enter");
+		await focus(byAriaLabel("Move to Travel"));
+		await press(byAriaLabel("Move to Travel"), "Enter");
 		assert.deepEqual(selected, ["travel"]);
+		assert.ok(byAriaLabel("Move to Hotels"));
 	});
 
-	it("walks the tree with the arrow keys", async () => {
+	it("opens on Right and closes on Left without picking anything", async () => {
+		const selected: string[] = [];
+		await mount({ onSelect: (id) => selected.push(id) });
+		await focus(byAriaLabel("Move to Travel"));
+		await press(byAriaLabel("Move to Travel"), "ArrowRight");
+		assert.ok(byAriaLabel("Move to Hotels"));
+		await press(byAriaLabel("Move to Travel"), "ArrowRight");
+		assert.equal(focused(), "Move to Hotels");
+		await press(byAriaLabel("Move to Hotels"), "ArrowLeft");
+		assert.equal(focused(), "Move to Travel");
+		await press(byAriaLabel("Move to Travel"), "ArrowLeft");
+		assert.equal(byAriaLabel("Move to Hotels"), null);
+		assert.deepEqual(selected, []);
+	});
+
+	it("walks only the rows on screen with the arrow keys", async () => {
 		await mount({});
-		const first = byAriaLabel("Move to Travel");
-		assert.ok(first);
-		await press(first, "ArrowDown");
-		assert.equal(
-			dom.window.document.activeElement?.getAttribute("aria-label"),
-			"Move to Hotels",
-		);
-		await press(first, "End");
-		assert.equal(
-			dom.window.document.activeElement?.getAttribute("aria-label"),
-			"Move to Archive",
-		);
-		await press(first, "Home");
-		assert.equal(
-			dom.window.document.activeElement?.getAttribute("aria-label"),
-			"Move to Travel",
-		);
+		await focus(byAriaLabel("Inbox (current folder)"));
+		await press(byAriaLabel("Inbox (current folder)"), "ArrowDown");
+		assert.equal(focused(), "Move to Travel");
+		await press(byAriaLabel("Move to Travel"), "ArrowDown");
+		assert.equal(focused(), "Move to Archive");
+		await press(byAriaLabel("Move to Archive"), "Home");
+		assert.equal(focused(), "Inbox (current folder)");
+		await press(byAriaLabel("Inbox (current folder)"), "End");
+		assert.equal(focused(), "Move to Archive");
 	});
 
 	it("cancels on Escape from the tree and from the filter", async () => {
 		let cancelled = 0;
 		await mount({ onCancel: () => (cancelled += 1) });
-		const first = byAriaLabel("Move to Travel");
-		assert.ok(first);
-		await press(first, "Escape");
-		const filter = filterField();
-		assert.ok(filter);
-		await press(filter, "Escape");
+		await press(byAriaLabel("Move to Travel"), "Escape");
+		await press(filterField(), "Escape");
 		assert.equal(cancelled, 2);
 	});
 
-	it("hands focus from the filter to the first destination on ArrowDown", async () => {
+	it("hands focus from the filter to the first row on ArrowDown", async () => {
 		await mount({});
-		const filter = filterField();
-		assert.ok(filter);
-		await press(filter, "ArrowDown");
-		assert.equal(
-			dom.window.document.activeElement?.getAttribute("aria-label"),
-			"Move to Travel",
-		);
+		await press(filterField(), "ArrowDown");
+		assert.equal(focused(), "Inbox (current folder)");
 	});
 });
