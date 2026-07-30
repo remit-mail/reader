@@ -184,14 +184,14 @@ function DestinationStep({
 			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-row-inset py-2">
 				{picking ? (
 					<div className="flex min-h-0 flex-1 overflow-hidden rounded-xl border border-line bg-surface">
+						{/* Picking a folder also opens it, so the tree stays up: closing
+						    on the first tap would put anything nested out of reach. The
+						    consequence line below states the destination as it changes. */}
 						<FolderTreePicker
 							folders={folders}
 							selectedId={destination}
 							delimiter={delimiter}
-							onSelect={(id) => {
-								onPick(id);
-								setPicking(false);
-							}}
+							onSelect={onPick}
 							onCancel={() => setPicking(false)}
 						/>
 					</div>

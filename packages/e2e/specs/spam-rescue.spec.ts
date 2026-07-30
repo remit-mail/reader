@@ -127,6 +127,9 @@ test.describe("Spam rescue", () => {
 		await page
 			.getByRole("treeitem", { name: "Move to Inbox", exact: true })
 			.click();
+		await page
+			.getByRole("button", { name: "Move to Inbox", exact: true })
+			.click();
 
 		// The failure this spec exists for was loud in exactly two places: an
 		// error banner, and the full-screen fatal page. Neither may appear.
