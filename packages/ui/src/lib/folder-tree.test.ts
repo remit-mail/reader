@@ -216,7 +216,7 @@ describe("filtering", () => {
 		const rows = filterFolderTree(ordered, "hotels", "/", new Set(["Travel"]));
 		assert.deepEqual(
 			rows.map((row) => row.expanded),
-			[true, false],
+			[true, false, false],
 		);
 	});
 
