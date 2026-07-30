@@ -127,8 +127,9 @@ function Picker({
 	);
 }
 
+/** The list at rest: top level only, one tap deep into anything. */
 export const Default: Story = {
-	name: "Default (browse the tree)",
+	name: "Default (collapsed to top level)",
 	render: () => <Picker />,
 };
 
@@ -198,12 +199,40 @@ const typeFolderName = (canvasElement: HTMLElement, name: string) => {
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 60));
 
+const expand = async (canvasElement: HTMLElement, ...labels: string[]) => {
+	for (const label of labels) {
+		clickAriaLabel(canvasElement, `Move to ${label}`);
+		await tick();
+	}
+};
+
 /**
- * "rec" matches two folders nested three levels down. Their parents stay on
- * screen so the branch still reads as a branch — dimmed, and not a destination.
+ * One tap picks the destination and opens it. The children arrive indented,
+ * with "New folder" sitting at the end of them as the last folder inside.
+ */
+export const Expanded: Story = {
+	name: "A folder opened (children and its New folder)",
+	render: () => <Picker />,
+	play: async ({ canvasElement }) => {
+		await expand(canvasElement, "Travel");
+	},
+};
+
+/** Three levels open at once, each with its own place to add a folder. */
+export const DeepExpansion: Story = {
+	name: "Opened three levels deep",
+	render: () => <Picker />,
+	play: async ({ canvasElement }) => {
+		await expand(canvasElement, "Travel", "Hotels", "Receipts");
+	},
+};
+
+/**
+ * "rec" matches two nested folders. Their parents open to put them on screen
+ * and read as the branches they are, not as an answer to what was typed.
  */
 export const Filtered: Story = {
-	name: "Filtered (ancestors kept for context)",
+	name: "Filtered (ancestors opened for context)",
 	render: () => <Picker />,
 	play: async ({ canvasElement }) => {
 		typeFilter(canvasElement, "rec");
@@ -214,20 +243,22 @@ export const CreateTopLevel: Story = {
 	name: "Create a top-level folder",
 	render: () => <Picker />,
 	play: async ({ canvasElement }) => {
-		clickText(canvasElement, "New folder");
+		clickAriaLabel(canvasElement, "New folder");
 		await tick();
 		typeFolderName(canvasElement, "Insurance");
 	},
 };
 
 /**
- * The row you tapped is the answer to "inside where": the form opens under it
- * and states the parent as text, so there is no second choice to make.
+ * The folder you opened is the answer to "inside where": the action sits among
+ * its children and the form states the parent as text, so there is no second
+ * choice to make.
  */
 export const CreateSubfolder: Story = {
-	name: "Create a subfolder from a row",
+	name: "Create a folder inside an opened one",
 	render: () => <Picker />,
 	play: async ({ canvasElement }) => {
+		await expand(canvasElement, "Travel");
 		clickAriaLabel(canvasElement, "New folder inside Travel");
 		await tick();
 		typeFolderName(canvasElement, "Car hire");
@@ -242,6 +273,7 @@ export const CreatePending: Story = {
 	name: "Create — waiting for the server",
 	render: () => <Picker onCreateFolder={neverResolves} />,
 	play: async ({ canvasElement }) => {
+		await expand(canvasElement, "Finance");
 		clickAriaLabel(canvasElement, "New folder inside Finance");
 		await tick();
 		typeFolderName(canvasElement, "Mortgage");
@@ -261,6 +293,7 @@ export const CreateFailed: Story = {
 		/>
 	),
 	play: async ({ canvasElement }) => {
+		await expand(canvasElement, "Finance");
 		clickAriaLabel(canvasElement, "New folder inside Finance");
 		await tick();
 		typeFolderName(canvasElement, "Mortgage");
@@ -296,7 +329,7 @@ function WizardFolderStep() {
 				<p className="px-1 text-xs text-fg-muted">
 					{chosen
 						? `Moving to ${chosen.label}.`
-						: "Browse to a folder, or make a new one where you want it."}
+						: "Tap a folder to open it, or make a new one where you want it."}
 				</p>
 				<div className="flex min-h-0 flex-1 overflow-hidden rounded-lg border border-line bg-surface">
 					<FolderTreePicker
