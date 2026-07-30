@@ -76,14 +76,16 @@ const propertiesProps = {
 };
 
 const folderProps = {
-	mailboxes: [
-		{ id: "mbx-archive", label: "Archive" },
-		{ id: "mbx-travel", label: "Travel" },
-		{ id: "mbx-inbox", label: "Inbox", isCurrent: true },
+	folders: [
+		{ id: "mbx-archive", label: "Archive", path: "Archive" },
+		{ id: "mbx-travel", label: "Travel", path: "Travel" },
+		{ id: "mbx-travel-2026", label: "2026", path: "Travel/2026" },
+		{ id: "mbx-inbox", label: "Inbox", path: "INBOX", isCurrent: true },
 	],
 	mailboxId: "mbx-travel",
 	onSelect: noop,
-	onCreateFolder: () => Promise.resolve({ id: "mbx-new", label: "Hotels" }),
+	onCreateFolder: () =>
+		Promise.resolve({ id: "mbx-new", label: "Hotels", path: "Travel/Hotels" }),
 };
 
 const draft = (over: Partial<WizardDraft> = {}): WizardDraft => ({
@@ -359,11 +361,16 @@ describe("FolderStepBody", () => {
 		assert.match(html, /Inbox \(current folder\)/);
 	});
 
-	it("says how to make a folder when none is chosen yet", () => {
+	it("starts at the top level, with nested folders behind the one holding them", () => {
+		const html = renderToString(createElement(FolderStepBody, folderProps));
+		assert.doesNotMatch(html, /Move to 2026/);
+	});
+
+	it("says how to reach a folder when none is chosen yet", () => {
 		const html = renderToString(
 			createElement(FolderStepBody, { ...folderProps, mailboxId: undefined }),
 		);
-		assert.match(text(html), /type a name that doesn&#x27;t exist yet/);
+		assert.match(text(html), /Tap a folder to open it/);
 	});
 });
 

@@ -1,5 +1,5 @@
 import { mailboxOperationsListMailboxesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import { type MoveMailboxOption, MoveMailboxPicker } from "@remit/ui";
+import { FolderTreePicker } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { FolderInput } from "lucide-react";
 import {
@@ -17,7 +17,11 @@ import { useFolderAppointments } from "@/hooks/useArchiveMailbox";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
-import { buildMoveOptions } from "@/lib/move-options";
+import {
+	buildMoveOptions,
+	folderDelimiter,
+	type MoveDestination,
+} from "@/lib/move-options";
 import { cn } from "@/lib/utils";
 
 interface MoveToTriggerProps {
@@ -88,9 +92,9 @@ export const MoveToTrigger = ({
 		enabled: isOpen,
 	});
 	const folderAppointments = useFolderAppointments(accountId);
-	const { createFolder } = useCreateMailbox(accountId);
+	const { createFolderIn } = useCreateMailbox(accountId);
 
-	const options = useMemo<MoveMailboxOption[]>(
+	const options = useMemo<MoveDestination[]>(
 		() =>
 			buildMoveOptions({
 				mailboxes: mailboxesResponse?.items ?? [],
@@ -105,6 +109,7 @@ export const MoveToTrigger = ({
 			translator,
 		],
 	);
+	const delimiter = folderDelimiter(mailboxesResponse?.items ?? []);
 
 	const handleSelect = useCallback(
 		(destinationMailboxId: string) => {
@@ -112,14 +117,6 @@ export const MoveToTrigger = ({
 			onMove(destinationMailboxId);
 		},
 		[onMove],
-	);
-
-	const handleCreateFolder = useCallback(
-		async (name: string, signal?: AbortSignal): Promise<MoveMailboxOption> => {
-			const folder = await createFolder(name, signal);
-			return { id: folder.id, label: folder.label };
-		},
-		[createFolder],
 	);
 
 	// Desktop popover: dismiss on outside click + Escape.
@@ -156,10 +153,10 @@ export const MoveToTrigger = ({
 			}}
 			aria-label={triggerLabel}
 			// Mobile opens a vaul Drawer (modal dialog), desktop opens a
-			// non-modal popover whose only content is the listbox of
-			// destinations. Reflect each surface accurately so screen readers
-			// announce the right structure.
-			aria-haspopup={isDesktop ? "listbox" : "dialog"}
+			// non-modal popover whose only content is the folder tree. Reflect
+			// each surface accurately so screen readers announce the right
+			// structure.
+			aria-haspopup={isDesktop ? "tree" : "dialog"}
 			aria-expanded={isOpen}
 			aria-controls={isOpen ? popoverId : undefined}
 			title={disabledHint}
@@ -182,24 +179,19 @@ export const MoveToTrigger = ({
 			/>
 		</div>
 	) : (
-		<MoveMailboxPicker
-			mailboxes={options}
+		<FolderTreePicker
+			folders={options}
+			delimiter={delimiter}
 			onSelect={handleSelect}
-			onCreateFolder={handleCreateFolder}
+			onCreateFolder={createFolderIn}
 			onCancel={() => setIsOpen(false)}
-			autoFocus={!isDesktop}
 			labels={{
-				createLabel: (folderName) => `Create "${folderName}"`,
-				searchPlaceholder: t("move_picker_placeholder", {
-					defaultValue: "Move to…",
+				filterPlaceholder: t("move_picker_filter_placeholder", {
+					defaultValue: "Filter folders…",
 				}),
-				searchAriaLabel: t("move_picker_filter_label", {
+				filterAriaLabel: t("move_picker_filter_label", {
 					defaultValue: "Filter folders",
 				}),
-				optionLabel: (folderLabel) => `Move to ${folderLabel}`,
-				currentSuffix: "(current folder)",
-				currentTag: "current",
-				emptyMessage: (query) => `No folders match "${query}"`,
 			}}
 		/>
 	);

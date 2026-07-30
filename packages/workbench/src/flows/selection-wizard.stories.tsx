@@ -8,13 +8,13 @@ import {
 	deriveSenderClauses,
 	dominantSender,
 	type EnvelopeAddress,
+	type FolderTreeNode,
 	inboxFilterConfig,
 	isConvertible,
 	MakeFilterAction,
 	type MatchCount,
 	type MatchMode,
 	type MatchOperator,
-	type MoveMailboxOption,
 	PopoverMenu,
 	type RuleClause,
 	type RuleScope,
@@ -246,20 +246,28 @@ const envelopesOf = (messages: SelectionMessage[]): EnvelopeAddress[] =>
 		displayName: message.sender,
 	}));
 
-const MAILBOXES: MoveMailboxOption[] = SELECTION_FOLDERS.map((path) => ({
+const MAILBOXES: FolderTreeNode[] = SELECTION_FOLDERS.map((path) => ({
 	id: `mbx-${path.toLowerCase().replace(/\//g, "-")}`,
-	label: path,
-	searchValue: path,
+	label: path.slice(path.lastIndexOf("/") + 1),
+	path,
 }));
 
 /** A create that resolves only once the mail server has confirmed the folder. */
 const folderCreators: Record<
 	NonNullable<WizardEntry["folderCreate"]>,
-	(name: string, signal?: AbortSignal) => Promise<MoveMailboxOption>
+	(
+		name: string,
+		parentPath: string,
+		signal?: AbortSignal,
+	) => Promise<FolderTreeNode>
 > = {
-	confirms: (name) =>
-		Promise.resolve({ id: `mbx-${name.toLowerCase()}`, label: name }),
-	"never confirms": (_name, signal) =>
+	confirms: (name, parentPath) =>
+		Promise.resolve({
+			id: `mbx-${name.toLowerCase()}`,
+			label: name,
+			path: parentPath ? `${parentPath}/${name}` : name,
+		}),
+	"never confirms": (_name, _parentPath, signal) =>
 		new Promise((_resolve, reject) => {
 			signal?.addEventListener("abort", () =>
 				reject(new DOMException("Aborted", "AbortError")),
@@ -320,7 +328,7 @@ function WizardDriver({
 		conversion?.matchOperator ?? "all",
 	);
 	const [clauseEdit, setClauseEdit] = useState<ClauseEditState>();
-	const [mailboxes, setMailboxes] = useState<MoveMailboxOption[]>(MAILBOXES);
+	const [mailboxes, setMailboxes] = useState<FolderTreeNode[]>(MAILBOXES);
 	const [mailboxId, setMailboxId] = useState<string>();
 	const [scope, setScope] = useState<RuleScope | undefined>(
 		entry.scope ?? (entry.startAt === "name" ? "standing" : undefined),
@@ -441,17 +449,23 @@ function WizardDriver({
 		setClauseEdit(undefined);
 	};
 
-	const createFolder = (name: string, signal?: AbortSignal) =>
-		folderCreators[entry.folderCreate ?? "confirms"](name, signal).then(
-			(created) => {
-				setMailboxes((known) =>
-					known.some((mailbox) => mailbox.id === created.id)
-						? known
-						: [...known, created],
-				);
-				return created;
-			},
-		);
+	const createFolder = (
+		name: string,
+		parentPath: string,
+		signal?: AbortSignal,
+	) =>
+		folderCreators[entry.folderCreate ?? "confirms"](
+			name,
+			parentPath,
+			signal,
+		).then((created) => {
+			setMailboxes((known) =>
+				known.some((mailbox) => mailbox.id === created.id)
+					? known
+					: [...known, created],
+			);
+			return created;
+		});
 
 	return (
 		<SelectionWizard
@@ -518,7 +532,7 @@ function WizardDriver({
 				},
 			}}
 			folder={{
-				mailboxes,
+				folders: mailboxes,
 				mailboxId,
 				onSelect: setMailboxId,
 				onCreateFolder: createFolder,

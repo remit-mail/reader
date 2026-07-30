@@ -3,10 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Banner } from "./banner.js";
 import { BottomSheet } from "./bottom-sheet.js";
 import { Button } from "./button.js";
-import {
-	type MoveMailboxOption,
-	MoveMailboxPicker,
-} from "./move-mailbox-picker.js";
+import { type FolderTreeNode, FolderTreePicker } from "./folder-tree-picker.js";
 import type { RescueCandidate } from "./rescue-candidate-row.js";
 import {
 	groupRescueCandidatesBySender,
@@ -23,7 +20,9 @@ export interface RescueFromSpamFlowProps {
 	/** Where the move lands unless the user picks another folder. */
 	defaultDestinationId: string;
 	/** Folders the user can send the rescued mail to. */
-	availableFolders: MoveMailboxOption[];
+	availableFolders: FolderTreeNode[];
+	/** The account's hierarchy separator, which the tree nests on. */
+	delimiter?: string;
 	/** Run the move. The flow shows the done state right after. */
 	onConfirmMove: (messageIds: string[], destinationId: string) => void;
 	/** Close the sheet without moving anything. */
@@ -42,7 +41,7 @@ export const rescueMoveConsequence = (
 ): string =>
 	`Moves ${count === 1 ? "this message" : `these ${count} ${plural(count)}`} out of Spam to ${destinationLabel} now. Nothing later.`;
 
-const folderLabel = (folders: MoveMailboxOption[], id: string): string =>
+const folderLabel = (folders: FolderTreeNode[], id: string): string =>
 	folders.find((f) => f.id === id)?.label ?? "Inbox";
 
 function ExplainWhy() {
@@ -157,13 +156,15 @@ function ReviewStep({
 function DestinationStep({
 	count,
 	folders,
+	delimiter,
 	destination,
 	onPick,
 	onMove,
 	onBack,
 }: {
 	count: number;
-	folders: MoveMailboxOption[];
+	folders: FolderTreeNode[];
+	delimiter?: string;
 	destination: string;
 	onPick: (id: string) => void;
 	onMove: () => void;
@@ -180,12 +181,13 @@ function DestinationStep({
 				</p>
 			</div>
 
-			<div className="min-h-0 flex-1 overflow-y-auto px-row-inset py-2">
+			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-row-inset py-2">
 				{picking ? (
-					<div className="overflow-hidden rounded-xl border border-line bg-surface">
-						<MoveMailboxPicker
-							mailboxes={folders}
-							autoFocus
+					<div className="flex min-h-0 flex-1 overflow-hidden rounded-xl border border-line bg-surface">
+						<FolderTreePicker
+							folders={folders}
+							selectedId={destination}
+							delimiter={delimiter}
 							onSelect={(id) => {
 								onPick(id);
 								setPicking(false);
@@ -277,6 +279,7 @@ export function RescueFromSpamFlow({
 	candidates,
 	defaultDestinationId,
 	availableFolders,
+	delimiter,
 	onConfirmMove,
 	onCancel,
 }: RescueFromSpamFlowProps) {
@@ -345,6 +348,7 @@ export function RescueFromSpamFlow({
 				<DestinationStep
 					count={selectedCount}
 					folders={availableFolders}
+					delimiter={delimiter}
 					destination={destination}
 					onPick={setDestination}
 					onMove={move}

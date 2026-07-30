@@ -1,6 +1,5 @@
 import { mailboxOperationsListMailboxesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import {
-	type MoveMailboxOption,
 	RescueBanner,
 	type RescueCandidate,
 	RescueFromSpamFlow,
@@ -19,7 +18,11 @@ import {
 	useInboxMailbox,
 } from "@/hooks/useArchiveMailbox";
 import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
-import { buildMoveOptions } from "@/lib/move-options";
+import {
+	buildMoveOptions,
+	folderDelimiter,
+	type MoveDestination,
+} from "@/lib/move-options";
 import {
 	recordRescueCandidatesSurfaced,
 	recordRescueCommitted,
@@ -60,7 +63,7 @@ export function SpamRescue({
 		staleTime: Infinity,
 	});
 
-	const folders = useMemo<MoveMailboxOption[]>(
+	const folders = useMemo<MoveDestination[]>(
 		() =>
 			buildMoveOptions({
 				mailboxes: mailboxesResponse?.items ?? [],
@@ -117,6 +120,7 @@ export function SpamRescue({
 				candidates={candidates}
 				defaultDestinationId={defaultDestinationId}
 				availableFolders={folders}
+				delimiter={folderDelimiter(mailboxesResponse?.items ?? [])}
 				onConfirmMove={handleConfirmMove}
 				onCancel={() => setOpen(false)}
 			/>

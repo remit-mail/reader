@@ -125,7 +125,7 @@ test.describe("Spam rescue", () => {
 			.getByRole("button", { name: "Move this message", exact: true })
 			.click();
 		await page
-			.getByRole("option", { name: "Move to Inbox", exact: true })
+			.getByRole("treeitem", { name: "Move to Inbox", exact: true })
 			.click();
 
 		// The failure this spec exists for was loud in exactly two places: an

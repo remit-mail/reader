@@ -69,11 +69,8 @@ import {
 	scopeLabel,
 } from "./filter-rule.js";
 import type { ClauseEditState } from "./filter-rule-editor.js";
+import { type FolderTreeNode, FolderTreePicker } from "./folder-tree-picker.js";
 import { Input } from "./input.js";
-import {
-	type MoveMailboxOption,
-	MoveMailboxPicker,
-} from "./move-mailbox-picker.js";
 import { ProgressBar } from "./progress-bar.js";
 import type { SearchConversionNotice } from "./search-conversion.js";
 import { SearchConversionNoticeView } from "./search-conversion-notice.js";
@@ -651,7 +648,7 @@ export interface FolderStepProps {
 	 * (`buildMoveTargets`). The wizard does not reorder them: a second ordering
 	 * beside the one the Move picker already applies would fight it.
 	 */
-	mailboxes: readonly MoveMailboxOption[];
+	folders: readonly FolderTreeNode[];
 	/** The destination chosen so far. */
 	mailboxId?: string;
 	onSelect: (mailboxId: string) => void;
@@ -664,8 +661,11 @@ export interface FolderStepProps {
 	 */
 	onCreateFolder?: (
 		name: string,
+		parentPath: string,
 		signal?: AbortSignal,
-	) => Promise<MoveMailboxOption>;
+	) => Promise<FolderTreeNode>;
+	/** The account's hierarchy separator, which the tree nests on. */
+	delimiter?: string;
 	/**
 	 * Why there is no folder list to choose from — a selection spanning accounts
 	 * has no single account whose folders these could be (#477 5.5). Said here
@@ -675,13 +675,14 @@ export interface FolderStepProps {
 }
 
 export function FolderStepBody({
-	mailboxes,
+	folders,
 	mailboxId,
 	onSelect,
 	onCreateFolder,
+	delimiter,
 	restriction,
 }: FolderStepProps) {
-	const chosen = mailboxes.find((mailbox) => mailbox.id === mailboxId);
+	const chosen = folders.find((folder) => folder.id === mailboxId);
 	return (
 		<div className="flex min-h-0 flex-col gap-3">
 			<p
@@ -693,17 +694,16 @@ export function FolderStepBody({
 				{restriction ??
 					(chosen
 						? `Moving to ${chosen.label}.`
-						: "Search for a folder, or type a name that doesn't exist yet to make one.")}
+						: "Tap a folder to open it, or make a new one where you want it.")}
 			</p>
-			<div className="overflow-hidden rounded-lg border border-line bg-surface">
-				<MoveMailboxPicker
-					mailboxes={mailboxes}
+			<div className="flex min-h-0 flex-1 overflow-hidden rounded-lg border border-line bg-surface">
+				<FolderTreePicker
+					folders={folders}
+					selectedId={mailboxId}
 					onSelect={onSelect}
 					onCreateFolder={onCreateFolder}
-					autoFocus
+					delimiter={delimiter}
 					labels={{
-						searchPlaceholder: "Move to…",
-						optionLabel: (label) => `Move to ${label}`,
 						createPending: "Waiting for the mail server to confirm the folder…",
 					}}
 				/>

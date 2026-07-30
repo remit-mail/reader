@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import type { MoveMailboxOption } from "./move-mailbox-picker.js";
+import type { FolderTreeNode } from "./folder-tree-picker.js";
 import type { RescueCandidate } from "./rescue-candidate-row.js";
 import {
 	RescueFromSpamFlow,
@@ -34,9 +34,9 @@ const candidates: RescueCandidate[] = [
 	},
 ];
 
-const folders: MoveMailboxOption[] = [
-	{ id: "inbox", label: "Inbox" },
-	{ id: "spam", label: "Spam", isCurrent: true },
+const folders: FolderTreeNode[] = [
+	{ id: "inbox", label: "Inbox", path: "INBOX" },
+	{ id: "spam", label: "Spam", path: "Junk", isCurrent: true },
 ];
 
 const renderFlow = (open: boolean): string =>

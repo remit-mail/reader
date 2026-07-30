@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { Button } from "./button.js";
-import type { MoveMailboxOption } from "./move-mailbox-picker.js";
+import type { FolderTreeNode } from "./folder-tree-picker.js";
 import type { RescueCandidate } from "./rescue-candidate-row.js";
 import { RescueFromSpamFlow } from "./rescue-from-spam-flow.js";
 
@@ -54,12 +54,14 @@ const CANDIDATES: RescueCandidate[] = [
 	},
 ];
 
-const FOLDERS: MoveMailboxOption[] = [
-	{ id: "inbox", label: "Inbox" },
-	{ id: "spam", label: "Spam", isCurrent: true },
-	{ id: "receipts", label: "Receipts" },
-	{ id: "family", label: "Family" },
-	{ id: "work", label: "Work", searchValue: "work clients projects" },
+const FOLDERS: FolderTreeNode[] = [
+	{ id: "inbox", label: "Inbox", path: "INBOX" },
+	{ id: "spam", label: "Spam", path: "Junk", isCurrent: true },
+	{ id: "receipts", label: "Receipts", path: "Receipts" },
+	{ id: "family", label: "Family", path: "Family" },
+	{ id: "work", label: "Work", path: "Work" },
+	{ id: "work-clients", label: "Clients", path: "Work/Clients" },
+	{ id: "work-projects", label: "Projects", path: "Work/Projects" },
 ];
 
 function Demo() {

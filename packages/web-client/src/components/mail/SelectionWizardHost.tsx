@@ -10,7 +10,6 @@ import {
 	type MatchCount,
 	type MatchDoor,
 	type MatchMode,
-	type MoveMailboxOption,
 	type RuleClause,
 	type RunState,
 	type SearchConversion,
@@ -50,7 +49,11 @@ import { useSelectedSubjects } from "@/hooks/useSelectedSubjects";
 import type { BulkActionProgress, BulkRunOutcome } from "@/lib/bulk-actions";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
-import { buildMoveOptions } from "@/lib/move-options";
+import {
+	buildMoveOptions,
+	folderDelimiter,
+	type MoveDestination,
+} from "@/lib/move-options";
 import {
 	buildWizardDraft,
 	canBackApplyDraft,
@@ -388,7 +391,7 @@ function SelectionWizardSession({
 	});
 	const folderAppointments = useFolderAppointments(accountId);
 	const translator = useFolderLabelTranslator();
-	const mailboxes = useMemo<MoveMailboxOption[]>(
+	const mailboxes = useMemo<MoveDestination[]>(
 		() =>
 			buildMoveOptions({
 				mailboxes: mailboxesData?.items ?? [],
@@ -398,7 +401,7 @@ function SelectionWizardSession({
 			}),
 		[mailboxesData?.items, folderAppointments, mailboxId, translator],
 	);
-	const { createFolder } = useCreateMailbox(accountId);
+	const { createFolderIn } = useCreateMailbox(accountId);
 
 	const folderLabel = mailboxes.find(
 		(mailbox) => mailbox.id === draft.moveMailboxId,
@@ -946,11 +949,12 @@ function SelectionWizardSession({
 				sample: { ...sample, label: "What this matches" },
 			}}
 			folder={{
-				mailboxes,
+				folders: mailboxes,
 				mailboxId: named.moveMailboxId,
+				delimiter: folderDelimiter(mailboxesData?.items ?? []),
 				onSelect: (moveMailboxId) =>
 					setDraft((held) => ({ ...held, moveMailboxId })),
-				onCreateFolder: accountId ? createFolder : undefined,
+				onCreateFolder: accountId ? createFolderIn : undefined,
 				restriction: folderRestriction,
 			}}
 			rule={{

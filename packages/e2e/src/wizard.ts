@@ -43,9 +43,22 @@ export const expectNoBlockedReason = async (
 	await expect(announcedReason(page, reason)).toHaveCount(0);
 };
 
-/** Pick a destination on the folder step. */
+/** Pick a destination on the folder step's tree. */
 export const pickFolder = async (page: Page, label: string): Promise<void> => {
-	await page.getByRole("option", { name: `Move to ${label}` }).click();
+	await page.getByRole("treeitem", { name: `Move to ${label}` }).click();
+};
+
+/**
+ * Make a folder from a picker and take it as the destination. The name is typed
+ * into the form the "New folder" row opens, not into the filter box.
+ */
+export const createFolderInPicker = async (
+	page: Page,
+	name: string,
+): Promise<void> => {
+	await page.getByRole("button", { name: "New folder", exact: true }).click();
+	await page.getByLabel("Folder name").fill(name);
+	await page.getByRole("button", { name: "Create folder" }).click();
 };
 
 /** The review screen's commit control, named for what it commits. */

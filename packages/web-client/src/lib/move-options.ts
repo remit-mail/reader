@@ -2,7 +2,7 @@ import type {
 	RemitImapFolderAppointment,
 	RemitImapMailboxResponse,
 } from "@remit/api-http-client/types.gen.ts";
-import type { MoveMailboxOption } from "@remit/ui";
+import type { FolderTreeNode, MoveMailboxOption } from "@remit/ui";
 import { excludeFolder } from "./delete-folder.js";
 import { buildMailboxRoleMap, labelForMailbox } from "./folder-roles.js";
 import { buildMoveTargets } from "./move-targets.js";
@@ -20,10 +20,25 @@ interface MoveOptionsInput {
 }
 
 /**
+ * A destination as both pickers read it: the tree nests and filters on `path`,
+ * the flat list matches on `searchValue`.
+ */
+export type MoveDestination = MoveMailboxOption & FolderTreeNode;
+
+/**
+ * The account's hierarchy separator, which the tree splits paths on. Every
+ * mailbox of an account reports the same one, so the first is the account's.
+ */
+export const folderDelimiter = (
+	mailboxes: readonly RemitImapMailboxResponse[],
+): string => mailboxes[0]?.hierarchyDelimiter ?? "/";
+
+/**
  * The single shaping of a mailbox list into Move-to picker options. Labels
  * follow the account's role appointments (RFC 032, #976) and any
  * `displayNameOverride`, so a picker reads `Inbox`/`Trash` rather than the
- * provider's leaf; the full path stays searchable.
+ * provider's leaf, while the provider path it nests and filters under stays
+ * untouched.
  */
 export const buildMoveOptions = ({
 	mailboxes,
@@ -31,7 +46,7 @@ export const buildMoveOptions = ({
 	currentMailboxId,
 	excludeMailboxId,
 	translator,
-}: MoveOptionsInput): MoveMailboxOption[] => {
+}: MoveOptionsInput): MoveDestination[] => {
 	const targets = buildMoveTargets(mailboxes, folderAppointments);
 	const roleMap = buildMailboxRoleMap(folderAppointments);
 	const destinations = excludeMailboxId
@@ -40,6 +55,7 @@ export const buildMoveOptions = ({
 	return destinations.map((mailbox) => ({
 		id: mailbox.mailboxId,
 		label: labelForMailbox(mailbox, roleMap.get(mailbox.mailboxId), translator),
+		path: mailbox.fullPath,
 		searchValue: mailbox.fullPath,
 		isCurrent: mailbox.mailboxId === currentMailboxId,
 	}));
