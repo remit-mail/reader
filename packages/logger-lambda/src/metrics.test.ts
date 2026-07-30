@@ -12,7 +12,6 @@ import {
 	recordImapFailure,
 	recordQueueEvent,
 	recordSmtpFailure,
-	registry,
 	renderMetrics,
 	resetMetrics,
 	setAccountSyncAges,
