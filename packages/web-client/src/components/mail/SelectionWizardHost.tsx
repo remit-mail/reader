@@ -41,16 +41,16 @@ import {
 	useEscalatedActions,
 } from "@/hooks/useEscalatedActions";
 import { useCreateFilter } from "@/hooks/useFilters";
+import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
 import { useMatchSample, useSearchMatchSample } from "@/hooks/useMatchSample";
 import { useOrganizeJob } from "@/hooks/useOrganizeJob";
 import { useOrganizeWiden } from "@/hooks/useOrganizeWiden";
 import { useRulePreview } from "@/hooks/useRulePreview";
 import { useSelectedSubjects } from "@/hooks/useSelectedSubjects";
 import type { BulkActionProgress, BulkRunOutcome } from "@/lib/bulk-actions";
-import { getMailboxDisplayName } from "@/lib/folder-roles";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
-import { buildMoveTargets } from "@/lib/move-targets";
+import { buildMoveOptions } from "@/lib/move-options";
 import {
 	buildWizardDraft,
 	canBackApplyDraft,
@@ -387,17 +387,16 @@ function SelectionWizardSession({
 		staleTime: Number.POSITIVE_INFINITY,
 	});
 	const folderAppointments = useFolderAppointments(accountId);
+	const translator = useFolderLabelTranslator();
 	const mailboxes = useMemo<MoveMailboxOption[]>(
 		() =>
-			buildMoveTargets(mailboxesData?.items ?? [], folderAppointments).map(
-				(mailbox) => ({
-					id: mailbox.mailboxId,
-					label: getMailboxDisplayName(mailbox.fullPath),
-					searchValue: mailbox.fullPath,
-					isCurrent: mailbox.mailboxId === mailboxId,
-				}),
-			),
-		[mailboxesData?.items, folderAppointments, mailboxId],
+			buildMoveOptions({
+				mailboxes: mailboxesData?.items ?? [],
+				folderAppointments,
+				currentMailboxId: mailboxId,
+				translator,
+			}),
+		[mailboxesData?.items, folderAppointments, mailboxId, translator],
 	);
 	const { createFolder } = useCreateMailbox(accountId);
 

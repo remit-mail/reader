@@ -13,13 +13,10 @@ import { AlertTriangle, FolderInput, Loader2, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useDeleteFolder } from "@/hooks/useDeleteFolder";
-import {
-	excludeFolder,
-	initialStage,
-	moveProgressLabel,
-} from "@/lib/delete-folder";
+import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
+import { initialStage, moveProgressLabel } from "@/lib/delete-folder";
 import { getMailboxDisplayName } from "@/lib/folder-roles";
-import { buildMoveTargets } from "@/lib/move-targets";
+import { buildMoveOptions } from "@/lib/move-options";
 
 interface DeleteFolderDialogProps {
 	open: boolean;
@@ -61,6 +58,7 @@ export function DeleteFolderDialog({
 		initialStage(folder.messageCount),
 	);
 	const { createFolder } = useCreateMailbox(accountId);
+	const translator = useFolderLabelTranslator();
 	const {
 		phase,
 		progress,
@@ -90,15 +88,13 @@ export function DeleteFolderDialog({
 
 	const destinations = useMemo<MoveMailboxOption[]>(
 		() =>
-			excludeFolder(
-				buildMoveTargets(mailboxes, appointments),
-				folder.mailboxId,
-			).map((mailbox) => ({
-				id: mailbox.mailboxId,
-				label: getMailboxDisplayName(mailbox.fullPath),
-				searchValue: mailbox.fullPath,
-			})),
-		[mailboxes, appointments, folder.mailboxId],
+			buildMoveOptions({
+				mailboxes,
+				folderAppointments: appointments,
+				excludeMailboxId: folder.mailboxId,
+				translator,
+			}),
+		[mailboxes, appointments, folder.mailboxId, translator],
 	);
 
 	const handleCreateFolder = async (

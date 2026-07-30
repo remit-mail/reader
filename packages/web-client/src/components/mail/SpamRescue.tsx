@@ -14,13 +14,12 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useTranslation } from "react-i18next";
 import {
 	useFolderAppointments,
 	useInboxMailbox,
 } from "@/hooks/useArchiveMailbox";
-import { buildMailboxRoleMap, labelForMailbox } from "@/lib/folder-roles";
-import { buildMoveTargets } from "@/lib/move-targets";
+import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
+import { buildMoveOptions } from "@/lib/move-options";
 import {
 	recordRescueCandidatesSurfaced,
 	recordRescueCommitted,
@@ -51,12 +50,7 @@ export function SpamRescue({
 }: SpamRescueProps) {
 	const [open, setOpen] = useState(false);
 	const telemetry = useTelemetry();
-	const { t } = useTranslation("mail", { useSuspense: false });
-	const translator = useCallback(
-		(key: string, fallback: string): string =>
-			t(key, { defaultValue: fallback }),
-		[t],
-	);
+	const translator = useFolderLabelTranslator();
 
 	const { inboxMailboxId } = useInboxMailbox(accountId);
 	const folderAppointments = useFolderAppointments(accountId);
@@ -66,28 +60,21 @@ export function SpamRescue({
 		staleTime: Infinity,
 	});
 
-	const folders = useMemo<MoveMailboxOption[]>(() => {
-		const targets = buildMoveTargets(
-			mailboxesResponse?.items ?? [],
-			folderAppointments,
-		);
-		const roleMap = buildMailboxRoleMap(folderAppointments);
-		return targets.map((mailbox) => ({
-			id: mailbox.mailboxId,
-			label: labelForMailbox(
-				mailbox,
-				roleMap.get(mailbox.mailboxId),
+	const folders = useMemo<MoveMailboxOption[]>(
+		() =>
+			buildMoveOptions({
+				mailboxes: mailboxesResponse?.items ?? [],
+				folderAppointments,
+				currentMailboxId,
 				translator,
-			),
-			searchValue: mailbox.fullPath,
-			isCurrent: mailbox.mailboxId === currentMailboxId,
-		}));
-	}, [
-		mailboxesResponse?.items,
-		folderAppointments,
-		currentMailboxId,
-		translator,
-	]);
+			}),
+		[
+			mailboxesResponse?.items,
+			folderAppointments,
+			currentMailboxId,
+			translator,
+		],
+	);
 
 	const defaultDestinationId = useMemo(() => {
 		if (inboxMailboxId) return inboxMailboxId;
