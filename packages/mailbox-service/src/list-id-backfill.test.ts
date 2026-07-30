@@ -24,6 +24,7 @@ import type { StorageService } from "@remit/storage-service";
 import {
 	backfillListIds,
 	type ListIdBackfillCheckpoint,
+	type ListIdBackfillCheckpointStore,
 	type ListIdBackfillProgress,
 } from "./list-id-backfill.js";
 
@@ -98,6 +99,22 @@ const message = (overrides: Partial<MessageItem>): MessageItem =>
 		updatedAt: 1,
 		...overrides,
 	}) as unknown as MessageItem;
+
+const asAccount = (accountConfigId: string): AccountConfigItem =>
+	({ accountConfigId }) as unknown as AccountConfigItem;
+
+const inMemoryCheckpointStore = (): ListIdBackfillCheckpointStore => {
+	let checkpoint: ListIdBackfillCheckpoint | undefined;
+	return {
+		load: async () => checkpoint,
+		save: async (next) => {
+			checkpoint = next;
+		},
+		clear: async () => {
+			checkpoint = undefined;
+		},
+	};
+};
 
 interface Harness {
 	accountConfigService: Pick<IAccountConfigRepository, "listAll">;
@@ -351,6 +368,37 @@ describe("backfillListIds", () => {
 		assert.equal(harness.updates.length, 2);
 	});
 
+	it("scans accounts in account-id order, whatever order listAll returns", async () => {
+		const accountIds = ["acc-1", "acc-2", "acc-3"];
+		const rows = accountIds.map((accountConfigId) =>
+			row({
+				threadMessageId: `tm-${accountConfigId}`,
+				messageId: `m-${accountConfigId}`,
+				accountConfigId,
+			}),
+		);
+		const harness = buildHarness({
+			accounts: ["acc-3", "acc-1", "acc-2"].map(asAccount),
+			rows,
+			messages: rows.map((r) =>
+				message({
+					messageId: r.messageId,
+					bodyStorageKey: `s3://${r.messageId}`,
+				}),
+			),
+		});
+		const progress: ListIdBackfillProgress[] = [];
+
+		await backfillListIds(harness, {
+			onProgress: (p) => progress.push({ ...p }),
+		});
+
+		assert.deepEqual(
+			progress.map((p) => p.accountConfigId),
+			accountIds,
+		);
+	});
+
 	it("checkpoints after each page and clears it on completion", async () => {
 		const rows = Array.from({ length: 3 }, (_, i) =>
 			row({ threadMessageId: `tm-${i}`, messageId: `m-${i}` }),
@@ -380,6 +428,7 @@ describe("backfillListIds", () => {
 		});
 
 		assert.equal(saved.length, 2);
+		assert.equal(saved[0].accountConfigId, "acc-1");
 		assert.equal(saved[0].continuationToken, "2");
 		assert.equal(saved[1].continuationToken, undefined);
 		assert.equal(cleared, true);
@@ -400,7 +449,10 @@ describe("backfillListIds", () => {
 		const result = await backfillListIds(harness, {
 			batchSize: 2,
 			checkpointStore: {
-				load: async () => ({ accountIndex: 0, continuationToken: "2" }),
+				load: async () => ({
+					accountConfigId: "acc-1",
+					continuationToken: "2",
+				}),
 				save: async () => {},
 				clear: async () => {},
 			},
@@ -411,6 +463,111 @@ describe("backfillListIds", () => {
 		assert.deepEqual(
 			harness.updates.map((u) => u.threadMessageId),
 			["tm-2"],
+		);
+	});
+
+	it("resumes the account it was working through after an earlier account is removed", async () => {
+		const accountIds = ["acc-1", "acc-2", "acc-3"];
+		const rows = [
+			row({
+				threadMessageId: "tm-1",
+				messageId: "m-1",
+				accountConfigId: "acc-1",
+			}),
+			row({
+				threadMessageId: "tm-2a",
+				messageId: "m-2a",
+				accountConfigId: "acc-2",
+			}),
+			row({
+				threadMessageId: "tm-2b",
+				messageId: "m-2b",
+				accountConfigId: "acc-2",
+			}),
+			row({
+				threadMessageId: "tm-3",
+				messageId: "m-3",
+				accountConfigId: "acc-3",
+			}),
+		];
+		const messages = rows.map((r) =>
+			message({
+				messageId: r.messageId,
+				bodyStorageKey: `s3://${r.messageId}`,
+			}),
+		);
+
+		const store = inMemoryCheckpointStore();
+
+		const interrupted = buildHarness({
+			accounts: accountIds.map(asAccount),
+			rows,
+			messages,
+			pageSize: 1,
+		});
+		const listByAccount = interrupted.threadMessageService.listByAccount;
+		interrupted.threadMessageService.listByAccount = async (
+			accountConfigId,
+			opts,
+		) => {
+			if (accountConfigId === "acc-2" && opts?.continuationToken) {
+				throw new Error("interrupted");
+			}
+			return listByAccount(accountConfigId, opts);
+		};
+
+		await assert.rejects(
+			backfillListIds(interrupted, { batchSize: 1, checkpointStore: store }),
+			/interrupted/,
+		);
+
+		const resumed = buildHarness({
+			accounts: ["acc-2", "acc-3"].map(asAccount),
+			rows,
+			messages,
+			pageSize: 1,
+		});
+
+		const result = await backfillListIds(resumed, {
+			batchSize: 1,
+			checkpointStore: store,
+		});
+
+		assert.deepEqual(
+			resumed.updates.map((u) => u.threadMessageId),
+			["tm-2b", "tm-3"],
+		);
+		assert.equal(result.backfilled, 2);
+	});
+
+	it("restarts the pass when the checkpointed account no longer exists", async () => {
+		const rows = Array.from({ length: 3 }, (_, i) =>
+			row({ threadMessageId: `tm-${i}`, messageId: `m-${i}` }),
+		);
+		const messages = rows.map((r) =>
+			message({
+				messageId: r.messageId,
+				bodyStorageKey: `s3://${r.messageId}`,
+			}),
+		);
+		const harness = buildHarness({ rows, messages, pageSize: 2 });
+
+		const result = await backfillListIds(harness, {
+			batchSize: 2,
+			checkpointStore: {
+				load: async () => ({
+					accountConfigId: "acc-removed",
+					continuationToken: "2",
+				}),
+				save: async () => {},
+				clear: async () => {},
+			},
+		});
+
+		assert.equal(result.scanned, 3);
+		assert.deepEqual(
+			harness.updates.map((u) => u.threadMessageId),
+			["tm-0", "tm-1", "tm-2"],
 		);
 	});
 });

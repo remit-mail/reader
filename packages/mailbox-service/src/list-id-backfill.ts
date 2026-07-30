@@ -11,14 +11,14 @@ import { extractListId } from "./filters/list-id.js";
 const DEFAULT_BATCH_SIZE = 200;
 
 /**
- * Where the full-corpus pass left off: the index into the account list (in
- * `listAll()` order) it was working through, and the page cursor within that
- * account. Resuming skips every account before it entirely and re-opens the
- * in-flight one at its saved cursor, rather than re-scanning the whole corpus
- * from the top after an interruption.
+ * Where the full-corpus pass left off: the identity of the account it was
+ * working through, and the page cursor within that account. Resuming looks the
+ * account up by id and re-opens it at its saved cursor, rather than re-scanning
+ * the whole corpus from the top after an interruption. A checkpoint naming no
+ * configured account restarts the pass.
  */
 export interface ListIdBackfillCheckpoint {
-	accountIndex: number;
+	accountConfigId: string;
 	continuationToken?: string;
 }
 
@@ -138,7 +138,8 @@ const deriveAndApplyListId = async (
  * sync path will populate `listId` for it once the body lands.
  *
  * Chunked by `listByAccount`'s existing keyset pagination, one account at a
- * time in `listAll()` order. A failure reading or parsing one message's
+ * time in account-id order, so an interrupted run and its resume walk the same
+ * sequence. A failure reading or parsing one message's
  * stored body is contained to that message — logged, counted, and the pass
  * continues — the same containment `BodySyncService`'s classification
  * backfill uses for the same reason: one unreadable object must not strand
@@ -151,9 +152,29 @@ export const backfillListIds = async (
 	const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
 	const { logger, checkpointStore } = options;
 
-	const accounts = await deps.accountConfigService.listAll();
+	const accounts = [...(await deps.accountConfigService.listAll())].sort(
+		(left, right) => left.accountConfigId.localeCompare(right.accountConfigId),
+	);
 	const startingCheckpoint = await checkpointStore?.load();
-	const startIndex = startingCheckpoint?.accountIndex ?? 0;
+	const checkpointedIndex = startingCheckpoint
+		? accounts.findIndex(
+				(account) =>
+					account.accountConfigId === startingCheckpoint.accountConfigId,
+			)
+		: -1;
+
+	if (startingCheckpoint && checkpointedIndex === -1) {
+		logger?.info(
+			{ accountConfigId: startingCheckpoint.accountConfigId },
+			"ListId backfill checkpoint names no configured account; restarting the pass",
+		);
+	}
+
+	const startIndex = checkpointedIndex === -1 ? 0 : checkpointedIndex;
+	const startContinuationToken =
+		checkpointedIndex === -1
+			? undefined
+			: startingCheckpoint?.continuationToken;
 
 	const totals = emptyTotals();
 	const failedThreadMessageIds: string[] = [];
@@ -165,9 +186,7 @@ export const backfillListIds = async (
 	) {
 		const account = accounts[accountIndex];
 		let continuationToken: string | undefined =
-			accountIndex === startIndex
-				? startingCheckpoint?.continuationToken
-				: undefined;
+			accountIndex === startIndex ? startContinuationToken : undefined;
 
 		do {
 			const page = await deps.threadMessageService.listByAccount(
@@ -231,7 +250,7 @@ export const backfillListIds = async (
 
 			continuationToken = page.continuationToken;
 			await checkpointStore?.save({
-				accountIndex,
+				accountConfigId: account.accountConfigId,
 				continuationToken,
 			});
 
