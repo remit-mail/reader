@@ -3,12 +3,16 @@ import {
 	mailboxOperationsListMailboxesOptions,
 	mailboxOperationsListMailboxesQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import type { FolderOption } from "@remit/ui";
+import type { FolderTreeNode } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef } from "react";
 import { getMailboxDisplayName } from "@/lib/folder-roles";
 import { waitForMailboxSynced } from "@/lib/mailbox-sync-wait";
-import { composeFolderPath, validateNewFolderName } from "@/lib/new-folder";
+import {
+	composeFolderPath,
+	type FolderTarget,
+	validateNewFolderName,
+} from "@/lib/new-folder";
 
 /**
  * Creates a mailbox for an account and refreshes the folder list on success.
@@ -37,8 +41,12 @@ import { composeFolderPath, validateNewFolderName } from "@/lib/new-folder";
  * `createFolder` takes an `AbortSignal` the surface aborts on unmount/cancel/
  * close, so a folder that confirms after the surface is gone resolves nothing.
  *
+ * `createFolderIn` is the same seam for a folder made inside another one: the
+ * parent is named by its provider path, and the name is joined to it with that
+ * parent's own hierarchy delimiter. `createFolder` is it with no parent.
+ *
  * `mutation` is exposed for callers that drive their own form state and want the
- * optimistic, non-waiting create (the standalone settings create).
+ * optimistic, non-waiting create.
  */
 export function useCreateMailbox(accountId: string | undefined) {
 	const queryClient = useQueryClient();
@@ -69,21 +77,41 @@ export function useCreateMailbox(accountId: string | undefined) {
 	// resumes the wait on it instead of re-creating. Cleared once it confirms.
 	const pendingByPath = useRef(new Map<string, string>());
 
-	const createFolder = useCallback(
-		async (name: string, signal?: AbortSignal): Promise<FolderOption> => {
+	const createFolderIn = useCallback(
+		async (
+			name: string,
+			parentPath: string,
+			signal?: AbortSignal,
+		): Promise<FolderTreeNode> => {
 			if (!accountId) {
 				throw new Error(
 					"No account to create the folder in. Pick messages from a single account first.",
 				);
 			}
-			const fullPath = composeFolderPath(name);
+			const items = data?.items ?? [];
+			const parentMailbox = parentPath
+				? items.find((item) => item.fullPath === parentPath)
+				: undefined;
+			if (parentPath && !parentMailbox) {
+				throw new Error(
+					`Couldn't find the folder "${parentPath}" to create this one inside.`,
+				);
+			}
+			const parent: FolderTarget | undefined = parentMailbox
+				? {
+						fullPath: parentMailbox.fullPath,
+						hierarchyDelimiter: parentMailbox.hierarchyDelimiter,
+					}
+				: undefined;
+			const fullPath = composeFolderPath(name, parent);
 			let mailboxId = pendingByPath.current.get(fullPath);
 			if (!mailboxId) {
-				const items = data?.items ?? [];
-				const delimiter = items[0]?.hierarchyDelimiter ?? "/";
+				const delimiter =
+					parent?.hierarchyDelimiter ?? items[0]?.hierarchyDelimiter ?? "/";
 				const problem = validateNewFolderName({
 					name,
 					delimiter,
+					parent,
 					existingPaths: items.map((item) => item.fullPath),
 				});
 				if (problem) throw new Error(problem);
@@ -109,10 +137,17 @@ export function useCreateMailbox(accountId: string | undefined) {
 			return {
 				id: confirmed.mailboxId,
 				label: getMailboxDisplayName(confirmed.fullPath),
+				path: confirmed.fullPath,
 			};
 		},
 		[mutation, accountId, data, queryClient],
 	);
 
-	return { createFolder, mutation };
+	const createFolder = useCallback(
+		(name: string, signal?: AbortSignal): Promise<FolderTreeNode> =>
+			createFolderIn(name, "", signal),
+		[createFolderIn],
+	);
+
+	return { createFolder, createFolderIn, mutation };
 }

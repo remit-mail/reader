@@ -5,8 +5,10 @@ import type {
 	RemitImapMailboxResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import i18next from "i18next";
 import React, { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { I18nextProvider, initReactI18next } from "react-i18next";
 import { DeleteFolderDialog } from "./DeleteFolderDialog";
 
 // remit-ui's `.tsx` is transpiled with the classic JSX runtime, which
@@ -47,6 +49,18 @@ const appointments: RemitImapFolderAppointment[] = [
 	{ role: "Inbox", mailboxId: "inbox" },
 	{ role: "Archive", mailboxId: "archive" },
 ];
+
+// The role labels the app resolves through i18n, so a folder appointed to a
+// role reads as that role rather than as the provider's own leaf.
+const i18n = i18next.createInstance();
+i18n.use(initReactI18next).init({
+	lng: "en",
+	ns: ["mail"],
+	defaultNS: "mail",
+	resources: {
+		en: { mail: { sidebar: { trash: "Trash", archive: "Archive" } } },
+	},
+});
 
 let container: HTMLElement;
 let root: Root;
@@ -98,20 +112,26 @@ const render = (props: {
 	open: boolean;
 	folder: RemitImapMailboxResponse;
 	onClose?: () => void;
+	folderAppointments?: RemitImapFolderAppointment[];
+	allMailboxes?: RemitImapMailboxResponse[];
 }) => {
 	act(() => {
 		root.render(
 			createElement(
-				QueryClientProvider,
-				{ client: new QueryClient() },
-				createElement(DeleteFolderDialog, {
-					open: props.open,
-					accountId: "acc-1",
-					folder: props.folder,
-					mailboxes,
-					appointments,
-					onClose: props.onClose ?? (() => undefined),
-				}),
+				I18nextProvider,
+				{ i18n },
+				createElement(
+					QueryClientProvider,
+					{ client: new QueryClient() },
+					createElement(DeleteFolderDialog, {
+						open: props.open,
+						accountId: "acc-1",
+						folder: props.folder,
+						mailboxes: props.allMailboxes ?? mailboxes,
+						appointments: props.folderAppointments ?? appointments,
+						onClose: props.onClose ?? (() => undefined),
+					}),
+				),
 			) as never,
 		);
 	});
@@ -158,6 +178,24 @@ describe("DeleteFolderDialog", () => {
 		assert.match(container.textContent ?? "", /What should happen to them/);
 	});
 
+	it("names the folder by its role, never by the provider's leaf", () => {
+		const trash = mailbox({
+			mailboxId: "trash",
+			fullPath: "Deleted Messages",
+		});
+		render({
+			open: true,
+			folder: trash,
+			allMailboxes: [...mailboxes, trash],
+			folderAppointments: [
+				...appointments,
+				{ role: "Trash", mailboxId: "trash" },
+			],
+		});
+		assert.match(container.textContent ?? "", /Delete Trash/);
+		assert.doesNotMatch(container.textContent ?? "", /Deleted Messages/);
+	});
+
 	it("offers a destination picker that excludes the folder being deleted", () => {
 		render({ open: true, folder: mailboxes[1] as RemitImapMailboxResponse });
 		act(() => buttonByText(/Move them to another folder/)?.click());
@@ -165,7 +203,7 @@ describe("DeleteFolderDialog", () => {
 			'input[aria-label="Filter folders"]',
 		);
 		assert.ok(search, "the move picker is shown");
-		const options = Array.from(container.querySelectorAll('[role="option"]'))
+		const options = Array.from(container.querySelectorAll('[role="treeitem"]'))
 			.map((o) => o.textContent ?? "")
 			.join("|");
 		assert.doesNotMatch(options, /Receipts/);

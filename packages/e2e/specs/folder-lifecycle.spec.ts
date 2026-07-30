@@ -204,7 +204,7 @@ const seedFolder = async (
 	);
 };
 
-/** Create a top-level folder through the Settings form and return its synced identity. */
+/** Create a top-level folder through the Settings tree and return its synced identity. */
 const createFolderFromSettings = async (
 	page: Page,
 	api: ApiClient,
@@ -216,10 +216,18 @@ const createFolderFromSettings = async (
 		page.getByRole("heading", { name: "Folder roles", exact: true }),
 	).toBeVisible({ timeout: 30_000 });
 
-	const nameField = page.getByRole("textbox", { name: "Folder name" }).first();
+	await expect(
+		page.getByRole("tree", { name: `All folders for ${run.imapUser}` }),
+	).toBeVisible({ timeout: 30_000 });
+	await page
+		.getByRole("button", { name: "New folder", exact: true })
+		.first()
+		.click();
+
+	const nameField = page.getByRole("textbox", { name: "Folder name" });
 	await expect(nameField).toBeVisible({ timeout: 20_000 });
 	await nameField.fill(name);
-	await page.getByRole("button", { name: "Create folder" }).first().click();
+	await page.getByRole("button", { name: "Create folder" }).click();
 
 	const created = await waitFor(
 		() => api.listMailboxes(run.accountId),
@@ -245,9 +253,8 @@ const createFolderFromSettings = async (
 
 const folderRow = (page: Page, email: string, name: string) =>
 	page
-		.getByRole("list", { name: `All folders for ${email}` })
-		.getByRole("listitem")
-		.filter({ hasText: name });
+		.getByRole("tree", { name: `All folders for ${email}` })
+		.getByRole("treeitem", { name });
 
 const openDeleteWizard = async (
 	page: Page,
@@ -255,9 +262,8 @@ const openDeleteWizard = async (
 	name: string,
 ): Promise<void> => {
 	await page.goto("/settings/folders");
-	const row = folderRow(page, email, name);
-	await expect(row).toBeVisible({ timeout: 30_000 });
-	await row.getByRole("button", { name: `Delete ${name}` }).click();
+	await expect(folderRow(page, email, name)).toBeVisible({ timeout: 30_000 });
+	await page.getByRole("button", { name: `Delete ${name}` }).click();
 };
 
 /**
@@ -290,7 +296,7 @@ const deleteFolderCompletely = async (
 	await page.goto("/settings/folders");
 	const row = folderRow(page, run.imapUser, name);
 	await expect(row).toBeVisible({ timeout: 30_000 });
-	await row.getByRole("button", { name: `Delete ${name}` }).click();
+	await page.getByRole("button", { name: `Delete ${name}` }).click();
 	const confirmEmpty = page.getByRole("button", {
 		name: "Delete folder",
 		exact: true,
@@ -360,10 +366,13 @@ test.describe("Folder lifecycle against the IMAP server", () => {
 			.getByRole("button", { name: /Move them to another folder/ })
 			.click();
 
-		const picker = page.getByRole("searchbox", { name: "Filter folders" });
+		// Scoped to the wizard: the settings tree behind it filters by the same name.
+		const picker = page
+			.getByRole("dialog")
+			.getByRole("searchbox", { name: "Filter folders" });
 		await expect(picker).toBeVisible({ timeout: 10_000 });
 		await picker.fill(destName);
-		await page.getByRole("option", { name: `Move to ${destName}` }).click();
+		await page.getByRole("treeitem", { name: `Move to ${destName}` }).click();
 
 		// The mail is in the destination — asked of the API, not the UI's optimism.
 		// Counted rather than subject-matched: the count is per-message where a

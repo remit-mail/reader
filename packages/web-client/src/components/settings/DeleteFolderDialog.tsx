@@ -6,8 +6,8 @@ import {
 	Banner,
 	Button,
 	Dialog,
-	type MoveMailboxOption,
-	MoveMailboxPicker,
+	type FolderTreeNode,
+	FolderTreePicker,
 } from "@remit/ui";
 import { AlertTriangle, FolderInput, Loader2, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -15,7 +15,7 @@ import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useDeleteFolder } from "@/hooks/useDeleteFolder";
 import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
 import { initialStage, moveProgressLabel } from "@/lib/delete-folder";
-import { getMailboxDisplayName } from "@/lib/folder-roles";
+import { buildMailboxRoleMap, labelForMailbox } from "@/lib/folder-roles";
 import { buildMoveOptions } from "@/lib/move-options";
 
 interface DeleteFolderDialogProps {
@@ -32,9 +32,6 @@ type FateStage =
 	| "choose-fate"
 	| "confirm-delete-all"
 	| "pick-destination";
-
-const folderLabel = (folder: RemitImapMailboxResponse): string =>
-	folder.displayNameOverride?.trim() || getMailboxDisplayName(folder.fullPath);
 
 const emailCount = (count: number): string =>
 	`${count} ${count === 1 ? "email" : "emails"}`;
@@ -57,7 +54,7 @@ export function DeleteFolderDialog({
 	const [stage, setStage] = useState<FateStage>(() =>
 		initialStage(folder.messageCount),
 	);
-	const { createFolder } = useCreateMailbox(accountId);
+	const { createFolderIn } = useCreateMailbox(accountId);
 	const translator = useFolderLabelTranslator();
 	const {
 		phase,
@@ -86,28 +83,36 @@ export function DeleteFolderDialog({
 		onClose();
 	}, [cancel, onClose]);
 
-	const destinations = useMemo<MoveMailboxOption[]>(
-		() =>
-			buildMoveOptions({
-				mailboxes,
-				folderAppointments: appointments,
-				excludeMailboxId: folder.mailboxId,
-				translator,
-			}),
-		[mailboxes, appointments, folder.mailboxId, translator],
-	);
+	// `buildMoveOptions` carries the label and the searchable path but not the
+	// provider path the tree nests by, so the path is joined back on by id here.
+	const destinations = useMemo<FolderTreeNode[]>(() => {
+		const pathById = new Map(
+			mailboxes.map((mailbox) => [mailbox.mailboxId, mailbox.fullPath]),
+		);
+		return buildMoveOptions({
+			mailboxes,
+			folderAppointments: appointments,
+			excludeMailboxId: folder.mailboxId,
+			translator,
+		}).map((option) => ({
+			id: option.id,
+			label: option.label,
+			path: pathById.get(option.id) ?? option.label,
+		}));
+	}, [mailboxes, appointments, folder.mailboxId, translator]);
 
-	const handleCreateFolder = async (
-		name: string,
-		signal?: AbortSignal,
-	): Promise<MoveMailboxOption> => {
-		const created = await createFolder(name, signal);
-		return { id: created.id, label: created.label };
-	};
+	const name = useMemo(
+		() =>
+			labelForMailbox(
+				folder,
+				buildMailboxRoleMap(appointments).get(folder.mailboxId),
+				translator,
+			),
+		[folder, appointments, translator],
+	);
 
 	if (!open) return null;
 
-	const name = folderLabel(folder);
 	const title = `Delete ${name}`;
 
 	const body = (() => {
@@ -262,24 +267,21 @@ export function DeleteFolderDialog({
 		}
 
 		return (
-			<div className="flex h-80 flex-col">
+			<div className="flex h-[26rem] flex-col">
 				<p className="px-5 pt-4 text-sm text-fg-muted">
 					Move the {emailCount(folder.messageCount)} in{" "}
 					<strong className="text-fg">{name}</strong> to:
 				</p>
-				<div className="min-h-0 flex-1 px-2 py-2">
-					<MoveMailboxPicker
-						mailboxes={destinations}
+				<div className="min-h-0 flex-1">
+					<FolderTreePicker
+						folders={destinations}
+						delimiter={mailboxes[0]?.hierarchyDelimiter ?? "/"}
 						onSelect={(destinationMailboxId) =>
 							moveThenDelete(destinationMailboxId)
 						}
-						onCreateFolder={handleCreateFolder}
+						onCreateFolder={createFolderIn}
 						onCancel={() => setStage("choose-fate")}
-						labels={{
-							searchPlaceholder: "Move emails to…",
-							optionLabel: (label) => `Move to ${label}`,
-							createLabel: (query) => `Create "${query}"`,
-						}}
+						labels={{ filterPlaceholder: "Move emails to…" }}
 					/>
 				</div>
 			</div>
