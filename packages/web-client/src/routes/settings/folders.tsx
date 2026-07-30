@@ -12,32 +12,28 @@ import type {
 } from "@remit/api-http-client/types.gen.ts";
 import {
 	Banner,
-	Button,
 	type CandidateFolder,
+	FolderManager,
+	FolderRenameDialog,
 	type FolderRole,
-	Input,
+	type ManagedFolder,
 	RoleAppointmentList,
-	Select,
 	SettingsShell,
 } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { DeleteFolderDialog } from "@/components/settings/DeleteFolderDialog";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
+import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
 import { guardFolderDeletion } from "@/lib/delete-folder";
 import {
+	buildMailboxRoleMap,
 	CANONICAL_TO_NAV_ROLE,
-	getMailboxDisplayName,
+	labelForMailbox,
 	NAV_ROLE_TO_CANONICAL,
 } from "@/lib/folder-roles";
-import {
-	composeFolderPath,
-	type FolderTarget,
-	validateNewFolderName,
-} from "@/lib/new-folder";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
 
 export const Route = createFileRoute("/settings/folders")({
@@ -58,139 +54,24 @@ const foldersHelp = (
 			compose flow).
 		</p>
 		<p>
-			<strong className="text-fg">Display name</strong> renames the appointed
-			folder for the sidebar. Leave it blank to use the role's canonical name.
+			<strong className="text-fg">Your folders</strong> is the account's real
+			hierarchy. Open a folder to see what's inside it, make a new one where
+			you're looking, and rename or delete any of them from its row.
 		</p>
 	</div>
 );
 
-/**
- * Create a folder for one account. A name, an optional parent to nest under,
- * and a create button. The new folder is queued on the server with a pending
- * sync and appears in the list below once it refetches.
- */
-function NewFolder({
-	accountId,
-	mailboxes,
-}: {
-	accountId: string;
-	mailboxes: RemitImapMailboxResponse[];
-}) {
-	const { mutation } = useCreateMailbox(accountId);
-	const [name, setName] = useState("");
-	const [parentId, setParentId] = useState("");
-	const [validationError, setValidationError] = useState<string>();
-
-	const accountDelimiter = mailboxes[0]?.hierarchyDelimiter ?? "/";
-	const parentMailbox = mailboxes.find((box) => box.mailboxId === parentId);
-	const parent: FolderTarget | undefined = parentMailbox
-		? {
-				fullPath: parentMailbox.fullPath,
-				hierarchyDelimiter: parentMailbox.hierarchyDelimiter,
-			}
-		: undefined;
-	const delimiter = parent?.hierarchyDelimiter ?? accountDelimiter;
-
-	const handleCreate = () => {
-		const problem = validateNewFolderName({
-			name,
-			delimiter,
-			parent,
-			existingPaths: mailboxes.map((box) => box.fullPath),
-		});
-		if (problem) {
-			setValidationError(problem);
-			return;
-		}
-		setValidationError(undefined);
-		mutation.mutate(
-			{
-				path: { accountId },
-				body: {
-					fullPath: composeFolderPath(name, parent),
-					namespaceType: "personal",
-				},
-			},
-			{
-				onSuccess: () => {
-					setName("");
-					setParentId("");
-				},
-			},
-		);
-	};
-
-	return (
-		<div className="space-y-2 rounded-sm border border-line bg-surface p-3">
-			<p className="text-sm font-medium text-fg">New folder</p>
-			<div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-				<div className="flex-1 space-y-1">
-					<span className="text-xs text-fg-muted">Name</span>
-					<Input
-						value={name}
-						onChange={(event) => {
-							setName(event.target.value);
-							if (validationError) setValidationError(undefined);
-						}}
-						placeholder="e.g. Receipts"
-						aria-label="Folder name"
-						onKeyDown={(event) => {
-							if (event.key === "Enter") {
-								event.preventDefault();
-								handleCreate();
-							}
-						}}
-					/>
-				</div>
-				<div className="flex-1 space-y-1">
-					<span className="text-xs text-fg-muted">Inside (optional)</span>
-					<Select
-						value={parentId}
-						onChange={(event) => setParentId(event.target.value)}
-						aria-label="Parent folder"
-					>
-						<option value="">No parent — top level</option>
-						{mailboxes.map((box) => (
-							<option key={box.mailboxId} value={box.mailboxId}>
-								{box.fullPath}
-							</option>
-						))}
-					</Select>
-				</div>
-				<Button
-					variant="primary"
-					onClick={handleCreate}
-					disabled={mutation.isPending || name.trim() === ""}
-				>
-					{mutation.isPending ? "Creating…" : "Create folder"}
-				</Button>
-			</div>
-			{validationError && (
-				<p className="text-xs text-danger" role="alert">
-					{validationError}
-				</p>
-			)}
-			{mutation.isError && (
-				<Banner tone="danger" variant="soft">
-					Couldn't create that folder. Please try again.
-				</Banner>
-			)}
-		</div>
-	);
-}
-
-/** One account's folder roles, fed to the kit list. Owns its own queries + mutations. */
-function AccountFolderRoles({
-	account,
-}: {
-	account: RemitImapAccountResponse;
-}) {
+/** One account's folder roles and its folder hierarchy. Owns its own queries + mutations. */
+function AccountFolders({ account }: { account: RemitImapAccountResponse }) {
 	const queryClient = useQueryClient();
 	const accountId = account.accountId;
+	const translator = useFolderLabelTranslator();
 
 	const { data, isPending, isError, error, refetch } = useQuery(
 		mailboxOperationsListMailboxesOptions({ path: { accountId } }),
 	);
+
+	const { createFolderIn } = useCreateMailbox(accountId);
 
 	const appointMutation = useMutation({
 		...folderRoleOperationsAppointFolderRoleMutation(),
@@ -213,6 +94,33 @@ function AccountFolderRoles({
 	});
 
 	const [deletingMailboxId, setDeletingMailboxId] = useState<string>();
+	const [renamingMailboxId, setRenamingMailboxId] = useState<string>();
+	const [renameDraft, setRenameDraft] = useState("");
+
+	const mailboxes = useMemo(() => data?.items ?? [], [data]);
+	const roleMap = useMemo(
+		() => buildMailboxRoleMap(account.folderAppointments),
+		[account.folderAppointments],
+	);
+
+	const folders = useMemo<ManagedFolder[]>(
+		() =>
+			mailboxes.map((mailbox) => ({
+				id: mailbox.mailboxId,
+				label: labelForMailbox(
+					mailbox,
+					roleMap.get(mailbox.mailboxId),
+					translator,
+				),
+				path: mailbox.fullPath,
+				deleteBlockedReason: guardFolderDeletion(
+					mailbox,
+					mailboxes,
+					account.folderAppointments,
+				).message,
+			})),
+		[mailboxes, roleMap, translator, account.folderAppointments],
+	);
 
 	const handleAppoint = (role: FolderRole, mailboxId: string | null) => {
 		appointMutation.mutate({
@@ -253,7 +161,7 @@ function AccountFolderRoles({
 		);
 	}
 
-	const folders: CandidateFolder[] = data.items.map((mailbox) => ({
+	const candidates: CandidateFolder[] = mailboxes.map((mailbox) => ({
 		mailboxId: mailbox.mailboxId,
 		providerPath: mailbox.fullPath,
 		messageCount: mailbox.messageCount,
@@ -266,14 +174,22 @@ function AccountFolderRoles({
 	}
 
 	const displayNames: Record<string, string> = {};
-	for (const mailbox of data.items) {
+	for (const mailbox of mailboxes) {
 		if (mailbox.displayNameOverride) {
 			displayNames[mailbox.mailboxId] = mailbox.displayNameOverride;
 		}
 	}
 
+	const findMailbox = (
+		mailboxId: string | undefined,
+	): RemitImapMailboxResponse | undefined =>
+		mailboxes.find((mailbox) => mailbox.mailboxId === mailboxId);
+
+	const renaming = findMailbox(renamingMailboxId);
+	const deleting = findMailbox(deletingMailboxId);
+
 	return (
-		<div className="space-y-2">
+		<div className="space-y-4">
 			{(appointMutation.isError || renameMutation.isError) && (
 				<Banner tone="danger" variant="soft">
 					Couldn't save that change. Please try again.
@@ -281,61 +197,78 @@ function AccountFolderRoles({
 			)}
 			<RoleAppointmentList
 				accountEmail={account.email}
-				folders={folders}
+				folders={candidates}
 				appointments={appointments}
 				displayNames={displayNames}
 				onAppoint={handleAppoint}
 				onRename={handleRename}
 			/>
-			<NewFolder accountId={accountId} mailboxes={data.items} />
-			<ul className="space-y-1" aria-label={`All folders for ${account.email}`}>
-				{data.items.map((mailbox) => {
-					const guard = guardFolderDeletion(
-						mailbox,
-						data.items,
-						account.folderAppointments,
-					);
-					const name = getMailboxDisplayName(mailbox.fullPath);
-					return (
-						<li
-							key={mailbox.mailboxId}
-							className="flex items-center gap-2 rounded-sm px-2 py-1 text-sm text-fg"
-						>
-							<span className="truncate">{name}</span>
-							<span className="ml-auto shrink-0 text-xs text-fg-muted">
-								{mailbox.fullPath}
-							</span>
-							<Button
-								variant="ghost"
-								size="sm"
-								icon={<Trash2 className="size-3.5" />}
-								aria-label={`Delete ${name}`}
-								disabled={!guard.deletable}
-								title={guard.deletable ? undefined : guard.message}
-								onClick={() => setDeletingMailboxId(mailbox.mailboxId)}
-								className={guard.deletable ? undefined : "opacity-40"}
-							/>
-						</li>
-					);
-				})}
-			</ul>
-			{deletingMailboxId &&
-				(() => {
-					const folder = data.items.find(
-						(box) => box.mailboxId === deletingMailboxId,
-					);
-					if (!folder) return null;
-					return (
-						<DeleteFolderDialog
-							open
-							accountId={accountId}
-							folder={folder}
-							mailboxes={data.items}
-							appointments={account.folderAppointments}
-							onClose={() => setDeletingMailboxId(undefined)}
-						/>
-					);
-				})()}
+			<section className="space-y-1.5">
+				<h3 className="text-sm font-semibold text-fg">
+					Your folders — {account.email}
+				</h3>
+				<div className="flex h-[28rem] flex-col overflow-hidden rounded-sm border border-line bg-surface">
+					<FolderManager
+						folders={folders}
+						delimiter={mailboxes[0]?.hierarchyDelimiter ?? "/"}
+						onCreateFolder={createFolderIn}
+						onRename={(folder) => {
+							setRenamingMailboxId(folder.id);
+							setRenameDraft(
+								findMailbox(folder.id)?.displayNameOverride?.trim() ?? "",
+							);
+						}}
+						onDelete={(folder) => setDeletingMailboxId(folder.id)}
+						labels={{ treeAriaLabel: `All folders for ${account.email}` }}
+					/>
+				</div>
+			</section>
+			{renaming && (
+				<FolderRenameDialog
+					open
+					folderLabel={labelForMailbox(
+						renaming,
+						roleMap.get(renaming.mailboxId),
+						translator,
+					)}
+					defaultLabel={labelForMailbox(
+						{ fullPath: renaming.fullPath },
+						roleMap.get(renaming.mailboxId),
+						translator,
+					)}
+					name={renameDraft}
+					onNameChange={setRenameDraft}
+					pending={renameMutation.isPending}
+					error={
+						renameMutation.isError
+							? "Couldn't save that name. Please try again."
+							: undefined
+					}
+					onSubmit={() => {
+						const trimmed = renameDraft.trim();
+						renameMutation.mutate(
+							{
+								path: { accountId, mailboxId: renaming.mailboxId },
+								body: {
+									displayNameOverride: trimmed === "" ? null : trimmed,
+								},
+							},
+							{ onSuccess: () => setRenamingMailboxId(undefined) },
+						);
+					}}
+					onClose={() => setRenamingMailboxId(undefined)}
+				/>
+			)}
+			{deleting && (
+				<DeleteFolderDialog
+					open
+					accountId={accountId}
+					folder={deleting}
+					mailboxes={mailboxes}
+					appointments={account.folderAppointments}
+					onClose={() => setDeletingMailboxId(undefined)}
+				/>
+			)}
 		</div>
 	);
 }
@@ -389,7 +322,7 @@ function FoldersSettings() {
 			) : (
 				<div className="space-y-8">
 					{config.accounts.map((account) => (
-						<AccountFolderRoles key={account.accountId} account={account} />
+						<AccountFolders key={account.accountId} account={account} />
 					))}
 				</div>
 			)}

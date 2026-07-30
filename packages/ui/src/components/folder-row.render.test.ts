@@ -74,6 +74,13 @@ describe("FolderRow", () => {
 		assert.doesNotMatch(render({ depth: 1 }), /left:74px/);
 	});
 
+	it("keeps its actions beside the tree item rather than inside it", () => {
+		const html = render({
+			actions: createElement("button", { type: "button" }, "Delete"),
+		});
+		assert.ok(html.indexOf(">Delete<") > html.indexOf("</button>"));
+	});
+
 	it("takes its place in a roving tab order", () => {
 		assert.match(render({ tabIndex: 0 }), /tabindex="0"/);
 		assert.match(render({ tabIndex: -1 }), /tabindex="-1"/);

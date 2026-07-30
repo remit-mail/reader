@@ -1,6 +1,7 @@
 import { Search } from "lucide-react";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -72,8 +73,14 @@ export interface FolderTreePickerProps {
 	folders: readonly FolderTreeNode[];
 	/** The destination chosen so far. */
 	selectedId?: string;
-	/** Marks the row. Choosing a destination advances nothing on its own. */
-	onSelect: (folderId: string) => void;
+	/**
+	 * Marks the row. Choosing a destination advances nothing on its own. Absent
+	 * means the tree is browsed rather than chosen from, and a row does nothing
+	 * beyond opening and closing.
+	 */
+	onSelect?: (folderId: string) => void;
+	/** Controls beside each row, for a surface that acts on folders themselves. */
+	rowActions?: (folder: FolderTreeNode) => ReactNode;
 	/**
 	 * Creating a folder is an IMAP mutation, so this resolves only once the mail
 	 * server confirms the folder (docs/architecture/imap-mutations.md). The form
@@ -128,6 +135,7 @@ export const FolderTreePicker = ({
 	folders,
 	selectedId,
 	onSelect,
+	rowActions,
 	onCreateFolder,
 	onCancel,
 	delimiter = "/",
@@ -204,7 +212,7 @@ export const FolderTreePicker = ({
 
 	const activateRow = useCallback(
 		(row: FolderTreeRow) => {
-			if (isSelectable(row)) onSelect(row.folder.id);
+			if (isSelectable(row)) onSelect?.(row.folder.id);
 			setExpanded(row.folder.path, !row.expanded);
 		},
 		[onSelect, setExpanded],
@@ -252,7 +260,7 @@ export const FolderTreePicker = ({
 				setDraft(null);
 				setDraftName("");
 				if (parentPath) setExpanded(parentPath, true);
-				onSelect(created.id);
+				onSelect?.(created.id);
 			})
 			.catch((error: unknown) => {
 				if (isAbortError(error)) return;
@@ -367,6 +375,7 @@ export const FolderTreePicker = ({
 				currentTag={text.currentTag}
 				selected={selectable && folder.id === selectedId}
 				separated={separated}
+				actions={rowActions?.(folder)}
 				ariaLabel={rowAriaLabel(row)}
 				tabIndex={index === focusedIndex ? 0 : -1}
 				onActivate={() => activateRow(row)}

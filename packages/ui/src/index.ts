@@ -199,6 +199,20 @@ export {
 	type FilterSheetSource,
 } from "./components/filter-sheet.js";
 export {
+	FolderManageActions,
+	type FolderManageActionsProps,
+} from "./components/folder-manage-actions.js";
+export {
+	FolderManager,
+	type FolderManagerLabels,
+	type FolderManagerProps,
+	type ManagedFolder,
+} from "./components/folder-manager.js";
+export {
+	FolderRenameDialog,
+	type FolderRenameDialogProps,
+} from "./components/folder-rename-dialog.js";
+export {
 	canonicalRoleLabel,
 	type FolderRole,
 	isVirtualFolderRole,

@@ -1,5 +1,5 @@
 import { Check, ChevronRight, Folder } from "lucide-react";
-import type { Ref } from "react";
+import type { ReactNode, Ref } from "react";
 import { cn } from "../lib/cn.js";
 
 export const FOLDER_ROW_BASE =
@@ -52,6 +52,12 @@ export interface FolderRowProps {
 	currentTag?: string;
 	/** A hairline under the label, drawn for every row but the last. */
 	separated?: boolean;
+	/**
+	 * Controls that operate on the folder rather than open it. They sit beside
+	 * the row instead of inside it — a button nested in a button is invalid, and
+	 * a tree item that swallows its own actions cannot be reached by keyboard.
+	 */
+	actions?: ReactNode;
 	tabIndex?: number;
 	onActivate?: () => void;
 	onFocus?: () => void;
@@ -72,6 +78,7 @@ export const FolderRow = ({
 	current = false,
 	currentTag,
 	separated = false,
+	actions,
 	tabIndex,
 	onActivate,
 	onFocus,
@@ -106,6 +113,7 @@ export const FolderRow = ({
 					{icon}
 					<span className="min-w-0 flex-1 truncate">{label}</span>
 				</div>
+				{actions}
 				{separated && <FolderRowSeparator depth={depth} />}
 			</div>
 		);
@@ -141,6 +149,7 @@ export const FolderRow = ({
 					<Check className="size-4 shrink-0 text-accent" aria-hidden="true" />
 				)}
 			</button>
+			{actions}
 			{separated && <FolderRowSeparator depth={depth} />}
 		</div>
 	);
