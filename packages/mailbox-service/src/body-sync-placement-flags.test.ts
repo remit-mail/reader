@@ -69,7 +69,7 @@ const MAILBOXES = {
 };
 
 const buildHarness = (
-	message: { messageId: string; mailboxId: string },
+	message: { messageId: string; mailboxId: string; movedByRemit?: boolean },
 	flags: AddressItem["flags"],
 ): Harness => {
 	const moves: MoveCall[] = [];
@@ -79,11 +79,7 @@ const buildHarness = (
 	}> = [];
 
 	const messageService = {
-		get: async () => ({
-			messageId: message.messageId,
-			mailboxId: message.mailboxId,
-			uid: 1,
-		}),
+		get: async () => ({ ...message, uid: 1 }),
 		update: async (messageId: string, input: UpdateMessageInput) => {
 			messageUpdates.push({ messageId, input });
 		},
@@ -298,5 +294,58 @@ describe("Address.flags.autoArchive drives placement (issue #300)", () => {
 		assert.deepEqual(harness.moves, [
 			{ messageId: "m-1", destinationMailboxId: MAILBOXES.junk.mailboxId },
 		]);
+	});
+});
+
+/**
+ * Issue #398: not every `leave` verdict means "nothing confident to say".
+ * `already-moved-by-remit` is the guard against re-deciding a settled
+ * placement, and mail sitting in Junk gets a `leave` because the demote branch
+ * only fires outside Junk. Auto-archive is a filing preference relative to the
+ * Inbox and must yield to both, so these drive `BodySyncService` end-to-end and
+ * assert on the absence of a move.
+ */
+describe("autoArchive respects a leave verdict that decided something (issue #398)", () => {
+	it("leaves a blocked autoArchive sender's message in Junk", async () => {
+		const harness = buildHarness(
+			{ messageId: "m-1", mailboxId: MAILBOXES.junk.mailboxId },
+			{
+				blocked: { value: true, setAt: 1_000 },
+				autoArchive: { value: true, setAt: 1_000 },
+			},
+		);
+
+		await readBody(harness.service, "Junk");
+
+		assert.deepEqual(harness.moves, []);
+	});
+
+	it("leaves an autoArchive sender's provider-junked message in Junk", async () => {
+		const harness = buildHarness(
+			{ messageId: "m-1", mailboxId: MAILBOXES.junk.mailboxId },
+			{ autoArchive: { value: true, setAt: 1_000 } },
+		);
+
+		// Provider-spam + dmarc-pass from an untrusted sender is an unsure
+		// `leave`: too weak to rescue, and auto-archive is not a second chance
+		// at leaving Junk.
+		await readBody(harness.service, "Junk", SPAM_FLAGGED_DMARC_PASS_EML);
+
+		assert.deepEqual(harness.moves, []);
+	});
+
+	it("leaves a message Remit already placed alone on a re-entrant pass", async () => {
+		const harness = buildHarness(
+			{
+				messageId: "m-1",
+				mailboxId: MAILBOXES.inbox.mailboxId,
+				movedByRemit: true,
+			},
+			{ autoArchive: { value: true, setAt: 1_000 } },
+		);
+
+		await readBody(harness.service);
+
+		assert.deepEqual(harness.moves, []);
 	});
 });

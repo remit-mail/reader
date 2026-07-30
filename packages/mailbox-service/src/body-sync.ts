@@ -48,6 +48,7 @@ import {
 import {
 	classifyPlacement,
 	type FolderPlacement,
+	type PlacementVerdict,
 	resolveBlockedVsTrust,
 } from "./heuristics/classifyPlacement.js";
 import type { PlacementMoveService } from "./placement-move.js";
@@ -198,6 +199,26 @@ const hasDecidedCategory = (
  */
 const hasDecidedPlacement = (placementDecidedAt: number | undefined): boolean =>
 	placementDecidedAt !== undefined;
+
+/**
+ * Issue #398: `flags.autoArchive` is a filing preference relative to the Inbox.
+ * A `leave` verdict reaches it for two unrelated reasons and only one of them
+ * means "nothing confident to say":
+ *
+ * - `already-moved-by-remit` is {@link classifyPlacement}'s guard against
+ *   re-deciding a settled placement, and auto-archive is a re-decision. The
+ *   re-entrant paths `hasDecidedPlacement` names reach it on messages Remit
+ *   itself placed, or that a user moved back afterwards.
+ * - A message already in Junk gets an unsure `leave` whatever the sender's
+ *   `blocked` flag says, since the demote branch only fires outside Junk.
+ *   Moving mail out of Junk is a rescue, which this file reserves for a
+ *   confident signal plus sender trust.
+ */
+const autoArchiveApplies = (
+	verdict: PlacementVerdict,
+	placement: FolderPlacement,
+): boolean =>
+	placement !== "junk" && !verdict.reasons.includes("already-moved-by-remit");
 
 export const toParsedBody = (parsed: ParsedMail): ParsedBody => ({
 	text: parsed.text ?? null,
@@ -1459,12 +1480,14 @@ export class BodySyncService {
 		// junk/inbox verdict computed above. Still marked decided (issue #383):
 		// "leave" is itself a verdict, not "not yet evaluated".
 		if (verdict.action === "leave") {
-			const outcome = await this.resolveAutoArchive(
-				mailboxSpecialUseService,
-				message,
-				accountId,
-				signals.autoArchive,
-			);
+			const outcome = autoArchiveApplies(verdict, placement)
+				? await this.resolveAutoArchive(
+						mailboxSpecialUseService,
+						message,
+						accountId,
+						signals.autoArchive,
+					)
+				: {};
 			return { ...outcome, placementDecidedAt: Date.now() };
 		}
 
@@ -1526,7 +1549,8 @@ export class BodySyncService {
 	 * straight to Archive, skipping Inbox. Only reached from
 	 * {@link computePlacement} when {@link classifyPlacement} had no confident
 	 * junk/inbox verdict of its own — `blocked`/DKIM/DMARC always take priority
-	 * over this filing preference.
+	 * over this filing preference — and only for the `leave` verdicts
+	 * {@link autoArchiveApplies} admits.
 	 *
 	 * No {@link MessagePlacementVerdict} is recorded: `PlacementAction` (the
 	 * audit enum) has only `MoveToInbox`/`MoveToJunk` — issue #300 is scoped to
