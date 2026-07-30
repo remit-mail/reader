@@ -208,6 +208,13 @@ export {
 	roleIcon,
 } from "./components/folder-role.js";
 export {
+	type FolderTreeNode,
+	FolderTreePicker,
+	type FolderTreePickerLabels,
+	type FolderTreePickerProps,
+	type FolderTreeRow,
+} from "./components/folder-tree-picker.js";
+export {
 	Input,
 	type InputProps,
 	type InputVariant,
