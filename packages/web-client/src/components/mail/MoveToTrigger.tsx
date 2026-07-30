@@ -15,9 +15,9 @@ import { Drawer } from "vaul";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useFolderAppointments } from "@/hooks/useArchiveMailbox";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
+import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
-import { buildMailboxRoleMap, labelForMailbox } from "@/lib/folder-roles";
-import { buildMoveTargets } from "@/lib/move-targets";
+import { buildMoveOptions } from "@/lib/move-options";
 import { cn } from "@/lib/utils";
 
 interface MoveToTriggerProps {
@@ -71,15 +71,7 @@ export const MoveToTrigger = ({
 	const triggerLabel = label ?? "Move to folder";
 	const popoverId = useId();
 	const { t } = useTranslation("mail", { useSuspense: false });
-	// `labelForMailbox` expects a translator with a positional `(key,
-	// fallback)` shape; i18next's `t` treats the second argument as an options
-	// object — passing it raw breaks fallback behavior. Wrap it the same way
-	// the sidebar adapter does, memoized so it's a stable `useMemo` dependency.
-	const translator = useCallback(
-		(key: string, fallback: string): string =>
-			t(key, { defaultValue: fallback }),
-		[t],
-	);
+	const translator = useFolderLabelTranslator();
 
 	const {
 		data: mailboxesResponse,
@@ -98,28 +90,21 @@ export const MoveToTrigger = ({
 	const folderAppointments = useFolderAppointments(accountId);
 	const { createFolder } = useCreateMailbox(accountId);
 
-	const options = useMemo<MoveMailboxOption[]>(() => {
-		const targets = buildMoveTargets(
-			mailboxesResponse?.items ?? [],
-			folderAppointments,
-		);
-		const roleMap = buildMailboxRoleMap(folderAppointments);
-		return targets.map((mailbox) => ({
-			id: mailbox.mailboxId,
-			label: labelForMailbox(
-				mailbox,
-				roleMap.get(mailbox.mailboxId),
+	const options = useMemo<MoveMailboxOption[]>(
+		() =>
+			buildMoveOptions({
+				mailboxes: mailboxesResponse?.items ?? [],
+				folderAppointments,
+				currentMailboxId,
 				translator,
-			),
-			searchValue: mailbox.fullPath,
-			isCurrent: mailbox.mailboxId === currentMailboxId,
-		}));
-	}, [
-		mailboxesResponse?.items,
-		folderAppointments,
-		currentMailboxId,
-		translator,
-	]);
+			}),
+		[
+			mailboxesResponse?.items,
+			folderAppointments,
+			currentMailboxId,
+			translator,
+		],
+	);
 
 	const handleSelect = useCallback(
 		(destinationMailboxId: string) => {
