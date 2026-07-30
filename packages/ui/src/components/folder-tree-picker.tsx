@@ -681,21 +681,24 @@ export const FolderTreePicker = ({
 					{draftError}
 				</p>
 			)}
+			{/* Sized to their labels rather than to the pane: a full-width primary
+			    here reads as loudly as the wizard's Continue below it, and making a
+			    folder is the smaller commitment of the two. */}
 			<div className="flex items-center gap-2">
 				<Button
 					variant="ghost"
-					size="touch"
+					size="md"
 					onClick={closeDraft}
-					className="w-auto shrink-0 px-3"
+					className="min-h-11 shrink-0"
 				>
 					{text.cancel}
 				</Button>
 				<Button
-					variant="primary"
-					size="touch"
+					variant="secondary"
+					size="md"
 					onClick={submitDraft}
 					disabled={creating}
-					className="w-auto flex-1 px-3"
+					className="min-h-11 shrink-0"
 				>
 					{creating ? text.createPending : text.create}
 				</Button>
