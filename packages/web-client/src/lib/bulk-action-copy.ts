@@ -59,6 +59,22 @@ export const bulkActionCompletionText = (
 ): string =>
 	`${formatNumber(done)} ${pastTense[kind]}. Your mail server is still catching up.`;
 
+/**
+ * Shown when a run ended before it covered what it was started against. The
+ * remainder was never sent, so the mail is where it was and only the user can
+ * decide to run it again — which is why this is stated rather than left to a
+ * list that quietly stops changing.
+ */
+export const bulkActionStoppedTitle = (done: number): string =>
+	`Stopped after ${formatNumber(done)}`;
+
+export const bulkActionStoppedDetail = (
+	kind: BulkActionKind,
+	done: number,
+	total: number,
+): string =>
+	`${formatNumber(done)} of ${formatNumber(total)} ${pastTense[kind]}. Nothing was sent for the rest, so they are untouched.`;
+
 /** Error-banner title for a run stopped by an infrastructure failure. */
 export const bulkActionFailureTitle = (
 	kind: BulkActionKind,

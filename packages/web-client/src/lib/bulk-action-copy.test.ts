@@ -7,6 +7,8 @@ import {
 	bulkActionFailureTitle,
 	bulkActionProgressLabel,
 	bulkActionProgressTone,
+	bulkActionStoppedDetail,
+	bulkActionStoppedTitle,
 } from "./bulk-action-copy.js";
 
 const kinds: BulkActionKind[] = ["delete", "move", "markRead"];
@@ -65,6 +67,27 @@ describe("bulkActionFailureTitle", () => {
 	});
 });
 
+describe("a run that stopped short of its match", () => {
+	test("states what it reached and that the rest is untouched", () => {
+		assert.equal(bulkActionStoppedTitle(1200), "Stopped after 1,200");
+		assert.equal(
+			bulkActionStoppedDetail("delete", 1200, 3412),
+			"1,200 of 3,412 moved to Trash. Nothing was sent for the rest, so they are untouched.",
+		);
+		assert.equal(
+			bulkActionStoppedDetail("markRead", 1200, 3412),
+			"1,200 of 3,412 marked as read. Nothing was sent for the rest, so they are untouched.",
+		);
+	});
+
+	test("never reads as a rejection — nothing was sent", () => {
+		assert.doesNotMatch(
+			bulkActionStoppedDetail("move", 1, 2),
+			/rejected|couldn't/i,
+		);
+	});
+});
+
 describe("every action carries its own wording", () => {
 	test("no two actions share a sentence", () => {
 		const sentences: Array<(kind: BulkActionKind) => string> = [
@@ -73,6 +96,7 @@ describe("every action carries its own wording", () => {
 			(kind) => bulkActionFailureTitle(kind, 5),
 			bulkActionFailureDetail,
 			(kind) => bulkActionProgressLabel(kind, 1, 2),
+			(kind) => bulkActionStoppedDetail(kind, 1, 2),
 		];
 		for (const render of sentences) {
 			assert.equal(new Set(kinds.map(render)).size, kinds.length);

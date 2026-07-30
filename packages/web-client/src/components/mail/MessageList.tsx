@@ -14,6 +14,7 @@ import { Search } from "lucide-react";
 import type { RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { useJunkMailbox } from "@/hooks/useArchiveMailbox";
 import {
@@ -32,10 +33,14 @@ import {
 } from "@/hooks/useSelection";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import {
+	type BulkActionKind,
 	bulkActionCompletionText,
 	bulkActionProgressLabel,
 	bulkActionProgressTone,
+	bulkActionStoppedDetail,
+	bulkActionStoppedTitle,
 } from "@/lib/bulk-action-copy";
+import type { BulkRunOutcome } from "@/lib/bulk-actions";
 import {
 	describeSearchScope,
 	escalatedStatusLabel,
@@ -241,6 +246,7 @@ export const MessageList = ({
 	const isSearching = !!searchQuery?.trim();
 	const listHeaderChrome = useListHeaderChrome();
 	const { labels } = useLabelList(accountId);
+	const { pushError } = useErrorBanners();
 
 	// Roving focus cursor (#429): the keyboard "where am I" pointer, distinct
 	// from the open thread (`selectedMessageId` in the URL). j/k move this
@@ -335,6 +341,31 @@ export const MessageList = ({
 		predicateKey,
 		searchQuery: searchPredicate ?? {},
 	});
+
+	// How a run ended, for the user who is no longer looking at the run screen.
+	// Closing the wizard mid-run is a movement the screen invites, and the run
+	// keeps going past it — so the list is what states the ending, whether the
+	// run covered everything or stopped short of it. The wizard calls this only
+	// once the user has left it, so an ending is never said twice.
+	const reportRunOutcome = useCallback(
+		(kind: BulkActionKind, matched: number, outcome: BulkRunOutcome) => {
+			// A run stopped by a thrown batch is already banner-ed where it threw.
+			if (outcome.error !== undefined) return;
+			if (outcome.cancelled) {
+				pushError({
+					severity: "warning",
+					title: bulkActionStoppedTitle(outcome.done),
+					detail: bulkActionStoppedDetail(kind, outcome.done, matched),
+				});
+				return;
+			}
+			pushError({
+				severity: "info",
+				title: bulkActionCompletionText(kind, outcome.done),
+			});
+		},
+		[pushError],
+	);
 
 	// The one way selection mode ends (#115): cancel, a completed delete or
 	// move, a plain click that collapses a range, switching mailboxes, the back
@@ -625,9 +656,7 @@ export const MessageList = ({
 
 	// The escalated selection as the wizard walks it (#508): the words the bar
 	// already names the predicate with, the count it was escalated to, and the
-	// chunked runner that re-resolves it. The wizard's review screen stands in
-	// front of that runner and its run screen drives it, so nothing here reports
-	// an outcome of its own.
+	// chunked runner that re-resolves it.
 	const escalatedSelection: EscalatedSelection | undefined =
 		escalation.phase.kind === "escalated"
 			? {
@@ -635,6 +664,7 @@ export const MessageList = ({
 					total: escalation.phase.total,
 					searchQuery: searchPredicate ?? {},
 					run: (action: EscalatedAction) => escalation.runAction(action),
+					stop: escalation.stop,
 				}
 			: undefined;
 
@@ -1062,11 +1092,15 @@ export const MessageList = ({
 			? escalation.phase.total
 			: selectedCount;
 
+	// A run reports on the bar from the moment it starts, not from its first
+	// finished batch: the wizard invites the user back here mid-run, and a run
+	// with no reading yet is still a run — it is counted against what it was
+	// started with until it has covered something of its own.
 	const selectionStatusLabel = escalation.runningAction
 		? bulkActionProgressLabel(
 				escalation.runningAction.kind,
 				escalation.progress?.done ?? 0,
-				escalation.progress?.total ?? 0,
+				escalation.progress?.total ?? selectionCount,
 			)
 		: escalation.phase.kind === "counting"
 			? escalation.phase.countSoFar >= 5000
@@ -1088,14 +1122,13 @@ export const MessageList = ({
 				}
 			: undefined;
 
-	const selectionProgress =
-		escalation.runningAction && escalation.progress
-			? {
-					value: escalation.progress.done,
-					max: escalation.progress.total,
-					tone: bulkActionProgressTone(escalation.runningAction.kind),
-				}
-			: undefined;
+	const selectionProgress = escalation.runningAction
+		? {
+				value: escalation.progress?.done ?? 0,
+				max: escalation.progress?.total ?? selectionCount,
+				tone: bulkActionProgressTone(escalation.runningAction.kind),
+			}
+		: undefined;
 
 	// At most one escalation notice at a time, ranked by how actionable it is:
 	// an in-progress counting/escalated state and its own action always wins;
@@ -1325,6 +1358,7 @@ export const MessageList = ({
 				escalated={escalatedSelection}
 				escalatedProgress={escalation.progress}
 				onFinished={exitSelection}
+				onRunEnded={reportRunOutcome}
 			/>
 		</>
 	);

@@ -625,6 +625,42 @@ describe("RunFooter", () => {
 		);
 		assert.match(html, /Close/);
 	});
+
+	// Leaving the screen and ending the run are two intents (#521). The screen
+	// says the run keeps going once it is closed, so the only thing that ends it
+	// is a control that says so.
+	it("offers stopping the run beside leaving it, while it is in flight", () => {
+		const html = renderToString(
+			createElement(RunFooter, {
+				...runProps,
+				state: "backApplyRunning",
+				onCancelRun: noop,
+			}),
+		);
+		assert.match(html, /Stop the run/);
+		assert.match(html, /Close/);
+	});
+
+	it("offers only the way out where there is no run to stop", () => {
+		const html = renderToString(
+			createElement(RunFooter, { ...runProps, state: "backApplyRunning" }),
+		);
+		assert.match(html, /Close/);
+		assert.doesNotMatch(html, /Stop the run/);
+	});
+
+	it("keeps the retry on a run that already stopped", () => {
+		const html = renderToString(
+			createElement(RunFooter, {
+				...runProps,
+				state: "runStopped",
+				failures: messages,
+				onCancelRun: noop,
+			}),
+		);
+		assert.match(html, /Retry 2/);
+		assert.doesNotMatch(html, /Stop the run/);
+	});
 });
 
 describe("SelectionWizard", () => {

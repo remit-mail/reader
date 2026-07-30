@@ -106,9 +106,12 @@ export interface EscalatedSelection {
 	/**
 	 * Runs one verb over the whole predicate, paging it server-side. The chunked
 	 * runner the list already owns: the run screen drives it, and the review
-	 * screen is what now stands in front of it.
+	 * screen is what now stands in front of it. The run belongs to the list, so
+	 * it survives the wizard closing over it — as the run screen promises.
 	 */
 	run: (action: EscalatedAction) => Promise<BulkRunOutcome>;
+	/** Ends that run at the next page boundary, which leaving the wizard does not. */
+	stop: () => void;
 }
 
 export interface SelectionWizardHostProps {
@@ -133,6 +136,17 @@ export interface SelectionWizardHostProps {
 	escalatedProgress?: BulkActionProgress;
 	/** The wizard is done with the selection, and the list drops it. */
 	onFinished: () => void;
+	/**
+	 * How a run ended, once the screen that was reporting on it is gone. The run
+	 * screen invites the user to close it and keep the run going, so the surface
+	 * that outlives the wizard is what states the ending. Called only for a run
+	 * the user walked away from; a run screen still up reports in place.
+	 */
+	onRunEnded?: (
+		kind: EscalatedAction["kind"],
+		matched: number,
+		outcome: BulkRunOutcome,
+	) => void;
 }
 
 /**
@@ -248,6 +262,7 @@ function SelectionWizardSession({
 	escalatedProgress,
 	searchConversion,
 	onFinished,
+	onRunEnded,
 	step,
 	goToStep,
 	goBack,
@@ -296,6 +311,11 @@ function SelectionWizardSession({
 	// cleared, so a failed start can be retried.
 	const [backApplyDraft, setBackApplyDraft] = useState<OrganizeDraft>();
 	const commitSent = useRef(false);
+	// The user left the run screen while it was still reporting. Held here rather
+	// than read back off the URL: the rewind the exit starts lands a frame or two
+	// later, and an outcome arriving in between would find a screen that is on
+	// its way out and say nothing.
+	const walkedAway = useRef(false);
 
 	const messageIds = useMemo(
 		() => selection.map((message) => message.id),
@@ -575,8 +595,9 @@ function SelectionWizardSession({
 			setBulkRun({ matched: ids.length });
 			const outcome = await runAction(action, [...ids]);
 			setBulkRun({ matched: ids.length, outcome });
+			if (walkedAway.current) onRunEnded?.(action.kind, ids.length, outcome);
 		},
-		[verb, named.moveMailboxId, junkMailboxId, runAction],
+		[verb, named.moveMailboxId, junkMailboxId, runAction, onRunEnded],
 	);
 
 	// The escalated predicate, run by the chunked runner the list already owns.
@@ -595,7 +616,10 @@ function SelectionWizardSession({
 		setBulkRun({ matched: escalated.total });
 		const outcome = await escalated.run(action);
 		setBulkRun({ matched: escalated.total, outcome });
-	}, [escalated, verb, named.moveMailboxId, junkMailboxId]);
+		if (walkedAway.current) {
+			onRunEnded?.(action.kind, escalated.total, outcome);
+		}
+	}, [escalated, verb, named.moveMailboxId, junkMailboxId, onRunEnded]);
 
 	const { start: startJob } = organizeJob;
 	const { createFilterAsync } = createFilter;
@@ -815,11 +839,27 @@ function SelectionWizardSession({
 	}, [closeWizard, steps, current]);
 
 	// The run screen's way out. The action has happened, so the rows it was
-	// aimed at are no longer a selection waiting to be acted on.
+	// aimed at are no longer a selection waiting to be acted on. It leaves the
+	// run alone: the screen says so in as many words, and stopping it is a
+	// control of its own.
 	const dismiss = useCallback(() => {
+		walkedAway.current = true;
 		closeWizard(steps, current);
 		onFinished();
 	}, [closeWizard, steps, current, onFinished]);
+
+	// Ends the run rather than leaving it. The escalated predicate is run by the
+	// list's runner and a bounded selection by this wizard's own, so the stop
+	// follows whichever one is paging.
+	const { stop: stopBulk } = bulk;
+	const runInFlight = bulkRun !== undefined && bulkRun.outcome === undefined;
+	const stopRun = useCallback(() => {
+		if (escalated) {
+			escalated.stop();
+			return;
+		}
+		stopBulk();
+	}, [escalated, stopBulk]);
 
 	// Hardware back on the run screen leaves the wizard, the movement the header
 	// arrow and the footer already make there (`backExits`). Run is an ordinary
@@ -868,7 +908,10 @@ function SelectionWizardSession({
 			blockedReason={blockedReason}
 			nudged={nudgedStep === current}
 			onBack={goBack}
-			onExit={cancel}
+			// Every exit from the run screen is the same movement: the header's X,
+			// the header arrow, the footer and hardware Back all leave a run that
+			// has already been sent, and all of them drop the selection with it.
+			onExit={current === "run" ? dismiss : cancel}
 			onContinue={advance}
 			onCommit={commit}
 			match={{
@@ -945,6 +988,7 @@ function SelectionWizardSession({
 				failures: run.failures,
 				onRetry: retry,
 				onDismiss: dismiss,
+				onCancelRun: runInFlight ? stopRun : undefined,
 			}}
 		/>
 	);
