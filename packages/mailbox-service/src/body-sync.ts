@@ -201,6 +201,18 @@ const hasDecidedPlacement = (placementDecidedAt: number | undefined): boolean =>
 	placementDecidedAt !== undefined;
 
 /**
+ * Issue #499: whether a completed body-sync pass has already classified this
+ * message. `bodyStorageKey` is written last, once every derivation of that pass
+ * has run, so its presence means the pass that first classified the message
+ * finished. Reads it exactly as `syncBodies`' own skip guard does. The same two
+ * re-entrant paths `hasDecidedCategory` and `hasDecidedPlacement` guard
+ * (`fetchAndGetBody`'s `NoSuchKey` fallback, `syncBodies(..., force: true)`) are
+ * the ones that reach the derivations again with it already set.
+ */
+const hasClassifiedBody = (bodyStorageKey: string | undefined): boolean =>
+	Boolean(bodyStorageKey);
+
+/**
  * Issue #398: `flags.autoArchive` is a filing preference relative to the Inbox.
  * A `leave` verdict reaches it for two unrelated reasons and only one of them
  * means "nothing confident to say":
@@ -869,6 +881,12 @@ export class BodySyncService {
 			});
 		}
 
+		// Read once for the two write-once guards below — the auto-read decision
+		// and the category carry-forward. Taken here rather than earlier because
+		// nothing between this point and the Message update writes either field;
+		// the moves above touch `mailboxId` only.
+		const existingMessage = await this.messageService.get(messageId);
+
 		// `flags.unsubscribed` (issue #302, RFC 039 Decision 3): auto-mark-read,
 		// reusing the same FlagQueueService.markAsRead round-trip a manual
 		// mark-as-read goes through — idempotent on a retry (flipFlag no-ops when
@@ -879,6 +897,7 @@ export class BodySyncService {
 			accountId,
 			accountConfigId,
 			parsed,
+			existingMessage.bodyStorageKey,
 		);
 
 		const moved = Boolean(resolved.move || filterMoved);
@@ -907,7 +926,6 @@ export class BodySyncService {
 		// re-entrant paths for placement: `computePlacement` already declined to
 		// recompute a verdict once this field is set, so it is only ever present
 		// here on the pass that first decided it.
-		const existingMessage = await this.messageService.get(messageId);
 		const finalCategory = hasDecidedCategory(existingMessage.category)
 			? existingMessage.category
 			: classification.category;
@@ -1284,14 +1302,22 @@ export class BodySyncService {
 	 * separate expiry mechanism, and no caching of the decision beyond this
 	 * per-message `Address` read. A no-op when body sync was built without an
 	 * {@link UnsubscribeConfig} or the message carries no `From` address.
+	 *
+	 * Write-once per message (issue #499), like the `category` and placement
+	 * derivations alongside it: read state is applied on the pass that first
+	 * classifies a message and never re-decided. A user who marks such a message
+	 * unread afterwards owns it — a re-entrant pass over an already-classified
+	 * body would otherwise silently undo that.
 	 */
 	private async applyUnsubscribedAutoRead(
 		messageId: string,
 		accountId: string,
 		accountConfigId: string,
 		parsed: ParsedMail,
+		storedBodyKey: string | undefined,
 	): Promise<void> {
 		if (!this.unsubscribeConfig) return;
+		if (hasClassifiedBody(storedBodyKey)) return;
 
 		const fromEmail = extractPrimaryFromEmail(parsed);
 		if (!fromEmail) return;
