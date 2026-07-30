@@ -365,6 +365,17 @@ describe("FolderTreePicker render", () => {
 		assert.doesNotMatch(html, /aria-label="New folder inside/);
 	});
 
+	it("gives the pinned create action the prominent treatment", () => {
+		const html = render({
+			onCreateFolder: () =>
+				Promise.resolve(node("made", "Made", "Travel/Made")),
+		});
+		assert.match(
+			tagWith(html, 'aria-label="New folder"'),
+			/data-prominence="prominent"/,
+		);
+	});
+
 	it("renders the empty state when no folder matches", () => {
 		const html = render({ folders: [] });
 		assert.match(html, /No folders match/);
