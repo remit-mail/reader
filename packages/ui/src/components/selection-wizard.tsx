@@ -967,6 +967,13 @@ export interface RunStepProps {
 	failedCount?: number;
 	onRetry: () => void;
 	onDismiss: () => void;
+	/**
+	 * Ends the run. Leaving the screen and ending the run are two intents and
+	 * two presses: the screen says the run keeps going once it is closed, so
+	 * stopping it has to be asked for. Supplied only where there is something
+	 * to stop — a server-side pass runs to its own end.
+	 */
+	onCancelRun?: () => void;
 }
 
 const runOutcomeOf = (props: RunStepProps): RunOutcome => ({
@@ -1042,8 +1049,33 @@ export function RunStepBody(props: RunStepProps) {
 }
 
 export function RunFooter(props: RunStepProps) {
-	const { onRetry, onDismiss } = props;
+	const { onRetry, onDismiss, onCancelRun } = props;
 	const copy = runCopy(runOutcomeOf(props));
+
+	// Closing is the movement the screen invites, so it keeps the primary place;
+	// ending the run is the deliberate one beside it.
+	if (copy.cancelLabel !== undefined && onCancelRun) {
+		return (
+			<div className="flex items-center gap-3">
+				<Button
+					variant="ghost"
+					size="md"
+					className="min-h-11 shrink-0"
+					onClick={onCancelRun}
+				>
+					{copy.cancelLabel}
+				</Button>
+				<Button
+					variant="primary"
+					size="md"
+					className="min-h-11 flex-1"
+					onClick={onDismiss}
+				>
+					{copy.dismissLabel}
+				</Button>
+			</div>
+		);
+	}
 
 	if (copy.retryLabel === undefined) {
 		return (

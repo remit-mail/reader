@@ -557,6 +557,14 @@ function WizardDriver({
 						runState === "commitFailed" ? "saving" : "backApplyRunning",
 					),
 				onDismiss: onExit,
+				// A chunked run stops between batches. A saved rule's pass over
+				// existing mail is the mail server's own, so it has no stop.
+				onCancelRun:
+					runState === "backApplyRunning" &&
+					scope !== "standing" &&
+					scope !== "until"
+						? () => setRunState("runStopped")
+						: undefined,
 			}}
 		/>
 	);
@@ -1677,7 +1685,11 @@ export const EscalatedMoveFolder: Story = {
 	),
 };
 
-/** The chunked runner, driven by the run screen rather than by the bar. */
+/**
+ * The chunked runner, driven by the run screen rather than by the bar. Two ways
+ * off the screen, and they mean different things: Close leaves a run that keeps
+ * going, Stop the run ends it at the next batch.
+ */
 export const EscalatedRunning: Story = {
 	name: "Select all matching — running",
 	render: () => (

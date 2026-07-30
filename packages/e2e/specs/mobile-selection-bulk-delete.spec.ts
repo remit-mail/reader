@@ -688,6 +688,92 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 		expect(stillThere).toHaveLength(NPM_MAIN_COUNT);
 	});
 
+	/**
+	 * The run screen says "This keeps running if you close the wizard" (#521),
+	 * and the whole match is two pages here, so what it promises is only visible
+	 * past the first page boundary — where the run reads whether it has been told
+	 * to stop.
+	 *
+	 * The first batch is held at the proxy, which parks the run on that boundary
+	 * and makes the walk-away deliberate rather than a race with a fast backend.
+	 * Mark read rather than delete or move, so the fixtures this block shares are
+	 * still where the tests after it expect them.
+	 */
+	test("closing the wizard mid-run leaves the run going, and the list reports how it ended", async ({
+		page,
+		run,
+		api,
+	}) => {
+		await searchWithMoreMatchesThanLoaded(
+			page,
+			run.inboxId,
+			"npmbulk",
+			LIST_PAGE_SIZE,
+		);
+
+		await selectTwoFromTop(page);
+		await selectAllCheckbox(page).click();
+		await selectionNotice(page)
+			.getByRole("button", { name: 'Select all matching "npmbulk"' })
+			.click();
+		await expect(selectionStatus(page)).toHaveText(
+			`All ${NPM_MAIN_COUNT} matching "npmbulk" selected`,
+			{ timeout: 15_000 },
+		);
+
+		let releaseFirstBatch: () => void = () => {};
+		const firstBatchHeld = new Promise<void>((resolve) => {
+			releaseFirstBatch = resolve;
+		});
+		let batches = 0;
+		await page.route("**/messages/flags", async (route) => {
+			batches += 1;
+			if (batches === 1) await firstBatchHeld;
+			await route.continue();
+		});
+
+		await markRead(page);
+		await advanceTo(page, "Review");
+		await commitButton(page, "Mark read").click();
+		await expect
+			.poll(() => batches, { timeout: 30_000 })
+			.toBeGreaterThanOrEqual(1);
+
+		// The walk-away the screen invites. The wizard goes; the run does not.
+		await page.getByRole("button", { name: "Close", exact: true }).click();
+		await expect(wizardStep(page)).toHaveCount(0);
+		await expect(selectionStatus(page)).toHaveText(
+			`Marking 0 of ${NPM_MAIN_COUNT} as read…`,
+		);
+
+		releaseFirstBatch();
+
+		// The ending, stated to the user who left: the list says what the run
+		// covered once there is no run screen left to say it.
+		await expect(
+			page.getByText(
+				`${NPM_MAIN_COUNT} marked as read. Your mail server is still catching up.`,
+			),
+		).toBeVisible({ timeout: 30_000 });
+		await expect(selectionStatus(page)).toBeHidden({ timeout: 30_000 });
+
+		// The load-bearing check: the real backend. The run paged past the batch
+		// the user walked away from and reached every match, not just the first.
+		await waitFor(
+			() => api.searchThreads(run.inboxId),
+			(threads) => {
+				const mine = threads.filter((t) => t.subject?.includes(RUN_TAG));
+				return (
+					mine.length === NPM_MAIN_COUNT && mine.every((t) => t.isRead === true)
+				);
+			},
+			{
+				timeoutMs: 60_000,
+				what: "every npmbulk fixture to be marked read by the run the wizard was closed over",
+			},
+		);
+	});
+
 	test("an escalated delete resolves the predicate fresh, chunks past the 100-id cap, and the real number removed is what gets reported — not the count from when it was confirmed", async ({
 		page,
 		run,

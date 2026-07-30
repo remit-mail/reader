@@ -82,10 +82,18 @@ export interface UseEscalatedActionsResult {
 	phase: EscalationPhase;
 	/** Begin paging the predicate's full match set to find its total. */
 	escalate: () => void;
-	/** Stop whatever's running — counting or an action — at the next page
-	 *  boundary. A no-op when nothing is running. */
+	/**
+	 * Stop whatever's running — counting or an action — at the next page
+	 * boundary. A no-op when nothing is running. The only thing that ends a run
+	 * in flight: leaving the selection, the wizard or the search does not.
+	 */
 	stop: () => void;
-	/** Drop an escalated selection back to bounded without confirming anything. */
+	/**
+	 * Drop an escalated selection back to bounded without confirming anything.
+	 * A run in flight owns the phase and holds it until it ends, so this is a
+	 * no-op then — the selection the user is leaving and the run they started
+	 * from it are two different things.
+	 */
 	clear: () => void;
 	/** True while a chunked run (bounded->100 ids, or the escalated predicate)
 	 *  is in flight. */
@@ -136,38 +144,47 @@ export const useEscalatedActions = ({
 		undefined,
 	);
 	const cancelRef = useRef(false);
+	// True from the moment a run starts until its outcome is in hand. A run is
+	// mail already leaving the mailbox, so nothing that merely changes what the
+	// list is showing gets to end it — only `stop`.
+	const runningRef = useRef(false);
 	const queryClient = useQueryClient();
 	const { pushError } = useErrorBanners();
 
 	// A different search (or leaving search/desktop) makes any in-flight
 	// escalation meaningless — it would otherwise keep counting or offering to
-	// act on a predicate the visible list no longer reflects.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: enabled/predicateKey are trigger-only — the reset itself is unconditional, not a value read from either.
+	// act on a predicate the visible list no longer reflects. The selection goes;
+	// a run already going does not. It pages the predicate it was started
+	// against and reports what it reached, wherever the list moved on to.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: enabled/predicateKey are trigger-only — the reset itself reads neither.
 	useEffect(() => {
-		cancelRef.current = true;
+		if (!runningRef.current) cancelRef.current = true;
 		setPhase({ kind: "idle" });
 	}, [enabled, predicateKey]);
 
 	const searchQueryRef = useRef(searchQuery);
 	searchQueryRef.current = searchQuery;
 
-	const fetchIdsPage = useCallback<FetchIdsPage>(
-		async (continuationToken) => {
-			const { data } = await threadOperationsSearchThreads({
-				path: { mailboxId },
-				query: {
-					...searchQueryRef.current,
-					continuationToken,
-					limit: PAGE_SIZE,
-				},
-				throwOnError: true,
-			});
-			return {
-				ids: (data.items ?? []).map((item) => item.messageId),
-				continuationToken: data.continuationToken,
-			};
-		},
+	const fetchPagesOf = useCallback(
+		(query: EscalationSearchQuery): FetchIdsPage =>
+			async (continuationToken) => {
+				const { data } = await threadOperationsSearchThreads({
+					path: { mailboxId },
+					query: { ...query, continuationToken, limit: PAGE_SIZE },
+					throwOnError: true,
+				});
+				return {
+					ids: (data.items ?? []).map((item) => item.messageId),
+					continuationToken: data.continuationToken,
+				};
+			},
 		[mailboxId],
+	);
+
+	const fetchIdsPage = useCallback<FetchIdsPage>(
+		(continuationToken) =>
+			fetchPagesOf(searchQueryRef.current)(continuationToken),
+		[fetchPagesOf],
 	);
 
 	const applyBatchFor = useCallback(
@@ -248,6 +265,7 @@ export const useEscalatedActions = ({
 	}, []);
 
 	const clear = useCallback(() => {
+		if (runningRef.current) return;
 		cancelRef.current = true;
 		setPhase({ kind: "idle" });
 	}, []);
@@ -258,6 +276,7 @@ export const useEscalatedActions = ({
 			ids?: string[],
 		): Promise<BulkRunOutcome> => {
 			cancelRef.current = false;
+			runningRef.current = true;
 			setRunningAction(action);
 			// `honestProgress` widens `total` if `done` overtakes it (#109) — the
 			// predicate can match more by the time the run re-pages it than
@@ -265,22 +284,34 @@ export const useEscalatedActions = ({
 			const onProgress = (next: BulkActionProgress) =>
 				setProgress(honestProgress(next));
 			const applyBatch = applyBatchFor(action);
+			// The predicate as it read when the run was confirmed. The run outlives
+			// the screen that started it, so reading the live query on every page
+			// would let a search typed afterwards redirect what is being deleted.
+			const runPages = fetchPagesOf(searchQueryRef.current);
 
-			const outcome =
-				ids !== undefined
-					? await runChunkedAction(
-							ids,
-							applyBatch,
-							onProgress,
-							() => cancelRef.current,
-						)
-					: await runPredicateAction(
-							fetchIdsPage,
-							phase.kind === "escalated" ? phase.total : 0,
-							applyBatch,
-							onProgress,
-							() => cancelRef.current,
-						);
+			// The one invariant nothing may lose: while `runningRef` is up, both
+			// `clear` and the reset effect stand down, so a run that never marked
+			// itself finished would leave an escalated selection nobody can leave.
+			let outcome: BulkRunOutcome;
+			try {
+				outcome =
+					ids !== undefined
+						? await runChunkedAction(
+								ids,
+								applyBatch,
+								onProgress,
+								() => cancelRef.current,
+							)
+						: await runPredicateAction(
+								runPages,
+								phase.kind === "escalated" ? phase.total : 0,
+								applyBatch,
+								onProgress,
+								() => cancelRef.current,
+							);
+			} finally {
+				runningRef.current = false;
+			}
 
 			setRunningAction(undefined);
 			setProgress(undefined);
@@ -300,7 +331,7 @@ export const useEscalatedActions = ({
 			}
 			return outcome;
 		},
-		[applyBatchFor, fetchIdsPage, phase, pushError, invalidateAfterRun],
+		[applyBatchFor, fetchPagesOf, phase, pushError, invalidateAfterRun],
 	);
 
 	return {

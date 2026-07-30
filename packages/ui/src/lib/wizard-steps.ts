@@ -344,6 +344,13 @@ export interface RunCopy {
 	showProgress: boolean;
 	/** Leaves the wizard. Never absent — there is always a way out. */
 	dismissLabel: string;
+	/**
+	 * What ending the run is called, on a state where a run is in flight. Whether
+	 * this one can be ended at all is the caller's answer — a server-side pass
+	 * runs to its own end — so the control appears only alongside
+	 * `RunStepProps.onCancelRun`.
+	 */
+	cancelLabel?: string;
 	/** Offers the part that did not happen again. Absent when nothing is outstanding. */
 	retryLabel?: string;
 	/** Heads the list of messages the mail server rejected. */
@@ -397,6 +404,7 @@ export const runCopy = ({
 			detail: "This keeps running if you close the wizard.",
 			tone: "progress",
 			dismissLabel: "Close",
+			cancelLabel: "Stop the run",
 		};
 	}
 	if (state === "backApplyComplete") {
