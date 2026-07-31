@@ -582,6 +582,25 @@ describe("RunStepBody", () => {
 		assert.match(html, /Nothing has changed\./);
 	});
 
+	// A poll that could not be read is not a run that never started (#526): the
+	// screen keeps the counts it has and says what it cannot see.
+	it("keeps a run that is going when its progress could not be read", () => {
+		const html = renderToString(
+			createElement(RunStepBody, {
+				...runProps,
+				state: "statusUnknown",
+				scope: "once",
+				matched: 1284,
+				applied: 40,
+			}),
+		);
+		assert.match(html, /progress unknown/);
+		assert.match(html, /carries on either way/);
+		assert.match(html, /role="progressbar"/);
+		assert.doesNotMatch(html, /Nothing has changed/);
+		assert.doesNotMatch(html, /never started/);
+	});
+
 	it("says a filter saved with nothing to back-apply is live", () => {
 		const html = renderToString(
 			createElement(RunStepBody, {
@@ -618,6 +637,18 @@ describe("RunFooter", () => {
 		);
 		assert.match(html, /Run it over existing mail/);
 		assert.match(html, /Not now/);
+	});
+
+	it("offers another look, not another run, when the progress could not be read", () => {
+		const html = renderToString(
+			createElement(RunFooter, {
+				...runProps,
+				state: "statusUnknown",
+				scope: "once",
+			}),
+		);
+		assert.match(html, /Check again/);
+		assert.match(html, /Close/);
 	});
 
 	it("offers only a way out once there is nothing outstanding", () => {
