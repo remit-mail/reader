@@ -1,4 +1,12 @@
-import { useCallback, useState } from "react";
+import {
+	createContext,
+	type ReactNode,
+	useCallback,
+	useContext,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
 import { cn } from "../lib/cn.js";
 import { isSelfRowActivation } from "../lib/row-keyboard.js";
 import { Badge } from "./badge.js";
@@ -107,6 +115,67 @@ function Close({ className }: { className?: string }) {
 	);
 }
 
+interface FilterPanelState {
+	open: boolean;
+	setOpen: (open: boolean) => void;
+	/** Whether the sheet under this provider is narrowing the list right now. */
+	active: boolean;
+	setActive: (active: boolean) => void;
+}
+
+const FilterPanelCtx = createContext<FilterPanelState | null>(null);
+
+/**
+ * Shares one filter panel's open state between a list header and the sheet
+ * under it, which are siblings in the tree. Wrap both: the header renders a
+ * `FilterToggle`, the sheet drops its own trigger row, and the sheet keeps its
+ * filter state exactly where it already lives.
+ */
+export function FilterPanelProvider({ children }: { children: ReactNode }) {
+	const [open, setOpen] = useState(false);
+	const [active, setActive] = useState(false);
+	const value = useMemo(
+		() => ({ open, setOpen, active, setActive }),
+		[open, active],
+	);
+	return (
+		<FilterPanelCtx.Provider value={value}>{children}</FilterPanelCtx.Provider>
+	);
+}
+
+/**
+ * The filter caret, for a list header to render beside its unread count. It is
+ * the view's whole filter affordance; the panel it opens still belongs to the
+ * sheet, inline above the rows.
+ *
+ * Renders nothing outside a `FilterPanelProvider` — there is no panel to open.
+ */
+export function FilterToggle() {
+	const panel = useContext(FilterPanelCtx);
+	if (!panel) return null;
+	const { open, active, setOpen } = panel;
+	return (
+		<button
+			type="button"
+			onClick={() => setOpen(!open)}
+			aria-expanded={open}
+			aria-label={open ? "Collapse filters" : "Expand filters"}
+			title="Filters"
+			className={cn(
+				"flex size-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-surface-sunken",
+				active ? "text-accent-2" : "text-fg-subtle hover:text-fg-muted",
+			)}
+		>
+			<ChevronDown
+				className={cn(
+					"size-3 transition-transform duration-200",
+					open ? "rotate-180" : "rotate-0",
+				)}
+			/>
+		</button>
+	);
+}
+
 export function FilterSheet({
 	categories,
 	filters,
@@ -123,17 +192,21 @@ export function FilterSheet({
 	hideChrome = false,
 	children,
 }: FilterSheetProps) {
+	const panel = useContext(FilterPanelCtx);
 	const isControlled = expandedProp !== undefined;
 	const [internalOpen, setInternalOpen] = useState(false);
 
-	const open = isControlled ? expandedProp : internalOpen;
+	// A provider is the composition owner opting the caret into a header above
+	// this sheet, so it outranks a nearer component's own expanded state.
+	const open = panel?.open ?? (isControlled ? expandedProp : internalOpen);
 
 	const setOpen = useCallback(
 		(next: boolean) => {
 			if (!isControlled) setInternalOpen(next);
+			panel?.setOpen(next);
 			onExpandedChange?.(next);
 		},
-		[isControlled, onExpandedChange],
+		[isControlled, onExpandedChange, panel],
 	);
 
 	const defaultCategory = categories[0];
@@ -149,6 +222,11 @@ export function FilterSheet({
 		!isDefault ||
 		activeFilters.size > 0 ||
 		(!isDefaultSource && !!activeSource);
+
+	const setPanelActive = panel?.setActive;
+	useEffect(() => {
+		setPanelActive?.(hasActive);
+	}, [hasActive, setPanelActive]);
 
 	const clearSource = useCallback(() => {
 		if (defaultSource) onSelectSource?.(defaultSource.id);
@@ -277,7 +355,9 @@ export function FilterSheet({
 			{/* The toggle is a div-button (not a real <button>) so the Clear
 			    control can be a real nested <button> without invalid
 			    button-in-button nesting. */}
-			{!hideChrome && (
+			{/* A `FilterPanelProvider` means the list header carries the caret, so
+			    the sheet spends no row of its own on one. */}
+			{!hideChrome && !panel && (
 				// biome-ignore lint/a11y/useSemanticElements: nested <button> inside would be invalid button-in-button
 				<div
 					role="button"

@@ -6,8 +6,8 @@
  * data to the kit's `AppShell`. Anything that renders those slots differently is
  * a design that does not exist, so this file mirrors the route's own wiring:
  *
- * - the top bar is desktop-only, carries the one search field and the global
- *   actions, and starts on the list's left edge;
+ * - the top bar is desktop-only, spans the whole layout, and carries the one
+ *   search field, the nav toggle and the global actions;
  * - the list pane is a `MailHeader` over the pane body, and the header shows a
  *   search field only where the top bar is absent, so the page never has two;
  * - a query swaps the list body for the same `SearchResults` sections the phone
@@ -26,8 +26,10 @@ import {
 	AppTopBar,
 	Avatar,
 	Button,
+	FilterPanelProvider,
 	type FilterPreset,
 	FilterSheet,
+	FilterToggle,
 	type IntelligenceData,
 	IntelligencePanel,
 	MailHeader,
@@ -35,6 +37,7 @@ import {
 	MessageListPane,
 	MobileSearchView,
 	NavSidebar,
+	NavToggleButton,
 	ReadingPane,
 	SearchBar,
 	type SearchCaretRequest,
@@ -50,7 +53,7 @@ import {
 	useAppShellLayout,
 	useSuggestList,
 } from "@remit/ui";
-import { Bug, Pencil, SquarePen } from "lucide-react";
+import { Bug, Pencil, Settings, SquarePen } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { navAccounts } from "../fixtures/workspace.js";
 
@@ -187,6 +190,7 @@ function useShellSuggest(search: SearchState) {
 function TopBar({ search }: { search: SearchState }) {
 	return (
 		<AppTopBar
+			leading={<NavToggleButton />}
 			search={
 				<SearchBar
 					value={search.query}
@@ -198,7 +202,6 @@ function TopBar({ search }: { search: SearchState }) {
 					placeholder={
 						search.chips?.length ? "Search this folder" : "Search all mail"
 					}
-					size="lg"
 				/>
 			}
 			actions={
@@ -216,6 +219,13 @@ function TopBar({ search }: { search: SearchState }) {
 						icon={<Bug className="size-4" />}
 						title="Report a problem"
 						aria-label="Report a problem"
+					/>
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<Settings className="size-4" />}
+						title="Settings"
+						aria-label="Settings"
 					/>
 					<button type="button" aria-label="Account" className="ml-1">
 						<Avatar name="Matthijs" email="matthijs@example.com" size="sm" />
@@ -268,7 +278,6 @@ function ListPane({
 	const suggest = useShellSuggest(search);
 	const [category, setCategory] = useState("all");
 	const [filters, setFilters] = useState<ReadonlySet<string>>(new Set());
-	const [expanded, setExpanded] = useState(false);
 
 	const hasQuery = search.query.trim().length > 0;
 	const filterConfig = preset && {
@@ -277,8 +286,6 @@ function ListPane({
 		sources: preset.sources,
 		selectedCategory: category,
 		activeFilters: filters,
-		expanded,
-		onExpandedChange: setExpanded,
 		onSelectCategory: setCategory,
 		onToggleFilter: (id: string) =>
 			setFilters((prev) => {
@@ -351,26 +358,31 @@ function ListPane({
 		);
 
 	return (
-		<section className="flex h-full w-full flex-col bg-surface">
-			<MailHeader
-				title={title}
-				unreadCount={unreadCount}
-				isDesktop={false}
-				showSearch={singlePane}
-				onMenuClick={() => layout?.openNav()}
-				searchValue={search.query}
-				onSearchChange={search.setQuery}
-				onSearchClear={() => search.setQuery("")}
-				searchOpen={searchOpen}
-				onSearchOpenChange={onSearchOpenChange}
-				searchSuggest={suggest.field}
-			/>
-			{suggest.list}
-			{hasQuery && search.makeFilter && (
-				<MakeFilterAction {...search.makeFilter} />
-			)}
-			<div className="min-h-0 flex-1">{body}</div>
-		</section>
+		<FilterPanelProvider>
+			<section className="flex h-full w-full flex-col bg-surface">
+				<MailHeader
+					title={title}
+					unreadCount={unreadCount}
+					isDesktop={false}
+					showSearch={singlePane}
+					onMenuClick={
+						layout && !layout.showNavPane ? () => layout.openNav() : undefined
+					}
+					filterToggle={!hasQuery && <FilterToggle />}
+					searchValue={search.query}
+					onSearchChange={search.setQuery}
+					onSearchClear={() => search.setQuery("")}
+					searchOpen={searchOpen}
+					onSearchOpenChange={onSearchOpenChange}
+					searchSuggest={suggest.field}
+				/>
+				{suggest.list}
+				{hasQuery && search.makeFilter && (
+					<MakeFilterAction {...search.makeFilter} />
+				)}
+				<div className="min-h-0 flex-1">{body}</div>
+			</section>
+		</FilterPanelProvider>
 	);
 }
 

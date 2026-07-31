@@ -62,7 +62,6 @@ export function Dialog({
 
 	const isLeft = anchor === "left";
 	const isRight = anchor === "right";
-	const isSlideOver = isLeft || isRight;
 
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: outer overlay closes dialog on click; role=presentation lets inner role=dialog own the AT semantics
@@ -78,7 +77,7 @@ export function Dialog({
 			role="presentation"
 			onClick={onClose}
 		>
-			<div className={cn("absolute inset-0", !isSlideOver && "bg-canvas/80")} />
+			<div className="absolute inset-0 bg-canvas/80" />
 			<div
 				ref={dialogRef}
 				role="dialog"

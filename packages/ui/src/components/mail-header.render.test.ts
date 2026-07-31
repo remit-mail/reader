@@ -28,9 +28,20 @@ describe("MailHeader", () => {
 		assert.match(html, /15,338 unread/);
 	});
 
-	it("renders the menu (hamburger) control", () => {
-		assert.match(render(), /aria-label="Menu"/);
-		assert.match(render({ isDesktop: true }), /aria-label="Menu"/);
+	it("renders the menu (hamburger) control when it has somewhere to go", () => {
+		const onMenuClick = () => undefined;
+		assert.match(render({ onMenuClick }), /aria-label="Menu"/);
+		assert.match(render({ onMenuClick, isDesktop: true }), /aria-label="Menu"/);
+	});
+
+	it("drops the hamburger where the nav is a pane, rather than leaving a dead control", () => {
+		assert.doesNotMatch(render(), /aria-label="Menu"/);
+		assert.doesNotMatch(render({ isDesktop: true }), /aria-label="Menu"/);
+	});
+
+	it("sits on the pane-header datum once the top bar carries search", () => {
+		assert.match(render({ showSearch: false }), /h-pane-header/);
+		assert.match(render(), /h-section-row/);
 	});
 
 	it("does not render an account chip row (accounts live in the filter / nav)", () => {

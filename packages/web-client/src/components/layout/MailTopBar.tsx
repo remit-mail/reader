@@ -1,15 +1,16 @@
 /**
  * MailTopBar — the app's one search surface and its global actions.
  *
- * Mounted by the `/mail` shell over the list, the reading pane and the
- * intelligence rail, starting on the list's left edge. It is the app's search,
- * not the list's: the list header drops its own field wherever this bar is
- * mounted, so exactly one search input exists on the page and the "/" shortcut
- * has one target.
+ * Mounted by the `/mail` shell across the top of the whole layout — the nav
+ * column, the list, the reading pane and the intelligence rail. It is the app's
+ * search, not the list's: the list header drops its own field wherever this bar
+ * is mounted, so exactly one search input exists on the page and the "/"
+ * shortcut has one target.
  *
  * The actions here are the ones that belong to the app rather than to whatever
- * is currently listed or open — compose, bug report, account. Reply, delete,
- * move and the rest stay on the reading pane's own toolbar, under this bar.
+ * is currently listed or open — the nav toggle, compose, bug report, settings,
+ * account. Reply, delete, move and the rest stay on the reading pane's own
+ * toolbar, under this bar.
  *
  * The field carries one chip: the scope of the view the user navigated into
  * (`in:spam` in Spam, nothing on the brief). Removing it goes to the brief and
@@ -19,8 +20,9 @@
  * sections instead, where the text is not repeated.
  */
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
-import { AppTopBar, Button, SearchBar } from "@remit/ui";
-import { SquarePen } from "lucide-react";
+import { AppTopBar, Button, NavToggleButton, SearchBar } from "@remit/ui";
+import { useNavigate } from "@tanstack/react-router";
+import { Settings, SquarePen } from "lucide-react";
 import { AccountMenu } from "@/auth/AccountMenu";
 import { BugReportButton } from "@/components/ui/BugReportButton";
 import { useGlobalCompose } from "@/hooks/useComposeTarget";
@@ -42,6 +44,7 @@ interface MailTopBarProps {
 export function MailTopBar({ accounts }: MailTopBarProps) {
 	const { searchInput, onSearchChange, onSearchClear, onSearchClearQuery } =
 		useMailContext();
+	const navigate = useNavigate();
 	const compose = useGlobalCompose(accounts);
 	const { scope, clearScope } = useSearchScope(accounts);
 	const chips =
@@ -55,6 +58,7 @@ export function MailTopBar({ accounts }: MailTopBarProps) {
 
 	return (
 		<AppTopBar
+			leading={<NavToggleButton />}
 			search={
 				<SearchBar
 					value={searchInput}
@@ -64,7 +68,6 @@ export function MailTopBar({ accounts }: MailTopBarProps) {
 					chips={chips}
 					onRemoveChip={clearScope}
 					placeholder={placeholder}
-					size="lg"
 				/>
 			}
 			actions={
@@ -78,6 +81,14 @@ export function MailTopBar({ accounts }: MailTopBarProps) {
 						onClick={compose}
 					/>
 					<BugReportButton />
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<Settings className="size-4" />}
+						title="Settings"
+						aria-label="Settings"
+						onClick={() => navigate({ to: "/settings/accounts" })}
+					/>
 					<AccountMenu />
 				</>
 			}

@@ -188,11 +188,13 @@ export {
 	type FilterRuleEditorProps,
 } from "./components/filter-rule-editor.js";
 export {
+	FilterPanelProvider,
 	FilterSheet,
 	type FilterSheetCategory,
 	type FilterSheetFilter,
 	type FilterSheetProps,
 	type FilterSheetSource,
+	FilterToggle,
 } from "./components/filter-sheet.js";
 export {
 	FolderManageActions,
@@ -325,6 +327,7 @@ export {
 	NavSidebar,
 	type NavSidebarProps,
 } from "./components/nav-sidebar.js";
+export { NavToggleButton } from "./components/nav-toggle-button.js";
 export {
 	NewFolderAction,
 	type NewFolderActionProps,

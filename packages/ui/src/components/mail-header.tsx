@@ -1,4 +1,6 @@
 import { Menu, Search, X } from "lucide-react";
+import type { ReactNode } from "react";
+import { cn } from "../lib/cn.js";
 import { Button } from "./button.js";
 import { SearchBar } from "./search-bar.js";
 import type { SearchFieldSuggest } from "./search-chip-input.js";
@@ -30,6 +32,12 @@ export interface MailHeaderProps {
 	 */
 	showSearch?: boolean;
 	/**
+	 * The view's filter control, rendered beside the unread count — a
+	 * `FilterToggle` over a `FilterSheet` under the same `FilterPanelProvider`.
+	 * The header row already exists, so the filter costs the list no second row.
+	 */
+	filterToggle?: ReactNode;
+	/**
 	 * Completions for what is being typed; see `SearchChipInput`. The list is
 	 * not rendered here — the header is a fixed-height row, so the consumer
 	 * renders it in the pane directly below, where it takes its own space
@@ -59,6 +67,7 @@ export function MailHeader({
 	searchOpen,
 	onSearchOpenChange,
 	showSearch = true,
+	filterToggle,
 	searchSuggest,
 }: MailHeaderProps) {
 	const unreadLabel = `${unreadCount.toLocaleString()} unread`;
@@ -79,38 +88,46 @@ export function MailHeader({
 		/>
 	);
 
-	const menuButton = (
+	// Without its own field the row is a plain title bar and sits on the
+	// pane-header datum, so the control shrinks with it. Carrying the field means
+	// carrying touch targets too, which need the taller row.
+	const menuButton = onMenuClick && (
 		<Button
 			variant="ghost"
-			icon={<Menu className="size-5" />}
+			size={showSearch ? undefined : "sm"}
+			icon={<Menu className={showSearch ? "size-5" : "size-4"} />}
 			onClick={onMenuClick}
 			aria-label="Menu"
-			className="min-h-11 min-w-11 shrink-0 px-0"
+			className={
+				showSearch ? "min-h-11 min-w-11 shrink-0 px-0" : "-ml-1 shrink-0"
+			}
 		/>
+	);
+
+	const titleRow = (
+		<>
+			{menuButton}
+			<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
+				{title}
+			</h1>
+			<span className="shrink-0 text-2xs text-fg-subtle">{unreadLabel}</span>
+			{filterToggle}
+		</>
 	);
 
 	return (
 		<header className="flex shrink-0 flex-col bg-canvas">
-			<div className="flex h-12 items-center gap-2 px-row-inset">
+			<div
+				className={cn(
+					"flex items-center gap-2 border-b border-line px-row-inset",
+					showSearch ? "h-section-row" : "h-pane-header",
+				)}
+			>
 				{!showSearch ? (
-					<>
-						{menuButton}
-						<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
-							{title}
-						</h1>
-						<span className="shrink-0 text-2xs text-fg-subtle">
-							{unreadLabel}
-						</span>
-					</>
+					titleRow
 				) : isDesktop ? (
 					<>
-						{menuButton}
-						<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
-							{title}
-						</h1>
-						<span className="shrink-0 text-2xs text-fg-subtle">
-							{unreadLabel}
-						</span>
+						{titleRow}
 						<div className="w-64 max-w-[40%] shrink-0">
 							{renderSearchBar(true)}
 						</div>
@@ -128,13 +145,7 @@ export function MailHeader({
 					</div>
 				) : (
 					<>
-						{menuButton}
-						<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
-							{title}
-						</h1>
-						<span className="shrink-0 text-2xs text-fg-subtle">
-							{unreadLabel}
-						</span>
+						{titleRow}
 						<Button
 							variant="ghost"
 							icon={<Search className="size-5" />}

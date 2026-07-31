@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { FilterSheet, type FilterSheetProps } from "./filter-sheet.js";
+import {
+	FilterPanelProvider,
+	FilterSheet,
+	type FilterSheetProps,
+	FilterToggle,
+} from "./filter-sheet.js";
 
 const categories = [
 	{ id: "all", label: "All", tone: "neutral" as const },
@@ -72,5 +77,47 @@ describe("FilterSheet", () => {
 		assert.doesNotMatch(html, /shadow-/);
 		assert.doesNotMatch(html, /rounded-b-2xl/);
 		assert.doesNotMatch(html, /role="slider"/);
+	});
+});
+
+describe("FilterSheet under a FilterPanelProvider", () => {
+	const underProvider = (overrides: Partial<FilterSheetProps> = {}) =>
+		renderToString(
+			createElement(
+				FilterPanelProvider,
+				null,
+				createElement(FilterToggle),
+				createElement(FilterSheet, {
+					categories,
+					filters,
+					sources,
+					selectedCategory: "all",
+					activeFilters: new Set<string>(),
+					onSelectCategory: () => undefined,
+					onSelectSource: () => undefined,
+					onToggleFilter: () => undefined,
+					onClear: () => undefined,
+					...overrides,
+				}),
+			),
+		);
+
+	it("spends no row of its own on a trigger — the header carries the caret", () => {
+		const html = underProvider();
+		assert.equal(
+			html.match(/aria-label="Expand filters"/g)?.length,
+			1,
+			"exactly one filter control on the page",
+		);
+		assert.doesNotMatch(html, /h-section-row/, "no trigger row");
+	});
+
+	it("starts collapsed even where a nearer component asks to be expanded", () => {
+		const html = underProvider({ expanded: true });
+		assert.doesNotMatch(html, /work@acme\.com/, "panel is closed");
+	});
+
+	it("renders nothing for a toggle with no panel above it", () => {
+		assert.equal(renderToString(createElement(FilterToggle)), "");
 	});
 });
