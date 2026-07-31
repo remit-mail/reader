@@ -20,6 +20,8 @@
     "typecheck": "npm run test:typecheck --workspaces --if-present",
     "test": "npm run test:run --workspaces --if-present",
     "build-storybook": "npm run build-storybook -w @remit/workbench",
+    "storybook:review": "bash npm-scripts/storybook-review.sh",
+    "storybook:review:down": "bash npm-scripts/storybook-review.sh --down",
     "lint": "biome ci",
     "format": "biome check --fix && tsp format ./typespec",
     "release": "node npm-scripts/publish-packages.mjs",

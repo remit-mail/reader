@@ -79,6 +79,17 @@ Open the URL it serves on 4123, sign up, then add your own mailbox from
 **Settings -> Add account**. State lives under `.remit/dev-sqlite`; deleting
 that directory resets the stack.
 
+To review a branch's UI from a phone or another machine, serve its Storybook
+from this host — it binds every interface and prints a URL you can open
+anywhere on your network:
+
+```
+npm run storybook:review -- some-branch   # defaults to origin/main
+npm run storybook:review:down             # stop it
+```
+
+It works in a checkout of its own, so your working tree stays where it is.
+
 ## How it fits together
 
 Reader talks to your mailbox over IMAP and SMTP. A small set of queue workers
