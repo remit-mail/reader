@@ -44,7 +44,6 @@ import {
 	NavSidebar,
 	NavToggleButton,
 	ReadingPane,
-	rowSelectIntent,
 	SearchBar,
 	type SearchCaretRequest,
 	type SearchChip,
@@ -58,7 +57,6 @@ import {
 	type ThreadData,
 	type ThreadSection,
 	useAppShellLayout,
-	useSelection,
 	useSuggestList,
 } from "@remit/ui";
 import {
@@ -72,6 +70,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import { navAccounts } from "../fixtures/workspace.js";
+import { PaneNavButton, useListTriage } from "../lib/list-selection.js";
 
 /** The width at which the reading pane, the nav column and the top bar appear. */
 const DESKTOP_MIN_WIDTH = 1024;
@@ -252,85 +251,6 @@ function TopBar({ search }: { search: SearchState }) {
 	);
 }
 
-/**
- * The list's selection, and what its verbs do to the rows it holds — the state
- * the app keeps above the kit (`useSelection`, `ThreadListInteraction`), kept
- * here for the same reason: one set of rows can only answer to one selection,
- * and it belongs to whoever renders them.
- *
- * Delete and Mark read act on the story's own rows. A bar whose Trash only
- * closes the bar is a Trash that deletes nothing, which is the one thing a
- * selection bar must never be.
- */
-function useListTriage(sections: ThreadSection[]) {
-	const selection = useSelection();
-	const [trashedIds, setTrashedIds] = useState<ReadonlySet<string>>(new Set());
-	const [readIds, setReadIds] = useState<ReadonlySet<string>>(new Set());
-
-	const visible = useMemo(
-		() =>
-			trashedIds.size === 0 && readIds.size === 0
-				? sections
-				: sections.map((section) => ({
-						...section,
-						threads: section.threads
-							.filter((thread) => !trashedIds.has(thread.id))
-							.map((thread) =>
-								readIds.has(thread.id) ? { ...thread, isRead: true } : thread,
-							),
-					})),
-		[sections, trashedIds, readIds],
-	);
-
-	const orderedIds = useMemo(
-		() => visible.flatMap((section) => section.threads).map((t) => t.id),
-		[visible],
-	);
-
-	const { selectedIds, toggle, selectRange, clearSelection, setAnchor } =
-		selection;
-
-	const paneSelection = useMemo<MessageListSelection>(
-		() => ({
-			selectedIds,
-			onToggle: toggle,
-			onRowSelect: (id, modifiers) => {
-				const intent = rowSelectIntent(modifiers);
-				if (intent === "range") {
-					selectRange(orderedIds, id);
-					return true;
-				}
-				if (intent === "toggle") {
-					toggle(id);
-					return true;
-				}
-				clearSelection();
-				setAnchor(id);
-				return false;
-			},
-		}),
-		[selectedIds, toggle, selectRange, clearSelection, setAnchor, orderedIds],
-	);
-
-	const runVerb = (record: (ids: ReadonlySet<string>) => void) => {
-		record(selectedIds);
-		selection.clearSelection();
-	};
-
-	return {
-		selection,
-		sections: visible,
-		paneSelection,
-		allSelected:
-			orderedIds.length > 0 && orderedIds.every((id) => selectedIds.has(id)),
-		toggleAll: () => selection.toggleAll(orderedIds),
-		trashSelected: () =>
-			runVerb((ids) => setTrashedIds((prev) => new Set([...prev, ...ids]))),
-		markSelectedRead: () =>
-			runVerb((ids) => setReadIds((prev) => new Set([...prev, ...ids]))),
-	};
-}
-
 /** The FAB is the single-pane compose entry point; above it the top bar owns it. */
 function ComposeFab() {
 	return (
@@ -369,7 +289,6 @@ function ListPane({
 	searchOpen: boolean;
 	onSearchOpenChange: (open: boolean) => void;
 }) {
-	const layout = useAppShellLayout();
 	const suggest = useShellSuggest(search);
 	const [category, setCategory] = useState("all");
 	const [filters, setFilters] = useState<ReadonlySet<string>>(new Set());
@@ -470,19 +389,7 @@ function ListPane({
 						indeterminate: selection.hasSelection && !triage.allSelected,
 						onChange: triage.toggleAll,
 					}}
-					navSlot={
-						layout &&
-						!layout.showNavPane && (
-							<Button
-								variant="ghost"
-								size="touch"
-								icon={<Menu className="size-5" />}
-								onClick={() => layout.openNav()}
-								aria-label="Menu"
-								className="-ml-2 shrink-0"
-							/>
-						)
-					}
+					navSlot={<PaneNavButton />}
 					titleMeta={
 						<>
 							<span className="shrink-0 text-2xs text-fg-subtle">

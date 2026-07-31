@@ -1,7 +1,11 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { inboxFilterConfig } from "../filter-presets.js";
-import { rowSelectIntent, useSelection } from "../lib/use-selection.js";
+import {
+	rowSelectIntent,
+	type SelectionModifiers,
+	useSelection,
+} from "../lib/use-selection.js";
 import type { ThreadSection } from "./app-shell-types.js";
 import { FilterSheet } from "./filter-sheet.js";
 import { MailHeader } from "./mail-header.js";
@@ -213,56 +217,73 @@ export const CustomListBody: Story = {
 	decorators: [desktopFrame],
 };
 
-/**
- * The pane under a selection its consumer owns. The pane draws the checkboxes
- * and holds none of the state, so the interaction here is the app's: click a
- * checkbox to tick one row, cmd/ctrl-click a row to tick it without opening it,
- * shift-click to range from the last row touched, and select-all covers the
- * rows on screen.
- *
- * The bar is the header for every state of the list — it names the mailbox with
- * nothing ticked and carries the count and the verbs from the first ticked row.
- */
 function SelectableList({ isDesktop }: { isDesktop: boolean }) {
 	const selection = useSelection();
-	const orderedIds = sections.flatMap((s) => s.threads).map((t) => t.id);
-	const allSelected = orderedIds.every((id) => selection.selectedIds.has(id));
+	const [trashedIds, setTrashedIds] = useState<ReadonlySet<string>>(new Set());
+	const [readIds, setReadIds] = useState<ReadonlySet<string>>(new Set());
+
+	const visible = sections.map((section) => ({
+		...section,
+		threads: section.threads
+			.filter((thread) => !trashedIds.has(thread.id))
+			.map((thread) =>
+				readIds.has(thread.id) ? { ...thread, isRead: true } : thread,
+			),
+	}));
+	const orderedIds = visible.flatMap((s) => s.threads).map((t) => t.id);
+	const allSelected =
+		orderedIds.length > 0 &&
+		orderedIds.every((id) => selection.selectedIds.has(id));
+
+	const runVerb = (record: (ids: ReadonlySet<string>) => void) => {
+		record(selection.selectedIds);
+		selection.clearSelection();
+	};
+
+	// Shift and cmd/ctrl come off a mouse, which the touch list has no path for.
+	const onRowSelect = isDesktop
+		? (id: string, modifiers: SelectionModifiers) => {
+				const intent = rowSelectIntent(modifiers);
+				if (intent === "range") {
+					selection.selectRange(orderedIds, id);
+					return true;
+				}
+				if (intent === "toggle") {
+					selection.toggle(id);
+					return true;
+				}
+				selection.clearSelection();
+				selection.setAnchor(id);
+				return false;
+			}
+		: undefined;
 
 	return (
 		<MessageListPane
 			listTitle="Inbox"
 			listMeta="3 conversations"
-			sections={sections}
+			sections={visible}
 			flatList
 			isDesktop={isDesktop}
 			onSelectThread={() => undefined}
 			selection={{
 				selectedIds: selection.selectedIds,
 				onToggle: selection.toggle,
-				onRowSelect: (id, modifiers) => {
-					const intent = rowSelectIntent(modifiers);
-					if (intent === "range") {
-						selection.selectRange(orderedIds, id);
-						return true;
-					}
-					if (intent === "toggle") {
-						selection.toggle(id);
-						return true;
-					}
-					selection.clearSelection();
-					selection.setAnchor(id);
-					return false;
-				},
+				onRowSelect,
 			}}
 			selectionBar={
 				<SelectionTopBar
 					title="Inbox"
 					count={selection.selectedCount}
 					onCancel={selection.clearSelection}
-					onMarkRead={() => undefined}
-					onJunk={() => undefined}
-					onOrganize={() => undefined}
-					onDelete={() => undefined}
+					onDelete={() =>
+						runVerb((ids) =>
+							setTrashedIds((prev) => new Set([...prev, ...ids])),
+						)
+					}
+					onMarkRead={() =>
+						runVerb((ids) => setReadIds((prev) => new Set([...prev, ...ids])))
+					}
 					selectAll={{
 						checked: allSelected,
 						indeterminate: selection.hasSelection && !allSelected,
@@ -274,15 +295,28 @@ function SelectableList({ isDesktop }: { isDesktop: boolean }) {
 	);
 }
 
-/** Desktop: from 768px up the labelled select-all sits inline in the bar. */
+/**
+ * The pane under a selection its consumer owns — it draws the checkboxes and
+ * holds none of the state. Click a checkbox to tick one row, cmd/ctrl-click a
+ * row to tick it without opening it, shift-click to range from the last row
+ * touched, and select-all covers the rows on screen. From 768px up the labelled
+ * select-all sits inline in the bar.
+ *
+ * The bar is the header for every state of the list: it names the mailbox with
+ * nothing ticked and carries the count and the verbs from the first ticked row.
+ * Delete and Mark read act on the rows — trashed rows leave the list, marked
+ * ones lose their unread dot.
+ */
 export const ConsumerSelection: Story = {
 	render: () => <SelectableList isDesktop />,
 	decorators: [desktopFrame],
 };
 
 /**
- * The same list at phone width: checkboxes stay put once a row is ticked, and
- * select-all moves to a second row so row one stays a count and the verbs.
+ * The same list at phone width, where selection is a long press and a tap on
+ * the checkbox: no modifier comes off a touch, so there is no range and no
+ * cmd-toggle here. Checkboxes stay put once a row is ticked, and select-all
+ * moves to a second row so row one stays a count and the verbs.
  */
 export const NarrowConsumerSelection: Story = {
 	render: () => <SelectableList isDesktop={false} />,

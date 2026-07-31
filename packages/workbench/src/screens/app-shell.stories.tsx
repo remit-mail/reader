@@ -3,14 +3,12 @@ import {
 	type AppShellProps,
 	Banner,
 	MessageListPane,
-	rowSelectIntent,
 	SelectionTopBar,
 	type ThreadData,
 	TouchListBody,
-	useSelection,
 } from "@remit/ui";
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { expect, fireEvent, waitFor, within } from "storybook/test";
 import {
 	allThreads,
@@ -26,6 +24,7 @@ import {
 	q3Intelligence,
 	q3Thread,
 } from "../fixtures/workspace.js";
+import { ListSelectionBar, useListTriage } from "../lib/list-selection.js";
 
 /** A normal mailbox is one flat, unlabeled list of rows (no brief sections). */
 const flatInboxSection = [{ id: "inbox", threads: allThreads }];
@@ -56,20 +55,27 @@ export default meta;
 
 type Story = StoryObj<typeof AppShell>;
 
-/** Stateful wrapper: the intelligence pane toggles for real. */
+/** Stateful wrapper: the intelligence pane toggles for real, and the list's
+ *  selection lives here, above the kit, the way it lives above it in the app. */
 function StatefulShell({
 	startOpen = true,
+	initialSelectedIds,
 	...overrides
-}: Partial<AppShellProps> & { startOpen?: boolean }) {
+}: Partial<AppShellProps> & {
+	startOpen?: boolean;
+	initialSelectedIds?: string[];
+}) {
 	const [open, setOpen] = useState(startOpen);
+	const brief = useMemo(() => briefSections(), []);
+	const triage = useListTriage(overrides.sections ?? brief, initialSelectedIds);
+	const title = overrides.listTitle ?? "Daily brief";
+	const meta =
+		"listMeta" in overrides ? overrides.listMeta : `${briefUnseen} unread`;
 	return (
 		<AppShell
 			accounts={navAccounts}
 			selectedNavId="brief"
 			briefUnseen={briefUnseen}
-			listTitle="Daily brief"
-			listMeta={`${briefUnseen} unread`}
-			sections={briefSections()}
 			briefFilters
 			selectedThreadId="thr_q3"
 			thread={q3Thread}
@@ -77,6 +83,20 @@ function StatefulShell({
 			intelligenceOpen={open}
 			onToggleIntelligence={() => setOpen((v) => !v)}
 			{...overrides}
+			listTitle={title}
+			sections={triage.sections}
+			selection={triage.paneSelection}
+			selectionBar={
+				<ListSelectionBar
+					triage={triage}
+					title={title}
+					titleMeta={
+						meta && (
+							<span className="shrink-0 text-2xs text-fg-subtle">{meta}</span>
+						)
+					}
+				/>
+			}
 		/>
 	);
 }
@@ -376,95 +396,28 @@ const mobileParams = {
 	viewport: { value: "mobile" },
 };
 
-/** Renders the real AppShell seeded to phone width. */
-function PhoneShell(overrides: Partial<AppShellProps>) {
+/** Renders the real AppShell seeded to phone width, with the list's selection
+ *  held above the kit the way the app holds it. */
+function PhoneShell({
+	initialSelectedIds,
+	...overrides
+}: Partial<AppShellProps> & { initialSelectedIds?: string[] }) {
+	const triage = useListTriage(
+		overrides.sections ?? flatInboxSection,
+		initialSelectedIds,
+	);
+	const title = overrides.listTitle ?? "Inbox";
 	return (
 		<AppShell
 			accounts={navAccounts}
 			initialWidth={PHONE_WIDTH}
 			selectedNavId="mbx_personal_inbox"
-			listTitle="Inbox"
 			flatList
-			sections={flatInboxSection}
 			{...overrides}
-		/>
-	);
-}
-
-/**
- * The phone shell with the selection held above the kit, the way the app holds
- * it: a `SelectionTopBar` is the list header for every state of the list, and
- * the pane draws the checkboxes and the count from state it does not own.
- *
- * Delete and Mark read act on the story's own rows — a Trash that only closes
- * the bar deletes nothing, which is the one thing a selection bar must never be.
- */
-function SelectablePhoneShell({
-	initialSelectedIds,
-	...overrides
-}: Partial<AppShellProps> & { initialSelectedIds?: string[] }) {
-	const selection = useSelection({ initialSelectedIds });
-	const [trashedIds, setTrashedIds] = useState<ReadonlySet<string>>(new Set());
-	const [readIds, setReadIds] = useState<ReadonlySet<string>>(new Set());
-
-	const threads = allThreads
-		.filter((thread) => !trashedIds.has(thread.id))
-		.map((thread) =>
-			readIds.has(thread.id) ? { ...thread, isRead: true } : thread,
-		);
-	const orderedIds = threads.map((thread) => thread.id);
-	const allSelected =
-		orderedIds.length > 0 &&
-		orderedIds.every((id) => selection.selectedIds.has(id));
-
-	const runVerb = (record: (ids: ReadonlySet<string>) => void) => {
-		record(selection.selectedIds);
-		selection.clearSelection();
-	};
-
-	return (
-		<PhoneShell
-			{...flatInbox}
-			sections={[{ id: "inbox", threads }]}
-			selection={{
-				selectedIds: selection.selectedIds,
-				onToggle: selection.toggle,
-				onRowSelect: (id, modifiers) => {
-					const intent = rowSelectIntent(modifiers);
-					if (intent === "range") {
-						selection.selectRange(orderedIds, id);
-						return true;
-					}
-					if (intent === "toggle") {
-						selection.toggle(id);
-						return true;
-					}
-					selection.clearSelection();
-					selection.setAnchor(id);
-					return false;
-				},
-			}}
-			selectionBar={
-				<SelectionTopBar
-					title="Inbox"
-					count={selection.selectedCount}
-					onCancel={selection.clearSelection}
-					onDelete={() =>
-						runVerb((ids) =>
-							setTrashedIds((prev) => new Set([...prev, ...ids])),
-						)
-					}
-					onMarkRead={() =>
-						runVerb((ids) => setReadIds((prev) => new Set([...prev, ...ids])))
-					}
-					selectAll={{
-						checked: allSelected,
-						indeterminate: selection.hasSelection && !allSelected,
-						onChange: () => selection.toggleAll(orderedIds),
-					}}
-				/>
-			}
-			{...overrides}
+			listTitle={title}
+			sections={triage.sections}
+			selection={triage.paneSelection}
+			selectionBar={<ListSelectionBar triage={triage} title={title} />}
 		/>
 	);
 }
@@ -572,7 +525,8 @@ export const MobileSelectionMode: Story = {
 	parameters: mobileParams,
 	decorators: [phoneFrame],
 	render: () => (
-		<SelectablePhoneShell
+		<PhoneShell
+			{...flatInbox}
 			initialSelectedIds={allThreads.slice(0, 2).map((thread) => thread.id)}
 		/>
 	),
@@ -608,7 +562,7 @@ export const MobileSwipeToggleRead: Story = {
 export const MobileSelectionViaLongPress: Story = {
 	parameters: mobileParams,
 	decorators: [phoneFrame],
-	render: () => <SelectablePhoneShell />,
+	render: () => <PhoneShell {...flatInbox} />,
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
 		const firstRowName = allThreads[0]?.fromName;

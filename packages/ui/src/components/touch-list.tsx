@@ -33,11 +33,21 @@ export function TouchListBody({
 	 */
 	busy?: boolean;
 }) {
-	// Local copy so the mock can act on a swipe: delete removes the row,
-	// toggle-read flips its state. The live client owns real mutation.
-	const [items, setItems] = useState(() =>
-		sections.flatMap((section) => section.threads),
+	// What a swipe has done, as ids rather than a copy of the rows, so the list
+	// still follows the `sections` its consumer passes. The live client owns real
+	// mutation.
+	const [swipedAway, setSwipedAway] = useState<ReadonlySet<string>>(new Set());
+	const [readToggled, setReadToggled] = useState<ReadonlySet<string>>(
+		new Set(),
 	);
+	const items = sections
+		.flatMap((section) => section.threads)
+		.filter((thread) => !swipedAway.has(thread.id))
+		.map((thread) =>
+			readToggled.has(thread.id)
+				? { ...thread, isRead: !thread.isRead }
+				: thread,
+		);
 	const [peek, setPeek] = useState<{ id: string; side: SwipePeek } | null>(
 		initialPeek && initialPeek !== "none" && items[1]
 			? { id: items[1].id, side: initialPeek }
@@ -45,11 +55,14 @@ export function TouchListBody({
 	);
 	const act = (id: string, side: "leading" | "trailing") => {
 		if (side === "trailing") {
-			setItems((prev) => prev.filter((t) => t.id !== id));
+			setSwipedAway((prev) => new Set(prev).add(id));
 		} else {
-			setItems((prev) =>
-				prev.map((t) => (t.id === id ? { ...t, isRead: !t.isRead } : t)),
-			);
+			setReadToggled((prev) => {
+				const next = new Set(prev);
+				if (next.has(id)) next.delete(id);
+				else next.add(id);
+				return next;
+			});
 		}
 		setPeek(null);
 	};
