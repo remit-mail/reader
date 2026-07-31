@@ -13,9 +13,9 @@
  * time. The selection state is held here and survives, so clearing the query
  * restores the sheet exactly as it was.
  *
- * The daily brief no longer uses this: it composes `MailListHeader` with the kit
- * `BriefSections`, which owns its own filter row (so there is exactly one filter
- * surface and the section headers flatten correctly when filtered).
+ * The daily brief composes the same three parts itself — provider, header,
+ * sheet — around the kit `BriefSections`, whose sheet narrows the grouped
+ * sections and flattens them when scoped to one category.
  */
 import {
 	FilterPanelProvider,

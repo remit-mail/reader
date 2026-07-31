@@ -1,7 +1,11 @@
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "./button.js";
-import { FilterSheet, type FilterSheetProps } from "./filter-sheet.js";
+import {
+	FilterPanelBoundary,
+	FilterSheet,
+	type FilterSheetProps,
+} from "./filter-sheet.js";
 import { SearchBar } from "./search-bar.js";
 import type { SearchChip, SearchFieldSuggest } from "./search-chip-input.js";
 import type { SearchResult } from "./search-result-row.js";
@@ -146,7 +150,9 @@ export function MobileSearchView({
 			{suggestList}
 
 			{filter && value.trim().length === 0 ? (
-				<FilterSheet {...filter}>{body}</FilterSheet>
+				<FilterPanelBoundary>
+					<FilterSheet {...filter}>{body}</FilterSheet>
+				</FilterPanelBoundary>
 			) : (
 				<div className="flex-1 overflow-y-auto">{body}</div>
 			)}

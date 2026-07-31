@@ -2,9 +2,12 @@ import {
 	AppShell,
 	type BriefCategoryFilter,
 	BriefSection,
+	BriefSections,
 	Button,
 	ComfortableRow,
 	defaultKeyboardHints,
+	FilterPanelProvider,
+	FilterToggle,
 	KeyboardHintBar,
 	MailHeader,
 	SelectionTopBar,
@@ -169,16 +172,12 @@ export const KeyboardHintsPhone: Story = {
 };
 
 /**
- * The aggregate brief as the web client composes it: the MailHeader top row,
- * then the brief list body straight underneath.
- *
- * The list's filter control (categories + attribute chips + the accounts group)
- * is hidden — the brief is being tried without it — so this screen renders the
- * kit `BriefSection`s directly rather than wrapping them in `BriefSections`,
- * which owns that control. The category scope still flattens the list to a
- * headerless one when it is narrowed; the phone search takeover is what sets it.
- * The control itself is still covered by the kit's own `BriefSections` stories.
- * Fast account switching is the nav sidebar, so there is no header chip row.
+ * The aggregate brief as the web client composes it at phone width: the
+ * MailHeader top row carrying the filter caret, then the brief list body
+ * straight underneath. `FilterPanelProvider` shares the panel's open state
+ * between the two, so the caret is the whole filter affordance and the panel it
+ * opens pushes the rows down. Fast account switching is the nav sidebar, so
+ * there is no header chip row.
  */
 function BriefScreen({
 	initialCategory = "all",
@@ -187,53 +186,42 @@ function BriefScreen({
 }) {
 	const [searchValue, setSearchValue] = useState("");
 	const [searchOpen, setSearchOpen] = useState(false);
-	const [category] = useState<BriefCategoryFilter>(initialCategory);
-	const sections = briefSections();
-	const flatRows = sections
-		.flatMap((section) => section.threads)
-		.filter((thread) => thread.category === category);
+	const [category, setCategory] =
+		useState<BriefCategoryFilter>(initialCategory);
 
 	return (
-		<div
-			className="flex h-[760px] flex-col overflow-hidden border border-line bg-canvas"
-			style={{ width: 390 }}
-		>
-			<MailHeader
-				title="Daily brief"
-				unreadCount={briefUnseen}
-				isDesktop={false}
-				onMenuClick={() => undefined}
-				searchValue={searchValue}
-				onSearchChange={setSearchValue}
-				searchOpen={searchOpen}
-				onSearchOpenChange={setSearchOpen}
-			/>
-			<div className="min-h-0 flex-1">
-				<div className="h-full overflow-y-auto">
-					{category === "all" ? (
-						sections.map((section) => (
-							<BriefSection
-								key={section.id}
-								section={section}
-								Row={ComfortableRow}
-							/>
-						))
-					) : (
-						<div className="divide-y divide-line">
-							{flatRows.map((thread) => (
-								<ComfortableRow key={thread.id} thread={thread} />
-							))}
-						</div>
-					)}
+		<FilterPanelProvider>
+			<div
+				className="flex h-[760px] flex-col overflow-hidden border border-line bg-canvas"
+				style={{ width: 390 }}
+			>
+				<MailHeader
+					title="Daily brief"
+					unreadCount={briefUnseen}
+					isDesktop={false}
+					onMenuClick={() => undefined}
+					filterToggle={<FilterToggle />}
+					searchValue={searchValue}
+					onSearchChange={setSearchValue}
+					searchOpen={searchOpen}
+					onSearchOpenChange={setSearchOpen}
+				/>
+				<div className="min-h-0 flex-1">
+					<BriefSections
+						sections={briefSections()}
+						briefCategory={category}
+						Row={ComfortableRow}
+						onSelectBriefCategory={setCategory}
+					/>
 				</div>
 			</div>
-		</div>
+		</FilterPanelProvider>
 	);
 }
 
 /**
- * (a) "All" scope: header straight onto the brief, every category section
- * rendered with its header and no filter bar between them.
+ * (a) "All" scope: every category section rendered with its header, and the
+ * caret in the header beside the unread count.
  */
 export const WithFilter: Story = {
 	parameters: { layout: "centered" },

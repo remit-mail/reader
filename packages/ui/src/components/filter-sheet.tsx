@@ -121,6 +121,8 @@ interface FilterPanelState {
 	/** Whether the sheet under this provider is narrowing the list right now. */
 	active: boolean;
 	setActive: (active: boolean) => void;
+	/** Whether a sheet is mounted for the caret to open. */
+	hasSheet: boolean;
 }
 
 const FilterPanelCtx = createContext<FilterPanelState | null>(null);
@@ -130,16 +132,38 @@ const FilterPanelCtx = createContext<FilterPanelState | null>(null);
  * under it, which are siblings in the tree. Wrap both: the header renders a
  * `FilterToggle`, the sheet drops its own trigger row, and the sheet keeps its
  * filter state exactly where it already lives.
+ *
+ * A view whose body is sometimes something other than the filtered list — a
+ * skeleton, an empty state, an error — says so with `hasSheet`, and the caret
+ * stands down for as long as there is no panel behind it.
  */
-export function FilterPanelProvider({ children }: { children: ReactNode }) {
+export function FilterPanelProvider({
+	children,
+	hasSheet = true,
+}: {
+	children: ReactNode;
+	hasSheet?: boolean;
+}) {
 	const [open, setOpen] = useState(false);
 	const [active, setActive] = useState(false);
 	const value = useMemo(
-		() => ({ open, setOpen, active, setActive }),
-		[open, active],
+		() => ({ open, setOpen, active, setActive, hasSheet }),
+		[open, active, hasSheet],
 	);
 	return (
 		<FilterPanelCtx.Provider value={value}>{children}</FilterPanelCtx.Provider>
+	);
+}
+
+/**
+ * Detaches whatever it wraps from an enclosing `FilterPanelProvider`. A
+ * full-screen surface that covers the list — the phone search takeover — carries
+ * its own filter chrome, and the caret it would otherwise borrow belongs to a
+ * header that is not on screen.
+ */
+export function FilterPanelBoundary({ children }: { children: ReactNode }) {
+	return (
+		<FilterPanelCtx.Provider value={null}>{children}</FilterPanelCtx.Provider>
 	);
 }
 
@@ -148,11 +172,12 @@ export function FilterPanelProvider({ children }: { children: ReactNode }) {
  * the view's whole filter affordance; the panel it opens still belongs to the
  * sheet, inline above the rows.
  *
- * Renders nothing outside a `FilterPanelProvider` — there is no panel to open.
+ * Renders nothing outside a `FilterPanelProvider`, and nothing while that
+ * provider reports no sheet — there is no panel to open.
  */
 export function FilterToggle() {
 	const panel = useContext(FilterPanelCtx);
-	if (!panel) return null;
+	if (!panel?.hasSheet) return null;
 	const { open, active, setOpen } = panel;
 	return (
 		<button
@@ -225,7 +250,9 @@ export function FilterSheet({
 
 	const setPanelActive = panel?.setActive;
 	useEffect(() => {
-		setPanelActive?.(hasActive);
+		if (!setPanelActive) return;
+		setPanelActive(hasActive);
+		return () => setPanelActive(false);
 	}, [hasActive, setPanelActive]);
 
 	const clearSource = useCallback(() => {

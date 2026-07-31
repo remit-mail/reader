@@ -7,13 +7,13 @@
  * brief defaults to the cross-account aggregate, and `MailListHeader` provides
  * the title, unread count, and search.
  *
- * The list's filter control (categories + attribute chips + the account source
- * group) is hidden — the brief is being tried without it. The kit
- * `BriefSections` renders that control above the list body, so the body is
- * rendered here by `BriefListBody` instead; every input the control consumed is
- * still computed below, so bringing it back is swapping `BriefListBody` for
- * `<BriefSections … />`. Account switching also lives in the nav sidebar, and
- * the phone search takeover keeps its own copy of the filter sheet.
+ * The list's filter surface is the kit `BriefSections`: categories, attribute
+ * chips and the account source group, in a panel the list header's caret opens
+ * over the rows. `FilterPanelProvider` shares that panel's open state between
+ * the caret and the sheet, the same shape `MailViewChrome` gives the mailbox and
+ * Starred views. The category and the chips narrow the grouped sections
+ * themselves, and the phone search takeover reads the same selection, so a
+ * filter set on one surface holds on the other.
  *
  * Multi-select is the mailbox list's, not a copy of it: the same
  * `ThreadListInteraction` cursor and `useSelection` state, and the same
@@ -37,11 +37,14 @@ import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.
 import {
 	type BriefCategoryFilter,
 	BriefEmpty,
-	BriefSection,
+	type BriefFilterId,
+	BriefSections,
 	briefFilterConfig,
+	FilterPanelProvider,
 	type FilterSheetProps,
 	type FilterSheetSource,
 	KeyboardHintBar,
+	matchesBriefFilters,
 	partitionSpamResults,
 	type SearchResult,
 	SelectionTopBar,
@@ -102,20 +105,9 @@ import {
 	useThreadListSelection,
 } from "./ThreadListInteraction";
 
-/* The brief's attribute chips as predicates (mirrors the kit `briefFilterChips`
-   ids) so the phone search takeover narrows results the same way the list does. */
 /* Page size for the unscoped cross-folder search. One page is what the takeover
    and the "Top matches" list render; the server caps it at 500. */
 const UNSCOPED_SEARCH_PAGE_SIZE = 200;
-
-const BRIEF_SEARCH_PREDICATES: Record<string, (t: ThreadRowData) => boolean> = {
-	unread: (t) => !t.isRead,
-	attachment: (t) => t.hasAttachment === true,
-	contacts: (t) => t.trust === "vip" || t.trust === "wellknown",
-	today: (t) =>
-		t.sentDate != null &&
-		new Date(t.sentDate).toDateString() === new Date().toDateString(),
-};
 
 // ---------------------------------------------------------------------------
 // Skeleton
@@ -168,73 +160,6 @@ const ErrorBanner = ({ accountEmail }: ErrorBannerProps) => {
 		</div>
 	);
 };
-
-// ---------------------------------------------------------------------------
-// List body (the kit `BriefSections` body without its filter control)
-// ---------------------------------------------------------------------------
-
-interface BriefListBodyProps {
-	sections: ThreadSection[];
-	/** Category scope. "all" keeps the per-category sections; anything else flattens. */
-	briefCategory: BriefCategoryFilter;
-	selectedThreadId?: string;
-	onSelectThread?: (id: string) => void;
-}
-
-/**
- * The brief's list body: one capped section per category at the "all" scope, a
- * headerless flat list once narrowed to a single category (the section headers
- * are redundant there).
- *
- * This is the kit `BriefSections` body minus the filter control it renders above
- * it. The category scope still arrives from the brief — the phone search
- * takeover's filter sheet sets it — so the flatten path stays reachable; the
- * attribute chips are part of the hidden control and narrow nothing here.
- */
-function BriefListBody({
-	sections,
-	briefCategory,
-	selectedThreadId,
-	onSelectThread,
-}: BriefListBodyProps) {
-	const showSections = briefCategory === "all";
-	const flatRows = sections
-		.flatMap((section) => section.threads)
-		.filter((thread) => thread.category === briefCategory);
-	const empty = showSections ? sections.length === 0 : flatRows.length === 0;
-
-	return (
-		<div className="h-full overflow-y-auto">
-			{showSections ? (
-				sections.map((section) => (
-					<BriefSection
-						key={section.id}
-						section={section}
-						Row={MessageRow}
-						selectedThreadId={selectedThreadId}
-						onSelectThread={onSelectThread}
-					/>
-				))
-			) : (
-				<div className="divide-y divide-line">
-					{flatRows.map((thread) => (
-						<MessageRow
-							key={thread.id}
-							thread={thread}
-							active={thread.id === selectedThreadId}
-							onClick={() => onSelectThread?.(thread.id)}
-						/>
-					))}
-				</div>
-			)}
-			{empty && (
-				<div className="px-row-inset py-6 text-center text-2xs text-fg-subtle">
-					No threads match these filters.
-				</div>
-			)}
-		</div>
-	);
-}
 
 // ---------------------------------------------------------------------------
 // Selection surface (the mailbox list's, mounted on the brief)
@@ -462,7 +387,7 @@ export function DailyBrief({
 	onTriageContextChange,
 	onDeleteMessages,
 }: DailyBriefProps) {
-	const { searchQuery, resultFolderIndex } = useMailContext();
+	const { searchQuery, searchInput, resultFolderIndex } = useMailContext();
 	const tokenContext = useSearchTokenContext();
 	const isDesktop = useIsDesktop();
 	const wizard = useSelectionWizard();
@@ -474,29 +399,37 @@ export function DailyBrief({
 	);
 
 	// "all" = the cross-account aggregate (the brief's default), and "all"
-	// categories = the full set of sections. Both stay at their default while the
-	// list's filter control is hidden; the phone search takeover still drives them
-	// (the category also drives the flatten-when-filtered path), and account
-	// switching lives in the nav sidebar.
+	// categories = the full set of sections. Account switching also lives in the
+	// nav sidebar; the category also drives the flatten-when-filtered path.
 	const [selectedAccountId, setSelectedAccountId] = useState("all");
 	const [selectedCategory, setSelectedCategory] =
 		useState<BriefCategoryFilter>("all");
 
-	// Attribute chips for the phone search takeover — a separate surface from the
-	// list, so it carries its own additive set (category + account are shared
-	// above) and keeps its filter sheet while the list's control is hidden.
-	const [searchAttributes, setSearchAttributes] = useState<ReadonlySet<string>>(
-		new Set(),
-	);
-	const [searchExpanded, setSearchExpanded] = useState(false);
-	const toggleSearchAttribute = useCallback((id: string) => {
-		setSearchAttributes((prev) => {
+	// Held here rather than inside the list's filter sheet: the phone search
+	// takeover narrows the same rows by the same chips, and the body is unmounted
+	// and remounted around a query being typed, which would take a set living
+	// below with it.
+	const [activeFilters, setActiveFilters] = useState<
+		ReadonlySet<BriefFilterId>
+	>(new Set());
+	const [filterExpanded, setFilterExpanded] = useState(false);
+	const toggleFilter = useCallback((id: BriefFilterId) => {
+		setActiveFilters((prev) => {
 			const next = new Set(prev);
 			if (next.has(id)) next.delete(id);
 			else next.add(id);
 			return next;
 		});
 	}, []);
+	const clearFilters = useCallback(() => setActiveFilters(new Set()), []);
+
+	// A query owns the pane: the filter panel and the search's own affordance
+	// narrow the same list from the same place, so the panel stands down for as
+	// long as something is being searched. Its state survives, so clearing the
+	// query brings it back with the same category and chips. The header caret is
+	// gone under a query, and a panel left open with nothing to collapse it is
+	// what makes this load-bearing rather than tidy.
+	const searching = searchInput.trim().length > 0;
 
 	// --- Unified threads query ---
 	const {
@@ -649,19 +582,18 @@ export function DailyBrief({
 	);
 
 	// The phone search takeover renders the account/free-text-narrowed rows,
-	// further narrowed by the shared category and the takeover's attribute chips.
-	const searchResults = useMemo<SearchResult[]>(() => {
-		const predicates = Array.from(searchAttributes)
-			.map((id) => BRIEF_SEARCH_PREDICATES[id])
-			.filter((p): p is (t: ThreadRowData) => boolean => p != null);
-		return filteredRows
-			.filter(
-				(t) =>
-					(selectedCategory === "all" || t.category === selectedCategory) &&
-					predicates.every((p) => p(t)),
-			)
-			.map((row) => rowToSearchResult(row, resultFolderIndex));
-	}, [filteredRows, selectedCategory, searchAttributes, resultFolderIndex]);
+	// further narrowed by the same category and attribute chips the list applies.
+	const searchResults = useMemo<SearchResult[]>(
+		() =>
+			filteredRows
+				.filter(
+					(t) =>
+						(selectedCategory === "all" || t.category === selectedCategory) &&
+						matchesBriefFilters(t, activeFilters),
+				)
+				.map((row) => rowToSearchResult(row, resultFolderIndex)),
+		[filteredRows, selectedCategory, activeFilters, resultFolderIndex],
+	);
 
 	// "Related" (semantic) spans every account here — the brief is the
 	// cross-account view, so no mailbox scope. Dedupe against the literal "Top
@@ -683,7 +615,7 @@ export function DailyBrief({
 		);
 	}, [semanticHits, searchResults, threadsData, resultFolderIndex]);
 
-	const searchFilterConfig = useMemo<Omit<FilterSheetProps, "children">>(() => {
+	const filterConfig = useMemo<Omit<FilterSheetProps, "children">>(() => {
 		const preset = briefFilterConfig(
 			accountSources.map((s) => ({
 				id: s.id,
@@ -698,26 +630,27 @@ export function DailyBrief({
 			sources: preset.sources,
 			sourcesNote: mutedCount > 0 ? `+${mutedCount} muted` : undefined,
 			selectedCategory,
-			activeFilters: searchAttributes,
-			expanded: searchExpanded,
-			onExpandedChange: setSearchExpanded,
+			activeFilters,
+			expanded: filterExpanded,
+			onExpandedChange: setFilterExpanded,
 			onSelectCategory: (id: string) =>
 				setSelectedCategory(id as BriefCategoryFilter),
 			onSelectSource: setSelectedAccountId,
-			onToggleFilter: toggleSearchAttribute,
+			onToggleFilter: (id: string) => toggleFilter(id as BriefFilterId),
 			onClear: () => {
 				setSelectedCategory("all");
 				setSelectedAccountId("all");
-				setSearchAttributes(new Set());
+				clearFilters();
 			},
 		};
 	}, [
 		accountSources,
 		mutedCount,
 		selectedCategory,
-		searchAttributes,
-		searchExpanded,
-		toggleSearchAttribute,
+		activeFilters,
+		filterExpanded,
+		toggleFilter,
+		clearFilters,
 	]);
 
 	// The brief is genuinely empty (caught up) only when nothing is narrowing the
@@ -756,34 +689,12 @@ export function DailyBrief({
 		</div>
 	);
 
-	const stateBody = isLoading ? (
-		briefSkeleton
-	) : isError ? (
-		<div className="flex h-full flex-col items-center justify-center gap-3 py-12 text-sm text-fg-muted">
-			<AlertCircle className="size-8 text-danger" />
-			<p>Couldn't load your messages</p>
-			<button
-				type="button"
-				onClick={() => refetch()}
-				className="flex items-center gap-1 text-accent underline text-xs"
-			>
-				<RefreshCw className="size-3.5" />
-				Try again
-			</button>
-		</div>
-	) : caughtUp ? (
-		syncProgress.resolved ? (
-			<BriefEmpty
-				sync={
-					syncProgress.syncing
-						? { synced: syncProgress.synced, total: syncProgress.total }
-						: undefined
-				}
-			/>
-		) : (
-			briefSkeleton
-		)
-	) : (
+	// The filter sheet lives in the list body, so it is on screen only when the
+	// rows are. The caret reads the same answer and stands down everywhere else,
+	// rather than opening nothing over a skeleton or an empty state.
+	const showsRows = !isLoading && !isError && !caughtUp;
+
+	const stateBody = showsRows ? (
 		<div className="flex h-full min-h-0 flex-col">
 			{briefSpamOffer && (
 				<SpamResultsOffer
@@ -802,61 +713,99 @@ export function DailyBrief({
 				/>
 			)}
 			<div className="min-h-0 flex-1">
-				<BriefListBody
+				<BriefSections
 					sections={sections}
 					briefCategory={selectedCategory}
+					Row={MessageRow}
 					selectedThreadId={selectedMessageId}
 					onSelectThread={onSelectMessage}
+					onSelectBriefCategory={setSelectedCategory}
+					sources={accountSources}
+					sourcesNote={mutedCount > 0 ? `+${mutedCount} muted` : undefined}
+					onSelectSource={setSelectedAccountId}
+					activeFilters={activeFilters}
+					onToggleFilter={toggleFilter}
+					onClearFilters={clearFilters}
+					hideChrome={searching}
 				/>
 			</div>
 		</div>
+	) : isLoading ? (
+		briefSkeleton
+	) : isError ? (
+		<div className="flex h-full flex-col items-center justify-center gap-3 py-12 text-sm text-fg-muted">
+			<AlertCircle className="size-8 text-danger" />
+			<p>Couldn't load your messages</p>
+			<button
+				type="button"
+				onClick={() => refetch()}
+				className="flex items-center gap-1 text-accent underline text-xs"
+			>
+				<RefreshCw className="size-3.5" />
+				Try again
+			</button>
+		</div>
+	) : syncProgress.resolved ? (
+		<BriefEmpty
+			sync={
+				syncProgress.syncing
+					? { synced: syncProgress.synced, total: syncProgress.total }
+					: undefined
+			}
+		/>
+	) : (
+		briefSkeleton
 	);
 
 	// The cursor and selection wrap the whole pane, not just the list body: the
 	// selection toolbar takes the header's place while rows are selected, so it
-	// has to sit inside the same provider the rows do.
+	// has to sit inside the same provider the rows do. The filter panel spans the
+	// same pane for the same reason — the caret is in the header, the panel is
+	// above the rows.
 	return (
-		<ThreadListInteraction
-			selectedMessageId={selectedMessageId}
-			onOpen={(id, options) => onSelectMessage?.(id, options)}
-			onDeleteMessages={onDeleteMessages}
-			onSelectionVerb={wizard.start}
-			wizardOpen={wizard.isOpen}
-			commandsRef={commandsRef}
-			onTriageContextChange={onTriageContextChange}
-		>
-			<BriefSelectionChrome
-				wizard={wizard}
-				header={{
-					title: "Daily brief",
-					unreadCount: totalUnseen,
-					footer: isDesktop ? <KeyboardHintBar /> : undefined,
-					searchFilter: searchFilterConfig,
-					searchResults,
-					searchLoading: isLoading || searchFetching,
-					relatedResults,
-					relatedLoading,
-					onSelectSearchResult,
-					// The body already narrows to the committed query
-					// (`matchesBriefSearch` + `matchesSearchTokens` + the server `query`,
-					// above), so a committed search is a selectable list here exactly as
-					// it is on the mailbox route (#212) — the two-engine panel stays for
-					// the typing/uncommitted state only.
-					searchResultsInBody: true,
-				}}
-				rows={filteredRows}
+		<FilterPanelProvider hasSheet={showsRows && !searching}>
+			<ThreadListInteraction
+				selectedMessageId={selectedMessageId}
+				onOpen={(id, options) => onSelectMessage?.(id, options)}
+				onDeleteMessages={onDeleteMessages}
+				onSelectionVerb={wizard.start}
+				wizardOpen={wizard.isOpen}
+				commandsRef={commandsRef}
+				onTriageContextChange={onTriageContextChange}
 			>
-				<div className="flex h-full flex-col">
-					{failedAccounts.map((account) => (
-						<ErrorBanner
-							key={account.accountId}
-							accountEmail={account.email}
-							accountId={account.accountId}
-						/>
-					))}
-					<div className="min-h-0 flex-1">{stateBody}</div>
-				</div>
-			</BriefSelectionChrome>
-		</ThreadListInteraction>
+				<BriefSelectionChrome
+					wizard={wizard}
+					header={{
+						title: "Daily brief",
+						unreadCount: totalUnseen,
+						footer: isDesktop ? <KeyboardHintBar /> : undefined,
+						searchFilter: filterConfig,
+						searchResults,
+						searchLoading: isLoading || searchFetching,
+						relatedResults,
+						relatedLoading,
+						onSelectSearchResult,
+						// The body already narrows to the committed query
+						// (`matchesBriefSearch` + `matchesSearchTokens` + the server `query`,
+						// above), so a committed search is a selectable list here exactly as
+						// it is on the mailbox route (#212) — the two-engine panel stays for
+						// the typing/uncommitted state only.
+						searchResultsInBody: true,
+					}}
+					rows={filteredRows}
+				>
+					<div className="flex h-full flex-col">
+						{failedAccounts.map((account) => (
+							<ErrorBanner
+								key={account.accountId}
+								accountEmail={account.email}
+								accountId={account.accountId}
+							/>
+						))}
+						<div className="min-h-0 flex-1">{stateBody}</div>
+					</div>
+				</BriefSelectionChrome>
+			</ThreadListInteraction>
+		</FilterPanelProvider>
 	);
 }
