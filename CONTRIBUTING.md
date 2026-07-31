@@ -24,6 +24,19 @@ npm test --workspaces --if-present
 `npm run dev:sqlite` brings the app up from the worktree on the backend it
 ships. See the README for the rest of the dev commands.
 
+## Reviewing UI on a phone
+
+Storybook publishes to GitHub Pages from `main` only. To look at a branch —
+on a phone, over the tailnet — serve it from the dev host instead:
+
+```
+npm run storybook:host -w @remit/workbench
+```
+
+That binds `0.0.0.0:6007`, so it is reachable at `http://<host>:6007`. Run it
+from a detached worktree of the branch (`npm ci` and `npm run codegen` first)
+to review a branch without disturbing your checkout.
+
 ## Reporting bugs and security issues
 
 For ordinary bugs, open an issue with steps to reproduce. For anything with a
