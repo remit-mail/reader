@@ -301,6 +301,7 @@ export type RunState =
 	| "backApplyComplete"
 	| "backApplyFailed"
 	| "backApplyStartFailed"
+	| "statusUnknown"
 	| "filterSaved"
 	| "runStopped"
 	| "commitFailed";
@@ -374,7 +375,10 @@ export const runCopy = ({
 	const { label, present, past } = verbCopy(verb);
 	const done = past.toLowerCase();
 	const standing = scope === "standing" || scope === "until";
-	const inFlight = state === "saving" || state === "backApplyRunning";
+	const inFlight =
+		state === "saving" ||
+		state === "backApplyRunning" ||
+		state === "statusUnknown";
 	const shared = {
 		// A create that failed did not finish, so the header does not say it did.
 		screenTitle: inFlight || state === "commitFailed" ? label : "Done",
@@ -382,6 +386,7 @@ export const runCopy = ({
 			state === "backApplyRunning" ||
 			state === "backApplyComplete" ||
 			state === "backApplyFailed" ||
+			state === "statusUnknown" ||
 			state === "runStopped",
 		failureListLabel: `Not ${done}`,
 	};
@@ -405,6 +410,20 @@ export const runCopy = ({
 			tone: "progress",
 			dismissLabel: "Close",
 			cancelLabel: "Stop the run",
+		};
+	}
+	if (state === "statusUnknown") {
+		return {
+			...shared,
+			title: standing
+				? "Rule saved. Its progress over your existing mail is unknown"
+				: `${present} — progress unknown`,
+			detail: standing
+				? "The connection dropped, so the bar shows the last that was read. The pass runs on the mail server, and the rule keeps working on new mail either way. This keeps checking."
+				: "The connection dropped, so the bar shows the last that was read. The run is on the mail server and carries on either way. This keeps checking.",
+			tone: "warning",
+			dismissLabel: "Close",
+			retryLabel: "Check again",
 		};
 	}
 	if (state === "backApplyComplete") {

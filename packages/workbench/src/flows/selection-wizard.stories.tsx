@@ -1486,6 +1486,25 @@ export const RunBackApplyStartFailed: Story = {
 	),
 };
 
+/**
+ * A status poll that could not be read. The pass is still the mail server's, so
+ * the counts stay and the way forward is another look, not another run (#526).
+ */
+export const RunStatusUnknown: Story = {
+	name: "Run — status unknown",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{
+				verb: "organize",
+				startAt: "run",
+				scope: "standing",
+				runState: "statusUnknown",
+			}}
+		/>
+	),
+};
+
 /** The filter saved with nothing to back-apply. */
 export const RunFilterSaved: Story = {
 	name: "Run — filter saved",

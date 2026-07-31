@@ -477,6 +477,7 @@ describe("runCopy", () => {
 			"backApplyComplete",
 			"backApplyFailed",
 			"backApplyStartFailed",
+			"statusUnknown",
 			"filterSaved",
 			"runStopped",
 			"commitFailed",
@@ -539,6 +540,25 @@ describe("runCopy", () => {
 		assert.equal(started.showProgress, false);
 	});
 
+	it("keeps a run that is going when its progress could not be read", () => {
+		// A poll that failed says nothing about the job behind it (#526), so the
+		// screen never claims the action never started, and the way out of it is a
+		// second look rather than a second run.
+		const once = outcome("statusUnknown", "once");
+		assert.equal(once.title, "Moving — progress unknown");
+		assert.match(once.detail, /carries on either way/);
+		assert.doesNotMatch(once.detail, /Nothing has changed/);
+		assert.equal(once.tone, "warning");
+		assert.equal(once.retryLabel, "Check again");
+		assert.equal(once.screenTitle, "Move");
+
+		const standing = outcome("statusUnknown", "standing");
+		assert.match(standing.title, /Rule saved/);
+		assert.doesNotMatch(standing.detail, /never started/);
+		assert.match(standing.detail, /keeps working on new mail/);
+		assert.equal(standing.retryLabel, "Check again");
+	});
+
 	it("says a filter saved with nothing to back-apply is still live", () => {
 		const saved = outcome("filterSaved", "standing");
 		assert.equal(saved.title, "Filter saved");
@@ -559,6 +579,8 @@ describe("runCopy", () => {
 		assert.equal(outcome("backApplyRunning", "standing").showProgress, true);
 		assert.equal(outcome("backApplyComplete", "once").showProgress, true);
 		assert.equal(outcome("backApplyFailed", "once").showProgress, true);
+		// The last counts read are still the last counts read.
+		assert.equal(outcome("statusUnknown", "once").showProgress, true);
 	});
 
 	it("names the failure list in the verb's own past tense", () => {

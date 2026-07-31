@@ -23,6 +23,25 @@ export interface OrganizeJobProgress {
 }
 
 /**
+ * Why the job is not reporting, which is two separate facts (#526). A create
+ * that never returned an id means nothing was started; a status read that
+ * failed means a job is out there and this client cannot see how far it got.
+ */
+export interface OrganizeJobFailure {
+	kind: "startFailed" | "statusUnreadable";
+	error: unknown;
+}
+
+const organizeJobFailure = (
+	createError: unknown,
+	statusError: unknown,
+): OrganizeJobFailure | undefined => {
+	if (createError) return { kind: "startFailed", error: createError };
+	if (statusError) return { kind: "statusUnreadable", error: statusError };
+	return undefined;
+};
+
+/**
  * "All like these" — start a one-time retroactive back-apply (POST /organize)
  * and poll its status to completion (GET /organize/{organizeJobId}). Polling
  * backs off exponentially and stops the instant the job reaches a terminal
@@ -66,6 +85,13 @@ export const useOrganizeJob = (accountId: string | undefined) => {
 		[accountId, createJob],
 	);
 
+	const { refetch } = jobQuery;
+	// Looks at the job already in flight again. Distinct from `start`, which
+	// queues a second pass over the same mail.
+	const refreshStatus = useCallback(() => {
+		void refetch();
+	}, [refetch]);
+
 	const job = jobQuery.data;
 	const state = job?.state ?? createMutation.data?.state;
 	const isDone = isTerminalJobState(job?.state);
@@ -80,11 +106,11 @@ export const useOrganizeJob = (accountId: string | undefined) => {
 
 	return {
 		start,
+		refreshStatus,
 		progress,
 		isStarting: createMutation.isPending,
 		isRunning: !!organizeJobId && !isDone,
 		isDone,
-		isError: createMutation.isError || jobQuery.isError,
-		error: createMutation.error ?? jobQuery.error,
+		failure: organizeJobFailure(createMutation.error, jobQuery.error),
 	};
 };

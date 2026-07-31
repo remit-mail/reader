@@ -65,6 +65,7 @@ import {
 import { searchRuleAccountId } from "@/lib/organize/search-to-rule";
 import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
 import { useWizardEntryValue, useWizardStep } from "@/lib/wizard-history";
+import { organizeRunState } from "./organize-run-state";
 
 const EMPTY_DRAFT: WizardDraft = { clauses: [], matchOperator: "any" };
 
@@ -696,29 +697,34 @@ function SelectionWizardSession({
 		sendCommit();
 	}, [blockedReason, current, goToStep, sendCommit]);
 
-	const jobSnapshot = useCallback((): RunSnapshot => {
-		const progress = organizeJob.progress;
-		const shared = {
-			matched: progress.matchedCount,
-			applied: progress.appliedCount,
-			failures: [],
-		};
-		if (organizeJob.isError) {
-			return { ...NOT_STARTED, state: "commitFailed" };
-		}
-		if (organizeJob.isDone) {
+	const jobSnapshot = useCallback(
+		(ruleSaved: boolean): RunSnapshot => {
+			const progress = organizeJob.progress;
+			const state = organizeRunState({
+				failure: organizeJob.failure,
+				isStarting: organizeJob.isStarting,
+				isRunning: organizeJob.isRunning,
+				isDone: organizeJob.isDone,
+				failedCount: progress.failedCount,
+				ruleSaved,
+			});
+			if (
+				state === "saving" ||
+				state === "commitFailed" ||
+				state === "backApplyStartFailed"
+			) {
+				return { ...NOT_STARTED, state };
+			}
 			return {
-				...shared,
-				state:
-					progress.failedCount > 0 ? "backApplyFailed" : "backApplyComplete",
-				failed: progress.failedCount,
+				state,
+				matched: progress.matchedCount,
+				applied: progress.appliedCount,
+				failed: state === "backApplyFailed" ? progress.failedCount : 0,
+				failures: [],
 			};
-		}
-		if (organizeJob.isStarting || organizeJob.isRunning) {
-			return { ...shared, state: "backApplyRunning", failed: 0 };
-		}
-		return NOT_STARTED;
-	}, [organizeJob]);
+		},
+		[organizeJob],
+	);
 
 	// Every row the wizard has seen a description of, so a run that names what it
 	// did not reach can name it rather than listing an id.
@@ -794,21 +800,27 @@ function SelectionWizardSession({
 				return { ...NOT_STARTED, state: "commitFailed" };
 			if (!createFilter.isSuccess) return NOT_STARTED;
 			if (!backApplyDraft) return { ...NOT_STARTED, state: "filterSaved" };
-			if (organizeJob.isError) {
-				return { ...NOT_STARTED, state: "backApplyStartFailed" };
-			}
-			return jobSnapshot();
+			return jobSnapshot(true);
 		}
 		if (committedScope === "all-like-these" && widenedRunsAsJob(verb)) {
-			return jobSnapshot();
+			return jobSnapshot(false);
 		}
 		return bulkSnapshot();
 	};
+
+	const run = runSnapshot();
 
 	// Retry stays on the run screen: it re-sends the same commit rather than
 	// walking back to Review, which would push an entry the wizard does not own
 	// and leave Cancel rewinding to a step instead of out.
 	const retry = (): void => {
+		// A status that could not be read is a job still running on the server, so
+		// the screen looks at that job again rather than queuing a second pass over
+		// the same mail (#526).
+		if (run.state === "statusUnknown") {
+			organizeJob.refreshStatus();
+			return;
+		}
 		// The predicate is re-resolved, not resumed: every verb it carries is
 		// idempotent, so the messages the first pass already reached are a no-op.
 		if (escalated) {
@@ -881,7 +893,6 @@ function SelectionWizardSession({
 		disabled: current !== "run",
 	});
 
-	const run = runSnapshot();
 	const sampleMessages = escalated
 		? escalatedSample.messages
 		: previewed
