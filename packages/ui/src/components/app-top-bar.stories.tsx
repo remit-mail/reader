@@ -83,19 +83,17 @@ const Bar = ({
 
 /** Over the panes it spans, so the arrangement reads the way it will in the app. */
 const WithPanes = ({ children }: { children: React.ReactNode }) => (
-	<div className="flex h-96 bg-canvas">
-		<div className="w-56 shrink-0 border-r border-line bg-surface p-3 text-xs text-fg-muted">
-			Nav — full height, beside the bar
-		</div>
-		<div className="flex min-w-0 flex-1 flex-col">
-			{children}
-			<div className="flex min-h-0 flex-1">
-				<div className="w-72 shrink-0 border-r border-line bg-surface p-3 text-xs text-fg-muted">
-					Message list
-				</div>
-				<div className="min-w-0 flex-1 p-3 text-xs text-fg-muted">
-					Message pane — its own toolbar lives here, under the bar
-				</div>
+	<div className="flex h-96 flex-col bg-canvas">
+		{children}
+		<div className="flex min-h-0 flex-1">
+			<div className="w-56 shrink-0 border-r border-line bg-surface p-3 text-xs text-fg-muted">
+				Nav — under the bar, like every other pane
+			</div>
+			<div className="w-72 shrink-0 border-r border-line bg-surface p-3 text-xs text-fg-muted">
+				Message list
+			</div>
+			<div className="min-w-0 flex-1 p-3 text-xs text-fg-muted">
+				Message pane — its own toolbar lives here, under the bar
 			</div>
 		</div>
 	</div>
@@ -157,8 +155,8 @@ export const ScopedToOutbox: Story = {
 	),
 };
 
-/** The arrangement: one bar over the list and the message pane, lined up with
- *  the list's left edge, with the nav column running the full height beside it. */
+/** The arrangement: one bar across the top of the shell, over the nav, the list
+ *  and the message pane alike. */
 export const OverTheLayout: Story = {
 	render: () => (
 		<WithPanes>

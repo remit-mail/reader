@@ -112,14 +112,13 @@ describe("NavSidebar arrow-key traversal", () => {
 		assert.equal(dom.window.document.activeElement, items[1]);
 	});
 
-	it("End reaches the Settings footer and Home returns to the top", () => {
+	it("End reaches the last mailbox and Home returns to the top", () => {
 		mount();
 		const items = navItems();
 		act(() => items[0]?.focus());
 		act(() => pressKey(items[0] as Element, "End"));
 		const last = items[items.length - 1];
 		assert.equal(dom.window.document.activeElement, last);
-		assert.match(last?.textContent ?? "", /Settings/);
 
 		act(() => pressKey(last as Element, "Home"));
 		assert.equal(dom.window.document.activeElement, items[0]);

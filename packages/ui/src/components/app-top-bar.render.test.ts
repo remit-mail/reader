@@ -29,12 +29,23 @@ describe("AppTopBar", () => {
 		assert.doesNotMatch(render(), /data-testid="actions"/);
 	});
 
-	it("lays the bar out search · actions", () => {
-		const html = render({ actions: slot("actions") });
+	it("lays the bar out leading · search · actions", () => {
+		const html = render({ leading: slot("leading"), actions: slot("actions") });
 		assert.ok(
-			html.indexOf("search") < html.indexOf("actions"),
+			html.indexOf("leading") < html.indexOf("search") &&
+				html.indexOf("search") < html.indexOf("actions"),
 			"slots render in reading order",
 		);
+	});
+
+	it("omits the leading box when no control is supplied", () => {
+		assert.doesNotMatch(render(), /data-testid="leading"/);
+	});
+
+	it("widens the field on focus rather than resting wide", () => {
+		const html = render();
+		assert.match(html, /max-w-xs/, "resting width is modest");
+		assert.match(html, /focus-within:max-w-lg/, "focus widens it");
 	});
 
 	it("carries no brand mark — the bar is search, not a masthead", () => {

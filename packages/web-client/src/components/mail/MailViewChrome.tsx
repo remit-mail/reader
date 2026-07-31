@@ -18,12 +18,13 @@
  * surface and the section headers flatten correctly when filtered).
  */
 import {
+	FilterPanelProvider,
 	type FilterPreset,
 	FilterSheet,
 	type FilterSheetProps,
 	type SearchResult,
 } from "@remit/ui";
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 import { useMailContext } from "@/lib/mail-context";
 import { MailListHeader } from "./MailListHeader";
 
@@ -81,7 +82,6 @@ export function MailViewChrome({
 	relatedResultsLabel,
 	searchResultsInBody,
 }: MailViewChromeProps) {
-	const [expanded, setExpanded] = useState(false);
 	// A query owns the pane: the filter chrome and the search's own affordance
 	// narrow the same list from the same place, so the filter sheet stands down
 	// for as long as something is being searched. Its state survives — clearing
@@ -95,8 +95,6 @@ export function MailViewChrome({
 		sources: preset.sources,
 		selectedCategory,
 		activeFilters,
-		expanded,
-		onExpandedChange: setExpanded,
 		onSelectCategory,
 		onSelectSource,
 		onToggleFilter,
@@ -104,26 +102,28 @@ export function MailViewChrome({
 	};
 
 	return (
-		<MailListHeader
-			title={title}
-			unreadCount={unreadCount}
-			footer={footer}
-			searchFilter={filterConfig}
-			searchResults={searchResults}
-			searchLoading={searchLoading}
-			relatedResults={relatedResults}
-			relatedLoading={relatedLoading}
-			onSelectSearchResult={onSelectSearchResult}
-			searchResultsLabel={searchResultsLabel}
-			relatedResultsLabel={relatedResultsLabel}
-			searchResultsInBody={searchResultsInBody}
-		>
-			{/* One shell either way: the children's parent must not change when a
-			    query starts, or everything under it — including the header's own
-			    search field — remounts mid-keystroke. */}
-			<FilterSheet {...filterConfig} hideChrome={searching}>
-				{children}
-			</FilterSheet>
-		</MailListHeader>
+		<FilterPanelProvider>
+			<MailListHeader
+				title={title}
+				unreadCount={unreadCount}
+				footer={footer}
+				searchFilter={filterConfig}
+				searchResults={searchResults}
+				searchLoading={searchLoading}
+				relatedResults={relatedResults}
+				relatedLoading={relatedLoading}
+				onSelectSearchResult={onSelectSearchResult}
+				searchResultsLabel={searchResultsLabel}
+				relatedResultsLabel={relatedResultsLabel}
+				searchResultsInBody={searchResultsInBody}
+			>
+				{/* One shell either way: the children's parent must not change when a
+				    query starts, or everything under it — including the header's own
+				    search field — remounts mid-keystroke. */}
+				<FilterSheet {...filterConfig} hideChrome={searching}>
+					{children}
+				</FilterSheet>
+			</MailListHeader>
+		</FilterPanelProvider>
 	);
 }

@@ -107,41 +107,19 @@ describe("NavSidebar", () => {
 		assert.match(html, /text-accent-2/);
 	});
 
-	it("pins a Settings footer on the desktop variant", () => {
-		const html = renderToString(
-			createElement(NavSidebar, {
-				accounts,
-				selectedNavId: "personal-inbox",
-				onSelectNav: () => undefined,
-			}),
-		);
-		assert.match(html, /Settings/);
-		assert.match(html, /lucide-settings/);
-	});
-
-	it("renders the Settings footer as an anchor via linkComponent", () => {
-		const html = renderToString(
-			createElement(NavSidebar, {
-				accounts,
-				selectedNavId: "personal-inbox",
-				onSelectNav: () => undefined,
-				linkComponent: hrefLink,
-			}),
-		);
-		assert.match(html, /<a href="\/mail\/settings"/);
-	});
-
-	it("omits the Settings footer on the drawer variant", () => {
-		const html = renderToString(
-			createElement(NavSidebar, {
-				accounts,
-				selectedNavId: "personal-inbox",
-				onSelectNav: () => undefined,
-				variant: "drawer",
-			}),
-		);
-		assert.doesNotMatch(html, /Settings/);
-		assert.doesNotMatch(html, /lucide-settings/);
+	it("carries no Settings entry — it lives in the top bar, by the avatar", () => {
+		for (const variant of [undefined, "drawer" as const]) {
+			const html = renderToString(
+				createElement(NavSidebar, {
+					accounts,
+					selectedNavId: "personal-inbox",
+					onSelectNav: () => undefined,
+					variant,
+				}),
+			);
+			assert.doesNotMatch(html, /Settings/);
+			assert.doesNotMatch(html, /lucide-settings/);
+		}
 	});
 
 	it("renders navigation entries as anchors via linkComponent", () => {

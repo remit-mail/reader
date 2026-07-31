@@ -1,6 +1,6 @@
 import { Menu } from "lucide-react";
 import type { ReactNode } from "react";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { LIST_ROW_SELECTOR, useRovingFocus } from "../lib/roving-focus.js";
 import type { AppShellProps, TouchSeed } from "./app-shell-types.js";
 import { BriefSections } from "./brief-sections.js";
@@ -12,7 +12,12 @@ import {
 	type MessageListFilter,
 	MessageListLoading,
 } from "./message-list-state.js";
-import { ComfortableRow, CompactRow } from "./message-row.js";
+import {
+	type BriefRowComponent,
+	ComfortableRow,
+	CompactRow,
+	type RowToggleEvent,
+} from "./message-row.js";
 import { SelectionTopBar } from "./selection-top-bar.js";
 import type { SwipePeek } from "./swipeable-row.js";
 import { TouchListBody } from "./touch-list.js";
@@ -120,8 +125,10 @@ export function MessageListPane({
 	const [selectionMode, setSelectionMode] = useState(
 		initialTouchState === "selection",
 	);
+	// The seed is a touch-triage state; desktop starts unselected and gets there
+	// through the row checkboxes.
 	const [checkedIds, setCheckedIds] = useState<ReadonlySet<string>>(() =>
-		initialTouchState === "selection"
+		initialTouchState === "selection" && !isDesktop
 			? new Set(seededRows.slice(0, 2).map((t) => t.id))
 			: new Set(),
 	);
@@ -153,7 +160,7 @@ export function MessageListPane({
 				? "leading"
 				: undefined;
 
-	const toggleCheck = (id: string) => {
+	const toggleCheck = useCallback((id: string) => {
 		setCheckedIds((prev) => {
 			const next = new Set(prev);
 			if (next.has(id)) next.delete(id);
@@ -161,7 +168,7 @@ export function MessageListPane({
 			if (next.size === 0) setSelectionMode(false);
 			return next;
 		});
-	};
+	}, []);
 	const enterSelection = (id: string) => {
 		setSelectionMode(true);
 		setCheckedIds(new Set([id]));
@@ -183,10 +190,48 @@ export function MessageListPane({
 		setTimeout(() => setRefreshing(false), 1400);
 	};
 
+	// Desktop rows carry the checkbox the app's own rows have: it takes the
+	// avatar's place on hover, and checking one puts the pane in selection.
+	const desktopSelectable = isDesktop && !selectionBar && listState === "ready";
+	const rowSelection = useCallback(
+		(id: string) =>
+			desktopSelectable
+				? {
+						checked: checkedIds.has(id),
+						onToggle: (event: RowToggleEvent) => {
+							event.preventDefault();
+							event.stopPropagation();
+							toggleCheck(id);
+						},
+					}
+				: undefined,
+		[desktopSelectable, checkedIds, toggleCheck],
+	);
+
+	// The brief drives rows through a `BriefRowComponent`, whose props carry no
+	// selection — a consumer's own row (the web client's) wires its checkbox
+	// itself. Binding it here keeps the kit's rows selectable there too.
+	const BriefRow: BriefRowComponent = useCallback(
+		(props) => <Row {...props} selection={rowSelection(props.thread.id)} />,
+		[Row, rowSelection],
+	);
+
+	const selectableIds = seededRows.map((thread) => thread.id);
+	const allChecked =
+		selectableIds.length > 0 && selectableIds.every((id) => checkedIds.has(id));
+	const selectAll = {
+		checked: allChecked,
+		indeterminate: checkedIds.size > 0 && !allChecked,
+		onChange: () =>
+			setCheckedIds(allChecked ? new Set() : new Set(selectableIds)),
+	};
+
 	// When the caller supplies a selectionBar slot, it owns selection state.
-	// Fall back to the built-in touch-triage bar only when no external bar is given.
+	// Fall back to the built-in bar only when no external bar is given.
 	const inBuiltinSelection =
-		!selectionBar && touchTriage && selectionMode && checkedIds.size > 0;
+		!selectionBar &&
+		checkedIds.size > 0 &&
+		(desktopSelectable || (touchTriage && selectionMode));
 
 	return (
 		<section className="relative flex h-full w-full flex-col bg-surface">
@@ -195,6 +240,7 @@ export function MessageListPane({
 					<SelectionTopBar
 						title={listTitle}
 						count={checkedIds.size}
+						selectAll={desktopSelectable ? selectAll : undefined}
 						onCancel={cancelSelection}
 						onMarkRead={markCheckedRead}
 						onDelete={trashChecked}
@@ -246,7 +292,7 @@ export function MessageListPane({
 					sections={sections}
 					briefCategory={briefCategory}
 					selectedThreadId={selectedThreadId}
-					Row={Row}
+					Row={BriefRow}
 					onSelectThread={onSelectThread}
 					onSelectBriefCategory={onSelectBriefCategory}
 				/>
@@ -291,6 +337,7 @@ export function MessageListPane({
 										key={thread.id}
 										thread={thread}
 										active={thread.id === selectedThreadId}
+										selection={rowSelection(thread.id)}
 										onClick={() => onSelectThread?.(thread.id)}
 									/>
 								))}

@@ -60,10 +60,9 @@ export interface AppShellSlottedProps {
 	 */
 	header?: ReactNode;
 	/**
-	 * Row above the list, reading and intelligence panes, spanning all three.
-	 * The nav column runs the full height beside it and is never covered, so the
-	 * bar starts on the list's left edge — its span is what makes the search
-	 * field in it read as the app's search rather than the list's.
+	 * Row across the top of the shell, spanning the nav, list, reading and
+	 * intelligence panes. Its full width is what makes the search field in it
+	 * read as the app's search rather than the list's.
 	 */
 	topBar?: ReactNode;
 	/**
@@ -108,6 +107,14 @@ export interface AppShellLayoutContext {
 	showNavPane: boolean;
 	/** Open the nav slide-over. Call from list-header "folders" buttons. */
 	openNav: () => void;
+	/** True when the nav pane is collapsed away at a width that would show it. */
+	navCollapsed: boolean;
+	/**
+	 * Show or hide the nav at whichever tier is current — it collapses the pane
+	 * where the nav is a column and opens the slide-over where it is not, so one
+	 * control in the top bar covers both.
+	 */
+	toggleNav: () => void;
 	/** True when the reading pane is active (width ≥ 1024px). */
 	showReadingPane: boolean;
 	/** True when the intelligence rail can show (width ≥ 1280px). */
@@ -148,7 +155,11 @@ export function AppShellSlotted({
 }: AppShellSlottedProps) {
 	const [containerRef, containerWidth] = useContainerWidth(initialWidth);
 	const panes = resolvePaneLayout(containerWidth ?? 0);
+	const [navCollapsed, setNavCollapsed] = useState(false);
+	// The tier, not the current visibility: consumers read it to decide whether
+	// nav access is theirs to offer, and it stays the top bar's while collapsed.
 	const showNavPane = panes.nav;
+	const navPaneVisible = showNavPane && !navCollapsed;
 	const showReadingPane = panes.reading && Boolean(reading);
 	const isWide = panes.intelligence;
 
@@ -167,11 +178,22 @@ export function AppShellSlotted({
 	const showIntelligencePanel =
 		isWide && intelligenceOpen && hasThread && Boolean(intelligence);
 
+	const toggleNav = () => {
+		if (!showNavPane) {
+			if (navOpen) closeNav();
+			else openNav();
+			return;
+		}
+		setNavCollapsed((collapsed) => !collapsed);
+	};
+
 	const layoutCtx: AppShellLayoutContext = {
 		panes,
 		containerWidth,
 		showNavPane,
 		openNav,
+		navCollapsed,
+		toggleNav,
 		showReadingPane,
 		showIntelligencePane: isWide,
 	};
@@ -225,8 +247,6 @@ export function AppShellSlotted({
 
 	const content = (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col">
-			{topBar}
-
 			{/* Narrow top bar: rendered only when the nav is a slide-over
 			    (< 1024px). Desktop has no slim bar. */}
 			{!showNavPane && header && <div className="shrink-0">{header}</div>}
@@ -245,7 +265,9 @@ export function AppShellSlotted({
 					skeleton
 				) : (
 					<>
-						{showNavPane ? (
+						{topBar}
+
+						{navPaneVisible ? (
 							<ResizablePanelGroup
 								direction="horizontal"
 								className="min-h-0 flex-1"

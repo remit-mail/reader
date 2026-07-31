@@ -1,6 +1,5 @@
 import { Avatar } from "@remit/ui";
-import { useNavigate } from "@tanstack/react-router";
-import { LogOut, Settings } from "lucide-react";
+import { LogOut } from "lucide-react";
 import {
 	DropdownMenu,
 	DropdownMenuItem,
@@ -14,7 +13,6 @@ interface AccountMenuViewProps {
 }
 
 const AccountMenuView = ({ email, onSignOut }: AccountMenuViewProps) => {
-	const navigate = useNavigate();
 	const displayName = email ?? "Account";
 
 	return (
@@ -36,11 +34,6 @@ const AccountMenuView = ({ email, onSignOut }: AccountMenuViewProps) => {
 					<DropdownMenuSeparator />
 				</>
 			)}
-			<DropdownMenuItem onClick={() => navigate({ to: "/settings/accounts" })}>
-				<Settings className="size-4" />
-				Settings
-			</DropdownMenuItem>
-			<DropdownMenuSeparator />
 			<DropdownMenuItem onClick={onSignOut}>
 				<LogOut className="size-4" />
 				Sign out

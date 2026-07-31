@@ -41,6 +41,7 @@
 import {
 	Button,
 	type FilterSheetProps,
+	FilterToggle,
 	isConvertible,
 	MakeFilterAction,
 	MobileSearchView,
@@ -435,9 +436,12 @@ export function MailListHeader({
 				/>
 			),
 			titleMeta: (
-				<span className="shrink-0 text-2xs text-fg-subtle">
-					{unreadCount.toLocaleString()} unread
-				</span>
+				<>
+					<span className="shrink-0 text-2xs text-fg-subtle">
+						{unreadCount.toLocaleString()} unread
+					</span>
+					{!hasQuery && <FilterToggle />}
+				</>
 			),
 			searchSlot: ownsSearch && !searchExpanded && (
 				<Button
@@ -488,6 +492,7 @@ export function MailListHeader({
 			chromeResults,
 			makeFilterAction,
 			searchConversion,
+			hasQuery,
 		],
 	);
 
