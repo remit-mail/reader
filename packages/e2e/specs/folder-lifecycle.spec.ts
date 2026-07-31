@@ -374,6 +374,15 @@ test.describe("Folder lifecycle against the IMAP server", () => {
 		await picker.fill(destName);
 		await page.getByRole("treeitem", { name: `Move to ${destName}` }).click();
 
+		// Marking a destination also opens it, so the move and the delete run from
+		// the confirmation rather than from the tap.
+		await page
+			.getByRole("dialog")
+			.getByRole("button", {
+				name: new RegExp(`^Move \\d+ emails? to ${destName}$`),
+			})
+			.click();
+
 		// The mail is in the destination — asked of the API, not the UI's optimism.
 		// Counted rather than subject-matched: the count is per-message where a
 		// thread listing collapses similar subjects.
