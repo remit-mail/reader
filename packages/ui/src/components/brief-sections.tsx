@@ -56,6 +56,21 @@ export const briefFilterChips: FilterSheetFilter[] = briefFilterDefs.map(
 	({ id, label }) => ({ id, label }),
 );
 
+/**
+ * Whether a thread survives a set of attribute chips, as the brief's own list
+ * applies them. Exported so a consumer narrowing the same rows on another
+ * surface — the phone search takeover — reads one definition of what "Unread" or
+ * "Today" means.
+ */
+export function matchesBriefFilters(
+	thread: ThreadRowData,
+	activeFilters: ReadonlySet<string>,
+): boolean {
+	return briefFilterDefs.every(
+		(f) => !activeFilters.has(f.id) || f.match(thread),
+	);
+}
+
 export interface BriefSectionsProps {
 	sections: ThreadSection[];
 	briefCategory?: BriefCategoryFilter;
@@ -73,6 +88,17 @@ export interface BriefSectionsProps {
 	sourcesNote?: string;
 	/** Called when the user selects a source/account pill. */
 	onSelectSource?: (id: string) => void;
+	/**
+	 * The active attribute chips, when the consumer owns them. A consumer that
+	 * narrows the same rows on a second surface (the phone search takeover) holds
+	 * the set itself so both surfaces answer to one selection; leave it unset and
+	 * this component keeps its own.
+	 */
+	activeFilters?: ReadonlySet<string>;
+	/** Required alongside `activeFilters`. */
+	onToggleFilter?: (id: string) => void;
+	/** Required alongside `activeFilters`. Clears the chips; the category axis is cleared through `onSelectBriefCategory`. */
+	onClearFilters?: () => void;
 	/** Seeds the filter panel open on first render (stories / deep links). */
 	defaultExpanded?: boolean;
 }
@@ -95,9 +121,12 @@ export function BriefSections({
 	sources,
 	sourcesNote,
 	onSelectSource,
+	activeFilters,
+	onToggleFilter,
+	onClearFilters,
 	defaultExpanded = false,
 }: BriefSectionsProps) {
-	const [active, setActive] = useState<ReadonlySet<BriefFilterId>>(new Set());
+	const [ownFilters, setOwnFilters] = useState<ReadonlySet<string>>(new Set());
 	const [sheetExpanded, setSheetExpanded] = useState(defaultExpanded);
 	const listRef = useRef<HTMLDivElement>(null);
 	useRovingFocus({
@@ -105,8 +134,14 @@ export function BriefSections({
 		itemSelector: LIST_ROW_SELECTOR,
 	});
 
-	const toggleFilter = (id: BriefFilterId) => {
-		setActive((prev) => {
+	const active = activeFilters ?? ownFilters;
+
+	const toggleFilter = (id: string) => {
+		if (onToggleFilter) {
+			onToggleFilter(id);
+			return;
+		}
+		setOwnFilters((prev) => {
 			const next = new Set(prev);
 			if (next.has(id)) next.delete(id);
 			else next.add(id);
@@ -114,10 +149,9 @@ export function BriefSections({
 		});
 	};
 
-	const predicates = briefFilterDefs.filter((f) => active.has(f.id));
 	const matches = (t: ThreadRowData) =>
 		(briefCategory === "all" || t.category === briefCategory) &&
-		predicates.every((f) => f.match(t));
+		matchesBriefFilters(t, active);
 
 	// One section per category only earns its keep at the "all" scope. Narrow to
 	// a single category and the headers are redundant: render a plain flat list.
@@ -142,7 +176,11 @@ export function BriefSections({
 
 	const clearFilters = () => {
 		onSelectBriefCategory?.("all");
-		setActive(new Set());
+		if (onClearFilters) {
+			onClearFilters();
+			return;
+		}
+		setOwnFilters(new Set());
 	};
 
 	const empty = showSections ? filtered.length === 0 : flatRows.length === 0;
@@ -198,7 +236,7 @@ export function BriefSections({
 				onSelectBriefCategory?.(id as BriefCategoryFilter)
 			}
 			onSelectSource={onSelectSource}
-			onToggleFilter={(id) => toggleFilter(id as BriefFilterId)}
+			onToggleFilter={toggleFilter}
 			onClear={clearFilters}
 		>
 			{listBody}

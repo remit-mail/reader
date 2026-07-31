@@ -144,6 +144,18 @@ export function FilterPanelProvider({ children }: { children: ReactNode }) {
 }
 
 /**
+ * Detaches whatever it wraps from an enclosing `FilterPanelProvider`. A
+ * full-screen surface that covers the list — the phone search takeover — carries
+ * its own filter chrome, and the caret it would otherwise borrow belongs to a
+ * header that is not on screen.
+ */
+export function FilterPanelBoundary({ children }: { children: ReactNode }) {
+	return (
+		<FilterPanelCtx.Provider value={null}>{children}</FilterPanelCtx.Provider>
+	);
+}
+
+/**
  * The filter caret, for a list header to render beside its unread count. It is
  * the view's whole filter affordance; the panel it opens still belongs to the
  * sheet, inline above the rows.

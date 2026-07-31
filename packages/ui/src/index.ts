@@ -88,6 +88,7 @@ export {
 export {
 	BriefSections,
 	type BriefSectionsProps,
+	matchesBriefFilters,
 } from "./components/brief-sections.js";
 export {
 	Button,
