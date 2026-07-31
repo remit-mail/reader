@@ -53,6 +53,8 @@ export interface FolderTreePickerLabels {
 	/** Suffix announced for an ancestor held on screen by a match below it. */
 	contextSuffix?: string;
 	emptyMessage?: (query: string) => string;
+	/** Shown when there is no folder to list at all, filter or no filter. */
+	noFolders?: string;
 	/** Accessible label for a selectable row, e.g. `Move to X`. */
 	optionLabel?: (label: string) => string;
 	newFolder?: string;
@@ -110,6 +112,7 @@ const defaultLabels: Required<FolderTreePickerLabels> = {
 	currentTag: "current",
 	contextSuffix: "(containing folder)",
 	emptyMessage: (query) => `No folders match "${query}"`,
+	noFolders: "No folders to show",
 	optionLabel: (label) => `Move to ${label}`,
 	newFolder: "New folder",
 	newSubfolder: (label) => `New folder inside ${label}`,
@@ -282,6 +285,11 @@ export const FolderTreePicker = ({
 
 	const handleTreeKeyDown = useCallback(
 		(event: ReactKeyboardEvent<HTMLElement>) => {
+			// The create form sits inside the tree, so what is typed into its name
+			// field reaches here too. Only a row's own keys move the tree.
+			const source = event.target;
+			if (!(source instanceof Element)) return;
+			if (!source.closest('[role="treeitem"]')) return;
 			const move = (next: number) => {
 				event.preventDefault();
 				roving.current = true;
@@ -336,6 +344,14 @@ export const FolderTreePicker = ({
 		},
 		[rows, focusedIndex, delimiter, activateRow, setExpanded, onCancel],
 	);
+
+	const draftAnchorOnScreen =
+		draft !== null &&
+		draft.anchorId !== null &&
+		(displayRows?.some(
+			(entry) => entry.kind === "create" && entry.parent.id === draft.anchorId,
+		) ??
+			false);
 
 	const draftForm = draft && (
 		<NewFolderForm
@@ -414,8 +430,10 @@ export const FolderTreePicker = ({
 			/>
 
 			{onCreateFolder && (
+				// Closing or filtering away the folder a draft was opened in leaves
+				// the form here instead of unmounting it mid-type or mid-create.
 				<div className="shrink-0 border-b border-line" data-create-anchor="top">
-					{draft?.anchorId === null ? (
+					{draft && !draftAnchorOnScreen ? (
 						draftForm
 					) : (
 						<NewFolderAction
@@ -430,7 +448,7 @@ export const FolderTreePicker = ({
 
 			{rows.length === 0 ? (
 				<p className="px-3 py-3 text-sm text-fg-muted" aria-live="polite">
-					{text.emptyMessage(query)}
+					{folders.length === 0 ? text.noFolders : text.emptyMessage(query)}
 				</p>
 			) : (
 				// A flattened tree: `aria-level` carries the nesting the indentation

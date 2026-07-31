@@ -158,6 +158,31 @@ const typeName = async (value: string) => {
 	});
 };
 
+const filterField = (): HTMLInputElement | null =>
+	container.querySelector('input[type="search"]');
+
+const typeFilter = async (value: string) => {
+	const input = filterField();
+	assert.ok(input, "filter field not rendered");
+	const setter = Object.getOwnPropertyDescriptor(
+		dom.window.HTMLInputElement.prototype,
+		"value",
+	)?.set;
+	await act(async () => {
+		setter?.call(input, value);
+		input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+	});
+};
+
+const press = async (target: Element | null | undefined, key: string) => {
+	assert.ok(target, "control not rendered");
+	await act(async () => {
+		target.dispatchEvent(
+			new dom.window.KeyboardEvent("keydown", { key, bubbles: true }),
+		);
+	});
+};
+
 const open = async (...labels: string[]) => {
 	for (const label of labels) {
 		await click(byAriaLabel(`Move to ${label}`));
@@ -529,32 +554,131 @@ describe("create wait", () => {
 	});
 });
 
+describe("the form's keys stay in the form", () => {
+	it("takes a space in the name without acting on the tree", async () => {
+		const selected: string[] = [];
+		await mount({
+			onSelect: (id) => selected.push(id),
+			onCreateFolder: resolving,
+		});
+		await open("Travel");
+		await click(byAriaLabel("New folder inside Travel"));
+		await press(nameField(), " ");
+		assert.deepEqual(selected, ["travel"]);
+		assert.ok(byAriaLabel("Move to Hotels"));
+		assert.ok(createBlockOf("travel")?.querySelector("input"));
+	});
+
+	it("closes the form on Escape and leaves the picker open", async () => {
+		let cancelled = 0;
+		await mount({
+			onCancel: () => {
+				cancelled += 1;
+			},
+			onCreateFolder: resolving,
+		});
+		await open("Travel");
+		await click(byAriaLabel("New folder inside Travel"));
+		await press(nameField(), "Escape");
+		assert.equal(nameField(), null);
+		assert.equal(cancelled, 0);
+	});
+});
+
+describe("a draft outlives the rows under it", () => {
+	const startDraft = async (props: PickerProps) => {
+		await mount(props);
+		await open("Travel");
+		await click(byAriaLabel("New folder inside Travel"));
+		await typeName("Car hire");
+	};
+
+	it("keeps the form and the typed name when another folder opens", async () => {
+		await startDraft({ onCreateFolder: resolving });
+		await open("Archive");
+		assert.equal(nameField()?.value, "Car hire");
+		assert.ok(createBlockOf("top")?.querySelector("input"));
+		assert.match(container.textContent ?? "", /Inside\s*Travel/);
+	});
+
+	it("keeps the form when its own folder is closed again", async () => {
+		await startDraft({ onCreateFolder: resolving });
+		await open("Travel");
+		assert.equal(byAriaLabel("Move to Hotels"), null);
+		assert.equal(nameField()?.value, "Car hire");
+	});
+
+	it("keeps the form when the filter empties the list", async () => {
+		await startDraft({ onCreateFolder: resolving });
+		await typeFilter("zzz");
+		assert.match(container.textContent ?? "", /No folders match "zzz"/);
+		assert.equal(nameField()?.value, "Car hire");
+	});
+
+	it("puts the form back among the children when its folder opens again", async () => {
+		await startDraft({ onCreateFolder: resolving });
+		await open("Archive");
+		await open("Travel");
+		assert.ok(createBlockOf("travel")?.querySelector("input"));
+		assert.equal(createBlockOf("top")?.querySelector("input"), null);
+		assert.equal(nameField()?.value, "Car hire");
+	});
+
+	it("states a failure that lands after the folder it was opened in closed", async () => {
+		let fail: ((error: Error) => void) | undefined;
+		await startDraft({
+			onCreateFolder: () =>
+				new Promise<FolderTreeNode>((_resolve, reject) => {
+					fail = reject;
+				}),
+		});
+		await click(byText("Create folder"));
+		await open("Archive");
+		assert.ok(byText("Creating folder…"), "the wait went off screen");
+		await act(async () => {
+			fail?.(new Error("The mail server refused that name."));
+		});
+		assert.equal(
+			container.querySelector('[role="alert"]')?.textContent,
+			"The mail server refused that name.",
+		);
+		assert.equal(nameField()?.value, "Car hire");
+	});
+
+	it("keeps the wait on screen when the filter clears the list", async () => {
+		await startDraft({
+			onCreateFolder: () => new Promise<FolderTreeNode>(() => undefined),
+		});
+		await click(byText("Create folder"));
+		await typeFilter("zzz");
+		assert.ok(byText("Creating folder…"), "the wait went off screen");
+	});
+
+	it("selects what comes back from a form the list moved under", async () => {
+		const selected: string[] = [];
+		let confirm: ((folder: FolderTreeNode) => void) | undefined;
+		await mount({
+			onSelect: (id) => selected.push(id),
+			onCreateFolder: () =>
+				new Promise<FolderTreeNode>((resolve) => {
+					confirm = resolve;
+				}),
+		});
+		await open("Travel");
+		await click(byAriaLabel("New folder inside Travel"));
+		await typeName("Car hire");
+		await click(byText("Create folder"));
+		await open("Archive");
+		assert.ok(byText("Creating folder…"), "the wait went off screen");
+		await act(async () => {
+			confirm?.(created("Car hire", "Travel"));
+		});
+		assert.deepEqual(selected, ["travel", "archive", "made"]);
+		assert.equal(nameField(), null);
+	});
+});
+
 describe("filter and keyboard", () => {
-	const filterField = (): HTMLInputElement | null =>
-		container.querySelector('input[type="search"]');
-
-	const typeFilter = async (value: string) => {
-		const input = filterField();
-		assert.ok(input);
-		const setter = Object.getOwnPropertyDescriptor(
-			dom.window.HTMLInputElement.prototype,
-			"value",
-		)?.set;
-		await act(async () => {
-			setter?.call(input, value);
-			input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-		});
-	};
-
-	const press = async (target: Element | null | undefined, key: string) => {
-		assert.ok(target, "control not rendered");
-		await act(async () => {
-			target.dispatchEvent(
-				new dom.window.KeyboardEvent("keydown", { key, bubbles: true }),
-			);
-		});
-	};
-
 	const focused = (): string | null =>
 		dom.window.document.activeElement?.getAttribute("aria-label") ?? null;
 
@@ -585,6 +709,12 @@ describe("filter and keyboard", () => {
 		await mount({});
 		await typeFilter("zzz");
 		assert.match(container.textContent ?? "", /No folders match "zzz"/);
+	});
+
+	it("says the list is empty rather than blaming the filter", async () => {
+		await mount({ folders: [] });
+		await typeFilter("zzz");
+		assert.match(container.textContent ?? "", /No folders to show/);
 	});
 
 	it("picks and opens the focused row on Enter", async () => {
