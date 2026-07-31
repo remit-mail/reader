@@ -54,6 +54,7 @@ export function DeleteFolderDialog({
 	const [stage, setStage] = useState<FateStage>(() =>
 		initialStage(folder.messageCount),
 	);
+	const [destinationId, setDestinationId] = useState<string>();
 	const { createFolderIn } = useCreateMailbox(accountId);
 	const translator = useFolderLabelTranslator();
 	const {
@@ -76,6 +77,11 @@ export function DeleteFolderDialog({
 		reset();
 	}, [open, folder.messageCount, reset]);
 
+	useEffect(() => {
+		if (!open) return;
+		setDestinationId(undefined);
+	}, [open]);
+
 	useEffect(() => cancel, [cancel]);
 
 	const handleClose = useCallback(() => {
@@ -92,6 +98,10 @@ export function DeleteFolderDialog({
 				translator,
 			}),
 		[mailboxes, appointments, folder.mailboxId, translator],
+	);
+
+	const destination = destinations.find(
+		(option) => option.id === destinationId,
 	);
 
 	const name = useMemo(
@@ -265,18 +275,37 @@ export function DeleteFolderDialog({
 					Move the {emailCount(folder.messageCount)} in{" "}
 					<strong className="text-fg">{name}</strong> to:
 				</p>
-				<div className="min-h-0 flex-1">
+				<div className="flex min-h-0 flex-1 overflow-hidden">
 					<FolderTreePicker
 						folders={destinations}
+						selectedId={destinationId}
 						delimiter={mailboxes[0]?.hierarchyDelimiter ?? "/"}
-						onSelect={(destinationMailboxId) =>
-							moveThenDelete(destinationMailboxId)
-						}
+						onSelect={setDestinationId}
 						onCreateFolder={createFolderIn}
-						onCancel={() => setStage("choose-fate")}
+						onCancel={() => {
+							setDestinationId(undefined);
+							setStage("choose-fate");
+						}}
 						labels={{ filterPlaceholder: "Move emails to…" }}
 					/>
 				</div>
+				{/* Tapping a folder both picks it and opens it, so the move and the
+				delete wait for this confirmation — otherwise the first tap on the way
+				to a nested destination would empty the folder and remove it, with no
+				undo. */}
+				{destination && (
+					<footer className="shrink-0 border-t border-line p-2">
+						<Button
+							variant="danger"
+							onClick={() => moveThenDelete(destination.id)}
+							className="h-11 w-full font-semibold"
+						>
+							<span className="truncate">
+								{`Move ${emailCount(folder.messageCount)} to ${destination.label}`}
+							</span>
+						</Button>
+					</footer>
+				)}
 			</div>
 		);
 	})();
