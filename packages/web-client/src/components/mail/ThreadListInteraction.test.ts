@@ -273,7 +273,7 @@ describe("ThreadListInteraction — delete confirms first", () => {
 
 /**
  * A background refresh drops the ids that left and keeps every survivor — the
- * same intersect-on-refresh guarantee `useSelection.test.ts` locks for the pure
+ * same intersect-on-refresh guarantee `use-selection.test.ts` in the kit locks for the pure
  * helper (#111), here through the live provider whose effect runs it whenever
  * the rendered rows change (a chip filter, a collapsed section, mail deleted
  * elsewhere).
