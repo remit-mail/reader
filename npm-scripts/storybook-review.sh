@@ -68,34 +68,44 @@ while [ $# -gt 0 ]; do
 	shift
 done
 
-# The pid names the npm parent, whose command line carries the review checkout's
-# path. Matching on that is what keeps a teardown from reaching a Storybook
-# somebody else started on this host.
-review_server_pid() {
-	[ -f "$PID_FILE" ] || return 1
-	local pid
-	pid="$(cat "$PID_FILE")"
-	[ -n "$pid" ] || return 1
-	kill -0 "$pid" 2>/dev/null || return 1
-	ps -p "$pid" -o args= 2>/dev/null | grep -qF "$REVIEW_DIR" || return 1
-	echo "$pid"
+BOOT_ID="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)"
+
+# What is recorded is a process group this script created, not a single process:
+# npm hands the port to Storybook and can retire before it, while Storybook's own
+# workers outlive both. Membership of that group is the precise match — nothing
+# started outside this script is ever in it — and the boot id stored beside it
+# rejects a pidfile left over from before a reboot, whose number could by now
+# belong to anything at all.
+review_server_group() {
+	[ -s "$PID_FILE" ] || return 1
+	local recorded_boot pgid
+	read -r recorded_boot pgid <"$PID_FILE" || return 1
+	[ "$recorded_boot" = "$BOOT_ID" ] || return 1
+	pgrep -g "$pgid" >/dev/null 2>&1 || return 1
+	echo "$pgid"
 }
 
 stop_review_server() {
-	local pid
-	if ! pid="$(review_server_pid)"; then
+	local pgid
+	if ! pgid="$(review_server_group)"; then
 		rm -f "$PID_FILE"
+		echo "storybook-review: no review server is running"
 		return 0
 	fi
-	kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+	kill -TERM -- "-$pgid" 2>/dev/null || true
 	for _ in $(seq 1 20); do
-		kill -0 "$pid" 2>/dev/null || break
+		pgrep -g "$pgid" >/dev/null 2>&1 || break
 		sleep 0.5
 	done
-	kill -KILL -- "-$pid" 2>/dev/null || true
+	kill -KILL -- "-$pgid" 2>/dev/null || true
 	rm -f "$PID_FILE"
 	echo "storybook-review: stopped the review server"
 }
+
+if [ "$MODE" = start ] && [ "$REMOVE" = yes ]; then
+	echo "storybook-review: --remove only applies to 'npm run storybook:review:down'" >&2
+	exit 1
+fi
 
 if [ "$MODE" = down ]; then
 	stop_review_server
@@ -158,15 +168,31 @@ fi
 echo "storybook-review: generating API packages"
 npm --prefix "$REVIEW_DIR" run codegen
 
-setsid npm --prefix "$REVIEW_DIR" run storybook:host -w @remit/workbench \
+# setsid forks whenever it has to make a new session, so the shell's $! can be a
+# wrapper that has already exited rather than the group leader. The new session
+# is the only one that can report its own leader, so it writes the pid itself.
+rm -f "$PID_FILE"
+# shellcheck disable=SC2016 # the inner shell resolves these, not this one
+setsid bash -c 'echo "$1 $$" >"$2"; shift 2; exec "$@"' storybook-review \
+	"$BOOT_ID" "$PID_FILE" \
+	npm --prefix "$REVIEW_DIR" run storybook:host -w @remit/workbench \
 	>"$LOG_FILE" 2>&1 &
-echo $! >"$PID_FILE"
+
+for _ in $(seq 1 50); do
+	[ -s "$PID_FILE" ] && break
+	sleep 0.1
+done
+if [ ! -s "$PID_FILE" ]; then
+	echo "storybook-review: the server never started; last output:" >&2
+	tail -n 20 "$LOG_FILE" >&2
+	exit 1
+fi
 
 # Storybook prebundles on a cold checkout, so the URL is only printed once the
 # port answers — and the process is rechecked each round, so a server that died
 # on startup reports itself instead of timing out silently.
 for _ in $(seq 1 240); do
-	if ! review_server_pid >/dev/null; then
+	if ! review_server_group >/dev/null; then
 		echo "storybook-review: the server exited; last output:" >&2
 		tail -n 20 "$LOG_FILE" >&2
 		rm -f "$PID_FILE"
