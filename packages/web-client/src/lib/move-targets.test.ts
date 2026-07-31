@@ -61,12 +61,15 @@ describe("buildMoveTargets — excluded destinations (#236, #976)", () => {
 	});
 
 	test("with no appointments at all, nothing is excluded by role (only Outbox by name)", () => {
-		const result = buildMoveTargets([
-			make({ mailboxId: "m1", fullPath: "INBOX" }),
-			make({ mailboxId: "m2", fullPath: "Drafts" }),
-			make({ mailboxId: "m3", fullPath: "Outbox" }),
-			make({ mailboxId: "m4", fullPath: "Sent Mail" }),
-		]);
+		const result = buildMoveTargets(
+			[
+				make({ mailboxId: "m1", fullPath: "INBOX" }),
+				make({ mailboxId: "m2", fullPath: "Drafts" }),
+				make({ mailboxId: "m3", fullPath: "Outbox" }),
+				make({ mailboxId: "m4", fullPath: "Sent Mail" }),
+			],
+			[],
+		);
 		const ids = result.map((mailbox) => mailbox.mailboxId).sort();
 		assert.deepStrictEqual(ids, ["m1", "m2", "m4"]);
 	});
@@ -89,11 +92,14 @@ describe("buildMoveTargets — excluded destinations (#236, #976)", () => {
 	});
 
 	test("keeps user-defined folders", () => {
-		const result = buildMoveTargets([
-			make({ mailboxId: "m1", fullPath: "INBOX" }),
-			make({ mailboxId: "m2", fullPath: "Project Alpha" }),
-			make({ mailboxId: "m3", fullPath: "Receipts/2025" }),
-		]);
+		const result = buildMoveTargets(
+			[
+				make({ mailboxId: "m1", fullPath: "INBOX" }),
+				make({ mailboxId: "m2", fullPath: "Project Alpha" }),
+				make({ mailboxId: "m3", fullPath: "Receipts/2025" }),
+			],
+			[],
+		);
 		const ids = result.map((mailbox) => mailbox.mailboxId);
 		assert.deepStrictEqual(ids.sort(), ["m1", "m2", "m3"]);
 	});
@@ -121,10 +127,13 @@ describe("buildMoveTargets — sort order", () => {
 	});
 
 	test("plain folders sort alphabetically, case-insensitively", () => {
-		const result = buildMoveTargets([
-			make({ mailboxId: "b", fullPath: "banana" }),
-			make({ mailboxId: "a", fullPath: "Apple" }),
-		]);
+		const result = buildMoveTargets(
+			[
+				make({ mailboxId: "b", fullPath: "banana" }),
+				make({ mailboxId: "a", fullPath: "Apple" }),
+			],
+			[],
+		);
 		assert.deepStrictEqual(
 			result.map((m) => m.mailboxId),
 			["a", "b"],
@@ -150,45 +159,57 @@ describe("buildMoveTargets — Outbox locale exclusion (#290)", () => {
 
 	for (const name of localizedOutboxNames) {
 		test(`drops localized Outbox "${name}"`, () => {
-			const result = buildMoveTargets([
-				make({ mailboxId: "inbox", fullPath: "INBOX" }),
-				make({ mailboxId: "outbox", fullPath: name }),
-			]);
+			const result = buildMoveTargets(
+				[
+					make({ mailboxId: "inbox", fullPath: "INBOX" }),
+					make({ mailboxId: "outbox", fullPath: name }),
+				],
+				[],
+			);
 			const ids = result.map((mailbox) => mailbox.mailboxId);
 			assert.deepStrictEqual(ids, ["inbox"]);
 		});
 	}
 
 	test("matches Outbox locale names case-insensitively", () => {
-		const result = buildMoveTargets([
-			make({ mailboxId: "inbox", fullPath: "INBOX" }),
-			make({ mailboxId: "m1", fullPath: "POSTVAK UIT" }),
-			make({ mailboxId: "m2", fullPath: "postausgang" }),
-			make({ mailboxId: "m3", fullPath: "BOÎTE D'ENVOI" }),
-		]);
+		const result = buildMoveTargets(
+			[
+				make({ mailboxId: "inbox", fullPath: "INBOX" }),
+				make({ mailboxId: "m1", fullPath: "POSTVAK UIT" }),
+				make({ mailboxId: "m2", fullPath: "postausgang" }),
+				make({ mailboxId: "m3", fullPath: "BOÎTE D'ENVOI" }),
+			],
+			[],
+		);
 		const ids = result.map((mailbox) => mailbox.mailboxId);
 		assert.deepStrictEqual(ids, ["inbox"]);
 	});
 
 	test("matches Outbox locale names with surrounding whitespace", () => {
-		const result = buildMoveTargets([
-			make({ mailboxId: "inbox", fullPath: "INBOX" }),
-			make({ mailboxId: "m1", fullPath: "  Outbox  " }),
-			make({ mailboxId: "m2", fullPath: " Postvak UIT " }),
-		]);
+		const result = buildMoveTargets(
+			[
+				make({ mailboxId: "inbox", fullPath: "INBOX" }),
+				make({ mailboxId: "m1", fullPath: "  Outbox  " }),
+				make({ mailboxId: "m2", fullPath: " Postvak UIT " }),
+			],
+			[],
+		);
 		const ids = result.map((mailbox) => mailbox.mailboxId);
 		assert.deepStrictEqual(ids, ["inbox"]);
 	});
 
 	test("does not over-match unrelated mailbox names", () => {
-		const result = buildMoveTargets([
-			make({ mailboxId: "inbox", fullPath: "INBOX" }),
-			make({ mailboxId: "trash", fullPath: "Trash" }),
-			make({ mailboxId: "custom", fullPath: "Custom Folder" }),
-			// Substring of a locale name must not trigger the filter — only
-			// the exact normalized leaf matches.
-			make({ mailboxId: "outboxy", fullPath: "Outbox Archive" }),
-		]);
+		const result = buildMoveTargets(
+			[
+				make({ mailboxId: "inbox", fullPath: "INBOX" }),
+				make({ mailboxId: "trash", fullPath: "Trash" }),
+				make({ mailboxId: "custom", fullPath: "Custom Folder" }),
+				// Substring of a locale name must not trigger the filter — only
+				// the exact normalized leaf matches.
+				make({ mailboxId: "outboxy", fullPath: "Outbox Archive" }),
+			],
+			[],
+		);
 		const ids = result.map((mailbox) => mailbox.mailboxId).sort();
 		assert.deepStrictEqual(ids, ["custom", "inbox", "outboxy", "trash"]);
 	});

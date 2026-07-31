@@ -49,7 +49,7 @@ const NON_SYSTEM_PRIORITY = ROLE_PRIORITY.length;
  */
 export const buildMoveTargets = (
 	mailboxes: readonly RemitImapMailboxResponse[],
-	folderAppointments: readonly RemitImapFolderAppointment[] = [],
+	folderAppointments: readonly RemitImapFolderAppointment[],
 ): RemitImapMailboxResponse[] => {
 	const roleMap = buildMailboxRoleMap(folderAppointments);
 	const filtered = mailboxes.filter((mailbox) => {
