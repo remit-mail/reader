@@ -13,17 +13,53 @@
  */
 
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
-import { createElement, type MouseEvent } from "react";
-import type { SelectionModifiers } from "@/hooks/useSelection";
-import { createDomHarness, type DomHarness } from "../../test-support/dom";
-import { isModified, useModifierSelect } from "./useModifierSelect";
+import { after, afterEach, before, beforeEach, describe, it } from "node:test";
+import type { JSDOM } from "jsdom";
+import { act, createElement, type MouseEvent } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { isModified, useModifierSelect } from "./use-modifier-select.js";
+import type { SelectionModifiers } from "./use-selection.js";
 
-let harness: DomHarness | undefined;
+let dom: JSDOM;
+let container: HTMLElement;
+let root: Root;
+
+before(async () => {
+	const { JSDOM: JSDOMCtor } = await import("jsdom");
+	dom = new JSDOMCtor(
+		"<!doctype html><html><body><div id=root></div></body></html>",
+		{ url: "http://localhost/", pretendToBeVisual: true },
+	);
+	globalThis.window = dom.window as unknown as typeof globalThis.window;
+	globalThis.document = dom.window.document;
+	globalThis.HTMLElement = dom.window.HTMLElement;
+	globalThis.Element = dom.window.Element;
+	globalThis.MouseEvent = dom.window.MouseEvent;
+	Object.defineProperty(globalThis, "navigator", {
+		value: dom.window.navigator,
+		configurable: true,
+	});
+	(
+		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+	).IS_REACT_ACT_ENVIRONMENT = true;
+});
+
+after(() => {
+	dom.window.close();
+});
+
+beforeEach(() => {
+	container = dom.window.document.getElementById(
+		"root",
+	) as unknown as HTMLElement;
+	container.innerHTML = "";
+	root = createRoot(container);
+});
 
 afterEach(() => {
-	harness?.close();
-	harness = undefined;
+	act(() => {
+		root.unmount();
+	});
 });
 
 interface Log {
@@ -72,17 +108,20 @@ function Probe({ log, takes, unselectable }: ProbeProps) {
 	);
 }
 
-const mount = (props: ProbeProps, viewportWidth: number): DomHarness => {
-	harness = createDomHarness({ viewportWidth });
-	harness.render(createElement(Probe, props));
-	return harness;
+const mount = (props: ProbeProps, viewportWidth: number): void => {
+	Object.defineProperty(dom.window, "innerWidth", {
+		value: viewportWidth,
+		configurable: true,
+	});
+	act(() => {
+		root.render(createElement(Probe, props));
+	});
 };
 
 const emptyLog = (): Log => ({ offers: [], opens: 0 });
 
 /** Dispatches a real mouse event and answers whether the default was taken. */
 const press = (
-	dom: DomHarness,
 	type: "mousedown" | "click" | "contextmenu",
 	init: MouseEventInit = {},
 ): boolean => {
@@ -92,17 +131,18 @@ const press = (
 		button: 0,
 		...init,
 	});
-	dom.dispatch(dom.query(ROW) as Element, event);
+	act(() => {
+		container.querySelector(ROW)?.dispatchEvent(event);
+	});
 	return event.defaultPrevented;
 };
 
 /** The full gesture a browser delivers: the press, then the click after it. */
 const gesture = (
-	dom: DomHarness,
 	init: MouseEventInit,
 ): { pressTaken: boolean; clickTaken: boolean } => ({
-	pressTaken: press(dom, "mousedown", init),
-	clickTaken: press(dom, "click", init),
+	pressTaken: press("mousedown", init),
+	clickTaken: press("click", init),
 });
 
 // Both single-pane tiers and the multi-pane one. The narrow widths are the
@@ -114,9 +154,9 @@ describe("useModifierSelect", () => {
 	for (const width of WIDTHS) {
 		it(`takes a shift-press for selection at ${width}px`, () => {
 			const log = emptyLog();
-			const dom = mount({ log, takes: true }, width);
+			mount({ log, takes: true }, width);
 
-			const { pressTaken, clickTaken } = gesture(dom, { shiftKey: true });
+			const { pressTaken, clickTaken } = gesture({ shiftKey: true });
 
 			assert.deepEqual(log.offers, [
 				{ shiftKey: true, metaKey: false, ctrlKey: false },
@@ -132,9 +172,9 @@ describe("useModifierSelect", () => {
 
 		it(`takes a cmd-press for selection at ${width}px`, () => {
 			const log = emptyLog();
-			const dom = mount({ log, takes: true }, width);
+			mount({ log, takes: true }, width);
 
-			const { pressTaken } = gesture(dom, { metaKey: true });
+			const { pressTaken } = gesture({ metaKey: true });
 
 			assert.deepEqual(log.offers, [
 				{ shiftKey: false, metaKey: true, ctrlKey: false },
@@ -145,9 +185,9 @@ describe("useModifierSelect", () => {
 
 		it(`leaves a plain click alone at ${width}px`, () => {
 			const log = emptyLog();
-			const dom = mount({ log, takes: true }, width);
+			mount({ log, takes: true }, width);
 
-			const { pressTaken, clickTaken } = gesture(dom, {});
+			const { pressTaken, clickTaken } = gesture({});
 
 			assert.deepEqual(log.offers, [], "a tap carries no modifier to read");
 			assert.equal(pressTaken, false);
@@ -158,9 +198,9 @@ describe("useModifierSelect", () => {
 
 	it("claims a modified click on its own, for engines that deliver no usable press", () => {
 		const log = emptyLog();
-		const dom = mount({ log, takes: true }, 390);
+		mount({ log, takes: true }, 390);
 
-		const clickTaken = press(dom, "click", { metaKey: true });
+		const clickTaken = press("click", { metaKey: true });
 
 		assert.equal(clickTaken, true);
 		assert.equal(log.opens, 0);
@@ -171,9 +211,9 @@ describe("useModifierSelect", () => {
 
 	it("leaves the browser's gesture standing when selection declines the press", () => {
 		const log = emptyLog();
-		const dom = mount({ log, takes: false }, 1280);
+		mount({ log, takes: false }, 1280);
 
-		const { pressTaken, clickTaken } = gesture(dom, { metaKey: true });
+		const { pressTaken, clickTaken } = gesture({ metaKey: true });
 
 		assert.equal(pressTaken, false, "cmd-click still opens a new tab");
 		assert.equal(clickTaken, false);
@@ -181,9 +221,9 @@ describe("useModifierSelect", () => {
 
 	it("reads no modifier on a row that cannot be selected", () => {
 		const log = emptyLog();
-		const dom = mount({ log, takes: true, unselectable: true }, 1280);
+		mount({ log, takes: true, unselectable: true }, 1280);
 
-		const { pressTaken, clickTaken } = gesture(dom, { shiftKey: true });
+		const { pressTaken, clickTaken } = gesture({ shiftKey: true });
 
 		assert.equal(pressTaken, false);
 		assert.equal(clickTaken, false);
@@ -192,9 +232,9 @@ describe("useModifierSelect", () => {
 
 	it("ignores a press from any button but the primary one", () => {
 		const log = emptyLog();
-		const dom = mount({ log, takes: true }, 1280);
+		mount({ log, takes: true }, 1280);
 
-		const pressTaken = press(dom, "mousedown", { button: 2, ctrlKey: true });
+		const pressTaken = press("mousedown", { button: 2, ctrlKey: true });
 
 		assert.equal(pressTaken, false, "a right-click keeps its context menu");
 		assert.deepEqual(log.offers, []);
@@ -202,23 +242,23 @@ describe("useModifierSelect", () => {
 
 	it("suppresses the context menu a ctrl-press already spent on selection", () => {
 		const log = emptyLog();
-		const dom = mount({ log, takes: true }, 1280);
+		mount({ log, takes: true }, 1280);
 
-		assert.equal(press(dom, "contextmenu", { ctrlKey: true }), true);
+		assert.equal(press("contextmenu", { ctrlKey: true }), true);
 	});
 
 	it("leaves a plain right-click its context menu", () => {
 		const log = emptyLog();
-		const dom = mount({ log, takes: true }, 1280);
+		mount({ log, takes: true }, 1280);
 
-		assert.equal(press(dom, "contextmenu", {}), false);
+		assert.equal(press("contextmenu", {}), false);
 	});
 
 	it("leaves the context menu alone on a row that cannot be selected", () => {
 		const log = emptyLog();
-		const dom = mount({ log, takes: true, unselectable: true }, 1280);
+		mount({ log, takes: true, unselectable: true }, 1280);
 
-		assert.equal(press(dom, "contextmenu", { ctrlKey: true }), false);
+		assert.equal(press("contextmenu", { ctrlKey: true }), false);
 	});
 });
 

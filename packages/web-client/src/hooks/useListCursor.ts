@@ -13,12 +13,13 @@
  * `cursorMovedByPointerRef` records whether the last move came from a click, so
  * a list that scrolls its cursor into view can skip doing so for pointer moves.
  */
-import { useCallback, useMemo, useRef, useState } from "react";
 import {
+	createRowSelect,
 	nextFocusId,
 	type SelectionModifiers,
 	useSelection,
-} from "@/hooks/useSelection";
+} from "@remit/ui";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { deriveIsMultiSelectMode } from "@/lib/selection-mode";
 
 interface UseListCursorOptions {
@@ -176,26 +177,16 @@ export const useListCursor = ({
 		if (focusedMessageId) toggleCheck(focusedMessageId);
 	}, [focusedMessageId, toggleCheck]);
 
-	const handleRowSelect = useCallback(
-		(messageId: string, modifiers: SelectionModifiers): boolean => {
-			if (modifiers.shiftKey) {
-				// The open/focused row is the fallback origin when the stored anchor
-				// has been filtered or searched out of the visible list, so the first
-				// shift-click still ranges from where the user is (#142, #144).
-				selectRange(orderedIds, messageId, focusedMessageId);
-				return true;
-			}
-			if (modifiers.metaKey || modifiers.ctrlKey) {
-				toggleCheck(messageId);
-				return true;
-			}
-			// Plain click: collapse any multi-selection and let navigation proceed.
-			// The clicked row becomes the next anchor for a subsequent shift-click,
-			// but is NOT added to the checkbox set (no toolbar on a plain open).
-			exitSelection();
-			setAnchor(messageId);
-			return false;
-		},
+	const handleRowSelect = useMemo(
+		() =>
+			createRowSelect({
+				orderedIds,
+				fallbackAnchor: focusedMessageId,
+				selectRange,
+				toggle: toggleCheck,
+				setAnchor,
+				clearSelection: exitSelection,
+			}),
 		[
 			orderedIds,
 			focusedMessageId,

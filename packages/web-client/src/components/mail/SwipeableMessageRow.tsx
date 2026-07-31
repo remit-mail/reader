@@ -1,17 +1,17 @@
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import {
 	type Density,
+	type SelectionModifiers,
 	SwipeableRow,
 	type SwipePeek,
 	type ThreadRowData,
+	useModifierSelect,
 } from "@remit/ui";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
-import type { SelectionModifiers } from "@/hooks/useSelection";
 import { toDisplayCategory } from "@/lib/display-category";
 import { formatEmailDate } from "@/lib/format";
 import { MessageListItem } from "./MessageListItem";
-import { useModifierSelect } from "./useModifierSelect";
 
 interface MailboxLinkSearch {
 	selectedMessageId?: string;

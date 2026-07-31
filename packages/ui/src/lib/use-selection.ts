@@ -15,7 +15,7 @@ interface UseSelectionOptions<T> {
 	getId: (item: T) => string;
 }
 
-interface UseSelectionReturn {
+export interface UseSelectionReturn {
 	/** Set of currently selected item IDs */
 	selectedIds: Set<string>;
 	/** Number of selected items */
@@ -290,3 +290,57 @@ export const useSelection = <T>(
 		intersectWith,
 	};
 };
+
+export interface RowSelectOptions {
+	/** Rendered rows in display order — the span a shift-click ranges over. */
+	orderedIds: string[];
+	/**
+	 * The open/focused row, which anchors a shift-range once the stored anchor
+	 * has been filtered or searched out of the visible list.
+	 */
+	fallbackAnchor?: string;
+	selectRange: UseSelectionReturn["selectRange"];
+	toggle: UseSelectionReturn["toggle"];
+	setAnchor: UseSelectionReturn["setAnchor"];
+	/** Leaves selection, with whatever teardown the list owns. */
+	clearSelection: () => void;
+}
+
+/**
+ * The desktop mouse-selection semantics every list shares (Apple Mail / Gmail):
+ * shift ranges from the anchor, cmd/ctrl toggles one row, and a plain click
+ * opens. Returns true when selection took the click, in which case the row must
+ * not open.
+ *
+ * A factory over the selection's own callbacks rather than a hook, so a caller
+ * keeps the memoization its rows depend on and the semantics stay testable
+ * without a DOM.
+ */
+export const createRowSelect =
+	({
+		orderedIds,
+		fallbackAnchor,
+		selectRange,
+		toggle,
+		setAnchor,
+		clearSelection,
+	}: RowSelectOptions) =>
+	(messageId: string, modifiers: SelectionModifiers): boolean => {
+		if (modifiers.shiftKey) {
+			// The open/focused row is the fallback origin when the stored anchor has
+			// been filtered or searched out of the visible list, so the first
+			// shift-click still ranges from where the user is (#142, #144).
+			selectRange(orderedIds, messageId, fallbackAnchor);
+			return true;
+		}
+		if (modifiers.metaKey || modifiers.ctrlKey) {
+			toggle(messageId);
+			return true;
+		}
+		// Plain click: collapse any multi-selection and let navigation proceed. The
+		// clicked row becomes the next anchor for a subsequent shift-click, but is
+		// NOT added to the checkbox set (no toolbar on a plain open).
+		clearSelection();
+		setAnchor(messageId);
+		return false;
+	};

@@ -15,6 +15,10 @@
  *   in the pane above whichever body is showing;
  * - completions for the term being typed sit under the field on both surfaces,
  *   in flow, so the list never covers the query it completes;
+ * - the pane owns multi-select, as the app's lists do: hovering a row reveals
+ *   the checkbox in the avatar's place, a plain click opens, cmd/ctrl toggles a
+ *   row, shift ranges from the anchor, and `SelectionTopBar` takes the header's
+ *   place with the count, the verbs and select-all over the loaded rows;
  * - below 1024px the shell is one pane: the nav is a slide-over, compose is the
  *   FAB, and the phone's magnifier opens the full-screen `MobileSearchView`.
  *
@@ -26,19 +30,27 @@ import {
 	AppTopBar,
 	Avatar,
 	Button,
+	ComfortableRowBody,
+	cn,
+	comfortableRowClass,
+	createRowSelect,
 	FilterPanelProvider,
 	type FilterPreset,
 	FilterSheet,
 	FilterToggle,
 	type IntelligenceData,
 	IntelligencePanel,
+	LIST_ROW_ATTRIBUTE,
 	MailHeader,
 	MakeFilterAction,
 	MessageListPane,
 	MobileSearchView,
+	modifiersOf,
 	NavSidebar,
 	NavToggleButton,
 	ReadingPane,
+	ROW_ID_ATTRIBUTE,
+	type RowToggleEvent,
 	SearchBar,
 	type SearchCaretRequest,
 	type SearchChip,
@@ -46,15 +58,30 @@ import {
 	type SearchResultSection,
 	SearchResults,
 	type SearchScope,
+	type SelectionModifiers,
+	SelectionTopBar,
 	type Suggestion,
 	SuggestList,
 	type ThreadData,
+	type ThreadRowData,
 	type ThreadSection,
 	useAppShellLayout,
+	useModifierSelect,
+	useRenderedRowIds,
+	useSelection,
 	useSuggestList,
 } from "@remit/ui";
 import { Bug, Pencil, Settings, SquarePen } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import {
+	createContext,
+	type MouseEvent,
+	type ReactNode,
+	useContext,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { navAccounts } from "../fixtures/workspace.js";
 
 /** The width at which the reading pane, the nav column and the top bar appear. */
@@ -249,6 +276,84 @@ function ComposeFab() {
 	);
 }
 
+interface RowSelection {
+	isChecked: (id: string) => boolean;
+	toggle: (id: string) => void;
+	onRowSelect: (id: string, modifiers: SelectionModifiers) => boolean;
+}
+
+const RowSelectionContext = createContext<RowSelection | null>(null);
+
+/**
+ * The list's row, mirroring `MessageRow`: the kit's comfortable body under the
+ * consumer's own button, so the checkbox and the modifier keys are wired where
+ * the selection state lives. Hover puts the checkbox in the avatar's place; a
+ * plain click opens, cmd/ctrl toggles the row, shift ranges from the anchor.
+ */
+function SelectableRow({
+	thread,
+	active,
+	onClick,
+}: {
+	thread: ThreadRowData;
+	active?: boolean;
+	onClick?: () => void;
+}) {
+	const selection = useContext(RowSelectionContext);
+	const checked = selection?.isChecked(thread.id) ?? false;
+	const modifierSelect = useModifierSelect(thread.id, selection?.onRowSelect);
+
+	const handleClick = (event: MouseEvent) => {
+		if (modifierSelect.claimClick(event)) return;
+		selection?.onRowSelect(thread.id, modifiersOf(event));
+		onClick?.();
+	};
+
+	const handleToggle = (event: RowToggleEvent) => {
+		event.preventDefault();
+		event.stopPropagation();
+		selection?.toggle(thread.id);
+	};
+
+	return (
+		<button
+			type="button"
+			{...LIST_ROW_ATTRIBUTE}
+			{...{ [ROW_ID_ATTRIBUTE]: thread.id }}
+			onClick={handleClick}
+			onMouseDown={modifierSelect.onMouseDown}
+			onContextMenu={modifierSelect.onContextMenu}
+			className={cn(
+				"group",
+				comfortableRowClass({ active }),
+				checked && "bg-accent-soft",
+			)}
+		>
+			<ComfortableRowBody
+				thread={thread}
+				selection={selection ? { checked, onToggle: handleToggle } : undefined}
+			/>
+		</button>
+	);
+}
+
+/** Applies what the selection bar's verbs did to the rows the shell owns. */
+function applyTriage(
+	sections: ThreadSection[],
+	trashedIds: ReadonlySet<string>,
+	readIds: ReadonlySet<string>,
+): ThreadSection[] {
+	if (trashedIds.size === 0 && readIds.size === 0) return sections;
+	return sections.map((section) => ({
+		...section,
+		threads: section.threads
+			.filter((thread) => !trashedIds.has(thread.id))
+			.map((thread) =>
+				readIds.has(thread.id) ? { ...thread, isRead: true } : thread,
+			),
+	}));
+}
+
 function ListPane({
 	title,
 	unreadCount,
@@ -278,6 +383,84 @@ function ListPane({
 	const suggest = useShellSuggest(search);
 	const [category, setCategory] = useState("all");
 	const [filters, setFilters] = useState<ReadonlySet<string>>(new Set());
+	const [trashedIds, setTrashedIds] = useState<ReadonlySet<string>>(new Set());
+	const [readIds, setReadIds] = useState<ReadonlySet<string>>(new Set());
+
+	// Selection belongs to whoever owns the list, so it is held here and reaches
+	// the rows and the bar from one place — the same arrangement the app has.
+	const selection = useSelection();
+	const {
+		selectedIds,
+		selectedCount,
+		isSelected,
+		toggle,
+		toggleAll,
+		selectRange,
+		setAnchor,
+		clearSelection,
+		intersectWith,
+	} = selection;
+	const listRef = useRef<HTMLDivElement>(null);
+	// The rows on screen, in order: the brief caps and collapses its sections and
+	// the filter chips narrow them, none of which the section data describes. A
+	// range and a select-all stay inside what the user can see.
+	const orderedIds = useRenderedRowIds(listRef);
+
+	// A row that leaves the list — a filter, a collapsed section, the bar's own
+	// Trash — cannot stay selected. Survivors keep their selection.
+	useEffect(() => {
+		intersectWith(orderedIds);
+	}, [intersectWith, orderedIds]);
+
+	const handleRowSelect = useMemo(
+		() =>
+			createRowSelect({
+				orderedIds,
+				fallbackAnchor: selectedThreadId,
+				selectRange,
+				toggle,
+				setAnchor,
+				clearSelection,
+			}),
+		[
+			orderedIds,
+			selectedThreadId,
+			selectRange,
+			toggle,
+			setAnchor,
+			clearSelection,
+		],
+	);
+	const rowSelection = useMemo<RowSelection>(
+		() => ({ isChecked: isSelected, toggle, onRowSelect: handleRowSelect }),
+		[isSelected, toggle, handleRowSelect],
+	);
+
+	const allSelected =
+		orderedIds.length > 0 && orderedIds.every((id) => selectedIds.has(id));
+	const selectAll =
+		orderedIds.length > 0
+			? {
+					checked: allSelected,
+					indeterminate: selectedCount > 0 && !allSelected,
+					onChange: () => toggleAll(orderedIds),
+				}
+			: undefined;
+
+	// The bar's verbs act on the rows the shell owns: a Trash that only closes
+	// the bar is a Trash that deletes nothing.
+	const trashSelected = () => {
+		setTrashedIds((prev) => new Set([...prev, ...selectedIds]));
+		clearSelection();
+	};
+	const markSelectedRead = () => {
+		setReadIds((prev) => new Set([...prev, ...selectedIds]));
+		clearSelection();
+	};
+	const shownSections = useMemo(
+		() => applyTriage(sections, trashedIds, readIds),
+		[sections, trashedIds, readIds],
+	);
 
 	const hasQuery = search.query.trim().length > 0;
 	const filterConfig = preset && {
@@ -330,11 +513,12 @@ function ListPane({
 		<MessageListPane
 			hideHeader
 			listTitle={title}
-			sections={sections}
+			sections={shownSections}
 			briefFilters={briefFilters}
 			flatList={!briefFilters}
 			selectedThreadId={selectedThreadId}
 			isDesktop={!singlePane}
+			row={SelectableRow}
 		/>
 	);
 	const results = (
@@ -359,29 +543,48 @@ function ListPane({
 
 	return (
 		<FilterPanelProvider>
-			<section className="flex h-full w-full flex-col bg-surface">
-				<MailHeader
-					title={title}
-					unreadCount={unreadCount}
-					isDesktop={false}
-					showSearch={singlePane}
-					onMenuClick={
-						layout && !layout.showNavPane ? () => layout.openNav() : undefined
-					}
-					filterToggle={!hasQuery && <FilterToggle />}
-					searchValue={search.query}
-					onSearchChange={search.setQuery}
-					onSearchClear={() => search.setQuery("")}
-					searchOpen={searchOpen}
-					onSearchOpenChange={onSearchOpenChange}
-					searchSuggest={suggest.field}
-				/>
-				{suggest.list}
-				{hasQuery && search.makeFilter && (
-					<MakeFilterAction {...search.makeFilter} />
-				)}
-				<div className="min-h-0 flex-1">{body}</div>
-			</section>
+			<RowSelectionContext.Provider value={rowSelection}>
+				<section className="flex h-full w-full flex-col bg-surface">
+					{/* From the first ticked row the count and the verbs take the
+					    title's place, in the same row at the top of the pane. */}
+					{selectedCount > 0 ? (
+						<SelectionTopBar
+							title={title}
+							count={selectedCount}
+							onCancel={clearSelection}
+							onDelete={trashSelected}
+							onMarkRead={markSelectedRead}
+							selectAll={selectAll}
+						/>
+					) : (
+						<MailHeader
+							title={title}
+							unreadCount={unreadCount}
+							isDesktop={false}
+							showSearch={singlePane}
+							onMenuClick={
+								layout && !layout.showNavPane
+									? () => layout.openNav()
+									: undefined
+							}
+							filterToggle={!hasQuery && <FilterToggle />}
+							searchValue={search.query}
+							onSearchChange={search.setQuery}
+							onSearchClear={() => search.setQuery("")}
+							searchOpen={searchOpen}
+							onSearchOpenChange={onSearchOpenChange}
+							searchSuggest={suggest.field}
+						/>
+					)}
+					{suggest.list}
+					{hasQuery && search.makeFilter && (
+						<MakeFilterAction {...search.makeFilter} />
+					)}
+					<div ref={listRef} className="min-h-0 flex-1">
+						{body}
+					</div>
+				</section>
+			</RowSelectionContext.Provider>
 		</FilterPanelProvider>
 	);
 }

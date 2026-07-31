@@ -17,7 +17,7 @@
  * click for engines that deliver it that way.
  */
 import { type MouseEvent, useCallback, useRef } from "react";
-import type { SelectionModifiers } from "@/hooks/useSelection";
+import type { SelectionModifiers } from "./use-selection.js";
 
 export const modifiersOf = (e: MouseEvent): SelectionModifiers => ({
 	shiftKey: e.shiftKey,

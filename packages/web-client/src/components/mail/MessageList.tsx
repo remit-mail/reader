@@ -1,11 +1,14 @@
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import {
 	Banner,
+	createRowSelect,
 	type Density,
 	type MessageListFilter,
 	MessageListLoadingMore,
 	MessageListPane,
+	nextFocusId,
 	SelectionTopBar,
+	useSelection,
 	type Verb,
 } from "@remit/ui";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
@@ -26,11 +29,6 @@ import { useFollowFocusOpen } from "@/hooks/useFollowFocusOpen";
 import { useLabelList } from "@/hooks/useLabels";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
-import {
-	nextFocusId,
-	type SelectionModifiers,
-	useSelection,
-} from "@/hooks/useSelection";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import {
 	type BulkActionKind,
@@ -504,27 +502,16 @@ export const MessageList = ({
 		}
 		return rows;
 	}, [threads, selectedIds]);
-	const handleRowSelect = useCallback(
-		(messageId: string, modifiers: SelectionModifiers): boolean => {
-			if (modifiers.shiftKey) {
-				// The open/focused row is the fallback origin when the stored anchor
-				// has been filtered or searched out of the visible list, so the first
-				// shift-click still ranges from where the user is (#142, #144).
-				selectRange(orderedIds, messageId, focusedMessageId);
-				return true;
-			}
-			if (modifiers.metaKey || modifiers.ctrlKey) {
-				// Toggle membership and re-anchor on the clicked row.
-				toggleCheck(messageId);
-				return true;
-			}
-			// Plain click: collapse any multi-selection and let navigation proceed.
-			// The clicked row becomes the next anchor for a subsequent shift-click,
-			// but is NOT added to the checkbox set (no toolbar on a plain open).
-			exitSelection();
-			setAnchor(messageId);
-			return false;
-		},
+	const handleRowSelect = useMemo(
+		() =>
+			createRowSelect({
+				orderedIds,
+				fallbackAnchor: focusedMessageId,
+				selectRange,
+				toggle: toggleCheck,
+				setAnchor,
+				clearSelection: exitSelection,
+			}),
 		[
 			orderedIds,
 			focusedMessageId,

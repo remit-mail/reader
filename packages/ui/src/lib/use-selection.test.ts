@@ -2,10 +2,11 @@ import assert from "node:assert";
 import { describe, test } from "node:test";
 import {
 	computeRange,
+	createRowSelect,
 	intersectSelectedIds,
 	nextFocusId,
 	resolveRangeAnchor,
-} from "./useSelection.js";
+} from "./use-selection.js";
 
 const ids = ["a", "b", "c", "d", "e"];
 
@@ -240,5 +241,65 @@ describe("intersectSelectedIds", () => {
 			intersectSelectedIds(new Set(), ["a", "b"]),
 			new Set(),
 		);
+	});
+});
+
+describe("createRowSelect", () => {
+	const plain = { shiftKey: false, metaKey: false, ctrlKey: false };
+
+	interface Calls {
+		range: { orderedIds: string[]; targetId: string; anchor?: string }[];
+		toggled: string[];
+		anchored: string[];
+		cleared: number;
+	}
+
+	const build = (fallbackAnchor?: string) => {
+		const calls: Calls = { range: [], toggled: [], anchored: [], cleared: 0 };
+		const rowSelect = createRowSelect({
+			orderedIds: ids,
+			fallbackAnchor,
+			selectRange: (orderedIds, targetId, anchor) =>
+				calls.range.push({ orderedIds, targetId, anchor }),
+			toggle: (id) => calls.toggled.push(id),
+			setAnchor: (id) => calls.anchored.push(id),
+			clearSelection: () => {
+				calls.cleared += 1;
+			},
+		});
+		return { calls, rowSelect };
+	};
+
+	test("shift-click ranges to the clicked row and takes the click", () => {
+		const { calls, rowSelect } = build("b");
+
+		assert.strictEqual(rowSelect("d", { ...plain, shiftKey: true }), true);
+		assert.deepStrictEqual(calls.range, [
+			{ orderedIds: ids, targetId: "d", anchor: "b" },
+		]);
+		assert.strictEqual(calls.cleared, 0);
+	});
+
+	test("cmd-click toggles the clicked row and takes the click", () => {
+		const { calls, rowSelect } = build();
+
+		assert.strictEqual(rowSelect("c", { ...plain, metaKey: true }), true);
+		assert.deepStrictEqual(calls.toggled, ["c"]);
+	});
+
+	test("ctrl-click toggles too — the same gesture on a non-Apple keyboard", () => {
+		const { calls, rowSelect } = build();
+
+		assert.strictEqual(rowSelect("c", { ...plain, ctrlKey: true }), true);
+		assert.deepStrictEqual(calls.toggled, ["c"]);
+	});
+
+	test("a plain click leaves selection, anchors the row and lets it open", () => {
+		const { calls, rowSelect } = build();
+
+		assert.strictEqual(rowSelect("c", plain), false);
+		assert.strictEqual(calls.cleared, 1);
+		assert.deepStrictEqual(calls.anchored, ["c"]);
+		assert.deepStrictEqual(calls.toggled, []);
 	});
 });

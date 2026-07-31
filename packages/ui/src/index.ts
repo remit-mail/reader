@@ -666,6 +666,12 @@ export {
 	sharedSubjectFragment,
 } from "./lib/property-prefill.js";
 export {
+	ROW_ID_ATTRIBUTE,
+	readRowIds,
+	sameIds,
+	useRenderedRowIds,
+} from "./lib/rendered-row-ids.js";
+export {
 	LIST_ROW_ATTRIBUTE,
 	LIST_ROW_SELECTOR,
 	type RovingOrientation,
@@ -699,6 +705,23 @@ export {
 	type UseLongPressResult,
 	useLongPress,
 } from "./lib/use-long-press.js";
+export {
+	isModified,
+	type ModifierSelect,
+	modifiersOf,
+	useModifierSelect,
+} from "./lib/use-modifier-select.js";
+export {
+	computeRange,
+	createRowSelect,
+	intersectSelectedIds,
+	nextFocusId,
+	type RowSelectOptions,
+	resolveRangeAnchor,
+	type SelectionModifiers,
+	type UseSelectionReturn,
+	useSelection,
+} from "./lib/use-selection.js";
 export {
 	type ComboboxProps,
 	type SuggestListState,

@@ -152,6 +152,34 @@ describe("MessageListPane", () => {
 		assert.doesNotMatch(html, /Every message in this folder was checked\./);
 	});
 
+	it("renders the consumer's row, which is where selection lives", () => {
+		const html = renderToString(
+			createElement(MessageListPane, {
+				...baseProps,
+				isDesktop: true,
+				row: ({ thread }) =>
+					createElement("div", { "data-own-row": thread.id }, thread.subject),
+			}),
+		);
+		assert.match(html, /data-own-row="t1"/);
+		assert.match(html, /data-own-row="t2"/);
+		assert.doesNotMatch(html, /Select message/);
+	});
+
+	it("drives the brief sections through the consumer's row too", () => {
+		const html = renderToString(
+			createElement(MessageListPane, {
+				...baseProps,
+				flatList: false,
+				briefFilters: true,
+				isDesktop: true,
+				row: ({ thread }) =>
+					createElement("div", { "data-own-row": thread.id }, thread.subject),
+			}),
+		);
+		assert.match(html, /data-own-row="t1"/);
+	});
+
 	it("renders the selectionBar slot instead of the pane header when provided", () => {
 		const html = renderToString(
 			createElement(MessageListPane, {
