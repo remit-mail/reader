@@ -28,6 +28,7 @@ import {
 } from "../src/wizard.js";
 
 const TABLET = { width: 800, height: 1106 };
+const DESKTOP = { width: 1512, height: 864 };
 test.use({ viewport: TABLET });
 
 const briefRow = (page: Page, subject: string): Locator =>
@@ -119,5 +120,143 @@ test.describe("Daily brief selection (#203)", () => {
 			const remaining = await api.searchMatchingMessageIds(run.inboxId, tag);
 			expect(remaining).toHaveLength(0);
 		}).toPass({ timeout: 30_000 });
+	});
+});
+
+/**
+ * A committed search does not stop the brief's rows from being selectable.
+ *
+ * `MailListHeader` swaps the whole list body for the read-only two-engine
+ * results panel unless the view opts out with `searchResultsInBody` — the
+ * brief now does, so a query committed to `?q=` hands the body back to the
+ * brief's own (already query-narrowed) rows, the same as the mailbox list.
+ *
+ * Driven at desktop width, where the search field lives in the app top bar
+ * rather than the list header's own magnifier.
+ */
+test.describe("Daily brief selection under a committed search (#527)", () => {
+	test.use({ viewport: DESKTOP });
+
+	const tag = `briefsearchsel${Date.now()}`;
+	const subjects = [
+		`Brief search selection alpha ${tag}`,
+		`Brief search selection beta ${tag}`,
+	];
+	// A third row that matches the query but stays unticked, so selecting the
+	// other two lands on "2 messages selected" rather than "All N loaded
+	// selected" — ticking every loaded row is a real, distinct state the bar
+	// reports differently (`SelectionTopBar`'s `selectAll.checked`), and this
+	// test is asserting the plain count, not that state.
+	const untickedSubject = `Brief search selection gamma ${tag}`;
+
+	test.beforeEach(async ({ run, api }) => {
+		await appendMessages(
+			run.imapUser,
+			[...subjects, untickedSubject].map((subject) => ({ subject })),
+		);
+		await api.triggerSync(run.accountId);
+	});
+
+	test.afterEach(async ({ api, run }) => {
+		const leftover = await api.searchMatchingMessageIds(run.inboxId, tag);
+		if (leftover.length > 0) await api.deleteMessages(leftover);
+	});
+
+	test("ticking rows under a committed search still raises the action bar", async ({
+		page,
+	}) => {
+		await page.goto("/mail");
+		await expect(async () => {
+			await page.reload();
+			for (const subject of [...subjects, untickedSubject]) {
+				await expect(briefRow(page, subject)).toBeVisible({ timeout: 5_000 });
+			}
+		}).toPass({ timeout: 60_000 });
+
+		const field = page.getByRole("textbox", { name: "Search mail" });
+		await field.fill(tag);
+		await page.waitForURL(new RegExp(`[?&]q=${tag}`));
+
+		await expect(briefRow(page, subjects[0])).toBeVisible();
+		await expect(briefRow(page, subjects[1])).toBeVisible();
+		await expect(briefRow(page, untickedSubject)).toBeVisible();
+
+		await rowToggle(briefRow(page, subjects[0])).click();
+		await expect(selectionStatus(page)).toHaveText("1 message selected");
+
+		await rowToggle(briefRow(page, subjects[1])).click();
+		await expect(selectionStatus(page)).toHaveText("2 messages selected");
+	});
+});
+
+/**
+ * A committed brief search holds Spam out the same way the read-only panel
+ * does (#527).
+ *
+ * The brief is the one global-scope search: its widened query reaches every
+ * folder, Spam included, and used to rely on the read-only panel to hold Spam
+ * matches out and offer a way to them instead. Handing the body back to the
+ * brief's own rows on commit must not drop that hold-out — a search that
+ * matches only Spam mail shows nothing inline and the same "Go to Spam" offer.
+ */
+test.describe("Daily brief search holds Spam out (#527)", () => {
+	test.use({ viewport: DESKTOP });
+
+	test("a committed search does not surface Spam rows inline", async ({
+		page,
+		run,
+	}) => {
+		await page.goto("/mail");
+		await expect(async () => {
+			await page.reload();
+			await expect(briefRow(page, run.seededSubjects[0])).toBeVisible({
+				timeout: 5_000,
+			});
+		}).toPass({ timeout: 60_000 });
+
+		const field = page.getByRole("textbox", { name: "Search mail" });
+		await field.fill("verify your account");
+		await page.waitForURL(/[?&]q=/);
+
+		// Offered instead of inlined, with a way back to it — the widened search
+		// takes a moment to come back with the Junk match.
+		await expect(page.getByText(/from Spam/)).toBeVisible({ timeout: 20_000 });
+		await expect(
+			page.getByRole("button", { name: "Go to Spam" }),
+		).toBeVisible();
+
+		// Held out of the body, never rendered inline as an ordinary row.
+		await expect(briefRow(page, run.spamSubject)).toHaveCount(0);
+	});
+});
+
+/**
+ * A token-only search that matches nothing is a no-results state, not "caught
+ * up" (#527).
+ *
+ * `caughtUp` used to require only empty free text, so a facet-only query
+ * (`from:`, `is:unread`, …) that matched nothing still read "You're caught
+ * up" — a claim about the whole mailbox, when the real reason is the search.
+ */
+test.describe("Daily brief token-only search with no matches (#527)", () => {
+	test.use({ viewport: DESKTOP });
+
+	test("does not read as caught up", async ({ page, run }) => {
+		await page.goto("/mail");
+		await expect(async () => {
+			await page.reload();
+			await expect(briefRow(page, run.seededSubjects[0])).toBeVisible({
+				timeout: 5_000,
+			});
+		}).toPass({ timeout: 60_000 });
+
+		const field = page.getByRole("textbox", { name: "Search mail" });
+		await field.fill("from:nobody-e2e-nomatch@remit.test");
+		await page.waitForURL(/[?&]q=/);
+
+		await expect(page.getByText("No threads match these filters.")).toBeVisible(
+			{ timeout: 20_000 },
+		);
+		await expect(page.getByText("You're caught up")).toHaveCount(0);
 	});
 });

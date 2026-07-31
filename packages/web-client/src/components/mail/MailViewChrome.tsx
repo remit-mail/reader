@@ -54,7 +54,8 @@ interface MailViewChromeProps {
 	/**
 	 * The body renders the committed search as a selectable list itself; see
 	 * `MailListHeader`. The mailbox route sets this so a committed search yields
-	 * its multi-select `MessageList` (#212); flagged leaves it unset.
+	 * its multi-select `MessageList` (#212); Starred sets it for the same reason,
+	 * over its own already query-narrowed rows.
 	 */
 	searchResultsInBody?: boolean;
 }

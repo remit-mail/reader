@@ -42,8 +42,10 @@ import {
 	type FilterSheetProps,
 	type FilterSheetSource,
 	KeyboardHintBar,
+	partitionSpamResults,
 	type SearchResult,
 	SelectionTopBar,
+	SpamResultsOffer,
 	type ThreadRowData,
 	type ThreadSection,
 } from "@remit/ui";
@@ -81,6 +83,7 @@ import type { ListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
 import { relatedSearchResults, rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
+import { spamOfferForResults } from "@/lib/spam-offer";
 import {
 	type SelectionWizardControl,
 	useSelectionWizard,
@@ -463,6 +466,7 @@ export function DailyBrief({
 	const tokenContext = useSearchTokenContext();
 	const isDesktop = useIsDesktop();
 	const wizard = useSelectionWizard();
+	const navigate = useNavigate();
 
 	const nonMuted = useMemo(
 		() => sortAccountsByCreatedAt(accounts.filter((a) => !a.muted?.value)),
@@ -592,9 +596,33 @@ export function DailyBrief({
 		);
 	}, [threadsData, searchData, selectedAccountId, sq, queryTokens]);
 
+	// The unscoped search reaches every folder, Spam included (see `filteredRows`
+	// above), and the brief is the one global-scope view whose own rows now stand
+	// in for the read-only results panel once the query commits. The panel held
+	// Spam out and offered a way to it instead (`MailListHeader`'s `spamOffer`);
+	// the brief's own body has to do the same, or a committed search surfaces
+	// junk mail inline and drops the way back to it. A bare token query (e.g.
+	// `is:unread`) never reaches the widened endpoint, so there is nothing to
+	// hold out.
+	const { bodyRows, briefSpamOffer } = useMemo(() => {
+		if (!sq) return { bodyRows: filteredRows, briefSpamOffer: undefined };
+		const asResults = filteredRows.map((row) =>
+			rowToSearchResult(row, resultFolderIndex),
+		);
+		const { spam } = partitionSpamResults(asResults);
+		if (spam.length === 0) {
+			return { bodyRows: filteredRows, briefSpamOffer: undefined };
+		}
+		const spamIds = new Set(spam.map((result) => result.id));
+		return {
+			bodyRows: filteredRows.filter((row) => !spamIds.has(row.id)),
+			briefSpamOffer: spamOfferForResults(asResults),
+		};
+	}, [filteredRows, sq, resultFolderIndex]);
+
 	const sections = useMemo<ThreadSection[]>(
-		() => groupBriefSections(filteredRows),
-		[filteredRows],
+		() => groupBriefSections(bodyRows),
+		[bodyRows],
 	);
 
 	const accountSources = useMemo<FilterSheetSource[]>(() => {
@@ -693,10 +721,14 @@ export function DailyBrief({
 	]);
 
 	// The brief is genuinely empty (caught up) only when nothing is narrowing the
-	// view: no account source and no search. When a source/search yields nothing,
-	// the list says so instead, so the narrowing is still visible as the reason.
+	// view: no account source and no search — free text or token. When a
+	// source/search yields nothing, the list says so instead, so the narrowing
+	// is still visible as the reason.
 	const caughtUp =
-		sections.length === 0 && selectedAccountId === "all" && sq.length === 0;
+		sections.length === 0 &&
+		selectedAccountId === "all" &&
+		sq.length === 0 &&
+		queryTokens.length === 0;
 
 	// "Caught up" is a claim about the user's mail, so it may only be made once
 	// the server has confirmed no sync is running (#452). The config snapshot
@@ -752,12 +784,32 @@ export function DailyBrief({
 			briefSkeleton
 		)
 	) : (
-		<BriefListBody
-			sections={sections}
-			briefCategory={selectedCategory}
-			selectedThreadId={selectedMessageId}
-			onSelectThread={onSelectMessage}
-		/>
+		<div className="flex h-full min-h-0 flex-col">
+			{briefSpamOffer && (
+				<SpamResultsOffer
+					count={briefSpamOffer.count}
+					onScopeToSpam={() =>
+						navigate({
+							to: "/mail/$mailboxId",
+							params: { mailboxId: briefSpamOffer.mailboxId },
+							search: {
+								q: searchQuery || undefined,
+								selectedMessageId: undefined,
+								selectedThreadId: undefined,
+							},
+						})
+					}
+				/>
+			)}
+			<div className="min-h-0 flex-1">
+				<BriefListBody
+					sections={sections}
+					briefCategory={selectedCategory}
+					selectedThreadId={selectedMessageId}
+					onSelectThread={onSelectMessage}
+				/>
+			</div>
+		</div>
 	);
 
 	// The cursor and selection wrap the whole pane, not just the list body: the
@@ -785,6 +837,12 @@ export function DailyBrief({
 					relatedResults,
 					relatedLoading,
 					onSelectSearchResult,
+					// The body already narrows to the committed query
+					// (`matchesBriefSearch` + `matchesSearchTokens` + the server `query`,
+					// above), so a committed search is a selectable list here exactly as
+					// it is on the mailbox route (#212) — the two-engine panel stays for
+					// the typing/uncommitted state only.
+					searchResultsInBody: true,
 				}}
 				rows={filteredRows}
 			>

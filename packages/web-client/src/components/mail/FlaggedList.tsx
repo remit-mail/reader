@@ -237,6 +237,11 @@ export function FlaggedList({
 			searchResults={searchResults}
 			searchLoading={isLoading}
 			onSelectSearchResult={(result) => onSelectMessage?.(result.id)}
+			// A committed search renders in this view's own rows (`rows` already
+			// narrows to the query above), so the multi-select toolbar stays
+			// reachable exactly as it does on the mailbox route (#212). The
+			// two-engine panel stays for the typing/uncommitted state only.
+			searchResultsInBody
 		>
 			<ThreadListInteraction
 				selectedMessageId={selectedMessageId}

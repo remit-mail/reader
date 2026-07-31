@@ -13,12 +13,12 @@ import type { LayoutTier } from "@/hooks/useLayoutTier";
  * Phone never swaps: it shows the body and keeps the panel in its full-screen
  * takeover instead, so this only decides tablet/desktop.
  *
- * A view whose body renders committed results itself (`bodyRendersCommittedResults`,
- * the mailbox route) keeps the panel only while the query is still being typed —
- * uncommitted, not yet mirrored to the URL — and hands back to the body the moment
- * the query commits, so the committed search is a selectable list. Every other view
- * (the brief, flagged, global search) leaves the flag off and keeps the panel for
- * any query, committed or not.
+ * A view whose body renders committed results itself (`bodyRendersCommittedResults`
+ * — the mailbox route, the brief, Starred) keeps the panel only while the query is
+ * still being typed — uncommitted, not yet mirrored to the URL — and hands back to
+ * the body the moment the query commits, so the committed search is a selectable
+ * list. A view that leaves the flag off keeps the panel for any query, committed
+ * or not.
  */
 export const showInlineSearchResults = (input: {
 	tier: LayoutTier;
