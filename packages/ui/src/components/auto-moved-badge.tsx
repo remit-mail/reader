@@ -17,7 +17,6 @@ export interface AutoMovedBadgeProps {
 	 * way to reach the filter that keeps moving mail. Omit for a classifier move.
 	 */
 	filtersHref?: string;
-	manageLabel?: string;
 	className?: string;
 }
 
@@ -34,7 +33,6 @@ export function AutoMovedBadge({
 	onUndo,
 	undoLabel = "Undo",
 	filtersHref,
-	manageLabel = "Manage filter",
 	className,
 }: AutoMovedBadgeProps) {
 	return (
@@ -61,7 +59,7 @@ export function AutoMovedBadge({
 					}}
 					className="font-semibold underline decoration-dotted underline-offset-2 hover:decoration-solid"
 				>
-					{manageLabel}
+					Manage filter
 				</a>
 			)}
 		</Badge>

@@ -5,8 +5,6 @@ export interface DialogProps {
 	open: boolean;
 	onClose: () => void;
 	title: string;
-	/** Unique ID for aria-labelledby. Defaults to "dialog-title". */
-	titleId?: string;
 	children?: ReactNode;
 	className?: string;
 	/**
@@ -22,7 +20,6 @@ export function Dialog({
 	open,
 	onClose,
 	title,
-	titleId = "dialog-title",
 	children,
 	className,
 	anchor = "center",
@@ -86,7 +83,7 @@ export function Dialog({
 				ref={dialogRef}
 				role="dialog"
 				aria-modal="true"
-				aria-labelledby={titleId}
+				aria-labelledby="dialog-title"
 				className={cn(
 					"relative z-10 overflow-hidden border-line bg-surface shadow-xl",
 					isLeft
@@ -99,7 +96,7 @@ export function Dialog({
 				onClick={(e) => e.stopPropagation()}
 				onKeyDown={(e) => e.stopPropagation()}
 			>
-				<h2 id={titleId} className="sr-only">
+				<h2 id="dialog-title" className="sr-only">
 					{title}
 				</h2>
 				{children}

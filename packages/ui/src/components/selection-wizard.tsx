@@ -351,7 +351,6 @@ export function SelectionSample({
 }
 
 export interface FooterNavProps {
-	backLabel?: string;
 	onBack: () => void;
 	nextLabel: string;
 	onNext: () => void;
@@ -369,7 +368,6 @@ export interface FooterNavProps {
  * carries the two ways that reason reaches the user.
  */
 export function FooterNav({
-	backLabel = "Back",
 	onBack,
 	nextLabel,
 	onNext,
@@ -396,7 +394,7 @@ export function FooterNav({
 					icon={<ArrowLeft className="size-4" />}
 					className="shrink-0"
 				>
-					{backLabel}
+					Back
 				</Button>
 				<Button
 					variant={nextVariant}

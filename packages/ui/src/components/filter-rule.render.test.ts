@@ -31,10 +31,8 @@ import {
 	widenChipLabel,
 } from "./filter-rule.js";
 import {
-	FilterRuleDialog,
 	FilterRuleEditor,
 	type FilterRuleEditorProps,
-	FilterRuleSheet,
 } from "./filter-rule-editor.js";
 
 /** SSR splits interpolations with comment markers; sentences read across them. */
@@ -669,52 +667,5 @@ describe("FilterRuleEditor", () => {
 			semanticAvailable: true,
 		});
 		assert.doesNotMatch(html, /…and similar/);
-	});
-});
-
-describe("FilterRuleDialog", () => {
-	it("renders the editor when open", () => {
-		const html = render(
-			createElement(FilterRuleDialog, {
-				open: true,
-				onClose: () => {},
-				rule: demoRule,
-				folders: FOLDERS,
-				preview: READY,
-			}),
-		);
-		assert.match(html, /role="dialog"/);
-		assert.match(html, /Filter rule/);
-	});
-
-	it("renders nothing when closed", () => {
-		assert.equal(
-			renderToString(
-				createElement(FilterRuleDialog, {
-					open: false,
-					onClose: () => {},
-					rule: demoRule,
-					folders: FOLDERS,
-					preview: READY,
-				}),
-			),
-			"",
-		);
-	});
-});
-
-describe("FilterRuleSheet", () => {
-	it("renders the editor inside a dismissible sheet", () => {
-		const html = render(
-			createElement(FilterRuleSheet, {
-				open: true,
-				onClose: () => {},
-				rule: demoRule,
-				folders: FOLDERS,
-				preview: READY,
-			}),
-		);
-		assert.match(html, /Dismiss filter rule/);
-		assert.match(html, /Filter rule/);
 	});
 });
