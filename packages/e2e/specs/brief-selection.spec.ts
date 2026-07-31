@@ -142,11 +142,17 @@ test.describe("Daily brief selection under a committed search (#527)", () => {
 		`Brief search selection alpha ${tag}`,
 		`Brief search selection beta ${tag}`,
 	];
+	// A third row that matches the query but stays unticked, so selecting the
+	// other two lands on "2 messages selected" rather than "All N loaded
+	// selected" — ticking every loaded row is a real, distinct state the bar
+	// reports differently (`SelectionTopBar`'s `selectAll.checked`), and this
+	// test is asserting the plain count, not that state.
+	const untickedSubject = `Brief search selection gamma ${tag}`;
 
 	test.beforeEach(async ({ run, api }) => {
 		await appendMessages(
 			run.imapUser,
-			subjects.map((subject) => ({ subject })),
+			[...subjects, untickedSubject].map((subject) => ({ subject })),
 		);
 		await api.triggerSync(run.accountId);
 	});
@@ -162,7 +168,7 @@ test.describe("Daily brief selection under a committed search (#527)", () => {
 		await page.goto("/mail");
 		await expect(async () => {
 			await page.reload();
-			for (const subject of subjects) {
+			for (const subject of [...subjects, untickedSubject]) {
 				await expect(briefRow(page, subject)).toBeVisible({ timeout: 5_000 });
 			}
 		}).toPass({ timeout: 60_000 });
@@ -173,6 +179,7 @@ test.describe("Daily brief selection under a committed search (#527)", () => {
 
 		await expect(briefRow(page, subjects[0])).toBeVisible();
 		await expect(briefRow(page, subjects[1])).toBeVisible();
+		await expect(briefRow(page, untickedSubject)).toBeVisible();
 
 		await rowToggle(briefRow(page, subjects[0])).click();
 		await expect(selectionStatus(page)).toHaveText("1 message selected");
