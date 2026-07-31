@@ -24,23 +24,19 @@ describe("Dialog backdrop", () => {
 		assert.doesNotMatch(left, /backdrop-blur/, "left drawer has no blur");
 	});
 
-	it("dims with a plain scrim; left slide-over has no background wash", () => {
-		assert.match(render({}), /bg-canvas\/80/, "center modal keeps a dim scrim");
-		assert.doesNotMatch(
-			render({ anchor: "left" }),
-			/bg-canvas/,
-			"left drawer backdrop is transparent (no wash)",
-		);
+	it("dims what it covers, at every anchor", () => {
+		for (const anchor of ["center", "left", "right"] as const) {
+			assert.match(
+				render(anchor === "center" ? {} : { anchor }),
+				/bg-canvas\/80/,
+				`${anchor} dialog dims the content behind it`,
+			);
+		}
 	});
 
-	it("right slide-over mirrors left: transparent backdrop, pinned right edge", () => {
+	it("right slide-over mirrors left, pinned to the other edge", () => {
 		const right = render({ anchor: "right" });
 		assert.doesNotMatch(right, /backdrop-blur/, "right drawer has no blur");
-		assert.doesNotMatch(
-			right,
-			/bg-canvas\/80/,
-			"right drawer backdrop is transparent (no wash)",
-		);
 		assert.match(right, /justify-end/, "panel is pinned to the right edge");
 		assert.match(right, /border-l/, "right drawer has a left hairline");
 	});
