@@ -34,7 +34,11 @@ const filtersHelp = (
 	</div>
 );
 
-function AccountFilters({ account }: { account: RemitImapAccountResponse }) {
+export function AccountFilters({
+	account,
+}: {
+	account: RemitImapAccountResponse;
+}) {
 	const accountId = account.accountId;
 	const { filters, isPending, isError, error, refetch } =
 		useFilterList(accountId);
@@ -58,11 +62,14 @@ function AccountFilters({ account }: { account: RemitImapAccountResponse }) {
 
 	const folders = useMemo(
 		() =>
-			buildMoveTargets(mailboxesData?.items ?? []).map((mailbox) => ({
+			buildMoveTargets(
+				mailboxesData?.items ?? [],
+				account.folderAppointments,
+			).map((mailbox) => ({
 				id: mailbox.mailboxId,
 				label: getMailboxDisplayName(mailbox.fullPath),
 			})),
-		[mailboxesData?.items],
+		[mailboxesData?.items, account.folderAppointments],
 	);
 
 	const { labels: labelItems } = useLabelList(accountId);
