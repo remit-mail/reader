@@ -28,6 +28,7 @@ import {
 } from "../src/wizard.js";
 
 const TABLET = { width: 800, height: 1106 };
+const DESKTOP = { width: 1512, height: 864 };
 test.use({ viewport: TABLET });
 
 const briefRow = (page: Page, subject: string): Locator =>
@@ -119,5 +120,64 @@ test.describe("Daily brief selection (#203)", () => {
 			const remaining = await api.searchMatchingMessageIds(run.inboxId, tag);
 			expect(remaining).toHaveLength(0);
 		}).toPass({ timeout: 30_000 });
+	});
+});
+
+/**
+ * A committed search does not stop the brief's rows from being selectable.
+ *
+ * `MailListHeader` swaps the whole list body for the read-only two-engine
+ * results panel unless the view opts out with `searchResultsInBody` — the
+ * brief now does, so a query committed to `?q=` hands the body back to the
+ * brief's own (already query-narrowed) rows, the same as the mailbox list.
+ *
+ * Driven at desktop width, where the search field lives in the app top bar
+ * rather than the list header's own magnifier.
+ */
+test.describe("Daily brief selection under a committed search (#527)", () => {
+	test.use({ viewport: DESKTOP });
+
+	const tag = `briefsearchsel${Date.now()}`;
+	const subjects = [
+		`Brief search selection alpha ${tag}`,
+		`Brief search selection beta ${tag}`,
+	];
+
+	test.beforeEach(async ({ run, api }) => {
+		await appendMessages(
+			run.imapUser,
+			subjects.map((subject) => ({ subject })),
+		);
+		await api.triggerSync(run.accountId);
+	});
+
+	test.afterEach(async ({ api, run }) => {
+		const leftover = await api.searchMatchingMessageIds(run.inboxId, tag);
+		if (leftover.length > 0) await api.deleteMessages(leftover);
+	});
+
+	test("ticking rows under a committed search still raises the action bar", async ({
+		page,
+	}) => {
+		await page.goto("/mail");
+		await expect(async () => {
+			await page.reload();
+			for (const subject of subjects) {
+				await expect(briefRow(page, subject)).toBeVisible({ timeout: 5_000 });
+			}
+		}).toPass({ timeout: 60_000 });
+
+		const field = page.getByRole("textbox", { name: "Search mail" });
+		await field.fill(tag);
+		await page.waitForURL(new RegExp(`[?&]q=${tag}`));
+
+		await expect(briefRow(page, subjects[0])).toBeVisible();
+		await expect(briefRow(page, subjects[1])).toBeVisible();
+
+		await rowToggle(briefRow(page, subjects[0])).click();
+		await expect(selectionStatus(page)).toHaveText("1 message selected");
+
+		await rowToggle(briefRow(page, subjects[1])).click();
+		await expect(selectionStatus(page)).toHaveText("2 messages selected");
 	});
 });

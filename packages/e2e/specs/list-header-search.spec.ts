@@ -9,8 +9,8 @@
  * destroyed mid-keystroke.
  *
  * Driven at tablet width, where the list header owns the search field itself
- * (`isSinglePaneTier`), so both failures are reachable: Starred keeps the panel
- * for any query, and the mailbox route keeps it until the query commits.
+ * (`isSinglePaneTier`), so both failures are reachable: both Starred and the
+ * mailbox route show the panel while the query is still being typed.
  */
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
@@ -43,10 +43,10 @@ test.describe("The list header survives a search", () => {
 		await openHeaderSearch(page);
 		await searchField(page).fill("zzz");
 
-		// Starred answers any query with the read-only panel, and it has no
-		// header of its own — the pane's one header has to still be there, with
-		// the field it owns. (The field takes the title's place while it is up,
-		// which is why "Starred" is not asserted again here.)
+		// Starred answers a query still being typed with the read-only panel,
+		// and it has no header of its own — the pane's one header has to still
+		// be there, with the field it owns. (The field takes the title's place
+		// while it is up, which is why "Starred" is not asserted again here.)
 		await expect(listHeader(page)).toBeVisible();
 		await expect(listHeader(page).getByLabel("Search mail")).toBeVisible();
 		await expect(searchField(page)).toHaveValue("zzz");

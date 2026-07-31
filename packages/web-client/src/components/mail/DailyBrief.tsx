@@ -785,6 +785,11 @@ export function DailyBrief({
 					relatedResults,
 					relatedLoading,
 					onSelectSearchResult,
+					// The body already narrows to the committed query
+					// (`mergeSearchRows`, above), so a committed search is a selectable
+					// list here exactly as it is on the mailbox route (#212) — the
+					// two-engine panel stays for the typing/uncommitted state only.
+					searchResultsInBody: true,
 				}}
 				rows={filteredRows}
 			>
