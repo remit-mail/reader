@@ -68,12 +68,14 @@ test.describe("Daily brief filter surface (#559)", () => {
 		await expect(chip(page, "Newsletters")).toBeVisible();
 		await expect(chip(page, "Has attachment")).toBeVisible();
 
+		// One axis at a time: the chip is the only thing that moves, so what it
+		// hides and gives back is the chip's doing and not the category's or the
+		// account's.
 		await chip(page, "Unread").click();
 		await expect(briefRow(page, unreadSubject)).toBeVisible();
 		await expect(briefRow(page, readSubject)).toHaveCount(0);
 
-		// Clearing restores what the chip hid, from the same panel.
-		await chip(page, "Clear").click();
+		await chip(page, "Unread").click();
 		await expect(briefRow(page, readSubject)).toBeVisible();
 		await expect(briefRow(page, unreadSubject)).toBeVisible();
 	});

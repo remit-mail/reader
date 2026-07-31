@@ -86,6 +86,7 @@ export {
 	SECTION_ROW_CAP,
 } from "./components/brief-section.js";
 export {
+	type BriefFilterId,
 	BriefSections,
 	type BriefSectionsProps,
 	matchesBriefFilters,

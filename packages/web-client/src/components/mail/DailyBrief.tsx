@@ -37,6 +37,7 @@ import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.
 import {
 	type BriefCategoryFilter,
 	BriefEmpty,
+	type BriefFilterId,
 	BriefSections,
 	briefFilterConfig,
 	FilterPanelProvider,
@@ -386,7 +387,7 @@ export function DailyBrief({
 	onTriageContextChange,
 	onDeleteMessages,
 }: DailyBriefProps) {
-	const { searchQuery, resultFolderIndex } = useMailContext();
+	const { searchQuery, searchInput, resultFolderIndex } = useMailContext();
 	const tokenContext = useSearchTokenContext();
 	const isDesktop = useIsDesktop();
 	const wizard = useSelectionWizard();
@@ -408,11 +409,11 @@ export function DailyBrief({
 	// takeover narrows the same rows by the same chips, and the body is unmounted
 	// and remounted around a query being typed, which would take a set living
 	// below with it.
-	const [activeFilters, setActiveFilters] = useState<ReadonlySet<string>>(
-		new Set(),
-	);
+	const [activeFilters, setActiveFilters] = useState<
+		ReadonlySet<BriefFilterId>
+	>(new Set());
 	const [filterExpanded, setFilterExpanded] = useState(false);
-	const toggleFilter = useCallback((id: string) => {
+	const toggleFilter = useCallback((id: BriefFilterId) => {
 		setActiveFilters((prev) => {
 			const next = new Set(prev);
 			if (next.has(id)) next.delete(id);
@@ -421,6 +422,14 @@ export function DailyBrief({
 		});
 	}, []);
 	const clearFilters = useCallback(() => setActiveFilters(new Set()), []);
+
+	// A query owns the pane: the filter panel and the search's own affordance
+	// narrow the same list from the same place, so the panel stands down for as
+	// long as something is being searched. Its state survives, so clearing the
+	// query brings it back with the same category and chips. The header caret is
+	// gone under a query, and a panel left open with nothing to collapse it is
+	// what makes this load-bearing rather than tidy.
+	const searching = searchInput.trim().length > 0;
 
 	// --- Unified threads query ---
 	const {
@@ -627,7 +636,7 @@ export function DailyBrief({
 			onSelectCategory: (id: string) =>
 				setSelectedCategory(id as BriefCategoryFilter),
 			onSelectSource: setSelectedAccountId,
-			onToggleFilter: toggleFilter,
+			onToggleFilter: (id: string) => toggleFilter(id as BriefFilterId),
 			onClear: () => {
 				setSelectedCategory("all");
 				setSelectedAccountId("all");
@@ -680,34 +689,12 @@ export function DailyBrief({
 		</div>
 	);
 
-	const stateBody = isLoading ? (
-		briefSkeleton
-	) : isError ? (
-		<div className="flex h-full flex-col items-center justify-center gap-3 py-12 text-sm text-fg-muted">
-			<AlertCircle className="size-8 text-danger" />
-			<p>Couldn't load your messages</p>
-			<button
-				type="button"
-				onClick={() => refetch()}
-				className="flex items-center gap-1 text-accent underline text-xs"
-			>
-				<RefreshCw className="size-3.5" />
-				Try again
-			</button>
-		</div>
-	) : caughtUp ? (
-		syncProgress.resolved ? (
-			<BriefEmpty
-				sync={
-					syncProgress.syncing
-						? { synced: syncProgress.synced, total: syncProgress.total }
-						: undefined
-				}
-			/>
-		) : (
-			briefSkeleton
-		)
-	) : (
+	// The filter sheet lives in the list body, so it is on screen only when the
+	// rows are. The caret reads the same answer and stands down everywhere else,
+	// rather than opening nothing over a skeleton or an empty state.
+	const showsRows = !isLoading && !isError && !caughtUp;
+
+	const stateBody = showsRows ? (
 		<div className="flex h-full min-h-0 flex-col">
 			{briefSpamOffer && (
 				<SpamResultsOffer
@@ -739,9 +726,35 @@ export function DailyBrief({
 					activeFilters={activeFilters}
 					onToggleFilter={toggleFilter}
 					onClearFilters={clearFilters}
+					hideChrome={searching}
 				/>
 			</div>
 		</div>
+	) : isLoading ? (
+		briefSkeleton
+	) : isError ? (
+		<div className="flex h-full flex-col items-center justify-center gap-3 py-12 text-sm text-fg-muted">
+			<AlertCircle className="size-8 text-danger" />
+			<p>Couldn't load your messages</p>
+			<button
+				type="button"
+				onClick={() => refetch()}
+				className="flex items-center gap-1 text-accent underline text-xs"
+			>
+				<RefreshCw className="size-3.5" />
+				Try again
+			</button>
+		</div>
+	) : syncProgress.resolved ? (
+		<BriefEmpty
+			sync={
+				syncProgress.syncing
+					? { synced: syncProgress.synced, total: syncProgress.total }
+					: undefined
+			}
+		/>
+	) : (
+		briefSkeleton
 	);
 
 	// The cursor and selection wrap the whole pane, not just the list body: the
@@ -750,7 +763,7 @@ export function DailyBrief({
 	// same pane for the same reason — the caret is in the header, the panel is
 	// above the rows.
 	return (
-		<FilterPanelProvider>
+		<FilterPanelProvider hasSheet={showsRows && !searching}>
 			<ThreadListInteraction
 				selectedMessageId={selectedMessageId}
 				onOpen={(id, options) => onSelectMessage?.(id, options)}

@@ -16,7 +16,7 @@ import {
 import type { BriefRowComponent } from "./message-row.js";
 
 /* Composable brief filters — each is an additive predicate over a thread row. */
-type BriefFilterId = "unread" | "attachment" | "contacts" | "today";
+export type BriefFilterId = "unread" | "attachment" | "contacts" | "today";
 
 /* "Today" prefers the real `sentDate` timestamp; it falls back to the fixture
    convention that same-day rows render a HH:MM timeLabel (fixtures carry no
@@ -64,14 +64,32 @@ export const briefFilterChips: FilterSheetFilter[] = briefFilterDefs.map(
  */
 export function matchesBriefFilters(
 	thread: ThreadRowData,
-	activeFilters: ReadonlySet<string>,
+	activeFilters: ReadonlySet<BriefFilterId>,
 ): boolean {
 	return briefFilterDefs.every(
 		(f) => !activeFilters.has(f.id) || f.match(thread),
 	);
 }
 
-export interface BriefSectionsProps {
+/**
+ * The attribute chips are either this component's own or entirely the
+ * consumer's. A consumer narrowing the same rows on a second surface (the phone
+ * search takeover) holds the set so both surfaces answer to one selection, and
+ * takes every control over it with the set.
+ */
+type BriefFilterControl =
+	| {
+			activeFilters: ReadonlySet<BriefFilterId>;
+			onToggleFilter: (id: BriefFilterId) => void;
+			onClearFilters: () => void;
+	  }
+	| {
+			activeFilters?: never;
+			onToggleFilter?: never;
+			onClearFilters?: never;
+	  };
+
+interface BriefSectionsBaseProps {
 	sections: ThreadSection[];
 	briefCategory?: BriefCategoryFilter;
 	selectedThreadId?: string;
@@ -89,19 +107,15 @@ export interface BriefSectionsProps {
 	/** Called when the user selects a source/account pill. */
 	onSelectSource?: (id: string) => void;
 	/**
-	 * The active attribute chips, when the consumer owns them. A consumer that
-	 * narrows the same rows on a second surface (the phone search takeover) holds
-	 * the set itself so both surfaces answer to one selection; leave it unset and
-	 * this component keeps its own.
+	 * Drop the filter row and its panel, keeping the rows where they are. See
+	 * `FilterSheetProps`.
 	 */
-	activeFilters?: ReadonlySet<string>;
-	/** Required alongside `activeFilters`. */
-	onToggleFilter?: (id: string) => void;
-	/** Required alongside `activeFilters`. Clears the chips; the category axis is cleared through `onSelectBriefCategory`. */
-	onClearFilters?: () => void;
+	hideChrome?: boolean;
 	/** Seeds the filter panel open on first render (stories / deep links). */
 	defaultExpanded?: boolean;
 }
+
+export type BriefSectionsProps = BriefSectionsBaseProps & BriefFilterControl;
 
 /**
  * The daily-brief list body: category pills (single-select) + attribute chips
@@ -124,9 +138,12 @@ export function BriefSections({
 	activeFilters,
 	onToggleFilter,
 	onClearFilters,
+	hideChrome,
 	defaultExpanded = false,
 }: BriefSectionsProps) {
-	const [ownFilters, setOwnFilters] = useState<ReadonlySet<string>>(new Set());
+	const [ownFilters, setOwnFilters] = useState<ReadonlySet<BriefFilterId>>(
+		new Set(),
+	);
 	const [sheetExpanded, setSheetExpanded] = useState(defaultExpanded);
 	const listRef = useRef<HTMLDivElement>(null);
 	useRovingFocus({
@@ -136,7 +153,7 @@ export function BriefSections({
 
 	const active = activeFilters ?? ownFilters;
 
-	const toggleFilter = (id: string) => {
+	const toggleFilter = (id: BriefFilterId) => {
 		if (onToggleFilter) {
 			onToggleFilter(id);
 			return;
@@ -236,8 +253,9 @@ export function BriefSections({
 				onSelectBriefCategory?.(id as BriefCategoryFilter)
 			}
 			onSelectSource={onSelectSource}
-			onToggleFilter={toggleFilter}
+			onToggleFilter={(id) => toggleFilter(id as BriefFilterId)}
 			onClear={clearFilters}
+			hideChrome={hideChrome}
 		>
 			{listBody}
 		</FilterSheet>

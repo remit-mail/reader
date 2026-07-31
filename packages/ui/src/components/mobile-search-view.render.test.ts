@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
+import { FilterPanelProvider } from "./filter-sheet.js";
 import { MobileSearchView } from "./mobile-search-view.js";
 import type { SearchResult } from "./search-result-row.js";
 
@@ -63,6 +64,26 @@ describe("MobileSearchView filter chrome", () => {
 				sections: [],
 				filter,
 			}),
+		);
+		assert.match(html, /Expand filters/);
+	});
+
+	// The takeover covers the list whose header carries the caret, so it cannot
+	// borrow that caret: it renders over the header, not under it. Without the
+	// boundary the sheet reads the list's panel and drops its own trigger row,
+	// leaving the takeover with no way to open its filters at all.
+	it("keeps its own filter row over a list that has a filter panel", () => {
+		const html = renderToString(
+			createElement(
+				FilterPanelProvider,
+				null,
+				createElement(MobileSearchView, {
+					...base,
+					value: "",
+					sections: [],
+					filter,
+				}),
+			),
 		);
 		assert.match(html, /Expand filters/);
 	});
