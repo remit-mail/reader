@@ -303,7 +303,7 @@ describe("AppShell touch-state seeds (story/SSR affordance)", () => {
 			},
 		});
 		assert.equal(
-			count(html, /aria-label="Deselect message"/g),
+			count(html, /aria-checked="true"/g),
 			2,
 			"both ticked rows show a checked box",
 		);
