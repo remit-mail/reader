@@ -372,10 +372,11 @@ export function MailListHeader({
 	// Tablet + desktop keep the inline toolbar search; while a query is being
 	// typed the list-pane body swaps to the same sectioned results the phone
 	// takeover shows, under the same FilterSheet. A view whose own body renders
-	// the committed search as a selectable list (`searchResultsInBody`, the
-	// mailbox route) keeps the panel only until the query commits to the URL,
-	// then hands back to its `MessageList` so the multi-select toolbar and the
-	// escalation are reachable (#212). Clearing the query restores the normal list.
+	// the committed search as a selectable list (`searchResultsInBody` — the
+	// mailbox route, the brief, Starred) keeps the panel only until the query
+	// commits to the URL, then hands back to its own rows so multi-select (and,
+	// on the mailbox route, the "Select all N matching" escalation) is reachable
+	// (#212). Clearing the query restores the normal list.
 	const showInlineResults = showInlineSearchResults({
 		tier,
 		hasLiveInput: hasQuery,

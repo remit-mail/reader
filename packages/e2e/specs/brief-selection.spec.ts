@@ -181,3 +181,75 @@ test.describe("Daily brief selection under a committed search (#527)", () => {
 		await expect(selectionStatus(page)).toHaveText("2 messages selected");
 	});
 });
+
+/**
+ * A committed brief search holds Spam out the same way the read-only panel
+ * does (#527).
+ *
+ * The brief is the one global-scope search: its widened query reaches every
+ * folder, Spam included, and used to rely on the read-only panel to hold Spam
+ * matches out and offer a way to them instead. Handing the body back to the
+ * brief's own rows on commit must not drop that hold-out — a search that
+ * matches only Spam mail shows nothing inline and the same "Go to Spam" offer.
+ */
+test.describe("Daily brief search holds Spam out (#527)", () => {
+	test.use({ viewport: DESKTOP });
+
+	test("a committed search does not surface Spam rows inline", async ({
+		page,
+		run,
+	}) => {
+		await page.goto("/mail");
+		await expect(async () => {
+			await page.reload();
+			await expect(briefRow(page, run.seededSubjects[0])).toBeVisible({
+				timeout: 5_000,
+			});
+		}).toPass({ timeout: 60_000 });
+
+		const field = page.getByRole("textbox", { name: "Search mail" });
+		await field.fill("verify your account");
+		await page.waitForURL(/[?&]q=/);
+
+		// Offered instead of inlined, with a way back to it — the widened search
+		// takes a moment to come back with the Junk match.
+		await expect(page.getByText(/from Spam/)).toBeVisible({ timeout: 20_000 });
+		await expect(
+			page.getByRole("button", { name: "Go to Spam" }),
+		).toBeVisible();
+
+		// Held out of the body, never rendered inline as an ordinary row.
+		await expect(briefRow(page, run.spamSubject)).toHaveCount(0);
+	});
+});
+
+/**
+ * A token-only search that matches nothing is a no-results state, not "caught
+ * up" (#527).
+ *
+ * `caughtUp` used to require only empty free text, so a facet-only query
+ * (`from:`, `is:unread`, …) that matched nothing still read "You're caught
+ * up" — a claim about the whole mailbox, when the real reason is the search.
+ */
+test.describe("Daily brief token-only search with no matches (#527)", () => {
+	test.use({ viewport: DESKTOP });
+
+	test("does not read as caught up", async ({ page, run }) => {
+		await page.goto("/mail");
+		await expect(async () => {
+			await page.reload();
+			await expect(briefRow(page, run.seededSubjects[0])).toBeVisible({
+				timeout: 5_000,
+			});
+		}).toPass({ timeout: 60_000 });
+
+		const field = page.getByRole("textbox", { name: "Search mail" });
+		await field.fill("from:nobody-e2e-nomatch@remit.test");
+		await page.waitForURL(/[?&]q=/);
+
+		await expect(page.getByText("No threads match these filters.")).toBeVisible(
+			{ timeout: 20_000 },
+		);
+		await expect(page.getByText("You're caught up")).toHaveCount(0);
+	});
+});
