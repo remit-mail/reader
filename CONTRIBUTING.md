@@ -10,7 +10,10 @@ taking shape, so this is a stub — expect it to grow.
   intent.
 - The API and the database schema are generated from TypeSpec in `typespec/`.
   Change the `.tsp` source and regenerate; do not hand-edit generated output.
-- CI runs build, type-check, and unit tests. Keep them green.
+- CI runs build, type-check, and unit tests. Keep them green. A pull request
+  touching only prose skips the suites that need an install; the jobs show as
+  skipped and `gate` still has to pass. Touch one file outside `docs/` or a
+  `.md` and everything runs again.
 
 ## Local setup
 
