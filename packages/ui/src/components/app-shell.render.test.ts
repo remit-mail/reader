@@ -294,14 +294,19 @@ describe("AppShell touch-state seeds (story/SSR affordance)", () => {
 		);
 	});
 
-	it("selection seed shows the selection bar replacing the header", () => {
-		const html = render({ ...touchBase, initialTouchState: "selection" });
-		assert.match(
-			html,
-			/aria-label="Cancel selection"/,
-			"the selection bar is shown",
+	it("draws the consumer's selection on the touch rows", () => {
+		const html = render({
+			...touchBase,
+			selection: {
+				selectedIds: new Set(["r1", "r2"]),
+				onToggle: () => undefined,
+			},
+		});
+		assert.equal(
+			count(html, /aria-label="Deselect message"/g),
+			2,
+			"both ticked rows show a checked box",
 		);
-		assert.match(html, /2 messages selected/, "selection wording shown");
 		// Selection mode is not a swipe — no action zones revealed.
 		assert.equal(
 			count(html, trailingAction),
@@ -344,33 +349,38 @@ describe("AppShell touch-state seeds (story/SSR affordance)", () => {
 		);
 	});
 
-	it("selectionBar overrides the built-in bar and forwards to the list pane", () => {
+	it("the selection bar is the list pane's header", () => {
 		const html = render({
 			...touchBase,
+			listTitle: "Inbox",
 			selectionBar: createElement(
 				"div",
 				{ "data-testid": "custom-bar" },
 				"Deleting 1,200 of 3,412…",
 			),
 		});
-		assert.match(html, /Deleting 1,200 of 3,412…/, "the override renders");
+		assert.match(html, /Deleting 1,200 of 3,412…/, "the bar renders");
 		assert.doesNotMatch(
 			html,
-			/aria-label="Cancel selection"/,
-			"the built-in bar is not also rendered",
+			/<h1[^>]*>Inbox<\/h1>/,
+			"the pane's own title header stands down",
 		);
 	});
 
-	it("ignores the touch seed at/above 1024 (desktop list)", () => {
+	it("leaves the always-visible checkbox to the touch tier", () => {
 		const html = render({
 			...touchBase,
 			initialWidth: 1100,
-			initialTouchState: "selection",
+			selection: {
+				selectedIds: new Set(["r1"]),
+				onToggle: () => undefined,
+			},
 		});
+		assert.match(html, /aria-label="Deselect message"/, "the row is ticked");
 		assert.doesNotMatch(
 			html,
-			/aria-label="Cancel selection"/,
-			"no selection bar on the desktop list",
+			/translateX/,
+			"desktop rows carry no swipe-triage layer",
 		);
 	});
 });

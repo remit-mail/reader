@@ -29,6 +29,7 @@ export {
 	categoryTone,
 	type Density,
 	INTELLIGENCE_MIN_WIDTH,
+	type MessageListSelection,
 	type NarrowView,
 	type NavAccount,
 	type NavAccountStatus,
@@ -701,6 +702,20 @@ export {
 	type UseLongPressResult,
 	useLongPress,
 } from "./lib/use-long-press.js";
+export {
+	computeRange,
+	deriveIsMultiSelectMode,
+	intersectSelectedIds,
+	isModified,
+	modifiersOf,
+	nextFocusId,
+	type RowSelectIntent,
+	resolveRangeAnchor,
+	rowSelectIntent,
+	type SelectionModifiers,
+	type UseSelectionOptions,
+	useSelection,
+} from "./lib/use-selection.js";
 export {
 	type ComboboxProps,
 	type SuggestListState,

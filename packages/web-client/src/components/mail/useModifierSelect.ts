@@ -16,17 +16,8 @@
  * `preventDefault` is already too late there. `claimClick` still handles the
  * click for engines that deliver it that way.
  */
+import { isModified, modifiersOf, type SelectionModifiers } from "@remit/ui";
 import { type MouseEvent, useCallback, useRef } from "react";
-import type { SelectionModifiers } from "@/hooks/useSelection";
-
-export const modifiersOf = (e: MouseEvent): SelectionModifiers => ({
-	shiftKey: e.shiftKey,
-	metaKey: e.metaKey,
-	ctrlKey: e.ctrlKey,
-});
-
-export const isModified = (m: SelectionModifiers): boolean =>
-	m.shiftKey || m.metaKey || m.ctrlKey;
 
 export interface ModifierSelect {
 	/** Takes a modified press for selection before the browser acts on it. */

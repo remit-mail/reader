@@ -1,30 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import {
-	deriveIsMultiSelectMode,
-	shouldExitSelectionOnNavigate,
-} from "./selection-mode.js";
-
-describe("deriveIsMultiSelectMode", () => {
-	test("no selection is not multi-select mode", () => {
-		assert.equal(deriveIsMultiSelectMode(0, false), false);
-	});
-
-	test("any selection on touch is multi-select mode", () => {
-		assert.equal(deriveIsMultiSelectMode(1, false), true);
-		assert.equal(deriveIsMultiSelectMode(42, false), true);
-	});
-
-	test("desktop selection drives the desktop toolbar, not multi-select mode", () => {
-		assert.equal(deriveIsMultiSelectMode(1, true), false);
-		assert.equal(deriveIsMultiSelectMode(0, true), false);
-	});
-
-	test("dropping the last selected id leaves the mode in the same call", () => {
-		assert.equal(deriveIsMultiSelectMode(1, false), true);
-		assert.equal(deriveIsMultiSelectMode(0, false), false);
-	});
-});
+import { shouldExitSelectionOnNavigate } from "./selection-mode.js";
 
 describe("shouldExitSelectionOnNavigate", () => {
 	test("back while selecting exits selection instead of navigating", () => {

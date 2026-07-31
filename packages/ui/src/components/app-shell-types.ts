@@ -6,6 +6,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import type { SelectionModifiers } from "../lib/use-selection.js";
 import type {
 	IntelligenceData,
 	SenderTrustLevel,
@@ -58,9 +59,30 @@ export function resolvePaneLayout(
 
 export type NarrowView = "list" | "message";
 
-/** Seeds the narrow touch list's interaction state for stories / SSR, so it can
- *  render selection mode or a swipe-peeked row without a live gesture. */
-export type TouchSeed = "selection" | "peek-trailing" | "peek-leading";
+/** Seeds the narrow touch list with a swipe-peeked row for stories / SSR, so it
+ *  can render that state without a live gesture. */
+export type TouchSeed = "peek-trailing" | "peek-leading";
+
+/**
+ * The list's selection, owned by whoever renders the list. The kit holds none
+ * of it: a surface that offers multi-select already has the selected set, the
+ * range anchor and the verbs the bar runs, and one set of rows can only ever
+ * answer to one of them.
+ *
+ * `useSelection` is the model both the app and the kit's own stories drive this
+ * from.
+ */
+export interface MessageListSelection {
+	/** The ticked rows. */
+	selectedIds: ReadonlySet<string>;
+	/** Ticks or unticks one row — its checkbox, and a long press on touch. */
+	onToggle: (id: string) => void;
+	/**
+	 * A row click and the modifiers it carried. True when selection took the
+	 * click, in which case the row does not open.
+	 */
+	onRowSelect?: (id: string, modifiers: SelectionModifiers) => boolean;
+}
 
 /**
  * Measures an element's OWN width via ResizeObserver — a container query, not a
@@ -317,19 +339,21 @@ export interface AppShellProps {
 	 */
 	initialNarrowView?: NarrowView;
 	/**
-	 * Seed the narrow touch list directly in selection mode or with a
-	 * swipe-peeked row, so a story / SSR can show those triage states statically.
-	 * Only meaningful below the reading boundary; ignored once the reading pane
-	 * fits or when the message view is showing.
+	 * Seed the narrow touch list with a swipe-peeked row, so a story / SSR can
+	 * show that triage state statically. Only meaningful below the reading
+	 * boundary; ignored once the reading pane fits or when the message view is
+	 * showing.
 	 */
 	initialTouchState?: TouchSeed;
 	/**
-	 * Replaces the narrow-width list pane header when a selection is active —
-	 * forwarded to `MessageListPane`'s `selectionBar` slot. The caller owns
-	 * selection state and toolbar actions; when omitted, `initialTouchState`
-	 * still drives the pane's own built-in touch-triage bar.
+	 * The list header, forwarded to `MessageListPane`'s `selectionBar` slot. The
+	 * caller mounts it for every state of the list: it names the view while
+	 * nothing is ticked and carries the count and the verbs from the first
+	 * ticked row.
 	 */
 	selectionBar?: ReactNode;
+	/** The list's selection, forwarded to `MessageListPane`. */
+	selection?: MessageListSelection;
 	intelligence?: IntelligenceData;
 	/** Pane 4 visible. Defaults to true when intelligence is present. */
 	intelligenceOpen?: boolean;

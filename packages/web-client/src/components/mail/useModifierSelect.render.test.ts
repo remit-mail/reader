@@ -14,10 +14,10 @@
 
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
+import type { SelectionModifiers } from "@remit/ui";
 import { createElement, type MouseEvent } from "react";
-import type { SelectionModifiers } from "@/hooks/useSelection";
 import { createDomHarness, type DomHarness } from "../../test-support/dom";
-import { isModified, useModifierSelect } from "./useModifierSelect";
+import { useModifierSelect } from "./useModifierSelect";
 
 let harness: DomHarness | undefined;
 
@@ -219,29 +219,5 @@ describe("useModifierSelect", () => {
 		const dom = mount({ log, takes: true, unselectable: true }, 1280);
 
 		assert.equal(press(dom, "contextmenu", { ctrlKey: true }), false);
-	});
-});
-
-describe("isModified", () => {
-	it("is true for any of the three keys a keyboard can add", () => {
-		assert.equal(
-			isModified({ shiftKey: true, metaKey: false, ctrlKey: false }),
-			true,
-		);
-		assert.equal(
-			isModified({ shiftKey: false, metaKey: true, ctrlKey: false }),
-			true,
-		);
-		assert.equal(
-			isModified({ shiftKey: false, metaKey: false, ctrlKey: true }),
-			true,
-		);
-	});
-
-	it("is false for the bare press a tap delivers", () => {
-		assert.equal(
-			isModified({ shiftKey: false, metaKey: false, ctrlKey: false }),
-			false,
-		);
 	});
 });

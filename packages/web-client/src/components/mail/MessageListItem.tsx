@@ -6,9 +6,13 @@
  * interactive lives in `MessageRow`, which the brief and Flagged render too.
  */
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import type { Density, SenderTrustLevel, ThreadRowData } from "@remit/ui";
+import type {
+	Density,
+	SelectionModifiers,
+	SenderTrustLevel,
+	ThreadRowData,
+} from "@remit/ui";
 import { memo } from "react";
-import type { SelectionModifiers } from "@/hooks/useSelection";
 import { toDisplayCategory } from "@/lib/display-category";
 import { formatEmailDate } from "@/lib/format";
 import { MessageRow } from "./MessageRow";

@@ -13,13 +13,14 @@
  * `cursorMovedByPointerRef` records whether the last move came from a click, so
  * a list that scrolls its cursor into view can skip doing so for pointer moves.
  */
-import { useCallback, useMemo, useRef, useState } from "react";
 import {
+	deriveIsMultiSelectMode,
 	nextFocusId,
+	rowSelectIntent,
 	type SelectionModifiers,
 	useSelection,
-} from "@/hooks/useSelection";
-import { deriveIsMultiSelectMode } from "@/lib/selection-mode";
+} from "@remit/ui";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 interface UseListCursorOptions {
 	/** Message ids in display order. */
@@ -178,14 +179,15 @@ export const useListCursor = ({
 
 	const handleRowSelect = useCallback(
 		(messageId: string, modifiers: SelectionModifiers): boolean => {
-			if (modifiers.shiftKey) {
+			const intent = rowSelectIntent(modifiers);
+			if (intent === "range") {
 				// The open/focused row is the fallback origin when the stored anchor
 				// has been filtered or searched out of the visible list, so the first
 				// shift-click still ranges from where the user is (#142, #144).
 				selectRange(orderedIds, messageId, focusedMessageId);
 				return true;
 			}
-			if (modifiers.metaKey || modifiers.ctrlKey) {
+			if (intent === "toggle") {
 				toggleCheck(messageId);
 				return true;
 			}

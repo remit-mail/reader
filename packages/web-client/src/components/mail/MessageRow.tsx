@@ -18,17 +18,18 @@ import {
 	compactRowClass,
 	type Density,
 	mergeProps,
+	modifiersOf,
 	type RowToggleEvent,
+	type SelectionModifiers,
 	type ThreadRowData,
 	useLongPress,
 } from "@remit/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type MouseEvent, memo, type ReactNode, useCallback } from "react";
-import type { SelectionModifiers } from "@/hooks/useSelection";
 import { cn } from "@/lib/utils";
 import { useThreadRowInteraction } from "./ThreadListInteraction";
-import { modifiersOf, useModifierSelect } from "./useModifierSelect";
+import { useModifierSelect } from "./useModifierSelect";
 
 interface MailboxLinkSearch {
 	selectedMessageId?: string;

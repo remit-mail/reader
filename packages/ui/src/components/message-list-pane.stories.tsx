@@ -1,6 +1,7 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { inboxFilterConfig } from "../filter-presets.js";
+import { rowSelectIntent, useSelection } from "../lib/use-selection.js";
 import type { ThreadSection } from "./app-shell-types.js";
 import { FilterSheet } from "./filter-sheet.js";
 import { MailHeader } from "./mail-header.js";
@@ -213,59 +214,78 @@ export const CustomListBody: Story = {
 };
 
 /**
- * The `selectionBar` slot at desktop width, holding the same
- * `SelectionTopBar` the narrow story below holds. One surface at every
- * width: from 768px up the labelled select-all sits inline in the bar.
+ * The pane under a selection its consumer owns. The pane draws the checkboxes
+ * and holds none of the state, so the interaction here is the app's: click a
+ * checkbox to tick one row, cmd/ctrl-click a row to tick it without opening it,
+ * shift-click to range from the last row touched, and select-all covers the
+ * rows on screen.
+ *
+ * The bar is the header for every state of the list — it names the mailbox with
+ * nothing ticked and carries the count and the verbs from the first ticked row.
  */
-export const ExternalSelectionBar: Story = {
-	args: {
-		isDesktop: true,
-		flatList: true,
-		selectionBar: (
-			<SelectionTopBar
-				title="Inbox"
-				count={2}
-				onCancel={() => undefined}
-				onMarkRead={() => undefined}
-				onJunk={() => undefined}
-				onOrganize={() => undefined}
-				onDelete={() => undefined}
-				selectAll={{
-					checked: false,
-					indeterminate: true,
-					onChange: () => undefined,
-				}}
-			/>
-		),
-	},
+function SelectableList({ isDesktop }: { isDesktop: boolean }) {
+	const selection = useSelection();
+	const orderedIds = sections.flatMap((s) => s.threads).map((t) => t.id);
+	const allSelected = orderedIds.every((id) => selection.selectedIds.has(id));
+
+	return (
+		<MessageListPane
+			listTitle="Inbox"
+			listMeta="3 conversations"
+			sections={sections}
+			flatList
+			isDesktop={isDesktop}
+			onSelectThread={() => undefined}
+			selection={{
+				selectedIds: selection.selectedIds,
+				onToggle: selection.toggle,
+				onRowSelect: (id, modifiers) => {
+					const intent = rowSelectIntent(modifiers);
+					if (intent === "range") {
+						selection.selectRange(orderedIds, id);
+						return true;
+					}
+					if (intent === "toggle") {
+						selection.toggle(id);
+						return true;
+					}
+					selection.clearSelection();
+					selection.setAnchor(id);
+					return false;
+				},
+			}}
+			selectionBar={
+				<SelectionTopBar
+					title="Inbox"
+					count={selection.selectedCount}
+					onCancel={selection.clearSelection}
+					onMarkRead={() => undefined}
+					onJunk={() => undefined}
+					onOrganize={() => undefined}
+					onDelete={() => undefined}
+					selectAll={{
+						checked: allSelected,
+						indeterminate: selection.hasSelection && !allSelected,
+						onChange: () => selection.toggleAll(orderedIds),
+					}}
+				/>
+			}
+		/>
+	);
+}
+
+/** Desktop: from 768px up the labelled select-all sits inline in the bar. */
+export const ConsumerSelection: Story = {
+	render: () => <SelectableList isDesktop />,
 	decorators: [desktopFrame],
 };
 
 /**
- * The same bar at phone width: select-all moves to a second row so row one
- * stays a count and the verbs, with a back arrow out of selection.
+ * The same list at phone width: checkboxes stay put once a row is ticked, and
+ * select-all moves to a second row so row one stays a count and the verbs.
  */
-export const NarrowExternalSelectionBar: Story = {
-	args: {
-		isDesktop: false,
-		flatList: true,
-		selectionBar: (
-			<SelectionTopBar
-				title="Inbox"
-				count={2}
-				onCancel={() => undefined}
-				onMarkRead={() => undefined}
-				onJunk={() => undefined}
-				onOrganize={() => undefined}
-				onDelete={() => undefined}
-				selectAll={{
-					checked: false,
-					indeterminate: true,
-					onChange: () => undefined,
-				}}
-			/>
-		),
-	},
+export const NarrowConsumerSelection: Story = {
+	render: () => <SelectableList isDesktop={false} />,
 	decorators: [narrowFrame],
 };
 

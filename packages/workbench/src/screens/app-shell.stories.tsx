@@ -3,9 +3,11 @@ import {
 	type AppShellProps,
 	Banner,
 	MessageListPane,
+	rowSelectIntent,
 	SelectionTopBar,
 	type ThreadData,
 	TouchListBody,
+	useSelection,
 } from "@remit/ui";
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
@@ -389,6 +391,84 @@ function PhoneShell(overrides: Partial<AppShellProps>) {
 	);
 }
 
+/**
+ * The phone shell with the selection held above the kit, the way the app holds
+ * it: a `SelectionTopBar` is the list header for every state of the list, and
+ * the pane draws the checkboxes and the count from state it does not own.
+ *
+ * Delete and Mark read act on the story's own rows — a Trash that only closes
+ * the bar deletes nothing, which is the one thing a selection bar must never be.
+ */
+function SelectablePhoneShell({
+	initialSelectedIds,
+	...overrides
+}: Partial<AppShellProps> & { initialSelectedIds?: string[] }) {
+	const selection = useSelection({ initialSelectedIds });
+	const [trashedIds, setTrashedIds] = useState<ReadonlySet<string>>(new Set());
+	const [readIds, setReadIds] = useState<ReadonlySet<string>>(new Set());
+
+	const threads = allThreads
+		.filter((thread) => !trashedIds.has(thread.id))
+		.map((thread) =>
+			readIds.has(thread.id) ? { ...thread, isRead: true } : thread,
+		);
+	const orderedIds = threads.map((thread) => thread.id);
+	const allSelected =
+		orderedIds.length > 0 &&
+		orderedIds.every((id) => selection.selectedIds.has(id));
+
+	const runVerb = (record: (ids: ReadonlySet<string>) => void) => {
+		record(selection.selectedIds);
+		selection.clearSelection();
+	};
+
+	return (
+		<PhoneShell
+			{...flatInbox}
+			sections={[{ id: "inbox", threads }]}
+			selection={{
+				selectedIds: selection.selectedIds,
+				onToggle: selection.toggle,
+				onRowSelect: (id, modifiers) => {
+					const intent = rowSelectIntent(modifiers);
+					if (intent === "range") {
+						selection.selectRange(orderedIds, id);
+						return true;
+					}
+					if (intent === "toggle") {
+						selection.toggle(id);
+						return true;
+					}
+					selection.clearSelection();
+					selection.setAnchor(id);
+					return false;
+				},
+			}}
+			selectionBar={
+				<SelectionTopBar
+					title="Inbox"
+					count={selection.selectedCount}
+					onCancel={selection.clearSelection}
+					onDelete={() =>
+						runVerb((ids) =>
+							setTrashedIds((prev) => new Set([...prev, ...ids])),
+						)
+					}
+					onMarkRead={() =>
+						runVerb((ids) => setReadIds((prev) => new Set([...prev, ...ids])))
+					}
+					selectAll={{
+						checked: allSelected,
+						indeterminate: selection.hasSelection && !allSelected,
+						onChange: () => selection.toggleAll(orderedIds),
+					}}
+				/>
+			}
+			{...overrides}
+		/>
+	);
+}
+
 const singleMessageThread: ThreadData = {
 	subject: "Q3 planning notes",
 	messages: [
@@ -478,20 +558,24 @@ export const MobilePhishing: Story = {
 };
 
 /**
- * Phone selection mode: long-press promotes the list to multi-select. The list
- * header is REPLACED by the selection bar (cancel + count + mark-read + delete,
- * real Buttons, never disabled), and each selected row's avatar becomes a
- * checkbox. Seeded with the first two rows checked.
+ * Phone selection mode: long-press promotes the list to multi-select. The bar
+ * that names the mailbox carries the count and the verbs instead (cancel +
+ * count + mark-read + delete, real Buttons, never disabled), and each selected
+ * row's avatar becomes a checkbox. Seeded with the first two rows checked.
  *
  * The verbs act on the mock's own rows — trashed rows leave the list, marked
- * ones lose their unread dot. The app supplies its own bar here, where each
- * verb opens the selection wizard instead; what this pins is the shape of the
- * surface, not what a verb does to real mail.
+ * ones lose their unread dot. In the app each verb opens the selection wizard
+ * instead; what this pins is the shape of the surface, not what a verb does to
+ * real mail.
  */
 export const MobileSelectionMode: Story = {
 	parameters: mobileParams,
 	decorators: [phoneFrame],
-	render: () => <PhoneShell {...flatInbox} initialTouchState="selection" />,
+	render: () => (
+		<SelectablePhoneShell
+			initialSelectedIds={allThreads.slice(0, 2).map((thread) => thread.id)}
+		/>
+	),
 };
 
 /**
@@ -515,15 +599,16 @@ export const MobileSwipeToggleRead: Story = {
 };
 
 /**
- * Long-press ENTERS selection mode live — no `initialTouchState` seed. The
- * `play()` function fires a real pointerDown and waits out the row's 500ms
- * long-press timer, so this demonstrates the before→after transition
- * (`MobileSelectionMode` above only shows the after, pre-seeded).
+ * Long-press ENTERS selection mode live, from nothing ticked. The `play()`
+ * function fires a real pointerDown and waits out the row's 500ms long-press
+ * timer, so this demonstrates the before→after transition (`MobileSelectionMode`
+ * above only shows the after, pre-seeded). The bar is up the whole time: it
+ * names the mailbox before the press and carries the count after it.
  */
 export const MobileSelectionViaLongPress: Story = {
 	parameters: mobileParams,
 	decorators: [phoneFrame],
-	render: () => <PhoneShell {...flatInbox} />,
+	render: () => <SelectablePhoneShell />,
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
 		const firstRowName = allThreads[0]?.fromName;

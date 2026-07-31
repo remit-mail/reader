@@ -2,10 +2,14 @@ import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/type
 import {
 	Banner,
 	type Density,
+	deriveIsMultiSelectMode,
 	type MessageListFilter,
 	MessageListLoadingMore,
 	MessageListPane,
+	nextFocusId,
+	type SelectionModifiers,
 	SelectionTopBar,
+	useSelection,
 	type Verb,
 } from "@remit/ui";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
@@ -26,11 +30,6 @@ import { useFollowFocusOpen } from "@/hooks/useFollowFocusOpen";
 import { useLabelList } from "@/hooks/useLabels";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
-import {
-	nextFocusId,
-	type SelectionModifiers,
-	useSelection,
-} from "@/hooks/useSelection";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import {
 	type BulkActionKind,
@@ -53,10 +52,7 @@ import {
 } from "@/lib/format";
 import { tabStopId } from "@/lib/list-focus";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
-import {
-	deriveIsMultiSelectMode,
-	shouldExitSelectionOnNavigate,
-} from "@/lib/selection-mode";
+import { shouldExitSelectionOnNavigate } from "@/lib/selection-mode";
 import { cn } from "@/lib/utils";
 import { useSelectionWizard, useWizardStepValue } from "@/lib/wizard-history";
 import { LabelApplyTrigger } from "./LabelApplyTrigger";
