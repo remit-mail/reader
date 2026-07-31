@@ -150,6 +150,30 @@ const flush = async () => {
 	}
 };
 
+const pickRow = async (label: string) => {
+	const row = container.querySelector<HTMLButtonElement>(
+		`button[aria-label="Move to ${label}"]`,
+	);
+	assert.ok(row, `the picker offers ${label}`);
+	await act(async () => {
+		row.click();
+	});
+};
+
+const confirmMove = async (label: RegExp) => {
+	const confirm = buttonByText(label);
+	assert.ok(confirm, `the confirm reads ${label}`);
+	await act(async () => {
+		confirm.click();
+	});
+};
+
+const clickMoveToArchive = async () => {
+	act(() => buttonByText(/Move them to another folder/)?.click());
+	await pickRow("Archive");
+	await confirmMove(/^Move 3 emails to Archive$/);
+};
+
 describe("DeleteFolderDialog", () => {
 	it("renders nothing when closed", () => {
 		render({ open: false, folder: mailboxes[1] as RemitImapMailboxResponse });
@@ -208,6 +232,123 @@ describe("DeleteFolderDialog", () => {
 			.join("|");
 		assert.doesNotMatch(options, /Receipts/);
 		assert.match(options, /Archive/);
+	});
+
+	it("opens a branch without moving anything, and commits only on confirm", async () => {
+		const nested = [
+			...mailboxes,
+			mailbox({ mailboxId: "work", fullPath: "Work" }),
+			mailbox({ mailboxId: "clients", fullPath: "Work/Clients" }),
+		];
+		const moveCalls: string[][] = [];
+		const movedOnServer = new Set<string>();
+		let deleted = false;
+		route = ({ url, method, body: reqBody }) => {
+			if (method === "DELETE") {
+				deleted = true;
+				return new Response(null, { status: 204 });
+			}
+			if (url.includes("/messages/move")) {
+				const body = JSON.parse(reqBody) as { messageIds: string[] };
+				moveCalls.push(body.messageIds);
+				for (const id of body.messageIds) movedOnServer.add(id);
+				return json({ moved: body.messageIds.length });
+			}
+			if (url.includes("/threads"))
+				return json(threadItems(["m1"].filter((id) => !movedOnServer.has(id))));
+			return json({ items: nested });
+		};
+		render({
+			open: true,
+			folder: mailboxes[1] as RemitImapMailboxResponse,
+			allMailboxes: nested,
+		});
+		act(() => buttonByText(/Move them to another folder/)?.click());
+		assert.equal(
+			buttonByText(/^Move 3 emails to/),
+			undefined,
+			"nothing is armed before a destination is picked",
+		);
+		await pickRow("Work");
+		await flush();
+		assert.deepEqual(moveCalls, [], "opening a branch starts no move");
+		assert.equal(deleted, false, "opening a branch deletes nothing");
+		assert.ok(
+			container.querySelector('button[aria-label="Move to Clients"]'),
+			"the tap opened the branch so the nested destination is reachable",
+		);
+
+		await pickRow("Clients");
+		await confirmMove(/^Move 3 emails to Clients$/);
+		await flush();
+		assert.deepEqual(moveCalls, [["m1"]], "the confirm commits the move");
+		assert.equal(deleted, true, "the emptied folder is deleted");
+	});
+
+	it("arms rather than commits when a folder is created to move into", async () => {
+		const filed = mailbox({
+			mailboxId: "filed",
+			fullPath: "Filed",
+			syncStatus: "synced",
+		});
+		const moveCalls: string[][] = [];
+		let deleted = false;
+		let createdOnServer = false;
+		route = ({ url, method, body: reqBody }) => {
+			if (method === "DELETE") {
+				deleted = true;
+				return new Response(null, { status: 204 });
+			}
+			if (url.includes("/messages/move")) {
+				const body = JSON.parse(reqBody) as { messageIds: string[] };
+				moveCalls.push(body.messageIds);
+				return json({ moved: body.messageIds.length });
+			}
+			if (url.includes("/threads")) return json(threadItems(["m1"]));
+			if (method === "POST" && url.includes("/mailboxes")) {
+				createdOnServer = true;
+				return json(filed);
+			}
+			return json({
+				items: createdOnServer ? [...mailboxes, filed] : mailboxes,
+			});
+		};
+		render({ open: true, folder: mailboxes[1] as RemitImapMailboxResponse });
+		await flush();
+		act(() => buttonByText(/Move them to another folder/)?.click());
+		act(() =>
+			container
+				.querySelector<HTMLButtonElement>('button[aria-label="New folder"]')
+				?.click(),
+		);
+		const nameField = container.querySelector<HTMLInputElement>(
+			'input:not([aria-label="Filter folders"])',
+		);
+		assert.ok(nameField, "the new-folder form is open");
+		act(() => {
+			Object.getOwnPropertyDescriptor(
+				HTMLInputElement.prototype,
+				"value",
+			)?.set?.call(nameField, "Filed");
+			nameField.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+		await act(async () => {
+			buttonByText(/^Create folder$/)?.click();
+		});
+		await flush();
+		assert.deepEqual(moveCalls, [], "a created folder starts no move");
+		assert.equal(deleted, false, "a created folder deletes nothing");
+
+		render({
+			open: true,
+			folder: mailboxes[1] as RemitImapMailboxResponse,
+			allMailboxes: [...mailboxes, filed],
+		});
+		assert.ok(
+			buttonByText(/^Move 3 emails to Filed$/),
+			"the created folder is armed as the destination",
+		);
+		assert.deepEqual(moveCalls, [], "arming it is still not a move");
 	});
 
 	it("deletes an empty folder and closes on success", async () => {
@@ -274,14 +415,7 @@ describe("DeleteFolderDialog", () => {
 				closed = true;
 			},
 		});
-		act(() => buttonByText(/Move them to another folder/)?.click());
-		await act(async () => {
-			(
-				container.querySelector('button[aria-label="Move to Archive"]') as
-					| HTMLButtonElement
-					| undefined
-			)?.click();
-		});
+		await clickMoveToArchive();
 		await flush();
 		assert.deepEqual(moved.sort(), ["m1", "m2", "m3"]);
 		assert.equal(closed, true);
@@ -323,29 +457,11 @@ describe("DeleteFolderDialog", () => {
 				closed = true;
 			},
 		});
-		act(() => buttonByText(/Move them to another folder/)?.click());
-		await act(async () => {
-			(
-				container.querySelector('button[aria-label="Move to Archive"]') as
-					| HTMLButtonElement
-					| undefined
-			)?.click();
-		});
+		await clickMoveToArchive();
 		await flush();
 		assert.match(container.textContent ?? "", /stay moved/);
 		assert.equal(closed, false);
 	});
-
-	const clickMoveToArchive = async () => {
-		act(() => buttonByText(/Move them to another folder/)?.click());
-		await act(async () => {
-			(
-				container.querySelector('button[aria-label="Move to Archive"]') as
-					| HTMLButtonElement
-					| undefined
-			)?.click();
-		});
-	};
 
 	it("iterates multiple batches and deletes only after the folder drains", async () => {
 		let deleted = false;
