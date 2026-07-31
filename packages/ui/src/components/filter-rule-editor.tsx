@@ -7,9 +7,7 @@ import {
 	useState,
 } from "react";
 import { isAbortError } from "../lib/abort.js";
-import { BottomSheet } from "./bottom-sheet.js";
 import { Button } from "./button.js";
-import { Dialog } from "./dialog.js";
 import {
 	AddChipButton,
 	ClauseChip,
@@ -697,46 +695,5 @@ export function FilterRuleEditor({
 				</Button>
 			</div>
 		</div>
-	);
-}
-
-export interface FilterRuleDialogProps extends FilterRuleEditorProps {
-	open: boolean;
-	onClose: () => void;
-}
-
-/** Desktop home for the rule editor — the centered modal (RFC 038 D1). */
-export function FilterRuleDialog({
-	open,
-	onClose,
-	...editor
-}: FilterRuleDialogProps) {
-	if (!open) return null;
-	return (
-		<Dialog open={open} onClose={onClose} title="Filter rule">
-			<FilterRuleEditor {...editor} onCancel={onClose} />
-		</Dialog>
-	);
-}
-
-export interface FilterRuleSheetProps extends FilterRuleEditorProps {
-	open: boolean;
-	onClose: () => void;
-}
-
-/** Mobile home for the rule editor — the bottom sheet (RFC 038 D1). */
-export function FilterRuleSheet({
-	open,
-	onClose,
-	...editor
-}: FilterRuleSheetProps): ReactNode {
-	return (
-		<BottomSheet
-			open={open}
-			onClose={onClose}
-			dismissLabel="Dismiss filter rule"
-		>
-			<FilterRuleEditor {...editor} onCancel={onClose} />
-		</BottomSheet>
 	);
 }

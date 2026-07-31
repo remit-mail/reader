@@ -184,12 +184,8 @@ export {
 } from "./components/filter-rule.js";
 export {
 	type ClauseEditState,
-	FilterRuleDialog,
-	type FilterRuleDialogProps,
 	FilterRuleEditor,
 	type FilterRuleEditorProps,
-	FilterRuleSheet,
-	type FilterRuleSheetProps,
 } from "./components/filter-rule-editor.js";
 export {
 	FilterSheet,
@@ -273,7 +269,6 @@ export {
 	type LabelChipData,
 	type LabelChipProps,
 } from "./components/label-chip.js";
-export { ListItem, type ListItemProps } from "./components/list-item.js";
 export {
 	type MailAction,
 	MailActionToolbar,
@@ -288,10 +283,6 @@ export {
 	MessageBodyView,
 	type MessageBodyViewProps,
 } from "./components/message-body-view.js";
-export {
-	MessageHeader,
-	type MessageHeaderProps,
-} from "./components/message-header.js";
 export { MessageListPane } from "./components/message-list-pane.js";
 export {
 	type FilterReach,

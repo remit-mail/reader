@@ -65,8 +65,6 @@ export interface SearchChipInputProps {
 	 */
 	chips?: readonly SearchChip[];
 	onRemoveChip?: (id: string) => void;
-	/** Opens a chip's own value editor, where the host offers one. */
-	onActivateChip?: (id: string) => void;
 	/** The free text alongside the chips. */
 	value: string;
 	onChange: (value: string) => void;
@@ -105,8 +103,6 @@ export interface SearchChipInputProps {
 	 * when something outside needs to address the field by a stable id.
 	 */
 	inputId?: string;
-	/** Accessible name for the chip grid. */
-	chipsLabel?: string;
 	/**
 	 * Completions for what is being typed. Omit for a field that offers none;
 	 * see {@link SearchFieldSuggest} for what the field and the host each own.
@@ -165,7 +161,6 @@ const isEditableTarget = (target: EventTarget | null): boolean => {
 export const SearchChipInput = ({
 	chips = [],
 	onRemoveChip,
-	onActivateChip,
 	value,
 	onChange,
 	onClear,
@@ -175,7 +170,6 @@ export const SearchChipInput = ({
 	showClearButton = true,
 	size = "sm",
 	inputId,
-	chipsLabel = "Search filters",
 	suggest,
 	className,
 }: SearchChipInputProps) => {
@@ -313,16 +307,13 @@ export const SearchChipInput = ({
 				case "focusInput":
 					moveFocus(null);
 					return;
-				case "activateChip": {
-					const chip = chips[action.index];
-					if (chip && onActivateChip) onActivateChip(chip.id);
+				case "activateChip":
 					return;
-				}
 				case "none":
 					return;
 			}
 		},
-		[chips, removeChipAt, moveFocus, onActivateChip],
+		[chips, removeChipAt, moveFocus],
 	);
 
 	useEffect(() => {
@@ -371,7 +362,7 @@ export const SearchChipInput = ({
 					// biome-ignore lint/a11y/useSemanticElements: see above
 					<div
 						role="grid"
-						aria-label={chipsLabel}
+						aria-label="Search filters"
 						className="flex min-w-0 flex-wrap items-center gap-1"
 					>
 						{chips.map((chip, index) => (
@@ -386,9 +377,6 @@ export const SearchChipInput = ({
 								onFocusLabel={() => setFocusedChip(index)}
 								onKeyDown={handleChipKeyDown(index)}
 								onRemove={() => removeChipAt(index)}
-								onActivate={
-									onActivateChip ? () => onActivateChip(chip.id) : undefined
-								}
 							/>
 						))}
 					</div>

@@ -6,7 +6,6 @@ import { Button } from "./button.js";
 import { Card, CardBody, CardHeader, CardTitle } from "./card.js";
 import { FieldLabel } from "./field-label.js";
 import { Input } from "./input.js";
-import { ListItem } from "./list-item.js";
 import { PasswordInput } from "./password-input.js";
 import { SecuritySelect } from "./security-select.js";
 import { Select } from "./select.js";
@@ -173,35 +172,6 @@ export const Cards: Story = {
 					token-driven so this flips cleanly between light and dark.
 				</CardBody>
 			</Card>
-		</div>
-	),
-};
-
-export const ListItems: Story = {
-	render: () => (
-		<div className="max-w-md divide-y divide-line p-8">
-			<ListItem
-				unread
-				leading={<Avatar name="Priya Natarajan" size="md" />}
-				trailing="08:52"
-			>
-				<div className="text-sm font-semibold text-fg">Priya Natarajan</div>
-				<div className="text-sm text-fg">Q3 roadmap review</div>
-				<p className="line-clamp-1 text-xs text-fg-subtle">
-					Sharing the agenda ahead of Thursday…
-				</p>
-			</ListItem>
-			<ListItem
-				active
-				leading={<Avatar name="Marcus Webb" size="md" />}
-				trailing="Wed"
-			>
-				<div className="text-sm font-medium text-fg-muted">Marcus Webb</div>
-				<div className="text-sm text-fg-muted">Re: Reading pane density</div>
-				<p className="line-clamp-1 text-xs text-fg-subtle">
-					Strong +1 on tightening the rows…
-				</p>
-			</ListItem>
 		</div>
 	),
 };
