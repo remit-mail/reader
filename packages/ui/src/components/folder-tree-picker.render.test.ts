@@ -93,9 +93,10 @@ describe("FolderTreePicker render", () => {
 		);
 	});
 
-	it("renders the empty state when no folder matches", () => {
+	it("says the list is empty when there is nothing to list", () => {
 		const html = render({ folders: [] });
-		assert.match(html, /No folders match/);
+		assert.match(html, /No folders to show/);
+		assert.doesNotMatch(html, /No folders match/);
 	});
 
 	it("applies caller-supplied labels", () => {

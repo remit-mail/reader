@@ -160,6 +160,7 @@ export const LongList: Story = {
 	render: () => <Picker options={longFolders} />,
 };
 
+/** An account with nothing to list: the message states that, not a filter. */
 export const Empty: Story = {
 	name: "No folders",
 	render: () => <Picker options={[]} />,
@@ -306,6 +307,46 @@ export const CreateFailed: Story = {
 		typeFolderName(canvasElement, "Mortgage");
 		await tick();
 		clickText(canvasElement, "Create folder");
+	},
+};
+
+/**
+ * Looking somewhere else does not throw the draft away: opening another folder
+ * closes the branch the form was in, and the form is pinned above the tree with
+ * the typed name and the folder it will be made in.
+ */
+export const CreateWhileTheListMoves: Story = {
+	name: "Create — kept while the list moves",
+	render: () => <Picker />,
+	play: async ({ canvasElement }) => {
+		await expand(canvasElement, "Travel");
+		clickAriaLabel(canvasElement, "New folder inside Travel");
+		await tick();
+		typeFolderName(canvasElement, "Car hire");
+		await tick();
+		await expand(canvasElement, "Finance");
+	},
+};
+
+/** A failure is stated where the user is looking, whatever the list has done. */
+export const CreateFailedAfterTheListMoved: Story = {
+	name: "Create — failed after the list moved",
+	render: () => (
+		<Picker
+			onCreateFolder={rejects(
+				"The mail server refused the folder name. Try another one.",
+			)}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		await expand(canvasElement, "Travel");
+		clickAriaLabel(canvasElement, "New folder inside Travel");
+		await tick();
+		typeFolderName(canvasElement, "Car hire");
+		await tick();
+		clickText(canvasElement, "Create folder");
+		await tick();
+		await expand(canvasElement, "Finance");
 	},
 };
 
