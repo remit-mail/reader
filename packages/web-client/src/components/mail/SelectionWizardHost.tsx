@@ -62,6 +62,7 @@ import {
 	normalizeClauseValue,
 	SUPPORTED_CLAUSE_FIELDS,
 } from "@/lib/organize/rule-model";
+import { searchRuleAccountId } from "@/lib/organize/search-to-rule";
 import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
 import { useWizardEntryValue, useWizardStep } from "@/lib/wizard-history";
 
@@ -1003,9 +1004,9 @@ function SelectionWizardSession({
  *
  * The URL says which affordance opened the wizard, and that decides two things
  * and no more: which step it opens on, and whether the query seeds the clauses.
- * A search entry ticks nothing and its rule belongs to the account the query
- * names, so the selection the bar would have handed over is not the one it
- * walks.
+ * A search entry ticks nothing, so the selection the bar would have handed over
+ * is not the one it walks; its rule belongs to the account the surface handed
+ * over, and to the one the query names when it names one (#524).
  */
 export function SelectionWizardHost(props: SelectionWizardHostProps) {
 	const fromSearch = useWizardEntryValue() === "search";
@@ -1024,7 +1025,11 @@ export function SelectionWizardHost(props: SelectionWizardHostProps) {
 			{...(conversion
 				? {
 						verb: "organize" as const,
-						accountId: conversion.targetAccountId ?? accounts[0]?.accountId,
+						accountId: searchRuleAccountId(
+							conversion,
+							props.accountId,
+							accounts,
+						),
 						selection: EMPTY_SELECTION,
 						crossAccount: false,
 						escalated: undefined,

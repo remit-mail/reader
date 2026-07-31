@@ -1,3 +1,4 @@
+import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import type {
 	DroppedFacet,
 	DroppedFacetType,
@@ -103,3 +104,17 @@ export const convertSearchToRule = (
 		droppedSemantic: keptTerms && searchHadSemanticReach,
 	};
 };
+
+/**
+ * Which account a rule converted from a search belongs to (#524). A query names
+ * one only through an explicit `account:` facet, which an ordinary search does
+ * not carry; without it the rule belongs to the account whose mail the search
+ * ran over, which is the account the surface handed over. Only a surface that
+ * has no single account of its own leaves the first configured one to answer.
+ */
+export const searchRuleAccountId = (
+	conversion: SearchConversion,
+	surfaceAccountId: string | undefined,
+	accounts: readonly Pick<RemitImapAccountResponse, "accountId">[],
+): string | undefined =>
+	conversion.targetAccountId ?? surfaceAccountId ?? accounts[0]?.accountId;

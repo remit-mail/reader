@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { isConvertible } from "@remit/ui";
 import { parseSearchTokens, type SearchTokenContext } from "../search-tokens";
-import { convertSearchToRule } from "./search-to-rule";
+import { convertSearchToRule, searchRuleAccountId } from "./search-to-rule";
 
 const CONTEXT: SearchTokenContext = {
 	mailboxesByName: new Map([["archive", "mbx-archive"]]),
@@ -122,5 +122,41 @@ describe("convertSearchToRule — nothing left to make a filter from", () => {
 
 	it("yields a clause once a term rides along with the folder scope", () => {
 		assert.equal(isConvertible(convert("in:archive receipts")), true);
+	});
+});
+
+describe("searchRuleAccountId — whose account the filter belongs to", () => {
+	const ACCOUNTS = [{ accountId: "acc-first" }, { accountId: "acc-work" }];
+
+	it("uses the account the surface is showing for an ordinary search", () => {
+		assert.equal(
+			searchRuleAccountId(convert("invoice"), "acc-work", ACCOUNTS),
+			"acc-work",
+		);
+	});
+
+	it("lets an account: facet name a different account than the surface", () => {
+		assert.equal(
+			searchRuleAccountId(
+				convert("account:work invoice"),
+				"acc-other",
+				ACCOUNTS,
+			),
+			"acc-work",
+		);
+	});
+
+	it("falls back to the first configured account only when nothing names one", () => {
+		assert.equal(
+			searchRuleAccountId(convert("invoice"), undefined, ACCOUNTS),
+			"acc-first",
+		);
+	});
+
+	it("has no account to give when none is configured", () => {
+		assert.equal(
+			searchRuleAccountId(convert("invoice"), undefined, []),
+			undefined,
+		);
 	});
 });
