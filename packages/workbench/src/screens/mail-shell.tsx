@@ -22,7 +22,11 @@
  * - completions for the term being typed sit under the field on both surfaces,
  *   in flow, so the list never covers the query it completes;
  * - below 1024px the shell is one pane: the nav is a slide-over, compose is the
- *   FAB, and the phone's magnifier opens the full-screen `MobileSearchView`.
+ *   FAB, and the phone's magnifier opens the full-screen `MobileSearchView`;
+ * - a view with a pane of its own — Drafts, the Outbox, compose — hands it in
+ *   whole through the `list`, `reading` and `overlay` slots, the way the route
+ *   hands `AppShellSlotted` its own panes. Every flow story mounts this shell,
+ *   so the chrome around a screen under review is the chrome it ships with.
  *
  * See `packages/web-client/src/routes/mail.tsx`, `MailTopBar`, `MailListHeader`
  * and `MailViewChrome` for the originals.
@@ -30,6 +34,7 @@
 import {
 	AppShellSlotted,
 	Avatar,
+	type BriefCategoryFilter,
 	Button,
 	FilterPanelProvider,
 	type FilterPreset,
@@ -37,6 +42,7 @@ import {
 	FilterToggle,
 	type IntelligenceData,
 	IntelligencePanel,
+	type ListState,
 	MakeFilterAction,
 	MessageListPane,
 	MobileSearchView,
@@ -55,6 +61,7 @@ import {
 	type ThreadData,
 	type ThreadSection,
 	useSuggestList,
+	type Verb,
 } from "@remit/ui";
 import { Pencil, Search, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -75,6 +82,34 @@ export interface MailShellProps {
 	listTitle?: string;
 	unreadCount?: number;
 	sections?: ThreadSection[];
+	/** Seeds the brief's category scope; the shell owns it from there. */
+	briefCategory?: BriefCategoryFilter;
+	/** Rows ticked on mount, for a story whose subject is a selection. */
+	selectedIds?: string[];
+	/**
+	 * What a verb on the list's selection bar does, given the rows ticked when it
+	 * is pressed. Absent, the bar's own delete and mark-read act on the list.
+	 */
+	onVerb?: (verb: Verb, selected: ReadonlySet<string>) => void;
+	/**
+	 * Offers "Make this a filter" in the pane for a view that is already a page
+	 * of results. An active query offers it on its own.
+	 */
+	onMakeFilter?: () => void;
+	/** The list where it has no rows: empty, loading, error. */
+	listState?: ListState;
+	/**
+	 * Replaces the list pane whole — a view that brings its own header and body,
+	 * the way Drafts and the Outbox do in the app.
+	 */
+	list?: ReactNode;
+	/** Replaces the reading pane, which compose takes over on desktop. */
+	reading?: ReactNode;
+	/**
+	 * Rendered over the shell: the compose sheet, a dialog, the selection wizard.
+	 * Takes the place of the single-pane compose FAB.
+	 */
+	overlay?: ReactNode;
 	/** Brief mode: collapsible sections that own their filter row. */
 	briefFilters?: boolean;
 	/** Plain mailbox: one flat list with the filter sheet slotted above it. */
@@ -234,6 +269,10 @@ function ListPane({
 	unreadCount,
 	sections,
 	briefFilters,
+	briefCategory,
+	listState,
+	selectedIds,
+	onVerb,
 	preset,
 	selectedThreadId,
 	singlePane,
@@ -246,6 +285,10 @@ function ListPane({
 	unreadCount: number;
 	sections: ThreadSection[];
 	briefFilters?: boolean;
+	briefCategory?: BriefCategoryFilter;
+	listState?: ListState;
+	selectedIds?: string[];
+	onVerb?: (verb: Verb, selected: ReadonlySet<string>) => void;
 	preset?: FilterPreset;
 	selectedThreadId?: string;
 	singlePane: boolean;
@@ -257,7 +300,10 @@ function ListPane({
 	const suggest = useShellSuggest(search);
 	const [category, setCategory] = useState("all");
 	const [filters, setFilters] = useState<ReadonlySet<string>>(new Set());
-	const triage = useListTriage(sections);
+	const [brief, setBrief] = useState<BriefCategoryFilter>(
+		briefCategory ?? "all",
+	);
+	const triage = useListTriage(sections, selectedIds);
 
 	const hasQuery = search.query.trim().length > 0;
 	const searchExpanded = singlePane && (searchOpen || hasQuery);
@@ -313,6 +359,10 @@ function ListPane({
 			listTitle={title}
 			sections={triage.sections}
 			briefFilters={briefFilters}
+			briefCategory={brief}
+			onSelectBriefCategory={setBrief}
+			listState={listState}
+			listScopeLabel={title}
 			flatList={!briefFilters}
 			selectedThreadId={selectedThreadId}
 			isDesktop={!singlePane}
@@ -346,6 +396,7 @@ function ListPane({
 			<section className="flex h-full w-full flex-col bg-surface">
 				<ListSelectionBar
 					triage={triage}
+					onVerb={onVerb}
 					title={title}
 					titleMeta={
 						<>
@@ -396,7 +447,6 @@ function ListPane({
 						)
 					}
 					idleSlot={
-						hasQuery &&
 						search.makeFilter && <MakeFilterAction {...search.makeFilter} />
 					}
 				/>
@@ -414,6 +464,14 @@ export function MailShell({
 	unreadCount = 12,
 	sections = [],
 	briefFilters,
+	briefCategory,
+	selectedIds,
+	onVerb,
+	onMakeFilter,
+	listState,
+	list: listOverride,
+	reading,
+	overlay,
 	preset,
 	thread,
 	selectedThreadId,
@@ -442,6 +500,9 @@ export function MailShell({
 	const [navOpen, setNavOpen] = useState(navOpenSeed);
 	const [railOpen, setRailOpen] = useState(intelligenceOpen);
 
+	const trimmed = searchQuery.trim();
+	const offersConversion = trimmed.length > 0 || Boolean(onMakeFilter);
+
 	const search: SearchState = {
 		query: searchQuery,
 		setQuery: setSearchQuery,
@@ -456,13 +517,14 @@ export function MailShell({
 		})),
 		recentSearches,
 		...(searchSuggestions ? { suggestions: searchSuggestions } : {}),
-		makeFilter: {
-			onClick: () => undefined,
-			blockedReason: makeFilterBlockedReason,
-		},
+		makeFilter: offersConversion
+			? {
+					onClick: onMakeFilter ?? (() => undefined),
+					blockedReason: makeFilterBlockedReason,
+				}
+			: undefined,
 	};
 
-	const trimmed = searchQuery.trim();
 	const nav = (
 		<NavSidebar
 			accounts={navAccounts}
@@ -477,12 +539,16 @@ export function MailShell({
 		/>
 	);
 
-	const list = (
+	const list = listOverride ?? (
 		<ListPane
 			title={listTitle}
 			unreadCount={unreadCount}
 			sections={sections}
 			briefFilters={briefFilters}
+			briefCategory={briefCategory}
+			listState={listState}
+			selectedIds={selectedIds}
+			onVerb={onVerb}
 			preset={preset}
 			selectedThreadId={selectedThreadId}
 			singlePane={singlePane}
@@ -500,14 +566,16 @@ export function MailShell({
 			topBar={singlePane ? undefined : <TopBar search={search} />}
 			list={list}
 			reading={
-				singlePane ? undefined : (
-					<ReadingPane
-						thread={thread}
-						intelligenceOpen={railOpen}
-						canToggleIntelligence={Boolean(thread && intelligence)}
-						onToggleIntelligence={() => setRailOpen((open) => !open)}
-					/>
-				)
+				singlePane
+					? undefined
+					: (reading ?? (
+							<ReadingPane
+								thread={thread}
+								intelligenceOpen={railOpen}
+								canToggleIntelligence={Boolean(thread && intelligence)}
+								onToggleIntelligence={() => setRailOpen((open) => !open)}
+							/>
+						))
 			}
 			intelligence={
 				intelligence ? (
@@ -520,7 +588,7 @@ export function MailShell({
 			}
 			intelligenceOpen={railOpen}
 			hasThread={Boolean(thread)}
-			overlay={singlePane ? <ComposeFab /> : undefined}
+			overlay={overlay ?? (singlePane ? <ComposeFab /> : undefined)}
 			isLoading={isLoading}
 			skeleton={
 				<div className="flex h-full w-full items-center justify-center bg-canvas text-sm text-fg-muted">

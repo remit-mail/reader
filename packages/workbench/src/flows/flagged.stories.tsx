@@ -1,6 +1,7 @@
-import { AppShell } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { flaggedThreads, navAccounts } from "../fixtures/workspace.js";
+import { flaggedThreads } from "../fixtures/workspace.js";
+import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
+import { MailShell } from "../screens/mail-shell.js";
 
 /**
  * Flagged — the virtual mailbox reintroduced in #982. A FLAT, cross-account
@@ -8,14 +9,13 @@ import { flaggedThreads, navAccounts } from "../fixtures/workspace.js";
  * continuous list of every flagged thread. "Flagged" is the active nav item,
  * directly under "Daily brief".
  */
-const meta: Meta<typeof AppShell> = {
+const meta: Meta = {
 	title: "Flows/Flagged",
-	component: AppShell,
 	parameters: { layout: "fullscreen" },
 };
 export default meta;
 
-type Story = StoryObj<typeof AppShell>;
+type Story = StoryObj;
 
 const flaggedSection = [{ id: "flagged", threads: flaggedThreads }];
 const flaggedUnread = flaggedThreads.filter((t) => !t.isRead).length;
@@ -27,29 +27,26 @@ const flaggedUnread = flaggedThreads.filter((t) => !t.isRead).length;
  */
 export const Default: Story = {
 	render: () => (
-		<AppShell
-			accounts={navAccounts}
+		<MailShell
 			selectedNavId="flagged"
 			listTitle="Starred"
-			listMeta={`${flaggedUnread} unread`}
+			unreadCount={flaggedUnread}
 			sections={flaggedSection}
-			flatList
 		/>
 	),
 };
 
 /** Phone width (390 px): the same flat starred list, single-pane. */
 export const Phone: Story = {
-	globals: { viewport: { value: "mobile" } },
+	parameters: phoneParams,
+	decorators: [phoneFrame],
 	render: () => (
-		<AppShell
-			accounts={navAccounts}
-			initialWidth={390}
+		<MailShell
+			width={PHONE_WIDTH}
 			selectedNavId="flagged"
 			listTitle="Starred"
-			listMeta={`${flaggedUnread} unread`}
+			unreadCount={flaggedUnread}
 			sections={flaggedSection}
-			flatList
 		/>
 	),
 };
@@ -57,12 +54,11 @@ export const Phone: Story = {
 /** Nothing flagged yet — the empty state stands in for the rows. */
 export const Empty: Story = {
 	render: () => (
-		<AppShell
-			accounts={navAccounts}
+		<MailShell
 			selectedNavId="flagged"
 			listTitle="Starred"
+			unreadCount={0}
 			sections={[]}
-			flatList
 			listState="empty"
 		/>
 	),

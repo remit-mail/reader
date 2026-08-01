@@ -5,12 +5,14 @@ import {
 } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { RotateCcw, Send, Trash2 } from "lucide-react";
+import { MailShell } from "../screens/mail-shell.js";
 
 /**
  * Design source for the outbox (#788): the status-tinted message list (queued /
  * sending / sent / failed / blocked), row actions on the unsendable states, and
- * the empty zero-state. Mirrors `routes/mail/outbox.tsx`; the status badge is
- * the shared remit-ui `OutboxStatusBadge`.
+ * the empty zero-state. Mirrors `routes/mail/outbox.tsx`, a two-pane view —
+ * list and reading, no intelligence rail — inside the app shell. The status
+ * badge is the shared remit-ui `OutboxStatusBadge`.
  */
 
 const meta: Meta = {
@@ -81,17 +83,13 @@ function OutboxRow({ row }: { row: Row }) {
 	);
 }
 
-function OutboxList({ rows }: { rows: Row[] }) {
+function OutboxPane({ children }: { children: React.ReactNode }) {
 	return (
-		<div className="flex h-dvh w-full flex-col bg-surface">
+		<div className="flex h-full w-full flex-col bg-surface">
 			<header className="flex h-pane-header shrink-0 items-center border-b border-line px-row-inset">
 				<h1 className="text-sm font-semibold text-fg">Outbox</h1>
 			</header>
-			<div className="min-h-0 flex-1 overflow-y-auto">
-				{rows.map((row) => (
-					<OutboxRow key={`${row.status}-${row.subject}`} row={row} />
-				))}
-			</div>
+			<div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
 		</div>
 	);
 }
@@ -99,41 +97,50 @@ function OutboxList({ rows }: { rows: Row[] }) {
 /** One row per status, including the unsendable states with row actions. */
 export const AllStatuses: Story = {
 	render: () => (
-		<OutboxList
-			rows={[
-				{
-					status: "queued",
-					to: "ada@example.com",
-					subject: "Re: Q3 planning",
-					when: "2:14 PM",
-				},
-				{
-					status: "sending",
-					to: "team@example.com",
-					subject: "Weekly update",
-					when: "2:13 PM",
-				},
-				{
-					status: "sent",
-					to: "grace@example.com",
-					subject: "Invoice #1042",
-					when: "1:58 PM",
-				},
-				{
-					status: "failed",
-					to: "linus@example.com",
-					subject: "Design review notes",
-					when: "1:40 PM",
-					error: "SMTP connection timed out",
-				},
-				{
-					status: "blocked",
-					to: "ken@example.com",
-					subject: "Re: contract",
-					when: "Yesterday",
-					error: "No SMTP server configured for this account",
-				},
-			]}
+		<MailShell
+			selectedNavId="outbox"
+			list={
+				<OutboxPane>
+					{(
+						[
+							{
+								status: "queued",
+								to: "ada@example.com",
+								subject: "Re: Q3 planning",
+								when: "2:14 PM",
+							},
+							{
+								status: "sending",
+								to: "team@example.com",
+								subject: "Weekly update",
+								when: "2:13 PM",
+							},
+							{
+								status: "sent",
+								to: "grace@example.com",
+								subject: "Invoice #1042",
+								when: "1:58 PM",
+							},
+							{
+								status: "failed",
+								to: "linus@example.com",
+								subject: "Design review notes",
+								when: "1:40 PM",
+								error: "SMTP connection timed out",
+							},
+							{
+								status: "blocked",
+								to: "ken@example.com",
+								subject: "Re: contract",
+								when: "Yesterday",
+								error: "No SMTP server configured for this account",
+							},
+						] satisfies Row[]
+					).map((row) => (
+						<OutboxRow key={`${row.status}-${row.subject}`} row={row} />
+					))}
+				</OutboxPane>
+			}
 		/>
 	),
 };
@@ -141,8 +148,13 @@ export const AllStatuses: Story = {
 /** Empty outbox. */
 export const Empty: Story = {
 	render: () => (
-		<div className="flex h-dvh w-full bg-surface">
-			<ReadingPaneEmpty message="No outbox messages" showHints={false} />
-		</div>
+		<MailShell
+			selectedNavId="outbox"
+			list={
+				<OutboxPane>
+					<ReadingPaneEmpty message="No outbox messages" showHints={false} />
+				</OutboxPane>
+			}
+		/>
 	),
 };

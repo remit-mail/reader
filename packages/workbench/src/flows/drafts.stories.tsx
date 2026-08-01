@@ -1,11 +1,13 @@
 import { Avatar } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { FileText, Inbox } from "lucide-react";
+import { MailShell } from "../screens/mail-shell.js";
 
 /**
  * Design source for the segmented Drafts view (#788): Remit drafts not yet sent
  * sit above the IMAP \Drafts already on the server, each under a labeled
- * section header. Mirrors `DraftsView.tsx`.
+ * section header. Mirrors `DraftsView.tsx`, which brings its own pane header
+ * and takes the list pane's place inside the app shell.
  */
 
 const meta: Meta = {
@@ -61,44 +63,62 @@ function DraftRow({
 	);
 }
 
-export const Segmented: Story = {
-	render: () => (
-		<div className="flex h-dvh w-full flex-col bg-surface">
+function DraftsPane({ children }: { children: React.ReactNode }) {
+	return (
+		<div className="flex h-full w-full flex-col bg-surface">
 			<header className="flex h-pane-header shrink-0 items-center border-b border-line px-row-inset">
 				<h1 className="text-sm font-semibold text-fg">Drafts</h1>
 			</header>
-			<div className="min-h-0 flex-1 overflow-y-auto">
-				<SectionHeader
-					icon={<FileText className="size-3" />}
-					label="Not yet sent (Remit)"
-					count={2}
-				/>
-				<DraftRow
-					to="Ada"
-					subject="Re: Q3 planning"
-					snippet="Thanks — that works…"
-				/>
-				<DraftRow to="Team" subject="" snippet="(no subject yet)" />
-				<SectionHeader
-					icon={<Inbox className="size-3" />}
-					label="On the server"
-					count={1}
-				/>
-				<DraftRow
-					to="Grace"
-					subject="Conference talk outline"
-					snippet="Here's the rough structure for…"
-				/>
-			</div>
+			<div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
 		</div>
+	);
+}
+
+export const Segmented: Story = {
+	render: () => (
+		<MailShell
+			selectedNavId="mbx_personal_drafts"
+			list={
+				<DraftsPane>
+					<SectionHeader
+						icon={<FileText className="size-3" />}
+						label="Not yet sent (Remit)"
+						count={2}
+					/>
+					<DraftRow
+						to="Ada"
+						subject="Re: Q3 planning"
+						snippet="Thanks — that works…"
+					/>
+					<DraftRow to="Team" subject="" snippet="(no subject yet)" />
+					<SectionHeader
+						icon={<Inbox className="size-3" />}
+						label="On the server"
+						count={1}
+					/>
+					<DraftRow
+						to="Grace"
+						subject="Conference talk outline"
+						snippet="Here's the rough structure for…"
+					/>
+				</DraftsPane>
+			}
+		/>
 	),
 };
 
 export const Empty: Story = {
 	render: () => (
-		<div className="flex h-dvh w-full flex-col items-center justify-center bg-surface text-center">
-			<FileText className="size-10 text-fg-subtle" />
-			<p className="mt-3 text-sm text-fg-muted">No drafts</p>
-		</div>
+		<MailShell
+			selectedNavId="mbx_personal_drafts"
+			list={
+				<DraftsPane>
+					<div className="flex h-full flex-col items-center justify-center text-center">
+						<FileText className="size-10 text-fg-subtle" />
+						<p className="mt-3 text-sm text-fg-muted">No drafts</p>
+					</div>
+				</DraftsPane>
+			}
+		/>
 	),
 };

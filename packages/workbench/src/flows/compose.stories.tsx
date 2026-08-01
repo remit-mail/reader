@@ -1,6 +1,9 @@
-import { Button } from "@remit/ui";
+import { Button, inboxFilterConfig } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Loader2, Paperclip, Send, Trash2 } from "lucide-react";
+import { allThreads } from "../fixtures/workspace.js";
+import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
+import { MailShell } from "../screens/mail-shell.js";
 
 /**
  * Design source for the compose surface (#788). The live `ComposeForm` +
@@ -9,6 +12,10 @@ import { Loader2, Paperclip, Send, Trash2 } from "lucide-react";
  * ships in. The desktop Send button was reported clipped off the bottom of the
  * form — the Full story keeps the action bar pinned in view so a baseline
  * catches a regression.
+ *
+ * Compose is a surface inside the app, not beside it: on desktop it takes the
+ * reading pane over while the list and the top bar stay put, and on the phone
+ * it is a sheet over the single pane.
  */
 
 const meta: Meta = {
@@ -20,6 +27,14 @@ export default meta;
 type Story = StoryObj;
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
+
+const mailbox = {
+	selectedNavId: "mbx_personal_inbox",
+	listTitle: "Inbox",
+	unreadCount: 9,
+	sections: [{ id: "inbox", threads: allThreads }],
+	preset: inboxFilterConfig(),
+};
 
 function SaveStatusIndicator({ status }: { status: SaveStatus }) {
 	if (status === "saving")
@@ -102,7 +117,7 @@ function ComposeShell({
 	actionBar: React.ReactNode;
 }) {
 	return (
-		<div className="flex h-full w-full flex-col bg-surface">
+		<div className="flex h-full w-full min-h-0 flex-col bg-surface">
 			<Field label="To" value={to} />
 			<Field label="Subject" value={subject} />
 			<div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-md leading-relaxed text-fg">
@@ -116,13 +131,18 @@ function ComposeShell({
 /** Full-page compose (desktop). The action bar stays pinned, never clipped. */
 export const Full: Story = {
 	render: () => (
-		<div className="h-dvh">
-			<ComposeShell actionBar={<ActionBar saveStatus="saved" />} />
-		</div>
+		<MailShell
+			{...mailbox}
+			reading={<ComposeShell actionBar={<ActionBar saveStatus="saved" />} />}
+		/>
 	),
 };
 
-/** Inline reply within the reading pane — same form, compact frame. */
+/**
+ * Inline reply within the reading pane — the same form under the conversation
+ * it answers, in a compact frame. Its subject is the form, so it is shown on
+ * its own rather than in the shell.
+ */
 export const Inline: Story = {
 	render: () => (
 		<div className="mx-auto mt-8 h-[420px] w-[640px] overflow-hidden rounded-md border border-line">
@@ -135,28 +155,44 @@ export const Inline: Story = {
 	),
 };
 
-/** Mobile compose sheet (390). Full-screen, send within the viewport. */
+/**
+ * Mobile compose sheet (390): a sheet over the single pane, sent from within
+ * the viewport. The list it covers is still the list the user came from.
+ */
 export const MobileComposeSheet: Story = {
-	globals: { viewport: { value: "mobile" } },
+	parameters: phoneParams,
+	decorators: [phoneFrame],
 	render: () => (
-		<div className="h-dvh">
-			<ComposeShell actionBar={<ActionBar saveStatus="saving" />} />
-		</div>
+		<MailShell
+			{...mailbox}
+			width={PHONE_WIDTH}
+			overlay={
+				<>
+					<div className="absolute inset-0 z-40 bg-black/40" />
+					<div className="absolute inset-x-0 bottom-0 z-50 h-[95%] overflow-hidden rounded-t-lg bg-canvas">
+						<ComposeShell actionBar={<ActionBar saveStatus="saving" />} />
+					</div>
+				</>
+			}
+		/>
 	),
 };
 
 /** SMTP not configured: Send no-ops and explains, never a dead grey button. */
 export const SendUnavailable: Story = {
 	render: () => (
-		<div className="h-dvh">
-			<ComposeShell
-				actionBar={
-					<ActionBar
-						canSend={false}
-						disabledReason="Add an SMTP server to this account to send"
-					/>
-				}
-			/>
-		</div>
+		<MailShell
+			{...mailbox}
+			reading={
+				<ComposeShell
+					actionBar={
+						<ActionBar
+							canSend={false}
+							disabledReason="Add an SMTP server to this account to send"
+						/>
+					}
+				/>
+			}
+		/>
 	),
 };
