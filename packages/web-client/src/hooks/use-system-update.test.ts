@@ -236,6 +236,28 @@ describe("SelfUpdateOverlay — the blocking screen", () => {
 		assert.match(dom.html(), /has not answered since the restart/);
 		assert.match(dom.html(), /remit logs/);
 	});
+
+	test("a poll that never answers gives up at the budget too", async () => {
+		saveHeldRun({
+			runId: "upd_1",
+			attemptedVersion: "0.9.4",
+			previousVersion: "0.9.3",
+			startedAt: Date.now() - 60 * 60_000,
+		});
+		http = mockFetch(() => new Promise(() => {}));
+		harness = createDomHarness();
+		harness.renderApp(
+			createElement(SelfUpdateProvider, null, createElement(SelfUpdateOverlay)),
+		);
+		await harness.flush();
+		await harness.wait(1);
+		await harness.flush();
+
+		assert.doesNotMatch(harness.html(), /Installing Remit 0\.9\.4/);
+		assert.match(harness.html(), /has not answered since the restart/);
+		assert.match(harness.html(), /remit logs/);
+		assert.equal(loadHeldRun(), null);
+	});
 });
 
 describe("useSystemUpdate — actions", () => {

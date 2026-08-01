@@ -470,6 +470,30 @@ describe("deriveUpdateSurface — a held run across a restart", () => {
 		assert.equal(result.releaseHeld, true);
 	});
 
+	test("a first poll still in flight keeps applying inside the budget", () => {
+		const result = deriveUpdateSurface(
+			input({ held: held({ startedAt: NOW - 20_000 }) }),
+		);
+		if (
+			result.surface.status !== "ready" ||
+			result.surface.overlay.kind !== "applying"
+		) {
+			assert.fail("expected the applying overlay");
+		}
+		assert.equal(result.surface.overlay.phase, "preparing");
+		assert.equal(result.clearStoredRun, false);
+	});
+
+	test("a poll that never answers gives up at the budget", () => {
+		const result = deriveUpdateSurface(
+			input({ held: held({ startedAt: NOW - BUDGET_MS - 60_000 }) }),
+		);
+		assert.equal(result.surface.status, "ready");
+		if (result.surface.status !== "ready") return;
+		assert.equal(result.surface.overlay.kind, "neverCameBack");
+		assert.equal(result.clearStoredRun, true);
+	});
+
 	test("an early server answer with no run yet keeps applying", () => {
 		const result = deriveUpdateSurface(
 			input({ data: response({ run: null }), held: held() }),

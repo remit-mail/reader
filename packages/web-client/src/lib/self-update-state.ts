@@ -9,9 +9,10 @@
  *
  * The design constraints (RFC 037 Interface, issue #135) live here:
  *  - A held run id turns a failed request into `applying`, never `unreachable`.
- *  - Once the apply budget plus a margin has passed with no answer, the same
- *    failure becomes "the server never came back" — a state that never claims
- *    the rollback ran, because from a dead connection the client cannot know.
+ *  - Once the apply budget plus a margin has passed with no answer — a failed
+ *    request or one still in flight — that silence becomes "the server never
+ *    came back", a state that never claims the rollback ran, because from a
+ *    dead connection the client cannot know.
  *  - The check block and the run block are independent: a check that cannot
  *    reach the update source is a failed check, never a failed update.
  */
@@ -326,6 +327,35 @@ function ready(
 }
 
 /**
+ * The client gave up waiting. The stored token goes so a reload cannot resume
+ * the same dead wait, while the in-memory hold stays: the screen has to sit
+ * still, and its retry has to keep polling, until the server answers for itself.
+ */
+function neverCameBack(held: HeldRun, elapsedSeconds: number): DeriveResult {
+	return {
+		surface: {
+			status: "ready",
+			section: applyingSection(
+				held.runId,
+				held.previousVersion,
+				held.attemptedVersion,
+				"reconnecting",
+				elapsedSeconds,
+			),
+			overlay: {
+				kind: "neverCameBack",
+				attemptedVersion: held.attemptedVersion,
+				previousVersion: held.previousVersion,
+				elapsedSeconds,
+				logsCommand: FALLBACK_LOGS_COMMAND,
+			},
+		},
+		clearStoredRun: true,
+		releaseHeld: false,
+	};
+}
+
+/**
  * A held run resolves to one of: still applying, gave up ("never came back"),
  * recovered but unaccountable, or — returning `null` — resolved terminally on
  * the server, in which case the caller renders the outcome from the response.
@@ -360,32 +390,17 @@ function deriveHeld(
 	}
 
 	if (isError) {
-		const section = applyingSection(
-			held.runId,
-			held.previousVersion,
-			held.attemptedVersion,
-			"reconnecting",
-			elapsedSeconds,
-		);
 		if (elapsedSeconds > budgetLimitSeconds()) {
-			return {
-				surface: {
-					status: "ready",
-					section,
-					overlay: {
-						kind: "neverCameBack",
-						attemptedVersion: held.attemptedVersion,
-						previousVersion: held.previousVersion,
-						elapsedSeconds,
-						logsCommand: FALLBACK_LOGS_COMMAND,
-					},
-				},
-				clearStoredRun: true,
-				releaseHeld: false,
-			};
+			return neverCameBack(held, elapsedSeconds);
 		}
 		return ready(
-			section,
+			applyingSection(
+				held.runId,
+				held.previousVersion,
+				held.attemptedVersion,
+				"reconnecting",
+				elapsedSeconds,
+			),
 			{
 				kind: "applying",
 				target: held.attemptedVersion,
@@ -397,9 +412,14 @@ function deriveHeld(
 		);
 	}
 
-	// No answer yet — the resume request is still in flight. Stay applying; only
-	// a real error or a real answer moves off it, never a pending first poll.
+	// No answer yet — the resume request is still in flight. A request that is
+	// pending looks exactly like one that will never settle, so the budget bounds
+	// this wait too: within it the client stays applying, past it it stops
+	// claiming an install is running and says what it cannot account for.
 	if (data === undefined) {
+		if (elapsedSeconds > budgetLimitSeconds()) {
+			return neverCameBack(held, elapsedSeconds);
+		}
 		return ready(
 			applyingSection(
 				held.runId,

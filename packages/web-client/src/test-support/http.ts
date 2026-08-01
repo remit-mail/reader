@@ -22,7 +22,8 @@ type Responder = (call: HttpCall) => unknown;
 
 /**
  * Answer every request with `responder`'s return value as JSON. Throwing from
- * the responder, or returning a `Response`, is how a test drives a failure.
+ * the responder, or returning a `Response`, is how a test drives a failure;
+ * returning a promise that never settles is how it drives a request that hangs.
  */
 export const mockFetch = (responder: Responder = () => ({})): HttpMock => {
 	const original = globalThis.fetch;
@@ -43,7 +44,7 @@ export const mockFetch = (responder: Responder = () => ({})): HttpMock => {
 		};
 		calls.push(call);
 
-		const result = responder(call);
+		const result = await responder(call);
 		if (result instanceof Response) return result;
 		return new Response(JSON.stringify(result ?? {}), {
 			status: 200,
