@@ -10,7 +10,10 @@ import {
 	LIVE_TOTALS,
 	totalRows,
 } from "./category-fixture.js";
-import { DrizzleThreadMessageRepository } from "./thread-message.js";
+import {
+	DrizzleThreadMessageRepository,
+	THREAD_SEARCH_MAX_LIMIT,
+} from "./thread-message.js";
 
 // The thread-message repo on sqlite (RFC 036 D1): CRUD, keyset pagination, and
 // text search — the FTS5 trigram index for terms of three characters or more
@@ -163,12 +166,9 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 	});
 
 	test("countByMailbox counts matches under the same predicate", async () => {
-		const n = await repo.countByMailbox(
-			ACCOUNT,
-			MAILBOX,
-			{ subject: "invoice" },
-			{ limit: 100 },
-		);
+		const n = await repo.countByMailbox(ACCOUNT, MAILBOX, {
+			subject: "invoice",
+		});
 		assert.ok(n >= 1);
 	});
 
@@ -754,9 +754,6 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 			assert.equal(seen.length, LIVE_TOTALS.social + LIVE_TOTALS.transactional);
 		});
 
-		// No `limit`: countByMailbox still clamps its answer to the clamped limit,
-		// which is what #305 changes. What this asserts is the predicate — the
-		// count is over the mailbox rather than over a page of it.
 		test("countByMailbox counts the matches in the mailbox, not the page", async () => {
 			assert.equal(
 				await repo.countByMailbox(
@@ -766,6 +763,34 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 					{ excludeDeleted: true },
 				),
 				LIVE_TOTALS.social,
+			);
+		});
+
+		// Regression for #509. The count was computed in full and then discarded
+		// down to THREAD_SEARCH_MAX_LIMIT, so this mailbox's 4,753 personal
+		// messages reported as 500 — a number that reads to the user as the whole
+		// match. A page size bounds the rows a response carries; it cannot bound
+		// how many messages match.
+		test("a match far larger than a page reports its real size", async () => {
+			assert.ok(
+				LIVE_TOTALS.personal > THREAD_SEARCH_MAX_LIMIT,
+				"the fixture has to outgrow the page cap for this to mean anything",
+			);
+			const page = await repo.searchByMailboxWindow(
+				CAT_ACCOUNT,
+				CAT_MAILBOX,
+				{ category: ["personal"] },
+				{ order: "desc", excludeDeleted: true },
+			);
+			assert.equal(page.items.length, THREAD_SEARCH_MAX_LIMIT);
+			assert.equal(
+				await repo.countByMailbox(
+					CAT_ACCOUNT,
+					CAT_MAILBOX,
+					{ category: ["personal"] },
+					{ excludeDeleted: true },
+				),
+				LIVE_TOTALS.personal,
 			);
 		});
 

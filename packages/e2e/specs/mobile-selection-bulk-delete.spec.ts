@@ -21,9 +21,9 @@
  * honestly and the npmbulk block below does exactly that. For a fixture that
  * fits in one page the trigger is still forced via `page.route`, injecting a
  * `continuationToken` into that one response. Everything downstream —
- * `escalate()`'s own counting (a *different* request, paged at limit=100) and
- * the run it drives — is completely real against the messages seeded below and
- * is never touched by the mock.
+ * `escalate()`'s own count (a *different* request, asking the server how many
+ * match and for no rows) and the run it drives — is completely real against the
+ * messages seeded below and is never touched by the mock.
  */
 import type { Locator, Page } from "@playwright/test";
 import { ApiClient, waitFor } from "../src/api.js";
@@ -48,21 +48,22 @@ const rows = (page: Page): Locator => page.locator("[data-message-row]");
  *  legitimately reports more to come. */
 const LIST_PAGE_SIZE = 50;
 
-/** The page size `useEscalatedActions` pages its own counting and run requests
- *  at, which is what tells them apart from the list's browsing query. */
+/** The page size `useEscalatedActions` pages its run requests at, which is what
+ *  tells them apart from the list's browsing query. */
 const ESCALATION_PAGE_SIZE = "100";
 
 /**
  * The list's own browsing request for one query. Never `useEscalatedActions`'s
- * counting or run requests: since #306 the browsing query sends the list page
- * size explicitly, so the page size asked for is what separates the two.
+ * count or run requests: the count asks for `count=true` and no rows, and the
+ * run pages at its own size, which since #306 the browsing query never uses.
  */
 const isBrowsingSearchRequest = (url: string, query: string): boolean => {
 	const parsed = new URL(url);
 	return (
 		parsed.pathname.endsWith("/threads/search") &&
 		parsed.searchParams.get("query") === query &&
-		parsed.searchParams.get("limit") !== ESCALATION_PAGE_SIZE
+		parsed.searchParams.get("limit") !== ESCALATION_PAGE_SIZE &&
+		parsed.searchParams.get("count") !== "true"
 	);
 };
 
@@ -187,13 +188,11 @@ const gotoSearch = async (
 /**
  * Forces `hasMore` true for one mailbox search term without seeding more matches
  * than a page holds (see file header). Only the list's own browsing request for
- * the given query is touched; `useEscalatedActions`'s counting and delete
- * requests are handed straight through, identified by the page size they ask
- * for. That is the one thing separating the two: since #306 the browsing query
- * sends the list page size explicitly, so "carries no `limit`" no longer
- * identifies anything. Real items from the real backend are left untouched;
- * only a `continuationToken` is added when the response didn't already carry
- * one.
+ * the given query is touched; `useEscalatedActions`'s count and delete requests
+ * are handed straight through, identified by what they ask for — a count with no
+ * rows, or the run's own page size. Real items from the real backend are left
+ * untouched; only a `continuationToken` is added when the response didn't
+ * already carry one.
  *
  * Returns a release: from the next response on, the real `hasMore` is handed
  * through untouched. A test that goes on to shrink the match set has to call
@@ -650,8 +649,8 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 		await expect(escalate).toBeVisible();
 		await escalate.click();
 
-		// The total is real: escalate() pages the match set itself at limit=100,
-		// a request this test never mocks.
+		// The total is real: escalate() asks the server how many match, a request
+		// this test never mocks.
 		await expect(selectionStatus(page)).toHaveText(
 			`All ${NPM_MAIN_COUNT} matching "npmbulk" selected`,
 			{ timeout: 15_000 },

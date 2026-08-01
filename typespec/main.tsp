@@ -514,7 +514,7 @@ namespace RemitApi {
       @query(#{ explode: true })
       dkimMismatch?: boolean,
 
-      @doc("Include a count of matches within the server-capped window.")
+      @doc("Include how many messages the query matches. Counted over the whole mailbox, independent of `limit`.")
       @query(#{ explode: true })
       count?: boolean,
 
@@ -522,7 +522,7 @@ namespace RemitApi {
       @query(#{ explode: true })
       results?: boolean,
 
-      @doc("Caller-set recency window, capped server-side at 500. Bounds the read.")
+      @doc("Page size for the rows returned, capped server-side at 500. Bounds the read, not the `count`.")
       @query(#{ explode: true })
       limit?: int32,
     ): ThreadSearchResponse;

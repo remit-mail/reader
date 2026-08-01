@@ -174,7 +174,6 @@ export interface IThreadMessageRepository {
 		mailboxId: string,
 		search: SearchOptions,
 		options?: {
-			limit?: number;
 			excludeDeleted?: boolean;
 			order?: "asc" | "desc";
 		},

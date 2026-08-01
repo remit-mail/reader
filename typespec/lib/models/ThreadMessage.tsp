@@ -264,10 +264,10 @@ model ThreadMessageResponse {
 
 @doc("""
   Aggregate response for `searchThreads`. Carries the matching rows (`items`), a
-  pagination `continuationToken`, and an optional `count` of matches within the
-  server-capped window. `items` is omitted when `results=false` (count-only);
-  `count` is present only when `count=true`. Thread-specific so the shared
-  `ResultList<T>` (7 endpoints) stays untouched.
+  pagination `continuationToken`, and an optional `count` of every message the
+  query matches. `items` is omitted when `results=false` (count-only); `count` is
+  present only when `count=true`. Thread-specific so the shared `ResultList<T>`
+  (7 endpoints) stays untouched.
   """)
 model ThreadSearchResponse {
   @doc("Matching thread rows for this page. Omitted when `results=false` (count-only mode).")
@@ -277,6 +277,6 @@ model ThreadSearchResponse {
   @continuationToken
   continuationToken?: String800;
 
-  @doc("Number of matches within the server-capped window. Present only when `count=true`.")
+  @doc("How many messages the query matches, over the whole mailbox and independent of `limit`. Present only when `count=true`. With `senderTrust` or `dkimMismatch` in the query the count is over the enriched window instead, since those are resolved off the row.")
   count?: int32;
 }

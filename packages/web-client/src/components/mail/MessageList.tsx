@@ -45,11 +45,7 @@ import {
 	escalatedStatusLabel,
 	escalationActionLabel,
 } from "@/lib/escalation-label";
-import {
-	formatDeleteToTrashTitle,
-	formatEmailDate,
-	formatNumber,
-} from "@/lib/format";
+import { formatDeleteToTrashTitle, formatEmailDate } from "@/lib/format";
 import { tabStopId } from "@/lib/list-focus";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import { shouldExitSelectionOnNavigate } from "@/lib/selection-mode";
@@ -1099,9 +1095,7 @@ export const MessageList = ({
 				escalation.progress?.total ?? selectionCount,
 			)
 		: escalation.phase.kind === "counting"
-			? escalation.phase.countSoFar >= 5000
-				? `Counting… ${formatNumber(escalation.phase.countSoFar)} so far. This is a big result set.`
-				: `Counting… ${formatNumber(escalation.phase.countSoFar)} so far`
+			? "Counting matches…"
 			: escalation.phase.kind === "escalated"
 				? escalatedStatusLabel(searchPredicate ?? {}, escalation.phase.total)
 				: undefined;

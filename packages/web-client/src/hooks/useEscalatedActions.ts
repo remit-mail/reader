@@ -18,7 +18,6 @@ import {
 	type ApplyBatch,
 	type BulkActionProgress,
 	type BulkRunOutcome,
-	countMatches,
 	type FetchIdsPage,
 	honestProgress,
 	runChunkedAction,
@@ -53,16 +52,14 @@ export type EscalatedAction =
 	| { kind: "move"; destinationMailboxId: string }
 	| { kind: "markRead" };
 
-/** Page size for both the counting and the execution loop. Set to the write
- *  side's own 100-id cap so an execution page IS a write chunk — no
- *  in-memory accumulation step between reading ids and sending them. Counting
- *  doesn't have that constraint but reuses the same page size rather than
- *  adding a second one to reason about. */
+/** Page size for the execution loop. Set to the write side's own 100-id cap so
+ *  an execution page IS a write chunk — no in-memory accumulation step between
+ *  reading ids and sending them. */
 const PAGE_SIZE = 100;
 
 export type EscalationPhase =
 	| { kind: "idle" }
-	| { kind: "counting"; countSoFar: number }
+	| { kind: "counting" }
 	| { kind: "escalated"; total: number };
 
 interface UseEscalatedActionsOptions {
@@ -80,12 +77,13 @@ interface UseEscalatedActionsOptions {
 
 export interface UseEscalatedActionsResult {
 	phase: EscalationPhase;
-	/** Begin paging the predicate's full match set to find its total. */
+	/** Ask the server how many messages the predicate matches, and switch the
+	 *  selection to that predicate once it answers. */
 	escalate: () => void;
 	/**
-	 * Stop whatever's running — counting or an action — at the next page
-	 * boundary. A no-op when nothing is running. The only thing that ends a run
-	 * in flight: leaving the selection, the wizard or the search does not.
+	 * Stop whatever's running — the count or an action — at the next boundary.
+	 * A no-op when nothing is running. The only thing that ends a run in
+	 * flight: leaving the selection, the wizard or the search does not.
 	 */
 	stop: () => void;
 	/**
@@ -181,11 +179,22 @@ export const useEscalatedActions = ({
 		[mailboxId],
 	);
 
-	const fetchIdsPage = useCallback<FetchIdsPage>(
-		(continuationToken) =>
-			fetchPagesOf(searchQueryRef.current)(continuationToken),
-		[fetchPagesOf],
-	);
+	/**
+	 * How many messages the predicate matches, straight from the server that
+	 * resolves it (#509). One count-only request: `limit` is a page size and has
+	 * no bearing on the answer, so nothing is paged to arrive at it.
+	 */
+	const fetchMatchCount = useCallback(async (): Promise<number> => {
+		const { data } = await threadOperationsSearchThreads({
+			path: { mailboxId },
+			query: { ...searchQueryRef.current, count: true, results: false },
+			throwOnError: true,
+		});
+		if (data.count === undefined) {
+			throw new Error("the search returned no count for the selection");
+		}
+		return data.count;
+	}, [mailboxId]);
 
 	const applyBatchFor = useCallback(
 		(action: EscalatedAction): ApplyBatch =>
@@ -235,30 +244,27 @@ export const useEscalatedActions = ({
 
 	const escalate = useCallback(() => {
 		cancelRef.current = false;
-		setPhase({ kind: "counting", countSoFar: 0 });
-		countMatches(
-			fetchIdsPage,
-			(countSoFar) => setPhase({ kind: "counting", countSoFar }),
-			() => cancelRef.current,
-		).then((result) => {
-			if (result.error) {
+		setPhase({ kind: "counting" });
+		fetchMatchCount().then(
+			(total) => {
+				if (cancelRef.current) {
+					setPhase({ kind: "idle" });
+					return;
+				}
+				setPhase({ kind: "escalated", total });
+			},
+			(error: unknown) => {
 				pushError(
 					buildMutationErrorBanner(
 						"Couldn't count matching messages",
 						"The count didn't finish.",
-						result.error,
+						error,
 					),
 				);
 				setPhase({ kind: "idle" });
-				return;
-			}
-			if (result.cancelled) {
-				setPhase({ kind: "idle" });
-				return;
-			}
-			setPhase({ kind: "escalated", total: result.total });
-		});
-	}, [fetchIdsPage, pushError]);
+			},
+		);
+	}, [fetchMatchCount, pushError]);
 
 	const stop = useCallback(() => {
 		cancelRef.current = true;
@@ -279,8 +285,8 @@ export const useEscalatedActions = ({
 			runningRef.current = true;
 			setRunningAction(action);
 			// `honestProgress` widens `total` if `done` overtakes it (#109) — the
-			// predicate can match more by the time the run re-pages it than
-			// `countMatches` saw, and the bar must never show more done than out of.
+			// predicate can match more by the time the run pages it than the count
+			// saw, and the bar must never show more done than out of.
 			const onProgress = (next: BulkActionProgress) =>
 				setProgress(honestProgress(next));
 			const applyBatch = applyBatchFor(action);

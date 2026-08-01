@@ -241,6 +241,41 @@ describe("executeThreadSearch", () => {
 		);
 	});
 
+	// #509: `limit` is a page size. A response that carries a page of rows and a
+	// count has to state how many messages match, not how many it handed back.
+	it("counts the whole match when rows are asked for as well", async () => {
+		const pageSize = 2;
+		const matches = 4753;
+		const windowCalls: number[] = [];
+		const client: ThreadSearchClient = {
+			threadMessage: {
+				async searchByMailboxWindow(_account, _mailbox, _search, options) {
+					windowCalls.push(options?.limit ?? 0);
+					return {
+						items: ACCOUNT_ROWS.slice(0, pageSize),
+						continuationToken: "next",
+					};
+				},
+				async countByMailbox() {
+					return matches;
+				},
+			},
+			message: { get: async () => [] },
+			address: { getAddress: async () => [] },
+			messageLabel: { listByMessageIds: async () => [] },
+			label: { listByAccountConfig: async () => [] },
+		};
+
+		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {
+			count: true,
+			limit: pageSize,
+		});
+
+		assert.deepEqual(windowCalls, [pageSize]);
+		assert.equal(response.items?.length, pageSize);
+		assert.equal(response.count, matches);
+	});
+
 	it("projects category, so the DynamoDB port reads it with the row", () => {
 		assert.ok(buildSearchThreadsOptions({}).attributes.includes("category"));
 		assert.ok(buildListThreadsOptions({}).attributes.includes("category"));
