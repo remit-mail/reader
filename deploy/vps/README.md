@@ -204,6 +204,12 @@ model in `search-index-worker` as the largest resident once indexing has run.
 The `observability` profile adds about 30 MB resident on top of that, measured
 rather than estimated — see [Looking at the box](#looking-at-the-box).
 
+Every Node service runs under a 512 MB V8 heap ceiling, so a heavy or runaway
+job fails inside its own container instead of taking the box with it. Move it
+with `REMIT_NODE_HEAP_MB` in `.env` — raise it on a larger box if indexing a big
+mailbox runs out of memory. The containers carry no hard memory limit on
+purpose: a slow job should stay slow, not be killed.
+
 Each worker's health is a heartbeat. A worker polls one queue per kind of work —
 `imap-worker` six of them — and each of those loops rewrites its own timestamp
 file on the `heartbeat` volume every poll cycle. The check reads the oldest of a

@@ -152,7 +152,10 @@ describe("the checker's compose surface", () => {
 		for (const entry of environment) {
 			assert.match(
 				entry,
-				/^DOCTOR_/,
+				// NODE_OPTIONS is the runtime's own memory ceiling, shared with every
+				// other Node service (compose-heap.test.mjs). It names no path, no
+				// endpoint and no credential, so it holds nothing a payload could leak.
+				/^(DOCTOR_|NODE_OPTIONS:)/,
 				`doctor's environment must hold DOCTOR_* only, found: ${entry}`,
 			);
 		}
