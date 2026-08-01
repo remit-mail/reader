@@ -178,16 +178,31 @@ describe("metrics registry", () => {
 		);
 	});
 
-	it("declares no unlabelled series, so no process renders a value it cannot know", async () => {
+	it("declares no application series, so no process renders a value it cannot know", async () => {
 		const text = await renderMetrics();
 		const samples = text
 			.split("\n")
-			.filter((line) => line.length > 0 && !line.startsWith("#"));
+			.filter((line) => line.startsWith("remit_"));
 		assert.deepEqual(
 			samples,
 			[],
-			"a fresh registry must render nothing until something records",
+			"a fresh registry must render no remit series until something records",
 		);
+	});
+
+	it("reports this process's own memory and event-loop health", async () => {
+		const text = await renderMetrics();
+		for (const name of [
+			"nodejs_heap_size_used_bytes",
+			"nodejs_heap_size_total_bytes",
+			"nodejs_external_memory_bytes",
+			"process_resident_memory_bytes",
+		]) {
+			assert.match(text, new RegExp(`^# TYPE ${name} gauge$`, "m"));
+			assert.ok(sample(text, name) > 0, `${name} rendered no value`);
+		}
+		assert.match(text, /^# TYPE nodejs_eventloop_lag_seconds gauge$/m);
+		assert.ok(sample(text, "nodejs_eventloop_lag_seconds") >= 0);
 	});
 
 	it("runs registered collectors before rendering", async () => {
