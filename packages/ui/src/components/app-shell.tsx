@@ -244,11 +244,10 @@ function AppShellList({
 			searchQuery={searchQuery}
 			onRetry={onRetry}
 			onReportError={onReportError}
-			briefCategory={briefCategory}
+			briefFilter={{ briefCategory, onSelectBriefCategory }}
 			selectedThreadId={selectedThreadId}
 			density={density}
 			onSelectThread={onSelectThread}
-			onSelectBriefCategory={onSelectBriefCategory}
 			onOpenNav={showNavPane ? undefined : layout?.openNav}
 			isDesktop={showReadingPane}
 			initialTouchState={initialTouchState}

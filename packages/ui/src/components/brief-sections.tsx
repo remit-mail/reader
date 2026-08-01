@@ -113,20 +113,29 @@ export interface BriefSourceControl {
 	onSelectSource?: (id: string) => void;
 }
 
-/**
- * The brief's whole filter surface as a host holds it. A host with a second
- * surface over the same rows — the phone search takeover — holds this one set
- * and hands it to both, so a chip set on either is set on both.
- */
-export type BriefFilterSurface = BriefSourceControl & BriefFilterControl;
-
-interface BriefSectionsBaseProps extends BriefSourceControl {
-	sections: ThreadSection[];
+/** The single category the sections are scoped to. */
+export interface BriefCategoryControl {
 	briefCategory?: BriefCategoryFilter;
+	onSelectBriefCategory?: (category: BriefCategoryFilter) => void;
+}
+
+/**
+ * The brief's whole filter surface as a host holds it: the category scope, the
+ * account pills and the attribute chips. A host with a second surface over the
+ * same rows — the phone search takeover — holds this one set and hands it to
+ * both, so a filter set on either is set on both.
+ */
+export type BriefFilterSurface = BriefCategoryControl &
+	BriefSourceControl &
+	BriefFilterControl;
+
+interface BriefSectionsBaseProps
+	extends BriefCategoryControl,
+		BriefSourceControl {
+	sections: ThreadSection[];
 	selectedThreadId?: string;
 	Row: BriefRowComponent;
 	onSelectThread?: (id: string) => void;
-	onSelectBriefCategory?: (category: BriefCategoryFilter) => void;
 	/**
 	 * Drop the filter row and its panel, keeping the rows where they are. See
 	 * `FilterSheetProps`.

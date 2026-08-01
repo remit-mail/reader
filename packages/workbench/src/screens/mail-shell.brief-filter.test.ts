@@ -9,7 +9,12 @@ import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import type { JSDOM } from "jsdom";
 import React, { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { briefSections, briefUnseen } from "../fixtures/workspace.js";
+import {
+	briefSections,
+	briefUnseen,
+	personalId,
+	workId,
+} from "../fixtures/workspace.js";
 import { MailShell } from "./mail-shell.js";
 
 const DESKTOP_WIDTH = 1440;
@@ -79,12 +84,35 @@ function mount(width: number) {
 	});
 }
 
-function click(element: Element) {
+/** The subject of the first row of each account, to tick one of each. */
+function subjectPerAccount(): [string, string] {
+	const threads = briefSections().flatMap((section) => section.threads);
+	const first = (accountId: string) =>
+		threads.find((thread) => thread.accountId === accountId)?.subject;
+	const personal = first(personalId);
+	const work = first(workId);
+	assert.ok(personal && work, "the fixture spans both accounts");
+	return [personal, work];
+}
+
+function click(element: Element, metaKey = false) {
 	act(() => {
 		element.dispatchEvent(
-			new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }),
+			new dom.window.MouseEvent("click", {
+				bubbles: true,
+				cancelable: true,
+				metaKey,
+			}),
 		);
 	});
+}
+
+function row(subject: string): HTMLElement {
+	const found = Array.from(
+		container.querySelectorAll<HTMLElement>("[data-list-row]"),
+	).find((node) => (node.textContent ?? "").includes(subject));
+	assert.ok(found, `no row reading "${subject}"`);
+	return found;
 }
 
 function byLabel(label: string): HTMLElement {
@@ -105,7 +133,12 @@ function pill(group: string, text: string): HTMLElement {
 }
 
 function isActive(element: Element): boolean {
-	return /accent-2/.test(element.className);
+	return element.getAttribute("aria-pressed") === "true";
+}
+
+function selectionCount(): string {
+	const bar = container.querySelector("[data-selection-count]");
+	return bar ? (bar.textContent ?? "") : "";
 }
 
 function rowCount(): number {
@@ -139,6 +172,22 @@ describe("the brief's account pills", () => {
 		assert.ok(rowCount() > 0, "the work account still has rows");
 		assert.ok(rowCount() < aggregate, "and fewer of them than the aggregate");
 	});
+
+	it("drop the ticked rows they hide from the selection", () => {
+		mount(DESKTOP_WIDTH);
+		click(byLabel("Expand filters"));
+		const [personal, work] = subjectPerAccount();
+		click(row(personal), true);
+		click(row(work), true);
+		assert.match(selectionCount(), /2 messages selected/);
+
+		click(pill("Accounts", "Work"));
+		assert.match(
+			selectionCount(),
+			/1 message selected/,
+			"a verb acts on the rows that are still on screen",
+		);
+	});
 });
 
 describe("the brief's attribute chips", () => {
@@ -152,7 +201,6 @@ describe("the brief's attribute chips", () => {
 		);
 
 		click(byLabel("Search"));
-		click(byLabel("Expand filters"));
 		assert.ok(
 			isActive(pill("Attributes", "Unread")),
 			"the takeover opens on the same selection",
@@ -161,11 +209,30 @@ describe("the brief's attribute chips", () => {
 
 		click(pill("Attributes", "Has attachment"));
 		click(byLabel("Clear and close search"));
-		click(byLabel("Expand filters"));
 		assert.ok(isActive(pill("Attributes", "Unread")));
 		assert.ok(
 			isActive(pill("Attributes", "Has attachment")),
 			"and a chip set in the takeover is on back in the panel",
+		);
+	});
+});
+
+describe("the brief's filter panel", () => {
+	it("is still up on the other side of the search takeover", () => {
+		mount(PHONE_WIDTH);
+		click(byLabel("Expand filters"));
+		click(byLabel("Search"));
+		assert.ok(
+			container.querySelector('[aria-label="Attributes"]'),
+			"the takeover opens on the panel the list left open",
+		);
+
+		click(byLabel("Collapse filters"));
+		click(byLabel("Clear and close search"));
+		assert.equal(
+			container.querySelector('[aria-label="Attributes"]'),
+			null,
+			"and closing it there closes it back on the list",
 		);
 	});
 });

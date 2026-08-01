@@ -264,7 +264,6 @@ export function FlaggedList({
 					onReportError={handleReportError}
 					selectedThreadId={selectedMessageId}
 					onSelectThread={onSelectMessage}
-					onSelectBriefCategory={() => undefined}
 					isDesktop={isDesktop}
 					selectionBar={<ThreadListSelectionBar title="Starred" />}
 					listBody={

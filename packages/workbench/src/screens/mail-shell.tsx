@@ -314,13 +314,14 @@ function ListPane({
 	onSearchOpenChange: (open: boolean) => void;
 }) {
 	const suggest = useShellSuggest(search);
-	// One selection for the whole view, held above both surfaces that narrow it:
-	// the panel the caret opens over the rows, and the phone search takeover that
-	// covers them. The takeover unmounts the panel, so a set living below would
-	// go with it.
+	// The filter, and whether its panel is up, held above both surfaces that
+	// narrow the view: the panel the caret opens over the rows, and the phone
+	// search takeover that replaces it. Anything living below goes with the
+	// surface that unmounts.
 	const [category, setCategory] = useState<string>(briefCategory ?? "all");
 	const [filters, setFilters] = useState<ReadonlySet<string>>(new Set());
 	const [source, setSource] = useState(briefSource ?? "all");
+	const [expanded, setExpanded] = useState(false);
 
 	const toggleFilter = (id: string) =>
 		setFilters((prev) => {
@@ -351,17 +352,21 @@ function ListPane({
 					: undefined,
 			selectedCategory: category,
 			activeFilters: filters,
+			expanded,
+			onExpandedChange: setExpanded,
 			onSelectCategory: setCategory,
 			onSelectSource: setSource,
 			onToggleFilter: toggleFilter,
 			onClear: clearFilters,
 		};
 
-	// The brief's own list applies the chips and the category itself, over the
-	// vocabulary it defines; the sheet speaks plain ids, so the shared set is
-	// narrowed to that vocabulary here rather than asserted into it.
+	// The brief's own list applies the category and the chips over the vocabulary
+	// it defines; the sheet speaks plain ids, so what is shared is narrowed to
+	// that vocabulary here rather than asserted into it.
 	const briefFilter: BriefFilterSurface | undefined = briefFilters
 		? {
+				briefCategory: isBriefCategory(category) ? category : "all",
+				onSelectBriefCategory: setCategory,
 				sources: filterConfig?.sources,
 				sourcesNote: filterConfig?.sourcesNote,
 				onSelectSource: setSource,
@@ -371,9 +376,6 @@ function ListPane({
 			}
 		: undefined;
 
-	// The account pill segments the aggregate, so it narrows the rows before the
-	// selection sees them: a ticked row the pill hides is not part of the list a
-	// verb acts on.
 	const scoped =
 		source === "all"
 			? sections
@@ -422,8 +424,6 @@ function ListPane({
 			listTitle={title}
 			sections={triage.sections}
 			briefFilters={briefFilters}
-			briefCategory={isBriefCategory(category) ? category : "all"}
-			onSelectBriefCategory={setCategory}
 			briefFilter={briefFilter}
 			listState={listState}
 			listScopeLabel={title}
@@ -457,7 +457,11 @@ function ListPane({
 	);
 
 	return (
-		<FilterPanelProvider hasSheet={sheet !== undefined || briefOwnsSheet}>
+		<FilterPanelProvider
+			hasSheet={sheet !== undefined || briefOwnsSheet}
+			open={expanded}
+			onOpenChange={setExpanded}
+		>
 			<section className="flex h-full w-full flex-col bg-surface">
 				<ListSelectionBar
 					triage={triage}

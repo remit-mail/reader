@@ -9,7 +9,7 @@ import {
 	type Verb,
 } from "@remit/ui";
 import { Menu } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 export interface ListTriage {
 	selection: ReturnType<typeof useSelection>;
@@ -52,6 +52,14 @@ export function useListTriage(
 
 	const { selectedIds, toggle, selectRange, clearSelection, setAnchor } =
 		selection;
+
+	// A row that leaves the list — an account pill, a chip, a completed verb —
+	// cannot stay selected. The same rule the app runs in
+	// `ThreadListInteraction`.
+	const { intersectWith } = selection;
+	useEffect(() => {
+		intersectWith(orderedIds);
+	}, [intersectWith, orderedIds]);
 
 	const paneSelection = useMemo<MessageListSelection>(
 		() => ({

@@ -138,19 +138,35 @@ const FilterPanelCtx = createContext<FilterPanelState | null>(null);
  * body is sometimes something else — a skeleton, an empty state, an error —
  * would otherwise inherit a caret over nothing by saying nothing. Compute it
  * from what the body renders, in the same pass that renders it.
+ *
+ * `open`/`onOpenChange` hand the panel's state to the host, for a view whose
+ * second surface — the phone search takeover — replaces this provider while it
+ * is up. Omit both and the provider keeps the state itself.
  */
 export function FilterPanelProvider({
 	children,
 	hasSheet,
+	open: openProp,
+	onOpenChange,
 }: {
 	children?: ReactNode;
 	hasSheet: boolean;
+	open?: boolean;
+	onOpenChange?: (open: boolean) => void;
 }) {
-	const [open, setOpen] = useState(false);
+	const [internalOpen, setInternalOpen] = useState(false);
 	const [active, setActive] = useState(false);
+	const open = openProp ?? internalOpen;
+	const setOpen = useCallback(
+		(next: boolean) => {
+			if (openProp === undefined) setInternalOpen(next);
+			onOpenChange?.(next);
+		},
+		[openProp, onOpenChange],
+	);
 	const value = useMemo(
 		() => ({ open, setOpen, active, setActive, hasSheet }),
-		[open, active, hasSheet],
+		[open, setOpen, active, hasSheet],
 	);
 	return (
 		<FilterPanelCtx.Provider value={value}>{children}</FilterPanelCtx.Provider>
@@ -304,6 +320,7 @@ export function FilterSheet({
 				<button
 					key={source.id}
 					type="button"
+					aria-pressed={Boolean(source.active)}
 					onClick={() => onSelectSource?.(source.id)}
 					className={cn(
 						"flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-2xs transition-colors",
@@ -337,6 +354,7 @@ export function FilterSheet({
 					<button
 						key={cat.id}
 						type="button"
+						aria-pressed={selected}
 						onClick={() => onSelectCategory(cat.id)}
 						className={cn(
 							"shrink-0 rounded-full transition-opacity",
@@ -363,6 +381,7 @@ export function FilterSheet({
 					<button
 						key={f.id}
 						type="button"
+						aria-pressed={on}
 						onClick={() => onToggleFilter(f.id)}
 						className={cn(
 							"shrink-0 rounded-full border px-2.5 py-0.5 text-2xs transition-colors",

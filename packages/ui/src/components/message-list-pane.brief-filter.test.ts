@@ -170,7 +170,11 @@ describe("the brief's filter panel inside the message list pane", () => {
 			(node) => (node.textContent ?? "").trim() === "Unread",
 		);
 		assert.ok(unread);
-		assert.match(unread.className, /accent-2/, "the held chip reads as active");
+		assert.equal(
+			unread.getAttribute("aria-pressed"),
+			"true",
+			"the held chip reads as active",
+		);
 		const attachment = Array.from(container.querySelectorAll("button")).find(
 			(node) => (node.textContent ?? "").trim() === "Has attachment",
 		);

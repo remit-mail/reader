@@ -68,7 +68,6 @@ const meta: Meta<typeof MessageListPane> = {
 		listMeta: "3 conversations",
 		sections,
 		onSelectThread: () => undefined,
-		onSelectBriefCategory: () => undefined,
 	},
 };
 export default meta;

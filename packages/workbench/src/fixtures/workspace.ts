@@ -550,16 +550,12 @@ const categorySections: ReadonlyArray<{
 	{ id: "automated", label: "Automated", category: "automated" },
 ];
 
-export function briefSections(accountId?: string): ThreadSection[] {
-	const pool = accountId
-		? unified.filter((t) => t.accountId === accountId)
-		: unified;
-
-	const byCategory = new Map<string, typeof pool>(
+export function briefSections(): ThreadSection[] {
+	const byCategory = new Map<string, typeof unified>(
 		categorySections.map((s) => [s.category ?? "personal", []]),
 	);
 
-	for (const t of pool) {
+	for (const t of unified) {
 		const category = t.category ?? "personal";
 		const bucket = byCategory.get(category) ?? byCategory.get("personal");
 		bucket?.push(t);
@@ -624,8 +620,8 @@ function makeFiller(
 const newsletterFiller = makeFiller("fill", 16, "newsletter");
 const personalFiller = makeFiller("attn", 12, "personal");
 
-export function briefSectionsLong(accountId?: string): ThreadSection[] {
-	return briefSections(accountId).map((section) => {
+export function briefSectionsLong(): ThreadSection[] {
+	return briefSections().map((section) => {
 		if (section.id === "personal")
 			return { ...section, threads: [...section.threads, ...personalFiller] };
 		if (section.id === "newsletter")

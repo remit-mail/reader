@@ -1320,7 +1320,6 @@ export const MessageList = ({
 						search: (prev) => ({ ...prev, selectedMessageId: id }),
 					})
 				}
-				onSelectBriefCategory={() => undefined}
 				isDesktop={isDesktop}
 				hideHeader={hideHeader}
 				selectionBar={activeSelectionBar}
