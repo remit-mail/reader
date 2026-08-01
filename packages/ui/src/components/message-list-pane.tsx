@@ -8,7 +8,7 @@ import type {
 	MessageListSelection,
 	TouchSeed,
 } from "./app-shell-types.js";
-import { BriefSections } from "./brief-sections.js";
+import { type BriefFilterSurface, BriefSections } from "./brief-sections.js";
 import { Button } from "./button.js";
 import { KeyboardHintBar } from "./keyboard-hint-bar.js";
 import {
@@ -46,11 +46,10 @@ export function MessageListPane({
 	errorMessage,
 	onRetry,
 	onReportError,
-	briefCategory,
+	briefFilter,
 	selectedThreadId,
 	density = "comfortable",
 	onSelectThread,
-	onSelectBriefCategory,
 	onOpenNav,
 	isDesktop,
 	initialTouchState,
@@ -71,11 +70,9 @@ export function MessageListPane({
 	| "errorMessage"
 	| "onRetry"
 	| "onReportError"
-	| "briefCategory"
 	| "selectedThreadId"
 	| "density"
 	| "onSelectThread"
-	| "onSelectBriefCategory"
 > & {
 	/**
 	 * The active category filter, when the caller has one. Without it the empty
@@ -84,6 +81,14 @@ export function MessageListPane({
 	 * unfiltered, so a surface that filters must pass this.
 	 */
 	listFilter?: MessageListFilter;
+	/**
+	 * The brief's category scope, account pills and attribute chips, held by the
+	 * caller. The cross-account brief is segmented from this panel, and a caller
+	 * narrowing the same rows on a second surface hands both the one set it
+	 * holds. Absent, the chips are the brief's own, no source row is offered and
+	 * every category is in scope.
+	 */
+	briefFilter?: BriefFilterSurface;
 	/** Name of the collection, e.g. "Inbox". Passed to the empty state. */
 	listScopeLabel?: string;
 	/** When set, the list header shows a folders/menu button that opens the nav
@@ -250,12 +255,11 @@ export function MessageListPane({
 				/>
 			) : briefFilters ? (
 				<BriefSections
+					{...(briefFilter ?? {})}
 					sections={sections}
-					briefCategory={briefCategory}
 					selectedThreadId={selectedThreadId}
 					Row={BriefRow}
 					onSelectThread={onSelectThread}
-					onSelectBriefCategory={onSelectBriefCategory}
 				/>
 			) : listBody != null ? (
 				/* Consumer-provided body wins on every width — it owns the rows

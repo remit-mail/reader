@@ -37,7 +37,6 @@ const baseProps = {
 	sections,
 	flatList: true,
 	onSelectThread: () => undefined,
-	onSelectBriefCategory: () => undefined,
 };
 
 describe("MessageListPane", () => {

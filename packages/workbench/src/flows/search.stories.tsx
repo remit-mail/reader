@@ -23,7 +23,6 @@
  * every view, the brief and a mailbox alike.
  */
 import {
-	briefFilterConfig,
 	inboxFilterConfig,
 	type SearchChip,
 	type SearchScope,
@@ -307,7 +306,6 @@ export const PhoneBriefTakeover: Story = {
 		<MailShell
 			{...brief}
 			width={WIDE_PHONE_WIDTH}
-			preset={briefFilterConfig()}
 			query={searchQuery}
 			searchSections={searchSections}
 			searchScope={globalScope}

@@ -35,13 +35,18 @@ import {
 	AppShellSlotted,
 	Avatar,
 	type BriefCategoryFilter,
+	type BriefFilterSurface,
 	Button,
+	briefFilterConfig,
 	FilterPanelProvider,
 	type FilterPreset,
 	FilterSheet,
+	type FilterSheetProps,
 	FilterToggle,
 	type IntelligenceData,
 	IntelligencePanel,
+	isBriefCategory,
+	isBriefFilterId,
 	type ListState,
 	MakeFilterAction,
 	MessageListPane,
@@ -65,7 +70,11 @@ import {
 } from "@remit/ui";
 import { Pencil, Search, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { navAccounts } from "../fixtures/workspace.js";
+import {
+	briefSources,
+	mutedAccountCount,
+	navAccounts,
+} from "../fixtures/workspace.js";
 import { ListSelectionBar, useListTriage } from "../lib/list-selection.js";
 
 /** The width at which the reading pane, the nav column and the top bar appear. */
@@ -84,6 +93,11 @@ export interface MailShellProps {
 	sections?: ThreadSection[];
 	/** Seeds the brief's category scope; the shell owns it from there. */
 	briefCategory?: BriefCategoryFilter;
+	/**
+	 * Seeds the account pill the brief is segmented by, `"all"` being the
+	 * aggregate. The shell owns it from there.
+	 */
+	briefSource?: string;
 	/** Rows ticked on mount, for a story whose subject is a selection. */
 	selectedIds?: string[];
 	/**
@@ -270,6 +284,7 @@ function ListPane({
 	sections,
 	briefFilters,
 	briefCategory,
+	briefSource,
 	listState,
 	selectedIds,
 	onVerb,
@@ -286,6 +301,7 @@ function ListPane({
 	sections: ThreadSection[];
 	briefFilters?: boolean;
 	briefCategory?: BriefCategoryFilter;
+	briefSource?: string;
 	listState?: ListState;
 	selectedIds?: string[];
 	onVerb?: (verb: Verb, selected: ReadonlySet<string>) => void;
@@ -298,34 +314,83 @@ function ListPane({
 	onSearchOpenChange: (open: boolean) => void;
 }) {
 	const suggest = useShellSuggest(search);
-	const [category, setCategory] = useState("all");
+	// The filter, and whether its panel is up, held above both surfaces that
+	// narrow the view: the panel the caret opens over the rows, and the phone
+	// search takeover that replaces it. Anything living below goes with the
+	// surface that unmounts.
+	const [category, setCategory] = useState<string>(briefCategory ?? "all");
 	const [filters, setFilters] = useState<ReadonlySet<string>>(new Set());
-	const [brief, setBrief] = useState<BriefCategoryFilter>(
-		briefCategory ?? "all",
-	);
-	const triage = useListTriage(sections, selectedIds);
+	const [source, setSource] = useState(briefSource ?? "all");
+	const [expanded, setExpanded] = useState(false);
+
+	const toggleFilter = (id: string) =>
+		setFilters((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+	const clearFilters = () => {
+		setCategory("all");
+		setFilters(new Set());
+		setSource("all");
+	};
+
+	// The brief spans every account, so the accounts are a dimension it always
+	// has: it brings its own preset rather than taking one from the story.
+	const activePreset = briefFilters
+		? briefFilterConfig(briefSources(source))
+		: preset;
+	const filterConfig: Omit<FilterSheetProps, "children"> | undefined =
+		activePreset && {
+			categories: activePreset.categories,
+			filters: activePreset.filters,
+			sources: activePreset.sources,
+			sourcesNote:
+				briefFilters && mutedAccountCount > 0
+					? `+${mutedAccountCount} muted`
+					: undefined,
+			selectedCategory: category,
+			activeFilters: filters,
+			expanded,
+			onExpandedChange: setExpanded,
+			onSelectCategory: setCategory,
+			onSelectSource: setSource,
+			onToggleFilter: toggleFilter,
+			onClear: clearFilters,
+		};
+
+	// The brief's own list applies the category and the chips over the vocabulary
+	// it defines; the sheet speaks plain ids, so what is shared is narrowed to
+	// that vocabulary here rather than asserted into it.
+	const briefFilter: BriefFilterSurface | undefined = briefFilters
+		? {
+				briefCategory: isBriefCategory(category) ? category : "all",
+				onSelectBriefCategory: setCategory,
+				sources: filterConfig?.sources,
+				sourcesNote: filterConfig?.sourcesNote,
+				onSelectSource: setSource,
+				activeFilters: new Set([...filters].filter(isBriefFilterId)),
+				onToggleFilter: toggleFilter,
+				onClearFilters: clearFilters,
+			}
+		: undefined;
+
+	const scoped =
+		source === "all"
+			? sections
+			: sections
+					.map((section) => ({
+						...section,
+						threads: section.threads.filter(
+							(thread) => thread.accountId === source,
+						),
+					}))
+					.filter((section) => section.threads.length > 0);
+	const triage = useListTriage(scoped, selectedIds);
 
 	const hasQuery = search.query.trim().length > 0;
 	const searchExpanded = singlePane && (searchOpen || hasQuery);
-	const filterConfig = preset && {
-		categories: preset.categories,
-		filters: preset.filters,
-		sources: preset.sources,
-		selectedCategory: category,
-		activeFilters: filters,
-		onSelectCategory: setCategory,
-		onToggleFilter: (id: string) =>
-			setFilters((prev) => {
-				const next = new Set(prev);
-				if (next.has(id)) next.delete(id);
-				else next.add(id);
-				return next;
-			}),
-		onClear: () => {
-			setCategory("all");
-			setFilters(new Set());
-		},
-	};
 
 	if (isPhone && searchOpen) {
 		return (
@@ -359,8 +424,7 @@ function ListPane({
 			listTitle={title}
 			sections={triage.sections}
 			briefFilters={briefFilters}
-			briefCategory={brief}
-			onSelectBriefCategory={setBrief}
+			briefFilter={briefFilter}
 			listState={listState}
 			listScopeLabel={title}
 			flatList={!briefFilters}
@@ -382,9 +446,10 @@ function ListPane({
 	// A query owns the pane: the filter sheet stands down and the search's own
 	// affordance takes its place, in the pane rather than in the results body, so
 	// it stays put when the body swaps between the panel and the list's own rows.
-	const sheet = hasQuery ? undefined : filterConfig;
-	// The brief's own sections carry a sheet; a plain mailbox gets one here.
+	// The brief's own sections carry a sheet, over the same config; a plain
+	// mailbox gets one here.
 	const briefOwnsSheet = Boolean(briefFilters) && !hasQuery;
+	const sheet = hasQuery || briefOwnsSheet ? undefined : filterConfig;
 	const body = sheet ? (
 		<FilterSheet {...sheet}>{inner}</FilterSheet>
 	) : (
@@ -392,7 +457,11 @@ function ListPane({
 	);
 
 	return (
-		<FilterPanelProvider hasSheet={sheet !== undefined || briefOwnsSheet}>
+		<FilterPanelProvider
+			hasSheet={sheet !== undefined || briefOwnsSheet}
+			open={expanded}
+			onOpenChange={setExpanded}
+		>
 			<section className="flex h-full w-full flex-col bg-surface">
 				<ListSelectionBar
 					triage={triage}
@@ -465,6 +534,7 @@ export function MailShell({
 	sections = [],
 	briefFilters,
 	briefCategory,
+	briefSource,
 	selectedIds,
 	onVerb,
 	onMakeFilter,
@@ -546,6 +616,7 @@ export function MailShell({
 			sections={sections}
 			briefFilters={briefFilters}
 			briefCategory={briefCategory}
+			briefSource={briefSource}
 			listState={listState}
 			selectedIds={selectedIds}
 			onVerb={onVerb}

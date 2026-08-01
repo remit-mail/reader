@@ -8,7 +8,9 @@
 		"storybook": "storybook dev -p 6007 --no-open",
 		"storybook:host": "storybook dev -p 6007 --no-open --host 0.0.0.0",
 		"build-storybook": "storybook build",
-		"test:typecheck": "tsgo --noEmit"
+		"test": "npm run test:typecheck && npm run test:run",
+		"test:typecheck": "tsgo --noEmit",
+		"test:run": "node --import tsx --test 'src/**/*.test.ts'"
 	},
 	"dependencies": {
 		"@aws-amplify/ui-react": "^6",
@@ -18,9 +20,11 @@
 	"devDependencies": {
 		"@storybook/react-vite": "^9",
 		"@tailwindcss/vite": "^4",
+		"@types/jsdom": "^28.0.3",
 		"@types/react": "^19",
 		"@types/react-dom": "^19",
 		"@vitejs/plugin-react": "^4",
+		"jsdom": "^29.1.1",
 		"msw": "^2",
 		"msw-storybook-addon": "^2",
 		"react": "^19",
