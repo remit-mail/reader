@@ -152,6 +152,28 @@ describe("MessageListPane", () => {
 		assert.doesNotMatch(html, /Every message in this folder was checked\./);
 	});
 
+	it("ticks the rows the consumer says are selected, and nothing else", () => {
+		const html = renderToString(
+			createElement(MessageListPane, {
+				...baseProps,
+				isDesktop: true,
+				selection: {
+					selectedIds: new Set(["t1"]),
+					onToggle: () => undefined,
+				},
+			}),
+		);
+		assert.match(html, /aria-label="Deselect message"/);
+		assert.match(html, /aria-label="Select message"/);
+	});
+
+	it("offers no checkbox at all when the consumer holds no selection", () => {
+		const html = renderToString(
+			createElement(MessageListPane, { ...baseProps, isDesktop: true }),
+		);
+		assert.doesNotMatch(html, /aria-label="Select message"/);
+	});
+
 	it("renders the selectionBar slot instead of the pane header when provided", () => {
 		const html = renderToString(
 			createElement(MessageListPane, {

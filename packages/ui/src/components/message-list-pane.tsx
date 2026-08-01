@@ -1,8 +1,13 @@
 import { Menu } from "lucide-react";
-import type { ReactNode } from "react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import type { MouseEvent, ReactNode } from "react";
+import { useCallback, useRef, useState } from "react";
 import { LIST_ROW_SELECTOR, useRovingFocus } from "../lib/roving-focus.js";
-import type { AppShellProps, TouchSeed } from "./app-shell-types.js";
+import { deriveIsMultiSelectMode, modifiersOf } from "../lib/use-selection.js";
+import type {
+	AppShellProps,
+	MessageListSelection,
+	TouchSeed,
+} from "./app-shell-types.js";
 import { BriefSections } from "./brief-sections.js";
 import { Button } from "./button.js";
 import { KeyboardHintBar } from "./keyboard-hint-bar.js";
@@ -16,11 +21,13 @@ import {
 	type BriefRowComponent,
 	ComfortableRow,
 	CompactRow,
+	type RowSelection,
 	type RowToggleEvent,
 } from "./message-row.js";
-import { SelectionTopBar } from "./selection-top-bar.js";
 import type { SwipePeek } from "./swipeable-row.js";
 import { TouchListBody } from "./touch-list.js";
+
+const NO_SELECTION: ReadonlySet<string> = new Set();
 
 /* ------------------------------------------------------------------ */
 /* Pane 2: message list (sectioned, dense, density toggle)            */
@@ -47,6 +54,7 @@ export function MessageListPane({
 	onOpenNav,
 	isDesktop,
 	initialTouchState,
+	selection,
 	selectionBar,
 	paneOverlay,
 	listBody,
@@ -85,9 +93,16 @@ export function MessageListPane({
 	isDesktop: boolean;
 	initialTouchState?: TouchSeed;
 	/**
-	 * Replaces the pane header when a selection is active. The caller controls
-	 * the selection state and toolbar actions (mark-read, move, delete, cancel).
-	 * When omitted the pane's built-in touch-triage selection bar is used.
+	 * The list's selection. The pane draws it — the row checkboxes, and the
+	 * always-visible ones the touch list shows once a row is ticked — and holds
+	 * none of it. Absent means the list does not offer multi-select.
+	 */
+	selection?: MessageListSelection;
+	/**
+	 * The pane header. The caller mounts it for every state of the list: a
+	 * `SelectionTopBar` names the view while nothing is ticked and carries the
+	 * count and the verbs (mark-read, move, delete, cancel) from the first
+	 * ticked row. Replaces the pane's own plain title header.
 	 */
 	selectionBar?: ReactNode;
 	/**
@@ -107,9 +122,8 @@ export function MessageListPane({
 	 */
 	listBody?: ReactNode;
 	/**
-	 * Suppress the built-in title header. The consumer owns the header (e.g. the
-	 * shared `MailHeader` rendered above the pane). The selection bar still
-	 * replaces the (now absent) header while a selection is active.
+	 * Suppress the built-in title header, for a consumer that renders its own
+	 * above the pane.
 	 */
 	hideHeader?: boolean;
 }) {
@@ -121,38 +135,7 @@ export function MessageListPane({
 	});
 
 	const touchTriage = !isDesktop && !briefFilters && listState === "ready";
-	const seededRows = sections.flatMap((section) => section.threads);
-	const [selectionMode, setSelectionMode] = useState(
-		initialTouchState === "selection",
-	);
-	// The seed is a touch-triage state; desktop starts unselected and gets there
-	// through the row checkboxes.
-	const [checkedIds, setCheckedIds] = useState<ReadonlySet<string>>(() =>
-		initialTouchState === "selection" && !isDesktop
-			? new Set(seededRows.slice(0, 2).map((t) => t.id))
-			: new Set(),
-	);
-	// What the fallback bar's verbs have done to the mock rows. A demo bar whose
-	// Trash only closes the bar is a Trash that deletes nothing, which is the one
-	// thing a selection bar must never be — so these verbs act on the rows the
-	// mock owns, the same way `refresh` below fakes a refresh visibly.
-	const [trashedIds, setTrashedIds] = useState<ReadonlySet<string>>(new Set());
-	const [readIds, setReadIds] = useState<ReadonlySet<string>>(new Set());
 	const [refreshing, setRefreshing] = useState(false);
-	const touchSections = useMemo(
-		() =>
-			trashedIds.size === 0 && readIds.size === 0
-				? sections
-				: sections.map((section) => ({
-						...section,
-						threads: section.threads
-							.filter((thread) => !trashedIds.has(thread.id))
-							.map((thread) =>
-								readIds.has(thread.id) ? { ...thread, isRead: true } : thread,
-							),
-					})),
-		[sections, trashedIds, readIds],
-	);
 	const initialPeek: SwipePeek | undefined =
 		initialTouchState === "peek-trailing"
 			? "trailing"
@@ -160,92 +143,70 @@ export function MessageListPane({
 				? "leading"
 				: undefined;
 
-	const toggleCheck = useCallback((id: string) => {
-		setCheckedIds((prev) => {
-			const next = new Set(prev);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-			if (next.size === 0) setSelectionMode(false);
-			return next;
-		});
-	}, []);
-	const enterSelection = (id: string) => {
-		setSelectionMode(true);
-		setCheckedIds(new Set([id]));
-	};
-	const cancelSelection = () => {
-		setSelectionMode(false);
-		setCheckedIds(new Set());
-	};
-	const trashChecked = () => {
-		setTrashedIds((prev) => new Set([...prev, ...checkedIds]));
-		cancelSelection();
-	};
-	const markCheckedRead = () => {
-		setReadIds((prev) => new Set([...prev, ...checkedIds]));
-		cancelSelection();
-	};
 	const refresh = () => {
 		setRefreshing(true);
 		setTimeout(() => setRefreshing(false), 1400);
 	};
 
-	// Desktop rows carry the checkbox the app's own rows have: it takes the
-	// avatar's place on hover, and checking one puts the pane in selection.
-	const desktopSelectable = isDesktop && !selectionBar && listState === "ready";
+	const selectedIds = selection?.selectedIds ?? NO_SELECTION;
+	const toggleSelected = selection?.onToggle;
+	const onRowSelect = selection?.onRowSelect;
+	// Multi-select is the touch affordance, and it is a function of the count
+	// rather than a flag, so ticking the last row off leaves it on its own.
+	const selectionMode = deriveIsMultiSelectMode(selectedIds.size, isDesktop);
+
+	// The checkbox takes the avatar's place on hover, and stays put once the row
+	// is ticked.
 	const rowSelection = useCallback(
-		(id: string) =>
-			desktopSelectable
-				? {
-						checked: checkedIds.has(id),
-						onToggle: (event: RowToggleEvent) => {
-							event.preventDefault();
-							event.stopPropagation();
-							toggleCheck(id);
-						},
-					}
-				: undefined,
-		[desktopSelectable, checkedIds, toggleCheck],
+		(id: string): RowSelection | undefined => {
+			if (!toggleSelected) return undefined;
+			return {
+				checked: selectedIds.has(id),
+				onToggle: (event: RowToggleEvent) => {
+					event.preventDefault();
+					event.stopPropagation();
+					toggleSelected(id);
+				},
+			};
+		},
+		[selectedIds, toggleSelected],
+	);
+
+	// Shift ranges and cmd/ctrl ticks, so a modified click never opens the row it
+	// was aimed at. Shift-click otherwise drags a native text selection across
+	// the rows it spans — the row highlight is the selection the user asked for.
+	const takeRowSelect = useCallback(
+		(id: string, event: MouseEvent): boolean => {
+			if (!onRowSelect?.(id, modifiersOf(event))) return false;
+			event.preventDefault();
+			if (event.shiftKey) window.getSelection()?.removeAllRanges();
+			return true;
+		},
+		[onRowSelect],
 	);
 
 	// The brief drives rows through a `BriefRowComponent`, whose props carry no
 	// selection — a consumer's own row (the web client's) wires its checkbox
 	// itself. Binding it here keeps the kit's rows selectable there too.
 	const BriefRow: BriefRowComponent = useCallback(
-		(props) => <Row {...props} selection={rowSelection(props.thread.id)} />,
-		[Row, rowSelection],
+		({ thread, active, onClick }) => (
+			<Row
+				thread={thread}
+				active={active}
+				selection={rowSelection(thread.id)}
+				onClick={(event) => {
+					if (takeRowSelect(thread.id, event)) return;
+					onClick?.();
+				}}
+			/>
+		),
+		[Row, rowSelection, takeRowSelect],
 	);
-
-	const selectableIds = seededRows.map((thread) => thread.id);
-	const allChecked =
-		selectableIds.length > 0 && selectableIds.every((id) => checkedIds.has(id));
-	const selectAll = {
-		checked: allChecked,
-		indeterminate: checkedIds.size > 0 && !allChecked,
-		onChange: () =>
-			setCheckedIds(allChecked ? new Set() : new Set(selectableIds)),
-	};
-
-	// When the caller supplies a selectionBar slot, it owns selection state.
-	// Fall back to the built-in bar only when no external bar is given.
-	const inBuiltinSelection =
-		!selectionBar &&
-		checkedIds.size > 0 &&
-		(desktopSelectable || (touchTriage && selectionMode));
 
 	return (
 		<section className="relative flex h-full w-full flex-col bg-surface">
 			{selectionBar ??
-				(inBuiltinSelection ? (
-					<SelectionTopBar
-						title={listTitle}
-						count={checkedIds.size}
-						selectAll={desktopSelectable ? selectAll : undefined}
-						onCancel={cancelSelection}
-						onMarkRead={markCheckedRead}
-						onDelete={trashChecked}
-					/>
-				) : hideHeader ? null : (
+				(hideHeader ? null : (
 					<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
 						{onOpenNav && (
 							<Button
@@ -304,13 +265,13 @@ export function MessageListPane({
 				listBody
 			) : touchTriage ? (
 				<TouchListBody
-					sections={touchSections}
+					sections={sections}
 					selectedThreadId={selectedThreadId}
 					selectionMode={selectionMode}
-					checkedIds={checkedIds}
+					checkedIds={selectedIds}
 					initialPeek={initialPeek}
-					onToggleCheck={toggleCheck}
-					onEnterSelection={enterSelection}
+					onToggleCheck={(id) => toggleSelected?.(id)}
+					onEnterSelection={(id) => toggleSelected?.(id)}
 					onOpenThread={(id) => onSelectThread?.(id)}
 					onRefresh={refresh}
 					refreshing={refreshing}
@@ -338,7 +299,10 @@ export function MessageListPane({
 										thread={thread}
 										active={thread.id === selectedThreadId}
 										selection={rowSelection(thread.id)}
-										onClick={() => onSelectThread?.(thread.id)}
+										onClick={(event) => {
+											if (takeRowSelect(thread.id, event)) return;
+											onSelectThread?.(thread.id);
+										}}
 									/>
 								))}
 							</div>

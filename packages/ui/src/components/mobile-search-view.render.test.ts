@@ -76,7 +76,7 @@ describe("MobileSearchView filter chrome", () => {
 		const html = renderToString(
 			createElement(
 				FilterPanelProvider,
-				null,
+				{ hasSheet: true },
 				createElement(MobileSearchView, {
 					...base,
 					value: "",

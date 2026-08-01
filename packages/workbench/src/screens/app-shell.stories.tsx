@@ -8,7 +8,7 @@ import {
 	TouchListBody,
 } from "@remit/ui";
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { expect, fireEvent, waitFor, within } from "storybook/test";
 import {
 	allThreads,
@@ -24,6 +24,7 @@ import {
 	q3Intelligence,
 	q3Thread,
 } from "../fixtures/workspace.js";
+import { ListSelectionBar, useListTriage } from "../lib/list-selection.js";
 
 /** A normal mailbox is one flat, unlabeled list of rows (no brief sections). */
 const flatInboxSection = [{ id: "inbox", threads: allThreads }];
@@ -54,20 +55,27 @@ export default meta;
 
 type Story = StoryObj<typeof AppShell>;
 
-/** Stateful wrapper: the intelligence pane toggles for real. */
+/** Stateful wrapper: the intelligence pane toggles for real, and the list's
+ *  selection lives here, above the kit, the way it lives above it in the app. */
 function StatefulShell({
 	startOpen = true,
+	initialSelectedIds,
 	...overrides
-}: Partial<AppShellProps> & { startOpen?: boolean }) {
+}: Partial<AppShellProps> & {
+	startOpen?: boolean;
+	initialSelectedIds?: string[];
+}) {
 	const [open, setOpen] = useState(startOpen);
+	const brief = useMemo(() => briefSections(), []);
+	const triage = useListTriage(overrides.sections ?? brief, initialSelectedIds);
+	const title = overrides.listTitle ?? "Daily brief";
+	const meta =
+		"listMeta" in overrides ? overrides.listMeta : `${briefUnseen} unread`;
 	return (
 		<AppShell
 			accounts={navAccounts}
 			selectedNavId="brief"
 			briefUnseen={briefUnseen}
-			listTitle="Daily brief"
-			listMeta={`${briefUnseen} unread`}
-			sections={briefSections()}
 			briefFilters
 			selectedThreadId="thr_q3"
 			thread={q3Thread}
@@ -75,6 +83,20 @@ function StatefulShell({
 			intelligenceOpen={open}
 			onToggleIntelligence={() => setOpen((v) => !v)}
 			{...overrides}
+			listTitle={title}
+			sections={triage.sections}
+			selection={triage.paneSelection}
+			selectionBar={
+				<ListSelectionBar
+					triage={triage}
+					title={title}
+					titleMeta={
+						meta && (
+							<span className="shrink-0 text-2xs text-fg-subtle">{meta}</span>
+						)
+					}
+				/>
+			}
 		/>
 	);
 }
@@ -374,17 +396,28 @@ const mobileParams = {
 	viewport: { value: "mobile" },
 };
 
-/** Renders the real AppShell seeded to phone width. */
-function PhoneShell(overrides: Partial<AppShellProps>) {
+/** Renders the real AppShell seeded to phone width, with the list's selection
+ *  held above the kit the way the app holds it. */
+function PhoneShell({
+	initialSelectedIds,
+	...overrides
+}: Partial<AppShellProps> & { initialSelectedIds?: string[] }) {
+	const triage = useListTriage(
+		overrides.sections ?? flatInboxSection,
+		initialSelectedIds,
+	);
+	const title = overrides.listTitle ?? "Inbox";
 	return (
 		<AppShell
 			accounts={navAccounts}
 			initialWidth={PHONE_WIDTH}
 			selectedNavId="mbx_personal_inbox"
-			listTitle="Inbox"
 			flatList
-			sections={flatInboxSection}
 			{...overrides}
+			listTitle={title}
+			sections={triage.sections}
+			selection={triage.paneSelection}
+			selectionBar={<ListSelectionBar triage={triage} title={title} />}
 		/>
 	);
 }
@@ -478,20 +511,25 @@ export const MobilePhishing: Story = {
 };
 
 /**
- * Phone selection mode: long-press promotes the list to multi-select. The list
- * header is REPLACED by the selection bar (cancel + count + mark-read + delete,
- * real Buttons, never disabled), and each selected row's avatar becomes a
- * checkbox. Seeded with the first two rows checked.
+ * Phone selection mode: long-press promotes the list to multi-select. The bar
+ * that names the mailbox carries the count and the verbs instead (cancel +
+ * count + mark-read + delete, real Buttons, never disabled), and each selected
+ * row's avatar becomes a checkbox. Seeded with the first two rows checked.
  *
  * The verbs act on the mock's own rows — trashed rows leave the list, marked
- * ones lose their unread dot. The app supplies its own bar here, where each
- * verb opens the selection wizard instead; what this pins is the shape of the
- * surface, not what a verb does to real mail.
+ * ones lose their unread dot. In the app each verb opens the selection wizard
+ * instead; what this pins is the shape of the surface, not what a verb does to
+ * real mail.
  */
 export const MobileSelectionMode: Story = {
 	parameters: mobileParams,
 	decorators: [phoneFrame],
-	render: () => <PhoneShell {...flatInbox} initialTouchState="selection" />,
+	render: () => (
+		<PhoneShell
+			{...flatInbox}
+			initialSelectedIds={allThreads.slice(0, 2).map((thread) => thread.id)}
+		/>
+	),
 };
 
 /**
@@ -515,10 +553,11 @@ export const MobileSwipeToggleRead: Story = {
 };
 
 /**
- * Long-press ENTERS selection mode live — no `initialTouchState` seed. The
- * `play()` function fires a real pointerDown and waits out the row's 500ms
- * long-press timer, so this demonstrates the before→after transition
- * (`MobileSelectionMode` above only shows the after, pre-seeded).
+ * Long-press ENTERS selection mode live, from nothing ticked. The `play()`
+ * function fires a real pointerDown and waits out the row's 500ms long-press
+ * timer, so this demonstrates the before→after transition (`MobileSelectionMode`
+ * above only shows the after, pre-seeded). The bar is up the whole time: it
+ * names the mailbox before the press and carries the count after it.
  */
 export const MobileSelectionViaLongPress: Story = {
 	parameters: mobileParams,

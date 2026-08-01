@@ -1,5 +1,10 @@
 import { Check, Paperclip, ShieldAlert, Star } from "lucide-react";
-import type { ComponentType, ReactNode, SyntheticEvent } from "react";
+import type {
+	ComponentType,
+	MouseEvent,
+	ReactNode,
+	SyntheticEvent,
+} from "react";
 import { cn } from "../lib/cn.js";
 import { LIST_ROW_ATTRIBUTE } from "../lib/roving-focus.js";
 import { categoryTone, type ThreadRowData } from "./app-shell-types.js";
@@ -328,7 +333,7 @@ export function CompactRow({
 	thread: ThreadRowData;
 	active?: boolean;
 	focused?: boolean;
-	onClick?: () => void;
+	onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
 }) {
 	return (
 		<button
@@ -353,7 +358,7 @@ export function ComfortableRow({
 	active?: boolean;
 	focused?: boolean;
 	selection?: RowSelection;
-	onClick?: () => void;
+	onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
 }) {
 	return (
 		<button

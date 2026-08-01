@@ -102,7 +102,7 @@ export function MailViewChrome({
 	};
 
 	return (
-		<FilterPanelProvider>
+		<FilterPanelProvider hasSheet={!searching}>
 			<MailListHeader
 				title={title}
 				unreadCount={unreadCount}

@@ -10,9 +10,49 @@ export interface SelectionModifiers {
 	ctrlKey: boolean;
 }
 
-interface UseSelectionOptions<T> {
-	/** Function to extract ID from an item */
-	getId: (item: T) => string;
+/** The selection modifiers a mouse event carried, on their own. */
+export const modifiersOf = (event: SelectionModifiers): SelectionModifiers => ({
+	shiftKey: event.shiftKey,
+	metaKey: event.metaKey,
+	ctrlKey: event.ctrlKey,
+});
+
+export const isModified = (modifiers: SelectionModifiers): boolean =>
+	modifiers.shiftKey || modifiers.metaKey || modifiers.ctrlKey;
+
+/**
+ * What a click on a row asks for, given the modifiers it carried — the Apple
+ * Mail / Gmail model. One definition, so every surface that offers multi-select
+ * reads a modifier the same way.
+ */
+export type RowSelectIntent = "range" | "toggle" | "open";
+
+export const rowSelectIntent = (
+	modifiers: SelectionModifiers,
+): RowSelectIntent => {
+	if (modifiers.shiftKey) return "range";
+	if (modifiers.metaKey || modifiers.ctrlKey) return "toggle";
+	return "open";
+};
+
+/**
+ * Whether the list is in multi-select mode: a function of the selection count,
+ * never a stored flag, so the two can never disagree. Multi-select is the touch
+ * affordance (long press, always-visible checkboxes, the selection top bar); on
+ * desktop a selection drives the toolbar instead and rows keep their ordinary
+ * hover behaviour.
+ */
+export const deriveIsMultiSelectMode = (
+	selectedCount: number,
+	isDesktop: boolean,
+): boolean => !isDesktop && selectedCount > 0;
+
+export interface UseSelectionOptions {
+	/**
+	 * Rows ticked on first render, for a surface that opens with a selection
+	 * already made — a story or an SSR'd selection state.
+	 */
+	initialSelectedIds?: readonly string[];
 }
 
 interface UseSelectionReturn {
@@ -172,10 +212,12 @@ export const nextFocusId = (
  * Hook for managing selection state in lists.
  * Supports single and multi-select operations.
  */
-export const useSelection = <T>(
-	_options?: UseSelectionOptions<T>,
+export const useSelection = (
+	options?: UseSelectionOptions,
 ): UseSelectionReturn => {
-	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+	const [selectedIds, setSelectedIds] = useState<Set<string>>(
+		() => new Set(options?.initialSelectedIds),
+	);
 	const [anchorId, setAnchorId] = useState<string | undefined>(undefined);
 
 	const isSelected = useCallback(

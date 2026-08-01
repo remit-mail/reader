@@ -2,10 +2,14 @@ import assert from "node:assert";
 import { describe, test } from "node:test";
 import {
 	computeRange,
+	deriveIsMultiSelectMode,
 	intersectSelectedIds,
+	isModified,
+	modifiersOf,
 	nextFocusId,
 	resolveRangeAnchor,
-} from "./useSelection.js";
+	rowSelectIntent,
+} from "./use-selection.js";
 
 const ids = ["a", "b", "c", "d", "e"];
 
@@ -240,5 +244,88 @@ describe("intersectSelectedIds", () => {
 			intersectSelectedIds(new Set(), ["a", "b"]),
 			new Set(),
 		);
+	});
+});
+
+describe("modifiersOf", () => {
+	test("keeps only the three keys a selection reads off an event", () => {
+		const event = {
+			shiftKey: true,
+			metaKey: false,
+			ctrlKey: true,
+			altKey: true,
+			button: 0,
+		};
+		assert.deepStrictEqual(modifiersOf(event), {
+			shiftKey: true,
+			metaKey: false,
+			ctrlKey: true,
+		});
+	});
+});
+
+describe("isModified", () => {
+	test("is true for any of the three keys a keyboard can add", () => {
+		assert.equal(
+			isModified({ shiftKey: true, metaKey: false, ctrlKey: false }),
+			true,
+		);
+		assert.equal(
+			isModified({ shiftKey: false, metaKey: true, ctrlKey: false }),
+			true,
+		);
+		assert.equal(
+			isModified({ shiftKey: false, metaKey: false, ctrlKey: true }),
+			true,
+		);
+	});
+
+	test("is false for the bare press a tap delivers", () => {
+		assert.equal(
+			isModified({ shiftKey: false, metaKey: false, ctrlKey: false }),
+			false,
+		);
+	});
+});
+
+describe("rowSelectIntent", () => {
+	test("shift asks for a range, and wins over the toggle keys", () => {
+		assert.equal(
+			rowSelectIntent({ shiftKey: true, metaKey: false, ctrlKey: false }),
+			"range",
+		);
+		assert.equal(
+			rowSelectIntent({ shiftKey: true, metaKey: true, ctrlKey: false }),
+			"range",
+		);
+	});
+
+	test("cmd and ctrl tick one row", () => {
+		assert.equal(
+			rowSelectIntent({ shiftKey: false, metaKey: true, ctrlKey: false }),
+			"toggle",
+		);
+		assert.equal(
+			rowSelectIntent({ shiftKey: false, metaKey: false, ctrlKey: true }),
+			"toggle",
+		);
+	});
+
+	test("a bare click opens the row", () => {
+		assert.equal(
+			rowSelectIntent({ shiftKey: false, metaKey: false, ctrlKey: false }),
+			"open",
+		);
+	});
+});
+
+describe("deriveIsMultiSelectMode", () => {
+	test("is the touch affordance, and only while something is ticked", () => {
+		assert.equal(deriveIsMultiSelectMode(0, false), false);
+		assert.equal(deriveIsMultiSelectMode(1, false), true);
+	});
+
+	test("is never on at desktop widths, whatever the count", () => {
+		assert.equal(deriveIsMultiSelectMode(3, true), false);
 	});
 });

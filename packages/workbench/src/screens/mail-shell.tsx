@@ -8,8 +8,13 @@
  *
  * - the top bar is desktop-only, spans the whole layout, and carries the one
  *   search field, the nav toggle and the global actions;
- * - the list pane is a `MailHeader` over the pane body, and the header shows a
- *   search field only where the top bar is absent, so the page never has two;
+ * - the list pane's header is a `SelectionTopBar`, up for every state of the
+ *   list: it names the view and carries the nav button, the unread count, the
+ *   filter caret and — only where the top bar is absent, so the page never has
+ *   two — the search field, and from the first ticked row it carries the count
+ *   and the verbs instead;
+ * - the selection itself lives here, above the kit, the way it lives above it
+ *   in the app;
  * - a query swaps the list body for the same `SearchResults` sections the phone
  *   takeover renders, takes the filter sheet down, and puts "Make this a filter"
  *   in the pane above whichever body is showing;
@@ -32,7 +37,6 @@ import {
 	FilterToggle,
 	type IntelligenceData,
 	IntelligencePanel,
-	MailHeader,
 	MakeFilterAction,
 	MessageListPane,
 	MobileSearchView,
@@ -50,12 +54,12 @@ import {
 	SuggestList,
 	type ThreadData,
 	type ThreadSection,
-	useAppShellLayout,
 	useSuggestList,
 } from "@remit/ui";
-import { Bug, Pencil, Settings, SquarePen } from "lucide-react";
+import { Bug, Pencil, Search, Settings, SquarePen, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { navAccounts } from "../fixtures/workspace.js";
+import { ListSelectionBar, useListTriage } from "../lib/list-selection.js";
 
 /** The width at which the reading pane, the nav column and the top bar appear. */
 const DESKTOP_MIN_WIDTH = 1024;
@@ -274,12 +278,13 @@ function ListPane({
 	searchOpen: boolean;
 	onSearchOpenChange: (open: boolean) => void;
 }) {
-	const layout = useAppShellLayout();
 	const suggest = useShellSuggest(search);
 	const [category, setCategory] = useState("all");
 	const [filters, setFilters] = useState<ReadonlySet<string>>(new Set());
+	const triage = useListTriage(sections);
 
 	const hasQuery = search.query.trim().length > 0;
+	const searchExpanded = singlePane && (searchOpen || hasQuery);
 	const filterConfig = preset && {
 		categories: preset.categories,
 		filters: preset.filters,
@@ -330,11 +335,12 @@ function ListPane({
 		<MessageListPane
 			hideHeader
 			listTitle={title}
-			sections={sections}
+			sections={triage.sections}
 			briefFilters={briefFilters}
 			flatList={!briefFilters}
 			selectedThreadId={selectedThreadId}
 			isDesktop={!singlePane}
+			selection={triage.paneSelection}
 		/>
 	);
 	const results = (
@@ -350,36 +356,75 @@ function ListPane({
 	// A query owns the pane: the filter sheet stands down and the search's own
 	// affordance takes its place, in the pane rather than in the results body, so
 	// it stays put when the body swaps between the panel and the list's own rows.
-	const body =
-		filterConfig && !hasQuery ? (
-			<FilterSheet {...filterConfig}>{inner}</FilterSheet>
-		) : (
-			<div className="h-full overflow-y-auto">{inner}</div>
-		);
+	const sheet = hasQuery ? undefined : filterConfig;
+	// The brief's own sections carry a sheet; a plain mailbox gets one here.
+	const briefOwnsSheet = Boolean(briefFilters) && !hasQuery;
+	const body = sheet ? (
+		<FilterSheet {...sheet}>{inner}</FilterSheet>
+	) : (
+		<div className="h-full overflow-y-auto">{inner}</div>
+	);
 
 	return (
-		<FilterPanelProvider>
+		<FilterPanelProvider hasSheet={sheet !== undefined || briefOwnsSheet}>
 			<section className="flex h-full w-full flex-col bg-surface">
-				<MailHeader
+				<ListSelectionBar
+					triage={triage}
 					title={title}
-					unreadCount={unreadCount}
-					isDesktop={false}
-					showSearch={singlePane}
-					onMenuClick={
-						layout && !layout.showNavPane ? () => layout.openNav() : undefined
+					titleMeta={
+						<>
+							<span className="shrink-0 text-2xs text-fg-subtle">
+								{unreadCount.toLocaleString()} unread
+							</span>
+							<FilterToggle />
+						</>
 					}
-					filterToggle={!hasQuery && <FilterToggle />}
-					searchValue={search.query}
-					onSearchChange={search.setQuery}
-					onSearchClear={() => search.setQuery("")}
-					searchOpen={searchOpen}
-					onSearchOpenChange={onSearchOpenChange}
-					searchSuggest={suggest.field}
+					searchSlot={
+						singlePane &&
+						!searchExpanded && (
+							<Button
+								variant="ghost"
+								size="touch"
+								icon={<Search className="size-5" />}
+								onClick={() => onSearchOpenChange(true)}
+								aria-label="Search"
+								className="shrink-0"
+							/>
+						)
+					}
+					searchField={
+						searchExpanded && (
+							<>
+								<div className="min-w-0 flex-1">
+									<SearchBar
+										value={search.query}
+										onChange={search.setQuery}
+										onClear={() => search.setQuery("")}
+										globalFocusKey={false}
+										showClearButton={false}
+										suggest={suggest.field}
+									/>
+								</div>
+								<Button
+									variant="ghost"
+									size="touch"
+									icon={<X className="size-5" />}
+									onClick={() => {
+										search.setQuery("");
+										onSearchOpenChange(false);
+									}}
+									aria-label="Close search"
+									className="shrink-0"
+								/>
+							</>
+						)
+					}
+					idleSlot={
+						hasQuery &&
+						search.makeFilter && <MakeFilterAction {...search.makeFilter} />
+					}
 				/>
 				{suggest.list}
-				{hasQuery && search.makeFilter && (
-					<MakeFilterAction {...search.makeFilter} />
-				)}
 				<div className="min-h-0 flex-1">{body}</div>
 			</section>
 		</FilterPanelProvider>
