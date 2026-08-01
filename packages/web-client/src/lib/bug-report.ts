@@ -310,3 +310,8 @@ export function buildGitHubIssueUrl(ctx: BugReportContext): string {
 
 	return issueUrl(withoutComponentStack, overrides);
 }
+
+export function openBugReport(): void {
+	const url = buildGitHubIssueUrl(buildBugReportContext());
+	window.open(url, "_blank", "noopener,noreferrer");
+}

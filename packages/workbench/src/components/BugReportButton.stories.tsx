@@ -1,11 +1,10 @@
-import { Button } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Bug } from "lucide-react";
+import { Bug, Settings } from "lucide-react";
 
 /**
- * Bug-report button — matches the web-client BugReportButton exactly.
- * In Storybook, the click handler logs the URL to the console so you
- * can inspect the prefilled issue body without opening GitHub.
+ * The bug-report row as the web-client renders it. The real component reaches
+ * for build-time constants Storybook does not inject, so the click here logs
+ * the prefilled issue URL to the console instead of opening GitHub.
  */
 
 function buildIssueBody(): string {
@@ -46,14 +45,14 @@ function BugReportButtonDemo() {
 	};
 
 	return (
-		<Button
-			variant="ghost"
-			size="sm"
-			icon={<Bug className="size-4" />}
-			title="Report a bug"
-			aria-label="Report a bug"
+		<button
+			type="button"
 			onClick={handleClick}
-		/>
+			className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm text-fg-muted transition-colors hover:bg-surface hover:text-fg"
+		>
+			<Bug className="size-4 shrink-0" />
+			<span className="flex-1 truncate text-left">Report a bug</span>
+		</button>
 	);
 }
 
@@ -65,24 +64,27 @@ export default meta;
 
 type Story = StoryObj;
 
-/** Standalone button — click logs the prefilled URL to the console. */
+/** Standalone row — click logs the prefilled URL to the console. */
 export const Default: Story = {
-	render: () => <BugReportButtonDemo />,
+	render: () => (
+		<div className="w-64">
+			<BugReportButtonDemo />
+		</div>
+	),
 };
 
-/** As it appears in the MessageToolbar — inline with other ghost icon buttons. */
-export const InToolbarContext: Story = {
+/** Where it lives: the nav drawer's footer, under Settings. */
+export const InDrawerFooter: Story = {
 	render: () => (
-		<header className="flex h-pane-header shrink-0 items-center gap-1 border-b border-line bg-surface px-3">
-			<div className="flex-1" />
-			<Button
-				variant="ghost"
-				size="sm"
-				icon={<Bug className="size-4" />}
-				title="Compose"
-				aria-label="Compose"
-			/>
+		<div className="w-64 space-y-0.5 border-t border-line bg-canvas p-2">
+			<button
+				type="button"
+				className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm text-fg-muted transition-colors hover:bg-surface hover:text-fg"
+			>
+				<Settings className="size-4 shrink-0" />
+				<span className="flex-1 truncate text-left">Settings</span>
+			</button>
 			<BugReportButtonDemo />
-		</header>
+		</div>
 	),
 };

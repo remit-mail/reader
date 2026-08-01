@@ -1,11 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { Bug, SquarePen } from "lucide-react";
 import { useState } from "react";
 import { AppTopBar } from "./app-top-bar.js";
-import { Avatar } from "./avatar.js";
-import { Button } from "./button.js";
-import { type SearchChip, SearchChipInput } from "./search-chip-input.js";
+import { SearchChipInput } from "./search-chip-input.js";
 
+/**
+ * The bar's geometry. What fills it — which actions, in what order, with what
+ * wording — is `ShellTopBar`, which is what the app and the shell prototype
+ * both mount; these stories show only the row the slots sit in.
+ */
 const meta: Meta<typeof AppTopBar> = {
 	title: "Mail/AppTopBar",
 	component: AppTopBar,
@@ -15,169 +17,64 @@ export default meta;
 
 type Story = StoryObj<typeof AppTopBar>;
 
-const Actions = () => (
-	<>
-		<Button
-			variant="ghost"
-			size="sm"
-			icon={<SquarePen className="size-4" />}
-			title="Compose"
-			aria-label="Compose"
-		/>
-		<Button
-			variant="ghost"
-			size="sm"
-			icon={<Bug className="size-4" />}
-			title="Report a bug"
-			aria-label="Report a bug"
-		/>
-		<Avatar name="Matthijs van Henten" email="mvh@example.com" size="sm" />
-	</>
+const Slot = ({ label }: { label: string }) => (
+	<div className="rounded border border-dashed border-line px-2 py-1 text-2xs text-fg-subtle">
+		{label}
+	</div>
 );
 
-const SCOPE: SearchChip = { id: "in:spam", label: "in:spam", tone: "scope" };
-
-/**
- * The placeholders the app pairs with each scope state. Only the unscoped brief
- * may claim to search all mail; a scoped view says so, and a mailbox route
- * whose name has not loaded yet gets neutral wording rather than a placeholder
- * asserting the wrong scope.
- */
-const PLACEHOLDER = {
-	global: "Search all mail",
-	pending: "Search mail",
-	scoped: "Search this folder",
-} as const;
-
-const Bar = ({
-	initialChips = [],
-	placeholder = PLACEHOLDER.global,
-}: {
-	initialChips?: SearchChip[];
-	placeholder?: string;
-}) => {
-	const [chips, setChips] = useState<SearchChip[]>(initialChips);
+const Field = () => {
 	const [value, setValue] = useState("");
 	return (
-		<AppTopBar
-			actions={<Actions />}
-			search={
-				<SearchChipInput
-					size="lg"
-					chips={chips}
-					onRemoveChip={(id) => setChips((cs) => cs.filter((c) => c.id !== id))}
-					value={value}
-					onChange={setValue}
-					onClear={() => {
-						setValue("");
-						setChips([]);
-					}}
-					onClearQuery={() => setValue("")}
-					globalFocusKey={false}
-					placeholder={placeholder}
-				/>
-			}
+		<SearchChipInput
+			size="lg"
+			value={value}
+			onChange={setValue}
+			onClear={() => setValue("")}
+			onClearQuery={() => setValue("")}
+			globalFocusKey={false}
+			placeholder="Search all mail"
 		/>
 	);
 };
 
-/** Over the panes it spans, so the arrangement reads the way it will in the app. */
-const WithPanes = ({ children }: { children: React.ReactNode }) => (
-	<div className="flex h-96 flex-col bg-canvas">
-		{children}
-		<div className="flex min-h-0 flex-1">
-			<div className="w-56 shrink-0 border-r border-line bg-surface p-3 text-xs text-fg-muted">
-				Nav — under the bar, like every other pane
-			</div>
-			<div className="w-72 shrink-0 border-r border-line bg-surface p-3 text-xs text-fg-muted">
-				Message list
-			</div>
-			<div className="min-w-0 flex-1 p-3 text-xs text-fg-muted">
-				Message pane — its own toolbar lives here, under the bar
-			</div>
-		</div>
-	</div>
-);
-
-/**
- * The daily brief's state: search unscoped, nothing narrowing it. No chip, and
- * the only placeholder allowed to claim it searches all mail — which it now
- * genuinely does, across every folder of every account.
- */
-export const Unscoped: Story = {
-	render: () => <Bar />,
-};
-
-/**
- * A narrowing scope in the bar, tinted to mark it as the view the user is in
- * rather than a filter they typed. Removing it widens the search again — a
- * navigation back to the brief, not an edit of the text, because the chip
- * mirrors the route.
- *
- * The placeholder narrows with the chip. A scoped bar reading "Search all mail"
- * is a state the app never produces.
- */
-export const Scoped: Story = {
-	render: () => <Bar initialChips={[SCOPE]} placeholder={PLACEHOLDER.scoped} />,
-};
-
-/**
- * The third scope state: a mailbox route whose name has not resolved yet. The
- * list underneath is already narrowed, so the bar must not claim to search
- * everything — but a chip reading a raw uuid is worse than no chip, so it shows
- * none and falls back to neutral wording until the name arrives.
- */
-export const ScopePending: Story = {
-	render: () => <Bar placeholder={PLACEHOLDER.pending} />,
-};
-
-/**
- * The virtual collections scope the bar too, and their chips read as whatever
- * describes the collection. Flagged is a marker on the mail rather than a
- * place, so it chips `is:starred`; the outbox is a place mail sits in and keeps
- * the `in:` form.
- */
-export const ScopedToFlagged: Story = {
-	render: () => (
-		<Bar
-			initialChips={[{ id: "is:starred", label: "is:starred", tone: "scope" }]}
-			placeholder={PLACEHOLDER.scoped}
-		/>
-	),
-};
-
-export const ScopedToOutbox: Story = {
-	render: () => (
-		<Bar
-			initialChips={[{ id: "in:outbox", label: "in:outbox", tone: "scope" }]}
-			placeholder={PLACEHOLDER.scoped}
-		/>
-	),
-};
-
-/** The arrangement: one bar across the top of the shell, over the nav, the list
- *  and the message pane alike. */
-export const OverTheLayout: Story = {
-	render: () => (
-		<WithPanes>
-			<Bar initialChips={[SCOPE]} placeholder={PLACEHOLDER.scoped} />
-		</WithPanes>
-	),
-};
-
-export const SearchOnly: Story = {
+/** Leading · search · actions. The field is the only slot that grows. */
+export const Slots: Story = {
 	render: () => (
 		<AppTopBar
-			search={
-				<SearchChipInput
-					size="lg"
-					value=""
-					onChange={() => undefined}
-					onClear={() => undefined}
-					globalFocusKey={false}
-					placeholder="Search all mail"
-				/>
-			}
+			leading={<Slot label="leading" />}
+			search={<Field />}
+			actions={<Slot label="actions" />}
 		/>
+	),
+};
+
+/** With nothing but the field, the bar is still the page's one search surface. */
+export const SearchOnly: Story = {
+	render: () => <AppTopBar search={<Field />} />,
+};
+
+/** One row across the top of the shell, over the nav, the list and the message
+ *  pane alike. */
+export const OverTheLayout: Story = {
+	render: () => (
+		<div className="flex h-96 flex-col bg-canvas">
+			<AppTopBar
+				leading={<Slot label="leading" />}
+				search={<Field />}
+				actions={<Slot label="actions" />}
+			/>
+			<div className="flex min-h-0 flex-1">
+				<div className="w-56 shrink-0 border-r border-line bg-surface p-3 text-xs text-fg-muted">
+					Nav — under the bar, like every other pane
+				</div>
+				<div className="w-72 shrink-0 border-r border-line bg-surface p-3 text-xs text-fg-muted">
+					Message list
+				</div>
+				<div className="min-w-0 flex-1 p-3 text-xs text-fg-muted">
+					Message pane — its own toolbar lives here, under the bar
+				</div>
+			</div>
+		</div>
 	),
 };
