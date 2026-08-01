@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { beforeEach, describe, test } from "node:test";
+import { describe, test } from "node:test";
 import type {
 	RemitImapSystemUpdateResponse,
 	RemitImapSystemUpdateRun,
@@ -8,17 +8,13 @@ import { ApiError } from "./api";
 import {
 	APPLY_BUDGET_SECONDS,
 	appliesSchemaMigration,
-	clearStoredRun,
 	type DeriveInput,
 	deriveUpdateSurface,
 	type HeldRun,
 	isSurfaceAbsent,
-	loadHeldRun,
 	mapUpdatePhase,
 	NEVER_CAME_BACK_MARGIN_SECONDS,
 	releaseFromCheck,
-	SELF_UPDATE_RUN_KEY,
-	saveHeldRun,
 } from "./self-update-state";
 
 const NOW = Date.parse("2026-07-20T12:00:00.000Z");
@@ -60,6 +56,7 @@ function held(overrides: Partial<HeldRun> = {}): HeldRun {
 		runId: "upd_1",
 		attemptedVersion: "0.9.4",
 		previousVersion: "0.9.3",
+		phase: "preparing",
 		startedAt: NOW - 10_000,
 		...overrides,
 	};
@@ -279,7 +276,7 @@ describe("deriveUpdateSurface — check and run stay independent", () => {
 });
 
 describe("deriveUpdateSurface — terminal outcomes", () => {
-	test("a rolledBack run renders message and command verbatim and clears the id", () => {
+	test("a rolledBack run renders message and command verbatim", () => {
 		const result = deriveUpdateSurface(
 			input({
 				data: response({
@@ -291,7 +288,6 @@ describe("deriveUpdateSurface — terminal outcomes", () => {
 				}),
 			}),
 		);
-		assert.equal(result.clearStoredRun, true);
 		assert.equal(result.surface.status, "ready");
 		if (result.surface.status !== "ready") return;
 		const section = result.surface.section;
@@ -374,7 +370,11 @@ describe("deriveUpdateSurface — a held run across a restart", () => {
 		if (result.surface.status !== "ready") return;
 		assert.equal(result.surface.section.status, "applying");
 		assert.equal(result.surface.overlay.kind, "applying");
-		assert.equal(result.clearStoredRun, false);
+		assert.equal(
+			result.surface.overlay.kind === "applying" &&
+				result.surface.overlay.phase,
+			"reconnecting",
+		);
 	});
 
 	test("a failed request without a held run is a check-level failure", () => {
@@ -402,7 +402,6 @@ describe("deriveUpdateSurface — a held run across a restart", () => {
 		assert.equal(result.surface.status, "ready");
 		if (result.surface.status !== "ready") return;
 		assert.equal(result.surface.overlay.kind, "neverCameBack");
-		assert.equal(result.clearStoredRun, true);
 	});
 
 	test("never-came-back never claims the rollback ran", () => {
@@ -449,7 +448,6 @@ describe("deriveUpdateSurface — a held run across a restart", () => {
 			}),
 		);
 		assert.equal(result.releaseHeld, true);
-		assert.equal(result.clearStoredRun, true);
 		assert.equal(
 			result.surface.status === "ready" && result.surface.section.status,
 			"succeeded",
@@ -470,9 +468,26 @@ describe("deriveUpdateSurface — a held run across a restart", () => {
 		assert.equal(result.releaseHeld, true);
 	});
 
-	test("a first poll still in flight keeps applying inside the budget", () => {
+	test("a poll with no answer yet claims no phase at all", () => {
 		const result = deriveUpdateSurface(
 			input({ held: held({ startedAt: NOW - 20_000 }) }),
+		);
+		assert.equal(result.surface.status, "loading");
+	});
+
+	test("a poll that never answers still claims no phase past the budget", () => {
+		const result = deriveUpdateSurface(
+			input({ held: held({ startedAt: NOW - BUDGET_MS - 60_000 }) }),
+		);
+		assert.equal(result.surface.status, "loading");
+	});
+
+	test("the server's own account of the run it accepted carries the phase", () => {
+		const result = deriveUpdateSurface(
+			input({
+				data: response({ run: null }),
+				held: held({ phase: "restarting" }),
+			}),
 		);
 		if (
 			result.surface.status !== "ready" ||
@@ -480,62 +495,6 @@ describe("deriveUpdateSurface — a held run across a restart", () => {
 		) {
 			assert.fail("expected the applying overlay");
 		}
-		assert.equal(result.surface.overlay.phase, "preparing");
-		assert.equal(result.clearStoredRun, false);
-	});
-
-	test("a poll that never answers gives up at the budget", () => {
-		const result = deriveUpdateSurface(
-			input({ held: held({ startedAt: NOW - BUDGET_MS - 60_000 }) }),
-		);
-		assert.equal(result.surface.status, "ready");
-		if (result.surface.status !== "ready") return;
-		assert.equal(result.surface.overlay.kind, "neverCameBack");
-		assert.equal(result.clearStoredRun, true);
-	});
-
-	test("an early server answer with no run yet keeps applying", () => {
-		const result = deriveUpdateSurface(
-			input({ data: response({ run: null }), held: held() }),
-		);
-		assert.equal(
-			result.surface.status === "ready" && result.surface.overlay.kind,
-			"applying",
-		);
-	});
-});
-
-function installMemoryStorage(): void {
-	const store = new Map<string, string>();
-	globalThis.localStorage = {
-		getItem: (k: string) => store.get(k) ?? null,
-		setItem: (k: string, v: string) => void store.set(k, v),
-		removeItem: (k: string) => void store.delete(k),
-		clear: () => store.clear(),
-		key: () => null,
-		length: 0,
-	} as Storage;
-}
-
-describe("held-run persistence", () => {
-	beforeEach(installMemoryStorage);
-
-	test("saves, loads and clears under the documented key", () => {
-		const record = held();
-		saveHeldRun(record);
-		assert.equal(
-			localStorage.getItem(SELF_UPDATE_RUN_KEY),
-			JSON.stringify(record),
-		);
-		assert.deepEqual(loadHeldRun(), record);
-		clearStoredRun();
-		assert.equal(loadHeldRun(), null);
-	});
-
-	test("ignores a malformed stored value", () => {
-		localStorage.setItem(SELF_UPDATE_RUN_KEY, "{not json");
-		assert.equal(loadHeldRun(), null);
-		localStorage.setItem(SELF_UPDATE_RUN_KEY, JSON.stringify({ runId: 1 }));
-		assert.equal(loadHeldRun(), null);
+		assert.equal(result.surface.overlay.phase, "restarting");
 	});
 });

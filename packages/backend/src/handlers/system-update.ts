@@ -115,9 +115,9 @@ const writeRequest = (request: {
 /**
  * The resource returned by the POST. The updater has not yet written the
  * authoritative run — it polls the seam — so this bootstraps the run block with
- * the id just requested and the first phase, giving the client a `runId` to
- * persist and poll (RFC 037 D9). The updater's own `state.json` supersedes it on
- * the next read.
+ * the id just requested and the first phase, giving the client a `runId` to poll
+ * for (RFC 037 D9). The updater's own `state.json` supersedes it on the next
+ * read.
  */
 const requestedResource = (
 	state: SystemUpdateResponse | null,

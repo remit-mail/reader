@@ -4,8 +4,8 @@
  * Once consent is given the server is genuinely going away, so a quiet spinner
  * over a mailbox that cannot load would let a broken system look healthy. This
  * mounts at the app root and owns the window for the whole apply, and for the
- * "server never came back" verdict — from any route, so a reload mid-apply or a
- * second tab resumes straight into it.
+ * "server never came back" verdict — from any route, and in any tab the server
+ * tells about the run.
  */
 import {
 	SelfUpdateProgressOverlay,

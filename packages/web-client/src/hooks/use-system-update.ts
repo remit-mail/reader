@@ -1,14 +1,18 @@
 /**
  * The self-update surface, wired to the generated client.
  *
- * A single instance owns the query, the mutation, and the run id the client
- * persists across a restart, and hands the folded `SelfUpdateState` plus the
- * blocking-overlay state to every consumer through context — so the Advanced
- * pane, the root overlay, and the nav dot all read one source of truth. The
- * state machine itself lives in `lib/self-update-state.ts`.
+ * A single instance owns the query, the mutation, and the run this page asked
+ * for, and hands the folded `SelfUpdateState` plus the blocking-overlay state to
+ * every consumer through context — so the Advanced pane, the root overlay, and
+ * the nav dot all read one source of truth. The state machine itself lives in
+ * `lib/self-update-state.ts`.
+ *
+ * The held run lives here and nowhere else. A restart does not reload the page,
+ * so this state spans the whole window; a page that loads afterwards holds
+ * nothing and takes the server's answer as it finds it.
  *
  * Polling follows the run: every 30 seconds while idle, every 5 seconds while a
- * run is in flight or a persisted run is being resumed.
+ * run is in flight or this page is waiting on one it started.
  */
 import {
 	systemOperationsApplySystemUpdateMutation,
@@ -33,13 +37,11 @@ import {
 } from "react";
 import {
 	appliesSchemaMigration,
-	clearStoredRun,
 	deriveUpdateSurface,
 	type HeldRun,
 	isSurfaceAbsent,
-	loadHeldRun,
+	mapUpdatePhase,
 	releaseFromCheck,
-	saveHeldRun,
 	type UpdateSurface,
 } from "@/lib/self-update-state";
 
@@ -76,7 +78,7 @@ function pollInterval(
 
 export function useSystemUpdate(): SelfUpdateApi {
 	const queryClient = useQueryClient();
-	const [held, setHeld] = useState<HeldRun | null>(() => loadHeldRun());
+	const [held, setHeld] = useState<HeldRun | null>(null);
 	const [dismissedRunId, setDismissedRunId] = useState<string | null>(null);
 	const [checkRequested, setCheckRequested] = useState(false);
 
@@ -112,11 +114,7 @@ export function useSystemUpdate(): SelfUpdateApi {
 			? derived.surface.section.runId
 			: null;
 
-	const { clearStoredRun: shouldClearStored, releaseHeld } = derived;
-
-	useEffect(() => {
-		if (shouldClearStored) clearStoredRun();
-	}, [shouldClearStored]);
+	const { releaseHeld } = derived;
 
 	useEffect(() => {
 		if (releaseHeld) setHeld((current) => (current === null ? current : null));
@@ -143,14 +141,13 @@ export function useSystemUpdate(): SelfUpdateApi {
 		onSuccess: (response: RemitImapSystemUpdateResponse) => {
 			const run = response.run;
 			if (run !== null) {
-				const record: HeldRun = {
+				setHeld({
 					runId: run.runId,
 					attemptedVersion: run.targetVersion,
 					previousVersion: run.fromVersion,
+					phase: mapUpdatePhase(run.phase),
 					startedAt: Date.now(),
-				};
-				saveHeldRun(record);
-				setHeld(record);
+				});
 				setDismissedRunId(null);
 			}
 			queryClient.setQueryData(
@@ -174,7 +171,6 @@ export function useSystemUpdate(): SelfUpdateApi {
 	const onDismissResult = useCallback(() => {
 		if (shownRunIdRef.current !== null)
 			setDismissedRunId(shownRunIdRef.current);
-		clearStoredRun();
 		setHeld(null);
 	}, []);
 
