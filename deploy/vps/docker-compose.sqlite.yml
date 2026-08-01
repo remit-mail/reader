@@ -32,6 +32,15 @@ x-app-env: &app-env
     DATA_BACKEND: sqlite
     SQLITE_DB_PATH: /data/sqlite/remit.db
     LOCAL_VECTORDB_PATH: /data/sqlite/vec.db
+    # V8 grows its old space against whatever the host has free, so on a 4 GB
+    # box one heavy job can starve the whole stack instead of failing alone.
+    # The ceiling makes that failure land inside one container: the process
+    # throws or exits, the rest of the box keeps running. Deliberately not a
+    # container `mem_limit` — that would turn a slow job into an OOM kill.
+    # Raise REMIT_NODE_HEAP_MB on a bigger box; the services with their own
+    # `environment:` block (queue, web, doctor) repeat this line because they
+    # cannot merge this map.
+    NODE_OPTIONS: "--max-old-space-size=${REMIT_NODE_HEAP_MB:-512}"
 
 services:
   # ---------------------------------------------------------------------
@@ -49,6 +58,7 @@ services:
     environment:
       QUEUE_SIDECAR_QUEUES_CONFIG: /etc/queue/queues.json
       QUEUE_SIDECAR_DB: /data/queue/queue.db
+      NODE_OPTIONS: "--max-old-space-size=${REMIT_NODE_HEAP_MB:-512}"
     volumes:
       - ./queues.json:/etc/queue/queues.json:ro
       - queue_data:/data/queue
@@ -172,6 +182,7 @@ services:
     # so a self-host image build never has to bake TLS_MODE in.
     environment:
       TLS_MODE: ${TLS_MODE:-off}
+      NODE_OPTIONS: "--max-old-space-size=${REMIT_NODE_HEAP_MB:-512}"
     depends_on:
       backend:
         condition: service_healthy
@@ -427,6 +438,10 @@ services:
       # DOCTOR_* only, on purpose. A plain LOG_LEVEL could never reach this
       # container, so the per-check verdict line could never be turned on.
       DOCTOR_LOG_LEVEL: ${DOCTOR_LOG_LEVEL:-}
+      # The one variable here that is not DOCTOR_*: a runtime ceiling, not
+      # configuration. The checker holds no path, no secret and no credential,
+      # and this carries none either.
+      NODE_OPTIONS: "--max-old-space-size=${REMIT_NODE_HEAP_MB:-512}"
     volumes:
       - heartbeat:/data/heartbeat:ro
       - doctor_state:/data/doctor
