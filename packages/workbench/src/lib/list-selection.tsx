@@ -1,11 +1,15 @@
 import {
 	Button,
+	keyboardHintsFor,
+	type MessageListKeyboard,
 	type MessageListSelection,
-	rowSelectIntent,
 	SelectionTopBar,
 	type ThreadSection,
+	type TriageHandlers,
 	useAppShellLayout,
-	useSelection,
+	useListCursor,
+	type useSelection,
+	useTriageKeyboard,
 	type Verb,
 } from "@remit/ui";
 import { Menu } from "lucide-react";
@@ -16,17 +20,38 @@ export interface ListTriage {
 	/** The rows as the verbs have left them. */
 	sections: ThreadSection[];
 	paneSelection: MessageListSelection;
+	/** The cursor the keys move, and the keys the footer may offer. */
+	paneKeyboard: MessageListKeyboard;
 	allSelected: boolean;
 	toggleAll: () => void;
 	trashSelected: () => void;
 	markSelectedRead: () => void;
 }
 
+export interface ListTriageOptions {
+	/** Rows ticked on mount, for a story whose subject is a selection. */
+	initialSelectedIds?: string[];
+	/** Seeds the cursor — the open thread, as in the app. */
+	initialFocusedId?: string;
+	/** False below 1024px, where a ticked row means touch multi-select. */
+	isDesktop?: boolean;
+}
+
+/**
+ * The list as the app drives it: the kit's cursor and selection model under the
+ * kit's keyboard dispatcher, with the verbs acting on fixtures. j/k, x, Space,
+ * Shift+j/k, Shift+arrow and ⌘A reach the same handlers here as they reach in
+ * the app, so a reviewer pressing them in Storybook is reviewing the shipped
+ * interaction.
+ */
 export function useListTriage(
 	sections: ThreadSection[],
-	initialSelectedIds?: string[],
+	{
+		initialSelectedIds,
+		initialFocusedId,
+		isDesktop = true,
+	}: ListTriageOptions = {},
 ): ListTriage {
-	const selection = useSelection({ initialSelectedIds });
 	const [trashedIds, setTrashedIds] = useState<ReadonlySet<string>>(new Set());
 	const [readIds, setReadIds] = useState<ReadonlySet<string>>(new Set());
 
@@ -50,8 +75,27 @@ export function useListTriage(
 		[visible],
 	);
 
-	const { selectedIds, toggle, selectRange, clearSelection, setAnchor } =
-		selection;
+	const cursor = useListCursor({
+		orderedIds,
+		isDesktop,
+		initialFocusedId,
+		initialSelectedIds,
+	});
+	const { selection, handleRowSelect } = cursor;
+	const { selectedIds, toggle, clearSelection } = selection;
+
+	const handlers: TriageHandlers = {
+		focusNext: cursor.focusNext,
+		focusPrevious: cursor.focusPrevious,
+		focusFirst: cursor.focusFirst,
+		focusLast: cursor.focusLast,
+		toggleSelect: cursor.toggleFocusedSelection,
+		extendSelectDown: cursor.extendRangeDown,
+		extendSelectUp: cursor.extendRangeUp,
+		selectAll: cursor.selectAllLoaded,
+		back: cursor.exitSelection,
+	};
+	useTriageKeyboard({ handlers });
 
 	// A row that leaves the list — an account pill, a chip, a completed verb —
 	// cannot stay selected. The same rule the app runs in
@@ -65,22 +109,9 @@ export function useListTriage(
 		() => ({
 			selectedIds,
 			onToggle: toggle,
-			onRowSelect: (id, modifiers) => {
-				const intent = rowSelectIntent(modifiers);
-				if (intent === "range") {
-					selectRange(orderedIds, id);
-					return true;
-				}
-				if (intent === "toggle") {
-					toggle(id);
-					return true;
-				}
-				clearSelection();
-				setAnchor(id);
-				return false;
-			},
+			onRowSelect: handleRowSelect,
 		}),
-		[selectedIds, toggle, selectRange, clearSelection, setAnchor, orderedIds],
+		[selectedIds, toggle, handleRowSelect],
 	);
 
 	const runVerb = (record: (ids: ReadonlySet<string>) => void) => {
@@ -92,6 +123,10 @@ export function useListTriage(
 		selection,
 		sections: visible,
 		paneSelection,
+		paneKeyboard: {
+			focusedId: cursor.focusedMessageId,
+			hints: keyboardHintsFor(handlers),
+		},
 		allSelected:
 			orderedIds.length > 0 && orderedIds.every((id) => selectedIds.has(id)),
 		toggleAll: () => selection.toggleAll(orderedIds),

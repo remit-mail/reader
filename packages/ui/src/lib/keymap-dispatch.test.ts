@@ -4,7 +4,7 @@ import {
 	dispatchKey,
 	type KeyStroke,
 	type SequencePrefix,
-} from "./keymap-dispatch.ts";
+} from "./keymap-dispatch.js";
 
 const stroke = (partial: Partial<KeyStroke> & { key: string }): KeyStroke => ({
 	shiftKey: false,

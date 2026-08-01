@@ -5,6 +5,7 @@ import { LIST_ROW_SELECTOR, useRovingFocus } from "../lib/roving-focus.js";
 import { deriveIsMultiSelectMode, modifiersOf } from "../lib/use-selection.js";
 import type {
 	AppShellProps,
+	MessageListKeyboard,
 	MessageListSelection,
 	TouchSeed,
 } from "./app-shell-types.js";
@@ -54,6 +55,7 @@ export function MessageListPane({
 	isDesktop,
 	initialTouchState,
 	selection,
+	keyboard,
 	selectionBar,
 	paneOverlay,
 	listBody,
@@ -104,6 +106,13 @@ export function MessageListPane({
 	 */
 	selection?: MessageListSelection;
 	/**
+	 * The keyboard layer driving the list, when the caller mounts one. The pane
+	 * draws the cursor it moves and offers only the keys it serves; absent, the
+	 * footer offers the app's own set and the rows keep their arrow-key
+	 * traversal.
+	 */
+	keyboard?: MessageListKeyboard;
+	/**
 	 * The pane header. The caller mounts it for every state of the list: a
 	 * `SelectionTopBar` names the view while nothing is ticked and carries the
 	 * count and the verbs (mark-read, move, delete, cancel) from the first
@@ -137,6 +146,7 @@ export function MessageListPane({
 	useRovingFocus({
 		containerRef: flatListRef,
 		itemSelector: LIST_ROW_SELECTOR,
+		enabled: keyboard === undefined,
 	});
 
 	const touchTriage = !isDesktop && !briefFilters && listState === "ready";
@@ -198,6 +208,7 @@ export function MessageListPane({
 			<Row
 				thread={thread}
 				active={active}
+				focused={thread.id === keyboard?.focusedId}
 				selection={rowSelection(thread.id)}
 				onClick={(event) => {
 					if (takeRowSelect(thread.id, event)) return;
@@ -205,7 +216,7 @@ export function MessageListPane({
 				}}
 			/>
 		),
-		[Row, rowSelection, takeRowSelect],
+		[Row, rowSelection, takeRowSelect, keyboard?.focusedId],
 	);
 
 	return (
@@ -302,6 +313,7 @@ export function MessageListPane({
 										key={thread.id}
 										thread={thread}
 										active={thread.id === selectedThreadId}
+										focused={thread.id === keyboard?.focusedId}
 										selection={rowSelection(thread.id)}
 										onClick={(event) => {
 											if (takeRowSelect(thread.id, event)) return;
@@ -315,7 +327,7 @@ export function MessageListPane({
 				</div>
 			)}
 
-			{isDesktop && <KeyboardHintBar />}
+			{isDesktop && <KeyboardHintBar hints={keyboard?.hints} />}
 			{paneOverlay}
 		</section>
 	);

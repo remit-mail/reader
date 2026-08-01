@@ -13,14 +13,15 @@
  * `cursorMovedByPointerRef` records whether the last move came from a click, so
  * a list that scrolls its cursor into view can skip doing so for pointer moves.
  */
+
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
 	deriveIsMultiSelectMode,
 	nextFocusId,
 	rowSelectIntent,
 	type SelectionModifiers,
 	useSelection,
-} from "@remit/ui";
-import { useCallback, useMemo, useRef, useState } from "react";
+} from "./use-selection.js";
 
 interface UseListCursorOptions {
 	/** Message ids in display order. */
@@ -28,6 +29,8 @@ interface UseListCursorOptions {
 	isDesktop: boolean;
 	/** Seeds the cursor — normally the open thread. */
 	initialFocusedId?: string;
+	/** Rows ticked on first render, for a surface that opens with a selection. */
+	initialSelectedIds?: readonly string[];
 	/** Extra teardown run before the selection is cleared. */
 	onExitSelection?: () => void;
 }
@@ -72,6 +75,7 @@ export const useListCursor = ({
 	orderedIds,
 	isDesktop,
 	initialFocusedId,
+	initialSelectedIds,
 	onExitSelection,
 }: UseListCursorOptions): ListCursor => {
 	// The keyboard "where am I" pointer, distinct from the open thread
@@ -101,7 +105,7 @@ export const useListCursor = ({
 		setFocusedId(id);
 	}, []);
 
-	const selection = useSelection();
+	const selection = useSelection({ initialSelectedIds });
 	const {
 		selectedCount,
 		toggle: toggleCheck,

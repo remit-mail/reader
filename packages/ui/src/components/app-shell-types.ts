@@ -11,6 +11,7 @@ import type {
 	IntelligenceData,
 	SenderTrustLevel,
 } from "./intelligence-panel.js";
+import type { KeyboardHint } from "./keyboard-hint-bar.js";
 import type { ListState } from "./message-list-state.js";
 
 /** Pane-count thresholds, aligned to Tailwind `lg`/`xl`. The whole shell reflows
@@ -82,6 +83,22 @@ export interface MessageListSelection {
 	 * click, in which case the row does not open.
 	 */
 	onRowSelect?: (id: string, modifiers: SelectionModifiers) => boolean;
+}
+
+/**
+ * The keyboard layer above the list, owned by whoever mounts it. Its presence
+ * is what tells the pane that j/k, the arrows and Space are answered upstream:
+ * the pane draws the cursor those keys move, stands its own arrow-key traversal
+ * down so one press moves one thing, and advertises the hints the layer serves.
+ *
+ * `useTriageKeyboard` is the layer both the app and the kit's own stories drive
+ * this from.
+ */
+export interface MessageListKeyboard {
+	/** The row the cursor sits on. */
+	focusedId: string | undefined;
+	/** The keys the footer offers, from `keyboardHintsFor`. */
+	hints: KeyboardHint[];
 }
 
 /**
@@ -363,6 +380,8 @@ export interface AppShellProps {
 	selectionBar?: ReactNode;
 	/** The list's selection, forwarded to `MessageListPane`. */
 	selection?: MessageListSelection;
+	/** The list's keyboard layer, forwarded to `MessageListPane`. */
+	keyboard?: MessageListKeyboard;
 	intelligence?: IntelligenceData;
 	/** Pane 4 visible. Defaults to true when intelligence is present. */
 	intelligenceOpen?: boolean;

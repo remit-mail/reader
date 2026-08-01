@@ -30,6 +30,7 @@ export {
 	type Density,
 	INTELLIGENCE_MIN_WIDTH,
 	isBriefCategory,
+	type MessageListKeyboard,
 	type MessageListSelection,
 	type NarrowView,
 	type NavAccount,
@@ -274,6 +275,7 @@ export {
 	type KeyboardHint,
 	KeyboardHintBar,
 	type KeyboardHintBarProps,
+	keyboardHintsFor,
 } from "./components/keyboard-hint-bar.js";
 export {
 	LabelChip,
@@ -669,6 +671,24 @@ export {
 	isSelectable,
 } from "./lib/folder-tree-focus.js";
 export {
+	KEY_HINT_GROUPS,
+	type KeyHint,
+	type KeyHintGroup,
+	keysForAction,
+	shortcutHintForAction,
+	type TriageAction,
+	tooltipForAction,
+} from "./lib/keymap.js";
+export {
+	type DispatchResult,
+	dispatchKey,
+	isControlTarget,
+	isEditableTarget,
+	type KeyStroke,
+	ROW_ATTRIBUTE,
+	type SequencePrefix,
+} from "./lib/keymap-dispatch.js";
+export {
 	isLabelColorValue,
 	type LabelColorValue,
 	labelColorOptions,
@@ -708,6 +728,7 @@ export {
 	type SuggestKeyState,
 	suggestKeyAction,
 } from "./lib/suggest-keys.js";
+export { type ListCursor, useListCursor } from "./lib/use-list-cursor.js";
 export {
 	type UseLongPressOptions,
 	type UseLongPressResult,
@@ -733,6 +754,10 @@ export {
 	type UseSuggestListInput,
 	useSuggestList,
 } from "./lib/use-suggest-list.js";
+export {
+	type TriageHandlers,
+	useTriageKeyboard,
+} from "./lib/use-triage-keyboard.js";
 export {
 	backExits,
 	clauseSentence,

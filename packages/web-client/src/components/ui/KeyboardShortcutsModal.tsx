@@ -1,7 +1,6 @@
-import { Kbd } from "@remit/ui";
+import { Kbd, KEY_HINT_GROUPS } from "@remit/ui";
 import { X } from "lucide-react";
 import { Fragment, useCallback, useEffect } from "react";
-import { KEY_HINT_GROUPS } from "@/lib/keymap";
 import { cn } from "@/lib/utils";
 
 interface KeyboardShortcutsModalProps {
@@ -11,7 +10,7 @@ interface KeyboardShortcutsModalProps {
 
 /**
  * The `?` help overlay (#429). Renders the full triage key map from the single
- * source of truth (`@/lib/keymap`) using the remit-ui `Kbd` component, so the
+ * source of truth (`@remit/ui`'s keymap) using the `Kbd` component, so the
  * displayed bindings can never drift from what the dispatcher actually routes.
  */
 export const KeyboardShortcutsModal = ({
