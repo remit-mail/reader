@@ -7,13 +7,17 @@
  * mounts a list — the kit's stories and the Storybook prototype — drives it
  * from here, so a shift-range, a cmd-toggle and select-all are one behaviour
  * with one definition, and the footer offers exactly the keys that are wired.
+ *
+ * The layer binds its keys to the pane element rather than the window, so a
+ * page carrying several lists gives each of them only the keys pressed inside
+ * it.
  */
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
 	MessageListKeyboard,
 	MessageListSelection,
 } from "../components/app-shell-types.js";
-import { keyboardHintsFor, type TriageHandlers } from "./keymap.js";
+import type { TriageHandlers } from "./keymap.js";
 import { type ListCursor, useListCursor } from "./use-list-cursor.js";
 import { useTriageKeyboard } from "./use-triage-keyboard.js";
 
@@ -44,6 +48,8 @@ export const useListKeyboard = ({
 	initialSelectedIds,
 	enabled = true,
 }: UseListKeyboardOptions): ListKeyboard => {
+	const [pane, setPane] = useState<HTMLElement | null>(null);
+
 	const cursor = useListCursor({
 		orderedIds,
 		isDesktop,
@@ -62,7 +68,15 @@ export const useListKeyboard = ({
 		selectAll: cursor.selectAllLoaded,
 		back: cursor.exitSelection,
 	};
-	useTriageKeyboard({ handlers, enabled });
+	useTriageKeyboard({ handlers, enabled, target: pane });
+
+	// A row that leaves the list — a filter, an account pill, a completed verb —
+	// cannot stay selected, or the count and the verbs act on rows nobody can
+	// see. The same rule the app runs in `ThreadListInteraction`.
+	const { intersectWith } = cursor.selection;
+	useEffect(() => {
+		intersectWith(orderedIds);
+	}, [intersectWith, orderedIds]);
 
 	const { selectedIds, toggle } = cursor.selection;
 	const { handleRowSelect } = cursor;
@@ -80,7 +94,8 @@ export const useListKeyboard = ({
 		selection,
 		keyboard: {
 			focusedId: cursor.focusedMessageId,
-			hints: keyboardHintsFor(handlers),
+			handlers,
+			ref: setPane,
 		},
 	};
 };

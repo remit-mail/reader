@@ -10,7 +10,7 @@ import {
 	type Verb,
 } from "@remit/ui";
 import { Menu } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 
 export interface ListTriage {
 	selection: ReturnType<typeof useSelection>;

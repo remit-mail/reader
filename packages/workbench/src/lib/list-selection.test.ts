@@ -1,8 +1,8 @@
 /**
  * The prototype's list under the keys its footer advertises. The stories are
- * where this UI is reviewed, so a key the hint bar offers has to move something
- * in the list the bar sits under, and the selection keys have to leave the same
- * state they leave in the app.
+ * where this UI is reviewed, so every key the hint bar offers has to do in
+ * Storybook what it does in the app, and the keys are pressed here where a
+ * reviewer presses them: on whatever the list has given focus to.
  */
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
@@ -16,43 +16,31 @@ import { type ListTriage, useListTriage } from "./list-selection.js";
 // which reads a global `React` (see ReadingPaneEmpty.render.test.ts).
 (globalThis as { React?: typeof React }).React = React;
 
+const thread = (id: string, subject: string) => ({
+	id,
+	accountId: "a1",
+	fromName: "Priya Nair",
+	fromEmail: "priya@example.com",
+	subject,
+	snippet: "Can we move it to 2pm?",
+	timeLabel: "8:15",
+	category: "personal" as const,
+});
+
 const sections: ThreadSection[] = [
 	{
 		id: "today",
 		label: "Today",
 		threads: [
-			{
-				id: "t1",
-				accountId: "a1",
-				fromName: "Priya Nair",
-				fromEmail: "priya@example.com",
-				subject: "Design review tomorrow",
-				snippet: "Can we move it to 2pm?",
-				timeLabel: "8:15",
-				category: "personal",
-			},
-			{
-				id: "t2",
-				accountId: "a1",
-				fromName: "Alex Rivera",
-				fromEmail: "alex@example.com",
-				subject: "Q3 planning notes",
-				snippet: "Notes from today.",
-				timeLabel: "9:42",
-				category: "personal",
-			},
-			{
-				id: "t3",
-				accountId: "a1",
-				fromName: "The Weekly Brief",
-				fromEmail: "hello@weekly.example",
-				subject: "This week in product",
-				snippet: "Five stories you missed.",
-				timeLabel: "Thu",
-				category: "newsletter",
-			},
+			thread("t1", "Design review tomorrow"),
+			thread("t2", "Q3 planning notes"),
+			thread("t3", "This week in product"),
 		],
 	},
+];
+
+const narrowed: ThreadSection[] = [
+	{ id: "today", label: "Today", threads: [thread("t1", "Design review")] },
 ];
 
 let dom: JSDOM;
@@ -60,8 +48,8 @@ let container: HTMLElement;
 let root: Root;
 let triage: ListTriage;
 
-function Harness() {
-	triage = useListTriage(sections);
+function Harness({ rows }: { rows: ThreadSection[] }) {
+	triage = useListTriage(rows);
 	return createElement(MessageListPane, {
 		listTitle: "Inbox",
 		sections: triage.sections,
@@ -73,15 +61,32 @@ function Harness() {
 	});
 }
 
-const mount = () => {
+const mount = (rows: ThreadSection[] = sections) => {
 	act(() => {
-		root.render(createElement(Harness));
+		root.render(createElement(Harness, { rows }));
 	});
 };
 
-const press = (key: string, init: KeyboardEventInit = {}) => {
+const remount = () => {
 	act(() => {
-		dom.window.document.body.dispatchEvent(
+		root.unmount();
+	});
+	root = createRoot(container);
+	mount();
+};
+
+/** Where the list has put focus — the pane, or the row the cursor is on. */
+const focused = (): EventTarget =>
+	(dom.window.document.activeElement as unknown as EventTarget) ??
+	dom.window.document.body;
+
+const press = (
+	key: string,
+	init: KeyboardEventInit = {},
+	target: EventTarget = focused(),
+) => {
+	act(() => {
+		target.dispatchEvent(
 			new dom.window.KeyboardEvent("keydown", {
 				key,
 				bubbles: true,
@@ -94,15 +99,40 @@ const press = (key: string, init: KeyboardEventInit = {}) => {
 
 const selected = () => Array.from(triage.selection.selectedIds).sort();
 
+const rows = (): HTMLElement[] =>
+	Array.from(container.querySelectorAll<HTMLElement>("[data-list-row]"));
+
+const rowFor = (id: string): HTMLElement => {
+	const found = rows().find((row) => row.dataset.messageId === id);
+	assert.ok(found, `no row for ${id}`);
+	return found;
+};
+
 const advertisedKeys = () =>
 	Array.from(container.querySelectorAll("footer kbd")).map(
 		(chip) => chip.textContent ?? "",
 	);
 
-const rowClasses = () =>
-	Array.from(container.querySelectorAll("[data-list-row]")).map(
-		(row) => row.className,
-	);
+/**
+ * What each advertised key has to do to earn its place in the footer. A key
+ * with no entry here is a key the bar offers and this suite cannot vouch for,
+ * which fails on its own.
+ */
+const advertised: Record<string, () => void> = {
+	j: () => {
+		press("j");
+		assert.equal(triage.paneKeyboard.focusedId, "t1");
+		press("j");
+		assert.equal(triage.paneKeyboard.focusedId, "t2");
+	},
+	k: () => {
+		press("j");
+		press("j");
+		assert.equal(triage.paneKeyboard.focusedId, "t2");
+		press("k");
+		assert.equal(triage.paneKeyboard.focusedId, "t1");
+	},
+};
 
 before(async () => {
 	const { JSDOM: JSDOMCtor } = await import("jsdom");
@@ -140,40 +170,38 @@ afterEach(() => {
 });
 
 describe("the prototype's list keyboard", () => {
-	it("advertises only the keys it answers", () => {
+	it("does what every key it advertises says it does", () => {
 		const keys = advertisedKeys();
-		assert.deepEqual(keys, ["j", "k"]);
+		assert.ok(keys.length > 0, "the footer offers nothing at all");
 		for (const key of keys) {
-			act(() => {
-				root.unmount();
-			});
-			root = createRoot(container);
-			mount();
-			press(key);
-			assert.notEqual(
-				triage.paneKeyboard.focusedId,
-				undefined,
-				`${key} moved nothing in the list its hint bar sits under`,
+			const expectation = advertised[key];
+			assert.ok(
+				expectation,
+				`the footer offers "${key}" and nothing serves it`,
 			);
+			remount();
+			expectation();
 		}
 	});
 
 	it("draws the cursor the keys move", () => {
-		const before = rowClasses();
+		const before = rows().map((row) => row.className);
 		press("j");
-		const after = rowClasses();
+		const after = rows().map((row) => row.className);
 		const moved = after.filter(
 			(className, index) => className !== before[index],
 		);
 		assert.equal(moved.length, 1);
 	});
 
-	it("walks the rows with j and k", () => {
+	it("gives the cursor's row real focus, and the list one tab stop", () => {
 		press("j");
 		press("j");
-		assert.equal(triage.paneKeyboard.focusedId, "t2");
-		press("k");
-		assert.equal(triage.paneKeyboard.focusedId, "t1");
+		assert.equal(dom.window.document.activeElement, rowFor("t2"));
+		assert.deepEqual(
+			rows().map((row) => row.tabIndex),
+			[-1, 0, -1],
+		);
 	});
 
 	it("ticks the row under the cursor with x", () => {
@@ -182,10 +210,32 @@ describe("the prototype's list keyboard", () => {
 		assert.deepEqual(selected(), ["t1"]);
 	});
 
-	it("ticks the row under the cursor with Space", () => {
+	it("ticks the row under the cursor with Space, from the row itself", () => {
 		press("j");
-		press(" ");
-		assert.deepEqual(selected(), ["t1"]);
+		assert.equal(dom.window.document.activeElement, rowFor("t1"));
+		press(" ", {}, rowFor("t1"));
+		assert.deepEqual(
+			selected(),
+			["t1"],
+			"Space on a focused row ticks it, as it does in the app",
+		);
+	});
+
+	it("opens the row under the cursor with Enter, from the row itself", () => {
+		press("j");
+		const event = new dom.window.KeyboardEvent("keydown", {
+			key: "Enter",
+			bubbles: true,
+			cancelable: true,
+		});
+		act(() => {
+			rowFor("t1").dispatchEvent(event);
+		});
+		assert.deepEqual(
+			selected(),
+			[],
+			"Enter opens rather than ticks, and never both",
+		);
 	});
 
 	it("extends a range with Shift+j", () => {
@@ -213,5 +263,16 @@ describe("the prototype's list keyboard", () => {
 		press("a", { metaKey: true });
 		press("Escape");
 		assert.deepEqual(selected(), []);
+	});
+
+	it("drops a ticked row that the rows it is handed no longer carry", () => {
+		press("a", { metaKey: true });
+		assert.deepEqual(selected(), ["t1", "t2", "t3"]);
+		mount(narrowed);
+		assert.deepEqual(
+			selected(),
+			["t1"],
+			"a verb acts on the rows that are still on screen",
+		);
 	});
 });

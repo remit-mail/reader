@@ -6,6 +6,7 @@ import type {
 	SyntheticEvent,
 } from "react";
 import { cn } from "../lib/cn.js";
+import { ROW_ATTRIBUTE } from "../lib/keymap-dispatch.js";
 import { LIST_ROW_ATTRIBUTE } from "../lib/roving-focus.js";
 import { categoryTone, type ThreadRowData } from "./app-shell-types.js";
 import { Avatar } from "./avatar.js";
@@ -324,21 +325,37 @@ export function ComfortableRowBody({
 	);
 }
 
+/**
+ * What marks a row as a row: the roving-focus marker, the message-list marker
+ * the keyboard layer reads to leave Enter and Space with the list rather than
+ * with the button under focus, and the id the cursor finds it by. The app's own
+ * row carries the same three (`MessageRow`), so a key pressed on a kit row does
+ * what it does on an app row.
+ */
+const rowMarkers = (thread: ThreadRowData) => ({
+	...LIST_ROW_ATTRIBUTE,
+	[ROW_ATTRIBUTE]: "",
+	"data-message-id": thread.id,
+});
+
 export function CompactRow({
 	thread,
 	active,
 	focused,
+	tabIndex,
 	onClick,
 }: {
 	thread: ThreadRowData;
 	active?: boolean;
 	focused?: boolean;
+	tabIndex?: number;
 	onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
 }) {
 	return (
 		<button
 			type="button"
-			{...LIST_ROW_ATTRIBUTE}
+			{...rowMarkers(thread)}
+			tabIndex={tabIndex}
 			onClick={onClick}
 			className={compactRowClass({ active, focused })}
 		>
@@ -351,19 +368,22 @@ export function ComfortableRow({
 	thread,
 	active,
 	focused,
+	tabIndex,
 	selection,
 	onClick,
 }: {
 	thread: ThreadRowData;
 	active?: boolean;
 	focused?: boolean;
+	tabIndex?: number;
 	selection?: RowSelection;
 	onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
 }) {
 	return (
 		<button
 			type="button"
-			{...LIST_ROW_ATTRIBUTE}
+			{...rowMarkers(thread)}
+			tabIndex={tabIndex}
 			onClick={onClick}
 			className={cn("group", comfortableRowClass({ active, focused }))}
 		>

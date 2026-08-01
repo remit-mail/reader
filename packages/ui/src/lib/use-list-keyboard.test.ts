@@ -1,7 +1,8 @@
 /**
- * The list's keyboard layer as a host mounts it: the keys reach the cursor,
- * the row-click path reads its modifiers the same way, and the footer offers
- * only the actions the layer registered.
+ * The list's keyboard layer as a host mounts it: the keys reach the cursor from
+ * inside the element the layer was given and from nowhere else, the row-click
+ * path reads its modifiers the same way, the selection follows the rows it is
+ * handed, and the footer offers only the actions the layer registered.
  */
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
@@ -10,21 +11,37 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { type ListKeyboard, useListKeyboard } from "./use-list-keyboard.js";
 
-const orderedIds = ["m1", "m2", "m3", "m4"];
+const ALL_IDS = ["m1", "m2", "m3", "m4"];
 
 let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
 let list: ListKeyboard;
 
-function Harness() {
+function Harness({ orderedIds }: { orderedIds: string[] }) {
 	list = useListKeyboard({ orderedIds, isDesktop: true });
-	return createElement("div");
+	return createElement("section", { id: "pane", ref: list.keyboard.ref });
 }
 
-const press = (key: string, init: KeyboardEventInit = {}) => {
+const mount = (orderedIds: string[] = ALL_IDS) => {
 	act(() => {
-		dom.window.document.body.dispatchEvent(
+		root.render(createElement(Harness, { orderedIds }));
+	});
+};
+
+const pane = (): HTMLElement => {
+	const element = dom.window.document.getElementById("pane");
+	assert.ok(element, "the harness rendered no pane");
+	return element as unknown as HTMLElement;
+};
+
+const press = (
+	key: string,
+	init: KeyboardEventInit = {},
+	target: EventTarget = pane(),
+) => {
+	act(() => {
+		target.dispatchEvent(
 			new dom.window.KeyboardEvent("keydown", {
 				key,
 				bubbles: true,
@@ -80,9 +97,7 @@ beforeEach(() => {
 	) as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
-	act(() => {
-		root.render(createElement(Harness));
-	});
+	mount();
 });
 
 afterEach(() => {
@@ -92,11 +107,18 @@ afterEach(() => {
 });
 
 describe("useListKeyboard", () => {
-	it("offers the keys it registered and no others", () => {
-		assert.deepEqual(
-			list.keyboard.hints.map((hint) => hint.action),
-			["focusNext"],
-		);
+	it("registers the keys the footer may offer and no others", () => {
+		assert.deepEqual(Object.keys(list.keyboard.handlers).sort(), [
+			"back",
+			"extendSelectDown",
+			"extendSelectUp",
+			"focusFirst",
+			"focusLast",
+			"focusNext",
+			"focusPrevious",
+			"selectAll",
+			"toggleSelect",
+		]);
 	});
 
 	it("moves the cursor the pane draws", () => {
@@ -113,7 +135,12 @@ describe("useListKeyboard", () => {
 
 	it("takes every loaded row with ⌘A", () => {
 		press("a", { metaKey: true });
-		assert.deepEqual(selected(), orderedIds);
+		assert.deepEqual(selected(), ALL_IDS);
+	});
+
+	it("leaves a key pressed outside its own element alone", () => {
+		press("j", {}, dom.window.document.body);
+		assert.equal(list.keyboard.focusedId, undefined);
 	});
 
 	it("ticks a row on a cmd-click without opening it", () => {
@@ -130,5 +157,16 @@ describe("useListKeyboard", () => {
 	it("opens a plain click rather than taking it", () => {
 		assert.equal(click("m2"), false);
 		assert.deepEqual(selected(), []);
+	});
+
+	it("drops the ticked rows that leave the list, and keeps the rest", () => {
+		press("a", { metaKey: true });
+		assert.deepEqual(selected(), ALL_IDS);
+		mount(["m1", "m3"]);
+		assert.deepEqual(
+			selected(),
+			["m1", "m3"],
+			"a verb acts on the rows that are still on screen",
+		);
 	});
 });

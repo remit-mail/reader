@@ -12,6 +12,14 @@ interface UseTriageKeyboardOptions {
 	/** Disable the whole layer (e.g. a blocking modal owns the keyboard). */
 	enabled?: boolean;
 	/**
+	 * The element the layer listens on. Omitted, the layer is the page's and
+	 * takes the window — the app's. A layer belonging to one mounted surface
+	 * passes that surface's element, so several of them on a page (a Storybook
+	 * docs page carrying every list story) each answer only the keys pressed
+	 * inside their own; `null` until that element is up, and inert until then.
+	 */
+	target?: HTMLElement | null;
+	/**
 	 * Reset window (ms) for a pending `g …` sequence prefix. After this with no
 	 * second key, the prefix is dropped. ~1s per the spec.
 	 */
@@ -45,6 +53,7 @@ interface UseTriageKeyboardOptions {
 export function useTriageKeyboard({
 	handlers,
 	enabled = true,
+	target,
 	sequenceTimeoutMs = 1000,
 }: UseTriageKeyboardOptions): void {
 	// Latest handlers without re-subscribing the listener every render.
@@ -97,11 +106,14 @@ export function useTriageKeyboard({
 			handler();
 		};
 
-		window.addEventListener("keydown", onKeyDown);
+		const element: EventTarget | null = target === undefined ? window : target;
+		if (element === null) return;
+
+		element.addEventListener("keydown", onKeyDown as EventListener);
 		return () => {
-			window.removeEventListener("keydown", onKeyDown);
+			element.removeEventListener("keydown", onKeyDown as EventListener);
 			clearPrefixTimer();
 			prefixRef.current = null;
 		};
-	}, [enabled, sequenceTimeoutMs]);
+	}, [enabled, sequenceTimeoutMs, target]);
 }
