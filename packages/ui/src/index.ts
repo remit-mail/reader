@@ -583,6 +583,12 @@ export {
 	type SettingsShellProps,
 } from "./components/settings-screen.js";
 export {
+	type ShellSearchScope,
+	ShellTopBar,
+	type ShellTopBarProps,
+	type ShellTopBarSearch,
+} from "./components/shell-top-bar.js";
+export {
 	SlidePanel,
 	type SlidePanelProps,
 } from "./components/slide-panel.js";

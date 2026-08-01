@@ -1,6 +1,6 @@
 import { Button } from "@remit/ui";
 import { Bug } from "lucide-react";
-import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
+import { openBugReport } from "@/lib/bug-report";
 
 interface BugReportButtonProps {
 	/**
@@ -11,12 +11,6 @@ interface BugReportButtonProps {
 	 */
 	variant?: "icon" | "drawer";
 }
-
-const openBugReport = () => {
-	const ctx = buildBugReportContext();
-	const url = buildGitHubIssueUrl(ctx);
-	window.open(url, "_blank", "noopener,noreferrer");
-};
 
 export function BugReportButton({ variant = "icon" }: BugReportButtonProps) {
 	if (variant === "drawer") {

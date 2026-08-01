@@ -6,8 +6,9 @@
  * data to the kit's `AppShell`. Anything that renders those slots differently is
  * a design that does not exist, so this file mirrors the route's own wiring:
  *
- * - the top bar is desktop-only, spans the whole layout, and carries the one
- *   search field, the nav toggle and the global actions;
+ * - the top bar is the kit's `ShellTopBar`, the same component the route
+ *   mounts: desktop-only, spanning the whole layout, carrying the one search
+ *   field, the nav toggle and the global actions;
  * - the list pane's header is a `SelectionTopBar`, up for every state of the
  *   list: it names the view and carries the nav button, the unread count, the
  *   filter caret and — only where the top bar is absent, so the page never has
@@ -28,7 +29,6 @@
  */
 import {
 	AppShellSlotted,
-	AppTopBar,
 	Avatar,
 	Button,
 	FilterPanelProvider,
@@ -41,7 +41,6 @@ import {
 	MessageListPane,
 	MobileSearchView,
 	NavSidebar,
-	NavToggleButton,
 	ReadingPane,
 	SearchBar,
 	type SearchCaretRequest,
@@ -50,13 +49,14 @@ import {
 	type SearchResultSection,
 	SearchResults,
 	type SearchScope,
+	ShellTopBar,
 	type Suggestion,
 	SuggestList,
 	type ThreadData,
 	type ThreadSection,
 	useSuggestList,
 } from "@remit/ui";
-import { Bug, Pencil, Search, Settings, SquarePen, X } from "lucide-react";
+import { Pencil, Search, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { navAccounts } from "../fixtures/workspace.js";
 import { ListSelectionBar, useListTriage } from "../lib/list-selection.js";
@@ -193,48 +193,24 @@ function useShellSuggest(search: SearchState) {
 
 function TopBar({ search }: { search: SearchState }) {
 	return (
-		<AppTopBar
-			leading={<NavToggleButton />}
-			search={
-				<SearchBar
-					value={search.query}
-					onChange={search.setQuery}
-					onClear={() => search.setQuery("")}
-					onClearQuery={() => search.setQuery("")}
-					chips={search.chips}
-					onRemoveChip={search.removeChip}
-					placeholder={
-						search.chips?.length ? "Search this folder" : "Search all mail"
-					}
-				/>
-			}
-			actions={
-				<>
-					<Button
-						variant="ghost"
-						size="sm"
-						icon={<SquarePen className="size-4" />}
-						title="Compose (c)"
-						aria-label="Compose"
-					/>
-					<Button
-						variant="ghost"
-						size="sm"
-						icon={<Bug className="size-4" />}
-						title="Report a problem"
-						aria-label="Report a problem"
-					/>
-					<Button
-						variant="ghost"
-						size="sm"
-						icon={<Settings className="size-4" />}
-						title="Settings"
-						aria-label="Settings"
-					/>
-					<button type="button" aria-label="Account" className="ml-1">
-						<Avatar name="Matthijs" email="matthijs@example.com" size="sm" />
-					</button>
-				</>
+		<ShellTopBar
+			search={{
+				value: search.query,
+				scope: search.chips?.length ? "scoped" : "global",
+				chips: search.chips,
+				onChange: search.setQuery,
+				onClear: () => search.setQuery(""),
+				onClearQuery: () => search.setQuery(""),
+				onRemoveChip: search.removeChip,
+			}}
+			onCompose={() => undefined}
+			onReportBug={() => undefined}
+			onOpenSettings={() => undefined}
+			composeShortcut="(c)"
+			account={
+				<button type="button" aria-label="Account">
+					<Avatar name="Matthijs" email="matthijs@example.com" size="sm" />
+				</button>
 			}
 		/>
 	);
