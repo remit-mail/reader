@@ -4,7 +4,13 @@ import {
 	type Server,
 	type ServerResponse,
 } from "node:http";
-import { Counter, Gauge, Histogram, Registry } from "prom-client";
+import {
+	Counter,
+	collectDefaultMetrics,
+	Gauge,
+	Histogram,
+	Registry,
+} from "prom-client";
 
 /**
  * The process-wide metric registry every service renders at `/metrics`
@@ -12,12 +18,25 @@ import { Counter, Gauge, Histogram, Registry } from "prom-client";
  * emitted CloudWatch Embedded Metric Format, which no configuration turns into
  * a scrape endpoint; this registry is what the endpoint renders.
  *
- * The exported recorders are the only way a series enters it. The registry
- * itself is exported for a service that owns a signal of its own shape — the
- * queue sidecar's per-queue depth gauges — so the whole process still renders
- * from one registry.
+ * The exported recorders are the only way an application series enters it. The
+ * registry itself is exported for a service that owns a signal of its own shape
+ * — the queue sidecar's per-queue depth gauges — so the whole process still
+ * renders from one registry.
  */
 export const registry = new Registry();
+
+/**
+ * Heap, resident memory and event-loop lag, read from the process itself. On a
+ * self-hosted box memory is the dimension that actually runs out, and nothing
+ * else in the deployment reports it.
+ *
+ * These are unlabelled series present in every service at once, which the
+ * application gauges deliberately avoid. A process always knows its own heap,
+ * so the value is right in all of them and `instance` tells them apart; a
+ * backlog or a queue depth would be a confident zero everywhere it is not
+ * computed.
+ */
+collectDefaultMetrics({ register: registry });
 
 /** Content type of the exposition format `renderMetrics` produces. */
 export const metricsContentType = registry.contentType;
