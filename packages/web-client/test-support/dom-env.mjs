@@ -59,6 +59,7 @@ for (const name of [
 	"HTMLFormElement",
 	"HTMLSelectElement",
 	"Element",
+	"SVGElement",
 	"Node",
 	"Event",
 	"CustomEvent",

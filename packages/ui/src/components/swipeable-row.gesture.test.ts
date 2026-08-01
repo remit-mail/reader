@@ -15,9 +15,7 @@
  * The second: a finger held on glass drifts, and it drifts past the distance
  * at which the drag starts tracking. Cancelling the press there meant a real
  * hold on a phone never entered selection mode — the row followed the drift
- * and snapped back, and nothing else happened. The drift cases below run
- * against the anchor (`linkComponent`) row the mailbox list actually renders,
- * which is also where the native link menu has to stay suppressed.
+ * and snapped back, and nothing else happened.
  */
 
 import assert from "node:assert/strict";
@@ -120,36 +118,6 @@ function mount(handlers: Handlers) {
 		(b) => !b.hasAttribute("aria-label"),
 	);
 	assert.ok(row, "open-affordance button did not mount");
-	return row;
-}
-
-// The mailbox list renders the open affordance as a real anchor via
-// `linkComponent`; the native long-press menu only bites on an `<a href>`.
-function mountAnchor(handlers: Handlers) {
-	act(() => {
-		root.render(
-			createElement(SwipeableRow, {
-				thread,
-				selectionMode: false,
-				checked: false,
-				active: false,
-				peek: "none",
-				onPeek: handlers.onPeek,
-				onToggleCheck: () => undefined,
-				onLongPress: handlers.onLongPress,
-				onOpen: handlers.onOpen,
-				onAct: () => undefined,
-				linkComponent: ({ onOpenClick, children, ...rowProps }) =>
-					createElement(
-						"a",
-						{ ...rowProps, id: "row", href: "/thread/1", onClick: onOpenClick },
-						children,
-					),
-			}),
-		);
-	});
-	const row = dom.window.document.getElementById("row");
-	assert.ok(row, "anchor row did not mount");
 	return row;
 }
 
@@ -309,7 +277,7 @@ describe("SwipeableRow gesture wiring (react-aria long press + axis arbitration)
 		let longPressed = 0;
 		let opened = 0;
 		const peeks: SwipePeek[] = [];
-		const row = mountAnchor({
+		const row = mount({
 			onLongPress: () => longPressed++,
 			onOpen: () => opened++,
 			onPeek: (next) => peeks.push(next),
@@ -331,7 +299,7 @@ describe("SwipeableRow gesture wiring (react-aria long press + axis arbitration)
 	it("a hold that drifts vertically past the axis threshold still enters selection mode", async () => {
 		let longPressed = 0;
 		const peeks: SwipePeek[] = [];
-		const row = mountAnchor({
+		const row = mount({
 			onLongPress: () => longPressed++,
 			onOpen: () => undefined,
 			onPeek: (next) => peeks.push(next),
@@ -349,10 +317,10 @@ describe("SwipeableRow gesture wiring (react-aria long press + axis arbitration)
 
 	it("an aborted short drag opens nothing on release", async () => {
 		// The drag claimed the axis but never reached the escape distance, so the
-		// press was still live. react-aria synthesizes a click for an unresolved
-		// press, which on the anchor row is a navigation.
+		// press was still live, and react-aria synthesizes a click for an
+		// unresolved press.
 		let clicks = 0;
-		const row = mountAnchor({
+		const row = mount({
 			onLongPress: () => undefined,
 			onOpen: () => undefined,
 			onPeek: () => undefined,
@@ -367,10 +335,10 @@ describe("SwipeableRow gesture wiring (react-aria long press + axis arbitration)
 		assert.equal(clicks, 0);
 	});
 
-	it("suppresses the native link menu raised over a drifting hold", async () => {
-		// Android Chrome raises the anchor's context menu at its own threshold,
-		// which can land mid-drift and ahead of the app's long press.
-		const row = mountAnchor({
+	it("suppresses the native context menu raised over a drifting hold", async () => {
+		// Android Chrome raises its own menu at its own threshold, which can land
+		// mid-drift and ahead of the app's long press.
+		const row = mount({
 			onLongPress: () => undefined,
 			onOpen: () => undefined,
 			onPeek: () => undefined,

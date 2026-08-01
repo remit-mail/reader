@@ -6,12 +6,11 @@ import {
 	type SwipePeek,
 	type ThreadRowData,
 } from "@remit/ui";
-import { Link } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { toDisplayCategory } from "@/lib/display-category";
 import { formatEmailDate } from "@/lib/format";
 import { MessageListItem } from "./MessageListItem";
-import { useModifierSelect } from "./useModifierSelect";
 
 interface MailboxLinkSearch {
 	selectedMessageId?: string;
@@ -78,6 +77,7 @@ export const SwipeableMessageRow = ({
 	density,
 }: SwipeableMessageRowProps) => {
 	const [peek, setPeek] = useState<SwipePeek>("none");
+	const navigate = useNavigate();
 
 	const handleAct = useCallback(
 		(side: "leading" | "trailing") => {
@@ -100,10 +100,16 @@ export const SwipeableMessageRow = ({
 		onToggleCheck(thread.messageId);
 	}, [onToggleCheck, thread.messageId]);
 
-	// The swipe row is the layout tier's row, not the input device's: a mouse at
-	// a narrow width still gets it, and a shift or cmd click on it belongs to
-	// selection rather than to the anchor's own new-window/new-tab gesture.
-	const modifierSelect = useModifierSelect(thread.messageId, onRowSelect);
+	const handleOpen = useCallback(() => {
+		navigate({
+			to: "/mail/$mailboxId",
+			params: { mailboxId },
+			search: (prev: MailboxLinkSearch) => ({
+				...prev,
+				selectedMessageId: thread.messageId,
+			}),
+		});
+	}, [navigate, mailboxId, thread.messageId]);
 
 	if (isDesktop || isMultiSelectMode) {
 		return (
@@ -135,28 +141,8 @@ export const SwipeableMessageRow = ({
 			onPeek={setPeek}
 			onToggleCheck={handleToggleCheck}
 			onLongPress={handleLongPress}
-			onOpen={() => undefined}
+			onOpen={handleOpen}
 			onAct={handleAct}
-			linkComponent={({ onOpenClick, children, ...rowProps }) => (
-				<Link
-					{...rowProps}
-					to="/mail/$mailboxId"
-					params={{ mailboxId }}
-					search={(prev: MailboxLinkSearch) => ({
-						...prev,
-						selectedMessageId: thread.messageId,
-					})}
-					data-message-row
-					onMouseDown={modifierSelect.onMouseDown}
-					onContextMenu={modifierSelect.onContextMenu}
-					onClick={(e) => {
-						if (modifierSelect.claimClick(e)) return;
-						onOpenClick(e);
-					}}
-				>
-					{children}
-				</Link>
-			)}
 		/>
 	);
 };
