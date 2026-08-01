@@ -1,39 +1,32 @@
 import {
-	AppShell,
-	type BriefCategoryFilter,
-	BriefSection,
-	BriefSections,
-	Button,
-	ComfortableRow,
 	defaultKeyboardHints,
-	FilterPanelProvider,
-	FilterToggle,
 	KeyboardHintBar,
-	MailHeader,
-	SelectionTopBar,
-	type ThreadRowData,
 	type ThreadSection,
 } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Menu, Search } from "lucide-react";
-import { createContext, useContext, useMemo, useState } from "react";
 import {
 	briefSections,
 	briefSectionsLong,
 	briefUnseen,
 	categoryDrivenBriefSections,
-	navAccounts,
 	workId,
 } from "../fixtures/workspace.js";
+import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
+import { MailShell } from "../screens/mail-shell.js";
 
-const meta: Meta<typeof AppShell> = {
+const meta: Meta = {
 	title: "Flows/DailyBrief",
-	component: AppShell,
 	parameters: { layout: "fullscreen" },
 };
 export default meta;
 
-type Story = StoryObj<typeof AppShell>;
+type Story = StoryObj;
+
+const brief = {
+	selectedNavId: "brief",
+	listTitle: "Daily brief",
+	unreadCount: briefUnseen,
+};
 
 /**
  * The unified brief across accounts, one section per category: Flagged first,
@@ -43,14 +36,7 @@ type Story = StoryObj<typeof AppShell>;
  */
 export const Default: Story = {
 	render: () => (
-		<AppShell
-			accounts={navAccounts}
-			selectedNavId="brief"
-			briefUnseen={briefUnseen}
-			listTitle="Daily brief"
-			listMeta={`${briefUnseen} unread`}
-			sections={briefSections()}
-		/>
+		<MailShell {...brief} sections={briefSections()} briefFilters />
 	),
 };
 
@@ -62,29 +48,14 @@ export const Default: Story = {
  */
 export const Filtered: Story = {
 	render: () => (
-		<AppShell
-			accounts={navAccounts}
-			selectedNavId="brief"
-			briefUnseen={briefUnseen}
-			listTitle="Daily brief"
-			listMeta={`${briefUnseen} unread`}
-			sections={briefSectionsLong()}
-			briefFilters
-		/>
+		<MailShell {...brief} sections={briefSectionsLong()} briefFilters />
 	),
 };
 
 /** Account chip applied: every section filtered to the work account. */
 export const WorkOnly: Story = {
 	render: () => (
-		<AppShell
-			accounts={navAccounts}
-			selectedNavId="brief"
-			briefUnseen={briefUnseen}
-			listTitle="Daily brief"
-			listMeta="Work only"
-			sections={briefSections(workId)}
-		/>
+		<MailShell {...brief} sections={briefSections(workId)} briefFilters />
 	),
 };
 
@@ -99,13 +70,11 @@ export const WorkOnly: Story = {
  */
 export const CategoryDriven: Story = {
 	render: () => (
-		<AppShell
-			accounts={navAccounts}
-			selectedNavId="brief"
-			briefUnseen={3}
-			listTitle="Daily brief"
-			listMeta="3 unread"
+		<MailShell
+			{...brief}
+			unreadCount={3}
 			sections={categoryDrivenBriefSections()}
+			briefFilters
 		/>
 	),
 };
@@ -118,14 +87,7 @@ export const CategoryDriven: Story = {
  */
 export const CaughtUp: Story = {
 	render: () => (
-		<AppShell
-			accounts={navAccounts}
-			selectedNavId="brief"
-			briefUnseen={0}
-			listTitle="Daily brief"
-			listMeta="You're caught up"
-			sections={[]}
-		/>
+		<MailShell {...brief} unreadCount={0} sections={[]} briefFilters />
 	),
 };
 
@@ -141,14 +103,7 @@ export const CaughtUp: Story = {
  */
 export const KeyboardHints: Story = {
 	render: () => (
-		<AppShell
-			accounts={navAccounts}
-			selectedNavId="brief"
-			briefUnseen={briefUnseen}
-			listTitle="Daily brief"
-			listMeta={`${briefUnseen} unread`}
-			sections={briefSections()}
-		/>
+		<MailShell {...brief} sections={briefSections()} briefFilters />
 	),
 };
 
@@ -158,74 +113,34 @@ export const KeyboardHints: Story = {
  * no footer strip at the bottom.
  */
 export const KeyboardHintsPhone: Story = {
-	globals: { viewport: { value: "mobile" } },
+	parameters: phoneParams,
+	decorators: [phoneFrame],
 	render: () => (
-		<AppShell
-			accounts={navAccounts}
-			selectedNavId="brief"
-			briefUnseen={briefUnseen}
-			listTitle="Daily brief"
-			listMeta={`${briefUnseen} unread`}
+		<MailShell
+			{...brief}
+			width={PHONE_WIDTH}
 			sections={briefSections()}
+			briefFilters
 		/>
 	),
 };
 
 /**
- * The aggregate brief as the web client composes it at phone width: the
- * MailHeader top row carrying the filter caret, then the brief list body
- * straight underneath. `FilterPanelProvider` shares the panel's open state
- * between the two, so the caret is the whole filter affordance and the panel it
- * opens pushes the rows down. Fast account switching is the nav sidebar, so
- * there is no header chip row.
- */
-function BriefScreen({
-	initialCategory = "all",
-}: {
-	initialCategory?: BriefCategoryFilter;
-}) {
-	const [searchValue, setSearchValue] = useState("");
-	const [searchOpen, setSearchOpen] = useState(false);
-	const [category, setCategory] =
-		useState<BriefCategoryFilter>(initialCategory);
-
-	return (
-		<FilterPanelProvider hasSheet>
-			<div
-				className="flex h-[760px] flex-col overflow-hidden border border-line bg-canvas"
-				style={{ width: 390 }}
-			>
-				<MailHeader
-					title="Daily brief"
-					unreadCount={briefUnseen}
-					isDesktop={false}
-					onMenuClick={() => undefined}
-					filterToggle={<FilterToggle />}
-					searchValue={searchValue}
-					onSearchChange={setSearchValue}
-					searchOpen={searchOpen}
-					onSearchOpenChange={setSearchOpen}
-				/>
-				<div className="min-h-0 flex-1">
-					<BriefSections
-						sections={briefSections()}
-						briefCategory={category}
-						Row={ComfortableRow}
-						onSelectBriefCategory={setCategory}
-					/>
-				</div>
-			</div>
-		</FilterPanelProvider>
-	);
-}
-
-/**
  * (a) "All" scope: every category section rendered with its header, and the
- * caret in the header beside the unread count.
+ * caret in the list header beside the unread count. The panel it opens pushes
+ * the rows down rather than covering them.
  */
 export const WithFilter: Story = {
-	parameters: { layout: "centered" },
-	render: () => <BriefScreen />,
+	parameters: phoneParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<MailShell
+			{...brief}
+			width={PHONE_WIDTH}
+			sections={briefSections()}
+			briefFilters
+		/>
+	),
 };
 
 /**
@@ -233,52 +148,18 @@ export const WithFilter: Story = {
  * with NO section header.
  */
 export const FilteredToCategory: Story = {
-	parameters: { layout: "centered" },
-	render: () => <BriefScreen initialCategory="newsletter" />,
-};
-
-/* ------------------------------------------------------------------ */
-/* Multi-select                                                        */
-/* ------------------------------------------------------------------ */
-
-interface BriefChecked {
-	checked: ReadonlySet<string>;
-	toggle: (id: string) => void;
-}
-
-const BriefCheckedContext = createContext<BriefChecked>({
-	checked: new Set<string>(),
-	toggle: () => undefined,
-});
-
-/**
- * A brief row that reads its checked state from context — the same shape the
- * web client uses, where the row is handed the selection by the list's
- * interaction provider rather than by the section that renders it.
- */
-function SelectableBriefRow({
-	thread,
-	active,
-	onClick,
-}: {
-	thread: ThreadRowData;
-	active?: boolean;
-	onClick?: () => void;
-}) {
-	const { checked, toggle } = useContext(BriefCheckedContext);
-	return (
-		<ComfortableRow
-			thread={thread}
-			active={active}
-			onClick={onClick}
-			selection={{
-				checked: checked.has(thread.id),
-				alwaysVisible: true,
-				onToggle: () => toggle(thread.id),
-			}}
+	parameters: phoneParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<MailShell
+			{...brief}
+			width={PHONE_WIDTH}
+			sections={briefSections()}
+			briefFilters
+			briefCategory="newsletter"
 		/>
-	);
-}
+	),
+};
 
 /**
  * A shift-range that crosses a section boundary: the last row of the first
@@ -293,86 +174,8 @@ function crossSectionRange(sections: ThreadSection[]): string[] {
 	return tail ? [tail, ...head] : head;
 }
 
-function BriefMultiSelectScreen({ touch = false }: { touch?: boolean }) {
-	const sections = useMemo(() => briefSections(), []);
-	const [checked, setChecked] = useState<ReadonlySet<string>>(
-		() => new Set(crossSectionRange(sections)),
-	);
-	const value = useMemo<BriefChecked>(
-		() => ({
-			checked,
-			toggle: (id: string) =>
-				setChecked((prev) => {
-					const next = new Set(prev);
-					if (!next.delete(id)) next.add(id);
-					return next;
-				}),
-		}),
-		[checked],
-	);
-	const clear = () => setChecked(new Set());
-
-	return (
-		<BriefCheckedContext.Provider value={value}>
-			<div
-				className="relative flex h-[760px] flex-col overflow-hidden border border-line bg-canvas"
-				style={{ width: touch ? 390 : 420 }}
-			>
-				<SelectionTopBar
-					title="Daily brief"
-					navSlot={
-						<Button
-							variant="ghost"
-							size="touch"
-							icon={<Menu className="size-5" />}
-							aria-label="Menu"
-							className="-ml-2 shrink-0"
-						/>
-					}
-					titleMeta={
-						<span className="shrink-0 text-2xs text-fg-subtle">
-							{briefUnseen.toLocaleString()} unread
-						</span>
-					}
-					searchSlot={
-						touch ? (
-							<Button
-								variant="ghost"
-								size="touch"
-								icon={<Search className="size-5" />}
-								aria-label="Search"
-								className="shrink-0"
-							/>
-						) : undefined
-					}
-					count={checked.size}
-					onCancel={clear}
-					onDelete={clear}
-					onMove={clear}
-					onOrganize={clear}
-					onJunk={clear}
-					onMarkRead={clear}
-					selectAll={{
-						checked: false,
-						indeterminate: checked.size > 0,
-						onChange: clear,
-					}}
-				/>
-				<div className="min-h-0 flex-1">
-					<div className="h-full overflow-y-auto">
-						{sections.map((section) => (
-							<BriefSection
-								key={section.id}
-								section={section}
-								Row={SelectableBriefRow}
-							/>
-						))}
-					</div>
-				</div>
-			</div>
-		</BriefCheckedContext.Provider>
-	);
-}
+const multiSelectSections = briefSections();
+const multiSelectIds = crossSectionRange(multiSelectSections);
 
 /**
  * Desktop multi-select on the brief. The bar takes the header's place for as
@@ -385,8 +188,14 @@ function BriefMultiSelectScreen({ touch = false }: { touch?: boolean }) {
  * at it.
  */
 export const MultiSelect: Story = {
-	parameters: { layout: "centered" },
-	render: () => <BriefMultiSelectScreen />,
+	render: () => (
+		<MailShell
+			{...brief}
+			sections={multiSelectSections}
+			briefFilters
+			selectedIds={multiSelectIds}
+		/>
+	),
 };
 
 /**
@@ -395,9 +204,17 @@ export const MultiSelect: Story = {
  * a second row of its own below 768px.
  */
 export const MultiSelectPhone: Story = {
-	parameters: { layout: "centered" },
-	globals: { viewport: { value: "mobile" } },
-	render: () => <BriefMultiSelectScreen touch />,
+	parameters: phoneParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<MailShell
+			{...brief}
+			width={PHONE_WIDTH}
+			sections={multiSelectSections}
+			briefFilters
+			selectedIds={multiSelectIds}
+		/>
+	),
 };
 
 /**

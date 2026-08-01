@@ -1,4 +1,4 @@
-import { Button } from "@remit/ui";
+import { Button, inboxFilterConfig } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
 	Archive,
@@ -8,6 +8,8 @@ import {
 	Send,
 	Trash2,
 } from "lucide-react";
+import { allThreads, q3Intelligence, q3Thread } from "../fixtures/workspace.js";
+import { MailShell } from "../screens/mail-shell.js";
 
 /**
  * Design source for the folder-picker surfaces (#788): the move-to-mailbox
@@ -28,8 +30,13 @@ export default meta;
 
 type Story = StoryObj;
 
-/** Move-to-mailbox picker: search + the destination folder list. */
+/**
+ * Move-to-mailbox picker: search + the destination folder list. A popover that
+ * hangs off whichever Move it was opened from, so it is shown on its own rather
+ * than floating unanchored in a shell.
+ */
 export const MovePicker: Story = {
+	parameters: { layout: "centered" },
 	render: () => (
 		<div className="mx-auto mt-12 w-72 overflow-hidden rounded-md border border-line bg-surface shadow-lg">
 			<div className="flex items-center gap-2 border-b border-line px-3 py-2">
@@ -70,10 +77,30 @@ const CATEGORIES = [
 	"social",
 ];
 
-/** Reclassify-sender dialog from the intelligence pane. */
+/**
+ * Reclassify-sender dialog, opened from the intelligence pane it overrides a
+ * category in. The backdrop is translucent, so the screen behind it is part of
+ * what this story shows.
+ */
 export const ReclassifyDialog: Story = {
 	render: () => (
-		<div className="relative flex h-dvh w-full items-center justify-center">
+		<MailShell
+			selectedNavId="mbx_personal_inbox"
+			listTitle="Inbox"
+			unreadCount={9}
+			sections={[{ id: "inbox", threads: allThreads }]}
+			preset={inboxFilterConfig()}
+			thread={q3Thread}
+			selectedThreadId="thr_q3"
+			intelligence={q3Intelligence}
+			overlay={<ReclassifyOverlay />}
+		/>
+	),
+};
+
+function ReclassifyOverlay() {
+	return (
+		<div className="absolute inset-0 z-50 flex items-center justify-center">
 			<div className="absolute inset-0 bg-canvas/80 backdrop-blur-sm" />
 			<div className="relative z-10 w-full max-w-sm rounded-sm border border-line bg-surface p-6 shadow-lg">
 				<h2 className="text-lg font-semibold text-fg">
@@ -105,5 +132,5 @@ export const ReclassifyDialog: Story = {
 				</div>
 			</div>
 		</div>
-	),
-};
+	);
+}

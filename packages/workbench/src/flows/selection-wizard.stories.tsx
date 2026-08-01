@@ -1,5 +1,4 @@
 import {
-	Checkbox,
 	type ClauseEditState,
 	crossAccountDestinationReason,
 	crossAccountRuleReason,
@@ -11,11 +10,9 @@ import {
 	type FolderTreeNode,
 	inboxFilterConfig,
 	isConvertible,
-	MakeFilterAction,
 	type MatchCount,
 	type MatchMode,
 	type MatchOperator,
-	PopoverMenu,
 	type RuleClause,
 	type RuleScope,
 	type RunState,
@@ -30,22 +27,13 @@ import {
 	stepIndex,
 	stepsFor,
 	suggestRuleName,
+	type ThreadRowData,
 	UNCOUNTABLE_PREDICATE_REASON,
 	type Verb,
-	verbCopy,
 	type WizardDraft,
 } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import {
-	ArrowLeft,
-	Check,
-	FolderInput,
-	MailOpen,
-	ShieldAlert,
-	Sparkles,
-	Trash2,
-} from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 import {
 	FACETS_ONLY_CONVERSION,
 	PLAIN_CONVERSION,
@@ -56,142 +44,23 @@ import {
 	SELECTION_SEARCH_SAMPLE,
 	type SelectionMessage,
 } from "../fixtures/selection-messages.js";
+import { q3Intelligence, q3Thread } from "../fixtures/workspace.js";
 import {
-	allThreads,
-	q3Intelligence,
-	q3Thread,
-	searchSections,
-} from "../fixtures/workspace.js";
+	DESKTOP_WIDTH,
+	TABLET_WIDTH,
+	WIDE_PHONE_WIDTH,
+} from "../lib/story-frame.js";
 import { MailShell } from "../screens/mail-shell.js";
 
-/* ------------------------------------------------------------------ */
-/* The list and its action bar — where the wizard is opened from       */
-/* ------------------------------------------------------------------ */
-
-const VERB_ICON: Record<Verb, ReactNode> = {
-	delete: <Trash2 className="size-5" />,
-	move: <FolderInput className="size-5" />,
-	junk: <ShieldAlert className="size-5" />,
-	markRead: <MailOpen className="size-5" />,
-	organize: <Sparkles className="size-5" />,
-};
-
-const BAR_VERBS: Verb[] = ["delete", "move", "organize"];
-const OVERFLOW_VERBS: Verb[] = ["junk", "markRead"];
-
-function SelectAllToggle({
-	allSelected,
-	indeterminate,
-	onToggle,
-	className,
-}: {
-	allSelected: boolean;
-	indeterminate: boolean;
-	onToggle: () => void;
-	className: string;
-}) {
-	return (
-		<Checkbox
-			className={className}
-			checked={allSelected}
-			indeterminate={indeterminate}
-			onChange={onToggle}
-			label={
-				<span className="font-medium text-accent">
-					{allSelected ? "Deselect all" : "Select all"}
-				</span>
-			}
-		/>
-	);
-}
-
-function ListActionBar({
-	title,
-	count,
-	allSelected,
-	onToggleAll,
-	onExit,
-	onVerb,
-}: {
-	title: string;
-	count: number;
-	allSelected: boolean;
-	onToggleAll: () => void;
-	onExit: () => void;
-	onVerb: (verb: Verb) => void;
-}) {
-	const selecting = count > 0;
-
-	return (
-		<div className="shrink-0 border-b border-line bg-surface">
-			<div className="flex h-14 items-center gap-1 px-2">
-				{selecting && (
-					<button
-						type="button"
-						onClick={onExit}
-						aria-label="Exit selection"
-						className="flex size-11 shrink-0 items-center justify-center rounded-md text-fg-muted md:hidden"
-					>
-						<ArrowLeft className="size-5" />
-					</button>
-				)}
-
-				<SelectAllToggle
-					allSelected={allSelected}
-					indeterminate={selecting && !allSelected}
-					onToggle={onToggleAll}
-					className="hidden shrink-0 pl-1 pr-2 md:flex"
-				/>
-
-				<span className="min-w-0 flex-1 truncate px-1 text-sm font-semibold">
-					{selecting ? (
-						<>
-							<span className="tabular-nums">{count}</span>
-							<span className="font-normal text-fg-muted"> selected</span>
-						</>
-					) : (
-						title
-					)}
-				</span>
-
-				{selecting && (
-					<>
-						{BAR_VERBS.map((verb) => (
-							<button
-								key={verb}
-								type="button"
-								onClick={() => onVerb(verb)}
-								aria-label={verbCopy(verb).label}
-								title={verbCopy(verb).label}
-								className="flex size-11 shrink-0 items-center justify-center rounded-md text-fg-muted hover:bg-surface-sunken"
-							>
-								{VERB_ICON[verb]}
-							</button>
-						))}
-						<PopoverMenu
-							triggerLabel="More actions"
-							items={OVERFLOW_VERBS.map((verb) => ({
-								key: verb,
-								label: verbCopy(verb).label,
-								icon: VERB_ICON[verb],
-								onSelect: () => onVerb(verb),
-							}))}
-						/>
-					</>
-				)}
-			</div>
-
-			{selecting && (
-				<SelectAllToggle
-					allSelected={allSelected}
-					indeterminate={!allSelected}
-					onToggle={onToggleAll}
-					className="w-full px-3 pb-2 md:hidden"
-				/>
-			)}
-		</div>
-	);
-}
+/** The list rows the wizard is opened from, as the shell's list pane takes them. */
+const toRow = (message: SelectionMessage): ThreadRowData => ({
+	id: message.id,
+	fromName: message.sender,
+	fromEmail: message.email,
+	subject: message.subject,
+	snippet: message.preview,
+	timeLabel: message.date,
+});
 
 /* ------------------------------------------------------------------ */
 /* The driver — the answers, held for the wizard to render             */
@@ -591,7 +460,7 @@ function SelectionFlow({
 	preselected = 0,
 	preselectedIds,
 	openAt,
-	backdrop,
+	width = WIDE_PHONE_WIDTH,
 }: {
 	messages?: SelectionMessage[];
 	title?: string;
@@ -608,109 +477,56 @@ function SelectionFlow({
 	/** Open the wizard on mount, on a given step. */
 	openAt?: WizardEntry;
 	/**
-	 * The screen the wizard is judged against. The single-column list is the
-	 * phone's; a desktop story hands the whole mail shell instead, because a modal
-	 * over one narrow column is not the room a desktop window has.
+	 * The tier the wizard is judged at. Match it to the story's viewport: the
+	 * shell reflows off its own width, and a modal over one narrow column is not
+	 * the room a desktop window has.
 	 */
-	backdrop?: ReactNode;
+	width?: number;
 }) {
-	const [ids, setIds] = useState<string[]>(
-		() => preselectedIds ?? messages.slice(0, preselected).map((m) => m.id),
-	);
+	const seeded =
+		preselectedIds ?? messages.slice(0, preselected).map((m) => m.id);
+	const [ids, setIds] = useState<string[]>(seeded);
 	const [entry, setEntry] = useState<WizardEntry | undefined>(openAt);
 
 	const selected = messages.filter((m) => ids.includes(m.id));
-	const toggle = (id: string) =>
-		setIds(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
-
-	const wizard = entry && (
-		<WizardDriver
-			entry={entry}
-			selected={selected}
-			results={messages}
-			conversion={conversion}
-			onExit={() => setEntry(undefined)}
-		/>
-	);
-
-	if (backdrop) {
-		return (
-			<div className="relative h-full w-full overflow-hidden font-sans">
-				{backdrop}
-				{wizard}
-			</div>
-		);
-	}
+	const desktop = width >= 1024;
 
 	return (
-		<div className="relative flex h-full flex-col overflow-hidden bg-surface font-sans">
-			<ListActionBar
-				title={title}
-				count={ids.length}
-				allSelected={ids.length === messages.length}
-				onToggleAll={() =>
-					setIds(
-						ids.length === messages.length ? [] : messages.map((m) => m.id),
-					)
-				}
-				onExit={() => setIds([])}
-				onVerb={(verb) => setEntry({ verb })}
-			/>
-			{conversion && ids.length === 0 && (
-				<MakeFilterAction
-					onClick={() => setEntry({ verb: "organize", fromSearch: true })}
-					blockedReason={
-						isConvertible(conversion)
+		<MailShell
+			width={width}
+			selectedNavId="mbx_personal_inbox"
+			listTitle={title}
+			unreadCount={messages.length}
+			sections={[{ id: "selection", threads: messages.map(toRow) }]}
+			preset={inboxFilterConfig()}
+			scopeChip={inboxScope}
+			selectedIds={seeded}
+			onVerb={(verb, ticked) => {
+				setIds([...ticked]);
+				setEntry({ verb });
+			}}
+			{...(conversion
+				? {
+						onMakeFilter: () =>
+							setEntry({ verb: "organize", fromSearch: true }),
+						makeFilterBlockedReason: isConvertible(conversion)
 							? undefined
-							: "Add a sender or words to filter on"
+							: "Add a sender or words to filter on",
 					}
-				/>
-			)}
-			<ul className="min-h-0 flex-1 divide-y divide-line overflow-y-auto">
-				{messages.map((m) => {
-					const on = ids.includes(m.id);
-					return (
-						<li key={m.id}>
-							<button
-								type="button"
-								onClick={() => toggle(m.id)}
-								className={[
-									"flex w-full items-start gap-3 px-3 py-2.5 text-left",
-									on ? "bg-accent-soft" : "",
-								].join(" ")}
-							>
-								<span
-									className={[
-										"mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border",
-										on
-											? "border-accent bg-accent text-accent-fg"
-											: "border-line",
-									].join(" ")}
-								>
-									{on && <Check className="size-3" />}
-								</span>
-								<span className="min-w-0 flex-1">
-									<span className="flex items-baseline justify-between gap-2">
-										<span className="truncate text-sm font-medium">
-											{m.sender}
-										</span>
-										<span className="shrink-0 text-2xs text-fg-subtle">
-											{m.date}
-										</span>
-									</span>
-									<span className="block truncate text-sm">{m.subject}</span>
-									<span className="block truncate text-xs text-fg-muted">
-										{m.preview}
-									</span>
-								</span>
-							</button>
-						</li>
-					);
-				})}
-			</ul>
-
-			{wizard}
-		</div>
+				: {})}
+			{...(desktop ? { thread: q3Thread, intelligence: q3Intelligence } : {})}
+			overlay={
+				entry && (
+					<WizardDriver
+						entry={entry}
+						selected={selected}
+						results={messages}
+						conversion={conversion}
+						onExit={() => setEntry(undefined)}
+					/>
+				)
+			}
+		/>
 	);
 }
 
@@ -785,45 +601,9 @@ const inboxScope: SearchChip = {
 };
 
 /**
- * The desktop screen the modal is judged against — nav column, list, reading
- * pane and intelligence rail, the shell the `/mail` route mounts. A modal over a
- * single narrow column says nothing about the room a desktop window has.
- */
-const DesktopBackdrop = () => (
-	<MailShell
-		selectedNavId="mbx_personal_inbox"
-		listTitle="Inbox"
-		unreadCount={9}
-		sections={[{ id: "inbox", threads: allThreads }]}
-		preset={inboxFilterConfig()}
-		scopeChip={inboxScope}
-		thread={q3Thread}
-		selectedThreadId="thr_q3"
-		intelligence={q3Intelligence}
-	/>
-);
-
-/** The same shell with a query up, so the results are what sits behind the modal. */
-const DesktopSearchBackdrop = () => (
-	<MailShell
-		selectedNavId="mbx_personal_inbox"
-		listTitle="Inbox"
-		unreadCount={9}
-		sections={[{ id: "inbox", threads: allThreads }]}
-		preset={inboxFilterConfig()}
-		scopeChip={inboxScope}
-		query={QUERY}
-		searchSections={searchSections}
-		thread={q3Thread}
-		selectedThreadId="thr_q3"
-		intelligence={q3Intelligence}
-	/>
-);
-
-/**
- * PRIMARY — a plain inbox, nothing ticked. Tick a row, press a verb on the bar,
- * then walk the wizard. With no search behind it the widened options are seeded
- * from the messages you ticked.
+ * PRIMARY — a plain inbox, nothing ticked. Press and hold a row to tick it, take
+ * a verb off the list header, then walk the wizard. With no search behind it the
+ * widened options are seeded from the messages you ticked.
  */
 export const Inbox: Story = {
 	name: "Inbox — no search",
@@ -836,7 +616,7 @@ export const InboxDesktop: Story = {
 	globals: { viewport: { value: "desktop" } },
 	render: () => (
 		<SelectionFlow
-			backdrop={<DesktopBackdrop />}
+			width={DESKTOP_WIDTH}
 			preselected={3}
 			openAt={{ verb: "organize", startAt: "match" }}
 		/>
@@ -864,7 +644,7 @@ export const SearchResultsDesktop: Story = {
 	globals: { viewport: { value: "desktop" } },
 	render: () => (
 		<SelectionFlow
-			backdrop={<DesktopSearchBackdrop />}
+			width={DESKTOP_WIDTH}
 			messages={SELECTION_SEARCH_SAMPLE}
 			title={RESULTS_TITLE}
 			conversion={PLAIN_CONVERSION}
@@ -902,7 +682,7 @@ export const SearchConvertedDesktop: Story = {
 	globals: { viewport: { value: "desktop" } },
 	render: () => (
 		<SelectionFlow
-			backdrop={<DesktopSearchBackdrop />}
+			width={DESKTOP_WIDTH}
 			messages={SELECTION_SEARCH_SAMPLE}
 			title={RESULTS_TITLE}
 			conversion={RICH_CONVERSION}
@@ -1011,7 +791,7 @@ export const DeleteReviewDesktop: Story = {
 	globals: { viewport: { value: "desktop" } },
 	render: () => (
 		<SelectionFlow
-			backdrop={<DesktopBackdrop />}
+			width={DESKTOP_WIDTH}
 			preselected={3}
 			openAt={{ verb: "delete", startAt: "review" }}
 		/>
@@ -1023,6 +803,7 @@ export const DeleteReviewTablet: Story = {
 	globals: { viewport: { value: "tablet" } },
 	render: () => (
 		<SelectionFlow
+			width={TABLET_WIDTH}
 			preselected={3}
 			openAt={{ verb: "delete", startAt: "review" }}
 		/>
@@ -1696,7 +1477,7 @@ export const EscalatedReviewDesktop: Story = {
 	globals: { viewport: { value: "desktop" } },
 	render: () => (
 		<SelectionFlow
-			backdrop={<DesktopSearchBackdrop />}
+			width={DESKTOP_WIDTH}
 			messages={SELECTION_SEARCH_SAMPLE}
 			title={RESULTS_TITLE}
 			preselected={4}

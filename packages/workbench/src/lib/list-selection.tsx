@@ -6,6 +6,7 @@ import {
 	type ThreadSection,
 	useAppShellLayout,
 	useSelection,
+	type Verb,
 } from "@remit/ui";
 import { Menu } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
@@ -104,6 +105,7 @@ export function ListSelectionBar({
 	searchSlot,
 	searchField,
 	idleSlot,
+	onVerb,
 }: {
 	triage: ListTriage;
 	title: string;
@@ -111,15 +113,26 @@ export function ListSelectionBar({
 	searchSlot?: ReactNode;
 	searchField?: ReactNode;
 	idleSlot?: ReactNode;
+	/**
+	 * Hands every verb to the caller instead of running it on the list — the
+	 * door the selection wizard opens from. Absent, the bar deletes and marks
+	 * read itself and offers no destination it cannot resolve.
+	 */
+	onVerb?: (verb: Verb, selected: ReadonlySet<string>) => void;
 }) {
 	const { selection } = triage;
+	const raise = (verb: Verb) =>
+		onVerb ? () => onVerb(verb, selection.selectedIds) : undefined;
 	return (
 		<SelectionTopBar
 			title={title}
 			count={selection.selectedCount}
 			onCancel={selection.clearSelection}
-			onDelete={triage.trashSelected}
-			onMarkRead={triage.markSelectedRead}
+			onDelete={raise("delete") ?? triage.trashSelected}
+			onMarkRead={raise("markRead") ?? triage.markSelectedRead}
+			onMove={raise("move")}
+			onOrganize={raise("organize")}
+			onJunk={raise("junk")}
 			navSlot={<PaneNavButton />}
 			titleMeta={titleMeta}
 			searchSlot={searchSlot}

@@ -29,7 +29,7 @@ import {
 	type SearchScope,
 	type Suggestion,
 } from "@remit/ui";
-import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
+import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
 	allThreads,
 	briefSections,
@@ -40,6 +40,14 @@ import {
 	searchSections,
 	searchSectionsWithoutSpam,
 } from "../fixtures/workspace.js";
+import {
+	framedAt,
+	PHONE_WIDTH,
+	phoneFrame,
+	phoneParams,
+	TABLET_WIDTH,
+	WIDE_PHONE_WIDTH,
+} from "../lib/story-frame.js";
 import { MailShell } from "../screens/mail-shell.js";
 
 const meta: Meta = {
@@ -49,30 +57,6 @@ const meta: Meta = {
 export default meta;
 
 type Story = StoryObj;
-
-const PHONE_WIDTH = 390;
-/** The wider Android phone the brief takeover is checked against. */
-const WIDE_PHONE_WIDTH = 411;
-/** Below the desktop tier, so the field is the list header's own. */
-const TABLET_WIDTH = 820;
-
-const framedAt =
-	(width: number): Decorator =>
-	(Story) => (
-		<div
-			className="relative overflow-hidden rounded-lg border border-line"
-			style={{ width, height: 844 }}
-		>
-			<Story />
-		</div>
-	);
-
-const phoneFrame = framedAt(PHONE_WIDTH);
-
-const phoneParams = {
-	layout: "centered" as const,
-	viewport: { value: "mobile" },
-};
 
 const flatInbox = [{ id: "inbox", threads: allThreads }];
 const spamScope: SearchChip = { id: "spam", label: "in:spam", tone: "scope" };
