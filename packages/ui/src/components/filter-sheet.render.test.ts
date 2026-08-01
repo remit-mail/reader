@@ -85,7 +85,7 @@ describe("FilterSheet under a FilterPanelProvider", () => {
 		renderToString(
 			createElement(
 				FilterPanelProvider,
-				null,
+				{ hasSheet: true },
 				createElement(FilterToggle),
 				createElement(FilterSheet, {
 					categories,
@@ -119,5 +119,16 @@ describe("FilterSheet under a FilterPanelProvider", () => {
 
 	it("renders nothing for a toggle with no panel above it", () => {
 		assert.equal(renderToString(createElement(FilterToggle)), "");
+	});
+
+	it("renders nothing while the provider reports no sheet", () => {
+		const html = renderToString(
+			createElement(
+				FilterPanelProvider,
+				{ hasSheet: false },
+				createElement(FilterToggle),
+			),
+		);
+		assert.equal(html, "");
 	});
 });

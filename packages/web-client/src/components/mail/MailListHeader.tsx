@@ -440,7 +440,7 @@ export function MailListHeader({
 					<span className="shrink-0 text-2xs text-fg-subtle">
 						{unreadCount.toLocaleString()} unread
 					</span>
-					{!hasQuery && <FilterToggle />}
+					<FilterToggle />
 				</>
 			),
 			searchSlot: ownsSearch && !searchExpanded && (
@@ -492,7 +492,6 @@ export function MailListHeader({
 			chromeResults,
 			makeFilterAction,
 			searchConversion,
-			hasQuery,
 		],
 	);
 

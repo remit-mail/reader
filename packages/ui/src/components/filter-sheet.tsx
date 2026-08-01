@@ -133,16 +133,18 @@ const FilterPanelCtx = createContext<FilterPanelState | null>(null);
  * `FilterToggle`, the sheet drops its own trigger row, and the sheet keeps its
  * filter state exactly where it already lives.
  *
- * A view whose body is sometimes something other than the filtered list — a
- * skeleton, an empty state, an error — says so with `hasSheet`, and the caret
- * stands down for as long as there is no panel behind it.
+ * `hasSheet` states whether a sheet is mounted right now, and the caret stands
+ * down for as long as there is no panel behind it. It is required: a view whose
+ * body is sometimes something else — a skeleton, an empty state, an error —
+ * would otherwise inherit a caret over nothing by saying nothing. Compute it
+ * from what the body renders, in the same pass that renders it.
  */
 export function FilterPanelProvider({
 	children,
-	hasSheet = true,
+	hasSheet,
 }: {
-	children: ReactNode;
-	hasSheet?: boolean;
+	children?: ReactNode;
+	hasSheet: boolean;
 }) {
 	const [open, setOpen] = useState(false);
 	const [active, setActive] = useState(false);

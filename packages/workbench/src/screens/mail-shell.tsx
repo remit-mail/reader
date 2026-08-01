@@ -39,7 +39,6 @@ import {
 	IntelligencePanel,
 	MakeFilterAction,
 	MessageListPane,
-	type MessageListSelection,
 	MobileSearchView,
 	NavSidebar,
 	NavToggleButton,
@@ -56,19 +55,10 @@ import {
 	SuggestList,
 	type ThreadData,
 	type ThreadSection,
-	useAppShellLayout,
 	useSuggestList,
 } from "@remit/ui";
-import {
-	Bug,
-	Menu,
-	Pencil,
-	Search,
-	Settings,
-	SquarePen,
-	X,
-} from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { Bug, Pencil, Search, Settings, SquarePen, X } from "lucide-react";
+import { type ReactNode, useState } from "react";
 import { navAccounts } from "../fixtures/workspace.js";
 import { PaneNavButton, useListTriage } from "../lib/list-selection.js";
 
@@ -368,15 +358,17 @@ function ListPane({
 	// A query owns the pane: the filter sheet stands down and the search's own
 	// affordance takes its place, in the pane rather than in the results body, so
 	// it stays put when the body swaps between the panel and the list's own rows.
-	const body =
-		filterConfig && !hasQuery ? (
-			<FilterSheet {...filterConfig}>{inner}</FilterSheet>
-		) : (
-			<div className="h-full overflow-y-auto">{inner}</div>
-		);
+	const sheet = hasQuery ? undefined : filterConfig;
+	// The brief's own sections carry a sheet; a plain mailbox gets one here.
+	const briefOwnsSheet = Boolean(briefFilters) && !hasQuery;
+	const body = sheet ? (
+		<FilterSheet {...sheet}>{inner}</FilterSheet>
+	) : (
+		<div className="h-full overflow-y-auto">{inner}</div>
+	);
 
 	return (
-		<FilterPanelProvider>
+		<FilterPanelProvider hasSheet={sheet !== undefined || briefOwnsSheet}>
 			<section className="flex h-full w-full flex-col bg-surface">
 				<SelectionTopBar
 					title={title}
@@ -395,7 +387,7 @@ function ListPane({
 							<span className="shrink-0 text-2xs text-fg-subtle">
 								{unreadCount.toLocaleString()} unread
 							</span>
-							{!hasQuery && <FilterToggle />}
+							<FilterToggle />
 						</>
 					}
 					searchSlot={

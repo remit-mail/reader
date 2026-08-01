@@ -190,7 +190,7 @@ function BriefScreen({
 		useState<BriefCategoryFilter>(initialCategory);
 
 	return (
-		<FilterPanelProvider>
+		<FilterPanelProvider hasSheet>
 			<div
 				className="flex h-[760px] flex-col overflow-hidden border border-line bg-canvas"
 				style={{ width: 390 }}
