@@ -3,16 +3,19 @@
  *
  * `GET /system/update` returns three independent things: the running version,
  * the outcome of the last manifest check, and the state of the current or last
- * run. This module folds that response — plus a run id the client persisted
- * before the server restarted, plus the clock — into the single `SelfUpdateState`
- * the `@remit/ui` components render, and into the full-window blocking overlay.
+ * run. This module folds that response — plus the run this client started and
+ * holds in memory, plus the clock — into the single `SelfUpdateState` the
+ * `@remit/ui` components render, and into the full-window blocking overlay.
  *
  * The design constraints (RFC 037 Interface, issue #135) live here:
- *  - A held run id turns a failed request into `applying`, never `unreachable`.
+ *  - The server decides whether an update is running and how far along it is.
+ *    Every phase shown is one the server reported for this run; an answer the
+ *    client is still waiting for renders no phase at all.
+ *  - A held run turns a failed request into `applying`, never `unreachable`.
  *  - Once the apply budget plus a margin has passed with no answer — a failed
- *    request or one still in flight — that silence becomes "the server never
- *    came back", a state that never claims the rollback ran, because from a
- *    dead connection the client cannot know.
+ *    request, or a server answering without accounting for the run — that
+ *    silence becomes "the server never came back", a state that never claims
+ *    the rollback ran, because from a dead connection the client cannot know.
  *  - The check block and the run block are independent: a check that cannot
  *    reach the update source is a failed check, never a failed update.
  */
@@ -24,9 +27,6 @@ import type {
 } from "@remit/api-http-client/types.gen.ts";
 import type { ReleaseInfo, SelfUpdateState, UpdatePhase } from "@remit/ui";
 import { getErrorStatus } from "./error-classifier";
-
-/** localStorage key holding the run the client is resuming across a restart. */
-export const SELF_UPDATE_RUN_KEY = "remit.self-update.run";
 
 /**
  * The longest an apply can plausibly take — pull, snapshot, stop, start, gate —
@@ -42,15 +42,17 @@ export const FALLBACK_LOGS_COMMAND = "remit logs";
 const RELEASE_TAG_BASE = "https://github.com/remit-mail/reader/releases/tag/";
 
 /**
- * The record the client persists the moment it asks for an update, so a reload
- * or a second tab can resume watching a run that outlives the page that started
- * it. Everything needed to render the blocking screens without a reachable
- * server is here.
+ * The run this client asked for, kept in memory for as long as the page that
+ * asked lives. Nothing is written to storage: a run lasts about a minute and
+ * only the server knows how it ends, so a page that was not there for the
+ * request starts from the server's answer instead of from a record of its own.
  */
 export interface HeldRun {
 	runId: string;
 	attemptedVersion: string;
 	previousVersion: string;
+	/** The phase the server reported when it accepted the run. */
+	phase: UpdatePhase;
 	/** Epoch millis when the client began holding this run. */
 	startedAt: number;
 }
@@ -89,9 +91,7 @@ export interface DeriveInput {
 
 export interface DeriveResult {
 	surface: UpdateSurface;
-	/** The persisted resume token should be removed from localStorage. */
-	clearStoredRun: boolean;
-	/** The in-memory held run should be dropped — the run is fully resolved. */
+	/** The held run should be dropped — the server has accounted for it. */
 	releaseHeld: boolean;
 }
 
@@ -157,46 +157,6 @@ export function appliesSchemaMigration(
 	const current = data?.currentSchemaVersion;
 	if (target === undefined || current === undefined) return false;
 	return target > current;
-}
-
-export function loadHeldRun(): HeldRun | null {
-	try {
-		const raw = localStorage.getItem(SELF_UPDATE_RUN_KEY);
-		if (!raw) return null;
-		const parsed: unknown = JSON.parse(raw);
-		if (!isHeldRun(parsed)) return null;
-		return parsed;
-	} catch {
-		return null;
-	}
-}
-
-export function saveHeldRun(run: HeldRun): void {
-	try {
-		localStorage.setItem(SELF_UPDATE_RUN_KEY, JSON.stringify(run));
-	} catch {
-		// Best effort: private mode or quota. A lost token degrades resume, not
-		// correctness — the server remains the authority on the run.
-	}
-}
-
-export function clearStoredRun(): void {
-	try {
-		localStorage.removeItem(SELF_UPDATE_RUN_KEY);
-	} catch {
-		// Best effort, as above.
-	}
-}
-
-function isHeldRun(value: unknown): value is HeldRun {
-	if (!value || typeof value !== "object") return false;
-	const candidate = value as Record<string, unknown>;
-	return (
-		typeof candidate.runId === "string" &&
-		typeof candidate.attemptedVersion === "string" &&
-		typeof candidate.previousVersion === "string" &&
-		typeof candidate.startedAt === "number"
-	);
 }
 
 function budgetLimitSeconds(): number {
@@ -316,20 +276,14 @@ function checkSection(
 function ready(
 	section: SelfUpdateState,
 	overlay: UpdateOverlay,
-	clearStoredRun: boolean,
 	releaseHeld: boolean,
 ): DeriveResult {
-	return {
-		surface: { status: "ready", section, overlay },
-		clearStoredRun,
-		releaseHeld,
-	};
+	return { surface: { status: "ready", section, overlay }, releaseHeld };
 }
 
 /**
- * The client gave up waiting. The stored token goes so a reload cannot resume
- * the same dead wait, while the in-memory hold stays: the screen has to sit
- * still, and its retry has to keep polling, until the server answers for itself.
+ * The client gave up waiting. The hold stays: the screen has to sit still, and
+ * its retry has to keep polling, until the server answers for itself.
  */
 function neverCameBack(held: HeldRun, elapsedSeconds: number): DeriveResult {
 	return {
@@ -350,15 +304,15 @@ function neverCameBack(held: HeldRun, elapsedSeconds: number): DeriveResult {
 				logsCommand: FALLBACK_LOGS_COMMAND,
 			},
 		},
-		clearStoredRun: true,
 		releaseHeld: false,
 	};
 }
 
 /**
  * A held run resolves to one of: still applying, gave up ("never came back"),
- * recovered but unaccountable, or — returning `null` — resolved terminally on
- * the server, in which case the caller renders the outcome from the response.
+ * unaccounted for, still waiting on a first answer, or — returning `null` —
+ * resolved terminally on the server, in which case the caller renders the
+ * outcome from the response.
  */
 function deriveHeld(
 	held: HeldRun,
@@ -385,7 +339,6 @@ function deriveHeld(
 			),
 			{ kind: "applying", target: run.targetVersion, phase, elapsedSeconds },
 			false,
-			false,
 		);
 	}
 
@@ -408,35 +361,13 @@ function deriveHeld(
 				elapsedSeconds,
 			},
 			false,
-			false,
 		);
 	}
 
-	// No answer yet — the resume request is still in flight. A request that is
-	// pending looks exactly like one that will never settle, so the budget bounds
-	// this wait too: within it the client stays applying, past it it stops
-	// claiming an install is running and says what it cannot account for.
+	// Nothing has come back yet. Silence is not a phase, so the surface waits
+	// rather than describing an install it has heard nothing about.
 	if (data === undefined) {
-		if (elapsedSeconds > budgetLimitSeconds()) {
-			return neverCameBack(held, elapsedSeconds);
-		}
-		return ready(
-			applyingSection(
-				held.runId,
-				currentVersion,
-				held.attemptedVersion,
-				"preparing",
-				elapsedSeconds,
-			),
-			{
-				kind: "applying",
-				target: held.attemptedVersion,
-				phase: "preparing",
-				elapsedSeconds,
-			},
-			false,
-			false,
-		);
+		return { surface: { status: "loading" }, releaseHeld: false };
 	}
 
 	// The server answered, but not with our run. If we have been gone longer than
@@ -455,55 +386,48 @@ function deriveHeld(
 				},
 				overlay: { kind: "none" },
 			},
-			clearStoredRun: true,
 			releaseHeld: true,
 		};
 	}
 
-	// Early: the server is up but has not written our run yet. Still applying.
-	const phase =
-		run !== null && run.outcome === null
-			? mapUpdatePhase(run.phase)
-			: "preparing";
+	// The updater picks the request up off a control file, so the seam keeps
+	// reporting the previous run for a moment. The phase stays the one the server
+	// gave when it accepted this run, until the server reports a newer one.
 	return ready(
 		applyingSection(
 			held.runId,
 			currentVersion,
 			held.attemptedVersion,
-			phase,
+			held.phase,
 			elapsedSeconds,
 		),
-		{ kind: "applying", target: held.attemptedVersion, phase, elapsedSeconds },
-		false,
+		{
+			kind: "applying",
+			target: held.attemptedVersion,
+			phase: held.phase,
+			elapsedSeconds,
+		},
 		false,
 	);
 }
 
-function displayFromData(input: DeriveInput): {
-	surface: UpdateSurface;
-	clearStoredRun: boolean;
-} {
+function displayFromData(input: DeriveInput): UpdateSurface {
 	const { data, isError, isFetching, dismissedRunId, checkRequested, now } =
 		input;
 
 	if (isError) {
 		return {
-			surface: {
-				status: "ready",
-				section: {
-					status: "checkFailed",
-					version: data?.currentVersion ?? "the current version",
-					reason: "Remit could not reach the update service.",
-				},
-				overlay: { kind: "none" },
+			status: "ready",
+			section: {
+				status: "checkFailed",
+				version: data?.currentVersion ?? "the current version",
+				reason: "Remit could not reach the update service.",
 			},
-			clearStoredRun: true,
+			overlay: { kind: "none" },
 		};
 	}
 
-	if (!data) {
-		return { surface: { status: "loading" }, clearStoredRun: false };
-	}
+	if (!data) return { status: "loading" };
 
 	const run = data.run;
 	const dismissed =
@@ -511,12 +435,9 @@ function displayFromData(input: DeriveInput): {
 
 	if (run !== null && !dismissed && run.outcome !== null) {
 		return {
-			surface: {
-				status: "ready",
-				section: terminalSection(data, run, run.outcome),
-				overlay: { kind: "none" },
-			},
-			clearStoredRun: true,
+			status: "ready",
+			section: terminalSection(data, run, run.outcome),
+			overlay: { kind: "none" },
 		};
 	}
 
@@ -524,33 +445,27 @@ function displayFromData(input: DeriveInput): {
 		const elapsedSeconds = elapsedSince(parseIso(run.startedAt) ?? now, now);
 		const phase = mapUpdatePhase(run.phase);
 		return {
-			surface: {
-				status: "ready",
-				section: applyingSection(
-					run.runId,
-					run.fromVersion,
-					run.targetVersion,
-					phase,
-					elapsedSeconds,
-				),
-				overlay: {
-					kind: "applying",
-					target: run.targetVersion,
-					phase,
-					elapsedSeconds,
-				},
+			status: "ready",
+			section: applyingSection(
+				run.runId,
+				run.fromVersion,
+				run.targetVersion,
+				phase,
+				elapsedSeconds,
+			),
+			overlay: {
+				kind: "applying",
+				target: run.targetVersion,
+				phase,
+				elapsedSeconds,
 			},
-			clearStoredRun: false,
 		};
 	}
 
 	return {
-		surface: {
-			status: "ready",
-			section: checkSection(data, checkRequested && isFetching, now),
-			overlay: { kind: "none" },
-		},
-		clearStoredRun: false,
+		status: "ready",
+		section: checkSection(data, checkRequested && isFetching, now),
+		overlay: { kind: "none" },
 	};
 }
 
@@ -559,29 +474,15 @@ export function deriveUpdateSurface(input: DeriveInput): DeriveResult {
 	const run = data?.run ?? null;
 
 	if (isSurfaceAbsent(error) && !held) {
-		return {
-			surface: { status: "absent" },
-			clearStoredRun: true,
-			releaseHeld: true,
-		};
+		return { surface: { status: "absent" }, releaseHeld: true };
 	}
 
 	if (held) {
 		const heldResult = deriveHeld(held, data, run, isError, now);
 		if (heldResult) return heldResult;
 		// Our run resolved terminally — render it from the response and let go.
-		const resolved = displayFromData(input);
-		return {
-			surface: resolved.surface,
-			clearStoredRun: true,
-			releaseHeld: true,
-		};
+		return { surface: displayFromData(input), releaseHeld: true };
 	}
 
-	const display = displayFromData(input);
-	return {
-		surface: display.surface,
-		clearStoredRun: display.clearStoredRun,
-		releaseHeld: false,
-	};
+	return { surface: displayFromData(input), releaseHeld: false };
 }

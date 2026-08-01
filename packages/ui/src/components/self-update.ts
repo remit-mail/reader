@@ -18,10 +18,9 @@ export interface ReleaseInfo {
 export type UpdatePhase = "preparing" | "restarting" | "reconnecting";
 
 /**
- * Identifies one update attempt. The client hands this back after the restart
- * to ask what became of the run it started — its own memory of the operation
- * does not survive the operation. Without it a reload mid-update cannot tell an
- * update in flight from an ordinary server blip.
+ * Identifies one update attempt. The server reports it for as long as the run
+ * is the current or last one, which is how a client tells the run it asked for
+ * from a later one, and an update in flight from an ordinary server blip.
  */
 export type UpdateRunId = string;
 
