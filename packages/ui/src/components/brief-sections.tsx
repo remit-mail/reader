@@ -57,6 +57,16 @@ export const briefFilterChips: FilterSheetFilter[] = briefFilterDefs.map(
 );
 
 /**
+ * Whether an id names one of the brief's attribute chips. A consumer holding
+ * one filter set across several views — the workbench shell, whose mailbox
+ * sheet offers chips of its own — narrows that set to the brief's own with
+ * this rather than asserting it.
+ */
+export function isBriefFilterId(id: string): id is BriefFilterId {
+	return briefFilterDefs.some((f) => f.id === id);
+}
+
+/**
  * Whether a thread survives a set of attribute chips, as the brief's own list
  * applies them. Exported so a consumer narrowing the same rows on another
  * surface — the phone search takeover — reads one definition of what "Unread" or
@@ -77,7 +87,7 @@ export function matchesBriefFilters(
  * search takeover) holds the set so both surfaces answer to one selection, and
  * takes every control over it with the set.
  */
-type BriefFilterControl =
+export type BriefFilterControl =
 	| {
 			activeFilters: ReadonlySet<BriefFilterId>;
 			onToggleFilter: (id: BriefFilterId) => void;
@@ -89,13 +99,8 @@ type BriefFilterControl =
 			onClearFilters?: never;
 	  };
 
-interface BriefSectionsBaseProps {
-	sections: ThreadSection[];
-	briefCategory?: BriefCategoryFilter;
-	selectedThreadId?: string;
-	Row: BriefRowComponent;
-	onSelectThread?: (id: string) => void;
-	onSelectBriefCategory?: (category: BriefCategoryFilter) => void;
+/** The accounts the aggregate is segmented by, as the FilterSheet draws them. */
+export interface BriefSourceControl {
 	/**
 	 * Account/source pills, passed straight through to the FilterSheet. Selection
 	 * is encoded per source via `active`; the row only renders when more than one
@@ -106,6 +111,22 @@ interface BriefSectionsBaseProps {
 	sourcesNote?: string;
 	/** Called when the user selects a source/account pill. */
 	onSelectSource?: (id: string) => void;
+}
+
+/**
+ * The brief's whole filter surface as a host holds it. A host with a second
+ * surface over the same rows — the phone search takeover — holds this one set
+ * and hands it to both, so a chip set on either is set on both.
+ */
+export type BriefFilterSurface = BriefSourceControl & BriefFilterControl;
+
+interface BriefSectionsBaseProps extends BriefSourceControl {
+	sections: ThreadSection[];
+	briefCategory?: BriefCategoryFilter;
+	selectedThreadId?: string;
+	Row: BriefRowComponent;
+	onSelectThread?: (id: string) => void;
+	onSelectBriefCategory?: (category: BriefCategoryFilter) => void;
 	/**
 	 * Drop the filter row and its panel, keeping the rows where they are. See
 	 * `FilterSheetProps`.

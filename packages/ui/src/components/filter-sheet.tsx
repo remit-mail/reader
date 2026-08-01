@@ -296,7 +296,10 @@ export function FilterSheet({
 	);
 
 	const sourceRow = sources && sources.length > 1 && (
-		<div className="flex flex-wrap items-center gap-1.5 border-b border-line px-row-inset pb-2 pt-2">
+		<fieldset
+			aria-label="Accounts"
+			className="min-w-0 flex flex-wrap items-center gap-1.5 border-b border-line px-row-inset pb-2 pt-2"
+		>
 			{sources.map((source) => (
 				<button
 					key={source.id}
@@ -320,11 +323,14 @@ export function FilterSheet({
 					{sourcesNote}
 				</span>
 			)}
-		</div>
+		</fieldset>
 	);
 
 	const categoryRow = (
-		<div className="flex flex-wrap items-center gap-1.5 border-b border-line px-row-inset pb-1.5 pt-1.5">
+		<fieldset
+			aria-label="Categories"
+			className="min-w-0 flex flex-wrap items-center gap-1.5 border-b border-line px-row-inset pb-1.5 pt-1.5"
+		>
 			{categories.map((cat) => {
 				const selected = selectedCategory === cat.id;
 				return (
@@ -343,11 +349,14 @@ export function FilterSheet({
 					</button>
 				);
 			})}
-		</div>
+		</fieldset>
 	);
 
 	const filterRow = (
-		<div className="flex flex-wrap items-center gap-1.5 border-b border-line px-row-inset pb-2 pt-1.5">
+		<fieldset
+			aria-label="Attributes"
+			className="min-w-0 flex flex-wrap items-center gap-1.5 border-b border-line px-row-inset pb-2 pt-1.5"
+		>
 			{filters.map((f) => {
 				const on = activeFilters.has(f.id);
 				return (
@@ -376,7 +385,7 @@ export function FilterSheet({
 					Clear
 				</button>
 			)}
-		</div>
+		</fieldset>
 	);
 
 	return (

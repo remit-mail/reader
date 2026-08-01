@@ -29,6 +29,7 @@ export {
 	categoryTone,
 	type Density,
 	INTELLIGENCE_MIN_WIDTH,
+	isBriefCategory,
 	type MessageListSelection,
 	type NarrowView,
 	type NavAccount,
@@ -87,9 +88,13 @@ export {
 	SECTION_ROW_CAP,
 } from "./components/brief-section.js";
 export {
+	type BriefFilterControl,
 	type BriefFilterId,
+	type BriefFilterSurface,
 	BriefSections,
 	type BriefSectionsProps,
+	type BriefSourceControl,
+	isBriefFilterId,
 	matchesBriefFilters,
 } from "./components/brief-sections.js";
 export {

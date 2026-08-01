@@ -52,10 +52,18 @@ export const Filtered: Story = {
 	),
 };
 
-/** Account chip applied: every section filtered to the work account. */
+/**
+ * Account pill applied: the work pill is the active one in the panel behind the
+ * caret, and every section is narrowed to that account.
+ */
 export const WorkOnly: Story = {
 	render: () => (
-		<MailShell {...brief} sections={briefSections(workId)} briefFilters />
+		<MailShell
+			{...brief}
+			sections={briefSections()}
+			briefFilters
+			briefSource={workId}
+		/>
 	),
 };
 

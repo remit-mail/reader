@@ -756,8 +756,13 @@ export function categoryDrivenBriefSections(): ThreadSection[] {
 	];
 }
 
-export const briefChips = (activeId?: string) => [
-	{ id: "all", label: "All", active: !activeId },
+/**
+ * The accounts the brief aggregates, as source pills: the leading "All" is the
+ * aggregate itself, and the muted hobby account is absent from the row and
+ * counted in {@link mutedAccountCount} instead.
+ */
+export const briefSources = (activeId = "all") => [
+	{ id: "all", label: "All", active: activeId === "all" },
 	{
 		id: personalId,
 		label: "Personal",
@@ -772,6 +777,8 @@ export const briefChips = (activeId?: string) => [
 		active: activeId === workId,
 	},
 ];
+
+export const mutedAccountCount = navAccounts.filter((a) => a.muted).length;
 
 export const briefUnseen = unified.filter((t) => !t.isRead).length;
 

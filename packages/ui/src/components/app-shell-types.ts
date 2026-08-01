@@ -213,6 +213,15 @@ export const briefCategories: ReadonlyArray<{
 	{ id: "social", label: "Social" },
 ];
 
+/**
+ * Whether an id names one of the brief's category scopes. A host holding one
+ * category across views whose sheets speak plain strings narrows it with this
+ * rather than asserting it.
+ */
+export function isBriefCategory(id: string): id is BriefCategoryFilter {
+	return briefCategories.some((c) => c.id === id);
+}
+
 export interface ThreadRowLabel {
 	labelId: string;
 	name: string;

@@ -1,0 +1,171 @@
+/**
+ * The brief's filter selection is the shell's, not each surface's: the panel the
+ * caret opens over the rows and the phone search takeover that covers them read
+ * one set, so a chip set on either is set on both. Mounted against jsdom — the
+ * point is what survives pressing things.
+ */
+import assert from "node:assert/strict";
+import { after, afterEach, before, beforeEach, describe, it } from "node:test";
+import type { JSDOM } from "jsdom";
+import React, { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { briefSections, briefUnseen } from "../fixtures/workspace.js";
+import { MailShell } from "./mail-shell.js";
+
+const DESKTOP_WIDTH = 1440;
+const PHONE_WIDTH = 390;
+
+let dom: JSDOM;
+let container: HTMLElement;
+let root: Root;
+
+before(async () => {
+	// The kit's `.tsx` sits outside this package's tsconfig, so the runner
+	// transpiles it with the classic JSX runtime, which reads a global `React`.
+	// Storybook and the app both use the automatic runtime.
+	(globalThis as { React?: typeof React }).React = React;
+	const { JSDOM: JSDOMCtor } = await import("jsdom");
+	dom = new JSDOMCtor(
+		"<!doctype html><html><body><div id=root></div></body></html>",
+		{ url: "http://localhost/", pretendToBeVisual: true },
+	);
+	globalThis.window = dom.window as unknown as typeof globalThis.window;
+	globalThis.document = dom.window.document;
+	globalThis.HTMLElement = dom.window.HTMLElement;
+	globalThis.Element = dom.window.Element;
+	globalThis.MouseEvent = dom.window.MouseEvent;
+	// The resizable pane group listens with a signal, and jsdom accepts only its
+	// own.
+	globalThis.AbortController = dom.window.AbortController;
+	Object.defineProperty(globalThis, "navigator", {
+		value: dom.window.navigator,
+		configurable: true,
+	});
+	(
+		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+	).IS_REACT_ACT_ENVIRONMENT = true;
+});
+
+after(() => {
+	dom.window.close();
+});
+
+beforeEach(() => {
+	container = dom.window.document.getElementById(
+		"root",
+	) as unknown as HTMLElement;
+	container.innerHTML = "";
+	root = createRoot(container);
+});
+
+afterEach(() => {
+	act(() => {
+		root.unmount();
+	});
+});
+
+function mount(width: number) {
+	act(() => {
+		root.render(
+			createElement(MailShell, {
+				width,
+				selectedNavId: "brief",
+				listTitle: "Daily brief",
+				unreadCount: briefUnseen,
+				sections: briefSections(),
+				briefFilters: true,
+			}),
+		);
+	});
+}
+
+function click(element: Element) {
+	act(() => {
+		element.dispatchEvent(
+			new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }),
+		);
+	});
+}
+
+function byLabel(label: string): HTMLElement {
+	const found = container.querySelector(`[aria-label="${label}"]`);
+	assert.ok(found, `no control labelled "${label}"`);
+	return found as HTMLElement;
+}
+
+/** A pill inside one of the filter panel's named groups. */
+function pill(group: string, text: string): HTMLElement {
+	const row = container.querySelector(`[aria-label="${group}"]`);
+	assert.ok(row, `the panel has no "${group}" row`);
+	const found = Array.from(row.querySelectorAll("button")).find((node) =>
+		(node.textContent ?? "").trim().startsWith(text),
+	);
+	assert.ok(found, `no ${group} pill reading "${text}"`);
+	return found;
+}
+
+function isActive(element: Element): boolean {
+	return /accent-2/.test(element.className);
+}
+
+function rowCount(): number {
+	return container.querySelectorAll("[data-list-row]").length;
+}
+
+describe("the brief's account pills", () => {
+	it("are in the panel the list header's caret opens", () => {
+		mount(DESKTOP_WIDTH);
+		assert.equal(container.querySelector('[aria-label="Accounts"]'), null);
+		click(byLabel("Expand filters"));
+		assert.ok(
+			isActive(pill("Accounts", "All")),
+			"the aggregate is the default scope",
+		);
+		assert.ok(pill("Accounts", "Personal"));
+		assert.ok(pill("Accounts", "Work"));
+		assert.match(
+			container.textContent ?? "",
+			/\+1 muted/,
+			"the muted account is counted rather than offered",
+		);
+	});
+
+	it("segment the rows they name", () => {
+		mount(DESKTOP_WIDTH);
+		click(byLabel("Expand filters"));
+		const aggregate = rowCount();
+		click(pill("Accounts", "Work"));
+		assert.ok(isActive(pill("Accounts", "Work")));
+		assert.ok(rowCount() > 0, "the work account still has rows");
+		assert.ok(rowCount() < aggregate, "and fewer of them than the aggregate");
+	});
+});
+
+describe("the brief's attribute chips", () => {
+	it("hold across the panel and the phone search takeover", () => {
+		mount(PHONE_WIDTH);
+		click(byLabel("Expand filters"));
+		click(pill("Attributes", "Unread"));
+		assert.ok(
+			isActive(pill("Attributes", "Unread")),
+			"the chip is on in the panel",
+		);
+
+		click(byLabel("Search"));
+		click(byLabel("Expand filters"));
+		assert.ok(
+			isActive(pill("Attributes", "Unread")),
+			"the takeover opens on the same selection",
+		);
+		assert.ok(pill("Accounts", "Work"), "and offers the same accounts");
+
+		click(pill("Attributes", "Has attachment"));
+		click(byLabel("Clear and close search"));
+		click(byLabel("Expand filters"));
+		assert.ok(isActive(pill("Attributes", "Unread")));
+		assert.ok(
+			isActive(pill("Attributes", "Has attachment")),
+			"and a chip set in the takeover is on back in the panel",
+		);
+	});
+});
