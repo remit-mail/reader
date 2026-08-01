@@ -67,7 +67,9 @@ function StatefulShell({
 }) {
 	const [open, setOpen] = useState(startOpen);
 	const brief = useMemo(() => briefSections(), []);
-	const triage = useListTriage(overrides.sections ?? brief, initialSelectedIds);
+	const triage = useListTriage(overrides.sections ?? brief, {
+		initialSelectedIds,
+	});
 	const title = overrides.listTitle ?? "Daily brief";
 	const meta =
 		"listMeta" in overrides ? overrides.listMeta : `${briefUnseen} unread`;
@@ -86,6 +88,7 @@ function StatefulShell({
 			listTitle={title}
 			sections={triage.sections}
 			selection={triage.paneSelection}
+			keyboard={triage.paneKeyboard}
 			selectionBar={
 				<ListSelectionBar
 					triage={triage}
@@ -402,10 +405,10 @@ function PhoneShell({
 	initialSelectedIds,
 	...overrides
 }: Partial<AppShellProps> & { initialSelectedIds?: string[] }) {
-	const triage = useListTriage(
-		overrides.sections ?? flatInboxSection,
+	const triage = useListTriage(overrides.sections ?? flatInboxSection, {
 		initialSelectedIds,
-	);
+		isDesktop: false,
+	});
 	const title = overrides.listTitle ?? "Inbox";
 	return (
 		<AppShell
@@ -417,6 +420,7 @@ function PhoneShell({
 			listTitle={title}
 			sections={triage.sections}
 			selection={triage.paneSelection}
+			keyboard={triage.paneKeyboard}
 			selectionBar={<ListSelectionBar triage={triage} title={title} />}
 		/>
 	);

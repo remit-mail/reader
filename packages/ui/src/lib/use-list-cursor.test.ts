@@ -8,7 +8,7 @@ import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import type { JSDOM } from "jsdom";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { type ListCursor, useListCursor } from "./useListCursor";
+import { type ListCursor, useListCursor } from "./use-list-cursor.js";
 
 const IDS = ["m1", "m2", "m3", "m4"];
 

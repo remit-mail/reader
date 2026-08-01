@@ -1,10 +1,12 @@
 import { Menu } from "lucide-react";
 import type { MouseEvent, ReactNode } from "react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { defaultKeyboardHints, keyboardHintsFor } from "../lib/keymap.js";
 import { LIST_ROW_SELECTOR, useRovingFocus } from "../lib/roving-focus.js";
 import { deriveIsMultiSelectMode, modifiersOf } from "../lib/use-selection.js";
 import type {
 	AppShellProps,
+	MessageListKeyboard,
 	MessageListSelection,
 	TouchSeed,
 } from "./app-shell-types.js";
@@ -54,6 +56,7 @@ export function MessageListPane({
 	isDesktop,
 	initialTouchState,
 	selection,
+	keyboard,
 	selectionBar,
 	paneOverlay,
 	listBody,
@@ -104,6 +107,13 @@ export function MessageListPane({
 	 */
 	selection?: MessageListSelection;
 	/**
+	 * The keyboard layer driving the list, when the caller mounts one. The pane
+	 * binds it to its own element, draws the cursor it moves and offers only the
+	 * keys its handlers answer; absent, the footer offers the app's own set and
+	 * the rows keep their arrow-key traversal.
+	 */
+	keyboard?: MessageListKeyboard;
+	/**
 	 * The pane header. The caller mounts it for every state of the list: a
 	 * `SelectionTopBar` names the view while nothing is ticked and carries the
 	 * count and the verbs (mark-read, move, delete, cancel) from the first
@@ -134,10 +144,59 @@ export function MessageListPane({
 }) {
 	const Row = density === "compact" ? CompactRow : ComfortableRow;
 	const flatListRef = useRef<HTMLDivElement>(null);
+	const paneRef = useRef<HTMLElement | null>(null);
+
+	// The layer answers the arrows only if it registered them. Anything else it
+	// hands over — a layer with no cursor keys, or no layer at all — leaves the
+	// rows their own traversal and their own single tab stop.
+	const walksRows =
+		keyboard !== undefined &&
+		keyboard.handlers.focusNext !== undefined &&
+		keyboard.handlers.focusPrevious !== undefined;
 	useRovingFocus({
 		containerRef: flatListRef,
 		itemSelector: LIST_ROW_SELECTOR,
+		enabled: !walksRows,
 	});
+
+	const cursorId = walksRows ? keyboard.focusedId : undefined;
+	// One tab stop into the list, as the roving group gives it: the row the
+	// cursor is on, or the first row before it has moved.
+	const tabStopId = walksRows
+		? (cursorId ?? sections[0]?.threads[0]?.id)
+		: undefined;
+	const rowTabIndex = useCallback(
+		(id: string): number | undefined =>
+			tabStopId === undefined ? undefined : id === tabStopId ? 0 : -1,
+		[tabStopId],
+	);
+
+	// Real browser focus follows the cursor, so Tab, Shift+Tab and the focus
+	// ring agree with the row the list highlights — and so the keys keep
+	// reaching the layer, which listens on the pane rather than the window.
+	useEffect(() => {
+		if (cursorId === undefined) return;
+		const pane = paneRef.current;
+		if (!pane) return;
+		const row = pane.querySelector<HTMLElement>(
+			`${LIST_ROW_SELECTOR}[data-message-id="${cursorId}"]`,
+		);
+		if (!row || row === pane.ownerDocument.activeElement) return;
+		row.focus({ preventScroll: false });
+	}, [cursorId]);
+
+	// A layer bound to this pane hears nothing until focus is inside it. Taking
+	// focus on mount is what keeps j working without a click first — and only
+	// from a document where nothing else has claimed it, so a page of stories
+	// does not fight over the caret.
+	useEffect(() => {
+		if (!walksRows) return;
+		const pane = paneRef.current;
+		if (!pane) return;
+		const active = pane.ownerDocument.activeElement;
+		if (active !== null && active !== pane.ownerDocument.body) return;
+		pane.focus({ preventScroll: true });
+	}, [walksRows]);
 
 	const touchTriage = !isDesktop && !briefFilters && listState === "ready";
 	const [refreshing, setRefreshing] = useState(false);
@@ -198,6 +257,8 @@ export function MessageListPane({
 			<Row
 				thread={thread}
 				active={active}
+				focused={thread.id === cursorId}
+				tabIndex={rowTabIndex(thread.id)}
 				selection={rowSelection(thread.id)}
 				onClick={(event) => {
 					if (takeRowSelect(thread.id, event)) return;
@@ -205,11 +266,18 @@ export function MessageListPane({
 				}}
 			/>
 		),
-		[Row, rowSelection, takeRowSelect],
+		[Row, rowSelection, takeRowSelect, cursorId, rowTabIndex],
 	);
 
 	return (
-		<section className="relative flex h-full w-full flex-col bg-surface">
+		<section
+			ref={(element) => {
+				paneRef.current = element;
+				keyboard?.ref(element);
+			}}
+			tabIndex={walksRows ? -1 : undefined}
+			className="relative flex h-full w-full flex-col bg-surface outline-none"
+		>
 			{selectionBar ??
 				(hideHeader ? null : (
 					<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
@@ -302,6 +370,8 @@ export function MessageListPane({
 										key={thread.id}
 										thread={thread}
 										active={thread.id === selectedThreadId}
+										focused={thread.id === cursorId}
+										tabIndex={rowTabIndex(thread.id)}
 										selection={rowSelection(thread.id)}
 										onClick={(event) => {
 											if (takeRowSelect(thread.id, event)) return;
@@ -315,7 +385,15 @@ export function MessageListPane({
 				</div>
 			)}
 
-			{isDesktop && <KeyboardHintBar />}
+			{isDesktop && (
+				<KeyboardHintBar
+					hints={
+						keyboard
+							? keyboardHintsFor(keyboard.handlers)
+							: defaultKeyboardHints
+					}
+				/>
+			)}
 			{paneOverlay}
 		</section>
 	);

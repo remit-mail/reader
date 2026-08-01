@@ -7,13 +7,12 @@
  * what wording is not decided here.
  */
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
-import { ShellTopBar } from "@remit/ui";
+import { ShellTopBar, shortcutHintForAction } from "@remit/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { AccountMenu } from "@/auth/AccountMenu";
 import { useGlobalCompose } from "@/hooks/useComposeTarget";
 import { useSearchScope } from "@/hooks/useSearchScope";
 import { openBugReport } from "@/lib/bug-report";
-import { shortcutHintForAction } from "@/lib/keymap";
 import { useMailContext } from "@/lib/mail-context";
 
 interface MailTopBarProps {

@@ -1,12 +1,8 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { inboxFilterConfig } from "../filter-presets.js";
-import {
-	rowSelectIntent,
-	type SelectionModifiers,
-	useSelection,
-} from "../lib/use-selection.js";
-import type { ThreadSection } from "./app-shell-types.js";
+import { useListKeyboard } from "../lib/use-list-keyboard.js";
+import type { MessageListKeyboard, ThreadSection } from "./app-shell-types.js";
 import { FilterSheet } from "./filter-sheet.js";
 import { MailHeader } from "./mail-header.js";
 import { MessageListPane } from "./message-list-pane.js";
@@ -89,8 +85,41 @@ const narrowFrame: Decorator = (Story) => (
 	</div>
 );
 
+/**
+ * A pane with no keyboard over it — a story whose rows come from elsewhere, or
+ * that has no rows at all. It answers nothing and so offers nothing.
+ */
+const noKeyboard: MessageListKeyboard = {
+	focusedId: undefined,
+	handlers: {},
+	ref: () => undefined,
+};
+
+/**
+ * The list under the triage keyboard: j/k walk the rows, x and Space tick the
+ * one under the cursor, Shift+j/k build a range and ⌘A takes them all. The
+ * footer offers what is wired.
+ */
+function LiveList({ briefFilters = false }: { briefFilters?: boolean }) {
+	const orderedIds = sections.flatMap((s) => s.threads).map((t) => t.id);
+	const list = useListKeyboard({ orderedIds, isDesktop: true });
+	return (
+		<MessageListPane
+			listTitle="Inbox"
+			listMeta="3 conversations"
+			sections={sections}
+			flatList={!briefFilters}
+			briefFilters={briefFilters}
+			isDesktop
+			onSelectThread={() => undefined}
+			selection={list.selection}
+			keyboard={list.keyboard}
+		/>
+	);
+}
+
 export const DesktopList: Story = {
-	args: { isDesktop: true, flatList: true },
+	render: () => <LiveList />,
 	decorators: [desktopFrame],
 };
 
@@ -100,7 +129,7 @@ export const NarrowTouchList: Story = {
 };
 
 export const Brief: Story = {
-	args: { isDesktop: true, briefFilters: true, sections },
+	render: () => <LiveList briefFilters />,
 	decorators: [desktopFrame],
 };
 
@@ -187,13 +216,14 @@ export const InboxWithFilterExpanded: Story = {
 	decorators: [narrowFrame],
 };
 
-/** Consumer-supplied `listBody` slot — the pane renders the chrome (header,
- *  keyboard hints) while the caller owns the scrollable rows. This models
- *  the web-client's virtualized inbox path. */
+/** Consumer-supplied `listBody` slot — the pane renders the chrome while the
+ *  caller owns the scrollable rows, and the keys over those rows with them.
+ *  This models the web-client's virtualized inbox path. */
 export const CustomListBody: Story = {
 	args: {
 		isDesktop: true,
 		flatList: true,
+		keyboard: noKeyboard,
 		listBody: (
 			<div className="flex-1 overflow-y-auto divide-y divide-line">
 				{sections.flatMap((s) =>
@@ -217,7 +247,6 @@ export const CustomListBody: Story = {
 };
 
 function SelectableList({ isDesktop }: { isDesktop: boolean }) {
-	const selection = useSelection();
 	const [trashedIds, setTrashedIds] = useState<ReadonlySet<string>>(new Set());
 	const [readIds, setReadIds] = useState<ReadonlySet<string>>(new Set());
 
@@ -230,6 +259,8 @@ function SelectableList({ isDesktop }: { isDesktop: boolean }) {
 			),
 	}));
 	const orderedIds = visible.flatMap((s) => s.threads).map((t) => t.id);
+	const list = useListKeyboard({ orderedIds, isDesktop });
+	const { selection } = list.cursor;
 	const allSelected =
 		orderedIds.length > 0 &&
 		orderedIds.every((id) => selection.selectedIds.has(id));
@@ -239,24 +270,6 @@ function SelectableList({ isDesktop }: { isDesktop: boolean }) {
 		selection.clearSelection();
 	};
 
-	// Shift and cmd/ctrl come off a mouse, which the touch list has no path for.
-	const onRowSelect = isDesktop
-		? (id: string, modifiers: SelectionModifiers) => {
-				const intent = rowSelectIntent(modifiers);
-				if (intent === "range") {
-					selection.selectRange(orderedIds, id);
-					return true;
-				}
-				if (intent === "toggle") {
-					selection.toggle(id);
-					return true;
-				}
-				selection.clearSelection();
-				selection.setAnchor(id);
-				return false;
-			}
-		: undefined;
-
 	return (
 		<MessageListPane
 			listTitle="Inbox"
@@ -265,11 +278,8 @@ function SelectableList({ isDesktop }: { isDesktop: boolean }) {
 			flatList
 			isDesktop={isDesktop}
 			onSelectThread={() => undefined}
-			selection={{
-				selectedIds: selection.selectedIds,
-				onToggle: selection.toggle,
-				onRowSelect,
-			}}
+			selection={list.selection}
+			keyboard={list.keyboard}
 			selectionBar={
 				<SelectionTopBar
 					title="Inbox"
@@ -328,6 +338,7 @@ export const EmptyState: Story = {
 		isDesktop: true,
 		flatList: true,
 		listState: "empty",
+		keyboard: noKeyboard,
 	},
 	decorators: [desktopFrame],
 };
@@ -342,6 +353,7 @@ export const FilteredEmptyState: Story = {
 		isDesktop: true,
 		flatList: true,
 		listState: "empty",
+		keyboard: noKeyboard,
 		listFilter: {
 			label: "Personal",
 			reach: "whole-folder",
@@ -360,6 +372,7 @@ export const ErrorState: Story = {
 		isDesktop: true,
 		flatList: true,
 		listState: "error",
+		keyboard: noKeyboard,
 		errorMessage: "Request timed out while loading this mailbox.",
 		onRetry: () => undefined,
 		onReportError: () => undefined,

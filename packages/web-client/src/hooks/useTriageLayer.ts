@@ -14,12 +14,9 @@
  * context comes first, the pane builds its handlers from it, and the keyboard
  * registration comes last.
  */
+import { type TriageHandlers, useTriageKeyboard } from "@remit/ui";
 import { type RefObject, useCallback, useRef, useState } from "react";
 import type { MessageListCommands } from "@/components/mail/MessageList";
-import {
-	type TriageHandlers,
-	useTriageKeyboard,
-} from "@/hooks/useTriageKeyboard";
 import { adjacentMessageId } from "@/lib/adjacent-message";
 
 export interface TriageContextUpdate {

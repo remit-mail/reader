@@ -1,26 +1,13 @@
 import type { ReactNode } from "react";
 import { cn } from "../lib/cn.js";
+import { defaultKeyboardHints, type KeyboardHint } from "../lib/keymap.js";
 import { Kbd } from "./kbd.js";
-
-export interface KeyboardHint {
-	/** One or more keys shown as `Kbd` chips. */
-	keys: string[];
-	/** What the keys do. */
-	label: string;
-}
 
 export interface KeyboardHintBarProps {
 	/** Override the default hint set. */
 	hints?: KeyboardHint[];
 	className?: string;
 }
-
-/** The persistent message-list footer hint set (desktop). */
-export const defaultKeyboardHints: KeyboardHint[] = [
-	{ keys: ["j", "k"], label: "navigate" },
-	{ keys: ["m"], label: "mute" },
-	{ keys: ["?"], label: "all shortcuts" },
-];
 
 /**
  * The keyboard-shortcut hint footer under the message list. Keyboard-first
@@ -32,6 +19,7 @@ export function KeyboardHintBar({
 	hints = defaultKeyboardHints,
 	className,
 }: KeyboardHintBarProps) {
+	if (hints.length === 0) return null;
 	return (
 		<footer
 			className={cn(

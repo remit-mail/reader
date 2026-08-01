@@ -387,7 +387,11 @@ function ListPane({
 						),
 					}))
 					.filter((section) => section.threads.length > 0);
-	const triage = useListTriage(scoped, selectedIds);
+	const triage = useListTriage(scoped, {
+		initialSelectedIds: selectedIds,
+		initialFocusedId: selectedThreadId,
+		isDesktop: !singlePane,
+	});
 
 	const hasQuery = search.query.trim().length > 0;
 	const searchExpanded = singlePane && (searchOpen || hasQuery);
@@ -431,6 +435,7 @@ function ListPane({
 			selectedThreadId={selectedThreadId}
 			isDesktop={!singlePane}
 			selection={triage.paneSelection}
+			keyboard={triage.paneKeyboard}
 		/>
 	);
 	const results = (

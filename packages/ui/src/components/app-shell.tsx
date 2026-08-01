@@ -71,6 +71,7 @@ export function AppShell({
 	initialNarrowView = "list",
 	initialTouchState,
 	selection,
+	keyboard,
 	selectionBar,
 	intelligence,
 	intelligenceOpen = true,
@@ -129,6 +130,7 @@ export function AppShell({
 			onSelectBriefCategory={selectCategory}
 			initialTouchState={initialTouchState}
 			selection={selection}
+			keyboard={keyboard}
 			selectionBar={selectionBar}
 		/>
 	);
@@ -190,6 +192,7 @@ function AppShellList({
 	onSelectBriefCategory,
 	initialTouchState,
 	selection,
+	keyboard,
 	selectionBar,
 }: Pick<
 	AppShellProps,
@@ -209,6 +212,7 @@ function AppShellList({
 	| "onSelectThread"
 	| "initialTouchState"
 	| "selection"
+	| "keyboard"
 	| "selectionBar"
 > & {
 	narrowView: NarrowView;
@@ -252,6 +256,7 @@ function AppShellList({
 			isDesktop={showReadingPane}
 			initialTouchState={initialTouchState}
 			selection={selection}
+			keyboard={keyboard}
 			selectionBar={selectionBar}
 		/>
 	);

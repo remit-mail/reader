@@ -6,6 +6,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import type { TriageHandlers } from "../lib/keymap.js";
 import type { SelectionModifiers } from "../lib/use-selection.js";
 import type {
 	IntelligenceData,
@@ -82,6 +83,25 @@ export interface MessageListSelection {
 	 * click, in which case the row does not open.
 	 */
 	onRowSelect?: (id: string, modifiers: SelectionModifiers) => boolean;
+}
+
+/**
+ * The keyboard layer above the list, owned by whoever mounts it. The handler
+ * table is what the pane reads: it offers the keys that table answers, draws
+ * the cursor the ones it answers move, and keeps its own arrow-key traversal
+ * for the ones it does not. A layer that answers nothing offers nothing, so a
+ * host cannot advertise a key it has not wired.
+ *
+ * `useListKeyboard` builds it; the pane hands `ref` back the element the layer
+ * listens on.
+ */
+export interface MessageListKeyboard {
+	/** The row the cursor sits on. */
+	focusedId: string | undefined;
+	/** What the layer answers, and therefore what the footer offers. */
+	handlers: TriageHandlers;
+	/** Takes the pane element the layer binds its keys to. */
+	ref: (element: HTMLElement | null) => void;
 }
 
 /**
@@ -363,6 +383,8 @@ export interface AppShellProps {
 	selectionBar?: ReactNode;
 	/** The list's selection, forwarded to `MessageListPane`. */
 	selection?: MessageListSelection;
+	/** The list's keyboard layer, forwarded to `MessageListPane`. */
+	keyboard?: MessageListKeyboard;
 	intelligence?: IntelligenceData;
 	/** Pane 4 visible. Defaults to true when intelligence is present. */
 	intelligenceOpen?: boolean;

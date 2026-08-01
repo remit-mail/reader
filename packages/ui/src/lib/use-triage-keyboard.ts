@@ -1,19 +1,24 @@
 import { useEffect, useRef } from "react";
-import type { TriageAction } from "@/lib/keymap";
+import type { TriageHandlers } from "./keymap.js";
 import {
 	dispatchKey,
 	isControlTarget,
 	isEditableTarget,
 	type SequencePrefix,
-} from "@/lib/keymap-dispatch";
-
-/** Map of action → handler. Omitted actions are inert (no-op). */
-export type TriageHandlers = Partial<Record<TriageAction, () => void>>;
+} from "./keymap-dispatch.js";
 
 interface UseTriageKeyboardOptions {
 	handlers: TriageHandlers;
 	/** Disable the whole layer (e.g. a blocking modal owns the keyboard). */
 	enabled?: boolean;
+	/**
+	 * The element the layer listens on. Omitted, the layer is the page's and
+	 * takes the window — the app's. A layer belonging to one mounted surface
+	 * passes that surface's element, so several of them on a page (a Storybook
+	 * docs page carrying every list story) each answer only the keys pressed
+	 * inside their own; `null` until that element is up, and inert until then.
+	 */
+	target?: HTMLElement | null;
 	/**
 	 * Reset window (ms) for a pending `g …` sequence prefix. After this with no
 	 * second key, the prefix is dropped. ~1s per the spec.
@@ -28,12 +33,14 @@ interface UseTriageKeyboardOptions {
  * even Esc is left to the focused field's own handler) and carrying the `g …`
  * go-to sequence prefix across keystrokes with a timeout.
  *
- * List navigation and selection route through here and nowhere else: the
- * message list publishes its commands upward (see `MessageListCommands`) and
- * the route wires them into the handler table, so `@/lib/keymap` is the source
- * of truth for both the displayed bindings and the routed ones. The list used
- * to run a second window listener claiming the same keys, which is what made
- * Enter unusable on every focused button in the app (#43).
+ * List navigation and selection route through here and nowhere else: the list
+ * publishes its commands upward and its host wires them into the handler
+ * table, so `keymap.ts` is the source of truth for both the displayed bindings
+ * and the routed ones. Every surface that mounts a list — the app and the
+ * Storybook prototype — drives it from here, so the interaction reviewed in
+ * Storybook is the one users get. The list used to run a second window listener
+ * claiming the same keys, which is what made Enter unusable on every focused
+ * button in the app (#43).
  *
  * Other window-level keydown listeners still exist for keys this layer does not
  * own — `?` at the mail layout, `/` in SearchBar, Esc in the compose and
@@ -46,6 +53,7 @@ interface UseTriageKeyboardOptions {
 export function useTriageKeyboard({
 	handlers,
 	enabled = true,
+	target,
 	sequenceTimeoutMs = 1000,
 }: UseTriageKeyboardOptions): void {
 	// Latest handlers without re-subscribing the listener every render.
@@ -98,11 +106,14 @@ export function useTriageKeyboard({
 			handler();
 		};
 
-		window.addEventListener("keydown", onKeyDown);
+		const element: EventTarget | null = target === undefined ? window : target;
+		if (element === null) return;
+
+		element.addEventListener("keydown", onKeyDown as EventListener);
 		return () => {
-			window.removeEventListener("keydown", onKeyDown);
+			element.removeEventListener("keydown", onKeyDown as EventListener);
 			clearPrefixTimer();
 			prefixRef.current = null;
 		};
-	}, [enabled, sequenceTimeoutMs]);
+	}, [enabled, sequenceTimeoutMs, target]);
 }

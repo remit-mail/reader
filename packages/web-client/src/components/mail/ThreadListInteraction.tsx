@@ -16,7 +16,7 @@
  * are not rendered: focus stops moving, the highlight disappears, and the next
  * verb acts on a message the user cannot see.
  */
-import { SelectionTopBar, type Verb } from "@remit/ui";
+import { SelectionTopBar, useListCursor, type Verb } from "@remit/ui";
 import {
 	createContext,
 	type ReactNode,
@@ -30,7 +30,6 @@ import {
 } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useFollowFocusOpen } from "@/hooks/useFollowFocusOpen";
-import { useListCursor } from "@/hooks/useListCursor";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
 import { formatDeleteToTrashTitle } from "@/lib/format";

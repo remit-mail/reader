@@ -48,6 +48,37 @@ export type TriageAction =
 	| "goFlagged"
 	| "goSettings";
 
+/** Map of action → handler. Omitted actions are inert (no-op). */
+export type TriageHandlers = Partial<Record<TriageAction, () => void>>;
+
+/** One hint in the list's footer bar. */
+export interface KeyboardHint {
+	/** The action the keys run, so a hint can be traced to what serves it. */
+	action: TriageAction;
+	/** One or more keys shown as `Kbd` chips. */
+	keys: string[];
+	/** What the keys do. */
+	label: string;
+}
+
+/** The persistent message-list footer hint set (desktop). */
+export const defaultKeyboardHints: KeyboardHint[] = [
+	{ action: "focusNext", keys: ["j", "k"], label: "navigate" },
+	{ action: "muteSender", keys: ["m"], label: "mute" },
+	{ action: "help", keys: ["?"], label: "all shortcuts" },
+];
+
+/**
+ * The hints a host may advertise: the footer set narrowed to the actions its
+ * handler table answers. A surface offers the keys it serves and no others, so
+ * the bar under a list describes that list.
+ */
+export function keyboardHintsFor(handlers: TriageHandlers): KeyboardHint[] {
+	return defaultKeyboardHints.filter(
+		(hint) => handlers[hint.action] !== undefined,
+	);
+}
+
 /**
  * One displayed binding row in the help overlay. `keys` is the human-readable
  * sequence (e.g. ["g", "b"] or ["⌘", "N"]); `display` overrides the rendered

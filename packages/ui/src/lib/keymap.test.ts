@@ -5,7 +5,7 @@ import {
 	keysForAction,
 	shortcutHintForAction,
 	tooltipForAction,
-} from "./keymap.ts";
+} from "./keymap.js";
 
 describe("keymap module", () => {
 	test("exposes the documented groups in reading order", () => {
