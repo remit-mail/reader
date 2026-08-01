@@ -206,7 +206,7 @@ function TopBar({ search }: { search: SearchState }) {
 			onCompose={() => undefined}
 			onReportBug={() => undefined}
 			onOpenSettings={() => undefined}
-			composeShortcut="(c)"
+			composeShortcut="c"
 			account={
 				<button type="button" aria-label="Account">
 					<Avatar name="Matthijs" email="matthijs@example.com" size="sm" />

@@ -13,7 +13,7 @@ import { AccountMenu } from "@/auth/AccountMenu";
 import { useGlobalCompose } from "@/hooks/useComposeTarget";
 import { useSearchScope } from "@/hooks/useSearchScope";
 import { openBugReport } from "@/lib/bug-report";
-import { tooltipForAction } from "@/lib/keymap";
+import { shortcutHintForAction } from "@/lib/keymap";
 import { useMailContext } from "@/lib/mail-context";
 
 interface MailTopBarProps {
@@ -45,7 +45,7 @@ export function MailTopBar({ accounts }: MailTopBarProps) {
 			onCompose={compose}
 			onReportBug={openBugReport}
 			onOpenSettings={() => navigate({ to: "/settings/accounts" })}
-			composeShortcut={tooltipForAction("compose")}
+			composeShortcut={shortcutHintForAction("compose")}
 			account={<AccountMenu />}
 		/>
 	);

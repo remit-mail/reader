@@ -45,13 +45,20 @@ describe("ShellTopBar", () => {
 		);
 	});
 
-	it("carries no message verbs — those belong to the reading pane", () => {
-		const html = render();
-		assert.doesNotMatch(html, /aria-label="(Reply|Delete|Archive|Move)"/);
+	it("carries exactly the four actions and nothing else", () => {
+		const labels = [...render().matchAll(/aria-label="([^"]+)"/g)].map(
+			(match) => match[1],
+		);
+		assert.deepEqual(labels, [
+			"Search mail",
+			"Compose",
+			"Report a bug",
+			"Settings",
+		]);
 	});
 
-	it("appends the host's key hint to the compose tooltip", () => {
-		assert.match(render({ composeShortcut: "(c)" }), /title="Compose \(c\)"/);
+	it("words the compose tooltip around the host's bare key", () => {
+		assert.match(render({ composeShortcut: "c" }), /title="Compose \(c\)"/);
 	});
 
 	it("names the action alone when the host binds no key to it", () => {

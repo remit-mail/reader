@@ -47,7 +47,7 @@ const Bar = ({
 			onCompose={() => undefined}
 			onReportBug={() => undefined}
 			onOpenSettings={() => undefined}
-			composeShortcut="(c)"
+			composeShortcut="c"
 			account={<Account />}
 		/>
 	);
@@ -91,7 +91,7 @@ export const ScopePending: Story = {
 			onCompose={() => undefined}
 			onReportBug={() => undefined}
 			onOpenSettings={() => undefined}
-			composeShortcut="(c)"
+			composeShortcut="c"
 			account={<Account />}
 		/>
 	),

@@ -59,14 +59,16 @@ export interface ShellTopBarProps {
 	onCompose: () => void;
 	onReportBug: () => void;
 	onOpenSettings: () => void;
-	/** Key hint appended to the compose tooltip, e.g. `(c)`, from the host keymap. */
+	/**
+	 * The key that composes, as the host's keymap reads it — `c`, `⌘N`,
+	 * `g then b`. The tooltip's wording around it is this component's.
+	 */
 	composeShortcut?: string;
 	/**
 	 * The account control at the bar's trailing edge. An element rather than
 	 * data: the app hangs a signed-in session and its sign-out off it.
 	 */
 	account: ReactNode;
-	className?: string;
 }
 
 export function ShellTopBar({
@@ -76,11 +78,9 @@ export function ShellTopBar({
 	onOpenSettings,
 	composeShortcut,
 	account,
-	className,
 }: ShellTopBarProps) {
 	return (
 		<AppTopBar
-			className={className}
 			leading={<NavToggleButton />}
 			search={
 				<SearchBar
@@ -99,7 +99,7 @@ export function ShellTopBar({
 						variant="ghost"
 						size="sm"
 						icon={<SquarePen className="size-4" />}
-						title={composeShortcut ? `Compose ${composeShortcut}` : "Compose"}
+						title={composeShortcut ? `Compose (${composeShortcut})` : "Compose"}
 						aria-label="Compose"
 						onClick={onCompose}
 					/>

@@ -188,14 +188,23 @@ export function keysForAction(action: TriageAction): string[] | undefined {
 }
 
 /**
+ * Render an action's binding as it reads to a user, e.g. "r" or "g then b".
+ * Returns "" when the action has no hint.
+ */
+export function shortcutHintForAction(action: TriageAction): string {
+	const keys = keysForAction(action);
+	if (!keys || keys.length === 0) return "";
+	if (keys.length === 1) return keys[0] ?? "";
+	// Sequence (go-to) keys read as "g then b"; modifier combos as "⌘N".
+	if (keys[0] === "g") return keys.join(" then ");
+	return keys.join("");
+}
+
+/**
  * Render an action's binding as a compact tooltip suffix, e.g. "(r)" or
  * "(g then b)". Returns "" when the action has no hint.
  */
 export function tooltipForAction(action: TriageAction): string {
-	const keys = keysForAction(action);
-	if (!keys || keys.length === 0) return "";
-	if (keys.length === 1) return `(${keys[0]})`;
-	// Sequence (go-to) keys read as "g then b"; modifier combos as "⌘N".
-	if (keys[0] === "g") return `(${keys.join(" then ")})`;
-	return `(${keys.join("")})`;
+	const hint = shortcutHintForAction(action);
+	return hint === "" ? "" : `(${hint})`;
 }

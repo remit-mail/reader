@@ -47,7 +47,7 @@ export function MailNav({ accounts, onMailboxSelect }: MailNavProps) {
 					<Settings className="size-4 shrink-0" />
 					<span className="flex-1 truncate text-left">Settings</span>
 				</Link>
-				<BugReportButton variant="drawer" />
+				<BugReportButton />
 				<AccountSession>
 					{({ signOut }) => (
 						<button

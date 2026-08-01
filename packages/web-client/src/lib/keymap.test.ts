@@ -1,6 +1,11 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
-import { KEY_HINT_GROUPS, keysForAction, tooltipForAction } from "./keymap.ts";
+import {
+	KEY_HINT_GROUPS,
+	keysForAction,
+	shortcutHintForAction,
+	tooltipForAction,
+} from "./keymap.ts";
 
 describe("keymap module", () => {
 	test("exposes the documented groups in reading order", () => {
@@ -33,6 +38,20 @@ describe("keymap module", () => {
 		assert.strictEqual(tooltipForAction("goBrief"), "(g then b)");
 		// compose's first hint is the single 'c' key.
 		assert.strictEqual(tooltipForAction("compose"), "(c)");
+	});
+
+	test("shortcutHintForAction renders the binding without the parens", () => {
+		assert.strictEqual(shortcutHintForAction("reply"), "r");
+		assert.strictEqual(shortcutHintForAction("goBrief"), "g then b");
+		assert.strictEqual(shortcutHintForAction("compose"), "c");
+	});
+
+	test("an action with no binding gets no hint and no empty parens", () => {
+		const unbound = "totallyMissing" as Parameters<
+			typeof shortcutHintForAction
+		>[0];
+		assert.strictEqual(shortcutHintForAction(unbound), "");
+		assert.strictEqual(tooltipForAction(unbound), "");
 	});
 
 	test("every hint's action is a non-empty key list", () => {
