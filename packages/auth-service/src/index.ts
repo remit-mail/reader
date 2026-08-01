@@ -1,5 +1,10 @@
 export { toNodeHandler } from "better-auth/node";
-export { type Auth, type AuthConfig, createAuth } from "./auth.js";
+export {
+	type Auth,
+	type AuthConfig,
+	CLIENT_IP_HEADER,
+	createAuth,
+} from "./auth.js";
 export {
 	AUTH_BASE_PATH,
 	AUTH_JWKS_PATH,

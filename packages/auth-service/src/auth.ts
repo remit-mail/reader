@@ -41,6 +41,17 @@ const buildAuthAdapter = async (config: AuthConfig) => {
 	});
 };
 
+/**
+ * The header carrying the client address, set by the edge proxy from the
+ * connection it terminates (deploy/vps/caddy/routes.caddy). It is deliberately
+ * not `X-Forwarded-For`: that header arrives with an appended hop per proxy,
+ * which resolves to no single client and collapses rate limiting onto one
+ * shared bucket for everybody. Nothing else in the chain writes this name, and
+ * the edge replaces any value a client sends, so it is single-valued and
+ * trustworthy at the point better-auth reads it.
+ */
+export const CLIENT_IP_HEADER = "x-remit-client-ip";
+
 const intEnv = (name: string, fallback: number): number => {
 	const raw = process.env[name];
 	if (!raw) return fallback;
@@ -76,6 +87,12 @@ export const createAuth = async (
 			enabled: true,
 			autoSignIn: true,
 			disableSignUp: !config.selfSignUpEnabled,
+		},
+		// Listing one header, and not better-auth's `x-forwarded-for` default,
+		// is what keeps the resolved address out of a caller's reach: an
+		// `X-Forwarded-For` a client sends is never read at all.
+		advanced: {
+			ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
 		},
 		rateLimit: {
 			enabled: true,

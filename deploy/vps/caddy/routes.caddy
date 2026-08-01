@@ -2,6 +2,20 @@
 # TLS_MODE selects (docker-compose.yml). This is the only copy of the routing
 # table; the mode files add nothing but the site address and TLS behaviour.
 #
+# Caddy is the only component that talks to the client, so it is the only one
+# that knows the real peer, and it states that peer here for everything behind
+# it. `{client_ip}` is the connection's remote address — Caddy trusts no proxy
+# by default, so a client-supplied forwarded header never feeds it. This
+# replaces any inbound copy of the header rather than appending to it.
+#
+# The address needs a header of its own because neither standard one survives
+# the hop to the backend: apisix appends its own hop to X-Forwarded-For (the
+# multi-hop value better-auth cannot resolve to one client) and overwrites
+# X-Real-IP with the caddy container's address. Consumed by
+# packages/auth-service (CLIENT_IP_HEADER).
+request_header X-Remit-Client-IP {client_ip}
+
+#
 # Routing mirrors the dev vite proxy 1:1 (packages/web-client/vite.config.ts):
 #   /api/auth/*  -> apisix, path unchanged (better-auth's own routes)
 #   /api/*       -> apisix, with the /api prefix stripped (business routes,
