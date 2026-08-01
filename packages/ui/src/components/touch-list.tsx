@@ -33,21 +33,20 @@ export function TouchListBody({
 	 */
 	busy?: boolean;
 }) {
-	// What a swipe has done, as ids rather than a copy of the rows, so the list
-	// still follows the `sections` its consumer passes. The live client owns real
-	// mutation.
+	// What a swipe has left a row at — the state it landed on, not a flip of
+	// whatever the prop says — so the list still follows the `sections` its
+	// consumer passes. The live client owns real mutation.
 	const [swipedAway, setSwipedAway] = useState<ReadonlySet<string>>(new Set());
-	const [readToggled, setReadToggled] = useState<ReadonlySet<string>>(
-		new Set(),
+	const [swipedRead, setSwipedRead] = useState<ReadonlyMap<string, boolean>>(
+		new Map(),
 	);
 	const items = sections
 		.flatMap((section) => section.threads)
 		.filter((thread) => !swipedAway.has(thread.id))
-		.map((thread) =>
-			readToggled.has(thread.id)
-				? { ...thread, isRead: !thread.isRead }
-				: thread,
-		);
+		.map((thread) => {
+			const read = swipedRead.get(thread.id);
+			return read === undefined ? thread : { ...thread, isRead: read };
+		});
 	const [peek, setPeek] = useState<{ id: string; side: SwipePeek } | null>(
 		initialPeek && initialPeek !== "none" && items[1]
 			? { id: items[1].id, side: initialPeek }
@@ -57,12 +56,8 @@ export function TouchListBody({
 		if (side === "trailing") {
 			setSwipedAway((prev) => new Set(prev).add(id));
 		} else {
-			setReadToggled((prev) => {
-				const next = new Set(prev);
-				if (next.has(id)) next.delete(id);
-				else next.add(id);
-				return next;
-			});
+			const shown = items.find((thread) => thread.id === id);
+			setSwipedRead((prev) => new Map(prev).set(id, !shown?.isRead));
 		}
 		setPeek(null);
 	};

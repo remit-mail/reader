@@ -50,7 +50,6 @@ import {
 	type SearchResultSection,
 	SearchResults,
 	type SearchScope,
-	SelectionTopBar,
 	type Suggestion,
 	SuggestList,
 	type ThreadData,
@@ -60,7 +59,7 @@ import {
 import { Bug, Pencil, Search, Settings, SquarePen, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { navAccounts } from "../fixtures/workspace.js";
-import { PaneNavButton, useListTriage } from "../lib/list-selection.js";
+import { ListSelectionBar, useListTriage } from "../lib/list-selection.js";
 
 /** The width at which the reading pane, the nav column and the top bar appear. */
 const DESKTOP_MIN_WIDTH = 1024;
@@ -283,7 +282,6 @@ function ListPane({
 	const [category, setCategory] = useState("all");
 	const [filters, setFilters] = useState<ReadonlySet<string>>(new Set());
 	const triage = useListTriage(sections);
-	const selection = triage.selection;
 
 	const hasQuery = search.query.trim().length > 0;
 	const searchExpanded = singlePane && (searchOpen || hasQuery);
@@ -370,18 +368,9 @@ function ListPane({
 	return (
 		<FilterPanelProvider hasSheet={sheet !== undefined || briefOwnsSheet}>
 			<section className="flex h-full w-full flex-col bg-surface">
-				<SelectionTopBar
+				<ListSelectionBar
+					triage={triage}
 					title={title}
-					count={selection.selectedCount}
-					onCancel={selection.clearSelection}
-					onDelete={triage.trashSelected}
-					onMarkRead={triage.markSelectedRead}
-					selectAll={{
-						checked: triage.allSelected,
-						indeterminate: selection.hasSelection && !triage.allSelected,
-						onChange: triage.toggleAll,
-					}}
-					navSlot={<PaneNavButton />}
 					titleMeta={
 						<>
 							<span className="shrink-0 text-2xs text-fg-subtle">

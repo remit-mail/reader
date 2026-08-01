@@ -13,13 +13,14 @@ import type { JSDOM } from "jsdom";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { ThreadSection } from "./app-shell-types.js";
+import type { SwipePeek } from "./swipeable-row.js";
 import { TouchListBody } from "./touch-list.js";
 
 let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
 
-const row = (id: string, fromName: string) => ({
+const row = (id: string, fromName: string, isRead = false) => ({
 	id,
 	accountId: "account-1",
 	fromName,
@@ -27,18 +28,23 @@ const row = (id: string, fromName: string) => ({
 	subject: `Subject ${id}`,
 	snippet: "…",
 	timeLabel: "9:42",
-	isRead: false,
+	isRead,
 });
 
 const sectionsOf = (...ids: string[]): ThreadSection[] => [
 	{ id: "inbox", threads: ids.map((id) => row(id, `Sender ${id}`)) },
 ];
 
-const render = (sections: ThreadSection[]) => {
+const readOf = (...ids: string[]): ThreadSection[] => [
+	{ id: "inbox", threads: ids.map((id) => row(id, `Sender ${id}`, true)) },
+];
+
+const render = (sections: ThreadSection[], initialPeek?: SwipePeek) => {
 	act(() => {
 		root.render(
 			createElement(TouchListBody, {
 				sections,
+				initialPeek,
 				selectionMode: false,
 				checkedIds: new Set<string>(),
 				onToggleCheck: () => undefined,
@@ -47,6 +53,20 @@ const render = (sections: ThreadSection[]) => {
 				onRefresh: () => undefined,
 				refreshing: false,
 			}),
+		);
+	});
+};
+
+/** The unread dot each row draws while it is unread, and only then. */
+const unreadRows = () =>
+	container.querySelectorAll("span.rounded-full.bg-accent").length;
+
+const click = (label: string) => {
+	const button = container.querySelector(`button[aria-label="${label}"]`);
+	assert.ok(button, `no "${label}" control on the page`);
+	act(() => {
+		button.dispatchEvent(
+			new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }),
 		);
 	});
 };
@@ -100,5 +120,21 @@ describe("TouchListBody", () => {
 		render(sectionsOf("a"));
 		render(sectionsOf("a", "b"));
 		assert.match(container.textContent ?? "", /Sender b/);
+	});
+});
+
+describe("TouchListBody swipe-to-toggle-read", () => {
+	it("leaves the row at the state the swipe landed on", () => {
+		render(sectionsOf("a", "b"), "leading");
+		assert.equal(unreadRows(), 2, "both rows start unread");
+		click("Mark as read");
+		assert.equal(unreadRows(), 1, "the swiped row is read");
+	});
+
+	it("does not invert a row the consumer has since marked read", () => {
+		render(sectionsOf("a", "b"), "leading");
+		click("Mark as read");
+		render(readOf("a", "b"));
+		assert.equal(unreadRows(), 0, "a row the consumer marked read stays read");
 	});
 });
