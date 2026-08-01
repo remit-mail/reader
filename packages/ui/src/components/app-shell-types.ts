@@ -6,12 +6,12 @@ import {
 	useRef,
 	useState,
 } from "react";
+import type { KeyboardHint } from "../lib/keymap.js";
 import type { SelectionModifiers } from "../lib/use-selection.js";
 import type {
 	IntelligenceData,
 	SenderTrustLevel,
 } from "./intelligence-panel.js";
-import type { KeyboardHint } from "./keyboard-hint-bar.js";
 import type { ListState } from "./message-list-state.js";
 
 /** Pane-count thresholds, aligned to Tailwind `lg`/`xl`. The whole shell reflows

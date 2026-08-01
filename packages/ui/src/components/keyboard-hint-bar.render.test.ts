@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { KeyboardHintBar, keyboardHintsFor } from "./keyboard-hint-bar.js";
+import { keyboardHintsFor } from "../lib/keymap.js";
+import { KeyboardHintBar } from "./keyboard-hint-bar.js";
 
 describe("KeyboardHintBar", () => {
 	it("offers the app's own set by default", () => {

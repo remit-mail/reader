@@ -1,14 +1,11 @@
 import { useEffect, useRef } from "react";
-import type { TriageAction } from "./keymap.js";
+import type { TriageHandlers } from "./keymap.js";
 import {
 	dispatchKey,
 	isControlTarget,
 	isEditableTarget,
 	type SequencePrefix,
 } from "./keymap-dispatch.js";
-
-/** Map of action → handler. Omitted actions are inert (no-op). */
-export type TriageHandlers = Partial<Record<TriageAction, () => void>>;
 
 interface UseTriageKeyboardOptions {
 	handlers: TriageHandlers;

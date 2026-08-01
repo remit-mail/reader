@@ -1,11 +1,7 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { inboxFilterConfig } from "../filter-presets.js";
-import {
-	rowSelectIntent,
-	type SelectionModifiers,
-	useSelection,
-} from "../lib/use-selection.js";
+import { useListKeyboard } from "../lib/use-list-keyboard.js";
 import type { ThreadSection } from "./app-shell-types.js";
 import { FilterSheet } from "./filter-sheet.js";
 import { MailHeader } from "./mail-header.js";
@@ -89,8 +85,32 @@ const narrowFrame: Decorator = (Story) => (
 	</div>
 );
 
+/**
+ * The list under the triage keyboard: j/k walk the rows, x and Space tick the
+ * one under the cursor, Shift+j/k build a range and ⌘A takes them all. The
+ * footer offers what is wired.
+ */
+function LiveList({ briefFilters = false }: { briefFilters?: boolean }) {
+	const orderedIds = sections.flatMap((s) => s.threads).map((t) => t.id);
+	const list = useListKeyboard({ orderedIds, isDesktop: true });
+	return (
+		<MessageListPane
+			listTitle="Inbox"
+			listMeta="3 conversations"
+			sections={sections}
+			flatList={!briefFilters}
+			briefFilters={briefFilters}
+			isDesktop
+			onSelectThread={() => undefined}
+			onSelectBriefCategory={() => undefined}
+			selection={list.selection}
+			keyboard={list.keyboard}
+		/>
+	);
+}
+
 export const DesktopList: Story = {
-	args: { isDesktop: true, flatList: true },
+	render: () => <LiveList />,
 	decorators: [desktopFrame],
 };
 
@@ -100,7 +120,7 @@ export const NarrowTouchList: Story = {
 };
 
 export const Brief: Story = {
-	args: { isDesktop: true, briefFilters: true, sections },
+	render: () => <LiveList briefFilters />,
 	decorators: [desktopFrame],
 };
 
@@ -217,7 +237,6 @@ export const CustomListBody: Story = {
 };
 
 function SelectableList({ isDesktop }: { isDesktop: boolean }) {
-	const selection = useSelection();
 	const [trashedIds, setTrashedIds] = useState<ReadonlySet<string>>(new Set());
 	const [readIds, setReadIds] = useState<ReadonlySet<string>>(new Set());
 
@@ -230,6 +249,8 @@ function SelectableList({ isDesktop }: { isDesktop: boolean }) {
 			),
 	}));
 	const orderedIds = visible.flatMap((s) => s.threads).map((t) => t.id);
+	const list = useListKeyboard({ orderedIds, isDesktop });
+	const { selection } = list.cursor;
 	const allSelected =
 		orderedIds.length > 0 &&
 		orderedIds.every((id) => selection.selectedIds.has(id));
@@ -239,24 +260,6 @@ function SelectableList({ isDesktop }: { isDesktop: boolean }) {
 		selection.clearSelection();
 	};
 
-	// Shift and cmd/ctrl come off a mouse, which the touch list has no path for.
-	const onRowSelect = isDesktop
-		? (id: string, modifiers: SelectionModifiers) => {
-				const intent = rowSelectIntent(modifiers);
-				if (intent === "range") {
-					selection.selectRange(orderedIds, id);
-					return true;
-				}
-				if (intent === "toggle") {
-					selection.toggle(id);
-					return true;
-				}
-				selection.clearSelection();
-				selection.setAnchor(id);
-				return false;
-			}
-		: undefined;
-
 	return (
 		<MessageListPane
 			listTitle="Inbox"
@@ -265,11 +268,8 @@ function SelectableList({ isDesktop }: { isDesktop: boolean }) {
 			flatList
 			isDesktop={isDesktop}
 			onSelectThread={() => undefined}
-			selection={{
-				selectedIds: selection.selectedIds,
-				onToggle: selection.toggle,
-				onRowSelect,
-			}}
+			selection={list.selection}
+			keyboard={list.keyboard}
 			selectionBar={
 				<SelectionTopBar
 					title="Inbox"

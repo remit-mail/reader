@@ -1,15 +1,12 @@
 import {
 	Button,
-	keyboardHintsFor,
 	type MessageListKeyboard,
 	type MessageListSelection,
 	SelectionTopBar,
 	type ThreadSection,
-	type TriageHandlers,
 	useAppShellLayout,
-	useListCursor,
+	useListKeyboard,
 	type useSelection,
-	useTriageKeyboard,
 	type Verb,
 } from "@remit/ui";
 import { Menu } from "lucide-react";
@@ -75,44 +72,14 @@ export function useListTriage(
 		[visible],
 	);
 
-	const cursor = useListCursor({
+	const list = useListKeyboard({
 		orderedIds,
 		isDesktop,
 		initialFocusedId,
 		initialSelectedIds,
 	});
-	const { selection, handleRowSelect } = cursor;
-	const { selectedIds, toggle, clearSelection } = selection;
-
-	const handlers: TriageHandlers = {
-		focusNext: cursor.focusNext,
-		focusPrevious: cursor.focusPrevious,
-		focusFirst: cursor.focusFirst,
-		focusLast: cursor.focusLast,
-		toggleSelect: cursor.toggleFocusedSelection,
-		extendSelectDown: cursor.extendRangeDown,
-		extendSelectUp: cursor.extendRangeUp,
-		selectAll: cursor.selectAllLoaded,
-		back: cursor.exitSelection,
-	};
-	useTriageKeyboard({ handlers });
-
-	// A row that leaves the list — an account pill, a chip, a completed verb —
-	// cannot stay selected. The same rule the app runs in
-	// `ThreadListInteraction`.
-	const { intersectWith } = selection;
-	useEffect(() => {
-		intersectWith(orderedIds);
-	}, [intersectWith, orderedIds]);
-
-	const paneSelection = useMemo<MessageListSelection>(
-		() => ({
-			selectedIds,
-			onToggle: toggle,
-			onRowSelect: handleRowSelect,
-		}),
-		[selectedIds, toggle, handleRowSelect],
-	);
+	const { selection } = list.cursor;
+	const { selectedIds, clearSelection } = selection;
 
 	const runVerb = (record: (ids: ReadonlySet<string>) => void) => {
 		record(selectedIds);
@@ -122,11 +89,8 @@ export function useListTriage(
 	return {
 		selection,
 		sections: visible,
-		paneSelection,
-		paneKeyboard: {
-			focusedId: cursor.focusedMessageId,
-			hints: keyboardHintsFor(handlers),
-		},
+		paneSelection: list.selection,
+		paneKeyboard: list.keyboard,
 		allSelected:
 			orderedIds.length > 0 && orderedIds.every((id) => selectedIds.has(id)),
 		toggleAll: () => selection.toggleAll(orderedIds),

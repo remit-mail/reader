@@ -9,11 +9,8 @@ import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import type { JSDOM } from "jsdom";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { TriageAction } from "./keymap.js";
-import {
-	type TriageHandlers,
-	useTriageKeyboard,
-} from "./use-triage-keyboard.js";
+import type { TriageAction, TriageHandlers } from "./keymap.js";
+import { useTriageKeyboard } from "./use-triage-keyboard.js";
 
 let dom: JSDOM;
 let container: HTMLElement;

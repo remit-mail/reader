@@ -1,40 +1,12 @@
 import type { ReactNode } from "react";
 import { cn } from "../lib/cn.js";
-import type { TriageAction } from "../lib/keymap.js";
-import type { TriageHandlers } from "../lib/use-triage-keyboard.js";
+import { defaultKeyboardHints, type KeyboardHint } from "../lib/keymap.js";
 import { Kbd } from "./kbd.js";
-
-export interface KeyboardHint {
-	/** The action the keys run, so a hint can be traced to what serves it. */
-	action: TriageAction;
-	/** One or more keys shown as `Kbd` chips. */
-	keys: string[];
-	/** What the keys do. */
-	label: string;
-}
 
 export interface KeyboardHintBarProps {
 	/** Override the default hint set. */
 	hints?: KeyboardHint[];
 	className?: string;
-}
-
-/** The persistent message-list footer hint set (desktop). */
-export const defaultKeyboardHints: KeyboardHint[] = [
-	{ action: "focusNext", keys: ["j", "k"], label: "navigate" },
-	{ action: "muteSender", keys: ["m"], label: "mute" },
-	{ action: "help", keys: ["?"], label: "all shortcuts" },
-];
-
-/**
- * The hints a host may advertise: the footer set narrowed to the actions its
- * handler table answers. A surface offers the keys it serves and no others, so
- * the bar under a list is a description of that list.
- */
-export function keyboardHintsFor(handlers: TriageHandlers): KeyboardHint[] {
-	return defaultKeyboardHints.filter(
-		(hint) => handlers[hint.action] !== undefined,
-	);
 }
 
 /**
