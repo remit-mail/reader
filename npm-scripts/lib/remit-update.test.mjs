@@ -107,6 +107,25 @@ function hasFilterMoveColumn(dbPath) {
 	return columns.some((c) => c.name === "filter_move");
 }
 
+function messageSubjects(dbPath) {
+	const db = new DatabaseSync(dbPath);
+	const rows = db.prepare("SELECT subject FROM message ORDER BY id").all();
+	db.close();
+	return rows.map((r) => r.subject);
+}
+
+// The live database as a host reboot after the commit finds it: the release's
+// migration applied, and a message the running instance wrote afterwards.
+function applyMigrationAndWrite(dbPath, subject) {
+	const db = new DatabaseSync(dbPath);
+	db.exec("ALTER TABLE message ADD COLUMN filter_move text");
+	db.exec(
+		"INSERT INTO __drizzle_migrations_entities (id, hash, created_at) VALUES (99, 'applied', 99)",
+	);
+	db.prepare("INSERT INTO message (id, subject) VALUES (2, ?)").run(subject);
+	db.close();
+}
+
 function writeExecutable(path, body) {
 	writeFileSync(path, body);
 	spawnSync("chmod", ["+x", path]);
@@ -118,6 +137,7 @@ function sandbox({
 	env = {},
 	realDb = false,
 	bareDb = false,
+	tag = "v1.0.0",
 } = {}) {
 	const dir = mkdtempSync(join(TMP_ROOT, "remit-update-"));
 	sandboxes.push(dir);
@@ -141,7 +161,7 @@ function sandbox({
 	writeFileSync(
 		join(deployment, ".env"),
 		[
-			"REMIT_TAG=v1.0.0",
+			`REMIT_TAG=${tag}`,
 			"PUBLIC_ORIGIN=https://mail.example.test",
 			"TLS_MODE=internal",
 			"REMIT_UPDATE_MANIFEST_URL=https://updates.example.test/stable.json",
@@ -159,13 +179,20 @@ function sandbox({
 	if (manifest) {
 		writeFileSync(join(fake, "manifest"), JSON.stringify(manifest));
 	}
-	// A live stack: every service has a container and every container is up.
+	// A live stack: every service has a container, every container is up, and
+	// each was started from the deployment as it stands on disk — so the next
+	// `up` recreates only what a change to .env or the compose file moves.
 	let seq = 0;
 	for (const svc of `${services} migrate`.split(" ")) {
 		seq += 1;
 		writeFileSync(join(fake, `cid-${svc}`), `c${svc}${seq}`);
 		writeFileSync(join(fake, `svc-c${svc}${seq}`), svc);
 		if (svc !== "migrate") writeFileSync(join(fake, `up-${svc}`), "");
+		copyFileSync(join(deployment, ".env"), join(fake, `env-seen-${svc}`));
+		copyFileSync(
+			join(deployment, "docker-compose.sqlite.yml"),
+			join(fake, `compose-seen-${svc}`),
+		);
 	}
 	writeFileSync(join(fake, "seq"), String(seq));
 
@@ -773,6 +800,12 @@ describe("recovery branches on the recorded phase", () => {
 		assert.ok(["rolledBack", "rollbackFailed"].includes(outcome), outcome);
 	});
 
+	it("reports a rollback that finished, even where compose reuses the migrate container", () => {
+		const box = interrupted("rollingBack", { probe: "ok", migrate_exit: 0 });
+		box.run(["update", "--recover"]);
+		assert.equal(box.stateJson().run.outcome, "rolledBack");
+	});
+
 	it("reads .env fresh, so a host reboot mid-run still brings the stack up", () => {
 		const box = interrupted("stopping", { probe: "ok" });
 		box.run(["update", "--recover"]);
@@ -785,6 +818,94 @@ describe("recovery branches on the recorded phase", () => {
 		assert.equal(result.status, 0);
 		assert.match(result.stdout, /No interrupted update/);
 		assert.equal(box.log(), "");
+	});
+});
+
+// reader#494. The state a host reboot leaves behind once the migration has run:
+// .env on the new tag, the schema lifted, writes on top of it, and the
+// pre-update snapshot still on the state volume.
+function interruptedAfterTheMigration(phase, scenario = {}) {
+	const box = sandbox({
+		realDb: true,
+		tag: "v1.5.0",
+		scenario: { probe: "ok", migrate_exit: 0, target_schema: 9, ...scenario },
+		manifest: { ...MANIFEST, schemaVersion: 9 },
+	});
+	const snapshot = join(box.state, "snapshots", "run-1", "remit.db");
+	mkdirSync(dirname(snapshot), { recursive: true });
+	copyFileSync(box.liveDb, snapshot);
+	applyMigrationAndWrite(box.liveDb, "written after the migration");
+	box.writeBreadcrumb({
+		runId: "run-1",
+		fromVersion: "v1.0.0",
+		targetVersion: "v1.5.0",
+		startedAt: "2026-07-20T08:00:00Z",
+		snapshot: dirname(snapshot),
+		services: ALL_SERVICES,
+		migrateBefore: "cmigrate-old",
+		phase,
+	});
+	return box;
+}
+
+const migrateCid = (box) => readFileSync(join(box.fake, "cid-migrate"), "utf8");
+
+// The gate reads the migrate container id from before the update, and after an
+// interruption the breadcrumb is the only place that survives. Nothing in the
+// deployment has moved since, so compose reuses the exited one-shot.
+describe("the gate honours the recorded migrate container (reader#494)", () => {
+	const box = interruptedAfterTheMigration("verifying");
+	const before = migrateCid(box);
+	const result = box.run(["update", "--recover"]);
+
+	it("reuses the migrate container, the way compose does", () => {
+		assert.equal(migrateCid(box), before);
+	});
+
+	it("commits the update", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "succeeded");
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.5.0");
+	});
+
+	it("keeps the migrated database and the writes that followed it", () => {
+		assert.ok(!box.log().includes("run restore"));
+		assert.equal(box.liveSchema(), 9);
+		assert.equal(box.liveHasFilterMove(), true);
+		assert.deepEqual(messageSubjects(box.liveDb), [
+			"hello",
+			"written after the migration",
+		]);
+	});
+});
+
+// By `committing` the gate has already returned; the snapshot beside the
+// migrated database is older than everything served since.
+describe("a run interrupted after its verdict is never rolled back (reader#494)", () => {
+	const box = interruptedAfterTheMigration("committing", {
+		probe: "fail",
+		restarts: 3,
+	});
+	const result = box.run(["update", "--recover"]);
+
+	it("finishes the update", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "succeeded");
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.5.0");
+	});
+
+	it("keeps the migrated database and the writes that followed it", () => {
+		assert.ok(!box.log().includes("run restore"));
+		assert.equal(box.liveSchema(), 9);
+		assert.equal(box.liveHasFilterMove(), true);
+		assert.deepEqual(messageSubjects(box.liveDb), [
+			"hello",
+			"written after the migration",
+		]);
+	});
+
+	it("brings the app plane back up", () => {
+		assert.ok(box.log().includes("compose up -d queue migrate backend"));
 	});
 });
 
