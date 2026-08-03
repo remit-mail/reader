@@ -1,8 +1,7 @@
 /**
  * Creating a folder from the filter rule editor's move destination (#549). The
  * editor's "Move matches to" opens the browsable folder tree, which makes a new
- * folder inside the folder it is looking at and picks it as the rule's
- * destination.
+ * folder where it is looking and offers it as the rule's destination.
  *
  * A standing filter is seeded and opened in Settings › Filters — the same
  * surface organize-standing-filter.spec.ts drives — then re-pointed at a folder
@@ -93,7 +92,7 @@ test.describe("Create folder from the rule editor", () => {
 		await newFolderField.fill(FOLDER_NAME);
 		await page.getByRole("button", { name: "Create folder" }).click();
 
-		// The created folder becomes the chosen destination in the editor.
+		// The created folder is offered as the destination and confirmed there.
 		const created = await waitFor(
 			() => api.listMailboxes(run.accountId),
 			(boxes) => boxes.some((b) => b.fullPath === FOLDER_NAME),
@@ -101,9 +100,11 @@ test.describe("Create folder from the rule editor", () => {
 		);
 		const folder = created.find((b) => b.fullPath === FOLDER_NAME);
 		if (!folder) throw new Error("unreachable: folder matched but not found");
-		await expect(
-			page.getByText(`Moving matches to ${FOLDER_NAME}.`),
-		).toBeVisible({ timeout: 10_000 });
+		const confirm = page.getByRole("button", {
+			name: `Move matches to ${FOLDER_NAME}`,
+		});
+		await expect(confirm).toBeVisible({ timeout: 10_000 });
+		await confirm.click();
 
 		await page.getByRole("button", { name: "Save rule" }).click();
 

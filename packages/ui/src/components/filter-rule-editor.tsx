@@ -160,15 +160,19 @@ const CREATE_LABEL_VALUE = "__filter_create_label__";
  * labelled as the app labels it, nested where the provider nests it, and a new
  * one is made wherever the tree is looking.
  *
+ * Tapping a folder both picks it and opens it, so the rule is re-pointed on an
+ * explicit confirmation rather than on the way past — otherwise looking inside
+ * a folder on the way to a nested one would rewrite the filter with no undo.
+ *
  * The destination is a dependent write — the filter binds to the folder — so a
- * created folder is selected only once the mail server has confirmed it. It is
- * held here as well as returned, so it is the destination on screen before the
- * caller's folder list has refetched.
+ * created folder is offered only once the mail server has confirmed it. It is
+ * held here as well as returned, so it is pickable before the caller's folder
+ * list has refetched.
  */
 function MoveDestinationField({
 	folders,
 	value,
-	delimiter,
+	delimiter = "/",
 	onChangeMove,
 	onCreateFolder,
 }: {
@@ -183,6 +187,7 @@ function MoveDestinationField({
 	) => Promise<FolderTreeNode>;
 }) {
 	const [browsing, setBrowsing] = useState(false);
+	const [picked, setPicked] = useState<string>();
 	const [createdFolders, setCreatedFolders] = useState<FolderTreeNode[]>([]);
 
 	const options = useMemo(() => {
@@ -193,11 +198,9 @@ function MoveDestinationField({
 		];
 	}, [folders, createdFolders]);
 
-	const chosen = options.find((folder) => folder.id === value);
-
-	const createFolder =
-		onCreateFolder &&
-		(async (name: string, parentPath: string, signal?: AbortSignal) => {
+	const createFolder = useMemo(() => {
+		if (!onCreateFolder) return undefined;
+		return async (name: string, parentPath: string, signal?: AbortSignal) => {
 			const created = await onCreateFolder(name, parentPath, signal);
 			setCreatedFolders((prev) =>
 				prev.some((entry) => entry.id === created.id)
@@ -205,53 +208,95 @@ function MoveDestinationField({
 					: [...prev, created],
 			);
 			return created;
-		});
+		};
+	}, [onCreateFolder]);
+
+	const chosen = options.find((folder) => folder.id === value);
+	const pending = options.find((folder) => folder.id === picked);
+
+	/** Two folders can share a leaf name, so a destination reads as its trail. */
+	const trail = (folder: FolderTreeNode): string => {
+		const segments = folder.path.split(delimiter);
+		return segments
+			.map((segment, index) => {
+				const path = segments.slice(0, index + 1).join(delimiter);
+				return options.find((option) => option.path === path)?.label ?? segment;
+			})
+			.join(" / ");
+	};
+
+	const close = () => {
+		setBrowsing(false);
+		setPicked(undefined);
+	};
 
 	if (!browsing) {
 		return (
 			<div className="rounded-md border border-line bg-surface-sunken p-3">
 				<p className="text-sm font-medium text-fg">
-					{chosen ? chosen.label : "No folder yet"}
+					{chosen ? trail(chosen) : "No folder yet"}
 				</p>
-				<Button
-					variant="ghost"
-					size="sm"
-					className="mt-1 px-0"
-					onClick={() => setBrowsing(true)}
-				>
-					Choose a folder
-				</Button>
+				<div className="mt-1 flex flex-wrap items-center gap-3">
+					<Button
+						variant="ghost"
+						size="sm"
+						className="px-0"
+						onClick={() => {
+							setPicked(value);
+							setBrowsing(true);
+						}}
+					>
+						Choose a folder
+					</Button>
+					{chosen && (
+						<Button
+							variant="ghost"
+							size="sm"
+							className="px-0"
+							onClick={() => onChangeMove?.("")}
+						>
+							Don't move matches
+						</Button>
+					)}
+				</div>
 			</div>
 		);
 	}
 
 	return (
 		<div className="space-y-2">
-			{/* Tapping a folder both picks it and opens it, so the tree stays up:
-			    closing on the first tap would put anything nested out of reach. */}
 			<div className="flex h-72 min-h-0 overflow-hidden rounded-md border border-line bg-surface">
 				<FolderTreePicker
 					folders={options}
-					selectedId={value}
+					selectedId={picked}
 					delimiter={delimiter}
-					onSelect={onChangeMove}
+					onSelect={setPicked}
 					onCreateFolder={createFolder}
-					onCancel={() => setBrowsing(false)}
+					onCancel={close}
 					labels={{
 						createPending: "Waiting for the mail server to confirm the folder…",
 					}}
 				/>
 			</div>
-			<div className="flex items-center justify-between gap-2">
-				<p className="text-2xs text-fg-subtle">
-					{chosen
-						? `Moving matches to ${chosen.label}.`
-						: "Tap a folder to open it, or make a new one where you want it."}
-				</p>
-				<Button variant="ghost" size="sm" onClick={() => setBrowsing(false)}>
-					Done
+			{pending ? (
+				<Button
+					variant="primary"
+					onClick={() => {
+						onChangeMove?.(pending.id);
+						close();
+					}}
+					className="w-full"
+				>
+					<span className="truncate">{`Move matches to ${trail(pending)}`}</span>
 				</Button>
-			</div>
+			) : (
+				<p className="text-2xs text-fg-subtle">
+					Tap a folder to open it, or make a new one where you want it.
+				</p>
+			)}
+			<Button variant="ghost" size="sm" onClick={close} className="w-full">
+				Cancel
+			</Button>
 		</div>
 	);
 }

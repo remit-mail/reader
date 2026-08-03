@@ -116,7 +116,11 @@ const folderNameField = (dom: DomHarness): HTMLInputElement | undefined => {
 		: undefined;
 };
 
-/** Opens the filter for editing and asks its destination field for the tree. */
+/**
+ * Opens the filter for editing and asks its destination field for the tree. The
+ * filter already moves matches into `INBOX/Receipts`, so the tree opens on the
+ * branch holding it.
+ */
 const openDestinationTree = async (
 	posted?: Record<string, unknown>[],
 ): Promise<DomHarness> => {
@@ -158,7 +162,6 @@ const openFolder = async (dom: DomHarness, label: string): Promise<void> => {
 describe("Settings › Filters — move destination (#236, #540, #549)", () => {
 	it("offers every folder but the appointed Drafts and Sent", async () => {
 		const dom = await openDestinationTree();
-		await openFolder(dom, "INBOX");
 		assert.deepEqual(rowLabels(dom), [
 			"Move to INBOX",
 			"Move to Archief",
@@ -169,7 +172,6 @@ describe("Settings › Filters — move destination (#236, #540, #549)", () => {
 
 	it("reads a renamed folder as the name the account gave it", async () => {
 		const dom = await openDestinationTree();
-		await openFolder(dom, "INBOX");
 		assert.ok(rowLabels(dom).includes("Move to Bonnetjes"));
 		assert.ok(
 			!rowLabels(dom).some((label) => label.includes("Receipts")),
@@ -179,7 +181,6 @@ describe("Settings › Filters — move destination (#236, #540, #549)", () => {
 
 	it("nests a folder under the one holding it", async () => {
 		const dom = await openDestinationTree();
-		await openFolder(dom, "INBOX");
 		await openFolder(dom, "Travel");
 		const nested = dom
 			.queryAll("[role=treeitem]")
@@ -191,7 +192,6 @@ describe("Settings › Filters — move destination (#236, #540, #549)", () => {
 	it("creates a folder inside the one the tree is looking at", async () => {
 		const posted: Record<string, unknown>[] = [];
 		const dom = await openDestinationTree(posted);
-		await openFolder(dom, "INBOX");
 		await openFolder(dom, "Travel");
 		dom.click(dom.byLabel("New folder inside Travel"));
 		await dom.flush();

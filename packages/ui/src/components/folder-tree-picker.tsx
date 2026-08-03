@@ -146,7 +146,12 @@ export const FolderTreePicker = ({
 }: FolderTreePickerProps) => {
 	const text = { ...defaultLabels, ...labels };
 	const [query, setQuery] = useState("");
-	const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
+	// A destination chosen before the picker opened is out of reach behind its
+	// ancestors, so the branch holding it starts open and the choice is on screen.
+	const [opened, setOpened] = useState<ReadonlySet<string>>(() => {
+		const selected = folders.find((folder) => folder.id === selectedId);
+		return new Set(selected ? folderAncestors(selected.path, delimiter) : []);
+	});
 	const [draft, setDraft] = useState<Draft | null>(null);
 	const [draftName, setDraftName] = useState("");
 	const [draftError, setDraftError] = useState<string>();

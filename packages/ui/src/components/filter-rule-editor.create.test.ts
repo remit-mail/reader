@@ -101,6 +101,8 @@ afterEach(async () => {
 });
 
 interface MountOptions {
+	/** The destination the rule already carries when the editor opens. */
+	initialDestination?: string;
 	onCreateFolder?: (
 		name: string,
 		parentPath: string,
@@ -110,15 +112,21 @@ interface MountOptions {
 }
 
 /** Holds the destination the way the app does, so a pick shows on screen. */
-const mount = async ({ onCreateFolder, onChangeMove }: MountOptions = {}) => {
+const mount = async ({
+	initialDestination,
+	onCreateFolder,
+	onChangeMove,
+}: MountOptions = {}) => {
 	const Controlled = () => {
-		const [moveMailboxId, setMoveMailboxId] = useState<string>();
+		const [moveMailboxId, setMoveMailboxId] = useState<string | undefined>(
+			initialDestination,
+		);
 		return createElement(FilterRuleEditor, {
 			rule: { ...rule, moveMailboxId },
 			folders,
 			preview,
 			onChangeMove: (id: string) => {
-				setMoveMailboxId(id);
+				setMoveMailboxId(id || undefined);
 				onChangeMove?.(id);
 			},
 			onCreateFolder,
@@ -132,9 +140,10 @@ const mount = async ({ onCreateFolder, onChangeMove }: MountOptions = {}) => {
 };
 
 const click = async (element: Element | null | undefined) => {
-	assert.ok(element, "control not rendered");
+	if (!(element instanceof dom.window.HTMLElement))
+		assert.fail("control not rendered");
 	await act(async () => {
-		(element as HTMLElement).click();
+		element.click();
 	});
 };
 
@@ -209,8 +218,7 @@ describe("FilterRuleEditor move destination", () => {
 	});
 
 	it("tells a nested folder apart from its same-named sibling", async () => {
-		const picked: string[] = [];
-		await mount({ onChangeMove: (id) => picked.push(id) });
+		await mount();
 		await openTree();
 		await openFolder("Inbox");
 		// The nested Receipts is out of reach until Travel is opened, so the two
@@ -224,12 +232,56 @@ describe("FilterRuleEditor move destination", () => {
 			["2", "3"],
 		);
 		await click(nested[1]);
-		assert.deepEqual(picked, [
-			"mbx-inbox",
-			"mbx-travel",
-			"mbx-travel-receipts",
-		]);
-		assert.match(container.textContent ?? "", /Moving matches to Receipts\./);
+		assert.ok(
+			byText("Move matches to Inbox / Travel / Receipts"),
+			"the destination reads as its trail, not a bare leaf name",
+		);
+	});
+
+	it("re-points the rule only on the confirmation, never on the way past", async () => {
+		const picked: string[] = [];
+		await mount({ onChangeMove: (id) => picked.push(id) });
+		await openTree();
+		await openFolder("Inbox");
+		await openFolder("Travel");
+		await click(receiptRows()[1]);
+		assert.deepEqual(picked, [], "browsing changes nothing");
+		await click(byText("Move matches to Inbox / Travel / Receipts"));
+		assert.deepEqual(picked, ["mbx-travel-receipts"]);
+	});
+
+	it("leaves the destination alone when the tree is cancelled", async () => {
+		const picked: string[] = [];
+		await mount({ onChangeMove: (id) => picked.push(id) });
+		await openTree();
+		await openFolder("Inbox");
+		await click(byAriaLabel("Move to Trash"));
+		await click(byText("Cancel"));
+		assert.deepEqual(picked, []);
+		assert.match(container.textContent ?? "", /No folder yet/);
+	});
+
+	it("opens on the branch holding the destination the rule already has", async () => {
+		await mount({ initialDestination: "mbx-travel-receipts" });
+		assert.match(container.textContent ?? "", /Inbox \/ Travel \/ Receipts/);
+		await openTree();
+		const selected = rows().filter(
+			(row) => row.getAttribute("aria-selected") === "true",
+		);
+		assert.deepEqual(
+			selected.map((row) => row.getAttribute("aria-level")),
+			["3"],
+		);
+	});
+
+	it("drops the move action so a rule can apply a label alone", async () => {
+		const picked: string[] = [];
+		await mount({
+			initialDestination: "mbx-receipts",
+			onChangeMove: (id) => picked.push(id),
+		});
+		await click(byText("Don't move matches"));
+		assert.deepEqual(picked, [""]);
 	});
 
 	it("offers no create affordance without onCreateFolder", async () => {
@@ -261,11 +313,11 @@ describe("FilterRuleEditor move destination", () => {
 		assert.deepEqual(created, [
 			{ name: "Car hire", parentPath: "INBOX/Travel" },
 		]);
-		assert.equal(picked.at(-1), "mbx-created");
-		assert.match(container.textContent ?? "", /Moving matches to Car hire\./);
+		await click(byText("Move matches to Inbox / Travel / Car hire"));
+		assert.deepEqual(picked, ["mbx-created"]);
 	});
 
-	it("holds a created folder as the destination before the folder list refetches", async () => {
+	it("offers a created folder before the caller's folder list refetches", async () => {
 		await mount({
 			onCreateFolder: async (name, parentPath) => ({
 				id: "mbx-created",
@@ -277,7 +329,7 @@ describe("FilterRuleEditor move destination", () => {
 		await click(byAriaLabel("New folder"));
 		await typeName("Receipts 2026");
 		await click(byText("Create folder"));
-		await click(byText("Done"));
+		await click(byText("Move matches to Receipts 2026"));
 		assert.match(container.textContent ?? "", /Receipts 2026/);
 	});
 

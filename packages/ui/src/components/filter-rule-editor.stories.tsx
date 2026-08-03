@@ -326,14 +326,22 @@ export const SubjectClauseStaysFreeText: Story = {
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 60));
 
+// The play functions fail loudly rather than quietly rendering a story that
+// documents a state it never reached.
 const clickText = (canvasElement: HTMLElement, label: string) => {
-	Array.from(canvasElement.querySelectorAll<HTMLButtonElement>("button"))
-		.find((button) => button.textContent?.trim() === label)
-		?.click();
+	const button = Array.from(
+		canvasElement.querySelectorAll<HTMLButtonElement>("button"),
+	).find((candidate) => candidate.textContent?.trim() === label);
+	if (!button) throw new Error(`no button reading "${label}"`);
+	button.click();
 };
 
 const clickAriaLabel = (canvasElement: HTMLElement, label: string) => {
-	canvasElement.querySelector<HTMLElement>(`[aria-label="${label}"]`)?.click();
+	const control = canvasElement.querySelector<HTMLElement>(
+		`[aria-label="${label}"]`,
+	);
+	if (!control) throw new Error(`no control labelled "${label}"`);
+	control.click();
 };
 
 const setInputValue = (input: HTMLInputElement, value: string) => {
@@ -353,7 +361,8 @@ const typeFolderName = (canvasElement: HTMLElement, name: string) => {
 	const input = id
 		? canvasElement.querySelector<HTMLInputElement>(`input[id="${id}"]`)
 		: null;
-	if (input) setInputValue(input, name);
+	if (!input) throw new Error("the folder name field is not on screen");
+	setInputValue(input, name);
 };
 
 /** Opens the destination tree, which the field keeps closed until it is asked for. */
@@ -380,6 +389,7 @@ async function createFolderFromTree(
 ) {
 	await openDestinationTree(canvasElement);
 	if (inside) {
+		await openFolder(canvasElement, "Inbox");
 		await openFolder(canvasElement, inside);
 		clickAriaLabel(canvasElement, `New folder inside ${inside}`);
 	} else {
@@ -435,6 +445,7 @@ export const DestinationNestedFolders: Story = {
 	),
 	play: async ({ canvasElement }) => {
 		await openDestinationTree(canvasElement);
+		await openFolder(canvasElement, "Inbox");
 		await openFolder(canvasElement, "Travel");
 	},
 };
@@ -450,6 +461,7 @@ export const NewFolderInsideAnother: Story = {
 	),
 	play: async ({ canvasElement }) => {
 		await openDestinationTree(canvasElement);
+		await openFolder(canvasElement, "Inbox");
 		await openFolder(canvasElement, "Travel");
 		clickAriaLabel(canvasElement, "New folder inside Travel");
 		await tick();
