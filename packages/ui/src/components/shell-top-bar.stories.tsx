@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { Avatar } from "./avatar.js";
+import { RefreshButton, type RefreshControlState } from "./refresh-button.js";
 import type { SearchChip } from "./search-chip-input.js";
 import { type ShellSearchScope, ShellTopBar } from "./shell-top-bar.js";
 
@@ -21,12 +22,25 @@ const Account = () => (
 	</button>
 );
 
+const GlobalRefresh = ({ state = "idle" }: { state?: RefreshControlState }) => (
+	<RefreshButton
+		state={state}
+		label="Refresh all accounts"
+		errorMessage={
+			state === "error" ? "2 of 3 accounts couldn't be reached" : undefined
+		}
+		onRefresh={() => undefined}
+	/>
+);
+
 const Bar = ({
 	initialChips,
 	scope = "global",
+	refreshState = "idle",
 }: {
 	initialChips?: SearchChip[];
 	scope?: ShellSearchScope;
+	refreshState?: RefreshControlState;
 }) => {
 	const [chips, setChips] = useState<SearchChip[] | undefined>(initialChips);
 	const [value, setValue] = useState("");
@@ -48,6 +62,7 @@ const Bar = ({
 			onReportBug={() => undefined}
 			onOpenSettings={() => undefined}
 			composeShortcut="c"
+			refreshControl={<GlobalRefresh state={refreshState} />}
 			account={<Account />}
 		/>
 	);
@@ -92,6 +107,7 @@ export const ScopePending: Story = {
 			onReportBug={() => undefined}
 			onOpenSettings={() => undefined}
 			composeShortcut="c"
+			refreshControl={<GlobalRefresh />}
 			account={<Account />}
 		/>
 	),
@@ -109,6 +125,22 @@ export const ScopedToFlagged: Story = {
 			scope="scoped"
 		/>
 	),
+};
+
+/**
+ * The global refresh mid-flight — every connected account syncing at once,
+ * next to the avatar it sits beside.
+ */
+export const RefreshingAllAccounts: Story = {
+	render: () => <Bar refreshState="refreshing" />,
+};
+
+/**
+ * At least one account couldn't be reached. The tooltip and accessible name
+ * say so; the button stays clickable to retry.
+ */
+export const RefreshFailed: Story = {
+	render: () => <Bar refreshState="error" />,
 };
 
 /** The arrangement: one bar across the top of the shell, over every pane. */

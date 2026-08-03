@@ -139,6 +139,12 @@ export interface MailListHeaderProps {
 	 * leaves this unset and keeps the panel for every query.
 	 */
 	searchResultsInBody?: boolean;
+	/**
+	 * The refresh control for this view — the mailbox route and the brief pass
+	 * one, scoped to the account(s) they show; a view with nothing account-scoped
+	 * to refresh (Starred) leaves it unset.
+	 */
+	refreshControl?: ReactNode;
 }
 
 export function MailListHeader({
@@ -157,6 +163,7 @@ export function MailListHeader({
 	searchResultsLabel = "Top matches",
 	relatedResultsLabel = "Related",
 	searchResultsInBody = false,
+	refreshControl,
 }: MailListHeaderProps) {
 	const {
 		accounts,
@@ -441,6 +448,7 @@ export function MailListHeader({
 						{unreadCount.toLocaleString()} unread
 					</span>
 					<FilterToggle />
+					{refreshControl}
 				</>
 			),
 			searchSlot: ownsSearch && !searchExpanded && (
@@ -492,6 +500,7 @@ export function MailListHeader({
 			chromeResults,
 			makeFilterAction,
 			searchConversion,
+			refreshControl,
 		],
 	);
 

@@ -7,13 +7,16 @@
  * what wording is not decided here.
  */
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
-import { ShellTopBar, shortcutHintForAction } from "@remit/ui";
+import { RefreshButton, ShellTopBar, shortcutHintForAction } from "@remit/ui";
 import { useNavigate } from "@tanstack/react-router";
+import { useMemo } from "react";
 import { AccountMenu } from "@/auth/AccountMenu";
 import { useGlobalCompose } from "@/hooks/useComposeTarget";
+import { useRefreshControl } from "@/hooks/useRefreshControl";
 import { useSearchScope } from "@/hooks/useSearchScope";
 import { openBugReport } from "@/lib/bug-report";
 import { useMailContext } from "@/lib/mail-context";
+import { useMailFreshness } from "@/lib/mail-freshness";
 
 interface MailTopBarProps {
 	accounts: RemitImapAccountResponse[];
@@ -30,6 +33,19 @@ export function MailTopBar({ accounts }: MailTopBarProps) {
 			? [{ id: scope.chip.id, label: scope.chip.label, tone: "scope" as const }]
 			: undefined;
 
+	// Every connected account — the global refresh's whole point, distinct from
+	// the account-scoped controls on the inbox and brief headers.
+	const allAccountIds = useMemo(
+		() => accounts.map((account) => account.accountId),
+		[accounts],
+	);
+	const { hasNewMail } = useMailFreshness();
+	const {
+		state: refreshState,
+		errorMessage: refreshError,
+		refresh,
+	} = useRefreshControl(allAccountIds);
+
 	return (
 		<ShellTopBar
 			search={{
@@ -45,6 +61,15 @@ export function MailTopBar({ accounts }: MailTopBarProps) {
 			onReportBug={openBugReport}
 			onOpenSettings={() => navigate({ to: "/settings/accounts" })}
 			composeShortcut={shortcutHintForAction("compose")}
+			refreshControl={
+				<RefreshButton
+					state={refreshState}
+					onRefresh={refresh}
+					label="Refresh all accounts"
+					errorMessage={refreshError}
+					hasUpdate={hasNewMail(allAccountIds)}
+				/>
+			}
 			account={<AccountMenu />}
 		/>
 	);

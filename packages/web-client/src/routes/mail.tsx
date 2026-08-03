@@ -31,6 +31,7 @@ import { useResultFolderIndex } from "@/hooks/useResultFolderIndex";
 import { useStaleAccountSync } from "@/hooks/useStaleAccountSync";
 import { writeIntelligencePref } from "@/lib/intelligence-pref";
 import { MailContext } from "@/lib/mail-context";
+import { MailFreshnessProvider } from "@/lib/mail-freshness";
 import {
 	isBriefRoute,
 	isFlaggedRoute,
@@ -238,6 +239,10 @@ function MailLayout() {
 	}, []);
 
 	const accounts = config?.accounts ?? [];
+	const accountIds = useMemo(
+		() => accounts.map((account) => account.accountId),
+		[accounts],
+	);
 	const mailboxNameIndex = useMailboxNameIndex(accounts);
 	const resultFolderIndex = useResultFolderIndex(accounts);
 	const accountNameIndex = useMemo(
@@ -337,147 +342,149 @@ function MailLayout() {
 
 	return (
 		<MailContext.Provider value={mailContextValue}>
-			{isConfigError ? (
-				<div className="flex h-full items-center justify-center bg-canvas p-4">
-					<ErrorState
-						title="Couldn't load your account"
-						error={configError}
-						onRetry={() => {
-							refetchConfig();
-						}}
-					/>
-				</div>
-			) : onBriefRoute ? (
-				// Daily brief (/mail/) — no mailboxId param; same 3-pane layout as a
-				// mailbox: an open message has an intelligence rail here too (#52).
-				<BriefPane selectedMessageId={mobileSelectedMessageId}>
-					{isSinglePane ? (
-						<AppShellSlotted
-							nav={navContent}
-							list={<BriefPane.Phone />}
-							intelligenceOpen={intelligenceOpen}
-							overlay={overlayContent}
-							skeleton={<AppShellSkeleton />}
-							isLoading={isLoading || hasNoAccounts}
-							{...navSlideOver}
+			<MailFreshnessProvider accountIds={accountIds}>
+				{isConfigError ? (
+					<div className="flex h-full items-center justify-center bg-canvas p-4">
+						<ErrorState
+							title="Couldn't load your account"
+							error={configError}
+							onRetry={() => {
+								refetchConfig();
+							}}
 						/>
-					) : (
-						<AppShellSlotted
-							nav={navContent}
-							topBar={topBar}
-							list={<BriefPane.List />}
-							reading={<BriefPane.Reading />}
-							intelligence={<BriefPane.Intelligence />}
-							intelligenceOpen={intelligenceOpen}
-							hasThread={Boolean(mobileSelectedMessageId)}
-							overlay={overlayContent}
-							skeleton={<AppShellSkeleton />}
-							isLoading={isLoading || hasNoAccounts}
-							{...navSlideOver}
-						/>
-					)}
-				</BriefPane>
-			) : onFlaggedRoute ? (
-				// Flagged virtual mailbox (/mail/flagged) — flat starred list across
-				// accounts; same slots as the brief, intelligence rail included.
-				<FlaggedPane selectedMessageId={mobileSelectedMessageId}>
-					{isSinglePane ? (
-						<AppShellSlotted
-							nav={navContent}
-							list={<FlaggedPane.Phone />}
-							intelligenceOpen={intelligenceOpen}
-							overlay={overlayContent}
-							skeleton={<AppShellSkeleton />}
-							isLoading={isLoading || hasNoAccounts}
-							{...navSlideOver}
-						/>
-					) : (
-						<AppShellSlotted
-							nav={navContent}
-							topBar={topBar}
-							list={<FlaggedPane.List />}
-							reading={<FlaggedPane.Reading />}
-							intelligence={<FlaggedPane.Intelligence />}
-							intelligenceOpen={intelligenceOpen}
-							hasThread={Boolean(mobileSelectedMessageId)}
-							overlay={overlayContent}
-							skeleton={<AppShellSkeleton />}
-							isLoading={isLoading || hasNoAccounts}
-							{...navSlideOver}
-						/>
-					)}
-				</FlaggedPane>
-			) : mobileMailboxId ? (
-				// Mailbox view (/mail/$mailboxId) — full 4-pane layout.
-				<MailboxPane
-					mailboxId={mobileMailboxId}
-					selectedMessageId={mobileSelectedMessageId}
-				>
-					{isSinglePane ? (
-						<AppShellSlotted
-							nav={navContent}
-							list={<MailboxPane.Phone />}
-							intelligenceOpen={intelligenceOpen}
-							overlay={overlayContent}
-							skeleton={<AppShellSkeleton />}
-							isLoading={isLoading || hasNoAccounts}
-							{...navSlideOver}
-						/>
-					) : (
-						<AppShellSlotted
-							nav={navContent}
-							topBar={topBar}
-							list={<MailboxPane.List />}
-							reading={<MailboxPane.Reading />}
-							intelligence={<MailboxPane.Intelligence />}
-							intelligenceOpen={intelligenceOpen}
-							hasThread={Boolean(mobileSelectedMessageId)}
-							overlay={overlayContent}
-							skeleton={<AppShellSkeleton />}
-							isLoading={isLoading || hasNoAccounts}
-							{...navSlideOver}
-						/>
-					)}
-				</MailboxPane>
-			) : onOutboxRoute ? (
-				// Outbox — 2-pane layout (list + reading, no intelligence).
-				<OutboxPane>
-					{isSinglePane ? (
-						<AppShellSlotted
-							nav={navContent}
-							list={<OutboxPane.Phone />}
-							intelligenceOpen={false}
-							overlay={overlayContent}
-							skeleton={<AppShellSkeleton />}
-							isLoading={isLoading || hasNoAccounts}
-							{...navSlideOver}
-						/>
-					) : (
-						<AppShellSlotted
-							nav={navContent}
-							topBar={topBar}
-							list={<OutboxPane.List />}
-							reading={<OutboxPane.Reading />}
-							intelligenceOpen={false}
-							overlay={overlayContent}
-							skeleton={<AppShellSkeleton />}
-							isLoading={isLoading || hasNoAccounts}
-							{...navSlideOver}
-						/>
-					)}
-				</OutboxPane>
-			) : (
-				// Fallback: transitioning or unrecognized route — show skeleton.
-				<AppShellSkeleton />
-			)}
-			<KeyboardShortcutsModal
-				isOpen={showShortcuts}
-				onClose={() => setShowShortcuts(false)}
-			/>
-			{/* Outlet is required for TanStack Router to activate child routes.
+					</div>
+				) : onBriefRoute ? (
+					// Daily brief (/mail/) — no mailboxId param; same 3-pane layout as a
+					// mailbox: an open message has an intelligence rail here too (#52).
+					<BriefPane selectedMessageId={mobileSelectedMessageId}>
+						{isSinglePane ? (
+							<AppShellSlotted
+								nav={navContent}
+								list={<BriefPane.Phone />}
+								intelligenceOpen={intelligenceOpen}
+								overlay={overlayContent}
+								skeleton={<AppShellSkeleton />}
+								isLoading={isLoading || hasNoAccounts}
+								{...navSlideOver}
+							/>
+						) : (
+							<AppShellSlotted
+								nav={navContent}
+								topBar={topBar}
+								list={<BriefPane.List />}
+								reading={<BriefPane.Reading />}
+								intelligence={<BriefPane.Intelligence />}
+								intelligenceOpen={intelligenceOpen}
+								hasThread={Boolean(mobileSelectedMessageId)}
+								overlay={overlayContent}
+								skeleton={<AppShellSkeleton />}
+								isLoading={isLoading || hasNoAccounts}
+								{...navSlideOver}
+							/>
+						)}
+					</BriefPane>
+				) : onFlaggedRoute ? (
+					// Flagged virtual mailbox (/mail/flagged) — flat starred list across
+					// accounts; same slots as the brief, intelligence rail included.
+					<FlaggedPane selectedMessageId={mobileSelectedMessageId}>
+						{isSinglePane ? (
+							<AppShellSlotted
+								nav={navContent}
+								list={<FlaggedPane.Phone />}
+								intelligenceOpen={intelligenceOpen}
+								overlay={overlayContent}
+								skeleton={<AppShellSkeleton />}
+								isLoading={isLoading || hasNoAccounts}
+								{...navSlideOver}
+							/>
+						) : (
+							<AppShellSlotted
+								nav={navContent}
+								topBar={topBar}
+								list={<FlaggedPane.List />}
+								reading={<FlaggedPane.Reading />}
+								intelligence={<FlaggedPane.Intelligence />}
+								intelligenceOpen={intelligenceOpen}
+								hasThread={Boolean(mobileSelectedMessageId)}
+								overlay={overlayContent}
+								skeleton={<AppShellSkeleton />}
+								isLoading={isLoading || hasNoAccounts}
+								{...navSlideOver}
+							/>
+						)}
+					</FlaggedPane>
+				) : mobileMailboxId ? (
+					// Mailbox view (/mail/$mailboxId) — full 4-pane layout.
+					<MailboxPane
+						mailboxId={mobileMailboxId}
+						selectedMessageId={mobileSelectedMessageId}
+					>
+						{isSinglePane ? (
+							<AppShellSlotted
+								nav={navContent}
+								list={<MailboxPane.Phone />}
+								intelligenceOpen={intelligenceOpen}
+								overlay={overlayContent}
+								skeleton={<AppShellSkeleton />}
+								isLoading={isLoading || hasNoAccounts}
+								{...navSlideOver}
+							/>
+						) : (
+							<AppShellSlotted
+								nav={navContent}
+								topBar={topBar}
+								list={<MailboxPane.List />}
+								reading={<MailboxPane.Reading />}
+								intelligence={<MailboxPane.Intelligence />}
+								intelligenceOpen={intelligenceOpen}
+								hasThread={Boolean(mobileSelectedMessageId)}
+								overlay={overlayContent}
+								skeleton={<AppShellSkeleton />}
+								isLoading={isLoading || hasNoAccounts}
+								{...navSlideOver}
+							/>
+						)}
+					</MailboxPane>
+				) : onOutboxRoute ? (
+					// Outbox — 2-pane layout (list + reading, no intelligence).
+					<OutboxPane>
+						{isSinglePane ? (
+							<AppShellSlotted
+								nav={navContent}
+								list={<OutboxPane.Phone />}
+								intelligenceOpen={false}
+								overlay={overlayContent}
+								skeleton={<AppShellSkeleton />}
+								isLoading={isLoading || hasNoAccounts}
+								{...navSlideOver}
+							/>
+						) : (
+							<AppShellSlotted
+								nav={navContent}
+								topBar={topBar}
+								list={<OutboxPane.List />}
+								reading={<OutboxPane.Reading />}
+								intelligenceOpen={false}
+								overlay={overlayContent}
+								skeleton={<AppShellSkeleton />}
+								isLoading={isLoading || hasNoAccounts}
+								{...navSlideOver}
+							/>
+						)}
+					</OutboxPane>
+				) : (
+					// Fallback: transitioning or unrecognized route — show skeleton.
+					<AppShellSkeleton />
+				)}
+				<KeyboardShortcutsModal
+					isOpen={showShortcuts}
+					onClose={() => setShowShortcuts(false)}
+				/>
+				{/* Outlet is required for TanStack Router to activate child routes.
 			    Routes that manage their own rendering (brief, mailbox, outbox) return
 			    null from their component — the parent shell owns the layout. */}
-			<Outlet />
+				<Outlet />
+			</MailFreshnessProvider>
 		</MailContext.Provider>
 	);
 }

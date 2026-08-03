@@ -26,26 +26,37 @@ const render = (overrides: Partial<ShellTopBarProps> = {}): string =>
 			onCompose: () => undefined,
 			onReportBug: () => undefined,
 			onOpenSettings: () => undefined,
+			refreshControl: createElement(
+				"div",
+				{ "data-testid": "refresh" },
+				"refresh",
+			),
 			account: createElement("div", { "data-testid": "account" }, "account"),
 			...overrides,
 		}),
 	);
 
 describe("ShellTopBar", () => {
-	it("carries compose, bug report, settings and the account, in that order", () => {
+	it("carries compose, bug report, settings, refresh and the account, in that order", () => {
 		const html = render();
 		const compose = html.indexOf('aria-label="Compose"');
 		const bug = html.indexOf('aria-label="Report a bug"');
 		const settings = html.indexOf('aria-label="Settings"');
+		const refresh = html.indexOf('data-testid="refresh"');
 		const account = html.indexOf('data-testid="account"');
-		assert.ok(compose > -1 && bug > -1 && settings > -1 && account > -1);
 		assert.ok(
-			compose < bug && bug < settings && settings < account,
+			compose > -1 && bug > -1 && settings > -1 && refresh > -1 && account > -1,
+		);
+		assert.ok(
+			compose < bug &&
+				bug < settings &&
+				settings < refresh &&
+				refresh < account,
 			"actions render in reading order",
 		);
 	});
 
-	it("carries exactly the four actions and nothing else", () => {
+	it("carries exactly these aria-labelled elements and nothing else — the refresh control and account slot are opaque children, named by whatever the caller passes in", () => {
 		const labels = [...render().matchAll(/aria-label="([^"]+)"/g)].map(
 			(match) => match[1],
 		);
