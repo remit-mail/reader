@@ -2,7 +2,7 @@ import type { RemitImapFilterResponse } from "@remit/api-http-client/types.gen.t
 import {
 	BottomSheet,
 	Dialog,
-	type FolderOption,
+	type FolderTreeNode,
 	type LabelOption,
 } from "@remit/ui";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
@@ -11,7 +11,8 @@ import { FilterEditor } from "./FilterEditor";
 interface FilterEditorSurfaceProps {
 	accountId: string;
 	filter: RemitImapFilterResponse;
-	folders: FolderOption[];
+	folders: readonly FolderTreeNode[];
+	delimiter?: string;
 	labels: LabelOption[];
 	semanticUnavailable?: boolean;
 	onClose: () => void;
@@ -27,6 +28,7 @@ export function FilterEditorSurface({
 	accountId,
 	filter,
 	folders,
+	delimiter,
 	labels,
 	semanticUnavailable,
 	onClose,
@@ -38,6 +40,7 @@ export function FilterEditorSurface({
 			accountId={accountId}
 			filter={filter}
 			folders={folders}
+			delimiter={delimiter}
 			labels={labels}
 			semanticUnavailable={semanticUnavailable}
 			onClose={onClose}

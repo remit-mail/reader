@@ -1,12 +1,5 @@
-import {
-	Fragment,
-	type ReactNode,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
-import { isAbortError } from "../lib/abort.js";
+import { Fragment, type ReactNode, useMemo, useState } from "react";
+import type { FolderTreeNode } from "../lib/folder-tree.js";
 import { Button } from "./button.js";
 import {
 	AddChipButton,
@@ -21,7 +14,6 @@ import {
 	commitBlockedReason,
 	commitLabel,
 	type FilterRule,
-	type FolderOption,
 	type LabelOption,
 	type MatchOperator,
 	matchJoinWord,
@@ -32,6 +24,7 @@ import {
 	type RuleMatchMode,
 	type RuleScope,
 } from "./filter-rule.js";
+import { FolderTreePicker } from "./folder-tree-picker.js";
 import { Input } from "./input.js";
 import { LabelChip } from "./label-chip.js";
 import { SegmentedControl } from "./segmented-control.js";
@@ -47,7 +40,10 @@ export interface ClauseEditState {
 
 export interface FilterRuleEditorProps {
 	rule: FilterRule;
-	folders: FolderOption[];
+	/** Destinations as the app has them — labelled, and pathed by the provider. */
+	folders: readonly FolderTreeNode[];
+	/** The provider's hierarchy separator, which the destination tree nests on. */
+	delimiter?: string;
 	/** The account's labels the apply-label action can target (issue #26). */
 	labels?: LabelOption[];
 	preview: PreviewCount;
@@ -113,16 +109,19 @@ export interface FilterRuleEditorProps {
 	onChangeMatchOperator?: (operator: MatchOperator) => void;
 	onChangeMove?: (mailboxId: string) => void;
 	/**
-	 * Create a new destination folder from within the editor. Given a folder name
-	 * and an abort signal, resolves to the created folder once the mail server
-	 * confirms it. The editor aborts the signal on unmount or cancel. When absent,
-	 * the "New folder…" option is not offered — the editor stays data-agnostic, so
-	 * stories and consumers without wiring render unchanged.
+	 * Create a new destination folder from within the editor, inside the folder
+	 * the tree is looking at. Creating a folder is an IMAP mutation, so this
+	 * resolves only once the mail server confirms it
+	 * (docs/architecture/imap-mutations.md); the picker holds the wait, states a
+	 * failure where it happened, and aborts the signal on unmount or cancel, so
+	 * the editor can never commit a filter against a folder that does not exist.
+	 * Absent renders no create affordance.
 	 */
 	onCreateFolder?: (
 		name: string,
+		parentPath: string,
 		signal?: AbortSignal,
-	) => Promise<FolderOption>;
+	) => Promise<FolderTreeNode>;
 	onChangeLabel?: (labelId: string) => void;
 	/**
 	 * Create a new label from within the editor (issue #26). Given a label
@@ -153,47 +152,43 @@ const scopeOptions: { value: RuleScope; label: string }[] = [
 	{ value: "until", label: "Until a date" },
 ];
 
-const CREATE_FOLDER_VALUE = "__filter_create_folder__";
 const CREATE_LABEL_VALUE = "__filter_create_label__";
 
 /**
- * The move-to destination select, plus an inline "New folder…" affordance when
- * the consumer wires `onCreateFolder`. Selecting the create option reveals a
- * name field; on resolve the new folder is added to the local option set (so it
- * is selectable even before the caller's folder list refetches) and picked as
- * the destination. Without `onCreateFolder` this is the bare select.
+ * The move-to destination: the same browsable folder tree every other picker
+ * uses, opened from a line that states where matches go now. A folder is
+ * labelled as the app labels it, nested where the provider nests it, and a new
+ * one is made wherever the tree is looking.
  *
- * The destination is a dependent write: the filter this editor commits binds to
- * the folder, so `onCreateFolder` resolves only once the folder is confirmed on
- * the mail server, not when the create is merely queued. The pending state holds
- * "Creating folder…" for that whole wait, and a create that fails or never
- * confirms rejects with its own message here — the folder is never selected, so
- * the caller cannot commit a filter against a folder that does not exist.
+ * Tapping a folder both picks it and opens it, so the rule is re-pointed on an
+ * explicit confirmation rather than on the way past — otherwise looking inside
+ * a folder on the way to a nested one would rewrite the filter with no undo.
+ *
+ * The destination is a dependent write — the filter binds to the folder — so a
+ * created folder is offered only once the mail server has confirmed it. It is
+ * held here as well as returned, so it is pickable before the caller's folder
+ * list has refetched.
  */
 function MoveDestinationField({
 	folders,
 	value,
+	delimiter = "/",
 	onChangeMove,
 	onCreateFolder,
 }: {
-	folders: FolderOption[];
-	value: string;
+	folders: readonly FolderTreeNode[];
+	value?: string;
+	delimiter?: string;
 	onChangeMove?: (mailboxId: string) => void;
 	onCreateFolder?: (
 		name: string,
+		parentPath: string,
 		signal?: AbortSignal,
-	) => Promise<FolderOption>;
+	) => Promise<FolderTreeNode>;
 }) {
-	const [creating, setCreating] = useState(false);
-	const [name, setName] = useState("");
-	const [pending, setPending] = useState(false);
-	const [error, setError] = useState<string>();
-	const [createdFolders, setCreatedFolders] = useState<FolderOption[]>([]);
-	// The create waits for the mail server to confirm the folder; abort it on
-	// unmount or cancel so a late confirmation never binds the destination after
-	// the editor is gone or the sub-form dismissed.
-	const createAbort = useRef<AbortController | null>(null);
-	useEffect(() => () => createAbort.current?.abort(), []);
+	const [browsing, setBrowsing] = useState(false);
+	const [picked, setPicked] = useState<string>();
+	const [createdFolders, setCreatedFolders] = useState<FolderTreeNode[]>([]);
 
 	const options = useMemo(() => {
 		const known = new Set(folders.map((folder) => folder.id));
@@ -203,127 +198,114 @@ function MoveDestinationField({
 		];
 	}, [folders, createdFolders]);
 
-	const handleSelectChange = (next: string) => {
-		if (next === CREATE_FOLDER_VALUE) {
-			setError(undefined);
-			setCreating(true);
-			return;
-		}
-		onChangeMove?.(next);
-	};
+	const createFolder = useMemo(() => {
+		if (!onCreateFolder) return undefined;
+		return async (name: string, parentPath: string, signal?: AbortSignal) => {
+			const created = await onCreateFolder(name, parentPath, signal);
+			setCreatedFolders((prev) =>
+				prev.some((entry) => entry.id === created.id)
+					? prev
+					: [...prev, created],
+			);
+			return created;
+		};
+	}, [onCreateFolder]);
 
-	const submit = () => {
-		if (!onCreateFolder) return;
-		const trimmed = name.trim();
-		if (trimmed === "") return;
-		setPending(true);
-		setError(undefined);
-		createAbort.current?.abort();
-		const controller = new AbortController();
-		createAbort.current = controller;
-		onCreateFolder(trimmed, controller.signal)
-			.then((folder) => {
-				setCreatedFolders((prev) =>
-					prev.some((entry) => entry.id === folder.id)
-						? prev
-						: [...prev, folder],
-				);
-				onChangeMove?.(folder.id);
-				setCreating(false);
-				setName("");
-				setPending(false);
+	const chosen = options.find((folder) => folder.id === value);
+	const pending = options.find((folder) => folder.id === picked);
+
+	/** Two folders can share a leaf name, so a destination reads as its trail. */
+	const trail = (folder: FolderTreeNode): string => {
+		const segments = folder.path.split(delimiter);
+		return segments
+			.map((segment, index) => {
+				const path = segments.slice(0, index + 1).join(delimiter);
+				return options.find((option) => option.path === path)?.label ?? segment;
 			})
-			.catch((error: unknown) => {
-				if (isAbortError(error)) return;
-				setError(
-					error instanceof Error
-						? error.message
-						: "Couldn't create that folder. Please try again.",
-				);
-				setPending(false);
-			});
+			.join(" / ");
 	};
 
-	const cancel = () => {
-		createAbort.current?.abort();
-		setCreating(false);
-		setName("");
-		setError(undefined);
-		setPending(false);
+	const close = () => {
+		setBrowsing(false);
+		setPicked(undefined);
 	};
 
-	return (
-		<div className="space-y-2">
-			<Select
-				aria-label="Destination folder"
-				value={value}
-				onChange={(event) => handleSelectChange(event.target.value)}
-			>
-				<option value="">Choose a folder…</option>
-				{options.map((folder) => (
-					<option key={folder.id} value={folder.id}>
-						{folder.label}
-					</option>
-				))}
-				{onCreateFolder && (
-					<option value={CREATE_FOLDER_VALUE}>＋ New folder…</option>
-				)}
-			</Select>
-			{creating && (
-				<div className="space-y-2 rounded-md border border-line bg-surface-sunken p-2">
-					<Input
-						value={name}
-						onChange={(event) => setName(event.target.value)}
-						placeholder="Folder name"
-						aria-label="New folder name"
-						disabled={pending}
-						autoFocus
-						onKeyDown={(event) => {
-							if (event.key === "Enter") {
-								event.preventDefault();
-								submit();
-							}
-							if (event.key === "Escape") {
-								event.preventDefault();
-								cancel();
-							}
+	if (!browsing) {
+		return (
+			<div className="rounded-md border border-line bg-surface-sunken p-3">
+				<p className="text-sm font-medium text-fg">
+					{chosen ? trail(chosen) : "No folder yet"}
+				</p>
+				<div className="mt-1 flex flex-wrap items-center gap-3">
+					<Button
+						variant="ghost"
+						size="sm"
+						className="px-0"
+						onClick={() => {
+							setPicked(value);
+							setBrowsing(true);
 						}}
-					/>
-					{error && (
-						<p className="text-2xs text-danger" role="alert">
-							{error}
-						</p>
-					)}
-					<div className="flex gap-2">
-						<Button
-							variant="primary"
-							size="sm"
-							onClick={submit}
-							disabled={pending || name.trim() === ""}
-						>
-							{pending ? "Creating folder…" : "Create folder"}
-						</Button>
+					>
+						Choose a folder
+					</Button>
+					{chosen && (
 						<Button
 							variant="ghost"
 							size="sm"
-							onClick={cancel}
-							disabled={pending}
+							className="px-0"
+							onClick={() => onChangeMove?.("")}
 						>
-							Cancel
+							Don't move matches
 						</Button>
-					</div>
+					)}
 				</div>
+			</div>
+		);
+	}
+
+	return (
+		<div className="space-y-2">
+			<div className="flex h-72 min-h-0 overflow-hidden rounded-md border border-line bg-surface">
+				<FolderTreePicker
+					folders={options}
+					selectedId={picked}
+					delimiter={delimiter}
+					onSelect={setPicked}
+					onCreateFolder={createFolder}
+					onCancel={close}
+					labels={{
+						createPending: "Waiting for the mail server to confirm the folder…",
+					}}
+				/>
+			</div>
+			{pending ? (
+				<Button
+					variant="primary"
+					onClick={() => {
+						onChangeMove?.(pending.id);
+						close();
+					}}
+					className="w-full"
+				>
+					<span className="truncate">{`Move matches to ${trail(pending)}`}</span>
+				</Button>
+			) : (
+				<p className="text-2xs text-fg-subtle">
+					Tap a folder to open it, or make a new one where you want it.
+				</p>
 			)}
+			<Button variant="ghost" size="sm" onClick={close} className="w-full">
+				Cancel
+			</Button>
 		</div>
 	);
 }
 
 /**
  * The apply-label select, plus an inline "New label…" affordance when the
- * consumer wires `onCreateLabel` (issue #26). Mirrors `MoveDestinationField`:
- * selecting the create option reveals a name field, and the created label is
- * added to the local option set and picked immediately, before the caller's
- * label list refetches.
+ * consumer wires `onCreateLabel` (issue #26). Selecting the create option
+ * reveals a name field, and the created label is added to the local option set
+ * and picked immediately, before the caller's label list refetches.
  */
 function LabelDestinationField({
 	labels,
@@ -468,6 +450,7 @@ function LabelDestinationField({
 export function FilterRuleEditor({
 	rule,
 	folders,
+	delimiter,
 	labels = [],
 	preview,
 	notice,
@@ -622,7 +605,8 @@ export function FilterRuleEditor({
 					<p className="text-xs font-medium text-fg-muted">Move matches to</p>
 					<MoveDestinationField
 						folders={folders}
-						value={rule.moveMailboxId ?? ""}
+						value={rule.moveMailboxId}
+						delimiter={delimiter}
 						onChangeMove={onChangeMove}
 						onCreateFolder={onCreateFolder}
 					/>

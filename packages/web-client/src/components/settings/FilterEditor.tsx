@@ -5,7 +5,7 @@ import {
 	type ClauseField,
 	type FilterRule,
 	FilterRuleEditor,
-	type FolderOption,
+	type FolderTreeNode,
 	type LabelOption,
 	type MatchOperator,
 	previewCountSummary,
@@ -34,7 +34,9 @@ import {
 interface FilterEditorProps {
 	accountId: string;
 	filter: RemitImapFilterResponse;
-	folders: FolderOption[];
+	folders: readonly FolderTreeNode[];
+	/** The provider hierarchy separator the destination tree nests on. */
+	delimiter?: string;
 	labels: LabelOption[];
 	/**
 	 * This deployment ships no vector pipeline, so a semantic anchor cannot be
@@ -61,6 +63,7 @@ export function FilterEditor({
 	accountId,
 	filter,
 	folders,
+	delimiter,
 	labels,
 	semanticUnavailable = false,
 	onClose,
@@ -77,7 +80,7 @@ export function FilterEditor({
 	const { count: preview } = useRulePreview(accountId, rulePredicate(rule));
 	const update = useUpdateFilter(accountId, filter.filterId);
 	const organizeJob = useOrganizeJob(accountId);
-	const { createFolder } = useCreateMailbox(accountId);
+	const { createFolderIn } = useCreateMailbox(accountId);
 	const { createLabel } = useCreateLabel(accountId);
 	const onCreateLabel = async (name: string): Promise<LabelOption> => {
 		const label = await createLabel(name);
@@ -219,6 +222,7 @@ export function FilterEditor({
 		<FilterRuleEditor
 			rule={rule}
 			folders={folders}
+			delimiter={delimiter}
 			labels={labels}
 			preview={preview}
 			// The update endpoint carries no anchor field at all (reader #266), so a
@@ -240,7 +244,7 @@ export function FilterEditor({
 			onCancelClause={() => setClauseEdit(undefined)}
 			onChangeMatchOperator={changeMatchOperator}
 			onChangeMove={changeMove}
-			onCreateFolder={createFolder}
+			onCreateFolder={createFolderIn}
 			onChangeLabel={changeLabel}
 			onCreateLabel={onCreateLabel}
 			onChangeName={changeName}

@@ -7,6 +7,7 @@
  * Naming tracks the RFC: rule, clause, widen, scope.
  */
 
+import type { FolderTreeNode } from "../lib/folder-tree.js";
 import type { Suggestion } from "./suggest-list.js";
 
 /**
@@ -103,11 +104,6 @@ export interface FilterRule {
 	until?: string;
 	/** Names a standing or timed rule so it can be found in Settings › Filters. */
 	name?: string;
-}
-
-export interface FolderOption {
-	id: string;
-	label: string;
 }
 
 export interface LabelOption {
@@ -313,12 +309,22 @@ export function commitBlockedReason(
 	return previewSettledReason(preview);
 }
 
-export const demoFolders: FolderOption[] = [
-	{ id: "mbx-inbox", label: "Inbox" },
-	{ id: "mbx-archive", label: "Archive" },
-	{ id: "mbx-receipts", label: "Receipts" },
-	{ id: "mbx-travel", label: "Travel" },
-	{ id: "mbx-junk", label: "Junk" },
+// Two folders named Receipts at different depths, and a Trash labelled by its
+// role rather than its provider leaf: what a flat list of leaf names cannot
+// tell apart.
+export const demoFolders: FolderTreeNode[] = [
+	{ id: "mbx-inbox", label: "Inbox", path: "INBOX" },
+	{ id: "mbx-archive", label: "Archive", path: "INBOX/Archive" },
+	{ id: "mbx-receipts", label: "Receipts", path: "INBOX/Receipts" },
+	{ id: "mbx-receipts-2026", label: "2026", path: "INBOX/Receipts/2026" },
+	{ id: "mbx-travel", label: "Travel", path: "INBOX/Travel" },
+	{
+		id: "mbx-travel-receipts",
+		label: "Receipts",
+		path: "INBOX/Travel/Receipts",
+	},
+	{ id: "mbx-junk", label: "Junk", path: "INBOX/Junk" },
+	{ id: "mbx-trash", label: "Trash", path: "INBOX/Prullenbak" },
 ];
 
 export const demoLabels: LabelOption[] = [

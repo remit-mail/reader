@@ -16,7 +16,7 @@ import type {
 	RemitImapMailboxResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import { MailboxSyncStatus } from "@remit/domain-enums";
-import type { FolderOption } from "@remit/ui";
+import type { FolderTreeNode } from "@remit/ui";
 import { act, createElement } from "react";
 import { MAILBOX_SYNC_FAILED_MESSAGE } from "../lib/mailbox-sync-wait";
 import { createDomHarness, type DomHarness } from "../test-support/dom";
@@ -28,7 +28,7 @@ const ACCOUNT = "acc-1";
 let harness: DomHarness | undefined;
 let http: HttpMock | undefined;
 let createFolder:
-	| ((name: string, signal?: AbortSignal) => Promise<FolderOption>)
+	| ((name: string, signal?: AbortSignal) => Promise<FolderTreeNode>)
 	| undefined;
 
 afterEach(() => {
@@ -132,7 +132,7 @@ describe("useCreateMailbox.createFolder validation", () => {
 
 	it("passes a valid name through and resolves once the folder is confirmed synced", async () => {
 		mount([mailbox("INBOX", "/")]);
-		let result: FolderOption | undefined;
+		let result: FolderTreeNode | undefined;
 		await act(async () => {
 			result = await createFolder?.("Taxes");
 		});
@@ -202,7 +202,7 @@ describe("useCreateMailbox.createFolder validation", () => {
 
 		// The server confirms; the user presses "Create folder" again, same name.
 		status = MailboxSyncStatus.synced;
-		let result: FolderOption | undefined;
+		let result: FolderTreeNode | undefined;
 		await act(async () => {
 			result = await createFolder?.("Taxes");
 		});

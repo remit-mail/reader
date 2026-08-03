@@ -170,7 +170,6 @@ export {
 	demoSubjectPrefillRule,
 	demoVocabularyRule,
 	type FilterRule,
-	type FolderOption,
 	hasActiveWiden,
 	type LabelOption,
 	type MatchOperator,

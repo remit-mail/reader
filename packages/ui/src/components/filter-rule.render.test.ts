@@ -20,7 +20,6 @@ import {
 	demoSenderFallbackRule,
 	demoVocabularyRule,
 	type FilterRule,
-	type FolderOption,
 	type LabelOption,
 	matchJoinWord,
 	matchOperatorLabel,
@@ -34,14 +33,15 @@ import {
 	FilterRuleEditor,
 	type FilterRuleEditorProps,
 } from "./filter-rule-editor.js";
+import type { FolderTreeNode } from "./folder-tree-picker.js";
 
 /** SSR splits interpolations with comment markers; sentences read across them. */
 const render = (element: Parameters<typeof renderToString>[0]) =>
 	renderToString(element).replaceAll("<!-- -->", "");
 
-const FOLDERS: FolderOption[] = [
-	{ id: "mbx-inbox", label: "Inbox" },
-	{ id: "mbx-archive", label: "Archive" },
+const FOLDERS: FolderTreeNode[] = [
+	{ id: "mbx-inbox", label: "Inbox", path: "INBOX" },
+	{ id: "mbx-archive", label: "Archive", path: "INBOX/Archive" },
 ];
 
 const LABELS: LabelOption[] = [
