@@ -20,6 +20,10 @@ export interface OrganizeJobReading {
  * not a job that never started (#526), so what the job is doing is read before
  * what failed: a dropped poll leaves a running pass running and a finished one
  * finished, and only a create that never returned an id says nothing happened.
+ *
+ * A create that failed over a pass that already ran is that same distinction on
+ * the create path (#552): the counts of the pass that ran stand, and what failed
+ * is the retry.
  */
 export const organizeRunState = ({
 	failure,
@@ -29,6 +33,7 @@ export const organizeRunState = ({
 	failedCount,
 	ruleSaved,
 }: OrganizeJobReading): RunState => {
+	if (failure?.kind === "restartFailed") return "backApplyRestartFailed";
 	if (failure?.kind === "startFailed") {
 		return ruleSaved ? "backApplyStartFailed" : "commitFailed";
 	}

@@ -59,6 +59,24 @@ describe("organizeRunState", () => {
 		);
 	});
 
+	it("keeps a finished pass's ending when the retry over it could not be started", () => {
+		// #552: the retry is a second create, and a create that failed over a pass
+		// that already moved mail is not a pass that never ran.
+		for (const ruleSaved of [true, false]) {
+			assert.equal(
+				organizeRunState(
+					reading({
+						ruleSaved,
+						isDone: true,
+						failedCount: 84,
+						failure: { kind: "restartFailed", error: new Error("offline") },
+					}),
+				),
+				"backApplyRestartFailed",
+			);
+		}
+	});
+
 	it("says nothing happened only when the create itself failed", () => {
 		assert.equal(
 			organizeRunState(

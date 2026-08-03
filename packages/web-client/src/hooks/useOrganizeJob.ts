@@ -23,20 +23,28 @@ export interface OrganizeJobProgress {
 }
 
 /**
- * Why the job is not reporting, which is two separate facts (#526). A create
- * that never returned an id means nothing was started; a status read that
- * failed means a job is out there and this client cannot see how far it got.
+ * Why the job is not reporting, which is three separate facts (#526, #552). A
+ * create that never returned an id means nothing was started; the same create
+ * over a pass that already ran means that pass stands and only the retry never
+ * left; a status read that failed means a job is out there and this client
+ * cannot see how far it got.
  */
 export interface OrganizeJobFailure {
-	kind: "startFailed" | "statusUnreadable";
+	kind: "startFailed" | "restartFailed" | "statusUnreadable";
 	error: unknown;
 }
 
 const organizeJobFailure = (
 	createError: unknown,
 	statusError: unknown,
+	passAlreadyRun: boolean,
 ): OrganizeJobFailure | undefined => {
-	if (createError) return { kind: "startFailed", error: createError };
+	if (createError) {
+		return {
+			kind: passAlreadyRun ? "restartFailed" : "startFailed",
+			error: createError,
+		};
+	}
 	if (statusError) return { kind: "statusUnreadable", error: statusError };
 	return undefined;
 };
@@ -76,7 +84,6 @@ export const useOrganizeJob = (accountId: string | undefined) => {
 	const start = useCallback(
 		(draft: OrganizeDraft) => {
 			if (!accountId) return;
-			setOrganizeJobId(undefined);
 			createJob({
 				path: { accountId },
 				body: buildOrganizeInput(draft),
@@ -92,7 +99,11 @@ export const useOrganizeJob = (accountId: string | undefined) => {
 		void refetch();
 	}, [refetch]);
 
-	const job = jobQuery.data;
+	// The last pass this client read. A restart replaces it only once the server
+	// hands back a job id: while the create is in flight those counts are not this
+	// pass's, and a create that fails leaves them standing (#552).
+	const lastPass = jobQuery.data;
+	const job = createMutation.isPending ? undefined : lastPass;
 	const state = job?.state ?? createMutation.data?.state;
 	const isDone = isTerminalJobState(job?.state);
 
@@ -111,6 +122,10 @@ export const useOrganizeJob = (accountId: string | undefined) => {
 		isStarting: createMutation.isPending,
 		isRunning: !!organizeJobId && !isDone,
 		isDone,
-		failure: organizeJobFailure(createMutation.error, jobQuery.error),
+		failure: organizeJobFailure(
+			createMutation.error,
+			jobQuery.error,
+			!!lastPass,
+		),
 	};
 };

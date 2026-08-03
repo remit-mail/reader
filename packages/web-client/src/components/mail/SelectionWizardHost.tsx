@@ -719,7 +719,10 @@ function SelectionWizardSession({
 				state,
 				matched: progress.matchedCount,
 				applied: progress.appliedCount,
-				failed: state === "backApplyFailed" ? progress.failedCount : 0,
+				failed:
+					state === "backApplyFailed" || state === "backApplyRestartFailed"
+						? progress.failedCount
+						: 0,
 				failures: [],
 			};
 		},

@@ -1,8 +1,9 @@
 /**
- * useOrganizeJob — the back-apply job seam. It reports two failures that are not
- * the same fact (#526): a create that never returned a job id, and a status poll
- * that could not be read over a job the server is already running. Looking at
- * that job again is a separate move from starting one.
+ * useOrganizeJob — the back-apply job seam. It reports three failures that are
+ * not the same fact (#526, #552): a create that never returned a job id, that
+ * same create over a pass that already ran, and a status poll that could not be
+ * read over a job the server is already running. Looking at that job again is a
+ * separate move from starting one.
  */
 
 import assert from "node:assert/strict";
@@ -75,6 +76,36 @@ const startJob = async (status: () => unknown): Promise<void> => {
 	await settle();
 };
 
+const COMPLETED_PASS = {
+	organizeJobId: JOB,
+	state: "Complete",
+	matchedCount: 1284,
+	appliedCount: 1200,
+	failedCount: 84,
+};
+
+/** Run one pass to a finish, then answer the next create with `restart`. */
+const restartAfterPass = async (restart: () => unknown): Promise<void> => {
+	let created = false;
+	http = mockFetch((call) => {
+		if (call.method !== "POST") return COMPLETED_PASS;
+		if (created) return restart();
+		created = true;
+		return { organizeJobId: JOB, state: "Pending" };
+	});
+	harness = createDomHarness();
+	harness.renderApp(createElement(Probe));
+	await act(async () => {
+		current().start(DRAFT);
+	});
+	await settle();
+	assert.equal(current().isDone, true, "the first pass never finished");
+	await act(async () => {
+		current().start(DRAFT);
+	});
+	await settle();
+};
+
 const posts = (): number =>
 	(http?.calls ?? []).filter((call) => call.method === "POST").length;
 
@@ -126,6 +157,23 @@ describe("useOrganizeJob status reporting", () => {
 		assert.ok(statusPolls() > pollsBefore, "the existing job was polled again");
 		assert.equal(current().failure, undefined);
 		assert.equal(current().progress.matchedCount, 1284);
+	});
+
+	it("reads a create that failed over a finished pass as a restart, with that pass's counts", async () => {
+		await restartAfterPass(dropped);
+		assert.equal(current().failure?.kind, "restartFailed");
+		assert.equal(current().progress.matchedCount, 1284);
+		assert.equal(current().progress.appliedCount, 1200);
+		assert.equal(current().progress.failedCount, 84);
+		assert.equal(current().isDone, true);
+	});
+
+	it("reports a restart that is under way as its own pass, not the one before it", async () => {
+		await restartAfterPass(() => new Promise<never>(() => {}));
+		assert.equal(current().isStarting, true);
+		assert.equal(current().isDone, false);
+		assert.equal(current().failure, undefined);
+		assert.equal(current().progress.matchedCount, 0);
 	});
 
 	it("stops reporting a job as running once it reaches a terminal state", async () => {

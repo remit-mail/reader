@@ -582,6 +582,26 @@ describe("RunStepBody", () => {
 		assert.match(html, /Nothing has changed\./);
 	});
 
+	// A retry that could not be started is not a pass that never ran (#552): the
+	// pass that did run keeps its counts and its bar.
+	it("keeps a finished pass's counts when its retry could not be started", () => {
+		const html = renderToString(
+			createElement(RunStepBody, {
+				...runProps,
+				state: "backApplyRestartFailed",
+				scope: "standing",
+				matched: 1284,
+				applied: 1200,
+				failedCount: 84,
+			}),
+		);
+		assert.match(html, /1200 of 1284 moved/);
+		assert.match(html, /rejected 84/);
+		assert.match(html, /role="progressbar"/);
+		assert.doesNotMatch(html, /Nothing has changed/);
+		assert.doesNotMatch(html, /never started/);
+	});
+
 	// A poll that could not be read is not a run that never started (#526): the
 	// screen keeps the counts it has and says what it cannot see.
 	it("keeps a run that is going when its progress could not be read", () => {
