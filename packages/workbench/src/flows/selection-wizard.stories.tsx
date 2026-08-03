@@ -1268,6 +1268,25 @@ export const RunBackApplyStartFailed: Story = {
 };
 
 /**
+ * The retry over a pass that already moved mail never reached the server. That
+ * pass keeps its counts, and what is offered again is the same retry (#552).
+ */
+export const RunBackApplyRestartFailed: Story = {
+	name: "Run — back-apply restart failed",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{
+				verb: "organize",
+				startAt: "run",
+				scope: "standing",
+				runState: "backApplyRestartFailed",
+			}}
+		/>
+	),
+};
+
+/**
  * A status poll that could not be read. The pass is still the mail server's, so
  * the counts stay and the way forward is another look, not another run (#526).
  */

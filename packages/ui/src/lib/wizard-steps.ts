@@ -301,6 +301,7 @@ export type RunState =
 	| "backApplyComplete"
 	| "backApplyFailed"
 	| "backApplyStartFailed"
+	| "backApplyRestartFailed"
 	| "statusUnknown"
 	| "filterSaved"
 	| "runStopped"
@@ -386,6 +387,7 @@ export const runCopy = ({
 			state === "backApplyRunning" ||
 			state === "backApplyComplete" ||
 			state === "backApplyFailed" ||
+			state === "backApplyRestartFailed" ||
 			state === "statusUnknown" ||
 			state === "runStopped",
 		failureListLabel: `Not ${done}`,
@@ -458,6 +460,22 @@ export const runCopy = ({
 			...shared,
 			title: `Stopped after ${applied}`,
 			detail: `${applied} of ${matched} ${done}. The run stopped before it reached the rest, so nothing was sent for them and nothing has happened to them.`,
+			tone: "warning",
+			dismissLabel: "Close",
+			retryLabel: `Retry ${failed}`,
+		};
+	}
+	if (state === "backApplyRestartFailed") {
+		return {
+			...shared,
+			title: standing
+				? "Rule saved — the retry didn't start"
+				: "The retry didn't start",
+			detail: `${applied} of ${matched} ${done} · the mail server rejected ${failed}, which are still where they were.${
+				standing
+					? " The rule itself is saved and keeps working on new mail."
+					: ""
+			} Check your connection and try again.`,
 			tone: "warning",
 			dismissLabel: "Close",
 			retryLabel: `Retry ${failed}`,

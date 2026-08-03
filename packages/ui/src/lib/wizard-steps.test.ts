@@ -477,6 +477,7 @@ describe("runCopy", () => {
 			"backApplyComplete",
 			"backApplyFailed",
 			"backApplyStartFailed",
+			"backApplyRestartFailed",
 			"statusUnknown",
 			"filterSaved",
 			"runStopped",
@@ -538,6 +539,26 @@ describe("runCopy", () => {
 		assert.equal(started.title, "Rule saved");
 		assert.equal(started.retryLabel, "Run it over existing mail");
 		assert.equal(started.showProgress, false);
+	});
+
+	it("keeps the counts of the pass that ran when its retry could not be started", () => {
+		// #552: the retry is a second pass over the same mail, so a retry that
+		// failed leaves the first pass's ending exactly where it was.
+		const once = outcome("backApplyRestartFailed", "once");
+		assert.equal(once.title, "The retry didn't start");
+		assert.match(once.detail, /10 of 12 moved/);
+		assert.match(once.detail, /rejected 2/);
+		assert.match(once.detail, /Check your connection/);
+		assert.doesNotMatch(once.detail, /Nothing has changed/);
+		assert.equal(once.tone, "warning");
+		assert.equal(once.retryLabel, "Retry 2");
+		assert.equal(once.showProgress, true);
+
+		const standing = outcome("backApplyRestartFailed", "standing");
+		assert.match(standing.title, /Rule saved/);
+		assert.doesNotMatch(standing.detail, /never started/);
+		assert.match(standing.detail, /keeps working on new mail/);
+		assert.equal(standing.retryLabel, "Retry 2");
 	});
 
 	it("keeps a run that is going when its progress could not be read", () => {
