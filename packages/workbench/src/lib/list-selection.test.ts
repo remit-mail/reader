@@ -67,6 +67,13 @@ const mount = (rows: ThreadSection[] = sections) => {
 	});
 };
 
+/** Let the pane's row observer report a change the last render made. */
+const settle = async () => {
+	await act(async () => {
+		await Promise.resolve();
+	});
+};
+
 const remount = () => {
 	act(() => {
 		root.unmount();
@@ -145,6 +152,7 @@ before(async () => {
 	globalThis.HTMLElement = dom.window.HTMLElement;
 	globalThis.Element = dom.window.Element;
 	globalThis.SVGElement = dom.window.SVGElement;
+	globalThis.MutationObserver = dom.window.MutationObserver;
 	(
 		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 	).IS_REACT_ACT_ENVIRONMENT = true;
@@ -265,10 +273,11 @@ describe("the prototype's list keyboard", () => {
 		assert.deepEqual(selected(), []);
 	});
 
-	it("drops a ticked row that the rows it is handed no longer carry", () => {
+	it("drops a ticked row that the rows it is handed no longer carry", async () => {
 		press("a", { metaKey: true });
 		assert.deepEqual(selected(), ["t1", "t2", "t3"]);
 		mount(narrowed);
+		await settle();
 		assert.deepEqual(
 			selected(),
 			["t1"],

@@ -39,6 +39,7 @@ before(async () => {
 	globalThis.HTMLElement = dom.window.HTMLElement;
 	globalThis.Element = dom.window.Element;
 	globalThis.MouseEvent = dom.window.MouseEvent;
+	globalThis.MutationObserver = dom.window.MutationObserver;
 	// The resizable pane group listens with a signal, and jsdom accepts only its
 	// own.
 	globalThis.AbortController = dom.window.AbortController;
@@ -94,6 +95,13 @@ function subjectPerAccount(): [string, string] {
 	assert.ok(personal && work, "the fixture spans both accounts");
 	return [personal, work];
 }
+
+/** Let the pane's row observer report a change the last render made. */
+const settle = async () => {
+	await act(async () => {
+		await Promise.resolve();
+	});
+};
 
 function click(element: Element, metaKey = false) {
 	act(() => {
@@ -173,7 +181,7 @@ describe("the brief's account pills", () => {
 		assert.ok(rowCount() < aggregate, "and fewer of them than the aggregate");
 	});
 
-	it("drop the ticked rows they hide from the selection", () => {
+	it("drop the ticked rows they hide from the selection", async () => {
 		mount(DESKTOP_WIDTH);
 		click(byLabel("Expand filters"));
 		const [personal, work] = subjectPerAccount();
@@ -182,6 +190,7 @@ describe("the brief's account pills", () => {
 		assert.match(selectionCount(), /2 messages selected/);
 
 		click(pill("Accounts", "Work"));
+		await settle();
 		assert.match(
 			selectionCount(),
 			/1 message selected/,
