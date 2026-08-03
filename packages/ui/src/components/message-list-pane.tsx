@@ -2,7 +2,10 @@ import { Menu } from "lucide-react";
 import type { MouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { defaultKeyboardHints, keyboardHintsFor } from "../lib/keymap.js";
-import { ListKeyboardAbove } from "../lib/list-keyboard-above.js";
+import {
+	ListKeyboardAbove,
+	useListKeyboardAbove,
+} from "../lib/list-keyboard-above.js";
 import { LIST_ROW_SELECTOR, useRovingFocus } from "../lib/roving-focus.js";
 import { deriveIsMultiSelectMode, modifiersOf } from "../lib/use-selection.js";
 import type {
@@ -154,10 +157,16 @@ export function MessageListPane({
 		keyboard !== undefined &&
 		keyboard.handlers.focusNext !== undefined &&
 		keyboard.handlers.focusPrevious !== undefined;
+	// A layer further up owns the rows just as surely as one mounted here, so
+	// the answer this pane publishes composes with the one it was given. Only
+	// ever lowering it would hand the rows back their own arrow keys inside a
+	// layer that is still listening for them.
+	const keyboardAbovePane = useListKeyboardAbove();
+	const keyboardOwnsRows = walksRows || keyboardAbovePane;
 	useRovingFocus({
 		containerRef: flatListRef,
 		itemSelector: LIST_ROW_SELECTOR,
-		enabled: !walksRows,
+		enabled: !keyboardOwnsRows,
 	});
 
 	const cursorId = walksRows ? keyboard.focusedId : undefined;
@@ -300,7 +309,7 @@ export function MessageListPane({
 	);
 
 	return (
-		<ListKeyboardAbove value={walksRows}>
+		<ListKeyboardAbove value={keyboardOwnsRows}>
 			<section
 				ref={(element) => {
 					paneRef.current = element;

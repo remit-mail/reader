@@ -236,5 +236,14 @@ describe("the prototype's brief keyboard", () => {
 
 		press("x");
 		assert.deepEqual(selected(), ["p2"], "x ticks the row the ring is on");
+
+		// Tab, a click, the browser restoring focus: the ring lands on a row no
+		// keyboard command chose, and the cursor comes with it or the next verb
+		// acts somewhere else entirely.
+		act(() => rowFor("p5").focus());
+		assert.equal(triage.paneKeyboard.focusedId, "p5");
+
+		press("x");
+		assert.deepEqual(selected(), ["p2", "p5"]);
 	});
 });

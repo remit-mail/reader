@@ -92,7 +92,6 @@ const narrowFrame: Decorator = (Story) => (
 const noKeyboard: MessageListKeyboard = {
 	focusedId: undefined,
 	handlers: {},
-	onFocusRow: () => undefined,
 	ref: () => undefined,
 };
 

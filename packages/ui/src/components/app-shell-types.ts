@@ -100,8 +100,11 @@ export interface MessageListKeyboard {
 	focusedId: string | undefined;
 	/** What the layer answers, and therefore what the footer offers. */
 	handlers: TriageHandlers;
-	/** Moves the cursor onto a row that has taken real browser focus. */
-	onFocusRow: (id: string) => void;
+	/**
+	 * Moves the cursor onto a row that has taken real browser focus. Absent, a
+	 * focus arriving by Tab or a click leaves the cursor where it is.
+	 */
+	onFocusRow?: (id: string) => void;
 	/** Takes the pane element the layer binds its keys to. */
 	ref: (element: HTMLElement | null) => void;
 }

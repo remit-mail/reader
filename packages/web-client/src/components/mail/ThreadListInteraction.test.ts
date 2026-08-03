@@ -19,6 +19,7 @@ import {
 import type { JSDOM } from "jsdom";
 import React, { act, createElement, createRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
 import type { MessageListCommands } from "./MessageList";
 import {
 	ThreadListInteraction,
@@ -409,6 +410,8 @@ describe("ThreadListInteraction — the arrows reach the layer from the brief's 
 			return null;
 		};
 
+		let cursorId: string | undefined;
+
 		const Harness = () =>
 			createElement(
 				ThreadListInteraction,
@@ -418,6 +421,9 @@ describe("ThreadListInteraction — the arrows reach the layer from the brief's 
 					onDeleteMessages: () => undefined,
 					onSelectionVerb: () => undefined,
 					commandsRef,
+					onTriageContextChange: (context: TriageContextUpdate) => {
+						cursorId = context.focusedMessageId;
+					},
 				},
 				createElement(Probe),
 				createElement(WindowKeys),
@@ -441,6 +447,7 @@ describe("ThreadListInteraction — the arrows reach the layer from the brief's 
 		return {
 			rowFor,
 			selected: () => selected.slice().sort(),
+			cursorId: () => cursorId,
 			focusedId: () =>
 				(dom.window.document.activeElement as HTMLElement | null)?.dataset
 					.messageId,
@@ -471,14 +478,15 @@ describe("ThreadListInteraction — the arrows reach the layer from the brief's 
 		assert.deepEqual(brief.selected(), ["t2", "t3"]);
 	});
 
-	it("moves the cursor with a plain arrow rather than a focus ring of its own", () => {
+	it("moves the layer's cursor with a plain arrow, not a ring of its own", () => {
 		const brief = mountBrief();
 		brief.press("ArrowDown");
 		brief.press("ArrowDown", {}, "t1");
 		assert.equal(
-			brief.focusedId(),
+			brief.cursorId(),
 			"t2",
-			"one cursor: the layer's, with real focus on the row it names",
+			"the layer moved the cursor, so the verbs and the ring agree",
 		);
+		assert.equal(brief.focusedId(), "t2", "real focus sits on that row");
 	});
 });
