@@ -51,6 +51,7 @@ import {
 	type PlacementVerdict,
 	resolveBlockedVsTrust,
 } from "./heuristics/classifyPlacement.js";
+import { extractSenderMismatch } from "./heuristics/senderMismatch.js";
 import type { PlacementMoveService } from "./placement-move.js";
 import { type QuarantineService, shapeFromMessageData } from "./quarantine.js";
 import { extractSnippetFromEmail } from "./snippet.js";
@@ -1159,6 +1160,20 @@ export class BodySyncService {
 		const providerSpam = extractProviderSpam(parsed);
 		const hasListUnsubscribe = extractHasListUnsubscribe(parsed);
 
+		// A passing SPF/DKIM/DMARC check proves the sending domain, not the
+		// identity the message claims — on a shared-tenant host the verified
+		// subdomain belongs to whoever signed up. These two comparisons say
+		// whether the claim holds, and run only over mail the provider already
+		// called spam.
+		const senderMismatch =
+			authenticity === null
+				? {}
+				: extractSenderMismatch(parsed, {
+						fromDomain: authenticity.fromDomain,
+						spamClassified: providerSpam?.classified === true,
+						bulkSender: hasListUnsubscribe,
+					});
+
 		const fromEmail = extractPrimaryFromEmail(parsed);
 		const categoryOverride = fromEmail
 			? await this.resolveCategoryOverride(accountConfigId, fromEmail)
@@ -1167,7 +1182,9 @@ export class BodySyncService {
 		return {
 			category: categoryOverride ?? headerCategory,
 			hasListUnsubscribe,
-			...(authenticity !== null ? { authenticity } : {}),
+			...(authenticity !== null
+				? { authenticity: { ...authenticity, ...senderMismatch } }
+				: {}),
 			...(authResult !== null ? { authResult } : {}),
 			...(providerSpam !== null ? { providerSpam } : {}),
 		};

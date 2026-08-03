@@ -52,6 +52,52 @@ export const CautionNoSignal: Story = {
 	},
 };
 
+export const SignedButUnrecognised: Story = {
+	args: {
+		data: {
+			...base,
+			sender: {
+				name: "InfoMedics",
+				email: "jira@serviceupdatebank.atlassian.net",
+				trust: "unknown",
+				firstSeenLabel: "today",
+			},
+			category: { value: "Automated" },
+			authenticity: {
+				verdict: "caution",
+				fromDomain: "serviceupdatebank.atlassian.net",
+				dkimDomain: "custmx.one.com",
+				claimedBrand: "InfoMedics",
+				summary:
+					'This message really was sent by serviceupdatebank.atlassian.net. The name it shows, "InfoMedics", has nothing to do with that domain. Its links go to betaal-vordering.example.',
+			},
+		},
+	},
+};
+
+export const SignedButLookalikeName: Story = {
+	args: {
+		data: {
+			...base,
+			sender: {
+				name: "InfoMedics",
+				email: "billing@1nfomedics.nl",
+				trust: "unknown",
+				firstSeenLabel: "today",
+			},
+			category: { value: "Transactional" },
+			authenticity: {
+				verdict: "caution",
+				fromDomain: "1nfomedics.nl",
+				dkimDomain: "1nfomedics.nl",
+				claimedBrand: "InfoMedics",
+				summary:
+					'This message really was sent by 1nfomedics.nl. The name it shows, "InfoMedics", only looks like that domain.',
+			},
+		},
+	},
+};
+
 export const Impersonation: Story = {
 	args: {
 		data: {

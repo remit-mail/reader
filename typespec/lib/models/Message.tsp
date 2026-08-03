@@ -1,6 +1,7 @@
 import "typespec-electrodb-emitter";
 
 import "../enums/AuthResultVerdict.tsp";
+import "../enums/DisplayNameCorrespondence.tsp";
 import "../enums/LabelAction.tsp";
 import "../enums/MessageCategory.tsp";
 import "../enums/MessageFlag.tsp";
@@ -25,6 +26,12 @@ model MessageAuthenticity {
 
   @doc("True when DKIM signing domain(s) are present and none aligns with the From domain")
   dkimMismatch: boolean;
+
+  @doc("How the From display name relates to the From domain. Present only for a message the provider's own filter already classified as spam, and only when the sender is not bulk-shaped (no List-Unsubscribe) — absence means the comparison was never made, never that it found nothing.")
+  displayNameCorrespondence?: DisplayNameCorrespondence;
+
+  @doc("Registrable domains (eTLD+1) the body's links point at, excluding the From address's own registrable domain. Present only for a message the provider's own filter already classified as spam; an empty array means every link stayed on the sender's domain, absence means the comparison was never made.")
+  offDomainLinkDomains?: string[];
 }
 
 @doc("Provider authentication-results verdict, parsed from the Authentication-Results header at body-sync time. Absent for messages synced before this field was introduced.")
