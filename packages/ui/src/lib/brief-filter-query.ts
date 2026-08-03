@@ -16,8 +16,10 @@
  * {@link briefChipFilters} carries them across a search rather than dropping
  * them.
  *
- * Pure string work: the app parses the same query with the full token parser
- * and the workbench shell has none, so what both share is this.
+ * Terms are cut and read with `search-query-words.ts`, the splitter the token
+ * parser itself uses, so a chip ticks for exactly what the parser applies:
+ * `is:"unread"` is the unread facet, and an `is:unread` inside a quoted value
+ * belongs to that value.
  */
 
 import {
@@ -25,59 +27,82 @@ import {
 	isBriefCategory,
 } from "../components/app-shell-types.js";
 import type { BriefFilterId } from "../components/brief-sections.js";
+import {
+	searchTokenTerm,
+	splitSearchTerm,
+	splitSearchWords,
+} from "./search-query-words.js";
 
-const FILTER_TERMS: ReadonlyArray<readonly [BriefFilterId, string]> = [
-	["unread", "is:unread"],
-	["attachment", "has:attachment"],
+interface FilterTerm {
+	id: BriefFilterId;
+	name: string;
+	value: string;
+}
+
+const FILTER_TERMS: readonly FilterTerm[] = [
+	{ id: "unread", name: "is", value: "unread" },
+	{ id: "attachment", name: "has", value: "attachment" },
 ];
 
-const CATEGORY_TERM_PREFIX = "category:";
+const CATEGORY_TERM_NAME = "category";
 
 /** Category spellings beyond the ids themselves, as the token parser reads them. */
 const CATEGORY_ALIASES: Record<string, BriefCategoryFilter> = {
 	unclassified: "uncategorized",
 };
 
-const queryWords = (query: string): string[] =>
-	query.split(/\s+/).filter((word) => word.length > 0);
+const words = (query: string): string[] =>
+	splitSearchWords(query).map((word) => word.raw);
 
-/** The term a chip writes into the query, or `undefined` when it has none. */
-export const briefFilterTerm = (id: BriefFilterId): string | undefined =>
-	FILTER_TERMS.find(([filterId]) => filterId === id)?.[1];
+const rejoin = (kept: string[]): string => kept.join(" ");
 
-/** Whether a chip is one the search vocabulary can express. */
-export const briefFilterHasTerm = (id: BriefFilterId): boolean =>
-	briefFilterTerm(id) !== undefined;
-
-/** The chips the search vocabulary can express, in the order the panel lists them. */
-export const briefFilterTermIds: readonly BriefFilterId[] = FILTER_TERMS.map(
-	([id]) => id,
-);
+/**
+ * The chip a term names, read the way the parser reads it: `is:"unread"` is the
+ * unread facet, and an `is:unread` sitting inside a quoted value is not a term
+ * at all.
+ */
+const filterOfWord = (word: string): BriefFilterId | undefined => {
+	const parts = splitSearchTerm(word);
+	if (!parts) return undefined;
+	return FILTER_TERMS.find(
+		(term) =>
+			term.name === parts.name && term.value === parts.value.toLowerCase(),
+	)?.id;
+};
 
 const categoryOfWord = (word: string): BriefCategoryFilter | undefined => {
-	const lower = word.toLowerCase();
-	if (!lower.startsWith(CATEGORY_TERM_PREFIX)) return undefined;
-	const value = lower.slice(CATEGORY_TERM_PREFIX.length);
+	const parts = splitSearchTerm(word);
+	if (!parts || parts.name !== CATEGORY_TERM_NAME) return undefined;
+	const value = parts.value.toLowerCase();
 	const alias = CATEGORY_ALIASES[value];
 	if (alias) return alias;
 	if (!isBriefCategory(value) || value === "all") return undefined;
 	return value;
 };
 
+const termFor = (id: BriefFilterId): FilterTerm | undefined =>
+	FILTER_TERMS.find((term) => term.id === id);
+
+/** Whether a chip is one the search vocabulary can express. */
+export const briefFilterHasTerm = (id: BriefFilterId): boolean =>
+	termFor(id) !== undefined;
+
 /** The chips a query's own terms tick. */
 export const briefQueryFilters = (
 	query: string,
 ): ReadonlySet<BriefFilterId> => {
-	const words = new Set(queryWords(query).map((word) => word.toLowerCase()));
-	return new Set(
-		FILTER_TERMS.filter(([, term]) => words.has(term)).map(([id]) => id),
-	);
+	const ticked = new Set<BriefFilterId>();
+	for (const word of words(query)) {
+		const id = filterOfWord(word);
+		if (id) ticked.add(id);
+	}
+	return ticked;
 };
 
 /** The category a query is scoped to by its own terms, `"all"` when none is. */
 export const briefQueryCategory = (query: string): BriefCategoryFilter => {
 	let category: BriefCategoryFilter = "all";
-	for (const word of queryWords(query)) {
+	for (const word of words(query)) {
 		const named = categoryOfWord(word);
 		if (named) category = named;
 	}
@@ -93,12 +118,12 @@ export const toggleBriefFilterInQuery = (
 	query: string,
 	id: BriefFilterId,
 ): string | undefined => {
-	const term = briefFilterTerm(id);
+	const term = termFor(id);
 	if (!term) return undefined;
-	const words = queryWords(query);
-	const kept = words.filter((word) => word.toLowerCase() !== term);
-	if (kept.length < words.length) return kept.join(" ");
-	return [...words, term].join(" ");
+	const typed = words(query);
+	const kept = typed.filter((word) => filterOfWord(word) !== id);
+	if (kept.length < typed.length) return rejoin(kept);
+	return rejoin([...typed, searchTokenTerm(term.name, term.value)]);
 };
 
 /** The query scoped to one category, or with its category term taken out for `"all"`. */
@@ -106,18 +131,16 @@ export const setBriefCategoryInQuery = (
 	query: string,
 	category: BriefCategoryFilter,
 ): string => {
-	const kept = queryWords(query).filter((word) => !categoryOfWord(word));
-	if (category === "all") return kept.join(" ");
-	return [...kept, `${CATEGORY_TERM_PREFIX}${category}`].join(" ");
+	const kept = words(query).filter((word) => !categoryOfWord(word));
+	if (category === "all") return rejoin(kept);
+	return rejoin([...kept, searchTokenTerm(CATEGORY_TERM_NAME, category)]);
 };
 
 /** The query with every chip term taken out, leaving what was typed. */
-export const clearBriefFiltersInQuery = (query: string): string => {
-	const terms = new Set(FILTER_TERMS.map(([, term]) => term));
-	return queryWords(query)
-		.filter((word) => !terms.has(word.toLowerCase()) && !categoryOfWord(word))
-		.join(" ");
-};
+export const clearBriefFiltersInQuery = (query: string): string =>
+	rejoin(
+		words(query).filter((word) => !filterOfWord(word) && !categoryOfWord(word)),
+	);
 
 /** Whether a query is narrowing the list — the state in which chips are terms. */
 export const briefQueryIsActive = (query: string): boolean =>

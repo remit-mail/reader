@@ -15,7 +15,13 @@ import {
 	categoryDrivenBriefSections,
 	workId,
 } from "../fixtures/workspace.js";
-import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
+import {
+	framedAt,
+	PHONE_WIDTH,
+	phoneFrame,
+	phoneParams,
+	TABLET_WIDTH,
+} from "../lib/story-frame.js";
 import { MailShell } from "../screens/mail-shell.js";
 
 const meta: Meta = {
@@ -224,6 +230,28 @@ export const SearchWithChips: Story = {
 	render: () => (
 		<MailShell
 			{...brief}
+			sections={briefSections()}
+			briefFilters
+			query="your"
+			searchCommitted
+			filterOpen
+		/>
+	),
+};
+
+/**
+ * The same search at tablet width, where the list header owns the field and the
+ * field takes the title's row. The caret rides beside it rather than going down
+ * with the title, which is the only route to the chips at this width — the
+ * phone has its full-screen takeover and the desktop keeps its title.
+ */
+export const SearchWithChipsTablet: Story = {
+	parameters: { layout: "centered" as const },
+	decorators: [framedAt(TABLET_WIDTH)],
+	render: () => (
+		<MailShell
+			{...brief}
+			width={TABLET_WIDTH}
 			sections={briefSections()}
 			briefFilters
 			query="your"

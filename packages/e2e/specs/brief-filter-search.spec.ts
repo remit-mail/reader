@@ -11,8 +11,11 @@
  * APPEND time: one seeded message arrives already `\Seen` and the other does
  * not, so what the chip must hide is decided before the app has seen either.
  *
- * Desktop width, where the top bar owns the field and the list header owns the
- * caret — the two surfaces this pairs.
+ * Driven at both widths that keep the brief's own rows. Desktop, where the top
+ * bar owns the field and the header keeps its title and caret; and tablet,
+ * where the header's own field takes the title's place and the caret rides
+ * beside it — a caret that lived only in the title's row would leave the whole
+ * tablet width with no way to the chips.
  */
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
@@ -20,6 +23,7 @@ import { appendMessages } from "../src/imap.js";
 import { expectBlockedReason } from "../src/wizard.js";
 
 const DESKTOP = { width: 1512, height: 864 };
+const TABLET = { width: 800, height: 1106 };
 
 const briefRow = (page: Page, subject: string): Locator =>
 	page.locator("[data-message-row]").filter({ hasText: subject });
@@ -133,5 +137,53 @@ test.describe("The brief's chips compose into the search query (#460)", () => {
 			page,
 			"Unread isn't a filter condition — add a sender or words to filter on",
 		);
+	});
+});
+
+test.describe("The brief's chips are reachable at tablet width (#460)", () => {
+	test.use({ viewport: TABLET });
+
+	const tag = `brieftablet${Date.now()}`;
+	const readSubject = `Brief tablet read ${tag}`;
+	const unreadSubject = `Brief tablet unread ${tag}`;
+
+	test.beforeEach(async ({ run, api }) => {
+		await appendMessages(run.imapUser, [
+			{ subject: readSubject, flags: ["\\Seen"] },
+			{ subject: unreadSubject },
+		]);
+		await api.triggerSync(run.accountId);
+	});
+
+	test.afterEach(async ({ api, run }) => {
+		const leftover = await api.searchMatchingMessageIds(run.inboxId, tag);
+		if (leftover.length > 0) await api.deleteMessages(leftover);
+	});
+
+	test("the caret rides with the field that took the title's place", async ({
+		page,
+	}) => {
+		await page.goto("/mail");
+		await expect(async () => {
+			await page.reload();
+			for (const subject of [readSubject, unreadSubject]) {
+				await expect(briefRow(page, subject)).toBeVisible({ timeout: 5_000 });
+			}
+		}).toPass({ timeout: 60_000 });
+
+		// Below desktop the header owns the field, and putting it up takes the
+		// title row — and everything that was in it — off screen.
+		await page.getByRole("button", { name: "Search", exact: true }).click();
+		await expect(searchField(page)).toBeVisible();
+		await searchField(page).fill(tag);
+		await expect(briefRow(page, readSubject)).toBeVisible();
+
+		await expect(filterCaret(page)).toBeVisible();
+		await filterCaret(page).click();
+		await chip(page, "Unread").click();
+
+		await expect(searchField(page)).toHaveValue(`${tag} is:unread`);
+		await expect(briefRow(page, unreadSubject)).toBeVisible();
+		await expect(briefRow(page, readSubject)).toHaveCount(0);
 	});
 });

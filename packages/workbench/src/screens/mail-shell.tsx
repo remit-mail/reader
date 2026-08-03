@@ -613,6 +613,7 @@ function ListPane({
 									aria-label="Close search"
 									className="shrink-0"
 								/>
+								<FilterToggle />
 							</>
 						)
 					}

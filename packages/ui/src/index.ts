@@ -683,8 +683,6 @@ export {
 	briefChipCategory,
 	briefChipFilters,
 	briefFilterHasTerm,
-	briefFilterTerm,
-	briefFilterTermIds,
 	briefQueryCategory,
 	briefQueryFilters,
 	briefQueryIsActive,
@@ -789,6 +787,14 @@ export {
 	useRovingFocus,
 } from "./lib/roving-focus.js";
 export { type RuleNameParts, suggestRuleName } from "./lib/rule-name.js";
+export {
+	quoteSearchTokenValue,
+	type SearchQueryWord,
+	type SearchTermParts,
+	searchTokenTerm,
+	splitSearchTerm,
+	splitSearchWords,
+} from "./lib/search-query-words.js";
 export {
 	type DroppedFacet,
 	type DroppedFacetType,

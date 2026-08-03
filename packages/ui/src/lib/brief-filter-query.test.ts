@@ -111,6 +111,53 @@ describe("a term edited or deleted by hand", () => {
 	});
 });
 
+/**
+ * Terms are cut the way the parser cuts them. A splitter that broke on
+ * whitespace alone read a facet inside a quoted value as a facet of its own,
+ * and missed a quoted one that the parser applies — so the chip row disagreed
+ * with the rows on screen, and editing reached inside what the user typed.
+ */
+describe("a quoted value", () => {
+	it("keeps a facet spelled inside it out of the chips", () => {
+		assert.deepEqual(ids(briefQueryFilters('subject:"a is:unread b"')), []);
+	});
+
+	it("is left whole when a chip is ticked beside it", () => {
+		assert.equal(
+			toggleBriefFilterInQuery('subject:"a is:unread b"', "unread"),
+			'subject:"a is:unread b" is:unread',
+		);
+	});
+
+	it("ticks the chip when it is the facet's own value", () => {
+		assert.deepEqual(ids(briefQueryFilters('is:"unread"')), ["unread"]);
+	});
+
+	it("is removed by unticking rather than joined by a second term", () => {
+		assert.equal(toggleBriefFilterInQuery('is:"unread"', "unread"), "");
+	});
+
+	it("scopes the category it names", () => {
+		assert.equal(briefQueryCategory('category:"Newsletter"'), "newsletter");
+	});
+
+	// Two category terms AND to nothing (`matchesSearchTokens`), so a category
+	// pill that left the old one behind emptied the list on a click.
+	it("leaves one category term behind when another is picked", () => {
+		assert.equal(
+			setBriefCategoryInQuery('category:"Newsletter"', "marketing"),
+			"category:marketing",
+		);
+	});
+
+	it("is cleared with the rest of the chip terms", () => {
+		assert.equal(
+			clearBriefFiltersInQuery('Odido is:"unread" category:"Newsletter"'),
+			"Odido",
+		);
+	});
+});
+
 describe("the chips the panel shows ticked", () => {
 	it("are the panel's own while nothing is being searched", () => {
 		assert.deepEqual(
