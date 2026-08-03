@@ -9,15 +9,25 @@
  */
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { Verb } from "@remit/ui";
+import {
+	BriefSections,
+	ComfortableRow,
+	type ThreadSection,
+	useTriageKeyboard,
+	type Verb,
+} from "@remit/ui";
 import type { JSDOM } from "jsdom";
-import { act, createElement, createRef, useState } from "react";
+import React, { act, createElement, createRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { MessageListCommands } from "./MessageList";
 import {
 	ThreadListInteraction,
 	useThreadListSelection,
 } from "./ThreadListInteraction";
+
+// The test loader transpiles the kit's `.tsx` with the classic JSX runtime,
+// which reads a global `React` (see ReadingPaneEmpty.render.test.ts).
+(globalThis as { React?: typeof React }).React = React;
 
 let dom: JSDOM;
 let container: HTMLElement;
@@ -351,5 +361,124 @@ describe("ThreadListInteraction — selection survives a background refresh (#11
 		await list.render(["m9"]);
 
 		assert.deepEqual(list.selected(), []);
+	});
+});
+
+/**
+ * The brief's rows sit under this provider and inside the kit's own list body,
+ * which brings a roving-focus group of its own. That group reads only
+ * `event.key`, so left standing it takes Shift+↑/↓ as plain arrows and stops
+ * them before the window layer can extend a range with them (#584).
+ */
+describe("ThreadListInteraction — the arrows reach the layer from the brief's rows", () => {
+	const briefSections: ThreadSection[] = [
+		{
+			id: "personal",
+			label: "Personal",
+			threads: ["t1", "t2", "t3"].map((id) => ({
+				id,
+				accountId: "a1",
+				fromName: "Priya Nair",
+				fromEmail: "priya@example.com",
+				subject: `Message ${id}`,
+				snippet: "Can we move it to 2pm?",
+				timeLabel: "8:15",
+				category: "personal" as const,
+			})),
+		},
+	];
+
+	function mountBrief() {
+		const commandsRef = createRef<MessageListCommands | null>();
+		let selected: string[] = [];
+
+		const Probe = () => {
+			selected = Array.from(useThreadListSelection().selectedIds);
+			return null;
+		};
+
+		const WindowKeys = () => {
+			useTriageKeyboard({
+				handlers: {
+					focusNext: () => commandsRef.current?.focusNext(),
+					focusPrevious: () => commandsRef.current?.focusPrevious(),
+					extendSelectDown: () => commandsRef.current?.extendSelectDown(),
+					extendSelectUp: () => commandsRef.current?.extendSelectUp(),
+				},
+			});
+			return null;
+		};
+
+		const Harness = () =>
+			createElement(
+				ThreadListInteraction,
+				{
+					selectedMessageId: undefined,
+					onOpen: () => undefined,
+					onDeleteMessages: () => undefined,
+					onSelectionVerb: () => undefined,
+					commandsRef,
+				},
+				createElement(Probe),
+				createElement(WindowKeys),
+				createElement(BriefSections, {
+					key: "brief",
+					sections: briefSections,
+					Row: ComfortableRow,
+				}),
+			);
+
+		act(() => root.render(createElement(Harness)));
+
+		const rowFor = (id: string): HTMLElement => {
+			const row = container.querySelector<HTMLElement>(
+				`[data-message-id="${id}"]`,
+			);
+			assert.ok(row, `no row for ${id}`);
+			return row;
+		};
+
+		return {
+			rowFor,
+			selected: () => selected.slice().sort(),
+			focusedId: () =>
+				(dom.window.document.activeElement as HTMLElement | null)?.dataset
+					.messageId,
+			press: (key: string, init: KeyboardEventInit = {}, from = "t1") => {
+				act(() => {
+					rowFor(from).dispatchEvent(
+						new dom.window.KeyboardEvent("keydown", {
+							key,
+							bubbles: true,
+							cancelable: true,
+							...init,
+						}),
+					);
+				});
+			},
+		};
+	}
+
+	it("extends the selection with Shift+ArrowDown", () => {
+		const brief = mountBrief();
+		brief.press("ArrowDown");
+		assert.equal(brief.focusedId(), "t1");
+
+		brief.press("ArrowDown", { shiftKey: true }, "t1");
+		assert.deepEqual(brief.selected(), ["t2"]);
+
+		brief.press("ArrowDown", { shiftKey: true }, "t2");
+		assert.deepEqual(brief.selected(), ["t2", "t3"]);
+	});
+
+	it("moves the cursor with a plain arrow rather than a focus ring of its own", () => {
+		const brief = mountBrief();
+		brief.press("ArrowDown");
+		brief.press("ArrowDown", {}, "t1");
+		assert.equal(
+			brief.focusedId(),
+			"t2",
+			"one cursor: the layer's, with real focus on the row it names",
+		);
 	});
 });

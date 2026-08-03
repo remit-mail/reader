@@ -7,6 +7,7 @@ import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import type { JSDOM } from "jsdom";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { ListKeyboardAbove } from "../lib/list-keyboard-above.js";
 import { LIST_ROW_SELECTOR } from "../lib/roving-focus.js";
 import type { ThreadSection } from "./app-shell-types.js";
 import { BriefSections } from "./brief-sections.js";
@@ -99,9 +100,14 @@ afterEach(() => {
 	});
 });
 
-function pressKey(target: Element, key: string) {
+function pressKey(target: Element, key: string, init: KeyboardEventInit = {}) {
 	target.dispatchEvent(
-		new dom.window.KeyboardEvent("keydown", { key, bubbles: true }),
+		new dom.window.KeyboardEvent("keydown", {
+			key,
+			bubbles: true,
+			cancelable: true,
+			...init,
+		}),
 	);
 }
 
@@ -158,6 +164,40 @@ describe("BriefSections arrow-key traversal", () => {
 
 		act(() => pressKey(items[1] as Element, "Home"));
 		assert.equal(dom.window.document.activeElement, items[0]);
+	});
+
+	it("leaves the arrows to a keyboard layer above the rows", () => {
+		const reached: string[] = [];
+		act(() => {
+			root.render(
+				createElement(
+					ListKeyboardAbove,
+					{ value: true },
+					createElement(BriefSections, {
+						sections,
+						Row: ComfortableRow,
+						onSelectBriefCategory: () => undefined,
+					}),
+				),
+			);
+		});
+		container.addEventListener("keydown", (event) => {
+			reached.push(
+				`${(event as KeyboardEvent).shiftKey ? "Shift+" : ""}${(event as KeyboardEvent).key}`,
+			);
+		});
+		const items = rows();
+
+		act(() => items[0]?.focus());
+		act(() => pressKey(items[0] as Element, "ArrowDown", { shiftKey: true }));
+		act(() => pressKey(items[0] as Element, "ArrowDown"));
+
+		assert.deepEqual(reached, ["Shift+ArrowDown", "ArrowDown"]);
+		assert.equal(
+			dom.window.document.activeElement,
+			items[0],
+			"the group moves nothing — the layer above owns the cursor",
+		);
 	});
 
 	it("steps over the section headers between rows", () => {

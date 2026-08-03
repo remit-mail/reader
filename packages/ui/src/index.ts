@@ -695,6 +695,10 @@ export {
 	labelDotClass,
 } from "./lib/label-color.js";
 export {
+	ListKeyboardAbove,
+	useListKeyboardAbove,
+} from "./lib/list-keyboard-above.js";
+export {
 	derivePropertyClauses,
 	normalizeSubject,
 	sharedSubjectFragment,
@@ -739,6 +743,10 @@ export {
 	type UseLongPressResult,
 	useLongPress,
 } from "./lib/use-long-press.js";
+export {
+	ROW_ID_SELECTOR,
+	useRenderedRowIds,
+} from "./lib/use-rendered-row-ids.js";
 export {
 	computeRange,
 	deriveIsMultiSelectMode,

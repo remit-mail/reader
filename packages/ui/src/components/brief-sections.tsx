@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useListKeyboardAbove } from "../lib/list-keyboard-above.js";
 import { LIST_ROW_SELECTOR, useRovingFocus } from "../lib/roving-focus.js";
 import type {
 	BriefCategoryFilter,
@@ -176,9 +177,14 @@ export function BriefSections({
 	);
 	const [sheetExpanded, setSheetExpanded] = useState(defaultExpanded);
 	const listRef = useRef<HTMLDivElement>(null);
+	// A keyboard layer above the rows owns ↑/↓/Home/End, and Shift+↑/↓ with them.
+	// The group here reads only `event.key`, so leaving it on takes the shifted
+	// pair as plain arrows and stops them before the layer can extend a range.
+	const keyboardAbove = useListKeyboardAbove();
 	useRovingFocus({
 		containerRef: listRef,
 		itemSelector: LIST_ROW_SELECTOR,
+		enabled: !keyboardAbove,
 	});
 
 	const active = activeFilters ?? ownFilters;

@@ -16,7 +16,13 @@
  * are not rendered: focus stops moving, the highlight disappears, and the next
  * verb acts on a message the user cannot see.
  */
-import { SelectionTopBar, useListCursor, type Verb } from "@remit/ui";
+import {
+	ListKeyboardAbove,
+	SelectionTopBar,
+	useListCursor,
+	useRenderedRowIds,
+	type Verb,
+} from "@remit/ui";
 import {
 	createContext,
 	type ReactNode,
@@ -25,7 +31,6 @@ import {
 	useContext,
 	useEffect,
 	useMemo,
-	useRef,
 	useState,
 } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -93,44 +98,7 @@ export const useThreadListSelection = (): Omit<
 	return ctx;
 };
 
-const ROW_SELECTOR = "[data-message-id]";
-
-const readRowIds = (container: HTMLElement): string[] =>
-	Array.from(container.querySelectorAll<HTMLElement>(ROW_SELECTOR))
-		.map((row) => row.dataset.messageId)
-		.filter((id): id is string => id !== undefined);
-
-const sameIds = (a: string[], b: string[]): boolean =>
-	a.length === b.length && a.every((id, i) => id === b[i]);
-
-/**
- * The ids of the rows currently in the DOM, in document order, kept in step
- * with the rendered list. Sections expand, collapse and cap themselves without
- * the consumer's data changing, so a render pass is not enough of a signal — a
- * MutationObserver is.
- */
-const useRenderedRowIds = (
-	containerRef: RefObject<HTMLElement | null>,
-): string[] => {
-	const [rowIds, setRowIds] = useState<string[]>([]);
-
-	useEffect(() => {
-		const container = containerRef.current;
-		if (!container) return;
-
-		const sync = () => {
-			const next = readRowIds(container);
-			setRowIds((prev) => (sameIds(prev, next) ? prev : next));
-		};
-
-		sync();
-		const observer = new MutationObserver(sync);
-		observer.observe(container, { childList: true, subtree: true });
-		return () => observer.disconnect();
-	}, [containerRef]);
-
-	return rowIds;
-};
+const NO_ROWS: string[] = [];
 
 /**
  * How a row was opened. `replace: true` marks a reading-pane preview the cursor
@@ -174,8 +142,8 @@ export function ThreadListInteraction({
 	children,
 }: ThreadListInteractionProps) {
 	const isDesktop = useIsDesktop();
-	const containerRef = useRef<HTMLDivElement>(null);
-	const orderedIds = useRenderedRowIds(containerRef);
+	const [container, setContainer] = useState<HTMLElement | null>(null);
+	const orderedIds = useRenderedRowIds(container) ?? NO_ROWS;
 	const cursor = useListCursor({
 		orderedIds,
 		isDesktop,
@@ -213,7 +181,7 @@ export function ThreadListInteraction({
 		const pending = pendingDomFocusRef.current;
 		if (pending === null) return;
 		pendingDomFocusRef.current = null;
-		containerRef.current
+		container
 			?.querySelector<HTMLElement>(`[data-message-id="${pending}"]`)
 			?.focus();
 	});
@@ -409,9 +377,14 @@ export function ThreadListInteraction({
 		<ThreadListInteractionCtx.Provider value={value}>
 			{/* `display: contents` so reading the rendered rows costs the layout
 			    nothing — the children lay out against their real parent. */}
-			<div ref={containerRef} className="contents">
-				{children}
-			</div>
+			{/* The rows below answer to this list's keyboard layer, so a kit list
+			    body nested here stands its own arrow-key group down and leaves
+			    Shift+↑/↓ to reach the layer that extends a range with it. */}
+			<ListKeyboardAbove value={true}>
+				<div ref={setContainer} className="contents">
+					{children}
+				</div>
+			</ListKeyboardAbove>
 			<ConfirmDialog
 				isOpen={confirmOpen}
 				title={formatDeleteToTrashTitle(pendingDelete?.length ?? 0)}

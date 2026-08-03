@@ -67,17 +67,21 @@ export function useListTriage(
 		[sections, trashedIds, readIds],
 	);
 
-	const orderedIds = useMemo(
+	const seedIds = useMemo(
 		() => visible.flatMap((section) => section.threads).map((t) => t.id),
 		[visible],
 	);
 
 	const list = useListKeyboard({
-		orderedIds,
+		orderedIds: seedIds,
 		isDesktop,
 		initialFocusedId,
 		initialSelectedIds,
 	});
+	// The rows the pane is rendering, which the brief narrows below this shell:
+	// its category scope, its chips, its ten-row cap, a collapsed section. The
+	// count and select-all answer for those and no others.
+	const { orderedIds } = list;
 	const { selection } = list.cursor;
 	const { selectedIds, clearSelection } = selection;
 

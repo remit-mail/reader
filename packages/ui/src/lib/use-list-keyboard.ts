@@ -11,18 +11,25 @@
  * The layer binds its keys to the pane element rather than the window, so a
  * page carrying several lists gives each of them only the keys pressed inside
  * it.
+ *
+ * The cursor and the selection hold the rows the pane is rendering, read from
+ * the pane itself. A list body narrows further than its consumer can see — the
+ * brief's category scope and chips, its ten-row cap, a collapsed section — and
+ * the rows behind that narrowing are neither reachable by the keys nor part of
+ * what a verb acts on.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
 	MessageListKeyboard,
 	MessageListSelection,
 } from "../components/app-shell-types.js";
 import type { TriageHandlers } from "./keymap.js";
 import { type ListCursor, useListCursor } from "./use-list-cursor.js";
+import { useRenderedRowIds } from "./use-rendered-row-ids.js";
 import { useTriageKeyboard } from "./use-triage-keyboard.js";
 
 export interface UseListKeyboardOptions {
-	/** Row ids in display order. */
+	/** Row ids in display order, until the pane is up to say what it renders. */
 	orderedIds: string[];
 	isDesktop: boolean;
 	/** Seeds the cursor — normally the open thread. */
@@ -35,6 +42,8 @@ export interface UseListKeyboardOptions {
 
 export interface ListKeyboard {
 	cursor: ListCursor;
+	/** The rows the pane is rendering, in display order. */
+	orderedIds: string[];
 	/** The pane's `selection` prop. */
 	selection: MessageListSelection;
 	/** The pane's `keyboard` prop. */
@@ -49,9 +58,11 @@ export const useListKeyboard = ({
 	enabled = true,
 }: UseListKeyboardOptions): ListKeyboard => {
 	const [pane, setPane] = useState<HTMLElement | null>(null);
+	const renderedIds = useRenderedRowIds(pane);
+	const visibleIds = renderedIds ?? orderedIds;
 
 	const cursor = useListCursor({
-		orderedIds,
+		orderedIds: visibleIds,
 		isDesktop,
 		initialFocusedId,
 		initialSelectedIds,
@@ -70,13 +81,22 @@ export const useListKeyboard = ({
 	};
 	useTriageKeyboard({ handlers, enabled, target: pane });
 
-	// A row that leaves the list — a filter, an account pill, a completed verb —
-	// cannot stay selected, or the count and the verbs act on rows nobody can
-	// see. The same rule the app runs in `ThreadListInteraction`.
+	// A row that leaves the list — a filter, a cap, a collapsed section, a
+	// completed verb — cannot stay selected, or the count and the verbs act on
+	// rows nobody can see. The same rule the app runs in `ThreadListInteraction`.
 	const { intersectWith } = cursor.selection;
 	useEffect(() => {
-		intersectWith(orderedIds);
-	}, [intersectWith, orderedIds]);
+		intersectWith(visibleIds);
+	}, [intersectWith, visibleIds]);
+
+	// Real focus arriving on a row by any route — a click, Tab, the browser
+	// restoring it — brings the cursor with it, so the ring and the row the keys
+	// act on are one row.
+	const { setFocusedMessageId } = cursor;
+	const onFocusRow = useCallback(
+		(id: string) => setFocusedMessageId(id),
+		[setFocusedMessageId],
+	);
 
 	const { selectedIds, toggle } = cursor.selection;
 	const { handleRowSelect } = cursor;
@@ -91,10 +111,12 @@ export const useListKeyboard = ({
 
 	return {
 		cursor,
+		orderedIds: visibleIds,
 		selection,
 		keyboard: {
 			focusedId: cursor.focusedMessageId,
 			handlers,
+			onFocusRow,
 			ref: setPane,
 		},
 	};

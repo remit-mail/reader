@@ -344,12 +344,15 @@ export function CompactRow({
 	focused,
 	tabIndex,
 	onClick,
+	onFocus,
 }: {
 	thread: ThreadRowData;
 	active?: boolean;
 	focused?: boolean;
 	tabIndex?: number;
 	onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
+	/** Reports real browser focus arriving on the row, so a cursor can follow. */
+	onFocus?: () => void;
 }) {
 	return (
 		<button
@@ -357,6 +360,7 @@ export function CompactRow({
 			{...rowMarkers(thread)}
 			tabIndex={tabIndex}
 			onClick={onClick}
+			onFocus={onFocus}
 			className={compactRowClass({ active, focused })}
 		>
 			<CompactRowBody thread={thread} />
@@ -371,6 +375,7 @@ export function ComfortableRow({
 	tabIndex,
 	selection,
 	onClick,
+	onFocus,
 }: {
 	thread: ThreadRowData;
 	active?: boolean;
@@ -378,6 +383,8 @@ export function ComfortableRow({
 	tabIndex?: number;
 	selection?: RowSelection;
 	onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
+	/** Reports real browser focus arriving on the row, so a cursor can follow. */
+	onFocus?: () => void;
 }) {
 	return (
 		<button
@@ -385,6 +392,7 @@ export function ComfortableRow({
 			{...rowMarkers(thread)}
 			tabIndex={tabIndex}
 			onClick={onClick}
+			onFocus={onFocus}
 			className={cn("group", comfortableRowClass({ active, focused }))}
 		>
 			<ComfortableRowBody thread={thread} selection={selection} />

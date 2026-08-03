@@ -1,8 +1,8 @@
 /**
  * The list's keyboard layer as a host mounts it: the keys reach the cursor from
  * inside the element the layer was given and from nowhere else, the row-click
- * path reads its modifiers the same way, the selection follows the rows it is
- * handed, and the footer offers only the actions the layer registered.
+ * path reads its modifiers the same way, the selection follows the rows the pane
+ * is rendering, and the footer offers only the actions the layer registered.
  */
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
@@ -18,14 +18,37 @@ let container: HTMLElement;
 let root: Root;
 let list: ListKeyboard;
 
-function Harness({ orderedIds }: { orderedIds: string[] }) {
+function Harness({
+	orderedIds,
+	renderedIds,
+}: {
+	orderedIds: string[];
+	renderedIds?: string[];
+}) {
 	list = useListKeyboard({ orderedIds, isDesktop: true });
-	return createElement("section", { id: "pane", ref: list.keyboard.ref });
+	return createElement(
+		"section",
+		{ id: "pane", ref: list.keyboard.ref },
+		(renderedIds ?? orderedIds).map((id) =>
+			createElement("button", {
+				key: id,
+				type: "button",
+				"data-message-id": id,
+			}),
+		),
+	);
 }
 
-const mount = (orderedIds: string[] = ALL_IDS) => {
+const mount = (orderedIds: string[] = ALL_IDS, renderedIds?: string[]) => {
 	act(() => {
-		root.render(createElement(Harness, { orderedIds }));
+		root.render(createElement(Harness, { orderedIds, renderedIds }));
+	});
+};
+
+/** Let the pane's row observer report a change the last render made. */
+const settle = async () => {
+	await act(async () => {
+		await Promise.resolve();
 	});
 };
 
@@ -82,6 +105,7 @@ before(async () => {
 	globalThis.HTMLElement = dom.window.HTMLElement;
 	globalThis.Element = dom.window.Element;
 	globalThis.SVGElement = dom.window.SVGElement;
+	globalThis.MutationObserver = dom.window.MutationObserver;
 	(
 		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 	).IS_REACT_ACT_ENVIRONMENT = true;
@@ -159,14 +183,42 @@ describe("useListKeyboard", () => {
 		assert.deepEqual(selected(), []);
 	});
 
-	it("drops the ticked rows that leave the list, and keeps the rest", () => {
+	it("drops the ticked rows that leave the list, and keeps the rest", async () => {
 		press("a", { metaKey: true });
 		assert.deepEqual(selected(), ALL_IDS);
 		mount(["m1", "m3"]);
+		await settle();
 		assert.deepEqual(
 			selected(),
 			["m1", "m3"],
 			"a verb acts on the rows that are still on screen",
 		);
+	});
+
+	it("walks the rows the pane renders, not the ids it was handed", async () => {
+		mount(ALL_IDS, ["m1", "m4"]);
+		await settle();
+		assert.deepEqual(list.orderedIds, ["m1", "m4"]);
+		press("j");
+		press("j");
+		assert.equal(
+			list.keyboard.focusedId,
+			"m4",
+			"the cursor steps from one rendered row to the next",
+		);
+		press("a", { metaKey: true });
+		assert.deepEqual(selected(), ["m1", "m4"]);
+	});
+
+	it("answers with the ids it was handed until a pane is up to say otherwise", () => {
+		act(() => {
+			root.render(
+				createElement(() => {
+					list = useListKeyboard({ orderedIds: ALL_IDS, isDesktop: true });
+					return null;
+				}),
+			);
+		});
+		assert.deepEqual(list.orderedIds, ALL_IDS);
 	});
 });

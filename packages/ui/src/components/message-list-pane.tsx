@@ -2,6 +2,7 @@ import { Menu } from "lucide-react";
 import type { MouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { defaultKeyboardHints, keyboardHintsFor } from "../lib/keymap.js";
+import { ListKeyboardAbove } from "../lib/list-keyboard-above.js";
 import { LIST_ROW_SELECTOR, useRovingFocus } from "../lib/roving-focus.js";
 import { deriveIsMultiSelectMode, modifiersOf } from "../lib/use-selection.js";
 import type {
@@ -171,6 +172,13 @@ export function MessageListPane({
 		[tabStopId],
 	);
 
+	const onFocusRow = walksRows ? keyboard.onFocusRow : undefined;
+	const rowFocus = useCallback(
+		(id: string): (() => void) | undefined =>
+			onFocusRow ? () => onFocusRow(id) : undefined,
+		[onFocusRow],
+	);
+
 	// Real browser focus follows the cursor, so Tab, Shift+Tab and the focus
 	// ring agree with the row the list highlights — and so the keys keep
 	// reaching the layer, which listens on the pane rather than the window.
@@ -252,149 +260,174 @@ export function MessageListPane({
 	// The brief drives rows through a `BriefRowComponent`, whose props carry no
 	// selection — a consumer's own row (the web client's) wires its checkbox
 	// itself. Binding it here keeps the kit's rows selectable there too.
+	//
+	// A `BriefRowComponent` is a component *type*, so a new function on every
+	// cursor move or tick unmounts and remounts every row, and the focused row
+	// loses focus with it — after which the pane's keys, bound to the pane, hear
+	// nothing. The bindings travel through a ref, updated in render before the
+	// rows read it, so the type stays one identity for the pane's life.
+	const rowBindings = {
+		Row,
+		cursorId,
+		rowTabIndex,
+		rowSelection,
+		rowFocus,
+		takeRowSelect,
+	};
+	const rowBindingsRef = useRef(rowBindings);
+	rowBindingsRef.current = rowBindings;
+
 	const BriefRow: BriefRowComponent = useCallback(
-		({ thread, active, onClick }) => (
-			<Row
-				thread={thread}
-				active={active}
-				focused={thread.id === cursorId}
-				tabIndex={rowTabIndex(thread.id)}
-				selection={rowSelection(thread.id)}
-				onClick={(event) => {
-					if (takeRowSelect(thread.id, event)) return;
-					onClick?.();
-				}}
-			/>
-		),
-		[Row, rowSelection, takeRowSelect, cursorId, rowTabIndex],
+		({ thread, active, onClick }) => {
+			const bound = rowBindingsRef.current;
+			const BoundRow = bound.Row;
+			return (
+				<BoundRow
+					thread={thread}
+					active={active}
+					focused={thread.id === bound.cursorId}
+					tabIndex={bound.rowTabIndex(thread.id)}
+					selection={bound.rowSelection(thread.id)}
+					onFocus={bound.rowFocus(thread.id)}
+					onClick={(event) => {
+						if (bound.takeRowSelect(thread.id, event)) return;
+						onClick?.();
+					}}
+				/>
+			);
+		},
+		[],
 	);
 
 	return (
-		<section
-			ref={(element) => {
-				paneRef.current = element;
-				keyboard?.ref(element);
-			}}
-			tabIndex={walksRows ? -1 : undefined}
-			className="relative flex h-full w-full flex-col bg-surface outline-none"
-		>
-			{selectionBar ??
-				(hideHeader ? null : (
-					<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
-						{onOpenNav && (
-							<Button
-								variant="ghost"
-								size="sm"
-								icon={<Menu className="size-4" />}
-								onClick={onOpenNav}
-								aria-label="Open folders"
-								className="-ml-1 shrink-0"
-							/>
-						)}
-						<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
-							{listTitle}
-						</h1>
-						{listMeta && (
-							<span className="shrink-0 text-2xs text-fg-subtle">
-								{listMeta}
-							</span>
-						)}
-					</header>
-				))}
+		<ListKeyboardAbove value={walksRows}>
+			<section
+				ref={(element) => {
+					paneRef.current = element;
+					keyboard?.ref(element);
+				}}
+				tabIndex={walksRows ? -1 : undefined}
+				className="relative flex h-full w-full flex-col bg-surface outline-none"
+			>
+				{selectionBar ??
+					(hideHeader ? null : (
+						<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
+							{onOpenNav && (
+								<Button
+									variant="ghost"
+									size="sm"
+									icon={<Menu className="size-4" />}
+									onClick={onOpenNav}
+									aria-label="Open folders"
+									className="-ml-1 shrink-0"
+								/>
+							)}
+							<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
+								{listTitle}
+							</h1>
+							{listMeta && (
+								<span className="shrink-0 text-2xs text-fg-subtle">
+									{listMeta}
+								</span>
+							)}
+						</header>
+					))}
 
-			{/* List body. Non-ready states replace the rows entirely (the live
+				{/* List body. Non-ready states replace the rows entirely (the live
 			    MessageList does the same): skeleton on cold load, empty on a clean
 			    mailbox / search, fail-hard error with a way back + report. */}
-			{listState === "loading" ? (
-				<div className="flex-1 overflow-y-auto">
-					<MessageListLoading />
-				</div>
-			) : listState === "empty" ? (
-				<MessageListEmpty
-					filter={listFilter}
-					scopeLabel={listScopeLabel}
-					searchQuery={searchQuery}
-				/>
-			) : listState === "error" ? (
-				<MessageListError
-					message={errorMessage}
-					onRetry={onRetry}
-					onReport={onReportError}
-				/>
-			) : briefFilters ? (
-				<BriefSections
-					{...(briefFilter ?? {})}
-					sections={sections}
-					selectedThreadId={selectedThreadId}
-					Row={BriefRow}
-					onSelectThread={onSelectThread}
-				/>
-			) : listBody != null ? (
-				/* Consumer-provided body wins on every width — it owns the rows
+				{listState === "loading" ? (
+					<div className="flex-1 overflow-y-auto">
+						<MessageListLoading />
+					</div>
+				) : listState === "empty" ? (
+					<MessageListEmpty
+						filter={listFilter}
+						scopeLabel={listScopeLabel}
+						searchQuery={searchQuery}
+					/>
+				) : listState === "error" ? (
+					<MessageListError
+						message={errorMessage}
+						onRetry={onRetry}
+						onReport={onReportError}
+					/>
+				) : briefFilters ? (
+					<BriefSections
+						{...(briefFilter ?? {})}
+						sections={sections}
+						selectedThreadId={selectedThreadId}
+						Row={BriefRow}
+						onSelectThread={onSelectThread}
+					/>
+				) : listBody != null ? (
+					/* Consumer-provided body wins on every width — it owns the rows
 				   (real <a href> anchors, virtualization, infinite scroll) and its
 				   own swipe-triage. The built-in TouchListBody below is only the
 				   mock fallback for callers that don't supply a body. */
-				listBody
-			) : touchTriage ? (
-				<TouchListBody
-					sections={sections}
-					selectedThreadId={selectedThreadId}
-					selectionMode={selectionMode}
-					checkedIds={selectedIds}
-					initialPeek={initialPeek}
-					onToggleCheck={(id) => toggleSelected?.(id)}
-					onEnterSelection={(id) => toggleSelected?.(id)}
-					onOpenThread={(id) => onSelectThread?.(id)}
-					onRefresh={refresh}
-					refreshing={refreshing}
-				/>
-			) : (
-				<div ref={flatListRef} className="flex-1 overflow-y-auto">
-					{sections.map((section) => (
-						<div key={section.id}>
-							{/* The plain flat mailbox suppresses section labels — it is one
+					listBody
+				) : touchTriage ? (
+					<TouchListBody
+						sections={sections}
+						selectedThreadId={selectedThreadId}
+						selectionMode={selectionMode}
+						checkedIds={selectedIds}
+						initialPeek={initialPeek}
+						onToggleCheck={(id) => toggleSelected?.(id)}
+						onEnterSelection={(id) => toggleSelected?.(id)}
+						onOpenThread={(id) => onSelectThread?.(id)}
+						onRefresh={refresh}
+						refreshing={refreshing}
+					/>
+				) : (
+					<div ref={flatListRef} className="flex-1 overflow-y-auto">
+						{sections.map((section) => (
+							<div key={section.id}>
+								{/* The plain flat mailbox suppresses section labels — it is one
 							    continuous list, like the live $mailboxId MessageList. */}
-							{!flatList && section.label && (
-								<div className="sticky top-0 flex h-section-row items-center justify-between border-b border-line bg-surface-sunken px-row-inset">
-									<span className="text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
-										{section.label}
-									</span>
-									<span className="text-2xs text-fg-subtle tabular-nums">
-										{section.threads.length}
-									</span>
+								{!flatList && section.label && (
+									<div className="sticky top-0 flex h-section-row items-center justify-between border-b border-line bg-surface-sunken px-row-inset">
+										<span className="text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
+											{section.label}
+										</span>
+										<span className="text-2xs text-fg-subtle tabular-nums">
+											{section.threads.length}
+										</span>
+									</div>
+								)}
+								<div className="divide-y divide-line">
+									{section.threads.map((thread) => (
+										<Row
+											key={thread.id}
+											thread={thread}
+											active={thread.id === selectedThreadId}
+											focused={thread.id === cursorId}
+											tabIndex={rowTabIndex(thread.id)}
+											selection={rowSelection(thread.id)}
+											onFocus={rowFocus(thread.id)}
+											onClick={(event) => {
+												if (takeRowSelect(thread.id, event)) return;
+												onSelectThread?.(thread.id);
+											}}
+										/>
+									))}
 								</div>
-							)}
-							<div className="divide-y divide-line">
-								{section.threads.map((thread) => (
-									<Row
-										key={thread.id}
-										thread={thread}
-										active={thread.id === selectedThreadId}
-										focused={thread.id === cursorId}
-										tabIndex={rowTabIndex(thread.id)}
-										selection={rowSelection(thread.id)}
-										onClick={(event) => {
-											if (takeRowSelect(thread.id, event)) return;
-											onSelectThread?.(thread.id);
-										}}
-									/>
-								))}
 							</div>
-						</div>
-					))}
-				</div>
-			)}
+						))}
+					</div>
+				)}
 
-			{isDesktop && (
-				<KeyboardHintBar
-					hints={
-						keyboard
-							? keyboardHintsFor(keyboard.handlers)
-							: defaultKeyboardHints
-					}
-				/>
-			)}
-			{paneOverlay}
-		</section>
+				{isDesktop && (
+					<KeyboardHintBar
+						hints={
+							keyboard
+								? keyboardHintsFor(keyboard.handlers)
+								: defaultKeyboardHints
+						}
+					/>
+				)}
+				{paneOverlay}
+			</section>
+		</ListKeyboardAbove>
 	);
 }
