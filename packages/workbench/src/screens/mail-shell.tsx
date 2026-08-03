@@ -53,6 +53,7 @@ import {
 	MobileSearchView,
 	NavSidebar,
 	ReadingPane,
+	RefreshButton,
 	SearchBar,
 	type SearchCaretRequest,
 	type SearchChip,
@@ -256,6 +257,13 @@ function TopBar({ search }: { search: SearchState }) {
 			onReportBug={() => undefined}
 			onOpenSettings={() => undefined}
 			composeShortcut="c"
+			refreshControl={
+				<RefreshButton
+					state="idle"
+					label="Refresh all accounts"
+					onRefresh={() => undefined}
+				/>
+			}
 			account={
 				<button type="button" aria-label="Account">
 					<Avatar name="Matthijs" email="matthijs@example.com" size="sm" />
@@ -478,6 +486,13 @@ function ListPane({
 								{unreadCount.toLocaleString()} unread
 							</span>
 							<FilterToggle />
+							<RefreshButton
+								state="idle"
+								label={
+									briefFilters ? "Refresh daily brief" : `Refresh ${title}`
+								}
+								onRefresh={() => undefined}
+							/>
 						</>
 					}
 					searchSlot={

@@ -59,6 +59,8 @@ interface MailViewChromeProps {
 	 * over its own already query-narrowed rows.
 	 */
 	searchResultsInBody?: boolean;
+	/** The view's own refresh control, scoped to the account it shows. */
+	refreshControl?: ReactNode;
 }
 
 export function MailViewChrome({
@@ -81,6 +83,7 @@ export function MailViewChrome({
 	searchResultsLabel,
 	relatedResultsLabel,
 	searchResultsInBody,
+	refreshControl,
 }: MailViewChromeProps) {
 	// A query owns the pane: the filter chrome and the search's own affordance
 	// narrow the same list from the same place, so the filter sheet stands down
@@ -116,6 +119,7 @@ export function MailViewChrome({
 				searchResultsLabel={searchResultsLabel}
 				relatedResultsLabel={relatedResultsLabel}
 				searchResultsInBody={searchResultsInBody}
+				refreshControl={refreshControl}
 			>
 				{/* One shell either way: the children's parent must not change when a
 				    query starts, or everything under it — including the header's own

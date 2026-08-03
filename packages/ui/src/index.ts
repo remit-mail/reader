@@ -408,6 +408,11 @@ export {
 	type ReadingPaneEmptyProps,
 } from "./components/reading-pane-empty.js";
 export {
+	RefreshButton,
+	type RefreshButtonProps,
+	type RefreshControlState,
+} from "./components/refresh-button.js";
+export {
 	RescueBanner,
 	type RescueBannerProps,
 } from "./components/rescue-banner.js";

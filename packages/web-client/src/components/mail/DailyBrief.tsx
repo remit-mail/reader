@@ -46,6 +46,7 @@ import {
 	KeyboardHintBar,
 	matchesBriefFilters,
 	partitionSpamResults,
+	RefreshButton,
 	type SearchResult,
 	SelectionTopBar,
 	SpamResultsOffer,
@@ -69,6 +70,7 @@ import {
 } from "@/hooks/useInitialSyncProgress";
 import { useLabelList } from "@/hooks/useLabels";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
+import { useRefreshControl } from "@/hooks/useRefreshControl";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useSemanticSearch } from "@/hooks/useSemanticSearch";
 import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
@@ -84,6 +86,7 @@ import {
 import { isServerError } from "@/lib/error-classifier";
 import type { ListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
+import { useMailFreshness } from "@/lib/mail-freshness";
 import { relatedSearchResults, rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { spamOfferForResults } from "@/lib/spam-offer";
@@ -581,6 +584,35 @@ export function DailyBrief({
 		[unseenByAccount],
 	);
 
+	// Every non-muted account the brief aggregates — refreshing it means
+	// refreshing all of them, same as the accounts the "caught up" reading
+	// above already spans.
+	const refreshAccountIds = useMemo(
+		() => nonMuted.map((account) => account.accountId),
+		[nonMuted],
+	);
+	const { hasNewMail } = useMailFreshness();
+	const {
+		state: refreshState,
+		errorMessage: refreshError,
+		refresh: onRefreshBrief,
+	} = useRefreshControl(refreshAccountIds, { onSettled: () => refetch() });
+	// Memoized: this element is a dep of `MailListHeader`'s own `chrome` memo
+	// (via the `refreshControl` prop), so a fresh element identity every render
+	// would defeat that memo and re-render every chrome consumer with it.
+	const refreshControl = useMemo(
+		() => (
+			<RefreshButton
+				state={refreshState}
+				onRefresh={onRefreshBrief}
+				label="Refresh daily brief"
+				errorMessage={refreshError}
+				hasUpdate={hasNewMail(refreshAccountIds)}
+			/>
+		),
+		[refreshState, onRefreshBrief, refreshError, hasNewMail, refreshAccountIds],
+	);
+
 	// The phone search takeover renders the account/free-text-narrowed rows,
 	// further narrowed by the same category and attribute chips the list applies.
 	const searchResults = useMemo<SearchResult[]>(
@@ -791,6 +823,7 @@ export function DailyBrief({
 						// it is on the mailbox route (#212) — the two-engine panel stays for
 						// the typing/uncommitted state only.
 						searchResultsInBody: true,
+						refreshControl,
 					}}
 					rows={filteredRows}
 				>

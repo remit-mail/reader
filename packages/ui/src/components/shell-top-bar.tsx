@@ -65,6 +65,12 @@ export interface ShellTopBarProps {
 	 */
 	composeShortcut?: string;
 	/**
+	 * The global refresh — every connected account, one control, next to the
+	 * avatar it sits beside. An element, like `account`: the app owns which
+	 * accounts it reaches and what refreshing them means.
+	 */
+	refreshControl: ReactNode;
+	/**
 	 * The account control at the bar's trailing edge. An element rather than
 	 * data: the app hangs a signed-in session and its sign-out off it.
 	 */
@@ -77,6 +83,7 @@ export function ShellTopBar({
 	onReportBug,
 	onOpenSettings,
 	composeShortcut,
+	refreshControl,
 	account,
 }: ShellTopBarProps) {
 	return (
@@ -119,6 +126,7 @@ export function ShellTopBar({
 						aria-label="Settings"
 						onClick={onOpenSettings}
 					/>
+					{refreshControl}
 					{account}
 				</>
 			}

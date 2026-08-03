@@ -30,6 +30,7 @@ import {
 	inboxFilterConfig,
 	type MessageListFilter,
 	ReadingPaneEmpty,
+	RefreshButton,
 	type RescueCandidate,
 	type SearchResult,
 	useAppShellLayout,
@@ -87,6 +88,7 @@ import { useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
+import { useRefreshControl } from "@/hooks/useRefreshControl";
 import { useRescueCandidates } from "@/hooks/useRescueCandidates";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useSemanticSearch } from "@/hooks/useSemanticSearch";
@@ -110,6 +112,7 @@ import {
 } from "@/lib/inbox-filters";
 import { readIntelligencePref } from "@/lib/intelligence-pref";
 import { useMailContext } from "@/lib/mail-context";
+import { useMailFreshness } from "@/lib/mail-freshness";
 import { isRescueCandidate } from "@/lib/rescue-candidates";
 import { recordRescueSentToJunk } from "@/lib/rescue-telemetry";
 import {
@@ -953,6 +956,42 @@ function MailboxList() {
 	const listTitle = mailboxName ?? "Inbox";
 	const preset = useMemo(() => inboxFilterConfig(), []);
 
+	// The account owning this folder — undefined for the instant before
+	// `useMailboxAccount` resolves it, which simply means there is nothing to
+	// refresh yet.
+	const refreshAccountIds = useMemo(
+		() => (mailboxAccountId ? [mailboxAccountId] : []),
+		[mailboxAccountId],
+	);
+	const { hasNewMail } = useMailFreshness();
+	const {
+		state: refreshState,
+		errorMessage: refreshError,
+		refresh: onRefreshMailbox,
+	} = useRefreshControl(refreshAccountIds, { onSettled: onRetry });
+	// Memoized: this element is a dep of `MailListHeader`'s own `chrome` memo
+	// (via the `refreshControl` prop), so a fresh element identity every render
+	// would defeat that memo and re-render every chrome consumer with it.
+	const refreshControl = useMemo(
+		() => (
+			<RefreshButton
+				state={refreshState}
+				onRefresh={onRefreshMailbox}
+				label={`Refresh ${listTitle}`}
+				errorMessage={refreshError}
+				hasUpdate={hasNewMail(refreshAccountIds)}
+			/>
+		),
+		[
+			refreshState,
+			onRefreshMailbox,
+			listTitle,
+			refreshError,
+			hasNewMail,
+			refreshAccountIds,
+		],
+	);
+
 	const searchResults = useMemo(
 		() =>
 			threads.map((thread) => threadToSearchResult(thread, resultFolderIndex)),
@@ -1084,6 +1123,7 @@ function MailboxList() {
 			// the "Select all N matching" escalation are reachable on desktop (#212).
 			// The typing/uncommitted state still shows the two-engine panel.
 			searchResultsInBody
+			refreshControl={refreshControl}
 		>
 			{body}
 		</MailViewChrome>
