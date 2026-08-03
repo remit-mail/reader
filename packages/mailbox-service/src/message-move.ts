@@ -335,6 +335,20 @@ export class MessageMoveService {
 		accountId: string,
 	): Promise<void> => {
 		const message = await this.messageService.get(messageId);
+
+		// IMAP has no same-mailbox MOVE: the server copies the message, expunges
+		// the original and hands back a fresh UID, so a request that asks for the
+		// mailbox the message is already in destroys its identity to reach the
+		// state it was already in. The requested end state holds, so there is
+		// nothing to record as pending and nothing to enqueue.
+		if (message.mailboxId === destinationMailboxId) {
+			this.log.info(
+				{ messageId, mailboxId: destinationMailboxId },
+				"Skipping move: message is already in the destination mailbox",
+			);
+			return;
+		}
+
 		const sourceMailbox = await this.mailboxService.get(
 			accountId,
 			message.mailboxId,

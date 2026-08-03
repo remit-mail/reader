@@ -193,3 +193,33 @@ export const WithSimilarMessages: Story = {
 		},
 	},
 };
+
+/**
+ * The spam quick actions are symmetric and mutually exclusive, decided by the
+ * mailbox the message is in. A message sitting in Junk is offered the way out.
+ */
+export const InJunk: Story = {
+	args: {
+		data: base,
+		actions: { onNotSpam: () => {} },
+	},
+};
+
+/** The inverse, for a message anywhere else. */
+export const OutsideJunk: Story = {
+	args: {
+		data: base,
+		actions: { onMarkSpam: () => {} },
+	},
+};
+
+/**
+ * The move has been made. Neither action is offered: pressing the one that just
+ * ran would ask the mail server to move the message to where it already is.
+ */
+export const SpamActionSpent: Story = {
+	args: {
+		data: base,
+		actions: {},
+	},
+};

@@ -71,7 +71,7 @@ export const useMoveMessages = ({
 	const queryClient = useQueryClient();
 	const { pushError } = useErrorBanners();
 
-	const { mutateAsync, isPending } = useMutation({
+	const { mutateAsync, isPending, isError } = useMutation({
 		...messageBulkOperationsMoveMessagesMutation(),
 		onMutate: async (variables): Promise<MoveContext> => {
 			const messageIds = new Set(variables.body.messageIds ?? []);
@@ -189,5 +189,5 @@ export const useMoveMessages = ({
 		[mutateAsync],
 	);
 
-	return { moveMessages, isPending };
+	return { moveMessages, isPending, isError };
 };

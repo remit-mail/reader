@@ -61,6 +61,30 @@ describe("resolveSpamAction (#594)", () => {
 		);
 	});
 
+	test("offers nothing once the panel has moved this message", () => {
+		assert.equal(
+			resolveSpamAction({
+				mailboxId: junkId,
+				junkMailboxId: junkId,
+				inboxMailboxId: inboxId,
+				moveApplied: true,
+			}),
+			null,
+		);
+	});
+
+	test("offers Not spam again when the move came back failed", () => {
+		assert.equal(
+			resolveSpamAction({
+				mailboxId: junkId,
+				junkMailboxId: junkId,
+				inboxMailboxId: inboxId,
+				moveApplied: false,
+			}),
+			"notSpam",
+		);
+	});
+
 	test("the two actions are mutually exclusive", () => {
 		const inJunk = resolveSpamAction({
 			mailboxId: junkId,

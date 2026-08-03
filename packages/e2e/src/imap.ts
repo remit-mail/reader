@@ -115,6 +115,40 @@ export const listServerMailboxes = async (user: string): Promise<string[]> => {
 	}
 };
 
+/**
+ * The UIDs Dovecot holds for one subject in a mailbox.
+ *
+ * A UID is the message's identity on the server, and IMAP has no in-place MOVE:
+ * anything that moves a message re-appends it under a fresh UID. So this is how
+ * a spec asks whether the server was touched at all, which "is it still there"
+ * cannot answer.
+ */
+export const serverUidsForSubject = async (
+	user: string,
+	mailbox: string,
+	subject: string,
+): Promise<number[]> => {
+	const client = await connect(user);
+	try {
+		const lock = await client.getMailboxLock(mailbox);
+		try {
+			const exists =
+				typeof client.mailbox === "object" ? client.mailbox.exists : 0;
+			if (!exists) return [];
+
+			const uids: number[] = [];
+			for await (const message of client.fetch("1:*", { envelope: true })) {
+				if (message.envelope?.subject === subject) uids.push(message.uid);
+			}
+			return uids;
+		} finally {
+			lock.release();
+		}
+	} finally {
+		await client.logout();
+	}
+};
+
 /** The subjects Dovecot holds in a mailbox, for asserting against what synced. */
 export const listServerSubjects = async (
 	user: string,

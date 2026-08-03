@@ -25,9 +25,9 @@ export interface IntelligencePaneProps {
 	 * the empty-state placeholder.
 	 */
 	thread?: RemitImapThreadMessageResponse;
-	/** The mailbox the message list is currently showing — the move source. */
+	/** The mailbox the message list is currently showing. */
 	mailboxId?: string;
-	/** Account that owns `mailboxId`; resolves the Junk/Inbox move targets. */
+	/** Account that owns the open message; resolves the Junk/Inbox move targets. */
 	accountId?: string;
 	/**
 	 * Hide the panel's own close (X). Set when hosted inside the mobile Drawer,
@@ -54,11 +54,19 @@ type CategoryOverride = (typeof CATEGORY_OVERRIDES)[number];
 /**
  * Decide which spam quick-action to offer for the current message (issue #594).
  *
+ * `mailboxId` is the mailbox the MESSAGE is in, which is what the move acts on.
  * The two buttons are symmetric and mutually exclusive:
  * - In the Junk mailbox → offer **Not spam** (move out, promote sender), but
  *   only when an Inbox destination is resolved.
  * - Anywhere else → offer **Mark spam** (move in, demote sender), but only when
  *   the Junk destination is resolved.
+ *
+ * `moveApplied` says the panel has already moved this message and the row it is
+ * rendering has not caught up. The list drops the row on the move, but the
+ * reading pane keeps the message open from the row it was opened with, whose
+ * mailbox is still the source — so without this the button survives its own
+ * press, and a second press asks the server to move the message to where it now
+ * already is.
  *
  * Returns `"notSpam"`, `"markSpam"`, or `null` (no actionable button — e.g. the
  * move source isn't known, or the needed target mailbox hasn't loaded). Pure so
@@ -68,8 +76,10 @@ export const resolveSpamAction = (input: {
 	mailboxId?: string;
 	junkMailboxId?: string;
 	inboxMailboxId?: string;
+	moveApplied?: boolean;
 }): "notSpam" | "markSpam" | null => {
-	const { mailboxId, junkMailboxId, inboxMailboxId } = input;
+	const { mailboxId, junkMailboxId, inboxMailboxId, moveApplied } = input;
+	if (moveApplied) return null;
 	if (!mailboxId) return null;
 	const isInJunk = Boolean(junkMailboxId && mailboxId === junkMailboxId);
 	if (isInJunk) return inboxMailboxId ? "notSpam" : null;
@@ -235,27 +245,39 @@ function WiredPanel({
 		senderEmail,
 	});
 
-	// "Not spam" / "Mark spam" move the message across the Junk boundary; the
-	// backend's moveMessage then promotes (out of Junk) or demotes (into Junk)
-	// the sender's trust (issue #594). Only one button is wired at a time,
-	// depending on whether the message is currently sitting in Junk.
+	// "Not spam" / "Mark spam" move the message across the Junk boundary. Only
+	// one is wired at a time, decided by the mailbox the message itself is in —
+	// not by the list the user happens to be looking at, which for a search or a
+	// cross-account view names a different folder (issue #594).
 	const { junkMailboxId } = useJunkMailbox(accountId);
 	const { inboxMailboxId } = useInboxMailbox(accountId);
-	const { moveMessages } = useMoveMessages({
-		mailboxId: mailboxId ?? "",
+	const { moveMessages, isError: moveFailed } = useMoveMessages({
+		mailboxId: thread.mailboxId,
 		threadId: thread.threadId,
 		accountId,
 	});
 	const telemetry = useTelemetry();
+	const [lastMove, setLastMove] = useState<
+		{ messageId: string; mailboxId: string } | undefined
+	>(undefined);
 
+	// Spent while the row this panel is rendering still names the mailbox the
+	// move took the message OUT of. It resolves itself: a row that has caught up
+	// with the move offers the actions again, and a move that comes back failed
+	// is rolled back with a banner, so the retry is against the same button.
 	const spamAction = resolveSpamAction({
-		mailboxId,
+		mailboxId: thread.mailboxId,
 		junkMailboxId,
 		inboxMailboxId,
+		moveApplied:
+			!moveFailed &&
+			lastMove?.messageId === thread.messageId &&
+			lastMove.mailboxId !== thread.mailboxId,
 	});
 
 	const handleNotSpam = useCallback(() => {
 		if (!inboxMailboxId) return;
+		setLastMove({ messageId: thread.messageId, mailboxId: inboxMailboxId });
 		moveMessages([thread.messageId], inboxMailboxId);
 	}, [inboxMailboxId, moveMessages, thread.messageId]);
 
@@ -266,6 +288,7 @@ function WiredPanel({
 			senderTrust: thread.senderTrust,
 			wasRescuable: isRescueCandidate(thread),
 		});
+		setLastMove({ messageId: thread.messageId, mailboxId: junkMailboxId });
 		moveMessages([thread.messageId], junkMailboxId);
 	}, [junkMailboxId, moveMessages, thread, telemetry]);
 
