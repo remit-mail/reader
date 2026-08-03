@@ -37,7 +37,12 @@ import {
 	type BriefCategoryFilter,
 	type BriefFilterSurface,
 	Button,
+	briefChipFilters,
 	briefFilterConfig,
+	briefFilterHasTerm,
+	briefQueryCategory,
+	briefQueryIsActive,
+	clearBriefFiltersInQuery,
 	FilterPanelProvider,
 	type FilterPreset,
 	FilterSheet,
@@ -64,8 +69,11 @@ import {
 	ShellTopBar,
 	type Suggestion,
 	SuggestList,
+	setBriefCategoryInQuery,
 	type ThreadData,
+	type ThreadRowData,
 	type ThreadSection,
+	toggleBriefFilterInQuery,
 	useSuggestList,
 	type Verb,
 } from "@remit/ui";
@@ -101,6 +109,8 @@ export interface MailShellProps {
 	briefSource?: string;
 	/** Rows ticked on mount, for a story whose subject is a selection. */
 	selectedIds?: string[];
+	/** Opens the panel the caret opens, for a story whose subject is what is in it. */
+	filterOpen?: boolean;
 	/**
 	 * What a verb on the list's selection bar does, given the rows ticked when it
 	 * is pressed. Absent, the bar's own delete and mark-read act on the list.
@@ -147,6 +157,12 @@ export interface MailShellProps {
 	scopeChip?: SearchChip;
 	/** Seeds the search field; a non-empty query swaps the list body for results. */
 	query?: string;
+	/**
+	 * The query has settled — in the app, mirrored into the URL. The brief takes
+	 * its own rows back at that point and keeps its filter panel, so the chips it
+	 * composes into the query are reachable while the search is on.
+	 */
+	searchCommitted?: boolean;
 	searchSections?: SearchResultSection[];
 	searchLoading?: boolean;
 	searchScope?: SearchScope;
@@ -301,6 +317,7 @@ function ListPane({
 	briefFilters,
 	briefCategory,
 	briefSource,
+	filterOpen,
 	listState,
 	selectedIds,
 	onVerb,
@@ -312,6 +329,7 @@ function ListPane({
 	isPhone,
 	search,
 	searchOpen,
+	searchCommitted,
 	onSearchOpenChange,
 }: {
 	title: string;
@@ -320,6 +338,7 @@ function ListPane({
 	briefFilters?: boolean;
 	briefCategory?: BriefCategoryFilter;
 	briefSource?: string;
+	filterOpen?: boolean;
 	listState?: ListState;
 	selectedIds?: string[];
 	onVerb?: (verb: Verb, selected: ReadonlySet<string>) => void;
@@ -331,6 +350,7 @@ function ListPane({
 	isPhone: boolean;
 	search: SearchState;
 	searchOpen: boolean;
+	searchCommitted?: boolean;
 	onSearchOpenChange: (open: boolean) => void;
 }) {
 	const suggest = useShellSuggest(search);
@@ -341,19 +361,52 @@ function ListPane({
 	const [category, setCategory] = useState<string>(briefCategory ?? "all");
 	const [filters, setFilters] = useState<ReadonlySet<string>>(new Set());
 	const [source, setSource] = useState(briefSource ?? "all");
-	const [expanded, setExpanded] = useState(false);
+	const [expanded, setExpanded] = useState(filterOpen ?? false);
 
-	const toggleFilter = (id: string) =>
+	const toggleOwnFilter = (id: string) =>
 		setFilters((prev) => {
 			const next = new Set(prev);
 			if (next.has(id)) next.delete(id);
 			else next.add(id);
 			return next;
 		});
-	const clearFilters = () => {
+	const clearOwnFilters = () => {
 		setCategory("all");
 		setFilters(new Set());
 		setSource("all");
+	};
+
+	// The brief's chips are terms of the query while one is active: ticking one
+	// writes `is:unread` or `category:newsletter` into the field, deleting the
+	// term unticks the chip, and the two chips the vocabulary cannot spell —
+	// "From contacts", "Today" — keep answering to the panel's own set. The kit
+	// owns that composition, so the app and this prototype narrow the same rows
+	// by the same rule.
+	const composing = Boolean(briefFilters) && briefQueryIsActive(search.query);
+	const ownBriefFilters = new Set([...filters].filter(isBriefFilterId));
+	const shownFilters: ReadonlySet<string> = briefFilters
+		? briefChipFilters({ query: search.query, ownFilters: ownBriefFilters })
+		: filters;
+	const shownCategory = composing ? briefQueryCategory(search.query) : category;
+
+	const toggleFilter = (id: string) => {
+		if (!composing || !isBriefFilterId(id) || !briefFilterHasTerm(id)) {
+			toggleOwnFilter(id);
+			return;
+		}
+		const next = toggleBriefFilterInQuery(search.query, id);
+		if (next !== undefined) search.setQuery(next);
+	};
+	const selectCategory = (id: string) => {
+		if (!composing || !isBriefCategory(id)) {
+			setCategory(id);
+			return;
+		}
+		search.setQuery(setBriefCategoryInQuery(search.query, id));
+	};
+	const clearFilters = () => {
+		clearOwnFilters();
+		if (composing) search.setQuery(clearBriefFiltersInQuery(search.query));
 	};
 
 	// The brief spans every account, so the accounts are a dimension it always
@@ -370,11 +423,11 @@ function ListPane({
 				briefFilters && mutedAccountCount > 0
 					? `+${mutedAccountCount} muted`
 					: undefined,
-			selectedCategory: category,
-			activeFilters: filters,
+			selectedCategory: shownCategory,
+			activeFilters: shownFilters,
 			expanded,
 			onExpandedChange: setExpanded,
-			onSelectCategory: setCategory,
+			onSelectCategory: selectCategory,
 			onSelectSource: setSource,
 			onToggleFilter: toggleFilter,
 			onClear: clearFilters,
@@ -385,35 +438,48 @@ function ListPane({
 	// that vocabulary here rather than asserted into it.
 	const briefFilter: BriefFilterSurface | undefined = briefFilters
 		? {
-				briefCategory: isBriefCategory(category) ? category : "all",
-				onSelectBriefCategory: setCategory,
+				briefCategory: isBriefCategory(shownCategory) ? shownCategory : "all",
+				onSelectBriefCategory: selectCategory,
 				sources: filterConfig?.sources,
 				sourcesNote: filterConfig?.sourcesNote,
 				onSelectSource: setSource,
-				activeFilters: new Set([...filters].filter(isBriefFilterId)),
+				activeFilters: new Set([...shownFilters].filter(isBriefFilterId)),
 				onToggleFilter: toggleFilter,
 				onClearFilters: clearFilters,
 			}
 		: undefined;
 
-	const scoped =
-		source === "all"
-			? sections
-			: sections
-					.map((section) => ({
-						...section,
-						threads: section.threads.filter(
-							(thread) => thread.accountId === source,
-						),
-					}))
-					.filter((section) => section.threads.length > 0);
+	const hasQuery = search.query.trim().length > 0;
+	// A settled query hands the brief its own rows back, so the caret stays up
+	// and the chips it composes into the query are reachable there. The two-engine
+	// results panel owns the pane only while a first query is still being typed.
+	const briefRendersQuery = Boolean(
+		briefFilters && hasQuery && searchCommitted,
+	);
+	const freeText = briefRendersQuery
+		? clearBriefFiltersInQuery(search.query).trim().toLowerCase()
+		: "";
+	const narrows = source !== "all" || freeText.length > 0;
+	const keeps = (thread: ThreadRowData): boolean =>
+		(source === "all" || thread.accountId === source) &&
+		(freeText.length === 0 ||
+			thread.subject.toLowerCase().includes(freeText) ||
+			thread.fromName.toLowerCase().includes(freeText));
+
+	const scoped = narrows
+		? sections
+				.map((section) => ({
+					...section,
+					threads: section.threads.filter(keeps),
+				}))
+				.filter((section) => section.threads.length > 0)
+		: sections;
 	const triage = useListTriage(scoped, {
 		initialSelectedIds: selectedIds,
 		initialFocusedId: selectedThreadId,
 		isDesktop: !singlePane,
 	});
 
-	const hasQuery = search.query.trim().length > 0;
 	const searchExpanded = singlePane && (searchOpen || hasQuery);
 
 	if (isPhone && searchOpen) {
@@ -468,14 +534,16 @@ function ListPane({
 			scope={search.scope}
 		/>
 	);
-	const inner: ReactNode = hasQuery && !searchResultsInBody ? results : rows;
-	// A query owns the pane: the filter sheet stands down and the search's own
-	// affordance takes its place, in the pane rather than in the results body, so
-	// it stays put when the body swaps between the panel and the list's own rows.
-	// The brief's own sections carry a sheet, over the same config; a plain
-	// mailbox gets one here.
-	const briefOwnsSheet = Boolean(briefFilters) && !hasQuery;
-	const sheet = hasQuery || briefOwnsSheet ? undefined : filterConfig;
+	// A view whose own body renders the committed search as a selectable list
+	// (`searchResultsInBody`) keeps its rows in the pane instead of losing them
+	// to the read-only results panel. The brief's chips compose into that same
+	// query, so the caret over its rows needs to survive a search exactly where
+	// the rows do — the sheet stands down only when the results panel has taken
+	// the pane over.
+	const bodyIsRows = !hasQuery || Boolean(searchResultsInBody);
+	const inner: ReactNode = bodyIsRows ? rows : results;
+	const briefOwnsSheet = Boolean(briefFilters) && bodyIsRows;
+	const sheet = bodyIsRows && !briefOwnsSheet ? filterConfig : undefined;
 	const body = sheet ? (
 		<FilterSheet {...sheet}>{inner}</FilterSheet>
 	) : (
@@ -568,6 +636,7 @@ export function MailShell({
 	briefFilters,
 	briefCategory,
 	briefSource,
+	filterOpen,
 	selectedIds,
 	onVerb,
 	onMakeFilter,
@@ -585,6 +654,7 @@ export function MailShell({
 	isLoading,
 	scopeChip,
 	query = "",
+	searchCommitted = false,
 	searchSections = [],
 	searchLoading,
 	searchScope,
@@ -652,6 +722,7 @@ export function MailShell({
 			briefFilters={briefFilters}
 			briefCategory={briefCategory}
 			briefSource={briefSource}
+			filterOpen={filterOpen}
 			listState={listState}
 			selectedIds={selectedIds}
 			onVerb={onVerb}
@@ -663,6 +734,7 @@ export function MailShell({
 			isPhone={isPhone}
 			search={search}
 			searchOpen={searchOpen}
+			searchCommitted={searchCommitted}
 			onSearchOpenChange={setSearchOpen}
 		/>
 	);

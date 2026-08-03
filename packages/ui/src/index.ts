@@ -502,6 +502,7 @@ export {
 	DROPPED_SEMANTIC_COPY,
 	droppedFacetsCopy,
 	hasConversionNotice,
+	makeFilterBlockedCopy,
 	type SearchConversionNotice,
 	scopedOutCopy,
 } from "./components/search-conversion.js";
@@ -678,6 +679,19 @@ export {
 	formatByteSize,
 	sanitizeAttachmentFilename,
 } from "./lib/attachment-file.js";
+export {
+	briefChipCategory,
+	briefChipFilters,
+	briefFilterHasTerm,
+	briefFilterTerm,
+	briefFilterTermIds,
+	briefQueryCategory,
+	briefQueryFilters,
+	briefQueryIsActive,
+	clearBriefFiltersInQuery,
+	setBriefCategoryInQuery,
+	toggleBriefFilterInQuery,
+} from "./lib/brief-filter-query.js";
 export {
 	buildCidResolver,
 	type CidResolvableBodyPart,

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { isConvertible } from "@remit/ui";
+import { isConvertible, makeFilterBlockedCopy } from "@remit/ui";
 import { parseSearchTokens, type SearchTokenContext } from "../search-tokens";
 import { convertSearchToRule, searchRuleAccountId } from "./search-to-rule";
 
@@ -122,6 +122,20 @@ describe("convertSearchToRule — nothing left to make a filter from", () => {
 
 	it("yields a clause once a term rides along with the folder scope", () => {
 		assert.equal(isConvertible(convert("in:archive receipts")), true);
+	});
+
+	// The brief's chips write their terms into the query, so a query can be made
+	// entirely of them. What is in the way is then the facets themselves, and the
+	// reason names them rather than asking for something that was just supplied.
+	it("names the facets a query composed only of chips is made of", () => {
+		const conversion = convert("is:unread category:newsletter");
+		assert.equal(isConvertible(conversion), false);
+		assert.equal(
+			makeFilterBlockedCopy(
+				conversion.droppedFacets.map((facet) => facet.label),
+			),
+			"Unread and Category: Newsletter aren't filter conditions — add a sender or words to filter on",
+		);
 	});
 });
 

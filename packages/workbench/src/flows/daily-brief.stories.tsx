@@ -212,6 +212,48 @@ export const FilteredToCategory: Story = {
 };
 
 /**
+ * The chips under a search. The caret is up — a search is when the chips are
+ * wanted most — and the panel it opens is the same one. Ticking "Unread" leaves
+ * `your is:unread` in the field: the chip and the term are one state, so what
+ * is narrowing the list can be read, edited and deleted where it was typed.
+ *
+ * "From contacts" and "Today" have no term in the search vocabulary and keep
+ * narrowing from the panel's own set, which is why they stay on the row.
+ */
+export const SearchWithChips: Story = {
+	render: () => (
+		<MailShell
+			{...brief}
+			sections={briefSections()}
+			briefFilters
+			query="your"
+			searchCommitted
+			filterOpen
+		/>
+	),
+};
+
+/**
+ * A query made of nothing but chips. "Make this a filter" is still offered and
+ * still pressable; the reason it cannot convert names the facet in the way,
+ * because a read state is not something a filter's clauses match on.
+ */
+export const SearchOfChipsOnly: Story = {
+	render: () => (
+		<MailShell
+			{...brief}
+			sections={briefSections()}
+			briefFilters
+			query="is:unread"
+			searchCommitted
+			searchTokens={["Unread"]}
+			makeFilterBlockedReason="Unread isn't a filter condition — add a sender or words to filter on"
+			filterOpen
+		/>
+	),
+};
+
+/**
  * A shift-range that crosses a section boundary: the last row of the first
  * section through the first two of the next, in the order the rows are on
  * screen. Section membership is not part of the range — the visible row order
