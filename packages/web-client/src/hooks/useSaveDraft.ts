@@ -32,6 +32,7 @@ export const useSaveDraft = ({
 	const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
 	const [saveError, setSaveError] = useState<unknown>(null);
 	const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	const closedIdsRef = useRef<Set<string>>(new Set());
 	const queryClient = useQueryClient();
 
 	const createMutation = useMutation(
@@ -88,6 +89,7 @@ export const useSaveDraft = ({
 
 	const saveDraft = useCallback(
 		(data: DraftData) => {
+			if (outboxMessageId && closedIdsRef.current.has(outboxMessageId)) return;
 			if (timerRef.current) clearTimeout(timerRef.current);
 			timerRef.current = setTimeout(() => {
 				// Keep the real error, not just a vague "error" status — the caller
@@ -99,7 +101,7 @@ export const useSaveDraft = ({
 				});
 			}, 2000);
 		},
-		[executeSave],
+		[executeSave, outboxMessageId],
 	);
 
 	const saveImmediately = useCallback(
@@ -110,9 +112,15 @@ export const useSaveDraft = ({
 		[executeSave],
 	);
 
-	const cancelAutoSave = useCallback(() => {
+	// Called with an id, the entry is closed to autosave for good. Sending and
+	// discarding both take the entry out of draft, and the compose effect that
+	// schedules autosaves re-runs on every mutation settling — so dropping the
+	// pending timer alone leaves the next render free to schedule another write
+	// against an entry the server will refuse (#604).
+	const stopAutoSave = useCallback((closedOutboxMessageId?: string) => {
 		if (timerRef.current) clearTimeout(timerRef.current);
+		if (closedOutboxMessageId) closedIdsRef.current.add(closedOutboxMessageId);
 	}, []);
 
-	return { saveStatus, saveError, saveDraft, saveImmediately, cancelAutoSave };
+	return { saveStatus, saveError, saveDraft, saveImmediately, stopAutoSave };
 };

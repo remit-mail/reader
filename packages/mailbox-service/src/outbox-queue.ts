@@ -5,6 +5,7 @@ import type {
 	IOutboxMessageRepository,
 	OutboxMessageItem,
 } from "@remit/data-ports";
+import { ConflictError } from "@remit/data-ports/errors";
 import { OutboxMessageStatus } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 
@@ -31,6 +32,7 @@ export interface OutboxQueueConfig {
 	accountService: IAccountRepository;
 	sqsSmtpQueueUrl: string;
 	sqsEndpoint?: string;
+	sqsClient?: SQSClient;
 	logger?: OutboxQueueLogger;
 }
 
@@ -91,10 +93,12 @@ export class OutboxQueueService {
 		this.queueUrl = sqsSmtpQueueUrl;
 		this.log = config.logger ?? noopLogger;
 
-		this.sqs = createQueueProducer({
-			queueUrl: sqsSmtpQueueUrl,
-			endpoint: sqsEndpoint,
-		});
+		this.sqs =
+			config.sqsClient ??
+			createQueueProducer({
+				queueUrl: sqsSmtpQueueUrl,
+				endpoint: sqsEndpoint,
+			});
 	}
 
 	createDraft = async (input: CreateDraftInput): Promise<OutboxMessageItem> => {
@@ -137,8 +141,8 @@ export class OutboxQueueService {
 			"act",
 		);
 		if (existing.status !== OutboxMessageStatus.draft) {
-			throw new Error(
-				`Cannot update outbox message with status: ${existing.status}`,
+			throw new ConflictError(
+				`This message is already ${existing.status} and can no longer be edited as a draft. Start a new message to change it.`,
 			);
 		}
 
@@ -184,8 +188,8 @@ export class OutboxQueueService {
 			existing.status !== OutboxMessageStatus.failed &&
 			existing.status !== OutboxMessageStatus.blocked
 		) {
-			throw new Error(
-				`Cannot send outbox message with status: ${existing.status}`,
+			throw new ConflictError(
+				`This message is already ${existing.status} and cannot be sent again. Open the Outbox to see where it stands.`,
 			);
 		}
 
@@ -252,8 +256,8 @@ export class OutboxQueueService {
 			existing.status !== OutboxMessageStatus.failed &&
 			existing.status !== OutboxMessageStatus.blocked
 		) {
-			throw new Error(
-				`Cannot delete outbox message with status: ${existing.status}`,
+			throw new ConflictError(
+				`This message is already ${existing.status} and can no longer be discarded. Open the Outbox to see where it stands.`,
 			);
 		}
 
