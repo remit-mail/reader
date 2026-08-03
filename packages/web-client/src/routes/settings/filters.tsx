@@ -11,9 +11,10 @@ import { FilterEditorSurface } from "@/components/settings/FilterEditorSurface";
 import { FiltersList } from "@/components/settings/FiltersList";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useDeleteFilter, useFilterList } from "@/hooks/useFilters";
+import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
 import { useLabelList } from "@/hooks/useLabels";
-import { getMailboxDisplayName } from "@/lib/folder-roles";
-import { buildMoveTargets } from "@/lib/move-targets";
+import { buildMailboxRoleMap, labelForMailbox } from "@/lib/folder-roles";
+import { buildMoveOptions, folderDelimiter } from "@/lib/move-options";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
 
 export const Route = createFileRoute("/settings/filters")({
@@ -50,27 +51,33 @@ export function AccountFilters({
 		staleTime: Infinity,
 	});
 
+	const translator = useFolderLabelTranslator();
+	const roleMap = useMemo(
+		() => buildMailboxRoleMap(account.folderAppointments),
+		[account.folderAppointments],
+	);
+
 	const mailboxName = useCallback(
 		(mailboxId: string): string | undefined => {
 			const mailbox = mailboxesData?.items.find(
 				(item) => item.mailboxId === mailboxId,
 			);
-			return mailbox ? getMailboxDisplayName(mailbox.fullPath) : undefined;
+			if (!mailbox) return undefined;
+			return labelForMailbox(mailbox, roleMap.get(mailboxId), translator);
 		},
-		[mailboxesData?.items],
+		[mailboxesData?.items, roleMap, translator],
 	);
 
 	const folders = useMemo(
 		() =>
-			buildMoveTargets(
-				mailboxesData?.items ?? [],
-				account.folderAppointments,
-			).map((mailbox) => ({
-				id: mailbox.mailboxId,
-				label: getMailboxDisplayName(mailbox.fullPath),
-			})),
-		[mailboxesData?.items, account.folderAppointments],
+			buildMoveOptions({
+				mailboxes: mailboxesData?.items ?? [],
+				folderAppointments: account.folderAppointments,
+				translator,
+			}),
+		[mailboxesData?.items, account.folderAppointments, translator],
 	);
+	const delimiter = folderDelimiter(mailboxesData?.items ?? []);
 
 	const { labels: labelItems } = useLabelList(accountId);
 	const labels: LabelOption[] = useMemo(
@@ -99,6 +106,7 @@ export function AccountFilters({
 					accountId={accountId}
 					filter={editingFilter}
 					folders={folders}
+					delimiter={delimiter}
 					labels={labels}
 					onClose={() => setEditingFilterId(undefined)}
 				/>

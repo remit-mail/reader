@@ -1,5 +1,5 @@
 import type { RemitImapFilterResponse } from "@remit/api-http-client/types.gen.ts";
-import { BottomSheet, type FolderOption, type LabelOption } from "@remit/ui";
+import { BottomSheet, type FolderTreeNode, type LabelOption } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -17,11 +17,20 @@ import { FilterEditor } from "./FilterEditor";
 
 const ACCOUNT_ID = "acc-1";
 
-const FOLDERS: FolderOption[] = [
-	{ id: "mbx-inbox", label: "Inbox" },
-	{ id: "mbx-archive", label: "Archive" },
-	{ id: "mbx-receipts", label: "Receipts" },
-	{ id: "mbx-travel", label: "Travel" },
+// Two folders named Receipts at different depths, and a Trash the account has
+// renamed: the destination reads as the user names it and nests where the
+// provider puts it.
+const FOLDERS: FolderTreeNode[] = [
+	{ id: "mbx-inbox", label: "Inbox", path: "INBOX" },
+	{ id: "mbx-archive", label: "Archive", path: "INBOX/Archive" },
+	{ id: "mbx-receipts", label: "Receipts", path: "INBOX/Receipts" },
+	{ id: "mbx-travel", label: "Travel", path: "INBOX/Travel" },
+	{
+		id: "mbx-travel-receipts",
+		label: "Receipts",
+		path: "INBOX/Travel/Receipts",
+	},
+	{ id: "mbx-trash", label: "Trash", path: "INBOX/Prullenbak" },
 ];
 
 const LABELS: LabelOption[] = [

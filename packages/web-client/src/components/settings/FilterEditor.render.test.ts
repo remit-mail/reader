@@ -35,8 +35,8 @@ afterEach(() => {
 const ACCOUNT_ID = "acc-1";
 
 const FOLDERS = [
-	{ id: "mbx-receipts", label: "Receipts" },
-	{ id: "mbx-archive", label: "Archive" },
+	{ id: "mbx-receipts", label: "Receipts", path: "INBOX/Receipts" },
+	{ id: "mbx-archive", label: "Archive", path: "INBOX/Archive" },
 ];
 
 const filterFixture = (

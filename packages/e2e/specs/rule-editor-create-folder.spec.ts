@@ -1,7 +1,7 @@
 /**
- * Creating a folder from the filter rule editor's move destination (PR #282).
- * The editor's "Move matches to" select carries a "＋ New folder…" option that
- * reveals a name field; creating there makes the new folder the rule's
+ * Creating a folder from the filter rule editor's move destination (#549). The
+ * editor's "Move matches to" opens the browsable folder tree, which makes a new
+ * folder inside the folder it is looking at and picks it as the rule's
  * destination.
  *
  * A standing filter is seeded and opened in Settings › Filters — the same
@@ -82,20 +82,18 @@ test.describe("Create folder from the rule editor", () => {
 			.getByRole("button", { name: `Edit filter ${FILTER_NAME}` })
 			.click();
 
-		const destination = page.getByRole("combobox", {
-			name: "Destination folder",
-		});
-		await expect(destination).toBeVisible({ timeout: 20_000 });
-		await destination.selectOption({ label: "＋ New folder…" });
+		const chooseFolder = page.getByRole("button", { name: "Choose a folder" });
+		await expect(chooseFolder).toBeVisible({ timeout: 20_000 });
+		await chooseFolder.click();
 
-		const newFolderField = page.getByRole("textbox", {
-			name: "New folder name",
-		});
+		await page.getByRole("button", { name: "New folder", exact: true }).click();
+
+		const newFolderField = page.getByLabel("Folder name");
 		await expect(newFolderField).toBeVisible({ timeout: 10_000 });
 		await newFolderField.fill(FOLDER_NAME);
 		await page.getByRole("button", { name: "Create folder" }).click();
 
-		// The created folder becomes the selected destination in the editor.
+		// The created folder becomes the chosen destination in the editor.
 		const created = await waitFor(
 			() => api.listMailboxes(run.accountId),
 			(boxes) => boxes.some((b) => b.fullPath === FOLDER_NAME),
@@ -103,9 +101,9 @@ test.describe("Create folder from the rule editor", () => {
 		);
 		const folder = created.find((b) => b.fullPath === FOLDER_NAME);
 		if (!folder) throw new Error("unreachable: folder matched but not found");
-		await expect(destination).toHaveValue(folder.mailboxId, {
-			timeout: 10_000,
-		});
+		await expect(
+			page.getByText(`Moving matches to ${FOLDER_NAME}.`),
+		).toBeVisible({ timeout: 10_000 });
 
 		await page.getByRole("button", { name: "Save rule" }).click();
 

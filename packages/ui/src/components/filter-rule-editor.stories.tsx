@@ -13,7 +13,6 @@ import {
 	demoSubjectPrefillRule,
 	demoVocabularyRule,
 	type FilterRule,
-	type FolderOption,
 	type LabelOption,
 	type PreviewCount,
 	type RuleClause,
@@ -24,6 +23,7 @@ import {
 	FilterRuleEditor,
 	type FilterRuleEditorProps,
 } from "./filter-rule-editor.js";
+import type { FolderTreeNode } from "./folder-tree-picker.js";
 
 const meta: Meta<typeof FilterRuleEditor> = {
 	title: "FilterRuleEditor",
@@ -75,8 +75,9 @@ function LiveEditor({
 	labels?: LabelOption[];
 	onCreateFolder?: (
 		name: string,
+		parentPath: string,
 		signal?: AbortSignal,
-	) => Promise<FolderOption>;
+	) => Promise<FolderTreeNode>;
 	onCreateLabel?: (name: string) => Promise<LabelOption>;
 }) {
 	const [rule, setRule] = useState<FilterRule>(initialRule);
@@ -323,95 +324,172 @@ export const SubjectClauseStaysFreeText: Story = {
 	),
 };
 
+const tick = () => new Promise((resolve) => setTimeout(resolve, 60));
+
+const clickText = (canvasElement: HTMLElement, label: string) => {
+	Array.from(canvasElement.querySelectorAll<HTMLButtonElement>("button"))
+		.find((button) => button.textContent?.trim() === label)
+		?.click();
+};
+
+const clickAriaLabel = (canvasElement: HTMLElement, label: string) => {
+	canvasElement.querySelector<HTMLElement>(`[aria-label="${label}"]`)?.click();
+};
+
+const setInputValue = (input: HTMLInputElement, value: string) => {
+	Object.getOwnPropertyDescriptor(
+		HTMLInputElement.prototype,
+		"value",
+	)?.set?.call(input, value);
+	input.dispatchEvent(new Event("input", { bubbles: true }));
+};
+
+/** The create form's name field, found by the label the kit gives it. */
+const typeFolderName = (canvasElement: HTMLElement, name: string) => {
+	const label = Array.from(canvasElement.querySelectorAll("label")).find(
+		(node) => node.textContent?.trim() === "Folder name",
+	);
+	const id = label?.getAttribute("for");
+	const input = id
+		? canvasElement.querySelector<HTMLInputElement>(`input[id="${id}"]`)
+		: null;
+	if (input) setInputValue(input, name);
+};
+
+/** Opens the destination tree, which the field keeps closed until it is asked for. */
+const openDestinationTree = async (canvasElement: HTMLElement) => {
+	clickText(canvasElement, "Choose a folder");
+	await tick();
+};
+
+/** Opens a folder in the tree; tapping it both picks it and reveals its children. */
+const openFolder = async (canvasElement: HTMLElement, label: string) => {
+	clickAriaLabel(canvasElement, `Move to ${label}`);
+	await tick();
+};
+
+/**
+ * Drive the destination tree into its create form and submit it. `inside` names
+ * the folder the new one is made in; omitted makes it at the top level. Used by
+ * the pending and error stories below so each lands in the state it documents.
+ */
+async function createFolderFromTree(
+	canvasElement: HTMLElement,
+	folderName: string,
+	inside?: string,
+) {
+	await openDestinationTree(canvasElement);
+	if (inside) {
+		await openFolder(canvasElement, inside);
+		clickAriaLabel(canvasElement, `New folder inside ${inside}`);
+	} else {
+		clickAriaLabel(canvasElement, "New folder");
+	}
+	await tick();
+	typeFolderName(canvasElement, folderName);
+	await tick();
+	clickText(canvasElement, "Create folder");
+}
+
 let newFolderSeq = 0;
-const mockCreateFolder = (name: string): Promise<FolderOption> =>
+const mockCreateFolder = (
+	name: string,
+	parentPath: string,
+): Promise<FolderTreeNode> =>
 	new Promise((resolve) => {
 		newFolderSeq += 1;
 		setTimeout(
-			() => resolve({ id: `mbx-new-${newFolderSeq}`, label: name }),
+			() =>
+				resolve({
+					id: `mbx-new-${newFolderSeq}`,
+					label: name,
+					path: parentPath ? `${parentPath}/${name}` : name,
+				}),
 			400,
 		);
 	});
 
 /**
- * The move destination offers a "＋ New folder…" option because `onCreateFolder`
- * is wired. Choosing it reveals a name field; on resolve the folder is added to
- * the select and picked as the destination. Without the prop the option never
- * shows — the editor stays data-agnostic.
+ * The destination is chosen from the same browsable tree every other picker
+ * uses: open a folder to see what is inside it, filter to narrow, and make a
+ * new one where you are looking.
  */
-export const WithNewFolderOption: Story = {
+export const DestinationTree: Story = {
+	name: "Destination — browse the folder tree",
 	render: () => (
 		<LiveEditor initialRule={demoRule} onCreateFolder={mockCreateFolder} />
 	),
+	play: async ({ canvasElement }) => {
+		await openDestinationTree(canvasElement);
+	},
 };
 
 /**
- * Drive the destination field into its create sub-form: pick "＋ New folder…",
- * type a name, and press "Create folder". Used by the pending and error stories
- * below so each lands in the state it documents without a manual click-through.
+ * Two folders named Receipts, one at the top level and one inside Travel. The
+ * tree tells them apart by where they sit; a list of leaf names could not.
  */
-async function openCreateAndSubmit(
-	canvasElement: HTMLElement,
-	folderName: string,
-) {
-	const setSelectValue = Object.getOwnPropertyDescriptor(
-		HTMLSelectElement.prototype,
-		"value",
-	)?.set;
-	const setInputValue = Object.getOwnPropertyDescriptor(
-		HTMLInputElement.prototype,
-		"value",
-	)?.set;
-	const select = canvasElement.querySelector<HTMLSelectElement>(
-		'select[aria-label="Destination folder"]',
-	);
-	if (!select) return;
-	setSelectValue?.call(select, CREATE_FOLDER_STORY_VALUE);
-	select.dispatchEvent(new Event("change", { bubbles: true }));
-	const input = canvasElement.querySelector<HTMLInputElement>(
-		'input[aria-label="New folder name"]',
-	);
-	if (!input) return;
-	setInputValue?.call(input, folderName);
-	input.dispatchEvent(new Event("input", { bubbles: true }));
-	const createButton = Array.from(
-		canvasElement.querySelectorAll<HTMLButtonElement>("button"),
-	).find((button) => button.textContent?.trim() === "Create folder");
-	createButton?.click();
-}
+export const DestinationNestedFolders: Story = {
+	name: "Destination — a nested folder and its same-named sibling",
+	render: () => (
+		<LiveEditor initialRule={demoRule} onCreateFolder={mockCreateFolder} />
+	),
+	play: async ({ canvasElement }) => {
+		await openDestinationTree(canvasElement);
+		await openFolder(canvasElement, "Travel");
+	},
+};
 
-/** Matches the internal CREATE_FOLDER_VALUE option in the destination select. */
-const CREATE_FOLDER_STORY_VALUE = "__filter_create_folder__";
+/**
+ * A new folder is made inside the folder the tree is looking at, so a filter can
+ * point at `Travel/Car hire` without leaving the editor.
+ */
+export const NewFolderInsideAnother: Story = {
+	name: "New folder — inside the folder you opened",
+	render: () => (
+		<LiveEditor initialRule={demoRule} onCreateFolder={mockCreateFolder} />
+	),
+	play: async ({ canvasElement }) => {
+		await openDestinationTree(canvasElement);
+		await openFolder(canvasElement, "Travel");
+		clickAriaLabel(canvasElement, "New folder inside Travel");
+		await tick();
+		typeFolderName(canvasElement, "Car hire");
+	},
+};
 
 /** Mirrors the web-client wait's honest timeout copy. */
 const TIMEOUT_MESSAGE =
 	"The folder was created but the mail server hasn't confirmed it yet, so nothing was attached to it. It's in your folder list — try again in a moment.";
 
-const tick = () => new Promise((resolve) => setTimeout(resolve, 60));
+const neverResolvesCreateFolder = (): Promise<FolderTreeNode> =>
+	new Promise<FolderTreeNode>(() => undefined);
 
-const neverResolvesCreateFolder = (): Promise<FolderOption> =>
-	new Promise<FolderOption>(() => undefined);
-
-const rejectingCreateFolder = (message: string) => (): Promise<FolderOption> =>
-	Promise.reject(new Error(message));
+const rejectingCreateFolder =
+	(message: string) => (): Promise<FolderTreeNode> =>
+		Promise.reject(new Error(message));
 
 /** Rejects the first attempt, resolves the retry — the resume the hook performs. */
 const failThenSucceedCreateFolder = () => {
 	let attempts = 0;
-	return (name: string): Promise<FolderOption> => {
+	return (name: string, parentPath: string): Promise<FolderTreeNode> => {
 		attempts += 1;
 		return attempts === 1
 			? Promise.reject(new Error(TIMEOUT_MESSAGE))
-			: Promise.resolve({ id: "mbx-created", label: name });
+			: Promise.resolve({
+					id: "mbx-created",
+					label: name,
+					path: parentPath ? `${parentPath}/${name}` : name,
+				});
 	};
 };
 
 /** Never resolves on its own; rejects with an AbortError when the signal aborts. */
 const abortAwareCreateFolder = (
 	_name: string,
+	_parentPath: string,
 	signal?: AbortSignal,
-): Promise<FolderOption> =>
-	new Promise<FolderOption>((_resolve, reject) => {
+): Promise<FolderTreeNode> =>
+	new Promise<FolderTreeNode>((_resolve, reject) => {
 		signal?.addEventListener("abort", () =>
 			reject(new DOMException("Aborted", "AbortError")),
 		);
@@ -420,8 +498,7 @@ const abortAwareCreateFolder = (
 /**
  * The folder is a dependent write for the filter, so creating it waits for the
  * mail server to confirm the folder before it can be picked as the destination.
- * The wait shows as "Creating folder…" — held for the whole confirmation, not
- * just a fast optimistic round-trip.
+ * The wait is held in the form, which refuses a second submit while it runs.
  */
 export const NewFolderCreating: Story = {
 	name: "New folder — creating (waiting for the server)",
@@ -432,7 +509,7 @@ export const NewFolderCreating: Story = {
 		/>
 	),
 	play: async ({ canvasElement }) => {
-		await openCreateAndSubmit(canvasElement, "Receipts");
+		await createFolderFromTree(canvasElement, "Receipts");
 	},
 };
 
@@ -452,7 +529,7 @@ export const NewFolderCreateFailed: Story = {
 		/>
 	),
 	play: async ({ canvasElement }) => {
-		await openCreateAndSubmit(canvasElement, "Receipts");
+		await createFolderFromTree(canvasElement, "Receipts");
 	},
 };
 
@@ -470,7 +547,7 @@ export const NewFolderCreateTimedOut: Story = {
 		/>
 	),
 	play: async ({ canvasElement }) => {
-		await openCreateAndSubmit(canvasElement, "Receipts");
+		await createFolderFromTree(canvasElement, "Receipts");
 	},
 };
 
@@ -489,19 +566,16 @@ export const NewFolderCreateRetrySucceeds: Story = {
 		/>
 	),
 	play: async ({ canvasElement }) => {
-		await openCreateAndSubmit(canvasElement, "Receipts");
+		await createFolderFromTree(canvasElement, "Receipts", "Travel");
 		await tick();
-		const retry = Array.from(
-			canvasElement.querySelectorAll<HTMLButtonElement>("button"),
-		).find((button) => button.textContent?.trim() === "Create folder");
-		retry?.click();
+		clickText(canvasElement, "Create folder");
 	},
 };
 
 /**
- * Cancelling while "Creating folder…" is in flight aborts the wait: the create
- * promise rejects with an AbortError the field swallows, so no destination binds
- * after the user backed out — the sub-form just closes.
+ * Cancelling while the create is in flight aborts the wait: the create promise
+ * rejects with an AbortError the form swallows, so no destination binds after
+ * the user backed out — the form just closes.
  */
 export const NewFolderCreateCancelledMidWait: Story = {
 	name: "New folder — cancel aborts the wait",
@@ -512,12 +586,9 @@ export const NewFolderCreateCancelledMidWait: Story = {
 		/>
 	),
 	play: async ({ canvasElement }) => {
-		await openCreateAndSubmit(canvasElement, "Receipts");
+		await createFolderFromTree(canvasElement, "Receipts");
 		await tick();
-		const cancel = Array.from(
-			canvasElement.querySelectorAll<HTMLButtonElement>("button"),
-		).find((button) => button.textContent?.trim() === "Cancel");
-		cancel?.click();
+		clickText(canvasElement, "Cancel");
 	},
 };
 
