@@ -1775,7 +1775,17 @@ stop_everything() {
 }
 
 start_gate_set() {
-	RUN_MIGRATE_BEFORE=$(service_cid migrate)
+	# The cid is read once per run, at the first start, and carried from there —
+	# through the breadcrumb into a recovery, and into a rollback. Compose leaves
+	# an already-recreated one-shot alone when nothing in the configuration
+	# moved, so a second read after an interruption hands the gate the same cid
+	# on both sides and rolls a migrated release back over its own database.
+	# `none` is the reading taken when there was no migrate container at all: a
+	# value, so a later run can tell it from never having looked.
+	if [ -z "$RUN_MIGRATE_BEFORE" ]; then
+		RUN_MIGRATE_BEFORE=$(service_cid migrate)
+		if [ -z "$RUN_MIGRATE_BEFORE" ]; then RUN_MIGRATE_BEFORE=none; fi
+	fi
 	breadcrumb_write
 	# shellcheck disable=SC2086 # GATE_SET is a service list, split on purpose
 	compose up -d $GATE_SET
@@ -2005,7 +2015,7 @@ recover_run() {
 			"remit status"
 		rm -rf "$STATE_DIR/snapshots/$RUN_ID"
 		;;
-	stopping | starting | verifying | committing)
+	stopping | starting | verifying)
 		phase verifying "Checking whether $RUN_TARGET came up after an interrupted update." "remit logs backend"
 		# A fresh `compose up` here is what re-reads .env: `unless-stopped` does
 		# not restart containers that were explicitly stopped, so a host reboot
@@ -2016,6 +2026,17 @@ recover_run() {
 			return 0
 		fi
 		roll_back "$GATE_REASON"
+		;;
+	committing)
+		# The gate has already passed by this phase, so the only legal outcome is
+		# succeeded. The migration is applied and the snapshot beside it is older
+		# than everything the instance has served since the verdict; restoring it
+		# would destroy those writes, whatever a second gate says about how the
+		# stack is doing now. Bringing the app plane back up is all that is left.
+		phase committing "Finishing the update to $RUN_TARGET." "remit logs backend"
+		# shellcheck disable=SC2086 # GATE_SET is a service list, split on purpose
+		compose up -d $GATE_SET
+		commit_run
 		;;
 	rollingBack)
 		# The only legal outcomes here are rolledBack and rollbackFailed,

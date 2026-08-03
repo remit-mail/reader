@@ -14,7 +14,9 @@
 #   restore=ok|fail           the restore helper container
 #   migrate_exit=N            this run's migrate exit code
 #   migrate_exit2=N           the same after a restore, for the rollback's gate
-#   migrate_recreate=yes|no   whether `up -d` gives migrate a new container id
+#   migrate_recreate=yes|no   forces whether `up -d` gives migrate a new
+#                             container id; unset, the compose file and .env
+#                             decide, the way Compose decides
 #   health=healthy|unhealthy  what the gate's healthchecks report
 #   health2=...               the same after a restore
 #   probe=ok|fail             GET /health
@@ -35,6 +37,9 @@ set -eu
 
 S="$FAKE_DOCKER_DIR"
 mkdir -p "$S"
+
+_env_file=""
+_compose_file=""
 
 log() { printf '%s\n' "$*" >>"$S/log"; }
 
@@ -107,14 +112,36 @@ next_id() {
 	printf 'c%s%s' "$1" "$_n"
 }
 
+# Compose recreates a container when the configuration it was started from has
+# moved, and leaves it alone when it has not. The exited migrate one-shot is
+# where that shows: an `up` against an unchanged .env and compose file reuses
+# it, so the container id is the same on both sides of a gate that reads it.
+# env-seen-<svc>/compose-seen-<svc> are the copies each container was started
+# from; a test seeds them to say the stack is already in sync with the
+# deployment on disk.
+config_moved() {
+	[ -n "$_env_file" ] && [ -n "$_compose_file" ] || return 0
+	cmp -s "$_env_file" "$S/env-seen-$1" || return 0
+	cmp -s "$_compose_file" "$S/compose-seen-$1" || return 0
+	return 1
+}
+
 recreate() {
-	if [ "$1" = "migrate" ] && [ "$(pick migrate_recreate yes)" = "no" ] &&
-		[ -f "$S/cid-migrate" ]; then
+	_forced=""
+	if [ "$1" = "migrate" ]; then _forced=$(pick migrate_recreate ""); fi
+	if [ "$_forced" = "no" ] && [ -f "$S/cid-$1" ]; then
+		return 0
+	fi
+	if [ "$_forced" != "yes" ] && [ -f "$S/cid-$1" ] && ! config_moved "$1"; then
 		return 0
 	fi
 	_id=$(next_id "$1")
 	printf '%s' "$_id" >"$S/cid-$1"
 	printf '%s' "$1" >"$S/svc-$_id"
+	if [ -n "$_env_file" ] && [ -n "$_compose_file" ]; then
+		cp "$_env_file" "$S/env-seen-$1"
+		cp "$_compose_file" "$S/compose-seen-$1"
+	fi
 }
 
 svc_of() { cat "$S/svc-$1" 2>/dev/null || printf unknown; }
@@ -184,8 +211,18 @@ up_refuses() {
 
 compose_cmd() {
 	_all_profiles=0
+	_env_file=""
+	_compose_file=""
 	while [ $# -gt 0 ]; do
 		case "$1" in
+		--env-file)
+			_env_file=$2
+			shift 2
+			;;
+		-f)
+			_compose_file=$2
+			shift 2
+			;;
 		--profile)
 			# `profile_star=ignored` is Compose below 2.30, where `*` is a profile
 			# name like any other and matches none: the flag is accepted and
@@ -194,7 +231,7 @@ compose_cmd() {
 			[ "$2" = "*" ] && [ "$(val profile_star "")" != "ignored" ] && _all_profiles=1
 			shift 2
 			;;
-		--project-directory | -f | --env-file) shift 2 ;;
+		--project-directory) shift 2 ;;
 		-*) shift ;;
 		*) break ;;
 		esac
