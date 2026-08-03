@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 interface RequestContext {
 	origin?: string;
+	correlationId?: string;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();
@@ -11,6 +12,9 @@ export const runWithRequestContext = <T>(ctx: RequestContext, fn: () => T): T =>
 
 export const getRequestOrigin = (): string | undefined =>
 	storage.getStore()?.origin;
+
+export const getRequestCorrelationId = (): string | undefined =>
+	storage.getStore()?.correlationId;
 
 const parseAllowedOrigins = (): readonly string[] => {
 	const raw = process.env.CORS_ALLOWED_ORIGINS;

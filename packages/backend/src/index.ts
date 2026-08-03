@@ -160,15 +160,18 @@ const rawHandler = async (event: APIGatewayProxyEvent, context: Context) =>
 
 			const origin = readOriginHeader(event.headers);
 
-			if (usesBetterAuthJwt()) {
-				const denied = await authenticateSelfHostRequest(event);
-				if (denied) return denied;
-			}
+			return runWithRequestContext(
+				{ origin, correlationId: context.awsRequestId },
+				async () => {
+					if (usesBetterAuthJwt()) {
+						const denied = await authenticateSelfHostRequest(event);
+						if (denied) return denied;
+					}
 
-			return runWithRequestContext({ origin }, () =>
-				api
-					.handleRequest(normalizeRequest(event), event, context)
-					.catch(handleError),
+					return api
+						.handleRequest(normalizeRequest(event), event, context)
+						.catch(handleError);
+				},
 			);
 		},
 	);

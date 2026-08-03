@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import type { Context as OpenAPIContext } from "openapi-backend";
-import { postResponseHandler } from "./response.js";
+import { runWithRequestContext } from "./request-context.js";
+import { formatResponse, postResponseHandler } from "./response.js";
 
 type ValidateResponseFn = (
 	response: unknown,
@@ -103,5 +104,27 @@ describe("postResponseHandler validation gating", () => {
 			makeContext({ items: [{ id: 42 }] }, validate),
 		);
 		assert.equal(result.statusCode, 200);
+	});
+});
+
+// A bug report quotes the correlation id off the failing response. Without the
+// header it reads "(none)" and there is nothing to grep the server logs for.
+describe("the correlation id travels back on the response", () => {
+	it("carries the request's id, and exposes the header to the browser", () => {
+		const result = runWithRequestContext({ correlationId: "req-604" }, () =>
+			formatResponse({ message: "Conflict" }, 409),
+		);
+
+		assert.equal(result.headers?.["x-correlation-id"], "req-604");
+		assert.match(
+			String(result.headers?.["Access-Control-Expose-Headers"]),
+			/x-correlation-id/,
+		);
+	});
+
+	it("omits the header when the request carried no id", () => {
+		const result = formatResponse({ message: "Conflict" }, 409);
+
+		assert.equal(result.headers?.["x-correlation-id"], undefined);
 	});
 });

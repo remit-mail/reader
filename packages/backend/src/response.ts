@@ -1,7 +1,11 @@
 import { logger } from "@remit/logger-lambda";
 import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context as OpenAPIContext } from "openapi-backend";
-import { getRequestOrigin, resolveAllowedOrigin } from "./request-context.js";
+import {
+	getRequestCorrelationId,
+	getRequestOrigin,
+	resolveAllowedOrigin,
+} from "./request-context.js";
 
 export const formatResponse = (
 	body: Record<string, unknown>,
@@ -30,11 +34,23 @@ export const formatResponse = (
 		corsHeaders["Access-Control-Allow-Credentials"] = "true";
 	}
 
+	// The id the request's log lines are already tagged with. Returning it is
+	// what makes a bug report's "correlation id" resolve to a server-side line;
+	// the browser can only read a non-safelisted header when it is exposed.
+	const correlationId = getRequestCorrelationId();
+	const correlationHeaders: Record<string, string> = correlationId
+		? {
+				"x-correlation-id": correlationId,
+				"Access-Control-Expose-Headers": "x-correlation-id",
+			}
+		: {};
+
 	return {
 		statusCode: statusCode,
 		headers: {
 			"Content-Type": "application/json",
 			...corsHeaders,
+			...correlationHeaders,
 		},
 		body: JSON.stringify(body),
 	};

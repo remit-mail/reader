@@ -405,7 +405,7 @@ export const ComposeForm = ({
 		sourceMessage?.envelope.from[0]?.displayName ??
 		sourceMessage?.envelope.from[0]?.normalizedEmail;
 
-	const { saveStatus, saveError, saveDraft, cancelAutoSave } = useSaveDraft({
+	const { saveStatus, saveError, saveDraft, stopAutoSave } = useSaveDraft({
 		outboxMessageId,
 		onDraftCreated: setOutboxMessageId,
 	});
@@ -504,7 +504,7 @@ export const ComposeForm = ({
 	const handleSend = useCallback(async () => {
 		if (!selectedAccountId || toAddresses.length === 0) return;
 
-		cancelAutoSave();
+		stopAutoSave();
 
 		const replyData =
 			sourceMessage && (mode === "reply" || mode === "reply_all")
@@ -534,7 +534,7 @@ export const ComposeForm = ({
 						subject: subject || undefined,
 						textBody: textBody || undefined,
 						htmlBody: htmlBody || undefined,
-						sendImmediately: true,
+						sendImmediately: false,
 						...replyData,
 					},
 				})
@@ -570,6 +570,7 @@ export const ComposeForm = ({
 			});
 		if (sent === null) return;
 
+		stopAutoSave(messageId);
 		startSendPolling(messageId);
 		onClose();
 	}, [
@@ -584,7 +585,7 @@ export const ComposeForm = ({
 		outboxMessageId,
 		createMutation,
 		sendMutation,
-		cancelAutoSave,
+		stopAutoSave,
 		startSendPolling,
 		setOutboxMessageId,
 		pushError,
@@ -592,14 +593,14 @@ export const ComposeForm = ({
 	]);
 
 	const handleDiscard = useCallback(() => {
-		cancelAutoSave();
+		stopAutoSave(outboxMessageId);
 		if (outboxMessageId) {
 			deleteMutation.mutate({
 				path: { outboxMessageId },
 			});
 		}
 		onClose();
-	}, [cancelAutoSave, outboxMessageId, deleteMutation, onClose]);
+	}, [stopAutoSave, outboxMessageId, deleteMutation, onClose]);
 
 	const handleAccountChange = useCallback(
 		(acct: RemitImapAccountResponse) => {
