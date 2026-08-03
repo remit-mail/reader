@@ -71,7 +71,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",
-    "@hey-api/openapi-ts": "^0.90.10",
+    "@hey-api/openapi-ts": "^0.99.0",
     "@kattebak/typespec-drizzle-orm-generator": "^4.0.0",
     "@kattebak/typespec-enum-emitter": "^1.2.2",
     "@kattebak/typespec-openapi-types-emitter": "^1.0.0",
@@ -98,6 +98,7 @@
     "brace-expansion@^2": "^2.1.4",
     "brace-expansion@^5": "^5.0.9",
     "fast-uri": "^3.1.4",
+    "js-yaml": "^4.3.0",
     "tar": "^7.5.21",
     "uuid": "^13.0.2"
   }
