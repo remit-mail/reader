@@ -6,6 +6,7 @@ import type {
 	RemitImapAddressResponse,
 	RemitImapThreadMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
+import { DisplayNameCorrespondence } from "@remit/domain-enums";
 import type {
 	AuthenticityIntel,
 	IntelligenceData,
@@ -97,6 +98,65 @@ function buildSenderFlags(
 	};
 }
 
+/** The brand the display name asserts, or `undefined` when it asserts none. */
+function claimedBrandOf(
+	thread: RemitImapThreadMessageResponse,
+): string | undefined {
+	if (!thread.fromName) return undefined;
+	if (thread.fromName === thread.fromEmail) return undefined;
+	return thread.fromName;
+}
+
+function joinDomains(domains: readonly string[]): string {
+	if (domains.length === 1) return domains[0];
+	return `${domains.slice(0, -1).join(", ")} and ${domains[domains.length - 1]}`;
+}
+
+/**
+ * The clauses naming what does not line up on a message whose signature checks
+ * out. Empty when everything the backend compared agreed — including when it
+ * compared nothing, which is every message the provider's filter did not
+ * already call spam.
+ */
+function describeSenderMismatch(
+	auth: NonNullable<RemitImapThreadMessageResponse["authenticity"]>,
+	claimedBrand: string | undefined,
+): string[] {
+	const clauses: string[] = [];
+	const correspondence = auth.displayNameCorrespondence;
+
+	if (claimedBrand) {
+		if (correspondence === DisplayNameCorrespondence.Unrelated) {
+			clauses.push(
+				`The name it shows, "${claimedBrand}", has nothing to do with that domain.`,
+			);
+		} else if (correspondence === DisplayNameCorrespondence.Lookalike) {
+			clauses.push(
+				`The name it shows, "${claimedBrand}", only looks like that domain.`,
+			);
+		}
+	}
+
+	const linkDomains = readDomainList(auth.offDomainLinkDomains);
+	if (linkDomains.length > 0) {
+		clauses.push(`Its links go to ${joinDomains(linkDomains.slice(0, 3))}.`);
+	}
+
+	return clauses;
+}
+
+/**
+ * The field is a JSON blob on the message row, so a value written by an older
+ * or drifted writer reaches here as whatever it happens to be. Anything that is
+ * not a list of non-empty strings carries no destination to name.
+ */
+function readDomainList(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return value.filter(
+		(entry): entry is string => typeof entry === "string" && entry.length > 0,
+	);
+}
+
 /**
  * Build authenticity intel from the thread message's authenticity field.
  *
@@ -130,6 +190,20 @@ export function buildAuthenticityIntel(
 		};
 	}
 	if (!auth.dkimMismatch) {
+		const claimed = claimedBrandOf(thread);
+		const unlike = describeSenderMismatch(auth, claimed);
+		if (unlike.length > 0) {
+			return {
+				verdict: "caution",
+				fromDomain: auth.fromDomain,
+				dkimDomain: auth.dkimDomain,
+				claimedBrand: claimed,
+				summary: [
+					`This message really was sent by ${auth.fromDomain}.`,
+					...unlike,
+				].join(" "),
+			};
+		}
 		return {
 			verdict: "aligned",
 			fromDomain: auth.fromDomain,
@@ -142,10 +216,7 @@ export function buildAuthenticityIntel(
 
 	const fromDomain = auth.fromDomain;
 	const dkimDomain = auth.dkimDomain;
-	const claimedBrand =
-		thread.fromName && thread.fromName !== thread.fromEmail
-			? thread.fromName
-			: undefined;
+	const claimedBrand = claimedBrandOf(thread);
 	const summary = claimedBrand
 		? `The display name claims "${claimedBrand}", but this message was actually sent from ${dkimDomain ?? "another sender"} — not ${fromDomain}. Real senders use their own address.`
 		: `This message claims to be from ${fromDomain}, but it was actually sent from ${dkimDomain ?? "a different sender"}.`;

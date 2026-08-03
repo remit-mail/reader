@@ -243,6 +243,108 @@ describe("buildAuthenticityIntel", () => {
 		}
 	});
 
+	describe("a passing signature over a claim that does not hold", () => {
+		// The InfoMedics invoice phish: an attacker's own free Atlassian tenant,
+		// so SPF/DKIM/DMARC genuinely pass for a domain nobody recognises, and the
+		// provider's own filter already called it spam.
+		const infoMedics = makeThread({
+			fromEmail: "jira@serviceupdatebank.atlassian.net",
+			fromName: "InfoMedics",
+			subject: "Vordering",
+			authenticity: {
+				fromDomain: "serviceupdatebank.atlassian.net",
+				dkimDomain: "custmx.one.com",
+				dkimMismatch: false,
+				displayNameCorrespondence: "Unrelated",
+				offDomainLinkDomains: ["betaal-vordering.example"],
+			},
+		} as Partial<RemitImapThreadMessageResponse>);
+
+		test("is never presented as verified", () => {
+			const result = buildAuthenticityIntel(infoMedics, 0);
+			assert.notEqual(result.verdict, "aligned");
+			assert.doesNotMatch(result.summary, /We verified/i);
+		});
+
+		test("names the display name and the link destination", () => {
+			const result = buildAuthenticityIntel(infoMedics, 0);
+			assert.equal(result.verdict, "caution");
+			assert.match(result.summary, /really was sent by/);
+			assert.match(result.summary, /"InfoMedics"/);
+			assert.match(result.summary, /betaal-vordering\.example/);
+			assert.doesNotMatch(result.summary, /DKIM|SPF|DMARC/i);
+		});
+
+		test("a lookalike display name reads as an imitation", () => {
+			const result = buildAuthenticityIntel(
+				makeThread({
+					fromEmail: "billing@1nfomedics.nl",
+					fromName: "InfoMedics",
+					authenticity: {
+						fromDomain: "1nfomedics.nl",
+						dkimDomain: "1nfomedics.nl",
+						dkimMismatch: false,
+						displayNameCorrespondence: "Lookalike",
+						offDomainLinkDomains: [],
+					},
+				} as Partial<RemitImapThreadMessageResponse>),
+				0,
+			);
+			assert.equal(result.verdict, "caution");
+			assert.match(result.summary, /only looks like/);
+		});
+
+		test("stays verified when the comparisons agreed", () => {
+			const result = buildAuthenticityIntel(
+				makeThread({
+					fromEmail: "notifications@notifications.github.com",
+					fromName: "GitHub",
+					authenticity: {
+						fromDomain: "notifications.github.com",
+						dkimDomain: "github.com",
+						dkimMismatch: false,
+						displayNameCorrespondence: "Corresponds",
+						offDomainLinkDomains: [],
+					},
+				} as Partial<RemitImapThreadMessageResponse>),
+				0,
+			);
+			assert.equal(result.verdict, "aligned");
+		});
+
+		test("stays verified when nothing was compared", () => {
+			const result = buildAuthenticityIntel(
+				makeThread({
+					fromEmail: "alice@example.com",
+					authenticity: {
+						fromDomain: "example.com",
+						dkimDomain: "example.com",
+						dkimMismatch: false,
+					},
+				} as Partial<RemitImapThreadMessageResponse>),
+				0,
+			);
+			assert.equal(result.verdict, "aligned");
+		});
+
+		test("a drifted link list carries no destination to name", () => {
+			const result = buildAuthenticityIntel(
+				makeThread({
+					fromEmail: "alice@example.com",
+					authenticity: {
+						fromDomain: "example.com",
+						dkimDomain: "example.com",
+						dkimMismatch: false,
+						displayNameCorrespondence: "Corresponds",
+						offDomainLinkDomains: "elsewhere.example",
+					},
+				} as unknown as Partial<RemitImapThreadMessageResponse>),
+				0,
+			);
+			assert.equal(result.verdict, "aligned");
+		});
+	});
+
 	describe("unparseable sender drives the red tier", () => {
 		test("mismatch + addressUnreadable when the domain has no dot", () => {
 			const thread = makeThread({

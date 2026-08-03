@@ -41,6 +41,7 @@ import "./OrganizeJobState.tsp";
 
 // Authentication Enums
 import "./AuthResultVerdict.tsp";
+import "./DisplayNameCorrespondence.tsp";
 
 // API Enums
 import "./SortOrder.tsp";
