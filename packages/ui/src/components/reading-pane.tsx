@@ -258,16 +258,22 @@ function MessageToolbar({
 	intelligenceOpen,
 	onToggleIntelligence,
 	canToggleIntelligence = false,
+	isStarred,
+	moveSlot,
 }: {
 	hasThread: boolean;
 	intelligenceOpen?: boolean;
 	onToggleIntelligence?: () => void;
 	canToggleIntelligence?: boolean;
+	isStarred?: boolean;
+	moveSlot?: ReactNode;
 }) {
 	const [hint, setHint] = useState<string | null>(null);
 	return (
 		<MailActionToolbar
 			hasThread={hasThread}
+			isStarred={isStarred}
+			moveSlot={moveSlot}
 			onUnavailable={() => setHint("Open a message first")}
 			unavailableHint={hint}
 		>
@@ -285,11 +291,18 @@ export function ReadingPane({
 	intelligenceOpen,
 	onToggleIntelligence,
 	canToggleIntelligence,
+	isStarred,
+	moveSlot,
 }: {
 	thread?: ThreadData;
 	intelligenceOpen?: boolean;
 	onToggleIntelligence?: () => void;
 	canToggleIntelligence?: boolean;
+	/** Whether the open message carries a star — the app derives it from the
+	 *  message's star colour, whose absent state is `none`. */
+	isStarred?: boolean;
+	/** The move-to-folder trigger, supplied by the app. */
+	moveSlot?: ReactNode;
 }) {
 	return (
 		<article className="flex h-full w-full min-w-0 flex-col bg-canvas">
@@ -298,6 +311,8 @@ export function ReadingPane({
 				intelligenceOpen={intelligenceOpen}
 				onToggleIntelligence={onToggleIntelligence}
 				canToggleIntelligence={canToggleIntelligence}
+				isStarred={isStarred}
+				moveSlot={moveSlot}
 			/>
 
 			{!thread ? (

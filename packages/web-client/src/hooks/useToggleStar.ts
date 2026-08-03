@@ -6,6 +6,7 @@ import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/type
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
+import { nextStarColor } from "@/lib/star";
 import { patchThreadListCache } from "@/lib/thread-cache";
 import {
 	cancelThreadListQueries,
@@ -71,7 +72,13 @@ export const toggleStarsInItems = (
 	nextStarred: boolean,
 ): RemitImapThreadMessageResponse[] =>
 	items.map((item) =>
-		item.messageId === messageId ? { ...item, hasStars: nextStarred } : item,
+		item.messageId === messageId
+			? {
+					...item,
+					hasStars: nextStarred,
+					star: nextStarColor(nextStarred),
+				}
+			: item,
 	);
 
 export const useToggleStar = ({

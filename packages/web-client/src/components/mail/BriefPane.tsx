@@ -47,6 +47,7 @@ import {
 	type ConversationTarget,
 } from "@/lib/conversation-target";
 import { useMailContext } from "@/lib/mail-context";
+import { isStarred } from "@/lib/star";
 
 /* ------------------------------------------------------------------ */
 /* Context                                                              */
@@ -318,7 +319,7 @@ function BriefReading() {
 				}
 				onDelete={hasThread ? actions.deleteThread : undefined}
 				onToggleStar={hasThread ? actions.toggleStar : undefined}
-				isStarred={actions.isStarred}
+				isStarred={isStarred(actions.star)}
 				moveContext={
 					hasThread && actions.accountId && actions.mailboxId
 						? {

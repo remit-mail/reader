@@ -1,4 +1,11 @@
-import { Button, inboxFilterConfig } from "@remit/ui";
+import {
+	AnchoredOverlay,
+	Button,
+	type FolderTreeNode,
+	FolderTreePicker,
+	inboxFilterConfig,
+	ReadingPane,
+} from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
 	Archive,
@@ -8,6 +15,7 @@ import {
 	Send,
 	Trash2,
 } from "lucide-react";
+import { useState } from "react";
 import { allThreads, q3Intelligence, q3Thread } from "../fixtures/workspace.js";
 import { MailShell } from "../screens/mail-shell.js";
 
@@ -67,6 +75,79 @@ export const MovePicker: Story = {
 		</div>
 	),
 };
+
+/**
+ * The picker as it opens in the app: hung off the Move button in the reading
+ * pane's toolbar, drawn over the thread list beside it (#601). Every pane of
+ * the shell clips its own content, so a panel that reaches past the pane edge
+ * only survives by being drawn on the page rather than inside the pane. The
+ * open message is starred here too, so the toolbar's lit star is on screen next
+ * to it (#602).
+ */
+export const MovePickerOverThreadList: Story = {
+	render: () => (
+		<MailShell
+			selectedNavId="mbx_personal_inbox"
+			listTitle="Inbox"
+			unreadCount={9}
+			sections={[{ id: "inbox", threads: allThreads }]}
+			preset={inboxFilterConfig()}
+			thread={q3Thread}
+			selectedThreadId="thr_q3"
+			reading={
+				<ReadingPane
+					thread={q3Thread}
+					isStarred
+					moveSlot={<OpenMovePicker />}
+				/>
+			}
+		/>
+	),
+};
+
+const MOVE_FOLDERS: FolderTreeNode[] = [
+	{ id: "inbox", label: "Inbox", path: "INBOX", isCurrent: true },
+	{ id: "archive", label: "Archive", path: "Archive" },
+	{ id: "receipts", label: "Receipts", path: "Receipts" },
+	{ id: "travel", label: "Travel", path: "Travel" },
+	{ id: "hotels", label: "Hotels", path: "Travel/Hotels" },
+];
+
+/** The live trigger, open on mount so the story shows the panel where it lands. */
+function OpenMovePicker() {
+	const [trigger, setTrigger] = useState<HTMLButtonElement | null>(null);
+	const [open, setOpen] = useState(true);
+	const [picked, setPicked] = useState<string>();
+	return (
+		<div className="inline-block">
+			<button
+				ref={setTrigger}
+				type="button"
+				aria-label="Move to mailbox"
+				aria-expanded={open}
+				onClick={() => setOpen((value) => !value)}
+				className="inline-flex min-h-11 min-w-11 items-center justify-center rounded hover:bg-surface-raised"
+			>
+				<FolderInput className="size-4" />
+			</button>
+			<AnchoredOverlay
+				anchor={trigger}
+				open={open}
+				onDismiss={() => setOpen(false)}
+				maxHeight={384}
+				className="flex w-72 flex-col overflow-hidden rounded-md border border-line bg-surface shadow-lg"
+			>
+				<FolderTreePicker
+					folders={MOVE_FOLDERS}
+					selectedId={picked}
+					delimiter="/"
+					onSelect={setPicked}
+					onCancel={() => setOpen(false)}
+				/>
+			</AnchoredOverlay>
+		</div>
+	);
+}
 
 const CATEGORIES = [
 	"personal",

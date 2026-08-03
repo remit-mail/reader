@@ -153,6 +153,29 @@ describe("MoveToTrigger", () => {
 		assert.equal(isOpen(), false);
 	});
 
+	/**
+	 * Issue #601: the picker was drawn inside the reading pane, and every pane of
+	 * the shell clips its content, so the panel was cut off at the pane's edge
+	 * and the thread list beside it covered the rest. The panel now hangs off the
+	 * trigger from the document, which is the only place it can overlap a
+	 * neighbouring pane.
+	 */
+	it("draws the open picker outside the pane that would clip it", () => {
+		const dom = mount({ mailboxes: FOLDERS });
+		dom.click(dom.byLabel("Move to folder"));
+
+		const rows = dom.queryAll("[role=treeitem]");
+		assert.ok(rows.length > 0, "the folder list is open");
+		for (const row of rows) {
+			assert.equal(
+				dom.container.contains(row),
+				false,
+				"a folder row inside the pane subtree is a row the pane can clip",
+			);
+		}
+		assert.equal(rows[0].closest("[aria-label='Move to folder']"), null);
+	});
+
 	it("refuses to open, and says why, when the selection spans accounts", () => {
 		const hint = "Select messages from one account to move them";
 		const dom = mount({ mailboxes: FOLDERS, disabledHint: hint });

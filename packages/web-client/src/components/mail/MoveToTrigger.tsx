@@ -1,15 +1,13 @@
 import { mailboxOperationsListMailboxesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import { Button, type FolderTreeNode, FolderTreePicker } from "@remit/ui";
+import {
+	AnchoredOverlay,
+	Button,
+	type FolderTreeNode,
+	FolderTreePicker,
+} from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { FolderInput } from "lucide-react";
-import {
-	useCallback,
-	useEffect,
-	useId,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { useCallback, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Drawer } from "vaul";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -68,7 +66,7 @@ export const MoveToTrigger = ({
 	const [isOpen, setIsOpen] = useState(false);
 	const [pickedId, setPickedId] = useState<string>();
 	const isDesktop = useIsDesktop();
-	const containerRef = useRef<HTMLDivElement>(null);
+	const [trigger, setTrigger] = useState<HTMLButtonElement | null>(null);
 	const triggerLabel = label ?? "Move to folder";
 	const popoverId = useId();
 	const { t } = useTranslation("mail", { useSuspense: false });
@@ -124,32 +122,11 @@ export const MoveToTrigger = ({
 		onMove(picked.id);
 	}, [picked, close, onMove]);
 
-	// Desktop popover: dismiss on outside click + Escape.
-	useEffect(() => {
-		if (!isOpen || !isDesktop) return;
-		const handlePointer = (event: MouseEvent) => {
-			if (
-				containerRef.current &&
-				!containerRef.current.contains(event.target as Node)
-			) {
-				close();
-			}
-		};
-		const handleKey = (event: KeyboardEvent) => {
-			if (event.key === "Escape") close();
-		};
-		document.addEventListener("mousedown", handlePointer);
-		document.addEventListener("keydown", handleKey);
-		return () => {
-			document.removeEventListener("mousedown", handlePointer);
-			document.removeEventListener("keydown", handleKey);
-		};
-	}, [isOpen, isDesktop, close]);
-
 	const isTriggerDisabled = disabled || !!disabledHint;
 
 	const TriggerButton = (
 		<button
+			ref={setTrigger}
 			type="button"
 			onClick={(event) => {
 				event.stopPropagation();
@@ -245,20 +222,23 @@ export const MoveToTrigger = ({
 	}
 
 	return (
-		<div ref={containerRef} className="relative inline-block">
+		<div className="inline-block">
 			{TriggerButton}
-			{isOpen && (
-				<div
-					id={popoverId}
-					className={cn(
-						"absolute right-0 mt-1 z-50 w-72 max-h-96 flex flex-col",
-						"bg-surface border border-line rounded-md shadow-lg",
-					)}
-				>
-					{pickerBody}
-					{confirmBar}
-				</div>
-			)}
+			<AnchoredOverlay
+				anchor={trigger}
+				open={isOpen}
+				onDismiss={close}
+				align="end"
+				maxHeight={384}
+				id={popoverId}
+				className={cn(
+					"flex w-72 flex-col overflow-hidden",
+					"rounded-md border border-line bg-surface shadow-lg",
+				)}
+			>
+				{pickerBody}
+				{confirmBar}
+			</AnchoredOverlay>
 		</div>
 	);
 };

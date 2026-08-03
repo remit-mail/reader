@@ -85,6 +85,10 @@ export const WithThread: Story = { args: { thread } };
  *  pipeline — the same rendering the live app shows (#940). */
 export const Newsletter: Story = { args: { thread: newsletterThread } };
 
+/** The open message is starred: the toolbar's star is lit and reports itself
+ *  pressed, matching the star on the message row (#602). */
+export const Starred: Story = { args: { thread, isStarred: true } };
+
 export const Empty: Story = { args: { thread: undefined } };
 
 export const WithIntelligenceToggle: Story = {

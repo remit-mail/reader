@@ -1,6 +1,10 @@
 /**
  * Mount-and-poke harness over the jsdom globals `dom-env.mjs` installs.
  *
+ * Queries run over the document body rather than the mount point: an overlay
+ * that hangs off a trigger is portalled out of the pane it was opened from, and
+ * it is still part of what the user is looking at.
+ *
  * Excluded from coverage by `test:run`; it lives under `src/` only because the
  * build's `rootDir` is `src/`. Node's test runner gives every test file its own
  * process, so nothing here leaks between files.
@@ -108,19 +112,19 @@ export const createDomHarness = (options: DomOptions = {}): DomHarness => {
 			container.remove();
 			setViewportWidth(DEFAULT_VIEWPORT_WIDTH);
 		},
-		html: () => container.innerHTML,
-		text: () => container.textContent ?? "",
+		html: () => document.body.innerHTML,
+		text: () => document.body.textContent ?? "",
 		query: <T extends Element = HTMLElement>(selector: string) =>
-			container.querySelector(selector) as T | null,
+			document.body.querySelector(selector) as T | null,
 		queryAll: <T extends Element = HTMLElement>(selector: string) =>
-			[...container.querySelectorAll(selector)] as T[],
+			[...document.body.querySelectorAll(selector)] as T[],
 		byLabel: (label) => {
-			const found = container.querySelector(`[aria-label="${label}"]`);
+			const found = document.body.querySelector(`[aria-label="${label}"]`);
 			if (!found) throw new Error(`no element labelled "${label}"`);
 			return found as HTMLElement;
 		},
 		byText: (selector, text) => {
-			const found = [...container.querySelectorAll(selector)].find((node) =>
+			const found = [...document.body.querySelectorAll(selector)].find((node) =>
 				(node.textContent ?? "").includes(text),
 			);
 			if (!found) throw new Error(`no ${selector} containing "${text}"`);

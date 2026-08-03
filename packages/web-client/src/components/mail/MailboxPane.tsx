@@ -25,7 +25,10 @@ import {
 	threadOperationsListThreads,
 	threadOperationsSearchThreads,
 } from "@remit/api-http-client/sdk.gen.ts";
-import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
+import type {
+	RemitImapStarColor,
+	RemitImapThreadMessageResponse,
+} from "@remit/api-http-client/types.gen.ts";
 import {
 	inboxFilterConfig,
 	type MessageListFilter,
@@ -123,6 +126,7 @@ import {
 	threadToSearchResult,
 } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
+import { isStarred } from "@/lib/star";
 import { useTelemetry } from "@/lib/telemetry-context";
 import {
 	applyResidualTokens,
@@ -203,6 +207,8 @@ interface MailboxPaneContextValue {
 	onClearComposeRequest: () => void;
 	onToolbarDelete: () => void;
 	onToolbarStar: () => void;
+	/** The open message's star colour, as the reading pane's control reads it. */
+	toolbarStar: RemitImapStarColor | undefined;
 	onToolbarDiscardDraft: () => void;
 	onToolbarMove: (destMailboxId: string) => void;
 	composeState: ReturnType<typeof useCompose>["state"];
@@ -890,6 +896,7 @@ function MailboxPaneProvider({
 		onClearComposeRequest: toolbarActions.clearComposeRequest,
 		onToolbarDelete: toolbarActions.deleteThread,
 		onToolbarStar: toolbarActions.toggleStar,
+		toolbarStar: toolbarActions.star,
 		onToolbarDiscardDraft: handleToolbarDiscardDraft,
 		onToolbarMove: toolbarActions.moveThread,
 		composeState,
@@ -1098,7 +1105,6 @@ function MailboxReading() {
 	const {
 		mailboxId,
 		mailboxAccountId,
-		selectedThread,
 		conversation,
 		hasRemitDraftOpen,
 		intelligenceOpen,
@@ -1110,6 +1116,7 @@ function MailboxReading() {
 		onClearComposeRequest,
 		onToolbarDelete,
 		onToolbarStar,
+		toolbarStar,
 		onToolbarDiscardDraft,
 		onToolbarMove,
 		composeState,
@@ -1162,7 +1169,7 @@ function MailboxReading() {
 							: undefined
 				}
 				onToggleStar={hasThread ? onToolbarStar : undefined}
-				isStarred={selectedThread?.hasStars}
+				isStarred={isStarred(toolbarStar)}
 				moveContext={
 					hasThread && mailboxAccountId
 						? {

@@ -12,6 +12,10 @@ export {
 } from "./components/address-display.js";
 export { AddressTag, type AddressTagProps } from "./components/address-tag.js";
 export {
+	AnchoredOverlay,
+	type AnchoredOverlayProps,
+} from "./components/anchored-overlay.js";
+export {
 	AppPasswordHint,
 	type AppPasswordHintProps,
 } from "./components/app-password-hint.js";
