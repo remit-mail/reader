@@ -24,6 +24,11 @@ x-app-env: &app-env
     BETTER_AUTH_TRUSTED_ORIGINS: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
     CONTENT_DELIVERY_DOMAIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
     CORS_ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
+    # The OAuth callback the browser is redirected back to, so it is the public
+    # origin's URL and not an in-network one. The string registered in the Entra
+    # app must match this exactly. Derived here for the same reason as the four
+    # above: moving a deployment to another hostname stays one .env edit.
+    MSOAUTH_REDIRECT_URI: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}/api/accounts/oauth/microsoft/callback
     # The backend is pinned here, not read from .env: choosing this compose file
     # is what selects SQLite, so the file and the backend can never disagree.
     # SQLITE_DB_PATH holds both the app schema and the better-auth identity
@@ -204,11 +209,19 @@ services:
 
   caddy:
     image: caddy:2-alpine
+    # The interface half of each publish is an operator value, defaulting to
+    # every interface — what a deployment that reaches its browsers directly
+    # needs. A tunnelled deployment sets both to a loopback address instead:
+    # the agent reaches caddy over the compose network, so the published port
+    # is only the operator's own way in over SSH while the tunnel is down.
     ports:
-      - "80:80"
-      - "443:443"
+      - "${CADDY_HTTP_BIND:-0.0.0.0:80}:80"
+      - "${CADDY_HTTPS_BIND:-0.0.0.0:443}:443"
     environment:
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
+      # Read by caddy/tunnel.caddy only. The default is the header Cloudflare's
+      # edge overwrites on every request; another provider's edge names its own.
+      TUNNEL_CLIENT_IP_HEADER: ${TUNNEL_CLIENT_IP_HEADER:-Cf-Connecting-Ip}
     volumes:
       - ./caddy/routes.caddy:/etc/caddy/routes.caddy:ro
       - ./caddy/${TLS_MODE:-off}.caddy:/etc/caddy/Caddyfile:ro
@@ -223,6 +236,37 @@ services:
     depends_on:
       - apisix
       - web
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------
+  # Reverse-tunnel agent (TLS_MODE=tunnel) — the outbound half of the serving
+  # path for a box with no public IP. It dials the provider's edge and holds
+  # the connection open; the edge terminates public TLS for PUBLIC_ORIGIN's
+  # host and hands requests back down it to caddy on this network. It publishes
+  # no port, and the hostname-to-service mapping lives at the provider, not
+  # here.
+  #
+  # Selected by a profile rather than by TLS_MODE, because compose has no
+  # conditional service. `.env` carries COMPOSE_PROFILES=tunnel beside
+  # TLS_MODE=tunnel, which compose reads from --env-file — so `remit restart`,
+  # `remit update` and a plain `docker compose up -d` all bring the agent up.
+  #
+  # TUNNEL_TOKEN is an environment variable and never a command argument: the
+  # credential routes traffic into this stack's network, and on the command
+  # line it would be readable in `docker inspect` and in `ps`.
+  #
+  # It is not `:?`-guarded like the required values elsewhere in this file:
+  # compose interpolates the whole document before it filters by profile, so a
+  # guard here would fail every command on every deployment that has never
+  # heard of a tunnel. An empty token stops the agent at startup with its own
+  # message, and `remit doctor` reports the tunnel as down.
+  # ---------------------------------------------------------------------
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
     restart: unless-stopped
 
   # ---------------------------------------------------------------------

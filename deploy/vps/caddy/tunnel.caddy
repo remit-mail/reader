@@ -1,0 +1,22 @@
+# TLS_MODE=tunnel — TLS terminates at a provider's edge. The `tunnel` compose
+# service dials that edge outbound and holds the connection open; requests come
+# back down it to this Caddy over the compose network, in plain HTTP. Nothing
+# dials in and no host port faces the internet, so there is no certificate here
+# and no name on the site address. PUBLIC_ORIGIN must be https://… — it is the
+# scheme the browser sees, which is the edge's.
+{
+	servers {
+		# The client IP is taken only from the header the edge overwrites on
+		# every request, and only from a connection inside the private ranges —
+		# which, with no host port published to the internet, is the only place
+		# a connection can arrive from. A forwarded header a browser sets is
+		# never read, so it cannot buy a fresh rate-limit bucket.
+		trusted_proxies static private_ranges
+		trusted_proxies_strict
+		client_ip_headers {$TUNNEL_CLIENT_IP_HEADER}
+	}
+}
+
+:80 {
+	import /etc/caddy/routes.caddy
+}
