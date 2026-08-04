@@ -30,6 +30,14 @@ TLS_MODE="internal"
 TAG="${REMIT_TAG:-latest}"
 DRY_RUN=0
 
+TUNNEL_TOKEN=""
+TUNNEL_TOKEN_FILE=""
+TUNNEL_TOKEN_SOURCE=""
+HTTP_BIND=""
+HTTP_BIND_PORT=""
+DEFAULT_TUNNEL_HTTP_BIND="127.0.0.1:8080"
+DEFAULT_HTTPS_BIND="0.0.0.0:443"
+
 COMPOSE_FILE="docker-compose.sqlite.yml"
 ASSETS=(
 	"docker-compose.sqlite.yml"
@@ -50,6 +58,7 @@ ASSETS=(
 	"caddy/internal.caddy"
 	"caddy/tailscale.caddy"
 	"caddy/acme.caddy"
+	"caddy/tunnel.caddy"
 )
 
 # Set once the remit admin wrapper is placed on PATH, so the summary can point
@@ -80,21 +89,40 @@ Required:
                      not at install.
 
 Options:
-  --tls-mode <mode>  internal | off | tailscale | acme     (default: internal)
+  --tls-mode <mode>  internal | off | tailscale | acme | tunnel
+                                                          (default: internal)
                        internal   HTTPS with Caddy's own CA, no external deps;
                                   browsers warn until you trust its root.
-                       off        plain HTTP; reach it over a tailnet/VPN/tunnel.
+                       off        plain HTTP; reach it over a tailnet/VPN.
                        tailscale  HTTPS via the local tailscaled.
                        acme       public Let's Encrypt; needs public DNS + 80/443.
+                       tunnel     TLS terminates at a provider's edge; an
+                                  outbound-only agent on this box holds the
+                                  connection open. No public IP, no port
+                                  forward, no inbound firewall rule.
   --dir <path>       Install directory                     (default: \$PWD/reader)
   --tag <tag>        Image tag                             (default: latest)
   --dry-run          Do everything except pull and start: check the host, fetch
                      assets, write .env, and validate the compose file.
   --help             This message.
 
+Only with --tls-mode tunnel:
+  --tunnel-token-file <path>
+                     File holding the tunnel credential on its first line. Read
+                     into .env and never printed. There is no flag that takes
+                     the credential itself: it would land in your shell history
+                     and in 'ps'. \$REMIT_TUNNEL_TOKEN does the same job.
+  --http-bind <addr:port>
+                     Loopback address Caddy is published on, your own route to
+                     the app while the tunnel is down.
+                                                  (default: $DEFAULT_TUNNEL_HTTP_BIND)
+
 Environment:
-  REMIT_ASSET_BASE   Where deploy assets are read from (URL or local directory).
-  REMIT_DIR          Same as --dir.
+  REMIT_ASSET_BASE     Where deploy assets are read from (URL or local directory).
+  REMIT_DIR            Same as --dir.
+  REMIT_TUNNEL_TOKEN   The tunnel credential, instead of --tunnel-token-file.
+  REMIT_BINDIR         Where the remit wrapper is placed on PATH, when that
+                       directory is writable        (default: /usr/local/bin)
 EOF
 }
 
@@ -115,6 +143,11 @@ parse_args() {
 		--tls-mode) [ $# -ge 2 ] || die "--tls-mode needs a value"; TLS_MODE="$2"; shift 2 ;;
 		--dir) [ $# -ge 2 ] || die "--dir needs a value"; DIR="$2"; shift 2 ;;
 		--tag) [ $# -ge 2 ] || die "--tag needs a value"; TAG="$2"; shift 2 ;;
+		--tunnel-token-file) [ $# -ge 2 ] || die "--tunnel-token-file needs a path"; TUNNEL_TOKEN_FILE="$2"; shift 2 ;;
+		--tunnel-token | --tunnel-token=*)
+			die "there is no --tunnel-token flag. A credential on a command line lands in your shell history and is readable in 'ps' for as long as the install runs. Put it in a file and pass --tunnel-token-file <path>, or export REMIT_TUNNEL_TOKEN."
+			;;
+		--http-bind) [ $# -ge 2 ] || die "--http-bind needs an address:port"; HTTP_BIND="$2"; shift 2 ;;
 		--dry-run) DRY_RUN=1; shift ;;
 		--help | -h) usage; exit 0 ;;
 		*) die "unknown option '$1' (--help lists them all)" ;;
@@ -148,8 +181,79 @@ check_origin() {
 		*) die "--tls-mode $TLS_MODE serves HTTPS, so --origin must be https://your-host (got '$ORIGIN')" ;;
 		esac
 		;;
-	*) die "--tls-mode must be one of off, internal, tailscale, acme (got '$TLS_MODE')" ;;
+	# No http:// upgrade here, unlike the modes above: this origin is the public
+	# identity of an internet-facing deployment, and guessing at it is how a
+	# stranger's browser ends up somewhere the operator never named.
+	tunnel)
+		case "$ORIGIN" in
+		https://*) ;;
+		*) die "--tls-mode tunnel serves a public hostname whose TLS terminates at the provider's edge, so --origin must be https://your-host (got '$ORIGIN')" ;;
+		esac
+		;;
+	*) die "--tls-mode must be one of off, internal, tailscale, acme, tunnel (got '$TLS_MODE')" ;;
 	esac
+}
+
+# --- tunnel credential and loopback publish ---------------------------------
+#
+# The credential reaches .env without ever being an argument to anything: read
+# with the shell's own `read`, written with the shell's own `printf`. A value
+# passed to awk with -v, or echoed for a progress line, is readable in `ps` by
+# every user on the box for as long as that command runs.
+
+read_tunnel_token() {
+	local f="$1"
+	[ -e "$f" ] || die "--tunnel-token-file: no such file: $f"
+	[ -r "$f" ] || die "--tunnel-token-file: cannot read $f"
+	IFS= read -r TUNNEL_TOKEN <"$f" || true
+	[ -n "$TUNNEL_TOKEN" ] || die "--tunnel-token-file: $f holds nothing. Its first line must be the tunnel credential your provider issued."
+}
+
+check_tunnel() {
+	if [ "$TLS_MODE" != "tunnel" ]; then
+		[ -z "$TUNNEL_TOKEN_FILE" ] || die "--tunnel-token-file applies to --tls-mode tunnel; this run is --tls-mode $TLS_MODE."
+		[ -z "$HTTP_BIND" ] || die "--http-bind applies to --tls-mode tunnel; this run is --tls-mode $TLS_MODE."
+		return 0
+	fi
+	if [ -n "$TUNNEL_TOKEN_FILE" ]; then
+		read_tunnel_token "$TUNNEL_TOKEN_FILE"
+		TUNNEL_TOKEN_SOURCE="$TUNNEL_TOKEN_FILE"
+	elif [ -n "${REMIT_TUNNEL_TOKEN:-}" ]; then
+		TUNNEL_TOKEN="$REMIT_TUNNEL_TOKEN"
+		TUNNEL_TOKEN_SOURCE="\$REMIT_TUNNEL_TOKEN"
+	elif ! is_unset "$(get_var TUNNEL_TOKEN "$DIR/.env")"; then
+		TUNNEL_TOKEN_SOURCE=""
+	else
+		die "--tls-mode tunnel needs the tunnel credential your provider issued.
+
+Write it to a file and pass the path:
+  --tunnel-token-file ./tunnel.token
+or export it:
+  REMIT_TUNNEL_TOKEN=...
+
+There is no flag that takes the credential itself — it would land in your shell
+history and be readable in 'ps'."
+	fi
+	[ -n "$HTTP_BIND" ] || HTTP_BIND="$DEFAULT_TUNNEL_HTTP_BIND"
+	check_http_bind
+}
+
+check_http_bind() {
+	local host port
+	case "$HTTP_BIND" in
+	*:*) ;;
+	*) die "--http-bind must be address:port, e.g. $DEFAULT_TUNNEL_HTTP_BIND (got '$HTTP_BIND')" ;;
+	esac
+	host="${HTTP_BIND%:*}"
+	port="${HTTP_BIND##*:}"
+	case "$port" in
+	"" | *[!0-9]*) die "--http-bind must end in a port number (got '$HTTP_BIND')" ;;
+	esac
+	case "$host" in
+	127.* | localhost | "[::1]") ;;
+	*) die "--http-bind is your own route to the app while the tunnel is down, so it must be a loopback address (got '$host'). Everything a browser reaches arrives through the tunnel; published anywhere else this port serves the app in plain HTTP to that network." ;;
+	esac
+	HTTP_BIND_PORT="$port"
 }
 
 # --- origin resolution ------------------------------------------------------
@@ -187,6 +291,14 @@ The install continues. Check it yourself with:
 	addrs="${probe#* }"
 	case "$verdict" in
 	unresolved)
+		if [ "$TLS_MODE" = "tunnel" ]; then
+			ORIGIN_DNS_WARNING="$(origin_host_of "$ORIGIN") does not resolve.
+Nothing loads at $ORIGIN until your provider publishes the
+record that points that name at the tunnel — it is theirs to
+publish, not this box's."
+			warn "$ORIGIN_DNS_WARNING"
+			return 0
+		fi
 		ORIGIN_DNS_WARNING="$(origin_host_of "$ORIGIN") does not resolve from this box.
 Nothing loads at $ORIGIN until it does.
 Expected if you point DNS at this box after the install, or
@@ -194,6 +306,10 @@ if only your clients resolve the name (tailnet, VPN, a hosts
 file). Otherwise the record is missing."
 		;;
 	elsewhere)
+		# Under --tls-mode tunnel the name is supposed to answer with the
+		# provider's edge: this box holds no public address and is not what a
+		# browser connects to. That is the topology working, so nothing is said.
+		[ "$TLS_MODE" = "tunnel" ] && return 0
 		ORIGIN_DNS_WARNING="$ORIGIN resolves to $addrs,
 which this box does not hold — clients using DNS reach a
 different machine, not this one. Expected behind a proxy, NAT
@@ -283,6 +399,15 @@ check_ports() {
 		return 0
 	fi
 	local p
+	# Nothing serves a tunnel on 80 or 443: requests arrive down the agent's
+	# outbound connection, over the compose network. The one host port that has
+	# to be free is the loopback publish, which is the operator's own way in.
+	if [ "$TLS_MODE" = "tunnel" ]; then
+		if printf '%s\n' "$listen" | awk '{print $4}' | grep -qE "[:.]$HTTP_BIND_PORT\$"; then
+			die "port $HTTP_BIND_PORT is already in use. That is the loopback address Caddy is published on ($HTTP_BIND) — your route to the app while the tunnel is down. Free it, or pass --http-bind 127.0.0.1:<another port>."
+		fi
+		return 0
+	fi
 	for p in 80 443; do
 		if printf '%s\n' "$listen" | awk '{print $4}' | grep -qE "[:.]$p\$"; then
 			die "port $p is already in use. Compose publishes both 80 and 443; free them or install on another box."
@@ -348,6 +473,30 @@ set_var() {
 	mv "$f.tmp" "$f"
 }
 
+# set_var for a value no other process may see. awk -v puts its value on a
+# command line, which `ps` shows to every user on the box; the shell's own read
+# loop and printf are builtins and put it nowhere.
+set_secret_var() {
+	local k="$1" v="$2" f="$3"
+	rm -f "$f.tmp"
+	(
+		umask 077
+		local line found=0
+		{
+			while IFS= read -r line || [ -n "$line" ]; do
+				if [ "$found" = "0" ] && [ "${line%%=*}" = "$k" ]; then
+					printf '%s=%s\n' "$k" "$v"
+					found=1
+					continue
+				fi
+				printf '%s\n' "$line"
+			done <"$f"
+			[ "$found" = "1" ] || printf '%s=%s\n' "$k" "$v"
+		} >"$f.tmp"
+	)
+	mv "$f.tmp" "$f"
+}
+
 is_unset() {
 	case "$1" in "" | CHANGE_ME*) return 0 ;; *) return 1 ;; esac
 }
@@ -355,7 +504,7 @@ is_unset() {
 ensure_secret() {
 	local k="$1" bytes="$2" f="$3"
 	if is_unset "$(get_var "$k" "$f")"; then
-		set_var "$k" "$(openssl rand -hex "$bytes")" "$f"
+		set_secret_var "$k" "$(openssl rand -hex "$bytes")" "$f"
 		say "  $k: generated"
 	else
 		say "  $k: kept"
@@ -386,6 +535,26 @@ write_env() {
 	if [ "$TLS_MODE" = "tailscale" ]; then
 		set_var TAILSCALED_SOCKET "${TAILSCALED_SOCKET:-/var/run/tailscale/tailscaled.sock}" "$f"
 	fi
+	[ "$TLS_MODE" = "tunnel" ] && write_tunnel_env "$f"
+	return 0
+}
+
+write_tunnel_env() {
+	local f="$1"
+	if [ -n "$TUNNEL_TOKEN" ]; then
+		set_secret_var TUNNEL_TOKEN "$TUNNEL_TOKEN" "$f"
+		say "  TUNNEL_TOKEN: read from $TUNNEL_TOKEN_SOURCE"
+	else
+		say "  TUNNEL_TOKEN: kept"
+	fi
+	set_var CADDY_HTTP_BIND "$HTTP_BIND" "$f"
+	set_var CADDY_HTTPS_BIND "$DEFAULT_HTTPS_BIND" "$f"
+	# The summary's closing step is a sed on this line, and sed replaces a line
+	# that is there. Left commented in the template, closing sign-up would look
+	# like it worked and leave the deployment open.
+	if [ -z "$(get_var SELF_SIGN_UP_ENABLED "$f")" ]; then
+		set_var SELF_SIGN_UP_ENABLED true "$f"
+	fi
 }
 
 # The remit wrapper ships as a deploy asset; here it is made executable and,
@@ -403,7 +572,7 @@ place_wrapper() {
 	mv "$tmp" "$src"
 	chmod +x "$src"
 	[ "$DRY_RUN" = "1" ] && return 0
-	local bindir="/usr/local/bin"
+	local bindir="${REMIT_BINDIR:-/usr/local/bin}"
 	if [ -w "$bindir" ]; then
 		cp "$src" "$bindir/remit"
 		chmod +x "$bindir/remit"
@@ -459,6 +628,37 @@ manage_block() {
 	printf '%s%s %-8s Every command, including the destructive one.\n' "$indent" "$remit" help
 }
 
+# The window between a stack live on a public origin and sign-up closed is the
+# whole trust boundary of --tls-mode tunnel: the network is no longer a gate,
+# and until this is done anyone who finds the hostname can create an account
+# here. It is the last thing printed, and the only thing framed as an
+# instruction rather than a fact.
+signup_block() {
+	[ "$TLS_MODE" = "tunnel" ] || return 0
+	local remit="remit"
+	[ -n "$WRAPPER_ON_PATH" ] || remit="cd $DIR && ./remit"
+	cat <<EOF
+
+  ══════════════════════════════════════════════════════════════════════════
+
+  DO THIS NOW — sign-up is open on a public address
+
+  $ORIGIN is reachable from the whole internet, and anyone who
+  finds it can create an account until you close sign-up. Three steps:
+
+    1. Open $ORIGIN and sign up. That first account is yours.
+       Give it a password worth having: it is exposed to password spraying
+       now, not to a LAN.
+
+    2. Close sign-up to everyone else:
+         sed -i 's/^SELF_SIGN_UP_ENABLED=.*/SELF_SIGN_UP_ENABLED=false/' $DIR/.env
+
+    3. $remit restart
+
+  ══════════════════════════════════════════════════════════════════════════
+EOF
+}
+
 summary() {
 	local remit="remit"
 	[ -n "$WRAPPER_ON_PATH" ] || remit="./remit"
@@ -510,11 +710,21 @@ EOF
               signed in.
 EOF
 	fi
+	if [ "$TLS_MODE" = "tunnel" ]; then
+		cat <<EOF
+
+  Tunnel      The agent holds the connection to the edge. '$remit status' says
+              whether it is up, '$remit logs tunnel' says why it is not, and
+              $HTTP_BIND reaches the app over SSH while it is down.
+EOF
+	fi
+	signup_block
 }
 
 main() {
 	parse_args "$@"
 	check_origin
+	check_tunnel
 	check_engine
 	check_arch
 	check_ports

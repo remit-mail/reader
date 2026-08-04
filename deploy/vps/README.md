@@ -39,10 +39,12 @@ anything.
 
 The installer checks the host before it changes anything: a container engine
 and the Compose v2 plugin (real Compose, not podman-compose, 2.30 or newer),
-amd64 (no arm64 image is built), and ports 80 and 443. It also normalizes
+amd64 (no arm64 image is built), and the host ports that mode publishes — 80
+and 443, or the loopback port under `--tls-mode tunnel`. It also normalizes
 `--origin` against `--tls-mode` — an `http://` origin is upgraded to `https://`
-under the default `internal` mode, and `--tls-mode off` requires an `http://`
-origin.
+under the default `internal` mode, `--tls-mode off` requires an `http://`
+origin, and `--tls-mode tunnel` requires an `https://` one it will not guess
+at.
 
 Re-running is safe for your data. An existing `.env` is kept, and a secret that
 already has a value is never regenerated: `.env` holds `FAKE_KMS_DATAKEY`, the
@@ -323,26 +325,58 @@ IP, a connection with no static address. The browser connects to the provider's
 edge, which holds the public certificate for the hostname and hands requests
 down a connection the box opened outbound. Nothing dials in.
 
-Cloudflare Tunnel is the supported edge. There: create a tunnel, copy its
-token, point the hostname at the tunnel and route it to `http://caddy:80`. That
-mapping lives at Cloudflare — no file on the box names it. Then in `.env`:
+Cloudflare Tunnel is the supported edge. There: create a tunnel, copy its token
+to a file on the box, point the hostname at the tunnel and route it to
+`http://caddy:80`. That mapping lives at Cloudflare — no file on the box names
+it. Then one run sets the whole thing up:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/remit-mail/reader/main/install.sh \
+  | bash -s -- \
+      --tls-mode tunnel \
+      --origin https://mail.example.com \
+      --tunnel-token-file ./tunnel.token
+
+rm ./tunnel.token
+```
+
+The credential is read from that file into `.env` and never printed, never put
+on a command line and never given to a flag — a token typed as an argument
+lands in your shell history and is readable in `ps`. `$REMIT_TUNNEL_TOKEN` does
+the same job for an environment that already carries it.
+
+That run writes:
 
 ```
 TLS_MODE=tunnel
 PUBLIC_ORIGIN=https://mail.example.com
 TUNNEL_TOKEN=…
 CADDY_HTTP_BIND=127.0.0.1:8080
+CADDY_HTTPS_BIND=0.0.0.0:443
+SELF_SIGN_UP_ENABLED=true
 ```
 
 The template's `COMPOSE_PROFILES` derives from `TLS_MODE`, so setting the mode
 is what starts the agent. `CADDY_HTTP_BIND` on loopback is your way into the app
 over SSH while the tunnel is down; the agent itself reaches Caddy over the
-compose network and needs no published port.
+compose network and needs no published port. `--http-bind` picks another
+loopback address, and the installer's free-port check follows it instead of
+checking 80 and 443, which serve nothing in this mode.
+
+`remit status` reports the mode and whether the agent is connected to the edge,
+in place of the resolves-to-this-box line a tunnelled hostname can never
+satisfy — it answers with the edge's address, which is the topology working.
 
 This is the one mode where the network is not a gate. The sign-in and sign-up
 surface is on the public internet, so close signup once your own account exists
-(`SELF_SIGN_UP_ENABLED=false`, then `remit restart`) and give that account a
-real password. Caddy takes the client address only from the header Cloudflare's
+and give that account a real password — the installer closes with those three
+steps, because the window between a live public origin and a closed sign-up is
+the only thing standing between a stranger and an account here:
+
+```bash
+sed -i 's/^SELF_SIGN_UP_ENABLED=.*/SELF_SIGN_UP_ENABLED=false/' .env
+remit restart
+``` Caddy takes the client address only from the header Cloudflare's
 edge overwrites, and only from a connection on the compose network, so the
 sign-in rate limit counts an attacker rather than a header they can set.
 
