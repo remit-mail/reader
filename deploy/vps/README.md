@@ -323,31 +323,28 @@ IP, a connection with no static address. The browser connects to the provider's
 edge, which holds the public certificate for the hostname and hands requests
 down a connection the box opened outbound. Nothing dials in.
 
-At the provider: create a tunnel, copy its token, point the hostname at the
-tunnel and route it to `http://caddy:80`. That mapping lives at the provider —
-no file on the box names it. Then in `.env`:
+Cloudflare Tunnel is the supported edge. There: create a tunnel, copy its
+token, point the hostname at the tunnel and route it to `http://caddy:80`. That
+mapping lives at Cloudflare — no file on the box names it. Then in `.env`:
 
 ```
 TLS_MODE=tunnel
-COMPOSE_PROFILES=tunnel
 PUBLIC_ORIGIN=https://mail.example.com
 TUNNEL_TOKEN=…
 CADDY_HTTP_BIND=127.0.0.1:8080
-CADDY_HTTPS_BIND=127.0.0.1:8443
 ```
 
-Both `TLS_MODE` and `COMPOSE_PROFILES` are needed: the first picks how Caddy
-serves, the second starts the agent. The loopback binds are the operator's way
-into the app over SSH while the tunnel is down; the agent itself reaches Caddy
-over the compose network and needs no published port.
+The template's `COMPOSE_PROFILES` derives from `TLS_MODE`, so setting the mode
+is what starts the agent. `CADDY_HTTP_BIND` on loopback is your way into the app
+over SSH while the tunnel is down; the agent itself reaches Caddy over the
+compose network and needs no published port.
 
 This is the one mode where the network is not a gate. The sign-in and sign-up
 surface is on the public internet, so close signup once your own account exists
 (`SELF_SIGN_UP_ENABLED=false`, then `remit restart`) and give that account a
-real password. Caddy takes the client address only from the header the edge
-overwrites (`TUNNEL_CLIENT_IP_HEADER`, Cloudflare's by default) and only from a
-connection on the compose network, so the sign-in rate limit counts an attacker
-rather than a header they can set.
+real password. Caddy takes the client address only from the header Cloudflare's
+edge overwrites, and only from a connection on the compose network, so the
+sign-in rate limit counts an attacker rather than a header they can set.
 
 ### FAQ
 

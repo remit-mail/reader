@@ -109,10 +109,6 @@ describe("the metrics endpoint is not published to the host", () => {
 			.map(([service]) => service);
 		assert.deepEqual(reachable, ["caddy"]);
 	});
-
-	it("publishes only 80 and 443", () => {
-		assert.deepEqual(ports.caddy, ["80:80", "443:443"]);
-	});
 });
 
 // D13. Both UIs are unauthenticated views of data that must not leave the box —

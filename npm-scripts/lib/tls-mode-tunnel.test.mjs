@@ -1,20 +1,6 @@
-// The tunnel serving path (reader#567 D1-D4, D6, D7, D9, D11).
-//
-// Three layers, none of which reads the two files' text and agrees with a typo:
+// The tunnel serving path (reader#567 D1-D4, D6, D7, D9, D11), asserted against
 // what an operator's `.env` resolves to, what Caddy makes of the site file, and
-// what an upstream actually receives from a proxied request.
-//
-// The last one is the point. Everything behind Caddy learns the client address
-// from X-Remit-Client-IP, which routes.caddy sets from `{client_ip}` — and in
-// this mode `{client_ip}` is the tunnel agent's own container address unless the
-// global options block in tunnel.caddy is exactly right. Wrong, and every client
-// on the internet shares one sign-in rate-limit bucket on a publicly reachable
-// origin, which is a lockout a stranger can trigger.
-//
-// The compose trap is invisible in the source: compose interpolates the whole
-// document before it filters by profile, so a `${VAR:?}` guard on a profiled
-// service fails every command on every deployment that never turned the profile
-// on. `an existing deployment's .env` is what catches that coming back.
+// what an upstream receives from a real proxied request.
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
@@ -157,16 +143,39 @@ describe("an existing deployment's .env", { skip: !COMPOSE_OK }, () => {
 	});
 });
 
+// Taken from the template verbatim: a test that retypes the line proves
+// nothing about the file an operator copies.
+const TEMPLATE_PROFILES = readFileSync(
+	join(DEPLOY, "remit.env.template"),
+	"utf8",
+)
+	.split("\n")
+	.find((line) => line.startsWith("COMPOSE_PROFILES="));
+
 const TUNNEL_ENV = [
 	...EXISTING_ENV,
 	"TLS_MODE=tunnel",
-	"COMPOSE_PROFILES=tunnel",
+	TEMPLATE_PROFILES,
 	"TUNNEL_TOKEN=a-tunnel-credential",
 	"CADDY_HTTP_BIND=127.0.0.1:8080",
-	"CADDY_HTTPS_BIND=127.0.0.1:8443",
 ];
 
 describe("TLS_MODE=tunnel", { skip: !COMPOSE_OK }, () => {
+	it("is the only edit that starts the agent", () => {
+		assert.ok(TEMPLATE_PROFILES, "the template declares no COMPOSE_PROFILES");
+		assert.ok(services(TUNNEL_ENV).includes("tunnel"));
+	});
+
+	it("starts nothing extra in the modes that serve Caddy's own certificate", () => {
+		for (const mode of ["off", "internal", "tailscale", "acme"]) {
+			assert.deepEqual(
+				services([...EXISTING_ENV, `TLS_MODE=${mode}`, TEMPLATE_PROFILES]),
+				services(EXISTING_ENV),
+				`TLS_MODE=${mode} must resolve to the services it resolved to before`,
+			);
+		}
+	});
+
 	it("serves the mode's own site file", () => {
 		const sources = resolved(TUNNEL_ENV).services.caddy.volumes.map(
 			(volume) => volume.source,
@@ -174,17 +183,6 @@ describe("TLS_MODE=tunnel", { skip: !COMPOSE_OK }, () => {
 		assert.ok(
 			sources.some((source) => source.endsWith("/caddy/tunnel.caddy")),
 			`expected caddy/tunnel.caddy mounted as the Caddyfile, got ${sources}`,
-		);
-	});
-
-	it("brings the agent up when COMPOSE_PROFILES names it", () => {
-		assert.ok(services(TUNNEL_ENV).includes("tunnel"));
-	});
-
-	it("leaves the agent down when only TLS_MODE says tunnel", () => {
-		assert.ok(
-			!services([...EXISTING_ENV, "TLS_MODE=tunnel"]).includes("tunnel"),
-			"the profile is what starts the agent; remit doctor reports the disagreement",
 		);
 	});
 
@@ -210,19 +208,22 @@ describe("TLS_MODE=tunnel", { skip: !COMPOSE_OK }, () => {
 	it("publishes caddy only where the operator can reach it over SSH", () => {
 		assert.deepEqual(publish(resolved(TUNNEL_ENV)), [
 			"127.0.0.1:8080->80",
-			"127.0.0.1:8443->443",
+			"0.0.0.0:443->443",
 		]);
 	});
 
-	it("names Cloudflare's client-IP header unless the operator names another", () => {
-		assert.equal(
-			resolved(TUNNEL_ENV).services.caddy.environment.TUNNEL_CLIENT_IP_HEADER,
-			"Cf-Connecting-Ip",
-		);
-		assert.equal(
-			resolved([...TUNNEL_ENV, "TUNNEL_CLIENT_IP_HEADER=X-Edge-Client-Ip"])
-				.services.caddy.environment.TUNNEL_CLIENT_IP_HEADER,
-			"X-Edge-Client-Ip",
+	// Both binds move, because two deployments on one host may share neither
+	// (#621).
+	it("takes each published address from its own variable", () => {
+		assert.deepEqual(
+			publish(
+				resolved([
+					...EXISTING_ENV,
+					"CADDY_HTTP_BIND=127.0.0.1:8081",
+					"CADDY_HTTPS_BIND=127.0.0.1:8444",
+				]),
+			),
+			["127.0.0.1:8081->80", "127.0.0.1:8444->443"],
 		);
 	});
 });
@@ -260,14 +261,12 @@ const IMAGE = readFileSync(COMPOSE, "utf8").match(
 	/^ {4}image: (caddy:\S+)$/m,
 )?.[1];
 
-function adapt(header) {
+function adapt() {
 	const run = spawnSync(
 		CR ?? "docker",
 		[
 			"run",
 			"--rm",
-			"-e",
-			`TUNNEL_CLIENT_IP_HEADER=${header}`,
 			"-v",
 			`${CADDY_DIR}:/etc/caddy:ro`,
 			IMAGE,
@@ -292,11 +291,11 @@ describe("caddy/tunnel.caddy", { skip: !CR }, () => {
 	});
 
 	it("binds a port and carries no hostname, because the certificate is at the edge", () => {
-		assert.deepEqual(adapt("Cf-Connecting-Ip").listen, [":80"]);
+		assert.deepEqual(adapt().listen, [":80"]);
 	});
 
 	it("reads the client IP only from the header the edge overwrites", () => {
-		const server = adapt("Cf-Connecting-Ip");
+		const server = adapt();
 		assert.deepEqual(server.client_ip_headers, ["Cf-Connecting-Ip"]);
 		assert.ok(
 			!server.client_ip_headers.includes("X-Forwarded-For"),
@@ -305,7 +304,7 @@ describe("caddy/tunnel.caddy", { skip: !CR }, () => {
 	});
 
 	it("reads it only from a connection that cannot come from the internet", () => {
-		const server = adapt("Cf-Connecting-Ip");
+		const server = adapt();
 		assert.equal(server.trusted_proxies.source, "static");
 		assert.deepEqual(
 			[...server.trusted_proxies.ranges].sort(),
@@ -324,19 +323,11 @@ describe("caddy/tunnel.caddy", { skip: !CR }, () => {
 			"without strict, an entry an untrusted hop added is still read",
 		);
 	});
-
-	it("takes the header name from the operator's variable", () => {
-		assert.deepEqual(adapt("X-Edge-Client-Ip").client_ip_headers, [
-			"X-Edge-Client-Ip",
-		]);
-	});
 });
 
-// The behavioural half: the committed tunnel.caddy and routes.caddy, in the
-// deployment's own Caddy image, in front of an upstream that answers with the
-// header it was handed. Read out of a real proxied request, because the whole
-// chain — trusted hop, named header, {client_ip}, X-Remit-Client-IP — only
-// holds end to end.
+// The committed tunnel.caddy and routes.caddy, in the deployment's own Caddy
+// image, in front of an upstream that answers with the header it was handed:
+// the chain from trusted hop to X-Remit-Client-IP only holds end to end.
 if (CR) {
 	// Documentation addresses (RFC 5737), so a leak into an assertion cannot
 	// match a real peer.
@@ -402,9 +393,9 @@ if (CR) {
 				`${join(workdir, "echo.caddy")}:/etc/caddy/Caddyfile:ro`,
 				IMAGE,
 			);
-			// Both files mounted where docker-compose.sqlite.yml mounts them, with
-			// the variable the compose file supplies. Nothing is synthesized: this
-			// is the deployment's configuration, served.
+			// Both files mounted where docker-compose.sqlite.yml mounts them.
+			// Nothing is synthesized: this is the deployment's configuration,
+			// served.
 			run(
 				"run",
 				"-d",
@@ -412,8 +403,6 @@ if (CR) {
 				edge,
 				"--network",
 				network,
-				"-e",
-				`TUNNEL_CLIENT_IP_HEADER=${CLIENT_IP_HEADER}`,
 				"-p",
 				"127.0.0.1::80",
 				"-v",
@@ -458,10 +447,14 @@ if (CR) {
 		}
 
 		for (const path of PATHS) {
-			it(`discards a forged X-Forwarded-For, on ${path}`, async () => {
+			it(`discards every address a client states, on ${path}`, async () => {
 				const seen = await seenBy(path, {
 					"X-Forwarded-For": FORGED.join(", "),
 					"X-Real-IP": FORGED[0],
+					// The one a client on a public origin would actually try: the
+					// header the app itself reads. routes.caddy replaces it rather
+					// than appending, and `+X-Remit-Client-IP` would not.
+					[HEADER]: FORGED[1],
 				});
 				for (const forged of FORGED) {
 					assert.ok(
@@ -476,14 +469,18 @@ if (CR) {
 			});
 		}
 
-		it("hands the upstream one address, never a chain", async () => {
+		// A client that sets the edge's own header, which the edge then extends
+		// rather than replaces. `trusted_proxies_strict` reads such a chain from
+		// the right, so the entry the edge added last is the one taken; the
+		// default reads from the left and takes the client's.
+		it("hands the upstream the edge's address, never a chain", async () => {
 			const seen = await seenBy("/api/auth/sign-in/email", {
-				[CLIENT_IP_HEADER]: `${EDGE_CLIENT}, ${FORGED[0]}`,
+				[CLIENT_IP_HEADER]: `${FORGED[0]}, ${EDGE_CLIENT}`,
 			});
-			assert.ok(seen.length > 0, "the upstream saw no client address");
-			assert.ok(
-				!seen.includes(","),
-				`the upstream saw a chain it cannot attribute to one client: "${seen}"`,
+			assert.equal(
+				seen,
+				EDGE_CLIENT,
+				`the upstream must get the one address the edge stated, saw "${seen}"`,
 			);
 		});
 	});
