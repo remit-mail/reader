@@ -786,6 +786,7 @@ It is degraded when any of these is true:
 | `mail_auth_failing` | An IMAP or SMTP authentication failure counter has gone up in the last 3 hours |
 | `dead_letter_queue_not_empty` | Anything is quarantined on any DLQ |
 | `signal_missing` | A service answered `/metrics` but exported none of the series the check reads |
+| `tunnel_disconnected` | On `TLS_MODE=tunnel` only: the agent holds no connection to the edge, so the public address serves nobody |
 | `checker_unreachable` | No usable verdict came back from the checker at all. Produced by `remit doctor`, never by the checker, so it never reaches a webhook — see [Is anything wrong](#is-anything-wrong-remit-doctor) |
 
 A signal that cannot be evaluated is degraded, never skipped. An endpoint that

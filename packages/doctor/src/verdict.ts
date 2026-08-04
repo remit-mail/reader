@@ -2,6 +2,7 @@ import type { HeartbeatReading } from "./heartbeats.js";
 import { seriesNamed } from "./prometheus.js";
 import type { ScrapeResult } from "./scrape.js";
 import type { CounterState } from "./state.js";
+import type { TunnelReading } from "./tunnel.js";
 
 export type Verdict = "healthy" | "degraded";
 
@@ -11,7 +12,8 @@ export type ReasonCode =
 	| "dead_letter_queue_not_empty"
 	| "account_sync_stalled"
 	| "mail_auth_failing"
-	| "signal_missing";
+	| "signal_missing"
+	| "tunnel_disconnected";
 
 /**
  * One thing that is wrong.
@@ -68,6 +70,13 @@ export interface VerdictInput extends VerdictThresholds {
 	readonly scrapes: readonly ScrapeResult[];
 	readonly heartbeats: readonly HeartbeatReading[];
 	readonly previousCounters: Readonly<Record<string, CounterState>>;
+	/**
+	 * The tunnel's readiness, or `undefined` on a deployment that does not serve
+	 * through one. Absent is not-applicable here, unlike every other signal,
+	 * where absent is degraded: a deployment with no tunnel has no tunnel to be
+	 * disconnected from.
+	 */
+	readonly tunnel: TunnelReading | undefined;
 	readonly now: Date;
 }
 
@@ -319,9 +328,32 @@ const missingSeries = (
 	};
 };
 
+/**
+ * The stack can be entirely healthy and still be serving nobody: in `tunnel`
+ * mode the only route in is the agent's connection to the edge, and when it
+ * drops every other signal here stays green while the browser gets the
+ * provider's error page.
+ *
+ * The checker's own two outbound calls — the webhook and the dead-man ping —
+ * dial straight out and do not pass through the agent, so this is the one
+ * reason that is still delivered while the condition it reports holds.
+ */
+const disconnectedTunnel = (
+	tunnel: TunnelReading | undefined,
+): Reason | undefined => {
+	if (tunnel === undefined || tunnel.error === undefined) return undefined;
+	return {
+		code: "tunnel_disconnected",
+		summary:
+			"the tunnel agent is not connected to its edge, so the public address serves nobody",
+		detail: tunnel.error,
+	};
+};
+
 const ORDER: readonly ReasonCode[] = [
 	"scrape_failed",
 	"signal_missing",
+	"tunnel_disconnected",
 	"worker_heartbeat_stale",
 	"account_sync_stalled",
 	"mail_auth_failing",
@@ -360,6 +392,7 @@ export const evaluate = (input: VerdictInput): CheckResult => {
 	const found = [
 		scrapeFailures(input.scrapes),
 		missingSeries(input.scrapes),
+		disconnectedTunnel(input.tunnel),
 		staleHeartbeats(input.heartbeats, input.heartbeatMaxAgeSeconds),
 		stalledSync(input.scrapes, input.syncAgeMaxSeconds),
 		authFailures(counters, input.authFailureHoldSeconds, now),

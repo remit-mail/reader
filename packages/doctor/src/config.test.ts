@@ -19,6 +19,17 @@ describe("loadConfig", () => {
 			"account-worker",
 			"search-index-worker",
 		]);
+		assert.equal(config.tlsMode, "off");
+		assert.equal(config.tunnelReadyUrl, "http://tunnel:2000/ready");
+	});
+
+	it("takes the deployment's serving mode and the edge's readiness endpoint", () => {
+		const config = loadConfig({
+			DOCTOR_TLS_MODE: "tunnel",
+			DOCTOR_TUNNEL_READY_URL: "http://edge:9000/healthz",
+		});
+		assert.equal(config.tlsMode, "tunnel");
+		assert.equal(config.tunnelReadyUrl, "http://edge:9000/healthz");
 	});
 
 	it("refuses a webhook with no dead-man's switch, naming both variables", () => {
