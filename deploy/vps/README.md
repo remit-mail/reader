@@ -289,6 +289,7 @@ needs nothing outside the box. Set it, set `PUBLIC_ORIGIN` to a matching
 | `off` | Plain HTTP on :80. Reach it over a private network (tailnet, VPN, SSH tunnel). | `http://…` |
 | `tailscale` | A publicly-trusted certificate from the local `tailscaled` for this box's `<name>.<tailnet>.ts.net`. | `https://<name>.<tailnet>.ts.net` |
 | `acme` | Public Let's Encrypt. Ports 80/443 must be reachable from the internet and the host must resolve in public DNS. | `https://mail.example.com` |
+| `tunnel` | TLS terminates at a provider's edge. An outbound-only agent on the box holds the connection open — no public IP, no port forward, no inbound firewall rule. | `https://mail.example.com` |
 
 To make the `internal`-mode browser warning go away, trust Caddy's root CA on
 each client. Caddy keeps it on the `caddy_data` volume; export it into the
@@ -315,6 +316,36 @@ in `.env` to the host's `tailscaled` socket (usually
 `/var/run/tailscale/tailscaled.sock`) so the caddy container can reach the
 daemon. Caddy detects the `.ts.net` host and fetches the certificate itself.
 
+### `tunnel`
+
+For a box behind a router you do not control: a home server, a VM with no public
+IP, a connection with no static address. The browser connects to the provider's
+edge, which holds the public certificate for the hostname and hands requests
+down a connection the box opened outbound. Nothing dials in.
+
+Cloudflare Tunnel is the supported edge. There: create a tunnel, copy its
+token, point the hostname at the tunnel and route it to `http://caddy:80`. That
+mapping lives at Cloudflare — no file on the box names it. Then in `.env`:
+
+```
+TLS_MODE=tunnel
+PUBLIC_ORIGIN=https://mail.example.com
+TUNNEL_TOKEN=…
+CADDY_HTTP_BIND=127.0.0.1:8080
+```
+
+The template's `COMPOSE_PROFILES` derives from `TLS_MODE`, so setting the mode
+is what starts the agent. `CADDY_HTTP_BIND` on loopback is your way into the app
+over SSH while the tunnel is down; the agent itself reaches Caddy over the
+compose network and needs no published port.
+
+This is the one mode where the network is not a gate. The sign-in and sign-up
+surface is on the public internet, so close signup once your own account exists
+(`SELF_SIGN_UP_ENABLED=false`, then `remit restart`) and give that account a
+real password. Caddy takes the client address only from the header Cloudflare's
+edge overwrites, and only from a connection on the compose network, so the
+sign-in rate limit counts an attacker rather than a header they can set.
+
 ### FAQ
 
 **My browser says the connection isn't private in `internal` mode. Is it broken?**
@@ -340,6 +371,28 @@ derive from it), so nothing else changes.
 **Can I use `acme` behind a tailnet or without public DNS?** No. Public Let's
 Encrypt validates a publicly-resolvable name over ports 80/443. Use `internal`
 or `tailscale` for private networks.
+
+**Why is the last hop of a tunnelled request plain HTTP?** It runs between two
+containers on one host and never leaves the box.
+
+**Can someone reach my box directly and skip the tunnel?** Not over the
+internet — with loopback binds no port is published to it. Anyone who can
+already open a shell on the host reaches the app on the loopback port, which is
+what makes it a usable fallback.
+
+**Can one deployment serve both a tunnel and my tailnet address?** Not as two
+addresses for users. Cookies and tokens are pinned to a single origin, so a
+second address gives a page that loads and a session that does not. The tailnet
+stays the way you reach the box.
+
+**The site is down but the box is fine.** That is what a dropped tunnel looks
+like: the browser gets the provider's error page. `remit doctor` says
+`tunnel_disconnected`, `remit logs tunnel` says why — usually a revoked or
+mistyped token — and the app is still there on the loopback port over SSH.
+
+**How do I move to a different domain?** Change `PUBLIC_ORIGIN`, point the new
+hostname at the tunnel, update the redirect URI in Entra if Microsoft sign-in is
+on, and `remit restart`. Nothing else names the hostname.
 
 ## Updating
 

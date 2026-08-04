@@ -24,6 +24,7 @@ x-app-env: &app-env
     BETTER_AUTH_TRUSTED_ORIGINS: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
     CONTENT_DELIVERY_DOMAIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
     CORS_ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
+    MSOAUTH_REDIRECT_URI: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}/api/accounts/oauth/microsoft/callback
     # The backend is pinned here, not read from .env: choosing this compose file
     # is what selects SQLite, so the file and the backend can never disagree.
     # SQLITE_DB_PATH holds both the app schema and the better-auth identity
@@ -205,8 +206,8 @@ services:
   caddy:
     image: caddy:2-alpine
     ports:
-      - "80:80"
-      - "443:443"
+      - "${CADDY_HTTP_BIND:-0.0.0.0:80}:80"
+      - "${CADDY_HTTPS_BIND:-0.0.0.0:443}:443"
     environment:
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
     volumes:
@@ -223,6 +224,23 @@ services:
     depends_on:
       - apisix
       - web
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------
+  # Reverse-tunnel agent (TLS_MODE=tunnel), reached by COMPOSE_PROFILES in
+  # .env, which the template derives from TLS_MODE.
+  #
+  # TUNNEL_TOKEN is not `:?`-guarded like the required values elsewhere in this
+  # file: compose interpolates the whole document before it filters by profile,
+  # so a guard here fails every command on every deployment that has never
+  # heard of a tunnel.
+  # ---------------------------------------------------------------------
+  tunnel:
+    image: cloudflare/cloudflared:2026.7.3
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
     restart: unless-stopped
 
   # ---------------------------------------------------------------------
