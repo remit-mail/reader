@@ -15,6 +15,11 @@
 # packages/auth-service (CLIENT_IP_HEADER).
 request_header X-Remit-Client-IP {client_ip}
 
+# For the same reason, every proxy below states X-Forwarded-For as the single
+# client address instead of appending a hop to whatever arrived: `header_up` on
+# a name with no `+` replaces the header, so an inbound copy a client wrote is
+# discarded and one entry leaves Caddy in every TLS_MODE.
+
 #
 # Routing mirrors the dev vite proxy 1:1 (packages/web-client/vite.config.ts):
 #   /api/auth/*  -> apisix, path unchanged (better-auth's own routes)
@@ -40,6 +45,7 @@ request_header X-Remit-Client-IP {client_ip}
 # is a real outage surfacing rather than a redeploy blip being hidden.
 route /api/auth/* {
 	reverse_proxy apisix:9080 {
+		header_up X-Forwarded-For {client_ip}
 		lb_try_duration 30s
 		lb_try_interval 250ms
 	}
@@ -48,6 +54,7 @@ route /api/auth/* {
 route /api/* {
 	uri strip_prefix /api
 	reverse_proxy apisix:9080 {
+		header_up X-Forwarded-For {client_ip}
 		lb_try_duration 30s
 		lb_try_interval 250ms
 	}
@@ -55,6 +62,7 @@ route /api/* {
 
 route /content/* {
 	reverse_proxy backend:8080 {
+		header_up X-Forwarded-For {client_ip}
 		lb_try_duration 30s
 		lb_try_interval 250ms
 	}
@@ -62,6 +70,7 @@ route /content/* {
 
 route /health {
 	reverse_proxy apisix:9080 {
+		header_up X-Forwarded-For {client_ip}
 		lb_try_duration 30s
 		lb_try_interval 250ms
 	}
@@ -69,6 +78,7 @@ route /health {
 
 route {
 	reverse_proxy web:8080 {
+		header_up X-Forwarded-For {client_ip}
 		lb_try_duration 30s
 		lb_try_interval 250ms
 	}
