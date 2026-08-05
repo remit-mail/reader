@@ -58,7 +58,10 @@ interface BriefPaneContextValue {
 	/** The conversation to open — the loaded thread, or a tapped "Related" hit. */
 	conversation: ConversationTarget | undefined;
 	onSelectMessage: (id: string, options?: OpenMessageOptions) => void;
-	onSelectSearchResult: (result: SearchResult) => void;
+	onSelectSearchResult: (
+		result: SearchResult,
+		options?: OpenMessageOptions,
+	) => void;
 	onCloseThread: () => void;
 	/**
 	 * Toolbar verbs for the open thread, keyed by the thread's own mailbox and
@@ -136,9 +139,10 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 	);
 
 	const handleSelectSearchResult = useCallback(
-		(result: SearchResult) => {
+		(result: SearchResult, options?: OpenMessageOptions) => {
 			navigate({
 				to: "/mail",
+				replace: options?.replace,
 				search: (prev) => ({
 					...prev,
 					// Commit the active query with the selection so the debounced

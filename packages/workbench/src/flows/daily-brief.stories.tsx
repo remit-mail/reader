@@ -1,9 +1,13 @@
 import {
 	defaultKeyboardHints,
 	KeyboardHintBar,
+	type ThreadData,
+	type ThreadRowData,
 	type ThreadSection,
 } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import {
 	briefSections,
 	briefSectionsLong,
@@ -223,6 +227,93 @@ export const MultiSelectPhone: Story = {
 			selectedIds={multiSelectIds}
 		/>
 	),
+};
+
+/**
+ * A row the search found in a folder the brief never loaded. The brief's list is
+ * the unified INBOX; the search behind a committed query reaches Archive, Sent,
+ * Spam and every custom folder, so its rows arrive with no counterpart in the
+ * loaded list — which is what makes the thread and the mailbox on the row the
+ * only way to open it.
+ */
+const archivedHit: ThreadRowData = {
+	id: "thr_npm_archived",
+	accountId: workId,
+	mailboxId: "mbx_work_archive",
+	threadId: "thread_npm_archived",
+	fromName: "npm",
+	fromEmail: "support@npmjs.example",
+	subject: "npm access token expires in 7 days",
+	snippet: "Rotate the automation token before it lapses.",
+	timeLabel: "Mar 2",
+	isRead: true,
+	category: "transactional",
+};
+
+const archivedHitThread: ThreadData = {
+	subject: archivedHit.subject,
+	messages: [
+		{
+			id: "msg_npm_archived",
+			fromName: archivedHit.fromName,
+			fromEmail: archivedHit.fromEmail,
+			toLabel: "Alice Tan",
+			dateLabel: "Mar 2 09:12",
+			snippet: archivedHit.snippet,
+			bodyHtml: "",
+		},
+	],
+};
+
+/**
+ * Opening a search hit from the brief's own body (#635).
+ *
+ * A committed query hands the body back to the brief's rows, so what is on
+ * screen is a mix: mail from the unified inbox, and mail the widened search
+ * found elsewhere. The second kind cannot be opened by message alone — nothing
+ * in the loaded list answers to it — so the row is opened on the thread and
+ * mailbox it carries, and the reading pane fills instead of staying on "Select a
+ * thread to read".
+ */
+export const SearchHitOutsideTheBrief: Story = {
+	render: function SearchHitOutsideTheBriefRender() {
+		const [opened, setOpened] = useState<ThreadRowData | undefined>(undefined);
+		return (
+			<MailShell
+				{...brief}
+				sections={[
+					{
+						id: "transactional",
+						label: "Transactional",
+						threads: [archivedHit],
+					},
+				]}
+				briefFilters
+				query="npm"
+				searchResultsInBody
+				selectedThreadId={opened?.id}
+				thread={opened ? archivedHitThread : undefined}
+				onSelectThread={(id) => {
+					if (id !== archivedHit.id) return;
+					if (!archivedHit.threadId || !archivedHit.mailboxId) return;
+					setOpened(archivedHit);
+				}}
+			/>
+		);
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			canvas.getByText("Select a thread to read"),
+		).toBeInTheDocument();
+
+		await userEvent.click(canvas.getByText(archivedHit.subject));
+
+		await waitFor(() =>
+			expect(canvas.getByText("Mar 2 09:12")).toBeInTheDocument(),
+		);
+		await expect(canvas.queryByText("Select a thread to read")).toBeNull();
+	},
 };
 
 /**
