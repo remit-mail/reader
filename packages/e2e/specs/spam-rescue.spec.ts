@@ -56,6 +56,9 @@ test.describe("Spam rescue", () => {
 	// puts it back. It runs whether or not the test reached its assertions, and
 	// does nothing when the message never left Junk.
 	test.afterAll(async () => {
+		// Two server round trips, each of which the app answers before it makes.
+		test.setTimeout(180_000);
+
 		const run = readRunState();
 		const api = new ApiClient(run);
 		const junkId = await junkMailboxId(api, run.accountId);
@@ -66,20 +69,26 @@ test.describe("Spam rescue", () => {
 		);
 		if (rescued.length === 0) return;
 
+		// The rescue's own IMAP push can still be queued at this point: the read
+		// model read above is updated the moment a move is accepted, the write to
+		// the server follows. A move issued now would name the UID the message
+		// still has in Junk and the folder it is not in yet, and the server would
+		// drop it — so the rescue has to land first.
+		await waitForServerMailbox(
+			run.imapUser,
+			"INBOX",
+			(subjects) => subjects.includes(run.spamSubject),
+			{ what: `the rescue of "${run.spamSubject}" to reach the inbox` },
+		);
+
 		await api.moveMessages(
 			rescued.map((thread) => thread.messageId),
 			junkId,
 		);
-		// Dovecot, not the read model. INBOX is re-derived from the server on
-		// every sync, so the restore only holds once the server has it: both ends
-		// of the move are waited on because IMAP has no in-place MOVE — the copy
-		// into Junk lands before the expunge from INBOX.
-		await waitForServerMailbox(
-			run.imapUser,
-			"Junk",
-			(subjects) => subjects.includes(run.spamSubject),
-			{ what: `"${run.spamSubject}" to return to Junk` },
-		);
+
+		// INBOX is re-derived from the server on every sync, so this is what the
+		// next spec actually reads — and it is the opposite of the state waited
+		// for above, which is what makes it an observation of this move.
 		await waitForServerMailbox(
 			run.imapUser,
 			"INBOX",
