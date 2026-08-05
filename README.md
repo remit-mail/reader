@@ -43,6 +43,10 @@ TLS modes (`--tls-mode`):
 | `off` | Plain HTTP. Reach it over a private network — a tailnet, a VPN, an SSH tunnel. |
 | `tailscale` | Real certificate through the local `tailscaled`, for this box's tailnet name. |
 | `acme` | Public Let's Encrypt. Needs public DNS and ports 80/443 reachable. |
+| `tunnel` | TLS at a provider's edge, reached over a connection the box opens outbound. Needs a Cloudflare Tunnel and its token. |
+
+Each mode is set up step by step in the
+[VPS deployment guide](deploy/vps/README.md).
 
 Run `install.sh --help` for the full list, or `--dry-run` to check the host and
 write the config without starting anything.
