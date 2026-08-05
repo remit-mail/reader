@@ -1,18 +1,17 @@
 # Reader — self-host VPS deployment
 
-A single-VM deployment: Docker Compose on one small box, running the published
+Docker Compose on one small box, running the published
 `ghcr.io/remit-mail/reader/*` images plus two upstream images (`caddy`,
 `alpine`) and, behind optional profiles, two more (`dozzle`,
-`victoria-metrics`). All relational state lives in two SQLite files on one
-local volume — there is no database server to run. Message bodies are cached
-on a second volume and can always be re-synced from IMAP.
+`victoria-metrics`). All relational state lives in two SQLite files on one local
+volume; there is no database server to run. Message bodies are cached on a
+second volume and can always be re-synced from IMAP.
 
 Sized for a 2 vCPU / 4 GB box (~€5/mo class). HTTPS on :443 out of the box,
 signed by Caddy's own CA (browsers warn until you trust its root); the [TLS](#tls)
 section covers the other modes, including plain HTTP.
 
-The images are published to `ghcr.io/remit-mail/reader/*` and pull anonymously —
-no registry login, no token, nothing on the box holds a credential.
+The images pull anonymously, so there is no registry login to set up.
 
 ## Install
 
@@ -24,58 +23,50 @@ curl -fsSL https://raw.githubusercontent.com/remit-mail/reader/main/install.sh \
   | bash -s -- --origin "$REMIT_ORIGIN"
 ```
 
-Set `REMIT_ORIGIN` first — pasted unedited, the installer refuses the
-placeholder rather than installing against it. Every auth and CORS origin
-derives from this value, so one that is merely accepted rather than correct
-surfaces later as a failed sign-in, not as a failed install.
+Every auth and CORS origin derives from `--origin`, so an address that is
+accepted but wrong surfaces later as a failed sign-in rather than a failed
+install. Pasted unedited, the installer refuses the placeholder.
 
 The installer downloads the deploy assets into `./reader`, generates the
-secrets, writes `.env` with mode 600, and brings the stack up. It takes no
-input while it runs — everything comes from flags and environment variables.
-`--help` lists them; the ones that matter are `--tls-mode`, `--tag`, `--dir`
-and `--dry-run`. `--dry-run` runs the host checks, fetches the assets, writes
-`.env`, and validates the compose file without pulling images or starting
-anything.
+secrets, writes `.env` with mode 600, and brings the stack up. It takes no input
+while it runs; everything comes from flags and environment variables. `--help`
+lists them, and the ones that matter are `--tls-mode`, `--tag`, `--dir` and
+`--dry-run`. `--dry-run` runs the host checks, fetches the assets, writes `.env`
+and validates the compose file without pulling images or starting anything.
 
-The installer checks the host before it changes anything: a container engine
-and the Compose v2 plugin (real Compose, not podman-compose, 2.30 or newer),
-amd64 (no arm64 image is built), and the host ports that mode publishes — 80
-and 443, or the loopback port under `--tls-mode tunnel`. It also normalizes
-`--origin` against `--tls-mode` — an `http://` origin is upgraded to `https://`
-under the default `internal` mode, `--tls-mode off` requires an `http://`
-origin, and `--tls-mode tunnel` requires an `https://` one it will not guess
-at.
+The host checks run before anything changes: a container engine and the Compose
+v2 plugin (real Compose, not podman-compose, 2.30 or newer), amd64 (no arm64
+image is built), and the host ports that mode publishes, 80 and 443 or the
+loopback port under `--tls-mode tunnel`. `--origin` is normalized against
+`--tls-mode`: an `http://` origin is upgraded to `https://` under the default
+`internal` mode, `--tls-mode off` requires an `http://` origin, and `--tls-mode
+tunnel` requires an `https://` one it will not guess at.
 
 Re-running is safe for your data. An existing `.env` is kept, and a secret that
-already has a value is never regenerated: `.env` holds `FAKE_KMS_DATAKEY`, the
-only copy of the key every stored IMAP credential is encrypted with. The
-installer re-downloads the deploy assets on every run, so edits to the compose
-file or the Caddy files are replaced — pin the image version through
-`REMIT_TAG` in `.env` (which is kept across runs), not by editing the compose
-file.
+already has a value is never regenerated. The deploy assets are re-downloaded on
+every run, so edits to the compose file or the Caddy files are replaced. Pin the
+image version through `REMIT_TAG` in `.env`, which is kept across runs, not by
+editing the compose file.
 
-The host checks run on every invocation, existing install or not, and there is
-one that stops a re-run against a deployment that is serving: a Compose plugin
-older than 2.30. Nothing is changed when it does. Below 2.30 `--profile '*'`
-selects no profile, so `remit down`, `remit purge` and `remit restart --hard`
-skip the optional profiles while reporting that they covered everything, and
-`remit restart` cannot tell a service that was removed from the compose file
-from one sitting behind a profile — so it keeps a name it can never start in
-its restart record instead of clearing it. One such name is enough to hold the
-whole optional profile down: the restore brings the record back in a single
-command, and Compose refuses that command outright over one name it does not
-know. Both are silent, which is why the installer refuses rather than warns.
-Update the compose plugin and run it again.
+`.env` holds `FAKE_KMS_DATAKEY`, the only copy of the key that decrypts stored
+mailbox credentials. Back it up.
 
-Then visit `$REMIT_ORIGIN` — the installer prints it when it finishes. The first
-sign-up on that page creates your account; every subsequent IMAP account is
-added from the app itself (Settings → Add account).
+One check stops a re-run against a deployment that is serving, and changes
+nothing when it does: a Compose plugin older than 2.30. Below 2.30 `--profile
+'*'` selects no profile, so `remit down`, `remit purge` and `remit restart
+--hard` silently skip the optional profiles, and `remit restart` can leave a
+name in its restart record that Compose then refuses, holding the whole optional
+profile down. Update the compose plugin and run it again.
+
+Then visit `$REMIT_ORIGIN`, which the installer prints when it finishes. The
+first sign-up on that page creates your account; every subsequent IMAP account
+is added from the app itself (Settings → Add account).
 
 ## Managing the deployment
 
 The installer writes everything into the install directory (`./reader` by
 default) and ships `remit`, which knows that directory and the compose file in
-it. It is the interface to the deployment and runs from anywhere:
+it. It runs from anywhere:
 
 ```bash
 remit status              # what is running, and whether the origin reaches it
@@ -95,34 +86,31 @@ When `/usr/local/bin` is writable the installer puts `remit` there; otherwise it
 stays in the install directory and the installer prints the one-line `sudo cp`
 that places it on PATH. `$REMIT_DIR` points it at a different install directory.
 
-That chooses which deployment is managed. `.env`'s `REMIT_PROJECT` names the
-Compose project, and containers, volumes and the network all carry that name —
-so two install directories with the same project name are one deployment, and
-`remit purge` from either destroys the data for both. A second deployment is a
-second project (below).
+`.env`'s `REMIT_PROJECT` names the Compose project, and containers, volumes and
+the network all carry that name. Two install directories with the same project
+name are one deployment, and `remit purge` from either destroys the data for
+both. A second deployment is a second project (below).
 
-`remit down` stops the containers, so the address stops answering until
-`remit restart`. It removes no volume — accounts, mail and settings all come
-back with it.
+`remit down` stops the containers, so the address stops answering until `remit
+restart`. It removes no volume: accounts, mail and settings all come back with
+it.
 
 `remit purge` is the destructive one, for abandoning a failed install or
-starting clean: it removes the containers and every data volume, including
+starting clean. It removes the containers and every data volume, including
 `sqlite_data`, which holds the accounts and everything organised in the app.
-Those do not come back. Message bodies do — they are a cache of IMAP and
-re-sync once an account is added again. Run without `--yes` it only prints what
-would go. The install directory survives either way, `.env` and its
-`FAKE_KMS_DATAKEY` included, so `remit restart` afterwards brings up an empty
-working stack.
+Those do not come back. Message bodies do, as a cache of IMAP that re-syncs once
+an account is added again. Run without `--yes` it only prints what would go. The
+install directory survives either way, `.env` and its `FAKE_KMS_DATAKEY`
+included, so `remit restart` afterwards brings up an empty working stack.
 
 Apply an `.env` edit with `remit restart`, not `docker compose restart`.
 Compose's `restart` reuses the existing containers with the environment they
-were created with, and reports success — the edit appears to have taken effect
+were created with, and reports success: the edit appears to have taken effect
 and has not. `remit restart` runs `up -d`, which recreates the containers whose
 configuration changed.
 
-A few operations below still show a raw `docker compose` line. Those are
-escape hatches: one-off or rarely-needed things the wrapper deliberately has no
-command for.
+A few operations below show a raw `docker compose` line, for the one-off things
+the wrapper has no command for.
 
 ## A second deployment on one host
 
@@ -139,30 +127,19 @@ curl -fsSL https://raw.githubusercontent.com/remit-mail/reader/main/install.sh \
 ```
 
 `--project beta` names the Compose project, so every container, volume and
-network of that deployment carries it and none of them are the first one's. It
-installs into `$PWD/reader-beta` unless `--dir` says otherwise, writes
-`REMIT_PROJECT=beta` to that directory's `.env`, and puts its wrapper on PATH as
-`remit-beta` — one command per deployment, each pointed at its own directory.
-Re-running the installer over an existing directory keeps the project it already
-holds, and refuses a `--project` that disagrees with it rather than starting an
-empty stack beside the data.
+network of that deployment carries it. It installs into `$PWD/reader-beta`
+unless `--dir` says otherwise, writes `REMIT_PROJECT=beta` to that directory's
+`.env`, and puts its wrapper on PATH as `remit-beta`. Re-running the installer
+over an existing directory keeps the project it already holds, and refuses a
+`--project` that disagrees with it rather than starting an empty stack beside
+the data.
 
 Per deployment: the hostname, the tunnel credential, the project name, the
-install directory, both loopback ports, `.env` and every secret in it, and all
-volumes. Shared: the kernel, the container daemon, the images, and the box's CPU
-and disk. `--http-bind` is the one host-level number two deployments must not
-share; in the modes that publish 80 and 443 there is nothing to divide, so those
-are one deployment per host.
-
-That gives separate databases, separate `FAKE_KMS_DATAKEY`s (one stack's key
-does not decrypt the other's stored IMAP credentials), separate auth secrets (a
-session on one is not a session on the other) and separate networks (no
-container can address the other stack's services by name). What it does not give
-is separation from the container daemon: the updater mounts the docker socket,
-so root on either stack is root on the host and therefore on both. A deployment
-holding other people's mail belongs on its own VM — that is the only thing that
-removes it, the tunnel does not care which machine it runs on, and a VM with no
-public IP is exactly the case `tunnel` mode is for.
+install directory, both loopback ports, `.env` and every secret in it, all
+volumes, and the compose network. Shared: the kernel, the container daemon, the
+images, and the box's CPU and disk. `--http-bind` is the one host-level number
+two deployments must not share; in the modes that publish 80 and 443 there is
+nothing to divide, so those are one deployment per host.
 
 ## When the app is unreachable
 
@@ -172,19 +149,18 @@ whether the origin answers.
 
 The failure worth knowing about is the one nothing else reports: every container
 is up, the box serves fine, and the browser hangs anyway, because the name
-resolves somewhere else — a record left from an earlier origin, or a stale
-answer cached by the client's resolver or MagicDNS. From the box the name works,
-so nothing looks wrong. `remit status` says `this box does not hold that, so
-clients reach a different machine` when that is what happened. Fix the record,
-then flush the resolver cache on the machine you browse from.
+resolves somewhere else. A record left from an earlier origin, or a stale answer
+cached by the client's resolver or MagicDNS. From the box the name works.
+`remit status` says `this box does not hold that, so clients reach a different
+machine` when that is what happened. Fix the record, then flush the resolver
+cache on the machine you browse from.
 
 `remit probe-host <origin>` runs the same check against any name, which is how
 to test a record before pointing `PUBLIC_ORIGIN` at it.
 
 ## Manual install
 
-The explicit path the installer automates, from a checkout — raw Compose
-throughout, since this is the path that does without the installer:
+The explicit path the installer automates, from a checkout:
 
 ```bash
 cd deploy/vps
@@ -200,20 +176,20 @@ docker compose -f docker-compose.sqlite.yml --env-file .env logs -f migrate
 here: the absolute path of this directory. The updater mounts it at the same
 path on both sides of the docker socket so a self-update resolves relative binds
 against the right host path (reader#272); the `updater` service refuses to start
-until it is set, rather than mount the wrong path.
+until it is set.
 
-`remit` still works against a directory set up this way — it just does not know
-where that is, so point it there once: `export REMIT_DIR=$PWD`.
+`remit` works against a directory set up this way, it just does not know where
+that is, so point it there once: `export REMIT_DIR=$PWD`.
 
-The two secrets the stack cannot run without are `BETTER_AUTH_SECRET` (signs
-the identity JWTs) and `FAKE_KMS_DATAKEY` (encrypts stored IMAP credentials).
+The two secrets the stack cannot run without are `BETTER_AUTH_SECRET` (signs the
+identity JWTs) and `FAKE_KMS_DATAKEY` (encrypts stored IMAP credentials).
 Generate each with `openssl rand -hex 32`. `migrate` is a one-shot that runs
 before every app service and applies the schema; confirm it succeeds before
 signing in.
 
 Then visit the address you set as `PUBLIC_ORIGIN` in `.env`. The first sign-up
-creates your account; every subsequent IMAP account is added from the app
-itself (Settings → Add account).
+creates your account; every subsequent IMAP account is added from the app itself
+(Settings → Add account).
 
 ## What's running
 
@@ -235,36 +211,27 @@ itself (Settings → Add account).
 The relational store and the better-auth identity tables share one file
 (`/data/sqlite/remit.db`); the vector store keeps its data in a second file
 (`/data/sqlite/vec.db`). Both sit on the `sqlite_data` named volume, which
-**must be local disk** — WAL's cross-process coordination uses a shared-memory
+**must be local disk**: WAL's cross-process coordination uses a shared-memory
 file next to the database that does not work over NFS/CIFS. Message bodies live
-on the `message_storage` named volume via the filesystem storage backend — not
-backed up by the nightly snapshot below (see [Backups](#backups)).
-
-The idle footprint stays small: removing a database server leaves the embedding
-model in `search-index-worker` as the largest resident once indexing has run.
-The `observability` profile adds about 30 MB resident on top of that, measured
-rather than estimated — see [Looking at the box](#looking-at-the-box).
+on the `message_storage` named volume via the filesystem storage backend, and
+are not part of the nightly snapshot (see [Backups](#backups)).
 
 Every Node service runs under a 512 MB V8 heap ceiling, so a heavy or runaway
 job fails inside its own container instead of taking the box with it. Move it
-with `REMIT_NODE_HEAP_MB` in `.env` — raise it on a larger box if indexing a big
-mailbox runs out of memory. The containers carry no hard memory limit on
-purpose: a slow job should stay slow, not be killed.
+with `REMIT_NODE_HEAP_MB` in `.env`; raise it on a larger box if indexing a big
+mailbox runs out of memory. The containers carry no hard memory limit.
 
-Each worker's health is a heartbeat. A worker polls one queue per kind of work —
-`imap-worker` six of them — and each of those loops rewrites its own timestamp
+Each worker's health is a heartbeat. A worker polls one queue per kind of work
+(`imap-worker` six of them), and each of those loops rewrites its own timestamp
 file on the `heartbeat` volume every poll cycle. The check reads the oldest of a
-worker's files, so one wedged queue is enough to report it: a loop hung in a
-socket read never exits, the container stays up, `restart: unless-stopped` never
-fires, and mail quietly stops moving while its siblings keep polling. That is
-the failure nothing else reports.
+worker's files, so one wedged queue is enough to report it while its siblings
+keep polling.
 
-A file counts as stale after seven minutes, comfortably longer than the slowest
-legitimate handler so a slow mailbox never reads as a hang, and the container is
-marked unhealthy after three consecutive failing checks — about nine minutes
-after a loop stops. Nothing restarts on it. An unhealthy worker is a condition
-to look at: `remit logs <service>`, then `docker compose restart <service>` if
-you want it recycled.
+A file counts as stale after seven minutes, and the container is marked
+unhealthy after three consecutive failing checks, about nine minutes after a
+loop stops. Nothing restarts on it. An unhealthy worker is a condition to look
+at: `remit logs <service>`, then `docker compose restart <service>` if you want
+it recycled.
 
 A healthy worker means its loops are turning, not that the work is succeeding.
 For that, run [`remit doctor`](#is-anything-wrong-remit-doctor).
@@ -272,12 +239,9 @@ For that, run [`remit doctor`](#is-anything-wrong-remit-doctor).
 ## The category repair
 
 The mail list filters on `thread_message.category`, a copy of `message.category`
-kept on the row so the filter can be a SQL predicate over the whole folder rather
-than a pass over the pages a browser happens to hold. The `migrate` one-shot
-repairs any row whose copy disagrees, and logs what it found before and after —
-so an upgrade leaves the numbers behind instead of an assumption. It runs one
-statement, writes only rows that need it, and issues no write at all once there
-is nothing left to repair.
+kept on the row. The `migrate` one-shot repairs any row whose copy disagrees,
+and logs what it found before and after. It writes only rows that need it, and
+issues no write at all once there is nothing left to repair.
 
 To look without waiting for an update:
 
@@ -285,10 +249,9 @@ To look without waiting for an update:
 remit check-categories
 ```
 
-That reports and changes nothing — the database is opened read-only — and prints
-each figure with the cause it
-measures and the result a healthy instance is expected to produce. Most of them
-are zero, for reasons the output states. Two are not defects:
+That reports and changes nothing (the database is opened read-only) and prints
+each figure with the cause it measures and the result a healthy instance is
+expected to produce. Most of them are zero. Two are not defects:
 
 - **ahead** counts rows classified while their message is still pending. That is
   a classification in flight, so on a syncing instance it is expected and clears
@@ -297,32 +260,31 @@ are zero, for reasons the output states. Two are not defects:
 
 ## Search
 
-Text search is the primary surface and works out of the box: FTS5 over subjects
-and senders. Queries of 1–2 characters run as an unindexed scan rather than
-through the index.
+Text search is FTS5 over subjects and senders, and works out of the box.
+Queries of 1–2 characters run as an unindexed scan rather than through the
+index.
 
-Free-text semantic (vector) search queries are not served. Answering one
-requires embedding the query in the API process, and the `backend` image
-deliberately ships without the embedding runtime (the model plus its
-dependencies would roughly quadruple the image and keep hundreds of MiB
-resident). The `/search/semantic` endpoint detects the missing embedder and
-returns empty results instead of erroring, so the web client's "Related" section
-is simply empty. The `search-index-worker` still indexes embeddings, so a future
-backend image that carries the query pipeline lights up free-text semantic
-search without a re-index.
+Free-text semantic (vector) search queries are not served: the `backend` image
+ships without the embedding runtime needed to embed a query. The
+`/search/semantic` endpoint detects the missing embedder and returns empty
+results instead of erroring, so the web client's "Related" section is empty. The
+`search-index-worker` still indexes embeddings, so a backend image that carries
+the query pipeline lights up free-text semantic search without a re-index.
 
 The Organize "find similar" widen does work. It pools the vectors already stored
-for the anchor message and runs a nearest-neighbour read over the vector store —
-no query embedding, so it needs only `sqlite-vec`. The npm build of that
-extension is glibc-only and will not load on the Alpine/musl `backend` image, so
-the image carries a musl-compiled `vec0.so` and points the store's loader at it
+for the anchor message and runs a nearest-neighbour read over the vector store,
+so it needs only `sqlite-vec`. The npm build of that extension is glibc-only and
+will not load on the Alpine/musl `backend` image, so the image carries a
+musl-compiled `vec0.so` and points the store's loader at it
 (`SQLITE_VEC_EXTENSION_PATH`).
 
 ## TLS
 
 One setting, `TLS_MODE` in `.env`, picks how Caddy serves the origin. `internal`
 needs nothing outside the box. Set it, set `PUBLIC_ORIGIN` to a matching
-`scheme://host`, and bring the stack up.
+`scheme://host`, and bring the stack up. `PUBLIC_ORIGIN` is the single origin
+knob: Caddy's site address and the app's auth and CORS origins all derive from
+it, and its scheme has to match the mode.
 
 | `TLS_MODE` | What it does | `PUBLIC_ORIGIN` |
 |---|---|---|
@@ -330,7 +292,7 @@ needs nothing outside the box. Set it, set `PUBLIC_ORIGIN` to a matching
 | `off` | Plain HTTP on :80. Reach it over a private network (tailnet, VPN, SSH tunnel). | `http://…` |
 | `tailscale` | A publicly-trusted certificate from the local `tailscaled` for this box's `<name>.<tailnet>.ts.net`. | `https://<name>.<tailnet>.ts.net` |
 | `acme` | Public Let's Encrypt. Ports 80/443 must be reachable from the internet and the host must resolve in public DNS. | `https://mail.example.com` |
-| `tunnel` | TLS terminates at a provider's edge. An outbound-only agent on the box holds the connection open — no public IP, no port forward, no inbound firewall rule. | `https://mail.example.com` |
+| `tunnel` | TLS terminates at Cloudflare. An outbound-only agent on the box holds the connection open: no public IP, no port forward, no inbound firewall rule. | `https://mail.example.com` |
 
 To make the `internal`-mode browser warning go away, trust Caddy's root CA on
 each client. Caddy keeps it on the `caddy_data` volume; export it into the
@@ -344,30 +306,28 @@ Then import `reader-root.crt` into the client's trust store (macOS Keychain, the
 Windows cert store, `/usr/local/share/ca-certificates` +
 `update-ca-certificates` on Linux, or the browser's own authorities). Skipping
 this is fine, but a browser's click-through exception is pinned to the leaf
-certificate, which Caddy reissues every 12 hours — so the warning (and the
-click-through) comes back twice a day. Trusting the root CA once per device is
-what makes it go away for good.
-
-The same file is also a download in the app: Settings › Advanced offers it
-directly, for a client that has no shell access to the box.
+certificate, which Caddy reissues every 12 hours, so the warning comes back
+twice a day. The same file is a download in the app, at Settings › Advanced, for
+a client with no shell access to the box.
 
 `tailscale` needs two things beyond `TLS_MODE`: enable HTTPS for your tailnet
 (Tailscale admin console → DNS → **Enable HTTPS**), and set `TAILSCALED_SOCKET`
 in `.env` to the host's `tailscaled` socket (usually
 `/var/run/tailscale/tailscaled.sock`) so the caddy container can reach the
-daemon. Caddy detects the `.ts.net` host and fetches the certificate itself.
+daemon. Both are required. Caddy detects the `.ts.net` host and fetches the
+certificate itself.
 
 ### `tunnel`
 
 For a box behind a router you do not control: a home server, a VM with no public
-IP, a connection with no static address. The browser connects to the provider's
-edge, which holds the public certificate for the hostname and hands requests
-down a connection the box opened outbound. Nothing dials in.
+IP, a connection with no static address. The browser connects to Cloudflare,
+which holds the public certificate for the hostname and hands requests down a
+connection the box opened outbound. Nothing dials in.
 
-Cloudflare Tunnel is the supported edge. There: create a tunnel, copy its token
-to a file on the box, point the hostname at the tunnel and route it to
-`http://caddy:80`. That mapping lives at Cloudflare — no file on the box names
-it. Then one run sets the whole thing up:
+In the Cloudflare dashboard, create a tunnel, copy its token to a file on the
+box, point the hostname at the tunnel and route it to `http://caddy:80`. That
+mapping lives at Cloudflare; no file on the box names it. Then one run sets the
+rest up:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/remit-mail/reader/main/install.sh \
@@ -379,10 +339,9 @@ curl -fsSL https://raw.githubusercontent.com/remit-mail/reader/main/install.sh \
 rm ./tunnel.token
 ```
 
-The credential is read from that file into `.env` and never printed, never put
-on a command line and never given to a flag — a token typed as an argument
-lands in your shell history and is readable in `ps`. `$REMIT_TUNNEL_TOKEN` does
-the same job for an environment that already carries it.
+The token is read from that file into `.env`, never from an argument.
+`$REMIT_TUNNEL_TOKEN` does the same job for an environment that already carries
+it.
 
 That run writes:
 
@@ -396,72 +355,44 @@ SELF_SIGN_UP_ENABLED=true
 ```
 
 The template's `COMPOSE_PROFILES` derives from `TLS_MODE`, so setting the mode
-is what starts the agent. `CADDY_HTTP_BIND` on loopback is your way into the app
-over SSH while the tunnel is down; the agent itself reaches Caddy over the
+is what starts `cloudflared`. `CADDY_HTTP_BIND` on loopback is your way into the
+app over SSH while the tunnel is down; the agent itself reaches Caddy over the
 compose network and needs no published port. `--http-bind` picks another
 loopback address, and the installer's free-port check follows it instead of
 checking 80 and 443, which serve nothing in this mode.
 
-`remit status` reports the mode and whether the agent is connected to the edge,
-in place of the resolves-to-this-box line a tunnelled hostname can never
-satisfy — it answers with the edge's address, which is the topology working.
+`remit status` reports the mode and whether `cloudflared` is connected to
+Cloudflare, in place of the resolves-to-this-box line a tunnelled hostname can
+never satisfy: it answers with Cloudflare's address, which is the topology
+working.
 
-This is the one mode where the network is not a gate. The sign-in and sign-up
-surface is on the public internet, so close signup once your own account exists
-and give that account a real password — the installer closes with those three
-steps, because the window between a live public origin and a closed sign-up is
-the only thing standing between a stranger and an account here:
+A site that is down while the box is fine is what a dropped tunnel looks like.
+The browser gets Cloudflare's error page, `remit doctor` says
+`tunnel_disconnected`, `remit logs tunnel` says why (usually a revoked or
+mistyped token), and the app is still there on the loopback port over SSH.
+
+Sign up for your own account, then close sign-up. The installer closes with
+those three steps:
 
 ```bash
 sed -i 's/^SELF_SIGN_UP_ENABLED=.*/SELF_SIGN_UP_ENABLED=false/' .env
 remit restart
-``` Caddy takes the client address only from the header Cloudflare's
-edge overwrites, and only from a connection on the compose network, so the
-sign-in rate limit counts an attacker rather than a header they can set.
+```
+
+Caddy takes the client address from `Cf-Connecting-Ip`, and only from a
+connection on the compose network.
 
 ### FAQ
 
-**My browser says the connection isn't private in `internal` mode. Is it broken?**
-No. The certificate is real but signed by Caddy's own CA, which the browser
-doesn't know yet. Trust the exported root CA (above) or click through the
-warning — traffic is encrypted either way.
-
 **Why is port 443 open in `off` mode?** Compose publishes 80 and 443 for all
 modes so switching to a TLS mode needs no compose edit. In `off` mode nothing
-listens on 443; it just sits unused. If another service already holds :443 on
-the host, free it before starting the stack.
-
-**I set `TLS_MODE=tailscale` but Caddy can't get a certificate.** Two usual
-causes: HTTPS isn't enabled for the tailnet, or `TAILSCALED_SOCKET` doesn't
-point at a running `tailscaled` (the socket must exist on the host and be
-mounted into the container). Both are required.
-
-**Do I have to change `PUBLIC_ORIGIN` when I switch modes?** Yes — its scheme
-must match. `http://` only for `off`; `https://` for the other three. It stays
-the single origin knob (Caddy's site address and the app's auth/CORS origins all
-derive from it), so nothing else changes.
-
-**Can I use `acme` behind a tailnet or without public DNS?** No. Public Let's
-Encrypt validates a publicly-resolvable name over ports 80/443. Use `internal`
-or `tailscale` for private networks.
-
-**Why is the last hop of a tunnelled request plain HTTP?** It runs between two
-containers on one host and never leaves the box.
-
-**Can someone reach my box directly and skip the tunnel?** Not over the
-internet — with loopback binds no port is published to it. Anyone who can
-already open a shell on the host reaches the app on the loopback port, which is
-what makes it a usable fallback.
+listens on 443. If another service already holds :443 on the host, free it
+before starting the stack.
 
 **Can one deployment serve both a tunnel and my tailnet address?** Not as two
 addresses for users. Cookies and tokens are pinned to a single origin, so a
 second address gives a page that loads and a session that does not. The tailnet
 stays the way you reach the box.
-
-**The site is down but the box is fine.** That is what a dropped tunnel looks
-like: the browser gets the provider's error page. `remit doctor` says
-`tunnel_disconnected`, `remit logs tunnel` says why — usually a revoked or
-mistyped token — and the app is still there on the loopback port over SSH.
 
 **How do I move to a different domain?** Change `PUBLIC_ORIGIN`, point the new
 hostname at the tunnel, update the redirect URI in Entra if Microsoft sign-in is
@@ -481,20 +412,17 @@ remit update --recover          # finish an update that was interrupted
 ```
 
 The app path goes through the `updater` container, which watches a private
-volume the app writes a version string onto and runs this same `remit`. It binds
-no port; the volume is the only way to reach it, and only the backend and the
-updater mount it. What the app hands across is a version and nothing else — the
-registry and every image reference come from the manifest the updater fetches
-itself, so a compromised app cannot redirect an update at another registry.
+volume the app writes a version string onto and runs this same `remit`. Every
+image reference comes from the manifest the updater fetches itself.
 
-The updater also checks the manifest on its own — once at startup and every six
+The updater also checks the manifest on its own, once at startup and every six
 hours after, so the app shows an available release without anyone opening a
 shell. Override the cadence with `REMIT_UPDATE_CHECK_INTERVAL` (seconds); the
 check only reports and never installs.
 
 An update takes the instance offline for a few minutes. Nothing is served and no
 worker runs between the snapshot and the verdict, so nothing is lost if it rolls
-back — a rollback returns the instance to the exact release and database it was
+back: a rollback returns the instance to the exact release and database it was
 running before. Caddy stays up throughout and serves 502s, so a browser sees an
 instance restarting rather than a name that stopped resolving.
 
@@ -503,8 +431,8 @@ Against a running stack an update is atomic. In order:
 1. The manifest at `REMIT_UPDATE_MANIFEST_URL` is fetched and validated. A
    version at or below the running one is refused, as is a manifest naming
    images from outside its own registry.
-2. Every image is pulled at the target version. A failure here — a registry
-   refusal, a full disk — has touched nothing and a retry is safe.
+2. Every image is pulled at the target version. A failure here (a registry
+   refusal, a full disk) has touched nothing and a retry is safe.
 3. Both databases are snapshotted with `VACUUM INTO` **while the old version is
    still live**. The work queue is deliberately not part of the snapshot.
 4. `REMIT_TAG` is written to `.env`, before the stop, so a host that reboots
@@ -518,52 +446,45 @@ Against a running stack an update is atomic. In order:
    three times in a row. 300 seconds, then the update has failed.
 8. On a pass the held-back services start and the update is done.
 9. On a failure the snapshot and the previous tag are restored, the gate runs
-   again, and the outcome is `rolledBack` — or `rollbackFailed`, which is the
-   one case that ends with you needing this shell.
+   again, and the outcome is `rolledBack`, or `rollbackFailed`, which is the one
+   case that ends with you needing this shell.
 
 `remit status` reports the running version, the last check and the last run's
-outcome. Caddy stays up throughout and serves 502s, so a browser sees an
-instance that is restarting rather than a name that stopped resolving.
+outcome.
 
 The check reports two schema versions: the running instance's, read from the
-database, and the target release's, carried in the manifest. A target whose
-schema version is higher than the running one applies a schema migration during
-the offline window; a rollback restores the pre-migration database, so the
-schema version returns to what it was. Neither number is a verdict — the update
-runs the same atomic sequence either way — but a higher target schema is the
-signal that this update changes the database, not only the binaries.
+database, and the target release's, carried in the manifest. A higher target
+schema means this update migrates the database during the offline window, and a
+rollback restores the pre-migration database.
 
-Discovery is the manifest and nothing else. The default `REMIT_UPDATE_MANIFEST_URL`
-is the `stable.json` asset of the project's latest published GitHub release, which
-the release workflow uploads before the release leaves draft. A `vX.Y.Z` tag can
-be present in the registry for a version that was never fully published — image
-pushes are not atomic across the roster — so a tag existing is not an offer,
-because no published release carries its manifest. Clear
+Discovery is the manifest and nothing else. The default
+`REMIT_UPDATE_MANIFEST_URL` is the `stable.json` asset of the project's latest
+published GitHub release. A `vX.Y.Z` tag present in the registry is not an offer
+on its own, since image pushes are not atomic across the roster. Clear
 `REMIT_UPDATE_MANIFEST_URL` and no check happens at all; point it at your own
 HTTPS URL serving the same JSON to hold releases back or run a fork.
 
-`--tag` still installs any tag directly, published release or not, and takes the
-same gate and the same rollback. On a box with nothing running yet — the
-installer's first update — there is no old version to snapshot and nothing to
-roll back to, so it pulls and starts, as before.
+`--tag` installs any tag directly, published release or not, and takes the same
+gate and the same rollback. On a box with nothing running yet, the installer's
+first update, there is no old version to snapshot and nothing to roll back to,
+so it pulls and starts.
 
 ## Rollback
 
 A failed update rolls itself back. The snapshot it restores was taken before
 anything stopped, so it carries the writes still in the write-ahead log, and the
-restored files are left owned by `1000:1000` — a root-owned file on
-`sqlite_data` makes every app writer fail with `EACCES`.
+restored files are left owned by `1000:1000`: a root-owned file on `sqlite_data`
+makes every app writer fail with `EACCES`.
 
 To go back deliberately, `remit update --tag <previous working tag>`. Practise
 it once before you need it.
 
-If the updater is killed mid-run, it recovers on its next start rather than
-waiting for you: `remit update --recover` reads the breadcrumb on its volume and
-branches on the phase it recorded. Interrupted before anything stopped, the
-update is abandoned and the instance was never touched. Interrupted after, the
-gate decides, and an interrupted rollback can only end as rolled back or failed
-— never as a success. The lock is an `flock`, released by the kernel when its
-holder dies, so a killed updater never locks its own recovery out.
+If the updater is killed mid-run, it recovers on its next start: `remit update
+--recover` reads the breadcrumb on its volume and branches on the phase it
+recorded. Interrupted before anything stopped, the update is abandoned and the
+instance was never touched. Interrupted after, the gate decides, and an
+interrupted rollback can only end as rolled back or failed. The lock is an
+`flock`, so a killed updater never locks its own recovery out.
 
 `rollbackFailed` is the one outcome that needs you. The pre-update snapshot is
 still on the updater's volume under `snapshots/<runId>/` and the previous
@@ -574,7 +495,7 @@ and `remit restart`.
 ## Podman
 
 One path is supported: **rootful Podman driving real Compose v2 over Podman's
-Docker-compatible socket** — not podman-compose.
+Docker-compatible socket**, not podman-compose.
 
 ```bash
 systemctl enable --now podman.socket
@@ -586,10 +507,8 @@ installer and every `remit` command above work unchanged.
 
 **Never run `podman-compose` against this deployment.** It silently drops
 `depends_on: condition:` and ignores `profiles:`, so every app container is left
-in `Created` (the migration never gates them, it just never runs them) while the
-command exits `0`. A green exit with a broken stack is worse than no Podman
-support, so the installer refuses to proceed if `docker compose` resolves to
-podman-compose.
+in `Created` while the command exits `0`. The installer refuses to proceed if
+`docker compose` resolves to podman-compose.
 
 One host setting needs attention before the first start, checked by the
 installer:
@@ -612,11 +531,11 @@ installer:
   ```
   REMIT_DOZZLE_SOCKET=/run/podman/podman.sock
   ```
-  `victoriametrics` needs nothing — it reads over the network, not the socket.
+  `victoriametrics` needs nothing; it reads over the network, not the socket.
 
 Rootless Podman also runs the stack, with one more setting:
 `net.ipv4.ip_unprivileged_port_start=80` (`sysctl -w`, or persist it in
-`/etc/sysctl.conf`) — compose publishes 80 and 443 in every `TLS_MODE`, and
+`/etc/sysctl.conf`). Compose publishes 80 and 443 in every `TLS_MODE`, and
 rootless Podman refuses to bind ports below that threshold by default. Rootful
 Podman binds them the same as real Docker and needs no tuning.
 
@@ -626,49 +545,43 @@ Podman binds them the same as real Docker and needs no tuning.
 
 ## Backups
 
-A `backup` sidecar is in the compose file behind `profiles: ["backup"]` — off by
-default. Turning it on is a one-off, so it is an escape hatch rather than a
-`remit` command; run it from the install directory:
+A `backup` sidecar is in the compose file behind `profiles: ["backup"]`, off by
+default. Turning it on is a one-off, so run it from the install directory:
 
 ```bash
 docker compose -f docker-compose.sqlite.yml --env-file .env --profile backup up -d
 ```
 
-It runs `VACUUM INTO` on the two database files — the app/auth store and the
-vector store — on a nightly interval, encrypts each with `age`, and ships them
-to an S3-compatible bucket via `rclone`. Retention defaults to 30 days (the
-reference RPO is 24 hours). The database — accounts, credentials, metadata,
-tags — is the asset; message bodies are a cache of IMAP (the source of truth)
-and re-sync after a restore, so they are deliberately not backed up here.
-Restore is putting the two files back on the `sqlite_data` volume and starting
-the stack.
+It runs `VACUUM INTO` on the two database files, the app/auth store and the
+vector store, on a nightly interval, encrypts each with `age`, and ships them to
+an S3-compatible bucket via `rclone`. Retention defaults to 30 days (the
+reference RPO is 24 hours). The database (accounts, credentials, metadata, tags)
+is the asset; message bodies are a cache of IMAP and re-sync after a restore, so
+they are deliberately not backed up here. Restore is putting the two files back
+on the `sqlite_data` volume and starting the stack.
 
-Turning it on is not free of responsibility: you own the offsite bucket,
-custody of the `age` key (losing it makes every backup unreadable, with no
-recovery), and actually testing a restore before you need one — decrypt a
-backup with the private key, `gunzip` it, open it with `sqlite3`, and confirm it
-looks right. See the Backups section in `remit.env.template` for the variables
+See the Backups section in `remit.env.template` for the variables
 (`BACKUP_AGE_RECIPIENT`, `BACKUP_RCLONE_REMOTE`, and the `RCLONE_CONFIG_*` vars
-for your provider).
+for your provider). Test a restore before you need one: decrypt a backup with
+the `age` private key, `gunzip` it, and open it with `sqlite3`.
 
 ## ListId backfill for pre-upgrade mail
 
-Filters can match on a mailing list's `List-Id`, but the field is only
-populated at body-sync time — mail synced before this shipped keeps it empty,
-so a `ListId` clause under-matches the back catalogue. A one-time backfill
-derives it from each message's already-stored raw source (no IMAP refetch)
-and writes only that field:
+Filters can match on a mailing list's `List-Id`, but the field is only populated
+at body-sync time, so mail synced before this shipped keeps it empty and a
+`ListId` clause under-matches the back catalogue. A one-time backfill derives it
+from each message's already-stored raw source (no IMAP refetch) and writes only
+that field:
 
 ```bash
 docker compose -f docker-compose.sqlite.yml --env-file .env run --rm backend \
   node backfill-list-id.mjs
 ```
 
-Safe to interrupt: it checkpoints to `/data/sqlite/list-id-backfill-checkpoint.json`
-after every batch and resumes from there on the next run, and a message
-already backfilled (or one that never carried a `List-Id`) is left alone on a
-rerun. Run it once after upgrading; there is no need to run it again unless a
-later run is interrupted before completion.
+Safe to interrupt: it checkpoints to
+`/data/sqlite/list-id-backfill-checkpoint.json` after every batch and resumes
+from there on the next run, and a message already backfilled (or one that never
+carried a `List-Id`) is left alone on a rerun. Run it once after upgrading.
 
 ## Known gap: account deletion's AWS-only steps
 
@@ -677,23 +590,19 @@ sign-out and CDN cache invalidation), with no portable implementation in the
 codebase today. The image runs and the queues are wired
 (`remit-account-fanout`, `remit-account-finalize`,
 `remit-account-purge-delete.fifo`), but triggering an actual account deletion on
-this deployment errors partway through the cascade. This is a pre-existing
-application gap, not something particular to this deployment — flagged here so
-it is not a surprise.
+this deployment errors partway through the cascade.
 
 ## Logs
 
-Every service writes one JSON object per line to stdout — the queue sidecar puts
-its failures on stderr, and `remit logs` shows both. That includes the first line
-a container writes: there is no startup banner, no table of settings, and no
-plain-text progress from the `migrate` one-shot. Nothing writes a log file, and
-nothing rotates one, so the container runtime's log driver is the only shipping
-mechanism involved.
+Every service writes one JSON object per line to stdout; the queue sidecar puts
+its failures on stderr, and `remit logs` shows both. That includes the first
+line a container writes: there is no startup banner, no table of settings, and
+no plain-text progress from the `migrate` one-shot. Nothing writes a log file,
+and nothing rotates one, so the container runtime's log driver is the only
+shipping mechanism involved.
 
 One exception, and it is not a container: `remit-worker`, the hand-run CLI that
-enqueues a sync event for an account, writes plain text for a terminal. It is not
-an entrypoint of any image and never runs under the log driver, so nothing a
-pipeline reads is affected.
+enqueues a sync event for an account, writes plain text for a terminal.
 
 These field names are the contract. They are what a Vector, Alloy, Fluent Bit or
 Promtail pipeline parses, and they do not change without a note in the release:
@@ -709,44 +618,36 @@ Promtail pipeline parses, and they do not change without a note in the release:
 | `name` | no | An exception class name, on the same backend paths. |
 
 `service` is one of `backend`, `imap-worker`, `smtp-worker`, `account-worker`,
-`search-index-worker`, `queue-sidecar`, or — from the
-one-shot commands that run out of the backend image — `backend-migrate` and
-`backend-backfill-list-id`. Migrations log under their own name, not the
-backend's.
+`search-index-worker`, `queue-sidecar`, or, from the one-shot commands that run
+out of the backend image, `backend-migrate` and `backend-backfill-list-id`.
 
-Everything else on a line is a field the call site added, at the top level, never
-nested: `accountId`, `mailboxId`, `messageId`, `queue`, `requestId`, `path`,
-`method`. Treat the set as open — a new field appears without warning, a
+Everything else on a line is a field the call site added, at the top level,
+never nested: `accountId`, `mailboxId`, `messageId`, `queue`, `requestId`,
+`path`, `method`. Treat the set as open: a new field appears without warning, a
 documented one does not disappear without a note.
 
 `requestId` is the correlation key, and the unit it covers is one handler
-invocation — one HTTP request on the backend, one batch of queue messages on a
-worker. A batch is one message by default, so on today's configuration the id is
-per message, but a target that raises its batch size puts that whole batch under
-one id. Every line the invocation produces carries the value, from the poller's
-`poller: invoking handler` through the handler's own lines to
-`poller: batch processed`, including the `Lambda invocation failed` line written
-after the handler has already given up. Grouping on it yields the complete story
-of one unit of work, outcome included.
+invocation: one HTTP request on the backend, one batch of queue messages on a
+worker (one message by default). Every line the invocation produces carries the
+value, from the poller's `poller: invoking handler` through the handler's own
+lines to `poller: batch processed`, including the `Lambda invocation failed`
+line written after the handler has given up.
 
-`level`, `time`, `service` and `msg` are reserved. A call-site field using one of
-those names is dropped rather than written, so a line is always one well-formed
-object and its level always means what it says.
-
-There is no `pid` and no `hostname`. One container runs one service, and the
-container name and id already reach the collector from the log driver.
+`level`, `time`, `service` and `msg` are reserved. A call-site field using one
+of those names is dropped rather than written. There is no `pid` and no
+`hostname`: one container runs one service, and the container name and id
+already reach the collector from the log driver.
 
 Two consequences worth planning a pipeline around. **A message body, a subject
 and an address never appear in a field of their own**, but a message that a
 handler failed on can put an address inside `msg`, inside `error` or inside a
-stack, so treat log lines as personal data and give them the retention you give
-the mailbox. And **lines are not ordered across services** — `time` is each
-container's own clock, so sort on it rather than on arrival.
+stack. And **lines are not ordered across services**: `time` is each container's
+own clock, so sort on it rather than on arrival.
 
 `LOG_LEVEL` in `.env` sets the threshold for the application services; unset it
 is `info`, which drops `debug` and `trace`. `silent` turns logging off entirely.
 A value that is not a level name is reported on one `warn` line at startup and
-the service logs at `info`. The queue sidecar has no threshold — it writes only
+the service logs at `info`. The queue sidecar has no threshold: it writes only
 `info` and `error`.
 
 ```bash
@@ -757,18 +658,18 @@ remit logs imap-worker | jq -r 'select(.error) | .error.stack // .stack // .erro
 
 ## Metrics
 
-Every service that owns a signal serves `/metrics` in Prometheus/OpenMetrics text
-format on the container network. `backend` and `queue` serve it on the port they
-already listen on; the four workers serve it on `9464`. Nothing is published to
-the host, nothing is routed through Caddy, and there are no credentials — the only
-host ports remain caddy's 80 and 443.
+Every service that owns a signal serves `/metrics` in Prometheus/OpenMetrics
+text format on the container network. `backend` and `queue` serve it on the port
+they already listen on; the four workers serve it on `9464`. Nothing is
+published to the host, nothing is routed through Caddy, and there are no
+credentials. The only host ports remain caddy's 80 and 443.
 
-Point any scraper you already run at the containers: Prometheus, VictoriaMetrics,
-Grafana Alloy, a Datadog agent, an OpenTelemetry collector. Nothing is ever
-pushed, so an operator who runs no scraper pays for an unused route and the box
-makes no outbound connection. If you run none and want one on the box, the
-optional `observability` profile is a scraper and a query UI in one container —
-see [Looking at the box](#looking-at-the-box).
+Point any scraper you already run at the containers: Prometheus,
+VictoriaMetrics, Grafana Alloy, a Datadog agent, an OpenTelemetry collector.
+Nothing is ever pushed, so a box whose operator runs no scraper makes no
+outbound connection. If you run none and want one on the box, the optional
+`observability` profile is a scraper and a query UI in one container, see
+[Looking at the box](#looking-at-the-box).
 
 | Series | From |
 |---|---|
@@ -780,11 +681,10 @@ see [Looking at the box](#looking-at-the-box).
 | `remit_handler_duration_seconds{handler,outcome}` | each worker — per-invocation duration and outcome |
 | `remit_search_index_backlog_rows` | `search-index-worker` — outbox rows not yet relayed; present only on the backend that has an outbox |
 
-Host CPU, memory, disk and network are not here: the agent you already run reports
-those, and it cannot know whether mail is arriving. Per-account series are labelled
-by account id and never by address — a scraped label travels wherever the scrape
-goes. Update state is not here either; it lives on the `updater_state` volume and
-`remit status` prints it.
+Host CPU, memory, disk and network are not here: the agent you already run
+reports those, and it cannot know whether mail is arriving. Per-account series
+are labelled by account id and never by address. Update state is not here
+either; it lives on the `updater_state` volume and `remit status` prints it.
 
 `remit_account_sync_age_seconds` sawtooths rather than sitting flat. A sync that
 was not explicitly requested skips a mailbox stamped inside the freshness window
@@ -794,12 +694,7 @@ Set an alert threshold above their sum or it fires on an account that is fine.
 
 A scrape that cannot evaluate a signal answers 500 rather than a number. The
 queue depths fail that way when the sidecar's database holds no queues, and the
-sync ages when the relational store cannot be read — a series that renders `0`
-because nothing could look is the failure this endpoint exists to remove.
-
-The endpoint has no credentials, so any container on the compose network can read
-it, per-account sync ages included. Weigh that before adding a container to the
-stack; nothing outside the network can reach it.
+sync ages when the relational store cannot be read.
 
 Read a series from the host with `docker compose exec`:
 
@@ -812,7 +707,7 @@ docker compose -f docker-compose.sqlite.yml --env-file .env exec queue \
 
 The `doctor` container runs a check every 60 seconds and computes one verdict:
 `healthy` or `degraded`. Set two URLs in `.env` and a settled change of that
-verdict is posted to a webhook. Set neither and the check still runs — it is what
+verdict is posted to a webhook. Set neither and the check still runs; it is what
 answers when you ask.
 
 It is degraded when any of these is true:
@@ -825,33 +720,25 @@ It is degraded when any of these is true:
 | `mail_auth_failing` | An IMAP or SMTP authentication failure counter has gone up in the last 3 hours |
 | `dead_letter_queue_not_empty` | Anything is quarantined on any DLQ |
 | `signal_missing` | A service answered `/metrics` but exported none of the series the check reads |
-| `tunnel_disconnected` | On `TLS_MODE=tunnel` only: the agent holds no connection to the edge, so the public address serves nobody |
+| `tunnel_disconnected` | On `TLS_MODE=tunnel` only: the agent holds no connection to Cloudflare, so the public address serves nobody |
 | `checker_unreachable` | No usable verdict came back from the checker at all. Produced by `remit doctor`, never by the checker, so it never reaches a webhook — see [Is anything wrong](#is-anything-wrong-remit-doctor) |
 
-A signal that cannot be evaluated is degraded, never skipped. An endpoint that
-refuses the connection, a heartbeat file that is absent, a scrape that times out,
-a 200 that carries none of the series being read — each of them reads as a
-problem, because a `healthy` produced by a check that failed to look is the worst
-answer available.
+A signal that cannot be evaluated is degraded, never skipped: a refused
+connection, an absent heartbeat file, a scrape that times out, a 200 carrying
+none of the series being read.
 
-Authentication is a counter, so the signal is the increase, not the total — a
-counter that has been non-zero since March is not news. The increase happens on
-one check, and the retries arrive one burst per sync tick, so the condition is
-held open for three hours after the last one: the quiet hour between two bursts
-is not a recovery.
-
-Three hours is the sync-age threshold, deliberately. A broken password sets off
-both reasons — authentication is failing, and the account stops completing sync
-rounds — and matching the two windows means they clear together, so you get one
-recovery message instead of two arriving hours apart.
+Authentication is a counter, so the signal is the increase, not the total. The
+retries arrive one burst per sync tick, so the condition is held open for three
+hours after the last one, matching the sync-age threshold. A broken password
+sets off both reasons, and the matched windows clear them together, so you get
+one recovery message instead of two arriving hours apart.
 
 **Fixing the password does not produce an immediate all-clear.** The condition
 holds for the full window after the last failure, so expect the recovery about
-three hours after you fix it, not three minutes. The same applies to anything
-else that was wrong at the same time: if the stack recovers while an
-authentication hold is still open, the verdict stays `degraded` until the hold
-expires, and the all-clear for all of it waits that long. `remit doctor` shows
-the real state immediately — the delay is in the announcement, not in the check.
+three hours after you fix it. The same applies to anything else that was wrong
+at the same time: if the stack recovers while an authentication hold is still
+open, the verdict stays `degraded` until the hold expires. `remit doctor` shows
+the real state immediately; the delay is in the announcement, not in the check.
 
 `DOCTOR_AUTH_FAILURE_HOLD_SECONDS` moves the window. Keep it above
 `MAILBOX_SYNC_TICK_INTERVAL_SECONDS`, or a healthy gap between two retries reads
@@ -866,9 +753,8 @@ DOCTOR_HEARTBEAT_URL=https://hc-ping.com/your-uuid
 ```
 
 Then `remit restart`. Both are required together: setting the webhook without
-the heartbeat fails the container at startup, and it is not a mistake in the
-check — read [The dead-man's switch](#the-dead-mans-switch) before you work
-around it.
+the heartbeat fails the container at startup. Read [The dead-man's
+switch](#the-dead-mans-switch) before you work around it.
 
 For ntfy, or anything else that takes a raw body, add one line:
 
@@ -885,11 +771,11 @@ target wants a different document, write it:
 DOCTOR_WEBHOOK_TEMPLATE={"title":"remit {{verdict}}","message":"{{summary}}\n{{reasons}}"}
 ```
 
-`{{verdict}}` is `healthy` or `degraded`, `{{summary}}` is the one-line headline,
-and `{{reasons}}` is the bullet list. Substituted values are escaped for the
-content type — a JSON template gets JSON string escaping, so a value containing a
-quote or a newline cannot break the document. In a plain-text template a literal
-`\n` becomes a newline, since a `.env` file cannot carry a real one.
+`{{verdict}}` is `healthy` or `degraded`, `{{summary}}` is the one-line
+headline, and `{{reasons}}` is the bullet list. Substituted values are escaped
+for the content type, so a value containing a quote or a newline cannot break
+the document. In a plain-text template a literal `\n` becomes a newline, since a
+`.env` file cannot carry a real one.
 
 ### When it sends
 
@@ -897,39 +783,29 @@ On a change of verdict that has held for three consecutive checks, and never on
 an unchanged verdict however long it persists. Two messages per incident: one
 when it breaks, one when it clears.
 
-The dwell is what makes the channel readable. Transition-only firing on its own
-is the loudest possible response to a flapping signal — a verdict that oscillates
-every check sends two messages per cycle, which is worse than posting on a timer.
-A dead-letter message you replay that fails again produces exactly that shape.
-
 **The cost is three check intervals of latency.** At the default 60 second
 interval an outage is reported up to three minutes after it starts, and a
-recovery up to three minutes after it clears. Nobody acts inside three minutes on
-a mailbox that stopped syncing, and the dead-man's switch is unaffected — it pings
-on every completed check, settled or not.
+recovery up to three minutes after it clears. The dead-man's switch is
+unaffected; it pings on every completed check, settled or not.
 
 The last announced verdict is on the checker's own volume, so a reboot or a
 `remit update` does not re-announce a condition already reported.
 
-The dwell is also what covers a restart. A stack coming back up reads as degraded
-for a check or two while the workers reach their queues, and that is short of the
-three it takes to announce. An update whose downtime runs past three minutes will
-report degraded and then recover, which is accurate — mail was not moving for
-three minutes. Raise `DOCTOR_DWELL_CHECKS` if you would rather not hear about it.
+The dwell also covers a restart. A stack coming back up reads as degraded for a
+check or two while the workers reach their queues, which is short of the three
+it takes to announce. An update whose downtime runs past three minutes will
+report degraded and then recover. Raise `DOCTOR_DWELL_CHECKS` if you would
+rather not hear about it.
 
 ### What a payload carries
 
 Counts, service names, queue names and the verdict. Never an address, a subject,
-a sender, a message id, a folder name or an account id. "2 of 5 accounts have not
-completed a sync in over 3h", not which two.
+a sender, a message id, a folder name or an account id. "2 of 5 accounts have
+not completed a sync in over 3h", not which two.
 
-This is a mail server and the payload goes to a third-party service over the
-internet. To find out which account, run `remit doctor` on the box — the account
-ids are in its output and never in a payload.
-
-The container holds nothing else worth sending, either: it takes no `.env`, only
-the `DOCTOR_*` variables above, so it has no database path, no auth secret and no
-provider credential to leak.
+To find out which account, run `remit doctor` on the box; the account ids are in
+its output and never in a payload. The container takes no `.env`, only the
+`DOCTOR_*` variables above.
 
 ### The dead-man's switch
 
@@ -938,10 +814,8 @@ the verdict. Point it at healthchecks.io, Cronitor, or an Uptime Kuma push
 monitor, and configure that service to alert you when the pings stop.
 
 It is required whenever the webhook is set, and the container refuses to start
-without it. If the VM is off, the disk is full, the network is gone or the checker
-crashed, no alert fires — and an operator with only a webhook cannot tell that
-apart from a week with nothing wrong. That is the silent failure this removes, and
-behind a second optional variable the common half-configuration is the unsafe one.
+without it. If the VM is off, the disk is full, the network is gone or the
+checker crashed, no alert fires.
 
 A check that produced a verdict pings, including a `degraded` verdict computed
 from signals it could not read: a scrape failure degrades the verdict and still
@@ -950,7 +824,7 @@ does not.
 
 Delivery is retried when, and only when, retrying could help.
 
-A **4xx** is the endpoint deciding about your payload — a template written wrong,
+A **4xx** is the endpoint deciding about your payload: a template written wrong,
 a URL that was revoked. Repeating it produces the same answer forever, so that
 transition is spent and you get one `error` line in `remit logs doctor` naming
 the status.
@@ -958,25 +832,19 @@ the status.
 A **timeout, a refused connection, a 5xx or a 429** says nothing about the
 payload, so the announcement is not recorded and the next check sends it again.
 A webhook that is down for a minute delays the alert by a minute; it does not
-lose it. A permanently unreachable URL costs one `error` line per interval, which
-is the loud failure rather than the silent one.
+lose it. A permanently unreachable URL costs one `error` line per interval.
 
 The dead-man's switch does **not** cover this. It is a different URL at a
-different provider and it keeps answering while your webhook is down — that is
-why the retry is in the checker and not left to your monitor. What the switch
-covers is the checker itself not running.
-
-### Reading the verdict by hand
-
-`remit doctor`, from anywhere — see [Is anything wrong](#is-anything-wrong-remit-doctor).
+different provider and it keeps answering while your webhook is down, which is
+why the retry is in the checker. What the switch covers is the checker itself
+not running.
 
 ## Looking at the box
 
 The `observability` profile puts two UIs on the box: one for logs, one for
-metrics. It is off unless you ask for it, and it is for operators who want
-history and a chart rather than a point-in-time answer. If you already run
-Prometheus, Grafana, a Datadog agent or an OpenTelemetry collector, don't enable
-it — point what you have at the `/metrics` endpoints above.
+metrics. It is off unless you ask for it. If you already run Prometheus,
+Grafana, a Datadog agent or an OpenTelemetry collector, don't enable it, point
+what you have at the `/metrics` endpoints above.
 
 - **dozzle** — every container's log, live, with search across services. This is
   `remit logs` with a scrollback and a filter box. It stores nothing.
@@ -1002,34 +870,28 @@ docker compose -f docker-compose.sqlite.yml --env-file .env rm -f dozzle victori
 ```
 
 The metrics survive that; they are on their own volume. `docker volume rm
-remit_victoriametrics_data` discards the history — the volume is named after the
+remit_victoriametrics_data` discards the history. The volume is named after the
 deployment's project, so on a second deployment it is `<project>_…`.
 
 `remit down` stops these two along with everything else and prints the command
-to bring them back — `remit restart` starts the always-on services only, because
+to bring them back. `remit restart` starts the always-on services only, because
 nothing behind a profile is started for you. While they are running, `remit
-restart` does apply an `.env` edit to them like it does to everything else, so a
-changed `REMIT_METRICS_RETENTION` takes effect. A container that is crash-looping
-counts as running for this: it is one the deployment is trying to run, and fixing
-the `.env` that broke it is what `remit restart` is for. `remit purge` destroys
-both containers and the metrics volume with the rest of the deployment.
+restart` applies an `.env` edit to them like it does to everything else, so a
+changed `REMIT_METRICS_RETENTION` takes effect. A container that is
+crash-looping counts as running for this. `remit purge` destroys both containers
+and the metrics volume with the rest of the deployment.
 
 `remit restart` writes the profile services it stopped to `.remit-profiles-held`
-before it stops anything, and clears the file once they are back. If a restart is
-killed in between — a dropped ssh session, or a bad `.env` edit that fails the
-start — the next `remit restart` reads that file and finishes the job. Anything
+before it stops anything, and clears the file once they are back. If a restart
+is killed in between (a dropped ssh session, or a bad `.env` edit that fails the
+start) the next `remit restart` reads that file and finishes the job. Anything
 it still cannot start is named, with the command that starts it.
 
 ### Reach them
 
-**Neither is on the public origin, and neither has a password.** Both bind
-`127.0.0.1` on the box and get no Caddy route. dozzle shows every log line the
-stack writes, which on a mail server includes addresses and subjects in error
-messages; `vmui` shows every series, per-account labels included. The loopback
-bind is what protects them — do not "fix" it by publishing the port or adding a
-Caddy route.
-
-So you reach them from your laptop over an SSH tunnel:
+Neither is on the public origin and neither has a password. Both bind
+`127.0.0.1` on the box and get no Caddy route, so you reach them from your
+laptop over an SSH tunnel:
 
 ```bash
 ssh -N -L 9999:127.0.0.1:9999 -L 8428:127.0.0.1:8428 you@your-box
@@ -1046,15 +908,13 @@ tailscale serve --bg --https 8443 http://127.0.0.1:8428
 tailscale serve --bg --https 9443 http://127.0.0.1:9999
 ```
 
-That makes both readable by every device on your tailnet, not only by you.
-Neither asks for a password, so treat it as the same decision as handing out a
-shell on the box.
+That makes both readable by every device on your tailnet.
 
 Change the loopback ports in `.env` if something else on the host already holds
 one: `REMIT_DOZZLE_PORT` and `REMIT_VMUI_PORT`. The `127.0.0.1` in front of them
 is not configurable.
 
-On Podman, set `REMIT_DOZZLE_SOCKET=/run/podman/podman.sock` as well — see
+On Podman, set `REMIT_DOZZLE_SOCKET=/run/podman/podman.sock` as well, see
 [Podman](#podman).
 
 ### First queries
@@ -1088,14 +948,13 @@ expensive thing either does: `victoriametrics` reached 37 MB straight after
 running every query in the table above across 30 days, and released it.
 
 `-memory.allowedBytes=256MB` bounds VictoriaMetrics' **caches**, which it
-otherwise sizes against 60% of host RAM. It is not a ceiling on process memory —
-a bulk import will exceed it — but this deployment writes 88 series every 30
-seconds, so the cache sizing is the only part that would scale with the host
-rather than with the work.
+otherwise sizes against 60% of host RAM. It is not a ceiling on process memory,
+a bulk import will exceed it, but this deployment writes 88 series every 30
+seconds.
 
 Retention defaults to **30 days**, set with `REMIT_METRICS_RETENTION` in `.env`.
-The suffixes are `h d w M y`, and **`M` is months while `m` is minutes** —
-`12m` is twelve minutes and VictoriaMetrics rejects it outright, so write twelve
+The suffixes are `h d w M y`, and **`M` is months while `m` is minutes**: `12m`
+is twelve minutes and VictoriaMetrics rejects it outright, so write twelve
 months as `12M`. `30d`, `90d`, `1w`, `12M` and `1y` are all accepted.
 
 The disk figure is a measurement: 30 days of these series backfilled at a 30 s
@@ -1125,10 +984,7 @@ reason account_sync_stalled 1 of 3 accounts has not completed a sync in over 3h
 detail account_sync_stalled 0f8a…: 40122s
 ```
 
-It checks the same conditions the alert fires on — a service not answering
-`/metrics` or answering without the series, a worker's poll loop gone stale, an
-account that has not completed a sync round, mail authentication failing,
-anything quarantined on a dead-letter queue ([the table](#alerts)) — and it
+It checks the same conditions the alert fires on ([the table](#alerts)) and
 reports the account ids behind them, which an alert payload never carries. Each
 run is a fresh check, not the alerter's last verdict.
 
@@ -1139,51 +995,41 @@ could be produced, so it is a monitoring check as it stands:
 */5 * * * * remit doctor >/dev/null || logger -t remit "degraded"
 ```
 
-A signal that cannot be evaluated is `degraded`, never healthy — and so is a
-verdict the wrapper cannot stand behind. Exit `2` with the reason
-`checker_unreachable` covers all of it: the `doctor` container is not running,
-docker refuses the exec, the exec does not come back at all (it is capped;
-raise `REMIT_DOCTOR_TIMEOUT` if your box needs longer), the verdict on stdout
-disagrees with the exit code the exec returned, or the `--json` document
-arrives truncated. In every one of those the checker's output is discarded
-rather than printed. A healthy verdict from a check that failed to look, or an
-exit `0` under the word `degraded`, are the two answers this command never
-gives.
-
-`checker_unreachable` is the wrapper's own code, and the only one not in the
-[reason table](#alerts) — nothing in the alert path can produce it, because it
-describes the checker rather than the stack.
+Exit `2` with the reason `checker_unreachable` covers a verdict the wrapper
+cannot stand behind: the `doctor` container is not running, docker refuses the
+exec, the exec does not come back at all (it is capped; raise
+`REMIT_DOCTOR_TIMEOUT` if your box needs longer), the verdict on stdout
+disagrees with the exit code the exec returned, or the `--json` document arrives
+truncated. In every one of those the checker's output is discarded rather than
+printed. It is the wrapper's own code, and the only one not in the [reason
+table](#alerts).
 
 `--json` emits the same verdict as `{ verdict, checkedAt, summary, reasons }`,
 including for that case, so a script parses one shape whatever happened. The
 checker's own logs go to stderr; stdout carries only the verdict.
 
-Nothing here needs configuring. Point it somewhere to be told without asking —
+Nothing here needs configuring. Point it somewhere to be told without asking,
 see [Alerts](#alerts).
 
 ## Queue failures: watch the dead-letter queues
 
 Every worker queue in `queues.json` has a dead-letter queue (`<queue>-dlq`,
-`maxReceiveCount = 3`) — a message a worker's handler keeps failing to process
-(a malformed payload, a bug, a downstream outage) is redelivered up to 3 times,
+`maxReceiveCount = 3`). A message a worker's handler keeps failing to process (a
+malformed payload, a bug, a downstream outage) is redelivered up to 3 times,
 then quarantined in the DLQ instead of redelivering forever and crash-looping
-the worker. This stops one bad message from taking a whole queue's throughput
-down, but a message that lands in a DLQ is not automatically retried or drained
-— it sits there until an operator looks at it.
+the worker. A message that lands in a DLQ is not automatically retried or
+drained; it sits there until an operator looks at it.
 
 `remit doctor` reports a non-empty dead-letter queue by name, across all of
-them, and exits non-zero. That is how to find out; run it from anywhere.
+them, and exits non-zero. Per-queue depth, rather than the total, is
+`remit_queue_messages{queue,role}` in the [metrics](#metrics) endpoint.
 
-Per-queue depth, rather than the total, is `remit_queue_messages{queue,role}` in
-the [metrics](#metrics) endpoint.
-
-A non-zero DLQ is a signal to look at, not a resolved failure. Draining one is
-manual SQS work: `ReceiveMessage` on the `-dlq` queue for the body, then
-`SendMessage` back to the source queue and `DeleteMessage` from the DLQ once you
-have fixed the bug or the bad data — or `DeleteMessage` alone to discard it. Any
-SQS-compatible client works. The `queue` image ships `node`, so the wire
-protocol is reachable from inside the container; the actions are form-encoded
-POSTs, unlike the plain GET the metrics read uses:
+Draining one is manual SQS work: `ReceiveMessage` on the `-dlq` queue for the
+body, then `SendMessage` back to the source queue and `DeleteMessage` from the
+DLQ once you have fixed the bug or the bad data, or `DeleteMessage` alone to
+discard it. Any SQS-compatible client works. The `queue` image ships `node`, so
+the wire protocol is reachable from inside the container; the actions are
+form-encoded POSTs, unlike the plain GET the metrics read uses:
 
 ```bash
 docker compose -f docker-compose.sqlite.yml --env-file .env exec queue \
@@ -1191,21 +1037,5 @@ docker compose -f docker-compose.sqlite.yml --env-file .env exec queue \
 ```
 
 `SendMessage` adds `&MessageBody=…`, `DeleteMessage` takes `&ReceiptHandle=…`
-from the receive. This is an escape hatch — `remit` has no command for it; run
-it from the install directory.
-
-## Security notes
-
-- **Self-update.** The self-update feature (RFC 037) is available to any
-  signed-in user of the instance — the account list is the trust boundary of a
-  self-hosted box. It stays off entirely on deployments that leave the update
-  manifest URL unset (the hosted service), so it never appears there at all.
-- `.env` holds real secrets (the better-auth JWT signing key and the IMAP
-  credential encryption key). `chmod 600` it and never commit it —
-  `deploy/vps/.gitignore` already excludes it.
-- The IMAP credential encryption key (`FAKE_KMS_DATAKEY`) is explained in the
-  template — the name is a holdover from how the code was first built, not a
-  statement that it is unfit for this use. Generate it once, keep it safe;
-  losing it makes every stored IMAP credential unrecoverable.
-- `apisix` re-verifies every JWT the same way the backend does — defence in
-  depth, not the only check.
+from the receive. Run it from the install directory; `remit` has no command for
+it.
