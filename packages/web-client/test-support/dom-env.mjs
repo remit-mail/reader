@@ -7,27 +7,83 @@
  * running in a browser; installing a DOM later leaves it on its no-DOM
  * fallbacks and typing into an input throws.
  *
- * `matchMedia` is jsdom's one real gap here: it has no layout, so a viewport
- * width has to be declared. Tests that care set their own via the harness.
+ * `matchMedia` is jsdom's one real gap here: it has no layout and no device, so
+ * a viewport has to be declared. Tests that care set their own via the harness.
  */
 
 import { JSDOM } from "jsdom";
 
 export const DEFAULT_VIEWPORT_WIDTH = 1280;
 
-export const setViewportWidth = (width) => {
-	const matches = (query) => {
-		const min = /min-width:\s*(\d+)px/.exec(query);
-		if (min) return width >= Number(min[1]);
-		const max = /max-width:\s*(\d+)px/.exec(query);
-		if (max) return width <= Number(max[1]);
-		return false;
-	};
+export const DEFAULT_VIEWPORT = {
+	width: DEFAULT_VIEWPORT_WIDTH,
+	orientation: "landscape",
+	pointer: "fine",
+};
+
+const FEATURES = {
+	"min-width": (value, viewport) =>
+		viewport.width >= Number.parseInt(value, 10),
+	"max-width": (value, viewport) =>
+		viewport.width <= Number.parseInt(value, 10),
+	orientation: (value, viewport) => value === viewport.orientation,
+	pointer: (value, viewport) => value === viewport.pointer,
+};
+
+const wrapsWholeCondition = (condition) => {
+	if (!condition.startsWith("(")) return false;
+	let depth = 0;
+	for (let index = 0; index < condition.length; index += 1) {
+		if (condition[index] === "(") depth += 1;
+		else if (condition[index] === ")") {
+			depth -= 1;
+			if (depth === 0) return index === condition.length - 1;
+		}
+	}
+	return false;
+};
+
+const splitOnAnd = (condition) => {
+	const parts = [];
+	let depth = 0;
+	let start = 0;
+	for (let index = 0; index < condition.length; index += 1) {
+		if (condition[index] === "(") depth += 1;
+		else if (condition[index] === ")") depth -= 1;
+		else if (depth === 0 && condition.startsWith(" and ", index)) {
+			parts.push(condition.slice(start, index));
+			index += 4;
+			start = index + 1;
+		}
+	}
+	parts.push(condition.slice(start));
+	return parts;
+};
+
+const matchesCondition = (condition, viewport) => {
+	const trimmed = condition.trim();
+	if (wrapsWholeCondition(trimmed))
+		return matchesCondition(trimmed.slice(1, -1), viewport);
+	if (trimmed.startsWith("not "))
+		return !matchesCondition(trimmed.slice(4), viewport);
+	const parts = splitOnAnd(trimmed);
+	if (parts.length > 1)
+		return parts.every((part) => matchesCondition(part, viewport));
+	const separator = trimmed.indexOf(":");
+	const feature = FEATURES[trimmed.slice(0, separator).trim()];
+	// An unmodelled feature (hover, prefers-color-scheme) reads as unsupported.
+	return feature
+		? feature(trimmed.slice(separator + 1).trim(), viewport)
+		: false;
+};
+
+export const setViewport = (viewport) => {
+	const device = { ...DEFAULT_VIEWPORT, ...viewport };
 	Object.defineProperty(globalThis.window, "matchMedia", {
 		configurable: true,
 		value: (query) => ({
 			media: query,
-			matches: matches(query),
+			matches: matchesCondition(query, device),
 			onchange: null,
 			addEventListener: () => {},
 			removeEventListener: () => {},
@@ -93,7 +149,7 @@ Object.defineProperty(globalThis, "navigator", {
 	configurable: true,
 });
 
-setViewportWidth(DEFAULT_VIEWPORT_WIDTH);
+setViewport(DEFAULT_VIEWPORT);
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 

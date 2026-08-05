@@ -9,10 +9,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import {
-	DEFAULT_VIEWPORT_WIDTH,
-	setViewportWidth,
-} from "../../test-support/dom-env.mjs";
+import { DEFAULT_VIEWPORT, setViewport } from "../../test-support/dom-env.mjs";
 import { ErrorBannerProvider } from "../components/ui/ErrorBannerProvider";
 
 export interface DomHarness {
@@ -46,10 +43,17 @@ export interface DomHarness {
 export interface DomOptions {
 	/** Width `matchMedia` answers against — jsdom has no layout of its own. */
 	viewportWidth?: number;
+	/** Screen posture `matchMedia` answers against — jsdom has no device. */
+	orientation?: "portrait" | "landscape";
+	pointer?: "coarse" | "fine";
 }
 
 export const createDomHarness = (options: DomOptions = {}): DomHarness => {
-	setViewportWidth(options.viewportWidth ?? DEFAULT_VIEWPORT_WIDTH);
+	setViewport({
+		width: options.viewportWidth ?? DEFAULT_VIEWPORT.width,
+		orientation: options.orientation ?? DEFAULT_VIEWPORT.orientation,
+		pointer: options.pointer ?? DEFAULT_VIEWPORT.pointer,
+	});
 	// The test loader transpiles remit-ui's `.tsx` with the classic JSX runtime,
 	// which reads a global `React`. Vite uses the automatic runtime, so this
 	// shim exists only for the test harness.
@@ -106,7 +110,7 @@ export const createDomHarness = (options: DomOptions = {}): DomHarness => {
 			// which otherwise holds the test process open for its full gcTime.
 			queryClient.clear();
 			container.remove();
-			setViewportWidth(DEFAULT_VIEWPORT_WIDTH);
+			setViewport(DEFAULT_VIEWPORT);
 		},
 		html: () => container.innerHTML,
 		text: () => container.textContent ?? "",
