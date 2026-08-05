@@ -21,6 +21,7 @@
  */
 import { ApiClient, waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
+import { waitForServerMailbox } from "../src/imap.js";
 import { readRunState } from "../src/state.js";
 
 const junkMailboxId = async (
@@ -69,10 +70,21 @@ test.describe("Spam rescue", () => {
 			rescued.map((thread) => thread.messageId),
 			junkId,
 		);
-		await waitFor(
-			() => api.listThreads(run.inboxId),
-			(items) => items.every((thread) => thread.subject !== run.spamSubject),
-			{ timeoutMs: 30_000, what: `"${run.spamSubject}" to return to Junk` },
+		// Dovecot, not the read model. INBOX is re-derived from the server on
+		// every sync, so the restore only holds once the server has it: both ends
+		// of the move are waited on because IMAP has no in-place MOVE — the copy
+		// into Junk lands before the expunge from INBOX.
+		await waitForServerMailbox(
+			run.imapUser,
+			"Junk",
+			(subjects) => subjects.includes(run.spamSubject),
+			{ what: `"${run.spamSubject}" to return to Junk` },
+		);
+		await waitForServerMailbox(
+			run.imapUser,
+			"INBOX",
+			(subjects) => !subjects.includes(run.spamSubject),
+			{ what: `"${run.spamSubject}" to leave the inbox` },
 		);
 	});
 

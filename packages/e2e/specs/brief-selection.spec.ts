@@ -18,7 +18,7 @@
  */
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
-import { appendMessages } from "../src/imap.js";
+import { appendMessages, waitForServerMailbox } from "../src/imap.js";
 import {
 	advanceTo,
 	barDelete,
@@ -73,9 +73,18 @@ test.describe("Daily brief selection (#203)", () => {
 
 	test.afterEach(async ({ api, run }) => {
 		// Remove any scratch message the test did not delete, restoring the inbox
-		// the rest of the serial suite counts exactly.
+		// the rest of the serial suite counts exactly. The wait is on Dovecot,
+		// including for the rows the test itself deleted: a delete is answered off
+		// the read model and pushed to IMAP behind it, and a later spec's sync
+		// re-derives the inbox from the server.
 		const leftover = await api.searchMatchingMessageIds(run.inboxId, tag);
 		if (leftover.length > 0) await api.deleteMessages(leftover);
+		await waitForServerMailbox(
+			run.imapUser,
+			"INBOX",
+			(subjects) => !subjects.some((subject) => subject.includes(tag)),
+			{ what: `the ${tag} fixtures to leave the inbox` },
+		);
 	});
 
 	test("selecting in the brief raises the action bar and Delete acts on the selection", async ({
@@ -160,6 +169,12 @@ test.describe("Daily brief selection under a committed search (#527)", () => {
 	test.afterEach(async ({ api, run }) => {
 		const leftover = await api.searchMatchingMessageIds(run.inboxId, tag);
 		if (leftover.length > 0) await api.deleteMessages(leftover);
+		await waitForServerMailbox(
+			run.imapUser,
+			"INBOX",
+			(subjects) => !subjects.some((subject) => subject.includes(tag)),
+			{ what: `the ${tag} fixtures to leave the inbox` },
+		);
 	});
 
 	test("ticking rows under a committed search still raises the action bar", async ({

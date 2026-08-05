@@ -23,7 +23,7 @@
 import type { Locator, Page } from "@playwright/test";
 import { ApiClient, waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
-import { appendMessages } from "../src/imap.js";
+import { appendMessages, waitForServerMailbox } from "../src/imap.js";
 import { readRunState } from "../src/state.js";
 import {
 	advanceTo,
@@ -219,6 +219,15 @@ test.describe("Desktop select-all-matching over search results", () => {
 				await api.deleteMessages(leftover.slice(i, i + 100));
 			}
 		}
+		// Dovecot decides what the next sync puts back, so the sweep is not done
+		// until the server's inbox is clear of these fixtures — the read model
+		// drops them the moment the delete is accepted, the IMAP write follows.
+		await waitForServerMailbox(
+			run.imapUser,
+			"INBOX",
+			(subjects) => !subjects.some((subject) => subject.includes(RUN_TAG)),
+			{ what: `the ${RUN_TAG} fixtures to leave the inbox` },
+		);
 	});
 
 	test("offers the escalation once every loaded row is selected, then reviews and runs a Move over the whole matching set", async ({

@@ -16,7 +16,7 @@
  */
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
-import { appendMessages } from "../src/imap.js";
+import { appendMessages, waitForServerMailbox } from "../src/imap.js";
 
 const DESKTOP = { width: 1512, height: 864 };
 
@@ -44,9 +44,18 @@ test.describe("Daily brief filter surface (#559)", () => {
 		await api.triggerSync(run.accountId);
 	});
 
+	// The wait is on Dovecot: a delete is answered off the read model and pushed
+	// to IMAP behind it, and a later spec's sync re-derives the inbox from the
+	// server — so a scratch message still there comes back.
 	test.afterEach(async ({ api, run }) => {
 		const leftover = await api.searchMatchingMessageIds(run.inboxId, tag);
 		if (leftover.length > 0) await api.deleteMessages(leftover);
+		await waitForServerMailbox(
+			run.imapUser,
+			"INBOX",
+			(subjects) => !subjects.some((subject) => subject.includes(tag)),
+			{ what: `the ${tag} fixtures to leave the inbox` },
+		);
 	});
 
 	test("the header caret opens a panel that narrows the brief", async ({
