@@ -1,12 +1,12 @@
+import { DESKTOP_MEDIA_QUERY } from "@remit/ui";
 import { useEffect, useState } from "react";
 
 /**
  * Subscribes to a CSS media query and returns its current `matches` value.
  * SSR-safe: returns `false` on the server / initial render before hydration.
  *
- * Common breakpoint shortcuts (mobile-first):
- *   useMediaQuery("(min-width: 768px)")  // Tailwind md and up
- *   useMediaQuery("(min-width: 1024px)") // Tailwind lg and up
+ * Layout breakpoints are exported by `@remit/ui` alongside the Tailwind
+ * variants they mirror — pass those, not a hand-written width.
  */
 export const useMediaQuery = (query: string): boolean => {
 	const [matches, setMatches] = useState(() => {
@@ -28,12 +28,13 @@ export const useMediaQuery = (query: string): boolean => {
 };
 
 /**
- * True at desktop widths (Tailwind `lg:` and up, ≥1024px). Below this the app
- * renders the single-pane mobile layout: tablet portrait (768px) and phones
- * both fall under here, so they get the stacked list → reading flow with
- * drawer chrome instead of the cramped three-pane desktop grid (#682).
+ * True at desktop (Tailwind `lg:` and up): at least 1024px wide and not a
+ * touch screen held upright. Everything else renders the single-pane mobile
+ * layout — phones, narrow tablets, and a large tablet in portrait, which is
+ * 1024px wide but has no room for the three-pane desktop grid (#682).
  *
- * The CSS-gated mobile chrome (Drawer, ComposeFab) uses `lg:hidden` to match
- * this boundary — keep them in sync if the breakpoint changes.
+ * The CSS-gated mobile chrome (Drawer, ComposeFab) uses `lg:hidden`, and the
+ * `lg` variant is redefined in `@remit/ui`'s token sheet with the same
+ * condition — change `DESKTOP_MEDIA_QUERY` and both move together.
  */
-export const useIsDesktop = (): boolean => useMediaQuery("(min-width: 1024px)");
+export const useIsDesktop = (): boolean => useMediaQuery(DESKTOP_MEDIA_QUERY);

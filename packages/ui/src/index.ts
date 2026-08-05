@@ -700,6 +700,10 @@ export {
 	labelDotClass,
 } from "./lib/label-color.js";
 export {
+	DESKTOP_MEDIA_QUERY,
+	DESKTOP_MIN_WIDTH,
+} from "./lib/layout-breakpoints.js";
+export {
 	derivePropertyClauses,
 	normalizeSubject,
 	sharedSubjectFragment,
