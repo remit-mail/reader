@@ -781,10 +781,10 @@ EOF
 	manage_block
 	cat <<EOF
 
-  Updates     This instance can update itself. The owner — the first account to
-              register — is offered each release in the app and installs it with
-              a click; '$remit update --check' reports the same from a shell. An
-              update is atomic and rolls back on failure, and clearing
+  Updates     This instance can update itself. Any signed-in user is offered
+              each release in the app and installs it with a click;
+              '$remit update --check' reports the same from a shell. An update
+              is atomic and rolls back on failure, and clearing
               REMIT_UPDATE_MANIFEST_URL in .env turns the feature off entirely.
 EOF
 	if [ -z "$WRAPPER_ON_PATH" ]; then
