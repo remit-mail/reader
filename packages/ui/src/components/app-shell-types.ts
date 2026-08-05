@@ -260,6 +260,12 @@ export interface ThreadRowData {
 	accountId?: string;
 	/** Owning mailbox — used by the `in:` search-token filter. */
 	mailboxId?: string;
+	/**
+	 * The conversation this row belongs to. Paired with {@link mailboxId} it is
+	 * enough to open the row, which is what a row found by a cross-folder search
+	 * needs: its message is not in the list the reading pane resolves against.
+	 */
+	threadId?: string;
 	fromName: string;
 	fromEmail: string;
 	subject: string;

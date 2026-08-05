@@ -373,7 +373,10 @@ interface DailyBriefProps {
 	 * Opens a search result. A semantic "Related" hit carries its thread + mailbox
 	 * so it opens even when its message isn't in the loaded brief list.
 	 */
-	onSelectSearchResult?: (result: SearchResult) => void;
+	onSelectSearchResult?: (
+		result: SearchResult,
+		options?: OpenMessageOptions,
+	) => void;
 	/** Where the list publishes the commands the keyboard layer drives. */
 	commandsRef?: RefObject<MessageListCommands | null>;
 	/** Cursor / selection / display order, reported up to the triage layer. */
@@ -559,6 +562,29 @@ export function DailyBrief({
 	const sections = useMemo<ThreadSection[]>(
 		() => groupBriefSections(bodyRows),
 		[bodyRows],
+	);
+
+	// A committed query puts rows the widened cross-folder search found into the
+	// body, and those messages are in folders the brief itself never loads. The
+	// reading pane resolves a bare `selectedMessageId` against the brief's own
+	// thread list, so such a row opens nothing; it goes through the search path
+	// instead, which carries the thread and mailbox the conversation is fetched
+	// by (#635).
+	const openRow = useCallback(
+		(id: string, options?: OpenMessageOptions) => {
+			const row = sq
+				? bodyRows.find((candidate) => candidate.id === id)
+				: undefined;
+			if (row?.threadId && row.mailboxId && onSelectSearchResult) {
+				onSelectSearchResult(
+					rowToSearchResult(row, resultFolderIndex),
+					options,
+				);
+				return;
+			}
+			onSelectMessage?.(id, options);
+		},
+		[sq, bodyRows, resultFolderIndex, onSelectSearchResult, onSelectMessage],
 	);
 
 	const accountSources = useMemo<FilterSheetSource[]>(() => {
@@ -750,7 +776,7 @@ export function DailyBrief({
 					briefCategory={selectedCategory}
 					Row={MessageRow}
 					selectedThreadId={selectedMessageId}
-					onSelectThread={onSelectMessage}
+					onSelectThread={openRow}
 					onSelectBriefCategory={setSelectedCategory}
 					sources={accountSources}
 					sourcesNote={mutedCount > 0 ? `+${mutedCount} muted` : undefined}
@@ -798,7 +824,7 @@ export function DailyBrief({
 		<FilterPanelProvider hasSheet={showsRows && !searching}>
 			<ThreadListInteraction
 				selectedMessageId={selectedMessageId}
-				onOpen={(id, options) => onSelectMessage?.(id, options)}
+				onOpen={openRow}
 				onDeleteMessages={onDeleteMessages}
 				onSelectionVerb={wizard.start}
 				wizardOpen={wizard.isOpen}

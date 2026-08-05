@@ -231,6 +231,69 @@ test.describe("Daily brief search holds Spam out (#527)", () => {
 });
 
 /**
+ * A brief search hit from another folder opens (#635).
+ *
+ * The brief's list is the unified INBOX; the search behind a committed query
+ * reaches every other folder and merges what it finds into the same body. Those
+ * rows used to be opened by message alone, and the reading pane resolves a bare
+ * message against the loaded inbox listing — which by definition does not hold
+ * them. The row highlighted, the URL changed, and the pane stayed on "Select a
+ * thread to read". The same shape as #70 in the Flagged view.
+ *
+ * The fixture is the starred message filed in Sent, seeded pre-onboarding: mail
+ * outside INBOX that the widened search reaches and the brief list cannot.
+ */
+test.describe("Daily brief opens a search hit from another folder (#635)", () => {
+	test.use({ viewport: DESKTOP });
+
+	test("a row found outside the inbox opens in the reading pane", async ({
+		api,
+		page,
+		run,
+	}) => {
+		const subject = run.starredElsewhereSubject;
+
+		// Asserted first: nothing in the listing the pane resolves against answers
+		// to this message, so opening it can only work on what the row carries.
+		const unified = await api.listAllThreads();
+		expect(unified.map((thread) => thread.subject)).not.toContain(subject);
+
+		await page.goto("/mail");
+		await expect(async () => {
+			await page.reload();
+			await expect(briefRow(page, run.seededSubjects[0])).toBeVisible({
+				timeout: 5_000,
+			});
+		}).toPass({ timeout: 60_000 });
+
+		const field = page.getByRole("textbox", { name: "Search mail" });
+		await field.fill("Filed");
+		await page.waitForURL(/[?&]q=Filed/);
+
+		const hit = briefRow(page, subject);
+		await expect(hit).toBeVisible({ timeout: 30_000 });
+		await expect(page.getByText("Select a thread to read")).toBeVisible();
+
+		await hit.click();
+
+		// The selection carries the thread and the mailbox, which is what makes a
+		// row from another folder openable at all.
+		await page.waitForURL(/selectedThreadId=/);
+
+		const article = page.getByRole("article").first();
+		await expect(article).toBeVisible({ timeout: 20_000 });
+		await expect(article.locator(".animate-pulse")).toBeHidden({
+			timeout: 20_000,
+		});
+		await expect(
+			article.getByRole("heading", { name: subject, exact: true }),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(article).toContainText("Starred, and not in the inbox.");
+		await expect(page.getByText("Select a thread to read")).toHaveCount(0);
+	});
+});
+
+/**
  * A token-only search that matches nothing is a no-results state, not "caught
  * up" (#527).
  *

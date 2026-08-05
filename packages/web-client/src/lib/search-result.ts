@@ -73,6 +73,7 @@ export function rowToSearchResult(
 		date: row.timeLabel,
 		unread: !row.isRead,
 		flagged: row.starred === true,
+		...(row.threadId ? { threadId: row.threadId } : {}),
 		...(row.mailboxId ? { mailboxId: row.mailboxId } : {}),
 		...(folder ? { folder } : {}),
 	};

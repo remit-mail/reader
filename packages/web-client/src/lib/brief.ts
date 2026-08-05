@@ -56,6 +56,7 @@ export function toThreadRowData(
 		id: thread.messageId,
 		accountId: thread.accountId,
 		mailboxId: thread.mailboxId,
+		threadId: thread.threadId,
 		fromName: thread.fromName ?? thread.fromEmail ?? "Unknown",
 		fromEmail: thread.fromEmail ?? "",
 		subject: thread.subject ?? "(No subject)",

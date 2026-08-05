@@ -132,6 +132,14 @@ export interface MailShellProps {
 	thread?: ThreadData;
 	/** The list row the open thread belongs to. */
 	selectedThreadId?: string;
+	/** Opens a row, so a story can drive the list-to-reading-pane step live. */
+	onSelectThread?: (id: string) => void;
+	/**
+	 * A committed query leaves the body to the view's own rows instead of the
+	 * read-only results panel — what the brief does, so its rows stay selectable
+	 * and openable under a search (`MailListHeader`'s prop of the same name).
+	 */
+	searchResultsInBody?: boolean;
 	intelligence?: IntelligenceData;
 	intelligenceOpen?: boolean;
 	isLoading?: boolean;
@@ -298,6 +306,8 @@ function ListPane({
 	onVerb,
 	preset,
 	selectedThreadId,
+	onSelectThread,
+	searchResultsInBody,
 	singlePane,
 	isPhone,
 	search,
@@ -315,6 +325,8 @@ function ListPane({
 	onVerb?: (verb: Verb, selected: ReadonlySet<string>) => void;
 	preset?: FilterPreset;
 	selectedThreadId?: string;
+	onSelectThread?: (id: string) => void;
+	searchResultsInBody?: boolean;
 	singlePane: boolean;
 	isPhone: boolean;
 	search: SearchState;
@@ -441,6 +453,7 @@ function ListPane({
 			listScopeLabel={title}
 			flatList={!briefFilters}
 			selectedThreadId={selectedThreadId}
+			onSelectThread={onSelectThread}
 			isDesktop={!singlePane}
 			selection={triage.paneSelection}
 			keyboard={triage.paneKeyboard}
@@ -455,7 +468,7 @@ function ListPane({
 			scope={search.scope}
 		/>
 	);
-	const inner: ReactNode = hasQuery ? results : rows;
+	const inner: ReactNode = hasQuery && !searchResultsInBody ? results : rows;
 	// A query owns the pane: the filter sheet stands down and the search's own
 	// affordance takes its place, in the pane rather than in the results body, so
 	// it stays put when the body swaps between the panel and the list's own rows.
@@ -565,6 +578,8 @@ export function MailShell({
 	preset,
 	thread,
 	selectedThreadId,
+	onSelectThread,
+	searchResultsInBody,
 	intelligence,
 	intelligenceOpen = true,
 	isLoading,
@@ -642,6 +657,8 @@ export function MailShell({
 			onVerb={onVerb}
 			preset={preset}
 			selectedThreadId={selectedThreadId}
+			onSelectThread={onSelectThread}
+			searchResultsInBody={searchResultsInBody}
 			singlePane={singlePane}
 			isPhone={isPhone}
 			search={search}
