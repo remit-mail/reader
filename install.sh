@@ -24,11 +24,20 @@ REF="${REMIT_REF:-main}"
 # point it at a local directory to install from a checkout.
 ASSET_BASE="${REMIT_ASSET_BASE:-https://raw.githubusercontent.com/${REPO}/${REF}/deploy/vps}"
 
-DIR="${REMIT_DIR:-$PWD/reader}"
+DIR="${REMIT_DIR:-}"
 ORIGIN=""
 TLS_MODE="internal"
 TAG="${REMIT_TAG:-latest}"
 DRY_RUN=0
+
+# The Compose project. Everything Compose namespaces — containers, volumes, the
+# network — carries it, so it is what makes a second deployment on this host a
+# separate deployment rather than a second directory pointing at the first one's
+# data. The default project is the one whose wrapper is `remit`.
+DEFAULT_PROJECT="remit"
+PROJECT=""
+PROJECT_GIVEN=0
+WRAPPER_NAME="remit"
 
 TUNNEL_TOKEN=""
 TUNNEL_TOKEN_FILE=""
@@ -101,6 +110,12 @@ Options:
                                   connection open. No public IP, no port
                                   forward, no inbound firewall rule.
   --dir <path>       Install directory                     (default: \$PWD/reader)
+  --project <name>   Compose project for a second deployment on this host.
+                     Containers, volumes and the network all carry it, and the
+                     wrapper is installed as 'remit-<name>' beside the default
+                     one. The install directory defaults to \$PWD/reader-<name>,
+                     and a tunnel deployment needs its own --http-bind.
+                                                            (default: $DEFAULT_PROJECT)
   --tag <tag>        Image tag                             (default: latest)
   --dry-run          Do everything except pull and start: check the host, fetch
                      assets, write .env, and validate the compose file.
@@ -142,6 +157,7 @@ parse_args() {
 			;;
 		--tls-mode) [ $# -ge 2 ] || die "--tls-mode needs a value"; TLS_MODE="$2"; shift 2 ;;
 		--dir) [ $# -ge 2 ] || die "--dir needs a value"; DIR="$2"; shift 2 ;;
+		--project) [ $# -ge 2 ] || die "--project needs a name"; PROJECT="$2"; PROJECT_GIVEN=1; shift 2 ;;
 		--tag) [ $# -ge 2 ] || die "--tag needs a value"; TAG="$2"; shift 2 ;;
 		--tunnel-token-file) [ $# -ge 2 ] || die "--tunnel-token-file needs a path"; TUNNEL_TOKEN_FILE="$2"; shift 2 ;;
 		--tunnel-token | --tunnel-token=*)
@@ -153,6 +169,63 @@ parse_args() {
 		*) die "unknown option '$1' (--help lists them all)" ;;
 		esac
 	done
+}
+
+# --- the compose project ----------------------------------------------------
+#
+# Resolved before anything looks at the host, because the project decides which
+# containers this run is allowed to see, which directory it installs into and
+# what its wrapper is called.
+
+resolve_project() {
+	[ "$PROJECT_GIVEN" = "1" ] || PROJECT="$DEFAULT_PROJECT"
+	# Compose's own rule for a project name. A name it rejects fails every
+	# command against this deployment, starting with the one at the end of this
+	# install. An empty one is refused rather than taken as the default: a
+	# --project that expanded to nothing was meant to name a second deployment,
+	# and installing the first one instead is the wrong stack.
+	[ -n "$PROJECT" ] || die "--project got an empty name. It names the second deployment's containers, volumes and network — omit the flag for the default deployment."
+	case "$PROJECT" in
+	[a-z0-9]*) ;;
+	*) die "--project must start with a lowercase letter or a digit (got '$PROJECT'). Compose names every container, volume and network after it." ;;
+	esac
+	case "$PROJECT" in
+	*[!a-z0-9_-]*) die "--project takes lowercase letters, digits, '-' and '_' (got '$PROJECT'). Compose names every container, volume and network after it." ;;
+	esac
+	if [ -z "$DIR" ]; then
+		DIR="$PWD/reader"
+		[ "$PROJECT" = "$DEFAULT_PROJECT" ] || DIR="$PWD/reader-$PROJECT"
+	fi
+	adopt_installed_project
+	[ "$PROJECT" = "$DEFAULT_PROJECT" ] || WRAPPER_NAME="remit-$PROJECT"
+}
+
+# A directory that already holds a deployment is a deployment this run
+# continues. Re-running the installer over it is how an operator changes a tag
+# or an origin, and a project name is not something they should have to remember
+# to repeat — silently taking the default would point the run at a different set
+# of containers and volumes and start an empty stack beside the data.
+#
+# An .env from before this flag existed has no REMIT_PROJECT line, and its stack
+# is running under `remit` — the compose file's default. An absent line is that
+# deployment's project, not an absent deployment, so it is what a --project has
+# to be refused against: every deployment installed to date is one of these.
+adopt_installed_project() {
+	local installed
+	[ -f "$DIR/.env" ] || return 0
+	installed="$(get_var REMIT_PROJECT "$DIR/.env")"
+	[ -n "$installed" ] || installed="$DEFAULT_PROJECT"
+	[ "$installed" != "$PROJECT" ] || return 0
+	if [ "$PROJECT_GIVEN" = "1" ]; then
+		die "$DIR holds the deployment '$installed', and --project says '$PROJECT'.
+
+Containers and volumes are named after the project, so renaming this one would
+leave its mail, accounts and secrets on volumes nothing points at any more.
+
+Re-run without --project to keep it, or give the second deployment its own
+--dir."
+	fi
+	PROJECT="$installed"
 }
 
 check_origin() {
@@ -387,7 +460,7 @@ check_arch() {
 
 check_ports() {
 	[ "$DRY_RUN" = "1" ] && return 0
-	if docker ps -q --filter 'label=com.docker.compose.project=remit' | grep -q .; then
+	if docker ps -q --filter "label=com.docker.compose.project=$PROJECT" | grep -q .; then
 		return 0
 	fi
 	local listen=""
@@ -526,6 +599,10 @@ write_env() {
 	ensure_secret FAKE_KMS_DATAKEY 32 "$f"
 	set_var PUBLIC_ORIGIN "$ORIGIN" "$f"
 	set_var TLS_MODE "$TLS_MODE" "$f"
+	# Compose reads this from the same file to name the project, so the wrapper,
+	# the installer and Compose itself cannot disagree about which deployment
+	# this directory is.
+	set_var REMIT_PROJECT "$PROJECT" "$f"
 	set_var REMIT_TAG "$TAG" "$f"
 	# The updater mounts the deployment directory at this absolute host path so a
 	# socket-driven compose resolves relative binds identically inside the
@@ -562,24 +639,29 @@ write_tunnel_env() {
 # what this run installed, so `remit` needs nothing in the environment to find
 # the deployment. /usr/local/bin is written only when already writable — the
 # installer never elevates on its own.
+#
+# A named project is placed as `remit-<name>`: one command per deployment, each
+# holding its own install directory, so neither can be typed at the other's
+# stack by accident.
 place_wrapper() {
 	local src="$DIR/remit"
 	[ -f "$src" ] || die "the remit wrapper is missing from $DIR — the asset fetch did not complete."
 	local tmp="$src.tmp"
 	sed -e "s#^DEFAULT_DIR=.*#DEFAULT_DIR=$DIR#" \
 		-e "s#^COMPOSE_FILE=.*#COMPOSE_FILE=$COMPOSE_FILE#" \
+		-e "s#^PROG=.*#PROG=$WRAPPER_NAME#" \
 		"$src" >"$tmp"
 	mv "$tmp" "$src"
 	chmod +x "$src"
 	[ "$DRY_RUN" = "1" ] && return 0
 	local bindir="${REMIT_BINDIR:-/usr/local/bin}"
 	if [ -w "$bindir" ]; then
-		cp "$src" "$bindir/remit"
-		chmod +x "$bindir/remit"
-		WRAPPER_ON_PATH="$bindir/remit"
-		say "  remit: installed at $bindir/remit"
+		cp "$src" "$bindir/$WRAPPER_NAME"
+		chmod +x "$bindir/$WRAPPER_NAME"
+		WRAPPER_ON_PATH="$bindir/$WRAPPER_NAME"
+		say "  $WRAPPER_NAME: installed at $bindir/$WRAPPER_NAME"
 	else
-		say "  remit: wrapper written to $src (not on PATH — see the summary)"
+		say "  $WRAPPER_NAME: wrapper written to $src (not on PATH — see the summary)"
 	fi
 }
 
@@ -612,8 +694,23 @@ origin_warning_block() {
 # file, so on PATH it runs from anywhere. When it could not be placed there the
 # same commands are shown relative to the install directory, prefixed by the cd
 # that makes them work.
+# Only for a second deployment: on the default project there is one stack, one
+# wrapper and nothing to tell apart. Where there are two, the name is what the
+# operator needs to know to reach the right one.
+project_block() {
+	[ "$PROJECT" != "$DEFAULT_PROJECT" ] || return 0
+	cat <<EOF
+
+  Project     $PROJECT
+              Its containers, volumes and network carry that name, so this
+              deployment shares nothing with the others on this box except the
+              kernel, the container daemon and the images. Type '$WRAPPER_NAME'
+              to manage it; 'remit' is the default deployment's.
+EOF
+}
+
 manage_block() {
-	local remit="remit" indent="              "
+	local remit="$WRAPPER_NAME" indent="              "
 	if [ -n "$WRAPPER_ON_PATH" ]; then
 		printf '  Manage      '
 	else
@@ -635,7 +732,7 @@ manage_block() {
 # instruction rather than a fact.
 signup_block() {
 	[ "$TLS_MODE" = "tunnel" ] || return 0
-	local remit="remit"
+	local remit="$WRAPPER_NAME"
 	[ -n "$WRAPPER_ON_PATH" ] || remit="cd $DIR && ./remit"
 	cat <<EOF
 
@@ -660,7 +757,7 @@ EOF
 }
 
 summary() {
-	local remit="remit"
+	local remit="$WRAPPER_NAME"
 	[ -n "$WRAPPER_ON_PATH" ] || remit="./remit"
 	cat <<EOF
 
@@ -678,8 +775,9 @@ EOF
               Holds FAKE_KMS_DATAKEY, the key every stored IMAP credential is
               encrypted with. It is the only copy — back it up. Losing it means
               re-entering every account's credentials.
-
 EOF
+	project_block
+	printf '\n'
 	manage_block
 	cat <<EOF
 
@@ -694,7 +792,7 @@ EOF
 
               /usr/local/bin was not writable, so remit stayed in the install
               directory. To type 'remit' from anywhere instead:
-                sudo cp $DIR/remit /usr/local/bin/remit
+                sudo cp $DIR/remit /usr/local/bin/$WRAPPER_NAME
 EOF
 	fi
 	if [ "$TLS_MODE" = "internal" ]; then
@@ -723,6 +821,7 @@ EOF
 
 main() {
 	parse_args "$@"
+	resolve_project
 	check_origin
 	check_tunnel
 	check_engine

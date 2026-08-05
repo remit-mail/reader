@@ -618,7 +618,9 @@ run_cmd() {
 		exit 0
 		;;
 	*snapshot_db*)
-		log "run snapshot"
+		# The mount source is part of what a snapshot is: a helper that binds the
+		# wrong volume writes a snapshot of an empty database and reports success.
+		log "run snapshot sqlite=$FR_SQLITE"
 		if [ "$(val snapshot ok)" != "ok" ]; then exit 1; fi
 		if [ "${FAKE_REAL_DB:-0}" = "1" ]; then exec_real "$_script" || exit 1; fi
 		exit 0
