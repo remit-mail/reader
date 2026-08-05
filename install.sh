@@ -178,10 +178,13 @@ parse_args() {
 # what its wrapper is called.
 
 resolve_project() {
-	[ -n "$PROJECT" ] || PROJECT="$DEFAULT_PROJECT"
+	[ "$PROJECT_GIVEN" = "1" ] || PROJECT="$DEFAULT_PROJECT"
 	# Compose's own rule for a project name. A name it rejects fails every
 	# command against this deployment, starting with the one at the end of this
-	# install.
+	# install. An empty one is refused rather than taken as the default: a
+	# --project that expanded to nothing was meant to name a second deployment,
+	# and installing the first one instead is the wrong stack.
+	[ -n "$PROJECT" ] || die "--project got an empty name. It names the second deployment's containers, volumes and network — omit the flag for the default deployment."
 	case "$PROJECT" in
 	[a-z0-9]*) ;;
 	*) die "--project must start with a lowercase letter or a digit (got '$PROJECT'). Compose names every container, volume and network after it." ;;
@@ -197,16 +200,21 @@ resolve_project() {
 	[ "$PROJECT" = "$DEFAULT_PROJECT" ] || WRAPPER_NAME="remit-$PROJECT"
 }
 
-# A directory that already holds a deployment states its own project, and that
-# is the one this run continues. Re-running the installer over it is how an
-# operator changes a tag or an origin, and a project name is not something they
-# should have to remember to repeat — silently taking the default would point
-# the run at a different set of containers and volumes and start an empty stack
-# beside the data.
+# A directory that already holds a deployment is a deployment this run
+# continues. Re-running the installer over it is how an operator changes a tag
+# or an origin, and a project name is not something they should have to remember
+# to repeat — silently taking the default would point the run at a different set
+# of containers and volumes and start an empty stack beside the data.
+#
+# An .env from before this flag existed has no REMIT_PROJECT line, and its stack
+# is running under `remit` — the compose file's default. An absent line is that
+# deployment's project, not an absent deployment, so it is what a --project has
+# to be refused against: every deployment installed to date is one of these.
 adopt_installed_project() {
 	local installed
+	[ -f "$DIR/.env" ] || return 0
 	installed="$(get_var REMIT_PROJECT "$DIR/.env")"
-	[ -n "$installed" ] || return 0
+	[ -n "$installed" ] || installed="$DEFAULT_PROJECT"
 	[ "$installed" != "$PROJECT" ] || return 0
 	if [ "$PROJECT_GIVEN" = "1" ]; then
 		die "$DIR holds the deployment '$installed', and --project says '$PROJECT'.
@@ -641,6 +649,7 @@ place_wrapper() {
 	local tmp="$src.tmp"
 	sed -e "s#^DEFAULT_DIR=.*#DEFAULT_DIR=$DIR#" \
 		-e "s#^COMPOSE_FILE=.*#COMPOSE_FILE=$COMPOSE_FILE#" \
+		-e "s#^PROG=.*#PROG=$WRAPPER_NAME#" \
 		"$src" >"$tmp"
 	mv "$tmp" "$src"
 	chmod +x "$src"

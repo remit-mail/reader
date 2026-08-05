@@ -157,7 +157,7 @@ function sandbox({ stubWrapper = true } = {}) {
 		cwd,
 		bindir,
 		onPath: () => readdirSync(bindir).sort(),
-		run(args) {
+		run(args, env = {}) {
 			const result = spawnSync(BASH, [INSTALL, ...args], {
 				cwd,
 				encoding: "utf8",
@@ -167,6 +167,7 @@ function sandbox({ stubWrapper = true } = {}) {
 					REMIT_ASSET_BASE: assets,
 					REMIT_BINDIR: bindir,
 					REMIT_ARGV_LOG: argvLog,
+					...env,
 				},
 			});
 			return {
@@ -226,6 +227,16 @@ describe("a deployment states its own compose project", () => {
 		}
 	});
 
+	it("refuses an empty name rather than installing the default deployment", () => {
+		// `--project "$SOMETHING"` that expanded to nothing was meant to name a
+		// second deployment. Falling back to the default installs over the first.
+		const box = sandbox();
+		const run = box.run([...baseArgs, "--project", ""]);
+		assert.notEqual(run.status, 0, run.output);
+		assert.match(run.stderr, /--project got an empty name/);
+		assert.ok(!existsSync(join(box.cwd, "reader")), run.output);
+	});
+
 	it("looks for a running stack under its own project, not the default one", () => {
 		// The free-port check skips a port this deployment already holds, so it
 		// has to ask about this deployment's containers. Asking about the default
@@ -259,6 +270,57 @@ describe("re-running the installer over a second deployment", () => {
 		assert.notEqual(again.status, 0);
 		assert.match(again.stderr, /holds the deployment 'beta'/);
 		assert.deepEqual(again.value("REMIT_PROJECT", dir), ["beta"]);
+	});
+});
+
+// Every deployment installed before this flag existed. Its .env has no
+// REMIT_PROJECT line and its stack runs under the compose file's default, so an
+// absent line is that deployment's project and not an absent deployment.
+const legacyDeployment = () => {
+	const box = sandbox();
+	const dir = join(box.cwd, "reader");
+	const first = box.run([...baseArgs, "--dir", dir]);
+	assert.equal(first.status, 0, first.output);
+	const envPath = join(dir, ".env");
+	const before = readFileSync(envPath, "utf8")
+		.split("\n")
+		.filter((line) => !line.startsWith("REMIT_PROJECT="))
+		.join("\n");
+	writeFileSync(envPath, before);
+	return { box, dir, envPath, before };
+};
+
+describe("a deployment installed before there were project names", () => {
+	it("keeps running under the project it has always had", () => {
+		const { box, dir } = legacyDeployment();
+		const again = box.run([...baseArgs, "--dir", dir]);
+		assert.equal(again.status, 0, again.output);
+		assert.deepEqual(again.value("REMIT_PROJECT", dir), ["remit"]);
+	});
+
+	it("is not renamed out from under its data by --project", () => {
+		const { box, dir, envPath, before } = legacyDeployment();
+		const again = box.run([...baseArgs, "--project", "beta", "--dir", dir]);
+		assert.notEqual(
+			again.status,
+			0,
+			`the live deployment was renamed to 'beta':\n${again.output}`,
+		);
+		assert.match(again.stderr, /holds the deployment 'remit'/);
+		assert.equal(
+			readFileSync(envPath, "utf8"),
+			before,
+			"the refusal must leave the deployment's .env exactly as it was",
+		);
+	});
+
+	it("is not renamed through \\$REMIT_DIR either", () => {
+		const { box, dir, envPath, before } = legacyDeployment();
+		const again = box.run([...baseArgs, "--project", "beta"], {
+			REMIT_DIR: dir,
+		});
+		assert.notEqual(again.status, 0, again.output);
+		assert.equal(readFileSync(envPath, "utf8"), before);
 	});
 });
 
@@ -300,6 +362,18 @@ describe("the wrapper a deployment is managed with", () => {
 		);
 	});
 
+	it("calls itself by the name the operator types", () => {
+		// The wrapper names itself in its own errors and hints. Telling a second
+		// deployment's operator to run `remit` sends them at the other stack.
+		const box = sandbox({ stubWrapper: false });
+		const run = box.run([...baseArgs, "--project", "beta"]);
+		assert.equal(run.status, 0, run.output);
+		assert.match(
+			readFileSync(join(box.cwd, "reader-beta", "remit"), "utf8"),
+			/^PROG=remit-beta$/m,
+		);
+	});
+
 	it("is what the summary tells the operator to type", () => {
 		const box = sandbox();
 		const run = box.run(["--origin", ORIGIN, "--project", "beta"]);
@@ -315,39 +389,171 @@ describe("the wrapper a deployment is managed with", () => {
 	});
 });
 
-describe("what compose namespaces follows the project", () => {
-	const compose = readFileSync(
-		join(DEPLOY, "docker-compose.sqlite.yml"),
-		"utf8",
+// What Compose itself makes of a deployment's .env, resolved the way the tunnel
+// suite resolves it: a real `docker compose config` against the committed file.
+// The project name is the one thing every container, volume and network is
+// named from, so what it resolves to is the whole of this feature.
+
+// A missing tool is a fact about a developer's machine and never about CI:
+// skipping there would leave a suite that reports green having resolved nothing.
+const require_ = (available, what) => {
+	if (available) return true;
+	if (process.env.CI) throw new Error(`${what} — this suite needs it`);
+	console.log(`skipping: ${what}`);
+	return false;
+};
+
+const COMPOSE_OK = require_(
+	spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0,
+	"no `docker compose` on this machine",
+);
+
+// Compose reads the process environment as well as --env-file, and an ambient
+// REMIT_PROJECT would decide the answer on some machines and not others.
+const CLEAN_ENV = { PATH: process.env.PATH, HOME: process.env.HOME };
+
+function resolvedIn(dir) {
+	const run = spawnSync(
+		"docker",
+		[
+			"compose",
+			"-f",
+			join(dir, "docker-compose.sqlite.yml"),
+			"--project-directory",
+			dir,
+			"--env-file",
+			join(dir, ".env"),
+			"config",
+			"--format",
+			"json",
+		],
+		{ encoding: "utf8", env: CLEAN_ENV },
 	);
+	assert.equal(
+		run.status,
+		0,
+		`docker compose config failed: ${run.stderr || run.stdout}`,
+	);
+	return JSON.parse(run.stdout);
+}
 
-	it("names the project from .env, defaulting to the first deployment's", () => {
-		assert.match(compose, /^name: \$\{REMIT_PROJECT:-remit\}$/m);
+// An install directory holding the committed compose file and the given .env.
+function deployment(lines) {
+	const dir = mkdtempSync(join(TMP_ROOT, "install-project-config-"));
+	sandboxes.push(dir);
+	cpSync(
+		join(DEPLOY, "docker-compose.sqlite.yml"),
+		join(dir, "docker-compose.sqlite.yml"),
+	);
+	writeFileSync(join(dir, ".env"), `${lines.join("\n")}\n`);
+	return dir;
+}
+
+// A deployment from before there were project names.
+const LEGACY_ENV = [
+	"REMIT_TAG=v1.0.0",
+	"PUBLIC_ORIGIN=https://mail.example.test",
+	"REMIT_DEPLOY_DIR=/opt/reader",
+];
+
+describe("what compose namespaces follows the project", {
+	skip: !COMPOSE_OK,
+}, () => {
+	it("is the default project where no .env names one", () => {
+		assert.equal(resolvedIn(deployment(LEGACY_ENV)).name, "remit");
 	});
 
-	it("keeps the updater's helper containers on their own project's volume", () => {
-		// The updater's snapshot and restore helpers bind this volume by the name
-		// the host daemon knows, which carries the project — and the name baked
-		// into the image cannot.
-		assert.match(
-			compose,
-			/REMIT_UPDATE_STATE_MOUNT: \$\{REMIT_PROJECT:-remit\}_updater_state/,
+	it("is the project the .env names", () => {
+		const config = resolvedIn(
+			deployment([...LEGACY_ENV, "REMIT_PROJECT=beta"]),
 		);
+		assert.equal(config.name, "beta");
 	});
 
-	it("agrees with the project the e2e overlay pins", () => {
-		const overlay = readFileSync(
-			join(DEPLOY, "docker-compose.e2e.yml"),
-			"utf8",
-		);
-		const named = overlay.match(/^name: (\S+)$/m)?.[1];
-		const env = readFileSync(join(DEPLOY, "e2e.env"), "utf8").match(
-			/^REMIT_PROJECT=(\S+)$/m,
-		)?.[1];
+	it("is what the installer wrote, without the installer being asked", () => {
+		// The .env install.sh produces is the input compose resolves the project
+		// from. Nothing translates between the two, and this is what says so.
+		const box = sandbox();
+		const dir = join(box.cwd, "reader-beta");
+		const run = box.run([...baseArgs, "--project", "beta"]);
+		assert.equal(run.status, 0, run.output);
+		assert.equal(resolvedIn(dir).name, "beta");
+	});
+
+	it("carries the updater's state volume with it", () => {
+		// The updater's snapshot and restore helpers are containers it starts
+		// against the host daemon, so they name that volume themselves rather than
+		// mounting it. A name that did not follow the project would have a second
+		// deployment's update snapshot the first one's volume.
+		const beta = resolvedIn(deployment([...LEGACY_ENV, "REMIT_PROJECT=beta"]));
 		assert.equal(
-			env,
-			named,
-			"the e2e stack's wrapper reads REMIT_PROJECT for volume names compose derived from `name:`",
+			beta.services.updater.environment.REMIT_UPDATE_STATE_MOUNT,
+			"beta_updater_state",
+		);
+	});
+
+	it("resolves to the name baked into the updater image on a legacy .env", () => {
+		// Two files hold this string: the compose default here and the image's own
+		// ENV, which is what a bare `docker run` of the updater falls back to. They
+		// name the same volume or the updater binds an empty one.
+		const baked = readFileSync(join(ROOT, "Dockerfile"), "utf8").match(
+			/^ENV REMIT_UPDATE_STATE_MOUNT=(\S+)$/m,
+		)?.[1];
+		assert.ok(
+			baked,
+			"the updater image no longer bakes REMIT_UPDATE_STATE_MOUNT",
+		);
+		assert.equal(
+			resolvedIn(deployment(LEGACY_ENV)).services.updater.environment
+				.REMIT_UPDATE_STATE_MOUNT,
+			baked,
+		);
+	});
+
+	it("is the one the e2e overlay pins, from the env file that lane installs", () => {
+		const dir = mkdtempSync(join(TMP_ROOT, "install-project-e2e-"));
+		sandboxes.push(dir);
+		for (const file of [
+			"docker-compose.sqlite.yml",
+			"docker-compose.dovecot.yml",
+			"docker-compose.e2e.yml",
+		]) {
+			cpSync(join(DEPLOY, file), join(dir, file));
+		}
+		// The lane's own two steps: e2e.env becomes .env, and the deployment
+		// directory is appended to it (npm-scripts/e2e-compose.sh).
+		writeFileSync(
+			join(dir, ".env"),
+			`${readFileSync(join(DEPLOY, "e2e.env"), "utf8")}\nREMIT_DEPLOY_DIR=${dir}\n`,
+		);
+		const run = spawnSync(
+			"docker",
+			[
+				"compose",
+				"-f",
+				join(dir, "docker-compose.sqlite.yml"),
+				"-f",
+				join(dir, "docker-compose.dovecot.yml"),
+				"-f",
+				join(dir, "docker-compose.e2e.yml"),
+				"--project-directory",
+				dir,
+				"--env-file",
+				join(dir, ".env"),
+				"config",
+				"--format",
+				"json",
+			],
+			{ encoding: "utf8", env: CLEAN_ENV },
+		);
+		assert.equal(run.status, 0, run.stderr || run.stdout);
+		const config = JSON.parse(run.stdout);
+		// The overlay names the project and e2e.env names it again, for the wrapper
+		// that reads .env rather than the compose file. A disagreement is helper
+		// containers reaching for volumes that stack does not have.
+		assert.equal(
+			config.services.updater.environment.REMIT_UPDATE_STATE_MOUNT,
+			`${config.name}_updater_state`,
 		);
 	});
 });

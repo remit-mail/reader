@@ -18,6 +18,10 @@ DEFAULT_DIR=/opt/remit
 COMPOSE_FILE=docker-compose.sqlite.yml
 REMIT_DIR="${REMIT_DIR:-$DEFAULT_DIR}"
 
+# What this wrapper calls itself in its own output. install.sh rewrites it, the
+# same way it rewrites DEFAULT_DIR: a second deployment is managed with
+# `remit-<project>`, and a message telling its operator to run `remit` names the
+# other deployment's stack.
 PROG=remit
 
 # --- self-update configuration (RFC 037) ------------------------------------
@@ -109,7 +113,7 @@ die() {
 
 usage() {
 	cat <<EOF
-Usage: remit <command> [args]
+Usage: $PROG <command> [args]
 
   restart [--hard]     Start serving, applying any .env change. --hard stops
                        the stack first.
