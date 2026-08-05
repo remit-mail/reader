@@ -25,7 +25,7 @@ Each question is answered by a different surface. (1) is container state. (2) an
 
 **Health.** `queue`, `backend`, `apisix` and `web` have compose healthchecks. `imap-worker`, `smtp-worker`, `account-worker` and `search-index-worker` have none, in the compose file or in their image. `caddy` has none by design (RFC 037 D5 keeps it serving 502s through an outage). A worker whose poll loop wedges inside a socket read never exits, so `restart: unless-stopped` never fires, and `docker compose ps` reports it running. Mail silently stops arriving.
 
-**Queues.** All eleven work queues in `queues.json` have a dead-letter queue at `maxReceiveCount = 3`. A message that reaches one sits there until someone looks. `deploy/vps/README.md` covers this under "Queue failures: watch the dead-letter queues", where reading a queue's depth is an escape hatch: a hand-written node one-liner through `docker compose exec queue`, once per queue, speaking the SQS wire protocol by hand. It is the signal that most warrants an alert and the one hardest to reach.
+**Queues.** All eleven work queues in `queues.json` have a dead-letter queue at `maxReceiveCount = 3`. A message that reaches one sits there until someone looks. `deploy/vps/observability.md` covers this under "Queue failures: the dead-letter queues", where reading a queue's depth is an escape hatch: a hand-written node one-liner through `docker compose exec queue`, once per queue, speaking the SQS wire protocol by hand. It is the signal that most warrants an alert and the one hardest to reach.
 
 ## Decisions
 
