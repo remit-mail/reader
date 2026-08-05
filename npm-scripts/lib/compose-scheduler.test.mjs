@@ -3,8 +3,8 @@
 // A standalone deployment has no EventBridge. Every sync trigger other than this
 // service is user-driven — loading the client, pressing sync, connecting an
 // account — so a stack that resolves without it stops fetching mail the moment
-// the last browser tab closes, while every container reports healthy
-// (reader#276). That is what the first suite here is for, and it is asserted
+// the last browser tab closes, while every container reports healthy.
+// That is what the first suite here is for, and it is asserted
 // against what `docker compose config` resolves rather than against the YAML
 // source: a service commented out, moved behind a profile, or dropped from the
 // deployed file reads the same to a regex and not to compose.

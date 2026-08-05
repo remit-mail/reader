@@ -403,8 +403,7 @@ services:
   # Periodic mailbox-sync scheduler. THIS IS WHAT MAKES MAIL ARRIVE WITH NO
   # BROWSER OPEN. Every other sync trigger in the stack is something a person
   # did — opening the client, pressing sync, connecting an account. Without this
-  # service a deployment stops fetching mail the moment the last tab closes
-  # (reader#276).
+  # service a deployment stops fetching mail the moment the last tab closes.
   #
   # It runs the imap-worker image with its alternate entrypoint, so this is the
   # same `runSchedulerTick` a managed deployment fires from EventBridge: it pages
