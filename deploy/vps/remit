@@ -765,9 +765,59 @@ serve_probe() {
 	printf 'not checked (no curl or wget)\n'
 }
 
+# TLS_MODE=tunnel puts the public address and the certificate at the provider's
+# edge, so the hostname answering with an address this box does not hold is the
+# topology working, and "resolves to this box" is a line it can never satisfy.
+# What can fail instead is the agent's connection to that edge.
+TUNNEL_READY_DEFAULT="http://tunnel:2000/ready"
+
+# The readiness endpoint answers 200 only while at least one connection to the
+# edge is established, and the agent publishes no port — nothing on the host can
+# dial it. caddy is the always-on service on the same network with a shell.
+tunnel_probe() {
+	# shellcheck disable=SC2016 # $0 and $1 belong to the embedded script
+	compose exec -T caddy sh -c '
+		command -v wget >/dev/null 2>&1 || { printf unchecked; exit 0; }
+		if wget -q -T "$1" -O /dev/null "$0"; then
+			printf connected
+		else
+			printf down
+		fi
+	' "$1" "$PROBE_TIMEOUT" 2>/dev/null || true
+}
+
+tunnel_state() {
+	_running=$(compose ps --services --status running --status restarting 2>/dev/null || true)
+	case " $(printf '%s' "$_running" | tr '\n' ' ') " in
+	*" tunnel "*) ;;
+	*)
+		printf "agent not running — nothing is holding the connection open"
+		return 0
+		;;
+	esac
+	_url=$(get_var TUNNEL_READY_URL)
+	[ -n "$_url" ] || _url=$TUNNEL_READY_DEFAULT
+	case "$(tunnel_probe "$_url")" in
+	connected) printf 'agent connected to the edge' ;;
+	down) printf "agent running, no connection to the edge — 'remit logs tunnel' has the reason" ;;
+	*) printf 'agent running, connection not checked' ;;
+	esac
+}
+
+report_tunnel() {
+	printf 'Mode:      tunnel — TLS terminates at the edge, and %s\n' "$(origin_host "$1")"
+	printf '           resolves there rather than to this box.\n'
+	printf 'Tunnel:    %s\n' "$(tunnel_state)"
+	printf 'Serving:   %s, over the public path through the edge\n' "$(serve_probe "$1")"
+}
+
 report_reachability() {
 	_origin=$1
 	[ -n "$_origin" ] || return 0
+	if [ "$(get_var TLS_MODE)" = "tunnel" ]; then
+		report_tunnel "$_origin"
+		return 0
+	fi
 	_probe=$(probe_host "$_origin")
 	_verdict=${_probe%% *}
 	_addrs=${_probe#* }
