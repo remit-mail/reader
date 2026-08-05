@@ -120,6 +120,19 @@ export const TARGETS = [
 		entry: "packages/imap-worker/src/poller.ts",
 		external: [SQLITE],
 	},
+	// The periodic mailbox-sync tick, inside the imap-worker image as an
+	// alternate entrypoint — the same "one image, two commands" shape as the
+	// backend's migrate.mjs, and for the same reason: it is the identical
+	// scheduling code, and a second image to keep in step would be one more way
+	// for the two to disagree. A managed deployment fires the tick from
+	// EventBridge; a standalone box has no such trigger, so the compose
+	// `scheduler` service runs this loop instead.
+	{
+		name: "scheduler",
+		entry: "packages/imap-worker/src/scheduler/runner.ts",
+		outfile: "dist-docker/imap-worker/scheduler.mjs",
+		external: [SQLITE],
+	},
 	{
 		name: "smtp-worker",
 		entry: "packages/smtp-worker/src/poller.ts",

@@ -8,18 +8,15 @@ import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
 import { runSchedulerTick } from "./run-tick.js";
 
 /**
- * Standalone scheduled-sync runner for the local pg-dev docker-compose stack
- * (#1247, restructured #1251). Production ticks `runSchedulerTick` off an
- * EventBridge schedule (see handler.ts); ElasticMQ/the pg-dev stack has no
- * EventBridge, so this process ticks on a plain loop at the same
- * `MAILBOX_SYNC_TICK_INTERVAL_SECONDS` cadence instead — same function, same
- * config knobs, so local dev behaves like production rather than needing its
- * own scheduling logic.
+ * The scheduled-sync runner for every deployment that has no EventBridge: the
+ * self-host stack's `scheduler` service and the local dev compose stack. A
+ * managed deployment fires `runSchedulerTick` off an EventBridge schedule (see
+ * handler.ts); this process ticks the same function on a plain loop at the same
+ * `MAILBOX_SYNC_TICK_INTERVAL_SECONDS` cadence, so there is one scheduling
+ * implementation and one set of knobs.
  *
- * This is a dev-only harness, not production code: like
- * `e2e-processor-shim.ts`, a tick failure crashes the process loudly rather
- * than swallowing it — docker-compose's `restart: unless-stopped` brings it
- * back for the next tick.
+ * A tick failure crashes the process loudly rather than being swallowed —
+ * compose's `restart: unless-stopped` brings it back for the next tick.
  */
 
 const log = createLogger();
@@ -40,7 +37,7 @@ const CRASH_BACKOFF_MS = 5_000;
 
 log.info(
 	{ tickIntervalMs, offlineIntervalMs },
-	"Local scheduled-sync runner started",
+	"Scheduled-sync runner started",
 );
 
 const runLoop = async (): Promise<void> => {

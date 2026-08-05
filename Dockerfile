@@ -242,6 +242,11 @@ CMD ["node", "server.mjs"]
 ########################################################################
 FROM node-service-installed AS imap-worker
 COPY --from=builder --chown=node:node /app/dist-docker/imap-worker/server.mjs ./server.mjs
+# The periodic mailbox-sync tick, an alternate entrypoint in this same image —
+# the same shape as the backend's migrate.mjs. The compose `scheduler` service
+# overrides CMD to run it; it polls no queue, so it writes no heartbeat and
+# overrides the check below with `healthcheck: disable`.
+COPY --from=builder --chown=node:node /app/dist-docker/imap-worker/scheduler.mjs ./scheduler.mjs
 # Liveness is a heartbeat file per poll loop, checked for the age of the oldest
 # (D1 of docs/design/standalone-observability.md): a wedged loop stops rewriting
 # its own file while the process stays alive, which is the failure `restart:

@@ -169,6 +169,7 @@ signing in at the address you set as `PUBLIC_ORIGIN`.
 | `web` | `ghcr.io/remit-mail/reader/web` | Static server for the built web client. |
 | `backend` | `ghcr.io/remit-mail/reader/backend` | The API. Also the image the `migrate` and `volume-init` one-shots run. |
 | `imap-worker`, `smtp-worker`, `account-worker`, `search-index-worker` | `ghcr.io/remit-mail/reader/*` | Queue pollers: sync mail, push flag and folder changes back, send outgoing mail, and build the search index. |
+| `scheduler` | `ghcr.io/remit-mail/reader/imap-worker` (command override) | The periodic mailbox-sync tick: enqueues a sync for every account whose last one is older than `MAILBOX_SYNC_OFFLINE_INTERVAL_SECONDS`. This is what fetches mail when no browser is open. See [Mail sync cadence](#mail-sync-cadence). |
 | `queue` | `ghcr.io/remit-mail/reader/queue-sidecar` | The SQS-compatible queue seam: a SQLite-backed sidecar speaking the SQS wire protocol, persisting enqueued work to its own volume. |
 | `migrate` | `ghcr.io/remit-mail/reader/backend` (command override) | One-shot: applies the SQLite migrations, repairs `thread_message.category`, and installs the FTS5 search index before any app service starts. See [maintenance.md](maintenance.md). |
 | `volume-init` | `ghcr.io/remit-mail/reader/backend` (entrypoint override) | One-shot: fixes ownership of the data volumes so the non-root app user can write them. |
@@ -198,6 +199,34 @@ after three consecutive failing checks. Nothing restarts on it: run `remit logs
 
 A healthy worker means its loops are turning, not that the work is succeeding.
 For that, run [`remit doctor`](#is-anything-wrong-remit-doctor).
+
+## Mail sync cadence
+
+The `scheduler` service fetches mail on a timer, so the box keeps receiving with
+nothing open. Every other trigger — loading the client, pressing sync, connecting
+an account — is a person.
+
+Two settings, both in `.env`:
+
+| Setting | Default | What it is |
+|---|---|---|
+| `MAILBOX_SYNC_OFFLINE_INTERVAL_SECONDS` | `900` | The mail latency you get: an account is fetched again once its last sync is this old. |
+| `MAILBOX_SYNC_TICK_INTERVAL_SECONDS` | `300` | How often the scheduler looks. Keep it well below the interval above. |
+
+Fifteen minutes is where desktop mail clients sit. Lower it for fresher mail at
+the cost of one more IMAP connection per account per cycle — a server that rate-
+limits logins is the reason not to go far below it.
+
+A healthy account's sync age climbs to the offline interval plus one tick plus
+the round itself, about 25 minutes at these defaults, and drops back. Raise
+either setting and raise `DOCTOR_SYNC_AGE_MAX_SECONDS` with it, or
+[`remit doctor`](#is-anything-wrong-remit-doctor) reports `account_sync_stalled`
+on accounts that are fine.
+
+The scheduler has no healthcheck. It polls no queue and writes no heartbeat, so
+what reports it is the sync age itself: a scheduler that stops ticking drives
+every account past that threshold, which is the same news — mail stopped
+arriving — from the thing that measures mail.
 
 ## Search
 

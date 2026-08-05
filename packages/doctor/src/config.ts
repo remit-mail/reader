@@ -68,26 +68,35 @@ const DEFAULT_HEARTBEAT_SERVICES = [
 const DEFAULT_HEARTBEAT_MAX_AGE_SECONDS = 420;
 
 /**
- * Three hours. `remit_account_sync_age_seconds` sawtooths: the scheduler ticks
- * hourly by default (`MAILBOX_SYNC_TICK_INTERVAL_SECONDS`) and a tick skips a
- * mailbox stamped inside the freshness window, so a perfectly healthy account
- * climbs past an hour every cycle. A threshold at or near the tick fires on
- * accounts that are fine; raise this if you raised the tick.
+ * One hour. `remit_account_sync_age_seconds` sawtooths, and the height of the
+ * tooth is the scheduler's OFFLINE interval — the age at which an account
+ * becomes due — plus one TICK of sampling lag before a tick picks it up, plus
+ * the round itself. At the standalone stack's 15-minute offline interval and
+ * 5-minute tick (deploy/vps/docker-compose.sqlite.yml) a healthy account peaks
+ * around 25 minutes, so an hour clears it with room for several consecutive
+ * failed rounds and still names a genuinely stalled account inside the hour.
+ *
+ * A threshold below that peak fires on accounts that are fine, which is the
+ * failure that matters most here: this is the signal that says mail stopped
+ * arriving, and a signal that cries wolf is one an operator learns to ignore.
+ * Raise this if you raised either scheduler interval.
  */
-const DEFAULT_SYNC_AGE_MAX_SECONDS = 3 * 60 * 60;
+const DEFAULT_SYNC_AGE_MAX_SECONDS = 60 * 60;
 
 /**
  * How long after the last authentication failure the condition still counts as
- * failing. Three hours, for the same reason the sync-age threshold is three
- * hours: authentication is retried on the sync tick, so the failures arrive in
- * one burst per tick and the gaps between bursts are not recoveries.
+ * failing. One hour, held equal to the sync-age threshold: authentication is
+ * retried on the sync cycle, so the failures arrive in one burst per cycle and
+ * the gaps between bursts are not recoveries, and two windows of the same width
+ * mean a deployment that fixes its password gets one recovery message rather
+ * than two.
  *
  * The signal is a counter delta, which is true for exactly one check. Without a
  * hold the reason appears on one check in sixty and the three-check dwell never
  * settles, so the one class of failure that never resolves itself would be the
  * one that never alerts.
  */
-const DEFAULT_AUTH_FAILURE_HOLD_SECONDS = 3 * 60 * 60;
+const DEFAULT_AUTH_FAILURE_HOLD_SECONDS = 60 * 60;
 
 /** D8's number. Configurable so an operator can trade latency for quiet. */
 const DEFAULT_DWELL_CHECKS = 3;
