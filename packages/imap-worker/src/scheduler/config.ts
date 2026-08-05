@@ -6,15 +6,20 @@
  * in remit-account-worker/src/config.ts).
  *
  * `tickIntervalSeconds` drives how often the tick itself runs — the
- * EventBridge schedule rate in prod, the local-runner loop delay in dev — and
- * must stay well below `offlineIntervalSeconds` so a tick reliably observes
- * every account crossing the threshold. CDK and this runtime default must
- * agree — see infra/lib/config.ts's `mailboxSync` stage config.
+ * EventBridge schedule rate on a managed deployment, the runner's loop delay
+ * everywhere else — and must stay well below `offlineIntervalSeconds` so a tick
+ * reliably observes every account crossing the threshold. CDK and this runtime
+ * default must agree — see infra/lib/config.ts's `mailboxSync` stage config.
  *
  * `offlineIntervalSeconds` is the only due-ness threshold: an account is due
  * once its last successful sync is older than this interval. There is no
  * "online" tier — client-side polling (useStaleAccountSync) covers an
  * account while its mail is actively open in the web client.
+ *
+ * The defaults below are a floor for a deployment that sets neither. The
+ * standalone stack sets both, at a cadence sized for one box and a handful of
+ * accounts, and the checker's stall threshold is derived from those values —
+ * see deploy/vps/docker-compose.sqlite.yml's `scheduler` service.
  */
 
 const DEFAULT_TICK_INTERVAL_SECONDS = 60 * 60; // 1 hour
