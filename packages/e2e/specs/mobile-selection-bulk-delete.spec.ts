@@ -28,7 +28,7 @@
 import type { Locator, Page } from "@playwright/test";
 import { ApiClient, waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
-import { appendMessages } from "../src/imap.js";
+import { appendMessages, waitForServerMailbox } from "../src/imap.js";
 import { readRunState } from "../src/state.js";
 import {
 	advanceTo,
@@ -611,16 +611,15 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 		for (let i = 0; i < leftover.length; i += 100) {
 			await api.deleteMessages(leftover.slice(i, i + 100));
 		}
-		if (leftover.length > 0) {
-			await waitFor(
-				() => api.searchMatchingMessageIds(run.inboxId, RUN_TAG),
-				(ids) => ids.length === 0,
-				{
-					timeoutMs: 60_000,
-					what: "leftover npmbulk fixtures to finish deleting",
-				},
-			);
-		}
+		// Dovecot decides what the next sync puts back, so the sweep is not done
+		// until the server's inbox is clear of these fixtures — the read model
+		// drops them the moment the delete is accepted, the IMAP write follows.
+		await waitForServerMailbox(
+			run.imapUser,
+			"INBOX",
+			(subjects) => !subjects.some((subject) => subject.includes(RUN_TAG)),
+			{ what: "the npmbulk fixtures to leave the inbox" },
+		);
 	});
 
 	test("the escalation control appears once every loaded row is selected, and escalating switches the selection to the full matching set", async ({
@@ -905,6 +904,15 @@ test.describe("Search-scoped escalated move and mark-read", () => {
 				await api.deleteMessages(leftover.slice(i, i + 100));
 			}
 		}
+		// Dovecot decides what the next sync puts back, so the sweep is not done
+		// until the server's inbox is clear of these fixtures — the read model
+		// drops them the moment the delete is accepted, the IMAP write follows.
+		await waitForServerMailbox(
+			run.imapUser,
+			"INBOX",
+			(subjects) => !subjects.some((subject) => subject.includes(RUN_TAG)),
+			{ what: "the npmverb fixtures to leave the inbox" },
+		);
 	});
 
 	const escalate = async (page: Page): Promise<void> => {

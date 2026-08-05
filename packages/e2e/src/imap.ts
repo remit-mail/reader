@@ -7,6 +7,7 @@
  * mailbox" — each run owns a different one.
  */
 import { ImapFlow } from "imapflow";
+import { waitFor } from "./api.js";
 import { imap } from "./env.js";
 
 export interface Message {
@@ -176,3 +177,26 @@ export const listServerSubjects = async (
 		await client.logout();
 	}
 };
+
+/**
+ * Poll Dovecot until a mailbox's contents satisfy `accept`.
+ *
+ * A move or a delete is answered once the read model has been updated; the IMAP
+ * write is queued behind that answer. So a wait on the API is a wait on the
+ * client's projection, and it settles while the server still holds the message
+ * where it was. The next sync re-derives the mailbox from the server and
+ * restores what the projection had already dropped — which is how one spec's
+ * cleanup surfaces as an extra row in a later spec's mailbox.
+ *
+ * Anything that has to still hold after the spec ends waits here.
+ */
+export const waitForServerMailbox = (
+	user: string,
+	mailbox: string,
+	accept: (subjects: string[]) => boolean,
+	{ timeoutMs = 60_000, what }: { timeoutMs?: number; what: string },
+): Promise<string[]> =>
+	waitFor(() => listServerSubjects(user, mailbox), accept, {
+		timeoutMs,
+		what: `${what} on the mail server`,
+	});
