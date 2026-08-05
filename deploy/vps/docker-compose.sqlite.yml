@@ -9,7 +9,10 @@
 # coordination uses a shared-memory file next to the database that does not work
 # over a network filesystem. The default local volume driver below satisfies
 # this; do not repoint `sqlite_data` at an NFS/CIFS mount.
-name: remit
+# The Compose project, and with it the name of every container, volume and
+# network this file creates. A second deployment on the same host sets
+# REMIT_PROJECT in its own .env and shares none of them.
+name: ${REMIT_PROJECT:-remit}
 
 x-app-env: &app-env
   env_file:
@@ -628,6 +631,12 @@ services:
     # than mounting the wrong path — a wrong mount must never reach an update.
     environment:
       REMIT_DIR: ${REMIT_DEPLOY_DIR:?set REMIT_DEPLOY_DIR to the deployment directory's absolute path in .env — install.sh writes it}
+      # The snapshot and restore helpers are containers this one starts against
+      # the host daemon, so they bind the state volume by the name that daemon
+      # knows it under — which carries the project. The image's own default is
+      # for a bare `docker run`, and would send this deployment's snapshots to
+      # the default project's volume.
+      REMIT_UPDATE_STATE_MOUNT: ${REMIT_PROJECT:-remit}_updater_state
     working_dir: ${REMIT_DEPLOY_DIR:?set REMIT_DEPLOY_DIR to the deployment directory's absolute path in .env — install.sh writes it}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

@@ -135,6 +135,7 @@ function sandbox({
 	scenario = {},
 	manifest = MANIFEST,
 	env = {},
+	dotenv = [],
 	realDb = false,
 	bareDb = false,
 	tag = "v1.0.0",
@@ -165,6 +166,7 @@ function sandbox({
 			"PUBLIC_ORIGIN=https://mail.example.test",
 			"TLS_MODE=internal",
 			"REMIT_UPDATE_MANIFEST_URL=https://updates.example.test/stable.json",
+			...dotenv,
 			"",
 		].join("\n"),
 	);
@@ -413,6 +415,34 @@ describe("remit update — the rollback's own gate fails", () => {
 		assert.equal(run.outcome, "rollbackFailed");
 		assert.match(run.message, /snapshot/);
 		assert.equal(run.logCommand, "remit logs backend");
+	});
+});
+
+describe("the volume the databases live on", () => {
+	// Compose names every volume after the project, and the snapshot and restore
+	// helpers are plain `docker run` containers that name it themselves. Reading
+	// the project from anywhere but the .env Compose reads is how an update
+	// snapshots an empty volume it just created and reports success.
+	const snapshotMount = (box) =>
+		box
+			.log()
+			.split("\n")
+			.find((line) => line.startsWith("run snapshot"))
+			?.replace("run snapshot sqlite=", "");
+
+	it("is the default project's when the deployment names no project", () => {
+		const box = sandbox({ scenario: { probe: "ok" } });
+		box.run(["update"]);
+		assert.equal(snapshotMount(box), "remit_sqlite_data");
+	});
+
+	it("follows the project a second deployment installed itself under", () => {
+		const box = sandbox({
+			scenario: { probe: "ok" },
+			dotenv: ["REMIT_PROJECT=beta"],
+		});
+		box.run(["update"]);
+		assert.equal(snapshotMount(box), "beta_sqlite_data");
 	});
 });
 

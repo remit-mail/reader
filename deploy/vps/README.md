@@ -95,12 +95,11 @@ When `/usr/local/bin` is writable the installer puts `remit` there; otherwise it
 stays in the install directory and the installer prints the one-line `sudo cp`
 that places it on PATH. `$REMIT_DIR` points it at a different install directory.
 
-That chooses whose files and `.env` are used, not whose data is touched. The
-compose file pins `name: remit`, which outranks the directory it is run from, so
-every install on a host is one Compose project sharing one set of containers and
-volumes. A second install directory on the same box adopts the first one's data
-rather than getting its own, and `remit purge` from either destroys it for both.
-One deployment per host.
+That chooses which deployment is managed. `.env`'s `REMIT_PROJECT` names the
+Compose project, and containers, volumes and the network all carry that name —
+so two install directories with the same project name are one deployment, and
+`remit purge` from either destroys the data for both. A second deployment is a
+second project (below).
 
 `remit down` stops the containers, so the address stops answering until
 `remit restart`. It removes no volume — accounts, mail and settings all come
@@ -124,6 +123,46 @@ configuration changed.
 A few operations below still show a raw `docker compose` line. Those are
 escape hatches: one-off or rarely-needed things the wrapper deliberately has no
 command for.
+
+## A second deployment on one host
+
+A second deployment is a project name and a port:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/remit-mail/reader/main/install.sh \
+  | bash -s -- \
+      --tls-mode tunnel \
+      --origin https://beta.example.org \
+      --tunnel-token-file ./beta.token \
+      --project beta \
+      --http-bind 127.0.0.1:8081
+```
+
+`--project beta` names the Compose project, so every container, volume and
+network of that deployment carries it and none of them are the first one's. It
+installs into `$PWD/reader-beta` unless `--dir` says otherwise, writes
+`REMIT_PROJECT=beta` to that directory's `.env`, and puts its wrapper on PATH as
+`remit-beta` — one command per deployment, each pointed at its own directory.
+Re-running the installer over an existing directory keeps the project it already
+holds, and refuses a `--project` that disagrees with it rather than starting an
+empty stack beside the data.
+
+Per deployment: the hostname, the tunnel credential, the project name, the
+install directory, both loopback ports, `.env` and every secret in it, and all
+volumes. Shared: the kernel, the container daemon, the images, and the box's CPU
+and disk. `--http-bind` is the one host-level number two deployments must not
+share; in the modes that publish 80 and 443 there is nothing to divide, so those
+are one deployment per host.
+
+That gives separate databases, separate `FAKE_KMS_DATAKEY`s (one stack's key
+does not decrypt the other's stored IMAP credentials), separate auth secrets (a
+session on one is not a session on the other) and separate networks (no
+container can address the other stack's services by name). What it does not give
+is separation from the container daemon: the updater mounts the docker socket,
+so root on either stack is root on the host and therefore on both. A deployment
+holding other people's mail belongs on its own VM — that is the only thing that
+removes it, the tunnel does not care which machine it runs on, and a VM with no
+public IP is exactly the case `tunnel` mode is for.
 
 ## When the app is unreachable
 

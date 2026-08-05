@@ -7,9 +7,10 @@
 # DEFAULT_DIR and COMPOSE_FILE below to what it installed; $REMIT_DIR selects
 # a different directory.
 #
-# $REMIT_DIR chooses whose files and .env are used, not whose data is touched.
-# The compose file pins `name: remit`, so every deployment on a host is the
-# same Compose project, sharing container names and volumes.
+# $REMIT_DIR chooses which deployment is managed: its .env names the Compose
+# project, and containers, volumes and the network all carry that name. Two
+# directories with the same project name are one deployment; a second one
+# installed with --project is its own.
 
 set -eu
 
@@ -49,7 +50,6 @@ CONTROL_DIR="${REMIT_UPDATE_CONTROL_DIR:-$STATE_DIR}"
 # this with its own image, which bakes sqlite3 in so a snapshot never waits on
 # an apk install (#133).
 HELPER_IMAGE="${REMIT_UPDATE_HELPER_IMAGE:-alpine:3.23}"
-SQLITE_VOLUME="${REMIT_UPDATE_SQLITE_VOLUME:-remit_sqlite_data}"
 
 # The host docker socket, for the one helper that drives compose rather than a
 # volume: the detached container that recreates the updater service (reader#291).
@@ -353,6 +353,15 @@ get_var() {
 		BEGIN { k = ENVIRON["_k"] }
 		index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }
 	' "$REMIT_DIR/.env"
+}
+
+# The Compose project this deployment is, read from the file Compose reads it
+# from — so the name a helper `docker run` uses to reach a volume is the name
+# Compose gave that volume, whatever else is installed on the box.
+compose_project() {
+	_project=$(get_var REMIT_PROJECT 2>/dev/null || true)
+	[ -n "$_project" ] || _project=remit
+	printf '%s' "$_project"
 }
 
 # Rewriting a file the operator owns must not change who owns it. Inside the
@@ -1486,10 +1495,21 @@ capped_run() {
 	"$@"
 }
 
+# The volume the databases live on. Compose names it after the project, so a
+# second deployment's snapshot and restore reach its own data rather than
+# creating an empty volume beside it.
+sqlite_volume() {
+	if [ -n "${REMIT_UPDATE_SQLITE_VOLUME:-}" ]; then
+		printf '%s' "$REMIT_UPDATE_SQLITE_VOLUME"
+		return 0
+	fi
+	printf '%s_sqlite_data' "$(compose_project)"
+}
+
 volume_run() {
 	_vr_script=$1
 	set -- \
-		-v "$SQLITE_VOLUME:/data/sqlite" \
+		-v "$(sqlite_volume):/data/sqlite" \
 		-v "$STATE_MOUNT:/state"
 	if [ -n "$SNAPSHOT_LIB_MOUNT" ]; then
 		set -- "$@" -v "$SNAPSHOT_LIB_MOUNT:/snapshot-db.sh:ro"
@@ -2354,9 +2374,9 @@ The install directory is left alone, .env and its FAKE_KMS_DATAKEY included:
   $REMIT_DIR
 So 'remit restart' afterwards brings up an empty but working stack.
 
-Those volumes belong to the host, not to that directory: every deployment on
-this box is the same Compose project, so a second install directory shares
-exactly these volumes and loses its data here too.
+Those volumes belong to the host, not to that directory: they are named after
+this deployment's Compose project, so any other install directory carrying that
+same project name loses its data here too.
 
 To stop serving without destroying anything, use 'remit down'.
 Run 'remit purge --yes' if this is what you want.
