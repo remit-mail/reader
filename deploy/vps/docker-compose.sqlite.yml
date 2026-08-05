@@ -400,6 +400,67 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------
+  # Periodic mailbox-sync scheduler. THIS IS WHAT MAKES MAIL ARRIVE WITH NO
+  # BROWSER OPEN. Every other sync trigger in the stack is something a person
+  # did — opening the client, pressing sync, connecting an account. Without this
+  # service a deployment stops fetching mail the moment the last tab closes.
+  #
+  # It runs the imap-worker image with its alternate entrypoint, so this is the
+  # same `runSchedulerTick` a managed deployment fires from EventBridge: it pages
+  # the account list, enqueues SYNC_MAILBOXES for the accounts whose last sync is
+  # older than the offline interval, and talks to no mail server itself. The
+  # workers do the fetching, which is why this container mounts no message
+  # storage and needs no heartbeat volume.
+  #
+  # THE TWO INTERVALS, AND WHAT DEPENDS ON THEM:
+  #   TICK (5 min)      how often the loop looks. It is the sampling rate, not
+  #                     the sync rate: it decides how late an account that has
+  #                     just become due is picked up, so it must stay well below
+  #                     the offline interval.
+  #   OFFLINE (15 min)  the only due-ness threshold, and therefore the mail
+  #                     latency an operator with no browser open actually sees.
+  #                     Fifteen minutes is where desktop mail clients sit, and on
+  #                     one box with a handful of accounts a poll costs one IMAP
+  #                     connection per account per cycle.
+  #
+  # A healthy account's sync age therefore sawtooths up to OFFLINE + TICK, plus
+  # however long the round itself takes — 25 minutes at the values above, against
+  # the checker's DOCTOR_SYNC_AGE_MAX_SECONDS of an hour, which leaves room for
+  # several consecutive failed rounds before an account reads as stalled. Raising
+  # either interval without raising that threshold turns `account_sync_stalled`
+  # into an alert that fires on accounts that are fine; remit.env.template states
+  # the relationship where an operator edits the values.
+  #
+  # NO HEALTHCHECK. The image bakes the imap-worker's heartbeat check, and this
+  # entrypoint runs no poll loop and writes no heartbeat file, so the inherited
+  # check would report a working scheduler as permanently unhealthy. Its liveness
+  # signal is `remit_account_sync_age_seconds` instead: a scheduler that stops
+  # ticking drives every account past the threshold above, which is the same
+  # condition — mail stopped moving — reported by the thing that measures mail.
+  # ---------------------------------------------------------------------
+  scheduler:
+    image: ghcr.io/remit-mail/reader/imap-worker:${REMIT_TAG:-latest}
+    <<: *app-env
+    command: ["node", "scheduler.mjs"]
+    environment:
+      <<: *app-environment
+      MAILBOX_SYNC_TICK_INTERVAL_SECONDS: ${MAILBOX_SYNC_TICK_INTERVAL_SECONDS:-300}
+      MAILBOX_SYNC_OFFLINE_INTERVAL_SECONDS: ${MAILBOX_SYNC_OFFLINE_INTERVAL_SECONDS:-900}
+    volumes:
+      - sqlite_data:/data/sqlite
+    depends_on:
+      queue:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      volume-init:
+        condition: service_completed_successfully
+    healthcheck:
+      disable: true
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------
   # The checker (standalone-observability D7 to D12). Always on, never behind a
   # profile: the operator who most needs an alert is the one who installed
   # nothing, and an alerting stack that lives behind an optional profile only

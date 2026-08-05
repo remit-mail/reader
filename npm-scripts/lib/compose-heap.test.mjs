@@ -160,6 +160,7 @@ describe("the deployment's Node services run under a heap ceiling", () => {
 			"imap-worker",
 			"migrate",
 			"queue",
+			"scheduler",
 			"search-index-worker",
 			"smtp-worker",
 			"web",

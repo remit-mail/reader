@@ -60,8 +60,8 @@ It is degraded when any of these is true:
 |---|---|
 | `scrape_failed` | A service is not answering `/metrics` |
 | `worker_heartbeat_stale` | A worker's slowest poll loop has not written for 7 minutes, or has written nothing at all |
-| `account_sync_stalled` | An account has not completed a sync round in 3 hours |
-| `mail_auth_failing` | An IMAP or SMTP authentication failure counter has gone up in the last 3 hours |
+| `account_sync_stalled` | An account has not completed a sync round in an hour, against a healthy peak of about 25 minutes at the default [sync cadence](README.md#mail-sync-cadence) |
+| `mail_auth_failing` | An IMAP or SMTP authentication failure counter has gone up in the last hour |
 | `dead_letter_queue_not_empty` | Anything is quarantined on any DLQ |
 | `signal_missing` | A service answered `/metrics` but exported none of the series the check reads |
 | `tunnel_disconnected` | On `TLS_MODE=tunnel` only: the agent holds no connection to Cloudflare |
@@ -72,17 +72,17 @@ connection, an absent heartbeat file, a scrape that times out, a 200 carrying
 none of the series being read.
 
 Authentication is a counter, so the signal is the increase, not the total. The
-retries arrive one burst per sync tick, so the condition is held open for three
-hours after the last one, matching the sync-age threshold. **Fixing the password
-does not produce an immediate all-clear**: expect the recovery about three hours
+retries arrive one burst per sync cycle, so the condition is held open for an
+hour after the last one, matching the sync-age threshold. **Fixing the password
+does not produce an immediate all-clear**: expect the recovery about an hour
 after you fix it, and the verdict stays `degraded` until the hold expires even
 if everything else has recovered. `remit doctor` shows the real state
 immediately.
 
 `DOCTOR_AUTH_FAILURE_HOLD_SECONDS` moves the window. Keep it above
-`MAILBOX_SYNC_TICK_INTERVAL_SECONDS`, or a healthy gap between two retries reads
-as a recovery; keeping it equal to `DOCTOR_SYNC_AGE_MAX_SECONDS` is what buys
-the single recovery message.
+`MAILBOX_SYNC_OFFLINE_INTERVAL_SECONDS`, or a healthy gap between two retries
+reads as a recovery; keeping it equal to `DOCTOR_SYNC_AGE_MAX_SECONDS` is what
+buys the single recovery message.
 
 ### Turn it on
 

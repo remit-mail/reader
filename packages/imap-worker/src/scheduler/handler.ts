@@ -16,8 +16,8 @@ const sqsClient = createQueueProducer({ queueUrl: mailboxesQueueUrl });
  * (#1247, restructured #1251). Ticks at `MAILBOX_SYNC_TICK_INTERVAL_SECONDS`
  * (rate schedule, wired in infra/stacks/dev/stacks/remit-worker-stack.ts) and
  * delegates the actual decision + enqueue to `runSchedulerTick` — the same
- * function the local dev-stack timer loop calls (see `local-runner.ts`), so
- * production and local dev run one code path.
+ * function the timer loop calls on a deployment with no EventBridge (see
+ * `runner.ts`), so every deployment runs one code path.
  *
  * Uses the EventBridge event's own `time` (the scheduled fire time) as the
  * tick's `now`, rather than `Date.now()` at processing time. This is what
