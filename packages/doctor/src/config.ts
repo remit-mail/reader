@@ -31,6 +31,16 @@ export interface DoctorConfig {
 	readonly deadManUrl: string | undefined;
 	readonly requestTimeoutMs: number;
 	readonly logLevel: string | undefined;
+	/**
+	 * The deployment's `TLS_MODE`, verbatim: the compose service hands it
+	 * through as `DOCTOR_TLS_MODE`, so which signals apply stays a property of
+	 * how the deployment serves rather than a second value that can disagree
+	 * with it. The mode is carried, not a predicate derived from it: the reason
+	 * the tunnel signal exists is the mode, and a `tunnelEnabled` boolean here
+	 * would put that derivation somewhere no other consumer can see.
+	 */
+	readonly tlsMode: string;
+	readonly tunnelReadyUrl: string;
 }
 
 /**
@@ -94,6 +104,18 @@ const DEFAULT_SCRAPE_TIMEOUT_SECONDS = 10;
 const DEFAULT_REQUEST_TIMEOUT_SECONDS = 10;
 
 const DEFAULT_CONTENT_TYPE = "application/json";
+
+/** The mode under which the tunnel signal exists at all. */
+export const TUNNEL_TLS_MODE = "tunnel";
+
+const DEFAULT_TLS_MODE = "off";
+
+/**
+ * `cloudflared`'s readiness endpoint, on the metrics port the compose service
+ * gives it. Overridable because the provider contract is generic: another edge
+ * supplies its own image, credential variable and readiness endpoint.
+ */
+const DEFAULT_TUNNEL_READY_URL = "http://tunnel:2000/ready";
 
 export type Env = Record<string, string | undefined>;
 
@@ -237,5 +259,8 @@ export const loadConfig = (env: Env = process.env): DoctorConfig => {
 				"DOCTOR_REQUEST_TIMEOUT_SECONDS",
 				DEFAULT_REQUEST_TIMEOUT_SECONDS,
 			) * 1000,
+		tlsMode: text(env, "DOCTOR_TLS_MODE") ?? DEFAULT_TLS_MODE,
+		tunnelReadyUrl:
+			text(env, "DOCTOR_TUNNEL_READY_URL") ?? DEFAULT_TUNNEL_READY_URL,
 	};
 };

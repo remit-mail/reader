@@ -55,6 +55,7 @@ const counter = (total: number, roseMsAgo = 4 * 60 * 60 * 1000) => ({
 const input = (overrides: Partial<VerdictInput> = {}): VerdictInput => ({
 	scrapes: HEALTHY_SCRAPES,
 	heartbeats: HEALTHY_HEARTBEATS,
+	tunnel: undefined,
 	previousCounters: {},
 	heartbeatMaxAgeSeconds: 420,
 	syncAgeMaxSeconds: 10_800,
@@ -444,6 +445,38 @@ describe("evaluate", () => {
 		assert.equal(result.verdict, "healthy");
 	});
 
+	it("degrades when the tunnel is not connected, while everything else reads clean", () => {
+		const result = evaluate(input({ tunnel: { error: "HTTP 503" } }));
+		assert.equal(result.verdict, "degraded");
+		assert.deepEqual(
+			result.reasons.map((reason) => reason.code),
+			["tunnel_disconnected"],
+		);
+		assert.match(result.reasons[0].summary, /not connected to its edge/);
+		assert.equal(result.reasons[0].detail, "HTTP 503");
+	});
+
+	it("stays healthy when the tunnel answered", () => {
+		const result = evaluate(input({ tunnel: { error: undefined } }));
+		assert.equal(result.verdict, "healthy");
+	});
+
+	it("puts the tunnel ahead of the conditions a dropped tunnel does not cause", () => {
+		const result = evaluate(
+			input({
+				tunnel: { error: "connect ECONNREFUSED" },
+				heartbeats: [
+					{ service: "imap-worker", ageSeconds: 900, error: undefined },
+					...HEALTHY_HEARTBEATS.slice(1),
+				],
+			}),
+		);
+		assert.deepEqual(
+			result.reasons.map((reason) => reason.code),
+			["tunnel_disconnected", "worker_heartbeat_stale"],
+		);
+	});
+
 	it("keeps every address, subject and folder name out of every summary", () => {
 		const result = evaluate(
 			input({
@@ -504,6 +537,7 @@ describe("no reason summary may carry a value D10 forbids", () => {
 					{ service: "imap-worker", ageSeconds: undefined, error: SENTINEL },
 					...HEALTHY_HEARTBEATS.slice(1),
 				],
+				tunnel: { error: SENTINEL },
 				previousCounters: {
 					"imap-worker:imap_auth_failures": counter(0),
 					"smtp-worker:smtp_auth_failures": counter(0),
@@ -517,6 +551,7 @@ describe("no reason summary may carry a value D10 forbids", () => {
 			"account_sync_stalled",
 			"dead_letter_queue_not_empty",
 			"mail_auth_failing",
+			"tunnel_disconnected",
 			"worker_heartbeat_stale",
 		]);
 		for (const reason of result.reasons) {

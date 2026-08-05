@@ -456,9 +456,15 @@ services:
       # DOCTOR_* only, on purpose. A plain LOG_LEVEL could never reach this
       # container, so the per-check verdict line could never be turned on.
       DOCTOR_LOG_LEVEL: ${DOCTOR_LOG_LEVEL:-}
-      # The one variable here that is not DOCTOR_*: a runtime ceiling, not
-      # configuration. The checker holds no path, no secret and no credential,
-      # and this carries none either.
+      # Which signals apply is a property of how the deployment serves, so the
+      # checker is handed the same TLS_MODE the rest of this file reads. Only
+      # under `tunnel` is there an agent to be disconnected from its edge, and
+      # the readiness endpoint is named because the provider contract is
+      # generic — another edge brings its own.
+      DOCTOR_TLS_MODE: ${TLS_MODE:-off}
+      DOCTOR_TUNNEL_READY_URL: ${DOCTOR_TUNNEL_READY_URL:-}
+      # A runtime ceiling, not configuration. The checker holds no path, no
+      # secret and no credential, and this carries none either.
       NODE_OPTIONS: "--max-old-space-size=${REMIT_NODE_HEAP_MB:-512}"
     volumes:
       - heartbeat:/data/heartbeat:ro

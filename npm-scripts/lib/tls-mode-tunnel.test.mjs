@@ -135,6 +135,13 @@ describe("an existing deployment's .env", { skip: !COMPOSE_OK }, () => {
 		assert.ok(!services(EXISTING_ENV).includes("tunnel"));
 	});
 
+	it("leaves the checker with no tunnel to look for", () => {
+		assert.equal(
+			resolved(EXISTING_ENV).services.doctor.environment.DOCTOR_TLS_MODE,
+			"off",
+		);
+	});
+
 	it("still starts everything it started before", () => {
 		const running = services(EXISTING_ENV);
 		for (const service of ["caddy", "backend", "apisix", "web", "doctor"]) {
@@ -190,6 +197,15 @@ describe("TLS_MODE=tunnel", { skip: !COMPOSE_OK }, () => {
 		assert.equal(
 			resolved(TUNNEL_ENV).services.tunnel.environment.TUNNEL_TOKEN,
 			"a-tunnel-credential",
+		);
+	});
+
+	// The checker takes named variables rather than the env file, so a mode it is
+	// never handed is a tunnel signal that silently never runs.
+	it("tells the checker the deployment serves through a tunnel", () => {
+		assert.equal(
+			resolved(TUNNEL_ENV).services.doctor.environment.DOCTOR_TLS_MODE,
+			"tunnel",
 		);
 	});
 
