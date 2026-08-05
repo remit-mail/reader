@@ -30,9 +30,15 @@ const mount = (
 		disabledHint?: string;
 		onMove?: (destinationMailboxId: string) => void;
 		viewportWidth?: number;
+		orientation?: "portrait" | "landscape";
+		pointer?: "coarse" | "fine";
 	} = {},
 ): DomHarness => {
-	harness = createDomHarness({ viewportWidth: options.viewportWidth });
+	harness = createDomHarness({
+		viewportWidth: options.viewportWidth,
+		orientation: options.orientation,
+		pointer: options.pointer,
+	});
 	if (options.mailboxes) {
 		harness.queryClient.setQueryData(
 			mailboxOperationsListMailboxesQueryKey({
@@ -166,6 +172,35 @@ describe("MoveToTrigger", () => {
 	it("opens a dialog rather than a popover on a phone", () => {
 		const dom = mount({ mailboxes: FOLDERS, viewportWidth: 390 });
 		assert.equal(
+			dom.byLabel("Move to folder").getAttribute("aria-haspopup"),
+			"dialog",
+		);
+	});
+
+	it("opens a dialog on a tablet held upright, which is 1024px wide", () => {
+		// Regression: the desktop gate was a bare width, and a large tablet in
+		// portrait is exactly 1024px — it got the desktop popover on a touch
+		// screen with no room for it.
+		const dom = mount({
+			mailboxes: FOLDERS,
+			viewportWidth: 1024,
+			orientation: "portrait",
+			pointer: "coarse",
+		});
+		assert.equal(
+			dom.byLabel("Move to folder").getAttribute("aria-haspopup"),
+			"dialog",
+		);
+	});
+
+	it("opens a popover on the same tablet turned sideways", () => {
+		const dom = mount({
+			mailboxes: FOLDERS,
+			viewportWidth: 1024,
+			orientation: "landscape",
+			pointer: "coarse",
+		});
+		assert.notEqual(
 			dom.byLabel("Move to folder").getAttribute("aria-haspopup"),
 			"dialog",
 		);

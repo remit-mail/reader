@@ -11,6 +11,19 @@
    .dark on a wrapper; an app would toggle it on <html>. */
 @custom-variant dark (&:is(.dark *));
 
+/* Tailwind's built-in lg variant, redefined: desktop chrome is a device
+   posture, not a width. A large tablet is exactly 1024px wide in portrait
+   and belongs in the single-pane layout, so a coarse pointer held upright
+   never reaches lg regardless of width. A tall desktop monitor has a fine
+   pointer and keeps it. Every lg: class in the app and the workbench rides
+   this rule; it must stay identical to DESKTOP_MEDIA_QUERY in
+   src/lib/layout-breakpoints.ts. */
+@custom-variant lg {
+	@media (min-width: 1024px) and (not ((orientation: portrait) and (pointer: coarse))) {
+		@slot;
+	}
+}
+
 /* @theme inline aliases Tailwind utilities (bg-surface, text-fg, etc.)
    to the semantic CSS variables declared on :root / .dark below. The
    :root / .dark blocks MUST come after this @theme block — otherwise
