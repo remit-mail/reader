@@ -1002,7 +1002,8 @@ docker compose -f docker-compose.sqlite.yml --env-file .env rm -f dozzle victori
 ```
 
 The metrics survive that; they are on their own volume. `docker volume rm
-remit_victoriametrics_data` discards the history.
+remit_victoriametrics_data` discards the history — the volume is named after the
+deployment's project, so on a second deployment it is `<project>_…`.
 
 `remit down` stops these two along with everything else and prints the command
 to bring them back — `remit restart` starts the always-on services only, because
