@@ -253,6 +253,13 @@ auth and CORS origins all derive from it, and its scheme has to match the mode.
 | `acme` | Public Let's Encrypt. Ports 80/443 must be reachable from the internet and the host must resolve in public DNS. | `https://mail.example.com` |
 | `tunnel` | TLS terminates at Cloudflare. An outbound-only agent on the box holds the connection open: no public IP, no port forward, no inbound firewall rule. | `https://mail.example.com` |
 
+The mode also decides whether the app can be installed to a phone's home
+screen. Installing needs a secure context, which `acme`, `tunnel` and
+`tailscale` give you. Under `TLS_MODE=off` the browser offers no install option
+at all, and `internal` offers one only on a device where Caddy's root CA is
+installed and trusted — on iOS that means both importing the profile and
+enabling it under Certificate Trust Settings.
+
 To make the `internal`-mode browser warning go away, trust Caddy's root CA on
 each client. Caddy keeps it on the `caddy_data` volume; export it into the
 current directory with:
