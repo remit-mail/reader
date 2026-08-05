@@ -10,8 +10,9 @@
 #
 # It checks the host has a container engine and Compose v2, downloads the
 # SQLite deploy assets, generates the secrets into a .env, and brings the
-# stack up. Re-running it is safe: existing secrets and an existing .env are
-# left untouched.
+# stack up. Re-running it is safe: an existing .env keeps every value it
+# already holds, secrets above all, and gains the keys the template has added
+# since it was written.
 #
 # Everything comes from flags and environment — the script never prompts, so
 # it works unchanged under `curl | bash`.
@@ -584,6 +585,56 @@ ensure_secret() {
 	fi
 }
 
+# An .env is written once and outlives the installer that wrote it. Every key
+# the template gained since is absent from it, and the keep-existing path below
+# only rewrites keys it names by hand — so a key added later stays absent
+# through every re-run. Absent is not the same as defaulted: with no
+# COMPOSE_PROFILES line, `--tls-mode tunnel` writes the mode, reports a finished
+# install, and never starts the tunnel agent.
+#
+# Append-only, so the deployment's own values are not something this can reach:
+# every line already in the file keeps its value, its formatting and its place,
+# and only keys the file does not mention at all are added, carrying the
+# template's value verbatim.
+#
+# A key the operator commented out counts as mentioned. Commenting a line out is
+# how the template says "take the code's default", and re-adding it would
+# overrule an edit someone made on purpose.
+converge_env() {
+	local f="$1" tpl="$DIR/remit.env.template" added line
+	[ -f "$tpl" ] || return 0
+	added="$(awk -v envfile="$f" '
+		function name(s,   p, k) {
+			sub(/^[ \t]*#*[ \t]*/, "", s)
+			p = index(s, "=")
+			if (p < 2) return ""
+			k = substr(s, 1, p - 1)
+			return (k ~ /^[A-Za-z_][A-Za-z0-9_]*$/) ? k : ""
+		}
+		BEGIN {
+			while ((getline line < envfile) > 0) {
+				k = name(line)
+				if (k != "") present[k] = 1
+			}
+			close(envfile)
+		}
+		/^[A-Za-z_][A-Za-z0-9_]*=/ {
+			k = name($0)
+			if (k == "" || (k in present) || (k in added)) next
+			# A placeholder is not a default. The keys carrying one are the keys
+			# this run supplies itself, from a flag or from openssl, further down.
+			if (index($0, "CHANGE_ME")) next
+			added[k] = 1
+			print
+		}
+	' "$tpl")"
+	[ -n "$added" ] || return 0
+	printf '\n# Added by install.sh: keys this .env was written before.\n%s\n' "$added" >>"$f"
+	while IFS= read -r line; do
+		say "  ${line%%=*}: added from the template"
+	done <<<"$added"
+}
+
 write_env() {
 	local f="$DIR/.env"
 	if [ -f "$f" ]; then
@@ -593,6 +644,7 @@ write_env() {
 		cp "$DIR/remit.env.template" "$f"
 	fi
 	chmod 600 "$f"
+	converge_env "$f"
 	# The identity signing key and the IMAP-credential encryption key are the two
 	# secrets this stack cannot run without.
 	ensure_secret BETTER_AUTH_SECRET 32 "$f"
