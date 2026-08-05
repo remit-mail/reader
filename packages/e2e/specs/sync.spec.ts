@@ -6,7 +6,11 @@
  */
 import { waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
-import { appendMessages, listServerMailboxes } from "../src/imap.js";
+import {
+	appendMessages,
+	listServerMailboxes,
+	listServerSubjects,
+} from "../src/imap.js";
 
 test.describe("Sync", () => {
 	// Global setup waits only for INBOX, so the rest of the folders may still be
@@ -48,6 +52,16 @@ test.describe("Sync", () => {
 		// The mailbox this run owns started empty, so this is the whole of what
 		// synced — not a superset that happens to contain the right subjects.
 		expect(threads.map((thread) => thread.subject).sort()).toEqual(
+			[...run.seededSubjects].sort(),
+		);
+
+		// And Dovecot holds the same set. INBOX is re-derived from the server on
+		// every sync, so an earlier spec that mutated it and returned on the read
+		// model leaves the two disagreeing, and the next sync sides with the
+		// server. The assertion above sees that only once it has already
+		// happened, and only when a sync ran in between; this one names the
+		// leak where it starts.
+		expect((await listServerSubjects(run.imapUser)).sort()).toEqual(
 			[...run.seededSubjects].sort(),
 		);
 	});
