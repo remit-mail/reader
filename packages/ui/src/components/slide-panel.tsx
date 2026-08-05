@@ -54,7 +54,7 @@ export function SlidePanel({
 
 			<div
 				className={cn(
-					"fixed top-0 right-0 z-50 h-full w-full border-l border-line bg-canvas shadow-xl sm:w-[400px] sm:max-w-[90vw]",
+					"safe-area-frame fixed top-0 right-0 z-50 h-full w-full border-l border-line bg-canvas shadow-xl sm:w-[400px] sm:max-w-[90vw]",
 					"transform transition-transform duration-200 ease-out",
 					isOpen ? "translate-x-0" : "pointer-events-none translate-x-full",
 				)}

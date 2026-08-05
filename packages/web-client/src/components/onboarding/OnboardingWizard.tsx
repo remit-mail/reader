@@ -43,6 +43,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AtSign, Inbox, Loader2, Mail, Server } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useReturnFromRedirect } from "../../hooks/useReturnFromRedirect.js";
 // useRef is kept for the hasCreatedRef guard — not for DOM refs
 import {
 	type DiscoveryResult,
@@ -274,24 +275,60 @@ function StepConnector({
 
 function StepMicrosoftEmail({
 	onBack,
-	onRedirecting,
+	onConnected,
 }: {
 	onBack: () => void;
-	onRedirecting: () => void;
+	onConnected: (accountId: string) => void;
 }) {
 	const [email, setEmail] = useState("");
 	const [error, setError] = useState<string | null>(null);
+	const [awaitingReturn, setAwaitingReturn] = useState(false);
+	// Null until a redirect starts from a known account list. Unknown is not
+	// empty: against an empty baseline any account already on the instance reads
+	// as the one just connected.
+	const accountIdsBeforeRedirect = useRef<ReadonlySet<string> | null>(null);
+
+	const { data: config, refetch: refetchConfig } = useQuery(
+		configOperationsGetConfigOptions(),
+	);
 
 	const startMutation = useMutation({
 		...microsoftOAuthOperationsMicrosoftOAuthStartMutation(),
 		onSuccess: (data) => {
-			onRedirecting();
+			accountIdsBeforeRedirect.current = config
+				? new Set(config.accounts.map((account) => account.accountId))
+				: null;
+			setAwaitingReturn(true);
 			window.location.assign(data.authorizationUrl);
 		},
 		onError: (err) => {
 			setError(err instanceof Error ? err.message : "Failed to start sign-in");
 		},
 	});
+
+	// Microsoft's answer comes back to whichever window the platform picks, and
+	// on iOS that is often the browser rather than the app launched from the
+	// home screen. So this window decides on the account list rather than on
+	// having been the one that got the redirect: an account that was not there
+	// before carries the wizard forward.
+	//
+	// Every look at this window is a chance to find that account, not a verdict
+	// on the sign-in — a user who switches back mid-flow to read a password has
+	// not failed anything, so nothing here concludes and the check stays armed
+	// until an account appears or the user leaves the step.
+	useReturnFromRedirect(
+		awaitingReturn,
+		useCallback(() => {
+			void refetchConfig().then(({ data }) => {
+				const before = accountIdsBeforeRedirect.current;
+				if (!before || !data) return;
+				const connected = data.accounts.find(
+					(account) => !before.has(account.accountId),
+				);
+				if (connected) onConnected(connected.accountId);
+			});
+		}, [refetchConfig, onConnected]),
+	);
 
 	const handleSubmit = () => {
 		setError(null);
@@ -336,7 +373,9 @@ function StepMicrosoftEmail({
 					>
 						{startMutation.isPending
 							? "Redirecting…"
-							: "Sign in with Microsoft"}
+							: awaitingReturn
+								? "Start over"
+								: "Sign in with Microsoft"}
 					</Button>
 				</>
 			}
@@ -360,6 +399,12 @@ function StepMicrosoftEmail({
 						Microsoft page.
 					</p>
 				</div>
+				{awaitingReturn && (
+					<Banner tone="info">
+						Waiting for Microsoft. Finish signing in — this window carries on
+						the moment the account is connected, wherever you finished.
+					</Banner>
+				)}
 				{error && <Banner tone="danger">{error}</Banner>}
 			</div>
 		</WizardShell>
@@ -1520,9 +1565,7 @@ export function OnboardingWizard({
 			return (
 				<StepMicrosoftEmail
 					onBack={() => setStep("connector")}
-					onRedirecting={() => {
-						// Full-page redirect is happening — nothing else to do
-					}}
+					onConnected={handleGoToInbox}
 				/>
 			);
 

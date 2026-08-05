@@ -81,7 +81,7 @@ export function WizardShell({
 		// (optical center) on larger screens. On phone the top padding is
 		// minimal so taller steps (connector picker, servers) don't push the
 		// CTA bar below the fold — the shell scrolls if content overflows.
-		<div className="flex min-h-dvh w-full flex-col items-center overflow-y-auto bg-canvas px-8 pb-8 pt-8 font-sans text-fg sm:pt-[30vh]">
+		<div className="flex min-h-dvh w-full flex-col items-center overflow-y-auto bg-canvas px-8 pb-[calc(2rem+env(safe-area-inset-bottom,0px))] pt-8 font-sans text-fg sm:pt-[30vh]">
 			{!hideSteps && (
 				<div className="mb-5 w-full max-w-xl">
 					<StepRail steps={steps} activeStep={activeStep} />

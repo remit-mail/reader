@@ -24,6 +24,7 @@ import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
 import { AccountFormPanel } from "@/components/settings/AccountFormPanel";
 import { DangerZone } from "@/components/settings/DangerZone";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { useReturnFromRedirect } from "@/hooks/useReturnFromRedirect";
 import { formatRelativeTime } from "@/lib/format";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
 
@@ -264,6 +265,17 @@ function AccountsSettings() {
 		});
 	}, [search.oauthError, navigate]);
 
+	// Microsoft may hand the finished sign-in back to a different window than the
+	// one that started it, so a reconnect can complete without this page ever
+	// seeing the callback. Once one has been sent off, every look at this window
+	// re-reads the accounts, and the card states what the server says rather
+	// than what this window last saw.
+	useReturnFromRedirect(reconnectingAccountId !== null, () => {
+		queryClient.invalidateQueries({
+			queryKey: configOperationsGetConfigQueryKey(),
+		});
+	});
+
 	const reconnectMutation = useMutation({
 		...microsoftOAuthOperationsMicrosoftOAuthStartMutation(),
 		onSuccess: (data) => {
@@ -449,7 +461,7 @@ function AccountsSettings() {
 
 			{/* Add account wizard — steps 2–7 in a full-screen overlay */}
 			{showAddWizard && (
-				<div className="fixed inset-0 z-40 overflow-auto bg-canvas">
+				<div className="safe-area-frame fixed inset-0 z-40 overflow-auto bg-canvas">
 					<OnboardingWizard
 						skipWelcome
 						onComplete={() => {

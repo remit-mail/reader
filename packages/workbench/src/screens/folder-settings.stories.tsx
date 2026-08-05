@@ -174,6 +174,7 @@ function FolderSettingsPage({ renaming = false }: { renaming?: boolean }) {
 			help={foldersHelp}
 			helpOpen={helpOpen}
 			onToggleHelp={() => setHelpOpen((open) => !open)}
+			onBackToMail={() => undefined}
 		>
 			<div className="space-y-4">
 				<RoleAppointmentList
