@@ -24,6 +24,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -140,7 +141,7 @@ describe("the stack fetches mail with no browser open", {
 		assert.equal(scheduler.environment.SQLITE_DB_PATH, "/data/sqlite/remit.db");
 		assert.deepEqual(
 			scheduler.volumes.map((volume) => `${volume.source}:${volume.target}`),
-			["sqlite_data:/data/sqlite"],
+			["sqlite_data:/data/sqlite", "heartbeat:/data/heartbeat"],
 			"it enqueues work and talks to no mail server, so it needs no message storage",
 		);
 	});
@@ -167,14 +168,16 @@ describe("the stack fetches mail with no browser open", {
 		assert.equal(resolved().services.scheduler.restart, "unless-stopped");
 	});
 
-	// The image bakes the imap-worker's heartbeat check, and this entrypoint runs
-	// no poll loop and writes no heartbeat file. Inheriting it would report a
-	// working scheduler as permanently unhealthy, which is worse than reporting
-	// nothing: the sync age is what carries this service's liveness.
-	it("does not inherit a check it can never pass", () => {
-		assert.deepEqual(resolved().services.scheduler.healthcheck, {
-			disable: true,
-		});
+	// The image bakes the imap-worker's check, which reads imap-worker.* files
+	// this entrypoint never writes. It gets its own prefix rather than inheriting
+	// that one, and the compose service replaces the check to match — the doctor
+	// reads these files per service, so a scheduler beating into the workers'
+	// prefix would report a wedged worker as alive.
+	it("beats under a prefix of its own", () => {
+		assert.equal(
+			resolved().services.scheduler.environment.WORKER_HEARTBEAT_PREFIX,
+			"/data/heartbeat/scheduler",
+		);
 	});
 
 	// The entrypoint reads both: the producer's queue URL, and the one the data
@@ -190,6 +193,73 @@ describe("the stack fetches mail with no browser open", {
 				`${name} must reach the queue sidecar`,
 			);
 		}
+	});
+});
+
+// The check the container will really run, run here. A healthcheck asserted as
+// a string proves it was typed, not that it answers — and a check that cannot
+// fail is worse than none, because `docker compose up --wait` would then report
+// a dead scheduler as ready. The only thing rewritten is the directory it looks
+// in, so what executes below is the deployment's own script.
+const runHealthcheck = (directory, environment) => {
+	const [command, binary, flag, script] =
+		resolved().services.scheduler.healthcheck.test;
+	assert.deepEqual([command, binary, flag], ["CMD", "node", "-e"]);
+	return spawnSync(
+		"node",
+		["-e", script.replace("'/data/heartbeat'", JSON.stringify(directory))],
+		{ encoding: "utf8", env: { ...CLEAN_ENV, ...environment } },
+	).status;
+};
+
+// Written the way the runner writes it: one file, named for the loop, under the
+// prefix the compose service hands the container.
+const heartbeatDir = (ageSeconds) => {
+	const dir = mkdtempSync(join(TMP_ROOT, "scheduler-heartbeat-"));
+	sandboxes.push(dir);
+	if (ageSeconds !== undefined) {
+		const file = join(dir, "scheduler.tick");
+		writeFileSync(file, `${new Date().toISOString()}\n`);
+		const when = new Date(Date.now() - ageSeconds * 1000);
+		utimesSync(file, when, when);
+	}
+	return dir;
+};
+
+describe("a scheduler that stopped ticking reports it", {
+	skip: !COMPOSE_OK,
+}, () => {
+	const environment = resolved().services.scheduler.environment;
+	const tick = Number(environment.MAILBOX_SYNC_TICK_INTERVAL_SECONDS);
+
+	it("passes while the tick loop is turning", () => {
+		assert.equal(runHealthcheck(heartbeatDir(1), environment), 0);
+	});
+
+	it("fails once the beats stop", () => {
+		assert.equal(runHealthcheck(heartbeatDir(tick * 4), environment), 1);
+	});
+
+	// The two states a check that cannot look can be in. Reporting either as
+	// healthy is the failure the workers' own comment names.
+	it("fails when there is no file, and when there is no directory", () => {
+		assert.equal(runHealthcheck(heartbeatDir(undefined), environment), 1);
+		assert.equal(runHealthcheck(join(TMP_ROOT, "absent"), environment), 1);
+	});
+
+	// The workers hardcode 420 s because their bound is a socket timeout. This
+	// one is a knob, so the threshold has to move with it or an operator who
+	// slows the tick gets a permanently unhealthy container.
+	it("takes its staleness threshold from the tick it is configured with", () => {
+		const aged = heartbeatDir(tick * 2 + 30);
+		assert.equal(runHealthcheck(aged, environment), 0);
+		assert.equal(
+			runHealthcheck(aged, {
+				...environment,
+				MAILBOX_SYNC_TICK_INTERVAL_SECONDS: String(Math.floor(tick / 4)),
+			}),
+			1,
+		);
 	});
 });
 

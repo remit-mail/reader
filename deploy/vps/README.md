@@ -223,10 +223,11 @@ either setting and raise `DOCTOR_SYNC_AGE_MAX_SECONDS` with it, or
 [`remit doctor`](#is-anything-wrong-remit-doctor) reports `account_sync_stalled`
 on accounts that are fine.
 
-The scheduler has no healthcheck. It polls no queue and writes no heartbeat, so
-what reports it is the sync age itself: a scheduler that stops ticking drives
-every account past that threshold, which is the same news — mail stopped
-arriving — from the thing that measures mail.
+The scheduler is healthchecked on its own heartbeat, like the workers, and the
+staleness threshold follows `MAILBOX_SYNC_TICK_INTERVAL_SECONDS` rather than
+being a fixed seven minutes. Healthy there means the timer is still firing, not
+that mail arrived: for that, `remit doctor` reports `account_sync_stalled` off
+the sync age.
 
 ## Search
 

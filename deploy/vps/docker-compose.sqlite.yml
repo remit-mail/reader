@@ -410,7 +410,7 @@ services:
   # the account list, enqueues SYNC_MAILBOXES for the accounts whose last sync is
   # older than the offline interval, and talks to no mail server itself. The
   # workers do the fetching, which is why this container mounts no message
-  # storage and needs no heartbeat volume.
+  # storage.
   #
   # THE TWO INTERVALS, AND WHAT DEPENDS ON THEM:
   #   TICK (5 min)      how often the loop looks. It is the sampling rate, not
@@ -431,12 +431,24 @@ services:
   # into an alert that fires on accounts that are fine; remit.env.template states
   # the relationship where an operator edits the values.
   #
-  # NO HEALTHCHECK. The image bakes the imap-worker's heartbeat check, and this
-  # entrypoint runs no poll loop and writes no heartbeat file, so the inherited
-  # check would report a working scheduler as permanently unhealthy. Its liveness
-  # signal is `remit_account_sync_age_seconds` instead: a scheduler that stops
-  # ticking drives every account past the threshold above, which is the same
-  # condition — mail stopped moving — reported by the thing that measures mail.
+  # ITS CHECK, AND WHAT IT CLAIMS. The loop rewrites /data/heartbeat/scheduler.tick
+  # before every tick, so the check below is the same one the workers carry — the
+  # timer is still firing — and it is the only thing this service can honestly
+  # report. Whether the accounts it enqueued were actually fetched is what
+  # `remit_account_sync_age_seconds` measures, and a scheduler that stops ticking
+  # shows up there too, one offline interval later.
+  #
+  # The image's own check reads imap-worker.* on this same volume, which this
+  # entrypoint never writes; the override below replaces it rather than disabling
+  # it, because `docker compose up --wait` fails outright on a service whose
+  # healthcheck is disabled (reader#644) — the disabled check took the packaged
+  # e2e lane down for a day.
+  #
+  # The threshold is derived from the tick rather than fixed: two ticks, so a
+  # single slow round cannot flip it, plus a minute of floor for an operator who
+  # sets a very short tick. The workers can hardcode 420 s because their bound is
+  # a socket timeout; here it is a knob, and a fixed number would report a
+  # healthy scheduler as dead the moment someone raised it.
   # ---------------------------------------------------------------------
   scheduler:
     image: ghcr.io/remit-mail/reader/imap-worker:${REMIT_TAG:-latest}
@@ -444,10 +456,12 @@ services:
     command: ["node", "scheduler.mjs"]
     environment:
       <<: *app-environment
+      WORKER_HEARTBEAT_PREFIX: /data/heartbeat/scheduler
       MAILBOX_SYNC_TICK_INTERVAL_SECONDS: ${MAILBOX_SYNC_TICK_INTERVAL_SECONDS:-300}
       MAILBOX_SYNC_OFFLINE_INTERVAL_SECONDS: ${MAILBOX_SYNC_OFFLINE_INTERVAL_SECONDS:-900}
     volumes:
       - sqlite_data:/data/sqlite
+      - heartbeat:/data/heartbeat
     depends_on:
       queue:
         condition: service_healthy
@@ -456,7 +470,16 @@ services:
       volume-init:
         condition: service_completed_successfully
     healthcheck:
-      disable: true
+      test:
+        ["CMD", "node", "-e", "const fs=require('node:fs'),d='/data/heartbeat',p='scheduler.',m=(Number(process.env.MAILBOX_SYNC_TICK_INTERVAL_SECONDS||300)*2+60)*1000,f=fs.readdirSync(d).filter(n=>n.startsWith(p));process.exit(f.length&&f.every(n=>Date.now()-fs.statSync(d+'/'+n).mtimeMs<m)?0:1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      # Probe every second while inside start_period, so the first tick's file
+      # flips this healthy at once instead of waiting out the 30s interval — the
+      # e2e lane gates its whole startup on this container reporting ready.
+      start_interval: 1s
     stop_grace_period: 30s
     restart: unless-stopped
 
@@ -474,7 +497,12 @@ services:
   #
   # ITS TWO MOUNTS, AND NO OTHERS:
   #   heartbeat:ro   the eleven poll-loop timestamps the workers write (D1). It
-  #                  reads them; it never writes one.
+  #                  reads them; it never writes one. The scheduler's file sits
+  #                  on the same volume and is deliberately not in
+  #                  DOCTOR_HEARTBEAT_SERVICES: its freshness follows a knob an
+  #                  operator can move, and this checker's staleness threshold is
+  #                  one fixed number for every service it names. The sync age is
+  #                  what reports a scheduler that stopped.
   #   doctor_state   its own volume, for the last announced verdict. Shared with
   #                  no other service, so a restart cannot re-announce a
   #                  condition already reported.
