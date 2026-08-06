@@ -306,10 +306,11 @@ function StepMicrosoftEmail({
 	const startMutation = useMutation({
 		...microsoftOAuthOperationsMicrosoftOAuthStartMutation(),
 		onSuccess: (data) => {
-			// The window leaves here, but it can come back to this same state —
-			// bfcache restores it intact — and it has to come back to a button that
-			// can be pressed again.
-			setPreparing(false);
+			// A step the user left while this was in flight does not get to take the
+			// window with it. `assign` is not synchronous either — the page is still
+			// here while the browser fetches Microsoft's — so the control stays busy
+			// until the window is actually looked at again.
+			if (!stepIsMounted.current) return;
 			setAwaitingReturn(true);
 			window.location.assign(data.authorizationUrl);
 		},
@@ -332,6 +333,9 @@ function StepMicrosoftEmail({
 	useReturnFromRedirect(
 		awaitingReturn,
 		useCallback(() => {
+			// Being looked at again is the proof the redirect is over, however it
+			// ended: the window that was leaving is back, so the button is too.
+			setPreparing(false);
 			void refetchConfig().then(({ data, isError }) => {
 				if (!stepIsMounted.current) return;
 				if (isError || !data) {

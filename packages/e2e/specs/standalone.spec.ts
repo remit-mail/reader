@@ -112,9 +112,9 @@ test.describe("Launched without browser chrome", () => {
 
 			// Discarding takes the draft with it, so this finds nothing on the
 			// path that ran to the end. It is here for the runs that did not.
-			for (const draft of await api.listDrafts()) {
-				if (draft.subject.includes(tag)) {
-					await api.deleteDraft(draft.outboxMessageId);
+			for (const entry of await api.listRemovableOutboxMessages()) {
+				if (entry.subject.includes(tag)) {
+					await api.deleteOutboxMessage(entry.outboxMessageId);
 				}
 			}
 		});

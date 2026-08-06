@@ -110,6 +110,13 @@ interface ResultList<T> {
 	continuationToken?: string;
 }
 
+/**
+ * The outbox statuses the API will delete — the same three the queue accepts.
+ * An account with no SMTP configured leaves its entries `blocked`, which is
+ * exactly what a spec that opened compose against one produces.
+ */
+const REMOVABLE_OUTBOX_STATUSES = new Set(["draft", "failed", "blocked"]);
+
 const cookieHeader = (response: Response): string =>
 	response.headers
 		.getSetCookie()
@@ -305,13 +312,13 @@ export class ApiClient {
 	}
 
 	/**
-	 * Every draft the account holds, paged to exhaustion the way
-	 * `searchMatchingMessageIds` pages. Compose autosaves, so a spec that opens
-	 * it leaves a draft behind and the shared account carries it into every
-	 * later spec. Drafts only: a queued or sent message is not a spec's to
-	 * remove, and the server refuses to delete one.
+	 * The first account's outbox, paged to exhaustion the way
+	 * `searchMatchingMessageIds` pages, narrowed to what a spec may take back:
+	 * compose autosaves, so a spec that opens it leaves an entry behind and the
+	 * shared account carries it into every later spec. A queued or sent message
+	 * is not a spec's to remove, and the server refuses to delete one.
 	 */
-	async listDrafts(): Promise<
+	async listRemovableOutboxMessages(): Promise<
 		Array<{ outboxMessageId: string; subject: string }>
 	> {
 		const drafts: Array<{ outboxMessageId: string; subject: string }> = [];
@@ -329,7 +336,7 @@ export class ApiClient {
 				continuationToken?: string;
 			}>("GET", `/outbox${query}`);
 			for (const item of page.items) {
-				if (item.status !== "draft") continue;
+				if (!REMOVABLE_OUTBOX_STATUSES.has(item.status)) continue;
 				drafts.push({
 					outboxMessageId: item.outboxMessageId,
 					subject: item.subject ?? "",
@@ -344,7 +351,7 @@ export class ApiClient {
 	 * A draft already gone is the outcome this asks for, so a 404 is a pass: the
 	 * app's own discard races this sweep and usually wins.
 	 */
-	async deleteDraft(outboxMessageId: string): Promise<void> {
+	async deleteOutboxMessage(outboxMessageId: string): Promise<void> {
 		const response = await this.request("DELETE", `/outbox/${outboxMessageId}`);
 		if (response.ok || response.status === 404) return;
 		throw new Error(

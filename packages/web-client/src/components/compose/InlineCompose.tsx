@@ -18,7 +18,10 @@ export const InlineCompose = ({
 	sourceMessage,
 	onClose,
 }: InlineComposeProps) => (
-	<div className="border-t border-line bg-canvas max-h-[400px] flex flex-col">
+	// Capped against the viewport as well as in pixels: on a short one — a phone
+	// in landscape, or one with the keyboard up — a flat 400px is taller than
+	// the pane, and the surface's own header scrolls off before its verbs do.
+	<div className="border-t border-line bg-canvas max-h-[min(400px,60dvh)] flex flex-col">
 		<ComposeForm
 			mode={mode}
 			account={account}

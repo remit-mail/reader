@@ -37,6 +37,7 @@ const meta: Meta<typeof MobileMessageActionBar> = {
 		onToggleStar: () => undefined,
 		onDelete: () => undefined,
 		onToggleRead: () => undefined,
+		onUnavailable: () => undefined,
 	},
 };
 export default meta;
