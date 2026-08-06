@@ -56,9 +56,6 @@ const NO_SIGNAL_SUMMARY =
 const UNREADABLE_SENDER_SUMMARY =
 	"We couldn't read this sender's address, so we can't confirm who really sent this message.";
 
-const UNCONFIRMED_SUMMARY =
-	"Nothing looks unusual about this sender, but we couldn't independently confirm who signed it.";
-
 /**
  * Build sender intel from the thread message and address lookup.
  *
@@ -121,13 +118,15 @@ function joinDomains(domains: readonly string[]): string {
  * compared nothing, which is every message the provider's filter did not
  * already call spam.
  *
- * Each clause leads with the concern and names the domain that actually
- * signed the message (`auth.dkimDomain`), never the claimed From address's
- * domain (`auth.fromDomain`) — on a legitimately parent-signed message
- * (`header.d=example.com`, From `alice@mail.example.com`) those differ, and
- * naming the wrong one is the exact confusion #603 set out to fix. These
- * clauses are the caution tier's entire summary: there is no separate
- * "verified" sentence in front of them for the signing fact to hide behind.
+ * Each clause leads with the concern and names `auth.fromDomain` — the
+ * domain `classifyDisplayNameCorrespondence` actually compared the display
+ * name against (`senderMismatch.ts` calls it with the From address's own
+ * domain, never the DKIM signing domain). Naming `auth.dkimDomain` instead
+ * would assert a comparison that was never made: on a message signed by a
+ * relay or ESP infrastructure domain, the display name was checked against
+ * the sender's own address, not that domain. These clauses are the caution
+ * tier's entire summary: there is no separate "verified" sentence in front
+ * of them for the signing fact to hide behind.
  */
 function describeSenderMismatch(
 	auth: NonNullable<RemitImapThreadMessageResponse["authenticity"]>,
@@ -135,16 +134,15 @@ function describeSenderMismatch(
 ): string[] {
 	const clauses: string[] = [];
 	const correspondence = auth.displayNameCorrespondence;
-	const signedDomain = auth.dkimDomain ?? auth.fromDomain;
 
 	if (claimedBrand) {
 		if (correspondence === DisplayNameCorrespondence.Unrelated) {
 			clauses.push(
-				`The name it shows, "${claimedBrand}", has nothing to do with ${signedDomain}.`,
+				`The name it shows, "${claimedBrand}", has nothing to do with ${auth.fromDomain}.`,
 			);
 		} else if (correspondence === DisplayNameCorrespondence.Lookalike) {
 			clauses.push(
-				`The name it shows, "${claimedBrand}", only looks like ${signedDomain}.`,
+				`The name it shows, "${claimedBrand}", only looks like ${auth.fromDomain}.`,
 			);
 		}
 	}
@@ -213,21 +211,13 @@ export function buildAuthenticityIntel(
 				summary: unlike.join(" "),
 			};
 		}
-		if (auth.dkimDomain) {
-			return {
-				verdict: "aligned",
-				fromDomain: auth.fromDomain,
-				dkimDomain: auth.dkimDomain,
-				summary: `This message was signed by ${auth.dkimDomain}.`,
-			};
-		}
-		// No available signal contradicts the claim, but nothing trustworthy
-		// confirmed it either (no Authentication-Results result to point at) —
-		// this must never render as the aligned/green tier (#603).
 		return {
-			verdict: "caution",
+			verdict: "aligned",
 			fromDomain: auth.fromDomain,
-			summary: UNCONFIRMED_SUMMARY,
+			dkimDomain: auth.dkimDomain,
+			summary: auth.dkimDomain
+				? `This message was signed by ${auth.dkimDomain}.`
+				: `Nothing looks unusual about this sender.`,
 		};
 	}
 

@@ -203,23 +203,6 @@ describe("buildAuthenticityIntel", () => {
 		assert.equal(result.verdict, "aligned");
 	});
 
-	// #603 CI finding A/E: "no evidence of a mismatch" is not the same claim as
-	// "verified" — a raw signature that happens to align, with no trustworthy
-	// Authentication-Results result to confirm it, must render as caution, not
-	// the aligned green shield.
-	test("caution, not aligned, when nothing mismatches but the domain was never confirmed", () => {
-		const thread = makeThread({
-			fromEmail: "alice@example.com",
-			authenticity: {
-				fromDomain: "example.com",
-				dkimMismatch: false,
-			},
-		} as Partial<RemitImapThreadMessageResponse>);
-		const result = buildAuthenticityIntel(thread, 0);
-		assert.equal(result.verdict, "caution");
-		assert.doesNotMatch(result.summary, /We verified|was signed by/i);
-	});
-
 	test("mismatch when the signing domain does not align", () => {
 		const thread = makeThread({
 			fromEmail: "security@your-bank.example",
@@ -263,14 +246,18 @@ describe("buildAuthenticityIntel", () => {
 	describe("a passing signature over a claim that does not hold", () => {
 		// The InfoMedics invoice phish: an attacker's own free Atlassian tenant,
 		// so SPF/DKIM/DMARC genuinely pass for a domain nobody recognises, and the
-		// provider's own filter already called it spam.
+		// provider's own filter already called it spam. dkimDomain deliberately
+		// differs from fromDomain here (the delivery host's re-signature,
+		// custmx.one.com, is a different party than the sender's own
+		// serviceupdatebank.atlassian.net) — the display-name check was run
+		// against fromDomain, never dkimDomain, so the copy must name fromDomain.
 		const infoMedics = makeThread({
 			fromEmail: "jira@serviceupdatebank.atlassian.net",
 			fromName: "InfoMedics",
 			subject: "Vordering",
 			authenticity: {
 				fromDomain: "serviceupdatebank.atlassian.net",
-				dkimDomain: "serviceupdatebank.atlassian.net",
+				dkimDomain: "custmx.one.com",
 				dkimMismatch: false,
 				displayNameCorrespondence: "Unrelated",
 				offDomainLinkDomains: ["betaal-vordering.example"],
@@ -283,12 +270,17 @@ describe("buildAuthenticityIntel", () => {
 			assert.doesNotMatch(result.summary, /We verified/i);
 		});
 
-		test("leads with the concern, naming the signing domain, and the link destination", () => {
+		// The copy must name the domain the comparison was actually run
+		// against (fromDomain), never the unrelated dkimDomain — a message
+		// signed by a relay or ESP infrastructure domain must not read as
+		// "the name looks nothing like <that other party>".
+		test("leads with the concern, naming the domain the name was actually compared to, and the link destination", () => {
 			const result = buildAuthenticityIntel(infoMedics, 0);
 			assert.equal(result.verdict, "caution");
 			assert.match(result.summary, /^The name it shows/);
 			assert.match(result.summary, /"InfoMedics"/);
 			assert.match(result.summary, /serviceupdatebank\.atlassian\.net/);
+			assert.doesNotMatch(result.summary, /custmx\.one\.com/);
 			assert.match(result.summary, /betaal-vordering\.example/);
 			assert.doesNotMatch(result.summary, /DKIM|SPF|DMARC/i);
 		});
