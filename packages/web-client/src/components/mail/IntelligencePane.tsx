@@ -8,6 +8,7 @@ import {
 import { Link } from "@tanstack/react-router";
 import { Sparkles } from "lucide-react";
 import { useCallback, useState } from "react";
+import { formatErrorDetail } from "@/components/ui/error-banners";
 import { useIntelligenceData } from "@/hooks/useIntelligenceData";
 import { useReportSpam } from "@/hooks/useReportSpam";
 import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
@@ -228,6 +229,8 @@ function WiredPanel({
 		notSpam,
 		reportFailedMessageIds,
 		restoreFailedMessageIds,
+		reportError,
+		restoreError,
 	} = useReportSpam({
 		mailboxId: thread.mailboxId,
 		threadId: thread.threadId,
@@ -249,10 +252,15 @@ function WiredPanel({
 		reportSpam([thread.messageId]);
 	}, [reportSpam, thread, telemetry]);
 
+	// The server's own reason (e.g. notSpam's move-not-settled-yet message) is
+	// documented safe to show as-is — prefer it over a generic string so a
+	// retry-and-it'll-work failure reads differently from a real one.
 	const spamActionError = reportFailedMessageIds?.includes(thread.messageId)
-		? "Couldn't report this message as spam. Try again."
+		? (formatErrorDetail(reportError) ??
+			"Couldn't report this message as spam. Try again.")
 		: restoreFailedMessageIds?.includes(thread.messageId)
-			? "Couldn't undo the spam report. Try again."
+			? (formatErrorDetail(restoreError) ??
+				"Couldn't undo the spam report. Try again.")
 			: undefined;
 
 	const handleShowSimilar = useCallback(() => {
