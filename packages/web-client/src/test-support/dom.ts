@@ -46,6 +46,14 @@ export interface DomOptions {
 	/** Screen posture `matchMedia` answers against — jsdom has no device. */
 	orientation?: "portrait" | "landscape";
 	pointer?: "coarse" | "fine";
+	/**
+	 * Use this `QueryClient` instead of the harness's default retry-disabled
+	 * one — e.g. one wired with the real `QueryCache`/`MutationCache` error
+	 * handlers from `lib/query-error-handler.ts`, the way `shell/index.tsx`
+	 * builds it, so a test can exercise the real global escalation path
+	 * instead of just the per-mutation `onError`.
+	 */
+	queryClient?: QueryClient;
 }
 
 export const createDomHarness = (options: DomOptions = {}): DomHarness => {
@@ -64,12 +72,14 @@ export const createDomHarness = (options: DomOptions = {}): DomHarness => {
 	let root: Root | undefined = createRoot(container);
 	// No retries: a test asserting a failure should not have to wait out a
 	// backoff before it can see one.
-	const queryClient = new QueryClient({
-		defaultOptions: {
-			queries: { retry: false },
-			mutations: { retry: false },
-		},
-	});
+	const queryClient =
+		options.queryClient ??
+		new QueryClient({
+			defaultOptions: {
+				queries: { retry: false },
+				mutations: { retry: false },
+			},
+		});
 
 	const requireRoot = (): Root => {
 		if (!root) throw new Error("harness already unmounted");

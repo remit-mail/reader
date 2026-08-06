@@ -188,10 +188,12 @@ export interface IntelligencePanelProps {
 	 * update for this action (issue #648: the client can't predict whether a
 	 * report against a message already in Junk is a no-op), so without this
 	 * the button gives no visible response at all until the request lands — a
-	 * dead button is the worst outcome. Swaps the label to "Reporting…"; the
-	 * handler stays wired throughout (same as `AutoMovedBadge`'s `isUndoing`)
-	 * because the operation is idempotent, so a second press mid-flight is
-	 * safe rather than a queued duplicate.
+	 * dead button is the worst outcome. Swaps the label to "Reporting…" AND
+	 * disables the button: the server dedupes message ids only within a
+	 * single request, so a second press mid-flight fires a second, concurrent
+	 * request rather than joining the first (issue #648 review — for "Not
+	 * spam" this races the restore move and can surface a spurious
+	 * "try again in a moment" for an undo that already succeeded).
 	 */
 	reportSpamPending?: boolean;
 	/** True while a "Not spam" (undo) press is in flight. Same treatment as `reportSpamPending`. */
@@ -336,17 +338,21 @@ function QuickAction({
 	active,
 	danger,
 	onClick,
+	pending,
 }: {
 	icon: ReactNode;
 	label: string;
 	active?: boolean;
 	danger?: boolean;
 	onClick?: () => void;
+	/** Disable the button without hiding it — a request for this action is already in flight. */
+	pending?: boolean;
 }) {
 	// No handler means the action cannot be serviced yet (the sender's address
 	// record has not resolved). Render it visibly unavailable rather than as a
-	// live button that swallows the click.
-	const disabled = onClick === undefined;
+	// live button that swallows the click. `pending` disables it for the same
+	// reason once a press is in flight.
+	const disabled = onClick === undefined || pending === true;
 	return (
 		<button
 			type="button"
@@ -465,6 +471,7 @@ export function IntelligencePanel({
 							label={notSpamPending ? "Undoing…" : "Not spam"}
 							active
 							onClick={actions.onNotSpam}
+							pending={notSpamPending}
 						/>
 					)}
 					{actions?.onReportSpam && (
@@ -473,6 +480,7 @@ export function IntelligencePanel({
 							label={reportSpamPending ? "Reporting…" : "Report spam"}
 							danger
 							onClick={actions.onReportSpam}
+							pending={reportSpamPending}
 						/>
 					)}
 					<QuickAction
