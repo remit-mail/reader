@@ -251,7 +251,6 @@ export const ConversationView = ({
 		staleTime: Infinity,
 	});
 	const activeAccount = config?.accounts?.[0];
-	const smtpConfigured = !!activeAccount?.smtpHost;
 
 	// Mark messages as read immediately when expanded.
 	useMarkAsRead({
@@ -323,18 +322,14 @@ export const ConversationView = ({
 			{ key: "ArrowUp", handler: focusPrevious, preventDefault: true },
 			{ key: "Enter", handler: toggleFocusedMessage, preventDefault: true },
 			{ key: "o", handler: toggleFocusedMessage, preventDefault: true },
-			...(smtpConfigured
-				? [
-						{ key: "r", handler: handleReply, preventDefault: true },
-						{
-							key: "R",
-							handler: handleReplyAll,
-							noModifiers: false,
-							preventDefault: true,
-						},
-						{ key: "f", handler: handleForward, preventDefault: true },
-					]
-				: []),
+			{ key: "r", handler: handleReply, preventDefault: true },
+			{
+				key: "R",
+				handler: handleReplyAll,
+				noModifiers: false,
+				preventDefault: true,
+			},
+			{ key: "f", handler: handleForward, preventDefault: true },
 		],
 	});
 
@@ -367,8 +362,9 @@ export const ConversationView = ({
 
 	// Message list wrapper — no extra x-padding; each MessageCard handles
 	// its own px-5 inset (matches the AppShell ReadingPane geometry). On mobile
-	// each expanded card owns a per-message action bar; reply verbs are wired
-	// only when SMTP is configured (otherwise the buttons no-op).
+	// each expanded card owns a per-message action bar. Its reply verbs are
+	// wired whatever the account's SMTP state: compose is where an account that
+	// cannot send says so.
 	const renderMessages = (mobile: boolean) => (
 		<div>
 			{messages.map((message, index) => (
@@ -389,9 +385,9 @@ export const ConversationView = ({
 						}
 						accountId={mailboxAccountId}
 						mobile={mobile}
-						onReply={mobile && smtpConfigured ? handleReply : undefined}
-						onReplyAll={mobile && smtpConfigured ? handleReplyAll : undefined}
-						onForward={mobile && smtpConfigured ? handleForward : undefined}
+						onReply={mobile ? handleReply : undefined}
+						onReplyAll={mobile ? handleReplyAll : undefined}
+						onForward={mobile ? handleForward : undefined}
 					/>
 				</div>
 			))}

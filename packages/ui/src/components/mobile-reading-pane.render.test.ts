@@ -82,7 +82,16 @@ describe("MobileReadingPane", () => {
 
 	it("shows exactly one per-message action bar — the expanded message's", () => {
 		const html = renderToString(
-			createElement(MobileReadingPane, { thread, onBack: () => undefined }),
+			createElement(MobileReadingPane, {
+				thread,
+				onBack: () => undefined,
+				// A wired host, as the app is: an unhandled verb is not offered.
+				actions: {
+					onReply: () => undefined,
+					onToggleStar: () => undefined,
+					onDelete: () => undefined,
+				},
+			}),
 		);
 		// One expanded message ⇒ one Reply / Flag / Trash cluster; the two
 		// collapsed rows carry no bar.
@@ -95,8 +104,13 @@ describe("MobileReadingPane", () => {
 		// The desktop/legacy footer carries a "Reply (r)" title; the per-message
 		// bar titles are plain "Reply". Assert the footer affordance is absent.
 		const html = renderToString(
-			createElement(MobileReadingPane, { thread, onBack: () => undefined }),
+			createElement(MobileReadingPane, {
+				thread,
+				onBack: () => undefined,
+				actions: { onReply: () => undefined },
+			}),
 		);
+		assert.match(html, /title="Reply"/);
 		assert.doesNotMatch(html, /title="Reply \(r\)"/);
 	});
 });

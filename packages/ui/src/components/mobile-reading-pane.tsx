@@ -11,6 +11,10 @@ import {
 import { MobileMessageActionBar } from "./mobile-message-action-bar.js";
 import { CollapsedMessage, ExpandedMessage } from "./reading-pane.js";
 
+/**
+ * What the host answers for a message. A verb left out is not offered on the
+ * message's action bar rather than rendered against nothing.
+ */
 export interface MobileReadingMessageActions {
 	/** Expand / collapse a message row. */
 	onToggleExpand?: (id: string) => void;

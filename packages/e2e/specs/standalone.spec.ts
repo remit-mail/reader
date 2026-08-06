@@ -124,7 +124,13 @@ test.describe("Launched without browser chrome", () => {
 			await expect(bodyLink).toHaveAttribute("rel", /noreferrer/);
 
 			// The quoted copy of the same mail, this time in the app's own document.
+			// Reply opens compose in place; this account has no SMTP, which compose
+			// says for itself rather than the button saying nothing.
 			await page.getByRole("button", { name: "Reply", exact: true }).click();
+			await expect(
+				page.getByRole("button", { name: "Send", exact: true }),
+			).toBeVisible({ timeout: 30_000 });
+
 			const quoteToggle = page.getByRole("button", { name: /wrote:$/ });
 			await expect(quoteToggle).toBeVisible({ timeout: 30_000 });
 			await quoteToggle.click();
@@ -137,6 +143,16 @@ test.describe("Launched without browser chrome", () => {
 			// an installed app has no address bar to notice it being steered.
 			await expect(quotedLink).toHaveAttribute("rel", /noopener/);
 			await expect(quotedLink).toHaveAttribute("rel", /noreferrer/);
+
+			// Compose autosaves, so this reply becomes a draft the run would
+			// otherwise keep. Discard deletes the saved draft, so it waits for the
+			// save to land — discarding before it does leaves the draft behind.
+			const discard = page.getByRole("button", { name: "Discard" });
+			await expect(page.getByText("Draft saved")).toBeVisible({
+				timeout: 30_000,
+			});
+			await discard.click();
+			await expect(discard).toBeHidden();
 		});
 	});
 });

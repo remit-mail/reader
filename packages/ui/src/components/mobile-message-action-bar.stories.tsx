@@ -47,6 +47,12 @@ export const Default: Story = {};
 
 export const Starred: Story = { args: { isStarred: true } };
 
+/** A host that cannot answer a verb omits its handler and the bar drops the
+ *  button, rather than offering one that reacts to nothing. */
+export const WithoutForward: Story = {
+	args: { onForward: undefined },
+};
+
 /** No message open: the verbs no-op and the bar surfaces a one-line reason
  *  instead of disabling. */
 export const NoMessageOpen: Story = {
