@@ -22,10 +22,6 @@ const buildLoop = (
 });
 
 describe("runSchedulerLoop", () => {
-	// The failure the ordering exists to catch: a tick that throws every pass
-	// exits the process and compose restarts it every few seconds, so a beat
-	// written before the tick would report a scheduler enqueuing nothing as
-	// healthy for as long as it kept crashing.
 	it("writes no heartbeat for a tick that throws", async () => {
 		let beats = 0;
 		await assert.rejects(
@@ -66,8 +62,6 @@ describe("runSchedulerLoop", () => {
 		assert.equal(beats, 2);
 	});
 
-	// A full disk is the likeliest cause and the moment mail should keep being
-	// enqueued. The missed beat is itself the signal.
 	it("keeps ticking when the heartbeat write fails", async () => {
 		const errors: unknown[] = [];
 		let rounds = 0;
@@ -112,5 +106,28 @@ describe("runSchedulerLoop", () => {
 			/done/,
 		);
 		assert.deepEqual(waited, [300_000, 300_000]);
+	});
+
+	// The default is the only one production uses, so it is the one a wrong unit
+	// or a dropped argument would ship in.
+	it("sleeps the real timer when no wait is injected", async () => {
+		let rounds = 0;
+		const started = Date.now();
+		await assert.rejects(
+			runSchedulerLoop({
+				...buildLoop({
+					tickIntervalMs: 25,
+					tick: () => {
+						rounds += 1;
+						return rounds > 2
+							? Promise.reject(new Error("done"))
+							: Promise.resolve(RESULT);
+					},
+				}),
+				wait: undefined,
+			}),
+			/done/,
+		);
+		assert.ok(Date.now() - started >= 50);
 	});
 });

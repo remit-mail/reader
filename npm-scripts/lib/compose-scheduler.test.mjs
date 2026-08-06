@@ -332,9 +332,13 @@ describe("the documented cadence knobs reach the scheduler", {
 	// same number from it, including for values the runner refuses. Two parsers
 	// that disagree give a container that ticks correctly and never reports
 	// healthy — which is the outage this check was added to end.
+	// Both sides of the threshold. A fresh file passing proves nothing about a
+	// check whose threshold came out too small — the failure named above, and the
+	// one a container feels as "ticks correctly, never reports healthy".
 	const agrees = (environment) => {
 		const tick = getTickIntervalMs(environment) / 1000;
 		assert.equal(runHealthcheck(heartbeatDir(1), environment), 0);
+		assert.equal(runHealthcheck(heartbeatDir(tick * 2 - 60), environment), 0);
 		assert.equal(runHealthcheck(heartbeatDir(tick * 2 + 120), environment), 1);
 	};
 

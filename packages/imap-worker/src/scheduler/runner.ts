@@ -51,15 +51,21 @@ log.info(
 );
 
 const runLoop = async (): Promise<void> => {
-	// Neither of the two calls on the monitoring file may take the scheduler down
-	// with it. An unreadable or full /data/heartbeat is a reason to keep
-	// enqueuing mail, not to stop; the missed beat is itself the signal, and a
-	// clear that failed leaves a file the check reads as stale anyway.
-	const onHeartbeatError = (error: unknown): void => {
-		log.error({ error }, "Scheduled-sync heartbeat failed");
+	// Neither call on the monitoring file may take the scheduler down with it. An
+	// unreadable or full /data/heartbeat is a reason to keep enqueuing mail, not
+	// to stop. A clear that fails leaves the previous generation's file, which
+	// ages out at the same threshold; a write that fails is the missed beat that
+	// is itself the signal. Two messages because they are different problems: one
+	// is a volume this container could not read at boot, the other a write it
+	// could not make this round.
+	const onClearError = (error: unknown): void => {
+		log.error({ error }, "Scheduled-sync heartbeat clear failed");
+	};
+	const onBeatError = (error: unknown): void => {
+		log.error({ error }, "Scheduled-sync heartbeat write failed");
 	};
 
-	await clearHeartbeats().catch(onHeartbeatError);
+	await clearHeartbeats().catch(onClearError);
 	const { account } = await getClient();
 	await runSchedulerLoop({
 		tick: runSchedulerTick,
@@ -72,7 +78,7 @@ const runLoop = async (): Promise<void> => {
 			offlineIntervalMs,
 		},
 		heartbeat: createHeartbeat("tick"),
-		onHeartbeatError,
+		onHeartbeatError: onBeatError,
 		tickIntervalMs,
 	});
 };
