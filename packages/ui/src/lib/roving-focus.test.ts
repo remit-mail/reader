@@ -93,9 +93,9 @@ afterEach(() => {
 	});
 });
 
-function pressKey(target: Element, key: string) {
+function pressKey(target: Element, key: string, shiftKey = false) {
 	target.dispatchEvent(
-		new dom.window.KeyboardEvent("keydown", { key, bubbles: true }),
+		new dom.window.KeyboardEvent("keydown", { key, bubbles: true, shiftKey }),
 	);
 }
 
@@ -220,6 +220,23 @@ describe("useRovingFocus", () => {
 		act(() => pressKey(nested[1] as Element, "ArrowDown"));
 
 		assert.equal(dom.window.document.activeElement, rows()[0]);
+	});
+
+	it("leaves Shift+Arrow to the layer above instead of moving the cursor", () => {
+		mount({ count: 3 });
+		let seen = 0;
+		const spy = () => {
+			seen += 1;
+		};
+		dom.window.addEventListener("keydown", spy);
+		const items = rows();
+		act(() => items[0]?.focus());
+		act(() => pressKey(items[0] as Element, "ArrowDown", true));
+		act(() => pressKey(items[0] as Element, "ArrowUp", true));
+		dom.window.removeEventListener("keydown", spy);
+
+		assert.equal(dom.window.document.activeElement, items[0]);
+		assert.equal(seen, 2);
 	});
 
 	it("keeps a handled key from reaching a window-level listener", () => {

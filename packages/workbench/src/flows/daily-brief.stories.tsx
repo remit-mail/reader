@@ -211,6 +211,28 @@ export const MultiSelect: Story = {
 };
 
 /**
+ * Shift+arrow builds a range on the brief's rows, the range Shift+J builds. The
+ * rows carry the triage keyboard's own keys instead of a traversal of their
+ * own, so the cursor and the ticked rows stay one thing.
+ */
+export const ShiftArrowRange: Story = {
+	render: () => (
+		<MailShell {...brief} sections={briefSections()} briefFilters />
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		canvasElement.querySelector<HTMLElement>("[data-list-row]")?.focus();
+
+		await userEvent.keyboard("j");
+		await userEvent.keyboard("{Shift>}{ArrowDown}{ArrowDown}{/Shift}");
+
+		await waitFor(() =>
+			expect(canvas.getByText("2 messages selected")).toBeInTheDocument(),
+		);
+	},
+};
+
+/**
  * Touch multi-select on the brief: the same bar, at phone width. Row one is
  * the count and the verbs with a back arrow out of selection; select-all takes
  * a second row of its own below 768px.

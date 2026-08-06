@@ -2,10 +2,15 @@ import { useRef, useState } from "react";
 import { LIST_ROW_SELECTOR, useRovingFocus } from "../lib/roving-focus.js";
 import type {
 	BriefCategoryFilter,
+	MessageListKeyboard,
 	ThreadRowData,
 	ThreadSection,
 } from "./app-shell-types.js";
-import { briefCategories, categoryTone } from "./app-shell-types.js";
+import {
+	briefCategories,
+	categoryTone,
+	keyboardWalksRows,
+} from "./app-shell-types.js";
 import { BriefSection } from "./brief-section.js";
 import {
 	FilterSheet,
@@ -135,6 +140,13 @@ interface BriefSectionsBaseProps
 	sections: ThreadSection[];
 	selectedThreadId?: string;
 	Row: BriefRowComponent;
+	/**
+	 * The keyboard layer walking the rows, when the caller mounts one. The rows
+	 * hand it the cursor keys rather than traversing with a roving group of their
+	 * own, so the ring and the cursor name one row and a Shift+arrow range
+	 * reaches the layer that extends it.
+	 */
+	keyboard?: MessageListKeyboard;
 	onSelectThread?: (id: string) => void;
 	/**
 	 * Drop the filter row and its panel, keeping the rows where they are. See
@@ -160,6 +172,7 @@ export function BriefSections({
 	briefCategory = "all",
 	selectedThreadId,
 	Row,
+	keyboard,
 	onSelectThread,
 	onSelectBriefCategory,
 	sources,
@@ -179,6 +192,7 @@ export function BriefSections({
 	useRovingFocus({
 		containerRef: listRef,
 		itemSelector: LIST_ROW_SELECTOR,
+		enabled: !keyboardWalksRows(keyboard),
 	});
 
 	const active = activeFilters ?? ownFilters;
