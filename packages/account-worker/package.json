@@ -59,7 +59,7 @@
 		"@remit/domain-enums": "*",
 		"@remit/search-service": "*",
 		"aws-sdk-client-mock": "*",
-		"esbuild": "^0.27.7",
+		"esbuild": "^0.28.1",
 		"p-map": "*"
 	},
 	"license": "MIT",
