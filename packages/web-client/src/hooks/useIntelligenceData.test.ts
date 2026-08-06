@@ -246,7 +246,11 @@ describe("buildAuthenticityIntel", () => {
 	describe("a passing signature over a claim that does not hold", () => {
 		// The InfoMedics invoice phish: an attacker's own free Atlassian tenant,
 		// so SPF/DKIM/DMARC genuinely pass for a domain nobody recognises, and the
-		// provider's own filter already called it spam.
+		// provider's own filter already called it spam. dkimDomain deliberately
+		// differs from fromDomain here (the delivery host's re-signature,
+		// custmx.one.com, is a different party than the sender's own
+		// serviceupdatebank.atlassian.net) — the display-name check was run
+		// against fromDomain, never dkimDomain, so the copy must name fromDomain.
 		const infoMedics = makeThread({
 			fromEmail: "jira@serviceupdatebank.atlassian.net",
 			fromName: "InfoMedics",
@@ -266,11 +270,17 @@ describe("buildAuthenticityIntel", () => {
 			assert.doesNotMatch(result.summary, /We verified/i);
 		});
 
-		test("names the display name and the link destination", () => {
+		// The copy must name the domain the comparison was actually run
+		// against (fromDomain), never the unrelated dkimDomain — a message
+		// signed by a relay or ESP infrastructure domain must not read as
+		// "the name looks nothing like <that other party>".
+		test("leads with the concern, naming the domain the name was actually compared to, and the link destination", () => {
 			const result = buildAuthenticityIntel(infoMedics, 0);
 			assert.equal(result.verdict, "caution");
-			assert.match(result.summary, /really was sent by/);
+			assert.match(result.summary, /^The name it shows/);
 			assert.match(result.summary, /"InfoMedics"/);
+			assert.match(result.summary, /serviceupdatebank\.atlassian\.net/);
+			assert.doesNotMatch(result.summary, /custmx\.one\.com/);
 			assert.match(result.summary, /betaal-vordering\.example/);
 			assert.doesNotMatch(result.summary, /DKIM|SPF|DMARC/i);
 		});

@@ -90,10 +90,21 @@ const lookalikeThreshold = (length: number): number => {
 /**
  * Whether the From display name corresponds to the From domain.
  *
- * Containment decides: the normalised name, or any word of it, appearing inside
- * the registrable domain or one of the domain's labels. `GitHub` sits inside
- * `notifications.github.com`; `InfoMedics` sits nowhere inside
+ * Containment decides: the normalised name, or any word of it, containing an
+ * entire domain candidate. `GitHub` contains the label `github` from
+ * `notifications.github.com`; `InfoMedics` contains no label of
  * `serviceupdatebank.atlassian.net`.
+ *
+ * Only that direction counts — a domain candidate containing the (shorter)
+ * name does not. `ING Fraudedesk` is not a match for `secure-ing-verify.tk`
+ * just because the three-letter word "ing" sits inside "secureingverify":
+ * that is a coincidental substring of a longer label the domain owner chose,
+ * not a domain that names the brand. The direction this drops is exactly the
+ * one a short, valuable brand name is deliberately embedded into a longer,
+ * unrelated-looking domain to exploit — the live Dutch-bank shape this was
+ * fixed against (`ING`). A real short brand over its own domain (`ING` /
+ * `ing.nl`) still matches: name and label are then equal, and equality
+ * satisfies containment in either direction.
  *
  * A bounded edit distance is the secondary test, and only reaches names that
  * nearly match a label — `InfoMedics` against `1nfomedics.nl`. It cannot promote
@@ -117,7 +128,7 @@ export const classifyDisplayNameCorrespondence = (
 	const terms = [name, ...words(raw)];
 	for (const term of terms) {
 		for (const candidate of candidates) {
-			if (candidate.includes(term) || term.includes(candidate)) {
+			if (term.includes(candidate)) {
 				return DisplayNameCorrespondence.Corresponds;
 			}
 		}

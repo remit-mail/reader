@@ -117,6 +117,16 @@ function joinDomains(domains: readonly string[]): string {
  * out. Empty when everything the backend compared agreed — including when it
  * compared nothing, which is every message the provider's filter did not
  * already call spam.
+ *
+ * Each clause leads with the concern and names `auth.fromDomain` — the
+ * domain `classifyDisplayNameCorrespondence` actually compared the display
+ * name against (`senderMismatch.ts` calls it with the From address's own
+ * domain, never the DKIM signing domain). Naming `auth.dkimDomain` instead
+ * would assert a comparison that was never made: on a message signed by a
+ * relay or ESP infrastructure domain, the display name was checked against
+ * the sender's own address, not that domain. These clauses are the caution
+ * tier's entire summary: there is no separate "verified" sentence in front
+ * of them for the signing fact to hide behind.
  */
 function describeSenderMismatch(
 	auth: NonNullable<RemitImapThreadMessageResponse["authenticity"]>,
@@ -128,11 +138,11 @@ function describeSenderMismatch(
 	if (claimedBrand) {
 		if (correspondence === DisplayNameCorrespondence.Unrelated) {
 			clauses.push(
-				`The name it shows, "${claimedBrand}", has nothing to do with that domain.`,
+				`The name it shows, "${claimedBrand}", has nothing to do with ${auth.fromDomain}.`,
 			);
 		} else if (correspondence === DisplayNameCorrespondence.Lookalike) {
 			clauses.push(
-				`The name it shows, "${claimedBrand}", only looks like that domain.`,
+				`The name it shows, "${claimedBrand}", only looks like ${auth.fromDomain}.`,
 			);
 		}
 	}
@@ -198,10 +208,7 @@ export function buildAuthenticityIntel(
 				fromDomain: auth.fromDomain,
 				dkimDomain: auth.dkimDomain,
 				claimedBrand: claimed,
-				summary: [
-					`This message really was sent by ${auth.fromDomain}.`,
-					...unlike,
-				].join(" "),
+				summary: unlike.join(" "),
 			};
 		}
 		return {
@@ -209,7 +216,7 @@ export function buildAuthenticityIntel(
 			fromDomain: auth.fromDomain,
 			dkimDomain: auth.dkimDomain,
 			summary: auth.dkimDomain
-				? `We verified this message was really sent by ${auth.fromDomain}.`
+				? `This message was signed by ${auth.dkimDomain}.`
 				: `Nothing looks unusual about this sender.`,
 		};
 	}
@@ -217,9 +224,17 @@ export function buildAuthenticityIntel(
 	const fromDomain = auth.fromDomain;
 	const dkimDomain = auth.dkimDomain;
 	const claimedBrand = claimedBrandOf(thread);
+	// dkimDomain is known whenever a mismatch was named against a real
+	// domain; the fallback covers the (defensive, not currently reachable)
+	// case where a mismatch fires with none — say what actually happened
+	// (a signature failed to verify) rather than inventing a sender identity
+	// we do not have.
+	const whatHappened = dkimDomain
+		? `it was actually sent from ${dkimDomain}`
+		: "its signature failed to verify";
 	const summary = claimedBrand
-		? `The display name claims "${claimedBrand}", but this message was actually sent from ${dkimDomain ?? "another sender"} — not ${fromDomain}. Real senders use their own address.`
-		: `This message claims to be from ${fromDomain}, but it was actually sent from ${dkimDomain ?? "a different sender"}.`;
+		? `The display name claims "${claimedBrand}", but ${whatHappened}${dkimDomain ? ` — not ${fromDomain}` : ""}. Real senders use their own address.`
+		: `This message claims to be from ${fromDomain}, but ${whatHappened}.`;
 	return {
 		verdict: "mismatch",
 		fromDomain,

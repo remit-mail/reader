@@ -13,7 +13,7 @@ const base: IntelligenceData = {
 		verdict: "aligned",
 		fromDomain: "example.com",
 		dkimDomain: "example.com",
-		summary: "We verified this message was really sent by example.com.",
+		summary: "This message was signed by example.com.",
 	},
 	category: { value: "Personal" },
 	similar: [],
@@ -66,10 +66,13 @@ export const SignedButUnrecognised: Story = {
 			authenticity: {
 				verdict: "caution",
 				fromDomain: "serviceupdatebank.atlassian.net",
+				// Deliberately a different domain than fromDomain: the display-name
+				// check compared "InfoMedics" against the sender's own domain, never
+				// this one, so the summary must name serviceupdatebank.atlassian.net.
 				dkimDomain: "custmx.one.com",
 				claimedBrand: "InfoMedics",
 				summary:
-					'This message really was sent by serviceupdatebank.atlassian.net. The name it shows, "InfoMedics", has nothing to do with that domain. Its links go to betaal-vordering.example.',
+					'The name it shows, "InfoMedics", has nothing to do with serviceupdatebank.atlassian.net. Its links go to betaal-vordering.example.',
 			},
 		},
 	},
@@ -92,7 +95,7 @@ export const SignedButLookalikeName: Story = {
 				dkimDomain: "1nfomedics.nl",
 				claimedBrand: "InfoMedics",
 				summary:
-					'This message really was sent by 1nfomedics.nl. The name it shows, "InfoMedics", only looks like that domain.',
+					'The name it shows, "InfoMedics", only looks like 1nfomedics.nl.',
 			},
 		},
 	},

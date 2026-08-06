@@ -95,7 +95,11 @@ export const classifyByHeaders = (parsed: ParsedMail): Category => {
 	if (matchesPrecedence(headers)) return MessageCategory.automated;
 	if (isMachineSender(parsed, lines)) return MessageCategory.automated;
 
-	if (fromDomain && dkimMismatchResult(headers, lines, fromDomain).mismatch) {
+	if (
+		fromDomain &&
+		pickAlignedOrFirstMismatch(extractDkimDomains(headers, lines), fromDomain)
+			.mismatch
+	) {
 		return MessageCategory.automated;
 	}
 
@@ -126,15 +130,12 @@ export const extractAuthenticity = (
 	const dkimDomains = extractDkimDomains(headers, lines);
 	if (dkimDomains.length === 0) return null;
 
-	const result = dkimMismatchResult(headers, lines, fromDomain);
-
-	// Pick the reported domain: first mismatching one on mismatch, first domain otherwise.
-	const reportedDomain = result.mismatchingDomain ?? dkimDomains[0];
+	const picked = pickAlignedOrFirstMismatch(dkimDomains, fromDomain);
 
 	return {
 		fromDomain,
-		dkimDomain: reportedDomain,
-		dkimMismatch: result.mismatch,
+		dkimDomain: picked.domain ?? undefined,
+		dkimMismatch: picked.mismatch,
 	};
 };
 
@@ -296,38 +297,34 @@ const domainMatches = (
 };
 
 /**
- * Check whether DKIM signing domain(s) align with the From domain and
- * return a structured result so both the category heuristic and the
- * authenticity extractor share the exact same alignment logic.
- *
- * Alignment: signing domain equals From domain, or one is a subdomain of
- * the other (parent/child). Any single aligned domain is enough to consider
- * the message non-mismatching — a legitimate re-mailer signing under a
- * subdomain is not suspicious.
- *
- * On mismatch the first non-aligned domain is reported so the UI can show
- * "signed by relay.example.net, claims example.com".
+ * Whether a signing domain aligns with the From domain: equal, or one is a
+ * subdomain of the other (parent/child). A legitimate re-mailer signing under
+ * a subdomain is not suspicious, so either direction counts as aligned.
  */
-const dkimMismatchResult = (
-	headers: Headers,
-	lines: HeaderLines,
+const domainsAligned = (signingDomain: string, fromDomain: string): boolean =>
+	signingDomain === fromDomain ||
+	fromDomain.endsWith(`.${signingDomain}`) ||
+	signingDomain.endsWith(`.${fromDomain}`);
+
+/**
+ * Pick the domain to report out of a list of candidate signing domains: the
+ * first one aligned with the From domain, so a legitimate signature is never
+ * shadowed by an earlier unrelated one. When none align, the first is
+ * reported as the mismatching evidence — the UI can then show "signed by
+ * relay.example.net, claims example.com". Shared by the category heuristic
+ * (rule 9, which reads only `.mismatch`) and the authenticity extractor
+ * (which also reads `.domain`), so the two can never disagree.
+ */
+const pickAlignedOrFirstMismatch = (
+	domains: string[],
 	fromDomain: string,
-): { mismatch: boolean; mismatchingDomain: string | null } => {
-	const dkimDomains = extractDkimDomains(headers, lines);
-	if (dkimDomains.length === 0)
-		return { mismatch: false, mismatchingDomain: null };
+): { mismatch: boolean; domain: string | null } => {
 	let firstMismatching: string | null = null;
-	for (const d of dkimDomains) {
-		if (
-			d === fromDomain ||
-			fromDomain.endsWith(`.${d}`) ||
-			d.endsWith(`.${fromDomain}`)
-		) {
-			return { mismatch: false, mismatchingDomain: null };
-		}
+	for (const d of domains) {
+		if (domainsAligned(d, fromDomain)) return { mismatch: false, domain: d };
 		if (!firstMismatching) firstMismatching = d;
 	}
-	return { mismatch: true, mismatchingDomain: firstMismatching };
+	return { mismatch: firstMismatching !== null, domain: firstMismatching };
 };
 
 const extractDkimDomains = (headers: Headers, lines: HeaderLines): string[] => {
