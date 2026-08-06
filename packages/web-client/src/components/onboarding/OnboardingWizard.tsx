@@ -283,6 +283,17 @@ function StepMicrosoftEmail({
 	const [email, setEmail] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const [awaitingReturn, setAwaitingReturn] = useState(false);
+	const [preparing, setPreparing] = useState(false);
+	// The account read is in flight across a step the user can leave — Escape and
+	// Back both unmount it — and it ends in a redirect that would take the whole
+	// window with it.
+	const stepIsMounted = useRef(true);
+	useEffect(() => {
+		stepIsMounted.current = true;
+		return () => {
+			stepIsMounted.current = false;
+		};
+	}, []);
 	// The accounts this instance held when the redirect started. What comes back
 	// is recognised as new against it, so it has to be a real list — against an
 	// empty stand-in every account already here reads as the one just connected.
@@ -316,8 +327,8 @@ function StepMicrosoftEmail({
 	useReturnFromRedirect(
 		awaitingReturn,
 		useCallback(() => {
-			void refetchConfig().then(({ data }) => {
-				if (!data) {
+			void refetchConfig().then(({ data, isError }) => {
+				if (isError || !data) {
 					setError(
 						"Couldn't check whether the sign-in finished. Open Settings › Accounts to see whether the account is connected.",
 					);
@@ -335,10 +346,16 @@ function StepMicrosoftEmail({
 	// the window that comes back has something to recognise a new account
 	// against. A list that cannot be read stops the flow here, where it can be
 	// retried, rather than at the return leg where nothing can be concluded.
+	const redirecting = preparing || startMutation.isPending;
+
 	const handleSubmit = () => {
+		if (redirecting) return;
 		setError(null);
-		void refetchConfig().then(({ data }) => {
-			if (!data) {
+		setPreparing(true);
+		void refetchConfig().then(({ data, isError }) => {
+			if (!stepIsMounted.current) return;
+			setPreparing(false);
+			if (isError || !data) {
 				setError(
 					"Couldn't read this instance's accounts, so sign-in can't be tracked. Check your connection and try again.",
 				);
@@ -357,14 +374,14 @@ function StepMicrosoftEmail({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: handleSubmit's identity changes every render; including it would re-run this keydown listener on every render. Omitted to preserve existing behavior (matches the pre-existing eslint-disable). Enter-submit uses a stale handleSubmit — latent, tracked separately.
 	useEffect(() => {
 		const handler = (e: KeyboardEvent) => {
-			if (e.key === "Enter" && !startMutation.isPending) handleSubmit();
+			if (e.key === "Enter") handleSubmit();
 			if (e.key === "Escape") onBack();
 		};
 		window.addEventListener("keydown", handler);
 		return () => window.removeEventListener("keydown", handler);
 		// handleSubmit identity changes — intentional dep exclusion here
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [onBack, startMutation.isPending]);
+	}, [onBack, redirecting]);
 
 	return (
 		<WizardShell
@@ -380,14 +397,14 @@ function StepMicrosoftEmail({
 					<Button
 						variant="primary"
 						onClick={handleSubmit}
-						disabled={startMutation.isPending}
+						disabled={redirecting}
 						icon={
-							startMutation.isPending ? (
+							redirecting ? (
 								<Loader2 className="size-4 animate-spin" />
 							) : undefined
 						}
 					>
-						{startMutation.isPending
+						{redirecting
 							? "Redirecting…"
 							: awaitingReturn
 								? "Start over"

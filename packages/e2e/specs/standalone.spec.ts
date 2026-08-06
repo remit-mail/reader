@@ -143,7 +143,7 @@ test.describe("Launched without browser chrome", () => {
 			await page.getByRole("button", { name: "Reply", exact: true }).click();
 			const send = page.getByRole("button", { name: "Send", exact: true });
 			await expect(send).toBeVisible({ timeout: 30_000 });
-			await expect(send).toBeInViewport();
+			await expect(send).toBeInViewport({ ratio: 1 });
 			await expect(
 				page.getByTestId("compose-smtp-missing-banner"),
 			).toBeInViewport();

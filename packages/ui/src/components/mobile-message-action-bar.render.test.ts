@@ -112,6 +112,18 @@ describe("MobileMessageActionBar", () => {
 		assert.doesNotMatch(html, /disabled=""/);
 	});
 
+	it("drops an unhandled verb with no message open too", () => {
+		const html = renderToString(
+			createElement(MobileMessageActionBar, {
+				hasThread: false,
+				onReply: () => undefined,
+			}),
+		);
+		assert.equal(countMatches(html, 'aria-label="Reply"'), 1);
+		assert.doesNotMatch(html, /aria-label="Reply all"/);
+		assert.doesNotMatch(html, /aria-label="Forward"/);
+	});
+
 	it("surfaces the unavailable hint when no message is open", () => {
 		const html = renderToString(
 			createElement(MobileMessageActionBar, {

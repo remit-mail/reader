@@ -277,14 +277,23 @@ export const ConversationView = ({
 	// locally via r/a/f keyboard shortcuts.
 	const [composeMode, setComposeMode] = useState<ComposeMode | null>(null);
 
+	// Counts openings rather than tracking the mode: replying from a second
+	// message while compose is already open is the same request again, and the
+	// reader still has to be taken to it.
+	const [composeOpenings, setComposeOpenings] = useState(0);
+	const openCompose = useCallback((mode: ComposeMode) => {
+		setComposeMode(mode);
+		setComposeOpenings((count) => count + 1);
+	}, []);
+
 	// When the toolbar passes a composeRequest, open the inline compose.
 	useEffect(() => {
 		if (composeRequest && composeRequest !== "new") {
-			setComposeMode(composeRequest);
+			openCompose(composeRequest);
 			// Notify the parent that the request has been consumed.
 			onComposeClose?.();
 		}
-	}, [composeRequest, onComposeClose]);
+	}, [composeRequest, onComposeClose, openCompose]);
 
 	// Reply and forward act on the latest turn of the conversation, which is the
 	// last message now that the thread reads oldest first.
@@ -295,17 +304,17 @@ export const ConversationView = ({
 		enabled: !!latestMessage && composeMode !== null,
 	});
 
-	const handleReply = useCallback(() => {
-		setComposeMode("reply");
-	}, []);
+	const handleReply = useCallback(() => openCompose("reply"), [openCompose]);
 
-	const handleReplyAll = useCallback(() => {
-		setComposeMode("reply_all");
-	}, []);
+	const handleReplyAll = useCallback(
+		() => openCompose("reply_all"),
+		[openCompose],
+	);
 
-	const handleForward = useCallback(() => {
-		setComposeMode("forward");
-	}, []);
+	const handleForward = useCallback(
+		() => openCompose("forward"),
+		[openCompose],
+	);
 
 	const handleCloseCompose = useCallback(() => {
 		setComposeMode(null);
@@ -316,9 +325,9 @@ export const ConversationView = ({
 	// screens down: without this, replying to it looks like nothing happening.
 	const composeRef = useRef<HTMLDivElement>(null);
 	useEffect(() => {
-		if (composeMode === null) return;
+		if (composeOpenings === 0) return;
 		composeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-	}, [composeMode]);
+	}, [composeOpenings]);
 
 	// Register keyboard shortcuts
 	useKeyboardNavigation({

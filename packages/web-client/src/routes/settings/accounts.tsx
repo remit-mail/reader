@@ -254,6 +254,7 @@ function AccountsSettings() {
 	useEffect(() => {
 		if (!search.oauthError) return;
 		setOauthErrorMessage(mapOauthError(search.oauthError));
+		setReconnectingAccountId(null);
 		navigate({
 			search: {
 				oauthError: undefined,
@@ -276,15 +277,16 @@ function AccountsSettings() {
 		});
 	});
 
-	// The account reading healthy again is the reconnect landing, wherever it was
-	// finished. That is what the watch above was waiting for, so it stops there.
+	// The account no longer asking to be re-authenticated is the reconnect
+	// landing, wherever it was finished, and that is what the watch above was
+	// waiting for. A muted or otherwise unhealthy account still counts: the
+	// reconnect answered, whatever else is true of the account.
 	useEffect(() => {
 		if (!reconnectingAccountId) return;
 		const account = config?.accounts.find(
 			(candidate) => candidate.accountId === reconnectingAccountId,
 		);
-		if (account && deriveState(account) === "healthy")
-			setReconnectingAccountId(null);
+		if (account && !needsReauth(account)) setReconnectingAccountId(null);
 	}, [config, reconnectingAccountId]);
 
 	const reconnectMutation = useMutation({
@@ -352,6 +354,7 @@ function AccountsSettings() {
 					{successMessage}
 				</Banner>
 			)}
+
 			{oauthErrorMessage && (
 				<Banner
 					tone="danger"
@@ -362,6 +365,7 @@ function AccountsSettings() {
 					{oauthErrorMessage}
 				</Banner>
 			)}
+
 			<div className="flex items-center justify-between">
 				<Badge tone="neutral">
 					{isPending || isError
@@ -377,6 +381,7 @@ function AccountsSettings() {
 					Add account
 				</Button>
 			</div>
+
 			{isPending ? (
 				<LoadingSkeleton />
 			) : isError ? (
@@ -466,6 +471,7 @@ function AccountsSettings() {
 					})}
 				</div>
 			)}
+
 			{/* Add account wizard — steps 2–7 in a full-screen overlay. No safe-area
 			    frame: the wizard shell inside owns the device insets, because
 			    /onboarding mounts it with nothing around it. */}
@@ -483,6 +489,7 @@ function AccountsSettings() {
 					/>
 				</div>
 			)}
+
 			{/* Add/Edit Form Panel */}
 			<AccountFormPanel
 				isOpen={showForm || !!editingAccountId}
@@ -490,7 +497,8 @@ function AccountsSettings() {
 				focusSmtp={focusSmtp}
 				onClose={handleClosePanel}
 			/>
-			;{/* Delete Confirmation Dialog */}
+
+			{/* Delete Confirmation Dialog */}
 			<Dialog
 				open={!!deletingAccountId}
 				onClose={() => setDeletingAccountId(null)}
@@ -554,6 +562,7 @@ function AccountsSettings() {
 					</Button>
 				</footer>
 			</Dialog>
+
 			<DangerZone />
 		</SettingsShell>
 	);
