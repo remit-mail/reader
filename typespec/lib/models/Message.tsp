@@ -94,6 +94,12 @@ model MessageFilterMove {
   decidedAt: int64;
 }
 
+@doc("Recorded when the user reported this message as spam via `POST /messages/report-spam`. Present means the report stands; absent means never reported, or reported and then undone via `POST /messages/not-spam` (which clears it). Backs the \"Reported as spam · Undo\" affordance independent of the message's current folder — the underlying move can settle, fail, or no-op (already in Junk) without changing whether the report itself is shown.")
+model MessageSpamReport {
+  @doc("Timestamp (epoch millis) the report was made.")
+  reportedAt: int64;
+}
+
 @doc("Present only when Remit auto-moved this message on body-sync. Two shapes share this model: a classifier placement move carries `action` + `fromPlacement` (Inbox/Junk direction); a standing-filter move carries `fromMailboxId` + `destinationMailboxId` + `filterId` (an arbitrary destination folder). Absent means the message was not auto-moved by Remit — clients treat absence as no indicator.")
 model AutoMovedInfo {
   @doc("Classifier move only: direction Remit moved the message — MoveToInbox | MoveToJunk. Absent for a standing-filter move, which names its destination via `destinationMailboxId` instead.")
@@ -235,6 +241,10 @@ model Message {
   @visibility(Lifecycle.Read)
   placementDecidedAt?: int64;
 
+  @doc("Recorded when the user reported this message as spam. Absent means never reported, or reported and then undone (`POST /messages/not-spam` clears it). Independent of the message's current folder — deliberately not derived from \"sits in Junk\", which is also true of a message Remit moved on its own.")
+  @visibility(Lifecycle.Read)
+  spamReport?: MessageSpamReport;
+
   @visibility(Lifecycle.Read)
   @createdAt
   createdAt: int64;
@@ -311,6 +321,9 @@ model MessageSummaryResponse {
 
   @doc("Labels applied to this message — filter-, organize-, and manually-applied alike (issue #26). Absent/empty means no label is applied.")
   labels?: LabelSummaryResponse[];
+
+  @doc("Present when the user reported this message as spam and the report has not been undone. Backs the \"Reported as spam · Undo\" affordance.")
+  spamReport?: MessageSpamReport;
 }
 
 @doc("Message envelope (header metadata)")

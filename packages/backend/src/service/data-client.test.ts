@@ -32,6 +32,7 @@ const REQUIRED_KEYS: ReadonlyArray<keyof RemitClient> = [
 	"mailboxQueue",
 	"messageMove",
 	"outboxQueue",
+	"spamReport",
 	"createConnectionScope",
 ] as const;
 

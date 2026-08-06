@@ -720,5 +720,17 @@ namespace RemitApi {
     op updateMessageLabels(
       @body input: UpdateMessageLabelsInput,
     ): MessageBulkOperationResult;
+
+    @doc("Report messages as spam: block the sender (Address.flags.blocked, reason `reported-spam`) and move each message to the account's Junk folder. One call replaces composing the old separate `Block` and `Mark spam` actions — a single user intent, a single failure story. The sender block is written first and does not wait on the move; a failed move never rolls it back. Idempotent under a repeated call.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/report-spam")
+    op reportSpam(@body input: BulkMessageInput): MessageBulkOperationResult;
+
+    @doc("Undo a spam report: clear the sender's `blocked` flag (never promotes to trusted/wellknown) and move each message back to `Message.originalMailboxId`. Idempotent under a repeated call.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/not-spam")
+    op notSpam(@body input: BulkMessageInput): MessageBulkOperationResult;
   }
 }

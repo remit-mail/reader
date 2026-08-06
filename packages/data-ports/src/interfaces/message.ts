@@ -18,6 +18,7 @@ export interface IMessageRepository {
 	get(messageIds: string[]): Promise<MessageItem[]>;
 	update(messageId: string, input: UpdateMessageInput): Promise<MessageItem>;
 	clearBodyStorageKey(messageId: string): Promise<MessageItem>;
+	clearSpamReport(messageId: string): Promise<MessageItem>;
 	delete(messageId: string): Promise<void>;
 	deleteMany(messageIds: string[]): Promise<void>;
 	listByMailbox(

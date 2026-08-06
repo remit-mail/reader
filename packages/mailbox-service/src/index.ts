@@ -234,6 +234,12 @@ export {
 	removeQuotedContent,
 } from "./snippet.js";
 export {
+	type SpamReportConfig,
+	type SpamReportLogger,
+	type SpamReportParams,
+	SpamReportService,
+} from "./spam-report.js";
+export {
 	reconcileStaleMessage,
 	type StaleMessageReconcileDeps,
 	type StaleMessageReconcileResult,

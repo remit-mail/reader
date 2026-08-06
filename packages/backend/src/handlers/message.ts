@@ -30,7 +30,7 @@ import {
 } from "@remit/storage-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { getAccountConfigIdFromEvent } from "../auth.js";
+import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
 import { deriveAutoMoved } from "../derive/autoMoved.js";
 import {
 	type ContentSigner,
@@ -940,6 +940,74 @@ export const MessageBulkOperations: Record<
 			for (const messageId of messageIds) {
 				await client.messageLabel.remove(messageId, labelId);
 			}
+		}
+
+		return {
+			successCount: messageIds.length,
+			failureCount: 0,
+		};
+	},
+
+	MessageBulkOperations_reportSpam: async (context, ...args: unknown[]) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const { messageIds } = context.request.requestBody as {
+			messageIds: string[];
+		};
+
+		if (messageIds.length === 0) {
+			return { successCount: 0, failureCount: 0 };
+		}
+
+		const client = await getClient();
+		const accountId = await assertMessagesOwned(
+			client,
+			messageIds,
+			accountConfigId,
+			"act",
+		);
+		const setBy = getSubFromEvent(event) ?? accountConfigId;
+
+		for (const messageId of messageIds) {
+			await client.spamReport.reportSpam({
+				accountConfigId,
+				accountId,
+				messageId,
+				setBy,
+			});
+		}
+
+		return {
+			successCount: messageIds.length,
+			failureCount: 0,
+		};
+	},
+
+	MessageBulkOperations_notSpam: async (context, ...args: unknown[]) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const { messageIds } = context.request.requestBody as {
+			messageIds: string[];
+		};
+
+		if (messageIds.length === 0) {
+			return { successCount: 0, failureCount: 0 };
+		}
+
+		const client = await getClient();
+		const accountId = await assertMessagesOwned(
+			client,
+			messageIds,
+			accountConfigId,
+			"act",
+		);
+
+		for (const messageId of messageIds) {
+			await client.spamReport.notSpam({
+				accountConfigId,
+				accountId,
+				messageId,
+			});
 		}
 
 		return {

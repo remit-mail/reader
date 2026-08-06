@@ -35,6 +35,7 @@ import {
 	MessageMoveService,
 	OutboxQueueService,
 	PlacementMoveService,
+	SpamReportService,
 } from "@remit/mailbox-service";
 import { createSearchService, type SearchService } from "@remit/search-service";
 import {
@@ -144,6 +145,11 @@ export interface RemitClient {
 	mailboxQueue: MailboxQueueService;
 	messageMove: MessageMoveService;
 	outboxQueue: OutboxQueueService;
+
+	// Report-spam / not-spam (block-and-move, unified from the old separate
+	// Block + Mark spam actions). Composed over `messageMove` and the same
+	// `flagPushService` instance `flagQueue` shares below.
+	spamReport: SpamReportService;
 
 	// Helper to create IMAP connection scope from accountId
 	createConnectionScope: (accountId: string) => Promise<ConnectionScope>;
@@ -341,6 +347,15 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		logger,
 	});
 
+	const messageMoveService = new MessageMoveService({
+		messageService: repositories.message,
+		mailboxService: repositories.mailbox,
+		mailboxSpecialUseService: repositories.mailboxSpecialUse,
+		threadMessageService: repositories.threadMessage,
+		sqsQueueUrl,
+		logger,
+	});
+
 	const bodySync = new BodySyncService(
 		repositories.message,
 		storage,
@@ -392,18 +407,19 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 			sqsQueueUrl,
 			logger,
 		}),
-		messageMove: new MessageMoveService({
-			messageService: repositories.message,
-			mailboxService: repositories.mailbox,
-			mailboxSpecialUseService: repositories.mailboxSpecialUse,
-			threadMessageService: repositories.threadMessage,
-			sqsQueueUrl,
-			logger,
-		}),
+		messageMove: messageMoveService,
 		outboxQueue: new OutboxQueueService({
 			outboxMessageService: repositories.outboxMessage,
 			accountService: repositories.account,
 			sqsSmtpQueueUrl,
+			logger,
+		}),
+		spamReport: new SpamReportService({
+			messageService: repositories.message,
+			addressService: repositories.address,
+			mailboxSpecialUseService: repositories.mailboxSpecialUse,
+			messageMoveService,
+			flagPushService,
 			logger,
 		}),
 
