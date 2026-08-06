@@ -725,12 +725,12 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/report-spam")
-    op reportSpam(@body input: BulkMessageInput): MessageBulkOperationResult;
+    op reportSpam(@body input: BulkMessageInput): SpamReportBulkResult;
 
-    @doc("Undo a spam report: clear the sender's `blocked` flag (never promotes to trusted/wellknown) and move each message back to `Message.originalMailboxId`. Idempotent under a repeated call.")
+    @doc("Undo a spam report: clear the sender's `blocked` flag (never promotes to trusted/wellknown) and move each message back to `Message.originalMailboxId`. Idempotent under a repeated call. Each message is processed independently and concurrently, so the request's total wait is bounded by one message's settle timeout rather than accumulating across the batch.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/not-spam")
-    op notSpam(@body input: BulkMessageInput): MessageBulkOperationResult;
+    op notSpam(@body input: BulkMessageInput): SpamReportBulkResult;
   }
 }

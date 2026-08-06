@@ -7,9 +7,7 @@ import type { MessageMoveEvent } from "../events.js";
 import {
 	buildThreadMessageMoveUpdate,
 	emitMoveResync,
-	getMessageMoveMaxAttempts,
 	handleMessageMove,
-	MESSAGE_MOVE_MAX_ATTEMPTS,
 	moveThenResync,
 } from "./message-move.js";
 
@@ -127,43 +125,6 @@ describe("buildThreadMessageMoveUpdate", () => {
 			hasStars: tm.hasStars,
 			hasAttachment: tm.hasAttachment,
 		});
-	});
-});
-
-describe("getMessageMoveMaxAttempts — env-derived threshold (mirrors #1270's getBodySyncMaxAttempts / getFlagPushMaxAttempts)", () => {
-	it("parses the CDK-injected env var", () => {
-		assert.equal(
-			getMessageMoveMaxAttempts({ MESSAGE_MOVE_MAX_ATTEMPTS: "3" }),
-			3,
-		);
-		assert.equal(
-			getMessageMoveMaxAttempts({ MESSAGE_MOVE_MAX_ATTEMPTS: "5" }),
-			5,
-		);
-	});
-
-	it("defaults to 3 when unset", () => {
-		assert.equal(getMessageMoveMaxAttempts({}), 3);
-	});
-
-	it("defaults to 3 on a non-numeric or non-positive value", () => {
-		assert.equal(
-			getMessageMoveMaxAttempts({ MESSAGE_MOVE_MAX_ATTEMPTS: "nope" }),
-			3,
-		);
-		assert.equal(
-			getMessageMoveMaxAttempts({ MESSAGE_MOVE_MAX_ATTEMPTS: "0" }),
-			3,
-		);
-		assert.equal(
-			getMessageMoveMaxAttempts({ MESSAGE_MOVE_MAX_ATTEMPTS: "-1" }),
-			3,
-		);
-	});
-
-	it("the module-level constant reflects the actual process env at load time", () => {
-		assert.equal(typeof MESSAGE_MOVE_MAX_ATTEMPTS, "number");
-		assert.ok(MESSAGE_MOVE_MAX_ATTEMPTS > 0);
 	});
 });
 

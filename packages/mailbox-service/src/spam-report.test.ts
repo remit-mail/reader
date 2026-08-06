@@ -490,6 +490,49 @@ describe("SpamReportService.notSpam", () => {
 		assert.equal(address?.flags.blocked, undefined);
 	});
 
+	it("does not clear originalMailboxId set by an earlier report-spam press — a second report then Undo still restores", async () => {
+		// The most common reason a message is already in Junk when reportSpam
+		// runs is a PREVIOUS reportSpam press, not some unrelated move — and
+		// that earlier press is exactly what owns the originalMailboxId Undo
+		// needs. A second press must not treat its own prior work as stale.
+		const { service, messages, sent } = buildWorld();
+
+		await service.reportSpam({
+			accountConfigId: ACCOUNT_CONFIG,
+			accountId: ACCOUNT,
+			messageId: MESSAGE_ID,
+		});
+		settleMove(messages);
+
+		await service.reportSpam({
+			accountConfigId: ACCOUNT_CONFIG,
+			accountId: ACCOUNT,
+			messageId: MESSAGE_ID,
+		});
+
+		assert.equal(
+			messages.get(MESSAGE_ID)?.originalMailboxId,
+			INBOX_MAILBOX,
+			"the second press must not destroy the first press's originalMailboxId",
+		);
+
+		await service.notSpam({
+			accountConfigId: ACCOUNT_CONFIG,
+			accountId: ACCOUNT,
+			messageId: MESSAGE_ID,
+		});
+
+		const message = messages.get(MESSAGE_ID);
+		assert.equal(
+			message?.mailboxId,
+			INBOX_MAILBOX,
+			"undo must actually restore the message, not leave it stuck in Junk",
+		);
+		// INBOX->Junk (press 1), Junk->INBOX (undo) — press 2 was a same-mailbox
+		// no-op and must not have enqueued a move of its own.
+		assert.equal(moveEvents(sent).length, 2);
+	});
+
 	it("is idempotent under a double press — a second undo does not re-junk the message", async () => {
 		const { service, messages, sent } = buildWorld();
 

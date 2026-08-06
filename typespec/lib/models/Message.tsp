@@ -427,6 +427,23 @@ model MessageBulkOperationResult {
   failureCount: int32;
 }
 
+@doc("One message's failure reason within a report-spam or not-spam bulk call.")
+model SpamReportFailure {
+  @doc("The message that failed")
+  messageId: UUID;
+
+  @doc("Why it failed — a message never fabricated for the client, the same text logged server-side (e.g. \"has not settled yet\" while a prior move is still in flight). Not necessarily retryable-safe to parse programmatically; shown to the user as-is.")
+  reason: string;
+}
+
+@doc("Result of a report-spam or not-spam bulk call. Extends the standard counts with a reason per failed message: a partial failure here is an expected, routine outcome (a move from a prior press still settling) the client should be able to explain, not just count.")
+model SpamReportBulkResult {
+  ...MessageBulkOperationResult;
+
+  @doc("One entry per message that failed, naming why. Absent or empty when every message succeeded.")
+  failures?: SpamReportFailure[];
+}
+
 // ============================================
 // Bulk Flag Update
 // ============================================

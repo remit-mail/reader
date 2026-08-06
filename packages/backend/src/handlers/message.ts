@@ -326,6 +326,60 @@ export const materializeBodyParts = async (
 	}
 };
 
+export interface SpamReportBulkFailure {
+	messageId: string;
+	reason: string;
+}
+
+export interface SpamReportBulkOutcome {
+	successCount: number;
+	failureCount: number;
+	failures?: SpamReportBulkFailure[];
+}
+
+/**
+ * Drive one report-spam/not-spam operation per message, concurrently. Each
+ * message's own wait for its move to settle (SpamReportService's R2 wait) is
+ * bounded on its own, but running the batch sequentially would let those
+ * waits accumulate across the whole request — 50 messages could each wait
+ * seconds, serializing into minutes and dying at the proxy. Running them
+ * concurrently instead bounds the whole request by a single message's wait,
+ * regardless of batch size.
+ */
+export const settleSpamReportBulk = async (
+	messageIds: string[],
+	run: (messageId: string) => Promise<void>,
+): Promise<SpamReportBulkOutcome> => {
+	const results = await Promise.allSettled(
+		messageIds.map((messageId) => run(messageId)),
+	);
+
+	let successCount = 0;
+	const failures: SpamReportBulkFailure[] = [];
+	results.forEach((result, index) => {
+		if (result.status === "fulfilled") {
+			successCount += 1;
+			return;
+		}
+		const messageId = messageIds[index];
+		const reason =
+			result.reason instanceof Error
+				? result.reason.message
+				: String(result.reason);
+		failures.push({ messageId, reason });
+		logger.error(
+			{ messageId, error: result.reason },
+			"spam-report bulk operation failed for one message",
+		);
+	});
+
+	return {
+		successCount,
+		failureCount: failures.length,
+		...(failures.length > 0 ? { failures } : {}),
+	};
+};
+
 export const MessageOperations: Record<
 	MessageOperationIds,
 	OperationHandler<MessageOperationIds>
@@ -970,24 +1024,14 @@ export const MessageBulkOperations: Record<
 		);
 		const setBy = getSubFromEvent(event) ?? accountConfigId;
 
-		let successCount = 0;
-		let failureCount = 0;
-		for (const messageId of messageIds) {
-			await client.spamReport
-				.reportSpam({ accountConfigId, accountId, messageId, setBy })
-				.then(() => {
-					successCount += 1;
-				})
-				.catch((error: unknown) => {
-					failureCount += 1;
-					logger.error(
-						{ accountId, messageId, error },
-						"report-spam failed for one message",
-					);
-				});
-		}
-
-		return { successCount, failureCount };
+		return settleSpamReportBulk(messageIds, (messageId) =>
+			client.spamReport.reportSpam({
+				accountConfigId,
+				accountId,
+				messageId,
+				setBy,
+			}),
+		);
 	},
 
 	MessageBulkOperations_notSpam: async (context, ...args: unknown[]) => {
@@ -1010,23 +1054,8 @@ export const MessageBulkOperations: Record<
 			"act",
 		);
 
-		let successCount = 0;
-		let failureCount = 0;
-		for (const messageId of messageIds) {
-			await client.spamReport
-				.notSpam({ accountConfigId, accountId, messageId })
-				.then(() => {
-					successCount += 1;
-				})
-				.catch((error: unknown) => {
-					failureCount += 1;
-					logger.error(
-						{ accountId, messageId, error },
-						"not-spam failed for one message",
-					);
-				});
-		}
-
-		return { successCount, failureCount };
+		return settleSpamReportBulk(messageIds, (messageId) =>
+			client.spamReport.notSpam({ accountConfigId, accountId, messageId }),
+		);
 	},
 };

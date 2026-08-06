@@ -124,6 +124,16 @@ export class SpamReportService {
 			});
 		}
 
+		// Captured before this call writes anything: `before.spamReport` tells
+		// apart the two reasons the message can already be in Junk. If it is
+		// already set, a PREVIOUS report-spam press put it there and owns
+		// `originalMailboxId` — that value is exactly what Undo needs and must
+		// survive a repeated press. Only when it is absent is the message in
+		// Junk for some unrelated reason (a provider filter, a manual move),
+		// making any `originalMailboxId` on the row stale.
+		const before = await this.messageService.get(messageId);
+		const hadSpamReportAlready = Boolean(before.spamReport);
+
 		await this.messageService.update(messageId, {
 			spamReport: { reportedAt: now },
 		});
@@ -134,7 +144,6 @@ export class SpamReportService {
 			throw new Error(`No Junk mailbox found for account ${accountId}`);
 		}
 
-		const before = await this.messageService.get(messageId);
 		const alreadyInJunk = before.mailboxId === junkMailbox.mailboxId;
 
 		await this.messageMoveService.moveMessage(
@@ -144,7 +153,7 @@ export class SpamReportService {
 			accountId,
 		);
 
-		if (alreadyInJunk && before.originalMailboxId) {
+		if (alreadyInJunk && before.originalMailboxId && !hadSpamReportAlready) {
 			// moveMessage's same-mailbox guard no-opped — it never touches
 			// originalMailboxId, so a stale value left by some earlier, unrelated
 			// move would otherwise survive and send a later notSpam to the wrong
@@ -194,12 +203,6 @@ export class SpamReportService {
 				);
 			}
 
-			// Whatever state the move settled into, restoreMessage converges
-			// correctly: a confirmed move to Junk gets a real Junk->INBOX move;
-			// a move the imap-worker's own terminal resolver already reverted
-			// back to the source (its retries exhausted) has mailboxId already
-			// equal to originalMailboxId, so moveMessage's same-mailbox guard
-			// no-ops.
 			await this.messageMoveService.restoreMessage(
 				accountConfigId,
 				messageId,
