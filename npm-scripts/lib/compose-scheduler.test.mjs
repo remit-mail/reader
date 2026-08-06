@@ -18,52 +18,22 @@
 // and a change to either default is measured against the other.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import {
-	copyFileSync,
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	utimesSync,
-	writeFileSync,
-} from "node:fs";
-import { dirname, join } from "node:path";
+import { copyFileSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { after, describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
+import {
+	absentPath,
+	CLEAN_ENV,
+	COMPOSE_OK,
+	cleanupSandboxes,
+	DEPLOY,
+	ROOT,
+	sandbox,
+} from "./compose-fixture.mjs";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(HERE, "..", "..");
-const DEPLOY = join(ROOT, "deploy", "vps");
 const COMPOSE = join(DEPLOY, "docker-compose.sqlite.yml");
 
-const TMP_ROOT = join(ROOT, ".tmp");
-mkdirSync(TMP_ROOT, { recursive: true });
-const sandboxes = [];
-after(() => {
-	for (const dir of sandboxes) rmSync(dir, { recursive: true, force: true });
-});
-
-// A missing tool is a fact about a developer's machine and never about CI:
-// skipping there would leave a suite that reports green without having resolved
-// anything.
-const COMPOSE_OK = (() => {
-	if (
-		spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status ===
-		0
-	) {
-		return true;
-	}
-	if (process.env.CI)
-		throw new Error(
-			"no `docker compose` on this machine — this suite needs it",
-		);
-	console.log("skipping: no `docker compose` on this machine");
-	return false;
-})();
-
-// Compose reads the process environment as well as --env-file, and the ambient
-// one would decide the answer on some machines and not others.
-const CLEAN_ENV = { PATH: process.env.PATH, HOME: process.env.HOME };
+after(cleanupSandboxes);
 
 // What an operator's .env holds and nothing more. Every value these suites are
 // about is absent from it on purpose: the defaults are the subject.
@@ -74,8 +44,7 @@ const BASE_ENV = [
 ];
 
 function run(lines, args) {
-	const dir = mkdtempSync(join(TMP_ROOT, "compose-scheduler-"));
-	sandboxes.push(dir);
+	const dir = sandbox("compose-scheduler");
 	copyFileSync(COMPOSE, join(dir, "docker-compose.sqlite.yml"));
 	writeFileSync(join(dir, ".env"), `${lines.join("\n")}\n`);
 	const result = spawnSync(
@@ -205,18 +174,23 @@ const runHealthcheck = (directory, environment) => {
 	const [command, binary, flag, script] =
 		resolved().services.scheduler.healthcheck.test;
 	assert.deepEqual([command, binary, flag], ["CMD", "node", "-e"]);
-	return spawnSync(
-		"node",
-		["-e", script.replace("'/data/heartbeat'", JSON.stringify(directory))],
-		{ encoding: "utf8", env: { ...CLEAN_ENV, ...environment } },
-	).status;
+	const rewritten = script.replace(
+		"'/data/heartbeat'",
+		JSON.stringify(directory),
+	);
+	// A rewrite that matched nothing would leave the script reading the real
+	// volume path, where every case below fails for the wrong reason.
+	assert.notEqual(rewritten, script);
+	return spawnSync("node", ["-e", rewritten], {
+		encoding: "utf8",
+		env: { ...CLEAN_ENV, ...environment },
+	}).status;
 };
 
 // Written the way the runner writes it: one file, named for the loop, under the
 // prefix the compose service hands the container.
 const heartbeatDir = (ageSeconds) => {
-	const dir = mkdtempSync(join(TMP_ROOT, "scheduler-heartbeat-"));
-	sandboxes.push(dir);
+	const dir = sandbox("scheduler-heartbeat");
 	if (ageSeconds !== undefined) {
 		const file = join(dir, "scheduler.tick");
 		writeFileSync(file, `${new Date().toISOString()}\n`);
@@ -243,8 +217,8 @@ describe("a scheduler that stopped ticking reports it", {
 	// The two states a check that cannot look can be in. Reporting either as
 	// healthy is the failure the workers' own comment names.
 	it("fails when there is no file, and when there is no directory", () => {
-		assert.equal(runHealthcheck(heartbeatDir(undefined), environment), 1);
-		assert.equal(runHealthcheck(join(TMP_ROOT, "absent"), environment), 1);
+		assert.equal(runHealthcheck(heartbeatDir(), environment), 1);
+		assert.equal(runHealthcheck(absentPath("absent"), environment), 1);
 	});
 
 	// The workers hardcode 420 s because their bound is a socket timeout. This
@@ -353,4 +327,23 @@ describe("the documented cadence knobs reach the scheduler", {
 		assert.equal(getOfflineIntervalMs(tuned) / 1000, 1800);
 		assert.equal(getTickIntervalMs(tuned) / 1000, 600);
 	});
+
+	// The healthcheck reads the same variable as the runner and has to reach the
+	// same number from it, including for values the runner refuses. Two parsers
+	// that disagree give a container that ticks correctly and never reports
+	// healthy — which is the outage this check was added to end.
+	for (const raw of ["", "600", "300s", "0", "-5"]) {
+		it(`agrees with the runner on a tick of "${raw}"`, () => {
+			const environment = resolved([
+				...BASE_ENV,
+				`MAILBOX_SYNC_TICK_INTERVAL_SECONDS=${raw}`,
+			]).services.scheduler.environment;
+			const tick = getTickIntervalMs(environment) / 1000;
+			assert.equal(runHealthcheck(heartbeatDir(1), environment), 0);
+			assert.equal(
+				runHealthcheck(heartbeatDir(tick * 2 + 120), environment),
+				1,
+			);
+		});
+	}
 });

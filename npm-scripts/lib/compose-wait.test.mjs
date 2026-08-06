@@ -3,68 +3,31 @@
 //
 // `--wait` gates on each service reaching running-or-healthy. A service that
 // declares no healthcheck at all is fine — compose falls back to "running" for
-// it. A service that declares `healthcheck: disable: true` is not: the
-// container config then carries a healthcheck of NONE, compose stops applying
-// the fallback, finds no health state to read, and fails the whole `up` with
+// it. A service that declares `healthcheck: disable: true` is not: the container
+// config then carries a healthcheck of NONE, compose stops applying the
+// fallback, finds no health state to read, and fails the whole `up` with
 // "container <name> has no healthcheck configured". Nothing is unhealthy and
-// nothing is slow; the command simply refuses to return.
+// nothing is slow; the command simply refuses to return, and the suite behind it
+// never runs.
 //
-// That is what happened to the packaged e2e lane (reader#644). The scheduler
-// landed with a disabled check, the lane runs on a 04:00 schedule and on manual
-// dispatch and never on merge, and the suite stopped running for a day while
-// the job reported a startup error nobody was looking at. The cost of the shape
-// is not that it is wrong once — it is that the stack it breaks is the one
-// carrying the tests.
-//
-// So this suite runs on every pull request and asserts against what
-// `docker compose config` resolves, over exactly the file sets and profiles the
-// scripts below pass to `up --wait`.
+// Asserted against what `docker compose config` resolves, over the file sets the
+// scripts below pass to `up --wait`, and with every profile on: a service moved
+// behind a profile reads the same to a regex and not to compose.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import {
-	copyFileSync,
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { dirname, join } from "node:path";
+import { copyFileSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { after, describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
+import {
+	CLEAN_ENV,
+	COMPOSE_OK,
+	cleanupSandboxes,
+	DEPLOY,
+	ROOT,
+	sandbox,
+} from "./compose-fixture.mjs";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(HERE, "..", "..");
-const DEPLOY = join(ROOT, "deploy", "vps");
-
-const TMP_ROOT = join(ROOT, ".tmp");
-mkdirSync(TMP_ROOT, { recursive: true });
-const sandboxes = [];
-after(() => {
-	for (const dir of sandboxes) rmSync(dir, { recursive: true, force: true });
-});
-
-// A missing tool is a fact about a developer's machine and never about CI:
-// skipping there would leave a suite that reports green without having resolved
-// anything.
-const COMPOSE_OK = (() => {
-	if (
-		spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status ===
-		0
-	) {
-		return true;
-	}
-	if (process.env.CI)
-		throw new Error(
-			"no `docker compose` on this machine — this suite needs it",
-		);
-	console.log("skipping: no `docker compose` on this machine");
-	return false;
-})();
-
-// Compose reads the process environment as well as --env-file, and the ambient
-// one would decide the answer on some machines and not others.
-const CLEAN_ENV = { PATH: process.env.PATH, HOME: process.env.HOME };
+after(cleanupSandboxes);
 
 // The e2e stack configures itself from the committed e2e.env, plus the one line
 // npm-scripts/e2e-compose.sh appends. Reading those files rather than restating
@@ -75,8 +38,6 @@ const e2eEnv = () =>
 		`REMIT_DEPLOY_DIR=${DEPLOY}`,
 	].join("\n");
 
-// Every `docker compose up --wait` in this repo, and the files it passes. A
-// fourth one added without a line here is a stack this suite does not cover.
 const WAITED_STACKS = [
 	{
 		name: "the packaged e2e stack (npm run e2e:up)",
@@ -105,12 +66,19 @@ const WAITED_STACKS = [
 	},
 ];
 
-// Resolved in a sandbox holding the compose files and one .env, because every
-// app service takes `env_file: .env` and compose refuses to resolve a stack
-// whose env file is absent — which is exactly the state a checkout is in.
+// Where those three live. A fourth `--wait` added anywhere fails the inventory
+// test below rather than quietly going uncovered.
+const WAIT_CALLERS = [
+	"npm-scripts/e2e-up.sh",
+	"npm-scripts/e2e-dev-up.sh",
+	"package.json",
+];
+
+// Resolved in a sandbox holding the compose files and one env file, because
+// every app service takes `env_file: .env` and compose refuses to resolve a
+// stack whose env file is absent — which is the state of a checkout.
 const resolve = (stack) => {
-	const dir = mkdtempSync(join(TMP_ROOT, "compose-wait-"));
-	sandboxes.push(dir);
+	const dir = sandbox("compose-wait");
 	writeFileSync(join(dir, stack.envFile), `${stack.env()}\n`);
 	const args = ["compose"];
 	for (const file of stack.files) {
@@ -122,6 +90,8 @@ const resolve = (stack) => {
 		dir,
 		"--env-file",
 		join(dir, stack.envFile),
+		"--profile",
+		"*",
 		"config",
 		"--format",
 		"json",
@@ -157,18 +127,33 @@ describe("every stack started with --wait can finish starting", {
 			assert.deepEqual(
 				disabled,
 				[],
-				`\`docker compose up --wait\` fails outright on a disabled healthcheck, so ${disabled.join(", ")} would stop this stack from ever reporting started. Give the service a check it can pass, or remove the healthcheck key so compose waits for running instead.`,
+				`\`docker compose up --wait\` fails outright on a disabled healthcheck, so ${disabled.join(", ")} would stop this stack from ever reporting started. Give the service a check it can pass, or drop the healthcheck key so compose waits for running instead.`,
 			);
 		});
 	}
+
+	// The list above is hand-written, so this is what keeps it honest: the search
+	// is over the tree, and a `--wait` in a file nobody listed fails here naming
+	// the file.
+	it("covers every --wait in the tree", () => {
+		const found = spawnSync(
+			"git",
+			["grep", "-l", "--", "^[^#]*up .*--wait", "--", ":!npm-scripts/lib"],
+			{ cwd: ROOT, encoding: "utf8", env: CLEAN_ENV },
+		);
+		assert.equal(found.status, 0, found.stderr);
+		assert.deepEqual(
+			found.stdout.split("\n").filter(Boolean).sort(),
+			[...WAIT_CALLERS].sort(),
+			"a stack brought up with --wait and not listed in WAITED_STACKS is a stack this suite does not check",
+		);
+	});
 
 	// The guard above is only worth what its detector is worth. This proves the
 	// detector fires on the shape that broke the lane, resolved by compose from
 	// the same syntax the deployment file used.
 	it("recognises a disabled healthcheck the way compose resolves one", () => {
-		const dir = mkdtempSync(join(TMP_ROOT, "compose-wait-probe-"));
-		sandboxes.push(dir);
-		const file = join(dir, "docker-compose.yml");
+		const file = join(sandbox("compose-wait-probe"), "docker-compose.yml");
 		writeFileSync(
 			file,
 			[

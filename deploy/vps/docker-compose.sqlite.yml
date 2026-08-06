@@ -432,23 +432,23 @@ services:
   # the relationship where an operator edits the values.
   #
   # ITS CHECK, AND WHAT IT CLAIMS. The loop rewrites /data/heartbeat/scheduler.tick
-  # before every tick, so the check below is the same one the workers carry — the
-  # timer is still firing — and it is the only thing this service can honestly
-  # report. Whether the accounts it enqueued were actually fetched is what
-  # `remit_account_sync_age_seconds` measures, and a scheduler that stops ticking
-  # shows up there too, one offline interval later.
+  # before every tick, so this is the workers' check with a different subject —
+  # the timer is still firing, which is the failure `restart: unless-stopped`
+  # cannot see. Whether the accounts it enqueued were fetched is what
+  # `remit_account_sync_age_seconds` measures, one offline interval later.
   #
   # The image's own check reads imap-worker.* on this same volume, which this
-  # entrypoint never writes; the override below replaces it rather than disabling
-  # it, because `docker compose up --wait` fails outright on a service whose
-  # healthcheck is disabled (reader#644) — the disabled check took the packaged
-  # e2e lane down for a day.
+  # entrypoint never writes, so the check is replaced here rather than disabled:
+  # `docker compose up --wait` fails outright on a service whose healthcheck is
+  # disabled, and the e2e lane gates its whole startup on that command.
   #
-  # The threshold is derived from the tick rather than fixed: two ticks, so a
-  # single slow round cannot flip it, plus a minute of floor for an operator who
-  # sets a very short tick. The workers can hardcode 420 s because their bound is
-  # a socket timeout; here it is a knob, and a fixed number would report a
-  # healthy scheduler as dead the moment someone raised it.
+  # The threshold is two ticks — one for the sampling, one so a slow round cannot
+  # flip it — plus a minute of floor for a very short tick. The workers hardcode
+  # 420 s because their bound is a socket timeout; here it is a knob, and a fixed
+  # number would report a healthy scheduler as dead the moment someone raised it.
+  # The tick is parsed exactly as the runner parses it, fallback included
+  # (packages/imap-worker/src/scheduler/config.ts): a value the runner rejects and
+  # this check accepts is a container that never reports healthy.
   # ---------------------------------------------------------------------
   scheduler:
     image: ghcr.io/remit-mail/reader/imap-worker:${REMIT_TAG:-latest}
@@ -471,7 +471,7 @@ services:
         condition: service_completed_successfully
     healthcheck:
       test:
-        ["CMD", "node", "-e", "const fs=require('node:fs'),d='/data/heartbeat',p='scheduler.',m=(Number(process.env.MAILBOX_SYNC_TICK_INTERVAL_SECONDS||300)*2+60)*1000,f=fs.readdirSync(d).filter(n=>n.startsWith(p));process.exit(f.length&&f.every(n=>Date.now()-fs.statSync(d+'/'+n).mtimeMs<m)?0:1)"]
+        ["CMD", "node", "-e", "const fs=require('node:fs'),d='/data/heartbeat',p='scheduler.',r=Number.parseInt(process.env.MAILBOX_SYNC_TICK_INTERVAL_SECONDS,10),t=Number.isFinite(r)&&r>0?r:3600,m=(t*2+60)*1000,f=fs.readdirSync(d).filter(n=>n.startsWith(p));process.exit(f.length&&f.every(n=>Date.now()-fs.statSync(d+'/'+n).mtimeMs<m)?0:1)"]
       interval: 30s
       timeout: 5s
       retries: 3
