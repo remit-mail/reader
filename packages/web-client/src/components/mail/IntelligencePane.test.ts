@@ -2,101 +2,30 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { resolveSimilarState, resolveSpamAction } from "./IntelligencePane";
 
-const junkId = "junk-mailbox";
-const inboxId = "inbox-mailbox";
-
-describe("resolveSpamAction (#594)", () => {
-	test("offers Not spam when the message is in Junk and Inbox is resolved", () => {
-		assert.equal(
-			resolveSpamAction({
-				mailboxId: junkId,
-				junkMailboxId: junkId,
-				inboxMailboxId: inboxId,
-			}),
-			"notSpam",
-		);
+describe("resolveSpamAction (#648)", () => {
+	test("offers Report spam when the message carries no spam report", () => {
+		assert.equal(resolveSpamAction({}), "reportSpam");
 	});
 
-	test("offers Mark spam when the message is outside Junk and Junk is resolved", () => {
-		assert.equal(
-			resolveSpamAction({
-				mailboxId: inboxId,
-				junkMailboxId: junkId,
-				inboxMailboxId: inboxId,
-			}),
-			"markSpam",
-		);
+	test("offers Report spam regardless of which mailbox the message is in", () => {
+		// A report is never derived from placement — reporting a message the
+		// provider's own filter already put in Junk is a real, no-op-move case.
+		assert.equal(resolveSpamAction({ spamReport: undefined }), "reportSpam");
 	});
 
-	test("offers nothing when the move source mailbox is unknown", () => {
+	test("offers Not spam once the message carries a spam report", () => {
 		assert.equal(
-			resolveSpamAction({
-				mailboxId: undefined,
-				junkMailboxId: junkId,
-				inboxMailboxId: inboxId,
-			}),
-			null,
-		);
-	});
-
-	test("offers nothing in Junk when the Inbox target hasn't loaded", () => {
-		assert.equal(
-			resolveSpamAction({
-				mailboxId: junkId,
-				junkMailboxId: junkId,
-				inboxMailboxId: undefined,
-			}),
-			null,
-		);
-	});
-
-	test("offers nothing outside Junk when the Junk target hasn't loaded", () => {
-		assert.equal(
-			resolveSpamAction({
-				mailboxId: inboxId,
-				junkMailboxId: undefined,
-				inboxMailboxId: inboxId,
-			}),
-			null,
-		);
-	});
-
-	test("offers nothing once the panel has moved this message", () => {
-		assert.equal(
-			resolveSpamAction({
-				mailboxId: junkId,
-				junkMailboxId: junkId,
-				inboxMailboxId: inboxId,
-				moveApplied: true,
-			}),
-			null,
-		);
-	});
-
-	test("offers Not spam again when the move came back failed", () => {
-		assert.equal(
-			resolveSpamAction({
-				mailboxId: junkId,
-				junkMailboxId: junkId,
-				inboxMailboxId: inboxId,
-				moveApplied: false,
-			}),
+			resolveSpamAction({ spamReport: { reportedAt: Date.now() } }),
 			"notSpam",
 		);
 	});
 
 	test("the two actions are mutually exclusive", () => {
-		const inJunk = resolveSpamAction({
-			mailboxId: junkId,
-			junkMailboxId: junkId,
-			inboxMailboxId: inboxId,
+		const reportable = resolveSpamAction({});
+		const reported = resolveSpamAction({
+			spamReport: { reportedAt: Date.now() },
 		});
-		const elsewhere = resolveSpamAction({
-			mailboxId: inboxId,
-			junkMailboxId: junkId,
-			inboxMailboxId: inboxId,
-		});
-		assert.notEqual(inJunk, elsewhere);
+		assert.notEqual(reportable, reported);
 	});
 });
 

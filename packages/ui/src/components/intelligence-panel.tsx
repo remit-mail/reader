@@ -1,5 +1,4 @@
 import {
-	Ban,
 	BellOff,
 	MailCheck,
 	MailX,
@@ -112,6 +111,16 @@ export type SimilarMessageLinkComponent = (
 export interface SenderFlagsIntel {
 	vip?: boolean;
 	muted?: boolean;
+	/**
+	 * True once the sender is blocked — via a spam report on some message from
+	 * them, or a manual block in Settings → Senders, which is the only durable
+	 * manage-and-undo surface for it now that this panel has no `Block` action
+	 * of its own. Not used to decide the quick-actions pair below: it's a
+	 * sender-wide flag, and a manual block with no report on THIS message would
+	 * make "You reported this sender" false (issue #648 review). The pair and
+	 * that line key off `actions.onNotSpam`/`onReportSpam` instead, which the
+	 * host derives from this specific message's `Message.spamReport`.
+	 */
 	blocked?: boolean;
 	unsubscribed?: boolean;
 }
@@ -127,20 +136,21 @@ export interface IntelligenceData {
 export interface IntelligenceQuickActions {
 	onToggleVip?: () => void;
 	onToggleMute?: () => void;
-	/** Block navigates through a confirm dialog — the callback fires post-confirm. */
-	onToggleBlock?: () => void;
 	onToggleUnsubscribe?: () => void;
 	onReclassify?: () => void;
 	/**
-	 * "Not spam": move the message out of Junk and promote the sender to
-	 * Wellknown (issue #594). Wired only when the message is currently in Junk.
+	 * "Not spam": undo a spam report — clears the sender block and moves the
+	 * message back where it came from (issue #648). Wired only when the
+	 * message currently carries a spam report.
 	 */
 	onNotSpam?: () => void;
 	/**
-	 * "Mark spam": move the message into Junk and strip the sender's trust
-	 * (the inverse of "Not spam"). Wired only when the message is not in Junk.
+	 * "Report spam": move the message into Junk and block the sender (the
+	 * inverse of "Not spam", issue #648). Wired only when the message has not
+	 * been reported yet. Replaces the former separate `Block` and `Mark spam`
+	 * actions with one contextual control.
 	 */
-	onMarkSpam?: () => void;
+	onReportSpam?: () => void;
 }
 
 /**
@@ -173,6 +183,19 @@ export interface IntelligencePanelProps {
 	 * Drawer header), so there is exactly one way back (#874).
 	 */
 	hideCloseButton?: boolean;
+	/**
+	 * True while a "Report spam" press is in flight. There is no optimistic
+	 * update for this action (issue #648: the client can't predict whether a
+	 * report against a message already in Junk is a no-op), so without this
+	 * the button gives no visible response at all until the request lands — a
+	 * dead button is the worst outcome. Swaps the label to "Reporting…"; the
+	 * handler stays wired throughout (same as `AutoMovedBadge`'s `isUndoing`)
+	 * because the operation is idempotent, so a second press mid-flight is
+	 * safe rather than a queued duplicate.
+	 */
+	reportSpamPending?: boolean;
+	/** True while a "Not spam" (undo) press is in flight. Same treatment as `reportSpamPending`. */
+	notSpamPending?: boolean;
 }
 
 const trustLabel: Record<
@@ -362,6 +385,8 @@ export function IntelligencePanel({
 	similarLinkComponent,
 	className,
 	hideCloseButton = false,
+	reportSpamPending = false,
+	notSpamPending = false,
 }: IntelligencePanelProps) {
 	const { sender, authenticity, category, flags = {}, similar } = data;
 	const suspicious = authenticity.verdict === "mismatch";
@@ -434,35 +459,34 @@ export function IntelligencePanel({
 						active={flags.muted}
 						onClick={actions?.onToggleMute}
 					/>
-					<QuickAction
-						icon={<Ban className="size-3.5" />}
-						label="Block"
-						active={flags.blocked}
-						danger
-						onClick={actions?.onToggleBlock}
-					/>
+					{actions?.onNotSpam && (
+						<QuickAction
+							icon={<MailCheck className="size-3.5" />}
+							label={notSpamPending ? "Undoing…" : "Not spam"}
+							active
+							onClick={actions.onNotSpam}
+						/>
+					)}
+					{actions?.onReportSpam && (
+						<QuickAction
+							icon={<ShieldX className="size-3.5" />}
+							label={reportSpamPending ? "Reporting…" : "Report spam"}
+							danger
+							onClick={actions.onReportSpam}
+						/>
+					)}
 					<QuickAction
 						icon={<MailX className="size-3.5" />}
 						label="Unsubscribe"
 						active={flags.unsubscribed}
 						onClick={actions?.onToggleUnsubscribe}
 					/>
-					{actions?.onNotSpam && (
-						<QuickAction
-							icon={<MailCheck className="size-3.5" />}
-							label="Not spam"
-							onClick={actions.onNotSpam}
-						/>
-					)}
-					{actions?.onMarkSpam && (
-						<QuickAction
-							icon={<ShieldX className="size-3.5" />}
-							label="Mark spam"
-							danger
-							onClick={actions.onMarkSpam}
-						/>
-					)}
 				</div>
+				{actions?.onNotSpam && (
+					<p className="mt-1.5 text-2xs text-fg-subtle">
+						You reported this message as spam
+					</p>
+				)}
 			</Section>
 
 			{(similarState !== "ready" || similar.length > 0) && (

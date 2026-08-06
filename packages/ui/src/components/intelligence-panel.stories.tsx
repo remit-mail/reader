@@ -198,31 +198,70 @@ export const WithSimilarMessages: Story = {
 };
 
 /**
- * The spam quick actions are symmetric and mutually exclusive, decided by the
- * mailbox the message is in. A message sitting in Junk is offered the way out.
+ * The spam quick actions are a contextual pair, decided by whether the message
+ * carries a spam report — never by the mailbox it happens to sit in, since a
+ * report on a message already in Junk (the provider's own filter put it there)
+ * is a real, no-op-move case (issue #648). A reportable message offers
+ * "Report spam".
  */
-export const InJunk: Story = {
+export const Reportable: Story = {
+	args: {
+		data: base,
+		actions: { onReportSpam: () => {} },
+	},
+};
+
+/**
+ * Already reported: "Not spam" (the undo) is offered instead of "Report
+ * spam", and the panel names the message as reported. Driven by
+ * `actions.onNotSpam` being present, not by `flags.blocked` — a sender can be
+ * blocked manually, with no report on this particular message, and that must
+ * not read as "you reported this" (issue #648 review).
+ */
+export const Reported: Story = {
 	args: {
 		data: base,
 		actions: { onNotSpam: () => {} },
 	},
 };
 
-/** The inverse, for a message anywhere else. */
-export const OutsideJunk: Story = {
+/**
+ * Neither action is offered. The panel hides the pair rather than disabling
+ * it — unlike VIP/Mute/Unsubscribe, which always render and go visibly
+ * unavailable with no handler (issue #51). The host's own wiring never
+ * actually reaches this: `resolveSpamAction` always returns one of the two,
+ * since every message either carries a spam report or doesn't. Kept as a
+ * defensive state for a host that doesn't wire the pair at all.
+ */
+export const SpamActionUnavailable: Story = {
 	args: {
 		data: base,
-		actions: { onMarkSpam: () => {} },
+		actions: {},
 	},
 };
 
 /**
- * The move has been made. Neither action is offered: pressing the one that just
- * ran would ask the mail server to move the message to where it already is.
+ * A "Report spam" press in flight. There's no optimistic update for this
+ * action (a report against a message already in Junk is a real no-op-move,
+ * issue #648), so without a pending label the button gives no visible
+ * response at all until the request lands — the dead-button failure the
+ * coding standards call the worst outcome. The button stays clickable
+ * throughout, same as the undo direction's `isUndoing`: the operation is
+ * idempotent, so a second press is safe, never a queued duplicate.
  */
-export const SpamActionSpent: Story = {
+export const ReportSpamPending: Story = {
 	args: {
 		data: base,
-		actions: {},
+		actions: { onReportSpam: () => {} },
+		reportSpamPending: true,
+	},
+};
+
+/** The undo direction's equivalent — "Undoing…" while `notSpam` is in flight. */
+export const NotSpamPending: Story = {
+	args: {
+		data: base,
+		actions: { onNotSpam: () => {} },
+		notSpamPending: true,
 	},
 };

@@ -8,10 +8,8 @@ import {
 import { Link } from "@tanstack/react-router";
 import { Sparkles } from "lucide-react";
 import { useCallback, useState } from "react";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { useInboxMailbox, useJunkMailbox } from "@/hooks/useArchiveMailbox";
 import { useIntelligenceData } from "@/hooks/useIntelligenceData";
-import { useMoveMessages } from "@/hooks/useMoveMessages";
+import { useReportSpam } from "@/hooks/useReportSpam";
 import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
 import { isRescueCandidate } from "@/lib/rescue-candidates";
 import { recordRescueSentToJunk } from "@/lib/rescue-telemetry";
@@ -27,13 +25,28 @@ export interface IntelligencePaneProps {
 	thread?: RemitImapThreadMessageResponse;
 	/** The mailbox the message list is currently showing. */
 	mailboxId?: string;
-	/** Account that owns the open message; resolves the Junk/Inbox move targets. */
+	/** Account that owns the open message; scopes mailbox-list cache invalidation after a spam-report mutation. */
 	accountId?: string;
 	/**
 	 * Hide the panel's own close (X). Set when hosted inside the mobile Drawer,
 	 * whose header already renders a close button — one way back, not two (#874).
 	 */
 	hideCloseButton?: boolean;
+	/**
+	 * Called once a "Report spam" / "Not spam" press succeeds, with the acted-on
+	 * message id. The host's own `handleDeselectIfRemoved` (already wired into
+	 * `useMoveMessages`/`useDeleteMessages` for the same reason) belongs here
+	 * too: the panel's `thread` prop is a list-derived snapshot the host stops
+	 * refreshing once the row leaves the list it's watching, so without this a
+	 * reported message keeps rendering "Report spam" here forever, even while
+	 * the reading pane's own per-thread query — a different cache — already
+	 * shows "Reported as spam · Undo" (issue #648 review). Fires on every
+	 * success, no-op included: neither endpoint says whether the message
+	 * actually left the list, so a no-op report/undo also deselects even
+	 * though the row never moved. That is a real, accepted trade — an
+	 * occasional unneeded pane-close — not a bug; see `useReportSpam`.
+	 */
+	onAfterOptimisticRemove?: (messageIds: string[]) => void;
 }
 
 /**
@@ -52,39 +65,18 @@ const CATEGORY_OVERRIDES = [
 type CategoryOverride = (typeof CATEGORY_OVERRIDES)[number];
 
 /**
- * Decide which spam quick-action to offer for the current message (issue #594).
+ * Decide which spam quick-action to offer for the current message (issue #648).
  *
- * `mailboxId` is the mailbox the MESSAGE is in, which is what the move acts on.
- * The two buttons are symmetric and mutually exclusive:
- * - In the Junk mailbox → offer **Not spam** (move out, promote sender), but
- *   only when an Inbox destination is resolved.
- * - Anywhere else → offer **Mark spam** (move in, demote sender), but only when
- *   the Junk destination is resolved.
- *
- * `moveApplied` says the panel has already moved this message and the row it is
- * rendering has not caught up. The list drops the row on the move, but the
- * reading pane keeps the message open from the row it was opened with, whose
- * mailbox is still the source — so without this the button survives its own
- * press, and a second press asks the server to move the message to where it now
- * already is.
- *
- * Returns `"notSpam"`, `"markSpam"`, or `null` (no actionable button — e.g. the
- * move source isn't known, or the needed target mailbox hasn't loaded). Pure so
- * the wiring decision can be unit-tested without rendering.
+ * Driven entirely by `Message.spamReport`, never by which mailbox the message
+ * is currently in: reporting a message that's already in Junk (the provider's
+ * own filter put it there) is a real, no-op-move case, so mailbox membership
+ * cannot stand in for "has this been reported". A message that carries a
+ * report offers the undo ("Not spam"); everything else offers "Report spam".
+ * Pure so the wiring decision can be unit-tested without rendering.
  */
-export const resolveSpamAction = (input: {
-	mailboxId?: string;
-	junkMailboxId?: string;
-	inboxMailboxId?: string;
-	moveApplied?: boolean;
-}): "notSpam" | "markSpam" | null => {
-	const { mailboxId, junkMailboxId, inboxMailboxId, moveApplied } = input;
-	if (moveApplied) return null;
-	if (!mailboxId) return null;
-	const isInJunk = Boolean(junkMailboxId && mailboxId === junkMailboxId);
-	if (isInJunk) return inboxMailboxId ? "notSpam" : null;
-	return junkMailboxId ? "markSpam" : null;
-};
+export const resolveSpamAction = (thread: {
+	spamReport?: unknown;
+}): "notSpam" | "reportSpam" => (thread.spamReport ? "notSpam" : "reportSpam");
 
 /**
  * Decide the "Similar messages" section state from the semantic-search query.
@@ -217,6 +209,7 @@ interface WiredPanelProps {
 	mailboxId?: string;
 	accountId?: string;
 	hideCloseButton?: boolean;
+	onAfterOptimisticRemove?: (messageIds: string[]) => void;
 }
 
 /**
@@ -228,6 +221,7 @@ function WiredPanel({
 	mailboxId,
 	accountId,
 	hideCloseButton,
+	onAfterOptimisticRemove,
 }: WiredPanelProps) {
 	const {
 		data,
@@ -236,61 +230,37 @@ function WiredPanel({
 		similarError,
 		similarErrorIsFatal,
 	} = useIntelligenceData(thread, mailboxId);
-	const [confirmBlock, setConfirmBlock] = useState(false);
 	const [reclassifyOpen, setReclassifyOpen] = useState(false);
 	const senderEmail = thread.fromEmail ?? undefined;
 
-	const { updateFlags, isPending } = useUpdateAddressFlags({
+	const { updateFlags } = useUpdateAddressFlags({
 		addressId,
 		senderEmail,
 	});
 
-	// "Not spam" / "Mark spam" move the message across the Junk boundary. Only
-	// one is wired at a time, decided by the mailbox the message itself is in —
-	// not by the list the user happens to be looking at, which for a search or a
-	// cross-account view names a different folder (issue #594).
-	const { junkMailboxId } = useJunkMailbox(accountId);
-	const { inboxMailboxId } = useInboxMailbox(accountId);
-	const { moveMessages, isError: moveFailed } = useMoveMessages({
+	// "Report spam" / "Not spam" are a contextual pair, decided by whether the
+	// message carries a spam report — never by the mailbox it's in (issue #648).
+	const { reportSpam, notSpam, isReporting, isRestoring } = useReportSpam({
 		mailboxId: thread.mailboxId,
 		threadId: thread.threadId,
 		accountId,
+		onAfterOptimisticRemove,
 	});
 	const telemetry = useTelemetry();
-	const [lastMove, setLastMove] = useState<
-		{ messageId: string; mailboxId: string } | undefined
-	>(undefined);
-
-	// Spent while the row this panel is rendering still names the mailbox the
-	// move took the message OUT of. It resolves itself: a row that has caught up
-	// with the move offers the actions again, and a move that comes back failed
-	// is rolled back with a banner, so the retry is against the same button.
-	const spamAction = resolveSpamAction({
-		mailboxId: thread.mailboxId,
-		junkMailboxId,
-		inboxMailboxId,
-		moveApplied:
-			!moveFailed &&
-			lastMove?.messageId === thread.messageId &&
-			lastMove.mailboxId !== thread.mailboxId,
-	});
+	const spamAction = resolveSpamAction(thread);
 
 	const handleNotSpam = useCallback(() => {
-		if (!inboxMailboxId) return;
-		setLastMove({ messageId: thread.messageId, mailboxId: inboxMailboxId });
-		moveMessages([thread.messageId], inboxMailboxId);
-	}, [inboxMailboxId, moveMessages, thread.messageId]);
+		notSpam([thread.messageId]);
+	}, [notSpam, thread.messageId]);
 
-	const handleMarkSpam = useCallback(() => {
-		if (!junkMailboxId) return;
+	const handleReportSpam = useCallback(() => {
 		recordRescueSentToJunk(telemetry, {
 			count: 1,
 			senderTrust: thread.senderTrust,
 			wasRescuable: isRescueCandidate(thread),
 		});
-		setLastMove({ messageId: thread.messageId, mailboxId: junkMailboxId });
-		moveMessages([thread.messageId], junkMailboxId);
-	}, [junkMailboxId, moveMessages, thread, telemetry]);
+		reportSpam([thread.messageId]);
+	}, [reportSpam, thread, telemetry]);
 
 	const handleShowSimilar = useCallback(() => {
 		// The similar-messages section scrolls into view automatically when
@@ -308,20 +278,6 @@ function WiredPanel({
 		const next = !(data?.flags?.muted === true);
 		updateFlags({ muted: { value: next } });
 	}, [data?.flags?.muted, updateFlags]);
-
-	const handleToggleBlock = useCallback(() => {
-		if (data?.flags?.blocked === true) {
-			// Unblock — no confirm needed
-			updateFlags({ blocked: { value: false } });
-		} else {
-			setConfirmBlock(true);
-		}
-	}, [data?.flags?.blocked, updateFlags]);
-
-	const handleBlockConfirm = useCallback(() => {
-		setConfirmBlock(false);
-		updateFlags({ blocked: { value: true } });
-	}, [updateFlags]);
 
 	const handleToggleUnsubscribe = useCallback(() => {
 		const next = !(data?.flags?.unsubscribed === true);
@@ -344,11 +300,10 @@ function WiredPanel({
 	const actions: IntelligenceQuickActions = {
 		onToggleVip: canUpdateFlags ? handleToggleVip : undefined,
 		onToggleMute: canUpdateFlags ? handleToggleMute : undefined,
-		onToggleBlock: canUpdateFlags ? handleToggleBlock : undefined,
 		onToggleUnsubscribe: canUpdateFlags ? handleToggleUnsubscribe : undefined,
 		onReclassify: canUpdateFlags ? () => setReclassifyOpen(true) : undefined,
 		onNotSpam: spamAction === "notSpam" ? handleNotSpam : undefined,
-		onMarkSpam: spamAction === "markSpam" ? handleMarkSpam : undefined,
+		onReportSpam: spamAction === "reportSpam" ? handleReportSpam : undefined,
 	};
 
 	// Each similar-message row is a real router anchor — same link shape as a
@@ -392,20 +347,12 @@ function WiredPanel({
 				actions={actions}
 				similarState={similarState}
 				similarLinkComponent={similarLinkComponent}
+				reportSpamPending={isReporting}
+				notSpamPending={isRestoring}
 				// No left border: the ResizableHandle to our left already draws the
 				// hairline seam. The remit-ui IntelligencePanel default `border-l`
 				// would double it to 2px.
 				className="border-l-0 h-full w-full"
-			/>
-			<ConfirmDialog
-				isOpen={confirmBlock}
-				title="Block this sender?"
-				description={`Messages from ${senderEmail ?? "this sender"} will never load images and will be flagged. You can undo this in Settings → Senders.`}
-				confirmLabel="Block sender"
-				destructive
-				isBusy={isPending}
-				onConfirm={handleBlockConfirm}
-				onCancel={() => setConfirmBlock(false)}
 			/>
 			<ReclassifyDialog
 				isOpen={reclassifyOpen}
@@ -433,6 +380,7 @@ export const IntelligencePane = ({
 	mailboxId,
 	accountId,
 	hideCloseButton,
+	onAfterOptimisticRemove,
 }: IntelligencePaneProps) => {
 	if (!thread) {
 		return (
@@ -461,6 +409,7 @@ export const IntelligencePane = ({
 			mailboxId={mailboxId}
 			accountId={accountId}
 			hideCloseButton={hideCloseButton}
+			onAfterOptimisticRemove={onAfterOptimisticRemove}
 		/>
 	);
 };

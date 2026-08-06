@@ -36,6 +36,19 @@ export const FilterMoveWithManageLink: Story = {
 	},
 };
 
+/**
+ * A user-reported spam message (issue #648). Independent of the classifier/
+ * filter-move shapes above: the badge follows the message wherever it now
+ * lives, including a report that never moved the message at all (it was
+ * already in Junk).
+ */
+export const ReportedAsSpam: Story = {
+	args: {
+		label: "Reported as spam",
+		onUndo: () => alert("Undo"),
+	},
+};
+
 export const SideBySide: Story = {
 	render: () => (
 		<div className="flex flex-col items-start gap-3">
