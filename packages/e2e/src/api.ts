@@ -345,6 +345,14 @@ export class ApiClient {
 		return result.message;
 	}
 
+	/** The same read/star PATCH the reading pane issues — proves outbound flag push works at all. */
+	updateMessageFlags(
+		messageId: string,
+		input: { isRead?: boolean; isStarred?: boolean },
+	): Promise<{ messageId: string; isRead: boolean; isStarred: boolean }> {
+		return this.json("PATCH", `/messages/${messageId}/flags`, input);
+	}
+
 	/**
 	 * The first account's outbox, paged to exhaustion the way
 	 * `searchMatchingMessageIds` pages, narrowed to what a spec may take back:

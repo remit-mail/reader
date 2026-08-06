@@ -610,6 +610,35 @@ export class MessageMoveService {
 	};
 
 	/**
+	 * Repair a message's local Message + ThreadMessage rows after a move that
+	 * never actually reached the server (its retries exhausted, `syncStatus:
+	 * failed`) — no IMAP mutation, since nothing ever moved on the server side.
+	 * Corrects the local optimistic write back to `mailboxId`, the folder the
+	 * message genuinely still sits in.
+	 *
+	 * @param mailboxId - The folder to repair the local row back to (the
+	 * message's own `originalMailboxId`, resolved by the caller).
+	 */
+	repairUnsettledMove = async (
+		accountConfigId: string,
+		messageId: string,
+		mailboxId: string,
+	): Promise<void> => {
+		await this.messageService.updateForMove(messageId, {
+			mailboxId,
+			status: MessageStatus.active,
+			syncStatus: MessageSyncStatus.synced,
+		});
+
+		await this.updateThreadMessageForMove(
+			accountConfigId,
+			messageId,
+			mailboxId,
+			false,
+		);
+	};
+
+	/**
 	 * Empty the Trash mailbox (permanent delete all).
 	 *
 	 * @param accountId - Account ID

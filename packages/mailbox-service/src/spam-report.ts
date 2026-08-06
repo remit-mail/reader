@@ -7,7 +7,6 @@ import type {
 import {
 	AddressRole,
 	MessageKeywordFlag,
-	MessageStatus,
 	MessageSyncStatus,
 } from "@remit/domain-enums";
 import type { FlagPushService } from "./flag-push.js";
@@ -135,25 +134,32 @@ export class SpamReportService {
 
 		const message = await this.messageService.get(messageId);
 
-		if (message.syncStatus === MessageSyncStatus.failed) {
-			// The move to Junk never reached the server (its retries exhausted) —
-			// the server still has the message at `originalMailboxId`. Repair the
-			// local optimistic write directly instead of calling `restoreMessage`,
-			// which would enqueue a second, bogus IMAP move for a message that
-			// never left its original folder.
-			if (message.originalMailboxId) {
-				await this.messageService.updateForMove(messageId, {
-					mailboxId: message.originalMailboxId,
-					status: MessageStatus.active,
-					syncStatus: MessageSyncStatus.synced,
-				});
+		if (message.originalMailboxId) {
+			if (message.syncStatus === MessageSyncStatus.failed) {
+				// The move to Junk never reached the server (its retries
+				// exhausted) — the server still has the message at
+				// `originalMailboxId`. Repair the local Message + ThreadMessage
+				// rows directly instead of calling `restoreMessage`, which would
+				// enqueue a second, bogus IMAP move for a message that never left
+				// its original folder.
+				await this.messageMoveService.repairUnsettledMove(
+					accountConfigId,
+					messageId,
+					message.originalMailboxId,
+				);
+			} else {
+				await this.messageMoveService.restoreMessage(
+					accountConfigId,
+					messageId,
+					accountId,
+				);
 			}
-		} else if (message.originalMailboxId) {
-			await this.messageMoveService.restoreMessage(
-				accountConfigId,
-				messageId,
-				accountId,
-			);
+
+			// Both paths above behave like `moveMessage`, which unconditionally
+			// rewrites `originalMailboxId` to wherever the message just came
+			// from (Junk) — clear it so a repeated notSpam finds nothing left to
+			// restore, instead of moving the message right back to Junk.
+			await this.messageService.clearOriginalMailboxId(messageId);
 		}
 
 		const current = await this.messageService.get(messageId);

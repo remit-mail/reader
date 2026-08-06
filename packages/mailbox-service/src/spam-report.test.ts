@@ -41,6 +41,7 @@ interface World {
 	service: SpamReportService;
 	messages: Map<string, Record<string, unknown>>;
 	addresses: Map<string, { flags: AddressFlags }>;
+	threadRows: ThreadRow[];
 	sent: unknown[];
 	sqsImpl: { send: (command: unknown) => Promise<unknown> };
 	markerPuts: Array<Record<string, unknown>>;
@@ -145,6 +146,14 @@ const buildWorld = (
 		clearSpamReport: async (id: string) => {
 			const m = messages.get(id);
 			if (m) delete m.spamReport;
+			return m;
+		},
+		clearOriginalMailboxId: async (id: string) => {
+			const m = messages.get(id);
+			if (m) {
+				delete m.originalMailboxId;
+				delete m.originalUid;
+			}
 			return m;
 		},
 	} as unknown as IMessageRepository;
@@ -267,7 +276,15 @@ const buildWorld = (
 		flagPushService,
 	});
 
-	return { service, messages, addresses, sent, sqsImpl, markerPuts };
+	return {
+		service,
+		messages,
+		addresses,
+		threadRows,
+		sent,
+		sqsImpl,
+		markerPuts,
+	};
 };
 
 const moveEvents = (sent: unknown[]) =>
@@ -419,8 +436,8 @@ describe("SpamReportService.notSpam", () => {
 		assert.equal(address?.flags.blocked, undefined);
 	});
 
-	it("repairs local state instead of enqueuing a second move when the original move failed asynchronously", async () => {
-		const { service, messages, addresses, sent } = buildWorld();
+	it("repairs local Message AND ThreadMessage state instead of enqueuing a second move when the original move failed asynchronously", async () => {
+		const { service, messages, addresses, threadRows, sent } = buildWorld();
 
 		await service.reportSpam({
 			accountConfigId: ACCOUNT_CONFIG,
@@ -449,8 +466,42 @@ describe("SpamReportService.notSpam", () => {
 		assert.equal(message.mailboxId, INBOX_MAILBOX);
 		assert.equal(message.syncStatus, "synced");
 		assert.equal(message.spamReport, undefined);
+		assert.equal(message.originalMailboxId, undefined);
+
+		// List views render from ThreadMessage, not Message — a repair that
+		// only touched the Message row would leave the list showing the
+		// message in Junk forever.
+		const threadRow = threadRows.find((r) => r.messageId === MESSAGE_ID);
+		assert.equal(threadRow?.mailboxId, INBOX_MAILBOX);
 
 		const address = addresses.get(ADDRESS_ID);
 		assert.equal(address?.flags.blocked, undefined);
+	});
+
+	it("is idempotent under a double press — a second undo does not re-junk the message", async () => {
+		const { service, messages, sent } = buildWorld();
+
+		await service.reportSpam({
+			accountConfigId: ACCOUNT_CONFIG,
+			accountId: ACCOUNT,
+			messageId: MESSAGE_ID,
+		});
+		await service.notSpam({
+			accountConfigId: ACCOUNT_CONFIG,
+			accountId: ACCOUNT,
+			messageId: MESSAGE_ID,
+		});
+		await service.notSpam({
+			accountConfigId: ACCOUNT_CONFIG,
+			accountId: ACCOUNT,
+			messageId: MESSAGE_ID,
+		});
+
+		const message = messages.get(MESSAGE_ID);
+		assert.equal(message?.mailboxId, INBOX_MAILBOX);
+		assert.equal(message?.originalMailboxId, undefined);
+		// INBOX->Junk (report), Junk->INBOX (undo #1) — undo #2 must not add a
+		// third INBOX->Junk move.
+		assert.equal(moveEvents(sent).length, 2);
 	});
 });

@@ -13,12 +13,17 @@
  */
 import { ApiClient, waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
-import { appendMessages, waitForServerMailbox } from "../src/imap.js";
+import {
+	appendMessages,
+	serverFlagsForSubject,
+	waitForServerMailbox,
+} from "../src/imap.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
 
 const STAMP = Date.now();
 const SUBJECT = `Report spam ${STAMP}`;
 const SENDER_EMAIL = `spammer-${STAMP}@remit.test`;
+const READ_SUBJECT = `Report spam read-flag control ${STAMP}`;
 
 const junkMailboxId = async (
 	api: ApiClient,
@@ -47,6 +52,10 @@ test.describe("Report spam", () => {
 				from: `Spammer <${SENDER_EMAIL}>`,
 				body: `Body of ${SUBJECT}.`,
 			},
+			// A second, unrelated message for the outbound-flag-push regression
+			// check below — kept separate from the report-spam flow so that test
+			// asserts nothing but the read flag actually reaching the server.
+			{ subject: READ_SUBJECT, body: `Body of ${READ_SUBJECT}.` },
 		]);
 		await api.triggerSync(run.accountId);
 	});
@@ -86,6 +95,17 @@ test.describe("Report spam", () => {
 			(subjects) => !subjects.includes(SUBJECT),
 			{ what: `"${SUBJECT}" to leave the inbox` },
 		);
+
+		// The move landing is not the same thing as the $Junk keyword landing —
+		// they are two independent mutations (MessageMoveService + FlagPushService),
+		// and the one mechanism this rework changed (the imap-worker's outbound
+		// flag-push guard) is proven only by checking the keyword itself.
+		const junkFlags = await waitFor(
+			() => serverFlagsForSubject(run.imapUser, "Junk", SUBJECT),
+			(flags) => flags.includes("$Junk"),
+			{ timeoutMs: 60_000, what: `"${SUBJECT}" to carry $Junk on the server` },
+		);
+		expect(junkFlags).toContain("$Junk");
 
 		// The sender block was written before the move and must not have been
 		// rolled back once the move settled.
@@ -150,5 +170,38 @@ test.describe("Report spam", () => {
 		);
 		expect(undone.spamReport).toBeUndefined();
 		expect(undone.mailboxId).toBe(run.inboxId);
+	});
+
+	// Not about report-spam itself — this is the real guard. The imap-worker's
+	// outbound flag-push handler is shared by every read/star flip in the
+	// product (flag-queue.ts -> FlagPushService.flip -> FLAG_PUSH), and this
+	// rework changed the one guard that gates it. Nothing else in the suite
+	// asserts that outbound flag push reaches the server at all, which is
+	// exactly why a change that silently disabled it for every ordinary
+	// message went green.
+	test("marking a message read pushes \\Seen to the server", async () => {
+		test.setTimeout(120_000);
+
+		const thread = await waitFor(
+			() => api.listThreads(run.inboxId),
+			(items) => items.some((t) => t.subject === READ_SUBJECT),
+			{ timeoutMs: 60_000, what: `"${READ_SUBJECT}" to sync into the inbox` },
+		).then((items) => {
+			const match = items.find((t) => t.subject === READ_SUBJECT);
+			if (!match) throw new Error("unreachable: matched but not found");
+			return match;
+		});
+
+		await api.updateMessageFlags(thread.messageId, { isRead: true });
+
+		const flags = await waitFor(
+			() => serverFlagsForSubject(run.imapUser, "INBOX", READ_SUBJECT),
+			(f) => f.includes("\\Seen"),
+			{
+				timeoutMs: 60_000,
+				what: `"${READ_SUBJECT}" to carry \\Seen on the server`,
+			},
+		);
+		expect(flags).toContain("\\Seen");
 	});
 });

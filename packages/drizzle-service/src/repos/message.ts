@@ -450,6 +450,17 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		return this.get(messageId);
 	}
 
+	async clearOriginalMailboxId(
+		messageId: string,
+	): ReturnType<IMessageRepository["clearOriginalMailboxId"]> {
+		const now = Date.now();
+		await this.db
+			.update(messageTable)
+			.set({ originalMailboxId: null, originalUid: null, updatedAt: now })
+			.where(eq(messageTable.messageId, messageId));
+		return this.get(messageId);
+	}
+
 	async delete(messageId: string): Promise<void> {
 		await this.deleteMany([messageId]);
 	}

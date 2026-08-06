@@ -952,9 +952,10 @@ export const MessageBulkOperations: Record<
 	MessageBulkOperations_reportSpam: async (context, ...args: unknown[]) => {
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
-		const { messageIds } = context.request.requestBody as {
+		const { messageIds: requestedIds } = context.request.requestBody as {
 			messageIds: string[];
 		};
+		const messageIds = [...new Set(requestedIds)];
 
 		if (messageIds.length === 0) {
 			return { successCount: 0, failureCount: 0 };
@@ -969,27 +970,33 @@ export const MessageBulkOperations: Record<
 		);
 		const setBy = getSubFromEvent(event) ?? accountConfigId;
 
+		let successCount = 0;
+		let failureCount = 0;
 		for (const messageId of messageIds) {
-			await client.spamReport.reportSpam({
-				accountConfigId,
-				accountId,
-				messageId,
-				setBy,
-			});
+			await client.spamReport
+				.reportSpam({ accountConfigId, accountId, messageId, setBy })
+				.then(() => {
+					successCount += 1;
+				})
+				.catch((error: unknown) => {
+					failureCount += 1;
+					logger.error(
+						{ accountId, messageId, error },
+						"report-spam failed for one message",
+					);
+				});
 		}
 
-		return {
-			successCount: messageIds.length,
-			failureCount: 0,
-		};
+		return { successCount, failureCount };
 	},
 
 	MessageBulkOperations_notSpam: async (context, ...args: unknown[]) => {
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
-		const { messageIds } = context.request.requestBody as {
+		const { messageIds: requestedIds } = context.request.requestBody as {
 			messageIds: string[];
 		};
+		const messageIds = [...new Set(requestedIds)];
 
 		if (messageIds.length === 0) {
 			return { successCount: 0, failureCount: 0 };
@@ -1003,17 +1010,23 @@ export const MessageBulkOperations: Record<
 			"act",
 		);
 
+		let successCount = 0;
+		let failureCount = 0;
 		for (const messageId of messageIds) {
-			await client.spamReport.notSpam({
-				accountConfigId,
-				accountId,
-				messageId,
-			});
+			await client.spamReport
+				.notSpam({ accountConfigId, accountId, messageId })
+				.then(() => {
+					successCount += 1;
+				})
+				.catch((error: unknown) => {
+					failureCount += 1;
+					logger.error(
+						{ accountId, messageId, error },
+						"not-spam failed for one message",
+					);
+				});
 		}
 
-		return {
-			successCount: messageIds.length,
-			failureCount: 0,
-		};
+		return { successCount, failureCount };
 	},
 };
