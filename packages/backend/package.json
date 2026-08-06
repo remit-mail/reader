@@ -50,7 +50,7 @@
     "@types/swagger-ui-express": "^4.1.8",
     "better-sqlite3": "^12.11.1",
     "electrodb": "*",
-    "esbuild": "^0.27.7",
+    "esbuild": "^0.28.1",
     "express": "^5.1.0",
     "swagger-ui-express": "^5.0.1",
     "tsx": "*"
