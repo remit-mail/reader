@@ -281,12 +281,14 @@ function AccountsSettings() {
 	// landing, wherever it was finished, and that is what the watch above was
 	// waiting for. A muted or otherwise unhealthy account still counts: the
 	// reconnect answered, whatever else is true of the account.
+	// An account that has left the config entirely ends it too: there is nothing
+	// left to reconnect and nothing left to watch for.
 	useEffect(() => {
-		if (!reconnectingAccountId) return;
-		const account = config?.accounts.find(
+		if (!reconnectingAccountId || !config) return;
+		const account = config.accounts.find(
 			(candidate) => candidate.accountId === reconnectingAccountId,
 		);
-		if (account && !needsReauth(account)) setReconnectingAccountId(null);
+		if (!account || !needsReauth(account)) setReconnectingAccountId(null);
 	}, [config, reconnectingAccountId]);
 
 	const reconnectMutation = useMutation({

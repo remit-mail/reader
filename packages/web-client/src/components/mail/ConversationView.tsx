@@ -324,11 +324,24 @@ export const ConversationView = ({
 
 	// Single-pane compose opens below the message, which on a long one is several
 	// screens down: without this, replying to it looks like nothing happening.
+	//
+	// Aligned on its bottom edge, where the send and discard verbs are, and held
+	// there while it changes height. It mounts before the message it quotes has
+	// been fetched and grows when that lands, so a single scroll at open time
+	// puts whatever it grows past back below the fold.
 	const composeRef = useRef<HTMLDivElement>(null);
 	useEffect(() => {
-		if (composeOpenings === 0) return;
-		composeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-	}, [composeOpenings]);
+		if (composeMode === null || composeOpenings === 0) return;
+		const surface = composeRef.current;
+		if (!surface) return;
+		const reveal = () =>
+			surface.scrollIntoView({ behavior: "smooth", block: "end" });
+		reveal();
+		if (typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver(reveal);
+		observer.observe(surface);
+		return () => observer.disconnect();
+	}, [composeOpenings, composeMode]);
 
 	// Register keyboard shortcuts
 	useKeyboardNavigation({

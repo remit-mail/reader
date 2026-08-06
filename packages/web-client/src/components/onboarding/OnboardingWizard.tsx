@@ -306,6 +306,10 @@ function StepMicrosoftEmail({
 	const startMutation = useMutation({
 		...microsoftOAuthOperationsMicrosoftOAuthStartMutation(),
 		onSuccess: (data) => {
+			// The window leaves here, but it can come back to this same state —
+			// bfcache restores it intact — and it has to come back to a button that
+			// can be pressed again.
+			setPreparing(false);
 			setAwaitingReturn(true);
 			window.location.assign(data.authorizationUrl);
 		},

@@ -305,35 +305,57 @@ export class ApiClient {
 	}
 
 	/**
-	 * Delete messages the same way the bulk-delete toolbar does. Specs use it to
-	 * clean up scratch fixtures a UI-driven delete didn't reach.
-	 */
-	/**
-	 * The drafts this account holds. Compose autosaves, so a spec that opens it
-	 * leaves one behind; the suite shares one account, so it takes it away again
-	 * through the API rather than through a UI it has finished with.
+	 * Every draft the account holds, paged to exhaustion the way
+	 * `searchMatchingMessageIds` pages. Compose autosaves, so a spec that opens
+	 * it leaves a draft behind and the shared account carries it into every
+	 * later spec. Drafts only: a queued or sent message is not a spec's to
+	 * remove, and the server refuses to delete one.
 	 */
 	async listDrafts(): Promise<
 		Array<{ outboxMessageId: string; subject: string }>
 	> {
-		const page = await this.json<{
-			items: Array<{ outboxMessageId: string; subject?: string }>;
-		}>("GET", "/outbox");
-		return page.items.map((item) => ({
-			outboxMessageId: item.outboxMessageId,
-			subject: item.subject ?? "",
-		}));
+		const drafts: Array<{ outboxMessageId: string; subject: string }> = [];
+		let continuationToken: string | undefined;
+		do {
+			const query = continuationToken
+				? `?continuationToken=${encodeURIComponent(continuationToken)}`
+				: "";
+			const page = await this.json<{
+				items: Array<{
+					outboxMessageId: string;
+					subject?: string;
+					status: string;
+				}>;
+				continuationToken?: string;
+			}>("GET", `/outbox${query}`);
+			for (const item of page.items) {
+				if (item.status !== "draft") continue;
+				drafts.push({
+					outboxMessageId: item.outboxMessageId,
+					subject: item.subject ?? "",
+				});
+			}
+			continuationToken = page.continuationToken;
+		} while (continuationToken);
+		return drafts;
 	}
 
+	/**
+	 * A draft already gone is the outcome this asks for, so a 404 is a pass: the
+	 * app's own discard races this sweep and usually wins.
+	 */
 	async deleteDraft(outboxMessageId: string): Promise<void> {
 		const response = await this.request("DELETE", `/outbox/${outboxMessageId}`);
-		if (!response.ok) {
-			throw new Error(
-				`DELETE /outbox/${outboxMessageId} failed: ${response.status}`,
-			);
-		}
+		if (response.ok || response.status === 404) return;
+		throw new Error(
+			`DELETE /outbox/${outboxMessageId} failed: ${response.status} ${await response.text()}`,
+		);
 	}
 
+	/**
+	 * Delete messages the same way the bulk-delete toolbar does. Specs use it to
+	 * clean up scratch fixtures a UI-driven delete didn't reach.
+	 */
 	deleteMessages(messageIds: string[]): Promise<{
 		successCount: number;
 		failureCount: number;
