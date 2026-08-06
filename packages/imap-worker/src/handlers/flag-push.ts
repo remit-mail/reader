@@ -1,10 +1,10 @@
 import { getClient } from "@remit/backend/client";
-import { MessageStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { recordImapFailure } from "@remit/logger-lambda";
 import {
 	guardConnectionCursor,
 	isCursorRebuildNeeded,
+	isPlacementUnsettled,
 	MailboxCursorPausedError,
 	resolveExhaustedFlagPushFailure,
 } from "@remit/mailbox-service";
@@ -132,16 +132,14 @@ export const handleFlagPush = async (
 		return;
 	}
 
-	// The message carries a move still in flight — its `mailboxId`/`uid` are
-	// the local optimistic write `MessageMoveService` made before enqueueing
-	// the IMAP MOVE, not yet confirmed by the server, so a STORE resolved
-	// against this row right now would land on the wrong UID or the wrong
-	// folder (or both). `syncStatus` is NOT the right signal here: an ordinary
-	// freshly-synced inbound row is `pending` too (nothing on the inbound path
-	// ever promotes it to `synced`), so keying off it would defer every
-	// outbound flag push in the product forever. `status === moving` is set
-	// only by an actual move/delete-to-trash and cleared only once it settles.
-	if (message.status === MessageStatus.moving) {
+	// The message carries a move still in flight — `MessageMoveService`'s or
+	// `PlacementMoveService`'s local optimistic write, not yet confirmed by the
+	// server. A STORE resolved against this row addresses the destination
+	// folder at the SOURCE folder's uid: a different message (issue #496). This
+	// is the wait half of the wait-or-reconcile decision
+	// (docs/architecture/imap-mutations.md R2) — the push blocks until the move
+	// it depends on settles.
+	if (isPlacementUnsettled(message)) {
 		const deferredForMs = Date.now() - marker.createdAt;
 
 		if (deferredForMs > FLAG_PUSH_DEFER_MAX_MS) {
