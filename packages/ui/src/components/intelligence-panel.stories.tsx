@@ -198,31 +198,51 @@ export const WithSimilarMessages: Story = {
 };
 
 /**
- * The spam quick actions are symmetric and mutually exclusive, decided by the
- * mailbox the message is in. A message sitting in Junk is offered the way out.
+ * The spam quick actions are a contextual pair, decided by whether the message
+ * carries a spam report — never by the mailbox it happens to sit in, since a
+ * report on a message already in Junk (the provider's own filter put it there)
+ * is a real, no-op-move case (issue #648). A reportable message offers
+ * "Report spam".
  */
-export const InJunk: Story = {
+export const Reportable: Story = {
 	args: {
 		data: base,
-		actions: { onNotSpam: () => {} },
-	},
-};
-
-/** The inverse, for a message anywhere else. */
-export const OutsideJunk: Story = {
-	args: {
-		data: base,
-		actions: { onMarkSpam: () => {} },
+		actions: { onReportSpam: () => {} },
 	},
 };
 
 /**
- * The move has been made. Neither action is offered: pressing the one that just
- * ran would ask the mail server to move the message to where it already is.
+ * Already reported: the sender is blocked, so "Not spam" (the undo) is
+ * offered instead, and the panel names the sender as reported.
  */
-export const SpamActionSpent: Story = {
+export const Reported: Story = {
+	args: {
+		data: { ...base, flags: { blocked: true } },
+		actions: { onNotSpam: () => {} },
+	},
+};
+
+/**
+ * Neither action is offered — the sender's address record hasn't resolved
+ * yet, so there's nothing to service a press with (issue #51's disabled-not-dead
+ * rule applies to the pair as a whole, not just VIP/Mute/Unsubscribe).
+ */
+export const SpamActionUnavailable: Story = {
 	args: {
 		data: base,
 		actions: {},
+	},
+};
+
+/**
+ * The last report-spam attempt failed. A dead button is the worst outcome, so
+ * the failure renders inline under the quick actions rather than only in a
+ * toast the user may have already looked away from (issue #648).
+ */
+export const SpamActionFailed: Story = {
+	args: {
+		data: base,
+		actions: { onReportSpam: () => {} },
+		spamActionError: "Couldn't report this message as spam. Try again.",
 	},
 };

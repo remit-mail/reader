@@ -7,6 +7,7 @@ import {
 	autoMovedLabel,
 	isAutoMoveInEffect,
 	resolveUndoTargetMailboxId,
+	spamReportLabel,
 } from "./auto-moved.js";
 
 const ROLE_MAILBOXES: AutoMovedRoleMailboxes = {
@@ -76,6 +77,13 @@ describe("autoMovedLabel", () => {
 				/confiden|dry.?run|verdict/i,
 			);
 		}
+	});
+});
+
+describe("spamReportLabel (#648)", () => {
+	test("plain language, no folder or jargon", () => {
+		assert.equal(spamReportLabel, "Reported as spam");
+		assert.doesNotMatch(spamReportLabel, /confiden|dry.?run|verdict|junk/i);
 	});
 });
 

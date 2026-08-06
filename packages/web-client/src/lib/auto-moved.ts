@@ -73,6 +73,15 @@ export const isAutoMoveInEffect = (
 };
 
 /**
+ * Plain-language label for a user-initiated spam report (issue #648).
+ * Deliberately not derived from placement the way `autoMovedLabel` is: a
+ * report on a message already in Junk (the provider's own filter put it
+ * there) is a real, no-op-move case, so the badge can't name a "from" folder
+ * the way a classifier/filter move can.
+ */
+export const spamReportLabel = "Reported as spam";
+
+/**
  * Resolve the undo destination: where the message was before the move. A
  * standing-filter move recorded the exact source mailbox (`fromMailboxId`),
  * used verbatim. A classifier move recorded only a role (`fromPlacement`,

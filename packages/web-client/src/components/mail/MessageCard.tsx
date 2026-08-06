@@ -198,15 +198,17 @@ const ExpandedCard = ({
 	const fromAddressId = messageData?.envelope.from[0]?.addressId;
 	const message = toThreadMessageData(threadMessage, date);
 
-	const autoMovedNode = threadMessage.autoMoved ? (
-		<AutoMovedIndicator
-			accountId={accountId}
-			messageId={threadMessage.messageId}
-			threadId={threadMessage.threadId}
-			mailboxId={threadMessage.mailboxId}
-			autoMoved={threadMessage.autoMoved}
-		/>
-	) : null;
+	const autoMovedNode =
+		threadMessage.autoMoved || threadMessage.spamReport ? (
+			<AutoMovedIndicator
+				accountId={accountId}
+				messageId={threadMessage.messageId}
+				threadId={threadMessage.threadId}
+				mailboxId={threadMessage.mailboxId}
+				autoMoved={threadMessage.autoMoved}
+				spamReport={threadMessage.spamReport}
+			/>
+		) : null;
 
 	return (
 		<ExpandedMessage

@@ -1,5 +1,4 @@
 import {
-	Ban,
 	BellOff,
 	MailCheck,
 	MailX,
@@ -112,6 +111,13 @@ export type SimilarMessageLinkComponent = (
 export interface SenderFlagsIntel {
 	vip?: boolean;
 	muted?: boolean;
+	/**
+	 * True once the sender has been blocked — via a spam report or a manual
+	 * block in Settings → Senders. Drives the "Not spam" quick action's active
+	 * state and a "You reported this sender" line. Never true for a report on
+	 * a message forged from the user's own address: the backend deliberately
+	 * writes no sender block in that case (issue #648).
+	 */
 	blocked?: boolean;
 	unsubscribed?: boolean;
 }
@@ -127,20 +133,21 @@ export interface IntelligenceData {
 export interface IntelligenceQuickActions {
 	onToggleVip?: () => void;
 	onToggleMute?: () => void;
-	/** Block navigates through a confirm dialog — the callback fires post-confirm. */
-	onToggleBlock?: () => void;
 	onToggleUnsubscribe?: () => void;
 	onReclassify?: () => void;
 	/**
-	 * "Not spam": move the message out of Junk and promote the sender to
-	 * Wellknown (issue #594). Wired only when the message is currently in Junk.
+	 * "Not spam": undo a spam report — clears the sender block and moves the
+	 * message back where it came from (issue #648). Wired only when the
+	 * message currently carries a spam report.
 	 */
 	onNotSpam?: () => void;
 	/**
-	 * "Mark spam": move the message into Junk and strip the sender's trust
-	 * (the inverse of "Not spam"). Wired only when the message is not in Junk.
+	 * "Report spam": move the message into Junk and block the sender (the
+	 * inverse of "Not spam", issue #648). Wired only when the message has not
+	 * been reported yet. Replaces the former separate `Block` and `Mark spam`
+	 * actions with one contextual control.
 	 */
-	onMarkSpam?: () => void;
+	onReportSpam?: () => void;
 }
 
 /**
@@ -173,6 +180,14 @@ export interface IntelligencePanelProps {
 	 * Drawer header), so there is exactly one way back (#874).
 	 */
 	hideCloseButton?: boolean;
+	/**
+	 * Set when the last "Report spam" / "Not spam" attempt failed, e.g.
+	 * "Couldn't report this message as spam. Try again." Renders inline under
+	 * the quick actions so the failure is visible at the point of the press,
+	 * not only in a toast the user may have looked away from — a dead button
+	 * is the worst outcome (issue #648). Omit when there is nothing to show.
+	 */
+	spamActionError?: string;
 }
 
 const trustLabel: Record<
@@ -362,6 +377,7 @@ export function IntelligencePanel({
 	similarLinkComponent,
 	className,
 	hideCloseButton = false,
+	spamActionError,
 }: IntelligencePanelProps) {
 	const { sender, authenticity, category, flags = {}, similar } = data;
 	const suspicious = authenticity.verdict === "mismatch";
@@ -434,35 +450,37 @@ export function IntelligencePanel({
 						active={flags.muted}
 						onClick={actions?.onToggleMute}
 					/>
-					<QuickAction
-						icon={<Ban className="size-3.5" />}
-						label="Block"
-						active={flags.blocked}
-						danger
-						onClick={actions?.onToggleBlock}
-					/>
+					{actions?.onNotSpam && (
+						<QuickAction
+							icon={<MailCheck className="size-3.5" />}
+							label="Not spam"
+							active={flags.blocked}
+							onClick={actions.onNotSpam}
+						/>
+					)}
+					{actions?.onReportSpam && (
+						<QuickAction
+							icon={<ShieldX className="size-3.5" />}
+							label="Report spam"
+							danger
+							onClick={actions.onReportSpam}
+						/>
+					)}
 					<QuickAction
 						icon={<MailX className="size-3.5" />}
 						label="Unsubscribe"
 						active={flags.unsubscribed}
 						onClick={actions?.onToggleUnsubscribe}
 					/>
-					{actions?.onNotSpam && (
-						<QuickAction
-							icon={<MailCheck className="size-3.5" />}
-							label="Not spam"
-							onClick={actions.onNotSpam}
-						/>
-					)}
-					{actions?.onMarkSpam && (
-						<QuickAction
-							icon={<ShieldX className="size-3.5" />}
-							label="Mark spam"
-							danger
-							onClick={actions.onMarkSpam}
-						/>
-					)}
 				</div>
+				{flags.blocked && (
+					<p className="mt-1.5 text-2xs text-fg-subtle">
+						You reported this sender
+					</p>
+				)}
+				{spamActionError && (
+					<p className="mt-1.5 text-2xs text-danger">{spamActionError}</p>
+				)}
 			</Section>
 
 			{(similarState !== "ready" || similar.length > 0) && (
