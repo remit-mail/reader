@@ -23,6 +23,7 @@ import {
 import {
 	AddressRole,
 	MailboxCursorState,
+	MessageKeywordFlag,
 	MessageSystemFlag,
 	StarColor,
 } from "@remit/domain-enums";
@@ -1025,8 +1026,9 @@ export class MessageSyncService {
 	}
 
 	/**
-	 * Bring a stored row's read and star state in line with the server's
-	 * flags.
+	 * Bring a stored row's read and star state, and the $Junk/$NotJunk
+	 * keywords on the canonical MessageFlag record, in line with the
+	 * server's flags.
 	 *
 	 * A field with a pending outbound push is left alone: the user flipped it
 	 * locally, IMAP has not been told yet, and the server's answer is
@@ -1072,6 +1074,17 @@ export class MessageSyncService {
 				updates.star = StarColor.Yellow;
 			}
 		}
+
+		await this.mirrorKeywordFlag(
+			existing.messageId,
+			MessageKeywordFlag.Junk,
+			flags,
+		);
+		await this.mirrorKeywordFlag(
+			existing.messageId,
+			MessageKeywordFlag.NotJunk,
+			flags,
+		);
 
 		if (Object.keys(updates).length === 0) return;
 
@@ -1155,6 +1168,32 @@ export class MessageSyncService {
 		if (!this.flagPushMarkerService) return false;
 		const marker = await this.flagPushMarkerService.find(messageId, flagName);
 		return marker !== null;
+	}
+
+	/**
+	 * Mirror one RFC 5788 keyword ($Junk / $NotJunk) from the server into the
+	 * canonical MessageFlag record, guarded the same way as the system flags:
+	 * a pending local push wins over the server's known-stale answer.
+	 *
+	 * This mailbox is never remit-only — Apple Mail or another IMAP client is
+	 * routinely connected too — so the keyword is message state, nothing
+	 * more. It never reaches the Address model: reading another client's
+	 * keyword as a standing rule about the sender is the exact fight this
+	 * mirror must not pick.
+	 */
+	private async mirrorKeywordFlag(
+		messageId: string,
+		flagName: string,
+		serverFlags: string[],
+	): Promise<void> {
+		if (!this.messageFlagService) return;
+		if (await this.hasPendingPush(messageId, flagName)) return;
+
+		const present = serverFlags.includes(flagName);
+		const hasFlag = await this.messageFlagService.hasFlag(messageId, flagName);
+		if (hasFlag === present) return;
+
+		await this.setMessageFlag(messageId, flagName, present);
 	}
 
 	/**

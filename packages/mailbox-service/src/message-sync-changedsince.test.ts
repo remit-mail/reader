@@ -14,7 +14,11 @@ import type {
 	UpdateMailboxInput,
 	UpdateThreadMessageInput,
 } from "@remit/data-ports";
-import { MailboxCursorState, MessageSystemFlag } from "@remit/domain-enums";
+import {
+	MailboxCursorState,
+	MessageKeywordFlag,
+	MessageSystemFlag,
+} from "@remit/domain-enums";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
 import type { FlagPushService } from "./flag-push.js";
 import { FlagQueueService } from "./flag-queue.js";
@@ -112,6 +116,8 @@ interface Harness {
 	/** The canonical flag record after the round. */
 	flagStore: Set<string>;
 	messageFlagService: IMessageFlagRepository;
+	/** Method names invoked on the top-level address repository. */
+	addressCalls: string[];
 }
 
 const buildHarness = (options: HarnessOptions): Harness => {
@@ -241,12 +247,29 @@ const buildHarness = (options: HarnessOptions): Harness => {
 		},
 	} as unknown as IMessageFlagRepository;
 
+	// The existing-message path (applyChange -> applyServerFlags) never
+	// touches this repository. Recording every call, rather than leaving the
+	// stub as `{}`, is what makes "$Junk stays message state" an assertion
+	// instead of an assumption a future change could silently break.
+	const addressCalls: string[] = [];
+	const addressRepository = new Proxy(
+		{},
+		{
+			get:
+				(_target, prop: string) =>
+				(..._args: unknown[]) => {
+					addressCalls.push(prop);
+					throw new Error(`unexpected IAddressRepository.${prop} call`);
+				},
+		},
+	) as IAddressRepository;
+
 	const service = new MessageSyncService(
 		connectionFactory,
 		mailboxService,
 		{} as IMessageRepository,
 		{} as IEnvelopeRepository,
-		{} as IAddressRepository,
+		addressRepository,
 		threadMessageService,
 		logger,
 		unitOfWork,
@@ -263,6 +286,7 @@ const buildHarness = (options: HarnessOptions): Harness => {
 		errors,
 		flagStore,
 		messageFlagService,
+		addressCalls,
 	};
 };
 
@@ -600,6 +624,71 @@ describe("MessageSyncService CHANGEDSINCE path", () => {
 			{ flagName: MessageSystemFlag.Seen, operation: "remove" },
 		]);
 		assert.deepEqual([...harness.flagStore], []);
+	});
+});
+
+// $Junk/$NotJunk mirroring (report-spam epic, message-state slice). This
+// mailbox is never remit-only — Apple Mail or another IMAP client is
+// routinely connected too — so a keyword another client set is message
+// state only. It must never become a standing rule about the sender.
+describe("MessageSyncService mirrors $Junk/$NotJunk keywords", () => {
+	it("mirrors a server-side $Junk into the canonical flag record", async () => {
+		const harness = buildHarness({
+			mailbox: mailbox(),
+			supportsCondstore: true,
+			changed: [serverMessage({ flags: [MessageKeywordFlag.Junk] })],
+			storedRows: [storedRow()],
+			storedFlags: [],
+		});
+
+		await syncOnce(harness);
+
+		assert.ok(harness.flagStore.has(MessageKeywordFlag.Junk));
+	});
+
+	it("mirrors a server-side $NotJunk into the canonical flag record", async () => {
+		const harness = buildHarness({
+			mailbox: mailbox(),
+			supportsCondstore: true,
+			changed: [serverMessage({ flags: [MessageKeywordFlag.NotJunk] })],
+			storedRows: [storedRow()],
+			storedFlags: [],
+		});
+
+		await syncOnce(harness);
+
+		assert.ok(harness.flagStore.has(MessageKeywordFlag.NotJunk));
+	});
+
+	it("leaves $Junk alone while its local flip is still owed to IMAP", async () => {
+		const harness = buildHarness({
+			mailbox: mailbox(),
+			supportsCondstore: true,
+			// Server has not seen the local flip yet.
+			changed: [serverMessage({ flags: [] })],
+			storedRows: [storedRow()],
+			storedFlags: [MessageKeywordFlag.Junk],
+			pendingFlags: new Set([MessageKeywordFlag.Junk]),
+		});
+
+		await syncOnce(harness);
+
+		assert.ok(harness.flagStore.has(MessageKeywordFlag.Junk));
+	});
+
+	it("mirroring $Junk leaves the sender's Address record completely untouched", async () => {
+		const harness = buildHarness({
+			mailbox: mailbox(),
+			supportsCondstore: true,
+			changed: [serverMessage({ flags: [MessageKeywordFlag.Junk] })],
+			storedRows: [storedRow()],
+			storedFlags: [],
+		});
+
+		await syncOnce(harness);
+
+		assert.ok(harness.flagStore.has(MessageKeywordFlag.Junk));
+		assert.deepEqual(harness.addressCalls, []);
 	});
 });
 
