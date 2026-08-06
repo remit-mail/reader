@@ -166,6 +166,35 @@ describe("enrichThreadRows — labels", () => {
 	});
 });
 
+describe("enrichThreadRows — spamReport", () => {
+	test("projects spamReport straight from the Message row", async () => {
+		const rows = [threadRow("tm-1", "msg-1")];
+		const client: EnrichClient = {
+			message: {
+				get: async () =>
+					[
+						{
+							messageId: "msg-1",
+							spamReport: { reportedAt: 1_700_000_000_000 },
+						},
+					] as unknown as MessageItem[],
+			},
+			address: { getAddress: async () => [] },
+			messageLabel: { listByMessageIds: async () => [] },
+			label: { listByAccountConfig: async () => [] },
+		};
+
+		const [result] = await enrichThreadRows(rows, client, "acc-1");
+		assert.deepEqual(result?.spamReport, { reportedAt: 1_700_000_000_000 });
+	});
+
+	test("omits spamReport when the Message has never been reported", async () => {
+		const rows = [threadRow("tm-1", "msg-1")];
+		const [result] = await enrichThreadRows(rows, buildClient([], []), "acc-1");
+		assert.equal(result?.spamReport, undefined);
+	});
+});
+
 describe("enrichThreadRows — muted", () => {
 	const SET_AT = 1_700_000_000_000;
 

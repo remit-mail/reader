@@ -260,6 +260,9 @@ model ThreadMessageResponse {
 
   @doc("Labels applied to this message — filter-, organize-, and manually-applied alike (issue #26). Absent/empty means no label is applied.")
   labels?: LabelSummaryResponse[];
+
+  @doc("Present when the user reported this message as spam and the report has not been undone, projected from the underlying Message row. Backs the \"Reported as spam · Undo\" affordance in list views.")
+  spamReport?: MessageSpamReport;
 }
 
 @doc("""

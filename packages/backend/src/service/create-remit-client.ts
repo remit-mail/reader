@@ -417,6 +417,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		spamReport: new SpamReportService({
 			messageService: repositories.message,
 			addressService: repositories.address,
+			accountService: repositories.account,
 			mailboxSpecialUseService: repositories.mailboxSpecialUse,
 			messageMoveService,
 			flagPushService,

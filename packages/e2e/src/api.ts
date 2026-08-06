@@ -74,6 +74,15 @@ export interface Address {
 	addressId: string;
 	normalizedEmail: string;
 	displayName?: string;
+	flags?: {
+		blocked?: { value: boolean };
+	};
+}
+
+export interface MessageSummary {
+	messageId: string;
+	mailboxId: string;
+	spamReport?: { reportedAt: number };
 }
 
 export interface Filter {
@@ -309,6 +318,31 @@ export class ApiClient {
 			messageIds,
 			destinationMailboxId,
 		});
+	}
+
+	/**
+	 * Block the sender and move to Junk in one call — the unified report-spam
+	 * action (replacing the old separate Block + Mark spam).
+	 */
+	reportSpam(
+		messageIds: string[],
+	): Promise<{ successCount: number; failureCount: number }> {
+		return this.json("POST", "/messages/report-spam", { messageIds });
+	}
+
+	/** Undo a report-spam: clear the sender block and restore the original mailbox. */
+	notSpam(
+		messageIds: string[],
+	): Promise<{ successCount: number; failureCount: number }> {
+		return this.json("POST", "/messages/not-spam", { messageIds });
+	}
+
+	async describeMessage(messageId: string): Promise<MessageSummary> {
+		const result = await this.json<{ message: MessageSummary }>(
+			"GET",
+			`/messages/${messageId}`,
+		);
+		return result.message;
 	}
 
 	/**

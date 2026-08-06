@@ -101,8 +101,9 @@ export const planBatchFetch = (rows: ThreadMessageItem[]): BatchPlan => {
 
 /**
  * Enrich a page of ThreadMessage rows with `senderTrust` and `muted` (both
- * derived from the From Address's flags map), `authenticity` and `autoMoved`
- * (both projected from the Message row, see `deriveAutoMoved`).
+ * derived from the From Address's flags map), `authenticity`, `autoMoved` and
+ * `spamReport` (all projected straight from the Message row — no ThreadMessage
+ * column of their own, see `deriveAutoMoved`).
  *
  * `category` is not enriched: it is denormalized onto the ThreadMessage row
  * (shared with `Message.category`'s write-once value, see body-sync.ts) and
@@ -170,6 +171,9 @@ export const enrichThreadRows = async (
 	const autoMovedByMessageId = new Map(
 		messages.map((m) => [m.messageId, deriveAutoMoved(m)]),
 	);
+	const spamReportByMessageId = new Map(
+		messages.map((m) => [m.messageId, m.spamReport]),
+	);
 	const trustByAddressId = new Map(
 		addresses.map((a) => [a.addressId, deriveSenderTrust(a.flags)]),
 	);
@@ -181,6 +185,7 @@ export const enrichThreadRows = async (
 		const base = toResponse(row);
 		const authenticity = authenticityByMessageId.get(row.messageId);
 		const autoMoved = autoMovedByMessageId.get(row.messageId);
+		const spamReport = spamReportByMessageId.get(row.messageId);
 		const addressId = plan.addressIdByRow.get(row.threadMessageId);
 		const senderTrust = addressId
 			? (trustByAddressId.get(addressId) ?? SenderTrust.Unknown)
@@ -194,6 +199,7 @@ export const enrichThreadRows = async (
 			...(authenticity !== undefined ? { authenticity } : {}),
 			...(autoMoved !== undefined ? { autoMoved } : {}),
 			...(labels !== undefined ? { labels } : {}),
+			...(spamReport !== undefined ? { spamReport } : {}),
 			senderTrust,
 			muted,
 		};

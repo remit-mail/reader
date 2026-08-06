@@ -379,6 +379,7 @@ export const MessageOperations: Record<
 			authenticity: message.authenticity,
 			...(autoMoved ? { autoMoved } : {}),
 			...(labels.length > 0 ? { labels } : {}),
+			...(message.spamReport ? { spamReport: message.spamReport } : {}),
 		};
 
 		// Batch-fetch the resolved Address rows so each EnvelopeAddressResponse can

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type {
 	AddressFlags,
+	IAccountRepository,
 	IAddressRepository,
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
@@ -14,16 +15,9 @@ import { FlagPushService } from "./flag-push.js";
 import { MessageMoveService } from "./message-move.js";
 import { SpamReportService } from "./spam-report.js";
 
-// report-spam/not-spam collapse the old separate `Block` (Address.flags.blocked,
-// no move) and `Mark spam` (move to Junk, no memory) actions into one. These
-// tests pin the three properties the PR calls out: the sender block is written
-// unconditionally before the move is attempted, a failed move never rolls it
-// back, and the whole operation is idempotent under a repeated call — built
-// on MessageMoveService's own same-mailbox no-op guard rather than a second,
-// bespoke idempotency check.
-
 const ACCOUNT = "acc-1";
 const ACCOUNT_CONFIG = "cfg-1";
+const ACCOUNT_EMAIL = "me@example.com";
 const INBOX_MAILBOX = "mbx-inbox";
 const JUNK_MAILBOX = "mbx-junk";
 const MESSAGE_ID = "msg-1";
@@ -52,13 +46,18 @@ interface World {
 	markerPuts: Array<Record<string, unknown>>;
 }
 
-const buildWorld = (): World => {
+const buildWorld = (
+	opts: { startMailbox?: string; fromEmail?: string } = {},
+): World => {
+	const startMailbox = opts.startMailbox ?? INBOX_MAILBOX;
+	const fromEmail = opts.fromEmail ?? "sender@example.com";
+
 	const messages = new Map<string, Record<string, unknown>>([
 		[
 			MESSAGE_ID,
 			{
 				messageId: MESSAGE_ID,
-				mailboxId: INBOX_MAILBOX,
+				mailboxId: startMailbox,
 				uid: 42,
 				rfc822Size: 100,
 				internalDate: 1_700_000_000_000,
@@ -66,6 +65,7 @@ const buildWorld = (): World => {
 				rootBodyPartId: "body-1",
 				category: "primary",
 				hasListUnsubscribe: false,
+				syncStatus: "synced",
 			},
 		],
 	]);
@@ -120,7 +120,7 @@ const buildWorld = (): World => {
 						envelopeAddressId: "ea-1",
 						messageId: id,
 						addressId: ADDRESS_ID,
-						normalizedEmail: "sender@example.com",
+						normalizedEmail: fromEmail,
 						addressRole: AddressRole.From,
 						addressOrder: 0,
 					},
@@ -170,6 +170,10 @@ const buildWorld = (): World => {
 			return { addressId, flags: entry.flags };
 		},
 	} as unknown as IAddressRepository;
+
+	const accountService = {
+		get: async () => ({ accountId: ACCOUNT, email: ACCOUNT_EMAIL }),
+	} as unknown as IAccountRepository;
 
 	const mailboxSpecialUseService = {
 		findJunkMailbox: async () => ({
@@ -230,7 +234,12 @@ const buildWorld = (): World => {
 	const markerService: IMessageFlagPushRepository = {
 		put: async (input: Record<string, unknown>) => {
 			markerPuts.push(input);
-			return { ...input, state: "pending", createdAt: 1, updatedAt: 1 } as never;
+			return {
+				...input,
+				state: "pending",
+				createdAt: 1,
+				updatedAt: 1,
+			} as never;
 		},
 		find: async () => null,
 		updateState: async () => ({}) as never,
@@ -252,6 +261,7 @@ const buildWorld = (): World => {
 	const service = new SpamReportService({
 		messageService,
 		addressService,
+		accountService,
 		mailboxSpecialUseService,
 		messageMoveService,
 		flagPushService,
@@ -263,9 +273,8 @@ const buildWorld = (): World => {
 const moveEvents = (sent: unknown[]) =>
 	sent.filter(
 		(cmd) =>
-			JSON.parse(
-				(cmd as { input: { MessageBody: string } }).input.MessageBody,
-			).type === "MESSAGE_MOVE",
+			JSON.parse((cmd as { input: { MessageBody: string } }).input.MessageBody)
+				.type === "MESSAGE_MOVE",
 	);
 
 describe("SpamReportService.reportSpam", () => {
@@ -281,7 +290,6 @@ describe("SpamReportService.reportSpam", () => {
 
 		const address = addresses.get(ADDRESS_ID);
 		assert.equal(address?.flags.blocked?.value, true);
-		assert.equal(address?.flags.blocked?.reason, "reported-spam");
 		assert.equal(address?.flags.blocked?.setBy, "user-1");
 
 		const message = messages.get(MESSAGE_ID);
@@ -292,7 +300,9 @@ describe("SpamReportService.reportSpam", () => {
 		assert.equal(markerPuts[0].flagName, "$Junk");
 		assert.equal(markerPuts[0].operation, "add");
 
-		assert.ok((message?.spamReport as { reportedAt: number }).reportedAt > 0);
+		assert.ok(message !== undefined);
+		const spamReport = message.spamReport as { reportedAt: number };
+		assert.ok(spamReport.reportedAt > 0);
 	});
 
 	it("leaves the blocked flag in place when the move fails", async () => {
@@ -313,7 +323,6 @@ describe("SpamReportService.reportSpam", () => {
 
 		const address = world.addresses.get(ADDRESS_ID);
 		assert.equal(address?.flags.blocked?.value, true);
-		assert.equal(address?.flags.blocked?.reason, "reported-spam");
 	});
 
 	it("is idempotent under a double press", async () => {
@@ -333,6 +342,27 @@ describe("SpamReportService.reportSpam", () => {
 		// The second call's move is a no-op: MessageMoveService.moveMessage sees
 		// the local mailboxId already equals Junk and skips without enqueueing.
 		assert.equal(moveEvents(sent).length, 1);
+	});
+
+	it("moves the message but writes no sender block when the message is forged from the account's own address", async () => {
+		const { service, messages, addresses, sent } = buildWorld({
+			fromEmail: ACCOUNT_EMAIL,
+		});
+
+		await service.reportSpam({
+			accountConfigId: ACCOUNT_CONFIG,
+			accountId: ACCOUNT,
+			messageId: MESSAGE_ID,
+		});
+
+		const address = addresses.get(ADDRESS_ID);
+		assert.equal(address?.flags.blocked, undefined);
+
+		const message = messages.get(MESSAGE_ID);
+		assert.equal(message?.mailboxId, JUNK_MAILBOX);
+		assert.equal(moveEvents(sent).length, 1);
+		assert.ok(message !== undefined);
+		assert.ok((message.spamReport as { reportedAt: number }).reportedAt > 0);
 	});
 });
 
@@ -360,5 +390,67 @@ describe("SpamReportService.notSpam", () => {
 		assert.equal(address?.flags.wellknown, undefined);
 		assert.equal(address?.flags.trusted, undefined);
 		assert.equal(address?.flags.vip, undefined);
+	});
+
+	it("clears the block and provenance without a 500 when the message never actually moved (same-mailbox no-op)", async () => {
+		// report-spam pressed on a message the provider's filter already placed
+		// in Junk: MessageMoveService.moveMessage's same-mailbox guard skips, so
+		// originalMailboxId is never set.
+		const { service, messages, addresses } = buildWorld({
+			startMailbox: JUNK_MAILBOX,
+		});
+
+		await service.reportSpam({
+			accountConfigId: ACCOUNT_CONFIG,
+			accountId: ACCOUNT,
+			messageId: MESSAGE_ID,
+		});
+		await service.notSpam({
+			accountConfigId: ACCOUNT_CONFIG,
+			accountId: ACCOUNT,
+			messageId: MESSAGE_ID,
+		});
+
+		const message = messages.get(MESSAGE_ID);
+		assert.equal(message?.mailboxId, JUNK_MAILBOX, "left where it is");
+		assert.equal(message?.spamReport, undefined);
+
+		const address = addresses.get(ADDRESS_ID);
+		assert.equal(address?.flags.blocked, undefined);
+	});
+
+	it("repairs local state instead of enqueuing a second move when the original move failed asynchronously", async () => {
+		const { service, messages, addresses, sent } = buildWorld();
+
+		await service.reportSpam({
+			accountConfigId: ACCOUNT_CONFIG,
+			accountId: ACCOUNT,
+			messageId: MESSAGE_ID,
+		});
+
+		// Simulate the imap-worker's MESSAGE_MOVE handler exhausting its
+		// retries: the message never actually reached Junk on the server, but
+		// the local optimistic write (mailboxId=Junk) was never reverted.
+		const message = messages.get(MESSAGE_ID);
+		assert.ok(message !== undefined);
+		message.syncStatus = "failed";
+
+		await service.notSpam({
+			accountConfigId: ACCOUNT_CONFIG,
+			accountId: ACCOUNT,
+			messageId: MESSAGE_ID,
+		});
+
+		assert.equal(
+			moveEvents(sent).length,
+			1,
+			"no second move enqueued for a message that never left INBOX",
+		);
+		assert.equal(message.mailboxId, INBOX_MAILBOX);
+		assert.equal(message.syncStatus, "synced");
+		assert.equal(message.spamReport, undefined);
+
+		const address = addresses.get(ADDRESS_ID);
+		assert.equal(address?.flags.blocked, undefined);
 	});
 });

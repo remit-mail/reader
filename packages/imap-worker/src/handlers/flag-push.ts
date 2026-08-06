@@ -1,4 +1,5 @@
 import { getClient } from "@remit/backend/client";
+import { MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { recordImapFailure } from "@remit/logger-lambda";
 import {
@@ -104,6 +105,23 @@ export const handleFlagPush = async (
 		log.info(
 			{ messageId, flagName, accountId },
 			"Message row no longer exists; flag-push marker dropped without pushing",
+		);
+		return;
+	}
+
+	// The message carries another mutation still in flight (a move, most
+	// often) — its `uid`/`mailboxId` are the local optimistic write, not yet
+	// confirmed by the server, so a STORE resolved against this row right now
+	// would land on the wrong UID or the wrong folder (or both). Reset the
+	// marker to `pending` rather than advancing it: `drainPendingFlagPushes`
+	// only re-arms markers in that state, scoped by the marker's own
+	// `mailboxId` (the push destination), so the next periodic sync tick of
+	// that mailbox picks this back up once the other mutation has settled.
+	if (message.syncStatus !== MessageSyncStatus.synced) {
+		await markerService.updateState(messageId, flagName, "pending");
+		log.info(
+			{ messageId, flagName, accountId, syncStatus: message.syncStatus },
+			"Message has another mutation in flight; pausing outbound flag push until it settles",
 		);
 		return;
 	}
