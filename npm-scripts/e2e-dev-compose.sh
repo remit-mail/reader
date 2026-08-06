@@ -122,6 +122,13 @@ e2e_dev_install_env() {
 		printf 'QUEUE_SIDECAR_DB=%s/queue.db\n' "$DEV_STATE_DIR"
 		printf 'QUEUE_SIDECAR_QUEUES_CONFIG=%s/queues.json\n' "$DEPLOY_DIR"
 
+		# The dev server serves /config.js from this, replacing the static default
+		# wholesale — so better-auth has to be named here too or every spec fails
+		# at sign-in. The devtools launcher floats over the lower viewport and
+		# takes pointer events aimed at the app; the image lane never has it,
+		# because it is a production build.
+		printf 'REMIT_RUNTIME_CONFIG={"betterAuthEnabled":true,"disableDevtools":true}\n'
+
 		# HOME follows the state dir so vite and npm write their caches there and
 		# not into a CI runner's home.
 		printf 'HOME=%s\n' "$DEV_STATE_DIR"

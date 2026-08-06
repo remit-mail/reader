@@ -57,8 +57,9 @@ interface ConversationViewProps {
 	composeRequest?: ComposeMode | null;
 	/**
 	 * Called once the conversation has acted on `composeRequest` (or
-	 * whenever the inline compose is dismissed). The caller should reset
-	 * `composeRequest` to `null`.
+	 * whenever the inline compose is dismissed). The caller must reset
+	 * `composeRequest` to `null`: a request left standing is read as a fresh
+	 * one on every render.
 	 */
 	onComposeClose?: () => void;
 	/**

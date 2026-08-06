@@ -94,19 +94,29 @@ test.describe("Launched without browser chrome", () => {
 			await api.triggerSync(run.accountId);
 		});
 
-		// The suite shares one inbox and runs serially, so the fixture leaves
-		// again. The wait is on Dovecot: the delete is answered off the read model
-		// and pushed to IMAP behind it.
+		// The suite shares one inbox and one account and runs serially, so both
+		// the fixture and the draft compose autosaved leave again. The inbox wait
+		// is on Dovecot: the delete is answered off the read model and pushed to
+		// IMAP behind it.
 		test.afterEach(async ({ api, run }) => {
 			const leftover = await api.searchMatchingMessageIds(run.inboxId, tag);
-			if (leftover.length === 0) return;
-			await api.deleteMessages(leftover);
-			await waitForServerMailbox(
-				run.imapUser,
-				"INBOX",
-				(subjects) => !subjects.some((subject) => subject.includes(tag)),
-				{ what: `the ${tag} fixture to leave the inbox` },
-			);
+			if (leftover.length > 0) {
+				await api.deleteMessages(leftover);
+				await waitForServerMailbox(
+					run.imapUser,
+					"INBOX",
+					(subjects) => !subjects.some((subject) => subject.includes(tag)),
+					{ what: `the ${tag} fixture to leave the inbox` },
+				);
+			}
+
+			// Discarding takes the draft with it, so this finds nothing on the
+			// path that ran to the end. It is here for the runs that did not.
+			for (const draft of await api.listDrafts()) {
+				if (draft.subject.includes(tag)) {
+					await api.deleteDraft(draft.outboxMessageId);
+				}
+			}
 		});
 
 		test("opens outside the app, in the body and in a quoted reply", async ({
@@ -161,13 +171,13 @@ test.describe("Launched without browser chrome", () => {
 			await expect(quotedLink).toHaveAttribute("rel", /noopener/);
 			await expect(quotedLink).toHaveAttribute("rel", /noreferrer/);
 
-			// Compose autosaves, so this reply becomes a draft the run would
-			// otherwise keep. Discard deletes the saved draft, so it waits for the
-			// save to land — discarding before it does leaves the draft behind.
-			const discard = page.getByRole("button", { name: "Discard" });
+			// Compose autosaves, so this reply becomes a draft. Discard is what takes
+			// it away, and it can only take away a draft that exists — so the save
+			// has to land first.
 			await expect(page.getByText("Draft saved")).toBeVisible({
 				timeout: 30_000,
 			});
+			const discard = page.getByRole("button", { name: "Discard" });
 			await discard.click();
 			await expect(discard).toBeHidden();
 		});

@@ -308,6 +308,32 @@ export class ApiClient {
 	 * Delete messages the same way the bulk-delete toolbar does. Specs use it to
 	 * clean up scratch fixtures a UI-driven delete didn't reach.
 	 */
+	/**
+	 * The drafts this account holds. Compose autosaves, so a spec that opens it
+	 * leaves one behind; the suite shares one account, so it takes it away again
+	 * through the API rather than through a UI it has finished with.
+	 */
+	async listDrafts(): Promise<
+		Array<{ outboxMessageId: string; subject: string }>
+	> {
+		const page = await this.json<{
+			items: Array<{ outboxMessageId: string; subject?: string }>;
+		}>("GET", "/outbox");
+		return page.items.map((item) => ({
+			outboxMessageId: item.outboxMessageId,
+			subject: item.subject ?? "",
+		}));
+	}
+
+	async deleteDraft(outboxMessageId: string): Promise<void> {
+		const response = await this.request("DELETE", `/outbox/${outboxMessageId}`);
+		if (!response.ok) {
+			throw new Error(
+				`DELETE /outbox/${outboxMessageId} failed: ${response.status}`,
+			);
+		}
+	}
+
 	deleteMessages(messageIds: string[]): Promise<{
 		successCount: number;
 		failureCount: number;

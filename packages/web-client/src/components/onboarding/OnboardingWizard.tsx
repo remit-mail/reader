@@ -310,6 +310,7 @@ function StepMicrosoftEmail({
 			window.location.assign(data.authorizationUrl);
 		},
 		onError: (err) => {
+			setPreparing(false);
 			setError(err instanceof Error ? err.message : "Failed to start sign-in");
 		},
 	});
@@ -328,12 +329,14 @@ function StepMicrosoftEmail({
 		awaitingReturn,
 		useCallback(() => {
 			void refetchConfig().then(({ data, isError }) => {
+				if (!stepIsMounted.current) return;
 				if (isError || !data) {
 					setError(
 						"Couldn't check whether the sign-in finished. Open Settings › Accounts to see whether the account is connected.",
 					);
 					return;
 				}
+				setError(null);
 				const connected = data.accounts.find(
 					(account) => !accountIdsBeforeRedirect.current.has(account.accountId),
 				);
@@ -354,8 +357,8 @@ function StepMicrosoftEmail({
 		setPreparing(true);
 		void refetchConfig().then(({ data, isError }) => {
 			if (!stepIsMounted.current) return;
-			setPreparing(false);
 			if (isError || !data) {
+				setPreparing(false);
 				setError(
 					"Couldn't read this instance's accounts, so sign-in can't be tracked. Check your connection and try again.",
 				);
@@ -370,18 +373,19 @@ function StepMicrosoftEmail({
 		});
 	};
 
-	// Keyboard: Enter submits, Esc goes back
-	// biome-ignore lint/correctness/useExhaustiveDependencies: handleSubmit's identity changes every render; including it would re-run this keydown listener on every render. Omitted to preserve existing behavior (matches the pre-existing eslint-disable). Enter-submit uses a stale handleSubmit — latent, tracked separately.
+	// Keyboard: Enter submits, Esc goes back. The listener reads the submit
+	// through a ref rather than closing over it, so Enter sends the address the
+	// field holds now instead of whatever it held when the listener went on.
+	const submitRef = useRef(handleSubmit);
+	submitRef.current = handleSubmit;
 	useEffect(() => {
 		const handler = (e: KeyboardEvent) => {
-			if (e.key === "Enter") handleSubmit();
+			if (e.key === "Enter") submitRef.current();
 			if (e.key === "Escape") onBack();
 		};
 		window.addEventListener("keydown", handler);
 		return () => window.removeEventListener("keydown", handler);
-		// handleSubmit identity changes — intentional dep exclusion here
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [onBack, redirecting]);
+	}, [onBack]);
 
 	return (
 		<WizardShell
