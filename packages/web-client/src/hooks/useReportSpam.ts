@@ -6,46 +6,38 @@ import {
 	messageBulkOperationsNotSpam,
 	messageBulkOperationsReportSpam,
 } from "@remit/api-http-client/sdk.gen.ts";
-import type {
-	RemitImapSpamReportBulkResult,
-	RemitImapThreadMessageResponse,
-} from "@remit/api-http-client/types.gen.ts";
+import type { RemitImapSpamReportBulkResult } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
+import { ApiError } from "@/lib/api";
 import { runChunkedMutation } from "@/lib/bulk-actions";
 import {
-	cancelThreadListQueries,
 	invalidateThreadListQueries,
-	patchThreadListQueries,
-	restoreThreadListQueries,
-	snapshotThreadListQueries,
-	type ThreadListSnapshotEntry,
 	threadListCacheKeys,
 } from "@/lib/thread-list-cache";
-import { removeMovedMessagesFromItems } from "./useMoveMessages";
 
 interface UseReportSpamOptions {
-	/** The mailbox the message currently sits in — the cached list the row optimistically drops from. */
+	/** The mailbox the message currently sits in — scopes which list caches settle-time invalidation reaches. */
 	mailboxId: string;
 	threadId?: string;
 	accountId?: string;
-}
-
-interface ThreadMessagesData {
-	items: RemitImapThreadMessageResponse[];
-	[key: string]: unknown;
-}
-
-interface SpamActionContext {
-	threadMessagesPrefix: readonly unknown[];
-	listPrefixes: ReadonlyArray<readonly unknown[]>;
-	previousThreadMessages: {
-		queryKey: readonly unknown[];
-		data: ThreadMessagesData;
-	}[];
-	previousThreadsList: ThreadListSnapshotEntry[];
+	/**
+	 * Called once a report or undo succeeds, with the message ids it acted on
+	 * — the same shape as `useMoveMessages`/`useDeleteMessages`'s option of the
+	 * same name, so a host wires the identical `handleDeselectIfRemoved` it
+	 * already has. Fires on SUCCESS here, not optimistically like those two:
+	 * neither endpoint tells the client whether the message actually left
+	 * `mailboxId` (reporting or undoing a message already in Junk is a real
+	 * no-op-move, and the client has no way to predict it for `notSpam` — see
+	 * `throwOnBulkFailure`'s neighbour below), so firing early would deselect a
+	 * message that never moved. Firing late means a message that DID move
+	 * still needs deselecting once the change is real, so this still exists —
+	 * a host that reports the open message and never hears about it keeps
+	 * rendering it from a pre-report snapshot forever (issue #648 review).
+	 */
+	onAfterOptimisticRemove?: (messageIds: string[]) => void;
 }
 
 /**
@@ -61,6 +53,24 @@ export const GENERIC_SPAM_ACTION_FAILURE =
 	"This message could not be processed. Please try again.";
 
 /**
+ * The server's designed failure text names the message by embedding its raw
+ * UUID as a possessive subject — e.g. "Message 7f3a2c19-...'s move to Junk
+ * has not settled yet; try again in a moment." Accurate, but not something to
+ * put in front of a person. This targets that one known shape (`Message
+ * <uuid>'s`) and swaps it for plain language, leaving the rest of the
+ * sentence — and any reason that doesn't match, including the generic
+ * fallback — untouched. Not a parse of the reason's meaning (the field is
+ * documented "not intended to be parsed programmatically"): a UUID is an
+ * opaque identifier either way, so replacing its rendering is not reading
+ * anything into what the sentence says.
+ */
+const MESSAGE_ID_SUBJECT =
+	/\bMessage [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'s\b/gi;
+
+export const humanizeSpamFailureReason = (reason: string): string =>
+	reason.replace(MESSAGE_ID_SUBJECT, "This message's");
+
+/**
  * `settleSpamReportBulk` (backend) runs the batch with `Promise.allSettled`
  * and always answers 200, folding per-message outcomes into
  * `successCount`/`failureCount`/`failures` rather than rejecting the HTTP
@@ -70,12 +80,22 @@ export const GENERIC_SPAM_ACTION_FAILURE =
  * undo never actually happened. Every caller here sends exactly one message
  * per call, so surfacing the first failure's reason is surfacing the whole
  * story, not truncating a real batch.
+ *
+ * Throws `ApiError` — not a bare `Error` — carrying a 4xx status. The
+ * client's fatal/banner split (`lib/error-classifier.ts`) treats a
+ * statusless `Error` as a client bug and routes it to the full-screen fatal
+ * overlay with no retry, which is wrong for a designed, expected, retryable
+ * outcome the backend wrote user-facing copy for. Every other call site in
+ * this app forwards a status-carrying error the generated client already
+ * threw; this is the one place synthesizing a failure from a 200 body, so it
+ * has to synthesize a status too.
  */
 export const throwOnBulkFailure = (
 	data: RemitImapSpamReportBulkResult,
 ): void => {
 	if (data.failureCount === 0) return;
-	throw new Error(data.failures?.[0]?.reason ?? GENERIC_SPAM_ACTION_FAILURE);
+	const reason = data.failures?.[0]?.reason ?? GENERIC_SPAM_ACTION_FAILURE;
+	throw new ApiError(humanizeSpamFailureReason(reason), 422);
 };
 
 /**
@@ -87,15 +107,21 @@ export const throwOnBulkFailure = (
  * "reported" from placement (a report on a message already in Junk — the
  * provider's own filter put it there — is a real, no-op-move case).
  *
- * Both endpoints share the same request shape and the same client-side
- * approximation (the row optimistically leaves the mailbox it's rendered in,
- * restored on failure, reconciled by invalidation on settle), so the two
- * mutations below are deliberately near-identical — mirrors `useMoveMessages`.
+ * No optimistic cache patch, unlike `useMoveMessages`/`useDeleteMessages`:
+ * neither endpoint's response says whether the message actually changed
+ * mailboxes (a report or undo against a message already in Junk is a real,
+ * silent no-op), so predicting the row should vanish would flicker it back
+ * on invalidation for a no-op — worst on `notSpam`, whose R2 wait can run
+ * several seconds before the row "pops back". The list settles from
+ * `onSuccess`'s invalidation instead, which is always correct, at the cost
+ * of losing the instant-optimistic feel `useMoveMessages` has for a move
+ * whose destination is known upfront.
  */
 export function useReportSpam({
 	mailboxId,
 	threadId,
 	accountId,
+	onAfterOptimisticRemove,
 }: UseReportSpamOptions) {
 	const queryClient = useQueryClient();
 	const { pushError } = useErrorBanners();
@@ -105,93 +131,11 @@ export function useReportSpam({
 		? threadDetailOperationsListThreadMessagesQueryKey({ path: { threadId } })
 		: [];
 
-	const onMutate = async (variables: {
-		body: { messageIds: string[] };
-	}): Promise<SpamActionContext> => {
-		const messageIds = new Set(variables.body.messageIds);
-
-		await Promise.all([
-			...(threadId
-				? [queryClient.cancelQueries({ queryKey: threadMessagesPrefix })]
-				: []),
-			cancelThreadListQueries(queryClient, listPrefixes),
-		]);
-
-		const previousThreadMessages = threadId
-			? queryClient
-					.getQueriesData<ThreadMessagesData>({
-						queryKey: threadMessagesPrefix,
-					})
-					.filter(
-						(entry): entry is [readonly unknown[], ThreadMessagesData] =>
-							entry[1] !== undefined,
-					)
-					.map(([queryKey, data]) => ({ queryKey, data }))
-			: [];
-
-		const previousThreadsList = snapshotThreadListQueries(
-			queryClient,
-			listPrefixes,
-		);
-
+	const invalidateAffectedQueries = () => {
 		if (threadId) {
-			queryClient.setQueriesData<ThreadMessagesData>(
-				{ queryKey: threadMessagesPrefix },
-				(old) => {
-					if (!old) return old;
-					return {
-						...old,
-						items: removeMovedMessagesFromItems(old.items, messageIds),
-					};
-				},
-			);
+			queryClient.invalidateQueries({ queryKey: threadMessagesPrefix });
 		}
-
-		patchThreadListQueries(queryClient, listPrefixes, (items) =>
-			removeMovedMessagesFromItems(items, messageIds),
-		);
-
-		return {
-			threadMessagesPrefix,
-			listPrefixes,
-			previousThreadMessages,
-			previousThreadsList,
-		};
-	};
-
-	const buildOnError =
-		(failureTitle: (count: number) => string) =>
-		(
-			err: unknown,
-			vars: { body: { messageIds: string[] } },
-			context: SpamActionContext | undefined,
-		) => {
-			if (context) {
-				for (const entry of context.previousThreadMessages) {
-					queryClient.setQueryData(entry.queryKey, entry.data);
-				}
-				restoreThreadListQueries(queryClient, context.previousThreadsList);
-			}
-			pushError({
-				title: failureTitle(vars.body.messageIds.length),
-				detail: formatErrorDetail(err),
-				error: err,
-			});
-		};
-
-	const onSettled = (
-		_data: unknown,
-		_err: unknown,
-		_vars: unknown,
-		context: SpamActionContext | undefined,
-	) => {
-		if (!context) return;
-		if (threadId) {
-			queryClient.invalidateQueries({
-				queryKey: context.threadMessagesPrefix,
-			});
-		}
-		invalidateThreadListQueries(queryClient, context.listPrefixes);
+		invalidateThreadListQueries(queryClient, listPrefixes);
 		if (accountId) {
 			queryClient.invalidateQueries({
 				queryKey: mailboxOperationsListMailboxesQueryKey({
@@ -200,6 +144,22 @@ export function useReportSpam({
 			});
 		}
 	};
+
+	const buildOnSuccess =
+		() => (_data: unknown, variables: { body: { messageIds: string[] } }) => {
+			invalidateAffectedQueries();
+			onAfterOptimisticRemove?.(variables.body.messageIds);
+		};
+
+	const buildOnError =
+		(failureTitle: (count: number) => string) =>
+		(err: unknown, vars: { body: { messageIds: string[] } }) => {
+			pushError({
+				title: failureTitle(vars.body.messageIds.length),
+				detail: formatErrorDetail(err),
+				error: err,
+			});
+		};
 
 	const report = useMutation({
 		mutationFn: async (variables: { body: { messageIds: string[] } }) => {
@@ -210,13 +170,12 @@ export function useReportSpam({
 			throwOnBulkFailure(data);
 			return data;
 		},
-		onMutate,
+		onSuccess: buildOnSuccess(),
 		onError: buildOnError((count) =>
 			count > 1
 				? `Couldn't report ${count} messages as spam`
 				: "Couldn't report this message as spam",
 		),
-		onSettled,
 	});
 
 	const restore = useMutation({
@@ -228,13 +187,12 @@ export function useReportSpam({
 			throwOnBulkFailure(data);
 			return data;
 		},
-		onMutate,
+		onSuccess: buildOnSuccess(),
 		onError: buildOnError((count) =>
 			count > 1
 				? `Couldn't undo the spam report for ${count} messages`
 				: "Couldn't undo the spam report",
 		),
-		onSettled,
 	});
 
 	const reportSpam = useCallback(
@@ -279,9 +237,9 @@ export function useReportSpam({
 		/**
 		 * The failure itself, paired with the ids above — its `message` is
 		 * either the server's own allowlisted reason (e.g. `notSpam`'s
-		 * move-not-settled-yet text) or the flattened generic one, both safe to
-		 * show as-is (`SpamReportFailure.reason` is documented user-facing).
-		 * `undefined` under the same reset rule as `reportFailedMessageIds`.
+		 * move-not-settled-yet text, with the raw UUID cleaned up) or the
+		 * flattened generic one, both safe to show as-is. `undefined` under the
+		 * same reset rule as `reportFailedMessageIds`.
 		 */
 		reportError: report.isError ? report.error : undefined,
 		restoreError: restore.isError ? restore.error : undefined,

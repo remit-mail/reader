@@ -212,20 +212,26 @@ export const Reportable: Story = {
 };
 
 /**
- * Already reported: the sender is blocked, so "Not spam" (the undo) is
- * offered instead, and the panel names the sender as reported.
+ * Already reported: "Not spam" (the undo) is offered instead of "Report
+ * spam", and the panel names the message as reported. Driven by
+ * `actions.onNotSpam` being present, not by `flags.blocked` — a sender can be
+ * blocked manually, with no report on this particular message, and that must
+ * not read as "you reported this" (issue #648 review).
  */
 export const Reported: Story = {
 	args: {
-		data: { ...base, flags: { blocked: true } },
+		data: base,
 		actions: { onNotSpam: () => {} },
 	},
 };
 
 /**
- * Neither action is offered — the sender's address record hasn't resolved
- * yet, so there's nothing to service a press with (issue #51's disabled-not-dead
- * rule applies to the pair as a whole, not just VIP/Mute/Unsubscribe).
+ * Neither action is offered. The panel hides the pair rather than disabling
+ * it — unlike VIP/Mute/Unsubscribe, which always render and go visibly
+ * unavailable with no handler (issue #51). The host's own wiring never
+ * actually reaches this: `resolveSpamAction` always returns one of the two,
+ * since every message either carries a spam report or doesn't. Kept as a
+ * defensive state for a host that doesn't wire the pair at all.
  */
 export const SpamActionUnavailable: Story = {
 	args: {

@@ -174,6 +174,14 @@ interface MailboxPaneContextValue {
 	intelligenceOpen: boolean;
 	onToggleIntelligence: () => void;
 	/**
+	 * Deselects the open message when it's the one a mutation just removed
+	 * from this mailbox's list — wired into every mutation that can take the
+	 * open message out of view (delete, move, report-spam/undo), so the
+	 * reading pane and intelligence panel never keep rendering a message
+	 * that's left the list they're watching.
+	 */
+	handleDeselectIfRemoved: (removedIds: string[]) => void;
+	/**
 	 * The active search predicate — undefined when not searching. Threaded
 	 * down so the mobile list can re-issue the identical filter while paging
 	 * past what's loaded (escalated select-all, issue #92); the display string
@@ -867,6 +875,7 @@ function MailboxPaneProvider({
 		listFilter,
 		intelligenceOpen,
 		onToggleIntelligence,
+		handleDeselectIfRemoved,
 		// Escalation ("select all N matching") re-issues this predicate server-side
 		// and acts on every match, so it is only offered when the predicate IS the
 		// search: a residual token narrows the rows on screen but not the request,
@@ -1223,8 +1232,13 @@ function MailboxReading() {
  * Mount in the `intelligence` slot of `AppShellSlotted`. Only rendered ≥ 1280px.
  */
 function MailboxIntelligence() {
-	const { mailboxId, mailboxAccountId, selectedThread, onToggleIntelligence } =
-		useMailboxPane();
+	const {
+		mailboxId,
+		mailboxAccountId,
+		selectedThread,
+		onToggleIntelligence,
+		handleDeselectIfRemoved,
+	} = useMailboxPane();
 
 	return (
 		<IntelligencePane
@@ -1232,6 +1246,7 @@ function MailboxIntelligence() {
 			thread={selectedThread}
 			mailboxId={mailboxId}
 			accountId={mailboxAccountId}
+			onAfterOptimisticRemove={handleDeselectIfRemoved}
 		/>
 	);
 }
@@ -1243,6 +1258,7 @@ function MailboxIntelligence() {
 function MailboxPhone() {
 	const {
 		mailboxId,
+		mailboxAccountId,
 		selectedThread,
 		conversation,
 		intelligenceOpen,
@@ -1251,6 +1267,7 @@ function MailboxPhone() {
 		nextMessageId,
 		previousMessageId,
 		composeState,
+		handleDeselectIfRemoved,
 	} = useMailboxPane();
 	const navigate = useNavigate();
 
@@ -1293,7 +1310,10 @@ function MailboxPhone() {
 					<IntelligencePane
 						onClose={onToggleIntelligence}
 						thread={selectedThread}
+						mailboxId={mailboxId}
+						accountId={mailboxAccountId}
 						hideCloseButton
+						onAfterOptimisticRemove={handleDeselectIfRemoved}
 					/>
 				</Drawer>
 			</>

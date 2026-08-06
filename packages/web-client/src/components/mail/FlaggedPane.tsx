@@ -66,6 +66,13 @@ interface FlaggedPaneContextValue {
 	onDeleteMessages: (messageIds: string[]) => void;
 	nextMessageId: string | undefined;
 	previousMessageId: string | undefined;
+	/**
+	 * Deselects the open message when it's the one a mutation just removed
+	 * from view — wired into every mutation that can take the open message out
+	 * of view (delete, report-spam/undo), so the reading pane and intelligence
+	 * panel never keep rendering a message that's left the list.
+	 */
+	handleDeselectIfRemoved: (removedIds: string[]) => void;
 }
 
 const FlaggedPaneCtx = createContext<FlaggedPaneContextValue | null>(null);
@@ -190,6 +197,7 @@ function FlaggedPaneProvider({
 		onDeleteMessages: deleteMessages,
 		nextMessageId,
 		previousMessageId,
+		handleDeselectIfRemoved,
 	};
 
 	return (
@@ -280,7 +288,7 @@ function FlaggedReading() {
  * Mount in the `intelligence` slot of `AppShellSlotted`. Only rendered ≥ 1280px.
  */
 function FlaggedIntelligence() {
-	const { selectedThread } = useFlaggedPane();
+	const { selectedThread, handleDeselectIfRemoved } = useFlaggedPane();
 	const { onToggleIntelligence } = useMailContext();
 
 	return (
@@ -289,6 +297,7 @@ function FlaggedIntelligence() {
 			thread={selectedThread}
 			mailboxId={selectedThread?.mailboxId}
 			accountId={selectedThread?.accountId}
+			onAfterOptimisticRemove={handleDeselectIfRemoved}
 		/>
 	);
 }
@@ -301,6 +310,7 @@ function FlaggedPhone() {
 		onSelectMessage,
 		nextMessageId,
 		previousMessageId,
+		handleDeselectIfRemoved,
 	} = useFlaggedPane();
 	const { intelligenceOpen, onToggleIntelligence } = useMailContext();
 
@@ -333,7 +343,10 @@ function FlaggedPhone() {
 					<IntelligencePane
 						onClose={onToggleIntelligence}
 						thread={selectedThread}
+						mailboxId={selectedThread?.mailboxId}
+						accountId={selectedThread?.accountId}
 						hideCloseButton
+						onAfterOptimisticRemove={handleDeselectIfRemoved}
 					/>
 				</Drawer>
 			</>

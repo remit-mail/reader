@@ -73,6 +73,13 @@ interface BriefPaneContextValue {
 	onDeleteMessages: (messageIds: string[]) => void;
 	nextMessageId: string | undefined;
 	previousMessageId: string | undefined;
+	/**
+	 * Deselects the open message when it's the one a mutation just removed
+	 * from view — wired into every mutation that can take the open message out
+	 * of view (delete, report-spam/undo), so the reading pane and intelligence
+	 * panel never keep rendering a message that's left the list.
+	 */
+	handleDeselectIfRemoved: (removedIds: string[]) => void;
 }
 
 const BriefPaneCtx = createContext<BriefPaneContextValue | null>(null);
@@ -257,6 +264,7 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 		onDeleteMessages: deleteMessages,
 		nextMessageId,
 		previousMessageId,
+		handleDeselectIfRemoved,
 	};
 
 	return <BriefPaneCtx.Provider value={ctx}>{children}</BriefPaneCtx.Provider>;
@@ -357,7 +365,7 @@ function BriefReading() {
  * Mount in the `intelligence` slot of `AppShellSlotted`. Only rendered ≥ 1280px.
  */
 function BriefIntelligence() {
-	const { selectedThread } = useBriefPane();
+	const { selectedThread, handleDeselectIfRemoved } = useBriefPane();
 	const { onToggleIntelligence } = useMailContext();
 
 	return (
@@ -366,6 +374,7 @@ function BriefIntelligence() {
 			thread={selectedThread}
 			mailboxId={selectedThread?.mailboxId}
 			accountId={selectedThread?.accountId}
+			onAfterOptimisticRemove={handleDeselectIfRemoved}
 		/>
 	);
 }
@@ -381,6 +390,7 @@ function BriefPhone() {
 		onCloseThread,
 		nextMessageId,
 		previousMessageId,
+		handleDeselectIfRemoved,
 	} = useBriefPane();
 	const { intelligenceOpen, onToggleIntelligence } = useMailContext();
 
@@ -414,7 +424,10 @@ function BriefPhone() {
 					<IntelligencePane
 						onClose={onToggleIntelligence}
 						thread={selectedThread}
+						mailboxId={selectedThread?.mailboxId}
+						accountId={selectedThread?.accountId}
 						hideCloseButton
+						onAfterOptimisticRemove={handleDeselectIfRemoved}
 					/>
 				</Drawer>
 			</>

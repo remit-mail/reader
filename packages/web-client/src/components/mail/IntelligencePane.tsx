@@ -33,6 +33,17 @@ export interface IntelligencePaneProps {
 	 * whose header already renders a close button — one way back, not two (#874).
 	 */
 	hideCloseButton?: boolean;
+	/**
+	 * Called once a "Report spam" / "Not spam" press succeeds, with the acted-on
+	 * message id. The host's own `handleDeselectIfRemoved` (already wired into
+	 * `useMoveMessages`/`useDeleteMessages` for the same reason) belongs here
+	 * too: the panel's `thread` prop is a list-derived snapshot the host stops
+	 * refreshing once the row leaves the list it's watching, so without this a
+	 * reported message keeps rendering "Report spam" here forever, even while
+	 * the reading pane's own per-thread query — a different cache — already
+	 * shows "Reported as spam · Undo" (issue #648 review).
+	 */
+	onAfterOptimisticRemove?: (messageIds: string[]) => void;
 }
 
 /**
@@ -195,6 +206,7 @@ interface WiredPanelProps {
 	mailboxId?: string;
 	accountId?: string;
 	hideCloseButton?: boolean;
+	onAfterOptimisticRemove?: (messageIds: string[]) => void;
 }
 
 /**
@@ -206,6 +218,7 @@ function WiredPanel({
 	mailboxId,
 	accountId,
 	hideCloseButton,
+	onAfterOptimisticRemove,
 }: WiredPanelProps) {
 	const {
 		data,
@@ -235,6 +248,7 @@ function WiredPanel({
 		mailboxId: thread.mailboxId,
 		threadId: thread.threadId,
 		accountId,
+		onAfterOptimisticRemove,
 	});
 	const telemetry = useTelemetry();
 	const spamAction = resolveSpamAction(thread);
@@ -380,6 +394,7 @@ export const IntelligencePane = ({
 	mailboxId,
 	accountId,
 	hideCloseButton,
+	onAfterOptimisticRemove,
 }: IntelligencePaneProps) => {
 	if (!thread) {
 		return (
@@ -408,6 +423,7 @@ export const IntelligencePane = ({
 			mailboxId={mailboxId}
 			accountId={accountId}
 			hideCloseButton={hideCloseButton}
+			onAfterOptimisticRemove={onAfterOptimisticRemove}
 		/>
 	);
 };

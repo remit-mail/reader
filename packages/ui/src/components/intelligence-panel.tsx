@@ -112,11 +112,14 @@ export interface SenderFlagsIntel {
 	vip?: boolean;
 	muted?: boolean;
 	/**
-	 * True once the sender has been blocked — via a spam report or a manual
-	 * block in Settings → Senders. Drives the "Not spam" quick action's active
-	 * state and a "You reported this sender" line. Never true for a report on
-	 * a message forged from the user's own address: the backend deliberately
-	 * writes no sender block in that case (issue #648).
+	 * True once the sender is blocked — via a spam report on some message from
+	 * them, or a manual block in Settings → Senders, which is the only durable
+	 * manage-and-undo surface for it now that this panel has no `Block` action
+	 * of its own. Not used to decide the quick-actions pair below: it's a
+	 * sender-wide flag, and a manual block with no report on THIS message would
+	 * make "You reported this sender" false (issue #648 review). The pair and
+	 * that line key off `actions.onNotSpam`/`onReportSpam` instead, which the
+	 * host derives from this specific message's `Message.spamReport`.
 	 */
 	blocked?: boolean;
 	unsubscribed?: boolean;
@@ -454,7 +457,7 @@ export function IntelligencePanel({
 						<QuickAction
 							icon={<MailCheck className="size-3.5" />}
 							label="Not spam"
-							active={flags.blocked}
+							active
 							onClick={actions.onNotSpam}
 						/>
 					)}
@@ -473,9 +476,9 @@ export function IntelligencePanel({
 						onClick={actions?.onToggleUnsubscribe}
 					/>
 				</div>
-				{flags.blocked && (
+				{actions?.onNotSpam && (
 					<p className="mt-1.5 text-2xs text-fg-subtle">
-						You reported this sender
+						You reported this message as spam
 					</p>
 				)}
 				{spamActionError && (
