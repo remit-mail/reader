@@ -203,6 +203,23 @@ describe("buildAuthenticityIntel", () => {
 		assert.equal(result.verdict, "aligned");
 	});
 
+	// #603 CI finding A/E: "no evidence of a mismatch" is not the same claim as
+	// "verified" — a raw signature that happens to align, with no trustworthy
+	// Authentication-Results result to confirm it, must render as caution, not
+	// the aligned green shield.
+	test("caution, not aligned, when nothing mismatches but the domain was never confirmed", () => {
+		const thread = makeThread({
+			fromEmail: "alice@example.com",
+			authenticity: {
+				fromDomain: "example.com",
+				dkimMismatch: false,
+			},
+		} as Partial<RemitImapThreadMessageResponse>);
+		const result = buildAuthenticityIntel(thread, 0);
+		assert.equal(result.verdict, "caution");
+		assert.doesNotMatch(result.summary, /We verified|was signed by/i);
+	});
+
 	test("mismatch when the signing domain does not align", () => {
 		const thread = makeThread({
 			fromEmail: "security@your-bank.example",
@@ -253,7 +270,7 @@ describe("buildAuthenticityIntel", () => {
 			subject: "Vordering",
 			authenticity: {
 				fromDomain: "serviceupdatebank.atlassian.net",
-				dkimDomain: "custmx.one.com",
+				dkimDomain: "serviceupdatebank.atlassian.net",
 				dkimMismatch: false,
 				displayNameCorrespondence: "Unrelated",
 				offDomainLinkDomains: ["betaal-vordering.example"],
@@ -266,11 +283,12 @@ describe("buildAuthenticityIntel", () => {
 			assert.doesNotMatch(result.summary, /We verified/i);
 		});
 
-		test("names the display name and the link destination", () => {
+		test("leads with the concern, naming the signing domain, and the link destination", () => {
 			const result = buildAuthenticityIntel(infoMedics, 0);
 			assert.equal(result.verdict, "caution");
-			assert.match(result.summary, /really was sent by/);
+			assert.match(result.summary, /^The name it shows/);
 			assert.match(result.summary, /"InfoMedics"/);
+			assert.match(result.summary, /serviceupdatebank\.atlassian\.net/);
 			assert.match(result.summary, /betaal-vordering\.example/);
 			assert.doesNotMatch(result.summary, /DKIM|SPF|DMARC/i);
 		});

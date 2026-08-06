@@ -180,6 +180,32 @@ describe("classifyByHeaders", () => {
 		assert.equal(classifyByHeaders(parsed), MessageCategory.personal);
 	});
 
+	it("stays personal when an earlier mismatching DKIM-Signature is followed by an aligned one", async () => {
+		const parsed = await parse([
+			"From: alice@example.com",
+			"To: bob@example.com",
+			"Subject: multi",
+			"DKIM-Signature: v=1; a=rsa-sha256; d=relay.example.net; s=s1; b=xxx",
+			"DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=s2; b=yyy",
+			"",
+			"body",
+		]);
+		assert.equal(classifyByHeaders(parsed), MessageCategory.personal);
+	});
+
+	it("returns automated when every DKIM-Signature domain mismatches", async () => {
+		const parsed = await parse([
+			"From: alice@personal.example.com",
+			"To: bob@example.com",
+			"Subject: all mismatch",
+			"DKIM-Signature: v=1; a=rsa-sha256; d=relay-a.net; s=s1; b=xxx",
+			"DKIM-Signature: v=1; a=rsa-sha256; d=relay-b.net; s=s2; b=yyy",
+			"",
+			"body",
+		]);
+		assert.equal(classifyByHeaders(parsed), MessageCategory.automated);
+	});
+
 	it("returns social for a sender on the social allow-list (linkedin.com)", async () => {
 		const parsed = await parse([
 			"From: notifications@linkedin.com",
@@ -229,11 +255,14 @@ describe("classifyByHeaders", () => {
 			"From: alice@personal.example.com",
 			"To: bob@example.com",
 			"Subject: forwarded",
+			"Authentication-Results: mx.example.com; dkim=pass header.d=relay.example.net",
 			"DKIM-Signature: v=1; a=rsa-sha256; d=relay.example.net; s=sel; b=xxx",
 			"",
 			"body",
 		]);
-		// Both must agree — category heuristic and structured field
+		// The category heuristic reads the raw DKIM-Signature; extractAuthenticity
+		// reads the trust boundary's own Authentication-Results verdict. They agree
+		// here because both name the same domain, not because they share a source.
 		assert.equal(classifyByHeaders(parsed), MessageCategory.automated);
 		const auth = extractAuthenticity(parsed);
 		assert.ok(auth, "authenticity should be present");
@@ -271,15 +300,161 @@ describe("classifyByHeaders", () => {
 });
 
 describe("extractAuthenticity", () => {
-	it("returns null when no DKIM-Signature header is present", async () => {
+	it("returns null when there is no DKIM-Signature and no Authentication-Results at all", async () => {
 		const parsed = await parse([
 			"From: alice@example.com",
 			"To: bob@example.com",
-			"Subject: no dkim",
+			"Subject: no signal",
 			"",
 			"body",
 		]);
 		assert.equal(extractAuthenticity(parsed), null);
+	});
+
+	// #603 CI finding A: an absent or failing DKIM result must still yield a
+	// signal from the raw signature — the most common phishing shape (a
+	// failed/absent Authentication-Results result) must not silently lose the
+	// demote-to-Junk path. dkimDomain stays absent because nothing trustworthy
+	// confirmed the alignment — see the next test for the mismatching case,
+	// where the raw domain IS reported.
+	it("falls back to the raw DKIM-Signature when Authentication-Results carries no dkim=pass result, and does not report an aligned domain from it", async () => {
+		const parsed = await parse([
+			"From: alice@example.com",
+			"To: bob@example.com",
+			"Subject: dkim failed",
+			"Authentication-Results: mx.example.com; dkim=fail header.d=example.com",
+			"DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=sel; b=xxx",
+			"",
+			"body",
+		]);
+		const auth = extractAuthenticity(parsed);
+		assert.ok(auth, "expected authenticity object");
+		assert.equal(auth.dkimMismatch, false);
+		assert.equal(auth.dkimDomain, undefined);
+	});
+
+	it("falls back to the raw DKIM-Signature to report a mismatch when Authentication-Results has no dkim=pass result", async () => {
+		// The DEMOTE_EML shape from body-sync-placement-writeonce.test.ts: dmarc
+		// fails, there is no dkim= result in Authentication-Results at all, and
+		// the raw signature names a domain unrelated to the sender.
+		const parsed = await parse([
+			"From: Support <support@evil-mimic.example>",
+			"To: me@example.com",
+			"Subject: Verify your account",
+			"Authentication-Results: mx.example.com; dmarc=fail",
+			"DKIM-Signature: v=1; a=rsa-sha256; d=relay.example.net; s=sel; b=xxx",
+			"",
+			"body",
+		]);
+		const auth = extractAuthenticity(parsed);
+		assert.ok(auth, "expected authenticity object");
+		assert.equal(auth.dkimMismatch, true);
+		assert.equal(auth.dkimDomain, "relay.example.net");
+	});
+
+	it("returns null when the dkim=pass result carries no header.d or header.i, and there is no raw signature either", async () => {
+		const parsed = await parse([
+			"From: alice@example.com",
+			"To: bob@example.com",
+			"Subject: no header.d",
+			"Authentication-Results: mx.example.com; dkim=pass",
+			"",
+			"body",
+		]);
+		assert.equal(extractAuthenticity(parsed), null);
+	});
+
+	// The most common unsigned-phishing shape: no DKIM-Signature header at
+	// all, and Authentication-Results reports the mechanism explicitly
+	// failing rather than being silent about it. There is no domain to
+	// report, but the failure itself is still evidence something is wrong.
+	it("reports a mismatch from an explicit Authentication-Results dkim=fail when there is no signature at all", async () => {
+		const parsed = await parse([
+			"From: alice@evil.example",
+			"To: bob@example.com",
+			"Subject: unsigned",
+			"Authentication-Results: mx.example.com; spf=fail; dkim=fail; dmarc=fail",
+			"",
+			"body",
+		]);
+		const auth = extractAuthenticity(parsed);
+		assert.ok(auth, "expected authenticity object");
+		assert.equal(auth.dkimMismatch, true);
+		assert.equal(auth.dkimDomain, undefined);
+	});
+
+	it("still returns null for a merely absent dkim result (no fail, no pass, no signature)", async () => {
+		const parsed = await parse([
+			"From: alice@example.com",
+			"To: bob@example.com",
+			"Subject: no dkim mentioned at all",
+			"Authentication-Results: mx.example.com; spf=pass; dmarc=pass",
+			"",
+			"body",
+		]);
+		assert.equal(extractAuthenticity(parsed), null);
+	});
+
+	// CI review, regression against main: preferring Authentication-Results
+	// over the raw signature for the MISMATCH question means a mailing list
+	// or corporate gateway that legitimately re-signs and breaks the
+	// author's own signature would read as a mismatch — Authentication-Results
+	// only lists what actually verified (googlegroups.com), while the raw
+	// headers still carry the original, aligned signature (acme.com)
+	// alongside it. Either source showing alignment must be enough to clear
+	// dkimMismatch, or ordinary list mail auto-junks.
+	it("does not report a mismatch when the raw signature aligns even though Authentication-Results prefers an unrelated one (Google Groups shape)", async () => {
+		const parsed = await parse([
+			"From: Alice <alice@acme.com>",
+			"To: list@googlegroups.com",
+			"Subject: hi",
+			"Authentication-Results: mx.google.com; dkim=pass header.d=googlegroups.com; spf=pass smtp.mailfrom=googlegroups.com; dmarc=fail (p=REJECT) header.from=acme.com",
+			"DKIM-Signature: v=1; a=rsa-sha256; d=acme.com; s=sel; b=xxx",
+			"DKIM-Signature: v=1; a=rsa-sha256; d=googlegroups.com; s=sel2; b=yyy",
+			"X-Spam-Status: No, score=0.2",
+			"Content-Type: text/plain",
+			"",
+			"body",
+		]);
+		const auth = extractAuthenticity(parsed);
+		assert.ok(auth, "expected authenticity object");
+		assert.equal(auth.dkimMismatch, false);
+	});
+
+	// #603 CI finding E: some verifiers emit only header.i, not header.d.
+	it("falls back to the domain in header.i when the dkim=pass result carries no header.d", async () => {
+		const parsed = await parse([
+			"From: alice@ing.nl",
+			"To: bob@example.com",
+			"Subject: header.i only",
+			"Authentication-Results: mx.example.com; dkim=pass header.i=@ing.nl header.s=sel",
+			"",
+			"body",
+		]);
+		const auth = extractAuthenticity(parsed);
+		assert.ok(auth, "expected authenticity object");
+		assert.equal(auth.dkimDomain, "ing.nl");
+		assert.equal(auth.dkimMismatch, false);
+	});
+
+	// #603 CI finding B: a message can carry more than one passing signature —
+	// e.g. an ESP infrastructure domain alongside the sender's own. The
+	// aligned one must win over an earlier unrelated one; naively taking the
+	// first would misreport (and auto-junk) any SES/Mailchimp/Google-Groups
+	// sender whose third-party signature happens to be listed first.
+	it("prefers an aligned dkim=pass result over an earlier unrelated one", async () => {
+		const parsed = await parse([
+			"From: alice@acme.com",
+			"To: bob@example.com",
+			"Subject: ESP infra signature listed first",
+			"Authentication-Results: mx.example.com; dkim=pass header.d=amazonses.com; dkim=pass header.d=acme.com",
+			"",
+			"body",
+		]);
+		const auth = extractAuthenticity(parsed);
+		assert.ok(auth, "expected authenticity object");
+		assert.equal(auth.dkimDomain, "acme.com");
+		assert.equal(auth.dkimMismatch, false);
 	});
 
 	it("returns null when From address is missing", async () => {
@@ -287,19 +462,40 @@ describe("extractAuthenticity", () => {
 			"From: ",
 			"To: bob@example.com",
 			"Subject: weird",
-			"DKIM-Signature: v=1; a=rsa-sha256; d=relay.example.net; s=sel; b=xxx",
+			"Authentication-Results: mx.example.com; dkim=pass header.d=relay.example.net",
 			"",
 			"body",
 		]);
 		assert.equal(extractAuthenticity(parsed), null);
 	});
 
-	it("returns dkimMismatch: true when signing domain differs from From domain", async () => {
+	// #603: a message relayed through a re-signing host (e.g. a receiving MX
+	// that re-signs on the way in) carries that host's own DKIM-Signature, not
+	// the sender's. The domain must come from Authentication-Results'
+	// header.d, which names the domain the trust boundary actually verified —
+	// never from the (possibly re-signed) DKIM-Signature header.
+	it("takes the signing domain from Authentication-Results header.d, not the DKIM-Signature header", async () => {
+		const parsed = await parse([
+			"From: alice@sabrinabasten.com",
+			"To: bob@example.com",
+			"Subject: relayed",
+			"Authentication-Results: mx.custmx.one.com; dkim=pass header.d=server104.greatnet.de header.s=sel",
+			"DKIM-Signature: v=1; a=rsa-sha256; d=custmx.one.com; s=sel; b=xxx",
+			"",
+			"body",
+		]);
+		const auth = extractAuthenticity(parsed);
+		assert.ok(auth, "expected authenticity object");
+		assert.equal(auth.dkimDomain, "server104.greatnet.de");
+		assert.notEqual(auth.dkimDomain, "custmx.one.com");
+	});
+
+	it("returns dkimMismatch: true when the authenticated domain differs from From domain", async () => {
 		const parsed = await parse([
 			"From: alice@personal.example.com",
 			"To: bob@example.com",
 			"Subject: forwarded",
-			"DKIM-Signature: v=1; a=rsa-sha256; d=relay.example.net; s=sel; b=xxx",
+			"Authentication-Results: mx.example.com; dkim=pass header.d=relay.example.net",
 			"",
 			"body",
 		]);
@@ -310,12 +506,12 @@ describe("extractAuthenticity", () => {
 		assert.equal(auth.dkimMismatch, true);
 	});
 
-	it("returns dkimMismatch: false when signing domain equals From domain (aligned)", async () => {
+	it("returns dkimMismatch: false when the authenticated domain equals From domain (aligned)", async () => {
 		const parsed = await parse([
 			"From: alice@example.com",
 			"To: bob@example.com",
 			"Subject: aligned",
-			"DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=sel; b=xxx",
+			"Authentication-Results: mx.example.com; dkim=pass header.d=example.com",
 			"",
 			"body",
 		]);
@@ -326,12 +522,12 @@ describe("extractAuthenticity", () => {
 		assert.equal(auth.dkimMismatch, false);
 	});
 
-	it("returns dkimMismatch: false for subdomain-aligned signing (d= is parent of From domain)", async () => {
+	it("returns dkimMismatch: false for subdomain-aligned authenticated domain (parent of From domain)", async () => {
 		const parsed = await parse([
 			"From: alice@mail.example.com",
 			"To: bob@example.com",
 			"Subject: subdomain ok",
-			"DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=sel; b=xxx",
+			"Authentication-Results: mx.example.com; dkim=pass header.d=example.com",
 			"",
 			"body",
 		]);
@@ -341,12 +537,12 @@ describe("extractAuthenticity", () => {
 		assert.equal(auth.dkimMismatch, false);
 	});
 
-	it("returns dkimMismatch: false for subdomain-aligned signing (d= is child of From domain)", async () => {
+	it("returns dkimMismatch: false for subdomain-aligned authenticated domain (child of From domain)", async () => {
 		const parsed = await parse([
 			"From: alice@example.com",
 			"To: bob@example.com",
 			"Subject: child ok",
-			"DKIM-Signature: v=1; a=rsa-sha256; d=mail.example.com; s=sel; b=xxx",
+			"Authentication-Results: mx.example.com; dkim=pass header.d=mail.example.com",
 			"",
 			"body",
 		]);
@@ -356,42 +552,41 @@ describe("extractAuthenticity", () => {
 		assert.equal(auth.dkimMismatch, false);
 	});
 
-	it("handles multiple DKIM signatures: aligned signature wins (no mismatch)", async () => {
+	it("reads header.d off the dkim= resinfo when spf/dmarc results are also present", async () => {
 		const parsed = await parse([
 			"From: alice@example.com",
 			"To: bob@example.com",
-			"Subject: multi",
-			"DKIM-Signature: v=1; a=rsa-sha256; d=relay.example.net; s=s1; b=xxx",
-			"DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=s2; b=yyy",
+			"Subject: multi mechanism",
+			"Authentication-Results: mx.example.com; dmarc=pass header.from=example.com; spf=pass smtp.mailfrom=alice@example.com; dkim=pass header.d=example.com header.s=sel",
 			"",
 			"body",
 		]);
 		const auth = extractAuthenticity(parsed);
 		assert.ok(auth, "expected authenticity object");
-		assert.equal(auth.dkimMismatch, false);
+		assert.equal(auth.dkimDomain, "example.com");
 	});
 
-	it("reports first mismatching domain when all signatures mismatch", async () => {
+	it("uses the topmost Authentication-Results header when more than one is present", async () => {
 		const parsed = await parse([
-			"From: alice@personal.example.com",
+			"From: alice@example.com",
 			"To: bob@example.com",
-			"Subject: all mismatch",
-			"DKIM-Signature: v=1; a=rsa-sha256; d=relay-a.net; s=s1; b=xxx",
-			"DKIM-Signature: v=1; a=rsa-sha256; d=relay-b.net; s=s2; b=yyy",
+			"Subject: multi-hop",
+			"Authentication-Results: mx.example.com; dkim=pass header.d=example.com",
+			"Authentication-Results: relay.upstream.example; dkim=pass header.d=spoofed.example",
 			"",
 			"body",
 		]);
 		const auth = extractAuthenticity(parsed);
 		assert.ok(auth, "expected authenticity object");
-		assert.equal(auth.dkimMismatch, true);
-		assert.equal(auth.dkimDomain, "relay-a.net");
+		assert.equal(auth.dkimDomain, "example.com");
 	});
 
-	it("category and dkimMismatch always agree (mismatch case)", async () => {
+	it("category and dkimMismatch agree when Authentication-Results and DKIM-Signature name the same domain", async () => {
 		const parsed = await parse([
 			"From: alice@personal.example.com",
 			"To: bob@example.com",
 			"Subject: forwarded",
+			"Authentication-Results: mx.example.com; dkim=pass header.d=relay.example.net",
 			"DKIM-Signature: v=1; a=rsa-sha256; d=relay.example.net; s=sel; b=xxx",
 			"",
 			"body",
@@ -403,11 +598,12 @@ describe("extractAuthenticity", () => {
 		assert.equal(auth.dkimMismatch, true);
 	});
 
-	it("category and dkimMismatch always agree (aligned case)", async () => {
+	it("category and dkimMismatch agree (aligned case)", async () => {
 		const parsed = await parse([
 			"From: alice@example.com",
 			"To: bob@example.com",
 			"Subject: aligned",
+			"Authentication-Results: mx.example.com; dkim=pass header.d=example.com",
 			"DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=sel; b=xxx",
 			"",
 			"body",

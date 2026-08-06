@@ -87,6 +87,28 @@ describe("classifyDisplayNameCorrespondence", () => {
 			DisplayNameCorrespondence.Unrelated,
 		);
 	});
+
+	// Live phishing shape: a short, valuable brand name embedded as a
+	// coincidental substring of a longer, attacker-chosen domain. "ing" sits
+	// inside "secureingverify" the same way "irs"/"dhl"/"ups"/"kpn" sit inside
+	// countless lookalike domains — none of that is the domain naming the
+	// brand.
+	it("does not match a short brand name that is merely embedded in a longer domain label (ING)", () => {
+		assert.equal(
+			classifyDisplayNameCorrespondence(
+				"ING Fraudedesk",
+				"secure-ing-verify.tk",
+			),
+			DisplayNameCorrespondence.Unrelated,
+		);
+	});
+
+	it("still matches a short brand name against its own real domain", () => {
+		assert.equal(
+			classifyDisplayNameCorrespondence("ING", "ing.nl"),
+			DisplayNameCorrespondence.Corresponds,
+		);
+	});
 });
 
 describe("extractOffDomainLinkDomains", () => {
