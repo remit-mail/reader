@@ -7,6 +7,10 @@ import type {
 } from "@remit/data-ports";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
+import {
+	isPlacementUnsettled,
+	waitForPlacementToSettle,
+} from "./placement-settled.js";
 
 /**
  * Event the reconciler (imap-worker `handlePlacementMovePush`) drains. Carries
@@ -41,7 +45,12 @@ export interface PlacementMoveConfig {
 	sqsQueueUrl: string;
 	sqsEndpoint?: string;
 	logger?: PlacementMoveLogger;
+	moveSettleTimeoutMs?: number;
+	moveSettlePollMs?: number;
 }
+
+const DEFAULT_MOVE_SETTLE_TIMEOUT_MS = 5_000;
+const DEFAULT_MOVE_SETTLE_POLL_MS = 250;
 
 /**
  * Local-first mover for a classification-driven placement move (issue #1271,
@@ -78,6 +87,8 @@ export class PlacementMoveService {
 	private sqs: SQSClient;
 	private queueUrl: string;
 	private log: PlacementMoveLogger;
+	private moveSettleTimeoutMs: number;
+	private moveSettlePollMs: number;
 
 	constructor(config: PlacementMoveConfig) {
 		this.messageService = config.messageService;
@@ -85,6 +96,10 @@ export class PlacementMoveService {
 		this.markerService = config.markerService;
 		this.queueUrl = config.sqsQueueUrl;
 		this.log = config.logger ?? noopLogger;
+		this.moveSettleTimeoutMs =
+			config.moveSettleTimeoutMs ?? DEFAULT_MOVE_SETTLE_TIMEOUT_MS;
+		this.moveSettlePollMs =
+			config.moveSettlePollMs ?? DEFAULT_MOVE_SETTLE_POLL_MS;
 		this.sqs = createQueueProducer({
 			queueUrl: config.sqsQueueUrl,
 			endpoint: config.sqsEndpoint,
@@ -97,8 +112,7 @@ export class PlacementMoveService {
 		destinationMailboxId: string,
 		accountId: string,
 	): Promise<void> => {
-		const message = await this.messageService.get(messageId);
-		const sourceMailboxId = message.mailboxId;
+		let message = await this.messageService.get(messageId);
 
 		// Recovery: a marker already exists for THIS message and destination —
 		// from an earlier (possibly partially-failed) call. The marker's STATE,
@@ -127,6 +141,28 @@ export class PlacementMoveService {
 			// nothing to do here either way.
 			return;
 		}
+
+		// A different destination, decided while an earlier move is still
+		// unconfirmed (issue #496): the row names that move's destination but its
+		// `uid` still belongs to the folder before it, so a marker bound to the
+		// pair as it stands sends the reconciler to move the destination folder's
+		// OWN message at that uid. Wait for the earlier move to confirm and bind
+		// to the settled row (docs/architecture/imap-mutations.md R2). Blocking is
+		// cheap — a move settles in well under a second — and on timeout the
+		// dependent write is simply not made.
+		if (isPlacementUnsettled(message)) {
+			message = await waitForPlacementToSettle(this.messageService, messageId, {
+				timeoutMs: this.moveSettleTimeoutMs,
+				pollMs: this.moveSettlePollMs,
+			});
+			if (isPlacementUnsettled(message)) {
+				throw new Error(
+					`Placement move for ${messageId} to ${destinationMailboxId} not applied: an earlier move has not settled`,
+				);
+			}
+		}
+
+		const sourceMailboxId = message.mailboxId;
 
 		// Genuine no-op: nothing pending for this destination, and the message
 		// is already there (a duplicate verdict recomputed after a confirmed

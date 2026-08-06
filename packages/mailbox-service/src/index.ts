@@ -217,6 +217,7 @@ export {
 	type ResolveExhaustedPlacementMoveResult,
 	resolveExhaustedPlacementMoveFailure,
 } from "./placement-move-terminal.js";
+export { isPlacementUnsettled } from "./placement-settled.js";
 export {
 	type QuarantineContext,
 	QuarantinedUids,
