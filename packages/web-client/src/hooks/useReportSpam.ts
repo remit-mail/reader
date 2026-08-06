@@ -30,12 +30,13 @@ interface UseReportSpamOptions {
 	 * already has. Fires on SUCCESS here, not optimistically like those two:
 	 * neither endpoint tells the client whether the message actually left
 	 * `mailboxId` (reporting or undoing a message already in Junk is a real
-	 * no-op-move, and the client has no way to predict it for `notSpam` — see
-	 * `throwOnBulkFailure`'s neighbour below), so firing early would deselect a
-	 * message that never moved. Firing late means a message that DID move
-	 * still needs deselecting once the change is real, so this still exists —
-	 * a host that reports the open message and never hears about it keeps
-	 * rendering it from a pre-report snapshot forever (issue #648 review).
+	 * no-op-move, and the client has no way to predict it — see
+	 * `throwOnBulkFailure`'s neighbour below), so this fires for every success,
+	 * no-op included — a no-op report/undo still deselects even though the row
+	 * never actually left the list the host is watching. That trades an
+	 * occasional unnecessary pane-close for never leaving a reported message
+	 * rendering a pre-report snapshot forever, which is the bug this exists to
+	 * fix (issue #648 review).
 	 */
 	onAfterOptimisticRemove?: (messageIds: string[]) => void;
 }
@@ -54,21 +55,21 @@ export const GENERIC_SPAM_ACTION_FAILURE =
 
 /**
  * The server's designed failure text names the message by embedding its raw
- * UUID as a possessive subject — e.g. "Message 7f3a2c19-...'s move to Junk
- * has not settled yet; try again in a moment." Accurate, but not something to
- * put in front of a person. This targets that one known shape (`Message
- * <uuid>'s`) and swaps it for plain language, leaving the rest of the
- * sentence — and any reason that doesn't match, including the generic
- * fallback — untouched. Not a parse of the reason's meaning (the field is
- * documented "not intended to be parsed programmatically"): a UUID is an
- * opaque identifier either way, so replacing its rendering is not reading
- * anything into what the sentence says.
+ * id as a possessive subject — e.g. "Message 4kv0xxyfhg4dhzqvxd105v840's move
+ * to Junk has not settled yet; try again in a moment." (message ids here are
+ * 25-char base36, `translator.generate()` in `packages/data-ports/src/id.ts`
+ * — not a dashed UUID). Accurate, but not something to put in front of a
+ * person. `messageId` is the exact id the failure names — `SpamReportFailure`
+ * pairs it with `reason` for precisely this — so this strips that literal
+ * substring rather than pattern-matching an id shape that could change under
+ * it. Not a parse of the reason's meaning (the field is documented "not
+ * intended to be parsed programmatically"): removing a known, opaque
+ * identifier from where it renders reads nothing into what the sentence says.
  */
-const MESSAGE_ID_SUBJECT =
-	/\bMessage [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'s\b/gi;
-
-export const humanizeSpamFailureReason = (reason: string): string =>
-	reason.replace(MESSAGE_ID_SUBJECT, "This message's");
+export const humanizeSpamFailureReason = (
+	reason: string,
+	messageId: string,
+): string => reason.replace(`Message ${messageId}'s`, "This message's");
 
 /**
  * `settleSpamReportBulk` (backend) runs the batch with `Promise.allSettled`
@@ -82,20 +83,29 @@ export const humanizeSpamFailureReason = (reason: string): string =>
  * story, not truncating a real batch.
  *
  * Throws `ApiError` — not a bare `Error` — carrying a 4xx status. The
- * client's fatal/banner split (`lib/error-classifier.ts`) treats a
- * statusless `Error` as a client bug and routes it to the full-screen fatal
- * overlay with no retry, which is wrong for a designed, expected, retryable
- * outcome the backend wrote user-facing copy for. Every other call site in
- * this app forwards a status-carrying error the generated client already
- * threw; this is the one place synthesizing a failure from a 200 body, so it
- * has to synthesize a status too.
+ * client's fail-fast contract (`lib/error-classifier.ts`'s `shouldEscalate`,
+ * wired globally on the `MutationCache` in `lib/query-error-handler.ts`)
+ * escalates anything that isn't a 5xx by default UNLESS the call site opts
+ * out via `meta.softError` — a statusless `Error` escalates too, as a client
+ * bug. Either way, without both the status AND `meta.softError` (set on the
+ * `useMutation` calls below) this would crash to the full-screen fatal
+ * overlay for a designed, expected, retryable outcome the backend wrote
+ * user-facing copy for. Every other call site in this app forwards a
+ * status-carrying error the generated client already threw and never needs
+ * the opt-out because none of them are a routine, expected-failure signal
+ * like this one; this is the one place synthesizing a failure from a 200
+ * body, so it has to synthesize both.
  */
 export const throwOnBulkFailure = (
 	data: RemitImapSpamReportBulkResult,
 ): void => {
 	if (data.failureCount === 0) return;
-	const reason = data.failures?.[0]?.reason ?? GENERIC_SPAM_ACTION_FAILURE;
-	throw new ApiError(humanizeSpamFailureReason(reason), 422);
+	const failure = data.failures?.[0];
+	const reason = failure?.reason ?? GENERIC_SPAM_ACTION_FAILURE;
+	const message = failure
+		? humanizeSpamFailureReason(reason, failure.messageId)
+		: reason;
+	throw new ApiError(message, 422);
 };
 
 /**
@@ -113,9 +123,10 @@ export const throwOnBulkFailure = (
  * silent no-op), so predicting the row should vanish would flicker it back
  * on invalidation for a no-op — worst on `notSpam`, whose R2 wait can run
  * several seconds before the row "pops back". The list settles from
- * `onSuccess`'s invalidation instead, which is always correct, at the cost
- * of losing the instant-optimistic feel `useMoveMessages` has for a move
- * whose destination is known upfront.
+ * `onSuccess`'s invalidation instead, which is always correct. `isReporting`/
+ * `isRestoring` below exist to pay for the UX this trades away: without them
+ * a press produces no visible change at all until the request lands — the
+ * caller wires them into the quick action's pending state.
  */
 export function useReportSpam({
 	mailboxId,
@@ -170,6 +181,12 @@ export function useReportSpam({
 			throwOnBulkFailure(data);
 			return data;
 		},
+		// A per-message report failure is a routine, expected, retryable outcome
+		// with backend-written user-facing copy — never the fatal overlay. See
+		// `throwOnBulkFailure`'s doc for why the thrown ApiError's status alone
+		// isn't enough: `shouldEscalate` defaults to escalate for a non-5xx that
+		// doesn't opt out here.
+		meta: { softError: true },
 		onSuccess: buildOnSuccess(),
 		onError: buildOnError((count) =>
 			count > 1
@@ -187,6 +204,7 @@ export function useReportSpam({
 			throwOnBulkFailure(data);
 			return data;
 		},
+		meta: { softError: true },
 		onSuccess: buildOnSuccess(),
 		onError: buildOnError((count) =>
 			count > 1
@@ -218,30 +236,9 @@ export function useReportSpam({
 	return {
 		reportSpam,
 		notSpam,
+		/** True while a report is in flight — wire into the "Report spam" quick action's pending state; a press with no visible response is the dead-button failure mode. */
 		isReporting: report.isPending,
+		/** True while an undo is in flight — wire into the "Not spam" quick action's pending state. */
 		isRestoring: restore.isPending,
-		/**
-		 * Message ids the last report-spam attempt failed for — `undefined` once
-		 * a new attempt starts or the last one succeeded. Callers compare against
-		 * the specific message they're rendering rather than reading `isError`
-		 * directly: this hook is shared across every open message in a mailbox
-		 * (no per-message instance), so a bare boolean would keep reading "failed"
-		 * after the user moves on to a message that was never reported.
-		 */
-		reportFailedMessageIds: report.isError
-			? report.variables?.body.messageIds
-			: undefined,
-		restoreFailedMessageIds: restore.isError
-			? restore.variables?.body.messageIds
-			: undefined,
-		/**
-		 * The failure itself, paired with the ids above — its `message` is
-		 * either the server's own allowlisted reason (e.g. `notSpam`'s
-		 * move-not-settled-yet text, with the raw UUID cleaned up) or the
-		 * flattened generic one, both safe to show as-is. `undefined` under the
-		 * same reset rule as `reportFailedMessageIds`.
-		 */
-		reportError: report.isError ? report.error : undefined,
-		restoreError: restore.isError ? restore.error : undefined,
 	};
 }

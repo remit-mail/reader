@@ -8,7 +8,6 @@ import {
 import { Link } from "@tanstack/react-router";
 import { Sparkles } from "lucide-react";
 import { useCallback, useState } from "react";
-import { formatErrorDetail } from "@/components/ui/error-banners";
 import { useIntelligenceData } from "@/hooks/useIntelligenceData";
 import { useReportSpam } from "@/hooks/useReportSpam";
 import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
@@ -41,7 +40,11 @@ export interface IntelligencePaneProps {
 	 * refreshing once the row leaves the list it's watching, so without this a
 	 * reported message keeps rendering "Report spam" here forever, even while
 	 * the reading pane's own per-thread query — a different cache — already
-	 * shows "Reported as spam · Undo" (issue #648 review).
+	 * shows "Reported as spam · Undo" (issue #648 review). Fires on every
+	 * success, no-op included: neither endpoint says whether the message
+	 * actually left the list, so a no-op report/undo also deselects even
+	 * though the row never moved. That is a real, accepted trade — an
+	 * occasional unneeded pane-close — not a bug; see `useReportSpam`.
 	 */
 	onAfterOptimisticRemove?: (messageIds: string[]) => void;
 }
@@ -237,14 +240,7 @@ function WiredPanel({
 
 	// "Report spam" / "Not spam" are a contextual pair, decided by whether the
 	// message carries a spam report — never by the mailbox it's in (issue #648).
-	const {
-		reportSpam,
-		notSpam,
-		reportFailedMessageIds,
-		restoreFailedMessageIds,
-		reportError,
-		restoreError,
-	} = useReportSpam({
+	const { reportSpam, notSpam, isReporting, isRestoring } = useReportSpam({
 		mailboxId: thread.mailboxId,
 		threadId: thread.threadId,
 		accountId,
@@ -265,17 +261,6 @@ function WiredPanel({
 		});
 		reportSpam([thread.messageId]);
 	}, [reportSpam, thread, telemetry]);
-
-	// The server's own reason (e.g. notSpam's move-not-settled-yet message) is
-	// documented safe to show as-is — prefer it over a generic string so a
-	// retry-and-it'll-work failure reads differently from a real one.
-	const spamActionError = reportFailedMessageIds?.includes(thread.messageId)
-		? (formatErrorDetail(reportError) ??
-			"Couldn't report this message as spam. Try again.")
-		: restoreFailedMessageIds?.includes(thread.messageId)
-			? (formatErrorDetail(restoreError) ??
-				"Couldn't undo the spam report. Try again.")
-			: undefined;
 
 	const handleShowSimilar = useCallback(() => {
 		// The similar-messages section scrolls into view automatically when
@@ -362,7 +347,8 @@ function WiredPanel({
 				actions={actions}
 				similarState={similarState}
 				similarLinkComponent={similarLinkComponent}
-				spamActionError={spamActionError}
+				reportSpamPending={isReporting}
+				notSpamPending={isRestoring}
 				// No left border: the ResizableHandle to our left already draws the
 				// hairline seam. The remit-ui IntelligencePanel default `border-l`
 				// would double it to 2px.

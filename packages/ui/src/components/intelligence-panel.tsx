@@ -184,13 +184,18 @@ export interface IntelligencePanelProps {
 	 */
 	hideCloseButton?: boolean;
 	/**
-	 * Set when the last "Report spam" / "Not spam" attempt failed, e.g.
-	 * "Couldn't report this message as spam. Try again." Renders inline under
-	 * the quick actions so the failure is visible at the point of the press,
-	 * not only in a toast the user may have looked away from — a dead button
-	 * is the worst outcome (issue #648). Omit when there is nothing to show.
+	 * True while a "Report spam" press is in flight. There is no optimistic
+	 * update for this action (issue #648: the client can't predict whether a
+	 * report against a message already in Junk is a no-op), so without this
+	 * the button gives no visible response at all until the request lands — a
+	 * dead button is the worst outcome. Swaps the label to "Reporting…"; the
+	 * handler stays wired throughout (same as `AutoMovedBadge`'s `isUndoing`)
+	 * because the operation is idempotent, so a second press mid-flight is
+	 * safe rather than a queued duplicate.
 	 */
-	spamActionError?: string;
+	reportSpamPending?: boolean;
+	/** True while a "Not spam" (undo) press is in flight. Same treatment as `reportSpamPending`. */
+	notSpamPending?: boolean;
 }
 
 const trustLabel: Record<
@@ -380,7 +385,8 @@ export function IntelligencePanel({
 	similarLinkComponent,
 	className,
 	hideCloseButton = false,
-	spamActionError,
+	reportSpamPending = false,
+	notSpamPending = false,
 }: IntelligencePanelProps) {
 	const { sender, authenticity, category, flags = {}, similar } = data;
 	const suspicious = authenticity.verdict === "mismatch";
@@ -456,7 +462,7 @@ export function IntelligencePanel({
 					{actions?.onNotSpam && (
 						<QuickAction
 							icon={<MailCheck className="size-3.5" />}
-							label="Not spam"
+							label={notSpamPending ? "Undoing…" : "Not spam"}
 							active
 							onClick={actions.onNotSpam}
 						/>
@@ -464,7 +470,7 @@ export function IntelligencePanel({
 					{actions?.onReportSpam && (
 						<QuickAction
 							icon={<ShieldX className="size-3.5" />}
-							label="Report spam"
+							label={reportSpamPending ? "Reporting…" : "Report spam"}
 							danger
 							onClick={actions.onReportSpam}
 						/>
@@ -480,9 +486,6 @@ export function IntelligencePanel({
 					<p className="mt-1.5 text-2xs text-fg-subtle">
 						You reported this message as spam
 					</p>
-				)}
-				{spamActionError && (
-					<p className="mt-1.5 text-2xs text-danger">{spamActionError}</p>
 				)}
 			</Section>
 

@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { isAlwaysFatal } from "@/lib/error-classifier";
 import {
 	GENERIC_SPAM_ACTION_FAILURE,
 	humanizeSpamFailureReason,
@@ -61,27 +60,30 @@ describe("throwOnBulkFailure (#648)", () => {
 		);
 	});
 
-	test("the thrown error is recoverable, not a client-bug fatal (regression)", () => {
-		// A bare `Error` here carries no HTTP status, so the classifier reads it
-		// as a client bug and routes it to the full-screen fatal overlay instead
-		// of a dismissible banner — for a designed, expected, retryable outcome
-		// the backend wrote friendly copy for. This is exactly the regression a
-		// prior version of this hook shipped: `pushError` never built a banner,
-		// the message/badge/Undo button vanished behind the crash page, and the
-		// failure was logged as fatal telemetry.
+	test("strips the real messageId shape out of the designed reason", () => {
+		// Message ids are 25-char base36 (`translator.generate()` in
+		// packages/data-ports/src/id.ts), never a dashed UUID — a fixture
+		// shaped like one proves nothing about what the user actually sees.
+		const realId = "9m2k7x4vqz1jd0tn3wf8b6y5c";
 		assert.throws(
 			() =>
 				throwOnBulkFailure({
 					successCount: 0,
 					failureCount: 1,
-					failures: [{ messageId: "m1", reason: "has not settled yet" }],
+					failures: [
+						{
+							messageId: realId,
+							reason: `Message ${realId}'s move to Junk has not settled yet; try again in a moment.`,
+						},
+					],
 				}),
 			(error: unknown) => {
+				assert.ok(error instanceof Error);
 				assert.equal(
-					isAlwaysFatal(error),
-					false,
-					"a per-message report/undo failure must not escalate to the fatal overlay",
+					error.message,
+					"This message's move to Junk has not settled yet; try again in a moment.",
 				);
+				assert.ok(!error.message.includes(realId), "the raw id must not leak");
 				return true;
 			},
 		);
@@ -89,10 +91,13 @@ describe("throwOnBulkFailure (#648)", () => {
 });
 
 describe("humanizeSpamFailureReason (#648)", () => {
-	test("replaces the raw messageId possessive with plain language", () => {
+	test("replaces the real-shaped messageId possessive with plain language", () => {
+		// Base36, not a dashed UUID — see the note above.
+		const realId = "9m2k7x4vqz1jd0tn3wf8b6y5c";
 		assert.equal(
 			humanizeSpamFailureReason(
-				"Message 7f3a2c19-1b4d-4e2a-9c3f-8a1b2c3d4e5f's move to Junk has not settled yet; try again in a moment.",
+				`Message ${realId}'s move to Junk has not settled yet; try again in a moment.`,
+				realId,
 			),
 			"This message's move to Junk has not settled yet; try again in a moment.",
 		);
@@ -100,7 +105,10 @@ describe("humanizeSpamFailureReason (#648)", () => {
 
 	test("leaves a reason with no embedded messageId unchanged", () => {
 		assert.equal(
-			humanizeSpamFailureReason(GENERIC_SPAM_ACTION_FAILURE),
+			humanizeSpamFailureReason(
+				GENERIC_SPAM_ACTION_FAILURE,
+				"9m2k7x4vqz1jd0tn3wf8b6y5c",
+			),
 			GENERIC_SPAM_ACTION_FAILURE,
 		);
 	});

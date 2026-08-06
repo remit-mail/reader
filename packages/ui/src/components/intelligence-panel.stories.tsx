@@ -241,14 +241,27 @@ export const SpamActionUnavailable: Story = {
 };
 
 /**
- * The last report-spam attempt failed. A dead button is the worst outcome, so
- * the failure renders inline under the quick actions rather than only in a
- * toast the user may have already looked away from (issue #648).
+ * A "Report spam" press in flight. There's no optimistic update for this
+ * action (a report against a message already in Junk is a real no-op-move,
+ * issue #648), so without a pending label the button gives no visible
+ * response at all until the request lands — the dead-button failure the
+ * coding standards call the worst outcome. The button stays clickable
+ * throughout, same as the undo direction's `isUndoing`: the operation is
+ * idempotent, so a second press is safe, never a queued duplicate.
  */
-export const SpamActionFailed: Story = {
+export const ReportSpamPending: Story = {
 	args: {
 		data: base,
 		actions: { onReportSpam: () => {} },
-		spamActionError: "Couldn't report this message as spam. Try again.",
+		reportSpamPending: true,
+	},
+};
+
+/** The undo direction's equivalent — "Undoing…" while `notSpam` is in flight. */
+export const NotSpamPending: Story = {
+	args: {
+		data: base,
+		actions: { onNotSpam: () => {} },
+		notSpamPending: true,
 	},
 };
