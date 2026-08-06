@@ -87,7 +87,7 @@ export const MobileComposeSheet = () => {
 			<Drawer.Portal>
 				<Drawer.Overlay className="fixed inset-0 z-40 bg-black/40" />
 				<Drawer.Content
-					className="fixed inset-x-0 bottom-0 z-50 flex flex-col bg-canvas rounded-t-lg"
+					className="fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-lg bg-canvas pb-[env(safe-area-inset-bottom,0px)]"
 					style={{ height: "95dvh" }}
 				>
 					<Drawer.Handle className="mx-auto mt-2 mb-1 h-1.5 w-12 rounded-full bg-fg-muted/30" />

@@ -148,7 +148,7 @@ export function WizardScreen({
 			className="fixed inset-0 z-50 flex flex-col font-sans text-fg md:items-center md:justify-center md:bg-black/40 md:p-6"
 		>
 			<div className="flex min-h-0 w-full flex-1 flex-col bg-canvas md:h-[45rem] md:max-h-[calc(100dvh-3rem)] md:w-[35rem] md:max-w-[calc(100vw-3rem)] md:flex-none md:overflow-hidden md:rounded-xl md:border md:border-line md:shadow-lg">
-				<header className="shrink-0 border-b border-line px-3 pb-2 pt-3">
+				<header className="shrink-0 border-b border-line px-3 pb-2 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] md:pt-3">
 					<div className="flex items-center gap-1">
 						<button
 							type="button"

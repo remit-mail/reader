@@ -124,7 +124,15 @@ export function useContainerWidth(
 			if (entry) setWidth(entry.contentRect.width);
 		});
 		observer.observe(el);
-		setWidth(el.getBoundingClientRect().width);
+		// The content box, matching what the observer reports above: the shell
+		// root carries the device safe-area insets as padding and the panes are
+		// laid out in what is left, so the first synchronous measure and every
+		// later one have to be the same box.
+		const style = getComputedStyle(el);
+		const horizontalPadding =
+			Number.parseFloat(style.paddingLeft) +
+			Number.parseFloat(style.paddingRight);
+		setWidth(el.clientWidth - horizontalPadding);
 		return () => observer.disconnect();
 	}, []);
 	return [ref, width];

@@ -83,7 +83,7 @@ export const Drawer = ({
 			<div
 				ref={drawerRef}
 				className={cn(
-					"absolute top-0 bottom-0 bg-canvas border-line shadow-xl flex flex-col",
+					"safe-area-frame absolute top-0 bottom-0 bg-canvas border-line shadow-xl flex flex-col",
 					widthClassName,
 					sideClasses,
 				)}

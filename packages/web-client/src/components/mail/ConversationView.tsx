@@ -57,8 +57,9 @@ interface ConversationViewProps {
 	composeRequest?: ComposeMode | null;
 	/**
 	 * Called once the conversation has acted on `composeRequest` (or
-	 * whenever the inline compose is dismissed). The caller should reset
-	 * `composeRequest` to `null`.
+	 * whenever the inline compose is dismissed). The caller must reset
+	 * `composeRequest` to `null`: a request left standing is read as a fresh
+	 * one on every render.
 	 */
 	onComposeClose?: () => void;
 	/**
@@ -251,7 +252,6 @@ export const ConversationView = ({
 		staleTime: Infinity,
 	});
 	const activeAccount = config?.accounts?.[0];
-	const smtpConfigured = !!activeAccount?.smtpHost;
 
 	// Mark messages as read immediately when expanded.
 	useMarkAsRead({
@@ -278,14 +278,23 @@ export const ConversationView = ({
 	// locally via r/a/f keyboard shortcuts.
 	const [composeMode, setComposeMode] = useState<ComposeMode | null>(null);
 
+	// Counts openings rather than tracking the mode: replying from a second
+	// message while compose is already open is the same request again, and the
+	// reader still has to be taken to it.
+	const [composeOpenings, setComposeOpenings] = useState(0);
+	const openCompose = useCallback((mode: ComposeMode) => {
+		setComposeMode(mode);
+		setComposeOpenings((count) => count + 1);
+	}, []);
+
 	// When the toolbar passes a composeRequest, open the inline compose.
 	useEffect(() => {
 		if (composeRequest && composeRequest !== "new") {
-			setComposeMode(composeRequest);
+			openCompose(composeRequest);
 			// Notify the parent that the request has been consumed.
 			onComposeClose?.();
 		}
-	}, [composeRequest, onComposeClose]);
+	}, [composeRequest, onComposeClose, openCompose]);
 
 	// Reply and forward act on the latest turn of the conversation, which is the
 	// last message now that the thread reads oldest first.
@@ -296,22 +305,43 @@ export const ConversationView = ({
 		enabled: !!latestMessage && composeMode !== null,
 	});
 
-	const handleReply = useCallback(() => {
-		setComposeMode("reply");
-	}, []);
+	const handleReply = useCallback(() => openCompose("reply"), [openCompose]);
 
-	const handleReplyAll = useCallback(() => {
-		setComposeMode("reply_all");
-	}, []);
+	const handleReplyAll = useCallback(
+		() => openCompose("reply_all"),
+		[openCompose],
+	);
 
-	const handleForward = useCallback(() => {
-		setComposeMode("forward");
-	}, []);
+	const handleForward = useCallback(
+		() => openCompose("forward"),
+		[openCompose],
+	);
 
 	const handleCloseCompose = useCallback(() => {
 		setComposeMode(null);
 		onComposeClose?.();
 	}, [onComposeClose]);
+
+	// Single-pane compose opens below the message, which on a long one is several
+	// screens down: without this, replying to it looks like nothing happening.
+	//
+	// Aligned on its bottom edge, where the send and discard verbs are, and held
+	// there while it changes height. It mounts before the message it quotes has
+	// been fetched and grows when that lands, so a single scroll at open time
+	// puts whatever it grows past back below the fold.
+	const composeRef = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		if (composeMode === null || composeOpenings === 0) return;
+		const surface = composeRef.current;
+		if (!surface) return;
+		const reveal = () =>
+			surface.scrollIntoView({ behavior: "smooth", block: "end" });
+		reveal();
+		if (typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver(reveal);
+		observer.observe(surface);
+		return () => observer.disconnect();
+	}, [composeOpenings, composeMode]);
 
 	// Register keyboard shortcuts
 	useKeyboardNavigation({
@@ -323,18 +353,14 @@ export const ConversationView = ({
 			{ key: "ArrowUp", handler: focusPrevious, preventDefault: true },
 			{ key: "Enter", handler: toggleFocusedMessage, preventDefault: true },
 			{ key: "o", handler: toggleFocusedMessage, preventDefault: true },
-			...(smtpConfigured
-				? [
-						{ key: "r", handler: handleReply, preventDefault: true },
-						{
-							key: "R",
-							handler: handleReplyAll,
-							noModifiers: false,
-							preventDefault: true,
-						},
-						{ key: "f", handler: handleForward, preventDefault: true },
-					]
-				: []),
+			{ key: "r", handler: handleReply, preventDefault: true },
+			{
+				key: "R",
+				handler: handleReplyAll,
+				noModifiers: false,
+				preventDefault: true,
+			},
+			{ key: "f", handler: handleForward, preventDefault: true },
 		],
 	});
 
@@ -367,8 +393,9 @@ export const ConversationView = ({
 
 	// Message list wrapper — no extra x-padding; each MessageCard handles
 	// its own px-5 inset (matches the AppShell ReadingPane geometry). On mobile
-	// each expanded card owns a per-message action bar; reply verbs are wired
-	// only when SMTP is configured (otherwise the buttons no-op).
+	// each expanded card owns a per-message action bar. Its reply verbs are
+	// wired whatever the account's SMTP state: compose is where an account that
+	// cannot send says so.
 	const renderMessages = (mobile: boolean) => (
 		<div>
 			{messages.map((message, index) => (
@@ -389,9 +416,9 @@ export const ConversationView = ({
 						}
 						accountId={mailboxAccountId}
 						mobile={mobile}
-						onReply={mobile && smtpConfigured ? handleReply : undefined}
-						onReplyAll={mobile && smtpConfigured ? handleReplyAll : undefined}
-						onForward={mobile && smtpConfigured ? handleForward : undefined}
+						onReply={mobile ? handleReply : undefined}
+						onReplyAll={mobile ? handleReplyAll : undefined}
+						onForward={mobile ? handleForward : undefined}
 					/>
 				</div>
 			))}
@@ -434,12 +461,14 @@ export const ConversationView = ({
 				)}
 				{renderMessages(true)}
 				{composeMode !== null && (
-					<InlineCompose
-						mode={composeMode}
-						account={activeAccount}
-						sourceMessage={latestMessageData}
-						onClose={handleCloseCompose}
-					/>
+					<div ref={composeRef}>
+						<InlineCompose
+							mode={composeMode}
+							account={activeAccount}
+							sourceMessage={latestMessageData}
+							onClose={handleCloseCompose}
+						/>
+					</div>
 				)}
 			</MobileReadingPane>
 		);

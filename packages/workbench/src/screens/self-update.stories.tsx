@@ -81,6 +81,7 @@ function AdvancedPage({ state }: { state: SelfUpdateState }) {
 			help={updatesHelp}
 			helpOpen={helpOpen}
 			onToggleHelp={() => setHelpOpen((v) => !v)}
+			onBackToMail={() => undefined}
 		>
 			<SelfUpdateSection
 				now={NOW}

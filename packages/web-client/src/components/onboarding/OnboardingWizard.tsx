@@ -43,6 +43,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AtSign, Inbox, Loader2, Mail, Server } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useReturnFromRedirect } from "../../hooks/useReturnFromRedirect.js";
 // useRef is kept for the hasCreatedRef guard — not for DOM refs
 import {
 	type DiscoveryResult,
@@ -274,44 +275,125 @@ function StepConnector({
 
 function StepMicrosoftEmail({
 	onBack,
-	onRedirecting,
+	onConnected,
 }: {
 	onBack: () => void;
-	onRedirecting: () => void;
+	onConnected: (accountId: string) => void;
 }) {
 	const [email, setEmail] = useState("");
 	const [error, setError] = useState<string | null>(null);
+	const [awaitingReturn, setAwaitingReturn] = useState(false);
+	const [preparing, setPreparing] = useState(false);
+	// The account read is in flight across a step the user can leave — Escape and
+	// Back both unmount it — and it ends in a redirect that would take the whole
+	// window with it.
+	const stepIsMounted = useRef(true);
+	useEffect(() => {
+		stepIsMounted.current = true;
+		return () => {
+			stepIsMounted.current = false;
+		};
+	}, []);
+	// The accounts this instance held when the redirect started. What comes back
+	// is recognised as new against it, so it has to be a real list — against an
+	// empty stand-in every account already here reads as the one just connected.
+	const accountIdsBeforeRedirect = useRef<ReadonlySet<string>>(new Set());
+
+	const { refetch: refetchConfig } = useQuery(
+		configOperationsGetConfigOptions(),
+	);
 
 	const startMutation = useMutation({
 		...microsoftOAuthOperationsMicrosoftOAuthStartMutation(),
 		onSuccess: (data) => {
-			onRedirecting();
+			// A step the user left while this was in flight does not get to take the
+			// window with it. `assign` is not synchronous either — the page is still
+			// here while the browser fetches Microsoft's — so the control stays busy
+			// until the window is actually looked at again.
+			if (!stepIsMounted.current) return;
+			setAwaitingReturn(true);
 			window.location.assign(data.authorizationUrl);
 		},
 		onError: (err) => {
+			setPreparing(false);
 			setError(err instanceof Error ? err.message : "Failed to start sign-in");
 		},
 	});
 
+	// Microsoft's answer comes back to whichever window the platform picks, and
+	// on iOS that is often the browser rather than the app launched from the
+	// home screen. So this window decides on the account list rather than on
+	// having been the one that got the redirect: an account that was not there
+	// before carries the wizard forward.
+	//
+	// Every look at this window is a chance to find that account, not a verdict
+	// on the sign-in — a user who switches back mid-flow to read a password has
+	// not failed anything, so nothing here concludes and the check stays armed
+	// until an account appears or the user leaves the step.
+	useReturnFromRedirect(
+		awaitingReturn,
+		useCallback(() => {
+			// Being looked at again is the proof the redirect is over, however it
+			// ended: the window that was leaving is back, so the button is too.
+			setPreparing(false);
+			void refetchConfig().then(({ data, isError }) => {
+				if (!stepIsMounted.current) return;
+				if (isError || !data) {
+					setError(
+						"Couldn't check whether the sign-in finished. Open Settings › Accounts to see whether the account is connected.",
+					);
+					return;
+				}
+				setError(null);
+				const connected = data.accounts.find(
+					(account) => !accountIdsBeforeRedirect.current.has(account.accountId),
+				);
+				if (connected) onConnected(connected.accountId);
+			});
+		}, [refetchConfig, onConnected]),
+	);
+
+	// The account list is read first and the redirect goes from what it says, so
+	// the window that comes back has something to recognise a new account
+	// against. A list that cannot be read stops the flow here, where it can be
+	// retried, rather than at the return leg where nothing can be concluded.
+	const redirecting = preparing || startMutation.isPending;
+
 	const handleSubmit = () => {
+		if (redirecting) return;
 		setError(null);
-		startMutation.mutate({
-			body: { email: email.trim() || undefined },
+		setPreparing(true);
+		void refetchConfig().then(({ data, isError }) => {
+			if (!stepIsMounted.current) return;
+			if (isError || !data) {
+				setPreparing(false);
+				setError(
+					"Couldn't read this instance's accounts, so sign-in can't be tracked. Check your connection and try again.",
+				);
+				return;
+			}
+			accountIdsBeforeRedirect.current = new Set(
+				data.accounts.map((account) => account.accountId),
+			);
+			startMutation.mutate({
+				body: { email: email.trim() || undefined },
+			});
 		});
 	};
 
-	// Keyboard: Enter submits, Esc goes back
-	// biome-ignore lint/correctness/useExhaustiveDependencies: handleSubmit's identity changes every render; including it would re-run this keydown listener on every render. Omitted to preserve existing behavior (matches the pre-existing eslint-disable). Enter-submit uses a stale handleSubmit — latent, tracked separately.
+	// Keyboard: Enter submits, Esc goes back. The listener reads the submit
+	// through a ref rather than closing over it, so Enter sends the address the
+	// field holds now instead of whatever it held when the listener went on.
+	const submitRef = useRef(handleSubmit);
+	submitRef.current = handleSubmit;
 	useEffect(() => {
 		const handler = (e: KeyboardEvent) => {
-			if (e.key === "Enter" && !startMutation.isPending) handleSubmit();
+			if (e.key === "Enter") submitRef.current();
 			if (e.key === "Escape") onBack();
 		};
 		window.addEventListener("keydown", handler);
 		return () => window.removeEventListener("keydown", handler);
-		// handleSubmit identity changes — intentional dep exclusion here
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [onBack, startMutation.isPending]);
+	}, [onBack]);
 
 	return (
 		<WizardShell
@@ -327,16 +409,18 @@ function StepMicrosoftEmail({
 					<Button
 						variant="primary"
 						onClick={handleSubmit}
-						disabled={startMutation.isPending}
+						disabled={redirecting}
 						icon={
-							startMutation.isPending ? (
+							redirecting ? (
 								<Loader2 className="size-4 animate-spin" />
 							) : undefined
 						}
 					>
-						{startMutation.isPending
+						{redirecting
 							? "Redirecting…"
-							: "Sign in with Microsoft"}
+							: awaitingReturn
+								? "Start over"
+								: "Sign in with Microsoft"}
 					</Button>
 				</>
 			}
@@ -360,6 +444,12 @@ function StepMicrosoftEmail({
 						Microsoft page.
 					</p>
 				</div>
+				{awaitingReturn && (
+					<Banner tone="info">
+						Waiting for Microsoft. Finish signing in — this window carries on
+						the moment the account is connected, wherever you finished.
+					</Banner>
+				)}
 				{error && <Banner tone="danger">{error}</Banner>}
 			</div>
 		</WizardShell>
@@ -1520,9 +1610,7 @@ export function OnboardingWizard({
 			return (
 				<StepMicrosoftEmail
 					onBack={() => setStep("connector")}
-					onRedirecting={() => {
-						// Full-page redirect is happening — nothing else to do
-					}}
+					onConnected={handleGoToInbox}
 				/>
 			);
 

@@ -102,7 +102,7 @@ export function SettingsShell({
 	);
 
 	return (
-		<div className="flex h-dvh w-full overflow-hidden bg-canvas font-sans text-fg">
+		<div className="safe-area-frame flex h-dvh w-full overflow-hidden bg-canvas font-sans text-fg">
 			{/* Desktop nav rail */}
 			<aside className="hidden w-60 shrink-0 flex-col border-r border-line bg-surface-sunken lg:flex">
 				<div className="flex h-pane-header shrink-0 items-center border-b border-line px-2">
@@ -127,7 +127,7 @@ export function SettingsShell({
 						className="absolute inset-0 bg-canvas/60"
 						onClick={() => setNavOpen(false)}
 					/>
-					<aside className="relative flex w-72 max-w-[85%] flex-col border-r border-line bg-surface-sunken">
+					<aside className="safe-area-frame relative flex w-72 max-w-[85%] flex-col border-r border-line bg-surface-sunken">
 						<div className="flex h-pane-header shrink-0 items-center justify-between border-b border-line px-2">
 							<button
 								type="button"
@@ -156,6 +156,19 @@ export function SettingsShell({
 			<main className="flex min-w-0 flex-1 flex-col">
 				{/* pane-header datum: title row, hairline at the shared y */}
 				<header className="flex h-pane-header shrink-0 items-center gap-3 border-b border-line px-3 lg:px-5">
+					{/* Below desktop this is the only way out of settings that is on
+					    screen: the rail carrying "Back to mail" is a drawer here, and an
+					    app launched from a home screen has no browser back button. */}
+					{onBackToMail && (
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={<ChevronLeft className="size-4" />}
+							className="-ml-1 lg:hidden"
+							onClick={onBackToMail}
+							aria-label="Back to mail"
+						/>
+					)}
 					<Button
 						variant="ghost"
 						size="sm"

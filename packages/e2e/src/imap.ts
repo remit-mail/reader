@@ -35,6 +35,13 @@ export interface Message {
 	 */
 	headers?: ReadonlyArray<readonly [name: string, value: string]>;
 	/**
+	 * The body's media type, e.g. `text/html`. Defaults to `text/plain`, which
+	 * is what most of the suite wants; a spec that is about how markup renders
+	 * says so here rather than smuggling a second Content-Type through
+	 * `headers`.
+	 */
+	contentType?: "text/plain" | "text/html";
+	/**
 	 * IMAP keywords to set at APPEND time, e.g. `["\\Flagged"]`. This is how mail
 	 * arrives already flagged from another client — the state exists on the
 	 * server before the app has ever seen the message, so a sync that ignores it
@@ -65,7 +72,7 @@ const rfc5322 = (message: Message, recipient: string): string => {
 			: []),
 		...extra,
 		"MIME-Version: 1.0",
-		'Content-Type: text/plain; charset="utf-8"',
+		`Content-Type: ${message.contentType ?? "text/plain"}; charset="utf-8"`,
 		"",
 		message.body ?? `Body of ${message.subject}.`,
 		"",

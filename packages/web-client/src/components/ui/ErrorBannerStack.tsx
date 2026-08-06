@@ -15,7 +15,7 @@ export const ErrorBannerStack = ({
 	return (
 		<section
 			aria-label="Notifications"
-			className="pointer-events-none fixed inset-x-0 top-0 z-[60] flex flex-col items-center gap-2 px-4 pt-4 sm:items-end sm:pr-6"
+			className="pointer-events-none fixed inset-x-0 top-0 z-[60] flex flex-col items-center gap-2 px-4 pt-[calc(1rem+env(safe-area-inset-top,0px))] sm:items-end sm:pr-6"
 		>
 			<div className="flex w-full max-w-md flex-col gap-2">
 				{errors.map((entry) => (

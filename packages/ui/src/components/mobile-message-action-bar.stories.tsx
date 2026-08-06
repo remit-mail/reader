@@ -37,6 +37,7 @@ const meta: Meta<typeof MobileMessageActionBar> = {
 		onToggleStar: () => undefined,
 		onDelete: () => undefined,
 		onToggleRead: () => undefined,
+		onUnavailable: () => undefined,
 	},
 };
 export default meta;
@@ -47,11 +48,28 @@ export const Default: Story = {};
 
 export const Starred: Story = { args: { isStarred: true } };
 
+/** A host that cannot answer a verb omits its handler and the bar drops the
+ *  button, rather than offering one that reacts to nothing. */
+export const WithoutForward: Story = {
+	args: { onForward: undefined },
+};
+
 /** No message open: the verbs no-op and the bar surfaces a one-line reason
  *  instead of disabling. */
 export const NoMessageOpen: Story = {
 	args: {
 		hasThread: false,
 		unavailableHint: "Open a message first",
+	},
+};
+
+/** The two rules together: the host owns reply but not forward, and no message
+ *  is open. Reply stays up and explains itself on press; forward is not there
+ *  to press. Whether a message is open never decides which verbs exist. */
+export const NoMessageOpenWithoutForward: Story = {
+	args: {
+		hasThread: false,
+		unavailableHint: "Open a message first",
+		onForward: undefined,
 	},
 };

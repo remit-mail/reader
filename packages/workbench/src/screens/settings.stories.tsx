@@ -118,6 +118,7 @@ function SendersPage() {
 			help={sendersHelp}
 			helpOpen={helpOpen}
 			onToggleHelp={() => setHelpOpen((v) => !v)}
+			onBackToMail={() => undefined}
 		>
 			<div className="flex min-h-0 flex-1 flex-col lg:flex-row">
 				<SenderGroupSwitch
@@ -231,6 +232,7 @@ function AccountsShell({
 			help={accountsHelp}
 			helpOpen={helpOpen}
 			onToggleHelp={() => setHelpOpen((v) => !v)}
+			onBackToMail={() => undefined}
 		>
 			<div className="flex items-center justify-between">
 				<Badge tone="neutral">
@@ -361,6 +363,9 @@ export const AccountsMissingSyncDate: Story = {
 /*   - Nav rail → hamburger drawer (closed by default)               */
 /*   - Active pane → full width                                       */
 /*   - Tips rail → CircleHelp disclosure in the header               */
+/*   - "Back to mail" → header chevron, since the rail carrying it   */
+/*     is now behind the hamburger and an installed app has no       */
+/*     browser back button                                            */
 /*                                                                    */
 /* These stories document the live behaviour — the same Accounts page */
 /* rendered at the two sub-desktop breakpoints. Each breakpoint has a */
@@ -375,6 +380,7 @@ function AccountsShellNoHelp({ children }: { children: ReactNode }) {
 			activeId="accounts"
 			title="Accounts"
 			description="Every account keeps syncing — muted ones just stay out of unified views."
+			onBackToMail={() => undefined}
 		>
 			{children}
 		</SettingsShell>
@@ -852,6 +858,7 @@ function AppearancePage() {
 			help={appearanceHelp}
 			helpOpen={helpOpen}
 			onToggleHelp={() => setHelpOpen((v) => !v)}
+			onBackToMail={() => undefined}
 		>
 			<div className="space-y-5">
 				<div className="space-y-2">
@@ -971,6 +978,7 @@ function AdvancedPage({
 			help={advancedHelp}
 			helpOpen={helpOpen}
 			onToggleHelp={() => setHelpOpen((v) => !v)}
+			onBackToMail={() => undefined}
 		>
 			<QuarantineSection entries={quarantined} onCutBug={setReporting} />
 			<div className="mt-6 border-t border-line pt-4">

@@ -24,8 +24,7 @@ export interface MobileMessageActionBarProps {
 	/** Whether a message is open. Gates the verbs (never disables). */
 	hasThread: boolean;
 	/* ---- Reply verbs ----
-	 * Per-message: replying targets the message this bar belongs to. Omit a
-	 * handler to drop that verb. */
+	 * Per-message: replying targets the message this bar belongs to. */
 	onReply?: () => void;
 	onReplyAll?: () => void;
 	onForward?: () => void;
@@ -59,8 +58,13 @@ const TOUCH = "min-h-11 min-w-11 px-0";
  * repeats it. Intelligence is not here: it lives once in the top app bar and
  * reflects the active message. No archive either — Remit is IMAP-backed and
  * IMAP has no archive concept. Built from the kit `Button`, `PopoverMenu` and a
- * caller-supplied `moveSlot`; buttons stay pressable with no message open and
- * call `onUnavailable` rather than greying out.
+ * caller-supplied `moveSlot`.
+ *
+ * One rule for what the bar shows, both halves of it: a verb the host has left
+ * unhandled is not part of this surface and is not offered, and a verb the host
+ * owns stays pressable with no message open and explains itself through
+ * `onUnavailable` rather than greying out. What the bar never does is render a
+ * control that answers nothing.
  */
 export function MobileMessageActionBar({
 	hasThread,
@@ -104,58 +108,71 @@ export function MobileMessageActionBar({
 	return (
 		<div className={cn("relative", className)}>
 			<div className="flex h-12 shrink-0 items-center gap-0.5 bg-canvas px-1">
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={<Reply className="size-5" />}
-					onClick={act("reply", onReply)}
-					aria-label="Reply"
-					title="Reply"
-					className={TOUCH}
-				/>
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={<ReplyAll className="size-5" />}
-					onClick={act("replyAll", onReplyAll)}
-					aria-label="Reply all"
-					title="Reply all"
-					className={TOUCH}
-				/>
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={<Forward className="size-5" />}
-					onClick={act("forward", onForward)}
-					aria-label="Forward"
-					title="Forward"
-					className={TOUCH}
-				/>
+				{onReply && (
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<Reply className="size-5" />}
+						onClick={act("reply", onReply)}
+						aria-label="Reply"
+						title="Reply"
+						className={TOUCH}
+					/>
+				)}
+				{onReplyAll && (
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<ReplyAll className="size-5" />}
+						onClick={act("replyAll", onReplyAll)}
+						aria-label="Reply all"
+						title="Reply all"
+						className={TOUCH}
+					/>
+				)}
+				{onForward && (
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<Forward className="size-5" />}
+						onClick={act("forward", onForward)}
+						aria-label="Forward"
+						title="Forward"
+						className={TOUCH}
+					/>
+				)}
 				<div className="flex-1" />
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={
-						<Star
-							className={cn("size-5", isStarred && "fill-warning text-warning")}
-						/>
-					}
-					onClick={act("star", onToggleStar)}
-					aria-label={isStarred ? "Unstar" : "Star"}
-					aria-pressed={isStarred}
-					title={isStarred ? "Unstar" : "Star"}
-					className={TOUCH}
-				/>
+				{onToggleStar && (
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={
+							<Star
+								className={cn(
+									"size-5",
+									isStarred && "fill-warning text-warning",
+								)}
+							/>
+						}
+						onClick={act("star", onToggleStar)}
+						aria-label={isStarred ? "Unstar" : "Star"}
+						aria-pressed={isStarred}
+						title={isStarred ? "Unstar" : "Star"}
+						className={TOUCH}
+					/>
+				)}
 				{moveSlot}
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={<Trash2 className="size-5" />}
-					onClick={act("delete", onDelete)}
-					aria-label="Move to Trash"
-					title="Move to Trash"
-					className={TOUCH}
-				/>
+				{onDelete && (
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<Trash2 className="size-5" />}
+						onClick={act("delete", onDelete)}
+						aria-label="Move to Trash"
+						title="Move to Trash"
+						className={TOUCH}
+					/>
+				)}
 				<PopoverMenu
 					triggerLabel="More actions"
 					items={[...readItem, ...overflowItems]}

@@ -85,10 +85,12 @@ export function Dialog({
 				aria-labelledby="dialog-title"
 				className={cn(
 					"relative z-10 overflow-hidden border-line bg-surface shadow-xl",
+					// The edge-anchored panels reach the device edges; the centered
+					// card floats clear of them.
 					isLeft
-						? "h-full w-72 max-w-[85vw] border-r"
+						? "safe-area-frame h-full w-72 max-w-[85vw] border-r"
 						: isRight
-							? "h-full w-[80vw] max-w-[320px] border-l"
+							? "safe-area-frame h-full w-[80vw] max-w-[320px] border-l"
 							: "w-full max-w-lg rounded-md border",
 					className,
 				)}

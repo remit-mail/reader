@@ -206,6 +206,19 @@ html.dark,
 	color-scheme: dark;
 }
 
+/* Installed to a home screen the app runs without browser chrome, so its own
+   surfaces reach the status bar, the home indicator and, in landscape, the
+   notch. A screen-owning root carries the device insets; `viewport-fit=cover`
+   in the page head is what makes them anything but zero, and in a browser tab
+   they stay zero. Sized in the border box, so a root pinned to the viewport
+   keeps its height and gives the room out of its content. */
+@utility safe-area-frame {
+	padding-top: env(safe-area-inset-top, 0px);
+	padding-right: env(safe-area-inset-right, 0px);
+	padding-bottom: env(safe-area-inset-bottom, 0px);
+	padding-left: env(safe-area-inset-left, 0px);
+}
+
 body {
 	margin: 0;
 	background-color: var(--color-canvas);

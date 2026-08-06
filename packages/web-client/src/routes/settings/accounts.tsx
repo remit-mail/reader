@@ -24,6 +24,7 @@ import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
 import { AccountFormPanel } from "@/components/settings/AccountFormPanel";
 import { DangerZone } from "@/components/settings/DangerZone";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { useReturnFromRedirect } from "@/hooks/useReturnFromRedirect";
 import { formatRelativeTime } from "@/lib/format";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
 
@@ -253,6 +254,7 @@ function AccountsSettings() {
 	useEffect(() => {
 		if (!search.oauthError) return;
 		setOauthErrorMessage(mapOauthError(search.oauthError));
+		setReconnectingAccountId(null);
 		navigate({
 			search: {
 				oauthError: undefined,
@@ -263,6 +265,31 @@ function AccountsSettings() {
 			replace: true,
 		});
 	}, [search.oauthError, navigate]);
+
+	// Microsoft may hand the finished sign-in back to a different window than the
+	// one that started it, so a reconnect can complete without this page ever
+	// seeing the callback. Once one has been sent off, every look at this window
+	// re-reads the accounts, and the card states what the server says rather
+	// than what this window last saw.
+	useReturnFromRedirect(reconnectingAccountId !== null, () => {
+		queryClient.invalidateQueries({
+			queryKey: configOperationsGetConfigQueryKey(),
+		});
+	});
+
+	// The account no longer asking to be re-authenticated is the reconnect
+	// landing, wherever it was finished, and that is what the watch above was
+	// waiting for. A muted or otherwise unhealthy account still counts: the
+	// reconnect answered, whatever else is true of the account.
+	// An account that has left the config entirely ends it too: there is nothing
+	// left to reconnect and nothing left to watch for.
+	useEffect(() => {
+		if (!reconnectingAccountId || !config) return;
+		const account = config.accounts.find(
+			(candidate) => candidate.accountId === reconnectingAccountId,
+		);
+		if (!account || !needsReauth(account)) setReconnectingAccountId(null);
+	}, [config, reconnectingAccountId]);
 
 	const reconnectMutation = useMutation({
 		...microsoftOAuthOperationsMicrosoftOAuthStartMutation(),
@@ -447,7 +474,9 @@ function AccountsSettings() {
 				</div>
 			)}
 
-			{/* Add account wizard — steps 2–7 in a full-screen overlay */}
+			{/* Add account wizard — steps 2–7 in a full-screen overlay. No safe-area
+			    frame: the wizard shell inside owns the device insets, because
+			    /onboarding mounts it with nothing around it. */}
 			{showAddWizard && (
 				<div className="fixed inset-0 z-40 overflow-auto bg-canvas">
 					<OnboardingWizard

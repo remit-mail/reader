@@ -46,7 +46,7 @@ const ListRowsSkeleton = () => (
 );
 
 export const AppShellSkeleton = () => (
-	<div className="flex h-dvh animate-pulse bg-canvas" aria-hidden="true">
+	<div className="flex h-full animate-pulse bg-canvas" aria-hidden="true">
 		<NavRailSkeleton />
 		<ListRowsSkeleton />
 	</div>
