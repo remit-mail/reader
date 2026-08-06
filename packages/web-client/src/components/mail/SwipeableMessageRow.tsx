@@ -11,6 +11,7 @@ import { useCallback, useState } from "react";
 import { toDisplayCategory } from "@/lib/display-category";
 import { formatEmailDate } from "@/lib/format";
 import { MessageListItem } from "./MessageListItem";
+import { useModifierSelect } from "./useModifierSelect";
 
 interface MailboxLinkSearch {
 	selectedMessageId?: string;
@@ -111,6 +112,8 @@ export const SwipeableMessageRow = ({
 		});
 	}, [navigate, mailboxId, thread.messageId]);
 
+	const modifierSelect = useModifierSelect(thread.messageId, onRowSelect);
+
 	if (isDesktop || isMultiSelectMode) {
 		return (
 			<MessageListItem
@@ -131,18 +134,31 @@ export const SwipeableMessageRow = ({
 		);
 	}
 
+	// The swipe row reads the press as a pointer gesture, and it opens the message
+	// from the release — a `mousedown` handler on the row would already be behind
+	// it. Taking the modified press in the capture phase keeps it away from the
+	// gesture entirely, so a shift- or cmd-click selects instead of starting a
+	// swipe, a long press or an open.
 	return (
-		<SwipeableRow
-			thread={toThreadRowData(thread)}
-			selectionMode={false}
-			checked={false}
-			active={isSelected}
-			peek={peek}
-			onPeek={setPeek}
-			onToggleCheck={handleToggleCheck}
-			onLongPress={handleLongPress}
-			onOpen={handleOpen}
-			onAct={handleAct}
-		/>
+		// biome-ignore lint/a11y/noStaticElementInteractions: the wrapper only intercepts mouse modifiers ahead of the row's own gesture; the row beneath keeps the button semantics and the whole keyboard path
+		<div
+			role="presentation"
+			onPointerDownCapture={modifierSelect.onMouseDown}
+			onClickCapture={modifierSelect.claimClick}
+			onContextMenu={modifierSelect.onContextMenu}
+		>
+			<SwipeableRow
+				thread={toThreadRowData(thread)}
+				selectionMode={false}
+				checked={false}
+				active={isSelected}
+				peek={peek}
+				onPeek={setPeek}
+				onToggleCheck={handleToggleCheck}
+				onLongPress={handleLongPress}
+				onOpen={handleOpen}
+				onAct={handleAct}
+			/>
+		</div>
 	);
 };
