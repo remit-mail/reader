@@ -4,11 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { defaultKeyboardHints, keyboardHintsFor } from "../lib/keymap.js";
 import { LIST_ROW_SELECTOR, useRovingFocus } from "../lib/roving-focus.js";
 import { deriveIsMultiSelectMode, modifiersOf } from "../lib/use-selection.js";
-import type {
-	AppShellProps,
-	MessageListKeyboard,
-	MessageListSelection,
-	TouchSeed,
+import {
+	type AppShellProps,
+	keyboardWalksRows,
+	type MessageListKeyboard,
+	type MessageListSelection,
+	type TouchSeed,
 } from "./app-shell-types.js";
 import { type BriefFilterSurface, BriefSections } from "./brief-sections.js";
 import { Button } from "./button.js";
@@ -149,10 +150,7 @@ export function MessageListPane({
 	// The layer answers the arrows only if it registered them. Anything else it
 	// hands over — a layer with no cursor keys, or no layer at all — leaves the
 	// rows their own traversal and their own single tab stop.
-	const walksRows =
-		keyboard !== undefined &&
-		keyboard.handlers.focusNext !== undefined &&
-		keyboard.handlers.focusPrevious !== undefined;
+	const walksRows = keyboardWalksRows(keyboard);
 	useRovingFocus({
 		containerRef: flatListRef,
 		itemSelector: LIST_ROW_SELECTOR,
@@ -327,6 +325,7 @@ export function MessageListPane({
 					sections={sections}
 					selectedThreadId={selectedThreadId}
 					Row={BriefRow}
+					keyboard={keyboard}
 					onSelectThread={onSelectThread}
 				/>
 			) : listBody != null ? (

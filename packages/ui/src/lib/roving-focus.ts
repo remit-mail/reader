@@ -69,7 +69,8 @@ function rovingItems(
  * consumer-supplied row component, so neither has a flat array to index into.
  *
  * A handled key stops propagating, so a window-level keyboard layer above the
- * group does not act on the same press.
+ * group does not act on the same press. Only the bare keys are handled — a
+ * modified arrow is a different binding, and it belongs to that layer.
  */
 export function useRovingFocus({
 	containerRef,
@@ -95,6 +96,11 @@ export function useRovingFocus({
 		};
 
 		const onKeyDown = (event: KeyboardEvent) => {
+			// Shift+Arrow extends a selection; the group traverses on the bare key
+			// and leaves every modified stroke to the layer that binds it.
+			if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) {
+				return;
+			}
 			const items = rovingItems(container, itemSelector);
 			const currentIndex = items.indexOf(document.activeElement as HTMLElement);
 			const nextIndex = rovingNextIndex(

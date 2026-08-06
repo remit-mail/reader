@@ -5,9 +5,13 @@
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import type { JSDOM } from "jsdom";
-import { act, createElement } from "react";
+import { act, createElement, useMemo } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { LIST_ROW_SELECTOR } from "../lib/roving-focus.js";
+import {
+	type ListKeyboard,
+	useListKeyboard,
+} from "../lib/use-list-keyboard.js";
 import type { ThreadSection } from "./app-shell-types.js";
 import { BriefSections } from "./brief-sections.js";
 import { ComfortableRow } from "./message-row.js";
@@ -99,9 +103,9 @@ afterEach(() => {
 	});
 });
 
-function pressKey(target: Element, key: string) {
+function pressKey(target: Element, key: string, shiftKey = false) {
 	target.dispatchEvent(
-		new dom.window.KeyboardEvent("keydown", { key, bubbles: true }),
+		new dom.window.KeyboardEvent("keydown", { key, bubbles: true, shiftKey }),
 	);
 }
 
@@ -171,5 +175,89 @@ describe("BriefSections arrow-key traversal", () => {
 		act(() => items[1]?.focus());
 		act(() => pressKey(items[1] as Element, "ArrowDown"));
 		assert.equal(dom.window.document.activeElement, items[2]);
+	});
+});
+
+const orderedIds = sections.flatMap((section) =>
+	section.threads.map((thread) => thread.id),
+);
+
+let list: ListKeyboard | undefined;
+
+function BriefUnderLayer() {
+	const ids = useMemo(() => orderedIds, []);
+	const keyboard = useListKeyboard({
+		orderedIds: ids,
+		isDesktop: true,
+		initialFocusedId: "t1",
+	});
+	list = keyboard;
+	return createElement(
+		"div",
+		{ ref: keyboard.keyboard.ref, tabIndex: -1 },
+		createElement(BriefSections, {
+			sections,
+			Row: ComfortableRow,
+			keyboard: keyboard.keyboard,
+			onSelectThread: () => undefined,
+			onSelectBriefCategory: () => undefined,
+		}),
+	);
+}
+
+function mountUnderLayer() {
+	act(() => {
+		root.render(createElement(BriefUnderLayer));
+	});
+}
+
+function selectedIds(): string[] {
+	return Array.from(list?.selection.selectedIds ?? []).sort();
+}
+
+describe("BriefSections under a keyboard layer", () => {
+	it("Shift+ArrowDown extends the selection down the rows", () => {
+		mountUnderLayer();
+		const items = rows();
+
+		act(() => items[0]?.focus());
+		act(() => pressKey(items[0] as Element, "ArrowDown", true));
+		act(() => pressKey(items[0] as Element, "ArrowDown", true));
+
+		assert.deepEqual(selectedIds(), ["t2", "t3"]);
+	});
+
+	it("Shift+ArrowUp extends the selection back up the rows", () => {
+		mountUnderLayer();
+		const items = rows();
+
+		act(() => items[0]?.focus());
+		act(() => pressKey(items[0] as Element, "ArrowDown"));
+		act(() => pressKey(items[0] as Element, "ArrowDown"));
+		act(() => pressKey(items[0] as Element, "ArrowUp", true));
+		act(() => pressKey(items[0] as Element, "ArrowUp", true));
+
+		assert.deepEqual(selectedIds(), ["t1", "t2"]);
+	});
+
+	it("Shift+ArrowDown selects the rows Shift+J does", () => {
+		mountUnderLayer();
+		const items = rows();
+
+		act(() => items[0]?.focus());
+		act(() => pressKey(items[0] as Element, "j", true));
+		act(() => pressKey(items[0] as Element, "j", true));
+
+		assert.deepEqual(selectedIds(), ["t2", "t3"]);
+	});
+
+	it("hands the bare arrows to the layer instead of walking the rows itself", () => {
+		mountUnderLayer();
+		const items = rows();
+
+		act(() => items[0]?.focus());
+		act(() => pressKey(items[0] as Element, "ArrowDown"));
+
+		assert.equal(list?.cursor.focusedMessageId, "t2");
 	});
 });

@@ -105,6 +105,21 @@ export interface MessageListKeyboard {
 }
 
 /**
+ * Whether a layer answers the cursor keys, and so walks the rows itself. A list
+ * under one stands its own roving-focus group down: both own the arrows, and
+ * the group stops the press before the layer above hears it.
+ */
+export function keyboardWalksRows(
+	keyboard: MessageListKeyboard | undefined,
+): keyboard is MessageListKeyboard {
+	if (keyboard === undefined) return false;
+	return (
+		keyboard.handlers.focusNext !== undefined &&
+		keyboard.handlers.focusPrevious !== undefined
+	);
+}
+
+/**
  * Measures an element's OWN width via ResizeObserver — a container query, not a
  * viewport one. The shell reflows by the space it actually occupies (so it works
  * embedded at any width, not just full-screen), and the pane count is derived
