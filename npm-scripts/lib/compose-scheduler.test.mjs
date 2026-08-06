@@ -332,18 +332,27 @@ describe("the documented cadence knobs reach the scheduler", {
 	// same number from it, including for values the runner refuses. Two parsers
 	// that disagree give a container that ticks correctly and never reports
 	// healthy — which is the outage this check was added to end.
-	for (const raw of ["", "600", "300s", "0", "-5"]) {
+	const agrees = (environment) => {
+		const tick = getTickIntervalMs(environment) / 1000;
+		assert.equal(runHealthcheck(heartbeatDir(1), environment), 0);
+		assert.equal(runHealthcheck(heartbeatDir(tick * 2 + 120), environment), 1);
+	};
+
+	for (const raw of ["600", "300s", "0", "-5"]) {
 		it(`agrees with the runner on a tick of "${raw}"`, () => {
-			const environment = resolved([
-				...BASE_ENV,
-				`MAILBOX_SYNC_TICK_INTERVAL_SECONDS=${raw}`,
-			]).services.scheduler.environment;
-			const tick = getTickIntervalMs(environment) / 1000;
-			assert.equal(runHealthcheck(heartbeatDir(1), environment), 0);
-			assert.equal(
-				runHealthcheck(heartbeatDir(tick * 2 + 120), environment),
-				1,
+			agrees(
+				resolved([...BASE_ENV, `MAILBOX_SYNC_TICK_INTERVAL_SECONDS=${raw}`])
+					.services.scheduler.environment,
 			);
 		});
 	}
+
+	// Not reachable through the compose file, which substitutes its own 300 for
+	// an unset or empty value — these are the container run without it. The two
+	// parsers have separate fallbacks (3600), and a compose file that stopped
+	// passing the variable would land here.
+	it("agrees with the runner when the variable never arrives", () => {
+		agrees({});
+		agrees({ MAILBOX_SYNC_TICK_INTERVAL_SECONDS: "" });
+	});
 });

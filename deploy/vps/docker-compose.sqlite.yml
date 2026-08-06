@@ -432,10 +432,12 @@ services:
   # the relationship where an operator edits the values.
   #
   # ITS CHECK, AND WHAT IT CLAIMS. The loop rewrites /data/heartbeat/scheduler.tick
-  # before every tick, so this is the workers' check with a different subject —
-  # the timer is still firing, which is the failure `restart: unless-stopped`
-  # cannot see. Whether the accounts it enqueued were fetched is what
-  # `remit_account_sync_age_seconds` measures, one offline interval later.
+  # once each tick returns, so this reports rounds completing — both the loop
+  # wedged inside a call that never returns, which `restart: unless-stopped`
+  # cannot see, and the tick that throws on every pass, which it can see and
+  # hides behind a restart every few seconds. Whether the accounts those rounds
+  # enqueued were fetched is what `remit_account_sync_age_seconds` measures, one
+  # offline interval later.
   #
   # The image's own check reads imap-worker.* on this same volume, which this
   # entrypoint never writes, so the check is replaced here rather than disabled:

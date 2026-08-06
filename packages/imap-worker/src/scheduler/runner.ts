@@ -6,6 +6,7 @@ import { clearHeartbeats, createHeartbeat } from "@remit/sqs-client/heartbeat";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import { env } from "expect-env";
 import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
+import { runSchedulerLoop } from "./loop.js";
 import { runSchedulerTick } from "./run-tick.js";
 
 /**
@@ -19,15 +20,13 @@ import { runSchedulerTick } from "./run-tick.js";
  * A tick failure crashes the process loudly rather than being swallowed —
  * compose's `restart: unless-stopped` brings it back for the next tick.
  *
- * The loop rewrites a heartbeat file before each tick, the same signal and the
- * same mechanism as a worker's poll loop (D1 of
- * docs/design/standalone-observability.md). It is not the same claim: a poll
- * loop's file says it is still receiving, and this one says the timer is still
- * firing. Neither says the work succeeded — the accounts that came due are
- * enqueued for workers to fetch, and whether that fetch lands is what
- * `remit_account_sync_age_seconds` measures. A tick that throws exits the
- * process, so a stale file here means the loop wedged inside a call that never
- * returned, which is the failure `restart: unless-stopped` cannot see.
+ * Liveness is a heartbeat file, the same mechanism as a worker's poll loop (D1
+ * of docs/design/standalone-observability.md); loop.ts carries where in the loop
+ * it is written and why. Clearing the previous generation's file here is what
+ * extends that answer across a restart. A completed round is still not the same
+ * as mail arriving: the accounts that came due are enqueued for workers to
+ * fetch, and whether that fetch lands is what
+ * `remit_account_sync_age_seconds` measures.
  */
 
 const log = createLogger();
@@ -52,26 +51,30 @@ log.info(
 );
 
 const runLoop = async (): Promise<void> => {
-	await clearHeartbeats();
-	const heartbeat = createHeartbeat("tick");
+	// Neither of the two calls on the monitoring file may take the scheduler down
+	// with it. An unreadable or full /data/heartbeat is a reason to keep
+	// enqueuing mail, not to stop; the missed beat is itself the signal, and a
+	// clear that failed leaves a file the check reads as stale anyway.
+	const onHeartbeatError = (error: unknown): void => {
+		log.error({ error }, "Scheduled-sync heartbeat failed");
+	};
+
+	await clearHeartbeats().catch(onHeartbeatError);
 	const { account } = await getClient();
-	for (;;) {
-		// A write that fails must not take the scheduler down with it: a full disk
-		// is the likeliest cause and the moment mail should keep being enqueued.
-		// The missed beat is itself the signal.
-		await heartbeat().catch((error) => {
-			log.error({ error }, "Scheduled-sync heartbeat write failed");
-		});
-		await runSchedulerTick({
+	await runSchedulerLoop({
+		tick: runSchedulerTick,
+		tickDeps: {
 			accountService: account,
 			sqsClient,
 			queueUrl: mailboxesQueueUrl,
 			log,
 			tickIntervalMs,
 			offlineIntervalMs,
-		});
-		await delay(tickIntervalMs);
-	}
+		},
+		heartbeat: createHeartbeat("tick"),
+		onHeartbeatError,
+		tickIntervalMs,
+	});
 };
 
 runLoop()

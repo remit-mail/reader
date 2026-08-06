@@ -225,9 +225,9 @@ on accounts that are fine.
 
 The scheduler is healthchecked on its own heartbeat, like the workers, and the
 staleness threshold follows `MAILBOX_SYNC_TICK_INTERVAL_SECONDS` rather than
-being a fixed seven minutes. Healthy there means the timer is still firing, not
-that mail arrived: for that, `remit doctor` reports `account_sync_stalled` off
-the sync age.
+being a fixed seven minutes. Healthy there means rounds are still completing,
+not that mail arrived: for that, `remit doctor` reports `account_sync_stalled`
+off the sync age.
 
 ## Search
 
