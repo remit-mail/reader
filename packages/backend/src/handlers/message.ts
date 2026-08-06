@@ -23,6 +23,7 @@ import {
 	isCursorRebuildNeeded,
 	isMessageBodySyncBroken,
 	MailboxCursorPausedError,
+	MoveNotSettledError,
 } from "@remit/mailbox-service";
 import {
 	isStorageNotFoundError as isStorageNotFoundErrorFromService,
@@ -30,7 +31,7 @@ import {
 } from "@remit/storage-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { getAccountConfigIdFromEvent } from "../auth.js";
+import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
 import { deriveAutoMoved } from "../derive/autoMoved.js";
 import {
 	type ContentSigner,
@@ -326,6 +327,74 @@ export const materializeBodyParts = async (
 	}
 };
 
+export interface SpamReportBulkFailure {
+	messageId: string;
+	reason: string;
+}
+
+export interface SpamReportBulkOutcome {
+	successCount: number;
+	failureCount: number;
+	failures?: SpamReportBulkFailure[];
+}
+
+/**
+ * The one designed, allowlisted failure reason returned to the client
+ * verbatim — everything else is flattened to `GENERIC_FAILURE_REASON`, same
+ * policy as `error.ts`'s "Internal server error" flattening for an unhandled
+ * error. Without this, an arbitrary thrown error's raw text — an internal
+ * "No Junk mailbox found for account <id>", an AWS SDK message naming a
+ * queue URL or `ECONNREFUSED host:port` — would land straight in a 200
+ * response body, since `SpamReportBulkResult.reason` is documented as shown
+ * to the user as-is.
+ */
+export const GENERIC_FAILURE_REASON =
+	"This message could not be processed. Please try again.";
+
+const failureReason = (reason: unknown): string =>
+	reason instanceof MoveNotSettledError
+		? reason.message
+		: GENERIC_FAILURE_REASON;
+
+/**
+ * Drive one report-spam/not-spam operation per message, concurrently. Each
+ * message's own wait for its move to settle (SpamReportService's R2 wait) is
+ * bounded on its own, but running the batch sequentially would let those
+ * waits accumulate across the whole request — 50 messages could each wait
+ * seconds, serializing into minutes and dying at the proxy. Running them
+ * concurrently instead bounds the whole request by a single message's wait,
+ * regardless of batch size.
+ */
+export const settleSpamReportBulk = async (
+	messageIds: string[],
+	run: (messageId: string) => Promise<void>,
+): Promise<SpamReportBulkOutcome> => {
+	const results = await Promise.allSettled(
+		messageIds.map((messageId) => run(messageId)),
+	);
+
+	let successCount = 0;
+	const failures: SpamReportBulkFailure[] = [];
+	results.forEach((result, index) => {
+		if (result.status === "fulfilled") {
+			successCount += 1;
+			return;
+		}
+		const messageId = messageIds[index];
+		failures.push({ messageId, reason: failureReason(result.reason) });
+		logger.error(
+			{ messageId, error: result.reason },
+			"spam-report bulk operation failed for one message",
+		);
+	});
+
+	return {
+		successCount,
+		failureCount: failures.length,
+		...(failures.length > 0 ? { failures } : {}),
+	};
+};
+
 export const MessageOperations: Record<
 	MessageOperationIds,
 	OperationHandler<MessageOperationIds>
@@ -379,6 +448,7 @@ export const MessageOperations: Record<
 			authenticity: message.authenticity,
 			...(autoMoved ? { autoMoved } : {}),
 			...(labels.length > 0 ? { labels } : {}),
+			...(message.spamReport ? { spamReport: message.spamReport } : {}),
 		};
 
 		// Batch-fetch the resolved Address rows so each EnvelopeAddressResponse can
@@ -946,5 +1016,61 @@ export const MessageBulkOperations: Record<
 			successCount: messageIds.length,
 			failureCount: 0,
 		};
+	},
+
+	MessageBulkOperations_reportSpam: async (context, ...args: unknown[]) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const { messageIds: requestedIds } = context.request.requestBody as {
+			messageIds: string[];
+		};
+		const messageIds = [...new Set(requestedIds)];
+
+		if (messageIds.length === 0) {
+			return { successCount: 0, failureCount: 0 };
+		}
+
+		const client = await getClient();
+		const accountId = await assertMessagesOwned(
+			client,
+			messageIds,
+			accountConfigId,
+			"act",
+		);
+		const setBy = getSubFromEvent(event) ?? accountConfigId;
+
+		return settleSpamReportBulk(messageIds, (messageId) =>
+			client.spamReport.reportSpam({
+				accountConfigId,
+				accountId,
+				messageId,
+				setBy,
+			}),
+		);
+	},
+
+	MessageBulkOperations_notSpam: async (context, ...args: unknown[]) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const { messageIds: requestedIds } = context.request.requestBody as {
+			messageIds: string[];
+		};
+		const messageIds = [...new Set(requestedIds)];
+
+		if (messageIds.length === 0) {
+			return { successCount: 0, failureCount: 0 };
+		}
+
+		const client = await getClient();
+		const accountId = await assertMessagesOwned(
+			client,
+			messageIds,
+			accountConfigId,
+			"act",
+		);
+
+		return settleSpamReportBulk(messageIds, (messageId) =>
+			client.spamReport.notSpam({ accountConfigId, accountId, messageId }),
+		);
 	},
 };

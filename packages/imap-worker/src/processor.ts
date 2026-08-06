@@ -18,10 +18,11 @@ export const processEvent = async (
 	log: Logger,
 	/**
 	 * SQS's own delivery count for the record carrying this event (1 on first
-	 * delivery). Only SYNC_MESSAGE_BODY reads it — it's how the handler knows
-	 * this is the last attempt before the queue's own redrive policy would
-	 * DLQ the record, so it can resolve retry exhaustion into a terminal
-	 * outcome (issue #1270) instead of dead-lettering blindly.
+	 * delivery). Read by SYNC_MESSAGE_BODY, PLACEMENT_MOVE_PUSH and FLAG_PUSH
+	 * — each knows from it when this is the last attempt before the queue's
+	 * own redrive policy would DLQ the record, so it can resolve
+	 * retry exhaustion into a terminal outcome (issue #1270) instead of
+	 * dead-lettering blindly.
 	 */
 	receiveCount = 1,
 ): Promise<void> => {

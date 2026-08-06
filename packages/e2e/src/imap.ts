@@ -157,6 +157,42 @@ export const serverUidsForSubject = async (
 	}
 };
 
+/**
+ * The IMAP flags (system flags and keywords alike — `\Seen`, `$Junk`,
+ * `$NotJunk`, …) Dovecot holds for one subject in a mailbox. Empty when the
+ * subject is not present. Used to prove an outbound flag push actually
+ * reached the server, not just the read model.
+ */
+export const serverFlagsForSubject = async (
+	user: string,
+	mailbox: string,
+	subject: string,
+): Promise<string[]> => {
+	const client = await connect(user);
+	try {
+		const lock = await client.getMailboxLock(mailbox);
+		try {
+			const exists =
+				typeof client.mailbox === "object" ? client.mailbox.exists : 0;
+			if (!exists) return [];
+
+			for await (const message of client.fetch("1:*", {
+				envelope: true,
+				flags: true,
+			})) {
+				if (message.envelope?.subject === subject) {
+					return message.flags ? [...message.flags] : [];
+				}
+			}
+			return [];
+		} finally {
+			lock.release();
+		}
+	} finally {
+		await client.logout();
+	}
+};
+
 /** The subjects Dovecot holds in a mailbox, for asserting against what synced. */
 export const listServerSubjects = async (
 	user: string,

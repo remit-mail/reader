@@ -1,4 +1,5 @@
 import { getClient } from "@remit/backend/client";
+import { MessageStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { recordImapFailure } from "@remit/logger-lambda";
 import {
@@ -34,6 +35,29 @@ export const getFlagPushMaxAttempts = (
 };
 
 export const FLAG_PUSH_MAX_ATTEMPTS = getFlagPushMaxAttempts();
+
+/**
+ * How long a marker may sit deferred behind a move before it is dropped
+ * outright. A move that settles takes seconds to low minutes; one stuck past
+ * this window has almost certainly already exhausted its own retries with no
+ * terminal resolver of its own for a regular move (unlike flag-push and
+ * placement-move), so deferring further would cycle one SQS round trip per
+ * sync tick forever instead of surfacing the stall.
+ */
+const DEFAULT_FLAG_PUSH_DEFER_MAX_MS = 10 * 60 * 1000;
+
+export const getFlagPushDeferMaxMs = (
+	processEnv: NodeJS.ProcessEnv = process.env,
+): number => {
+	const raw = processEnv.FLAG_PUSH_DEFER_MAX_MS;
+	if (!raw) return DEFAULT_FLAG_PUSH_DEFER_MAX_MS;
+	const parsed = Number.parseInt(raw, 10);
+	return Number.isFinite(parsed) && parsed > 0
+		? parsed
+		: DEFAULT_FLAG_PUSH_DEFER_MAX_MS;
+};
+
+export const FLAG_PUSH_DEFER_MAX_MS = getFlagPushDeferMaxMs();
 
 /**
  * Handle FLAG_PUSH events (issue #1273, epic #1281). Drains ONE pending
@@ -104,6 +128,50 @@ export const handleFlagPush = async (
 		log.info(
 			{ messageId, flagName, accountId },
 			"Message row no longer exists; flag-push marker dropped without pushing",
+		);
+		return;
+	}
+
+	// The message carries a move still in flight — its `mailboxId`/`uid` are
+	// the local optimistic write `MessageMoveService` made before enqueueing
+	// the IMAP MOVE, not yet confirmed by the server, so a STORE resolved
+	// against this row right now would land on the wrong UID or the wrong
+	// folder (or both). `syncStatus` is NOT the right signal here: an ordinary
+	// freshly-synced inbound row is `pending` too (nothing on the inbound path
+	// ever promotes it to `synced`), so keying off it would defer every
+	// outbound flag push in the product forever. `status === moving` is set
+	// only by an actual move/delete-to-trash and cleared only once it settles.
+	if (message.status === MessageStatus.moving) {
+		const deferredForMs = Date.now() - marker.createdAt;
+
+		if (deferredForMs > FLAG_PUSH_DEFER_MAX_MS) {
+			// The move this push was waiting on never settled within any
+			// reasonable window — deferring further would cycle one SQS round
+			// trip per sync tick forever. Drop the stale marker loudly rather
+			// than push against state nobody has confirmed.
+			await markerService.delete(messageId, flagName);
+			recordImapFailure("FLAG_PUSH_MOVE_NEVER_SETTLED", "other");
+			log.error(
+				{
+					alert: "flag_push_move_never_settled",
+					messageId,
+					flagName,
+					accountId,
+					deferredForMs,
+				},
+				"Message move never settled; dropping the flag-push marker that was waiting on it",
+			);
+			return;
+		}
+
+		// Reset to `pending` rather than advancing: `drainPendingFlagPushes`
+		// only re-arms markers in that state, scoped by the marker's own
+		// `mailboxId` (the push destination), so the next periodic sync tick
+		// of that mailbox picks this back up once the move has settled.
+		await markerService.updateState(messageId, flagName, "pending");
+		log.info(
+			{ messageId, flagName, accountId, deferredForMs },
+			"Message has a move in flight; pausing outbound flag push until it settles",
 		);
 		return;
 	}

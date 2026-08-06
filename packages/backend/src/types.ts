@@ -54,6 +54,8 @@ export type OperationIds =
 	| "MessageBulkOperations_updateFlags"
 	| "MessageBulkOperations_copyMessages"
 	| "MessageBulkOperations_updateMessageLabels"
+	| "MessageBulkOperations_reportSpam"
+	| "MessageBulkOperations_notSpam"
 	| "TrashOperations_emptyTrash"
 	| "OutboxOperations_createOutboxMessage"
 	| "OutboxOperations_listOutboxMessages"

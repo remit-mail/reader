@@ -94,6 +94,9 @@ function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 		...(row.placementDecidedAt !== null
 			? { placementDecidedAt: row.placementDecidedAt }
 			: {}),
+		...(row.spamReport !== null
+			? { spamReport: row.spamReport as MessageItem["spamReport"] }
+			: {}),
 	};
 }
 
@@ -193,6 +196,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			placementVerdict: input.placementVerdict ?? null,
 			filterMove: input.filterMove ?? null,
 			placementDecidedAt: input.placementDecidedAt ?? null,
+			spamReport: input.spamReport ?? null,
 			createdAt: now,
 			updatedAt: now,
 		};
@@ -388,6 +392,9 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			...(input.messageIdHeader !== undefined
 				? { messageIdHeader: input.messageIdHeader }
 				: {}),
+			...(input.spamReport !== undefined
+				? { spamReport: input.spamReport }
+				: {}),
 			updatedAt: now,
 		};
 
@@ -428,6 +435,28 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		await this.db
 			.update(messageTable)
 			.set({ bodyStorageKey: null, updatedAt: now })
+			.where(eq(messageTable.messageId, messageId));
+		return this.get(messageId);
+	}
+
+	async clearSpamReport(
+		messageId: string,
+	): ReturnType<IMessageRepository["clearSpamReport"]> {
+		const now = Date.now();
+		await this.db
+			.update(messageTable)
+			.set({ spamReport: null, updatedAt: now })
+			.where(eq(messageTable.messageId, messageId));
+		return this.get(messageId);
+	}
+
+	async clearOriginalMailboxId(
+		messageId: string,
+	): ReturnType<IMessageRepository["clearOriginalMailboxId"]> {
+		const now = Date.now();
+		await this.db
+			.update(messageTable)
+			.set({ originalMailboxId: null, originalUid: null, updatedAt: now })
 			.where(eq(messageTable.messageId, messageId));
 		return this.get(messageId);
 	}
