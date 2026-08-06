@@ -9,6 +9,10 @@
 			"types": "./src/index.ts",
 			"default": "./src/index.ts"
 		},
+		"./heartbeat": {
+			"types": "./src/heartbeat.ts",
+			"default": "./src/heartbeat.ts"
+		},
 		"./poller": {
 			"types": "./src/poller.ts",
 			"default": "./src/poller.ts"

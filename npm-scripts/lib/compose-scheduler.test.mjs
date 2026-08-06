@@ -18,51 +18,22 @@
 // and a change to either default is measured against the other.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import {
-	copyFileSync,
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { dirname, join } from "node:path";
+import { copyFileSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { after, describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
+import {
+	absentPath,
+	CLEAN_ENV,
+	COMPOSE_OK,
+	cleanupSandboxes,
+	DEPLOY,
+	ROOT,
+	sandbox,
+} from "./compose-fixture.mjs";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(HERE, "..", "..");
-const DEPLOY = join(ROOT, "deploy", "vps");
 const COMPOSE = join(DEPLOY, "docker-compose.sqlite.yml");
 
-const TMP_ROOT = join(ROOT, ".tmp");
-mkdirSync(TMP_ROOT, { recursive: true });
-const sandboxes = [];
-after(() => {
-	for (const dir of sandboxes) rmSync(dir, { recursive: true, force: true });
-});
-
-// A missing tool is a fact about a developer's machine and never about CI:
-// skipping there would leave a suite that reports green without having resolved
-// anything.
-const COMPOSE_OK = (() => {
-	if (
-		spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status ===
-		0
-	) {
-		return true;
-	}
-	if (process.env.CI)
-		throw new Error(
-			"no `docker compose` on this machine — this suite needs it",
-		);
-	console.log("skipping: no `docker compose` on this machine");
-	return false;
-})();
-
-// Compose reads the process environment as well as --env-file, and the ambient
-// one would decide the answer on some machines and not others.
-const CLEAN_ENV = { PATH: process.env.PATH, HOME: process.env.HOME };
+after(cleanupSandboxes);
 
 // What an operator's .env holds and nothing more. Every value these suites are
 // about is absent from it on purpose: the defaults are the subject.
@@ -73,8 +44,7 @@ const BASE_ENV = [
 ];
 
 function run(lines, args) {
-	const dir = mkdtempSync(join(TMP_ROOT, "compose-scheduler-"));
-	sandboxes.push(dir);
+	const dir = sandbox("compose-scheduler");
 	copyFileSync(COMPOSE, join(dir, "docker-compose.sqlite.yml"));
 	writeFileSync(join(dir, ".env"), `${lines.join("\n")}\n`);
 	const result = spawnSync(
@@ -140,7 +110,7 @@ describe("the stack fetches mail with no browser open", {
 		assert.equal(scheduler.environment.SQLITE_DB_PATH, "/data/sqlite/remit.db");
 		assert.deepEqual(
 			scheduler.volumes.map((volume) => `${volume.source}:${volume.target}`),
-			["sqlite_data:/data/sqlite"],
+			["sqlite_data:/data/sqlite", "heartbeat:/data/heartbeat"],
 			"it enqueues work and talks to no mail server, so it needs no message storage",
 		);
 	});
@@ -167,14 +137,16 @@ describe("the stack fetches mail with no browser open", {
 		assert.equal(resolved().services.scheduler.restart, "unless-stopped");
 	});
 
-	// The image bakes the imap-worker's heartbeat check, and this entrypoint runs
-	// no poll loop and writes no heartbeat file. Inheriting it would report a
-	// working scheduler as permanently unhealthy, which is worse than reporting
-	// nothing: the sync age is what carries this service's liveness.
-	it("does not inherit a check it can never pass", () => {
-		assert.deepEqual(resolved().services.scheduler.healthcheck, {
-			disable: true,
-		});
+	// The image bakes the imap-worker's check, which reads imap-worker.* files
+	// this entrypoint never writes. It gets its own prefix rather than inheriting
+	// that one, and the compose service replaces the check to match — the doctor
+	// reads these files per service, so a scheduler beating into the workers'
+	// prefix would report a wedged worker as alive.
+	it("beats under a prefix of its own", () => {
+		assert.equal(
+			resolved().services.scheduler.environment.WORKER_HEARTBEAT_PREFIX,
+			"/data/heartbeat/scheduler",
+		);
 	});
 
 	// The entrypoint reads both: the producer's queue URL, and the one the data
@@ -190,6 +162,78 @@ describe("the stack fetches mail with no browser open", {
 				`${name} must reach the queue sidecar`,
 			);
 		}
+	});
+});
+
+// The check the container will really run, run here. A healthcheck asserted as
+// a string proves it was typed, not that it answers — and a check that cannot
+// fail is worse than none, because `docker compose up --wait` would then report
+// a dead scheduler as ready. The only thing rewritten is the directory it looks
+// in, so what executes below is the deployment's own script.
+const runHealthcheck = (directory, environment) => {
+	const [command, binary, flag, script] =
+		resolved().services.scheduler.healthcheck.test;
+	assert.deepEqual([command, binary, flag], ["CMD", "node", "-e"]);
+	const rewritten = script.replace(
+		"'/data/heartbeat'",
+		JSON.stringify(directory),
+	);
+	// A rewrite that matched nothing would leave the script reading the real
+	// volume path, where every case below fails for the wrong reason.
+	assert.notEqual(rewritten, script);
+	return spawnSync("node", ["-e", rewritten], {
+		encoding: "utf8",
+		env: { ...CLEAN_ENV, ...environment },
+	}).status;
+};
+
+// Written the way the runner writes it: one file, named for the loop, under the
+// prefix the compose service hands the container.
+const heartbeatDir = (ageSeconds) => {
+	const dir = sandbox("scheduler-heartbeat");
+	if (ageSeconds !== undefined) {
+		const file = join(dir, "scheduler.tick");
+		writeFileSync(file, `${new Date().toISOString()}\n`);
+		const when = new Date(Date.now() - ageSeconds * 1000);
+		utimesSync(file, when, when);
+	}
+	return dir;
+};
+
+describe("a scheduler that stopped ticking reports it", {
+	skip: !COMPOSE_OK,
+}, () => {
+	const environment = resolved().services.scheduler.environment;
+	const tick = Number(environment.MAILBOX_SYNC_TICK_INTERVAL_SECONDS);
+
+	it("passes while the tick loop is turning", () => {
+		assert.equal(runHealthcheck(heartbeatDir(1), environment), 0);
+	});
+
+	it("fails once the beats stop", () => {
+		assert.equal(runHealthcheck(heartbeatDir(tick * 4), environment), 1);
+	});
+
+	// The two states a check that cannot look can be in. Reporting either as
+	// healthy is the failure the workers' own comment names.
+	it("fails when there is no file, and when there is no directory", () => {
+		assert.equal(runHealthcheck(heartbeatDir(), environment), 1);
+		assert.equal(runHealthcheck(absentPath("absent"), environment), 1);
+	});
+
+	// The workers hardcode 420 s because their bound is a socket timeout. This
+	// one is a knob, so the threshold has to move with it or an operator who
+	// slows the tick gets a permanently unhealthy container.
+	it("takes its staleness threshold from the tick it is configured with", () => {
+		const aged = heartbeatDir(tick * 2 + 30);
+		assert.equal(runHealthcheck(aged, environment), 0);
+		assert.equal(
+			runHealthcheck(aged, {
+				...environment,
+				MAILBOX_SYNC_TICK_INTERVAL_SECONDS: String(Math.floor(tick / 4)),
+			}),
+			1,
+		);
 	});
 });
 
@@ -282,5 +326,37 @@ describe("the documented cadence knobs reach the scheduler", {
 	it("takes an operator's interval from .env", () => {
 		assert.equal(getOfflineIntervalMs(tuned) / 1000, 1800);
 		assert.equal(getTickIntervalMs(tuned) / 1000, 600);
+	});
+
+	// The healthcheck reads the same variable as the runner and has to reach the
+	// same number from it, including for values the runner refuses. Two parsers
+	// that disagree give a container that ticks correctly and never reports
+	// healthy — which is the outage this check was added to end.
+	// Both sides of the threshold. A fresh file passing proves nothing about a
+	// check whose threshold came out too small — the failure named above, and the
+	// one a container feels as "ticks correctly, never reports healthy".
+	const agrees = (environment) => {
+		const tick = getTickIntervalMs(environment) / 1000;
+		assert.equal(runHealthcheck(heartbeatDir(1), environment), 0);
+		assert.equal(runHealthcheck(heartbeatDir(tick * 2 - 60), environment), 0);
+		assert.equal(runHealthcheck(heartbeatDir(tick * 2 + 120), environment), 1);
+	};
+
+	for (const raw of ["600", "300s", "0", "-5"]) {
+		it(`agrees with the runner on a tick of "${raw}"`, () => {
+			agrees(
+				resolved([...BASE_ENV, `MAILBOX_SYNC_TICK_INTERVAL_SECONDS=${raw}`])
+					.services.scheduler.environment,
+			);
+		});
+	}
+
+	// Not reachable through the compose file, which substitutes its own 300 for
+	// an unset or empty value — these are the container run without it. The two
+	// parsers have separate fallbacks (3600), and a compose file that stopped
+	// passing the variable would land here.
+	it("agrees with the runner when the variable never arrives", () => {
+		agrees({});
+		agrees({ MAILBOX_SYNC_TICK_INTERVAL_SECONDS: "" });
 	});
 });

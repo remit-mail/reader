@@ -2,9 +2,11 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { getClient } from "@remit/backend/client";
 import { createLogger } from "@remit/logger-lambda";
+import { clearHeartbeats, createHeartbeat } from "@remit/sqs-client/heartbeat";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import { env } from "expect-env";
 import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
+import { runSchedulerLoop } from "./loop.js";
 import { runSchedulerTick } from "./run-tick.js";
 
 /**
@@ -17,6 +19,14 @@ import { runSchedulerTick } from "./run-tick.js";
  *
  * A tick failure crashes the process loudly rather than being swallowed —
  * compose's `restart: unless-stopped` brings it back for the next tick.
+ *
+ * Liveness is a heartbeat file, the same mechanism as a worker's poll loop (D1
+ * of docs/design/standalone-observability.md); loop.ts carries where in the loop
+ * it is written and why. Clearing the previous generation's file here is what
+ * extends that answer across a restart. A completed round is still not the same
+ * as mail arriving: the accounts that came due are enqueued for workers to
+ * fetch, and whether that fetch lands is what
+ * `remit_account_sync_age_seconds` measures.
  */
 
 const log = createLogger();
@@ -41,18 +51,36 @@ log.info(
 );
 
 const runLoop = async (): Promise<void> => {
+	// Neither call on the monitoring file may take the scheduler down with it. An
+	// unreadable or full /data/heartbeat is a reason to keep enqueuing mail, not
+	// to stop. A clear that fails leaves the previous generation's file, which
+	// ages out at the same threshold; a write that fails is the missed beat that
+	// is itself the signal. Two messages because they are different problems: one
+	// is a volume this container could not read at boot, the other a write it
+	// could not make this round.
+	const onClearError = (error: unknown): void => {
+		log.error({ error }, "Scheduled-sync heartbeat clear failed");
+	};
+	const onBeatError = (error: unknown): void => {
+		log.error({ error }, "Scheduled-sync heartbeat write failed");
+	};
+
+	await clearHeartbeats().catch(onClearError);
 	const { account } = await getClient();
-	for (;;) {
-		await runSchedulerTick({
+	await runSchedulerLoop({
+		tick: runSchedulerTick,
+		tickDeps: {
 			accountService: account,
 			sqsClient,
 			queueUrl: mailboxesQueueUrl,
 			log,
 			tickIntervalMs,
 			offlineIntervalMs,
-		});
-		await delay(tickIntervalMs);
-	}
+		},
+		heartbeat: createHeartbeat("tick"),
+		onHeartbeatError: onBeatError,
+		tickIntervalMs,
+	});
 };
 
 runLoop()
