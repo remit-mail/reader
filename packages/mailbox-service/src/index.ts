@@ -234,6 +234,7 @@ export {
 	removeQuotedContent,
 } from "./snippet.js";
 export {
+	MoveNotSettledError,
 	type SpamReportConfig,
 	type SpamReportLogger,
 	type SpamReportParams,

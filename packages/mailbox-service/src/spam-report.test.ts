@@ -13,7 +13,7 @@ import type {
 import { AddressRole } from "@remit/domain-enums";
 import { FlagPushService } from "./flag-push.js";
 import { MessageMoveService } from "./message-move.js";
-import { SpamReportService } from "./spam-report.js";
+import { MoveNotSettledError, SpamReportService } from "./spam-report.js";
 
 const ACCOUNT = "acc-1";
 const ACCOUNT_CONFIG = "cfg-1";
@@ -581,7 +581,14 @@ describe("SpamReportService.notSpam", () => {
 					accountId: ACCOUNT,
 					messageId: MESSAGE_ID,
 				}),
-			/has not settled yet/,
+			(error: unknown) => {
+				// Must be the dedicated type, not a plain Error — callers that
+				// surface failures to the user (packages/backend) allowlist this
+				// specific type rather than relaying an arbitrary message.
+				assert.ok(error instanceof MoveNotSettledError);
+				assert.match(error.message, /has not settled yet/);
+				return true;
+			},
 		);
 
 		// The sender block clear is independent of the move (R2 reconcile) and

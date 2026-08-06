@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { settleSpamReportBulk } from "./message.js";
+import { MoveNotSettledError } from "@remit/mailbox-service";
+import { GENERIC_FAILURE_REASON, settleSpamReportBulk } from "./message.js";
 
 describe("settleSpamReportBulk", () => {
-	it("aggregates successes and failures, with a reason per failure", async () => {
+	it("aggregates successes and failures, surfacing the one allowlisted reason verbatim", async () => {
 		const outcome = await settleSpamReportBulk(
 			["msg-1", "msg-2", "msg-3"],
 			async (messageId) => {
 				if (messageId === "msg-2") {
-					throw new Error("has not settled yet; try again in a moment.");
+					throw new MoveNotSettledError(messageId);
 				}
 			},
 		);
@@ -18,7 +19,8 @@ describe("settleSpamReportBulk", () => {
 		assert.deepEqual(outcome.failures, [
 			{
 				messageId: "msg-2",
-				reason: "has not settled yet; try again in a moment.",
+				reason:
+					"Message msg-2's move to Junk has not settled yet; try again in a moment.",
 			},
 		]);
 	});
@@ -34,14 +36,38 @@ describe("settleSpamReportBulk", () => {
 		assert.equal(outcome.failures, undefined);
 	});
 
-	it("stringifies a non-Error rejection rather than losing the reason", async () => {
-		const outcome = await settleSpamReportBulk(["msg-1"], () =>
-			Promise.reject("raw string rejection"),
+	// The response is user-facing (the field is documented as shown as-is) and
+	// this is a 200, not an error path guarded by error.ts's own flattening —
+	// so this is the one place a raw internal message could otherwise leak: an
+	// account id in "No Junk mailbox found for account <id>", a message id in
+	// "has no From address to act on", or an AWS SDK message naming a queue
+	// URL or ECONNREFUSED host:port on an SQS failure.
+	it("never puts an arbitrary error's raw text in the response — only the allowlisted reason ships", async () => {
+		const outcome = await settleSpamReportBulk(
+			["msg-leaky-error", "msg-leaky-string", "msg-settled-ok"],
+			async (messageId) => {
+				if (messageId === "msg-leaky-error") {
+					throw new Error(
+						"No Junk mailbox found for account acc-super-secret-internal-id",
+					);
+				}
+				if (messageId === "msg-leaky-string") {
+					return Promise.reject("ECONNREFUSED sqs.us-east-1.amazonaws.com:443");
+				}
+			},
 		);
 
-		assert.deepEqual(outcome.failures, [
-			{ messageId: "msg-1", reason: "raw string rejection" },
-		]);
+		assert.equal(outcome.failureCount, 2);
+		const reasons = outcome.failures?.map((f) => f.reason) ?? [];
+		assert.deepEqual(reasons, [GENERIC_FAILURE_REASON, GENERIC_FAILURE_REASON]);
+
+		const leaked = reasons.some(
+			(reason) =>
+				reason.includes("acc-super-secret-internal-id") ||
+				reason.includes("ECONNREFUSED") ||
+				reason.includes("amazonaws.com"),
+		);
+		assert.equal(leaked, false, "no internal detail may reach the response");
 	});
 
 	it("runs every message concurrently — total time is one wait, not N waits", async () => {

@@ -432,7 +432,7 @@ model SpamReportFailure {
   @doc("The message that failed")
   messageId: UUID;
 
-  @doc("Why it failed — a message never fabricated for the client, the same text logged server-side (e.g. \"has not settled yet\" while a prior move is still in flight). Not necessarily retryable-safe to parse programmatically; shown to the user as-is.")
+  @doc("Why it failed, safe to show the user as-is. One of a small allowlisted set of user-facing messages (e.g. \"has not settled yet\" while a prior move is still in flight) — never a raw internal error, which is logged server-side instead and never returned here. Not intended to be parsed programmatically.")
   reason: string;
 }
 

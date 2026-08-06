@@ -18,6 +18,21 @@ export interface SpamReportLogger {
 	error(obj: Record<string, unknown>, msg: string): void;
 }
 
+/**
+ * The one designed, user-facing outcome of `notSpam`'s R2 wait timing out —
+ * distinct from any other failure so a caller surfacing failures to the user
+ * (the bulk handlers in packages/backend) can allowlist this specific,
+ * pre-written message instead of relaying an arbitrary thrown error's text.
+ */
+export class MoveNotSettledError extends Error {
+	constructor(messageId: string) {
+		super(
+			`Message ${messageId}'s move to Junk has not settled yet; try again in a moment.`,
+		);
+		this.name = "MoveNotSettledError";
+	}
+}
+
 const noopLogger: SpamReportLogger = {
 	info: () => {},
 	error: () => {},
@@ -198,9 +213,7 @@ export class SpamReportService {
 			// an unrelated reason is not this operation's concern.
 			const settled = await this.waitForMoveToSettle(messageId);
 			if (settled.status === MessageStatus.moving) {
-				throw new Error(
-					`Message ${messageId}'s move to Junk has not settled yet; try again in a moment.`,
-				);
+				throw new MoveNotSettledError(messageId);
 			}
 
 			await this.messageMoveService.restoreMessage(

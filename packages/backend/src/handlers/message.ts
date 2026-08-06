@@ -23,6 +23,7 @@ import {
 	isCursorRebuildNeeded,
 	isMessageBodySyncBroken,
 	MailboxCursorPausedError,
+	MoveNotSettledError,
 } from "@remit/mailbox-service";
 import {
 	isStorageNotFoundError as isStorageNotFoundErrorFromService,
@@ -338,6 +339,24 @@ export interface SpamReportBulkOutcome {
 }
 
 /**
+ * The one designed, allowlisted failure reason returned to the client
+ * verbatim — everything else is flattened to `GENERIC_FAILURE_REASON`, same
+ * policy as `error.ts`'s "Internal server error" flattening for an unhandled
+ * error. Without this, an arbitrary thrown error's raw text — an internal
+ * "No Junk mailbox found for account <id>", an AWS SDK message naming a
+ * queue URL or `ECONNREFUSED host:port` — would land straight in a 200
+ * response body, since `SpamReportBulkResult.reason` is documented as shown
+ * to the user as-is.
+ */
+export const GENERIC_FAILURE_REASON =
+	"This message could not be processed. Please try again.";
+
+const failureReason = (reason: unknown): string =>
+	reason instanceof MoveNotSettledError
+		? reason.message
+		: GENERIC_FAILURE_REASON;
+
+/**
  * Drive one report-spam/not-spam operation per message, concurrently. Each
  * message's own wait for its move to settle (SpamReportService's R2 wait) is
  * bounded on its own, but running the batch sequentially would let those
@@ -362,11 +381,7 @@ export const settleSpamReportBulk = async (
 			return;
 		}
 		const messageId = messageIds[index];
-		const reason =
-			result.reason instanceof Error
-				? result.reason.message
-				: String(result.reason);
-		failures.push({ messageId, reason });
+		failures.push({ messageId, reason: failureReason(result.reason) });
 		logger.error(
 			{ messageId, error: result.reason },
 			"spam-report bulk operation failed for one message",
