@@ -119,7 +119,7 @@ export function BottomSheet({
 			/>
 			<div
 				ref={sheetRef}
-				className="absolute inset-x-0 bottom-0 flex max-h-[92%] flex-col rounded-t-3xl border-t border-line bg-surface shadow-2xl shadow-black/30"
+				className="absolute inset-x-0 bottom-0 flex max-h-[92%] flex-col rounded-t-3xl border-t border-line bg-surface pb-[env(safe-area-inset-bottom,0px)] shadow-2xl shadow-black/30"
 				style={{ transform: `translateY(${offset}px)`, transition }}
 			>
 				<div

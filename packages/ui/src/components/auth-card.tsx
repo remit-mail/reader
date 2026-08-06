@@ -18,7 +18,7 @@ export function AuthCard({ children, className }: AuthCardProps) {
 		<div
 			data-auth-page
 			className={cn(
-				"flex min-h-dvh w-full flex-col items-center justify-center overflow-y-auto bg-surface-sunken px-4 pb-[calc(2rem+env(safe-area-inset-bottom,0px))] pt-8 text-fg",
+				"flex min-h-dvh w-full flex-col items-center justify-center overflow-y-auto bg-surface-sunken px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[max(2rem,env(safe-area-inset-top))] text-fg",
 				className,
 			)}
 			style={{

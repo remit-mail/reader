@@ -312,6 +312,14 @@ export const ConversationView = ({
 		onComposeClose?.();
 	}, [onComposeClose]);
 
+	// Single-pane compose opens below the message, which on a long one is several
+	// screens down: without this, replying to it looks like nothing happening.
+	const composeRef = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		if (composeMode === null) return;
+		composeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+	}, [composeMode]);
+
 	// Register keyboard shortcuts
 	useKeyboardNavigation({
 		enabled: !isLoading && messages.length > 0 && composeMode === null,
@@ -430,12 +438,14 @@ export const ConversationView = ({
 				)}
 				{renderMessages(true)}
 				{composeMode !== null && (
-					<InlineCompose
-						mode={composeMode}
-						account={activeAccount}
-						sourceMessage={latestMessageData}
-						onClose={handleCloseCompose}
-					/>
+					<div ref={composeRef}>
+						<InlineCompose
+							mode={composeMode}
+							account={activeAccount}
+							sourceMessage={latestMessageData}
+							onClose={handleCloseCompose}
+						/>
+					</div>
 				)}
 			</MobileReadingPane>
 		);

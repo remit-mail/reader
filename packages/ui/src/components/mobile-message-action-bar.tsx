@@ -82,10 +82,6 @@ export function MobileMessageActionBar({
 	unavailableHint,
 	className,
 }: MobileMessageActionBarProps) {
-	// With no message open the bar keeps the host's verbs and explains on press;
-	// that is a message away, not a verb this surface lacks.
-	const offers = (handler?: () => void) => !hasThread || Boolean(handler);
-
 	const act = (action: MobileMessageAction, handler?: () => void) => () => {
 		if (!hasThread) {
 			onUnavailable?.(action);
@@ -112,7 +108,7 @@ export function MobileMessageActionBar({
 	return (
 		<div className={cn("relative", className)}>
 			<div className="flex h-12 shrink-0 items-center gap-0.5 bg-canvas px-1">
-				{offers(onReply) && (
+				{onReply && (
 					<Button
 						variant="ghost"
 						size="sm"
@@ -123,7 +119,7 @@ export function MobileMessageActionBar({
 						className={TOUCH}
 					/>
 				)}
-				{offers(onReplyAll) && (
+				{onReplyAll && (
 					<Button
 						variant="ghost"
 						size="sm"
@@ -134,7 +130,7 @@ export function MobileMessageActionBar({
 						className={TOUCH}
 					/>
 				)}
-				{offers(onForward) && (
+				{onForward && (
 					<Button
 						variant="ghost"
 						size="sm"
@@ -146,7 +142,7 @@ export function MobileMessageActionBar({
 					/>
 				)}
 				<div className="flex-1" />
-				{offers(onToggleStar) && (
+				{onToggleStar && (
 					<Button
 						variant="ghost"
 						size="sm"
@@ -166,7 +162,7 @@ export function MobileMessageActionBar({
 					/>
 				)}
 				{moveSlot}
-				{offers(onDelete) && (
+				{onDelete && (
 					<Button
 						variant="ghost"
 						size="sm"

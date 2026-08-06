@@ -28,6 +28,18 @@ const tag = `standalone${Date.now()}`;
 const linkSubject = `Standalone link ${tag}`;
 const linkHref = "https://links.example.test/campaign";
 
+// Taller than several phone screens, so compose opening below the message is
+// off screen unless the app takes the reader to it. A short fixture cannot tell
+// the difference.
+const longBody = [
+	`<p>Read the <a href="${linkHref}">announcement</a>.</p>`,
+	...Array.from(
+		{ length: 60 },
+		(_, index) =>
+			`<p>Paragraph ${index + 1} of the announcement, which runs on at some length so the message is several screens tall on a phone.</p>`,
+	),
+].join("");
+
 test.describe("Launched without browser chrome", () => {
 	test.use({ viewport: MOBILE });
 
@@ -76,7 +88,7 @@ test.describe("Launched without browser chrome", () => {
 				{
 					subject: linkSubject,
 					contentType: "text/html",
-					body: `<p>Read the <a href="${linkHref}">announcement</a>.</p>`,
+					body: longBody,
 				},
 			]);
 			await api.triggerSync(run.accountId);
@@ -124,12 +136,17 @@ test.describe("Launched without browser chrome", () => {
 			await expect(bodyLink).toHaveAttribute("rel", /noreferrer/);
 
 			// The quoted copy of the same mail, this time in the app's own document.
-			// Reply opens compose in place; this account has no SMTP, which compose
-			// says for itself rather than the button saying nothing.
+			// Reply opens compose in place and takes the reader to it, on a message
+			// tall enough that a compose surface left where it was mounted would be
+			// off screen. This account has no SMTP, which compose says for itself
+			// rather than the button saying nothing.
 			await page.getByRole("button", { name: "Reply", exact: true }).click();
+			const send = page.getByRole("button", { name: "Send", exact: true });
+			await expect(send).toBeVisible({ timeout: 30_000 });
+			await expect(send).toBeInViewport();
 			await expect(
-				page.getByRole("button", { name: "Send", exact: true }),
-			).toBeVisible({ timeout: 30_000 });
+				page.getByTestId("compose-smtp-missing-banner"),
+			).toBeInViewport();
 
 			const quoteToggle = page.getByRole("button", { name: /wrote:$/ });
 			await expect(quoteToggle).toBeVisible({ timeout: 30_000 });

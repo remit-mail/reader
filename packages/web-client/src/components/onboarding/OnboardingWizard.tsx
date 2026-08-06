@@ -283,21 +283,18 @@ function StepMicrosoftEmail({
 	const [email, setEmail] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const [awaitingReturn, setAwaitingReturn] = useState(false);
-	// Null until a redirect starts from a known account list. Unknown is not
-	// empty: against an empty baseline any account already on the instance reads
-	// as the one just connected.
-	const accountIdsBeforeRedirect = useRef<ReadonlySet<string> | null>(null);
+	// The accounts this instance held when the redirect started. What comes back
+	// is recognised as new against it, so it has to be a real list — against an
+	// empty stand-in every account already here reads as the one just connected.
+	const accountIdsBeforeRedirect = useRef<ReadonlySet<string>>(new Set());
 
-	const { data: config, refetch: refetchConfig } = useQuery(
+	const { refetch: refetchConfig } = useQuery(
 		configOperationsGetConfigOptions(),
 	);
 
 	const startMutation = useMutation({
 		...microsoftOAuthOperationsMicrosoftOAuthStartMutation(),
 		onSuccess: (data) => {
-			accountIdsBeforeRedirect.current = config
-				? new Set(config.accounts.map((account) => account.accountId))
-				: null;
 			setAwaitingReturn(true);
 			window.location.assign(data.authorizationUrl);
 		},
@@ -320,20 +317,39 @@ function StepMicrosoftEmail({
 		awaitingReturn,
 		useCallback(() => {
 			void refetchConfig().then(({ data }) => {
-				const before = accountIdsBeforeRedirect.current;
-				if (!before || !data) return;
+				if (!data) {
+					setError(
+						"Couldn't check whether the sign-in finished. Open Settings › Accounts to see whether the account is connected.",
+					);
+					return;
+				}
 				const connected = data.accounts.find(
-					(account) => !before.has(account.accountId),
+					(account) => !accountIdsBeforeRedirect.current.has(account.accountId),
 				);
 				if (connected) onConnected(connected.accountId);
 			});
 		}, [refetchConfig, onConnected]),
 	);
 
+	// The account list is read first and the redirect goes from what it says, so
+	// the window that comes back has something to recognise a new account
+	// against. A list that cannot be read stops the flow here, where it can be
+	// retried, rather than at the return leg where nothing can be concluded.
 	const handleSubmit = () => {
 		setError(null);
-		startMutation.mutate({
-			body: { email: email.trim() || undefined },
+		void refetchConfig().then(({ data }) => {
+			if (!data) {
+				setError(
+					"Couldn't read this instance's accounts, so sign-in can't be tracked. Check your connection and try again.",
+				);
+				return;
+			}
+			accountIdsBeforeRedirect.current = new Set(
+				data.accounts.map((account) => account.accountId),
+			);
+			startMutation.mutate({
+				body: { email: email.trim() || undefined },
+			});
 		});
 	};
 

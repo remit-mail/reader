@@ -91,6 +91,12 @@ describe("MobileMessageActionBar", () => {
 		assert.doesNotMatch(html, /aria-label="Forward"/);
 	});
 
+	it("never disables a verb it offers", () => {
+		const html = renderToString(createElement(MobileMessageActionBar, base));
+		assert.equal(countMatches(html, 'aria-label="Reply"'), 1);
+		assert.doesNotMatch(html, /disabled=""/);
+	});
+
 	it("keeps the host's verbs pressable with no message open", () => {
 		const html = renderToString(
 			createElement(MobileMessageActionBar, {
