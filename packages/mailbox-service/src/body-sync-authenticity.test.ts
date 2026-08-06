@@ -105,6 +105,45 @@ const PHISH_EML = Buffer.from(
 	].join("\r\n"),
 );
 
+/**
+ * Pre-merge review, adversarial case 1: the unanchored regex that used to
+ * read the dkim= verdict matched a "dkim=fail" token sitting inside arc=
+ * fail's own comment — there is no dkim= result of its own in this header
+ * at all. The provider's filter said not-spam.
+ */
+const UNANCHORED_MATCH_EML = Buffer.from(
+	[
+		"From: Bob <bob@smallshop.nl>",
+		"Authentication-Results: mx.example.net; arc=fail (i=1 spf=pass dkim=fail",
+		"  dkimdomain=smallshop.nl dmarc=fail); spf=pass smtp.mailfrom=smallshop.nl;",
+		"  dmarc=fail header.from=smallshop.nl",
+		"X-Spam-Status: No, score=0.1",
+		"To: me@example.com",
+		"Subject: hi",
+		"",
+		"body",
+	].join("\r\n"),
+);
+
+/**
+ * Pre-merge review, adversarial case 2: a corporate gateway that verifies a
+ * signature, finds the body hash broken by an intermediate relay, and
+ * reports dkim=fail — but still names the sender's own domain in header.d.
+ * The same relay class this PR set out to protect.
+ */
+const GATEWAY_STRIPPED_SIG_EML = Buffer.from(
+	[
+		"From: Alice <alice@acme.com>",
+		"To: bob@example.com",
+		"Subject: hi",
+		"Authentication-Results: gw.corp.example; dkim=fail (body hash did not verify)",
+		"  header.d=acme.com; spf=pass; dmarc=fail (p=REJECT) header.from=acme.com",
+		"X-Spam-Status: No, score=0.1",
+		"",
+		"body",
+	].join("\r\n"),
+);
+
 interface Harness {
 	service: BodySyncService;
 	message: MessageItem;
@@ -276,6 +315,30 @@ describe("authenticity, driven through the real production entry point", () => {
 		assert.equal(
 			harness.messageUpdates[0]?.input.authenticity?.dkimMismatch,
 			true,
+		);
+	});
+
+	it("does not move mail to Junk over a dkim=fail token embedded in an unrelated mechanism's comment", async () => {
+		const harness = await runFresh(UNANCHORED_MATCH_EML);
+
+		assert.deepEqual(
+			harness.moves,
+			[],
+			"there is no dkim= result in this header at all",
+		);
+	});
+
+	it("does not move mail to Junk when a gateway's dkim=fail names the sender's own domain", async () => {
+		const harness = await runFresh(GATEWAY_STRIPPED_SIG_EML);
+
+		assert.deepEqual(
+			harness.moves,
+			[],
+			"a failure naming the claimed domain itself is relay noise, not forgery",
+		);
+		assert.equal(
+			harness.messageUpdates[0]?.input.authenticity?.dkimMismatch,
+			false,
 		);
 	});
 });

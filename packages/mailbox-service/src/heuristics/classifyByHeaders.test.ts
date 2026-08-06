@@ -364,11 +364,12 @@ describe("extractAuthenticity", () => {
 		assert.equal(extractAuthenticity(parsed), null);
 	});
 
-	// The most common unsigned-phishing shape: no DKIM-Signature header at
-	// all, and Authentication-Results reports the mechanism explicitly
-	// failing rather than being silent about it. There is no domain to
-	// report, but the failure itself is still evidence something is wrong.
-	it("reports a mismatch from an explicit Authentication-Results dkim=fail when there is no signature at all", async () => {
+	// A bare dkim=fail — no header.d, no header.i — says a signature failed
+	// verification, not that the sender is forged: there is no domain to
+	// weigh against the From address at all. Pre-merge review: this used to
+	// unconditionally report a mismatch, which auto-junked ordinary mail a
+	// gateway had already flagged not-spam.
+	it("returns null for an explicit Authentication-Results dkim=fail that names no domain", async () => {
 		const parsed = await parse([
 			"From: alice@evil.example",
 			"To: bob@example.com",
@@ -377,10 +378,7 @@ describe("extractAuthenticity", () => {
 			"",
 			"body",
 		]);
-		const auth = extractAuthenticity(parsed);
-		assert.ok(auth, "expected authenticity object");
-		assert.equal(auth.dkimMismatch, true);
-		assert.equal(auth.dkimDomain, undefined);
+		assert.equal(extractAuthenticity(parsed), null);
 	});
 
 	it("still returns null for a merely absent dkim result (no fail, no pass, no signature)", async () => {
@@ -393,6 +391,67 @@ describe("extractAuthenticity", () => {
 			"body",
 		]);
 		assert.equal(extractAuthenticity(parsed), null);
+	});
+
+	// A dkim=fail that DOES name a domain, and that domain itself does not
+	// align with the From address — the unsigned-phishing shape this exists
+	// to catch: a signature was attempted (and failed) for a domain that
+	// does not even match what the sender claims.
+	it("reports a mismatch from a dkim=fail naming a domain unrelated to the From address", async () => {
+		const parsed = await parse([
+			"From: Alice <alice@acme.com>",
+			"To: bob@example.com",
+			"Subject: hi",
+			"Authentication-Results: mx.example.com; dkim=fail header.d=attacker.example; dmarc=fail",
+			"X-Spam-Status: No, score=0.1",
+			"",
+			"body",
+		]);
+		const auth = extractAuthenticity(parsed);
+		assert.ok(auth, "expected authenticity object");
+		assert.equal(auth.dkimMismatch, true);
+		assert.equal(auth.dkimDomain, "attacker.example");
+	});
+
+	// Pre-merge review, adversarial case 1: the regex reading dkim=fail used
+	// to be unanchored across the whole header text, so it matched a
+	// "dkim=fail" token sitting inside a DIFFERENT mechanism's comment
+	// (here, arc=fail's). There is no dkim= result of its own in this
+	// header at all.
+	it("does not misread a dkim=fail token embedded in an unrelated mechanism's comment", async () => {
+		const parsed = await parse([
+			"From: Bob <bob@smallshop.nl>",
+			"Authentication-Results: mx.example.net; arc=fail (i=1 spf=pass dkim=fail",
+			"  dkimdomain=smallshop.nl dmarc=fail); spf=pass smtp.mailfrom=smallshop.nl;",
+			"  dmarc=fail header.from=smallshop.nl",
+			"X-Spam-Status: No, score=0.1",
+			"To: me@example.com",
+			"Subject: hi",
+			"",
+			"body",
+		]);
+		assert.equal(extractAuthenticity(parsed), null);
+	});
+
+	// Pre-merge review, adversarial case 2: a corporate gateway that
+	// verifies a signature, finds the body hash broken by an intermediate
+	// relay, and reports dkim=fail — but still names the SENDER's own
+	// domain in header.d. That is relay noise, not forgery: the domain
+	// named checks out.
+	it("does not report a mismatch when a dkim=fail names the From address's own domain", async () => {
+		const parsed = await parse([
+			"From: Alice <alice@acme.com>",
+			"To: bob@example.com",
+			"Subject: hi",
+			"Authentication-Results: gw.corp.example; dkim=fail (body hash did not verify)",
+			"  header.d=acme.com; spf=pass; dmarc=fail (p=REJECT) header.from=acme.com",
+			"X-Spam-Status: No, score=0.1",
+			"",
+			"body",
+		]);
+		const auth = extractAuthenticity(parsed);
+		assert.ok(auth, "expected authenticity object");
+		assert.equal(auth.dkimMismatch, false);
 	});
 
 	// CI review, regression against main: preferring Authentication-Results

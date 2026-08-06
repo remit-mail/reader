@@ -234,9 +234,17 @@ export function buildAuthenticityIntel(
 	const fromDomain = auth.fromDomain;
 	const dkimDomain = auth.dkimDomain;
 	const claimedBrand = claimedBrandOf(thread);
+	// dkimDomain is known whenever a mismatch was named against a real
+	// domain; the fallback covers the (defensive, not currently reachable)
+	// case where a mismatch fires with none — say what actually happened
+	// (a signature failed to verify) rather than inventing a sender identity
+	// we do not have.
+	const whatHappened = dkimDomain
+		? `it was actually sent from ${dkimDomain}`
+		: "its signature failed to verify";
 	const summary = claimedBrand
-		? `The display name claims "${claimedBrand}", but this message was actually sent from ${dkimDomain ?? "another sender"} — not ${fromDomain}. Real senders use their own address.`
-		: `This message claims to be from ${fromDomain}, but it was actually sent from ${dkimDomain ?? "a different sender"}.`;
+		? `The display name claims "${claimedBrand}", but ${whatHappened}${dkimDomain ? ` — not ${fromDomain}` : ""}. Real senders use their own address.`
+		: `This message claims to be from ${fromDomain}, but ${whatHappened}.`;
 	return {
 		verdict: "mismatch",
 		fromDomain,

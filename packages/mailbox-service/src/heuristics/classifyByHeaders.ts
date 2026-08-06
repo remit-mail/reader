@@ -43,7 +43,9 @@ export interface MessageProviderSpam {
  * alongside the relay's) on entirely benign mail — trusting either source
  * alone here would move that mail to Junk. It is `true` only when every
  * available source agrees nothing aligns, or — with no signature at all —
- * `Authentication-Results` itself reports `dkim=fail`.
+ * `Authentication-Results` reports an explicit `dkim=fail` naming a domain
+ * that itself does not align with the From domain (see `extractAuthenticity`
+ * for why a bare or aligned failure does not count).
  *
  * `dkimDomain` is present whenever there is a reported domain worth showing;
  * absent when nothing was extracted, or when the only aligned evidence is an
@@ -134,7 +136,11 @@ export const classifyByHeaders = (parsed: ParsedMail): Category => {
 	if (matchesPrecedence(headers)) return MessageCategory.automated;
 	if (isMachineSender(parsed, lines)) return MessageCategory.automated;
 
-	if (fromDomain && dkimMismatchResult(headers, lines, fromDomain).mismatch) {
+	if (
+		fromDomain &&
+		pickAlignedOrFirstMismatch(extractDkimDomains(headers, lines), fromDomain)
+			.mismatch
+	) {
 		return MessageCategory.automated;
 	}
 
@@ -161,10 +167,19 @@ export const classifyByHeaders = (parsed: ParsedMail): Category => {
  *   `Authentication-Results` — which only lists what actually verified —
  *   no longer does; trusting `Authentication-Results` alone here would move
  *   that ordinary relayed mail to Junk. Only when every available source
- *   agrees nothing aligns does `dkimMismatch` become `true`. With no
- *   signature at all, an explicit `Authentication-Results` `dkim=fail`
- *   still counts — the common unsigned-phishing shape carries no signature
- *   to disagree over.
+ *   agrees nothing aligns does `dkimMismatch` become `true`.
+ *
+ *   With no signature at all — the raw header stripped, or never sent — an
+ *   explicit `Authentication-Results` `dkim=fail` result can still count,
+ *   but only when it names a `header.d`/`header.i` domain that itself does
+ *   NOT align with the From domain, run through the identical alignment
+ *   check as everywhere else. A gateway that verifies a signature, finds the
+ *   body hash broken by an intermediate relay, and reports `dkim=fail
+ *   header.d=<the sender's own domain>` is not evidence of forgery — the
+ *   domain named checks out, the crypto just didn't survive the trip — so
+ *   that reads as no mismatch, same as a bare `dkim=fail` with no domain at
+ *   all. Only a failure naming a domain that itself contradicts the From
+ *   address is the unsigned-phishing shape this exists to catch.
  *
  * When more than one `dkim=pass` result is present in `Authentication-Results`
  * (e.g. a third-party ESP infrastructure signature alongside the sender's
@@ -180,9 +195,9 @@ export const classifyByHeaders = (parsed: ParsedMail): Category => {
  * hand-crafted `Authentication-Results` header reaching the mailbox
  * unfiltered is taken at face value, same as before this change.
  *
- * Returns `null` — no signal at all — only when there is no `DKIM-Signature`
- * header, no `Authentication-Results` `dkim=pass` result, and no explicit
- * `Authentication-Results` `dkim=fail` either.
+ * Returns `null` — no signal at all — when there is no `DKIM-Signature`
+ * header, no `Authentication-Results` `dkim=pass` result, and either no
+ * `Authentication-Results` `dkim=fail` result or one that names no domain.
  */
 export const extractAuthenticity = (
 	parsed: ParsedMail,
@@ -196,15 +211,25 @@ export const extractAuthenticity = (
 	const authenticatedDomains = extractAuthenticatedDkimDomains(parsed);
 
 	if (rawDomains.length === 0 && authenticatedDomains.length === 0) {
-		// No signature to weigh against. An explicit dkim=fail is still
-		// evidence something is wrong — the common unsigned-phishing shape
-		// carries no signature at all, only a failing verdict — even though
-		// there is no domain to report for it.
-		const authResult = extractAuthResult(parsed);
-		if (authResult?.dkim === AuthResultVerdict.Fail) {
-			return { fromDomain, dkimMismatch: true };
-		}
-		return null;
+		// No passing signal to weigh against. A bare dkim=fail says a
+		// signature failed verification, not that the sender is forged — a
+		// corporate gateway that strips a broken signature after verifying it
+		// produces exactly this shape, for entirely legitimate mail. A
+		// failing result only counts as evidence when it names a domain, run
+		// through the same alignment check as every other domain here:
+		// aligned means the failure was for the claimed domain itself (relay
+		// noise, not forgery, so no mismatch); unaligned means the failure
+		// was for a domain that does not even match what the sender claims,
+		// which is the mismatch this exists to catch.
+		const failingDomains = extractFailingDkimDomains(parsed);
+		if (failingDomains.length === 0) return null;
+
+		const failing = pickAlignedOrFirstMismatch(failingDomains, fromDomain);
+		return {
+			fromDomain,
+			dkimDomain: failing.mismatch ? (failing.domain ?? undefined) : undefined,
+			dkimMismatch: failing.mismatch,
+		};
 	}
 
 	const raw =
@@ -275,31 +300,37 @@ export const extractAuthResult = (
 
 /**
  * Every `header.d` (or `header.i` domain, when `header.d` is absent —
- * some verifiers emit only `header.i`) named by a `dkim=pass` result in the
- * topmost `Authentication-Results` header, in the order they appear.
+ * some verifiers emit only `header.i`) named by a `dkim=<verdict>` result in
+ * the topmost `Authentication-Results` header, in the order they appear.
  *
  * `Authentication-Results` packs one or more `;`-delimited resinfo entries,
  * each naming a mechanism (`dkim=`, `spf=`, `dmarc=`) and its own properties
- * (`header.d=`, `header.i=`, `header.s=`, …). Splitting on `;` isolates each
- * entry so a domain is only ever read from one that actually passed DKIM —
- * never a failing or absent result.
+ * (`header.d=`, `header.i=`, `header.s=`, …). Splitting on `;` and anchoring
+ * the verdict match to the START of each trimmed segment is what keeps this
+ * from misreading a `dkim=` token sitting inside a DIFFERENT mechanism's
+ * comment — `arc=fail (i=1 spf=pass dkim=fail …)` names no dkim result of
+ * its own, and must never be read as one.
  *
- * A message can carry more than one passing signature — e.g. an ESP
- * infrastructure domain alongside the sender's own — so every one is
- * collected; the caller picks the one that aligns with the From domain over
- * an unrelated earlier one.
+ * A message can carry more than one result for the same verdict — e.g. an
+ * ESP infrastructure domain's passing signature alongside the sender's own
+ * — so every one is collected; the caller picks the one that aligns with the
+ * From domain over an unrelated earlier one.
  */
-const extractAuthenticatedDkimDomains = (parsed: ParsedMail): string[] => {
+const extractDkimResinfoDomains = (
+	parsed: ParsedMail,
+	verdict: "pass" | "fail",
+): string[] => {
 	const line = parsed.headerLines.find(
 		(l) => l.key.toLowerCase() === "authentication-results",
 	);
 	if (!line) return [];
 
 	const text = stripHeaderName(line.line);
+	const verdictPattern = new RegExp(`^dkim\\s*=\\s*${verdict}\\b`, "i");
 	const domains: string[] = [];
 	for (const segment of text.split(";")) {
 		const trimmed = segment.trim();
-		if (!/^dkim\s*=\s*pass\b/i.test(trimmed)) continue;
+		if (!verdictPattern.test(trimmed)) continue;
 
 		const dMatch = trimmed.match(/header\.d\s*=\s*"?([^"\s;]+)"?/i);
 		if (dMatch) {
@@ -313,6 +344,17 @@ const extractAuthenticatedDkimDomains = (parsed: ParsedMail): string[] => {
 	}
 	return domains;
 };
+
+const extractAuthenticatedDkimDomains = (parsed: ParsedMail): string[] =>
+	extractDkimResinfoDomains(parsed, "pass");
+
+/**
+ * Domains named by a `dkim=fail` result — never trusted as "verified"
+ * (nothing passed), only weighed as possible mismatch evidence, and only
+ * when {@link extractAuthenticity} has no passing signal to prefer instead.
+ */
+const extractFailingDkimDomains = (parsed: ParsedMail): string[] =>
+	extractDkimResinfoDomains(parsed, "fail");
 
 /** The domain part of a `header.i=` identity (`@sub.example.com` → `example.com`'s host, `sub.example.com`). */
 const domainFromHeaderI = (headerI: string): string | null => {
@@ -472,29 +514,6 @@ const pickAlignedOrFirstMismatch = (
 		if (!firstMismatching) firstMismatching = d;
 	}
 	return { mismatch: firstMismatching !== null, domain: firstMismatching };
-};
-
-/**
- * Check whether the raw `DKIM-Signature` header(s) align with the From
- * domain — feeds the category heuristic (rule 9) only. Unlike
- * {@link extractAuthenticity}, this reads the cryptographic signature
- * directly rather than the receiving side's own verified verdict, because
- * the category heuristic only needs "was this re-signed by someone else",
- * not a trustworthy identity claim.
- *
- * On mismatch the first non-aligned domain is reported so the UI can show
- * "signed by relay.example.net, claims example.com".
- */
-const dkimMismatchResult = (
-	headers: Headers,
-	lines: HeaderLines,
-	fromDomain: string,
-): { mismatch: boolean; mismatchingDomain: string | null } => {
-	const picked = pickAlignedOrFirstMismatch(
-		extractDkimDomains(headers, lines),
-		fromDomain,
-	);
-	return { mismatch: picked.mismatch, mismatchingDomain: picked.domain };
 };
 
 const extractDkimDomains = (headers: Headers, lines: HeaderLines): string[] => {
