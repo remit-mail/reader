@@ -64,9 +64,14 @@ export class MessageFlagPushRepo {
 		input: PutMessageFlagPushInput,
 	): Promise<MessageFlagPushItem> => {
 		const now = Date.now();
-		// A fresh put ALWAYS resets state to `pending` (the field's default) —
-		// a new flip decision starts a new lifecycle regardless of whatever
-		// state the row it replaces was in.
+		// A fresh put ALWAYS resets state to `pending` AND createdAt to now — a
+		// new flip decision starts a genuinely new lifecycle regardless of
+		// whatever state (or age) the row it replaces was in. The conflict path
+		// must reset createdAt explicitly: onConflictDoUpdate only touches the
+		// columns named in `set`, so an omission here would let a replacing put
+		// silently inherit the original row's createdAt (its age then misreads
+		// as a stuck deferred marker elsewhere — see flag-push.ts's defer-max
+		// check, which measures a marker's age off exactly this field).
 		const [row] = await this.db
 			.insert(messageFlagPushTable)
 			.values({
@@ -83,6 +88,7 @@ export class MessageFlagPushRepo {
 					mailboxId: input.mailboxId,
 					operation: input.operation,
 					state: DEFAULT_STATE,
+					createdAt: now,
 					updatedAt: now,
 				},
 			})

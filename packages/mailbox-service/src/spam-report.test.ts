@@ -47,8 +47,19 @@ interface World {
 	markerPuts: Array<Record<string, unknown>>;
 }
 
+const settleMove = (messages: Map<string, Record<string, unknown>>) => {
+	const m = messages.get(MESSAGE_ID);
+	assert.ok(m !== undefined);
+	m.status = "active";
+	m.syncStatus = "synced";
+};
+
 const buildWorld = (
-	opts: { startMailbox?: string; fromEmail?: string } = {},
+	opts: {
+		startMailbox?: string;
+		fromEmail?: string;
+		originalMailboxId?: string;
+	} = {},
 ): World => {
 	const startMailbox = opts.startMailbox ?? INBOX_MAILBOX;
 	const fromEmail = opts.fromEmail ?? "sender@example.com";
@@ -67,6 +78,9 @@ const buildWorld = (
 				category: "primary",
 				hasListUnsubscribe: false,
 				syncStatus: "synced",
+				...(opts.originalMailboxId
+					? { originalMailboxId: opts.originalMailboxId }
+					: {}),
 			},
 		],
 	]);
@@ -274,6 +288,10 @@ const buildWorld = (
 		mailboxSpecialUseService,
 		messageMoveService,
 		flagPushService,
+		// Small and fast: these tests simulate settlement explicitly (via
+		// settleMove) rather than waiting out a real timeout.
+		moveSettleTimeoutMs: 30,
+		moveSettlePollMs: 5,
 	});
 
 	return {
@@ -392,6 +410,7 @@ describe("SpamReportService.notSpam", () => {
 			accountId: ACCOUNT,
 			messageId: MESSAGE_ID,
 		});
+		settleMove(messages);
 		await service.notSpam({
 			accountConfigId: ACCOUNT_CONFIG,
 			accountId: ACCOUNT,
@@ -412,7 +431,8 @@ describe("SpamReportService.notSpam", () => {
 	it("clears the block and provenance without a 500 when the message never actually moved (same-mailbox no-op)", async () => {
 		// report-spam pressed on a message the provider's filter already placed
 		// in Junk: MessageMoveService.moveMessage's same-mailbox guard skips, so
-		// originalMailboxId is never set.
+		// originalMailboxId is never set — status never becomes "moving" either,
+		// so notSpam has nothing to wait on.
 		const { service, messages, addresses } = buildWorld({
 			startMailbox: JUNK_MAILBOX,
 		});
@@ -436,8 +456,17 @@ describe("SpamReportService.notSpam", () => {
 		assert.equal(address?.flags.blocked, undefined);
 	});
 
-	it("repairs local Message AND ThreadMessage state instead of enqueuing a second move when the original move failed asynchronously", async () => {
-		const { service, messages, addresses, threadRows, sent } = buildWorld();
+	it("clears a stale originalMailboxId left by an earlier, unrelated move instead of restoring to it", async () => {
+		// The message is already in Junk (an earlier, unrelated move put it
+		// there) and still carries that move's originalMailboxId. report-spam's
+		// own move is a same-mailbox no-op — moveMessage never touches
+		// originalMailboxId — so without an explicit clear, notSpam would
+		// restore to a folder this report-spam action never moved it out of.
+		const OTHER_MAILBOX = "mbx-other";
+		const { service, messages, addresses } = buildWorld({
+			startMailbox: JUNK_MAILBOX,
+			originalMailboxId: OTHER_MAILBOX,
+		});
 
 		await service.reportSpam({
 			accountConfigId: ACCOUNT_CONFIG,
@@ -445,12 +474,7 @@ describe("SpamReportService.notSpam", () => {
 			messageId: MESSAGE_ID,
 		});
 
-		// Simulate the imap-worker's MESSAGE_MOVE handler exhausting its
-		// retries: the message never actually reached Junk on the server, but
-		// the local optimistic write (mailboxId=Junk) was never reverted.
-		const message = messages.get(MESSAGE_ID);
-		assert.ok(message !== undefined);
-		message.syncStatus = "failed";
+		assert.equal(messages.get(MESSAGE_ID)?.originalMailboxId, undefined);
 
 		await service.notSpam({
 			accountConfigId: ACCOUNT_CONFIG,
@@ -458,21 +482,9 @@ describe("SpamReportService.notSpam", () => {
 			messageId: MESSAGE_ID,
 		});
 
-		assert.equal(
-			moveEvents(sent).length,
-			1,
-			"no second move enqueued for a message that never left INBOX",
-		);
-		assert.equal(message.mailboxId, INBOX_MAILBOX);
-		assert.equal(message.syncStatus, "synced");
-		assert.equal(message.spamReport, undefined);
-		assert.equal(message.originalMailboxId, undefined);
-
-		// List views render from ThreadMessage, not Message — a repair that
-		// only touched the Message row would leave the list showing the
-		// message in Junk forever.
-		const threadRow = threadRows.find((r) => r.messageId === MESSAGE_ID);
-		assert.equal(threadRow?.mailboxId, INBOX_MAILBOX);
+		const message = messages.get(MESSAGE_ID);
+		assert.equal(message?.mailboxId, JUNK_MAILBOX, "left where it is");
+		assert.notEqual(message?.mailboxId, OTHER_MAILBOX);
 
 		const address = addresses.get(ADDRESS_ID);
 		assert.equal(address?.flags.blocked, undefined);
@@ -486,11 +498,14 @@ describe("SpamReportService.notSpam", () => {
 			accountId: ACCOUNT,
 			messageId: MESSAGE_ID,
 		});
+		settleMove(messages);
 		await service.notSpam({
 			accountConfigId: ACCOUNT_CONFIG,
 			accountId: ACCOUNT,
 			messageId: MESSAGE_ID,
 		});
+		// originalMailboxId is already cleared, so the second call has nothing
+		// to wait on or restore — no need to settle again.
 		await service.notSpam({
 			accountConfigId: ACCOUNT_CONFIG,
 			accountId: ACCOUNT,
@@ -503,5 +518,39 @@ describe("SpamReportService.notSpam", () => {
 		// INBOX->Junk (report), Junk->INBOX (undo #1) — undo #2 must not add a
 		// third INBOX->Junk move.
 		assert.equal(moveEvents(sent).length, 2);
+	});
+
+	it("throws without restoring or clearing provenance when the move has not settled yet (R2 wait)", async () => {
+		const { service, messages, addresses } = buildWorld();
+
+		await service.reportSpam({
+			accountConfigId: ACCOUNT_CONFIG,
+			accountId: ACCOUNT,
+			messageId: MESSAGE_ID,
+		});
+		// Deliberately NOT settled: status stays "moving", as it would while
+		// the original MESSAGE_MOVE is still genuinely in flight or retrying.
+
+		await assert.rejects(
+			() =>
+				service.notSpam({
+					accountConfigId: ACCOUNT_CONFIG,
+					accountId: ACCOUNT,
+					messageId: MESSAGE_ID,
+				}),
+			/has not settled yet/,
+		);
+
+		// The sender block clear is independent of the move (R2 reconcile) and
+		// still lands even though the restore did not.
+		const address = addresses.get(ADDRESS_ID);
+		assert.equal(address?.flags.blocked, undefined);
+
+		// But nothing move-related was touched — a real move #2 must not be
+		// enqueued against an unsettled move #1.
+		const message = messages.get(MESSAGE_ID);
+		assert.equal(message?.mailboxId, JUNK_MAILBOX);
+		assert.ok(message !== undefined);
+		assert.ok((message.spamReport as { reportedAt: number }).reportedAt > 0);
 	});
 });

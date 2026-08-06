@@ -20,6 +20,26 @@ type EmitSyncMessages = (
 ) => Promise<unknown>;
 
 /**
+ * Fallback when `MESSAGE_MOVE_MAX_ATTEMPTS` is unset (local dev, unit tests).
+ * Matches the shared `MAX_RECEIVE_COUNT` every queue's redrive policy uses,
+ * same pattern as `BODY_SYNC_MAX_ATTEMPTS` (#1270) / `FLAG_PUSH_MAX_ATTEMPTS`.
+ */
+const DEFAULT_MESSAGE_MOVE_MAX_ATTEMPTS = 3;
+
+export const getMessageMoveMaxAttempts = (
+	processEnv: NodeJS.ProcessEnv = process.env,
+): number => {
+	const raw = processEnv.MESSAGE_MOVE_MAX_ATTEMPTS;
+	if (!raw) return DEFAULT_MESSAGE_MOVE_MAX_ATTEMPTS;
+	const parsed = Number.parseInt(raw, 10);
+	return Number.isFinite(parsed) && parsed > 0
+		? parsed
+		: DEFAULT_MESSAGE_MOVE_MAX_ATTEMPTS;
+};
+
+export const MESSAGE_MOVE_MAX_ATTEMPTS = getMessageMoveMaxAttempts();
+
+/**
  * Re-read both folders' counts from IMAP after a move by enqueuing the existing
  * per-folder SYNC_MESSAGES sync. Counts are a projection of IMAP, never mutated
  * locally — the move shifted a message between source and destination, so both
@@ -97,16 +117,26 @@ export const buildThreadMessageMoveUpdate = (
 /**
  * Handle MESSAGE_MOVE events.
  * Executes IMAP MOVE command and updates local state with new UID.
+ *
+ * `receiveCount` is SQS's own delivery count for the record carrying this
+ * event: on the last attempt before the queue's redrive policy would DLQ it,
+ * a still-failing move resolves into a terminal outcome (reverting the local
+ * optimistic write back to the source) instead of leaving `syncStatus:
+ * failed` looking exhausted when the move may still be redelivered and
+ * succeed. `syncStatus: failed` alone is not a terminal signal — it is set
+ * on every failed attempt, retried or not.
  */
 export const handleMessageMove = async (
 	event: MessageMoveEvent,
 	log: Logger,
+	receiveCount = 1,
 ): Promise<void> => {
 	const {
 		account: accountService,
 		message: messageService,
 		threadMessage: threadMessageService,
 		mailbox: mailboxService,
+		messageMove: messageMoveService,
 		secrets,
 	} = await getClient();
 
@@ -304,11 +334,40 @@ export const handleMessageMove = async (
 						return;
 					}
 
-					// Mark as failed for other errors
-					await messageService.update(messageId, {
-						syncStatus: MessageSyncStatus.failed,
-					});
-					throw error;
+					if (receiveCount < MESSAGE_MOVE_MAX_ATTEMPTS) {
+						// Transient push failure — expected (connections drop). No
+						// terminal action; queue redelivery retries against the
+						// still-durable local row. `syncStatus: failed` here is a
+						// per-attempt marker, not evidence the move is exhausted —
+						// only the branch below (receiveCount at the limit) is.
+						await messageService.update(messageId, {
+							syncStatus: MessageSyncStatus.failed,
+						});
+						throw error;
+					}
+
+					// Redelivery budget exhausted: the move will never be retried
+					// again, so the local optimistic write (mailboxId already at the
+					// destination, uid still the source's) is now simply wrong —
+					// revert Message + ThreadMessage back to where the message
+					// genuinely still sits on the server. Terminal and never
+					// re-thrown, so the caller acks either way.
+					await messageMoveService.repairUnsettledMove(
+						account.accountConfigId,
+						messageId,
+						sourceMailboxId,
+					);
+					log.error(
+						{
+							alert: "message_move_exhausted",
+							accountId,
+							messageId,
+							sourceMailboxId,
+							destinationMailboxId,
+							error: error instanceof Error ? error.message : String(error),
+						},
+						"Message move retries exhausted; reverted local state to the source mailbox",
+					);
 				})
 				.finally(() => scope.disconnect());
 		},

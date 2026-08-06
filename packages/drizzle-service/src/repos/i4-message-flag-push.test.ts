@@ -122,6 +122,26 @@ describe("MessageFlagPushRepo (relational counterpart to MessageFlagPushService)
 		assert.equal(found?.state, "pending");
 	});
 
+	test("put resets createdAt too — a stale createdAt would misread as a stuck deferred marker later", async () => {
+		const input = seedInput();
+		const first = await repo.put(input);
+
+		await new Promise((resolve) => setTimeout(resolve, 5));
+
+		const second = await repo.put(
+			seedInput({
+				messageId: input.messageId,
+				flagName: input.flagName,
+				operation: "remove",
+			}),
+		);
+
+		assert.ok(
+			second.createdAt > first.createdAt,
+			"a replacing put must start a fresh lifecycle, not inherit the row it replaces",
+		);
+	});
+
 	test("put is idempotent — a later flip of the SAME field replaces the marker", async () => {
 		const messageId = randomId();
 		const flagName = "\\Seen";
