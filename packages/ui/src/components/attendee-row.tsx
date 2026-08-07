@@ -1,5 +1,4 @@
 import { Check, Clock, Minus, X } from "lucide-react";
-import type { ReactNode } from "react";
 import { cn } from "../lib/cn.js";
 import { Avatar } from "./avatar.js";
 import type { CalendarAttendee, RsvpState } from "./calendar-types.js";
@@ -18,11 +17,11 @@ const rsvpTone: Record<RsvpState, string> = {
 	noReply: "text-fg-subtle",
 };
 
-const rsvpIcons: Record<RsvpState, ReactNode> = {
-	accepted: <Check className="size-3" />,
-	tentative: <Clock className="size-3" />,
-	declined: <X className="size-3" />,
-	noReply: <Minus className="size-3" />,
+const rsvpIcons: Record<RsvpState, typeof Check> = {
+	accepted: Check,
+	tentative: Clock,
+	declined: X,
+	noReply: Minus,
 };
 
 export interface RsvpBadgeProps {
@@ -32,6 +31,7 @@ export interface RsvpBadgeProps {
 
 /** The reply, in words and a mark — never colour alone. */
 export function RsvpBadge({ rsvp, className }: RsvpBadgeProps) {
+	const Icon = rsvpIcons[rsvp];
 	return (
 		<span
 			className={cn(
@@ -40,7 +40,7 @@ export function RsvpBadge({ rsvp, className }: RsvpBadgeProps) {
 				className,
 			)}
 		>
-			{rsvpIcons[rsvp]}
+			<Icon className="size-3" />
 			{rsvpLabels[rsvp]}
 		</span>
 	);
