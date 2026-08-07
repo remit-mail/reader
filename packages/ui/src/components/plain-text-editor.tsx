@@ -20,6 +20,12 @@ export interface PlainTextEditorProps {
 	ariaLabel?: string;
 	/** Pinned to the right of the toolbar strip. The mode toggle rides here. */
 	trailing?: ReactNode;
+	/**
+	 * BCP 47 tag of the language the message is being written in. Firefox picks
+	 * a dictionary from it among the ones the user installed; Chrome and Safari
+	 * ignore it. Every screen reader picks a voice from it.
+	 */
+	lang?: string;
 }
 
 const EMPTY_PASTE_NOTICE =
@@ -58,6 +64,7 @@ export const PlainTextEditor = ({
 	placeholder = "Write your message…",
 	ariaLabel = "Message body",
 	trailing,
+	lang,
 }: PlainTextEditorProps) => {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const pendingCaret = useRef<number | null>(null);
@@ -141,7 +148,11 @@ export const PlainTextEditor = ({
 					<span className="min-w-0 truncate py-2 text-xs text-fg-muted">
 						Plain text · Markdown
 					</span>
-					{trailing && <div className="ml-auto shrink-0">{trailing}</div>}
+					{trailing && (
+						<div className="ml-auto flex shrink-0 items-center gap-1">
+							{trailing}
+						</div>
+					)}
 				</div>
 			</div>
 			{emptyPaste && (
@@ -166,6 +177,7 @@ export const PlainTextEditor = ({
 				onChange={(event) => onChange(event.target.value)}
 				onKeyDown={handleKeyDown}
 				onPaste={handlePaste}
+				lang={lang}
 				aria-label={ariaLabel}
 				placeholder={placeholder}
 				data-testid="compose-body-plain"

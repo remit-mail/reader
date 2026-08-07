@@ -11,10 +11,13 @@ import type {
 import {
 	ComposeActionBar,
 	ComposeFormShell,
+	defaultComposeLanguages,
 	EMPTY_RICH_TEXT,
 	QuotedText,
 	type RichTextValue,
 	sanitizeQuotedHtml,
+	unwrapLanguage,
+	wrapWithLanguage,
 } from "@remit/ui";
 import type { ComposeBodyMode } from "@remit/ui/rich-text";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -23,6 +26,7 @@ import {
 	Suspense,
 	useCallback,
 	useEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -166,9 +170,15 @@ const getReferences = (
 const outgoingBody = (
 	bodyMode: ComposeBodyMode,
 	body: RichTextValue,
+	language: string,
 ): { textBody: string | undefined; htmlBody: string | undefined } => ({
 	textBody: body.text || undefined,
-	htmlBody: bodyMode === "plain" ? "" : body.html || undefined,
+	htmlBody:
+		bodyMode === "plain"
+			? ""
+			: body.html
+				? wrapWithLanguage(body.html, language)
+				: undefined,
 });
 
 const isFormEmpty = (
@@ -356,6 +366,7 @@ export const ComposeForm = ({
 		setInitialHtml("");
 		setInitialText("");
 		setBodyMode("rich");
+		setDraftLanguage(undefined);
 		setBody(EMPTY_RICH_TEXT);
 		setDocumentGeneration((generation) => generation + 1);
 		setDraftLoaded(false);
@@ -372,6 +383,11 @@ export const ComposeForm = ({
 	);
 	const [initialText, setInitialText] = useState(signature.plainText);
 	const [bodyMode, setBodyMode] = useState<ComposeBodyMode>("rich");
+	// What the body is tagged with on the way out. The composer owns the value —
+	// it is the surface that has the text detection reads — and reports it here,
+	// because this is where a draft is written and where a send is assembled.
+	const [composeLanguage, setComposeLanguage] = useState("en");
+	const [draftLanguage, setDraftLanguage] = useState<string | undefined>();
 	const [body, setBody] = useState<RichTextValue>(() => ({
 		html: buildInitialHtml(signature.plainText),
 		text: signature.plainText,
@@ -414,9 +430,15 @@ export const ComposeForm = ({
 		// is read off that rather than a field of its own. A rich draft comes back
 		// from its HTML — reading its text into one paragraph, as this did, brought
 		// a formatted message back flattened.
-		const loadedHtml = draftData.htmlBody ?? "";
+		// A rich draft carries its language in the `<div lang>` it was stored
+		// under; the editor reopens on what is inside that, so a reopened draft
+		// does not gain a second wrapper on its next autosave. A plain draft has
+		// no HTML to have carried one, and comes back on the account default.
+		const stored = unwrapLanguage(draftData.htmlBody ?? "");
+		const loadedHtml = stored.html;
 		const loadedText = draftData.textBody ?? "";
 		setBodyMode(modeOfDraft(draftData.htmlBody));
+		setDraftLanguage(stored.language ?? undefined);
 		setInitialHtml(loadedHtml);
 		setInitialText(loadedText);
 		setBody({ html: loadedHtml, text: loadedText, formatting: [] });
@@ -525,6 +547,17 @@ export const ComposeForm = ({
 		? accountIsMissingSmtp(selectedAccount)
 		: false;
 
+	// An account that has never been to the language setting falls back to what
+	// the browser already knows the user reads, which is an ordered answer.
+	const configured = selectedAccount?.composeLanguages;
+	const accountLanguages = useMemo(
+		() =>
+			configured && configured.length > 0
+				? configured
+				: defaultComposeLanguages(navigator.languages),
+		[configured],
+	);
+
 	// The action bar refuses a second press while one is in flight, but the
 	// editor's own Cmd+Enter goes straight to `handleSend`, and the write that
 	// now precedes the request widens the window a second press lands in.
@@ -545,7 +578,11 @@ export const ComposeForm = ({
 		if (isFormEmpty(toAddresses, ccAddresses, bccAddresses, subject, body))
 			return;
 
-		const { htmlBody, textBody } = outgoingBody(bodyMode, body);
+		const { htmlBody, textBody } = outgoingBody(
+			bodyMode,
+			body,
+			composeLanguage,
+		);
 
 		saveDraft({
 			accountId: selectedAccountId,
@@ -568,6 +605,7 @@ export const ComposeForm = ({
 		subject,
 		body,
 		bodyMode,
+		composeLanguage,
 		saveDraft,
 	]);
 
@@ -585,7 +623,11 @@ export const ComposeForm = ({
 					? getReferences(sourceMessage)
 					: {};
 
-			const { htmlBody, textBody } = outgoingBody(bodyMode, body);
+			const { htmlBody, textBody } = outgoingBody(
+				bodyMode,
+				body,
+				composeLanguage,
+			);
 			const createdThisAttempt = !outboxMessageId;
 
 			// The debounce dropped above may have been holding the last two seconds
@@ -653,6 +695,7 @@ export const ComposeForm = ({
 		subject,
 		body,
 		bodyMode,
+		composeLanguage,
 		mode,
 		sourceMessage,
 		outboxMessageId,
@@ -746,6 +789,9 @@ export const ComposeForm = ({
 					onSubmit={handleSend}
 					autoFocus={mode === "new"}
 					onConversionError={pushError}
+					languages={accountLanguages}
+					initialLanguage={draftLanguage}
+					onLanguageChange={setComposeLanguage}
 				/>
 			</Suspense>
 		</ComposeFormShell>

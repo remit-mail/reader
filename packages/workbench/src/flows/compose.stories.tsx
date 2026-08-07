@@ -1,6 +1,7 @@
 import { Button, inboxFilterConfig } from "@remit/ui";
 import {
 	type ComposeBodyMode,
+	ComposeLanguageChip,
 	ComposeModeToggle,
 	PlainTextEditor,
 	RichTextEditor,
@@ -117,26 +118,44 @@ const DEFAULT_PLAIN_BODY = [
 	"| EMEA | 412 |",
 ].join("\n");
 
+const ACCOUNT_LANGUAGES = ["en", "nl", "de"];
+
 /**
- * The compose body carries the mode toggle at the right of its toolbar, and the
- * two surfaces it swaps between. Both are the components the app ships.
+ * The compose body carries the language chip and the mode toggle at the right
+ * of its toolbar, and the two surfaces it swaps between. Both are the
+ * components the app ships, and the tag rides on whichever one is up.
  */
 function ComposeBody({ mode, body }: { mode: ComposeBodyMode; body: string }) {
 	const [current, setCurrent] = useState<ComposeBodyMode>(mode);
 	const [text, setText] = useState(DEFAULT_PLAIN_BODY);
-	const toggle = (
-		<ComposeModeToggle
-			mode={current}
-			onToggle={() => setCurrent(current === "plain" ? "rich" : "plain")}
-		/>
+	const [language, setLanguage] = useState("en");
+	const pinned = (
+		<>
+			<ComposeLanguageChip
+				language={language}
+				languages={ACCOUNT_LANGUAGES}
+				onSelect={setLanguage}
+			/>
+			<ComposeModeToggle
+				mode={current}
+				onToggle={() => setCurrent(current === "plain" ? "rich" : "plain")}
+			/>
+		</>
 	);
 
 	if (current === "plain") {
 		return (
-			<PlainTextEditor value={text} onChange={setText} trailing={toggle} />
+			<PlainTextEditor
+				value={text}
+				onChange={setText}
+				lang={language}
+				trailing={pinned}
+			/>
 		);
 	}
-	return <RichTextEditor initialHtml={body} trailing={toggle} />;
+	return (
+		<RichTextEditor initialHtml={body} lang={language} trailing={pinned} />
+	);
 }
 
 function ComposeShell({

@@ -382,6 +382,9 @@ model AccountResponse {
   @doc("HTML email signature for this account")
   signatureHtml?: string;
 
+  @doc("BCP 47 language tags this account writes mail in, most-used first (issue #686). The first entry is what a new message opens on; the whole list is the candidate set language detection chooses inside. Absent when the user has not configured one, and the client falls back to the browser's own languages. Sourced from a per-account AccountSetting row (RFC 032).")
+  composeLanguages?: string[];
+
   @doc("Per-account appointment of each canonical role (Inbox, Drafts, Sent, Archive, Junk, Trash, All, Flagged) to at most one mailbox (RFC 032 exclusive-folder-appointment, issue #976). Always carries one entry per CanonicalMailboxRole member; an entry's `mailboxId` is a persisted user choice when set, or a server-proposed detection result when the user hasn't appointed that role yet. Write with PUT /accounts/{accountId}/folder-roles/{role}.")
   folderAppointments: FolderAppointment[];
 }
@@ -534,6 +537,9 @@ model UpdateAccountInput {
 
   @doc("HTML email signature")
   signatureHtml?: string;
+
+  @doc("BCP 47 language tags this account writes mail in, most-used first (issue #686). Replaces the stored list outright; an empty array clears it.")
+  composeLanguages?: string[];
 
   @doc("Account-level mute flag. Pass a MutedFlag object to mute; pass `null` to clear the mute.")
   muted?: MutedFlag | null;

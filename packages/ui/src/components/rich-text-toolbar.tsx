@@ -68,9 +68,9 @@ const INITIAL_STATE: ToolbarState = {
 
 export interface RichTextToolbarProps {
 	/**
-	 * Pinned to the right of the strip, outside the part that scrolls. The mode
-	 * toggle rides here, and it is the last element in the toolbar's DOM so one
-	 * Shift+Tab out of the body reaches it.
+	 * Pinned to the right of the strip, outside the part that scrolls. The
+	 * language chip and the mode toggle ride here, in that order, so one
+	 * Shift+Tab out of the body reaches the toggle and two reach the chip.
 	 */
 	trailing?: React.ReactNode;
 }
@@ -212,7 +212,11 @@ export const RichTextToolbar = ({ trailing }: RichTextToolbarProps) => {
 						<Redo2 className={`size-4 ${state.canRedo ? "" : "opacity-40"}`} />
 					</ToolbarButton>
 				</div>
-				{trailing && <div className="ml-auto shrink-0">{trailing}</div>}
+				{trailing && (
+					<div className="ml-auto flex shrink-0 items-center gap-1">
+						{trailing}
+					</div>
+				)}
 			</div>
 			{linkDraft !== null && (
 				<div className="flex items-center gap-2 border-t border-line px-3 py-1.5">

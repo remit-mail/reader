@@ -24,6 +24,7 @@ import {
 const ACCOUNT_OVERRIDE_NAMES = {
 	displayName: "AccountDisplayName",
 	muted: "AccountMuted",
+	composeLanguages: "AccountComposeLanguages",
 } as const;
 
 const MAILBOX_OVERRIDE_NAMES = {
@@ -34,6 +35,7 @@ const MAILBOX_OVERRIDE_NAMES = {
 export interface AccountOverrides {
 	displayName?: string;
 	muted?: MutedFlag;
+	composeLanguages?: string[];
 }
 
 export interface MailboxOverrides {
@@ -50,6 +52,12 @@ const stringValueOf = (item: AccountSettingItem): string | undefined => {
 const mutedValueOf = (item: AccountSettingItem): MutedFlag | undefined => {
 	const { value } = item;
 	if (value.kind === "MutedFlag") return value.value;
+	return undefined;
+};
+
+const stringListValueOf = (item: AccountSettingItem): string[] | undefined => {
+	const { value } = item;
+	if (value.kind === "StringList") return value.value;
 	return undefined;
 };
 
@@ -85,6 +93,14 @@ export const groupAccountOverrides = (
 			const current = byAccount.get(accountId) ?? {};
 			current.muted = muted;
 			byAccount.set(accountId, current);
+			continue;
+		}
+		if (base === ACCOUNT_OVERRIDE_NAMES.composeLanguages) {
+			const composeLanguages = stringListValueOf(setting);
+			if (composeLanguages === undefined) continue;
+			const current = byAccount.get(accountId) ?? {};
+			current.composeLanguages = composeLanguages;
+			byAccount.set(accountId, current);
 		}
 	}
 	return byAccount;
@@ -99,7 +115,7 @@ export const loadAccountOverrides = async (
 	accountConfigId: string,
 	accountId: string,
 ): Promise<AccountOverrides> => {
-	const [displayName, muted] = await Promise.all([
+	const [displayName, muted, composeLanguages] = await Promise.all([
 		accountSetting.get(
 			accountConfigId,
 			composeSettingName(ACCOUNT_OVERRIDE_NAMES.displayName, accountId),
@@ -108,12 +124,20 @@ export const loadAccountOverrides = async (
 			accountConfigId,
 			composeSettingName(ACCOUNT_OVERRIDE_NAMES.muted, accountId),
 		),
+		accountSetting.get(
+			accountConfigId,
+			composeSettingName(ACCOUNT_OVERRIDE_NAMES.composeLanguages, accountId),
+		),
 	]);
 	const overrides: AccountOverrides = {};
 	const displayNameValue = displayName ? stringValueOf(displayName) : undefined;
 	const mutedValue = muted ? mutedValueOf(muted) : undefined;
+	const languagesValue = composeLanguages
+		? stringListValueOf(composeLanguages)
+		: undefined;
 	if (displayNameValue !== undefined) overrides.displayName = displayNameValue;
 	if (mutedValue !== undefined) overrides.muted = mutedValue;
+	if (languagesValue !== undefined) overrides.composeLanguages = languagesValue;
 	return overrides;
 };
 
@@ -128,6 +152,32 @@ export const upsertAccountDisplayName = (
 		name: composeSettingName(ACCOUNT_OVERRIDE_NAMES.displayName, accountId),
 		value: { kind: "String", value: displayName },
 	});
+
+/**
+ * Replace the account's compose-language list. An empty array deletes the row:
+ * the client falls back to the browser's own languages when the setting is
+ * absent, and an account that offers no language at all has nothing to pick
+ * from (RFC 032: absence is "unset").
+ */
+export const writeAccountComposeLanguages = (
+	accountSetting: IAccountSettingRepository,
+	accountConfigId: string,
+	accountId: string,
+	languages: string[],
+): Promise<unknown> => {
+	const name = composeSettingName(
+		ACCOUNT_OVERRIDE_NAMES.composeLanguages,
+		accountId,
+	);
+	if (languages.length === 0) {
+		return accountSetting.delete(accountConfigId, name);
+	}
+	return accountSetting.upsert({
+		accountConfigId,
+		name,
+		value: { kind: "StringList", value: languages },
+	});
+};
 
 /**
  * Set or clear the account mute flag. A `MutedFlag` upserts the row; `null`
