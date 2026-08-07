@@ -33,6 +33,25 @@ describe("groupAccountOverrides", () => {
 		assert.equal(grouped.get("acc-2")?.displayName, "Bob");
 	});
 
+	it("groups the compose-language list by accountId", () => {
+		const settings = [
+			setting("AccountComposeLanguages#acc-1", {
+				kind: "StringList",
+				value: ["nl", "en"],
+			}),
+			stringSetting("AccountDisplayName#acc-1", "Alice"),
+		];
+		const grouped = groupAccountOverrides(settings);
+		assert.deepEqual(grouped.get("acc-1")?.composeLanguages, ["nl", "en"]);
+		assert.equal(grouped.get("acc-1")?.displayName, "Alice");
+	});
+
+	it("ignores a compose-language row stored under the wrong value kind", () => {
+		const settings = [stringSetting("AccountComposeLanguages#acc-1", "nl")];
+		const grouped = groupAccountOverrides(settings);
+		assert.equal(grouped.get("acc-1"), undefined);
+	});
+
 	it("ignores a leftover MailboxRole#<mailboxId> row instead of throwing", () => {
 		// Leftover rows from the #963/#964 backfill (superseded by
 		// FolderRoleAppointment, RFC 032 exclusive-folder-appointment #976) must

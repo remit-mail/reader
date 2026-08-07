@@ -47,6 +47,7 @@ import {
 import {
 	loadAccountOverrides,
 	upsertAccountDisplayName,
+	writeAccountComposeLanguages,
 	writeAccountMuted,
 } from "./account-overrides.js";
 import { assertAccountOwnership } from "./account-ownership.js";
@@ -441,6 +442,14 @@ export const AccountDetailOperations: Record<
 				accountConfigId,
 				accountId,
 				input.displayName,
+			);
+		}
+		if (input.composeLanguages !== undefined) {
+			await writeAccountComposeLanguages(
+				accountSetting,
+				accountConfigId,
+				accountId,
+				input.composeLanguages,
 			);
 		}
 		if (Object.hasOwn(input, "muted")) {

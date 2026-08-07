@@ -137,6 +137,10 @@ export {
 	composeModeLabels,
 } from "./components/compose-form-shell.js";
 export {
+	ComposeLanguageSetting,
+	type ComposeLanguageSettingProps,
+} from "./components/compose-language-setting.js";
+export {
 	DangerZoneSection,
 	type DangerZoneSectionProps,
 } from "./components/danger-zone-section.js";
@@ -658,6 +662,18 @@ export {
 	type CidResolver,
 } from "./lib/cid-resolver.js";
 export { cn } from "./lib/cn.js";
+export {
+	browserSpellcheckHelp,
+	COMPOSE_LANGUAGE_OPTIONS,
+	type ComposeLanguageOption,
+	defaultComposeLanguages,
+	detectionCodeFor,
+	languageChipLabel,
+	languageLabel,
+	primaryLanguageSubtag,
+	unwrapLanguage,
+	wrapWithLanguage,
+} from "./lib/compose-language.js";
 export { generateLayoutClampCSS } from "./lib/email-layout-clamp.js";
 export {
 	classifyEmailRenderTreatment,

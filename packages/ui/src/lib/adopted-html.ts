@@ -46,7 +46,19 @@ const ADOPTED_TAGS = [
 	"img",
 ];
 
-const ADOPTED_ATTR = ["href", "src", "alt", "colspan", "rowspan"];
+// `lang` and `dir` are structure, not presentation: they are what a recipient's
+// client and every screen reader read the language and the writing direction
+// off, and they are what keeps a quoted passage in another language marked as
+// one inside a message written in this one (#686).
+const ADOPTED_ATTR = [
+	"href",
+	"src",
+	"alt",
+	"colspan",
+	"rowspan",
+	"lang",
+	"dir",
+];
 
 const LINK_SCHEMES = /^(?:https?:|mailto:)/i;
 const IMAGE_SCHEMES = /^(?:https:|data:image\/)/i;

@@ -66,6 +66,7 @@ export const accountSettingRegistry = {
 	[AccountSettingName.AccountSignatureHtml]: StringSettingSchema,
 	[AccountSettingName.AccountDisplayName]: StringSettingSchema,
 	[AccountSettingName.AccountMuted]: MutedFlagSettingSchema,
+	[AccountSettingName.AccountComposeLanguages]: StringListSettingSchema,
 	[AccountSettingName.MailboxDisplayName]: StringSettingSchema,
 	[AccountSettingName.MailboxMuted]: MutedFlagSettingSchema,
 	[AccountSettingName.FolderRoleAppointment]: StringSettingSchema,

@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { expect, userEvent } from "storybook/test";
 import { sanitizeAdoptedHtml } from "../lib/adopted-html.js";
+import { ComposeLanguageChip } from "./compose-language-chip.js";
 import { ComposeModeToggle } from "./compose-mode-toggle.js";
 import { RichTextEditor } from "./rich-text-editor.js";
 
@@ -104,23 +105,37 @@ export const ClickBelowTheText: Story = {
 	},
 };
 
-const modeToggle = <ComposeModeToggle mode="rich" onToggle={() => undefined} />;
+/**
+ * The two pinned controls, in the order compose ships them: the chip first, so
+ * one Shift+Tab out of the body still reaches the mode toggle and two reach the
+ * chip.
+ */
+const pinnedControls = (
+	<>
+		<ComposeLanguageChip
+			language="nl"
+			languages={["nl", "en", "de"]}
+			onSelect={() => undefined}
+		/>
+		<ComposeModeToggle mode="rich" onToggle={() => undefined} />
+	</>
+);
 
-/** The toolbar as compose ships it: the formatting cluster, then the mode. */
+/** The toolbar as compose ships it: the formatting cluster, then the two pinned controls. */
 export const ToolbarInRich: Story = {
-	name: "Toolbar with the mode toggle",
-	args: { initialHtml: RICH_DOCUMENT, trailing: modeToggle },
+	name: "Toolbar with the language chip and the mode toggle",
+	args: { initialHtml: RICH_DOCUMENT, lang: "nl", trailing: pinnedControls },
 };
 
 /**
  * At 390 the formatting cluster runs out of room. It scrolls inside its own
- * strip and the toggle stays pinned at the right edge, rather than the cluster
- * pushing the toggle off the screen — which is what a flex child without
- * `min-w-0` does.
+ * strip and both pinned controls stay at the right edge, rather than the
+ * cluster pushing them off the screen — which is what a flex child without
+ * `min-w-0` does. Two letters is what makes room for a second pinned item here.
  */
 export const NarrowToolbar: Story = {
 	name: "Toolbar at 390",
-	args: { initialHtml: RICH_DOCUMENT, trailing: modeToggle },
+	args: { initialHtml: RICH_DOCUMENT, lang: "nl", trailing: pinnedControls },
 	decorators: [
 		(Story) => (
 			<div
@@ -141,13 +156,21 @@ export const NarrowToolbar: Story = {
 		const toggle = canvasElement.querySelector<HTMLElement>(
 			"[data-testid=compose-mode-toggle]",
 		);
-		if (!frame || !cluster || !toggle)
+		const chip = canvasElement.querySelector<HTMLElement>(
+			"[data-testid=compose-language-chip]",
+		);
+		if (!frame || !cluster || !toggle || !chip)
 			throw new Error("the toolbar is not mounted");
 
 		await expect(cluster.scrollWidth).toBeGreaterThan(cluster.clientWidth);
+		const edge = frame.getBoundingClientRect().right + 1;
 		await expect(toggle.getBoundingClientRect().right).toBeLessThanOrEqual(
-			frame.getBoundingClientRect().right + 1,
+			edge,
 		);
+		await expect(chip.getBoundingClientRect().left).toBeGreaterThanOrEqual(
+			frame.getBoundingClientRect().left,
+		);
+		await expect(chip.getBoundingClientRect().right).toBeLessThanOrEqual(edge);
 	},
 };
 
@@ -160,7 +183,8 @@ export const StickyToolbar: Story = {
 	name: "Toolbar over a scrolled body",
 	args: {
 		initialHtml: `${RICH_DOCUMENT}${"<p>Another line of the message.</p>".repeat(30)}`,
-		trailing: modeToggle,
+		lang: "nl",
+		trailing: pinnedControls,
 	},
 	play: async ({ canvasElement }) => {
 		const frame = canvasElement.querySelector<HTMLElement>(

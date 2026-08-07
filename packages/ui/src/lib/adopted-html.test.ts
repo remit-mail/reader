@@ -55,6 +55,15 @@ describe("sanitizeAdoptedHtml", () => {
 		assert.match(result, /<div>first<\/div><div>second<\/div>/);
 	});
 
+	it("keeps the language and direction a passage was written in", () => {
+		const result = sanitizeAdoptedHtml(
+			'<p>Hoi</p><p lang="fr">Bonjour</p><p dir="rtl" lang="ar">مرحبا</p>',
+		);
+		assert.match(result, /<p lang="fr">Bonjour<\/p>/);
+		assert.match(result, /lang="ar"/);
+		assert.match(result, /dir="rtl"/);
+	});
+
 	it("drops script, style and the presentation a receiving client rewrites", () => {
 		const result = sanitizeAdoptedHtml(
 			[

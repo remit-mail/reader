@@ -8,6 +8,7 @@ import {
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import {
 	Button,
+	ComposeLanguageSetting,
 	Input,
 	PasswordInput,
 	Select,
@@ -19,6 +20,7 @@ import { Check, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
+import { useComposeLanguages } from "../../hooks/useComposeLanguages";
 import { useSignature } from "../../hooks/useSignature";
 import {
 	getPresetById,
@@ -319,6 +321,25 @@ export const AccountFormPanel = ({
 	} = useSignature(account?.accountId);
 	const [signatureText, setSignatureText] = useState(signature.plainText);
 
+	const {
+		languages,
+		setLanguages,
+		isSaving: isLanguagesSaving,
+	} = useComposeLanguages(account?.accountId);
+
+	const languagesSection = (
+		<section>
+			<h3 className="text-2xs font-semibold text-fg-subtle uppercase tracking-wider mb-3">
+				Writing languages
+			</h3>
+			<ComposeLanguageSetting
+				value={languages}
+				onChange={setLanguages}
+				busy={isLanguagesSaving}
+			/>
+		</section>
+	);
+
 	useEffect(() => {
 		setSignatureText(signature.plainText);
 	}, [signature.plainText]);
@@ -475,6 +496,7 @@ export const AccountFormPanel = ({
 							</div>
 						</section>
 					)}
+					{isEditing && languagesSection}
 				</div>
 			</SlidePanel>
 		);
@@ -940,6 +962,7 @@ export const AccountFormPanel = ({
 						</div>
 					</section>
 				)}
+				{isEditing && languagesSection}
 			</form>
 		</SlidePanel>
 	);

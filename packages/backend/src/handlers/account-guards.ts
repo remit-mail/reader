@@ -122,6 +122,7 @@ export const toAccountResponse = (
 	smtpUsername: account.smtpUsername ?? "",
 	signaturePlainText: signature.plainText,
 	signatureHtml: signature.html,
+	composeLanguages: overrides.composeLanguages,
 	isActive: account.isActive,
 	connectionState: account.connectionState,
 	lastConnectedAt: account.lastConnectedAt,

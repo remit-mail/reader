@@ -1,12 +1,14 @@
 import {
 	type ComposeBodyMode,
+	ComposeLanguageChip,
 	ComposeModeToggle,
 	markdownToHtml,
 	PlainTextEditor,
 	RichTextEditor,
 	type RichTextValue,
+	useComposeLanguage,
 } from "@remit/ui/rich-text";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { conversionOutcome, switchNeedsWarning } from "./compose-mode";
 
@@ -50,6 +52,12 @@ interface ComposeBodyProps {
 	autoFocus?: boolean;
 	onConversionError: (failure: ConversionFailure) => void;
 	conversions?: ComposeConversions;
+	/** The account's writing languages, most-used first. */
+	languages: readonly string[];
+	/** The tag a reopened draft was stored under. */
+	initialLanguage?: string;
+	/** Reports the language the message is being written in, so the form can tag it. */
+	onLanguageChange: (language: string) => void;
 }
 
 /**
@@ -68,10 +76,14 @@ export const ComposeBody = ({
 	autoFocus = false,
 	onConversionError,
 	conversions = DEFAULT_COMPOSE_CONVERSIONS,
+	languages,
+	initialLanguage,
+	onLanguageChange,
 }: ComposeBodyProps) => {
 	const [richHtml, setRichHtml] = useState(initialHtml);
 	const [richGeneration, setRichGeneration] = useState(0);
 	const [plainText, setPlainText] = useState(initialText);
+	const [bodyText, setBodyText] = useState(initialText);
 	const [confirming, setConfirming] = useState(false);
 	// The caret does not survive a conversion: a rich selection is a node path
 	// and Markdown is a character offset. The surface that arrives takes focus
@@ -83,13 +95,27 @@ export const ComposeBody = ({
 		formatting: [],
 	});
 
+	// Detection reads the body the user typed. The quoted reply block is not part
+	// of it — that lives outside the editor, in the form's own `quoted` slot.
+	const { language, choose } = useComposeLanguage({
+		languages,
+		text: bodyText,
+		initialLanguage,
+	});
+
+	useEffect(() => {
+		onLanguageChange(language);
+	}, [language, onLanguageChange]);
+
 	const handleRichChange = (value: RichTextValue) => {
 		richValue.current = value;
+		setBodyText(value.text);
 		onChange(value);
 	};
 
 	const handlePlainChange = (text: string) => {
 		setPlainText(text);
+		setBodyText(text);
 		onChange(plainValue(text));
 	};
 
@@ -102,6 +128,7 @@ export const ComposeBody = ({
 			return;
 		}
 		setPlainText(converted);
+		setBodyText(converted);
 		setFocusSwitchedSurface(true);
 		onChange(plainValue(converted));
 		onModeChange("plain");
@@ -132,7 +159,18 @@ export const ComposeBody = ({
 		switchToPlain();
 	};
 
-	const toggle = <ComposeModeToggle mode={mode} onToggle={handleToggle} />;
+	// The chip comes first so the mode toggle stays one Shift+Tab out of the
+	// body, where #673 put it, and the chip is the second.
+	const trailing = (
+		<>
+			<ComposeLanguageChip
+				language={language}
+				languages={languages}
+				onSelect={choose}
+			/>
+			<ComposeModeToggle mode={mode} onToggle={handleToggle} />
+		</>
+	);
 
 	return (
 		<>
@@ -142,7 +180,8 @@ export const ComposeBody = ({
 					onChange={handlePlainChange}
 					onSubmit={onSubmit}
 					autoFocus={focusSwitchedSurface}
-					trailing={toggle}
+					lang={language}
+					trailing={trailing}
 				/>
 			) : (
 				<RichTextEditor
@@ -151,7 +190,8 @@ export const ComposeBody = ({
 					onChange={handleRichChange}
 					onSubmit={onSubmit}
 					autoFocus={autoFocus || focusSwitchedSurface}
-					trailing={toggle}
+					lang={language}
+					trailing={trailing}
 				/>
 			)}
 			<ConfirmDialog
