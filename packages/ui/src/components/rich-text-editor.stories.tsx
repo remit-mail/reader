@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { expect, userEvent } from "storybook/test";
 import { sanitizeAdoptedHtml } from "../lib/adopted-html.js";
+import { ComposeModeToggle } from "./compose-mode-toggle.js";
 import { RichTextEditor } from "./rich-text-editor.js";
 
 /**
@@ -100,5 +101,80 @@ export const ClickBelowTheText: Story = {
 
 		await userEvent.click(editable);
 		await expect(editable).toHaveFocus();
+	},
+};
+
+const modeToggle = <ComposeModeToggle mode="rich" onToggle={() => undefined} />;
+
+/** The toolbar as compose ships it: the formatting cluster, then the mode. */
+export const ToolbarInRich: Story = {
+	name: "Toolbar with the mode toggle",
+	args: { initialHtml: RICH_DOCUMENT, trailing: modeToggle },
+};
+
+/**
+ * At 390 the formatting cluster runs out of room. It scrolls inside its own
+ * strip and the toggle stays pinned at the right edge, rather than the cluster
+ * pushing the toggle off the screen — which is what a flex child without
+ * `min-w-0` does.
+ */
+export const NarrowToolbar: Story = {
+	name: "Toolbar at 390",
+	args: { initialHtml: RICH_DOCUMENT, trailing: modeToggle },
+	decorators: [
+		(Story) => (
+			<div
+				data-testid="body-area"
+				className="flex h-[420px] w-[390px] flex-col overflow-auto rounded-md border border-line bg-canvas"
+			>
+				<Story />
+			</div>
+		),
+	],
+	play: async ({ canvasElement }) => {
+		const frame = canvasElement.querySelector<HTMLElement>(
+			"[data-testid=body-area]",
+		);
+		const cluster = canvasElement.querySelector<HTMLElement>(
+			"[data-testid=compose-format-cluster]",
+		);
+		const toggle = canvasElement.querySelector<HTMLElement>(
+			"[data-testid=compose-mode-toggle]",
+		);
+		if (!frame || !cluster || !toggle)
+			throw new Error("the toolbar is not mounted");
+
+		await expect(cluster.scrollWidth).toBeGreaterThan(cluster.clientWidth);
+		await expect(toggle.getBoundingClientRect().right).toBeLessThanOrEqual(
+			frame.getBoundingClientRect().right + 1,
+		);
+	},
+};
+
+/**
+ * The toolbar and the body share one scroller, so twenty lines of typing would
+ * carry the toolbar off the top with them. It stays at the top of the body
+ * while the text moves under it.
+ */
+export const StickyToolbar: Story = {
+	name: "Toolbar over a scrolled body",
+	args: {
+		initialHtml: `${RICH_DOCUMENT}${"<p>Another line of the message.</p>".repeat(30)}`,
+		trailing: modeToggle,
+	},
+	play: async ({ canvasElement }) => {
+		const frame = canvasElement.querySelector<HTMLElement>(
+			"[data-testid=body-area]",
+		);
+		const toggle = canvasElement.querySelector<HTMLElement>(
+			"[data-testid=compose-mode-toggle]",
+		);
+		if (!frame || !toggle) throw new Error("the toolbar is not mounted");
+
+		frame.scrollTop = 400;
+		await expect(frame.scrollTop).toBeGreaterThan(0);
+		await expect(
+			toggle.getBoundingClientRect().top - frame.getBoundingClientRect().top,
+		).toBeLessThan(60);
 	},
 };

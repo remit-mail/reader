@@ -38,7 +38,7 @@ const ToolbarButton = ({
 		title={title}
 		aria-label={title}
 		aria-pressed={isActive}
-		className={`p-1.5 rounded transition-colors ${
+		className={`inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded transition-colors ${
 			isActive
 				? "text-fg bg-accent-2-soft"
 				: "text-fg-muted hover:text-fg hover:bg-surface-raised"
@@ -66,7 +66,16 @@ const INITIAL_STATE: ToolbarState = {
 	canRedo: false,
 };
 
-export const RichTextToolbar = () => {
+export interface RichTextToolbarProps {
+	/**
+	 * Pinned to the right of the strip, outside the part that scrolls. The mode
+	 * toggle rides here, and it is the last element in the toolbar's DOM so one
+	 * Shift+Tab out of the body reaches it.
+	 */
+	trailing?: React.ReactNode;
+}
+
+export const RichTextToolbar = ({ trailing }: RichTextToolbarProps) => {
 	const [editor] = useLexicalComposerContext();
 	const [state, setState] = useState<ToolbarState>(INITIAL_STATE);
 	const [linkDraft, setLinkDraft] = useState<string | null>(null);
@@ -146,51 +155,64 @@ export const RichTextToolbar = () => {
 	};
 
 	return (
-		<div className="border-b border-line">
-			<div className="flex items-center gap-0.5 px-3 py-1">
-				<ToolbarButton
-					isActive={state.bold}
-					onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, "bold")}
-					title="Bold (Ctrl+B)"
+		// The toolbar and the body share one scroller, so twenty lines of typing
+		// would carry the toolbar off the top of the compose window with them.
+		<div className="sticky top-0 z-10 border-b border-line bg-canvas">
+			<div className="flex items-center gap-2 px-3 py-1">
+				{/* `min-w-0`, without which a flex child refuses to shrink below its
+				    content and pushes the trailing control off the edge instead of
+				    scrolling. */}
+				<div
+					data-testid="compose-format-cluster"
+					className="flex min-w-0 items-center gap-0.5 overflow-x-auto"
 				>
-					<Bold className="size-4" />
-				</ToolbarButton>
-				<ToolbarButton
-					isActive={state.italic}
-					onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, "italic")}
-					title="Italic (Ctrl+I)"
-				>
-					<Italic className="size-4" />
-				</ToolbarButton>
-				<ToolbarButton
-					isActive={state.link !== null}
-					onClick={() => setLinkDraft(state.link ?? "https://")}
-					title="Link (Ctrl+K)"
-				>
-					<Link className="size-4" />
-				</ToolbarButton>
-				<ToolbarButton
-					isActive={state.quote}
-					onClick={toggleQuote}
-					title="Blockquote"
-				>
-					<Quote className="size-4" />
-				</ToolbarButton>
-				<div className="mx-1.5 h-4 w-px bg-line" />
-				<ToolbarButton
-					isActive={false}
-					onClick={() => editor.dispatchCommand(UNDO_COMMAND, undefined)}
-					title="Undo (Ctrl+Z)"
-				>
-					<Undo2 className={`size-4 ${state.canUndo ? "" : "opacity-40"}`} />
-				</ToolbarButton>
-				<ToolbarButton
-					isActive={false}
-					onClick={() => editor.dispatchCommand(REDO_COMMAND, undefined)}
-					title="Redo (Ctrl+Y)"
-				>
-					<Redo2 className={`size-4 ${state.canRedo ? "" : "opacity-40"}`} />
-				</ToolbarButton>
+					<ToolbarButton
+						isActive={state.bold}
+						onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, "bold")}
+						title="Bold (Ctrl+B)"
+					>
+						<Bold className="size-4" />
+					</ToolbarButton>
+					<ToolbarButton
+						isActive={state.italic}
+						onClick={() =>
+							editor.dispatchCommand(FORMAT_TEXT_COMMAND, "italic")
+						}
+						title="Italic (Ctrl+I)"
+					>
+						<Italic className="size-4" />
+					</ToolbarButton>
+					<ToolbarButton
+						isActive={state.link !== null}
+						onClick={() => setLinkDraft(state.link ?? "https://")}
+						title="Link (Ctrl+K)"
+					>
+						<Link className="size-4" />
+					</ToolbarButton>
+					<ToolbarButton
+						isActive={state.quote}
+						onClick={toggleQuote}
+						title="Blockquote"
+					>
+						<Quote className="size-4" />
+					</ToolbarButton>
+					<div className="mx-1.5 h-4 w-px shrink-0 bg-line" />
+					<ToolbarButton
+						isActive={false}
+						onClick={() => editor.dispatchCommand(UNDO_COMMAND, undefined)}
+						title="Undo (Ctrl+Z)"
+					>
+						<Undo2 className={`size-4 ${state.canUndo ? "" : "opacity-40"}`} />
+					</ToolbarButton>
+					<ToolbarButton
+						isActive={false}
+						onClick={() => editor.dispatchCommand(REDO_COMMAND, undefined)}
+						title="Redo (Ctrl+Y)"
+					>
+						<Redo2 className={`size-4 ${state.canRedo ? "" : "opacity-40"}`} />
+					</ToolbarButton>
+				</div>
+				{trailing && <div className="ml-auto shrink-0">{trailing}</div>}
 			</div>
 			{linkDraft !== null && (
 				<div className="flex items-center gap-2 border-t border-line px-3 py-1.5">

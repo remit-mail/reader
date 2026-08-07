@@ -2,6 +2,7 @@ import { configOperationsGetConfigOptions } from "@remit/api-http-client/@tansta
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import { Drawer } from "vaul";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { ComposeForm } from "./ComposeForm";
 import { useCompose } from "./ComposeProvider";
@@ -119,34 +120,16 @@ export const MobileComposeSheet = () => {
 				</Drawer.Content>
 			</Drawer.Portal>
 
-			{/* Confirmation dialog when dismissing dirty draft */}
-			{showConfirm && (
-				<div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50">
-					<div className="mx-4 w-full max-w-sm rounded-xl bg-canvas p-6 shadow-xl">
-						<h3 className="text-lg font-semibold">Discard draft?</h3>
-						<p className="mt-2 text-sm text-fg-muted">
-							Your message has unsaved content. Are you sure you want to discard
-							it?
-						</p>
-						<div className="mt-4 flex justify-end gap-2">
-							<button
-								type="button"
-								onClick={handleCancelDiscard}
-								className="rounded-md px-4 py-2 text-sm font-medium hover:bg-surface-raised transition-colors"
-							>
-								Keep editing
-							</button>
-							<button
-								type="button"
-								onClick={handleConfirmDiscard}
-								className="rounded-md bg-danger px-4 py-2 text-sm font-medium text-canvas hover:bg-danger/90 transition-colors"
-							>
-								Discard
-							</button>
-						</div>
-					</div>
-				</div>
-			)}
+			<ConfirmDialog
+				isOpen={showConfirm}
+				title="Discard draft?"
+				description="Your message has unsaved content. Are you sure you want to discard it?"
+				confirmLabel="Discard"
+				cancelLabel="Keep editing"
+				destructive
+				onConfirm={handleConfirmDiscard}
+				onCancel={handleCancelDiscard}
+			/>
 		</Drawer.Root>
 	);
 };

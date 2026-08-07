@@ -57,16 +57,29 @@ export const ConfirmDialog = ({
 		return () => window.removeEventListener("keydown", handleKeyDown, true);
 	}, [isOpen, handleKeyDown]);
 
+	// Whoever opened the dialog gets the focus back when it closes. Without this
+	// a cancelled confirmation drops focus to the body, and the control the user
+	// was on — the compose mode toggle, a row's delete button — is gone from
+	// under the keyboard.
 	useEffect(() => {
-		if (isOpen) {
-			cancelRef.current?.focus();
-		}
+		if (!isOpen) return;
+		const opener =
+			document.activeElement instanceof HTMLElement
+				? document.activeElement
+				: null;
+		cancelRef.current?.focus();
+		return () => {
+			if (opener?.isConnected) opener.focus();
+		};
 	}, [isOpen]);
 
 	if (!isOpen) return null;
 
 	return (
-		<div className="fixed inset-0 z-50 flex items-center justify-center">
+		// Above every other overlay, the mobile compose sheet included: a
+		// confirmation is the decision blocking whatever is under it, and a drawer
+		// portalled to the body at the same level would cover it.
+		<div className="fixed inset-0 z-[60] flex items-center justify-center">
 			{/* Backdrop. It carries the click-to-dismiss and the aria-hidden: the
 			    dialog itself must stay in the accessibility tree, and an
 			    aria-hidden ancestor would take it out. */}
