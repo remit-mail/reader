@@ -336,15 +336,16 @@ describe("discarding a draft that carries files (#679)", () => {
 			sizeBytes: 16,
 		});
 		assert.equal(minted.outcome, "Minted");
+		// A mint reserves in the ledger; nothing is uploaded yet, so what a discard
+		// has to take with it is the reservation, not an object.
 		assert.equal(
 			(
-				await storage.listOutboxAttachments(
+				await storage.readOutboxLedger(
 					ACCOUNT_CONFIG_ID,
 					ACCOUNT_ID,
 					outboxMessageId,
-					10,
 				)
-			).length,
+			).ledger.entries.length,
 			1,
 		);
 
@@ -365,6 +366,16 @@ describe("discarding a draft that carries files (#679)", () => {
 				outboxMessageId,
 				10,
 			),
+			[],
+		);
+		assert.deepEqual(
+			(
+				await storage.readOutboxLedger(
+					ACCOUNT_CONFIG_ID,
+					ACCOUNT_ID,
+					outboxMessageId,
+				)
+			).ledger.entries,
 			[],
 		);
 	});

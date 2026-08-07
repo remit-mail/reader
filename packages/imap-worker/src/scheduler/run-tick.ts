@@ -30,12 +30,24 @@ export interface RunSchedulerTickDeps {
 	tickIntervalMs: number;
 	/** Injectable for tests; defaults to `Date.now()`. */
 	now?: number;
+	/**
+	 * Collect attachment bytes no ledger vouches for, for one account.
+	 *
+	 * The tick already walks every account on a cadence, which is the only thing
+	 * this needs. It exists because an upload URL minted for a draft stays valid
+	 * after that draft is discarded, and on a deployment where the browser writes
+	 * straight to block storage nothing is in the path to refuse it — see
+	 * `sweepAbandonedOutboxAttachments`. Optional so a deployment that has not
+	 * wired storage into the scheduler still ticks.
+	 */
+	sweepAttachments?: (account: AccountItem) => Promise<void>;
 }
 
 export interface SchedulerTickResult {
 	scanned: number;
 	enqueued: number;
 	skipped: number;
+	swept: number;
 }
 
 /**
@@ -101,6 +113,7 @@ export const runSchedulerTick = async (
 	let scanned = 0;
 	let enqueued = 0;
 	let skipped = 0;
+	let swept = 0;
 
 	do {
 		const page = await accountService.listAllAccountsPage({
@@ -108,6 +121,17 @@ export const runSchedulerTick = async (
 			cursor,
 		});
 		scanned += page.items.length;
+
+		if (deps.sweepAttachments) {
+			// Every account, not only the ones due a sync: abandoned bytes are not
+			// related to how recently mail was fetched. Runs at the same bounded
+			// concurrency as the enqueues below.
+			const sweep = deps.sweepAttachments;
+			await pMap(page.items, (account) => sweep(account), {
+				concurrency: SCHEDULER_ENQUEUE_CONCURRENCY,
+			});
+			swept += page.items.length;
+		}
 
 		const due = page.items.filter(
 			(account) =>
@@ -135,7 +159,10 @@ export const runSchedulerTick = async (
 		cursor = page.cursor ?? undefined;
 	} while (cursor);
 
-	log.info({ scanned, enqueued, skipped }, "Scheduled-sync tick complete");
+	log.info(
+		{ scanned, enqueued, skipped, swept },
+		"Scheduled-sync tick complete",
+	);
 
-	return { scanned, enqueued, skipped };
+	return { scanned, enqueued, skipped, swept };
 };

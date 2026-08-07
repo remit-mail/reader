@@ -1,6 +1,7 @@
 import type { Readable } from "node:stream";
 import {
 	authorizeUploadRequest,
+	liveEntries,
 	parseOutboxAttachmentKey,
 	type StorageService,
 } from "@remit/storage-service";
@@ -80,6 +81,21 @@ export const receiveUpload = async (
 	if (!auth.authorized) {
 		return { status: auth.status, reason: auth.reason };
 	}
+
+	// A signed URL outlives the draft it was minted for, so possession of one is
+	// not enough: the ledger has to still be holding room for this attachment.
+	// Without this a URL minted before a discard writes bytes back into a prefix
+	// whose row is gone. The hosted shape cannot make this check — block storage
+	// receives the PUT directly — which is what the sweep exists for.
+	const { ledger } = await storage.readOutboxLedger(
+		target.accountConfigId,
+		target.accountId,
+		target.outboxMessageId,
+	);
+	const reserved = liveEntries(ledger, input.nowSeconds).find(
+		(entry) => entry.outboxAttachmentId === target.outboxAttachmentId,
+	);
+	if (!reserved) return { status: 409, reason: "no-live-reservation" };
 
 	const collected = await collectLimitedBody(input.body, auth.maxBytes);
 	if (collected.outcome === "TooLarge") {

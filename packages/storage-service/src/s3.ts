@@ -11,6 +11,11 @@ export const createStorageService = (): StorageService => {
 	if (bucketName) {
 		const client = new S3Client({
 			endpoint: process.env.S3_ENDPOINT,
+			// The SDK default (WHEN_SUPPORTED) hangs a CRC32 of an empty body off
+			// every presigned PUT as signed query params. Real S3 tolerates it;
+			// MinIO and LocalStack reject the request, and S3_ENDPOINT exists to
+			// point at exactly those.
+			requestChecksumCalculation: "WHEN_REQUIRED",
 		});
 		return createS3StorageService(client, bucketName);
 	}

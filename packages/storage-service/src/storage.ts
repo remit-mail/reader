@@ -1,6 +1,13 @@
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
+import type {
+	OutboxLedger,
+	OutboxLedgerRead,
+	OutboxLedgerVersion,
+	OutboxLedgerWrite,
+} from "./outbox-ledger.js";
+import { parseOutboxLedger, serializeOutboxLedger } from "./outbox-ledger.js";
 
 export type StorageTypeValue = (typeof StorageType)[keyof typeof StorageType];
 export type ContentEncodingValue =
@@ -66,22 +73,14 @@ export interface StoreOutboxAttachmentParams {
 }
 
 /**
- * One entry under a draft's attachment prefix.
- *
- * A reservation and an uploaded object are both entries: a mint writes the
- * reservation, the upload writes the object beside it, and completion removes
- * the reservation. `sizeBytes` is what the entry costs the draft either way —
- * the bytes on the backend once they exist, the reserved size until then — so
- * totalling a draft is a sum over one listing with nothing else read.
+ * One uploaded object under a draft's attachment prefix. Reservations are not
+ * here — they live in the ledger, which is the only thing that can say whether
+ * an object present in storage is an attachment or garbage.
  */
 export interface OutboxAttachmentListItem {
 	outboxAttachmentId: string;
 	key: string;
 	sizeBytes: number;
-	/** True while this is only a promise of bytes, not bytes. */
-	isReservation: boolean;
-	/** Unix seconds the reservation lapses at. Zero on an uploaded object. */
-	expiresAt: number;
 }
 
 /** Somewhere for a client to PUT one file, for a while */
@@ -243,7 +242,18 @@ export interface StorageService {
 		outboxMessageId: string,
 	): Promise<void>;
 
-	/** Remove one attachment: its object, its reservation, or both. */
+	/**
+	 * Every draft under an account that has attachment objects in storage,
+	 * including drafts whose row is long gone. The sweep needs the prefixes that
+	 * exist, not the rows that exist — a discarded draft is invisible to the
+	 * database and is exactly the case worth collecting.
+	 */
+	listOutboxDraftsWithAttachments(
+		accountConfigId: string,
+		accountId: string,
+	): Promise<string[]>;
+
+	/** Remove one attachment object. */
 	deleteOutboxAttachment(
 		accountConfigId: string,
 		accountId: string,
@@ -251,20 +261,30 @@ export interface StorageService {
 		outboxAttachmentId: string,
 	): Promise<void>;
 
-	/** Record that a draft is owed `sizeBytes` until `expiresAt`. */
-	reserveOutboxAttachment(
-		params: CreateOutboxAttachmentUploadUrlParams,
-	): Promise<void>;
-
-	/** Drop a reservation, leaving whatever was uploaded under it. */
-	releaseOutboxAttachmentReservation(
+	/**
+	 * Read a draft's ledger and the version token a write must present. A draft
+	 * that has never held an attachment reads as empty with a null version.
+	 */
+	readOutboxLedger(
 		accountConfigId: string,
 		accountId: string,
 		outboxMessageId: string,
-		outboxAttachmentId: string,
-		sizeBytes: number,
-		expiresAt: number,
-	): Promise<void>;
+	): Promise<OutboxLedgerRead>;
+
+	/**
+	 * Write a draft's ledger, but only if it still holds the version that was
+	 * read. This is where the per-message cap is actually enforced: a mint reads,
+	 * decides, and writes conditionally, so two mints in two processes cannot
+	 * both believe there was room. `Stale` means the caller must reread and
+	 * decide again.
+	 */
+	writeOutboxLedger(
+		accountConfigId: string,
+		accountId: string,
+		outboxMessageId: string,
+		ledger: OutboxLedger,
+		expectedVersion: OutboxLedgerVersion,
+	): Promise<OutboxLedgerWrite>;
 
 	/**
 	 * The size storage actually holds for an attachment, or null when nothing
@@ -460,27 +480,20 @@ export const buildOutboxAttachmentKey = (
 ): string =>
 	`${buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId)}${outboxAttachmentId}`;
 
-/**
- * A reservation is a zero-byte object whose name carries everything the cap
- * needs — the id it holds room for, how many bytes, and when it lapses. Keeping
- * it in the name means totalling a draft is one listing with no reads, and an
- * expired reservation is recognisable without opening anything.
- */
-export const buildOutboxAttachmentReservationKey = (
+export const buildOutboxLedgerKey = (
 	accountConfigId: string,
 	accountId: string,
 	outboxMessageId: string,
-	outboxAttachmentId: string,
-	sizeBytes: number,
-	expiresAt: number,
 ): string =>
-	`${buildOutboxAttachmentKey(accountConfigId, accountId, outboxMessageId, outboxAttachmentId)}.pending-${sizeBytes}-${expiresAt}`;
+	`accounts/${accountConfigId}/${accountId}/outbox/${outboxMessageId}/attachments.ledger`;
 
-const RESERVATION_ENTRY = /^(.+)\.pending-(\d+)-(\d+)$/;
-
+// Every segment is a generated id, so the shape is closed rather than
+// "anything without a slash": `..` matches `[^/]+` and the write side joins
+// this key onto a filesystem root. The read side has `resolveContentPath` for
+// the same reason (#310 review P1) — a signature should not be the only thing
+// standing between a URL and the storage root.
 const OUTBOX_ATTACHMENT_KEY =
-	/^accounts\/([^/]+)\/([^/]+)\/outbox\/([^/]+)\/attachments\/([^/]+)$/;
-
+	/^accounts\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)\/outbox\/([A-Za-z0-9_-]+)\/attachments\/([A-Za-z0-9_-]+)$/;
 export interface ParsedOutboxAttachmentKey {
 	accountConfigId: string;
 	accountId: string;
@@ -499,41 +512,11 @@ export const parseOutboxAttachmentKey = (
 ): ParsedOutboxAttachmentKey | null => {
 	const match = storageKey.match(OUTBOX_ATTACHMENT_KEY);
 	if (!match) return null;
-	if (RESERVATION_ENTRY.test(match[4])) return null;
 	return {
 		accountConfigId: match[1],
 		accountId: match[2],
 		outboxMessageId: match[3],
 		outboxAttachmentId: match[4],
-	};
-};
-
-export interface ParsedOutboxAttachmentEntry {
-	outboxAttachmentId: string;
-	isReservation: boolean;
-	/** Reserved size for a reservation; callers use the object size otherwise. */
-	reservedBytes: number;
-	expiresAt: number;
-}
-
-/** Read one entry name from under a draft's attachment prefix. */
-export const parseOutboxAttachmentEntry = (
-	entryName: string,
-): ParsedOutboxAttachmentEntry => {
-	const match = entryName.match(RESERVATION_ENTRY);
-	if (!match) {
-		return {
-			outboxAttachmentId: entryName,
-			isReservation: false,
-			reservedBytes: 0,
-			expiresAt: 0,
-		};
-	}
-	return {
-		outboxAttachmentId: match[1],
-		isReservation: true,
-		reservedBytes: Number(match[2]),
-		expiresAt: Number(match[3]),
 	};
 };
 
@@ -668,57 +651,78 @@ export const createMockStorageService = (): StorageService => {
 		for (const [uri, content] of storage.entries()) {
 			if (items.length >= limit) break;
 			if (!uri.startsWith(prefix)) continue;
-			const entry = parseOutboxAttachmentEntry(uri.slice(prefix.length));
 			items.push({
-				outboxAttachmentId: entry.outboxAttachmentId,
+				outboxAttachmentId: uri.slice(prefix.length),
 				key: uri.slice("mock://".length),
-				sizeBytes: entry.isReservation ? entry.reservedBytes : content.length,
-				isReservation: entry.isReservation,
-				expiresAt: entry.expiresAt,
+				sizeBytes: content.length,
 			});
 		}
 		return items;
 	};
 
-	const deleteOutboxAttachment: StorageService["deleteOutboxAttachment"] =
-		async (accountConfigId, accountId, outboxMessageId, outboxAttachmentId) => {
-			const prefix = `mock://${buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId)}`;
-			for (const uri of [...storage.keys()]) {
-				if (!uri.startsWith(prefix)) continue;
-				const entry = parseOutboxAttachmentEntry(uri.slice(prefix.length));
-				if (entry.outboxAttachmentId === outboxAttachmentId)
-					storage.delete(uri);
+	const listOutboxDraftsWithAttachments: StorageService["listOutboxDraftsWithAttachments"] =
+		async (accountConfigId, accountId) => {
+			const root = `mock://accounts/${accountConfigId}/${accountId}/outbox/`;
+			const drafts = new Set<string>();
+			for (const uri of storage.keys()) {
+				if (!uri.startsWith(root)) continue;
+				const rest = uri.slice(root.length);
+				const slash = rest.indexOf("/");
+				if (slash > 0) drafts.add(rest.slice(0, slash));
 			}
+			return [...drafts];
 		};
 
-	const reserveOutboxAttachment: StorageService["reserveOutboxAttachment"] =
-		async (params) => {
-			storeInternal(
-				buildOutboxAttachmentReservationKey(
-					params.accountConfigId,
-					params.accountId,
-					params.outboxMessageId,
-					params.outboxAttachmentId,
-					params.sizeBytes,
-					params.expiresAt,
-				),
-				Buffer.alloc(0),
+	const deleteOutboxAttachment: StorageService["deleteOutboxAttachment"] =
+		async (accountConfigId, accountId, outboxMessageId, outboxAttachmentId) => {
+			storage.delete(
+				`mock://${buildOutboxAttachmentKey(accountConfigId, accountId, outboxMessageId, outboxAttachmentId)}`,
 			);
 		};
 
-	const releaseOutboxAttachmentReservation: StorageService["releaseOutboxAttachmentReservation"] =
-		async (
+	// Stands in for a backend with a real compare-and-set: a version per ledger,
+	// and a write that presents a stale one is refused rather than applied.
+	const ledgerVersions = new Map<string, number>();
+
+	const readOutboxLedger: StorageService["readOutboxLedger"] = async (
+		accountConfigId,
+		accountId,
+		outboxMessageId,
+	) => {
+		const key = buildOutboxLedgerKey(
 			accountConfigId,
 			accountId,
 			outboxMessageId,
-			outboxAttachmentId,
-			sizeBytes,
-			expiresAt,
-		) => {
-			storage.delete(
-				`mock://${buildOutboxAttachmentReservationKey(accountConfigId, accountId, outboxMessageId, outboxAttachmentId, sizeBytes, expiresAt)}`,
-			);
+		);
+		const content = storage.get(`mock://${key}`);
+		if (!content) return { ledger: { entries: [] }, version: null };
+		return {
+			ledger: parseOutboxLedger(content.toString("utf8")),
+			version: String(ledgerVersions.get(key) ?? 0),
 		};
+	};
+
+	const writeOutboxLedger: StorageService["writeOutboxLedger"] = async (
+		accountConfigId,
+		accountId,
+		outboxMessageId,
+		ledger,
+		expectedVersion,
+	) => {
+		const key = buildOutboxLedgerKey(
+			accountConfigId,
+			accountId,
+			outboxMessageId,
+		);
+		const uri = `mock://${key}`;
+		const current = storage.has(uri)
+			? String(ledgerVersions.get(key) ?? 0)
+			: null;
+		if (current !== expectedVersion) return "Stale";
+		storage.set(uri, serializeOutboxLedger(ledger));
+		ledgerVersions.set(key, (ledgerVersions.get(key) ?? 0) + 1);
+		return "Written";
+	};
 
 	const statOutboxAttachment: StorageService["statOutboxAttachment"] = async (
 		accountConfigId,
@@ -743,6 +747,9 @@ export const createMockStorageService = (): StorageService => {
 			for (const uri of [...storage.keys()]) {
 				if (uri.startsWith(prefix)) storage.delete(uri);
 			}
+			storage.delete(
+				`mock://${buildOutboxLedgerKey(accountConfigId, accountId, outboxMessageId)}`,
+			);
 		};
 
 	const storeDeduplicated: StorageService["storeDeduplicated"] = async (
@@ -883,10 +890,11 @@ export const createMockStorageService = (): StorageService => {
 		retrieveBodyPart,
 		storeOutboxAttachment,
 		listOutboxAttachments,
+		listOutboxDraftsWithAttachments,
 		deleteOutboxAttachments,
 		deleteOutboxAttachment,
-		reserveOutboxAttachment,
-		releaseOutboxAttachmentReservation,
+		readOutboxLedger,
+		writeOutboxLedger,
 		statOutboxAttachment,
 		createOutboxAttachmentUploadUrl,
 		storeDeduplicated,

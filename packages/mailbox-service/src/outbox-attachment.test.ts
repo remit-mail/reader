@@ -11,7 +11,10 @@ import {
 } from "@remit/domain-enums";
 import {
 	createMockStorageService,
+	liveEntries,
 	type StorageService,
+	sweepAbandonedOutboxAttachments,
+	totalBytes,
 	UPLOAD_URL_TTL_SECONDS,
 } from "@remit/storage-service";
 import {
@@ -48,9 +51,13 @@ const withScheduling = (inner: StorageService): StorageService => {
 			await yieldToLoop();
 			return inner.deleteOutboxAttachments(...args);
 		},
-		reserveOutboxAttachment: async (params) => {
+		readOutboxLedger: async (...args) => {
 			await yieldToLoop();
-			return inner.reserveOutboxAttachment(params);
+			return inner.readOutboxLedger(...args);
+		},
+		writeOutboxLedger: async (...args) => {
+			await yieldToLoop();
+			return inner.writeOutboxLedger(...args);
 		},
 	};
 };
@@ -106,41 +113,60 @@ const mint = (
 		sizeBytes: overrides.sizeBytes ?? 10,
 	});
 
-/** Files already uploaded and confirmed against the draft. */
+/**
+ * Files already uploaded and confirmed against the draft: the bytes and the
+ * ledger entry that vouches for them. An object without an entry is garbage the
+ * cap deliberately ignores, so seeding one alone would not be "already there".
+ */
 const fill = async (
 	storage: StorageService,
 	count: number,
 	sizeBytes: number,
 ): Promise<void> => {
+	const entries = [];
 	for (let index = 0; index < count; index += 1) {
+		const outboxAttachmentId = `existing-${index}`;
 		await storage.storeOutboxAttachment({
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			accountId: ACCOUNT_ID,
 			outboxMessageId: DRAFT_ID,
-			outboxAttachmentId: `existing-${index}`,
+			outboxAttachmentId,
 			content: Buffer.alloc(sizeBytes),
 		});
+		entries.push({
+			outboxAttachmentId,
+			filename: `existing-${index}.bin`,
+			contentType: "application/octet-stream",
+			sizeBytes,
+			expiresAt: 0,
+			uploaded: true,
+		});
 	}
-};
-
-const heldBytes = async (storage: StorageService): Promise<number> => {
-	const entries = await storage.listOutboxAttachments(
+	const { version } = await storage.readOutboxLedger(
 		ACCOUNT_CONFIG_ID,
 		ACCOUNT_ID,
 		DRAFT_ID,
-		200,
 	);
-	const perAttachment = new Map<string, number>();
-	for (const entry of entries) {
-		perAttachment.set(
-			entry.outboxAttachmentId,
-			Math.max(
-				perAttachment.get(entry.outboxAttachmentId) ?? 0,
-				entry.sizeBytes,
-			),
-		);
-	}
-	return [...perAttachment.values()].reduce((total, bytes) => total + bytes, 0);
+	await storage.writeOutboxLedger(
+		ACCOUNT_CONFIG_ID,
+		ACCOUNT_ID,
+		DRAFT_ID,
+		{ entries },
+		version,
+	);
+};
+
+/** What the draft is spoken for, reservations included — the ledger's word. */
+const heldBytes = async (
+	storage: StorageService,
+	nowSeconds = Math.floor(Date.now() / 1000),
+): Promise<number> => {
+	const { ledger } = await storage.readOutboxLedger(
+		ACCOUNT_CONFIG_ID,
+		ACCOUNT_ID,
+		DRAFT_ID,
+	);
+	return totalBytes(liveEntries(ledger, nowSeconds));
 };
 
 describe("OutboxAttachmentService: reserving", () => {
@@ -320,13 +346,12 @@ describe("OutboxAttachmentService: mints racing each other", () => {
 				OutboxAttachmentRejectionReason.TooManyAttachments,
 			);
 		}
-		const entries = await storage.listOutboxAttachments(
+		const { ledger } = await storage.readOutboxLedger(
 			ACCOUNT_CONFIG_ID,
 			ACCOUNT_ID,
 			DRAFT_ID,
-			200,
 		);
-		assert.equal(entries.length, OUTBOX_ATTACHMENT_MAX_COUNT);
+		assert.equal(ledger.entries.length, OUTBOX_ATTACHMENT_MAX_COUNT);
 	});
 
 	it("lets two drafts reserve at the same time without waiting on each other", async () => {
@@ -382,10 +407,10 @@ describe("OutboxAttachmentService: an abandoned reservation", () => {
 			sizeBytes: 4096,
 		});
 		assert.equal(later.outcome, "Minted");
-		assert.equal(await heldBytes(storage), 4096);
+		assert.equal(await heldBytes(storage, clock.seconds), 4096);
 	});
 
-	it("takes bytes uploaded under it away with it", async () => {
+	it("stops vouching for bytes uploaded under it, and the sweep collects them", async () => {
 		const clock = { seconds: 2_000_000 };
 		const { service, storage } = build(
 			OutboxMessageStatus.draft,
@@ -406,8 +431,18 @@ describe("OutboxAttachmentService: an abandoned reservation", () => {
 		});
 
 		clock.seconds += UPLOAD_URL_TTL_SECONDS + 1;
+		// The next mint stops counting the lapsed entry, so the room is back...
 		await mint(service, { filename: "next.bin", sizeBytes: 8 });
+		assert.equal(await heldBytes(storage, clock.seconds), 8);
 
+		// ...and the bytes it left behind are what the sweep is for.
+		const { deleted } = await sweepAbandonedOutboxAttachments(
+			storage,
+			ACCOUNT_CONFIG_ID,
+			ACCOUNT_ID,
+			clock.seconds,
+		);
+		assert.equal(deleted, 1);
 		assert.equal(
 			await storage.statOutboxAttachment(
 				ACCOUNT_CONFIG_ID,
@@ -453,13 +488,15 @@ describe("OutboxAttachmentService: completing", () => {
 		assert.equal(completed.attachment.sizeBytes, 512);
 
 		// The reservation is spent; the object is what the draft holds now.
-		const entries = await storage.listOutboxAttachments(
+		const { ledger } = await storage.readOutboxLedger(
 			ACCOUNT_CONFIG_ID,
 			ACCOUNT_ID,
 			DRAFT_ID,
-			200,
 		);
-		assert.equal(entries.filter((entry) => entry.isReservation).length, 0);
+		assert.deepEqual(
+			ledger.entries.map((entry) => entry.uploaded),
+			[true],
+		);
 		assert.equal(await heldBytes(storage), 512);
 	});
 
@@ -585,5 +622,85 @@ describe("OutboxAttachmentService: discarding a draft's files", () => {
 	it("is quiet on a draft that never held one", async () => {
 		const { service } = build();
 		await service.discardAll(ACCOUNT_CONFIG_ID, ACCOUNT_ID, "draft-untouched");
+	});
+});
+
+describe("the cap across execution environments", () => {
+	/**
+	 * The hosted shape is Lambda: parallel mints land in separate execution
+	 * environments that share storage and nothing else. Two service instances
+	 * over one storage is that, and it is the case an in-process promise chain
+	 * cannot see — so this is the test that fails if the ledger's compare-and-set
+	 * stops being conditional.
+	 */
+	const twoEnvironments = (): {
+		first: OutboxAttachmentService;
+		second: OutboxAttachmentService;
+		storage: StorageService;
+	} => {
+		const shared = withScheduling(createMockStorageService());
+		const outboxMessageService = {
+			get: async () =>
+				({
+					outboxMessageId: DRAFT_ID,
+					accountId: ACCOUNT_ID,
+					accountConfigId: ACCOUNT_CONFIG_ID,
+					status: OutboxMessageStatus.draft,
+				}) as OutboxMessageItem,
+		} as unknown as IOutboxMessageRepository;
+
+		return {
+			first: new OutboxAttachmentService({
+				outboxMessageService,
+				storage: shared,
+			}),
+			second: new OutboxAttachmentService({
+				outboxMessageService,
+				storage: shared,
+			}),
+			storage: shared,
+		};
+	};
+
+	it("holds when two processes mint against the same draft at once", async () => {
+		const { first, second, storage } = twoEnvironments();
+		const twentyMegabytes = 20 * 1024 * 1024;
+
+		const [a, b] = await Promise.all([
+			mint(first, { filename: "a.bin", sizeBytes: twentyMegabytes }),
+			mint(second, { filename: "b.bin", sizeBytes: twentyMegabytes }),
+		]);
+
+		// 40 MB against a 25 MB cap: exactly one may win, whichever gets there.
+		const minted = [a, b].filter((result) => result.outcome === "Minted");
+		const rejected = [a, b].filter((result) => result.outcome === "Rejected");
+		assert.equal(minted.length, 1);
+		assert.equal(rejected.length, 1);
+		assert.equal(
+			rejected[0].outcome === "Rejected" && rejected[0].rejection.reason,
+			OutboxAttachmentRejectionReason.MessageTooLarge,
+		);
+		assert.ok((await heldBytes(storage)) <= OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES);
+	});
+
+	it("holds the file-count ceiling across processes too", async () => {
+		const { first, second, storage } = twoEnvironments();
+
+		const results = await Promise.all(
+			Array.from({ length: OUTBOX_ATTACHMENT_MAX_COUNT + 6 }, (_, index) =>
+				mint(index % 2 === 0 ? first : second, { sizeBytes: 1 }),
+			),
+		);
+
+		assert.equal(
+			results.filter((result) => result.outcome === "Minted").length,
+			OUTBOX_ATTACHMENT_MAX_COUNT,
+		);
+		const { ledger } = await storage.readOutboxLedger(
+			ACCOUNT_CONFIG_ID,
+			ACCOUNT_ID,
+			DRAFT_ID,
+		);
+		assert.equal(ledger.entries.length, OUTBOX_ATTACHMENT_MAX_COUNT);
 	});
 });

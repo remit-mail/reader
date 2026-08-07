@@ -14,8 +14,6 @@ import {
 import { signStoragePath } from "./signed-path.js";
 import {
 	buildOutboxAttachmentKey,
-	buildOutboxAttachmentReservationKey,
-	parseOutboxAttachmentEntry,
 	parseOutboxAttachmentKey,
 } from "./storage.js";
 
@@ -153,34 +151,7 @@ describe("authorizeUploadRequest", () => {
 	});
 });
 
-describe("reservation entries", () => {
-	test("a reservation carries its size and expiry in its own name", () => {
-		const key = buildOutboxAttachmentReservationKey(
-			"cfg1",
-			"acc1",
-			"draft1",
-			"att1",
-			4096,
-			1_700_000_000,
-		);
-		const entry = parseOutboxAttachmentEntry(key.split("/").pop() ?? "");
-		assert.deepStrictEqual(entry, {
-			outboxAttachmentId: "att1",
-			isReservation: true,
-			reservedBytes: 4096,
-			expiresAt: 1_700_000_000,
-		});
-	});
-
-	test("an uploaded object reads as itself", () => {
-		assert.deepStrictEqual(parseOutboxAttachmentEntry("att1"), {
-			outboxAttachmentId: "att1",
-			isReservation: false,
-			reservedBytes: 0,
-			expiresAt: 0,
-		});
-	});
-
+describe("attachment keys", () => {
 	test("parseOutboxAttachmentKey recovers the ids the upload route needs", () => {
 		assert.deepStrictEqual(parseOutboxAttachmentKey(KEY), {
 			accountConfigId: "cfg1",
@@ -190,21 +161,31 @@ describe("reservation entries", () => {
 		});
 	});
 
-	test("parseOutboxAttachmentKey refuses a reservation key — bytes never go there", () => {
-		const reservation = buildOutboxAttachmentReservationKey(
-			"cfg1",
-			"acc1",
-			"draft1",
-			"att1",
-			10,
-			20,
-		);
-		assert.strictEqual(parseOutboxAttachmentKey(reservation), null);
-	});
-
 	test("parseOutboxAttachmentKey refuses a message content key", () => {
 		assert.strictEqual(
 			parseOutboxAttachmentKey("accounts/cfg1/acc1/messages/msg1/parts/1.2"),
+			null,
+		);
+	});
+
+	test("parseOutboxAttachmentKey refuses a traversal, signature or no signature", () => {
+		// `..` matches a naive [^/]+ and the write side joins this onto a
+		// filesystem root, so the shape has to refuse it before the HMAC is the
+		// only thing left standing.
+		assert.strictEqual(
+			parseOutboxAttachmentKey(
+				"accounts/cfg1/acc1/outbox/draft1/attachments/..",
+			),
+			null,
+		);
+		assert.strictEqual(
+			parseOutboxAttachmentKey("accounts/../../etc/outbox/x/attachments/y"),
+			null,
+		);
+		assert.strictEqual(
+			parseOutboxAttachmentKey(
+				"accounts/cfg1/acc1/outbox/draft1/attachments/a.b",
+			),
 			null,
 		);
 	});

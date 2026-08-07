@@ -842,116 +842,59 @@ describe("createFilesystemStorageService", () => {
 		);
 	});
 
-	test("a reservation holds room at its declared size until it is released", async () => {
+	test("the ledger is written only against the version that was read", async () => {
 		const storage = createFilesystemStorageService(testBasePath);
-		const expiresAt = 1_800_000_000;
-
-		await storage.reserveOutboxAttachment({
-			accountConfigId: "cfg1",
-			accountId: "acc123",
-			outboxMessageId: "draft-reserve",
+		const entry = {
 			outboxAttachmentId: "att1",
-			sizeBytes: 4096,
-			expiresAt,
-		});
+			filename: "a.bin",
+			contentType: "application/octet-stream",
+			sizeBytes: 8,
+			expiresAt: 2_000_000_000,
+			uploaded: false,
+		};
 
-		const [reserved] = await storage.listOutboxAttachments(
-			"cfg1",
-			"acc123",
-			"draft-reserve",
-			10,
-		);
-		assert.strictEqual(reserved.sizeBytes, 4096);
-		assert.strictEqual(reserved.isReservation, true);
-		assert.strictEqual(reserved.expiresAt, expiresAt);
-		// Nothing was uploaded, so there is no object behind it yet.
+		const empty = await storage.readOutboxLedger("cfg1", "acc123", "draft-cas");
+		assert.deepStrictEqual(empty.ledger.entries, []);
+		assert.strictEqual(empty.version, null);
+
 		assert.strictEqual(
-			await storage.statOutboxAttachment(
+			await storage.writeOutboxLedger(
 				"cfg1",
 				"acc123",
-				"draft-reserve",
-				"att1",
+				"draft-cas",
+				{ entries: [entry] },
+				null,
 			),
-			null,
+			"Written",
 		);
 
-		await storage.storeOutboxAttachment({
-			accountConfigId: "cfg1",
-			accountId: "acc123",
-			outboxMessageId: "draft-reserve",
-			outboxAttachmentId: "att1",
-			content: Buffer.alloc(4096),
-		});
-		await storage.releaseOutboxAttachmentReservation(
-			"cfg1",
-			"acc123",
-			"draft-reserve",
-			"att1",
-			4096,
-			expiresAt,
-		);
-
-		const after = await storage.listOutboxAttachments(
-			"cfg1",
-			"acc123",
-			"draft-reserve",
-			10,
-		);
-		assert.strictEqual(after.length, 1);
-		assert.strictEqual(after[0].isReservation, false);
+		// A writer still holding "there was no ledger" is refused, not merged.
 		assert.strictEqual(
-			(
-				await storage.statOutboxAttachment(
-					"cfg1",
-					"acc123",
-					"draft-reserve",
-					"att1",
-				)
-			)?.sizeBytes,
-			4096,
+			await storage.writeOutboxLedger(
+				"cfg1",
+				"acc123",
+				"draft-cas",
+				{ entries: [] },
+				null,
+			),
+			"Stale",
+		);
+
+		const read = await storage.readOutboxLedger("cfg1", "acc123", "draft-cas");
+		assert.deepStrictEqual(read.ledger.entries, [entry]);
+		assert.strictEqual(
+			await storage.writeOutboxLedger(
+				"cfg1",
+				"acc123",
+				"draft-cas",
+				{ entries: [] },
+				read.version,
+			),
+			"Written",
 		);
 	});
 
-	test("deleting one attachment takes its object and its reservation together", async () => {
-		const storage = createFilesystemStorageService(testBasePath);
-		await storage.reserveOutboxAttachment({
-			accountConfigId: "cfg1",
-			accountId: "acc123",
-			outboxMessageId: "draft-one",
-			outboxAttachmentId: "att1",
-			sizeBytes: 16,
-			expiresAt: 1_800_000_000,
-		});
-		await storage.storeOutboxAttachment({
-			accountConfigId: "cfg1",
-			accountId: "acc123",
-			outboxMessageId: "draft-one",
-			outboxAttachmentId: "att1",
-			content: Buffer.alloc(16),
-		});
-		await storage.storeOutboxAttachment({
-			accountConfigId: "cfg1",
-			accountId: "acc123",
-			outboxMessageId: "draft-one",
-			outboxAttachmentId: "att2",
-			content: Buffer.alloc(8),
-		});
-
-		await storage.deleteOutboxAttachment("cfg1", "acc123", "draft-one", "att1");
-
-		const entries = await storage.listOutboxAttachments(
-			"cfg1",
-			"acc123",
-			"draft-one",
-			10,
-		);
-		assert.deepStrictEqual(
-			entries.map((entry) => entry.outboxAttachmentId),
-			["att2"],
-		);
-	});
-
-	test("deleting a draft's attachments empties the whole prefix", async () => {
+	test("deleting a draft's attachments empties the prefix and the ledger with it", async () => {
 		const storage = createFilesystemStorageService(testBasePath);
 		await storage.storeOutboxAttachment({
 			accountConfigId: "cfg1",
@@ -960,20 +903,43 @@ describe("createFilesystemStorageService", () => {
 			outboxAttachmentId: "att1",
 			content: Buffer.alloc(4),
 		});
-		await storage.reserveOutboxAttachment({
-			accountConfigId: "cfg1",
-			accountId: "acc123",
-			outboxMessageId: "draft-gone",
-			outboxAttachmentId: "att2",
-			sizeBytes: 4,
-			expiresAt: 1_800_000_000,
-		});
+		await storage.writeOutboxLedger(
+			"cfg1",
+			"acc123",
+			"draft-gone",
+			{ entries: [] },
+			null,
+		);
 
 		await storage.deleteOutboxAttachments("cfg1", "acc123", "draft-gone");
 
 		assert.deepStrictEqual(
 			await storage.listOutboxAttachments("cfg1", "acc123", "draft-gone", 10),
 			[],
+		);
+		assert.strictEqual(
+			(await storage.readOutboxLedger("cfg1", "acc123", "draft-gone")).version,
+			null,
+		);
+	});
+
+	test("listOutboxDraftsWithAttachments finds prefixes whose row may be long gone", async () => {
+		const storage = createFilesystemStorageService(testBasePath);
+		for (const draft of ["draft-x", "draft-y"]) {
+			await storage.storeOutboxAttachment({
+				accountConfigId: "cfg-sweep",
+				accountId: "acc-sweep",
+				outboxMessageId: draft,
+				outboxAttachmentId: "att1",
+				content: Buffer.alloc(4),
+			});
+		}
+
+		assert.deepStrictEqual(
+			(
+				await storage.listOutboxDraftsWithAttachments("cfg-sweep", "acc-sweep")
+			).sort(),
+			["draft-x", "draft-y"],
 		);
 	});
 

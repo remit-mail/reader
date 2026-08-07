@@ -24,15 +24,33 @@ interface CapturedCommand {
 const createFakeS3Client = (): {
 	client: S3Client;
 	commands: CapturedCommand[];
-	stored: Map<string, { body: Buffer; contentEncoding?: string }>;
+	stored: Map<string, { body: Buffer; etag: string; contentEncoding?: string }>;
 } => {
 	const commands: CapturedCommand[] = [];
-	const stored = new Map<string, { body: Buffer; contentEncoding?: string }>();
+	const stored = new Map<
+		string,
+		{ body: Buffer; etag: string; contentEncoding?: string }
+	>();
+	let etagCounter = 0;
 
 	const send = async (command: unknown): Promise<unknown> => {
 		if (command instanceof PutObjectCommand) {
 			const input = command.input as unknown as Record<string, unknown>;
 			commands.push({ name: "PutObjectCommand", input });
+
+			// S3's conditional write, which is what the ledger's compare-and-set
+			// rides on: If-None-Match refuses an overwrite, If-Match refuses a
+			// stale one. Both answer 412.
+			const existing = stored.get(String(input.Key));
+			const precondition =
+				(input.IfNoneMatch === "*" && existing !== undefined) ||
+				(typeof input.IfMatch === "string" && input.IfMatch !== existing?.etag);
+			if (precondition) {
+				throw Object.assign(new Error("PreconditionFailed"), {
+					name: "PreconditionFailed",
+					$metadata: { httpStatusCode: 412 },
+				});
+			}
 
 			if (input.ChecksumSHA256 !== undefined) {
 				throw Object.assign(
@@ -48,8 +66,10 @@ const createFakeS3Client = (): {
 			if (!Buffer.isBuffer(body)) {
 				throw new Error("expected Body to be a Buffer");
 			}
+			etagCounter += 1;
 			stored.set(key, {
 				body,
+				etag: `"etag-${etagCounter}"`,
 				contentEncoding:
 					typeof input.ContentEncoding === "string"
 						? input.ContentEncoding
@@ -72,6 +92,7 @@ const createFakeS3Client = (): {
 					transformToByteArray: async () => new Uint8Array(entry.body),
 				},
 				ContentEncoding: entry.contentEncoding,
+				ETag: entry.etag,
 			};
 		}
 
@@ -106,8 +127,28 @@ const createFakeS3Client = (): {
 			const input = command.input as unknown as Record<string, unknown>;
 			const prefix = String(input.Prefix ?? "");
 			const maxKeys = Number(input.MaxKeys ?? Number.POSITIVE_INFINITY);
-			const Contents = [...stored.entries()]
-				.filter(([key]) => key.startsWith(prefix))
+			const matching = [...stored.entries()].filter(([key]) =>
+				key.startsWith(prefix),
+			);
+
+			// A delimited listing answers with directory-like prefixes instead of
+			// the objects beneath them, the way listOutboxDraftsWithAttachments
+			// asks for them.
+			if (typeof input.Delimiter === "string") {
+				const delimiter = input.Delimiter;
+				const prefixes = new Set<string>();
+				for (const [key] of matching) {
+					const rest = key.slice(prefix.length);
+					const at = rest.indexOf(delimiter);
+					if (at >= 0) prefixes.add(prefix + rest.slice(0, at + 1));
+				}
+				return {
+					CommonPrefixes: [...prefixes].map((Prefix) => ({ Prefix })),
+					IsTruncated: false,
+				};
+			}
+
+			const Contents = matching
 				.slice(0, maxKeys)
 				.map(([Key, entry]) => ({ Key, Size: entry.body.length }));
 			return { Contents, IsTruncated: false };
@@ -483,43 +524,6 @@ describe("createS3StorageService", () => {
 });
 
 describe("createS3StorageService: outbox attachments", () => {
-	const params = {
-		accountConfigId: "cfg1",
-		accountId: "acc1",
-		outboxMessageId: "draft1",
-		outboxAttachmentId: "att1",
-		sizeBytes: 2048,
-		expiresAt: 1_800_000_000,
-	};
-
-	test("a reservation is a zero-byte object that lists at its reserved size", async () => {
-		const { client } = createFakeS3Client();
-		const storage = createS3StorageService(client, "bucket");
-
-		await storage.reserveOutboxAttachment(params);
-
-		const [entry] = await storage.listOutboxAttachments(
-			"cfg1",
-			"acc1",
-			"draft1",
-			10,
-		);
-		assert.deepStrictEqual(
-			{
-				outboxAttachmentId: entry.outboxAttachmentId,
-				sizeBytes: entry.sizeBytes,
-				isReservation: entry.isReservation,
-				expiresAt: entry.expiresAt,
-			},
-			{
-				outboxAttachmentId: "att1",
-				sizeBytes: 2048,
-				isReservation: true,
-				expiresAt: 1_800_000_000,
-			},
-		);
-	});
-
 	test("an uploaded object lists at the size the bucket holds", async () => {
 		const { client } = createFakeS3Client();
 		const storage = createS3StorageService(client, "bucket");
@@ -538,13 +542,13 @@ describe("createS3StorageService: outbox attachments", () => {
 			"draft1",
 			10,
 		);
-		assert.strictEqual(entry.sizeBytes, 777);
-		assert.strictEqual(entry.isReservation, false);
+		assert.strictEqual(entry.outboxAttachmentId, "att1");
 		// Uncompressed, so the size in the bucket is the size the cap counts.
+		assert.strictEqual(entry.sizeBytes, 777);
 		assert.strictEqual(
 			await storage
 				.statOutboxAttachment("cfg1", "acc1", "draft1", "att1")
-				.then((s) => s?.sizeBytes),
+				.then((found) => found?.sizeBytes),
 			777,
 		);
 	});
@@ -559,71 +563,62 @@ describe("createS3StorageService: outbox attachments", () => {
 		);
 	});
 
-	test("releasing a reservation leaves the object it was holding room for", async () => {
+	test("a ledger write is conditional on the version that was read", async () => {
 		const { client } = createFakeS3Client();
 		const storage = createS3StorageService(client, "bucket");
-		await storage.reserveOutboxAttachment(params);
-		await storage.storeOutboxAttachment({
-			accountConfigId: "cfg1",
-			accountId: "acc1",
-			outboxMessageId: "draft1",
+		const entry = {
 			outboxAttachmentId: "att1",
-			content: Buffer.alloc(2048),
-		});
+			filename: "a.bin",
+			contentType: "application/octet-stream",
+			sizeBytes: 8,
+			expiresAt: 2_000_000_000,
+			uploaded: false,
+		};
 
-		await storage.releaseOutboxAttachmentReservation(
-			"cfg1",
-			"acc1",
-			"draft1",
-			"att1",
-			2048,
-			1_800_000_000,
+		const empty = await storage.readOutboxLedger("cfg1", "acc1", "draft1");
+		assert.strictEqual(empty.version, null);
+
+		assert.strictEqual(
+			await storage.writeOutboxLedger(
+				"cfg1",
+				"acc1",
+				"draft1",
+				{ entries: [entry] },
+				null,
+			),
+			"Written",
 		);
 
-		const entries = await storage.listOutboxAttachments(
-			"cfg1",
-			"acc1",
-			"draft1",
-			10,
+		// A second writer that read the same absent ledger is refused, which is
+		// what keeps two execution environments from both believing there is room.
+		assert.strictEqual(
+			await storage.writeOutboxLedger(
+				"cfg1",
+				"acc1",
+				"draft1",
+				{ entries: [] },
+				null,
+			),
+			"Stale",
 		);
-		assert.strictEqual(entries.length, 1);
-		assert.strictEqual(entries[0].isReservation, false);
-	});
 
-	test("deleting one attachment takes its object and its reservation together", async () => {
-		const { client } = createFakeS3Client();
-		const storage = createS3StorageService(client, "bucket");
-		await storage.reserveOutboxAttachment(params);
-		await storage.storeOutboxAttachment({
-			accountConfigId: "cfg1",
-			accountId: "acc1",
-			outboxMessageId: "draft1",
-			outboxAttachmentId: "att1",
-			content: Buffer.alloc(2048),
-		});
-		await storage.reserveOutboxAttachment({
-			...params,
-			outboxAttachmentId: "att2",
-		});
-
-		await storage.deleteOutboxAttachment("cfg1", "acc1", "draft1", "att1");
-
-		const entries = await storage.listOutboxAttachments(
-			"cfg1",
-			"acc1",
-			"draft1",
-			10,
-		);
-		assert.deepStrictEqual(
-			entries.map((entry) => entry.outboxAttachmentId),
-			["att2"],
+		const read = await storage.readOutboxLedger("cfg1", "acc1", "draft1");
+		assert.deepStrictEqual(read.ledger.entries, [entry]);
+		assert.strictEqual(
+			await storage.writeOutboxLedger(
+				"cfg1",
+				"acc1",
+				"draft1",
+				{ entries: [] },
+				read.version,
+			),
+			"Written",
 		);
 	});
 
-	test("deleting a draft's attachments empties the whole prefix", async () => {
+	test("deleting a draft's attachments empties the prefix and the ledger with it", async () => {
 		const { client } = createFakeS3Client();
 		const storage = createS3StorageService(client, "bucket");
-		await storage.reserveOutboxAttachment(params);
 		await storage.storeOutboxAttachment({
 			accountConfigId: "cfg1",
 			accountId: "acc1",
@@ -631,12 +626,42 @@ describe("createS3StorageService: outbox attachments", () => {
 			outboxAttachmentId: "att2",
 			content: Buffer.alloc(8),
 		});
+		await storage.writeOutboxLedger(
+			"cfg1",
+			"acc1",
+			"draft1",
+			{ entries: [] },
+			null,
+		);
 
 		await storage.deleteOutboxAttachments("cfg1", "acc1", "draft1");
 
 		assert.deepStrictEqual(
 			await storage.listOutboxAttachments("cfg1", "acc1", "draft1", 10),
 			[],
+		);
+		assert.strictEqual(
+			(await storage.readOutboxLedger("cfg1", "acc1", "draft1")).version,
+			null,
+		);
+	});
+
+	test("listOutboxDraftsWithAttachments finds prefixes whose row may be long gone", async () => {
+		const { client } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+		for (const draft of ["draft1", "draft2"]) {
+			await storage.storeOutboxAttachment({
+				accountConfigId: "cfg1",
+				accountId: "acc1",
+				outboxMessageId: draft,
+				outboxAttachmentId: "att1",
+				content: Buffer.alloc(4),
+			});
+		}
+
+		assert.deepStrictEqual(
+			(await storage.listOutboxDraftsWithAttachments("cfg1", "acc1")).sort(),
+			["draft1", "draft2"],
 		);
 	});
 });

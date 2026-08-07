@@ -4,6 +4,7 @@ import { getClient } from "@remit/backend/client";
 import { createLogger } from "@remit/logger-lambda";
 import { clearHeartbeats, createHeartbeat } from "@remit/sqs-client/heartbeat";
 import { createQueueProducer } from "@remit/sqs-client/producer";
+import { sweepAbandonedOutboxAttachments } from "@remit/storage-service";
 import { env } from "expect-env";
 import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
 import { runSchedulerLoop } from "./loop.js";
@@ -66,7 +67,7 @@ const runLoop = async (): Promise<void> => {
 	};
 
 	await clearHeartbeats().catch(onClearError);
-	const { account } = await getClient();
+	const { account, storage } = await getClient();
 	await runSchedulerLoop({
 		tick: runSchedulerTick,
 		tickDeps: {
@@ -76,6 +77,20 @@ const runLoop = async (): Promise<void> => {
 			log,
 			tickIntervalMs,
 			offlineIntervalMs,
+			sweepAttachments: async (item) => {
+				const { deleted } = await sweepAbandonedOutboxAttachments(
+					storage,
+					item.accountConfigId,
+					item.accountId,
+					Math.floor(Date.now() / 1000),
+				);
+				if (deleted > 0) {
+					log.warn(
+						{ accountId: item.accountId, deleted },
+						"Collected outbox attachment bytes no ledger vouched for",
+					);
+				}
+			},
 		},
 		heartbeat: createHeartbeat("tick"),
 		onHeartbeatError: onBeatError,

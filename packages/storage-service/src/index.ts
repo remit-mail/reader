@@ -1,4 +1,20 @@
 export {
+	EMPTY_OUTBOX_LEDGER,
+	liveEntries,
+	type OutboxLedger,
+	type OutboxLedgerEntry,
+	type OutboxLedgerRead,
+	type OutboxLedgerVersion,
+	type OutboxLedgerWrite,
+	parseOutboxLedger,
+	serializeOutboxLedger,
+	totalBytes,
+} from "./outbox-ledger.js";
+export {
+	type OutboxSweepResult,
+	sweepAbandonedOutboxAttachments,
+} from "./outbox-sweep.js";
+export {
 	type AuthorizeUploadInput,
 	type AuthorizeUploadResult,
 	authorizeUploadRequest,
@@ -22,7 +38,7 @@ export {
 	buildMessageBodyKey,
 	buildOutboxAttachmentKey,
 	buildOutboxAttachmentPrefix,
-	buildOutboxAttachmentReservationKey,
+	buildOutboxLedgerKey,
 	buildParsedBodyKey,
 	type ContentEncodingValue,
 	type CreateOutboxAttachmentUploadUrlParams,
@@ -36,10 +52,8 @@ export {
 	type ParsedAttachmentMeta,
 	type ParsedBody,
 	type ParsedContentStorageKey,
-	type ParsedOutboxAttachmentEntry,
 	type ParsedOutboxAttachmentKey,
 	parseContentStorageKey,
-	parseOutboxAttachmentEntry,
 	parseOutboxAttachmentKey,
 	type StorageReference,
 	type StorageService,

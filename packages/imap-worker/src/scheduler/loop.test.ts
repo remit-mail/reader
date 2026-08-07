@@ -3,7 +3,12 @@ import { describe, it } from "node:test";
 import { runSchedulerLoop, type SchedulerLoopOptions } from "./loop.js";
 import type { RunSchedulerTickDeps, SchedulerTickResult } from "./run-tick.js";
 
-const RESULT: SchedulerTickResult = { scanned: 0, enqueued: 0, skipped: 0 };
+const RESULT: SchedulerTickResult = {
+	scanned: 0,
+	enqueued: 0,
+	skipped: 0,
+	swept: 0,
+};
 
 // Only the loop's own two calls matter here; the tick is a stub, so what it is
 // handed is never read.

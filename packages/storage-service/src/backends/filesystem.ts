@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import {
 	mkdir,
+	open,
 	readdir,
 	readFile,
 	rm,
@@ -14,6 +15,7 @@ import { PassThrough, Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGunzip, createGzip, gunzipSync, gzipSync } from "node:zlib";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
+import { parseOutboxLedger, serializeOutboxLedger } from "../outbox-ledger.js";
 import {
 	UPLOAD_ROUTE_PREFIX,
 	UPLOAD_URL_SIGNING_LABEL,
@@ -35,11 +37,10 @@ import {
 	buildMessageBodyKey,
 	buildOutboxAttachmentKey,
 	buildOutboxAttachmentPrefix,
-	buildOutboxAttachmentReservationKey,
+	buildOutboxLedgerKey,
 	buildParsedBodyKey,
 	computeChecksum,
 	isStorageNotFoundError,
-	parseOutboxAttachmentEntry,
 } from "../storage.js";
 
 interface StoreParams {
@@ -317,18 +318,32 @@ export const createFilesystemStorageService = (
 
 		const items: OutboxAttachmentListItem[] = [];
 		for (const name of entries.slice(0, limit)) {
-			const entry = parseOutboxAttachmentEntry(name);
 			const { size } = await stat(join(basePath, prefix, name));
 			items.push({
-				outboxAttachmentId: entry.outboxAttachmentId,
+				outboxAttachmentId: name,
 				key: `${prefix}${name}`,
-				sizeBytes: entry.isReservation ? entry.reservedBytes : size,
-				isReservation: entry.isReservation,
-				expiresAt: entry.expiresAt,
+				sizeBytes: size,
 			});
 		}
 		return items;
 	};
+
+	const listOutboxDraftsWithAttachments: StorageService["listOutboxDraftsWithAttachments"] =
+		async (accountConfigId, accountId) => {
+			const root = join(
+				basePath,
+				`accounts/${accountConfigId}/${accountId}/outbox`,
+			);
+			const entries = await readdir(root, { withFileTypes: true }).catch(
+				(error: unknown) => {
+					if (isStorageNotFoundError(error)) return [];
+					throw error;
+				},
+			);
+			return entries
+				.filter((entry) => entry.isDirectory())
+				.map((entry) => entry.name);
+		};
 
 	const deleteOutboxAttachment: StorageService["deleteOutboxAttachment"] =
 		async (accountConfigId, accountId, outboxMessageId, outboxAttachmentId) => {
@@ -344,56 +359,82 @@ export const createFilesystemStorageService = (
 				},
 			);
 			for (const name of entries) {
-				if (
-					parseOutboxAttachmentEntry(name).outboxAttachmentId !==
-					outboxAttachmentId
-				) {
-					continue;
-				}
+				if (name !== outboxAttachmentId) continue;
 				await rm(join(basePath, prefix, name), { force: true });
 			}
 		};
 
-	const reserveOutboxAttachment: StorageService["reserveOutboxAttachment"] =
-		async (params) => {
-			await storeInternal({
-				key: buildOutboxAttachmentReservationKey(
-					params.accountConfigId,
-					params.accountId,
-					params.outboxMessageId,
-					params.outboxAttachmentId,
-					params.sizeBytes,
-					params.expiresAt,
-				),
-				content: Buffer.alloc(0),
-				compress: false,
-			});
-		};
+	const ledgerPath = (
+		accountConfigId: string,
+		accountId: string,
+		outboxMessageId: string,
+	): string =>
+		join(
+			basePath,
+			buildOutboxLedgerKey(accountConfigId, accountId, outboxMessageId),
+		);
 
-	const releaseOutboxAttachmentReservation: StorageService["releaseOutboxAttachmentReservation"] =
-		async (
-			accountConfigId,
-			accountId,
-			outboxMessageId,
-			outboxAttachmentId,
-			sizeBytes,
-			expiresAt,
-		) => {
-			await rm(
-				join(
-					basePath,
-					buildOutboxAttachmentReservationKey(
-						accountConfigId,
-						accountId,
-						outboxMessageId,
-						outboxAttachmentId,
-						sizeBytes,
-						expiresAt,
-					),
-				),
-				{ force: true },
-			);
+	const versionOf = async (fullPath: string): Promise<string | null> => {
+		const stats = await stat(fullPath).catch((error: unknown) => {
+			if (isStorageNotFoundError(error)) return null;
+			throw error;
+		});
+		if (!stats) return null;
+		return `${stats.mtimeMs}-${stats.size}`;
+	};
+
+	const readOutboxLedger: StorageService["readOutboxLedger"] = async (
+		accountConfigId,
+		accountId,
+		outboxMessageId,
+	) => {
+		const fullPath = ledgerPath(accountConfigId, accountId, outboxMessageId);
+		const raw = await readFile(fullPath, "utf8").catch((error: unknown) => {
+			if (isStorageNotFoundError(error)) return null;
+			throw error;
+		});
+		if (raw === null) return { ledger: { entries: [] }, version: null };
+		return {
+			ledger: parseOutboxLedger(raw),
+			version: await versionOf(fullPath),
 		};
+	};
+
+	/**
+	 * A lock file rather than a bare read-modify-write: `open(..., "wx")` is
+	 * atomic on a local filesystem, so two processes sharing one storage root
+	 * still take turns. The version comparison inside the lock is what makes the
+	 * conditional write conditional; the lock only keeps the compare and the
+	 * write from being split.
+	 */
+	const writeOutboxLedger: StorageService["writeOutboxLedger"] = async (
+		accountConfigId,
+		accountId,
+		outboxMessageId,
+		ledger,
+		expectedVersion,
+	) => {
+		const fullPath = ledgerPath(accountConfigId, accountId, outboxMessageId);
+		const lockPath = `${fullPath}.lock`;
+		await mkdir(dirname(fullPath), { recursive: true });
+
+		const handle = await open(lockPath, "wx").catch((error: unknown) => {
+			if ((error as { code?: string })?.code === "EEXIST") return null;
+			throw error;
+		});
+		// Someone else holds the lock. Report it the same way a lost conditional
+		// write reports: reread and decide again.
+		if (!handle) return "Stale";
+
+		try {
+			if ((await versionOf(fullPath)) !== expectedVersion) return "Stale";
+			await writeFile(fullPath, serializeOutboxLedger(ledger));
+			return "Written";
+		} finally {
+			await handle.close();
+			await rm(lockPath, { force: true });
+		}
+	};
 
 	const statOutboxAttachment: StorageService["statOutboxAttachment"] = async (
 		accountConfigId,
@@ -463,6 +504,13 @@ export const createFilesystemStorageService = (
 				),
 			);
 			await rm(dirPath, { recursive: true, force: true });
+			await rm(
+				join(
+					basePath,
+					buildOutboxLedgerKey(accountConfigId, accountId, outboxMessageId),
+				),
+				{ force: true },
+			);
 		};
 
 	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
@@ -553,10 +601,11 @@ export const createFilesystemStorageService = (
 		retrieveBodyPart,
 		storeOutboxAttachment,
 		listOutboxAttachments,
+		listOutboxDraftsWithAttachments,
 		deleteOutboxAttachments,
 		deleteOutboxAttachment,
-		reserveOutboxAttachment,
-		releaseOutboxAttachmentReservation,
+		readOutboxLedger,
+		writeOutboxLedger,
 		statOutboxAttachment,
 		createOutboxAttachmentUploadUrl,
 		storeDeduplicated,
