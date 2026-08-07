@@ -102,6 +102,34 @@ if (isSelfHostBackend) {
 	app.all(/^\/api\/auth\//, toNodeHandler(auth));
 }
 
+// Ahead of the body parsers, not after them: a body refused for its size never
+// reaches a route, and without these headers the browser reads that refusal as
+// a network failure instead of the reason it carries.
+app.use((req: Request, res: Response, next: NextFunction) => {
+	const allowOrigin = resolveAllowOrigin(
+		req.headers.origin,
+		corsAllowedOrigins,
+	);
+	if (allowOrigin) {
+		res.header("Access-Control-Allow-Origin", allowOrigin);
+		if (allowOrigin !== "*") res.header("Vary", "Origin");
+	}
+	res.header(
+		"Access-Control-Allow-Methods",
+		"GET, POST, PUT, DELETE, OPTIONS, PATCH",
+	);
+	res.header(
+		"Access-Control-Allow-Headers",
+		"Origin, X-Requested-With, Content-Type, Accept, Authorization",
+	);
+
+	if (req.method === "OPTIONS") {
+		res.sendStatus(200);
+	} else {
+		next();
+	}
+});
+
 // Binary uploads arrive whole and are handed on as bytes; express.json would
 // leave `req.body` empty and lose them. The limit is the edge's own refusal —
 // the request never reaches a handler, so it answers in the same shape the
@@ -135,31 +163,6 @@ app.use(
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
-
-app.use((req: Request, res: Response, next: NextFunction) => {
-	const allowOrigin = resolveAllowOrigin(
-		req.headers.origin,
-		corsAllowedOrigins,
-	);
-	if (allowOrigin) {
-		res.header("Access-Control-Allow-Origin", allowOrigin);
-		if (allowOrigin !== "*") res.header("Vary", "Origin");
-	}
-	res.header(
-		"Access-Control-Allow-Methods",
-		"GET, POST, PUT, DELETE, OPTIONS, PATCH",
-	);
-	res.header(
-		"Access-Control-Allow-Headers",
-		"Origin, X-Requested-With, Content-Type, Accept, Authorization",
-	);
-
-	if (req.method === "OPTIONS") {
-		res.sendStatus(200);
-	} else {
-		next();
-	}
-});
 
 app.get("/.well-known/appspecific/com.chrome.devtools.json", () => ({}));
 
