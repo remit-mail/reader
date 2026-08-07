@@ -59,6 +59,11 @@ export interface CalendarEventData {
 	location: string;
 	notes: string;
 	attendees: CalendarAttendee[];
+	/**
+	 * The reader's own reply. Kept apart from `attendees`: how an event is drawn
+	 * turns on what you said, not on what somebody else said.
+	 */
+	myRsvp: RsvpState;
 	/** The thread this event came from; empty when it was typed by hand. */
 	threadId: string;
 	threadSubject: string;

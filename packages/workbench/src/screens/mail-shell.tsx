@@ -166,6 +166,12 @@ export interface MailShellProps {
 	 */
 	searchSuggestions?: Suggestion[];
 	/**
+	 * Leaves the reading pane out entirely rather than falling back to the mail
+	 * one. A view whose second pane is only sometimes there — the calendar with
+	 * nothing open — needs the list to have the whole width until it is.
+	 */
+	readingPane?: "default" | "off";
+	/**
 	 * Offers the calendar destination in the nav. The prototype turns it on; the
 	 * mail flows leave it off, so their nav is the nav that ships today.
 	 */
@@ -598,6 +604,7 @@ export function MailShell({
 	recentSearches,
 	savedSearches = [],
 	searchSuggestions,
+	readingPane = "default",
 	calendarNav = "hidden",
 	searchOpen: searchOpenSeed = false,
 	navOpen: navOpenSeed = false,
@@ -681,7 +688,7 @@ export function MailShell({
 			topBar={singlePane ? undefined : <TopBar search={search} />}
 			list={list}
 			reading={
-				singlePane
+				singlePane || readingPane === "off"
 					? undefined
 					: (reading ?? (
 							<ReadingPane

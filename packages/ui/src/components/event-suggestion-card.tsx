@@ -83,7 +83,7 @@ export function EventSuggestionCard({
 			<button
 				type="button"
 				onClick={onOpenThread}
-				className="flex items-center gap-1.5 self-start rounded-sm text-2xs text-accent-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+				className="flex w-full min-w-0 items-center gap-1.5 rounded-sm text-left text-2xs text-accent-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
 			>
 				<Mail className="size-3 shrink-0" />
 				<span className="truncate">

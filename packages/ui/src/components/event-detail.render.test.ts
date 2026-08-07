@@ -33,6 +33,7 @@ const event: CalendarEventData = {
 			role: "organizer",
 		},
 	],
+	myRsvp: "accepted",
 	threadId: "thr_q3",
 	threadSubject: "Q3 roadmap review — agenda + pre-read",
 	timeZone: "Europe/Amsterdam",

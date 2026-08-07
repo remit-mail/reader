@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { calendarColorClasses } from "../lib/calendar-color.js";
 import { cn } from "../lib/cn.js";
-import { AttendeeList } from "./attendee-row.js";
+import { AttendeeList, RsvpBadge } from "./attendee-row.js";
 import { Button } from "./button.js";
 import type {
 	CalendarDescriptor,
@@ -105,7 +105,12 @@ export function EventDetail({
 				<h1 className="text-xl font-semibold text-fg">{event.title}</h1>
 
 				<div className="mt-3 flex flex-col border-b border-line pb-3">
-					<Line icon={<Clock className="size-4" />}>{whenText}</Line>
+					<Line icon={<Clock className="size-4" />}>
+						<span className="flex flex-wrap items-center gap-2">
+							{whenText}
+							{event.attendees.length > 0 && <RsvpBadge rsvp={event.myRsvp} />}
+						</span>
+					</Line>
 					{event.zoneCertainty === "ambiguous" ? (
 						<Line icon={<Globe className="size-4 text-warning" />}>
 							<span className="text-warning">

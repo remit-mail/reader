@@ -126,6 +126,7 @@ function eventFromDraft(draft: EventDraft, id: string): CalendarEventData {
 				rsvp: "noReply" as const,
 				role: "attendee" as const,
 			})),
+		myRsvp: "accepted",
 		threadId: "",
 		threadSubject: "",
 		timeZone: HOME_ZONE,
@@ -536,6 +537,7 @@ export function CalendarDestination({
 					onDismissPanel={dismissPanel}
 				/>
 			}
+			readingPane={selectedEvent ? "default" : "off"}
 			reading={
 				selectedEvent ? (
 					<EventDetail
@@ -650,7 +652,7 @@ function DesktopSurface({
 
 			<div className="flex min-h-0 flex-1">
 				{hasRail && (
-					<aside className="flex w-56 shrink-0 flex-col gap-4 overflow-y-auto border-r border-line bg-surface-sunken py-3">
+					<aside className="flex w-64 shrink-0 flex-col gap-4 overflow-y-auto border-r border-line bg-surface-sunken py-3">
 						<CalendarList
 							calendars={calendars}
 							visible={visible}

@@ -46,6 +46,20 @@ const FC_VIEW: Record<CalendarViewId, string> = {
 	agenda: "listWeek",
 };
 
+/* A week or a day names the date in its header. A month grid repeats the same
+   seven weekdays down the page, so the header names the weekday and the cells
+   own the dates; a year has room for one letter. */
+const DAY_HEADER_FORMAT: Record<
+	CalendarViewId,
+	{ weekday: "short" | "narrow"; day?: "numeric" }
+> = {
+	year: { weekday: "narrow" },
+	month: { weekday: "short" },
+	week: { weekday: "short", day: "numeric" },
+	day: { weekday: "short", day: "numeric" },
+	agenda: { weekday: "short", day: "numeric" },
+};
+
 /**
  * Density is a real change in how much of a day fits on screen, not a padding
  * tweak: a tighter setting halves the slot height and drops the time off short
@@ -117,17 +131,14 @@ function readMeta(event: EventApi): EventMeta {
 }
 
 function toInput(event: CalendarEventData, color: CalendarColorId): EventInput {
-	const declined = event.attendees.some(
-		(attendee) => attendee.role === "attendee" && attendee.rsvp === "declined",
-	);
 	const meta: EventMeta = {
 		calendarId: event.calendarId,
 		color,
 		hasThread: event.threadId !== "",
 		isRecurring: event.recurrenceRule !== "",
 		zoneAmbiguous: event.zoneCertainty === "ambiguous",
-		declined,
-		tentative: event.status === "tentative",
+		declined: event.myRsvp === "declined",
+		tentative: event.status === "tentative" || event.myRsvp === "tentative",
 	};
 	return {
 		id: event.id,
@@ -229,9 +240,10 @@ export function CalendarGrid({
 				slotDuration={slot.slotDuration}
 				slotMinHeight={slot.slotMinHeight}
 				eventShortHeight={slot.eventShortHeight}
+				displayEventEnd={false}
 				eventTimeFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
 				slotHeaderFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
-				dayHeaderFormat={{ weekday: "short", day: "numeric" }}
+				dayHeaderFormat={DAY_HEADER_FORMAT[view]}
 				events={eventInputs}
 				eventClick={(info) => onSelectEvent(info.event.id)}
 				dateClick={(info) =>
@@ -268,12 +280,9 @@ export function CalendarGrid({
 				dayHeaderInnerClass="px-1 py-1 text-2xs font-semibold uppercase tracking-wider"
 				dayHeaderDividerClass="border-b border-line"
 				dayCellClass={(info) =>
-					cn(
-						"border-line",
-						info.isOther && "bg-surface-sunken",
-						info.isToday && "bg-accent-soft",
-					)
+					cn("border-line", info.isOther && "bg-surface-sunken")
 				}
+				dayLaneClass={(info) => cn(info.isToday && "bg-accent-soft/40")}
 				dayCellTopInnerClass={(info) =>
 					cn(
 						"px-1 py-0.5 text-2xs tabular-nums",
@@ -324,6 +333,9 @@ export function CalendarGrid({
 				}
 				eventContent={(info) => {
 					const meta = readMeta(info.event);
+					/* A column an hour wide has room for a time or a title, never
+					   both — the title is the one worth keeping. */
+					const showTime = info.timeText !== "" && !isTight && !info.isNarrow;
 					return (
 						<span
 							className={cn(
@@ -331,7 +343,7 @@ export function CalendarGrid({
 								meta.declined && "line-through",
 							)}
 						>
-							{info.timeText !== "" && !isTight && (
+							{showTime && (
 								<span className="shrink-0 tabular-nums opacity-80">
 									{info.timeText}
 								</span>
