@@ -51,6 +51,12 @@ export {
 	useContainerWidth,
 } from "./components/app-shell-types.js";
 export { AppTopBar, type AppTopBarProps } from "./components/app-top-bar.js";
+export {
+	type AttachmentDownloadState,
+	type AttachmentItem,
+	AttachmentList,
+	type AttachmentListProps,
+} from "./components/attachment-list.js";
 export { AuthCard, type AuthCardProps } from "./components/auth-card.js";
 export {
 	AuthFooter,
@@ -641,6 +647,11 @@ export {
 	sanitizeAdoptedHtml,
 	sanitizeQuotedHtml,
 } from "./lib/adopted-html.js";
+export {
+	DEFAULT_ATTACHMENT_FILENAME,
+	formatByteSize,
+	sanitizeAttachmentFilename,
+} from "./lib/attachment-file.js";
 export {
 	buildCidResolver,
 	type CidResolvableBodyPart,

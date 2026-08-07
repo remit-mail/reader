@@ -49,7 +49,52 @@ export interface Message {
 	 * loses the star rather than displaying it wrong.
 	 */
 	flags?: string[];
+	/**
+	 * Files hung off the message as `Content-Disposition: attachment` parts.
+	 * When present the message is emitted as `multipart/mixed`, which is what a
+	 * real correspondent's mail client produces and what the app has to walk to
+	 * find anything downloadable.
+	 */
+	attachments?: ReadonlyArray<{
+		filename: string;
+		contentType: string;
+		content: string;
+	}>;
 }
+
+const MIME_BOUNDARY = "remit-e2e-boundary";
+
+/** RFC 5322 caps a line at 998 octets; RFC 2045 asks base64 for 76. */
+const wrapBase64 = (encoded: string): string[] =>
+	encoded.match(/.{1,76}/g) ?? [""];
+
+const attachmentPart = (attachment: {
+	filename: string;
+	contentType: string;
+	content: string;
+}): string[] => [
+	`--${MIME_BOUNDARY}`,
+	`Content-Type: ${attachment.contentType}`,
+	"Content-Transfer-Encoding: base64",
+	`Content-Disposition: attachment; filename="${attachment.filename}"`,
+	"",
+	...wrapBase64(Buffer.from(attachment.content, "utf8").toString("base64")),
+	"",
+];
+
+const multipartBody = (message: Message): string[] => {
+	const attachments = message.attachments ?? [];
+	return [
+		`--${MIME_BOUNDARY}`,
+		`Content-Type: ${message.contentType ?? "text/plain"}; charset="utf-8"`,
+		"",
+		message.body ?? `Body of ${message.subject}.`,
+		"",
+		...attachments.flatMap(attachmentPart),
+		`--${MIME_BOUNDARY}--`,
+		"",
+	];
+};
 
 const rfc5322 = (message: Message, recipient: string): string => {
 	const from = message.from ?? "Correspondent <sender@remit.test>";
@@ -73,10 +118,18 @@ const rfc5322 = (message: Message, recipient: string): string => {
 			: []),
 		...extra,
 		"MIME-Version: 1.0",
-		`Content-Type: ${message.contentType ?? "text/plain"}; charset="utf-8"`,
-		"",
-		message.body ?? `Body of ${message.subject}.`,
-		"",
+		...(message.attachments?.length
+			? [
+					`Content-Type: multipart/mixed; boundary="${MIME_BOUNDARY}"`,
+					"",
+					...multipartBody(message),
+				]
+			: [
+					`Content-Type: ${message.contentType ?? "text/plain"}; charset="utf-8"`,
+					"",
+					message.body ?? `Body of ${message.subject}.`,
+					"",
+				]),
 	].join("\r\n");
 };
 

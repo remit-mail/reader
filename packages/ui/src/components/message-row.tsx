@@ -98,7 +98,11 @@ export function CompactRowBody({ thread }: { thread: ThreadRowData }) {
 				<span className="text-fg-subtle"> — {thread.snippet}</span>
 			</span>
 			{thread.hasAttachment && (
-				<Paperclip className="size-3 shrink-0 text-fg-subtle" />
+				<Paperclip
+					className="size-3 shrink-0 text-fg-subtle"
+					role="img"
+					aria-label="Has an attachment"
+				/>
 			)}
 			<span className="w-11 shrink-0 text-right text-2xs text-fg-subtle tabular-nums">
 				{thread.timeLabel}
@@ -192,7 +196,11 @@ export function ComfortableRowTextContent({
 					<Star className="size-3 shrink-0 fill-warning text-warning" />
 				)}
 				{thread.hasAttachment && (
-					<Paperclip className="size-3 shrink-0 text-fg-subtle" />
+					<Paperclip
+						className="size-3 shrink-0 text-fg-subtle"
+						role="img"
+						aria-label="Has an attachment"
+					/>
 				)}
 			</span>
 			<span className="flex items-center gap-1.5">

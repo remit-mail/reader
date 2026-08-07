@@ -16,6 +16,7 @@ import { formatDatePreset } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { AutoMovedIndicator } from "./AutoMovedIndicator";
 import { MessageActionMenu } from "./MessageActionMenu";
+import { MessageAttachments } from "./MessageAttachments";
 import { MessageBody } from "./MessageBody";
 import { MobileMessageBar } from "./MobileMessageBar";
 import { RawMessageView } from "./RawMessageView";
@@ -134,7 +135,11 @@ const CollapsedCard = ({
 			trailing={
 				<>
 					{threadMessage.hasAttachment && (
-						<Paperclip className="size-3 shrink-0 text-fg-subtle" />
+						<Paperclip
+							className="size-3 shrink-0 text-fg-subtle"
+							role="img"
+							aria-label="Has an attachment"
+						/>
 					)}
 					<StarButton
 						isStarred={threadMessage.hasStars}
@@ -238,11 +243,6 @@ const ExpandedCard = ({
 										onToggleStar={onToggleStar}
 										isStarPending={isStarPending}
 									/>
-									{threadMessage.hasAttachment && (
-										<span className="text-fg-subtle p-0.5">
-											<Paperclip className="size-3.5" />
-										</span>
-									)}
 								</div>
 								{isUnread && (
 									// biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label on decorative indicator provides useful context for assistive tech
@@ -323,6 +323,15 @@ const ExpandedCard = ({
 							fromAddressId={messageData?.envelope.from[0]?.addressId}
 							isTrusted={isTrusted}
 							category={toDisplayCategory(threadMessage.category)}
+						/>
+						{/* The body slot runs edge to edge on a phone; the attachment
+						    list is app chrome, not part of the email, so it takes the
+						    gutter back. */}
+						<MessageAttachments
+							messageId={threadMessage.messageId}
+							bodyParts={messageData?.bodyParts}
+							hasAttachment={threadMessage.hasAttachment}
+							className="mt-4 px-2 lg:px-0"
 						/>
 					</div>
 				)

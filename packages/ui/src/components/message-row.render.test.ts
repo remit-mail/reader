@@ -138,3 +138,34 @@ describe("CompactRow", () => {
 		assert.match(html, /Q3 planning notes/);
 	});
 });
+
+describe("attachment indicator", () => {
+	// A list row cannot download anything — the file lives on the message, which
+	// is one pane over. So the paperclip here is metadata and says so, rather
+	// than sitting inertly where a control belongs (#683).
+	it("marks a comfortable row as carrying an attachment, without a control", () => {
+		const html = renderToString(
+			createElement(ComfortableRow, {
+				thread: { ...base, isRead: true, hasAttachment: true },
+			}),
+		);
+		assert.match(html, /role="img"/);
+		assert.match(html, /aria-label="Has an attachment"/);
+	});
+
+	it("marks a compact row as carrying an attachment", () => {
+		const html = renderToString(
+			createElement(CompactRow, {
+				thread: { ...base, isRead: true, hasAttachment: true },
+			}),
+		);
+		assert.match(html, /aria-label="Has an attachment"/);
+	});
+
+	it("renders no indicator when the message carries nothing", () => {
+		const html = renderToString(
+			createElement(ComfortableRow, { thread: { ...base, isRead: true } }),
+		);
+		assert.doesNotMatch(html, /Has an attachment/);
+	});
+});
