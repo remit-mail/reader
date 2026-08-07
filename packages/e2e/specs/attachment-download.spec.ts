@@ -5,32 +5,53 @@
  *
  * The bytes are what makes this a regression test rather than a rendering one:
  * the file the browser writes is compared against the file that was APPENDed to
- * Dovecot before the account existed, so a pass means the whole chain held —
- * BODYSTRUCTURE, part storage, the content route, the fetch, and the save.
+ * Dovecot, so a pass means the whole chain held — BODYSTRUCTURE, part storage,
+ * the content route, the fetch, and the save.
+ *
+ * The fixture is scratch, appended here and deleted on the way out, because the
+ * serial suite asserts the shared inbox holds exactly `seededSubjects`.
  */
 import { readFileSync } from "node:fs";
 import type { Locator, Page } from "@playwright/test";
+import { ApiClient } from "../src/api.js";
 import {
 	ATTACHMENT_HOSTILE,
 	ATTACHMENT_PDF,
-	ATTACHMENT_SUBJECT,
+	attachmentMessage,
 } from "../src/attachment-fixture.js";
 import { expect, test } from "../src/fixtures.js";
+import { appendMessages } from "../src/imap.js";
+import { type RunState, readRunState } from "../src/state.js";
 
-const openAttachmentMessage = async (page: Page): Promise<Locator> => {
-	await page.goto("/mail");
-	const sidebar = page.getByRole("navigation", {
-		name: "Mailboxes",
-		exact: true,
-	});
-	await expect(sidebar).toBeVisible({ timeout: 20_000 });
-	await sidebar.getByRole("link", { name: /inbox/i }).click();
-	await page.waitForURL(/\/mail\/[a-z0-9]+/);
+const TAG = `attachment-fixture ${Date.now()}`;
+const SUBJECT = `${TAG} board pack`;
 
-	await page
-		.getByText(ATTACHMENT_SUBJECT, { exact: true })
-		.first()
-		.click({ timeout: 30_000 });
+let run: RunState;
+let api: ApiClient;
+
+const rows = (page: Page): Locator =>
+	page.locator("a[href*='selectedMessageId']");
+
+const gotoInbox = async (page: Page): Promise<void> => {
+	await page.goto(`/mail/${run.inboxId}`);
+	await expect(rows(page).first()).toBeVisible({ timeout: 30_000 });
+};
+
+/** The scratch message's row, once the sync that carries it has landed. */
+const fixtureRow = async (page: Page): Promise<Locator> => {
+	await expect(async () => {
+		await page.reload();
+		await expect(rows(page).filter({ hasText: SUBJECT })).toHaveCount(1, {
+			timeout: 5_000,
+		});
+	}).toPass({ timeout: 90_000 });
+	return rows(page).filter({ hasText: SUBJECT });
+};
+
+const openFixture = async (page: Page): Promise<Locator> => {
+	await gotoInbox(page);
+	const row = await fixtureRow(page);
+	await row.click();
 	await page.waitForURL(/selectedMessageId=/);
 
 	const article = page.getByRole("article");
@@ -56,11 +77,25 @@ const downloadedText = async (
 	};
 };
 
+test.beforeAll(async () => {
+	run = readRunState();
+	api = new ApiClient(run);
+	await appendMessages(run.imapUser, [attachmentMessage(SUBJECT)]);
+	await api.triggerSync(run.accountId);
+});
+
+test.afterAll(async () => {
+	for (const mailbox of await api.listMailboxes(run.accountId)) {
+		const ids = await api.searchMatchingMessageIds(mailbox.mailboxId, TAG);
+		if (ids.length > 0) await api.deleteMessages(ids);
+	}
+});
+
 test.describe("Attachments on a received message", () => {
 	test("every attachment is listed with its name, type and size", async ({
 		page,
 	}) => {
-		const list = await openAttachmentMessage(page);
+		const list = await openFixture(page);
 
 		await expect(list.getByRole("heading")).toHaveText("2 attachments");
 		await expect(
@@ -75,7 +110,7 @@ test.describe("Attachments on a received message", () => {
 	test("downloading an attachment writes the bytes that were sent", async ({
 		page,
 	}) => {
-		const list = await openAttachmentMessage(page);
+		const list = await openFixture(page);
 
 		const result = await downloadedText(
 			page,
@@ -94,7 +129,7 @@ test.describe("Attachments on a received message", () => {
 	test("a filename that tries to escape the download directory is reduced to its basename", async ({
 		page,
 	}) => {
-		const list = await openAttachmentMessage(page);
+		const list = await openFixture(page);
 
 		const result = await downloadedText(
 			page,
@@ -113,19 +148,9 @@ test.describe("Attachments on a received message", () => {
 	test("the list row announces the attachment as metadata, not as a control", async ({
 		page,
 	}) => {
-		await page.goto("/mail");
-		const sidebar = page.getByRole("navigation", {
-			name: "Mailboxes",
-			exact: true,
-		});
-		await expect(sidebar).toBeVisible({ timeout: 20_000 });
-		await sidebar.getByRole("link", { name: /inbox/i }).click();
-		await page.waitForURL(/\/mail\/[a-z0-9]+/);
+		await gotoInbox(page);
+		const row = await fixtureRow(page);
 
-		const row = page
-			.locator("a[href*='selectedMessageId']")
-			.filter({ hasText: ATTACHMENT_SUBJECT });
-		await expect(row).toHaveCount(1, { timeout: 30_000 });
 		await expect(
 			row.getByRole("img", { name: "Has an attachment" }),
 		).toHaveCount(1);
