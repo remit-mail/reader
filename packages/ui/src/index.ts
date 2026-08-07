@@ -57,6 +57,14 @@ export {
 	AttachmentList,
 	type AttachmentListProps,
 } from "./components/attachment-list.js";
+export {
+	AttendeeList,
+	type AttendeeListProps,
+	AttendeeRow,
+	type AttendeeRowProps,
+	RsvpBadge,
+	type RsvpBadgeProps,
+} from "./components/attendee-row.js";
 export { AuthCard, type AuthCardProps } from "./components/auth-card.js";
 export {
 	AuthFooter,
@@ -112,6 +120,36 @@ export {
 	type ButtonProps,
 } from "./components/button.js";
 export {
+	CalendarEventChip,
+	type CalendarEventChipProps,
+} from "./components/calendar-event-chip.js";
+export {
+	CalendarList,
+	type CalendarListProps,
+} from "./components/calendar-list.js";
+export {
+	CalendarDateNav,
+	type CalendarDateNavProps,
+	CalendarDensityControl,
+	type CalendarDensityControlProps,
+	CalendarViewSwitch,
+	type CalendarViewSwitchProps,
+	type SegmentOption,
+} from "./components/calendar-toolbar.js";
+export {
+	type CalendarAttendee,
+	type CalendarColorId,
+	type CalendarDescriptor,
+	type CalendarEventData,
+	type CalendarViewId,
+	calendarColorIds,
+	type EventDraft,
+	type EventSuggestion,
+	type RecurrenceScope,
+	type RsvpState,
+	type ZoneCertainty,
+} from "./components/calendar-types.js";
+export {
 	Card,
 	CardBody,
 	CardHeader,
@@ -142,6 +180,22 @@ export {
 } from "./components/danger-zone-section.js";
 export { Dialog, type DialogProps } from "./components/dialog.js";
 export type { EmailFrameVariant } from "./components/email-frame-css.js";
+export {
+	EventDetail,
+	type EventDetailProps,
+} from "./components/event-detail.js";
+export {
+	EventEditor,
+	type EventEditorProps,
+} from "./components/event-editor.js";
+export {
+	EventQuickEntry,
+	type EventQuickEntryProps,
+} from "./components/event-quick-entry.js";
+export {
+	EventSuggestionCard,
+	type EventSuggestionCardProps,
+} from "./components/event-suggestion-card.js";
 export {
 	FieldLabel,
 	type FieldLabelProps,
@@ -414,6 +468,10 @@ export {
 	type ReadingPaneEmptyProps,
 } from "./components/reading-pane-empty.js";
 export {
+	RecurrenceScopePrompt,
+	type RecurrenceScopePromptProps,
+} from "./components/recurrence-scope-prompt.js";
+export {
 	RefreshButton,
 	type RefreshButtonProps,
 	type RefreshControlState,
@@ -653,6 +711,10 @@ export {
 	sanitizeAttachmentFilename,
 } from "./lib/attachment-file.js";
 export {
+	type CalendarColorClasses,
+	calendarColorClasses,
+} from "./lib/calendar-color.js";
+export {
 	buildCidResolver,
 	type CidResolvableBodyPart,
 	type CidResolver,
@@ -671,6 +733,11 @@ export {
 	sanitizeInlineStyle,
 	sanitizeStyleElementCss,
 } from "./lib/email-sanitizer.js";
+export {
+	addMinutesToClock,
+	type PhraseParse,
+	parseEventPhrase,
+} from "./lib/event-phrase.js";
 export {
 	collapseFolderTree,
 	filterFolderTree,

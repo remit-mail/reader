@@ -4,6 +4,7 @@ import {
 	Archive,
 	BellOff,
 	BookmarkPlus,
+	CalendarDays,
 	ChevronDown,
 	ChevronRight,
 	FileText,
@@ -558,6 +559,12 @@ export interface NavSidebarProps
 	 * fall back to programmatic buttons (static stories / AppShell preview).
 	 */
 	linkComponent?: NavLinkComponent;
+	/**
+	 * Whether the calendar destination sits under the daily brief. It is
+	 * "hidden" until the app has a route behind it — the prototype turns it on,
+	 * the shipping nav does not offer an entry that leads nowhere.
+	 */
+	calendarNav?: "hidden" | "shown";
 	/** Every saved query, most recently saved first. See `SavedSearchesGroup`. */
 	savedSearches?: string[];
 	/**
@@ -577,6 +584,7 @@ export function NavSidebar({
 	onSelectNav,
 	variant = "desktop",
 	linkComponent,
+	calendarNav = "hidden",
 	savedSearches = [],
 	saveableQuery,
 	onSelectSavedSearch,
@@ -603,6 +611,17 @@ export function NavSidebar({
 				active={selectedNavId === "brief"}
 				onClick={() => onSelectNav?.("brief")}
 			/>
+
+			{calendarNav === "shown" && (
+				<NavItem
+					navId="calendar"
+					icon={<CalendarDays className="size-4" />}
+					label="Calendar"
+					ariaLabel="Calendar"
+					active={selectedNavId === "calendar"}
+					onClick={() => onSelectNav?.("calendar")}
+				/>
+			)}
 
 			<NavItem
 				navId="flagged"

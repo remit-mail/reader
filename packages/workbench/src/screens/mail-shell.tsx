@@ -165,6 +165,11 @@ export interface MailShellProps {
 	 * the caret and the search vocabulary; a story states the offer directly.
 	 */
 	searchSuggestions?: Suggestion[];
+	/**
+	 * Offers the calendar destination in the nav. The prototype turns it on; the
+	 * mail flows leave it off, so their nav is the nav that ships today.
+	 */
+	calendarNav?: "hidden" | "shown";
 	/** Phone: open the full-screen search takeover instead of the list. */
 	searchOpen?: boolean;
 	/** Nav slide-over open (narrow widths). */
@@ -593,6 +598,7 @@ export function MailShell({
 	recentSearches,
 	savedSearches = [],
 	searchSuggestions,
+	calendarNav = "hidden",
 	searchOpen: searchOpenSeed = false,
 	navOpen: navOpenSeed = false,
 }: MailShellProps) {
@@ -635,6 +641,7 @@ export function MailShell({
 			accounts={navAccounts}
 			selectedNavId={selectedNavId}
 			briefUnseen={unreadCount}
+			calendarNav={calendarNav}
 			savedSearches={savedSearches}
 			saveableQuery={
 				trimmed.length > 0 && !savedSearches.includes(trimmed)

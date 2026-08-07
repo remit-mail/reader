@@ -75,6 +75,26 @@
 	/* focus ring */
 	--color-ring: var(--ring);
 
+	/* Per-calendar identity. One calendar owns one hue, and the hue is the
+	   only way two calendars are told apart on a grid, so these are the one
+	   place the UI needs colour the semantic palette cannot supply. Six hues,
+	   spaced far enough apart to survive a 4px event chip, each steering clear
+	   of the accent green, the cyan and the danger coral so a calendar never
+	   reads as a status. `-soft` is the chip fill; the base is the marker and
+	   the text on that fill. */
+	--color-cal-1: var(--cal-1);
+	--color-cal-1-soft: var(--cal-1-soft);
+	--color-cal-2: var(--cal-2);
+	--color-cal-2-soft: var(--cal-2-soft);
+	--color-cal-3: var(--cal-3);
+	--color-cal-3-soft: var(--cal-3-soft);
+	--color-cal-4: var(--cal-4);
+	--color-cal-4-soft: var(--cal-4-soft);
+	--color-cal-5: var(--cal-5);
+	--color-cal-5-soft: var(--cal-5-soft);
+	--color-cal-6: var(--cal-6);
+	--color-cal-6-soft: var(--cal-6-soft);
+
 	/* radii — slight rounding only: hairline borders + subtle radius */
 	--radius-xs: 2px;
 	--radius-sm: 3px;
@@ -165,6 +185,20 @@
 	--danger-soft: oklch(0.93 0.04 25);
 
 	--ring: oklch(0.55 0.14 150);
+
+	/* calendar hues: blue, teal, pink, orange, moss, violet */
+	--cal-1: oklch(0.53 0.13 250);
+	--cal-1-soft: oklch(0.925 0.04 250);
+	--cal-2: oklch(0.53 0.1 175);
+	--cal-2-soft: oklch(0.925 0.035 175);
+	--cal-3: oklch(0.53 0.14 320);
+	--cal-3-soft: oklch(0.925 0.04 320);
+	--cal-4: oklch(0.53 0.13 45);
+	--cal-4-soft: oklch(0.925 0.04 45);
+	--cal-5: oklch(0.53 0.11 130);
+	--cal-5-soft: oklch(0.925 0.04 130);
+	--cal-6: oklch(0.53 0.14 285);
+	--cal-6-soft: oklch(0.925 0.04 285);
 }
 
 /* ---------- DARK: deep slate-teal, lifted off black ---------- */
@@ -199,6 +233,21 @@
 	--danger-soft: oklch(0.32 0.07 25);
 
 	--ring: oklch(0.78 0.16 150);
+
+	/* same six hues, lifted for the slate ground and desaturated so a full
+	   week of chips does not glow */
+	--cal-1: oklch(0.79 0.11 250);
+	--cal-1-soft: oklch(0.33 0.055 250);
+	--cal-2: oklch(0.79 0.09 175);
+	--cal-2-soft: oklch(0.33 0.05 175);
+	--cal-3: oklch(0.79 0.12 320);
+	--cal-3-soft: oklch(0.33 0.055 320);
+	--cal-4: oklch(0.79 0.11 45);
+	--cal-4-soft: oklch(0.33 0.055 45);
+	--cal-5: oklch(0.79 0.1 130);
+	--cal-5-soft: oklch(0.33 0.05 130);
+	--cal-6: oklch(0.79 0.12 285);
+	--cal-6-soft: oklch(0.33 0.055 285);
 }
 
 html {
