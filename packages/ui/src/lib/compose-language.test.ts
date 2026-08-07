@@ -127,6 +127,17 @@ describe("wrapWithLanguage", () => {
 		const wrapped = wrapWithLanguage("<div>Hoi</div>", "nl");
 		assert.equal(wrapped, '<div lang="nl"><div>Hoi</div></div>');
 	});
+
+	it("cannot be talked out of the attribute by a hand-edited tag", () => {
+		const hostile = 'nl"><script>alert(1)</script><div lang="nl';
+		const parsed = new DOMParser().parseFromString(
+			wrapWithLanguage("<p>Hoi</p>", hostile),
+			"text/html",
+		);
+		assert.equal(parsed.querySelectorAll("script").length, 0);
+		assert.equal(parsed.body.children.length, 1);
+		assert.equal(parsed.body.children[0]?.getAttribute("lang"), hostile);
+	});
 });
 
 describe("unwrapLanguage", () => {

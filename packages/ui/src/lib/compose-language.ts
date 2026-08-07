@@ -112,7 +112,8 @@ export const languageLabel = (tag: string): string => {
 
 /**
  * The languages an account writes in when it has not said. The browser already
- * holds an ordered answer, and `en` follows it so a menu is never a single row.
+ * holds an ordered answer; `en` follows it, so a browser set to one language
+ * nothing can detect still leaves the chip something to show.
  */
 export const defaultComposeLanguages = (
 	locales: readonly string[],
@@ -176,12 +177,19 @@ const singleRootElement = (body: HTMLElement): Element | null => {
 export const wrapWithLanguage = (html: string, tag: string): string => {
 	if (html === "") return "";
 	const document = parseHtml(html);
-	const root = singleRootElement(document.body);
-	if (root?.tagName === "DIV" && root.hasAttribute("lang")) {
-		root.setAttribute("lang", tag);
+	const existing = singleRootElement(document.body);
+	if (existing?.tagName === "DIV" && existing.hasAttribute("lang")) {
+		existing.setAttribute("lang", tag);
 		return document.body.innerHTML;
 	}
-	return `<div lang="${tag}">${html}</div>`;
+	// Built through the DOM rather than by string concatenation: a stored
+	// setting is text a user can have edited, and a tag carrying a quote would
+	// otherwise close the attribute and put markup into the message.
+	const wrapper = document.createElement("div");
+	wrapper.setAttribute("lang", tag);
+	while (document.body.firstChild) wrapper.append(document.body.firstChild);
+	document.body.append(wrapper);
+	return document.body.innerHTML;
 };
 
 /** What `wrapWithLanguage` wrote, taken back apart for the editor to reopen on. */
