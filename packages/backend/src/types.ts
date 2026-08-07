@@ -63,6 +63,8 @@ export type OperationIds =
 	| "OutboxDetailOperations_updateOutboxMessage"
 	| "OutboxDetailOperations_deleteOutboxMessage"
 	| "OutboxDetailOperations_sendOutboxMessage"
+	| "OutboxDetailOperations_mintOutboxAttachment"
+	| "OutboxAttachmentOperations_completeOutboxAttachment"
 	| "AddressOperations_searchAddresses"
 	| "AddressDetailOperations_updateAddress";
 
@@ -156,6 +158,11 @@ export type OutboxOperationIds = MatchPrefix<"OutboxOperations_", OperationIds>;
 
 export type OutboxDetailOperationIds = MatchPrefix<
 	"OutboxDetailOperations_",
+	OperationIds
+>;
+
+export type OutboxAttachmentOperationIds = MatchPrefix<
+	"OutboxAttachmentOperations_",
 	OperationIds
 >;
 

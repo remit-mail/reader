@@ -4,6 +4,7 @@ import { pipeline } from "node:stream/promises";
 import { createGunzip, createGzip, gunzipSync, gzipSync } from "node:zlib";
 import {
 	DeleteObjectCommand,
+	DeleteObjectsCommand,
 	GetObjectCommand,
 	HeadObjectCommand,
 	ListObjectsV2Command,
@@ -15,6 +16,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
 import type {
 	ExtractedTextListItem,
+	OutboxAttachmentListItem,
 	ParsedBody,
 	StorageReference,
 	StorageService,
@@ -27,6 +29,8 @@ import {
 	buildExtractedSkippedKey,
 	buildExtractedTextKey,
 	buildMessageBodyKey,
+	buildOutboxAttachmentKey,
+	buildOutboxAttachmentPrefix,
 	buildParsedBodyKey,
 	computeChecksum,
 	isStorageNotFoundError,
@@ -325,6 +329,209 @@ export const createS3StorageService = (
 		return items;
 	};
 
+	const storeOutboxAttachment: StorageService["storeOutboxAttachment"] = (
+		params,
+	) => {
+		const {
+			accountConfigId,
+			accountId,
+			outboxMessageId,
+			outboxAttachmentId,
+			content,
+		} = params;
+		// `application/octet-stream` rather than the uploader's declared type:
+		// the object is only ever read back to build a MIME part, and a stored
+		// `text/html` would be a type any future signed-URL read path could be
+		// tricked into serving from the content origin.
+		return storeInternal({
+			key: buildOutboxAttachmentKey(
+				accountConfigId,
+				accountId,
+				outboxMessageId,
+				outboxAttachmentId,
+			),
+			content,
+			contentType: "application/octet-stream",
+			compress: false,
+		});
+	};
+
+	const listOutboxAttachments: StorageService["listOutboxAttachments"] = async (
+		accountConfigId,
+		accountId,
+		outboxMessageId,
+	) => {
+		const prefix = buildOutboxAttachmentPrefix(
+			accountConfigId,
+			accountId,
+			outboxMessageId,
+		);
+		const items: OutboxAttachmentListItem[] = [];
+		let continuationToken: string | undefined;
+
+		do {
+			const response = await client.send(
+				new ListObjectsV2Command({
+					Bucket: bucketName,
+					Prefix: prefix,
+					ContinuationToken: continuationToken,
+				}),
+			);
+			for (const object of response.Contents ?? []) {
+				if (!object.Key) continue;
+				items.push({
+					outboxAttachmentId: object.Key.slice(prefix.length),
+					key: object.Key,
+					sizeBytes: object.Size ?? 0,
+				});
+			}
+			continuationToken = response.IsTruncated
+				? response.NextContinuationToken
+				: undefined;
+		} while (continuationToken);
+
+		return items;
+	};
+
+	const listOutboxDraftsWithAttachments: StorageService["listOutboxDraftsWithAttachments"] =
+		async (accountConfigId, accountId) => {
+			const root = `accounts/${accountConfigId}/${accountId}/outbox/`;
+			const drafts = new Set<string>();
+			let continuationToken: string | undefined;
+
+			// Delimited listing: S3 answers with the directory-like prefixes rather
+			// than every object under them, so this stays one call per page of
+			// drafts instead of one per object.
+			do {
+				const response = await client.send(
+					new ListObjectsV2Command({
+						Bucket: bucketName,
+						Prefix: root,
+						Delimiter: "/",
+						ContinuationToken: continuationToken,
+					}),
+				);
+				for (const entry of response.CommonPrefixes ?? []) {
+					if (!entry.Prefix) continue;
+					drafts.add(entry.Prefix.slice(root.length).replace(/\/$/, ""));
+				}
+				continuationToken = response.IsTruncated
+					? response.NextContinuationToken
+					: undefined;
+			} while (continuationToken);
+
+			return [...drafts];
+		};
+
+	const deleteOutboxAttachment: StorageService["deleteOutboxAttachment"] =
+		async (accountConfigId, accountId, outboxMessageId, outboxAttachmentId) => {
+			const prefix = buildOutboxAttachmentPrefix(
+				accountConfigId,
+				accountId,
+				outboxMessageId,
+			);
+			await client.send(
+				new DeleteObjectCommand({
+					Bucket: bucketName,
+					Key: `${prefix}${outboxAttachmentId}`,
+				}),
+			);
+		};
+
+	const statOutboxAttachment: StorageService["statOutboxAttachment"] = async (
+		accountConfigId,
+		accountId,
+		outboxMessageId,
+		outboxAttachmentId,
+	) => {
+		const head = await client
+			.send(
+				new HeadObjectCommand({
+					Bucket: bucketName,
+					Key: buildOutboxAttachmentKey(
+						accountConfigId,
+						accountId,
+						outboxMessageId,
+						outboxAttachmentId,
+					),
+				}),
+			)
+			.catch((error: unknown) => {
+				if (isStorageNotFoundError(error)) return null;
+				// A HEAD on a missing key answers 404 with no NoSuchKey code, so the
+				// SDK's NotFound is the same absence.
+				if ((error as { name?: string })?.name === "NotFound") return null;
+				throw error;
+			});
+		if (!head) return null;
+		return { sizeBytes: head.ContentLength ?? 0 };
+	};
+
+	// The browser PUTs straight to the bucket and these bytes never touch the
+	// API. `ContentLength` on the command hoists `content-length` into
+	// X-Amz-SignedHeaders, so S3 recomputes the signature over the length it was
+	// sent: a request declaring any other size fails the signature check, and a
+	// PUT is read for exactly that many bytes. The size is bound by S3 itself,
+	// not by anything downstream trusting the client.
+	const createOutboxAttachmentUploadUrl: StorageService["createOutboxAttachmentUploadUrl"] =
+		async (params) => {
+			const expiresIn = Math.max(
+				1,
+				params.expiresAt - Math.floor(Date.now() / 1000),
+			);
+			const uploadUrl = await getSignedUrl(
+				client,
+				new PutObjectCommand({
+					Bucket: bucketName,
+					Key: buildOutboxAttachmentKey(
+						params.accountConfigId,
+						params.accountId,
+						params.outboxMessageId,
+						params.outboxAttachmentId,
+					),
+					ContentLength: params.sizeBytes,
+				}),
+				{ expiresIn },
+			);
+			return { uploadUrl };
+		};
+
+	const deleteOutboxAttachments: StorageService["deleteOutboxAttachments"] =
+		async (accountConfigId, accountId, outboxMessageId) => {
+			const prefix = buildOutboxAttachmentPrefix(
+				accountConfigId,
+				accountId,
+				outboxMessageId,
+			);
+			let continuationToken: string | undefined;
+
+			do {
+				const response = await client.send(
+					new ListObjectsV2Command({
+						Bucket: bucketName,
+						Prefix: prefix,
+						ContinuationToken: continuationToken,
+					}),
+				);
+				const keys = (response.Contents ?? [])
+					.map((object) => object.Key)
+					.filter((key): key is string => typeof key === "string");
+
+				if (keys.length > 0) {
+					await client.send(
+						new DeleteObjectsCommand({
+							Bucket: bucketName,
+							Delete: { Objects: keys.map((Key) => ({ Key })) },
+						}),
+					);
+				}
+
+				continuationToken = response.IsTruncated
+					? response.NextContinuationToken
+					: undefined;
+			} while (continuationToken);
+		};
+
 	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
 		const { accountConfigId, accountId, content, contentType } = params;
 		const checksumSha256 = computeChecksum(content);
@@ -505,6 +712,13 @@ export const createS3StorageService = (
 		storeBodyPart,
 		bodyPartExists,
 		retrieveBodyPart,
+		storeOutboxAttachment,
+		listOutboxAttachments,
+		listOutboxDraftsWithAttachments,
+		deleteOutboxAttachments,
+		deleteOutboxAttachment,
+		statOutboxAttachment,
+		createOutboxAttachmentUploadUrl,
 		storeDeduplicated,
 		storeParsedBody,
 		retrieveParsedBody,

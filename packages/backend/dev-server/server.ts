@@ -7,7 +7,10 @@ import {
 	renderMetrics,
 	setAccountSyncAges,
 } from "@remit/logger-lambda/metrics";
-import { isStorageNotFoundError } from "@remit/storage-service";
+import {
+	isStorageNotFoundError,
+	UPLOAD_ROUTE_PREFIX,
+} from "@remit/storage-service";
 import type { APIGatewayProxyResult } from "aws-lambda";
 import { env } from "expect-env";
 import express, {
@@ -25,6 +28,7 @@ import { parseAllowedOrigins, resolveAllowOrigin } from "./cors.js";
 import { createLambdaContext, createLambdaEvent } from "./lambda-helpers.js";
 import { checkRelationalStore } from "./relational-health.js";
 import { collectAccountSyncAges } from "./sync-age.js";
+import { receiveUpload } from "./upload-handler.js";
 
 const app = express();
 
@@ -100,9 +104,9 @@ if (isSelfHostBackend) {
 	app.all(/^\/api\/auth\//, toNodeHandler(auth));
 }
 
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true }));
-
+// Ahead of the body parsers, not after them: a body refused for its size never
+// reaches a route, and without these headers the browser reads that refusal as
+// a network failure instead of the reason it carries.
 app.use((req: Request, res: Response, next: NextFunction) => {
 	const allowOrigin = resolveAllowOrigin(
 		req.headers.origin,
@@ -127,6 +131,42 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 		next();
 	}
 });
+
+// The self-hosted upload receiver, the write-side twin of /content below. The
+// URL that reaches here was minted by the storage backend and carries its own
+// authority: an HMAC over the storage key, an expiry and the exact byte count.
+// No bearer token, for the same reason /content has none — the grant has to
+// travel in the URL itself. A hosted deployment presigns against block storage
+// instead and nothing arrives here at all.
+app.put(
+	new RegExp(`^${UPLOAD_ROUTE_PREFIX}.+$`),
+	async (req: Request, res: Response) => {
+		const storageKey = req.path.slice(UPLOAD_ROUTE_PREFIX.length);
+		const client = await getClient();
+
+		const result = await receiveUpload(client.storage, {
+			storageKey,
+			exp: typeof req.query.exp === "string" ? req.query.exp : undefined,
+			max: typeof req.query.max === "string" ? req.query.max : undefined,
+			sig: typeof req.query.sig === "string" ? req.query.sig : undefined,
+			body: req,
+			nowSeconds: Math.floor(Date.now() / 1000),
+			secret: process.env.BETTER_AUTH_SECRET,
+			findLiveReservation: (accountConfigId, outboxAttachmentId) =>
+				client.outboxAttachment.hasLiveReservation(
+					accountConfigId,
+					outboxAttachmentId,
+				),
+		});
+
+		res.setHeader("x-remit-upload-reason", result.reason);
+		res.status(result.status);
+		res.send(result.status === 204 ? undefined : result.reason);
+	},
+);
+
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true }));
 
 app.get("/.well-known/appspecific/com.chrome.devtools.json", () => ({}));
 
@@ -319,7 +359,9 @@ const port = env.SERVER_PORT;
 //
 // This is also the everyday `npm run dev` server, so the addresses stay whole
 // and clickable — `url`, not a port a developer has to assemble one themselves.
-app.listen(Number(port), "0.0.0.0", () => {
+// Exported so a test that drives this exact app can shut the listener down
+// afterwards; nothing else has any business holding it.
+export const listener = app.listen(Number(port), "0.0.0.0", () => {
 	// biome-ignore lint/plugin/no-logger-info: the configuration a container came up on is an audit-grade signal
 	logger.info(
 		{

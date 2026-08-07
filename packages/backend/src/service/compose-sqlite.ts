@@ -22,6 +22,7 @@ import {
 	MessagePlacementMoveRepo,
 	messageDataSchema,
 	OrganizeJobRequestRepo,
+	OutboxAttachmentRepo,
 	OutboxMessageRepo,
 	QuarantineRepo,
 } from "@remit/drizzle-service";
@@ -59,6 +60,7 @@ export const buildSqliteClient = async (): Promise<RemitClient> => {
 		message: new DrizzleMessageRepository(messageDataDb),
 		messageFlag: new DrizzleMessageFlagRepository(messageDataDb),
 		outboxMessage: new OutboxMessageRepo(genericDb),
+		outboxAttachment: new OutboxAttachmentRepo(genericDb),
 		threadMessage: new DrizzleThreadMessageRepository(genericDb),
 		envelope: new DrizzleEnvelopeRepository(messageDataDb),
 		accountExportRequest: new AccountExportRequestRepo(genericDb),

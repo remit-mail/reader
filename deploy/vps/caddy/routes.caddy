@@ -24,6 +24,10 @@ request_header X-Remit-Client-IP {client_ip}
 #   /content/*   -> backend directly, path unchanged (signed-URL content
 #                   delivery; not part of the openapi/JWT-gated surface, so
 #                   it does not go through apisix's business routes)
+#   /outbox-upload/* -> backend directly, path unchanged (the write-side twin:
+#                   an attachment upload authorized by the signature in its own
+#                   URL, so apisix's bearer gate would refuse it and there is no
+#                   openapi route for it to match)
 #   everything else -> the web static server (the SPA and its assets)
 #
 # Every upstream here is a single-replica container a redeploy replaces in
@@ -54,6 +58,13 @@ route /api/* {
 }
 
 route /content/* {
+	reverse_proxy backend:8080 {
+		lb_try_duration 30s
+		lb_try_interval 250ms
+	}
+}
+
+route /outbox-upload/* {
 	reverse_proxy backend:8080 {
 		lb_try_duration 30s
 		lb_try_interval 250ms

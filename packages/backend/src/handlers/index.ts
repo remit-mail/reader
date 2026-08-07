@@ -14,7 +14,11 @@ import {
 import { MeOperations } from "./me.js";
 import { MessageBulkOperations, MessageOperations } from "./message.js";
 import { OrganizeJobDetailOperations, OrganizeOperations } from "./organize.js";
-import { OutboxDetailOperations, OutboxOperations } from "./outbox.js";
+import {
+	OutboxAttachmentOperations,
+	OutboxDetailOperations,
+	OutboxOperations,
+} from "./outbox.js";
 import { SemanticSearchOperations } from "./search.js";
 import { SyncOperations } from "./sync.js";
 import { SystemOperations } from "./system-update.js";
@@ -47,6 +51,7 @@ export const handlers: Record<OperationIds, OperationHandler<any>> = {
 	...MessageBulkOperations,
 	...OutboxOperations,
 	...OutboxDetailOperations,
+	...OutboxAttachmentOperations,
 	...AddressOperations,
 	...AddressDetailOperations,
 	...SemanticSearchOperations,

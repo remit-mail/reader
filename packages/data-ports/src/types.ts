@@ -21,6 +21,7 @@ import type {
 	MessagePlacementMoveSchema,
 	MessageSchema,
 	OrganizeJobRequestSchema,
+	OutboxAttachmentSchema,
 	OutboxMessageSchema,
 	QuarantineSchema,
 	RawMessageStorageSchema,
@@ -54,6 +55,7 @@ export type AccountConfigItem = z.infer<typeof AccountConfigSchema>;
 export type MailboxItem = z.infer<typeof MailboxSchema>;
 export type ThreadMessageItem = z.infer<typeof ThreadMessageSchema>;
 export type OutboxMessageItem = z.infer<typeof OutboxMessageSchema>;
+export type OutboxAttachmentItem = z.infer<typeof OutboxAttachmentSchema>;
 export type MessageItem = z.infer<typeof MessageSchema>;
 export type MessageFlagItem = z.infer<typeof MessageFlagSchema>;
 export type BodyPartItem = z.infer<typeof BodyPartSchema>;

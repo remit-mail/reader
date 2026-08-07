@@ -198,6 +198,24 @@ export {
 	type SyncMessagesResult,
 } from "./message-sync.js";
 export {
+	type CompleteOutboxAttachmentInput,
+	type CompleteOutboxAttachmentOutcome,
+	type MintOutboxAttachmentInput,
+	type MintOutboxAttachmentOutcome,
+	OUTBOX_ATTACHMENT_MAX_COUNT,
+	OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
+	type OutboxAttachmentConfig,
+	type OutboxAttachmentRejectionDetail,
+	type OutboxAttachmentRejectionReasonValue,
+	type OutboxAttachmentReservation,
+	OutboxAttachmentService,
+} from "./outbox-attachment.js";
+export {
+	FALLBACK_CONTENT_TYPE,
+	normalizeAttachmentContentType,
+	sanitizeAttachmentFilename,
+} from "./outbox-attachment-filename.js";
+export {
 	type CreateDraftInput,
 	type OutboxQueueConfig,
 	type OutboxQueueLogger,

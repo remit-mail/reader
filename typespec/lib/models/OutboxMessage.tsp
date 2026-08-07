@@ -133,8 +133,8 @@ model OutboxMessage {
 // ============================================
 
 @doc("Outbox message response")
-model OutboxMessageResponse
-  is PickProperties<
+model OutboxMessageResponse {
+  ...PickProperties<
     OutboxMessage,
 
       | "outboxMessageId"
@@ -155,6 +155,10 @@ model OutboxMessageResponse
       | "createdAt"
       | "updatedAt"
   >;
+
+  @doc("Files on this message. Empty when it carries none.")
+  attachments: OutboxAttachmentResponse[];
+}
 
 // ============================================
 // API Input Models
@@ -196,6 +200,9 @@ model CreateOutboxMessageInput {
 
 @doc("Input for updating a draft outbox message")
 model UpdateOutboxMessageInput {
+  @doc("The files this draft keeps. Anything left out is removed with its bytes.")
+  attachmentIds?: UUID[];
+
   @doc("Recipient addresses (To)")
   toAddresses?: string[];
 

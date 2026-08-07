@@ -26,6 +26,7 @@ import "./ThreadMessage.tsp";
 
 // Outbox Layer (SMTP)
 import "./OutboxMessage.tsp";
+import "./OutboxAttachment.tsp";
 
 // Semantic Search
 import "./SemanticSearch.tsp";

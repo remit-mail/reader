@@ -3,7 +3,10 @@ import type {
 	OutboxMessageResponse,
 	UpdateOutboxMessageInput,
 } from "@remit/api-openapi-types";
-import type { OutboxMessageItem } from "@remit/data-ports";
+import type {
+	OutboxAttachmentItem,
+	OutboxMessageItem,
+} from "@remit/data-ports";
 import { ForbiddenError } from "@remit/data-ports/errors";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
@@ -11,13 +14,31 @@ import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getClient } from "../service/data-client.js";
 import type {
 	OperationHandler,
+	OutboxAttachmentOperationIds,
 	OutboxDetailOperationIds,
 	OutboxOperationIds,
 } from "../types.js";
+import {
+	completeOutboxAttachment,
+	mintOutboxAttachment,
+} from "./outbox-attachment.js";
+
+const toAttachmentResponse = (
+	item: OutboxAttachmentItem,
+): OutboxMessageResponse["attachments"][number] => ({
+	outboxAttachmentId: item.outboxAttachmentId,
+	outboxMessageId: item.outboxMessageId,
+	filename: item.filename,
+	contentType: item.contentType,
+	sizeBytes: item.sizeBytes,
+	state: item.state,
+});
 
 const toOutboxMessageResponse = (
 	item: OutboxMessageItem,
+	attachments: OutboxAttachmentItem[] = [],
 ): OutboxMessageResponse => ({
+	attachments: attachments.map(toAttachmentResponse),
 	outboxMessageId: item.outboxMessageId,
 	accountId: item.accountId,
 	fromAddress: item.fromAddress,
@@ -118,7 +139,7 @@ export const OutboxOperations: Record<
 		});
 
 		return {
-			items: result.items.map(toOutboxMessageResponse),
+			items: result.items.map((item) => toOutboxMessageResponse(item)),
 			continuationToken: result.continuationToken,
 		};
 	},
@@ -145,7 +166,10 @@ export const OutboxDetailOperations: Record<
 			accountConfigId,
 			outboxMessageId,
 		);
-		return toOutboxMessageResponse(outbox);
+		return toOutboxMessageResponse(
+			outbox,
+			await client.outboxAttachment.listFor(accountConfigId, outboxMessageId),
+		);
 	},
 
 	OutboxDetailOperations_updateOutboxMessage: async (
@@ -176,7 +200,23 @@ export const OutboxDetailOperations: Record<
 				references: input.references,
 			},
 		);
-		return toOutboxMessageResponse(updated);
+
+		// Absent means "leave the files alone" — a body that only carries a subject
+		// must not strip them. Present states exactly what the draft keeps, so an
+		// empty list is a real instruction to remove them all.
+		if (input.attachmentIds !== undefined) {
+			await client.outboxAttachment.retainOnly(
+				accountConfigId,
+				updated.accountId,
+				outboxMessageId,
+				input.attachmentIds,
+			);
+		}
+
+		return toOutboxMessageResponse(
+			updated,
+			await client.outboxAttachment.listFor(accountConfigId, outboxMessageId),
+		);
 	},
 
 	OutboxDetailOperations_deleteOutboxMessage: async (
@@ -215,4 +255,13 @@ export const OutboxDetailOperations: Record<
 		);
 		return toOutboxMessageResponse(sent);
 	},
+
+	OutboxDetailOperations_mintOutboxAttachment: mintOutboxAttachment,
+};
+
+export const OutboxAttachmentOperations: Record<
+	OutboxAttachmentOperationIds,
+	OperationHandler<OutboxAttachmentOperationIds>
+> = {
+	OutboxAttachmentOperations_completeOutboxAttachment: completeOutboxAttachment,
 };

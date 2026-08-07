@@ -110,8 +110,12 @@ describe("the stack fetches mail with no browser open", {
 		assert.equal(scheduler.environment.SQLITE_DB_PATH, "/data/sqlite/remit.db");
 		assert.deepEqual(
 			scheduler.volumes.map((volume) => `${volume.source}:${volume.target}`),
-			["sqlite_data:/data/sqlite", "heartbeat:/data/heartbeat"],
-			"it enqueues work and talks to no mail server, so it needs no message storage",
+			[
+				"sqlite_data:/data/sqlite",
+				"heartbeat:/data/heartbeat",
+				"message_storage:/data/storage",
+			],
+			"it talks to no mail server, but its tick collects outbox attachment objects the database does not know about — without the storage mount that sweep reads an empty directory and reports every account collected",
 		);
 	});
 

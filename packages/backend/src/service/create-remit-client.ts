@@ -18,6 +18,7 @@ import type {
 	IMessagePlacementMoveRepository,
 	IMessageRepository,
 	IOrganizeJobRequestRepository,
+	IOutboxAttachmentRepository,
 	IOutboxMessageRepository,
 	IQuarantineRepository,
 	IThreadMessageRepository,
@@ -33,6 +34,7 @@ import {
 	type IImapConnection,
 	MailboxQueueService,
 	MessageMoveService,
+	OutboxAttachmentService,
 	OutboxQueueService,
 	PlacementMoveService,
 	SpamReportService,
@@ -144,6 +146,7 @@ export interface RemitClient {
 	flagQueue: FlagQueueService;
 	mailboxQueue: MailboxQueueService;
 	messageMove: MessageMoveService;
+	outboxAttachment: OutboxAttachmentService;
 	outboxQueue: OutboxQueueService;
 
 	// Report-spam / not-spam (block-and-move, unified from the old separate
@@ -166,6 +169,7 @@ export interface RemitClientRepositories {
 	message: IMessageRepository;
 	messageFlag: IMessageFlagRepository;
 	outboxMessage: IOutboxMessageRepository;
+	outboxAttachment: IOutboxAttachmentRepository;
 	threadMessage: IThreadMessageRepository;
 	envelope: IEnvelopeRepository;
 	accountExportRequest: IAccountExportRequestRepository;
@@ -356,6 +360,15 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		logger,
 	});
 
+	// One instance, shared with the queue service below: the per-draft chain that
+	// makes the attachment cap safe under concurrency lives on it, and a discard
+	// racing an upload has to take the same lock the upload does.
+	const outboxAttachmentService = new OutboxAttachmentService({
+		outboxMessageService: repositories.outboxMessage,
+		outboxAttachmentService: repositories.outboxAttachment,
+		storage,
+	});
+
 	const bodySync = new BodySyncService(
 		repositories.message,
 		storage,
@@ -408,8 +421,10 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 			logger,
 		}),
 		messageMove: messageMoveService,
+		outboxAttachment: outboxAttachmentService,
 		outboxQueue: new OutboxQueueService({
 			outboxMessageService: repositories.outboxMessage,
+			outboxAttachmentService,
 			accountService: repositories.account,
 			sqsSmtpQueueUrl,
 			logger,

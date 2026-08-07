@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import {
+	CONTENT_URL_TTL_SECONDS,
 	createContentSigner,
 	getContentSigner,
 	verifyContentSignature,
@@ -131,5 +132,30 @@ describe("getContentSigner", () => {
 		process.env.DATA_BACKEND = "sqlite";
 		delete process.env.BETTER_AUTH_SECRET;
 		assert.throws(() => getContentSigner(), /BETTER_AUTH_SECRET/);
+	});
+});
+
+describe("the wire format is pinned, not merely self-consistent", () => {
+	/**
+	 * Every other test here round-trips through this module, so a change to the
+	 * canonical message or the key derivation passes them all while breaking every
+	 * `/content` URL already in a browser. This vector was computed once, by hand,
+	 * from the scheme as shipped: HMAC-SHA256 with a subkey derived from the
+	 * master secret under `remit-content-url-signing-v1`, over `path\nexp`,
+	 * base64url. If it fails, the format moved and in-flight URLs moved with it.
+	 */
+	it("still produces the signature it produced when the scheme shipped", () => {
+		const signer = createContentSigner(
+			"a-signing-secret-of-at-least-32-characters",
+		);
+		const originalNow = Date.now;
+		Date.now = () => 1_800_000_000_000 - CONTENT_URL_TTL_SECONDS * 1000;
+		try {
+			const { exp, sig } = signer("accounts/cfg1/acc1/messages/msg1/parts/1.2");
+			assert.equal(exp, 1_800_000_000);
+			assert.equal(sig, "eFKwOYf42a6DWwaZahIm7aVtWuqMOfhOAPoyxtpFybo");
+		} finally {
+			Date.now = originalNow;
+		}
 	});
 });

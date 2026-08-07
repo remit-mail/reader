@@ -31,6 +31,7 @@ export {
 	type PutMessagePlacementMoveInput,
 } from "./repos/i4-message-placement-move.js";
 export * from "./repos/i4-organize-job-request.js";
+export { OutboxAttachmentRepo } from "./repos/i4-outbox-attachment.js";
 export * from "./repos/i4-outbox-message.js";
 export { LabelRepo } from "./repos/label.js";
 export {

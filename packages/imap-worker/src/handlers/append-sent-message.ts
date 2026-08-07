@@ -77,6 +77,7 @@ export const handleAppendSentMessage = async (
 	const {
 		account: accountService,
 		outboxMessage: outboxMessageService,
+		outboxAttachment: outboxAttachmentService,
 		mailboxSpecialUse: mailboxSpecialUseService,
 		mailbox: mailboxService,
 		secrets,
@@ -145,8 +146,21 @@ export const handleAppendSentMessage = async (
 
 			// The message now lives in the IMAP Sent folder. Drop the outbox row so
 			// the user does not see it twice in the UI (Outbox + Sent). Issue #178.
+			//
+			// The row goes first, and nothing that can fail may come before it. The
+			// APPEND above has already happened; anything between it and this delete
+			// that throws leaves the row for the job to retry, and the retry appends
+			// a second copy to the user's Sent folder. A storage error is not worth
+			// a duplicate message — the attachment objects that outlive their row
+			// are exactly what the sweep collects, so losing this delete costs a
+			// sweep and nothing else.
 			await outboxMessageService.delete(
 				account.accountConfigId,
+				outboxMessageId,
+			);
+			await outboxAttachmentService.discardAll(
+				account.accountConfigId,
+				accountId,
 				outboxMessageId,
 			);
 			log.info(

@@ -4,6 +4,7 @@ import {
 	mkdir,
 	readdir,
 	readFile,
+	rm,
 	stat,
 	unlink,
 	writeFile,
@@ -13,7 +14,13 @@ import { PassThrough, Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGunzip, createGzip, gunzipSync, gzipSync } from "node:zlib";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
+import {
+	UPLOAD_ROUTE_PREFIX,
+	UPLOAD_URL_SIGNING_LABEL,
+} from "../outbox-upload-url.js";
+import { signStoragePath } from "../signed-path.js";
 import type {
+	OutboxAttachmentListItem,
 	ParsedBody,
 	StorageReference,
 	StorageService,
@@ -26,6 +33,8 @@ import {
 	buildExtractedSkippedKey,
 	buildExtractedTextKey,
 	buildMessageBodyKey,
+	buildOutboxAttachmentKey,
+	buildOutboxAttachmentPrefix,
 	buildParsedBodyKey,
 	computeChecksum,
 	isStorageNotFoundError,
@@ -37,8 +46,20 @@ interface StoreParams {
 	compress?: boolean;
 }
 
+/**
+ * Where a minted upload URL points, and what signs it. Absent on a process that
+ * only reads storage; a mint then fails loud rather than handing out a URL
+ * nothing can verify.
+ */
+export interface FilesystemUploadUrlConfig {
+	/** Public origin of the deployment serving the upload route. */
+	origin: string;
+	signingSecret: string;
+}
+
 export const createFilesystemStorageService = (
 	basePath: string,
+	uploadUrls?: FilesystemUploadUrlConfig,
 ): StorageService => {
 	const storeInternal = async (
 		params: StoreParams,
@@ -252,6 +273,181 @@ export const createFilesystemStorageService = (
 			}));
 	};
 
+	const storeOutboxAttachment: StorageService["storeOutboxAttachment"] = (
+		params,
+	) => {
+		const {
+			accountConfigId,
+			accountId,
+			outboxMessageId,
+			outboxAttachmentId,
+			content,
+		} = params;
+		return storeInternal({
+			key: buildOutboxAttachmentKey(
+				accountConfigId,
+				accountId,
+				outboxMessageId,
+				outboxAttachmentId,
+			),
+			content,
+			compress: false,
+		});
+	};
+
+	const listOutboxAttachments: StorageService["listOutboxAttachments"] = async (
+		accountConfigId,
+		accountId,
+		outboxMessageId,
+	) => {
+		const prefix = buildOutboxAttachmentPrefix(
+			accountConfigId,
+			accountId,
+			outboxMessageId,
+		);
+		const entries = await readdir(join(basePath, prefix)).catch(
+			(error: unknown) => {
+				if (isStorageNotFoundError(error)) return [];
+				throw error;
+			},
+		);
+
+		const items: OutboxAttachmentListItem[] = [];
+		for (const name of entries) {
+			const { size } = await stat(join(basePath, prefix, name));
+			items.push({
+				outboxAttachmentId: name,
+				key: `${prefix}${name}`,
+				sizeBytes: size,
+			});
+		}
+		return items;
+	};
+
+	const listOutboxDraftsWithAttachments: StorageService["listOutboxDraftsWithAttachments"] =
+		async (accountConfigId, accountId) => {
+			// An account that has never held an attachment has no directory, and
+			// that is genuinely nothing to do. A storage root that is not there at
+			// all is a different thing entirely — a process that cannot see the
+			// volume it is meant to be collecting from — and it must not read as an
+			// empty answer. Unmounted, the sweep would report every account swept
+			// and collect nothing, forever.
+			const rootExists = await stat(basePath)
+				.then(() => true)
+				.catch((error: unknown) => {
+					if (isStorageNotFoundError(error)) return false;
+					throw error;
+				});
+			if (!rootExists) {
+				throw new Error(
+					`storage root ${basePath} does not exist; this process cannot see the storage it was asked to read`,
+				);
+			}
+
+			const root = join(
+				basePath,
+				`accounts/${accountConfigId}/${accountId}/outbox`,
+			);
+			const entries = await readdir(root, { withFileTypes: true }).catch(
+				(error: unknown) => {
+					if (isStorageNotFoundError(error)) return [];
+					throw error;
+				},
+			);
+			return entries
+				.filter((entry) => entry.isDirectory())
+				.map((entry) => entry.name);
+		};
+
+	const deleteOutboxAttachment: StorageService["deleteOutboxAttachment"] =
+		async (accountConfigId, accountId, outboxMessageId, outboxAttachmentId) => {
+			const prefix = buildOutboxAttachmentPrefix(
+				accountConfigId,
+				accountId,
+				outboxMessageId,
+			);
+			const entries = await readdir(join(basePath, prefix)).catch(
+				(error: unknown) => {
+					if (isStorageNotFoundError(error)) return [];
+					throw error;
+				},
+			);
+			for (const name of entries) {
+				if (name !== outboxAttachmentId) continue;
+				await rm(join(basePath, prefix, name), { force: true });
+			}
+		};
+
+	const statOutboxAttachment: StorageService["statOutboxAttachment"] = async (
+		accountConfigId,
+		accountId,
+		outboxMessageId,
+		outboxAttachmentId,
+	) => {
+		const fullPath = join(
+			basePath,
+			buildOutboxAttachmentKey(
+				accountConfigId,
+				accountId,
+				outboxMessageId,
+				outboxAttachmentId,
+			),
+		);
+		const stats = await stat(fullPath).catch((error: unknown) => {
+			if (isStorageNotFoundError(error)) return null;
+			throw error;
+		});
+		return stats ? { sizeBytes: stats.size } : null;
+	};
+
+	// This backend has no presigned anything, so the URL addresses the
+	// deployment's own upload route. Its authority is the same HMAC the read side
+	// uses on /content, under the write label, covering the storage key, the
+	// expiry and the exact byte count — a URL for one attachment, for a while,
+	// for one size.
+	const createOutboxAttachmentUploadUrl: StorageService["createOutboxAttachmentUploadUrl"] =
+		async (params) => {
+			if (!uploadUrls) {
+				throw new Error(
+					"the filesystem storage backend cannot mint an upload URL without an origin and a signing secret",
+				);
+			}
+			const key = buildOutboxAttachmentKey(
+				params.accountConfigId,
+				params.accountId,
+				params.outboxMessageId,
+				params.outboxAttachmentId,
+			);
+			const sig = signStoragePath(
+				uploadUrls.signingSecret,
+				UPLOAD_URL_SIGNING_LABEL,
+				key,
+				[params.expiresAt, params.sizeBytes],
+			);
+			const origin = uploadUrls.origin.replace(/\/+$/, "");
+			const query = new URLSearchParams({
+				exp: String(params.expiresAt),
+				max: String(params.sizeBytes),
+				sig,
+			});
+			return {
+				uploadUrl: `${origin}${UPLOAD_ROUTE_PREFIX}${key}?${query.toString()}`,
+			};
+		};
+
+	const deleteOutboxAttachments: StorageService["deleteOutboxAttachments"] =
+		async (accountConfigId, accountId, outboxMessageId) => {
+			const dirPath = join(
+				basePath,
+				buildOutboxAttachmentPrefix(
+					accountConfigId,
+					accountId,
+					outboxMessageId,
+				),
+			);
+			await rm(dirPath, { recursive: true, force: true });
+		};
+
 	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
 		const { accountConfigId, accountId, content } = params;
 		const checksumSha256 = computeChecksum(content);
@@ -338,6 +534,13 @@ export const createFilesystemStorageService = (
 		storeBodyPart,
 		bodyPartExists,
 		retrieveBodyPart,
+		storeOutboxAttachment,
+		listOutboxAttachments,
+		listOutboxDraftsWithAttachments,
+		deleteOutboxAttachments,
+		deleteOutboxAttachment,
+		statOutboxAttachment,
+		createOutboxAttachmentUploadUrl,
 		storeDeduplicated,
 		storeParsedBody,
 		retrieveParsedBody,

@@ -23,6 +23,7 @@ export * from "./schema/i4-mailbox-lock.js";
 export * from "./schema/i4-message-flag-push.js";
 export * from "./schema/i4-message-placement-move.js";
 export * from "./schema/i4-organize-job-request.js";
+export * from "./schema/i4-outbox-attachment.js";
 export * from "./schema/i4-outbox-message.js";
 export * from "./schema/message-data.js";
 export * from "./schema/quarantine.js";
