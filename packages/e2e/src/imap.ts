@@ -331,6 +331,55 @@ const readStream = async (stream: NodeJS.ReadableStream): Promise<string> => {
 	return Buffer.concat(chunks).toString("utf8");
 };
 
+interface StructuredMessage {
+	uid: number;
+	structure: MessageStructureObject;
+}
+
+/**
+ * Download every leaf of one message and pair each with the media type
+ * BODYSTRUCTURE gave it.
+ *
+ * The FETCH that found the message is drained before the first download starts.
+ * A connection carries one command at a time, so issuing a download from inside
+ * an unfinished FETCH would wait on a response that cannot arrive.
+ */
+const downloadShape = async (
+	client: ImapFlow,
+	message: StructuredMessage,
+): Promise<MimeShape> => {
+	const parts: MimePart[] = [];
+	for (const leaf of leafNodes(message.structure)) {
+		const download = await client.download(String(message.uid), leaf.part, {
+			uid: true,
+		});
+		parts.push({
+			contentType: leaf.type,
+			content: await readStream(download.content),
+		});
+	}
+	return { contentType: message.structure.type, parts };
+};
+
+const firstStructured = async (
+	client: ImapFlow,
+	matches: (subject: string | undefined) => boolean,
+): Promise<StructuredMessage | null> => {
+	const exists = typeof client.mailbox === "object" ? client.mailbox.exists : 0;
+	if (!exists) return null;
+
+	let found: StructuredMessage | null = null;
+	for await (const message of client.fetch("1:*", {
+		envelope: true,
+		bodyStructure: true,
+	})) {
+		if (found || !message.bodyStructure) continue;
+		if (!matches(message.envelope?.subject)) continue;
+		found = { uid: message.uid, structure: message.bodyStructure };
+	}
+	return found;
+};
+
 /**
  * The MIME shape of one subject in a mailbox, parsed by Dovecot rather than by
  * the suite: the structure comes from BODYSTRUCTURE and each part's text from a
@@ -349,32 +398,8 @@ export const readMimeShape = async (
 	try {
 		const lock = await client.getMailboxLock(mailbox);
 		try {
-			const exists =
-				typeof client.mailbox === "object" ? client.mailbox.exists : 0;
-			if (!exists) return null;
-
-			let found: { uid: number; structure: MessageStructureObject } | undefined;
-			for await (const message of client.fetch("1:*", {
-				envelope: true,
-				bodyStructure: true,
-			})) {
-				if (message.envelope?.subject === subject && message.bodyStructure) {
-					found = { uid: message.uid, structure: message.bodyStructure };
-				}
-			}
-			if (!found) return null;
-
-			const parts: MimePart[] = [];
-			for (const leaf of leafNodes(found.structure)) {
-				const download = await client.download(String(found.uid), leaf.part, {
-					uid: true,
-				});
-				parts.push({
-					contentType: leaf.type,
-					content: await readStream(download.content),
-				});
-			}
-			return { contentType: found.structure.type, parts };
+			const found = await firstStructured(client, (seen) => seen === subject);
+			return found ? await downloadShape(client, found) : null;
 		} finally {
 			lock.release();
 		}
@@ -394,29 +419,20 @@ export const readMimeShapeOfRaw = async (raw: string): Promise<MimeShape> => {
 	const scratchUser = mintImapUser();
 	await appendRawMessage(scratchUser, raw);
 	const client = await connect(scratchUser);
-	let subject: string | undefined;
 	try {
 		const lock = await client.getMailboxLock("INBOX");
 		try {
-			for await (const message of client.fetch("1:*", { envelope: true })) {
-				subject = message.envelope?.subject;
+			const found = await firstStructured(client, () => true);
+			if (!found) {
+				throw new Error(
+					"the scratch mailbox did not hold the appended message",
+				);
 			}
+			return await downloadShape(client, found);
 		} finally {
 			lock.release();
 		}
 	} finally {
 		await client.logout();
 	}
-	if (subject === undefined) {
-		throw new Error(
-			"the scratch mailbox did not hold the message just appended",
-		);
-	}
-	const shape = await readMimeShape(scratchUser, "INBOX", subject);
-	if (!shape) {
-		throw new Error(
-			"unreachable: the scratch message was appended but not read",
-		);
-	}
-	return shape;
 };
