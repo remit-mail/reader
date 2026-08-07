@@ -39,7 +39,10 @@ export function ComposeFormShell({
 		<div className="flex h-full min-h-0 flex-col">
 			{banner}
 			{header}
-			<div className="min-h-0 flex-1 overflow-auto">
+			<div
+				className="min-h-0 flex-1 overflow-auto"
+				data-testid="compose-body-area"
+			>
 				{children}
 				{quoted && <div className="px-3 pb-2">{quoted}</div>}
 			</div>
