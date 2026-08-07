@@ -173,31 +173,36 @@ export const RichTextEditor = ({
 			},
 		}}
 	>
-		<RichTextToolbar />
-		<div className="relative">
-			<RichTextPlugin
-				contentEditable={
-					<ContentEditable
-						aria-label={ariaLabel}
-						aria-placeholder={placeholder}
-						data-testid="compose-body"
-						className="min-h-[120px] w-full bg-canvas px-3 py-2 text-sm text-fg outline-none"
-						placeholder={
-							<div className="pointer-events-none absolute inset-x-0 top-0 px-3 py-2 text-sm text-fg-subtle">
-								{placeholder}
-							</div>
-						}
-						onKeyDown={(event) => {
-							if (!onSubmit) return;
-							if (!(event.metaKey || event.ctrlKey) || event.key !== "Enter")
-								return;
-							event.preventDefault();
-							onSubmit();
-						}}
-					/>
-				}
-				ErrorBoundary={LexicalErrorBoundary}
-			/>
+		{/* The editable claims the height its container offers rather than only the
+		    height of its own text. What is under the last line is the document, so
+		    a click there reaches it instead of an unfocusable parent. */}
+		<div className="flex shrink-0 grow flex-col">
+			<RichTextToolbar />
+			<div className="relative flex shrink-0 grow flex-col">
+				<RichTextPlugin
+					contentEditable={
+						<ContentEditable
+							aria-label={ariaLabel}
+							aria-placeholder={placeholder}
+							data-testid="compose-body"
+							className="min-h-[120px] w-full shrink-0 grow bg-canvas px-3 py-2 text-sm text-fg outline-none"
+							placeholder={
+								<div className="pointer-events-none absolute inset-x-0 top-0 px-3 py-2 text-sm text-fg-subtle">
+									{placeholder}
+								</div>
+							}
+							onKeyDown={(event) => {
+								if (!onSubmit) return;
+								if (!(event.metaKey || event.ctrlKey) || event.key !== "Enter")
+									return;
+								event.preventDefault();
+								onSubmit();
+							}}
+						/>
+					}
+					ErrorBoundary={LexicalErrorBoundary}
+				/>
+			</div>
 		</div>
 		<HistoryPlugin />
 		<ListPlugin />

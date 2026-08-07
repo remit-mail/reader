@@ -118,7 +118,7 @@ function ComposeShell({
 		<div className="flex h-full w-full min-h-0 flex-col bg-surface">
 			<Field label="To" value={to} />
 			<Field label="Subject" value={subject} />
-			<div className="min-h-0 flex-1 overflow-y-auto">
+			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
 				<RichTextEditor initialHtml={body} />
 			</div>
 			{actionBar}

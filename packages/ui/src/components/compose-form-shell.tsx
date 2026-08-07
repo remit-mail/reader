@@ -27,6 +27,10 @@ export interface ComposeFormShellProps {
  * pinned action bar. Owns the column structure so the action bar always sits
  * at the bottom and never clips below the fold. The live form composes this
  * with its provider-driven slots; stories render it with static slots.
+ *
+ * The body region is a column so the editor can claim the space the quote and
+ * the action bar leave — a body slot shorter than the region would otherwise
+ * leave dead, unclickable canvas under it.
  */
 export function ComposeFormShell({
 	banner,
@@ -39,9 +43,12 @@ export function ComposeFormShell({
 		<div className="flex h-full min-h-0 flex-col">
 			{banner}
 			{header}
-			<div className="min-h-0 flex-1 overflow-auto">
+			<div
+				className="flex min-h-0 flex-1 flex-col overflow-auto"
+				data-testid="compose-body-area"
+			>
 				{children}
-				{quoted && <div className="px-3 pb-2">{quoted}</div>}
+				{quoted && <div className="shrink-0 px-3 pb-2">{quoted}</div>}
 			</div>
 			{actionBar}
 		</div>
