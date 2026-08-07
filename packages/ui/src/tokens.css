@@ -38,6 +38,10 @@
 	--font-ui: var(--font-geist);
 	--font-sans: var(--font-ui);
 
+	/* The plain compose surface promises the characters that will be sent, and a
+	   pipe table in a proportional face is unaligned bars. Nothing downloaded. */
+	--font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
 	/* surfaces & text */
 	--color-canvas: var(--canvas);
 	--color-surface: var(--surface);

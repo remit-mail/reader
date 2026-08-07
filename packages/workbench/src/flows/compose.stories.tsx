@@ -1,7 +1,13 @@
 import { Button, inboxFilterConfig } from "@remit/ui";
-import { RichTextEditor } from "@remit/ui/rich-text";
+import {
+	type ComposeBodyMode,
+	ComposeModeToggle,
+	PlainTextEditor,
+	RichTextEditor,
+} from "@remit/ui/rich-text";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Loader2, Send, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { allThreads } from "../fixtures/workspace.js";
 import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
 import { MailShell } from "../screens/mail-shell.js";
@@ -103,15 +109,47 @@ function Field({ label, value }: { label: string; value: string }) {
 const DEFAULT_BODY =
 	"<p>Thanks — that works for me. I'll send the deck tomorrow.</p>";
 
+const DEFAULT_PLAIN_BODY = [
+	"Thanks — that works for me.",
+	"",
+	"| Region | Total |",
+	"| --- | --- |",
+	"| EMEA | 412 |",
+].join("\n");
+
+/**
+ * The compose body carries the mode toggle at the right of its toolbar, and the
+ * two surfaces it swaps between. Both are the components the app ships.
+ */
+function ComposeBody({ mode, body }: { mode: ComposeBodyMode; body: string }) {
+	const [current, setCurrent] = useState<ComposeBodyMode>(mode);
+	const [text, setText] = useState(DEFAULT_PLAIN_BODY);
+	const toggle = (
+		<ComposeModeToggle
+			mode={current}
+			onToggle={() => setCurrent(current === "plain" ? "rich" : "plain")}
+		/>
+	);
+
+	if (current === "plain") {
+		return (
+			<PlainTextEditor value={text} onChange={setText} trailing={toggle} />
+		);
+	}
+	return <RichTextEditor initialHtml={body} trailing={toggle} />;
+}
+
 function ComposeShell({
 	to = "ada@example.com",
 	subject = "Re: Q3 planning",
 	body = DEFAULT_BODY,
+	mode = "rich",
 	actionBar,
 }: {
 	to?: string;
 	subject?: string;
 	body?: string;
+	mode?: ComposeBodyMode;
 	actionBar: React.ReactNode;
 }) {
 	return (
@@ -119,7 +157,7 @@ function ComposeShell({
 			<Field label="To" value={to} />
 			<Field label="Subject" value={subject} />
 			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-				<RichTextEditor initialHtml={body} />
+				<ComposeBody mode={mode} body={body} />
 			</div>
 			{actionBar}
 		</div>
@@ -171,6 +209,24 @@ export const MobileComposeSheet: Story = {
 						<ComposeShell actionBar={<ActionBar saveStatus="saving" />} />
 					</div>
 				</>
+			}
+		/>
+	),
+};
+
+/**
+ * Plain text: the formatting buttons leave, a monospace textarea takes the
+ * editor's place, and what is on screen is exactly what the recipient gets.
+ */
+export const PlainText: Story = {
+	render: () => (
+		<MailShell
+			{...mailbox}
+			reading={
+				<ComposeShell
+					mode="plain"
+					actionBar={<ActionBar saveStatus="saved" />}
+				/>
 			}
 		/>
 	),

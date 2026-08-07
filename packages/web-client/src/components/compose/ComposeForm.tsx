@@ -16,6 +16,7 @@ import {
 	type RichTextValue,
 	sanitizeQuotedHtml,
 } from "@remit/ui";
+import type { ComposeBodyMode } from "@remit/ui/rich-text";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
 	lazy,
@@ -37,6 +38,7 @@ import {
 import type { AddressEntry } from "./AddressField";
 import { AddressField } from "./AddressField";
 import { ComposeSmtpMissingBanner } from "./ComposeSmtpMissingBanner";
+import { modeOfDraft } from "./compose-mode";
 
 const LazyComposeBody = lazy(() =>
 	import("./ComposeBody.js").then((m) => ({ default: m.ComposeBody })),
@@ -146,6 +148,28 @@ const getReferences = (
 		references,
 	};
 };
+
+/**
+ * What the two body columns carry for this mode.
+ *
+ * Plain mode writes the empty string rather than omitting `htmlBody`: absent
+ * means "leave alone" at every layer below, so a plain draft that omitted it
+ * would send the HTML it was written as before the switch. The empty string is
+ * defined, so the repository's update guard clears the column, and nodemailer
+ * branches on the value being truthy — an empty one builds no HTML alternative
+ * and the message leaves as a single `text/plain` part.
+ *
+ * Rich mode leaves it alone while it has nothing to say, so the moments before
+ * the lazily-loaded editor reports its document cannot write a draft back as
+ * plain.
+ */
+const outgoingBody = (
+	bodyMode: ComposeBodyMode,
+	body: RichTextValue,
+): { textBody: string | undefined; htmlBody: string | undefined } => ({
+	textBody: body.text || undefined,
+	htmlBody: bodyMode === "plain" ? "" : body.html || undefined,
+});
 
 const isFormEmpty = (
 	toAddresses: AddressEntry[],
@@ -330,6 +354,8 @@ export const ComposeForm = ({
 		setShowCc(false);
 		setShowBcc(false);
 		setInitialHtml("");
+		setInitialText("");
+		setBodyMode("rich");
 		setBody(EMPTY_RICH_TEXT);
 		setDocumentGeneration((generation) => generation + 1);
 		setDraftLoaded(false);
@@ -344,9 +370,12 @@ export const ComposeForm = ({
 	const [initialHtml, setInitialHtml] = useState(() =>
 		buildInitialHtml(signature.plainText),
 	);
+	const [initialText, setInitialText] = useState(signature.plainText);
+	const [bodyMode, setBodyMode] = useState<ComposeBodyMode>("rich");
 	const [body, setBody] = useState<RichTextValue>(() => ({
 		html: buildInitialHtml(signature.plainText),
 		text: signature.plainText,
+		formatting: [],
 	}));
 
 	const { data: draftData } = useQuery({
@@ -381,12 +410,16 @@ export const ComposeForm = ({
 			setShowBcc(true);
 		}
 		if (draftData.subject) setSubject(draftData.subject);
-		// A draft stores what would have been sent, so a rich one reopens from its
-		// HTML. Only a draft that never had any falls back to its text.
-		const loadedHtml =
-			draftData.htmlBody || textToHtml(draftData.textBody ?? "");
+		// A draft stores what would have been sent, so which surface it reopens in
+		// is read off that rather than a field of its own. A rich draft comes back
+		// from its HTML — reading its text into one paragraph, as this did, brought
+		// a formatted message back flattened.
+		const loadedHtml = draftData.htmlBody ?? "";
+		const loadedText = draftData.textBody ?? "";
+		setBodyMode(modeOfDraft(draftData.htmlBody));
 		setInitialHtml(loadedHtml);
-		setBody({ html: loadedHtml, text: draftData.textBody ?? "" });
+		setInitialText(loadedText);
+		setBody({ html: loadedHtml, text: loadedText, formatting: [] });
 		setDocumentGeneration((generation) => generation + 1);
 		setSelectedAccountId(draftData.accountId);
 		setDraftLoaded(true);
@@ -512,7 +545,7 @@ export const ComposeForm = ({
 		if (isFormEmpty(toAddresses, ccAddresses, bccAddresses, subject, body))
 			return;
 
-		const { html: htmlBody, text: textBody } = body;
+		const { htmlBody, textBody } = outgoingBody(bodyMode, body);
 
 		saveDraft({
 			accountId: selectedAccountId,
@@ -522,8 +555,8 @@ export const ComposeForm = ({
 			bccAddresses:
 				bccAddresses.length > 0 ? bccAddresses.map((a) => a.email) : undefined,
 			subject: subject || undefined,
-			textBody: textBody || undefined,
-			htmlBody: htmlBody || undefined,
+			textBody,
+			htmlBody,
 		});
 	}, [
 		selectedAccountId,
@@ -534,6 +567,7 @@ export const ComposeForm = ({
 		bccAddresses,
 		subject,
 		body,
+		bodyMode,
 		saveDraft,
 	]);
 
@@ -551,7 +585,7 @@ export const ComposeForm = ({
 					? getReferences(sourceMessage)
 					: {};
 
-			const { html: htmlBody, text: textBody } = body;
+			const { htmlBody, textBody } = outgoingBody(bodyMode, body);
 			const createdThisAttempt = !outboxMessageId;
 
 			// The debounce dropped above may have been holding the last two seconds
@@ -568,8 +602,8 @@ export const ComposeForm = ({
 						? bccAddresses.map((a) => a.email)
 						: undefined,
 				subject: subject || undefined,
-				textBody: textBody || undefined,
-				htmlBody: htmlBody || undefined,
+				textBody,
+				htmlBody,
 				...replyData,
 			});
 
@@ -618,6 +652,7 @@ export const ComposeForm = ({
 		bccAddresses,
 		subject,
 		body,
+		bodyMode,
 		mode,
 		sourceMessage,
 		outboxMessageId,
@@ -703,10 +738,14 @@ export const ComposeForm = ({
 			<Suspense fallback={<ComposeBodyFallback />}>
 				<LazyComposeBody
 					key={documentGeneration}
+					mode={bodyMode}
+					onModeChange={setBodyMode}
 					initialHtml={initialHtml}
+					initialText={initialText}
 					onChange={setBody}
 					onSubmit={handleSend}
 					autoFocus={mode === "new"}
+					onConversionError={pushError}
 				/>
 			</Suspense>
 		</ComposeFormShell>

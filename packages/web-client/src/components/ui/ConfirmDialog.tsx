@@ -57,10 +57,20 @@ export const ConfirmDialog = ({
 		return () => window.removeEventListener("keydown", handleKeyDown, true);
 	}, [isOpen, handleKeyDown]);
 
+	// Whoever opened the dialog gets the focus back when it closes. Without this
+	// a cancelled confirmation drops focus to the body, and the control the user
+	// was on — the compose mode toggle, a row's delete button — is gone from
+	// under the keyboard.
 	useEffect(() => {
-		if (isOpen) {
-			cancelRef.current?.focus();
-		}
+		if (!isOpen) return;
+		const opener =
+			document.activeElement instanceof HTMLElement
+				? document.activeElement
+				: null;
+		cancelRef.current?.focus();
+		return () => {
+			if (opener?.isConnected) opener.focus();
+		};
 	}, [isOpen]);
 
 	if (!isOpen) return null;

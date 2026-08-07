@@ -36,6 +36,8 @@ export interface RichTextEditorProps {
 	autoFocus?: boolean;
 	placeholder?: string;
 	ariaLabel?: string;
+	/** Pinned to the right of the toolbar strip. The mode toggle rides here. */
+	trailing?: React.ReactNode;
 }
 
 /**
@@ -161,6 +163,7 @@ export const RichTextEditor = ({
 	autoFocus = false,
 	placeholder = "Write your message…",
 	ariaLabel = "Message body",
+	trailing,
 }: RichTextEditorProps) => (
 	<LexicalComposer
 		initialConfig={{
@@ -177,7 +180,7 @@ export const RichTextEditor = ({
 		    height of its own text. What is under the last line is the document, so
 		    a click there reaches it instead of an unfocusable parent. */}
 		<div className="flex shrink-0 grow flex-col">
-			<RichTextToolbar />
+			<RichTextToolbar trailing={trailing} />
 			<div className="relative flex shrink-0 grow flex-col">
 				<RichTextPlugin
 					contentEditable={
