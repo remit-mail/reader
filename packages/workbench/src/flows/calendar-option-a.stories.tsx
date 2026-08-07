@@ -56,10 +56,9 @@ export const Week: Story = {
 
 /**
  * Wednesday has five things booked on top of each other between ten and
- * quarter to twelve. Three columns is as far as the grid will subdivide, and
- * the third is spent on the way in to the rest: two events are drawn and a "+3"
- * beside them opens the other three. Three unreadable slivers would be a
- * rendering failure dressed up as completeness.
+ * quarter to twelve. Three columns is as far as the grid will subdivide: three
+ * events are drawn and a "+2" beside them opens the other two. Five unreadable
+ * slivers would be a rendering failure dressed up as completeness.
  */
 export const DenseDay: Story = {
 	render: () => <CalendarDestination view="day" date={densestDay.date} />,

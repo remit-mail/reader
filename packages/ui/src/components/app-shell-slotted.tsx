@@ -221,7 +221,15 @@ export function AppShellSlotted({
 	   column, so they are shares of the remaining ~83%, not of the whole shell. */
 	const share = listShare(listBias, density);
 	const contentPanes = (
-		<ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1">
+		<ResizablePanelGroup
+			direction="horizontal"
+			className="min-h-0 flex-1"
+			/* A group whose panels come and go under it throws "previous layout not
+			   found for panel index -1", and a panel already registered keeps the
+			   layout it was given rather than the default it is handed next. Keying
+			   on the set makes each arrangement its own group. */
+			key={showReadingPane ? "list-reading" : "list-only"}
+		>
 			<ResizablePanel
 				id="list"
 				order={1}
