@@ -5,15 +5,15 @@
  * it. The Sent copy matched what went out, so nothing about the message said a
  * paragraph was missing.
  *
- * The assertion is on the outbox entry rather than on the editor: that entry is
- * the payload the relay hands to SMTP, so it is what a recipient gets. It is
- * read once the entry has left `draft`, which the send endpoint does before it
- * answers — so the copy read back is the one the app committed to sending.
+ * The outbox entry is read before Send, to establish that the server is holding
+ * a copy without the last line — the defect was in the branch that dispatches an
+ * id it already has, so an entry has to exist for it to apply.
  *
- * The account is provisioned with submission settings, which is what makes the
- * app willing to press Send at all. Nothing on this stack accepts the mail, so
- * delivery fails behind the queue and the message dead-letters; that is
- * downstream of everything asserted here.
+ * What is asserted after Send is the message the SMTP sink accepted. The entry
+ * cannot be read there any more: a send that succeeds is APPENDed to Sent and
+ * the row is dropped, so polling it races a delete. Reading the wire instead is
+ * also the stronger claim — the late line reached a recipient, not merely a
+ * database row on the way to one.
  *
  * The window this is about is two seconds wide and nothing enforces it, so the
  * spec times its own last two actions and fails when they overrun rather than
@@ -22,9 +22,11 @@
 
 import type { BrowserContext } from "@playwright/test";
 import { ApiClient, waitFor } from "../src/api.js";
-import { baseUrl, imapFromStack } from "../src/env.js";
+import { baseUrl } from "../src/env.js";
 import { expect, test } from "../src/fixtures.js";
+import { readMimeShapeOfRaw } from "../src/imap.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
+import { waitForAcceptedMessage } from "../src/smtp-sink.js";
 
 const DESKTOP = { width: 1512, height: 864 };
 
@@ -43,11 +45,7 @@ test.describe("Sending inside the autosave debounce window (#674)", () => {
 	let context: BrowserContext;
 
 	test.beforeAll(async ({ browser }) => {
-		run = await provisionIsolatedRun("E2E Compose Send Flush", [], {
-			// Port 587 on the IMAP host: a plausible submission address that this
-			// stack does not answer on.
-			smtp: { host: imapFromStack.host, port: 587 },
-		});
+		run = await provisionIsolatedRun("E2E Compose Send Flush");
 		api = new ApiClient(run);
 		context = await browser.newContext({
 			storageState: run.storageState,
@@ -117,14 +115,16 @@ test.describe("Sending inside the autosave debounce window (#674)", () => {
 		// Compose closing is the app saying the send was accepted.
 		await expect(body).toBeHidden({ timeout: 30_000 });
 
-		const dispatched = await waitFor(
-			() => api.getOutboxMessage(draft.outboxMessageId),
-			(entry) => entry.status !== "draft",
-			{ timeoutMs: 60_000, what: "the entry to leave draft" },
-		);
+		const accepted = await waitForAcceptedMessage(subject);
+		const delivered = await readMimeShapeOfRaw(accepted.raw);
+		const part = (contentType: string): string =>
+			delivered.parts.find((candidate) => candidate.contentType === contentType)
+				?.content ?? "";
 
-		expect(dispatched.textBody ?? "").toContain(SETTLED_LINE);
-		expect(dispatched.textBody ?? "").toContain(LATE_LINE);
-		expect(dispatched.htmlBody ?? "").toContain(LATE_LINE);
+		// Both bodies, because compose writes both and the bug dropped the last
+		// line from whichever one the server happened to be holding.
+		expect(part("text/plain")).toContain(SETTLED_LINE);
+		expect(part("text/plain")).toContain(LATE_LINE);
+		expect(part("text/html")).toContain(LATE_LINE);
 	});
 });

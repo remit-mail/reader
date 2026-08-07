@@ -33,13 +33,17 @@ export interface StorageState {
 }
 
 /**
- * The account fields that make a send leave the process. Without `smtpEnabled`
- * the worker resolves every outbox row to `blocked` and nothing reaches the
- * wire, so an account created without these can only ever be read from.
+ * The account fields that make a send leave the process, pointed at the sink
+ * both lanes run. Without `smtpEnabled` the worker resolves every outbox row to
+ * `blocked` and nothing reaches the wire, so an account created without these
+ * can only ever be read from.
  *
- * Only isolated runs get them. The shared onboarded account stays unable to
- * send, which is what `standalone.spec.ts` reads when it asserts compose says
- * so for itself instead of leaving a dead Send button.
+ * Every isolated run gets them, and there is no way to ask for an account
+ * without them: a spec that sends and one that does not want the same account,
+ * and an opt-in only existed while a send had nowhere to land. The shared
+ * onboarded account is the one that cannot send, which is what
+ * `standalone.spec.ts` reads when it asserts compose says so for itself instead
+ * of leaving a dead Send button.
  *
  * No SMTP password: the sink accepts any credential, and leaving it off is what
  * exercises the ordinary shape where SMTP reuses the IMAP secret. No
@@ -81,16 +85,6 @@ const cookiesToStorageState = (cookie: string): StorageState => ({
 	origins: [],
 });
 
-export interface IsolatedRunOptions {
-	/**
-	 * Submission settings for the account, which is what makes the app willing to
-	 * send from it. The stack runs no submission server, so delivery fails behind
-	 * the queue and the message dead-letters; a spec about what compose transmits
-	 * reads the outbox entry instead, which is the payload the relay picks up.
-	 */
-	smtp?: { host: string; port: number };
-}
-
 /**
  * @param seed Mail put in the mailbox before the account is connected. Mail
  * appended after onboarding does not reliably reach the classification path on
@@ -100,7 +94,6 @@ export interface IsolatedRunOptions {
 export const provisionIsolatedRun = async (
 	label: string,
 	seed: Message[] = [],
-	options: IsolatedRunOptions = {},
 ): Promise<IsolatedRun> => {
 	const credentials = {
 		email: `e2e-iso-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@remit.test`,
@@ -123,14 +116,6 @@ export const provisionIsolatedRun = async (
 		imapTls: false,
 		imapStartTls: false,
 		...sendingEnabled,
-		...(options.smtp
-			? {
-					smtpHost: options.smtp.host,
-					smtpPort: options.smtp.port,
-					smtpTls: false,
-					smtpStartTls: false,
-				}
-			: {}),
 	});
 	await api.triggerSync(accountId);
 	const boxes = await waitFor(
