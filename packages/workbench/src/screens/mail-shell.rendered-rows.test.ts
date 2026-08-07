@@ -96,8 +96,19 @@ const rowFor = (id: string): HTMLElement => {
 	return found;
 };
 
-const focusedId = (): string | undefined =>
-	(dom.window.document.activeElement as HTMLElement | null)?.dataset.messageId;
+/**
+ * The row the cursor is on, as the pane draws it: the list's single tab stop.
+ * A cursor sitting on a row that is not rendered leaves no row holding it.
+ */
+const cursorRowId = (): string | undefined =>
+	rowElements().find((row) => row.tabIndex === 0)?.dataset.messageId;
+
+/** The rows showing as ticked, which is what a user can act on. */
+const checkedIds = (): string[] =>
+	rowElements()
+		.filter((row) => row.querySelector('[aria-label="Deselect message"]'))
+		.map((row) => row.dataset.messageId)
+		.filter((id): id is string => id !== undefined);
 
 const selectionLabel = (): string =>
 	container.querySelector("[data-selection-count]")?.textContent ?? "";
@@ -191,33 +202,33 @@ describe("the brief's ten-row cap", () => {
 		);
 	});
 
-	it("keeps the rows behind it out of the cursor's reach", async () => {
-		const lastShownPersonal = shownIds().filter((id) =>
-			personalIds.includes(id),
-		);
-		const cursorStart = lastShownPersonal.at(-1);
-		assert.ok(cursorStart, "the personal section shows rows");
+	it("keeps the rows behind it out of the cursor's reach", () => {
+		const shown = shownIds();
+		const shownPersonal = shown.filter((id) => personalIds.includes(id));
 		assert.ok(
-			lastShownPersonal.length < personalIds.length,
-			"and holds back rows behind its expander",
+			shownPersonal.length < personalIds.length,
+			"the personal section holds rows back behind its expander",
 		);
 
-		await click(rowFor(cursorStart));
+		// Down to the last row above the cap, then one press past it.
+		for (let step = 0; step < shownPersonal.length; step++) press("j");
+		assert.equal(cursorRowId(), shownPersonal.at(-1));
+
 		press("j");
-
-		const landed = focusedId();
-		assert.ok(landed, "the cursor kept a row");
-		assert.ok(
-			shownIds().includes(landed),
-			"j from the last row above the cap steps onto a row that is on screen",
+		const nextOnScreen = shown[shownPersonal.length];
+		assert.equal(
+			cursorRowId(),
+			nextOnScreen,
+			"j off the last row above the cap lands on the next row on screen",
 		);
 
 		press("x");
-		assert.equal(
-			selectionLabel(),
-			"1 message selected",
-			"and the row it ticks is one the user can see",
+		assert.deepEqual(
+			checkedIds(),
+			[nextOnScreen],
+			"and x ticks the row the user can see the cursor on",
 		);
+		assert.equal(selectionLabel(), "1 message selected");
 	});
 
 	it("gives the rows back to the cursor when the expander opens", async () => {
