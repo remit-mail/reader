@@ -23,7 +23,12 @@ export const Saving: Story = { args: { saveStatus: "saving" } };
 
 export const Saved: Story = { args: { saveStatus: "saved" } };
 
-export const Sending: Story = { args: { sending: true } };
+export const SaveFailed: Story = { args: { saveStatus: "error" } };
+
+export const Sending: Story = {
+	name: "Sending — also while the pending draft is written",
+	args: { sending: true },
+};
 
 export const CannotSend: Story = {
 	name: "Cannot send — stays pressable",

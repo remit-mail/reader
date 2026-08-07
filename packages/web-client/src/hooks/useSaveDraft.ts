@@ -8,6 +8,10 @@ import { useCallback, useRef, useState } from "react";
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
+export type ImmediateSave =
+	| { outcome: "saved"; outboxMessageId: string }
+	| { outcome: "failed"; error: unknown };
+
 interface DraftData {
 	accountId: string;
 	toAddresses: string[];
@@ -25,6 +29,12 @@ interface UseSaveDraftOptions {
 	onDraftCreated: (id: string) => void;
 }
 
+const settled = (promise: Promise<unknown>): Promise<void> =>
+	promise.then(
+		() => undefined,
+		() => undefined,
+	);
+
 export const useSaveDraft = ({
 	outboxMessageId,
 	onDraftCreated,
@@ -34,6 +44,17 @@ export const useSaveDraft = ({
 	const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const closedIdsRef = useRef<Set<string>>(new Set());
 	const queryClient = useQueryClient();
+
+	// The entry a save writes to. That is the prop, except between a save
+	// creating the draft and the id arriving back as the prop — reading the prop
+	// in that window creates the same draft a second time and strands one of the
+	// two in the outbox.
+	const propIdRef = useRef(outboxMessageId);
+	const targetIdRef = useRef(outboxMessageId);
+	if (propIdRef.current !== outboxMessageId) {
+		propIdRef.current = outboxMessageId;
+		targetIdRef.current = outboxMessageId;
+	}
 
 	const createMutation = useMutation(
 		outboxOperationsCreateOutboxMessageMutation(),
@@ -47,9 +68,10 @@ export const useSaveDraft = ({
 			setSaveStatus("saving");
 			setSaveError(null);
 
-			if (outboxMessageId) {
+			const targetId = targetIdRef.current;
+			if (targetId) {
 				const result = await updateMutation.mutateAsync({
-					path: { outboxMessageId },
+					path: { outboxMessageId: targetId },
 					body: {
 						toAddresses: data.toAddresses,
 						ccAddresses: data.ccAddresses,
@@ -71,6 +93,7 @@ export const useSaveDraft = ({
 					sendImmediately: false,
 				},
 			});
+			targetIdRef.current = result.outboxMessageId;
 			onDraftCreated(result.outboxMessageId);
 			setSaveStatus("saved");
 			queryClient.invalidateQueries({
@@ -78,38 +101,60 @@ export const useSaveDraft = ({
 			});
 			return result;
 		},
-		[
-			outboxMessageId,
-			createMutation,
-			updateMutation,
-			onDraftCreated,
-			queryClient,
-		],
+		[createMutation, updateMutation, onDraftCreated, queryClient],
+	);
+
+	// One entry takes one write at a time. Overlapping writes settle in whatever
+	// order the network gives them, so an older body can land last — and two of
+	// them racing while the draft has no id yet each create one.
+	const writesRef = useRef<Promise<void>>(Promise.resolve());
+	const enqueueSave = useCallback(
+		(data: DraftData) => {
+			const write = writesRef.current.then(() => executeSave(data));
+			writesRef.current = settled(write);
+			return write;
+		},
+		[executeSave],
 	);
 
 	const saveDraft = useCallback(
 		(data: DraftData) => {
-			if (outboxMessageId && closedIdsRef.current.has(outboxMessageId)) return;
 			if (timerRef.current) clearTimeout(timerRef.current);
 			timerRef.current = setTimeout(() => {
+				const targetId = targetIdRef.current;
+				if (targetId && closedIdsRef.current.has(targetId)) return;
 				// Keep the real error, not just a vague "error" status — the caller
 				// surfaces its detail in a banner. A fatal 5xx additionally escalates
 				// through the global MutationCache.onError sink.
-				executeSave(data).catch((error: unknown) => {
+				enqueueSave(data).catch((error: unknown) => {
 					setSaveError(error);
 					setSaveStatus("error");
 				});
 			}, 2000);
 		},
-		[executeSave, outboxMessageId],
+		[enqueueSave],
 	);
 
+	// Whoever asks for this is acting on the draft right now and owns the
+	// outcome, so the failure is returned rather than thrown and `saveError` is
+	// left alone — the caller's own message is the accurate one, and setting
+	// `saveError` would raise a second "Couldn't save draft" banner beside it.
 	const saveImmediately = useCallback(
-		(data: DraftData) => {
+		(data: DraftData): Promise<ImmediateSave> => {
 			if (timerRef.current) clearTimeout(timerRef.current);
-			return executeSave(data);
+			return enqueueSave(data)
+				.then(
+					(result): ImmediateSave => ({
+						outcome: "saved",
+						outboxMessageId: result.outboxMessageId,
+					}),
+				)
+				.catch((error: unknown): ImmediateSave => {
+					setSaveStatus("error");
+					return { outcome: "failed", error };
+				});
 		},
-		[executeSave],
+		[enqueueSave],
 	);
 
 	// Called with an id, the entry is closed to autosave for good. Sending and

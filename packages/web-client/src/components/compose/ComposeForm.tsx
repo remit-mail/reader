@@ -3,7 +3,6 @@ import {
 	outboxDetailOperationsDeleteOutboxMessageMutation,
 	outboxDetailOperationsGetOutboxMessageOptions,
 	outboxDetailOperationsSendOutboxMessageMutation,
-	outboxOperationsCreateOutboxMessageMutation,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type {
 	RemitImapAccountResponse,
@@ -442,10 +441,11 @@ export const ComposeForm = ({
 		[setOutboxMessageId],
 	);
 
-	const { saveStatus, saveError, saveDraft, stopAutoSave } = useSaveDraft({
-		outboxMessageId,
-		onDraftCreated: adoptCreatedDraft,
-	});
+	const { saveStatus, saveError, saveDraft, saveImmediately, stopAutoSave } =
+		useSaveDraft({
+			outboxMessageId,
+			onDraftCreated: adoptCreatedDraft,
+		});
 
 	// Auto-save runs on a debounce, so a failure has no inline call site to
 	// surface it. Push the real error detail to a banner instead of leaving only
@@ -459,10 +459,6 @@ export const ComposeForm = ({
 			error: saveError,
 		});
 	}, [saveError, pushError]);
-
-	const createMutation = useMutation(
-		outboxOperationsCreateOutboxMessageMutation(),
-	);
 
 	const sendMutation = useMutation(
 		outboxDetailOperationsSendOutboxMessageMutation(),
@@ -496,7 +492,11 @@ export const ComposeForm = ({
 		? accountIsMissingSmtp(selectedAccount)
 		: false;
 
-	const isSending = createMutation.isPending || sendMutation.isPending;
+	// The action bar refuses a second press while one is in flight, but the
+	// editor's own Cmd+Enter goes straight to `handleSend`, and the write that
+	// now precedes the request widens the window a second press lands in.
+	const sendInFlightRef = useRef(false);
+	const [isSending, setIsSending] = useState(false);
 	const canSend =
 		toAddresses.length > 0 &&
 		!!selectedAccountId &&
@@ -538,76 +538,79 @@ export const ComposeForm = ({
 	]);
 
 	const handleSend = useCallback(async () => {
+		if (sendInFlightRef.current) return;
 		if (!selectedAccountId || toAddresses.length === 0) return;
 
-		stopAutoSave();
+		sendInFlightRef.current = true;
+		setIsSending(true);
+		try {
+			stopAutoSave();
 
-		const replyData =
-			sourceMessage && (mode === "reply" || mode === "reply_all")
-				? getReferences(sourceMessage)
-				: {};
+			const replyData =
+				sourceMessage && (mode === "reply" || mode === "reply_all")
+					? getReferences(sourceMessage)
+					: {};
 
-		let messageId = outboxMessageId;
-		let createdThisAttempt = false;
-
-		if (!messageId) {
 			const { html: htmlBody, text: textBody } = body;
+			const createdThisAttempt = !outboxMessageId;
 
-			const outboxMessage = await createMutation
+			// The debounce dropped above may have been holding the last two seconds
+			// of typing, and an existing entry would otherwise go out as the server
+			// last saw it (#674). What is on screen is written first, and a write
+			// that fails stops the send rather than transmitting the older copy.
+			const flushed = await saveImmediately({
+				accountId: selectedAccountId,
+				toAddresses: toAddresses.map((a) => a.email),
+				ccAddresses:
+					ccAddresses.length > 0 ? ccAddresses.map((a) => a.email) : undefined,
+				bccAddresses:
+					bccAddresses.length > 0
+						? bccAddresses.map((a) => a.email)
+						: undefined,
+				subject: subject || undefined,
+				textBody: textBody || undefined,
+				htmlBody: htmlBody || undefined,
+				...replyData,
+			});
+
+			if (flushed.outcome === "failed") {
+				pushError({
+					title: "Couldn't send message",
+					detail:
+						formatErrorDetail(flushed.error) ??
+						"Saving the message failed, so nothing was sent. Try again.",
+					error: flushed.error,
+				});
+				return;
+			}
+
+			const messageId = flushed.outboxMessageId;
+
+			const sent = await sendMutation
 				.mutateAsync({
-					body: {
-						accountId: selectedAccountId,
-						toAddresses: toAddresses.map((a) => a.email),
-						ccAddresses:
-							ccAddresses.length > 0
-								? ccAddresses.map((a) => a.email)
-								: undefined,
-						bccAddresses:
-							bccAddresses.length > 0
-								? bccAddresses.map((a) => a.email)
-								: undefined,
-						subject: subject || undefined,
-						textBody: textBody || undefined,
-						htmlBody: htmlBody || undefined,
-						sendImmediately: false,
-						...replyData,
-					},
+					path: { outboxMessageId: messageId },
 				})
 				.catch((error: unknown) => {
 					pushError({
 						title: "Couldn't send message",
-						detail: formatErrorDetail(error) ?? "Saving the draft failed.",
+						detail:
+							formatErrorDetail(error) ??
+							(createdThisAttempt
+								? "The draft was saved but the send request failed. Try again from the Outbox."
+								: "The send request failed. Try again."),
 						error,
 					});
 					return null;
 				});
-			if (outboxMessage === null) return;
-			messageId = outboxMessage.outboxMessageId;
-			createdThisAttempt = true;
-			setOutboxMessageId(messageId);
+			if (sent === null) return;
+
+			stopAutoSave(messageId);
+			startSendPolling(messageId);
+			onClose();
+		} finally {
+			sendInFlightRef.current = false;
+			setIsSending(false);
 		}
-
-		const sent = await sendMutation
-			.mutateAsync({
-				path: { outboxMessageId: messageId },
-			})
-			.catch((error: unknown) => {
-				pushError({
-					title: "Couldn't send message",
-					detail:
-						formatErrorDetail(error) ??
-						(createdThisAttempt
-							? "The draft was saved but the send request failed. Try again from the Outbox."
-							: "The send request failed. Try again."),
-					error,
-				});
-				return null;
-			});
-		if (sent === null) return;
-
-		stopAutoSave(messageId);
-		startSendPolling(messageId);
-		onClose();
 	}, [
 		selectedAccountId,
 		toAddresses,
@@ -618,11 +621,10 @@ export const ComposeForm = ({
 		mode,
 		sourceMessage,
 		outboxMessageId,
-		createMutation,
+		saveImmediately,
 		sendMutation,
 		stopAutoSave,
 		startSendPolling,
-		setOutboxMessageId,
 		pushError,
 		onClose,
 	]);

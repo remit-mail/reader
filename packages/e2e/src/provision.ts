@@ -60,6 +60,16 @@ const cookiesToStorageState = (cookie: string): StorageState => ({
 	origins: [],
 });
 
+export interface IsolatedRunOptions {
+	/**
+	 * Submission settings for the account, which is what makes the app willing to
+	 * send from it. The stack runs no submission server, so delivery fails behind
+	 * the queue and the message dead-letters; a spec about what compose transmits
+	 * reads the outbox entry instead, which is the payload the relay picks up.
+	 */
+	smtp?: { host: string; port: number };
+}
+
 /**
  * @param seed Mail put in the mailbox before the account is connected. Mail
  * appended after onboarding does not reliably reach the classification path on
@@ -69,6 +79,7 @@ const cookiesToStorageState = (cookie: string): StorageState => ({
 export const provisionIsolatedRun = async (
 	label: string,
 	seed: Message[] = [],
+	options: IsolatedRunOptions = {},
 ): Promise<IsolatedRun> => {
 	const credentials = {
 		email: `e2e-iso-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@remit.test`,
@@ -90,6 +101,14 @@ export const provisionIsolatedRun = async (
 		imapPort: imapFromStack.port,
 		imapTls: false,
 		imapStartTls: false,
+		...(options.smtp
+			? {
+					smtpHost: options.smtp.host,
+					smtpPort: options.smtp.port,
+					smtpTls: false,
+					smtpStartTls: false,
+				}
+			: {}),
 	});
 	await api.triggerSync(accountId);
 	const boxes = await waitFor(
