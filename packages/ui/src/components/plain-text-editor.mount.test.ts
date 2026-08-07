@@ -42,19 +42,22 @@ const surface = (): HTMLTextAreaElement => {
 	return textarea;
 };
 
+// jsdom ships no `DataTransfer`, so the clipboard is the one thing the handler
+// reads off the event: a `getData` over the flavours the copy carried.
 const paste = async (flavours: { html?: string; text?: string }) => {
 	const textarea = surface();
-	const data = new dom.window.DataTransfer();
-	if (flavours.html !== undefined) data.setData("text/html", flavours.html);
-	if (flavours.text !== undefined) data.setData("text/plain", flavours.text);
+	const event = new dom.window.Event("paste", {
+		bubbles: true,
+		cancelable: true,
+	});
+	Object.defineProperty(event, "clipboardData", {
+		value: {
+			getData: (type: string) =>
+				(type === "text/html" ? flavours.html : flavours.text) ?? "",
+		},
+	});
 	await act(async () => {
-		textarea.dispatchEvent(
-			new dom.window.ClipboardEvent("paste", {
-				bubbles: true,
-				cancelable: true,
-				clipboardData: data,
-			}),
-		);
+		textarea.dispatchEvent(event);
 	});
 };
 

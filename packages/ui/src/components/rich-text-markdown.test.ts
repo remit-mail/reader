@@ -94,7 +94,7 @@ describe("Markdown read back into a document", () => {
 		const html = markdownToHtml(TABLE_MARKDOWN);
 
 		assert.match(html, /<table/);
-		assert.match(html, /<th[^>]*>Region/);
+		assert.match(html, /<th[^>]*><p>Region/);
 		assert.match(html, /EMEA/);
 		assert.match(html, /388/);
 	});
