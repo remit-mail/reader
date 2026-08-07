@@ -1,36 +1,22 @@
-import type { Value } from "platejs";
-import { Plate } from "platejs/react";
-import { PlateEditorContent, usePlateComposeEditor } from "./PlateEditor.js";
-import { PlateToolbar } from "./PlateToolbar.js";
+import { RichTextEditor, type RichTextValue } from "@remit/ui/rich-text";
 
 interface ComposeBodyProps {
-	value: Value;
-	onChange: (value: Value) => void;
+	initialHtml: string;
+	onChange: (value: RichTextValue) => void;
 	onSubmit?: () => void;
 	autoFocus?: boolean;
 }
 
 export const ComposeBody = ({
-	value,
+	initialHtml,
 	onChange,
 	onSubmit,
 	autoFocus,
-}: ComposeBodyProps) => {
-	const editor = usePlateComposeEditor(value);
-
-	return (
-		<Plate
-			editor={editor}
-			onValueChange={({ value: v }) => {
-				onChange(v);
-			}}
-		>
-			<PlateToolbar />
-			<PlateEditorContent
-				editor={editor}
-				onSubmit={onSubmit}
-				autoFocus={autoFocus}
-			/>
-		</Plate>
-	);
-};
+}: ComposeBodyProps) => (
+	<RichTextEditor
+		initialHtml={initialHtml}
+		onChange={onChange}
+		onSubmit={onSubmit}
+		autoFocus={autoFocus}
+	/>
+);

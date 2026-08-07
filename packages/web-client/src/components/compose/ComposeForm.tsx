@@ -9,9 +9,15 @@ import type {
 	RemitImapAccountResponse,
 	RemitImapDescribeMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
-import { ComposeActionBar, ComposeFormShell, QuotedText } from "@remit/ui";
+import {
+	ComposeActionBar,
+	ComposeFormShell,
+	EMPTY_RICH_TEXT,
+	QuotedText,
+	type RichTextValue,
+	sanitizeQuotedHtml,
+} from "@remit/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import type { Value } from "platejs";
 import {
 	lazy,
 	Suspense,
@@ -23,10 +29,6 @@ import {
 import { useMessageBodyContent } from "../../hooks/useMessageBodyContent";
 import { useSaveDraft } from "../../hooks/useSaveDraft";
 import { useSignature } from "../../hooks/useSignature.js";
-import {
-	plateValueToHtml,
-	plateValueToText,
-} from "../../lib/plate-serializer.js";
 import { accountIsMissingSmtp } from "../settings/account-form-helpers.js";
 import { useErrorBanners } from "../ui/ErrorBannerProvider.js";
 import {
@@ -54,7 +56,6 @@ import type { ComposeMode } from "./ComposeProvider";
 import { useCompose } from "./ComposeProvider";
 import { FromSelector } from "./FromSelector";
 import { SubjectField } from "./SubjectField";
-import { sanitizeQuoteHtml } from "./sanitize-quote-html.js";
 
 interface ComposeFormProps {
 	mode: ComposeMode;
@@ -64,19 +65,22 @@ interface ComposeFormProps {
 	onAccountChange?: (account: RemitImapAccountResponse) => void;
 }
 
-const EMPTY_PARAGRAPH: Value = [{ type: "p", children: [{ text: "" }] }];
+const escapeHtml = (text: string): string =>
+	text
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;");
 
-const SIGNATURE_SEPARATOR: Value = [
-	{ type: "p", children: [{ text: "" }] },
-	{ type: "p", children: [{ text: "-- " }] },
-];
+const textToHtml = (text: string): string =>
+	text
+		.split("\n")
+		.map((line) => `<p>${escapeHtml(line)}</p>`)
+		.join("");
 
-const buildInitialBody = (signaturePlainText: string): Value => {
-	if (!signaturePlainText) return EMPTY_PARAGRAPH;
-	return [
-		...SIGNATURE_SEPARATOR,
-		{ type: "p", children: [{ text: signaturePlainText }] },
-	];
+const buildInitialHtml = (signaturePlainText: string): string => {
+	if (!signaturePlainText) return "";
+	return `<p></p><p>-- </p>${textToHtml(signaturePlainText)}`;
 };
 
 const buildReplySubject = (subject?: string): string => {
@@ -149,13 +153,13 @@ const isFormEmpty = (
 	ccAddresses: AddressEntry[],
 	bccAddresses: AddressEntry[],
 	subject: string,
-	body: Value,
+	body: RichTextValue,
 ): boolean =>
 	toAddresses.length === 0 &&
 	ccAddresses.length === 0 &&
 	bccAddresses.length === 0 &&
 	subject.trim() === "" &&
-	plateValueToText(body).trim() === "";
+	body.text.trim() === "";
 
 // ---------------------------------------------------------------------------
 // ComposeHeader — collapsed on mobile when the software keyboard is open
@@ -310,24 +314,41 @@ export const ComposeForm = ({
 	// changes while compose is already open). Without this, the previous draft's
 	// fields stay visible and the new draft never loads because draftLoaded
 	// remains true from the prior session (#536).
+	//
+	// A first autosave also sets the id, from nothing to the draft it just
+	// created. That is this session's own content arriving back, not a switch to
+	// somebody else's document, and blanking the form there would throw away
+	// whatever is being typed.
 	useEffect(() => {
-		if (prevOutboxMessageIdRef.current === outboxMessageId) return;
+		const previous = prevOutboxMessageIdRef.current;
+		if (previous === outboxMessageId) return;
 		prevOutboxMessageIdRef.current = outboxMessageId;
-		if (!outboxMessageId) return;
+		if (!outboxMessageId || previous === undefined) return;
 		setToAddresses([]);
 		setCcAddresses([]);
 		setBccAddresses([]);
 		setSubject("");
 		setShowCc(false);
 		setShowBcc(false);
-		setBody(EMPTY_PARAGRAPH);
+		setInitialHtml("");
+		setBody(EMPTY_RICH_TEXT);
+		setDocumentGeneration((generation) => generation + 1);
 		setDraftLoaded(false);
 	}, [outboxMessageId]);
 
 	const { signature } = useSignature(selectedAccountId);
-	const [body, setBody] = useState<Value>(() =>
-		buildInitialBody(signature.plainText),
+	// The editor reads its document once, so this is the document it opens on,
+	// not the live value, and it is remounted when the generation changes. Only
+	// loading a different document bumps that — remounting mid-compose would take
+	// the caret, the focus and the undo history with it.
+	const [documentGeneration, setDocumentGeneration] = useState(0);
+	const [initialHtml, setInitialHtml] = useState(() =>
+		buildInitialHtml(signature.plainText),
 	);
+	const [body, setBody] = useState<RichTextValue>(() => ({
+		html: buildInitialHtml(signature.plainText),
+		text: signature.plainText,
+	}));
 
 	const { data: draftData } = useQuery({
 		...outboxDetailOperationsGetOutboxMessageOptions({
@@ -361,8 +382,13 @@ export const ComposeForm = ({
 			setShowBcc(true);
 		}
 		if (draftData.subject) setSubject(draftData.subject);
-		if (draftData.textBody)
-			setBody([{ type: "p", children: [{ text: draftData.textBody }] }]);
+		// A draft stores what would have been sent, so a rich one reopens from its
+		// HTML. Only a draft that never had any falls back to its text.
+		const loadedHtml =
+			draftData.htmlBody || textToHtml(draftData.textBody ?? "");
+		setInitialHtml(loadedHtml);
+		setBody({ html: loadedHtml, text: draftData.textBody ?? "" });
+		setDocumentGeneration((generation) => generation + 1);
 		setSelectedAccountId(draftData.accountId);
 		setDraftLoaded(true);
 	}, [draftData, draftLoaded]);
@@ -398,16 +424,27 @@ export const ComposeForm = ({
 	const quotedText = sourceBody?.kind === "text" ? sourceBody.body : "";
 	const quotedHtml =
 		sourceBody?.kind === "html"
-			? sanitizeQuoteHtml(sourceBody.body)
+			? sanitizeQuotedHtml(sourceBody.body)
 			: undefined;
 
 	const senderName =
 		sourceMessage?.envelope.from[0]?.displayName ??
 		sourceMessage?.envelope.from[0]?.normalizedEmail;
 
+	// The draft this session just created holds what is already on screen, so
+	// there is nothing to read back — and reading it back would replace the
+	// document under the caret with the server's copy of it.
+	const adoptCreatedDraft = useCallback(
+		(createdId: string) => {
+			setDraftLoaded(true);
+			setOutboxMessageId(createdId);
+		},
+		[setOutboxMessageId],
+	);
+
 	const { saveStatus, saveError, saveDraft, stopAutoSave } = useSaveDraft({
 		outboxMessageId,
-		onDraftCreated: setOutboxMessageId,
+		onDraftCreated: adoptCreatedDraft,
 	});
 
 	// Auto-save runs on a debounce, so a failure has no inline call site to
@@ -475,8 +512,7 @@ export const ComposeForm = ({
 		if (isFormEmpty(toAddresses, ccAddresses, bccAddresses, subject, body))
 			return;
 
-		const textBody = plateValueToText(body);
-		const htmlBody = plateValueToHtml(body);
+		const { html: htmlBody, text: textBody } = body;
 
 		saveDraft({
 			accountId: selectedAccountId,
@@ -515,8 +551,7 @@ export const ComposeForm = ({
 		let createdThisAttempt = false;
 
 		if (!messageId) {
-			const textBody = plateValueToText(body);
-			const htmlBody = plateValueToHtml(body);
+			const { html: htmlBody, text: textBody } = body;
 
 			const outboxMessage = await createMutation
 				.mutateAsync({
@@ -665,7 +700,8 @@ export const ComposeForm = ({
 		>
 			<Suspense fallback={<ComposeBodyFallback />}>
 				<LazyComposeBody
-					value={body}
+					key={documentGeneration}
+					initialHtml={initialHtml}
 					onChange={setBody}
 					onSubmit={handleSend}
 					autoFocus={mode === "new"}

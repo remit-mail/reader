@@ -1,4 +1,5 @@
 import { Button, inboxFilterConfig } from "@remit/ui";
+import { RichTextEditor } from "@remit/ui/rich-text";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Loader2, Paperclip, Send, Trash2 } from "lucide-react";
 import { allThreads } from "../fixtures/workspace.js";
@@ -6,9 +7,9 @@ import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
 import { MailShell } from "../screens/mail-shell.js";
 
 /**
- * Design source for the compose surface (#788). The live `ComposeForm` +
- * `ComposeActionBar` are heavily wired (react-query mutations, Plate editor);
- * these stories render the presentational shell at the three geometries it
+ * Design source for the compose surface (#788). The live `ComposeForm` is
+ * heavily wired (react-query mutations, draft autosave); these stories render
+ * the presentational shell around the real editor, at the three geometries it
  * ships in. The desktop Send button was reported clipped off the bottom of the
  * form — the Full story keeps the action bar pinned in view so a baseline
  * catches a regression.
@@ -105,10 +106,13 @@ function Field({ label, value }: { label: string; value: string }) {
 	);
 }
 
+const DEFAULT_BODY =
+	"<p>Thanks — that works for me. I'll send the deck tomorrow.</p>";
+
 function ComposeShell({
 	to = "ada@example.com",
 	subject = "Re: Q3 planning",
-	body = "Thanks — that works for me. I'll send the deck tomorrow.",
+	body = DEFAULT_BODY,
 	actionBar,
 }: {
 	to?: string;
@@ -120,8 +124,8 @@ function ComposeShell({
 		<div className="flex h-full w-full min-h-0 flex-col bg-surface">
 			<Field label="To" value={to} />
 			<Field label="Subject" value={subject} />
-			<div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-md leading-relaxed text-fg">
-				{body}
+			<div className="min-h-0 flex-1 overflow-y-auto">
+				<RichTextEditor initialHtml={body} />
 			</div>
 			{actionBar}
 		</div>
@@ -148,7 +152,7 @@ export const Inline: Story = {
 		<div className="mx-auto mt-8 h-[420px] w-[640px] overflow-hidden rounded-md border border-line">
 			<ComposeShell
 				subject="Re: Lunch Thursday?"
-				body="Sounds good. See you at 12:30."
+				body="<p>Sounds good. See you at 12:30.</p>"
 				actionBar={<ActionBar saveStatus="idle" />}
 			/>
 		</div>

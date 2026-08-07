@@ -443,6 +443,10 @@ export {
 	ResizablePanelGroup,
 } from "./components/resizable.js";
 export {
+	EMPTY_RICH_TEXT,
+	type RichTextValue,
+} from "./components/rich-text-value.js";
+export {
 	APPOINTABLE_ROLES,
 	type CandidateFolder,
 	RoleAppointmentList,
@@ -633,6 +637,10 @@ export {
 	flaggedFilterConfig,
 	inboxFilterConfig,
 } from "./filter-presets.js";
+export {
+	sanitizeAdoptedHtml,
+	sanitizeQuotedHtml,
+} from "./lib/adopted-html.js";
 export {
 	buildCidResolver,
 	type CidResolvableBodyPart,
