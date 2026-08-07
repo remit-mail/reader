@@ -14,6 +14,8 @@ import {
 	buildExtractedSkippedKey,
 	buildExtractedTextKey,
 	buildMessageBodyKey,
+	buildOutboxAttachmentKey,
+	buildOutboxAttachmentPrefix,
 	buildParsedBodyKey,
 	computeChecksum,
 	createMockStorageService,
@@ -82,6 +84,26 @@ describe("path builders", () => {
 		assert.strictEqual(
 			key,
 			"accounts/cfg1/acc123/messages/msg456/parsed.json.gz",
+		);
+	});
+
+	test("buildOutboxAttachmentKey hangs the file off its own draft, under the same tenant prefix", () => {
+		const key = buildOutboxAttachmentKey("cfg1", "acc123", "draft9", "att7");
+		assert.strictEqual(
+			key,
+			"accounts/cfg1/acc123/outbox/draft9/attachments/att7",
+		);
+		assert.ok(
+			key.startsWith(buildOutboxAttachmentPrefix("cfg1", "acc123", "draft9")),
+		);
+	});
+
+	test("an outbox attachment key is not a message content key, so the /content route cannot resolve one", () => {
+		assert.strictEqual(
+			parseContentStorageKey(
+				buildOutboxAttachmentKey("cfg1", "acc123", "draft9", "att7"),
+			),
+			null,
 		);
 	});
 
@@ -742,6 +764,82 @@ describe("createFilesystemStorageService", () => {
 			"msg-never-scanned",
 		);
 		assert.deepStrictEqual(items, []);
+	});
+
+	test("storeOutboxAttachment writes the bytes uncompressed so the size on disk is the size the cap counts", async () => {
+		const storage = createFilesystemStorageService(testBasePath);
+		// Highly compressible: gzip would make the stored size disagree with the
+		// decoded size the per-message cap is expressed in.
+		const content = Buffer.alloc(4096, 0x61);
+
+		const ref = await storage.storeOutboxAttachment({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			outboxMessageId: "draft1",
+			outboxAttachmentId: "att1",
+			content,
+		});
+
+		assert.strictEqual(ref.contentEncoding, ContentEncoding.None);
+		assert.strictEqual(ref.sizeBytes, content.length);
+		assert.strictEqual(ref.checksumSha256, computeChecksum(content));
+		assert.deepStrictEqual(await storage.retrieve(ref.uri), content);
+
+		const [item] = await storage.listOutboxAttachments(
+			"cfg1",
+			"acc123",
+			"draft1",
+			10,
+		);
+		assert.strictEqual(item.sizeBytes, content.length);
+	});
+
+	test("listOutboxAttachments totals only the named draft, and stops at the limit", async () => {
+		const storage = createFilesystemStorageService(testBasePath);
+		for (const id of ["a", "b", "c"]) {
+			await storage.storeOutboxAttachment({
+				accountConfigId: "cfg1",
+				accountId: "acc123",
+				outboxMessageId: "draft-many",
+				outboxAttachmentId: id,
+				content: Buffer.from(`file-${id}`),
+			});
+		}
+		await storage.storeOutboxAttachment({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			outboxMessageId: "draft-other",
+			outboxAttachmentId: "d",
+			content: Buffer.from("elsewhere"),
+		});
+
+		const all = await storage.listOutboxAttachments(
+			"cfg1",
+			"acc123",
+			"draft-many",
+			10,
+		);
+		assert.deepStrictEqual(all.map((item) => item.outboxAttachmentId).sort(), [
+			"a",
+			"b",
+			"c",
+		]);
+
+		const capped = await storage.listOutboxAttachments(
+			"cfg1",
+			"acc123",
+			"draft-many",
+			2,
+		);
+		assert.strictEqual(capped.length, 2);
+	});
+
+	test("listOutboxAttachments returns an empty array for a draft that has none", async () => {
+		const storage = createFilesystemStorageService(testBasePath);
+		assert.deepStrictEqual(
+			await storage.listOutboxAttachments("cfg1", "acc123", "draft-empty", 10),
+			[],
+		);
 	});
 
 	test("cleanup test directory", async () => {

@@ -11,8 +11,15 @@ export const createLambdaEvent = (req: Request): APIGatewayProxyEvent => ({
 	pathParameters: (req.params as APIGatewayProxyEventPathParameters) || null,
 	queryStringParameters: (req.query as { [name: string]: string }) || null,
 	headers: (req.headers as { [name: string]: string }) || {},
-	body: req.body ? JSON.stringify(req.body) : null,
-	isBase64Encoded: false,
+	// A binary body (express.raw) travels the way API Gateway delivers one:
+	// base64 in `body` with `isBase64Encoded` set. JSON.stringify of a Buffer
+	// would hand the handler `{"type":"Buffer","data":[...]}` instead of bytes.
+	body: Buffer.isBuffer(req.body)
+		? req.body.toString("base64")
+		: req.body
+			? JSON.stringify(req.body)
+			: null,
+	isBase64Encoded: Buffer.isBuffer(req.body),
 	requestContext: {
 		requestId: `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
 		stage: "local",

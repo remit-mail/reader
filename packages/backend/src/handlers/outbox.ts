@@ -14,6 +14,7 @@ import type {
 	OutboxDetailOperationIds,
 	OutboxOperationIds,
 } from "../types.js";
+import { uploadOutboxAttachment } from "./outbox-attachment.js";
 
 const toOutboxMessageResponse = (
 	item: OutboxMessageItem,
@@ -215,4 +216,6 @@ export const OutboxDetailOperations: Record<
 		);
 		return toOutboxMessageResponse(sent);
 	},
+
+	OutboxDetailOperations_uploadOutboxAttachment: uploadOutboxAttachment,
 };

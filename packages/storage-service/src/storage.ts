@@ -50,6 +50,28 @@ export interface StoreBodyPartParams {
 	contentType?: string;
 }
 
+/**
+ * Parameters for storing a file attached to a draft outbox message.
+ *
+ * Deliberately not the deduplicated path: a content-addressed object belongs to
+ * no single draft, so nothing may delete it when the draft goes. A per-draft key
+ * dies with the draft.
+ */
+export interface StoreOutboxAttachmentParams {
+	accountConfigId: string;
+	accountId: string;
+	outboxMessageId: string;
+	outboxAttachmentId: string;
+	content: Buffer;
+}
+
+/** One file already stored against a draft outbox message */
+export interface OutboxAttachmentListItem {
+	outboxAttachmentId: string;
+	key: string;
+	sizeBytes: number;
+}
+
 /** Parameters for storing deduplicated content (attachments shared across messages) */
 export interface StoreDeduplicatedParams {
 	accountConfigId: string;
@@ -156,6 +178,27 @@ export interface StorageService {
 		messageId: string,
 		partPath: string,
 	): Promise<Buffer | null>;
+
+	/**
+	 * Store a file attached to a draft outbox message, uncompressed: the size on
+	 * the backend is then the decoded size the per-message cap is expressed in,
+	 * and `listOutboxAttachments` can total a draft without opening anything.
+	 */
+	storeOutboxAttachment(
+		params: StoreOutboxAttachmentParams,
+	): Promise<StorageReference>;
+
+	/**
+	 * List the files stored against a draft, newest ordering unspecified, at most
+	 * `limit` of them. The caller passes its own cap plus one so an over-full
+	 * draft is recognisable without an unbounded read.
+	 */
+	listOutboxAttachments(
+		accountConfigId: string,
+		accountId: string,
+		outboxMessageId: string,
+		limit: number,
+	): Promise<OutboxAttachmentListItem[]>;
 
 	/** Store deduplicated content (content-addressable, for attachments) */
 	storeDeduplicated(params: StoreDeduplicatedParams): Promise<StorageReference>;
@@ -312,6 +355,21 @@ export const buildExtractedPrefix = (
 ): string =>
 	`accounts/${accountConfigId}/${accountId}/messages/${messageId}/extracted/`;
 
+export const buildOutboxAttachmentPrefix = (
+	accountConfigId: string,
+	accountId: string,
+	outboxMessageId: string,
+): string =>
+	`accounts/${accountConfigId}/${accountId}/outbox/${outboxMessageId}/attachments/`;
+
+export const buildOutboxAttachmentKey = (
+	accountConfigId: string,
+	accountId: string,
+	outboxMessageId: string,
+	outboxAttachmentId: string,
+): string =>
+	`${buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId)}${outboxAttachmentId}`;
+
 export const buildDeduplicatedKey = (
 	accountConfigId: string,
 	accountId: string,
@@ -409,6 +467,47 @@ export const createMockStorageService = (): StorageService => {
 			buildBodyPartKey(accountConfigId, accountId, messageId, partPath),
 			content,
 		);
+	};
+
+	const storeOutboxAttachment: StorageService["storeOutboxAttachment"] = async (
+		params,
+	) => {
+		const {
+			accountConfigId,
+			accountId,
+			outboxMessageId,
+			outboxAttachmentId,
+			content,
+		} = params;
+		return storeInternal(
+			buildOutboxAttachmentKey(
+				accountConfigId,
+				accountId,
+				outboxMessageId,
+				outboxAttachmentId,
+			),
+			content,
+		);
+	};
+
+	const listOutboxAttachments: StorageService["listOutboxAttachments"] = async (
+		accountConfigId,
+		accountId,
+		outboxMessageId,
+		limit,
+	) => {
+		const prefix = `mock://${buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId)}`;
+		const items: OutboxAttachmentListItem[] = [];
+		for (const [uri, content] of storage.entries()) {
+			if (items.length >= limit) break;
+			if (!uri.startsWith(prefix)) continue;
+			items.push({
+				outboxAttachmentId: uri.slice(prefix.length),
+				key: uri.slice("mock://".length),
+				sizeBytes: content.length,
+			});
+		}
+		return items;
 	};
 
 	const storeDeduplicated: StorageService["storeDeduplicated"] = async (
@@ -547,6 +646,8 @@ export const createMockStorageService = (): StorageService => {
 		storeBodyPart,
 		bodyPartExists,
 		retrieveBodyPart,
+		storeOutboxAttachment,
+		listOutboxAttachments,
 		storeDeduplicated,
 		storeParsedBody,
 		retrieveParsedBody,

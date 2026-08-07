@@ -63,6 +63,7 @@ export type OperationIds =
 	| "OutboxDetailOperations_updateOutboxMessage"
 	| "OutboxDetailOperations_deleteOutboxMessage"
 	| "OutboxDetailOperations_sendOutboxMessage"
+	| "OutboxDetailOperations_uploadOutboxAttachment"
 	| "AddressOperations_searchAddresses"
 	| "AddressDetailOperations_updateAddress";
 

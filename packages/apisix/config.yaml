@@ -19,3 +19,8 @@ apisix:
 
 nginx_config:
   error_log_level: warn
+  http:
+    # APISIX ships with no request-body cap at all. An attachment upload is the
+    # only large body the API takes: 25 MB of file plus slack for the multipart
+    # envelope. Anything past this is refused before it reaches the backend.
+    client_max_body_size: 26m

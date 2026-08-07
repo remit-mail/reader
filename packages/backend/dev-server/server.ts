@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { OutboxAttachmentRejectionReason } from "@remit/domain-enums";
 import { logger } from "@remit/logger-lambda";
 import {
 	metricsContentType,
@@ -7,6 +8,7 @@ import {
 	renderMetrics,
 	setAccountSyncAges,
 } from "@remit/logger-lambda/metrics";
+import { OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES } from "@remit/mailbox-service";
 import { isStorageNotFoundError } from "@remit/storage-service";
 import type { APIGatewayProxyResult } from "aws-lambda";
 import { env } from "expect-env";
@@ -99,6 +101,37 @@ if (isSelfHostBackend) {
 	const auth = await createAuth(resolveAuthConfig());
 	app.all(/^\/api\/auth\//, toNodeHandler(auth));
 }
+
+// Binary uploads arrive whole and are handed on as bytes; express.json would
+// leave `req.body` empty and lose them. The limit is the edge's own refusal —
+// the request never reaches a handler, so it answers in the same shape the
+// composer renders for a file the service refuses, and one megabyte of slack
+// covers the multipart envelope around a file at exactly the cap.
+app.use(
+	express.raw({
+		type: "multipart/form-data",
+		limit: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES + 1024 * 1024,
+	}),
+);
+app.use(
+	(
+		error: NodeJS.ErrnoException & { type?: string },
+		_req: Request,
+		res: Response,
+		next: NextFunction,
+	) => {
+		if (error?.type !== "entity.too.large") {
+			next(error);
+			return;
+		}
+		res.status(413).json({
+			reason: OutboxAttachmentRejectionReason.FileTooLarge,
+			message: `That file is over the ${OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES / (1024 * 1024)} MB a message can carry.`,
+			limitBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
+			usedBytes: 0,
+		});
+	},
+);
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));

@@ -33,6 +33,7 @@ import {
 	type IImapConnection,
 	MailboxQueueService,
 	MessageMoveService,
+	OutboxAttachmentService,
 	OutboxQueueService,
 	PlacementMoveService,
 	SpamReportService,
@@ -144,6 +145,7 @@ export interface RemitClient {
 	flagQueue: FlagQueueService;
 	mailboxQueue: MailboxQueueService;
 	messageMove: MessageMoveService;
+	outboxAttachment: OutboxAttachmentService;
 	outboxQueue: OutboxQueueService;
 
 	// Report-spam / not-spam (block-and-move, unified from the old separate
@@ -408,6 +410,10 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 			logger,
 		}),
 		messageMove: messageMoveService,
+		outboxAttachment: new OutboxAttachmentService({
+			outboxMessageService: repositories.outboxMessage,
+			storage,
+		}),
 		outboxQueue: new OutboxQueueService({
 			outboxMessageService: repositories.outboxMessage,
 			accountService: repositories.account,

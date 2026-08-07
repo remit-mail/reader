@@ -14,6 +14,7 @@ import { pipeline } from "node:stream/promises";
 import { createGunzip, createGzip, gunzipSync, gzipSync } from "node:zlib";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
 import type {
+	OutboxAttachmentListItem,
 	ParsedBody,
 	StorageReference,
 	StorageService,
@@ -26,6 +27,8 @@ import {
 	buildExtractedSkippedKey,
 	buildExtractedTextKey,
 	buildMessageBodyKey,
+	buildOutboxAttachmentKey,
+	buildOutboxAttachmentPrefix,
 	buildParsedBodyKey,
 	computeChecksum,
 	isStorageNotFoundError,
@@ -252,6 +255,58 @@ export const createFilesystemStorageService = (
 			}));
 	};
 
+	const storeOutboxAttachment: StorageService["storeOutboxAttachment"] = (
+		params,
+	) => {
+		const {
+			accountConfigId,
+			accountId,
+			outboxMessageId,
+			outboxAttachmentId,
+			content,
+		} = params;
+		return storeInternal({
+			key: buildOutboxAttachmentKey(
+				accountConfigId,
+				accountId,
+				outboxMessageId,
+				outboxAttachmentId,
+			),
+			content,
+			compress: false,
+		});
+	};
+
+	const listOutboxAttachments: StorageService["listOutboxAttachments"] = async (
+		accountConfigId,
+		accountId,
+		outboxMessageId,
+		limit,
+	) => {
+		const prefix = buildOutboxAttachmentPrefix(
+			accountConfigId,
+			accountId,
+			outboxMessageId,
+		);
+		const entries = await readdir(join(basePath, prefix)).catch(
+			(error: unknown) => {
+				if (isStorageNotFoundError(error)) return [];
+				throw error;
+			},
+		);
+
+		const items: OutboxAttachmentListItem[] = [];
+		for (const entry of entries.slice(0, limit)) {
+			const { size } = await stat(join(basePath, prefix, entry));
+			items.push({
+				outboxAttachmentId: entry,
+				key: `${prefix}${entry}`,
+				sizeBytes: size,
+			});
+		}
+		return items;
+	};
+
 	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
 		const { accountConfigId, accountId, content } = params;
 		const checksumSha256 = computeChecksum(content);
@@ -338,6 +393,8 @@ export const createFilesystemStorageService = (
 		storeBodyPart,
 		bodyPartExists,
 		retrieveBodyPart,
+		storeOutboxAttachment,
+		listOutboxAttachments,
 		storeDeduplicated,
 		storeParsedBody,
 		retrieveParsedBody,

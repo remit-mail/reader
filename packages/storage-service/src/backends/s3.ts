@@ -15,6 +15,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
 import type {
 	ExtractedTextListItem,
+	OutboxAttachmentListItem,
 	ParsedBody,
 	StorageReference,
 	StorageService,
@@ -27,6 +28,8 @@ import {
 	buildExtractedSkippedKey,
 	buildExtractedTextKey,
 	buildMessageBodyKey,
+	buildOutboxAttachmentKey,
+	buildOutboxAttachmentPrefix,
 	buildParsedBodyKey,
 	computeChecksum,
 	isStorageNotFoundError,
@@ -325,6 +328,64 @@ export const createS3StorageService = (
 		return items;
 	};
 
+	const storeOutboxAttachment: StorageService["storeOutboxAttachment"] = (
+		params,
+	) => {
+		const {
+			accountConfigId,
+			accountId,
+			outboxMessageId,
+			outboxAttachmentId,
+			content,
+		} = params;
+		// `application/octet-stream` rather than the uploader's declared type:
+		// the object is only ever read back to build a MIME part, and a stored
+		// `text/html` would be a type any future signed-URL read path could be
+		// tricked into serving from the content origin.
+		return storeInternal({
+			key: buildOutboxAttachmentKey(
+				accountConfigId,
+				accountId,
+				outboxMessageId,
+				outboxAttachmentId,
+			),
+			content,
+			contentType: "application/octet-stream",
+			compress: false,
+		});
+	};
+
+	const listOutboxAttachments: StorageService["listOutboxAttachments"] = async (
+		accountConfigId,
+		accountId,
+		outboxMessageId,
+		limit,
+	) => {
+		const prefix = buildOutboxAttachmentPrefix(
+			accountConfigId,
+			accountId,
+			outboxMessageId,
+		);
+		const response = await client.send(
+			new ListObjectsV2Command({
+				Bucket: bucketName,
+				Prefix: prefix,
+				MaxKeys: limit,
+			}),
+		);
+
+		const items: OutboxAttachmentListItem[] = [];
+		for (const object of response.Contents ?? []) {
+			if (!object.Key) continue;
+			items.push({
+				outboxAttachmentId: object.Key.slice(prefix.length),
+				key: object.Key,
+				sizeBytes: object.Size ?? 0,
+			});
+		}
+		return items;
+	};
+
 	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
 		const { accountConfigId, accountId, content, contentType } = params;
 		const checksumSha256 = computeChecksum(content);
@@ -505,6 +566,8 @@ export const createS3StorageService = (
 		storeBodyPart,
 		bodyPartExists,
 		retrieveBodyPart,
+		storeOutboxAttachment,
+		listOutboxAttachments,
 		storeDeduplicated,
 		storeParsedBody,
 		retrieveParsedBody,

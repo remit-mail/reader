@@ -6,6 +6,8 @@ export {
 	buildExtractedSkippedKey,
 	buildExtractedTextKey,
 	buildMessageBodyKey,
+	buildOutboxAttachmentKey,
+	buildOutboxAttachmentPrefix,
 	buildParsedBodyKey,
 	type ContentEncodingValue,
 	computeChecksum,
@@ -13,6 +15,7 @@ export {
 	type ExtractedTextListItem,
 	type ExtractedTextMarker,
 	isStorageNotFoundError,
+	type OutboxAttachmentListItem,
 	type ParsedAttachmentMeta,
 	type ParsedBody,
 	type ParsedContentStorageKey,
@@ -25,6 +28,7 @@ export {
 	type StoreExtractedSkippedParams,
 	type StoreExtractedTextParams,
 	type StoreMessageBodyParams,
+	type StoreOutboxAttachmentParams,
 	type StoreParsedBodyParams,
 } from "./storage.js";
 export {

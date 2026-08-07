@@ -626,6 +626,16 @@ namespace RemitApi {
     @post
     @route("/send")
     op sendOutboxMessage(@path outboxMessageId: UUID): OutboxMessageResponse;
+
+    @doc("Attach a file to a draft message")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/attachments")
+    op uploadOutboxAttachment(
+      @path outboxMessageId: UUID,
+      @header contentType: "multipart/form-data",
+      @multipartBody upload: OutboxAttachmentUpload,
+    ): OutboxAttachmentResponse | OutboxAttachmentRejected;
   }
 
   // ============================================
