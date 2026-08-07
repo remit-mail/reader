@@ -141,10 +141,9 @@ describe("buildMailMessage", () => {
 });
 
 /**
- * The e2e reads both copies off a real server and compares them, which covers
- * the shapes the API can currently produce. What it cannot reach is anything the
- * compose path never sets — a display name, an attachment — so those are asserted
- * here, on the render the APPEND to Sent uses.
+ * `send-mime.spec.ts` compares both copies off a real server, which covers every
+ * shape the API can currently produce. What it cannot reach is what the compose
+ * path never sets — a display name, an attachment — so those are asserted here.
  */
 describe("renderRawMessage", () => {
 	const headerOf = (raw: string, name: string): string | undefined => {

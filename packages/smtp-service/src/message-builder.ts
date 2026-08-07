@@ -30,10 +30,7 @@ export interface MailAttachment {
 const formatFrom = (address: string, name: string | undefined): string =>
 	name ? `"${name.replace(/(["\\])/g, "\\$1")}" <${address}>` : address;
 
-/**
- * The one description of an outgoing message. Both copies come from here: the
- * bytes SMTP puts on the wire and the bytes APPENDed to Sent.
- */
+/** The one description of an outgoing message: the wire copy and the Sent copy. */
 export const buildMailMessage = (
 	outbox: OutboxMessageItem,
 	attachments?: MailAttachment[],
@@ -78,7 +75,7 @@ export const toNodemailerOptions = (message: MailMessage): SendMailOptions => ({
 	})),
 });
 
-/** Serialize a message to RFC822 bytes, for an IMAP APPEND. */
+/** The same message as RFC822 bytes, for an IMAP APPEND. */
 export const renderRawMessage = async (
 	message: MailMessage,
 ): Promise<Buffer> => {
