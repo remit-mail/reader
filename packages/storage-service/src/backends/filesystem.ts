@@ -4,6 +4,7 @@ import {
 	mkdir,
 	readdir,
 	readFile,
+	rm,
 	stat,
 	unlink,
 	writeFile,
@@ -13,6 +14,11 @@ import { PassThrough, Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGunzip, createGzip, gunzipSync, gzipSync } from "node:zlib";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
+import {
+	UPLOAD_ROUTE_PREFIX,
+	UPLOAD_URL_SIGNING_LABEL,
+} from "../outbox-upload-url.js";
+import { signStoragePath } from "../signed-path.js";
 import type {
 	OutboxAttachmentListItem,
 	ParsedBody,
@@ -29,9 +35,11 @@ import {
 	buildMessageBodyKey,
 	buildOutboxAttachmentKey,
 	buildOutboxAttachmentPrefix,
+	buildOutboxAttachmentReservationKey,
 	buildParsedBodyKey,
 	computeChecksum,
 	isStorageNotFoundError,
+	parseOutboxAttachmentEntry,
 } from "../storage.js";
 
 interface StoreParams {
@@ -40,8 +48,20 @@ interface StoreParams {
 	compress?: boolean;
 }
 
+/**
+ * Where a minted upload URL points, and what signs it. Absent on a process that
+ * only reads storage; a mint then fails loud rather than handing out a URL
+ * nothing can verify.
+ */
+export interface FilesystemUploadUrlConfig {
+	/** Public origin of the deployment serving the upload route. */
+	origin: string;
+	signingSecret: string;
+}
+
 export const createFilesystemStorageService = (
 	basePath: string,
+	uploadUrls?: FilesystemUploadUrlConfig,
 ): StorageService => {
 	const storeInternal = async (
 		params: StoreParams,
@@ -296,16 +316,154 @@ export const createFilesystemStorageService = (
 		);
 
 		const items: OutboxAttachmentListItem[] = [];
-		for (const entry of entries.slice(0, limit)) {
-			const { size } = await stat(join(basePath, prefix, entry));
+		for (const name of entries.slice(0, limit)) {
+			const entry = parseOutboxAttachmentEntry(name);
+			const { size } = await stat(join(basePath, prefix, name));
 			items.push({
-				outboxAttachmentId: entry,
-				key: `${prefix}${entry}`,
-				sizeBytes: size,
+				outboxAttachmentId: entry.outboxAttachmentId,
+				key: `${prefix}${name}`,
+				sizeBytes: entry.isReservation ? entry.reservedBytes : size,
+				isReservation: entry.isReservation,
+				expiresAt: entry.expiresAt,
 			});
 		}
 		return items;
 	};
+
+	const deleteOutboxAttachment: StorageService["deleteOutboxAttachment"] =
+		async (accountConfigId, accountId, outboxMessageId, outboxAttachmentId) => {
+			const prefix = buildOutboxAttachmentPrefix(
+				accountConfigId,
+				accountId,
+				outboxMessageId,
+			);
+			const entries = await readdir(join(basePath, prefix)).catch(
+				(error: unknown) => {
+					if (isStorageNotFoundError(error)) return [];
+					throw error;
+				},
+			);
+			for (const name of entries) {
+				if (
+					parseOutboxAttachmentEntry(name).outboxAttachmentId !==
+					outboxAttachmentId
+				) {
+					continue;
+				}
+				await rm(join(basePath, prefix, name), { force: true });
+			}
+		};
+
+	const reserveOutboxAttachment: StorageService["reserveOutboxAttachment"] =
+		async (params) => {
+			await storeInternal({
+				key: buildOutboxAttachmentReservationKey(
+					params.accountConfigId,
+					params.accountId,
+					params.outboxMessageId,
+					params.outboxAttachmentId,
+					params.sizeBytes,
+					params.expiresAt,
+				),
+				content: Buffer.alloc(0),
+				compress: false,
+			});
+		};
+
+	const releaseOutboxAttachmentReservation: StorageService["releaseOutboxAttachmentReservation"] =
+		async (
+			accountConfigId,
+			accountId,
+			outboxMessageId,
+			outboxAttachmentId,
+			sizeBytes,
+			expiresAt,
+		) => {
+			await rm(
+				join(
+					basePath,
+					buildOutboxAttachmentReservationKey(
+						accountConfigId,
+						accountId,
+						outboxMessageId,
+						outboxAttachmentId,
+						sizeBytes,
+						expiresAt,
+					),
+				),
+				{ force: true },
+			);
+		};
+
+	const statOutboxAttachment: StorageService["statOutboxAttachment"] = async (
+		accountConfigId,
+		accountId,
+		outboxMessageId,
+		outboxAttachmentId,
+	) => {
+		const fullPath = join(
+			basePath,
+			buildOutboxAttachmentKey(
+				accountConfigId,
+				accountId,
+				outboxMessageId,
+				outboxAttachmentId,
+			),
+		);
+		const stats = await stat(fullPath).catch((error: unknown) => {
+			if (isStorageNotFoundError(error)) return null;
+			throw error;
+		});
+		return stats ? { sizeBytes: stats.size } : null;
+	};
+
+	// This backend has no presigned anything, so the URL addresses the
+	// deployment's own upload route. Its authority is the same HMAC the read side
+	// uses on /content, under the write label, covering the storage key, the
+	// expiry and the exact byte count — a URL for one attachment, for a while,
+	// for one size.
+	const createOutboxAttachmentUploadUrl: StorageService["createOutboxAttachmentUploadUrl"] =
+		async (params) => {
+			if (!uploadUrls) {
+				throw new Error(
+					"the filesystem storage backend cannot mint an upload URL without an origin and a signing secret",
+				);
+			}
+			const key = buildOutboxAttachmentKey(
+				params.accountConfigId,
+				params.accountId,
+				params.outboxMessageId,
+				params.outboxAttachmentId,
+			);
+			const sig = signStoragePath(
+				uploadUrls.signingSecret,
+				UPLOAD_URL_SIGNING_LABEL,
+				key,
+				[params.expiresAt, params.sizeBytes],
+			);
+			const origin = uploadUrls.origin.replace(/\/+$/, "");
+			const query = new URLSearchParams({
+				exp: String(params.expiresAt),
+				max: String(params.sizeBytes),
+				sig,
+			});
+			return {
+				uploadUrl: `${origin}${UPLOAD_ROUTE_PREFIX}${key}?${query.toString()}`,
+			};
+		};
+
+	const deleteOutboxAttachments: StorageService["deleteOutboxAttachments"] =
+		async (accountConfigId, accountId, outboxMessageId) => {
+			const dirPath = join(
+				basePath,
+				buildOutboxAttachmentPrefix(
+					accountConfigId,
+					accountId,
+					outboxMessageId,
+				),
+			);
+			await rm(dirPath, { recursive: true, force: true });
+		};
 
 	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
 		const { accountConfigId, accountId, content } = params;
@@ -395,6 +553,12 @@ export const createFilesystemStorageService = (
 		retrieveBodyPart,
 		storeOutboxAttachment,
 		listOutboxAttachments,
+		deleteOutboxAttachments,
+		deleteOutboxAttachment,
+		reserveOutboxAttachment,
+		releaseOutboxAttachmentReservation,
+		statOutboxAttachment,
+		createOutboxAttachmentUploadUrl,
 		storeDeduplicated,
 		storeParsedBody,
 		retrieveParsedBody,

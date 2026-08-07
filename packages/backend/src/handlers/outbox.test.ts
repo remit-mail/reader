@@ -25,7 +25,14 @@ import type {
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import { OutboxMessageStatus } from "@remit/domain-enums";
-import { OutboxQueueService } from "@remit/mailbox-service";
+import {
+	OutboxAttachmentService,
+	OutboxQueueService,
+} from "@remit/mailbox-service";
+import {
+	createMockStorageService,
+	type StorageService,
+} from "@remit/storage-service";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { deriveAccountConfigId } from "../auth.js";
@@ -33,6 +40,7 @@ import { handleError } from "../error.js";
 import { formatResponse } from "../response.js";
 import {
 	_resetForTest,
+	getClient,
 	type RemitClient,
 	setClient,
 } from "../service/data-client.js";
@@ -138,13 +146,24 @@ const accountRepository = {
 	}),
 } as unknown as IAccountRepository;
 
+let installedStorage: StorageService | null = null;
+
 const installClient = (): void => {
 	const outboxMessage = createInMemoryOutboxRepository();
+	const storage = createMockStorageService();
+	const outboxAttachmentService = new OutboxAttachmentService({
+		outboxMessageService: outboxMessage,
+		storage,
+	});
+	installedStorage = storage;
 	setClient({
 		outboxMessage,
+		storage,
 		account: accountRepository,
+		outboxAttachment: outboxAttachmentService,
 		outboxQueue: new OutboxQueueService({
 			outboxMessageService: outboxMessage,
+			outboxAttachmentService,
 			accountService: accountRepository,
 			sqsSmtpQueueUrl: "http://localhost:9324/queue/outbox-test",
 			sqsClient: acceptingSqsClient(),
@@ -290,5 +309,63 @@ describe("an outbox entry that has left draft (#604)", () => {
 		assert.equal(response.statusCode, 200);
 		const body = JSON.parse(response.body) as { subject?: string };
 		assert.equal(body.subject, "still editing");
+	});
+});
+
+describe("discarding a draft that carries files (#679)", () => {
+	it("takes the stored bytes with it, leaving nothing behind", async () => {
+		installClient();
+		const storage = installedStorage;
+		assert.ok(storage);
+
+		const draft = await createDraft(
+			requestContext({}),
+			authorizedEvent({
+				accountId: ACCOUNT_ID,
+				toAddresses: ["recipient@example.com"],
+			}),
+		);
+		const outboxMessageId = String(draft.outboxMessageId);
+
+		const client = await getClient();
+		const minted = await client.outboxAttachment.mint({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			outboxMessageId,
+			filename: "receipt.pdf",
+			contentType: "application/pdf",
+			sizeBytes: 16,
+		});
+		assert.equal(minted.outcome, "Minted");
+		assert.equal(
+			(
+				await storage.listOutboxAttachments(
+					ACCOUNT_CONFIG_ID,
+					ACCOUNT_ID,
+					outboxMessageId,
+					10,
+				)
+			).length,
+			1,
+		);
+
+		const response = await respond(() =>
+			deleteDraft(
+				requestContext({ params: { outboxMessageId } }),
+				authorizedEvent(),
+			),
+		);
+
+		assert.equal(response.statusCode, 204);
+		// Nothing else references these objects, so a row that goes without them
+		// leaves bytes no sweep collects.
+		assert.deepEqual(
+			await storage.listOutboxAttachments(
+				ACCOUNT_CONFIG_ID,
+				ACCOUNT_ID,
+				outboxMessageId,
+				10,
+			),
+			[],
+		);
 	});
 });

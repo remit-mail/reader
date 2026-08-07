@@ -98,7 +98,7 @@ describe("path builders", () => {
 		);
 	});
 
-	test("an outbox attachment key is not a message content key, so the /content route cannot resolve one", () => {
+	test("parseContentStorageKey does not recognise an outbox attachment key", () => {
 		assert.strictEqual(
 			parseContentStorageKey(
 				buildOutboxAttachmentKey("cfg1", "acc123", "draft9", "att7"),

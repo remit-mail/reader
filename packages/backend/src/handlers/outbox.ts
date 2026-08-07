@@ -11,10 +11,14 @@ import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getClient } from "../service/data-client.js";
 import type {
 	OperationHandler,
+	OutboxAttachmentOperationIds,
 	OutboxDetailOperationIds,
 	OutboxOperationIds,
 } from "../types.js";
-import { uploadOutboxAttachment } from "./outbox-attachment.js";
+import {
+	completeOutboxAttachment,
+	mintOutboxAttachment,
+} from "./outbox-attachment.js";
 
 const toOutboxMessageResponse = (
 	item: OutboxMessageItem,
@@ -217,5 +221,12 @@ export const OutboxDetailOperations: Record<
 		return toOutboxMessageResponse(sent);
 	},
 
-	OutboxDetailOperations_uploadOutboxAttachment: uploadOutboxAttachment,
+	OutboxDetailOperations_mintOutboxAttachment: mintOutboxAttachment,
+};
+
+export const OutboxAttachmentOperations: Record<
+	OutboxAttachmentOperationIds,
+	OperationHandler<OutboxAttachmentOperationIds>
+> = {
+	OutboxAttachmentOperations_completeOutboxAttachment: completeOutboxAttachment,
 };

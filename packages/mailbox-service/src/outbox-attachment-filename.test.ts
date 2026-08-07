@@ -53,6 +53,22 @@ describe("sanitizeAttachmentFilename", () => {
 		assert.ok(sanitized.endsWith(".pdf"));
 	});
 
+	it("never cuts an emoji in half when it truncates", () => {
+		const sanitized = sanitizeAttachmentFilename(
+			`${"a".repeat(195)}\u{1F600}x.pdf`,
+		);
+		assert.ok(sanitized !== null);
+		assert.equal(
+			[...sanitized].some((character) => {
+				const code = character.charCodeAt(0);
+				return code >= 0xd800 && code <= 0xdfff && character.length === 1;
+			}),
+			false,
+		);
+		assert.equal(Buffer.from(sanitized, "utf8").includes("\uFFFD"), false);
+		assert.ok(sanitized.endsWith(".pdf"));
+	});
+
 	it("truncates a name whose trailing dot-segment is not a plausible extension", () => {
 		const sanitized = sanitizeAttachmentFilename(
 			`${"a".repeat(300)}.${"b".repeat(300)}`,
@@ -79,6 +95,13 @@ describe("normalizeAttachmentContentType", () => {
 
 	it("falls back when the browser sent nothing", () => {
 		assert.equal(normalizeAttachmentContentType(""), FALLBACK_CONTENT_TYPE);
+	});
+
+	it("falls back on a token long enough to overflow the field it lands in", () => {
+		assert.equal(
+			normalizeAttachmentContentType(`application/${"x".repeat(300)}`),
+			FALLBACK_CONTENT_TYPE,
+		);
 	});
 
 	it("falls back on a value that is not a media type", () => {

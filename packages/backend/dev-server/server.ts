@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { OutboxAttachmentRejectionReason } from "@remit/domain-enums";
 import { logger } from "@remit/logger-lambda";
 import {
 	metricsContentType,
@@ -8,8 +7,10 @@ import {
 	renderMetrics,
 	setAccountSyncAges,
 } from "@remit/logger-lambda/metrics";
-import { OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES } from "@remit/mailbox-service";
-import { isStorageNotFoundError } from "@remit/storage-service";
+import {
+	isStorageNotFoundError,
+	UPLOAD_ROUTE_PREFIX,
+} from "@remit/storage-service";
 import type { APIGatewayProxyResult } from "aws-lambda";
 import { env } from "expect-env";
 import express, {
@@ -27,6 +28,7 @@ import { parseAllowedOrigins, resolveAllowOrigin } from "./cors.js";
 import { createLambdaContext, createLambdaEvent } from "./lambda-helpers.js";
 import { checkRelationalStore } from "./relational-health.js";
 import { collectAccountSyncAges } from "./sync-age.js";
+import { receiveUpload } from "./upload-handler.js";
 
 const app = express();
 
@@ -130,37 +132,6 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 	}
 });
 
-// Binary uploads arrive whole and are handed on as bytes; express.json would
-// leave `req.body` empty and lose them. The limit is the edge's own refusal —
-// the request never reaches a handler, so it answers in the same shape the
-// composer renders for a file the service refuses, and one megabyte of slack
-// covers the multipart envelope around a file at exactly the cap.
-app.use(
-	express.raw({
-		type: "multipart/form-data",
-		limit: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES + 1024 * 1024,
-	}),
-);
-app.use(
-	(
-		error: NodeJS.ErrnoException & { type?: string },
-		_req: Request,
-		res: Response,
-		next: NextFunction,
-	) => {
-		if (error?.type !== "entity.too.large") {
-			next(error);
-			return;
-		}
-		res.status(413).json({
-			reason: OutboxAttachmentRejectionReason.FileTooLarge,
-			message: `That file is over the ${OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES / (1024 * 1024)} MB a message can carry.`,
-			limitBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
-			usedBytes: 0,
-		});
-	},
-);
-
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -247,6 +218,34 @@ const STORAGE_LOCAL_PATH = process.env.STORAGE_LOCAL_PATH ?? ".remit/storage";
 const STORAGE_BASE = resolve(
 	process.env.LOCAL_CONTENT_STORAGE_BASE ?? process.cwd(),
 	STORAGE_LOCAL_PATH,
+);
+
+// The self-hosted upload receiver, the write-side twin of /content below. The
+// URL that reaches here was minted by the storage backend and carries its own
+// authority: an HMAC over the storage key, an expiry and the exact byte count.
+// No bearer token, for the same reason /content has none — the grant has to
+// travel in the URL itself. A hosted deployment presigns against block storage
+// instead and nothing arrives here at all.
+app.put(
+	new RegExp(`^${UPLOAD_ROUTE_PREFIX}.+$`),
+	async (req: Request, res: Response) => {
+		const storageKey = req.path.slice(UPLOAD_ROUTE_PREFIX.length);
+		const client = await getClient();
+
+		const result = await receiveUpload(client.storage, {
+			storageKey,
+			exp: typeof req.query.exp === "string" ? req.query.exp : undefined,
+			max: typeof req.query.max === "string" ? req.query.max : undefined,
+			sig: typeof req.query.sig === "string" ? req.query.sig : undefined,
+			body: req,
+			nowSeconds: Math.floor(Date.now() / 1000),
+			secret: process.env.BETTER_AUTH_SECRET,
+		});
+
+		res.setHeader("x-remit-upload-reason", result.reason);
+		res.status(result.status);
+		res.send(result.status === 204 ? undefined : result.reason);
+	},
 );
 
 app.get(/^\/content\/.+$/, async (req: Request, res: Response) => {

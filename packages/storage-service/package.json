@@ -16,6 +16,10 @@
 		"./s3": {
 			"types": "./src/s3.ts",
 			"default": "./src/s3.ts"
+		},
+		"./signed-path": {
+			"types": "./src/signed-path.ts",
+			"default": "./src/signed-path.ts"
 		}
 	},
 	"scripts": {

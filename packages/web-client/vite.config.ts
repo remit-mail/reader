@@ -59,6 +59,13 @@ export default defineConfig({
 				target: `http://localhost:${process.env.VITE_PROXY_BACKEND_PORT ?? "5433"}`,
 				changeOrigin: true,
 			},
+			// The write-side twin: an attachment upload carries its authority in
+			// the URL it was minted with, so it goes straight to the backend the
+			// same way content comes back from it.
+			"/outbox-upload": {
+				target: `http://localhost:${process.env.VITE_PROXY_BACKEND_PORT ?? "5433"}`,
+				changeOrigin: true,
+			},
 		},
 	},
 });

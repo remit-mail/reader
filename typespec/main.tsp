@@ -627,14 +627,25 @@ namespace RemitApi {
     @route("/send")
     op sendOutboxMessage(@path outboxMessageId: UUID): OutboxMessageResponse;
 
-    @doc("Attach a file to a draft message")
+    @doc("Reserve room on a draft for a file, and get somewhere to put it")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/attachments")
-    op uploadOutboxAttachment(
+    op mintOutboxAttachment(
       @path outboxMessageId: UUID,
-      @header contentType: "multipart/form-data",
-      @multipartBody upload: OutboxAttachmentUpload,
+      @body input: MintOutboxAttachmentInput,
+    ): MintOutboxAttachmentResponse | OutboxAttachmentRejected;
+  }
+
+  @route("/outbox/{outboxMessageId}/attachments/{outboxAttachmentId}")
+  namespace OutboxAttachmentOperations {
+    @doc("Confirm an uploaded file against the object storage now holds")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/complete")
+    op completeOutboxAttachment(
+      @path outboxMessageId: UUID,
+      @path outboxAttachmentId: UUID,
     ): OutboxAttachmentResponse | OutboxAttachmentRejected;
   }
 

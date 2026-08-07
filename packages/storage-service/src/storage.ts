@@ -65,11 +65,43 @@ export interface StoreOutboxAttachmentParams {
 	content: Buffer;
 }
 
-/** One file already stored against a draft outbox message */
+/**
+ * One entry under a draft's attachment prefix.
+ *
+ * A reservation and an uploaded object are both entries: a mint writes the
+ * reservation, the upload writes the object beside it, and completion removes
+ * the reservation. `sizeBytes` is what the entry costs the draft either way —
+ * the bytes on the backend once they exist, the reserved size until then — so
+ * totalling a draft is a sum over one listing with nothing else read.
+ */
 export interface OutboxAttachmentListItem {
 	outboxAttachmentId: string;
 	key: string;
 	sizeBytes: number;
+	/** True while this is only a promise of bytes, not bytes. */
+	isReservation: boolean;
+	/** Unix seconds the reservation lapses at. Zero on an uploaded object. */
+	expiresAt: number;
+}
+
+/** Somewhere for a client to PUT one file, for a while */
+export interface OutboxAttachmentUploadTarget {
+	/**
+	 * Absolute URL the client PUTs raw bytes to. Opaque by design: block storage
+	 * on one deployment, this deployment's own upload route on another, and a
+	 * client cannot tell which it was handed.
+	 */
+	uploadUrl: string;
+}
+
+export interface CreateOutboxAttachmentUploadUrlParams {
+	accountConfigId: string;
+	accountId: string;
+	outboxMessageId: string;
+	outboxAttachmentId: string;
+	/** Exact byte count the upload may carry. */
+	sizeBytes: number;
+	expiresAt: number;
 }
 
 /** Parameters for storing deduplicated content (attachments shared across messages) */
@@ -199,6 +231,64 @@ export interface StorageService {
 		outboxMessageId: string,
 		limit: number,
 	): Promise<OutboxAttachmentListItem[]>;
+
+	/**
+	 * Remove every file and reservation stored against a draft. Unlike the read
+	 * above this takes no limit and pages to the end: a sweep that stops early
+	 * leaves exactly the orphan it was called to prevent.
+	 */
+	deleteOutboxAttachments(
+		accountConfigId: string,
+		accountId: string,
+		outboxMessageId: string,
+	): Promise<void>;
+
+	/** Remove one attachment: its object, its reservation, or both. */
+	deleteOutboxAttachment(
+		accountConfigId: string,
+		accountId: string,
+		outboxMessageId: string,
+		outboxAttachmentId: string,
+	): Promise<void>;
+
+	/** Record that a draft is owed `sizeBytes` until `expiresAt`. */
+	reserveOutboxAttachment(
+		params: CreateOutboxAttachmentUploadUrlParams,
+	): Promise<void>;
+
+	/** Drop a reservation, leaving whatever was uploaded under it. */
+	releaseOutboxAttachmentReservation(
+		accountConfigId: string,
+		accountId: string,
+		outboxMessageId: string,
+		outboxAttachmentId: string,
+		sizeBytes: number,
+		expiresAt: number,
+	): Promise<void>;
+
+	/**
+	 * The size storage actually holds for an attachment, or null when nothing
+	 * was uploaded. This is the only number a completion may believe — the
+	 * client's word for it is not evidence, and on a deployment where the bytes
+	 * went straight to block storage it is the only reading available.
+	 */
+	statOutboxAttachment(
+		accountConfigId: string,
+		accountId: string,
+		outboxMessageId: string,
+		outboxAttachmentId: string,
+	): Promise<{ sizeBytes: number } | null>;
+
+	/**
+	 * Mint somewhere to PUT one file. The backend decides what that is — block
+	 * storage direct, or this deployment's upload route — and the caller never
+	 * branches on which it got. Whatever it returns must bind the size: an
+	 * upload that carries more than was reserved has to fail at the thing
+	 * receiving it, not afterwards.
+	 */
+	createOutboxAttachmentUploadUrl(
+		params: CreateOutboxAttachmentUploadUrlParams,
+	): Promise<OutboxAttachmentUploadTarget>;
 
 	/** Store deduplicated content (content-addressable, for attachments) */
 	storeDeduplicated(params: StoreDeduplicatedParams): Promise<StorageReference>;
@@ -370,6 +460,83 @@ export const buildOutboxAttachmentKey = (
 ): string =>
 	`${buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId)}${outboxAttachmentId}`;
 
+/**
+ * A reservation is a zero-byte object whose name carries everything the cap
+ * needs — the id it holds room for, how many bytes, and when it lapses. Keeping
+ * it in the name means totalling a draft is one listing with no reads, and an
+ * expired reservation is recognisable without opening anything.
+ */
+export const buildOutboxAttachmentReservationKey = (
+	accountConfigId: string,
+	accountId: string,
+	outboxMessageId: string,
+	outboxAttachmentId: string,
+	sizeBytes: number,
+	expiresAt: number,
+): string =>
+	`${buildOutboxAttachmentKey(accountConfigId, accountId, outboxMessageId, outboxAttachmentId)}.pending-${sizeBytes}-${expiresAt}`;
+
+const RESERVATION_ENTRY = /^(.+)\.pending-(\d+)-(\d+)$/;
+
+const OUTBOX_ATTACHMENT_KEY =
+	/^accounts\/([^/]+)\/([^/]+)\/outbox\/([^/]+)\/attachments\/([^/]+)$/;
+
+export interface ParsedOutboxAttachmentKey {
+	accountConfigId: string;
+	accountId: string;
+	outboxMessageId: string;
+	outboxAttachmentId: string;
+}
+
+/**
+ * Read the ids back out of an attachment key — the inverse of
+ * `buildOutboxAttachmentKey`, for the upload route, which is handed a path and
+ * has to work out what it addresses. Returns null on anything else, including a
+ * reservation key: bytes are never written to one.
+ */
+export const parseOutboxAttachmentKey = (
+	storageKey: string,
+): ParsedOutboxAttachmentKey | null => {
+	const match = storageKey.match(OUTBOX_ATTACHMENT_KEY);
+	if (!match) return null;
+	if (RESERVATION_ENTRY.test(match[4])) return null;
+	return {
+		accountConfigId: match[1],
+		accountId: match[2],
+		outboxMessageId: match[3],
+		outboxAttachmentId: match[4],
+	};
+};
+
+export interface ParsedOutboxAttachmentEntry {
+	outboxAttachmentId: string;
+	isReservation: boolean;
+	/** Reserved size for a reservation; callers use the object size otherwise. */
+	reservedBytes: number;
+	expiresAt: number;
+}
+
+/** Read one entry name from under a draft's attachment prefix. */
+export const parseOutboxAttachmentEntry = (
+	entryName: string,
+): ParsedOutboxAttachmentEntry => {
+	const match = entryName.match(RESERVATION_ENTRY);
+	if (!match) {
+		return {
+			outboxAttachmentId: entryName,
+			isReservation: false,
+			reservedBytes: 0,
+			expiresAt: 0,
+		};
+	}
+	return {
+		outboxAttachmentId: match[1],
+		isReservation: true,
+		reservedBytes: Number(match[2]),
+		expiresAt: Number(match[3]),
+	};
+};
+
 export const buildDeduplicatedKey = (
 	accountConfigId: string,
 	accountId: string,
@@ -501,14 +668,82 @@ export const createMockStorageService = (): StorageService => {
 		for (const [uri, content] of storage.entries()) {
 			if (items.length >= limit) break;
 			if (!uri.startsWith(prefix)) continue;
+			const entry = parseOutboxAttachmentEntry(uri.slice(prefix.length));
 			items.push({
-				outboxAttachmentId: uri.slice(prefix.length),
+				outboxAttachmentId: entry.outboxAttachmentId,
 				key: uri.slice("mock://".length),
-				sizeBytes: content.length,
+				sizeBytes: entry.isReservation ? entry.reservedBytes : content.length,
+				isReservation: entry.isReservation,
+				expiresAt: entry.expiresAt,
 			});
 		}
 		return items;
 	};
+
+	const deleteOutboxAttachment: StorageService["deleteOutboxAttachment"] =
+		async (accountConfigId, accountId, outboxMessageId, outboxAttachmentId) => {
+			const prefix = `mock://${buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId)}`;
+			for (const uri of [...storage.keys()]) {
+				if (!uri.startsWith(prefix)) continue;
+				const entry = parseOutboxAttachmentEntry(uri.slice(prefix.length));
+				if (entry.outboxAttachmentId === outboxAttachmentId)
+					storage.delete(uri);
+			}
+		};
+
+	const reserveOutboxAttachment: StorageService["reserveOutboxAttachment"] =
+		async (params) => {
+			storeInternal(
+				buildOutboxAttachmentReservationKey(
+					params.accountConfigId,
+					params.accountId,
+					params.outboxMessageId,
+					params.outboxAttachmentId,
+					params.sizeBytes,
+					params.expiresAt,
+				),
+				Buffer.alloc(0),
+			);
+		};
+
+	const releaseOutboxAttachmentReservation: StorageService["releaseOutboxAttachmentReservation"] =
+		async (
+			accountConfigId,
+			accountId,
+			outboxMessageId,
+			outboxAttachmentId,
+			sizeBytes,
+			expiresAt,
+		) => {
+			storage.delete(
+				`mock://${buildOutboxAttachmentReservationKey(accountConfigId, accountId, outboxMessageId, outboxAttachmentId, sizeBytes, expiresAt)}`,
+			);
+		};
+
+	const statOutboxAttachment: StorageService["statOutboxAttachment"] = async (
+		accountConfigId,
+		accountId,
+		outboxMessageId,
+		outboxAttachmentId,
+	) => {
+		const content = storage.get(
+			`mock://${buildOutboxAttachmentKey(accountConfigId, accountId, outboxMessageId, outboxAttachmentId)}`,
+		);
+		return content ? { sizeBytes: content.length } : null;
+	};
+
+	const createOutboxAttachmentUploadUrl: StorageService["createOutboxAttachmentUploadUrl"] =
+		async (params) => ({
+			uploadUrl: `mock://upload/${buildOutboxAttachmentKey(params.accountConfigId, params.accountId, params.outboxMessageId, params.outboxAttachmentId)}?max=${params.sizeBytes}&exp=${params.expiresAt}`,
+		});
+
+	const deleteOutboxAttachments: StorageService["deleteOutboxAttachments"] =
+		async (accountConfigId, accountId, outboxMessageId) => {
+			const prefix = `mock://${buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId)}`;
+			for (const uri of [...storage.keys()]) {
+				if (uri.startsWith(prefix)) storage.delete(uri);
+			}
+		};
 
 	const storeDeduplicated: StorageService["storeDeduplicated"] = async (
 		params,
@@ -648,6 +883,12 @@ export const createMockStorageService = (): StorageService => {
 		retrieveBodyPart,
 		storeOutboxAttachment,
 		listOutboxAttachments,
+		deleteOutboxAttachments,
+		deleteOutboxAttachment,
+		reserveOutboxAttachment,
+		releaseOutboxAttachmentReservation,
+		statOutboxAttachment,
+		createOutboxAttachmentUploadUrl,
 		storeDeduplicated,
 		storeParsedBody,
 		retrieveParsedBody,

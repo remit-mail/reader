@@ -15,15 +15,24 @@ const UNSAFE_CHARACTERS =
 
 const MAX_FILENAME_LENGTH = 200;
 
+// By code point, never by UTF-16 unit: cutting mid-surrogate leaves a lone half
+// that a Content-Disposition encoder can only render as U+FFFD.
+const truncateCodePoints = (value: string, limit: number): string =>
+	Array.from(value).slice(0, limit).join("");
+
 const truncateKeepingExtension = (filename: string): string => {
-	if (filename.length <= MAX_FILENAME_LENGTH) return filename;
+	const codePoints = Array.from(filename);
+	if (codePoints.length <= MAX_FILENAME_LENGTH) return filename;
 
 	const dot = filename.lastIndexOf(".");
-	const extension = dot > 0 ? filename.slice(dot) : "";
+	const extension = dot > 0 ? Array.from(filename.slice(dot)) : [];
 	if (extension.length === 0 || extension.length > 16) {
-		return filename.slice(0, MAX_FILENAME_LENGTH);
+		return truncateCodePoints(filename, MAX_FILENAME_LENGTH);
 	}
-	return filename.slice(0, MAX_FILENAME_LENGTH - extension.length) + extension;
+	return (
+		truncateCodePoints(filename, MAX_FILENAME_LENGTH - extension.length) +
+		extension.join("")
+	);
 };
 
 /**
@@ -46,6 +55,10 @@ const MEDIA_TYPE = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+\/[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
 
 export const FALLBACK_CONTENT_TYPE = "application/octet-stream";
 
+// The longest registered media type is well under this. A token run past it is
+// a client inventing one, and it would overflow the response field it lands in.
+const MAX_CONTENT_TYPE_LENGTH = 127;
+
 /**
  * The media type to record. Parameters (`; charset=…`) are dropped and anything
  * that is not a bare type/subtype becomes the fallback: the value is recorded
@@ -53,6 +66,7 @@ export const FALLBACK_CONTENT_TYPE = "application/octet-stream";
  */
 export const normalizeAttachmentContentType = (raw: string): string => {
 	const bare = raw.split(";")[0].trim().toLowerCase();
+	if (bare.length > MAX_CONTENT_TYPE_LENGTH) return FALLBACK_CONTENT_TYPE;
 	if (!MEDIA_TYPE.test(bare)) return FALLBACK_CONTENT_TYPE;
 	return bare;
 };

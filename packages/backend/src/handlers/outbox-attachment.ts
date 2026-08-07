@@ -1,17 +1,17 @@
 import type {
+	MintOutboxAttachmentInput,
+	MintOutboxAttachmentResponse,
 	OutboxAttachmentRejection,
 	OutboxAttachmentResponse,
 } from "@remit/api-openapi-types";
 import { OutboxAttachmentRejectionReason } from "@remit/domain-enums";
-import {
-	OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
-	type OutboxAttachmentRejectionDetail,
-	type OutboxAttachmentRejectionReasonValue,
+import type {
+	OutboxAttachmentRejectionDetail,
+	OutboxAttachmentRejectionReasonValue,
 } from "@remit/mailbox-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
-import { readUploadedFile } from "../multipart.js";
 import { getClient } from "../service/data-client.js";
 
 const TOO_LARGE: ReadonlySet<OutboxAttachmentRejectionReasonValue> = new Set([
@@ -37,48 +37,58 @@ const refuse = (
 	},
 });
 
-const refuseBody = (
-	reason: OutboxAttachmentRejectionReasonValue,
-	message: string,
-): RejectionResponse =>
-	refuse({
-		reason,
-		message,
-		limitBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
-		usedBytes: 0,
-	});
-
-export const uploadOutboxAttachment = async (
+/**
+ * Reserve room on a draft and hand back somewhere to put the bytes. Small JSON
+ * in, small JSON out — the file itself never passes through here, which is what
+ * lets the upload live on its own fleet and keeps this operation under any
+ * payload ceiling the REST tier has.
+ */
+export const mintOutboxAttachment = async (
 	context: Context,
 	...args: unknown[]
-): Promise<OutboxAttachmentResponse | RejectionResponse> => {
+): Promise<MintOutboxAttachmentResponse | RejectionResponse> => {
 	const event = args[0] as APIGatewayProxyEvent;
 	const accountConfigId = getAccountConfigIdFromEvent(event);
 	const { outboxMessageId } = context.request.params as {
 		outboxMessageId: string;
 	};
-
-	const upload = await readUploadedFile(event, "file");
-	if (upload.outcome === "Malformed") {
-		return refuseBody(
-			OutboxAttachmentRejectionReason.MalformedUpload,
-			"The upload could not be read as a multipart form. Try attaching the file again.",
-		);
-	}
-	if (upload.outcome === "NoSuchPart") {
-		return refuseBody(
-			OutboxAttachmentRejectionReason.MissingFile,
-			"The upload carried no file. Try attaching the file again.",
-		);
-	}
+	const input = context.request.requestBody as MintOutboxAttachmentInput;
 
 	const client = await getClient();
-	const result = await client.outboxAttachment.store({
+	const result = await client.outboxAttachment.mint({
 		accountConfigId,
 		outboxMessageId,
-		filename: upload.file.filename,
-		contentType: upload.file.contentType,
-		content: upload.file.content,
+		filename: input.filename,
+		contentType: input.contentType,
+		sizeBytes: input.sizeBytes,
+	});
+
+	if (result.outcome === "Rejected") return refuse(result.rejection);
+
+	return result.reservation;
+};
+
+/**
+ * Confirm the upload landed. The size in the response is read back from
+ * storage — on a deployment where the browser PUT straight to block storage
+ * this call is the first the API hears of the bytes, and the client's word for
+ * how many there are is not evidence.
+ */
+export const completeOutboxAttachment = async (
+	context: Context,
+	...args: unknown[]
+): Promise<OutboxAttachmentResponse | RejectionResponse> => {
+	const event = args[0] as APIGatewayProxyEvent;
+	const accountConfigId = getAccountConfigIdFromEvent(event);
+	const { outboxMessageId, outboxAttachmentId } = context.request.params as {
+		outboxMessageId: string;
+		outboxAttachmentId: string;
+	};
+	const client = await getClient();
+	const result = await client.outboxAttachment.complete({
+		accountConfigId,
+		outboxMessageId,
+		outboxAttachmentId,
 	});
 
 	if (result.outcome === "Rejected") return refuse(result.rejection);

@@ -16,5 +16,16 @@ export const createStorageService = (): StorageService => {
 	}
 
 	const basePath = process.env.STORAGE_LOCAL_PATH ?? ".remit/storage";
-	return createFilesystemStorageService(basePath);
+	// BETTER_AUTH_URL is the deployment's own public base — the value the token
+	// issuer and the JWKS discovery document already agree on — so a minted
+	// upload URL resolves from wherever the browser reached the API. Both it and
+	// the signing secret are required on the self-host stack; without them a
+	// mint fails loud inside the backend rather than handing out a URL that
+	// cannot be verified.
+	const origin = process.env.BETTER_AUTH_URL;
+	const signingSecret = process.env.BETTER_AUTH_SECRET;
+	return createFilesystemStorageService(
+		basePath,
+		origin && signingSecret ? { origin, signingSecret } : undefined,
+	);
 };

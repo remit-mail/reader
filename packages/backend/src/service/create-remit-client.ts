@@ -358,6 +358,14 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		logger,
 	});
 
+	// One instance, shared with the queue service below: the per-draft chain that
+	// makes the attachment cap safe under concurrency lives on it, and a discard
+	// racing an upload has to take the same lock the upload does.
+	const outboxAttachmentService = new OutboxAttachmentService({
+		outboxMessageService: repositories.outboxMessage,
+		storage,
+	});
+
 	const bodySync = new BodySyncService(
 		repositories.message,
 		storage,
@@ -410,12 +418,10 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 			logger,
 		}),
 		messageMove: messageMoveService,
-		outboxAttachment: new OutboxAttachmentService({
-			outboxMessageService: repositories.outboxMessage,
-			storage,
-		}),
+		outboxAttachment: outboxAttachmentService,
 		outboxQueue: new OutboxQueueService({
 			outboxMessageService: repositories.outboxMessage,
+			outboxAttachmentService,
 			accountService: repositories.account,
 			sqsSmtpQueueUrl,
 			logger,

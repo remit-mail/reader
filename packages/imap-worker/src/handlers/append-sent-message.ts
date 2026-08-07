@@ -77,6 +77,7 @@ export const handleAppendSentMessage = async (
 	const {
 		account: accountService,
 		outboxMessage: outboxMessageService,
+		outboxAttachment: outboxAttachmentService,
 		mailboxSpecialUse: mailboxSpecialUseService,
 		mailbox: mailboxService,
 		secrets,
@@ -145,6 +146,13 @@ export const handleAppendSentMessage = async (
 
 			// The message now lives in the IMAP Sent folder. Drop the outbox row so
 			// the user does not see it twice in the UI (Outbox + Sent). Issue #178.
+			// The row is the only reference to the draft's stored attachments, so
+			// they go first — the copy that carries them has already been built.
+			await outboxAttachmentService.discardAll(
+				account.accountConfigId,
+				accountId,
+				outboxMessageId,
+			);
 			await outboxMessageService.delete(
 				account.accountConfigId,
 				outboxMessageId,

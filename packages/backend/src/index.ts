@@ -15,7 +15,6 @@ import { usesBetterAuthJwt } from "./data-backend.js";
 import { handleError } from "./error.js";
 import { handlers } from "./handlers/index.js";
 import { authenticateSelfHostRequest } from "./jwt-auth.js";
-import { declaresMultipartBody } from "./multipart.js";
 import { normalizeRequest } from "./request.js";
 import { runWithRequestContext } from "./request-context.js";
 import { formatResponse, postResponseHandler } from "./response.js";
@@ -87,14 +86,6 @@ const api = new OpenAPIBackend({
 	// /addresses/search and /search/semantic.
 	coerceTypes: true,
 });
-
-// See declaresMultipartBody: a binary body reaches the validator unparsed, and
-// the request would be refused for a missing requestBody before any handler
-// runs. Assigned rather than passed as a constructor option because the
-// constructor coerces `validate` with `!!`, which turns a predicate into a
-// plain `true`; the field is read per request and does honour a function.
-api.validate = (context: OpenAPIContext) =>
-	!declaresMultipartBody(context.operation);
 
 api.register("postResponseHandler", postResponseHandler);
 
