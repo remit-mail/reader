@@ -245,9 +245,11 @@ export const SpamActionUnavailable: Story = {
  * action (a report against a message already in Junk is a real no-op-move,
  * issue #648), so without a pending label the button gives no visible
  * response at all until the request lands — the dead-button failure the
- * coding standards call the worst outcome. The button stays clickable
- * throughout, same as the undo direction's `isUndoing`: the operation is
- * idempotent, so a second press is safe, never a queued duplicate.
+ * coding standards call the worst outcome. The button is disabled for the
+ * duration: the server dedupes message ids only within a single request, so
+ * a second press mid-flight would fire a second, concurrent request rather
+ * than join the first (issue #648 review). Still visibly a button, never
+ * dead — the "Reporting…" label carries that.
  */
 export const ReportSpamPending: Story = {
 	args: {
