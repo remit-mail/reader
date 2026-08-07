@@ -92,12 +92,13 @@ export const PlainTextEditor = ({
 	}, [autoFocus]);
 
 	const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-		if (
-			(event.metaKey || event.ctrlKey) &&
-			event.key.toLowerCase() === "v" &&
-			event.shiftKey
-		) {
-			plainRequested.current = true;
+		// `Shift` on the paste keystroke selects the text flavour, matching Gmail
+		// and Apple Mail. A clipboard event carries no modifier state, so the
+		// keystroke that triggered it is what records the intent — and every
+		// Ctrl+V restates it, so an intent nothing acted on does not survive to
+		// the next paste.
+		if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "v") {
+			plainRequested.current = event.shiftKey;
 		}
 		if (!onSubmit) return;
 		if (!(event.metaKey || event.ctrlKey) || event.key !== "Enter") return;

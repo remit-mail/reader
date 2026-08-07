@@ -18,7 +18,7 @@ import {
 	TableNode,
 	TableRowNode,
 } from "@lexical/table";
-import type { ElementNode, LexicalNode } from "lexical";
+import { $isTextNode, type ElementNode, type LexicalNode } from "lexical";
 
 const TABLE_ROW = /^\|(.+)\|\s*$/;
 
@@ -113,14 +113,21 @@ export const TABLE: ElementTransformer = {
 		return lines.length === 0 ? null : lines.join("\n");
 	},
 	regExp: TABLE_ROW,
-	replace: (parentNode: ElementNode, _children, match): boolean | void => {
+	replace: (parentNode: ElementNode, children, match): void => {
 		const line = match[0].trimEnd();
 		const previous = parentNode.getPreviousSibling();
 
 		if (isTableRowDivider(line)) {
-			if (!$isTableNode(previous)) return false;
-			$markFirstRowAsHeader(previous);
-			parentNode.remove();
+			if ($isTableNode(previous)) {
+				$markFirstRowAsHeader(previous);
+				parentNode.remove();
+				return;
+			}
+			// A divider with no rows above it is not a table. The import emptied
+			// this line's text node before calling here, so declining the match
+			// would drop the characters rather than leave them alone.
+			const first = children[0];
+			if ($isTextNode(first)) first.setTextContent(line);
 			return;
 		}
 

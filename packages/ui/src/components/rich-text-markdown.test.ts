@@ -113,6 +113,13 @@ describe("Markdown read back into a document", () => {
 		);
 	});
 
+	it("keeps a divider that heads no table as the characters it is", () => {
+		const html = markdownToHtml("| --- | --- |");
+
+		assert.match(html, /\| --- \| --- \|/);
+		assert.equal(html.includes("<table"), false);
+	});
+
 	it("leaves prose that matches no transformer looking the same", () => {
 		const prose = "Thanks — that works.\n\nI'll send the deck tomorrow.";
 		const html = markdownToHtml(prose);

@@ -76,7 +76,10 @@ export const ConfirmDialog = ({
 	if (!isOpen) return null;
 
 	return (
-		<div className="fixed inset-0 z-50 flex items-center justify-center">
+		// Above every other overlay, the mobile compose sheet included: a
+		// confirmation is the decision blocking whatever is under it, and a drawer
+		// portalled to the body at the same level would cover it.
+		<div className="fixed inset-0 z-[60] flex items-center justify-center">
 			{/* Backdrop. It carries the click-to-dismiss and the aria-hidden: the
 			    dialog itself must stay in the accessibility tree, and an
 			    aria-hidden ancestor would take it out. */}

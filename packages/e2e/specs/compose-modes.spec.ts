@@ -266,7 +266,15 @@ test.describe("Composing in plain text and in rich text", () => {
 			expect(saved.htmlBody).toBe("");
 			expect(saved.textBody).toBe(written);
 
-			await page.goto("/mail/outbox");
+			const mailboxes = await waitFor(
+				() => api.listMailboxes(run.accountId),
+				(boxes) => boxes.some((box) => box.fullPath === "Drafts"),
+				{ timeoutMs: 90_000, what: "the Drafts folder to sync" },
+			);
+			const drafted = mailboxes.find((box) => box.fullPath === "Drafts");
+			if (!drafted) throw new Error("unreachable: Drafts was matched");
+
+			await page.goto(`/mail/${drafted.mailboxId}`);
 			await page.getByText(subject).first().click();
 
 			const reopened = page.getByTestId("compose-body-plain");
