@@ -215,6 +215,27 @@ e2e_dev_wait_for() {
 	return 1
 }
 
+# Fail the `up` if a service that answers no URL has already exited.
+#
+# A queue drainer has no health endpoint, so nothing here can wait for one to be
+# ready — but a drainer that died on its environment is dead within a second and
+# stays dead. Checked once, after the services that do answer are up, which is
+# long past that. Without it a dead worker surfaces as every spec that needs it
+# burning its whole wait budget and then blaming the queue it was polling.
+e2e_dev_require_running() {
+	local failed=()
+	for name in "$@"; do
+		local pid
+		pid="$(cat "$DEV_PID_DIR/$name.pid" 2>/dev/null || true)"
+		if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+			failed+=("$name")
+			echo "e2e-dev: $name is not running" >&2
+			tail -n 40 "$DEV_LOG_DIR/$name.log" 2>/dev/null || true
+		fi
+	done
+	[ ${#failed[@]} -eq 0 ]
+}
+
 # Refuse to start on a port something else already holds. The liveness check
 # above would catch it anyway, but only after the stack has half started, and
 # the message it gives names the symptom rather than the cause.

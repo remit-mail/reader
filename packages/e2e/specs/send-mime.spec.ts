@@ -27,8 +27,31 @@ import { waitForAcceptedMessage } from "../src/smtp-sink.js";
 
 const RECIPIENT = "recipient@remit.test";
 
-const messageIdOf = (raw: string): string =>
-	/^Message-ID:\s*(<[^>]+>)/im.exec(raw)?.[1] ?? "";
+/**
+ * The headers both builds have to agree on, addressing and identity. Not `Date`:
+ * the wire copy is stamped when the submission goes out and the Sent copy from
+ * the moment the send was recorded, so the two legitimately differ by a second.
+ */
+const COMPARED_HEADERS = ["From", "To", "Subject", "Message-ID"];
+
+const headersOf = (raw: string): Record<string, string> => {
+	const head = raw.split(/\r?\n\r?\n/, 1)[0];
+	// Unfold first: a long header continues on lines that start with whitespace,
+	// and reading those as headers of their own loses the value's tail.
+	const unfolded = head.replace(/\r?\n[ \t]+/g, " ");
+	const found: Record<string, string> = {};
+	for (const line of unfolded.split(/\r?\n/)) {
+		const separator = line.indexOf(":");
+		if (separator < 0) continue;
+		const name = line.slice(0, separator).trim().toLowerCase();
+		const compared = COMPARED_HEADERS.find(
+			(header) => header.toLowerCase() === name,
+		);
+		if (!compared) continue;
+		found[compared] = line.slice(separator + 1).trim();
+	}
+	return found;
+};
 
 const PLAIN_TEXT = "Numbers attached. Nothing else to report.";
 const RICH_TEXT = "The renewal lands on the 14th.";
@@ -136,16 +159,19 @@ test.describe("A sent message on the wire", () => {
 			wire.parts.map((part) => part.content.trim()),
 		);
 
-		// One Message-ID identifies one message. Two builders minting their own
-		// would split the conversation in every client that threads by it.
+		// Who it is from, who it is to, and which message it is. A Message-ID each
+		// builder minted for itself would split the conversation in every client
+		// that threads by it.
 		const filedSource = await serverRawSourceForSubject(
 			run.imapUser,
 			"Sent",
 			subject,
 		);
 		expect(filedSource).not.toBeNull();
-		const wireMessageId = messageIdOf(accepted.raw);
-		expect(wireMessageId).toMatch(/^<.+>$/);
-		expect(messageIdOf(filedSource ?? "")).toBe(wireMessageId);
+		const wireHeaders = headersOf(accepted.raw);
+		expect(Object.keys(wireHeaders).sort()).toEqual(
+			[...COMPARED_HEADERS].sort(),
+		);
+		expect(headersOf(filedSource ?? "")).toEqual(wireHeaders);
 	});
 });

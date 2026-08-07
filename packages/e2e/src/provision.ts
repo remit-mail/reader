@@ -42,14 +42,15 @@ export interface StorageState {
  * so for itself instead of leaving a dead Send button.
  *
  * No SMTP password: the sink accepts any credential, and leaving it off is what
- * exercises the ordinary shape where SMTP reuses the IMAP secret.
+ * exercises the ordinary shape where SMTP reuses the IMAP secret. No
+ * `smtpStartTls` either — the send path does not read it, and setting it here
+ * would read as configuration it honours.
  */
 const sendingEnabled = {
 	smtpEnabled: true,
 	smtpHost: smtpFromStack.host,
 	smtpPort: smtpFromStack.port,
 	smtpTls: false,
-	smtpStartTls: false,
 };
 
 export interface IsolatedRun {

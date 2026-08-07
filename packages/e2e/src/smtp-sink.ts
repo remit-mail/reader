@@ -40,10 +40,6 @@ const listAccepted = (): Promise<SinkListEntry[]> =>
 		(page) => page.messages,
 	);
 
-/** The subjects the sink currently holds, newest first. */
-export const acceptedSubjects = (): Promise<string[]> =>
-	listAccepted().then((messages) => messages.map((message) => message.Subject));
-
 /**
  * Poll the sink until it has accepted a message with this subject, then return
  * its raw source.
