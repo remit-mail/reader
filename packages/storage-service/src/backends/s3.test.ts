@@ -3,6 +3,8 @@ import { Readable } from "node:stream";
 import { describe, test } from "node:test";
 import { gunzipSync } from "node:zlib";
 import {
+	DeleteObjectCommand,
+	DeleteObjectsCommand,
 	GetObjectCommand,
 	HeadObjectCommand,
 	ListObjectsV2Command,
@@ -76,20 +78,38 @@ const createFakeS3Client = (): {
 		if (command instanceof HeadObjectCommand) {
 			const input = command.input as unknown as Record<string, unknown>;
 			const key = String(input.Key);
-			if (!stored.has(key)) {
+			const entry = stored.get(key);
+			if (!entry) {
 				throw Object.assign(new Error(`not found: ${key}`), {
 					name: "NotFound",
 				});
 			}
+			return { ContentLength: entry.body.length };
+		}
+
+		if (command instanceof DeleteObjectCommand) {
+			const input = command.input as unknown as Record<string, unknown>;
+			commands.push({ name: "DeleteObjectCommand", input });
+			stored.delete(String(input.Key));
+			return {};
+		}
+
+		if (command instanceof DeleteObjectsCommand) {
+			const input = command.input as unknown as Record<string, unknown>;
+			commands.push({ name: "DeleteObjectsCommand", input });
+			const del = input.Delete as { Objects: { Key: string }[] };
+			for (const { Key } of del.Objects) stored.delete(Key);
 			return {};
 		}
 
 		if (command instanceof ListObjectsV2Command) {
 			const input = command.input as unknown as Record<string, unknown>;
 			const prefix = String(input.Prefix ?? "");
-			const Contents = [...stored.keys()]
-				.filter((key) => key.startsWith(prefix))
-				.map((Key) => ({ Key }));
+			const maxKeys = Number(input.MaxKeys ?? Number.POSITIVE_INFINITY);
+			const Contents = [...stored.entries()]
+				.filter(([key]) => key.startsWith(prefix))
+				.slice(0, maxKeys)
+				.map(([Key, entry]) => ({ Key, Size: entry.body.length }));
 			return { Contents, IsTruncated: false };
 		}
 
@@ -459,5 +479,164 @@ describe("createS3StorageService", () => {
 		for (const item of items) {
 			assert.ok(item.key.endsWith(".txt.gz"));
 		}
+	});
+});
+
+describe("createS3StorageService: outbox attachments", () => {
+	const params = {
+		accountConfigId: "cfg1",
+		accountId: "acc1",
+		outboxMessageId: "draft1",
+		outboxAttachmentId: "att1",
+		sizeBytes: 2048,
+		expiresAt: 1_800_000_000,
+	};
+
+	test("a reservation is a zero-byte object that lists at its reserved size", async () => {
+		const { client } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+
+		await storage.reserveOutboxAttachment(params);
+
+		const [entry] = await storage.listOutboxAttachments(
+			"cfg1",
+			"acc1",
+			"draft1",
+			10,
+		);
+		assert.deepStrictEqual(
+			{
+				outboxAttachmentId: entry.outboxAttachmentId,
+				sizeBytes: entry.sizeBytes,
+				isReservation: entry.isReservation,
+				expiresAt: entry.expiresAt,
+			},
+			{
+				outboxAttachmentId: "att1",
+				sizeBytes: 2048,
+				isReservation: true,
+				expiresAt: 1_800_000_000,
+			},
+		);
+	});
+
+	test("an uploaded object lists at the size the bucket holds", async () => {
+		const { client } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+
+		await storage.storeOutboxAttachment({
+			accountConfigId: "cfg1",
+			accountId: "acc1",
+			outboxMessageId: "draft1",
+			outboxAttachmentId: "att1",
+			content: Buffer.alloc(777),
+		});
+
+		const [entry] = await storage.listOutboxAttachments(
+			"cfg1",
+			"acc1",
+			"draft1",
+			10,
+		);
+		assert.strictEqual(entry.sizeBytes, 777);
+		assert.strictEqual(entry.isReservation, false);
+		// Uncompressed, so the size in the bucket is the size the cap counts.
+		assert.strictEqual(
+			await storage
+				.statOutboxAttachment("cfg1", "acc1", "draft1", "att1")
+				.then((s) => s?.sizeBytes),
+			777,
+		);
+	});
+
+	test("statOutboxAttachment answers null for an object that was never uploaded", async () => {
+		const { client } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+
+		assert.strictEqual(
+			await storage.statOutboxAttachment("cfg1", "acc1", "draft1", "nothing"),
+			null,
+		);
+	});
+
+	test("releasing a reservation leaves the object it was holding room for", async () => {
+		const { client } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+		await storage.reserveOutboxAttachment(params);
+		await storage.storeOutboxAttachment({
+			accountConfigId: "cfg1",
+			accountId: "acc1",
+			outboxMessageId: "draft1",
+			outboxAttachmentId: "att1",
+			content: Buffer.alloc(2048),
+		});
+
+		await storage.releaseOutboxAttachmentReservation(
+			"cfg1",
+			"acc1",
+			"draft1",
+			"att1",
+			2048,
+			1_800_000_000,
+		);
+
+		const entries = await storage.listOutboxAttachments(
+			"cfg1",
+			"acc1",
+			"draft1",
+			10,
+		);
+		assert.strictEqual(entries.length, 1);
+		assert.strictEqual(entries[0].isReservation, false);
+	});
+
+	test("deleting one attachment takes its object and its reservation together", async () => {
+		const { client } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+		await storage.reserveOutboxAttachment(params);
+		await storage.storeOutboxAttachment({
+			accountConfigId: "cfg1",
+			accountId: "acc1",
+			outboxMessageId: "draft1",
+			outboxAttachmentId: "att1",
+			content: Buffer.alloc(2048),
+		});
+		await storage.reserveOutboxAttachment({
+			...params,
+			outboxAttachmentId: "att2",
+		});
+
+		await storage.deleteOutboxAttachment("cfg1", "acc1", "draft1", "att1");
+
+		const entries = await storage.listOutboxAttachments(
+			"cfg1",
+			"acc1",
+			"draft1",
+			10,
+		);
+		assert.deepStrictEqual(
+			entries.map((entry) => entry.outboxAttachmentId),
+			["att2"],
+		);
+	});
+
+	test("deleting a draft's attachments empties the whole prefix", async () => {
+		const { client } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+		await storage.reserveOutboxAttachment(params);
+		await storage.storeOutboxAttachment({
+			accountConfigId: "cfg1",
+			accountId: "acc1",
+			outboxMessageId: "draft1",
+			outboxAttachmentId: "att2",
+			content: Buffer.alloc(8),
+		});
+
+		await storage.deleteOutboxAttachments("cfg1", "acc1", "draft1");
+
+		assert.deepStrictEqual(
+			await storage.listOutboxAttachments("cfg1", "acc1", "draft1", 10),
+			[],
+		);
 	});
 });

@@ -89,6 +89,9 @@ const deps = (): AppendSentMessageDeps =>
 				get: async () => h.outbox,
 				delete: record("outboxMessage.delete"),
 			},
+			outboxAttachment: {
+				discardAll: record("outboxAttachment.discardAll"),
+			},
 			mailboxSpecialUse: {
 				findBySpecialUse: async () => h.specialUseSent,
 			},
@@ -140,6 +143,19 @@ describe("handleAppendSentMessage", () => {
 			"out-1",
 		]);
 		assert.equal(h.disconnectCount, 1);
+	});
+
+	it("takes the draft's stored attachments with the row (#679)", async () => {
+		await handleAppendSentMessage(event, noopLog, deps());
+
+		// The row is the only reference to those objects. Sweeping has to happen
+		// here too, not only on a discard, or a sent message leaves its files
+		// behind with nothing able to reach them.
+		assert.deepEqual(called("outboxAttachment.discardAll")[0]?.args, [
+			"cfg-1",
+			"acc-1",
+			"out-1",
+		]);
 	});
 
 	it("builds the message from the outbox row's own headers", async () => {
