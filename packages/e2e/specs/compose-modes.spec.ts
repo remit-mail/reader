@@ -261,10 +261,15 @@ test.describe("Composing in plain text and in rich text", () => {
 
 		try {
 			// Cleared, not omitted: absent means "leave alone" at every layer below,
-			// so an omitted column would have sent the HTML it was written as.
-			const saved = await api.getOutboxMessage(draft.outboxMessageId);
+			// so an omitted column would have sent the HTML it was written as. The
+			// first autosave can land while the message is still rich, so this waits
+			// for the write that follows the switch rather than the first one.
+			const saved = await waitFor(
+				() => api.getOutboxMessage(draft.outboxMessageId),
+				(message) => message.textBody === written,
+				{ timeoutMs: 30_000, what: "the plain body to reach the server" },
+			);
 			expect(saved.htmlBody).toBe("");
-			expect(saved.textBody).toBe(written);
 
 			const mailboxes = await waitFor(
 				() => api.listMailboxes(run.accountId),
@@ -289,27 +294,43 @@ test.describe("Composing in plain text and in rich text", () => {
 		}
 	});
 
-	test("the toggle stays inside a 390 viewport when the toolbar overflows", async () => {
+	test("the toggle stays inside a 390 viewport when the toolbar overflows", async ({
+		browser,
+	}) => {
 		test.setTimeout(120_000);
-		const phone = await context.newPage();
-		await phone.setViewportSize(PHONE);
-
-		await phone.goto("/mail");
-		await phone.getByRole("button", { name: "Compose", exact: true }).click();
-		await expect(phone.getByTestId("compose-body")).toBeVisible({
-			timeout: 30_000,
+		// A context of its own: the layout is a device posture, so the phone
+		// branch needs a coarse pointer and not only a narrow window.
+		const phoneContext = await browser.newContext({
+			storageState: run.storageState,
+			baseURL: baseUrl,
+			viewport: PHONE,
+			hasTouch: true,
+			isMobile: true,
 		});
+		const phone = await phoneContext.newPage();
 
-		// The cluster has to actually run out of room, or the assertion below
-		// passes on a toolbar that never needed to scroll.
-		const overflows = await phone
-			.getByTestId("compose-format-cluster")
-			.evaluate((element) => element.scrollWidth > element.clientWidth);
-		expect(overflows).toBe(true);
+		try {
+			await phone.goto("/mail");
+			await phone.getByRole("button", { name: "Compose new message" }).click();
+			await expect(phone.getByTestId("compose-body")).toBeVisible({
+				timeout: 30_000,
+			});
 
-		const box = await phone.getByTestId("compose-mode-toggle").boundingBox();
-		expect(box).not.toBeNull();
-		expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(PHONE.width);
-		await expect.poll(() => isOnTop(phone, "compose-mode-toggle")).toBe(true);
+			// The cluster has to actually run out of room, or the assertion below
+			// passes on a toolbar that never needed to scroll.
+			const overflows = await phone
+				.getByTestId("compose-format-cluster")
+				.evaluate((element) => element.scrollWidth > element.clientWidth);
+			expect(overflows).toBe(true);
+
+			const box = await phone.getByTestId("compose-mode-toggle").boundingBox();
+			expect(box).not.toBeNull();
+			expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(
+				PHONE.width,
+			);
+			await expect.poll(() => isOnTop(phone, "compose-mode-toggle")).toBe(true);
+		} finally {
+			await phoneContext.close();
+		}
 	});
 });
