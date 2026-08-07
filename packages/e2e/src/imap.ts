@@ -6,9 +6,10 @@
  * Every call names the mailbox it acts on. The suite has no ambient "the test
  * mailbox" — each run owns a different one.
  */
+import type { MessageStructureObject } from "imapflow";
 import { ImapFlow } from "imapflow";
 import { waitFor } from "./api.js";
-import { imap } from "./env.js";
+import { imap, mintImapUser } from "./env.js";
 
 export interface Message {
 	subject: string;
@@ -243,3 +244,179 @@ export const waitForServerMailbox = (
 		timeoutMs,
 		what: `${what} on the mail server`,
 	});
+
+/** APPEND a complete message the caller already has as bytes, e.g. one read back off the wire. */
+export const appendRawMessage = async (
+	user: string,
+	raw: string,
+	mailbox = "INBOX",
+): Promise<void> => {
+	const client = await connect(user);
+	try {
+		await client.append(mailbox, Buffer.from(raw));
+	} finally {
+		await client.logout();
+	}
+};
+
+/**
+ * The complete RFC 5322 source Dovecot holds for one subject in a mailbox, or
+ * null when the subject is not there.
+ *
+ * The envelope and the flags say what the server made of a message; this is the
+ * message. A spec about what was actually composed — which parts exist, what
+ * each one carries — has nothing else to read.
+ */
+export const serverRawSourceForSubject = async (
+	user: string,
+	mailbox: string,
+	subject: string,
+): Promise<string | null> => {
+	const client = await connect(user);
+	try {
+		const lock = await client.getMailboxLock(mailbox);
+		try {
+			const exists =
+				typeof client.mailbox === "object" ? client.mailbox.exists : 0;
+			if (!exists) return null;
+
+			for await (const message of client.fetch("1:*", {
+				envelope: true,
+				source: true,
+			})) {
+				if (message.envelope?.subject === subject) {
+					return message.source?.toString("utf8") ?? null;
+				}
+			}
+			return null;
+		} finally {
+			lock.release();
+		}
+	} finally {
+		await client.logout();
+	}
+};
+
+/** One leaf of a MIME tree: a body part and the text it decodes to. */
+export interface MimePart {
+	contentType: string;
+	content: string;
+}
+
+/**
+ * A message's MIME shape as the server parsed it: the top-level media type and
+ * every leaf part under it, in order.
+ */
+export interface MimeShape {
+	contentType: string;
+	parts: MimePart[];
+}
+
+const leafNodes = (
+	node: MessageStructureObject,
+): Array<{ part: string; type: string }> => {
+	if (!node.childNodes?.length) {
+		// A single-part message has no part number at all; ImapFlow maps "1" onto
+		// the whole body for exactly that case.
+		return [{ part: node.part ?? "1", type: node.type }];
+	}
+	return node.childNodes.flatMap(leafNodes);
+};
+
+const readStream = async (stream: NodeJS.ReadableStream): Promise<string> => {
+	const chunks: Buffer[] = [];
+	for await (const chunk of stream) {
+		chunks.push(Buffer.from(chunk));
+	}
+	return Buffer.concat(chunks).toString("utf8");
+};
+
+/**
+ * The MIME shape of one subject in a mailbox, parsed by Dovecot rather than by
+ * the suite: the structure comes from BODYSTRUCTURE and each part's text from a
+ * FETCH the server transfer-decodes.
+ *
+ * Using the mail server as the parser is what makes an agreement assertion
+ * worth something. Two messages built by two different code paths are compared
+ * through one reader that knows nothing about either.
+ */
+export const readMimeShape = async (
+	user: string,
+	mailbox: string,
+	subject: string,
+): Promise<MimeShape | null> => {
+	const client = await connect(user);
+	try {
+		const lock = await client.getMailboxLock(mailbox);
+		try {
+			const exists =
+				typeof client.mailbox === "object" ? client.mailbox.exists : 0;
+			if (!exists) return null;
+
+			let found: { uid: number; structure: MessageStructureObject } | undefined;
+			for await (const message of client.fetch("1:*", {
+				envelope: true,
+				bodyStructure: true,
+			})) {
+				if (message.envelope?.subject === subject && message.bodyStructure) {
+					found = { uid: message.uid, structure: message.bodyStructure };
+				}
+			}
+			if (!found) return null;
+
+			const parts: MimePart[] = [];
+			for (const leaf of leafNodes(found.structure)) {
+				const download = await client.download(String(found.uid), leaf.part, {
+					uid: true,
+				});
+				parts.push({
+					contentType: leaf.type,
+					content: await readStream(download.content),
+				});
+			}
+			return { contentType: found.structure.type, parts };
+		} finally {
+			lock.release();
+		}
+	} finally {
+		await client.logout();
+	}
+};
+
+/**
+ * The MIME shape of a message the caller holds as bytes.
+ *
+ * It is parked in a mailbox nobody else will ever touch and read straight back,
+ * so bytes off the wire and bytes out of a Sent folder go through the same
+ * reader and can be compared part for part.
+ */
+export const readMimeShapeOfRaw = async (raw: string): Promise<MimeShape> => {
+	const scratchUser = mintImapUser();
+	await appendRawMessage(scratchUser, raw);
+	const client = await connect(scratchUser);
+	let subject: string | undefined;
+	try {
+		const lock = await client.getMailboxLock("INBOX");
+		try {
+			for await (const message of client.fetch("1:*", { envelope: true })) {
+				subject = message.envelope?.subject;
+			}
+		} finally {
+			lock.release();
+		}
+	} finally {
+		await client.logout();
+	}
+	if (subject === undefined) {
+		throw new Error(
+			"the scratch mailbox did not hold the message just appended",
+		);
+	}
+	const shape = await readMimeShape(scratchUser, "INBOX", subject);
+	if (!shape) {
+		throw new Error(
+			"unreachable: the scratch message was appended but not read",
+		);
+	}
+	return shape;
+};

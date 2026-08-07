@@ -39,3 +39,17 @@ export const imapFromStack = {
 	host: required("E2E_IMAP_HOST"),
 	port: Number(process.env.E2E_IMAP_STACK_PORT ?? 143),
 };
+
+/**
+ * How the deployment reaches the SMTP sink — the address an account's
+ * `smtpHost`/`smtpPort` is set to, so a send leaves the process instead of
+ * resolving to `blocked`. Same split as `imapFromStack`: the compose service
+ * name on the image lane, the published loopback port on the source-built one.
+ */
+export const smtpFromStack = {
+	host: required("E2E_SMTP_HOST"),
+	port: Number(process.env.E2E_SMTP_STACK_PORT ?? 1025),
+};
+
+/** Where the suite reads the bytes the sink accepted: Mailpit's HTTP API. */
+export const smtpSinkApi = `http://127.0.0.1:${required("E2E_SMTP_HTTP_PORT")}`;

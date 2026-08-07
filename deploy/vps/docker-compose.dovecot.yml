@@ -1,12 +1,15 @@
-# The mail server the black-box e2e suite syncs from, on its own so both lanes
-# can use it: the image lane composes it with docker-compose.sqlite.yml +
-# docker-compose.e2e.yml, and the source-built dev lane
-# (`npm run e2e:dev`) brings up this file alone and runs the app from the
-# worktree.
+# The two mail servers the black-box e2e suite needs, on their own so both lanes
+# can use them: the image lane composes this file with docker-compose.sqlite.yml
+# + docker-compose.e2e.yml, and the source-built dev lane (`npm run e2e:dev`)
+# brings it up alone and runs the app from the worktree.
 #
-# Every username authenticates with one shared password and gets its own empty
-# maildir, so each run can claim a mailbox nobody has written to. The suite
-# APPENDs the messages each spec needs.
+# Dovecot is where mail arrives. Every username authenticates with one shared
+# password and gets its own empty maildir, so each run can claim a mailbox
+# nobody has written to. The suite APPENDs the messages each spec needs.
+#
+# Mailpit is where mail goes. Nothing in the stack accepted a submission before
+# it, so `smtpEnabled` was false on every account and the send path resolved
+# every outbox row to `blocked` — the composed MIME never left the process.
 #
 # The bind mounts are relative to this directory, so compose must be invoked
 # with `--project-directory deploy/vps` (see npm-scripts/e2e-compose.sh).
@@ -27,6 +30,33 @@ services:
       - "127.0.0.1:${E2E_IMAP_PORT:-11143}:143"
     healthcheck:
       test: ["CMD", "doveadm", "service", "status"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mailpit:
+    image: axllent/mailpit:v1.30.6
+    environment:
+      # Any credential authenticates, which is what makes the sink usable with
+      # the account's own IMAP password: the send path reuses it for SMTP unless
+      # the account carries a separate one. The insecure flag is what allows
+      # AUTH over a plaintext connection at all — there is no TLS here, the
+      # listener is on the compose network and a loopback port.
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+      # Never evict. The default ring buffer drops the oldest message once it
+      # fills, and a spec asserting on a message the sink silently discarded
+      # fails as if the send never happened.
+      MP_MAX_MESSAGES: "0"
+    ports:
+      # Submission, then the HTTP API the suite reads the accepted bytes back
+      # from. On the image lane the app reaches submission as `mailpit:1025` on
+      # the compose network; on the dev lane the app is a host process and uses
+      # the published port. The API is only ever read from the host.
+      - "127.0.0.1:${E2E_SMTP_PORT:-11025}:1025"
+      - "127.0.0.1:${E2E_SMTP_HTTP_PORT:-18025}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
       interval: 2s
       timeout: 3s
       retries: 30

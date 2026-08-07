@@ -13,7 +13,7 @@
  * password gets its own empty maildir), so no fixture server is involved.
  */
 import { ApiClient, fetchBearerToken, signUp, waitFor } from "./api.js";
-import { imap, imapFromStack, mintImapUser } from "./env.js";
+import { imap, imapFromStack, mintImapUser, smtpFromStack } from "./env.js";
 import { appendMessages, type Message } from "./imap.js";
 
 interface StorageStateCookie {
@@ -31,6 +31,22 @@ export interface StorageState {
 	cookies: StorageStateCookie[];
 	origins: never[];
 }
+
+/**
+ * The account fields that make a send leave the process. Without `smtpEnabled`
+ * the worker resolves every outbox row to `blocked` and nothing reaches the
+ * wire, so an account created without these can only ever be read from.
+ *
+ * No SMTP password: the sink accepts any credential, and leaving it off is what
+ * exercises the ordinary shape where SMTP reuses the IMAP secret.
+ */
+export const sendingEnabled = {
+	smtpEnabled: true,
+	smtpHost: smtpFromStack.host,
+	smtpPort: smtpFromStack.port,
+	smtpTls: false,
+	smtpStartTls: false,
+};
 
 export interface IsolatedRun {
 	email: string;
@@ -101,6 +117,7 @@ export const provisionIsolatedRun = async (
 		imapPort: imapFromStack.port,
 		imapTls: false,
 		imapStartTls: false,
+		...sendingEnabled,
 		...(options.smtp
 			? {
 					smtpHost: options.smtp.host,

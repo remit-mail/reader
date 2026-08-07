@@ -17,7 +17,8 @@
 		"bundle": "node build.mjs",
 		"test:typecheck": "tsgo --noEmit",
 		"test:run": "node --env-file=../../localhost-test-unit.env --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=97 --test 'src/**/*.test.ts'",
-		"test": "npm run test:typecheck && npm run test:run"
+		"test": "npm run test:typecheck && npm run test:run",
+		"dev": "node --import tsx src/e2e-processor-shim.ts"
 	},
 	"dependencies": {
 		"@remit/data-ports": "*",
