@@ -86,8 +86,11 @@ export interface AgendaFlowProps {
 	/** The day under the sticky header, for the position map. */
 	onVisibleDayChange: (date: string) => void;
 	scrollTarget?: AgendaScrollTarget;
-	/** Sits above the first day and scrolls away — what's next, on a phone. */
-	lead?: ReactNode;
+	/**
+	 * Rendered immediately above today, and landed on with it, so what's next is
+	 * the first thing you see and the first thing that scrolls away.
+	 */
+	todayLead?: ReactNode;
 	touch?: boolean;
 	className?: string;
 }
@@ -105,7 +108,7 @@ export function AgendaFlow({
 	onReachEnd,
 	onVisibleDayChange,
 	scrollTarget,
-	lead,
+	todayLead,
 	touch,
 	className,
 }: AgendaFlowProps) {
@@ -133,15 +136,29 @@ export function AgendaFlow({
 		previousHeight.current = element.scrollHeight;
 	});
 
-	/* Landing puts you on the focused day; after that the strip is yours. */
+	/* Landing puts you on the focused day; after that the strip is yours. Rows
+	   are still settling on the first frame — a web font swapping under a month
+	   of them moves the target by whole days — so the landing is re-applied
+	   until the layout it was measured against stops changing. */
 	useEffect(() => {
 		if (landed.current) return;
 		const element = scroller.current;
-		const anchor = anchors.current.get(focusDate);
-		if (!element || !anchor) return;
+		if (!element) return;
 		landed.current = true;
-		element.scrollTop = anchor.offsetTop - HEADER_HEIGHT;
+		let dropped = false;
+		const settle = () => {
+			const anchor = anchors.current.get(focusDate);
+			if (dropped || !anchor) return;
+			element.scrollTop = anchor.offsetTop - HEADER_HEIGHT;
+		};
+		settle();
 		setVisibleDate(focusDate);
+		const frame = requestAnimationFrame(settle);
+		document.fonts?.ready.then(settle);
+		return () => {
+			dropped = true;
+			cancelAnimationFrame(frame);
+		};
 	}, [focusDate]);
 
 	useEffect(() => {
@@ -198,8 +215,6 @@ export function AgendaFlow({
 				className,
 			)}
 		>
-			{lead}
-
 			<div className="sticky top-0 z-20 flex h-8 items-center gap-2 border-b border-line bg-surface/95 px-row-inset backdrop-blur">
 				<span className="text-xs font-semibold text-fg">
 					{weekdayLongLabel(visibleDate)}
@@ -227,6 +242,7 @@ export function AgendaFlow({
 					anchorRef={registerAnchor(
 						row.kind === "day" ? row.day.date : row.from,
 					)}
+					lead={row.kind === "day" && row.day.date === today ? todayLead : null}
 					touch={touch}
 				/>
 			))}
@@ -247,6 +263,7 @@ interface RowProps {
 	onPickSlot: (pick: SlotPick) => void;
 	onZoomDay: (date: string) => void;
 	anchorRef: (node: HTMLDivElement | null) => void;
+	lead?: ReactNode;
 	touch?: boolean;
 }
 
@@ -259,6 +276,7 @@ function FlowRow({
 	onPickSlot,
 	onZoomDay,
 	anchorRef,
+	lead,
 	touch,
 }: RowProps) {
 	if (row.kind === "run")
@@ -277,6 +295,7 @@ function FlowRow({
 	if (density === "dots")
 		return (
 			<div ref={anchorRef}>
+				{lead}
 				<DotsDay
 					day={row.day}
 					today={today}
@@ -289,6 +308,7 @@ function FlowRow({
 
 	return (
 		<div ref={anchorRef}>
+			{lead}
 			<DayBlock
 				day={row.day}
 				density={density}

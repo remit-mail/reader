@@ -486,9 +486,9 @@ export function CalendarAgenda({
 			onVisibleDayChange={setVisibleDate}
 			scrollTarget={scrollTarget}
 			touch={isPhone}
-			lead={
+			todayLead={
 				isPhone ? (
-					<div className="border-b border-line p-3">
+					<div className="border-b border-line bg-surface-sunken p-3">
 						<NextUpCard
 							nextUp={nextUp}
 							today={TODAY}
