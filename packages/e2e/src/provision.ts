@@ -13,7 +13,7 @@
  * password gets its own empty maildir), so no fixture server is involved.
  */
 import { ApiClient, fetchBearerToken, signUp, waitFor } from "./api.js";
-import { imap, imapFromStack, mintImapUser } from "./env.js";
+import { imap, imapFromStack, mintImapUser, smtpFromStack } from "./env.js";
 import { appendMessages, type Message } from "./imap.js";
 
 interface StorageStateCookie {
@@ -31,6 +31,31 @@ export interface StorageState {
 	cookies: StorageStateCookie[];
 	origins: never[];
 }
+
+/**
+ * The account fields that make a send leave the process, pointed at the sink
+ * both lanes run. Without `smtpEnabled` the worker resolves every outbox row to
+ * `blocked` and nothing reaches the wire, so an account created without these
+ * can only ever be read from.
+ *
+ * Every isolated run gets them, and there is no way to ask for an account
+ * without them: a spec that sends and one that does not want the same account,
+ * and an opt-in only existed while a send had nowhere to land. The shared
+ * onboarded account is the one that cannot send, which is what
+ * `standalone.spec.ts` reads when it asserts compose says so for itself instead
+ * of leaving a dead Send button.
+ *
+ * No SMTP password: the sink accepts any credential, and leaving it off is what
+ * exercises the ordinary shape where SMTP reuses the IMAP secret. No
+ * `smtpStartTls` either — the send path does not read it, and setting it here
+ * would read as configuration it honours.
+ */
+const sendingEnabled = {
+	smtpEnabled: true,
+	smtpHost: smtpFromStack.host,
+	smtpPort: smtpFromStack.port,
+	smtpTls: false,
+};
 
 export interface IsolatedRun {
 	email: string;
@@ -60,16 +85,6 @@ const cookiesToStorageState = (cookie: string): StorageState => ({
 	origins: [],
 });
 
-export interface IsolatedRunOptions {
-	/**
-	 * Submission settings for the account, which is what makes the app willing to
-	 * send from it. The stack runs no submission server, so delivery fails behind
-	 * the queue and the message dead-letters; a spec about what compose transmits
-	 * reads the outbox entry instead, which is the payload the relay picks up.
-	 */
-	smtp?: { host: string; port: number };
-}
-
 /**
  * @param seed Mail put in the mailbox before the account is connected. Mail
  * appended after onboarding does not reliably reach the classification path on
@@ -79,7 +94,6 @@ export interface IsolatedRunOptions {
 export const provisionIsolatedRun = async (
 	label: string,
 	seed: Message[] = [],
-	options: IsolatedRunOptions = {},
 ): Promise<IsolatedRun> => {
 	const credentials = {
 		email: `e2e-iso-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@remit.test`,
@@ -101,14 +115,7 @@ export const provisionIsolatedRun = async (
 		imapPort: imapFromStack.port,
 		imapTls: false,
 		imapStartTls: false,
-		...(options.smtp
-			? {
-					smtpHost: options.smtp.host,
-					smtpPort: options.smtp.port,
-					smtpTls: false,
-					smtpStartTls: false,
-				}
-			: {}),
+		...sendingEnabled,
 	});
 	await api.triggerSync(accountId);
 	const boxes = await waitFor(

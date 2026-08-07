@@ -2,9 +2,9 @@
 # black-box e2e suite (`npm run e2e`). Two changes and nothing else — the point
 # is that the suite tests the published images as an operator gets them:
 #
-#   1. a Dovecot IMAP server on the compose network, so a real mailbox exists to
-#      sync from (docker-compose.dovecot.yml, shared with the source-built dev
-#      lane);
+#   1. a Dovecot IMAP server and a Mailpit SMTP sink on the compose network, so
+#      a real mailbox exists to sync from and a real submission has somewhere to
+#      land (docker-compose.dovecot.yml, shared with the source-built dev lane);
 #   2. the edge moved off :80/:443 onto a loopback port, so the suite can run
 #      next to anything else on the box.
 #
@@ -33,4 +33,9 @@ services:
   imap-worker:
     depends_on:
       dovecot:
+        condition: service_healthy
+
+  smtp-worker:
+    depends_on:
+      mailpit:
         condition: service_healthy

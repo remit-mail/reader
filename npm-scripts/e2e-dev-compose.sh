@@ -41,20 +41,26 @@ e2e_dev_compose() {
 		"$@"
 }
 
-# The four ports a slot claims, contiguous so one block per slot covers the whole
+# The six ports a slot claims, contiguous so one block per slot covers the whole
 # stack. 400 blocks is far more than a host runs concurrently; a hash collision
 # between two live slots is caught by e2e_dev_require_free_ports, which fails the
 # run rather than letting it attach to the other stack.
+#
+# Mailpit needs two of them, not one: submission is a separate listener from the
+# HTTP API, the app is a host process on this lane so it cannot reach either over
+# the compose network, and the suite reads the accepted bytes over the API.
 e2e_dev_slot_ports() {
 	[ -n "$E2E_DEV_SLOT" ] || return 0
 	local index base
 	index=$(($(printf '%s' "$E2E_DEV_SLOT" | cksum | cut -d' ' -f1) % 400))
-	base=$((20000 + index * 4))
+	base=$((20000 + index * 6))
 	: "${E2E_HTTP_PORT:=$base}"
 	: "${SERVER_PORT:=$((base + 1))}"
 	: "${QUEUE_SIDECAR_PORT:=$((base + 2))}"
 	: "${E2E_IMAP_PORT:=$((base + 3))}"
-	echo "e2e-dev: slot $E2E_DEV_SLOT — project $E2E_DEV_PROJECT, ports $base-$((base + 3))"
+	: "${E2E_SMTP_PORT:=$((base + 4))}"
+	: "${E2E_SMTP_HTTP_PORT:=$((base + 5))}"
+	echo "e2e-dev: slot $E2E_DEV_SLOT — project $E2E_DEV_PROJECT, ports $base-$((base + 5))"
 }
 
 # Resolve the committed template into the generated env this run uses, then load
@@ -69,7 +75,7 @@ e2e_dev_install_env() {
 
 	e2e_dev_slot_ports
 
-	for name in E2E_HTTP_PORT E2E_IMAP_PORT SERVER_PORT QUEUE_SIDECAR_PORT; do
+	for name in E2E_HTTP_PORT E2E_IMAP_PORT E2E_SMTP_PORT E2E_SMTP_HTTP_PORT SERVER_PORT QUEUE_SIDECAR_PORT; do
 		[ -n "${!name-}" ] || continue
 		printf '%s=%s\n' "$name" "${!name}" >>"$DEV_ENV"
 		echo "e2e-dev: $name overridden to ${!name}"
@@ -80,8 +86,10 @@ e2e_dev_install_env() {
 
 	# The app reaches Dovecot on the same published port the suite does, so an
 	# E2E_IMAP_PORT override has to carry into the stack-side coordinate too.
+	# Mailpit is the same case on the submission side.
 	{
 		printf 'E2E_IMAP_STACK_PORT=%s\n' "$E2E_IMAP_PORT"
+		printf 'E2E_SMTP_STACK_PORT=%s\n' "$E2E_SMTP_PORT"
 
 		# PUBLIC_ORIGIN has to name the address the browser actually loads, port
 		# included, or better-auth rejects the Origin and every UI spec fails on
@@ -207,6 +215,27 @@ e2e_dev_wait_for() {
 	return 1
 }
 
+# Fail the `up` if a service that answers no URL has already exited.
+#
+# A queue drainer has no health endpoint, so nothing here can wait for one to be
+# ready — but a drainer that died on its environment is dead within a second and
+# stays dead. Checked once, after the services that do answer are up, which is
+# long past that. Without it a dead worker surfaces as every spec that needs it
+# burning its whole wait budget and then blaming the queue it was polling.
+e2e_dev_require_running() {
+	local failed=()
+	for name in "$@"; do
+		local pid
+		pid="$(cat "$DEV_PID_DIR/$name.pid" 2>/dev/null || true)"
+		if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+			failed+=("$name")
+			echo "e2e-dev: $name is not running" >&2
+			tail -n 40 "$DEV_LOG_DIR/$name.log" 2>/dev/null || true
+		fi
+	done
+	[ ${#failed[@]} -eq 0 ]
+}
+
 # Refuse to start on a port something else already holds. The liveness check
 # above would catch it anyway, but only after the stack has half started, and
 # the message it gives names the symptom rather than the cause.
@@ -220,6 +249,6 @@ e2e_dev_require_free_ports() {
 	done
 	[ ${#occupied[@]} -eq 0 ] && return 0
 	echo "e2e-dev: ports already in use: ${occupied[*]}" >&2
-	echo "e2e-dev: move this run with E2E_HTTP_PORT / E2E_IMAP_PORT / SERVER_PORT / QUEUE_SIDECAR_PORT" >&2
+	echo "e2e-dev: move this run with E2E_HTTP_PORT / E2E_IMAP_PORT / E2E_SMTP_PORT / E2E_SMTP_HTTP_PORT / SERVER_PORT / QUEUE_SIDECAR_PORT" >&2
 	return 1
 }

@@ -406,6 +406,21 @@ export class ApiClient {
 	}
 
 	/**
+	 * Queue a message for sending, the same call compose makes when the user
+	 * hits Send. The response is the outbox row as the server accepted it; the
+	 * submission happens behind it, on the SMTP queue.
+	 */
+	sendMessage(input: {
+		accountId: string;
+		toAddresses: string[];
+		subject: string;
+		textBody?: string;
+		htmlBody?: string;
+	}): Promise<{ outboxMessageId: string; status: string }> {
+		return this.json("POST", "/outbox", { ...input, sendImmediately: true });
+	}
+
+	/**
 	 * A draft already gone is the outcome this asks for, so a 404 is a pass: the
 	 * app's own discard races this sweep and usually wins.
 	 */
