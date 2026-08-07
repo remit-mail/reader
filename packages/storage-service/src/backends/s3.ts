@@ -14,7 +14,6 @@ import {
 import { Upload } from "@aws-sdk/lib-storage";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
-import { parseOutboxLedger, serializeOutboxLedger } from "../outbox-ledger.js";
 import type {
 	ExtractedTextListItem,
 	OutboxAttachmentListItem,
@@ -32,7 +31,6 @@ import {
 	buildMessageBodyKey,
 	buildOutboxAttachmentKey,
 	buildOutboxAttachmentPrefix,
-	buildOutboxLedgerKey,
 	buildParsedBodyKey,
 	computeChecksum,
 	isStorageNotFoundError,
@@ -362,30 +360,36 @@ export const createS3StorageService = (
 		accountConfigId,
 		accountId,
 		outboxMessageId,
-		limit,
 	) => {
 		const prefix = buildOutboxAttachmentPrefix(
 			accountConfigId,
 			accountId,
 			outboxMessageId,
 		);
-		const response = await client.send(
-			new ListObjectsV2Command({
-				Bucket: bucketName,
-				Prefix: prefix,
-				MaxKeys: limit,
-			}),
-		);
-
 		const items: OutboxAttachmentListItem[] = [];
-		for (const object of response.Contents ?? []) {
-			if (!object.Key) continue;
-			items.push({
-				outboxAttachmentId: object.Key.slice(prefix.length),
-				key: object.Key,
-				sizeBytes: object.Size ?? 0,
-			});
-		}
+		let continuationToken: string | undefined;
+
+		do {
+			const response = await client.send(
+				new ListObjectsV2Command({
+					Bucket: bucketName,
+					Prefix: prefix,
+					ContinuationToken: continuationToken,
+				}),
+			);
+			for (const object of response.Contents ?? []) {
+				if (!object.Key) continue;
+				items.push({
+					outboxAttachmentId: object.Key.slice(prefix.length),
+					key: object.Key,
+					sizeBytes: object.Size ?? 0,
+				});
+			}
+			continuationToken = response.IsTruncated
+				? response.NextContinuationToken
+				: undefined;
+		} while (continuationToken);
+
 		return items;
 	};
 
@@ -433,87 +437,6 @@ export const createS3StorageService = (
 				}),
 			);
 		};
-
-	const ledgerKeyFor = (
-		accountConfigId: string,
-		accountId: string,
-		outboxMessageId: string,
-	): string =>
-		buildOutboxLedgerKey(accountConfigId, accountId, outboxMessageId);
-
-	const readOutboxLedger: StorageService["readOutboxLedger"] = async (
-		accountConfigId,
-		accountId,
-		outboxMessageId,
-	) => {
-		const response = await client
-			.send(
-				new GetObjectCommand({
-					Bucket: bucketName,
-					Key: ledgerKeyFor(accountConfigId, accountId, outboxMessageId),
-				}),
-			)
-			.catch((error: unknown) => {
-				if (isStorageNotFoundError(error)) return null;
-				if ((error as { name?: string })?.name === "NoSuchKey") return null;
-				throw error;
-			});
-		if (!response) return { ledger: { entries: [] }, version: null };
-
-		const bytes = await response.Body?.transformToByteArray();
-		return {
-			ledger: parseOutboxLedger(Buffer.from(bytes ?? []).toString("utf8")),
-			version: response.ETag ?? null,
-		};
-	};
-
-	/**
-	 * S3's own conditional write. `If-Match` on the ETag that was read, or
-	 * `If-None-Match: *` when there was no ledger, so a create races safely too.
-	 * A 412 means another writer landed first — reported as `Stale` for the caller
-	 * to reread and redecide. This is what makes the per-message cap hold across
-	 * execution environments rather than only within one process.
-	 */
-	const writeOutboxLedger: StorageService["writeOutboxLedger"] = async (
-		accountConfigId,
-		accountId,
-		outboxMessageId,
-		ledger,
-		expectedVersion,
-	) => {
-		const conditional =
-			expectedVersion === null
-				? { IfNoneMatch: "*" }
-				: { IfMatch: expectedVersion };
-
-		const written = await client
-			.send(
-				new PutObjectCommand({
-					Bucket: bucketName,
-					Key: ledgerKeyFor(accountConfigId, accountId, outboxMessageId),
-					Body: serializeOutboxLedger(ledger),
-					ContentType: "application/json",
-					...conditional,
-				}),
-			)
-			.then(() => true)
-			.catch((error: unknown) => {
-				const name = (error as { name?: string })?.name;
-				const status = (error as { $metadata?: { httpStatusCode?: number } })
-					?.$metadata?.httpStatusCode;
-				if (
-					name === "PreconditionFailed" ||
-					name === "ConditionalRequestConflict" ||
-					status === 412 ||
-					status === 409
-				) {
-					return false;
-				}
-				throw error;
-			});
-
-		return written ? "Written" : "Stale";
-	};
 
 	const statOutboxAttachment: StorageService["statOutboxAttachment"] = async (
 		accountConfigId,
@@ -607,21 +530,6 @@ export const createS3StorageService = (
 					? response.NextContinuationToken
 					: undefined;
 			} while (continuationToken);
-
-			// The ledger is a sibling of the attachments prefix, not under it, so
-			// the listing above never reaches it. It has to go too: it is the only
-			// thing that vouches for these objects, and a ledger left behind reads
-			// as a draft still holding files that are gone.
-			await client.send(
-				new DeleteObjectCommand({
-					Bucket: bucketName,
-					Key: buildOutboxLedgerKey(
-						accountConfigId,
-						accountId,
-						outboxMessageId,
-					),
-				}),
-			);
 		};
 
 	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
@@ -809,8 +717,6 @@ export const createS3StorageService = (
 		listOutboxDraftsWithAttachments,
 		deleteOutboxAttachments,
 		deleteOutboxAttachment,
-		readOutboxLedger,
-		writeOutboxLedger,
 		statOutboxAttachment,
 		createOutboxAttachmentUploadUrl,
 		storeDeduplicated,

@@ -8,6 +8,7 @@ const RESULT: SchedulerTickResult = {
 	enqueued: 0,
 	skipped: 0,
 	swept: 0,
+	sweepFailed: 0,
 };
 
 // Only the loop's own two calls matter here; the tick is a stub, so what it is

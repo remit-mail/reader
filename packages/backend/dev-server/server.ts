@@ -152,6 +152,11 @@ app.put(
 			body: req,
 			nowSeconds: Math.floor(Date.now() / 1000),
 			secret: process.env.BETTER_AUTH_SECRET,
+			findLiveReservation: (accountConfigId, outboxAttachmentId) =>
+				client.outboxAttachment.hasLiveReservation(
+					accountConfigId,
+					outboxAttachmentId,
+				),
 		});
 
 		res.setHeader("x-remit-upload-reason", result.reason);
@@ -354,7 +359,9 @@ const port = env.SERVER_PORT;
 //
 // This is also the everyday `npm run dev` server, so the addresses stay whole
 // and clickable — `url`, not a port a developer has to assemble one themselves.
-app.listen(Number(port), "0.0.0.0", () => {
+// Exported so a test that drives this exact app can shut the listener down
+// afterwards; nothing else has any business holding it.
+export const listener = app.listen(Number(port), "0.0.0.0", () => {
 	// biome-ignore lint/plugin/no-logger-info: the configuration a container came up on is an audit-grade signal
 	logger.info(
 		{

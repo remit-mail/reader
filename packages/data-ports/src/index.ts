@@ -17,6 +17,12 @@ export type { IMessageFlagPushRepository } from "./interfaces/message-flag-push.
 export type { IMessageLabelRepository } from "./interfaces/message-label.js";
 export type { IMessagePlacementMoveRepository } from "./interfaces/message-placement-move.js";
 export type { IOrganizeJobRequestRepository } from "./interfaces/organize-job-request.js";
+export type {
+	CreateOutboxAttachmentInput,
+	IOutboxAttachmentRepository,
+	OutboxAttachmentCap,
+	ReserveOutboxAttachmentResult,
+} from "./interfaces/outbox-attachment.js";
 export type { IOutboxMessageRepository } from "./interfaces/outbox-message.js";
 export type { IQuarantineRepository } from "./interfaces/quarantine.js";
 export type { IThreadMessageRepository } from "./interfaces/thread-message.js";
@@ -79,6 +85,7 @@ export type {
 	MessagePlacementMoveItem,
 	MessageReferenceItem,
 	OrganizeJobRequestItem,
+	OutboxAttachmentItem,
 	OutboxMessageItem,
 	PutMessageFlagPushInput,
 	PutMessagePlacementMoveInput,

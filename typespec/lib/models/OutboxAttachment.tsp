@@ -1,11 +1,89 @@
 import "@typespec/http";
+import "typespec-electrodb-emitter";
 
 import "../enums/OutboxAttachmentRejectionReason.tsp";
+import "../enums/OutboxAttachmentState.tsp";
 import "../scalars/string.tsp";
 
 using TypeSpec.Http;
 
 namespace RemitImap;
+
+@doc("""
+  A file on a draft, from the moment room is claimed for it.
+  
+  The row is the record: it is what the per-message cap is counted over, what
+  says an object in storage belongs to a message, and what goes when the draft
+  goes. Storage holds bytes and nothing else — an object no row names is
+  garbage, which is the only thing the sweep needs to know.
+  """)
+@entity("outboxAttachment", "remit")
+@index(
+  "OutboxAttachment",
+  {
+    pk: [OutboxAttachment.outboxAttachmentId],
+    sk: [],
+  }
+)
+@index(
+  "byOutboxMessageId",
+  {
+    index: "gsi0",
+    pk: [OutboxAttachment.outboxMessageId],
+    sk: [OutboxAttachment.createdAt],
+  }
+)
+model OutboxAttachment {
+  @doc("Primary identifier")
+  @visibility(Lifecycle.Read)
+  outboxAttachmentId: UUID;
+
+  @doc("Draft this file belongs to")
+  @visibility(Lifecycle.Read)
+  outboxMessageId: UUID;
+
+  @doc("Sending account, so the storage key can be rebuilt without a join")
+  @visibility(Lifecycle.Read)
+  accountId: UUID;
+
+  @doc("Tenant scope, so every read can be scoped without a join")
+  @visibility(Lifecycle.Read)
+  accountConfigId: UUID;
+
+  @doc("Filename as it will appear on the sent message, sanitized server-side")
+  @visibility(Lifecycle.Read)
+  filename: String256;
+
+  @doc("Media type recorded at upload. Never trusted for rendering.")
+  @visibility(Lifecycle.Read)
+  contentType: String256;
+
+  @doc("Bytes claimed at reservation, confirmed against storage once stored")
+  @visibility(Lifecycle.Read)
+  @minValue(0)
+  sizeBytes: int64;
+
+  @doc("Whether the bytes have arrived")
+  @visibility(Lifecycle.Read)
+  state: OutboxAttachmentState;
+
+  @doc("Where the bytes live. Written at reservation so nothing has to derive it.")
+  @visibility(Lifecycle.Read)
+  storageKey: String2048;
+
+  @doc("When a Pending reservation stops holding room. Zero once Stored.")
+  @visibility(Lifecycle.Read)
+  @minValue(0)
+  reservationExpiresAt: int64;
+
+  @visibility(Lifecycle.Read)
+  @createdAt
+  createdAt: int64;
+
+  @visibility(Lifecycle.Read)
+  @updatedAt
+  updatedAt: int64;
+}
 
 @doc("What the client intends to attach, before any bytes move")
 model MintOutboxAttachmentInput {
@@ -52,23 +130,18 @@ model MintOutboxAttachmentResponse {
   uploadExpiresAt: int64;
 }
 
-@doc("""
-  A file that is on the draft: uploaded, and confirmed against storage.
-  
-  Only what the server can vouch for. The filename and media type came back on
-  the mint and are the client's to hold until the outbox row carries them.
-  """)
-model OutboxAttachmentResponse {
-  @doc("Primary identifier")
-  outboxAttachmentId: UUID;
+@doc("A file on a draft, as the composer sees it")
+model OutboxAttachmentResponse
+  is PickProperties<
+    OutboxAttachment,
 
-  @doc("Draft the file belongs to")
-  outboxMessageId: UUID;
-
-  @doc("Size read back from storage, never a number the client supplied")
-  @minValue(0)
-  sizeBytes: int64;
-}
+      | "outboxAttachmentId"
+      | "outboxMessageId"
+      | "filename"
+      | "contentType"
+      | "sizeBytes"
+      | "state"
+  >;
 
 @doc("A file the server refused, with everything the composer needs to say why")
 model OutboxAttachmentRejection {

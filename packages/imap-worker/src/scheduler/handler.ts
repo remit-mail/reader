@@ -3,6 +3,7 @@ import { createLogger, withTelemetry } from "@remit/logger-lambda";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import type { ScheduledHandler } from "aws-lambda";
 import { env } from "expect-env";
+import { buildAttachmentSweep } from "./attachment-sweep.js";
 import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
 import { runSchedulerTick } from "./run-tick.js";
 
@@ -29,16 +30,20 @@ const sqsClient = createQueueProducer({ queueUrl: mailboxesQueueUrl });
  * correctly dedupes.
  */
 export const handler: ScheduledHandler = withTelemetry(async (event) => {
-	const { account } = await getClient();
+	const client = await getClient();
 	const now = Date.parse(event.time);
 
 	await runSchedulerTick({
-		accountService: account,
+		accountService: client.account,
 		sqsClient,
 		queueUrl: mailboxesQueueUrl,
 		log,
 		tickIntervalMs: getTickIntervalMs(),
 		offlineIntervalMs: getOfflineIntervalMs(),
 		now,
+		// The hosted side is the one that needs this: a browser PUTs straight
+		// to block storage, so nothing refuses an upload against a draft that is
+		// already gone and this sweep is the only thing that collects it.
+		sweepAttachments: buildAttachmentSweep(client, log),
 	});
 });

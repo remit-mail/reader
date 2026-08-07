@@ -31,14 +31,14 @@ export interface RunSchedulerTickDeps {
 	/** Injectable for tests; defaults to `Date.now()`. */
 	now?: number;
 	/**
-	 * Collect attachment bytes no ledger vouches for, for one account.
+	 * Collect attachment bytes the database does not know about, for one account.
 	 *
 	 * The tick already walks every account on a cadence, which is the only thing
 	 * this needs. It exists because an upload URL minted for a draft stays valid
-	 * after that draft is discarded, and on a deployment where the browser writes
-	 * straight to block storage nothing is in the path to refuse it — see
-	 * `sweepAbandonedOutboxAttachments`. Optional so a deployment that has not
-	 * wired storage into the scheduler still ticks.
+	 * after that draft is discarded, and where the browser writes straight to
+	 * block storage nothing is in the path to refuse it — see
+	 * `sweepAbandonedOutboxAttachments`. Optional only so a test can leave it out;
+	 * both real entry points pass it.
 	 */
 	sweepAttachments?: (account: AccountItem) => Promise<void>;
 }
@@ -48,6 +48,7 @@ export interface SchedulerTickResult {
 	enqueued: number;
 	skipped: number;
 	swept: number;
+	sweepFailed: number;
 }
 
 /**
@@ -114,6 +115,7 @@ export const runSchedulerTick = async (
 	let enqueued = 0;
 	let skipped = 0;
 	let swept = 0;
+	let sweepFailed = 0;
 
 	do {
 		const page = await accountService.listAllAccountsPage({
@@ -123,14 +125,34 @@ export const runSchedulerTick = async (
 		scanned += page.items.length;
 
 		if (deps.sweepAttachments) {
-			// Every account, not only the ones due a sync: abandoned bytes are not
-			// related to how recently mail was fetched. Runs at the same bounded
+			// Every account, not only the ones due a sync: abandoned bytes have
+			// nothing to do with how recently mail was fetched. Bounded to the same
 			// concurrency as the enqueues below.
+			//
+			// Contained, because this is housekeeping and enqueuing mail is not. An
+			// unreadable input or a storage permission error thrown from here would
+			// otherwise reach the loop, which logs and exits, and compose would
+			// restart the process every five seconds — no account would ever be
+			// enqueued again. A failed sweep costs a tick's collection and nothing
+			// else; the count is what makes that visible.
 			const sweep = deps.sweepAttachments;
-			await pMap(page.items, (account) => sweep(account), {
-				concurrency: SCHEDULER_ENQUEUE_CONCURRENCY,
-			});
-			swept += page.items.length;
+			const outcomes = await pMap(
+				page.items,
+				(account) =>
+					sweep(account).then(
+						() => true,
+						(error: unknown) => {
+							log.error(
+								{ accountId: account.accountId, error },
+								"Outbox attachment sweep failed for account",
+							);
+							return false;
+						},
+					),
+				{ concurrency: SCHEDULER_ENQUEUE_CONCURRENCY },
+			);
+			swept += outcomes.filter(Boolean).length;
+			sweepFailed += outcomes.filter((ok) => !ok).length;
 		}
 
 		const due = page.items.filter(
@@ -160,9 +182,9 @@ export const runSchedulerTick = async (
 	} while (cursor);
 
 	log.info(
-		{ scanned, enqueued, skipped, swept },
+		{ scanned, enqueued, skipped, swept, sweepFailed },
 		"Scheduled-sync tick complete",
 	);
 
-	return { scanned, enqueued, skipped, swept };
+	return { scanned, enqueued, skipped, swept, sweepFailed };
 };

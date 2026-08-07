@@ -789,7 +789,6 @@ describe("createFilesystemStorageService", () => {
 			"cfg1",
 			"acc123",
 			"draft1",
-			10,
 		);
 		assert.strictEqual(item.sizeBytes, content.length);
 	});
@@ -817,7 +816,6 @@ describe("createFilesystemStorageService", () => {
 			"cfg1",
 			"acc123",
 			"draft-many",
-			10,
 		);
 		assert.deepStrictEqual(all.map((item) => item.outboxAttachmentId).sort(), [
 			"a",
@@ -829,7 +827,6 @@ describe("createFilesystemStorageService", () => {
 			"cfg1",
 			"acc123",
 			"draft-many",
-			2,
 		);
 		assert.strictEqual(capped.length, 2);
 	});
@@ -837,60 +834,8 @@ describe("createFilesystemStorageService", () => {
 	test("listOutboxAttachments returns an empty array for a draft that has none", async () => {
 		const storage = createFilesystemStorageService(testBasePath);
 		assert.deepStrictEqual(
-			await storage.listOutboxAttachments("cfg1", "acc123", "draft-empty", 10),
+			await storage.listOutboxAttachments("cfg1", "acc123", "draft-empty"),
 			[],
-		);
-	});
-
-	test("the ledger is written only against the version that was read", async () => {
-		const storage = createFilesystemStorageService(testBasePath);
-		const entry = {
-			outboxAttachmentId: "att1",
-			filename: "a.bin",
-			contentType: "application/octet-stream",
-			sizeBytes: 8,
-			expiresAt: 2_000_000_000,
-			uploaded: false,
-		};
-
-		const empty = await storage.readOutboxLedger("cfg1", "acc123", "draft-cas");
-		assert.deepStrictEqual(empty.ledger.entries, []);
-		assert.strictEqual(empty.version, null);
-
-		assert.strictEqual(
-			await storage.writeOutboxLedger(
-				"cfg1",
-				"acc123",
-				"draft-cas",
-				{ entries: [entry] },
-				null,
-			),
-			"Written",
-		);
-
-		// A writer still holding "there was no ledger" is refused, not merged.
-		assert.strictEqual(
-			await storage.writeOutboxLedger(
-				"cfg1",
-				"acc123",
-				"draft-cas",
-				{ entries: [] },
-				null,
-			),
-			"Stale",
-		);
-
-		const read = await storage.readOutboxLedger("cfg1", "acc123", "draft-cas");
-		assert.deepStrictEqual(read.ledger.entries, [entry]);
-		assert.strictEqual(
-			await storage.writeOutboxLedger(
-				"cfg1",
-				"acc123",
-				"draft-cas",
-				{ entries: [] },
-				read.version,
-			),
-			"Written",
 		);
 	});
 
@@ -903,23 +848,11 @@ describe("createFilesystemStorageService", () => {
 			outboxAttachmentId: "att1",
 			content: Buffer.alloc(4),
 		});
-		await storage.writeOutboxLedger(
-			"cfg1",
-			"acc123",
-			"draft-gone",
-			{ entries: [] },
-			null,
-		);
-
 		await storage.deleteOutboxAttachments("cfg1", "acc123", "draft-gone");
 
 		assert.deepStrictEqual(
-			await storage.listOutboxAttachments("cfg1", "acc123", "draft-gone", 10),
+			await storage.listOutboxAttachments("cfg1", "acc123", "draft-gone"),
 			[],
-		);
-		assert.strictEqual(
-			(await storage.readOutboxLedger("cfg1", "acc123", "draft-gone")).version,
-			null,
 		);
 	});
 

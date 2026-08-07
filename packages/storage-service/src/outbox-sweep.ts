@@ -1,62 +1,79 @@
-import { liveEntries } from "./outbox-ledger.js";
 import type { StorageService } from "./storage.js";
 
 /**
- * Collect attachment bytes that no ledger vouches for.
+ * Collect attachment bytes the database does not know about.
  *
- * There is one way for those to exist, and it is not reachable any other way:
- * on a deployment where the browser PUTs straight to block storage, an upload
- * URL stays valid for its full window even after the draft it was minted for is
- * discarded. Nothing consults the ledger on that path — that is the point of
- * it — so the bytes land under a prefix whose row is gone. The self-hosted
- * receiver refuses the same request outright; this is the other half.
+ * A presigned upload URL stays valid for its whole window, including after the
+ * draft it was minted for is discarded, and on a deployment where the browser
+ * PUTs straight to block storage there is nothing in that path to consult. So
+ * an object can exist that no row names. That is the only case this exists for,
+ * and the rule is the whole of it: an object survives if the database still has
+ * an attachment row for it.
  *
- * The rule is simple enough to be obviously right: an object under a draft's
- * attachment prefix is kept only if that draft's ledger has a live entry naming
- * it. Everything else is garbage, whether the draft was discarded, the
- * reservation lapsed, or the upload was never confirmed.
+ * Two orderings matter and both are deliberate. Objects are listed *before* the
+ * rows are read, so an attachment reserved between the two reads is seen as a
+ * row and not as an object, and is kept. And a draft whose row lookup fails is
+ * skipped entirely — "I could not find out what is live" must never be acted on
+ * as "nothing is live".
  */
 export interface OutboxSweepResult {
 	inspected: number;
 	deleted: number;
+	/** Drafts skipped because their attachment rows could not be read. */
+	skipped: number;
+}
+
+export interface OutboxSweepDeps {
+	storage: StorageService;
+	/**
+	 * The attachment ids the database holds for a draft. Throwing is the right
+	 * way to say "unknown" — the sweep then leaves that draft alone.
+	 */
+	listKnownAttachmentIds: (
+		accountConfigId: string,
+		outboxMessageId: string,
+	) => Promise<string[]>;
+	onSkipped: (outboxMessageId: string, error: unknown) => void;
 }
 
 export const sweepAbandonedOutboxAttachments = async (
-	storage: StorageService,
+	deps: OutboxSweepDeps,
 	accountConfigId: string,
 	accountId: string,
-	nowSeconds: number,
 ): Promise<OutboxSweepResult> => {
 	let inspected = 0;
 	let deleted = 0;
+	let skipped = 0;
 
-	const outboxMessageIds = await storage.listOutboxDraftsWithAttachments(
+	const outboxMessageIds = await deps.storage.listOutboxDraftsWithAttachments(
 		accountConfigId,
 		accountId,
 	);
 
 	for (const outboxMessageId of outboxMessageIds) {
-		const objects = await storage.listOutboxAttachments(
+		const objects = await deps.storage.listOutboxAttachments(
 			accountConfigId,
 			accountId,
 			outboxMessageId,
-			1000,
 		);
 		if (objects.length === 0) continue;
+
+		const known = await deps
+			.listKnownAttachmentIds(accountConfigId, outboxMessageId)
+			.then((ids) => new Set(ids))
+			.catch((error: unknown) => {
+				deps.onSkipped(outboxMessageId, error);
+				return null;
+			});
+		if (known === null) {
+			skipped += 1;
+			continue;
+		}
+
 		inspected += objects.length;
-
-		const { ledger } = await storage.readOutboxLedger(
-			accountConfigId,
-			accountId,
-			outboxMessageId,
-		);
-		const vouched = new Set(
-			liveEntries(ledger, nowSeconds).map((entry) => entry.outboxAttachmentId),
-		);
-
 		for (const object of objects) {
-			if (vouched.has(object.outboxAttachmentId)) continue;
-			await storage.deleteOutboxAttachment(
+			if (known.has(object.outboxAttachmentId)) continue;
+			await deps.storage.deleteOutboxAttachment(
 				accountConfigId,
 				accountId,
 				outboxMessageId,
@@ -66,5 +83,5 @@ export const sweepAbandonedOutboxAttachments = async (
 		}
 	}
 
-	return { inspected, deleted };
+	return { inspected, deleted, skipped };
 };

@@ -200,12 +200,12 @@ export {
 export {
 	type CompleteOutboxAttachmentInput,
 	type CompleteOutboxAttachmentOutcome,
+	holdsRoom,
 	type MintOutboxAttachmentInput,
 	type MintOutboxAttachmentOutcome,
 	OUTBOX_ATTACHMENT_MAX_COUNT,
 	OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
 	type OutboxAttachmentConfig,
-	type OutboxAttachmentDescriptor,
 	type OutboxAttachmentRejectionDetail,
 	type OutboxAttachmentRejectionReasonValue,
 	type OutboxAttachmentReservation,

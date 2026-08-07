@@ -11,13 +11,14 @@
 
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, describe, it } from "node:test";
 import type {
 	CreateOutboxMessageInput,
+	IOutboxAttachmentRepository,
 	IOutboxMessageRepository,
+	OutboxAttachmentItem,
 	OutboxMessageItem,
 	UpdateOutboxMessageInput,
 } from "@remit/data-ports";
@@ -27,6 +28,7 @@ import {
 	OutboxMessageStatus,
 } from "@remit/domain-enums";
 import {
+	holdsRoom,
 	OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
 	OutboxAttachmentService,
 } from "@remit/mailbox-service";
@@ -94,7 +96,73 @@ const createOutboxRepository = (
 interface Installed {
 	storage: StorageService;
 	basePath: string;
+	rows: Map<string, OutboxAttachmentItem>;
 }
+
+/** The row store the cap and the sweep both read. */
+const createAttachmentRepository = (
+	rows: Map<string, OutboxAttachmentItem>,
+): IOutboxAttachmentRepository => {
+	const forDraft = (accountConfigId: string, outboxMessageId: string) =>
+		[...rows.values()].filter(
+			(row) =>
+				row.accountConfigId === accountConfigId &&
+				row.outboxMessageId === outboxMessageId,
+		);
+
+	return {
+		reserve: async (input, cap) => {
+			const live = forDraft(
+				input.accountConfigId,
+				input.outboxMessageId,
+			).filter((row) => holdsRoom(row, cap.nowSeconds));
+			const usedBytes = live.reduce((total, row) => total + row.sizeBytes, 0);
+			if (live.length >= cap.maxCount) {
+				return { outcome: "OverCountCap", usedBytes };
+			}
+			if (usedBytes + input.sizeBytes > cap.maxTotalBytes) {
+				return { outcome: "OverByteCap", usedBytes };
+			}
+			const item = {
+				...input,
+				state: "Pending",
+				createdAt: 0,
+				updatedAt: 0,
+			} as OutboxAttachmentItem;
+			rows.set(item.outboxAttachmentId, item);
+			return { outcome: "Reserved", item };
+		},
+		get: async (accountConfigId, outboxAttachmentId) => {
+			const row = rows.get(outboxAttachmentId);
+			if (!row || row.accountConfigId !== accountConfigId) {
+				throw new NotFoundError("gone");
+			}
+			return row;
+		},
+		listByOutboxMessage: async (accountConfigId, outboxMessageId) =>
+			forDraft(accountConfigId, outboxMessageId),
+		markStored: async (_accountConfigId, outboxAttachmentId, sizeBytes) => {
+			const row = rows.get(outboxAttachmentId);
+			if (!row || row.state !== "Pending") return null;
+			const next = {
+				...row,
+				state: "Stored",
+				sizeBytes,
+				reservationExpiresAt: 0,
+			} as OutboxAttachmentItem;
+			rows.set(outboxAttachmentId, next);
+			return next;
+		},
+		deleteMany: async (_accountConfigId, ids) => {
+			for (const id of ids) rows.delete(id);
+		},
+		deleteByOutboxMessage: async (accountConfigId, outboxMessageId) => {
+			for (const row of forDraft(accountConfigId, outboxMessageId)) {
+				rows.delete(row.outboxAttachmentId);
+			}
+		},
+	};
+};
 
 const temporaryRoots: string[] = [];
 
@@ -102,7 +170,7 @@ const install = async (
 	overrides: Partial<OutboxMessageItem> = {},
 	accountConfigId = ACCOUNT_CONFIG_ID,
 ): Promise<Installed> => {
-	const basePath = await mkdtemp(join(tmpdir(), "remit-attachments-"));
+	const basePath = await mkdtemp(join(process.cwd(), ".tmp-attachments-"));
 	temporaryRoots.push(basePath);
 
 	const rows = new Map<string, OutboxMessageItem>([
@@ -123,16 +191,18 @@ const install = async (
 		signingSecret: SECRET,
 	});
 
+	const attachmentRows = new Map<string, OutboxAttachmentItem>();
 	setClient({
 		outboxMessage,
 		storage,
 		outboxAttachment: new OutboxAttachmentService({
 			outboxMessageService: outboxMessage,
+			outboxAttachmentService: createAttachmentRepository(attachmentRows),
 			storage,
 		}),
 	} as unknown as RemitClient);
 
-	return { storage, basePath };
+	return { storage, basePath, rows: attachmentRows };
 };
 
 const authorizedEvent = (): APIGatewayProxyEvent =>
@@ -206,6 +276,7 @@ const putTo = (
 		body: Readable.from(content),
 		nowSeconds,
 		secret: SECRET,
+		findLiveReservation: async () => true,
 	});
 };
 
@@ -353,7 +424,6 @@ describe("reserving room on a draft (#679)", () => {
 				OTHER_ACCOUNT_CONFIG_ID,
 				ACCOUNT_ID,
 				DRAFT_ID,
-				10,
 			),
 			[],
 		);

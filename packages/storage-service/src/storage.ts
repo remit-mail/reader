@@ -1,13 +1,6 @@
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
-import type {
-	OutboxLedger,
-	OutboxLedgerRead,
-	OutboxLedgerVersion,
-	OutboxLedgerWrite,
-} from "./outbox-ledger.js";
-import { parseOutboxLedger, serializeOutboxLedger } from "./outbox-ledger.js";
 
 export type StorageTypeValue = (typeof StorageType)[keyof typeof StorageType];
 export type ContentEncodingValue =
@@ -220,15 +213,14 @@ export interface StorageService {
 	): Promise<StorageReference>;
 
 	/**
-	 * List the files stored against a draft, newest ordering unspecified, at most
-	 * `limit` of them. The caller passes its own cap plus one so an over-full
-	 * draft is recognisable without an unbounded read.
+	 * Every object stored against a draft, paged to the end. Only the sweep reads
+	 * this, and a sweep that stops early leaves exactly the orphan it was called
+	 * to collect — so there is no limit to get wrong.
 	 */
 	listOutboxAttachments(
 		accountConfigId: string,
 		accountId: string,
 		outboxMessageId: string,
-		limit: number,
 	): Promise<OutboxAttachmentListItem[]>;
 
 	/**
@@ -260,31 +252,6 @@ export interface StorageService {
 		outboxMessageId: string,
 		outboxAttachmentId: string,
 	): Promise<void>;
-
-	/**
-	 * Read a draft's ledger and the version token a write must present. A draft
-	 * that has never held an attachment reads as empty with a null version.
-	 */
-	readOutboxLedger(
-		accountConfigId: string,
-		accountId: string,
-		outboxMessageId: string,
-	): Promise<OutboxLedgerRead>;
-
-	/**
-	 * Write a draft's ledger, but only if it still holds the version that was
-	 * read. This is where the per-message cap is actually enforced: a mint reads,
-	 * decides, and writes conditionally, so two mints in two processes cannot
-	 * both believe there was room. `Stale` means the caller must reread and
-	 * decide again.
-	 */
-	writeOutboxLedger(
-		accountConfigId: string,
-		accountId: string,
-		outboxMessageId: string,
-		ledger: OutboxLedger,
-		expectedVersion: OutboxLedgerVersion,
-	): Promise<OutboxLedgerWrite>;
 
 	/**
 	 * The size storage actually holds for an attachment, or null when nothing
@@ -480,13 +447,6 @@ export const buildOutboxAttachmentKey = (
 ): string =>
 	`${buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId)}${outboxAttachmentId}`;
 
-export const buildOutboxLedgerKey = (
-	accountConfigId: string,
-	accountId: string,
-	outboxMessageId: string,
-): string =>
-	`accounts/${accountConfigId}/${accountId}/outbox/${outboxMessageId}/attachments.ledger`;
-
 // Every segment is a generated id, so the shape is closed rather than
 // "anything without a slash": `..` matches `[^/]+` and the write side joins
 // this key onto a filesystem root. The read side has `resolveContentPath` for
@@ -644,12 +604,10 @@ export const createMockStorageService = (): StorageService => {
 		accountConfigId,
 		accountId,
 		outboxMessageId,
-		limit,
 	) => {
 		const prefix = `mock://${buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId)}`;
 		const items: OutboxAttachmentListItem[] = [];
 		for (const [uri, content] of storage.entries()) {
-			if (items.length >= limit) break;
 			if (!uri.startsWith(prefix)) continue;
 			items.push({
 				outboxAttachmentId: uri.slice(prefix.length),
@@ -680,50 +638,6 @@ export const createMockStorageService = (): StorageService => {
 			);
 		};
 
-	// Stands in for a backend with a real compare-and-set: a version per ledger,
-	// and a write that presents a stale one is refused rather than applied.
-	const ledgerVersions = new Map<string, number>();
-
-	const readOutboxLedger: StorageService["readOutboxLedger"] = async (
-		accountConfigId,
-		accountId,
-		outboxMessageId,
-	) => {
-		const key = buildOutboxLedgerKey(
-			accountConfigId,
-			accountId,
-			outboxMessageId,
-		);
-		const content = storage.get(`mock://${key}`);
-		if (!content) return { ledger: { entries: [] }, version: null };
-		return {
-			ledger: parseOutboxLedger(content.toString("utf8")),
-			version: String(ledgerVersions.get(key) ?? 0),
-		};
-	};
-
-	const writeOutboxLedger: StorageService["writeOutboxLedger"] = async (
-		accountConfigId,
-		accountId,
-		outboxMessageId,
-		ledger,
-		expectedVersion,
-	) => {
-		const key = buildOutboxLedgerKey(
-			accountConfigId,
-			accountId,
-			outboxMessageId,
-		);
-		const uri = `mock://${key}`;
-		const current = storage.has(uri)
-			? String(ledgerVersions.get(key) ?? 0)
-			: null;
-		if (current !== expectedVersion) return "Stale";
-		storage.set(uri, serializeOutboxLedger(ledger));
-		ledgerVersions.set(key, (ledgerVersions.get(key) ?? 0) + 1);
-		return "Written";
-	};
-
 	const statOutboxAttachment: StorageService["statOutboxAttachment"] = async (
 		accountConfigId,
 		accountId,
@@ -747,9 +661,6 @@ export const createMockStorageService = (): StorageService => {
 			for (const uri of [...storage.keys()]) {
 				if (uri.startsWith(prefix)) storage.delete(uri);
 			}
-			storage.delete(
-				`mock://${buildOutboxLedgerKey(accountConfigId, accountId, outboxMessageId)}`,
-			);
 		};
 
 	const storeDeduplicated: StorageService["storeDeduplicated"] = async (
@@ -893,8 +804,6 @@ export const createMockStorageService = (): StorageService => {
 		listOutboxDraftsWithAttachments,
 		deleteOutboxAttachments,
 		deleteOutboxAttachment,
-		readOutboxLedger,
-		writeOutboxLedger,
 		statOutboxAttachment,
 		createOutboxAttachmentUploadUrl,
 		storeDeduplicated,

@@ -1,5 +1,7 @@
 import type {
+	IOutboxAttachmentRepository,
 	IOutboxMessageRepository,
+	OutboxAttachmentItem,
 	OutboxMessageItem,
 } from "@remit/data-ports";
 import { ConflictError } from "@remit/data-ports/errors";
@@ -8,14 +10,9 @@ import {
 	OutboxAttachmentRejectionReason,
 	OutboxMessageStatus,
 } from "@remit/domain-enums";
-import type {
-	OutboxLedger,
-	OutboxLedgerEntry,
-	StorageService,
-} from "@remit/storage-service";
+import type { StorageService } from "@remit/storage-service";
 import {
-	liveEntries,
-	totalBytes,
+	buildOutboxAttachmentKey,
 	UPLOAD_URL_TTL_SECONDS,
 } from "@remit/storage-service";
 import {
@@ -32,9 +29,7 @@ export const OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES = 25 * 1024 * 1024;
 
 /**
  * A ceiling on how many files one draft can accumulate. The byte cap does not
- * bound the count — a thousand one-byte files stay far under it — and every
- * mint has to total the draft first, so the count is what keeps that read a
- * single bounded call.
+ * bound the count — a thousand one-byte files stay far under it.
  */
 export const OUTBOX_ATTACHMENT_MAX_COUNT = 25;
 
@@ -49,12 +44,6 @@ export interface OutboxAttachmentReservation {
 	sizeBytes: number;
 	uploadUrl: string;
 	uploadExpiresAt: number;
-}
-
-export interface OutboxAttachmentDescriptor {
-	outboxAttachmentId: string;
-	outboxMessageId: string;
-	sizeBytes: number;
 }
 
 export interface OutboxAttachmentRejectionDetail {
@@ -77,10 +66,7 @@ export type MintOutboxAttachmentOutcome =
 	| Refused;
 
 export type CompleteOutboxAttachmentOutcome =
-	| {
-			readonly outcome: "Completed";
-			readonly attachment: OutboxAttachmentDescriptor;
-	  }
+	| { readonly outcome: "Completed"; readonly attachment: OutboxAttachmentItem }
 	| Refused;
 
 export interface MintOutboxAttachmentInput {
@@ -99,6 +85,7 @@ export interface CompleteOutboxAttachmentInput {
 
 export interface OutboxAttachmentConfig {
 	outboxMessageService: IOutboxMessageRepository;
+	outboxAttachmentService: IOutboxAttachmentRepository;
 	storage: StorageService;
 	now?: () => number;
 }
@@ -106,61 +93,25 @@ export interface OutboxAttachmentConfig {
 const formatBytes = (bytes: number): string =>
 	`${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
-/**
- * How many times a conditional ledger write may lose before the caller gives up.
- *
- * Every round has a winner, so a writer needs at most as many attempts as there
- * are writers contending — and contention is self-limiting: once the draft is
- * full, further mints are refused without writing at all. A ceiling's worth of
- * attempts plus headroom is therefore an upper bound, not a guess, and it still
- * stops a pathological case from spinning forever.
- */
-const LEDGER_WRITE_ATTEMPTS = OUTBOX_ATTACHMENT_MAX_COUNT + 8;
+/** Stored, or reserved and not yet lapsed. */
+export const holdsRoom = (
+	item: OutboxAttachmentItem,
+	nowSeconds: number,
+): boolean =>
+	item.state === "Stored" || item.reservationExpiresAt >= nowSeconds;
 
 export class OutboxAttachmentService {
 	private readonly outboxMessageService: IOutboxMessageRepository;
+	private readonly attachments: IOutboxAttachmentRepository;
 	private readonly storage: StorageService;
 	private readonly now: () => number;
 
-	/**
-	 * A courtesy, not the guarantee. Serializing mints for one draft inside this
-	 * process keeps the common case from spending conditional writes on itself,
-	 * but the cap is enforced by the ledger's compare-and-set in storage — this
-	 * deployment shape is Lambda, where six parallel mints are six execution
-	 * environments and no chain in any of them can see the others. Keyed by
-	 * account and draft together, because the map is shared across tenants and a
-	 * draft id is not a namespace.
-	 */
-	private readonly draftChains = new Map<string, Promise<unknown>>();
-
 	constructor(config: OutboxAttachmentConfig) {
 		this.outboxMessageService = config.outboxMessageService;
+		this.attachments = config.outboxAttachmentService;
 		this.storage = config.storage;
 		this.now = config.now ?? (() => Math.floor(Date.now() / 1000));
 	}
-
-	private serializePerDraft = async <T>(
-		accountConfigId: string,
-		outboxMessageId: string,
-		run: () => Promise<T>,
-	): Promise<T> => {
-		const key = `${accountConfigId}/${outboxMessageId}`;
-		const previous = this.draftChains.get(key);
-		const started = previous ? previous.then(run, run) : run();
-		const settled = started.then(
-			() => undefined,
-			() => undefined,
-		);
-		this.draftChains.set(key, settled);
-
-		try {
-			return await started;
-		} finally {
-			if (this.draftChains.get(key) === settled) {
-				this.draftChains.delete(key);
-			}
-		}
-	};
 
 	/**
 	 * Resolve a draft the caller is entitled to act on.
@@ -189,158 +140,138 @@ export class OutboxAttachmentService {
 		return outbox;
 	};
 
-	/**
-	 * Read the ledger, decide, write it back conditionally, and rerun the whole
-	 * decision if someone else wrote in between. `decide` must be pure with
-	 * respect to storage: it is called again on every lost race.
-	 */
-	private updateLedger = async <T>(
+	private usedBytesOn = async (
 		accountConfigId: string,
-		accountId: string,
 		outboxMessageId: string,
-		decide: (
-			live: OutboxLedgerEntry[],
-		) => { next: OutboxLedger; result: T } | { skip: T },
-	): Promise<T> => {
-		for (let attempt = 0; attempt < LEDGER_WRITE_ATTEMPTS; attempt += 1) {
-			const { ledger, version } = await this.storage.readOutboxLedger(
-				accountConfigId,
-				accountId,
-				outboxMessageId,
-			);
-			const live = liveEntries(ledger, this.now());
-			const decision = decide(live);
-			if ("skip" in decision) return decision.skip;
-
-			const written = await this.storage.writeOutboxLedger(
-				accountConfigId,
-				accountId,
-				outboxMessageId,
-				decision.next,
-				version,
-			);
-			if (written === "Written") return decision.result;
-		}
-
-		// Every attempt lost. Something is writing to this draft continuously;
-		// failing loudly beats quietly admitting a file the cap did not clear.
-		throw new ConflictError(
-			"This message is being changed from somewhere else. Try attaching the file again.",
+	): Promise<number> => {
+		const held = await this.attachments.listByOutboxMessage(
+			accountConfigId,
+			outboxMessageId,
 		);
+		const nowSeconds = this.now();
+		return held
+			.filter((item) => holdsRoom(item, nowSeconds))
+			.reduce((total, item) => total + item.sizeBytes, 0);
 	};
 
-	/** Room on a draft for one file, and somewhere to put it. */
+	private reject = (
+		reason: OutboxAttachmentRejectionReasonValue,
+		message: string,
+		usedBytes: number,
+	): Refused => ({
+		outcome: "Rejected",
+		rejection: {
+			reason,
+			message,
+			limitBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
+			usedBytes,
+		},
+	});
+
+	/**
+	 * Room on a draft for one file, and somewhere to put it.
+	 *
+	 * The row is written before the URL is handed out, and writing it is what
+	 * claims the room — the count and the insert are one database transaction, so
+	 * two requests arriving together cannot both be told there was space. That is
+	 * the whole of the cap; nothing above this layer needs to serialize anything.
+	 */
 	mint = async (
 		input: MintOutboxAttachmentInput,
-	): Promise<MintOutboxAttachmentOutcome> =>
-		this.serializePerDraft(input.accountConfigId, input.outboxMessageId, () =>
-			this.mintUnderDraftLock(input),
-		);
-
-	private mintUnderDraftLock = async (
-		input: MintOutboxAttachmentInput,
 	): Promise<MintOutboxAttachmentOutcome> => {
-		// Inside the lock, and reread on every conditional retry: a discard that
-		// wins the race must be seen here, or a queued mint writes a reservation
-		// into a prefix whose row is already gone.
 		const outbox = await this.getWritableDraft(
 			input.accountConfigId,
 			input.outboxMessageId,
 		);
-		const accountId = outbox.accountId;
 
-		const outboxAttachmentId = base36uuid();
 		const filename = sanitizeAttachmentFilename(input.filename);
-		const contentType = normalizeAttachmentContentType(input.contentType);
+		if (filename === null) {
+			return this.reject(
+				OutboxAttachmentRejectionReason.UnusableFilename,
+				"That file's name is empty once path separators and hidden characters are removed. Rename it and try again.",
+				await this.usedBytesOn(input.accountConfigId, input.outboxMessageId),
+			);
+		}
+		if (input.sizeBytes <= 0) {
+			return this.reject(
+				OutboxAttachmentRejectionReason.EmptyFile,
+				`"${filename}" is empty, so there is nothing to attach.`,
+				await this.usedBytesOn(input.accountConfigId, input.outboxMessageId),
+			);
+		}
+		if (input.sizeBytes > OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES) {
+			return this.reject(
+				OutboxAttachmentRejectionReason.FileTooLarge,
+				`"${filename}" is ${formatBytes(input.sizeBytes)}, over the ${formatBytes(OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES)} a message can carry.`,
+				await this.usedBytesOn(input.accountConfigId, input.outboxMessageId),
+			);
+		}
 
-		const decision = await this.updateLedger<
-			MintOutboxAttachmentOutcome | { reserved: OutboxLedgerEntry }
-		>(input.accountConfigId, accountId, input.outboxMessageId, (live) => {
-			const usedBytes = totalBytes(live);
-			const reject = (
-				reason: OutboxAttachmentRejectionReasonValue,
-				message: string,
-			): { skip: Refused } => ({
-				skip: {
-					outcome: "Rejected",
-					rejection: {
-						reason,
-						message,
-						limitBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
-						usedBytes,
-					},
-				},
-			});
+		const nowSeconds = this.now();
+		const reservationExpiresAt = nowSeconds + UPLOAD_URL_TTL_SECONDS;
+		// The id is the row's own, and the key is built from it after the fact, so
+		// there is exactly one place an attachment's identity comes from.
+		const outboxAttachmentId = base36uuid();
+		const storageKey = buildOutboxAttachmentKey(
+			input.accountConfigId,
+			outbox.accountId,
+			input.outboxMessageId,
+			outboxAttachmentId,
+		);
 
-			if (filename === null) {
-				return reject(
-					OutboxAttachmentRejectionReason.UnusableFilename,
-					"That file's name is empty once path separators and hidden characters are removed. Rename it and try again.",
-				);
-			}
-			if (input.sizeBytes <= 0) {
-				return reject(
-					OutboxAttachmentRejectionReason.EmptyFile,
-					`"${filename}" is empty, so there is nothing to attach.`,
-				);
-			}
-			if (live.length >= OUTBOX_ATTACHMENT_MAX_COUNT) {
-				return reject(
-					OutboxAttachmentRejectionReason.TooManyAttachments,
-					`This message already carries ${OUTBOX_ATTACHMENT_MAX_COUNT} files, the most one message can hold. Remove one to attach "${filename}".`,
-				);
-			}
-			if (input.sizeBytes > OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES) {
-				return reject(
-					OutboxAttachmentRejectionReason.FileTooLarge,
-					`"${filename}" is ${formatBytes(input.sizeBytes)}, over the ${formatBytes(OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES)} a message can carry.`,
-				);
-			}
-			if (usedBytes + input.sizeBytes > OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES) {
-				return reject(
-					OutboxAttachmentRejectionReason.MessageTooLarge,
-					`"${filename}" is ${formatBytes(input.sizeBytes)} and this message already carries ${formatBytes(usedBytes)}, over the ${formatBytes(OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES)} it can send.`,
-				);
-			}
-
-			const reserved: OutboxLedgerEntry = {
+		const reserved = await this.attachments.reserve(
+			{
 				outboxAttachmentId,
+				outboxMessageId: input.outboxMessageId,
+				accountId: outbox.accountId,
+				accountConfigId: input.accountConfigId,
 				filename,
-				contentType,
+				contentType: normalizeAttachmentContentType(input.contentType),
 				sizeBytes: input.sizeBytes,
-				expiresAt: this.now() + UPLOAD_URL_TTL_SECONDS,
-				uploaded: false,
-			};
-			// Only the live entries are carried forward, so a lapsed reservation
-			// stops holding room the moment anyone writes the ledger again.
-			return {
-				next: { entries: [...live, reserved] },
-				result: { reserved },
-			};
-		});
+				storageKey,
+				reservationExpiresAt,
+			},
+			{
+				maxTotalBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
+				maxCount: OUTBOX_ATTACHMENT_MAX_COUNT,
+				nowSeconds,
+			},
+		);
 
-		if ("outcome" in decision) return decision;
+		if (reserved.outcome === "OverCountCap") {
+			return this.reject(
+				OutboxAttachmentRejectionReason.TooManyAttachments,
+				`This message already carries ${OUTBOX_ATTACHMENT_MAX_COUNT} files, the most one message can hold. Remove one to attach "${filename}".`,
+				reserved.usedBytes,
+			);
+		}
+		if (reserved.outcome === "OverByteCap") {
+			return this.reject(
+				OutboxAttachmentRejectionReason.MessageTooLarge,
+				`"${filename}" is ${formatBytes(input.sizeBytes)} and this message already carries ${formatBytes(reserved.usedBytes)}, over the ${formatBytes(OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES)} it can send.`,
+				reserved.usedBytes,
+			);
+		}
 
-		const { reserved } = decision;
 		const target = await this.storage.createOutboxAttachmentUploadUrl({
 			accountConfigId: input.accountConfigId,
-			accountId,
+			accountId: outbox.accountId,
 			outboxMessageId: input.outboxMessageId,
-			outboxAttachmentId,
-			sizeBytes: reserved.sizeBytes,
-			expiresAt: reserved.expiresAt,
+			outboxAttachmentId: reserved.item.outboxAttachmentId,
+			sizeBytes: input.sizeBytes,
+			expiresAt: reservationExpiresAt,
 		});
 
 		return {
 			outcome: "Minted",
 			reservation: {
-				outboxAttachmentId,
+				outboxAttachmentId: reserved.item.outboxAttachmentId,
 				outboxMessageId: input.outboxMessageId,
-				filename: reserved.filename,
-				contentType: reserved.contentType,
-				sizeBytes: reserved.sizeBytes,
+				filename: reserved.item.filename,
+				contentType: reserved.item.contentType,
+				sizeBytes: reserved.item.sizeBytes,
 				uploadUrl: target.uploadUrl,
-				uploadExpiresAt: reserved.expiresAt,
+				uploadExpiresAt: reservationExpiresAt,
 			},
 		};
 	};
@@ -350,165 +281,168 @@ export class OutboxAttachmentService {
 	 * client's.
 	 *
 	 * On a hosted deployment the bytes went straight to block storage and this is
-	 * the first the API hears of them, so the size is read back before anything
-	 * is confirmed. An object that is absent, or not the size reserved for it,
+	 * the first the API hears of them, so the size is read back before the row is
+	 * moved to Stored. An object that is absent, or not the size reserved for it,
 	 * does not become an attachment — phase 4 sends these bytes, and an
 	 * attachment recorded over nothing is a message that cannot be built.
 	 */
 	complete = async (
-		input: CompleteOutboxAttachmentInput,
-	): Promise<CompleteOutboxAttachmentOutcome> =>
-		this.serializePerDraft(input.accountConfigId, input.outboxMessageId, () =>
-			this.completeUnderDraftLock(input),
-		);
-
-	private completeUnderDraftLock = async (
 		input: CompleteOutboxAttachmentInput,
 	): Promise<CompleteOutboxAttachmentOutcome> => {
 		const outbox = await this.getWritableDraft(
 			input.accountConfigId,
 			input.outboxMessageId,
 		);
-		const accountId = outbox.accountId;
+
+		const held = await this.attachments.listByOutboxMessage(
+			input.accountConfigId,
+			input.outboxMessageId,
+		);
+		const nowSeconds = this.now();
+		const usedBytes = held
+			.filter((item) => holdsRoom(item, nowSeconds))
+			.reduce((total, item) => total + item.sizeBytes, 0);
+
+		const row = held.find(
+			(item) => item.outboxAttachmentId === input.outboxAttachmentId,
+		);
+		if (!row || !holdsRoom(row, nowSeconds)) {
+			return this.reject(
+				OutboxAttachmentRejectionReason.ReservationExpired,
+				"That upload took too long and its reservation has lapsed. Attach the file again.",
+				usedBytes,
+			);
+		}
+
+		// Completing twice is a retry, not a fault: the second call is told what
+		// the first was.
+		if (row.state === "Stored") {
+			return { outcome: "Completed", attachment: row };
+		}
 
 		const stored = await this.storage.statOutboxAttachment(
 			input.accountConfigId,
-			accountId,
+			outbox.accountId,
 			input.outboxMessageId,
 			input.outboxAttachmentId,
 		);
-
-		const mismatched = await this.updateLedger<
-			CompleteOutboxAttachmentOutcome | { confirmed: number }
-		>(input.accountConfigId, accountId, input.outboxMessageId, (live) => {
-			// Totalled over live entries only, so a refusal never quotes room that
-			// a lapsed reservation is no longer holding.
-			const usedBytes = totalBytes(live);
-			const reject = (
-				reason: OutboxAttachmentRejectionReasonValue,
-				message: string,
-			): { skip: Refused } => ({
-				skip: {
-					outcome: "Rejected",
-					rejection: {
-						reason,
-						message,
-						limitBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
-						usedBytes,
-					},
-				},
-			});
-
-			const entry = live.find(
-				(candidate) =>
-					candidate.outboxAttachmentId === input.outboxAttachmentId,
+		if (stored === null) {
+			return this.reject(
+				OutboxAttachmentRejectionReason.UploadMissing,
+				"The file never finished uploading. Attach it again.",
+				usedBytes,
 			);
-			if (!entry) {
-				return reject(
-					OutboxAttachmentRejectionReason.ReservationExpired,
-					"That upload took too long and its reservation has lapsed. Attach the file again.",
-				);
-			}
-
-			// Completing twice is a retry, not a fault: the second call is told the
-			// same thing the first was.
-			if (entry.uploaded) {
-				return {
-					skip: {
-						outcome: "Completed",
-						attachment: {
-							outboxAttachmentId: entry.outboxAttachmentId,
-							outboxMessageId: input.outboxMessageId,
-							sizeBytes: entry.sizeBytes,
-						},
-					} as CompleteOutboxAttachmentOutcome,
-				};
-			}
-
-			if (stored === null) {
-				return reject(
-					OutboxAttachmentRejectionReason.UploadMissing,
-					"The file never finished uploading. Attach it again.",
-				);
-			}
-			if (stored.sizeBytes !== entry.sizeBytes) {
-				// Drop the reservation as well as the bytes: what landed is not what
-				// was announced, and the room it was holding goes back.
-				return {
-					next: {
-						entries: live.filter(
-							(candidate) =>
-								candidate.outboxAttachmentId !== input.outboxAttachmentId,
-						),
-					},
-					result: { confirmed: -1 },
-				};
-			}
-
-			return {
-				next: {
-					entries: live.map((candidate) =>
-						candidate.outboxAttachmentId === input.outboxAttachmentId
-							? { ...candidate, uploaded: true }
-							: candidate,
-					),
-				},
-				result: { confirmed: stored.sizeBytes },
-			};
-		});
-
-		if ("outcome" in mismatched) return mismatched;
-
-		if (mismatched.confirmed === -1) {
+		}
+		if (stored.sizeBytes !== row.sizeBytes) {
+			// What landed is not what was announced. Take the row and the bytes,
+			// so the room goes back and nothing points at a file that is not there.
+			await this.attachments.deleteMany(input.accountConfigId, [
+				input.outboxAttachmentId,
+			]);
 			await this.storage.deleteOutboxAttachment(
 				input.accountConfigId,
-				accountId,
+				outbox.accountId,
 				input.outboxMessageId,
 				input.outboxAttachmentId,
 			);
-			return {
-				outcome: "Rejected",
-				rejection: {
-					reason: OutboxAttachmentRejectionReason.SizeMismatch,
-					message:
-						"What arrived is not the file that was announced. Attach it again.",
-					limitBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
-					usedBytes: 0,
-				},
-			};
+			return this.reject(
+				OutboxAttachmentRejectionReason.SizeMismatch,
+				"What arrived is not the file that was announced. Attach it again.",
+				Math.max(0, usedBytes - row.sizeBytes),
+			);
 		}
 
-		return {
-			outcome: "Completed",
-			attachment: {
-				outboxAttachmentId: input.outboxAttachmentId,
-				outboxMessageId: input.outboxMessageId,
-				sizeBytes: mismatched.confirmed,
-			},
-		};
+		const confirmed = await this.attachments.markStored(
+			input.accountConfigId,
+			input.outboxAttachmentId,
+			stored.sizeBytes,
+		);
+		if (confirmed === null) {
+			// Another completion moved it between the read and the update. Read it
+			// back rather than guess.
+			const settled = await this.attachments.get(
+				input.accountConfigId,
+				input.outboxAttachmentId,
+			);
+			return { outcome: "Completed", attachment: settled };
+		}
+
+		return { outcome: "Completed", attachment: confirmed };
 	};
 
 	/**
-	 * Drop every file and the ledger that referenced them. Called from wherever
-	 * the outbox row is retired — a discard, and the APPEND to Sent that removes
-	 * the row once the message has left. Nothing else references these objects,
-	 * so a row that goes without this leaves bytes no one can reach.
-	 *
-	 * A presigned upload URL minted before this can still be spent afterwards, on
-	 * a deployment where the bytes go straight to block storage and nothing
-	 * consults the ledger on the way in. What lands is an object with no ledger
-	 * entry, which `sweepAbandonedOutboxAttachments` collects.
+	 * Whether an attachment is still owed its bytes. The self-hosted upload route
+	 * asks before it writes, so a URL minted before a discard cannot put bytes
+	 * back under a draft that is gone.
 	 */
-	discardAll = (
+	hasLiveReservation = async (
+		accountConfigId: string,
+		outboxAttachmentId: string,
+	): Promise<boolean> => {
+		const row = await this.attachments
+			.get(accountConfigId, outboxAttachmentId)
+			.catch(() => null);
+		return row !== null && holdsRoom(row, this.now());
+	};
+
+	/** What a draft holds, for the outbox response. */
+	listFor = (
+		accountConfigId: string,
+		outboxMessageId: string,
+	): Promise<OutboxAttachmentItem[]> =>
+		this.attachments.listByOutboxMessage(accountConfigId, outboxMessageId);
+
+	/**
+	 * Keep only the named attachments, deleting the rest with their bytes. This
+	 * is how a composer removes a file: the update states what the draft keeps.
+	 */
+	retainOnly = async (
 		accountConfigId: string,
 		accountId: string,
 		outboxMessageId: string,
-	): Promise<void> =>
-		this.serializePerDraft(accountConfigId, outboxMessageId, () =>
-			this.storage.deleteOutboxAttachments(
+		keepIds: readonly string[],
+	): Promise<void> => {
+		const held = await this.attachments.listByOutboxMessage(
+			accountConfigId,
+			outboxMessageId,
+		);
+		const keep = new Set(keepIds);
+		const drop = held.filter((item) => !keep.has(item.outboxAttachmentId));
+		if (drop.length === 0) return;
+
+		await this.attachments.deleteMany(
+			accountConfigId,
+			drop.map((item) => item.outboxAttachmentId),
+		);
+		for (const item of drop) {
+			await this.storage.deleteOutboxAttachment(
 				accountConfigId,
 				accountId,
 				outboxMessageId,
-			),
+				item.outboxAttachmentId,
+			);
+		}
+	};
+
+	/**
+	 * Drop every file a draft holds, rows and bytes, as the draft is retired —
+	 * a discard, or the APPEND to Sent that removes the row once the message has
+	 * left. Rows go last: while they exist the objects are accounted for, and a
+	 * failure part-way leaves the sweep able to finish the job.
+	 */
+	discardAll = async (
+		accountConfigId: string,
+		accountId: string,
+		outboxMessageId: string,
+	): Promise<void> => {
+		await this.storage.deleteOutboxAttachments(
+			accountConfigId,
+			accountId,
+			outboxMessageId,
 		);
+		await this.attachments.deleteByOutboxMessage(
+			accountConfigId,
+			outboxMessageId,
+		);
+	};
 }

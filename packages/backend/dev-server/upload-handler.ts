@@ -1,7 +1,6 @@
 import type { Readable } from "node:stream";
 import {
 	authorizeUploadRequest,
-	liveEntries,
 	parseOutboxAttachmentKey,
 	type StorageService,
 } from "@remit/storage-service";
@@ -56,6 +55,16 @@ export interface ReceiveUploadInput {
 	body: Readable;
 	nowSeconds: number;
 	secret: string | undefined;
+	/**
+	 * Whether the database still holds a live reservation for this attachment.
+	 * Injected rather than reached for, so the receiver stays a function of its
+	 * request and the storage it writes to.
+	 */
+	findLiveReservation: (
+		accountConfigId: string,
+		outboxAttachmentId: string,
+		nowSeconds: number,
+	) => Promise<boolean>;
 }
 
 export interface UploadResult {
@@ -83,17 +92,15 @@ export const receiveUpload = async (
 	}
 
 	// A signed URL outlives the draft it was minted for, so possession of one is
-	// not enough: the ledger has to still be holding room for this attachment.
-	// Without this a URL minted before a discard writes bytes back into a prefix
-	// whose row is gone. The hosted shape cannot make this check — block storage
-	// receives the PUT directly — which is what the sweep exists for.
-	const { ledger } = await storage.readOutboxLedger(
+	// not enough: the database has to still hold a live reservation for this
+	// attachment. Without this a URL minted before a discard writes bytes back
+	// under a draft that no longer exists. The hosted shape cannot make this
+	// check — block storage receives the PUT directly — which is what the sweep
+	// exists for.
+	const reserved = await input.findLiveReservation(
 		target.accountConfigId,
-		target.accountId,
-		target.outboxMessageId,
-	);
-	const reserved = liveEntries(ledger, input.nowSeconds).find(
-		(entry) => entry.outboxAttachmentId === target.outboxAttachmentId,
+		target.outboxAttachmentId,
+		input.nowSeconds,
 	);
 	if (!reserved) return { status: 409, reason: "no-live-reservation" };
 

@@ -1,91 +1,80 @@
 /**
- * Issue #679: the upload route through the real express stack.
+ * Issue #679: the upload route through the real dev-server app.
  *
- * The handler-level tests call `receiveUpload` directly, which is exactly the
- * gap that let a JSON-typed attachment upload zero bytes: `express.json` drains
- * the stream before any route sees it, and calling the receiver by hand never
- * meets that middleware. These go through the app.
+ * Not a copy of its middleware order — the app object itself, imported from
+ * `server.ts`. A copy is what let a JSON-typed upload silently read zero bytes:
+ * `express.json` drains the stream before any route below it sees the body, and
+ * a test that rebuilds the stack stays green when the real one is reordered.
  */
 
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
-import { createServer, type Server } from "node:http";
-import { tmpdir } from "node:os";
+import type { Server } from "node:http";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
+import type {
+	IOutboxAttachmentRepository,
+	OutboxAttachmentItem,
+} from "@remit/data-ports";
+import { NotFoundError } from "@remit/data-ports/errors";
+import { OutboxAttachmentService } from "@remit/mailbox-service";
 import {
 	type StorageService,
 	UPLOAD_ROUTE_PREFIX,
 } from "@remit/storage-service";
 import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
-import express, { type Request, type Response } from "express";
-import { receiveUpload } from "./upload-handler.js";
+import {
+	_resetForTest,
+	type RemitClient,
+	setClient,
+} from "../src/service/data-client.js";
 
 const SECRET = "a-signing-secret-of-at-least-32-characters";
-const ORIGIN = "http://127.0.0.1";
+const CFG = "cfg-upload";
+const ACC = "acc-upload";
+const DRAFT = "draft-upload";
 
 let storage: StorageService;
 let basePath: string;
+let rows: Map<string, OutboxAttachmentItem>;
 let server: Server;
 let port: number;
 
-/**
- * The dev-server's own middleware order, reproduced: the PUT is registered
- * ahead of the body parsers, which is the whole point. Registering it after
- * them is what silently emptied a JSON-typed upload.
- */
-const buildApp = () => {
-	const app = express();
-	app.put(
-		new RegExp(`^${UPLOAD_ROUTE_PREFIX}.+$`),
-		async (req: Request, res: Response) => {
-			const result = await receiveUpload(storage, {
-				storageKey: req.path.slice(UPLOAD_ROUTE_PREFIX.length),
-				exp: typeof req.query.exp === "string" ? req.query.exp : undefined,
-				max: typeof req.query.max === "string" ? req.query.max : undefined,
-				sig: typeof req.query.sig === "string" ? req.query.sig : undefined,
-				body: req,
-				nowSeconds: Math.floor(Date.now() / 1000),
-				secret: SECRET,
-			});
-			res.setHeader("x-remit-upload-reason", result.reason);
-			res.status(result.status);
-			res.send(result.status === 204 ? undefined : result.reason);
+const repository = (): IOutboxAttachmentRepository =>
+	({
+		get: async (accountConfigId: string, outboxAttachmentId: string) => {
+			const row = rows.get(outboxAttachmentId);
+			if (!row || row.accountConfigId !== accountConfigId) {
+				throw new NotFoundError("gone");
+			}
+			return row;
 		},
-	);
-	app.use(express.json({ limit: "10mb" }));
-	app.use(express.urlencoded({ extended: true }));
-	return app;
-};
+		listByOutboxMessage: async () => [...rows.values()],
+	}) as unknown as IOutboxAttachmentRepository;
 
 const reserve = async (
 	outboxAttachmentId: string,
 	sizeBytes: number,
 ): Promise<string> => {
 	const expiresAt = Math.floor(Date.now() / 1000) + 900;
-	const { version } = await storage.readOutboxLedger("cfg1", "acc1", "draft1");
-	await storage.writeOutboxLedger(
-		"cfg1",
-		"acc1",
-		"draft1",
-		{
-			entries: [
-				{
-					outboxAttachmentId,
-					filename: `${outboxAttachmentId}.bin`,
-					contentType: "application/octet-stream",
-					sizeBytes,
-					expiresAt,
-					uploaded: false,
-				},
-			],
-		},
-		version,
-	);
+	rows.set(outboxAttachmentId, {
+		outboxAttachmentId,
+		outboxMessageId: DRAFT,
+		accountId: ACC,
+		accountConfigId: CFG,
+		filename: `${outboxAttachmentId}.bin`,
+		contentType: "application/octet-stream",
+		sizeBytes,
+		state: "Pending",
+		storageKey: "",
+		reservationExpiresAt: expiresAt,
+		createdAt: 0,
+		updatedAt: 0,
+	});
 	const { uploadUrl } = await storage.createOutboxAttachmentUploadUrl({
-		accountConfigId: "cfg1",
-		accountId: "acc1",
-		outboxMessageId: "draft1",
+		accountConfigId: CFG,
+		accountId: ACC,
+		outboxMessageId: DRAFT,
 		outboxAttachmentId,
 		sizeBytes,
 		expiresAt,
@@ -95,13 +84,33 @@ const reserve = async (
 };
 
 before(async () => {
-	basePath = await mkdtemp(join(tmpdir(), "remit-upload-route-"));
+	// Repo-local scratch, not the machine's shared temp directory.
+	basePath = await mkdtemp(join(process.cwd(), ".tmp-upload-route-"));
 	storage = createFilesystemStorageService(basePath, {
-		origin: ORIGIN,
+		origin: "http://127.0.0.1",
 		signingSecret: SECRET,
 	});
-	server = createServer(buildApp());
-	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+	rows = new Map();
+
+	setClient({
+		storage,
+		outboxAttachment: new OutboxAttachmentService({
+			outboxMessageService: {} as never,
+			outboxAttachmentService: repository(),
+			storage,
+		}),
+	} as unknown as RemitClient);
+
+	process.env.BETTER_AUTH_SECRET = SECRET;
+	// Port 0: the app binds whatever is free and tells us which.
+	process.env.SERVER_PORT = "0";
+	process.env.CORS_ALLOWED_ORIGINS = "*";
+
+	const imported = await import("./server.js");
+	server = imported.listener;
+	if (!server.listening) {
+		await new Promise<void>((resolve) => server.once("listening", resolve));
+	}
 	const address = server.address();
 	port = typeof address === "object" && address ? address.port : 0;
 });
@@ -109,9 +118,10 @@ before(async () => {
 after(async () => {
 	await new Promise<void>((resolve) => server.close(() => resolve()));
 	await rm(basePath, { recursive: true, force: true });
+	_resetForTest();
 });
 
-describe("PUT /outbox-upload through the express stack", () => {
+describe("PUT /outbox-upload through the dev-server's own app", () => {
 	it("stores every byte of a file the browser labelled application/json", async () => {
 		const content = Buffer.from(JSON.stringify({ note: "x".repeat(100) }));
 		const url = await reserve("attjson", content.length);
@@ -125,14 +135,14 @@ describe("PUT /outbox-upload through the express stack", () => {
 
 		assert.equal(response.status, 204);
 		assert.equal(
-			(await storage.statOutboxAttachment("cfg1", "acc1", "draft1", "attjson"))
+			(await storage.statOutboxAttachment(CFG, ACC, DRAFT, "attjson"))
 				?.sizeBytes,
 			content.length,
 		);
 	});
 
 	it("stores every byte of a form-urlencoded-looking upload too", async () => {
-		const content = Buffer.from("a=1&b=2&c=".concat("z".repeat(200)));
+		const content = Buffer.from(`a=1&b=2&c=${"z".repeat(200)}`);
 		const url = await reserve("attform", content.length);
 
 		const response = await fetch(url, {
@@ -143,7 +153,7 @@ describe("PUT /outbox-upload through the express stack", () => {
 
 		assert.equal(response.status, 204);
 		assert.equal(
-			(await storage.statOutboxAttachment("cfg1", "acc1", "draft1", "attform"))
+			(await storage.statOutboxAttachment(CFG, ACC, DRAFT, "attform"))
 				?.sizeBytes,
 			content.length,
 		);
@@ -161,15 +171,15 @@ describe("PUT /outbox-upload through the express stack", () => {
 
 		assert.equal(response.status, 204);
 		assert.equal(
-			(await storage.statOutboxAttachment("cfg1", "acc1", "draft1", "attpng"))
+			(await storage.statOutboxAttachment(CFG, ACC, DRAFT, "attpng"))
 				?.sizeBytes,
 			content.length,
 		);
 	});
 
-	it("refuses a PUT whose draft no longer has a live reservation", async () => {
+	it("refuses a PUT once the draft no longer has a live reservation", async () => {
 		const url = await reserve("attgone", 8);
-		await storage.deleteOutboxAttachments("cfg1", "acc1", "draft1");
+		rows.delete("attgone");
 
 		const response = await fetch(url, {
 			method: "PUT",
@@ -179,7 +189,7 @@ describe("PUT /outbox-upload through the express stack", () => {
 
 		assert.equal(response.status, 409);
 		assert.equal(
-			await storage.statOutboxAttachment("cfg1", "acc1", "draft1", "attgone"),
+			await storage.statOutboxAttachment(CFG, ACC, DRAFT, "attgone"),
 			null,
 		);
 	});

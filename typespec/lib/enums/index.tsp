@@ -29,6 +29,7 @@ import "./MessageStatus.tsp";
 import "./MessageSyncStatus.tsp";
 import "./OutboxMessageStatus.tsp";
 import "./OutboxAttachmentRejectionReason.tsp";
+import "./OutboxAttachmentState.tsp";
 import "./MessageCategory.tsp";
 import "./SenderTrust.tsp";
 

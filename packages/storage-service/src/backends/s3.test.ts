@@ -540,7 +540,6 @@ describe("createS3StorageService: outbox attachments", () => {
 			"cfg1",
 			"acc1",
 			"draft1",
-			10,
 		);
 		assert.strictEqual(entry.outboxAttachmentId, "att1");
 		// Uncompressed, so the size in the bucket is the size the cap counts.
@@ -563,60 +562,7 @@ describe("createS3StorageService: outbox attachments", () => {
 		);
 	});
 
-	test("a ledger write is conditional on the version that was read", async () => {
-		const { client } = createFakeS3Client();
-		const storage = createS3StorageService(client, "bucket");
-		const entry = {
-			outboxAttachmentId: "att1",
-			filename: "a.bin",
-			contentType: "application/octet-stream",
-			sizeBytes: 8,
-			expiresAt: 2_000_000_000,
-			uploaded: false,
-		};
-
-		const empty = await storage.readOutboxLedger("cfg1", "acc1", "draft1");
-		assert.strictEqual(empty.version, null);
-
-		assert.strictEqual(
-			await storage.writeOutboxLedger(
-				"cfg1",
-				"acc1",
-				"draft1",
-				{ entries: [entry] },
-				null,
-			),
-			"Written",
-		);
-
-		// A second writer that read the same absent ledger is refused, which is
-		// what keeps two execution environments from both believing there is room.
-		assert.strictEqual(
-			await storage.writeOutboxLedger(
-				"cfg1",
-				"acc1",
-				"draft1",
-				{ entries: [] },
-				null,
-			),
-			"Stale",
-		);
-
-		const read = await storage.readOutboxLedger("cfg1", "acc1", "draft1");
-		assert.deepStrictEqual(read.ledger.entries, [entry]);
-		assert.strictEqual(
-			await storage.writeOutboxLedger(
-				"cfg1",
-				"acc1",
-				"draft1",
-				{ entries: [] },
-				read.version,
-			),
-			"Written",
-		);
-	});
-
-	test("deleting a draft's attachments empties the prefix and the ledger with it", async () => {
+	test("deleting a draft's attachments empties the prefix", async () => {
 		const { client } = createFakeS3Client();
 		const storage = createS3StorageService(client, "bucket");
 		await storage.storeOutboxAttachment({
@@ -626,23 +572,11 @@ describe("createS3StorageService: outbox attachments", () => {
 			outboxAttachmentId: "att2",
 			content: Buffer.alloc(8),
 		});
-		await storage.writeOutboxLedger(
-			"cfg1",
-			"acc1",
-			"draft1",
-			{ entries: [] },
-			null,
-		);
-
 		await storage.deleteOutboxAttachments("cfg1", "acc1", "draft1");
 
 		assert.deepStrictEqual(
-			await storage.listOutboxAttachments("cfg1", "acc1", "draft1", 10),
+			await storage.listOutboxAttachments("cfg1", "acc1", "draft1"),
 			[],
-		);
-		assert.strictEqual(
-			(await storage.readOutboxLedger("cfg1", "acc1", "draft1")).version,
-			null,
 		);
 	});
 

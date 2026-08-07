@@ -17,9 +17,12 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import type { SQSClient } from "@aws-sdk/client-sqs";
 import type {
+	CreateOutboxAttachmentInput,
 	CreateOutboxMessageInput,
 	IAccountRepository,
+	IOutboxAttachmentRepository,
 	IOutboxMessageRepository,
+	OutboxAttachmentItem,
 	OutboxMessageItem,
 	UpdateOutboxMessageInput,
 } from "@remit/data-ports";
@@ -147,12 +150,52 @@ const accountRepository = {
 } as unknown as IAccountRepository;
 
 let installedStorage: StorageService | null = null;
+let attachmentRows = new Map<string, OutboxAttachmentItem>();
+
+/** Rows only — this suite asserts what a discard takes, not how bytes move. */
+const createAttachmentRepository = (
+	rows: Map<string, OutboxAttachmentItem>,
+): IOutboxAttachmentRepository =>
+	({
+		reserve: async (input: CreateOutboxAttachmentInput) => {
+			const item = {
+				...input,
+				state: "Pending",
+				createdAt: 0,
+				updatedAt: 0,
+			} as OutboxAttachmentItem;
+			rows.set(item.outboxAttachmentId, item);
+			return { outcome: "Reserved", item };
+		},
+		listByOutboxMessage: async (
+			_accountConfigId: string,
+			outboxMessageId: string,
+		) =>
+			[...rows.values()].filter(
+				(row) => row.outboxMessageId === outboxMessageId,
+			),
+		deleteByOutboxMessage: async (
+			_accountConfigId: string,
+			outboxMessageId: string,
+		) => {
+			for (const row of [...rows.values()]) {
+				if (row.outboxMessageId === outboxMessageId) {
+					rows.delete(row.outboxAttachmentId);
+				}
+			}
+		},
+		deleteMany: async (_accountConfigId: string, ids: string[]) => {
+			for (const id of ids) rows.delete(id);
+		},
+	}) as unknown as IOutboxAttachmentRepository;
 
 const installClient = (): void => {
 	const outboxMessage = createInMemoryOutboxRepository();
 	const storage = createMockStorageService();
+	attachmentRows = new Map<string, OutboxAttachmentItem>();
 	const outboxAttachmentService = new OutboxAttachmentService({
 		outboxMessageService: outboxMessage,
+		outboxAttachmentService: createAttachmentRepository(attachmentRows),
 		storage,
 	});
 	installedStorage = storage;
@@ -338,16 +381,9 @@ describe("discarding a draft that carries files (#679)", () => {
 		assert.equal(minted.outcome, "Minted");
 		// A mint reserves in the ledger; nothing is uploaded yet, so what a discard
 		// has to take with it is the reservation, not an object.
-		assert.equal(
-			(
-				await storage.readOutboxLedger(
-					ACCOUNT_CONFIG_ID,
-					ACCOUNT_ID,
-					outboxMessageId,
-				)
-			).ledger.entries.length,
-			1,
-		);
+		// A mint writes a row; nothing is uploaded yet, so what a discard has to
+		// take with it is the row, not an object.
+		assert.equal(attachmentRows.size, 1);
 
 		const response = await respond(() =>
 			deleteDraft(
@@ -364,19 +400,9 @@ describe("discarding a draft that carries files (#679)", () => {
 				ACCOUNT_CONFIG_ID,
 				ACCOUNT_ID,
 				outboxMessageId,
-				10,
 			),
 			[],
 		);
-		assert.deepEqual(
-			(
-				await storage.readOutboxLedger(
-					ACCOUNT_CONFIG_ID,
-					ACCOUNT_ID,
-					outboxMessageId,
-				)
-			).ledger.entries,
-			[],
-		);
+		assert.equal(attachmentRows.size, 0);
 	});
 });

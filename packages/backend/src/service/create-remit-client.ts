@@ -18,6 +18,7 @@ import type {
 	IMessagePlacementMoveRepository,
 	IMessageRepository,
 	IOrganizeJobRequestRepository,
+	IOutboxAttachmentRepository,
 	IOutboxMessageRepository,
 	IQuarantineRepository,
 	IThreadMessageRepository,
@@ -168,6 +169,7 @@ export interface RemitClientRepositories {
 	message: IMessageRepository;
 	messageFlag: IMessageFlagRepository;
 	outboxMessage: IOutboxMessageRepository;
+	outboxAttachment: IOutboxAttachmentRepository;
 	threadMessage: IThreadMessageRepository;
 	envelope: IEnvelopeRepository;
 	accountExportRequest: IAccountExportRequestRepository;
@@ -363,6 +365,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 	// racing an upload has to take the same lock the upload does.
 	const outboxAttachmentService = new OutboxAttachmentService({
 		outboxMessageService: repositories.outboxMessage,
+		outboxAttachmentService: repositories.outboxAttachment,
 		storage,
 	});
 
