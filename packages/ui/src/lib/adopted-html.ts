@@ -103,6 +103,11 @@ const sanitize = (html: string, profile: Profile): string =>
 	purifier(profile).sanitize(html, {
 		ALLOWED_TAGS: ADOPTED_TAGS,
 		ALLOWED_ATTR: ADOPTED_ATTR,
+		// Both default to true and are honoured outside ALLOWED_ATTR, so a
+		// `data-` or `aria-` attribute would otherwise ride along — which is where
+		// a web page keeps its own framework's state.
+		ALLOW_DATA_ATTR: false,
+		ALLOW_ARIA_ATTR: false,
 	});
 
 /**

@@ -5,7 +5,7 @@
  * prototypes.
  */
 import assert from "node:assert/strict";
-import { after, before, describe, it } from "node:test";
+import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import type { JSDOM } from "jsdom";
 import type {
 	act as reactAct,
@@ -52,8 +52,21 @@ before(async () => {
 	globalThis.Element = dom.window.Element;
 	globalThis.Node = dom.window.Node;
 	globalThis.Event = dom.window.Event;
+	globalThis.MouseEvent = dom.window.MouseEvent;
 	globalThis.DOMParser = dom.window.DOMParser;
 	globalThis.MutationObserver = dom.window.MutationObserver;
+	globalThis.Range = dom.window.Range;
+	// jsdom rejects a listener whose `signal` is not one of its own, and the
+	// table plugin abort-signals its cell listeners.
+	globalThis.AbortController = dom.window.AbortController;
+	globalThis.AbortSignal = dom.window.AbortSignal;
+	globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
+	globalThis.requestAnimationFrame = dom.window.requestAnimationFrame.bind(
+		dom.window,
+	);
+	globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(
+		dom.window,
+	);
 	Object.defineProperty(globalThis, "navigator", {
 		value: dom.window.navigator,
 		configurable: true,
@@ -65,10 +78,21 @@ before(async () => {
 	({ act, createElement } = await import("react"));
 	({ createRoot } = await import("react-dom/client"));
 	({ RichTextEditor } = await import("./rich-text-editor.js"));
+});
 
-	const mount = dom.window.document.getElementById("root");
-	if (!mount) throw new Error("unreachable: the mount point is missing");
-	container = mount;
+// A container is used once. React refuses to create a second root over one it
+// has already owned, and the editor holds a contenteditable that outlives the
+// unmount otherwise.
+beforeEach(() => {
+	container = dom.window.document.createElement("div");
+	dom.window.document.body.append(container);
+});
+
+afterEach(async () => {
+	await act(async () => {
+		root.unmount();
+	});
+	container.remove();
 });
 
 after(() => {
@@ -104,10 +128,6 @@ describe("RichTextEditor", () => {
 		assert.ok(latest, "the editor reported its value");
 		assert.match(latest.html, /<table/);
 		assert.match(latest.text, /## Quarterly numbers/);
-
-		await act(async () => {
-			root.unmount();
-		});
 	});
 
 	it("offers the formatting controls the composer ships with", async () => {
@@ -127,10 +147,6 @@ describe("RichTextEditor", () => {
 			"Undo (Ctrl+Z)",
 			"Redo (Ctrl+Y)",
 		]);
-
-		await act(async () => {
-			root.unmount();
-		});
 	});
 
 	it("asks for an address rather than inserting an empty link", async () => {
@@ -154,9 +170,5 @@ describe("RichTextEditor", () => {
 		);
 		assert.ok(field, "clicking Link opens the address field");
 		assert.equal(field.value, "https://");
-
-		await act(async () => {
-			root.unmount();
-		});
 	});
 });

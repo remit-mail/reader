@@ -5,7 +5,6 @@ import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { LinkPlugin } from "@lexical/react/LexicalLinkPlugin";
 import { ListPlugin } from "@lexical/react/LexicalListPlugin";
-import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { TablePlugin } from "@lexical/react/LexicalTablePlugin";
 import { mergeRegister } from "@lexical/utils";
@@ -104,6 +103,36 @@ const PastePlugin = () => {
 	return null;
 };
 
+/**
+ * Reports the document on mount as well as on every edit. What the caller
+ * handed in as `initialHtml` is not what the editor holds — it has been through
+ * the paste profile and Lexical's own import — so a caller that assumed
+ * otherwise would autosave a body the composer is not showing.
+ */
+const ChangePlugin = ({
+	onChange,
+}: {
+	onChange: (value: RichTextValue) => void;
+}) => {
+	const [editor] = useLexicalComposerContext();
+	const report = useRef(onChange);
+
+	useEffect(() => {
+		report.current = onChange;
+	}, [onChange]);
+
+	useEffect(() => {
+		const emit = () => report.current(editor.read(() => $readRichText(editor)));
+		emit();
+		return editor.registerUpdateListener(({ dirtyElements, dirtyLeaves }) => {
+			if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return;
+			emit();
+		});
+	}, [editor]);
+
+	return null;
+};
+
 const AutoFocus = ({ enabled }: { enabled: boolean }) => {
 	const [editor] = useLexicalComposerContext();
 
@@ -176,13 +205,6 @@ export const RichTextEditor = ({
 		<TablePlugin />
 		<PastePlugin />
 		<AutoFocus enabled={autoFocus} />
-		{onChange && (
-			<OnChangePlugin
-				ignoreSelectionChange
-				onChange={(_editorState, editor) => {
-					onChange(editor.read(() => $readRichText(editor)));
-				}}
-			/>
-		)}
+		{onChange && <ChangePlugin onChange={onChange} />}
 	</LexicalComposer>
 );
