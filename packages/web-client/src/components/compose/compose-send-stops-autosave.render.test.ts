@@ -14,6 +14,12 @@
  * then sends it — and creating it as already-queued makes that send a second
  * dispatch, which the server refuses.
  *
+ * Issue #674 is the boundary between the two: pressing Send inside the two
+ * seconds the debounce is still counting down. The cancelled timer was carrying
+ * the last edits, and the entry went out as the server last saw it. So the send
+ * writes what is on screen first, and a write that fails takes the send with it
+ * rather than transmitting the older copy behind the user's back.
+ *
  * The stub holds the outbox rule the API holds: only a draft accepts a send.
  */
 
@@ -81,8 +87,18 @@ afterEach(() => {
 const callsTo = (suffix: string) =>
 	(http?.calls ?? []).filter((call) => call.path.endsWith(suffix));
 
-const patchCount = (): number =>
-	(http?.calls ?? []).filter((call) => call.method === "PATCH").length;
+const patches = () =>
+	(http?.calls ?? []).filter((call) => call.method === "PATCH");
+
+const patchCount = (): number => patches().length;
+
+const patchesAfterTheSend = (): number => {
+	const calls = http?.calls ?? [];
+	const sendIndex = calls.findIndex((call) => call.path.endsWith("/send"));
+	if (sendIndex === -1) throw new Error("the send never went out");
+	return calls.slice(sendIndex + 1).filter((call) => call.method === "PATCH")
+		.length;
+};
 
 const Opened = ({ outboxMessageId }: { outboxMessageId?: string }) => {
 	const { state, openCompose } = useCompose();
@@ -108,6 +124,8 @@ interface MountOptions {
 	outboxMessageId?: string;
 	/** Hold the PATCH response open so a save is still in flight at send time. */
 	gatePatch?: boolean;
+	/** Refuse every PATCH, so the write compose makes before sending fails. */
+	failPatch?: boolean;
 }
 
 const mount = async (
@@ -140,6 +158,7 @@ const mount = async (
 
 		if (call.method === "PATCH") {
 			await patchGate;
+			if (options.failPatch) return httpError(409, "The draft moved on.");
 			return outboxEntry(status);
 		}
 
@@ -172,7 +191,7 @@ const sendButton = (): HTMLElement => {
 	return button;
 };
 
-describe("compose and the outbox entry it is sending (#604)", () => {
+describe("compose and the outbox entry it is sending (#604, #674)", () => {
 	it("writes no further PATCH to an entry once it has been sent", async () => {
 		const { releasePatch } = await mount({
 			outboxMessageId: OUTBOX_MESSAGE_ID,
@@ -193,7 +212,76 @@ describe("compose and the outbox entry it is sending (#604)", () => {
 		await harness?.wait(AUTOSAVE_DEBOUNCE_MS + 200);
 
 		assert.equal(callsTo("/send").length, 1, "the send went out");
-		assert.equal(patchCount(), 1, "no autosave PATCH followed the send");
+		assert.equal(patchesAfterTheSend(), 0, "no write followed the send");
+		// The in-flight autosave and the write before the send are the two, in
+		// that order: a second write issued alongside the first could land behind
+		// it and put the older body back.
+		assert.equal(
+			patchCount(),
+			2,
+			"the two writes went out one after the other",
+		);
+	});
+
+	it("writes the edit made inside the debounce window before it sends", async () => {
+		await mount({ outboxMessageId: OUTBOX_MESSAGE_ID });
+
+		harness?.type(subjectField(), "Re: Lunch tomorrow");
+		await harness?.wait(AUTOSAVE_DEBOUNCE_MS + 100);
+		assert.equal(patchCount(), 1, "the typing burst autosaves once");
+
+		// Inside the two seconds the next autosave would have waited.
+		harness?.type(subjectField(), "Re: Lunch on Thursday");
+		harness?.click(sendButton());
+		await harness?.flush();
+		await harness?.wait(100);
+
+		assert.equal(callsTo("/send").length, 1, "the send went out");
+		const written = patches().at(-1);
+		assert.equal(
+			written?.body?.subject,
+			"Re: Lunch on Thursday",
+			"the entry carries the edit the debounce was still holding",
+		);
+		// Autosave never writes these, so an entry autosaved before Send used to
+		// go out unchained from the message it replies to.
+		assert.equal(written?.body?.inReplyTo, "<m1@example.com>");
+		assert.deepEqual(written?.body?.references, ["<m1@example.com>"]);
+		assert.equal(closed, 1, "compose closed on a successful send");
+	});
+
+	it("sends nothing, and says so, when that write fails", async () => {
+		await mount({ outboxMessageId: OUTBOX_MESSAGE_ID, failPatch: true });
+
+		harness?.type(subjectField(), "Re: Lunch on Thursday");
+		harness?.click(sendButton());
+		await harness?.flush();
+		await harness?.wait(100);
+
+		assert.equal(patchCount(), 1, "the write was attempted");
+		assert.equal(callsTo("/send").length, 0, "the older copy stayed put");
+		assert.equal(closed, 0, "compose stayed open");
+		assert.match(harness?.text() ?? "", /Couldn't send message/);
+	});
+
+	it("dispatches once when Send is pressed twice over the write", async () => {
+		const { releasePatch } = await mount({
+			outboxMessageId: OUTBOX_MESSAGE_ID,
+			gatePatch: true,
+		});
+
+		harness?.type(subjectField(), "Re: Lunch on Thursday");
+		harness?.click(sendButton());
+		harness?.click(sendButton());
+		await harness?.flush();
+
+		releasePatch();
+		await harness?.flush();
+		await harness?.wait(100);
+
+		assert.equal(patchCount(), 1, "the entry was written once");
+		assert.equal(callsTo("/send").length, 1, "the message went out once");
+		assert.equal(closed, 1, "compose closed on a successful send");
 	});
 
 	it("sends a reply pressed before the first autosave, in one dispatch", async () => {
