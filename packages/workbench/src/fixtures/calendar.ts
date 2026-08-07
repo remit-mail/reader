@@ -3,8 +3,15 @@ import type {
 	CalendarDescriptor,
 	CalendarEventData,
 	EventSuggestion,
+	ThreadData,
 } from "@remit/ui";
-import { hobbyId, personalId, workId } from "./workspace.js";
+import {
+	allThreads,
+	hobbyId,
+	personalId,
+	q3Thread,
+	workId,
+} from "./workspace.js";
 
 /**
  * One week of calendar, on the same three accounts and the same fixed "now" as
@@ -547,7 +554,12 @@ export interface CalendarDay {
 	allDay: CalendarEventData[];
 	/** Minutes of the day covered by at least one timed event. */
 	busyMinutes: number;
-	/** Groups of ids that all overlap each other. Empty when the day is clean. */
+	/**
+	 * Every pile-up on the day: one group per event that something else runs
+	 * into, holding that event and everything overlapping it. Members all meet
+	 * the event the group is built around, not necessarily each other — which is
+	 * what a grid has to lay out. Empty when the day is clean.
+	 */
 	conflicts: string[][];
 }
 
@@ -565,7 +577,7 @@ function overlaps(a: CalendarEventData, b: CalendarEventData): boolean {
 	return ms(a.start) < ms(b.end) && ms(b.start) < ms(a.end);
 }
 
-function busyMinutesOf(timed: CalendarEventData[]): number {
+export function busyMinutesOf(timed: CalendarEventData[]): number {
 	const spans = timed
 		.map((e) => [ms(e.start), ms(e.end)] as const)
 		.sort((a, b) => a[0] - b[0]);
@@ -586,7 +598,7 @@ function busyMinutesOf(timed: CalendarEventData[]): number {
 }
 
 /** Every event that runs into another, grouped around the one it collides with. */
-function conflictsOf(timed: CalendarEventData[]): string[][] {
+export function conflictsOf(timed: CalendarEventData[]): string[][] {
 	const groups: string[][] = [];
 	for (const anchor of timed) {
 		const group = timed
@@ -635,9 +647,17 @@ export const week: CalendarDay[] = [8, 9, 10, 11, 12, 13, 14].map((d) =>
 	buildDay(day(d)),
 );
 
-/** The day the overlap rule has to survive. */
+/** How many events sit on top of one another in this day's worst moment. */
+function deepestPile(day: CalendarDay): number {
+	return day.conflicts.reduce(
+		(deepest, group) => Math.max(deepest, group.length),
+		0,
+	);
+}
+
+/** The day the overlap rule has to survive — the tallest stack, not the most. */
 export const densestDay: CalendarDay = week.reduce((worst, candidate) =>
-	candidate.conflicts.length > worst.conflicts.length ? candidate : worst,
+	deepestPile(candidate) > deepestPile(worst) ? candidate : worst,
 );
 
 /** The day that shows what the same design looks like with room to breathe. */
@@ -691,6 +711,33 @@ export function formatSuggestionWhen(suggestion: EventSuggestion): string {
 	return `${formatDayLabel(suggestion.start.slice(0, 10))} · ${formatClock(
 		suggestion.start,
 	)} – ${formatClock(suggestion.end)}`;
+}
+
+/**
+ * The mail an event or a suggestion came out of. Every calendar `threadId` is a
+ * real row in `workspace.ts`, so the way back always resolves; the roadmap
+ * thread has a written-out conversation and the rest open on their one message.
+ */
+export function threadFor(threadId: string): ThreadData | undefined {
+	if (threadId === "") return undefined;
+	if (threadId === "thr_q3") return q3Thread;
+	const row = allThreads.find((candidate) => candidate.id === threadId);
+	if (!row) return undefined;
+	return {
+		subject: row.subject,
+		messages: [
+			{
+				id: `msg_${row.id}`,
+				fromName: row.fromName,
+				fromEmail: row.fromEmail,
+				toLabel: "Alice Tan",
+				dateLabel: row.timeLabel,
+				expanded: true,
+				snippet: row.snippet,
+				bodyHtml: `<p>${row.snippet}</p>`,
+			},
+		],
+	};
 }
 
 /** A suggestion, once a person has said yes to it. */

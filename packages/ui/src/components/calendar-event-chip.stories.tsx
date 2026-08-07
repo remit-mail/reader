@@ -3,8 +3,17 @@ import { CalendarEventChip } from "./calendar-event-chip.js";
 import { calendarColorIds } from "./calendar-types.js";
 
 /**
- * The event as it appears on a grid. Colour says which calendar; shape and mark
- * say everything else, so an event never depends on hue alone to be read.
+ * The event as it appears wherever the event's element is ours: an agenda, a
+ * picker, a day column we draw ourselves. Colour says which calendar; shape and
+ * mark say everything else, so an event never depends on hue alone to be read.
+ *
+ * Option A's grid is FullCalendar, which renders the element itself and accepts
+ * only a class string and the content inside it, so that one surface restates
+ * this shell rather than mounting the component. The two are held to the same
+ * values — hue, the dashed box for a provisional event, the dimming for a
+ * declined one, the mark size. What the grid cannot take from here is the
+ * element: no `aria-pressed`, no focus ring of ours, and a column too short for
+ * the second line this chip puts its marks on.
  */
 const meta: Meta<typeof CalendarEventChip> = {
 	title: "Calendar/Event chip",

@@ -615,6 +615,7 @@ export function NavSidebar({
 			{calendarNav === "shown" && (
 				<NavItem
 					navId="calendar"
+					linkComponent={linkComponent}
 					icon={<CalendarDays className="size-4" />}
 					label="Calendar"
 					ariaLabel="Calendar"

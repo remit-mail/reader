@@ -60,6 +60,9 @@ const DAY_HEADER_FORMAT: Record<
 	agenda: { weekday: "short", day: "numeric" },
 };
 
+/** Views that draw every event as a horizontal pill rather than a block. */
+const ROW_VIEWS = new Set<CalendarViewId>(["year", "month", "agenda"]);
+
 /**
  * Density is a real change in how much of a day fits on screen, not a padding
  * tweak: a tighter setting halves the slot height and drops the time off short
@@ -150,16 +153,33 @@ function toInput(event: CalendarEventData, color: CalendarColorId): EventInput {
 	};
 }
 
-function localDate(date: Date): string {
-	return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
-		date.getDate(),
-	).padStart(2, "0")}`;
+/**
+ * Reads a pick off the ISO strings FullCalendar hands the callback rather than
+ * off its `Date`. The calendar runs in `HOME_ZONE`; a `Date` read through
+ * `getHours()` is that instant in the host's zone, so a UTC runner would draft
+ * 09:00 for a click on 11:00.
+ */
+function pickFrom(startStr: string, endStr: string, allDay: boolean): SlotPick {
+	if (allDay)
+		return {
+			date: startStr.slice(0, 10),
+			startTime: "",
+			endTime: "",
+			allDay: true,
+		};
+	return {
+		date: startStr.slice(0, 10),
+		startTime: startStr.slice(11, 16),
+		endTime: endStr.slice(11, 16),
+		allDay: false,
+	};
 }
 
-function localClock(date: Date): string {
-	return `${String(date.getHours()).padStart(2, "0")}:${String(
-		date.getMinutes(),
-	).padStart(2, "0")}`;
+/** The same ISO string an hour later. A bare date has no clock to move. */
+function hourAfter(iso: string): string {
+	if (iso.length < 16) return iso;
+	const hour = (Number(iso.slice(11, 13)) + 1) % 24;
+	return `${iso.slice(0, 11)}${String(hour).padStart(2, "0")}${iso.slice(13)}`;
 }
 
 export function CalendarGrid({
@@ -192,6 +212,9 @@ export function CalendarGrid({
 		[events, colorByCalendarId],
 	);
 
+	/* The same shell `CalendarEventChip` draws, minus what FullCalendar owns: it
+	   renders the event's element itself, so this is a class string rather than
+	   the component. Every value here is the chip's — see its story. */
 	const eventShell = useMemo(
 		() => (info: { event: EventApi; isSelected: boolean }) => {
 			const meta = readMeta(info.event);
@@ -200,8 +223,8 @@ export function CalendarGrid({
 				"min-w-0 cursor-pointer overflow-hidden rounded-sm text-2xs outline-none transition-colors",
 				hue.soft,
 				hue.text,
-				meta.tentative && cn("border border-dashed", hue.border),
-				meta.declined && "opacity-55",
+				meta.tentative && cn("border-y border-r border-dashed", hue.border),
+				meta.declined && "opacity-60",
 				info.event.id === selectedEventId && "ring-2 ring-ring",
 			);
 		},
@@ -247,22 +270,12 @@ export function CalendarGrid({
 				events={eventInputs}
 				eventClick={(info) => onSelectEvent(info.event.id)}
 				dateClick={(info) =>
-					onPickSlot({
-						date: localDate(info.date),
-						startTime: info.allDay ? "" : localClock(info.date),
-						endTime: info.allDay
-							? ""
-							: localClock(new Date(info.date.getTime() + 3_600_000)),
-						allDay: info.allDay,
-					})
+					onPickSlot(
+						pickFrom(info.dateStr, hourAfter(info.dateStr), info.allDay),
+					)
 				}
 				select={(info) =>
-					onPickSlot({
-						date: localDate(info.start),
-						startTime: info.allDay ? "" : localClock(info.start),
-						endTime: info.allDay ? "" : localClock(info.end),
-						allDay: info.allDay,
-					})
+					onPickSlot(pickFrom(info.startStr, info.endStr, info.allDay))
 				}
 				datesSet={(info) => onRangeChange(info.view.title)}
 				/* ---- chrome, all of it ours ---- */
@@ -336,10 +349,14 @@ export function CalendarGrid({
 					/* A column an hour wide has room for a time or a title, never
 					   both — the title is the one worth keeping. */
 					const showTime = info.timeText !== "" && !isTight && !info.isNarrow;
+					const isRow = info.event.allDay || ROW_VIEWS.has(view);
+					const marks =
+						meta.isRecurring || meta.hasThread || meta.zoneAmbiguous;
 					return (
 						<span
 							className={cn(
 								"flex min-w-0 items-center gap-1",
+								isRow && "w-full",
 								meta.declined && "line-through",
 							)}
 						>
@@ -349,17 +366,26 @@ export function CalendarGrid({
 								</span>
 							)}
 							<span className="truncate font-medium">{info.event.title}</span>
-							{meta.isRecurring && (
-								<Repeat className="size-2.5 shrink-0" aria-label="Repeats" />
-							)}
-							{meta.hasThread && (
-								<Mail className="size-2.5 shrink-0" aria-label="From mail" />
-							)}
-							{meta.zoneAmbiguous && (
-								<Globe
-									className="size-2.5 shrink-0 text-warning"
-									aria-label="Unclear zone"
-								/>
+							{marks && (
+								<span
+									className={cn(
+										"flex shrink-0 items-center gap-1",
+										isRow && "ml-auto",
+									)}
+								>
+									{meta.isRecurring && (
+										<Repeat className="size-2.5" aria-label="Repeats" />
+									)}
+									{meta.hasThread && (
+										<Mail className="size-2.5" aria-label="From mail" />
+									)}
+									{meta.zoneAmbiguous && (
+										<Globe
+											className="size-2.5 text-warning"
+											aria-label="Unclear zone"
+										/>
+									)}
+								</span>
 							)}
 						</span>
 					);

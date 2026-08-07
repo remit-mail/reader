@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { densestDay, quietestDay } from "../fixtures/calendar.js";
 import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
 import { CalendarDestination } from "../screens/calendar-destination.js";
 
@@ -18,7 +19,14 @@ import { CalendarDestination } from "../screens/calendar-destination.js";
  * field is read live into those fields, with each reading attributed to the
  * words it came from and every assumption named, so the machine is corrected
  * before the event exists. Nothing arrives from mail on its own: what the
- * reader finds waits on a dashed card off the grid until someone presses Add.
+ * reader finds waits on a dashed card off the grid until someone answers it,
+ * with Add or by correcting it first — either way it is answered once and the
+ * card goes.
+ *
+ * The grid keeps the wider half of the split. A week is seven columns and a day
+ * is a ruler; a list pane sized for a message list makes both unreadable, so
+ * the shell is told which pane is the work rather than the calendar hiding the
+ * detail pane to get room.
  *
  * On a phone it is a different design, not the same one squeezed. The grid
  * shrinks to a strip that shows the shape of the day, the events themselves
@@ -48,12 +56,13 @@ export const Week: Story = {
 
 /**
  * Wednesday has five things booked on top of each other between ten and
- * quarter to twelve. Three columns is as far as the grid will subdivide; the
- * remainder collapses into a "+2" that opens the rest. Three unreadable
- * slivers would be a rendering failure dressed up as completeness.
+ * quarter to twelve. Three columns is as far as the grid will subdivide, and
+ * the third is spent on the way in to the rest: two events are drawn and a "+3"
+ * beside them opens the other three. Three unreadable slivers would be a
+ * rendering failure dressed up as completeness.
  */
 export const DenseDay: Story = {
-	render: () => <CalendarDestination view="day" date="2026-06-10" />,
+	render: () => <CalendarDestination view="day" date={densestDay.date} />,
 };
 
 /**
@@ -99,18 +108,26 @@ export const TypeAnEvent: Story = {
 
 /**
  * An event opened. It came out of a thread, so it carries the way back to that
- * thread as part of itself. The guest list shows who replied and who did not.
+ * thread as part of itself: "From this thread" opens the mail in the same pane,
+ * with the way back to the event. The guest list shows who replied and who did
+ * not — and it still does after an edit, because saving the form only writes
+ * the fields the form shows.
  */
 export const EventFromMail: Story = {
 	render: () => (
-		<CalendarDestination date="2026-06-10" selectedEventId="evt_q3_roadmap" />
+		<CalendarDestination
+			date={densestDay.date}
+			selectedEventId="evt_q3_roadmap"
+		/>
 	),
 };
 
 /**
  * Editing one morning's standup asks which instances the change is for before
  * the form opens. Answering after the edit would mean typing a change without
- * knowing what it changes.
+ * knowing what it changes. The answer sticks to the event: say "the whole
+ * series" and it is still a series afterwards, so the next edit asks again;
+ * say "just this one" and that morning leaves the series for good.
  */
 export const RecurrenceScope: Story = {
 	render: () => <CalendarDestination scopeForEventId="evt_standup_10" />,
@@ -134,7 +151,7 @@ export const FilteredCalendars: Story = {
  */
 export const TightDensity: Story = {
 	render: () => (
-		<CalendarDestination view="day" date="2026-06-10" density="compact" />
+		<CalendarDestination view="day" date={densestDay.date} density="compact" />
 	),
 };
 
@@ -148,12 +165,21 @@ export const TightDensity: Story = {
  * carries the events at a size a thumb can hit. The calendar chips stay on
  * screen, the view ladder and density sit in the bottom bar within reach, and
  * there are no keyboard hints anywhere.
+ *
+ * This is the week's quietest day, so the arrangement is judged on a day that
+ * is mostly gap — which is what most days are.
  */
 export const PhoneDay: Story = {
 	name: "Phone — day",
 	parameters: phoneParams,
 	decorators: [phoneFrame],
-	render: () => <CalendarDestination width={PHONE_WIDTH} view="day" />,
+	render: () => (
+		<CalendarDestination
+			width={PHONE_WIDTH}
+			view="day"
+			date={quietestDay.date}
+		/>
+	),
 };
 
 /**
@@ -166,11 +192,20 @@ export const PhoneDenseDay: Story = {
 	parameters: phoneParams,
 	decorators: [phoneFrame],
 	render: () => (
-		<CalendarDestination width={PHONE_WIDTH} view="day" date="2026-06-10" />
+		<CalendarDestination
+			width={PHONE_WIDTH}
+			view="day"
+			date={densestDay.date}
+		/>
 	),
 };
 
-/** A month on a phone is for choosing a day, so tapping one is the whole job. */
+/**
+ * A month on a phone is for choosing a day, so tapping one is the whole job:
+ * the agenda below the grid moves to that day and names it. Making an event is
+ * the button, where a thumb expects it — a mis-tap on a month grid should cost
+ * a scroll, not a form.
+ */
 export const PhoneMonth: Story = {
 	name: "Phone — month",
 	parameters: phoneParams,
@@ -228,7 +263,7 @@ export const PhoneEventDetail: Story = {
 		<CalendarDestination
 			width={PHONE_WIDTH}
 			view="day"
-			date="2026-06-10"
+			date={densestDay.date}
 			sheet="detail"
 			selectedEventId="evt_q3_roadmap"
 		/>

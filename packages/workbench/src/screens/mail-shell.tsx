@@ -33,6 +33,7 @@
  */
 import {
 	AppShellSlotted,
+	type AppShellSlottedProps,
 	Avatar,
 	type BriefCategoryFilter,
 	type BriefFilterSurface,
@@ -171,6 +172,11 @@ export interface MailShellProps {
 	 * nothing open — needs the list to have the whole width until it is.
 	 */
 	readingPane?: "default" | "off";
+	/**
+	 * Which pane the two-pane split favours. Mail leaves it balanced; a list pane
+	 * that is itself the work — the calendar grid — asks for the width.
+	 */
+	listBias?: AppShellSlottedProps["listBias"];
 	/**
 	 * Offers the calendar destination in the nav. The prototype turns it on; the
 	 * mail flows leave it off, so their nav is the nav that ships today.
@@ -605,6 +611,7 @@ export function MailShell({
 	savedSearches = [],
 	searchSuggestions,
 	readingPane = "default",
+	listBias,
 	calendarNav = "hidden",
 	searchOpen: searchOpenSeed = false,
 	navOpen: navOpenSeed = false,
@@ -687,6 +694,7 @@ export function MailShell({
 			nav={nav}
 			topBar={singlePane ? undefined : <TopBar search={search} />}
 			list={list}
+			listBias={listBias}
 			reading={
 				singlePane || readingPane === "off"
 					? undefined

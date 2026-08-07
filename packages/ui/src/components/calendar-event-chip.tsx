@@ -30,9 +30,16 @@ export interface CalendarEventChipProps {
 }
 
 /**
- * One event, everywhere an event appears. The calendar's hue is the only
- * colour it carries; the RSVP and the zone ride on shape and mark instead, so
- * a declined event in a green calendar still reads as green and as declined.
+ * One event, wherever an event is ours to render: the agenda, a day column of
+ * our own, a picker, the phone list. The calendar's hue is the only colour it
+ * carries; the RSVP and the zone ride on shape and mark instead, so a declined
+ * event in a green calendar still reads as green and as declined.
+ *
+ * A FullCalendar grid is the one surface that does not use it — the library
+ * renders the event's element itself and takes only a class string and the
+ * content inside, so `calendar-grid.tsx` restates this shell there. Every value
+ * that can be shared is the same on both sides; what cannot cross is the
+ * element itself, and with it `aria-pressed` and the focus ring.
  */
 export function CalendarEventChip({
 	title,
@@ -94,10 +101,13 @@ export function CalendarEventChip({
 						isColumn ? "mt-0.5" : "ml-auto",
 					)}
 				>
-					{isRecurring && <Repeat className="size-3" aria-label="Repeats" />}
-					{hasThread && <Mail className="size-3" aria-label="From mail" />}
+					{isRecurring && <Repeat className="size-2.5" aria-label="Repeats" />}
+					{hasThread && <Mail className="size-2.5" aria-label="From mail" />}
 					{zoneCertainty === "ambiguous" && (
-						<Globe className="size-3 text-warning" aria-label="Unclear zone" />
+						<Globe
+							className="size-2.5 text-warning"
+							aria-label="Unclear zone"
+						/>
 					)}
 				</span>
 			)}

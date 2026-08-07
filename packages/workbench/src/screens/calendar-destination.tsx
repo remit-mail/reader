@@ -10,8 +10,10 @@
  * the scope question really gates the edit behind it.
  */
 import {
+	addMinutesToClock,
 	BottomSheet,
 	Button,
+	type CalendarAttendee,
 	type CalendarColorId,
 	CalendarDateNav,
 	CalendarDensityControl,
@@ -28,13 +30,16 @@ import {
 	EventQuickEntry,
 	type EventSuggestion,
 	EventSuggestionCard,
+	type PhraseParse,
 	parseEventPhrase,
+	ReadingPane,
 	type RecurrenceScope,
 	RecurrenceScopePrompt,
+	type ThreadData,
 	useContainerWidth,
 } from "@remit/ui";
-import { CalendarDays, Plus, Sparkles } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { ArrowLeft, CalendarDays, Plus, Sparkles } from "lucide-react";
+import { type ReactNode, useMemo, useRef, useState } from "react";
 import { CalendarGrid, type SlotPick } from "../components/calendar-grid.js";
 import {
 	allCalendarIds,
@@ -48,6 +53,7 @@ import {
 	events as seedEvents,
 	suggestions as seedSuggestions,
 	TODAY,
+	threadFor,
 } from "../fixtures/calendar.js";
 import { MailShell } from "./mail-shell.js";
 
@@ -60,6 +66,12 @@ const colorByCalendarId: Record<string, CalendarColorId> = Object.fromEntries(
 
 /** Wednesday 10 June 2026, 09:30 — the same fixed now as the mail fixtures. */
 const NOW = new Date(2026, 5, 10, 9, 30);
+
+/** June puts Amsterdam at UTC+2, and the whole fixture week is in June. */
+const OFFSET = "+02:00";
+
+/** Where an event lands when the sentence named no hour. */
+const FALLBACK_START = "10:00";
 
 function emptyDraft(): EventDraft {
 	return {
@@ -101,39 +113,78 @@ function draftFromEvent(event: CalendarEventData): EventDraft {
 	};
 }
 
-function eventFromDraft(draft: EventDraft, id: string): CalendarEventData {
-	const offset = "+02:00";
+/** An event with nothing on it yet — what a create starts from. */
+function blankEvent(): CalendarEventData {
 	return {
-		id,
-		calendarId: draft.calendarId,
-		title: draft.title === "" ? "(no title)" : draft.title,
-		start: draft.allDay
-			? draft.date
-			: `${draft.date}T${draft.startTime}:00${offset}`,
-		end: draft.allDay
-			? nextDay(draft.date)
-			: `${draft.date}T${draft.endTime}:00${offset}`,
-		allDay: draft.allDay,
-		location: draft.location,
-		notes: draft.notes,
-		attendees: draft.guests
-			.split(",")
-			.map((name) => name.trim())
-			.filter((name) => name !== "")
-			.map((name) => ({
-				name,
-				email: `${name.toLowerCase().replace(/\s+/g, ".")}@example`,
-				rsvp: "noReply" as const,
-				role: "attendee" as const,
-			})),
+		id: "",
+		calendarId: calendars[0].id,
+		title: "",
+		start: "",
+		end: "",
+		allDay: false,
+		location: "",
+		notes: "",
+		attendees: [],
 		myRsvp: "accepted",
 		threadId: "",
 		threadSubject: "",
 		timeZone: HOME_ZONE,
 		zoneCertainty: "local",
-		recurrenceRule: draft.repeat,
+		recurrenceRule: "",
 		seriesId: "",
 		status: "confirmed",
+	};
+}
+
+/**
+ * The guest field is a list of names, so a guest already on the event keeps the
+ * whole record — the address that was invited, the reply that came back, who
+ * organised it. Only a name that was not there before is a new person.
+ */
+function guestsFrom(
+	names: string,
+	known: CalendarAttendee[],
+): CalendarAttendee[] {
+	return names
+		.split(",")
+		.map((name) => name.trim())
+		.filter((name) => name !== "")
+		.map(
+			(name) =>
+				known.find((attendee) => attendee.name === name) ?? {
+					name,
+					email: `${name.toLowerCase().replace(/\s+/g, ".")}@example`,
+					rsvp: "noReply" as const,
+					role: "attendee" as const,
+				},
+		);
+}
+
+/**
+ * The draft holds only the fields the editor shows. Everything else — the
+ * thread the event came out of, the series it belongs to, the zone the mail
+ * gave, what everyone answered — comes off the event being edited, so saving an
+ * edit never quietly destroys what the form never asked about.
+ */
+function applyDraft(
+	base: CalendarEventData,
+	draft: EventDraft,
+): CalendarEventData {
+	return {
+		...base,
+		calendarId: draft.calendarId,
+		title: draft.title === "" ? "(no title)" : draft.title,
+		start: draft.allDay
+			? draft.date
+			: `${draft.date}T${draft.startTime}:00${OFFSET}`,
+		end: draft.allDay
+			? nextDay(draft.date)
+			: `${draft.date}T${draft.endTime}:00${OFFSET}`,
+		allDay: draft.allDay,
+		location: draft.location,
+		notes: draft.notes,
+		attendees: guestsFrom(draft.guests, base.attendees),
+		recurrenceRule: draft.repeat,
 	};
 }
 
@@ -161,9 +212,31 @@ function shiftDate(
 /** What the popover is showing, if anything. */
 type Panel =
 	| { kind: "none" }
-	| { kind: "create"; draft: EventDraft }
-	| { kind: "edit"; eventId: string; draft: EventDraft }
+	| {
+			kind: "create";
+			draft: EventDraft;
+			/** What the new event carries beyond the form — a suggestion's thread. */
+			base: CalendarEventData;
+			/** The suggestion this create answers, consumed when it is saved. */
+			suggestionId: string;
+	  }
+	| {
+			kind: "edit";
+			eventId: string;
+			draft: EventDraft;
+			/** Empty for a one-off; otherwise the answer the scope question got. */
+			scope: RecurrenceScope | "";
+	  }
 	| { kind: "scope"; eventId: string };
+
+/** The sheets the phone surface puts up, one at a time. */
+type Sheet =
+	| "none"
+	| "create"
+	| "detail"
+	| "calendars"
+	| "suggestions"
+	| "thread";
 
 export interface CalendarDestinationProps {
 	width?: number;
@@ -212,13 +285,14 @@ export function CalendarDestination({
 	);
 	const [phrase, setPhrase] = useState(initialPhrase);
 	const [expanded, setExpanded] = useState(false);
-	const [sheet, setSheet] = useState(initialSheet);
+	const [sheet, setSheet] = useState<Sheet>(initialSheet);
+	const [openThreadId, setOpenThreadId] = useState("");
+	const minted = useRef(0);
 	const [panel, setPanel] = useState<Panel>(() => {
 		if (scopeForEventId !== "")
 			return { kind: "scope", eventId: scopeForEventId };
-		if (initialPhrase !== "")
-			return { kind: "create", draft: fromPhrase(initialPhrase) };
-		if (draftAt) return { kind: "create", draft: draftFromSlot(draftAt) };
+		if (initialPhrase !== "") return createPanel(fromPhrase(initialPhrase));
+		if (draftAt) return createPanel(draftFromSlot(draftAt));
 		return { kind: "none" };
 	});
 
@@ -249,14 +323,33 @@ export function CalendarDestination({
 	const openSlot = (pick: SlotPick) => {
 		setPhrase("");
 		setExpanded(false);
-		setPanel({ kind: "create", draft: draftFromSlot(pick) });
+		setPanel(createPanel(draftFromSlot(pick)));
 		if (isPhone) setSheet("create");
+	};
+
+	/**
+	 * A month on a phone is for choosing a day: a tap moves the agenda under the
+	 * grid to that day. Creating stays on the button, which is where a thumb
+	 * expects it and where a mis-tap costs nothing.
+	 */
+	const pickSlot = (pick: SlotPick) => {
+		if (isPhone && view === "month") {
+			setDate(pick.date);
+			return;
+		}
+		openSlot(pick);
 	};
 
 	const openEvent = (eventId: string) => {
 		setSelected(eventId);
+		setOpenThreadId("");
 		setPanel({ kind: "none" });
 		if (isPhone) setSheet("detail");
+	};
+
+	const openThread = (threadId: string) => {
+		setOpenThreadId(threadId);
+		if (isPhone) setSheet("thread");
 	};
 
 	const startEdit = (event: CalendarEventData) => {
@@ -266,7 +359,12 @@ export function CalendarDestination({
 			return;
 		}
 		setExpanded(false);
-		setPanel({ kind: "edit", eventId: event.id, draft: draftFromEvent(event) });
+		setPanel({
+			kind: "edit",
+			eventId: event.id,
+			draft: draftFromEvent(event),
+			scope: "",
+		});
 		if (isPhone) setSheet("create");
 	};
 
@@ -277,6 +375,7 @@ export function CalendarDestination({
 		setPanel({
 			kind: "edit",
 			eventId,
+			scope,
 			draft: {
 				...draftFromEvent(event),
 				repeat: scope === "this" ? "" : event.recurrenceRule,
@@ -286,12 +385,26 @@ export function CalendarDestination({
 
 	const commit = () => {
 		if (panel.kind === "create") {
-			const id = `evt_new_${events.length}`;
-			setEvents((prev) => [...prev, eventFromDraft(panel.draft, id)]);
+			minted.current += 1;
+			const id = `evt_new_${minted.current}`;
+			setEvents((prev) => [
+				...prev,
+				applyDraft({ ...panel.base, id }, panel.draft),
+			]);
+			if (panel.suggestionId !== "")
+				setSuggestions((prev) =>
+					prev.filter((item) => item.id !== panel.suggestionId),
+				);
 			setSelected(id);
 		}
 		if (panel.kind === "edit") {
-			const edited = eventFromDraft(panel.draft, panel.eventId);
+			const base = events.find((event) => event.id === panel.eventId);
+			if (!base) return;
+			/* "Just this one" takes the instance out of its series, which is what
+			   makes the next edit of it stop asking. */
+			const detached =
+				panel.scope === "this" ? { ...base, seriesId: "" } : base;
+			const edited = applyDraft(detached, panel.draft);
 			setEvents((prev) =>
 				prev.map((event) => (event.id === panel.eventId ? edited : event)),
 			);
@@ -316,9 +429,16 @@ export function CalendarDestination({
 		setSheet("none");
 	};
 
+	/**
+	 * The other way to say yes: correct the reading first. It carries the same
+	 * thread and zone Add carries, and saving takes the card off the list — a
+	 * suggestion is answered once, by whichever path answered it.
+	 */
 	const reviewSuggestion = (suggestion: EventSuggestion) => {
 		setPanel({
 			kind: "create",
+			base: eventFromSuggestion(suggestion, ""),
+			suggestionId: suggestion.id,
 			draft: {
 				...emptyDraft(),
 				title: suggestion.title,
@@ -346,7 +466,7 @@ export function CalendarDestination({
 			density={density}
 			selectedEventId={selected}
 			onSelectEvent={openEvent}
-			onPickSlot={openSlot}
+			onPickSlot={pickSlot}
 			onRangeChange={setRangeTitle}
 		/>
 	);
@@ -384,9 +504,9 @@ export function CalendarDestination({
 							value={phrase}
 							onChange={(next) => {
 								setPhrase(next);
-								setPanel({ kind: "create", draft: fromPhrase(next) });
+								setPanel({ ...panel, draft: fromPhrase(next) });
 							}}
-							parse={parseEventPhrase(phrase, NOW)}
+							parse={readPhrase(phrase)}
 							onCommit={commit}
 							touch={touch}
 						/>
@@ -416,7 +536,7 @@ export function CalendarDestination({
 							onAdd={() => acceptSuggestion(suggestion)}
 							onReview={() => reviewSuggestion(suggestion)}
 							onDismiss={() => dismissSuggestion(suggestion.id)}
-							onOpenThread={() => undefined}
+							onOpenThread={() => openThread(suggestion.threadId)}
 							touch={touch}
 						/>
 					))}
@@ -424,6 +544,8 @@ export function CalendarDestination({
 			)}
 		</div>
 	);
+
+	const openedThread = threadFor(openThreadId);
 
 	if (isPhone) {
 		return (
@@ -452,8 +574,8 @@ export function CalendarDestination({
 						onCreate={() =>
 							openSlot({
 								date,
-								startTime: "10:00",
-								endTime: "11:00",
+								startTime: FALLBACK_START,
+								endTime: addMinutesToClock(FALLBACK_START, 60),
 								allDay: false,
 							})
 						}
@@ -492,7 +614,7 @@ export function CalendarDestination({
 										onOpenThread={
 											selectedEvent.threadId === ""
 												? undefined
-												: () => undefined
+												: () => openThread(selectedEvent.threadId)
 										}
 										onClose={() => setSheet("none")}
 									/>
@@ -505,6 +627,14 @@ export function CalendarDestination({
 						>
 							<div className="max-h-[70dvh] overflow-y-auto py-3">
 								{suggestionColumn(true)}
+							</div>
+						</BottomSheet>
+						<BottomSheet
+							open={sheet === "thread" && Boolean(openedThread)}
+							onClose={() => setSheet("none")}
+						>
+							<div className="h-[80dvh]">
+								<ReadingPane thread={openedThread} />
 							</div>
 						</BottomSheet>
 					</>
@@ -537,9 +667,16 @@ export function CalendarDestination({
 					onDismissPanel={dismissPanel}
 				/>
 			}
-			readingPane={selectedEvent ? "default" : "off"}
+			listBias="list"
+			readingPane={openedThread || selectedEvent ? "default" : "off"}
 			reading={
-				selectedEvent ? (
+				openedThread ? (
+					<ThreadPane
+						thread={openedThread}
+						backLabel={selectedEvent ? "Back to the event" : "Back to the grid"}
+						onBack={() => setOpenThreadId("")}
+					/>
+				) : selectedEvent ? (
 					<EventDetail
 						event={selectedEvent}
 						calendar={
@@ -554,7 +691,9 @@ export function CalendarDestination({
 							setSelected("");
 						}}
 						onOpenThread={
-							selectedEvent.threadId === "" ? undefined : () => undefined
+							selectedEvent.threadId === ""
+								? undefined
+								: () => openThread(selectedEvent.threadId)
 						}
 						onClose={() => setSelected("")}
 					/>
@@ -564,20 +703,71 @@ export function CalendarDestination({
 	);
 }
 
-function fromPhrase(phrase: string): EventDraft {
+/** The mail an event came out of, opened in the pane the event was in. */
+function ThreadPane({
+	thread,
+	backLabel,
+	onBack,
+}: {
+	thread: ThreadData;
+	backLabel: string;
+	onBack: () => void;
+}) {
+	return (
+		<div className="flex h-full w-full min-w-0 flex-col bg-canvas">
+			<div className="flex h-pane-header shrink-0 items-center border-b border-line px-row-inset">
+				<Button
+					variant="ghost"
+					size="sm"
+					icon={<ArrowLeft className="size-3.5" />}
+					onClick={onBack}
+				>
+					{backLabel}
+				</Button>
+			</div>
+			<div className="min-h-0 flex-1">
+				<ReadingPane thread={thread} />
+			</div>
+		</div>
+	);
+}
+
+function createPanel(draft: EventDraft): Panel {
+	return { kind: "create", draft, base: blankEvent(), suggestionId: "" };
+}
+
+/**
+ * The reader's reading, plus the form's own fallbacks. The form has to put the
+ * event somewhere, so a sentence with no hour lands at ten — and that is an
+ * assumption like any other, said out loud beside the day and the length rather
+ * than applied behind the reading.
+ */
+function readPhrase(phrase: string): PhraseParse {
 	const parse = parseEventPhrase(phrase, NOW);
-	const start = parse.startTime === "" ? "10:00" : parse.startTime;
-	const [hours, minutes] = start.split(":").map(Number);
-	const total = hours * 60 + minutes + (parse.durationMinutes || 60);
-	const end = `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(
-		total % 60,
-	).padStart(2, "0")}`;
+	if (parse.startTime !== "") return parse;
+	return {
+		...parse,
+		startTime: FALLBACK_START,
+		durationMinutes: parse.durationMinutes === 0 ? 60 : parse.durationMinutes,
+		unresolved: parse.unresolved.filter((note) => note !== "No time given"),
+		assumptions: [
+			...parse.assumptions,
+			`No time given — using ${FALLBACK_START}`,
+			...(parse.durationMinutes === 0
+				? ["No length given — using an hour"]
+				: []),
+		],
+	};
+}
+
+function fromPhrase(phrase: string): EventDraft {
+	const parse = readPhrase(phrase);
 	return {
 		...emptyDraft(),
 		title: parse.title,
 		date: parse.date,
-		startTime: start,
-		endTime: end,
+		startTime: parse.startTime,
+		endTime: addMinutesToClock(parse.startTime, parse.durationMinutes),
 		guests: parse.attendees.join(", "),
 	};
 }
@@ -773,6 +963,13 @@ function PhoneSurface({
 			<div className="h-44 shrink-0 border-b border-line">{grid}</div>
 
 			<div className="min-h-0 flex-1 overflow-y-auto">
+				{/* Which day the agenda is showing, because at this magnification the
+				    header above names a month and a tap on the grid moves this. */}
+				{view !== "day" && (
+					<h2 className="sticky top-0 z-10 flex h-section-row items-center border-b border-line bg-surface-sunken px-row-inset text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
+						{formatDayLabel(date)}
+					</h2>
+				)}
 				{dayEvents.length === 0 ? (
 					<p className="p-8 text-center text-sm text-fg-muted">
 						Nothing on {formatDayLabel(date)}.
