@@ -334,6 +334,13 @@ export interface RunOutcome {
 	applied: number;
 	/** How many the mail server rejected. */
 	failed: number;
+	/**
+	 * Why the commit never started, when sending the same one again cannot get
+	 * past it — no Junk folder appointed, no destination chosen. The ending states
+	 * this in place of the generic one and offers no retry, because the identical
+	 * commit fails identically (#522).
+	 */
+	failureReason?: string;
 }
 
 export interface RunCopy {
@@ -372,6 +379,7 @@ export const runCopy = ({
 	matched,
 	applied,
 	failed,
+	failureReason,
 }: RunOutcome): RunCopy => {
 	const { label, present, past } = verbCopy(verb);
 	const done = past.toLowerCase();
@@ -502,15 +510,17 @@ export const runCopy = ({
 			dismissLabel: "Done",
 		};
 	}
+	// A stated reason is a failure the same commit cannot get past, so the way
+	// out of it is the sentence rather than a retry that fails identically.
 	return {
 		...shared,
 		title: standing
 			? "Couldn't save the rule"
 			: `Couldn't start ${label.toLowerCase()}`,
-		detail: "Nothing has changed.",
+		detail: failureReason ?? "Nothing has changed.",
 		tone: "danger",
-		dismissLabel: "Not now",
-		retryLabel: "Try again",
+		dismissLabel: failureReason === undefined ? "Not now" : "Close",
+		retryLabel: failureReason === undefined ? "Try again" : undefined,
 	};
 };
 

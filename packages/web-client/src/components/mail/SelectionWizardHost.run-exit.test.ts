@@ -45,7 +45,7 @@ describe("ending the run", () => {
 		assert.match(source, /onCancelRun: runInFlight \? stopRun : undefined/);
 		assert.match(
 			source,
-			/const runInFlight =\s*bulkRun !== undefined && bulkRun\.outcome === undefined;/,
+			/const runInFlight =\s*bulkRun !== undefined &&\s*bulkRun\.outcome === undefined &&\s*bulkRun\.failureReason === undefined;/,
 		);
 	});
 

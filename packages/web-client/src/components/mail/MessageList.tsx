@@ -46,8 +46,10 @@ import {
 	escalationActionLabel,
 } from "@/lib/escalation-label";
 import { formatDeleteToTrashTitle, formatEmailDate } from "@/lib/format";
+import { junkDestination } from "@/lib/junk-destination";
 import { tabStopId } from "@/lib/list-focus";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
+import { listVerbRequest } from "@/lib/list-verb-request";
 import { shouldExitSelectionOnNavigate } from "@/lib/selection-mode";
 import { cn } from "@/lib/utils";
 import { useSelectionWizard, useWizardStepValue } from "@/lib/wizard-history";
@@ -290,6 +292,7 @@ export const MessageList = ({
 	// The Junk quick action moves the selection to the account's appointed Junk
 	// mailbox — the message-flags API has no `$Junk` field, so "junk" is a move.
 	const { junkMailboxId } = useJunkMailbox(accountId);
+	const junkDestinationId = junkDestination(junkMailboxId, mailboxId);
 
 	// Selection state
 	const {
@@ -571,39 +574,50 @@ export const MessageList = ({
 		}
 	}, [orderedIds, selectAll]);
 
-	// A keyboard verb, routed the same way the bar routes its own. Over a
-	// selection every verb opens the wizard, so the keyboard cannot reach a bulk
-	// action the bar would have reviewed. Over a bare cursor only Delete is the
-	// list's, and it keeps the confirmation and the cursor hand-back.
+	// A keyboard verb, routed by `listVerbRequest` — the same routing the bar
+	// renders from, so a verb the bar withholds is not still reachable by
+	// shortcut. Over a selection every verb opens the wizard (#477 1.4), whatever
+	// the selection is: the ticked rows, a selection spanning accounts — the
+	// wizard is where that restriction is stated, on the step that needs one
+	// account (#477 5.5) — or the predicate the list escalated to, which the
+	// wizard names on its match step and counts on its review screen before
+	// anything is sent (#508).
 	const requestVerb = useCallback(
 		(verb: Verb): boolean => {
-			// The confirmation is already asking about a delete: the keypress belongs
-			// to it, and answering it is the Confirm button's job. Claiming the press
-			// here is what stops a second Delete from reaching an unconfirmed delete.
-			if (pendingDelete !== null) return true;
-			if (hasSelection) {
-				// Every verb on the bar opens the wizard (#477 1.4), whatever the
-				// selection is: the ticked rows, a selection spanning accounts — the
-				// wizard is where that restriction is stated, on the step that needs
-				// one account (#477 5.5) — or the predicate the list escalated to,
-				// which the wizard names on its match step and counts on its review
-				// screen before anything is sent (#508).
+			const request = listVerbRequest({
+				verb,
+				confirmingDelete: pendingDelete !== null,
+				hasSelection,
+				junkMailboxId,
+				currentMailboxId: mailboxId,
+				deletableMessageId: onDeleteMessages ? focusedMessageId : undefined,
+			});
+			if (request.kind === "openWizard") {
 				startWizard(verb);
 				return true;
 			}
-			if (verb !== "delete" || !onDeleteMessages || !focusedMessageId) {
-				return false;
+			if (request.kind === "confirmDelete") {
+				requestDelete([request.messageId]);
+				return true;
 			}
-			requestDelete([focusedMessageId]);
-			return true;
+			// A shortcut that does nothing at all is indistinguishable from one that
+			// is broken, so a verb this mailbox cannot take says why on the press.
+			if (request.kind === "unavailable") {
+				pushError({ severity: "warning", title: request.reason });
+				return true;
+			}
+			return request.kind === "withheld";
 		},
 		[
 			pendingDelete,
 			onDeleteMessages,
 			hasSelection,
+			junkMailboxId,
+			mailboxId,
 			startWizard,
 			focusedMessageId,
 			requestDelete,
+			pushError,
 		],
 	);
 
@@ -1178,11 +1192,7 @@ export const MessageList = ({
 			onDelete={() => startWizard("delete")}
 			onMove={() => startWizard("move")}
 			onOrganize={organizeSelection}
-			onJunk={
-				junkMailboxId && junkMailboxId !== mailboxId
-					? () => startWizard("junk")
-					: undefined
-			}
+			onJunk={junkDestinationId ? () => startWizard("junk") : undefined}
 			onMarkRead={() => startWizard("markRead")}
 			overflowSlot={
 				accountId && mailboxId && selectedCount > 0 && labels.length > 0 ? (

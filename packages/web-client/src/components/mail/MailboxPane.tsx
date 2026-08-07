@@ -111,6 +111,7 @@ import {
 	sameInboxFilter,
 } from "@/lib/inbox-filters";
 import { readIntelligencePref } from "@/lib/intelligence-pref";
+import { junkDestination } from "@/lib/junk-destination";
 import { useMailContext } from "@/lib/mail-context";
 import { useMailFreshness } from "@/lib/mail-freshness";
 import { isRescueCandidate } from "@/lib/rescue-candidates";
@@ -658,6 +659,7 @@ function MailboxPaneProvider({
 
 	const { junkMailboxId } = useJunkMailbox(mailboxAccountId);
 	const isSpamFolder = junkMailboxId != null && junkMailboxId === mailboxId;
+	const junkDestinationId = junkDestination(junkMailboxId, mailboxId);
 	const { candidates: rescueCandidates } = useRescueCandidates(
 		isSpamFolder ? junkMailboxId : undefined,
 	);
@@ -724,7 +726,7 @@ function MailboxPaneProvider({
 
 	const triageMarkJunk = useCallback(() => {
 		if (listCommandsRef.current?.requestVerb("junk")) return;
-		if (!junkMailboxId) return;
+		if (!junkDestinationId) return;
 		const ids = triageTargetMessageIds();
 		if (ids.length === 0) return;
 		recordRescueSentToJunk(telemetry, {
@@ -732,10 +734,10 @@ function MailboxPaneProvider({
 			senderTrust: focusedThread?.senderTrust ?? "unknown",
 			wasRescuable: focusedThread ? isRescueCandidate(focusedThread) : false,
 		});
-		triageMove(ids, junkMailboxId);
+		triageMove(ids, junkDestinationId);
 	}, [
 		listCommandsRef,
-		junkMailboxId,
+		junkDestinationId,
 		triageTargetMessageIds,
 		triageMove,
 		telemetry,

@@ -88,6 +88,11 @@ interface WizardEntry {
 	/** The selection spans accounts, so no folder and no rule can be reached. */
 	crossAccount?: boolean;
 	runState?: RunState;
+	/**
+	 * Why the commit never started, when sending the same one again cannot get
+	 * past it. The run screen states it and offers no retry (#522).
+	 */
+	runFailureReason?: string;
 	/** How many the mail server rejected beyond the ones the run can name. */
 	failedBeyondNamed?: number;
 	/** The property door carries a body-text clause, which has no count to show. */
@@ -435,6 +440,7 @@ function WizardDriver({
 				applied,
 				failures,
 				failedCount: entry.failedBeyondNamed ?? failures.length,
+				failureReason: entry.runFailureReason,
 				onRetry: () =>
 					setRunState(
 						runState === "commitFailed" ? "saving" : "backApplyRunning",
@@ -1332,6 +1338,28 @@ export const RunCommitFailed: Story = {
 				startAt: "run",
 				scope: "standing",
 				runState: "commitFailed",
+			}}
+		/>
+	),
+};
+
+/**
+ * The commit reached the mail server with nowhere to file into. The screen names
+ * the cause and the setting that fixes it, and offers no retry: the same commit
+ * resolves the same absent destination every time it is sent (#522).
+ */
+export const RunNoDestination: Story = {
+	name: "Run — nowhere to file into",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{
+				verb: "junk",
+				startAt: "run",
+				scope: "once",
+				runState: "commitFailed",
+				runFailureReason:
+					"This account has no Junk folder appointed, so there is nowhere to file these. Appoint one under Settings › Folders.",
 			}}
 		/>
 	),

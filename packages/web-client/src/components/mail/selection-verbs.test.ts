@@ -191,13 +191,20 @@ describe("every keyboard verb over a selection goes through the list", () => {
 		markJunk: "junk",
 	};
 
+	/**
+	 * How a list may answer a verb aimed at the bare cursor: with the shared
+	 * decision, whose rules are in `../../lib/list-verb-request.test.ts`, or
+	 * inline. Either way only Delete is the list's.
+	 */
+	const CURSOR_DELETE_ONLY = /listVerbRequest\(\{|if \(verb !== "delete"/;
+
 	for (const file of LISTS) {
 		it(`${file} publishes the one seam and claims a selection`, () => {
 			const source = read(file);
 			assert.match(source, /requestVerb,/);
 			assert.match(
 				source,
-				/if \(verb !== "delete"/,
+				CURSOR_DELETE_ONLY,
 				"only delete is the list's over a bare cursor",
 			);
 			assert.doesNotMatch(

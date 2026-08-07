@@ -48,6 +48,7 @@ import { useOrganizeWiden } from "@/hooks/useOrganizeWiden";
 import { useRulePreview } from "@/hooks/useRulePreview";
 import { useSelectedSubjects } from "@/hooks/useSelectedSubjects";
 import type { BulkActionProgress, BulkRunOutcome } from "@/lib/bulk-actions";
+import { NO_JUNK_FOLDER_REASON } from "@/lib/junk-destination";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
 import { buildMoveOptions, folderDelimiter } from "@/lib/move-options";
@@ -174,6 +175,12 @@ interface RunSnapshot {
 	applied: number;
 	failed: number;
 	failures: readonly WizardMessage[];
+	/**
+	 * Why a commit never started, when the reason is one the same commit cannot
+	 * get past. Carried to the run screen, which states it and offers no retry
+	 * (#522).
+	 */
+	failureReason?: string;
 }
 
 const NOT_STARTED: RunSnapshot = {
@@ -222,21 +229,12 @@ const widenedRunsAsJob = (verb: Verb): boolean =>
  * The commit pressed with nowhere for the mail to go. A verb that files mail
  * needs a destination, and reaching the run screen without one is a failure the
  * screen states along with the way out of it — never a control that does
- * nothing.
+ * nothing, and never a retry that re-sends the same commit to the same absence.
  */
-const noDestinationOutcome = (
-	verb: Verb,
-	ids: readonly string[],
-): BulkRunOutcome => ({
-	done: 0,
-	failedIds: [...ids],
-	cancelled: false,
-	error: new Error(
-		verb === "junk"
-			? "This account has no Junk folder appointed, so there is nowhere to file these. Appoint one under Settings › Folders."
-			: "No destination was chosen, so there is nowhere to file these. Go back and pick a folder.",
-	),
-});
+const noDestinationReason = (verb: Verb): string =>
+	verb === "junk"
+		? NO_JUNK_FOLDER_REASON
+		: "No destination was chosen, so there is nowhere to file these. Go back and pick a folder.";
 
 /**
  * Where the wizard meets the app (#483). The steps and their bodies belong to
@@ -305,7 +303,8 @@ function SelectionWizardSession({
 		OrganizeScope | undefined
 	>(undefined);
 	const [bulkRun, setBulkRun] = useState<
-		{ matched: number; outcome?: BulkRunOutcome } | undefined
+		| { matched: number; outcome?: BulkRunOutcome; failureReason?: string }
+		| undefined
 	>(undefined);
 	// The predicate the create chains its pass to. Undefined when the rule cannot
 	// be back-applied — a `HasWords` clause the vector-free pass cannot evaluate —
@@ -589,7 +588,7 @@ function SelectionWizardSession({
 			if (!action) {
 				setBulkRun({
 					matched: ids.length,
-					outcome: noDestinationOutcome(verb, ids),
+					failureReason: noDestinationReason(verb),
 				});
 				return;
 			}
@@ -610,7 +609,7 @@ function SelectionWizardSession({
 		if (!action) {
 			setBulkRun({
 				matched: escalated.total,
-				outcome: noDestinationOutcome(verb, []),
+				failureReason: noDestinationReason(verb),
 			});
 			return;
 		}
@@ -747,7 +746,12 @@ function SelectionWizardSession({
 
 	const bulkSnapshot = useCallback((): RunSnapshot => {
 		if (!bulkRun) return NOT_STARTED;
-		const { matched, outcome } = bulkRun;
+		const { matched, outcome, failureReason } = bulkRun;
+		// Nothing was sent, and nothing about sending it again resolves what was
+		// missing — so the screen carries why rather than the generic ending (#522).
+		if (failureReason !== undefined) {
+			return { ...NOT_STARTED, state: "commitFailed", failureReason };
+		}
 		if (!outcome) {
 			const applied = runProgress?.done ?? 0;
 			// A predicate matches more by the time the run re-pages it than the count
@@ -867,7 +871,11 @@ function SelectionWizardSession({
 	// list's runner and a bounded selection by this wizard's own, so the stop
 	// follows whichever one is paging.
 	const { stop: stopBulk } = bulk;
-	const runInFlight = bulkRun !== undefined && bulkRun.outcome === undefined;
+	// A commit that never started has nothing paging and nothing to end.
+	const runInFlight =
+		bulkRun !== undefined &&
+		bulkRun.outcome === undefined &&
+		bulkRun.failureReason === undefined;
 	const stopRun = useCallback(() => {
 		if (escalated) {
 			escalated.stop();
@@ -1001,6 +1009,7 @@ function SelectionWizardSession({
 				applied: run.applied,
 				failedCount: run.failed,
 				failures: run.failures,
+				failureReason: run.failureReason,
 				onRetry: retry,
 				onDismiss: dismiss,
 				onCancelRun: runInFlight ? stopRun : undefined,

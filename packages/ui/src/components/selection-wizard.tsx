@@ -963,6 +963,12 @@ export interface RunStepProps {
 	 * messages behind it; defaults to the ones named here.
 	 */
 	failedCount?: number;
+	/**
+	 * Why the commit never started, when the run knows and sending the same one
+	 * again cannot change it. Stated in place of the generic ending, and in place
+	 * of the retry that would fail identically (#522).
+	 */
+	failureReason?: string;
 	onRetry: () => void;
 	onDismiss: () => void;
 	/**
@@ -981,6 +987,7 @@ const runOutcomeOf = (props: RunStepProps): RunOutcome => ({
 	matched: props.matched,
 	applied: props.applied,
 	failed: props.failedCount ?? props.failures.length,
+	failureReason: props.failureReason,
 });
 
 const runIcon = (tone: RunCopy["tone"]): ReactNode => {
