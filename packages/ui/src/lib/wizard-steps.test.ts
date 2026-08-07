@@ -595,6 +595,31 @@ describe("runCopy", () => {
 		assert.equal(outcome("commitFailed", "once").title, "Couldn't start move");
 	});
 
+	// #522: a commit that resolved no destination fails the same way every time
+	// it is sent. Stating "Nothing has changed" over a Try again leaves the user
+	// pressing a control that can never work, with nothing naming the setting
+	// that would.
+	it("carries the reason a commit could not start, in place of a retry", () => {
+		const reason =
+			"This account has no Junk folder appointed, so there is nowhere to file these. Appoint one under Settings › Folders.";
+		const blocked = runCopy({
+			state: "commitFailed",
+			verb: "junk",
+			scope: "once",
+			matched: 0,
+			applied: 0,
+			failed: 0,
+			failureReason: reason,
+		});
+
+		assert.equal(blocked.detail, reason);
+		assert.doesNotMatch(blocked.detail, /Nothing has changed/);
+		assert.equal(blocked.retryLabel, undefined);
+		assert.equal(blocked.dismissLabel, "Close");
+		assert.equal(blocked.tone, "danger");
+		assert.match(blocked.title, /^Couldn't start/);
+	});
+
 	it("shows progress only while a pass over existing mail is under way or finished", () => {
 		assert.equal(outcome("saving", "standing").showProgress, false);
 		assert.equal(outcome("backApplyRunning", "standing").showProgress, true);

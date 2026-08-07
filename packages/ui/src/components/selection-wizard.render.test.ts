@@ -582,6 +582,24 @@ describe("RunStepBody", () => {
 		assert.match(html, /Nothing has changed\./);
 	});
 
+	// #522: the commit resolved no destination, which is a cause the screen knows
+	// and a setting the user can change.
+	it("names why a commit could not start, and where the fix is", () => {
+		const html = renderToString(
+			createElement(RunStepBody, {
+				...runProps,
+				state: "commitFailed",
+				verb: "junk",
+				scope: "once",
+				failureReason:
+					"This account has no Junk folder appointed, so there is nowhere to file these. Appoint one under Settings › Folders.",
+			}),
+		);
+		assert.match(text(html), /no Junk folder appointed/);
+		assert.match(text(html), /Settings › Folders/);
+		assert.doesNotMatch(html, /Nothing has changed\./);
+	});
+
 	// A retry that could not be started is not a pass that never ran (#552): the
 	// pass that did run keeps its counts and its bar.
 	it("keeps a finished pass's counts when its retry could not be started", () => {
@@ -668,6 +686,22 @@ describe("RunFooter", () => {
 			}),
 		);
 		assert.match(html, /Check again/);
+		assert.match(html, /Close/);
+	});
+
+	it("offers no retry for a commit the same press cannot get past", () => {
+		// A Try again here re-sends the identical commit to the same absent
+		// destination, forever (#522).
+		const html = renderToString(
+			createElement(RunFooter, {
+				...runProps,
+				state: "commitFailed",
+				verb: "junk",
+				scope: "once",
+				failureReason: "This account has no Junk folder appointed.",
+			}),
+		);
+		assert.doesNotMatch(html, /Try again/);
 		assert.match(html, /Close/);
 	});
 

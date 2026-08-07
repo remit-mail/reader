@@ -84,6 +84,7 @@ import {
 	toThreadRowData,
 } from "@/lib/brief";
 import { isServerError } from "@/lib/error-classifier";
+import { junkDestination } from "@/lib/junk-destination";
 import type { ListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
 import { useMailFreshness } from "@/lib/mail-freshness";
@@ -280,7 +281,7 @@ function BriefSelectionChrome({
 		[rows, selectedIds],
 	);
 
-	const canJunk = !!junkMailboxId && junkMailboxId !== scope.mailboxId;
+	const junkDestinationId = junkDestination(junkMailboxId, scope.mailboxId);
 
 	// One select-all for both surfaces: the desktop toolbar and the touch sheet
 	// offer the same control over the same rendered rows, so the verb a phone
@@ -316,7 +317,7 @@ function BriefSelectionChrome({
 			onDelete={() => wizard.start("delete")}
 			onMove={() => wizard.start("move")}
 			onOrganize={() => wizard.start("organize")}
-			onJunk={canJunk ? () => wizard.start("junk") : undefined}
+			onJunk={junkDestinationId ? () => wizard.start("junk") : undefined}
 			onMarkRead={() => wizard.start("markRead")}
 			overflowSlot={
 				scope.accountId &&
