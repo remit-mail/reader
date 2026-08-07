@@ -74,7 +74,7 @@ export function ThreadTranscript({
 											type="button"
 											onClick={() => onMarkClick?.(segment.mark ?? "")}
 											className={cn(
-												"rounded-xs px-0.5 underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+												"rounded-xs underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-ring",
 												activeMarks?.has(segment.mark)
 													? "bg-accent-2-soft font-medium text-fg decoration-accent-2"
 													: "decoration-line-strong hover:bg-surface-sunken",

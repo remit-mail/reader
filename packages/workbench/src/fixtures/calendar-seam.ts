@@ -452,6 +452,11 @@ export interface BusyBlock {
 	color: CalendarColorId;
 	calendarName: string;
 	accountLabel: string;
+	/**
+	 * The event's real hours. `start`/`end` are clipped to the drawn window, so
+	 * an evening that runs past it is drawn short and still labelled honestly.
+	 */
+	label: string;
 	/** Drawn but not counted as busy: a declined event is not a commitment. */
 	declined: boolean;
 	/** Column this block sits in when several overlap, and how many there are. */
@@ -499,6 +504,7 @@ export function dayBlocks(
 			color: calendar?.color ?? "cal-1",
 			calendarName: calendar?.name ?? "Calendar",
 			accountLabel: calendar?.accountLabel ?? "",
+			label: `${item.start.slice(11, 16)} – ${item.end.slice(11, 16)}`,
 			declined: item.myRsvp === "declined",
 			lane,
 			lanes: 1,

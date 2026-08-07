@@ -109,7 +109,7 @@ export function AvailabilityStrip({
 							type="button"
 							disabled={!onSelectBlock}
 							onClick={() => onSelectBlock?.(block.eventId)}
-							title={`${block.start}–${block.end} · ${block.title} · ${block.calendarName}`}
+							title={`${block.label} · ${block.title} · ${block.calendarName}`}
 							className={cn(
 								"absolute overflow-hidden rounded-xs border-l-2 px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring",
 								hue.soft,
@@ -129,7 +129,7 @@ export function AvailabilityStrip({
 							</span>
 							{size > 26 && (
 								<span className="block truncate text-2xs leading-tight opacity-75">
-									{block.start} – {block.end}
+									{block.label}
 								</span>
 							)}
 						</button>
@@ -191,7 +191,7 @@ export function AvailabilityStrip({
 					>
 						<span
 							className={cn(
-								"absolute -top-2 left-1 rounded-xs bg-surface px-1 text-2xs font-semibold",
+								"absolute -top-2 right-1 rounded-xs bg-surface px-1 text-2xs font-semibold",
 								markLabelTone[mark.tone],
 							)}
 						>

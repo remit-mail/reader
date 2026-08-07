@@ -408,7 +408,7 @@ export function CalendarSeam({
 	);
 
 	const suggestionCards = (touch: boolean) => (
-		<div className="flex flex-col gap-2 px-row-inset pb-3">
+		<div className="flex max-w-2xl flex-col gap-2 px-row-inset pb-3">
 			{pending.map((entry) => (
 				<SuggestionCard
 					key={entry.suggestion.id}
