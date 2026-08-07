@@ -7,6 +7,7 @@
 	],
 	"exports": {
 		".": "./src/index.ts",
+		"./rich-text": "./src/rich-text.ts",
 		"./tokens.css": "./src/tokens.css"
 	},
 	"scripts": {
@@ -18,9 +19,20 @@
 		"@fontsource-variable/geist": "^5",
 		"@fontsource-variable/hanken-grotesk": "^5",
 		"@fontsource-variable/inter": "^5",
+		"@lexical/code-core": "0.49.0",
+		"@lexical/html": "0.49.0",
+		"@lexical/link": "0.49.0",
+		"@lexical/list": "0.49.0",
+		"@lexical/markdown": "0.49.0",
+		"@lexical/react": "0.49.0",
+		"@lexical/rich-text": "0.49.0",
+		"@lexical/selection": "0.49.0",
+		"@lexical/table": "0.49.0",
+		"@lexical/utils": "0.49.0",
 		"@react-types/shared": "^3.36.0",
 		"clsx": "^2",
 		"dompurify": "^3.4.7",
+		"lexical": "0.49.0",
 		"lucide-react": "^0.468",
 		"react-aria": "^3.50.0",
 		"react-resizable-panels": "^2.1.9",

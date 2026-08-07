@@ -27,7 +27,7 @@ const useIsDraftDirty = (): (() => boolean) => {
 		const subject =
 			document.querySelector<HTMLInputElement>("[data-subject-field]")?.value ??
 			"";
-		const editorEl = document.querySelector("[data-slate-editor]");
+		const editorEl = document.querySelector('[data-testid="compose-body"]');
 		const bodyText = editorEl?.textContent ?? "";
 		// Strip signature separator "-- " to avoid false positives
 		const cleaned = bodyText.replace(/--\s*/g, "").trim();

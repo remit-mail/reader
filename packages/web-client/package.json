@@ -2,7 +2,7 @@
 	"name": "@remit/web-client",
 	"version": "1.0.0",
 	"type": "module",
-	"description": "Remit web client, published as composable primitives \u2014 the app shell, auth shells, and runtime config. A distributor imports what it composes and bundles it.",
+	"description": "Remit web client, published as composable primitives — the app shell, auth shells, and runtime config. A distributor imports what it composes and bundles it.",
 	"exports": {
 		"./shell": "./src/shell/index.tsx",
 		"./config": "./src/runtime-config.ts",
@@ -61,9 +61,6 @@
 	},
 	"dependencies": {
 		"@hookform/resolvers": "*",
-		"@platejs/autoformat": "*",
-		"@platejs/basic-nodes": "*",
-		"@platejs/link": "*",
 		"@remit/api-http-client": "*",
 		"@remit/domain-enums": "*",
 		"@remit/ui": "*",
@@ -82,7 +79,6 @@
 		"i18next-http-backend": "^3.0.6",
 		"lucide-react": "^0.468",
 		"p-map": "*",
-		"platejs": "*",
 		"react-hook-form": "*",
 		"react-i18next": "^15",
 		"tailwind-merge": "^2",

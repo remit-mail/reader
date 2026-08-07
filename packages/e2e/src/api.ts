@@ -390,6 +390,22 @@ export class ApiClient {
 	}
 
 	/**
+	 * One outbox entry as the server holds it. This is the message that goes on
+	 * the wire — compose has already serialized its document into these two
+	 * fields — so it is what a spec about the body asserts against, rather than
+	 * anything the editor says about itself.
+	 */
+	getOutboxMessage(outboxMessageId: string): Promise<{
+		outboxMessageId: string;
+		subject?: string;
+		status: string;
+		htmlBody?: string;
+		textBody?: string;
+	}> {
+		return this.json("GET", `/outbox/${outboxMessageId}`);
+	}
+
+	/**
 	 * A draft already gone is the outcome this asks for, so a 404 is a pass: the
 	 * app's own discard races this sweep and usually wins.
 	 */
