@@ -1,7 +1,7 @@
 import { Button, inboxFilterConfig } from "@remit/ui";
 import { RichTextEditor } from "@remit/ui/rich-text";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Loader2, Paperclip, Send, Trash2 } from "lucide-react";
+import { Loader2, Send, Trash2 } from "lucide-react";
 import { allThreads } from "../fixtures/workspace.js";
 import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
 import { MailShell } from "../screens/mail-shell.js";
@@ -76,12 +76,6 @@ function ActionBar({
 				>
 					{isSending ? "Sending…" : "Send"}
 				</Button>
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={<Paperclip className="size-4" />}
-					aria-label="Attach file"
-				/>
 				<SaveStatusIndicator status={saveStatus} />
 				{!canSend && disabledReason && (
 					<span className="text-xs text-fg-muted">{disabledReason}</span>
