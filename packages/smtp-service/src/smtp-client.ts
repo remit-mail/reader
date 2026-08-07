@@ -1,5 +1,5 @@
 import nodemailer from "nodemailer";
-import type { MailMessage } from "./message-builder.js";
+import { type MailMessage, toNodemailerOptions } from "./message-builder.js";
 
 /**
  * Discriminated union of SMTP authentication credentials.
@@ -114,26 +114,7 @@ export const sendMail = async (
 	});
 
 	return transporter
-		.sendMail({
-			from: message.from,
-			to: message.to,
-			cc: message.cc,
-			bcc: message.bcc,
-			replyTo: message.replyTo,
-			subject: message.subject,
-			text: message.text,
-			html: message.html,
-			messageId: message.messageId,
-			inReplyTo: message.inReplyTo,
-			references: message.references,
-			attachments: message.attachments?.map((a) => ({
-				filename: a.filename,
-				content: a.content as Buffer,
-				contentType: a.contentType,
-				cid: a.cid,
-				contentDisposition: a.contentDisposition,
-			})),
-		})
+		.sendMail(toNodemailerOptions(message))
 		.then((info) => ({
 			success: true,
 			messageId: info.messageId,

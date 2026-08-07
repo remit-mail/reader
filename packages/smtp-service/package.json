@@ -3,6 +3,16 @@
 	"version": "0.0.1",
 	"type": "module",
 	"main": "src/index.ts",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./message-builder": {
+			"types": "./src/message-builder.ts",
+			"default": "./src/message-builder.ts"
+		}
+	},
 	"scripts": {
 		"test:typecheck": "tsgo --noEmit",
 		"test:run": "node --env-file=../../localhost-test-unit.env --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=95 --test 'src/**/*.test.ts'",

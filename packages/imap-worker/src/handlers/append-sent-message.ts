@@ -2,11 +2,13 @@ import { getClient } from "@remit/backend/client";
 import type {
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
-	OutboxMessageItem,
 } from "@remit/data-ports";
 import { MailboxSpecialUse } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
-import nodemailer from "nodemailer";
+import {
+	buildMailMessage,
+	renderRawMessage,
+} from "@remit/smtp-service/message-builder";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { AppendSentMessageEvent } from "../events.js";
@@ -44,35 +46,6 @@ const findSentMailbox = async (
 	}
 
 	return null;
-};
-
-const buildRawMessage = async (outbox: OutboxMessageItem): Promise<Buffer> => {
-	const from = outbox.fromName
-		? `${outbox.fromName} <${outbox.fromAddress}>`
-		: outbox.fromAddress;
-
-	const transport = nodemailer.createTransport({ streamTransport: true });
-
-	const info = await transport.sendMail({
-		from,
-		to: outbox.toAddresses.join(", "),
-		cc: outbox.ccAddresses?.join(", "),
-		bcc: outbox.bccAddresses?.join(", "),
-		replyTo: outbox.replyToAddress,
-		subject: outbox.subject,
-		text: outbox.textBody,
-		html: outbox.htmlBody,
-		messageId: `<${outbox.messageIdValue}>`,
-		inReplyTo: outbox.inReplyTo ? `<${outbox.inReplyTo}>` : undefined,
-		references: outbox.references?.map((r) => `<${r}>`).join(" "),
-		date: outbox.sentAt ? new Date(outbox.sentAt) : new Date(),
-	});
-
-	const chunks: Buffer[] = [];
-	for await (const chunk of info.message as AsyncIterable<Buffer>) {
-		chunks.push(chunk);
-	}
-	return Buffer.concat(chunks);
 };
 
 export interface AppendSentMessageDeps {
@@ -150,7 +123,7 @@ export const handleAppendSentMessage = async (
 			await scope
 				.getConnection()
 				.then(async (connection) => {
-					const rawMessage = await buildRawMessage(outbox);
+					const rawMessage = await renderRawMessage(buildMailMessage(outbox));
 
 					const result = await connection.append(
 						sentMailbox.fullPath,
