@@ -37,10 +37,14 @@ export interface StorageState {
  * the worker resolves every outbox row to `blocked` and nothing reaches the
  * wire, so an account created without these can only ever be read from.
  *
+ * Only isolated runs get them. The shared onboarded account stays unable to
+ * send, which is what `standalone.spec.ts` reads when it asserts compose says
+ * so for itself instead of leaving a dead Send button.
+ *
  * No SMTP password: the sink accepts any credential, and leaving it off is what
  * exercises the ordinary shape where SMTP reuses the IMAP secret.
  */
-export const sendingEnabled = {
+const sendingEnabled = {
 	smtpEnabled: true,
 	smtpHost: smtpFromStack.host,
 	smtpPort: smtpFromStack.port,

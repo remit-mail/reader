@@ -9,7 +9,6 @@ import { buildClassificationFixtures } from "./src/classification-fixtures.js";
 import { baseUrl, imap, imapFromStack, mintImapUser } from "./src/env.js";
 import type { Message } from "./src/imap.js";
 import { appendMessages, listServerSubjects } from "./src/imap.js";
-import { sendingEnabled } from "./src/provision.js";
 import {
 	ensureStateDir,
 	storageStatePath,
@@ -207,7 +206,6 @@ const globalSetup = async (): Promise<void> => {
 		imapPort: imapFromStack.port,
 		imapTls: false,
 		imapStartTls: false,
-		...sendingEnabled,
 	});
 
 	console.log("e2e setup: triggering sync");
