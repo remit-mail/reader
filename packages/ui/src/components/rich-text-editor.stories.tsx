@@ -1,14 +1,23 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { expect, userEvent } from "storybook/test";
 import { sanitizeAdoptedHtml } from "../lib/adopted-html.js";
 import { RichTextEditor } from "./rich-text-editor.js";
 
+/**
+ * The frame is the compose body region at its real geometry — a column with a
+ * height of its own — so the editor is shown claiming the space a composer
+ * gives it rather than only the space its own text needs.
+ */
 const meta: Meta<typeof RichTextEditor> = {
 	title: "Mail/RichTextEditor",
 	component: RichTextEditor,
 	parameters: { layout: "centered" },
 	decorators: [
 		(Story) => (
-			<div className="w-[640px] overflow-hidden rounded-md border border-line bg-canvas">
+			<div
+				data-testid="body-area"
+				className="flex h-[420px] w-[640px] flex-col overflow-auto rounded-md border border-line bg-canvas"
+			>
 				<Story />
 			</div>
 		),
@@ -63,4 +72,33 @@ export const RichContent: Story = {
 export const PasteResult: Story = {
 	name: "After pasting a web page",
 	args: { initialHtml: sanitizeAdoptedHtml(CLIPBOARD_HTML) },
+};
+
+/**
+ * A short message leaves most of the body region empty. That region belongs to
+ * the document: the point far below the last line is the editable, and a click
+ * there lands in it.
+ */
+export const ClickBelowTheText: Story = {
+	name: "Clicking below the last line",
+	args: { initialHtml: "<p>Sounds good. See you at 12:30.</p>" },
+	play: async ({ canvasElement }) => {
+		const area = canvasElement.querySelector<HTMLElement>(
+			"[data-testid=body-area]",
+		);
+		const editable = canvasElement.querySelector<HTMLElement>(
+			"[data-testid=compose-body]",
+		);
+		if (!area || !editable) throw new Error("the editor is not mounted");
+
+		const box = area.getBoundingClientRect();
+		const underTheText = document.elementFromPoint(
+			box.left + box.width / 2,
+			Math.min(box.bottom - 12, window.innerHeight - 2),
+		);
+		await expect(editable.contains(underTheText)).toBe(true);
+
+		await userEvent.click(editable);
+		await expect(editable).toHaveFocus();
+	},
 };
