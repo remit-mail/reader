@@ -793,7 +793,7 @@ describe("createFilesystemStorageService", () => {
 		assert.strictEqual(item.sizeBytes, content.length);
 	});
 
-	test("listOutboxAttachments totals only the named draft, and stops at the limit", async () => {
+	test("listOutboxAttachments returns only the named draft, and every object in it", async () => {
 		const storage = createFilesystemStorageService(testBasePath);
 		for (const id of ["a", "b", "c"]) {
 			await storage.storeOutboxAttachment({
@@ -822,13 +822,6 @@ describe("createFilesystemStorageService", () => {
 			"b",
 			"c",
 		]);
-
-		const capped = await storage.listOutboxAttachments(
-			"cfg1",
-			"acc123",
-			"draft-many",
-		);
-		assert.strictEqual(capped.length, 2);
 	});
 
 	test("listOutboxAttachments returns an empty array for a draft that has none", async () => {
