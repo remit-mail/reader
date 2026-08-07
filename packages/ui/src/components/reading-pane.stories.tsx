@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { Paperclip, Star } from "lucide-react";
 import type { ThreadData, ThreadMessageData } from "./app-shell-types.js";
+import { AttachmentList } from "./attachment-list.js";
+import { MessageBodyView } from "./message-body-view.js";
 import {
 	CollapsedMessage,
 	ExpandedMessage,
@@ -156,7 +158,11 @@ export const CollapsedRowComposed: StoryObj<typeof CollapsedMessage> = {
 						>
 							<Star className="size-3 fill-current" />
 						</button>
-						<Paperclip className="size-3 text-fg-subtle" />
+						<Paperclip
+							className="size-3 text-fg-subtle"
+							role="img"
+							aria-label="Has an attachment"
+						/>
 						<span className="text-2xs text-fg-subtle tabular-nums">
 							Today, 08:42
 						</span>
@@ -180,13 +186,63 @@ export const ExpandedRowComposed: StoryObj<typeof ExpandedMessage> = {
 				indicators={
 					<div className="mt-0.5 flex items-center gap-1">
 						<Star className="size-3.5 fill-current text-warning" />
-						<Paperclip className="size-3.5 text-fg-subtle" />
 					</div>
 				}
 				actionMenu={
 					<button type="button" className="rounded p-1 text-fg-subtle">
 						⋯
 					</button>
+				}
+			/>
+		</div>
+	),
+};
+
+/**
+ * The expanded row as `MessageCard` composes it when the message carries files
+ * (#683): body first, attachment list under it. The indicators row holds no
+ * paperclip — the list below is the affordance, and a second paperclip beside
+ * the live star button only reads as a control that does nothing.
+ */
+export const ExpandedRowWithAttachments: StoryObj<typeof ExpandedMessage> = {
+	render: () => (
+		<div className="max-w-3xl border border-line">
+			<ExpandedMessage
+				message={row}
+				to={<>to Alex Rivera and 2 others</>}
+				indicators={
+					<div className="mt-0.5 flex items-center gap-1">
+						<Star className="size-3.5 fill-current text-warning" />
+					</div>
+				}
+				body={
+					<div className="mt-3">
+						<MessageBodyView
+							html={row.bodyHtml}
+							category="personal"
+							allowImages
+						/>
+						<AttachmentList
+							className="mt-4 px-2 lg:px-0"
+							attachments={[
+								{
+									attachmentId: "part-2",
+									filename: "Q3 board pack.pdf",
+									typeLabel: "PDF",
+									sizeOctets: 2_411_724,
+									download: { status: "idle" },
+								},
+								{
+									attachmentId: "part-3",
+									filename: "headcount.csv",
+									typeLabel: "CSV",
+									sizeOctets: 4_180,
+									download: { status: "idle" },
+								},
+							]}
+							onDownload={(id) => alert(`Download ${id}`)}
+						/>
+					</div>
 				}
 			/>
 		</div>

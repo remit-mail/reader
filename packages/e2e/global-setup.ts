@@ -5,6 +5,10 @@
  */
 import { writeFileSync } from "node:fs";
 import { ApiClient, fetchBearerToken, signUp, waitFor } from "./src/api.js";
+import {
+	ATTACHMENT_MESSAGE,
+	ATTACHMENT_SUBJECT,
+} from "./src/attachment-fixture.js";
 import { buildClassificationFixtures } from "./src/classification-fixtures.js";
 import { baseUrl, imap, imapFromStack, mintImapUser } from "./src/env.js";
 import type { Message } from "./src/imap.js";
@@ -196,6 +200,9 @@ const globalSetup = async (): Promise<void> => {
 		"Sent",
 	);
 
+	console.log("e2e setup: appending the message that carries attachments");
+	await appendMessages(imapUser, [ATTACHMENT_MESSAGE]);
+
 	console.log("e2e setup: creating the account against dovecot");
 	const { accountId } = await api.createAccount({
 		email: imapUser,
@@ -238,6 +245,7 @@ const globalSetup = async (): Promise<void> => {
 			...SEEDED_SUBJECTS,
 			CONVERSATION.receivedSubject,
 			...classificationFixtures.map((fixture) => fixture.subject),
+			ATTACHMENT_SUBJECT,
 		],
 		conversation: {
 			receivedSubject: CONVERSATION.receivedSubject,
