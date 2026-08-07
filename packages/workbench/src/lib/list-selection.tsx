@@ -40,6 +40,11 @@ export interface ListTriageOptions {
  * Shift+j/k, Shift+arrow and ⌘A reach the same handlers here as they reach in
  * the app, so a reviewer pressing them in Storybook is reviewing the shipped
  * interaction.
+ *
+ * The verbs narrow the rows this hands down; which of those rows the keys and
+ * the count reach is the layer's own answer, read off the rendered list, so the
+ * brief's category scope, its chips, its ten-row cap and a collapsed section
+ * all count once.
  */
 export function useListTriage(
 	sections: ThreadSection[],
@@ -67,17 +72,12 @@ export function useListTriage(
 		[sections, trashedIds, readIds],
 	);
 
-	const orderedIds = useMemo(
-		() => visible.flatMap((section) => section.threads).map((t) => t.id),
-		[visible],
-	);
-
 	const list = useListKeyboard({
-		orderedIds,
 		isDesktop,
 		initialFocusedId,
 		initialSelectedIds,
 	});
+	const { orderedIds } = list;
 	const { selection } = list.cursor;
 	const { selectedIds, clearSelection } = selection;
 

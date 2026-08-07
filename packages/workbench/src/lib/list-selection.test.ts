@@ -144,6 +144,7 @@ before(async () => {
 	globalThis.document = dom.window.document;
 	globalThis.HTMLElement = dom.window.HTMLElement;
 	globalThis.Element = dom.window.Element;
+	globalThis.MutationObserver = dom.window.MutationObserver;
 	globalThis.SVGElement = dom.window.SVGElement;
 	(
 		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }

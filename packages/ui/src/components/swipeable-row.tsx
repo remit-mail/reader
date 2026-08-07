@@ -325,6 +325,7 @@ export function SwipeableRow({
 				role={selectionMode ? "checkbox" : undefined}
 				aria-checked={selectionMode ? checked : undefined}
 				data-message-row
+				data-message-id={thread.id}
 				{...gestureProps}
 				className={interactiveClassName}
 				style={interactiveStyle}

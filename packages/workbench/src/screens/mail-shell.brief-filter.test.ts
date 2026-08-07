@@ -38,6 +38,7 @@ before(async () => {
 	globalThis.document = dom.window.document;
 	globalThis.HTMLElement = dom.window.HTMLElement;
 	globalThis.Element = dom.window.Element;
+	globalThis.MutationObserver = dom.window.MutationObserver;
 	globalThis.MouseEvent = dom.window.MouseEvent;
 	// The resizable pane group listens with a signal, and jsdom accepts only its
 	// own.
