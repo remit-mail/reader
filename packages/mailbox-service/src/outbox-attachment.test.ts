@@ -9,6 +9,7 @@ import type {
 	OutboxMessageItem,
 	ReserveOutboxAttachmentResult,
 } from "@remit/data-ports";
+import { holdsRoom } from "@remit/data-ports";
 import { ForbiddenError, NotFoundError } from "@remit/data-ports/errors";
 import {
 	OutboxAttachmentRejectionReason,
@@ -20,7 +21,6 @@ import {
 	UPLOAD_URL_TTL_SECONDS,
 } from "@remit/storage-service";
 import {
-	holdsRoom,
 	OUTBOX_ATTACHMENT_MAX_COUNT,
 	OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
 	OutboxAttachmentService,
@@ -101,6 +101,25 @@ const createRepository = (): IOutboxAttachmentRepository & {
 			};
 			rows.set(outboxAttachmentId, next);
 			return next;
+		},
+		deleteLapsedReservations: async (
+			accountConfigId: string,
+			outboxMessageId: string,
+			nowSeconds: number,
+		) => {
+			const gone: string[] = [];
+			for (const row of [...rows.values()]) {
+				if (
+					row.accountConfigId === accountConfigId &&
+					row.outboxMessageId === outboxMessageId &&
+					row.state === "Pending" &&
+					row.reservationExpiresAt < nowSeconds
+				) {
+					rows.delete(row.outboxAttachmentId);
+					gone.push(row.outboxAttachmentId);
+				}
+			}
+			return gone;
 		},
 		deleteMany: async (accountConfigId, ids) => {
 			for (const id of ids) {
@@ -541,6 +560,162 @@ describe("removing and discarding", () => {
 				DRAFT_ID,
 			),
 			[],
+		);
+	});
+});
+
+describe("retainOnly, which is what attachmentIds drives", () => {
+	const mintTwo = async (service: OutboxAttachmentService) => {
+		const first = await mint(service, { filename: "one.txt", sizeBytes: 8 });
+		const second = await mint(service, { filename: "two.txt", sizeBytes: 8 });
+		assert.equal(first.outcome, "Minted");
+		assert.equal(second.outcome, "Minted");
+		if (first.outcome !== "Minted" || second.outcome !== "Minted") {
+			throw new Error("unreachable");
+		}
+		return [first.reservation, second.reservation] as const;
+	};
+
+	it("keeps everything named and removes everything else, bytes included", async () => {
+		const { service, storage, repository } = build();
+		const [keep, drop] = await mintTwo(service);
+		await uploadFor(storage, keep.outboxAttachmentId, 8);
+		await uploadFor(storage, drop.outboxAttachmentId, 8);
+
+		await service.retainOnly(ACCOUNT_CONFIG_ID, ACCOUNT_ID, DRAFT_ID, [
+			keep.outboxAttachmentId,
+		]);
+
+		assert.deepEqual([...repository.rows.keys()], [keep.outboxAttachmentId]);
+		assert.ok(
+			await storage.statOutboxAttachment(
+				ACCOUNT_CONFIG_ID,
+				ACCOUNT_ID,
+				DRAFT_ID,
+				keep.outboxAttachmentId,
+			),
+		);
+		assert.equal(
+			await storage.statOutboxAttachment(
+				ACCOUNT_CONFIG_ID,
+				ACCOUNT_ID,
+				DRAFT_ID,
+				drop.outboxAttachmentId,
+			),
+			null,
+		);
+	});
+
+	it("an empty list is a real instruction: everything goes", async () => {
+		const { service, storage, repository } = build();
+		const [first] = await mintTwo(service);
+		await uploadFor(storage, first.outboxAttachmentId, 8);
+
+		await service.retainOnly(ACCOUNT_CONFIG_ID, ACCOUNT_ID, DRAFT_ID, []);
+
+		assert.equal(repository.rows.size, 0);
+		assert.deepEqual(
+			await storage.listOutboxAttachments(
+				ACCOUNT_CONFIG_ID,
+				ACCOUNT_ID,
+				DRAFT_ID,
+			),
+			[],
+		);
+	});
+
+	it("naming every id changes nothing", async () => {
+		const { service, repository } = build();
+		const [first, second] = await mintTwo(service);
+
+		await service.retainOnly(ACCOUNT_CONFIG_ID, ACCOUNT_ID, DRAFT_ID, [
+			first.outboxAttachmentId,
+			second.outboxAttachmentId,
+		]);
+
+		assert.equal(repository.rows.size, 2);
+	});
+
+	it("an id the draft never held is a no-op, not a removal of the rest", async () => {
+		const { service, repository } = build();
+		const [first, second] = await mintTwo(service);
+
+		await service.retainOnly(ACCOUNT_CONFIG_ID, ACCOUNT_ID, DRAFT_ID, [
+			first.outboxAttachmentId,
+			second.outboxAttachmentId,
+			"never-existed",
+		]);
+
+		assert.equal(repository.rows.size, 2);
+	});
+});
+
+describe("a reservation that lapses without ever completing", () => {
+	it("is reaped, so the sweep can collect the bytes it was vouching for", async () => {
+		const clock = { seconds: 5_000_000 };
+		const { service, storage, repository } = build(
+			OutboxMessageStatus.draft,
+			() => clock.seconds,
+		);
+		const minted = await mint(service, { sizeBytes: 32 });
+		assert.equal(minted.outcome, "Minted");
+		if (minted.outcome !== "Minted") return;
+		// Uploaded, never confirmed — the shape a closed tab leaves behind.
+		await uploadFor(storage, minted.reservation.outboxAttachmentId, 32);
+
+		clock.seconds += UPLOAD_URL_TTL_SECONDS + 1;
+
+		// Before the reap the row still names the object, which is enough for the
+		// sweep to leave it alone forever.
+		const live = await service.reapAndListLive(ACCOUNT_CONFIG_ID, DRAFT_ID);
+
+		assert.deepEqual(live, []);
+		assert.equal(repository.rows.size, 0);
+	});
+
+	it("is not shown to the composer as a file the draft holds", async () => {
+		const clock = { seconds: 6_000_000 };
+		const { service } = build(OutboxMessageStatus.draft, () => clock.seconds);
+		await mint(service, { sizeBytes: 32 });
+
+		assert.equal(
+			(await service.listFor(ACCOUNT_CONFIG_ID, DRAFT_ID)).length,
+			1,
+		);
+
+		clock.seconds += UPLOAD_URL_TTL_SECONDS + 1;
+
+		assert.deepEqual(await service.listFor(ACCOUNT_CONFIG_ID, DRAFT_ID), []);
+	});
+
+	it("a confirmed attachment cannot be overwritten through its old URL", async () => {
+		const { service, storage } = build();
+		const minted = await mint(service, { sizeBytes: 16 });
+		assert.equal(minted.outcome, "Minted");
+		if (minted.outcome !== "Minted") return;
+		await uploadFor(storage, minted.reservation.outboxAttachmentId, 16);
+
+		assert.equal(
+			await service.hasLiveReservation(
+				ACCOUNT_CONFIG_ID,
+				minted.reservation.outboxAttachmentId,
+			),
+			true,
+		);
+
+		await service.complete({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			outboxMessageId: DRAFT_ID,
+			outboxAttachmentId: minted.reservation.outboxAttachmentId,
+		});
+
+		// The URL stays signed for the rest of its window; the row is what refuses.
+		assert.equal(
+			await service.hasLiveReservation(
+				ACCOUNT_CONFIG_ID,
+				minted.reservation.outboxAttachmentId,
+			),
+			false,
 		);
 	});
 });

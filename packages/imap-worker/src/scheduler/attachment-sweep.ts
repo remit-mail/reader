@@ -18,13 +18,14 @@ export const buildAttachmentSweep =
 		const { deleted, skipped } = await sweepAbandonedOutboxAttachments(
 			{
 				storage: client.storage,
-				listKnownAttachmentIds: async (accountConfigId, outboxMessageId) =>
-					(
-						await client.outboxAttachment.listFor(
-							accountConfigId,
-							outboxMessageId,
-						)
-					).map((item) => item.outboxAttachmentId),
+				// Reaps the draft's lapsed reservations first, so a row that has
+				// stopped holding room stops vouching for its bytes too and the
+				// object is collected on this same pass.
+				listKnownAttachmentIds: (accountConfigId, outboxMessageId) =>
+					client.outboxAttachment.reapAndListLive(
+						accountConfigId,
+						outboxMessageId,
+					),
 				onSkipped: (outboxMessageId, error) => {
 					log.error(
 						{ outboxMessageId, error },

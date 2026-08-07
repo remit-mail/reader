@@ -464,6 +464,10 @@ services:
     volumes:
       - sqlite_data:/data/sqlite
       - heartbeat:/data/heartbeat
+      # The tick collects outbox attachment objects the database does not know
+      # about, so it has to be able to see the storage tree. Without this mount
+      # the sweep reads an empty directory and reports every account as swept.
+      - message_storage:/data/storage
     depends_on:
       queue:
         condition: service_healthy

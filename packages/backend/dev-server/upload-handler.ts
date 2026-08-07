@@ -37,7 +37,10 @@ export const collectLimitedBody = async (
 		const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
 		received += buffer.length;
 		if (received > maxBytes) {
-			stream.destroy();
+			// Stop reading, but leave the socket alone: destroying it here races the
+			// 413 the caller is about to write, and the client sees a connection
+			// reset instead of the reason it was refused.
+			stream.pause();
 			return { outcome: "TooLarge" };
 		}
 		chunks.push(buffer);

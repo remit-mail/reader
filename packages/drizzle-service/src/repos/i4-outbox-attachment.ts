@@ -5,7 +5,8 @@ import type {
 	OutboxAttachmentItem,
 	ReserveOutboxAttachmentResult,
 } from "@remit/data-ports";
-import { and, eq, inArray } from "drizzle-orm";
+import { holdsRoom } from "@remit/data-ports";
+import { and, eq, inArray, lt } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { outboxAttachmentTable } from "../schema/i4-outbox-attachment.js";
@@ -32,24 +33,21 @@ function rowToOutboxAttachment(
 	};
 }
 
-/** Stored, or reserved and not yet lapsed. Anything else holds no room. */
-const holdsRoom = (item: OutboxAttachmentItem, nowSeconds: number): boolean =>
-	item.state === "Stored" || item.reservationExpiresAt >= nowSeconds;
-
 export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 	constructor(private db: DB) {}
 
 	/**
-	 * The per-message cap, enforced where the count and the insert are one
-	 * operation. Two requests reserving at the same moment serialize here rather
-	 * than each measuring a draft neither has written to.
+	 * The per-message cap: the count and the insert are one transaction, on the
+	 * transaction's own handle, so a concurrent reservation cannot land between
+	 * them. See the port's contract for the invariant this owes its callers and
+	 * what an adapter on another engine has to do to keep it.
 	 */
 	async reserve(
 		input: CreateOutboxAttachmentInput,
 		cap: OutboxAttachmentCap,
 	): Promise<ReserveOutboxAttachmentResult> {
-		return runInTransaction(this.db, async () => {
-			const existing = await this.db
+		return runInTransaction(this.db, async (tx) => {
+			const existing = await tx
 				.select()
 				.from(outboxAttachmentTable)
 				.where(
@@ -72,7 +70,7 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 			}
 
 			const now = Date.now();
-			const [row] = await this.db
+			const [row] = await tx
 				.insert(outboxAttachmentTable)
 				.values({
 					outboxAttachmentId: input.outboxAttachmentId,
@@ -162,6 +160,25 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 		return row ? rowToOutboxAttachment(row) : null;
 	}
 
+	async deleteLapsedReservations(
+		accountConfigId: string,
+		outboxMessageId: string,
+		nowSeconds: number,
+	): Promise<string[]> {
+		const rows = await this.db
+			.delete(outboxAttachmentTable)
+			.where(
+				and(
+					eq(outboxAttachmentTable.accountConfigId, accountConfigId),
+					eq(outboxAttachmentTable.outboxMessageId, outboxMessageId),
+					eq(outboxAttachmentTable.state, "Pending"),
+					lt(outboxAttachmentTable.reservationExpiresAt, nowSeconds),
+				),
+			)
+			.returning();
+		return rows.map((row) => row.outboxAttachmentId);
+	}
+
 	async deleteMany(
 		accountConfigId: string,
 		outboxAttachmentIds: string[],
@@ -194,5 +211,3 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 			);
 	}
 }
-
-export { holdsRoom };

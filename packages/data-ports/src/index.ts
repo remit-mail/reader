@@ -23,6 +23,7 @@ export type {
 	OutboxAttachmentCap,
 	ReserveOutboxAttachmentResult,
 } from "./interfaces/outbox-attachment.js";
+export { holdsRoom } from "./interfaces/outbox-attachment.js";
 export type { IOutboxMessageRepository } from "./interfaces/outbox-message.js";
 export type { IQuarantineRepository } from "./interfaces/quarantine.js";
 export type { IThreadMessageRepository } from "./interfaces/thread-message.js";

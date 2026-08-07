@@ -184,6 +184,25 @@ const createAttachmentRepository = (
 				}
 			}
 		},
+		deleteLapsedReservations: async (
+			accountConfigId: string,
+			outboxMessageId: string,
+			nowSeconds: number,
+		) => {
+			const gone: string[] = [];
+			for (const row of [...rows.values()]) {
+				if (
+					row.accountConfigId === accountConfigId &&
+					row.outboxMessageId === outboxMessageId &&
+					row.state === "Pending" &&
+					row.reservationExpiresAt < nowSeconds
+				) {
+					rows.delete(row.outboxAttachmentId);
+					gone.push(row.outboxAttachmentId);
+				}
+			}
+			return gone;
+		},
 		deleteMany: async (_accountConfigId: string, ids: string[]) => {
 			for (const id of ids) rows.delete(id);
 		},
@@ -404,5 +423,118 @@ describe("discarding a draft that carries files (#679)", () => {
 			[],
 		);
 		assert.equal(attachmentRows.size, 0);
+	});
+});
+
+describe("attachmentIds on a draft update (#679)", () => {
+	const seed = async (): Promise<{
+		outboxMessageId: string;
+		ids: string[];
+	}> => {
+		const draft = await createDraft(
+			requestContext({}),
+			authorizedEvent({
+				accountId: ACCOUNT_ID,
+				toAddresses: ["recipient@example.com"],
+			}),
+		);
+		const outboxMessageId = String(draft.outboxMessageId);
+		const client = await getClient();
+		const ids: string[] = [];
+		for (const filename of ["one.txt", "two.txt"]) {
+			const minted = await client.outboxAttachment.mint({
+				accountConfigId: ACCOUNT_CONFIG_ID,
+				outboxMessageId,
+				filename,
+				contentType: "text/plain",
+				sizeBytes: 8,
+			});
+			assert.equal(minted.outcome, "Minted");
+			if (minted.outcome !== "Minted") throw new Error("unreachable");
+			ids.push(minted.reservation.outboxAttachmentId);
+		}
+		return { outboxMessageId, ids };
+	};
+
+	const patch = (outboxMessageId: string, requestBody: unknown) =>
+		respond(() =>
+			updateDraft(
+				requestContext({ params: { outboxMessageId }, requestBody }),
+				authorizedEvent(),
+			),
+		);
+
+	it("absent leaves the files alone — a subject-only save keeps them", async () => {
+		installClient();
+		const { outboxMessageId } = await seed();
+
+		const response = await patch(outboxMessageId, { subject: "still typing" });
+
+		assert.equal(response.statusCode, 200);
+		const body = JSON.parse(response.body) as { attachments: unknown[] };
+		assert.equal(body.attachments.length, 2);
+		assert.equal(attachmentRows.size, 2);
+	});
+
+	it("present and empty removes every file", async () => {
+		installClient();
+		const { outboxMessageId } = await seed();
+
+		const response = await patch(outboxMessageId, { attachmentIds: [] });
+
+		assert.equal(response.statusCode, 200);
+		assert.deepEqual(
+			(JSON.parse(response.body) as { attachments: unknown[] }).attachments,
+			[],
+		);
+		assert.equal(attachmentRows.size, 0);
+	});
+
+	it("present with ids keeps those and removes the rest, bytes included", async () => {
+		installClient();
+		const { outboxMessageId, ids } = await seed();
+		const storage = installedStorage;
+		assert.ok(storage);
+		await storage.storeOutboxAttachment({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			outboxMessageId,
+			outboxAttachmentId: ids[1],
+			content: Buffer.from("dropped"),
+		});
+
+		const response = await patch(outboxMessageId, {
+			attachmentIds: [ids[0]],
+		});
+
+		assert.equal(response.statusCode, 200);
+		const body = JSON.parse(response.body) as {
+			attachments: { outboxAttachmentId: string }[];
+		};
+		assert.deepEqual(
+			body.attachments.map((item) => item.outboxAttachmentId),
+			[ids[0]],
+		);
+		assert.equal(
+			await storage.statOutboxAttachment(
+				ACCOUNT_CONFIG_ID,
+				ACCOUNT_ID,
+				outboxMessageId,
+				ids[1],
+			),
+			null,
+		);
+	});
+
+	it("an unknown id is a no-op, not a reason to drop the known ones", async () => {
+		installClient();
+		const { outboxMessageId, ids } = await seed();
+
+		const response = await patch(outboxMessageId, {
+			attachmentIds: [...ids, "never-existed"],
+		});
+
+		assert.equal(response.statusCode, 200);
+		assert.equal(attachmentRows.size, 2);
 	});
 });

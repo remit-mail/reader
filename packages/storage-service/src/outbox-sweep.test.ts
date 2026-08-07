@@ -113,15 +113,46 @@ describe("sweepAbandonedOutboxAttachments", () => {
 		assert.strictEqual(result.deleted, 1);
 	});
 
-	test("keeps an attachment reserved after the objects were listed", async () => {
-		// Objects are listed before the rows are read, so a mint landing between
-		// the two shows up as a row and is kept. The other order would delete it.
+	test("an attachment that lands between the two reads is kept", async () => {
+		// Objects are listed before the rows are read. A mint that lands in that
+		// window is seen as a row and not as an object, so it survives. Read the
+		// rows first and the same mint is an object with no row behind it — this
+		// fails if those two lines ever swap.
 		const storage = await withObjects({ draft1: ["already-there"] });
+		let listedObjects = false;
+
+		const inner = storage.listOutboxAttachments.bind(storage);
+		const observing = {
+			...storage,
+			listOutboxAttachments: async (
+				accountConfigId: string,
+				accountId: string,
+				outboxMessageId: string,
+			) => {
+				listedObjects = true;
+				return inner(accountConfigId, accountId, outboxMessageId);
+			},
+		} as StorageService;
 
 		await sweepAbandonedOutboxAttachments(
 			{
-				storage,
-				listKnownAttachmentIds: async () => ["already-there", "just-reserved"],
+				storage: observing,
+				listKnownAttachmentIds: async () => {
+					assert.strictEqual(
+						listedObjects,
+						true,
+						"rows must be read after the objects were listed, never before",
+					);
+					// The mint that landed in the window.
+					await storage.storeOutboxAttachment({
+						accountConfigId: CFG,
+						accountId: ACC,
+						outboxMessageId: "draft1",
+						outboxAttachmentId: "just-reserved",
+						content: Buffer.alloc(4),
+					});
+					return ["already-there", "just-reserved"];
+				},
 				onSkipped: () => {},
 			},
 			CFG,
@@ -130,6 +161,7 @@ describe("sweepAbandonedOutboxAttachments", () => {
 
 		assert.deepStrictEqual(await remaining(storage, "draft1"), [
 			"already-there",
+			"just-reserved",
 		]);
 	});
 

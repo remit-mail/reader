@@ -4,6 +4,7 @@ import type {
 	OutboxAttachmentItem,
 	OutboxMessageItem,
 } from "@remit/data-ports";
+import { holdsRoom } from "@remit/data-ports";
 import { ConflictError } from "@remit/data-ports/errors";
 import { base36uuid } from "@remit/data-ports/id";
 import {
@@ -92,13 +93,6 @@ export interface OutboxAttachmentConfig {
 
 const formatBytes = (bytes: number): string =>
 	`${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-
-/** Stored, or reserved and not yet lapsed. */
-export const holdsRoom = (
-	item: OutboxAttachmentItem,
-	nowSeconds: number,
-): boolean =>
-	item.state === "Stored" || item.reservationExpiresAt >= nowSeconds;
 
 export class OutboxAttachmentService {
 	private readonly outboxMessageService: IOutboxMessageRepository;
@@ -382,15 +376,55 @@ export class OutboxAttachmentService {
 		const row = await this.attachments
 			.get(accountConfigId, outboxAttachmentId)
 			.catch(() => null);
-		return row !== null && holdsRoom(row, this.now());
+		// Pending only. A Stored row has already been confirmed at a size, and its
+		// URL stays signed for the rest of its window — accepting a second write
+		// would let the same-length bytes behind a confirmed attachment be
+		// replaced.
+		return (
+			row !== null &&
+			row.state === "Pending" &&
+			row.reservationExpiresAt >= this.now()
+		);
 	};
 
-	/** What a draft holds, for the outbox response. */
-	listFor = (
+	/**
+	 * What a draft holds, as the composer should see it: reservations that have
+	 * lapsed are not files, and showing one with no way to tell it apart is worse
+	 * than not showing it.
+	 */
+	listFor = async (
 		accountConfigId: string,
 		outboxMessageId: string,
-	): Promise<OutboxAttachmentItem[]> =>
-		this.attachments.listByOutboxMessage(accountConfigId, outboxMessageId);
+	): Promise<OutboxAttachmentItem[]> => {
+		const nowSeconds = this.now();
+		const held = await this.attachments.listByOutboxMessage(
+			accountConfigId,
+			outboxMessageId,
+		);
+		return held.filter((item) => holdsRoom(item, nowSeconds));
+	};
+
+	/**
+	 * Drop the draft's lapsed reservations and answer with the ids that are still
+	 * good. The sweep runs this before it decides what to collect: a lapsed row
+	 * would otherwise keep vouching for bytes nothing will ever send, and the
+	 * object would never be collected while the row that names it survives.
+	 */
+	reapAndListLive = async (
+		accountConfigId: string,
+		outboxMessageId: string,
+	): Promise<string[]> => {
+		await this.attachments.deleteLapsedReservations(
+			accountConfigId,
+			outboxMessageId,
+			this.now(),
+		);
+		const held = await this.attachments.listByOutboxMessage(
+			accountConfigId,
+			outboxMessageId,
+		);
+		return held.map((item) => item.outboxAttachmentId);
+	};
 
 	/**
 	 * Keep only the named attachments, deleting the rest with their bytes. This
@@ -410,16 +444,32 @@ export class OutboxAttachmentService {
 		const drop = held.filter((item) => !keep.has(item.outboxAttachmentId));
 		if (drop.length === 0) return;
 
+		// Bytes first, rows second — the same order as `discardAll`, and for the
+		// same reason: while a row exists its object is accounted for, so a
+		// failure part-way leaves something the sweep can still finish. One
+		// object that will not delete must not strand the rest, so the failures
+		// are collected and raised together once the rows are gone.
+		const failures: unknown[] = [];
+		for (const item of drop) {
+			await this.storage
+				.deleteOutboxAttachment(
+					accountConfigId,
+					accountId,
+					outboxMessageId,
+					item.outboxAttachmentId,
+				)
+				.catch((error: unknown) => failures.push(error));
+		}
+
 		await this.attachments.deleteMany(
 			accountConfigId,
 			drop.map((item) => item.outboxAttachmentId),
 		);
-		for (const item of drop) {
-			await this.storage.deleteOutboxAttachment(
-				accountConfigId,
-				accountId,
-				outboxMessageId,
-				item.outboxAttachmentId,
+
+		if (failures.length > 0) {
+			throw new AggregateError(
+				failures,
+				`Could not delete ${failures.length} of ${drop.length} attachment objects; their rows are gone and the sweep will collect them`,
 			);
 		}
 	};

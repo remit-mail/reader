@@ -22,13 +22,13 @@ import type {
 	OutboxMessageItem,
 	UpdateOutboxMessageInput,
 } from "@remit/data-ports";
+import { holdsRoom } from "@remit/data-ports";
 import { ForbiddenError, NotFoundError } from "@remit/data-ports/errors";
 import {
 	OutboxAttachmentRejectionReason,
 	OutboxMessageStatus,
 } from "@remit/domain-enums";
 import {
-	holdsRoom,
 	OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
 	OutboxAttachmentService,
 } from "@remit/mailbox-service";
@@ -152,6 +152,25 @@ const createAttachmentRepository = (
 			} as OutboxAttachmentItem;
 			rows.set(outboxAttachmentId, next);
 			return next;
+		},
+		deleteLapsedReservations: async (
+			accountConfigId: string,
+			outboxMessageId: string,
+			nowSeconds: number,
+		) => {
+			const gone: string[] = [];
+			for (const row of [...rows.values()]) {
+				if (
+					row.accountConfigId === accountConfigId &&
+					row.outboxMessageId === outboxMessageId &&
+					row.state === "Pending" &&
+					row.reservationExpiresAt < nowSeconds
+				) {
+					rows.delete(row.outboxAttachmentId);
+					gone.push(row.outboxAttachmentId);
+				}
+			}
+			return gone;
 		},
 		deleteMany: async (_accountConfigId, ids) => {
 			for (const id of ids) rows.delete(id);

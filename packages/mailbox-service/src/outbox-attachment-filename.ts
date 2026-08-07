@@ -41,9 +41,13 @@ const truncateKeepingExtension = (filename: string): string => {
  * replaced with something invented.
  */
 export const sanitizeAttachmentFilename = (raw: string): string | null => {
-	const basename = raw.replace(PATH_SEPARATORS, "");
-	const stripped = basename.replace(UNSAFE_CHARACTERS, "").trim();
-	const trimmed = stripped.replace(/^\.+/, "").trim();
+	// Strip first, then take the basename. The other order is bypassable: `.`
+	// does not match a newline, so `PATH_SEPARATORS` stops at one and leaves
+	// every separator after it — "report\r\n/../../.bashrc" survives with its
+	// slashes intact.
+	const stripped = raw.replace(UNSAFE_CHARACTERS, "");
+	const basename = stripped.replace(PATH_SEPARATORS, "").trim();
+	const trimmed = basename.replace(/^\.+/, "").trim();
 
 	if (trimmed.length === 0) return null;
 

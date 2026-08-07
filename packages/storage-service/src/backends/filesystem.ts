@@ -326,6 +326,24 @@ export const createFilesystemStorageService = (
 
 	const listOutboxDraftsWithAttachments: StorageService["listOutboxDraftsWithAttachments"] =
 		async (accountConfigId, accountId) => {
+			// An account that has never held an attachment has no directory, and
+			// that is genuinely nothing to do. A storage root that is not there at
+			// all is a different thing entirely — a process that cannot see the
+			// volume it is meant to be collecting from — and it must not read as an
+			// empty answer. Unmounted, the sweep would report every account swept
+			// and collect nothing, forever.
+			const rootExists = await stat(basePath)
+				.then(() => true)
+				.catch((error: unknown) => {
+					if (isStorageNotFoundError(error)) return false;
+					throw error;
+				});
+			if (!rootExists) {
+				throw new Error(
+					`storage root ${basePath} does not exist; this process cannot see the storage it was asked to read`,
+				);
+			}
+
 			const root = join(
 				basePath,
 				`accounts/${accountConfigId}/${accountId}/outbox`,

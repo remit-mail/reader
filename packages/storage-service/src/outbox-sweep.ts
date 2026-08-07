@@ -71,8 +71,24 @@ export const sweepAbandonedOutboxAttachments = async (
 		}
 
 		inspected += objects.length;
-		for (const object of objects) {
-			if (known.has(object.outboxAttachmentId)) continue;
+		const abandoned = objects.filter(
+			(object) => !known.has(object.outboxAttachmentId),
+		);
+
+		// A draft whose every object is abandoned is the common case — it was
+		// discarded — and taking the prefix in one call beats one round trip per
+		// object.
+		if (abandoned.length === objects.length) {
+			await deps.storage.deleteOutboxAttachments(
+				accountConfigId,
+				accountId,
+				outboxMessageId,
+			);
+			deleted += abandoned.length;
+			continue;
+		}
+
+		for (const object of abandoned) {
 			await deps.storage.deleteOutboxAttachment(
 				accountConfigId,
 				accountId,

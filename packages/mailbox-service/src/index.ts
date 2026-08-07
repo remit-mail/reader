@@ -200,7 +200,6 @@ export {
 export {
 	type CompleteOutboxAttachmentInput,
 	type CompleteOutboxAttachmentOutcome,
-	holdsRoom,
 	type MintOutboxAttachmentInput,
 	type MintOutboxAttachmentOutcome,
 	OUTBOX_ATTACHMENT_MAX_COUNT,

@@ -115,3 +115,18 @@ describe("normalizeAttachmentContentType", () => {
 		);
 	});
 });
+
+describe("a filename that hides its separators behind control characters", () => {
+	it("takes the basename after the newline, not before it", () => {
+		// `.` does not match a newline, so a basename strip that runs first stops
+		// at it and leaves every separator that follows.
+		assert.equal(
+			sanitizeAttachmentFilename("report\r\n/../../.bashrc"),
+			"bashrc",
+		);
+	});
+
+	it("leaves nothing usable when the whole name is separators and a newline", () => {
+		assert.equal(sanitizeAttachmentFilename("..\n/../x.png"), "x.png");
+	});
+});

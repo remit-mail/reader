@@ -124,10 +124,38 @@ export const runSchedulerTick = async (
 		});
 		scanned += page.items.length;
 
+		const due = page.items.filter(
+			(account) =>
+				isEligible(account) && isSyncDue(account, now, offlineIntervalMs),
+		);
+		skipped += page.items.length - due.length;
+
+		await pMap(
+			due,
+			(account) =>
+				triggerAccountSync({
+					sqsClient,
+					queueUrl,
+					accountId: account.accountId,
+					dedupId: buildScheduledSyncDedupId(
+						account.accountId,
+						now,
+						tickIntervalMs,
+					),
+				}),
+			{ concurrency: SCHEDULER_ENQUEUE_CONCURRENCY },
+		);
+		enqueued += due.length;
+
 		if (deps.sweepAttachments) {
+			// After the enqueue, never before it. Enqueuing mail is the tick's job
+			// and collecting bytes is housekeeping; on a hosted Lambda a slow sweep
+			// ahead of the enqueue eats the invocation budget, and a timeout is not
+			// catchable, so the remaining pages would never be enqueued at all.
+			//
 			// Every account, not only the ones due a sync: abandoned bytes have
 			// nothing to do with how recently mail was fetched. Bounded to the same
-			// concurrency as the enqueues below.
+			// concurrency as the enqueues.
 			//
 			// Contained, because this is housekeeping and enqueuing mail is not. An
 			// unreadable input or a storage permission error thrown from here would
@@ -154,29 +182,6 @@ export const runSchedulerTick = async (
 			swept += outcomes.filter(Boolean).length;
 			sweepFailed += outcomes.filter((ok) => !ok).length;
 		}
-
-		const due = page.items.filter(
-			(account) =>
-				isEligible(account) && isSyncDue(account, now, offlineIntervalMs),
-		);
-		skipped += page.items.length - due.length;
-
-		await pMap(
-			due,
-			(account) =>
-				triggerAccountSync({
-					sqsClient,
-					queueUrl,
-					accountId: account.accountId,
-					dedupId: buildScheduledSyncDedupId(
-						account.accountId,
-						now,
-						tickIntervalMs,
-					),
-				}),
-			{ concurrency: SCHEDULER_ENQUEUE_CONCURRENCY },
-		);
-		enqueued += due.length;
 
 		cursor = page.cursor ?? undefined;
 	} while (cursor);
