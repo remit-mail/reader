@@ -101,8 +101,7 @@ const noKeyboard: MessageListKeyboard = {
  * footer offers what is wired.
  */
 function LiveList({ briefFilters = false }: { briefFilters?: boolean }) {
-	const orderedIds = sections.flatMap((s) => s.threads).map((t) => t.id);
-	const list = useListKeyboard({ orderedIds, isDesktop: true });
+	const list = useListKeyboard({ isDesktop: true });
 	return (
 		<MessageListPane
 			listTitle="Inbox"
@@ -258,9 +257,9 @@ function SelectableList({ isDesktop }: { isDesktop: boolean }) {
 				readIds.has(thread.id) ? { ...thread, isRead: true } : thread,
 			),
 	}));
-	const orderedIds = visible.flatMap((s) => s.threads).map((t) => t.id);
-	const list = useListKeyboard({ orderedIds, isDesktop });
+	const list = useListKeyboard({ isDesktop });
 	const { selection } = list.cursor;
+	const { orderedIds } = list;
 	const allSelected =
 		orderedIds.length > 0 &&
 		orderedIds.every((id) => selection.selectedIds.has(id));

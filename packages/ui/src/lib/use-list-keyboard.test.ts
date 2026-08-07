@@ -1,8 +1,8 @@
 /**
  * The list's keyboard layer as a host mounts it: the keys reach the cursor from
  * inside the element the layer was given and from nowhere else, the row-click
- * path reads its modifiers the same way, the selection follows the rows it is
- * handed, and the footer offers only the actions the layer registered.
+ * path reads its modifiers the same way, the selection follows the rows on
+ * screen, and the footer offers only the actions the layer registered.
  */
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
@@ -18,14 +18,32 @@ let container: HTMLElement;
 let root: Root;
 let list: ListKeyboard;
 
-function Harness({ orderedIds }: { orderedIds: string[] }) {
-	list = useListKeyboard({ orderedIds, isDesktop: true });
-	return createElement("section", { id: "pane", ref: list.keyboard.ref });
+function Harness({ rowIds }: { rowIds: string[] }) {
+	list = useListKeyboard({ isDesktop: true });
+	return createElement(
+		"section",
+		{ id: "pane", ref: list.keyboard.ref },
+		...rowIds.map((id) =>
+			createElement("button", {
+				key: id,
+				type: "button",
+				"data-message-id": id,
+			}),
+		),
+	);
 }
 
-const mount = (orderedIds: string[] = ALL_IDS) => {
+const mount = (rowIds: string[] = ALL_IDS) => {
 	act(() => {
-		root.render(createElement(Harness, { orderedIds }));
+		root.render(createElement(Harness, { rowIds }));
+	});
+};
+
+// The layer reads the rendered rows through a MutationObserver, whose callback
+// lands on the microtask queue — an async act flushes both.
+const rerender = async (rowIds: string[]) => {
+	await act(async () => {
+		root.render(createElement(Harness, { rowIds }));
 	});
 };
 
@@ -82,6 +100,7 @@ before(async () => {
 	globalThis.HTMLElement = dom.window.HTMLElement;
 	globalThis.Element = dom.window.Element;
 	globalThis.SVGElement = dom.window.SVGElement;
+	globalThis.MutationObserver = dom.window.MutationObserver;
 	(
 		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 	).IS_REACT_ACT_ENVIRONMENT = true;
@@ -159,14 +178,35 @@ describe("useListKeyboard", () => {
 		assert.deepEqual(selected(), []);
 	});
 
-	it("drops the ticked rows that leave the list, and keeps the rest", () => {
+	it("drops the ticked rows that leave the screen, and keeps the rest", async () => {
 		press("a", { metaKey: true });
 		assert.deepEqual(selected(), ALL_IDS);
-		mount(["m1", "m3"]);
+		await rerender(["m1", "m3"]);
 		assert.deepEqual(
 			selected(),
 			["m1", "m3"],
 			"a verb acts on the rows that are still on screen",
+		);
+	});
+
+	it("walks and takes only the rows the pane is rendering", async () => {
+		await rerender(["m1", "m2"]);
+
+		press("a", { metaKey: true });
+		assert.deepEqual(
+			selected(),
+			["m1", "m2"],
+			"⌘A stops at the rows on screen",
+		);
+
+		press("Escape");
+		press("j");
+		press("j");
+		press("j");
+		assert.equal(
+			list.keyboard.focusedId,
+			"m2",
+			"the cursor stops at the last rendered row",
 		);
 	});
 });

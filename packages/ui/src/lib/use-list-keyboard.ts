@@ -10,7 +10,10 @@
  *
  * The layer binds its keys to the pane element rather than the window, so a
  * page carrying several lists gives each of them only the keys pressed inside
- * it.
+ * it. It takes the rows it walks from that same element rather than from the
+ * caller's data: a section behind "Show N more", a collapsed header and a
+ * category scope all take rows off the screen without touching the data, and a
+ * cursor or a count built from the data reaches them anyway.
  */
 import { useEffect, useMemo, useState } from "react";
 import type {
@@ -19,11 +22,12 @@ import type {
 } from "../components/app-shell-types.js";
 import type { TriageHandlers } from "./keymap.js";
 import { type ListCursor, useListCursor } from "./use-list-cursor.js";
+import { useRenderedRowIds } from "./use-rendered-row-ids.js";
 import { useTriageKeyboard } from "./use-triage-keyboard.js";
 
+const NO_ROWS: string[] = [];
+
 export interface UseListKeyboardOptions {
-	/** Row ids in display order. */
-	orderedIds: string[];
 	isDesktop: boolean;
 	/** Seeds the cursor — normally the open thread. */
 	initialFocusedId?: string;
@@ -35,6 +39,11 @@ export interface UseListKeyboardOptions {
 
 export interface ListKeyboard {
 	cursor: ListCursor;
+	/**
+	 * The rows the pane is rendering, in display order — what the keys walk,
+	 * what ⌘A takes, and what a select-all checkbox above the list counts.
+	 */
+	orderedIds: string[];
 	/** The pane's `selection` prop. */
 	selection: MessageListSelection;
 	/** The pane's `keyboard` prop. */
@@ -42,13 +51,14 @@ export interface ListKeyboard {
 }
 
 export const useListKeyboard = ({
-	orderedIds,
 	isDesktop,
 	initialFocusedId,
 	initialSelectedIds,
 	enabled = true,
 }: UseListKeyboardOptions): ListKeyboard => {
 	const [pane, setPane] = useState<HTMLElement | null>(null);
+	const renderedIds = useRenderedRowIds(pane);
+	const orderedIds = renderedIds ?? NO_ROWS;
 
 	const cursor = useListCursor({
 		orderedIds,
@@ -70,13 +80,16 @@ export const useListKeyboard = ({
 	};
 	useTriageKeyboard({ handlers, enabled, target: pane });
 
-	// A row that leaves the list — a filter, an account pill, a completed verb —
-	// cannot stay selected, or the count and the verbs act on rows nobody can
-	// see. The same rule the app runs in `ThreadListInteraction`.
+	// A row that leaves the screen — a filter, an account pill, a collapsed
+	// section, a completed verb — cannot stay selected, or the count and the
+	// verbs act on rows nobody can see. The same rule the app runs in
+	// `ThreadListInteraction`. Rows that have not been read yet are not rows that
+	// left, so the seeded selection survives the first render.
 	const { intersectWith } = cursor.selection;
 	useEffect(() => {
-		intersectWith(orderedIds);
-	}, [intersectWith, orderedIds]);
+		if (renderedIds === undefined) return;
+		intersectWith(renderedIds);
+	}, [intersectWith, renderedIds]);
 
 	const { selectedIds, toggle } = cursor.selection;
 	const { handleRowSelect } = cursor;
@@ -91,6 +104,7 @@ export const useListKeyboard = ({
 
 	return {
 		cursor,
+		orderedIds,
 		selection,
 		keyboard: {
 			focusedId: cursor.focusedMessageId,

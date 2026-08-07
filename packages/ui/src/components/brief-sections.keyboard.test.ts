@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import type { JSDOM } from "jsdom";
-import { act, createElement, useMemo } from "react";
+import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { LIST_ROW_SELECTOR } from "../lib/roving-focus.js";
 import {
@@ -76,6 +76,7 @@ before(async () => {
 	globalThis.HTMLElement = dom.window.HTMLElement;
 	globalThis.Element = dom.window.Element;
 	globalThis.KeyboardEvent = dom.window.KeyboardEvent;
+	globalThis.MutationObserver = dom.window.MutationObserver;
 	Object.defineProperty(globalThis, "navigator", {
 		value: dom.window.navigator,
 		configurable: true,
@@ -178,16 +179,10 @@ describe("BriefSections arrow-key traversal", () => {
 	});
 });
 
-const orderedIds = sections.flatMap((section) =>
-	section.threads.map((thread) => thread.id),
-);
-
 let list: ListKeyboard | undefined;
 
 function BriefUnderLayer() {
-	const ids = useMemo(() => orderedIds, []);
 	const keyboard = useListKeyboard({
-		orderedIds: ids,
 		isDesktop: true,
 		initialFocusedId: "t1",
 	});

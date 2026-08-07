@@ -49,11 +49,49 @@ export const Default: Story = {
  * chip bar (Unread · Has attachment · From contacts · Today). The padded
  * Personal and Newsletter sections show their first 10 rows with an expander;
  * chips stack additively to narrow the visible threads.
+ *
+ * The cursor and the selection reach the rows on screen and no others: ⌘A
+ * counts what is rendered rather than everything behind the two expanders, and
+ * narrowing to a category takes the rows it hides out of the count with them.
  */
 export const Filtered: Story = {
 	render: () => (
 		<MailShell {...brief} sections={briefSectionsLong()} briefFilters />
 	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const shown = () =>
+			canvasElement.querySelectorAll("[data-list-row]").length;
+
+		await userEvent.click(canvas.getByLabelText("Expand filters"));
+		const capped = Array.from(canvasElement.querySelectorAll("button")).filter(
+			(button) => /^Show \d+ more/.test(button.textContent ?? ""),
+		);
+		await expect(capped.length).toBeGreaterThan(0);
+
+		canvasElement.querySelector<HTMLElement>("[data-list-row]")?.focus();
+		await userEvent.keyboard("{Meta>}a{/Meta}");
+		await waitFor(() =>
+			expect(
+				canvas.getByText(`All ${shown()} loaded selected`),
+			).toBeInTheDocument(),
+		);
+
+		const categories = canvasElement.querySelector<HTMLElement>(
+			'[aria-label="Categories"]',
+		);
+		await expect(categories).not.toBeNull();
+		await userEvent.click(
+			within(categories as HTMLElement).getByRole("button", {
+				name: "Newsletter",
+			}),
+		);
+		await waitFor(() =>
+			expect(
+				canvas.getByText(`All ${shown()} loaded selected`),
+			).toBeInTheDocument(),
+		);
+	},
 };
 
 /**

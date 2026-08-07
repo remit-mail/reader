@@ -749,6 +749,10 @@ export {
 	useLongPress,
 } from "./lib/use-long-press.js";
 export {
+	MESSAGE_ROW_SELECTOR,
+	useRenderedRowIds,
+} from "./lib/use-rendered-row-ids.js";
+export {
 	computeRange,
 	deriveIsMultiSelectMode,
 	intersectSelectedIds,
