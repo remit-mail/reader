@@ -91,6 +91,9 @@ describe("opening compose over an open message (#703)", () => {
 		await harness.flush();
 
 		assert.equal(button.getAttribute("data-open"), "true");
+		// Still the mailbox it was opened from: the surface is mounted by this
+		// route, so a navigation that left it would take compose with it.
+		assert.equal(router.history.location.pathname, "/mail/mbx-1");
 		const search = router.history.location.search;
 		assert.equal(search.includes("selectedMessageId"), false);
 		assert.equal(search.includes("selectedThreadId"), false);
