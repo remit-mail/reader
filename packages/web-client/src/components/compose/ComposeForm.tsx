@@ -54,18 +54,6 @@ const LazyComposeBody = lazy(() =>
 	import("@remit/ui/rich-text").then((m) => ({ default: m.ComposeBody })),
 );
 
-/**
- * Mounts only once the body's chunk has arrived: a suspended boundary commits
- * none of its children, so this is the signal that the editor the user is
- * about to send is the one on screen.
- */
-const ComposeBodyReady = ({ onReady }: { onReady: () => void }) => {
-	useEffect(() => {
-		onReady();
-	}, [onReady]);
-	return null;
-};
-
 import { useIsDesktop } from "../../hooks/useMediaQuery.js";
 import { useVisualViewport } from "../../hooks/useVisualViewport.js";
 import type { ComposeMode } from "./ComposeProvider";
@@ -542,9 +530,6 @@ export const ComposeForm = ({
 	// now precedes the request widens the window a second press lands in.
 	const sendInFlightRef = useRef(false);
 	const [isSending, setIsSending] = useState(false);
-	const [bodyReady, setBodyReady] = useState(false);
-	const markBodyReady = useCallback(() => setBodyReady(true), []);
-
 	// Every refusal carries the sentence that explains it. Send is never a
 	// no-op: the state it reads has no way to be blocked without a reason.
 	const sendState = useMemo<ComposeSendState>(() => {
@@ -558,16 +543,12 @@ export const ComposeForm = ({
 		if (toAddresses.length === 0) {
 			return { status: "blocked", reason: "Add at least one recipient." };
 		}
-		if (!bodyReady) {
-			return { status: "blocked", reason: "The message is still loading." };
-		}
 		return { status: "ready" };
 	}, [
 		isSending,
 		selectedAccountId,
 		selectedAccountMissingSmtp,
 		toAddresses.length,
-		bodyReady,
 	]);
 
 	useEffect(() => {
@@ -796,7 +777,6 @@ export const ComposeForm = ({
 			}
 		>
 			<Suspense fallback={<ComposeBodySkeleton />}>
-				<ComposeBodyReady onReady={markBodyReady} />
 				<LazyComposeBody
 					key={documentGeneration}
 					mode={bodyMode}

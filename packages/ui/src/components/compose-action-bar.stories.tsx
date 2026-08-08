@@ -89,10 +89,3 @@ export const SmtpMissing: Story = {
 		},
 	},
 };
-
-export const StillLoading: Story = {
-	name: "Blocked — the body has not arrived",
-	args: {
-		send: { status: "blocked", reason: "The message is still loading." },
-	},
-};

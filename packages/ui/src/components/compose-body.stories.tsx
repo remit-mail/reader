@@ -33,20 +33,33 @@ const DUTCH_PROSE =
 /** The languages a Dutch-writing account has configured, most-used first. */
 const LANGUAGES = ["nl", "en", "de"];
 
+const SIGNED_DOCUMENT = "<p></p><p>-- </p><p>Matthijs</p>";
+
+const LONG_PLAIN_PROSE = [
+	"Beste Anna, hierbij de planning voor volgende week zoals besproken tijdens de vergadering van donderdag.",
+	"",
+	"| Region | Total |",
+	"| --- | --- |",
+	"| EMEA | 412 |",
+].join("\n");
+
 const noop = () => undefined;
 
 const Harness = ({
 	initialHtml = "",
 	initialText = "",
 	startIn = "rich",
+	initialCaret,
 	onConversionError,
 	conversions,
 	languages = LANGUAGES,
 	quoted,
+	width = 680,
 }: {
 	initialHtml?: string;
 	initialText?: string;
 	startIn?: "rich" | "plain";
+	initialCaret?: "start" | "end";
 	onConversionError?: (failure: ConversionFailure) => void;
 	conversions?: {
 		toPlain: (value: RichTextValue) => string;
@@ -54,11 +67,15 @@ const Harness = ({
 	};
 	languages?: string[];
 	quoted?: string;
+	width?: number;
 }) => {
 	const [mode, setMode] = useState<"rich" | "plain">(startIn);
 	const [failure, setFailure] = useState<ConversionFailure>();
 	return (
-		<div className="flex h-[460px] w-[680px] flex-col overflow-auto rounded-md border border-line bg-canvas">
+		<div
+			style={{ width }}
+			className="flex h-[460px] flex-col overflow-auto rounded-md border border-line bg-canvas"
+		>
 			{failure && (
 				<div
 					role="alert"
@@ -74,6 +91,7 @@ const Harness = ({
 				onModeChange={setMode}
 				initialHtml={initialHtml}
 				initialText={initialText}
+				initialCaret={initialCaret}
 				onChange={noop}
 				onConversionError={(reported) => {
 					setFailure(reported);
@@ -134,6 +152,51 @@ const plainSurface = (canvasElement: HTMLElement): HTMLTextAreaElement | null =>
 export const RichDocument: Story = {
 	name: "Rich, with formatting",
 	args: { initialHtml: RICH_DOCUMENT },
+};
+
+/**
+ * A new message opens above its signature. The caret used to land at the end of
+ * the document, which on any account that has one put the first keystroke under
+ * the sign-off.
+ */
+export const OpensAboveTheSignature: Story = {
+	name: "A new message opens above the signature",
+	args: { initialHtml: SIGNED_DOCUMENT, initialCaret: "start" },
+	play: async ({ canvasElement }) => {
+		const editable = canvasElement.querySelector<HTMLElement>(
+			"[data-testid=compose-body]",
+		);
+		if (!editable) throw new Error("the rich surface is not mounted");
+
+		await waitFor(async () => {
+			await expect(editable).toHaveFocus();
+		});
+		await userEvent.keyboard("Hoi Anna");
+
+		const paragraphs = [...editable.querySelectorAll("p")].map(
+			(node) => node.textContent ?? "",
+		);
+		await expect(paragraphs[0]).toContain("Hoi Anna");
+		await expect(paragraphs.at(-1)).toContain("Matthijs");
+	},
+};
+
+/**
+ * Plain prose wraps. A message whose every paragraph ran off the right edge
+ * could not be read back at all, which is the worse of the two failures at 390 —
+ * a pipe table wider than the surface is the one that gives.
+ */
+export const PlainProseWraps: Story = {
+	name: "Plain, wrapping at a phone's width",
+	args: { startIn: "plain", initialText: LONG_PLAIN_PROSE, width: 390 },
+	play: async ({ canvasElement }) => {
+		const textarea = plainSurface(canvasElement);
+		if (!textarea) throw new Error("the plain surface is not mounted");
+		// A pixel of tolerance: sub-pixel layout rounding, not a scrollbar.
+		await expect(textarea.scrollWidth).toBeLessThanOrEqual(
+			textarea.clientWidth + 1,
+		);
+	},
 };
 
 export const PlainDraft: Story = {
