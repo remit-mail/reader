@@ -1,5 +1,6 @@
 import {
 	type AddressEntry,
+	Banner,
 	ComposeActionBar,
 	ComposeAddressField,
 	ComposeFormShell,
@@ -10,10 +11,15 @@ import {
 	composeHeaderSummary,
 	inboxFilterConfig,
 	QuotedText,
+	type RichTextValue,
 } from "@remit/ui";
-import { ComposeBody, type ComposeBodyMode } from "@remit/ui/rich-text";
+import {
+	ComposeBody,
+	type ComposeBodyMode,
+	type ConversionFailure,
+} from "@remit/ui/rich-text";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { expect, fn, userEvent, within } from "storybook/test";
 import { allThreads } from "../fixtures/workspace.js";
 import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
@@ -85,6 +91,13 @@ interface ComposerProps {
 	quotedSender?: string;
 }
 
+/**
+ * How long the live form's autosave waits after the last keystroke. The story
+ * runs the same debounce so the status under the Send button moves the way it
+ * moves in the app.
+ */
+const AUTOSAVE_MS = 700;
+
 const Composer = ({
 	to = [{ email: "ada@example.com", displayName: "Ada Lovelace" }],
 	subject = "Re: Q3 planning",
@@ -93,7 +106,7 @@ const Composer = ({
 	mode = "rich",
 	saveStatus = "idle",
 	sending = false,
-	canSend = true,
+	canSend,
 	unavailableReason,
 	onUnavailable,
 	onSend = () => undefined,
@@ -108,12 +121,63 @@ const Composer = ({
 	const [showBcc, setShowBcc] = useState(false);
 	const [subjectValue, setSubjectValue] = useState(subject);
 	const [bodyMode, setBodyMode] = useState<ComposeBodyMode>(mode);
+	const [bodyValue, setBodyValue] = useState<RichTextValue>({
+		html: body,
+		text: plainBody,
+		formatting: [],
+	});
+	const [conversionFailure, setConversionFailure] =
+		useState<ConversionFailure>();
+	const [edits, setEdits] = useState(0);
+	const [saving, setSaving] = useState(false);
+
+	// The editor reports its document and its language once on mount as well as
+	// on every edit. Child effects run before this one, so those first reports
+	// arrive with the gate shut and the status stays where the story put it.
+	const opened = useRef(false);
+	useEffect(() => {
+		opened.current = true;
+	}, []);
+	const noteEdit = () => {
+		if (!opened.current) return;
+		setEdits((count) => count + 1);
+	};
+
+	useEffect(() => {
+		if (edits === 0) return;
+		setSaving(true);
+		const timer = setTimeout(() => setSaving(false), AUTOSAVE_MS);
+		return () => clearTimeout(timer);
+	}, [edits]);
+
+	const editAddresses =
+		(apply: (next: AddressEntry[]) => void) => (next: AddressEntry[]) => {
+			apply(next);
+			noteEdit();
+		};
+
+	const sendable =
+		canSend ?? (toAddresses.length > 0 && bodyValue.text.trim() !== "");
 
 	return (
 		<ComposeFormShell
 			banner={
-				smtpMissing ? (
-					<ComposeSmtpMissingBanner onConfigure={() => undefined} />
+				smtpMissing || conversionFailure ? (
+					<>
+						{smtpMissing && (
+							<ComposeSmtpMissingBanner onConfigure={() => undefined} />
+						)}
+						{conversionFailure && (
+							<Banner
+								tone="danger"
+								data-testid="compose-conversion-error"
+								onDismiss={() => setConversionFailure(undefined)}
+							>
+								<p className="font-medium">{conversionFailure.title}</p>
+								<p>{conversionFailure.detail}</p>
+							</Banner>
+						)}
+					</>
 				) : undefined
 			}
 			header={
@@ -129,7 +193,7 @@ const Composer = ({
 						<ComposeAddressField
 							label="To"
 							addresses={toAddresses}
-							onChange={setToAddresses}
+							onChange={editAddresses(setToAddresses)}
 							placeholder="Recipients"
 						/>
 					}
@@ -138,7 +202,7 @@ const Composer = ({
 							<ComposeAddressField
 								label="Cc"
 								addresses={ccAddresses}
-								onChange={setCcAddresses}
+								onChange={editAddresses(setCcAddresses)}
 							/>
 						) : undefined
 					}
@@ -147,14 +211,17 @@ const Composer = ({
 							<ComposeAddressField
 								label="Bcc"
 								addresses={bccAddresses}
-								onChange={setBccAddresses}
+								onChange={editAddresses(setBccAddresses)}
 							/>
 						) : undefined
 					}
 					subject={
 						<ComposeSubjectField
 							value={subjectValue}
-							onChange={setSubjectValue}
+							onChange={(next) => {
+								setSubjectValue(next);
+								noteEdit();
+							}}
 						/>
 					}
 					onShowCc={() => setShowCc(true)}
@@ -171,8 +238,8 @@ const Composer = ({
 					onSend={onSend}
 					onDiscard={() => undefined}
 					sending={sending}
-					canSend={canSend}
-					saveStatus={saveStatus}
+					canSend={sendable}
+					saveStatus={saving ? "saving" : saveStatus}
 					unavailableReason={unavailableReason}
 					onUnavailable={onUnavailable}
 				/>
@@ -183,10 +250,14 @@ const Composer = ({
 				onModeChange={setBodyMode}
 				initialHtml={body}
 				initialText={plainBody}
-				onChange={() => undefined}
-				onConversionError={() => undefined}
+				onChange={(value) => {
+					setBodyValue(value);
+					noteEdit();
+				}}
+				onSubmit={sendable ? onSend : undefined}
+				onConversionError={setConversionFailure}
 				languages={ACCOUNT_LANGUAGES}
-				onLanguageChange={() => undefined}
+				onLanguageChange={noteEdit}
 			/>
 		</ComposeFormShell>
 	);
