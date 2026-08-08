@@ -11,8 +11,12 @@ import type {
 import {
 	ComposeActionBar,
 	ComposeFormShell,
+	ComposeHeader,
+	ComposeSubjectField,
+	composeHeaderSummary,
 	defaultComposeLanguages,
 	EMPTY_RICH_TEXT,
+	modeOfDraft,
 	QuotedText,
 	type RichTextValue,
 	sanitizeQuotedHtml,
@@ -42,10 +46,9 @@ import {
 import type { AddressEntry } from "./AddressField";
 import { AddressField } from "./AddressField";
 import { ComposeSmtpMissingBanner } from "./ComposeSmtpMissingBanner";
-import { modeOfDraft } from "./compose-mode";
 
 const LazyComposeBody = lazy(() =>
-	import("./ComposeBody.js").then((m) => ({ default: m.ComposeBody })),
+	import("@remit/ui/rich-text").then((m) => ({ default: m.ComposeBody })),
 );
 
 const ComposeBodyFallback = () => (
@@ -60,7 +63,6 @@ import { useVisualViewport } from "../../hooks/useVisualViewport.js";
 import type { ComposeMode } from "./ComposeProvider";
 import { useCompose } from "./ComposeProvider";
 import { FromSelector } from "./FromSelector";
-import { SubjectField } from "./SubjectField";
 
 interface ComposeFormProps {
 	mode: ComposeMode;
@@ -195,10 +197,10 @@ const isFormEmpty = (
 	body.text.trim() === "";
 
 // ---------------------------------------------------------------------------
-// ComposeHeader — collapsed on mobile when the software keyboard is open
+// WiredComposeHeader — the shared header, with the app's fields in its slots
 // ---------------------------------------------------------------------------
 
-interface ComposeHeaderProps {
+interface WiredComposeHeaderProps {
 	selectedAccountId?: string;
 	onAccountChange: (account: RemitImapAccountResponse) => void;
 	toAddresses: AddressEntry[];
@@ -215,7 +217,7 @@ interface ComposeHeaderProps {
 	setSubject: (v: string) => void;
 }
 
-const ComposeHeader = ({
+const WiredComposeHeader = ({
 	selectedAccountId,
 	onAccountChange,
 	toAddresses,
@@ -230,93 +232,55 @@ const ComposeHeader = ({
 	setShowBcc,
 	subject,
 	setSubject,
-}: ComposeHeaderProps) => {
+}: WiredComposeHeaderProps) => {
 	const isDesktop = useIsDesktop();
 	const { isKeyboardOpen } = useVisualViewport();
-	const collapsed = !isDesktop && isKeyboardOpen;
-
-	if (collapsed) {
-		// Compact single-line summary when the keyboard eats vertical space
-		const chips: string[] = [];
-		if (toAddresses.length > 0)
-			chips.push(
-				`To: ${toAddresses.map((a) => a.displayName ?? a.email).join(", ")}`,
-			);
-		if (ccAddresses.length > 0) chips.push(`Cc: ${ccAddresses.length}`);
-		if (bccAddresses.length > 0) chips.push(`Bcc: ${bccAddresses.length}`);
-		if (subject) chips.push(subject);
-
-		return (
-			<div
-				className="flex items-center gap-2 px-3 py-1.5 border-b border-line overflow-hidden"
-				data-testid="compose-header-collapsed"
-			>
-				<span className="truncate text-xs text-fg-muted">
-					{chips.length > 0 ? chips.join(" · ") : "…"}
-				</span>
-				<span className="shrink-0 inline-flex items-center justify-center rounded bg-surface-sunken px-1.5 py-0.5 text-2xs text-fg-muted">
-					…
-				</span>
-			</div>
-		);
-	}
 
 	return (
-		<div className="space-y-1 px-3 py-2 border-b border-line">
-			<FromSelector
-				selectedAccountId={selectedAccountId}
-				onSelect={onAccountChange}
-			/>
-			<AddressField
-				label="To"
-				addresses={toAddresses}
-				onChange={setToAddresses}
-				placeholder="Recipients"
-			/>
-			{showCc ? (
-				<AddressField
-					label="Cc"
-					addresses={ccAddresses}
-					onChange={setCcAddresses}
+		<ComposeHeader
+			collapsed={!isDesktop && isKeyboardOpen}
+			summary={composeHeaderSummary({
+				to: toAddresses,
+				cc: ccAddresses,
+				bcc: bccAddresses,
+				subject,
+			})}
+			from={
+				<FromSelector
+					selectedAccountId={selectedAccountId}
+					onSelect={onAccountChange}
 				/>
-			) : (
-				<div className="flex gap-2 pl-14">
-					<button
-						type="button"
-						onClick={() => setShowCc(true)}
-						className="text-xs text-fg-muted hover:text-fg transition-colors"
-					>
-						Cc
-					</button>
-					<button
-						type="button"
-						onClick={() => setShowBcc(true)}
-						className="text-xs text-fg-muted hover:text-fg transition-colors"
-					>
-						Bcc
-					</button>
-				</div>
-			)}
-			{showCc && !showBcc && (
-				<div className="pl-14">
-					<button
-						type="button"
-						onClick={() => setShowBcc(true)}
-						className="text-xs text-fg-muted hover:text-fg transition-colors"
-					>
-						Bcc
-					</button>
-				</div>
-			)}
-			{showBcc && (
+			}
+			to={
 				<AddressField
-					label="Bcc"
-					addresses={bccAddresses}
-					onChange={setBccAddresses}
+					label="To"
+					addresses={toAddresses}
+					onChange={setToAddresses}
+					placeholder="Recipients"
 				/>
-			)}
-			<SubjectField value={subject} onChange={setSubject} />
-		</div>
+			}
+			cc={
+				showCc ? (
+					<AddressField
+						label="Cc"
+						addresses={ccAddresses}
+						onChange={setCcAddresses}
+					/>
+				) : undefined
+			}
+			bcc={
+				showBcc ? (
+					<AddressField
+						label="Bcc"
+						addresses={bccAddresses}
+						onChange={setBccAddresses}
+					/>
+				) : undefined
+			}
+			subject={<ComposeSubjectField value={subject} onChange={setSubject} />}
+			onShowCc={() => setShowCc(true)}
+			onShowBcc={() => setShowBcc(true)}
+		/>
 	);
 };
 
@@ -733,7 +697,7 @@ export const ComposeForm = ({
 				) : undefined
 			}
 			header={
-				<ComposeHeader
+				<WiredComposeHeader
 					selectedAccountId={selectedAccountId}
 					onAccountChange={handleAccountChange}
 					toAddresses={toAddresses}

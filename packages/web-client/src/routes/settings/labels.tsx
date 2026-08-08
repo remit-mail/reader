@@ -7,6 +7,7 @@ import type {
 import {
 	Banner,
 	Button,
+	ConfirmDialog,
 	Input,
 	labelColorOptions,
 	Select,
@@ -16,7 +17,6 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { LabelsList } from "@/components/settings/LabelsList";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ErrorState } from "@/components/ui/ErrorState";
 import {
 	useCreateLabel,

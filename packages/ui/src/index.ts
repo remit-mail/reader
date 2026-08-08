@@ -131,15 +131,37 @@ export {
 	type ComposeSaveStatus,
 } from "./components/compose-action-bar.js";
 export {
+	type AddressEntry,
+	ComposeAddressField,
+	type ComposeAddressFieldProps,
+} from "./components/compose-address-field.js";
+export {
 	ComposeFormShell,
 	type ComposeFormShellProps,
 	type ComposeMode,
 	composeModeLabels,
 } from "./components/compose-form-shell.js";
 export {
+	ComposeHeader,
+	type ComposeHeaderProps,
+	composeHeaderSummary,
+} from "./components/compose-header.js";
+export {
 	ComposeLanguageSetting,
 	type ComposeLanguageSettingProps,
 } from "./components/compose-language-setting.js";
+export {
+	ComposeSmtpMissingBanner,
+	type ComposeSmtpMissingBannerProps,
+} from "./components/compose-smtp-missing-banner.js";
+export {
+	ComposeSubjectField,
+	type ComposeSubjectFieldProps,
+} from "./components/compose-subject-field.js";
+export {
+	ConfirmDialog,
+	type ConfirmDialogProps,
+} from "./components/confirm-dialog.js";
 export {
 	DangerZoneSection,
 	type DangerZoneSectionProps,
@@ -674,6 +696,7 @@ export {
 	unwrapLanguage,
 	wrapWithLanguage,
 } from "./lib/compose-language.js";
+export { modeOfDraft } from "./lib/compose-mode.js";
 export { generateLayoutClampCSS } from "./lib/email-layout-clamp.js";
 export {
 	classifyEmailRenderTreatment,

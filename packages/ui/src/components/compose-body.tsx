@@ -1,16 +1,16 @@
+import { useEffect, useRef, useState } from "react";
+import { conversionOutcome, switchNeedsWarning } from "../lib/compose-mode.js";
+import { ComposeLanguageChip } from "./compose-language-chip.js";
 import {
 	type ComposeBodyMode,
-	ComposeLanguageChip,
 	ComposeModeToggle,
-	markdownToHtml,
-	PlainTextEditor,
-	RichTextEditor,
-	type RichTextValue,
-	useComposeLanguage,
-} from "@remit/ui/rich-text";
-import { useEffect, useRef, useState } from "react";
-import { ConfirmDialog } from "../ui/ConfirmDialog";
-import { conversionOutcome, switchNeedsWarning } from "./compose-mode";
+} from "./compose-mode-toggle.js";
+import { ConfirmDialog } from "./confirm-dialog.js";
+import { PlainTextEditor } from "./plain-text-editor.js";
+import { markdownToHtml } from "./rich-text-document.js";
+import { RichTextEditor } from "./rich-text-editor.js";
+import type { RichTextValue } from "./rich-text-value.js";
+import { useComposeLanguage } from "./use-compose-language.js";
 
 export interface ConversionFailure {
 	title: string;
@@ -42,7 +42,7 @@ const plainValue = (text: string): RichTextValue => ({
 	formatting: [],
 });
 
-interface ComposeBodyProps {
+export interface ComposeBodyProps {
 	mode: ComposeBodyMode;
 	onModeChange: (mode: ComposeBodyMode) => void;
 	initialHtml: string;

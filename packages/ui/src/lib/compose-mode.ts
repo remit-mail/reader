@@ -1,4 +1,4 @@
-import type { ComposeBodyMode } from "@remit/ui/rich-text";
+import type { ComposeBodyMode } from "../components/compose-mode-toggle.js";
 
 /**
  * Which surface a draft reopens in, with no field of its own. `htmlBody` a

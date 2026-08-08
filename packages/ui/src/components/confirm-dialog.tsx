@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
-import { cn } from "@/lib/utils";
+import { cn } from "../lib/cn.js";
 
-interface ConfirmDialogProps {
+export interface ConfirmDialogProps {
 	isOpen: boolean;
 	title: string;
 	/** Optional supporting line under the title. */

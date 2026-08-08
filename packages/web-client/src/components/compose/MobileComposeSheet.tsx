@@ -1,8 +1,8 @@
 import { configOperationsGetConfigOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import { ConfirmDialog } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import { Drawer } from "vaul";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { ComposeForm } from "./ComposeForm";
 import { useCompose } from "./ComposeProvider";
