@@ -1,0 +1,13 @@
+{
+	"//": "tsx reads one tsconfig, from the working directory, and applies it only to files that config's `include` matches. Under tsconfig.json a shared @remit/ui component is outside that set, so esbuild falls back to the classic JSX transform and the component throws `React is not defined` the moment a test renders it. This config spans both trees so a test can render what the app renders. It is not a build config: `npm run test:typecheck` still uses tsconfig.json.",
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"rootDir": ".."
+	},
+	"include": [
+		"src/**/*.ts",
+		"src/**/*.tsx",
+		"../ui/src/**/*.ts",
+		"../ui/src/**/*.tsx"
+	]
+}

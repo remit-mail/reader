@@ -1,5 +1,13 @@
-import { Button, FieldLabel, Input, ServerFields, SlidePanel } from "@remit/ui";
+import {
+	Button,
+	ComposeLanguageSetting,
+	FieldLabel,
+	Input,
+	ServerFields,
+	SlidePanel,
+} from "@remit/ui";
 import { AtSign } from "lucide-react";
+import { useState } from "react";
 
 /**
  * Account settings edit form (RFC 021). Reached from Settings → Accounts →
@@ -22,6 +30,8 @@ export function EditAccountForm({
 	onCancel,
 	onSave,
 }: EditAccountFormProps) {
+	const [languages, setLanguages] = useState(["en", "nl"]);
+
 	return (
 		<SlidePanel
 			isOpen={isOpen}
@@ -81,6 +91,13 @@ export function EditAccountForm({
 					hostPlaceholder="smtp.example.com"
 					portPlaceholder="587"
 				/>
+
+				<section>
+					<h3 className="text-2xs font-semibold text-fg-subtle uppercase tracking-wider mb-3">
+						Writing languages
+					</h3>
+					<ComposeLanguageSetting value={languages} onChange={setLanguages} />
+				</section>
 			</div>
 		</SlidePanel>
 	);

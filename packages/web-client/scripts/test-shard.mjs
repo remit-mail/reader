@@ -149,7 +149,13 @@ const child = spawn(
 		"--test",
 		...relFiles,
 	],
-	{ cwd: packageRoot, stdio: "inherit" },
+	{
+		cwd: packageRoot,
+		stdio: "inherit",
+		// The same config `test:run` uses, so a shard compiles a shared
+		// @remit/ui component the way the app's own build does.
+		env: { ...process.env, TSX_TSCONFIG_PATH: "./tsconfig.test.json" },
+	},
 );
 
 child.on("exit", (code, signal) => {

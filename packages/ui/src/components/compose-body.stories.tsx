@@ -1,8 +1,8 @@
-import type { RichTextValue } from "@remit/ui/rich-text";
-import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
-import { ComposeBody, type ConversionFailure } from "./ComposeBody";
+import { ComposeBody, type ConversionFailure } from "./compose-body.js";
+import type { RichTextValue } from "./rich-text-value.js";
 
 const RICH_DOCUMENT = [
 	"<h2>Quarterly numbers</h2>",
@@ -96,7 +96,7 @@ const chipOf = (canvasElement: HTMLElement): HTMLElement => {
  * `ComposeForm` adds the recipients, the autosave and the send around this.
  */
 const meta: Meta<typeof Harness> = {
-	title: "Screens/WebClient/ComposeModes",
+	title: "Mail/ComposeBody",
 	component: Harness,
 	parameters: { layout: "centered" },
 };

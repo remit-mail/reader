@@ -1,5 +1,5 @@
+import { ConfirmDialog } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { deleteLabelConfirmCopy } from "@/lib/organize/label-delete-copy";
 
 /**

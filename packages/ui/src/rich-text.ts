@@ -5,6 +5,13 @@
  */
 
 export {
+	ComposeBody,
+	type ComposeBodyProps,
+	type ComposeConversions,
+	type ConversionFailure,
+	DEFAULT_COMPOSE_CONVERSIONS,
+} from "./components/compose-body.js";
+export {
 	ComposeLanguageChip,
 	type ComposeLanguageChipProps,
 } from "./components/compose-language-chip.js";

@@ -1,9 +1,12 @@
-interface SubjectFieldProps {
+export interface ComposeSubjectFieldProps {
 	value: string;
 	onChange: (value: string) => void;
 }
 
-export const SubjectField = ({ value, onChange }: SubjectFieldProps) => (
+export const ComposeSubjectField = ({
+	value,
+	onChange,
+}: ComposeSubjectFieldProps) => (
 	<div className="flex items-start gap-2">
 		{/* biome-ignore lint/a11y/noLabelWithoutControl: label is visually adjacent to the sibling input; static id risks duplicates */}
 		<label className="text-sm text-fg-muted shrink-0 w-12 pt-1.5">Subj:</label>

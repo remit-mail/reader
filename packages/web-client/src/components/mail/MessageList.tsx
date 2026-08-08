@@ -1,6 +1,7 @@
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import {
 	Banner,
+	ConfirmDialog,
 	type Density,
 	deriveIsMultiSelectMode,
 	type MessageListFilter,
@@ -17,7 +18,6 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Search } from "lucide-react";
 import type { RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { useJunkMailbox } from "@/hooks/useArchiveMailbox";
