@@ -39,7 +39,6 @@
     "release:check-annotation": "bash npm-scripts/release-check-annotation.sh",
     "test:scripts": "node npm-scripts/test-script-suites.mjs",
     "manifest:write": "node npm-scripts/write-update-manifest.mjs",
-    "manifest:copy-to-pages": "bash npm-scripts/copy-update-manifest.sh",
     "coverage:audit": "node npm-scripts/coverage-audit.mjs",
     "test:ci": "node npm-scripts/test-parallel.mjs",
     "test:e2e-unit": "bash npm-scripts/e2e-install.sh && npm run test:unit --prefix packages/e2e",
