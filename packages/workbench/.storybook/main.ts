@@ -9,7 +9,7 @@ const config: StorybookConfig = {
 		"../../web-client/src/**/*.stories.@(ts|tsx)",
 		"../src/**/*.stories.@(ts|tsx)",
 	],
-	addons: [],
+	addons: ["@storybook/addon-vitest"],
 	framework: {
 		name: "@storybook/react-vite",
 		options: {},

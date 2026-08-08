@@ -42,6 +42,7 @@
     "coverage:audit": "node npm-scripts/coverage-audit.mjs",
     "test:ci": "node npm-scripts/test-parallel.mjs",
     "test:e2e-unit": "bash npm-scripts/e2e-install.sh && npm run test:unit --prefix packages/e2e",
+    "test:stories": "bash npm-scripts/stories-install.sh && npm run test:stories -w @remit/workbench",
     "e2e": "npm run e2e:up && npm run e2e:test; status=$?; npm run e2e:down; exit $status",
     "e2e:up": "bash npm-scripts/e2e-up.sh",
     "e2e:test": "bash npm-scripts/e2e-test.sh",

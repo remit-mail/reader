@@ -257,6 +257,39 @@ jobs:
       - name: Merge coverage and enforce the line floor
         run: node packages/web-client/scripts/coverage-merge.mjs web-client-lcov/*.lcov
 
+  # Every story in the workbench index, rendered in a real Chromium and — where
+  # it has one — its play function executed. Until this job existed a play
+  # function ran only when somebody opened Storybook and clicked the story, so
+  # the interaction assertions were documentation rather than checks.
+  #
+  # The runner is Storybook's Vitest addon rather than @storybook/test-runner.
+  # Storybook has superseded the test-runner, and its last release that accepts
+  # Storybook 9 is 0.23.0; the addon tracks the installed Storybook version
+  # exactly. It also needs no served Storybook — it compiles the stories as
+  # portable stories through the Storybook Vite config, so the build-and-serve
+  # step the test-runner requires is not on the critical path here.
+  #
+  # Needs the codegen restore: the web-client stories in the index reach
+  # components that import the generated @remit/* packages.
+  test-stories:
+    runs-on: ubuntu-latest
+    needs: [docs-only]
+    if: needs['docs-only'].outputs.result != 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      # Keyed on the lockfile because the pinned Playwright version lives there,
+      # and a browser build belongs to the version that downloaded it.
+      - name: Restore the Chromium build
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-chromium-${{ hashFiles('package-lock.json') }}
+
+      - name: Story suite
+        run: npm run test:stories
+
   # The pull request half of the two-lane e2e split. This one assembles the stack
   # from the branch under review — queue sidecar, migrator, backend dev-server,
   # imap-worker, vite, SQLite, and the Dovecot container — and runs the black-box
@@ -403,6 +436,7 @@ jobs:
         test-rest,
         test-web-client,
         coverage-web-client,
+        test-stories,
         e2e-dev,
         publish-dry-run,
       ]
@@ -421,6 +455,7 @@ jobs:
           # only when every shard succeeded.
           TEST_WEB_CLIENT: ${{ needs['test-web-client'].result }}
           COVERAGE_WEB_CLIENT: ${{ needs['coverage-web-client'].result }}
+          TEST_STORIES: ${{ needs['test-stories'].result }}
           E2E_DEV: ${{ needs['e2e-dev'].result }}
           PUBLISH_DRY_RUN: ${{ needs['publish-dry-run'].result }}
           PR_ONLY_MAY_SKIP: ${{ github.event_name != 'pull_request' }}
@@ -465,6 +500,7 @@ jobs:
           require test-rest "$TEST_REST" "$DOCS_MAY_SKIP"
           require test-web-client "$TEST_WEB_CLIENT" "$DOCS_MAY_SKIP"
           require coverage-web-client "$COVERAGE_WEB_CLIENT" "$DOCS_MAY_SKIP"
+          require test-stories "$TEST_STORIES" "$DOCS_MAY_SKIP"
           require e2e-dev "$E2E_DEV" "$PR_ONLY_MAY_SKIP" "$DOCS_MAY_SKIP"
           require publish-dry-run "$PUBLISH_DRY_RUN" "$PR_ONLY_MAY_SKIP" "$DOCS_MAY_SKIP"
 
