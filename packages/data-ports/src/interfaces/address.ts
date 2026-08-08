@@ -64,11 +64,16 @@ export interface IAddressRepository {
 	listByAccountConfig(input: {
 		accountConfigId: string;
 		/**
-		 * Prefix term matched against both the display-name compound
-		 * (`"<display name> <email>"`) and the normalized email. Matching the
-		 * email separately is what makes an exact-address lookup resolve: the
-		 * compound leads with the display name, so an email prefix never
-		 * matches it.
+		 * Matched as a substring of the display name, the local part, the domain
+		 * and the whole address, so `po`, `locatie`, `amsterdam`, `pocahondas.nl`
+		 * and `amsterdam@pocahondas.nl` all resolve
+		 * `Pocahondas locatie amsterdam <amsterdam@pocahondas.nl>`.
+		 *
+		 * Ordered by where the term hit — the start of a value before the middle of
+		 * one, and the display name before the local part, the domain and the whole
+		 * address — then by the account's standing for the sender, how much it
+		 * corresponds with it, and how recently. A small limit therefore keeps the
+		 * addresses worth suggesting rather than an alphabetical slice.
 		 */
 		search?: string;
 		cursor?: string;
