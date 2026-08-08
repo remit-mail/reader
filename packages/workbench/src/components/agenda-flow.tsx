@@ -1,0 +1,873 @@
+/**
+ * The strip: one scrolling list of days, and the primary object of Option C.
+ *
+ * A time grid spends its pixels in proportion to the hours it covers, which is
+ * backwards — most days are mostly empty. This list spends them in proportion
+ * to what is on the day: a booked hour gets a row, an empty day gets a line,
+ * and a run of empty days gets one sentence. Free stretches are drawn, not
+ * left as whitespace, because "your Thursday afternoon is clear" is the answer
+ * people actually come to a calendar for.
+ *
+ * Scrolling never paginates. Reaching either end asks the owner for more days
+ * and the scroll position is held across the insert, so the strip has no seams
+ * and no page boundaries to lose your place at.
+ */
+import { type CalendarEventData, calendarColorClasses, cn } from "@remit/ui";
+import {
+	CalendarOff,
+	ChevronRight,
+	Globe,
+	Layers,
+	Mail,
+	MapPin,
+	Repeat,
+	Users,
+} from "lucide-react";
+import {
+	type ReactNode,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
+import { type CalendarDay, calendarsById } from "../fixtures/calendar.js";
+import {
+	type AgendaRow,
+	buildAgendaRows,
+	busySpansOn,
+	DAY_END_MINUTE,
+	DAY_START_MINUTE,
+	type FreeStretch,
+	formatMinute,
+	formatRunLabel,
+	formatSpan,
+	freeStretchesOn,
+	groupOverlapping,
+	isClearDay,
+	minuteOfDay,
+	monthLabel,
+	weekdayLongLabel,
+} from "../lib/agenda-time.js";
+import type { SlotPick } from "./calendar-grid.js";
+
+/**
+ * The reading of the strip, from a month at a glance to one event per card.
+ * Three steps rather than two: a list can go further in both directions than a
+ * grid can, and how far is the reader's call.
+ */
+export type AgendaDensity = "dots" | "pills" | "detail";
+
+/** The sticky bar the anchors are measured against. */
+const HEADER_HEIGHT = 32;
+
+/** A stretch this long stops being a gap and becomes an afternoon. */
+const LONG_FREE_MINUTES = 150;
+
+export interface AgendaScrollTarget {
+	date: string;
+	/** Changes on every request, so asking twice for the same day works. */
+	token: number;
+}
+
+export interface AgendaFlowProps {
+	/** Contiguous and ascending. */
+	days: CalendarDay[];
+	density: AgendaDensity;
+	today: string;
+	/** Never collapsed into a run, whatever is on it. */
+	focusDate: string;
+	selectedEventId: string;
+	onSelectEvent: (eventId: string) => void;
+	onPickSlot: (pick: SlotPick) => void;
+	/** Drops out of the list into the day grid. */
+	onZoomDay: (date: string) => void;
+	onReachStart: () => void;
+	onReachEnd: () => void;
+	/** The day under the sticky header, for the position map. */
+	onVisibleDayChange: (date: string) => void;
+	scrollTarget?: AgendaScrollTarget;
+	/**
+	 * Rendered immediately above today, and landed on with it, so what's next is
+	 * the first thing you see and the first thing that scrolls away.
+	 */
+	todayLead?: ReactNode;
+	touch?: boolean;
+	className?: string;
+}
+
+export function AgendaFlow({
+	days,
+	density,
+	today,
+	focusDate,
+	selectedEventId,
+	onSelectEvent,
+	onPickSlot,
+	onZoomDay,
+	onReachStart,
+	onReachEnd,
+	onVisibleDayChange,
+	scrollTarget,
+	todayLead,
+	touch,
+	className,
+}: AgendaFlowProps) {
+	const scroller = useRef<HTMLDivElement>(null);
+	const anchors = useRef(new Map<string, HTMLDivElement>());
+	const previousFirst = useRef(days[0]?.date ?? "");
+	const previousHeight = useRef(0);
+	const askedStart = useRef("");
+	const askedEnd = useRef("");
+	const landed = useRef(false);
+	const [visibleDate, setVisibleDate] = useState(focusDate);
+
+	const rows = buildAgendaRows(days, [today, focusDate]);
+	const firstDate = days[0]?.date ?? "";
+	const lastDate = days[days.length - 1]?.date ?? "";
+
+	/* Prepending days must not move what you are reading, so the scroll offset
+	   takes back exactly the height that was inserted above it. */
+	useLayoutEffect(() => {
+		const element = scroller.current;
+		if (!element) return;
+		if (firstDate !== "" && firstDate < previousFirst.current)
+			element.scrollTop += element.scrollHeight - previousHeight.current;
+		previousFirst.current = firstDate;
+		previousHeight.current = element.scrollHeight;
+	});
+
+	/* Landing puts you on the focused day; after that the strip is yours. Rows
+	   are still settling on the first frame — a web font swapping under a month
+	   of them moves the target by whole days — so the landing is re-applied
+	   until the layout it was measured against stops changing. */
+	useEffect(() => {
+		if (landed.current) return;
+		const element = scroller.current;
+		if (!element) return;
+		landed.current = true;
+		let dropped = false;
+		const settle = () => {
+			const anchor = anchors.current.get(focusDate);
+			if (dropped || !anchor) return;
+			element.scrollTop = anchor.offsetTop - HEADER_HEIGHT;
+		};
+		settle();
+		setVisibleDate(focusDate);
+		const frame = requestAnimationFrame(settle);
+		document.fonts?.ready.then(settle);
+		return () => {
+			dropped = true;
+			cancelAnimationFrame(frame);
+		};
+	}, [focusDate]);
+
+	useEffect(() => {
+		if (!scrollTarget) return;
+		const element = scroller.current;
+		const anchor = anchors.current.get(scrollTarget.date);
+		if (!element || !anchor) return;
+		element.scrollTop = anchor.offsetTop - HEADER_HEIGHT;
+		setVisibleDate(scrollTarget.date);
+		onVisibleDayChange(scrollTarget.date);
+	}, [scrollTarget, onVisibleDayChange]);
+
+	const handleScroll = () => {
+		const element = scroller.current;
+		if (!element) return;
+
+		const seen = [...anchors.current.entries()]
+			.filter(([, node]) => node.isConnected)
+			.sort((a, b) => a[1].offsetTop - b[1].offsetTop);
+		let current = "";
+		for (const [date, node] of seen) {
+			if (node.offsetTop - HEADER_HEIGHT - 8 > element.scrollTop) break;
+			current = date;
+		}
+		if (current !== "" && current !== visibleDate) {
+			setVisibleDate(current);
+			onVisibleDayChange(current);
+		}
+
+		if (element.scrollTop < 600 && askedStart.current !== firstDate) {
+			askedStart.current = firstDate;
+			onReachStart();
+		}
+		if (
+			element.scrollTop + element.clientHeight > element.scrollHeight - 900 &&
+			askedEnd.current !== lastDate
+		) {
+			askedEnd.current = lastDate;
+			onReachEnd();
+		}
+	};
+
+	const registerAnchor = (date: string) => (node: HTMLDivElement | null) => {
+		if (node) anchors.current.set(date, node);
+		else anchors.current.delete(date);
+	};
+
+	return (
+		<div
+			ref={scroller}
+			onScroll={handleScroll}
+			className={cn(
+				"relative min-h-0 flex-1 overflow-y-auto bg-surface",
+				className,
+			)}
+		>
+			<div className="sticky top-0 z-20 flex h-8 items-center gap-2 border-b border-line bg-surface/95 px-row-inset backdrop-blur">
+				<span className="text-xs font-semibold text-fg">
+					{weekdayLongLabel(visibleDate)}
+				</span>
+				<span className="text-xs text-fg-subtle">
+					{monthLabel(visibleDate)}
+				</span>
+				{visibleDate === today && (
+					<span className="rounded-full bg-accent-soft px-1.5 text-2xs font-medium text-accent">
+						Today
+					</span>
+				)}
+			</div>
+
+			{rows.map((row) => (
+				<FlowRow
+					key={row.key}
+					row={row}
+					density={density}
+					today={today}
+					selectedEventId={selectedEventId}
+					onSelectEvent={onSelectEvent}
+					onPickSlot={onPickSlot}
+					onZoomDay={onZoomDay}
+					anchorRef={registerAnchor(
+						row.kind === "day" ? row.day.date : row.from,
+					)}
+					lead={row.kind === "day" && row.day.date === today ? todayLead : null}
+					touch={touch}
+				/>
+			))}
+		</div>
+	);
+}
+
+/* ------------------------------------------------------------------ */
+/* Rows                                                                */
+/* ------------------------------------------------------------------ */
+
+interface RowProps {
+	row: AgendaRow;
+	density: AgendaDensity;
+	today: string;
+	selectedEventId: string;
+	onSelectEvent: (eventId: string) => void;
+	onPickSlot: (pick: SlotPick) => void;
+	onZoomDay: (date: string) => void;
+	anchorRef: (node: HTMLDivElement | null) => void;
+	lead?: ReactNode;
+	touch?: boolean;
+}
+
+function FlowRow({
+	row,
+	density,
+	today,
+	selectedEventId,
+	onSelectEvent,
+	onPickSlot,
+	onZoomDay,
+	anchorRef,
+	lead,
+	touch,
+}: RowProps) {
+	if (row.kind === "run")
+		return (
+			<div ref={anchorRef}>
+				<EmptyRun
+					from={row.from}
+					to={row.to}
+					days={row.days}
+					onPickSlot={onPickSlot}
+					touch={touch}
+				/>
+			</div>
+		);
+
+	if (density === "dots")
+		return (
+			<div ref={anchorRef}>
+				{lead}
+				<DotsDay
+					day={row.day}
+					today={today}
+					onSelectEvent={onSelectEvent}
+					onZoomDay={onZoomDay}
+					selectedEventId={selectedEventId}
+				/>
+			</div>
+		);
+
+	return (
+		<div ref={anchorRef}>
+			{lead}
+			<DayBlock
+				day={row.day}
+				density={density}
+				today={today}
+				selectedEventId={selectedEventId}
+				onSelectEvent={onSelectEvent}
+				onPickSlot={onPickSlot}
+				onZoomDay={onZoomDay}
+				touch={touch}
+			/>
+		</div>
+	);
+}
+
+/**
+ * A run of days with nothing on them at all. Six blank screens is a worse
+ * answer to "am I free that week" than one line saying so.
+ */
+function EmptyRun({
+	from,
+	to,
+	days,
+	onPickSlot,
+	touch,
+}: {
+	from: string;
+	to: string;
+	days: number;
+	onPickSlot: (pick: SlotPick) => void;
+	touch?: boolean;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={() =>
+				onPickSlot({
+					date: from,
+					startTime: "10:00",
+					endTime: "11:00",
+					allDay: false,
+				})
+			}
+			className={cn(
+				"flex w-full items-center gap-3 border-y border-dashed border-line bg-surface-sunken px-row-inset text-left outline-none transition-colors hover:border-accent focus-visible:ring-2 focus-visible:ring-ring",
+				touch ? "min-h-14 py-3" : "py-2",
+			)}
+		>
+			<CalendarOff className="size-4 shrink-0 text-accent" />
+			<span className="text-sm font-medium text-fg">
+				{formatRunLabel(from, to)}
+			</span>
+			<span className="text-xs text-fg-muted">
+				{days} days with nothing booked
+			</span>
+			<span className="ml-auto shrink-0 text-2xs text-fg-subtle">Add</span>
+		</button>
+	);
+}
+
+/** The month-at-a-glance reading: one line a day, colour and shape only. */
+function DotsDay({
+	day,
+	today,
+	selectedEventId,
+	onSelectEvent,
+	onZoomDay,
+}: {
+	day: CalendarDay;
+	today: string;
+	selectedEventId: string;
+	onSelectEvent: (eventId: string) => void;
+	onZoomDay: (date: string) => void;
+}) {
+	const isToday = day.date === today;
+	const all = [...day.allDay, ...day.timed];
+
+	return (
+		<div
+			className={cn(
+				"flex h-8 items-center gap-2 border-b border-line px-row-inset",
+				isToday && "bg-accent-soft/30",
+			)}
+		>
+			<button
+				type="button"
+				onClick={() => onZoomDay(day.date)}
+				className={cn(
+					"w-16 shrink-0 rounded-sm text-left text-xs tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring",
+					isToday ? "font-semibold text-accent" : "text-fg-muted",
+				)}
+			>
+				{day.weekdayLabel} {day.dayNumber}
+			</button>
+			<div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+				{all.map((event) => {
+					const hue = calendarColorClasses(
+						calendarsById.get(event.calendarId)?.color ?? "cal-1",
+					);
+					return (
+						<button
+							key={event.id}
+							type="button"
+							title={event.title}
+							aria-label={event.title}
+							onClick={() => onSelectEvent(event.id)}
+							className={cn(
+								"size-2 shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring",
+								hue.solid,
+								event.id === selectedEventId && "ring-2 ring-ring",
+								event.myRsvp === "declined" && "opacity-40",
+							)}
+						/>
+					);
+				})}
+			</div>
+			<BusyBar day={day} className="w-24 shrink-0" />
+			<span className="w-24 shrink-0 text-right text-2xs text-fg-subtle">
+				{glanceLabel(day)}
+			</span>
+		</div>
+	);
+}
+
+/** What the day is worth saying in eleven characters. */
+function glanceLabel(day: CalendarDay): string {
+	if (day.timed.length === 0) return "clear";
+	const longest = freeStretchesOn(day).reduce(
+		(best, stretch) => Math.max(best, stretch.minutes),
+		0,
+	);
+	if (longest >= LONG_FREE_MINUTES) return `${formatSpan(longest)} free`;
+	return `${formatSpan(day.busyMinutes)} booked`;
+}
+
+function DayBlock({
+	day,
+	density,
+	today,
+	selectedEventId,
+	onSelectEvent,
+	onPickSlot,
+	onZoomDay,
+	touch,
+}: {
+	day: CalendarDay;
+	density: AgendaDensity;
+	today: string;
+	selectedEventId: string;
+	onSelectEvent: (eventId: string) => void;
+	onPickSlot: (pick: SlotPick) => void;
+	onZoomDay: (date: string) => void;
+	touch?: boolean;
+}) {
+	const isToday = day.date === today;
+	const groups = groupOverlapping(day.timed);
+	const free = freeStretchesOn(day).filter((stretch) => !stretch.wholeDay);
+
+	const items: {
+		key: string;
+		at: number;
+		node: ReactNode;
+	}[] = [
+		...groups.map((group) => ({
+			key: group[0].id,
+			at: minuteOfDay(group[0].start),
+			node:
+				group.length === 1 ? (
+					<EventLine
+						event={group[0]}
+						density={density}
+						selected={group[0].id === selectedEventId}
+						onSelect={() => onSelectEvent(group[0].id)}
+						touch={touch}
+					/>
+				) : (
+					<ClashGroup
+						events={group}
+						density={density}
+						selectedEventId={selectedEventId}
+						onSelectEvent={onSelectEvent}
+						onZoomDay={() => onZoomDay(day.date)}
+						touch={touch}
+					/>
+				),
+		})),
+		...free.map((stretch) => ({
+			key: `free_${stretch.startMinute}`,
+			at: stretch.startMinute,
+			node: (
+				<FreeBand
+					stretch={stretch}
+					onPick={() =>
+						onPickSlot({
+							date: stretch.date,
+							startTime: formatMinute(stretch.startMinute),
+							endTime: formatMinute(
+								Math.min(stretch.startMinute + 60, stretch.endMinute),
+							),
+							allDay: false,
+						})
+					}
+					touch={touch}
+				/>
+			),
+		})),
+	].sort((a, b) => a.at - b.at);
+
+	return (
+		<section
+			className={cn(
+				"border-b border-line",
+				isToday && "border-l-2 border-l-accent bg-accent-soft/20",
+			)}
+		>
+			<header className="flex h-section-row items-center gap-3 px-row-inset">
+				<div className="flex w-16 shrink-0 items-baseline gap-1.5">
+					<span
+						className={cn(
+							"text-lg font-semibold tabular-nums",
+							isToday ? "text-accent" : "text-fg",
+						)}
+					>
+						{day.dayNumber}
+					</span>
+					<span className="text-2xs uppercase tracking-wider text-fg-subtle">
+						{day.weekdayLabel}
+					</span>
+				</div>
+				<span className="min-w-0 flex-1 truncate text-xs text-fg-muted">
+					{summarise(day)}
+				</span>
+				<BusyBar day={day} className="hidden w-32 shrink-0 sm:block" />
+				<button
+					type="button"
+					onClick={() => onZoomDay(day.date)}
+					className={cn(
+						"flex shrink-0 items-center gap-0.5 rounded-md border px-2 text-2xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+						touch ? "min-h-9" : "h-6",
+						day.conflicts.length > 0
+							? "border-warning text-warning hover:bg-warning-soft"
+							: "border-line text-fg-subtle hover:border-line-strong hover:text-fg",
+					)}
+				>
+					Grid
+					<ChevronRight className="size-3" />
+				</button>
+			</header>
+
+			<div className="flex flex-col gap-1 pb-2">
+				{day.allDay.map((event) => (
+					<AllDayLine
+						key={event.id}
+						event={event}
+						selected={event.id === selectedEventId}
+						onSelect={() => onSelectEvent(event.id)}
+						touch={touch}
+					/>
+				))}
+				{isClearDay(day) ? (
+					<ClearDayLine day={day} onPickSlot={onPickSlot} touch={touch} />
+				) : (
+					items.map((item) => <div key={item.key}>{item.node}</div>)
+				)}
+			</div>
+		</section>
+	);
+}
+
+function summarise(day: CalendarDay): string {
+	if (day.timed.length === 0) return "Nothing booked";
+	const parts = [
+		`${day.timed.length} ${day.timed.length === 1 ? "event" : "events"}`,
+		`${formatSpan(day.busyMinutes)} booked`,
+	];
+	if (day.conflicts.length > 0)
+		parts.push(
+			`${day.conflicts.length} ${day.conflicts.length === 1 ? "clash" : "clashes"}`,
+		);
+	return parts.join(" · ");
+}
+
+/** Where the day's hours went, drawn to scale. The gaps are the point. */
+function BusyBar({ day, className }: { day: CalendarDay; className?: string }) {
+	const span = DAY_END_MINUTE - DAY_START_MINUTE;
+	return (
+		<div
+			aria-hidden
+			className={cn(
+				"relative h-1.5 overflow-hidden rounded-full bg-surface-sunken",
+				className,
+			)}
+		>
+			{busySpansOn(day).map((busy) => {
+				const from = Math.max(busy.from, DAY_START_MINUTE);
+				const to = Math.min(busy.to, DAY_END_MINUTE);
+				if (to <= from) return null;
+				return (
+					<span
+						key={`${busy.from}-${busy.to}`}
+						className="absolute inset-y-0 rounded-full bg-fg-subtle"
+						style={{
+							left: `${((from - DAY_START_MINUTE) / span) * 100}%`,
+							width: `${((to - from) / span) * 100}%`,
+						}}
+					/>
+				);
+			})}
+		</div>
+	);
+}
+
+function ClearDayLine({
+	day,
+	onPickSlot,
+	touch,
+}: {
+	day: CalendarDay;
+	onPickSlot: (pick: SlotPick) => void;
+	touch?: boolean;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={() =>
+				onPickSlot({
+					date: day.date,
+					startTime: "10:00",
+					endTime: "11:00",
+					allDay: false,
+				})
+			}
+			className={cn(
+				"mx-row-inset flex items-center gap-2 rounded-md border border-dashed border-line px-2 text-left text-xs text-fg-muted outline-none transition-colors hover:border-accent hover:text-accent focus-visible:ring-2 focus-visible:ring-ring",
+				touch ? "min-h-11" : "h-8",
+			)}
+		>
+			Free all day
+		</button>
+	);
+}
+
+function FreeBand({
+	stretch,
+	onPick,
+	touch,
+}: {
+	stretch: FreeStretch;
+	onPick: () => void;
+	touch?: boolean;
+}) {
+	const long = stretch.minutes >= LONG_FREE_MINUTES;
+	return (
+		<button
+			type="button"
+			onClick={onPick}
+			className={cn(
+				"ml-16 mr-row-inset flex items-center gap-2 rounded-md border border-dashed text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+				touch ? "min-h-11 px-3" : "h-7 px-2",
+				long
+					? "border-accent-2 bg-accent-2-soft/40 text-accent-2 hover:bg-accent-2-soft"
+					: "border-line text-fg-subtle hover:border-line-strong hover:text-fg-muted",
+			)}
+		>
+			<span className={cn("text-xs", long && "font-medium")}>
+				{formatSpan(stretch.minutes)} free
+			</span>
+			<span className="text-2xs tabular-nums opacity-80">
+				{formatMinute(stretch.startMinute)} – {formatMinute(stretch.endMinute)}
+			</span>
+		</button>
+	);
+}
+
+function AllDayLine({
+	event,
+	selected,
+	onSelect,
+	touch,
+}: {
+	event: CalendarEventData;
+	selected: boolean;
+	onSelect: () => void;
+	touch?: boolean;
+}) {
+	const hue = calendarColorClasses(
+		calendarsById.get(event.calendarId)?.color ?? "cal-1",
+	);
+	return (
+		<button
+			type="button"
+			onClick={onSelect}
+			className={cn(
+				"mx-row-inset flex items-center gap-2 rounded-sm border-l-2 px-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring",
+				touch ? "min-h-11" : "h-6",
+				hue.soft,
+				hue.text,
+				hue.rail,
+				selected && "ring-2 ring-ring",
+			)}
+		>
+			<span className="truncate text-xs font-medium">{event.title}</span>
+			<span className="ml-auto shrink-0 text-2xs opacity-70">All day</span>
+		</button>
+	);
+}
+
+/**
+ * Events that run into each other, kept together and named as a pile-up. This
+ * is the one thing a list genuinely cannot draw, so it says so and offers the
+ * grid rather than pretending the rows are the whole truth.
+ */
+function ClashGroup({
+	events,
+	density,
+	selectedEventId,
+	onSelectEvent,
+	onZoomDay,
+	touch,
+}: {
+	events: CalendarEventData[];
+	density: AgendaDensity;
+	selectedEventId: string;
+	onSelectEvent: (eventId: string) => void;
+	onZoomDay: () => void;
+	touch?: boolean;
+}) {
+	const from = Math.min(...events.map((event) => minuteOfDay(event.start)));
+	const to = Math.max(...events.map((event) => minuteOfDay(event.end)));
+	return (
+		<div className="mx-row-inset rounded-md border border-warning/50 bg-warning-soft/30">
+			<div className="flex items-center gap-2 px-2 py-1">
+				<Layers className="size-3 shrink-0 text-warning" />
+				<span className="text-2xs font-medium text-warning">
+					{events.length} at once · {formatMinute(from)} – {formatMinute(to)}
+				</span>
+				<button
+					type="button"
+					onClick={onZoomDay}
+					className={cn(
+						"ml-auto rounded-sm px-1.5 text-2xs font-medium text-warning underline underline-offset-2 outline-none hover:text-fg focus-visible:ring-2 focus-visible:ring-ring",
+						touch && "min-h-9",
+					)}
+				>
+					Open the grid
+				</button>
+			</div>
+			<div className="flex flex-col gap-0.5 pb-1">
+				{events.map((event) => (
+					<EventLine
+						key={event.id}
+						event={event}
+						density={density}
+						selected={event.id === selectedEventId}
+						onSelect={() => onSelectEvent(event.id)}
+						inset={false}
+						touch={touch}
+					/>
+				))}
+			</div>
+		</div>
+	);
+}
+
+function EventLine({
+	event,
+	density,
+	selected,
+	onSelect,
+	inset = true,
+	touch,
+}: {
+	event: CalendarEventData;
+	density: AgendaDensity;
+	selected: boolean;
+	onSelect: () => void;
+	inset?: boolean;
+	touch?: boolean;
+}) {
+	const calendar = calendarsById.get(event.calendarId);
+	const hue = calendarColorClasses(calendar?.color ?? "cal-1");
+	const detailed = density === "detail";
+	const declined = event.myRsvp === "declined";
+	const provisional =
+		event.status === "tentative" || event.myRsvp === "tentative";
+	const minutes = minuteOfDay(event.end) - minuteOfDay(event.start);
+	const second = [calendar?.name, event.location]
+		.filter((part) => part !== undefined && part !== "")
+		.join(" · ");
+
+	return (
+		<button
+			type="button"
+			onClick={onSelect}
+			className={cn(
+				"flex w-full items-start gap-2 rounded-md py-0.5 text-left outline-none transition-colors hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-ring",
+				inset ? "px-row-inset" : "px-2",
+				touch && "min-h-12",
+			)}
+		>
+			<span
+				className={cn(
+					"shrink-0 pt-1 text-2xs tabular-nums text-fg-subtle",
+					inset ? "w-14" : "w-11",
+				)}
+			>
+				{event.start.slice(11, 16)}
+				{detailed && (
+					<span className="block opacity-70">{event.end.slice(11, 16)}</span>
+				)}
+			</span>
+			<span
+				className={cn(
+					"flex min-w-0 flex-1 flex-col gap-0.5 rounded-sm border-l-2 px-2 py-1",
+					hue.soft,
+					hue.text,
+					hue.rail,
+					provisional && cn("border-y border-r border-dashed", hue.border),
+					declined && "opacity-60",
+					selected && "ring-2 ring-ring",
+				)}
+			>
+				<span className="flex min-w-0 items-center gap-1.5">
+					<span
+						className={cn(
+							"truncate text-xs font-medium",
+							declined && "line-through",
+						)}
+					>
+						{event.title}
+					</span>
+					{event.recurrenceRule !== "" && (
+						<Repeat className="size-3 shrink-0" aria-label="Repeats" />
+					)}
+					{event.threadId !== "" && (
+						<Mail className="size-3 shrink-0" aria-label="From mail" />
+					)}
+					{event.zoneCertainty === "ambiguous" && (
+						<Globe
+							className="size-3 shrink-0 text-warning"
+							aria-label="Unclear zone"
+						/>
+					)}
+					<span className="ml-auto shrink-0 text-2xs tabular-nums opacity-70">
+						{formatSpan(minutes)}
+					</span>
+				</span>
+				{detailed && second !== "" && (
+					<span className="flex min-w-0 items-center gap-2 text-2xs opacity-80">
+						{event.location !== "" && <MapPin className="size-3 shrink-0" />}
+						<span className="truncate">{second}</span>
+						{event.attendees.length > 0 && (
+							<span className="ml-auto flex shrink-0 items-center gap-0.5">
+								<Users className="size-3" />
+								{event.attendees.length}
+							</span>
+						)}
+					</span>
+				)}
+			</span>
+		</button>
+	);
+}

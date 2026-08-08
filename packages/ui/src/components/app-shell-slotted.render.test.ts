@@ -14,6 +14,10 @@ const render = (overrides: Partial<AppShellSlottedProps> = {}) =>
 		}),
 	);
 
+/** The percentage react-resizable-panels gave the list panel. */
+const listSize = (html: string) =>
+	html.match(/data-panel-id="list" data-panel-size="([\d.]+)"/)?.[1];
+
 describe("AppShellSlotted slot rendering", () => {
 	it("renders the list slot unconditionally", () => {
 		const html = render({ initialWidth: 800 });
@@ -77,6 +81,85 @@ describe("AppShellSlotted slot rendering", () => {
 			html,
 			/data-testid="intelligence"/,
 			"intelligence pane is hidden when closed",
+		);
+	});
+
+	it("splits the list and reading panes 33/67 by default", () => {
+		assert.equal(
+			listSize(
+				render({
+					initialWidth: 1100,
+					reading: createElement(
+						"div",
+						{ "data-testid": "reading" },
+						"Reading",
+					),
+				}),
+			),
+			"33.0",
+			"the list keeps its standard third",
+		);
+	});
+
+	it("widens the list default at compact density", () => {
+		assert.equal(
+			listSize(
+				render({
+					initialWidth: 1100,
+					density: "compact",
+					reading: createElement(
+						"div",
+						{ "data-testid": "reading" },
+						"Reading",
+					),
+				}),
+			),
+			"43.0",
+			"denser rows read better with more room",
+		);
+	});
+
+	it("gives the list the larger share when the bias is on it", () => {
+		assert.equal(
+			listSize(
+				render({
+					initialWidth: 1100,
+					listBias: "list",
+					reading: createElement(
+						"div",
+						{ "data-testid": "reading" },
+						"Reading",
+					),
+				}),
+			),
+			"62.0",
+			"a list that is the work keeps the width",
+		);
+	});
+
+	it("gives the list the smaller share when the bias is on the detail", () => {
+		assert.equal(
+			listSize(
+				render({
+					initialWidth: 1100,
+					listBias: "detail",
+					reading: createElement(
+						"div",
+						{ "data-testid": "reading" },
+						"Reading",
+					),
+				}),
+			),
+			"26.0",
+			"a spine of a list gets a spine's width",
+		);
+	});
+
+	it("ignores the bias when there is no reading pane to split with", () => {
+		assert.equal(
+			listSize(render({ initialWidth: 1100, listBias: "list" })),
+			"100.0",
+			"one pane is the whole width at any bias",
 		);
 	});
 
