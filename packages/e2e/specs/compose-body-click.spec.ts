@@ -33,8 +33,8 @@ test.describe("Clicking in the compose body", () => {
 		await page.getByPlaceholder("Recipients").press("Enter");
 		await page.locator("[data-subject-field]").fill(subject);
 
-		// Compose opens with the caret in the recipient field, so the click below
-		// is what has to put it in the editor.
+		// Compose opens with the editor focused, so the click only means something
+		// once focus has moved off it.
 		await expect(body).not.toBeFocused();
 
 		const area = page.getByTestId("compose-body-area");

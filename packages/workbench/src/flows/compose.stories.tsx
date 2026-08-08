@@ -81,8 +81,6 @@ const FromRow = ({ email }: { email: string }) => (
 );
 
 interface ComposerProps {
-	/** Puts the caret in the recipient field as the surface opens, as the app does. */
-	autoFocus?: boolean;
 	to?: AddressEntry[];
 	subject?: string;
 	body?: string;
@@ -107,7 +105,6 @@ interface ComposerProps {
 const AUTOSAVE_MS = 700;
 
 const Composer = ({
-	autoFocus = false,
 	to = [{ email: "ada@example.com", displayName: "Ada Lovelace" }],
 	subject = "Re: Q3 planning",
 	body = DEFAULT_BODY,
@@ -183,117 +180,104 @@ const Composer = ({
 	const sendable =
 		canSend ?? (toAddresses.length > 0 && bodyValue.text.trim() !== "");
 
-	// The app's `FullCompose` does this to the surface it mounts: the recipient
-	// field takes the caret in the same frame, so compose opened from a focused
-	// search field does not leave the next keystrokes going to search (#703).
-	const surface = useRef<HTMLDivElement>(null);
-	useEffect(() => {
-		if (!autoFocus) return;
-		surface.current
-			?.querySelector<HTMLElement>('input[type="text"], textarea')
-			?.focus();
-	}, [autoFocus]);
-
 	return (
-		<div ref={surface} className="flex h-full min-h-0 flex-col">
-			<ComposeFormShell
-				banner={
-					smtpMissing || conversionFailure ? (
-						<>
-							{smtpMissing && (
-								<ComposeSmtpMissingBanner onConfigure={configureSmtp} />
-							)}
-							{conversionFailure && (
-								<Banner
-									tone="danger"
-									data-testid="compose-conversion-error"
-									onDismiss={() => setConversionFailure(undefined)}
-								>
-									<p className="font-medium">{conversionFailure.title}</p>
-									<p>{conversionFailure.detail}</p>
-								</Banner>
-							)}
-						</>
-					) : undefined
-				}
-				header={
-					<ComposeHeader
-						summary={composeHeaderSummary({
-							to: toAddresses,
-							cc: ccAddresses,
-							bcc: bccAddresses,
-							subject: subjectValue,
-						})}
-						from={<FromRow email="alice@northwind.example" />}
-						to={
+		<ComposeFormShell
+			banner={
+				smtpMissing || conversionFailure ? (
+					<>
+						{smtpMissing && (
+							<ComposeSmtpMissingBanner onConfigure={configureSmtp} />
+						)}
+						{conversionFailure && (
+							<Banner
+								tone="danger"
+								data-testid="compose-conversion-error"
+								onDismiss={() => setConversionFailure(undefined)}
+							>
+								<p className="font-medium">{conversionFailure.title}</p>
+								<p>{conversionFailure.detail}</p>
+							</Banner>
+						)}
+					</>
+				) : undefined
+			}
+			header={
+				<ComposeHeader
+					summary={composeHeaderSummary({
+						to: toAddresses,
+						cc: ccAddresses,
+						bcc: bccAddresses,
+						subject: subjectValue,
+					})}
+					from={<FromRow email="alice@northwind.example" />}
+					to={
+						<ComposeAddressField
+							label="To"
+							addresses={toAddresses}
+							onChange={editAddresses(setToAddresses)}
+							placeholder="Recipients"
+						/>
+					}
+					cc={
+						showCc ? (
 							<ComposeAddressField
-								label="To"
-								addresses={toAddresses}
-								onChange={editAddresses(setToAddresses)}
-								placeholder="Recipients"
+								label="Cc"
+								addresses={ccAddresses}
+								onChange={editAddresses(setCcAddresses)}
 							/>
-						}
-						cc={
-							showCc ? (
-								<ComposeAddressField
-									label="Cc"
-									addresses={ccAddresses}
-									onChange={editAddresses(setCcAddresses)}
-								/>
-							) : undefined
-						}
-						bcc={
-							showBcc ? (
-								<ComposeAddressField
-									label="Bcc"
-									addresses={bccAddresses}
-									onChange={editAddresses(setBccAddresses)}
-								/>
-							) : undefined
-						}
-						subject={
-							<ComposeSubjectField
-								value={subjectValue}
-								onChange={(next) => {
-									setSubjectValue(next);
-									noteEdit();
-								}}
+						) : undefined
+					}
+					bcc={
+						showBcc ? (
+							<ComposeAddressField
+								label="Bcc"
+								addresses={bccAddresses}
+								onChange={editAddresses(setBccAddresses)}
 							/>
-						}
-						onShowCc={() => setShowCc(true)}
-						onShowBcc={() => setShowBcc(true)}
-					/>
-				}
-				quoted={
-					quoted ? (
-						<QuotedText text={quoted} senderName={quotedSender} />
-					) : undefined
-				}
-				actionBar={
-					<ComposeActionBar
-						onSend={onSend}
-						onDiscard={discard}
-						sending={sending}
-						canSend={sendable}
-						saveStatus={saving ? "saving" : saveStatus}
-						unavailableReason={unavailableReason}
-						onUnavailable={onUnavailable}
-					/>
-				}
-			>
-				<ComposeBody
-					mode={bodyMode}
-					onModeChange={setBodyMode}
-					initialHtml={body}
-					initialText={plainBody}
-					onChange={noteBodyChange}
-					onSubmit={sendable ? onSend : undefined}
-					onConversionError={setConversionFailure}
-					languages={ACCOUNT_LANGUAGES}
-					onLanguageChange={noteLanguageChange}
+						) : undefined
+					}
+					subject={
+						<ComposeSubjectField
+							value={subjectValue}
+							onChange={(next) => {
+								setSubjectValue(next);
+								noteEdit();
+							}}
+						/>
+					}
+					onShowCc={() => setShowCc(true)}
+					onShowBcc={() => setShowBcc(true)}
 				/>
-			</ComposeFormShell>
-		</div>
+			}
+			quoted={
+				quoted ? (
+					<QuotedText text={quoted} senderName={quotedSender} />
+				) : undefined
+			}
+			actionBar={
+				<ComposeActionBar
+					onSend={onSend}
+					onDiscard={discard}
+					sending={sending}
+					canSend={sendable}
+					saveStatus={saving ? "saving" : saveStatus}
+					unavailableReason={unavailableReason}
+					onUnavailable={onUnavailable}
+				/>
+			}
+		>
+			<ComposeBody
+				mode={bodyMode}
+				onModeChange={setBodyMode}
+				initialHtml={body}
+				initialText={plainBody}
+				onChange={noteBodyChange}
+				onSubmit={sendable ? onSend : undefined}
+				onConversionError={setConversionFailure}
+				languages={ACCOUNT_LANGUAGES}
+				onLanguageChange={noteLanguageChange}
+			/>
+		</ComposeFormShell>
 	);
 };
 
@@ -306,8 +290,7 @@ export const Full: Story = {
 
 /**
  * Compose from an open message (#703). The reading pane holds one thing, so
- * Compose closes the conversation and takes the pane, with the caret in the
- * recipient field.
+ * Compose closes the conversation and takes the pane on the press.
  *
  * Typing in search afterwards is the step that matters: that is what used to
  * make a queued surface appear, so the surface has to be there before it and
@@ -335,7 +318,7 @@ export const OverAnOpenMessage: Story = {
 				}}
 				reading={
 					composing ? (
-						<Composer autoFocus to={[]} subject="" body="" plainBody="" />
+						<Composer to={[]} subject="" body="" plainBody="" />
 					) : undefined
 				}
 			/>
@@ -349,20 +332,21 @@ export const OverAnOpenMessage: Story = {
 
 		const recipients = canvas.getByLabelText("To:");
 		await expect(recipients).toBeVisible();
-		await expect(recipients).toHaveFocus();
 		await expect(canvas.queryByText(q3Thread.subject)).toBeNull();
 
-		// The caret is in the field, so an address goes in without aiming at it.
-		await userEvent.keyboard("ada@example.com");
+		await userEvent.type(recipients, "ada@example.com");
 		await expect(recipients).toHaveValue("ada@example.com");
 
-		await userEvent.type(canvas.getByLabelText("Search mail"), "invoice");
+		const search = canvas.getByLabelText("Search mail");
+		await userEvent.type(search, "invoice");
 
-		// Nothing about the surface moved: no second copy arriving late, no
-		// conversation coming back, and the address still typed.
+		// Nothing about the surface moved on the search: no second copy arriving
+		// late, no conversation coming back, and the address still typed. The caret
+		// is in the field being typed into, which is search.
+		await expect(search).toHaveFocus();
+		await expect(canvas.getAllByLabelText("To:")).toHaveLength(1);
 		await expect(canvas.getByLabelText("To:")).toHaveValue("ada@example.com");
 		await expect(canvas.queryByText(q3Thread.subject)).toBeNull();
-		await expect(canvas.getAllByLabelText("To:")).toHaveLength(1);
 	},
 };
 

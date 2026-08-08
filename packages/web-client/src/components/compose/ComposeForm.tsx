@@ -252,14 +252,12 @@ const WiredComposeHeader = ({
 				/>
 			}
 			to={
-				<div data-compose-recipients>
-					<AddressField
-						label="To"
-						addresses={toAddresses}
-						onChange={setToAddresses}
-						placeholder="Recipients"
-					/>
-				</div>
+				<AddressField
+					label="To"
+					addresses={toAddresses}
+					onChange={setToAddresses}
+					placeholder="Recipients"
+				/>
 			}
 			cc={
 				showCc ? (
@@ -753,6 +751,7 @@ export const ComposeForm = ({
 					initialText={initialText}
 					onChange={setBody}
 					onSubmit={handleSend}
+					autoFocus={mode === "new"}
 					onConversionError={pushError}
 					languages={accountLanguages}
 					initialLanguage={draftLanguage}

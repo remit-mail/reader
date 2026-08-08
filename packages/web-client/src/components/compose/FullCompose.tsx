@@ -1,12 +1,10 @@
 import { configOperationsGetConfigOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
-import { useEffect, useRef } from "react";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { ComposeForm } from "./ComposeForm";
 import { useCompose } from "./ComposeProvider";
-import { focusComposeRecipients } from "./compose-caret";
 import { MobileComposeSheet } from "./MobileComposeSheet";
 
 const MODE_LABELS: Record<string, string> = {
@@ -19,11 +17,6 @@ const MODE_LABELS: Record<string, string> = {
 export const FullCompose = () => {
 	const { state, closeCompose } = useCompose();
 	const isDesktop = useIsDesktop();
-	const surfaceRef = useRef<HTMLDivElement>(null);
-	useEffect(() => {
-		if (!state.isOpen) return;
-		focusComposeRecipients(surfaceRef.current);
-	}, [state.isOpen]);
 	const {
 		isError: isConfigError,
 		error: configError,
@@ -73,7 +66,7 @@ export const FullCompose = () => {
 	}
 
 	return (
-		<div ref={surfaceRef} className="flex h-full min-h-0 flex-col bg-canvas">
+		<div className="flex h-full min-h-0 flex-col bg-canvas">
 			{header}
 			<div className="min-h-0 flex-1 overflow-hidden">
 				<ComposeForm

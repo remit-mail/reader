@@ -1,6 +1,6 @@
 /**
  * Issue #703: with a message open, Compose did nothing until typing in search
- * made the window appear and take the caret.
+ * made the window appear.
  */
 import { expect, test } from "../src/fixtures.js";
 
@@ -22,7 +22,7 @@ test.describe("Compose over an open message", () => {
 		await expect(page.getByRole("article")).toBeVisible({ timeout: 30_000 });
 	});
 
-	test("the compose surface opens, takes the caret, and leaves search alone", async ({
+	test("the surface arrives on the click, not on the next keystroke in search", async ({
 		page,
 	}) => {
 		const search = page.getByRole("textbox", { name: "Search mail" });
@@ -33,18 +33,21 @@ test.describe("Compose over an open message", () => {
 
 		const recipients = page.getByPlaceholder("Recipients");
 		await expect(recipients).toBeVisible({ timeout: 30_000 });
-		await expect(recipients).toBeFocused();
-
-		// What is typed next goes to the message being written, not to the field
-		// the caret started in.
-		await page.keyboard.type("ada@remit.test");
-		await expect(recipients).toHaveValue("ada@remit.test");
-		await expect(search).toHaveValue("");
 
 		// The pane shows one thing, and the URL says the same: the thread is closed
 		// rather than sitting behind the surface waiting to reappear.
 		await expect(page.getByRole("article")).toBeHidden();
 		await page.waitForURL((url) => !url.search.includes("selectedMessageId"));
+
+		// Searching is what used to summon the queued surface. Nothing arrives on
+		// it now: the caret stays in the field being typed into, one composer is on
+		// screen, and the conversation does not come back.
+		await search.pressSequentially("invoice");
+		await expect(search).toBeFocused();
+		await expect(search).toHaveValue("invoice");
+		await expect(recipients).toHaveCount(1);
+		await expect(recipients).toBeVisible();
+		await expect(page.getByRole("article")).toBeHidden();
 	});
 
 	test("the c shortcut opens it from the open message too", async ({
@@ -53,8 +56,9 @@ test.describe("Compose over an open message", () => {
 		await page.getByRole("article").click({ position: { x: 4, y: 4 } });
 		await page.keyboard.press("c");
 
-		const recipients = page.getByPlaceholder("Recipients");
-		await expect(recipients).toBeVisible({ timeout: 30_000 });
-		await expect(recipients).toBeFocused();
+		await expect(page.getByPlaceholder("Recipients")).toBeVisible({
+			timeout: 30_000,
+		});
+		await expect(page.getByRole("article")).toBeHidden();
 	});
 });
