@@ -89,7 +89,7 @@ export const Filtered: Story = {
 		await expect(categories).not.toBeNull();
 		await userEvent.click(
 			within(categories as HTMLElement).getByRole("button", {
-				name: "Newsletter",
+				name: "Newsletters",
 			}),
 		);
 		await waitFor(() =>
