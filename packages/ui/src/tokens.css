@@ -164,6 +164,10 @@
 	--danger: oklch(0.56 0.16 25);
 	--danger-soft: oklch(0.93 0.04 25);
 
+	/* the spelling squiggle: violet, so a misspelt word never reads as loud as
+	   a phishing banner, which owns --danger */
+	--spell-mark: oklch(0.52 0.19 320);
+
 	--ring: oklch(0.55 0.14 150);
 }
 
@@ -198,6 +202,8 @@
 	--danger: oklch(0.68 0.15 25);
 	--danger-soft: oklch(0.32 0.07 25);
 
+	--spell-mark: oklch(0.76 0.16 320);
+
 	--ring: oklch(0.78 0.16 150);
 }
 
@@ -230,6 +236,17 @@ body {
 	font-family: var(--font-ui);
 	-webkit-font-smoothing: antialiased;
 	text-rendering: optimizeLegibility;
+}
+
+/* The composer's own spelling marks. The ranges live in the CSS Custom
+   Highlight registry and nothing enters the document, so a marked word looks
+   the same to undo, to the outgoing HTML and to the Markdown. Firefox ignores
+   text-decoration on a highlight and paints the tint alone; that is the whole
+   fallback. */
+::highlight(spell-error) {
+	background-color: color-mix(in srgb, var(--spell-mark) 12%, transparent);
+	text-decoration: underline wavy var(--spell-mark);
+	text-underline-offset: 3px;
 }
 
 /* thin, unobtrusive scrollbars — calm density */

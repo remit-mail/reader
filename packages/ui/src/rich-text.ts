@@ -33,6 +33,20 @@ export {
 	type RichTextEditorProps,
 } from "./components/rich-text-editor.js";
 export { COMPOSE_TRANSFORMERS } from "./components/rich-text-markdown.js";
+export type {
+	CheckRequest,
+	CheckResponse,
+	CheckSpan,
+	Finding,
+	LanguageTag,
+	ProviderStatus,
+	SpellcheckOptions,
+	SpellProvider,
+} from "./components/rich-text-spellcheck.js";
+export {
+	openSpellProvider,
+	type SpellWorkerPort,
+} from "./components/rich-text-spellcheck-provider.js";
 export {
 	EMPTY_RICH_TEXT,
 	type RichTextValue,
