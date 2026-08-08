@@ -29,13 +29,18 @@ const calendars: CalendarDescriptor[] = [
 	},
 ];
 
-const render = (visible: string[], withAccountToggle = false) =>
+const render = (
+	visible: string[],
+	withAccountToggle = false,
+	closedAccountIds?: string[],
+) =>
 	renderToString(
 		createElement(CalendarList, {
 			calendars,
 			visible: new Set(visible),
 			onToggle: () => undefined,
 			...(withAccountToggle ? { onToggleAccount: () => undefined } : {}),
+			...(closedAccountIds ? { closedAccountIds } : {}),
 		}),
 	);
 
@@ -60,5 +65,13 @@ describe("CalendarList", () => {
 
 	it("offers 'All' when an account is fully hidden", () => {
 		assert.match(render([], true), />All</);
+	});
+
+	it("folds an account's rows away behind its caret, keeping the heading", () => {
+		const html = render(["c1", "c2", "c3"], true, ["a1"]);
+		assert.match(html, /aria-expanded="false"/);
+		assert.match(html, /Work/);
+		assert.doesNotMatch(html, /Northwind/);
+		assert.match(html, /Family/);
 	});
 });

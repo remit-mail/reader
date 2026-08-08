@@ -102,6 +102,22 @@ export const Interactive: Story = {
 	},
 };
 
+/**
+ * An account folded shut. Its calendars are still on the grid — the caret hides
+ * rows, the tick hides events, and the two are not the same thing.
+ */
+export const AccountFolded: Story = {
+	render: () => (
+		<CalendarList
+			calendars={calendars}
+			visible={new Set(calendars.map((c) => c.id))}
+			onToggle={() => {}}
+			onToggleAccount={() => {}}
+			closedAccountIds={["a2"]}
+		/>
+	),
+};
+
 /** Everything off: an unticked calendar keeps its swatch outline, so the key survives. */
 export const AllHidden: Story = {
 	render: () => (

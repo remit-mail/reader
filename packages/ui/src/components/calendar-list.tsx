@@ -1,4 +1,5 @@
-import { Check } from "lucide-react";
+import { Check, ChevronDown, ChevronRight } from "lucide-react";
+import { useState } from "react";
 import { calendarColorClasses } from "../lib/calendar-color.js";
 import { cn } from "../lib/cn.js";
 import type { CalendarDescriptor } from "./calendar-types.js";
@@ -19,6 +20,8 @@ export interface CalendarListProps {
 	layout?: "list" | "strip";
 	/** Grows every row to a thumb target. */
 	touch?: boolean;
+	/** Accounts folded shut on mount. The list owns the state from there. */
+	closedAccountIds?: string[];
 	className?: string;
 }
 
@@ -52,6 +55,10 @@ function groupByAccount(calendars: CalendarDescriptor[]): AccountGroup[] {
  * colour means nothing unless the thing that names the colour is visible at the
  * same time as the grid, so this never collapses into a popover or a settings
  * page — turning a calendar off is a first-class move, not a preference.
+ *
+ * An account folds shut behind its own caret, the way a mailbox account folds in
+ * the nav. Folding is not filtering: a closed account's calendars stay on the
+ * grid, and the tick that takes them off is the one under the caret.
  */
 export function CalendarList({
 	calendars,
@@ -60,8 +67,19 @@ export function CalendarList({
 	onToggleAccount,
 	layout = "list",
 	touch,
+	closedAccountIds,
 	className,
 }: CalendarListProps) {
+	const [closed, setClosed] = useState<ReadonlySet<string>>(
+		() => new Set(closedAccountIds ?? []),
+	);
+	const toggleOpen = (accountId: string) =>
+		setClosed((prev) => {
+			const next = new Set(prev);
+			if (!next.delete(accountId)) next.add(accountId);
+			return next;
+		});
+
 	if (layout === "strip") {
 		return (
 			<div
@@ -110,12 +128,26 @@ export function CalendarList({
 		<div className={cn("flex flex-col gap-3", className)}>
 			{groupByAccount(calendars).map((group) => {
 				const allOn = group.calendars.every((c) => visible.has(c.id));
+				const open = !closed.has(group.accountId);
 				return (
 					<section key={group.accountId} className="flex flex-col">
 						<div className="flex items-center gap-2 px-row-inset pb-1">
-							<h3 className="flex-1 truncate text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
-								{group.accountLabel}
-							</h3>
+							<button
+								type="button"
+								onClick={() => toggleOpen(group.accountId)}
+								aria-expanded={open}
+								className={cn(
+									"flex min-w-0 flex-1 items-center gap-1.5 rounded-sm text-left text-2xs font-semibold uppercase tracking-wider text-fg-subtle outline-none transition-colors hover:text-fg focus-visible:ring-2 focus-visible:ring-ring",
+									touch && "min-h-11",
+								)}
+							>
+								{open ? (
+									<ChevronDown className="size-3 shrink-0" />
+								) : (
+									<ChevronRight className="size-3 shrink-0" />
+								)}
+								<span className="truncate">{group.accountLabel}</span>
+							</button>
 							{onToggleAccount && (
 								<button
 									type="button"
@@ -126,15 +158,16 @@ export function CalendarList({
 								</button>
 							)}
 						</div>
-						{group.calendars.map((calendar) => (
-							<CalendarListRow
-								key={calendar.id}
-								calendar={calendar}
-								checked={visible.has(calendar.id)}
-								touch={touch}
-								onToggle={() => onToggle(calendar.id)}
-							/>
-						))}
+						{open &&
+							group.calendars.map((calendar) => (
+								<CalendarListRow
+									key={calendar.id}
+									calendar={calendar}
+									checked={visible.has(calendar.id)}
+									touch={touch}
+									onToggle={() => onToggle(calendar.id)}
+								/>
+							))}
 					</section>
 				);
 			})}

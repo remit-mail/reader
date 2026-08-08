@@ -33,6 +33,9 @@ import {
 	ReadingPane,
 	type RecurrenceScope,
 	RecurrenceScopePrompt,
+	ResizableHandle,
+	ResizablePanel,
+	ResizablePanelGroup,
 	type ThreadData,
 	useContainerWidth,
 } from "@remit/ui";
@@ -53,6 +56,7 @@ import {
 	TODAY,
 	threadFor,
 } from "../fixtures/calendar.js";
+import { railShare } from "../lib/calendar-rail.js";
 import { MailShell } from "./mail-shell.js";
 
 /** Below this the surface has no room for a calendar rail beside the grid. */
@@ -798,6 +802,7 @@ function DesktopSurface({
 }) {
 	const [surfaceRef, surfaceWidth] = useContainerWidth(1100);
 	const hasRail = (surfaceWidth ?? 0) >= RAIL_MIN_WIDTH;
+	const rail = railShare(surfaceWidth ?? 0);
 
 	return (
 		<div
@@ -826,20 +831,38 @@ function DesktopSurface({
 				</div>
 			)}
 
-			<div className="flex min-h-0 flex-1">
-				{hasRail && (
-					<aside className="flex w-64 shrink-0 flex-col gap-4 overflow-y-auto border-r border-line bg-surface-sunken py-3">
-						<CalendarList
-							calendars={calendars}
-							visible={visible}
-							onToggle={onToggleCalendar}
-							onToggleAccount={onToggleAccount}
-						/>
-						{suggestions}
-					</aside>
-				)}
+			{hasRail ? (
+				<ResizablePanelGroup
+					key={rail.tier}
+					direction="horizontal"
+					className="min-h-0 flex-1"
+				>
+					<ResizablePanel
+						id="calendars"
+						order={1}
+						defaultSize={rail.size}
+						minSize={rail.minSize}
+						maxSize={rail.maxSize}
+						className="min-w-0"
+					>
+						<aside className="flex h-full flex-col gap-4 overflow-y-auto bg-surface-sunken py-3">
+							<CalendarList
+								calendars={calendars}
+								visible={visible}
+								onToggle={onToggleCalendar}
+								onToggleAccount={onToggleAccount}
+							/>
+							{suggestions}
+						</aside>
+					</ResizablePanel>
+					<ResizableHandle />
+					<ResizablePanel id="grid" order={2} className="min-w-0">
+						{grid}
+					</ResizablePanel>
+				</ResizablePanelGroup>
+			) : (
 				<div className="min-h-0 min-w-0 flex-1">{grid}</div>
-			</div>
+			)}
 
 			{panel && (
 				<>

@@ -22,6 +22,9 @@ import {
 	EventSuggestionCard,
 	type RecurrenceScope,
 	RecurrenceScopePrompt,
+	ResizableHandle,
+	ResizablePanel,
+	ResizablePanelGroup,
 	useContainerWidth,
 } from "@remit/ui";
 import { Sparkles, Wand2 } from "lucide-react";
@@ -68,6 +71,7 @@ import {
 	monthLabel,
 	readNextUp,
 } from "../lib/agenda-time.js";
+import { railShare } from "../lib/calendar-rail.js";
 import { MailShell } from "./mail-shell.js";
 
 /** Wednesday 10 June 2026, 09:30 — the same fixed now as the mail fixtures. */
@@ -750,6 +754,24 @@ function DesktopSurface({
 	const measured = surfaceWidth ?? 0;
 	const hasRail = measured >= RAIL_MIN_WIDTH;
 	const hasContext = measured >= CONTEXT_MIN_WIDTH;
+	const rail = railShare(measured);
+
+	const stripAndContext = (
+		<>
+			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
+				<div className="shrink-0 border-b border-line px-row-inset py-2">
+					{composer}
+				</div>
+				{body}
+			</div>
+
+			{hasContext && (
+				<aside className="flex w-80 shrink-0 flex-col gap-4 overflow-y-auto border-l border-line bg-surface-sunken px-row-inset py-3">
+					{context}
+				</aside>
+			)}
+		</>
+	);
 
 	return (
 		<div
@@ -781,32 +803,38 @@ function DesktopSurface({
 				</div>
 			)}
 
-			<div className="flex min-h-0 flex-1">
-				{hasRail && (
-					<aside className="flex w-60 shrink-0 flex-col gap-4 overflow-y-auto border-r border-line bg-surface-sunken py-3">
-						<CalendarList
-							calendars={calendars}
-							visible={visible}
-							onToggle={onToggleCalendar}
-							onToggleAccount={onToggleAccount}
-						/>
-						{positionMap}
-					</aside>
-				)}
-
-				<div className="flex min-h-0 min-w-0 flex-1 flex-col">
-					<div className="shrink-0 border-b border-line px-row-inset py-2">
-						{composer}
-					</div>
-					{body}
-				</div>
-
-				{hasContext && (
-					<aside className="flex w-80 shrink-0 flex-col gap-4 overflow-y-auto border-l border-line bg-surface-sunken px-row-inset py-3">
-						{context}
-					</aside>
-				)}
-			</div>
+			{hasRail ? (
+				<ResizablePanelGroup
+					key={rail.tier}
+					direction="horizontal"
+					className="min-h-0 flex-1"
+				>
+					<ResizablePanel
+						id="calendars"
+						order={1}
+						defaultSize={rail.size}
+						minSize={rail.minSize}
+						maxSize={rail.maxSize}
+						className="min-w-0"
+					>
+						<aside className="flex h-full flex-col gap-4 overflow-y-auto bg-surface-sunken py-3">
+							<CalendarList
+								calendars={calendars}
+								visible={visible}
+								onToggle={onToggleCalendar}
+								onToggleAccount={onToggleAccount}
+							/>
+							{positionMap}
+						</aside>
+					</ResizablePanel>
+					<ResizableHandle />
+					<ResizablePanel id="strip" order={2} className="min-w-0">
+						<div className="flex h-full min-h-0">{stripAndContext}</div>
+					</ResizablePanel>
+				</ResizablePanelGroup>
+			) : (
+				<div className="flex min-h-0 flex-1">{stripAndContext}</div>
+			)}
 		</div>
 	);
 }
