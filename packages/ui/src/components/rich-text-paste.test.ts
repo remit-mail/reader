@@ -10,6 +10,15 @@ import { before, describe, it } from "node:test";
 import type { JSDOM } from "jsdom";
 import type { LexicalEditor } from "lexical";
 
+const PASTED_IMAGE = [
+	"<p>before</p>",
+	'<p><img src="https://example.com/logo.png" alt="The logo"></p>',
+	"<p>after</p>",
+].join("");
+
+const PIXEL =
+	"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
 const PASTED = [
 	'<meta charset="utf-8">',
 	'<h2 style="color:#111">Quarterly numbers</h2>',
@@ -104,5 +113,38 @@ describe("adopting pasted HTML", () => {
 		assert.match(text, /## Quarterly numbers/);
 		assert.match(text, /- Revenue up/);
 		assert.match(text, /\*\*this quarter\*\*/);
+	});
+});
+
+/**
+ * #684: the sanitizer admitted the element and the editor had nowhere to put
+ * it, so the picture was gone by the time the paste landed — between two
+ * paragraphs that both survived.
+ */
+describe("adopting a pasted image", () => {
+	it("keeps the image between the text around it", () => {
+		const { html } = adoptAndSerialize(PASTED_IMAGE);
+
+		assert.match(html, /<img[^>]+src="https:\/\/example\.com\/logo\.png"/);
+		assert.match(html, /<img[^>]+alt="The logo"/);
+		assert.match(html, /before/);
+		assert.match(html, /after/);
+	});
+
+	it("keeps an image the clipboard carried as its own data", () => {
+		const { html } = adoptAndSerialize(
+			`<p><img src="${PIXEL}" alt="A pixel"></p>`,
+		);
+
+		assert.ok(html.includes(`src="${PIXEL}"`));
+		assert.match(html, /alt="A pixel"/);
+	});
+
+	it("drops an image this app would not send", () => {
+		const { html } = adoptAndSerialize(
+			'<p><img src="http://tracker.example/px.gif"></p>',
+		);
+
+		assert.equal(html.includes("<img"), false);
 	});
 });
