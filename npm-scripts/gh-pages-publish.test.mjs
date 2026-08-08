@@ -14,7 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
-import { publish, remove } from "./gh-pages-publish.mjs";
+import { isLeaseRejection, publish, remove } from "./gh-pages-publish.mjs";
 
 const roots = [];
 
@@ -57,7 +57,18 @@ function branchExists(remoteDir, branch) {
 	return git(remoteDir, ["branch", "--list", branch]).length > 0;
 }
 
+// Excludes .nojekyll: it is written on every operation regardless of --dest,
+// so asserting it in every test below would just be noise. Its presence has
+// its own dedicated tests instead.
 function treePaths(remoteDir, branch) {
+	if (!branchExists(remoteDir, branch)) return [];
+	return git(remoteDir, ["ls-tree", "-r", "--name-only", branch])
+		.split("\n")
+		.filter((path) => path && path !== ".nojekyll")
+		.sort();
+}
+
+function allTreePaths(remoteDir, branch) {
 	if (!branchExists(remoteDir, branch)) return [];
 	return git(remoteDir, ["ls-tree", "-r", "--name-only", branch])
 		.split("\n")
@@ -79,6 +90,33 @@ function worktreeDirFor(root) {
 	const dir = join(root, `wt-${Math.random().toString(36).slice(2)}`);
 	roots.push(dir);
 	return dir;
+}
+
+// A second, independent clone pointed at the same remote -- standing in for
+// a second workflow run publishing to the same branch. `race()` lands one
+// more commit on `remoteDir` every time it is called, each one on top of
+// whatever is there, so it can simulate a racer that keeps winning.
+function racer(root, remoteDir) {
+	const dir = join(root, `racer-${Math.random().toString(36).slice(2)}`);
+	roots.push(dir);
+	mkdirSync(dir, { recursive: true });
+	git(dir, ["init", "--quiet"]);
+	git(dir, ["config", "user.email", "racer@example.com"]);
+	git(dir, ["config", "user.name", "racer"]);
+	git(dir, ["remote", "add", "origin", remoteDir]);
+	let count = 0;
+	return function race() {
+		count += 1;
+		publish({
+			repoRoot: dir,
+			dest: `pr/racer-${count}/sha${count}`,
+			sourceDir: sourceDir(root, `racer-payload-${count}`, {
+				"index.html": `racer publish ${count}`,
+			}),
+			message: `racer publish ${count}`,
+			worktreeDir: join(dir, `.race-worktree-${count}`),
+		});
+	};
 }
 
 // Every workflow that calls this script checks out the repo it runs from with
@@ -379,5 +417,235 @@ describe("a repoRoot checked out sparse", () => {
 
 		assert.equal(git(repoRoot, ["config", "core.sparseCheckout"]), "true");
 		assert.deepEqual(readdirSyncSorted(repoRoot), ["npm-scripts"]);
+	});
+});
+
+describe(".nojekyll", () => {
+	it("is written at the branch root on the first publish", () => {
+		const { root, remoteDir, repoRoot } = fixture();
+		publish({
+			repoRoot,
+			dest: ".",
+			sourceDir: sourceDir(root, "site", { "index.html": "site" }),
+			message: "publish main",
+			worktreeDir: worktreeDirFor(root),
+		});
+
+		assert.ok(allTreePaths(remoteDir, "gh-pages").includes(".nojekyll"));
+	});
+
+	it("survives a root publish even though nothing preserves it explicitly", () => {
+		const { root, remoteDir, repoRoot } = fixture();
+		publish({
+			repoRoot,
+			dest: ".",
+			sourceDir: sourceDir(root, "site", { "index.html": "site" }),
+			message: "publish main",
+			worktreeDir: worktreeDirFor(root),
+		});
+
+		publish({
+			repoRoot,
+			dest: ".",
+			sourceDir: sourceDir(root, "site-v2", { "index.html": "site v2" }),
+			message: "publish main again",
+			worktreeDir: worktreeDirFor(root),
+		});
+
+		assert.ok(allTreePaths(remoteDir, "gh-pages").includes(".nojekyll"));
+	});
+
+	it("is written by a preview publish and by a removal too", () => {
+		const { root, remoteDir, repoRoot } = fixture();
+		publish({
+			repoRoot,
+			dest: "pr/5/abc1234",
+			sourceDir: sourceDir(root, "preview", { "index.html": "preview" }),
+			message: "preview for pr 5",
+			worktreeDir: worktreeDirFor(root),
+		});
+		assert.ok(allTreePaths(remoteDir, "gh-pages").includes(".nojekyll"));
+
+		remove({
+			repoRoot,
+			dest: "pr/5",
+			message: "remove pr 5",
+			worktreeDir: worktreeDirFor(root),
+		});
+		assert.ok(allTreePaths(remoteDir, "gh-pages").includes(".nojekyll"));
+	});
+});
+
+describe("CNAME", () => {
+	it("survives a root publish that does not name it in --preserve", () => {
+		const { root, remoteDir, repoRoot } = fixture();
+		publish({
+			repoRoot,
+			dest: ".",
+			sourceDir: sourceDir(root, "site", {
+				"index.html": "site",
+				CNAME: "storybook.example.com",
+			}),
+			message: "publish main",
+			worktreeDir: worktreeDirFor(root),
+		});
+
+		publish({
+			repoRoot,
+			dest: ".",
+			sourceDir: sourceDir(root, "site-v2", { "index.html": "site v2" }),
+			message: "publish main again",
+			worktreeDir: worktreeDirFor(root),
+		});
+
+		assert.ok(allTreePaths(remoteDir, "gh-pages").includes("CNAME"));
+	});
+});
+
+describe("--nest", () => {
+	it("replaces every other sha under the same PR, leaving other PRs alone", () => {
+		const { root, remoteDir, repoRoot } = fixture();
+		publish({
+			repoRoot,
+			dest: "pr/7",
+			nest: "aaa0000",
+			sourceDir: sourceDir(root, "pr7-first", { "index.html": "first build" }),
+			message: "preview for pr 7 @ aaa0000",
+			worktreeDir: worktreeDirFor(root),
+		});
+		publish({
+			repoRoot,
+			dest: "pr/9",
+			nest: "zzz9999",
+			sourceDir: sourceDir(root, "pr9", { "index.html": "pr 9 build" }),
+			message: "preview for pr 9",
+			worktreeDir: worktreeDirFor(root),
+		});
+
+		const result = publish({
+			repoRoot,
+			dest: "pr/7",
+			nest: "bbb1111",
+			sourceDir: sourceDir(root, "pr7-second", {
+				"index.html": "second build",
+			}),
+			message: "preview for pr 7 @ bbb1111",
+			worktreeDir: worktreeDirFor(root),
+		});
+
+		assert.equal(result.pushed, true);
+		assert.deepEqual(treePaths(remoteDir, "gh-pages"), [
+			"pr/7/bbb1111/index.html",
+			"pr/9/zzz9999/index.html",
+		]);
+	});
+});
+
+describe("git add --force", () => {
+	it("commits a file the published payload's own .gitignore would exclude", () => {
+		const { root, remoteDir, repoRoot } = fixture();
+		const source = sourceDir(root, "site", {
+			".gitignore": "assets/\n",
+			"index.html": "site",
+			"assets/app.js": "console.log(1)",
+		});
+
+		publish({
+			repoRoot,
+			dest: ".",
+			sourceDir: source,
+			message: "publish main",
+			worktreeDir: worktreeDirFor(root),
+		});
+
+		assert.deepEqual(treePaths(remoteDir, "gh-pages"), [
+			".gitignore",
+			"assets/app.js",
+			"index.html",
+		]);
+	});
+});
+
+describe("isLeaseRejection", () => {
+	it("recognizes a stale lease", () => {
+		assert.equal(
+			isLeaseRejection(" ! [rejected]        HEAD -> gh-pages (stale info)\n"),
+			true,
+		);
+	});
+
+	it("recognizes a lease staked on a ref that was expected not to exist yet", () => {
+		assert.equal(
+			isLeaseRejection(" ! [rejected]        HEAD -> gh-pages (fetch first)\n"),
+			true,
+		);
+		assert.equal(
+			isLeaseRejection(
+				" ! [rejected]        HEAD -> gh-pages (already exists)\n",
+			),
+			true,
+		);
+	});
+
+	it("ignores a rejection for an unrelated reason", () => {
+		assert.equal(
+			isLeaseRejection("remote: Permission to remit-mail/reader.git denied\n"),
+			false,
+		);
+	});
+});
+
+describe("racing another publisher", () => {
+	it("retries and incorporates a competing publish that lands mid-cycle", () => {
+		const { root, remoteDir, repoRoot } = fixture();
+		const race = racer(root, remoteDir);
+		let racerRan = false;
+
+		// Only the first attempt races: a second publisher's push lands in the
+		// window between this process's fetch and its own push, simulating
+		// exactly what a shared concurrency group cannot rule out on its own --
+		// a third arrival bumping a queued job does not stop that job's
+		// already-running in-flight push.
+		const result = publish({
+			repoRoot,
+			dest: "pr/7/aaa",
+			sourceDir: sourceDir(root, "pr7", { "index.html": "pr 7 build" }),
+			message: "preview for pr 7",
+			worktreeDir: worktreeDirFor(root),
+			_racer: () => {
+				if (racerRan) return;
+				racerRan = true;
+				race();
+			},
+		});
+
+		assert.equal(result.pushed, true);
+		assert.deepEqual(treePaths(remoteDir, "gh-pages"), [
+			"pr/7/aaa/index.html",
+			"pr/racer-1/sha1/index.html",
+		]);
+		assert.equal(commitCount(remoteDir, "gh-pages"), 1);
+	});
+
+	it("gives up loudly once retries are exhausted against a permanent racer", () => {
+		const { root, remoteDir, repoRoot } = fixture();
+		const race = racer(root, remoteDir);
+
+		assert.throws(
+			() =>
+				publish({
+					repoRoot,
+					dest: "pr/7/aaa",
+					sourceDir: sourceDir(root, "pr7", { "index.html": "pr 7 build" }),
+					message: "preview for pr 7",
+					worktreeDir: worktreeDirFor(root),
+					maxAttempts: 3,
+					// Wins the race on every single attempt, so the retry can never
+					// catch up -- proves this fails loudly instead of looping
+					// forever or silently giving up.
+					_racer: race,
+				}),
+			/gave up after 3 attempts/,
+		);
 	});
 });

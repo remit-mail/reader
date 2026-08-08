@@ -29,9 +29,15 @@ jobs:
   remove:
     needs: guard
     runs-on: ubuntu-latest
-    # Shared with storybook-pages.yml and storybook-preview.yml's publish job;
-    # see the comment there. All three files must spell this group the same
-    # way; a test asserts they do.
+    # An optimization, not the correctness guarantee: shared with
+    # storybook-pages.yml and storybook-preview.yml's publish job so the three
+    # producers usually serialize. It cannot be relied on for correctness by
+    # itself -- GitHub holds at most one running and one pending job per
+    # group, so a third simultaneous producer can still bump a pending one.
+    # gh-pages-publish.mjs is what actually protects the branch, via a leased
+    # push that is rejected rather than silently overwritten if it loses a
+    # race, and retried against the branch's new tip. All three files must
+    # spell this group the same way; a test asserts they do.
     concurrency:
       group: gh-pages-branch-push
       cancel-in-progress: false
@@ -47,6 +53,10 @@ jobs:
           sparse-checkout: |
             npm-scripts
           sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       - name: Delete every preview for this pull request
         run: >-

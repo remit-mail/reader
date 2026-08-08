@@ -45,6 +45,8 @@ function statusLines(view) {
 	if (view.state === "building") {
 		return [
 			`Building \`${shortSha(view.sha)}\` — [follow the run](${view.runUrl}).`,
+			"",
+			"Stuck here longer than the run above takes? Tick the box again to retry.",
 		];
 	}
 	if (view.state === "deployed") {
@@ -80,10 +82,6 @@ export function renderBody(view) {
 		return [...heading, ...statusLines(view), ""].join("\n");
 	}
 	return [...heading, UNCHECKED_LINE, "", ...statusLines(view), ""].join("\n");
-}
-
-export function isTicked(body) {
-	return body.includes(MARKER) && body.includes(CHECKED_LINE);
 }
 
 export function decideEligibility(input) {

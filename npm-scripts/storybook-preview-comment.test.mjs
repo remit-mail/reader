@@ -6,7 +6,6 @@ import {
 	CHECKED_LINE,
 	decideEligibility,
 	formatTimestamp,
-	isTicked,
 	MARKER,
 	renderBody,
 	UNCHECKED_LINE,
@@ -97,19 +96,10 @@ describe("renderBody", () => {
 		assert.ok(body.includes("the branch lives in a fork."));
 		assert.ok(!body.includes("actions/runs"));
 	});
-});
 
-describe("isTicked", () => {
-	it("reads a ticked box", () => {
-		assert.equal(isTicked(`${MARKER}\n\n${CHECKED_LINE}\n`), true);
-	});
-
-	it("ignores an unticked box", () => {
-		assert.equal(isTicked(renderBody(view("idle"))), false);
-	});
-
-	it("ignores a ticked box in a comment that is not ours", () => {
-		assert.equal(isTicked(`${CHECKED_LINE}\n`), false);
+	it("tells the reader stuck at building that re-ticking retries", () => {
+		const body = renderBody(view("building"));
+		assert.match(body, /tick the box again/i);
 	});
 });
 
@@ -177,6 +167,42 @@ describe("the deploy workflow trigger", () => {
 			previewWorkflow,
 			/!contains\(github\.event\.changes\.body\.from, '- \[x\] Deploy Storybook preview'\)/,
 		);
+	});
+});
+
+describe("a new push to the pull request", () => {
+	it("re-triggers the checkbox job so a stale sha is not left advertised", () => {
+		const trigger = previewWorkflow.slice(
+			previewWorkflow.indexOf("pull_request:"),
+			previewWorkflow.indexOf("issue_comment:"),
+		);
+		assert.match(trigger, /types:\s*\[opened, reopened, synchronize\]/);
+	});
+});
+
+describe("every step that runs node", () => {
+	it("is preceded in its own job by actions/setup-node", () => {
+		for (const [name, workflow] of [
+			["storybook-pages.yml", pagesWorkflow],
+			["storybook-preview.yml", previewWorkflow],
+			["storybook-preview-cleanup.yml", cleanupWorkflow],
+		]) {
+			const jobsSection = workflow.slice(workflow.indexOf("\njobs:\n"));
+			const jobBodies = jobsSection.split(/^ {2}[a-zA-Z0-9_-]+:\n/m).slice(1);
+			for (const job of jobBodies) {
+				// The `run:` block style used throughout puts the command on the
+				// line(s) after `run: >-`, never on the same line, so the node
+				// invocation itself -- not the literal word "node" next to "run:"
+				// -- is what has to be searched for.
+				if (!/\bnode npm-scripts\//.test(job)) continue;
+				const firstNodeCall = job.search(/\bnode npm-scripts\//);
+				const firstSetupNode = job.indexOf("actions/setup-node");
+				assert.ok(
+					firstSetupNode >= 0 && firstSetupNode < firstNodeCall,
+					`${name}: a job runs node before any actions/setup-node step`,
+				);
+			}
+		}
 	});
 });
 
@@ -258,5 +284,72 @@ describe("the preview publish job", () => {
 		);
 		assert.match(buildJob, /contents: read/);
 		assert.ok(!buildJob.includes("contents: write"));
+	});
+
+	it("keeps GH_TOKEN out of every step that runs the pull request's own scripts", () => {
+		const buildJob = previewWorkflow.slice(
+			previewWorkflow.indexOf("build:"),
+			previewWorkflow.indexOf("publish:"),
+		);
+		// A job-level env applies to every step in the job even though the line
+		// declaring it sits above all of them, so it has to be checked on its
+		// own -- a per-step slice below would never see it. The job's env block
+		// runs from its own "env:" line to "steps:".
+		const jobEnv = buildJob.slice(
+			buildJob.indexOf("\n    env:"),
+			buildJob.indexOf("\n    steps:"),
+		);
+		assert.ok(jobEnv.length > 0, "expected to find the job's env block");
+		assert.ok(!jobEnv.includes("GH_TOKEN"));
+
+		// Everything from checking out the branch through the Storybook build
+		// itself: npm ci, make and the build all run lifecycle scripts the pull
+		// request controls. None of these steps' own env may carry a token
+		// either, or an arbitrary lifecycle script could use it to call the
+		// GitHub API as this workflow.
+		const untrustedSteps = buildJob.slice(
+			buildJob.indexOf("Check out the branch"),
+			buildJob.indexOf("Upload the preview build"),
+		);
+		assert.ok(untrustedSteps.length > 200, "expected a real slice of steps");
+		assert.ok(!untrustedSteps.includes("GH_TOKEN"));
+	});
+
+	it("does not persist the checkout token into the pull request's own .git config", () => {
+		const buildJob = previewWorkflow.slice(
+			previewWorkflow.indexOf("build:"),
+			previewWorkflow.indexOf("publish:"),
+		);
+		const checkoutStep = buildJob.slice(
+			buildJob.indexOf("Check out the branch"),
+			buildJob.indexOf(
+				"actions/setup-node@v4",
+				buildJob.indexOf("Check out the branch"),
+			),
+		);
+		assert.match(checkoutStep, /persist-credentials: false/);
+	});
+
+	it("prunes every other sha under the same PR when it publishes a new one", () => {
+		const publishJob = previewWorkflow.slice(
+			previewWorkflow.indexOf("publish:"),
+		);
+		const publishStep = publishJob.slice(
+			publishJob.indexOf("gh-pages-publish.mjs publish"),
+		);
+		assert.match(publishStep, /--dest "pr\/\$PR_NUMBER"/);
+		assert.match(publishStep, /--nest "\$HEAD_SHA"/);
+		assert.ok(!publishStep.includes('--dest "pr/$PR_NUMBER/$HEAD_SHA"'));
+	});
+
+	it("reports a publish failure even when the still-open check is what failed", () => {
+		const publishJob = previewWorkflow.slice(
+			previewWorkflow.indexOf("publish:"),
+		);
+		const failureStep = publishJob.slice(
+			publishJob.indexOf("Say that the publish failed"),
+		);
+		const ifLine = failureStep.match(/^\s*if:\s*(.+)$/m)?.[1].trim();
+		assert.equal(ifLine, "failure()");
 	});
 });

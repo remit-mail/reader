@@ -2,7 +2,7 @@ name: Storybook preview
 
 on:
   pull_request:
-    types: [opened, reopened]
+    types: [opened, reopened, synchronize]
   issue_comment:
     types: [edited]
   workflow_dispatch:
@@ -22,6 +22,9 @@ env:
   PAGES_BASE_URL: https://remit-mail.github.io/reader
 
 jobs:
+  # Also fires on `synchronize` (a new push to the branch), so a stale
+  # "deployed" comment claiming an old sha is current gets reset rather than
+  # left standing.
   checkbox:
     if: >-
       github.event_name == 'pull_request' &&
@@ -36,6 +39,10 @@ jobs:
           sparse-checkout: |
             npm-scripts
           sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       - name: Offer the preview checkbox
         env:
@@ -52,9 +59,13 @@ jobs:
       contains(github.event.comment.body, '- [x] Deploy Storybook preview') &&
       !contains(github.event.changes.body.from, '- [x] Deploy Storybook preview'))
     runs-on: ubuntu-latest
-    # Shared with storybook-preview-cleanup.yml, so closing a pull request
-    # cancels a build that is still running for it. Both files must spell this
-    # group the same way; a test asserts they do.
+    # An optimization, not the correctness guarantee: shared with
+    # storybook-preview-cleanup.yml so closing a pull request usually cancels
+    # a build still running for it, saving the minutes. It is not load-bearing
+    # -- GitHub only holds one running and one pending job per group, so a
+    # third arrival can still bump a pending one silently, and the publish
+    # job below protects the branch itself against that with a leased push.
+    # Both files must spell this group the same way; a test asserts they do.
     concurrency:
       group: storybook-preview-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr-number }}
       cancel-in-progress: true
@@ -65,7 +76,6 @@ jobs:
       eligible: ${{ steps.guard.outputs.eligible }}
       head-sha: ${{ steps.guard.outputs.head-sha }}
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       PR_NUMBER: ${{ github.event.issue.number || inputs.pr-number }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
@@ -80,15 +90,21 @@ jobs:
             npm-scripts
           sparse-checkout-cone-mode: false
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Decide whether this preview may deploy
         id: guard
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACTOR: ${{ github.event.sender.login || github.actor }}
         run: node npm-scripts/storybook-preview-comment.mjs resolve --pr "$PR_NUMBER" --actor "$ACTOR"
 
       - name: Say why no preview was deployed
         if: steps.guard.outputs.eligible != 'true'
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REASON: ${{ steps.guard.outputs.reason }}
         run: >-
           node npm-scripts/storybook-preview-comment.mjs update
@@ -97,17 +113,25 @@ jobs:
       - name: Reset the checkbox and show the build starting
         if: steps.guard.outputs.eligible == 'true'
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ steps.guard.outputs.head-sha }}
         run: >-
           node npm-scripts/storybook-preview-comment.mjs update
           --pr "$PR_NUMBER" --state building --sha "$HEAD_SHA" --run-url "$RUN_URL"
 
+      # Everything from here down runs the pull request's own lifecycle
+      # scripts (npm ci, make, the Storybook build) with the branch's own
+      # code. None of it may see a token: `persist-credentials: false` keeps
+      # GITHUB_TOKEN out of pr-source/.git/config, and no step below sets
+      # GH_TOKEN in its env, so nothing here can call the GitHub API as this
+      # workflow (submitting a review, for instance) even by accident.
       - name: Check out the branch
         if: steps.guard.outputs.eligible == 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.guard.outputs.head-sha }}
           path: pr-source
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         if: steps.guard.outputs.eligible == 'true'
@@ -144,6 +168,7 @@ jobs:
       - name: Say that the deploy failed
         if: failure()
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FAILED_STEP: ${{ steps.guard.outputs.eligible == 'true' && 'the build did not finish' || 'the pull request could not be resolved' }}
         run: >-
           node npm-scripts/storybook-preview-comment.mjs update
@@ -156,9 +181,15 @@ jobs:
     needs: build
     if: needs.build.outputs.eligible == 'true'
     runs-on: ubuntu-latest
-    # Shared with storybook-pages.yml and storybook-preview-cleanup.yml; see
-    # the comment there. All three files must spell this group the same way; a
-    # test asserts they do.
+    # An optimization, not the correctness guarantee: shared with
+    # storybook-pages.yml and storybook-preview-cleanup.yml so the three
+    # producers usually serialize instead of piling up. It cannot be relied on
+    # for correctness by itself -- GitHub holds at most one running and one
+    # pending job per group, so a third simultaneous producer can still bump a
+    # pending one. gh-pages-publish.mjs is what actually protects the branch,
+    # via a leased push that is rejected rather than silently overwritten if
+    # it loses a race, and retried against the branch's new tip. All three
+    # files must spell this group the same way; a test asserts they do.
     concurrency:
       group: gh-pages-branch-push
       cancel-in-progress: false
@@ -175,6 +206,10 @@ jobs:
           sparse-checkout: |
             npm-scripts
           sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       # The build takes minutes, and this push then waits its turn behind
       # every other pending gh-pages push, which can take minutes more. A
@@ -197,12 +232,17 @@ jobs:
           name: storybook-preview-${{ env.PR_NUMBER }}
           path: storybook-preview-download
 
+      # --dest is the whole pull request, not the one sha: --nest places this
+      # sha's build under it and clears out every other sha already there, so
+      # ten ticks on one PR does not leave ten full Storybook copies on the
+      # branch until it closes.
       - name: Publish the preview to the gh-pages branch
         if: steps.still-open.outputs.open == 'true'
         run: >-
           node npm-scripts/gh-pages-publish.mjs publish
           --source storybook-preview-download
-          --dest "pr/$PR_NUMBER/$HEAD_SHA"
+          --dest "pr/$PR_NUMBER"
+          --nest "$HEAD_SHA"
           --message "Storybook preview for PR #$PR_NUMBER @ $HEAD_SHA"
 
       - name: Publish the preview link
@@ -212,8 +252,12 @@ jobs:
           --pr "$PR_NUMBER" --state deployed --sha "$HEAD_SHA"
           --url "$PAGES_BASE_URL/pr/$PR_NUMBER/$HEAD_SHA/"
 
+      # Unconditional on failure(): a still-open failure of its own has no
+      # 'true'/'false' output to gate on, and this must fire in that case too
+      # -- otherwise the comment is left stuck at "building" with no way for
+      # the reader to tell whether it is stalled or just slow.
       - name: Say that the publish failed
-        if: failure() && steps.still-open.outputs.open == 'true'
+        if: failure()
         run: >-
           node npm-scripts/storybook-preview-comment.mjs update
           --pr "$PR_NUMBER" --state failed --reason "the publish did not finish"

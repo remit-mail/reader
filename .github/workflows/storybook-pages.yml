@@ -37,11 +37,15 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
-    # Shared with storybook-preview.yml and storybook-preview-cleanup.yml, so a
-    # push from any of the three waits for the others rather than racing them.
-    # cancel-in-progress is false: every push here is wanted, not superseded
-    # work, so it queues instead of getting dropped. All three files must spell
-    # this group the same way; a test asserts they do.
+    # An optimization, not the correctness guarantee: shared with
+    # storybook-preview.yml and storybook-preview-cleanup.yml so the three
+    # producers usually serialize instead of piling up. It cannot be relied on
+    # for correctness by itself -- GitHub holds at most one running and one
+    # pending job per group, so a third simultaneous producer can still bump a
+    # pending one. gh-pages-publish.mjs is what actually protects the branch,
+    # via a leased push that is rejected rather than silently overwritten if
+    # it loses a race, and retried against the branch's new tip. All three
+    # files must spell this group the same way; a test asserts they do.
     concurrency:
       group: gh-pages-branch-push
       cancel-in-progress: false
