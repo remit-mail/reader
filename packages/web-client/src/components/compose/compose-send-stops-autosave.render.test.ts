@@ -29,6 +29,14 @@ import type {
 	RemitImapAccountResponse,
 	RemitImapDescribeMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
+import {
+	type AnyRouter,
+	createMemoryHistory,
+	createRootRoute,
+	createRoute,
+	createRouter,
+	RouterContextProvider,
+} from "@tanstack/react-router";
 import { createElement, useEffect } from "react";
 import { createDomHarness, type DomHarness } from "../../test-support/dom";
 import { type HttpMock, httpError, mockFetch } from "../../test-support/http";
@@ -128,6 +136,23 @@ interface MountOptions {
 	failPatch?: boolean;
 }
 
+// Opening compose closes whatever the reading pane had open, so the provider
+// navigates (#703) and needs a router under it.
+(globalThis as { self?: typeof globalThis }).self ??= globalThis;
+
+const rootRoute = createRootRoute();
+const mailboxRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/mail/$mailboxId",
+	validateSearch: (search: Record<string, unknown>) => search,
+});
+
+const testRouter = (): AnyRouter =>
+	createRouter({
+		routeTree: rootRoute.addChildren([mailboxRoute]),
+		history: createMemoryHistory({ initialEntries: ["/mail/mbx-1"] }),
+	}) as unknown as AnyRouter;
+
 const mount = async (
 	options: MountOptions = {},
 ): Promise<{ releasePatch: () => void }> => {
@@ -167,11 +192,15 @@ const mount = async (
 
 	harness = createDomHarness();
 	harness.renderApp(
-		createElement(
-			ComposeProvider,
-			null,
-			createElement(Opened, { outboxMessageId: options.outboxMessageId }),
-		),
+		createElement(RouterContextProvider, {
+			router: testRouter(),
+			// biome-ignore lint/correctness/noChildrenProp: RouterContextProvider types `children` as a required prop, which createElement's rest-argument form does not satisfy
+			children: createElement(
+				ComposeProvider,
+				null,
+				createElement(Opened, { outboxMessageId: options.outboxMessageId }),
+			),
+		}),
 	);
 	await harness.flush();
 	await harness.wait(50);
