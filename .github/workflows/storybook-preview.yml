@@ -34,7 +34,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: |
             npm-scripts
@@ -84,7 +84,7 @@ jobs:
       # the code they are about to build. Only the scripts are needed here, and
       # a sparse checkout of them gets the comment to "building" seconds after
       # the box is ticked.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: |
             npm-scripts
@@ -127,7 +127,7 @@ jobs:
       # workflow (submitting a review, for instance) even by accident.
       - name: Check out the branch
         if: steps.guard.outputs.eligible == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.guard.outputs.head-sha }}
           path: pr-source
@@ -201,7 +201,7 @@ jobs:
       PR_NUMBER: ${{ github.event.issue.number || inputs.pr-number }}
       HEAD_SHA: ${{ needs.build.outputs.head-sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: |
             npm-scripts

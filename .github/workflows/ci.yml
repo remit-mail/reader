@@ -32,7 +32,7 @@ jobs:
     steps:
       # Full history: the answer is the diff against the merge base, and a
       # shallow clone has no merge base to find.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -59,7 +59,7 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The coverage guard is plain stdlib Node and needs no workspace install,
       # only a pinned interpreter.
@@ -142,7 +142,7 @@ jobs:
     needs: [docs-only]
     if: needs['docs-only'].outputs.result != 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
         with:
           codegen: "false"
@@ -154,7 +154,7 @@ jobs:
     needs: [docs-only]
     if: needs['docs-only'].outputs.result != 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - name: Typecheck
         run: npm run typecheck
@@ -178,7 +178,7 @@ jobs:
     needs: [docs-only]
     if: needs['docs-only'].outputs.result != 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - name: Unit tests
         env:
@@ -218,7 +218,7 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - name: Unit tests — shard ${{ matrix.shard }}/4
         env:
@@ -244,7 +244,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [test-web-client]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -287,7 +287,7 @@ jobs:
       - name: Claim a stack slot
         run: echo "E2E_DEV_SLOT=${{ runner.name }}" >>"$GITHUB_ENV"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: ./.github/actions/setup
 
@@ -341,7 +341,7 @@ jobs:
     if: github.event_name == 'pull_request' && needs['docs-only'].outputs.result != 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v4
