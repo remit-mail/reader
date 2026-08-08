@@ -226,7 +226,7 @@ jobs:
           node npm-scripts/storybook-preview-comment.mjs update
           --pr "$PR_NUMBER" --state removed --no-create
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         if: steps.still-open.outputs.open == 'true'
         with:
           name: storybook-preview-${{ env.PR_NUMBER }}
