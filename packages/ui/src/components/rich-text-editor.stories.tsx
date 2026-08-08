@@ -1,8 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { useState } from "react";
 import { expect, userEvent } from "storybook/test";
 import { sanitizeAdoptedHtml } from "../lib/adopted-html.js";
 import { ComposeLanguageChip } from "./compose-language-chip.js";
-import { ComposeModeToggle } from "./compose-mode-toggle.js";
+import {
+	type ComposeBodyMode,
+	ComposeModeToggle,
+} from "./compose-mode-toggle.js";
 import { RichTextEditor } from "./rich-text-editor.js";
 
 /**
@@ -108,18 +112,29 @@ export const ClickBelowTheText: Story = {
 /**
  * The two pinned controls, in the order compose ships them: the chip first, so
  * one Shift+Tab out of the body still reaches the mode toggle and two reach the
- * chip.
+ * chip. Both hold their own state here — the editor knows nothing about either,
+ * and a pinned control that did not answer a press would read as a broken
+ * toolbar rather than a layout story.
  */
-const pinnedControls = (
-	<>
-		<ComposeLanguageChip
-			language="nl"
-			languages={["nl", "en", "de"]}
-			onSelect={() => undefined}
-		/>
-		<ComposeModeToggle mode="rich" onToggle={() => undefined} />
-	</>
-);
+const PinnedControls = () => {
+	const [language, setLanguage] = useState("nl");
+	const [mode, setMode] = useState<ComposeBodyMode>("rich");
+	return (
+		<>
+			<ComposeLanguageChip
+				language={language}
+				languages={["nl", "en", "de"]}
+				onSelect={setLanguage}
+			/>
+			<ComposeModeToggle
+				mode={mode}
+				onToggle={() => setMode(mode === "plain" ? "rich" : "plain")}
+			/>
+		</>
+	);
+};
+
+const pinnedControls = <PinnedControls />;
 
 /** The toolbar as compose ships it: the formatting cluster, then the two pinned controls. */
 export const ToolbarInRich: Story = {

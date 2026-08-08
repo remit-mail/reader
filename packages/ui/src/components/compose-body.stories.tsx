@@ -39,7 +39,7 @@ const Harness = ({
 	initialHtml = "",
 	initialText = "",
 	startIn = "rich",
-	onConversionError = () => undefined,
+	onConversionError,
 	conversions,
 	languages = LANGUAGES,
 	quoted,
@@ -56,15 +56,29 @@ const Harness = ({
 	quoted?: string;
 }) => {
 	const [mode, setMode] = useState<"rich" | "plain">(startIn);
+	const [failure, setFailure] = useState<ConversionFailure>();
 	return (
 		<div className="flex h-[460px] w-[680px] flex-col overflow-auto rounded-md border border-line bg-canvas">
+			{failure && (
+				<div
+					role="alert"
+					data-testid="compose-conversion-error"
+					className="border-b border-danger/30 bg-danger-soft px-3 py-2 text-xs"
+				>
+					<p className="font-medium text-danger">{failure.title}</p>
+					<p className="text-fg-muted">{failure.detail}</p>
+				</div>
+			)}
 			<ComposeBody
 				mode={mode}
 				onModeChange={setMode}
 				initialHtml={initialHtml}
 				initialText={initialText}
-				onChange={() => undefined}
-				onConversionError={onConversionError}
+				onChange={noop}
+				onConversionError={(reported) => {
+					setFailure(reported);
+					onConversionError?.(reported);
+				}}
 				conversions={conversions}
 				languages={languages}
 				onLanguageChange={noop}
@@ -278,6 +292,9 @@ export const ConversionCameBackEmpty: Story = {
 			title: "Couldn't switch to rich text",
 			detail: "The conversion came back empty, so your message is unchanged.",
 		});
+		await expect(
+			within(canvasElement).getByTestId("compose-conversion-error"),
+		).toHaveTextContent("Couldn't switch to rich text");
 		const textarea = plainSurface(canvasElement);
 		if (!textarea) throw new Error("the plain surface left");
 		await expect(textarea.value).toBe("Everything I wrote this morning.");
