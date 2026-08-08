@@ -68,6 +68,8 @@ export const Filtered: Story = {
 		const canvas = within(canvasElement);
 		const shown = () =>
 			canvasElement.querySelectorAll("[data-list-row]").length;
+		const summary = () =>
+			canvas.getByText(/(loaded selected|messages? selected)$/);
 
 		await userEvent.click(canvas.getByLabelText("Expand filters"));
 		const capped = Array.from(canvasElement.querySelectorAll("button")).filter(
@@ -75,12 +77,19 @@ export const Filtered: Story = {
 		);
 		await expect(capped.length).toBeGreaterThan(0);
 
-		canvasElement.querySelector<HTMLElement>("[data-list-row]")?.focus();
+		// The rows take the cursor through roving focus, so a row only becomes
+		// focusable once the list owns it. Focusing the filter control instead
+		// sends the select-all chord nowhere.
+		const firstRow =
+			canvasElement.querySelector<HTMLElement>("[data-list-row]");
+		await expect(firstRow).not.toBeNull();
+		(document.activeElement as HTMLElement | null)?.blur();
+		firstRow?.focus();
+		await expect(document.activeElement).toBe(firstRow);
+
 		await userEvent.keyboard("{Meta>}a{/Meta}");
 		await waitFor(() =>
-			expect(
-				canvas.getByText(`All ${shown()} loaded selected`),
-			).toBeInTheDocument(),
+			expect(summary()).toHaveTextContent(`All ${shown()} loaded selected`),
 		);
 
 		const categories = canvasElement.querySelector<HTMLElement>(
@@ -93,9 +102,7 @@ export const Filtered: Story = {
 			}),
 		);
 		await waitFor(() =>
-			expect(
-				canvas.getByText(`All ${shown()} loaded selected`),
-			).toBeInTheDocument(),
+			expect(summary()).toHaveTextContent(`All ${shown()} loaded selected`),
 		);
 	},
 };
