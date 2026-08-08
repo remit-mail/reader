@@ -4,7 +4,13 @@
 // commit, and that is only true if real git agrees.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
@@ -63,10 +69,29 @@ function commitCount(remoteDir, branch) {
 	return Number(git(remoteDir, ["rev-list", "--count", branch]));
 }
 
+function readdirSyncSorted(dir) {
+	return readdirSync(dir)
+		.filter((entry) => entry !== ".git")
+		.sort();
+}
+
 function worktreeDirFor(root) {
 	const dir = join(root, `wt-${Math.random().toString(36).slice(2)}`);
 	roots.push(dir);
 	return dir;
+}
+
+// Every workflow that calls this script checks out the repo it runs from with
+// a sparse-checkout limited to npm-scripts/ -- only the guard scripts, never
+// the branch under preview. `core.sparseCheckout` lives in the repo's shared
+// config, not per-worktree, so every worktree opened off that repo inherits
+// the same restriction unless it is explicitly lifted.
+function withSparseCheckout(repoRoot) {
+	mkdirSync(join(repoRoot, "npm-scripts"), { recursive: true });
+	writeFileSync(join(repoRoot, "npm-scripts", "placeholder.mjs"), "");
+	git(repoRoot, ["add", "-A"]);
+	git(repoRoot, ["commit", "--quiet", "-m", "seed npm-scripts"]);
+	git(repoRoot, ["sparse-checkout", "set", "npm-scripts"]);
 }
 
 describe("publish", () => {
@@ -263,5 +288,96 @@ describe("remove", () => {
 
 		assert.deepEqual(treePaths(remoteDir, "gh-pages"), ["index.html"]);
 		assert.equal(commitCount(remoteDir, "gh-pages"), 1);
+	});
+});
+
+describe("a repoRoot checked out sparse", () => {
+	it("still publishes a nested path when the branch does not exist yet", () => {
+		const { root, remoteDir, repoRoot } = fixture();
+		withSparseCheckout(repoRoot);
+
+		const result = publish({
+			repoRoot,
+			dest: "pr/5/abc1234",
+			sourceDir: sourceDir(root, "preview", { "index.html": "preview" }),
+			message: "preview for pr 5",
+			worktreeDir: worktreeDirFor(root),
+		});
+
+		assert.equal(result.pushed, true);
+		assert.deepEqual(treePaths(remoteDir, "gh-pages"), [
+			"pr/5/abc1234/index.html",
+		]);
+	});
+
+	it("still publishes a nested path alongside an existing gh-pages tree", () => {
+		const { root, remoteDir, repoRoot } = fixture();
+		publish({
+			repoRoot,
+			dest: ".",
+			sourceDir: sourceDir(root, "site", { "index.html": "site" }),
+			message: "publish main",
+			worktreeDir: worktreeDirFor(root),
+		});
+
+		withSparseCheckout(repoRoot);
+		const result = publish({
+			repoRoot,
+			dest: "pr/7/def0000",
+			sourceDir: sourceDir(root, "pr7", { "index.html": "pr 7" }),
+			message: "preview for pr 7",
+			worktreeDir: worktreeDirFor(root),
+		});
+
+		assert.equal(result.pushed, true);
+		assert.deepEqual(treePaths(remoteDir, "gh-pages"), [
+			"index.html",
+			"pr/7/def0000/index.html",
+		]);
+	});
+
+	it("still removes a nested path from an existing gh-pages tree", () => {
+		const { root, remoteDir, repoRoot } = fixture();
+		publish({
+			repoRoot,
+			dest: ".",
+			sourceDir: sourceDir(root, "site", { "index.html": "site" }),
+			message: "publish main",
+			worktreeDir: worktreeDirFor(root),
+		});
+		publish({
+			repoRoot,
+			dest: "pr/7/def0000",
+			sourceDir: sourceDir(root, "pr7", { "index.html": "pr 7" }),
+			message: "preview for pr 7",
+			worktreeDir: worktreeDirFor(root),
+		});
+
+		withSparseCheckout(repoRoot);
+		const result = remove({
+			repoRoot,
+			dest: "pr/7",
+			message: "remove pr 7",
+			worktreeDir: worktreeDirFor(root),
+		});
+
+		assert.equal(result.pushed, true);
+		assert.deepEqual(treePaths(remoteDir, "gh-pages"), ["index.html"]);
+	});
+
+	it("leaves the repoRoot's own sparse-checkout restriction in place", () => {
+		const { root, repoRoot } = fixture();
+		withSparseCheckout(repoRoot);
+
+		publish({
+			repoRoot,
+			dest: "pr/5/abc1234",
+			sourceDir: sourceDir(root, "preview", { "index.html": "preview" }),
+			message: "preview for pr 5",
+			worktreeDir: worktreeDirFor(root),
+		});
+
+		assert.equal(git(repoRoot, ["config", "core.sparseCheckout"]), "true");
+		assert.deepEqual(readdirSyncSorted(repoRoot), ["npm-scripts"]);
 	});
 });

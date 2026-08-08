@@ -82,7 +82,6 @@ function openOrphanWorktree(repoRoot, remote, branch, dir) {
 			dir,
 			"FETCH_HEAD",
 		]);
-		git(dir, ["checkout", "--quiet", "--orphan", tmpBranch]);
 	} else {
 		git(repoRoot, [
 			"worktree",
@@ -93,6 +92,16 @@ function openOrphanWorktree(repoRoot, remote, branch, dir) {
 			tmpBranch,
 			dir,
 		]);
+	}
+	// `core.sparseCheckout` lives in the shared repo config, so a caller whose
+	// own checkout is sparse (the preview and cleanup workflows only check out
+	// npm-scripts/) hands that restriction to every worktree of that repo too.
+	// Left in place, it silently drops any path outside the sparse pattern --
+	// most of what a real gh-pages branch holds -- from `git add`. Disabling it
+	// here is scoped to this worktree; the caller's own checkout is untouched.
+	git(dir, ["sparse-checkout", "disable"]);
+	if (found) {
+		git(dir, ["checkout", "--quiet", "--orphan", tmpBranch]);
 	}
 	return { previousTree };
 }
