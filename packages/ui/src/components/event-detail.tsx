@@ -125,7 +125,14 @@ export function EventDetail({
 					)}
 					{event.recurrenceRule !== "" && (
 						<Line icon={<Repeat className="size-4" />}>
-							{event.recurrenceRule}
+							<span className="flex flex-wrap items-center gap-2">
+								{event.recurrenceRule}
+								{event.seriesException && (
+									<span className="rounded-xs bg-warning-soft px-1.5 py-0.5 text-2xs text-warning">
+										Moved out of the series
+									</span>
+								)}
+							</span>
 						</Line>
 					)}
 					{event.location !== "" && (

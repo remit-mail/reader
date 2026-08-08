@@ -214,6 +214,10 @@ export {
 	type EventEditorProps,
 } from "./components/event-editor.js";
 export {
+	EventEditorPane,
+	type EventEditorPaneProps,
+} from "./components/event-editor-pane.js";
+export {
 	EventQuickEntry,
 	type EventQuickEntryProps,
 } from "./components/event-quick-entry.js";
@@ -844,6 +848,7 @@ export {
 	normalizeSubject,
 	sharedSubjectFragment,
 } from "./lib/property-prefill.js";
+export { NO_REPEAT, repeatChoices } from "./lib/recurrence.js";
 export {
 	LIST_ROW_ATTRIBUTE,
 	LIST_ROW_SELECTOR,

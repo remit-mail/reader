@@ -20,7 +20,7 @@ export const Desktop: Story = {
 		<div className="max-w-sm rounded-lg border border-line bg-surface-raised p-4">
 			<RecurrenceScopePrompt
 				title="Standup"
-				ruleText="Every weekday at 09:15"
+				ruleText="Every weekday, 09:15"
 				instanceText="Wednesday 10 June"
 				onChoose={() => {}}
 				onCancel={() => {}}
@@ -35,7 +35,7 @@ export const Touch: Story = {
 		<div className="max-w-sm rounded-lg border border-line bg-surface-raised p-4">
 			<RecurrenceScopePrompt
 				title="Standup"
-				ruleText="Every weekday at 09:15"
+				ruleText="Every weekday, 09:15"
 				instanceText="Wednesday 10 June"
 				onChoose={() => {}}
 				onCancel={() => {}}

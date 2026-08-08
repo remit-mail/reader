@@ -57,6 +57,7 @@ function event(seed: EventSeed): CalendarEventData {
 		zoneCertainty: "local",
 		recurrenceRule: "",
 		seriesId: "",
+		seriesException: false,
 		status: "confirmed",
 		...seed,
 	};

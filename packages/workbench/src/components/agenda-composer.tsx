@@ -32,6 +32,8 @@ export interface AgendaComposerProps {
 	onSave: () => void;
 	onCancel: () => void;
 	saveLabel?: string;
+	/** The rule belongs to the series; an edit scoped to one instance reads it back. */
+	repeatEditable?: boolean;
 	/** The form is folded away until there is something to correct. */
 	open: boolean;
 	onOpen: () => void;
@@ -54,6 +56,7 @@ export function AgendaComposer({
 	onSave,
 	onCancel,
 	saveLabel = "Add",
+	repeatEditable,
 	open,
 	onOpen,
 	placeholder = "lunch with Jane friday 1pm",
@@ -95,6 +98,7 @@ export function AgendaComposer({
 					onSave={onSave}
 					onCancel={onCancel}
 					saveLabel={saveLabel}
+					repeatEditable={repeatEditable}
 					touch={touch}
 					header={
 						phrase.trim() === "" ? undefined : (

@@ -14,19 +14,25 @@ import { CalendarDestination } from "../screens/calendar-destination.js";
  * always lands on the same target. The calendar list is a control, not a
  * setting: it sits beside the grid at every width, as a column where there is
  * room and a row of chips where there is not, and unticking one takes its
- * events off the grid at once. Creating an event costs three fields and a
- * popover the grid stays visible behind. A sentence typed into the quick-entry
- * field is read live into those fields, with each reading attributed to the
- * words it came from and every assumption named, so the machine is corrected
- * before the event exists. Nothing arrives from mail on its own: what the
- * reader finds waits on a dashed card off the grid until someone answers it,
- * with Add or by correcting it first — either way it is answered once and the
- * card goes.
+ * events off the grid at once. An event is read and written in one place — the
+ * right-hand pane — so there is a single editing surface on desktop and nothing
+ * floats over the grid. A sentence typed into the quick-entry field is read live
+ * into the fields below it, with each reading attributed to the words it came
+ * from and every assumption named, so the machine is corrected before the event
+ * exists. Nothing arrives from mail on its own: what the reader finds waits on a
+ * dashed card off the grid until someone answers it, with Add or by correcting
+ * it first — either way it is answered once and the card goes.
  *
- * The grid keeps the wider half of the split. A week is seven columns and a day
- * is a ruler; a list pane sized for a message list makes both unreadable, so
- * the shell is told which pane is the work rather than the calendar hiding the
- * detail pane to get room.
+ * The grid keeps the wider half of the split while it is the work. A week is
+ * seven columns and a day is a ruler; a list pane sized for a message list makes
+ * both unreadable, so the shell is told which pane is the work. Opening the
+ * editor moves that answer: on a wide screen the panes even out for as long as
+ * the form is open, and go back when it closes.
+ *
+ * A repeating event is a series, not five copies. The rule reads back in words —
+ * "Every weekday, 09:15" — the editor sets it from the rules that day can repeat
+ * by, and an instance that has been moved off the rule says so while staying in
+ * the series.
  *
  * On a phone it is a different design, not the same one squeezed. The grid
  * shrinks to a strip that shows the shape of the day, the events themselves
@@ -79,9 +85,10 @@ export const Year: Story = {
 };
 
 /**
- * Clicking an empty slot opens the editor over the grid. Title, when, and which
- * calendar; location, guests, repeat and notes are one disclosure away. The
- * week stays legible behind it, so you can see what you are booking against.
+ * Clicking an empty slot fills the right-hand pane with the form. Every field
+ * is on screen and labelled — title, when, calendar, repeat, location, guests,
+ * notes — because the pane has the room a popup did not. The week stays beside
+ * it, so you can still see what you are booking against.
  */
 export const CreateFromASlot: Story = {
 	render: () => (
@@ -124,12 +131,36 @@ export const EventFromMail: Story = {
 /**
  * Editing one morning's standup asks which instances the change is for before
  * the form opens. Answering after the edit would mean typing a change without
- * knowing what it changes. The answer sticks to the event: say "the whole
- * series" and it is still a series afterwards, so the next edit asks again;
- * say "just this one" and that morning leaves the series for good.
+ * knowing what it changes. The question is asked in the same pane the form then
+ * fills, so the answer and the edit it gates are never in two places.
+ *
+ * "The whole series" and "this and following" rewrite every instance they cover,
+ * each keeping the day it sits on. "Just this one" changes the morning and
+ * leaves the rule alone — the series still owns it, so the next edit asks again
+ * and the instance is marked as no longer matching.
  */
 export const RecurrenceScope: Story = {
 	render: () => <CalendarDestination scopeForEventId="evt_standup_10" />,
+};
+
+/**
+ * Thursday's standup was pushed and the rest of the week was not. The rule still
+ * reads back, because the morning is still part of the series; what the badge
+ * adds is that this one no longer matches it.
+ */
+export const SeriesException: Story = {
+	render: () => (
+		<CalendarDestination date="2026-06-11" selectedEventId="evt_standup_11" />
+	),
+};
+
+/**
+ * Editing the weekly 1:1 with the scope question answered. Repeat is a rule the
+ * form sets from the ones this day can repeat by, in the words the detail pane
+ * reads back — nobody types an RRULE and nobody is shown one.
+ */
+export const EditARepeatRule: Story = {
+	render: () => <CalendarDestination scopeForEventId="evt_marcus_1to1" />,
 };
 
 /**
@@ -202,8 +233,10 @@ export const PhoneMonth: Story = {
 };
 
 /**
- * Creating on a phone is a bottom sheet, not a popover: it comes from the edge
- * the thumb is on, and it can be dragged away without aiming at a close button.
+ * Creating on a phone is a bottom sheet: it comes from the edge the thumb is on,
+ * and it can be dragged away without aiming at a close button. There is no pane
+ * beside the grid to write in at this width, so the sheet is the one surface
+ * here the way the pane is the one surface on desktop.
  */
 export const PhoneCreate: Story = {
 	name: "Phone — create",

@@ -176,7 +176,8 @@ export const EventFromMail: Story = {
 /**
  * Editing one morning's standup asks which instances it is for before the form
  * opens. Answering afterwards would mean typing a change without knowing what it
- * changes.
+ * changes. "The whole series" and "this and following" rewrite every instance
+ * they cover; "just this one" changes the morning and leaves the rule standing.
  */
 export const RecurrenceScope: Story = {
 	render: () => <CalendarAgenda scopeForEventId="evt_standup_10" />,

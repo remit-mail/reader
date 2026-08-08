@@ -13,7 +13,6 @@ import {
 	addMinutesToClock,
 	BottomSheet,
 	Button,
-	type CalendarAttendee,
 	type CalendarColorId,
 	CalendarDateNav,
 	type CalendarEventData,
@@ -25,6 +24,7 @@ import {
 	EventDetail,
 	type EventDraft,
 	EventEditor,
+	EventEditorPane,
 	EventQuickEntry,
 	type EventSuggestion,
 	EventSuggestionCard,
@@ -56,11 +56,18 @@ import {
 	TODAY,
 	threadFor,
 } from "../fixtures/calendar.js";
+import { applyDraft, applyScopedEdit } from "../lib/calendar-edit.js";
 import { railShare } from "../lib/calendar-rail.js";
 import { MailShell } from "./mail-shell.js";
 
 /** Below this the surface has no room for a calendar rail beside the grid. */
 const RAIL_MIN_WIDTH = 700;
+
+/**
+ * Above this there is enough shell to give the form the wider half while the
+ * grid stays readable, so the editing pane takes it and hands it back on save.
+ */
+const WIDE_WIDTH = 1280;
 
 const colorByCalendarId: Record<string, CalendarColorId> = Object.fromEntries(
 	calendars.map((calendar) => [calendar.id, calendar.color]),
@@ -68,9 +75,6 @@ const colorByCalendarId: Record<string, CalendarColorId> = Object.fromEntries(
 
 /** Wednesday 10 June 2026, 09:30 — the same fixed now as the mail fixtures. */
 const NOW = new Date(2026, 5, 10, 9, 30);
-
-/** June puts Amsterdam at UTC+2, and the whole fixture week is in June. */
-const OFFSET = "+02:00";
 
 /** Where an event lands when the sentence named no hour. */
 const FALLBACK_START = "10:00";
@@ -134,66 +138,9 @@ function blankEvent(): CalendarEventData {
 		zoneCertainty: "local",
 		recurrenceRule: "",
 		seriesId: "",
+		seriesException: false,
 		status: "confirmed",
 	};
-}
-
-/**
- * The guest field is a list of names, so a guest already on the event keeps the
- * whole record — the address that was invited, the reply that came back, who
- * organised it. Only a name that was not there before is a new person.
- */
-function guestsFrom(
-	names: string,
-	known: CalendarAttendee[],
-): CalendarAttendee[] {
-	return names
-		.split(",")
-		.map((name) => name.trim())
-		.filter((name) => name !== "")
-		.map(
-			(name) =>
-				known.find((attendee) => attendee.name === name) ?? {
-					name,
-					email: `${name.toLowerCase().replace(/\s+/g, ".")}@example`,
-					rsvp: "noReply" as const,
-					role: "attendee" as const,
-				},
-		);
-}
-
-/**
- * The draft holds only the fields the editor shows. Everything else — the
- * thread the event came out of, the series it belongs to, the zone the mail
- * gave, what everyone answered — comes off the event being edited, so saving an
- * edit never quietly destroys what the form never asked about.
- */
-function applyDraft(
-	base: CalendarEventData,
-	draft: EventDraft,
-): CalendarEventData {
-	return {
-		...base,
-		calendarId: draft.calendarId,
-		title: draft.title === "" ? "(no title)" : draft.title,
-		start: draft.allDay
-			? draft.date
-			: `${draft.date}T${draft.startTime}:00${OFFSET}`,
-		end: draft.allDay
-			? nextDay(draft.date)
-			: `${draft.date}T${draft.endTime}:00${OFFSET}`,
-		allDay: draft.allDay,
-		location: draft.location,
-		notes: draft.notes,
-		attendees: guestsFrom(draft.guests, base.attendees),
-		recurrenceRule: draft.repeat,
-	};
-}
-
-function nextDay(date: string): string {
-	const next = new Date(`${date}T00:00:00Z`);
-	next.setUTCDate(next.getUTCDate() + 1);
-	return next.toISOString().slice(0, 10);
 }
 
 function shiftDate(
@@ -211,7 +158,7 @@ function shiftDate(
 	return cursor.toISOString().slice(0, 10);
 }
 
-/** What the popover is showing, if anything. */
+/** What the editor is working on, if anything. */
 type Panel =
 	| { kind: "none" }
 	| {
@@ -248,9 +195,9 @@ export interface CalendarDestinationProps {
 	selectedEventId?: string;
 	/** Calendars already ticked off, so a story can start filtered. */
 	hiddenCalendarIds?: string[];
-	/** Opens the create popover on mount at this slot. */
+	/** Opens the editor on mount at this slot. */
 	draftAt?: SlotPick;
-	/** Seeds the quick-entry field and opens the create popover with it. */
+	/** Seeds the quick-entry field and opens the editor with it. */
 	phrase?: string;
 	/** Opens the scope question for this instance of a series. */
 	scopeForEventId?: string;
@@ -371,15 +318,7 @@ export function CalendarDestination({
 		const event = events.find((candidate) => candidate.id === eventId);
 		if (!event) return;
 		setExpanded(scope !== "this");
-		setPanel({
-			kind: "edit",
-			eventId,
-			scope,
-			draft: {
-				...draftFromEvent(event),
-				repeat: scope === "this" ? "" : event.recurrenceRule,
-			},
-		});
+		setPanel({ kind: "edit", eventId, scope, draft: draftFromEvent(event) });
 	};
 
 	const commit = () => {
@@ -396,18 +335,10 @@ export function CalendarDestination({
 				);
 			setSelected(id);
 		}
-		if (panel.kind === "edit") {
-			const base = events.find((event) => event.id === panel.eventId);
-			if (!base) return;
-			/* "Just this one" takes the instance out of its series, which is what
-			   makes the next edit of it stop asking. */
-			const detached =
-				panel.scope === "this" ? { ...base, seriesId: "" } : base;
-			const edited = applyDraft(detached, panel.draft);
+		if (panel.kind === "edit")
 			setEvents((prev) =>
-				prev.map((event) => (event.id === panel.eventId ? edited : event)),
+				applyScopedEdit(prev, panel.eventId, panel.draft, panel.scope),
 			);
-		}
 		setPanel({ kind: "none" });
 		setPhrase("");
 		setSheet("none");
@@ -470,32 +401,44 @@ export function CalendarDestination({
 		/>
 	);
 
-	const editorPanel = (touch: boolean): ReactNode => {
+	const panelEvent =
+		panel.kind === "none" || panel.kind === "create"
+			? undefined
+			: events.find((candidate) => candidate.id === panel.eventId);
+
+	const editorForm = (
+		layout: "compact" | "pane",
+		touch: boolean,
+	): ReactNode => {
 		if (panel.kind === "none") return null;
 		if (panel.kind === "scope") {
-			const event = events.find((candidate) => candidate.id === panel.eventId);
-			if (!event) return null;
+			if (!panelEvent) return null;
 			return (
 				<RecurrenceScopePrompt
-					title={event.title}
-					ruleText={event.recurrenceRule}
-					instanceText={formatDayLabel(event.start.slice(0, 10))}
-					onChoose={(scope) => applyScope(event.id, scope)}
+					title={panelEvent.title}
+					ruleText={panelEvent.recurrenceRule}
+					instanceText={formatDayLabel(panelEvent.start.slice(0, 10))}
+					onChoose={(scope) => applyScope(panelEvent.id, scope)}
 					onCancel={dismissPanel}
 					touch={touch}
 				/>
 			);
 		}
+		const compact = layout === "compact";
 		return (
 			<EventEditor
 				draft={panel.draft}
 				onChange={(draft) => setPanel({ ...panel, draft })}
 				calendars={calendars}
+				layout={layout}
 				expanded={expanded}
-				onToggleExpanded={() => setExpanded((open) => !open)}
+				onToggleExpanded={
+					compact ? () => setExpanded((open) => !open) : undefined
+				}
 				onSave={commit}
 				onCancel={dismissPanel}
 				saveLabel={panel.kind === "edit" ? "Save" : "Add"}
+				repeatEditable={panel.kind !== "edit" || panel.scope !== "this"}
 				touch={touch}
 				header={
 					panel.kind === "create" ? (
@@ -512,6 +455,30 @@ export function CalendarDestination({
 					) : undefined
 				}
 			/>
+		);
+	};
+
+	/**
+	 * One editing surface on desktop, and it is the pane the event is read in.
+	 * The scope question is asked in it too, so the answer and the edit it gates
+	 * arrive in the same place rather than one over the grid and one beside it.
+	 */
+	const editorPane = (): ReactNode => {
+		if (panel.kind === "none") return null;
+		const title =
+			panel.kind === "create"
+				? "New event"
+				: panel.kind === "scope"
+					? "Repeating event"
+					: "Edit event";
+		const subtitle =
+			panel.kind === "create"
+				? formatDayLabel(panel.draft.date)
+				: (panelEvent?.title ?? "");
+		return (
+			<EventEditorPane title={title} subtitle={subtitle} onClose={dismissPanel}>
+				{editorForm("pane", false)}
+			</EventEditorPane>
 		);
 	};
 
@@ -545,6 +512,7 @@ export function CalendarDestination({
 	);
 
 	const openedThread = threadFor(openThreadId);
+	const editing = panel.kind !== "none";
 
 	if (isPhone) {
 		return (
@@ -585,7 +553,7 @@ export function CalendarDestination({
 							onClose={dismissPanel}
 						>
 							<div className="max-h-[80dvh] overflow-y-auto px-4 pb-6 pt-2">
-								{editorPanel(true)}
+								{editorForm("compact", true)}
 							</div>
 						</BottomSheet>
 						<BottomSheet
@@ -658,14 +626,14 @@ export function CalendarDestination({
 					onToggleAccount={toggleAccount}
 					grid={grid}
 					suggestions={suggestionColumn(false)}
-					panel={editorPanel(false)}
-					onDismissPanel={dismissPanel}
 				/>
 			}
-			listBias="list"
-			readingPane={openedThread || selectedEvent ? "default" : "off"}
+			listBias={editing && width >= WIDE_WIDTH ? "balanced" : "list"}
+			readingPane={editing || openedThread || selectedEvent ? "default" : "off"}
 			reading={
-				openedThread ? (
+				editing ? (
+					editorPane()
+				) : openedThread ? (
 					<ThreadPane
 						thread={openedThread}
 						backLabel={selectedEvent ? "Back to the event" : "Back to the grid"}
@@ -783,8 +751,6 @@ function DesktopSurface({
 	onToggleAccount,
 	grid,
 	suggestions,
-	panel,
-	onDismissPanel,
 }: {
 	rangeTitle: string;
 	onPrev: () => void;
@@ -797,18 +763,13 @@ function DesktopSurface({
 	onToggleAccount: (accountId: string, nextVisible: boolean) => void;
 	grid: ReactNode;
 	suggestions: ReactNode;
-	panel: ReactNode;
-	onDismissPanel: () => void;
 }) {
 	const [surfaceRef, surfaceWidth] = useContainerWidth(1100);
 	const hasRail = (surfaceWidth ?? 0) >= RAIL_MIN_WIDTH;
 	const rail = railShare(surfaceWidth ?? 0);
 
 	return (
-		<div
-			ref={surfaceRef}
-			className="relative flex h-full w-full flex-col bg-surface"
-		>
+		<div ref={surfaceRef} className="flex h-full w-full flex-col bg-surface">
 			<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
 				<CalendarDateNav
 					title={rangeTitle}
@@ -862,20 +823,6 @@ function DesktopSurface({
 				</ResizablePanelGroup>
 			) : (
 				<div className="min-h-0 min-w-0 flex-1">{grid}</div>
-			)}
-
-			{panel && (
-				<>
-					<button
-						type="button"
-						aria-label="Close editor"
-						onClick={onDismissPanel}
-						className="absolute inset-0 z-10 cursor-default bg-canvas/20"
-					/>
-					<div className="absolute left-1/2 top-14 z-20 w-80 -translate-x-1/2 rounded-lg border border-line bg-surface-raised p-4 shadow-xl shadow-black/25">
-						{panel}
-					</div>
-				</>
 			)}
 		</div>
 	);

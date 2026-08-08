@@ -5,7 +5,7 @@ import type { RecurrenceScope } from "./calendar-types.js";
 export interface RecurrenceScopePromptProps {
 	/** The series being edited, e.g. "Standup". */
 	title: string;
-	/** The rule in words, e.g. "Every weekday at 09:15". */
+	/** The rule in words, e.g. "Every weekday, 09:15". */
 	ruleText: string;
 	/** The instance that was clicked, already formatted. */
 	instanceText: string;

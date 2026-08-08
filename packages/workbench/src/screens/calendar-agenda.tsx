@@ -71,6 +71,7 @@ import {
 	monthLabel,
 	readNextUp,
 } from "../lib/agenda-time.js";
+import { applyDraft, applyScopedEdit } from "../lib/calendar-edit.js";
 import { railShare } from "../lib/calendar-rail.js";
 import { MailShell } from "./mail-shell.js";
 
@@ -151,40 +152,32 @@ function draftFromPhrase(phrase: string, picks: ChoicePicks): EventDraft {
 	};
 }
 
-function eventFromDraft(draft: EventDraft, id: string): CalendarEventData {
-	const offset = "+02:00";
+/** An event with nothing on it yet — what a create starts from. */
+function blankEvent(id: string): CalendarEventData {
 	return {
 		id,
-		calendarId: draft.calendarId,
-		title: draft.title === "" ? "(no title)" : draft.title,
-		start: draft.allDay
-			? draft.date
-			: `${draft.date}T${draft.startTime}:00${offset}`,
-		end: draft.allDay
-			? addDays(draft.date, 1)
-			: `${draft.date}T${draft.endTime}:00${offset}`,
-		allDay: draft.allDay,
-		location: draft.location,
-		notes: draft.notes,
-		attendees: draft.guests
-			.split(",")
-			.map((name) => name.trim())
-			.filter((name) => name !== "")
-			.map((name) => ({
-				name,
-				email: `${name.toLowerCase().replace(/\s+/g, ".")}@example`,
-				rsvp: "noReply" as const,
-				role: "attendee" as const,
-			})),
+		calendarId: calendars[0].id,
+		title: "",
+		start: "",
+		end: "",
+		allDay: false,
+		location: "",
+		notes: "",
+		attendees: [],
 		myRsvp: "accepted",
 		threadId: "",
 		threadSubject: "",
 		timeZone: HOME_ZONE,
 		zoneCertainty: "local",
-		recurrenceRule: draft.repeat,
-		seriesId: draft.repeat === "" ? "" : `ser_${id}`,
+		recurrenceRule: "",
+		seriesId: "",
+		seriesException: false,
 		status: "confirmed",
 	};
+}
+
+function eventFromDraft(draft: EventDraft, id: string): CalendarEventData {
+	return applyDraft(blankEvent(id), draft);
 }
 
 function shiftDate(
@@ -215,7 +208,12 @@ function headerTitle(
 type Panel =
 	| { kind: "none" }
 	| { kind: "create" }
-	| { kind: "edit"; eventId: string }
+	| {
+			kind: "edit";
+			eventId: string;
+			/** Empty for a one-off; otherwise the answer the scope question got. */
+			scope: RecurrenceScope | "";
+	  }
 	| { kind: "scope"; eventId: string };
 
 export interface CalendarAgendaProps {
@@ -389,7 +387,7 @@ export function CalendarAgenda({
 		setPhrase("");
 		setExpanded(false);
 		setDraft(draftFromEvent(event));
-		setPanel({ kind: "edit", eventId: event.id });
+		setPanel({ kind: "edit", eventId: event.id, scope: "" });
 		if (isPhone) setSheet("create");
 	};
 
@@ -397,11 +395,8 @@ export function CalendarAgenda({
 		const event = events.find((candidate) => candidate.id === eventId);
 		if (!event) return;
 		setExpanded(scope !== "this");
-		setDraft({
-			...draftFromEvent(event),
-			repeat: scope === "this" ? "" : event.recurrenceRule,
-		});
-		setPanel({ kind: "edit", eventId });
+		setDraft(draftFromEvent(event));
+		setPanel({ kind: "edit", eventId, scope });
 	};
 
 	const dismiss = () => {
@@ -418,12 +413,10 @@ export function CalendarAgenda({
 			setSelected(id);
 			goTo(draft.date);
 		}
-		if (panel.kind === "edit") {
-			const edited = eventFromDraft(draft, panel.eventId);
+		if (panel.kind === "edit")
 			setEvents((previous) =>
-				previous.map((event) => (event.id === panel.eventId ? edited : event)),
+				applyScopedEdit(previous, panel.eventId, draft, panel.scope),
 			);
-		}
 		dismiss();
 	};
 
@@ -535,6 +528,7 @@ export function CalendarAgenda({
 				onSave={commit}
 				onCancel={dismiss}
 				saveLabel={panel.kind === "edit" ? "Save" : "Add"}
+				repeatEditable={panel.kind !== "edit" || panel.scope !== "this"}
 				open={panel.kind !== "none"}
 				onOpen={() => {
 					if (panel.kind === "none") setPanel({ kind: "create" });

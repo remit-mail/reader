@@ -8,7 +8,7 @@ const render = (touch = false) =>
 	renderToString(
 		createElement(RecurrenceScopePrompt, {
 			title: "Standup",
-			ruleText: "Every weekday at 09:15",
+			ruleText: "Every weekday, 09:15",
 			instanceText: "Wednesday 10 June",
 			onChoose: () => undefined,
 			onCancel: () => undefined,
@@ -26,7 +26,7 @@ describe("RecurrenceScopePrompt", () => {
 
 	it("states the rule and the instance that was clicked", () => {
 		const html = render();
-		assert.match(html, /Every weekday at 09:15/);
+		assert.match(html, /Every weekday, 09:15/);
 		assert.match(html, /Wednesday 10 June/);
 	});
 

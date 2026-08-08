@@ -40,6 +40,7 @@ const event: CalendarEventData = {
 	zoneCertainty: "local",
 	recurrenceRule: "",
 	seriesId: "",
+	seriesException: false,
 	status: "confirmed",
 };
 
@@ -69,8 +70,25 @@ describe("EventDetail", () => {
 
 	it("names the repeat rule on a series instance", () => {
 		assert.match(
-			render({ recurrenceRule: "Every weekday at 09:15" }),
-			/Every weekday at 09:15/,
+			render({ recurrenceRule: "Every weekday, 09:15" }),
+			/Every weekday, 09:15/,
+		);
+	});
+
+	it("marks an instance that no longer matches its series rule", () => {
+		const html = render({
+			recurrenceRule: "Every weekday, 09:15",
+			seriesId: "ser_standup",
+			seriesException: true,
+		});
+		assert.match(html, /Every weekday, 09:15/);
+		assert.match(html, /Moved out of the series/);
+	});
+
+	it("says nothing about exceptions on an instance that follows the rule", () => {
+		assert.doesNotMatch(
+			render({ recurrenceRule: "Every weekday, 09:15" }),
+			/Moved out of the series/,
 		);
 	});
 

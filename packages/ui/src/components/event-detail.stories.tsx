@@ -75,6 +75,7 @@ const base: CalendarEventData = {
 	zoneCertainty: "local",
 	recurrenceRule: "",
 	seriesId: "",
+	seriesException: false,
 	status: "confirmed",
 };
 
@@ -92,7 +93,10 @@ export const FromMail: Story = {
 	),
 };
 
-/** A repeating instance names its rule instead of hiding it in a settings pane. */
+/**
+ * A repeating instance names its rule in the words a person would say it, not
+ * as an RRULE, and not folded into a settings pane.
+ */
 export const Recurring: Story = {
 	render: () => (
 		<EventDetail
@@ -105,11 +109,40 @@ export const Recurring: Story = {
 				notes: "",
 				threadId: "",
 				threadSubject: "",
-				recurrenceRule: "Every weekday at 09:15",
+				recurrenceRule: "Every weekday, 09:15",
 				seriesId: "ser_standup",
 			}}
 			calendar={calendar}
 			whenText="Wednesday 10 June · 09:15 – 09:30"
+			onEdit={() => {}}
+			onDelete={() => {}}
+		/>
+	),
+};
+
+/**
+ * This Thursday was moved and the rest of the week was not. The rule still
+ * reads back, because the series still owns the morning — what changed is that
+ * this instance no longer matches it, and the badge is where that is said.
+ */
+export const SeriesException: Story = {
+	render: () => (
+		<EventDetail
+			event={{
+				...base,
+				title: "Standup",
+				start: "2026-06-11T10:30:00+02:00",
+				end: "2026-06-11T10:45:00+02:00",
+				location: "Meet",
+				notes: "Pushed an hour and a quarter for the offsite travel window.",
+				threadId: "",
+				threadSubject: "",
+				recurrenceRule: "Every weekday, 09:15",
+				seriesId: "ser_standup",
+				seriesException: true,
+			}}
+			calendar={calendar}
+			whenText="Thursday 11 June · 10:30 – 10:45"
 			onEdit={() => {}}
 			onDelete={() => {}}
 		/>

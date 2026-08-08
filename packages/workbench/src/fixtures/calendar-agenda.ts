@@ -3,8 +3,9 @@
  *
  * A continuous strip cannot be judged on seven days: the argument for a list is
  * what happens when you keep scrolling, so the month around Wednesday 10 June
- * is filled in with the shape a real calendar has. Late May is thin, the two
- * weeks around the fixture week carry the weekday standup, and the run from
+ * is filled in with the shape a real calendar has. Late May is thin, the weeks
+ * around the fixture week carry the three series it runs on — the weekday
+ * standup, the Monday 1:1, the monthly review — and the run from
  * Saturday 20 June is genuinely empty because she is in Lisbon — the stay is
  * still sitting in the suggestions, unaccepted, so those days really do have
  * nothing booked on them.
@@ -17,7 +18,13 @@ import {
 	events as fixtureEvents,
 	HOME_ZONE,
 	hobbyCalendarId,
+	MONTHLY_REVIEW_RULE,
+	MONTHLY_REVIEW_SERIES_ID,
+	ONE_TO_ONE_RULE,
+	ONE_TO_ONE_SERIES_ID,
 	personalCalendarId,
+	STANDUP_RULE,
+	STANDUP_SERIES_ID,
 	travelCalendarId,
 	workCalendarId,
 } from "./calendar.js";
@@ -44,6 +51,7 @@ function event(seed: Seed): CalendarEventData {
 		zoneCertainty: "local",
 		recurrenceRule: "",
 		seriesId: "",
+		seriesException: false,
 		status: "confirmed",
 		...seed,
 	};
@@ -74,9 +82,49 @@ const standups: CalendarEventData[] = STANDUP_DAYS.map((date) =>
 		start: at(date, "09:15"),
 		end: at(date, "09:30"),
 		location: "Huddle room / Meet",
-		seriesId: "ser_standup",
-		recurrenceRule: "Every weekday at 09:15",
+		seriesId: STANDUP_SERIES_ID,
+		recurrenceRule: STANDUP_RULE,
 	}),
+);
+
+/** The other Mondays the 1:1 lands on, and the other months the review does. */
+const oneToOnes: CalendarEventData[] = [
+	"2026-05-04",
+	"2026-05-11",
+	"2026-05-18",
+	"2026-05-25",
+	"2026-06-01",
+	"2026-06-15",
+	"2026-06-29",
+	"2026-07-06",
+	"2026-07-13",
+	"2026-07-20",
+	"2026-07-27",
+].map((date) =>
+	event({
+		id: `evt_1to1_${date}`,
+		calendarId: workCalendarId,
+		title: "1:1 with Marcus",
+		start: at(date, "14:00"),
+		end: at(date, "14:30"),
+		location: "Walk around the park",
+		seriesId: ONE_TO_ONE_SERIES_ID,
+		recurrenceRule: ONE_TO_ONE_RULE,
+	}),
+);
+
+const monthlyReviews: CalendarEventData[] = ["2026-05-13", "2026-07-08"].map(
+	(date) =>
+		event({
+			id: `evt_review_${date}`,
+			calendarId: workCalendarId,
+			title: "Monthly business review",
+			start: at(date, "16:00"),
+			end: at(date, "17:00"),
+			location: "Room Noord",
+			seriesId: MONTHLY_REVIEW_SERIES_ID,
+			recurrenceRule: MONTHLY_REVIEW_RULE,
+		}),
 );
 
 const around: CalendarEventData[] = [
@@ -231,6 +279,8 @@ const around: CalendarEventData[] = [
 export const agendaEvents: CalendarEventData[] = [
 	...fixtureEvents,
 	...standups,
+	...oneToOnes,
+	...monthlyReviews,
 	...around,
 ];
 

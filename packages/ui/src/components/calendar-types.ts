@@ -70,10 +70,15 @@ export interface CalendarEventData {
 	/** IANA zone, or empty when the source never said. */
 	timeZone: string;
 	zoneCertainty: ZoneCertainty;
-	/** Human-readable rule, empty when the event does not repeat. */
+	/** The rule in words — "Every weekday, 09:15". Empty when it does not repeat. */
 	recurrenceRule: string;
 	/** Groups every instance of one series under a single object. */
 	seriesId: string;
+	/**
+	 * This instance was moved or rewritten away from the rule and no longer
+	 * matches it. The series still owns it, so the next edit still asks scope.
+	 */
+	seriesException: boolean;
 	status: "confirmed" | "tentative";
 }
 

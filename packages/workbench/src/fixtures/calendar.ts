@@ -19,7 +19,10 @@ import {
  * built to make the hard cases visible rather than to look tidy: a quiet
  * Monday against a Wednesday with five events on top of each other, a chain of
  * back-to-backs, a stay that spans three days, two all-day entries, a call
- * anchored in another zone, and one event whose zone the mail never gave.
+ * anchored in another zone, and one event whose zone the mail never gave. Three
+ * series run through it — a weekday standup, a weekly 1:1, a monthly review —
+ * and one standup has been moved out of line, so the difference between a series
+ * and an instance of it is on screen rather than only in the type.
  *
  * Every event that came out of a thread carries that thread's real id from
  * `workspace.ts`, so the link back to mail resolves to a message that exists.
@@ -179,30 +182,49 @@ function event(seed: EventSeed): CalendarEventData {
 		zoneCertainty: "local",
 		recurrenceRule: "",
 		seriesId: "",
+		seriesException: false,
 		status: "confirmed",
 		...seed,
 	};
 }
 
-/** The weekday standup, one series rendered as five instances. */
-const standups: CalendarEventData[] = [8, 9, 10, 11, 12].map((d) =>
-	event({
+/** The three series the week runs on, in the words the detail pane reads back. */
+export const STANDUP_RULE = "Every weekday, 09:15";
+export const ONE_TO_ONE_RULE = "Every week on Monday, 14:00";
+export const MONTHLY_REVIEW_RULE = "Every month on the second Wednesday, 16:00";
+
+export const STANDUP_SERIES_ID = "ser_standup";
+export const ONE_TO_ONE_SERIES_ID = "ser_marcus_1to1";
+export const MONTHLY_REVIEW_SERIES_ID = "ser_monthly_review";
+
+/**
+ * The weekday standup: one series, five instances, and Thursday moved out of
+ * line. An exception is the case a series design lives or dies on, so the week
+ * carries one rather than five identical mornings.
+ */
+const standups: CalendarEventData[] = [8, 9, 10, 11, 12].map((d) => {
+	const moved = d === 11;
+	return event({
 		id: `evt_standup_${d}`,
 		calendarId: workCalendarId,
 		title: "Standup",
-		start: at(d, 9, 15),
-		end: at(d, 9, 30),
-		location: "Huddle room / Meet",
-		seriesId: "ser_standup",
-		recurrenceRule: "Every weekday at 09:15",
+		start: moved ? at(d, 10, 30) : at(d, 9, 15),
+		end: moved ? at(d, 10, 45) : at(d, 9, 30),
+		location: moved ? "Meet" : "Huddle room / Meet",
+		seriesId: STANDUP_SERIES_ID,
+		seriesException: moved,
+		recurrenceRule: STANDUP_RULE,
+		notes: moved
+			? "Pushed an hour and a quarter for the offsite travel window. The rest of the week is unchanged."
+			: "",
 		attendees: [
 			priya("accepted", "organizer"),
 			marcus("accepted"),
 			dana("accepted"),
 			ravi("noReply"),
 		],
-	}),
-);
+	});
+});
 
 export const events: CalendarEventData[] = [
 	...standups,
@@ -217,6 +239,8 @@ export const events: CalendarEventData[] = [
 		location: "Walk around the park",
 		threadId: "thr_marcus",
 		threadSubject: "Re: Reading pane density — a vote for calmer",
+		seriesId: ONE_TO_ONE_SERIES_ID,
+		recurrenceRule: ONE_TO_ONE_RULE,
 		attendees: [marcus("accepted", "organizer")],
 	}),
 	event({
@@ -361,6 +385,21 @@ export const events: CalendarEventData[] = [
 		threadId: "thr_lopen",
 		threadSubject: "Lunch walk Wednesday?",
 		attendees: [mei("accepted", "organizer")],
+	}),
+	event({
+		id: "evt_monthly_review",
+		calendarId: workCalendarId,
+		title: "Monthly business review",
+		start: at(10, 16),
+		end: at(10, 17),
+		location: "Room Noord",
+		seriesId: MONTHLY_REVIEW_SERIES_ID,
+		recurrenceRule: MONTHLY_REVIEW_RULE,
+		attendees: [
+			priya("accepted", "organizer"),
+			dana("accepted"),
+			sven("tentative"),
+		],
 	}),
 	event({
 		id: "evt_sf_sync",
@@ -762,6 +801,7 @@ export function eventFromSuggestion(
 		zoneCertainty: suggestion.zoneCertainty,
 		recurrenceRule: "",
 		seriesId: "",
+		seriesException: false,
 		status: "confirmed",
 	};
 }
