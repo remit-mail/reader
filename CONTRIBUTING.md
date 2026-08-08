@@ -29,8 +29,15 @@ ships. See the README for the rest of the dev commands.
 
 ## Reviewing UI on a phone
 
-Storybook publishes to GitHub Pages from `main` only. To look at a branch —
-on a phone, over the tailnet — serve it from the dev host instead:
+`main` publishes Storybook to GitHub Pages. A pull request gets its own
+preview on demand: tick "Deploy Storybook preview" in the bot comment it
+opens with. The comment updates in place as the build runs and links the
+preview once it's up, at
+`https://remit-mail.github.io/reader/pr/<pr-number>/<head-sha>/`. It needs
+write access on the repository, and it does not build branches pushed from a
+fork.
+
+Without a pull request open yet, serve the branch from the dev host instead:
 
 ```
 npm run storybook:host -w @remit/workbench
@@ -39,6 +46,13 @@ npm run storybook:host -w @remit/workbench
 That binds `0.0.0.0:6007`, so it is reachable at `http://<host>:6007`. Run it
 from a detached worktree of the branch (`npm ci` and `npm run codegen` first)
 to review a branch without disturbing your checkout.
+
+Storybook Pages publishes to the `gh-pages` branch. A repository maintainer
+sets the Pages source to it once:
+
+```
+gh api -X PUT repos/remit-mail/reader/pages -f build_type=legacy -f source[branch]=gh-pages -f source[path]=/
+```
 
 ## Reporting bugs and security issues
 

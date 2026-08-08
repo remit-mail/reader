@@ -1,0 +1,69 @@
+name: Storybook preview cleanup
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+jobs:
+  # Exists to occupy the per-PR concurrency group below: entering it cancels
+  # any storybook-preview.yml build still running for this pull request, so a
+  # stale build can never publish after the preview it belongs to is gone.
+  guard:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    # Shared with storybook-preview.yml's build job; see the comment there.
+    # Both files must spell this group the same way; a test asserts they do.
+    concurrency:
+      group: storybook-preview-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr-number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            npm-scripts
+          sparse-checkout-cone-mode: false
+
+  remove:
+    needs: guard
+    runs-on: ubuntu-latest
+    # An optimization, not the correctness guarantee: shared with
+    # storybook-pages.yml and storybook-preview.yml's publish job so the three
+    # producers usually serialize. It cannot be relied on for correctness by
+    # itself -- GitHub holds at most one running and one pending job per
+    # group, so a third simultaneous producer can still bump a pending one.
+    # gh-pages-publish.mjs is what actually protects the branch, via a leased
+    # push that is rejected rather than silently overwritten if it loses a
+    # race, and retried against the branch's new tip. All three files must
+    # spell this group the same way; a test asserts they do.
+    concurrency:
+      group: gh-pages-branch-push
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            npm-scripts
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Delete every preview for this pull request
+        run: >-
+          node npm-scripts/gh-pages-publish.mjs remove
+          --dest "pr/$PR_NUMBER" --message "Remove Storybook preview for PR #$PR_NUMBER"
+
+      - name: Record that the preview is gone
+        run: >-
+          node npm-scripts/storybook-preview-comment.mjs update
+          --pr "$PR_NUMBER" --state removed --no-create
