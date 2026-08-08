@@ -23,7 +23,7 @@ import { useEffect, useRef } from "react";
 import { $adoptHtml, $readRichText } from "./rich-text-document.js";
 import { RICH_TEXT_NODES, richTextTheme } from "./rich-text-nodes.js";
 import { RichTextToolbar } from "./rich-text-toolbar.js";
-import type { RichTextValue } from "./rich-text-value.js";
+import type { ComposeCaret, RichTextValue } from "./rich-text-value.js";
 
 export interface RichTextEditorProps {
 	/**
@@ -33,7 +33,13 @@ export interface RichTextEditorProps {
 	initialHtml?: string;
 	onChange?: (value: RichTextValue) => void;
 	onSubmit?: () => void;
-	autoFocus?: boolean;
+	/**
+	 * Where the caret lands when the surface takes focus on mount. Absent, it
+	 * does not take focus. A message opens at the start, because a signature is
+	 * already in the document and typing belongs above it; a surface arriving
+	 * from a mode switch opens at the end, where the writing stopped.
+	 */
+	initialCaret?: ComposeCaret;
 	placeholder?: string;
 	ariaLabel?: string;
 	/** Pinned to the right of the toolbar strip. The mode toggle rides here. */
@@ -141,14 +147,20 @@ const ChangePlugin = ({
 	return null;
 };
 
-const AutoFocus = ({ enabled }: { enabled: boolean }) => {
+const AutoFocus = ({ caret }: { caret?: ComposeCaret }) => {
 	const [editor] = useLexicalComposerContext();
 
 	useEffect(() => {
-		if (!enabled) return;
-		const timer = setTimeout(() => editor.focus(), 0);
+		if (!caret) return;
+		const timer = setTimeout(
+			() =>
+				editor.focus(undefined, {
+					defaultSelection: caret === "start" ? "rootStart" : "rootEnd",
+				}),
+			0,
+		);
 		return () => clearTimeout(timer);
-	}, [editor, enabled]);
+	}, [editor, caret]);
 
 	return null;
 };
@@ -166,7 +178,7 @@ export const RichTextEditor = ({
 	initialHtml,
 	onChange,
 	onSubmit,
-	autoFocus = false,
+	initialCaret,
 	placeholder = "Write your message…",
 	ariaLabel = "Message body",
 	trailing,
@@ -220,7 +232,7 @@ export const RichTextEditor = ({
 		<LinkPlugin />
 		<TablePlugin />
 		<PastePlugin />
-		<AutoFocus enabled={autoFocus} />
+		<AutoFocus caret={initialCaret} />
 		{onChange && <ChangePlugin onChange={onChange} />}
 	</LexicalComposer>
 );
