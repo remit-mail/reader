@@ -124,6 +124,29 @@ describe("sanitizeAdoptedHtml", () => {
 		assert.equal(result.includes("tracker.gif"), false);
 		assert.equal(result.includes("cid:part1"), false);
 	});
+
+	it("caps an image at the width the recipient has for it", () => {
+		const result = sanitizeAdoptedHtml(
+			'<img src="https://example.com/screenshot.png" width="1600">',
+		);
+
+		assert.match(result, /style="max-width:100%;height:auto"/);
+		assert.equal(result.includes("1600"), false);
+	});
+
+	it("writes that cap itself rather than trusting the source", () => {
+		const result = sanitizeAdoptedHtml(
+			[
+				'<img src="https://example.com/a.png" style="width:1600px;border:8px solid red">',
+				'<p style="color:red">Text</p>',
+			].join(""),
+		);
+
+		assert.equal(result.includes("1600px"), false);
+		assert.equal(result.includes("border"), false);
+		assert.equal(result.includes("color:red"), false);
+		assert.match(result, /<img src="https:\/\/example.com\/a.png"/);
+	});
 });
 
 describe("sanitizeQuotedHtml", () => {

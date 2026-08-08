@@ -140,6 +140,12 @@ describe("adopting a pasted image", () => {
 		assert.match(html, /alt="A pixel"/);
 	});
 
+	it("sends the image with a width the recipient's layout survives", () => {
+		const { html } = adoptAndSerialize(PASTED_IMAGE);
+
+		assert.match(html, /<img[^>]+style="max-width:100%;height:auto"/);
+	});
+
 	it("drops an image this app would not send", () => {
 		const { html } = adoptAndSerialize(
 			'<p><img src="http://tracker.example/px.gif"></p>',

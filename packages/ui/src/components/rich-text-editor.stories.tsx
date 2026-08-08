@@ -78,8 +78,8 @@ const WIDE_SHOT =
 
 /**
  * A clipboard carrying pictures, which is what a screenshot pasted out of a
- * graphics app arrives as. The second is wider than the composer, and claims
- * the width it is given rather than pushing the message sideways.
+ * graphics app arrives as. The second is 1600 wide — four times the room the
+ * composer has for it.
  */
 const CLIPBOARD_WITH_IMAGES = [
 	"<p>The new mark:</p>",
@@ -110,8 +110,10 @@ export const PasteResult: Story = {
 };
 
 /**
- * The pictures are in the document rather than gone from it (#684), and neither
- * one widens the message past the region it is written in.
+ * The pictures are in the document rather than gone from it (#684), and the
+ * oversized one is drawn at the width the composer has rather than pushing the
+ * message sideways. Whether a `data:` image survives the trip to a given
+ * recipient is a separate question, and #679 is where it is answered.
  */
 export const PastedImages: Story = {
 	name: "After pasting images",
@@ -122,10 +124,18 @@ export const PastedImages: Story = {
 		);
 		if (!editable) throw new Error("the editor is not mounted");
 
-		const images = editable.querySelectorAll("img");
+		const images = [...editable.querySelectorAll("img")];
 		await expect(images).toHaveLength(2);
 		await expect(images[0]).toHaveAttribute("alt", "The mark");
+
+		// A width read before the picture decodes is 0, and 0 is under every
+		// bound this would like to assert.
+		await waitFor(() =>
+			expect(images.every((image) => image.naturalWidth > 0)).toBe(true),
+		);
+		await expect(images[1].naturalWidth).toBe(1600);
 		for (const image of images) {
+			await expect(image.getBoundingClientRect().width).toBeGreaterThan(0);
 			await expect(image.getBoundingClientRect().width).toBeLessThanOrEqual(
 				editable.clientWidth,
 			);

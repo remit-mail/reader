@@ -6,14 +6,13 @@ import {
 	type DOMConversionOutput,
 	type DOMExportOutput,
 	type EditorConfig,
-	type LexicalNode,
 	type LexicalUpdateJSON,
 	type NodeKey,
 	type SerializedLexicalNode,
 	type Spread,
 } from "lexical";
 
-export type SerializedImageNode = Spread<
+type SerializedImageNode = Spread<
 	{ src: string; alt: string },
 	SerializedLexicalNode
 >;
@@ -115,15 +114,11 @@ export class ImageNode extends DecoratorNode<null> {
 	}
 }
 
-const $convertImageElement = (element: HTMLElement): DOMConversionOutput => {
-	const src = element.getAttribute("src") ?? "";
-	if (!src) return { node: null };
-	return { node: $createImageNode(src, element.getAttribute("alt") ?? "") };
-};
-
-export const $createImageNode = (src: string, alt: string): ImageNode =>
-	$applyNodeReplacement(new ImageNode(src, alt));
-
-export const $isImageNode = (
-	node: LexicalNode | null | undefined,
-): node is ImageNode => node instanceof ImageNode;
+const $convertImageElement = (element: HTMLElement): DOMConversionOutput => ({
+	node: $applyNodeReplacement(
+		new ImageNode(
+			element.getAttribute("src") ?? "",
+			element.getAttribute("alt") ?? "",
+		),
+	),
+});
