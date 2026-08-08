@@ -121,7 +121,7 @@ const mount = async (
 	initial = "",
 	extra: {
 		onSubmit?: () => void;
-		autoFocus?: boolean;
+		initialCaret?: "start" | "end";
 		trailing?: boolean;
 	} = {},
 ): Promise<{ latest: () => string }> => {
@@ -135,7 +135,7 @@ const mount = async (
 					render();
 				},
 				onSubmit: extra.onSubmit,
-				autoFocus: extra.autoFocus,
+				initialCaret: extra.initialCaret,
 				trailing: extra.trailing
 					? createElement(ComposeModeToggle, {
 							mode: "plain",
@@ -157,7 +157,7 @@ describe("PlainTextEditor", () => {
 		await mount();
 
 		assert.equal(container.querySelectorAll("button").length, 0);
-		assert.match(container.textContent ?? "", /Plain text · Markdown/);
+		assert.match(container.textContent ?? "", /Markdown/);
 	});
 
 	it("inserts a pasted web page as Markdown", async () => {
@@ -191,7 +191,7 @@ describe("PlainTextEditor", () => {
 	});
 
 	it("takes focus with the caret at the end when it arrives on a switch", async () => {
-		await mount("Everything written so far.", { autoFocus: true });
+		await mount("Everything written so far.", { initialCaret: "end" });
 
 		await act(async () => {
 			await new Promise((resolve) => setTimeout(resolve, 5));

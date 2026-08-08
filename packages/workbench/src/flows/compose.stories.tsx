@@ -283,26 +283,12 @@ export const Sending: Story = {
 };
 
 /**
- * The body's chunk has not arrived. The header and the action bar are already
- * live around it, so Send refuses with a reason rather than sending a document
- * that is not on screen yet.
+ * The body's chunk has not arrived yet. The header, the banner and the action
+ * bar are already live around it.
  */
 export const BodyLoading: Story = {
 	name: "The body is still loading",
-	render: () => (
-		<MailShell
-			{...mailbox}
-			reading={
-				<Composer
-					bodyLoading
-					send={{
-						status: "blocked",
-						reason: "The message is still loading.",
-					}}
-				/>
-			}
-		/>
-	),
+	render: () => <MailShell {...mailbox} reading={<Composer bodyLoading />} />,
 };
 
 /**

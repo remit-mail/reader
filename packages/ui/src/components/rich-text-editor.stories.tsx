@@ -115,6 +115,7 @@ const pinnedControls = (
 		<ComposeLanguageChip
 			language="nl"
 			languages={["nl", "en", "de"]}
+			source="detected"
 			onSelect={() => undefined}
 		/>
 		<ComposeModeToggle mode="rich" onToggle={() => undefined} />
