@@ -1,7 +1,6 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { type ReactNode, useId } from "react";
 import { cn } from "../lib/cn.js";
-import type { Density } from "./app-shell-types.js";
 import type { CalendarViewId } from "./calendar-types.js";
 
 export interface SegmentOption<T extends string> {
@@ -9,6 +8,21 @@ export interface SegmentOption<T extends string> {
 	label: string;
 	/** Shown instead of `label` where the control has to fit a thumb. */
 	shortLabel: string;
+}
+
+/**
+ * A flat choice, drawn the way the nav sidebar draws a picked mailbox: weight
+ * and hue mark what is on, and nothing is raised. The calendar's toolbar and the
+ * nav are the same act — choosing what the pane shows — so they look the same.
+ */
+export function segmentClassName(active: boolean): string {
+	return cn(
+		"flex cursor-pointer items-center justify-center rounded-md px-2 font-medium transition-colors",
+		"has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
+		active
+			? "bg-accent-2-soft text-accent-2"
+			: "text-fg-muted hover:bg-surface-sunken hover:text-fg",
+	);
 }
 
 export interface SegmentedProps<T extends string> {
@@ -31,23 +45,14 @@ function Segmented<T extends string>({
 }: SegmentedProps<T>) {
 	const group = useId();
 	return (
-		<fieldset
-			className={cn(
-				"inline-flex items-center gap-0.5 rounded-md border border-line bg-surface-sunken p-0.5",
-				className,
-			)}
-		>
+		<fieldset className={cn("inline-flex items-center gap-0.5", className)}>
 			<legend className="sr-only">{ariaLabel}</legend>
 			{options.map((option) => (
 				<label
 					key={option.value}
 					className={cn(
-						"flex cursor-pointer items-center justify-center rounded-sm px-2 font-medium transition-colors",
-						"has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
+						segmentClassName(value === option.value),
 						touch ? "min-h-11 flex-1 text-sm" : "h-7 text-xs",
-						value === option.value
-							? "bg-surface text-fg shadow-sm"
-							: "text-fg-subtle hover:text-fg",
 					)}
 				>
 					<input
@@ -108,44 +113,13 @@ export function CalendarViewSwitch({
 	);
 }
 
-const DENSITY_OPTIONS: SegmentOption<Density>[] = [
-	{ value: "comfortable", label: "Roomy", shortLabel: "Roomy" },
-	{ value: "compact", label: "Tight", shortLabel: "Tight" },
-];
-
-export interface CalendarDensityControlProps {
-	value: Density;
-	onChange: (density: Density) => void;
-	touch?: boolean;
-	className?: string;
-}
-
-/** How much of a day fits on screen, decided by the person reading it. */
-export function CalendarDensityControl({
-	value,
-	onChange,
-	touch,
-	className,
-}: CalendarDensityControlProps) {
-	return (
-		<Segmented
-			ariaLabel="Row density"
-			options={DENSITY_OPTIONS}
-			value={value}
-			onChange={onChange}
-			touch={touch}
-			className={className}
-		/>
-	);
-}
-
 export interface CalendarDateNavProps {
 	/** The range on screen, already formatted. */
 	title: string;
 	onPrev: () => void;
 	onNext: () => void;
 	onToday: () => void;
-	/** Right-hand controls: the view switch, density, whatever the view owns. */
+	/** Right-hand controls: the view switch, whatever else the view owns. */
 	children?: ReactNode;
 	touch?: boolean;
 }

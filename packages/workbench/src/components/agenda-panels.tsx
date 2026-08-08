@@ -7,7 +7,7 @@
  * are. None of them is a second copy of the list — each one answers something
  * the rows cannot answer at a glance.
  */
-import { calendarColorClasses, cn } from "@remit/ui";
+import { calendarColorClasses, cn, segmentClassName } from "@remit/ui";
 import {
 	AlignJustify,
 	CalendarOff,
@@ -70,24 +70,15 @@ export function AgendaDensityControl({
 }: AgendaDensityControlProps) {
 	const group = useId();
 	return (
-		<fieldset
-			className={cn(
-				"inline-flex items-center gap-0.5 rounded-md border border-line bg-surface-sunken p-0.5",
-				className,
-			)}
-		>
+		<fieldset className={cn("inline-flex items-center gap-0.5", className)}>
 			<legend className="sr-only">Agenda density</legend>
 			{DENSITY_OPTIONS.map((option) => (
 				<label
 					key={option.value}
 					aria-label={option.label}
 					className={cn(
-						"flex cursor-pointer items-center justify-center rounded-sm px-2 font-medium transition-colors",
-						"has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
+						segmentClassName(value === option.value),
 						touch ? "min-h-11 flex-1 text-sm" : "h-7 text-xs",
-						value === option.value
-							? "bg-surface text-fg shadow-sm"
-							: "text-fg-subtle hover:text-fg",
 					)}
 				>
 					<input

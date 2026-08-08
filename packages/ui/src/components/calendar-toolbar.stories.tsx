@@ -1,16 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import type { Density } from "./app-shell-types.js";
-import {
-	CalendarDateNav,
-	CalendarDensityControl,
-	CalendarViewSwitch,
-} from "./calendar-toolbar.js";
+import { CalendarDateNav, CalendarViewSwitch } from "./calendar-toolbar.js";
 import type { CalendarViewId } from "./calendar-types.js";
 
 /**
- * The controls that sit above every calendar surface: the zoom ladder, the
- * density the reader picks, and one way home.
+ * The controls that sit above every calendar surface: the zoom ladder and one
+ * way home. The ladder is flat — the step you are on is marked by weight and
+ * hue, the same way the nav marks the mailbox you are in.
  */
 const meta: Meta = {
 	title: "Calendar/Toolbar",
@@ -36,14 +32,6 @@ export const ViewLadder: Story = {
 				<p className="text-xs text-fg-muted">Showing: {view}</p>
 			</div>
 		);
-	},
-};
-
-/** How much of a day fits is the reader's call on every view. */
-export const DensityChoice: Story = {
-	render: () => {
-		const [density, setDensity] = useState<Density>("comfortable");
-		return <CalendarDensityControl value={density} onChange={setDensity} />;
 	},
 };
 

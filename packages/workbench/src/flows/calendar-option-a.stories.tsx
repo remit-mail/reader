@@ -143,17 +143,6 @@ export const FilteredCalendars: Story = {
 	),
 };
 
-/**
- * Tight density on the busiest day: the same events, half the slot height, the
- * time dropped off the shortest chips. How much of a day fits on a screen is
- * the reader's call, not ours.
- */
-export const TightDensity: Story = {
-	render: () => (
-		<CalendarDestination view="day" date={densestDay.date} density="compact" />
-	),
-};
-
 /* ------------------------------------------------------------------ */
 /* Phone                                                               */
 /* ------------------------------------------------------------------ */
@@ -162,8 +151,8 @@ export const TightDensity: Story = {
  * The phone is a day/agenda hybrid, not a shrunken week. The strip at the top
  * shows the shape of the day — where the gaps are — and the agenda under it
  * carries the events at a size a thumb can hit. The calendar chips stay on
- * screen, the view ladder and density sit in the bottom bar within reach, and
- * there are no keyboard hints anywhere.
+ * screen, the view ladder sits in the bottom bar within reach, and there are no
+ * keyboard hints anywhere.
  *
  * This is the week's quietest day, so the arrangement is judged on a day that
  * is mostly gap — which is what most days are.

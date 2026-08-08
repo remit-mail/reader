@@ -130,11 +130,10 @@ export {
 export {
 	CalendarDateNav,
 	type CalendarDateNavProps,
-	CalendarDensityControl,
-	type CalendarDensityControlProps,
 	CalendarViewSwitch,
 	type CalendarViewSwitchProps,
 	type SegmentOption,
+	segmentClassName,
 } from "./components/calendar-toolbar.js";
 export {
 	type CalendarAttendee,

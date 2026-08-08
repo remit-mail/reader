@@ -16,14 +16,12 @@ import {
 	type CalendarAttendee,
 	type CalendarColorId,
 	CalendarDateNav,
-	CalendarDensityControl,
 	type CalendarEventData,
 	CalendarList,
 	type CalendarViewId,
 	CalendarViewSwitch,
 	calendarColorClasses,
 	cn,
-	type Density,
 	EventDetail,
 	type EventDraft,
 	EventEditor,
@@ -242,7 +240,6 @@ export interface CalendarDestinationProps {
 	width?: number;
 	view?: CalendarViewId;
 	date?: string;
-	density?: Density;
 	/** The event open in the reading pane on mount. */
 	selectedEventId?: string;
 	/** Calendars already ticked off, so a story can start filtered. */
@@ -261,7 +258,6 @@ export function CalendarDestination({
 	width = 1440,
 	view: initialView = "week",
 	date: initialDate = TODAY,
-	density: initialDensity = "comfortable",
 	selectedEventId = "",
 	hiddenCalendarIds = [],
 	draftAt,
@@ -273,7 +269,6 @@ export function CalendarDestination({
 
 	const [view, setView] = useState<CalendarViewId>(initialView);
 	const [date, setDate] = useState(initialDate);
-	const [density, setDensity] = useState<Density>(initialDensity);
 	const [rangeTitle, setRangeTitle] = useState(formatDayLabel(initialDate));
 	const [events, setEvents] = useState<CalendarEventData[]>(seedEvents);
 	const [suggestions, setSuggestions] =
@@ -463,7 +458,7 @@ export function CalendarDestination({
 			date={date}
 			events={shown}
 			colorByCalendarId={colorByCalendarId}
-			density={density}
+			density="comfortable"
 			selectedEventId={selected}
 			onSelectEvent={openEvent}
 			onPickSlot={pickSlot}
@@ -562,8 +557,6 @@ export function CalendarDestination({
 						onPrev={() => setDate(shiftDate(date, view, -1))}
 						onNext={() => setDate(shiftDate(date, view, 1))}
 						onToday={() => setDate(TODAY)}
-						density={density}
-						onChangeDensity={setDensity}
 						grid={grid}
 						events={shown}
 						onSelectEvent={openEvent}
@@ -656,8 +649,6 @@ export function CalendarDestination({
 					onToday={() => setDate(TODAY)}
 					view={view}
 					onChangeView={setView}
-					density={density}
-					onChangeDensity={setDensity}
 					visible={visible}
 					onToggleCalendar={toggleCalendar}
 					onToggleAccount={toggleAccount}
@@ -783,8 +774,6 @@ function DesktopSurface({
 	onToday,
 	view,
 	onChangeView,
-	density,
-	onChangeDensity,
 	visible,
 	onToggleCalendar,
 	onToggleAccount,
@@ -799,8 +788,6 @@ function DesktopSurface({
 	onToday: () => void;
 	view: CalendarViewId;
 	onChangeView: (view: CalendarViewId) => void;
-	density: Density;
-	onChangeDensity: (density: Density) => void;
 	visible: ReadonlySet<string>;
 	onToggleCalendar: (calendarId: string) => void;
 	onToggleAccount: (accountId: string, nextVisible: boolean) => void;
@@ -825,7 +812,6 @@ function DesktopSurface({
 					onToday={onToday}
 				>
 					<CalendarViewSwitch value={view} onChange={onChangeView} />
-					<CalendarDensityControl value={density} onChange={onChangeDensity} />
 				</CalendarDateNav>
 			</header>
 
@@ -884,8 +870,6 @@ function PhoneSurface({
 	onPrev,
 	onNext,
 	onToday,
-	density,
-	onChangeDensity,
 	grid,
 	events,
 	onSelectEvent,
@@ -902,8 +886,6 @@ function PhoneSurface({
 	onPrev: () => void;
 	onNext: () => void;
 	onToday: () => void;
-	density: Density;
-	onChangeDensity: (density: Density) => void;
 	grid: ReactNode;
 	events: CalendarEventData[];
 	onSelectEvent: (eventId: string) => void;
@@ -992,11 +974,6 @@ function PhoneSurface({
 					views={["day", "week", "month"]}
 					touch
 					className="flex-1"
-				/>
-				<CalendarDensityControl
-					value={density}
-					onChange={onChangeDensity}
-					touch
 				/>
 			</div>
 

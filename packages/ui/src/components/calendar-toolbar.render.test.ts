@@ -2,11 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import {
-	CalendarDateNav,
-	CalendarDensityControl,
-	CalendarViewSwitch,
-} from "./calendar-toolbar.js";
+import { CalendarDateNav, CalendarViewSwitch } from "./calendar-toolbar.js";
 
 describe("CalendarViewSwitch", () => {
 	it("offers the whole ladder by default", () => {
@@ -43,18 +39,16 @@ describe("CalendarViewSwitch", () => {
 		assert.doesNotMatch(html, /Year/);
 		assert.match(html, /min-h-11/);
 	});
-});
 
-describe("CalendarDensityControl", () => {
-	it("names both densities", () => {
+	it("marks the current view flat, without a raised surface", () => {
 		const html = renderToString(
-			createElement(CalendarDensityControl, {
-				value: "comfortable",
+			createElement(CalendarViewSwitch, {
+				value: "week",
 				onChange: () => undefined,
 			}),
 		);
-		assert.match(html, /Roomy/);
-		assert.match(html, /Tight/);
+		assert.match(html, /bg-accent-2-soft/);
+		assert.doesNotMatch(html, /shadow-sm/);
 	});
 });
 

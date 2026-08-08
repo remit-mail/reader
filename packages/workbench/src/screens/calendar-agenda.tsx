@@ -11,7 +11,6 @@
 import {
 	BottomSheet,
 	CalendarDateNav,
-	CalendarDensityControl,
 	type CalendarEventData,
 	CalendarList,
 	type CalendarViewId,
@@ -605,10 +604,6 @@ export function CalendarAgenda({
 						onChangeView={changeView}
 						density={density}
 						onChangeDensity={setDensity}
-						gridDensity={gridDensity}
-						onChangeGridDensity={(next) =>
-							setDensity(next === "comfortable" ? "detail" : "pills")
-						}
 						body={view === "agenda" ? flow : grid}
 						onCompose={() => {
 							setPhrase("");
@@ -676,10 +671,6 @@ export function CalendarAgenda({
 					onChangeView={changeView}
 					density={density}
 					onChangeDensity={setDensity}
-					gridDensity={gridDensity}
-					onChangeGridDensity={(next) =>
-						setDensity(next === "comfortable" ? "detail" : "pills")
-					}
 					visible={visible}
 					onToggleCalendar={toggleCalendar}
 					onToggleAccount={toggleAccount}
@@ -731,8 +722,6 @@ function DesktopSurface({
 	onChangeView,
 	density,
 	onChangeDensity,
-	gridDensity,
-	onChangeGridDensity,
 	visible,
 	onToggleCalendar,
 	onToggleAccount,
@@ -749,8 +738,6 @@ function DesktopSurface({
 	onChangeView: (view: CalendarViewId) => void;
 	density: AgendaDensity;
 	onChangeDensity: (density: AgendaDensity) => void;
-	gridDensity: Density;
-	onChangeGridDensity: (density: Density) => void;
 	visible: ReadonlySet<string>;
 	onToggleCalendar: (calendarId: string) => void;
 	onToggleAccount: (accountId: string, nextVisible: boolean) => void;
@@ -777,13 +764,8 @@ function DesktopSurface({
 					onToday={onToday}
 				>
 					<CalendarViewSwitch value={view} onChange={onChangeView} />
-					{view === "agenda" ? (
+					{view === "agenda" && (
 						<AgendaDensityControl value={density} onChange={onChangeDensity} />
-					) : (
-						<CalendarDensityControl
-							value={gridDensity}
-							onChange={onChangeGridDensity}
-						/>
 					)}
 				</CalendarDateNav>
 			</header>
@@ -844,8 +826,6 @@ function PhoneSurface({
 	onChangeView,
 	density,
 	onChangeDensity,
-	gridDensity,
-	onChangeGridDensity,
 	body,
 	onCompose,
 }: {
@@ -859,8 +839,6 @@ function PhoneSurface({
 	onChangeView: (view: CalendarViewId) => void;
 	density: AgendaDensity;
 	onChangeDensity: (density: AgendaDensity) => void;
-	gridDensity: Density;
-	onChangeGridDensity: (density: Density) => void;
 	body: ReactNode;
 	onCompose: () => void;
 }) {
@@ -916,17 +894,11 @@ function PhoneSurface({
 						touch
 						className="min-w-0 flex-1"
 					/>
-					{view === "agenda" ? (
+					{view === "agenda" && (
 						<AgendaDensityControl
 							value={density}
 							onChange={onChangeDensity}
 							icons
-							touch
-						/>
-					) : (
-						<CalendarDensityControl
-							value={gridDensity}
-							onChange={onChangeGridDensity}
 							touch
 						/>
 					)}
