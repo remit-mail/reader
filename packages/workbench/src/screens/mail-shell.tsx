@@ -131,6 +131,11 @@ export interface MailShellProps {
 	/** Replaces the reading pane, which compose takes over on desktop. */
 	reading?: ReactNode;
 	/**
+	 * The top bar's Compose button, so a story can drive the step the app drives:
+	 * compose takes the reading pane whatever was in it.
+	 */
+	onCompose?: () => void;
+	/**
 	 * Rendered over the shell: the compose sheet, a dialog, the selection wizard.
 	 * Takes the place of the single-pane compose FAB.
 	 */
@@ -265,7 +270,13 @@ function useShellSuggest(search: SearchState) {
 	return { field, list };
 }
 
-function TopBar({ search }: { search: SearchState }) {
+function TopBar({
+	search,
+	onCompose,
+}: {
+	search: SearchState;
+	onCompose?: () => void;
+}) {
 	return (
 		<ShellTopBar
 			search={{
@@ -277,7 +288,7 @@ function TopBar({ search }: { search: SearchState }) {
 				onClearQuery: () => search.setQuery(""),
 				onRemoveChip: search.removeChip,
 			}}
-			onCompose={() => undefined}
+			onCompose={onCompose ?? (() => undefined)}
 			onReportBug={() => undefined}
 			onOpenSettings={() => undefined}
 			composeShortcut="c"
@@ -644,6 +655,7 @@ export function MailShell({
 	listState,
 	list: listOverride,
 	reading,
+	onCompose,
 	overlay,
 	preset,
 	thread,
@@ -744,7 +756,11 @@ export function MailShell({
 		<AppShellSlotted
 			initialWidth={width}
 			nav={nav}
-			topBar={singlePane ? undefined : <TopBar search={search} />}
+			topBar={
+				singlePane ? undefined : (
+					<TopBar search={search} onCompose={onCompose} />
+				)
+			}
 			list={list}
 			reading={
 				singlePane

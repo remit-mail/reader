@@ -751,7 +751,9 @@ export const ComposeForm = ({
 					initialText={initialText}
 					onChange={setBody}
 					onSubmit={handleSend}
-					autoFocus={mode === "new"}
+					// The surface focuses its recipient field as it opens
+					// (`FullCompose`); the writing surface claiming focus whenever its
+					// lazy chunk resolved took the caret out of it mid-address (#703).
 					onConversionError={pushError}
 					languages={accountLanguages}
 					initialLanguage={draftLanguage}

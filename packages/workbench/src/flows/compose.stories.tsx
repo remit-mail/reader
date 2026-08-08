@@ -21,7 +21,7 @@ import {
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useRef, useState } from "react";
 import { expect, fn, userEvent, within } from "storybook/test";
-import { allThreads } from "../fixtures/workspace.js";
+import { allThreads, q3Intelligence, q3Thread } from "../fixtures/workspace.js";
 import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
 import { MailShell } from "../screens/mail-shell.js";
 
@@ -81,6 +81,8 @@ const FromRow = ({ email }: { email: string }) => (
 );
 
 interface ComposerProps {
+	/** Puts the caret in the recipient field as the surface opens, as the app does. */
+	autoFocus?: boolean;
 	to?: AddressEntry[];
 	subject?: string;
 	body?: string;
@@ -105,6 +107,7 @@ interface ComposerProps {
 const AUTOSAVE_MS = 700;
 
 const Composer = ({
+	autoFocus = false,
 	to = [{ email: "ada@example.com", displayName: "Ada Lovelace" }],
 	subject = "Re: Q3 planning",
 	body = DEFAULT_BODY,
@@ -180,104 +183,117 @@ const Composer = ({
 	const sendable =
 		canSend ?? (toAddresses.length > 0 && bodyValue.text.trim() !== "");
 
+	// The app's `FullCompose` does this to the surface it mounts: the recipient
+	// field takes the caret in the same frame, so compose opened from a focused
+	// search field does not leave the next keystrokes going to search (#703).
+	const surface = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		if (!autoFocus) return;
+		surface.current
+			?.querySelector<HTMLElement>('input[type="text"], textarea')
+			?.focus();
+	}, [autoFocus]);
+
 	return (
-		<ComposeFormShell
-			banner={
-				smtpMissing || conversionFailure ? (
-					<>
-						{smtpMissing && (
-							<ComposeSmtpMissingBanner onConfigure={configureSmtp} />
-						)}
-						{conversionFailure && (
-							<Banner
-								tone="danger"
-								data-testid="compose-conversion-error"
-								onDismiss={() => setConversionFailure(undefined)}
-							>
-								<p className="font-medium">{conversionFailure.title}</p>
-								<p>{conversionFailure.detail}</p>
-							</Banner>
-						)}
-					</>
-				) : undefined
-			}
-			header={
-				<ComposeHeader
-					summary={composeHeaderSummary({
-						to: toAddresses,
-						cc: ccAddresses,
-						bcc: bccAddresses,
-						subject: subjectValue,
-					})}
-					from={<FromRow email="alice@northwind.example" />}
-					to={
-						<ComposeAddressField
-							label="To"
-							addresses={toAddresses}
-							onChange={editAddresses(setToAddresses)}
-							placeholder="Recipients"
-						/>
-					}
-					cc={
-						showCc ? (
+		<div ref={surface} className="flex h-full min-h-0 flex-col">
+			<ComposeFormShell
+				banner={
+					smtpMissing || conversionFailure ? (
+						<>
+							{smtpMissing && (
+								<ComposeSmtpMissingBanner onConfigure={configureSmtp} />
+							)}
+							{conversionFailure && (
+								<Banner
+									tone="danger"
+									data-testid="compose-conversion-error"
+									onDismiss={() => setConversionFailure(undefined)}
+								>
+									<p className="font-medium">{conversionFailure.title}</p>
+									<p>{conversionFailure.detail}</p>
+								</Banner>
+							)}
+						</>
+					) : undefined
+				}
+				header={
+					<ComposeHeader
+						summary={composeHeaderSummary({
+							to: toAddresses,
+							cc: ccAddresses,
+							bcc: bccAddresses,
+							subject: subjectValue,
+						})}
+						from={<FromRow email="alice@northwind.example" />}
+						to={
 							<ComposeAddressField
-								label="Cc"
-								addresses={ccAddresses}
-								onChange={editAddresses(setCcAddresses)}
+								label="To"
+								addresses={toAddresses}
+								onChange={editAddresses(setToAddresses)}
+								placeholder="Recipients"
 							/>
-						) : undefined
-					}
-					bcc={
-						showBcc ? (
-							<ComposeAddressField
-								label="Bcc"
-								addresses={bccAddresses}
-								onChange={editAddresses(setBccAddresses)}
+						}
+						cc={
+							showCc ? (
+								<ComposeAddressField
+									label="Cc"
+									addresses={ccAddresses}
+									onChange={editAddresses(setCcAddresses)}
+								/>
+							) : undefined
+						}
+						bcc={
+							showBcc ? (
+								<ComposeAddressField
+									label="Bcc"
+									addresses={bccAddresses}
+									onChange={editAddresses(setBccAddresses)}
+								/>
+							) : undefined
+						}
+						subject={
+							<ComposeSubjectField
+								value={subjectValue}
+								onChange={(next) => {
+									setSubjectValue(next);
+									noteEdit();
+								}}
 							/>
-						) : undefined
-					}
-					subject={
-						<ComposeSubjectField
-							value={subjectValue}
-							onChange={(next) => {
-								setSubjectValue(next);
-								noteEdit();
-							}}
-						/>
-					}
-					onShowCc={() => setShowCc(true)}
-					onShowBcc={() => setShowBcc(true)}
+						}
+						onShowCc={() => setShowCc(true)}
+						onShowBcc={() => setShowBcc(true)}
+					/>
+				}
+				quoted={
+					quoted ? (
+						<QuotedText text={quoted} senderName={quotedSender} />
+					) : undefined
+				}
+				actionBar={
+					<ComposeActionBar
+						onSend={onSend}
+						onDiscard={discard}
+						sending={sending}
+						canSend={sendable}
+						saveStatus={saving ? "saving" : saveStatus}
+						unavailableReason={unavailableReason}
+						onUnavailable={onUnavailable}
+					/>
+				}
+			>
+				<ComposeBody
+					mode={bodyMode}
+					onModeChange={setBodyMode}
+					initialHtml={body}
+					initialText={plainBody}
+					onChange={noteBodyChange}
+					onSubmit={sendable ? onSend : undefined}
+					onConversionError={setConversionFailure}
+					languages={ACCOUNT_LANGUAGES}
+					onLanguageChange={noteLanguageChange}
 				/>
-			}
-			quoted={
-				quoted ? (
-					<QuotedText text={quoted} senderName={quotedSender} />
-				) : undefined
-			}
-			actionBar={
-				<ComposeActionBar
-					onSend={onSend}
-					onDiscard={discard}
-					sending={sending}
-					canSend={sendable}
-					saveStatus={saving ? "saving" : saveStatus}
-					unavailableReason={unavailableReason}
-					onUnavailable={onUnavailable}
-				/>
-			}
-		>
-			<ComposeBody
-				mode={bodyMode}
-				onModeChange={setBodyMode}
-				initialHtml={body}
-				initialText={plainBody}
-				onChange={noteBodyChange}
-				onSubmit={sendable ? onSend : undefined}
-				onConversionError={setConversionFailure}
-				languages={ACCOUNT_LANGUAGES}
-				onLanguageChange={noteLanguageChange}
-			/>
-		</ComposeFormShell>
+			</ComposeFormShell>
+		</div>
 	);
 };
 
@@ -286,6 +302,57 @@ export const Full: Story = {
 	render: () => (
 		<MailShell {...mailbox} reading={<Composer saveStatus="saved" />} />
 	),
+};
+
+/**
+ * Compose from an open message (#703). The reading pane holds one thing, so
+ * pressing Compose while a conversation is open closes the conversation and
+ * hands the pane to the new message — the button is never inert, and the row it
+ * came from is no longer marked open.
+ *
+ * The caret lands in the recipient field as the surface arrives. Compose is
+ * pressed from beside the search field, and leaving focus there is what sent the
+ * next keystrokes to a search the user had already stopped typing.
+ */
+export const OverAnOpenMessage: Story = {
+	render: function OverAnOpenMessageRender() {
+		const [openThreadId, setOpenThreadId] = useState<string | undefined>(
+			allThreads[0]?.id,
+		);
+		const [composing, setComposing] = useState(false);
+		return (
+			<MailShell
+				{...mailbox}
+				thread={openThreadId ? q3Thread : undefined}
+				selectedThreadId={openThreadId}
+				intelligence={q3Intelligence}
+				onSelectThread={(id) => {
+					setComposing(false);
+					setOpenThreadId(id);
+				}}
+				onCompose={() => {
+					setComposing(true);
+					setOpenThreadId(undefined);
+				}}
+				reading={
+					composing ? (
+						<Composer autoFocus to={[]} subject="" body="" plainBody="" />
+					) : undefined
+				}
+			/>
+		);
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(canvas.getByText(q3Thread.subject)).toBeVisible();
+
+		await userEvent.click(canvas.getByRole("button", { name: /^Compose/ }));
+
+		const recipients = canvas.getByLabelText("To:");
+		await expect(recipients).toBeVisible();
+		await expect(recipients).toHaveFocus();
+		await expect(canvas.queryByText(q3Thread.subject)).toBeNull();
+	},
 };
 
 /**

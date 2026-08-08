@@ -7,6 +7,7 @@ import type {
 	RemitImapDescribeMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import {
 	createContext,
 	useCallback,
@@ -59,6 +60,7 @@ export const ComposeProvider = ({
 	>();
 	const startedAtRef = useRef(0);
 	const queryClient = useQueryClient();
+	const navigate = useNavigate();
 
 	const { data: polledMessage } = useQuery({
 		...outboxDetailOperationsGetOutboxMessageOptions({
@@ -91,9 +93,26 @@ export const ComposeProvider = ({
 		}
 	}, [polledMessage, pollingMessageId, queryClient]);
 
-	const openCompose = useCallback((params: Omit<ComposeState, "isOpen">) => {
-		setState({ ...params, isOpen: true });
-	}, []);
+	// One pane shows one thing: an open thread or compose, never both. Opening
+	// compose is what decides between them, so it drops the selection here —
+	// every entry point (top bar, `c`, the FAB, drafts, the outbox) opens compose
+	// through this one call, and a caller clearing the selection for itself was
+	// what left the others dead while a message was open (#703).
+	const openCompose = useCallback(
+		(params: Omit<ComposeState, "isOpen">) => {
+			setState({ ...params, isOpen: true });
+			navigate({
+				to: ".",
+				search: (prev: Record<string, unknown>) => ({
+					...prev,
+					selectedMessageId: undefined,
+					selectedThreadId: undefined,
+				}),
+				replace: true,
+			});
+		},
+		[navigate],
+	);
 
 	const closeCompose = useCallback(() => {
 		setState(INITIAL_STATE);

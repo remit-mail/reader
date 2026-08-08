@@ -26,10 +26,13 @@ interface ComposeFabProps {
  *     `/mail` shell also stops mounting the FAB above that width; the
  *     `lg:hidden` class covers the pre-hydration frame.
  *   - The compose surface is already open.
- *   - The user is reading a thread (`?selectedMessageId=…`) — the
- *     conversation's Reply/Forward action bar covers that workflow.
  *   - The user is not on a primary mobile route (`/mail` or
  *     `/settings`).
+ *
+ * Reading a thread is not one of them: a new message is reachable from an open
+ * conversation the way it is from the list, because opening compose drops the
+ * selection (`ComposeProvider.openCompose`, #703). Hiding the button there was
+ * how the dead-button gate was worked around.
  *
  * The tap itself is `useGlobalCompose`, shared with the desktop top bar:
  * it opens compose in place on routes that mount `FullCompose` and
@@ -42,17 +45,7 @@ export const ComposeFab = ({ accounts }: ComposeFabProps) => {
 	const location = useLocation();
 	const compose = useGlobalCompose(accounts);
 
-	const search = location.search as Record<string, unknown> | undefined;
-	const isReadingThread =
-		typeof search?.selectedMessageId === "string" &&
-		search.selectedMessageId.length > 0;
-
-	if (
-		!isOnPrimaryMobileRoute(location.pathname) ||
-		state.isOpen ||
-		isReadingThread
-	)
-		return null;
+	if (!isOnPrimaryMobileRoute(location.pathname) || state.isOpen) return null;
 
 	return (
 		<button
