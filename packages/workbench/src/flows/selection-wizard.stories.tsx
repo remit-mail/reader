@@ -13,6 +13,7 @@ import {
 	type MatchCount,
 	type MatchMode,
 	type MatchOperator,
+	makeFilterBlockedCopy,
 	type RuleClause,
 	type RuleScope,
 	type RunState,
@@ -517,7 +518,9 @@ function SelectionFlow({
 							setEntry({ verb: "organize", fromSearch: true }),
 						makeFilterBlockedReason: isConvertible(conversion)
 							? undefined
-							: "Add a sender or words to filter on",
+							: makeFilterBlockedCopy(
+									conversion.droppedFacets.map((facet) => facet.label),
+								),
 					}
 				: {})}
 			{...(desktop ? { thread: q3Thread, intelligence: q3Intelligence } : {})}

@@ -15,7 +15,13 @@ import {
 	categoryDrivenBriefSections,
 	workId,
 } from "../fixtures/workspace.js";
-import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
+import {
+	framedAt,
+	PHONE_WIDTH,
+	phoneFrame,
+	phoneParams,
+	TABLET_WIDTH,
+} from "../lib/story-frame.js";
 import { MailShell } from "../screens/mail-shell.js";
 
 const meta: Meta = {
@@ -207,6 +213,70 @@ export const FilteredToCategory: Story = {
 			sections={briefSections()}
 			briefFilters
 			briefCategory="newsletter"
+		/>
+	),
+};
+
+/**
+ * The chips under a search. The caret is up — a search is when the chips are
+ * wanted most — and the panel it opens is the same one. Ticking "Unread" leaves
+ * `your is:unread` in the field: the chip and the term are one state, so what
+ * is narrowing the list can be read, edited and deleted where it was typed.
+ *
+ * "From contacts" and "Today" have no term in the search vocabulary and keep
+ * narrowing from the panel's own set, which is why they stay on the row.
+ */
+export const SearchWithChips: Story = {
+	render: () => (
+		<MailShell
+			{...brief}
+			sections={briefSections()}
+			briefFilters
+			query="your"
+			searchCommitted
+			filterOpen
+		/>
+	),
+};
+
+/**
+ * The same search at tablet width, where the list header owns the field and the
+ * field takes the title's row. The caret rides beside it rather than going down
+ * with the title, which is the only route to the chips at this width — the
+ * phone has its full-screen takeover and the desktop keeps its title.
+ */
+export const SearchWithChipsTablet: Story = {
+	parameters: { layout: "centered" as const },
+	decorators: [framedAt(TABLET_WIDTH)],
+	render: () => (
+		<MailShell
+			{...brief}
+			width={TABLET_WIDTH}
+			sections={briefSections()}
+			briefFilters
+			query="your"
+			searchCommitted
+			filterOpen
+		/>
+	),
+};
+
+/**
+ * A query made of nothing but chips. "Make this a filter" is still offered and
+ * still pressable; the reason it cannot convert names the facet in the way,
+ * because a read state is not something a filter's clauses match on.
+ */
+export const SearchOfChipsOnly: Story = {
+	render: () => (
+		<MailShell
+			{...brief}
+			sections={briefSections()}
+			briefFilters
+			query="is:unread"
+			searchCommitted
+			searchTokens={["Unread"]}
+			makeFilterBlockedReason="Unread isn't a filter condition — add a sender or words to filter on"
+			filterOpen
 		/>
 	),
 };

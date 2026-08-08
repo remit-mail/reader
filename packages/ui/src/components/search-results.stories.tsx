@@ -1,5 +1,6 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
+import { makeFilterBlockedCopy } from "./search-conversion.js";
 import type { SearchResult } from "./search-result-row.js";
 import { type SearchResultSection, SearchResults } from "./search-results.js";
 
@@ -201,7 +202,7 @@ export const MakeFilterBlocked: Story = {
 			sections={resultSections}
 			makeFilter={{
 				onClick: () => {},
-				blockedReason: "Add a sender or words to filter on",
+				blockedReason: makeFilterBlockedCopy(["Has attachment"]),
 			}}
 		/>
 	),

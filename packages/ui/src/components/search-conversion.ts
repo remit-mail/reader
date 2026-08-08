@@ -50,6 +50,24 @@ export function droppedFacetsCopy(facets: string[]): string {
 	} left out — the filter still matches everything else you searched for.`;
 }
 
+/** What a query needs before there is a rule to open on. */
+const NEEDS_A_CLAUSE = "add a sender or words to filter on";
+
+/**
+ * Why the current query has no filter in it. A query narrowed only by chips —
+ * ticked in the brief's filter panel, which writes them into the query as terms
+ * — is all attribute facets and no clause, so the reason names the facets that
+ * cannot be one instead of asking for something the user just supplied.
+ */
+export function makeFilterBlockedCopy(droppedFacets: string[]): string {
+	if (droppedFacets.length === 0)
+		return `${NEEDS_A_CLAUSE[0].toUpperCase()}${NEEDS_A_CLAUSE.slice(1)}`;
+	const verb = droppedFacets.length === 1 ? "isn't" : "aren't";
+	const noun =
+		droppedFacets.length === 1 ? "a filter condition" : "filter conditions";
+	return `${joinFacets(droppedFacets)} ${verb} ${noun} — ${NEEDS_A_CLAUSE}`;
+}
+
 /**
  * States the filter is literal-only, so the search's similar-mail reach is not
  * carried (RFC 038 D5). Shown only where that reach existed — a capable search

@@ -502,6 +502,7 @@ export {
 	DROPPED_SEMANTIC_COPY,
 	droppedFacetsCopy,
 	hasConversionNotice,
+	makeFilterBlockedCopy,
 	type SearchConversionNotice,
 	scopedOutCopy,
 } from "./components/search-conversion.js";
@@ -679,6 +680,17 @@ export {
 	sanitizeAttachmentFilename,
 } from "./lib/attachment-file.js";
 export {
+	briefChipCategory,
+	briefChipFilters,
+	briefFilterHasTerm,
+	briefQueryCategory,
+	briefQueryFilters,
+	briefQueryIsActive,
+	clearBriefFiltersInQuery,
+	setBriefCategoryInQuery,
+	toggleBriefFilterInQuery,
+} from "./lib/brief-filter-query.js";
+export {
 	buildCidResolver,
 	type CidResolvableBodyPart,
 	type CidResolver,
@@ -775,6 +787,14 @@ export {
 	useRovingFocus,
 } from "./lib/roving-focus.js";
 export { type RuleNameParts, suggestRuleName } from "./lib/rule-name.js";
+export {
+	quoteSearchTokenValue,
+	type SearchQueryWord,
+	type SearchTermParts,
+	searchTokenTerm,
+	splitSearchTerm,
+	splitSearchWords,
+} from "./lib/search-query-words.js";
 export {
 	type DroppedFacet,
 	type DroppedFacetType,
