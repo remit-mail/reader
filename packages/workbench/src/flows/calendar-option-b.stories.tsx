@@ -30,9 +30,11 @@ import { CalendarSeam } from "../screens/calendar-seam.js";
  * picks a clock. Dropping a reading offers a rule about the sender, so the next
  * twenty go away too.
  *
- * On a phone the shape changes rather than shrinking: the day is a sheet from
- * the bottom, the slots are a scrolling rail of thumb-sized chips, and the
- * pending readings are a deck you swipe — with the buttons still under it,
+ * On a phone the shape changes rather than shrinking. The day does not fit
+ * beside the message at 390px, so answering with times is a walk of three
+ * screens — read the day, pick the half-hours, send the reply — in the same
+ * wizard chrome the selection flow uses. The pending readings are a deck you
+ * swipe on a screen of their own, with the buttons still under the card,
  * because a gesture is never the only way to answer.
  */
 const meta: Meta = {
@@ -212,7 +214,7 @@ export const PhoneInvite: Story = {
 /**
  * The proposal thread. The verdict on each named time is in the message, in
  * words, because a coloured band is not readable at this width — the band is
- * what the sheet is for.
+ * what the day screen is for, one tap away in the header.
  */
 export const PhoneProposedTimes: Story = {
 	name: "Phone — times proposed in prose",
@@ -222,20 +224,59 @@ export const PhoneProposedTimes: Story = {
 };
 
 /**
- * The day as a sheet. It comes from the edge the thumb is on, it can be dragged
- * away rather than closed, and the free slots under it are a scrolling rail of
- * chips at touch size. Picking one puts it in the reply behind the sheet.
+ * The day, first step of answering with times. It is the whole screen because
+ * a band of booked hours is unreadable in a strip beside a message at this
+ * width — and tapping a block opens the event it belongs to.
  */
-export const PhoneTheDayBeside: Story = {
-	name: "Phone — the day, as a sheet",
+export const PhoneTheDay: Story = {
+	name: "Phone — the day",
 	parameters: phoneParams,
 	decorators: [phoneFrame],
 	render: () => (
-		<CalendarSeam width={PHONE_WIDTH} threadId="thr_thursday" sheet="day" />
+		<CalendarSeam width={PHONE_WIDTH} threadId="thr_thursday" flow="day" />
 	),
 };
 
-/** The reply, written from the slots, at a width where the draft is the screen. */
+/**
+ * The second step: the free half-hours as a scrolling rail of chips at touch
+ * size, with the day still above them so a pick is judged against what is
+ * already booked. Continue is inert until something is picked, and says why.
+ */
+export const PhonePickTimes: Story = {
+	name: "Phone — pick times",
+	parameters: phoneParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<CalendarSeam
+			width={PHONE_WIDTH}
+			threadId="thr_thursday"
+			flow="day"
+			step={1}
+			pickedSlots={["11:30", "15:00"]}
+		/>
+	),
+};
+
+/**
+ * The last step. The picked slots are already in the draft as plain text, and
+ * sending lays them on the day as holds that release themselves.
+ */
+export const PhoneReplyStep: Story = {
+	name: "Phone — send the reply",
+	parameters: phoneParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<CalendarSeam
+			width={PHONE_WIDTH}
+			threadId="thr_thursday"
+			flow="day"
+			step={2}
+			pickedSlots={["11:30", "15:00", "16:00"]}
+		/>
+	),
+};
+
+/** The reply in the thread itself, where it stays after the walk closes. */
 export const PhoneReplyWithTimes: Story = {
 	name: "Phone — reply with times",
 	parameters: phoneParams,
@@ -262,7 +303,7 @@ export const PhoneReadingDeck: Story = {
 		<CalendarSeam
 			width={PHONE_WIDTH}
 			threadId=""
-			sheet="suggestions"
+			flow="suggestions"
 			topSuggestionId="sug_toscanini"
 		/>
 	),
@@ -281,7 +322,7 @@ export const PhoneZoneWeCannotDetermine: Story = {
 		<CalendarSeam
 			width={PHONE_WIDTH}
 			threadId=""
-			sheet="suggestions"
+			flow="suggestions"
 			topSuggestionId="sug_flight"
 			expandedSuggestionId="sug_flight"
 		/>
@@ -297,7 +338,7 @@ export const PhoneDroppingTeachesARule: Story = {
 		<CalendarSeam
 			width={PHONE_WIDTH}
 			threadId=""
-			sheet="suggestions"
+			flow="suggestions"
 			rejectedSuggestionId="sug_parcel"
 		/>
 	),
@@ -318,8 +359,9 @@ export const PhoneEventWithItsThread: Story = {
 };
 
 /**
- * A guest tapped. On a phone the context is a sheet rather than a card under
- * the finger that opened it.
+ * A guest tapped. There is no room at this width for a card under the finger
+ * that opened it, so what they have written lately is a screen with the way
+ * back to the event in its header.
  */
 export const PhoneAttendeeContext: Story = {
 	name: "Phone — attendee context",
@@ -331,7 +373,7 @@ export const PhoneAttendeeContext: Story = {
 			threadId=""
 			selectedEventId="evt_q3_roadmap"
 			activeAttendee="priya@northwind.example"
-			sheet="attendee"
+			flow="attendee"
 		/>
 	),
 };

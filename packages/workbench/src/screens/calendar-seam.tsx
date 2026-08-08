@@ -23,11 +23,12 @@
  * reply and lays provisional holds.
  */
 import {
-	BottomSheet,
 	Button,
 	type CalendarAttendee,
 	type CalendarEventData,
 	cn,
+	FlowScreen,
+	FooterNav,
 	MessageListPane,
 	type RsvpState,
 	useContainerWidth,
@@ -95,7 +96,14 @@ const ASIDE_MIN_WIDTH = 620;
 /** Half an hour is what Sofia asked for, and what a hold is worth. */
 const OFFER_MINUTES = 30;
 
-export type PhoneSheet = "none" | "day" | "suggestions" | "attendee";
+/** The full-screen flows the phone surface puts up, one at a time. */
+export type PhoneFlow = "none" | "day" | "suggestions" | "attendee";
+
+/**
+ * Answering with times is three decisions, so it is three steps: read the day,
+ * pick the half-hours, send the reply that offers them.
+ */
+const DAY_STEPS = ["The day", "Times", "Reply"] as const;
 
 export interface CalendarSeamProps {
 	width?: number;
@@ -116,7 +124,9 @@ export interface CalendarSeamProps {
 	topSuggestionId?: string;
 	selectedEventId?: string;
 	activeAttendee?: string;
-	sheet?: PhoneSheet;
+	flow?: PhoneFlow;
+	/** Which step of the day flow a story opens on. */
+	step?: number;
 }
 
 interface Rejected {
@@ -175,7 +185,8 @@ export function CalendarSeam({
 	topSuggestionId = "",
 	selectedEventId = "",
 	activeAttendee: initialAttendee = "",
-	sheet: initialSheet = "none",
+	flow: initialFlow = "none",
+	step: initialStep = 0,
 }: CalendarSeamProps) {
 	const isPhone = width < 768;
 
@@ -199,7 +210,8 @@ export function CalendarSeam({
 	const [confirmed, setConfirmed] = useState<CalendarEventData[]>([]);
 	const [selected, setSelected] = useState(selectedEventId);
 	const [attendee, setAttendee] = useState(initialAttendee);
-	const [sheet, setSheet] = useState<PhoneSheet>(initialSheet);
+	const [flow, setFlow] = useState<PhoneFlow>(initialFlow);
+	const [step, setStep] = useState(initialStep);
 	const [strip, setStrip] = useState(suggestionsOpen);
 	const [expanded, setExpanded] = useState(expandedSuggestionId);
 	const [zones, setZones] = useState<Record<string, string>>({});
@@ -449,31 +461,39 @@ export function CalendarSeam({
 		</div>
 	);
 
+	const availability = (minuteHeight: number) => (
+		<AvailabilityStrip
+			blocks={blocks}
+			holds={holds}
+			marks={dayMarks()}
+			picked={sent ? [] : picked}
+			minuteHeight={minuteHeight}
+			onSelectBlock={(eventId) => {
+				setSelected(eventId);
+				setFlow("none");
+			}}
+		/>
+	);
+
+	const slotRail = (touch: boolean) => (
+		<div className="flex flex-col gap-1.5">
+			<p className="text-2xs uppercase tracking-wider text-fg-subtle">
+				Free, half an hour each
+			</p>
+			<SlotOfferRail
+				slots={offers}
+				picked={pickedKeys}
+				onToggle={togglePick}
+				touch={touch}
+				scroll={touch}
+			/>
+		</div>
+	);
+
 	const dayPanel = (touch: boolean, minuteHeight: number) => (
 		<div className="flex flex-col gap-3">
-			<AvailabilityStrip
-				blocks={blocks}
-				holds={holds}
-				marks={dayMarks()}
-				picked={sent ? [] : picked}
-				minuteHeight={minuteHeight}
-				onSelectBlock={(eventId) => {
-					setSelected(eventId);
-					setSheet("none");
-				}}
-			/>
-			<div className="flex flex-col gap-1.5">
-				<p className="text-2xs uppercase tracking-wider text-fg-subtle">
-					Free, half an hour each
-				</p>
-				<SlotOfferRail
-					slots={offers}
-					picked={pickedKeys}
-					onToggle={togglePick}
-					touch={touch}
-					scroll={touch}
-				/>
-			</div>
+			{availability(minuteHeight)}
+			{slotRail(touch)}
 		</div>
 	);
 
@@ -494,7 +514,7 @@ export function CalendarSeam({
 						activeAttendee={attendee}
 						onActivateAttendee={(email) => {
 							setAttendee(email);
-							if (touch) setSheet("attendee");
+							if (touch) setFlow("attendee");
 						}}
 						onProposeOther={() => setReplyOpen(true)}
 						touch={touch}
@@ -533,7 +553,10 @@ export function CalendarSeam({
 							variant="secondary"
 							size={touch ? "md" : "sm"}
 							icon={<CalendarDays className="size-3.5" />}
-							onClick={() => setSheet("day")}
+							onClick={() => {
+								setStep(0);
+								setFlow("day");
+							}}
 							className={cn("self-start", touch && "min-h-11")}
 						>
 							See the day
@@ -582,7 +605,7 @@ export function CalendarSeam({
 				activeAttendee={attendee}
 				onActivateAttendee={(email) => {
 					setAttendee(email);
-					if (touch) setSheet("attendee");
+					if (touch) setFlow("attendee");
 				}}
 				onClose={() => setSelected("")}
 				touch={touch}
@@ -593,7 +616,7 @@ export function CalendarSeam({
 		let phoneBody: ReactNode = (
 			<PhoneList
 				pendingCount={pending.length}
-				onOpenSuggestions={() => setSheet("suggestions")}
+				onOpenSuggestions={() => setFlow("suggestions")}
 				selectedThreadId={threadId}
 				onSelectThread={setThreadId}
 			/>
@@ -615,7 +638,10 @@ export function CalendarSeam({
 						</h1>
 						<button
 							type="button"
-							onClick={() => setSheet("day")}
+							onClick={() => {
+								setStep(0);
+								setFlow("day");
+							}}
 							aria-label="See the day"
 							className="flex size-11 items-center justify-center rounded-md text-accent-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
 						>
@@ -629,6 +655,155 @@ export function CalendarSeam({
 			);
 		if (selectedEvent) phoneBody = eventPane(true);
 
+		const daySummary = `${busySummary(blocks)} · ${offers.length} half-hours free`;
+		const lastDayStep = DAY_STEPS.length - 1;
+
+		const dayFlow = (
+			<FlowScreen
+				anchor="container"
+				title={formatDayLabel(PROPOSED_DATE)}
+				subtitle={daySummary}
+				steps={DAY_STEPS}
+				activeStep={step}
+				onBack={() => (step === 0 ? setFlow("none") : setStep(step - 1))}
+				onExit={() => setFlow("none")}
+				footer={
+					step === lastDayStep ? (
+						<Button
+							variant="primary"
+							size="touch"
+							onClick={() => setFlow("none")}
+							className="w-full"
+						>
+							Back to the thread
+						</Button>
+					) : (
+						<FooterNav
+							onBack={() => (step === 0 ? setFlow("none") : setStep(step - 1))}
+							nextLabel={step === 0 ? "Pick times" : "Write the reply"}
+							onNext={() => setStep(step + 1)}
+							blockedReason={
+								step === 1 && picked.length === 0
+									? "Pick at least one half-hour to offer"
+									: undefined
+							}
+						/>
+					)
+				}
+			>
+				{step === 0 && availability(0.52)}
+				{step === 1 && (
+					<div className="flex flex-col gap-3">
+						{availability(0.34)}
+						{slotRail(true)}
+					</div>
+				)}
+				{step === 2 && (
+					<ReplyWithTimes
+						slots={picked}
+						dayLabel={formatDayLabel(PROPOSED_DATE)}
+						draft={draft}
+						onDraftChange={setDraft}
+						onRemoveSlot={togglePick}
+						onSend={send}
+						sent={sent}
+						onRelease={release}
+						touch
+					/>
+				)}
+			</FlowScreen>
+		);
+
+		const suggestionsFlow = (
+			<FlowScreen
+				anchor="container"
+				title="Waiting for you"
+				subtitle={
+					rules.length > 0
+						? `${pending.length} left · ${rules.length} senders muted`
+						: `${pending.length} left, none of it on your calendar`
+				}
+				steps={["Waiting for you"]}
+				activeStep={0}
+				onBack={() => setFlow("none")}
+				onExit={() => setFlow("none")}
+			>
+				<SuggestionHeading
+					count={pending.length}
+					ruleCount={rules.length}
+					touch
+				/>
+				<SuggestionDeck
+					hasCard={pending.length > 0 || rejected !== null}
+					remaining={pending.length}
+					blocked={topCardBlocked}
+					blockedReason="Pick a clock"
+					onConfirm={() => {
+						if (topCard) confirmSuggestion(topCard);
+					}}
+					onReject={() => {
+						if (topCard) rejectSuggestion(topCard);
+					}}
+				>
+					{rejected ? (
+						<RejectedNotice
+							title={rejected.entry.suggestion.title}
+							sender={rejected.entry.suggestion.sender}
+							senderAddress={rejected.entry.senderAddress}
+							ruled={rejected.ruled}
+							onRule={takeRule}
+							onUndo={undoReject}
+							touch
+						/>
+					) : (
+						topCard && (
+							<SuggestionCard
+								entry={topCard}
+								whenText={formatSuggestionWhen(topCard.suggestion)}
+								expanded={expanded === topCard.suggestion.id}
+								onToggleExpanded={() =>
+									setExpanded((prev) =>
+										prev === topCard.suggestion.id ? "" : topCard.suggestion.id,
+									)
+								}
+								zoneChoice={zones[topCard.suggestion.id] ?? ""}
+								onZoneChoice={(id) =>
+									setZones((prev) => ({
+										...prev,
+										[topCard.suggestion.id]: id,
+									}))
+								}
+								onConfirm={() => confirmSuggestion(topCard)}
+								onReject={() => rejectSuggestion(topCard)}
+								onOpenThread={() => {
+									setThreadId(topCard.suggestion.threadId);
+									setFlow("none");
+								}}
+								touch
+							/>
+						)
+					)}
+				</SuggestionDeck>
+			</FlowScreen>
+		);
+
+		const attendeeFlow = attendeePerson && (
+			<FlowScreen
+				anchor="container"
+				title={attendeePerson.name}
+				subtitle={attendeePerson.email}
+				steps={["Guest"]}
+				activeStep={0}
+				onBack={() => setFlow("none")}
+				onExit={() => setFlow("none")}
+			>
+				<AttendeeContextCard
+					attendee={attendeePerson}
+					className="w-full border-0 p-0 shadow-none"
+				/>
+			</FlowScreen>
+		);
+
 		return (
 			<MailShell
 				width={width}
@@ -636,102 +811,13 @@ export function CalendarSeam({
 				calendarNav="shown"
 				list={phoneBody}
 				overlay={
-					<>
-						<BottomSheet
-							open={sheet === "day"}
-							onClose={() => setSheet("none")}
-						>
-							<div className="max-h-[82dvh] overflow-y-auto px-4 pb-6 pt-1">
-								<h2 className="pb-1 text-sm font-semibold text-fg">
-									{formatDayLabel(PROPOSED_DATE)}
-								</h2>
-								<p className="pb-3 text-2xs text-fg-subtle">
-									{busySummary(blocks)} · {offers.length} half-hours free
-								</p>
-								{dayPanel(true, 0.52)}
-							</div>
-						</BottomSheet>
-
-						<BottomSheet
-							open={sheet === "suggestions"}
-							onClose={() => setSheet("none")}
-						>
-							<div className="max-h-[82dvh] overflow-y-auto pb-4 pt-1">
-								<SuggestionHeading
-									count={pending.length}
-									ruleCount={rules.length}
-									touch
-								/>
-								<SuggestionDeck
-									hasCard={pending.length > 0 || rejected !== null}
-									remaining={pending.length}
-									blocked={topCardBlocked}
-									blockedReason="Pick a clock"
-									onConfirm={() => {
-										if (topCard) confirmSuggestion(topCard);
-									}}
-									onReject={() => {
-										if (topCard) rejectSuggestion(topCard);
-									}}
-								>
-									{rejected ? (
-										<RejectedNotice
-											title={rejected.entry.suggestion.title}
-											sender={rejected.entry.suggestion.sender}
-											senderAddress={rejected.entry.senderAddress}
-											ruled={rejected.ruled}
-											onRule={takeRule}
-											onUndo={undoReject}
-											touch
-										/>
-									) : (
-										topCard && (
-											<SuggestionCard
-												entry={topCard}
-												whenText={formatSuggestionWhen(topCard.suggestion)}
-												expanded={expanded === topCard.suggestion.id}
-												onToggleExpanded={() =>
-													setExpanded((prev) =>
-														prev === topCard.suggestion.id
-															? ""
-															: topCard.suggestion.id,
-													)
-												}
-												zoneChoice={zones[topCard.suggestion.id] ?? ""}
-												onZoneChoice={(id) =>
-													setZones((prev) => ({
-														...prev,
-														[topCard.suggestion.id]: id,
-													}))
-												}
-												onConfirm={() => confirmSuggestion(topCard)}
-												onReject={() => rejectSuggestion(topCard)}
-												onOpenThread={() => {
-													setThreadId(topCard.suggestion.threadId);
-													setSheet("none");
-												}}
-												touch
-											/>
-										)
-									)}
-								</SuggestionDeck>
-							</div>
-						</BottomSheet>
-
-						<BottomSheet
-							open={sheet === "attendee" && attendeePerson !== undefined}
-							onClose={() => setSheet("none")}
-						>
-							<div className="max-h-[70dvh] overflow-y-auto px-4 pb-6 pt-1">
-								{attendeePerson && (
-									<AttendeeContextCard
-										attendee={attendeePerson}
-										className="w-full border-0 p-0 shadow-none"
-									/>
-								)}
-							</div>
-						</BottomSheet>
-					</>
+					flow === "day"
+						? dayFlow
+						: flow === "suggestions"
+							? suggestionsFlow
+							: flow === "attendee"
+								? attendeeFlow
+								: undefined
 				}
 			/>
 		);
