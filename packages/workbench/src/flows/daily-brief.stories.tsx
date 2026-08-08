@@ -57,8 +57,10 @@ export const Default: Story = {
  * chips stack additively to narrow the visible threads.
  *
  * The cursor and the selection reach the rows on screen and no others: ⌘A
- * counts what is rendered rather than everything behind the two expanders, and
- * narrowing to a category takes the rows it hides out of the count with them.
+ * counts what is rendered rather than everything behind the two expanders.
+ * Narrowing to a category takes the rows it hides out of the count with them,
+ * and the rows it reveals — a single category renders flat, so the cap is off —
+ * arrive unticked.
  */
 export const Filtered: Story = {
 	render: () => (
@@ -70,6 +72,11 @@ export const Filtered: Story = {
 			canvasElement.querySelectorAll("[data-list-row]").length;
 		const summary = () =>
 			canvas.getByText(/(loaded selected|messages? selected)$/);
+		const ticked = () =>
+			Array.from(
+				canvasElement.querySelectorAll<HTMLElement>("[data-list-row]"),
+			).filter((row) => row.querySelector('[aria-label="Deselect message"]'))
+				.length;
 
 		await userEvent.click(canvas.getByLabelText("Expand filters"));
 		const capped = Array.from(canvasElement.querySelectorAll("button")).filter(
@@ -91,6 +98,7 @@ export const Filtered: Story = {
 		await waitFor(() =>
 			expect(summary()).toHaveTextContent(`All ${shown()} loaded selected`),
 		);
+		const selectedEverywhere = ticked();
 
 		const categories = canvasElement.querySelector<HTMLElement>(
 			'[aria-label="Categories"]',
@@ -101,9 +109,16 @@ export const Filtered: Story = {
 				name: "Newsletters",
 			}),
 		);
-		await waitFor(() =>
-			expect(summary()).toHaveTextContent(`All ${shown()} loaded selected`),
+
+		// The scope drops every other category's rows and the count goes down with
+		// them. It also renders the survivors flat, without the section's cap, so
+		// the rows the cap had been hiding arrive on screen unticked rather than
+		// joining a selection that was never told about them.
+		await waitFor(() => expect(ticked()).toBeLessThan(selectedEverywhere));
+		await expect(summary()).toHaveTextContent(
+			new RegExp(`^${ticked()} messages? selected$`),
 		);
+		await expect(ticked()).toBeLessThan(shown());
 	},
 };
 
