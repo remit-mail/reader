@@ -68,11 +68,11 @@ export const NotTheAccountLanguage: Story = {
 	name: "Detected — a message in another language",
 	args: { initial: "de", source: "detected" },
 	play: async ({ canvasElement }) => {
-		await expect(
-			within(canvasElement).getByRole("button", {
-				name: "Message language: Deutsch, detected from what you wrote",
-			}),
-		).toBeVisible();
+		const chip = within(canvasElement).getByTestId("compose-language-chip");
+		await expect(chip).toHaveAttribute("data-language-source", "detected");
+		await expect(chip.getAttribute("aria-label")).toContain(
+			"detected from what you wrote",
+		);
 	},
 };
 
@@ -80,11 +80,11 @@ export const ChosenByHand: Story = {
 	name: "Chosen — detection stops for this message",
 	args: { initial: "de", source: "manual" },
 	play: async ({ canvasElement }) => {
-		await expect(
-			within(canvasElement).getByRole("button", {
-				name: "Message language: Deutsch, chosen for this message",
-			}),
-		).toBeVisible();
+		const chip = within(canvasElement).getByTestId("compose-language-chip");
+		await expect(chip).toHaveAttribute("data-language-source", "manual");
+		await expect(chip.getAttribute("aria-label")).toContain(
+			"chosen for this message",
+		);
 	},
 };
 

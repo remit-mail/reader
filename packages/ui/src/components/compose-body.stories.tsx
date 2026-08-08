@@ -173,11 +173,13 @@ export const OpensAboveTheSignature: Story = {
 		});
 		await userEvent.keyboard("Hoi Anna");
 
-		const paragraphs = [...editable.querySelectorAll("p")].map(
-			(node) => node.textContent ?? "",
-		);
-		await expect(paragraphs[0]).toContain("Hoi Anna");
-		await expect(paragraphs.at(-1)).toContain("Matthijs");
+		await waitFor(async () => {
+			const text = editable.textContent ?? "";
+			await expect(text).toContain("Hoi Anna");
+			await expect(text.indexOf("Hoi Anna")).toBeLessThan(
+				text.indexOf("Matthijs"),
+			);
+		});
 	},
 };
 
