@@ -1,3 +1,4 @@
+import { ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
 import type { AddressEntry } from "./compose-address-field.js";
 
@@ -10,6 +11,12 @@ export interface ComposeHeaderProps {
 	collapsed?: boolean;
 	/** One line of what the collapsed header stands in for. */
 	summary?: string;
+	/**
+	 * Puts the recipient rows back. Required, because the collapsed line is the
+	 * only way back to Cc, Bcc and the subject while the keyboard is up, and a
+	 * bar that looks pressable and is not is the failure this replaces.
+	 */
+	onExpand: () => void;
 	from: ReactNode;
 	to: ReactNode;
 	/** Present once the field has been revealed; absent leaves the reveal button. */
@@ -65,6 +72,7 @@ export const composeHeaderSummary = ({
 export const ComposeHeader = ({
 	collapsed = false,
 	summary = "",
+	onExpand,
 	from,
 	to,
 	cc,
@@ -75,15 +83,19 @@ export const ComposeHeader = ({
 }: ComposeHeaderProps) => {
 	if (collapsed) {
 		return (
-			<div
-				className="flex items-center gap-2 px-3 py-1.5 border-b border-line overflow-hidden"
+			<button
+				type="button"
+				onClick={onExpand}
+				aria-label="Show recipients and subject"
+				className="flex min-h-11 w-full items-center gap-2 overflow-hidden border-b border-line px-3 py-1.5 text-left transition-colors hover:bg-surface-sunken"
 				data-testid="compose-header-collapsed"
 			>
 				<span className="truncate text-xs text-fg-muted">{summary || "…"}</span>
-				<span className="shrink-0 inline-flex items-center justify-center rounded bg-surface-sunken px-1.5 py-0.5 text-2xs text-fg-muted">
-					…
-				</span>
-			</div>
+				<ChevronDown
+					className="ml-auto size-4 shrink-0 text-fg-muted"
+					aria-hidden="true"
+				/>
+			</button>
 		);
 	}
 

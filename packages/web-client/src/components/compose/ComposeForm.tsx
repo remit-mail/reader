@@ -10,8 +10,10 @@ import type {
 } from "@remit/api-http-client/types.gen.ts";
 import {
 	ComposeActionBar,
+	ComposeBodySkeleton,
 	ComposeFormShell,
 	ComposeHeader,
+	type ComposeSendState,
 	ComposeSubjectField,
 	composeHeaderSummary,
 	defaultComposeLanguages,
@@ -19,6 +21,7 @@ import {
 	modeOfDraft,
 	QuotedText,
 	type RichTextValue,
+	SMTP_MISSING_MESSAGE,
 	sanitizeQuotedHtml,
 	unwrapLanguage,
 	wrapWithLanguage,
@@ -51,12 +54,17 @@ const LazyComposeBody = lazy(() =>
 	import("@remit/ui/rich-text").then((m) => ({ default: m.ComposeBody })),
 );
 
-const ComposeBodyFallback = () => (
-	<div className="min-h-[120px] px-3 py-2">
-		<div className="h-8 mb-2 rounded bg-surface-sunken animate-pulse" />
-		<div className="min-h-[80px] rounded bg-surface-sunken/50 animate-pulse" />
-	</div>
-);
+/**
+ * Mounts only once the body's chunk has arrived: a suspended boundary commits
+ * none of its children, so this is the signal that the editor the user is
+ * about to send is the one on screen.
+ */
+const ComposeBodyReady = ({ onReady }: { onReady: () => void }) => {
+	useEffect(() => {
+		onReady();
+	}, [onReady]);
+	return null;
+};
 
 import { useIsDesktop } from "../../hooks/useMediaQuery.js";
 import { useVisualViewport } from "../../hooks/useVisualViewport.js";
@@ -235,10 +243,16 @@ const WiredComposeHeader = ({
 }: WiredComposeHeaderProps) => {
 	const isDesktop = useIsDesktop();
 	const { isKeyboardOpen } = useVisualViewport();
+	const [expanded, setExpanded] = useState(false);
+
+	useEffect(() => {
+		if (!isKeyboardOpen) setExpanded(false);
+	}, [isKeyboardOpen]);
 
 	return (
 		<ComposeHeader
-			collapsed={!isDesktop && isKeyboardOpen}
+			collapsed={!isDesktop && isKeyboardOpen && !expanded}
+			onExpand={() => setExpanded(true)}
 			summary={composeHeaderSummary({
 				to: toAddresses,
 				cc: ccAddresses,
@@ -305,6 +319,7 @@ export const ComposeForm = ({
 		account?.accountId,
 	);
 	const [draftLoaded, setDraftLoaded] = useState(false);
+	const smtpConfigureRef = useRef<HTMLButtonElement>(null);
 	const prevOutboxMessageIdRef = useRef<string | undefined>(outboxMessageId);
 
 	// Reset form when the user switches to a different draft (outboxMessageId
@@ -527,10 +542,33 @@ export const ComposeForm = ({
 	// now precedes the request widens the window a second press lands in.
 	const sendInFlightRef = useRef(false);
 	const [isSending, setIsSending] = useState(false);
-	const canSend =
-		toAddresses.length > 0 &&
-		!!selectedAccountId &&
-		!selectedAccountMissingSmtp;
+	const [bodyReady, setBodyReady] = useState(false);
+	const markBodyReady = useCallback(() => setBodyReady(true), []);
+
+	// Every refusal carries the sentence that explains it. Send is never a
+	// no-op: the state it reads has no way to be blocked without a reason.
+	const sendState = useMemo<ComposeSendState>(() => {
+		if (isSending) return { status: "sending" };
+		if (!selectedAccountId) {
+			return { status: "blocked", reason: "Choose an account to send from." };
+		}
+		if (selectedAccountMissingSmtp) {
+			return { status: "blocked", reason: SMTP_MISSING_MESSAGE };
+		}
+		if (toAddresses.length === 0) {
+			return { status: "blocked", reason: "Add at least one recipient." };
+		}
+		if (!bodyReady) {
+			return { status: "blocked", reason: "The message is still loading." };
+		}
+		return { status: "ready" };
+	}, [
+		isSending,
+		selectedAccountId,
+		selectedAccountMissingSmtp,
+		toAddresses.length,
+		bodyReady,
+	]);
 
 	useEffect(() => {
 		if (!selectedAccountId) return;
@@ -681,6 +719,27 @@ export const ComposeForm = ({
 		onClose();
 	}, [stopAutoSave, outboxMessageId, deleteMutation, onClose]);
 
+	const reportBlocked = useCallback(
+		(reason: string) => {
+			const configure = smtpConfigureRef.current;
+			if (reason === SMTP_MISSING_MESSAGE && configure) {
+				configure.focus();
+				return;
+			}
+			pushError({ title: "Can't send yet", detail: reason });
+		},
+		[pushError],
+	);
+
+	const attemptSend = useCallback(() => {
+		if (sendState.status === "sending") return;
+		if (sendState.status === "blocked") {
+			reportBlocked(sendState.reason);
+			return;
+		}
+		void handleSend();
+	}, [sendState, reportBlocked, handleSend]);
+
 	const handleAccountChange = useCallback(
 		(acct: RemitImapAccountResponse) => {
 			setSelectedAccountId(acct.accountId);
@@ -693,7 +752,10 @@ export const ComposeForm = ({
 		<ComposeFormShell
 			banner={
 				selectedAccount && selectedAccountMissingSmtp ? (
-					<ComposeSmtpMissingBanner accountId={selectedAccount.accountId} />
+					<ComposeSmtpMissingBanner
+						accountId={selectedAccount.accountId}
+						configureRef={smtpConfigureRef}
+					/>
 				) : undefined
 			}
 			header={
@@ -725,24 +787,16 @@ export const ComposeForm = ({
 			}
 			actionBar={
 				<ComposeActionBar
+					send={sendState}
 					onSend={handleSend}
+					onBlocked={reportBlocked}
 					onDiscard={handleDiscard}
-					sending={isSending}
-					canSend={canSend}
 					saveStatus={saveStatus}
-					unavailableReason={
-						selectedAccountMissingSmtp ? "SMTP not configured" : undefined
-					}
-					onUnavailable={(reason) =>
-						pushError({
-							title: "Can't send yet",
-							detail: reason,
-						})
-					}
 				/>
 			}
 		>
-			<Suspense fallback={<ComposeBodyFallback />}>
+			<Suspense fallback={<ComposeBodySkeleton />}>
+				<ComposeBodyReady onReady={markBodyReady} />
 				<LazyComposeBody
 					key={documentGeneration}
 					mode={bodyMode}
@@ -750,8 +804,8 @@ export const ComposeForm = ({
 					initialHtml={initialHtml}
 					initialText={initialText}
 					onChange={setBody}
-					onSubmit={handleSend}
-					autoFocus={mode === "new"}
+					onSubmit={attemptSend}
+					initialCaret={mode === "new" ? "start" : undefined}
 					onConversionError={pushError}
 					languages={accountLanguages}
 					initialLanguage={draftLanguage}
