@@ -6,6 +6,7 @@ import { Drawer } from "vaul";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { ComposeForm } from "./ComposeForm";
 import { useCompose } from "./ComposeProvider";
+import { focusComposeRecipients } from "./compose-caret";
 
 const MODE_LABELS: Record<string, string> = {
 	reply: "Reply",
@@ -75,6 +76,13 @@ export const MobileComposeSheet = () => {
 		setShowConfirm(false);
 	}, []);
 
+	// The sheet is a modal, so vaul would park focus on the panel itself.
+	const sheetRef = useRef<HTMLDivElement>(null);
+	const handleOpenAutoFocus = useCallback((event: Event) => {
+		event.preventDefault();
+		focusComposeRecipients(sheetRef.current);
+	}, []);
+
 	if (!state.isOpen) return null;
 
 	const title = MODE_LABELS[state.mode] ?? "New Message";
@@ -88,6 +96,8 @@ export const MobileComposeSheet = () => {
 			<Drawer.Portal>
 				<Drawer.Overlay className="fixed inset-0 z-40 bg-black/40" />
 				<Drawer.Content
+					ref={sheetRef}
+					onOpenAutoFocus={handleOpenAutoFocus}
 					className="fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-lg bg-canvas pb-[env(safe-area-inset-bottom,0px)]"
 					style={{ height: "95dvh" }}
 				>

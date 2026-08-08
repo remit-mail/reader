@@ -1,4 +1,5 @@
 import {
+	configOperationsGetConfigOptions,
 	outboxDetailOperationsGetOutboxMessageOptions,
 	outboxOperationsListOutboxMessagesQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
@@ -7,9 +8,10 @@ import type {
 	RemitImapDescribeMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
 	createContext,
+	startTransition,
 	useCallback,
 	useContext,
 	useEffect,
@@ -17,6 +19,8 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useComposeTargetMailboxId } from "@/hooks/useComposeTargetMailbox";
+import { hostsComposeSurface } from "@/lib/compose-routes";
 export type ComposeMode = "reply" | "reply_all" | "forward" | "new";
 
 export interface ComposeState {
@@ -61,6 +65,12 @@ export const ComposeProvider = ({
 	const startedAtRef = useRef(0);
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
+	const location = useLocation();
+	const { data: config } = useQuery({
+		...configOperationsGetConfigOptions(),
+		staleTime: Infinity,
+	});
+	const targetMailboxId = useComposeTargetMailboxId(config?.accounts ?? []);
 
 	const { data: polledMessage } = useQuery({
 		...outboxDetailOperationsGetOutboxMessageOptions({
@@ -93,14 +103,30 @@ export const ComposeProvider = ({
 		}
 	}, [polledMessage, pollingMessageId, queryClient]);
 
-	// One pane shows one thing: an open thread or compose, never both. Opening
-	// compose is what decides between them, so it drops the selection here —
-	// every entry point (top bar, `c`, the FAB, drafts, the outbox) opens compose
-	// through this one call, and a caller clearing the selection for itself was
-	// what left the others dead while a message was open (#703).
+	// Opening compose also puts the surface on screen: only a mailbox route
+	// mounts `FullCompose`, and only with no thread in the pane it takes over.
 	const openCompose = useCallback(
 		(params: Omit<ComposeState, "isOpen">) => {
-			setState({ ...params, isOpen: true });
+			const search = location.search as Record<string, unknown>;
+			const showsThread = Boolean(
+				search.selectedMessageId ?? search.selectedThreadId,
+			);
+			if (!hostsComposeSurface(location.pathname)) {
+				if (!targetMailboxId) return;
+				startTransition(() => {
+					setState({ ...params, isOpen: true });
+				});
+				navigate({
+					to: "/mail/$mailboxId",
+					params: { mailboxId: targetMailboxId },
+				});
+				return;
+			}
+			startTransition(() => {
+				setState({ ...params, isOpen: true });
+			});
+			if (!showsThread) return;
+			// A push, so Back reopens the message.
 			navigate({
 				to: ".",
 				search: (prev: Record<string, unknown>) => ({
@@ -108,10 +134,9 @@ export const ComposeProvider = ({
 					selectedMessageId: undefined,
 					selectedThreadId: undefined,
 				}),
-				replace: true,
 			});
 		},
-		[navigate],
+		[navigate, location.pathname, location.search, targetMailboxId],
 	);
 
 	const closeCompose = useCallback(() => {

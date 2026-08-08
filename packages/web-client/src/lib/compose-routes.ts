@@ -3,7 +3,7 @@
  *
  * `FullCompose` is mounted by the mailbox route only, so compose started from
  * anywhere else has to carry the user to a mailbox first. Kept apart from
- * `useComposeTarget` so it stays a plain function with no React or API
+ * `useComposeTargetMailbox` so it stays a plain function with no React or API
  * dependencies — both compose entry points resolve routes through this one
  * definition, and a divergent second copy is what left the mobile FAB dead on
  * `/mail/flagged` and on the brief.

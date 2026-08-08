@@ -1,12 +1,6 @@
 /**
- * Opening compose closes whatever the reading pane had open (#703).
- *
- * The pane renders one of the two, so compose state that opens while a message
- * is still selected has nothing mounting it — the button looked dead until an
- * unrelated navigation dropped the selection, and the surface then appeared on
- * its own. The selection is dropped by `openCompose` itself so every entry point
- * gets it, which is what this pins: one call, and the URL no longer names a
- * message.
+ * Issue #703: compose state opened with nothing mounting the surface, so the
+ * button looked dead and the window turned up on the next navigation.
  */
 
 import assert from "node:assert/strict";
@@ -21,18 +15,25 @@ import {
 } from "@tanstack/react-router";
 import { createElement } from "react";
 import { createDomHarness, type DomHarness } from "../../test-support/dom";
+import { type HttpMock, mockFetch } from "../../test-support/http";
 import { ComposeProvider, useCompose } from "./ComposeProvider";
 
 let harness: DomHarness | undefined;
+let http: HttpMock | undefined;
 
 afterEach(() => {
 	harness?.close();
 	harness = undefined;
+	http?.restore();
+	http = undefined;
 });
 
 // The router reads `self` at construction; the shared jsdom globals stop at
 // `window`.
 (globalThis as { self?: typeof globalThis }).self ??= globalThis;
+
+const ACCOUNT_ID = "acc-1";
+const INBOX_ID = "mbx-inbox";
 
 const rootRoute = createRootRoute();
 const mailboxRoute = createRoute({
@@ -40,10 +41,15 @@ const mailboxRoute = createRoute({
 	path: "/mail/$mailboxId",
 	validateSearch: (search: Record<string, unknown>) => search,
 });
+const outboxRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/mail/outbox",
+	validateSearch: (search: Record<string, unknown>) => search,
+});
 
 const routerAt = (href: string): AnyRouter =>
 	createRouter({
-		routeTree: rootRoute.addChildren([mailboxRoute]),
+		routeTree: rootRoute.addChildren([outboxRoute, mailboxRoute]),
 		history: createMemoryHistory({ initialEntries: [href] }),
 	}) as unknown as AnyRouter;
 
@@ -60,7 +66,25 @@ const ComposeProbe = () => {
 	);
 };
 
-const mount = (router: AnyRouter): DomHarness => {
+const mount = async (router: AnyRouter): Promise<DomHarness> => {
+	http = mockFetch((call) => {
+		if (call.path.endsWith("/config")) {
+			return {
+				accounts: [
+					{
+						accountId: ACCOUNT_ID,
+						email: "me@example.com",
+						folderAppointments: [{ role: "Inbox", mailboxId: INBOX_ID }],
+					},
+				],
+			};
+		}
+		if (call.path.endsWith("/mailboxes")) {
+			return { items: [{ mailboxId: INBOX_ID, fullPath: "INBOX" }] };
+		}
+		return {};
+	});
+
 	const created = createDomHarness();
 	const provided = createElement(
 		ComposeProvider,
@@ -74,40 +98,80 @@ const mount = (router: AnyRouter): DomHarness => {
 			children: provided,
 		}),
 	);
+	await created.flush();
+	await created.wait(20);
+	harness = created;
 	return created;
+};
+
+const press = async (mounted: DomHarness): Promise<HTMLElement> => {
+	const button = mounted.byText("button", "Compose");
+	mounted.click(button);
+	await mounted.flush();
+	await mounted.wait(20);
+	return button;
 };
 
 describe("opening compose over an open message (#703)", () => {
 	it("drops the selected message so the pane can render the surface", async () => {
 		const router = routerAt(
-			"/mail/mbx-1?selectedMessageId=msg-1&selectedThreadId=th-1",
+			`/mail/${INBOX_ID}?selectedMessageId=msg-1&selectedThreadId=th-1`,
 		);
-		harness = mount(router);
+		const mounted = await mount(router);
 
-		const button = harness.byText("button", "Compose");
+		const button = mounted.byText("button", "Compose");
 		assert.equal(button.getAttribute("data-open"), "false");
 
-		harness.click(button);
-		await harness.flush();
+		await press(mounted);
 
 		assert.equal(button.getAttribute("data-open"), "true");
-		// Still the mailbox it was opened from: the surface is mounted by this
-		// route, so a navigation that left it would take compose with it.
-		assert.equal(router.history.location.pathname, "/mail/mbx-1");
+		assert.equal(router.history.location.pathname, `/mail/${INBOX_ID}`);
 		const search = router.history.location.search;
 		assert.equal(search.includes("selectedMessageId"), false);
 		assert.equal(search.includes("selectedThreadId"), false);
 	});
 
 	it("keeps the rest of the query, so the search the user typed survives", async () => {
-		const router = routerAt("/mail/mbx-1?q=invoice&selectedMessageId=msg-1");
-		harness = mount(router);
+		const router = routerAt(
+			`/mail/${INBOX_ID}?q=invoice&selectedMessageId=msg-1`,
+		);
+		const mounted = await mount(router);
 
-		harness.click(harness.byText("button", "Compose"));
-		await harness.flush();
+		await press(mounted);
 
 		const search = router.history.location.search;
 		assert.equal(search.includes("selectedMessageId"), false);
 		assert.match(search, /q=invoice/);
+	});
+
+	it("leaves the message one Back away rather than erasing it", async () => {
+		const router = routerAt(`/mail/${INBOX_ID}?selectedMessageId=msg-1`);
+		const mounted = await mount(router);
+
+		await press(mounted);
+		router.history.back();
+		await mounted.flush();
+
+		assert.match(router.history.location.search, /selectedMessageId=msg-1/);
+	});
+
+	it("adds no history entry when the pane had nothing open", async () => {
+		const router = routerAt(`/mail/${INBOX_ID}`);
+		const mounted = await mount(router);
+		const entries = router.history.length;
+
+		await press(mounted);
+
+		assert.equal(router.history.length, entries);
+	});
+
+	it("carries a compose started off the outbox to a route that mounts it", async () => {
+		const router = routerAt("/mail/outbox");
+		const mounted = await mount(router);
+
+		const button = await press(mounted);
+
+		assert.equal(button.getAttribute("data-open"), "true");
+		assert.equal(router.history.location.pathname, `/mail/${INBOX_ID}`);
 	});
 });

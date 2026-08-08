@@ -1,14 +1,6 @@
 /**
- * Compose with a message open in the reading pane (#703).
- *
- * The reading pane hosts the compose surface, and it used to render it only
- * while no thread was open. Compose state opened anyway, so the button did
- * nothing until something else dropped the selection — typing in the search
- * field did, which is how the window arrived unannounced and took the caret out
- * of search mid-word.
- *
- * So this drives the button from an open message and asserts what the user
- * asked for: the surface is there, the caret is in it, and search is untouched.
+ * Issue #703: with a message open, Compose did nothing until typing in search
+ * made the window appear and take the caret.
  */
 import { expect, test } from "../src/fixtures.js";
 

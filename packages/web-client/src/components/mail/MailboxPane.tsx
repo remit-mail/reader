@@ -598,11 +598,8 @@ function MailboxPaneProvider({
 		openCompose({ mode: "new" });
 	}, [openCompose]);
 
-	// The other half of "one pane, one thing" (#703): opening compose drops the
-	// selection (`openCompose`), and opening a thread closes compose. Without
-	// this the surface stays open behind the thread and pops back up on the next
-	// deselect. Only a selection *arriving* counts — opening compose never sets
-	// one, so this cannot close what it just opened.
+	// A thread opening closes compose. Only a selection arriving counts, so this
+	// cannot close the compose that just cleared one.
 	const previousSelectionRef = useRef(selectedMessageId);
 	useEffect(() => {
 		const previous = previousSelectionRef.current;
@@ -1185,10 +1182,6 @@ function MailboxReading() {
 	const hasThread = Boolean(conversation);
 	const canToggleIntelligence = railFits && hasThread;
 
-	// Compose and an open thread are mutually exclusive by the time either shows:
-	// opening one closes the other (`ComposeProvider.openCompose` and the
-	// selection effect in the provider above). This order only decides the frame
-	// in between, so the thread on screen is never yanked out from under a click.
 	const detailPane =
 		composeState.isOpen && !conversation ? (
 			<FullCompose />

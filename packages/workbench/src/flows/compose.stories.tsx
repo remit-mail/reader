@@ -306,13 +306,12 @@ export const Full: Story = {
 
 /**
  * Compose from an open message (#703). The reading pane holds one thing, so
- * pressing Compose while a conversation is open closes the conversation and
- * hands the pane to the new message — the button is never inert, and the row it
- * came from is no longer marked open.
+ * Compose closes the conversation and takes the pane, with the caret in the
+ * recipient field.
  *
- * The caret lands in the recipient field as the surface arrives. Compose is
- * pressed from beside the search field, and leaving focus there is what sent the
- * next keystrokes to a search the user had already stopped typing.
+ * Typing in search afterwards is the step that matters: that is what used to
+ * make a queued surface appear, so the surface has to be there before it and
+ * unchanged after it.
  */
 export const OverAnOpenMessage: Story = {
 	render: function OverAnOpenMessageRender() {
@@ -352,6 +351,18 @@ export const OverAnOpenMessage: Story = {
 		await expect(recipients).toBeVisible();
 		await expect(recipients).toHaveFocus();
 		await expect(canvas.queryByText(q3Thread.subject)).toBeNull();
+
+		// The caret is in the field, so an address goes in without aiming at it.
+		await userEvent.keyboard("ada@example.com");
+		await expect(recipients).toHaveValue("ada@example.com");
+
+		await userEvent.type(canvas.getByLabelText("Search mail"), "invoice");
+
+		// Nothing about the surface moved: no second copy arriving late, no
+		// conversation coming back, and the address still typed.
+		await expect(canvas.getByLabelText("To:")).toHaveValue("ada@example.com");
+		await expect(canvas.queryByText(q3Thread.subject)).toBeNull();
+		await expect(canvas.getAllByLabelText("To:")).toHaveLength(1);
 	},
 };
 

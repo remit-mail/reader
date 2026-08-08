@@ -9,9 +9,9 @@
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import { RefreshButton, ShellTopBar, shortcutHintForAction } from "@remit/ui";
 import { useNavigate } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { AccountMenu } from "@/auth/AccountMenu";
-import { useGlobalCompose } from "@/hooks/useComposeTarget";
+import { useCompose } from "@/components/compose/ComposeProvider";
 import { useRefreshControl } from "@/hooks/useRefreshControl";
 import { useSearchScope } from "@/hooks/useSearchScope";
 import { openBugReport } from "@/lib/bug-report";
@@ -26,7 +26,10 @@ export function MailTopBar({ accounts }: MailTopBarProps) {
 	const { searchInput, onSearchChange, onSearchClear, onSearchClearQuery } =
 		useMailContext();
 	const navigate = useNavigate();
-	const compose = useGlobalCompose(accounts);
+	const { openCompose } = useCompose();
+	const compose = useCallback(() => {
+		openCompose({ mode: "new" });
+	}, [openCompose]);
 	const { scope, clearScope } = useSearchScope(accounts);
 	const chips =
 		scope.kind === "scoped"

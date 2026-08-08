@@ -6,6 +6,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { ComposeForm } from "./ComposeForm";
 import { useCompose } from "./ComposeProvider";
+import { focusComposeRecipients } from "./compose-caret";
 import { MobileComposeSheet } from "./MobileComposeSheet";
 
 const MODE_LABELS: Record<string, string> = {
@@ -18,17 +19,10 @@ const MODE_LABELS: Record<string, string> = {
 export const FullCompose = () => {
 	const { state, closeCompose } = useCompose();
 	const isDesktop = useIsDesktop();
-	// Compose is opened from the top bar, next to the search field the caret is
-	// often still in, so the surface takes focus as it mounts. The recipient
-	// field is what a new message needs first and it mounts with the surface;
-	// waiting for the writing surface instead handed focus over whenever its
-	// lazy chunk happened to land, which is what stole keystrokes mid-word (#703).
 	const surfaceRef = useRef<HTMLDivElement>(null);
 	useEffect(() => {
 		if (!state.isOpen) return;
-		surfaceRef.current
-			?.querySelector<HTMLElement>('input[type="text"], textarea')
-			?.focus();
+		focusComposeRecipients(surfaceRef.current);
 	}, [state.isOpen]);
 	const {
 		isError: isConfigError,

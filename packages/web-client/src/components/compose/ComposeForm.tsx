@@ -252,12 +252,14 @@ const WiredComposeHeader = ({
 				/>
 			}
 			to={
-				<AddressField
-					label="To"
-					addresses={toAddresses}
-					onChange={setToAddresses}
-					placeholder="Recipients"
-				/>
+				<div data-compose-recipients>
+					<AddressField
+						label="To"
+						addresses={toAddresses}
+						onChange={setToAddresses}
+						placeholder="Recipients"
+					/>
+				</div>
 			}
 			cc={
 				showCc ? (
@@ -751,9 +753,6 @@ export const ComposeForm = ({
 					initialText={initialText}
 					onChange={setBody}
 					onSubmit={handleSend}
-					// The surface focuses its recipient field as it opens
-					// (`FullCompose`); the writing surface claiming focus whenever its
-					// lazy chunk resolved took the caret out of it mid-address (#703).
 					onConversionError={pushError}
 					languages={accountLanguages}
 					initialLanguage={draftLanguage}
