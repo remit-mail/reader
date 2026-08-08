@@ -1,0 +1,7 @@
+import{j as o,r as c}from"./iframe-uTafckjr.js";import{a as s}from"./search-token-chip-VdmHMO_n.js";import"./preload-helper-PPVm8Dsz.js";import"./cn-BnS_VibS.js";import"./bundle-mjs-DeRmtv56.js";import"./x-DS_pud-s.js";import"./createLucideIcon-DLYy-DY-.js";const f={title:"Mail/SearchTokenChips",component:s,parameters:{layout:"padded"}},m=["From: dhl.com","Has attachment","Unread"];function p(){const[a,n]=c.useState(m);return o.jsx("div",{className:"w-96 rounded-md border border-line",children:o.jsx(s,{tokens:a.map(t=>({label:t,onRemove:()=>n(d=>d.filter(i=>i!==t))}))})})}const e={render:()=>o.jsx(p,{})},r={render:()=>o.jsx("div",{className:"w-96 rounded-md border border-line",children:o.jsx(s,{tokens:[]})})};e.parameters={...e.parameters,docs:{...e.parameters?.docs,source:{originalSource:`{
+  render: () => <Interactive />
+}`,...e.parameters?.docs?.source},description:{story:"Removable filter-token chips under the search field; click × to drop one.",...e.parameters?.docs?.description}}};r.parameters={...r.parameters,docs:{...r.parameters?.docs,source:{originalSource:`{
+  render: () => <div className="w-96 rounded-md border border-line">
+            <SearchTokenChips tokens={[]} />
+        </div>
+}`,...r.parameters?.docs?.source},description:{story:"No recognized tokens in the query — the row collapses to nothing.",...r.parameters?.docs?.description}}};const j=["Tokens","Empty"];export{r as Empty,e as Tokens,j as __namedExportsOrder,f as default};

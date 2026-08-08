@@ -1,0 +1,25 @@
+import{j as e,r as p}from"./iframe-uTafckjr.js";import{F as f}from"./folder-manager-BPAa35s7.js";import{F as y}from"./folder-rename-dialog-CKz4T539.js";import"./preload-helper-PPVm8Dsz.js";import"./folder-manage-actions-D7_yuKlM.js";import"./button-DCXIHjmE.js";import"./cn-BnS_VibS.js";import"./bundle-mjs-DeRmtv56.js";import"./pencil-BosOmS7X.js";import"./createLucideIcon-DLYy-DY-.js";import"./trash-2-CHrpvC8V.js";import"./folder-tree-picker-CsOZ2O1C.js";import"./folder-row-DZMO-O7o.js";import"./chevron-right-BFILk7Cj.js";import"./check-CM0cWxPP.js";import"./folder-B8XGFRcf.js";import"./input-KNBszVtY.js";import"./new-folder-action-B-nGGx8f.js";import"./new-folder-form-Dsw_GmRN.js";import"./field-label-BWGL_4sB.js";import"./search-CDV1SgsX.js";import"./dialog-DPz7itTv.js";import"./x-DS_pud-s.js";const h=[{id:"mbx-inbox",label:"Inbox",path:"INBOX",deleteBlockedReason:"The inbox can't be deleted."},{id:"mbx-archive",label:"Archive",path:"Archive",deleteBlockedReason:"This folder is your Archive folder. Reassign that role before deleting it."},{id:"mbx-trash",label:"Trash",path:"Deleted Messages",deleteBlockedReason:"This folder is your Trash folder. Reassign that role before deleting it."},{id:"mbx-travel",label:"Travel",path:"Travel",deleteBlockedReason:"This folder has subfolders. Delete them first."},{id:"mbx-travel-flights",label:"Flights",path:"Travel/Flights"},{id:"mbx-travel-hotels",label:"Hotels",path:"Travel/Hotels"},{id:"mbx-travel-hotels-receipts",label:"Receipts",path:"Travel/Hotels/Receipts"},{id:"mbx-finance",label:"Finance",path:"Finance",deleteBlockedReason:"This folder has subfolders. Delete them first."},{id:"mbx-finance-invoices",label:"Invoices",path:"Finance/Invoices"},{id:"mbx-finance-tax",label:"Tax",path:"Finance/Tax"},{id:"mbx-family",label:"Family",path:"Family"},{id:"mbx-news",label:"Newsletters",path:"Newsletters"},{id:"mbx-news-tech",label:"Tech",path:"Newsletters/Tech"}],Q={title:"Mail/FolderManager",component:f,parameters:{layout:"centered"}};function F({children:r,className:a="h-[520px] w-[420px] rounded-lg border border-line shadow-lg"}){return e.jsx("div",{className:`flex flex-col overflow-hidden bg-surface font-sans text-fg ${a}`,children:r})}let v=0;const w=(r,a)=>new Promise(d=>{v+=1,setTimeout(()=>d({id:`mbx-created-${v}`,label:r,path:a?`${a}/${r}`:r}),400)});function u({renaming:r=!1,className:a}){const[d,b]=p.useState(h),[x,m]=p.useState(r?h[2]:null),[T,g]=p.useState("Trash");return e.jsxs(e.Fragment,{children:[e.jsx(F,{className:a,children:e.jsx(f,{folders:d,onCreateFolder:(t,c)=>w(t,c).then(i=>(b(R=>[...R,i]),i)),onRename:t=>{m(t),g(t.label)},onDelete:t=>b(c=>c.filter(i=>i.id!==t.id)),labels:{treeAriaLabel:"All folders for alice@northwind.example"}})}),x&&e.jsx(y,{open:!0,folderLabel:x.label,defaultLabel:"Deleted Messages",name:T,onNameChange:g,onSubmit:()=>m(null),onClose:()=>m(null)})]})}const o={name:"Default (collapsed to top level)",render:()=>e.jsx(u,{})},s={name:"Renaming a folder",render:()=>e.jsx(u,{renaming:!0})},n={name:"A single folder",render:()=>e.jsx(F,{children:e.jsx(f,{folders:[h[0]],onCreateFolder:w,onRename:()=>{},onDelete:()=>{}})})},l={name:"Phone",globals:{viewport:{value:"mobile"}},parameters:{layout:"fullscreen"},render:()=>e.jsx(u,{className:"h-screen w-full"})};o.parameters={...o.parameters,docs:{...o.parameters?.docs,source:{originalSource:`{
+  name: "Default (collapsed to top level)",
+  render: () => <Manager />
+}`,...o.parameters?.docs?.source},description:{story:`The account's folders as they really nest, closed to the top level. Every row
+opens where you tap it and carries rename and delete; a folder the account
+depends on keeps rename and states why it stays.`,...o.parameters?.docs?.description}}};s.parameters={...s.parameters,docs:{...s.parameters?.docs,source:{originalSource:`{
+  name: "Renaming a folder",
+  render: () => <Manager renaming />
+}`,...s.parameters?.docs?.source},description:{story:"Renaming a folder: the name is Remit's own, and clearing it restores the server's.",...s.parameters?.docs?.description}}};n.parameters={...n.parameters,docs:{...n.parameters?.docs,source:{originalSource:`{
+  name: "A single folder",
+  render: () => <Frame>
+            <FolderManager folders={[folders[0] as ManagedFolder]} onCreateFolder={createFolder} onRename={() => {}} onDelete={() => {}} />
+        </Frame>
+}`,...n.parameters?.docs?.source},description:{story:"A first-run account with nothing but its inbox.",...n.parameters?.docs?.description}}};l.parameters={...l.parameters,docs:{...l.parameters?.docs,source:{originalSource:`{
+  name: "Phone",
+  globals: {
+    viewport: {
+      value: "mobile"
+    }
+  },
+  parameters: {
+    layout: "fullscreen"
+  },
+  render: () => <Manager className="h-screen w-full" />
+}`,...l.parameters?.docs?.source},description:{story:"The surface as it sits on a phone: full width, one branch open at a time.",...l.parameters?.docs?.description}}};const U=["Default","Renaming","JustTheInbox","Phone"];export{o as Default,n as JustTheInbox,l as Phone,s as Renaming,U as __namedExportsOrder,Q as default};

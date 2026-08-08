@@ -1,0 +1,14 @@
+import{j as e,r as o}from"./iframe-uTafckjr.js";import{E as p}from"./event-editor-BAG80tok.js";import"./preload-helper-PPVm8Dsz.js";import"./calendar-color-CqvBY603.js";import"./cn-BnS_VibS.js";import"./bundle-mjs-DeRmtv56.js";import"./button-DCXIHjmE.js";import"./input-KNBszVtY.js";import"./chevron-down-BKKk_GEi.js";import"./createLucideIcon-DLYy-DY-.js";import"./chevron-right-BFILk7Cj.js";const L={title:"Calendar/Event editor",component:p,parameters:{layout:"padded",docs:{description:{component:`Three fields make an event. Location, guests, notes and repeat are real and
+one click away, but they do not charge the common case for their existence.`}}}},l=[{id:"c1",accountId:"a1",accountLabel:"Work",name:"Northwind",color:"cal-1"},{id:"c3",accountId:"a2",accountLabel:"Personal",name:"Personal",color:"cal-2"},{id:"c4",accountId:"a2",accountLabel:"Personal",name:"Family",color:"cal-3"}],m={title:"",date:"2026-06-12",startTime:"13:00",endTime:"14:00",allDay:!1,calendarId:"c1",location:"",guests:"",notes:"",repeat:""};function u({startExpanded:n}){const[s,d]=o.useState(m),[c,i]=o.useState(n);return e.jsx("div",{className:"max-w-sm rounded-lg border border-line bg-surface-raised p-4",children:e.jsx(p,{draft:s,onChange:d,calendars:l,expanded:c,onToggleExpanded:()=>i(x=>!x),onSave:()=>{},onCancel:()=>{}})})}const t={render:()=>e.jsx(u,{startExpanded:!1})},a={render:()=>e.jsx(u,{startExpanded:!0})},r={render:()=>{const[n,s]=o.useState(m),[d,c]=o.useState(!1);return e.jsx("div",{className:"max-w-[390px] rounded-lg border border-line bg-surface-raised p-4",children:e.jsx(p,{draft:n,onChange:s,calendars:l,expanded:d,onToggleExpanded:()=>c(i=>!i),onSave:()=>{},onCancel:()=>{},touch:!0})})}};t.parameters={...t.parameters,docs:{...t.parameters?.docs,source:{originalSource:`{
+  render: () => <Live startExpanded={false} />
+}`,...t.parameters?.docs?.source}}};a.parameters={...a.parameters,docs:{...a.parameters?.docs,source:{originalSource:`{
+  render: () => <Live startExpanded />
+}`,...a.parameters?.docs?.source},description:{story:"Everything the folded form was hiding.",...a.parameters?.docs?.description}}};r.parameters={...r.parameters,docs:{...r.parameters?.docs,source:{originalSource:`{
+  render: () => {
+    const [draft, setDraft] = useState(seed);
+    const [expanded, setExpanded] = useState(false);
+    return <div className="max-w-[390px] rounded-lg border border-line bg-surface-raised p-4">
+                <EventEditor draft={draft} onChange={setDraft} calendars={calendars} expanded={expanded} onToggleExpanded={() => setExpanded(open => !open)} onSave={() => {}} onCancel={() => {}} touch />
+            </div>;
+  }
+}`,...r.parameters?.docs?.source},description:{story:"The same form sized for a bottom sheet: every control a thumb target.",...r.parameters?.docs?.description}}};const w=["Folded","Unfolded","Touch"];export{t as Folded,r as Touch,a as Unfolded,w as __namedExportsOrder,L as default};
