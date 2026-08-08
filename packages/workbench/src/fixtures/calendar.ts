@@ -695,7 +695,7 @@ function deepestPile(day: CalendarDay): number {
 }
 
 /** The day the overlap rule has to survive — the tallest stack, not the most. */
-export const densestDay: CalendarDay = week.reduce((worst, candidate) =>
+export const mostOverlappedDay: CalendarDay = week.reduce((worst, candidate) =>
 	deepestPile(candidate) > deepestPile(worst) ? candidate : worst,
 );
 

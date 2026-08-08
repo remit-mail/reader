@@ -8,16 +8,216 @@ import type { CalendarDescriptor, EventDraft } from "./calendar-types.js";
 import { Input } from "./input.js";
 import { Select } from "./select.js";
 
+/**
+ * `compact` folds everything past the three core fields behind a disclosure,
+ * for a rail. `pane` has the room to show the whole event at once and labels
+ * every field.
+ */
+export type EventEditorLayout = "compact" | "pane";
+
+export interface EventFieldProps {
+	draft: EventDraft;
+	onChange: (draft: EventDraft) => void;
+	layout?: EventEditorLayout;
+	/** Grows the controls to a thumb target. */
+	touch?: boolean;
+}
+
+const NOTES_CLASS =
+	"w-full rounded-md border border-line bg-surface-sunken px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-subtle focus-visible:border-line-strong focus-visible:ring-2 focus-visible:ring-ring/30";
+
+const setField = <K extends keyof EventDraft>(
+	{ draft, onChange }: Pick<EventFieldProps, "draft" | "onChange">,
+	key: K,
+	value: EventDraft[K],
+) => onChange({ ...draft, [key]: value });
+
+/** A labelled field group, as the pane and the wizard steps lay fields out. */
+export function EventField({
+	label,
+	children,
+}: {
+	label: string;
+	children: ReactNode;
+}) {
+	return (
+		<div className="flex flex-col gap-2">
+			<span className="text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
+				{label}
+			</span>
+			{children}
+		</div>
+	);
+}
+
+export function EventTitleField({
+	draft,
+	onChange,
+	layout = "compact",
+	touch,
+}: EventFieldProps) {
+	const roomy = layout === "pane";
+	return (
+		<Input
+			value={draft.title}
+			placeholder="Title"
+			aria-label="Title"
+			onChange={(e) => setField({ draft, onChange }, "title", e.target.value)}
+			className={cn(
+				roomy ? "text-lg font-medium" : "text-md font-medium",
+				roomy ? "h-11" : touch ? "min-h-11" : "",
+			)}
+		/>
+	);
+}
+
+export function EventWhenField({ draft, onChange, touch }: EventFieldProps) {
+	const fieldHeight = touch ? "min-h-11" : "";
+	return (
+		<div className="flex flex-wrap items-center gap-2">
+			<Input
+				type="date"
+				value={draft.date}
+				aria-label="Date"
+				onChange={(e) => setField({ draft, onChange }, "date", e.target.value)}
+				className={cn("w-40", fieldHeight)}
+			/>
+			{draft.allDay ? (
+				<span className="text-sm text-fg-muted">All day</span>
+			) : (
+				<>
+					<Input
+						type="time"
+						value={draft.startTime}
+						aria-label="Start time"
+						onChange={(e) =>
+							setField({ draft, onChange }, "startTime", e.target.value)
+						}
+						className={cn("w-28", fieldHeight)}
+					/>
+					<span className="text-sm text-fg-subtle">to</span>
+					<Input
+						type="time"
+						value={draft.endTime}
+						aria-label="End time"
+						onChange={(e) =>
+							setField({ draft, onChange }, "endTime", e.target.value)
+						}
+						className={cn("w-28", fieldHeight)}
+					/>
+				</>
+			)}
+			<label className="flex items-center gap-2 text-sm text-fg-muted">
+				<input
+					type="checkbox"
+					checked={draft.allDay}
+					onChange={(e) =>
+						setField({ draft, onChange }, "allDay", e.target.checked)
+					}
+					className="size-4 accent-current"
+				/>
+				All day
+			</label>
+		</div>
+	);
+}
+
+export function EventCalendarField({
+	draft,
+	onChange,
+	calendars,
+	touch,
+}: EventFieldProps & { calendars: CalendarDescriptor[] }) {
+	return (
+		<CalendarPicker
+			calendars={calendars}
+			value={draft.calendarId}
+			onChange={(id) => setField({ draft, onChange }, "calendarId", id)}
+			touch={touch}
+		/>
+	);
+}
+
+/**
+ * The rule belongs to the series, not to one morning of it. An edit scoped to a
+ * single instance reads the rule back instead of offering to change it.
+ */
+export function EventRepeatField({
+	draft,
+	onChange,
+	touch,
+	repeatEditable = true,
+}: EventFieldProps & { repeatEditable?: boolean }) {
+	if (!repeatEditable)
+		return (
+			<p className="flex items-center gap-2 text-sm text-fg-muted">
+				<Repeat className="size-4 shrink-0 text-fg-subtle" aria-hidden />
+				{draft.repeat === NO_REPEAT ? "Does not repeat" : draft.repeat}
+			</p>
+		);
+	return (
+		<RepeatPicker
+			value={draft.repeat}
+			date={draft.date}
+			startTime={draft.startTime}
+			onChange={(next) => setField({ draft, onChange }, "repeat", next)}
+			className={touch ? "min-h-11" : ""}
+		/>
+	);
+}
+
+export function EventLocationField({
+	draft,
+	onChange,
+	touch,
+}: EventFieldProps) {
+	return (
+		<Input
+			value={draft.location}
+			placeholder="Location"
+			aria-label="Location"
+			onChange={(e) =>
+				setField({ draft, onChange }, "location", e.target.value)
+			}
+			className={touch ? "min-h-11" : ""}
+		/>
+	);
+}
+
+export function EventGuestsField({ draft, onChange, touch }: EventFieldProps) {
+	return (
+		<Input
+			value={draft.guests}
+			placeholder="Guests, comma separated"
+			aria-label="Guests"
+			onChange={(e) => setField({ draft, onChange }, "guests", e.target.value)}
+			className={touch ? "min-h-11" : ""}
+		/>
+	);
+}
+
+export function EventNotesField({
+	draft,
+	onChange,
+	layout = "compact",
+}: EventFieldProps) {
+	return (
+		<textarea
+			value={draft.notes}
+			placeholder="Notes"
+			aria-label="Notes"
+			onChange={(e) => setField({ draft, onChange }, "notes", e.target.value)}
+			rows={layout === "pane" ? 6 : 3}
+			className={NOTES_CLASS}
+		/>
+	);
+}
+
 export interface EventEditorProps {
 	draft: EventDraft;
 	onChange: (draft: EventDraft) => void;
 	calendars: CalendarDescriptor[];
-	/**
-	 * `compact` folds everything past the three core fields behind a disclosure,
-	 * for a bottom sheet or a rail. `pane` has the room to show the whole event
-	 * at once and labels every field.
-	 */
-	layout?: "compact" | "pane";
+	layout?: EventEditorLayout;
 	/** The folded section is open. The caller owns it so a story can start open. */
 	expanded?: boolean;
 	/** Absent means there is no fold: every field is on screen. */
@@ -33,7 +233,7 @@ export interface EventEditorProps {
 	 * a single instance reads the rule back instead of offering to change it.
 	 */
 	repeatEditable?: boolean;
-	/** Grows the controls for a bottom sheet. */
+	/** Grows the controls for a rail. */
 	touch?: boolean;
 	className?: string;
 }
@@ -41,7 +241,7 @@ export interface EventEditorProps {
 /**
  * Three fields make an event: what, when, and which calendar. Everything else
  * — where, who, notes, repeat — is real and reachable, folded away where the
- * form is a sheet and open where the form is a pane, because a fold buys room
+ * form is a rail and open where the form is a pane, because a fold buys room
  * only where room is scarce.
  */
 export function EventEditor({
@@ -60,111 +260,20 @@ export function EventEditor({
 	touch,
 	className,
 }: EventEditorProps) {
-	const set = <K extends keyof EventDraft>(key: K, value: EventDraft[K]) =>
-		onChange({ ...draft, [key]: value });
-	const fieldHeight = touch ? "min-h-11" : "";
 	const roomy = layout === "pane";
-	const notesClass =
-		"w-full rounded-md border border-line bg-surface-sunken px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-subtle focus-visible:border-line-strong focus-visible:ring-2 focus-visible:ring-ring/30";
+	const common = { draft, onChange, layout, touch };
 
-	const title = (
-		<Input
-			value={draft.title}
-			placeholder="Title"
-			aria-label="Title"
-			onChange={(e) => set("title", e.target.value)}
-			className={cn(
-				roomy ? "text-lg font-medium" : "text-md font-medium",
-				roomy ? "h-11" : fieldHeight,
-			)}
-		/>
-	);
-
-	const when = (
-		<div className="flex flex-wrap items-center gap-2">
-			<Input
-				type="date"
-				value={draft.date}
-				aria-label="Date"
-				onChange={(e) => set("date", e.target.value)}
-				className={cn("w-40", fieldHeight)}
-			/>
-			{draft.allDay ? (
-				<span className="text-sm text-fg-muted">All day</span>
-			) : (
-				<>
-					<Input
-						type="time"
-						value={draft.startTime}
-						aria-label="Start time"
-						onChange={(e) => set("startTime", e.target.value)}
-						className={cn("w-28", fieldHeight)}
-					/>
-					<span className="text-sm text-fg-subtle">to</span>
-					<Input
-						type="time"
-						value={draft.endTime}
-						aria-label="End time"
-						onChange={(e) => set("endTime", e.target.value)}
-						className={cn("w-28", fieldHeight)}
-					/>
-				</>
-			)}
-			<label className="flex items-center gap-2 text-sm text-fg-muted">
-				<input
-					type="checkbox"
-					checked={draft.allDay}
-					onChange={(e) => set("allDay", e.target.checked)}
-					className="size-4 accent-current"
-				/>
-				All day
-			</label>
-		</div>
-	);
-
+	const title = <EventTitleField {...common} />;
+	const when = <EventWhenField {...common} />;
 	const calendarPicker = (
-		<CalendarPicker
-			calendars={calendars}
-			value={draft.calendarId}
-			onChange={(id) => set("calendarId", id)}
-			touch={touch}
-		/>
+		<EventCalendarField {...common} calendars={calendars} />
 	);
-
-	const repeat = repeatEditable ? (
-		<RepeatPicker
-			value={draft.repeat}
-			date={draft.date}
-			startTime={draft.startTime}
-			onChange={(next) => set("repeat", next)}
-			className={fieldHeight}
-		/>
-	) : (
-		<p className="flex items-center gap-2 text-sm text-fg-muted">
-			<Repeat className="size-4 shrink-0 text-fg-subtle" aria-hidden />
-			{draft.repeat === NO_REPEAT ? "Does not repeat" : draft.repeat}
-		</p>
+	const repeat = (
+		<EventRepeatField {...common} repeatEditable={repeatEditable} />
 	);
-
-	const location = (
-		<Input
-			value={draft.location}
-			placeholder="Location"
-			aria-label="Location"
-			onChange={(e) => set("location", e.target.value)}
-			className={fieldHeight}
-		/>
-	);
-
-	const guests = (
-		<Input
-			value={draft.guests}
-			placeholder="Guests, comma separated"
-			aria-label="Guests"
-			onChange={(e) => set("guests", e.target.value)}
-			className={fieldHeight}
-		/>
-	);
+	const location = <EventLocationField {...common} />;
+	const guests = <EventGuestsField {...common} />;
+	const notes = <EventNotesField {...common} />;
 
 	const actions = (
 		<div className={cn("flex items-center gap-2", roomy ? "pt-2" : "pt-1")}>
@@ -201,22 +310,13 @@ export function EventEditor({
 		return (
 			<div className={cn("flex flex-col gap-5", className)}>
 				{header}
-				<Field label="Title">{title}</Field>
-				<Field label="When">{when}</Field>
-				<Field label="Calendar">{calendarPicker}</Field>
-				<Field label="Repeat">{repeat}</Field>
-				<Field label="Location">{location}</Field>
-				<Field label="Guests">{guests}</Field>
-				<Field label="Notes">
-					<textarea
-						value={draft.notes}
-						placeholder="Notes"
-						aria-label="Notes"
-						onChange={(e) => set("notes", e.target.value)}
-						rows={6}
-						className={notesClass}
-					/>
-				</Field>
+				<EventField label="Title">{title}</EventField>
+				<EventField label="When">{when}</EventField>
+				<EventField label="Calendar">{calendarPicker}</EventField>
+				<EventField label="Repeat">{repeat}</EventField>
+				<EventField label="Location">{location}</EventField>
+				<EventField label="Guests">{guests}</EventField>
+				<EventField label="Notes">{notes}</EventField>
 				{actions}
 			</div>
 		);
@@ -256,29 +356,11 @@ export function EventEditor({
 					{location}
 					{guests}
 					{repeat}
-					<textarea
-						value={draft.notes}
-						placeholder="Notes"
-						aria-label="Notes"
-						onChange={(e) => set("notes", e.target.value)}
-						rows={3}
-						className={notesClass}
-					/>
+					{notes}
 				</div>
 			)}
 
 			{actions}
-		</div>
-	);
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-	return (
-		<div className="flex flex-col gap-2">
-			<span className="text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
-				{label}
-			</span>
-			{children}
 		</div>
 	);
 }

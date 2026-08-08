@@ -11,7 +11,6 @@
  */
 import {
 	addMinutesToClock,
-	BottomSheet,
 	Button,
 	type CalendarColorId,
 	CalendarDateNav,
@@ -28,6 +27,8 @@ import {
 	EventQuickEntry,
 	type EventSuggestion,
 	EventSuggestionCard,
+	FlowScreen,
+	FooterNav,
 	type PhraseParse,
 	parseEventPhrase,
 	ReadingPane,
@@ -39,9 +40,24 @@ import {
 	type ThreadData,
 	useContainerWidth,
 } from "@remit/ui";
-import { ArrowLeft, CalendarDays, Plus, Sparkles } from "lucide-react";
+import {
+	ArrowLeft,
+	CalendarDays,
+	Plus,
+	SlidersHorizontal,
+	Sparkles,
+	Trash2,
+} from "lucide-react";
 import { type ReactNode, useMemo, useRef, useState } from "react";
 import { CalendarGrid, type SlotPick } from "../components/calendar-grid.js";
+import {
+	EVENT_WIZARD_LAST_STEP,
+	EVENT_WIZARD_STEPS,
+	EventEditPage,
+	EventWizardStep,
+	ONE_OFF_EDIT_STEPS,
+	SCOPED_EDIT_STEPS,
+} from "../components/event-wizard.js";
 import {
 	allCalendarIds,
 	calendars,
@@ -178,11 +194,11 @@ type Panel =
 	  }
 	| { kind: "scope"; eventId: string };
 
-/** The sheets the phone surface puts up, one at a time. */
-type Sheet =
+/** The full-screen flows the phone surface puts up, one at a time. */
+type Flow =
 	| "none"
-	| "create"
-	| "detail"
+	| "editor"
+	| "event"
 	| "calendars"
 	| "suggestions"
 	| "thread";
@@ -201,8 +217,10 @@ export interface CalendarDestinationProps {
 	phrase?: string;
 	/** Opens the scope question for this instance of a series. */
 	scopeForEventId?: string;
-	/** Opens the phone sheet a story is about. */
-	sheet?: "none" | "create" | "detail" | "calendars" | "suggestions";
+	/** Opens the phone flow a story is about. */
+	flow?: "none" | "editor" | "event" | "calendars" | "suggestions";
+	/** Which step of the create walk the flow opens on. */
+	step?: number;
 }
 
 export function CalendarDestination({
@@ -214,7 +232,8 @@ export function CalendarDestination({
 	draftAt,
 	phrase: initialPhrase = "",
 	scopeForEventId = "",
-	sheet: initialSheet = "none",
+	flow: initialFlow = "none",
+	step: initialStep = 0,
 }: CalendarDestinationProps) {
 	const isPhone = width < 768;
 
@@ -230,8 +249,8 @@ export function CalendarDestination({
 			new Set(allCalendarIds.filter((id) => !hiddenCalendarIds.includes(id))),
 	);
 	const [phrase, setPhrase] = useState(initialPhrase);
-	const [expanded, setExpanded] = useState(false);
-	const [sheet, setSheet] = useState<Sheet>(initialSheet);
+	const [flow, setFlow] = useState<Flow>(initialFlow);
+	const [step, setStep] = useState(initialStep);
 	const [openThreadId, setOpenThreadId] = useState("");
 	const minted = useRef(0);
 	const [panel, setPanel] = useState<Panel>(() => {
@@ -268,9 +287,9 @@ export function CalendarDestination({
 
 	const openSlot = (pick: SlotPick) => {
 		setPhrase("");
-		setExpanded(false);
 		setPanel(createPanel(draftFromSlot(pick)));
-		if (isPhone) setSheet("create");
+		setStep(0);
+		if (isPhone) setFlow("editor");
 	};
 
 	/**
@@ -290,34 +309,32 @@ export function CalendarDestination({
 		setSelected(eventId);
 		setOpenThreadId("");
 		setPanel({ kind: "none" });
-		if (isPhone) setSheet("detail");
+		if (isPhone) setFlow("event");
 	};
 
 	const openThread = (threadId: string) => {
 		setOpenThreadId(threadId);
-		if (isPhone) setSheet("thread");
+		if (isPhone) setFlow("thread");
 	};
 
 	const startEdit = (event: CalendarEventData) => {
 		if (event.seriesId !== "") {
 			setPanel({ kind: "scope", eventId: event.id });
-			if (isPhone) setSheet("create");
+			if (isPhone) setFlow("editor");
 			return;
 		}
-		setExpanded(false);
 		setPanel({
 			kind: "edit",
 			eventId: event.id,
 			draft: draftFromEvent(event),
 			scope: "",
 		});
-		if (isPhone) setSheet("create");
+		if (isPhone) setFlow("editor");
 	};
 
 	const applyScope = (eventId: string, scope: RecurrenceScope) => {
 		const event = events.find((candidate) => candidate.id === eventId);
 		if (!event) return;
-		setExpanded(scope !== "this");
 		setPanel({ kind: "edit", eventId, scope, draft: draftFromEvent(event) });
 	};
 
@@ -341,13 +358,15 @@ export function CalendarDestination({
 			);
 		setPanel({ kind: "none" });
 		setPhrase("");
-		setSheet("none");
+		setStep(0);
+		setFlow("none");
 	};
 
 	const dismissPanel = () => {
 		setPanel({ kind: "none" });
 		setPhrase("");
-		setSheet("none");
+		setStep(0);
+		setFlow("none");
 	};
 
 	const acceptSuggestion = (suggestion: EventSuggestion) => {
@@ -356,7 +375,7 @@ export function CalendarDestination({
 		setSuggestions((prev) => prev.filter((item) => item.id !== suggestion.id));
 		setDate(suggestion.start.slice(0, 10));
 		setSelected(id);
-		setSheet("none");
+		setFlow("none");
 	};
 
 	/**
@@ -380,8 +399,8 @@ export function CalendarDestination({
 				calendarId: suggestion.suggestedCalendarId,
 			},
 		});
-		setExpanded(true);
-		if (isPhone) setSheet("create");
+		setStep(0);
+		if (isPhone) setFlow("editor");
 	};
 
 	const dismissSuggestion = (suggestionId: string) =>
@@ -406,10 +425,23 @@ export function CalendarDestination({
 			? undefined
 			: events.find((candidate) => candidate.id === panel.eventId);
 
-	const editorForm = (
-		layout: "compact" | "pane",
-		touch: boolean,
-	): ReactNode => {
+	const repeatEditable = panel.kind !== "edit" || panel.scope !== "this";
+
+	const quickEntry = (touch: boolean): ReactNode =>
+		panel.kind !== "create" ? undefined : (
+			<EventQuickEntry
+				value={phrase}
+				onChange={(next) => {
+					setPhrase(next);
+					setPanel({ ...panel, draft: fromPhrase(next) });
+				}}
+				parse={readPhrase(phrase)}
+				onCommit={commit}
+				touch={touch}
+			/>
+		);
+
+	const editorForm = (): ReactNode => {
 		if (panel.kind === "none") return null;
 		if (panel.kind === "scope") {
 			if (!panelEvent) return null;
@@ -420,40 +452,20 @@ export function CalendarDestination({
 					instanceText={formatDayLabel(panelEvent.start.slice(0, 10))}
 					onChoose={(scope) => applyScope(panelEvent.id, scope)}
 					onCancel={dismissPanel}
-					touch={touch}
 				/>
 			);
 		}
-		const compact = layout === "compact";
 		return (
 			<EventEditor
 				draft={panel.draft}
 				onChange={(draft) => setPanel({ ...panel, draft })}
 				calendars={calendars}
-				layout={layout}
-				expanded={expanded}
-				onToggleExpanded={
-					compact ? () => setExpanded((open) => !open) : undefined
-				}
+				layout="pane"
 				onSave={commit}
 				onCancel={dismissPanel}
 				saveLabel={panel.kind === "edit" ? "Save" : "Add"}
-				repeatEditable={panel.kind !== "edit" || panel.scope !== "this"}
-				touch={touch}
-				header={
-					panel.kind === "create" ? (
-						<EventQuickEntry
-							value={phrase}
-							onChange={(next) => {
-								setPhrase(next);
-								setPanel({ ...panel, draft: fromPhrase(next) });
-							}}
-							parse={readPhrase(phrase)}
-							onCommit={commit}
-							touch={touch}
-						/>
-					) : undefined
-				}
+				repeatEditable={repeatEditable}
+				header={quickEntry(false)}
 			/>
 		);
 	};
@@ -477,23 +489,28 @@ export function CalendarDestination({
 				: (panelEvent?.title ?? "");
 		return (
 			<EventEditorPane title={title} subtitle={subtitle} onClose={dismissPanel}>
-				{editorForm("pane", false)}
+				{editorForm()}
 			</EventEditorPane>
 		);
 	};
 
-	const suggestionColumn = (touch: boolean) => (
+	const suggestionColumn = (touch: boolean, inset = "px-row-inset") => (
 		<div className="flex flex-col gap-2">
-			<h3 className="flex items-center gap-1.5 px-row-inset text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
+			<h3
+				className={cn(
+					"flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wider text-fg-subtle",
+					inset,
+				)}
+			>
 				<Sparkles className="size-3" />
 				Waiting for you
 			</h3>
 			{suggestions.length === 0 ? (
-				<p className="px-row-inset text-xs text-fg-subtle">
+				<p className={cn("text-xs text-fg-subtle", inset)}>
 					Nothing unread in your mail looks like a date.
 				</p>
 			) : (
-				<div className="flex flex-col gap-2 px-row-inset">
+				<div className={cn("flex flex-col gap-2", inset)}>
 					{suggestions.map((suggestion) => (
 						<EventSuggestionCard
 							key={suggestion.id}
@@ -514,6 +531,235 @@ export function CalendarDestination({
 	const openedThread = threadFor(openThreadId);
 	const editing = panel.kind !== "none";
 
+	/**
+	 * Making an event on a phone is a walk: what, when, who, where it lands. A
+	 * repeating event answers which instances first, because the answer changes
+	 * what the edit means. Changing one that already exists is a single page —
+	 * a title is one field and should not cost four screens.
+	 */
+	const editorFlow = (): ReactNode => {
+		if (panel.kind === "none") return null;
+
+		if (panel.kind === "scope")
+			return panelEvent ? (
+				<FlowScreen
+					anchor="container"
+					title="Repeating event"
+					subtitle={panelEvent.title}
+					steps={SCOPED_EDIT_STEPS}
+					activeStep={0}
+					onBack={dismissPanel}
+					onExit={dismissPanel}
+				>
+					<RecurrenceScopePrompt
+						title={panelEvent.title}
+						ruleText={panelEvent.recurrenceRule}
+						instanceText={formatDayLabel(panelEvent.start.slice(0, 10))}
+						onChoose={(scope) => applyScope(panelEvent.id, scope)}
+						onCancel={dismissPanel}
+						touch
+					/>
+				</FlowScreen>
+			) : null;
+
+		if (panel.kind === "edit") {
+			const scoped = panel.scope !== "";
+			return (
+				<FlowScreen
+					anchor="container"
+					title="Edit event"
+					subtitle={panelEvent?.title ?? ""}
+					steps={scoped ? SCOPED_EDIT_STEPS : ONE_OFF_EDIT_STEPS}
+					activeStep={scoped ? 1 : 0}
+					onBack={() =>
+						scoped
+							? setPanel({ kind: "scope", eventId: panel.eventId })
+							: dismissPanel()
+					}
+					onExit={dismissPanel}
+					footer={
+						<FooterNav
+							onBack={dismissPanel}
+							nextLabel="Save"
+							nextVariant="commit"
+							onNext={commit}
+						/>
+					}
+				>
+					<EventEditPage
+						draft={panel.draft}
+						onChange={(draft) => setPanel({ ...panel, draft })}
+						calendars={calendars}
+						repeatEditable={repeatEditable}
+					/>
+				</FlowScreen>
+			);
+		}
+
+		const last = step === EVENT_WIZARD_LAST_STEP;
+		return (
+			<FlowScreen
+				anchor="container"
+				title="New event"
+				subtitle={formatDayLabel(panel.draft.date)}
+				steps={EVENT_WIZARD_STEPS}
+				activeStep={step}
+				onBack={() => (step === 0 ? dismissPanel() : setStep(step - 1))}
+				onExit={dismissPanel}
+				footer={
+					<FooterNav
+						onBack={() => (step === 0 ? dismissPanel() : setStep(step - 1))}
+						nextLabel={last ? "Add" : "Continue"}
+						nextVariant={last ? "commit" : "primary"}
+						onNext={() => (last ? commit() : setStep(step + 1))}
+					/>
+				}
+			>
+				<EventWizardStep
+					step={step}
+					draft={panel.draft}
+					onChange={(draft) => setPanel({ ...panel, draft })}
+					calendars={calendars}
+					repeatEditable={repeatEditable}
+					phrase={quickEntry(true)}
+				/>
+			</FlowScreen>
+		);
+	};
+
+	const phoneFlow = (): ReactNode => {
+		if (flow === "editor") return editorFlow();
+
+		if (flow === "event" && selectedEvent) {
+			const calendar =
+				calendarsById.get(selectedEvent.calendarId) ?? calendars[0];
+			return (
+				<FlowScreen
+					anchor="container"
+					title="Event"
+					subtitle={`${calendar.name} · ${calendar.accountLabel}`}
+					steps={["Event"]}
+					activeStep={0}
+					onBack={() => setFlow("none")}
+					onExit={() => setFlow("none")}
+					footer={
+						<div className="flex items-center gap-3">
+							<Button
+								variant="ghost"
+								size="touch"
+								icon={<Trash2 className="size-4" />}
+								onClick={() => {
+									setEvents((prev) =>
+										prev.filter((event) => event.id !== selectedEvent.id),
+									);
+									setFlow("none");
+								}}
+								className="shrink-0 text-danger"
+							>
+								Delete
+							</Button>
+							<Button
+								variant="primary"
+								size="touch"
+								onClick={() => startEdit(selectedEvent)}
+								className="flex-1"
+							>
+								Edit
+							</Button>
+						</div>
+					}
+				>
+					<EventDetail
+						chrome="bare"
+						event={selectedEvent}
+						calendar={calendar}
+						whenText={formatEventWhen(selectedEvent)}
+						onEdit={() => startEdit(selectedEvent)}
+						onDelete={() => undefined}
+						onOpenThread={
+							selectedEvent.threadId === ""
+								? undefined
+								: () => openThread(selectedEvent.threadId)
+						}
+					/>
+				</FlowScreen>
+			);
+		}
+
+		if (flow === "thread" && openedThread)
+			return (
+				<FlowScreen
+					anchor="container"
+					bodyFit="fill"
+					title={openedThread.subject}
+					steps={["Thread"]}
+					activeStep={0}
+					onBack={() => setFlow(selectedEvent ? "event" : "none")}
+					onExit={() => setFlow("none")}
+				>
+					<ReadingPane thread={openedThread} />
+				</FlowScreen>
+			);
+
+		if (flow === "calendars")
+			return (
+				<FlowScreen
+					anchor="container"
+					title="Calendars"
+					subtitle="What the grid draws"
+					steps={["Calendars"]}
+					activeStep={0}
+					onBack={() => setFlow("none")}
+					onExit={() => setFlow("none")}
+					footer={
+						<Button
+							variant="primary"
+							size="touch"
+							onClick={() => setFlow("none")}
+							className="w-full"
+						>
+							Done
+						</Button>
+					}
+				>
+					<CalendarList
+						calendars={calendars}
+						visible={visible}
+						onToggle={toggleCalendar}
+						onToggleAccount={toggleAccount}
+						touch
+					/>
+				</FlowScreen>
+			);
+
+		if (flow === "suggestions")
+			return (
+				<FlowScreen
+					anchor="container"
+					title="Waiting for you"
+					subtitle="None of it is on your calendar"
+					steps={["Waiting for you"]}
+					activeStep={0}
+					onBack={() => setFlow("none")}
+					onExit={() => setFlow("none")}
+					footer={
+						<Button
+							variant="primary"
+							size="touch"
+							onClick={() => setFlow("none")}
+							className="w-full"
+						>
+							Done
+						</Button>
+					}
+				>
+					{suggestionColumn(true, "")}
+				</FlowScreen>
+			);
+
+		return null;
+	};
+
 	if (isPhone) {
 		return (
 			<MailShell
@@ -533,9 +779,10 @@ export function CalendarDestination({
 						events={shown}
 						onSelectEvent={openEvent}
 						suggestionCount={suggestions.length}
-						onOpenSuggestions={() => setSheet("suggestions")}
+						onOpenSuggestions={() => setFlow("suggestions")}
 						visible={visible}
 						onToggleCalendar={toggleCalendar}
+						onOpenCalendars={() => setFlow("calendars")}
 						onCreate={() =>
 							openSlot({
 								date,
@@ -546,64 +793,7 @@ export function CalendarDestination({
 						}
 					/>
 				}
-				overlay={
-					<>
-						<BottomSheet
-							open={sheet === "create" && panel.kind !== "none"}
-							onClose={dismissPanel}
-						>
-							<div className="max-h-[80dvh] overflow-y-auto px-4 pb-6 pt-2">
-								{editorForm("compact", true)}
-							</div>
-						</BottomSheet>
-						<BottomSheet
-							open={sheet === "detail" && Boolean(selectedEvent)}
-							onClose={() => setSheet("none")}
-						>
-							<div className="h-[70dvh]">
-								{selectedEvent && (
-									<EventDetail
-										event={selectedEvent}
-										calendar={
-											calendarsById.get(selectedEvent.calendarId) ??
-											calendars[0]
-										}
-										whenText={formatEventWhen(selectedEvent)}
-										onEdit={() => startEdit(selectedEvent)}
-										onDelete={() => {
-											setEvents((prev) =>
-												prev.filter((event) => event.id !== selectedEvent.id),
-											);
-											setSheet("none");
-										}}
-										onOpenThread={
-											selectedEvent.threadId === ""
-												? undefined
-												: () => openThread(selectedEvent.threadId)
-										}
-										onClose={() => setSheet("none")}
-									/>
-								)}
-							</div>
-						</BottomSheet>
-						<BottomSheet
-							open={sheet === "suggestions"}
-							onClose={() => setSheet("none")}
-						>
-							<div className="max-h-[70dvh] overflow-y-auto py-3">
-								{suggestionColumn(true)}
-							</div>
-						</BottomSheet>
-						<BottomSheet
-							open={sheet === "thread" && Boolean(openedThread)}
-							onClose={() => setSheet("none")}
-						>
-							<div className="h-[80dvh]">
-								<ReadingPane thread={openedThread} />
-							</div>
-						</BottomSheet>
-					</>
-				}
+				overlay={phoneFlow()}
 			/>
 		);
 	}
@@ -847,6 +1037,7 @@ function PhoneSurface({
 	onOpenSuggestions,
 	visible,
 	onToggleCalendar,
+	onOpenCalendars,
 	onCreate,
 }: {
 	view: CalendarViewId;
@@ -863,6 +1054,7 @@ function PhoneSurface({
 	onOpenSuggestions: () => void;
 	visible: ReadonlySet<string>;
 	onToggleCalendar: (calendarId: string) => void;
+	onOpenCalendars: () => void;
 	onCreate: () => void;
 }) {
 	const dayEvents = events
@@ -900,14 +1092,26 @@ function PhoneSurface({
 				/>
 			</div>
 
-			<div className="shrink-0 border-b border-line py-2">
+			{/* The chips are the legend and the quick filter; the whole list, with
+			    its accounts, is a screen of its own rather than a drawer. */}
+			<div className="flex shrink-0 items-center gap-1 border-b border-line py-2 pr-row-inset">
 				<CalendarList
 					calendars={calendars}
 					visible={visible}
 					onToggle={onToggleCalendar}
 					layout="strip"
 					touch
+					className="min-w-0 flex-1"
 				/>
+				<button
+					type="button"
+					onClick={onOpenCalendars}
+					aria-label="All calendars"
+					className="flex min-h-9 shrink-0 items-center gap-1 rounded-md border border-line px-2 text-xs text-fg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				>
+					<SlidersHorizontal className="size-3.5" />
+					All
+				</button>
 			</div>
 
 			{/* The compact grid keeps the shape of the day — where the gaps are —

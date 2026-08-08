@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { densestDay, quietestDay } from "../fixtures/calendar.js";
+import { mostOverlappedDay, quietestDay } from "../fixtures/calendar.js";
 import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
 import { CalendarDestination } from "../screens/calendar-destination.js";
 
@@ -35,8 +35,12 @@ import { CalendarDestination } from "../screens/calendar-destination.js";
  * the series.
  *
  * On a phone it is a different design, not the same one squeezed. The grid
- * shrinks to a strip that shows the shape of the day, the events themselves
- * become a scrolling agenda under it, and the editor is a bottom sheet.
+ * shrinks to a strip that shows the shape of the day and the events become a
+ * scrolling agenda under it. Anything with a decision in it takes the whole
+ * screen — the same wizard chrome the selection flow uses, with back and cancel
+ * in the header and the action in the thumb zone. Making an event is a walk of
+ * four steps; reading one, filtering the calendars and answering a suggestion
+ * are pages of their own.
  *
  * The grid is FullCalendar v7 with no theme imported — every border, surface
  * and hue below comes from `tokens.css` through the library's per-element class
@@ -66,8 +70,11 @@ export const Week: Story = {
  * events are drawn and a "+2" beside them opens the other two. Five unreadable
  * slivers would be a rendering failure dressed up as completeness.
  */
-export const DenseDay: Story = {
-	render: () => <CalendarDestination view="day" date={densestDay.date} />,
+export const OverlappingDay: Story = {
+	name: "Overlapping day",
+	render: () => (
+		<CalendarDestination view="day" date={mostOverlappedDay.date} />
+	),
 };
 
 /**
@@ -122,7 +129,7 @@ export const TypeAnEvent: Story = {
 export const EventFromMail: Story = {
 	render: () => (
 		<CalendarDestination
-			date={densestDay.date}
+			date={mostOverlappedDay.date}
 			selectedEventId="evt_q3_roadmap"
 		/>
 	),
@@ -202,19 +209,19 @@ export const PhoneDay: Story = {
 };
 
 /**
- * The same crowded Wednesday. The strip shows the pile-up honestly; the agenda
- * below is where it becomes readable, because a phone has no room for three
- * columns of anything.
+ * The same crowded Wednesday, where five things sit on top of each other. The
+ * strip shows the pile-up honestly; the agenda below is where it becomes
+ * readable, because a phone has no room for three columns of anything.
  */
-export const PhoneDenseDay: Story = {
-	name: "Phone — the dense day",
+export const PhoneOverlappingDay: Story = {
+	name: "Phone — overlapping day",
 	parameters: phoneParams,
 	decorators: [phoneFrame],
 	render: () => (
 		<CalendarDestination
 			width={PHONE_WIDTH}
 			view="day"
-			date={densestDay.date}
+			date={mostOverlappedDay.date}
 		/>
 	),
 };
@@ -233,20 +240,63 @@ export const PhoneMonth: Story = {
 };
 
 /**
- * Creating on a phone is a bottom sheet: it comes from the edge the thumb is on,
- * and it can be dragged away without aiming at a close button. There is no pane
- * beside the grid to write in at this width, so the sheet is the one surface
- * here the way the pane is the one surface on desktop.
+ * Creating on a phone takes the whole screen and asks one thing at a time:
+ * what, when, who, and where it lands. A single cramped form at 390 points
+ * either hides half the event behind a fold or asks a thumb to hit a
+ * fifteen-minute target; four steps do neither. Back and cancel are in the
+ * header, Continue is under the thumb, and the rail says how far along it is.
  */
 export const PhoneCreate: Story = {
-	name: "Phone — create",
+	name: "Phone — create, step 1",
 	parameters: phoneParams,
 	decorators: [phoneFrame],
 	render: () => (
 		<CalendarDestination
 			width={PHONE_WIDTH}
 			view="day"
-			sheet="create"
+			flow="editor"
+			draftAt={{
+				date: "2026-06-11",
+				startTime: "11:00",
+				endTime: "12:00",
+				allDay: false,
+			}}
+		/>
+	),
+};
+
+/** The second step: the day, the hours, and how it repeats, each with room. */
+export const PhoneCreateWhen: Story = {
+	name: "Phone — create, when",
+	parameters: phoneParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<CalendarDestination
+			width={PHONE_WIDTH}
+			view="day"
+			flow="editor"
+			step={1}
+			draftAt={{
+				date: "2026-06-11",
+				startTime: "11:00",
+				endTime: "12:00",
+				allDay: false,
+			}}
+		/>
+	),
+};
+
+/** The last step, where the event gets a calendar and Add is the action. */
+export const PhoneCreateWhereItLands: Story = {
+	name: "Phone — create, where it lands",
+	parameters: phoneParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<CalendarDestination
+			width={PHONE_WIDTH}
+			view="day"
+			flow="editor"
+			step={3}
 			draftAt={{
 				date: "2026-06-11",
 				startTime: "11:00",
@@ -259,7 +309,9 @@ export const PhoneCreate: Story = {
 
 /**
  * Typing an event on a phone is the fastest path by a wide margin, so the
- * sentence field sits at the top of the sheet with its reading directly below.
+ * sentence field opens the walk: it is the first step, with its reading
+ * directly under it and the title it produced below that. Walking on confirms
+ * the rest rather than retyping it.
  */
 export const PhoneTypeAnEvent: Story = {
 	name: "Phone — type an event",
@@ -269,13 +321,16 @@ export const PhoneTypeAnEvent: Story = {
 		<CalendarDestination
 			width={PHONE_WIDTH}
 			view="day"
-			sheet="create"
+			flow="editor"
 			phrase="coffee with Marcus thu 8am 30m"
 		/>
 	),
 };
 
-/** The event, its guests, and the thread it came from — full height, one thumb. */
+/**
+ * The event, its guests, and the thread it came from, on a screen of its own.
+ * Back is the way to the grid and Edit is under the thumb.
+ */
 export const PhoneEventDetail: Story = {
 	name: "Phone — event from mail",
 	parameters: phoneParams,
@@ -284,14 +339,18 @@ export const PhoneEventDetail: Story = {
 		<CalendarDestination
 			width={PHONE_WIDTH}
 			view="day"
-			date={densestDay.date}
-			sheet="detail"
+			date={mostOverlappedDay.date}
+			flow="event"
 			selectedEventId="evt_q3_roadmap"
 		/>
 	),
 };
 
-/** The scope question, asked the same way and sized for a thumb. */
+/**
+ * The scope question is the first step of editing a series, not a sheet over
+ * the form. Which instances a change reaches decides what the change means, so
+ * it is settled on its own screen and the form is the step behind it.
+ */
 export const PhoneRecurrenceScope: Story = {
 	name: "Phone — recurrence scope",
 	parameters: phoneParams,
@@ -300,26 +359,41 @@ export const PhoneRecurrenceScope: Story = {
 		<CalendarDestination
 			width={PHONE_WIDTH}
 			view="day"
-			sheet="create"
+			flow="editor"
 			scopeForEventId="evt_standup_10"
 		/>
 	),
 };
 
 /**
- * The suggestions the reader pulled out of mail, on their own sheet. Nothing on
- * this sheet is on the calendar, and nothing gets there without Add.
+ * The suggestions the reader pulled out of mail, on a screen of their own.
+ * Nothing here is on the calendar, and nothing gets there without Add.
+ * Correcting a reading first opens the create walk with the reading in it.
  */
 export const PhoneSuggestions: Story = {
 	name: "Phone — waiting for you",
 	parameters: phoneParams,
 	decorators: [phoneFrame],
 	render: () => (
-		<CalendarDestination width={PHONE_WIDTH} view="day" sheet="suggestions" />
+		<CalendarDestination width={PHONE_WIDTH} view="day" flow="suggestions" />
 	),
 };
 
-/** Calendars are chips above the day, so filtering never costs a trip to settings. */
+/**
+ * The chips above the day are the legend and the quick filter, always on
+ * screen. The whole list — every account, all and none — is a screen rather
+ * than a drawer, so a filter is never something that slides half over the grid.
+ */
+export const PhoneCalendars: Story = {
+	name: "Phone — calendars",
+	parameters: phoneParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<CalendarDestination width={PHONE_WIDTH} view="day" flow="calendars" />
+	),
+};
+
+/** Two calendars off, and the grid says so the moment they go. */
 export const PhoneFilteredCalendars: Story = {
 	name: "Phone — filtered calendars",
 	parameters: phoneParams,

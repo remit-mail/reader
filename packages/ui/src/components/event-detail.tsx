@@ -28,6 +28,11 @@ export interface EventDetailProps {
 	onOpenThread?: () => void;
 	/** Puts the pane back to whatever it shows with nothing selected. */
 	onClose?: () => void;
+	/**
+	 * `bare` drops the header and the scrolling frame, for a surface that already
+	 * carries both — a full-screen flow whose footer holds the same actions.
+	 */
+	chrome?: "header" | "bare";
 	className?: string;
 }
 
@@ -59,9 +64,83 @@ export function EventDetail({
 	onDelete,
 	onOpenThread,
 	onClose,
+	chrome = "header",
 	className,
 }: EventDetailProps) {
 	const hue = calendarColorClasses(calendar.color);
+
+	const facts = (
+		<>
+			<h1 className="text-xl font-semibold text-fg">{event.title}</h1>
+
+			<div className="mt-3 flex flex-col border-b border-line pb-3">
+				<Line icon={<Clock className="size-4" />}>
+					<span className="flex flex-wrap items-center gap-2">
+						{whenText}
+						{event.attendees.length > 0 && <RsvpBadge rsvp={event.myRsvp} />}
+					</span>
+				</Line>
+				{event.zoneCertainty === "ambiguous" ? (
+					<Line icon={<Globe className="size-4 text-warning" />}>
+						<span className="text-warning">
+							The mail said a time but never a zone. Shown in your own; confirm
+							before you travel for it.
+						</span>
+					</Line>
+				) : (
+					event.timeZone !== "" && (
+						<Line icon={<Globe className="size-4" />}>{event.timeZone}</Line>
+					)
+				)}
+				{event.recurrenceRule !== "" && (
+					<Line icon={<Repeat className="size-4" />}>
+						<span className="flex flex-wrap items-center gap-2">
+							{event.recurrenceRule}
+							{event.seriesException && (
+								<span className="rounded-xs bg-warning-soft px-1.5 py-0.5 text-2xs text-warning">
+									Moved out of the series
+								</span>
+							)}
+						</span>
+					</Line>
+				)}
+				{event.location !== "" && (
+					<Line icon={<MapPin className="size-4" />}>{event.location}</Line>
+				)}
+			</div>
+
+			{event.threadId !== "" && onOpenThread && (
+				<button
+					type="button"
+					onClick={onOpenThread}
+					className="mt-3 flex w-full items-center gap-2.5 rounded-md border border-line bg-surface-sunken px-3 py-2 text-left outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring"
+				>
+					<Mail className="size-4 shrink-0 text-accent-2" />
+					<span className="min-w-0 flex-1">
+						<span className="block text-2xs uppercase tracking-wider text-fg-subtle">
+							From this thread
+						</span>
+						<span className="block truncate text-sm text-fg">
+							{event.threadSubject}
+						</span>
+					</span>
+				</button>
+			)}
+
+			{event.attendees.length > 0 && (
+				<AttendeeList attendees={event.attendees} className="mt-3" />
+			)}
+
+			{event.notes !== "" && (
+				<p className="mt-3 whitespace-pre-wrap text-sm text-fg-muted">
+					{event.notes}
+				</p>
+			)}
+		</>
+	);
+
+	if (chrome === "bare")
+		return <div className={cn("flex flex-col", className)}>{facts}</div>;
 
 	return (
 		<article
@@ -102,71 +181,7 @@ export function EventDetail({
 			</header>
 
 			<div className="min-h-0 flex-1 overflow-y-auto px-row-inset py-3">
-				<h1 className="text-xl font-semibold text-fg">{event.title}</h1>
-
-				<div className="mt-3 flex flex-col border-b border-line pb-3">
-					<Line icon={<Clock className="size-4" />}>
-						<span className="flex flex-wrap items-center gap-2">
-							{whenText}
-							{event.attendees.length > 0 && <RsvpBadge rsvp={event.myRsvp} />}
-						</span>
-					</Line>
-					{event.zoneCertainty === "ambiguous" ? (
-						<Line icon={<Globe className="size-4 text-warning" />}>
-							<span className="text-warning">
-								The mail said a time but never a zone. Shown in your own;
-								confirm before you travel for it.
-							</span>
-						</Line>
-					) : (
-						event.timeZone !== "" && (
-							<Line icon={<Globe className="size-4" />}>{event.timeZone}</Line>
-						)
-					)}
-					{event.recurrenceRule !== "" && (
-						<Line icon={<Repeat className="size-4" />}>
-							<span className="flex flex-wrap items-center gap-2">
-								{event.recurrenceRule}
-								{event.seriesException && (
-									<span className="rounded-xs bg-warning-soft px-1.5 py-0.5 text-2xs text-warning">
-										Moved out of the series
-									</span>
-								)}
-							</span>
-						</Line>
-					)}
-					{event.location !== "" && (
-						<Line icon={<MapPin className="size-4" />}>{event.location}</Line>
-					)}
-				</div>
-
-				{event.threadId !== "" && onOpenThread && (
-					<button
-						type="button"
-						onClick={onOpenThread}
-						className="mt-3 flex w-full items-center gap-2.5 rounded-md border border-line bg-surface-sunken px-3 py-2 text-left outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ring"
-					>
-						<Mail className="size-4 shrink-0 text-accent-2" />
-						<span className="min-w-0 flex-1">
-							<span className="block text-2xs uppercase tracking-wider text-fg-subtle">
-								From this thread
-							</span>
-							<span className="block truncate text-sm text-fg">
-								{event.threadSubject}
-							</span>
-						</span>
-					</button>
-				)}
-
-				{event.attendees.length > 0 && (
-					<AttendeeList attendees={event.attendees} className="mt-3" />
-				)}
-
-				{event.notes !== "" && (
-					<p className="mt-3 whitespace-pre-wrap text-sm text-fg-muted">
-						{event.notes}
-					</p>
-				)}
+				{facts}
 			</div>
 		</article>
 	);
