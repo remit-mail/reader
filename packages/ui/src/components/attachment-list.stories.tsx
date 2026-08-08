@@ -105,11 +105,16 @@ export const SeveralAttachments: Story = {
 	),
 };
 
+/** One row mid-fetch. The rows beside it are still pressable. */
 export const Downloading: Story = {
-	args: {
-		attachments: [{ ...report, download: { status: "downloading" } }, sitePlan],
-		onDownload: () => undefined,
-	},
+	render: () => (
+		<Harness
+			attachments={[
+				{ ...report, download: { status: "downloading" } },
+				sitePlan,
+			]}
+		/>
+	),
 };
 
 /**

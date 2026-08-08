@@ -66,6 +66,12 @@ const DEFAULT_PLAIN_BODY = [
 
 const ACCOUNT_LANGUAGES = ["en", "nl", "de"];
 
+// Discard closes the composer and Configure leaves for Settings. Neither has a
+// surface to act on here, so they report into the Actions panel rather than
+// swallowing the press.
+const discard = fn().mockName("onDiscard");
+const configureSmtp = fn().mockName("onConfigure");
+
 const FromRow = ({ email }: { email: string }) => (
 	<div className="flex items-start gap-2">
 		{/* biome-ignore lint/a11y/noLabelWithoutControl: decorative label for a read-only value, not a form control */}
@@ -180,7 +186,7 @@ const Composer = ({
 				smtpMissing || conversionFailure ? (
 					<>
 						{smtpMissing && (
-							<ComposeSmtpMissingBanner onConfigure={() => undefined} />
+							<ComposeSmtpMissingBanner onConfigure={configureSmtp} />
 						)}
 						{conversionFailure && (
 							<Banner
@@ -251,7 +257,7 @@ const Composer = ({
 			actionBar={
 				<ComposeActionBar
 					onSend={onSend}
-					onDiscard={() => undefined}
+					onDiscard={discard}
 					sending={sending}
 					canSend={sendable}
 					saveStatus={saving ? "saving" : saveStatus}

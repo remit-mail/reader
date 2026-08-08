@@ -15,21 +15,10 @@ const meta: Meta<typeof ComposeModeToggle> = {
 	title: "Mail/ComposeModeToggle",
 	component: ComposeModeToggle,
 	parameters: { layout: "centered" },
-	args: { onToggle: () => undefined },
 };
 export default meta;
 
 type Story = StoryObj<typeof ComposeModeToggle>;
-
-export const RichText: Story = {
-	name: "Rich text — plain text on offer",
-	args: { mode: "rich" },
-};
-
-export const PlainText: Story = {
-	name: "Plain text — the mode is on",
-	args: { mode: "plain" },
-};
 
 const Harness = ({ start }: { start: ComposeBodyMode }) => {
 	const [mode, setMode] = useState<ComposeBodyMode>(start);
@@ -39,6 +28,16 @@ const Harness = ({ start }: { start: ComposeBodyMode }) => {
 			onToggle={() => setMode(mode === "plain" ? "rich" : "plain")}
 		/>
 	);
+};
+
+export const RichText: Story = {
+	name: "Rich text — plain text on offer",
+	render: () => <Harness start="rich" />,
+};
+
+export const PlainText: Story = {
+	name: "Plain text — the mode is on",
+	render: () => <Harness start="plain" />,
 };
 
 export const PressedStateFollowsTheMode: Story = {

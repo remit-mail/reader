@@ -11,7 +11,7 @@ const meta: Meta<typeof ComposeSmtpMissingBanner> = {
 	title: "Mail/ComposeSmtpMissingBanner",
 	component: ComposeSmtpMissingBanner,
 	parameters: { layout: "padded" },
-	args: { onConfigure: () => undefined },
+	args: { onConfigure: fn().mockName("onConfigure") },
 };
 export default meta;
 
