@@ -42,6 +42,53 @@ export interface AgendaComposerProps {
 	className?: string;
 }
 
+export interface AgendaPhraseFieldProps {
+	phrase: string;
+	onPhraseChange: (phrase: string) => void;
+	/** Focus or a keystroke unfolds the form under the field. */
+	onOpen: () => void;
+	onCommit: () => void;
+	placeholder?: string;
+	touch?: boolean;
+	className?: string;
+}
+
+export function AgendaPhraseField({
+	phrase,
+	onPhraseChange,
+	onOpen,
+	onCommit,
+	placeholder = "lunch with Jane friday 1pm",
+	touch,
+	className,
+}: AgendaPhraseFieldProps) {
+	return (
+		<div
+			className={cn(
+				"flex items-center gap-2 rounded-md border border-line bg-surface-sunken px-3 focus-within:border-line-strong focus-within:ring-2 focus-within:ring-ring/30",
+				touch ? "min-h-11" : "h-9",
+				className,
+			)}
+		>
+			<Wand2 className="size-4 shrink-0 text-fg-subtle" aria-hidden />
+			<input
+				value={phrase}
+				aria-label="Describe the event"
+				placeholder={placeholder}
+				onFocus={onOpen}
+				onChange={(event) => {
+					onOpen();
+					onPhraseChange(event.target.value);
+				}}
+				onKeyDown={(event) => {
+					if (event.key === "Enter") onCommit();
+				}}
+				className="min-w-0 flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-fg-subtle"
+			/>
+		</div>
+	);
+}
+
 export function AgendaComposer({
 	phrase,
 	onPhraseChange,
@@ -65,28 +112,14 @@ export function AgendaComposer({
 }: AgendaComposerProps) {
 	return (
 		<div className={cn("flex flex-col gap-2", className)}>
-			<div
-				className={cn(
-					"flex items-center gap-2 rounded-md border border-line bg-surface-sunken px-3 focus-within:border-line-strong focus-within:ring-2 focus-within:ring-ring/30",
-					touch ? "min-h-11" : "h-9",
-				)}
-			>
-				<Wand2 className="size-4 shrink-0 text-fg-subtle" aria-hidden />
-				<input
-					value={phrase}
-					aria-label="Describe the event"
-					placeholder={placeholder}
-					onFocus={onOpen}
-					onChange={(event) => {
-						onOpen();
-						onPhraseChange(event.target.value);
-					}}
-					onKeyDown={(event) => {
-						if (event.key === "Enter") onSave();
-					}}
-					className="min-w-0 flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-fg-subtle"
-				/>
-			</div>
+			<AgendaPhraseField
+				phrase={phrase}
+				onPhraseChange={onPhraseChange}
+				onOpen={onOpen}
+				onCommit={onSave}
+				placeholder={placeholder}
+				touch={touch}
+			/>
 
 			{open && (
 				<EventEditor
@@ -116,7 +149,7 @@ export function AgendaComposer({
 	);
 }
 
-function PhraseReading({
+export function PhraseReading({
 	parse,
 	picks,
 	onPick,

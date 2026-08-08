@@ -10,8 +10,8 @@ import { CalendarAgenda } from "../screens/calendar-agenda.js";
  * same layout then gets shipped to a 390px phone, where a seven-column grid is
  * unreadable and everyone taps through to the day view anyway. So the primary
  * object here is a single scrolling list of days — time as one strip you fall
- * through — and the grid is demoted to a zoom level you drop into when a day is
- * genuinely dense enough to need columns.
+ * through — and the grid is demoted to a zoom level you drop into when a day
+ * has enough overlapping events to need columns.
  *
  * What it commits to. Scrolling never paginates: reaching either end of the
  * strip loads more days under you and holds your position, and Today is the same
@@ -27,6 +27,12 @@ import { CalendarAgenda } from "../screens/calendar-agenda.js";
  * questions a list answers well and a grid answers badly — what is next, where
  * the open time is, and where in the strip you are — while the days themselves
  * keep a readable measure.
+ *
+ * On a phone the strip is the whole screen, so anything with a decision in it
+ * takes the whole screen too: the same wizard chrome the selection flow uses,
+ * back and cancel in the header, the action in the thumb zone. Making an event
+ * walks four steps starting from the sentence; reading one, filtering the
+ * calendars and answering a suggestion are pages of their own.
  */
 const meta: Meta = {
 	title: "Flows/Calendar — C. Agenda",
@@ -72,7 +78,8 @@ export const DetailDensity: Story = {
  * them, says four are running at once, and offers the grid. This is the case
  * that justifies a time grid existing at all.
  */
-export const TheDenseDay: Story = {
+export const TheOverlappingDay: Story = {
+	name: "The overlapping day",
 	render: () => <CalendarAgenda date="2026-06-10" density="detail" />,
 };
 
@@ -248,8 +255,8 @@ export const PhoneDetail: Story = {
  * than drawn as four unreadable slivers, and the grid is one tap away for
  * anyone who wants to see the overlap itself.
  */
-export const PhoneDenseDay: Story = {
-	name: "Phone — the dense day",
+export const PhoneOverlappingDay: Story = {
+	name: "Phone — overlapping day",
 	parameters: phoneParams,
 	decorators: [phoneFrame],
 	render: () => <CalendarAgenda width={PHONE_WIDTH} date="2026-06-10" />,
@@ -290,9 +297,10 @@ export const PhoneWhatIsNext: Story = {
 };
 
 /**
- * Typing on a phone is worth more than anywhere else, so the field is the first
- * thing in the sheet and the reading sits directly under it. The ambiguity is
- * two thumb-sized buttons.
+ * Typing on a phone is worth more than anywhere else, so the sentence is the
+ * first step of the walk rather than a field above a folded form: the reading
+ * sits directly under it and the ambiguity is two thumb-sized buttons. The
+ * steps after it ask for what the sentence never said.
  */
 export const PhoneTypeAnEvent: Story = {
 	name: "Phone — type an event",
@@ -301,13 +309,13 @@ export const PhoneTypeAnEvent: Story = {
 	render: () => (
 		<CalendarAgenda
 			width={PHONE_WIDTH}
-			sheet="create"
+			flow="editor"
 			phrase="lunch with Jane friday 1pm"
 		/>
 	),
 };
 
-/** The same sheet, reading a repeat out of the sentence. */
+/** The same first step, reading a repeat out of the sentence. */
 export const PhoneTypeARepeatingEvent: Story = {
 	name: "Phone — type a repeat",
 	parameters: phoneParams,
@@ -315,13 +323,31 @@ export const PhoneTypeARepeatingEvent: Story = {
 	render: () => (
 		<CalendarAgenda
 			width={PHONE_WIDTH}
-			sheet="create"
+			flow="editor"
 			phrase="standup every weekday 9:30"
 		/>
 	),
 };
 
-/** The event, its guests and the thread it came from — full height, one thumb. */
+/** The step that takes the sentence's reading and lets you correct the hours. */
+export const PhoneCreateWhen: Story = {
+	name: "Phone — create, when",
+	parameters: phoneParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<CalendarAgenda
+			width={PHONE_WIDTH}
+			flow="editor"
+			step={1}
+			phrase="lunch with Jane friday 1pm"
+		/>
+	),
+};
+
+/**
+ * The event, its guests and the thread it came from, on a screen of its own.
+ * Back is the way to the strip and Edit is under the thumb.
+ */
 export const PhoneEventFromMail: Story = {
 	name: "Phone — event from mail",
 	parameters: phoneParams,
@@ -330,25 +356,53 @@ export const PhoneEventFromMail: Story = {
 		<CalendarAgenda
 			width={PHONE_WIDTH}
 			date="2026-06-10"
-			sheet="detail"
+			flow="event"
 			selectedEventId="evt_q3_roadmap"
 		/>
 	),
 };
 
 /**
- * The dates the reader found in mail, on their own sheet. Nothing here is on the
- * calendar, and nothing gets there without Add — which is why the week in Lisbon
- * still reads as five free days.
+ * The dates the reader found in mail, on a screen of their own. Nothing here is
+ * on the calendar, and nothing gets there without Add — which is why the week in
+ * Lisbon still reads as five free days.
  */
 export const PhoneSuggestions: Story = {
 	name: "Phone — waiting for you",
 	parameters: phoneParams,
 	decorators: [phoneFrame],
-	render: () => <CalendarAgenda width={PHONE_WIDTH} sheet="suggestions" />,
+	render: () => <CalendarAgenda width={PHONE_WIDTH} flow="suggestions" />,
 };
 
-/** Calendars are chips above the strip, so filtering never costs a trip away. */
+/**
+ * The chips above the strip are the legend and the quick filter. The whole
+ * list — every account, all and none — is a screen rather than a drawer.
+ */
+export const PhoneCalendars: Story = {
+	name: "Phone — calendars",
+	parameters: phoneParams,
+	decorators: [phoneFrame],
+	render: () => <CalendarAgenda width={PHONE_WIDTH} flow="calendars" />,
+};
+
+/**
+ * The scope question is the first step of editing a series, not a sheet over
+ * the form: which instances a change reaches decides what the change means.
+ */
+export const PhoneRecurrenceScope: Story = {
+	name: "Phone — recurrence scope",
+	parameters: phoneParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<CalendarAgenda
+			width={PHONE_WIDTH}
+			flow="editor"
+			scopeForEventId="evt_standup_10"
+		/>
+	),
+};
+
+/** Two calendars off, and the strip says so the moment they go. */
 export const PhoneFilteredCalendars: Story = {
 	name: "Phone — filtered calendars",
 	parameters: phoneParams,
