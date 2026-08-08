@@ -1,7 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { Paperclip, Star } from "lucide-react";
+import { useState } from "react";
 import type { ThreadData, ThreadMessageData } from "./app-shell-types.js";
-import { AttachmentList } from "./attachment-list.js";
+import {
+	type AttachmentDownloadState,
+	type AttachmentItem,
+	AttachmentList,
+} from "./attachment-list.js";
 import { MessageBodyView } from "./message-body-view.js";
 import {
 	CollapsedMessage,
@@ -198,6 +203,44 @@ export const ExpandedRowComposed: StoryObj<typeof ExpandedMessage> = {
 	),
 };
 
+/** The app owns the fetch and hands the row its state back; so does this. */
+const ThreadAttachments = () => {
+	const [rows, setRows] = useState<AttachmentItem[]>([
+		{
+			attachmentId: "part-2",
+			filename: "Q3 board pack.pdf",
+			typeLabel: "PDF",
+			sizeOctets: 2_411_724,
+			download: { status: "idle" },
+		},
+		{
+			attachmentId: "part-3",
+			filename: "headcount.csv",
+			typeLabel: "CSV",
+			sizeOctets: 4_180,
+			download: { status: "idle" },
+		},
+	]);
+
+	const setStatus = (attachmentId: string, download: AttachmentDownloadState) =>
+		setRows((current) =>
+			current.map((row) =>
+				row.attachmentId === attachmentId ? { ...row, download } : row,
+			),
+		);
+
+	return (
+		<AttachmentList
+			className="mt-4 px-2 lg:px-0"
+			attachments={rows}
+			onDownload={(attachmentId) => {
+				setStatus(attachmentId, { status: "downloading" });
+				setTimeout(() => setStatus(attachmentId, { status: "idle" }), 900);
+			}}
+		/>
+	);
+};
+
 /**
  * The expanded row as `MessageCard` composes it when the message carries files
  * (#683): body first, attachment list under it. The indicators row holds no
@@ -222,26 +265,7 @@ export const ExpandedRowWithAttachments: StoryObj<typeof ExpandedMessage> = {
 							category="personal"
 							allowImages
 						/>
-						<AttachmentList
-							className="mt-4 px-2 lg:px-0"
-							attachments={[
-								{
-									attachmentId: "part-2",
-									filename: "Q3 board pack.pdf",
-									typeLabel: "PDF",
-									sizeOctets: 2_411_724,
-									download: { status: "idle" },
-								},
-								{
-									attachmentId: "part-3",
-									filename: "headcount.csv",
-									typeLabel: "CSV",
-									sizeOctets: 4_180,
-									download: { status: "idle" },
-								},
-							]}
-							onDownload={(id) => alert(`Download ${id}`)}
-						/>
+						<ThreadAttachments />
 					</div>
 				}
 			/>

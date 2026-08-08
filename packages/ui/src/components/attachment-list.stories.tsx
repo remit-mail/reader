@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { useState } from "react";
 import { type AttachmentItem, AttachmentList } from "./attachment-list.js";
 
 /**
@@ -25,56 +26,89 @@ const report: AttachmentItem = {
 	download: { status: "idle" },
 };
 
+const sitePlan: AttachmentItem = {
+	attachmentId: "part-3",
+	filename: "site-plan.png",
+	typeLabel: "PNG",
+	sizeOctets: 486_120,
+	download: { status: "idle" },
+};
+
+/** How long the app's own fetch takes on a small attachment, near enough. */
+const DOWNLOAD_MS = 900;
+
+/**
+ * The app owns the fetch and hands per-row state back. The harness plays that
+ * part: a press puts the row on the spinner, and the row returns to rest when
+ * the file has been handed to the browser. A row is only pressable once at a
+ * time, which is the state the component reads to disable it.
+ */
+const Harness = ({
+	attachments,
+	hasUnlistedAttachment,
+}: {
+	attachments: readonly AttachmentItem[];
+	hasUnlistedAttachment?: boolean;
+}) => {
+	const [rows, setRows] = useState<readonly AttachmentItem[]>(attachments);
+
+	const setDownload = (attachmentId: string, item: AttachmentItem) =>
+		setRows((current) =>
+			current.map((row) => (row.attachmentId === attachmentId ? item : row)),
+		);
+
+	const download = (attachmentId: string) => {
+		const row = rows.find((item) => item.attachmentId === attachmentId);
+		if (!row || row.download.status === "downloading") return;
+		setDownload(attachmentId, { ...row, download: { status: "downloading" } });
+		setTimeout(
+			() => setDownload(attachmentId, { ...row, download: { status: "idle" } }),
+			DOWNLOAD_MS,
+		);
+	};
+
+	return (
+		<AttachmentList
+			attachments={rows}
+			onDownload={download}
+			hasUnlistedAttachment={hasUnlistedAttachment}
+		/>
+	);
+};
+
 export const OneAttachment: Story = {
-	args: {
-		attachments: [report],
-		onDownload: (id) => alert(`Download ${id}`),
-	},
+	render: () => <Harness attachments={[report]} />,
 };
 
 export const SeveralAttachments: Story = {
-	args: {
-		attachments: [
-			report,
-			{
-				attachmentId: "part-3",
-				filename: "site-plan.png",
-				typeLabel: "PNG",
-				sizeOctets: 486_120,
-				download: { status: "idle" },
-			},
-			{
-				attachmentId: "part-4",
-				filename: "notes.txt",
-				typeLabel: "PLAIN",
-				sizeOctets: 812,
-				download: { status: "idle" },
-			},
-			{
-				attachmentId: "part-5",
-				filename: "archive",
-				typeLabel: "FILE",
-				sizeOctets: 1024 ** 3 + 1024 ** 2 * 200,
-				download: { status: "idle" },
-			},
-		],
-		onDownload: (id) => alert(`Download ${id}`),
-	},
+	render: () => (
+		<Harness
+			attachments={[
+				report,
+				sitePlan,
+				{
+					attachmentId: "part-4",
+					filename: "notes.txt",
+					typeLabel: "PLAIN",
+					sizeOctets: 812,
+					download: { status: "idle" },
+				},
+				{
+					attachmentId: "part-5",
+					filename: "archive",
+					typeLabel: "FILE",
+					sizeOctets: 1024 ** 3 + 1024 ** 2 * 200,
+					download: { status: "idle" },
+				},
+			]}
+		/>
+	),
 };
 
 export const Downloading: Story = {
 	args: {
-		attachments: [
-			{ ...report, download: { status: "downloading" } },
-			{
-				attachmentId: "part-3",
-				filename: "site-plan.png",
-				typeLabel: "PNG",
-				sizeOctets: 486_120,
-				download: { status: "idle" },
-			},
-		],
-		onDownload: (id) => alert(`Download ${id}`),
+		attachments: [{ ...report, download: { status: "downloading" } }, sitePlan],
+		onDownload: () => undefined,
 	},
 };
 
@@ -85,28 +119,23 @@ export const Downloading: Story = {
  * outcome this list exists to make impossible.
  */
 export const DownloadFailed: Story = {
-	args: {
-		attachments: [
-			{
-				...report,
-				download: {
-					status: "failed",
-					title: "This attachment is missing from storage",
-					detail:
-						"Remit has the message but not the file. Re-sync the account from Settings, then try again.",
-					reportUrl: "https://github.com/remit-mail/reader/issues/new",
+	render: () => (
+		<Harness
+			attachments={[
+				{
+					...report,
+					download: {
+						status: "failed",
+						title: "This attachment is missing from storage",
+						detail:
+							"Remit has the message but not the file. Re-sync the account from Settings, then try again.",
+						reportUrl: "https://github.com/remit-mail/reader/issues/new",
+					},
 				},
-			},
-			{
-				attachmentId: "part-3",
-				filename: "site-plan.png",
-				typeLabel: "PNG",
-				sizeOctets: 486_120,
-				download: { status: "idle" },
-			},
-		],
-		onDownload: (id) => alert(`Download ${id}`),
-	},
+				sitePlan,
+			]}
+		/>
+	),
 };
 
 /**
@@ -117,32 +146,33 @@ export const DownloadFailed: Story = {
  * what lands.
  */
 export const HostileFilename: Story = {
-	args: {
-		attachments: [
-			{
-				attachmentId: "part-6",
-				filename: "passwd",
-				typeLabel: "FILE",
-				sizeOctets: 3_120,
-				download: { status: "idle" },
-			},
-			{
-				attachmentId: "part-7",
-				filename: "invoicegnp.exe",
-				typeLabel: "FILE",
-				sizeOctets: 118_400,
-				download: { status: "idle" },
-			},
-			{
-				attachmentId: "part-8",
-				filename: `${"long-name-".repeat(11)}report.pdf`,
-				typeLabel: "PDF",
-				sizeOctets: 44_000,
-				download: { status: "idle" },
-			},
-		],
-		onDownload: (id) => alert(`Download ${id}`),
-	},
+	render: () => (
+		<Harness
+			attachments={[
+				{
+					attachmentId: "part-6",
+					filename: "passwd",
+					typeLabel: "FILE",
+					sizeOctets: 3_120,
+					download: { status: "idle" },
+				},
+				{
+					attachmentId: "part-7",
+					filename: "invoicegnp.exe",
+					typeLabel: "FILE",
+					sizeOctets: 118_400,
+					download: { status: "idle" },
+				},
+				{
+					attachmentId: "part-8",
+					filename: `${"long-name-".repeat(11)}report.pdf`,
+					typeLabel: "PDF",
+					sizeOctets: 44_000,
+					download: { status: "idle" },
+				},
+			]}
+		/>
+	),
 };
 
 /**
@@ -151,9 +181,5 @@ export const HostileFilename: Story = {
  * read as broken.
  */
 export const UnlistedAttachment: Story = {
-	args: {
-		attachments: [],
-		onDownload: () => undefined,
-		hasUnlistedAttachment: true,
-	},
+	render: () => <Harness attachments={[]} hasUnlistedAttachment />,
 };
