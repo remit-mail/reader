@@ -2,14 +2,17 @@ import {
 	type AddressEntry,
 	ComposeActionBar,
 	ComposeAddressField,
+	ComposeBodySkeleton,
 	ComposeFormShell,
 	ComposeHeader,
 	type ComposeSaveStatus,
+	type ComposeSendState,
 	ComposeSmtpMissingBanner,
 	ComposeSubjectField,
 	composeHeaderSummary,
 	inboxFilterConfig,
 	QuotedText,
+	SMTP_MISSING_MESSAGE,
 } from "@remit/ui";
 import { ComposeBody, type ComposeBodyMode } from "@remit/ui/rich-text";
 import type { Meta, StoryObj } from "@storybook/react-vite";
@@ -75,14 +78,15 @@ interface ComposerProps {
 	plainBody?: string;
 	mode?: ComposeBodyMode;
 	saveStatus?: ComposeSaveStatus;
-	sending?: boolean;
-	canSend?: boolean;
-	unavailableReason?: string;
-	onUnavailable?: (reason: string) => void;
+	send?: ComposeSendState;
+	onBlocked?: (reason: string) => void;
 	onSend?: () => void;
 	smtpMissing?: boolean;
 	quoted?: string;
 	quotedSender?: string;
+	/** Renders the skeleton the app shows while the body's chunk loads. */
+	bodyLoading?: boolean;
+	collapsedHeader?: boolean;
 }
 
 const Composer = ({
@@ -92,14 +96,14 @@ const Composer = ({
 	plainBody = DEFAULT_PLAIN_BODY,
 	mode = "rich",
 	saveStatus = "idle",
-	sending = false,
-	canSend = true,
-	unavailableReason,
-	onUnavailable,
+	send = { status: "ready" },
+	onBlocked = () => undefined,
 	onSend = () => undefined,
 	smtpMissing = false,
 	quoted,
 	quotedSender,
+	bodyLoading = false,
+	collapsedHeader = false,
 }: ComposerProps) => {
 	const [toAddresses, setToAddresses] = useState(to);
 	const [ccAddresses, setCcAddresses] = useState<AddressEntry[]>([]);
@@ -108,6 +112,7 @@ const Composer = ({
 	const [showBcc, setShowBcc] = useState(false);
 	const [subjectValue, setSubjectValue] = useState(subject);
 	const [bodyMode, setBodyMode] = useState<ComposeBodyMode>(mode);
+	const [collapsed, setCollapsed] = useState(collapsedHeader);
 
 	return (
 		<ComposeFormShell
@@ -118,6 +123,8 @@ const Composer = ({
 			}
 			header={
 				<ComposeHeader
+					collapsed={collapsed}
+					onExpand={() => setCollapsed(false)}
 					summary={composeHeaderSummary({
 						to: toAddresses,
 						cc: ccAddresses,
@@ -168,26 +175,28 @@ const Composer = ({
 			}
 			actionBar={
 				<ComposeActionBar
+					send={send}
 					onSend={onSend}
+					onBlocked={onBlocked}
 					onDiscard={() => undefined}
-					sending={sending}
-					canSend={canSend}
 					saveStatus={saveStatus}
-					unavailableReason={unavailableReason}
-					onUnavailable={onUnavailable}
 				/>
 			}
 		>
-			<ComposeBody
-				mode={bodyMode}
-				onModeChange={setBodyMode}
-				initialHtml={body}
-				initialText={plainBody}
-				onChange={() => undefined}
-				onConversionError={() => undefined}
-				languages={ACCOUNT_LANGUAGES}
-				onLanguageChange={() => undefined}
-			/>
+			{bodyLoading ? (
+				<ComposeBodySkeleton />
+			) : (
+				<ComposeBody
+					mode={bodyMode}
+					onModeChange={setBodyMode}
+					initialHtml={body}
+					initialText={plainBody}
+					onChange={() => undefined}
+					onConversionError={() => undefined}
+					languages={ACCOUNT_LANGUAGES}
+					onLanguageChange={() => undefined}
+				/>
+			)}
 		</ComposeFormShell>
 	);
 };
@@ -266,13 +275,49 @@ export const SaveFailed: Story = {
 /** Mid-send: the button reports it and refuses a second press. */
 export const Sending: Story = {
 	render: () => (
-		<MailShell {...mailbox} reading={<Composer sending saveStatus="saved" />} />
+		<MailShell
+			{...mailbox}
+			reading={<Composer send={{ status: "sending" }} saveStatus="saved" />}
+		/>
+	),
+};
+
+/**
+ * The body's chunk has not arrived yet. The header, the banner and the action
+ * bar are already live around it.
+ */
+export const BodyLoading: Story = {
+	name: "The body is still loading",
+	render: () => <MailShell {...mailbox} reading={<Composer bodyLoading />} />,
+};
+
+/**
+ * The keyboard is up on a phone. The header gives its rows to the writing
+ * surface and keeps one line — and that line is the way back to them.
+ */
+export const MobileKeyboardUp: Story = {
+	name: "Mobile — keyboard up, header collapsed",
+	parameters: phoneParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<MailShell
+			{...mailbox}
+			width={PHONE_WIDTH}
+			overlay={
+				<>
+					<div className="absolute inset-0 z-40 bg-black/40" />
+					<div className="absolute inset-x-0 bottom-0 z-50 h-[60%] overflow-hidden rounded-t-lg bg-canvas">
+						<Composer collapsedHeader saveStatus="saved" />
+					</div>
+				</>
+			}
+		/>
 	),
 };
 
 /**
  * SMTP not configured: Send is not greyed out. It stays pressable and says why
- * nothing left, and the banner above carries the way to fix it.
+ * nothing left, in the words the banner above it already used.
  */
 export const SendUnavailable: Story = {
 	render: () => (
@@ -281,8 +326,7 @@ export const SendUnavailable: Story = {
 			reading={
 				<Composer
 					smtpMissing
-					canSend={false}
-					unavailableReason="Add an SMTP server to this account to send"
+					send={{ status: "blocked", reason: SMTP_MISSING_MESSAGE }}
 				/>
 			}
 		/>
@@ -290,15 +334,14 @@ export const SendUnavailable: Story = {
 };
 
 /**
- * Send explains rather than dies. Pressing it with no SMTP server reports the
- * reason and sends nothing — a dead grey button leaves the user guessing.
+ * Send explains rather than dies. Every refusal names itself — a message with
+ * nobody to send it to used to produce nothing at all.
  */
 export const SendExplainsItself: StoryObj<typeof Composer> = {
 	args: {
-		smtpMissing: true,
-		canSend: false,
-		unavailableReason: "Add an SMTP server to this account to send",
-		onUnavailable: fn(),
+		to: [],
+		send: { status: "blocked", reason: "Add at least one recipient." },
+		onBlocked: fn(),
 		onSend: fn(),
 	},
 	render: (args) => (
@@ -308,12 +351,9 @@ export const SendExplainsItself: StoryObj<typeof Composer> = {
 	),
 	play: async ({ args, canvasElement }) => {
 		const canvas = within(canvasElement);
-		await expect(
-			canvas.getByTestId("compose-smtp-missing-banner"),
-		).toBeVisible();
 		await userEvent.click(canvas.getByRole("button", { name: "Send" }));
-		await expect(args.onUnavailable).toHaveBeenCalledWith(
-			"Add an SMTP server to this account to send",
+		await expect(args.onBlocked).toHaveBeenCalledWith(
+			"Add at least one recipient.",
 		);
 		await expect(args.onSend).not.toHaveBeenCalled();
 	},

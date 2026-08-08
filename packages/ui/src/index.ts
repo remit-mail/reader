@@ -129,12 +129,14 @@ export {
 	ComposeActionBar,
 	type ComposeActionBarProps,
 	type ComposeSaveStatus,
+	type ComposeSendState,
 } from "./components/compose-action-bar.js";
 export {
 	type AddressEntry,
 	ComposeAddressField,
 	type ComposeAddressFieldProps,
 } from "./components/compose-address-field.js";
+export { ComposeBodySkeleton } from "./components/compose-body-skeleton.js";
 export {
 	ComposeFormShell,
 	type ComposeFormShellProps,
@@ -153,6 +155,7 @@ export {
 export {
 	ComposeSmtpMissingBanner,
 	type ComposeSmtpMissingBannerProps,
+	SMTP_MISSING_MESSAGE,
 } from "./components/compose-smtp-missing-banner.js";
 export {
 	ComposeSubjectField,

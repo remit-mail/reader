@@ -5,10 +5,10 @@ import { renderToString } from "react-dom/server";
 import { ComposeActionBar } from "./compose-action-bar.js";
 
 const baseProps = {
+	send: { status: "ready" } as const,
 	onSend: () => undefined,
+	onBlocked: () => undefined,
 	onDiscard: () => undefined,
-	sending: false,
-	canSend: true,
 };
 
 describe("ComposeActionBar", () => {
@@ -23,8 +23,7 @@ describe("ComposeActionBar", () => {
 		const html = renderToString(
 			createElement(ComposeActionBar, {
 				...baseProps,
-				canSend: false,
-				unavailableReason: "SMTP not configured",
+				send: { status: "blocked", reason: "SMTP not configured" },
 			}),
 		);
 		assert.match(html, /Send/);
@@ -34,7 +33,10 @@ describe("ComposeActionBar", () => {
 
 	it("uses aria-busy while sending", () => {
 		const html = renderToString(
-			createElement(ComposeActionBar, { ...baseProps, sending: true }),
+			createElement(ComposeActionBar, {
+				...baseProps,
+				send: { status: "sending" },
+			}),
 		);
 		assert.match(html, /aria-busy="true"/);
 		assert.doesNotMatch(html, /disabled=""/);
