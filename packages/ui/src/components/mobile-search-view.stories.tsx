@@ -353,7 +353,7 @@ export const NothingToConvert: Story = {
 			initialValue="has:attachment"
 			sections={resultSections}
 			preset="inbox"
-			makeFilterBlockedReason="Add a sender or words to filter on"
+			makeFilterBlockedReason="Has attachment isn't a filter condition — add a sender or words to filter on"
 		/>
 	),
 };

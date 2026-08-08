@@ -6,6 +6,7 @@ import {
 	DROPPED_SEMANTIC_COPY,
 	droppedFacetsCopy,
 	hasConversionNotice,
+	makeFilterBlockedCopy,
 	scopedOutCopy,
 } from "./search-conversion.js";
 import { SearchConversionNoticeView } from "./search-conversion-notice.js";
@@ -47,6 +48,29 @@ describe("search-conversion copy", () => {
 		assert.equal(hasConversionNotice({ scopedOutFolder: "Archive" }), true);
 		assert.equal(hasConversionNotice({ droppedFacets: ["Unread"] }), true);
 		assert.equal(hasConversionNotice({ droppedSemantic: true }), true);
+	});
+
+	it("names the facets a chip-composed query is made of, not just the gap", () => {
+		const copy = makeFilterBlockedCopy(["Unread", "Category: Newsletter"]);
+		assert.match(
+			copy,
+			/Unread and Category: Newsletter aren't filter conditions/,
+		);
+		assert.match(copy, /add a sender or words to filter on/);
+	});
+
+	it("reads singular for one facet", () => {
+		assert.match(
+			makeFilterBlockedCopy(["Unread"]),
+			/^Unread isn't a filter condition — /,
+		);
+	});
+
+	it("asks for what is missing when no facet is what is in the way", () => {
+		assert.equal(
+			makeFilterBlockedCopy([]),
+			"Add a sender or words to filter on",
+		);
 	});
 });
 

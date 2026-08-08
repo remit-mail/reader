@@ -45,6 +45,7 @@ import {
 	isConvertible,
 	MakeFilterAction,
 	MobileSearchView,
+	makeFilterBlockedCopy,
 	SearchBar,
 	type SearchCaretRequest,
 	type SearchFieldSuggest,
@@ -368,7 +369,9 @@ export function MailListHeader({
 				},
 				blockedReason: isConvertible(conversion)
 					? undefined
-					: "Add a sender or words to filter on",
+					: makeFilterBlockedCopy(
+							conversion.droppedFacets.map((facet) => facet.label),
+						),
 			}
 		: undefined;
 	// Handed to the bar rather than rendered here: the bar knows whether rows
@@ -484,6 +487,7 @@ export function MailListHeader({
 						aria-label="Close search"
 						className="shrink-0"
 					/>
+					<FilterToggle />
 				</>
 			),
 		}),
