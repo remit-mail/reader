@@ -90,7 +90,9 @@ export function matchesBriefFilters(
  * The attribute chips are either this component's own or entirely the
  * consumer's. A consumer narrowing the same rows on a second surface (the phone
  * search takeover) holds the set so both surfaces answer to one selection, and
- * takes every control over it with the set.
+ * takes every control over it with the set. `onClearFilters` is then the whole
+ * of Clear, category scope included — one handler reading one state, rather
+ * than two reading the same one and racing to write it.
  */
 export type BriefFilterControl =
 	| {
@@ -236,11 +238,11 @@ export function BriefSections({
 	const sheetFilters = briefFilterChips;
 
 	const clearFilters = () => {
-		onSelectBriefCategory?.("all");
 		if (onClearFilters) {
 			onClearFilters();
 			return;
 		}
+		onSelectBriefCategory?.("all");
 		setOwnFilters(new Set());
 	};
 

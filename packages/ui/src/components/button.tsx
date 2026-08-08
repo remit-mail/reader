@@ -2,6 +2,7 @@ import type {
 	AnchorHTMLAttributes,
 	ButtonHTMLAttributes,
 	ReactNode,
+	Ref,
 } from "react";
 import { cn } from "../lib/cn.js";
 
@@ -13,6 +14,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 	size?: Size;
 	/** Optional leading icon (lucide-react element). */
 	icon?: ReactNode;
+	ref?: Ref<HTMLButtonElement>;
 }
 
 const base =
@@ -41,11 +43,13 @@ export function Button({
 	icon,
 	className,
 	children,
+	ref,
 	...props
 }: ButtonProps) {
 	return (
 		<button
 			type="button"
+			ref={ref}
 			className={cn(base, variants[variant], sizes[size], className)}
 			{...props}
 		>

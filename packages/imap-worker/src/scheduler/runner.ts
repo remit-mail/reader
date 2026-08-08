@@ -4,7 +4,9 @@ import { getClient } from "@remit/backend/client";
 import { createLogger } from "@remit/logger-lambda";
 import { clearHeartbeats, createHeartbeat } from "@remit/sqs-client/heartbeat";
 import { createQueueProducer } from "@remit/sqs-client/producer";
+
 import { env } from "expect-env";
+import { buildAttachmentSweep } from "./attachment-sweep.js";
 import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
 import { runSchedulerLoop } from "./loop.js";
 import { runSchedulerTick } from "./run-tick.js";
@@ -66,7 +68,8 @@ const runLoop = async (): Promise<void> => {
 	};
 
 	await clearHeartbeats().catch(onClearError);
-	const { account } = await getClient();
+	const client = await getClient();
+	const { account } = client;
 	await runSchedulerLoop({
 		tick: runSchedulerTick,
 		tickDeps: {
@@ -76,6 +79,7 @@ const runLoop = async (): Promise<void> => {
 			log,
 			tickIntervalMs,
 			offlineIntervalMs,
+			sweepAttachments: buildAttachmentSweep(client, log),
 		},
 		heartbeat: createHeartbeat("tick"),
 		onHeartbeatError: onBeatError,

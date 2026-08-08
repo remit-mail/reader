@@ -1,24 +1,30 @@
-import { Button, inboxFilterConfig } from "@remit/ui";
 import {
-	type ComposeBodyMode,
-	ComposeModeToggle,
-	PlainTextEditor,
-	RichTextEditor,
-} from "@remit/ui/rich-text";
+	type AddressEntry,
+	ComposeActionBar,
+	ComposeAddressField,
+	ComposeFormShell,
+	ComposeHeader,
+	type ComposeSaveStatus,
+	ComposeSmtpMissingBanner,
+	ComposeSubjectField,
+	composeHeaderSummary,
+	inboxFilterConfig,
+	QuotedText,
+} from "@remit/ui";
+import { ComposeBody, type ComposeBodyMode } from "@remit/ui/rich-text";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Loader2, Send, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { expect, fn, userEvent, within } from "storybook/test";
 import { allThreads } from "../fixtures/workspace.js";
 import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
 import { MailShell } from "../screens/mail-shell.js";
 
 /**
- * Design source for the compose surface (#788). The live `ComposeForm` is
- * heavily wired (react-query mutations, draft autosave); these stories render
- * the presentational shell around the real editor, at the three geometries it
- * ships in. The desktop Send button was reported clipped off the bottom of the
- * form — the Full story keeps the action bar pinned in view so a baseline
- * catches a regression.
+ * The compose surface (#788), assembled from the components the app assembles
+ * it from: the shell, the header, the writing surface and the action bar are
+ * all the shipped ones, so a control that changes there changes here. What the
+ * live `ComposeForm` adds around this is the wiring — the draft autosave, the
+ * send mutation and the account query — not the surface.
  *
  * Compose is a surface inside the app, not beside it: on desktop it takes the
  * reading pane over while the list and the top bar stay put, and on the phone
@@ -33,8 +39,6 @@ export default meta;
 
 type Story = StoryObj;
 
-type SaveStatus = "idle" | "saving" | "saved" | "error";
-
 const mailbox = {
 	selectedNavId: "mbx_personal_inbox",
 	listTitle: "Inbox",
@@ -42,69 +46,6 @@ const mailbox = {
 	sections: [{ id: "inbox", threads: allThreads }],
 	preset: inboxFilterConfig(),
 };
-
-function SaveStatusIndicator({ status }: { status: SaveStatus }) {
-	if (status === "saving")
-		return <span className="animate-pulse text-xs text-fg-muted">Saving…</span>;
-	if (status === "saved")
-		return <span className="text-xs text-fg-muted">Draft saved</span>;
-	if (status === "error")
-		return <span className="text-xs text-danger">Save failed</span>;
-	return null;
-}
-
-function ActionBar({
-	isSending = false,
-	canSend = true,
-	saveStatus = "idle",
-	disabledReason,
-}: {
-	isSending?: boolean;
-	canSend?: boolean;
-	saveStatus?: SaveStatus;
-	disabledReason?: string;
-}) {
-	return (
-		<div className="flex items-center justify-between border-t border-line px-3 py-2">
-			<div className="flex items-center gap-3">
-				<Button
-					variant="primary"
-					size="sm"
-					icon={
-						isSending ? (
-							<Loader2 className="size-4 animate-spin" />
-						) : (
-							<Send className="size-4" />
-						)
-					}
-					onClick={() => undefined}
-					title={disabledReason}
-				>
-					{isSending ? "Sending…" : "Send"}
-				</Button>
-				<SaveStatusIndicator status={saveStatus} />
-				{!canSend && disabledReason && (
-					<span className="text-xs text-fg-muted">{disabledReason}</span>
-				)}
-			</div>
-			<Button
-				variant="ghost"
-				size="sm"
-				icon={<Trash2 className="size-4" />}
-				aria-label="Discard draft"
-			/>
-		</div>
-	);
-}
-
-function Field({ label, value }: { label: string; value: string }) {
-	return (
-		<div className="flex items-baseline gap-2 border-b border-line px-3 py-2">
-			<span className="w-12 shrink-0 text-xs text-fg-subtle">{label}</span>
-			<span className="min-w-0 flex-1 truncate text-sm text-fg">{value}</span>
-		</div>
-	);
-}
 
 const DEFAULT_BODY =
 	"<p>Thanks — that works for me. I'll send the deck tomorrow.</p>";
@@ -117,60 +58,144 @@ const DEFAULT_PLAIN_BODY = [
 	"| EMEA | 412 |",
 ].join("\n");
 
-/**
- * The compose body carries the mode toggle at the right of its toolbar, and the
- * two surfaces it swaps between. Both are the components the app ships.
- */
-function ComposeBody({ mode, body }: { mode: ComposeBodyMode; body: string }) {
-	const [current, setCurrent] = useState<ComposeBodyMode>(mode);
-	const [text, setText] = useState(DEFAULT_PLAIN_BODY);
-	const toggle = (
-		<ComposeModeToggle
-			mode={current}
-			onToggle={() => setCurrent(current === "plain" ? "rich" : "plain")}
-		/>
-	);
+const ACCOUNT_LANGUAGES = ["en", "nl", "de"];
 
-	if (current === "plain") {
-		return (
-			<PlainTextEditor value={text} onChange={setText} trailing={toggle} />
-		);
-	}
-	return <RichTextEditor initialHtml={body} trailing={toggle} />;
-}
+const FromRow = ({ email }: { email: string }) => (
+	<div className="flex items-start gap-2">
+		{/* biome-ignore lint/a11y/noLabelWithoutControl: decorative label for a read-only value, not a form control */}
+		<label className="text-sm text-fg-muted shrink-0 w-12 pt-1.5">From:</label>
+		<div className="text-sm py-1.5">{email}</div>
+	</div>
+);
 
-function ComposeShell({
-	to = "ada@example.com",
-	subject = "Re: Q3 planning",
-	body = DEFAULT_BODY,
-	mode = "rich",
-	actionBar,
-}: {
-	to?: string;
+interface ComposerProps {
+	to?: AddressEntry[];
 	subject?: string;
 	body?: string;
+	plainBody?: string;
 	mode?: ComposeBodyMode;
-	actionBar: React.ReactNode;
-}) {
-	return (
-		<div className="flex h-full w-full min-h-0 flex-col bg-surface">
-			<Field label="To" value={to} />
-			<Field label="Subject" value={subject} />
-			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-				<ComposeBody mode={mode} body={body} />
-			</div>
-			{actionBar}
-		</div>
-	);
+	saveStatus?: ComposeSaveStatus;
+	sending?: boolean;
+	canSend?: boolean;
+	unavailableReason?: string;
+	onUnavailable?: (reason: string) => void;
+	onSend?: () => void;
+	smtpMissing?: boolean;
+	quoted?: string;
+	quotedSender?: string;
 }
+
+const Composer = ({
+	to = [{ email: "ada@example.com", displayName: "Ada Lovelace" }],
+	subject = "Re: Q3 planning",
+	body = DEFAULT_BODY,
+	plainBody = DEFAULT_PLAIN_BODY,
+	mode = "rich",
+	saveStatus = "idle",
+	sending = false,
+	canSend = true,
+	unavailableReason,
+	onUnavailable,
+	onSend = () => undefined,
+	smtpMissing = false,
+	quoted,
+	quotedSender,
+}: ComposerProps) => {
+	const [toAddresses, setToAddresses] = useState(to);
+	const [ccAddresses, setCcAddresses] = useState<AddressEntry[]>([]);
+	const [bccAddresses, setBccAddresses] = useState<AddressEntry[]>([]);
+	const [showCc, setShowCc] = useState(false);
+	const [showBcc, setShowBcc] = useState(false);
+	const [subjectValue, setSubjectValue] = useState(subject);
+	const [bodyMode, setBodyMode] = useState<ComposeBodyMode>(mode);
+
+	return (
+		<ComposeFormShell
+			banner={
+				smtpMissing ? (
+					<ComposeSmtpMissingBanner onConfigure={() => undefined} />
+				) : undefined
+			}
+			header={
+				<ComposeHeader
+					summary={composeHeaderSummary({
+						to: toAddresses,
+						cc: ccAddresses,
+						bcc: bccAddresses,
+						subject: subjectValue,
+					})}
+					from={<FromRow email="alice@northwind.example" />}
+					to={
+						<ComposeAddressField
+							label="To"
+							addresses={toAddresses}
+							onChange={setToAddresses}
+							placeholder="Recipients"
+						/>
+					}
+					cc={
+						showCc ? (
+							<ComposeAddressField
+								label="Cc"
+								addresses={ccAddresses}
+								onChange={setCcAddresses}
+							/>
+						) : undefined
+					}
+					bcc={
+						showBcc ? (
+							<ComposeAddressField
+								label="Bcc"
+								addresses={bccAddresses}
+								onChange={setBccAddresses}
+							/>
+						) : undefined
+					}
+					subject={
+						<ComposeSubjectField
+							value={subjectValue}
+							onChange={setSubjectValue}
+						/>
+					}
+					onShowCc={() => setShowCc(true)}
+					onShowBcc={() => setShowBcc(true)}
+				/>
+			}
+			quoted={
+				quoted ? (
+					<QuotedText text={quoted} senderName={quotedSender} />
+				) : undefined
+			}
+			actionBar={
+				<ComposeActionBar
+					onSend={onSend}
+					onDiscard={() => undefined}
+					sending={sending}
+					canSend={canSend}
+					saveStatus={saveStatus}
+					unavailableReason={unavailableReason}
+					onUnavailable={onUnavailable}
+				/>
+			}
+		>
+			<ComposeBody
+				mode={bodyMode}
+				onModeChange={setBodyMode}
+				initialHtml={body}
+				initialText={plainBody}
+				onChange={() => undefined}
+				onConversionError={() => undefined}
+				languages={ACCOUNT_LANGUAGES}
+				onLanguageChange={() => undefined}
+			/>
+		</ComposeFormShell>
+	);
+};
 
 /** Full-page compose (desktop). The action bar stays pinned, never clipped. */
 export const Full: Story = {
 	render: () => (
-		<MailShell
-			{...mailbox}
-			reading={<ComposeShell actionBar={<ActionBar saveStatus="saved" />} />}
-		/>
+		<MailShell {...mailbox} reading={<Composer saveStatus="saved" />} />
 	),
 };
 
@@ -181,11 +206,12 @@ export const Full: Story = {
  */
 export const Inline: Story = {
 	render: () => (
-		<div className="mx-auto mt-8 h-[420px] w-[640px] overflow-hidden rounded-md border border-line">
-			<ComposeShell
+		<div className="mx-auto mt-8 h-[460px] w-[640px] overflow-hidden rounded-md border border-line">
+			<Composer
 				subject="Re: Lunch Thursday?"
 				body="<p>Sounds good. See you at 12:30.</p>"
-				actionBar={<ActionBar saveStatus="idle" />}
+				quoted="Are we still on for Thursday? I can do 12:30."
+				quotedSender="Ada Lovelace"
 			/>
 		</div>
 	),
@@ -206,7 +232,7 @@ export const MobileComposeSheet: Story = {
 				<>
 					<div className="absolute inset-0 z-40 bg-black/40" />
 					<div className="absolute inset-x-0 bottom-0 z-50 h-[95%] overflow-hidden rounded-t-lg bg-canvas">
-						<ComposeShell actionBar={<ActionBar saveStatus="saving" />} />
+						<Composer saveStatus="saving" />
 					</div>
 				</>
 			}
@@ -222,31 +248,73 @@ export const PlainText: Story = {
 	render: () => (
 		<MailShell
 			{...mailbox}
+			reading={<Composer mode="plain" saveStatus="saved" />}
+		/>
+	),
+};
+
+/**
+ * The autosave failed. The status says so where "Draft saved" would be, and
+ * the banner the app raises alongside it carries the detail (#682).
+ */
+export const SaveFailed: Story = {
+	render: () => (
+		<MailShell {...mailbox} reading={<Composer saveStatus="error" />} />
+	),
+};
+
+/** Mid-send: the button reports it and refuses a second press. */
+export const Sending: Story = {
+	render: () => (
+		<MailShell {...mailbox} reading={<Composer sending saveStatus="saved" />} />
+	),
+};
+
+/**
+ * SMTP not configured: Send is not greyed out. It stays pressable and says why
+ * nothing left, and the banner above carries the way to fix it.
+ */
+export const SendUnavailable: Story = {
+	render: () => (
+		<MailShell
+			{...mailbox}
 			reading={
-				<ComposeShell
-					mode="plain"
-					actionBar={<ActionBar saveStatus="saved" />}
+				<Composer
+					smtpMissing
+					canSend={false}
+					unavailableReason="Add an SMTP server to this account to send"
 				/>
 			}
 		/>
 	),
 };
 
-/** SMTP not configured: Send no-ops and explains, never a dead grey button. */
-export const SendUnavailable: Story = {
-	render: () => (
-		<MailShell
-			{...mailbox}
-			reading={
-				<ComposeShell
-					actionBar={
-						<ActionBar
-							canSend={false}
-							disabledReason="Add an SMTP server to this account to send"
-						/>
-					}
-				/>
-			}
-		/>
+/**
+ * Send explains rather than dies. Pressing it with no SMTP server reports the
+ * reason and sends nothing — a dead grey button leaves the user guessing.
+ */
+export const SendExplainsItself: StoryObj<typeof Composer> = {
+	args: {
+		smtpMissing: true,
+		canSend: false,
+		unavailableReason: "Add an SMTP server to this account to send",
+		onUnavailable: fn(),
+		onSend: fn(),
+	},
+	render: (args) => (
+		<div className="h-[560px] w-[560px] border border-line bg-canvas">
+			<Composer {...args} />
+		</div>
 	),
+	play: async ({ args, canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			canvas.getByTestId("compose-smtp-missing-banner"),
+		).toBeVisible();
+		await userEvent.click(canvas.getByRole("button", { name: "Send" }));
+		await expect(args.onUnavailable).toHaveBeenCalledWith(
+			"Add an SMTP server to this account to send",
+		);
+		await expect(args.onSend).not.toHaveBeenCalled();
+	},
 };

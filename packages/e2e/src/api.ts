@@ -295,6 +295,18 @@ export class ApiClient {
 	}
 
 	/**
+	 * The same PATCH the settings panel makes. A spec that needs an account
+	 * configured a particular way — writing languages, a signature — sets it
+	 * here rather than clicking through settings on the way to its own subject.
+	 */
+	updateAccount(
+		accountId: string,
+		body: Record<string, unknown>,
+	): Promise<{ accountId: string }> {
+		return this.json("PATCH", `/accounts/${accountId}`, body);
+	}
+
+	/**
 	 * What the deployment believes about its own sync. A spec waiting on synced
 	 * state reads this rather than only the thing it wants to see appear: it
 	 * carries whether the sync ran at all, so a wait that does not settle can say

@@ -1,8 +1,8 @@
-import type { RichTextValue } from "@remit/ui/rich-text";
-import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
-import { expect, fn, userEvent, within } from "storybook/test";
-import { ComposeBody, type ConversionFailure } from "./ComposeBody";
+import { expect, fn, userEvent, waitFor, within } from "storybook/test";
+import { ComposeBody, type ConversionFailure } from "./compose-body.js";
+import type { RichTextValue } from "./rich-text-value.js";
 
 const RICH_DOCUMENT = [
 	"<h2>Quarterly numbers</h2>",
@@ -24,12 +24,25 @@ const PLAIN_MARKDOWN = [
 	"| EMEA | 412 |",
 ].join("\n");
 
+const DUTCH_DOCUMENT =
+	"<p>Beste Anna, de vergadering van donderdag gaat niet door. Ik stuur je morgen een nieuw voorstel voor de planning.</p>";
+
+const DUTCH_PROSE =
+	"Beste Anna, de vergadering van donderdag gaat niet door. Ik stuur je morgen een nieuw voorstel.";
+
+/** The languages a Dutch-writing account has configured, most-used first. */
+const LANGUAGES = ["nl", "en", "de"];
+
+const noop = () => undefined;
+
 const Harness = ({
 	initialHtml = "",
 	initialText = "",
 	startIn = "rich",
 	onConversionError = () => undefined,
 	conversions,
+	languages = LANGUAGES,
+	quoted,
 }: {
 	initialHtml?: string;
 	initialText?: string;
@@ -39,6 +52,8 @@ const Harness = ({
 		toPlain: (value: RichTextValue) => string;
 		toRich: (text: string) => string;
 	};
+	languages?: string[];
+	quoted?: string;
 }) => {
 	const [mode, setMode] = useState<"rich" | "plain">(startIn);
 	return (
@@ -51,9 +66,28 @@ const Harness = ({
 				onChange={() => undefined}
 				onConversionError={onConversionError}
 				conversions={conversions}
+				languages={languages}
+				onLanguageChange={noop}
 			/>
+			{quoted && (
+				<blockquote
+					data-testid="compose-quoted"
+					lang="fr"
+					className="border-l-2 border-line px-3 py-2 text-sm text-fg-muted"
+				>
+					{quoted}
+				</blockquote>
+			)}
 		</div>
 	);
+};
+
+const chipOf = (canvasElement: HTMLElement): HTMLElement => {
+	const chip = canvasElement.querySelector<HTMLElement>(
+		"[data-testid=compose-language-chip]",
+	);
+	if (!chip) throw new Error("the language chip is not mounted");
+	return chip;
 };
 
 /**
@@ -62,7 +96,7 @@ const Harness = ({
  * `ComposeForm` adds the recipients, the autosave and the send around this.
  */
 const meta: Meta<typeof Harness> = {
-	title: "Screens/WebClient/ComposeModes",
+	title: "Mail/ComposeBody",
 	component: Harness,
 	parameters: { layout: "centered" },
 };
@@ -270,5 +304,160 @@ export const ReachableFromTheBody: Story = {
 
 		await userEvent.keyboard("{Enter}");
 		await expect(plainSurface(canvasElement)).not.toBeNull();
+	},
+};
+
+/**
+ * Detection runs over the body against the account's own languages and writes
+ * the result onto the writing surface. Firefox picks a dictionary from that tag
+ * among the ones the user installed; Chrome and Safari ignore it, and nothing
+ * here says otherwise.
+ */
+export const DutchIsDetected: Story = {
+	name: "Dutch prose sets the chip",
+	args: { initialHtml: DUTCH_DOCUMENT },
+	play: async ({ canvasElement }) => {
+		await waitFor(
+			async () => {
+				await expect(chipOf(canvasElement)).toHaveTextContent("NL");
+			},
+			{ timeout: 5000 },
+		);
+		await expect(
+			canvasElement.querySelector("[data-testid=compose-body]"),
+		).toHaveAttribute("lang", "nl");
+	},
+};
+
+/** Under twenty characters detection is a coin toss, so the account default stands. */
+export const TooShortHoldsTheDefault: Story = {
+	name: "Nine characters hold the default",
+	args: { startIn: "plain" },
+	play: async ({ canvasElement }) => {
+		const textarea = plainSurface(canvasElement);
+		if (!textarea) throw new Error("the plain surface is not mounted");
+
+		await userEvent.click(textarea);
+		await userEvent.keyboard("Hi Sophie");
+
+		await new Promise((resolve) => setTimeout(resolve, 800));
+		await expect(chipOf(canvasElement)).toHaveTextContent("NL");
+	},
+};
+
+/**
+ * The first manual pick freezes the language for the rest of the message.
+ * Detection does not argue with a choice the user made — a tag that moved back
+ * under the caret would be a control that undoes itself.
+ */
+export const ManualPickSticks: Story = {
+	name: "A picked language survives more typing",
+	args: { startIn: "plain" },
+	play: async ({ canvasElement }) => {
+		const textarea = plainSurface(canvasElement);
+		if (!textarea) throw new Error("the plain surface is not mounted");
+
+		await userEvent.click(textarea);
+		await userEvent.keyboard(DUTCH_PROSE);
+		await waitFor(
+			async () => {
+				await expect(chipOf(canvasElement)).toHaveTextContent("NL");
+			},
+			{ timeout: 5000 },
+		);
+
+		await userEvent.click(chipOf(canvasElement));
+		await userEvent.click(
+			within(canvasElement).getByRole("menuitemradio", { name: /English/ }),
+		);
+		await expect(chipOf(canvasElement)).toHaveTextContent("EN");
+
+		await userEvent.click(textarea);
+		await userEvent.keyboard(" Groetjes, Matthijs.");
+		await new Promise((resolve) => setTimeout(resolve, 800));
+		await expect(chipOf(canvasElement)).toHaveTextContent("EN");
+		await expect(textarea).toHaveAttribute("lang", "en");
+	},
+};
+
+/**
+ * Two Shift+Tabs out of the body reach the chip — one still reaches the mode
+ * toggle, where #673 put it. The menu takes focus as it opens and hands it back
+ * to the chip on a pick, so the keyboard never lands somewhere it cannot leave.
+ */
+export const ChipFromTheKeyboard: Story = {
+	name: "Shift+Tab twice reaches the chip",
+	// Short enough that detection declines, so the chip is on the account
+	// default and the arrow key below has a known row to move off.
+	args: { initialHtml: "<p>Hoi.</p>" },
+	play: async ({ canvasElement }) => {
+		const editable = canvasElement.querySelector<HTMLElement>(
+			"[data-testid=compose-body]",
+		);
+		if (!editable) throw new Error("the rich surface is not mounted");
+
+		await userEvent.click(editable);
+		await userEvent.tab({ shift: true });
+		await expect(toggleOf(canvasElement)).toHaveFocus();
+		await userEvent.tab({ shift: true });
+		await expect(chipOf(canvasElement)).toHaveFocus();
+
+		await userEvent.keyboard("{Enter}");
+		await waitFor(async () => {
+			await expect(
+				canvasElement.querySelector("[data-testid=compose-language-menu]"),
+			).not.toBeNull();
+		});
+		await userEvent.keyboard("{ArrowDown}{Enter}");
+
+		await expect(chipOf(canvasElement)).toHaveTextContent("EN");
+		await expect(chipOf(canvasElement)).toHaveFocus();
+		await expect(editable).toHaveAttribute("lang", "en");
+	},
+};
+
+/** The tag follows the message across the mode switch, onto whichever surface is up. */
+export const PlainSurfaceCarriesTheLanguage: Story = {
+	name: "Plain text keeps the same language",
+	args: { initialHtml: DUTCH_DOCUMENT },
+	play: async ({ canvasElement }) => {
+		await waitFor(
+			async () => {
+				await expect(chipOf(canvasElement)).toHaveTextContent("NL");
+			},
+			{ timeout: 5000 },
+		);
+
+		await userEvent.click(toggleOf(canvasElement));
+		const textarea = plainSurface(canvasElement);
+		if (!textarea) throw new Error("the plain surface did not arrive");
+
+		await expect(textarea).toHaveAttribute("lang", "nl");
+		await expect(chipOf(canvasElement)).toHaveTextContent("NL");
+	},
+};
+
+/**
+ * The quoted block a reply is written above is somebody else's text. It lives
+ * outside the editor, so detection never sees it and a French thread answered
+ * in Dutch is tagged Dutch.
+ */
+export const QuotedTextIsNotRead: Story = {
+	name: "A French quote under a Dutch reply",
+	args: {
+		initialHtml: DUTCH_DOCUMENT,
+		quoted:
+			"Bonjour, je vous confirme que la réunion de jeudi est annulée. Je vous propose de la reporter à la semaine prochaine.",
+	},
+	play: async ({ canvasElement }) => {
+		await waitFor(
+			async () => {
+				await expect(chipOf(canvasElement)).toHaveTextContent("NL");
+			},
+			{ timeout: 5000 },
+		);
+		await expect(
+			canvasElement.querySelector("[data-testid=compose-body]"),
+		).toHaveAttribute("lang", "nl");
 	},
 };

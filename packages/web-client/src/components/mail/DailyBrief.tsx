@@ -13,7 +13,9 @@
  * the caret and the sheet, the same shape `MailViewChrome` gives the mailbox and
  * Starred views. The category and the chips narrow the grouped sections
  * themselves, and the phone search takeover reads the same selection, so a
- * filter set on one surface holds on the other.
+ * filter set on one surface holds on the other. Under a query the chips are
+ * terms of that query — see `briefChipFilters` — so what narrows the list is
+ * readable and editable in the search field.
  *
  * Multi-select is the mailbox list's, not a copy of it: the same
  * `ThreadListInteraction` cursor and `useSelection` state, and the same
@@ -39,7 +41,11 @@ import {
 	BriefEmpty,
 	type BriefFilterId,
 	BriefSections,
+	briefChipCategory,
+	briefChipFilters,
 	briefFilterConfig,
+	briefFilterHasTerm,
+	clearBriefFiltersInQuery,
 	FilterPanelProvider,
 	type FilterSheetProps,
 	type FilterSheetSource,
@@ -50,8 +56,10 @@ import {
 	type SearchResult,
 	SelectionTopBar,
 	SpamResultsOffer,
+	setBriefCategoryInQuery,
 	type ThreadRowData,
 	type ThreadSection,
+	toggleBriefFilterInQuery,
 } from "@remit/ui";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -69,6 +77,7 @@ import {
 	useInitialSyncProgress,
 } from "@/hooks/useInitialSyncProgress";
 import { useLabelList } from "@/hooks/useLabels";
+import { useLayoutTier } from "@/hooks/useLayoutTier";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useRefreshControl } from "@/hooks/useRefreshControl";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
@@ -89,6 +98,7 @@ import type { ListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
 import { useMailFreshness } from "@/lib/mail-freshness";
 import { relatedSearchResults, rowToSearchResult } from "@/lib/search-result";
+import { showInlineSearchResults } from "@/lib/search-surface";
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { spamOfferForResults } from "@/lib/spam-offer";
 import {
@@ -394,9 +404,11 @@ export function DailyBrief({
 	onTriageContextChange,
 	onDeleteMessages,
 }: DailyBriefProps) {
-	const { searchQuery, searchInput, resultFolderIndex } = useMailContext();
+	const { searchQuery, searchInput, resultFolderIndex, onSearchChange } =
+		useMailContext();
 	const tokenContext = useSearchTokenContext();
 	const isDesktop = useIsDesktop();
+	const tier = useLayoutTier();
 	const wizard = useSelectionWizard();
 	const navigate = useNavigate();
 
@@ -430,13 +442,53 @@ export function DailyBrief({
 	}, []);
 	const clearFilters = useCallback(() => setActiveFilters(new Set()), []);
 
-	// A query owns the pane: the filter panel and the search's own affordance
-	// narrow the same list from the same place, so the panel stands down for as
-	// long as something is being searched. Its state survives, so clearing the
-	// query brings it back with the same category and chips. The header caret is
-	// gone under a query, and a panel left open with nothing to collapse it is
-	// what makes this load-bearing rather than tidy.
 	const searching = searchInput.trim().length > 0;
+
+	// Under a query the chips and the query are one state: a chip writes its term
+	// into the query — `is:unread`, `has:attachment`, `category:newsletter` — and
+	// a term typed by hand ticks its chip. What narrows the rows is then legible
+	// in the field, editable there, and gone when the term is deleted. The
+	// panel's own set survives a search and comes back with it, and carries the
+	// two chips the vocabulary cannot spell (see `briefChipFilters`).
+	const chipFilters = useMemo(
+		() => briefChipFilters({ query: searchInput, ownFilters: activeFilters }),
+		[searchInput, activeFilters],
+	);
+	const chipCategory = useMemo(
+		() =>
+			briefChipCategory({ query: searchInput, ownCategory: selectedCategory }),
+		[searchInput, selectedCategory],
+	);
+
+	const toggleChip = useCallback(
+		(id: BriefFilterId) => {
+			if (!searching || !briefFilterHasTerm(id)) {
+				toggleFilter(id);
+				return;
+			}
+			const next = toggleBriefFilterInQuery(searchInput, id);
+			if (next !== undefined) onSearchChange(next);
+		},
+		[searching, searchInput, onSearchChange, toggleFilter],
+	);
+
+	const selectChipCategory = useCallback(
+		(category: BriefCategoryFilter) => {
+			if (!searching) {
+				setSelectedCategory(category);
+				return;
+			}
+			onSearchChange(setBriefCategoryInQuery(searchInput, category));
+		},
+		[searching, searchInput, onSearchChange],
+	);
+
+	const clearChips = useCallback(() => {
+		setSelectedCategory("all");
+		setSelectedAccountId("all");
+		clearFilters();
+		if (searching) onSearchChange(clearBriefFiltersInQuery(searchInput));
+	}, [searching, searchInput, onSearchChange, clearFilters]);
 
 	// --- Unified threads query ---
 	const {
@@ -647,11 +699,11 @@ export function DailyBrief({
 			filteredRows
 				.filter(
 					(t) =>
-						(selectedCategory === "all" || t.category === selectedCategory) &&
-						matchesBriefFilters(t, activeFilters),
+						(chipCategory === "all" || t.category === chipCategory) &&
+						matchesBriefFilters(t, chipFilters),
 				)
 				.map((row) => rowToSearchResult(row, resultFolderIndex)),
-		[filteredRows, selectedCategory, activeFilters, resultFolderIndex],
+		[filteredRows, chipCategory, chipFilters, resultFolderIndex],
 	);
 
 	// "Related" (semantic) spans every account here — the brief is the
@@ -688,28 +740,25 @@ export function DailyBrief({
 			filters: preset.filters,
 			sources: preset.sources,
 			sourcesNote: mutedCount > 0 ? `+${mutedCount} muted` : undefined,
-			selectedCategory,
-			activeFilters,
+			selectedCategory: chipCategory,
+			activeFilters: chipFilters,
 			expanded: filterExpanded,
 			onExpandedChange: setFilterExpanded,
 			onSelectCategory: (id: string) =>
-				setSelectedCategory(id as BriefCategoryFilter),
+				selectChipCategory(id as BriefCategoryFilter),
 			onSelectSource: setSelectedAccountId,
-			onToggleFilter: (id: string) => toggleFilter(id as BriefFilterId),
-			onClear: () => {
-				setSelectedCategory("all");
-				setSelectedAccountId("all");
-				clearFilters();
-			},
+			onToggleFilter: (id: string) => toggleChip(id as BriefFilterId),
+			onClear: clearChips,
 		};
 	}, [
 		accountSources,
 		mutedCount,
-		selectedCategory,
-		activeFilters,
+		chipCategory,
+		chipFilters,
 		filterExpanded,
-		toggleFilter,
-		clearFilters,
+		toggleChip,
+		selectChipCategory,
+		clearChips,
 	]);
 
 	// The brief is genuinely empty (caught up) only when nothing is narrowing the
@@ -753,6 +802,18 @@ export function DailyBrief({
 	// rather than opening nothing over a skeleton or an empty state.
 	const showsRows = !isLoading && !isError && !caughtUp;
 
+	// A search does not take the panel down — the chips compose into the query
+	// rather than competing with it. The one window where the brief's own body is
+	// not on screen is the two-engine results panel, which owns the pane while a
+	// first query is still being typed; the caret stands down for exactly that,
+	// on the same answer the header swaps the body on.
+	const resultsPanelOwnsBody = showInlineSearchResults({
+		tier,
+		hasLiveInput: searching,
+		hasCommittedQuery: searchQuery.trim().length > 0,
+		bodyRendersCommittedResults: true,
+	});
+
 	const stateBody = showsRows ? (
 		<div className="flex h-full min-h-0 flex-col">
 			{briefSpamOffer && (
@@ -774,18 +835,17 @@ export function DailyBrief({
 			<div className="min-h-0 flex-1">
 				<BriefSections
 					sections={sections}
-					briefCategory={selectedCategory}
+					briefCategory={chipCategory}
 					Row={MessageRow}
 					selectedThreadId={selectedMessageId}
 					onSelectThread={openRow}
-					onSelectBriefCategory={setSelectedCategory}
+					onSelectBriefCategory={selectChipCategory}
 					sources={accountSources}
 					sourcesNote={mutedCount > 0 ? `+${mutedCount} muted` : undefined}
 					onSelectSource={setSelectedAccountId}
-					activeFilters={activeFilters}
-					onToggleFilter={toggleFilter}
-					onClearFilters={clearFilters}
-					hideChrome={searching}
+					activeFilters={chipFilters}
+					onToggleFilter={toggleChip}
+					onClearFilters={clearChips}
 				/>
 			</div>
 		</div>
@@ -822,7 +882,7 @@ export function DailyBrief({
 	// same pane for the same reason — the caret is in the header, the panel is
 	// above the rows.
 	return (
-		<FilterPanelProvider hasSheet={showsRows && !searching}>
+		<FilterPanelProvider hasSheet={showsRows && !resultsPanelOwnsBody}>
 			<ThreadListInteraction
 				selectedMessageId={selectedMessageId}
 				onOpen={openRow}

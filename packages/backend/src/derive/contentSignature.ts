@@ -1,4 +1,8 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import {
+	type SignedPathFailure,
+	signStoragePath,
+	verifyStoragePath,
+} from "@remit/storage-service/signed-path";
 import { usesBetterAuthJwt } from "../data-backend.js";
 
 /**
@@ -20,6 +24,10 @@ import { usesBetterAuthJwt } from "../data-backend.js";
  * valid signature for another account. This is the presigned-URL capability
  * model the export flow already uses: possession of the URL grants access until
  * it expires, bounded by a short TTL.
+ *
+ * The HMAC itself lives in `@remit/storage-service/signed-path`, shared with the
+ * write side (an attachment upload URL) under a different derivation label. This
+ * module is the read side's label, TTL and public shape.
  */
 
 const KEY_DERIVATION_LABEL = "remit-content-url-signing-v1";
@@ -31,28 +39,6 @@ const KEY_DERIVATION_LABEL = "remit-content-url-signing-v1";
  * leaks.
  */
 export const CONTENT_URL_TTL_SECONDS = 3600;
-
-/**
- * Derive a purpose-specific signing subkey from the master secret. Domain
- * separation via a fixed label keeps the content-signing key distinct from the
- * raw better-auth secret, so a compromise of one signing space does not reveal
- * the other. Reusing `BETTER_AUTH_SECRET` as the master means no new secret has
- * to be provisioned on the self-host stack — it is already required there.
- */
-const deriveSigningKey = (masterSecret: string): Buffer =>
-	createHmac("sha256", masterSecret).update(KEY_DERIVATION_LABEL).digest();
-
-const canonicalMessage = (relativePath: string, exp: number): string =>
-	`${relativePath}\n${exp}`;
-
-const computeSignature = (
-	key: Buffer,
-	relativePath: string,
-	exp: number,
-): string =>
-	createHmac("sha256", key)
-		.update(canonicalMessage(relativePath, exp))
-		.digest("base64url");
 
 export interface ContentSignature {
 	exp: number;
@@ -69,10 +55,14 @@ export const createContentSigner = (
 	masterSecret: string,
 	ttlSeconds: number = CONTENT_URL_TTL_SECONDS,
 ): ContentSigner => {
-	const key = deriveSigningKey(masterSecret);
 	return (relativePath) => {
 		const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
-		return { exp, sig: computeSignature(key, relativePath, exp) };
+		return {
+			exp,
+			sig: signStoragePath(masterSecret, KEY_DERIVATION_LABEL, relativePath, [
+				exp,
+			]),
+		};
 	};
 };
 
@@ -96,11 +86,7 @@ export const getContentSigner = (): ContentSigner | undefined => {
 	return createContentSigner(secret);
 };
 
-export type ContentSignatureFailure =
-	| "missing"
-	| "malformed"
-	| "expired"
-	| "bad-signature";
+export type ContentSignatureFailure = SignedPathFailure;
 
 export type ContentSignatureResult =
 	| { valid: true }
@@ -124,16 +110,13 @@ export const verifyContentSignature = (
 	if (!Number.isInteger(exp) || exp <= 0) {
 		return { valid: false, reason: "malformed" };
 	}
-	if (exp < nowSeconds) return { valid: false, reason: "expired" };
 
-	const key = deriveSigningKey(masterSecret);
-	const expected = Buffer.from(computeSignature(key, relativePath, exp));
-	const presented = Buffer.from(sig);
-	if (expected.length !== presented.length) {
-		return { valid: false, reason: "bad-signature" };
-	}
-	if (!timingSafeEqual(expected, presented)) {
-		return { valid: false, reason: "bad-signature" };
-	}
-	return { valid: true };
+	return verifyStoragePath(
+		masterSecret,
+		KEY_DERIVATION_LABEL,
+		relativePath,
+		[exp],
+		sig,
+		nowSeconds,
+	);
 };

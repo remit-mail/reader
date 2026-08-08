@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { expect, fn, userEvent } from "storybook/test";
+import { ComposeLanguageChip } from "./compose-language-chip.js";
 import { ComposeModeToggle } from "./compose-mode-toggle.js";
 import { PlainTextEditor } from "./plain-text-editor.js";
 
@@ -37,16 +38,25 @@ const Surface = ({
 }) => {
 	const [text, setText] = useState(initial);
 	const [mode, setMode] = useState<"rich" | "plain">("plain");
+	const [language, setLanguage] = useState("nl");
 	return (
 		<PlainTextEditor
 			value={text}
 			onChange={setText}
 			onSubmit={onSubmit}
+			lang={language}
 			trailing={
-				<ComposeModeToggle
-					mode={mode}
-					onToggle={() => setMode(mode === "plain" ? "rich" : "plain")}
-				/>
+				<>
+					<ComposeLanguageChip
+						language={language}
+						languages={["nl", "en", "de"]}
+						onSelect={setLanguage}
+					/>
+					<ComposeModeToggle
+						mode={mode}
+						onToggle={() => setMode(mode === "plain" ? "rich" : "plain")}
+					/>
+				</>
 			}
 		/>
 	);

@@ -8,6 +8,7 @@ import type {
 import { ConflictError } from "@remit/data-ports/errors";
 import { OutboxMessageStatus } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
+import type { OutboxAttachmentService } from "./outbox-attachment.js";
 
 interface SendMessageEvent {
 	type: "SEND_MESSAGE";
@@ -29,6 +30,7 @@ const noopLogger: OutboxQueueLogger = {
 
 export interface OutboxQueueConfig {
 	outboxMessageService: IOutboxMessageRepository;
+	outboxAttachmentService: OutboxAttachmentService;
 	accountService: IAccountRepository;
 	sqsSmtpQueueUrl: string;
 	sqsEndpoint?: string;
@@ -76,6 +78,7 @@ const extractDomain = (email: string): string => {
 
 export class OutboxQueueService {
 	private outboxMessageService: IOutboxMessageRepository;
+	private outboxAttachmentService: OutboxAttachmentService;
 	private accountService: IAccountRepository;
 	private sqs: SQSClient;
 	private queueUrl: string;
@@ -84,11 +87,13 @@ export class OutboxQueueService {
 	constructor(config: OutboxQueueConfig) {
 		const {
 			outboxMessageService,
+			outboxAttachmentService,
 			accountService,
 			sqsSmtpQueueUrl,
 			sqsEndpoint,
 		} = config;
 		this.outboxMessageService = outboxMessageService;
+		this.outboxAttachmentService = outboxAttachmentService;
 		this.accountService = accountService;
 		this.queueUrl = sqsSmtpQueueUrl;
 		this.log = config.logger ?? noopLogger;
@@ -260,6 +265,16 @@ export class OutboxQueueService {
 				`This message is already ${existing.status} and can no longer be discarded. Open the Outbox to see where it stands.`,
 			);
 		}
+
+		// Files first, row second. Nothing but this row points at those objects,
+		// so a row deleted ahead of a sweep that then fails leaves bytes no one
+		// can reach; the other order leaves a draft whose files are gone, which
+		// is at least visible. A storage failure aborts the discard outright.
+		await this.outboxAttachmentService.discardAll(
+			accountConfigId,
+			existing.accountId,
+			outboxMessageId,
+		);
 
 		await this.outboxMessageService.delete(accountConfigId, outboxMessageId);
 

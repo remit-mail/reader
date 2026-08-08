@@ -26,6 +26,9 @@ enum AccountSettingName {
   @doc("Account-level mute flag for a single account. Stored per-account: the persisted name is composed as `AccountMuted#<accountId>`. MutedFlag-valued (a rich object).")
   AccountMuted,
 
+  @doc("The BCP 47 language tags a single account writes mail in, most-used first (issue #686). Stored per-account: the persisted name is composed as `AccountComposeLanguages#<accountId>`. StringList-valued. The first entry is the language a new message opens on; the whole list is the candidate set language detection chooses inside, and the menu the composer's language chip offers.")
+  AccountComposeLanguages,
+
   @doc("User-chosen sidebar label for a single mailbox. Stored per-mailbox: the persisted name is composed as `MailboxDisplayName#<mailboxId>`. String-valued.")
   MailboxDisplayName,
 

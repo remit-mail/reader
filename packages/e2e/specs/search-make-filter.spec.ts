@@ -39,7 +39,13 @@ test.use({ viewport: TABLET });
 const UNCOUNTABLE =
 	"Can't count matches — “has the words” reads message bodies, which only a saved rule does.";
 
-const NOTHING_TO_CONVERT = "Add a sender or words to filter on";
+/**
+ * A query of facets alone has nothing to convert, and the reason names the
+ * facets rather than only the gap — the brief's chips write their terms into the
+ * query, so this is the state a user reaches by ticking chips.
+ */
+const NOTHING_TO_CONVERT =
+	"Unread isn't a filter condition — add a sender or words to filter on";
 
 const listHeader = (page: Page): Locator =>
 	page.locator("[data-selection-bar]");

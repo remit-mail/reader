@@ -1,8 +1,8 @@
-import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ConfirmDialog } from "./ConfirmDialog";
+import type { Meta, StoryObj } from "@storybook/react";
+import { ConfirmDialog } from "./confirm-dialog.js";
 
 const meta: Meta<typeof ConfirmDialog> = {
-	title: "Screens/WebClient/ConfirmDialog",
+	title: "Primitives/ConfirmDialog",
 	component: ConfirmDialog,
 	parameters: { layout: "centered" },
 	args: {

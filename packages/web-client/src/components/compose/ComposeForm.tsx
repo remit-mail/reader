@@ -11,10 +11,17 @@ import type {
 import {
 	ComposeActionBar,
 	ComposeFormShell,
+	ComposeHeader,
+	ComposeSubjectField,
+	composeHeaderSummary,
+	defaultComposeLanguages,
 	EMPTY_RICH_TEXT,
+	modeOfDraft,
 	QuotedText,
 	type RichTextValue,
 	sanitizeQuotedHtml,
+	unwrapLanguage,
+	wrapWithLanguage,
 } from "@remit/ui";
 import type { ComposeBodyMode } from "@remit/ui/rich-text";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -23,6 +30,7 @@ import {
 	Suspense,
 	useCallback,
 	useEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -38,10 +46,9 @@ import {
 import type { AddressEntry } from "./AddressField";
 import { AddressField } from "./AddressField";
 import { ComposeSmtpMissingBanner } from "./ComposeSmtpMissingBanner";
-import { modeOfDraft } from "./compose-mode";
 
 const LazyComposeBody = lazy(() =>
-	import("./ComposeBody.js").then((m) => ({ default: m.ComposeBody })),
+	import("@remit/ui/rich-text").then((m) => ({ default: m.ComposeBody })),
 );
 
 const ComposeBodyFallback = () => (
@@ -56,7 +63,6 @@ import { useVisualViewport } from "../../hooks/useVisualViewport.js";
 import type { ComposeMode } from "./ComposeProvider";
 import { useCompose } from "./ComposeProvider";
 import { FromSelector } from "./FromSelector";
-import { SubjectField } from "./SubjectField";
 
 interface ComposeFormProps {
 	mode: ComposeMode;
@@ -166,9 +172,15 @@ const getReferences = (
 const outgoingBody = (
 	bodyMode: ComposeBodyMode,
 	body: RichTextValue,
+	language: string,
 ): { textBody: string | undefined; htmlBody: string | undefined } => ({
 	textBody: body.text || undefined,
-	htmlBody: bodyMode === "plain" ? "" : body.html || undefined,
+	htmlBody:
+		bodyMode === "plain"
+			? ""
+			: body.html
+				? wrapWithLanguage(body.html, language)
+				: undefined,
 });
 
 const isFormEmpty = (
@@ -185,10 +197,10 @@ const isFormEmpty = (
 	body.text.trim() === "";
 
 // ---------------------------------------------------------------------------
-// ComposeHeader — collapsed on mobile when the software keyboard is open
+// WiredComposeHeader — the shared header, with the app's fields in its slots
 // ---------------------------------------------------------------------------
 
-interface ComposeHeaderProps {
+interface WiredComposeHeaderProps {
 	selectedAccountId?: string;
 	onAccountChange: (account: RemitImapAccountResponse) => void;
 	toAddresses: AddressEntry[];
@@ -205,7 +217,7 @@ interface ComposeHeaderProps {
 	setSubject: (v: string) => void;
 }
 
-const ComposeHeader = ({
+const WiredComposeHeader = ({
 	selectedAccountId,
 	onAccountChange,
 	toAddresses,
@@ -220,93 +232,55 @@ const ComposeHeader = ({
 	setShowBcc,
 	subject,
 	setSubject,
-}: ComposeHeaderProps) => {
+}: WiredComposeHeaderProps) => {
 	const isDesktop = useIsDesktop();
 	const { isKeyboardOpen } = useVisualViewport();
-	const collapsed = !isDesktop && isKeyboardOpen;
-
-	if (collapsed) {
-		// Compact single-line summary when the keyboard eats vertical space
-		const chips: string[] = [];
-		if (toAddresses.length > 0)
-			chips.push(
-				`To: ${toAddresses.map((a) => a.displayName ?? a.email).join(", ")}`,
-			);
-		if (ccAddresses.length > 0) chips.push(`Cc: ${ccAddresses.length}`);
-		if (bccAddresses.length > 0) chips.push(`Bcc: ${bccAddresses.length}`);
-		if (subject) chips.push(subject);
-
-		return (
-			<div
-				className="flex items-center gap-2 px-3 py-1.5 border-b border-line overflow-hidden"
-				data-testid="compose-header-collapsed"
-			>
-				<span className="truncate text-xs text-fg-muted">
-					{chips.length > 0 ? chips.join(" · ") : "…"}
-				</span>
-				<span className="shrink-0 inline-flex items-center justify-center rounded bg-surface-sunken px-1.5 py-0.5 text-2xs text-fg-muted">
-					…
-				</span>
-			</div>
-		);
-	}
 
 	return (
-		<div className="space-y-1 px-3 py-2 border-b border-line">
-			<FromSelector
-				selectedAccountId={selectedAccountId}
-				onSelect={onAccountChange}
-			/>
-			<AddressField
-				label="To"
-				addresses={toAddresses}
-				onChange={setToAddresses}
-				placeholder="Recipients"
-			/>
-			{showCc ? (
-				<AddressField
-					label="Cc"
-					addresses={ccAddresses}
-					onChange={setCcAddresses}
+		<ComposeHeader
+			collapsed={!isDesktop && isKeyboardOpen}
+			summary={composeHeaderSummary({
+				to: toAddresses,
+				cc: ccAddresses,
+				bcc: bccAddresses,
+				subject,
+			})}
+			from={
+				<FromSelector
+					selectedAccountId={selectedAccountId}
+					onSelect={onAccountChange}
 				/>
-			) : (
-				<div className="flex gap-2 pl-14">
-					<button
-						type="button"
-						onClick={() => setShowCc(true)}
-						className="text-xs text-fg-muted hover:text-fg transition-colors"
-					>
-						Cc
-					</button>
-					<button
-						type="button"
-						onClick={() => setShowBcc(true)}
-						className="text-xs text-fg-muted hover:text-fg transition-colors"
-					>
-						Bcc
-					</button>
-				</div>
-			)}
-			{showCc && !showBcc && (
-				<div className="pl-14">
-					<button
-						type="button"
-						onClick={() => setShowBcc(true)}
-						className="text-xs text-fg-muted hover:text-fg transition-colors"
-					>
-						Bcc
-					</button>
-				</div>
-			)}
-			{showBcc && (
+			}
+			to={
 				<AddressField
-					label="Bcc"
-					addresses={bccAddresses}
-					onChange={setBccAddresses}
+					label="To"
+					addresses={toAddresses}
+					onChange={setToAddresses}
+					placeholder="Recipients"
 				/>
-			)}
-			<SubjectField value={subject} onChange={setSubject} />
-		</div>
+			}
+			cc={
+				showCc ? (
+					<AddressField
+						label="Cc"
+						addresses={ccAddresses}
+						onChange={setCcAddresses}
+					/>
+				) : undefined
+			}
+			bcc={
+				showBcc ? (
+					<AddressField
+						label="Bcc"
+						addresses={bccAddresses}
+						onChange={setBccAddresses}
+					/>
+				) : undefined
+			}
+			subject={<ComposeSubjectField value={subject} onChange={setSubject} />}
+			onShowCc={() => setShowCc(true)}
+			onShowBcc={() => setShowBcc(true)}
+		/>
 	);
 };
 
@@ -356,6 +330,7 @@ export const ComposeForm = ({
 		setInitialHtml("");
 		setInitialText("");
 		setBodyMode("rich");
+		setDraftLanguage(undefined);
 		setBody(EMPTY_RICH_TEXT);
 		setDocumentGeneration((generation) => generation + 1);
 		setDraftLoaded(false);
@@ -372,6 +347,11 @@ export const ComposeForm = ({
 	);
 	const [initialText, setInitialText] = useState(signature.plainText);
 	const [bodyMode, setBodyMode] = useState<ComposeBodyMode>("rich");
+	// What the body is tagged with on the way out. The composer owns the value —
+	// it is the surface that has the text detection reads — and reports it here,
+	// because this is where a draft is written and where a send is assembled.
+	const [composeLanguage, setComposeLanguage] = useState("en");
+	const [draftLanguage, setDraftLanguage] = useState<string | undefined>();
 	const [body, setBody] = useState<RichTextValue>(() => ({
 		html: buildInitialHtml(signature.plainText),
 		text: signature.plainText,
@@ -414,9 +394,15 @@ export const ComposeForm = ({
 		// is read off that rather than a field of its own. A rich draft comes back
 		// from its HTML — reading its text into one paragraph, as this did, brought
 		// a formatted message back flattened.
-		const loadedHtml = draftData.htmlBody ?? "";
+		// A rich draft carries its language in the `<div lang>` it was stored
+		// under; the editor reopens on what is inside that, so a reopened draft
+		// does not gain a second wrapper on its next autosave. A plain draft has
+		// no HTML to have carried one, and comes back on the account default.
+		const stored = unwrapLanguage(draftData.htmlBody ?? "");
+		const loadedHtml = stored.html;
 		const loadedText = draftData.textBody ?? "";
 		setBodyMode(modeOfDraft(draftData.htmlBody));
+		setDraftLanguage(stored.language ?? undefined);
 		setInitialHtml(loadedHtml);
 		setInitialText(loadedText);
 		setBody({ html: loadedHtml, text: loadedText, formatting: [] });
@@ -525,6 +511,17 @@ export const ComposeForm = ({
 		? accountIsMissingSmtp(selectedAccount)
 		: false;
 
+	// An account that has never been to the language setting falls back to what
+	// the browser already knows the user reads, which is an ordered answer.
+	const configured = selectedAccount?.composeLanguages;
+	const accountLanguages = useMemo(
+		() =>
+			configured && configured.length > 0
+				? configured
+				: defaultComposeLanguages(navigator.languages),
+		[configured],
+	);
+
 	// The action bar refuses a second press while one is in flight, but the
 	// editor's own Cmd+Enter goes straight to `handleSend`, and the write that
 	// now precedes the request widens the window a second press lands in.
@@ -545,7 +542,11 @@ export const ComposeForm = ({
 		if (isFormEmpty(toAddresses, ccAddresses, bccAddresses, subject, body))
 			return;
 
-		const { htmlBody, textBody } = outgoingBody(bodyMode, body);
+		const { htmlBody, textBody } = outgoingBody(
+			bodyMode,
+			body,
+			composeLanguage,
+		);
 
 		saveDraft({
 			accountId: selectedAccountId,
@@ -568,6 +569,7 @@ export const ComposeForm = ({
 		subject,
 		body,
 		bodyMode,
+		composeLanguage,
 		saveDraft,
 	]);
 
@@ -585,7 +587,11 @@ export const ComposeForm = ({
 					? getReferences(sourceMessage)
 					: {};
 
-			const { htmlBody, textBody } = outgoingBody(bodyMode, body);
+			const { htmlBody, textBody } = outgoingBody(
+				bodyMode,
+				body,
+				composeLanguage,
+			);
 			const createdThisAttempt = !outboxMessageId;
 
 			// The debounce dropped above may have been holding the last two seconds
@@ -653,6 +659,7 @@ export const ComposeForm = ({
 		subject,
 		body,
 		bodyMode,
+		composeLanguage,
 		mode,
 		sourceMessage,
 		outboxMessageId,
@@ -690,7 +697,7 @@ export const ComposeForm = ({
 				) : undefined
 			}
 			header={
-				<ComposeHeader
+				<WiredComposeHeader
 					selectedAccountId={selectedAccountId}
 					onAccountChange={handleAccountChange}
 					toAddresses={toAddresses}
@@ -746,6 +753,9 @@ export const ComposeForm = ({
 					onSubmit={handleSend}
 					autoFocus={mode === "new"}
 					onConversionError={pushError}
+					languages={accountLanguages}
+					initialLanguage={draftLanguage}
+					onLanguageChange={setComposeLanguage}
 				/>
 			</Suspense>
 		</ComposeFormShell>

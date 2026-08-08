@@ -3,6 +3,8 @@ import { Readable } from "node:stream";
 import { describe, test } from "node:test";
 import { gunzipSync } from "node:zlib";
 import {
+	DeleteObjectCommand,
+	DeleteObjectsCommand,
 	GetObjectCommand,
 	HeadObjectCommand,
 	ListObjectsV2Command,
@@ -22,15 +24,33 @@ interface CapturedCommand {
 const createFakeS3Client = (): {
 	client: S3Client;
 	commands: CapturedCommand[];
-	stored: Map<string, { body: Buffer; contentEncoding?: string }>;
+	stored: Map<string, { body: Buffer; etag: string; contentEncoding?: string }>;
 } => {
 	const commands: CapturedCommand[] = [];
-	const stored = new Map<string, { body: Buffer; contentEncoding?: string }>();
+	const stored = new Map<
+		string,
+		{ body: Buffer; etag: string; contentEncoding?: string }
+	>();
+	let etagCounter = 0;
 
 	const send = async (command: unknown): Promise<unknown> => {
 		if (command instanceof PutObjectCommand) {
 			const input = command.input as unknown as Record<string, unknown>;
 			commands.push({ name: "PutObjectCommand", input });
+
+			// S3's conditional write, which is what the ledger's compare-and-set
+			// rides on: If-None-Match refuses an overwrite, If-Match refuses a
+			// stale one. Both answer 412.
+			const existing = stored.get(String(input.Key));
+			const precondition =
+				(input.IfNoneMatch === "*" && existing !== undefined) ||
+				(typeof input.IfMatch === "string" && input.IfMatch !== existing?.etag);
+			if (precondition) {
+				throw Object.assign(new Error("PreconditionFailed"), {
+					name: "PreconditionFailed",
+					$metadata: { httpStatusCode: 412 },
+				});
+			}
 
 			if (input.ChecksumSHA256 !== undefined) {
 				throw Object.assign(
@@ -46,8 +66,10 @@ const createFakeS3Client = (): {
 			if (!Buffer.isBuffer(body)) {
 				throw new Error("expected Body to be a Buffer");
 			}
+			etagCounter += 1;
 			stored.set(key, {
 				body,
+				etag: `"etag-${etagCounter}"`,
 				contentEncoding:
 					typeof input.ContentEncoding === "string"
 						? input.ContentEncoding
@@ -70,26 +92,65 @@ const createFakeS3Client = (): {
 					transformToByteArray: async () => new Uint8Array(entry.body),
 				},
 				ContentEncoding: entry.contentEncoding,
+				ETag: entry.etag,
 			};
 		}
 
 		if (command instanceof HeadObjectCommand) {
 			const input = command.input as unknown as Record<string, unknown>;
 			const key = String(input.Key);
-			if (!stored.has(key)) {
+			const entry = stored.get(key);
+			if (!entry) {
 				throw Object.assign(new Error(`not found: ${key}`), {
 					name: "NotFound",
 				});
 			}
+			return { ContentLength: entry.body.length };
+		}
+
+		if (command instanceof DeleteObjectCommand) {
+			const input = command.input as unknown as Record<string, unknown>;
+			commands.push({ name: "DeleteObjectCommand", input });
+			stored.delete(String(input.Key));
+			return {};
+		}
+
+		if (command instanceof DeleteObjectsCommand) {
+			const input = command.input as unknown as Record<string, unknown>;
+			commands.push({ name: "DeleteObjectsCommand", input });
+			const del = input.Delete as { Objects: { Key: string }[] };
+			for (const { Key } of del.Objects) stored.delete(Key);
 			return {};
 		}
 
 		if (command instanceof ListObjectsV2Command) {
 			const input = command.input as unknown as Record<string, unknown>;
 			const prefix = String(input.Prefix ?? "");
-			const Contents = [...stored.keys()]
-				.filter((key) => key.startsWith(prefix))
-				.map((Key) => ({ Key }));
+			const maxKeys = Number(input.MaxKeys ?? Number.POSITIVE_INFINITY);
+			const matching = [...stored.entries()].filter(([key]) =>
+				key.startsWith(prefix),
+			);
+
+			// A delimited listing answers with directory-like prefixes instead of
+			// the objects beneath them, the way listOutboxDraftsWithAttachments
+			// asks for them.
+			if (typeof input.Delimiter === "string") {
+				const delimiter = input.Delimiter;
+				const prefixes = new Set<string>();
+				for (const [key] of matching) {
+					const rest = key.slice(prefix.length);
+					const at = rest.indexOf(delimiter);
+					if (at >= 0) prefixes.add(prefix + rest.slice(0, at + 1));
+				}
+				return {
+					CommonPrefixes: [...prefixes].map((Prefix) => ({ Prefix })),
+					IsTruncated: false,
+				};
+			}
+
+			const Contents = matching
+				.slice(0, maxKeys)
+				.map(([Key, entry]) => ({ Key, Size: entry.body.length }));
 			return { Contents, IsTruncated: false };
 		}
 
@@ -459,5 +520,82 @@ describe("createS3StorageService", () => {
 		for (const item of items) {
 			assert.ok(item.key.endsWith(".txt.gz"));
 		}
+	});
+});
+
+describe("createS3StorageService: outbox attachments", () => {
+	test("an uploaded object lists at the size the bucket holds", async () => {
+		const { client } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+
+		await storage.storeOutboxAttachment({
+			accountConfigId: "cfg1",
+			accountId: "acc1",
+			outboxMessageId: "draft1",
+			outboxAttachmentId: "att1",
+			content: Buffer.alloc(777),
+		});
+
+		const [entry] = await storage.listOutboxAttachments(
+			"cfg1",
+			"acc1",
+			"draft1",
+		);
+		assert.strictEqual(entry.outboxAttachmentId, "att1");
+		// Uncompressed, so the size in the bucket is the size the cap counts.
+		assert.strictEqual(entry.sizeBytes, 777);
+		assert.strictEqual(
+			await storage
+				.statOutboxAttachment("cfg1", "acc1", "draft1", "att1")
+				.then((found) => found?.sizeBytes),
+			777,
+		);
+	});
+
+	test("statOutboxAttachment answers null for an object that was never uploaded", async () => {
+		const { client } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+
+		assert.strictEqual(
+			await storage.statOutboxAttachment("cfg1", "acc1", "draft1", "nothing"),
+			null,
+		);
+	});
+
+	test("deleting a draft's attachments empties the prefix", async () => {
+		const { client } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+		await storage.storeOutboxAttachment({
+			accountConfigId: "cfg1",
+			accountId: "acc1",
+			outboxMessageId: "draft1",
+			outboxAttachmentId: "att2",
+			content: Buffer.alloc(8),
+		});
+		await storage.deleteOutboxAttachments("cfg1", "acc1", "draft1");
+
+		assert.deepStrictEqual(
+			await storage.listOutboxAttachments("cfg1", "acc1", "draft1"),
+			[],
+		);
+	});
+
+	test("listOutboxDraftsWithAttachments finds prefixes whose row may be long gone", async () => {
+		const { client } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+		for (const draft of ["draft1", "draft2"]) {
+			await storage.storeOutboxAttachment({
+				accountConfigId: "cfg1",
+				accountId: "acc1",
+				outboxMessageId: draft,
+				outboxAttachmentId: "att1",
+				content: Buffer.alloc(4),
+			});
+		}
+
+		assert.deepStrictEqual(
+			(await storage.listOutboxDraftsWithAttachments("cfg1", "acc1")).sort(),
+			["draft1", "draft2"],
+		);
 	});
 });

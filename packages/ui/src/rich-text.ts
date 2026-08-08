@@ -3,6 +3,18 @@
  * app can load them on demand: reached through the package barrel they would
  * land in whichever chunk already imports `@remit/ui`, which is every screen.
  */
+
+export {
+	ComposeBody,
+	type ComposeBodyProps,
+	type ComposeConversions,
+	type ConversionFailure,
+	DEFAULT_COMPOSE_CONVERSIONS,
+} from "./components/compose-body.js";
+export {
+	ComposeLanguageChip,
+	type ComposeLanguageChipProps,
+} from "./components/compose-language-chip.js";
 export {
 	type ComposeBodyMode,
 	ComposeModeToggle,
@@ -25,3 +37,13 @@ export {
 	EMPTY_RICH_TEXT,
 	type RichTextValue,
 } from "./components/rich-text-value.js";
+export {
+	type ComposeLanguageControl,
+	type ComposeLanguageSource,
+	type ComposeLanguageState,
+	useComposeLanguage,
+} from "./components/use-compose-language.js";
+export {
+	DETECTION_MIN_LENGTH,
+	detectComposeLanguage,
+} from "./lib/detect-compose-language.js";

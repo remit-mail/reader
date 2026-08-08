@@ -38,6 +38,12 @@ export interface RichTextEditorProps {
 	ariaLabel?: string;
 	/** Pinned to the right of the toolbar strip. The mode toggle rides here. */
 	trailing?: React.ReactNode;
+	/**
+	 * BCP 47 tag of the language the message is being written in. Firefox picks
+	 * a dictionary from it among the ones the user installed; Chrome and Safari
+	 * ignore it. Every screen reader picks a voice from it.
+	 */
+	lang?: string;
 }
 
 /**
@@ -164,6 +170,7 @@ export const RichTextEditor = ({
 	placeholder = "Write your message…",
 	ariaLabel = "Message body",
 	trailing,
+	lang,
 }: RichTextEditorProps) => (
 	<LexicalComposer
 		initialConfig={{
@@ -185,6 +192,7 @@ export const RichTextEditor = ({
 				<RichTextPlugin
 					contentEditable={
 						<ContentEditable
+							lang={lang}
 							aria-label={ariaLabel}
 							aria-placeholder={placeholder}
 							data-testid="compose-body"

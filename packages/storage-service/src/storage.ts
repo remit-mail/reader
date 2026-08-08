@@ -50,6 +50,52 @@ export interface StoreBodyPartParams {
 	contentType?: string;
 }
 
+/**
+ * Parameters for storing a file attached to a draft outbox message.
+ *
+ * Deliberately not the deduplicated path: a content-addressed object belongs to
+ * no single draft, so nothing may delete it when the draft goes. A per-draft key
+ * dies with the draft.
+ */
+export interface StoreOutboxAttachmentParams {
+	accountConfigId: string;
+	accountId: string;
+	outboxMessageId: string;
+	outboxAttachmentId: string;
+	content: Buffer;
+}
+
+/**
+ * One uploaded object under a draft's attachment prefix. Reservations are not
+ * here — they live in the ledger, which is the only thing that can say whether
+ * an object present in storage is an attachment or garbage.
+ */
+export interface OutboxAttachmentListItem {
+	outboxAttachmentId: string;
+	key: string;
+	sizeBytes: number;
+}
+
+/** Somewhere for a client to PUT one file, for a while */
+export interface OutboxAttachmentUploadTarget {
+	/**
+	 * Absolute URL the client PUTs raw bytes to. Opaque by design: block storage
+	 * on one deployment, this deployment's own upload route on another, and a
+	 * client cannot tell which it was handed.
+	 */
+	uploadUrl: string;
+}
+
+export interface CreateOutboxAttachmentUploadUrlParams {
+	accountConfigId: string;
+	accountId: string;
+	outboxMessageId: string;
+	outboxAttachmentId: string;
+	/** Exact byte count the upload may carry. */
+	sizeBytes: number;
+	expiresAt: number;
+}
+
 /** Parameters for storing deduplicated content (attachments shared across messages) */
 export interface StoreDeduplicatedParams {
 	accountConfigId: string;
@@ -156,6 +202,80 @@ export interface StorageService {
 		messageId: string,
 		partPath: string,
 	): Promise<Buffer | null>;
+
+	/**
+	 * Store a file attached to a draft outbox message, uncompressed: the size on
+	 * the backend is then the decoded size the per-message cap is expressed in,
+	 * and `listOutboxAttachments` can total a draft without opening anything.
+	 */
+	storeOutboxAttachment(
+		params: StoreOutboxAttachmentParams,
+	): Promise<StorageReference>;
+
+	/**
+	 * Every object stored against a draft, paged to the end. Only the sweep reads
+	 * this, and a sweep that stops early leaves exactly the orphan it was called
+	 * to collect — so there is no limit to get wrong.
+	 */
+	listOutboxAttachments(
+		accountConfigId: string,
+		accountId: string,
+		outboxMessageId: string,
+	): Promise<OutboxAttachmentListItem[]>;
+
+	/**
+	 * Remove every file and reservation stored against a draft. Unlike the read
+	 * above this takes no limit and pages to the end: a sweep that stops early
+	 * leaves exactly the orphan it was called to prevent.
+	 */
+	deleteOutboxAttachments(
+		accountConfigId: string,
+		accountId: string,
+		outboxMessageId: string,
+	): Promise<void>;
+
+	/**
+	 * Every draft under an account that has attachment objects in storage,
+	 * including drafts whose row is long gone. The sweep needs the prefixes that
+	 * exist, not the rows that exist — a discarded draft is invisible to the
+	 * database and is exactly the case worth collecting.
+	 */
+	listOutboxDraftsWithAttachments(
+		accountConfigId: string,
+		accountId: string,
+	): Promise<string[]>;
+
+	/** Remove one attachment object. */
+	deleteOutboxAttachment(
+		accountConfigId: string,
+		accountId: string,
+		outboxMessageId: string,
+		outboxAttachmentId: string,
+	): Promise<void>;
+
+	/**
+	 * The size storage actually holds for an attachment, or null when nothing
+	 * was uploaded. This is the only number a completion may believe — the
+	 * client's word for it is not evidence, and on a deployment where the bytes
+	 * went straight to block storage it is the only reading available.
+	 */
+	statOutboxAttachment(
+		accountConfigId: string,
+		accountId: string,
+		outboxMessageId: string,
+		outboxAttachmentId: string,
+	): Promise<{ sizeBytes: number } | null>;
+
+	/**
+	 * Mint somewhere to PUT one file. The backend decides what that is — block
+	 * storage direct, or this deployment's upload route — and the caller never
+	 * branches on which it got. Whatever it returns must bind the size: an
+	 * upload that carries more than was reserved has to fail at the thing
+	 * receiving it, not afterwards.
+	 */
+	createOutboxAttachmentUploadUrl(
+		params: CreateOutboxAttachmentUploadUrlParams,
+	): Promise<OutboxAttachmentUploadTarget>;
 
 	/** Store deduplicated content (content-addressable, for attachments) */
 	storeDeduplicated(params: StoreDeduplicatedParams): Promise<StorageReference>;
@@ -312,6 +432,54 @@ export const buildExtractedPrefix = (
 ): string =>
 	`accounts/${accountConfigId}/${accountId}/messages/${messageId}/extracted/`;
 
+export const buildOutboxAttachmentPrefix = (
+	accountConfigId: string,
+	accountId: string,
+	outboxMessageId: string,
+): string =>
+	`accounts/${accountConfigId}/${accountId}/outbox/${outboxMessageId}/attachments/`;
+
+export const buildOutboxAttachmentKey = (
+	accountConfigId: string,
+	accountId: string,
+	outboxMessageId: string,
+	outboxAttachmentId: string,
+): string =>
+	`${buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId)}${outboxAttachmentId}`;
+
+// Every segment is a generated id, so the shape is closed rather than
+// "anything without a slash": `..` matches `[^/]+` and the write side joins
+// this key onto a filesystem root. The read side has `resolveContentPath` for
+// the same reason (#310 review P1) — a signature should not be the only thing
+// standing between a URL and the storage root.
+const OUTBOX_ATTACHMENT_KEY =
+	/^accounts\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)\/outbox\/([A-Za-z0-9_-]+)\/attachments\/([A-Za-z0-9_-]+)$/;
+export interface ParsedOutboxAttachmentKey {
+	accountConfigId: string;
+	accountId: string;
+	outboxMessageId: string;
+	outboxAttachmentId: string;
+}
+
+/**
+ * Read the ids back out of an attachment key — the inverse of
+ * `buildOutboxAttachmentKey`, for the upload route, which is handed a path and
+ * has to work out what it addresses. Returns null on anything else, including a
+ * reservation key: bytes are never written to one.
+ */
+export const parseOutboxAttachmentKey = (
+	storageKey: string,
+): ParsedOutboxAttachmentKey | null => {
+	const match = storageKey.match(OUTBOX_ATTACHMENT_KEY);
+	if (!match) return null;
+	return {
+		accountConfigId: match[1],
+		accountId: match[2],
+		outboxMessageId: match[3],
+		outboxAttachmentId: match[4],
+	};
+};
+
 export const buildDeduplicatedKey = (
 	accountConfigId: string,
 	accountId: string,
@@ -410,6 +578,90 @@ export const createMockStorageService = (): StorageService => {
 			content,
 		);
 	};
+
+	const storeOutboxAttachment: StorageService["storeOutboxAttachment"] = async (
+		params,
+	) => {
+		const {
+			accountConfigId,
+			accountId,
+			outboxMessageId,
+			outboxAttachmentId,
+			content,
+		} = params;
+		return storeInternal(
+			buildOutboxAttachmentKey(
+				accountConfigId,
+				accountId,
+				outboxMessageId,
+				outboxAttachmentId,
+			),
+			content,
+		);
+	};
+
+	const listOutboxAttachments: StorageService["listOutboxAttachments"] = async (
+		accountConfigId,
+		accountId,
+		outboxMessageId,
+	) => {
+		const prefix = `mock://${buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId)}`;
+		const items: OutboxAttachmentListItem[] = [];
+		for (const [uri, content] of storage.entries()) {
+			if (!uri.startsWith(prefix)) continue;
+			items.push({
+				outboxAttachmentId: uri.slice(prefix.length),
+				key: uri.slice("mock://".length),
+				sizeBytes: content.length,
+			});
+		}
+		return items;
+	};
+
+	const listOutboxDraftsWithAttachments: StorageService["listOutboxDraftsWithAttachments"] =
+		async (accountConfigId, accountId) => {
+			const root = `mock://accounts/${accountConfigId}/${accountId}/outbox/`;
+			const drafts = new Set<string>();
+			for (const uri of storage.keys()) {
+				if (!uri.startsWith(root)) continue;
+				const rest = uri.slice(root.length);
+				const slash = rest.indexOf("/");
+				if (slash > 0) drafts.add(rest.slice(0, slash));
+			}
+			return [...drafts];
+		};
+
+	const deleteOutboxAttachment: StorageService["deleteOutboxAttachment"] =
+		async (accountConfigId, accountId, outboxMessageId, outboxAttachmentId) => {
+			storage.delete(
+				`mock://${buildOutboxAttachmentKey(accountConfigId, accountId, outboxMessageId, outboxAttachmentId)}`,
+			);
+		};
+
+	const statOutboxAttachment: StorageService["statOutboxAttachment"] = async (
+		accountConfigId,
+		accountId,
+		outboxMessageId,
+		outboxAttachmentId,
+	) => {
+		const content = storage.get(
+			`mock://${buildOutboxAttachmentKey(accountConfigId, accountId, outboxMessageId, outboxAttachmentId)}`,
+		);
+		return content ? { sizeBytes: content.length } : null;
+	};
+
+	const createOutboxAttachmentUploadUrl: StorageService["createOutboxAttachmentUploadUrl"] =
+		async (params) => ({
+			uploadUrl: `mock://upload/${buildOutboxAttachmentKey(params.accountConfigId, params.accountId, params.outboxMessageId, params.outboxAttachmentId)}?max=${params.sizeBytes}&exp=${params.expiresAt}`,
+		});
+
+	const deleteOutboxAttachments: StorageService["deleteOutboxAttachments"] =
+		async (accountConfigId, accountId, outboxMessageId) => {
+			const prefix = `mock://${buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId)}`;
+			for (const uri of [...storage.keys()]) {
+				if (uri.startsWith(prefix)) storage.delete(uri);
+			}
+		};
 
 	const storeDeduplicated: StorageService["storeDeduplicated"] = async (
 		params,
@@ -547,6 +799,13 @@ export const createMockStorageService = (): StorageService => {
 		storeBodyPart,
 		bodyPartExists,
 		retrieveBodyPart,
+		storeOutboxAttachment,
+		listOutboxAttachments,
+		listOutboxDraftsWithAttachments,
+		deleteOutboxAttachments,
+		deleteOutboxAttachment,
+		statOutboxAttachment,
+		createOutboxAttachmentUploadUrl,
 		storeDeduplicated,
 		storeParsedBody,
 		retrieveParsedBody,

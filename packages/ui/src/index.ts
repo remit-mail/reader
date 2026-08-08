@@ -168,11 +168,37 @@ export {
 	type ComposeSaveStatus,
 } from "./components/compose-action-bar.js";
 export {
+	type AddressEntry,
+	ComposeAddressField,
+	type ComposeAddressFieldProps,
+} from "./components/compose-address-field.js";
+export {
 	ComposeFormShell,
 	type ComposeFormShellProps,
 	type ComposeMode,
 	composeModeLabels,
 } from "./components/compose-form-shell.js";
+export {
+	ComposeHeader,
+	type ComposeHeaderProps,
+	composeHeaderSummary,
+} from "./components/compose-header.js";
+export {
+	ComposeLanguageSetting,
+	type ComposeLanguageSettingProps,
+} from "./components/compose-language-setting.js";
+export {
+	ComposeSmtpMissingBanner,
+	type ComposeSmtpMissingBannerProps,
+} from "./components/compose-smtp-missing-banner.js";
+export {
+	ComposeSubjectField,
+	type ComposeSubjectFieldProps,
+} from "./components/compose-subject-field.js";
+export {
+	ConfirmDialog,
+	type ConfirmDialogProps,
+} from "./components/confirm-dialog.js";
 export {
 	DangerZoneSection,
 	type DangerZoneSectionProps,
@@ -533,6 +559,7 @@ export {
 	DROPPED_SEMANTIC_COPY,
 	droppedFacetsCopy,
 	hasConversionNotice,
+	makeFilterBlockedCopy,
 	type SearchConversionNotice,
 	scopedOutCopy,
 } from "./components/search-conversion.js";
@@ -710,6 +737,17 @@ export {
 	sanitizeAttachmentFilename,
 } from "./lib/attachment-file.js";
 export {
+	briefChipCategory,
+	briefChipFilters,
+	briefFilterHasTerm,
+	briefQueryCategory,
+	briefQueryFilters,
+	briefQueryIsActive,
+	clearBriefFiltersInQuery,
+	setBriefCategoryInQuery,
+	toggleBriefFilterInQuery,
+} from "./lib/brief-filter-query.js";
+export {
 	type CalendarColorClasses,
 	calendarColorClasses,
 } from "./lib/calendar-color.js";
@@ -719,6 +757,19 @@ export {
 	type CidResolver,
 } from "./lib/cid-resolver.js";
 export { cn } from "./lib/cn.js";
+export {
+	browserSpellcheckHelp,
+	COMPOSE_LANGUAGE_OPTIONS,
+	type ComposeLanguageOption,
+	defaultComposeLanguages,
+	detectionCodeFor,
+	languageChipLabel,
+	languageLabel,
+	primaryLanguageSubtag,
+	unwrapLanguage,
+	wrapWithLanguage,
+} from "./lib/compose-language.js";
+export { modeOfDraft } from "./lib/compose-mode.js";
 export { generateLayoutClampCSS } from "./lib/email-layout-clamp.js";
 export {
 	classifyEmailRenderTreatment,
@@ -802,6 +853,14 @@ export {
 	useRovingFocus,
 } from "./lib/roving-focus.js";
 export { type RuleNameParts, suggestRuleName } from "./lib/rule-name.js";
+export {
+	quoteSearchTokenValue,
+	type SearchQueryWord,
+	type SearchTermParts,
+	searchTokenTerm,
+	splitSearchTerm,
+	splitSearchWords,
+} from "./lib/search-query-words.js";
 export {
 	type DroppedFacet,
 	type DroppedFacetType,

@@ -19,3 +19,9 @@ apisix:
 
 nginx_config:
   error_log_level: warn
+  http:
+    # APISIX ships with no request-body cap at all. Everything behind this edge
+    # is JSON — an attachment's bytes go to storage on a URL that never crosses
+    # it — so the cap matches the backend's own json limit rather than making
+    # room for a file that no longer passes through here.
+    client_max_body_size: 10m

@@ -239,13 +239,16 @@ describe("the metrics endpoint is not reachable through Caddy", () => {
 		assert.deepEqual(fallback.upstreams, ["web:8080"]);
 	});
 
-	it("proxies to the backend on one path only, and it is not /metrics", () => {
+	it("proxies to the backend only on the signed-URL paths, never /metrics", () => {
 		const backendRoutes = routes.filter(({ upstreams }) =>
 			upstreams.some((upstream) => upstream.startsWith("backend:")),
 		);
+		// The two that carry their own authority in the URL and so cannot go
+		// through the edge's bearer gate: content out, an attachment upload in.
+		// Every other backend path is reached through apisix.
 		assert.deepEqual(
 			backendRoutes.map(({ matcher }) => matcher),
-			["/content/*"],
+			["/content/*", "/outbox-upload/*"],
 		);
 	});
 

@@ -5,14 +5,8 @@ on:
     branches: [main]
   workflow_dispatch:
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
-
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 jobs:
   build:
@@ -31,20 +25,47 @@ jobs:
         run: make
       - name: Build Storybook
         run: npm run build-storybook
-      - name: Copy update manifest into the Pages artifact
-        run: npm run manifest:copy-to-pages
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
+          name: storybook-main
           path: packages/workbench/storybook-static
+          retention-days: 1
 
-  deploy:
+  # Its own job so this is the only place that pushes to gh-pages carry the
+  # shared cross-workflow concurrency group below -- the build above stays
+  # cheap to re-run and never blocks on another push in flight.
+  publish:
     needs: build
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+    # An optimization, not the correctness guarantee: shared with
+    # storybook-preview.yml and storybook-preview-cleanup.yml so the three
+    # producers usually serialize instead of piling up. It cannot be relied on
+    # for correctness by itself -- GitHub holds at most one running and one
+    # pending job per group, so a third simultaneous producer can still bump a
+    # pending one. gh-pages-publish.mjs is what actually protects the branch,
+    # via a leased push that is rejected rather than silently overwritten if
+    # it loses a race, and retried against the branch's new tip. All three
+    # files must spell this group the same way; a test asserts they do.
+    concurrency:
+      group: gh-pages-branch-push
+      cancel-in-progress: false
+    permissions:
+      contents: write
     steps:
-      - name: Deploy to GitHub Pages
-        id: deploy
-        uses: actions/deploy-pages@v4
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: storybook-main
+          path: storybook-main-download
+      - name: Publish to the gh-pages branch root
+        run: >-
+          node npm-scripts/gh-pages-publish.mjs publish
+          --source storybook-main-download
+          --dest .
+          --preserve pr
+          --message "Publish Storybook from ${{ github.sha }}"

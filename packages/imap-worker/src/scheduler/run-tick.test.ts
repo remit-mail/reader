@@ -246,3 +246,90 @@ describe("runSchedulerTick", () => {
 		assert.equal(result.enqueued, 0);
 	});
 });
+
+describe("the attachment sweep inside a tick", () => {
+	const twoAccounts = () => [
+		{
+			items: [
+				baseAccount({ accountId: "acct_1", lastSyncAt: NOW - 1_000 }),
+				baseAccount({ accountId: "acct_2", lastSyncAt: 0 }),
+			],
+			cursor: null,
+		} as unknown as AccountSchedulerPage,
+	];
+
+	it("sweeps every account, not only the ones due a sync", async () => {
+		const { sqsClient } = fakeSqsClient();
+		const swept: string[] = [];
+
+		const result = await runSchedulerTick({
+			accountService: fakeAccountService(twoAccounts()),
+			sqsClient,
+			queueUrl: "https://queue.test/mailboxes",
+			log: createNoopLogger(),
+			tickIntervalMs: TICK_INTERVAL_MS,
+			offlineIntervalMs: OFFLINE_INTERVAL_MS,
+			now: NOW,
+			sweepAttachments: async (account) => {
+				swept.push(account.accountId);
+			},
+		});
+
+		assert.deepEqual(swept.sort(), ["acct_1", "acct_2"]);
+		assert.equal(result.swept, 2);
+		assert.equal(result.sweepFailed, 0);
+	});
+
+	it("keeps enqueuing mail when the sweep throws", async () => {
+		// The sweep is housekeeping; enqueuing mail is not. Uncontained, one
+		// storage error here reaches the loop, which exits, and the container
+		// restarts every few seconds without ever enqueuing an account again.
+		const { sqsClient, sent } = fakeSqsClient();
+		const { log, calls } = createCapturingLogger();
+
+		const result = await runSchedulerTick({
+			accountService: fakeAccountService(twoAccounts()),
+			sqsClient,
+			queueUrl: "https://queue.test/mailboxes",
+			log,
+			tickIntervalMs: TICK_INTERVAL_MS,
+			offlineIntervalMs: OFFLINE_INTERVAL_MS,
+			now: NOW,
+			sweepAttachments: async () => {
+				throw new Error("AccessDenied on ListObjectsV2");
+			},
+		});
+
+		assert.equal(result.sweepFailed, 2);
+		assert.equal(result.swept, 0);
+		// The tick still did its actual job.
+		assert.ok(sent.length > 0);
+		assert.equal(result.enqueued, sent.length);
+		assert.ok(
+			calls.some(
+				(entry) =>
+					entry.level === "error" &&
+					entry.args.some((arg) =>
+						String(arg).includes("Outbox attachment sweep failed"),
+					),
+			),
+		);
+	});
+
+	it("ticks without a sweep at all", async () => {
+		const { sqsClient } = fakeSqsClient();
+
+		const result = await runSchedulerTick({
+			accountService: fakeAccountService(twoAccounts()),
+			sqsClient,
+			queueUrl: "https://queue.test/mailboxes",
+			log: createNoopLogger(),
+			tickIntervalMs: TICK_INTERVAL_MS,
+			offlineIntervalMs: OFFLINE_INTERVAL_MS,
+			now: NOW,
+		});
+
+		assert.equal(result.swept, 0);
+		assert.equal(result.sweepFailed, 0);
+	});
+});

@@ -14,6 +14,8 @@ import {
 	buildExtractedSkippedKey,
 	buildExtractedTextKey,
 	buildMessageBodyKey,
+	buildOutboxAttachmentKey,
+	buildOutboxAttachmentPrefix,
 	buildParsedBodyKey,
 	computeChecksum,
 	createMockStorageService,
@@ -82,6 +84,26 @@ describe("path builders", () => {
 		assert.strictEqual(
 			key,
 			"accounts/cfg1/acc123/messages/msg456/parsed.json.gz",
+		);
+	});
+
+	test("buildOutboxAttachmentKey hangs the file off its own draft, under the same tenant prefix", () => {
+		const key = buildOutboxAttachmentKey("cfg1", "acc123", "draft9", "att7");
+		assert.strictEqual(
+			key,
+			"accounts/cfg1/acc123/outbox/draft9/attachments/att7",
+		);
+		assert.ok(
+			key.startsWith(buildOutboxAttachmentPrefix("cfg1", "acc123", "draft9")),
+		);
+	});
+
+	test("parseContentStorageKey does not recognise an outbox attachment key", () => {
+		assert.strictEqual(
+			parseContentStorageKey(
+				buildOutboxAttachmentKey("cfg1", "acc123", "draft9", "att7"),
+			),
+			null,
 		);
 	});
 
@@ -742,6 +764,120 @@ describe("createFilesystemStorageService", () => {
 			"msg-never-scanned",
 		);
 		assert.deepStrictEqual(items, []);
+	});
+
+	test("storeOutboxAttachment writes the bytes uncompressed so the size on disk is the size the cap counts", async () => {
+		const storage = createFilesystemStorageService(testBasePath);
+		// Highly compressible: gzip would make the stored size disagree with the
+		// decoded size the per-message cap is expressed in.
+		const content = Buffer.alloc(4096, 0x61);
+
+		const ref = await storage.storeOutboxAttachment({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			outboxMessageId: "draft1",
+			outboxAttachmentId: "att1",
+			content,
+		});
+
+		assert.strictEqual(ref.contentEncoding, ContentEncoding.None);
+		assert.strictEqual(ref.sizeBytes, content.length);
+		assert.strictEqual(ref.checksumSha256, computeChecksum(content));
+		assert.deepStrictEqual(await storage.retrieve(ref.uri), content);
+
+		const [item] = await storage.listOutboxAttachments(
+			"cfg1",
+			"acc123",
+			"draft1",
+		);
+		assert.strictEqual(item.sizeBytes, content.length);
+	});
+
+	test("listOutboxAttachments returns only the named draft, and every object in it", async () => {
+		const storage = createFilesystemStorageService(testBasePath);
+		for (const id of ["a", "b", "c"]) {
+			await storage.storeOutboxAttachment({
+				accountConfigId: "cfg1",
+				accountId: "acc123",
+				outboxMessageId: "draft-many",
+				outboxAttachmentId: id,
+				content: Buffer.from(`file-${id}`),
+			});
+		}
+		await storage.storeOutboxAttachment({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			outboxMessageId: "draft-other",
+			outboxAttachmentId: "d",
+			content: Buffer.from("elsewhere"),
+		});
+
+		const all = await storage.listOutboxAttachments(
+			"cfg1",
+			"acc123",
+			"draft-many",
+		);
+		assert.deepStrictEqual(all.map((item) => item.outboxAttachmentId).sort(), [
+			"a",
+			"b",
+			"c",
+		]);
+	});
+
+	test("listOutboxAttachments returns an empty array for a draft that has none", async () => {
+		const storage = createFilesystemStorageService(testBasePath);
+		assert.deepStrictEqual(
+			await storage.listOutboxAttachments("cfg1", "acc123", "draft-empty"),
+			[],
+		);
+	});
+
+	test("deleting a draft's attachments empties the prefix and the ledger with it", async () => {
+		const storage = createFilesystemStorageService(testBasePath);
+		await storage.storeOutboxAttachment({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			outboxMessageId: "draft-gone",
+			outboxAttachmentId: "att1",
+			content: Buffer.alloc(4),
+		});
+		await storage.deleteOutboxAttachments("cfg1", "acc123", "draft-gone");
+
+		assert.deepStrictEqual(
+			await storage.listOutboxAttachments("cfg1", "acc123", "draft-gone"),
+			[],
+		);
+	});
+
+	test("listOutboxDraftsWithAttachments finds prefixes whose row may be long gone", async () => {
+		const storage = createFilesystemStorageService(testBasePath);
+		for (const draft of ["draft-x", "draft-y"]) {
+			await storage.storeOutboxAttachment({
+				accountConfigId: "cfg-sweep",
+				accountId: "acc-sweep",
+				outboxMessageId: draft,
+				outboxAttachmentId: "att1",
+				content: Buffer.alloc(4),
+			});
+		}
+
+		assert.deepStrictEqual(
+			(
+				await storage.listOutboxDraftsWithAttachments("cfg-sweep", "acc-sweep")
+			).sort(),
+			["draft-x", "draft-y"],
+		);
+	});
+
+	test("deleting attachments on a draft that never had any is quiet", async () => {
+		const storage = createFilesystemStorageService(testBasePath);
+		await storage.deleteOutboxAttachments("cfg1", "acc123", "draft-never");
+		await storage.deleteOutboxAttachment(
+			"cfg1",
+			"acc123",
+			"draft-never",
+			"att1",
+		);
 	});
 
 	test("cleanup test directory", async () => {
