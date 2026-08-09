@@ -4,6 +4,12 @@
 // instead of chaining them) without importing react-aria directly.
 export { mergeProps } from "react-aria";
 export {
+	AccountForm,
+	type AccountFormProps,
+	type AccountFormTestResult,
+	type AccountFormValues,
+} from "./components/account-form.js";
+export {
 	AddressDisplay,
 	type AddressDisplayProps,
 	AddressList,
