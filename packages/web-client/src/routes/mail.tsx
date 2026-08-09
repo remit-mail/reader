@@ -2,7 +2,7 @@ import {
 	configOperationsGetConfigOptions,
 	unifiedThreadOperationsListAllThreadsOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import { AppShellSlotted } from "@remit/ui";
+import { AppShellSlotted, useTriageKeyboard } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import {
 	createFileRoute,
@@ -13,6 +13,7 @@ import {
 } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
+import { useCompose } from "@/components/compose/ComposeProvider";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
 import { ComposeFab } from "@/components/layout/ComposeFab";
 import { MailTopBar } from "@/components/layout/MailTopBar";
@@ -29,6 +30,7 @@ import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailboxNameIndex } from "@/hooks/useMailboxNameIndex";
 import { useResultFolderIndex } from "@/hooks/useResultFolderIndex";
 import { useStaleAccountSync } from "@/hooks/useStaleAccountSync";
+import { hostsComposeSurface } from "@/lib/compose-routes";
 import { writeIntelligencePref } from "@/lib/intelligence-pref";
 import { MailContext } from "@/lib/mail-context";
 import { MailFreshnessProvider } from "@/lib/mail-freshness";
@@ -132,6 +134,7 @@ function MailLayout() {
 	// the render before committing and nothing is painted with the stale query.
 	// An effect would commit one frame carrying the previous view's text, which
 	// the mirror below then has to be defended against.
+	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	const viewKey = useRouterState({ select: (s) => mailViewKey(s.matches) });
 	const [searchViewKey, setSearchViewKey] = useState(viewKey);
 	if (searchViewKey !== viewKey) {
@@ -213,6 +216,19 @@ function MailLayout() {
 				preventDefault: true,
 			},
 		],
+	});
+
+	// `c` / ⌘N off the mailbox routes — the brief, Flagged, the outbox. On a
+	// mailbox the pane's own triage layer owns the key, so this is disabled there
+	// rather than firing a second compose alongside it.
+	const { openCompose } = useCompose();
+	const composeHandlers = useMemo(
+		() => ({ compose: () => openCompose({ mode: "new" }) }),
+		[openCompose],
+	);
+	useTriageKeyboard({
+		enabled: !hostsComposeSurface(pathname),
+		handlers: composeHandlers,
 	});
 
 	const handleSearchChange = useCallback((query: string) => {

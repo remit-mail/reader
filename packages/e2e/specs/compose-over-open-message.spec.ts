@@ -69,3 +69,27 @@ test.describe("Compose over an open message", () => {
 		await expect(page.getByRole("article")).toBeHidden();
 	});
 });
+
+/**
+ * The daily brief cannot mount the compose surface, so a compose started there
+ * is carried to a mailbox that can.
+ */
+test.describe("Compose off a route that cannot mount it", () => {
+	test.setTimeout(120_000);
+
+	test("c on the daily brief lands in a mailbox with the surface open", async ({
+		page,
+	}) => {
+		await page.goto("/mail");
+		await expect(
+			page.getByRole("navigation", { name: "Mailboxes", exact: true }),
+		).toBeVisible({ timeout: 20_000 });
+
+		await page.keyboard.press("c");
+
+		await page.waitForURL(/\/mail\/[a-z0-9]+/);
+		await expect(page.getByPlaceholder("Recipients")).toBeVisible({
+			timeout: 30_000,
+		});
+	});
+});
