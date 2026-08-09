@@ -249,7 +249,7 @@ jobs:
         with:
           node-version: 22
       - name: Download shard coverage
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: web-client-lcov-*
           path: web-client-lcov
