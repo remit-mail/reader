@@ -2,11 +2,11 @@
  * Which routes mount the compose surface.
  *
  * `FullCompose` is mounted by the mailbox route only, so compose started from
- * anywhere else has to carry the user to a mailbox first. Kept apart from
- * `useComposeTarget` so it stays a plain function with no React or API
- * dependencies — both compose entry points resolve routes through this one
- * definition, and a divergent second copy is what left the mobile FAB dead on
- * `/mail/flagged` and on the brief.
+ * anywhere else has to carry the user to a mailbox first — and compose left
+ * open when the user walks off those routes has to close. `ComposeProvider`
+ * decides both from here, and the mail layout binds `c` off the same answer.
+ * A plain function with no React or API dependencies: a divergent second copy
+ * is what left the mobile FAB dead on `/mail/flagged` and on the brief.
  */
 
 /** `/mail/<segment>` values that name a view rather than a mailbox. */

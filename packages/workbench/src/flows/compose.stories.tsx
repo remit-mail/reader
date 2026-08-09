@@ -21,7 +21,7 @@ import {
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useRef, useState } from "react";
 import { expect, fn, userEvent, within } from "storybook/test";
-import { allThreads } from "../fixtures/workspace.js";
+import { allThreads, q3Intelligence, q3Thread } from "../fixtures/workspace.js";
 import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
 import { MailShell } from "../screens/mail-shell.js";
 
@@ -286,6 +286,72 @@ export const Full: Story = {
 	render: () => (
 		<MailShell {...mailbox} reading={<Composer saveStatus="saved" />} />
 	),
+};
+
+/**
+ * Compose from an open message (#703). The reading pane holds one thing, so
+ * Compose closes the conversation and takes the pane on the press.
+ *
+ * Typing in search afterwards is the step that matters: that is what used to
+ * make a queued surface appear, so the surface has to be there before it and
+ * unchanged after it.
+ */
+export const OverAnOpenMessage: Story = {
+	render: function OverAnOpenMessageRender() {
+		const [openThreadId, setOpenThreadId] = useState<string | undefined>(
+			allThreads[0]?.id,
+		);
+		const [composing, setComposing] = useState(false);
+		return (
+			<MailShell
+				{...mailbox}
+				thread={openThreadId ? q3Thread : undefined}
+				selectedThreadId={openThreadId}
+				intelligence={q3Intelligence}
+				onSelectThread={(id) => {
+					setComposing(false);
+					setOpenThreadId(id);
+				}}
+				onCompose={() => {
+					setComposing(true);
+					setOpenThreadId(undefined);
+				}}
+				reading={
+					composing ? (
+						<Composer to={[]} subject="" body="" plainBody="" />
+					) : undefined
+				}
+			/>
+		);
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		// The reading pane's own subject heading, not the list row that carries the
+		// same subject.
+		const openConversation = () =>
+			canvas.queryByRole("heading", { level: 2, name: q3Thread.subject });
+		await expect(openConversation()).toBeVisible();
+
+		await userEvent.click(canvas.getByRole("button", { name: /^Compose/ }));
+
+		const recipients = canvas.getByLabelText("To:");
+		await expect(recipients).toBeVisible();
+		await expect(openConversation()).toBeNull();
+
+		await userEvent.type(recipients, "ada@example.com");
+		await expect(recipients).toHaveValue("ada@example.com");
+
+		const search = canvas.getByLabelText("Search mail");
+		await userEvent.type(search, "invoice");
+
+		// Nothing about the surface moved on the search: no second copy arriving
+		// late, no conversation coming back, and the address still typed. The caret
+		// is in the field being typed into, which is search.
+		await expect(search).toHaveFocus();
+		await expect(canvas.getAllByLabelText("To:")).toHaveLength(1);
+		await expect(canvas.getByLabelText("To:")).toHaveValue("ada@example.com");
+		await expect(openConversation()).toBeNull();
+	},
 };
 
 /**

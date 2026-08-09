@@ -598,6 +598,16 @@ function MailboxPaneProvider({
 		openCompose({ mode: "new" });
 	}, [openCompose]);
 
+	// A thread opening closes compose. Only a selection arriving counts, so this
+	// cannot close the compose that just cleared one.
+	const previousSelectionRef = useRef(selectedMessageId);
+	useEffect(() => {
+		const previous = previousSelectionRef.current;
+		previousSelectionRef.current = selectedMessageId;
+		if (!selectedMessageId || selectedMessageId === previous) return;
+		closeCompose();
+	}, [selectedMessageId, closeCompose]);
+
 	const deleteOutboxMutation = useMutation({
 		...outboxDetailOperationsDeleteOutboxMessageMutation(),
 		onError: (mutationError) => {

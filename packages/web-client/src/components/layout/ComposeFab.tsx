@@ -1,21 +1,7 @@
-import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import { useLocation } from "@tanstack/react-router";
 import { Pencil } from "lucide-react";
+import { useCallback } from "react";
 import { useCompose } from "@/components/compose/ComposeProvider";
-import { useGlobalCompose } from "@/hooks/useComposeTarget";
-
-/**
- * Primary mobile surfaces where the FAB belongs: anywhere under
- * `/mail` or under `/settings`. The bare `/` route (sign-in / OAuth
- * landing) is intentionally excluded — compose has no useful target
- * before the user has an account.
- */
-const isOnPrimaryMobileRoute = (pathname: string): boolean =>
-	pathname.startsWith("/mail") || pathname.startsWith("/settings");
-
-interface ComposeFabProps {
-	accounts: RemitImapAccountResponse[];
-}
 
 /**
  * Floating Action Button for composing a new message. Mobile-only.
@@ -26,32 +12,21 @@ interface ComposeFabProps {
  *     `/mail` shell also stops mounting the FAB above that width; the
  *     `lg:hidden` class covers the pre-hydration frame.
  *   - The compose surface is already open.
- *   - The user is reading a thread (`?selectedMessageId=…`) — the
- *     conversation's Reply/Forward action bar covers that workflow.
- *   - The user is not on a primary mobile route (`/mail` or
- *     `/settings`).
- *
- * The tap itself is `useGlobalCompose`, shared with the desktop top bar:
- * it opens compose in place on routes that mount `FullCompose` and
- * otherwise carries the user to a real mailbox that does. Compose state
- * survives that transition because `ComposeProvider` lives in
- * `__root.tsx`.
+ *   - The user is reading a thread (`?selectedMessageId=…`) — the single
+ *     pane is the conversation, and its reply bar is under this corner.
+ *   - The user is off `/mail`, which is every route with no mail in it.
  */
-export const ComposeFab = ({ accounts }: ComposeFabProps) => {
-	const { state } = useCompose();
+export const ComposeFab = () => {
+	const { state, openCompose } = useCompose();
 	const location = useLocation();
-	const compose = useGlobalCompose(accounts);
+	const compose = useCallback(() => {
+		openCompose({ mode: "new" });
+	}, [openCompose]);
 
 	const search = location.search as Record<string, unknown> | undefined;
-	const isReadingThread =
-		typeof search?.selectedMessageId === "string" &&
-		search.selectedMessageId.length > 0;
+	const isReadingThread = Boolean(search?.selectedMessageId);
 
-	if (
-		!isOnPrimaryMobileRoute(location.pathname) ||
-		state.isOpen ||
-		isReadingThread
-	)
+	if (!location.pathname.startsWith("/mail") || state.isOpen || isReadingThread)
 		return null;
 
 	return (
