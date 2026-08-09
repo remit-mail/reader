@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
-import { expect, userEvent } from "storybook/test";
+import { expect, userEvent, waitFor } from "storybook/test";
 import { sanitizeAdoptedHtml } from "../lib/adopted-html.js";
 import { ComposeLanguageChip } from "./compose-language-chip.js";
 import {
@@ -8,6 +8,16 @@ import {
 	ComposeModeToggle,
 } from "./compose-mode-toggle.js";
 import { RichTextEditor } from "./rich-text-editor.js";
+import type {
+	CheckRequest,
+	Finding,
+	SpellcheckOptions,
+} from "./rich-text-spellcheck.js";
+import {
+	dictionaryFor,
+	findMisspellings,
+} from "./rich-text-spellcheck-words.js";
+import { openSpellcheckWorker } from "./rich-text-spellcheck-worker-provider.js";
 
 /**
  * The frame is the compose body region at its real geometry — a column with a
@@ -186,6 +196,159 @@ export const NarrowToolbar: Story = {
 			frame.getBoundingClientRect().left,
 		);
 		await expect(chip.getBoundingClientRect().right).toBeLessThanOrEqual(edge);
+	},
+};
+
+const MISSPELT = "Ths report is redy today, and the notes are attachd.";
+
+/**
+ * A real module worker does the checking, over the same messages an engine
+ * would answer: the component is handed a provider and never learns where the
+ * words came from. What the worker holds instead of a dictionary is a short
+ * list of English words.
+ */
+const workerSpellcheck: SpellcheckOptions = { provider: openSpellcheckWorker };
+
+/**
+ * The same findings, answered against the revision before the one asked for —
+ * what a slow engine looks like when the text has already moved on.
+ */
+const staleAnswers: string[] = [];
+
+const staleSpellcheck: SpellcheckOptions = {
+	provider: async () => ({
+		language: "en",
+		onStatus: (listener) => {
+			listener({ state: "ready", language: "en" });
+			return () => {};
+		},
+		check: (request: CheckRequest) => {
+			staleAnswers.push(request.requestId);
+			const words = dictionaryFor(request.language) ?? new Set<string>();
+			return Promise.resolve({
+				requestId: request.requestId,
+				revision: request.revision - 1,
+				findings: request.spans.flatMap((span) =>
+					findMisspellings(span.text, words).map(
+						(range): Finding => ({
+							spanId: span.spanId,
+							start: range.start,
+							end: range.end,
+							kind: "spelling",
+							suggestions: [],
+						}),
+					),
+				),
+			});
+		},
+		close: () => {},
+	}),
+};
+
+/**
+ * Every editor on the page shares the one registry entry, so a story reads back
+ * the marks that fall inside its own writing surface — on a docs page the
+ * neighbouring stories are drawing into it at the same time.
+ */
+const spellMarks = (editable: HTMLElement): AbstractRange[] => {
+	const ranges: AbstractRange[] = [];
+	CSS.highlights.forEach((highlight, name) => {
+		if (name !== "spell-error") return;
+		highlight.forEach((range) => {
+			if (editable.contains(range.startContainer)) ranges.push(range);
+		});
+	});
+	return ranges;
+};
+
+const spellMarkOffsets = (editable: HTMLElement): [number, number][] =>
+	spellMarks(editable).map((range) => [range.startOffset, range.endOffset]);
+
+const writingSurface = (canvasElement: HTMLElement): HTMLElement => {
+	const editable = canvasElement.querySelector<HTMLElement>(
+		"[data-testid=compose-body]",
+	);
+	if (!editable) throw new Error("the editor is not mounted");
+	return editable;
+};
+
+/**
+ * The marks a provider produced, drawn through the CSS Custom Highlight
+ * registry: two misspelt words carry a squiggle, the browser's own checking is
+ * off while ours is on, and the document holds nothing that was not typed.
+ */
+export const SpellcheckMarks: Story = {
+	name: "Spellcheck marks (worker provider)",
+	args: {
+		initialHtml: `<p>${MISSPELT}</p>`,
+		lang: "en",
+		spellcheck: workerSpellcheck,
+	},
+	play: async ({ canvasElement }) => {
+		const editable = writingSurface(canvasElement);
+
+		await waitFor(
+			() =>
+				expect(spellMarkOffsets(editable)).toEqual([
+					[0, 3],
+					[14, 18],
+					[44, 51],
+				]),
+			{ timeout: 5000 },
+		);
+		await expect(editable.getAttribute("spellcheck")).toBe("false");
+		await expect(editable.textContent).toBe(MISSPELT);
+		await expect(editable.querySelectorAll("[data-lexical-text]")).toHaveLength(
+			1,
+		);
+
+		// The word the caret sits in is left alone until the writer moves on.
+		await userEvent.click(editable);
+		const line = editable.querySelector<HTMLElement>("[data-lexical-text]");
+		const characters = line?.firstChild ?? null;
+		canvasElement.ownerDocument.getSelection()?.setPosition(characters, 17);
+
+		await waitFor(
+			() =>
+				expect(spellMarkOffsets(editable)).toEqual([
+					[0, 3],
+					[44, 51],
+				]),
+			{ timeout: 5000 },
+		);
+	},
+};
+
+/** A language the build carries no dictionary for: the browser keeps checking. */
+export const SpellcheckWithoutDictionary: Story = {
+	name: "Spellcheck with no dictionary for the language",
+	args: {
+		initialHtml: `<p>Vielen Dank für den Bericht.</p>`,
+		lang: "de",
+		spellcheck: workerSpellcheck,
+	},
+	play: async ({ canvasElement }) => {
+		const editable = writingSurface(canvasElement);
+		await expect(editable.getAttribute("spellcheck")).toBe("true");
+		await expect(spellMarks(editable)).toHaveLength(0);
+	},
+};
+
+/** An answer against a revision the document has moved past paints nothing. */
+export const SpellcheckStaleAnswer: Story = {
+	name: "Spellcheck drops a stale answer",
+	args: {
+		initialHtml: `<p>${MISSPELT}</p>`,
+		lang: "en",
+		spellcheck: staleSpellcheck,
+	},
+	play: async ({ canvasElement }) => {
+		const editable = writingSurface(canvasElement);
+		await waitFor(() => expect(staleAnswers.length).toBeGreaterThan(0), {
+			timeout: 5000,
+		});
+		await expect(spellMarks(editable)).toHaveLength(0);
+		await expect(editable.textContent).toBe(MISSPELT);
 	},
 };
 
