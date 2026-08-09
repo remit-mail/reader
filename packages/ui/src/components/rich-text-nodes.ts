@@ -5,11 +5,13 @@ import { HorizontalRuleNode } from "@lexical/react/LexicalHorizontalRuleNode";
 import { HeadingNode, QuoteNode } from "@lexical/rich-text";
 import { TableCellNode, TableNode, TableRowNode } from "@lexical/table";
 import type { EditorThemeClasses, Klass, LexicalNode } from "lexical";
+import { ImageNode } from "./rich-text-image-node.js";
 
 /**
  * Lexical maps a pasted element only to a node type the editor has registered;
  * anything else collapses to its text. Registering headings, lists, tables,
- * code and rules is what lets adopted structure survive the paste (#671).
+ * code and rules is what lets adopted structure survive the paste (#671), and
+ * an image is the one element the library ships no node for (#684).
  */
 export const RICH_TEXT_NODES: ReadonlyArray<Klass<LexicalNode>> = [
 	HeadingNode,
@@ -24,6 +26,7 @@ export const RICH_TEXT_NODES: ReadonlyArray<Klass<LexicalNode>> = [
 	CodeNode,
 	CodeHighlightNode,
 	HorizontalRuleNode,
+	ImageNode,
 ];
 
 export const richTextTheme: EditorThemeClasses = {
@@ -37,6 +40,7 @@ export const richTextTheme: EditorThemeClasses = {
 		h6: "mt-2 mb-1 text-xs font-semibold uppercase tracking-wide",
 	},
 	hr: "my-3 border-t border-line",
+	image: "inline-block h-auto max-w-full align-bottom",
 	link: "text-accent underline",
 	list: {
 		listitem: "ml-2",

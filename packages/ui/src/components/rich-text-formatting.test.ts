@@ -50,9 +50,10 @@ const ROWS: Row[] = [
 		warns: false,
 	},
 	{
-		what: "an image, which no registered node can hold",
+		what: "an image, which plain text can only name",
 		html: '<p>Chart: <img src="https://example.com/chart.png" alt="chart"></p>',
-		warns: false,
+		warns: true,
+		holds: ["image"],
 	},
 	{
 		what: "an underlined word",

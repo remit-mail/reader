@@ -1,7 +1,18 @@
 import { AlertTriangle, ArrowRight } from "lucide-react";
+import type { Ref } from "react";
+
+/**
+ * The one sentence this failure gets. The banner states it, and Send refuses
+ * with the same words — a second wording of the same fact reads as a second
+ * problem.
+ */
+export const SMTP_MISSING_MESSAGE =
+	"This account can't send mail until SMTP is configured.";
 
 export interface ComposeSmtpMissingBannerProps {
 	onConfigure: () => void;
+	/** The fix, so a blocked Send can put the cursor on it. */
+	configureRef?: Ref<HTMLButtonElement>;
 }
 
 /**
@@ -12,6 +23,7 @@ export interface ComposeSmtpMissingBannerProps {
  */
 export const ComposeSmtpMissingBanner = ({
 	onConfigure,
+	configureRef,
 }: ComposeSmtpMissingBannerProps) => (
 	<div
 		role="alert"
@@ -23,12 +35,12 @@ export const ComposeSmtpMissingBanner = ({
 			aria-hidden="true"
 		/>
 		<div className="flex-1 min-w-0">
-			<p className="text-sm font-medium text-warning">
-				This account can't send mail until SMTP is configured.
-			</p>
+			<p className="text-sm font-medium text-warning">{SMTP_MISSING_MESSAGE}</p>
 			<button
+				ref={configureRef}
 				type="button"
 				onClick={onConfigure}
+				data-testid="compose-smtp-configure"
 				className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-warning hover:underline"
 			>
 				Configure SMTP

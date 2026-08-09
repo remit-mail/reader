@@ -49,11 +49,13 @@ const Harness = ({
 	const [showCc, setShowCc] = useState(initialCc !== undefined);
 	const [showBcc, setShowBcc] = useState(initialBcc !== undefined);
 	const [subject, setSubject] = useState(initialSubject);
+	const [isCollapsed, setIsCollapsed] = useState(collapsed);
 
 	return (
 		<div className="w-[560px] border border-line bg-surface">
 			<ComposeHeader
-				collapsed={collapsed}
+				collapsed={isCollapsed}
+				onExpand={() => setIsCollapsed(false)}
 				summary={composeHeaderSummary({ to, cc, bcc, subject })}
 				from={<FromRow email="alice@northwind.example" />}
 				to={
@@ -131,6 +133,30 @@ export const Collapsed: Story = {
 /** Collapsed before anything is typed: an ellipsis, not an empty bar. */
 export const CollapsedAndEmpty: Story = {
 	render: () => <Harness collapsed />,
+};
+
+/**
+ * The collapsed line is the way back. Pressing it puts the recipient rows
+ * back — with the keyboard up it is the only route to Cc, Bcc and the subject,
+ * and a bar that looks pressable and is not reads as a broken app.
+ */
+export const CollapsedExpandsOnPress: Story = {
+	render: () => (
+		<Harness
+			collapsed
+			initialTo={[
+				{ email: "ada@northwind.example", displayName: "Ada Lovelace" },
+			]}
+			initialSubject="Re: Q3 planning"
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await userEvent.click(
+			canvas.getByRole("button", { name: "Show recipients and subject" }),
+		);
+		await expect(canvas.getByLabelText("To:")).toBeVisible();
+	},
 };
 
 export const RevealingCcLeavesBccOnOffer: Story = {

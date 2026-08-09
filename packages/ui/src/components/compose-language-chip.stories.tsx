@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { expect, userEvent, within } from "storybook/test";
 import { ComposeLanguageChip } from "./compose-language-chip.js";
+import type { ComposeLanguageSource } from "./use-compose-language.js";
 
 const LANGUAGES = ["nl", "en", "de"];
 
@@ -14,9 +15,11 @@ const FIREFOX_HELP =
 
 const Chip = ({
 	initial = "nl",
+	source = "account",
 	helpText,
 }: {
 	initial?: string;
+	source?: ComposeLanguageSource;
 	helpText?: string;
 }) => {
 	const [language, setLanguage] = useState(initial);
@@ -25,6 +28,7 @@ const Chip = ({
 			<ComposeLanguageChip
 				language={language}
 				languages={LANGUAGES}
+				source={language === initial ? source : "manual"}
 				onSelect={setLanguage}
 				helpText={helpText}
 			/>
@@ -50,8 +54,38 @@ export default meta;
 type Story = StoryObj<typeof Chip>;
 
 export const Closed: Story = {
-	name: "The chip",
+	name: "The chip — the account's own language",
 	args: {},
+};
+
+/**
+ * The control changes under the user while they type, so the value alone does
+ * not say where it came from. The tint marks a message that is not going out in
+ * the account's own language, and the accessible name says whether the tag was
+ * guessed, chosen or inherited.
+ */
+export const NotTheAccountLanguage: Story = {
+	name: "Detected — a message in another language",
+	args: { initial: "de", source: "detected" },
+	play: async ({ canvasElement }) => {
+		const chip = within(canvasElement).getByTestId("compose-language-chip");
+		await expect(chip).toHaveAttribute("data-language-source", "detected");
+		await expect(chip.getAttribute("aria-label")).toContain(
+			"detected from what you wrote",
+		);
+	},
+};
+
+export const ChosenByHand: Story = {
+	name: "Chosen — detection stops for this message",
+	args: { initial: "de", source: "manual" },
+	play: async ({ canvasElement }) => {
+		const chip = within(canvasElement).getByTestId("compose-language-chip");
+		await expect(chip).toHaveAttribute("data-language-source", "manual");
+		await expect(chip.getAttribute("aria-label")).toContain(
+			"chosen for this message",
+		);
+	},
 };
 
 const openMenu = async (canvasElement: HTMLElement): Promise<void> => {

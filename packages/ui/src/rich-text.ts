@@ -48,6 +48,7 @@ export {
 	type SpellWorkerPort,
 } from "./components/rich-text-spellcheck-provider.js";
 export {
+	type ComposeCaret,
 	EMPTY_RICH_TEXT,
 	type RichTextValue,
 } from "./components/rich-text-value.js";
