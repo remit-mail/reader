@@ -6,9 +6,9 @@
  * thread in the config across all non-muted mailboxes, paged. Every row names
  * its thread, which is the whole address a conversation opens by, so a starred
  * message filed outside the inbox opens like any other. Starredness is decided
- * server-side from `hasStars`; the client
- * neither re-filters nor caps the set, so a starred thread outside the newest
- * inbox page still appears. Rendered as one continuous list (no category
+ * server-side from `hasStars`; the client neither re-filters nor caps the set,
+ * so a starred thread outside the newest inbox page still appears. Rendered as
+ * one continuous list (no category
  * sections). The shared `MailViewChrome` owns the `MailHeader` + filter
  * expando; the kit `MessageListPane` (flat, no `briefFilters`) owns the loading
  * / empty / error chrome and keyboard hints, with a consumer-supplied

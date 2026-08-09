@@ -14,9 +14,7 @@ import { locationOpensDetail } from "@/lib/mail-route";
  *     `lg:hidden` class covers the pre-hydration frame.
  *   - The compose surface is already open.
  *   - The user is reading a thread — the single pane is the conversation, and
- *     its reply bar is under this corner. The brief and a folder say so in
- *     their path; the flagged list, still to move, says so in
- *     `?selectedMessageId=…`.
+ *     its reply bar is under this corner. Every list says so in its path.
  *   - The user is off `/mail`, which is every route with no mail in it.
  */
 export const ComposeFab = () => {
@@ -26,10 +24,7 @@ export const ComposeFab = () => {
 		openCompose({ mode: "new" });
 	}, [openCompose]);
 
-	const search = location.search as Record<string, unknown> | undefined;
-	const isReadingThread =
-		Boolean(search?.selectedMessageId) ||
-		locationOpensDetail(location.pathname);
+	const isReadingThread = locationOpensDetail(location.pathname);
 
 	if (!location.pathname.startsWith("/mail") || state.isOpen || isReadingThread)
 		return null;

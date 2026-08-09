@@ -4,7 +4,7 @@ import {
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import {
 	BadgeCheck,
 	Check,
@@ -104,15 +104,7 @@ export const MessageActionMenu = ({
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const { pushError } = useErrorBanners();
-	// Which message the address has open. The brief and a folder say so in their
-	// path; the flagged list, still to move, says so in `?selectedMessageId=`.
-	const openThread = useOpenThreadPath();
-	const { selectedMessageId: selectedFromQuery } = useSearch({
-		strict: false,
-	}) as {
-		selectedMessageId?: string;
-	};
-	const selectedMessageId = openThread?.messageId ?? selectedFromQuery;
+	const selectedMessageId = useOpenThreadPath()?.messageId;
 
 	const { mutate: updateFlags, isPending: isUpdatingFlags } = useMutation({
 		...messageBulkOperationsUpdateFlagsMutation(),

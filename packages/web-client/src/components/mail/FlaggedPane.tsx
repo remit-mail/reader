@@ -6,15 +6,19 @@
  * reading / phone slots. The list itself is a FLAT inbox of starred mail (see
  * `FlaggedList`), not the sectioned brief.
  *
- * The row resolves from the starred listing, the same query that produced the
- * rows. The unified listing is INBOX-scoped, so resolving against it left every
- * starred thread filed elsewhere — Sent, an archive folder, anything past the
- * inbox window — visible in the list but impossible to open (issue #70).
+ * The row prefers the starred listing, the same query that produced the rows,
+ * and falls back to resolving the thread on its own when the address names
+ * one the listing doesn't hold. The unified listing is INBOX-scoped, so
+ * resolving against it left every starred thread filed elsewhere — Sent, an
+ * archive folder, anything past the inbox window — visible in the list but
+ * impossible to open (issue #70).
+ *
+ * Usage in the list layout route:
  *
  *   <FlaggedPane thread={useOpenThreadPath()}>
- *     <AppShellSlotted
+ *     <MailShell
  *       list={<FlaggedPane.List />}
- *       reading={<FlaggedPane.Reading />}
+ *       reading={<Outlet />}
  *     />
  *   </FlaggedPane>
  *
