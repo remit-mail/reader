@@ -179,6 +179,11 @@ const outgoingBody = (
 				: undefined,
 });
 
+type SendReadiness =
+	| { status: "sending" }
+	| { status: "blocked"; reason: string }
+	| { status: "ready"; accountId: string };
+
 const isFormEmpty = (
 	toAddresses: AddressEntry[],
 	ccAddresses: AddressEntry[],
@@ -197,6 +202,7 @@ const isFormEmpty = (
 // ---------------------------------------------------------------------------
 
 interface WiredComposeHeaderProps {
+	documentGeneration: number;
 	selectedAccountId?: string;
 	onAccountChange: (account: RemitImapAccountResponse) => void;
 	toAddresses: AddressEntry[];
@@ -214,6 +220,7 @@ interface WiredComposeHeaderProps {
 }
 
 const WiredComposeHeader = ({
+	documentGeneration,
 	selectedAccountId,
 	onAccountChange,
 	toAddresses,
@@ -231,16 +238,17 @@ const WiredComposeHeader = ({
 }: WiredComposeHeaderProps) => {
 	const isDesktop = useIsDesktop();
 	const { isKeyboardOpen } = useVisualViewport();
-	const [expanded, setExpanded] = useState(false);
-
-	useEffect(() => {
-		if (!isKeyboardOpen) setExpanded(false);
-	}, [isKeyboardOpen]);
+	// What the user asked to see belongs to the document being written, not to
+	// the keyboard. Tying it to the keyboard collapsed the rows again the moment
+	// one came back up — over the recipient field being typed into, which took
+	// the keyboard down with it and started the cycle over.
+	const [expandedFor, setExpandedFor] = useState<number | undefined>(undefined);
+	const expanded = expandedFor === documentGeneration;
 
 	return (
 		<ComposeHeader
 			collapsed={!isDesktop && isKeyboardOpen && !expanded}
-			onExpand={() => setExpanded(true)}
+			onExpand={() => setExpandedFor(documentGeneration)}
 			summary={composeHeaderSummary({
 				to: toAddresses,
 				cc: ccAddresses,
@@ -526,13 +534,15 @@ export const ComposeForm = ({
 	);
 
 	// The action bar refuses a second press while one is in flight, but the
-	// editor's own Cmd+Enter goes straight to `handleSend`, and the write that
+	// editor's own Cmd+Enter goes straight to `attemptSend`, and the write that
 	// now precedes the request widens the window a second press lands in.
 	const sendInFlightRef = useRef(false);
 	const [isSending, setIsSending] = useState(false);
 	// Every refusal carries the sentence that explains it. Send is never a
-	// no-op: the state it reads has no way to be blocked without a reason.
-	const sendState = useMemo<ComposeSendState>(() => {
+	// no-op: the state it reads has no way to be blocked without a reason. A
+	// ready state carries the account the message goes out from, so the send
+	// path has no condition of its own left to refuse on in silence.
+	const sendReadiness = useMemo<SendReadiness>(() => {
 		if (isSending) return { status: "sending" };
 		if (!selectedAccountId) {
 			return { status: "blocked", reason: "Choose an account to send from." };
@@ -543,13 +553,14 @@ export const ComposeForm = ({
 		if (toAddresses.length === 0) {
 			return { status: "blocked", reason: "Add at least one recipient." };
 		}
-		return { status: "ready" };
+		return { status: "ready", accountId: selectedAccountId };
 	}, [
 		isSending,
 		selectedAccountId,
 		selectedAccountMissingSmtp,
 		toAddresses.length,
 	]);
+	const sendState: ComposeSendState = sendReadiness;
 
 	useEffect(() => {
 		if (!selectedAccountId) return;
@@ -592,103 +603,106 @@ export const ComposeForm = ({
 		saveDraft,
 	]);
 
-	const handleSend = useCallback(async () => {
-		if (sendInFlightRef.current) return;
-		if (!selectedAccountId || toAddresses.length === 0) return;
+	const handleSend = useCallback(
+		async (accountId: string) => {
+			if (sendInFlightRef.current) return;
 
-		sendInFlightRef.current = true;
-		setIsSending(true);
-		try {
-			stopAutoSave();
+			sendInFlightRef.current = true;
+			setIsSending(true);
+			try {
+				stopAutoSave();
 
-			const replyData =
-				sourceMessage && (mode === "reply" || mode === "reply_all")
-					? getReferences(sourceMessage)
-					: {};
+				const replyData =
+					sourceMessage && (mode === "reply" || mode === "reply_all")
+						? getReferences(sourceMessage)
+						: {};
 
-			const { htmlBody, textBody } = outgoingBody(
-				bodyMode,
-				body,
-				composeLanguage,
-			);
-			const createdThisAttempt = !outboxMessageId;
+				const { htmlBody, textBody } = outgoingBody(
+					bodyMode,
+					body,
+					composeLanguage,
+				);
+				const createdThisAttempt = !outboxMessageId;
 
-			// The debounce dropped above may have been holding the last two seconds
-			// of typing, and an existing entry would otherwise go out as the server
-			// last saw it (#674). What is on screen is written first, and a write
-			// that fails stops the send rather than transmitting the older copy.
-			const flushed = await saveImmediately({
-				accountId: selectedAccountId,
-				toAddresses: toAddresses.map((a) => a.email),
-				ccAddresses:
-					ccAddresses.length > 0 ? ccAddresses.map((a) => a.email) : undefined,
-				bccAddresses:
-					bccAddresses.length > 0
-						? bccAddresses.map((a) => a.email)
-						: undefined,
-				subject: subject || undefined,
-				textBody,
-				htmlBody,
-				...replyData,
-			});
-
-			if (flushed.outcome === "failed") {
-				pushError({
-					title: "Couldn't send message",
-					detail:
-						formatErrorDetail(flushed.error) ??
-						"Saving the message failed, so nothing was sent. Try again.",
-					error: flushed.error,
+				// The debounce dropped above may have been holding the last two seconds
+				// of typing, and an existing entry would otherwise go out as the server
+				// last saw it (#674). What is on screen is written first, and a write
+				// that fails stops the send rather than transmitting the older copy.
+				const flushed = await saveImmediately({
+					accountId,
+					toAddresses: toAddresses.map((a) => a.email),
+					ccAddresses:
+						ccAddresses.length > 0
+							? ccAddresses.map((a) => a.email)
+							: undefined,
+					bccAddresses:
+						bccAddresses.length > 0
+							? bccAddresses.map((a) => a.email)
+							: undefined,
+					subject: subject || undefined,
+					textBody,
+					htmlBody,
+					...replyData,
 				});
-				return;
-			}
 
-			const messageId = flushed.outboxMessageId;
-
-			const sent = await sendMutation
-				.mutateAsync({
-					path: { outboxMessageId: messageId },
-				})
-				.catch((error: unknown) => {
+				if (flushed.outcome === "failed") {
 					pushError({
 						title: "Couldn't send message",
 						detail:
-							formatErrorDetail(error) ??
-							(createdThisAttempt
-								? "The draft was saved but the send request failed. Try again from the Outbox."
-								: "The send request failed. Try again."),
-						error,
+							formatErrorDetail(flushed.error) ??
+							"Saving the message failed, so nothing was sent. Try again.",
+						error: flushed.error,
 					});
-					return null;
-				});
-			if (sent === null) return;
+					return;
+				}
 
-			stopAutoSave(messageId);
-			startSendPolling(messageId);
-			onClose();
-		} finally {
-			sendInFlightRef.current = false;
-			setIsSending(false);
-		}
-	}, [
-		selectedAccountId,
-		toAddresses,
-		ccAddresses,
-		bccAddresses,
-		subject,
-		body,
-		bodyMode,
-		composeLanguage,
-		mode,
-		sourceMessage,
-		outboxMessageId,
-		saveImmediately,
-		sendMutation,
-		stopAutoSave,
-		startSendPolling,
-		pushError,
-		onClose,
-	]);
+				const messageId = flushed.outboxMessageId;
+
+				const sent = await sendMutation
+					.mutateAsync({
+						path: { outboxMessageId: messageId },
+					})
+					.catch((error: unknown) => {
+						pushError({
+							title: "Couldn't send message",
+							detail:
+								formatErrorDetail(error) ??
+								(createdThisAttempt
+									? "The draft was saved but the send request failed. Try again from the Outbox."
+									: "The send request failed. Try again."),
+							error,
+						});
+						return null;
+					});
+				if (sent === null) return;
+
+				stopAutoSave(messageId);
+				startSendPolling(messageId);
+				onClose();
+			} finally {
+				sendInFlightRef.current = false;
+				setIsSending(false);
+			}
+		},
+		[
+			toAddresses,
+			ccAddresses,
+			bccAddresses,
+			subject,
+			body,
+			bodyMode,
+			composeLanguage,
+			mode,
+			sourceMessage,
+			outboxMessageId,
+			saveImmediately,
+			sendMutation,
+			stopAutoSave,
+			startSendPolling,
+			pushError,
+			onClose,
+		],
+	);
 
 	const handleDiscard = useCallback(() => {
 		stopAutoSave(outboxMessageId);
@@ -700,26 +714,26 @@ export const ComposeForm = ({
 		onClose();
 	}, [stopAutoSave, outboxMessageId, deleteMutation, onClose]);
 
+	// The refusal is announced first and moved to second. Focus alone carried
+	// nothing to a screen reader — the banner above was already on screen, so
+	// the press read as the button doing nothing.
 	const reportBlocked = useCallback(
 		(reason: string) => {
-			const configure = smtpConfigureRef.current;
-			if (reason === SMTP_MISSING_MESSAGE && configure) {
-				configure.focus();
-				return;
-			}
 			pushError({ title: "Can't send yet", detail: reason });
+			if (reason !== SMTP_MISSING_MESSAGE) return;
+			smtpConfigureRef.current?.focus();
 		},
 		[pushError],
 	);
 
 	const attemptSend = useCallback(() => {
-		if (sendState.status === "sending") return;
-		if (sendState.status === "blocked") {
-			reportBlocked(sendState.reason);
+		if (sendReadiness.status === "sending") return;
+		if (sendReadiness.status === "blocked") {
+			reportBlocked(sendReadiness.reason);
 			return;
 		}
-		void handleSend();
-	}, [sendState, reportBlocked, handleSend]);
+		void handleSend(sendReadiness.accountId);
+	}, [sendReadiness, reportBlocked, handleSend]);
 
 	const handleAccountChange = useCallback(
 		(acct: RemitImapAccountResponse) => {
@@ -741,6 +755,7 @@ export const ComposeForm = ({
 			}
 			header={
 				<WiredComposeHeader
+					documentGeneration={documentGeneration}
 					selectedAccountId={selectedAccountId}
 					onAccountChange={handleAccountChange}
 					toAddresses={toAddresses}
@@ -769,7 +784,7 @@ export const ComposeForm = ({
 			actionBar={
 				<ComposeActionBar
 					send={sendState}
-					onSend={handleSend}
+					onSend={attemptSend}
 					onBlocked={reportBlocked}
 					onDiscard={handleDiscard}
 					saveStatus={saveStatus}

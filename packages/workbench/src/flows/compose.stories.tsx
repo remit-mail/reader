@@ -132,11 +132,6 @@ const Composer = ({
 	const [subjectValue, setSubjectValue] = useState(subject);
 	const [bodyMode, setBodyMode] = useState<ComposeBodyMode>(mode);
 	const [collapsed, setCollapsed] = useState(collapsedHeader);
-	const [bodyValue, setBodyValue] = useState<RichTextValue>({
-		html: body,
-		text: plainBody,
-		formatting: [],
-	});
 	const [conversionFailure, setConversionFailure] =
 		useState<ConversionFailure>();
 	const [edits, setEdits] = useState(0);
@@ -152,7 +147,6 @@ const Composer = ({
 	const noteBodyChange = (value: RichTextValue) => {
 		const previous = reported.current;
 		reported.current = value;
-		setBodyValue(value);
 		if (!previous) return;
 		if (previous.html === value.html && previous.text === value.text) return;
 		noteEdit();
@@ -186,9 +180,7 @@ const Composer = ({
 		send ??
 		(toAddresses.length === 0
 			? { status: "blocked", reason: "Add at least one recipient." }
-			: bodyValue.text.trim() === ""
-				? { status: "blocked", reason: "Write the message first." }
-				: { status: "ready" });
+			: { status: "ready" });
 
 	return (
 		<ComposeFormShell
@@ -477,6 +469,11 @@ export const BodyLoading: Story = {
 /**
  * The keyboard is up on a phone. The header gives its rows to the writing
  * surface and keeps one line — and that line is the way back to them.
+ *
+ * Once they are back they stay back. The rows used to close again the moment
+ * the keyboard came up over them, which is exactly when a recipient is being
+ * typed: the field went away mid-word, took the keyboard with it, and came
+ * back to start the loop over.
  */
 export const MobileKeyboardUp: Story = {
 	name: "Mobile — keyboard up, header collapsed",
@@ -496,6 +493,21 @@ export const MobileKeyboardUp: Story = {
 			}
 		/>
 	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await userEvent.click(
+			canvas.getByRole("button", { name: "Show recipients and subject" }),
+		);
+
+		const recipients = canvas.getByLabelText("To:");
+		await expect(recipients).toBeVisible();
+
+		await userEvent.type(recipients, "grace@example.com");
+		await expect(canvas.getByLabelText("To:")).toHaveValue("grace@example.com");
+		await expect(
+			canvas.queryByRole("button", { name: "Show recipients and subject" }),
+		).toBeNull();
+	},
 };
 
 /**
@@ -517,10 +529,39 @@ export const SendUnavailable: Story = {
 };
 
 /**
- * Send explains rather than dies. Every refusal names itself — a message with
- * nobody to send it to used to produce nothing at all.
+ * Send explains rather than dies. Pressing it with no SMTP server reports the
+ * reason the banner above it already gives, and sends nothing — a dead grey
+ * button leaves the user guessing.
  */
 export const SendExplainsItself: StoryObj<typeof Composer> = {
+	args: {
+		smtpMissing: true,
+		send: { status: "blocked", reason: SMTP_MISSING_MESSAGE },
+		onBlocked: fn(),
+		onSend: fn(),
+	},
+	render: (args) => (
+		<div className="h-[560px] w-[560px] border border-line bg-canvas">
+			<Composer {...args} />
+		</div>
+	),
+	play: async ({ args, canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			canvas.getByTestId("compose-smtp-missing-banner"),
+		).toBeVisible();
+		await userEvent.click(canvas.getByRole("button", { name: "Send" }));
+		await expect(args.onBlocked).toHaveBeenCalledWith(SMTP_MISSING_MESSAGE);
+		await expect(args.onSend).not.toHaveBeenCalled();
+	},
+};
+
+/**
+ * A message with nobody to send it to. The refusal names the missing thing
+ * rather than producing nothing at all.
+ */
+export const SendWithNoRecipient: StoryObj<typeof Composer> = {
+	name: "Send with nobody to send it to",
 	args: {
 		to: [],
 		send: { status: "blocked", reason: "Add at least one recipient." },

@@ -1,9 +1,3 @@
-/**
- * What stands where the writing surface will be while its chunk loads. The
- * header, the banner and the action bar are already live around it, so this is
- * a state a user can act in — Send refuses with a reason until the body is
- * mounted rather than sending the document that is not on screen yet.
- */
 export const ComposeBodySkeleton = () => (
 	<div
 		aria-hidden="true"
