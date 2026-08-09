@@ -3,9 +3,11 @@
  * behind it has to be resolvable.
  *
  * Both halves regressed at once (issues #51 and #55). Address search matched a
- * prefix of `"<display name> <email>"`, so looking a sender up by their address
- * never found the row and every per-sender quick action reported an impossible
- * state. Separately, moving mail out of Spam threw inside the optimistic cache
+ * prefix of `"<display name> <email>"` — it matches a substring of the display
+ * name, the local part, the domain or the whole address now (#704) — so looking a
+ * sender up by their address never found the row and every per-sender quick
+ * action reported an impossible state. Separately, moving mail
+ * out of Spam threw inside the optimistic cache
  * update — the rescue-candidate query caches a different shape under the same
  * query-key prefix as the mailbox list — so the move failed before it was ever
  * sent, and said so in a toast.

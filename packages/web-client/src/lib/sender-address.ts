@@ -1,10 +1,10 @@
 import type { RemitImapAddressResponse } from "@remit/api-http-client/types.gen.ts";
 
 /**
- * `GET /addresses/search` is a prefix search over both the display-name
- * compound and the normalized email, so a query for one sender's address can
- * legitimately return several rows (`sup@x.com` also prefixes `support@x.com`,
- * and any display name starting with the same characters matches too).
+ * `GET /addresses/search` matches the query as a substring of a display name, a
+ * local part, a domain or a whole address, and answers in relevance order. A
+ * query for one sender's address therefore returns several rows: everyone
+ * sharing that domain matches it too.
  *
  * Asking for a single row and taking `items[0]` is therefore wrong twice over:
  * the row it returns may belong to a different sender, and the row we actually
@@ -22,10 +22,9 @@ export const senderAddressSearchQuery = (
 });
 
 /**
- * Select the address row for exactly this sender. A prefix match on another
- * sender is not this sender, so it resolves to `undefined` rather than the
- * wrong address — silently flagging the wrong sender is worse than not
- * resolving.
+ * Select the address row for exactly this sender. Another sender under the same
+ * domain is not this sender, so it resolves to `undefined` rather than the wrong
+ * address — silently flagging the wrong sender is worse than not resolving.
  */
 export const pickSenderAddress = (
 	items: RemitImapAddressResponse[] | undefined,

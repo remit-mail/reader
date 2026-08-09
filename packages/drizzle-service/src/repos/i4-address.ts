@@ -9,40 +9,105 @@ import type {
 	ResultList,
 	UpdateAddressInput,
 } from "@remit/data-ports";
-import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { BadRequestError } from "@remit/data-ports/errors";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	getTableColumns,
+	inArray,
+	type SQL,
+	sql,
+} from "drizzle-orm";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { envelopeAddressId as deriveEnvelopeAddressId } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
 import { addressTable } from "../schema/i4-address.js";
 import { envelopeAddressTable } from "../schema/message-data.js";
+import {
+	addressCorrespondence,
+	addressMatchRank,
+	addressPreference,
+	addressRecency,
+	addressSearchMatch,
+} from "./address-search-predicates.js";
 import { shouldPromoteWellknown } from "./i4-address-wellknown.js";
 
 type DB = Db<Record<string, unknown>>;
 
-/**
- * Escape the LIKE metacharacters so a term containing `%` or `_` (both legal in
- * an email local part) matches literally instead of as a wildcard.
- */
-const escapeLikeTerm = (term: string): string =>
-	term.replace(/[\\%_]/g, (char) => `\\${char}`);
+type AddressUpdate = Partial<{
+	[K in keyof typeof addressTable.$inferInsert]:
+		| (typeof addressTable.$inferInsert)[K]
+		| SQL;
+}>;
 
 /**
- * Match an address search term as a prefix of either the display-name compound
- * or the normalized email.
- *
- * `normalizedCompound` is stored as `"<display name> <email>"`, so a prefix
- * match on it only ever answers display-name queries — an exact-address lookup
- * such as `support@npmjs.com` can never match a row whose sender has a display
- * name. Matching `normalizedEmail` in the same predicate is what makes address
- * resolution by email work at all (issue #51).
+ * The stored `"<display name> <email>"` compound, folded in JavaScript exactly
+ * as message sync folds it — SQL `lower()` stops at ASCII, and the search reads
+ * this column expecting a full fold.
  */
-const addressSearchPredicate = (term: string) => {
-	const pattern = `${escapeLikeTerm(term)}%`;
-	return or(
-		sql`${addressTable.normalizedCompound} LIKE ${pattern} ESCAPE '\\'`,
-		sql`${addressTable.normalizedEmail} LIKE ${pattern} ESCAPE '\\'`,
-	);
+const compoundOfSql = (displayName: string): SQL<string> =>
+	sql<string>`trim(${displayName.toLowerCase()} || ' ' || ${addressTable.normalizedEmail})`;
+
+/**
+ * The order a suggestion list comes back in: where the term hit, then the
+ * account's own standing for the sender, then how much it corresponds with it,
+ * then how recently — and the stored compound and the id last, so the order is
+ * total and a page boundary is a position rather than a guess.
+ */
+const searchOrder = (search: string | undefined) =>
+	[
+		{ key: "rank", expr: addressMatchRank(search), direction: "desc" },
+		{ key: "preference", expr: addressPreference(), direction: "desc" },
+		{ key: "correspondence", expr: addressCorrespondence(), direction: "desc" },
+		{ key: "recency", expr: addressRecency(), direction: "desc" },
+		{
+			key: "normalizedCompound",
+			expr: sql`${addressTable.normalizedCompound}`,
+			direction: "asc",
+		},
+		{
+			key: "addressId",
+			expr: sql`${addressTable.addressId}`,
+			direction: "asc",
+		},
+	] as const;
+
+type SearchOrder = ReturnType<typeof searchOrder>;
+type CursorPosition = Record<SearchOrder[number]["key"], number | string>;
+
+const decodeAddressCursor = (
+	cursor: string,
+	order: SearchOrder,
+): CursorPosition => {
+	const decoded = decodeToken(cursor);
+	const position = {} as Record<string, number | string>;
+	for (const { key } of order) {
+		const value = decoded[key];
+		if (typeof value !== "number" && typeof value !== "string") {
+			throw new BadRequestError("Invalid continuationToken");
+		}
+		position[key] = value;
+	}
+	return position as CursorPosition;
+};
+
+/**
+ * Resume after a position in that order: strictly past the first key, or equal
+ * on it and strictly past the rest.
+ */
+const after = (order: SearchOrder, position: CursorPosition): SQL => {
+	const step = (index: number): SQL => {
+		const { key, expr, direction } = order[index];
+		const value = position[key];
+		const past =
+			direction === "desc" ? sql`${expr} < ${value}` : sql`${expr} > ${value}`;
+		if (index === order.length - 1) return past;
+		return sql`(${past} or (${expr} = ${value} and ${step(index + 1)}))`;
+	};
+	return step(0);
 };
 
 export function rowToAddress(
@@ -115,6 +180,10 @@ export class AddressRepo implements IAddressRepository {
 		return rowToAddress(row);
 	}
 
+	/**
+	 * Message sync sends `""` for a bare address, so a sighting carrying no
+	 * display name must leave the stored one alone rather than erase it.
+	 */
 	async upsertAddress(input: CreateAddressInput): Promise<AddressItem> {
 		const now = Date.now();
 		const [row] = await this.db
@@ -139,10 +208,13 @@ export class AddressRepo implements IAddressRepository {
 			})
 			.onConflictDoUpdate({
 				target: addressTable.addressId,
-				set: {
-					displayName: input.displayName ?? sql`${addressTable.displayName}`,
-					updatedAt: now,
-				},
+				set: input.displayName
+					? {
+							displayName: input.displayName,
+							normalizedCompound: input.normalizedCompound,
+							updatedAt: now,
+						}
+					: { updatedAt: now },
 			})
 			.returning();
 		return rowToAddress(row);
@@ -192,11 +264,11 @@ export class AddressRepo implements IAddressRepository {
 		input: UpdateAddressInput,
 	): Promise<AddressItem> {
 		const now = Date.now();
-		const updates: Partial<typeof addressTable.$inferInsert> = {
-			updatedAt: now,
-		};
-		if (input.displayName !== undefined)
+		const updates: AddressUpdate = { updatedAt: now };
+		if (input.displayName !== undefined) {
 			updates.displayName = input.displayName;
+			updates.normalizedCompound = compoundOfSql(input.displayName);
+		}
 		if (input.flags !== undefined) updates.flags = input.flags as never;
 		if (input.inboundCount !== undefined)
 			updates.inboundCount = input.inboundCount;
@@ -484,48 +556,46 @@ export class AddressRepo implements IAddressRepository {
 		limit?: number;
 	}): Promise<ResultList<AddressItem>> {
 		const { accountConfigId, search, cursor, limit = 100 } = input;
-		const decoded = cursor ? decodeToken(cursor) : undefined;
-		const after = decoded
-			? {
-					normalizedCompound: decoded.normalizedCompound as string,
-					addressId: decoded.addressId as string,
-				}
-			: undefined;
+		const order = searchOrder(search);
+		const position = cursor ? decodeAddressCursor(cursor, order) : undefined;
 
 		const rows = await this.db
-			.select()
+			.select({
+				...getTableColumns(addressTable),
+				rank: order[0].expr,
+				preference: order[1].expr,
+				correspondence: order[2].expr,
+				recency: order[3].expr,
+			})
 			.from(addressTable)
 			.where(
 				and(
 					eq(addressTable.accountConfigId, accountConfigId),
-					search ? addressSearchPredicate(search) : undefined,
-					after
-						? or(
-								gt(addressTable.normalizedCompound, after.normalizedCompound),
-								and(
-									eq(addressTable.normalizedCompound, after.normalizedCompound),
-									gt(addressTable.addressId, after.addressId),
-								),
-							)
-						: undefined,
+					search ? addressSearchMatch(search) : undefined,
+					position ? after(order, position) : undefined,
 				),
 			)
 			.orderBy(
-				asc(addressTable.normalizedCompound),
-				asc(addressTable.addressId),
+				...order.map(({ expr, direction }) =>
+					direction === "desc" ? desc(expr) : asc(expr),
+				),
 			)
 			.limit(limit + 1);
 
 		const hasMore = rows.length > limit;
-		const items = rows.slice(0, limit).map(rowToAddress);
-		const lastItem = items[items.length - 1];
+		const page = rows.slice(0, limit);
+		const lastRow = page[page.length - 1];
 		return resultList(
-			items,
+			page.map(rowToAddress),
 			limit,
-			hasMore && lastItem
+			hasMore && lastRow
 				? {
-						normalizedCompound: lastItem.normalizedCompound,
-						addressId: lastItem.addressId,
+						rank: lastRow.rank,
+						preference: lastRow.preference,
+						correspondence: lastRow.correspondence,
+						recency: lastRow.recency,
+						normalizedCompound: lastRow.normalizedCompound,
+						addressId: lastRow.addressId,
 					}
 				: undefined,
 		);
