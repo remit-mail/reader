@@ -12,13 +12,13 @@ import { z } from "zod";
 /** What every list carries, whatever else it carries. */
 const listSearch = z.object({ q: z.string().optional() });
 
-export const briefSearchSchema = listSearch.extend({
-	selectedMessageId: z.string().optional(),
-	// A tapped semantic "Related" hit can point at a message outside the loaded
-	// brief list; carrying its thread + mailbox lets the brief open it directly.
-	selectedThreadId: z.string().optional(),
-	selectedMailboxId: z.string().optional(),
-});
+/**
+ * The brief's open thread and the message inside it are path segments
+ * (`/mail/brief/<thread>/<message>`), so the query carries nothing but the
+ * search. An old link's selection params are dropped here, which is what
+ * "tolerated and ignored" means until the other three lists follow.
+ */
+export const briefSearchSchema = listSearch.extend({});
 
 export const flaggedSearchSchema = listSearch.extend({
 	selectedMessageId: z.string().optional(),

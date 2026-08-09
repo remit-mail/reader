@@ -28,14 +28,19 @@ export type SearchMirrorTarget =
  * flight and replacing the entry the reader had just pushed. They would click
  * Inbox and land back on the brief.
  *
- * When a query *goes* active it also strips the selection so the reading pane
- * closes (#539): an open message from the pre-search list is not meaningful in
- * the search result set. Only on that transition though — tapping a search
- * result commits the same `q` with the selection, so when `prev.q` already
- * equals the query the result was opened under it (not a pre-search leftover)
- * and must survive. The strip otherwise raced the tap: the row shows before the
- * debounce settles, so this mirror can land just after the open and close it
- * again.
+ * When a query *goes* active it also closes the reading pane (#539): an open
+ * message from the pre-search list is not meaningful in the search result set.
+ * The close is a navigation to the list route, which unmatches the thread that
+ * was open under it — plus, until the remaining lists move their selection into
+ * the path, dropping the params they still read it from. Any other write keeps
+ * the address it found: mirroring a query the reader is editing, or clearing
+ * one, must not shut the conversation they are reading.
+ *
+ * Only on that transition, though — tapping a search result commits the same `q`
+ * with the open thread, so when the URL already says the query the conversation
+ * was opened under it (not a pre-search leftover) and must survive. The close
+ * otherwise raced the tap: the row shows before the debounce settles, so this
+ * mirror can land just after the open and undo it.
  */
 export function useSearchMirror(target: SearchMirrorTarget): void {
 	const navigate = useNavigate();
@@ -61,20 +66,23 @@ export function useSearchMirror(target: SearchMirrorTarget): void {
 			listPath,
 		});
 		if (!mayWrite) return;
-		const search = (prev: Record<string, unknown>) => {
-			const queryAlreadyActive = prev.q === committedQuery;
-			return {
-				...prev,
-				q: committedQuery || undefined,
-				...(committedQuery && !queryAlreadyActive
-					? {
-							selectedMessageId: undefined,
-							selectedThreadId: undefined,
-							selectedMailboxId: undefined,
-						}
-					: {}),
-			};
-		};
+		const queryGoesActive =
+			Boolean(committedQuery) && urlQueryRef.current !== committedQuery;
+		const search = (prev: Record<string, unknown>) => ({
+			...prev,
+			q: committedQuery || undefined,
+			...(queryGoesActive
+				? {
+						selectedMessageId: undefined,
+						selectedThreadId: undefined,
+						selectedMailboxId: undefined,
+					}
+				: {}),
+		});
+		if (!queryGoesActive) {
+			navigate({ to: ".", search, replace: true });
+			return;
+		}
 		if (to === "/mail/$mailboxId") {
 			if (!mailboxId) return;
 			navigate({ to, params: { mailboxId }, search, replace: true });

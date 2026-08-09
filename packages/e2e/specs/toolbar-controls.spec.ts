@@ -10,7 +10,7 @@
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
 import { INBOX_LIST, listOnScreen } from "../src/lists.js";
-import { MAILBOX_URL } from "../src/urls.js";
+import { BRIEF_THREAD_URL, MAILBOX_URL } from "../src/urls.js";
 
 const SHOW_INFO = "Show intelligence sidebar";
 const HIDE_INFO = "Hide intelligence sidebar";
@@ -35,7 +35,9 @@ const openBriefMessage = async (page: Page, subject: string): Promise<void> => {
 	const row = page.getByRole("button").filter({ hasText: subject }).first();
 	await expect(row).toBeVisible({ timeout: 30_000 });
 	await row.click();
-	await page.waitForURL(/selectedMessageId=/);
+	// The brief's open thread is a path segment (#718); the other lists still
+	// carry theirs in the query.
+	await page.waitForURL(BRIEF_THREAD_URL);
 };
 
 const openInboxMessage = async (page: Page): Promise<void> => {

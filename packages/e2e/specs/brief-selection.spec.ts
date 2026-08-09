@@ -19,6 +19,7 @@
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages, waitForServerMailbox } from "../src/imap.js";
+import { BRIEF_THREAD_URL } from "../src/urls.js";
 import {
 	advanceTo,
 	barDelete,
@@ -103,7 +104,7 @@ test.describe("Daily brief selection (#203)", () => {
 		await rowToggle(briefRow(page, subjects[1])).click();
 		// The action bar exists at all — the whole of #203.
 		await expect(selectionStatus(page)).toHaveText("2 messages selected");
-		await expect(page).not.toHaveURL(/selectedMessageId=/);
+		await expect(page).not.toHaveURL(BRIEF_THREAD_URL);
 
 		// Delete opens the wizard, the same surface every other verb opens, and
 		// ends on a review screen naming what it covers (#477 1.4).
@@ -119,7 +120,7 @@ test.describe("Daily brief selection (#203)", () => {
 
 		// The brief stays on the list — no message opens — and the selected rows
 		// leave it.
-		await expect(page).not.toHaveURL(/selectedMessageId=/);
+		await expect(page).not.toHaveURL(BRIEF_THREAD_URL);
 		await expect(selectionStatus(page)).toBeHidden();
 		await expect(briefRow(page, subjects[0])).toBeHidden();
 		await expect(briefRow(page, subjects[1])).toBeHidden();
@@ -255,6 +256,9 @@ test.describe("Daily brief search holds Spam out (#527)", () => {
  * them. The row highlighted, the URL changed, and the pane stayed on "Select a
  * thread to read". The same shape as #70 in the Flagged view.
  *
+ * The address carries the thread now, so this row opens by the same route every
+ * other row does; `detail-routes.spec.ts` loads one cold.
+ *
  * The fixture is the starred message filed in Sent, seeded pre-onboarding: mail
  * outside INBOX that the widened search reaches and the brief list cannot.
  */
@@ -291,9 +295,9 @@ test.describe("Daily brief opens a search hit from another folder (#635)", () =>
 
 		await hit.click();
 
-		// The selection carries the thread and the mailbox, which is what makes a
-		// row from another folder openable at all.
-		await page.waitForURL(/selectedThreadId=/);
+		// The address names the thread, which is what makes a row from another
+		// folder openable at all — its folder comes from the thread's own data.
+		await page.waitForURL(BRIEF_THREAD_URL);
 
 		const article = page.getByRole("article").first();
 		await expect(article).toBeVisible({ timeout: 20_000 });

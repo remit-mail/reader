@@ -229,7 +229,7 @@ export function MailSidebarAdapter({
 			return (
 				<NavLink
 					to="/mail/brief"
-					search={{ q: undefined, selectedMessageId: undefined }}
+					search={{ q: undefined }}
 					activeOptions={{ includeSearch: false }}
 					onClick={() => onClick?.()}
 					className={className}
@@ -340,10 +340,7 @@ export function MailSidebarAdapter({
 	const handleSelectSavedSearch = useCallback(
 		(query: string) => {
 			onSearchChange(query);
-			navigate({
-				to: "/mail/brief",
-				search: { q: query, selectedMessageId: undefined },
-			});
+			navigate({ to: "/mail/brief", search: { q: query } });
 			onMailboxSelect?.();
 		},
 		[onSearchChange, navigate, onMailboxSelect],
