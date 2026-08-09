@@ -37,6 +37,15 @@ export const openSpellProvider = (
 			publish({ state: "ready", language });
 			return;
 		}
+		if (message.type === "failed") {
+			publish({
+				state: "failed",
+				language,
+				reason: message.reason,
+				detail: message.detail,
+			});
+			return;
+		}
 		const settle = pending.get(message.requestId);
 		if (!settle) return;
 		pending.delete(message.requestId);

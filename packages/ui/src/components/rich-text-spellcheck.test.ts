@@ -19,6 +19,7 @@ import type {
 	CheckRequest,
 	CheckResponse,
 	Finding,
+	ProviderStatus,
 	SpellcheckOptions,
 	SpellProvider,
 } from "./rich-text-spellcheck.js";
@@ -46,6 +47,7 @@ let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
 const roots: Root[] = [];
+const containers: HTMLElement[] = [];
 let act: typeof reactAct;
 let createElement: typeof reactCreateElement;
 let useEffect: typeof reactUseEffect;
@@ -60,20 +62,31 @@ const marks = (): StubMarks | undefined =>
 const offsets = (): [number, number][] =>
 	(marks()?.ranges ?? []).map((range) => [range.startOffset, range.endOffset]);
 
-/** What the composer will hand the editor, without a worker in the way. */
-const stubSpellcheck = (
-	shift = 0,
-): SpellcheckOptions & {
+interface Stub extends SpellcheckOptions {
 	readonly asked: CheckRequest[];
 	closed(): number;
-} => {
+	/** Drives the provider's own status, the way a worker falling over does. */
+	push(status: ProviderStatus): void;
+	/** Settles the answers a held provider is sitting on. */
+	release(): void;
+}
+
+/** What the composer will hand the editor, without a worker in the way. */
+const stubSpellcheck = (
+	tune: {
+		revisionOf?: (request: CheckRequest, nth: number) => number;
+		hold?: boolean;
+	} = {},
+): Stub => {
 	const asked: CheckRequest[] = [];
+	const held: (() => void)[] = [];
+	const listeners = new Set<(status: ProviderStatus) => void>();
 	let closed = 0;
 	const words = dictionaryFor("en") ?? new Set<string>();
 
-	const answer = (request: CheckRequest): CheckResponse => ({
+	const answer = (request: CheckRequest, nth: number): CheckResponse => ({
 		requestId: request.requestId,
-		revision: request.revision - shift,
+		revision: tune.revisionOf?.(request, nth) ?? request.revision,
 		findings: request.spans.flatMap((span) =>
 			findMisspellings(span.text, words).map(
 				(range): Finding => ({
@@ -90,12 +103,19 @@ const stubSpellcheck = (
 	const provider: SpellProvider = {
 		language: "en",
 		onStatus: (listener) => {
+			listeners.add(listener);
 			listener({ state: "ready", language: "en" });
-			return () => {};
+			return () => {
+				listeners.delete(listener);
+			};
 		},
 		check: (request) => {
 			asked.push(request);
-			return Promise.resolve(answer(request));
+			const response = answer(request, asked.length);
+			if (!tune.hold) return Promise.resolve(response);
+			return new Promise((resolve) => {
+				held.push(() => resolve(response));
+			});
 		},
 		close: () => {
 			closed += 1;
@@ -105,6 +125,12 @@ const stubSpellcheck = (
 	return {
 		asked,
 		closed: () => closed,
+		push: (status) => {
+			for (const listener of listeners) listener(status);
+		},
+		release: () => {
+			for (const settle of held.splice(0)) settle();
+		},
 		provider: (language) =>
 			Promise.resolve(language === "en" ? provider : null),
 	};
@@ -127,6 +153,7 @@ const mount = async (
 
 	container = dom.window.document.createElement("div");
 	dom.window.document.body.append(container);
+	containers.push(container);
 	await act(async () => {
 		root = createRoot(container);
 		roots.push(root);
@@ -144,8 +171,17 @@ const mount = async (
 const unmountAll = async (): Promise<void> => {
 	const live = [...roots];
 	roots.length = 0;
+	containers.length = 0;
 	await act(async () => {
 		for (const mounted of live) mounted.unmount();
+	});
+};
+
+const unmountLast = async (): Promise<void> => {
+	const last = roots.pop();
+	containers.pop();
+	await act(async () => {
+		last?.unmount();
 	});
 };
 
@@ -155,8 +191,8 @@ const settle = async (): Promise<void> => {
 	});
 };
 
-const editable = (): HTMLElement => {
-	const element = container.querySelector<HTMLElement>(
+const editable = (scope: HTMLElement = container): HTMLElement => {
+	const element = scope.querySelector<HTMLElement>(
 		"[data-testid=compose-body]",
 	);
 	if (!element) throw new Error("the editable surface is not mounted");
@@ -340,7 +376,9 @@ describe("spellcheck marks", () => {
 	});
 
 	it("drops an answer the document has moved past", async () => {
-		const spellcheck = stubSpellcheck(1);
+		const spellcheck = stubSpellcheck({
+			revisionOf: (request) => request.revision - 1,
+		});
 		await mount({
 			initialHtml: `<p>${SENTENCE}</p>`,
 			lang: "en",
@@ -390,6 +428,180 @@ describe("spellcheck marks", () => {
 		);
 	});
 
+	it("takes the marks off a leaf the moment its characters move", async () => {
+		const spellcheck = stubSpellcheck();
+		const editor = await mount({
+			initialHtml: `<p>${SENTENCE}</p><p>Notes redy</p>`,
+			lang: "en",
+			spellcheck,
+		});
+		await settle();
+		assert.deepEqual(offsets(), [
+			[0, 3],
+			[14, 18],
+			[6, 10],
+		]);
+
+		await act(async () => {
+			editor.update(() => {
+				$getRoot().getAllTextNodes().at(-1)?.setTextContent("Well Notes redy");
+			});
+		});
+
+		assert.deepEqual(
+			offsets(),
+			[
+				[0, 3],
+				[14, 18],
+			],
+			"the edited leaf loses its squiggles rather than wearing them on the wrong letters",
+		);
+
+		await settle();
+		assert.deepEqual(
+			offsets(),
+			[
+				[0, 3],
+				[14, 18],
+				[11, 15],
+			],
+			"and gets them back where the words now are",
+		);
+	});
+
+	it("checks a leaf again when its answer came back too late", async () => {
+		const spellcheck = stubSpellcheck({
+			revisionOf: (request, nth) =>
+				nth === 1 ? request.revision - 1 : request.revision,
+		});
+		await mount({
+			initialHtml: `<p>${SENTENCE}</p>`,
+			lang: "en",
+			spellcheck,
+		});
+		await settle();
+		await settle();
+
+		assert.equal(
+			spellcheck.asked.length,
+			2,
+			"the dropped leaf was asked again",
+		);
+		assert.deepEqual(
+			offsets(),
+			[
+				[0, 3],
+				[14, 18],
+			],
+			"a dropped answer costs a pass, not the marks",
+		);
+	});
+
+	it("clears its marks when the provider stops answering", async () => {
+		const seen: ProviderStatus[] = [];
+		const spellcheck = stubSpellcheck();
+		await mount({
+			initialHtml: `<p>${SENTENCE}</p>`,
+			lang: "en",
+			spellcheck: {
+				...spellcheck,
+				onStatus: (status: ProviderStatus) => seen.push(status),
+			},
+		});
+		await settle();
+		assert.equal(offsets().length, 2);
+
+		await act(async () => {
+			spellcheck.push({
+				state: "failed",
+				language: "en",
+				reason: "worker",
+				detail: "the worker stopped",
+			});
+		});
+
+		assert.equal(marks(), undefined, "ours go when the browser's come back");
+		assert.equal(editable().getAttribute("spellcheck"), "true");
+		assert.equal(seen.at(-1)?.state, "failed", "the caller is told why");
+	});
+
+	it("says when a language has no dictionary", async () => {
+		const seen: ProviderStatus[] = [];
+		await mount({
+			initialHtml: `<p>${SENTENCE}</p>`,
+			lang: "de",
+			spellcheck: {
+				...stubSpellcheck(),
+				onStatus: (status: ProviderStatus) => seen.push(status),
+			},
+		});
+		await settle();
+
+		assert.deepEqual(seen, [{ state: "unavailable", language: "de" }]);
+		assert.equal(editable().getAttribute("spellcheck"), "true");
+	});
+
+	it("marks a leaf whose formatting nests its characters", async () => {
+		const spellcheck = stubSpellcheck();
+		const editor = await mount({
+			initialHtml: `<p>${SENTENCE}</p>`,
+			lang: "en",
+			spellcheck,
+		});
+		await settle();
+
+		await act(async () => {
+			editor.update(() => {
+				$getRoot().getAllTextNodes()[0]?.toggleFormat("subscript");
+			});
+		});
+		await settle();
+
+		const nested = editable().querySelector("sub");
+		assert.ok(nested, "the format put the text under a tag of its own");
+		assert.notEqual(
+			nested.firstChild?.nodeType,
+			Node.TEXT_NODE,
+			"the characters are no longer the element's first child",
+		);
+		assert.deepEqual(
+			offsets(),
+			[
+				[0, 3],
+				[14, 18],
+			],
+			"the marks found the characters anyway",
+		);
+	});
+
+	it("keeps two editors' marks apart", async () => {
+		await mount({
+			initialHtml: `<p>${SENTENCE}</p>`,
+			lang: "en",
+			spellcheck: stubSpellcheck(),
+		});
+		await mount({
+			initialHtml: "<p>Redy notes</p>",
+			lang: "en",
+			spellcheck: stubSpellcheck(),
+		});
+		await settle();
+
+		assert.equal(offsets().length, 3, "both editors drew");
+
+		await unmountLast();
+
+		assert.deepEqual(
+			offsets(),
+			[
+				[0, 3],
+				[14, 18],
+			],
+			"closing one composer leaves the other's marks alone",
+		);
+		assert.equal(editable(containers[0]).getAttribute("spellcheck"), "false");
+	});
+
 	it("closes the provider and clears its marks when the editor goes away", async () => {
 		const spellcheck = stubSpellcheck();
 		await mount({
@@ -404,5 +616,23 @@ describe("spellcheck marks", () => {
 
 		assert.equal(spellcheck.closed(), 1, "the provider was closed");
 		assert.equal(marks(), undefined, "the marks left with it");
+	});
+
+	it("paints nothing when an answer lands after the editor closed", async () => {
+		const spellcheck = stubSpellcheck({ hold: true });
+		await mount({
+			initialHtml: `<p>${SENTENCE}</p>`,
+			lang: "en",
+			spellcheck,
+		});
+		await settle();
+		assert.equal(spellcheck.asked.length, 1, "a check is in flight");
+
+		await unmountAll();
+		await act(async () => {
+			spellcheck.release();
+		});
+
+		assert.equal(marks(), undefined, "a late answer draws into nothing");
 	});
 });

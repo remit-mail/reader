@@ -213,6 +213,8 @@ const workerSpellcheck: SpellcheckOptions = { provider: openSpellcheckWorker };
  * The same findings, answered against the revision before the one asked for —
  * what a slow engine looks like when the text has already moved on.
  */
+const staleAnswers: string[] = [];
+
 const staleSpellcheck: SpellcheckOptions = {
 	provider: async () => ({
 		language: "en",
@@ -221,6 +223,7 @@ const staleSpellcheck: SpellcheckOptions = {
 			return () => {};
 		},
 		check: (request: CheckRequest) => {
+			staleAnswers.push(request.requestId);
 			const words = dictionaryFor(request.language) ?? new Set<string>();
 			return Promise.resolve({
 				requestId: request.requestId,
@@ -243,8 +246,9 @@ const staleSpellcheck: SpellcheckOptions = {
 };
 
 /**
- * The registry belongs to the page, so a story reads only the marks that fall
- * inside its own writing surface.
+ * Every editor on the page shares the one registry entry, so a story reads back
+ * the marks that fall inside its own writing surface — on a docs page the
+ * neighbouring stories are drawing into it at the same time.
  */
 const spellMarks = (editable: HTMLElement): AbstractRange[] => {
 	const ranges: AbstractRange[] = [];
@@ -340,7 +344,9 @@ export const SpellcheckStaleAnswer: Story = {
 	},
 	play: async ({ canvasElement }) => {
 		const editable = writingSurface(canvasElement);
-		await new Promise((resolve) => setTimeout(resolve, 1000));
+		await waitFor(() => expect(staleAnswers.length).toBeGreaterThan(0), {
+			timeout: 5000,
+		});
 		await expect(spellMarks(editable)).toHaveLength(0);
 		await expect(editable.textContent).toBe(MISSPELT);
 	},

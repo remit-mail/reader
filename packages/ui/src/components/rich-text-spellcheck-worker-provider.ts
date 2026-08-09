@@ -30,13 +30,13 @@ const workerPort = (worker: Worker): SpellWorkerPort => ({
 	terminate: () => worker.terminate(),
 });
 
-export const openSpellcheckWorker = (
+export const openSpellcheckWorker = async (
 	language: LanguageTag,
 ): Promise<SpellProvider | null> => {
-	if (!dictionaryFor(language)) return Promise.resolve(null);
+	if (!dictionaryFor(language)) return null;
 	const worker = new Worker(
 		new URL("./rich-text-spellcheck-worker.ts", import.meta.url),
 		{ type: "module" },
 	);
-	return Promise.resolve(openSpellProvider(language, workerPort(worker)));
+	return openSpellProvider(language, workerPort(worker));
 };

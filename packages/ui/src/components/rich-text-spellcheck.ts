@@ -37,6 +37,8 @@ export interface CheckResponse {
 export type ProviderStatus =
 	| { readonly state: "opening"; readonly language: LanguageTag }
 	| { readonly state: "ready"; readonly language: LanguageTag }
+	/** Nothing here checks this language, and the browser is welcome to. */
+	| { readonly state: "unavailable"; readonly language: LanguageTag }
 	| {
 			readonly state: "failed";
 			readonly language: LanguageTag;
@@ -64,4 +66,10 @@ export type SpellWorkerRequest =
 
 export type SpellWorkerResponse =
 	| { readonly type: "ready"; readonly language: LanguageTag }
+	| {
+			readonly type: "failed";
+			readonly language: LanguageTag;
+			readonly reason: "download" | "engine";
+			readonly detail: string;
+	  }
 	| ({ readonly type: "checked" } & CheckResponse);

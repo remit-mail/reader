@@ -162,6 +162,33 @@ describe("a provider over a worker", () => {
 		provider.close();
 	});
 
+	it("passes on a failure the worker names itself", () => {
+		const seen: ProviderStatus[] = [];
+		let answer: ((message: SpellWorkerResponse) => void) | undefined;
+		const provider = openSpellProvider("nl", {
+			...port,
+			post: () => {},
+			listen: (listener) => {
+				answer = listener;
+			},
+		});
+		provider.onStatus((status) => seen.push(status));
+		answer?.({
+			type: "failed",
+			language: "nl",
+			reason: "download",
+			detail: "503 fetching the dictionary",
+		});
+
+		assert.deepEqual(seen.at(-1), {
+			state: "failed",
+			language: "nl",
+			reason: "download",
+			detail: "503 fetching the dictionary",
+		});
+		provider.close();
+	});
+
 	it("reports a worker that fell over", () => {
 		const seen: ProviderStatus[] = [];
 		let raise: ((detail: string) => void) | undefined;

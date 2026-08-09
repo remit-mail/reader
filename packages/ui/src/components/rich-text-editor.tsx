@@ -27,6 +27,7 @@ import { RICH_TEXT_NODES, richTextTheme } from "./rich-text-nodes.js";
 import type {
 	CheckSpan,
 	Finding,
+	ProviderStatus,
 	SpellcheckOptions,
 	SpellProvider,
 } from "./rich-text-spellcheck.js";
@@ -185,18 +186,49 @@ const marksSupported = (): boolean => {
 	return Boolean(host.CSS?.highlights) && typeof host.Highlight === "function";
 };
 
-const paintMarks = (ranges: readonly Range[]): void => {
+/**
+ * One registry entry carries the marks of every editor on the page, because a
+ * highlight name is a page-wide thing and `::highlight(spell-error)` names it
+ * statically. Each editor owns its own ranges here and hands over the whole set
+ * each pass, so a second composer neither overwrites the first nor takes its
+ * marks down when it closes.
+ */
+const painters = new Map<symbol, readonly Range[]>();
+
+const paintMarks = (painter: symbol, ranges: readonly Range[]): void => {
 	const host = markHost();
 	const registry = host.CSS?.highlights;
 	const Marks = host.Highlight;
 	if (!registry || !Marks) return;
-	if (ranges.length === 0) {
+	if (ranges.length === 0) painters.delete(painter);
+	else painters.set(painter, ranges);
+
+	const marks = new Marks();
+	let drawn = 0;
+	for (const owned of painters.values())
+		for (const range of owned) {
+			marks.add(range);
+			drawn += 1;
+		}
+	if (drawn === 0) {
 		registry.delete(SPELLCHECK_HIGHLIGHT);
 		return;
 	}
-	const marks = new Marks();
-	for (const range of ranges) marks.add(range);
 	registry.set(SPELLCHECK_HIGHLIGHT, marks);
+};
+
+/**
+ * The characters of a leaf. A format Lexical renders with a tag of its own —
+ * code, subscript, superscript — puts the text one level further down, so the
+ * element the node key resolves to is not always the text itself.
+ */
+const leafCharacters = (node: Node): Node | null => {
+	if (node.nodeType === Node.TEXT_NODE) return node;
+	for (let child = node.firstChild; child; child = child.nextSibling) {
+		const characters = leafCharacters(child);
+		if (characters) return characters;
+	}
+	return null;
 };
 
 /**
@@ -229,11 +261,14 @@ const SpellcheckPlugin = ({
 
 	useEffect(() => {
 		if (!marksSupported()) return;
+		const painter = Symbol(SPELLCHECK_HIGHLIGHT);
 		const found = new Map<string, readonly Finding[]>();
 		const touched = new Set<string>();
 		let provider: SpellProvider | null = null;
 		let unsubscribe: (() => void) | undefined;
 		let idle: ReturnType<typeof setTimeout> | undefined;
+		let live = true;
+		let state: ProviderStatus["state"] = "opening";
 		let revision = 0;
 		let asked = 0;
 
@@ -247,12 +282,13 @@ const SpellcheckPlugin = ({
 						: null;
 				for (const [key, findings] of found) {
 					const node = $getNodeByKey(key);
-					const element = editor.getElementByKey(key);
-					const text = element?.firstChild;
-					if (!$isTextNode(node) || !text || text.nodeType !== Node.TEXT_NODE) {
+					if (!$isTextNode(node)) {
 						found.delete(key);
 						continue;
 					}
+					const element = editor.getElementByKey(key);
+					const text = element ? leafCharacters(element) : null;
+					if (!text) continue;
 					const length = text.textContent?.length ?? 0;
 					for (const finding of findings) {
 						if (finding.end > length) continue;
@@ -262,18 +298,21 @@ const SpellcheckPlugin = ({
 							caret.offset <= finding.end
 						)
 							continue;
-						const range = element.ownerDocument.createRange();
+						const range = text.ownerDocument?.createRange();
+						if (!range) continue;
 						range.setStart(text, finding.start);
 						range.setEnd(text, finding.end);
 						ranges.push(range);
 					}
 				}
 			});
-			paintMarks(ranges);
+			paintMarks(painter, ranges);
 		};
 
 		const check = (): void => {
-			if (!provider) return;
+			// Anything queued while the provider is not answering stays queued: the
+			// next status that says ready sends it.
+			if (!provider || state !== "ready") return;
 			const keys = [...touched];
 			touched.clear();
 			const spans: CheckSpan[] = [];
@@ -296,7 +335,16 @@ const SpellcheckPlugin = ({
 			provider
 				.check({ requestId: `${asked}`, language, revision: sent, spans })
 				.then((response) => {
-					if (response.revision !== revision) return;
+					if (!live) return;
+					// The text moved while this was in flight, so the offsets are
+					// answers to a document that no longer exists. The leaves go back
+					// on the queue: dropping them here would leave them unchecked
+					// until the writer happened to touch them again.
+					if (response.revision !== revision) {
+						for (const span of spans) touched.add(span.spanId);
+						schedule();
+						return;
+					}
 					const grouped = new Map<string, Finding[]>();
 					for (const finding of response.findings) {
 						const list = grouped.get(finding.spanId);
@@ -323,22 +371,42 @@ const SpellcheckPlugin = ({
 				return;
 			}
 			revision += 1;
+			// Characters moved under the findings this leaf carries, so they are
+			// answers about text that is no longer there. They go now rather than
+			// sitting over the wrong letters until the next answer arrives.
+			for (const key of dirtyLeaves) {
+				found.delete(key);
+				touched.add(key);
+			}
 			repaint();
-			for (const key of dirtyLeaves) touched.add(key);
 			schedule();
 		});
 
-		let live = true;
 		settings.current.provider(language).then((opened) => {
 			if (!live) {
 				opened?.close();
 				return;
 			}
 			provider = opened;
-			if (!opened) return;
+			if (!opened) {
+				settings.current.onStatus?.({ state: "unavailable", language });
+				report.current(false);
+				return;
+			}
 			unsubscribe = opened.onStatus((status) => {
+				state = status.state;
 				settings.current.onStatus?.(status);
-				report.current(status.state === "ready");
+				const ready = status.state === "ready";
+				report.current(ready);
+				if (ready) {
+					schedule();
+					return;
+				}
+				// Checking stopped, so the browser's own is back. Its squiggles are
+				// the only ones on screen from here.
+				found.clear();
+				touched.clear();
+				repaint();
 			});
 			// The document the editor opened on was reconciled before this
 			// listener existed, so its leaves are checked here rather than waiting
@@ -358,7 +426,7 @@ const SpellcheckPlugin = ({
 			provider?.close();
 			provider = null;
 			report.current(false);
-			paintMarks([]);
+			paintMarks(painter, []);
 		};
 	}, [editor, language]);
 
