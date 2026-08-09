@@ -85,6 +85,8 @@ export interface SimilarMessageIntel {
 	id: string;
 	/** Mailbox the message lives in — the route param for opening it. */
 	mailboxId: string;
+	/** Conversation the message belongs to, which is what the reading pane opens. */
+	threadId: string;
 	fromName: string;
 	subject: string;
 	timeLabel: string;
@@ -99,6 +101,7 @@ export interface SimilarMessageIntel {
  */
 export interface SimilarMessageLinkProps {
 	mailboxId: string;
+	threadId: string;
 	messageId: string;
 	className: string;
 	ariaLabel?: string;
@@ -540,6 +543,7 @@ export function IntelligencePanel({
 										{similarLinkComponent ? (
 											similarLinkComponent({
 												mailboxId: s.mailboxId,
+												threadId: s.threadId,
 												messageId: s.id,
 												className: rowClass,
 												ariaLabel,

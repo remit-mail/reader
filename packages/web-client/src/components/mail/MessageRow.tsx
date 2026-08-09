@@ -4,9 +4,9 @@
  * The mailbox list, the daily brief and Flagged used to carry three
  * near-identical rows (#149). They differ in two axes only, both props here:
  *
- * - `linkMailboxId` — set for the mailbox list, whose rows are real links so a
- *   plain click routes and a middle click opens a tab. Omitted for the brief
- *   and Flagged, whose rows report the tap through `onClick`.
+ * - `link` — set for the mailbox list, whose rows are real links so a plain
+ *   click routes and a middle click opens a tab. Omitted for the brief and
+ *   Flagged, whose rows report the tap through `onClick`.
  * - `selection` — set where multi-select is available. Absent renders the
  *   avatar alone with no checkbox, which is what "non-selectable mode" means.
  */
@@ -73,8 +73,11 @@ export interface MessageRowProps {
 	 * orphan `option` is invalid ARIA and costs the row its button semantics.
 	 */
 	inListbox?: boolean;
-	/** Mailbox whose route the row links to; omit for callback-driven rows. */
-	linkMailboxId?: string;
+	/**
+	 * The address the row links to: the folder being browsed and the conversation
+	 * this row opens. Omit for callback-driven rows.
+	 */
+	link?: { mailboxId: string; threadId: string };
 	/** Called when the row is opened by a plain click on a non-linking row. */
 	onClick?: () => void;
 	/** Called when the row takes DOM focus, so the roving cursor follows it. */
@@ -91,7 +94,7 @@ const MessageRowComponent = ({
 	badge,
 	selection: selectionProp,
 	inListbox = false,
-	linkMailboxId,
+	link,
 	onClick,
 	onFocusRow: onFocusRowProp,
 }: MessageRowProps) => {
@@ -240,7 +243,7 @@ const MessageRowComponent = ({
 			/>
 		);
 
-	if (linkMailboxId === undefined) {
+	if (link === undefined) {
 		return (
 			<button type="button" {...interactionProps} className={className}>
 				{body}
@@ -250,9 +253,9 @@ const MessageRowComponent = ({
 
 	return (
 		<NavLink
-			to="/mail/$mailboxId"
-			params={{ mailboxId: linkMailboxId }}
-			search={(prev) => ({ ...prev, selectedMessageId: messageId })}
+			to="/mail/$mailboxId/$threadId/$messageId"
+			params={{ ...link, messageId }}
+			search={(prev) => prev}
 			variant="row"
 			{...interactionProps}
 			className={className}

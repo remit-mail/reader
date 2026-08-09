@@ -825,11 +825,7 @@ export function DailyBrief({
 						navigate({
 							to: "/mail/$mailboxId",
 							params: { mailboxId: briefSpamOffer.mailboxId },
-							search: {
-								q: searchQuery || undefined,
-								selectedMessageId: undefined,
-								selectedThreadId: undefined,
-							},
+							search: { q: searchQuery || undefined },
 						})
 					}
 				/>

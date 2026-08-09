@@ -152,13 +152,14 @@ export const WithSimilarMessages: Story = {
 	args: {
 		similarLinkComponent: ({
 			mailboxId,
+			threadId,
 			messageId,
 			className,
 			ariaLabel,
 			children,
 		}) => (
 			<a
-				href={`/mail/${mailboxId}?selectedMessageId=${messageId}`}
+				href={`/mail/${mailboxId}/${threadId}/${messageId}`}
 				className={className}
 				aria-label={ariaLabel}
 			>
@@ -171,6 +172,7 @@ export const WithSimilarMessages: Story = {
 				{
 					id: "msg-1",
 					mailboxId: "mbx-1",
+					threadId: "thr-msg-1",
 					fromName: "Alex Rivera",
 					subject: "Re: Q3 planning notes",
 					timeLabel: "Jan 17",
@@ -179,6 +181,7 @@ export const WithSimilarMessages: Story = {
 				{
 					id: "msg-2",
 					mailboxId: "mbx-1",
+					threadId: "thr-msg-2",
 					fromName: "Billing",
 					subject: "Your invoice is ready",
 					timeLabel: "Yesterday",
@@ -187,6 +190,7 @@ export const WithSimilarMessages: Story = {
 				{
 					id: "msg-3",
 					mailboxId: "mbx-2",
+					threadId: "thr-msg-3",
 					fromName: "",
 					subject: "(No subject)",
 					timeLabel: "Dec 4, 2024",

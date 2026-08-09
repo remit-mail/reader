@@ -189,10 +189,14 @@ export function DraftsView({
 	};
 
 	const handleImapDraftOpen = (messageId: string) => {
+		const threadId = imapThreads.find(
+			(thread) => thread.messageId === messageId,
+		)?.threadId;
+		if (!threadId) return;
 		navigate({
-			to: "/mail/$mailboxId",
-			params: { mailboxId },
-			search: { selectedMessageId: messageId },
+			to: "/mail/$mailboxId/$threadId/$messageId",
+			params: { mailboxId, threadId, messageId },
+			search: (prev) => prev,
 		});
 	};
 

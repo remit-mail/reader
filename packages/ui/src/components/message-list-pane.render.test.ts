@@ -93,13 +93,13 @@ describe("MessageListPane", () => {
 				listState: "ready",
 				listBody: createElement(
 					"a",
-					{ href: "/mail/inbox?selectedMessageId=t1" },
+					{ href: "/mail/inbox/thr-t1/t1" },
 					"Q3 planning notes",
 				),
 			}),
 		);
 		// The consumer's anchor row is rendered on the mobile/touch path…
-		assert.match(html, /href="\/mail\/inbox\?selectedMessageId=t1"/);
+		assert.match(html, /href="\/mail\/inbox\/thr-t1\/t1"/);
 		// …and the built-in TouchListBody mock fallback is NOT substituted.
 		assert.doesNotMatch(html, /Pull to refresh/);
 	});

@@ -22,6 +22,7 @@ import {
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages } from "../src/imap.js";
 import { type RunState, readRunState } from "../src/state.js";
+import { MAILBOX_ROW_LINK, MAILBOX_THREAD_URL } from "../src/urls.js";
 
 const TAG = `attachment-fixture ${Date.now()}`;
 const SUBJECT = `${TAG} board pack`;
@@ -29,8 +30,7 @@ const SUBJECT = `${TAG} board pack`;
 let run: RunState;
 let api: ApiClient;
 
-const rows = (page: Page): Locator =>
-	page.locator("a[href*='selectedMessageId']");
+const rows = (page: Page): Locator => page.locator(MAILBOX_ROW_LINK);
 
 const gotoInbox = async (page: Page): Promise<void> => {
 	await page.goto(`/mail/${run.inboxId}`);
@@ -52,7 +52,7 @@ const openFixture = async (page: Page): Promise<Locator> => {
 	await gotoInbox(page);
 	const row = await fixtureRow(page);
 	await row.click();
-	await page.waitForURL(/selectedMessageId=/);
+	await page.waitForURL(MAILBOX_THREAD_URL);
 
 	const article = page.getByRole("article");
 	await expect(article).toBeVisible({ timeout: 15_000 });

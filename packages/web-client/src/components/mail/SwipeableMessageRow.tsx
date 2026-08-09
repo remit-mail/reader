@@ -13,11 +13,6 @@ import { formatEmailDate } from "@/lib/format";
 import { MessageListItem } from "./MessageListItem";
 import { useModifierSelect } from "./useModifierSelect";
 
-interface MailboxLinkSearch {
-	selectedMessageId?: string;
-	q?: string;
-}
-
 interface SwipeableMessageRowProps {
 	thread: RemitImapThreadMessageResponse;
 	mailboxId: string;
@@ -103,14 +98,15 @@ export const SwipeableMessageRow = ({
 
 	const handleOpen = useCallback(() => {
 		navigate({
-			to: "/mail/$mailboxId",
-			params: { mailboxId },
-			search: (prev: MailboxLinkSearch) => ({
-				...prev,
-				selectedMessageId: thread.messageId,
-			}),
+			to: "/mail/$mailboxId/$threadId/$messageId",
+			params: {
+				mailboxId,
+				threadId: thread.threadId,
+				messageId: thread.messageId,
+			},
+			search: (prev) => prev,
 		});
-	}, [navigate, mailboxId, thread.messageId]);
+	}, [navigate, mailboxId, thread.threadId, thread.messageId]);
 
 	const modifierSelect = useModifierSelect(thread.messageId, onRowSelect);
 

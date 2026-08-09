@@ -621,16 +621,31 @@ export const MessageList = ({
 		],
 	);
 
-	// Enter: open the focused row in the reading pane (sets selected/URL). This
-	// is the focus→open transition of the 2-state model.
+	// Opening a row is a navigation to the conversation under this folder. Every
+	// row the list renders names its thread, which is what the reading pane
+	// fetches by — a row the list no longer holds cannot be opened from here.
+	const openRow = useCallback(
+		(messageId: string, options?: { replace?: boolean }) => {
+			const threadId = threads.find(
+				(thread) => thread.messageId === messageId,
+			)?.threadId;
+			if (!threadId) return;
+			navigate({
+				to: "/mail/$mailboxId/$threadId/$messageId",
+				params: { mailboxId, threadId, messageId },
+				search: (prev) => prev,
+				replace: options?.replace,
+			});
+		},
+		[navigate, mailboxId, threads],
+	);
+
+	// Enter: open the focused row in the reading pane. This is the focus→open
+	// transition of the 2-state model.
 	const handleOpenFocused = useCallback(() => {
 		if (!focusedMessageId) return;
-		navigate({
-			to: "/mail/$mailboxId",
-			params: { mailboxId },
-			search: (prev) => ({ ...prev, selectedMessageId: focusedMessageId }),
-		});
-	}, [focusedMessageId, navigate, mailboxId]);
+		openRow(focusedMessageId);
+	}, [focusedMessageId, openRow]);
 
 	// The reading pane follows the cursor on desktop: j/k load the row they land
 	// on, without the user having to press Enter for every message. It replaces
@@ -643,15 +658,8 @@ export const MessageList = ({
 	// Suspended off desktop too, where the reading pane replaces the list
 	// entirely, so following the cursor would throw the user off the list.
 	const followFocusOpen = useCallback(
-		(messageId: string) => {
-			navigate({
-				to: "/mail/$mailboxId",
-				params: { mailboxId },
-				search: (prev) => ({ ...prev, selectedMessageId: messageId }),
-				replace: true,
-			});
-		},
-		[navigate, mailboxId],
+		(messageId: string) => openRow(messageId, { replace: true }),
+		[openRow],
 	);
 	useFollowFocusOpen({
 		keyboardFocusedMessageId,
@@ -724,12 +732,7 @@ export const MessageList = ({
 			// like it opened a random neighbour instead of removing the rows (#202).
 			// Mobile keeps the cursor move but stays on the list.
 			if (isDesktop) {
-				navigate({
-					to: "/mail/$mailboxId",
-					params: { mailboxId },
-					search: (prev) => ({ ...prev, selectedMessageId: nextFocus }),
-					replace: true,
-				});
+				openRow(nextFocus, { replace: true });
 			}
 		}
 
@@ -744,8 +747,7 @@ export const MessageList = ({
 		threads,
 		onDeleteMessages,
 		exitSelection,
-		navigate,
-		mailboxId,
+		openRow,
 		isDesktop,
 		setFocusedMessageId,
 	]);
@@ -1323,13 +1325,7 @@ export const MessageList = ({
 				onReportError={handleReportError}
 				density={density}
 				selectedThreadId={selectedMessageId}
-				onSelectThread={(id) =>
-					navigate({
-						to: "/mail/$mailboxId",
-						params: { mailboxId },
-						search: (prev) => ({ ...prev, selectedMessageId: id }),
-					})
-				}
+				onSelectThread={(id) => openRow(id)}
 				isDesktop={isDesktop}
 				hideHeader={hideHeader}
 				selectionBar={activeSelectionBar}

@@ -9,5 +9,10 @@ export {
 	parsePanelFragment,
 	useOpenPanel,
 } from "./fragment";
+export {
+	type MailboxThreadPath,
+	type MailboxThreadTarget,
+	useMailboxThreadPath,
+} from "./mailbox-thread";
 export { NavLink, type NavLinkProps } from "./nav-link";
 export { useOutboxDraftId } from "./outbox-draft";

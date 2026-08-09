@@ -285,8 +285,9 @@ export function MailSidebarAdapter({
 			<NavLink
 				to="/mail/$mailboxId"
 				params={{ mailboxId: navId }}
-				// Drop any stale search query / selected message when switching mailbox.
-				search={{ q: undefined, selectedMessageId: undefined }}
+				// Drop any stale search query when switching mailbox; the list route
+				// is above the open conversation, so it leaves nothing behind.
+				search={{ q: undefined }}
 				onClick={() => {
 					invalidateMailboxThreads(navId);
 					onClick?.();

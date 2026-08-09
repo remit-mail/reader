@@ -5,7 +5,7 @@
  */
 import { expect, test } from "../src/fixtures.js";
 import { INBOX_LIST, listOnScreen } from "../src/lists.js";
-import { MAILBOX_URL } from "../src/urls.js";
+import { MAILBOX_ROW_LINK, MAILBOX_URL } from "../src/urls.js";
 
 const openInbox = async (page: import("@playwright/test").Page) => {
 	await page.goto("/mail");
@@ -36,7 +36,7 @@ test.describe("Mailbox navigation", () => {
 		await listOnScreen(page, INBOX_LIST);
 
 		// Navigating has to deliver the mailbox's contents, not just its route.
-		await expect(page.locator("a[href*='selectedMessageId']")).toHaveCount(
+		await expect(page.locator(MAILBOX_ROW_LINK)).toHaveCount(
 			run.seededSubjects.length,
 			{ timeout: 20_000 },
 		);

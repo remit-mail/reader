@@ -19,7 +19,7 @@ import type { ApiClient } from "../src/api.js";
 import { waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { INBOX_LIST, listOnScreen } from "../src/lists.js";
-import { MAILBOX_URL } from "../src/urls.js";
+import { MAILBOX_THREAD_URL, MAILBOX_URL } from "../src/urls.js";
 
 /**
  * The thread the seeded conversation belongs to. Sync is asynchronous per
@@ -106,7 +106,7 @@ test.describe("A conversation spanning INBOX and Sent", () => {
 			.getByText(run.conversation.receivedSubject, { exact: true })
 			.first()
 			.click();
-		await page.waitForURL(/selectedMessageId=/);
+		await page.waitForURL(MAILBOX_THREAD_URL);
 
 		const conversation = page.getByRole("article");
 		await expect(conversation).toBeVisible({ timeout: 20_000 });

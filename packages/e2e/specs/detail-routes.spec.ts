@@ -1,12 +1,12 @@
 /**
  * A list's reading pane is a route (#718, #713).
  *
- * `/mail/brief/<thread>/<message>` is the whole address. What used to make a
- * brief conversation openable was three query params, one of them a mailbox,
- * because the brief spans folders and the pane fetches by thread. A folder is
- * the thread's own data, so those params were standing in for a missing segment
- * — which is what the cold load below proves: the message it opens is in no
- * listing the brief holds, so nothing but the address can resolve it.
+ * `/mail/<list>/<thread>/<message>` is the whole address. What used to make a
+ * conversation openable was query params — a message, a thread, and for the
+ * brief a mailbox too — resolved against whatever rows the list had loaded. The
+ * thread is the address, so those params were standing in for a missing segment,
+ * which is what the cold loads below prove: each opens a message no listing on
+ * the page holds, so nothing but the address can resolve it.
  *
  * The outbox is the same move one list over: `/mail/outbox/draft/<message>`
  * replaces a `selectedOutboxMessageId` param that only that list read.
@@ -23,6 +23,8 @@ import { expect, test } from "../src/fixtures.js";
 import {
 	BRIEF_THREAD_URL,
 	BRIEF_URL,
+	MAILBOX_ROW_LINK,
+	MAILBOX_THREAD_URL,
 	OUTBOX_MESSAGE_URL,
 	OUTBOX_URL,
 } from "../src/urls.js";
@@ -326,5 +328,112 @@ test.describe("An outbox message lives in the address (#713)", () => {
 		await expect(page.getByText("Select a message to read")).toBeVisible({
 			timeout: 30_000,
 		});
+	});
+});
+
+test.describe("A folder's conversation deep-links from cold (#713)", () => {
+	test.setTimeout(120_000);
+
+	test("a pasted address opens a message the folder never listed", async ({
+		api,
+		page,
+		run,
+	}) => {
+		const subject = run.starredElsewhereSubject;
+
+		// The fixture is the starred message filed in Sent. The address below
+		// browses INBOX, so the list this page renders cannot hold it — asserted
+		// rather than assumed, because it is the whole point of the case. The
+		// folder in the address says which list is being browsed; the thread says
+		// what to read, and its own rows say where that mail is filed.
+		const starred = await api.listAllThreads({ starred: true });
+		const target = starred.find((thread) => thread.subject === subject);
+		expect(
+			target,
+			`the starred scope lists "${subject}", the fixture this case needs`,
+		).toBeDefined();
+		if (!target) return;
+
+		const inbox = await api.listThreads(run.inboxId);
+		expect(inbox.map((thread) => thread.subject)).not.toContain(subject);
+
+		// A fresh context: nothing loaded, no list rendered, and no earlier
+		// navigation leaving a cached row to fall back on.
+		await page.goto(
+			`/mail/${run.inboxId}/${target.threadId}/${target.messageId}`,
+		);
+
+		const article = await settledConversation(page, subject);
+		await expect(article).toContainText("Starred, and not in the inbox.");
+		await expect(page.getByText("Select a thread to read")).toHaveCount(0);
+
+		// The load did not rewrite the address back to the list, so both segments
+		// are still there to share.
+		await expect(page).toHaveURL(
+			new RegExp(`/mail/${run.inboxId}/${target.threadId}/${target.messageId}`),
+		);
+
+		// Assert again after something unrelated: the folder's own rows arrive
+		// behind the conversation, and must not take the pane back.
+		await expect(page.locator(MAILBOX_ROW_LINK).first()).toBeVisible({
+			timeout: 60_000,
+		});
+		await expect(
+			article.getByRole("heading", { name: subject, exact: true }),
+		).toBeVisible();
+
+		// And the verbs act on it. Move needs the account and the folder the thread
+		// is filed in, which is exactly what a cold address does not carry: the
+		// thread's own rows answer for it, so the button opens a real picker rather
+		// than explaining it has nothing to act on. Left open — Escape is the key
+		// that closes the conversation, so it is not a way to dismiss a popover.
+		await page.getByRole("button", { name: "Move to mailbox" }).click();
+		await expect(page.getByText(NO_THREAD_HINT)).toHaveCount(0);
+		await expect(
+			article.getByRole("heading", { name: subject, exact: true }),
+		).toBeVisible();
+	});
+
+	test("the thread on its own opens, with no message named", async ({
+		api,
+		page,
+		run,
+	}) => {
+		const subject = run.starredElsewhereSubject;
+		const starred = await api.listAllThreads({ starred: true });
+		const target = starred.find((thread) => thread.subject === subject);
+		expect(target).toBeDefined();
+		if (!target) return;
+
+		// The message segment says which message is expanded; without one the
+		// newest answers for the conversation, so the thread is addressable alone.
+		await page.goto(`/mail/${run.inboxId}/${target.threadId}`);
+		await settledConversation(page, subject);
+	});
+
+	test("a row opened from the folder survives the list settling under it", async ({
+		page,
+		run,
+	}) => {
+		const subject = run.seededSubjects[0];
+		await page.goto(`/mail/${run.inboxId}`);
+		const row = page
+			.locator(MAILBOX_ROW_LINK)
+			.filter({ hasText: subject })
+			.first();
+		await expect(row).toBeVisible({ timeout: 60_000 });
+
+		await row.click();
+		await page.waitForURL(MAILBOX_THREAD_URL);
+		await settledConversation(page, subject);
+
+		// Assert again after something unrelated: paging and refetching go on
+		// behind the conversation, and none of it may close what is being read.
+		await expect(page.locator(MAILBOX_ROW_LINK)).toHaveCount(
+			run.seededSubjects.length,
+			{ timeout: 60_000 },
+		);
+		await expect(page).toHaveURL(MAILBOX_THREAD_URL);
+		await expect(conversation(page)).toBeVisible();
 	});
 });

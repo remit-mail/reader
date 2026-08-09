@@ -310,15 +310,16 @@ function WiredPanel({
 	// preserving deep-linking, middle-click, and existing search params.
 	const similarLinkComponent: SimilarMessageLinkComponent = ({
 		mailboxId: rowMailboxId,
+		threadId,
 		messageId,
 		className,
 		ariaLabel,
 		children,
 	}) => (
 		<NavLink
-			to="/mail/$mailboxId"
-			params={{ mailboxId: rowMailboxId }}
-			search={(prev) => ({ ...prev, selectedMessageId: messageId })}
+			to="/mail/$mailboxId/$threadId/$messageId"
+			params={{ mailboxId: rowMailboxId, threadId, messageId }}
+			search={(prev) => prev}
 			variant="row"
 			className={className}
 			aria-label={ariaLabel}

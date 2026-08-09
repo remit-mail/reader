@@ -28,3 +28,14 @@ export const OUTBOX_MESSAGE_URL = /\/mail\/outbox\/draft\/[^/?#]+/;
 
 /** The outbox list, with nothing open under it. */
 export const OUTBOX_URL = /\/mail\/outbox(\?|$)/;
+
+/** A conversation open in a folder: the folder, then the thread under it. */
+export const MAILBOX_THREAD_URL =
+	/\/mail\/(?!(?:brief|flagged|outbox)(?:[/?#]|$))[^/?#]+\/[^/?#]+/;
+
+/**
+ * A folder's rows, which are the only rows in the app rendered as real anchors.
+ * They used to be found by the selection param in their href; the selection is
+ * the address now, so the row is found by what it is.
+ */
+export const MAILBOX_ROW_LINK = "a[data-message-row]";

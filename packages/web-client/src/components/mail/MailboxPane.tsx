@@ -2,13 +2,13 @@
  * MailboxPane — compound component for the mailbox view.
  *
  * Encapsulates all state, hooks, and rendering for the /mail/$mailboxId view.
- * The parent (`mail.tsx`) mounts `<MailboxPane>` around the `AppShellSlotted`
- * and passes the sub-views into slots:
+ * The list layout route mounts `<MailboxPane>` around the shell and passes the
+ * sub-views into slots, with the reading pane as the `Outlet`:
  *
- *   <MailboxPane mailboxId={...} selectedMessageId={...}>
- *     <AppShellSlotted
+ *   <MailboxPane mailboxId={...} thread={useMailboxThreadPath()}>
+ *     <MailShell
  *       list={<MailboxPane.List />}
- *       reading={<MailboxPane.Reading />}
+ *       reading={<Outlet />}
  *       intelligence={<MailboxPane.Intelligence />}
  *     />
  *   </MailboxPane>
@@ -40,7 +40,7 @@ import {
 	useMutation,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import {
 	createContext,
 	type ReactNode,
@@ -94,13 +94,11 @@ import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useSemanticSearch } from "@/hooks/useSemanticSearch";
 import { useThreadActions } from "@/hooks/useThreadActions";
 import { useThreadMessageIds } from "@/hooks/useThreadMessageIds";
+import { useThreadRow } from "@/hooks/useThreadRow";
 import { useToggleStar } from "@/hooks/useToggleStar";
 import { useTriageContext, useTriageLayer } from "@/hooks/useTriageLayer";
 import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
-import {
-	buildConversationTarget,
-	type ConversationTarget,
-} from "@/lib/conversation-target";
+import type { ConversationTarget } from "@/lib/conversation-target";
 import { dedupeThreadMessages } from "@/lib/dedupe-thread-messages";
 import {
 	filterReach,
@@ -116,11 +114,6 @@ import { useMailContext } from "@/lib/mail-context";
 import { useMailFreshness } from "@/lib/mail-freshness";
 import { isRescueCandidate } from "@/lib/rescue-candidates";
 import { recordRescueSentToJunk } from "@/lib/rescue-telemetry";
-import {
-	isSearchPending as computeIsSearchPending,
-	resolveOpenThread,
-	resolveSelectedThread,
-} from "@/lib/search-pending";
 import { normalizeSearchQuery } from "@/lib/search-query";
 import {
 	relatedSearchResults,
@@ -132,6 +125,7 @@ import {
 	applyResidualTokens,
 	threadSearchTokens,
 } from "@/lib/thread-search-tokens";
+import type { MailboxThreadPath, MailboxThreadTarget } from "@/routing";
 import { MailViewChrome } from "./MailViewChrome";
 
 /* ------------------------------------------------------------------ */
@@ -140,10 +134,13 @@ import { MailViewChrome } from "./MailViewChrome";
 
 interface MailboxPaneContextValue {
 	mailboxId: string;
+	/** The row the reader pointed at, which is the one the list highlights. */
 	selectedMessageId: string | undefined;
 	selectedThread: RemitImapThreadMessageResponse | undefined;
-	/** The conversation to open — the loaded thread, or a tapped "Related" hit. */
+	/** The conversation the pane shows, or none when the address names no thread. */
 	conversation: ConversationTarget | undefined;
+	/** Opens a conversation in this folder's reading pane. */
+	onOpenThread: (target: MailboxThreadTarget) => void;
 	threads: RemitImapThreadMessageResponse[];
 	isLoading: boolean;
 	isError: boolean;
@@ -222,8 +219,9 @@ interface MailboxPaneContextValue {
 	hasRemitDraftOpen: boolean;
 	// Phone actions
 	onBack: () => void;
-	nextMessageId: string | undefined;
-	previousMessageId: string | undefined;
+	/** The rows either side of the open one — the phone's swipe gestures. */
+	nextThread: MailboxThreadTarget | undefined;
+	previousThread: MailboxThreadTarget | undefined;
 }
 
 /** The server's own default page size (`DEFAULT_THREADS_PAGE_SIZE`), sent so the
@@ -252,23 +250,25 @@ function useMailboxPane(): MailboxPaneContextValue {
 
 interface MailboxPaneProps {
 	mailboxId: string;
-	selectedMessageId: string | undefined;
+	/** The open conversation, as the address states it. */
+	thread: MailboxThreadPath | undefined;
 	children: ReactNode;
 }
 
 function MailboxPaneProvider({
 	mailboxId,
-	selectedMessageId,
+	thread,
 	children,
 }: MailboxPaneProps) {
 	const navigate = useNavigate();
+	const threadId = thread?.threadId;
+	const pointedAtMessageId = thread?.messageId;
 	const tier = useLayoutTier();
 	const isDesktop = tier === "desktop";
 	const telemetry = useTelemetry();
 	const {
 		accounts,
 		searchQuery,
-		searchInput,
 		intelligenceOpen,
 		onToggleIntelligence,
 		onSetIntelligenceOpen,
@@ -387,38 +387,8 @@ function MailboxPaneProvider({
 				: undefined,
 	});
 
-	const handleDeselectIfRemoved = useCallback(
-		(removedIds: string[]) => {
-			if (!selectedMessageId) return;
-			if (!removedIds.includes(selectedMessageId)) return;
-			navigate({
-				to: "/mail/$mailboxId",
-				params: { mailboxId },
-				search: (prev: Record<string, unknown>) => ({
-					...prev,
-					selectedMessageId: undefined,
-					selectedThreadId: undefined,
-				}),
-			});
-		},
-		[selectedMessageId, mailboxId, navigate],
-	);
-
-	const { deleteMessages: handleDeleteMessages, isPending: isDeleting } =
-		useDeleteMessages({
-			mailboxId,
-			onAfterOptimisticRemove: handleDeselectIfRemoved,
-		});
-
 	const { accountId: mailboxAccountId } = useMailboxAccount(mailboxId);
 	const mailboxName = useCurrentMailboxName({ accounts });
-
-	const { moveMessages: handleMoveMessages, isPending: isMoving } =
-		useMoveMessages({
-			mailboxId,
-			accountId: mailboxAccountId,
-			onAfterOptimisticRemove: handleDeselectIfRemoved,
-		});
 
 	// The server answered the active predicate, so these rows are the list: the
 	// dedupe spans pages and the deleted drop repeats the server's own
@@ -468,49 +438,74 @@ function MailboxPaneProvider({
 			}
 		: undefined;
 
-	const isSearchPending = computeIsSearchPending(searchInput, searchQuery);
-	const listedThread = resolveSelectedThread(
-		threads,
-		selectedMessageId,
-		isSearchPending,
-	);
-	// There is no unfiltered set in the client any more, so a chip the open
-	// message does not match would otherwise close the reading pane under the
-	// user. Snapshot what they opened and let it answer for itself.
-	const [openedThread, setOpenedThread] = useState<
-		RemitImapThreadMessageResponse | undefined
-	>(undefined);
-	useEffect(() => {
-		if (listedThread) setOpenedThread(listedThread);
-	}, [listedThread]);
-	const selectedThread = resolveOpenThread(
-		listedThread,
-		openedThread,
-		selectedMessageId,
-		isSearchPending,
+	// The row this folder itself lists, preferred because a mutation patches it in
+	// place. A thread the loaded pages do not hold — a chip that paged it out, a
+	// cross-folder hit, a cold address — is in no listing here and answers for
+	// itself, which is what the snapshot and the URL's spare thread id used to
+	// stand in for.
+	const listedThread = threadId
+		? (threads.find((t) => t.messageId === pointedAtMessageId) ??
+			threads.find((t) => t.threadId === threadId))
+		: undefined;
+	const ownRow = useThreadRow(threadId, pointedAtMessageId);
+	const selectedThread = listedThread ?? ownRow;
+
+	const selectedMessageId = pointedAtMessageId ?? selectedThread?.messageId;
+
+	const conversation = useMemo<ConversationTarget | undefined>(() => {
+		if (!threadId) return undefined;
+		return {
+			threadId,
+			mailboxId: selectedThread?.mailboxId ?? mailboxId,
+			subject: selectedThread?.subject,
+			messageId: selectedMessageId,
+			authenticity: selectedThread?.authenticity,
+		};
+	}, [threadId, selectedThread, selectedMessageId, mailboxId]);
+
+	// Esc unwinds one step at a time: an active selection first (handled by the
+	// triage layer), then the open thread — which is a navigation up to the list,
+	// so nothing is left mounted below it.
+	const closeThread = useCallback(() => {
+		navigate({
+			to: "/mail/$mailboxId",
+			params: { mailboxId },
+			search: (prev) => prev,
+		});
+	}, [mailboxId, navigate]);
+
+	const handleOpenThread = useCallback(
+		(target: MailboxThreadTarget) => {
+			navigate({
+				to: "/mail/$mailboxId/$threadId/$messageId",
+				params: { mailboxId, ...target },
+				search: (prev) => prev,
+			});
+		},
+		[mailboxId, navigate],
 	);
 
-	// A semantic "Related" hit can point at a message outside the loaded list, so
-	// it carries its threadId through the URL; fall back to it (the mailbox is the
-	// route param) so the conversation still opens.
-	const { selectedThreadId } = useSearch({ strict: false }) as {
-		selectedThreadId?: string;
-	};
-	const conversation = useMemo(
-		() =>
-			buildConversationTarget(selectedThread, {
-				messageId: selectedMessageId,
-				threadId: isSearchPending ? undefined : selectedThreadId,
-				mailboxId,
-			}),
-		[
-			selectedThread,
-			selectedMessageId,
-			selectedThreadId,
-			isSearchPending,
-			mailboxId,
-		],
+	const handleDeselectIfRemoved = useCallback(
+		(removedIds: string[]) => {
+			if (!selectedMessageId) return;
+			if (!removedIds.includes(selectedMessageId)) return;
+			closeThread();
+		},
+		[selectedMessageId, closeThread],
 	);
+
+	const { deleteMessages: handleDeleteMessages, isPending: isDeleting } =
+		useDeleteMessages({
+			mailboxId,
+			onAfterOptimisticRemove: handleDeselectIfRemoved,
+		});
+
+	const { moveMessages: handleMoveMessages, isPending: isMoving } =
+		useMoveMessages({
+			mailboxId,
+			accountId: mailboxAccountId,
+			onAfterOptimisticRemove: handleDeselectIfRemoved,
+		});
 
 	const triage = useTriageContext();
 	const {
@@ -635,20 +630,6 @@ function MailboxPaneProvider({
 		closeCompose,
 	]);
 
-	// Esc unwinds one step at a time: an active selection first (handled by the
-	// triage layer), then the open thread.
-	const closeThread = useCallback(() => {
-		navigate({
-			to: "/mail/$mailboxId",
-			params: { mailboxId },
-			search: (prev: Record<string, unknown>) => ({
-				...prev,
-				selectedMessageId: undefined,
-				selectedThreadId: undefined,
-			}),
-		});
-	}, [mailboxId, navigate]);
-
 	const messageIdsForFocusedThread = useCallback(
 		(thread: typeof focusedThread): string[] => {
 			if (!thread) return [];
@@ -694,16 +675,11 @@ function MailboxPaneProvider({
 
 	const ensureFocusedOpen = useCallback(() => {
 		if (selectedMessageId || !triageFocusedId) return false;
-		navigate({
-			to: "/mail/$mailboxId",
-			params: { mailboxId },
-			search: (prev: Record<string, unknown>) => ({
-				...prev,
-				selectedMessageId: triageFocusedId,
-			}),
-		});
+		const row = threads.find((t) => t.messageId === triageFocusedId);
+		if (!row) return false;
+		handleOpenThread({ threadId: row.threadId, messageId: triageFocusedId });
 		return true;
-	}, [selectedMessageId, triageFocusedId, mailboxId, navigate]);
+	}, [selectedMessageId, triageFocusedId, threads, handleOpenThread]);
 
 	const triageReply = useCallback(() => {
 		if (ensureFocusedOpen()) return;
@@ -864,11 +840,23 @@ function MailboxPaneProvider({
 		bindings: [{ key: "Escape", handler: closeCompose, preventDefault: true }],
 	});
 
+	// The swipe gestures open a whole conversation, so the adjacent row has to
+	// name its thread. This folder's own listing is where that is looked up, so a
+	// row it does not hold offers no gesture rather than a tap that goes nowhere.
+	const adjacentThread = (
+		messageId: string | undefined,
+	): MailboxThreadTarget | undefined => {
+		if (!messageId) return undefined;
+		const row = threads.find((t) => t.messageId === messageId);
+		return row ? { threadId: row.threadId, messageId } : undefined;
+	};
+
 	const ctx: MailboxPaneContextValue = {
 		mailboxId,
 		selectedMessageId,
 		selectedThread,
 		conversation,
+		onOpenThread: handleOpenThread,
 		threads,
 		isLoading,
 		isError,
@@ -920,8 +908,8 @@ function MailboxPaneProvider({
 		closeCompose,
 		hasRemitDraftOpen,
 		onBack: goBack,
-		nextMessageId,
-		previousMessageId,
+		nextThread: adjacentThread(nextMessageId),
+		previousThread: adjacentThread(previousMessageId),
 	};
 
 	return (
@@ -1036,28 +1024,33 @@ function MailboxList() {
 			),
 		[semanticHits, threads, resultFolderIndex],
 	);
+	// The two-engine results panel, whose semantic hits are in no list at all —
+	// each one carries the thread it belongs to.
 	const handleSelectSearchResult = useCallback(
-		(result: SearchResult) =>
+		(result: SearchResult) => {
+			const threadId =
+				result.threadId ??
+				threads.find((thread) => thread.messageId === result.id)?.threadId;
+			if (!threadId) return;
 			navigate({
-				to: "/mail/$mailboxId",
+				to: "/mail/$mailboxId/$threadId/$messageId",
 				// Both sections are scoped to this mailbox, so a result's own
 				// mailbox is normally this one; keep reading it off the result so a
 				// row can never open under a mailbox it does not belong to.
-				params: { mailboxId: result.mailboxId ?? mailboxId },
-				search: (prev: Record<string, unknown>) => ({
-					...prev,
-					// Commit the active query alongside the selection. The debounced
-					// q-mirror (`useSearchMirror`) strips the selection whenever it sees the
-					// query go active; the row can be tapped before the debounce settles
-					// (it shows in the still-unfiltered list), so use the *live*
-					// `searchInput` here — committing `q` makes the mirror a no-op and
-					// keeps the opened result from being stripped out from under us.
-					q: searchInput || undefined,
-					selectedMessageId: result.id,
-					selectedThreadId: result.threadId,
-				}),
-			}),
-		[mailboxId, navigate, searchInput],
+				params: {
+					mailboxId: result.mailboxId ?? mailboxId,
+					threadId,
+					messageId: result.id,
+				},
+				// Commit the active query with the open so the debounced q-mirror —
+				// which walks back up to the list when the query goes active — is
+				// already satisfied and leaves the conversation alone. The *live*
+				// `searchInput`: a row can be tapped before the debounce settles, when
+				// the committed query is still empty.
+				search: (prev) => ({ ...prev, q: searchInput || undefined }),
+			});
+		},
+		[mailboxId, navigate, searchInput, threads],
 	);
 
 	// Drafts keep their own dedicated view (and header); they don't carry the
@@ -1273,28 +1266,17 @@ function MailboxPhone() {
 		mailboxAccountId,
 		selectedThread,
 		conversation,
+		onOpenThread,
 		intelligenceOpen,
 		onToggleIntelligence,
 		onBack,
-		nextMessageId,
-		previousMessageId,
+		nextThread,
+		previousThread,
 		composeState,
 		handleDeselectIfRemoved,
 	} = useMailboxPane();
-	const navigate = useNavigate();
 
 	if (conversation) {
-		const openMessage = (messageId: string) =>
-			navigate({
-				to: "/mail/$mailboxId",
-				params: { mailboxId },
-				search: (prev: Record<string, unknown>) => ({
-					...prev,
-					selectedMessageId: messageId,
-					selectedThreadId: undefined,
-				}),
-			});
-
 		return (
 			<>
 				<ConversationView
@@ -1305,11 +1287,9 @@ function MailboxPhone() {
 					authenticity={conversation.authenticity}
 					onBack={onBack}
 					onOpenIntelligence={onToggleIntelligence}
-					onSwipeNext={
-						nextMessageId ? () => openMessage(nextMessageId) : undefined
-					}
+					onSwipeNext={nextThread ? () => onOpenThread(nextThread) : undefined}
 					onSwipePrevious={
-						previousMessageId ? () => openMessage(previousMessageId) : undefined
+						previousThread ? () => onOpenThread(previousThread) : undefined
 					}
 					mobileIntelligenceOpen={intelligenceOpen}
 				/>

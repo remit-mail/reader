@@ -30,6 +30,7 @@ import { ApiClient, waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages, waitForServerMailbox } from "../src/imap.js";
 import { readRunState } from "../src/state.js";
+import { MAILBOX_THREAD_URL } from "../src/urls.js";
 import {
 	advanceTo,
 	commitButton,
@@ -332,7 +333,7 @@ test.describe("Entering selection mode", () => {
 		page,
 	}) => {
 		await rows(page).first().click();
-		await page.waitForURL(/selectedMessageId=/);
+		await page.waitForURL(MAILBOX_THREAD_URL);
 		await expect(selectionStatus(page)).toBeHidden();
 	});
 
@@ -373,14 +374,14 @@ test.describe("Entering selection mode", () => {
 		await rows(page).nth(1).click();
 		await expect(selectionStatus(page)).toBeVisible();
 		await expect(selectionStatus(page)).toHaveText("2 messages selected");
-		await expect(page).not.toHaveURL(/selectedMessageId=/);
+		await expect(page).not.toHaveURL(MAILBOX_THREAD_URL);
 		await expect(rowToggle(rows(page).nth(1))).toHaveAccessibleName(
 			"Deselect message",
 		);
 
 		await rows(page).nth(1).click();
 		await expect(selectionStatus(page)).toHaveText("1 message selected");
-		await expect(page).not.toHaveURL(/selectedMessageId=/);
+		await expect(page).not.toHaveURL(MAILBOX_THREAD_URL);
 	});
 
 	test("swipe actions are suppressed while selection mode is active", async ({
@@ -544,7 +545,7 @@ test.describe("Confirm dialog", () => {
 		await expect(
 			page.getByRole("button", { name: "Back to messages" }),
 		).toBeHidden();
-		await expect(page).not.toHaveURL(/selectedMessageId=/);
+		await expect(page).not.toHaveURL(MAILBOX_THREAD_URL);
 		await expect(rows(page)).toHaveCount(run.seededSubjects.length);
 		for (const subject of subjects) {
 			await expect(page.getByText(subject, { exact: true })).toBeHidden();

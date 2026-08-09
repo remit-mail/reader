@@ -842,6 +842,7 @@ export const q3Intelligence: IntelligenceData = {
 		{
 			id: "sim_q2",
 			mailboxId: "mbx_work_inbox",
+			threadId: "thr-sim_q2",
 			fromName: "Priya Natarajan",
 			subject: "Q2 roadmap review — agenda",
 			timeLabel: "Mar",
@@ -850,6 +851,7 @@ export const q3Intelligence: IntelligenceData = {
 		{
 			id: "sim_billing",
 			mailboxId: "mbx_work_inbox",
+			threadId: "thr-sim_billing",
 			fromName: "Marcus Webb",
 			subject: "Billing migration: cutover checklist",
 			timeLabel: "May",
@@ -904,6 +906,7 @@ export const phishIntelligence: IntelligenceData = {
 		{
 			id: "sim_dhl",
 			mailboxId: "mbx_personal_junk",
+			threadId: "thr-sim_dhl",
 			fromName: "DHL Express",
 			subject: "Action required: customs fee outstanding",
 			timeLabel: "Thu",
@@ -912,6 +915,7 @@ export const phishIntelligence: IntelligenceData = {
 		{
 			id: "sim_postnl",
 			mailboxId: "mbx_personal_junk",
+			threadId: "thr-sim_postnl",
 			fromName: "PostNL",
 			subject: "Uw pakket kon niet worden bezorgd",
 			timeLabel: "28 May",
@@ -920,6 +924,7 @@ export const phishIntelligence: IntelligenceData = {
 		{
 			id: "sim_ups",
 			mailboxId: "mbx_personal_junk",
+			threadId: "thr-sim_ups",
 			fromName: "UPS Notify",
 			subject: "Delivery attempt failed — reschedule now",
 			timeLabel: "21 May",
@@ -928,6 +933,7 @@ export const phishIntelligence: IntelligenceData = {
 		{
 			id: "sim_colissimo",
 			mailboxId: "mbx_personal_junk",
+			threadId: "thr-sim_colissimo",
 			fromName: "Colissimo",
 			subject: "Frais de douane en attente de paiement",
 			timeLabel: "14 May",
@@ -1020,6 +1026,7 @@ export const newsletterIntelligence: IntelligenceData = {
 		{
 			id: "sim_cb_1",
 			mailboxId: "mbx_personal_inbox",
+			threadId: "thr-sim_cb_1",
 			fromName: "Coolblue",
 			subject: "Black Friday vroegboekdeals",
 			timeLabel: "30 May",
@@ -1028,6 +1035,7 @@ export const newsletterIntelligence: IntelligenceData = {
 		{
 			id: "sim_cb_2",
 			mailboxId: "mbx_personal_inbox",
+			threadId: "thr-sim_cb_2",
 			fromName: "Coolblue",
 			subject: "Laatste kans: gratis bezorging weekend",
 			timeLabel: "23 May",
@@ -1036,6 +1044,7 @@ export const newsletterIntelligence: IntelligenceData = {
 		{
 			id: "sim_mm",
 			mailboxId: "mbx_personal_inbox",
+			threadId: "thr-sim_mm",
 			fromName: "MediaMarkt",
 			subject: "Outlet: monitoren en docks afgeprijsd",
 			timeLabel: "19 May",
