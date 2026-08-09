@@ -23,7 +23,7 @@ import {
 } from "@remit/ui/rich-text";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useRef, useState } from "react";
-import { expect, fn, userEvent, within } from "storybook/test";
+import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import { allThreads, q3Intelligence, q3Thread } from "../fixtures/workspace.js";
 import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
 import { MailShell } from "../screens/mail-shell.js";
@@ -374,11 +374,19 @@ export const OverAnOpenMessage: Story = {
 		await userEvent.type(search, "invoice");
 
 		// Nothing about the surface moved on the search: no second copy arriving
-		// late, no conversation coming back, and the address still typed. The caret
-		// is in the field being typed into, which is search.
+		// late, no conversation coming back, and the recipient still held. The
+		// caret is in the field being typed into, which is search. Leaving the
+		// address field is what commits it, so the recipient is a tag by now
+		// rather than text in the input — and a tag only survives a surface that
+		// was never torn down, since a fresh one starts with none.
 		await expect(search).toHaveFocus();
 		await expect(canvas.getAllByLabelText("To:")).toHaveLength(1);
-		await expect(canvas.getByLabelText("To:")).toHaveValue("ada@example.com");
+		await waitFor(() =>
+			expect(
+				canvas.getByRole("button", { name: "Remove ada@example.com" }),
+			).toBeVisible(),
+		);
+		await expect(canvas.getByLabelText("To:")).toHaveValue("");
 		await expect(openConversation()).toBeNull();
 	},
 };

@@ -371,9 +371,18 @@ const openDestinationTree = async (canvasElement: HTMLElement) => {
 	await tick();
 };
 
-/** Opens a folder in the tree; tapping it both picks it and reveals its children. */
+/**
+ * Opens a folder in the tree; tapping it both picks it and reveals its
+ * children. A tap toggles, and the branch holding the rule's current
+ * destination is already open when the tree appears, so a folder that is open
+ * is left alone rather than tapped shut.
+ */
 const openFolder = async (canvasElement: HTMLElement, label: string) => {
-	clickAriaLabel(canvasElement, `Move to ${label}`);
+	const row = canvasElement.querySelector<HTMLElement>(
+		`[aria-label="Move to ${label}"]`,
+	);
+	if (!row) throw new Error(`no control labelled "Move to ${label}"`);
+	if (row.getAttribute("aria-expanded") !== "true") row.click();
 	await tick();
 };
 

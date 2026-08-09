@@ -444,13 +444,23 @@ const AutoFocus = ({ caret }: { caret?: ComposeCaret }) => {
 
 	useEffect(() => {
 		if (!caret) return;
-		const timer = setTimeout(
-			() =>
-				editor.focus(undefined, {
-					defaultSelection: caret === "start" ? "rootStart" : "rootEnd",
-				}),
-			0,
-		);
+		// Seeding the document leaves a selection behind at the end of what was
+		// inserted, and `defaultSelection` only applies where there is none — so
+		// the caret is placed here rather than left to `focus`, which would open a
+		// new message below the signature instead of above it.
+		const timer = setTimeout(() => {
+			editor.update(
+				() => {
+					const root = $getRoot();
+					if (caret === "start") {
+						root.selectStart();
+						return;
+					}
+					root.selectEnd();
+				},
+				{ onUpdate: () => editor.focus() },
+			);
+		}, 0);
 		return () => clearTimeout(timer);
 	}, [editor, caret]);
 

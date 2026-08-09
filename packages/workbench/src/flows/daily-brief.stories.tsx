@@ -57,8 +57,10 @@ export const Default: Story = {
  * chips stack additively to narrow the visible threads.
  *
  * The cursor and the selection reach the rows on screen and no others: ⌘A
- * counts what is rendered rather than everything behind the two expanders, and
- * narrowing to a category takes the rows it hides out of the count with them.
+ * counts what is rendered rather than everything behind the two expanders.
+ * Narrowing to a category takes the rows it hides out of the count with them,
+ * and the rows it reveals — a single category renders flat, so the cap is off —
+ * arrive unticked.
  */
 export const Filtered: Story = {
 	render: () => (
@@ -68,6 +70,13 @@ export const Filtered: Story = {
 		const canvas = within(canvasElement);
 		const shown = () =>
 			canvasElement.querySelectorAll("[data-list-row]").length;
+		const summary = () =>
+			canvas.getByText(/(loaded selected|messages? selected)$/);
+		const ticked = () =>
+			Array.from(
+				canvasElement.querySelectorAll<HTMLElement>("[data-list-row]"),
+			).filter((row) => row.querySelector('[aria-label="Deselect message"]'))
+				.length;
 
 		await userEvent.click(canvas.getByLabelText("Expand filters"));
 		const capped = Array.from(canvasElement.querySelectorAll("button")).filter(
@@ -75,13 +84,21 @@ export const Filtered: Story = {
 		);
 		await expect(capped.length).toBeGreaterThan(0);
 
-		canvasElement.querySelector<HTMLElement>("[data-list-row]")?.focus();
+		// The rows take the cursor through roving focus, so a row only becomes
+		// focusable once the list owns it. Focusing the filter control instead
+		// sends the select-all chord nowhere.
+		const firstRow =
+			canvasElement.querySelector<HTMLElement>("[data-list-row]");
+		await expect(firstRow).not.toBeNull();
+		(document.activeElement as HTMLElement | null)?.blur();
+		firstRow?.focus();
+		await expect(document.activeElement).toBe(firstRow);
+
 		await userEvent.keyboard("{Meta>}a{/Meta}");
 		await waitFor(() =>
-			expect(
-				canvas.getByText(`All ${shown()} loaded selected`),
-			).toBeInTheDocument(),
+			expect(summary()).toHaveTextContent(`All ${shown()} loaded selected`),
 		);
+		const selectedEverywhere = ticked();
 
 		const categories = canvasElement.querySelector<HTMLElement>(
 			'[aria-label="Categories"]',
@@ -89,14 +106,19 @@ export const Filtered: Story = {
 		await expect(categories).not.toBeNull();
 		await userEvent.click(
 			within(categories as HTMLElement).getByRole("button", {
-				name: "Newsletter",
+				name: "Newsletters",
 			}),
 		);
-		await waitFor(() =>
-			expect(
-				canvas.getByText(`All ${shown()} loaded selected`),
-			).toBeInTheDocument(),
+
+		// The scope drops every other category's rows and the count goes down with
+		// them. It also renders the survivors flat, without the section's cap, so
+		// the rows the cap had been hiding arrive on screen unticked rather than
+		// joining a selection that was never told about them.
+		await waitFor(() => expect(ticked()).toBeLessThan(selectedEverywhere));
+		await expect(summary()).toHaveTextContent(
+			new RegExp(`^${ticked()} messages? selected$`),
 		);
+		await expect(ticked()).toBeLessThan(shown());
 	},
 };
 
