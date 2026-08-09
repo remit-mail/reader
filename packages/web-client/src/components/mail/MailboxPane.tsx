@@ -1047,7 +1047,7 @@ function MailboxList() {
 				search: (prev: Record<string, unknown>) => ({
 					...prev,
 					// Commit the active query alongside the selection. The debounced
-					// q-mirror (mail.tsx) strips the selection whenever it sees the
+					// q-mirror (`useSearchMirror`) strips the selection whenever it sees the
 					// query go active; the row can be tapped before the debounce settles
 					// (it shows in the still-unfiltered list), so use the *live*
 					// `searchInput` here — committing `q` makes the mirror a no-op and

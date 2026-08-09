@@ -153,7 +153,7 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 				search: (prev) => ({
 					...prev,
 					// Commit the active query with the selection so the debounced
-					// q-mirror (mail.tsx) — which strips the selection when the query
+					// q-mirror (`useSearchMirror`) — which strips the selection when the query
 					// goes active — is already satisfied and leaves the opened result
 					// alone. Use the *live* `searchInput`: the row can be tapped before
 					// the debounce settles, when the committed query is still empty.
