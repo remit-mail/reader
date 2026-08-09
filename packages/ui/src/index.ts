@@ -278,6 +278,7 @@ export {
 	type FolderTreePickerProps,
 	type FolderTreeRow,
 } from "./components/folder-tree-picker.js";
+export { IconRow, type IconRowProps } from "./components/icon-row.js";
 export {
 	Input,
 	type InputProps,
@@ -392,6 +393,7 @@ export {
 	type OutboxStatusBadgeProps,
 	outboxStatusConfig,
 } from "./components/outbox-status-badge.js";
+export { PaneHeader, type PaneHeaderProps } from "./components/pane-header.js";
 export {
 	PasswordInput,
 	type PasswordInputProps,
@@ -542,6 +544,10 @@ export {
 	SearchTokenChips,
 	type SearchTokenChipsProps,
 } from "./components/search-token-chip.js";
+export {
+	SectionHeader,
+	type SectionHeaderProps,
+} from "./components/section-header.js";
 export {
 	SecuritySelect,
 	type SecuritySelectProps,

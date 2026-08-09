@@ -28,10 +28,10 @@ import {
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import {
-	Avatar,
-	ComfortableRowTextContent,
-	cn,
-	comfortableRowClass,
+	ComfortableRow,
+	IconRow,
+	PaneHeader,
+	SectionHeader,
 	type ThreadRowData,
 	type ThreadSection,
 } from "@remit/ui";
@@ -42,19 +42,6 @@ import { useMemo } from "react";
 import { useCompose } from "@/components/compose/ComposeProvider";
 import { groupDraftSections } from "@/lib/drafts";
 import { NavMenuButton } from "./NavMenuButton";
-
-// ---------------------------------------------------------------------------
-// Section header (mirrors DailyBrief SectionHeader)
-// ---------------------------------------------------------------------------
-
-const SectionHeader = ({ label, count }: { label: string; count: number }) => (
-	<div className="sticky top-0 z-10 flex items-baseline justify-between border-b border-line bg-surface-sunken px-row-inset py-1">
-		<span className="text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
-			{label}
-		</span>
-		<span className="text-2xs text-fg-subtle tabular-nums">{count}</span>
-	</div>
-);
 
 // ---------------------------------------------------------------------------
 // Remit-draft row — opens compose for editing
@@ -75,28 +62,28 @@ const RemitDraftRow = ({
 	onDelete,
 	isDeleting,
 }: RemitDraftRowProps) => (
-	<button
-		type="button"
+	<IconRow
+		thread={row}
+		icon={<FileText className="size-7 shrink-0 text-fg-muted mt-0.5" />}
+		active={isSelected}
 		onClick={() => onOpen(row.id)}
-		className={cn("group", comfortableRowClass({ active: isSelected }))}
-	>
-		<FileText className="size-7 shrink-0 text-fg-muted mt-0.5" />
-		<ComfortableRowTextContent thread={row} />
-		<div className="flex items-center gap-1 shrink-0">
-			<button
-				type="button"
-				onClick={(e) => {
-					e.stopPropagation();
-					onDelete(row.id);
-				}}
-				disabled={isDeleting}
-				className="p-1.5 rounded-md text-fg-muted hover:text-danger hover:bg-surface-raised transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-				title="Delete draft"
-			>
-				<Trash2 className="size-3.5" />
-			</button>
-		</div>
-	</button>
+		trailing={
+			<div className="flex items-center gap-1 shrink-0">
+				<button
+					type="button"
+					onClick={(e) => {
+						e.stopPropagation();
+						onDelete(row.id);
+					}}
+					disabled={isDeleting}
+					className="p-1.5 rounded-md text-fg-muted hover:text-danger hover:bg-surface-raised transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+					title="Delete draft"
+				>
+					<Trash2 className="size-3.5" />
+				</button>
+			</div>
+		}
+	/>
 );
 
 // ---------------------------------------------------------------------------
@@ -109,22 +96,9 @@ interface ImapDraftRowProps {
 	onOpen: (messageId: string) => void;
 }
 
-const ImapDraftRow = ({ row, isSelected, onOpen }: ImapDraftRowProps) => {
-	const unread = !row.isRead;
-	return (
-		<button
-			type="button"
-			onClick={() => onOpen(row.id)}
-			className={cn("group", comfortableRowClass({ active: isSelected }))}
-		>
-			{unread && (
-				<span className="absolute left-1.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-accent" />
-			)}
-			<Avatar name={row.fromName} email={row.fromEmail} size="sm" />
-			<ComfortableRowTextContent thread={row} />
-		</button>
-	);
-};
+const ImapDraftRow = ({ row, isSelected, onOpen }: ImapDraftRowProps) => (
+	<ComfortableRow thread={row} active={isSelected} onClick={() => onOpen(row.id)} />
+);
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -200,18 +174,17 @@ export function DraftsView({
 
 	return (
 		<section className="flex h-full w-full flex-col bg-surface">
-			{/* List datum bar */}
-			<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
-				<NavMenuButton />
-				<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
-					{title}
-				</h1>
-				{(unreadCount ?? 0) > 0 && (
-					<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
-						{unreadCount} unread
-					</span>
-				)}
-			</header>
+			<PaneHeader
+				title={title}
+				leading={<NavMenuButton />}
+				trailing={
+					(unreadCount ?? 0) > 0 && (
+						<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
+							{unreadCount} unread
+						</span>
+					)
+				}
+			/>
 
 			{/* Scrollable body */}
 			<div className="flex-1 overflow-y-auto">
