@@ -9,12 +9,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { z } from "zod";
 import { Route as MailboxRoute } from "../routes/mail/$mailboxId";
+import { Route as BriefRoute } from "../routes/mail/brief";
 import { Route as FlaggedRoute } from "../routes/mail/flagged";
-import { Route as BriefRoute } from "../routes/mail/index";
 import { Route as OutboxRoute } from "../routes/mail/outbox";
 
 const routes = {
-	"/mail/ (daily brief)": BriefRoute,
+	"/mail/brief": BriefRoute,
 	"/mail/flagged": FlaggedRoute,
 	"/mail/outbox": OutboxRoute,
 	"/mail/$mailboxId": MailboxRoute,

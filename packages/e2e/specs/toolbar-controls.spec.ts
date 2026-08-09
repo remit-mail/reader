@@ -9,6 +9,7 @@
  */
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
+import { MAILBOX_URL } from "../src/urls.js";
 
 const SHOW_INFO = "Show intelligence sidebar";
 const HIDE_INFO = "Hide intelligence sidebar";
@@ -43,7 +44,7 @@ const openInboxMessage = async (page: Page): Promise<void> => {
 	});
 	await expect(sidebar).toBeVisible({ timeout: 20_000 });
 	await sidebar.getByRole("link", { name: /inbox/i }).click();
-	await page.waitForURL(/\/mail\/[a-z0-9]+/);
+	await page.waitForURL(MAILBOX_URL);
 	const row = page.locator("a[href*='selectedMessageId']").first();
 	await expect(row).toBeVisible({ timeout: 30_000 });
 	await row.click();
@@ -95,7 +96,7 @@ test.describe("Reading-pane toolbar", () => {
 			});
 			await expect(sidebar).toBeVisible({ timeout: 20_000 });
 			await sidebar.getByRole("link", { name: /inbox/i }).click();
-			await page.waitForURL(/\/mail\/[a-z0-9]+/);
+			await page.waitForURL(MAILBOX_URL);
 
 			const info = page.getByRole("button", { name: SHOW_INFO });
 			await expect(info).toBeVisible({ timeout: 20_000 });

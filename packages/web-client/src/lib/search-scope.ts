@@ -22,7 +22,7 @@
  * Pure functions only. `useSearchScope` binds these to the router.
  */
 import type { FolderRole, SearchScope as ResultsScope } from "@remit/ui";
-import { mailListRoute, type MailRouteMatch } from "./mail-route";
+import { type MailRouteMatch, mailListRoute } from "./mail-route";
 
 /**
  * Chip id of the scope chip. The top bar owns exactly one, so a fixed id is

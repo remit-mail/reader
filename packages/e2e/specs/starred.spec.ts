@@ -29,6 +29,7 @@
 import type { Page } from "@playwright/test";
 import { waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
+import { MAILBOX_URL } from "../src/urls.js";
 
 /** A row in the Starred pane. Button role, never the inbox's anchors. */
 const starredRow = (page: Page, subject: string) =>
@@ -83,7 +84,7 @@ const openInboxMessage = async (page: Page, subject: string) => {
 	});
 	await expect(sidebar).toBeVisible({ timeout: 20_000 });
 	await sidebar.getByRole("link", { name: /inbox/i }).click();
-	await page.waitForURL(/\/mail\/[a-z0-9]+/);
+	await page.waitForURL(MAILBOX_URL);
 	await expect(
 		page.locator("a[href*='selectedMessageId']").first(),
 	).toBeVisible({ timeout: 30_000 });

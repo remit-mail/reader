@@ -1,8 +1,14 @@
-import { createFileRoute } from "@tanstack/react-router";
+/**
+ * /mail/outbox — one of the four list layouts. Two panes, list and reading;
+ * there is no intelligence rail for mail that has not been sent yet.
+ */
+import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { z } from "zod";
+import { MailShell } from "@/components/layout/MailShell";
+import { OutboxPane } from "@/components/mail/OutboxPane";
+import { useSearchMirror } from "@/hooks/useSearchMirror";
 
-// Search schema: `selectedOutboxMessageId` is read by `OutboxPane` in the
-// parent `/mail` shell via `useSearch({ strict: false })`.
+// `selectedOutboxMessageId` is read by `OutboxPane` itself.
 //
 // `q` is inherited from the parent /mail route; re-declared here so it survives
 // this route's own search validation and isn't dropped when navigating with a
@@ -12,7 +18,21 @@ const outboxSearchSchema = z.object({
 	q: z.string().optional(),
 });
 
+function OutboxLayout() {
+	useSearchMirror({ to: "/mail/outbox" });
+
+	return (
+		<OutboxPane>
+			<MailShell
+				phone={<OutboxPane.Phone />}
+				list={<OutboxPane.List />}
+				reading={<Outlet />}
+			/>
+		</OutboxPane>
+	);
+}
+
 export const Route = createFileRoute("/mail/outbox")({
-	component: () => null,
+	component: OutboxLayout,
 	validateSearch: outboxSearchSchema,
 });

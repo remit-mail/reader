@@ -4,6 +4,7 @@
  * now come from a real sync rather than rows written into the database.
  */
 import { expect, test } from "../src/fixtures.js";
+import { MAILBOX_URL } from "../src/urls.js";
 
 const openInbox = async (page: import("@playwright/test").Page) => {
 	await page.goto("/mail");
@@ -30,7 +31,7 @@ test.describe("Mailbox navigation", () => {
 	}) => {
 		const { inbox } = await openInbox(page);
 		await inbox.click();
-		await page.waitForURL(/\/mail\/[a-z0-9]+/);
+		await page.waitForURL(MAILBOX_URL);
 
 		// Navigating has to deliver the mailbox's contents, not just its route.
 		await expect(page.locator("a[href*='selectedMessageId']")).toHaveCount(
@@ -44,7 +45,7 @@ test.describe("Mailbox navigation", () => {
 	}) => {
 		const { sidebar, inbox } = await openInbox(page);
 		await inbox.click();
-		await page.waitForURL(/\/mail\/[a-z0-9]+/);
+		await page.waitForURL(MAILBOX_URL);
 
 		// The one search field, in the top bar above every pane.
 		const field = page.getByRole("textbox", { name: "Search mail" });
@@ -53,7 +54,7 @@ test.describe("Mailbox navigation", () => {
 		await page.waitForURL(/[?&]q=invoice/);
 
 		await sidebar.getByRole("link", { name: /sent/i }).click();
-		await page.waitForURL(/\/mail\/[a-z0-9]+/);
+		await page.waitForURL(MAILBOX_URL);
 
 		// The query is gone from the URL and from the field — the next mailbox is
 		// not silently searching for "invoice".
@@ -66,7 +67,7 @@ test.describe("Mailbox navigation", () => {
 	}) => {
 		const { inbox } = await openInbox(page);
 		await inbox.click();
-		await page.waitForURL(/\/mail\/[a-z0-9]+/);
+		await page.waitForURL(MAILBOX_URL);
 		const mailboxUrl = new URL(page.url());
 		mailboxUrl.searchParams.set("q", "invoice");
 
@@ -86,11 +87,11 @@ test.describe("Mailbox navigation", () => {
 	}) => {
 		const { sidebar, inbox } = await openInbox(page);
 		await inbox.click();
-		await page.waitForURL(/\/mail\/[a-z0-9]+/);
+		await page.waitForURL(MAILBOX_URL);
 		const inboxUrl = page.url();
 
 		await sidebar.getByRole("link", { name: /sent/i }).click();
-		await page.waitForURL(/\/mail\/[a-z0-9]+/);
+		await page.waitForURL(MAILBOX_URL);
 		expect(page.url()).not.toBe(inboxUrl);
 
 		await page.goBack();

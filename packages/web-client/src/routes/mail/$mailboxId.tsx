@@ -1,17 +1,19 @@
 /**
- * /mail/$mailboxId route — shell activation only.
+ * /mail/$mailboxId — one folder, the fullest of the four list layouts: list,
+ * reading pane and intelligence rail.
  *
- * The component returns null because rendering is lifted to `mail.tsx`
- * which reads the active mailboxId via `useRouterState` and mounts
- * `<MailboxPane>` directly into `<AppShellSlotted>` slots. TanStack Router
- * still needs this file to:
- *   - Register the route so URL matching works
- *   - Validate the search params so selectedMessageId is properly typed
+ * The literal lists are declared as siblings and TanStack matches literals
+ * first, so a mailbox id can never be read as one of them.
  */
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { z } from "zod";
+import { MailShell } from "@/components/layout/MailShell";
+import { MailboxPane } from "@/components/mail/MailboxPane";
+import { useSearchMirror } from "@/hooks/useSearchMirror";
 
-// Search schema includes q from parent route for proper inheritance
+// `q` is inherited from the parent /mail route; re-declared here so it survives
+// this route's own search validation and isn't dropped when navigating with a
+// functional search updater.
 const mailboxSearchSchema = z.object({
 	selectedMessageId: z.string().optional(),
 	// A tapped semantic "Related" hit can point at a message outside the loaded
@@ -21,7 +23,25 @@ const mailboxSearchSchema = z.object({
 	q: z.string().optional(),
 });
 
+function MailboxLayout() {
+	const { mailboxId } = Route.useParams();
+	const { selectedMessageId } = Route.useSearch();
+	useSearchMirror({ to: "/mail/$mailboxId", params: { mailboxId } });
+
+	return (
+		<MailboxPane mailboxId={mailboxId} selectedMessageId={selectedMessageId}>
+			<MailShell
+				phone={<MailboxPane.Phone />}
+				list={<MailboxPane.List />}
+				reading={<Outlet />}
+				intelligence={<MailboxPane.Intelligence />}
+				hasThread={Boolean(selectedMessageId)}
+			/>
+		</MailboxPane>
+	);
+}
+
 export const Route = createFileRoute("/mail/$mailboxId")({
-	component: () => null,
+	component: MailboxLayout,
 	validateSearch: mailboxSearchSchema,
 });

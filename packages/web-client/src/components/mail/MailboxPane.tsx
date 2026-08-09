@@ -803,7 +803,7 @@ function MailboxPaneProvider({
 	}, [intelligenceOpen, onToggleIntelligence]);
 
 	const goToRoute = useCallback(
-		(to: "/mail" | "/mail/flagged" | "/settings") => {
+		(to: "/mail/brief" | "/mail/flagged" | "/settings") => {
 			navigate({ to });
 		},
 		[navigate],
@@ -851,9 +851,9 @@ function MailboxPaneProvider({
 			markJunk: triageMarkJunk,
 			toggleIntelligence: selectedThread ? onToggleIntelligence : undefined,
 			compose: handleNewCompose,
-			goBrief: () => goToRoute("/mail"),
-			goInbox: () => goToRoute("/mail"),
-			goSent: () => goToRoute("/mail"),
+			goBrief: () => goToRoute("/mail/brief"),
+			goInbox: () => goToRoute("/mail/brief"),
+			goSent: () => goToRoute("/mail/brief"),
 			goFlagged: () => goToRoute("/mail/flagged"),
 			goSettings: () => goToRoute("/settings"),
 		},

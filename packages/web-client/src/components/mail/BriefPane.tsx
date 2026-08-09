@@ -132,7 +132,7 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 	const handleSelectMessage = useCallback(
 		(id: string, options?: OpenMessageOptions) => {
 			navigate({
-				to: "/mail",
+				to: "/mail/brief",
 				search: (prev) => ({
 					...prev,
 					selectedMessageId: id,
@@ -148,7 +148,7 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 	const handleSelectSearchResult = useCallback(
 		(result: SearchResult, options?: OpenMessageOptions) => {
 			navigate({
-				to: "/mail",
+				to: "/mail/brief",
 				replace: options?.replace,
 				search: (prev) => ({
 					...prev,
@@ -172,7 +172,7 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 			if (!selectedMessageId) return;
 			if (!removedIds.includes(selectedMessageId)) return;
 			navigate({
-				to: "/mail",
+				to: "/mail/brief",
 				search: (prev) => ({
 					...prev,
 					selectedMessageId: undefined,
@@ -191,7 +191,7 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 
 	const handleCloseThread = useCallback(() => {
 		navigate({
-			to: "/mail",
+			to: "/mail/brief",
 			search: (prev) => ({
 				...prev,
 				selectedMessageId: undefined,

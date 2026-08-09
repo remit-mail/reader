@@ -19,8 +19,8 @@ import {
 	MAIL_FLAGGED_ROUTE_ID,
 	MAIL_MAILBOX_ROUTE_ID,
 	MAIL_OUTBOX_ROUTE_ID,
-	mailListRoute,
 	type MailRouteMatch,
+	mailListRoute,
 	mailViewKey,
 } from "./mail-route.js";
 

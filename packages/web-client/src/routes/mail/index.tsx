@@ -1,41 +1,21 @@
 /**
- * /mail/ route (Daily Brief) — shell activation only.
- *
- * The component returns null because rendering is lifted to `mail.tsx`
- * which detects the brief route via `useRouterState` and mounts
- * `<BriefPane>` directly into `<AppShellSlotted>` slots.
+ * `/mail` has no view of its own: the daily brief is one of the four lists and
+ * lives at its own path, so every link into the mail app that names no list
+ * lands here and is sent on to the brief carrying whatever it arrived with.
  */
-import {
-	createFileRoute,
-	type ErrorComponentProps,
-} from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { z } from "zod";
-import { ErrorState } from "@/components/ui/ErrorState";
 
-const MailIndexError = ({ error, reset }: ErrorComponentProps) => (
-	<div className="flex h-full items-center justify-center bg-canvas p-4">
-		<ErrorState
-			title="Couldn't load your mailboxes"
-			error={error}
-			onRetry={reset}
-		/>
-	</div>
-);
-
-// `q` is inherited from the parent /mail route; re-declared here so it
-// survives this route's own search validation and isn't dropped when
-// navigating with a functional search updater.
-const briefSearchSchema = z.object({
+const mailIndexSearchSchema = z.object({
 	selectedMessageId: z.string().optional(),
-	// A tapped semantic "Related" hit can point at a message outside the loaded
-	// brief list; carrying its thread + mailbox lets the brief open it directly.
 	selectedThreadId: z.string().optional(),
 	selectedMailboxId: z.string().optional(),
 	q: z.string().optional(),
 });
 
 export const Route = createFileRoute("/mail/")({
-	component: () => null,
-	validateSearch: briefSearchSchema,
-	errorComponent: MailIndexError,
+	validateSearch: mailIndexSearchSchema,
+	beforeLoad: ({ search }) => {
+		throw redirect({ to: "/mail/brief", search, replace: true });
+	},
 });
