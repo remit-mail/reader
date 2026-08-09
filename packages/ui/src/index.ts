@@ -362,6 +362,7 @@ export {
 	MobileSearchView,
 	type MobileSearchViewProps,
 } from "./components/mobile-search-view.js";
+export { NavLinkSurface } from "./components/nav-link-surface.js";
 export {
 	NavSidebar,
 	type NavSidebarProps,
