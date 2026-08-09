@@ -16,3 +16,9 @@ export const MAILBOX_URL =
 
 /** The daily brief, where `/mail` and `/` both land. */
 export const BRIEF_URL = /\/mail\/brief(\?|$)/;
+
+/**
+ * A conversation open in the brief. The thread is a path segment, so "is a
+ * thread open" is a question about the address rather than about a param.
+ */
+export const BRIEF_THREAD_URL = /\/mail\/brief\/[^/?#]+/;
