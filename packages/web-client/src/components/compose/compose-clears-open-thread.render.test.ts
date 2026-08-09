@@ -14,7 +14,7 @@ import {
 	Outlet,
 	RouterProvider,
 } from "@tanstack/react-router";
-import { createElement } from "react";
+import { createElement, useEffect, useState } from "react";
 import { createDomHarness, type DomHarness } from "../../test-support/dom";
 import { type HttpMock, mockFetch } from "../../test-support/http";
 import { ComposeProvider, useCompose } from "./ComposeProvider";
@@ -62,34 +62,32 @@ const RootLayout = () =>
 		createElement(Outlet),
 	);
 
-const rootRoute = createRootRoute({ component: RootLayout });
-const mailboxRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/mail/$mailboxId",
-	validateSearch: (search: Record<string, unknown>) => search,
-	component: () => null,
-});
-const outboxRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/mail/outbox",
-	validateSearch: (search: Record<string, unknown>) => search,
-	component: () => null,
-});
-const settingsRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/settings",
-	component: () => null,
-});
-
-const routerAt = (href: string): AnyRouter =>
-	createRouter({
-		routeTree: rootRoute.addChildren([
-			outboxRoute,
-			mailboxRoute,
-			settingsRoute,
-		]),
+const routerAt = (href: string, layout = RootLayout): AnyRouter => {
+	const rootRoute = createRootRoute({ component: layout });
+	const routeTree = rootRoute.addChildren([
+		createRoute({
+			getParentRoute: () => rootRoute,
+			path: "/mail/outbox",
+			validateSearch: (search: Record<string, unknown>) => search,
+			component: () => null,
+		}),
+		createRoute({
+			getParentRoute: () => rootRoute,
+			path: "/mail/$mailboxId",
+			validateSearch: (search: Record<string, unknown>) => search,
+			component: () => null,
+		}),
+		createRoute({
+			getParentRoute: () => rootRoute,
+			path: "/settings",
+			component: () => null,
+		}),
+	]);
+	return createRouter({
+		routeTree,
 		history: createMemoryHistory({ initialEntries: [href] }),
 	}) as unknown as AnyRouter;
+};
 
 interface MountOptions {
 	/** Hold the folder list open, so no target has resolved at press time. */
@@ -226,6 +224,46 @@ describe("compose survives the navigation that opens it (#703)", () => {
 
 		assert.equal(router.history.location.pathname, `/mail/${INBOX_ID}`);
 		assert.equal(button.getAttribute("data-open"), "true");
+	});
+});
+
+describe("the open call is stable", () => {
+	// A fresh `openCompose` on every render is a loop, not a nuisance: callers
+	// hold it in dependency arrays, and one of them opens compose from an effect.
+	it("hands back the same function across a re-render", async () => {
+		const identities = new Set<unknown>();
+		const CountingProbe = () => {
+			const { openCompose } = useCompose();
+			const [bumped, setBumped] = useState(0);
+			useEffect(() => {
+				identities.add(openCompose);
+			}, [openCompose]);
+			return createElement(
+				"button",
+				{ type: "button", onClick: () => setBumped(bumped + 1) },
+				`Bump ${bumped}`,
+			);
+		};
+		const CountingLayout = () =>
+			createElement(
+				ComposeProvider,
+				null,
+				createElement(CountingProbe),
+				createElement(Outlet),
+			);
+
+		const mounted = await mount(routerAt(`/mail/${INBOX_ID}`, CountingLayout));
+		// The target legitimately settles as config and the folder list land. What
+		// must not happen is another identity after that, on a render that has
+		// nothing to do with compose.
+		const settled = identities.size;
+
+		mounted.click(mounted.byText("button", "Bump"));
+		await mounted.flush();
+		await mounted.wait(20);
+
+		assert.equal(mounted.byText("button", "Bump").textContent, "Bump 1");
+		assert.equal(identities.size, settled);
 	});
 });
 

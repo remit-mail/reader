@@ -9,6 +9,7 @@
 import { mailboxOperationsListMailboxesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import { useQueries } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { buildMailboxRoleMap } from "@/lib/folder-roles";
 
 /**
@@ -25,6 +26,10 @@ export type ComposeTarget =
  * flight blocks rather than being skipped: skipping hands back a later
  * account's inbox and then silently swaps the target once the earlier query
  * settles.
+ *
+ * The answer is memoised on the two values it is made of. A fresh object every
+ * render would rebuild `openCompose` on every render of the provider, and a
+ * caller with it in a dependency array then never settles.
  */
 export function useComposeTarget(
 	accounts: RemitImapAccountResponse[],
@@ -38,9 +43,14 @@ export function useComposeTarget(
 		})),
 	});
 
+	let status: ComposeTarget["status"] = "none";
+	let readyMailboxId: string | undefined;
 	for (const [index, account] of accounts.entries()) {
 		const query = mailboxQueries[index];
-		if (!query || query.isPending) return { status: "loading" };
+		if (!query || query.isPending) {
+			status = "loading";
+			break;
+		}
 		const mailboxes = query.data?.items ?? [];
 		if (mailboxes.length === 0) continue;
 		const roleMap = buildMailboxRoleMap(account.folderAppointments);
@@ -48,7 +58,18 @@ export function useComposeTarget(
 			(mailbox) => roleMap.get(mailbox.mailboxId) === "inbox",
 		);
 		const mailboxId = (inbox ?? mailboxes[0])?.mailboxId;
-		if (mailboxId) return { status: "ready", mailboxId };
+		if (mailboxId) {
+			status = "ready";
+			readyMailboxId = mailboxId;
+			break;
+		}
 	}
-	return { status: "none" };
+
+	return useMemo(
+		() =>
+			status === "ready" && readyMailboxId
+				? { status: "ready", mailboxId: readyMailboxId }
+				: { status: status === "ready" ? "none" : status },
+		[status, readyMailboxId],
+	);
 }
