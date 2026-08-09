@@ -94,19 +94,22 @@ test.describe("A brief conversation deep-links from cold (#718)", () => {
 			new RegExp(`/mail/brief/${target.threadId}/${target.messageId}`),
 		);
 
-		// And the verbs act on it. Move needs the account and the folder the thread
-		// is filed in, which is exactly what a cold address does not carry: the
-		// thread's own rows answer for it, so the button is a real picker rather
-		// than a press that explains it has nothing to act on.
-		await page.getByRole("button", { name: "Move to mailbox" }).click();
-		await expect(page.getByText(NO_THREAD_HINT)).toHaveCount(0);
-		await page.keyboard.press("Escape");
-
 		// Assert again after something unrelated: the brief's own list arrives
 		// behind the conversation, and must not take the pane back.
 		await expect(briefRow(page, run.seededSubjects[0])).toBeVisible({
 			timeout: 60_000,
 		});
+		await expect(
+			article.getByRole("heading", { name: subject, exact: true }),
+		).toBeVisible();
+
+		// And the verbs act on it. Move needs the account and the folder the thread
+		// is filed in, which is exactly what a cold address does not carry: the
+		// thread's own rows answer for it, so the button opens a real picker rather
+		// than explaining it has nothing to act on. Left open — Escape is the key
+		// that closes the conversation, so it is not a way to dismiss a popover.
+		await page.getByRole("button", { name: "Move to mailbox" }).click();
+		await expect(page.getByText(NO_THREAD_HINT)).toHaveCount(0);
 		await expect(
 			article.getByRole("heading", { name: subject, exact: true }),
 		).toBeVisible();
