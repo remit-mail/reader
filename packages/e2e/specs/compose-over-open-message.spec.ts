@@ -77,13 +77,26 @@ test.describe("Compose over an open message", () => {
 test.describe("Compose off a route that cannot mount it", () => {
 	test.setTimeout(120_000);
 
+	// The folder list has to be there before the press: with no mailbox resolved
+	// there is nowhere to open the message, and the press says so rather than
+	// being remembered until one turns up.
+	const brief = async (page: import("@playwright/test").Page) => {
+		await page.goto("/mail");
+		const sidebar = page.getByRole("navigation", {
+			name: "Mailboxes",
+			exact: true,
+		});
+		await expect(sidebar).toBeVisible({ timeout: 20_000 });
+		await expect(sidebar.getByRole("link", { name: /inbox/i })).toBeVisible({
+			timeout: 30_000,
+		});
+		return sidebar;
+	};
+
 	test("c on the daily brief lands in a mailbox with the surface open", async ({
 		page,
 	}) => {
-		await page.goto("/mail");
-		await expect(
-			page.getByRole("navigation", { name: "Mailboxes", exact: true }),
-		).toBeVisible({ timeout: 20_000 });
+		await brief(page);
 
 		await page.keyboard.press("c");
 
@@ -91,5 +104,29 @@ test.describe("Compose off a route that cannot mount it", () => {
 		await expect(page.getByPlaceholder("Recipients")).toBeVisible({
 			timeout: 30_000,
 		});
+	});
+
+	// Walking back off the mailbox used to leave compose open behind a view that
+	// cannot show it, and the surface then appeared unannounced on the next
+	// mailbox the user opened.
+	test("walking back off the mailbox leaves nothing queued", async ({
+		page,
+	}) => {
+		const sidebar = await brief(page);
+		const recipients = page.getByPlaceholder("Recipients");
+
+		await page.keyboard.press("c");
+		await expect(recipients).toBeVisible({ timeout: 30_000 });
+
+		await page.goBack();
+		await page.waitForURL(/\/mail(\?|$)/);
+		await expect(recipients).toHaveCount(0);
+
+		await sidebar.getByRole("link", { name: /inbox/i }).click();
+		await page.waitForURL(/\/mail\/[a-z0-9]+/);
+		await expect(
+			page.locator("a[href*='selectedMessageId']").first(),
+		).toBeVisible({ timeout: 30_000 });
+		await expect(recipients).toHaveCount(0);
 	});
 });

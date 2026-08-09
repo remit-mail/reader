@@ -326,13 +326,17 @@ export const OverAnOpenMessage: Story = {
 	},
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await expect(canvas.getByText(q3Thread.subject)).toBeVisible();
+		// The reading pane's own subject heading, not the list row that carries the
+		// same subject.
+		const openConversation = () =>
+			canvas.queryByRole("heading", { level: 2, name: q3Thread.subject });
+		await expect(openConversation()).toBeVisible();
 
 		await userEvent.click(canvas.getByRole("button", { name: /^Compose/ }));
 
 		const recipients = canvas.getByLabelText("To:");
 		await expect(recipients).toBeVisible();
-		await expect(canvas.queryByText(q3Thread.subject)).toBeNull();
+		await expect(openConversation()).toBeNull();
 
 		await userEvent.type(recipients, "ada@example.com");
 		await expect(recipients).toHaveValue("ada@example.com");
@@ -346,7 +350,7 @@ export const OverAnOpenMessage: Story = {
 		await expect(search).toHaveFocus();
 		await expect(canvas.getAllByLabelText("To:")).toHaveLength(1);
 		await expect(canvas.getByLabelText("To:")).toHaveValue("ada@example.com");
-		await expect(canvas.queryByText(q3Thread.subject)).toBeNull();
+		await expect(openConversation()).toBeNull();
 	},
 };
 

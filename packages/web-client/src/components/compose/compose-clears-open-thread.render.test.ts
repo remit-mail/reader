@@ -11,7 +11,8 @@ import {
 	createRootRoute,
 	createRoute,
 	createRouter,
-	RouterContextProvider,
+	Outlet,
+	RouterProvider,
 } from "@tanstack/react-router";
 import { createElement } from "react";
 import { createDomHarness, type DomHarness } from "../../test-support/dom";
@@ -20,6 +21,7 @@ import { ComposeProvider, useCompose } from "./ComposeProvider";
 
 let harness: DomHarness | undefined;
 let http: HttpMock | undefined;
+let releaseMailboxes: (() => void) | undefined;
 
 afterEach(() => {
 	releaseMailboxes?.();
@@ -37,24 +39,6 @@ afterEach(() => {
 const ACCOUNT_ID = "acc-1";
 const INBOX_ID = "mbx-inbox";
 
-const rootRoute = createRootRoute();
-const mailboxRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/mail/$mailboxId",
-	validateSearch: (search: Record<string, unknown>) => search,
-});
-const outboxRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/mail/outbox",
-	validateSearch: (search: Record<string, unknown>) => search,
-});
-
-const routerAt = (href: string): AnyRouter =>
-	createRouter({
-		routeTree: rootRoute.addChildren([outboxRoute, mailboxRoute]),
-		history: createMemoryHistory({ initialEntries: [href] }),
-	}) as unknown as AnyRouter;
-
 const ComposeProbe = () => {
 	const { state, openCompose } = useCompose();
 	return createElement(
@@ -68,22 +52,62 @@ const ComposeProbe = () => {
 	);
 };
 
-let releaseMailboxes: (() => void) | undefined;
+// The provider sits at the root the way `__root.tsx` mounts it, so navigation
+// reaches it the way it does in the app.
+const RootLayout = () =>
+	createElement(
+		ComposeProvider,
+		null,
+		createElement(ComposeProbe),
+		createElement(Outlet),
+	);
 
-/** The mailbox list held open, so the target is unresolved at press time. */
-const mountWithHeldMailboxes = async (
-	router: AnyRouter,
-): Promise<DomHarness> => {
-	const held = new Promise<void>((resolve) => {
-		releaseMailboxes = resolve;
-	});
-	return mount(router, held);
-};
+const rootRoute = createRootRoute({ component: RootLayout });
+const mailboxRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/mail/$mailboxId",
+	validateSearch: (search: Record<string, unknown>) => search,
+	component: () => null,
+});
+const outboxRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/mail/outbox",
+	validateSearch: (search: Record<string, unknown>) => search,
+	component: () => null,
+});
+const settingsRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/settings",
+	component: () => null,
+});
+
+const routerAt = (href: string): AnyRouter =>
+	createRouter({
+		routeTree: rootRoute.addChildren([
+			outboxRoute,
+			mailboxRoute,
+			settingsRoute,
+		]),
+		history: createMemoryHistory({ initialEntries: [href] }),
+	}) as unknown as AnyRouter;
+
+interface MountOptions {
+	/** Hold the folder list open, so no target has resolved at press time. */
+	holdMailboxes?: boolean;
+	/** Answer with an account that has no folders at all. */
+	noMailboxes?: boolean;
+}
 
 const mount = async (
 	router: AnyRouter,
-	holdMailboxes?: Promise<void>,
+	options: MountOptions = {},
 ): Promise<DomHarness> => {
+	const held = options.holdMailboxes
+		? new Promise<void>((resolve) => {
+				releaseMailboxes = resolve;
+			})
+		: undefined;
+
 	http = mockFetch(async (call) => {
 		if (call.path.endsWith("/config")) {
 			return {
@@ -97,28 +121,21 @@ const mount = async (
 			};
 		}
 		if (call.path.endsWith("/mailboxes")) {
-			if (holdMailboxes) await holdMailboxes;
+			if (held) await held;
+			if (options.noMailboxes) return { items: [] };
 			return { items: [{ mailboxId: INBOX_ID, fullPath: "INBOX" }] };
 		}
 		return {};
 	});
 
 	const created = createDomHarness();
-	const provided = createElement(
-		ComposeProvider,
-		null,
-		createElement(ComposeProbe),
-	);
-	created.renderApp(
-		createElement(RouterContextProvider, {
-			router,
-			// biome-ignore lint/correctness/noChildrenProp: RouterContextProvider types `children` as a required prop, which createElement's rest-argument form does not satisfy
-			children: provided,
-		}),
-	);
+	harness = created;
+	// Resolve the first match before mounting: `RouterProvider` renders its
+	// pending state until the router has loaded, and nothing here waits for it.
+	await router.load();
+	created.renderApp(createElement(RouterProvider, { router }));
 	await created.flush();
 	await created.wait(20);
-	harness = created;
 	return created;
 };
 
@@ -192,25 +209,56 @@ describe("opening compose over an open message (#703)", () => {
 		assert.equal(button.getAttribute("data-open"), "true");
 		assert.equal(router.history.location.pathname, `/mail/${INBOX_ID}`);
 	});
+});
 
-	it("holds a press made before the target mailbox is known", async () => {
+// Walking off the routes that mount the surface closes it. That rule reads the
+// live location, which this harness does not advance — `RouterProvider` here
+// serves its first match and stays there — so it is pinned in the e2e suite
+// (`compose-over-open-message.spec.ts`) instead. What is checked here is the
+// half that would break it: opening compose navigates, and the surface has to
+// survive its own navigation.
+describe("compose survives the navigation that opens it (#703)", () => {
+	it("stays open when the press carried the user to another route", async () => {
 		const router = routerAt("/mail/outbox");
-		const mounted = await mountWithHeldMailboxes(router);
+		const mounted = await mount(router);
 
-		const button = mounted.byText("button", "Compose");
-		mounted.click(button);
-		await mounted.flush();
+		const button = await press(mounted);
 
-		// Nothing to mount the surface yet, so nothing is open — and the press is
-		// not thrown away either.
+		assert.equal(router.history.location.pathname, `/mail/${INBOX_ID}`);
+		assert.equal(button.getAttribute("data-open"), "true");
+	});
+});
+
+describe("a compose with nowhere to land says so", () => {
+	it("opens nothing and reports it while the folder list is in flight", async () => {
+		const router = routerAt("/mail/outbox");
+		const mounted = await mount(router, { holdMailboxes: true });
+
+		const button = await press(mounted);
+
 		assert.equal(button.getAttribute("data-open"), "false");
 		assert.equal(router.history.location.pathname, "/mail/outbox");
+		assert.match(mounted.text(), /Not ready to write yet/);
+	});
 
-		releaseMailboxes?.();
-		await mounted.flush();
-		await mounted.wait(50);
+	it("names the fix when no account has a folder", async () => {
+		const router = routerAt("/mail/outbox");
+		const mounted = await mount(router, { noMailboxes: true });
 
-		assert.equal(button.getAttribute("data-open"), "true");
-		assert.equal(router.history.location.pathname, `/mail/${INBOX_ID}`);
+		const button = await press(mounted);
+
+		assert.equal(button.getAttribute("data-open"), "false");
+		assert.match(mounted.text(), /Nowhere to write from/);
+		assert.match(mounted.text(), /Settings/);
+	});
+
+	it("asks the API for nothing off the mail routes", async () => {
+		const router = routerAt("/settings");
+		await mount(router);
+
+		assert.deepEqual(
+			(http?.calls ?? []).map((call) => call.path),
+			[],
+		);
 	});
 });

@@ -11,7 +11,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
 	createContext,
-	startTransition,
 	useCallback,
 	useContext,
 	useEffect,
@@ -19,7 +18,8 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useComposeTargetMailboxId } from "@/hooks/useComposeTargetMailbox";
+import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
+import { useComposeTarget } from "@/hooks/useComposeTargetMailbox";
 import { hostsComposeSurface } from "@/lib/compose-routes";
 export type ComposeMode = "reply" | "reply_all" | "forward" | "new";
 
@@ -66,11 +66,17 @@ export const ComposeProvider = ({
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const location = useLocation();
+	const { pushError } = useErrorBanners();
+	// Compose is a mail action, so its target only has to be known under `/mail`.
+	// Resolving it from the root otherwise costs `/settings` and `/onboarding` a
+	// config fetch plus a folder list per account for a button they never show.
+	const underMail = location.pathname.startsWith("/mail");
 	const { data: config } = useQuery({
 		...configOperationsGetConfigOptions(),
 		staleTime: Infinity,
+		enabled: underMail,
 	});
-	const targetMailboxId = useComposeTargetMailboxId(config?.accounts ?? []);
+	const target = useComposeTarget(underMail ? (config?.accounts ?? []) : []);
 
 	const { data: polledMessage } = useQuery({
 		...outboxDetailOperationsGetOutboxMessageOptions({
@@ -103,29 +109,6 @@ export const ComposeProvider = ({
 		}
 	}, [polledMessage, pollingMessageId, queryClient]);
 
-	// A compose pressed before the target mailbox has resolved. Held rather than
-	// dropped: the press is a request, and a mailbox list a few hundred
-	// milliseconds behind the keystroke is not a reason to answer it with
-	// nothing. Compose state stays closed until there is a route to mount it.
-	const pendingComposeRef = useRef<Omit<ComposeState, "isOpen"> | null>(null);
-
-	const openInTargetMailbox = useCallback(
-		(params: Omit<ComposeState, "isOpen">, mailboxId: string) => {
-			startTransition(() => {
-				setState({ ...params, isOpen: true });
-			});
-			navigate({ to: "/mail/$mailboxId", params: { mailboxId } });
-		},
-		[navigate],
-	);
-
-	useEffect(() => {
-		const pending = pendingComposeRef.current;
-		if (!pending || !targetMailboxId) return;
-		pendingComposeRef.current = null;
-		openInTargetMailbox(pending, targetMailboxId);
-	}, [targetMailboxId, openInTargetMailbox]);
-
 	// Opening compose also puts the surface on screen: only a mailbox route
 	// mounts `FullCompose`, and only with no thread in the pane it takes over.
 	const openCompose = useCallback(
@@ -135,16 +118,31 @@ export const ComposeProvider = ({
 				search.selectedMessageId ?? search.selectedThreadId,
 			);
 			if (!hostsComposeSurface(location.pathname)) {
-				if (!targetMailboxId) {
-					pendingComposeRef.current = params;
+				if (target.status === "loading") {
+					pushError({
+						severity: "info",
+						title: "Not ready to write yet",
+						detail:
+							"Your folders are still loading. Try Compose again in a moment.",
+					});
 					return;
 				}
-				openInTargetMailbox(params, targetMailboxId);
+				if (target.status === "none") {
+					pushError({
+						title: "Nowhere to write from",
+						detail:
+							"No account has a folder to open the message in. Check the account's folders in Settings, then try again.",
+					});
+					return;
+				}
+				setState({ ...params, isOpen: true });
+				navigate({
+					to: "/mail/$mailboxId",
+					params: { mailboxId: target.mailboxId },
+				});
 				return;
 			}
-			startTransition(() => {
-				setState({ ...params, isOpen: true });
-			});
+			setState({ ...params, isOpen: true });
 			if (!showsThread) return;
 			// A push, so Back reopens the message.
 			navigate({
@@ -156,18 +154,26 @@ export const ComposeProvider = ({
 				}),
 			});
 		},
-		[
-			navigate,
-			location.pathname,
-			location.search,
-			targetMailboxId,
-			openInTargetMailbox,
-		],
+		[navigate, location.pathname, location.search, target, pushError],
 	);
 
 	const closeCompose = useCallback(() => {
 		setState(INITIAL_STATE);
 	}, []);
+
+	// Leaving the routes that mount the surface closes it, so nothing is left
+	// open behind a view that cannot show it — which is how it used to reappear
+	// unannounced on the next mailbox. Only a *change* of route counts: opening
+	// compose navigates, and on the frame before that navigation lands the
+	// pathname is still the one compose was started from.
+	const previousPathnameRef = useRef(location.pathname);
+	useEffect(() => {
+		const previous = previousPathnameRef.current;
+		previousPathnameRef.current = location.pathname;
+		if (location.pathname === previous) return;
+		if (hostsComposeSurface(location.pathname)) return;
+		setState((current) => (current.isOpen ? INITIAL_STATE : current));
+	}, [location.pathname]);
 
 	const setOutboxMessageId = useCallback((id: string) => {
 		setState((prev) => ({ ...prev, outboxMessageId: id }));

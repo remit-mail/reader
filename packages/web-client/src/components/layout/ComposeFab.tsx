@@ -14,8 +14,7 @@ import { useCompose } from "@/components/compose/ComposeProvider";
  *   - The compose surface is already open.
  *   - The user is reading a thread (`?selectedMessageId=…`) — the single
  *     pane is the conversation, and its reply bar is under this corner.
- *   - The user is off `/mail`, where compose has no target — the bare `/`
- *     route is sign-in.
+ *   - The user is off `/mail`, which is every route with no mail in it.
  */
 export const ComposeFab = () => {
 	const { state, openCompose } = useCompose();
