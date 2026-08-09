@@ -1,4 +1,4 @@
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { useMailContext } from "@/lib/mail-context";
 import { shouldMirrorQuery } from "@/lib/search-view";
@@ -21,6 +21,13 @@ export type SearchMirrorTarget =
  * the query the user just left behind is never written onto the view they landed
  * on (`shouldMirrorQuery`).
  *
+ * It also writes only while the reader is still on this list. A list stays
+ * mounted, effects and all, until the list they navigated to is ready to paint,
+ * and by then the address is already the new one — so a debounce settling in
+ * that window would fire a navigation to *this* list, superseding the load in
+ * flight and replacing the entry the reader had just pushed. They would click
+ * Inbox and land back on the brief.
+ *
  * When a query *goes* active it also strips the selection so the reading pane
  * closes (#539): an open message from the pre-search list is not meaningful in
  * the search result set. Only on that transition though — tapping a search
@@ -34,6 +41,7 @@ export function useSearchMirror(target: SearchMirrorTarget): void {
 	const navigate = useNavigate();
 	const { searchInput, searchQuery: committedQuery } = useMailContext();
 	const { q: urlQuery = "" } = useSearch({ from: "/mail" });
+	const pathname = useRouterState({ select: (s) => s.location.pathname });
 
 	// Read at effect time rather than depended on: the URL is what the mirror
 	// compares against, not what re-triggers it.
@@ -42,10 +50,17 @@ export function useSearchMirror(target: SearchMirrorTarget): void {
 
 	const { to } = target;
 	const mailboxId = "params" in target ? target.params.mailboxId : undefined;
+	const listPath = mailboxId ? `/mail/${mailboxId}` : to;
 
 	useEffect(() => {
-		if (!shouldMirrorQuery(searchInput, committedQuery, urlQueryRef.current))
-			return;
+		const mayWrite = shouldMirrorQuery({
+			searchInput,
+			committedQuery,
+			urlQuery: urlQueryRef.current,
+			pathname,
+			listPath,
+		});
+		if (!mayWrite) return;
 		const search = (prev: Record<string, unknown>) => {
 			const queryAlreadyActive = prev.q === committedQuery;
 			return {
@@ -66,5 +81,13 @@ export function useSearchMirror(target: SearchMirrorTarget): void {
 			return;
 		}
 		navigate({ to, search, replace: true });
-	}, [searchInput, committedQuery, navigate, to, mailboxId]);
+	}, [
+		searchInput,
+		committedQuery,
+		navigate,
+		to,
+		mailboxId,
+		listPath,
+		pathname,
+	]);
 }

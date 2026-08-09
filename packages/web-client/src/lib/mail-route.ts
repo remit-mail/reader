@@ -1,11 +1,11 @@
 /**
- * Which list the router is showing.
+ * Which list the router is showing, and whether a location still sits on one.
  *
  * Every mail URL is a list plus, below it, whatever that list has open. The
- * list is a layout route, so the answer is a matched route id — never the
- * pathname, which is "/mail" on every child, and never the deepest match,
- * which is the thread. A thread opened from the brief and the brief itself are
- * the same list, so both must resolve here to the same answer.
+ * list is a layout route, so it is named by a matched route id: the parent
+ * `/mail` match carries the pathname "/mail" on every child, and the deepest
+ * match is the thread. A thread opened from the brief and the brief itself
+ * resolve to the same list.
  */
 
 /** A matched route, minimal shape needed to identify the list. */
@@ -62,9 +62,7 @@ export function mailViewKey(matches: readonly MailRouteMatch[]): string {
 	if (!route) return "";
 	switch (route.list) {
 		case "mailbox":
-			return route.mailboxId
-				? `${MAIL_MAILBOX_ROUTE_ID}:${route.mailboxId}`
-				: "";
+			return route.mailboxId ? mailboxViewKey(route.mailboxId) : "";
 		case "flagged":
 			return MAIL_FLAGGED_ROUTE_ID;
 		case "outbox":
@@ -72,4 +70,25 @@ export function mailViewKey(matches: readonly MailRouteMatch[]): string {
 		case "brief":
 			return MAIL_BRIEF_ROUTE_ID;
 	}
+}
+
+/** One mailbox's view key. Two mailboxes are two views. */
+export function mailboxViewKey(mailboxId: string): string {
+	return `${MAIL_MAILBOX_ROUTE_ID}:${mailboxId}`;
+}
+
+/**
+ * Whether a location sits on a list, or on something the list has open below it.
+ *
+ * Answers off the pathname rather than the matches on purpose. The router
+ * commits the new location before it swaps the matches, so a component leaving
+ * the screen sees its own matches under the destination's address for as long as
+ * the destination takes to mount. `pathname` is what says where the reader is
+ * going; `matches` is what says where they still are.
+ *
+ * `listPath` is a whole segment: a folder named `briefing` is not the brief.
+ */
+export function locationIsOnList(pathname: string, listPath: string): boolean {
+	if (pathname === listPath) return true;
+	return pathname.startsWith(`${listPath}/`);
 }

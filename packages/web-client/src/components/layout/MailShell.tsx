@@ -50,8 +50,9 @@ export interface MailShellProps {
 /**
  * The shell a list route mounts around its own panes.
  *
- * Each list owns its mounting, so the shape of the layout is decided once here
- * rather than by a ternary over route predicates in the `/mail` parent.
+ * Below the reading boundary the shell is one pane and takes `phone`, which
+ * swaps between the list and whatever is open in place. Above it the panes sit
+ * side by side and the reading and intelligence slots are filled.
  */
 export function MailShell({
 	phone,

@@ -1,20 +1,25 @@
 /**
- * Two contracts, both of which have already cost a regression.
+ * Three contracts, each of which has already cost a regression.
  *
  * The list is read off a matched route id, never the parent /mail layout's
  * pathname: that pathname is "/mail" on every child route, and keying off it
  * routed every mailbox through the brief pane, so the message-row anchors
  * vanished.
  *
- * And the view key of a list equals the view key of anything nested under it.
- * A thread is a child route of the list it was opened from, so a key that moved
+ * The view key of a list equals the view key of anything nested under it. A
+ * thread is a child route of the list it was opened from, so a key that moved
  * when the thread opened would tell `lib/search-view.ts` the reader had left
  * the view — and the query they had just typed would be re-seeded from the URL
  * and disappear the moment they opened a hit.
+ *
+ * And "am I the current list" is answered by the pathname, not by the matches,
+ * because the matches lag a navigation by as long as the destination takes to
+ * mount.
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+	locationIsOnList,
 	MAIL_BRIEF_ROUTE_ID,
 	MAIL_FLAGGED_ROUTE_ID,
 	MAIL_MAILBOX_ROUTE_ID,
@@ -130,5 +135,46 @@ describe("mailViewKey", () => {
 			mailViewKey(matches([MAIL_BRIEF_ROUTE_ID, `${MAIL_BRIEF_ROUTE_ID}/`])),
 			mailViewKey(brief),
 		);
+	});
+});
+
+/**
+ * The router commits the new location before it swaps the matches, so a list on
+ * its way off the screen sees its own matches under the destination's address.
+ * Anything that acts on "am I the current list" has to ask the pathname.
+ */
+describe("locationIsOnList", () => {
+	it("is true on the list itself", () => {
+		assert.equal(locationIsOnList("/mail/brief", "/mail/brief"), true);
+		assert.equal(locationIsOnList("/mail/inbox-1", "/mail/inbox-1"), true);
+	});
+
+	it("is true for anything the list has open below it", () => {
+		assert.equal(
+			locationIsOnList("/mail/brief/thread-1/message-1", "/mail/brief"),
+			true,
+		);
+		assert.equal(locationIsOnList("/mail/brief/", "/mail/brief"), true);
+		assert.equal(
+			locationIsOnList("/mail/inbox-1/compose", "/mail/inbox-1"),
+			true,
+		);
+	});
+
+	it("is false once the address names another list", () => {
+		assert.equal(locationIsOnList("/mail/inbox-1", "/mail/brief"), false);
+		assert.equal(locationIsOnList("/mail/brief", "/mail/inbox-1"), false);
+		assert.equal(locationIsOnList("/mail/archive-1", "/mail/inbox-1"), false);
+		assert.equal(locationIsOnList("/mail/flagged", "/mail/brief"), false);
+	});
+
+	it("is false outside the mail shell", () => {
+		assert.equal(locationIsOnList("/settings/accounts", "/mail/brief"), false);
+		assert.equal(locationIsOnList("/onboarding", "/mail/brief"), false);
+	});
+
+	it("compares whole segments, so a folder may be named after a list", () => {
+		assert.equal(locationIsOnList("/mail/briefing", "/mail/brief"), false);
+		assert.equal(locationIsOnList("/mail/outbox-2024", "/mail/outbox"), false);
 	});
 });

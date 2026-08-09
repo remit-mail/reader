@@ -10,6 +10,7 @@
  * on, so switching mailbox clears a stale query while a deep link or a saved
  * search that carries `q` still arrives with the query intact.
  */
+import { locationIsOnList } from "./mail-route";
 
 /**
  * The field text after a view transition, or `undefined` when nothing changes
@@ -36,19 +37,42 @@ export function committedSearchQuery(
 	return searchInput === "" ? "" : debouncedSearchInput;
 }
 
+export interface MirrorDecision {
+	/** The live field text. */
+	searchInput: string;
+	/** The debounced query the search APIs are running. */
+	committedQuery: string;
+	/** What the URL currently says the query is. */
+	urlQuery: string;
+	/** Where the router says the reader is, which is where a write would land. */
+	pathname: string;
+	/** The path of the list asking. */
+	listPath: string;
+}
+
 /**
- * Whether the committed query may be written back to the URL. Only a settled
- * one may: mid-debounce the committed value is the *previous* query, and
- * writing it would overwrite the URL that a deep link or a saved search just
- * arrived with — stripping `q` for as long as the debounce lasts, and taking
- * the search with it. The mirror waits for the field and the committed query to
- * agree, then writes only if the URL says something else.
+ * Whether a list may write the committed query into the URL.
+ *
+ * Only a settled query may: mid-debounce the committed value is the *previous*
+ * query, and writing it would overwrite the URL that a deep link or a saved
+ * search just arrived with — stripping `q` for as long as the debounce lasts,
+ * and taking the search with it. The mirror waits for the field and the
+ * committed query to agree, then writes only if the URL says something else.
+ *
+ * And only the list the reader is actually on may: a list stays mounted, effects
+ * and all, until the list they navigated to is ready to paint, by which time the
+ * address is already the new one. A write from the outgoing list in that window
+ * navigates back to itself, superseding the load in flight and replacing the
+ * entry the reader just pushed — they click Inbox and land on the brief.
  */
-export function shouldMirrorQuery(
-	searchInput: string,
-	committedQuery: string,
-	urlQuery: string,
-): boolean {
+export function shouldMirrorQuery({
+	searchInput,
+	committedQuery,
+	urlQuery,
+	pathname,
+	listPath,
+}: MirrorDecision): boolean {
+	if (!locationIsOnList(pathname, listPath)) return false;
 	if (committedQuery !== searchInput) return false;
 	return committedQuery !== urlQuery;
 }
