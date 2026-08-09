@@ -1,4 +1,4 @@
-import { Kbd, KEY_HINT_GROUPS } from "@remit/ui";
+import { DialogBackdrop, Kbd, KEY_HINT_GROUPS } from "@remit/ui";
 import { X } from "lucide-react";
 import { Fragment, useCallback, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -37,29 +37,23 @@ export const KeyboardShortcutsModal = ({
 	if (!isOpen) return null;
 
 	return (
-		<div
-			className="fixed inset-0 z-50 flex items-center justify-center"
-			role="dialog"
-			aria-modal="true"
-			aria-label="Keyboard shortcuts"
-			onClick={onClose}
-			onKeyDown={(e) => e.key === "Escape" && onClose()}
-		>
-			{/* Backdrop */}
-			<div className="absolute inset-0 bg-canvas/80 backdrop-blur-sm" />
+		<div className="fixed inset-0 z-50 flex items-center justify-center">
+			<DialogBackdrop
+				label="Close"
+				onDismiss={onClose}
+				className="backdrop-blur-sm"
+			/>
 
 			{/* Modal */}
-			{/* biome-ignore lint/a11y/noStaticElementInteractions: stops event propagation from the modal content; keyboard is handled by the outer wrapper */}
 			<div
+				role="dialog"
+				aria-modal="true"
+				aria-label="Keyboard shortcuts"
 				className={cn(
 					"relative z-10 max-h-[85vh] w-full max-w-2xl overflow-y-auto",
 					"rounded-lg border border-line bg-surface shadow-lg",
 					"p-6",
 				)}
-				onClick={(e) => e.stopPropagation()}
-				onKeyDown={(e) => {
-					if (e.key !== "Escape") e.stopPropagation();
-				}}
 			>
 				{/* Header */}
 				<div className="mb-6 flex items-center justify-between">

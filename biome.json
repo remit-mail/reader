@@ -28,6 +28,9 @@
 		],
 		"rules": {
 			"recommended": true,
+			"a11y": {
+				"preset": "all"
+			},
 			"correctness": {
 				"noUnusedPrivateClassMembers": "off"
 			},

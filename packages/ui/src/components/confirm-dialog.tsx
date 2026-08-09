@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { cn } from "../lib/cn.js";
+import { DialogBackdrop } from "./dialog-backdrop.js";
 
 export interface ConfirmDialogProps {
 	isOpen: boolean;
@@ -80,13 +81,10 @@ export const ConfirmDialog = ({
 		// confirmation is the decision blocking whatever is under it, and a drawer
 		// portalled to the body at the same level would cover it.
 		<div className="fixed inset-0 z-[60] flex items-center justify-center">
-			{/* Backdrop. It carries the click-to-dismiss and the aria-hidden: the
-			    dialog itself must stay in the accessibility tree, and an
-			    aria-hidden ancestor would take it out. */}
-			<div
-				className="absolute inset-0 bg-canvas/80 backdrop-blur-sm"
-				aria-hidden="true"
-				onClick={onCancel}
+			<DialogBackdrop
+				label={cancelLabel}
+				onDismiss={onCancel}
+				className="backdrop-blur-sm"
 			/>
 
 			{/* Dialog */}
@@ -99,8 +97,6 @@ export const ConfirmDialog = ({
 					"bg-surface border border-line rounded-sm shadow-lg",
 					"p-6",
 				)}
-				onClick={(e) => e.stopPropagation()}
-				onKeyDown={(e) => e.stopPropagation()}
 			>
 				<h2 className="text-lg font-semibold">{title}</h2>
 				{description && (
