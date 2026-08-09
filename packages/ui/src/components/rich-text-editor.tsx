@@ -687,17 +687,20 @@ const SpellcheckPlugin = ({
 		};
 	}, [target, language]);
 
-	const dismiss = useCallback(() => {
-		setTarget(null);
-		editor.focus();
-	}, [editor]);
+	const dismiss = useCallback(
+		(returnFocus: boolean) => {
+			setTarget(null);
+			if (returnFocus) editor.focus();
+		},
+		[editor],
+	);
 
 	const forget = useCallback(
 		(word: string) => {
 			ignored.current.add(normaliseWord(word));
 			forgetIgnored(editor, found.current, ignored.current);
 			repaint.current();
-			dismiss();
+			dismiss(true);
 		},
 		[editor, dismiss],
 	);
@@ -720,7 +723,7 @@ const SpellcheckPlugin = ({
 			},
 			{ tag: HISTORY_PUSH_TAG },
 		);
-		dismiss();
+		dismiss(true);
 	};
 
 	const addWord = () => {

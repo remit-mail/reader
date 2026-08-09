@@ -26,7 +26,11 @@ export interface RichTextCorrectionMenuProps {
 	onIgnore: () => void;
 	/** Rendered only when the mount carries somewhere to put the word. */
 	onAddWord?: () => void;
-	onDismiss: () => void;
+	/**
+	 * `returnFocus` is false when the writer's own click is already on its way
+	 * somewhere else, and taking the caret back would fight it.
+	 */
+	onDismiss: (returnFocus: boolean) => void;
 }
 
 const CorrectionRows = ({
@@ -87,7 +91,7 @@ const CorrectionRows = ({
 				onSelect={() => onReplace(suggestion)}
 			/>
 		))}
-		<div className="my-1 border-t border-line" />
+		<hr className="my-1 border-line" />
 		<PopoverMenuRow
 			label="Ignore for now"
 			icon={<EyeOff className="size-4" />}
@@ -134,7 +138,7 @@ export const RichTextCorrectionMenu = ({
 		if (!desktop) return;
 		const onPointer = (event: MouseEvent) => {
 			if (panelRef.current?.contains(event.target as Node)) return;
-			onDismiss();
+			onDismiss(false);
 		};
 		document.addEventListener("mousedown", onPointer);
 		return () => document.removeEventListener("mousedown", onPointer);
@@ -144,12 +148,16 @@ export const RichTextCorrectionMenu = ({
 		if (event.key !== "Escape") return;
 		event.preventDefault();
 		event.stopPropagation();
-		onDismiss();
+		onDismiss(true);
 	};
 
 	if (!desktop) {
 		return (
-			<BottomSheet open onClose={onDismiss} dismissLabel="Close corrections">
+			<BottomSheet
+				open
+				onClose={() => onDismiss(false)}
+				dismissLabel="Close corrections"
+			>
 				<div
 					ref={panelRef}
 					role="menu"
