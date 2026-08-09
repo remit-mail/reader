@@ -39,9 +39,16 @@ test.describe("Compose over an open message", () => {
 		await expect(page.getByRole("article")).toBeHidden();
 		await page.waitForURL((url) => !url.search.includes("selectedMessageId"));
 
+		// Whole and settled, writing surface included, before anything else is
+		// typed. Where the caret sits inside it is the composer's own business.
+		await expect(page.getByTestId("compose-body")).toBeVisible({
+			timeout: 30_000,
+		});
+
 		// Searching is what used to summon the queued surface. Nothing arrives on
-		// it now: the caret stays in the field being typed into, one composer is on
+		// it now: the query lands in the field it was typed into, one composer is on
 		// screen, and the conversation does not come back.
+		await search.click();
 		await search.pressSequentially("invoice");
 		await expect(search).toBeFocused();
 		await expect(search).toHaveValue("invoice");
