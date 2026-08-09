@@ -1,6 +1,6 @@
 # URL state rules
 
-URL state is anything the app reads back out of the address bar: the path, the query string and the fragment. Every fact lives in exactly one of the three, and which one it lives in is decided by what the fact does, not by what is convenient at the call site. The path decides which components mount, so "opened" and "rendered" are one fact and no code arbitrates between them.
+URL state is anything the app reads back out of the address bar: the path, the query string and the fragment. No fact lives in more than one of the three, and which tier holds it is decided by what the fact does, not by what is convenient at the call site. The path decides which components mount, so "opened" and "rendered" are one fact and no code arbitrates between them.
 
 ## R1. Path: which view
 
@@ -12,7 +12,7 @@ Which list, which thread, which message, which surface. A path matches one thing
 
 ## R3. Fragment: panel and pane visibility, nothing else
 
-No identity, no payload, no selection. A closed literal union.
+No identity, no payload, no selection, no focus target. A closed literal union.
 
 ## R4. One owner per fact
 
@@ -24,7 +24,7 @@ Anything mutually exclusive is a path segment, because sibling routes cannot bot
 
 ## R6. A transient selection is never URL state
 
-`#confirm-delete` reloads into "Move 12 messages to Trash" with an empty selection. Test: if the overlay's own copy is computed from in-memory data, it is not URL state at any tier.
+A modal carrying a transient selection never goes in the fragment: `#confirm-delete` reloads into "Move 12 messages to Trash" with an empty selection. Test: if the overlay's own copy is computed from in-memory data, it is not URL state at any tier.
 
 Qualifies for the fragment: the intelligence rail, the nav slide-over, the shortcuts sheet, and the filter sheet's open/closed state (its values are query). Does not qualify: the bulk-delete confirm, the move picker, row action menus, the selection wizard's selection, the self-update overlay, the fatal-error and quarantine dialogs, the delete-account, folder and label confirms, and the compose discard confirm.
 
@@ -43,6 +43,10 @@ Each list is a layout route whose component renders the list plus `AppShellSlott
 ```
 /mail                         redirect to /mail/brief
 /mail/brief                   list layout, reading={<Outlet/>}
+  $threadId                   thread open
+    $messageId                that message expanded and scrolled to
+      $mode                   reply | reply-all | forward
+  compose                     new message
 /mail/flagged
 /mail/outbox
 /mail/$mailboxId
@@ -60,5 +64,7 @@ Each list is a layout route whose component renders the list plus `AppShellSlott
 ## FAQ
 
 **Why not `?action=compose&compose:replyTo=<messageId>`?** A query param combines with anything, so compose open and thread open become expressible at once and something has to choose between them. The `compose:` namespacing is itself the tell that the query is carrying hierarchy. With reply as a child route, `replyTo` disappears and the source is the path.
+
+**Why not an optional `{-$mailboxId}` segment?** The installed router supports it, but it collapses the brief and a mailbox into one route with one component, and the component branches on whether it received a mailboxId: the arbiter, one level down.
 
 **Is `?data={...}` allowed anywhere?** For last-mile detail that legitimately combines, validated against the domain's own zod schema. Never to name what is on screen: a bag holds any combination, so illegal states become representable again and the app has to parse and branch to decide what mounts.
