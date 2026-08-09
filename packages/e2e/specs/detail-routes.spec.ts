@@ -1,5 +1,5 @@
 /**
- * The brief's reading pane is a route (#718).
+ * A list's reading pane is a route (#718, #713).
  *
  * `/mail/brief/<thread>/<message>` is the whole address. What used to make a
  * brief conversation openable was three query params, one of them a mailbox,
@@ -8,14 +8,24 @@
  * — which is what the cold load below proves: the message it opens is in no
  * listing the brief holds, so nothing but the address can resolve it.
  *
+ * The outbox is the same move one list over: `/mail/outbox/draft/<message>`
+ * replaces a `selectedOutboxMessageId` param that only that list read.
+ *
  * Two failure shapes escaped every earlier test: a surface opened with nothing
  * rendering it, and an action queued that fired later. So the pattern here is
  * assert, do something unrelated, assert again — a single assertion straight
  * after the navigation passes on the broken code.
  */
 import type { Locator, Page } from "@playwright/test";
+import type { ApiClient } from "../src/api.js";
+import { waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
-import { BRIEF_THREAD_URL, BRIEF_URL } from "../src/urls.js";
+import {
+	BRIEF_THREAD_URL,
+	BRIEF_URL,
+	OUTBOX_MESSAGE_URL,
+	OUTBOX_URL,
+} from "../src/urls.js";
 
 const DESKTOP = { width: 1512, height: 864 };
 test.use({ viewport: DESKTOP });
@@ -24,6 +34,9 @@ const briefRow = (page: Page, subject: string): Locator =>
 	page.locator("[data-message-row]").filter({ hasText: subject });
 
 const conversation = (page: Page): Locator => page.getByRole("article").first();
+
+const outboxRow = (page: Page, subject: string): Locator =>
+	page.locator("[data-list-row]").filter({ hasText: subject });
 
 const searchField = (page: Page): Locator =>
 	page.getByRole("textbox", { name: "Search mail" });
@@ -198,5 +211,120 @@ test.describe("Searching around an open brief conversation (#718)", () => {
 			timeout: 30_000,
 		});
 		await expect(conversation(page)).toBeVisible();
+	});
+});
+
+/**
+ * The outbox is one shared list of messages on their way out, so a message it
+ * holds is addressed by its own id — there is no thread and no folder above it.
+ */
+test.describe("An outbox message lives in the address (#713)", () => {
+	test.setTimeout(120_000);
+
+	const tag = `outbox-detail-${Date.now()}`;
+	const subject = `Outbox detail ${tag}`;
+	const body = "Queued against an account that cannot send.";
+
+	/**
+	 * A message the outbox list will hold. The shared account has no SMTP, so
+	 * the worker settles the row at `blocked` rather than sending it — which is
+	 * both what keeps it listed and what makes it removable again.
+	 */
+	const seedOutboxMessage = async (
+		api: ApiClient,
+		accountId: string,
+	): Promise<string> => {
+		const created = await api.sendMessage({
+			accountId,
+			toAddresses: ["ada@remit.test"],
+			subject,
+			textBody: body,
+		});
+		await waitFor(
+			() => api.getOutboxMessage(created.outboxMessageId),
+			(message) => message.status === "blocked" || message.status === "failed",
+			{ what: `the outbox row for "${subject}" to settle unsent` },
+		);
+		return created.outboxMessageId;
+	};
+
+	test.afterEach(async ({ api }) => {
+		for (const entry of await api.listRemovableOutboxMessages()) {
+			if (entry.subject.includes(tag)) {
+				await api.deleteOutboxMessage(entry.outboxMessageId);
+			}
+		}
+	});
+
+	test("a pasted address opens the message, with no list behind it", async ({
+		api,
+		page,
+		run,
+	}) => {
+		const outboxMessageId = await seedOutboxMessage(api, run.accountId);
+
+		// A fresh context: no list rendered, no row clicked, nothing but the
+		// address to say which message the pane is for.
+		await page.goto(`/mail/outbox/draft/${outboxMessageId}`);
+
+		await expect(
+			page.getByRole("heading", { name: subject, exact: true }),
+		).toBeVisible({ timeout: 30_000 });
+		await expect(page.getByText(body)).toBeVisible();
+		await expect(page.getByText("Select a message to read")).toHaveCount(0);
+
+		// The load did not rewrite the address back to the list, so it is still
+		// there to share.
+		await expect(page).toHaveURL(OUTBOX_MESSAGE_URL);
+
+		// Assert again after something unrelated: the outbox list arrives behind
+		// the message and must not take the pane back.
+		await expect(
+			outboxRow(page, subject).or(page.getByText("No outbox messages")),
+		).toBeVisible({ timeout: 30_000 });
+		await expect(
+			page.getByRole("heading", { name: subject, exact: true }),
+		).toBeVisible();
+	});
+
+	test("opening a message from the list is a navigation, and back undoes it", async ({
+		api,
+		page,
+		run,
+	}) => {
+		await seedOutboxMessage(api, run.accountId);
+
+		await page.goto("/mail/outbox");
+		await outboxRow(page, subject).click({ timeout: 30_000 });
+
+		await expect(page).toHaveURL(OUTBOX_MESSAGE_URL);
+		await expect(
+			page.getByRole("heading", { name: subject, exact: true }),
+		).toBeVisible({ timeout: 30_000 });
+
+		// Walk off the outbox entirely and come back the way a reader does. The
+		// message is a route, so returning to the address returns the pane.
+		await page
+			.getByRole("navigation", { name: "Mailboxes", exact: true })
+			.getByRole("link", { name: /daily brief/i })
+			.click();
+		await page.waitForURL(BRIEF_URL);
+		await expect(
+			page.getByRole("heading", { name: subject, exact: true }),
+		).toHaveCount(0);
+
+		await page.goBack();
+		await expect(page).toHaveURL(OUTBOX_MESSAGE_URL);
+		await expect(
+			page.getByRole("heading", { name: subject, exact: true }),
+		).toBeVisible({ timeout: 30_000 });
+
+		// One press, one surface: back again leaves the message on the list rather
+		// than skipping the outbox altogether.
+		await page.goBack();
+		await expect(page).toHaveURL(OUTBOX_URL);
+		await expect(page.getByText("Select a message to read")).toBeVisible({
+			timeout: 30_000,
+		});
 	});
 });

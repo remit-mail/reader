@@ -22,3 +22,9 @@ export const BRIEF_URL = /\/mail\/brief(\?|$)/;
  * thread open" is a question about the address rather than about a param.
  */
 export const BRIEF_THREAD_URL = /\/mail\/brief\/[^/?#]+/;
+
+/** The outbox with a message open. Also a segment, for the same reason. */
+export const OUTBOX_MESSAGE_URL = /\/mail\/outbox\/draft\/[^/?#]+/;
+
+/** The outbox list, with nothing open under it. */
+export const OUTBOX_URL = /\/mail\/outbox(\?|$)/;

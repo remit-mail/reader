@@ -1,12 +1,12 @@
 /**
  * OutboxPane — compound component for the outbox view (/mail/outbox route).
  *
- * Usage in mail.tsx:
+ * Usage in the list layout route:
  *
- *   <OutboxPane>
- *     <AppShellSlotted
+ *   <OutboxPane outboxMessageId={useOutboxDraftId()}>
+ *     <MailShell
  *       list={<OutboxPane.List />}
- *       reading={<OutboxPane.Reading />}
+ *       reading={<Outlet />}
  *     />
  *   </OutboxPane>
  *
@@ -29,7 +29,7 @@ import {
 	useRovingFocus,
 } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import {
 	AlertCircle,
 	AlertTriangle,
@@ -143,9 +143,11 @@ interface OutboxPaneContextValue {
 	/** True when that query asks for a filter the outbox cannot apply. */
 	unsupportedQuery: boolean;
 	isLoading: boolean;
+	/** The message the address names, which is the one the list highlights. */
 	selectedMessageId: string | undefined;
 	selectedMessage: RemitImapOutboxMessageResponse | undefined;
-	onSelectMessage: (id: string | undefined) => void;
+	onOpenMessage: (outboxMessageId: string) => void;
+	onCloseMessage: () => void;
 }
 
 const OutboxPaneCtx = createContext<OutboxPaneContextValue | null>(null);
@@ -161,16 +163,16 @@ function useOutboxPane(): OutboxPaneContextValue {
 /* ------------------------------------------------------------------ */
 
 interface OutboxPaneProps {
+	/** The open message, as the address states it. */
+	outboxMessageId: string | undefined;
 	children: ReactNode;
 }
 
-function OutboxPaneProvider({ children }: OutboxPaneProps) {
+function OutboxPaneProvider({
+	outboxMessageId: selectedMessageId,
+	children,
+}: OutboxPaneProps) {
 	const navigate = useNavigate();
-	// Read selectedOutboxMessageId from the URL directly — this avoids threading
-	// a prop through the parent shell for a param that only outbox uses.
-	const { selectedOutboxMessageId: selectedMessageId } = useSearch({
-		strict: false,
-	}) as { selectedOutboxMessageId?: string };
 
 	const { data: outboxResponse, isLoading } = useQuery(
 		outboxOperationsListOutboxMessagesOptions(),
@@ -210,18 +212,20 @@ function OutboxPaneProvider({ children }: OutboxPaneProps) {
 		[messages, selectedMessageId],
 	);
 
-	const handleSelectMessage = useCallback(
-		(id: string | undefined) => {
+	const handleOpenMessage = useCallback(
+		(outboxMessageId: string) => {
 			navigate({
-				to: "/mail/outbox",
-				search: (prev) => ({
-					...prev,
-					selectedOutboxMessageId: id,
-				}),
+				to: "/mail/outbox/draft/$outboxMessageId",
+				params: { outboxMessageId },
+				search: (prev) => prev,
 			});
 		},
 		[navigate],
 	);
+
+	const handleCloseMessage = useCallback(() => {
+		navigate({ to: "/mail/outbox", search: (prev) => prev });
+	}, [navigate]);
 
 	const ctx: OutboxPaneContextValue = {
 		messages,
@@ -230,7 +234,8 @@ function OutboxPaneProvider({ children }: OutboxPaneProps) {
 		isLoading,
 		selectedMessageId,
 		selectedMessage,
-		onSelectMessage: handleSelectMessage,
+		onOpenMessage: handleOpenMessage,
+		onCloseMessage: handleCloseMessage,
 	};
 
 	return (
@@ -438,7 +443,7 @@ function OutboxList() {
 		unsupportedQuery,
 		isLoading,
 		selectedMessageId,
-		onSelectMessage,
+		onOpenMessage,
 	} = useOutboxPane();
 	const listRef = useRef<HTMLDivElement>(null);
 	useRovingFocus({ containerRef: listRef, itemSelector: LIST_ROW_SELECTOR });
@@ -482,7 +487,7 @@ function OutboxList() {
 						key={message.outboxMessageId}
 						message={message}
 						isSelected={selectedMessageId === message.outboxMessageId}
-						onSelect={() => onSelectMessage(message.outboxMessageId)}
+						onSelect={() => onOpenMessage(message.outboxMessageId)}
 					/>
 				))}
 			</div>
@@ -529,7 +534,8 @@ function OutboxPhone() {
 		isLoading,
 		selectedMessageId,
 		selectedMessage,
-		onSelectMessage,
+		onOpenMessage,
+		onCloseMessage,
 	} = useOutboxPane();
 	const listRef = useRef<HTMLDivElement>(null);
 	useRovingFocus({ containerRef: listRef, itemSelector: LIST_ROW_SELECTOR });
@@ -544,10 +550,7 @@ function OutboxPhone() {
 
 	if (selectedMessage) {
 		return (
-			<OutboxMessageDetail
-				message={selectedMessage}
-				onBack={() => onSelectMessage(undefined)}
-			/>
+			<OutboxMessageDetail message={selectedMessage} onBack={onCloseMessage} />
 		);
 	}
 
@@ -579,7 +582,7 @@ function OutboxPhone() {
 						key={message.outboxMessageId}
 						message={message}
 						isSelected={selectedMessageId === message.outboxMessageId}
-						onSelect={() => onSelectMessage(message.outboxMessageId)}
+						onSelect={() => onOpenMessage(message.outboxMessageId)}
 					/>
 				))}
 			</div>

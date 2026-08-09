@@ -244,7 +244,7 @@ export function MailSidebarAdapter({
 			return (
 				<NavLink
 					to="/mail/outbox"
-					search={{ q: undefined, selectedOutboxMessageId: undefined }}
+					search={{ q: undefined }}
 					onClick={() => onClick?.()}
 					className={className}
 					aria-label={ariaLabel}
