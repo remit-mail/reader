@@ -273,6 +273,60 @@ describe("AddressRepo", () => {
 		await repo.deleteManyAddresses(accountConfigId, [created.addressId]);
 	});
 
+	test("listByAccountConfig finds a display name whose first letter is not ASCII", async () => {
+		const accountConfigId = randomId();
+		// Written the way message sync writes it: the compound folded in JavaScript.
+		const names = [
+			["Özcan Bakker", "o.bakker@kliniek.nl", ["Öz", "öz", "özcan", "zcan"]],
+			["Émile Zola", "emile@zola.test", ["Ém", "ém", "émile", "zola"]],
+			["Ángela Ruiz", "angela@ruiz.test", ["Án", "án", "ángela", "ngela"]],
+		] as const;
+
+		for (const [displayName, email, terms] of names) {
+			const created = await repo.createAddress({
+				...makeAddressInput(accountConfigId, email),
+				displayName,
+				normalizedCompound: `${displayName.toLowerCase()} ${email}`,
+			});
+
+			for (const term of terms) {
+				const found = await repo.listByAccountConfig({
+					accountConfigId,
+					search: term,
+				});
+				assert.deepEqual(
+					found.items.map((a) => a.addressId),
+					[created.addressId],
+					`"${term}" must resolve ${displayName}`,
+				);
+			}
+
+			await repo.deleteManyAddresses(accountConfigId, [created.addressId]);
+		}
+	});
+
+	test("updateAddress keeps the compound findable when a name is not ASCII", async () => {
+		const accountConfigId = randomId();
+		const created = await repo.createAddress(
+			makeAddressInput(accountConfigId, "o.bakker@kliniek.nl"),
+		);
+
+		await repo.updateAddress(accountConfigId, created.addressId, {
+			displayName: "Özcan Bakker",
+		});
+
+		const found = await repo.listByAccountConfig({
+			accountConfigId,
+			search: "Öz",
+		});
+		assert.deepEqual(
+			found.items.map((a) => a.addressId),
+			[created.addressId],
+		);
+
+		await repo.deleteManyAddresses(accountConfigId, [created.addressId]);
+	});
+
 	test("listByAccountConfig offers a two-letter name match ahead of a louder domain match (#704)", async () => {
 		const accountConfigId = randomId();
 		const colin = await repo.createAddress({

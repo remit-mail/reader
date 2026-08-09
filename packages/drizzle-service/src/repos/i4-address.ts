@@ -43,9 +43,13 @@ type AddressUpdate = Partial<{
 		| SQL;
 }>;
 
-/** The stored `"<display name> <email>"` compound, as message sync writes it. */
+/**
+ * The stored `"<display name> <email>"` compound, folded in JavaScript exactly
+ * as message sync folds it — SQL `lower()` stops at ASCII, and the search reads
+ * this column expecting a full fold.
+ */
 const compoundOfSql = (displayName: string): SQL<string> =>
-	sql<string>`trim(lower(${displayName}) || ' ' || ${addressTable.normalizedEmail})`;
+	sql<string>`trim(${displayName.toLowerCase()} || ' ' || ${addressTable.normalizedEmail})`;
 
 /**
  * The order a suggestion list comes back in: where the term hit, then the
