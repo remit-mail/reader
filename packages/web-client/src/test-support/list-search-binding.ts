@@ -3,11 +3,11 @@
  * `lib/mail-search.ts` declares for that path. Wire a list to another list's
  * schema and it fails here.
  *
- * It runs as its own process, spawned by `lib/route-search-query.test.ts`, and
- * lives outside `src/` on purpose. Importing a route file pulls in the whole
- * pane it mounts, and every module a test loads counts in the coverage
- * denominator — reading `validateSearch` in-process dropped web-client's line
- * coverage by ten points with nothing rendered to earn it back.
+ * It runs as its own process, spawned by `lib/route-search-query.test.ts`.
+ * Importing a route file pulls in the whole pane it mounts, and every module a
+ * test loads counts in the coverage denominator — reading `validateSearch`
+ * in-process dropped web-client's line coverage by ten points with nothing
+ * rendered to earn it back.
  */
 import assert from "node:assert/strict";
 import { mailListSearchSchemas } from "@/lib/mail-search";

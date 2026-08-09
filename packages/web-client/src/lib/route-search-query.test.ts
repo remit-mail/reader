@@ -40,29 +40,29 @@ describe("every /mail list carries `q` through its own validation", () => {
 
 describe("every /mail list route uses the schema declared for its path", () => {
 	it("holds for all four lists", () => {
-		const support = fileURLToPath(
-			new URL("../../test-support/", import.meta.url),
+		const check = fileURLToPath(
+			new URL("../test-support/list-search-binding.ts", import.meta.url),
+		);
+		const register = fileURLToPath(
+			new URL("../../test-support/register.mjs", import.meta.url),
 		);
 		// The runner re-injects its coverage directory into any child, even one
 		// given an environment without it, and coverage from this child would put
 		// every pane the route files reach into the denominator — the reason the
 		// check is out of process at all. An empty value is the one thing that
 		// stops the child writing there.
-		const env = { ...process.env, NODE_V8_COVERAGE: "" };
 		assert.doesNotThrow(() =>
 			execFileSync(
 				process.execPath,
-				[
-					"--import",
-					"tsx",
-					"--import",
-					`${support}register.mjs`,
-					`${support}list-search-binding.ts`,
-				],
+				["--import", "tsx", "--import", register, check],
 				{
 					stdio: "pipe",
 					encoding: "utf8",
-					env: { ...env, TSX_TSCONFIG_PATH: "./tsconfig.test.json" },
+					env: {
+						...process.env,
+						NODE_V8_COVERAGE: "",
+						TSX_TSCONFIG_PATH: "./tsconfig.test.json",
+					},
 				},
 			),
 		);
