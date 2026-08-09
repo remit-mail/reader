@@ -43,6 +43,12 @@ describe("every /mail list route uses the schema declared for its path", () => {
 		const support = fileURLToPath(
 			new URL("../../test-support/", import.meta.url),
 		);
+		// The runner re-injects its coverage directory into any child, even one
+		// given an environment without it, and coverage from this child would put
+		// every pane the route files reach into the denominator — the reason the
+		// check is out of process at all. An empty value is the one thing that
+		// stops the child writing there.
+		const env = { ...process.env, NODE_V8_COVERAGE: "" };
 		assert.doesNotThrow(() =>
 			execFileSync(
 				process.execPath,
@@ -56,7 +62,7 @@ describe("every /mail list route uses the schema declared for its path", () => {
 				{
 					stdio: "pipe",
 					encoding: "utf8",
-					env: { ...process.env, TSX_TSCONFIG_PATH: "./tsconfig.test.json" },
+					env: { ...env, TSX_TSCONFIG_PATH: "./tsconfig.test.json" },
 				},
 			),
 		);
