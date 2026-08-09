@@ -5,20 +5,17 @@ import { expect, fireEvent, userEvent, within } from "storybook/test";
 import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
 
 /**
- * The surfaces the route mounts into the reading pane (#713), and the link that
- * gets you to them.
- *
- * `NavLinkSurface` is the design system's half of the split: appearance and
- * accessible state, a real `<a>`, no router. Because it holds no `to`, the
- * matrix below renders without a router in the tree — which is the point of
- * keeping the typed binding in `packages/web-client`.
+ * The link that gets you to a route's surface (#713) — the design system's half
+ * of the split: appearance and accessible state, a real `<a>`, no router.
+ * Because it holds no `to`, the matrix below renders with no router in the tree,
+ * which is the point of keeping the typed binding in `packages/web-client`.
  *
  * Every story here follows one shape: assert the surface, do something
  * unrelated, assert it again. A single assertion straight after the click
  * passes on code that only queued the work.
  */
 const meta: Meta = {
-	title: "Flows/Detail surface",
+	title: "Components/NavLinkSurface",
 	parameters: { layout: "centered" },
 };
 export default meta;
@@ -100,12 +97,12 @@ function NavLinkMatrix({
  * `nav` for a sidebar entry, `row` for a full-bleed list row (inset ring, since
  * it has no margin to spend on an offset one), `inline` for a link inside prose.
  */
-export const NavLinkVariants: Story = {
+export const Variants: Story = {
 	render: () => <NavLinkMatrix />,
 };
 
 /** Phone width (390 px): the nav variant at the tier the drawer renders it. */
-export const NavLinkPhone: Story = {
+export const Phone: Story = {
 	parameters: phoneParams,
 	decorators: [phoneFrame],
 	render: () => <NavLinkMatrix shown={["nav"]} width={PHONE_WIDTH} />,
@@ -116,7 +113,7 @@ export const NavLinkPhone: Story = {
  * middle-click, cmd-click and "copy link address" work without a handler of
  * ours, and the destination survives a page the router never sees.
  */
-export const NavLinkIsARealAnchor: Story = {
+export const IsARealAnchor: Story = {
 	render: () => <NavLinkMatrix />,
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
@@ -139,7 +136,7 @@ export const NavLinkIsARealAnchor: Story = {
  * the surface owns neither the route nor when it changes — a click must not
  * move the marker on its own.
  */
-export const NavLinkMarksTheCurrentDestination: Story = {
+export const MarksTheCurrentDestination: Story = {
 	render: () => <NavLinkMatrix />,
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
@@ -167,7 +164,7 @@ export const NavLinkMarksTheCurrentDestination: Story = {
  * Tab reaches it and Enter activates it, both from the browser rather than from
  * a key handler. A `<div onClick>` wearing link styling passes neither.
  */
-export const NavLinkActivatesOnTabThenEnter: Story = {
+export const ActivatesOnTabThenEnter: Story = {
 	render: () => <NavLinkMatrix />,
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
@@ -191,7 +188,7 @@ export const NavLinkActivatesOnTabThenEnter: Story = {
  * its own, so the router binding downstream still gets to stand aside and let
  * the browser open a new tab.
  */
-export const NavLinkPassesModifiedClicksThrough: Story = {
+export const PassesModifiedClicksThrough: Story = {
 	render: () => <NavLinkMatrix />,
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
