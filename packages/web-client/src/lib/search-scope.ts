@@ -11,7 +11,7 @@
  *
  * Removing the chip means "search everything", which is the daily brief — the
  * cross-account view whose scope is nothing. So removal is a navigation to
- * `/mail/` carrying the query, not an edit of the query text.
+ * `/mail/brief` carrying the query, not an edit of the query text.
  *
  * There is exactly one scope, and it is this one. A typed `in:` term is a
  * second, competing answer to "which mailbox", so it is recognized only where
@@ -22,14 +22,7 @@
  * Pure functions only. `useSearchScope` binds these to the router.
  */
 import type { FolderRole, SearchScope as ResultsScope } from "@remit/ui";
-import {
-	isBriefRoute,
-	isFlaggedRoute,
-	isMailboxRoute,
-	isOutboxRoute,
-	MAIL_MAILBOX_ROUTE_ID,
-	type MailRouteMatch,
-} from "./mail-route";
+import { mailListRoute, type MailRouteMatch } from "./mail-route";
 
 /**
  * Chip id of the scope chip. The top bar owns exactly one, so a fixed id is
@@ -72,9 +65,8 @@ export function scopeLabelForMailboxName(name: string): string {
  * not.
  */
 export function isScopedRoute(matches: readonly MailRouteMatch[]): boolean {
-	return (
-		isFlaggedRoute(matches) || isOutboxRoute(matches) || isMailboxRoute(matches)
-	);
+	const route = mailListRoute(matches);
+	return route !== undefined && route.list !== "brief";
 }
 
 /**
@@ -83,8 +75,8 @@ export function isScopedRoute(matches: readonly MailRouteMatch[]): boolean {
 export function routeMailboxId(
 	matches: readonly MailRouteMatch[],
 ): string | undefined {
-	return matches.find((m) => m.routeId === MAIL_MAILBOX_ROUTE_ID)?.params
-		?.mailboxId;
+	const route = mailListRoute(matches);
+	return route?.list === "mailbox" ? route.mailboxId : undefined;
 }
 
 /**
@@ -128,20 +120,20 @@ export function searchScopeForRoute(
 	matches: readonly MailRouteMatch[],
 	mailboxName?: string | null,
 ): SearchScopeState {
-	if (isBriefRoute(matches)) return { kind: "global" };
-	if (isFlaggedRoute(matches)) {
+	const route = mailListRoute(matches);
+	if (route?.list === "flagged") {
 		return {
 			kind: "scoped",
 			chip: { id: SEARCH_SCOPE_CHIP_ID, label: "is:starred" },
 		};
 	}
-	if (isOutboxRoute(matches)) {
+	if (route?.list === "outbox") {
 		return {
 			kind: "scoped",
 			chip: { id: SEARCH_SCOPE_CHIP_ID, label: "in:outbox" },
 		};
 	}
-	if (isMailboxRoute(matches)) {
+	if (route?.list === "mailbox") {
 		if (!mailboxName) return { kind: "pending" };
 		return {
 			kind: "scoped",
@@ -177,6 +169,6 @@ export function resultsScopeForRoute(
 	role?: FolderRole,
 ): ResultsScope {
 	if (state.kind === "global") return { kind: "global" };
-	if (isFlaggedRoute(matches)) return { kind: "collection" };
+	if (mailListRoute(matches)?.list === "flagged") return { kind: "collection" };
 	return { kind: "folder", ...(role ? { role } : {}) };
 }

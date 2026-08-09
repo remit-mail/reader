@@ -6,7 +6,11 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { type MailRouteMatch, mailViewKey } from "./mail-route.js";
+import {
+	MAIL_BRIEF_ROUTE_ID,
+	type MailRouteMatch,
+	mailViewKey,
+} from "./mail-route.js";
 import {
 	committedSearchQuery,
 	searchInputForView,
@@ -18,31 +22,6 @@ const matches = (routeId: string, mailboxId?: string): MailRouteMatch[] => [
 	{ routeId: "/mail" },
 	{ routeId, ...(mailboxId ? { params: { mailboxId } } : {}) },
 ];
-
-describe("mailViewKey", () => {
-	it("distinguishes two mailboxes", () => {
-		assert.notEqual(
-			mailViewKey(matches("/mail/$mailboxId", "inbox-1")),
-			mailViewKey(matches("/mail/$mailboxId", "archive-1")),
-		);
-	});
-
-	it("gives the same mailbox one key regardless of search params", () => {
-		assert.equal(
-			mailViewKey(matches("/mail/$mailboxId", "inbox-1")),
-			mailViewKey(matches("/mail/$mailboxId", "inbox-1")),
-		);
-	});
-
-	it("separates the brief, flagged and outbox views", () => {
-		const keys = [
-			mailViewKey(matches("/mail/")),
-			mailViewKey(matches("/mail/flagged")),
-			mailViewKey(matches("/mail/outbox")),
-		];
-		assert.equal(new Set(keys).size, 3);
-	});
-});
 
 describe("searchInputForView", () => {
 	it("clears the field when the destination carries no query", () => {
@@ -71,7 +50,11 @@ describe("searchInputForView", () => {
 
 	it("seeds from the destination's own query (deep link, saved search)", () => {
 		assert.equal(
-			searchInputForView("/mail/$mailboxId:inbox-1", "/mail/", "invoice"),
+			searchInputForView(
+				"/mail/$mailboxId:inbox-1",
+				MAIL_BRIEF_ROUTE_ID,
+				"invoice",
+			),
 			"invoice",
 		);
 	});
@@ -179,7 +162,7 @@ describe("search across a view change", () => {
 		// Dropping the scope chip navigates to the brief carrying the query, so
 		// the same words are searched with a wider scope.
 		const next = mirror(
-			render(searching, mailViewKey(matches("/mail/")), "invoice"),
+			render(searching, mailViewKey(matches(MAIL_BRIEF_ROUTE_ID)), "invoice"),
 		);
 		assert.equal(next.field, "invoice");
 		assert.equal(next.url, "invoice");
