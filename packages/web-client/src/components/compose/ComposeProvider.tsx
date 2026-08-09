@@ -67,7 +67,7 @@ export const ComposeProvider = ({
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const location = useLocation();
-	const routeParams = useParams({ strict: false });
+	const routeParams = useParams({ strict: false, shouldThrow: false });
 	const { pushError } = useErrorBanners();
 	// Compose is a mail action, so its target only has to be known under `/mail`.
 	// Resolving it from the root otherwise costs `/settings` and `/onboarding` a
@@ -119,7 +119,7 @@ export const ComposeProvider = ({
 			// A folder names its open conversation in the path, so leaving it is a
 			// navigation up to the list; the lists still to move name it in the query.
 			const threadMailboxId = locationOpensDetail(location.pathname)
-				? routeParams.mailboxId
+				? routeParams?.mailboxId
 				: undefined;
 			const showsThread =
 				Boolean(threadMailboxId) ||
@@ -173,7 +173,7 @@ export const ComposeProvider = ({
 			navigate,
 			location.pathname,
 			location.search,
-			routeParams.mailboxId,
+			routeParams?.mailboxId,
 			target,
 			pushError,
 		],
