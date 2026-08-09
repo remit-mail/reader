@@ -31,6 +31,7 @@ import { waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { INBOX_LIST, listOnScreen } from "../src/lists.js";
 import {
+	FLAGGED_THREAD_URL,
 	MAILBOX_ROW_LINK,
 	MAILBOX_THREAD_URL,
 	MAILBOX_URL,
@@ -210,7 +211,7 @@ test.describe("Starred mail", () => {
 		// unified INBOX listing, which by the assertion above cannot contain this
 		// message. Selecting it changed the URL and opened nothing.
 		await starredRow(page, subject).click();
-		await page.waitForURL(/selectedMessageId=/);
+		await page.waitForURL(FLAGGED_THREAD_URL);
 		const article = page.getByRole("article").first();
 		await expect(article).toBeVisible({ timeout: 15_000 });
 		await expect(

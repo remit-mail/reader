@@ -3,9 +3,10 @@
  *
  * Reads the starred listing through `useStarredThreads` — GET /threads with
  * `starred=true`, served by the `byStarred` index — which returns every starred
- * thread in the config across all non-muted mailboxes, paged. `FlaggedPane`
- * resolves the open thread from that same hook, so every row rendered here can
- * be opened. Starredness is decided server-side from `hasStars`; the client
+ * thread in the config across all non-muted mailboxes, paged. Every row names
+ * its thread, which is the whole address a conversation opens by, so a starred
+ * message filed outside the inbox opens like any other. Starredness is decided
+ * server-side from `hasStars`; the client
  * neither re-filters nor caps the set, so a starred thread outside the newest
  * inbox page still appears. Rendered as one continuous list (no category
  * sections). The shared `MailViewChrome` owns the `MailHeader` + filter
@@ -16,6 +17,7 @@
 import {
 	flaggedFilterConfig,
 	MessageListPane,
+	type SearchResult,
 	type ThreadRowData,
 	type Verb,
 } from "@remit/ui";
@@ -37,6 +39,7 @@ import { rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { dedupeByThread } from "@/lib/starred-rows";
 import { useSelectionWizard } from "@/lib/wizard-history";
+import type { OpenThreadTarget } from "@/routing";
 import { MailViewChrome } from "./MailViewChrome";
 import type { MessageListCommands } from "./MessageList";
 import { MessageRow } from "./MessageRow";
@@ -101,7 +104,14 @@ function StarredWizardHost({
 
 interface FlaggedListProps {
 	selectedMessageId?: string;
-	onSelectMessage?: (id: string, options?: OpenMessageOptions) => void;
+	/**
+	 * Opens a row. Every starred row names its thread, so a message filed outside
+	 * the inbox opens by exactly the same route as one inside it.
+	 */
+	onOpenThread?: (
+		target: OpenThreadTarget,
+		options?: OpenMessageOptions,
+	) => void;
 	/** Where the list publishes the commands the keyboard layer drives. */
 	commandsRef?: RefObject<MessageListCommands | null>;
 	/** Cursor / selection / display order, reported up to the triage layer. */
@@ -111,7 +121,7 @@ interface FlaggedListProps {
 
 export function FlaggedList({
 	selectedMessageId,
-	onSelectMessage,
+	onOpenThread,
 	commandsRef,
 	onTriageContextChange,
 	onDeleteMessages,
@@ -171,6 +181,27 @@ export function FlaggedList({
 			);
 	}, [threads, selectedCategory, activeFilters, sq, queryTokens]);
 
+	const openRow = useCallback(
+		(id: string, options?: OpenMessageOptions) => {
+			const threadId = rows.find((row) => row.id === id)?.threadId;
+			if (!threadId) return;
+			onOpenThread?.({ threadId, messageId: id }, options);
+		},
+		[rows, onOpenThread],
+	);
+
+	// The two-engine results panel, whose semantic hits are in no list at all —
+	// each one carries the thread it belongs to.
+	const openResult = useCallback(
+		(result: SearchResult) => {
+			const threadId =
+				result.threadId ?? rows.find((row) => row.id === result.id)?.threadId;
+			if (!threadId) return;
+			onOpenThread?.({ threadId, messageId: result.id });
+		},
+		[rows, onOpenThread],
+	);
+
 	const preset = useMemo(() => flaggedFilterConfig(), []);
 
 	const searchResults = useMemo(
@@ -206,7 +237,7 @@ export function FlaggedList({
 							key={thread.id}
 							thread={thread}
 							active={thread.id === selectedMessageId}
-							onClick={() => onSelectMessage?.(thread.id)}
+							onClick={() => openRow(thread.id)}
 						/>
 					))}
 				</div>
@@ -236,7 +267,7 @@ export function FlaggedList({
 			onClearFilters={clearFilters}
 			searchResults={searchResults}
 			searchLoading={isLoading}
-			onSelectSearchResult={(result) => onSelectMessage?.(result.id)}
+			onSelectSearchResult={openResult}
 			// A committed search renders in this view's own rows (`rows` already
 			// narrows to the query above), so the multi-select toolbar stays
 			// reachable exactly as it does on the mailbox route (#212). The
@@ -245,7 +276,7 @@ export function FlaggedList({
 		>
 			<ThreadListInteraction
 				selectedMessageId={selectedMessageId}
-				onOpen={(id, options) => onSelectMessage?.(id, options)}
+				onOpen={openRow}
 				onDeleteMessages={onDeleteMessages}
 				onSelectionVerb={wizard.start}
 				wizardOpen={wizard.isOpen}
@@ -263,7 +294,7 @@ export function FlaggedList({
 					onRetry={() => refetch()}
 					onReportError={handleReportError}
 					selectedThreadId={selectedMessageId}
-					onSelectThread={onSelectMessage}
+					onSelectThread={openRow}
 					isDesktop={isDesktop}
 					selectionBar={<ThreadListSelectionBar title="Starred" />}
 					listBody={

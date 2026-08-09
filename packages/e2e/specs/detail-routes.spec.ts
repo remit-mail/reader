@@ -23,6 +23,7 @@ import { expect, test } from "../src/fixtures.js";
 import {
 	BRIEF_THREAD_URL,
 	BRIEF_URL,
+	FLAGGED_THREAD_URL,
 	MAILBOX_ROW_LINK,
 	MAILBOX_THREAD_URL,
 	OUTBOX_MESSAGE_URL,
@@ -39,6 +40,10 @@ const conversation = (page: Page): Locator => page.getByRole("article").first();
 
 const outboxRow = (page: Page, subject: string): Locator =>
 	page.locator("[data-list-row]").filter({ hasText: subject });
+
+/** A row in the Starred pane, which renders buttons rather than the anchors. */
+const starredRow = (page: Page, subject: string): Locator =>
+	page.getByRole("button").filter({ hasText: subject });
 
 const searchField = (page: Page): Locator =>
 	page.getByRole("textbox", { name: "Search mail" });
@@ -435,5 +440,87 @@ test.describe("A folder's conversation deep-links from cold (#713)", () => {
 		);
 		await expect(page).toHaveURL(MAILBOX_THREAD_URL);
 		await expect(conversation(page)).toBeVisible();
+	});
+});
+
+
+test.describe("A flagged conversation deep-links from cold (#713)", () => {
+	test.setTimeout(120_000);
+
+	test("a pasted address opens a message the starred list never held", async ({
+		api,
+		page,
+		run,
+	}) => {
+		// An unstarred INBOX message. The starred scope is the only listing the
+		// flagged view loads, so this thread is in no list it holds — which makes
+		// the address the only thing that can resolve it. Picked from the listings
+		// rather than named, because the specs share one mailbox and a star set by
+		// another of them would take a fixed subject out of this case.
+		const starred = await api.listAllThreads({ starred: true });
+		const starredSubjects = new Set(starred.map((thread) => thread.subject));
+		const unified = await api.listAllThreads();
+		const target = unified.find(
+			(thread) => thread.subject && !starredSubjects.has(thread.subject),
+		);
+		expect(
+			target,
+			"an unstarred inbox thread, the fixture this case needs",
+		).toBeDefined();
+		if (!target?.subject) return;
+
+		await page.goto(`/mail/flagged/${target.threadId}/${target.messageId}`);
+
+		const article = await settledConversation(page, target.subject);
+		await expect(page.getByText("Select a thread to read")).toHaveCount(0);
+
+		// The load did not rewrite the address back to the list, so both segments
+		// are still there to share.
+		await expect(page).toHaveURL(
+			new RegExp(`/mail/flagged/${target.threadId}/${target.messageId}`),
+		);
+
+		// Assert again after something unrelated: the starred list arrives behind
+		// the conversation, and a row it does not contain must not take the pane.
+		await expect(starredRow(page, run.preFlaggedSubject).first()).toBeVisible({
+			timeout: 60_000,
+		});
+		await expect(
+			article.getByRole("heading", { name: target.subject, exact: true }),
+		).toBeVisible();
+
+		// And the verbs act on it. Move needs the account and the folder the thread
+		// is filed in, which is exactly what a cold address does not carry: the
+		// thread's own rows answer for it, so the button opens a real picker rather
+		// than explaining it has nothing to act on. Left open — Escape is the key
+		// that closes the conversation, so it is not a way to dismiss a popover.
+		await page.getByRole("button", { name: "Move to mailbox" }).click();
+		await expect(page.getByText(NO_THREAD_HINT)).toHaveCount(0);
+		await expect(
+			article.getByRole("heading", { name: target.subject, exact: true }),
+		).toBeVisible();
+	});
+
+	test("a starred row opens by the same address the list links to", async ({
+		page,
+		run,
+	}) => {
+		await page.goto("/mail/flagged");
+		const row = starredRow(page, run.starredElsewhereSubject).first();
+		await expect(row).toBeVisible({ timeout: 60_000 });
+
+		await row.click();
+		await page.waitForURL(FLAGGED_THREAD_URL);
+		const article = await settledConversation(
+			page,
+			run.starredElsewhereSubject,
+		);
+
+		// Assert again after something unrelated: closing walks the address back up
+		// to the list, and nothing may be left matched below it.
+		await expect(article).toContainText("Starred, and not in the inbox.");
+		await page.goBack();
+		await expect(page).not.toHaveURL(FLAGGED_THREAD_URL);
+		await expect(conversation(page)).toHaveCount(0);
 	});
 });
