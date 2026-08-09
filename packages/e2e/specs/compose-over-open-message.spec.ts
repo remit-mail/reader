@@ -3,6 +3,8 @@
  * made the window appear.
  */
 import { expect, test } from "../src/fixtures.js";
+import { INBOX_LIST, listOnScreen } from "../src/lists.js";
+import { BRIEF_URL, MAILBOX_URL } from "../src/urls.js";
 
 test.describe("Compose over an open message", () => {
 	test.setTimeout(120_000);
@@ -15,7 +17,8 @@ test.describe("Compose over an open message", () => {
 		});
 		await expect(sidebar).toBeVisible({ timeout: 20_000 });
 		await sidebar.getByRole("link", { name: /inbox/i }).click();
-		await page.waitForURL(/\/mail\/[a-z0-9]+/);
+		await page.waitForURL(MAILBOX_URL);
+		await listOnScreen(page, INBOX_LIST);
 
 		await page.locator("a[href*='selectedMessageId']").first().click();
 		await page.waitForURL(/selectedMessageId=/);
@@ -100,7 +103,7 @@ test.describe("Compose off a route that cannot mount it", () => {
 
 		await page.keyboard.press("c");
 
-		await page.waitForURL(/\/mail\/[a-z0-9]+/);
+		await page.waitForURL(MAILBOX_URL);
 		await expect(page.getByPlaceholder("Recipients")).toBeVisible({
 			timeout: 30_000,
 		});
@@ -119,11 +122,12 @@ test.describe("Compose off a route that cannot mount it", () => {
 		await expect(recipients).toBeVisible({ timeout: 30_000 });
 
 		await page.goBack();
-		await page.waitForURL(/\/mail(\?|$)/);
+		await page.waitForURL(BRIEF_URL);
 		await expect(recipients).toHaveCount(0);
 
 		await sidebar.getByRole("link", { name: /inbox/i }).click();
-		await page.waitForURL(/\/mail\/[a-z0-9]+/);
+		await page.waitForURL(MAILBOX_URL);
+		await listOnScreen(page, INBOX_LIST);
 		await expect(
 			page.locator("a[href*='selectedMessageId']").first(),
 		).toBeVisible({ timeout: 30_000 });

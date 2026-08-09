@@ -10,7 +10,7 @@
  */
 
 /** `/mail/<segment>` values that name a view rather than a mailbox. */
-const VIRTUAL_MAIL_VIEWS = new Set(["outbox", "flagged"]);
+const VIRTUAL_MAIL_VIEWS = new Set(["brief", "outbox", "flagged"]);
 
 /**
  * True for `/mail/<id>` where `<id>` is a real mailbox.

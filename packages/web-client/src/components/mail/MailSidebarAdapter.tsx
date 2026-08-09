@@ -117,8 +117,8 @@ function toNavMailbox(
  * component can highlight the right item.
  *   - /mail/outbox → "outbox"
  *   - /mail/flagged → "flagged"
+ *   - /mail/brief → "brief"
  *   - /mail/$mailboxId → mailboxId
- *   - /mail (daily brief) → "brief"
  */
 function useSelectedNavId(): string {
 	const location = useLocation();
@@ -127,9 +127,8 @@ function useSelectedNavId(): string {
 	if (location.pathname.startsWith("/settings")) return "settings";
 	if (location.pathname.startsWith("/mail/outbox")) return "outbox";
 	if (location.pathname.startsWith("/mail/flagged")) return "flagged";
+	if (location.pathname.startsWith("/mail/brief")) return "brief";
 	if (params.mailboxId) return params.mailboxId;
-	if (location.pathname === "/mail" || location.pathname === "/mail/")
-		return "brief";
 	return "";
 }
 
@@ -229,11 +228,9 @@ export function MailSidebarAdapter({
 		if (navId === "brief") {
 			return (
 				<NavLink
-					to="/mail"
+					to="/mail/brief"
 					search={{ q: undefined, selectedMessageId: undefined }}
-					// Every other mail list lives under /mail, so the default prefix
-					// match would leave the brief marked current on all of them.
-					activeOptions={{ exact: true, includeSearch: false }}
+					activeOptions={{ includeSearch: false }}
 					onClick={() => onClick?.()}
 					className={className}
 					aria-label={ariaLabel}
@@ -344,7 +341,7 @@ export function MailSidebarAdapter({
 		(query: string) => {
 			onSearchChange(query);
 			navigate({
-				to: "/mail",
+				to: "/mail/brief",
 				search: { q: query, selectedMessageId: undefined },
 			});
 			onMailboxSelect?.();

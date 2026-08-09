@@ -2,7 +2,7 @@ import {
 	configOperationsGetConfigOptions,
 	unifiedThreadOperationsListAllThreadsOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import { AppShellSlotted, useTriageKeyboard } from "@remit/ui";
+import { useTriageKeyboard } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import {
 	createFileRoute,
@@ -11,17 +11,13 @@ import {
 	useRouterState,
 	useSearch,
 } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import { useCompose } from "@/components/compose/ComposeProvider";
-import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
 import { ComposeFab } from "@/components/layout/ComposeFab";
+import { MailShellProvider } from "@/components/layout/MailShell";
 import { MailTopBar } from "@/components/layout/MailTopBar";
-import { BriefPane } from "@/components/mail/BriefPane";
-import { FlaggedPane } from "@/components/mail/FlaggedPane";
-import { MailboxPane } from "@/components/mail/MailboxPane";
 import { MailNav } from "@/components/mail/MailNav";
-import { OutboxPane } from "@/components/mail/OutboxPane";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
@@ -34,18 +30,9 @@ import { hostsComposeSurface } from "@/lib/compose-routes";
 import { writeIntelligencePref } from "@/lib/intelligence-pref";
 import { MailContext } from "@/lib/mail-context";
 import { MailFreshnessProvider } from "@/lib/mail-freshness";
-import {
-	isBriefRoute,
-	isFlaggedRoute,
-	isOutboxRoute,
-	mailViewKey,
-} from "@/lib/mail-route";
+import { mailViewKey } from "@/lib/mail-route";
 import { buildAccountNameIndex } from "@/lib/search-token-index";
-import {
-	committedSearchQuery,
-	searchInputForView,
-	shouldMirrorQuery,
-} from "@/lib/search-view";
+import { committedSearchQuery, searchInputForView } from "@/lib/search-view";
 import { wizardEntryValue, wizardStepValue } from "@/lib/wizard-history";
 import "@/lib/client";
 
@@ -85,12 +72,12 @@ function MailLayout() {
 	const { q: searchQuery = "" } = useSearch({ from: "/mail" });
 	const navigate = useNavigate();
 	const tier = useLayoutTier();
-	// Below the reading boundary (phone AND tablet) AppShellSlotted shows a
-	// SINGLE pane — there is no reading pane to host the thread or the compose
-	// surface. So both tiers use the single-pane view, which swaps the pane in
-	// place between list, open thread, and compose. Keying this off "phone"
-	// alone left tablet with no compose surface (compose lives in the reading
-	// pane, which tablet doesn't mount) — the "c" shortcut / FAB opened nothing.
+	// Below the reading boundary (phone AND tablet) the shell shows a SINGLE
+	// pane — there is no reading pane to host the thread or the compose surface.
+	// So both tiers use the single-pane view, which swaps the pane in place
+	// between list, open thread, and compose. Keying this off "phone" alone left
+	// tablet with no compose surface (compose lives in the reading pane, which
+	// tablet doesn't mount) — the "c" shortcut / FAB opened nothing.
 	const isSinglePane = isSinglePaneTier(tier);
 	const [showShortcuts, setShowShortcuts] = useState(false);
 	const [drawerOpen, setDrawerOpen] = useState(false);
@@ -108,8 +95,8 @@ function MailLayout() {
 
 	// Within one view, URL `q` seeds the input and is a one-directional write
 	// target: the debounced local value drives the search API and is mirrored
-	// back. Across views the URL wins again — see the view-change adjustment
-	// below and `lib/search-view.ts` (#47).
+	// back by the list route's own `useSearchMirror`. Across views the URL wins
+	// again — see the view-change adjustment below and `lib/search-view.ts` (#47).
 	const [searchInput, setSearchInput] = useState(searchQuery);
 	const debouncedSearchInput = useDebouncedValue(searchInput, 200);
 	const committedQuery = committedSearchQuery(
@@ -117,23 +104,20 @@ function MailLayout() {
 		debouncedSearchInput,
 	);
 
-	const searchQueryRef = useRef(searchQuery);
-	searchQueryRef.current = searchQuery;
-
 	// Search is a mode of the view it was typed in, so leaving that view re-seeds
 	// the field from wherever we land (#47): empty when the sidebar dropped `q`
 	// (a folder switch starts that folder's search fresh), and the carried query
 	// when the top bar's scope chip was removed and sent the user to the brief to
-	// search everything. Views that differ only in search params — opening a
-	// result, mirroring `q` — are the same view, so in-flight typing survives
-	// them (`searchInputForView`).
+	// search everything. Views that differ only in what is open below the list —
+	// a thread, a mirrored `q` — are the same view, so in-flight typing survives
+	// them (`searchInputForView`, `mailViewKey`).
 	//
 	// Adjusted during render, not in an effect. This is React's documented
 	// "adjusting state when a prop changes" pattern: both updates are to this
 	// component's own state and are guarded by a changed value, so React re-runs
 	// the render before committing and nothing is painted with the stale query.
 	// An effect would commit one frame carrying the previous view's text, which
-	// the mirror below then has to be defended against.
+	// the mirror then has to be defended against.
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	const viewKey = useRouterState({ select: (s) => mailViewKey(s.matches) });
 	const [searchViewKey, setSearchViewKey] = useState(viewKey);
@@ -142,44 +126,6 @@ function MailLayout() {
 		setSearchViewKey(viewKey);
 		if (seeded !== undefined) setSearchInput(seeded);
 	}
-
-	// Mirror the settled search into the URL so links are shareable and a
-	// refresh restores the query. Within a view this is one-directional — the
-	// URL is not read back into state, so there is no sync loop — and it writes
-	// only once the debounce agrees with the field, so a query arriving by URL
-	// is never overwritten mid-debounce, and the query the user just left behind
-	// is never written onto the view they landed on (`shouldMirrorQuery`).
-	// When a query *goes* active, also strip selectedMessageId so the reading
-	// pane closes (#539): an open message from the pre-search list is not
-	// meaningful in the search result set. Only strip on that transition though —
-	// tapping a search result commits the same `q` with the selection, so when
-	// `prev.q` already equals the query the result was opened under it (not a
-	// pre-search leftover) and must survive. The strip otherwise raced the tap:
-	// the row shows before the debounce settles, so this mirror can land just
-	// after the open and close it again.
-	useEffect(() => {
-		if (!shouldMirrorQuery(searchInput, committedQuery, searchQueryRef.current))
-			return;
-		navigate({
-			to: ".",
-			search: (prev) => {
-				const queryAlreadyActive =
-					(prev as { q?: string }).q === committedQuery;
-				return {
-					...prev,
-					q: committedQuery || undefined,
-					...(committedQuery && !queryAlreadyActive
-						? {
-								selectedMessageId: undefined,
-								selectedThreadId: undefined,
-								selectedMailboxId: undefined,
-							}
-						: {}),
-				};
-			},
-			replace: true,
-		});
-	}, [searchInput, committedQuery, navigate]);
 
 	const {
 		data: config,
@@ -235,8 +181,8 @@ function MailLayout() {
 		setSearchInput(query);
 	}, []);
 
-	// Clears the search field; the write effect drops `q` from the URL after
-	// the debounce settles.
+	// Clears the search field; the list route's mirror drops `q` from the URL
+	// after the debounce settles.
 	const handleSearchClear = useCallback(() => {
 		setSearchInput("");
 	}, []);
@@ -265,43 +211,6 @@ function MailLayout() {
 		() => buildAccountNameIndex(accounts),
 		[accounts],
 	);
-
-	// Read the current mailbox params and selected message (if any) from the
-	// child route so the parent shell can mount the right pane (brief / mailbox /
-	// outbox) and forward the open thread into it.
-	//
-	// `useParams({ strict: false })` resolves against the *nearest* route match
-	// in the React component tree — which for this parent layout is /mail (no
-	// path params). The child's $mailboxId param never appears there, so
-	// mobileMailboxId would always be undefined and the navigate guard would
-	// short-circuit every tap. Use `useRouterState` instead: it exposes all
-	// currently matched routes, letting us find the one that carries mailboxId.
-	const mobileMailboxId = useRouterState({
-		select: (s) => {
-			const match = s.matches.find(
-				(m): m is typeof m & { params: { mailboxId: string } } =>
-					"mailboxId" in m.params,
-			);
-			return match?.params.mailboxId;
-		},
-	});
-	const { selectedMessageId: mobileSelectedMessageId } = useSearch({
-		strict: false,
-	}) as { selectedMessageId?: string };
-
-	// Detect which leaf route is active by its own routeId — never the parent
-	// /mail layout's pathname (which is "/mail" on EVERY child route and would
-	// wrongly route every mailbox through the brief pane, dropping message rows).
-	// See lib/mail-route.ts for the contract + regression test.
-	const onBriefRoute = useRouterState({
-		select: (s) => isBriefRoute(s.matches),
-	});
-	const onFlaggedRoute = useRouterState({
-		select: (s) => isFlaggedRoute(s.matches),
-	});
-	const onOutboxRoute = useRouterState({
-		select: (s) => isOutboxRoute(s.matches),
-	});
 
 	// Auto-trigger a mailbox-list sync for any account whose lastSyncAt is
 	// older than 15 minutes (or unset). Fires once per accountId per session
@@ -337,17 +246,18 @@ function MailLayout() {
 	// own slide-over Dialog (narrow), never both — so there is exactly one
 	// "Mailboxes" nav landmark at any width. `MailNav` adds the mobile
 	// Settings + bug-report footer when it detects the slide-over context.
-	const navContent = (
-		<MailNav accounts={accounts} onMailboxSelect={handleMailboxSelect} />
-	);
-	// Single-pane only, where the FAB is the compose entry point. Above it the
-	// top bar owns compose.
-	const overlayContent = isSinglePane ? <ComposeFab /> : undefined;
-	// Desktop only. Below 1024px the single pane keeps its own header search and
-	// the phone takeover; there is no room for a bar spanning panes that do not
-	// exist side by side.
-	const topBar = isSinglePane ? undefined : <MailTopBar accounts={accounts} />;
-	const navSlideOver = {
+	const shellChrome = {
+		isSinglePane,
+		isLoading: isLoading || hasNoAccounts,
+		intelligenceOpen,
+		nav: <MailNav accounts={accounts} onMailboxSelect={handleMailboxSelect} />,
+		// Desktop only. Below 1024px the single pane keeps its own header search
+		// and the phone takeover; there is no room for a bar spanning panes that do
+		// not exist side by side.
+		topBar: isSinglePane ? undefined : <MailTopBar accounts={accounts} />,
+		// Single-pane only, where the FAB is the compose entry point. Above it the
+		// top bar owns compose.
+		overlay: isSinglePane ? <ComposeFab /> : undefined,
 		navOpen: drawerOpen,
 		onOpenNav: () => setDrawerOpen(true),
 		onCloseNav: () => setDrawerOpen(false),
@@ -366,137 +276,16 @@ function MailLayout() {
 							}}
 						/>
 					</div>
-				) : onBriefRoute ? (
-					// Daily brief (/mail/) — no mailboxId param; same 3-pane layout as a
-					// mailbox: an open message has an intelligence rail here too (#52).
-					<BriefPane selectedMessageId={mobileSelectedMessageId}>
-						{isSinglePane ? (
-							<AppShellSlotted
-								nav={navContent}
-								list={<BriefPane.Phone />}
-								intelligenceOpen={intelligenceOpen}
-								overlay={overlayContent}
-								skeleton={<AppShellSkeleton />}
-								isLoading={isLoading || hasNoAccounts}
-								{...navSlideOver}
-							/>
-						) : (
-							<AppShellSlotted
-								nav={navContent}
-								topBar={topBar}
-								list={<BriefPane.List />}
-								reading={<BriefPane.Reading />}
-								intelligence={<BriefPane.Intelligence />}
-								intelligenceOpen={intelligenceOpen}
-								hasThread={Boolean(mobileSelectedMessageId)}
-								overlay={overlayContent}
-								skeleton={<AppShellSkeleton />}
-								isLoading={isLoading || hasNoAccounts}
-								{...navSlideOver}
-							/>
-						)}
-					</BriefPane>
-				) : onFlaggedRoute ? (
-					// Flagged virtual mailbox (/mail/flagged) — flat starred list across
-					// accounts; same slots as the brief, intelligence rail included.
-					<FlaggedPane selectedMessageId={mobileSelectedMessageId}>
-						{isSinglePane ? (
-							<AppShellSlotted
-								nav={navContent}
-								list={<FlaggedPane.Phone />}
-								intelligenceOpen={intelligenceOpen}
-								overlay={overlayContent}
-								skeleton={<AppShellSkeleton />}
-								isLoading={isLoading || hasNoAccounts}
-								{...navSlideOver}
-							/>
-						) : (
-							<AppShellSlotted
-								nav={navContent}
-								topBar={topBar}
-								list={<FlaggedPane.List />}
-								reading={<FlaggedPane.Reading />}
-								intelligence={<FlaggedPane.Intelligence />}
-								intelligenceOpen={intelligenceOpen}
-								hasThread={Boolean(mobileSelectedMessageId)}
-								overlay={overlayContent}
-								skeleton={<AppShellSkeleton />}
-								isLoading={isLoading || hasNoAccounts}
-								{...navSlideOver}
-							/>
-						)}
-					</FlaggedPane>
-				) : mobileMailboxId ? (
-					// Mailbox view (/mail/$mailboxId) — full 4-pane layout.
-					<MailboxPane
-						mailboxId={mobileMailboxId}
-						selectedMessageId={mobileSelectedMessageId}
-					>
-						{isSinglePane ? (
-							<AppShellSlotted
-								nav={navContent}
-								list={<MailboxPane.Phone />}
-								intelligenceOpen={intelligenceOpen}
-								overlay={overlayContent}
-								skeleton={<AppShellSkeleton />}
-								isLoading={isLoading || hasNoAccounts}
-								{...navSlideOver}
-							/>
-						) : (
-							<AppShellSlotted
-								nav={navContent}
-								topBar={topBar}
-								list={<MailboxPane.List />}
-								reading={<MailboxPane.Reading />}
-								intelligence={<MailboxPane.Intelligence />}
-								intelligenceOpen={intelligenceOpen}
-								hasThread={Boolean(mobileSelectedMessageId)}
-								overlay={overlayContent}
-								skeleton={<AppShellSkeleton />}
-								isLoading={isLoading || hasNoAccounts}
-								{...navSlideOver}
-							/>
-						)}
-					</MailboxPane>
-				) : onOutboxRoute ? (
-					// Outbox — 2-pane layout (list + reading, no intelligence).
-					<OutboxPane>
-						{isSinglePane ? (
-							<AppShellSlotted
-								nav={navContent}
-								list={<OutboxPane.Phone />}
-								intelligenceOpen={false}
-								overlay={overlayContent}
-								skeleton={<AppShellSkeleton />}
-								isLoading={isLoading || hasNoAccounts}
-								{...navSlideOver}
-							/>
-						) : (
-							<AppShellSlotted
-								nav={navContent}
-								topBar={topBar}
-								list={<OutboxPane.List />}
-								reading={<OutboxPane.Reading />}
-								intelligenceOpen={false}
-								overlay={overlayContent}
-								skeleton={<AppShellSkeleton />}
-								isLoading={isLoading || hasNoAccounts}
-								{...navSlideOver}
-							/>
-						)}
-					</OutboxPane>
 				) : (
-					// Fallback: transitioning or unrecognized route — show skeleton.
-					<AppShellSkeleton />
+					// Each list route mounts its own shell around its own panes.
+					<MailShellProvider chrome={shellChrome}>
+						<Outlet />
+					</MailShellProvider>
 				)}
 				<KeyboardShortcutsModal
 					isOpen={showShortcuts}
 					onClose={() => setShowShortcuts(false)}
 				/>
-				{/* Outlet is required for TanStack Router to activate child routes.
-			    Routes that manage their own rendering (brief, mailbox, outbox) return
-			    null from their component — the parent shell owns the layout. */}
-				<Outlet />
 			</MailFreshnessProvider>
 		</MailContext.Provider>
 	);
