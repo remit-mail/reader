@@ -147,7 +147,12 @@ export function EventRepeatField({
 	onChange,
 	touch,
 	repeatEditable = true,
-}: EventFieldProps & { repeatEditable?: boolean }) {
+	onCustom,
+}: EventFieldProps & {
+	repeatEditable?: boolean;
+	/** Absent leaves the picker to its derived choices. */
+	onCustom?: () => void;
+}) {
 	if (!repeatEditable)
 		return (
 			<p className="flex items-center gap-2 text-sm text-fg-muted">
@@ -161,6 +166,7 @@ export function EventRepeatField({
 			date={draft.date}
 			startTime={draft.startTime}
 			onChange={(next) => setField({ draft, onChange }, "repeat", next)}
+			onCustom={onCustom}
 			className={touch ? "min-h-11" : ""}
 		/>
 	);
@@ -233,6 +239,8 @@ export interface EventEditorProps {
 	 * a single instance reads the rule back instead of offering to change it.
 	 */
 	repeatEditable?: boolean;
+	/** Opens the custom-rule editor. Absent leaves the derived choices alone. */
+	onCustomRepeat?: () => void;
 	/** Grows the controls for a rail. */
 	touch?: boolean;
 	className?: string;
@@ -257,6 +265,7 @@ export function EventEditor({
 	saveLabel = "Add",
 	header,
 	repeatEditable = true,
+	onCustomRepeat,
 	touch,
 	className,
 }: EventEditorProps) {
@@ -269,7 +278,11 @@ export function EventEditor({
 		<EventCalendarField {...common} calendars={calendars} />
 	);
 	const repeat = (
-		<EventRepeatField {...common} repeatEditable={repeatEditable} />
+		<EventRepeatField
+			{...common}
+			repeatEditable={repeatEditable}
+			onCustom={onCustomRepeat}
+		/>
 	);
 	const location = <EventLocationField {...common} />;
 	const guests = <EventGuestsField {...common} />;
@@ -365,6 +378,9 @@ export function EventEditor({
 	);
 }
 
+/** The value "Custom…" carries. No rule reads like this, so nothing collides. */
+const CUSTOM_OPTION = "__custom__";
+
 /**
  * The rules a date can repeat by, plus whatever rule the event already carries.
  * A rule read out of a mail or typed in a sentence is kept verbatim rather than
@@ -375,12 +391,14 @@ function RepeatPicker({
 	date,
 	startTime,
 	onChange,
+	onCustom,
 	className,
 }: {
 	value: string;
 	date: string;
 	startTime: string;
 	onChange: (repeat: string) => void;
+	onCustom?: () => void;
 	className?: string;
 }) {
 	const offered = repeatChoices(date, startTime);
@@ -394,7 +412,13 @@ function RepeatPicker({
 			icon={<Repeat className="size-4" />}
 			aria-label="Repeat"
 			value={value}
-			onChange={(e) => onChange(e.target.value)}
+			onChange={(e) => {
+				if (e.target.value === CUSTOM_OPTION) {
+					onCustom?.();
+					return;
+				}
+				onChange(e.target.value);
+			}}
 			className={className}
 		>
 			<option value={NO_REPEAT}>Does not repeat</option>
@@ -403,6 +427,7 @@ function RepeatPicker({
 					{choice}
 				</option>
 			))}
+			{onCustom && <option value={CUSTOM_OPTION}>Custom…</option>}
 		</Select>
 	);
 }

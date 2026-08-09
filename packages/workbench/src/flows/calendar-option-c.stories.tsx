@@ -191,6 +191,20 @@ export const RecurrenceScope: Story = {
 };
 
 /**
+ * A rule the offered choices cannot express — every other week, two days of it,
+ * stopping in October. It is the one thing here that floats over the composer,
+ * and it earns that: a nested decision inside a form is not a second form, and
+ * the sentence being edited stays readable behind it. Done writes the rule back
+ * in the same words the field already reads.
+ */
+export const CustomRepeat: Story = {
+	name: "Custom repeat",
+	render: () => (
+		<CalendarAgenda phrase="standup every weekday 9:30" customRepeat="open" />
+	),
+};
+
+/**
  * Two calendars off. The list is the legend and the filter at once and stays on
  * screen beside the strip, so the colours mean something while you read them.
  */
@@ -324,6 +338,27 @@ export const PhoneTypeARepeatingEvent: Story = {
 		<CalendarAgenda
 			width={PHONE_WIDTH}
 			flow="editor"
+			phrase="standup every weekday 9:30"
+		/>
+	),
+};
+
+/**
+ * The same rule editor on a phone. It opens from the repeat picker on the When
+ * step and takes the screen, because a sheet dragged over a page that already
+ * fills the screen is the pattern this surface got rid of. Done returns to the
+ * walk with the rule in the field.
+ */
+export const PhoneCustomRepeat: Story = {
+	name: "Phone — custom repeat",
+	parameters: phoneParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<CalendarAgenda
+			width={PHONE_WIDTH}
+			flow="editor"
+			step={1}
+			customRepeat="open"
 			phrase="standup every weekday 9:30"
 		/>
 	),

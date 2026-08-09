@@ -171,6 +171,27 @@ export const EditARepeatRule: Story = {
 };
 
 /**
+ * The rule the offered choices cannot express: every other Tuesday, or Mondays
+ * and Thursdays until October. This is the one thing that floats over the pane,
+ * and it earns it — a nested decision inside the form is not a second form, and
+ * the event stays readable behind it. Done writes the rule back in words.
+ */
+export const CustomRepeat: Story = {
+	name: "Custom repeat",
+	render: () => (
+		<CalendarDestination
+			draftAt={{
+				date: "2026-06-11",
+				startTime: "11:00",
+				endTime: "12:00",
+				allDay: false,
+			}}
+			customRepeat="open"
+		/>
+	),
+};
+
+/**
  * Two calendars off. The rail is the legend and the filter at once, which is
  * the only arrangement where a coloured grid is readable — the key cannot be in
  * another room.
@@ -376,6 +397,33 @@ export const PhoneSuggestions: Story = {
 	decorators: [phoneFrame],
 	render: () => (
 		<CalendarDestination width={PHONE_WIDTH} view="day" flow="suggestions" />
+	),
+};
+
+/**
+ * The same rule editor on a phone. It opens from the repeat picker on the When
+ * step and takes the screen, because a sheet dragged over a page that already
+ * fills the screen is the pattern this surface got rid of. Done returns to the
+ * walk with the rule in the field.
+ */
+export const PhoneCustomRepeat: Story = {
+	name: "Phone — custom repeat",
+	parameters: phoneParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<CalendarDestination
+			width={PHONE_WIDTH}
+			view="day"
+			flow="editor"
+			step={1}
+			customRepeat="open"
+			draftAt={{
+				date: "2026-06-11",
+				startTime: "11:00",
+				endTime: "12:00",
+				allDay: false,
+			}}
+		/>
 	),
 };
 

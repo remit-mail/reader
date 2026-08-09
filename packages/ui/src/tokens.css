@@ -272,6 +272,20 @@ html.dark,
 	padding-left: env(safe-area-inset-left, 0px);
 }
 
+/* A number field that carries its own steppers still gets the browser's, and
+   two sets of arrows on one field is a field nobody trusts. */
+@utility own-steppers {
+	& input[type="number"] {
+		appearance: textfield;
+	}
+
+	& input[type="number"]::-webkit-outer-spin-button,
+	& input[type="number"]::-webkit-inner-spin-button {
+		appearance: none;
+		margin: 0;
+	}
+}
+
 body {
 	margin: 0;
 	background-color: var(--color-canvas);

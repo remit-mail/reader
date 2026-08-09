@@ -34,6 +34,8 @@ export interface AgendaComposerProps {
 	saveLabel?: string;
 	/** The rule belongs to the series; an edit scoped to one instance reads it back. */
 	repeatEditable?: boolean;
+	/** Opens the custom-rule editor from the repeat picker. */
+	onCustomRepeat?: () => void;
 	/** The form is folded away until there is something to correct. */
 	open: boolean;
 	onOpen: () => void;
@@ -104,6 +106,7 @@ export function AgendaComposer({
 	onCancel,
 	saveLabel = "Add",
 	repeatEditable,
+	onCustomRepeat,
 	open,
 	onOpen,
 	placeholder = "lunch with Jane friday 1pm",
@@ -132,6 +135,7 @@ export function AgendaComposer({
 					onCancel={onCancel}
 					saveLabel={saveLabel}
 					repeatEditable={repeatEditable}
+					onCustomRepeat={onCustomRepeat}
 					touch={touch}
 					header={
 						phrase.trim() === "" ? undefined : (

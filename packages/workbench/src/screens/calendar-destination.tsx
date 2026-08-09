@@ -18,8 +18,13 @@ import {
 	CalendarList,
 	type CalendarViewId,
 	CalendarViewSwitch,
+	type CustomRecurrence,
+	CustomRecurrenceDialog,
+	CustomRecurrenceEditor,
 	calendarColorClasses,
 	cn,
+	defaultCustomRecurrence,
+	defaultEndDate,
 	EventDetail,
 	type EventDraft,
 	EventEditor,
@@ -29,6 +34,7 @@ import {
 	EventSuggestionCard,
 	FlowScreen,
 	FooterNav,
+	formatCustomRecurrence,
 	type PhraseParse,
 	parseEventPhrase,
 	ReadingPane,
@@ -37,6 +43,7 @@ import {
 	ResizableHandle,
 	ResizablePanel,
 	ResizablePanelGroup,
+	readCustomRecurrence,
 	type ThreadData,
 	useContainerWidth,
 } from "@remit/ui";
@@ -221,6 +228,8 @@ export interface CalendarDestinationProps {
 	flow?: "none" | "editor" | "event" | "calendars" | "suggestions";
 	/** Which step of the create walk the flow opens on. */
 	step?: number;
+	/** Opens the custom-rule editor over the form it belongs to. */
+	customRepeat?: "closed" | "open";
 }
 
 export function CalendarDestination({
@@ -234,6 +243,7 @@ export function CalendarDestination({
 	scopeForEventId = "",
 	flow: initialFlow = "none",
 	step: initialStep = 0,
+	customRepeat = "closed",
 }: CalendarDestinationProps) {
 	const isPhone = width < 768;
 
@@ -251,6 +261,11 @@ export function CalendarDestination({
 	const [phrase, setPhrase] = useState(initialPhrase);
 	const [flow, setFlow] = useState<Flow>(initialFlow);
 	const [step, setStep] = useState(initialStep);
+	const [customRule, setCustomRule] = useState<CustomRecurrence | null>(() =>
+		customRepeat === "open"
+			? defaultCustomRecurrence(draftAt?.date ?? initialDate)
+			: null,
+	);
 	const [openThreadId, setOpenThreadId] = useState("");
 	const minted = useRef(0);
 	const [panel, setPanel] = useState<Panel>(() => {
@@ -427,6 +442,34 @@ export function CalendarDestination({
 
 	const repeatEditable = panel.kind !== "edit" || panel.scope !== "this";
 
+	/** The draft the editor is on, whichever way the editor was opened. */
+	const editedDraft =
+		panel.kind === "create" || panel.kind === "edit" ? panel.draft : undefined;
+
+	const openCustomRepeat = () => {
+		if (!editedDraft) return;
+		setCustomRule(
+			readCustomRecurrence(editedDraft.repeat, editedDraft.date) ??
+				defaultCustomRecurrence(editedDraft.date),
+		);
+	};
+
+	const commitCustomRepeat = () => {
+		if (!customRule || !editedDraft) return;
+		setPanel({
+			...(panel as Extract<Panel, { kind: "create" | "edit" }>),
+			draft: {
+				...editedDraft,
+				repeat: formatCustomRecurrence(
+					customRule,
+					editedDraft.date,
+					editedDraft.startTime,
+				),
+			},
+		});
+		setCustomRule(null);
+	};
+
 	const quickEntry = (touch: boolean): ReactNode =>
 		panel.kind !== "create" ? undefined : (
 			<EventQuickEntry
@@ -465,6 +508,7 @@ export function CalendarDestination({
 				onCancel={dismissPanel}
 				saveLabel={panel.kind === "edit" ? "Save" : "Add"}
 				repeatEditable={repeatEditable}
+				onCustomRepeat={openCustomRepeat}
 				header={quickEntry(false)}
 			/>
 		);
@@ -490,6 +534,17 @@ export function CalendarDestination({
 		return (
 			<EventEditorPane title={title} subtitle={subtitle} onClose={dismissPanel}>
 				{editorForm()}
+				{customRule && editedDraft && (
+					<CustomRecurrenceDialog
+						open
+						value={customRule}
+						onChange={setCustomRule}
+						date={editedDraft.date}
+						suggestedEndDate={defaultEndDate(editedDraft.date)}
+						onCancel={() => setCustomRule(null)}
+						onDone={commitCustomRepeat}
+					/>
+				)}
 			</EventEditorPane>
 		);
 	};
@@ -539,6 +594,40 @@ export function CalendarDestination({
 	 */
 	const editorFlow = (): ReactNode => {
 		if (panel.kind === "none") return null;
+
+		/**
+		 * A custom rule is a decision inside the walk, so it is a step of the same
+		 * walk. Stacking a sheet on a page that already fills the screen is the
+		 * pattern this surface got rid of.
+		 */
+		if (customRule && editedDraft)
+			return (
+				<FlowScreen
+					anchor="container"
+					title="Custom recurrence"
+					subtitle={formatDayLabel(editedDraft.date)}
+					steps={["Custom recurrence"]}
+					activeStep={0}
+					onBack={() => setCustomRule(null)}
+					onExit={() => setCustomRule(null)}
+					footer={
+						<FooterNav
+							onBack={() => setCustomRule(null)}
+							nextLabel="Done"
+							nextVariant="commit"
+							onNext={commitCustomRepeat}
+						/>
+					}
+				>
+					<CustomRecurrenceEditor
+						value={customRule}
+						onChange={setCustomRule}
+						date={editedDraft.date}
+						suggestedEndDate={defaultEndDate(editedDraft.date)}
+						touch
+					/>
+				</FlowScreen>
+			);
 
 		if (panel.kind === "scope")
 			return panelEvent ? (
@@ -591,6 +680,7 @@ export function CalendarDestination({
 						onChange={(draft) => setPanel({ ...panel, draft })}
 						calendars={calendars}
 						repeatEditable={repeatEditable}
+						onCustomRepeat={openCustomRepeat}
 					/>
 				</FlowScreen>
 			);
@@ -621,6 +711,7 @@ export function CalendarDestination({
 					onChange={(draft) => setPanel({ ...panel, draft })}
 					calendars={calendars}
 					repeatEditable={repeatEditable}
+					onCustomRepeat={openCustomRepeat}
 					phrase={quickEntry(true)}
 				/>
 			</FlowScreen>
@@ -646,7 +737,7 @@ export function CalendarDestination({
 						<div className="flex items-center gap-3">
 							<Button
 								variant="ghost"
-								size="touch"
+								size="md"
 								icon={<Trash2 className="size-4" />}
 								onClick={() => {
 									setEvents((prev) =>
@@ -654,15 +745,15 @@ export function CalendarDestination({
 									);
 									setFlow("none");
 								}}
-								className="shrink-0 text-danger"
+								className="min-h-11 shrink-0 text-danger"
 							>
 								Delete
 							</Button>
 							<Button
 								variant="primary"
-								size="touch"
+								size="md"
 								onClick={() => startEdit(selectedEvent)}
-								className="flex-1"
+								className="min-h-11 flex-1"
 							>
 								Edit
 							</Button>
@@ -714,9 +805,9 @@ export function CalendarDestination({
 					footer={
 						<Button
 							variant="primary"
-							size="touch"
+							size="md"
 							onClick={() => setFlow("none")}
-							className="w-full"
+							className="min-h-11 w-full"
 						>
 							Done
 						</Button>
@@ -745,9 +836,9 @@ export function CalendarDestination({
 					footer={
 						<Button
 							variant="primary"
-							size="touch"
+							size="md"
 							onClick={() => setFlow("none")}
-							className="w-full"
+							className="min-h-11 w-full"
 						>
 							Done
 						</Button>

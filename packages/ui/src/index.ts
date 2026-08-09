@@ -200,6 +200,12 @@ export {
 	type ConfirmDialogProps,
 } from "./components/confirm-dialog.js";
 export {
+	CustomRecurrenceDialog,
+	type CustomRecurrenceDialogProps,
+	CustomRecurrenceEditor,
+	type CustomRecurrenceEditorProps,
+} from "./components/custom-recurrence.js";
+export {
 	DangerZoneSection,
 	type DangerZoneSectionProps,
 } from "./components/danger-zone-section.js";
@@ -866,7 +872,23 @@ export {
 	normalizeSubject,
 	sharedSubjectFragment,
 } from "./lib/property-prefill.js";
-export { NO_REPEAT, repeatChoices } from "./lib/recurrence.js";
+export {
+	type CustomRecurrence,
+	dayOfMonthLabel,
+	defaultCustomRecurrence,
+	defaultEndDate,
+	endDateLabel,
+	formatCustomRecurrence,
+	type MonthlyMode,
+	NO_REPEAT,
+	ordinalWeekdayLabel,
+	type RecurrenceEnd,
+	type RecurrenceUnit,
+	readCustomRecurrence,
+	repeatChoices,
+	WEEKDAY_INITIALS,
+	weekdayName,
+} from "./lib/recurrence.js";
 export {
 	LIST_ROW_ATTRIBUTE,
 	LIST_ROW_SELECTOR,

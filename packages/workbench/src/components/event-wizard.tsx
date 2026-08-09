@@ -42,6 +42,8 @@ export interface EventWizardStepProps {
 	onChange: (draft: EventDraft) => void;
 	calendars: CalendarDescriptor[];
 	repeatEditable?: boolean;
+	/** Opens the custom-rule step. Absent leaves the derived choices alone. */
+	onCustomRepeat?: () => void;
 	/** The sentence field and its reading, above the title on the first step. */
 	phrase?: ReactNode;
 }
@@ -56,6 +58,7 @@ export function EventWizardStep({
 	onChange,
 	calendars,
 	repeatEditable,
+	onCustomRepeat,
 	phrase,
 }: EventWizardStepProps) {
 	const common = { draft, onChange, layout: "pane" as const, touch: true };
@@ -77,7 +80,11 @@ export function EventWizardStep({
 					<EventWhenField {...common} />
 				</EventField>
 				<EventField label="Repeat">
-					<EventRepeatField {...common} repeatEditable={repeatEditable} />
+					<EventRepeatField
+						{...common}
+						repeatEditable={repeatEditable}
+						onCustom={onCustomRepeat}
+					/>
 				</EventField>
 			</div>
 		);
@@ -111,6 +118,7 @@ export interface EventEditPageProps {
 	onChange: (draft: EventDraft) => void;
 	calendars: CalendarDescriptor[];
 	repeatEditable?: boolean;
+	onCustomRepeat?: () => void;
 }
 
 /** Changing an event: one page, every field, nothing to walk through. */
@@ -119,6 +127,7 @@ export function EventEditPage({
 	onChange,
 	calendars,
 	repeatEditable,
+	onCustomRepeat,
 }: EventEditPageProps) {
 	const common = { draft, onChange, layout: "pane" as const, touch: true };
 	return (
@@ -130,7 +139,11 @@ export function EventEditPage({
 				<EventWhenField {...common} />
 			</EventField>
 			<EventField label="Repeat">
-				<EventRepeatField {...common} repeatEditable={repeatEditable} />
+				<EventRepeatField
+					{...common}
+					repeatEditable={repeatEditable}
+					onCustom={onCustomRepeat}
+				/>
 			</EventField>
 			<EventField label="Calendar">
 				<EventCalendarField {...common} calendars={calendars} />

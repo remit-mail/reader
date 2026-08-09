@@ -15,18 +15,25 @@ import {
 	CalendarList,
 	type CalendarViewId,
 	CalendarViewSwitch,
+	type CustomRecurrence,
+	CustomRecurrenceDialog,
+	CustomRecurrenceEditor,
 	type Density,
+	defaultCustomRecurrence,
+	defaultEndDate,
 	EventDetail,
 	type EventDraft,
 	type EventSuggestion,
 	EventSuggestionCard,
 	FlowScreen,
 	FooterNav,
+	formatCustomRecurrence,
 	type RecurrenceScope,
 	RecurrenceScopePrompt,
 	ResizableHandle,
 	ResizablePanel,
 	ResizablePanelGroup,
+	readCustomRecurrence,
 	useContainerWidth,
 } from "@remit/ui";
 import { SlidersHorizontal, Sparkles, Trash2, Wand2 } from "lucide-react";
@@ -246,6 +253,8 @@ export interface CalendarAgendaProps {
 	flow?: "none" | "editor" | "event" | "calendars" | "suggestions";
 	/** Which step of the create walk the flow opens on. */
 	step?: number;
+	/** Opens the custom-rule editor over the form it belongs to. */
+	customRepeat?: "closed" | "open";
 	scopeForEventId?: string;
 }
 
@@ -260,6 +269,7 @@ export function CalendarAgenda({
 	picks: initialPicks = {},
 	flow: initialFlow = "none",
 	step: initialStep = 0,
+	customRepeat = "closed",
 	scopeForEventId = "",
 }: CalendarAgendaProps) {
 	const isPhone = width < 768;
@@ -292,6 +302,9 @@ export function CalendarAgenda({
 	});
 	const [flow, setFlow] = useState(initialFlow);
 	const [step, setStep] = useState(initialStep);
+	const [customRule, setCustomRule] = useState<CustomRecurrence | null>(() =>
+		customRepeat === "open" ? defaultCustomRecurrence(draft.date) : null,
+	);
 	const [range, setRange] = useState(() => ({
 		from: clampDate(addDays(initialDate, -LEAD_IN)),
 		to: clampDate(addDays(initialDate, LEAD_OUT)),
@@ -548,7 +561,8 @@ export function CalendarAgenda({
 				onSave={commit}
 				onCancel={dismiss}
 				saveLabel={panel.kind === "edit" ? "Save" : "Add"}
-				repeatEditable={panel.kind !== "edit" || panel.scope !== "this"}
+				repeatEditable={repeatEditable}
+				onCustomRepeat={openCustomRepeat}
 				open={panel.kind !== "none"}
 				onOpen={() => {
 					if (panel.kind === "none") setPanel({ kind: "create" });
@@ -606,6 +620,21 @@ export function CalendarAgenda({
 
 	const repeatEditable = panel.kind !== "edit" || panel.scope !== "this";
 
+	const openCustomRepeat = () =>
+		setCustomRule(
+			readCustomRecurrence(draft.repeat, draft.date) ??
+				defaultCustomRecurrence(draft.date),
+		);
+
+	const commitCustomRepeat = () => {
+		if (!customRule) return;
+		setDraft({
+			...draft,
+			repeat: formatCustomRecurrence(customRule, draft.date, draft.startTime),
+		});
+		setCustomRule(null);
+	};
+
 	/**
 	 * Typing is the create path here, so the sentence and its reading are the
 	 * first step rather than a field above a folded form. What the sentence did
@@ -613,6 +642,40 @@ export function CalendarAgenda({
 	 */
 	const editorFlow = (): ReactNode => {
 		if (panel.kind === "none") return null;
+
+		/**
+		 * A custom rule is a decision inside the walk, so it is a step of the same
+		 * walk. Stacking a sheet on a page that already fills the screen is the
+		 * pattern this surface got rid of.
+		 */
+		if (customRule)
+			return (
+				<FlowScreen
+					anchor="container"
+					title="Custom recurrence"
+					subtitle={formatDayLabel(draft.date)}
+					steps={["Custom recurrence"]}
+					activeStep={0}
+					onBack={() => setCustomRule(null)}
+					onExit={() => setCustomRule(null)}
+					footer={
+						<FooterNav
+							onBack={() => setCustomRule(null)}
+							nextLabel="Done"
+							nextVariant="commit"
+							onNext={commitCustomRepeat}
+						/>
+					}
+				>
+					<CustomRecurrenceEditor
+						value={customRule}
+						onChange={setCustomRule}
+						date={draft.date}
+						suggestedEndDate={defaultEndDate(draft.date)}
+						touch
+					/>
+				</FlowScreen>
+			);
 
 		if (panel.kind === "scope") {
 			const event = events.find((candidate) => candidate.id === panel.eventId);
@@ -669,6 +732,7 @@ export function CalendarAgenda({
 						onChange={setDraft}
 						calendars={calendars}
 						repeatEditable={repeatEditable}
+						onCustomRepeat={openCustomRepeat}
 					/>
 				</FlowScreen>
 			);
@@ -699,6 +763,7 @@ export function CalendarAgenda({
 					onChange={setDraft}
 					calendars={calendars}
 					repeatEditable={repeatEditable}
+					onCustomRepeat={openCustomRepeat}
 					phrase={
 						<div className="flex flex-col gap-2">
 							<AgendaPhraseField
@@ -742,18 +807,18 @@ export function CalendarAgenda({
 						<div className="flex items-center gap-3">
 							<Button
 								variant="ghost"
-								size="touch"
+								size="md"
 								icon={<Trash2 className="size-4" />}
 								onClick={() => deleteSelected(selectedEvent)}
-								className="shrink-0 text-danger"
+								className="min-h-11 shrink-0 text-danger"
 							>
 								Delete
 							</Button>
 							<Button
 								variant="primary"
-								size="touch"
+								size="md"
 								onClick={() => startEdit(selectedEvent)}
-								className="flex-1"
+								className="min-h-11 flex-1"
 							>
 								Edit
 							</Button>
@@ -785,9 +850,9 @@ export function CalendarAgenda({
 					footer={
 						<Button
 							variant="primary"
-							size="touch"
+							size="md"
 							onClick={() => setFlow("none")}
-							className="w-full"
+							className="min-h-11 w-full"
 						>
 							Done
 						</Button>
@@ -816,9 +881,9 @@ export function CalendarAgenda({
 					footer={
 						<Button
 							variant="primary"
-							size="touch"
+							size="md"
 							onClick={() => setFlow("none")}
-							className="w-full"
+							className="min-h-11 w-full"
 						>
 							Done
 						</Button>
@@ -905,7 +970,22 @@ export function CalendarAgenda({
 							onGoTo={goTo}
 						/>
 					}
-					composer={composer(false)}
+					composer={
+						<>
+							{composer(false)}
+							{customRule && (
+								<CustomRecurrenceDialog
+									open
+									value={customRule}
+									onChange={setCustomRule}
+									date={draft.date}
+									suggestedEndDate={defaultEndDate(draft.date)}
+									onCancel={() => setCustomRule(null)}
+									onDone={commitCustomRepeat}
+								/>
+							)}
+						</>
+					}
 					body={view === "agenda" ? strip : grid}
 					context={
 						<>

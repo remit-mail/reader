@@ -671,9 +671,9 @@ export function CalendarSeam({
 					step === lastDayStep ? (
 						<Button
 							variant="primary"
-							size="touch"
+							size="md"
 							onClick={() => setFlow("none")}
-							className="w-full"
+							className="min-h-11 w-full"
 						>
 							Back to the thread
 						</Button>
