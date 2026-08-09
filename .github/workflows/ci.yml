@@ -63,7 +63,7 @@ jobs:
 
       # The coverage guard is plain stdlib Node and needs no workspace install,
       # only a pinned interpreter.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -245,7 +245,7 @@ jobs:
     needs: [test-web-client]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Download shard coverage
@@ -344,7 +344,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm

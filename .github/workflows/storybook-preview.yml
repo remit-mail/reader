@@ -40,7 +40,7 @@ jobs:
             npm-scripts
           sparse-checkout-cone-mode: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -90,7 +90,7 @@ jobs:
             npm-scripts
           sparse-checkout-cone-mode: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -133,7 +133,7 @@ jobs:
           path: pr-source
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: steps.guard.outputs.eligible == 'true'
         with:
           node-version: 22
@@ -207,7 +207,7 @@ jobs:
             npm-scripts
           sparse-checkout-cone-mode: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
