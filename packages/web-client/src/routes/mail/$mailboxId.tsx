@@ -6,22 +6,10 @@
  * first, so a mailbox id can never be read as one of them.
  */
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { z } from "zod";
 import { MailShell } from "@/components/layout/MailShell";
 import { MailboxPane } from "@/components/mail/MailboxPane";
 import { useSearchMirror } from "@/hooks/useSearchMirror";
-
-// `q` is inherited from the parent /mail route; re-declared here so it survives
-// this route's own search validation and isn't dropped when navigating with a
-// functional search updater.
-const mailboxSearchSchema = z.object({
-	selectedMessageId: z.string().optional(),
-	// A tapped semantic "Related" hit can point at a message outside the loaded
-	// list; carrying its thread lets the mailbox open it directly (the mailbox is
-	// the route param). See `buildConversationTarget`.
-	selectedThreadId: z.string().optional(),
-	q: z.string().optional(),
-});
+import { mailboxSearchSchema } from "@/lib/mail-search";
 
 function MailboxLayout() {
 	const { mailboxId } = Route.useParams();

@@ -4,14 +4,7 @@
  * lands here and is sent on to the brief carrying whatever it arrived with.
  */
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { z } from "zod";
-
-const mailIndexSearchSchema = z.object({
-	selectedMessageId: z.string().optional(),
-	selectedThreadId: z.string().optional(),
-	selectedMailboxId: z.string().optional(),
-	q: z.string().optional(),
-});
+import { mailIndexSearchSchema } from "@/lib/mail-search";
 
 export const Route = createFileRoute("/mail/")({
 	validateSearch: mailIndexSearchSchema,
