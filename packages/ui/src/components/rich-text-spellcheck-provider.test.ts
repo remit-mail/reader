@@ -4,7 +4,7 @@
  * ships inside the worker, over the same messages a real one exchanges.
  */
 import assert from "node:assert/strict";
-import { before, describe, it } from "node:test";
+import { before, describe, it, mock } from "node:test";
 import type {
 	ProviderStatus,
 	SpellWorkerRequest,
@@ -13,6 +13,7 @@ import type {
 import {
 	openSpellProvider,
 	type SpellWorkerPort,
+	SUGGEST_DEADLINE_MS,
 } from "./rich-text-spellcheck-provider.js";
 import {
 	dictionaryFor,
@@ -209,6 +210,51 @@ describe("a provider over a worker", () => {
 		raise?.("worker exited");
 
 		await assert.rejects(asking, /worker exited/);
+		provider.close();
+	});
+
+	it("tells a waiting menu when the checker closes under it", async () => {
+		const provider = openSpellProvider("en", {
+			...port,
+			post: () => {},
+			listen: () => {},
+		});
+		const asking = provider.suggest({
+			requestId: "1",
+			language: "en",
+			word: "redy",
+		});
+
+		provider.close();
+
+		await assert.rejects(
+			asking,
+			/the checker closed/,
+			"a menu waiting on a provider that went away hears about it",
+		);
+	});
+
+	it("gives up on a worker that took the word and went quiet", async () => {
+		mock.timers.enable({ apis: ["setTimeout"] });
+		const provider = openSpellProvider("en", {
+			...port,
+			post: () => {},
+			listen: () => {},
+		});
+		const asking = provider.suggest({
+			requestId: "1",
+			language: "en",
+			word: "redy",
+		});
+
+		mock.timers.tick(SUGGEST_DEADLINE_MS);
+
+		await assert.rejects(
+			asking,
+			/no suggestions for "redy"/,
+			"skeleton rows that will never fill become the failure row instead",
+		);
+		mock.timers.reset();
 		provider.close();
 	});
 

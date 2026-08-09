@@ -30,8 +30,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { DESKTOP_MEDIA_QUERY } from "../lib/layout-breakpoints.js";
-import { useMatchMedia } from "../lib/use-match-media.js";
 import { RichTextCorrectionMenu } from "./rich-text-correction-menu.js";
 import { $adoptHtml, $readRichText } from "./rich-text-document.js";
 import { RICH_TEXT_NODES, richTextTheme } from "./rich-text-nodes.js";
@@ -309,6 +307,26 @@ interface CorrectionTarget {
 }
 
 /**
+ * A caret sits between characters and a pointer lands on one, so the two ask
+ * different questions of the same range. The caret is inside the word from the
+ * first character to just after the last — which is also when the word goes
+ * unmarked, so the chord opens exactly what the squiggle is being withheld
+ * from. A point belongs to a character, and the position after the last one is
+ * already the space that follows.
+ */
+const coversCaret = (finding: Finding, offset: number): boolean =>
+	offset > finding.start && offset <= finding.end;
+
+const coversCharacter = (finding: Finding, offset: number): boolean =>
+	offset >= finding.start && offset < finding.end;
+
+/** How far a finger may travel and still have been put down, not dragged. */
+const TAP_SLOP_PX = 6;
+
+const laidOn = (event: PointerEvent): boolean =>
+	event.pointerType === "touch" || event.pointerType === "pen";
+
+/**
  * Drops what the session has been told to leave alone. Read against the text as
  * it stands now, so a word ignored at one place in the document loses its marks
  * everywhere it appears.
@@ -373,8 +391,6 @@ const SpellcheckPlugin = ({
 	const checker = useRef<SpellProvider | null>(null);
 	const repaint = useRef<() => void>(() => {});
 	const asked = useRef(0);
-	const desktop = useMatchMedia(DESKTOP_MEDIA_QUERY);
-	const tapOpens = useRef(!desktop);
 	const [target, setTarget] = useState<CorrectionTarget | null>(null);
 	const [suggestions, setSuggestions] = useState<readonly string[] | null>(
 		null,
@@ -384,8 +400,7 @@ const SpellcheckPlugin = ({
 	useEffect(() => {
 		settings.current = options;
 		report.current = onReady;
-		tapOpens.current = !desktop;
-	}, [options, onReady, desktop]);
+	}, [options, onReady]);
 
 	useEffect(() => {
 		if (!marksSupported()) return;
@@ -398,6 +413,7 @@ const SpellcheckPlugin = ({
 		let state: ProviderStatus["state"] = "opening";
 		let revision = 0;
 		let passes = 0;
+		let pressed: { x: number; y: number } | null = null;
 
 		const paint = (): void => {
 			const ranges: Range[] = [];
@@ -414,11 +430,7 @@ const SpellcheckPlugin = ({
 						continue;
 					}
 					for (const finding of spanFindings) {
-						if (
-							caret?.key === key &&
-							caret.offset > finding.start &&
-							caret.offset <= finding.end
-						)
+						if (caret?.key === key && coversCaret(finding, caret.offset))
 							continue;
 						const range = leafRange(editor, key, finding.start, finding.end);
 						if (range) ranges.push(range);
@@ -492,9 +504,13 @@ const SpellcheckPlugin = ({
 			idle = setTimeout(check, SPELLCHECK_IDLE_MS);
 		};
 
-		const openAt = (key: string, offset: number): boolean => {
-			const hit = (findings.get(key) ?? []).find(
-				(finding) => offset >= finding.start && offset <= finding.end,
+		const openAt = (
+			key: string,
+			offset: number,
+			covers: (finding: Finding, offset: number) => boolean,
+		): boolean => {
+			const hit = (findings.get(key) ?? []).find((finding) =>
+				covers(finding, offset),
 			);
 			const host = hostRef.current;
 			if (!hit || !host) return false;
@@ -528,23 +544,49 @@ const SpellcheckPlugin = ({
 				return $isTextNode(node) ? node.getKey() : null;
 			});
 			if (!key) return false;
-			return openAt(key, character.offset);
+			return openAt(key, character.offset, coversCharacter);
 		};
 
 		const onContextMenu = (event: MouseEvent) => {
 			if (openAtPoint(event.clientX, event.clientY)) event.preventDefault();
 		};
 
+		const onPointerDown = (event: PointerEvent) => {
+			pressed = laidOn(event) ? { x: event.clientX, y: event.clientY } : null;
+		};
+
+		/**
+		 * A finger or a stylus, put down on a marked word and lifted where it
+		 * landed. A drag is a selection and a mouse has the context menu, on every
+		 * layout: neither has any business raising a sheet over what it just did.
+		 */
 		const onPointerUp = (event: PointerEvent) => {
-			if (!tapOpens.current && event.pointerType !== "touch") return;
+			const from = pressed;
+			pressed = null;
+			if (!from || !laidOn(event)) return;
+			if (
+				Math.abs(event.clientX - from.x) > TAP_SLOP_PX ||
+				Math.abs(event.clientY - from.y) > TAP_SLOP_PX
+			)
+				return;
+			const selection = editor.getRootElement()?.ownerDocument.getSelection();
+			if (selection && !selection.isCollapsed) return;
 			openAtPoint(event.clientX, event.clientY);
+		};
+
+		const onPointerCancel = () => {
+			pressed = null;
 		};
 
 		const unbindRoot = editor.registerRootListener((next, previous) => {
 			previous?.removeEventListener("contextmenu", onContextMenu);
+			previous?.removeEventListener("pointerdown", onPointerDown);
 			previous?.removeEventListener("pointerup", onPointerUp);
+			previous?.removeEventListener("pointercancel", onPointerCancel);
 			next?.addEventListener("contextmenu", onContextMenu);
+			next?.addEventListener("pointerdown", onPointerDown);
 			next?.addEventListener("pointerup", onPointerUp);
+			next?.addEventListener("pointercancel", onPointerCancel);
 		});
 
 		// The keyboard's way in. The word under the caret is deliberately
@@ -563,7 +605,7 @@ const SpellcheckPlugin = ({
 						offset: selection.anchor.offset,
 					};
 				});
-				if (!at || !openAt(at.key, at.offset)) return false;
+				if (!at || !openAt(at.key, at.offset, coversCaret)) return false;
 				event.preventDefault();
 				return true;
 			},
@@ -713,6 +755,13 @@ const SpellcheckPlugin = ({
 			() => {
 				const node = $getNodeByKey(target.key);
 				if (!$isTextNode(node)) return;
+				// The offsets were read when the menu opened. An edit that landed
+				// between then and the click has moved them, and writing there would
+				// put the correction through the middle of a different word.
+				if (
+					node.getTextContent().slice(target.start, target.end) !== target.word
+				)
+					return;
 				const written = node.spliceText(
 					target.start,
 					target.end - target.start,

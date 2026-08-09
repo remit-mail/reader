@@ -144,8 +144,14 @@ export const RichTextCorrectionMenu = ({
 		return () => document.removeEventListener("mousedown", onPointer);
 	}, [desktop, onDismiss]);
 
+	/**
+	 * Escape closes it, and so does Tab: a menu is not a dialog, and the repo
+	 * traps focus nowhere. Letting Tab walk on would put the caret behind an
+	 * open sheet, so the menu goes first and the message has the focus back
+	 * before the next stop.
+	 */
 	const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-		if (event.key !== "Escape") return;
+		if (event.key !== "Escape" && event.key !== "Tab") return;
 		event.preventDefault();
 		event.stopPropagation();
 		onDismiss(true);
@@ -155,7 +161,7 @@ export const RichTextCorrectionMenu = ({
 		return (
 			<BottomSheet
 				open
-				onClose={() => onDismiss(false)}
+				onClose={() => onDismiss(true)}
 				dismissLabel="Close corrections"
 			>
 				<div

@@ -197,14 +197,40 @@ const rightClickAt = async (offset: number): Promise<void> => {
 	});
 };
 
-const tapAt = async (offset: number): Promise<void> => {
+/**
+ * jsdom carries no `PointerEvent`, and what the editor reads off one is the
+ * kind of pointer and where it went.
+ */
+const pointerEvent = (
+	type: string,
+	pointerType: string,
+	at: { clientX: number; clientY: number },
+): MouseEvent => {
+	const event = new dom.window.MouseEvent(type, { bubbles: true, ...at });
+	Object.defineProperty(event, "pointerType", { value: pointerType });
+	return event;
+};
+
+const pressAt = async (
+	offset: number,
+	pointerType: string,
+	travel = 0,
+): Promise<void> => {
 	dom.window.document.getSelection()?.setPosition(characters(), offset);
 	await act(async () => {
 		editable().dispatchEvent(
-			new dom.window.MouseEvent("pointerup", { bubbles: true }),
+			pointerEvent("pointerdown", pointerType, { clientX: 40, clientY: 20 }),
+		);
+		editable().dispatchEvent(
+			pointerEvent("pointerup", pointerType, {
+				clientX: 40 + travel,
+				clientY: 20,
+			}),
 		);
 	});
 };
+
+const tapAt = (offset: number): Promise<void> => pressAt(offset, "touch");
 
 const chordAt = async (
 	editor: LexicalEditor,
@@ -526,6 +552,166 @@ describe("the correction menu", () => {
 		assert.ok(
 			container.querySelector("[aria-label='Close corrections']"),
 			"and they arrive in a sheet, with its scrim",
+		);
+	});
+
+	it("leaves a drag, a selection and a mouse alone", async () => {
+		desktopLayout = false;
+		await mount({
+			initialHtml: `<p>${SENTENCE}</p>`,
+			lang: "en",
+			spellcheck: stubSpellcheck(),
+		});
+		await settle();
+
+		await pressAt(1, "touch", 40);
+		assert.equal(menu(), null, "a finger that travelled was selecting text");
+
+		await pressAt(1, "mouse");
+		assert.equal(
+			menu(),
+			null,
+			"a click puts the caret down; the mouse has the context menu",
+		);
+
+		dom.window.document
+			.getSelection()
+			?.setBaseAndExtent(characters(), 0, characters(), 3);
+		await act(async () => {
+			editable().dispatchEvent(
+				pointerEvent("pointerdown", "touch", { clientX: 40, clientY: 20 }),
+			);
+			editable().dispatchEvent(
+				pointerEvent("pointerup", "touch", { clientX: 40, clientY: 20 }),
+			);
+		});
+		assert.equal(
+			menu(),
+			null,
+			"lifting a finger off a selection does not cover it with a sheet",
+		);
+	});
+
+	it("stays out of the way of a mouse at desktop too", async () => {
+		await mount({
+			initialHtml: `<p>${SENTENCE}</p>`,
+			lang: "en",
+			spellcheck: stubSpellcheck(),
+		});
+		await settle();
+
+		await pressAt(1, "mouse");
+		assert.equal(menu(), null, "clicking a marked word still places the caret");
+
+		await rightClickAt(1);
+		assert.ok(menu(), "the right button is what opens it");
+	});
+
+	it("closes on Escape and on a click somewhere else", async () => {
+		await mount({
+			initialHtml: `<p>${SENTENCE}</p>`,
+			lang: "en",
+			spellcheck: stubSpellcheck(),
+		});
+		await settle();
+
+		await rightClickAt(1);
+		assert.ok(menu());
+		await act(async () => {
+			menu()?.dispatchEvent(
+				new dom.window.KeyboardEvent("keydown", {
+					key: "Escape",
+					bubbles: true,
+				}),
+			);
+		});
+		assert.equal(menu(), null, "Escape closes it");
+		assert.equal(
+			dom.window.document.activeElement,
+			editable(),
+			"and hands the message back its caret",
+		);
+
+		await rightClickAt(1);
+		assert.ok(menu());
+		await act(async () => {
+			dom.window.document.body.dispatchEvent(
+				new dom.window.MouseEvent("mousedown", { bubbles: true }),
+			);
+		});
+		assert.equal(menu(), null, "so does a press outside it");
+	});
+
+	it("goes when the document moves under it, and never writes where it was", async () => {
+		const spellcheck = stubSpellcheck({ holdSuggestions: true });
+		const editor = await mount({
+			initialHtml: `<p>${SENTENCE}</p>`,
+			lang: "en",
+			spellcheck,
+		});
+		await settle();
+
+		await rightClickAt(1);
+		assert.ok(menu(), "the menu is up while the suggestions are in flight");
+
+		await act(async () => {
+			spellcheck.release();
+		});
+		const [first] = rows("spell-suggestion");
+		assert.ok(first);
+
+		// The edit and the click land in the same turn, which is the race a
+		// writer's own hands can produce.
+		await act(async () => {
+			editor.update(() => {
+				$getRoot().getAllTextNodes()[0]?.setTextContent(`Well, ${SENTENCE}`);
+			});
+			first.click();
+		});
+
+		assert.equal(
+			editable().textContent,
+			`Well, ${SENTENCE}`,
+			"the correction went nowhere rather than through the wrong letters",
+		);
+		assert.equal(menu(), null, "and the menu left with the offsets it held");
+	});
+
+	it("opens on a character, not on the gap before one", async () => {
+		const editor = await mount({
+			initialHtml: `<p>${SENTENCE}</p>`,
+			lang: "en",
+			spellcheck: stubSpellcheck(),
+		});
+		await settle();
+
+		await rightClickAt(3);
+		assert.equal(
+			menu(),
+			null,
+			"the position after the last letter is already the space that follows",
+		);
+
+		await rightClickAt(0);
+		assert.equal(
+			container.querySelector("[data-testid=spell-word]")?.textContent,
+			"Ths",
+			"the first letter belongs to the word",
+		);
+
+		await act(async () => {
+			menu()?.dispatchEvent(
+				new dom.window.KeyboardEvent("keydown", {
+					key: "Escape",
+					bubbles: true,
+				}),
+			);
+		});
+		await chordAt(editor, 3);
+		assert.equal(
+			container.querySelector("[data-testid=spell-word]")?.textContent,
+			"Ths",
+			"a caret resting at the end of a word is still in it",
 		);
 	});
 });

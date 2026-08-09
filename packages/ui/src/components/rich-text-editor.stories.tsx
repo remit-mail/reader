@@ -465,15 +465,28 @@ const rightClickOn = (editable: HTMLElement, word: string): void => {
 	);
 };
 
-const tapOn = (editable: HTMLElement, word: string): void => {
+const pressOn = (
+	editable: HTMLElement,
+	word: string,
+	pointerType: string,
+	travel = 0,
+): void => {
+	const at = centreOf(markRect(editable, word));
+	editable.dispatchEvent(
+		new PointerEvent("pointerdown", { bubbles: true, pointerType, ...at }),
+	);
 	editable.dispatchEvent(
 		new PointerEvent("pointerup", {
 			bubbles: true,
-			pointerType: "touch",
-			...centreOf(markRect(editable, word)),
+			pointerType,
+			...at,
+			clientX: at.clientX + travel,
 		}),
 	);
 };
+
+const tapOn = (editable: HTMLElement, word: string): void =>
+	pressOn(editable, word, "touch");
 
 const menuRows = (
 	canvasElement: HTMLElement,
@@ -624,6 +637,41 @@ export const SpellcheckOnTouch: Story = {
 		await expect(
 			canvasElement.querySelector("[aria-label='Close corrections']"),
 		).toBeTruthy();
+	},
+};
+
+/**
+ * The other things a pointer does over a marked word on a phone: dragging out a
+ * selection, and a mouse on a window narrow enough to be laid out as one. Both
+ * are the writer reaching for the text, and a sheet over the top of it is the
+ * one thing they must not get. Closing the sheet hands the caret back.
+ */
+export const SpellcheckLeavesAPointerAlone: Story = {
+	...SpellcheckOnTouch,
+	name: "Spellcheck leaves a selection and a mouse alone",
+	play: async ({ canvasElement }) => {
+		const editable = writingSurface(canvasElement);
+		await waitFor(() => expect(spellMarks(editable).length).toBe(3), {
+			timeout: 5000,
+		});
+		const menu = () => canvasElement.querySelector("[data-testid=spell-menu]");
+
+		pressOn(editable, "redy", "touch", 40);
+		await expect(menu()).toBeNull();
+
+		pressOn(editable, "redy", "mouse");
+		await expect(menu()).toBeNull();
+
+		tapOn(editable, "redy");
+		await waitFor(() => expect(menu()).toBeTruthy());
+
+		await userEvent.click(
+			canvasElement.querySelector<HTMLElement>(
+				"[aria-label='Close corrections']",
+			) as HTMLElement,
+		);
+		await waitFor(() => expect(menu()).toBeNull());
+		await waitFor(() => expect(document.activeElement).toBe(editable));
 	},
 };
 

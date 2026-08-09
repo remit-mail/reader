@@ -20,6 +20,13 @@ export interface SpellWorkerPort {
 	terminate(): void;
 }
 
+/**
+ * How long a menu waits for its suggestions before it is told there are none
+ * coming. A worker that took the request and went quiet is indistinguishable
+ * from a slow one, and skeleton rows that never fill are the worst of both.
+ */
+export const SUGGEST_DEADLINE_MS = 5000;
+
 export const openSpellProvider = (
 	language: LanguageTag,
 	port: SpellWorkerPort,
@@ -37,10 +44,16 @@ export const openSpellProvider = (
 	 * back leaves a menu open in front of someone. The one is dropped, the other
 	 * is told.
 	 */
+	const abandonSuggestion = (requestId: string, detail: string): void => {
+		const request = asking.get(requestId);
+		if (!request) return;
+		asking.delete(requestId);
+		request.abandon(new Error(detail));
+	};
+
 	const abandonSuggestions = (detail: string): void => {
-		const open = [...asking.values()];
-		asking.clear();
-		for (const request of open) request.abandon(new Error(detail));
+		for (const requestId of [...asking.keys()])
+			abandonSuggestion(requestId, detail);
 	};
 
 	const publish = (next: ProviderStatus): void => {
@@ -105,12 +118,29 @@ export const openSpellProvider = (
 			}),
 		suggest: (request) =>
 			new Promise((resolve, reject) => {
-				asking.set(request.requestId, { settle: resolve, abandon: reject });
+				const deadline = setTimeout(
+					() =>
+						abandonSuggestion(
+							request.requestId,
+							`no suggestions for "${request.word}" within ${SUGGEST_DEADLINE_MS}ms`,
+						),
+					SUGGEST_DEADLINE_MS,
+				);
+				asking.set(request.requestId, {
+					settle: (response) => {
+						clearTimeout(deadline);
+						resolve(response);
+					},
+					abandon: (reason) => {
+						clearTimeout(deadline);
+						reject(reason);
+					},
+				});
 				port.post({ type: "suggest", ...request });
 			}),
 		close: () => {
 			pending.clear();
-			asking.clear();
+			abandonSuggestions("the checker closed");
 			listeners.clear();
 			port.terminate();
 		},
