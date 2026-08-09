@@ -1,4 +1,9 @@
 export {
+	type BriefThreadPath,
+	type BriefThreadTarget,
+	useBriefThreadPath,
+} from "./brief-thread";
+export {
 	type PanelFragment,
 	panelFragments,
 	parsePanelFragment,

@@ -2,6 +2,7 @@ import { useLocation } from "@tanstack/react-router";
 import { Pencil } from "lucide-react";
 import { useCallback } from "react";
 import { useCompose } from "@/components/compose/ComposeProvider";
+import { locationOpensDetail } from "@/lib/mail-route";
 
 /**
  * Floating Action Button for composing a new message. Mobile-only.
@@ -12,8 +13,9 @@ import { useCompose } from "@/components/compose/ComposeProvider";
  *     `/mail` shell also stops mounting the FAB above that width; the
  *     `lg:hidden` class covers the pre-hydration frame.
  *   - The compose surface is already open.
- *   - The user is reading a thread (`?selectedMessageId=…`) — the single
- *     pane is the conversation, and its reply bar is under this corner.
+ *   - The user is reading a thread — the single pane is the conversation, and
+ *     its reply bar is under this corner. The brief says so in its path; the
+ *     lists still to move say so in `?selectedMessageId=…`.
  *   - The user is off `/mail`, which is every route with no mail in it.
  */
 export const ComposeFab = () => {
@@ -24,7 +26,9 @@ export const ComposeFab = () => {
 	}, [openCompose]);
 
 	const search = location.search as Record<string, unknown> | undefined;
-	const isReadingThread = Boolean(search?.selectedMessageId);
+	const isReadingThread =
+		Boolean(search?.selectedMessageId) ||
+		locationOpensDetail(location.pathname);
 
 	if (!location.pathname.startsWith("/mail") || state.isOpen || isReadingThread)
 		return null;

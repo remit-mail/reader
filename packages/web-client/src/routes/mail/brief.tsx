@@ -3,7 +3,9 @@
  *
  * The route mounts the list and the shell around it, and the reading pane is
  * the `Outlet`, so what the pane shows is whatever route is matched under this
- * one rather than a decision made somewhere above.
+ * one rather than a decision made somewhere above. The open thread and the
+ * message inside it are the segments below, which is why nothing here reads a
+ * selection out of the query.
  */
 import {
 	createFileRoute,
@@ -15,6 +17,7 @@ import { BriefPane } from "@/components/mail/BriefPane";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useSearchMirror } from "@/hooks/useSearchMirror";
 import { briefSearchSchema } from "@/lib/mail-search";
+import { useBriefThreadPath } from "@/routing";
 
 const BriefError = ({ error, reset }: ErrorComponentProps) => (
 	<div className="flex h-full items-center justify-center bg-canvas p-4">
@@ -27,17 +30,17 @@ const BriefError = ({ error, reset }: ErrorComponentProps) => (
 );
 
 function BriefLayout() {
-	const { selectedMessageId } = Route.useSearch();
+	const thread = useBriefThreadPath();
 	useSearchMirror({ to: "/mail/brief" });
 
 	return (
-		<BriefPane selectedMessageId={selectedMessageId}>
+		<BriefPane thread={thread}>
 			<MailShell
 				phone={<BriefPane.Phone />}
 				list={<BriefPane.List />}
 				reading={<Outlet />}
 				intelligence={<BriefPane.Intelligence />}
-				hasThread={Boolean(selectedMessageId)}
+				hasThread={Boolean(thread)}
 			/>
 		</BriefPane>
 	);

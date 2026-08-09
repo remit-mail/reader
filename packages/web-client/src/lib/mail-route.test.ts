@@ -20,6 +20,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
 	locationIsOnList,
+	locationOpensDetail,
 	MAIL_BRIEF_ROUTE_ID,
 	MAIL_FLAGGED_ROUTE_ID,
 	MAIL_MAILBOX_ROUTE_ID,
@@ -176,5 +177,30 @@ describe("locationIsOnList", () => {
 	it("compares whole segments, so a folder may be named after a list", () => {
 		assert.equal(locationIsOnList("/mail/briefing", "/mail/brief"), false);
 		assert.equal(locationIsOnList("/mail/outbox-2024", "/mail/outbox"), false);
+	});
+});
+
+/**
+ * What "a thread is open" used to be asked of the query. Everything sharing the
+ * single pane with the conversation reads it from the address instead.
+ */
+describe("locationOpensDetail", () => {
+	it("is true for a thread and for the message inside it", () => {
+		assert.equal(locationOpensDetail("/mail/brief/thread-1"), true);
+		assert.equal(locationOpensDetail("/mail/brief/thread-1/message-1"), true);
+		assert.equal(locationOpensDetail("/mail/inbox-1/thread-1"), true);
+	});
+
+	it("is false on a bare list, trailing slash and query included", () => {
+		assert.equal(locationOpensDetail("/mail/brief"), false);
+		assert.equal(locationOpensDetail("/mail/brief/"), false);
+		assert.equal(locationOpensDetail("/mail/brief?q=invoice"), false);
+		assert.equal(locationOpensDetail("/mail/inbox-1"), false);
+		assert.equal(locationOpensDetail("/mail"), false);
+	});
+
+	it("is false outside the mail shell", () => {
+		assert.equal(locationOpensDetail("/settings/accounts"), false);
+		assert.equal(locationOpensDetail("/onboarding"), false);
 	});
 });

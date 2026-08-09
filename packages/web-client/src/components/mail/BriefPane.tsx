@@ -1,12 +1,12 @@
 /**
- * BriefPane — compound component for the daily-brief view (/mail route).
+ * BriefPane — compound component for the daily brief.
  *
- * Usage in mail.tsx:
+ * Usage in the list layout route:
  *
- *   <BriefPane selectedMessageId={...}>
- *     <AppShellSlotted
+ *   <BriefPane thread={useBriefThreadPath()}>
+ *     <MailShell
  *       list={<BriefPane.List />}
- *       reading={<BriefPane.Reading />}
+ *       reading={<Outlet />}
  *     />
  *   </BriefPane>
  *
@@ -14,13 +14,9 @@
  */
 import { unifiedThreadOperationsListAllThreadsOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import {
-	ReadingPaneEmpty,
-	type SearchResult,
-	useAppShellLayout,
-} from "@remit/ui";
+import { ReadingPaneEmpty, useAppShellLayout } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import {
 	createContext,
 	type ReactNode,
@@ -37,32 +33,34 @@ import type { OpenMessageOptions } from "@/components/mail/ThreadListInteraction
 import { useDeleteMessages } from "@/hooks/useDeleteMessages";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { type ThreadActions, useThreadActions } from "@/hooks/useThreadActions";
+import { useThreadRow } from "@/hooks/useThreadRow";
 import {
 	type TriageContext,
 	useTriageContext,
 	useTriageLayer,
 } from "@/hooks/useTriageLayer";
-import {
-	buildConversationTarget,
-	type ConversationTarget,
-} from "@/lib/conversation-target";
+import type { ConversationTarget } from "@/lib/conversation-target";
 import { useMailContext } from "@/lib/mail-context";
+import type { BriefThreadPath, BriefThreadTarget } from "@/routing";
 
 /* ------------------------------------------------------------------ */
 /* Context                                                              */
 /* ------------------------------------------------------------------ */
 
 interface BriefPaneContextValue {
+	/** The row the reader pointed at, which is the one the list highlights. */
 	selectedMessageId: string | undefined;
 	selectedThread: RemitImapThreadMessageResponse | undefined;
-	/** The conversation to open — the loaded thread, or a tapped "Related" hit. */
+	/** The conversation the pane shows, or none when the address names no thread. */
 	conversation: ConversationTarget | undefined;
-	onSelectMessage: (id: string, options?: OpenMessageOptions) => void;
-	onSelectSearchResult: (
-		result: SearchResult,
+	onOpenThread: (
+		target: BriefThreadTarget,
 		options?: OpenMessageOptions,
 	) => void;
 	onCloseThread: () => void;
+	/** The rows either side of the open one — the phone's swipe gestures. */
+	nextThread: BriefThreadTarget | undefined;
+	previousThread: BriefThreadTarget | undefined;
 	/**
 	 * Toolbar verbs for the open thread, keyed by the thread's own mailbox and
 	 * account — the brief spans accounts, so there is no route mailbox to key by.
@@ -71,8 +69,6 @@ interface BriefPaneContextValue {
 	/** Keyboard, multi-select and next/previous, shared with the mailbox view. */
 	triage: TriageContext;
 	onDeleteMessages: (messageIds: string[]) => void;
-	nextMessageId: string | undefined;
-	previousMessageId: string | undefined;
 	/**
 	 * Deselects the open message when it's the one a mutation just removed
 	 * from view — wired into every mutation that can take the open message out
@@ -95,93 +91,79 @@ function useBriefPane(): BriefPaneContextValue {
 /* ------------------------------------------------------------------ */
 
 interface BriefPaneProps {
-	selectedMessageId: string | undefined;
+	/** The open conversation, as the address states it. */
+	thread: BriefThreadPath | undefined;
 	children: ReactNode;
 }
 
-function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
+function BriefPaneProvider({ thread, children }: BriefPaneProps) {
 	const navigate = useNavigate();
 	const { searchInput } = useMailContext();
-	const { selectedThreadId, selectedMailboxId } = useSearch({
-		strict: false,
-	}) as { selectedThreadId?: string; selectedMailboxId?: string };
+	const threadId = thread?.threadId;
+	const pointedAtMessageId = thread?.messageId;
 
 	const { data: threadsData } = useQuery({
 		...unifiedThreadOperationsListAllThreadsOptions(),
 		staleTime: 60_000,
 	});
+	const briefThreads = useMemo(() => threadsData?.items ?? [], [threadsData]);
 
-	const selectedThread = useMemo(() => {
-		if (!selectedMessageId) return undefined;
-		return threadsData?.items.find((t) => t.messageId === selectedMessageId);
-	}, [threadsData, selectedMessageId]);
+	// The row the brief itself lists, preferred because a mutation patches it in
+	// place. A thread reached from a cross-folder search hit or a cold address is
+	// in no listing here, and answers for itself — which is where
+	// `selectedMailboxId` used to come in: the folder a thread is filed in is the
+	// thread's own data, so the brief spanning folders costs the URL nothing.
+	const listedThread = useMemo(() => {
+		if (!threadId) return undefined;
+		return (
+			briefThreads.find((t) => t.messageId === pointedAtMessageId) ??
+			briefThreads.find((t) => t.threadId === threadId)
+		);
+	}, [briefThreads, threadId, pointedAtMessageId]);
+	const ownRow = useThreadRow(threadId, pointedAtMessageId);
+	const selectedThread = listedThread ?? ownRow;
 
-	// A literal hit resolves to a loaded thread; a semantic "Related" hit may not
-	// be in the capped brief list, so fall back to the thread + mailbox the hit
-	// carried through the URL.
-	const conversation = useMemo(
-		() =>
-			buildConversationTarget(selectedThread, {
-				messageId: selectedMessageId,
-				threadId: selectedThreadId,
-				mailboxId: selectedMailboxId,
-			}),
-		[selectedThread, selectedMessageId, selectedThreadId, selectedMailboxId],
-	);
+	const selectedMessageId = pointedAtMessageId ?? selectedThread?.messageId;
 
-	const handleSelectMessage = useCallback(
-		(id: string, options?: OpenMessageOptions) => {
+	const conversation = useMemo<ConversationTarget | undefined>(() => {
+		if (!threadId) return undefined;
+		return {
+			threadId,
+			mailboxId: selectedThread?.mailboxId ?? "",
+			subject: selectedThread?.subject,
+			messageId: selectedMessageId,
+			authenticity: selectedThread?.authenticity,
+		};
+	}, [threadId, selectedThread, selectedMessageId]);
+
+	const handleOpenThread = useCallback(
+		(target: BriefThreadTarget, options?: OpenMessageOptions) => {
 			navigate({
-				to: "/mail/brief",
-				search: (prev) => ({
-					...prev,
-					selectedMessageId: id,
-					selectedThreadId: undefined,
-					selectedMailboxId: undefined,
-				}),
+				to: "/mail/brief/$threadId/$messageId",
+				params: target,
 				replace: options?.replace,
-			});
-		},
-		[navigate],
-	);
-
-	const handleSelectSearchResult = useCallback(
-		(result: SearchResult, options?: OpenMessageOptions) => {
-			navigate({
-				to: "/mail/brief",
-				replace: options?.replace,
-				search: (prev) => ({
-					...prev,
-					// Commit the active query with the selection so the debounced
-					// q-mirror (`useSearchMirror`) — which strips the selection when the query
-					// goes active — is already satisfied and leaves the opened result
-					// alone. Use the *live* `searchInput`: the row can be tapped before
-					// the debounce settles, when the committed query is still empty.
-					q: searchInput || undefined,
-					selectedMessageId: result.id,
-					selectedThreadId: result.threadId,
-					selectedMailboxId: result.mailboxId,
-				}),
+				// Commit the active query with the open so the debounced q-mirror —
+				// which walks back up to the list when the query goes active — is
+				// already satisfied and leaves the conversation alone. The *live*
+				// `searchInput`: a row can be tapped before the debounce settles, when
+				// the committed query is still empty.
+				search: (prev) => ({ ...prev, q: searchInput || undefined }),
 			});
 		},
 		[navigate, searchInput],
 	);
 
+	const handleCloseThread = useCallback(() => {
+		navigate({ to: "/mail/brief", search: (prev) => prev });
+	}, [navigate]);
+
 	const handleDeselectIfRemoved = useCallback(
 		(removedIds: string[]) => {
 			if (!selectedMessageId) return;
 			if (!removedIds.includes(selectedMessageId)) return;
-			navigate({
-				to: "/mail/brief",
-				search: (prev) => ({
-					...prev,
-					selectedMessageId: undefined,
-					selectedThreadId: undefined,
-					selectedMailboxId: undefined,
-				}),
-			});
+			handleCloseThread();
 		},
-		[selectedMessageId, navigate],
+		[selectedMessageId, handleCloseThread],
 	);
 
 	const actions = useThreadActions({
@@ -189,24 +171,11 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 		onAfterOptimisticRemove: handleDeselectIfRemoved,
 	});
 
-	const handleCloseThread = useCallback(() => {
-		navigate({
-			to: "/mail/brief",
-			search: (prev) => ({
-				...prev,
-				selectedMessageId: undefined,
-				selectedThreadId: undefined,
-				selectedMailboxId: undefined,
-			}),
-		});
-	}, [navigate]);
-
 	const triage = useTriageContext();
 
 	// A brief selection spans accounts and mailboxes, so the listings these
 	// patch are resolved from each message's own mailbox — the open thread's is
 	// only the fallback.
-	const briefThreads = useMemo(() => threadsData?.items ?? [], [threadsData]);
 	const { deleteMessages } = useDeleteMessages({
 		mailboxId: selectedThread?.mailboxId ?? "",
 		messages: briefThreads,
@@ -219,8 +188,8 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 
 	const focusedThreadId = triage.focusedMessageId;
 	const focusedThread = useMemo(
-		() => threadsData?.items.find((t) => t.messageId === focusedThreadId),
-		[threadsData, focusedThreadId],
+		() => briefThreads.find((t) => t.messageId === focusedThreadId),
+		[briefThreads, focusedThreadId],
 	);
 	const triageTarget = focusedThread ?? selectedThread;
 	const triageActions = useThreadActions({ thread: triageTarget });
@@ -252,18 +221,29 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 		},
 	});
 
+	// The swipe gestures open a whole conversation, so the adjacent row has to
+	// name its thread. The brief's own listing is where that is looked up, so a
+	// row it does not hold offers no gesture rather than a tap that goes nowhere.
+	const adjacentThread = useCallback(
+		(messageId: string | undefined): BriefThreadTarget | undefined => {
+			if (!messageId) return undefined;
+			const row = briefThreads.find((t) => t.messageId === messageId);
+			return row ? { threadId: row.threadId, messageId } : undefined;
+		},
+		[briefThreads],
+	);
+
 	const ctx: BriefPaneContextValue = {
 		selectedMessageId,
 		selectedThread,
 		conversation,
-		onSelectMessage: handleSelectMessage,
-		onSelectSearchResult: handleSelectSearchResult,
+		onOpenThread: handleOpenThread,
 		onCloseThread: handleCloseThread,
+		nextThread: adjacentThread(nextMessageId),
+		previousThread: adjacentThread(previousMessageId),
 		actions,
 		triage,
 		onDeleteMessages: deleteMessages,
-		nextMessageId,
-		previousMessageId,
 		handleDeselectIfRemoved,
 	};
 
@@ -278,21 +258,15 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
  * Daily brief list. Mount in the `list` slot of `AppShellSlotted`.
  */
 function BriefList() {
-	const {
-		selectedMessageId,
-		onSelectMessage,
-		onSelectSearchResult,
-		triage,
-		onDeleteMessages,
-	} = useBriefPane();
+	const { selectedMessageId, onOpenThread, triage, onDeleteMessages } =
+		useBriefPane();
 	const { accounts } = useMailContext();
 
 	return (
 		<DailyBrief
 			accounts={accounts}
 			selectedMessageId={selectedMessageId}
-			onSelectMessage={onSelectMessage}
-			onSelectSearchResult={onSelectSearchResult}
+			onOpenThread={onOpenThread}
 			commandsRef={triage.listCommandsRef}
 			onTriageContextChange={triage.onTriageContextChange}
 			onDeleteMessages={onDeleteMessages}
@@ -386,10 +360,10 @@ function BriefPhone() {
 	const {
 		selectedThread,
 		conversation,
-		onSelectMessage,
+		onOpenThread,
 		onCloseThread,
-		nextMessageId,
-		previousMessageId,
+		nextThread,
+		previousThread,
 		handleDeselectIfRemoved,
 	} = useBriefPane();
 	const { intelligenceOpen, onToggleIntelligence } = useMailContext();
@@ -405,13 +379,9 @@ function BriefPhone() {
 					authenticity={conversation.authenticity}
 					onBack={onCloseThread}
 					onOpenIntelligence={onToggleIntelligence}
-					onSwipeNext={
-						nextMessageId ? () => onSelectMessage(nextMessageId) : undefined
-					}
+					onSwipeNext={nextThread ? () => onOpenThread(nextThread) : undefined}
 					onSwipePrevious={
-						previousMessageId
-							? () => onSelectMessage(previousMessageId)
-							: undefined
+						previousThread ? () => onOpenThread(previousThread) : undefined
 					}
 					mobileIntelligenceOpen={intelligenceOpen}
 				/>

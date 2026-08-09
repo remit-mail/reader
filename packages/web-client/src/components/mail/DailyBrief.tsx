@@ -105,6 +105,7 @@ import {
 	type SelectionWizardControl,
 	useSelectionWizard,
 } from "@/lib/wizard-history";
+import type { BriefThreadTarget } from "@/routing";
 import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import { MailListHeader, type MailListHeaderProps } from "./MailListHeader";
 import type { MessageListCommands } from "./MessageList";
@@ -378,14 +379,13 @@ function BriefSelectionChrome({
 interface DailyBriefProps {
 	accounts: RemitImapAccountResponse[];
 	selectedMessageId?: string;
-	/** Opens an in-list brief row (resolved by messageId against the loaded list). */
-	onSelectMessage?: (id: string, options?: OpenMessageOptions) => void;
 	/**
-	 * Opens a search result. A semantic "Related" hit carries its thread + mailbox
-	 * so it opens even when its message isn't in the loaded brief list.
+	 * Opens a row. Every row the brief renders names its thread, so the row the
+	 * search widened in from another folder opens by exactly the same route as one
+	 * from the unified inbox.
 	 */
-	onSelectSearchResult?: (
-		result: SearchResult,
+	onOpenThread?: (
+		target: BriefThreadTarget,
 		options?: OpenMessageOptions,
 	) => void;
 	/** Where the list publishes the commands the keyboard layer drives. */
@@ -398,8 +398,7 @@ interface DailyBriefProps {
 export function DailyBrief({
 	accounts,
 	selectedMessageId,
-	onSelectMessage,
-	onSelectSearchResult,
+	onOpenThread,
 	commandsRef,
 	onTriageContextChange,
 	onDeleteMessages,
@@ -618,26 +617,29 @@ export function DailyBrief({
 	);
 
 	// A committed query puts rows the widened cross-folder search found into the
-	// body, and those messages are in folders the brief itself never loads. The
-	// reading pane resolves a bare `selectedMessageId` against the brief's own
-	// thread list, so such a row opens nothing; it goes through the search path
-	// instead, which carries the thread and mailbox the conversation is fetched
-	// by (#635).
+	// body, and those messages are in folders the brief itself never loads. They
+	// open like any other row: what the address carries is the thread, which
+	// every row names, and the conversation is fetched by it (#635).
 	const openRow = useCallback(
 		(id: string, options?: OpenMessageOptions) => {
-			const row = sq
-				? bodyRows.find((candidate) => candidate.id === id)
-				: undefined;
-			if (row?.threadId && row.mailboxId && onSelectSearchResult) {
-				onSelectSearchResult(
-					rowToSearchResult(row, resultFolderIndex),
-					options,
-				);
-				return;
-			}
-			onSelectMessage?.(id, options);
+			const threadId = filteredRows.find((row) => row.id === id)?.threadId;
+			if (!threadId) return;
+			onOpenThread?.({ threadId, messageId: id }, options);
 		},
-		[sq, bodyRows, resultFolderIndex, onSelectSearchResult, onSelectMessage],
+		[filteredRows, onOpenThread],
+	);
+
+	// The two-engine results panel, whose semantic hits are in no list at all —
+	// each one carries the thread it belongs to.
+	const openResult = useCallback(
+		(result: SearchResult) => {
+			const threadId =
+				result.threadId ??
+				filteredRows.find((row) => row.id === result.id)?.threadId;
+			if (!threadId) return;
+			onOpenThread?.({ threadId, messageId: result.id });
+		},
+		[filteredRows, onOpenThread],
 	);
 
 	const accountSources = useMemo<FilterSheetSource[]>(() => {
@@ -903,7 +905,7 @@ export function DailyBrief({
 						searchLoading: isLoading || searchFetching,
 						relatedResults,
 						relatedLoading,
-						onSelectSearchResult,
+						onSelectSearchResult: openResult,
 						// The body already narrows to the committed query
 						// (`matchesBriefSearch` + `matchesSearchTokens` + the server `query`,
 						// above), so a committed search is a selectable list here exactly as

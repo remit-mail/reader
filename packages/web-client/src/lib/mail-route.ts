@@ -92,3 +92,16 @@ export function locationIsOnList(pathname: string, listPath: string): boolean {
 	if (pathname === listPath) return true;
 	return pathname.startsWith(`${listPath}/`);
 }
+
+/**
+ * Whether the address names something the list has open below it — a thread, a
+ * message. A list on its own, and its bare reading pane, do not.
+ *
+ * Answers what an open thread used to be asked of the query. Anything sharing
+ * the single pane with the conversation reads it from here rather than keeping a
+ * second opinion about what is on screen.
+ */
+export function locationOpensDetail(pathname: string): boolean {
+	const segments = pathname.split(/[?#]/)[0].split("/").filter(Boolean);
+	return segments[0] === "mail" && segments.length > 2;
+}
