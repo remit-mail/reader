@@ -363,10 +363,8 @@ export const SpellcheckMarks: Story = {
 		);
 
 		// The word the caret sits in is left alone until the writer moves on.
-		await userEvent.click(editable);
-		const line = editable.querySelector<HTMLElement>("[data-lexical-text]");
-		const characters = line?.firstChild ?? null;
-		canvasElement.ownerDocument.getSelection()?.setPosition(characters, 17);
+		editable.focus();
+		caretTo(editable, 17);
 
 		await waitFor(
 			() =>
@@ -455,38 +453,75 @@ const centreOf = (box: DOMRect) => ({
 	clientY: box.top + box.height / 2,
 });
 
-const rightClickOn = (editable: HTMLElement, word: string): void => {
+interface Press {
+	readonly pointerType?: string;
+	readonly travel?: number;
+	readonly button?: number;
+}
+
+const pressDownOn = (
+	editable: HTMLElement,
+	word: string,
+	{ pointerType = "mouse", button = 0 }: Press = {},
+): void => {
 	editable.dispatchEvent(
-		new MouseEvent("contextmenu", {
+		new PointerEvent("pointerdown", {
 			bubbles: true,
-			cancelable: true,
+			pointerType,
+			button,
 			...centreOf(markRect(editable, word)),
 		}),
 	);
 };
 
-const pressOn = (
+const pressUpOn = (
 	editable: HTMLElement,
 	word: string,
-	pointerType: string,
-	travel = 0,
+	{ pointerType = "mouse", travel = 0, button = 0 }: Press = {},
 ): void => {
 	const at = centreOf(markRect(editable, word));
-	editable.dispatchEvent(
-		new PointerEvent("pointerdown", { bubbles: true, pointerType, ...at }),
-	);
 	editable.dispatchEvent(
 		new PointerEvent("pointerup", {
 			bubbles: true,
 			pointerType,
+			button,
 			...at,
 			clientX: at.clientX + travel,
 		}),
 	);
 };
 
+const pressOn = (editable: HTMLElement, word: string, press: Press = {}) => {
+	pressDownOn(editable, word, press);
+	pressUpOn(editable, word, press);
+};
+
 const tapOn = (editable: HTMLElement, word: string): void =>
-	pressOn(editable, word, "touch");
+	pressOn(editable, word, { pointerType: "touch" });
+
+const clickOn = (editable: HTMLElement, word: string): void =>
+	pressOn(editable, word);
+
+const caretTo = (editable: HTMLElement, offset: number): void => {
+	const line = editable.querySelector<HTMLElement>("[data-lexical-text]");
+	editable.ownerDocument
+		.getSelection()
+		?.setPosition(line?.firstChild ?? null, offset);
+};
+
+const textOf = (editable: HTMLElement): string =>
+	editable.querySelector<HTMLElement>("[data-lexical-text]")?.textContent ?? "";
+
+/**
+ * The caret the browser would have put down under the press. Storybook's events
+ * are dispatched rather than trusted, so none of them move the caret on their
+ * own.
+ */
+const caretInto = (editable: HTMLElement, word: string): void =>
+	caretTo(editable, textOf(editable).indexOf(word) + 1);
+
+const caretToEnd = (editable: HTMLElement): void =>
+	caretTo(editable, textOf(editable).length);
 
 const menuRows = (
 	canvasElement: HTMLElement,
@@ -513,7 +548,7 @@ export const SpellcheckSuggestions: Story = {
 			timeout: 5000,
 		});
 
-		rightClickOn(editable, "Ths");
+		clickOn(editable, "Ths");
 		await waitFor(() =>
 			expect(
 				canvasElement.querySelector("[data-testid=spell-menu]"),
@@ -570,7 +605,7 @@ export const SpellcheckSessionIgnore: Story = {
 			timeout: 5000,
 		});
 
-		rightClickOn(editable, "attachd");
+		clickOn(editable, "attachd");
 		const [ignore] = await waitFor(() => {
 			const rows = menuRows(canvasElement, "spell-ignore");
 			expect(rows).toHaveLength(1);
@@ -581,8 +616,10 @@ export const SpellcheckSessionIgnore: Story = {
 
 		await waitFor(() => expect(spellMarks(editable).length).toBe(2));
 
+		// Typed onto the end rather than clicked into: a click on this surface is
+		// now how the corrections open, and it would take the keyboard with it.
 		editable.focus();
-		await userEvent.click(editable);
+		caretToEnd(editable);
 		await userEvent.keyboard(" Attachd again.");
 		await waitFor(
 			() =>
@@ -595,6 +632,69 @@ export const SpellcheckSessionIgnore: Story = {
 						);
 					}),
 				).toHaveLength(0),
+			{ timeout: 5000 },
+		);
+	},
+};
+
+/**
+ * A plain left click is what opens the corrections: a tablet has no right button
+ * and nothing should be hidden behind one. The caret the click puts down is
+ * reading rather than writing, so the squiggle it landed on stays where it is —
+ * clicking a marked word must not be what unmarks it. The next key is the writer
+ * back at the text, and the word under the caret goes quiet again.
+ */
+export const SpellcheckClickOpensCorrections: Story = {
+	name: "Spellcheck opens on a click",
+	args: {
+		initialHtml: `<p>${MISSPELT}</p>`,
+		lang: "en",
+		spellcheck: workerSpellcheck,
+	},
+	play: async ({ canvasElement }) => {
+		const editable = writingSurface(canvasElement);
+		const marked: [number, number][] = [
+			[0, 3],
+			[14, 18],
+			[44, 51],
+		];
+		await waitFor(() => expect(spellMarkOffsets(editable)).toEqual(marked), {
+			timeout: 5000,
+		});
+
+		editable.focus();
+		pressDownOn(editable, "redy");
+		caretInto(editable, "redy");
+		pressUpOn(editable, "redy");
+
+		await waitFor(() =>
+			expect(
+				canvasElement.querySelector("[data-testid=spell-word]")?.textContent,
+			).toBe("redy"),
+		);
+		// Long enough for the caret the click put down to have been read and
+		// another checking pass to have gone by. It is still not what unmarks the
+		// word: this is the writer looking at the corrections for it.
+		await new Promise((rested) => setTimeout(rested, 600));
+		await expect(spellMarkOffsets(editable)).toEqual(marked);
+
+		await userEvent.keyboard("{Escape}");
+		await waitFor(() =>
+			expect(
+				canvasElement.querySelector("[data-testid=spell-menu]"),
+			).toBeNull(),
+		);
+
+		caretInto(editable, "redy");
+		editable.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
+		);
+		await waitFor(
+			() =>
+				expect(spellMarkOffsets(editable)).toEqual([
+					[0, 3],
+					[44, 51],
+				]),
 			{ timeout: 5000 },
 		);
 	},
@@ -641,14 +741,14 @@ export const SpellcheckOnTouch: Story = {
 };
 
 /**
- * The other things a pointer does over a marked word on a phone: dragging out a
- * selection, and a mouse on a window narrow enough to be laid out as one. Both
- * are the writer reaching for the text, and a sheet over the top of it is the
- * one thing they must not get. Closing the sheet hands the caret back.
+ * The other things a pointer does over a marked word: dragging out a selection
+ * with either a finger or a mouse, and the right button, which belongs to the
+ * browser's own menu. A sheet over the top of any of them is the one thing they
+ * must not get. Closing the sheet hands the caret back.
  */
 export const SpellcheckLeavesAPointerAlone: Story = {
 	...SpellcheckOnTouch,
-	name: "Spellcheck leaves a selection and a mouse alone",
+	name: "Spellcheck leaves a drag and the right button alone",
 	play: async ({ canvasElement }) => {
 		const editable = writingSurface(canvasElement);
 		await waitFor(() => expect(spellMarks(editable).length).toBe(3), {
@@ -656,10 +756,22 @@ export const SpellcheckLeavesAPointerAlone: Story = {
 		});
 		const menu = () => canvasElement.querySelector("[data-testid=spell-menu]");
 
-		pressOn(editable, "redy", "touch", 40);
+		pressOn(editable, "redy", { pointerType: "touch", travel: 40 });
 		await expect(menu()).toBeNull();
 
-		pressOn(editable, "redy", "mouse");
+		pressOn(editable, "redy", { travel: 40 });
+		await expect(menu()).toBeNull();
+
+		pressOn(editable, "redy", { button: 2 });
+		await expect(menu()).toBeNull();
+
+		const contextMenu = new MouseEvent("contextmenu", {
+			bubbles: true,
+			cancelable: true,
+			...centreOf(markRect(editable, "redy")),
+		});
+		editable.dispatchEvent(contextMenu);
+		await expect(contextMenu.defaultPrevented).toBe(false);
 		await expect(menu()).toBeNull();
 
 		tapOn(editable, "redy");
@@ -677,7 +789,7 @@ export const SpellcheckLeavesAPointerAlone: Story = {
 
 /**
  * The whole experience, hands on: type into a message full of misspellings,
- * right-click a squiggle (or put the caret in one and press Ctrl+.), pick a
+ * click a squiggle (or put the caret in one and press Ctrl+.), pick a
  * correction, ignore a word, or add it to the list this mount keeps. The
  * theme toolbar switches both surfaces.
  */

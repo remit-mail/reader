@@ -309,10 +309,10 @@ interface CorrectionTarget {
 /**
  * A caret sits between characters and a pointer lands on one, so the two ask
  * different questions of the same range. The caret is inside the word from the
- * first character to just after the last — which is also when the word goes
- * unmarked, so the chord opens exactly what the squiggle is being withheld
- * from. A point belongs to a character, and the position after the last one is
- * already the space that follows.
+ * first character to just after the last — which is also what goes unmarked
+ * while it is being written, so the chord opens exactly the word the squiggle
+ * is being withheld from. A point belongs to a character, and the position
+ * after the last one is already the space that follows.
  */
 const coversCaret = (finding: Finding, offset: number): boolean =>
 	offset > finding.start && offset <= finding.end;
@@ -320,11 +320,8 @@ const coversCaret = (finding: Finding, offset: number): boolean =>
 const coversCharacter = (finding: Finding, offset: number): boolean =>
 	offset >= finding.start && offset < finding.end;
 
-/** How far a finger may travel and still have been put down, not dragged. */
+/** How far a pointer may travel and still have been put down, not dragged. */
 const TAP_SLOP_PX = 6;
-
-const laidOn = (event: PointerEvent): boolean =>
-	event.pointerType === "touch" || event.pointerType === "pen";
 
 /**
  * Drops what the session has been told to leave alone. Read against the text as
@@ -366,9 +363,9 @@ const forgetIgnored = (
  * every reconciliation. Nothing enters the document, so history, the outgoing
  * HTML and the Markdown never see one.
  *
- * A right-click, a tap or the chord on a marked word opens the correction menu
- * over the findings already held here; the suggestions themselves are asked for
- * one word at a time, when the menu opens.
+ * A click, a tap or the chord on a marked word opens the correction menu over
+ * the findings already held here; the suggestions themselves are asked for one
+ * word at a time, when the menu opens. The right button is left to the browser.
  */
 const SpellcheckPlugin = ({
 	language,
@@ -414,13 +411,19 @@ const SpellcheckPlugin = ({
 		let revision = 0;
 		let passes = 0;
 		let pressed: { x: number; y: number } | null = null;
+		// The caret withholds the mark of the word it sits in, so a word is not
+		// called wrong while it is still being written. A caret a pointer put
+		// down is reading rather than writing: a click on a squiggle is how the
+		// corrections open, and it must not take the squiggle with it. The next
+		// key is the writer back at the text, and the withholding with them.
+		let pointed = false;
 
 		const paint = (): void => {
 			const ranges: Range[] = [];
 			editor.read(() => {
 				const selection = $getSelection();
 				const caret =
-					$isRangeSelection(selection) && selection.isCollapsed()
+					!pointed && $isRangeSelection(selection) && selection.isCollapsed()
 						? selection.anchor
 						: null;
 				for (const [key, spanFindings] of findings) {
@@ -547,23 +550,24 @@ const SpellcheckPlugin = ({
 			return openAt(key, character.offset, coversCharacter);
 		};
 
-		const onContextMenu = (event: MouseEvent) => {
-			if (openAtPoint(event.clientX, event.clientY)) event.preventDefault();
-		};
-
 		const onPointerDown = (event: PointerEvent) => {
-			pressed = laidOn(event) ? { x: event.clientX, y: event.clientY } : null;
+			pointed = true;
+			// The right button belongs to the browser's own menu, and a middle
+			// click is a paste on the platforms that have one.
+			pressed =
+				event.button === 0 ? { x: event.clientX, y: event.clientY } : null;
 		};
 
 		/**
-		 * A finger or a stylus, put down on a marked word and lifted where it
-		 * landed. A drag is a selection and a mouse has the context menu, on every
-		 * layout: neither has any business raising a sheet over what it just did.
+		 * A pointer put down on a marked word and lifted where it landed, whether
+		 * it was a finger or a mouse. A press that travelled was dragging out a
+		 * selection, and a menu over the top of what it just selected is the one
+		 * thing it must not get.
 		 */
 		const onPointerUp = (event: PointerEvent) => {
 			const from = pressed;
 			pressed = null;
-			if (!from || !laidOn(event)) return;
+			if (!from) return;
 			if (
 				Math.abs(event.clientX - from.x) > TAP_SLOP_PX ||
 				Math.abs(event.clientY - from.y) > TAP_SLOP_PX
@@ -578,15 +582,27 @@ const SpellcheckPlugin = ({
 			pressed = null;
 		};
 
+		/**
+		 * Whatever the key turns out to do — walk the caret, or write a character
+		 * — it is the writer taking the text back, so the word under the caret
+		 * goes quiet again. The repaint is here rather than left to the edit: a
+		 * caret walked across a marked word makes no edit at all.
+		 */
+		const onKeyDown = () => {
+			if (!pointed) return;
+			pointed = false;
+			paint();
+		};
+
 		const unbindRoot = editor.registerRootListener((next, previous) => {
-			previous?.removeEventListener("contextmenu", onContextMenu);
 			previous?.removeEventListener("pointerdown", onPointerDown);
 			previous?.removeEventListener("pointerup", onPointerUp);
 			previous?.removeEventListener("pointercancel", onPointerCancel);
-			next?.addEventListener("contextmenu", onContextMenu);
+			previous?.removeEventListener("keydown", onKeyDown);
 			next?.addEventListener("pointerdown", onPointerDown);
 			next?.addEventListener("pointerup", onPointerUp);
 			next?.addEventListener("pointercancel", onPointerCancel);
+			next?.addEventListener("keydown", onKeyDown);
 		});
 
 		// The keyboard's way in. The word under the caret is deliberately
@@ -618,6 +634,9 @@ const SpellcheckPlugin = ({
 				return;
 			}
 			revision += 1;
+			// An edit is writing whatever put the caret there, including a paste
+			// or a correction, neither of which arrives on a key.
+			pointed = false;
 			// The menu is about a word at an offset, and both have just moved.
 			setTarget(null);
 			// Characters moved under the findings this leaf carries, so they are

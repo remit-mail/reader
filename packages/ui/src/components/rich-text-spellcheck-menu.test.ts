@@ -184,19 +184,6 @@ const rows = (testId: string): HTMLElement[] => [
 	...container.querySelectorAll<HTMLElement>(`[data-testid=${testId}]`),
 ];
 
-/** A right-click on a word, as the browser delivers it: caret first, menu after. */
-const rightClickAt = async (offset: number): Promise<void> => {
-	dom.window.document.getSelection()?.setPosition(characters(), offset);
-	await act(async () => {
-		editable().dispatchEvent(
-			new dom.window.MouseEvent("contextmenu", {
-				bubbles: true,
-				cancelable: true,
-			}),
-		);
-	});
-};
-
 /**
  * jsdom carries no `PointerEvent`, and what the editor reads off one is the
  * kind of pointer and where it went.
@@ -204,35 +191,60 @@ const rightClickAt = async (offset: number): Promise<void> => {
 const pointerEvent = (
 	type: string,
 	pointerType: string,
-	at: { clientX: number; clientY: number },
+	at: { clientX: number; clientY: number; button?: number },
 ): MouseEvent => {
 	const event = new dom.window.MouseEvent(type, { bubbles: true, ...at });
 	Object.defineProperty(event, "pointerType", { value: pointerType });
 	return event;
 };
 
-const pressAt = async (
+const pressDownAt = async (
 	offset: number,
 	pointerType: string,
-	travel = 0,
+	button = 0,
 ): Promise<void> => {
 	dom.window.document.getSelection()?.setPosition(characters(), offset);
 	await act(async () => {
 		editable().dispatchEvent(
-			pointerEvent("pointerdown", pointerType, { clientX: 40, clientY: 20 }),
-		);
-		editable().dispatchEvent(
-			pointerEvent("pointerup", pointerType, {
-				clientX: 40 + travel,
+			pointerEvent("pointerdown", pointerType, {
+				clientX: 40,
 				clientY: 20,
+				button,
 			}),
 		);
 	});
 };
 
+const pressUp = async (
+	pointerType: string,
+	{ travel = 0, button = 0 }: { travel?: number; button?: number } = {},
+): Promise<void> => {
+	await act(async () => {
+		editable().dispatchEvent(
+			pointerEvent("pointerup", pointerType, {
+				clientX: 40 + travel,
+				clientY: 20,
+				button,
+			}),
+		);
+	});
+};
+
+const pressAt = async (
+	offset: number,
+	pointerType: string,
+	{ travel = 0, button = 0 }: { travel?: number; button?: number } = {},
+): Promise<void> => {
+	await pressDownAt(offset, pointerType, button);
+	await pressUp(pointerType, { travel, button });
+};
+
 const tapAt = (offset: number): Promise<void> => pressAt(offset, "touch");
 
-const chordAt = async (
+const clickAt = (offset: number): Promise<void> => pressAt(offset, "mouse");
+
+/** The caret the browser puts down where the click landed. */
+const caretAt = async (
 	editor: LexicalEditor,
 	offset: number,
 ): Promise<void> => {
@@ -242,6 +254,26 @@ const chordAt = async (
 			text?.select(offset, offset);
 		});
 	});
+};
+
+/** A key on the writing surface, whatever it turns out to do. */
+const keyDownOn = async (key: string): Promise<void> => {
+	await act(async () => {
+		editable().dispatchEvent(
+			new dom.window.KeyboardEvent("keydown", {
+				key,
+				bubbles: true,
+				cancelable: true,
+			}),
+		);
+	});
+};
+
+const chordAt = async (
+	editor: LexicalEditor,
+	offset: number,
+): Promise<void> => {
+	await caretAt(editor, offset);
 	await act(async () => {
 		editable().dispatchEvent(
 			new dom.window.KeyboardEvent("keydown", {
@@ -368,7 +400,7 @@ describe("the correction menu", () => {
 		});
 		await settle();
 
-		await rightClickAt(1);
+		await clickAt(1);
 
 		assert.ok(menu(), "the menu is up before anything was asked for");
 		assert.equal(
@@ -434,7 +466,7 @@ describe("the correction menu", () => {
 		});
 		await settle();
 
-		await rightClickAt(1);
+		await clickAt(1);
 		const first = rows("spell-suggestion")[0];
 		assert.ok(first, "a suggestion is offered");
 		await click(first);
@@ -470,7 +502,7 @@ describe("the correction menu", () => {
 		await settle();
 		assert.equal(offsets().length, 2);
 
-		await rightClickAt(1);
+		await clickAt(1);
 		const ignore = rows("spell-ignore")[0];
 		assert.ok(ignore);
 		await click(ignore);
@@ -504,7 +536,7 @@ describe("the correction menu", () => {
 		});
 		await settle();
 
-		await rightClickAt(1);
+		await clickAt(1);
 		const add = rows("spell-add-word")[0];
 		assert.ok(add, "the row is offered");
 		await click(add);
@@ -521,7 +553,7 @@ describe("the correction menu", () => {
 		});
 		await settle();
 
-		await rightClickAt(1);
+		await clickAt(1);
 
 		assert.equal(rows("spell-suggestion-skeleton").length, 0);
 		assert.match(
@@ -555,7 +587,7 @@ describe("the correction menu", () => {
 		);
 	});
 
-	it("leaves a drag, a selection and a mouse alone", async () => {
+	it("leaves a drag and a selection alone", async () => {
 		desktopLayout = false;
 		await mount({
 			initialHtml: `<p>${SENTENCE}</p>`,
@@ -564,15 +596,11 @@ describe("the correction menu", () => {
 		});
 		await settle();
 
-		await pressAt(1, "touch", 40);
+		await pressAt(1, "touch", { travel: 40 });
 		assert.equal(menu(), null, "a finger that travelled was selecting text");
 
-		await pressAt(1, "mouse");
-		assert.equal(
-			menu(),
-			null,
-			"a click puts the caret down; the mouse has the context menu",
-		);
+		await pressAt(1, "mouse", { travel: 40 });
+		assert.equal(menu(), null, "and so was a mouse that was dragged");
 
 		dom.window.document
 			.getSelection()
@@ -592,7 +620,42 @@ describe("the correction menu", () => {
 		);
 	});
 
-	it("stays out of the way of a mouse at desktop too", async () => {
+	it("opens on a plain click and leaves the squiggle under it", async () => {
+		const marked: [number, number][] = [
+			[0, 3],
+			[14, 18],
+		];
+		const editor = await mount({
+			initialHtml: `<p>${SENTENCE}</p>`,
+			lang: "en",
+			spellcheck: stubSpellcheck(),
+		});
+		await settle();
+		assert.deepEqual(offsets(), marked);
+
+		// The browser's own order: the press puts the caret in the word, and the
+		// menu follows when the pointer comes up where it landed.
+		await pressDownAt(1, "mouse");
+		await caretAt(editor, 1);
+		assert.deepEqual(
+			offsets(),
+			marked,
+			"the word the caret was put down in keeps its mark",
+		);
+
+		await pressUp("mouse");
+		assert.equal(
+			container.querySelector("[data-testid=spell-word]")?.textContent,
+			"Ths",
+			"and the click is what opened the corrections",
+		);
+
+		await settle();
+		assert.ok(menu(), "the menu is still up a pass later");
+		assert.deepEqual(offsets(), marked, "and so are the marks");
+	});
+
+	it("leaves the right button to the browser", async () => {
 		await mount({
 			initialHtml: `<p>${SENTENCE}</p>`,
 			lang: "en",
@@ -600,11 +663,83 @@ describe("the correction menu", () => {
 		});
 		await settle();
 
-		await pressAt(1, "mouse");
-		assert.equal(menu(), null, "clicking a marked word still places the caret");
+		await pressAt(1, "mouse", { button: 2 });
+		assert.equal(menu(), null, "the right button raises nothing of ours");
 
-		await rightClickAt(1);
-		assert.ok(menu(), "the right button is what opens it");
+		const contextMenu = new dom.window.MouseEvent("contextmenu", {
+			bubbles: true,
+			cancelable: true,
+		});
+		await act(async () => {
+			editable().dispatchEvent(contextMenu);
+		});
+		assert.equal(
+			contextMenu.defaultPrevented,
+			false,
+			"and nothing stands between the writer and the browser's own menu",
+		);
+		assert.equal(menu(), null);
+	});
+
+	it("gives the word back to the writer on the next key", async () => {
+		const editor = await mount({
+			initialHtml: `<p>${SENTENCE}</p>`,
+			lang: "en",
+			spellcheck: stubSpellcheck(),
+		});
+		await settle();
+
+		await pressDownAt(1, "mouse");
+		await caretAt(editor, 1);
+		await pressUp("mouse");
+		assert.deepEqual(
+			offsets(),
+			[
+				[0, 3],
+				[14, 18],
+			],
+			"the click left both marks standing",
+		);
+
+		// The caret walks out of the word it was clicked into and into the other
+		// one. Nothing is edited on the way, so the key is the only thing that
+		// says the writer is back.
+		await keyDownOn("ArrowRight");
+		await caretAt(editor, 16);
+		await settle();
+		assert.deepEqual(
+			offsets(),
+			[[0, 3]],
+			"the word the caret walked into is being written again",
+		);
+	});
+
+	it("still withholds the mark of a word an edit lands in", async () => {
+		const editor = await mount({
+			initialHtml: `<p>${SENTENCE}</p>`,
+			lang: "en",
+			spellcheck: stubSpellcheck(),
+		});
+		await settle();
+
+		await clickAt(1);
+		assert.equal(offsets().length, 2, "the click left both marks standing");
+
+		// An edit with no key behind it, the way a paste or a correction arrives.
+		await act(async () => {
+			editor.update(() => {
+				const [text] = $getRoot().getAllTextNodes();
+				text?.spliceText(18, 0, "y", true);
+			});
+		});
+		await settle();
+
+		assert.equal(editable().textContent, "Ths report is redyy today");
+		assert.deepEqual(
+			offsets(),
+			[[0, 3]],
+			"the word the edit landed in is not called wrong while it is written",
+		);
 	});
 
 	it("closes on Escape and on a click somewhere else", async () => {
@@ -615,7 +750,7 @@ describe("the correction menu", () => {
 		});
 		await settle();
 
-		await rightClickAt(1);
+		await clickAt(1);
 		assert.ok(menu());
 		await act(async () => {
 			menu()?.dispatchEvent(
@@ -632,11 +767,11 @@ describe("the correction menu", () => {
 			"and hands the message back its caret",
 		);
 
-		await rightClickAt(1);
+		await clickAt(1);
 		assert.ok(menu());
 		await act(async () => {
 			dom.window.document.body.dispatchEvent(
-				new dom.window.MouseEvent("mousedown", { bubbles: true }),
+				new dom.window.MouseEvent("pointerdown", { bubbles: true }),
 			);
 		});
 		assert.equal(menu(), null, "so does a press outside it");
@@ -651,7 +786,7 @@ describe("the correction menu", () => {
 		});
 		await settle();
 
-		await rightClickAt(1);
+		await clickAt(1);
 		assert.ok(menu(), "the menu is up while the suggestions are in flight");
 
 		await act(async () => {
@@ -685,14 +820,14 @@ describe("the correction menu", () => {
 		});
 		await settle();
 
-		await rightClickAt(3);
+		await clickAt(3);
 		assert.equal(
 			menu(),
 			null,
 			"the position after the last letter is already the space that follows",
 		);
 
-		await rightClickAt(0);
+		await clickAt(0);
 		assert.equal(
 			container.querySelector("[data-testid=spell-word]")?.textContent,
 			"Ths",

@@ -134,14 +134,18 @@ export const RichTextCorrectionMenu = ({
 		panelRef.current?.focus();
 	}, []);
 
+	// A press rather than a click, and a pointer press rather than a mouse one:
+	// the tap that opened this menu is followed by the browser's compatibility
+	// mouse events, which a `mousedown` listener reads as a press somewhere else
+	// and closes the menu on the way up.
 	useEffect(() => {
 		if (!desktop) return;
-		const onPointer = (event: MouseEvent) => {
+		const onPointer = (event: Event) => {
 			if (panelRef.current?.contains(event.target as Node)) return;
 			onDismiss(false);
 		};
-		document.addEventListener("mousedown", onPointer);
-		return () => document.removeEventListener("mousedown", onPointer);
+		document.addEventListener("pointerdown", onPointer);
+		return () => document.removeEventListener("pointerdown", onPointer);
 	}, [desktop, onDismiss]);
 
 	/**
