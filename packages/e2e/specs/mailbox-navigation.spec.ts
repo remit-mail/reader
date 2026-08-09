@@ -4,6 +4,7 @@
  * now come from a real sync rather than rows written into the database.
  */
 import { expect, test } from "../src/fixtures.js";
+import { INBOX_LIST, listOnScreen } from "../src/lists.js";
 import { MAILBOX_URL } from "../src/urls.js";
 
 const openInbox = async (page: import("@playwright/test").Page) => {
@@ -32,6 +33,7 @@ test.describe("Mailbox navigation", () => {
 		const { inbox } = await openInbox(page);
 		await inbox.click();
 		await page.waitForURL(MAILBOX_URL);
+		await listOnScreen(page, INBOX_LIST);
 
 		// Navigating has to deliver the mailbox's contents, not just its route.
 		await expect(page.locator("a[href*='selectedMessageId']")).toHaveCount(

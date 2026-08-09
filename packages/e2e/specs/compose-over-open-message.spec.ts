@@ -3,6 +3,7 @@
  * made the window appear.
  */
 import { expect, test } from "../src/fixtures.js";
+import { INBOX_LIST, listOnScreen } from "../src/lists.js";
 import { BRIEF_URL, MAILBOX_URL } from "../src/urls.js";
 
 test.describe("Compose over an open message", () => {
@@ -17,6 +18,7 @@ test.describe("Compose over an open message", () => {
 		await expect(sidebar).toBeVisible({ timeout: 20_000 });
 		await sidebar.getByRole("link", { name: /inbox/i }).click();
 		await page.waitForURL(MAILBOX_URL);
+		await listOnScreen(page, INBOX_LIST);
 
 		await page.locator("a[href*='selectedMessageId']").first().click();
 		await page.waitForURL(/selectedMessageId=/);
@@ -125,6 +127,7 @@ test.describe("Compose off a route that cannot mount it", () => {
 
 		await sidebar.getByRole("link", { name: /inbox/i }).click();
 		await page.waitForURL(MAILBOX_URL);
+		await listOnScreen(page, INBOX_LIST);
 		await expect(
 			page.locator("a[href*='selectedMessageId']").first(),
 		).toBeVisible({ timeout: 30_000 });

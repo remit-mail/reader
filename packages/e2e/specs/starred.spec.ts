@@ -29,6 +29,7 @@
 import type { Page } from "@playwright/test";
 import { waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
+import { INBOX_LIST, listOnScreen } from "../src/lists.js";
 import { MAILBOX_URL } from "../src/urls.js";
 
 /** A row in the Starred pane. Button role, never the inbox's anchors. */
@@ -85,6 +86,7 @@ const openInboxMessage = async (page: Page, subject: string) => {
 	await expect(sidebar).toBeVisible({ timeout: 20_000 });
 	await sidebar.getByRole("link", { name: /inbox/i }).click();
 	await page.waitForURL(MAILBOX_URL);
+	await listOnScreen(page, INBOX_LIST);
 	await expect(
 		page.locator("a[href*='selectedMessageId']").first(),
 	).toBeVisible({ timeout: 30_000 });

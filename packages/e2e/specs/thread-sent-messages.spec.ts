@@ -18,6 +18,7 @@
 import type { ApiClient } from "../src/api.js";
 import { waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
+import { INBOX_LIST, listOnScreen } from "../src/lists.js";
 import { MAILBOX_URL } from "../src/urls.js";
 
 /**
@@ -99,6 +100,7 @@ test.describe("A conversation spanning INBOX and Sent", () => {
 		await expect(sidebar).toBeVisible({ timeout: 20_000 });
 		await sidebar.getByRole("link", { name: /inbox/i }).click();
 		await page.waitForURL(MAILBOX_URL);
+		await listOnScreen(page, INBOX_LIST);
 
 		await page
 			.getByText(run.conversation.receivedSubject, { exact: true })
