@@ -5,6 +5,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { BriefPane } from "@/components/mail/BriefPane";
 
+function BriefReadingPane() {
+	return <BriefPane.Reading />;
+}
+
 export const Route = createFileRoute("/mail/brief/")({
-	component: BriefPane.Reading,
+	component: BriefReadingPane,
 });
