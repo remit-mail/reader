@@ -22,6 +22,8 @@ let harness: DomHarness | undefined;
 let http: HttpMock | undefined;
 
 afterEach(() => {
+	releaseMailboxes?.();
+	releaseMailboxes = undefined;
 	harness?.close();
 	harness = undefined;
 	http?.restore();
@@ -66,8 +68,23 @@ const ComposeProbe = () => {
 	);
 };
 
-const mount = async (router: AnyRouter): Promise<DomHarness> => {
-	http = mockFetch((call) => {
+let releaseMailboxes: (() => void) | undefined;
+
+/** The mailbox list held open, so the target is unresolved at press time. */
+const mountWithHeldMailboxes = async (
+	router: AnyRouter,
+): Promise<DomHarness> => {
+	const held = new Promise<void>((resolve) => {
+		releaseMailboxes = resolve;
+	});
+	return mount(router, held);
+};
+
+const mount = async (
+	router: AnyRouter,
+	holdMailboxes?: Promise<void>,
+): Promise<DomHarness> => {
+	http = mockFetch(async (call) => {
 		if (call.path.endsWith("/config")) {
 			return {
 				accounts: [
@@ -80,6 +97,7 @@ const mount = async (router: AnyRouter): Promise<DomHarness> => {
 			};
 		}
 		if (call.path.endsWith("/mailboxes")) {
+			if (holdMailboxes) await holdMailboxes;
 			return { items: [{ mailboxId: INBOX_ID, fullPath: "INBOX" }] };
 		}
 		return {};
@@ -170,6 +188,27 @@ describe("opening compose over an open message (#703)", () => {
 		const mounted = await mount(router);
 
 		const button = await press(mounted);
+
+		assert.equal(button.getAttribute("data-open"), "true");
+		assert.equal(router.history.location.pathname, `/mail/${INBOX_ID}`);
+	});
+
+	it("holds a press made before the target mailbox is known", async () => {
+		const router = routerAt("/mail/outbox");
+		const mounted = await mountWithHeldMailboxes(router);
+
+		const button = mounted.byText("button", "Compose");
+		mounted.click(button);
+		await mounted.flush();
+
+		// Nothing to mount the surface yet, so nothing is open — and the press is
+		// not thrown away either.
+		assert.equal(button.getAttribute("data-open"), "false");
+		assert.equal(router.history.location.pathname, "/mail/outbox");
+
+		releaseMailboxes?.();
+		await mounted.flush();
+		await mounted.wait(50);
 
 		assert.equal(button.getAttribute("data-open"), "true");
 		assert.equal(router.history.location.pathname, `/mail/${INBOX_ID}`);

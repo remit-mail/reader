@@ -103,6 +103,29 @@ export const ComposeProvider = ({
 		}
 	}, [polledMessage, pollingMessageId, queryClient]);
 
+	// A compose pressed before the target mailbox has resolved. Held rather than
+	// dropped: the press is a request, and a mailbox list a few hundred
+	// milliseconds behind the keystroke is not a reason to answer it with
+	// nothing. Compose state stays closed until there is a route to mount it.
+	const pendingComposeRef = useRef<Omit<ComposeState, "isOpen"> | null>(null);
+
+	const openInTargetMailbox = useCallback(
+		(params: Omit<ComposeState, "isOpen">, mailboxId: string) => {
+			startTransition(() => {
+				setState({ ...params, isOpen: true });
+			});
+			navigate({ to: "/mail/$mailboxId", params: { mailboxId } });
+		},
+		[navigate],
+	);
+
+	useEffect(() => {
+		const pending = pendingComposeRef.current;
+		if (!pending || !targetMailboxId) return;
+		pendingComposeRef.current = null;
+		openInTargetMailbox(pending, targetMailboxId);
+	}, [targetMailboxId, openInTargetMailbox]);
+
 	// Opening compose also puts the surface on screen: only a mailbox route
 	// mounts `FullCompose`, and only with no thread in the pane it takes over.
 	const openCompose = useCallback(
@@ -112,14 +135,11 @@ export const ComposeProvider = ({
 				search.selectedMessageId ?? search.selectedThreadId,
 			);
 			if (!hostsComposeSurface(location.pathname)) {
-				if (!targetMailboxId) return;
-				startTransition(() => {
-					setState({ ...params, isOpen: true });
-				});
-				navigate({
-					to: "/mail/$mailboxId",
-					params: { mailboxId: targetMailboxId },
-				});
+				if (!targetMailboxId) {
+					pendingComposeRef.current = params;
+					return;
+				}
+				openInTargetMailbox(params, targetMailboxId);
 				return;
 			}
 			startTransition(() => {
@@ -136,7 +156,13 @@ export const ComposeProvider = ({
 				}),
 			});
 		},
-		[navigate, location.pathname, location.search, targetMailboxId],
+		[
+			navigate,
+			location.pathname,
+			location.search,
+			targetMailboxId,
+			openInTargetMailbox,
+		],
 	);
 
 	const closeCompose = useCallback(() => {
