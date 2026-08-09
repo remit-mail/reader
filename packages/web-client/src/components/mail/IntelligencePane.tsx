@@ -6,7 +6,6 @@ import {
 	type SimilarMessageLinkComponent,
 	type SimilarState,
 } from "@remit/ui";
-import { Link } from "@tanstack/react-router";
 import { Sparkles } from "lucide-react";
 import { useCallback, useState } from "react";
 import { useIntelligenceData } from "@/hooks/useIntelligenceData";
@@ -15,6 +14,7 @@ import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
 import { isRescueCandidate } from "@/lib/rescue-candidates";
 import { recordRescueSentToJunk } from "@/lib/rescue-telemetry";
 import { useTelemetry } from "@/lib/telemetry-context";
+import { NavLink } from "@/routing";
 
 export interface IntelligencePaneProps {
 	onClose: () => void;
@@ -315,15 +315,16 @@ function WiredPanel({
 		ariaLabel,
 		children,
 	}) => (
-		<Link
+		<NavLink
 			to="/mail/$mailboxId"
 			params={{ mailboxId: rowMailboxId }}
 			search={(prev) => ({ ...prev, selectedMessageId: messageId })}
+			variant="row"
 			className={className}
 			aria-label={ariaLabel}
 		>
 			{children}
-		</Link>
+		</NavLink>
 	);
 
 	if (!data) {

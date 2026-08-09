@@ -10,12 +10,7 @@ import type {
 import type { NavAccount, NavLinkComponent, NavMailboxRole } from "@remit/ui";
 import { NavSidebar } from "@remit/ui";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-	Link,
-	useLocation,
-	useNavigate,
-	useParams,
-} from "@tanstack/react-router";
+import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -30,6 +25,7 @@ import {
 	removeSavedSearch,
 	saveSearch,
 } from "@/lib/saved-searches";
+import { NavLink } from "@/routing";
 
 interface MailSidebarAdapterProps {
 	accounts: RemitImapAccountResponse[];
@@ -232,21 +228,24 @@ export function MailSidebarAdapter({
 	}) => {
 		if (navId === "brief") {
 			return (
-				<Link
+				<NavLink
 					to="/mail"
 					search={{ q: undefined, selectedMessageId: undefined }}
+					// Every other mail list lives under /mail, so the default prefix
+					// match would leave the brief marked current on all of them.
+					activeOptions={{ exact: true, includeSearch: false }}
 					onClick={() => onClick?.()}
 					className={className}
 					aria-label={ariaLabel}
 					title={title}
 				>
 					{children}
-				</Link>
+				</NavLink>
 			);
 		}
 		if (navId === "outbox") {
 			return (
-				<Link
+				<NavLink
 					to="/mail/outbox"
 					search={{ q: undefined, selectedOutboxMessageId: undefined }}
 					onClick={() => onClick?.()}
@@ -255,12 +254,12 @@ export function MailSidebarAdapter({
 					title={title}
 				>
 					{children}
-				</Link>
+				</NavLink>
 			);
 		}
 		if (navId === "flagged") {
 			return (
-				<Link
+				<NavLink
 					to="/mail/flagged"
 					search={{ q: undefined, selectedMessageId: undefined }}
 					onClick={() => onClick?.()}
@@ -269,12 +268,12 @@ export function MailSidebarAdapter({
 					title={title}
 				>
 					{children}
-				</Link>
+				</NavLink>
 			);
 		}
 		if (navId === "settings") {
 			return (
-				<Link
+				<NavLink
 					to="/settings/accounts"
 					onClick={() => onClick?.()}
 					className={className}
@@ -282,11 +281,11 @@ export function MailSidebarAdapter({
 					title={title}
 				>
 					{children}
-				</Link>
+				</NavLink>
 			);
 		}
 		return (
-			<Link
+			<NavLink
 				to="/mail/$mailboxId"
 				params={{ mailboxId: navId }}
 				// Drop any stale search query / selected message when switching mailbox.
@@ -300,7 +299,7 @@ export function MailSidebarAdapter({
 				title={title}
 			>
 				{children}
-			</Link>
+			</NavLink>
 		);
 	};
 
