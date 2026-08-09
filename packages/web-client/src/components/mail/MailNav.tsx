@@ -10,11 +10,11 @@
  */
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import { useAppShellLayout } from "@remit/ui";
-import { Link } from "@tanstack/react-router";
 import { LogOut, Settings } from "lucide-react";
 import { AccountSession } from "@/auth/AccountSession";
 import { MailSidebarAdapter } from "@/components/mail/MailSidebarAdapter";
 import { BugReportButton } from "@/components/ui/BugReportButton";
+import { NavLink } from "@/routing";
 
 interface MailNavProps {
 	accounts: RemitImapAccountResponse[];
@@ -39,14 +39,10 @@ export function MailNav({ accounts, onMailboxSelect }: MailNavProps) {
 				/>
 			</div>
 			<div className="border-t border-line px-2 py-2">
-				<Link
-					to="/settings/accounts"
-					onClick={onMailboxSelect}
-					className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm text-fg-muted transition-colors hover:bg-surface hover:text-fg"
-				>
+				<NavLink to="/settings/accounts" onClick={onMailboxSelect}>
 					<Settings className="size-4 shrink-0" />
 					<span className="flex-1 truncate text-left">Settings</span>
-				</Link>
+				</NavLink>
 				<BugReportButton />
 				<AccountSession>
 					{({ signOut }) => (

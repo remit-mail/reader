@@ -56,6 +56,31 @@
 	},
 	"overrides": [
 		{
+			"includes": [
+				"packages/web-client/src/**/*.ts",
+				"packages/web-client/src/**/*.tsx",
+				"!packages/web-client/src/routes/**",
+				"!packages/web-client/src/routing/**"
+			],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "warn",
+							"options": {
+								"paths": {
+									"@tanstack/react-router": {
+										"importNames": ["Link"],
+										"message": "Use NavLink from @/routing: it carries the route table's own type inference, so an illegal route or param set fails to compile."
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		{
 			"includes": ["npm-scripts/lib/*.test.mjs"],
 			"linter": {
 				"rules": {
