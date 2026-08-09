@@ -17,6 +17,8 @@ export interface NavLinkSurfaceProps
 	 */
 	current?: NavLinkCurrent;
 	ref?: Ref<HTMLAnchorElement>;
+	/** `data-status` is what the router's link props mark an active link with. */
+	[key: `data-${string}`]: unknown;
 }
 
 const OFFSET_RING =

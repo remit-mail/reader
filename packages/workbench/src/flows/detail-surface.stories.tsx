@@ -2,7 +2,7 @@ import { NavLinkSurface } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { type ComponentProps, type MouseEvent, useState } from "react";
 import { expect, fireEvent, userEvent, within } from "storybook/test";
-import { phoneFrame, phoneParams } from "../lib/story-frame.js";
+import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
 
 /**
  * The surfaces the route mounts into the reading pane (#713), and the link that
@@ -44,9 +44,14 @@ const NOTHING_ACTIVATED = "nothing activated";
  * the anchor's own handler. Every link cancels its navigation so the story can
  * survive being clicked; nothing else about the event is touched.
  */
-function NavLinkMatrix({ width }: { width?: number }) {
+function NavLinkMatrix({
+	width = 320,
+	shown = variants,
+}: {
+	width?: number;
+	shown?: NavLinkVariant[];
+}) {
 	const [activated, setActivated] = useState(NOTHING_ACTIVATED);
-	const shown = width ? variants.slice(0, 1) : variants;
 
 	const activate =
 		(label: string) => (event: MouseEvent<HTMLAnchorElement>) => {
@@ -57,7 +62,7 @@ function NavLinkMatrix({ width }: { width?: number }) {
 	return (
 		<div
 			className="flex flex-col gap-5 bg-canvas p-4 text-fg"
-			style={{ width: width ?? 320 }}
+			style={{ width }}
 		>
 			{shown.map((variant) => (
 				<section className="flex flex-col items-start gap-1" key={variant}>
@@ -103,7 +108,7 @@ export const NavLinkVariants: Story = {
 export const NavLinkPhone: Story = {
 	parameters: phoneParams,
 	decorators: [phoneFrame],
-	render: () => <NavLinkMatrix width={390} />,
+	render: () => <NavLinkMatrix shown={["nav"]} width={PHONE_WIDTH} />,
 };
 
 /**
@@ -117,9 +122,7 @@ export const NavLinkIsARealAnchor: Story = {
 		const canvas = within(canvasElement);
 		for (const variant of variants) {
 			for (const destination of destinations) {
-				const link = canvas.getByTestId(
-					`link-${variant}-${destination.id}`,
-				) as HTMLElement;
+				const link = canvas.getByTestId(`link-${variant}-${destination.id}`);
 				await expect(link.tagName).toBe("A");
 				await expect(link).toHaveAttribute("href", destination.href);
 			}
