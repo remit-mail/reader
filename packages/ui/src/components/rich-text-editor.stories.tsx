@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { expect, userEvent, waitFor } from "storybook/test";
 import { sanitizeAdoptedHtml } from "../lib/adopted-html.js";
 import { ComposeLanguageChip } from "./compose-language-chip.js";
@@ -295,6 +295,12 @@ const staleSpellcheck: SpellcheckOptions = {
 				),
 			});
 		},
+		suggest: (request) =>
+			Promise.resolve({
+				requestId: request.requestId,
+				word: request.word,
+				suggestions: [],
+			}),
 		close: () => {},
 	}),
 };
@@ -404,6 +410,275 @@ export const SpellcheckStaleAnswer: Story = {
 		await expect(spellMarks(editable)).toHaveLength(0);
 		await expect(editable.textContent).toBe(MISSPELT);
 	},
+};
+
+const MISSPELT_MESSAGE = [
+	"Ths is the agenda for tomorow.",
+	"I attachd the budgt figures and the meetign notes,",
+	"and will confrm the schedual seperately.",
+].join(" ");
+
+/**
+ * The worker again, with the suggestions held back long enough to see the menu
+ * open without them. A slow engine is the normal case, not the exception: the
+ * menu is up on the click and the rows arrive after it.
+ */
+const slowSuggestions = (
+	delayMs: number,
+	onAddWord?: (word: string) => void,
+): SpellcheckOptions => ({
+	onAddWord,
+	provider: async (language) => {
+		const provider = await openSpellcheckWorker(language);
+		if (!provider) return null;
+		return {
+			...provider,
+			suggest: (request) =>
+				new Promise((resolve) => {
+					setTimeout(() => resolve(provider.suggest(request)), delayMs);
+				}),
+		};
+	},
+});
+
+const markRect = (editable: HTMLElement, word: string): DOMRect => {
+	for (const range of spellMarks(editable)) {
+		const text = range.startContainer.textContent ?? "";
+		if (text.slice(range.startOffset, range.endOffset) !== word) continue;
+		return (range as Range).getBoundingClientRect();
+	}
+	throw new Error(`"${word}" carries no mark`);
+};
+
+const centreOf = (box: DOMRect) => ({
+	clientX: box.left + box.width / 2,
+	clientY: box.top + box.height / 2,
+});
+
+const rightClickOn = (editable: HTMLElement, word: string): void => {
+	editable.dispatchEvent(
+		new MouseEvent("contextmenu", {
+			bubbles: true,
+			cancelable: true,
+			...centreOf(markRect(editable, word)),
+		}),
+	);
+};
+
+const tapOn = (editable: HTMLElement, word: string): void => {
+	editable.dispatchEvent(
+		new PointerEvent("pointerup", {
+			bubbles: true,
+			pointerType: "touch",
+			...centreOf(markRect(editable, word)),
+		}),
+	);
+};
+
+const menuRows = (
+	canvasElement: HTMLElement,
+	testId: string,
+): HTMLElement[] => [
+	...canvasElement.querySelectorAll<HTMLElement>(`[data-testid=${testId}]`),
+];
+
+/**
+ * The correction menu over a marked word: up on the click with rows standing in
+ * for suggestions that have not arrived, filled when they do, and one undo away
+ * from the word that was there before.
+ */
+export const SpellcheckSuggestions: Story = {
+	name: "Spellcheck suggestions",
+	args: {
+		initialHtml: `<p>${MISSPELT}</p>`,
+		lang: "en",
+		spellcheck: slowSuggestions(600),
+	},
+	play: async ({ canvasElement }) => {
+		const editable = writingSurface(canvasElement);
+		await waitFor(() => expect(spellMarks(editable).length).toBe(3), {
+			timeout: 5000,
+		});
+
+		rightClickOn(editable, "Ths");
+		await waitFor(() =>
+			expect(
+				canvasElement.querySelector("[data-testid=spell-menu]"),
+			).toBeTruthy(),
+		);
+		await expect(
+			menuRows(canvasElement, "spell-suggestion-skeleton"),
+		).toHaveLength(3);
+
+		await waitFor(
+			() =>
+				expect(
+					menuRows(canvasElement, "spell-suggestion").map(
+						(row) => row.textContent,
+					),
+				).toEqual(["The", "This", "Than", "That", "Them"]),
+			{ timeout: 5000 },
+		);
+
+		const [first] = menuRows(canvasElement, "spell-suggestion");
+		if (!first) throw new Error("no suggestion to pick");
+		await userEvent.click(first);
+
+		await expect(editable.textContent).toBe(
+			MISSPELT.replace("Ths report", "The report"),
+		);
+		await waitFor(() => expect(spellMarks(editable).length).toBe(2), {
+			timeout: 5000,
+		});
+
+		editable.focus();
+		await userEvent.keyboard("{Control>}z{/Control}");
+		await waitFor(() => expect(editable.textContent).toBe(MISSPELT), {
+			timeout: 5000,
+		});
+	},
+};
+
+/**
+ * Ignoring a word takes its marks off for as long as the composer is open, and
+ * later passes over the same text leave it alone. Nothing is written down: the
+ * next composer marks it again.
+ */
+export const SpellcheckSessionIgnore: Story = {
+	name: "Spellcheck ignores a word for the session",
+	args: {
+		initialHtml: `<p>${MISSPELT}</p>`,
+		lang: "en",
+		spellcheck: workerSpellcheck,
+	},
+	play: async ({ canvasElement }) => {
+		const editable = writingSurface(canvasElement);
+		await waitFor(() => expect(spellMarks(editable).length).toBe(3), {
+			timeout: 5000,
+		});
+
+		rightClickOn(editable, "attachd");
+		const [ignore] = await waitFor(() => {
+			const rows = menuRows(canvasElement, "spell-ignore");
+			expect(rows).toHaveLength(1);
+			return rows;
+		});
+		if (!ignore) throw new Error("the menu offers no way to ignore");
+		await userEvent.click(ignore);
+
+		await waitFor(() => expect(spellMarks(editable).length).toBe(2));
+
+		editable.focus();
+		await userEvent.click(editable);
+		await userEvent.keyboard(" Attachd again.");
+		await waitFor(
+			() =>
+				expect(
+					spellMarks(editable).filter((range) => {
+						const text = range.startContainer.textContent ?? "";
+						return (
+							text.slice(range.startOffset, range.endOffset).toLowerCase() ===
+							"attachd"
+						);
+					}),
+				).toHaveLength(0),
+			{ timeout: 5000 },
+		);
+	},
+};
+
+/**
+ * The same rows below the desktop gate: a tap in a marked word raises the sheet
+ * rather than a popover under the thumb that opened it.
+ */
+export const SpellcheckOnTouch: Story = {
+	name: "Spellcheck corrections on a phone",
+	globals: { viewport: { value: "mobile" } },
+	args: {
+		initialHtml: `<p>${MISSPELT}</p>`,
+		lang: "en",
+		spellcheck: workerSpellcheck,
+	},
+	decorators: [
+		(Story) => (
+			<div
+				data-testid="body-area"
+				className="relative flex h-[560px] w-[360px] flex-col overflow-hidden rounded-md border border-line bg-canvas"
+			>
+				<Story />
+			</div>
+		),
+	],
+	play: async ({ canvasElement }) => {
+		const editable = writingSurface(canvasElement);
+		await waitFor(() => expect(spellMarks(editable).length).toBe(3), {
+			timeout: 5000,
+		});
+
+		tapOn(editable, "redy");
+		await waitFor(() =>
+			expect(
+				canvasElement.querySelector("[data-testid=spell-menu]"),
+			).toBeTruthy(),
+		);
+		await expect(
+			canvasElement.querySelector("[aria-label='Close corrections']"),
+		).toBeTruthy();
+	},
+};
+
+/**
+ * The whole experience, hands on: type into a message full of misspellings,
+ * right-click a squiggle (or put the caret in one and press Ctrl+.), pick a
+ * correction, ignore a word, or add it to the list this mount keeps. The
+ * theme toolbar switches both surfaces.
+ */
+const SpellcheckWorkbench = () => {
+	const [added, setAdded] = useState<string[]>([]);
+	const spellcheck = useMemo(
+		() => slowSuggestions(450, (word) => setAdded((words) => [...words, word])),
+		[],
+	);
+
+	return (
+		<>
+			<RichTextEditor
+				initialHtml={`<p>${MISSPELT_MESSAGE}</p><p>Anything you type here is checked the same way.</p>`}
+				lang="en"
+				spellcheck={spellcheck}
+				trailing={pinnedControls}
+			/>
+			<p
+				data-testid="spell-added-words"
+				className="shrink-0 border-t border-line px-3 py-2 text-xs text-fg-subtle"
+			>
+				{added.length === 0
+					? "Added to the dictionary: nothing yet."
+					: `Added to the dictionary: ${added.join(", ")}.`}
+			</p>
+		</>
+	);
+};
+
+export const SpellcheckPlayground: Story = {
+	name: "Spellcheck playground",
+	render: () => <SpellcheckWorkbench />,
+};
+
+export const SpellcheckPlaygroundOnTouch: Story = {
+	name: "Spellcheck playground on a phone",
+	globals: { viewport: { value: "mobile" } },
+	render: () => <SpellcheckWorkbench />,
+	decorators: [
+		(Story) => (
+			<div
+				data-testid="body-area"
+				className="relative flex h-[640px] w-[360px] flex-col overflow-hidden rounded-md border border-line bg-canvas"
+			>
+				<Story />
+			</div>
+		),
+	],
 };
 
 /**

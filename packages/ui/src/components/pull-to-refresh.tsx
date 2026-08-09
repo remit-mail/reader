@@ -1,31 +1,13 @@
 import type { ReactElement } from "react";
-import { useEffect, useState } from "react";
 import ReactPullToRefresh from "react-simple-pull-to-refresh";
 import { DESKTOP_MEDIA_QUERY } from "../lib/layout-breakpoints.js";
+import { useMatchMedia } from "../lib/use-match-media.js";
 
 export interface PullToRefreshProps {
 	children: ReactElement;
 	onRefresh: () => Promise<unknown>;
 	isRefreshing?: boolean;
 }
-
-const useMatchMedia = (query: string): boolean => {
-	const [matches, setMatches] = useState(() => {
-		if (typeof window === "undefined" || !window.matchMedia) return false;
-		return window.matchMedia(query).matches;
-	});
-
-	useEffect(() => {
-		if (typeof window === "undefined" || !window.matchMedia) return;
-		const mql = window.matchMedia(query);
-		setMatches(mql.matches);
-		const handler = (event: MediaQueryListEvent) => setMatches(event.matches);
-		mql.addEventListener("change", handler);
-		return () => mql.removeEventListener("change", handler);
-	}, [query]);
-
-	return matches;
-};
 
 /**
  * Wraps a scrollable list with a pull-to-refresh gesture on mobile. Below the

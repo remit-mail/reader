@@ -17,6 +17,7 @@ import {
 import {
 	dictionaryFor,
 	findMisspellings,
+	suggestionsFor,
 } from "./rich-text-spellcheck-words.js";
 
 interface WorkerScope {
@@ -84,6 +85,37 @@ describe("the stub dictionary", () => {
 			"a single letter is not a word to check",
 		);
 	});
+
+	it("offers the words a keystroke or two away, nearest first", () => {
+		const words = dictionaryFor("en");
+		assert.ok(words);
+		assert.deepEqual(suggestionsFor("redy", words), ["ready", "read", "very"]);
+		assert.deepEqual(
+			suggestionsFor("recieve", words),
+			["receive", "received"],
+			"a swapped pair of letters is one keystroke, not two",
+		);
+		assert.deepEqual(
+			suggestionsFor("Attachd", words),
+			["Attached"],
+			"a suggestion arrives dressed the way the word was written",
+		);
+		assert.equal(
+			suggestionsFor("Ths", words).length,
+			5,
+			"a short word has many neighbours, and the menu takes five",
+		);
+		assert.deepEqual(
+			suggestionsFor("qwertyuiop", words),
+			[],
+			"nothing near it is not the same as anything at all",
+		);
+		assert.deepEqual(
+			suggestionsFor("report", words),
+			[],
+			"a word it holds needs no correcting",
+		);
+	});
 });
 
 describe("a provider over a worker", () => {
@@ -142,6 +174,41 @@ describe("a provider over a worker", () => {
 		assert.equal(first?.findings.length, 1);
 		assert.equal(first?.findings[0]?.spanId, "a");
 		assert.deepEqual(second?.findings, []);
+		provider.close();
+	});
+
+	it("answers a correction menu one word at a time", async () => {
+		const provider = openSpellProvider("en", port);
+		const response = await provider.suggest({
+			requestId: "9",
+			language: "en",
+			word: "redy",
+		});
+
+		assert.equal(response.requestId, "9");
+		assert.equal(response.word, "redy");
+		assert.deepEqual(response.suggestions, ["ready", "read", "very"]);
+		provider.close();
+	});
+
+	it("tells a waiting menu when the worker stops answering", async () => {
+		let raise: ((detail: string) => void) | undefined;
+		const provider = openSpellProvider("en", {
+			...port,
+			post: () => {},
+			listen: () => {},
+			fail: (listener) => {
+				raise = listener;
+			},
+		});
+		const asking = provider.suggest({
+			requestId: "1",
+			language: "en",
+			word: "redy",
+		});
+		raise?.("worker exited");
+
+		await assert.rejects(asking, /worker exited/);
 		provider.close();
 	});
 

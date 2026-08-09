@@ -1,4 +1,5 @@
 import { EllipsisVertical } from "lucide-react";
+import type { Ref } from "react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn.js";
 import { Button } from "./button.js";
@@ -9,6 +10,83 @@ export interface PopoverMenuItem {
 	label: string;
 	icon?: ReactNode;
 	onSelect: () => void;
+}
+
+export interface PopoverMenuPanelProps {
+	label?: string;
+	children: ReactNode;
+	className?: string;
+	ref?: Ref<HTMLDivElement>;
+	onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
+	"data-testid"?: string;
+}
+
+/**
+ * The menu itself, without a trigger: the surface, the scrolling and the
+ * rounding every dropdown in the kit shares. A menu that hangs off a button
+ * gets it through {@link PopoverMenu}; one anchored to something else — the
+ * misspelt word under the pointer — positions this and keeps the same chrome.
+ */
+export function PopoverMenuPanel({
+	label,
+	children,
+	className,
+	ref,
+	onKeyDown,
+	"data-testid": testId,
+}: PopoverMenuPanelProps) {
+	return (
+		<div
+			ref={ref}
+			role="menu"
+			aria-label={label}
+			tabIndex={-1}
+			onKeyDown={onKeyDown}
+			data-testid={testId}
+			className={cn(
+				"z-50 flex max-h-[60dvh] min-w-44 flex-col overflow-y-auto overscroll-contain rounded-md border border-line bg-surface py-1 shadow-lg outline-none",
+				className,
+			)}
+		>
+			{children}
+		</div>
+	);
+}
+
+export interface PopoverMenuRowProps {
+	label: string;
+	icon?: ReactNode;
+	onSelect: () => void;
+	className?: string;
+	lang?: string;
+	"data-testid"?: string;
+}
+
+/** One selectable row of a menu panel, at the kit's touch height. */
+export function PopoverMenuRow({
+	label,
+	icon,
+	onSelect,
+	className,
+	lang,
+	"data-testid": testId,
+}: PopoverMenuRowProps) {
+	return (
+		<button
+			type="button"
+			role="menuitem"
+			lang={lang}
+			onClick={onSelect}
+			data-testid={testId}
+			className={cn(
+				"flex min-h-11 items-center gap-3 px-4 py-2.5 text-left text-sm text-fg transition-colors hover:bg-surface-sunken",
+				className,
+			)}
+		>
+			{icon && <span className="shrink-0 text-fg-subtle">{icon}</span>}
+			{label}
+		</button>
+	);
 }
 
 export interface PopoverMenuProps {
@@ -109,32 +187,25 @@ export function PopoverMenu({
 				{triggerText}
 			</Button>
 			{open && (
-				<div
-					role="menu"
+				<PopoverMenuPanel
 					className={cn(
-						"absolute top-full z-50 mt-1 flex max-h-[60dvh] min-w-44 flex-col overflow-y-auto overscroll-contain rounded-md border border-line bg-surface py-1 shadow-lg",
+						"absolute top-full mt-1",
 						align === "end" ? "right-0" : "left-0",
 					)}
 				>
 					{items.map((item) => (
-						<button
+						<PopoverMenuRow
 							key={item.key}
-							type="button"
-							role="menuitem"
-							onClick={() => {
+							label={item.label}
+							icon={item.icon}
+							onSelect={() => {
 								setOpen(false);
 								item.onSelect();
 							}}
-							className="flex min-h-11 items-center gap-3 px-4 py-2.5 text-left text-sm text-fg transition-colors hover:bg-surface-sunken"
-						>
-							{item.icon && (
-								<span className="shrink-0 text-fg-subtle">{item.icon}</span>
-							)}
-							{item.label}
-						</button>
+						/>
 					))}
 					{children}
-				</div>
+				</PopoverMenuPanel>
 			)}
 		</div>
 	);

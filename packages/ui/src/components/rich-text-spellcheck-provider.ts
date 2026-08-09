@@ -10,6 +10,7 @@ import type {
 	SpellProvider,
 	SpellWorkerRequest,
 	SpellWorkerResponse,
+	SuggestResponse,
 } from "./rich-text-spellcheck.js";
 
 export interface SpellWorkerPort {
@@ -24,8 +25,23 @@ export const openSpellProvider = (
 	port: SpellWorkerPort,
 ): SpellProvider => {
 	const pending = new Map<string, (response: CheckResponse) => void>();
+	const asking = new Map<
+		string,
+		{ settle(response: SuggestResponse): void; abandon(reason: Error): void }
+	>();
 	const listeners = new Set<(status: ProviderStatus) => void>();
 	let status: ProviderStatus = { state: "opening", language };
+
+	/**
+	 * A check that never comes back costs a pass; a suggestion that never comes
+	 * back leaves a menu open in front of someone. The one is dropped, the other
+	 * is told.
+	 */
+	const abandonSuggestions = (detail: string): void => {
+		const open = [...asking.values()];
+		asking.clear();
+		for (const request of open) request.abandon(new Error(detail));
+	};
 
 	const publish = (next: ProviderStatus): void => {
 		status = next;
@@ -44,6 +60,18 @@ export const openSpellProvider = (
 				reason: message.reason,
 				detail: message.detail,
 			});
+			abandonSuggestions(message.detail);
+			return;
+		}
+		if (message.type === "suggested") {
+			const request = asking.get(message.requestId);
+			if (!request) return;
+			asking.delete(message.requestId);
+			request.settle({
+				requestId: message.requestId,
+				word: message.word,
+				suggestions: message.suggestions,
+			});
 			return;
 		}
 		const settle = pending.get(message.requestId);
@@ -55,9 +83,10 @@ export const openSpellProvider = (
 			findings: message.findings,
 		});
 	});
-	port.fail((detail) =>
-		publish({ state: "failed", language, reason: "worker", detail }),
-	);
+	port.fail((detail) => {
+		publish({ state: "failed", language, reason: "worker", detail });
+		abandonSuggestions(detail);
+	});
 	port.post({ type: "open", language });
 
 	return {
@@ -74,8 +103,14 @@ export const openSpellProvider = (
 				pending.set(request.requestId, resolve);
 				port.post({ type: "check", ...request });
 			}),
+		suggest: (request) =>
+			new Promise((resolve, reject) => {
+				asking.set(request.requestId, { settle: resolve, abandon: reject });
+				port.post({ type: "suggest", ...request });
+			}),
 		close: () => {
 			pending.clear();
+			asking.clear();
 			listeners.clear();
 			port.terminate();
 		},

@@ -25,6 +25,11 @@ export {
 	type PlainTextEditorProps,
 } from "./components/plain-text-editor.js";
 export {
+	type CorrectionMenuAnchor,
+	RichTextCorrectionMenu,
+	type RichTextCorrectionMenuProps,
+} from "./components/rich-text-correction-menu.js";
+export {
 	htmlToMarkdown,
 	markdownToHtml,
 } from "./components/rich-text-document.js";
@@ -42,11 +47,18 @@ export type {
 	ProviderStatus,
 	SpellcheckOptions,
 	SpellProvider,
+	SuggestRequest,
+	SuggestResponse,
 } from "./components/rich-text-spellcheck.js";
 export {
 	openSpellProvider,
 	type SpellWorkerPort,
 } from "./components/rich-text-spellcheck-provider.js";
+export {
+	normaliseWord,
+	SUGGESTION_LIMIT,
+	suggestionsFor,
+} from "./components/rich-text-spellcheck-words.js";
 export {
 	type ComposeCaret,
 	EMPTY_RICH_TEXT,

@@ -26,6 +26,7 @@ import type {
 import {
 	dictionaryFor,
 	findMisspellings,
+	suggestionsFor,
 } from "./rich-text-spellcheck-words.js";
 
 const SENTENCE = "Ths report is redy today";
@@ -117,6 +118,12 @@ const stubSpellcheck = (
 				held.push(() => resolve(response));
 			});
 		},
+		suggest: (request) =>
+			Promise.resolve({
+				requestId: request.requestId,
+				word: request.word,
+				suggestions: suggestionsFor(request.word, words),
+			}),
 		close: () => {
 			closed += 1;
 		},
