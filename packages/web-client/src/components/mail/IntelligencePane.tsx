@@ -157,7 +157,7 @@ function ReclassifyDialog({
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center">
 			<DialogBackdrop
-				label="Cancel"
+				label="Dismiss reclassify sender"
 				onDismiss={onCancel}
 				className="backdrop-blur-sm"
 			/>

@@ -82,7 +82,7 @@ export const ConfirmDialog = ({
 		// portalled to the body at the same level would cover it.
 		<div className="fixed inset-0 z-[60] flex items-center justify-center">
 			<DialogBackdrop
-				label={cancelLabel}
+				label="Dismiss confirmation"
 				onDismiss={onCancel}
 				className="backdrop-blur-sm"
 			/>

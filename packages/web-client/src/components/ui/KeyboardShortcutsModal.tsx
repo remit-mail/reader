@@ -39,7 +39,7 @@ export const KeyboardShortcutsModal = ({
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center">
 			<DialogBackdrop
-				label="Close"
+				label="Dismiss keyboard shortcuts"
 				onDismiss={onClose}
 				className="backdrop-blur-sm"
 			/>

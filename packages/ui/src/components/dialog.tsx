@@ -75,7 +75,7 @@ export function Dialog({
 						: "items-center justify-center px-4",
 			)}
 		>
-			<DialogBackdrop label={`Close ${title}`} onDismiss={onClose} />
+			<DialogBackdrop label="Dismiss dialog" onDismiss={onClose} />
 			<div
 				ref={dialogRef}
 				role="dialog"
