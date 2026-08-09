@@ -7,8 +7,12 @@
  * wrong list. These exclude the literal lists.
  */
 
-/** A folder: `/mail/<mailboxId>`, never one of the named lists. */
-export const MAILBOX_URL = /\/mail\/(?!brief|flagged|outbox)[^/?#]+/;
+/**
+ * A folder: `/mail/<mailboxId>`, never one of the named lists. The lookahead
+ * spans a whole segment, so a folder genuinely named `briefing` still counts.
+ */
+export const MAILBOX_URL =
+	/\/mail\/(?!(?:brief|flagged|outbox)(?:[/?#]|$))[^/?#]+/;
 
 /** The daily brief, where `/mail` and `/` both land. */
 export const BRIEF_URL = /\/mail\/brief(\?|$)/;
