@@ -10,3 +10,4 @@ export {
 	useOpenPanel,
 } from "./fragment";
 export { NavLink, type NavLinkProps } from "./nav-link";
+export { useOutboxDraftId } from "./outbox-draft";

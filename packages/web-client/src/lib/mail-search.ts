@@ -24,9 +24,12 @@ export const flaggedSearchSchema = listSearch.extend({
 	selectedMessageId: z.string().optional(),
 });
 
-export const outboxSearchSchema = listSearch.extend({
-	selectedOutboxMessageId: z.string().optional(),
-});
+/**
+ * The outbox's open message is a path segment
+ * (`/mail/outbox/draft/<outboxMessageId>`), so the query carries nothing but
+ * the search. An old link's selection param is dropped here.
+ */
+export const outboxSearchSchema = listSearch.extend({});
 
 export const mailboxSearchSchema = listSearch.extend({
 	selectedMessageId: z.string().optional(),
