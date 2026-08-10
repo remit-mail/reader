@@ -276,7 +276,7 @@ jobs:
     needs: [docs-only]
     if: needs['docs-only'].outputs.result != 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
 
       # Keyed on the lockfile because the pinned Playwright version lives there,
