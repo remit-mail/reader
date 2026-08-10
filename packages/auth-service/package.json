@@ -21,7 +21,7 @@
   },
   "scripts": {
     "test:typecheck": "tsgo --noEmit -p tsconfig.json",
-    "test:run": "node --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=94 --test 'src/**/*.test.ts'",
+    "test:run": "node $NODE_TEST_FLAGS --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=94 --test 'src/**/*.test.ts'",
     "test": "npm run test:typecheck && npm run test:run",
     "fix": "biome check --write src"
   },

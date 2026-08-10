@@ -21,6 +21,7 @@ import { spawn } from "node:child_process";
 import { globSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { nodeTestArgs } from "../../../npm-scripts/lib/test-bounds.mjs";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TEST_FILE_SUFFIXES = [".test.ts", ".test.tsx"];
@@ -133,6 +134,7 @@ console.log(
 const child = spawn(
 	process.execPath,
 	[
+		...nodeTestArgs(),
 		"--import",
 		"tsx",
 		"--import",
