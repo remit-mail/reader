@@ -78,9 +78,12 @@ const stageEngine = (): StagedFile[] => {
 };
 
 const stageLanguage = (source: DictionarySource): StagedLanguage => {
-	const manifest = require.resolve(`${source.package}/package.json`);
-	const directory = dirname(manifest);
-	const version = JSON.parse(readFileSync(manifest, "utf8")).version;
+	// Resolved through the package's own entry point: `dictionary-*` declares an
+	// `exports` map, so its package.json is not a resolvable subpath.
+	const directory = dirname(require.resolve(source.package));
+	const version = JSON.parse(
+		readFileSync(join(directory, "package.json"), "utf8"),
+	).version;
 	const licence = licenceIn(directory);
 	const at = (name: string) => `dictionaries/${source.tag}/${name}`;
 	return {

@@ -26,7 +26,7 @@ const engineDir = fileURLToPath(
 const BASE = pathToFileURL(engineDir).href;
 
 const dictionaryDir = (tag: string): string =>
-	dirname(require.resolve(`dictionary-${tag.toLowerCase()}/package.json`));
+	dirname(require.resolve(`dictionary-${tag.toLowerCase()}`));
 
 /** The one path that answers 503, so the download failure has a producer. */
 let refuse: string | null = null;
