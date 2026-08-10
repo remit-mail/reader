@@ -6,7 +6,7 @@ import { DESKTOP_MEDIA_QUERY, useMatchMedia } from "@remit/ui";
  * layout — phones, narrow tablets, and a large tablet in portrait, which is
  * 1024px wide but has no room for the three-pane desktop grid (#682).
  *
- * The CSS-gated mobile chrome (Drawer, ComposeFab) uses `lg:hidden`, and the
+ * The CSS-gated mobile chrome (ComposeFab) uses `lg:hidden`, and the
  * `lg` variant is redefined in `@remit/ui`'s token sheet with the same
  * condition — change `DESKTOP_MEDIA_QUERY` and both move together.
  */

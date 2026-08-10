@@ -1167,6 +1167,7 @@ function MailboxReading() {
 		onToolbarDiscardDraft,
 		onToolbarMove,
 		composeState,
+		handleDeselectIfRemoved,
 	} = useMailboxPane();
 	// The rail's own width gate, not the shell tier: between 1024 and 1280 the
 	// reading pane is mounted but the rail is not, so "enabled" would promise an
@@ -1174,6 +1175,20 @@ function MailboxReading() {
 	const railFits = useAppShellLayout()?.showIntelligencePane ?? false;
 	const hasThread = Boolean(conversation);
 	const canToggleIntelligence = railFits && hasThread;
+
+	// Where the rail does not fit, intelligence is the mobile drawer instead, and
+	// a modal opens only when it is asked for: the thread it was asked for, not a
+	// flag. `intelligenceOpen` is the rail's persisted preference and the
+	// DKIM auto-open sets it on every tier, so reading it here would throw a
+	// scrim over the message the moment one was selected.
+	const [drawerThreadId, setDrawerThreadId] = useState<string | null>(null);
+	const openThreadId = conversation?.threadId ?? null;
+	const drawerOpen =
+		!railFits && openThreadId !== null && drawerThreadId === openThreadId;
+	const openIntelligence = railFits
+		? onToggleIntelligence
+		: () => setDrawerThreadId(openThreadId);
+	const closeIntelligenceDrawer = () => setDrawerThreadId(null);
 
 	const detailPane =
 		composeState.isOpen && !conversation ? (
@@ -1186,9 +1201,7 @@ function MailboxReading() {
 				selectedMessageId={conversation.messageId}
 				authenticity={conversation.authenticity}
 				onOpenIntelligence={
-					conversation.authenticity?.dkimMismatch
-						? onToggleIntelligence
-						: undefined
+					conversation.authenticity?.dkimMismatch ? openIntelligence : undefined
 				}
 				composeRequest={toolbarComposeRequest}
 				onComposeClose={onClearComposeRequest}
@@ -1198,37 +1211,54 @@ function MailboxReading() {
 		);
 
 	return (
-		<section className="flex h-full w-full min-w-0 flex-col bg-canvas">
-			<MessageToolbar
-				hasThread={hasThread}
-				intelligenceOpen={canToggleIntelligence && intelligenceOpen}
-				canToggleIntelligence={canToggleIntelligence}
-				onToggleIntelligence={onToggleIntelligence}
-				onReply={hasThread ? onToolbarReply : undefined}
-				onReplyAll={hasThread ? onToolbarReplyAll : undefined}
-				onForward={hasThread ? onToolbarForward : undefined}
-				canDelete={hasThread || hasRemitDraftOpen}
-				onDelete={
-					hasThread
-						? onToolbarDelete
-						: hasRemitDraftOpen
-							? onToolbarDiscardDraft
+		<>
+			<section className="flex h-full w-full min-w-0 flex-col bg-canvas">
+				<MessageToolbar
+					hasThread={hasThread}
+					intelligenceOpen={canToggleIntelligence && intelligenceOpen}
+					canToggleIntelligence={canToggleIntelligence}
+					onToggleIntelligence={onToggleIntelligence}
+					onReply={hasThread ? onToolbarReply : undefined}
+					onReplyAll={hasThread ? onToolbarReplyAll : undefined}
+					onForward={hasThread ? onToolbarForward : undefined}
+					canDelete={hasThread || hasRemitDraftOpen}
+					onDelete={
+						hasThread
+							? onToolbarDelete
+							: hasRemitDraftOpen
+								? onToolbarDiscardDraft
+								: undefined
+					}
+					onToggleStar={hasThread ? onToolbarStar : undefined}
+					isStarred={selectedThread?.hasStars}
+					moveContext={
+						hasThread && mailboxAccountId
+							? {
+									accountId: mailboxAccountId,
+									currentMailboxId: mailboxId,
+									onMove: onToolbarMove,
+								}
 							: undefined
-				}
-				onToggleStar={hasThread ? onToolbarStar : undefined}
-				isStarred={selectedThread?.hasStars}
-				moveContext={
-					hasThread && mailboxAccountId
-						? {
-								accountId: mailboxAccountId,
-								currentMailboxId: mailboxId,
-								onMove: onToolbarMove,
-							}
-						: undefined
-				}
-			/>
-			<div className="min-h-0 flex-1 overflow-hidden">{detailPane}</div>
-		</section>
+					}
+				/>
+				<div className="min-h-0 flex-1 overflow-hidden">{detailPane}</div>
+			</section>
+			<Drawer
+				isOpen={drawerOpen}
+				onClose={closeIntelligenceDrawer}
+				ariaLabel="Message details"
+				side="right"
+			>
+				<IntelligencePane
+					onClose={closeIntelligenceDrawer}
+					thread={selectedThread}
+					mailboxId={mailboxId}
+					accountId={mailboxAccountId}
+					hideCloseButton
+					onAfterOptimisticRemove={handleDeselectIfRemoved}
+				/>
+			</Drawer>
+		</>
 	);
 }
 

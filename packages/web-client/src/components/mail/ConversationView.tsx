@@ -101,7 +101,7 @@ const LoadingSkeleton = () => (
  * the body: 'This message claims to be a company but was sent from a personal
  * mailbox.' with a 'Why?' link that opens/highlights this section."
  */
-function AuthenticityBanner({
+export function AuthenticityBanner({
 	authenticity,
 	onOpenIntelligence,
 }: {
@@ -120,17 +120,17 @@ function AuthenticityBanner({
 				{authenticity.dkimDomain
 					? ` via ${authenticity.dkimDomain}`
 					: " from a different domain"}
-				.
+				.{" "}
+				{onOpenIntelligence && (
+					<button
+						type="button"
+						onClick={onOpenIntelligence}
+						className="text-xs font-medium text-danger hover:underline"
+					>
+						Why?
+					</button>
+				)}
 			</p>
-			{onOpenIntelligence && (
-				<button
-					type="button"
-					onClick={onOpenIntelligence}
-					className="shrink-0 text-2xs font-medium text-danger hover:underline"
-				>
-					Why?
-				</button>
-			)}
 		</div>
 	);
 }
