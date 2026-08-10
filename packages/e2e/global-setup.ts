@@ -64,6 +64,21 @@ const CONVERSATION = {
 };
 
 /**
+ * INBOX mail whose DKIM signature names a domain the From address does not, so
+ * `authenticity.dkimMismatch` comes back true and the reading pane renders the
+ * danger banner with its "Why?" link. The mid-width spec works from this.
+ *
+ * It carries no Authentication-Results, so the placement heuristic has no DMARC
+ * verdict to demote on and the message stays in the inbox where the spec looks
+ * for it.
+ */
+const DKIM_MISMATCH = {
+	subject: "Your account needs attention",
+	fromDomain: "northwind-bank.test",
+	signingDomain: "bulk-relay.test",
+};
+
+/**
  * One message in Junk, from a sender who has a display name — the ordinary
  * shape, and the one the address lookup used to miss. The spam-rescue spec
  * works from this.
@@ -138,6 +153,20 @@ const globalSetup = async (): Promise<void> => {
 		],
 		"Junk",
 	);
+
+	console.log("e2e setup: appending the dkim-mismatch message over IMAP");
+	await appendMessages(imapUser, [
+		{
+			subject: DKIM_MISMATCH.subject,
+			from: `Northwind Bank <alerts@${DKIM_MISMATCH.fromDomain}>`,
+			headers: [
+				[
+					"DKIM-Signature",
+					`v=1; a=rsa-sha256; d=${DKIM_MISMATCH.signingDomain}; s=s1; h=from:to; b=xxx`,
+				],
+			],
+		},
+	]);
 
 	// The cross-folder conversation. Message-IDs are minted per run so a reused
 	// stack cannot let one run's thread satisfy another's assertions, and the
@@ -237,6 +266,7 @@ const globalSetup = async (): Promise<void> => {
 		seededSubjects: [
 			...SEEDED_SUBJECTS,
 			CONVERSATION.receivedSubject,
+			DKIM_MISMATCH.subject,
 			...classificationFixtures.map((fixture) => fixture.subject),
 		],
 		conversation: {
@@ -249,6 +279,9 @@ const globalSetup = async (): Promise<void> => {
 			subject: fixture.subject,
 			expectedCategory: fixture.expectedCategory,
 		})),
+		dkimMismatchSubject: DKIM_MISMATCH.subject,
+		dkimMismatchFromDomain: DKIM_MISMATCH.fromDomain,
+		dkimMismatchSigningDomain: DKIM_MISMATCH.signingDomain,
 		spamSubject: SPAM_SEED.subject,
 		spamSenderName: SPAM_SEED.senderName,
 		spamSenderEmail: SPAM_SEED.senderEmail,

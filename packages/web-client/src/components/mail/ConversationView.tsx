@@ -6,7 +6,6 @@ import {
 import type { RemitImapMessageAuthenticity } from "@remit/api-http-client/types.gen.ts";
 import { MobileReadingPane } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
-import { ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComposeMode } from "@/components/compose/ComposeProvider";
 import { InlineCompose } from "@/components/compose/InlineCompose";
@@ -18,6 +17,7 @@ import { useMarkAsRead } from "@/hooks/useMarkAsRead";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useSwipeNavigation } from "@/hooks/useSwipeNavigation";
 import { useToggleStar } from "@/hooks/useToggleStar";
+import { AuthenticityBanner } from "./AuthenticityBanner";
 import { MessageCard } from "./MessageCard";
 
 interface ConversationViewProps {
@@ -94,46 +94,6 @@ const LoadingSkeleton = () => (
 		</div>
 	</div>
 );
-
-/**
- * Danger banner rendered above the thread body when DKIM mismatch is detected.
- * Design spec (03-reading-and-intelligence.md): "a danger banner renders above
- * the body: 'This message claims to be a company but was sent from a personal
- * mailbox.' with a 'Why?' link that opens/highlights this section."
- */
-export function AuthenticityBanner({
-	authenticity,
-	onOpenIntelligence,
-}: {
-	authenticity: RemitImapMessageAuthenticity;
-	onOpenIntelligence?: () => void;
-}) {
-	if (!authenticity.dkimMismatch) return null;
-
-	return (
-		<div className="flex items-start gap-2 rounded-none border-b border-danger/20 bg-danger-soft px-5 py-2.5 text-sm">
-			<ShieldAlert className="mt-0.5 size-4 shrink-0 text-danger" />
-			<p className="flex-1 leading-snug text-fg">
-				This message claims to be from{" "}
-				<span className="font-semibold">{authenticity.fromDomain}</span> but was
-				sent
-				{authenticity.dkimDomain
-					? ` via ${authenticity.dkimDomain}`
-					: " from a different domain"}
-				.{" "}
-				{onOpenIntelligence && (
-					<button
-						type="button"
-						onClick={onOpenIntelligence}
-						className="text-xs font-medium text-danger hover:underline"
-					>
-						Why?
-					</button>
-				)}
-			</p>
-		</div>
-	);
-}
 
 export const ConversationView = ({
 	threadId,

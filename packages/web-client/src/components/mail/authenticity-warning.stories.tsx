@@ -2,7 +2,7 @@ import { type IntelligenceData, IntelligencePanel } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { Drawer } from "@/components/layout/Drawer";
-import { AuthenticityBanner } from "@/components/mail/ConversationView";
+import { AuthenticityBanner } from "@/components/mail/AuthenticityBanner";
 
 /**
  * The authenticity warning over the reading pane, and where its "Why?" goes.
@@ -78,8 +78,11 @@ const TwoPaneReading = () => {
 	const [drawerOpen, setDrawerOpen] = useState(false);
 	return (
 		<div
-			className="relative flex overflow-hidden rounded-lg border border-line bg-canvas"
-			style={{ width: TWO_PANE_WIDTH, height: 700 }}
+			className="flex overflow-hidden rounded-lg border border-line bg-canvas"
+			// The transform makes the frame a containing block, so the drawer's
+			// `position: fixed` resolves against these 1100px instead of the
+			// Storybook canvas. `relative` does not do this for fixed children.
+			style={{ width: TWO_PANE_WIDTH, height: 700, transform: "translateZ(0)" }}
 		>
 			<div className="w-[38%] shrink-0 border-r border-line bg-surface-sunken" />
 			<section className="flex min-w-0 flex-1 flex-col">

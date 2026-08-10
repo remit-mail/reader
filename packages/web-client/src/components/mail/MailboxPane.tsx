@@ -1169,26 +1169,49 @@ function MailboxReading() {
 		composeState,
 		handleDeselectIfRemoved,
 	} = useMailboxPane();
-	// The rail's own width gate, not the shell tier: between 1024 and 1280 the
-	// reading pane is mounted but the rail is not, so "enabled" would promise an
-	// open that cannot happen.
+	// Which surface intelligence has here: the rail between 1280 and up, the
+	// mobile drawer below that, where the reading pane is mounted and the rail
+	// has no room.
 	const railFits = useAppShellLayout()?.showIntelligencePane ?? false;
 	const hasThread = Boolean(conversation);
-	const canToggleIntelligence = railFits && hasThread;
 
-	// Where the rail does not fit, intelligence is the mobile drawer instead, and
-	// a modal opens only when it is asked for: the thread it was asked for, not a
-	// flag. `intelligenceOpen` is the rail's persisted preference and the
-	// DKIM auto-open sets it on every tier, so reading it here would throw a
-	// scrim over the message the moment one was selected.
+	// The drawer is modal, so it opens only when it is asked for — and only for
+	// the thread it was asked for. `intelligenceOpen` is the rail's persisted
+	// preference and the DKIM auto-open sets it on every tier, so driving the
+	// drawer from it would throw a scrim over a message the moment one was
+	// selected. Naming the thread is also what closes it again when the reader
+	// moves on: a bare flag would still be set when they came back.
 	const [drawerThreadId, setDrawerThreadId] = useState<string | null>(null);
 	const openThreadId = conversation?.threadId ?? null;
+	// Adjusted during render, guarded by a changed value — React's documented
+	// "adjusting state when a prop changes", the same pattern `routes/mail.tsx`
+	// re-seeds the search field with. An effect would paint one frame of an open
+	// drawer over the newly opened thread first.
 	const drawerOpen =
 		!railFits && openThreadId !== null && drawerThreadId === openThreadId;
+
+	const closeIntelligenceDrawer = useCallback(
+		() => setDrawerThreadId(null),
+		[],
+	);
+	const openIntelligenceDrawer = useCallback(
+		() => setDrawerThreadId(openThreadId),
+		[openThreadId],
+	);
+	// The banner's "Why?" — always an open, never a close.
 	const openIntelligence = railFits
 		? onToggleIntelligence
-		: () => setDrawerThreadId(openThreadId);
-	const closeIntelligenceDrawer = () => setDrawerThreadId(null);
+		: openIntelligenceDrawer;
+	// The toolbar's control, which toggles whichever surface this width has.
+	const toggleIntelligence = useCallback(() => {
+		if (railFits) {
+			onToggleIntelligence();
+			return;
+		}
+		setDrawerThreadId(drawerOpen ? null : openThreadId);
+	}, [railFits, onToggleIntelligence, drawerOpen, openThreadId]);
+	const intelligenceShowing =
+		hasThread && (railFits ? intelligenceOpen : drawerOpen);
 
 	const detailPane =
 		composeState.isOpen && !conversation ? (
@@ -1215,9 +1238,9 @@ function MailboxReading() {
 			<section className="flex h-full w-full min-w-0 flex-col bg-canvas">
 				<MessageToolbar
 					hasThread={hasThread}
-					intelligenceOpen={canToggleIntelligence && intelligenceOpen}
-					canToggleIntelligence={canToggleIntelligence}
-					onToggleIntelligence={onToggleIntelligence}
+					intelligenceOpen={intelligenceShowing}
+					canToggleIntelligence={hasThread}
+					onToggleIntelligence={toggleIntelligence}
 					onReply={hasThread ? onToolbarReply : undefined}
 					onReplyAll={hasThread ? onToolbarReplyAll : undefined}
 					onForward={hasThread ? onToolbarForward : undefined}

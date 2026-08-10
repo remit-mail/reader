@@ -52,6 +52,17 @@ export interface RunState {
 	 * It lives in Junk, not INBOX, so it stays out of `seededSubjects` and the
 	 * exact-count INBOX assertions are unaffected.
 	 */
+	/**
+	 * The INBOX message whose DKIM signature names a domain its From address
+	 * does not. It is the only seeded message that carries the authenticity
+	 * banner, and so the only one whose reading pane offers a "Why?" link.
+	 *
+	 * In INBOX and therefore part of `seededSubjects`, like the pre-flagged
+	 * message: ordinary inbox mail with one extra signal on it.
+	 */
+	dkimMismatchSubject: string;
+	dkimMismatchFromDomain: string;
+	dkimMismatchSigningDomain: string;
 	spamSubject: string;
 	spamSenderName: string;
 	spamSenderEmail: string;

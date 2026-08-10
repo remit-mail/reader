@@ -26,9 +26,10 @@ export interface MessageToolbarProps {
 	hasThread: boolean;
 	intelligenceOpen: boolean;
 	/**
-	 * Whether pressing the intelligence toggle would open a rail: the view has
-	 * one, the width allows it, and a thread is selected. The button renders
-	 * either way — disabled when false, never absent (#52).
+	 * Whether pressing the intelligence toggle would open anything: the view has
+	 * an intelligence surface at this width — the rail, or the drawer where the
+	 * rail does not fit — and a thread is selected. The button renders either
+	 * way, disabled when false, never absent (#52).
 	 */
 	canToggleIntelligence: boolean;
 	onToggleIntelligence: () => void;
