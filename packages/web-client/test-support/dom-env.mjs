@@ -102,33 +102,6 @@ const dom = new JSDOM(
 const { window } = dom;
 
 window.HTMLElement.prototype.scrollIntoView = () => {};
-// A jsdom EventTarget accepts only jsdom's own AbortSignal, and a listener
-// registered with one built from the default global — Node's, which is what
-// `AbortController` resolves to here and what the resizable pane group uses —
-// throws instead of registering. Swapping the global class is not the way out:
-// Node's `Request` then rejects jsdom's signal and every mocked fetch fails.
-// The listener registers without its removal signal; a test process is torn
-// down whole, so nothing depends on removing it.
-const addEventListenerWithSignal =
-	window.EventTarget.prototype.addEventListener;
-window.EventTarget.prototype.addEventListener = function addEventListener(
-	type,
-	listener,
-	options,
-) {
-	if (
-		options &&
-		typeof options === "object" &&
-		options.signal &&
-		!(options.signal instanceof window.AbortSignal)
-	) {
-		return addEventListenerWithSignal.call(this, type, listener, {
-			...options,
-			signal: undefined,
-		});
-	}
-	return addEventListenerWithSignal.call(this, type, listener, options);
-};
 // jsdom only supplies these under `pretendToBeVisual`, whose animation-frame
 // loop holds the event loop open and hangs the test process on exit.
 window.requestAnimationFrame = (callback) =>
