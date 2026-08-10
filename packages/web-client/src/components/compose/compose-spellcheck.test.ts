@@ -93,11 +93,13 @@ describe("the checker the composer opens", () => {
 		assert.match(banner.detail ?? "", /Spellcheck for en is off/);
 		assert.match(banner.detail ?? "", /browser is checking this message/);
 		assert.match(banner.detail ?? "", /Worker is not defined/);
-		assert.match(banner.action?.href ?? "", /github\.com\/.+\/issues\/new\?/);
+		const report = new URL(banner.action?.href ?? "https://example.invalid");
+		assert.match(report.href, /github\.com\/.+\/issues\/new\?/);
 		assert.match(
-			decodeURIComponent(banner.action?.href ?? ""),
+			report.searchParams.get("body") ?? "",
 			/Worker is not defined/,
 		);
+		assert.match(report.searchParams.get("title") ?? "", /Spellcheck stopped/);
 	});
 
 	it("names the download and the engine apart from the worker", () => {

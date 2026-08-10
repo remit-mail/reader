@@ -266,6 +266,10 @@ describe("the composer's spellchecker", () => {
 		});
 		await settle();
 
-		assert.equal(editable().getAttribute("spellcheck"), null);
+		assert.equal(
+			editable().getAttribute("spellcheck"),
+			"true",
+			"a composer with no checker of its own is the composer as it shipped",
+		);
 	});
 });
