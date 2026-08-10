@@ -892,6 +892,7 @@ cmd_status() {
 # destroy the record of the rollback describing it.
 
 RUN_ID=""
+REQUESTED_RUN_ID=""
 RUN_FROM=""
 RUN_TARGET=""
 RUN_STARTED=""
@@ -1399,8 +1400,11 @@ recheck_availability() {
 # truncated parse is a partial honouring. Carrying any key beyond the four the
 # backend writes, it is rejected whole rather than having the extras ignored. A
 # registry, an image or a digest never crosses the seam because a file naming
-# one is refused, not stripped. The only value read is targetVersion, and it
-# still has to match vX.Y.Z *and* the manifest's own version before it is used.
+# one is refused, not stripped. Two values are read: targetVersion, which still
+# has to match vX.Y.Z *and* the manifest's own version before it is used, and
+# runId, which becomes the run's own id so the page that asked for the update
+# recognises the run it gets back (#583) — it names a snapshot directory, so it
+# is held to a character set that cannot traverse or expand.
 REQUEST_MAX_BYTES=4096
 ALLOWED_REQUEST_KEYS=" runId targetVersion requestedAt requestedBy "
 
@@ -1446,6 +1450,14 @@ request_keys() {
 	'
 }
 
+request_run_id_valid() {
+	printf '%s' "$1" | grep -qE '^[A-Za-z0-9][A-Za-z0-9-]{0,63}$'
+}
+
+# Emits the accepted target version, and the run id the request named on a
+# second line — empty when the request carried none. Both are refused together:
+# a request whose runId is unusable is rejected whole, like every other
+# malformed field, rather than being run under an id of our own.
 requested_target() {
 	[ -f "$CONTROL_DIR/request.json" ] || return 1
 	_bytes=$(wc -c <"$CONTROL_DIR/request.json" 2>/dev/null || printf '%s' "$((REQUEST_MAX_BYTES + 1))")
@@ -1454,6 +1466,7 @@ requested_target() {
 	fi
 	_raw=$(cat "$CONTROL_DIR/request.json")
 	_saw_target=0
+	_saw_run=0
 	while IFS= read -r _k; do
 		[ -n "$_k" ] || continue
 		case "$ALLOWED_REQUEST_KEYS" in
@@ -1461,6 +1474,7 @@ requested_target() {
 		*) return 1 ;;
 		esac
 		if [ "$_k" = "targetVersion" ]; then _saw_target=1; fi
+		if [ "$_k" = "runId" ]; then _saw_run=1; fi
 	done <<EOF
 $(request_keys "$_raw")
 EOF
@@ -1472,7 +1486,14 @@ EOF
 	if [ "$_want" != "$CHECK_VERSION" ]; then
 		return 1
 	fi
-	printf '%s' "$_want"
+	_run=""
+	if [ "$_saw_run" = "1" ]; then
+		_run=$(json_string "$_raw" runId)
+		if ! request_run_id_valid "$_run"; then
+			return 1
+		fi
+	fi
+	printf '%s\n%s' "$_want" "$_run"
 }
 
 # --- snapshot and restore (RFC 037 R8, R8a) ---------------------------------
@@ -1999,7 +2020,13 @@ roll_back() {
 
 run_update() {
 	_target=$1
-	RUN_ID=$(new_run_id)
+	# A backend-initiated run keeps the id the request named, so the page that
+	# asked for it can tell its own run from a later one; an operator at a shell
+	# has nobody waiting on an id and mints one.
+	RUN_ID=$REQUESTED_RUN_ID
+	if [ -z "$RUN_ID" ]; then
+		RUN_ID=$(new_run_id)
+	fi
 	RUN_FROM=$(get_var REMIT_TAG)
 	RUN_TARGET=$_target
 	RUN_STARTED=$(iso_now)
@@ -2214,13 +2241,15 @@ cmd_update() {
 	lock_acquire
 
 	if [ -z "$_tag" ] && [ -f "$CONTROL_DIR/request.json" ]; then
-		_tag=$(requested_target || true)
+		_request=$(requested_target || true)
 		# Consumed either way: a request that was refused must not be retried on
 		# every later run, and one that was taken is now the run's business.
 		rm -f "$CONTROL_DIR/request.json"
-		if [ -z "$_tag" ]; then
-			die "update: the update request on the control volume was rejected and discarded — it was oversized, carried a field other than a target version, or did not name the published release"
+		if [ -z "$_request" ]; then
+			die "update: the update request on the control volume was rejected and discarded — it was oversized, carried a field other than a target version, named an unusable run id, or did not name the published release"
 		fi
+		_tag=$(printf '%s\n' "$_request" | sed -n 1p)
+		REQUESTED_RUN_ID=$(printf '%s\n' "$_request" | sed -n 2p)
 	fi
 
 	# A box with nothing running has no old version to snapshot, nothing to hold
