@@ -17,7 +17,7 @@ import { BriefPane } from "@/components/mail/BriefPane";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useSearchMirror } from "@/hooks/useSearchMirror";
 import { briefSearchSchema } from "@/lib/mail-search";
-import { useBriefThreadPath } from "@/routing";
+import { useOpenThreadPath } from "@/routing";
 
 const BriefError = ({ error, reset }: ErrorComponentProps) => (
 	<div className="flex h-full items-center justify-center bg-canvas p-4">
@@ -30,7 +30,7 @@ const BriefError = ({ error, reset }: ErrorComponentProps) => (
 );
 
 function BriefLayout() {
-	const thread = useBriefThreadPath();
+	const thread = useOpenThreadPath();
 	useSearchMirror({ to: "/mail/brief" });
 
 	return (

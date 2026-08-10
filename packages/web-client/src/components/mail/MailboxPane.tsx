@@ -5,7 +5,7 @@
  * The list layout route mounts `<MailboxPane>` around the shell and passes the
  * sub-views into slots, with the reading pane as the `Outlet`:
  *
- *   <MailboxPane mailboxId={...} thread={useMailboxThreadPath()}>
+ *   <MailboxPane mailboxId={...} thread={useOpenThreadPath()}>
  *     <MailShell
  *       list={<MailboxPane.List />}
  *       reading={<Outlet />}
@@ -125,7 +125,7 @@ import {
 	applyResidualTokens,
 	threadSearchTokens,
 } from "@/lib/thread-search-tokens";
-import type { MailboxThreadPath, MailboxThreadTarget } from "@/routing";
+import type { OpenThreadPath, OpenThreadTarget } from "@/routing";
 import { MailViewChrome } from "./MailViewChrome";
 
 /* ------------------------------------------------------------------ */
@@ -140,7 +140,7 @@ interface MailboxPaneContextValue {
 	/** The conversation the pane shows, or none when the address names no thread. */
 	conversation: ConversationTarget | undefined;
 	/** Opens a conversation in this folder's reading pane. */
-	onOpenThread: (target: MailboxThreadTarget) => void;
+	onOpenThread: (target: OpenThreadTarget) => void;
 	threads: RemitImapThreadMessageResponse[];
 	isLoading: boolean;
 	isError: boolean;
@@ -220,8 +220,8 @@ interface MailboxPaneContextValue {
 	// Phone actions
 	onBack: () => void;
 	/** The rows either side of the open one — the phone's swipe gestures. */
-	nextThread: MailboxThreadTarget | undefined;
-	previousThread: MailboxThreadTarget | undefined;
+	nextThread: OpenThreadTarget | undefined;
+	previousThread: OpenThreadTarget | undefined;
 }
 
 /** The server's own default page size (`DEFAULT_THREADS_PAGE_SIZE`), sent so the
@@ -251,7 +251,7 @@ function useMailboxPane(): MailboxPaneContextValue {
 interface MailboxPaneProps {
 	mailboxId: string;
 	/** The open conversation, as the address states it. */
-	thread: MailboxThreadPath | undefined;
+	thread: OpenThreadPath | undefined;
 	children: ReactNode;
 }
 
@@ -475,7 +475,7 @@ function MailboxPaneProvider({
 	}, [mailboxId, navigate]);
 
 	const handleOpenThread = useCallback(
-		(target: MailboxThreadTarget) => {
+		(target: OpenThreadTarget) => {
 			navigate({
 				to: "/mail/$mailboxId/$threadId/$messageId",
 				params: { mailboxId, ...target },
@@ -845,7 +845,7 @@ function MailboxPaneProvider({
 	// row it does not hold offers no gesture rather than a tap that goes nowhere.
 	const adjacentThread = (
 		messageId: string | undefined,
-	): MailboxThreadTarget | undefined => {
+	): OpenThreadTarget | undefined => {
 		if (!messageId) return undefined;
 		const row = threads.find((t) => t.messageId === messageId);
 		return row ? { threadId: row.threadId, messageId } : undefined;

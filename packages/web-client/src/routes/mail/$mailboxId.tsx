@@ -13,11 +13,11 @@ import { MailShell } from "@/components/layout/MailShell";
 import { MailboxPane } from "@/components/mail/MailboxPane";
 import { useSearchMirror } from "@/hooks/useSearchMirror";
 import { mailboxSearchSchema } from "@/lib/mail-search";
-import { useMailboxThreadPath } from "@/routing";
+import { useOpenThreadPath } from "@/routing";
 
 function MailboxLayout() {
 	const { mailboxId } = Route.useParams();
-	const thread = useMailboxThreadPath();
+	const thread = useOpenThreadPath();
 	useSearchMirror({ to: "/mail/$mailboxId", params: { mailboxId } });
 
 	return (

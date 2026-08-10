@@ -35,7 +35,7 @@ import {
 	type ThreadListSnapshotEntry,
 	threadListCacheKeys,
 } from "@/lib/thread-list-cache";
-import { useMailboxThreadPath } from "@/routing";
+import { useOpenThreadPath } from "@/routing";
 import { MoveToTrigger } from "./MoveToTrigger";
 
 interface ThreadMessagesData {
@@ -104,9 +104,9 @@ export const MessageActionMenu = ({
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const { pushError } = useErrorBanners();
-	// Which message the address has open. A folder says so in its path; the lists
-	// still to move say so in `?selectedMessageId=`.
-	const openThread = useMailboxThreadPath();
+	// Which message the address has open. The brief and a folder say so in their
+	// path; the flagged list, still to move, says so in `?selectedMessageId=`.
+	const openThread = useOpenThreadPath();
 	const { selectedMessageId: selectedFromQuery } = useSearch({
 		strict: false,
 	}) as {
