@@ -8,6 +8,7 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./rich-text": "./src/rich-text.ts",
+		"./spellcheck-worker": "./src/components/rich-text-spellcheck-worker-provider.ts",
 		"./tokens.css": "./src/tokens.css"
 	},
 	"scripts": {

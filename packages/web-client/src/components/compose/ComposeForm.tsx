@@ -49,6 +49,7 @@ import {
 import type { AddressEntry } from "./AddressField";
 import { AddressField } from "./AddressField";
 import { ComposeSmtpMissingBanner } from "./ComposeSmtpMissingBanner";
+import { composeSpellcheck } from "./compose-spellcheck.js";
 
 const LazyComposeBody = lazy(() =>
 	import("@remit/ui/rich-text").then((m) => ({ default: m.ComposeBody })),
@@ -533,6 +534,11 @@ export const ComposeForm = ({
 		[configured],
 	);
 
+	// The editor reopens the checker whenever the composer's language changes,
+	// so the tag the chip and detection settle on is the only one it is ever
+	// asked for.
+	const spellcheck = useMemo(() => composeSpellcheck(pushError), [pushError]);
+
 	// The action bar refuses a second press while one is in flight, but the
 	// editor's own Cmd+Enter goes straight to `attemptSend`, and the write that
 	// now precedes the request widens the window a second press lands in.
@@ -805,6 +811,7 @@ export const ComposeForm = ({
 					languages={accountLanguages}
 					initialLanguage={draftLanguage}
 					onLanguageChange={setComposeLanguage}
+					spellcheck={spellcheck}
 				/>
 			</Suspense>
 		</ComposeFormShell>

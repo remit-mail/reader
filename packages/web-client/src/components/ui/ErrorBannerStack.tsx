@@ -25,6 +25,7 @@ export const ErrorBannerStack = ({
 						severity={entry.severity}
 						title={entry.title}
 						detail={entry.detail}
+						action={entry.action}
 						onDismiss={onDismiss}
 					/>
 				))}

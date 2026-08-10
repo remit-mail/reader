@@ -1,12 +1,16 @@
 import { AlertCircle, AlertTriangle, Info, X } from "lucide-react";
 import { cn } from "../../lib/utils";
-import type { ErrorBannerSeverity } from "./error-banners.js";
+import type {
+	ErrorBannerAction,
+	ErrorBannerSeverity,
+} from "./error-banners.js";
 
 interface ErrorBannerProps {
 	id: string;
 	severity: ErrorBannerSeverity;
 	title: string;
 	detail?: string;
+	action?: ErrorBannerAction;
 	onDismiss: (id: string) => void;
 }
 
@@ -51,6 +55,7 @@ export const ErrorBanner = ({
 	severity,
 	title,
 	detail,
+	action,
 	onDismiss,
 }: ErrorBannerProps) => {
 	const styles = SEVERITY_STYLES[severity];
@@ -76,6 +81,16 @@ export const ErrorBanner = ({
 				<p className={cn("text-sm font-medium", styles.title)}>{title}</p>
 				{detail && (
 					<p className="mt-0.5 text-xs text-fg-muted break-words">{detail}</p>
+				)}
+				{action && (
+					<a
+						href={action.href}
+						target="_blank"
+						rel="noopener noreferrer"
+						className="mt-1 inline-block text-xs font-medium text-accent-2 underline underline-offset-2"
+					>
+						{action.label}
+					</a>
 				)}
 			</div>
 			<button

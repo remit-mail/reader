@@ -9,6 +9,7 @@ import { ConfirmDialog } from "./confirm-dialog.js";
 import { PlainTextEditor } from "./plain-text-editor.js";
 import { markdownToHtml } from "./rich-text-document.js";
 import { RichTextEditor } from "./rich-text-editor.js";
+import type { SpellcheckOptions } from "./rich-text-spellcheck.js";
 import type { ComposeCaret, RichTextValue } from "./rich-text-value.js";
 import { useComposeLanguage } from "./use-compose-language.js";
 
@@ -62,6 +63,12 @@ export interface ComposeBodyProps {
 	initialLanguage?: string;
 	/** Reports the language the message is being written in, so the form can tag it. */
 	onLanguageChange: (language: string) => void;
+	/**
+	 * Where checking comes from, for the language the composer is currently in.
+	 * Left out, the browser does its own. Plain text is a textarea and is always
+	 * the browser's.
+	 */
+	spellcheck?: SpellcheckOptions;
 }
 
 /**
@@ -83,6 +90,7 @@ export const ComposeBody = ({
 	languages,
 	initialLanguage,
 	onLanguageChange,
+	spellcheck,
 }: ComposeBodyProps) => {
 	const [richHtml, setRichHtml] = useState(initialHtml);
 	const [richGeneration, setRichGeneration] = useState(0);
@@ -197,6 +205,7 @@ export const ComposeBody = ({
 					initialCaret={focusSwitchedSurface ? "end" : initialCaret}
 					lang={language}
 					trailing={trailing}
+					spellcheck={spellcheck}
 				/>
 			)}
 			<ConfirmDialog

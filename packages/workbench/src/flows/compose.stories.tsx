@@ -22,7 +22,9 @@ import {
 	ComposeBody,
 	type ComposeBodyMode,
 	type ConversionFailure,
+	type SpellcheckOptions,
 } from "@remit/ui/rich-text";
+import { openSpellcheckWorker } from "@remit/ui/spellcheck-worker";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useRef, useState } from "react";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
@@ -70,6 +72,36 @@ const DEFAULT_PLAIN_BODY = [
 ].join("\n");
 
 const ACCOUNT_LANGUAGES = ["en", "nl", "de"];
+
+/**
+ * The checker the live form hands the composer: a worker per language, opened
+ * for whatever the chip and detection settle on. The word list behind it is
+ * still the placeholder, so ordinary English comes back misspelt — what the
+ * story shows is the wiring, not the dictionary.
+ */
+const composeSpellcheck: SpellcheckOptions = { provider: openSpellcheckWorker };
+
+const MISSPELT_DRAFT =
+	"<p>Ths report is redy today, and the notes are attachd.</p>";
+
+const spellMarks = (editable: HTMLElement): AbstractRange[] => {
+	const ranges: AbstractRange[] = [];
+	CSS.highlights.forEach((highlight, name) => {
+		if (name !== "spell-error") return;
+		highlight.forEach((range) => {
+			if (editable.contains(range.startContainer)) ranges.push(range);
+		});
+	});
+	return ranges;
+};
+
+const writingSurface = (canvasElement: HTMLElement): HTMLElement => {
+	const editable = canvasElement.querySelector<HTMLElement>(
+		"[data-testid=compose-body]",
+	);
+	if (!editable) throw new Error("the editor is not mounted");
+	return editable;
+};
 
 // Discard closes the composer and Configure leaves for Settings. Neither has a
 // surface to act on here, so they report into the Actions panel rather than
@@ -283,6 +315,7 @@ const Composer = ({
 					onConversionError={setConversionFailure}
 					languages={ACCOUNT_LANGUAGES}
 					onLanguageChange={noteLanguageChange}
+					spellcheck={composeSpellcheck}
 				/>
 			)}
 		</ComposeFormShell>
@@ -317,6 +350,59 @@ export const Full: Story = {
 	render: () => (
 		<MailShell {...mailbox} reading={<Composer saveStatus="saved" />} />
 	),
+};
+
+/**
+ * Spellcheck in the composer, over the surface the app assembles rather than
+ * the editor on its own. The checker follows the language: English is the one
+ * language this build carries words for, so the marks are ours and the browser
+ * stops checking; picking Dutch from the chip finds no dictionary, and the
+ * browser is checking again before the writer has typed anything.
+ *
+ * The word list is the placeholder (#707), so what comes back misspelt here is
+ * not what a real dictionary would return.
+ */
+export const Spellcheck: Story = {
+	name: "Spellcheck follows the message language",
+	render: () => (
+		<MailShell
+			{...mailbox}
+			reading={<Composer body={MISSPELT_DRAFT} saveStatus="saved" />}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		const editable = writingSurface(canvasElement);
+
+		await waitFor(
+			async () => {
+				await expect(spellMarks(editable).length).toBeGreaterThan(0);
+				await expect(editable).toHaveAttribute("spellcheck", "false");
+			},
+			{ timeout: 5000 },
+		);
+
+		const chip = canvasElement.querySelector<HTMLElement>(
+			"[data-testid=compose-language-chip]",
+		);
+		if (!chip) throw new Error("the language chip is not mounted");
+		await userEvent.click(chip);
+		const dutch = await waitFor(() => {
+			const row = canvasElement.querySelector<HTMLElement>(
+				'[role="menuitemradio"][lang="nl"]',
+			);
+			if (!row) throw new Error("the language menu is not open");
+			return row;
+		});
+		await userEvent.click(dutch);
+
+		await waitFor(
+			async () => {
+				await expect(editable).toHaveAttribute("spellcheck", "true");
+				await expect(spellMarks(editable)).toHaveLength(0);
+			},
+			{ timeout: 5000 },
+		);
+	},
 };
 
 /**
