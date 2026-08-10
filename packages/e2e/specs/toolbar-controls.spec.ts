@@ -10,7 +10,12 @@
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
 import { INBOX_LIST, listOnScreen } from "../src/lists.js";
-import { BRIEF_THREAD_URL, MAILBOX_URL } from "../src/urls.js";
+import {
+	BRIEF_THREAD_URL,
+	MAILBOX_ROW_LINK,
+	MAILBOX_THREAD_URL,
+	MAILBOX_URL,
+} from "../src/urls.js";
 
 const SHOW_INFO = "Show intelligence sidebar";
 const HIDE_INFO = "Hide intelligence sidebar";
@@ -49,10 +54,10 @@ const openInboxMessage = async (page: Page): Promise<void> => {
 	await sidebar.getByRole("link", { name: /inbox/i }).click();
 	await page.waitForURL(MAILBOX_URL);
 	await listOnScreen(page, INBOX_LIST);
-	const row = page.locator("a[href*='selectedMessageId']").first();
+	const row = page.locator(MAILBOX_ROW_LINK).first();
 	await expect(row).toBeVisible({ timeout: 30_000 });
 	await row.click();
-	await page.waitForURL(/selectedMessageId=/);
+	await page.waitForURL(MAILBOX_THREAD_URL);
 };
 
 test.describe("Reading-pane toolbar", () => {

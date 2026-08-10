@@ -229,7 +229,7 @@ export const CustomListBody: Story = {
 					s.threads.map((t) => (
 						<a
 							key={t.id}
-							href={`?selectedMessageId=${t.id}`}
+							href={`/mail/mbx-1/thr-${t.id}/${t.id}`}
 							className="flex items-center gap-3 px-4 py-3 hover:bg-surface-sunken"
 						>
 							<span className="font-medium text-sm">{t.fromName}</span>

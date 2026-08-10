@@ -19,6 +19,7 @@
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages, waitForServerMailbox } from "../src/imap.js";
+import { MAILBOX_THREAD_URL } from "../src/urls.js";
 
 const MOBILE = { width: 390, height: 844 };
 
@@ -62,13 +63,13 @@ test.describe("Launched without browser chrome", () => {
 		await expect(rows(page).first()).toBeVisible({ timeout: 30_000 });
 
 		await rows(page).first().click();
-		await page.waitForURL(/selectedMessageId=/);
+		await page.waitForURL(MAILBOX_THREAD_URL);
 
 		const back = page.getByRole("button", { name: "Back to messages" });
 		await expect(back).toBeVisible();
 		await back.click();
 
-		await expect(page).not.toHaveURL(/selectedMessageId=/);
+		await expect(page).not.toHaveURL(MAILBOX_THREAD_URL);
 		await expect(rows(page).first()).toBeVisible();
 	});
 
@@ -134,7 +135,7 @@ test.describe("Launched without browser chrome", () => {
 			}).toPass({ timeout: 60_000 });
 
 			await seeded.click();
-			await page.waitForURL(/selectedMessageId=/);
+			await page.waitForURL(MAILBOX_THREAD_URL);
 
 			// The reading pane renders the body in its sandboxed frame.
 			const bodyLink = page

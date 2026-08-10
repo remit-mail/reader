@@ -16,7 +16,7 @@ const listSearch = z.object({ q: z.string().optional() });
  * The brief's open thread and the message inside it are path segments
  * (`/mail/brief/<thread>/<message>`), so the query carries nothing but the
  * search. An old link's selection params are dropped here, which is what
- * "tolerated and ignored" means until the other three lists follow.
+ * "tolerated and ignored" means until the remaining lists follow.
  */
 export const briefSearchSchema = listSearch.extend({});
 
@@ -31,13 +31,12 @@ export const flaggedSearchSchema = listSearch.extend({
  */
 export const outboxSearchSchema = listSearch.extend({});
 
-export const mailboxSearchSchema = listSearch.extend({
-	selectedMessageId: z.string().optional(),
-	// A tapped semantic "Related" hit can point at a message outside the loaded
-	// list; carrying its thread lets the mailbox open it directly (the mailbox is
-	// the route param). See `buildConversationTarget`.
-	selectedThreadId: z.string().optional(),
-});
+/**
+ * A folder's open thread and the message inside it are path segments
+ * (`/mail/<mailbox>/<thread>/<message>`), so the query carries nothing but the
+ * search.
+ */
+export const mailboxSearchSchema = listSearch.extend({});
 
 /**
  * `/mail` itself only redirects to the brief, so it accepts what the brief

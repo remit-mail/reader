@@ -11,6 +11,7 @@
  */
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
+import { MAILBOX_THREAD_URL } from "../src/urls.js";
 
 const HALF_SCREEN = { width: 900, height: 844 };
 test.use({ viewport: HALF_SCREEN });
@@ -41,7 +42,7 @@ test.describe("Modifier selection under 1024px", () => {
 			.click({ modifiers: ["Shift"] });
 		await expect(selectionCount(page)).toHaveText("3 messages selected");
 
-		await expect(page).not.toHaveURL(/selectedMessageId=/);
+		await expect(page).not.toHaveURL(MAILBOX_THREAD_URL);
 	});
 
 	test("cmd/ctrl-click adds and removes single rows", async ({ page }) => {
@@ -60,13 +61,13 @@ test.describe("Modifier selection under 1024px", () => {
 			.click({ modifiers: ["ControlOrMeta"] });
 		await expect(selectionCount(page)).toHaveText("1 message selected");
 
-		await expect(page).not.toHaveURL(/selectedMessageId=/);
+		await expect(page).not.toHaveURL(MAILBOX_THREAD_URL);
 	});
 
 	test("an unmodified tap still opens the message", async ({ page }) => {
 		await rows(page).nth(0).click();
 
-		await page.waitForURL(/selectedMessageId=/);
+		await page.waitForURL(MAILBOX_THREAD_URL);
 		await expect(selectionCount(page)).toBeHidden();
 	});
 });

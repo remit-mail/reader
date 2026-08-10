@@ -14,8 +14,9 @@ import { locationOpensDetail } from "@/lib/mail-route";
  *     `lg:hidden` class covers the pre-hydration frame.
  *   - The compose surface is already open.
  *   - The user is reading a thread — the single pane is the conversation, and
- *     its reply bar is under this corner. The brief says so in its path; the
- *     lists still to move say so in `?selectedMessageId=…`.
+ *     its reply bar is under this corner. The brief and a folder say so in
+ *     their path; the flagged list, still to move, says so in
+ *     `?selectedMessageId=…`.
  *   - The user is off `/mail`, which is every route with no mail in it.
  */
 export const ComposeFab = () => {

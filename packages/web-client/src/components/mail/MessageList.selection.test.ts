@@ -172,18 +172,17 @@ describe("MessageList escalation reaches desktop (#212)", () => {
 });
 
 /**
- * A confirmed delete used to open the surviving neighbour by writing
- * `selectedMessageId` into the URL. On desktop that fills the reading pane
- * beside the list; on a single-pane mobile layout the same navigation replaced
- * the list with a full-screen message, so the delete read as "jumped into a
- * random message" rather than "the row is gone" (#202). Mobile now stays on the
- * list and raises a completion banner instead.
+ * A confirmed delete opens the surviving neighbour. On desktop that fills the
+ * reading pane beside the list; on a single-pane mobile layout the same
+ * navigation replaced the list with a full-screen message, so the delete read as
+ * "jumped into a random message" rather than "the row is gone" (#202). Mobile
+ * now stays on the list and raises a completion banner instead.
  */
 describe("MessageList confirmed delete stays on the list on mobile (#202)", () => {
 	it("only the desktop two-pane opens the surviving neighbour after a delete", () => {
 		assert.match(
 			source,
-			/if \(isDesktop\) \{\s*navigate\(\{\s*to: "\/mail\/\$mailboxId",\s*params: \{ mailboxId \},\s*search: \(prev\) => \(\{ \.\.\.prev, selectedMessageId: nextFocus \}\),\s*replace: true,\s*\}\);\s*\}/,
+			/if \(isDesktop\) \{\s*openRow\(nextFocus, \{ replace: true \}\);\s*\}/,
 		);
 	});
 

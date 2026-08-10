@@ -35,6 +35,7 @@ import {
 	type ThreadListSnapshotEntry,
 	threadListCacheKeys,
 } from "@/lib/thread-list-cache";
+import { useOpenThreadPath } from "@/routing";
 import { MoveToTrigger } from "./MoveToTrigger";
 
 interface ThreadMessagesData {
@@ -103,9 +104,15 @@ export const MessageActionMenu = ({
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const { pushError } = useErrorBanners();
-	const { selectedMessageId } = useSearch({ strict: false }) as {
+	// Which message the address has open. The brief and a folder say so in their
+	// path; the flagged list, still to move, says so in `?selectedMessageId=`.
+	const openThread = useOpenThreadPath();
+	const { selectedMessageId: selectedFromQuery } = useSearch({
+		strict: false,
+	}) as {
 		selectedMessageId?: string;
 	};
+	const selectedMessageId = openThread?.messageId ?? selectedFromQuery;
 
 	const { mutate: updateFlags, isPending: isUpdatingFlags } = useMutation({
 		...messageBulkOperationsUpdateFlagsMutation(),
@@ -182,10 +189,10 @@ export const MessageActionMenu = ({
 		},
 	});
 
-	// Deselect the thread before the server response arrives if the message
+	// Close the conversation before the server response arrives if the message
 	// being deleted is the one currently routed to. Mirrors the bulk-delete
-	// flow on the mailbox route — without this, the URL keeps a stale
-	// `selectedMessageId` after the row vanishes from the list.
+	// flow on the mailbox route — without this, the address keeps naming a
+	// message after the row vanishes from the list.
 	const handleAfterOptimisticRemove = useCallback(
 		(removedIds: string[]) => {
 			if (!selectedMessageId) return;
@@ -193,10 +200,7 @@ export const MessageActionMenu = ({
 			navigate({
 				to: "/mail/$mailboxId",
 				params: { mailboxId },
-				search: (prev: Record<string, unknown>) => ({
-					...prev,
-					selectedMessageId: undefined,
-				}),
+				search: (prev) => prev,
 			});
 		},
 		[selectedMessageId, mailboxId, navigate],

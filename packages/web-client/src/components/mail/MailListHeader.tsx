@@ -323,11 +323,7 @@ export function MailListHeader({
 					navigate({
 						to: "/mail/$mailboxId",
 						params: { mailboxId: spamOffer.mailboxId },
-						search: {
-							q: searchQuery || undefined,
-							selectedMessageId: undefined,
-							selectedThreadId: undefined,
-						},
+						search: { q: searchQuery || undefined },
 					}),
 			}
 		: routeScope;

@@ -45,6 +45,7 @@ export const threadToRowData = (
 	id: thread.messageId,
 	accountId: thread.accountId,
 	mailboxId: thread.mailboxId,
+	threadId: thread.threadId,
 	fromName: thread.fromName ?? thread.fromEmail ?? "Unknown",
 	fromEmail: thread.fromEmail ?? "",
 	subject: thread.subject ?? "(No subject)",
@@ -81,7 +82,7 @@ const MessageListItemComponent = ({
 }: MessageListItemProps) => (
 	<MessageRow
 		thread={threadToRowData(thread, messageCount)}
-		linkMailboxId={mailboxId}
+		link={{ mailboxId, threadId: thread.threadId }}
 		inListbox
 		active={isSelected}
 		focused={isFocused}

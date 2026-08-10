@@ -25,6 +25,7 @@ import { ApiClient, waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { waitForServerMailbox } from "../src/imap.js";
 import { readRunState } from "../src/state.js";
+import { MAILBOX_THREAD_URL } from "../src/urls.js";
 
 const junkMailboxId = async (
 	api: ApiClient,
@@ -139,7 +140,7 @@ test.describe("Spam rescue", () => {
 		const row = page.getByText(run.spamSubject, { exact: true }).first();
 		await expect(row).toBeVisible({ timeout: 30_000 });
 		await row.click();
-		await page.waitForURL(/selectedMessageId=/);
+		await page.waitForURL(MAILBOX_THREAD_URL);
 
 		const article = page.getByRole("article");
 		await expect(article).toBeVisible({ timeout: 20_000 });

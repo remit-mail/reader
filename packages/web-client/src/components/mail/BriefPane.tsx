@@ -3,7 +3,7 @@
  *
  * Usage in the list layout route:
  *
- *   <BriefPane thread={useBriefThreadPath()}>
+ *   <BriefPane thread={useOpenThreadPath()}>
  *     <MailShell
  *       list={<BriefPane.List />}
  *       reading={<Outlet />}
@@ -41,7 +41,7 @@ import {
 } from "@/hooks/useTriageLayer";
 import type { ConversationTarget } from "@/lib/conversation-target";
 import { useMailContext } from "@/lib/mail-context";
-import type { BriefThreadPath, BriefThreadTarget } from "@/routing";
+import type { OpenThreadPath, OpenThreadTarget } from "@/routing";
 
 /* ------------------------------------------------------------------ */
 /* Context                                                              */
@@ -54,13 +54,13 @@ interface BriefPaneContextValue {
 	/** The conversation the pane shows, or none when the address names no thread. */
 	conversation: ConversationTarget | undefined;
 	onOpenThread: (
-		target: BriefThreadTarget,
+		target: OpenThreadTarget,
 		options?: OpenMessageOptions,
 	) => void;
 	onCloseThread: () => void;
 	/** The rows either side of the open one — the phone's swipe gestures. */
-	nextThread: BriefThreadTarget | undefined;
-	previousThread: BriefThreadTarget | undefined;
+	nextThread: OpenThreadTarget | undefined;
+	previousThread: OpenThreadTarget | undefined;
 	/**
 	 * Toolbar verbs for the open thread, keyed by the thread's own mailbox and
 	 * account — the brief spans accounts, so there is no route mailbox to key by.
@@ -92,7 +92,7 @@ function useBriefPane(): BriefPaneContextValue {
 
 interface BriefPaneProps {
 	/** The open conversation, as the address states it. */
-	thread: BriefThreadPath | undefined;
+	thread: OpenThreadPath | undefined;
 	children: ReactNode;
 }
 
@@ -137,7 +137,7 @@ function BriefPaneProvider({ thread, children }: BriefPaneProps) {
 	}, [threadId, selectedThread, selectedMessageId]);
 
 	const handleOpenThread = useCallback(
-		(target: BriefThreadTarget, options?: OpenMessageOptions) => {
+		(target: OpenThreadTarget, options?: OpenMessageOptions) => {
 			navigate({
 				to: "/mail/brief/$threadId/$messageId",
 				params: target,
@@ -225,7 +225,7 @@ function BriefPaneProvider({ thread, children }: BriefPaneProps) {
 	// name its thread. The brief's own listing is where that is looked up, so a
 	// row it does not hold offers no gesture rather than a tap that goes nowhere.
 	const adjacentThread = useCallback(
-		(messageId: string | undefined): BriefThreadTarget | undefined => {
+		(messageId: string | undefined): OpenThreadTarget | undefined => {
 			if (!messageId) return undefined;
 			const row = briefThreads.find((t) => t.messageId === messageId);
 			return row ? { threadId: row.threadId, messageId } : undefined;

@@ -105,7 +105,7 @@ import {
 	type SelectionWizardControl,
 	useSelectionWizard,
 } from "@/lib/wizard-history";
-import type { BriefThreadTarget } from "@/routing";
+import type { OpenThreadTarget } from "@/routing";
 import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import { MailListHeader, type MailListHeaderProps } from "./MailListHeader";
 import type { MessageListCommands } from "./MessageList";
@@ -385,7 +385,7 @@ interface DailyBriefProps {
 	 * from the unified inbox.
 	 */
 	onOpenThread?: (
-		target: BriefThreadTarget,
+		target: OpenThreadTarget,
 		options?: OpenMessageOptions,
 	) => void;
 	/** Where the list publishes the commands the keyboard layer drives. */
@@ -825,11 +825,7 @@ export function DailyBrief({
 						navigate({
 							to: "/mail/$mailboxId",
 							params: { mailboxId: briefSpamOffer.mailboxId },
-							search: {
-								q: searchQuery || undefined,
-								selectedMessageId: undefined,
-								selectedThreadId: undefined,
-							},
+							search: { q: searchQuery || undefined },
 						})
 					}
 				/>

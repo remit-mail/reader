@@ -8,7 +8,7 @@ import type {
 	RemitImapDescribeMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import {
 	createContext,
 	useCallback,
@@ -21,6 +21,7 @@ import {
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { useComposeTarget } from "@/hooks/useComposeTargetMailbox";
 import { hostsComposeSurface } from "@/lib/compose-routes";
+import { locationOpensDetail } from "@/lib/mail-route";
 export type ComposeMode = "reply" | "reply_all" | "forward" | "new";
 
 export interface ComposeState {
@@ -66,6 +67,7 @@ export const ComposeProvider = ({
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const location = useLocation();
+	const routeParams = useParams({ strict: false, shouldThrow: false });
 	const { pushError } = useErrorBanners();
 	// Compose is a mail action, so its target only has to be known under `/mail`.
 	// Resolving it from the root otherwise costs `/settings` and `/onboarding` a
@@ -114,9 +116,14 @@ export const ComposeProvider = ({
 	const openCompose = useCallback(
 		(params: Omit<ComposeState, "isOpen">) => {
 			const search = location.search as Record<string, unknown>;
-			const showsThread = Boolean(
-				search.selectedMessageId ?? search.selectedThreadId,
-			);
+			// A folder names its open conversation in the path, so leaving it is a
+			// navigation up to the list; the lists still to move name it in the query.
+			const threadMailboxId = locationOpensDetail(location.pathname)
+				? routeParams?.mailboxId
+				: undefined;
+			const showsThread =
+				Boolean(threadMailboxId) ||
+				Boolean(search.selectedMessageId ?? search.selectedThreadId);
 			if (!hostsComposeSurface(location.pathname)) {
 				if (target.status === "loading") {
 					pushError({
@@ -145,6 +152,14 @@ export const ComposeProvider = ({
 			setState({ ...params, isOpen: true });
 			if (!showsThread) return;
 			// A push, so Back reopens the message.
+			if (threadMailboxId) {
+				navigate({
+					to: "/mail/$mailboxId",
+					params: { mailboxId: threadMailboxId },
+					search: (prev) => prev,
+				});
+				return;
+			}
 			navigate({
 				to: ".",
 				search: (prev: Record<string, unknown>) => ({
@@ -154,7 +169,14 @@ export const ComposeProvider = ({
 				}),
 			});
 		},
-		[navigate, location.pathname, location.search, target, pushError],
+		[
+			navigate,
+			location.pathname,
+			location.search,
+			routeParams?.mailboxId,
+			target,
+			pushError,
+		],
 	);
 
 	const closeCompose = useCallback(() => {

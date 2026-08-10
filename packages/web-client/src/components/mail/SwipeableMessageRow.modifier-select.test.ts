@@ -64,6 +64,10 @@ const mailRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/mail/$mailboxId",
 });
+const messageRoute = createRoute({
+	getParentRoute: () => mailRoute,
+	path: "$threadId/$messageId",
+});
 
 interface Mounted {
 	row: HTMLElement;
@@ -74,7 +78,7 @@ interface Mounted {
 const mountRow = (selectionTakesIt = true): Mounted => {
 	const selects: SelectionModifiers[] = [];
 	const router = createRouter({
-		routeTree: rootRoute.addChildren([mailRoute]),
+		routeTree: rootRoute.addChildren([mailRoute.addChildren([messageRoute])]),
 		history: createMemoryHistory({ initialEntries: ["/mail/mbx-1"] }),
 	}) as unknown as AnyRouter;
 	const created = createDomHarness({ viewportWidth: HALF_SCREEN_WIDTH });
@@ -148,9 +152,10 @@ const click = (
 		}),
 	);
 
+// The conversation the row opened is the address, so the message it named is the
+// last segment of the path.
 const openedMessageId = (router: AnyRouter): string | undefined =>
-	(router.state.location.search as { selectedMessageId?: string })
-		.selectedMessageId;
+	router.state.location.pathname.split("/")[4];
 
 describe("SwipeableMessageRow — modifier selection below the desktop width", () => {
 	it("takes a shift-press for selection instead of opening the message", async () => {

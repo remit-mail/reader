@@ -20,8 +20,8 @@
  * are separate wirings, and the pane resolved its selection from the INBOX
  * listing rather than the starred one that produced the row.
  *
- * Locator note: the inbox renders rows as anchors carrying `selectedMessageId`,
- * which is what the other specs match. The Starred pane renders rows as
+ * Locator note: the inbox renders its rows as anchors, which is what the other
+ * specs match. The Starred pane renders rows as
  * `<button>` (`ComfortableRow`). Reusing the anchor locator here matches zero
  * rows and passes every absence assertion, so rows are addressed by button role
  * throughout.
@@ -30,7 +30,11 @@ import type { Page } from "@playwright/test";
 import { waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { INBOX_LIST, listOnScreen } from "../src/lists.js";
-import { MAILBOX_URL } from "../src/urls.js";
+import {
+	MAILBOX_ROW_LINK,
+	MAILBOX_THREAD_URL,
+	MAILBOX_URL,
+} from "../src/urls.js";
 
 /** A row in the Starred pane. Button role, never the inbox's anchors. */
 const starredRow = (page: Page, subject: string) =>
@@ -87,12 +91,12 @@ const openInboxMessage = async (page: Page, subject: string) => {
 	await sidebar.getByRole("link", { name: /inbox/i }).click();
 	await page.waitForURL(MAILBOX_URL);
 	await listOnScreen(page, INBOX_LIST);
-	await expect(
-		page.locator("a[href*='selectedMessageId']").first(),
-	).toBeVisible({ timeout: 30_000 });
+	await expect(page.locator(MAILBOX_ROW_LINK).first()).toBeVisible({
+		timeout: 30_000,
+	});
 
 	await page.getByText(subject, { exact: true }).first().click();
-	await page.waitForURL(/selectedMessageId=/);
+	await page.waitForURL(MAILBOX_THREAD_URL);
 	const article = page.getByRole("article");
 	await expect(article).toBeVisible({ timeout: 15_000 });
 	return article;

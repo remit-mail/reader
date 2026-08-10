@@ -9,7 +9,11 @@
  */
 import { expect, test } from "../src/fixtures.js";
 import { INBOX_LIST, listOnScreen } from "../src/lists.js";
-import { MAILBOX_URL } from "../src/urls.js";
+import {
+	MAILBOX_ROW_LINK,
+	MAILBOX_THREAD_URL,
+	MAILBOX_URL,
+} from "../src/urls.js";
 
 test.beforeEach(async ({ page }) => {
 	await page.goto("/mail");
@@ -21,9 +25,9 @@ test.beforeEach(async ({ page }) => {
 	await sidebar.getByRole("link", { name: /inbox/i }).click();
 	await page.waitForURL(MAILBOX_URL);
 	await listOnScreen(page, INBOX_LIST);
-	await expect(
-		page.locator("a[href*='selectedMessageId']").first(),
-	).toBeVisible({ timeout: 30_000 });
+	await expect(page.locator(MAILBOX_ROW_LINK).first()).toBeVisible({
+		timeout: 30_000,
+	});
 });
 
 test.describe("Message reading", () => {
@@ -39,7 +43,7 @@ test.describe("Message reading", () => {
 
 		// The mailbox this run owns held nothing before setup appended to it, so
 		// the row count is knowable rather than "at least one".
-		await expect(page.locator("a[href*='selectedMessageId']")).toHaveCount(
+		await expect(page.locator(MAILBOX_ROW_LINK)).toHaveCount(
 			run.seededSubjects.length,
 			{ timeout: 15_000 },
 		);
@@ -51,7 +55,7 @@ test.describe("Message reading", () => {
 	}) => {
 		const subject = run.seededSubjects[0];
 		await page.getByText(subject, { exact: true }).first().click();
-		await page.waitForURL(/selectedMessageId=/);
+		await page.waitForURL(MAILBOX_THREAD_URL);
 
 		const article = page.getByRole("article");
 		await expect(article).toBeVisible({ timeout: 15_000 });
@@ -79,22 +83,24 @@ test.describe("Message reading", () => {
 	test("a message below the fold opens on the first click", async ({
 		page,
 	}) => {
-		const rows = page.locator("a[href*='selectedMessageId']");
+		const rows = page.locator(MAILBOX_ROW_LINK);
 		await expect(rows.nth(8)).toHaveCount(1, { timeout: 15_000 });
 
 		const target = rows.nth(8);
 		const messageId = await target.getAttribute("data-message-id");
 		await target.click();
 
-		await page.waitForURL(new RegExp(`selectedMessageId=${messageId}`));
+		// The message is the last segment, so the address names the row that was
+		// clicked and not merely some conversation.
+		await page.waitForURL(new RegExp(`/${messageId}(\\?|$)`));
 		await expect(page.getByRole("article")).toBeVisible({ timeout: 15_000 });
 	});
 
 	test("the reply and forward actions are offered on an open message", async ({
 		page,
 	}) => {
-		await page.locator("a[href*='selectedMessageId']").first().click();
-		await page.waitForURL(/selectedMessageId=/);
+		await page.locator(MAILBOX_ROW_LINK).first().click();
+		await page.waitForURL(MAILBOX_THREAD_URL);
 		await expect(page.getByRole("article")).toBeVisible({ timeout: 15_000 });
 
 		await expect(

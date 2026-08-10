@@ -11,7 +11,7 @@ import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages } from "../src/imap.js";
 import { INBOX_LIST, listOnScreen } from "../src/lists.js";
-import { MAILBOX_URL } from "../src/urls.js";
+import { MAILBOX_THREAD_URL, MAILBOX_URL } from "../src/urls.js";
 
 const rows = (page: Page): Locator => page.locator("[data-message-row]");
 
@@ -94,10 +94,8 @@ test.describe("Keyboard navigation", () => {
 
 		await page.keyboard.press("Enter");
 
-		await page.waitForURL(/selectedMessageId=/);
-		expect(new URL(page.url()).searchParams.get("selectedMessageId")).toBe(
-			focused,
-		);
+		await page.waitForURL(MAILBOX_THREAD_URL);
+		expect(new URL(page.url()).pathname.split("/").pop()).toBe(focused);
 	});
 
 	test("Enter activates a focused control instead of being swallowed", async ({
@@ -177,7 +175,7 @@ test.describe("Multi-select", () => {
 
 	test("shift-click selects the range between two rows", async ({ page }) => {
 		await rows(page).nth(0).click();
-		await page.waitForURL(/selectedMessageId=/);
+		await page.waitForURL(MAILBOX_THREAD_URL);
 
 		await rows(page)
 			.nth(2)
@@ -194,7 +192,7 @@ test.describe("Multi-select", () => {
 		// means shift opens a new window and cmd a new tab — the row has to claim
 		// the click itself.
 		await rows(page).nth(0).click();
-		await page.waitForURL(/selectedMessageId=/);
+		await page.waitForURL(MAILBOX_THREAD_URL);
 		const opened = page.url();
 
 		await rows(page)
@@ -207,7 +205,7 @@ test.describe("Multi-select", () => {
 
 	test("cmd/ctrl-click adds and removes single rows", async ({ page }) => {
 		await rows(page).nth(0).click();
-		await page.waitForURL(/selectedMessageId=/);
+		await page.waitForURL(MAILBOX_THREAD_URL);
 
 		await rows(page)
 			.nth(1)
@@ -227,7 +225,7 @@ test.describe("Multi-select", () => {
 
 	test("a selection offers the bulk actions", async ({ page }) => {
 		await rows(page).nth(0).click();
-		await page.waitForURL(/selectedMessageId=/);
+		await page.waitForURL(MAILBOX_THREAD_URL);
 		await rows(page)
 			.nth(1)
 			.click({ modifiers: ["Shift"] });
@@ -272,7 +270,7 @@ test.describe("Multi-select", () => {
 
 	test("Escape clears the selection", async ({ page }) => {
 		await rows(page).nth(0).click();
-		await page.waitForURL(/selectedMessageId=/);
+		await page.waitForURL(MAILBOX_THREAD_URL);
 		await rows(page)
 			.nth(2)
 			.click({ modifiers: ["Shift"] });
@@ -351,7 +349,7 @@ test.describe("Delete confirmation", () => {
 		}).toPass({ timeout: 60_000 });
 
 		await page.getByText(subject, { exact: true }).first().click();
-		await page.waitForURL(/selectedMessageId=/);
+		await page.waitForURL(MAILBOX_THREAD_URL);
 		await page.keyboard.press("Delete");
 		await expect(confirmation(page)).toBeVisible();
 

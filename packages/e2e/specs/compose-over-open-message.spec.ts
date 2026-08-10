@@ -4,7 +4,12 @@
  */
 import { expect, test } from "../src/fixtures.js";
 import { INBOX_LIST, listOnScreen } from "../src/lists.js";
-import { BRIEF_URL, MAILBOX_URL } from "../src/urls.js";
+import {
+	BRIEF_URL,
+	MAILBOX_ROW_LINK,
+	MAILBOX_THREAD_URL,
+	MAILBOX_URL,
+} from "../src/urls.js";
 
 test.describe("Compose over an open message", () => {
 	test.setTimeout(120_000);
@@ -20,8 +25,8 @@ test.describe("Compose over an open message", () => {
 		await page.waitForURL(MAILBOX_URL);
 		await listOnScreen(page, INBOX_LIST);
 
-		await page.locator("a[href*='selectedMessageId']").first().click();
-		await page.waitForURL(/selectedMessageId=/);
+		await page.locator(MAILBOX_ROW_LINK).first().click();
+		await page.waitForURL(MAILBOX_THREAD_URL);
 		await expect(page.getByRole("article")).toBeVisible({ timeout: 30_000 });
 	});
 
@@ -40,7 +45,7 @@ test.describe("Compose over an open message", () => {
 		// The pane shows one thing, and the URL says the same: the thread is closed
 		// rather than sitting behind the surface waiting to reappear.
 		await expect(page.getByRole("article")).toBeHidden();
-		await page.waitForURL((url) => !url.search.includes("selectedMessageId"));
+		await page.waitForURL((url) => !MAILBOX_THREAD_URL.test(url.pathname));
 
 		// Whole and settled, writing surface included, before anything else is
 		// typed. Where the caret sits inside it is the composer's own business.
@@ -128,9 +133,9 @@ test.describe("Compose off a route that cannot mount it", () => {
 		await sidebar.getByRole("link", { name: /inbox/i }).click();
 		await page.waitForURL(MAILBOX_URL);
 		await listOnScreen(page, INBOX_LIST);
-		await expect(
-			page.locator("a[href*='selectedMessageId']").first(),
-		).toBeVisible({ timeout: 30_000 });
+		await expect(page.locator(MAILBOX_ROW_LINK).first()).toBeVisible({
+			timeout: 30_000,
+		});
 		await expect(recipients).toHaveCount(0);
 	});
 });

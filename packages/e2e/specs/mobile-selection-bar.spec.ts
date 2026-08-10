@@ -11,6 +11,7 @@ import type { Locator, Page } from "@playwright/test";
 import { waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages } from "../src/imap.js";
+import { MAILBOX_THREAD_URL } from "../src/urls.js";
 import {
 	advanceTo,
 	commitButton,
@@ -164,7 +165,7 @@ test.describe("Mobile selection bar", () => {
 
 		// Single-pane mobile stays on the list — the delete must not open a
 		// neighbour (#202).
-		await expect(page).not.toHaveURL(/selectedMessageId=/);
+		await expect(page).not.toHaveURL(MAILBOX_THREAD_URL);
 		await expect(rows(page)).toHaveCount(run.seededSubjects.length, {
 			timeout: 30_000,
 		});

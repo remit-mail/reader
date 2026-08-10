@@ -363,6 +363,7 @@ export function useIntelligenceData(
 			.filter((r) => r.messageId !== thread.messageId)
 			.map((r) => ({
 				id: r.messageId,
+				threadId: r.threadId,
 				// Prefer the mailbox the user is already viewing when the message also
 				// lives there, so opening a similar message stays in the same folder;
 				// otherwise fall back to the first mailbox it lives in.
