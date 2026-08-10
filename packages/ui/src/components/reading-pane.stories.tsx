@@ -203,6 +203,27 @@ export const ExpandedRowComposed: StoryObj<typeof ExpandedMessage> = {
 	),
 };
 
+/** The chevron beside the sender is the disclosure control, not a picture of
+ *  one: press it to put the message away and press the row to bring it back.
+ *  Reclaiming the space a long message takes is what a reader aims at it for. */
+export const RowDisclosure: StoryObj<typeof ExpandedMessage> = {
+	render: function RowDisclosureRender() {
+		const [expanded, setExpanded] = useState(true);
+		return (
+			<div className="max-w-3xl border border-line">
+				{expanded ? (
+					<ExpandedMessage
+						message={row}
+						onHeaderClick={() => setExpanded(false)}
+					/>
+				) : (
+					<CollapsedMessage message={row} onClick={() => setExpanded(true)} />
+				)}
+			</div>
+		);
+	},
+};
+
 /** The app owns the fetch and hands the row its state back; so does this. */
 const ThreadAttachments = () => {
 	const [rows, setRows] = useState<AttachmentItem[]>([

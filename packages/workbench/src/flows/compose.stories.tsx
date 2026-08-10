@@ -11,10 +11,12 @@ import {
 	ComposeSmtpMissingBanner,
 	ComposeSubjectField,
 	composeHeaderSummary,
+	ExpandedMessage,
 	inboxFilterConfig,
 	QuotedText,
 	type RichTextValue,
 	SMTP_MISSING_MESSAGE,
+	type ThreadMessageData,
 } from "@remit/ui";
 import {
 	ComposeBody,
@@ -406,6 +408,107 @@ export const Inline: Story = {
 				quotedSender="Ada Lovelace"
 			/>
 		</div>
+	),
+};
+
+/**
+ * The conversation and the reply it is being written into, arranged the way
+ * `ConversationView` arranges them: the subject heading is the pane's own, the
+ * message and the reply share one scrolling region, and the reply's frame is
+ * the one `InlineCompose` gives it.
+ */
+const ConversationWithReply = ({
+	subject,
+	messages,
+}: {
+	subject: string;
+	messages: ThreadMessageData[];
+}) => (
+	<article className="flex h-full flex-col bg-canvas">
+		<header className="border-b border-line px-5 pt-5 pb-3">
+			<h1 className="max-w-2xl text-lg font-semibold leading-snug text-fg">
+				{subject}
+			</h1>
+			<p className="mt-1 text-2xs text-fg-subtle">
+				{messages.length} {messages.length === 1 ? "message" : "messages"}
+			</p>
+		</header>
+		<div className="min-h-0 flex-1 overflow-auto">
+			{messages.map((message) => (
+				<ExpandedMessage key={message.id} message={message} />
+			))}
+			{/* Same frame as `InlineCompose` — the reply takes a height on a
+			    desktop pane rather than whatever the message leaves over. */}
+			<div className="flex flex-col border-t border-line bg-canvas max-h-[min(400px,60dvh)] lg:h-[min(560px,55dvh)] lg:max-h-none">
+				<Composer
+					subject={`Re: ${subject}`}
+					body=""
+					quoted={messages[messages.length - 1]?.snippet}
+					quotedSender={messages[messages.length - 1]?.fromName}
+				/>
+			</div>
+		</div>
+	</article>
+);
+
+const shortMessage: ThreadMessageData = {
+	id: "msg_lunch",
+	fromName: "Ada Lovelace",
+	fromEmail: "ada@example.com",
+	toLabel: "you",
+	dateLabel: "Today 11:04",
+	snippet: "Are we still on for Thursday? I can do 12:30.",
+	bodyHtml: "<p>Are we still on for Thursday? I can do 12:30.</p>",
+	expanded: true,
+};
+
+const longMessage: ThreadMessageData = {
+	...q3Thread.messages[q3Thread.messages.length - 1],
+	bodyHtml: `${q3Thread.messages[q3Thread.messages.length - 1]?.bodyHtml ?? ""}
+<p>Longer context, so the pane has more message than it has room for:</p>
+${Array.from(
+	{ length: 14 },
+	(_, index) =>
+		`<p>Point ${index + 1}. The billing migration touches the export path, the dunning schedule and the invoice numbering, and each of those has a different owner today. Naming the owner per surface is what Thursday is for.</p>`,
+).join("\n")}
+<p>Thanks,<br/>Priya</p>`,
+};
+
+/**
+ * The reply under a short message: it follows the body directly, with no band
+ * of empty canvas between the two.
+ */
+export const InlineUnderAMessage: Story = {
+	render: () => (
+		<MailShell
+			{...mailbox}
+			reading={
+				<ConversationWithReply
+					subject="Lunch Thursday?"
+					messages={[shortMessage]}
+				/>
+			}
+		/>
+	),
+};
+
+/**
+ * The same reply under a message several screens long — the case that used to
+ * be unusable. The reply scrolls with the conversation, so it is reachable, and
+ * it keeps its own height instead of being squeezed to a couple of lines by
+ * whatever the message left over.
+ */
+export const InlineUnderALongMessage: Story = {
+	render: () => (
+		<MailShell
+			{...mailbox}
+			reading={
+				<ConversationWithReply
+					subject={q3Thread.subject}
+					messages={[longMessage]}
+				/>
+			}
+		/>
 	),
 };
 
