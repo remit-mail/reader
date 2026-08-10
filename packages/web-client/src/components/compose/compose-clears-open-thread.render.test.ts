@@ -62,8 +62,29 @@ const RootLayout = () =>
 		createElement(Outlet),
 	);
 
+/**
+ * The folder's real shape: the thread and the message are segments under the
+ * list, so an open conversation is something the address holds and compose has
+ * to navigate out of.
+ */
 const routerAt = (href: string, layout = RootLayout): AnyRouter => {
 	const rootRoute = createRootRoute({ component: layout });
+	const mailboxRoute = createRoute({
+		getParentRoute: () => rootRoute,
+		path: "/mail/$mailboxId",
+		validateSearch: (search: Record<string, unknown>) => search,
+		component: Outlet,
+	});
+	const threadRoute = createRoute({
+		getParentRoute: () => mailboxRoute,
+		path: "/$threadId",
+		component: Outlet,
+	});
+	const messageRoute = createRoute({
+		getParentRoute: () => threadRoute,
+		path: "/$messageId",
+		component: () => null,
+	});
 	const routeTree = rootRoute.addChildren([
 		createRoute({
 			getParentRoute: () => rootRoute,
@@ -71,12 +92,7 @@ const routerAt = (href: string, layout = RootLayout): AnyRouter => {
 			validateSearch: (search: Record<string, unknown>) => search,
 			component: () => null,
 		}),
-		createRoute({
-			getParentRoute: () => rootRoute,
-			path: "/mail/$mailboxId",
-			validateSearch: (search: Record<string, unknown>) => search,
-			component: () => null,
-		}),
+		mailboxRoute.addChildren([threadRoute.addChildren([messageRoute])]),
 		createRoute({
 			getParentRoute: () => rootRoute,
 			path: "/settings",
@@ -145,11 +161,11 @@ const press = async (mounted: DomHarness): Promise<HTMLElement> => {
 	return button;
 };
 
+const THREAD_HREF = `/mail/${INBOX_ID}/th-1/msg-1`;
+
 describe("opening compose over an open message (#703)", () => {
-	it("drops the selected message so the pane can render the surface", async () => {
-		const router = routerAt(
-			`/mail/${INBOX_ID}?selectedMessageId=msg-1&selectedThreadId=th-1`,
-		);
+	it("walks up to the list so the pane can render the surface", async () => {
+		const router = routerAt(THREAD_HREF);
 		const mounted = await mount(router);
 
 		const button = mounted.byText("button", "Compose");
@@ -159,33 +175,27 @@ describe("opening compose over an open message (#703)", () => {
 
 		assert.equal(button.getAttribute("data-open"), "true");
 		assert.equal(router.history.location.pathname, `/mail/${INBOX_ID}`);
-		const search = router.history.location.search;
-		assert.equal(search.includes("selectedMessageId"), false);
-		assert.equal(search.includes("selectedThreadId"), false);
 	});
 
-	it("keeps the rest of the query, so the search the user typed survives", async () => {
-		const router = routerAt(
-			`/mail/${INBOX_ID}?q=invoice&selectedMessageId=msg-1`,
-		);
+	it("keeps the query, so the search the user typed survives", async () => {
+		const router = routerAt(`${THREAD_HREF}?q=invoice`);
 		const mounted = await mount(router);
 
 		await press(mounted);
 
-		const search = router.history.location.search;
-		assert.equal(search.includes("selectedMessageId"), false);
-		assert.match(search, /q=invoice/);
+		assert.equal(router.history.location.pathname, `/mail/${INBOX_ID}`);
+		assert.match(router.history.location.search, /q=invoice/);
 	});
 
 	it("leaves the message one Back away rather than erasing it", async () => {
-		const router = routerAt(`/mail/${INBOX_ID}?selectedMessageId=msg-1`);
+		const router = routerAt(THREAD_HREF);
 		const mounted = await mount(router);
 
 		await press(mounted);
 		router.history.back();
 		await mounted.flush();
 
-		assert.match(router.history.location.search, /selectedMessageId=msg-1/);
+		assert.equal(router.history.location.pathname, THREAD_HREF);
 	});
 
 	it("adds no history entry when the pane had nothing open", async () => {

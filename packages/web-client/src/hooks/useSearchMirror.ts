@@ -31,10 +31,9 @@ export type SearchMirrorTarget =
  * When a query *goes* active it also closes the reading pane (#539): an open
  * message from the pre-search list is not meaningful in the search result set.
  * The close is a navigation to the list route, which unmatches the thread that
- * was open under it — plus, until the remaining lists move their selection into
- * the path, dropping the params they still read it from. Any other write keeps
- * the address it found: mirroring a query the reader is editing, or clearing
- * one, must not shut the conversation they are reading.
+ * was open under it. Any other write keeps the address it found: mirroring a
+ * query the reader is editing, or clearing one, must not shut the conversation
+ * they are reading.
  *
  * Only on that transition, though — tapping a search result commits the same `q`
  * with the open thread, so when the URL already says the query the conversation
@@ -71,13 +70,6 @@ export function useSearchMirror(target: SearchMirrorTarget): void {
 		const search = (prev: Record<string, unknown>) => ({
 			...prev,
 			q: committedQuery || undefined,
-			...(queryGoesActive
-				? {
-						selectedMessageId: undefined,
-						selectedThreadId: undefined,
-						selectedMailboxId: undefined,
-					}
-				: {}),
 		});
 		if (!queryGoesActive) {
 			navigate({ to: ".", search, replace: true });

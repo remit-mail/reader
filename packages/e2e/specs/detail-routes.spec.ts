@@ -500,7 +500,7 @@ test.describe("A flagged conversation deep-links from cold (#713)", () => {
 		).toBeVisible();
 	});
 
-	test("a starred row opens by the same address the list links to", async ({
+	test("a starred row opens the same address a pasted one does", async ({
 		page,
 		run,
 	}) => {

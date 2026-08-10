@@ -79,7 +79,7 @@ export const useListCursor = ({
 	onExitSelection,
 }: UseListCursorOptions): ListCursor => {
 	// The keyboard "where am I" pointer, distinct from the open thread
-	// (`selectedMessageId` in the URL). j/k move this cursor; Enter opens the
+	// (the message segment in the path). j/k move this cursor; Enter opens the
 	// focused row, and on desktop the reading pane follows the cursor of its own
 	// accord (`useFollowFocusOpen`). It seeds from the open thread so opening a
 	// message also focuses its row.
