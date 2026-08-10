@@ -22,6 +22,7 @@ import {
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
 	AlertTriangle,
+	Bug,
 	Download,
 	Inbox,
 	Loader2,
@@ -915,8 +916,8 @@ export const Appearance: Story = {
 const advancedHelp = (
 	<div className="space-y-3">
 		<p>
-			<strong className="text-fg">Notification rules</strong>, data export, and
-			per-account diagnostics are coming in a future release.
+			<strong className="text-fg">Notification rules</strong> and data export
+			are coming in a future release.
 		</p>
 		<p>
 			A message Remit cannot read is{" "}
@@ -959,11 +960,61 @@ function TlsRootCaRow() {
 	);
 }
 
+/** Mirrors packages/web-client's QuarantinePanel — its three read states. */
+function QuarantineRows({
+	readState,
+	quarantined,
+	onCutBug,
+}: {
+	readState: QuarantineReadState;
+	quarantined: readonly QuarantineEntry[];
+	onCutBug: (entry: QuarantineEntry) => void;
+}) {
+	if (readState === "loading") {
+		return (
+			<p className="animate-pulse text-sm text-fg-subtle">
+				Checking for messages set aside…
+			</p>
+		);
+	}
+
+	if (readState === "failed") {
+		return (
+			<section role="alert" className="space-y-3">
+				<h2 className="text-sm font-semibold text-fg">Messages set aside</h2>
+				<div className="space-y-2 rounded-sm border border-danger/40 bg-danger-soft px-row-inset py-3">
+					<p className="text-sm font-medium text-danger">
+						The list of set-aside messages could not be read.
+					</p>
+					<p className="break-words text-sm text-fg-muted">Failed to fetch</p>
+					<p className="text-xs text-fg-muted">
+						Mail may still have been set aside — this page cannot say either way
+						until it can read the list. Reporting this gets it fixed.
+					</p>
+					<Button
+						variant="secondary"
+						size="sm"
+						icon={<Bug className="size-3.5" />}
+					>
+						Report this
+					</Button>
+				</div>
+			</section>
+		);
+	}
+
+	return <QuarantineSection entries={quarantined} onCutBug={onCutBug} />;
+}
+
+type QuarantineReadState = "ready" | "loading" | "failed";
+
 function AdvancedPage({
 	quarantined = [],
+	readState = "ready",
 	tlsMode = "off",
 }: {
 	quarantined?: readonly QuarantineEntry[];
+	readState?: QuarantineReadState;
 	tlsMode?: "internal" | "acme" | "tailscale" | "off";
 }) {
 	const [helpOpen, setHelpOpen] = useState(true);
@@ -980,7 +1031,11 @@ function AdvancedPage({
 			onToggleHelp={() => setHelpOpen((v) => !v)}
 			onBackToMail={() => undefined}
 		>
-			<QuarantineSection entries={quarantined} onCutBug={setReporting} />
+			<QuarantineRows
+				readState={readState}
+				quarantined={quarantined}
+				onCutBug={setReporting}
+			/>
 			<div className="mt-6 border-t border-line pt-4">
 				<p className="text-sm text-fg-muted">
 					Notification rules and data export are coming in a future release.
@@ -1016,6 +1071,19 @@ export const AdvancedOneQuarantined: Story = {
 /** Two or more is a pattern, so the page raises an alert above the list. */
 export const AdvancedQuarantineAlert: Story = {
 	render: () => <AdvancedPage quarantined={quarantineDemoEntries} />,
+};
+
+/** The list is still being read — the pane says so rather than showing nothing. */
+export const AdvancedQuarantineLoading: Story = {
+	render: () => <AdvancedPage readState="loading" />,
+};
+
+/**
+ * The read failed. Nothing can be claimed about the mail either way, so the
+ * pane says that and offers to file it — never a blank panel.
+ */
+export const AdvancedQuarantineUnreadable: Story = {
+	render: () => <AdvancedPage readState="failed" />,
 };
 
 /** TLS_MODE=internal — the root CA download row appears, above About. */

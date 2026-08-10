@@ -1,11 +1,12 @@
 /**
  * Advanced settings. Updates live here — and only here — with a full pane in
- * Settings › Advanced. Notification rules, export, and diagnostics are future
- * scope.
+ * Settings › Advanced, alongside the messages sync could not read. Notification
+ * rules and export are future scope.
  */
 import { SettingsShell } from "@remit/ui";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { QuarantinePanel } from "@/components/settings/QuarantinePanel";
 import { SelfUpdatePanel } from "@/components/settings/SelfUpdatePanel";
 import { TlsRootCaDownload } from "@/components/settings/TlsRootCaDownload";
 import { AppVersion } from "@/components/ui/AppVersion";
@@ -18,8 +19,14 @@ export const Route = createFileRoute("/settings/advanced")({
 const advancedHelp = (
 	<div className="space-y-3">
 		<p>
-			<strong className="text-fg">Notification rules</strong>, data export, and
-			per-account diagnostics are coming in a future release.
+			<strong className="text-fg">Notification rules</strong> and data export
+			are coming in a future release.
+		</p>
+		<p>
+			A message Remit cannot read is{" "}
+			<strong className="text-fg">set aside</strong> rather than skipped, and
+			the folder keeps syncing. Setting one aside is a defect in Remit, so every
+			entry can be reported with the diagnostics already attached.
 		</p>
 	</div>
 );
@@ -46,10 +53,12 @@ function AdvancedSettings() {
 			onBackToMail={() => void navigate({ to: "/mail" })}
 		>
 			<SelfUpdatePanel />
-			<p className="text-sm text-fg-muted">
-				Notification rules, data export, and raw sync diagnostics are coming in
-				a future release.
-			</p>
+			<QuarantinePanel />
+			<div className="mt-6 border-t border-line pt-4">
+				<p className="text-sm text-fg-muted">
+					Notification rules and data export are coming in a future release.
+				</p>
+			</div>
 			<TlsRootCaDownload />
 			<div className="border-t border-line pt-4 mt-4">
 				<p className="text-sm font-medium text-fg mb-1">About</p>
