@@ -754,6 +754,11 @@ export {
 	useSelection,
 } from "./lib/use-selection.js";
 export {
+	type ModalSurfaceOptions,
+	tabbablesWithin,
+	useModalSurface,
+} from "./lib/use-modal-surface.js";
+export {
 	type ComboboxProps,
 	type SuggestListState,
 	type UseSuggestListInput,

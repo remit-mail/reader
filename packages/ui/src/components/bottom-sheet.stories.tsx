@@ -38,20 +38,24 @@ function Demo() {
 					</div>
 				))}
 			</div>
-			{!open && (
-				<Button
-					variant="primary"
-					onClick={() => setOpen(true)}
-					className="absolute inset-x-0 bottom-0 m-3 h-11 font-semibold"
-				>
-					Open sheet
-				</Button>
-			)}
-			<BottomSheet open={open} onClose={() => setOpen(false)}>
+			<Button
+				variant="primary"
+				onClick={() => setOpen(true)}
+				className="absolute inset-x-0 bottom-0 m-3 h-11 font-semibold"
+			>
+				Open sheet
+			</Button>
+			<BottomSheet
+				open={open}
+				onClose={() => setOpen(false)}
+				title="Action sheet"
+			>
 				<div className="px-row-inset py-6">
 					<h2 className="text-sm font-semibold text-fg">Action sheet</h2>
 					<p className="mt-1 text-xs text-fg-subtle">
-						Drag the grabber down or tap outside to dismiss.
+						Escape, the grabber, or a tap outside dismisses it. Tab stays in the
+						sheet while it is up, and focus returns to the button that opened
+						it.
 					</p>
 					<Button
 						variant="primary"

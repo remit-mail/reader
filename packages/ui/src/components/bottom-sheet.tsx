@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn.js";
+import { useModalSurface } from "../lib/use-modal-surface.js";
 
 const SNAP_MS = 320;
 const SNAP_EASE = "cubic-bezier(0.32, 0.9, 0.3, 1)";
@@ -15,6 +16,8 @@ function rubberBand(overshoot: number): number {
 export interface BottomSheetProps {
 	open: boolean;
 	onClose: () => void;
+	/** Accessible name of the sheet, announced when it takes focus. */
+	title: string;
 	children: ReactNode;
 	/** Accessible label for the drag-to-dismiss scrim and grabber. */
 	dismissLabel?: string;
@@ -22,19 +25,26 @@ export interface BottomSheetProps {
 
 /**
  * Native-feeling action sheet that slides up from the bottom of its positioned
- * container. Drag the grabber down (or flick) past ~40% to dismiss; tapping the
- * scrim closes it too. Sits absolutely inside the nearest positioned ancestor,
- * so wrap it in a `relative` container (e.g. a phone frame).
+ * container: a modal dialog with Escape, focus and inertness handled by
+ * {@link useModalSurface}. Drag the grabber down (or flick) past ~40% to
+ * dismiss; tapping the scrim closes it too. Sits absolutely inside the nearest
+ * positioned ancestor, so wrap it in a `relative` container (e.g. a phone
+ * frame).
  */
 export function BottomSheet({
 	open,
 	onClose,
+	title,
 	children,
 	dismissLabel = "Dismiss",
 }: BottomSheetProps) {
+	const rootRef = useRef<HTMLDivElement>(null);
 	const sheetRef = useRef<HTMLDivElement>(null);
+	const titleId = useId();
 	const [height, setHeight] = useState(HEIGHT_FALLBACK);
 	const [drag, setDrag] = useState<number | null>(null);
+
+	useModalSurface({ open, onClose, surfaceRef: sheetRef, boundaryRef: rootRef });
 
 	useLayoutEffect(() => {
 		const el = sheetRef.current;
@@ -98,6 +108,8 @@ export function BottomSheet({
 
 	return (
 		<div
+			ref={rootRef}
+			inert={!open && !dragging}
 			className={cn(
 				"absolute inset-0 z-40 select-none overflow-hidden",
 				open || dragging ? "" : "pointer-events-none",
@@ -119,9 +131,16 @@ export function BottomSheet({
 			/>
 			<div
 				ref={sheetRef}
-				className="absolute inset-x-0 bottom-0 flex max-h-[92%] flex-col rounded-t-3xl border-t border-line bg-surface shadow-2xl shadow-black/30"
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby={titleId}
+				tabIndex={-1}
+				className="absolute inset-x-0 bottom-0 flex max-h-[92%] flex-col rounded-t-3xl border-t border-line bg-surface shadow-2xl shadow-black/30 outline-none"
 				style={{ transform: `translateY(${offset}px)`, transition }}
 			>
+				<h2 id={titleId} className="sr-only">
+					{title}
+				</h2>
 				<div
 					role="slider"
 					aria-label="Drag down to dismiss"

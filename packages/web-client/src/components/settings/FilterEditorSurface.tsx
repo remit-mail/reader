@@ -56,7 +56,12 @@ export function FilterEditorSurface({
 	}
 
 	return (
-		<BottomSheet open onClose={onClose} dismissLabel="Dismiss filter rule">
+		<BottomSheet
+			open
+			onClose={onClose}
+			title="Filter rule"
+			dismissLabel="Dismiss filter rule"
+		>
 			{editor}
 		</BottomSheet>
 	);
