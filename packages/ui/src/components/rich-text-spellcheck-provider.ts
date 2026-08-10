@@ -29,6 +29,7 @@ export const SUGGEST_DEADLINE_MS = 5000;
 
 export const openSpellProvider = (
 	language: LanguageTag,
+	base: string,
 	port: SpellWorkerPort,
 ): SpellProvider => {
 	const pending = new Map<string, (response: CheckResponse) => void>();
@@ -37,7 +38,12 @@ export const openSpellProvider = (
 		{ settle(response: SuggestResponse): void; abandon(reason: Error): void }
 	>();
 	const listeners = new Set<(status: ProviderStatus) => void>();
-	let status: ProviderStatus = { state: "opening", language };
+	let status: ProviderStatus = {
+		state: "opening",
+		language,
+		bytesLoaded: 0,
+		bytesTotal: 0,
+	};
 
 	/**
 	 * A check that never comes back costs a pass; a suggestion that never comes
@@ -62,6 +68,15 @@ export const openSpellProvider = (
 	};
 
 	port.listen((message) => {
+		if (message.type === "opening") {
+			publish({
+				state: "opening",
+				language,
+				bytesLoaded: message.bytesLoaded,
+				bytesTotal: message.bytesTotal,
+			});
+			return;
+		}
 		if (message.type === "ready") {
 			publish({ state: "ready", language });
 			return;
@@ -100,7 +115,7 @@ export const openSpellProvider = (
 		publish({ state: "failed", language, reason: "worker", detail });
 		abandonSuggestions(detail);
 	});
-	port.post({ type: "open", language });
+	port.post({ type: "open", language, base });
 
 	return {
 		language,

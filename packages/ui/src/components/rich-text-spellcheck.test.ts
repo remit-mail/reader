@@ -24,10 +24,10 @@ import type {
 	SpellProvider,
 } from "./rich-text-spellcheck.js";
 import {
-	dictionaryFor,
-	findMisspellings,
-	suggestionsFor,
-} from "./rich-text-spellcheck-words.js";
+	stubKnows,
+	stubSuggestionsFor,
+} from "./rich-text-spellcheck-double.js";
+import { findMisspellings } from "./rich-text-spellcheck-words.js";
 
 const SENTENCE = "Ths report is redy today";
 const IDLE_MS = 400;
@@ -83,13 +83,12 @@ const stubSpellcheck = (
 	const held: (() => void)[] = [];
 	const listeners = new Set<(status: ProviderStatus) => void>();
 	let closed = 0;
-	const words = dictionaryFor("en") ?? new Set<string>();
 
 	const answer = (request: CheckRequest, nth: number): CheckResponse => ({
 		requestId: request.requestId,
 		revision: tune.revisionOf?.(request, nth) ?? request.revision,
 		findings: request.spans.flatMap((span) =>
-			findMisspellings(span.text, words).map(
+			findMisspellings(span.text, stubKnows).map(
 				(range): Finding => ({
 					spanId: span.spanId,
 					start: range.start,
@@ -122,7 +121,7 @@ const stubSpellcheck = (
 			Promise.resolve({
 				requestId: request.requestId,
 				word: request.word,
-				suggestions: suggestionsFor(request.word, words),
+				suggestions: stubSuggestionsFor(request.word),
 			}),
 		close: () => {
 			closed += 1;

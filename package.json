@@ -55,7 +55,8 @@
     "e2e:dev:migrate": "node npm-scripts/docker-bundle.mjs backend-migrate && cd deploy/vps && node ../../dist-docker/backend/migrate.mjs",
     "dev:sqlite": "REMIT_DEV_UID=$(id -u) REMIT_DEV_GID=$(id -g) docker compose -f docker-compose.localhost-dev-sqlite.yml up -d --wait",
     "dev:sqlite:down": "REMIT_DEV_UID=$(id -u) REMIT_DEV_GID=$(id -g) docker compose -f docker-compose.localhost-dev-sqlite.yml down",
-    "dev:sqlite:logs": "docker compose -f docker-compose.localhost-dev-sqlite.yml logs -f"
+    "dev:sqlite:logs": "docker compose -f docker-compose.localhost-dev-sqlite.yml logs -f",
+    "build:hunspell": "node npm-scripts/build-hunspell.mjs"
   },
   "ciCoverage": {
     "allowUnreachable": {

@@ -52,7 +52,18 @@ export interface SuggestResponse {
 }
 
 export type ProviderStatus =
-	| { readonly state: "opening"; readonly language: LanguageTag }
+	/**
+	 * Carries the download rather than a verdict about it: a composer that has to
+	 * say "still fetching Dutch (686 KB)" needs the two numbers, and where the
+	 * line between quick and slow falls belongs to whatever renders it, not here.
+	 * Both are 0 until the first response's headers arrive.
+	 */
+	| {
+			readonly state: "opening";
+			readonly language: LanguageTag;
+			readonly bytesLoaded: number;
+			readonly bytesTotal: number;
+	  }
 	| { readonly state: "ready"; readonly language: LanguageTag }
 	/** Nothing here checks this language, and the browser is welcome to. */
 	| { readonly state: "unavailable"; readonly language: LanguageTag }
@@ -85,11 +96,26 @@ export interface SpellcheckOptions {
 }
 
 export type SpellWorkerRequest =
-	| { readonly type: "open"; readonly language: LanguageTag }
+	/**
+	 * `base` is where the engine and the dictionaries are served from, decided by
+	 * the build and passed in rather than read inside the worker — so what the
+	 * worker fetches is visible at the seam and can be pointed elsewhere.
+	 */
+	| {
+			readonly type: "open";
+			readonly language: LanguageTag;
+			readonly base: string;
+	  }
 	| ({ readonly type: "check" } & CheckRequest)
 	| ({ readonly type: "suggest" } & SuggestRequest);
 
 export type SpellWorkerResponse =
+	| {
+			readonly type: "opening";
+			readonly language: LanguageTag;
+			readonly bytesLoaded: number;
+			readonly bytesTotal: number;
+	  }
 	| { readonly type: "ready"; readonly language: LanguageTag }
 	| {
 			readonly type: "failed";

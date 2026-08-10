@@ -19,9 +19,15 @@ const config: StorybookConfig = {
 	core: { disableTelemetry: true },
 	async viteFinal(config) {
 		const { default: tailwindcss } = await import("@tailwindcss/vite");
+		const { spellcheckPlugin } = await import(
+			"../../web-client/spellcheck/vite-plugin.ts"
+		);
 		const { fileURLToPath, URL } = await import("node:url");
 		config.plugins = config.plugins ?? [];
 		config.plugins.push(tailwindcss());
+		// The spellcheck stories drive the real worker, which fetches the engine
+		// and the dictionaries the same way the app does.
+		config.plugins.push(spellcheckPlugin());
 		// In a git worktree the shared node_modules symlinks resolve @remit/*
 		// packages back to the main checkout. Override here so Storybook picks
 		// up the worktree's own source (needed for design-token / component changes).

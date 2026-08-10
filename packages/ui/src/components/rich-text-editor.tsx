@@ -40,6 +40,7 @@ import type {
 	SpellcheckOptions,
 	SpellProvider,
 } from "./rich-text-spellcheck.js";
+import { RichTextSpellcheckNotice } from "./rich-text-spellcheck-notice.js";
 import {
 	normaliseWord,
 	SUGGESTION_LIMIT,
@@ -397,6 +398,19 @@ const SpellcheckPlugin = ({
 		null,
 	);
 	const [failure, setFailure] = useState<string | null>(null);
+	// A cancelled download and a retry are the same effect run again, so the
+	// attempt is what the effect keys off; standing down withholds the run.
+	const [attempt, setAttempt] = useState(0);
+	const [standDown, setStandDown] = useState(false);
+	const [status, setStatus] = useState<ProviderStatus>({
+		state: "opening",
+		language,
+		bytesLoaded: 0,
+		bytesTotal: 0,
+	});
+	// Nothing here can draw a mark without the highlight registry, so there is
+	// nothing to narrate either: the browser has the text to itself.
+	const [drawable] = useState(marksSupported);
 
 	useEffect(() => {
 		settings.current = options;
@@ -404,7 +418,7 @@ const SpellcheckPlugin = ({
 	}, [options, onReady]);
 
 	useEffect(() => {
-		if (!marksSupported()) return;
+		if (!marksSupported() || standDown) return;
 		const painter = Symbol(SPELLCHECK_HIGHLIGHT);
 		const findings = found.current;
 		const touched = new Set<string>();
@@ -473,7 +487,14 @@ const SpellcheckPlugin = ({
 			passes += 1;
 			const sent = revision;
 			provider
-				.check({ requestId: `${passes}`, language, revision: sent, spans })
+				// The attempt is part of the id, so a retry's answers are legible
+				// against the ones the download it replaced never delivered.
+				.check({
+					requestId: `${attempt}:${passes}`,
+					language,
+					revision: sent,
+					spans,
+				})
 				.then((response) => {
 					if (!live) return;
 					// The text moved while this was in flight, so the offsets are
@@ -656,15 +677,17 @@ const SpellcheckPlugin = ({
 			schedule();
 		});
 
+		const announce = (next: ProviderStatus): void => {
+			setStatus(next);
+			settings.current.onStatus?.(next);
+		};
+
 		const stopped = (detail: string): void => {
-			settings.current.onStatus?.({
-				state: "failed",
-				language,
-				reason: "worker",
-				detail,
-			});
+			announce({ state: "failed", language, reason: "worker", detail });
 			report.current(false);
 		};
+
+		announce({ state: "opening", language, bytesLoaded: 0, bytesTotal: 0 });
 
 		settings.current
 			.provider(language)
@@ -675,13 +698,13 @@ const SpellcheckPlugin = ({
 				}
 				checker.current = opened;
 				if (!opened) {
-					settings.current.onStatus?.({ state: "unavailable", language });
+					announce({ state: "unavailable", language });
 					report.current(false);
 					return;
 				}
 				unsubscribe = opened.onStatus((status) => {
 					state = status.state;
-					settings.current.onStatus?.(status);
+					announce(status);
 					const ready = status.state === "ready";
 					report.current(ready);
 					if (ready) {
@@ -723,7 +746,7 @@ const SpellcheckPlugin = ({
 			report.current(false);
 			paintMarks(painter, []);
 		};
-	}, [editor, language, hostRef]);
+	}, [editor, language, hostRef, attempt, standDown]);
 
 	useEffect(() => {
 		if (!target) return;
@@ -780,9 +803,8 @@ const SpellcheckPlugin = ({
 		[editor, dismiss],
 	);
 
-	if (!target) return null;
-
 	const replace = (suggestion: string) => {
+		if (!target) return;
 		// One entry, so one undo puts the misspelling back (#707, decision 9).
 		editor.update(
 			() => {
@@ -809,27 +831,43 @@ const SpellcheckPlugin = ({
 	};
 
 	const addWord = () => {
+		if (!target) return;
 		settings.current.onAddWord?.(target.word);
 		forget(target.word);
 	};
 
 	return (
-		<RichTextCorrectionMenu
-			word={target.word}
-			suggestions={suggestions}
-			failure={failure}
-			anchor={{
-				left: target.left,
-				right: target.right,
-				top: target.top,
-				bottom: target.bottom,
-			}}
-			language={language}
-			onReplace={replace}
-			onIgnore={() => forget(target.word)}
-			onAddWord={options.onAddWord ? addWord : undefined}
-			onDismiss={dismiss}
-		/>
+		<>
+			{drawable ? (
+				<RichTextSpellcheckNotice
+					status={status}
+					standDown={standDown}
+					onCancel={() => setStandDown(true)}
+					onRetry={() => {
+						setStandDown(false);
+						setAttempt((run) => run + 1);
+					}}
+				/>
+			) : null}
+			{target ? (
+				<RichTextCorrectionMenu
+					word={target.word}
+					suggestions={suggestions}
+					failure={failure}
+					anchor={{
+						left: target.left,
+						right: target.right,
+						top: target.top,
+						bottom: target.bottom,
+					}}
+					language={language}
+					onReplace={replace}
+					onIgnore={() => forget(target.word)}
+					onAddWord={options.onAddWord ? addWord : undefined}
+					onDismiss={dismiss}
+				/>
+			) : null}
+		</>
 	);
 };
 

@@ -44,6 +44,24 @@ RUN find . -type f ! -name package.json ! -name package-lock.json \
 	&& find . -type d -empty -delete
 
 ########################################################################
+# hunspell-wasm — the composer's spellchecking engine, compiled here.
+#
+# Hunspell has 141 contributors; every published WebAssembly wrapper of it has
+# one, and none clears this repo's dependency bar. So the engine is built from
+# an upstream release tarball whose sha256 is pinned in
+# docker/build/hunspell/pin.env, with the Emscripten image as the toolchain
+# pin. Nothing is patched: this is a build, not a fork.
+#
+# The output is two files and the licence texts, ~630 KB before brotli, copied
+# into the builder below and staged into the web client's dist/.
+########################################################################
+FROM docker.io/emscripten/emsdk:6.0.6 AS hunspell-wasm
+WORKDIR /src
+COPY docker/build/hunspell/ ./docker/build/hunspell/
+ENV OUT_DIR=/out
+RUN sh docker/build/hunspell/build.sh
+
+########################################################################
 # builder — npm ci, TypeSpec codegen (make), the web client, the generated
 # apisix route table, and one esbuild bundle per node-service entrypoint.
 # Shared by every target below so the expensive steps run once.
@@ -63,6 +81,10 @@ COPY . .
 # `make` regenerates build/ from the TypeSpec source in-repo (RFC 035 D2).
 RUN make
 
+# The engine the spellcheck plugin stages, from the stage above rather than
+# from a compiler in this one.
+COPY --from=hunspell-wasm /out/ ./build/hunspell/
+
 # The build commit, threaded in from the publisher (images-publish.sh) because
 # `.git` is dockerignored — without it the web client's `resolveGitSha` falls
 # back to the literal "dev" and every bug report links a dead `/commit/dev` URL.
@@ -77,7 +99,19 @@ ENV GITHUB_SHA=${GIT_SHA}
 # Same-origin relative API base (packages/web-client/src/lib/client.ts defaults
 # VITE_API_URL-less builds to "/api"); Caddy proxies /api and /content to
 # apisix/backend, so no build-time API host is needed.
+# Which dictionaries this image carries. The list is what NOTICE.txt and the
+# staged licence files describe, so it is fixed here rather than at run time;
+# an empty list builds a web client with no spellchecker at all. Adding a tag
+# also needs its row in packages/web-client/spellcheck/languages.ts.
+ARG REMIT_SPELLCHECK_LANGUAGES=en,en-GB,nl
+ENV REMIT_SPELLCHECK_LANGUAGES=${REMIT_SPELLCHECK_LANGUAGES}
+
 RUN npm run build:dist -w packages/web-client -- --auth better-auth
+
+# Only the brotli form of the engine and the dictionaries lands in the image;
+# the server sends it with Content-Encoding: br, so what the browser receives
+# is the upstream source byte for byte.
+RUN node npm-scripts/compress-spellcheck.mjs packages/web-client/dist/spellcheck
 
 # Bakes the generated route table into the apisix image. backend:8080 is the
 # in-network service name/port every runtime target below also uses.

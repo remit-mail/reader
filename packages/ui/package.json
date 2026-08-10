@@ -51,6 +51,9 @@
 	"devDependencies": {
 		"@storybook/react": "^9",
 		"@types/jsdom": "^28.0.3",
+		"dictionary-en": "4.0.0",
+		"dictionary-en-gb": "3.0.0",
+		"dictionary-nl": "2.0.0",
 		"jsdom": "^29.1.1",
 		"react": "^19",
 		"react-dom": "^19",

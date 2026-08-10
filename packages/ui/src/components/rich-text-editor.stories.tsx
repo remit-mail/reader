@@ -13,10 +13,8 @@ import type {
 	Finding,
 	SpellcheckOptions,
 } from "./rich-text-spellcheck.js";
-import {
-	dictionaryFor,
-	findMisspellings,
-} from "./rich-text-spellcheck-words.js";
+import { stubKnows } from "./rich-text-spellcheck-double.js";
+import { findMisspellings } from "./rich-text-spellcheck-words.js";
 import { openSpellcheckWorker } from "./rich-text-spellcheck-worker-provider.js";
 
 /**
@@ -278,12 +276,11 @@ const staleSpellcheck: SpellcheckOptions = {
 		},
 		check: (request: CheckRequest) => {
 			staleAnswers.push(request.requestId);
-			const words = dictionaryFor(request.language) ?? new Set<string>();
 			return Promise.resolve({
 				requestId: request.requestId,
 				revision: request.revision - 1,
 				findings: request.spans.flatMap((span) =>
-					findMisspellings(span.text, words).map(
+					findMisspellings(span.text, stubKnows).map(
 						(range): Finding => ({
 							spanId: span.spanId,
 							start: range.start,

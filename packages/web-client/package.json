@@ -17,6 +17,7 @@
 	"files": [
 		"src",
 		"harness",
+		"spellcheck",
 		"vite.base.ts",
 		"public",
 		"index.html"
@@ -101,6 +102,9 @@
 		"@types/nodemailer": "*",
 		"@types/pngjs": "^6.0.5",
 		"@vitejs/plugin-react": "^4",
+		"dictionary-en": "4.0.0",
+		"dictionary-en-gb": "3.0.0",
+		"dictionary-nl": "2.0.0",
 		"electrodb": "*",
 		"esbuild": "*",
 		"expect-env": "*",
