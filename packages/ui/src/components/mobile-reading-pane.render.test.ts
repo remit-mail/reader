@@ -52,7 +52,7 @@ const intelligence: IntelligenceData = {
 		fromDomain: "example.com",
 		summary: "Verified.",
 	},
-	category: { value: "Personal" },
+	category: { value: "personal" },
 	similar: [],
 };
 

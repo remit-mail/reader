@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { ReactElement, ReactNode } from "react";
 import { cn } from "../lib/cn.js";
+import { categoryTone, type ThreadCategory } from "./app-shell-types.js";
 import { Avatar } from "./avatar.js";
 import { Badge } from "./badge.js";
 import { Button } from "./button.js";
@@ -128,7 +129,7 @@ export interface SenderFlagsIntel {
 export interface IntelligenceData {
 	sender: SenderIntel;
 	authenticity: AuthenticityIntel;
-	category: { value: string; overridden?: boolean };
+	category: { value: ThreadCategory; overridden?: boolean };
 	flags?: SenderFlagsIntel;
 	similar: SimilarMessageIntel[];
 }
@@ -395,7 +396,6 @@ export function IntelligencePanel({
 	notSpamPending = false,
 }: IntelligencePanelProps) {
 	const { sender, authenticity, category, flags = {}, similar } = data;
-	const suspicious = authenticity.verdict === "mismatch";
 
 	return (
 		<aside
@@ -430,9 +430,7 @@ export function IntelligencePanel({
 
 			<Section label="Category">
 				<div className="flex items-center gap-2">
-					<Badge tone={suspicious ? "danger" : "neutral"}>
-						{category.value}
-					</Badge>
+					<Badge tone={categoryTone[category.value]}>{category.value}</Badge>
 					{category.overridden && (
 						<span className="text-2xs text-fg-subtle">your override</span>
 					)}

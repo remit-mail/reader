@@ -33,7 +33,7 @@ const baseData: IntelligenceData = {
 		dkimDomain: "example.com",
 		summary: "This message was signed by example.com.",
 	},
-	category: { value: "Personal" },
+	category: { value: "personal" },
 	similar: [],
 };
 
