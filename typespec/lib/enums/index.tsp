@@ -43,6 +43,7 @@ import "./OrganizeJobState.tsp";
 
 // Authentication Enums
 import "./AuthResultVerdict.tsp";
+import "./AuthenticityVerdict.tsp";
 import "./DisplayNameCorrespondence.tsp";
 
 // API Enums

@@ -59,6 +59,7 @@ function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 		status: row.status,
 		syncStatus: row.syncStatus,
 		category: row.category,
+		authenticityVerdict: row.authenticityVerdict,
 		hasListUnsubscribe: row.hasListUnsubscribe,
 		movedByRemit: row.movedByRemit,
 		createdAt: row.createdAt,
@@ -184,6 +185,8 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			status: input.status ?? ("active" as const),
 			syncStatus: input.syncStatus ?? ("pending" as const),
 			category: input.category ?? ("uncategorized" as const),
+			authenticityVerdict:
+				input.authenticityVerdict ?? ("NotEvaluated" as const),
 			hasListUnsubscribe: input.hasListUnsubscribe ?? false,
 			movedByRemit: input.movedByRemit ?? false,
 			messageIdHeader: input.messageIdHeader ?? null,
@@ -365,6 +368,9 @@ export class DrizzleMessageRepository implements IMessageRepository {
 				? { syncStatus: input.syncStatus }
 				: {}),
 			...(input.category !== undefined ? { category: input.category } : {}),
+			...(input.authenticityVerdict !== undefined
+				? { authenticityVerdict: input.authenticityVerdict }
+				: {}),
 			...(input.hasListUnsubscribe !== undefined
 				? { hasListUnsubscribe: input.hasListUnsubscribe }
 				: {}),

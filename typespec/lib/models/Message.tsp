@@ -1,6 +1,7 @@
 import "typespec-electrodb-emitter";
 
 import "../enums/AuthResultVerdict.tsp";
+import "../enums/AuthenticityVerdict.tsp";
 import "../enums/DisplayNameCorrespondence.tsp";
 import "../enums/LabelAction.tsp";
 import "../enums/MessageCategory.tsp";
@@ -32,6 +33,18 @@ model MessageAuthenticity {
 
   @doc("Registrable domains (eTLD+1) the body's links point at, excluding the From address's own registrable domain. Present only for a message the provider's own filter already classified as spam; an empty array means every link stayed on the sender's domain, absence means the comparison was never made.")
   offDomainLinkDomains?: string[];
+
+  @doc("Registrable domain of the first verified DKIM `header.d` in trusted Authentication-Results order, or the reserved literal `unverified` when no identity could be established. Unlike `dkimDomain`, which is the unverified `d=` claim the sender wrote, this is only set from a signature the trusted Authentication-Results reported as passing. Absent for messages classified before the field existed.")
+  signerDomain?: string;
+
+  @doc("SPF-checked envelope-from domain (`smtp.mailfrom`, falling back to `smtp.helo`) from the trusted Authentication-Results. Absent when the trusted header carried no SPF clause, or for messages classified before the field existed.")
+  envelopeDomain?: string;
+
+  @doc("Messages this account had already seen for the sender's standing key when this message arrived. A snapshot frozen at derivation time, deliberately not a live read — a message classified when the key stood at 340 always reads 340. Absent for messages classified before the field existed.")
+  signerMessageCount?: int32;
+
+  @doc("Epoch milliseconds this account first saw the sender's standing key, snapshotted at derivation time alongside `signerMessageCount`. Absent for messages classified before the field existed.")
+  signerFirstSeenAt?: int64;
 }
 
 @doc("Provider authentication-results verdict, parsed from the Authentication-Results header at body-sync time. Absent for messages synced before this field was introduced.")
@@ -212,6 +225,10 @@ model Message {
   @doc("Structured sender-authenticity signal derived from DKIM headers at classification time. Absent for messages classified before this field was introduced — absence means no signal.")
   @visibility(Lifecycle.Read)
   authenticity?: MessageAuthenticity;
+
+  @doc("Sender-authenticity tier resolved at body-sync. Defaults to `NotEvaluated`, the named pending state every message written before the derivation existed carries. Top-level rather than a member of `authenticity` on purpose: that blob is absent for all unsigned mail, so a guard keyed on its absence cannot tell \"never derived\" from \"nothing to derive\" and would re-derive unsigned mail forever.")
+  @visibility(Lifecycle.Read)
+  authenticityVerdict: AuthenticityVerdict = AuthenticityVerdict.NotEvaluated;
 
   @doc("Provider authentication-results signal parsed from Authentication-Results header. Absent for messages synced before this field was introduced.")
   @visibility(Lifecycle.Read)

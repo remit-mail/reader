@@ -15,6 +15,9 @@ import "./MessageFlagPush.tsp";
 import "./Envelope.tsp";
 import "./Address.tsp";
 
+// Sender authenticity
+import "./SenderSignerStanding.tsp";
+
 // Body Structure Layer (MIME)
 import "./BodyPart.tsp";
 

@@ -26,6 +26,7 @@ export type {
 export { holdsRoom } from "./interfaces/outbox-attachment.js";
 export type { IOutboxMessageRepository } from "./interfaces/outbox-message.js";
 export type { IQuarantineRepository } from "./interfaces/quarantine.js";
+export type { ISenderSignerStandingRepository } from "./interfaces/sender-signer-standing.js";
 export type { IThreadMessageRepository } from "./interfaces/thread-message.js";
 export type {
 	IUnitOfWork,
@@ -85,6 +86,7 @@ export type {
 	MessageLabelItem,
 	MessagePlacementMoveItem,
 	MessageReferenceItem,
+	ObserveSenderSignerStandingInput,
 	OrganizeJobRequestItem,
 	OutboxAttachmentItem,
 	OutboxMessageItem,
@@ -96,6 +98,7 @@ export type {
 	RawMessageStorageItem,
 	ResultList,
 	SearchOptions,
+	SenderSignerStandingItem,
 	ThreadMessageItem,
 	UpdateAccountConfigInput,
 	UpdateAccountExportRequestInput,
