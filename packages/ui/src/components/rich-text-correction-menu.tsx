@@ -139,14 +139,29 @@ export const RichTextCorrectionMenu = ({
 	// the tap that opened this menu is followed by the browser's compatibility
 	// mouse events, which a `mousedown` listener reads as a press somewhere else
 	// and closes the menu on the way up.
+	//
+	// Escape is caught here too, at the document rather than the panel: the
+	// panel takes focus on mount so the panel's own `onKeyDown` ordinarily
+	// gets there first and this one never fires (its `stopPropagation` keeps
+	// the keydown from reaching here), but a focus call that lands a beat
+	// later than the browser is ready for is not something to depend on —
+	// this is what actually closes the menu when that happens.
 	useEffect(() => {
 		if (!desktop) return;
 		const onPointer = (event: Event) => {
 			if (panelRef.current?.contains(event.target as Node)) return;
 			onDismiss(false);
 		};
+		const onDocumentKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== "Escape") return;
+			onDismiss(true);
+		};
 		document.addEventListener("pointerdown", onPointer);
-		return () => document.removeEventListener("pointerdown", onPointer);
+		document.addEventListener("keydown", onDocumentKeyDown);
+		return () => {
+			document.removeEventListener("pointerdown", onPointer);
+			document.removeEventListener("keydown", onDocumentKeyDown);
+		};
 	}, [desktop, onDismiss]);
 
 	/**
