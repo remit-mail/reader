@@ -50,12 +50,17 @@ function makeAddress(
 	} as RemitImapAddressResponse;
 }
 
+// The generated union has a member for every category this build knows, so a
+// value outside it cannot be written as one — which is the whole point: it
+// arrives as JSON from a server that classifies into more than this client can.
+function threadCategorizedAs(category: string): RemitImapThreadMessageResponse {
+	return { ...makeThread(), category } as RemitImapThreadMessageResponse;
+}
+
 describe("buildCategoryIntel", () => {
 	test("carries a category the client knows through unchanged", () => {
 		const result = buildCategoryIntel(
-			makeThread({
-				category: "newsletter",
-			} as Partial<RemitImapThreadMessageResponse>),
+			makeThread({ category: "newsletter" }),
 			undefined,
 		);
 		assert.equal(result.value, "newsletter");
@@ -66,22 +71,16 @@ describe("buildCategoryIntel", () => {
 		assert.equal(result.value, "personal");
 	});
 
-	// A newer server classifying into a category this build has no tone for must
-	// not leave the chip untoned — the failure this whole change is about.
 	test("resolves a category the client does not know to uncategorized", () => {
 		const result = buildCategoryIntel(
-			makeThread({
-				category: "invoice",
-			} as Partial<RemitImapThreadMessageResponse>),
+			threadCategorizedAs("invoice"),
 			undefined,
 		);
 		assert.equal(result.value, "uncategorized");
 	});
 
 	test("marks the category overridden when the sender carries a different one", () => {
-		const thread = makeThread({
-			category: "personal",
-		} as Partial<RemitImapThreadMessageResponse>);
+		const thread = makeThread({ category: "personal" });
 		const address = makeAddress({
 			flags: { category: { value: "newsletter" } },
 		} as Partial<RemitImapAddressResponse>);
