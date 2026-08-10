@@ -10,13 +10,15 @@
 		"build-storybook": "storybook build",
 		"test": "npm run test:typecheck && npm run test:run",
 		"test:typecheck": "tsgo --noEmit",
-		"test:run": "node --import tsx --test 'src/**/*.test.ts'",
+		"test:run": "TZ=Europe/Amsterdam node --import tsx --test 'src/**/*.test.ts'",
 		"test:stories": "vitest run"
 	},
 	"dependencies": {
 		"@aws-amplify/ui-react": "^6",
+		"@fullcalendar/react": "^7.0.2",
 		"@remit/ui": "*",
-		"lucide-react": "^0.468"
+		"lucide-react": "^0.468",
+		"temporal-polyfill": "^1.0.1"
 	},
 	"devDependencies": {
 		"@storybook/addon-vitest": "^9.1.20",

@@ -58,6 +58,14 @@ export {
 	AttachmentList,
 	type AttachmentListProps,
 } from "./components/attachment-list.js";
+export {
+	AttendeeList,
+	type AttendeeListProps,
+	AttendeeRow,
+	type AttendeeRowProps,
+	RsvpBadge,
+	type RsvpBadgeProps,
+} from "./components/attendee-row.js";
 export { AuthCard, type AuthCardProps } from "./components/auth-card.js";
 export {
 	AuthFooter,
@@ -113,6 +121,35 @@ export {
 	type ButtonProps,
 } from "./components/button.js";
 export {
+	CalendarEventChip,
+	type CalendarEventChipProps,
+} from "./components/calendar-event-chip.js";
+export {
+	CalendarList,
+	type CalendarListProps,
+} from "./components/calendar-list.js";
+export {
+	CalendarDateNav,
+	type CalendarDateNavProps,
+	CalendarViewSwitch,
+	type CalendarViewSwitchProps,
+	type SegmentOption,
+	segmentClassName,
+} from "./components/calendar-toolbar.js";
+export {
+	type CalendarAttendee,
+	type CalendarColorId,
+	type CalendarDescriptor,
+	type CalendarEventData,
+	type CalendarViewId,
+	calendarColorIds,
+	type EventDraft,
+	type EventSuggestion,
+	type RecurrenceScope,
+	type RsvpState,
+	type ZoneCertainty,
+} from "./components/calendar-types.js";
+export {
 	Card,
 	CardBody,
 	CardHeader,
@@ -167,6 +204,12 @@ export {
 	type ConfirmDialogProps,
 } from "./components/confirm-dialog.js";
 export {
+	CustomRecurrenceDialog,
+	type CustomRecurrenceDialogProps,
+	CustomRecurrenceEditor,
+	type CustomRecurrenceEditorProps,
+} from "./components/custom-recurrence.js";
+export {
 	DangerZoneSection,
 	type DangerZoneSectionProps,
 } from "./components/danger-zone-section.js";
@@ -176,6 +219,36 @@ export {
 	type DialogBackdropProps,
 } from "./components/dialog-backdrop.js";
 export type { EmailFrameVariant } from "./components/email-frame-css.js";
+export {
+	EventDetail,
+	type EventDetailProps,
+} from "./components/event-detail.js";
+export {
+	EventCalendarField,
+	EventEditor,
+	type EventEditorLayout,
+	type EventEditorProps,
+	EventField,
+	type EventFieldProps,
+	EventGuestsField,
+	EventLocationField,
+	EventNotesField,
+	EventRepeatField,
+	EventTitleField,
+	EventWhenField,
+} from "./components/event-editor.js";
+export {
+	EventEditorPane,
+	type EventEditorPaneProps,
+} from "./components/event-editor-pane.js";
+export {
+	EventQuickEntry,
+	type EventQuickEntryProps,
+} from "./components/event-quick-entry.js";
+export {
+	EventSuggestionCard,
+	type EventSuggestionCardProps,
+} from "./components/event-suggestion-card.js";
 export {
 	FieldLabel,
 	type FieldLabelProps,
@@ -245,6 +318,12 @@ export {
 	type FilterSheetSource,
 	FilterToggle,
 } from "./components/filter-sheet.js";
+export {
+	FlowScreen,
+	type FlowScreenProps,
+	FlowStepRail,
+	type FlowStepRailProps,
+} from "./components/flow-screen.js";
 export {
 	FolderManageActions,
 	type FolderManageActionsProps,
@@ -449,6 +528,10 @@ export {
 	type ReadingPaneEmptyProps,
 } from "./components/reading-pane-empty.js";
 export {
+	RecurrenceScopePrompt,
+	type RecurrenceScopePromptProps,
+} from "./components/recurrence-scope-prompt.js";
+export {
 	RefreshButton,
 	type RefreshButtonProps,
 	type RefreshControlState,
@@ -565,6 +648,8 @@ export {
 export {
 	FolderStepBody,
 	type FolderStepProps,
+	FooterNav,
+	type FooterNavProps,
 	MatchStepBody,
 	type MatchStepProps,
 	NameStepBody,
@@ -700,6 +785,10 @@ export {
 	toggleBriefFilterInQuery,
 } from "./lib/brief-filter-query.js";
 export {
+	type CalendarColorClasses,
+	calendarColorClasses,
+} from "./lib/calendar-color.js";
+export {
 	buildCidResolver,
 	type CidResolvableBodyPart,
 	type CidResolver,
@@ -731,6 +820,11 @@ export {
 	sanitizeInlineStyle,
 	sanitizeStyleElementCss,
 } from "./lib/email-sanitizer.js";
+export {
+	addMinutesToClock,
+	type PhraseParse,
+	parseEventPhrase,
+} from "./lib/event-phrase.js";
 export {
 	collapseFolderTree,
 	filterFolderTree,
@@ -787,6 +881,23 @@ export {
 	normalizeSubject,
 	sharedSubjectFragment,
 } from "./lib/property-prefill.js";
+export {
+	type CustomRecurrence,
+	dayOfMonthLabel,
+	defaultCustomRecurrence,
+	defaultEndDate,
+	endDateLabel,
+	formatCustomRecurrence,
+	type MonthlyMode,
+	NO_REPEAT,
+	ordinalWeekdayLabel,
+	type RecurrenceEnd,
+	type RecurrenceUnit,
+	readCustomRecurrence,
+	repeatChoices,
+	WEEKDAY_INITIALS,
+	weekdayName,
+} from "./lib/recurrence.js";
 export {
 	LIST_ROW_ATTRIBUTE,
 	LIST_ROW_SELECTOR,

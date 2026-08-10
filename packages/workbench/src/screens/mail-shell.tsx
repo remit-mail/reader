@@ -33,6 +33,7 @@
  */
 import {
 	AppShellSlotted,
+	type AppShellSlottedProps,
 	Avatar,
 	type BriefCategoryFilter,
 	type BriefFilterSurface,
@@ -186,6 +187,22 @@ export interface MailShellProps {
 	 * the caret and the search vocabulary; a story states the offer directly.
 	 */
 	searchSuggestions?: Suggestion[];
+	/**
+	 * Leaves the reading pane out entirely rather than falling back to the mail
+	 * one. A view whose second pane is only sometimes there — the calendar with
+	 * nothing open — needs the list to have the whole width until it is.
+	 */
+	readingPane?: "default" | "off";
+	/**
+	 * Which pane the two-pane split favours. Mail leaves it balanced; a list pane
+	 * that is itself the work — the calendar grid — asks for the width.
+	 */
+	listBias?: AppShellSlottedProps["listBias"];
+	/**
+	 * Offers the calendar destination in the nav. The prototype turns it on; the
+	 * mail flows leave it off, so their nav is the nav that ships today.
+	 */
+	calendarNav?: "hidden" | "shown";
 	/** Phone: open the full-screen search takeover instead of the list. */
 	searchOpen?: boolean;
 	/** Nav slide-over open (narrow widths). */
@@ -676,6 +693,9 @@ export function MailShell({
 	recentSearches,
 	savedSearches = [],
 	searchSuggestions,
+	readingPane = "default",
+	listBias,
+	calendarNav = "hidden",
 	searchOpen: searchOpenSeed = false,
 	navOpen: navOpenSeed = false,
 }: MailShellProps) {
@@ -718,6 +738,7 @@ export function MailShell({
 			accounts={navAccounts}
 			selectedNavId={selectedNavId}
 			briefUnseen={unreadCount}
+			calendarNav={calendarNav}
 			savedSearches={savedSearches}
 			saveableQuery={
 				trimmed.length > 0 && !savedSearches.includes(trimmed)
@@ -762,8 +783,9 @@ export function MailShell({
 				)
 			}
 			list={list}
+			listBias={listBias}
 			reading={
-				singlePane
+				singlePane || readingPane === "off"
 					? undefined
 					: (reading ?? (
 							<ReadingPane

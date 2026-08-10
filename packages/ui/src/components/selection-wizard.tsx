@@ -69,6 +69,7 @@ import {
 	scopeLabel,
 } from "./filter-rule.js";
 import type { ClauseEditState } from "./filter-rule-editor.js";
+import { FlowScreen, FlowStepRail } from "./flow-screen.js";
 import { type FolderTreeNode, FolderTreePicker } from "./folder-tree-picker.js";
 import { Input } from "./input.js";
 import { ProgressBar } from "./progress-bar.js";
@@ -91,21 +92,8 @@ export interface StepRailProps {
 }
 
 export function StepRail({ steps, step }: StepRailProps) {
-	const active = stepIndex(steps, step);
 	return (
-		<ol className="flex items-center gap-1.5" aria-label="Progress">
-			{steps.map((id, i) => (
-				<li key={id} className="flex flex-1 items-center gap-1.5">
-					<span
-						className={cn(
-							"h-1 flex-1 rounded-full transition-colors",
-							i <= active ? "bg-accent" : "bg-surface-sunken",
-						)}
-						aria-current={i === active ? "step" : undefined}
-					/>
-				</li>
-			))}
-		</ol>
+		<FlowStepRail count={steps.length} activeStep={stepIndex(steps, step)} />
 	);
 }
 
@@ -135,61 +123,22 @@ export function WizardScreen({
 	footer,
 	children,
 }: WizardScreenProps) {
-	const active = stepIndex(steps, step);
+	// A modal at every width: full-bleed below 768px it covers the list rather
+	// than sitting beside it, so the list behind must leave the accessibility
+	// tree with it — otherwise the verbs that opened the wizard are still
+	// reachable underneath the screen that replaced them.
 	return (
-		// A modal at every width: full-bleed below 768px it covers the list rather
-		// than sitting beside it, so the list behind must leave the accessibility
-		// tree with it — otherwise the verbs that opened the wizard are still
-		// reachable underneath the screen that replaced them.
-		<div
-			role="dialog"
-			aria-modal="true"
-			aria-label={title}
-			className="fixed inset-0 z-50 flex flex-col font-sans text-fg md:items-center md:justify-center md:bg-black/40 md:p-6"
+		<FlowScreen
+			title={title}
+			subtitle={subtitle}
+			steps={steps.map(stepLabel)}
+			activeStep={stepIndex(steps, step)}
+			onBack={onBack}
+			onExit={onExit}
+			footer={footer}
 		>
-			<div className="flex min-h-0 w-full flex-1 flex-col bg-canvas md:h-[45rem] md:max-h-[calc(100dvh-3rem)] md:w-[35rem] md:max-w-[calc(100vw-3rem)] md:flex-none md:overflow-hidden md:rounded-xl md:border md:border-line md:shadow-lg">
-				<header className="shrink-0 border-b border-line px-3 pb-2 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] md:pt-3">
-					<div className="flex items-center gap-1">
-						<button
-							type="button"
-							onClick={onBack}
-							aria-label="Back"
-							className="flex size-11 items-center justify-center rounded-md text-fg-muted"
-						>
-							<ArrowLeft className="size-5" />
-						</button>
-						<div className="min-w-0 flex-1 text-center">
-							<h1 className="truncate text-sm font-semibold">{title}</h1>
-							{subtitle && (
-								<p className="truncate text-2xs text-fg-muted">{subtitle}</p>
-							)}
-						</div>
-						<button
-							type="button"
-							onClick={onExit}
-							aria-label="Cancel"
-							className="flex size-11 items-center justify-center rounded-md text-fg-muted"
-						>
-							<X className="size-5" />
-						</button>
-					</div>
-					<div className="space-y-1 px-1 pt-2">
-						<StepRail steps={steps} step={step} />
-						<p className="text-2xs text-fg-subtle">
-							Step {active + 1} of {steps.length} · {stepLabel(steps[active])}
-						</p>
-					</div>
-				</header>
-
-				<div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-					{children}
-				</div>
-
-				<footer className="shrink-0 border-t border-line px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pb-3">
-					{footer}
-				</footer>
-			</div>
-		</div>
+			{children}
+		</FlowScreen>
 	);
 }
 
@@ -354,7 +303,8 @@ export interface FooterNavProps {
 	onBack: () => void;
 	nextLabel: string;
 	onNext: () => void;
-	nextVariant?: "primary" | "danger";
+	/** `commit` reads as primary without the arrow: it ends the flow. */
+	nextVariant?: "primary" | "commit" | "danger";
 	/** What the step is still missing. Dims the control; never disables it. */
 	blockedReason?: string;
 	/** Continue was pressed while blocked, so the reason is on screen. */
@@ -397,7 +347,7 @@ export function FooterNav({
 					Back
 				</Button>
 				<Button
-					variant={nextVariant}
+					variant={nextVariant === "danger" ? "danger" : "primary"}
 					size="touch"
 					onClick={onNext}
 					aria-describedby={blockedReason ? reasonId : undefined}

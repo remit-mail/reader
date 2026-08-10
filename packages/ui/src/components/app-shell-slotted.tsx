@@ -55,6 +55,14 @@ export interface AppShellSlottedProps {
 	 */
 	density?: "comfortable" | "compact";
 	/**
+	 * Which pane the two-pane split favours. "balanced" (default) is the mail
+	 * arrangement, where the list is an index and the reading pane is the work.
+	 * "list" is for a list pane that is itself the work — a calendar grid needs
+	 * the width a week of columns costs, and cannot give it up when a detail
+	 * opens. "detail" goes the other way for a list that is only a spine.
+	 */
+	listBias?: "list" | "balanced" | "detail";
+	/**
 	 * Header rendered only on narrow (< 1024px) widths — the mobile top bar.
 	 * The web-client injects the app-specific bar (hamburger / title / search).
 	 */
@@ -123,6 +131,16 @@ export interface AppShellLayoutContext {
 
 const AppShellLayoutCtx = createContext<AppShellLayoutContext | null>(null);
 
+/** The list panel's share of the two-pane group, and how far it may be dragged. */
+function listShare(
+	bias: NonNullable<AppShellSlottedProps["listBias"]>,
+	density: NonNullable<AppShellSlottedProps["density"]>,
+): { size: number; max: number } {
+	if (bias === "list") return { size: 62, max: 78 };
+	if (bias === "detail") return { size: 26, max: 45 };
+	return { size: density === "compact" ? 43 : 33, max: 58 };
+}
+
 /**
  * Read the enclosing `AppShellSlotted`'s pane layout.
  * Returns null outside of an `AppShellSlotted` (tests / Storybook).
@@ -143,6 +161,7 @@ export function AppShellSlotted({
 	intelligenceOpen = true,
 	hasThread = true,
 	density = "comfortable",
+	listBias = "balanced",
 	header,
 	topBar,
 	overlay,
@@ -200,14 +219,23 @@ export function AppShellSlotted({
 
 	/* Sizes are percentages of the group they sit in. This group excludes the nav
 	   column, so they are shares of the remaining ~83%, not of the whole shell. */
+	const share = listShare(listBias, density);
 	const contentPanes = (
-		<ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1">
+		<ResizablePanelGroup
+			direction="horizontal"
+			className="min-h-0 flex-1"
+			/* A group whose panels come and go under it throws "previous layout not
+			   found for panel index -1", and a panel already registered keeps the
+			   layout it was given rather than the default it is handed next. Keying
+			   on the set makes each arrangement its own group. */
+			key={showReadingPane ? "list-reading" : "list-only"}
+		>
 			<ResizablePanel
 				id="list"
 				order={1}
-				defaultSize={showReadingPane ? (density === "compact" ? 43 : 33) : 100}
+				defaultSize={showReadingPane ? share.size : 100}
 				minSize={22}
-				maxSize={showReadingPane ? 58 : 100}
+				maxSize={showReadingPane ? share.max : 100}
 				className="min-w-0"
 			>
 				{list}

@@ -1,0 +1,83 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
+import type { CalendarDescriptor, EventDraft } from "./calendar-types.js";
+import { EventEditor } from "./event-editor.js";
+
+const calendars: CalendarDescriptor[] = [
+	{
+		id: "c1",
+		accountId: "a1",
+		accountLabel: "Work",
+		name: "Northwind",
+		color: "cal-1",
+	},
+	{
+		id: "c2",
+		accountId: "a2",
+		accountLabel: "Personal",
+		name: "Family",
+		color: "cal-3",
+	},
+];
+
+const draft: EventDraft = {
+	title: "Coffee",
+	date: "2026-06-12",
+	startTime: "13:00",
+	endTime: "14:00",
+	allDay: false,
+	calendarId: "c1",
+	location: "",
+	guests: "",
+	notes: "",
+	repeat: "",
+};
+
+const render = (props: Partial<Parameters<typeof EventEditor>[0]>) =>
+	renderToString(
+		createElement(EventEditor, {
+			draft,
+			onChange: () => undefined,
+			calendars,
+			expanded: false,
+			onToggleExpanded: () => undefined,
+			onSave: () => undefined,
+			onCancel: () => undefined,
+			...props,
+		}),
+	);
+
+describe("EventEditor", () => {
+	it("folds everything but title, when and calendar", () => {
+		const html = render({});
+		assert.match(html, /aria-label="Title"/);
+		assert.match(html, /aria-label="Start time"/);
+		assert.match(html, /Northwind/);
+		assert.doesNotMatch(html, /aria-label="Location"/);
+		assert.match(html, /More details/);
+	});
+
+	it("reveals the rest on request", () => {
+		const html = render({ expanded: true });
+		assert.match(html, /aria-label="Location"/);
+		assert.match(html, /aria-label="Guests"/);
+		assert.match(html, /aria-label="Repeat"/);
+		assert.match(html, /Fewer details/);
+	});
+
+	it("drops the clock fields for an all-day entry", () => {
+		const html = render({ draft: { ...draft, allDay: true } });
+		assert.doesNotMatch(html, /aria-label="Start time"/);
+	});
+
+	it("offers Delete only when editing something that exists", () => {
+		assert.doesNotMatch(render({}), /Delete/);
+		assert.match(render({ onDelete: () => undefined }), /Delete/);
+	});
+
+	it("names the save action the caller asked for", () => {
+		assert.match(render({ saveLabel: "Save changes" }), /Save changes/);
+	});
+});
