@@ -184,7 +184,23 @@ export function ExpandedMessage({
 			)}
 		>
 			<div className="flex items-start gap-3">
-				<ChevronDown className="mt-1 size-3.5 shrink-0 text-fg-subtle" />
+				{/* The chevron is the disclosure control, not a picture of one: it is
+				    what a reader aims at to put a message away, so it carries the
+				    collapse itself rather than sitting beside the sender block that
+				    does. */}
+				{onHeaderClick ? (
+					<button
+						type="button"
+						onClick={onHeaderClick}
+						aria-expanded={true}
+						aria-label="Collapse message"
+						className="mt-1 shrink-0 text-fg-subtle transition-colors hover:text-fg"
+					>
+						<ChevronDown className="size-3.5" />
+					</button>
+				) : (
+					<ChevronDown className="mt-1 size-3.5 shrink-0 text-fg-subtle" />
+				)}
 				<Avatar name={message.fromName} email={message.fromEmail} size="md" />
 				<div className="min-w-0 flex-1">
 					{onHeaderClick ? (
