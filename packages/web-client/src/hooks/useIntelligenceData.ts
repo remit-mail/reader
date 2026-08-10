@@ -14,6 +14,7 @@ import type {
 	SenderFlagsIntel,
 	SenderIntel,
 	SimilarMessageIntel,
+	ThreadCategory,
 } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
@@ -358,7 +359,7 @@ export function useIntelligenceData(
 		const authenticity = buildAuthenticityIntel(thread, similar.length);
 
 		const category = {
-			value: thread.category ?? "personal",
+			value: (thread.category ?? "personal") as ThreadCategory,
 			overridden:
 				address?.flags?.category?.value != null &&
 				address.flags.category.value !== thread.category,

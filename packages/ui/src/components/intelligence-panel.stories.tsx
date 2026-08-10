@@ -15,7 +15,7 @@ const base: IntelligenceData = {
 		dkimDomain: "example.com",
 		summary: "This message was signed by example.com.",
 	},
-	category: { value: "Personal" },
+	category: { value: "personal" },
 	similar: [],
 };
 
@@ -62,7 +62,7 @@ export const SignedButUnrecognised: Story = {
 				trust: "unknown",
 				firstSeenLabel: "today",
 			},
-			category: { value: "Automated" },
+			category: { value: "automated" },
 			authenticity: {
 				verdict: "caution",
 				fromDomain: "serviceupdatebank.atlassian.net",
@@ -88,7 +88,7 @@ export const SignedButLookalikeName: Story = {
 				trust: "unknown",
 				firstSeenLabel: "today",
 			},
-			category: { value: "Transactional" },
+			category: { value: "transactional" },
 			authenticity: {
 				verdict: "caution",
 				fromDomain: "1nfomedics.nl",
@@ -111,7 +111,7 @@ export const Impersonation: Story = {
 				trust: "unknown",
 				firstSeenLabel: "today",
 			},
-			category: { value: "Phishing" },
+			category: { value: "automated" },
 			authenticity: {
 				verdict: "mismatch",
 				fromDomain: "your-bank.example",
@@ -136,7 +136,7 @@ export const UnreadableSender: Story = {
 				firstSeenLabel: "today",
 				addressUnverified: true,
 			},
-			category: { value: "Phishing" },
+			category: { value: "uncategorized" },
 			authenticity: {
 				verdict: "mismatch",
 				fromDomain: "",
