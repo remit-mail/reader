@@ -9,6 +9,7 @@ import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { TablePlugin } from "@lexical/react/LexicalTablePlugin";
 import { mergeRegister } from "@lexical/utils";
 import {
+	$getNearestNodeFromDOMNode,
 	$getNodeByKey,
 	$getRoot,
 	$getSelection,
@@ -17,11 +18,19 @@ import {
 	$isTextNode,
 	COMMAND_PRIORITY_CRITICAL,
 	COMMAND_PRIORITY_LOW,
+	HISTORY_PUSH_TAG,
 	KEY_DOWN_COMMAND,
 	type LexicalEditor,
 	PASTE_COMMAND,
 } from "lexical";
-import { useEffect, useRef, useState } from "react";
+import {
+	type RefObject,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
+import { RichTextCorrectionMenu } from "./rich-text-correction-menu.js";
 import { $adoptHtml, $readRichText } from "./rich-text-document.js";
 import { RICH_TEXT_NODES, richTextTheme } from "./rich-text-nodes.js";
 import type {
@@ -31,6 +40,10 @@ import type {
 	SpellcheckOptions,
 	SpellProvider,
 } from "./rich-text-spellcheck.js";
+import {
+	normaliseWord,
+	SUGGESTION_LIMIT,
+} from "./rich-text-spellcheck-words.js";
 import { RichTextToolbar } from "./rich-text-toolbar.js";
 import type { ComposeCaret, RichTextValue } from "./rich-text-value.js";
 
@@ -237,28 +250,153 @@ const leafCharacters = (node: Node): Node | null => {
 	return null;
 };
 
+/** The characters a finding covers, as the browser draws them. */
+const leafRange = (
+	editor: LexicalEditor,
+	key: string,
+	start: number,
+	end: number,
+): Range | null => {
+	const element = editor.getElementByKey(key);
+	const characters = element ? leafCharacters(element) : null;
+	if (!characters) return null;
+	if (end > (characters.textContent?.length ?? 0)) return null;
+	const range = characters.ownerDocument?.createRange();
+	if (!range) return null;
+	range.setStart(characters, start);
+	range.setEnd(characters, end);
+	return range;
+};
+
 /**
- * Marks, and nothing else. Only the leaves an edit touched are sent, a quarter
- * of a second after the typing stops, so a word is not called wrong while it is
- * still being written — and the word the caret sits in is never marked at all.
- * An answer carrying a revision the document has moved past is dropped.
+ * Where a pointer landed, in characters. `caretPositionFromPoint` is the
+ * standard spelling and `caretRangeFromPoint` the one WebKit shipped; without
+ * either, the browser has already moved the caret to the point and the
+ * selection says where.
+ */
+interface CaretDocument {
+	caretPositionFromPoint?(
+		x: number,
+		y: number,
+	): { offsetNode: Node; offset: number } | null;
+	caretRangeFromPoint?(x: number, y: number): Range | null;
+}
+
+const characterAt = (
+	owner: Document,
+	x: number,
+	y: number,
+): { node: Node; offset: number } | null => {
+	const caret = owner as unknown as CaretDocument;
+	const position = caret.caretPositionFromPoint?.(x, y);
+	if (position) return { node: position.offsetNode, offset: position.offset };
+	const range = caret.caretRangeFromPoint?.(x, y);
+	if (range) return { node: range.startContainer, offset: range.startOffset };
+	const selection = owner.getSelection();
+	if (!selection?.focusNode) return null;
+	return { node: selection.focusNode, offset: selection.focusOffset };
+};
+
+interface CorrectionTarget {
+	readonly key: string;
+	readonly start: number;
+	readonly end: number;
+	readonly word: string;
+	/** Viewport-relative, straight off the word's own range — the menu portals
+	 *  to the document body, so nothing here is relative to the editor. */
+	readonly left: number;
+	readonly right: number;
+	readonly top: number;
+	readonly bottom: number;
+}
+
+/**
+ * A caret sits between characters and a pointer lands on one, so the two ask
+ * different questions of the same range. The caret is inside the word from the
+ * first character to just after the last — which is also what goes unmarked
+ * while it is being written, so the chord opens exactly the word the squiggle
+ * is being withheld from. A point belongs to a character, and the position
+ * after the last one is already the space that follows.
+ */
+const coversCaret = (finding: Finding, offset: number): boolean =>
+	offset > finding.start && offset <= finding.end;
+
+const coversCharacter = (finding: Finding, offset: number): boolean =>
+	offset >= finding.start && offset < finding.end;
+
+/** How far a pointer may travel and still have been put down, not dragged. */
+const TAP_SLOP_PX = 6;
+
+/**
+ * Drops what the session has been told to leave alone. Read against the text as
+ * it stands now, so a word ignored at one place in the document loses its marks
+ * everywhere it appears.
+ */
+const forgetIgnored = (
+	editor: LexicalEditor,
+	found: Map<string, readonly Finding[]>,
+	ignored: ReadonlySet<string>,
+): void => {
+	editor.read(() => {
+		for (const [key, findings] of found) {
+			const node = $getNodeByKey(key);
+			if (!$isTextNode(node)) continue;
+			const text = node.getTextContent();
+			const kept = findings.filter(
+				(finding) =>
+					!ignored.has(normaliseWord(text.slice(finding.start, finding.end))),
+			);
+			if (kept.length === findings.length) continue;
+			if (kept.length === 0) {
+				found.delete(key);
+				continue;
+			}
+			found.set(key, kept);
+		}
+	});
+};
+
+/**
+ * Marks and their corrections. Only the leaves an edit touched are sent, a
+ * quarter of a second after the typing stops, so a word is not called wrong
+ * while it is still being written — and the word the caret sits in is never
+ * marked at all. An answer carrying a revision the document has moved past is
+ * dropped.
  *
  * The marks live in the highlight registry, keyed by node key and rebuilt after
  * every reconciliation. Nothing enters the document, so history, the outgoing
  * HTML and the Markdown never see one.
+ *
+ * A click, a tap or the chord on a marked word opens the correction menu over
+ * the findings already held here; the suggestions themselves are asked for one
+ * word at a time, when the menu opens. The right button is left to the browser.
  */
 const SpellcheckPlugin = ({
 	language,
 	options,
+	hostRef,
 	onReady,
 }: {
 	language: string;
 	options: SpellcheckOptions;
+	hostRef: RefObject<HTMLDivElement | null>;
 	onReady: (ready: boolean) => void;
 }) => {
 	const [editor] = useLexicalComposerContext();
 	const settings = useRef(options);
 	const report = useRef(onReady);
+	const found = useRef(new Map<string, readonly Finding[]>());
+	// Session-scoped by construction: the set belongs to this mount and goes
+	// with it, and nothing writes it anywhere (#707, decision 10).
+	const ignored = useRef(new Set<string>());
+	const checker = useRef<SpellProvider | null>(null);
+	const repaint = useRef<() => void>(() => {});
+	const asked = useRef(0);
+	const [target, setTarget] = useState<CorrectionTarget | null>(null);
+	const [suggestions, setSuggestions] = useState<readonly string[] | null>(
+		null,
+	);
+	const [failure, setFailure] = useState<string | null>(null);
 
 	useEffect(() => {
 		settings.current = options;
@@ -268,56 +406,52 @@ const SpellcheckPlugin = ({
 	useEffect(() => {
 		if (!marksSupported()) return;
 		const painter = Symbol(SPELLCHECK_HIGHLIGHT);
-		const found = new Map<string, readonly Finding[]>();
+		const findings = found.current;
 		const touched = new Set<string>();
-		let provider: SpellProvider | null = null;
 		let unsubscribe: (() => void) | undefined;
 		let idle: ReturnType<typeof setTimeout> | undefined;
 		let live = true;
 		let state: ProviderStatus["state"] = "opening";
 		let revision = 0;
-		let asked = 0;
+		let passes = 0;
+		let pressed: { x: number; y: number } | null = null;
+		// The caret withholds the mark of the word it sits in, so a word is not
+		// called wrong while it is still being written. A caret a pointer put
+		// down is reading rather than writing: a click on a squiggle is how the
+		// corrections open, and it must not take the squiggle with it. The next
+		// key is the writer back at the text, and the withholding with them.
+		let pointed = false;
 
-		const repaint = (): void => {
+		const paint = (): void => {
 			const ranges: Range[] = [];
 			editor.read(() => {
 				const selection = $getSelection();
 				const caret =
-					$isRangeSelection(selection) && selection.isCollapsed()
+					!pointed && $isRangeSelection(selection) && selection.isCollapsed()
 						? selection.anchor
 						: null;
-				for (const [key, findings] of found) {
+				for (const [key, spanFindings] of findings) {
 					const node = $getNodeByKey(key);
 					if (!$isTextNode(node)) {
-						found.delete(key);
+						findings.delete(key);
 						continue;
 					}
-					const element = editor.getElementByKey(key);
-					const text = element ? leafCharacters(element) : null;
-					if (!text) continue;
-					const length = text.textContent?.length ?? 0;
-					for (const finding of findings) {
-						if (finding.end > length) continue;
-						if (
-							caret?.key === key &&
-							caret.offset > finding.start &&
-							caret.offset <= finding.end
-						)
+					for (const finding of spanFindings) {
+						if (caret?.key === key && coversCaret(finding, caret.offset))
 							continue;
-						const range = text.ownerDocument?.createRange();
-						if (!range) continue;
-						range.setStart(text, finding.start);
-						range.setEnd(text, finding.end);
-						ranges.push(range);
+						const range = leafRange(editor, key, finding.start, finding.end);
+						if (range) ranges.push(range);
 					}
 				}
 			});
 			paintMarks(painter, ranges);
 		};
+		repaint.current = paint;
 
 		const check = (): void => {
 			// Anything queued while the provider is not answering stays queued: the
 			// next status that says ready sends it.
+			const provider = checker.current;
 			if (!provider || state !== "ready") return;
 			const keys = [...touched];
 			touched.clear();
@@ -326,20 +460,20 @@ const SpellcheckPlugin = ({
 				for (const key of keys) {
 					const node = $getNodeByKey(key);
 					if (!$isTextNode(node)) {
-						found.delete(key);
+						findings.delete(key);
 						continue;
 					}
 					spans.push({ spanId: key, text: node.getTextContent() });
 				}
 			});
 			if (spans.length === 0) {
-				repaint();
+				paint();
 				return;
 			}
-			asked += 1;
+			passes += 1;
 			const sent = revision;
 			provider
-				.check({ requestId: `${asked}`, language, revision: sent, spans })
+				.check({ requestId: `${passes}`, language, revision: sent, spans })
 				.then((response) => {
 					if (!live) return;
 					// The text moved while this was in flight, so the offsets are
@@ -351,8 +485,13 @@ const SpellcheckPlugin = ({
 						schedule();
 						return;
 					}
+					const texts = new Map(spans.map((span) => [span.spanId, span.text]));
 					const grouped = new Map<string, Finding[]>();
 					for (const finding of response.findings) {
+						const text = texts.get(finding.spanId);
+						if (!text) continue;
+						const word = text.slice(finding.start, finding.end);
+						if (ignored.current.has(normaliseWord(word))) continue;
 						const list = grouped.get(finding.spanId);
 						if (list) {
 							list.push(finding);
@@ -360,9 +499,10 @@ const SpellcheckPlugin = ({
 						}
 						grouped.set(finding.spanId, [finding]);
 					}
-					for (const span of spans) found.delete(span.spanId);
-					for (const [key, findings] of grouped) found.set(key, findings);
-					repaint();
+					for (const span of spans) findings.delete(span.spanId);
+					for (const [key, spanFindings] of grouped)
+						findings.set(key, spanFindings);
+					paint();
 				});
 		};
 
@@ -371,72 +511,326 @@ const SpellcheckPlugin = ({
 			idle = setTimeout(check, SPELLCHECK_IDLE_MS);
 		};
 
+		const openAt = (
+			key: string,
+			offset: number,
+			covers: (finding: Finding, offset: number) => boolean,
+		): boolean => {
+			const hit = (findings.get(key) ?? []).find((finding) =>
+				covers(finding, offset),
+			);
+			// The editor still has to be mounted for a click on its own text to mean
+			// anything, even though the menu itself no longer anchors to it.
+			if (!hit || !hostRef.current) return false;
+			const range = leafRange(editor, key, hit.start, hit.end);
+			const word = editor.read(() => {
+				const node = $getNodeByKey(key);
+				if (!$isTextNode(node)) return "";
+				return node.getTextContent().slice(hit.start, hit.end);
+			});
+			if (!range || !word) return false;
+			const box = range.getBoundingClientRect();
+			setTarget({
+				key,
+				start: hit.start,
+				end: hit.end,
+				word,
+				left: box.left,
+				right: box.right,
+				top: box.top,
+				bottom: box.bottom,
+			});
+			return true;
+		};
+
+		const openAtPoint = (x: number, y: number): boolean => {
+			const owner = editor.getRootElement()?.ownerDocument;
+			if (!owner) return false;
+			const character = characterAt(owner, x, y);
+			if (!character) return false;
+			const key = editor.read(() => {
+				const node = $getNearestNodeFromDOMNode(character.node);
+				return $isTextNode(node) ? node.getKey() : null;
+			});
+			if (!key) return false;
+			return openAt(key, character.offset, coversCharacter);
+		};
+
+		const onPointerDown = (event: PointerEvent) => {
+			pointed = true;
+			// The right button belongs to the browser's own menu, and a middle
+			// click is a paste on the platforms that have one.
+			pressed =
+				event.button === 0 ? { x: event.clientX, y: event.clientY } : null;
+		};
+
+		/**
+		 * A pointer put down on a marked word and lifted where it landed, whether
+		 * it was a finger or a mouse. A press that travelled was dragging out a
+		 * selection, and a menu over the top of what it just selected is the one
+		 * thing it must not get.
+		 */
+		const onPointerUp = (event: PointerEvent) => {
+			const from = pressed;
+			pressed = null;
+			if (!from) return;
+			if (
+				Math.abs(event.clientX - from.x) > TAP_SLOP_PX ||
+				Math.abs(event.clientY - from.y) > TAP_SLOP_PX
+			)
+				return;
+			const selection = editor.getRootElement()?.ownerDocument.getSelection();
+			if (selection && !selection.isCollapsed) return;
+			openAtPoint(event.clientX, event.clientY);
+		};
+
+		const onPointerCancel = () => {
+			pressed = null;
+		};
+
+		/**
+		 * Whatever the key turns out to do — walk the caret, or write a character
+		 * — it is the writer taking the text back, so the word under the caret
+		 * goes quiet again. The repaint is here rather than left to the edit: a
+		 * caret walked across a marked word makes no edit at all.
+		 */
+		const onKeyDown = () => {
+			if (!pointed) return;
+			pointed = false;
+			paint();
+		};
+
+		const unbindRoot = editor.registerRootListener((next, previous) => {
+			previous?.removeEventListener("pointerdown", onPointerDown);
+			previous?.removeEventListener("pointerup", onPointerUp);
+			previous?.removeEventListener("pointercancel", onPointerCancel);
+			previous?.removeEventListener("keydown", onKeyDown);
+			next?.addEventListener("pointerdown", onPointerDown);
+			next?.addEventListener("pointerup", onPointerUp);
+			next?.addEventListener("pointercancel", onPointerCancel);
+			next?.addEventListener("keydown", onKeyDown);
+		});
+
+		// The keyboard's way in. The word under the caret is deliberately
+		// unmarked, so this is the one path that has to read it anyway.
+		const unbindChord = editor.registerCommand(
+			KEY_DOWN_COMMAND,
+			(event) => {
+				if (!(event.metaKey || event.ctrlKey) || event.key !== ".")
+					return false;
+				const at = editor.read(() => {
+					const selection = $getSelection();
+					if (!$isRangeSelection(selection) || !selection.isCollapsed())
+						return null;
+					return {
+						key: selection.anchor.key,
+						offset: selection.anchor.offset,
+					};
+				});
+				if (!at || !openAt(at.key, at.offset, coversCaret)) return false;
+				event.preventDefault();
+				return true;
+			},
+			COMMAND_PRIORITY_LOW,
+		);
+
 		const unregister = editor.registerUpdateListener(({ dirtyLeaves }) => {
 			if (dirtyLeaves.size === 0) {
-				repaint();
+				paint();
 				return;
 			}
 			revision += 1;
+			// An edit is writing whatever put the caret there, including a paste
+			// or a correction, neither of which arrives on a key.
+			pointed = false;
+			// The menu is about a word at an offset, and both have just moved.
+			setTarget(null);
 			// Characters moved under the findings this leaf carries, so they are
 			// answers about text that is no longer there. They go now rather than
 			// sitting over the wrong letters until the next answer arrives.
 			for (const key of dirtyLeaves) {
-				found.delete(key);
+				findings.delete(key);
 				touched.add(key);
 			}
-			repaint();
+			paint();
 			schedule();
 		});
 
-		settings.current.provider(language).then((opened) => {
-			if (!live) {
-				opened?.close();
-				return;
-			}
-			provider = opened;
-			if (!opened) {
-				settings.current.onStatus?.({ state: "unavailable", language });
-				report.current(false);
-				return;
-			}
-			unsubscribe = opened.onStatus((status) => {
-				state = status.state;
-				settings.current.onStatus?.(status);
-				const ready = status.state === "ready";
-				report.current(ready);
-				if (ready) {
-					schedule();
+		const stopped = (detail: string): void => {
+			settings.current.onStatus?.({
+				state: "failed",
+				language,
+				reason: "worker",
+				detail,
+			});
+			report.current(false);
+		};
+
+		settings.current
+			.provider(language)
+			.then((opened) => {
+				if (!live) {
+					opened?.close();
 					return;
 				}
-				// Checking stopped, so the browser's own is back. Its squiggles are
-				// the only ones on screen from here.
-				found.clear();
-				touched.clear();
-				repaint();
+				checker.current = opened;
+				if (!opened) {
+					settings.current.onStatus?.({ state: "unavailable", language });
+					report.current(false);
+					return;
+				}
+				unsubscribe = opened.onStatus((status) => {
+					state = status.state;
+					settings.current.onStatus?.(status);
+					const ready = status.state === "ready";
+					report.current(ready);
+					if (ready) {
+						schedule();
+						return;
+					}
+					// Checking stopped, so the browser's own is back. Its squiggles are
+					// the only ones on screen from here.
+					findings.clear();
+					touched.clear();
+					setTarget(null);
+					paint();
+				});
+				// The document the editor opened on was reconciled before this
+				// listener existed, so its leaves are checked here rather than waiting
+				// for an edit that may never come.
+				editor.read(() => {
+					for (const node of $getRoot().getAllTextNodes())
+						touched.add(node.getKey());
+				});
+				schedule();
+			})
+			.catch((error: unknown) => {
+				if (!live) return;
+				stopped(error instanceof Error ? error.message : String(error));
 			});
-			// The document the editor opened on was reconciled before this
-			// listener existed, so its leaves are checked here rather than waiting
-			// for an edit that may never come.
-			editor.read(() => {
-				for (const node of $getRoot().getAllTextNodes())
-					touched.add(node.getKey());
-			});
-			schedule();
-		});
 
 		return () => {
 			live = false;
 			clearTimeout(idle);
 			unregister();
+			unbindRoot();
+			unbindChord();
 			unsubscribe?.();
-			provider?.close();
-			provider = null;
+			checker.current?.close();
+			checker.current = null;
+			findings.clear();
+			setTarget(null);
 			report.current(false);
 			paintMarks(painter, []);
 		};
-	}, [editor, language]);
+	}, [editor, language, hostRef]);
 
-	return null;
+	useEffect(() => {
+		if (!target) return;
+		setSuggestions(null);
+		setFailure(null);
+		const provider = checker.current;
+		if (!provider) {
+			setFailure("the checker is not running");
+			return;
+		}
+		let live = true;
+		asked.current += 1;
+		provider
+			.suggest({
+				requestId: `suggest-${asked.current}`,
+				language,
+				word: target.word,
+			})
+			.then((answer) => {
+				if (live) setSuggestions(answer.suggestions.slice(0, SUGGESTION_LIMIT));
+			})
+			.catch((error: unknown) => {
+				if (!live) return;
+				setFailure(error instanceof Error ? error.message : String(error));
+			});
+		return () => {
+			live = false;
+		};
+	}, [target, language]);
+
+	const dismiss = useCallback(
+		(returnFocus: boolean) => {
+			setTarget(null);
+			// `editor.focus()` alone only moves the DOM caret when Lexical's own
+			// selection model already matches the live DOM selection; the caret
+			// the click left behind rarely does, and setting a Selection range
+			// inside a contenteditable is not itself what moves focus there. The
+			// explicit call is what actually lands the caret back in the message.
+			if (returnFocus) {
+				editor.focus();
+				editor.getRootElement()?.focus();
+			}
+		},
+		[editor],
+	);
+
+	const forget = useCallback(
+		(word: string) => {
+			ignored.current.add(normaliseWord(word));
+			forgetIgnored(editor, found.current, ignored.current);
+			repaint.current();
+			dismiss(true);
+		},
+		[editor, dismiss],
+	);
+
+	if (!target) return null;
+
+	const replace = (suggestion: string) => {
+		// One entry, so one undo puts the misspelling back (#707, decision 9).
+		editor.update(
+			() => {
+				const node = $getNodeByKey(target.key);
+				if (!$isTextNode(node)) return;
+				// The offsets were read when the menu opened. An edit that landed
+				// between then and the click has moved them, and writing there would
+				// put the correction through the middle of a different word.
+				if (
+					node.getTextContent().slice(target.start, target.end) !== target.word
+				)
+					return;
+				const written = node.spliceText(
+					target.start,
+					target.end - target.start,
+					suggestion,
+				);
+				const caret = target.start + suggestion.length;
+				written.select(caret, caret);
+			},
+			{ tag: HISTORY_PUSH_TAG },
+		);
+		dismiss(true);
+	};
+
+	const addWord = () => {
+		settings.current.onAddWord?.(target.word);
+		forget(target.word);
+	};
+
+	return (
+		<RichTextCorrectionMenu
+			word={target.word}
+			suggestions={suggestions}
+			failure={failure}
+			anchor={{
+				left: target.left,
+				right: target.right,
+				top: target.top,
+				bottom: target.bottom,
+			}}
+			language={language}
+			onReplace={replace}
+			onIgnore={() => forget(target.word)}
+			onAddWord={options.onAddWord ? addWord : undefined}
+			onDismiss={dismiss}
+		/>
+	);
 };
 
 const AutoFocus = ({ caret }: { caret?: ComposeCaret }) => {
@@ -488,6 +882,7 @@ export const RichTextEditor = ({
 	spellcheck,
 }: RichTextEditorProps) => {
 	const [checkedHere, setCheckedHere] = useState(false);
+	const bodyRef = useRef<HTMLDivElement>(null);
 
 	return (
 		<LexicalComposer
@@ -506,7 +901,7 @@ export const RichTextEditor = ({
 			    a click there reaches it instead of an unfocusable parent. */}
 			<div className="flex shrink-0 grow flex-col">
 				<RichTextToolbar trailing={trailing} />
-				<div className="relative flex shrink-0 grow flex-col">
+				<div ref={bodyRef} className="relative flex shrink-0 grow flex-col">
 					<RichTextPlugin
 						contentEditable={
 							<ContentEditable
@@ -538,6 +933,17 @@ export const RichTextEditor = ({
 						}
 						ErrorBoundary={LexicalErrorBoundary}
 					/>
+					{/* Inside the body's own box: the popover is placed against the
+					    word's rect, and the sheet rises from the bottom of the writing
+					    surface rather than the bottom of whatever page holds it. */}
+					{spellcheck && lang ? (
+						<SpellcheckPlugin
+							language={lang}
+							options={spellcheck}
+							hostRef={bodyRef}
+							onReady={setCheckedHere}
+						/>
+					) : null}
 				</div>
 			</div>
 			<HistoryPlugin />
@@ -547,13 +953,6 @@ export const RichTextEditor = ({
 			<PastePlugin />
 			<AutoFocus caret={initialCaret} />
 			{onChange && <ChangePlugin onChange={onChange} />}
-			{spellcheck && lang ? (
-				<SpellcheckPlugin
-					language={lang}
-					options={spellcheck}
-					onReady={setCheckedHere}
-				/>
-			) : null}
 		</LexicalComposer>
 	);
 };

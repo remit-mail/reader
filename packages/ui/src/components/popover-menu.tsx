@@ -1,7 +1,138 @@
 import { EllipsisVertical } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import type { CSSProperties, Ref, RefObject } from "react";
+import {
+	type ReactNode,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
+import { createPortal } from "react-dom";
 import { cn } from "../lib/cn.js";
 import { Button } from "./button.js";
+
+/** Viewport-relative bounding box of whatever a menu opens against. */
+export interface PopoverMenuAnchor {
+	readonly left: number;
+	readonly right: number;
+	readonly top: number;
+	readonly bottom: number;
+}
+
+const ANCHOR_GAP_PX = 4;
+const VIEWPORT_MARGIN_PX = 8;
+
+/**
+ * Where the panel lands: below the anchor and aligned to whichever edge
+ * `align` names, pulled back onto the screen on every side it would
+ * otherwise cross. A panel too tall for the space below flips above the
+ * anchor instead of running past the bottom edge.
+ */
+function clampToViewport(
+	anchor: PopoverMenuAnchor,
+	panel: { width: number; height: number },
+	align: "start" | "end",
+): { left: number; top: number } {
+	const maxLeft = Math.max(
+		VIEWPORT_MARGIN_PX,
+		window.innerWidth - panel.width - VIEWPORT_MARGIN_PX,
+	);
+	const preferredLeft =
+		align === "end" ? anchor.right - panel.width : anchor.left;
+	const left = Math.min(Math.max(preferredLeft, VIEWPORT_MARGIN_PX), maxLeft);
+
+	const below = anchor.bottom + ANCHOR_GAP_PX;
+	const above = anchor.top - ANCHOR_GAP_PX - panel.height;
+	const fitsBelow =
+		below + panel.height <= window.innerHeight - VIEWPORT_MARGIN_PX;
+	const top = fitsBelow || above < VIEWPORT_MARGIN_PX ? below : above;
+
+	return { left, top };
+}
+
+/**
+ * Measures the anchor and the panel's own size, then keeps the panel's fixed
+ * position clamped to the viewport for as long as it is open — reset on every
+ * resize and on scroll anywhere in the ancestor chain, since a fixed position
+ * does not follow a scrolled anchor on its own.
+ */
+function useAnchoredPlacement(
+	panelRef: RefObject<HTMLElement | null>,
+	open: boolean,
+	align: "start" | "end",
+	getAnchor: () => PopoverMenuAnchor | null,
+): CSSProperties | null {
+	const [style, setStyle] = useState<CSSProperties | null>(null);
+	const getAnchorRef = useRef(getAnchor);
+	getAnchorRef.current = getAnchor;
+
+	useLayoutEffect(() => {
+		if (!open) {
+			setStyle(null);
+			return;
+		}
+		const place = () => {
+			const panel = panelRef.current;
+			const anchor = getAnchorRef.current();
+			if (!panel || !anchor) return;
+			// `.width`/`.height` over the rect's own edges: a `getBoundingClientRect`
+			// stand-in in a test carries the edges without the derived pair.
+			const rect = panel.getBoundingClientRect();
+			const size = {
+				width: rect.right - rect.left,
+				height: rect.bottom - rect.top,
+			};
+			const placement = clampToViewport(anchor, size, align);
+			setStyle((previous) =>
+				previous?.left === placement.left && previous.top === placement.top
+					? previous
+					: { position: "fixed", left: placement.left, top: placement.top },
+			);
+		};
+		place();
+		window.addEventListener("resize", place);
+		window.addEventListener("scroll", place, true);
+		return () => {
+			window.removeEventListener("resize", place);
+			window.removeEventListener("scroll", place, true);
+		};
+	}, [open, align, panelRef]);
+
+	return style;
+}
+
+export interface PopoverMenuPortalProps {
+	open: boolean;
+	align?: "start" | "end";
+	getAnchor: () => PopoverMenuAnchor | null;
+	panelRef: RefObject<HTMLElement | null>;
+	children: ReactNode;
+}
+
+/**
+ * Carries a menu panel out of the DOM subtree it opened from and into the
+ * document body, positioned at a fixed, viewport-clamped point. A panel left
+ * in place is clipped by the first scrolling ancestor between it and the
+ * page — the compose body, a card, anything with its own `overflow` — no
+ * matter how high its `z-index` climbs; escaping that ancestor takes leaving
+ * its DOM subtree, which only a portal does.
+ */
+export function PopoverMenuPortal({
+	open,
+	align = "start",
+	getAnchor,
+	panelRef,
+	children,
+}: PopoverMenuPortalProps) {
+	const style = useAnchoredPlacement(panelRef, open, align, getAnchor);
+	if (!open) return null;
+	return createPortal(
+		<div style={style ?? { position: "fixed", visibility: "hidden" }}>
+			{children}
+		</div>,
+		document.body,
+	);
+}
 
 export interface PopoverMenuItem {
 	/** Stable key, also the accessible text of the row. */
@@ -9,6 +140,83 @@ export interface PopoverMenuItem {
 	label: string;
 	icon?: ReactNode;
 	onSelect: () => void;
+}
+
+export interface PopoverMenuPanelProps {
+	label?: string;
+	children: ReactNode;
+	className?: string;
+	ref?: Ref<HTMLDivElement>;
+	onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
+	"data-testid"?: string;
+}
+
+/**
+ * The menu itself, without a trigger: the surface, the scrolling and the
+ * rounding every dropdown in the kit shares. A menu that hangs off a button
+ * gets it through {@link PopoverMenu}; one anchored to something else — the
+ * misspelt word under the pointer — positions this and keeps the same chrome.
+ */
+export function PopoverMenuPanel({
+	label,
+	children,
+	className,
+	ref,
+	onKeyDown,
+	"data-testid": testId,
+}: PopoverMenuPanelProps) {
+	return (
+		<div
+			ref={ref}
+			role="menu"
+			aria-label={label}
+			tabIndex={-1}
+			onKeyDown={onKeyDown}
+			data-testid={testId}
+			className={cn(
+				"z-50 flex max-h-[60dvh] min-w-44 flex-col overflow-y-auto overscroll-contain rounded-md border border-line bg-surface py-1 shadow-lg outline-none",
+				className,
+			)}
+		>
+			{children}
+		</div>
+	);
+}
+
+export interface PopoverMenuRowProps {
+	label: string;
+	icon?: ReactNode;
+	onSelect: () => void;
+	className?: string;
+	lang?: string;
+	"data-testid"?: string;
+}
+
+/** One selectable row of a menu panel, at the kit's touch height. */
+export function PopoverMenuRow({
+	label,
+	icon,
+	onSelect,
+	className,
+	lang,
+	"data-testid": testId,
+}: PopoverMenuRowProps) {
+	return (
+		<button
+			type="button"
+			role="menuitem"
+			lang={lang}
+			onClick={onSelect}
+			data-testid={testId}
+			className={cn(
+				"flex min-h-11 items-center gap-3 px-4 py-2.5 text-left text-sm text-fg transition-colors hover:bg-surface-sunken",
+				className,
+			)}
+		>
+			{icon && <span className="shrink-0 text-fg-subtle">{icon}</span>}
+			{label}
+		</button>
+	);
 }
 
 export interface PopoverMenuProps {
@@ -65,16 +273,18 @@ export function PopoverMenu({
 }: PopoverMenuProps) {
 	const [open, setOpen] = useState(false);
 	const containerRef = useRef<HTMLDivElement>(null);
+	const panelRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		if (!open) return;
 		const onPointer = (event: MouseEvent) => {
+			const target = event.target as Node;
 			if (
-				containerRef.current &&
-				!containerRef.current.contains(event.target as Node)
-			) {
-				setOpen(false);
-			}
+				containerRef.current?.contains(target) ||
+				panelRef.current?.contains(target)
+			)
+				return;
+			setOpen(false);
 		};
 		const onKey = (event: KeyboardEvent) => {
 			if (event.key === "Escape") setOpen(false);
@@ -108,34 +318,27 @@ export function PopoverMenu({
 			>
 				{triggerText}
 			</Button>
-			{open && (
-				<div
-					role="menu"
-					className={cn(
-						"absolute top-full z-50 mt-1 flex max-h-[60dvh] min-w-44 flex-col overflow-y-auto overscroll-contain rounded-md border border-line bg-surface py-1 shadow-lg",
-						align === "end" ? "right-0" : "left-0",
-					)}
-				>
+			<PopoverMenuPortal
+				open={open}
+				align={align}
+				panelRef={panelRef}
+				getAnchor={() => containerRef.current?.getBoundingClientRect() ?? null}
+			>
+				<PopoverMenuPanel ref={panelRef}>
 					{items.map((item) => (
-						<button
+						<PopoverMenuRow
 							key={item.key}
-							type="button"
-							role="menuitem"
-							onClick={() => {
+							label={item.label}
+							icon={item.icon}
+							onSelect={() => {
 								setOpen(false);
 								item.onSelect();
 							}}
-							className="flex min-h-11 items-center gap-3 px-4 py-2.5 text-left text-sm text-fg transition-colors hover:bg-surface-sunken"
-						>
-							{item.icon && (
-								<span className="shrink-0 text-fg-subtle">{item.icon}</span>
-							)}
-							{item.label}
-						</button>
+						/>
 					))}
 					{children}
-				</div>
-			)}
+				</PopoverMenuPanel>
+			</PopoverMenuPortal>
 		</div>
 	);
 }

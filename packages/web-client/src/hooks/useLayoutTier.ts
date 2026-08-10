@@ -1,5 +1,8 @@
-import { DESKTOP_MEDIA_QUERY, DESKTOP_MIN_WIDTH } from "@remit/ui";
-import { useMediaQuery } from "./useMediaQuery";
+import {
+	DESKTOP_MEDIA_QUERY,
+	DESKTOP_MIN_WIDTH,
+	useMatchMedia,
+} from "@remit/ui";
 
 /**
  * Responsive layout tiers for the mail shell:
@@ -46,11 +49,11 @@ export const isSinglePaneTier = (tier: LayoutTier): boolean =>
 
 /**
  * Returns the current layout tier. SSR-safe (falls back to `phone` before
- * hydration, matching `useMediaQuery`'s server default).
+ * hydration, matching `useMatchMedia`'s server default).
  */
 export const useLayoutTier = (): LayoutTier => {
-	const isTabletUp = useMediaQuery(`(min-width: ${TABLET_MIN_WIDTH}px)`);
-	const isDesktop = useMediaQuery(DESKTOP_MEDIA_QUERY);
+	const isTabletUp = useMatchMedia(`(min-width: ${TABLET_MIN_WIDTH}px)`);
+	const isDesktop = useMatchMedia(DESKTOP_MEDIA_QUERY);
 	if (isDesktop) return "desktop";
 	if (isTabletUp) return "tablet";
 	return "phone";

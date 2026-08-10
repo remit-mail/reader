@@ -14,6 +14,7 @@ import type {
 import {
 	dictionaryFor,
 	findMisspellings,
+	suggestionsFor,
 } from "./rich-text-spellcheck-words.js";
 
 interface WorkerScope {
@@ -43,6 +44,16 @@ const scope = globalThis as unknown as WorkerScope;
 scope.addEventListener("message", ({ data }) => {
 	if (data.type === "open") {
 		scope.postMessage({ type: "ready", language: data.language });
+		return;
+	}
+	if (data.type === "suggest") {
+		const words = dictionaryFor(data.language);
+		scope.postMessage({
+			type: "suggested",
+			requestId: data.requestId,
+			word: data.word,
+			suggestions: words ? suggestionsFor(data.word, words) : [],
+		});
 		return;
 	}
 	scope.postMessage({

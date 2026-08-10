@@ -479,7 +479,11 @@ export {
 export {
 	PopoverMenu,
 	type PopoverMenuItem,
+	PopoverMenuPanel,
+	type PopoverMenuPanelProps,
 	type PopoverMenuProps,
+	PopoverMenuRow,
+	type PopoverMenuRowProps,
 } from "./components/popover-menu.js";
 export {
 	ProgressBar,
@@ -946,6 +950,7 @@ export {
 	type UseLongPressResult,
 	useLongPress,
 } from "./lib/use-long-press.js";
+export { useMatchMedia } from "./lib/use-match-media.js";
 export {
 	MESSAGE_ROW_SELECTOR,
 	useRenderedRowIds,

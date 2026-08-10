@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useMatchMedia } from "../lib/use-match-media.js";
 import { buildEmailSrcDoc, type EmailFrameVariant } from "./email-frame-css.js";
 
 export interface IsolatedEmailFrameProps {
@@ -84,24 +85,6 @@ export const computeFitScale = (
 	if (contentWidth <= 0 || containerWidth <= 0) return 1;
 	if (contentWidth <= containerWidth) return 1;
 	return Math.max(MIN_SCALE, containerWidth / contentWidth);
-};
-
-const useMatchMedia = (query: string): boolean => {
-	const [matches, setMatches] = useState(() => {
-		if (typeof window === "undefined" || !window.matchMedia) return false;
-		return window.matchMedia(query).matches;
-	});
-
-	useEffect(() => {
-		if (typeof window === "undefined" || !window.matchMedia) return;
-		const mql = window.matchMedia(query);
-		setMatches(mql.matches);
-		const handler = (event: MediaQueryListEvent) => setMatches(event.matches);
-		mql.addEventListener("change", handler);
-		return () => mql.removeEventListener("change", handler);
-	}, [query]);
-
-	return matches;
 };
 
 /** Named (non-character) keys worth replaying: moving around and closing. */

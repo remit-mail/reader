@@ -34,6 +34,23 @@ export interface CheckResponse {
 	readonly findings: readonly Finding[];
 }
 
+/**
+ * One word, asked when a correction menu opens. Never a paragraph: a menu is
+ * about the word under the pointer, and asking wider would spend the engine on
+ * words nobody is looking at.
+ */
+export interface SuggestRequest {
+	readonly requestId: string;
+	readonly language: LanguageTag;
+	readonly word: string;
+}
+
+export interface SuggestResponse {
+	readonly requestId: string;
+	readonly word: string;
+	readonly suggestions: readonly string[];
+}
+
 export type ProviderStatus =
 	| { readonly state: "opening"; readonly language: LanguageTag }
 	| { readonly state: "ready"; readonly language: LanguageTag }
@@ -51,6 +68,8 @@ export interface SpellProvider {
 	/** Emits the current status to the listener before any later one. */
 	onStatus(listener: (status: ProviderStatus) => void): () => void;
 	check(request: CheckRequest): Promise<CheckResponse>;
+	/** Rejects when the checker cannot answer, so the menu can say so. */
+	suggest(request: SuggestRequest): Promise<SuggestResponse>;
 	close(): void;
 }
 
@@ -58,11 +77,17 @@ export interface SpellcheckOptions {
 	/** Resolving null means no dictionary for that language. */
 	provider(language: LanguageTag): Promise<SpellProvider | null>;
 	onStatus?(status: ProviderStatus): void;
+	/**
+	 * Adds the word to whatever holds the writer's own words. The correction
+	 * menu offers the row only when this is passed.
+	 */
+	onAddWord?(word: string): void;
 }
 
 export type SpellWorkerRequest =
 	| { readonly type: "open"; readonly language: LanguageTag }
-	| ({ readonly type: "check" } & CheckRequest);
+	| ({ readonly type: "check" } & CheckRequest)
+	| ({ readonly type: "suggest" } & SuggestRequest);
 
 export type SpellWorkerResponse =
 	| { readonly type: "ready"; readonly language: LanguageTag }
@@ -72,4 +97,5 @@ export type SpellWorkerResponse =
 			readonly reason: "download" | "engine";
 			readonly detail: string;
 	  }
-	| ({ readonly type: "checked" } & CheckResponse);
+	| ({ readonly type: "checked" } & CheckResponse)
+	| ({ readonly type: "suggested" } & SuggestResponse);
