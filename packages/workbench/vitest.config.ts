@@ -6,6 +6,9 @@ import { defineConfig } from "vitest/config";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+// Two live Chromium contexts is what a 12 GB dev box has room for.
+const maxWorkers = process.env.CI ? "100%" : 2;
+
 export default defineConfig({
 	plugins: [
 		storybookTest({
@@ -16,6 +19,7 @@ export default defineConfig({
 	],
 	test: {
 		name: "storybook",
+		maxWorkers,
 		browser: {
 			enabled: true,
 			headless: true,
