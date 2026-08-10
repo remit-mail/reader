@@ -25,6 +25,7 @@ import {
 	OutboxAttachmentRepo,
 	OutboxMessageRepo,
 	QuarantineRepo,
+	SenderSignerStandingRepo,
 } from "@remit/drizzle-service";
 import { env } from "expect-env";
 import {
@@ -73,6 +74,7 @@ export const buildSqliteClient = async (): Promise<RemitClient> => {
 		filterAnchorTransaction: new DrizzleFilterAnchorTransaction(genericDb),
 		label: new LabelRepo(genericDb),
 		messageLabel: new MessageLabelRepo(genericDb),
+		senderSignerStanding: new SenderSignerStandingRepo(genericDb),
 		unitOfWork: new DrizzleUnitOfWork(messageDataDb),
 	};
 

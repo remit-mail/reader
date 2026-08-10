@@ -98,6 +98,45 @@ describe("AddressRepo", () => {
 		await repo.deleteAddress(addr.accountConfigId, addr.addressId);
 	});
 
+	test("three inbound messages promote a person-shaped sender to wellknown", async () => {
+		const addr = await repo.createAddress(makeAddressInput(randomId()));
+		const now = Date.now();
+
+		for (let i = 0; i < 3; i++) {
+			await repo.incrementInboundCount(
+				addr.accountConfigId,
+				addr.addressId,
+				now,
+				false,
+			);
+		}
+
+		const updated = await repo.getAddress(addr.accountConfigId, addr.addressId);
+		assert.equal(updated.flags?.wellknown?.value, true);
+
+		await repo.deleteAddress(addr.accountConfigId, addr.addressId);
+	});
+
+	test("a bulk sender never reaches wellknown on inbound volume alone", async () => {
+		const addr = await repo.createAddress(makeAddressInput(randomId()));
+		const now = Date.now();
+
+		for (let i = 0; i < 5; i++) {
+			await repo.incrementInboundCount(
+				addr.accountConfigId,
+				addr.addressId,
+				now,
+				true,
+			);
+		}
+
+		const updated = await repo.getAddress(addr.accountConfigId, addr.addressId);
+		assert.equal(updated.inboundCount, 5);
+		assert.equal(updated.flags?.wellknown, undefined);
+
+		await repo.deleteAddress(addr.accountConfigId, addr.addressId);
+	});
+
 	test("createEnvelopeAddress and getEnvelopeAddress", async () => {
 		const messageId = randomUUID();
 		const addressId = randomUUID();

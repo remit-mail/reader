@@ -25,6 +25,7 @@ import type {
 	OutboxMessageSchema,
 	QuarantineSchema,
 	RawMessageStorageSchema,
+	SenderSignerStandingSchema,
 	ThreadMessageSchema,
 } from "@remit/api-zod-schemas";
 import type { z } from "zod";
@@ -360,6 +361,7 @@ export type CreateMessageInput = Omit<
 	| "status"
 	| "syncStatus"
 	| "category"
+	| "authenticityVerdict"
 	| "hasListUnsubscribe"
 	| "movedByRemit"
 > & {
@@ -367,6 +369,7 @@ export type CreateMessageInput = Omit<
 	status?: MessageItem["status"];
 	syncStatus?: MessageItem["syncStatus"];
 	category?: MessageItem["category"];
+	authenticityVerdict?: MessageItem["authenticityVerdict"];
 	hasListUnsubscribe?: MessageItem["hasListUnsubscribe"];
 	movedByRemit?: MessageItem["movedByRemit"];
 };
@@ -527,3 +530,21 @@ export type CreateFilterAnchorInput = Omit<
 	FilterAnchorItem,
 	"createdAt" | "updatedAt"
 >;
+
+export type SenderSignerStandingItem = z.infer<
+	typeof SenderSignerStandingSchema
+>;
+
+/**
+ * One message observed arriving for a `(senderKey, signerDomain)` pair.
+ *
+ * `observedAt` is supplied rather than taken from the clock so a caller
+ * replaying a body-sync batch records the arrival's own time, and so the
+ * `firstSeenAt`-immutability contract is assertable without sleeping.
+ */
+export type ObserveSenderSignerStandingInput = {
+	accountConfigId: string;
+	senderKey: string;
+	signerDomain: string;
+	observedAt: number;
+};

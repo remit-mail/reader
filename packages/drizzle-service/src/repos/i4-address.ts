@@ -396,13 +396,14 @@ export class AddressRepo implements IAddressRepository {
 		accountConfigId: string,
 		addressId: string,
 		now: number,
-		_isBulk?: boolean,
+		isBulk?: boolean,
 	): Promise<void> {
 		const current = await this.getAddress(accountConfigId, addressId);
 		const post = {
 			...current,
 			inboundCount: (current.inboundCount ?? 0) + 1,
 			lastInboundAt: now,
+			isBulk: isBulk ?? false,
 		};
 		if (shouldPromoteWellknown(post, now)) {
 			const nextFlags: AddressFlags = {

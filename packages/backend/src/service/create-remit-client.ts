@@ -21,6 +21,7 @@ import type {
 	IOutboxAttachmentRepository,
 	IOutboxMessageRepository,
 	IQuarantineRepository,
+	ISenderSignerStandingRepository,
 	IThreadMessageRepository,
 	IUnitOfWork,
 } from "@remit/data-ports";
@@ -102,6 +103,12 @@ export interface RemitClient {
 	label: ILabelRepository;
 	messageLabel: IMessageLabelRepository;
 
+	// How often a sender has been seen arriving under one DKIM signing identity,
+	// per account. Read by the authenticity derivation to tell a familiar
+	// third-party signer from a first sighting; written once per message by
+	// body-sync, which is its only writer.
+	senderSignerStanding: ISenderSignerStandingRepository;
+
 	// Atomic write set for a message save. Present on the relational backend (real
 	// transaction); absent on DynamoDB, where callers fall back to per-repo
 	// writes with that backend's own (non-transactional) guarantees.
@@ -182,6 +189,7 @@ export interface RemitClientRepositories {
 	filterAnchorTransaction: IFilterAnchorTransaction;
 	label: ILabelRepository;
 	messageLabel: IMessageLabelRepository;
+	senderSignerStanding: ISenderSignerStandingRepository;
 	unitOfWork?: IUnitOfWork;
 }
 
@@ -403,6 +411,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		filterAnchorTransaction: repositories.filterAnchorTransaction,
 		label: repositories.label,
 		messageLabel: repositories.messageLabel,
+		senderSignerStanding: repositories.senderSignerStanding,
 		unitOfWork: repositories.unitOfWork,
 
 		storage,
