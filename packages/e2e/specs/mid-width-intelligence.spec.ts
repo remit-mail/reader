@@ -13,7 +13,11 @@
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
 import { INBOX_LIST, listOnScreen } from "../src/lists.js";
-import { MAILBOX_URL } from "../src/urls.js";
+import {
+	MAILBOX_ROW_LINK,
+	MAILBOX_THREAD_URL,
+	MAILBOX_URL,
+} from "../src/urls.js";
 
 const SHOW_INFO = "Show intelligence sidebar";
 const HIDE_INFO = "Hide intelligence sidebar";
@@ -29,13 +33,18 @@ const closeControl = (page: Page): Locator =>
 	intelligenceDrawer(page).getByRole("button", { name: "Close menu" }).last();
 
 const openMessage = async (page: Page, subject: string): Promise<void> => {
-	const row = page
-		.locator("a[href*='selectedMessageId']")
-		.filter({ hasText: subject });
+	const row = page.locator(MAILBOX_ROW_LINK).filter({ hasText: subject });
 	await expect(row).toBeVisible({ timeout: 30_000 });
 	await row.click();
-	await page.waitForURL(/selectedMessageId=/);
-	await expect(page.getByRole("article")).toBeVisible({ timeout: 15_000 });
+	await page.waitForURL(MAILBOX_THREAD_URL);
+	// Named, not just "an article is up": this helper also switches from one open
+	// thread to another, where a bare presence check passes on the thread being
+	// navigated away from.
+	await expect(
+		page
+			.getByRole("article")
+			.getByRole("heading", { name: subject, exact: true }),
+	).toBeVisible({ timeout: 15_000 });
 };
 
 test.describe("Intelligence where the rail does not fit", () => {

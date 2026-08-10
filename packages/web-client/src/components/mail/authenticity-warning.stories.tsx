@@ -54,6 +54,7 @@ const intelligence: IntelligenceData = {
 		{
 			id: "sim_dhl",
 			mailboxId: "mbx_personal_junk",
+			threadId: "thr_sim_dhl",
 			fromName: "DHL Express",
 			subject: "Action required: customs fee outstanding",
 			timeLabel: "Thu",
@@ -62,6 +63,7 @@ const intelligence: IntelligenceData = {
 		{
 			id: "sim_postnl",
 			mailboxId: "mbx_personal_junk",
+			threadId: "thr_sim_postnl",
 			fromName: "PostNL",
 			subject: "Uw pakket kon niet worden bezorgd",
 			timeLabel: "28 May",
