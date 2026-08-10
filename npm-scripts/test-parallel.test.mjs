@@ -6,10 +6,16 @@
 // close. Every case below runs the real runner against a fixture tree.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { after, describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const runner = join(
@@ -80,6 +86,42 @@ const run = (root, exclude) =>
 		env: { ...process.env, TEST_EXCLUDE: exclude ?? "" },
 	});
 
+// A real workspace root this time, so `npm run test:run -w ...` reaches the
+// script and the suite genuinely runs. It needs no install: the script it runs
+// is node itself.
+function hangingFixture() {
+	const root = mkdtempSync(join(tmpdir(), "test-parallel-hang-"));
+	roots.push(root);
+	write(
+		root,
+		"package.json",
+		JSON.stringify({ name: "fixture", workspaces: ["packages/*"] }),
+	);
+	write(
+		root,
+		"packages/hangs/package.json",
+		JSON.stringify({
+			name: "@fixture/hangs",
+			scripts: { "test:run": "node hang.mjs" },
+		}),
+	);
+	write(root, "packages/hangs/src/unit.test.ts", "");
+	// Every test passes and the process still never exits, which is the shape
+	// this is about: a handle left open outlives a green suite.
+	write(
+		root,
+		"packages/hangs/hang.mjs",
+		[
+			'import { writeFileSync } from "node:fs";',
+			"writeFileSync(process.env.HANG_PID_FILE, String(process.pid));",
+			'console.log("all tests passed");',
+			"setInterval(() => {}, 1000);",
+			"",
+		].join("\n"),
+	);
+	return root;
+}
+
 describe("test-parallel's exclusion backstop", () => {
 	// Delete the call in test-parallel.mjs and this is the assertion that goes
 	// red. The exit code alone would not: an unchecked run fails later anyway,
@@ -116,5 +158,49 @@ describe("test-parallel's exclusion backstop", () => {
 		const { stdout, stderr } = run(fixture({ workflow: false }));
 		assert.doesNotMatch(stderr, /ENOENT/);
 		assert.match(stdout, /no tests to run for: notests \(no tests\)/);
+	});
+});
+
+// Two CI jobs were killed by their runner host on a suite whose tests had all
+// passed and whose process then never exited. Nothing said which suite: the run
+// waited on it until the host gave up, and the log carried a bare SIGTERM.
+describe("test-parallel against a suite that never exits", () => {
+	let pidFile;
+	let result;
+
+	before(() => {
+		const root = hangingFixture();
+		pidFile = join(root, "hang.pid");
+		result = spawnSync(process.execPath, [runner, root], {
+			encoding: "utf8",
+			timeout: 120000,
+			env: {
+				...process.env,
+				TEST_EXCLUDE: "",
+				HANG_PID_FILE: pidFile,
+				TEST_SUITE_TIMEOUT_MS: "4000",
+			},
+		});
+	});
+
+	it("ends the run itself rather than waiting on the suite", () => {
+		assert.equal(result.signal, null);
+		assert.equal(result.status, 1);
+	});
+
+	it("names the suite it was inside, on the way in and on the way out", () => {
+		assert.match(result.stdout, /RUN hangs/);
+		assert.match(result.stdout, /HANG hangs/);
+		assert.match(result.stdout, /failing suites: hangs/);
+		assert.match(result.stdout, /look for a handle the suite leaves open/);
+	});
+
+	// The suite is npm's child, so killing the child alone leaves this process
+	// running with the pipes open — the orphan the CI runner had to terminate
+	// after the job it belonged to was already over.
+	it("leaves nothing of the suite behind", () => {
+		const pid = Number(readFileSync(pidFile, "utf8"));
+		assert.ok(Number.isInteger(pid) && pid > 0);
+		assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
 	});
 });
