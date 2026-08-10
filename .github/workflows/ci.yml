@@ -282,7 +282,7 @@ jobs:
       # Keyed on the lockfile because the pinned Playwright version lives there,
       # and a browser build belongs to the version that downloaded it.
       - name: Restore the Chromium build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-chromium-${{ hashFiles('package-lock.json') }}
