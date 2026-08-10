@@ -6,6 +6,7 @@ import type {
 } from "@remit/api-http-client/types.gen.ts";
 import {
 	buildAuthenticityIntel,
+	buildCategoryIntel,
 	buildSenderIntel,
 } from "./useIntelligenceData.js";
 
@@ -48,6 +49,46 @@ function makeAddress(
 		...overrides,
 	} as RemitImapAddressResponse;
 }
+
+describe("buildCategoryIntel", () => {
+	test("carries a category the client knows through unchanged", () => {
+		const result = buildCategoryIntel(
+			makeThread({
+				category: "newsletter",
+			} as Partial<RemitImapThreadMessageResponse>),
+			undefined,
+		);
+		assert.equal(result.value, "newsletter");
+	});
+
+	test("falls back to personal when the row carries no category", () => {
+		const result = buildCategoryIntel(makeThread(), undefined);
+		assert.equal(result.value, "personal");
+	});
+
+	// A newer server classifying into a category this build has no tone for must
+	// not leave the chip untoned — the failure this whole change is about.
+	test("resolves a category the client does not know to uncategorized", () => {
+		const result = buildCategoryIntel(
+			makeThread({
+				category: "invoice",
+			} as Partial<RemitImapThreadMessageResponse>),
+			undefined,
+		);
+		assert.equal(result.value, "uncategorized");
+	});
+
+	test("marks the category overridden when the sender carries a different one", () => {
+		const thread = makeThread({
+			category: "personal",
+		} as Partial<RemitImapThreadMessageResponse>);
+		const address = makeAddress({
+			flags: { category: { value: "newsletter" } },
+		} as Partial<RemitImapAddressResponse>);
+		assert.equal(buildCategoryIntel(thread, address).overridden, true);
+		assert.equal(buildCategoryIntel(thread, undefined).overridden, false);
+	});
+});
 
 describe("buildSenderIntel", () => {
 	describe("counter wiring — counters present", () => {

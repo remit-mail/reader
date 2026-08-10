@@ -30,6 +30,7 @@ export {
 	type Density,
 	INTELLIGENCE_MIN_WIDTH,
 	isBriefCategory,
+	isThreadCategory,
 	type MessageListKeyboard,
 	type MessageListSelection,
 	type NarrowView,

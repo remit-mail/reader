@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
+import { categoryTone, isThreadCategory } from "./app-shell-types.js";
 import type { IntelligenceData } from "./intelligence-panel.js";
 import { IntelligencePanel } from "./intelligence-panel.js";
 
@@ -66,5 +67,28 @@ describe("IntelligencePanel category chip", () => {
 			category: { value: "newsletter" },
 		});
 		assert.match(newsletter, /text-fg-muted/);
+	});
+
+	it("renders a readable chip for a message the classifier placed nowhere", () => {
+		const chip = categoryChip({
+			...vipWithFailingAuthenticity,
+			category: { value: "uncategorized" },
+		});
+		assert.match(chip, /text-fg-muted/);
+		assert.doesNotMatch(chip, /danger/);
+	});
+});
+
+describe("isThreadCategory", () => {
+	it("accepts every category the tone map covers", () => {
+		for (const category of Object.keys(categoryTone)) {
+			assert.equal(isThreadCategory(category), true, category);
+		}
+	});
+
+	it("rejects a category this build has no tone for", () => {
+		assert.equal(isThreadCategory("invoice"), false);
+		assert.equal(isThreadCategory("Personal"), false);
+		assert.equal(isThreadCategory("toString"), false);
 	});
 });

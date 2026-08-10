@@ -129,10 +129,6 @@ export interface SenderFlagsIntel {
 export interface IntelligenceData {
 	sender: SenderIntel;
 	authenticity: AuthenticityIntel;
-	/**
-	 * What the classifier made of the message. The taxonomy, not free text: the
-	 * chip's colour comes from `categoryTone`, which is keyed on it.
-	 */
 	category: { value: ThreadCategory; overridden?: boolean };
 	flags?: SenderFlagsIntel;
 	similar: SimilarMessageIntel[];
