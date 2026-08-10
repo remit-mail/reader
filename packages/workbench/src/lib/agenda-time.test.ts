@@ -1,7 +1,11 @@
 /**
  * The strip's arithmetic. Free time and collapsed runs are claims the design
  * makes on screen — "you have a free afternoon", "five days with nothing
- * booked" — so they are measured off the fixtures rather than asserted by hand.
+ * booked" — so every number here is worked out from the fixture week by hand
+ * and written down. Moving an event in the fixtures is meant to fail this file.
+ *
+ * The suite runs in the zone the fixtures are written in, so the labels the
+ * helpers format never depend on where the machine is.
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -25,14 +29,14 @@ describe("free time", () => {
 		const stretches = freeStretchesOn(buildDay("2026-06-10", agendaEvents));
 		assert.deepEqual(
 			stretches.map((stretch) => stretch.minutes),
-			[285, 195],
+			[165, 195],
 		);
 	});
 
 	it("counts overlapping events as the clock time they cover, once", () => {
 		const day = buildDay("2026-06-10", agendaEvents);
-		assert.equal(day.timed.length, 8);
-		assert.equal(day.busyMinutes, 210);
+		assert.equal(day.timed.length, 9);
+		assert.equal(day.busyMinutes, 270);
 	});
 
 	it("treats a day with nothing timed on it as free all day", () => {
@@ -76,11 +80,13 @@ describe("readNextUp", () => {
 	});
 
 	it("counts what is left of today", () => {
-		assert.equal(nextUp.restOfDay, 7);
+		assert.equal(nextUp.restOfDay, 8);
 	});
 
-	it("reaches past the meetings to the afternoon they leave open", () => {
-		assert.equal(nextUp.free?.minutes, 285);
+	it("reaches past the morning pile-up to the gap after lunch", () => {
+		assert.equal(nextUp.free?.startMinute, 13 * 60 + 15);
+		assert.equal(nextUp.free?.endMinute, 16 * 60);
+		assert.equal(nextUp.free?.minutes, 165);
 	});
 });
 
@@ -89,7 +95,7 @@ describe("groupOverlapping", () => {
 		const day = buildDay("2026-06-10", agendaEvents);
 		assert.deepEqual(
 			groupOverlapping(day.timed).map((group) => group.length),
-			[1, 5, 1, 1],
+			[1, 5, 1, 1, 1],
 		);
 	});
 });
