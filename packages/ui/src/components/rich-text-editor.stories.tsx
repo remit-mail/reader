@@ -253,13 +253,77 @@ export const NarrowToolbar: Story = {
 
 const MISSPELT = "Ths report is redy today, and the notes are attachd.";
 
+const DUTCH = "De vergaderingg gaat over de begrooting.";
+
 /**
- * A real module worker does the checking, over the same messages an engine
- * would answer: the component is handed a provider and never learns where the
- * words came from. What the worker holds instead of a dictionary is a short
- * list of English words.
+ * A real module worker does the checking, over Hunspell and the dictionary this
+ * build staged: the component is handed a provider and never learns where the
+ * words came from.
  */
 const workerSpellcheck: SpellcheckOptions = { provider: openSpellcheckWorker };
+
+/** A download that never finishes, which on a bad link is most of a minute. */
+const stalledSpellcheck = (bytesTotal: number): SpellcheckOptions => ({
+	provider: async (language) => ({
+		language,
+		onStatus: (listener) => {
+			listener({ state: "opening", language, bytesLoaded: 0, bytesTotal });
+			const timer = setInterval(
+				() =>
+					listener({
+						state: "opening",
+						language,
+						bytesLoaded: Math.round(bytesTotal / 4),
+						bytesTotal,
+					}),
+				500,
+			);
+			return () => clearInterval(timer);
+		},
+		check: (request) =>
+			Promise.resolve({
+				requestId: request.requestId,
+				revision: request.revision,
+				findings: [],
+			}),
+		suggest: (request) =>
+			Promise.resolve({
+				requestId: request.requestId,
+				word: request.word,
+				suggestions: [],
+			}),
+		close: () => {},
+	}),
+});
+
+/** The dictionary answered, and what it answered was 503. */
+const refusedSpellcheck: SpellcheckOptions = {
+	provider: async (language) => ({
+		language,
+		onStatus: (listener) => {
+			listener({
+				state: "failed",
+				language,
+				reason: "download",
+				detail: `/spellcheck/dictionaries/${language}/index.dic answered 503`,
+			});
+			return () => {};
+		},
+		check: (request) =>
+			Promise.resolve({
+				requestId: request.requestId,
+				revision: request.revision,
+				findings: [],
+			}),
+		suggest: (request) =>
+			Promise.resolve({
+				requestId: request.requestId,
+				word: request.word,
+				suggestions: [],
+			}),
+		close: () => {},
+	}),
+};
 
 /**
  * The same findings, answered against the revision before the one asked for —
@@ -371,6 +435,115 @@ export const SpellcheckMarks: Story = {
 				]),
 			{ timeout: 5000 },
 		);
+	},
+};
+
+/**
+ * The same worker on a Dutch message, against OpenTaal's 180,745 entries. Two
+ * Dutch misspellings carry a squiggle and every other Dutch word does not —
+ * which is the whole point, since a Dutch message in an English-configured
+ * Chrome gets a squiggle under every word.
+ */
+export const SpellcheckDutch: Story = {
+	name: "Spellcheck in Dutch (real dictionary)",
+	args: {
+		initialHtml: `<p>${DUTCH}</p>`,
+		lang: "nl",
+		spellcheck: workerSpellcheck,
+	},
+	play: async ({ canvasElement }) => {
+		const editable = writingSurface(canvasElement);
+		await waitFor(
+			() =>
+				expect(spellMarkOffsets(editable)).toEqual([
+					[3, 15],
+					[29, 39],
+				]),
+			{ timeout: 15000 },
+		);
+		await expect(editable.getAttribute("spellcheck")).toBe("false");
+	},
+};
+
+/**
+ * Fourteen seconds of a composer that looks like it has no opinion about
+ * spelling is the failure this must not have. The browser keeps checking, the
+ * banner names the language and its size once the wait is long enough to be
+ * worth mentioning, and cancelling leaves the writer with a way back.
+ */
+export const SpellcheckSlowDownload: Story = {
+	name: "Spellcheck while the dictionary downloads",
+	args: {
+		initialHtml: `<p>${DUTCH}</p>`,
+		lang: "nl",
+		spellcheck: stalledSpellcheck(702_464),
+	},
+	play: async ({ canvasElement }) => {
+		const editable = writingSurface(canvasElement);
+		await expect(editable.getAttribute("spellcheck")).toBe("true");
+		await expect(spellMarks(editable)).toHaveLength(0);
+
+		const notice = await waitFor(
+			() => {
+				const row = canvasElement.querySelector<HTMLElement>(
+					"[data-testid=spellcheck-notice]",
+				);
+				expect(row).not.toBeNull();
+				return row as HTMLElement;
+			},
+			{ timeout: 12000 },
+		);
+		await expect(notice.textContent).toContain("Nederlands");
+		await expect(notice.textContent).toContain("686 KB");
+
+		const cancel = notice.querySelector<HTMLElement>(
+			"[data-testid=spellcheck-cancel]",
+		);
+		if (!cancel)
+			throw new Error("a download nobody can stop is not a download");
+		await userEvent.click(cancel);
+
+		await waitFor(() =>
+			expect(
+				canvasElement.querySelector("[data-testid=spellcheck-retry]"),
+			).not.toBeNull(),
+		);
+		await expect(editable.getAttribute("spellcheck")).toBe("true");
+	},
+};
+
+/**
+ * The dead squiggle-free editor is the worst outcome, so a failure says which
+ * file, what it answered, and where to report it — and hands the spelling back
+ * to the browser rather than leaving nobody checking.
+ */
+export const SpellcheckDownloadFailed: Story = {
+	name: "Spellcheck when the dictionary fails to load",
+	args: {
+		initialHtml: `<p>${DUTCH}</p>`,
+		lang: "nl",
+		spellcheck: refusedSpellcheck,
+	},
+	play: async ({ canvasElement }) => {
+		const editable = writingSurface(canvasElement);
+		const detail = await waitFor(() => {
+			const row = canvasElement.querySelector<HTMLElement>(
+				"[data-testid=spellcheck-detail]",
+			);
+			expect(row).not.toBeNull();
+			return row as HTMLElement;
+		});
+
+		await expect(detail.textContent).toContain("answered 503");
+		await expect(
+			canvasElement.querySelector("[data-testid=spellcheck-retry]"),
+		).not.toBeNull();
+		const report = canvasElement.querySelector<HTMLAnchorElement>(
+			"[data-testid=spellcheck-report]",
+		);
+		await expect(report?.href).toContain("issues/new?title=");
+		await expect(editable.getAttribute("spellcheck")).toBe("true");
+		await expect(spellMarks(editable)).toHaveLength(0);
 	},
 };
 
