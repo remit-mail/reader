@@ -4,15 +4,16 @@ import { DESKTOP_MEDIA_QUERY } from "../lib/layout-breakpoints.js";
 import { useRovingFocus } from "../lib/roving-focus.js";
 import { useMatchMedia } from "../lib/use-match-media.js";
 import { BottomSheet } from "./bottom-sheet.js";
-import { PopoverMenuPanel, PopoverMenuRow } from "./popover-menu.js";
+import {
+	type PopoverMenuAnchor,
+	PopoverMenuPanel,
+	PopoverMenuPortal,
+	PopoverMenuRow,
+} from "./popover-menu.js";
 
 const SKELETON_WIDTHS = ["w-28", "w-20", "w-24"];
 
-export interface CorrectionMenuAnchor {
-	/** Both relative to the writing surface's own box. */
-	readonly left: number;
-	readonly top: number;
-}
+export type CorrectionMenuAnchor = PopoverMenuAnchor;
 
 export interface RichTextCorrectionMenuProps {
 	word: string;
@@ -184,9 +185,11 @@ export const RichTextCorrectionMenu = ({
 	}
 
 	return (
-		<div
-			className="absolute z-50"
-			style={{ left: anchor.left, top: anchor.top }}
+		<PopoverMenuPortal
+			open
+			align="start"
+			panelRef={panelRef}
+			getAnchor={() => anchor}
 		>
 			<PopoverMenuPanel
 				ref={panelRef}
@@ -197,6 +200,6 @@ export const RichTextCorrectionMenu = ({
 			>
 				<CorrectionRows {...rows} />
 			</PopoverMenuPanel>
-		</div>
+		</PopoverMenuPortal>
 	);
 };

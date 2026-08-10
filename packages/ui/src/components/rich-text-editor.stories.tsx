@@ -523,12 +523,26 @@ const caretInto = (editable: HTMLElement, word: string): void =>
 const caretToEnd = (editable: HTMLElement): void =>
 	caretTo(editable, textOf(editable).length);
 
+/**
+ * The desktop popover portals to the document body, clear of whatever
+ * ancestor would otherwise clip it, so the menu and its rows are found
+ * against the iframe document rather than `canvasElement` — the sheet below
+ * the desktop gate stays inside `canvasElement`, and this still reaches it
+ * there too.
+ */
 const menuRows = (
 	canvasElement: HTMLElement,
 	testId: string,
 ): HTMLElement[] => [
-	...canvasElement.querySelectorAll<HTMLElement>(`[data-testid=${testId}]`),
+	...canvasElement.ownerDocument.body.querySelectorAll<HTMLElement>(
+		`[data-testid=${testId}]`,
+	),
 ];
+
+const spellNode = (
+	canvasElement: HTMLElement,
+	selector: string,
+): Element | null => canvasElement.ownerDocument.body.querySelector(selector);
 
 /**
  * The correction menu over a marked word: up on the click with rows standing in
@@ -550,9 +564,7 @@ export const SpellcheckSuggestions: Story = {
 
 		clickOn(editable, "Ths");
 		await waitFor(() =>
-			expect(
-				canvasElement.querySelector("[data-testid=spell-menu]"),
-			).toBeTruthy(),
+			expect(spellNode(canvasElement, "[data-testid=spell-menu]")).toBeTruthy(),
 		);
 		await expect(
 			menuRows(canvasElement, "spell-suggestion-skeleton"),
@@ -584,6 +596,64 @@ export const SpellcheckSuggestions: Story = {
 		await waitFor(() => expect(editable.textContent).toBe(MISSPELT), {
 			timeout: 5000,
 		});
+	},
+};
+
+/**
+ * A misspelt word at the right edge of a narrow, `overflow-hidden` editor —
+ * the compose body's own shape (#731). The menu portals clear of that
+ * ancestor rather than being clipped by it, and it stays inside the viewport
+ * rather than running past the container's right edge and taking the page's
+ * own scrollbar with it.
+ */
+export const SpellcheckNearRightEdge: Story = {
+	name: "Spellcheck menu at the right edge of a narrow editor",
+	args: {
+		initialHtml: `<p>${MISSPELT_MESSAGE}</p>`,
+		lang: "en",
+		spellcheck: workerSpellcheck,
+	},
+	decorators: [
+		(Story) => (
+			<div
+				data-testid="body-area"
+				className="flex h-[260px] w-[320px] flex-col overflow-hidden rounded-md border border-line bg-canvas"
+			>
+				<Story />
+			</div>
+		),
+	],
+	play: async ({ canvasElement }) => {
+		const editable = writingSurface(canvasElement);
+		const frame = canvasElement.querySelector<HTMLElement>(
+			"[data-testid=body-area]",
+		);
+		if (!frame) throw new Error("the narrow frame is not mounted");
+
+		await waitFor(
+			() => expect(spellMarks(editable).length).toBeGreaterThan(0),
+			{
+				timeout: 5000,
+			},
+		);
+
+		clickOn(editable, "confrm");
+		const menu = await waitFor(() => {
+			const found = spellNode(canvasElement, "[data-testid=spell-menu]");
+			if (!found) throw new Error("the menu has not opened yet");
+			return found;
+		});
+
+		// Portalled clear of the clipping ancestor rather than cut by it.
+		await expect(frame.contains(menu)).toBe(false);
+
+		const box = menu.getBoundingClientRect();
+		await expect(box.left).toBeGreaterThanOrEqual(0);
+		await expect(box.right).toBeLessThanOrEqual(window.innerWidth);
+
+		await expect(
+			spellNode(canvasElement, "[data-testid=spell-ignore]")?.textContent,
+		).toBe("Ignore for now");
 	},
 };
 
@@ -669,7 +739,7 @@ export const SpellcheckClickOpensCorrections: Story = {
 
 		await waitFor(() =>
 			expect(
-				canvasElement.querySelector("[data-testid=spell-word]")?.textContent,
+				spellNode(canvasElement, "[data-testid=spell-word]")?.textContent,
 			).toBe("redy"),
 		);
 		// Long enough for the caret the click put down to have been read and
@@ -680,9 +750,7 @@ export const SpellcheckClickOpensCorrections: Story = {
 
 		await userEvent.keyboard("{Escape}");
 		await waitFor(() =>
-			expect(
-				canvasElement.querySelector("[data-testid=spell-menu]"),
-			).toBeNull(),
+			expect(spellNode(canvasElement, "[data-testid=spell-menu]")).toBeNull(),
 		);
 
 		caretInto(editable, "redy");
@@ -730,12 +798,10 @@ export const SpellcheckOnTouch: Story = {
 
 		tapOn(editable, "redy");
 		await waitFor(() =>
-			expect(
-				canvasElement.querySelector("[data-testid=spell-menu]"),
-			).toBeTruthy(),
+			expect(spellNode(canvasElement, "[data-testid=spell-menu]")).toBeTruthy(),
 		);
 		await expect(
-			canvasElement.querySelector("[aria-label='Close corrections']"),
+			spellNode(canvasElement, "[aria-label='Close corrections']"),
 		).toBeTruthy();
 	},
 };
@@ -754,7 +820,7 @@ export const SpellcheckLeavesAPointerAlone: Story = {
 		await waitFor(() => expect(spellMarks(editable).length).toBe(3), {
 			timeout: 5000,
 		});
-		const menu = () => canvasElement.querySelector("[data-testid=spell-menu]");
+		const menu = () => spellNode(canvasElement, "[data-testid=spell-menu]");
 
 		pressOn(editable, "redy", { pointerType: "touch", travel: 40 });
 		await expect(menu()).toBeNull();
@@ -778,7 +844,8 @@ export const SpellcheckLeavesAPointerAlone: Story = {
 		await waitFor(() => expect(menu()).toBeTruthy());
 
 		await userEvent.click(
-			canvasElement.querySelector<HTMLElement>(
+			spellNode(
+				canvasElement,
 				"[aria-label='Close corrections']",
 			) as HTMLElement,
 		);

@@ -302,8 +302,12 @@ interface CorrectionTarget {
 	readonly start: number;
 	readonly end: number;
 	readonly word: string;
+	/** Viewport-relative, straight off the word's own range — the menu portals
+	 *  to the document body, so nothing here is relative to the editor. */
 	readonly left: number;
+	readonly right: number;
 	readonly top: number;
+	readonly bottom: number;
 }
 
 /**
@@ -515,8 +519,9 @@ const SpellcheckPlugin = ({
 			const hit = (findings.get(key) ?? []).find((finding) =>
 				covers(finding, offset),
 			);
-			const host = hostRef.current;
-			if (!hit || !host) return false;
+			// The editor still has to be mounted for a click on its own text to mean
+			// anything, even though the menu itself no longer anchors to it.
+			if (!hit || !hostRef.current) return false;
 			const range = leafRange(editor, key, hit.start, hit.end);
 			const word = editor.read(() => {
 				const node = $getNodeByKey(key);
@@ -525,14 +530,15 @@ const SpellcheckPlugin = ({
 			});
 			if (!range || !word) return false;
 			const box = range.getBoundingClientRect();
-			const frame = host.getBoundingClientRect();
 			setTarget({
 				key,
 				start: hit.start,
 				end: hit.end,
 				word,
-				left: box.left - frame.left,
-				top: box.bottom - frame.top + 4,
+				left: box.left,
+				right: box.right,
+				top: box.top,
+				bottom: box.bottom,
 			});
 			return true;
 		};
@@ -751,7 +757,15 @@ const SpellcheckPlugin = ({
 	const dismiss = useCallback(
 		(returnFocus: boolean) => {
 			setTarget(null);
-			if (returnFocus) editor.focus();
+			// `editor.focus()` alone only moves the DOM caret when Lexical's own
+			// selection model already matches the live DOM selection; the caret
+			// the click left behind rarely does, and setting a Selection range
+			// inside a contenteditable is not itself what moves focus there. The
+			// explicit call is what actually lands the caret back in the message.
+			if (returnFocus) {
+				editor.focus();
+				editor.getRootElement()?.focus();
+			}
 		},
 		[editor],
 	);
@@ -804,7 +818,12 @@ const SpellcheckPlugin = ({
 			word={target.word}
 			suggestions={suggestions}
 			failure={failure}
-			anchor={{ left: target.left, top: target.top }}
+			anchor={{
+				left: target.left,
+				right: target.right,
+				top: target.top,
+				bottom: target.bottom,
+			}}
 			language={language}
 			onReplace={replace}
 			onIgnore={() => forget(target.word)}

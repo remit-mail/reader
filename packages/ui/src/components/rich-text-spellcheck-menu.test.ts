@@ -177,12 +177,26 @@ const characters = (): Node => {
 	return leaf;
 };
 
+/**
+ * The desktop popover portals to the document body, clear of whatever
+ * ancestor would otherwise clip it, so the menu and its rows are found
+ * against the document rather than the mounted `container` — the sheet below
+ * the desktop gate stays in `container`, and this still reaches it there.
+ */
 const menu = (): HTMLElement | null =>
-	container.querySelector<HTMLElement>("[data-testid=spell-menu]");
+	dom.window.document.body.querySelector<HTMLElement>(
+		"[data-testid=spell-menu]",
+	);
 
 const rows = (testId: string): HTMLElement[] => [
-	...container.querySelectorAll<HTMLElement>(`[data-testid=${testId}]`),
+	...dom.window.document.body.querySelectorAll<HTMLElement>(
+		`[data-testid=${testId}]`,
+	),
 ];
+
+/** Any element inside the menu, wherever it landed — see {@link menu}. */
+const spellNode = (selector: string): HTMLElement | null =>
+	dom.window.document.body.querySelector<HTMLElement>(selector);
 
 /**
  * jsdom carries no `PointerEvent`, and what the editor reads off one is the
@@ -410,7 +424,7 @@ describe("the correction menu", () => {
 		);
 		assert.equal(rows("spell-suggestion").length, 0);
 		assert.equal(
-			container.querySelector("[data-testid=spell-word]")?.textContent,
+			spellNode("[data-testid=spell-word]")?.textContent,
 			"Ths",
 			"the menu names the word it is about",
 		);
@@ -452,7 +466,7 @@ describe("the correction menu", () => {
 			"the word being written carries no mark",
 		);
 		assert.equal(
-			container.querySelector("[data-testid=spell-word]")?.textContent,
+			spellNode("[data-testid=spell-word]")?.textContent,
 			"redy",
 			"and is still what the menu opens on",
 		);
@@ -557,8 +571,7 @@ describe("the correction menu", () => {
 
 		assert.equal(rows("spell-suggestion-skeleton").length, 0);
 		assert.match(
-			container.querySelector("[data-testid=spell-suggestions-failed]")
-				?.textContent ?? "",
+			spellNode("[data-testid=spell-suggestions-failed]")?.textContent ?? "",
 			/the worker stopped/,
 			"the menu says what happened rather than sitting empty",
 		);
@@ -582,7 +595,7 @@ describe("the correction menu", () => {
 
 		assert.ok(menu(), "a tap in a marked word opens the corrections");
 		assert.ok(
-			container.querySelector("[aria-label='Close corrections']"),
+			spellNode("[aria-label='Close corrections']"),
 			"and they arrive in a sheet, with its scrim",
 		);
 	});
@@ -645,7 +658,7 @@ describe("the correction menu", () => {
 
 		await pressUp("mouse");
 		assert.equal(
-			container.querySelector("[data-testid=spell-word]")?.textContent,
+			spellNode("[data-testid=spell-word]")?.textContent,
 			"Ths",
 			"and the click is what opened the corrections",
 		);
@@ -829,7 +842,7 @@ describe("the correction menu", () => {
 
 		await clickAt(0);
 		assert.equal(
-			container.querySelector("[data-testid=spell-word]")?.textContent,
+			spellNode("[data-testid=spell-word]")?.textContent,
 			"Ths",
 			"the first letter belongs to the word",
 		);
@@ -844,7 +857,7 @@ describe("the correction menu", () => {
 		});
 		await chordAt(editor, 3);
 		assert.equal(
-			container.querySelector("[data-testid=spell-word]")?.textContent,
+			spellNode("[data-testid=spell-word]")?.textContent,
 			"Ths",
 			"a caret resting at the end of a word is still in it",
 		);
