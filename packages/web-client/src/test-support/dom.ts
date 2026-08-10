@@ -1,9 +1,10 @@
 /**
  * Mount-and-poke harness over the jsdom globals `dom-env.mjs` installs.
  *
- * Queries run over the document body rather than the mount point: an overlay
+ * Lookups run over the document body rather than the mount point: an overlay
  * that hangs off a trigger is portalled out of the pane it was opened from, and
- * it is still part of what the user is looking at.
+ * it is still part of what the user is looking at. `html()` stays the mount's
+ * own markup, so "this rendered nothing" remains a statement about the mount.
  *
  * Excluded from coverage by `test:run`; it lives under `src/` only because the
  * build's `rootDir` is `src/`. Node's test runner gives every test file its own
@@ -112,7 +113,7 @@ export const createDomHarness = (options: DomOptions = {}): DomHarness => {
 			container.remove();
 			setViewportWidth(DEFAULT_VIEWPORT_WIDTH);
 		},
-		html: () => document.body.innerHTML,
+		html: () => container.innerHTML,
 		text: () => document.body.textContent ?? "",
 		query: <T extends Element = HTMLElement>(selector: string) =>
 			document.body.querySelector(selector) as T | null,

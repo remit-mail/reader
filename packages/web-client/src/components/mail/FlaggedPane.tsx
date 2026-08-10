@@ -38,6 +38,7 @@ import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import type { OpenMessageOptions } from "@/components/mail/ThreadListInteraction";
 import { useDeleteMessages } from "@/hooks/useDeleteMessages";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
+import { useMessageStar } from "@/hooks/useMessageStar";
 import { useStarredThreads } from "@/hooks/useStarredThreads";
 import { type ThreadActions, useThreadActions } from "@/hooks/useThreadActions";
 import {
@@ -126,8 +127,10 @@ function FlaggedPaneProvider({
 		[selectedMessageId, handleCloseThread],
 	);
 
+	const openStar = useMessageStar(selectedThread);
 	const actions = useThreadActions({
 		thread: selectedThread,
+		star: openStar,
 		onAfterOptimisticRemove: handleDeselectIfRemoved,
 	});
 

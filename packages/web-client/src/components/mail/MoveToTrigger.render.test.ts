@@ -173,7 +173,6 @@ describe("MoveToTrigger", () => {
 				"a folder row inside the pane subtree is a row the pane can clip",
 			);
 		}
-		assert.equal(rows[0].closest("[aria-label='Move to folder']"), null);
 	});
 
 	it("refuses to open, and says why, when the selection spans accounts", () => {

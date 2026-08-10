@@ -6,12 +6,10 @@
  * them by its route; the brief and Flagged are cross-account, so they key by
  * the open thread's own `mailboxId` / `accountId` (#149).
  */
-import { threadDetailOperationsListThreadMessagesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type {
 	RemitImapStarColor,
 	RemitImapThreadMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
-import { useQuery } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import type { ComposeMode } from "@/components/compose/ComposeProvider";
 import { useDeleteMessages } from "@/hooks/useDeleteMessages";
@@ -23,6 +21,12 @@ import { isStarred } from "@/lib/star";
 
 interface UseThreadActionsOptions {
 	thread: RemitImapThreadMessageResponse | undefined;
+	/**
+	 * The open message's star colour, from `useMessageStar`. A pane showing the
+	 * conversation passes it; one acting on a list row under the keyboard cursor
+	 * leaves it out and the row answers for itself.
+	 */
+	star?: RemitImapStarColor;
 	/** Mailbox whose listings the mutations patch. Defaults to the thread's own. */
 	mailboxId?: string;
 	/** Account the move picker offers folders from. Defaults to the thread's own. */
@@ -34,8 +38,8 @@ export interface ThreadActions {
 	mailboxId: string | undefined;
 	accountId: string | undefined;
 	/**
-	 * The open message's star colour, read from the conversation itself. `none`
-	 * is a star's absent state; `undefined` means no thread is open.
+	 * The star colour the verbs act on. `none` is a star's absent state;
+	 * `undefined` means no thread is open.
 	 */
 	star: RemitImapStarColor | undefined;
 	deleteThread: () => void;
@@ -48,6 +52,7 @@ export interface ThreadActions {
 
 export const useThreadActions = ({
 	thread,
+	star,
 	mailboxId,
 	accountId,
 	onAfterOptimisticRemove,
@@ -83,23 +88,7 @@ export const useThreadActions = ({
 		mailboxId: resolvedMailboxId ?? "",
 	});
 
-	// The conversation the pane has open, on the key `ConversationView` already
-	// holds — one request, one cache entry, and the toolbar and the message card
-	// answer from the same row. A list row is a copy that survives its listing:
-	// once the mail no longer matches the browsed predicate the row stops being
-	// refreshed, and a star read off it is whatever was true when it was last
-	// listed.
-	const { data: conversation } = useQuery({
-		...threadDetailOperationsListThreadMessagesOptions({
-			path: { threadId: thread?.threadId ?? "" },
-		}),
-		enabled: Boolean(thread?.threadId),
-	});
-
-	const openMessage = conversation?.items.find(
-		(message) => message.messageId === thread?.messageId,
-	);
-	const star = openMessage?.star ?? thread?.star;
+	const resolvedStar = star ?? thread?.star;
 
 	const deleteThread = useCallback(() => {
 		if (!thread) return;
@@ -116,8 +105,8 @@ export const useThreadActions = ({
 
 	const toggleStar = useCallback(() => {
 		if (!thread) return;
-		toggleStarFor(thread.messageId, isStarred(star));
-	}, [thread, star, toggleStarFor]);
+		toggleStarFor(thread.messageId, isStarred(resolvedStar));
+	}, [thread, resolvedStar, toggleStarFor]);
 
 	const [composeRequest, setComposeRequest] = useState<ComposeMode | null>(
 		null,
@@ -127,7 +116,7 @@ export const useThreadActions = ({
 	return {
 		mailboxId: resolvedMailboxId,
 		accountId: resolvedAccountId,
-		star,
+		star: resolvedStar,
 		deleteThread,
 		moveThread,
 		toggleStar,

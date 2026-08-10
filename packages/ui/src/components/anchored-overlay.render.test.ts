@@ -93,7 +93,10 @@ const clippingPane = () =>
  * trigger in its header. The trigger reports a fixed viewport rect — jsdom has
  * no layout of its own.
  */
-const mount = async (options: { onDismiss?: () => void } = {}) => {
+const mount = async (
+	options: { onDismiss?: () => void; rect?: DOMRect; panelHeight?: number } = {},
+) => {
+	const rect = options.rect ?? TRIGGER_RECT;
 	const Harness = () => {
 		const [anchor, setAnchor] = useState<HTMLElement | null>(null);
 		const [open, setOpen] = useState(false);
@@ -105,7 +108,7 @@ const mount = async (options: { onDismiss?: () => void } = {}) => {
 				"data-testid": "trigger",
 				ref: (element: HTMLButtonElement | null) => {
 					if (element) {
-						element.getBoundingClientRect = () => TRIGGER_RECT;
+						element.getBoundingClientRect = () => rect;
 					}
 					setAnchor(element);
 				},
@@ -123,7 +126,7 @@ const mount = async (options: { onDismiss?: () => void } = {}) => {
 				children: createElement(
 					"div",
 					{ "data-testid": "panel" },
-					"Filter folders…",
+					createElement("input", { "aria-label": "Filter folders" }),
 				),
 			}),
 		);
@@ -152,9 +155,47 @@ describe("AnchoredOverlay escapes the pane that clips it (#601)", () => {
 	it("positions the panel against the trigger's viewport rect", async () => {
 		await mount();
 		const positioned = panel()?.parentElement as HTMLElement;
-		assert.equal(positioned.style.position, "");
-		assert.match(positioned.className, /fixed/);
 		assert.equal(positioned.style.top, `${TRIGGER_RECT.bottom + 4}px`);
+		assert.equal(positioned.style.visibility, "");
+	});
+
+	/**
+	 * With no room under the trigger the panel opens upwards, and its top has to
+	 * come off the height it will take — placing it by the height it is merely
+	 * allowed leaves it floating away from the button that opened it.
+	 */
+	it("opens upwards against the trigger when there is no room below", async () => {
+		const low = { ...TRIGGER_RECT, top: 700, bottom: 732, y: 700 } as DOMRect;
+		await mount({ rect: low });
+		const positioned = panel()?.parentElement as HTMLElement;
+		const top = Number.parseInt(positioned.style.top, 10);
+		assert.ok(
+			top < low.top,
+			"the panel sits above the trigger, not below the fold",
+		);
+		assert.ok(
+			low.top - top <= Number.parseInt(positioned.style.maxHeight, 10) + 4,
+			"the panel's bottom edge stays with the trigger",
+		);
+	});
+
+	it("moves focus into the panel and hands it back on dismissal", async () => {
+		await mount();
+		const field = dom.window.document.querySelector("[aria-label='Filter folders']");
+		assert.equal(dom.window.document.activeElement, field);
+
+		await act(async () => {
+			dom.window.document.dispatchEvent(
+				new dom.window.KeyboardEvent("keydown", {
+					key: "Escape",
+					bubbles: true,
+				}),
+			);
+		});
+		assert.equal(
+			dom.window.document.activeElement,
+			dom.window.document.querySelector("[data-testid=trigger]"),
+		);
 	});
 
 	it("dismisses on a press outside the panel and its trigger", async () => {

@@ -36,6 +36,7 @@ import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import type { OpenMessageOptions } from "@/components/mail/ThreadListInteraction";
 import { useDeleteMessages } from "@/hooks/useDeleteMessages";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
+import { useMessageStar } from "@/hooks/useMessageStar";
 import { type ThreadActions, useThreadActions } from "@/hooks/useThreadActions";
 import {
 	type TriageContext,
@@ -174,8 +175,10 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 		[selectedMessageId, navigate],
 	);
 
+	const openStar = useMessageStar(selectedThread);
 	const actions = useThreadActions({
 		thread: selectedThread,
+		star: openStar,
 		onAfterOptimisticRemove: handleDeselectIfRemoved,
 	});
 

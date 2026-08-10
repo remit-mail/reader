@@ -89,6 +89,7 @@ import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
+import { useMessageStar } from "@/hooks/useMessageStar";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useRescueCandidates } from "@/hooks/useRescueCandidates";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
@@ -559,8 +560,10 @@ function MailboxPaneProvider({
 	const queryClient = useQueryClient();
 	const { pushError } = useErrorBanners();
 
+	const toolbarStar = useMessageStar(selectedThread);
 	const toolbarActions = useThreadActions({
 		thread: selectedThread,
+		star: toolbarStar,
 		mailboxId,
 		accountId: mailboxAccountId,
 		onAfterOptimisticRemove: handleDeselectIfRemoved,
@@ -896,7 +899,7 @@ function MailboxPaneProvider({
 		onClearComposeRequest: toolbarActions.clearComposeRequest,
 		onToolbarDelete: toolbarActions.deleteThread,
 		onToolbarStar: toolbarActions.toggleStar,
-		toolbarStar: toolbarActions.star,
+		toolbarStar,
 		onToolbarDiscardDraft: handleToolbarDiscardDraft,
 		onToolbarMove: toolbarActions.moveThread,
 		composeState,
