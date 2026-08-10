@@ -243,7 +243,7 @@ export const MessageList = ({
 	const { pushError } = useErrorBanners();
 
 	// Roving focus cursor (#429): the keyboard "where am I" pointer, distinct
-	// from the open thread (`selectedMessageId` in the URL). j/k move this
+	// from the open thread (the message segment in the path). j/k move this
 	// cursor; Enter opens the focused row → sets selected, and on desktop the
 	// reading pane follows the cursor of its own accord (see the follow-focus
 	// wiring below). It seeds from the open thread so opening a message also

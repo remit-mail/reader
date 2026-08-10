@@ -39,6 +39,14 @@ export function useOpenThreadPath(): OpenThreadPath | undefined {
 		from: "/mail/brief/$threadId/$messageId",
 		shouldThrow: false,
 	});
+	const flaggedThread = useParams({
+		from: "/mail/flagged/$threadId",
+		shouldThrow: false,
+	});
+	const flaggedMessage = useParams({
+		from: "/mail/flagged/$threadId/$messageId",
+		shouldThrow: false,
+	});
 	const mailboxThread = useParams({
 		from: "/mail/$mailboxId/$threadId",
 		shouldThrow: false,
@@ -48,8 +56,12 @@ export function useOpenThreadPath(): OpenThreadPath | undefined {
 		shouldThrow: false,
 	});
 
-	const threadId = briefThread?.threadId ?? mailboxThread?.threadId;
-	const messageId = briefMessage?.messageId ?? mailboxMessage?.messageId;
+	const threadId =
+		briefThread?.threadId ?? flaggedThread?.threadId ?? mailboxThread?.threadId;
+	const messageId =
+		briefMessage?.messageId ??
+		flaggedMessage?.messageId ??
+		mailboxMessage?.messageId;
 
 	return useMemo(
 		() => (threadId ? { threadId, messageId } : undefined),

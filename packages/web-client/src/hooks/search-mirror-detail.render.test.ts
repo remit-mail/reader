@@ -1,5 +1,5 @@
 /**
- * Where the search mirror writes, now that the brief's open thread is a path
+ * Where the search mirror writes, now that a list's open thread is a path
  * segment (#718).
  *
  * Mirroring `q` used to be one navigation with one destination, because the
@@ -8,9 +8,12 @@
  * walking up to the list — while every other write has to keep the address it
  * found, or clearing the search would shut the conversation being read.
  *
- * Driven through a real router over the brief's real route shape, because the
+ * Driven through a real router over each list's real route shape, because the
  * whole question is what the router resolves a destination to from a thread
- * route. Reasoning about `to: "."` is not evidence.
+ * route under it. Reasoning about `to: "."` is not evidence. The brief and the
+ * flagged list share this exact shape — a flat/sectioned list with a
+ * `$threadId/$messageId` pair below it — so the two are driven through the
+ * same cases rather than one covering for the other.
  */
 
 import assert from "node:assert/strict";
@@ -45,14 +48,18 @@ afterEach(() => {
 const THREAD_ID = "th-1";
 const MESSAGE_ID = "msg-1";
 
-const mailContext = (input: string, committed: string): MailContextValue => ({
+const mailContext = (
+	input: string,
+	committed: string,
+	searchViewKey: string,
+): MailContextValue => ({
 	accounts: [],
 	mailboxNameIndex: new Map(),
 	accountNameIndex: new Map(),
 	resultFolderIndex: EMPTY_RESULT_FOLDER_INDEX,
 	searchQuery: committed,
 	searchInput: input,
-	searchViewKey: "/mail/brief",
+	searchViewKey,
 	onSearchChange: () => {},
 	onSearchClear: () => {},
 	onSearchClearQuery: () => {},
@@ -61,11 +68,15 @@ const mailContext = (input: string, committed: string): MailContextValue => ({
 	onSetIntelligenceOpen: () => {},
 });
 
+type ListPath = "/mail/brief" | "/mail/flagged";
+
 /**
- * The brief's shape: the list is a layout route and the thread and message are
- * segments under it, so a write from the list has a matched child to lose.
+ * Both lists' shape: the list is a layout route and the thread and message
+ * are segments under it, so a write from the list has a matched child to
+ * lose.
  */
-const routerAt = (href: string): AnyRouter => {
+const routerAt = (listPath: ListPath, href: string): AnyRouter => {
+	const listSegment = listPath.slice("/mail".length);
 	const rootRoute = createRootRoute({ component: Outlet });
 	const passthrough = (search: Record<string, unknown>) => search;
 	const mailRoute = createRoute({
@@ -74,17 +85,17 @@ const routerAt = (href: string): AnyRouter => {
 		validateSearch: passthrough,
 		component: Outlet,
 	});
-	const briefRoute = createRoute({
+	const listRoute = createRoute({
 		getParentRoute: () => mailRoute,
-		path: "/brief",
+		path: listSegment,
 		validateSearch: passthrough,
 		component: () => {
-			useSearchMirror({ to: "/mail/brief" });
+			useSearchMirror({ to: listPath });
 			return createElement(Outlet);
 		},
 	});
 	const threadRoute = createRoute({
-		getParentRoute: () => briefRoute,
+		getParentRoute: () => listRoute,
 		path: "/$threadId",
 		component: Outlet,
 	});
@@ -95,7 +106,7 @@ const routerAt = (href: string): AnyRouter => {
 	});
 	const routeTree = rootRoute.addChildren([
 		mailRoute.addChildren([
-			briefRoute.addChildren([threadRoute.addChildren([messageRoute])]),
+			listRoute.addChildren([threadRoute.addChildren([messageRoute])]),
 		]),
 	]);
 	return createRouter({
@@ -108,6 +119,7 @@ const mount = async (
 	router: AnyRouter,
 	input: string,
 	committed: string,
+	searchViewKey: string,
 ): Promise<DomHarness> => {
 	const created = createDomHarness();
 	harness = created;
@@ -115,7 +127,7 @@ const mount = async (
 	created.renderApp(
 		createElement(
 			MailContext.Provider,
-			{ value: mailContext(input, committed) },
+			{ value: mailContext(input, committed, searchViewKey) },
 			createElement(RouterProvider, { router }),
 		),
 	);
@@ -124,58 +136,62 @@ const mount = async (
 	return created;
 };
 
-const threadHref = `/mail/brief/${THREAD_ID}/${MESSAGE_ID}`;
+const LIST_PATHS: ListPath[] = ["/mail/brief", "/mail/flagged"];
 
-describe("mirroring a query that goes active", () => {
-	it("walks up to the list, so no thread stays matched behind the results", async () => {
-		const router = routerAt(threadHref);
-		await mount(router, "invoice", "invoice");
+for (const listPath of LIST_PATHS) {
+	const threadHref = `${listPath}/${THREAD_ID}/${MESSAGE_ID}`;
 
-		assert.equal(router.history.location.pathname, "/mail/brief");
-		assert.match(router.history.location.search, /q=invoice/);
+	describe(`mirroring a query that goes active (${listPath})`, () => {
+		it("walks up to the list, so no thread stays matched behind the results", async () => {
+			const router = routerAt(listPath, threadHref);
+			await mount(router, "invoice", "invoice", listPath);
+
+			assert.equal(router.history.location.pathname, listPath);
+			assert.match(router.history.location.search, /q=invoice/);
+		});
+
+		it("closes the pane from a bare thread address too", async () => {
+			const router = routerAt(listPath, `${listPath}/${THREAD_ID}`);
+			await mount(router, "invoice", "invoice", listPath);
+
+			assert.equal(router.history.location.pathname, listPath);
+		});
+
+		it("replaces rather than pushes, so Back is not a search step", async () => {
+			const router = routerAt(listPath, threadHref);
+			const before = router.history.length;
+			await mount(router, "invoice", "invoice", listPath);
+
+			assert.equal(router.history.length, before);
+		});
 	});
 
-	it("closes the pane from a bare thread address too", async () => {
-		const router = routerAt(`/mail/brief/${THREAD_ID}`);
-		await mount(router, "invoice", "invoice");
+	describe(`mirroring a cleared query (${listPath})`, () => {
+		it("keeps the conversation open — dropping the search is not closing it", async () => {
+			const router = routerAt(listPath, `${threadHref}?q=invoice`);
+			await mount(router, "", "", listPath);
 
-		assert.equal(router.history.location.pathname, "/mail/brief");
+			assert.equal(router.history.location.pathname, threadHref);
+			assert.equal(router.history.location.search.includes("q="), false);
+		});
+
+		it("leaves the address alone when there is nothing to write", async () => {
+			const router = routerAt(listPath, `${threadHref}?q=invoice`);
+			await mount(router, "invoice", "invoice", listPath);
+
+			assert.equal(router.history.location.pathname, threadHref);
+			assert.match(router.history.location.search, /q=invoice/);
+		});
+
+		it("waits for the debounce rather than writing the previous query", async () => {
+			const router = routerAt(listPath, threadHref);
+			await mount(router, "invo", "", listPath);
+
+			assert.equal(router.history.location.pathname, threadHref);
+			assert.equal(router.history.location.search.includes("q="), false);
+		});
 	});
-
-	it("replaces rather than pushes, so Back is not a search step", async () => {
-		const router = routerAt(threadHref);
-		const before = router.history.length;
-		await mount(router, "invoice", "invoice");
-
-		assert.equal(router.history.length, before);
-	});
-});
-
-describe("mirroring a cleared query", () => {
-	it("keeps the conversation open — dropping the search is not closing it", async () => {
-		const router = routerAt(`${threadHref}?q=invoice`);
-		await mount(router, "", "");
-
-		assert.equal(router.history.location.pathname, threadHref);
-		assert.equal(router.history.location.search.includes("q="), false);
-	});
-
-	it("leaves the address alone when there is nothing to write", async () => {
-		const router = routerAt(`${threadHref}?q=invoice`);
-		await mount(router, "invoice", "invoice");
-
-		assert.equal(router.history.location.pathname, threadHref);
-		assert.match(router.history.location.search, /q=invoice/);
-	});
-
-	it("waits for the debounce rather than writing the previous query", async () => {
-		const router = routerAt(threadHref);
-		await mount(router, "invo", "");
-
-		assert.equal(router.history.location.pathname, threadHref);
-		assert.equal(router.history.location.search.includes("q="), false);
-	});
-});
+}
 
 /**
  * The other half of why a typed query survives an opened thread: the field
@@ -185,9 +201,12 @@ describe("mirroring a cleared query", () => {
  * Read off the matches the router resolved for a real address, so the ids under
  * test are the ones path segments produce rather than ids written out here.
  */
-describe("the view key of an open brief thread", () => {
-	const viewKeyAt = async (href: string): Promise<string> => {
-		const router = routerAt(href);
+describe("the view key of an open thread", () => {
+	const viewKeyAt = async (
+		listPath: ListPath,
+		href: string,
+	): Promise<string> => {
+		const router = routerAt(listPath, href);
 		await router.load();
 		return mailViewKey(
 			router.state.matches.map((match: { routeId: string }) => ({
@@ -196,10 +215,15 @@ describe("the view key of an open brief thread", () => {
 		);
 	};
 
-	it("is the brief's own, thread and message segments alike", async () => {
-		const list = await viewKeyAt("/mail/brief");
-		assert.notEqual(list, "", "the brief resolves to a view key at all");
-		assert.equal(await viewKeyAt(`/mail/brief/${THREAD_ID}`), list);
-		assert.equal(await viewKeyAt(threadHref), list);
-	});
+	for (const listPath of LIST_PATHS) {
+		it(`is the list's own, thread and message segments alike (${listPath})`, async () => {
+			const list = await viewKeyAt(listPath, listPath);
+			assert.notEqual(list, "", "the list resolves to a view key at all");
+			assert.equal(await viewKeyAt(listPath, `${listPath}/${THREAD_ID}`), list);
+			assert.equal(
+				await viewKeyAt(listPath, `${listPath}/${THREAD_ID}/${MESSAGE_ID}`),
+				list,
+			);
+		});
+	}
 });

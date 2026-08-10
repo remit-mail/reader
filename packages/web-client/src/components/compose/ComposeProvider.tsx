@@ -115,15 +115,11 @@ export const ComposeProvider = ({
 	// mounts `FullCompose`, and only with no thread in the pane it takes over.
 	const openCompose = useCallback(
 		(params: Omit<ComposeState, "isOpen">) => {
-			const search = location.search as Record<string, unknown>;
-			// A folder names its open conversation in the path, so leaving it is a
-			// navigation up to the list; the lists still to move name it in the query.
+			// Every list names its open conversation in the path, so leaving one is a
+			// navigation up to the list.
 			const threadMailboxId = locationOpensDetail(location.pathname)
 				? routeParams?.mailboxId
 				: undefined;
-			const showsThread =
-				Boolean(threadMailboxId) ||
-				Boolean(search.selectedMessageId ?? search.selectedThreadId);
 			if (!hostsComposeSurface(location.pathname)) {
 				if (target.status === "loading") {
 					pushError({
@@ -150,33 +146,15 @@ export const ComposeProvider = ({
 				return;
 			}
 			setState({ ...params, isOpen: true });
-			if (!showsThread) return;
+			if (!threadMailboxId) return;
 			// A push, so Back reopens the message.
-			if (threadMailboxId) {
-				navigate({
-					to: "/mail/$mailboxId",
-					params: { mailboxId: threadMailboxId },
-					search: (prev) => prev,
-				});
-				return;
-			}
 			navigate({
-				to: ".",
-				search: (prev: Record<string, unknown>) => ({
-					...prev,
-					selectedMessageId: undefined,
-					selectedThreadId: undefined,
-				}),
+				to: "/mail/$mailboxId",
+				params: { mailboxId: threadMailboxId },
+				search: (prev) => prev,
 			});
 		},
-		[
-			navigate,
-			location.pathname,
-			location.search,
-			routeParams?.mailboxId,
-			target,
-			pushError,
-		],
+		[navigate, location.pathname, routeParams?.mailboxId, target, pushError],
 	);
 
 	const closeCompose = useCallback(() => {

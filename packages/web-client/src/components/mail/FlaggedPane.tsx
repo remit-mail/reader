@@ -6,15 +6,19 @@
  * reading / phone slots. The list itself is a FLAT inbox of starred mail (see
  * `FlaggedList`), not the sectioned brief.
  *
- * The selection resolves from the starred listing, the same query that produced
- * the rows. The unified listing is INBOX-scoped, so resolving against it left
- * every starred thread filed elsewhere — Sent, an archive folder, anything past
- * the inbox window — visible in the list but impossible to open (issue #70).
+ * The row prefers the starred listing, the same query that produced the rows,
+ * and falls back to resolving the thread on its own when the address names
+ * one the listing doesn't hold. The unified listing is INBOX-scoped, so
+ * resolving against it left every starred thread filed elsewhere — Sent, an
+ * archive folder, anything past the inbox window — visible in the list but
+ * impossible to open (issue #70).
  *
- *   <FlaggedPane selectedMessageId={...}>
- *     <AppShellSlotted
+ * Usage in the list layout route:
+ *
+ *   <FlaggedPane thread={useOpenThreadPath()}>
+ *     <MailShell
  *       list={<FlaggedPane.List />}
- *       reading={<FlaggedPane.Reading />}
+ *       reading={<Outlet />}
  *     />
  *   </FlaggedPane>
  *
@@ -40,22 +44,34 @@ import { useDeleteMessages } from "@/hooks/useDeleteMessages";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useStarredThreads } from "@/hooks/useStarredThreads";
 import { type ThreadActions, useThreadActions } from "@/hooks/useThreadActions";
+import { useThreadRow } from "@/hooks/useThreadRow";
 import {
 	type TriageContext,
 	useTriageContext,
 	useTriageLayer,
 } from "@/hooks/useTriageLayer";
+import type { ConversationTarget } from "@/lib/conversation-target";
 import { useMailContext } from "@/lib/mail-context";
+import type { OpenThreadPath, OpenThreadTarget } from "@/routing";
 
 /* ------------------------------------------------------------------ */
 /* Context                                                              */
 /* ------------------------------------------------------------------ */
 
 interface FlaggedPaneContextValue {
+	/** The row the reader pointed at, which is the one the list highlights. */
 	selectedMessageId: string | undefined;
 	selectedThread: RemitImapThreadMessageResponse | undefined;
-	onSelectMessage: (id: string, options?: OpenMessageOptions) => void;
+	/** The conversation the pane shows, or none when the address names no thread. */
+	conversation: ConversationTarget | undefined;
+	onOpenThread: (
+		target: OpenThreadTarget,
+		options?: OpenMessageOptions,
+	) => void;
 	onCloseThread: () => void;
+	/** The rows either side of the open one — the phone's swipe gestures. */
+	nextThread: OpenThreadTarget | undefined;
+	previousThread: OpenThreadTarget | undefined;
 	/**
 	 * Toolbar verbs for the open thread, keyed by the thread's own mailbox and
 	 * account — Flagged spans accounts, so there is no route mailbox to key by.
@@ -64,8 +80,6 @@ interface FlaggedPaneContextValue {
 	/** Keyboard, multi-select and next/previous, shared with the mailbox view. */
 	triage: TriageContext;
 	onDeleteMessages: (messageIds: string[]) => void;
-	nextMessageId: string | undefined;
-	previousMessageId: string | undefined;
 	/**
 	 * Deselects the open message when it's the one a mutation just removed
 	 * from view — wired into every mutation that can take the open message out
@@ -88,39 +102,65 @@ function useFlaggedPane(): FlaggedPaneContextValue {
 /* ------------------------------------------------------------------ */
 
 interface FlaggedPaneProps {
-	selectedMessageId: string | undefined;
+	/** The open conversation, as the address states it. */
+	thread: OpenThreadPath | undefined;
 	children: ReactNode;
 }
 
-function FlaggedPaneProvider({
-	selectedMessageId,
-	children,
-}: FlaggedPaneProps) {
+function FlaggedPaneProvider({ thread, children }: FlaggedPaneProps) {
 	const navigate = useNavigate();
+	const { searchInput } = useMailContext();
+	const threadId = thread?.threadId;
+	const pointedAtMessageId = thread?.messageId;
 
 	const { threads } = useStarredThreads();
 
-	const selectedThread = useMemo(() => {
-		if (!selectedMessageId) return undefined;
-		return threads.find((t) => t.messageId === selectedMessageId);
-	}, [threads, selectedMessageId]);
+	// The row the starred listing itself holds, preferred because a mutation
+	// patches it in place. A thread reached from a cold address is in no listing
+	// here and answers for itself — the folder it is filed in is the thread's own
+	// data, so Starred spanning folders costs the URL nothing.
+	const listedThread = useMemo(() => {
+		if (!threadId) return undefined;
+		return (
+			threads.find((t) => t.messageId === pointedAtMessageId) ??
+			threads.find((t) => t.threadId === threadId)
+		);
+	}, [threads, threadId, pointedAtMessageId]);
+	const ownRow = useThreadRow(threadId, pointedAtMessageId);
+	const selectedThread = listedThread ?? ownRow;
 
-	const handleSelectMessage = useCallback(
-		(id: string, options?: OpenMessageOptions) => {
+	const selectedMessageId = pointedAtMessageId ?? selectedThread?.messageId;
+
+	const conversation = useMemo<ConversationTarget | undefined>(() => {
+		if (!threadId) return undefined;
+		return {
+			threadId,
+			mailboxId: selectedThread?.mailboxId ?? "",
+			subject: selectedThread?.subject,
+			messageId: selectedMessageId,
+			authenticity: selectedThread?.authenticity,
+		};
+	}, [threadId, selectedThread, selectedMessageId]);
+
+	const handleOpenThread = useCallback(
+		(target: OpenThreadTarget, options?: OpenMessageOptions) => {
 			navigate({
-				to: "/mail/flagged",
-				search: (prev) => ({ ...prev, selectedMessageId: id }),
+				to: "/mail/flagged/$threadId/$messageId",
+				params: target,
 				replace: options?.replace,
+				// Commit the active query with the open so the debounced q-mirror —
+				// which walks back up to the list when the query goes active — is
+				// already satisfied and leaves the conversation alone. The *live*
+				// `searchInput`: a row can be tapped before the debounce settles, when
+				// the committed query is still empty.
+				search: (prev) => ({ ...prev, q: searchInput || undefined }),
 			});
 		},
-		[navigate],
+		[navigate, searchInput],
 	);
 
 	const handleCloseThread = useCallback(() => {
-		navigate({
-			to: "/mail/flagged",
-			search: (prev) => ({ ...prev, selectedMessageId: undefined }),
-		});
+		navigate({ to: "/mail/flagged", search: (prev) => prev });
 	}, [navigate]);
 
 	const handleDeselectIfRemoved = useCallback(
@@ -187,16 +227,29 @@ function FlaggedPaneProvider({
 		},
 	});
 
+	// The swipe gestures open a whole conversation, so the adjacent row has to
+	// name its thread. The starred listing is where that is looked up, so a row
+	// it does not hold offers no gesture rather than a tap that goes nowhere.
+	const adjacentThread = useCallback(
+		(messageId: string | undefined): OpenThreadTarget | undefined => {
+			if (!messageId) return undefined;
+			const row = threads.find((t) => t.messageId === messageId);
+			return row ? { threadId: row.threadId, messageId } : undefined;
+		},
+		[threads],
+	);
+
 	const ctx: FlaggedPaneContextValue = {
 		selectedMessageId,
 		selectedThread,
-		onSelectMessage: handleSelectMessage,
+		conversation,
+		onOpenThread: handleOpenThread,
 		onCloseThread: handleCloseThread,
+		nextThread: adjacentThread(nextMessageId),
+		previousThread: adjacentThread(previousMessageId),
 		actions,
 		triage,
 		onDeleteMessages: deleteMessages,
-		nextMessageId,
-		previousMessageId,
 		handleDeselectIfRemoved,
 	};
 
@@ -211,12 +264,12 @@ function FlaggedPaneProvider({
 
 /** Flat starred list. Mount in the `list` slot of `AppShellSlotted`. */
 function FlaggedListSlot() {
-	const { selectedMessageId, onSelectMessage, triage, onDeleteMessages } =
+	const { selectedMessageId, onOpenThread, triage, onDeleteMessages } =
 		useFlaggedPane();
 	return (
 		<FlaggedList
 			selectedMessageId={selectedMessageId}
-			onSelectMessage={onSelectMessage}
+			onOpenThread={onOpenThread}
 			commandsRef={triage.listCommandsRef}
 			onTriageContextChange={triage.onTriageContextChange}
 			onDeleteMessages={onDeleteMessages}
@@ -229,13 +282,13 @@ function FlaggedListSlot() {
  * Mount in the `reading` slot of `AppShellSlotted`. Only rendered ≥ 1024px.
  */
 function FlaggedReading() {
-	const { selectedThread, actions } = useFlaggedPane();
+	const { conversation, actions } = useFlaggedPane();
 	const { intelligenceOpen, onToggleIntelligence } = useMailContext();
 	// The rail's own width gate, not the shell tier: between 1024 and 1280 the
 	// reading pane is mounted but the rail is not, so "enabled" would promise an
 	// open that cannot happen.
 	const railFits = useAppShellLayout()?.showIntelligencePane ?? false;
-	const hasThread = Boolean(selectedThread);
+	const hasThread = Boolean(conversation);
 	const canToggleIntelligence = railFits && hasThread;
 
 	return (
@@ -266,12 +319,13 @@ function FlaggedReading() {
 				}
 			/>
 			<div className="min-h-0 flex-1 overflow-hidden">
-				{selectedThread ? (
+				{conversation ? (
 					<ConversationView
-						threadId={selectedThread.threadId}
-						mailboxId={selectedThread.mailboxId}
-						subject={selectedThread.subject}
-						authenticity={selectedThread.authenticity}
+						threadId={conversation.threadId}
+						mailboxId={conversation.mailboxId}
+						subject={conversation.subject}
+						selectedMessageId={conversation.messageId}
+						authenticity={conversation.authenticity}
 						composeRequest={actions.composeRequest}
 						onComposeClose={actions.clearComposeRequest}
 					/>
@@ -306,31 +360,29 @@ function FlaggedIntelligence() {
 function FlaggedPhone() {
 	const {
 		selectedThread,
+		conversation,
 		onCloseThread,
-		onSelectMessage,
-		nextMessageId,
-		previousMessageId,
+		onOpenThread,
+		nextThread,
+		previousThread,
 		handleDeselectIfRemoved,
 	} = useFlaggedPane();
 	const { intelligenceOpen, onToggleIntelligence } = useMailContext();
 
-	if (selectedThread) {
+	if (conversation) {
 		return (
 			<>
 				<ConversationView
-					threadId={selectedThread.threadId}
-					mailboxId={selectedThread.mailboxId}
-					subject={selectedThread.subject}
-					authenticity={selectedThread.authenticity}
+					threadId={conversation.threadId}
+					mailboxId={conversation.mailboxId}
+					subject={conversation.subject}
+					selectedMessageId={conversation.messageId}
+					authenticity={conversation.authenticity}
 					onBack={onCloseThread}
 					onOpenIntelligence={onToggleIntelligence}
-					onSwipeNext={
-						nextMessageId ? () => onSelectMessage(nextMessageId) : undefined
-					}
+					onSwipeNext={nextThread ? () => onOpenThread(nextThread) : undefined}
 					onSwipePrevious={
-						previousMessageId
-							? () => onSelectMessage(previousMessageId)
-							: undefined
+						previousThread ? () => onOpenThread(previousThread) : undefined
 					}
 					mobileIntelligenceOpen={intelligenceOpen}
 				/>

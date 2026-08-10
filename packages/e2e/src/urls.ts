@@ -23,6 +23,9 @@ export const BRIEF_URL = /\/mail\/brief(\?|$)/;
  */
 export const BRIEF_THREAD_URL = /\/mail\/brief\/[^/?#]+/;
 
+/** The same, for a conversation open in the flagged list. */
+export const FLAGGED_THREAD_URL = /\/mail\/flagged\/[^/?#]+/;
+
 /** The outbox with a message open. Also a segment, for the same reason. */
 export const OUTBOX_MESSAGE_URL = /\/mail\/outbox\/draft\/[^/?#]+/;
 

@@ -16,13 +16,12 @@ const listSearch = z.object({ q: z.string().optional() });
  * The brief's open thread and the message inside it are path segments
  * (`/mail/brief/<thread>/<message>`), so the query carries nothing but the
  * search. An old link's selection params are dropped here, which is what
- * "tolerated and ignored" means until the remaining lists follow.
+ * "tolerated and ignored" means.
  */
 export const briefSearchSchema = listSearch.extend({});
 
-export const flaggedSearchSchema = listSearch.extend({
-	selectedMessageId: z.string().optional(),
-});
+/** The same, for `/mail/flagged/<thread>/<message>`. */
+export const flaggedSearchSchema = listSearch.extend({});
 
 /**
  * The outbox's open message is a path segment

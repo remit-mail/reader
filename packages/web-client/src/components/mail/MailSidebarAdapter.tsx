@@ -258,7 +258,7 @@ export function MailSidebarAdapter({
 			return (
 				<NavLink
 					to="/mail/flagged"
-					search={{ q: undefined, selectedMessageId: undefined }}
+					search={{ q: undefined }}
 					onClick={() => onClick?.()}
 					className={className}
 					aria-label={ariaLabel}
