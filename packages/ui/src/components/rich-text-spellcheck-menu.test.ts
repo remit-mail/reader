@@ -178,6 +178,20 @@ const characters = (): Node => {
 };
 
 /**
+ * jsdom lays out nothing and moves no caret, so a selection Lexical set on its
+ * own — `select()`, or an edit that carries the caret with it — lives only in
+ * Lexical's own state. The next commit reconciles against the document's
+ * selection, finds none, and puts the anchor back at the start. Everything
+ * about a withheld mark is read off the caret at paint time, so a test that
+ * left the browser's selection behind is asserting on whichever landed first:
+ * the answer to the check, or the reconciliation that undoes the caret. The
+ * browser is the one that does this; here the test has to.
+ */
+const putCaret = (offset: number): void => {
+	dom.window.document.getSelection()?.setPosition(characters(), offset);
+};
+
+/**
  * The desktop popover portals to the document body, clear of whatever
  * ancestor would otherwise clip it, so the menu and its rows are found
  * against the document rather than the mounted `container` — the sheet below
@@ -217,7 +231,7 @@ const pressDownAt = async (
 	pointerType: string,
 	button = 0,
 ): Promise<void> => {
-	dom.window.document.getSelection()?.setPosition(characters(), offset);
+	putCaret(offset);
 	await act(async () => {
 		editable().dispatchEvent(
 			pointerEvent("pointerdown", pointerType, {
@@ -268,6 +282,7 @@ const caretAt = async (
 			text?.select(offset, offset);
 		});
 	});
+	putCaret(offset);
 };
 
 /** A key on the writing surface, whatever it turns out to do. */
@@ -745,6 +760,7 @@ describe("the correction menu", () => {
 				text?.spliceText(18, 0, "y", true);
 			});
 		});
+		putCaret(19);
 		await settle();
 
 		assert.equal(editable().textContent, "Ths report is redyy today");
