@@ -449,9 +449,10 @@ function SelectionWizardSession({
 	// is how a footer comes to name a screen nobody is looking at.
 	const current = steps[stepIndex(steps, step)];
 
-	// A filter and a folder both belong to one account, so a selection spanning
-	// accounts reaches neither and is told so on the step that asks (#477 5.5).
-	// The one-off scope acts on the messages themselves and is unaffected.
+	// A filter, a folder, and the preview that counts a widened door all belong to
+	// one account, so a selection spanning accounts reaches none of them and is
+	// told so on the step that asks (#477 5.5, #523). The one-off scope and the
+	// ticked rows act on the messages themselves and are unaffected.
 	const accountScoped = !crossAccount && !!accountId;
 	const ruleRestriction = accountScoped ? undefined : crossAccountRuleReason;
 	const folderRestriction = accountScoped
@@ -939,6 +940,7 @@ function SelectionWizardSession({
 			match={{
 				selectedCount: selection.length,
 				mode,
+				accountId: accountScoped ? accountId : undefined,
 				onModeChange: changeMode,
 				semanticUnavailable,
 				semanticErrorDetail:

@@ -224,6 +224,27 @@ export const crossAccountDestinationReason =
 	"A destination only works within one account — clear the selection, or pick messages from a single account.";
 
 /**
+ * The same restriction on the step that asks what the action applies to (#523).
+ * Both widened doors are resolved by a preview one account answers, so a
+ * selection with no single account has nothing to count them against. The ticked
+ * rows are their own match and are unaffected.
+ */
+export const crossAccountMatchReason =
+	"Matching beyond the messages you picked only works within one account — clear the selection, or pick messages from a single account.";
+
+/**
+ * The doors the match step offers. Withholding the two widened ones is what
+ * keeps a selection spanning accounts off a review that waits on a count nobody
+ * can take; the step says why in `crossAccountMatchReason`.
+ */
+export const matchDoorsFor = (
+	accountId: string | undefined,
+): readonly MatchDoor[] =>
+	accountId === undefined
+		? ["selected"]
+		: ["selected", "similar", "properties"];
+
+/**
  * The match reached nothing, so committing it would report a bulk action that
  * touched no mail. Reachable both from a predicate that matches nothing and from
  * a wizard restored by a reload, whose ticked rows did not come back with it.

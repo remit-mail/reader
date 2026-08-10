@@ -275,6 +275,9 @@ function WizardDriver({
 		loading: entry.sampleLoading,
 	};
 
+	// The one account the selection belongs to, as the app hands it over: a
+	// selection spanning accounts has none, and the widened doors go with it.
+	const accountId = entry.crossAccount ? undefined : "acc-personal";
 	const restriction = entry.crossAccount ? crossAccountRuleReason : undefined;
 	const destinationRestriction = entry.crossAccount
 		? crossAccountDestinationReason
@@ -359,6 +362,7 @@ function WizardDriver({
 			match={{
 				selectedCount: selected.length,
 				mode,
+				accountId,
 				onModeChange: setMode,
 				semanticUnavailable: entry.semanticUnavailable || !!entry.semanticError,
 				semanticErrorDetail: entry.semanticError,
@@ -1395,6 +1399,23 @@ export const CrossAccountDestination: Story = {
 		<SelectionFlow
 			preselected={3}
 			openAt={{ verb: "organize", startAt: "folder", crossAccount: true }}
+		/>
+	),
+};
+
+/**
+ * The same selection on the step that asks what the action applies to (#523).
+ * Both widened doors are counted by a preview one account answers, so they are
+ * withheld rather than left to lead to a review waiting on a count nobody can
+ * take. The ticked rows are their own match, and the step says why they are all
+ * that is on offer.
+ */
+export const CrossAccountMatch: Story = {
+	name: "Apply to — selection spans accounts",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{ verb: "organize", startAt: "match", crossAccount: true }}
 		/>
 	),
 };
