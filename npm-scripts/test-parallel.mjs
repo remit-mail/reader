@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { availableParallelism } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { undeclaredExclusions } from "./lib/ci-coverage.mjs";
+import {
+	NODE_TEST_FLAGS_VAR,
+	nodeTestFlags,
+	suiteConcurrency,
+} from "./lib/test-bounds.mjs";
 import { readWorkflowSources } from "./lib/workflows.mjs";
 import {
 	discoverWorkspaces,
@@ -50,6 +54,7 @@ function runUnit({ name, command: [file, args] }) {
 			cwd: root,
 			detached: true,
 			stdio: ["ignore", "pipe", "pipe"],
+			env: { ...process.env, [NODE_TEST_FLAGS_VAR]: nodeTestFlags() },
 		});
 		live.set(name, { pid: child.pid, started });
 
@@ -139,10 +144,7 @@ async function main() {
 			command: ["npm", ["run", WORKSPACE_SCRIPT, "-w", suite.workspace]],
 		}))
 		.sort((a, b) => b.weight - a.weight);
-	const requested = Number.parseInt(process.env.TEST_CONCURRENCY ?? "", 10);
-	const limit = Number.isNaN(requested)
-		? Math.max(1, Math.min(availableParallelism(), 4))
-		: Math.max(1, requested);
+	const limit = suiteConcurrency();
 	const queue = [...units];
 	const results = [];
 

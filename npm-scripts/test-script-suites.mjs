@@ -8,6 +8,7 @@
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { nodeTestArgs } from "./lib/test-bounds.mjs";
 import { discoverScriptSuites } from "./lib/test-suites.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -17,7 +18,7 @@ console.log(
 	`running ${suites.length} script suites:\n  ${suites.join("\n  ")}\n`,
 );
 
-const { status } = spawnSync("node", ["--test", ...suites], {
+const { status } = spawnSync("node", [...nodeTestArgs(), "--test", ...suites], {
 	cwd: root,
 	stdio: "inherit",
 });
