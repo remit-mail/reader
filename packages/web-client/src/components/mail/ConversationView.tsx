@@ -322,8 +322,8 @@ export const ConversationView = ({
 		onComposeClose?.();
 	}, [onComposeClose]);
 
-	// Single-pane compose opens below the message, which on a long one is several
-	// screens down: without this, replying to it looks like nothing happening.
+	// Compose opens below the message, which on a long one is several screens
+	// down: without this, replying to it looks like nothing happening.
 	//
 	// Aligned on its bottom edge, where the send and discard verbs are, and held
 	// there while it changes height. It mounts before the message it quotes has
@@ -483,15 +483,23 @@ export const ConversationView = ({
 					onOpenIntelligence={onOpenIntelligence}
 				/>
 			)}
-			<div className="flex-1 overflow-auto">{renderMessages(false)}</div>
-			{composeMode !== null && (
-				<InlineCompose
-					mode={composeMode}
-					account={activeAccount}
-					sourceMessage={latestMessageData}
-					onClose={handleCloseCompose}
-				/>
-			)}
+			{/* The reply is part of the conversation, so it scrolls with it. Held
+			    below the pane instead, it took whatever height the message left
+			    over — nothing on a long one — and no amount of scrolling could
+			    reach it. */}
+			<div className="min-h-0 flex-1 overflow-auto">
+				{renderMessages(false)}
+				{composeMode !== null && (
+					<div ref={composeRef}>
+						<InlineCompose
+							mode={composeMode}
+							account={activeAccount}
+							sourceMessage={latestMessageData}
+							onClose={handleCloseCompose}
+						/>
+					</div>
+				)}
+			</div>
 		</article>
 	);
 };

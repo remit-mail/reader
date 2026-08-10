@@ -10,7 +10,8 @@
 		"build-storybook": "storybook build",
 		"test": "npm run test:typecheck && npm run test:run",
 		"test:typecheck": "tsgo --noEmit",
-		"test:run": "TZ=Europe/Amsterdam node --import tsx --test 'src/**/*.test.ts'"
+		"test:run": "TZ=Europe/Amsterdam node --import tsx --test 'src/**/*.test.ts'",
+		"test:stories": "vitest run"
 	},
 	"dependencies": {
 		"@aws-amplify/ui-react": "^6",
@@ -20,20 +21,24 @@
 		"temporal-polyfill": "^1.0.1"
 	},
 	"devDependencies": {
+		"@storybook/addon-vitest": "^9.1.20",
 		"@storybook/react-vite": "^9",
 		"@tailwindcss/vite": "^4",
 		"@types/jsdom": "^28.0.3",
 		"@types/react": "^19",
 		"@types/react-dom": "^19",
 		"@vitejs/plugin-react": "^4",
+		"@vitest/browser-playwright": "^4.1.10",
 		"jsdom": "^29.1.1",
 		"msw": "^2",
 		"msw-storybook-addon": "^2",
+		"playwright": "1.58.2",
 		"react": "^19",
 		"react-dom": "^19",
 		"storybook": "^9",
 		"tailwindcss": "^4",
 		"typescript": "*",
-		"vite": "^7.3.6"
+		"vite": "^7.3.6",
+		"vitest": "^4.1.10"
 	}
 }

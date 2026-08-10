@@ -575,7 +575,10 @@ export const MobileSelectionViaLongPress: Story = {
 		if (!row) throw new Error("row button not found for long-press");
 
 		await expect(canvas.queryByLabelText("Cancel selection")).toBeNull();
-		fireEvent.pointerDown(row);
+		// A typed pointer, because that is the gesture: react-aria starts the
+		// long-press timer for touch and mouse and ignores every other pointer
+		// type, and an event fired with no type at all is every other pointer type.
+		fireEvent.pointerDown(row, { pointerType: "touch", isPrimary: true });
 		await waitFor(
 			() =>
 				expect(canvas.getByLabelText("Cancel selection")).toBeInTheDocument(),

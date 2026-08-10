@@ -17,6 +17,12 @@ export interface RichTextValue {
 	formatting: readonly string[];
 }
 
+/**
+ * Where a writing surface puts the caret when it takes focus on mount. Both
+ * surfaces read it, so it lives with the value rather than with either one.
+ */
+export type ComposeCaret = "start" | "end";
+
 export const EMPTY_RICH_TEXT: RichTextValue = {
 	html: "",
 	text: "",

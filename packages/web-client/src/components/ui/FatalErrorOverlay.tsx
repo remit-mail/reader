@@ -12,7 +12,10 @@ import {
 	subscribeFatalError,
 } from "@/lib/fatal-error";
 
-/** Safe route to escape a deterministically-crashing page. `/` redirects here. */
+/**
+ * Safe route to escape a deterministically-crashing page. It names no list, so
+ * it redirects on to the brief.
+ */
 const SAFE_ROUTE = "/mail";
 
 /**

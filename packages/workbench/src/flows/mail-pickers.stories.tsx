@@ -1,4 +1,4 @@
-import { Button, inboxFilterConfig } from "@remit/ui";
+import { Button, DialogBackdrop, inboxFilterConfig } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
 	Archive,
@@ -101,7 +101,11 @@ export const ReclassifyDialog: Story = {
 function ReclassifyOverlay() {
 	return (
 		<div className="absolute inset-0 z-50 flex items-center justify-center">
-			<div className="absolute inset-0 bg-canvas/80 backdrop-blur-sm" />
+			<DialogBackdrop
+				label="Dismiss reclassify sender"
+				onDismiss={() => undefined}
+				className="backdrop-blur-sm"
+			/>
 			<div className="relative z-10 w-full max-w-sm rounded-sm border border-line bg-surface p-6 shadow-lg">
 				<h2 className="text-lg font-semibold text-fg">
 					Reclassify this sender

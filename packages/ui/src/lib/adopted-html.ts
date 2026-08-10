@@ -64,6 +64,17 @@ const LINK_SCHEMES = /^(?:https?:|mailto:)/i;
 const IMAGE_SCHEMES = /^(?:https:|data:image\/)/i;
 
 /**
+ * A pasted screenshot is as wide as the screen it came off, and the class the
+ * editor draws it with is this app's own presentation — it does not leave with
+ * the message. So the one constraint that has to survive is written here, on
+ * the way out, rather than admitted from whoever wrote the source: `style`
+ * stays out of ADOPTED_ATTR, and an image carries this declaration and no
+ * other. Whether a `data:` image reaches a given client at all is a separate
+ * question (#679).
+ */
+const IMAGE_SIZE = "max-width:100%;height:auto";
+
+/**
  * `"quoted"` is mail rendered back at its sender, and it renders in the app's
  * own document rather than in the reading pane's sandboxed frame. A link in it
  * would otherwise navigate the app window itself to wherever the sender points,
@@ -96,7 +107,11 @@ const createPurifier = (profile: Profile): ReturnType<typeof DOMPurify> => {
 			node.remove();
 			return;
 		}
-		if (!IMAGE_SCHEMES.test(node.getAttribute("src") ?? "")) node.remove();
+		if (!IMAGE_SCHEMES.test(node.getAttribute("src") ?? "")) {
+			node.remove();
+			return;
+		}
+		node.setAttribute("style", IMAGE_SIZE);
 	});
 	return instance;
 };

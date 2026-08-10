@@ -15,6 +15,7 @@ import type {
 	SenderIntel,
 	SimilarMessageIntel,
 } from "@remit/ui";
+import { isThreadCategory } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { isServerError } from "@/lib/error-classifier";
@@ -55,6 +56,28 @@ const NO_SIGNAL_SUMMARY =
 
 const UNREADABLE_SENDER_SUMMARY =
 	"We couldn't read this sender's address, so we can't confirm who really sent this message.";
+
+/**
+ * Build category intel from the thread message and address lookup.
+ *
+ * The row's category is a string the API chose, so it is narrowed rather than
+ * asserted: a value this build has no entry for — a category a newer server
+ * classifies into — resolves to `uncategorized`, which is the taxonomy's own
+ * name for "no classification this client can act on" and renders a readable
+ * neutral chip. Asserting instead would leave the chip with no tone at all.
+ */
+export function buildCategoryIntel(
+	thread: RemitImapThreadMessageResponse,
+	address: RemitImapAddressResponse | undefined,
+): IntelligenceData["category"] {
+	const served = thread.category ?? "personal";
+	return {
+		value: isThreadCategory(served) ? served : "uncategorized",
+		overridden:
+			address?.flags?.category?.value != null &&
+			address.flags.category.value !== thread.category,
+	};
+}
 
 /**
  * Build sender intel from the thread message and address lookup.
@@ -357,12 +380,7 @@ export function useIntelligenceData(
 
 		const authenticity = buildAuthenticityIntel(thread, similar.length);
 
-		const category = {
-			value: thread.category ?? "personal",
-			overridden:
-				address?.flags?.category?.value != null &&
-				address.flags.category.value !== thread.category,
-		};
+		const category = buildCategoryIntel(thread, address);
 
 		const flags = buildSenderFlags(address);
 

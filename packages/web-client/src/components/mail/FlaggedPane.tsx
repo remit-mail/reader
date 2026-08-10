@@ -182,7 +182,7 @@ function FlaggedPaneProvider({
 				if (!triageTarget) return;
 				toggleReadFor([triageTarget.messageId], !triageTarget.isRead);
 			},
-			goBrief: () => navigate({ to: "/mail" }),
+			goBrief: () => navigate({ to: "/mail/brief" }),
 			goSettings: () => navigate({ to: "/settings" }),
 		},
 	});

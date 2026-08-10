@@ -10,12 +10,7 @@ import type {
 import type { NavAccount, NavLinkComponent, NavMailboxRole } from "@remit/ui";
 import { NavSidebar } from "@remit/ui";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-	Link,
-	useLocation,
-	useNavigate,
-	useParams,
-} from "@tanstack/react-router";
+import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -30,6 +25,7 @@ import {
 	removeSavedSearch,
 	saveSearch,
 } from "@/lib/saved-searches";
+import { NavLink } from "@/routing";
 
 interface MailSidebarAdapterProps {
 	accounts: RemitImapAccountResponse[];
@@ -121,8 +117,8 @@ function toNavMailbox(
  * component can highlight the right item.
  *   - /mail/outbox → "outbox"
  *   - /mail/flagged → "flagged"
+ *   - /mail/brief → "brief"
  *   - /mail/$mailboxId → mailboxId
- *   - /mail (daily brief) → "brief"
  */
 function useSelectedNavId(): string {
 	const location = useLocation();
@@ -131,9 +127,8 @@ function useSelectedNavId(): string {
 	if (location.pathname.startsWith("/settings")) return "settings";
 	if (location.pathname.startsWith("/mail/outbox")) return "outbox";
 	if (location.pathname.startsWith("/mail/flagged")) return "flagged";
+	if (location.pathname.startsWith("/mail/brief")) return "brief";
 	if (params.mailboxId) return params.mailboxId;
-	if (location.pathname === "/mail" || location.pathname === "/mail/")
-		return "brief";
 	return "";
 }
 
@@ -232,35 +227,36 @@ export function MailSidebarAdapter({
 	}) => {
 		if (navId === "brief") {
 			return (
-				<Link
-					to="/mail"
-					search={{ q: undefined, selectedMessageId: undefined }}
+				<NavLink
+					to="/mail/brief"
+					search={{ q: undefined }}
+					activeOptions={{ includeSearch: false }}
 					onClick={() => onClick?.()}
 					className={className}
 					aria-label={ariaLabel}
 					title={title}
 				>
 					{children}
-				</Link>
+				</NavLink>
 			);
 		}
 		if (navId === "outbox") {
 			return (
-				<Link
+				<NavLink
 					to="/mail/outbox"
-					search={{ q: undefined, selectedOutboxMessageId: undefined }}
+					search={{ q: undefined }}
 					onClick={() => onClick?.()}
 					className={className}
 					aria-label={ariaLabel}
 					title={title}
 				>
 					{children}
-				</Link>
+				</NavLink>
 			);
 		}
 		if (navId === "flagged") {
 			return (
-				<Link
+				<NavLink
 					to="/mail/flagged"
 					search={{ q: undefined, selectedMessageId: undefined }}
 					onClick={() => onClick?.()}
@@ -269,12 +265,12 @@ export function MailSidebarAdapter({
 					title={title}
 				>
 					{children}
-				</Link>
+				</NavLink>
 			);
 		}
 		if (navId === "settings") {
 			return (
-				<Link
+				<NavLink
 					to="/settings/accounts"
 					onClick={() => onClick?.()}
 					className={className}
@@ -282,11 +278,11 @@ export function MailSidebarAdapter({
 					title={title}
 				>
 					{children}
-				</Link>
+				</NavLink>
 			);
 		}
 		return (
-			<Link
+			<NavLink
 				to="/mail/$mailboxId"
 				params={{ mailboxId: navId }}
 				// Drop any stale search query / selected message when switching mailbox.
@@ -300,7 +296,7 @@ export function MailSidebarAdapter({
 				title={title}
 			>
 				{children}
-			</Link>
+			</NavLink>
 		);
 	};
 
@@ -344,10 +340,7 @@ export function MailSidebarAdapter({
 	const handleSelectSavedSearch = useCallback(
 		(query: string) => {
 			onSearchChange(query);
-			navigate({
-				to: "/mail",
-				search: { q: query, selectedMessageId: undefined },
-			});
+			navigate({ to: "/mail/brief", search: { q: query } });
 			onMailboxSelect?.();
 		},
 		[onSearchChange, navigate, onMailboxSelect],

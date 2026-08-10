@@ -185,17 +185,6 @@ export function DraftsView({
 	};
 
 	const handleRemitDraftOpen = (outboxMessageId: string) => {
-		// Clear any open IMAP draft first. The route's detailPane only renders
-		// FullCompose when `composeState.isOpen && !selectedThread`; if an IMAP
-		// draft is open (selectedMessageId set) the reading pane would keep
-		// showing ConversationView and compose would never surface (#505).
-		if (selectedMessageId) {
-			navigate({
-				to: "/mail/$mailboxId",
-				params: { mailboxId },
-				search: { selectedMessageId: undefined },
-			});
-		}
 		openCompose({ mode: "new", outboxMessageId });
 	};
 

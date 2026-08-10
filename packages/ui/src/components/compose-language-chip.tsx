@@ -7,12 +7,25 @@ import {
 } from "../lib/compose-language.js";
 import { rovingNextIndex } from "../lib/roving-focus.js";
 import { Button } from "./button.js";
+import type { ComposeLanguageSource } from "./use-compose-language.js";
+
+const sourceNote: Record<ComposeLanguageSource, string> = {
+	account: "the account default",
+	detected: "detected from what you wrote",
+	manual: "chosen for this message",
+};
 
 export interface ComposeLanguageChipProps {
 	/** The BCP 47 tag the message is currently being written in. */
 	language: string;
 	/** The account's configured tags — the menu, and detection's candidate set. */
 	languages: readonly string[];
+	/**
+	 * Where the tag came from. The control changes under the user while they
+	 * type, so its name says whether the value was guessed, chosen or inherited
+	 * from the account rather than leaving two letters to stand for all three.
+	 */
+	source: ComposeLanguageSource;
 	onSelect: (tag: string) => void;
 	/**
 	 * The sentence naming where the browser keeps its dictionary setting.
@@ -32,6 +45,7 @@ export interface ComposeLanguageChipProps {
 export const ComposeLanguageChip = ({
 	language,
 	languages,
+	source,
 	onSelect,
 	helpText,
 }: ComposeLanguageChipProps) => {
@@ -98,14 +112,18 @@ export const ComposeLanguageChip = ({
 				ref={triggerRef}
 				variant="ghost"
 				size="md"
-				aria-label={`Message language: ${languageLabel(language)}`}
+				aria-label={`Message language: ${languageLabel(language)}, ${sourceNote[source]}`}
 				aria-haspopup="menu"
 				aria-expanded={open}
 				aria-controls={open ? menuId : undefined}
 				onClick={() => setOpen((value) => !value)}
 				data-testid="compose-language-chip"
 				data-language={language}
-				className="min-h-11 min-w-11 shrink-0 px-2 font-medium"
+				data-language-source={source}
+				className={cn(
+					"min-h-11 min-w-11 shrink-0 px-2 font-medium",
+					language !== languages[0] && "bg-accent-2-soft text-accent-2",
+				)}
 			>
 				{languageChipLabel(language)}
 			</Button>

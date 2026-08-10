@@ -30,6 +30,7 @@ export {
 	type Density,
 	INTELLIGENCE_MIN_WIDTH,
 	isBriefCategory,
+	isThreadCategory,
 	type MessageListKeyboard,
 	type MessageListSelection,
 	type NarrowView,
@@ -166,12 +167,14 @@ export {
 	ComposeActionBar,
 	type ComposeActionBarProps,
 	type ComposeSaveStatus,
+	type ComposeSendState,
 } from "./components/compose-action-bar.js";
 export {
 	type AddressEntry,
 	ComposeAddressField,
 	type ComposeAddressFieldProps,
 } from "./components/compose-address-field.js";
+export { ComposeBodySkeleton } from "./components/compose-body-skeleton.js";
 export {
 	ComposeFormShell,
 	type ComposeFormShellProps,
@@ -190,6 +193,7 @@ export {
 export {
 	ComposeSmtpMissingBanner,
 	type ComposeSmtpMissingBannerProps,
+	SMTP_MISSING_MESSAGE,
 } from "./components/compose-smtp-missing-banner.js";
 export {
 	ComposeSubjectField,
@@ -210,6 +214,10 @@ export {
 	type DangerZoneSectionProps,
 } from "./components/danger-zone-section.js";
 export { Dialog, type DialogProps } from "./components/dialog.js";
+export {
+	DialogBackdrop,
+	type DialogBackdropProps,
+} from "./components/dialog-backdrop.js";
 export type { EmailFrameVariant } from "./components/email-frame-css.js";
 export {
 	EventDetail,
@@ -441,6 +449,7 @@ export {
 	MobileSearchView,
 	type MobileSearchViewProps,
 } from "./components/mobile-search-view.js";
+export { NavLinkSurface } from "./components/nav-link-surface.js";
 export {
 	NavSidebar,
 	type NavSidebarProps,

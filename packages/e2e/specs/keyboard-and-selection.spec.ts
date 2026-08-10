@@ -10,6 +10,8 @@
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages } from "../src/imap.js";
+import { INBOX_LIST, listOnScreen } from "../src/lists.js";
+import { MAILBOX_URL } from "../src/urls.js";
 
 const rows = (page: Page): Locator => page.locator("[data-message-row]");
 
@@ -49,7 +51,8 @@ test.beforeEach(async ({ page, run }) => {
 	await page.goto("/mail");
 	await expect(sidebar(page)).toBeVisible({ timeout: 20_000 });
 	await sidebar(page).getByRole("link", { name: /inbox/i }).click();
-	await page.waitForURL(/\/mail\/[a-z0-9]+/);
+	await page.waitForURL(MAILBOX_URL);
+	await listOnScreen(page, INBOX_LIST);
 	await expect(rows(page)).toHaveCount(run.seededSubjects.length, {
 		timeout: 30_000,
 	});

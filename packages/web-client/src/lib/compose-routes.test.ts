@@ -15,11 +15,12 @@ describe("hostsComposeSurface", () => {
 	});
 
 	it("is false for the virtual views, which mount no surface", () => {
+		assert.equal(hostsComposeSurface("/mail/brief"), false);
 		assert.equal(hostsComposeSurface("/mail/outbox"), false);
 		assert.equal(hostsComposeSurface("/mail/flagged"), false);
 	});
 
-	it("is false for the daily brief, which is /mail itself", () => {
+	it("is false for /mail itself, which only redirects to the brief", () => {
 		assert.equal(hostsComposeSurface("/mail"), false);
 		assert.equal(hostsComposeSurface("/mail/"), false);
 	});
@@ -34,6 +35,7 @@ describe("hostsComposeSurface", () => {
 		assert.equal(hostsComposeSurface("/mail/outbox-2024"), true);
 		assert.equal(hostsComposeSurface("/mail/flagged-archive"), true);
 		assert.equal(hostsComposeSurface("/mail/outboxes"), true);
+		assert.equal(hostsComposeSurface("/mail/briefing"), true);
 	});
 
 	it("ignores a query string or hash on the path", () => {

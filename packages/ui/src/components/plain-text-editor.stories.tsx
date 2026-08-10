@@ -50,6 +50,7 @@ const Surface = ({
 					<ComposeLanguageChip
 						language={language}
 						languages={["nl", "en", "de"]}
+						source="detected"
 						onSelect={setLanguage}
 					/>
 					<ComposeModeToggle

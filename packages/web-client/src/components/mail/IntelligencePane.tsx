@@ -1,11 +1,11 @@
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import {
+	DialogBackdrop,
 	IntelligencePanel,
 	type IntelligenceQuickActions,
 	type SimilarMessageLinkComponent,
 	type SimilarState,
 } from "@remit/ui";
-import { Link } from "@tanstack/react-router";
 import { Sparkles } from "lucide-react";
 import { useCallback, useState } from "react";
 import { useIntelligenceData } from "@/hooks/useIntelligenceData";
@@ -14,6 +14,7 @@ import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
 import { isRescueCandidate } from "@/lib/rescue-candidates";
 import { recordRescueSentToJunk } from "@/lib/rescue-telemetry";
 import { useTelemetry } from "@/lib/telemetry-context";
+import { NavLink } from "@/routing";
 
 export interface IntelligencePaneProps {
 	onClose: () => void;
@@ -154,19 +155,17 @@ function ReclassifyDialog({
 }) {
 	if (!isOpen) return null;
 	return (
-		<div
-			className="fixed inset-0 z-50 flex items-center justify-center"
-			aria-hidden="true"
-			onClick={onCancel}
-		>
-			<div className="absolute inset-0 bg-canvas/80 backdrop-blur-sm" />
+		<div className="fixed inset-0 z-50 flex items-center justify-center">
+			<DialogBackdrop
+				label="Dismiss reclassify sender"
+				onDismiss={onCancel}
+				className="backdrop-blur-sm"
+			/>
 			<div
 				role="dialog"
 				aria-modal="true"
 				aria-label="Reclassify sender"
 				className="relative z-10 w-full max-w-sm rounded-sm border border-line bg-surface p-6 shadow-lg"
-				onClick={(e) => e.stopPropagation()}
-				onKeyDown={(e) => e.stopPropagation()}
 			>
 				<h2 className="text-lg font-semibold">Reclassify this sender</h2>
 				<p className="mt-2 text-sm text-fg-muted">
@@ -316,15 +315,16 @@ function WiredPanel({
 		ariaLabel,
 		children,
 	}) => (
-		<Link
+		<NavLink
 			to="/mail/$mailboxId"
 			params={{ mailboxId: rowMailboxId }}
 			search={(prev) => ({ ...prev, selectedMessageId: messageId })}
+			variant="row"
 			className={className}
 			aria-label={ariaLabel}
 		>
 			{children}
-		</Link>
+		</NavLink>
 	);
 
 	if (!data) {

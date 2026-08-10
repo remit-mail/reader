@@ -9,6 +9,8 @@
  */
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
+import { INBOX_LIST, listOnScreen } from "../src/lists.js";
+import { BRIEF_THREAD_URL, MAILBOX_URL } from "../src/urls.js";
 
 const SHOW_INFO = "Show intelligence sidebar";
 const HIDE_INFO = "Hide intelligence sidebar";
@@ -33,7 +35,9 @@ const openBriefMessage = async (page: Page, subject: string): Promise<void> => {
 	const row = page.getByRole("button").filter({ hasText: subject }).first();
 	await expect(row).toBeVisible({ timeout: 30_000 });
 	await row.click();
-	await page.waitForURL(/selectedMessageId=/);
+	// The brief's open thread is a path segment (#718); the other lists still
+	// carry theirs in the query.
+	await page.waitForURL(BRIEF_THREAD_URL);
 };
 
 const openInboxMessage = async (page: Page): Promise<void> => {
@@ -43,7 +47,8 @@ const openInboxMessage = async (page: Page): Promise<void> => {
 	});
 	await expect(sidebar).toBeVisible({ timeout: 20_000 });
 	await sidebar.getByRole("link", { name: /inbox/i }).click();
-	await page.waitForURL(/\/mail\/[a-z0-9]+/);
+	await page.waitForURL(MAILBOX_URL);
+	await listOnScreen(page, INBOX_LIST);
 	const row = page.locator("a[href*='selectedMessageId']").first();
 	await expect(row).toBeVisible({ timeout: 30_000 });
 	await row.click();
@@ -95,7 +100,8 @@ test.describe("Reading-pane toolbar", () => {
 			});
 			await expect(sidebar).toBeVisible({ timeout: 20_000 });
 			await sidebar.getByRole("link", { name: /inbox/i }).click();
-			await page.waitForURL(/\/mail\/[a-z0-9]+/);
+			await page.waitForURL(MAILBOX_URL);
+			await listOnScreen(page, INBOX_LIST);
 
 			const info = page.getByRole("button", { name: SHOW_INFO });
 			await expect(info).toBeVisible({ timeout: 20_000 });

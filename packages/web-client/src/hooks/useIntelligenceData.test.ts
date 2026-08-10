@@ -6,6 +6,7 @@ import type {
 } from "@remit/api-http-client/types.gen.ts";
 import {
 	buildAuthenticityIntel,
+	buildCategoryIntel,
 	buildSenderIntel,
 } from "./useIntelligenceData.js";
 
@@ -48,6 +49,45 @@ function makeAddress(
 		...overrides,
 	} as RemitImapAddressResponse;
 }
+
+// The generated union has a member for every category this build knows, so a
+// value outside it cannot be written as one — which is the whole point: it
+// arrives as JSON from a server that classifies into more than this client can.
+function threadCategorizedAs(category: string): RemitImapThreadMessageResponse {
+	return { ...makeThread(), category } as RemitImapThreadMessageResponse;
+}
+
+describe("buildCategoryIntel", () => {
+	test("carries a category the client knows through unchanged", () => {
+		const result = buildCategoryIntel(
+			makeThread({ category: "newsletter" }),
+			undefined,
+		);
+		assert.equal(result.value, "newsletter");
+	});
+
+	test("falls back to personal when the row carries no category", () => {
+		const result = buildCategoryIntel(makeThread(), undefined);
+		assert.equal(result.value, "personal");
+	});
+
+	test("resolves a category the client does not know to uncategorized", () => {
+		const result = buildCategoryIntel(
+			threadCategorizedAs("invoice"),
+			undefined,
+		);
+		assert.equal(result.value, "uncategorized");
+	});
+
+	test("marks the category overridden when the sender carries a different one", () => {
+		const thread = makeThread({ category: "personal" });
+		const address = makeAddress({
+			flags: { category: { value: "newsletter" } },
+		} as Partial<RemitImapAddressResponse>);
+		assert.equal(buildCategoryIntel(thread, address).overridden, true);
+		assert.equal(buildCategoryIntel(thread, undefined).overridden, false);
+	});
+});
 
 describe("buildSenderIntel", () => {
 	describe("counter wiring — counters present", () => {

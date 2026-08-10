@@ -9,7 +9,7 @@ import { ConfirmDialog } from "./confirm-dialog.js";
 import { PlainTextEditor } from "./plain-text-editor.js";
 import { markdownToHtml } from "./rich-text-document.js";
 import { RichTextEditor } from "./rich-text-editor.js";
-import type { RichTextValue } from "./rich-text-value.js";
+import type { ComposeCaret, RichTextValue } from "./rich-text-value.js";
 import { useComposeLanguage } from "./use-compose-language.js";
 
 export interface ConversionFailure {
@@ -49,7 +49,11 @@ export interface ComposeBodyProps {
 	initialText: string;
 	onChange: (value: RichTextValue) => void;
 	onSubmit?: () => void;
-	autoFocus?: boolean;
+	/**
+	 * Where the caret lands when the composer opens. Absent, the surface does
+	 * not take focus.
+	 */
+	initialCaret?: ComposeCaret;
 	onConversionError: (failure: ConversionFailure) => void;
 	conversions?: ComposeConversions;
 	/** The account's writing languages, most-used first. */
@@ -73,7 +77,7 @@ export const ComposeBody = ({
 	initialText,
 	onChange,
 	onSubmit,
-	autoFocus = false,
+	initialCaret,
 	onConversionError,
 	conversions = DEFAULT_COMPOSE_CONVERSIONS,
 	languages,
@@ -97,7 +101,7 @@ export const ComposeBody = ({
 
 	// Detection reads the body the user typed. The quoted reply block is not part
 	// of it — that lives outside the editor, in the form's own `quoted` slot.
-	const { language, choose } = useComposeLanguage({
+	const { language, source, choose } = useComposeLanguage({
 		languages,
 		text: bodyText,
 		initialLanguage,
@@ -166,6 +170,7 @@ export const ComposeBody = ({
 			<ComposeLanguageChip
 				language={language}
 				languages={languages}
+				source={source}
 				onSelect={choose}
 			/>
 			<ComposeModeToggle mode={mode} onToggle={handleToggle} />
@@ -179,7 +184,7 @@ export const ComposeBody = ({
 					value={plainText}
 					onChange={handlePlainChange}
 					onSubmit={onSubmit}
-					autoFocus={focusSwitchedSurface}
+					initialCaret={focusSwitchedSurface ? "end" : initialCaret}
 					lang={language}
 					trailing={trailing}
 				/>
@@ -189,7 +194,7 @@ export const ComposeBody = ({
 					initialHtml={richHtml}
 					onChange={handleRichChange}
 					onSubmit={onSubmit}
-					autoFocus={autoFocus || focusSwitchedSurface}
+					initialCaret={focusSwitchedSurface ? "end" : initialCaret}
 					lang={language}
 					trailing={trailing}
 				/>

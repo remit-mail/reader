@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useRef } from "react";
 import { cn } from "../lib/cn.js";
+import { DialogBackdrop } from "./dialog-backdrop.js";
 
 export interface DialogProps {
 	open: boolean;
@@ -64,7 +65,6 @@ export function Dialog({
 	const isRight = anchor === "right";
 
 	return (
-		// biome-ignore lint/a11y/noStaticElementInteractions: outer overlay closes dialog on click; role=presentation lets inner role=dialog own the AT semantics
 		<div
 			className={cn(
 				"fixed inset-0 z-50 flex",
@@ -74,10 +74,8 @@ export function Dialog({
 						? "items-stretch justify-end"
 						: "items-center justify-center px-4",
 			)}
-			role="presentation"
-			onClick={onClose}
 		>
-			<div className="absolute inset-0 bg-canvas/80" />
+			<DialogBackdrop label="Dismiss dialog" onDismiss={onClose} />
 			<div
 				ref={dialogRef}
 				role="dialog"
@@ -94,8 +92,6 @@ export function Dialog({
 							: "w-full max-w-lg rounded-md border",
 					className,
 				)}
-				onClick={(e) => e.stopPropagation()}
-				onKeyDown={(e) => e.stopPropagation()}
 			>
 				<h2 id="dialog-title" className="sr-only">
 					{title}

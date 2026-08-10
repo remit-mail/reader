@@ -25,16 +25,11 @@ import {
 	useLongPress,
 } from "@remit/ui";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
 import { type MouseEvent, memo, type ReactNode, useCallback } from "react";
 import { cn } from "@/lib/utils";
+import { NavLink } from "@/routing";
 import { useThreadRowInteraction } from "./ThreadListInteraction";
 import { useModifierSelect } from "./useModifierSelect";
-
-interface MailboxLinkSearch {
-	selectedMessageId?: string;
-	q?: string;
-}
 
 export interface MessageRowSelection {
 	isChecked: boolean;
@@ -254,18 +249,16 @@ const MessageRowComponent = ({
 	}
 
 	return (
-		<Link
+		<NavLink
 			to="/mail/$mailboxId"
 			params={{ mailboxId: linkMailboxId }}
-			search={(prev: MailboxLinkSearch) => ({
-				...prev,
-				selectedMessageId: messageId,
-			})}
+			search={(prev) => ({ ...prev, selectedMessageId: messageId })}
+			variant="row"
 			{...interactionProps}
 			className={className}
 		>
 			{body}
-		</Link>
+		</NavLink>
 	);
 };
 

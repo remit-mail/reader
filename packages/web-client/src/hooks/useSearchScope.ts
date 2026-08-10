@@ -38,8 +38,8 @@ export function useSearchScope(accounts: RemitImapAccountResponse[]): {
 		(chipId: string) => {
 			if (chipId !== SEARCH_SCOPE_CHIP_ID) return;
 			navigate({
-				to: "/mail",
-				search: { q: searchInput || undefined, selectedMessageId: undefined },
+				to: "/mail/brief",
+				search: { q: searchInput || undefined },
 			});
 		},
 		[navigate, searchInput],

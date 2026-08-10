@@ -598,6 +598,16 @@ function MailboxPaneProvider({
 		openCompose({ mode: "new" });
 	}, [openCompose]);
 
+	// A thread opening closes compose. Only a selection arriving counts, so this
+	// cannot close the compose that just cleared one.
+	const previousSelectionRef = useRef(selectedMessageId);
+	useEffect(() => {
+		const previous = previousSelectionRef.current;
+		previousSelectionRef.current = selectedMessageId;
+		if (!selectedMessageId || selectedMessageId === previous) return;
+		closeCompose();
+	}, [selectedMessageId, closeCompose]);
+
 	const deleteOutboxMutation = useMutation({
 		...outboxDetailOperationsDeleteOutboxMessageMutation(),
 		onError: (mutationError) => {
@@ -793,7 +803,7 @@ function MailboxPaneProvider({
 	}, [intelligenceOpen, onToggleIntelligence]);
 
 	const goToRoute = useCallback(
-		(to: "/mail" | "/mail/flagged" | "/settings") => {
+		(to: "/mail/brief" | "/mail/flagged" | "/settings") => {
 			navigate({ to });
 		},
 		[navigate],
@@ -841,9 +851,9 @@ function MailboxPaneProvider({
 			markJunk: triageMarkJunk,
 			toggleIntelligence: selectedThread ? onToggleIntelligence : undefined,
 			compose: handleNewCompose,
-			goBrief: () => goToRoute("/mail"),
-			goInbox: () => goToRoute("/mail"),
-			goSent: () => goToRoute("/mail"),
+			goBrief: () => goToRoute("/mail/brief"),
+			goInbox: () => goToRoute("/mail/brief"),
+			goSent: () => goToRoute("/mail/brief"),
 			goFlagged: () => goToRoute("/mail/flagged"),
 			goSettings: () => goToRoute("/settings"),
 		},
@@ -1037,7 +1047,7 @@ function MailboxList() {
 				search: (prev: Record<string, unknown>) => ({
 					...prev,
 					// Commit the active query alongside the selection. The debounced
-					// q-mirror (mail.tsx) strips the selection whenever it sees the
+					// q-mirror (`useSearchMirror`) strips the selection whenever it sees the
 					// query go active; the row can be tapped before the debounce settles
 					// (it shows in the still-unfiltered list), so use the *live*
 					// `searchInput` here — committing `q` makes the mirror a no-op and

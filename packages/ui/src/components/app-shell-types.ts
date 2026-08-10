@@ -435,3 +435,13 @@ export const categoryTone: Record<
 	transactional: "positive",
 	social: "warning",
 };
+
+/**
+ * Whether a string names one of the classifier's categories. A host reading a
+ * category off the API narrows it with this rather than asserting it: a value
+ * from a newer server that this build has no tone for is a value it cannot
+ * render, and it needs to know that rather than find out at lookup time.
+ */
+export function isThreadCategory(value: string): value is ThreadCategory {
+	return Object.hasOwn(categoryTone, value);
+}
