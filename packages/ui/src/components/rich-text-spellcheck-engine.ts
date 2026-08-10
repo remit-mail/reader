@@ -1,5 +1,5 @@
 /**
- * Hunspell, over the WebAssembly build in `docker/build/hunspell/`. The engine
+ * Hunspell, over the WebAssembly build in `docker/hunspell/`. The engine
  * and the two dictionary files are fetched, never bundled: a language costs
  * nothing until someone writes in it, and the bytes are reported as they arrive
  * because the first Dutch download is fourteen seconds on a bad link and a

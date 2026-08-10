@@ -74,7 +74,7 @@ runs:
         path: |
           build
           !build/*/node_modules
-        key: ${{ runner.os }}-codegen-v3-${{ hashFiles('typespec/**', 'Makefile', 'openapi-ts.config.js', 'package-lock.json', 'patches/**', 'docker/build/hunspell/**', 'npm-scripts/build-hunspell.mjs') }}
+        key: ${{ runner.os }}-codegen-v3-${{ hashFiles('typespec/**', 'Makefile', 'openapi-ts.config.js', 'package-lock.json', 'patches/**', 'docker/hunspell/**', 'npm-scripts/build-hunspell.mjs') }}
 
     - name: Codegen (generated @remit/* packages)
       if: inputs.codegen == 'true' && steps.codegen.outputs.cache-hit != 'true'

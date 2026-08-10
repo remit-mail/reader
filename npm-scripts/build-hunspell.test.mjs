@@ -12,7 +12,7 @@ import { readPins } from "./build-hunspell.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dockerfile = readFileSync(join(root, "Dockerfile"), "utf8");
-const pins = readPins(join(root, "docker", "build", "hunspell", "pin.env"));
+const pins = readPins(join(root, "docker", "hunspell", "pin.env"));
 
 describe("the spellchecker's build pins", () => {
 	it("compiles the engine with the image the recipe names", () => {

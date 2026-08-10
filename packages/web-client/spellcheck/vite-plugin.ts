@@ -36,11 +36,11 @@ interface StagedLanguage extends DictionarySource {
 
 const readPin = (name: string): string => {
 	const pins = readFileSync(
-		join(repoRoot, "docker", "build", "hunspell", "pin.env"),
+		join(repoRoot, "docker", "hunspell", "pin.env"),
 		"utf8",
 	);
 	const found = new RegExp(`^${name}=(.*)$`, "m").exec(pins);
-	if (!found) throw new Error(`docker/build/hunspell/pin.env has no ${name}`);
+	if (!found) throw new Error(`docker/hunspell/pin.env has no ${name}`);
 	return found[1];
 };
 
@@ -60,7 +60,7 @@ const stageEngine = (): StagedFile[] => {
 	const wasm = join(engineDir, "hunspell.wasm");
 	if (!existsSync(wasm)) {
 		throw new Error(
-			`${wasm} is missing. Build the spellchecker engine first: npm run build:hunspell (it runs docker/build/hunspell/build.sh in the pinned Emscripten image). Set REMIT_SPELLCHECK_LANGUAGES= to build without a spellchecker.`,
+			`${wasm} is missing. Build the spellchecker engine first: npm run build:hunspell (it runs docker/hunspell/build.sh in the pinned Emscripten image). Set REMIT_SPELLCHECK_LANGUAGES= to build without a spellchecker.`,
 		);
 	}
 	return [
@@ -139,7 +139,7 @@ const noticeFor = (
 		`  sha256: ${readPin("HUNSPELL_SHA256")}`,
 		"  Licence: MPL-1.1 (the option taken from Hunspell's MPL-1.1/GPL-2.0/LGPL-2.1 triple)",
 		"  Licence text: spellcheck/LICENSE",
-		"  Build recipe: docker/build/hunspell/build.sh",
+		"  Build recipe: docker/hunspell/build.sh",
 		"",
 		"Dictionaries",
 		"",
@@ -168,7 +168,7 @@ export const stageSpellcheck = (
 			version: engineVersion,
 			licence: "MPL-1.1",
 			source: "https://github.com/hunspell/hunspell",
-			recipe: "docker/build/hunspell/build.sh",
+			recipe: "docker/hunspell/build.sh",
 		},
 		languages: languages.map((language) => ({
 			tag: language.tag,

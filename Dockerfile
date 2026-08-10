@@ -49,7 +49,7 @@ RUN find . -type f ! -name package.json ! -name package-lock.json \
 # Hunspell has 141 contributors; every published WebAssembly wrapper of it has
 # one, and none clears this repo's dependency bar. So the engine is built from
 # an upstream release tarball whose sha256 is pinned in
-# docker/build/hunspell/pin.env, with the Emscripten image as the toolchain
+# docker/hunspell/pin.env, with the Emscripten image as the toolchain
 # pin. Nothing is patched: this is a build, not a fork.
 #
 # The output is two files and the licence texts, ~630 KB before brotli, copied
@@ -57,9 +57,9 @@ RUN find . -type f ! -name package.json ! -name package-lock.json \
 ########################################################################
 FROM docker.io/emscripten/emsdk:6.0.6 AS hunspell-wasm
 WORKDIR /src
-COPY docker/build/hunspell/ ./docker/build/hunspell/
+COPY docker/hunspell/ ./docker/hunspell/
 ENV OUT_DIR=/out
-RUN sh docker/build/hunspell/build.sh
+RUN sh docker/hunspell/build.sh
 
 ########################################################################
 # builder — npm ci, TypeSpec codegen (make), the web client, the generated

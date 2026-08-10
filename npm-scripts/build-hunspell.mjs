@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 // Builds the spellchecker's engine into build/hunspell/ by running the same
-// docker/build/hunspell/build.sh the image's hunspell-wasm stage runs, inside
+// docker/hunspell/build.sh the image's hunspell-wasm stage runs, inside
 // the same pinned Emscripten image. Nothing else in the repo needs a compiler.
 //
 // A stamp records what produced the output — the pins plus the checksums of the
@@ -12,7 +12,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const recipeDir = join(repoRoot, "docker", "build", "hunspell");
+const recipeDir = join(repoRoot, "docker", "hunspell");
 const outDir = join(repoRoot, "build", "hunspell");
 const stampFile = join(outDir, "stamp.json");
 
@@ -76,7 +76,7 @@ const run = () => {
 			"/src",
 			wanted.image,
 			"sh",
-			"docker/build/hunspell/build.sh",
+			"docker/hunspell/build.sh",
 		],
 		{ stdio: "inherit" },
 	);
