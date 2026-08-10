@@ -842,6 +842,32 @@ CHECK_AVAILABLE=""
 epoch() { date -u +%s; }
 iso_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
+# ISO 8601 UTC (the only shape either request file ever carries) to epoch
+# seconds, or nothing on anything else — an unset TZ never enters this, so a
+# request's expiry compares on the same clock as `epoch`. The `T`-to-space,
+# `Z`-stripped rewrite is what makes this portable: GNU date's `-d` has no `-D`
+# to name an input format, and BusyBox's `-d` does not recognise the bare ISO
+# shape without one, but "YYYY-MM-DD HH:MM:SS" is a format both parse the same
+# way unaided — this wrapper runs as both an operator's host shell (usually
+# GNU) and the updater container (BusyBox).
+iso_to_epoch() {
+	_iso=${1%Z}
+	_iso=$(printf '%s' "$_iso" | tr 'T' ' ')
+	date -u -d "$_iso" +%s 2>/dev/null
+}
+
+# Whether an expiresAt has passed, or cannot be trusted at all (#587). Missing
+# or unparsable is treated as expired: both request files are written by this
+# same release's backend, which always sets it, so anything else is not a
+# request either side still recognises.
+request_expired() {
+	_exp=${1:-}
+	[ -n "$_exp" ] || return 0
+	_exp_epoch=$(iso_to_epoch "$_exp")
+	[ -n "$_exp_epoch" ] || return 0
+	[ "$(epoch)" -gt "$_exp_epoch" ]
+}
+
 # The manifest URL is deployment configuration, so .env is where it lives; the
 # environment overrides it for a one-off check against a different origin.
 manifest_url() {
@@ -1333,13 +1359,15 @@ recheck_availability() {
 # under a compromised backend its entire content is attacker-controlled — not
 # only the field it is supposed to carry. It is a bounded, wholly-untrusted
 # file. Oversized, it is rejected whole rather than truncated and parsed — a
-# truncated parse is a partial honouring. Carrying any key beyond the four the
+# truncated parse is a partial honouring. Carrying any key beyond the five the
 # backend writes, it is rejected whole rather than having the extras ignored. A
 # registry, an image or a digest never crosses the seam because a file naming
 # one is refused, not stripped. The only value read is targetVersion, and it
 # still has to match vX.Y.Z *and* the manifest's own version before it is used.
+# expiresAt is read too (#587): a request nobody is still waiting on must not
+# install whenever this updater next starts.
 REQUEST_MAX_BYTES=4096
-ALLOWED_REQUEST_KEYS=" runId targetVersion requestedAt requestedBy "
+ALLOWED_REQUEST_KEYS=" runId targetVersion requestedAt requestedBy expiresAt "
 
 # Emits each top-level key of a flat JSON object, one per line, tracking string
 # escapes and depth so a value that contains `":` does not read as a key. Any
@@ -1409,7 +1437,80 @@ EOF
 	if [ "$_want" != "$CHECK_VERSION" ]; then
 		return 1
 	fi
+	if request_expired "$(json_string "$_raw" expiresAt)"; then
+		# The caller reads this function's stdout as the target version
+		# (`_tag=$(requested_target)`), so the report below must never write to
+		# it — terminate() prints the message it records, and captured here that
+		# text would become the "version" the caller tries to install.
+		report_expired_apply_request "$_raw" "$_want" >/dev/null
+		return 1
+	fi
 	printf '%s' "$_want"
+}
+
+# A request that named the right release but arrived too late to still mean
+# anything (#587): recorded as an abandoned run so the app renders it, rather
+# than a late install with no trace beyond this process's own log.
+report_expired_apply_request() {
+	_raw=$1
+	_target=$2
+	RUN_ID=$(json_string "$_raw" runId)
+	RUN_FROM=$(get_var REMIT_TAG)
+	RUN_TARGET=$_target
+	RUN_STARTED=$(json_string "$_raw" requestedAt)
+	RUN_PHASE=checking
+	terminate abandoned \
+		"The request to install $RUN_TARGET, made $RUN_STARTED, expired before an updater picked it up; nothing was installed." \
+		"remit update"
+}
+
+# The check-request side of the control seam (issue #599): the app asks for an
+# out-of-cadence check by writing check-request.json, and this consumes it —
+# always, whatever triggered this invocation — before the check itself runs.
+# Bounded and whitelisted the same way request.json is: it is written by the
+# same backend, so the same trust story applies.
+CHECK_REQUEST_MAX_BYTES=4096
+ALLOWED_CHECK_REQUEST_KEYS=" requestedAt requestedBy expiresAt "
+
+check_request_shape_ok() {
+	while IFS= read -r _k; do
+		[ -n "$_k" ] || continue
+		case "$ALLOWED_CHECK_REQUEST_KEYS" in
+		*" $_k "*) ;;
+		*) return 1 ;;
+		esac
+	done <<EOF
+$(request_keys "$1")
+EOF
+	return 0
+}
+
+# Consumes check-request.json if present, and reports whether the caller
+# should still run do_check. A well-formed, unexpired request is removed and
+# answered by the real check the caller runs right after (0 — the common
+# case, and also what a routine cadence tick with no request file gets, since
+# that tick has its own do_check to run regardless). An expired one is removed
+# and reported as a failed check on the spot instead (#587's fix, applied here
+# too: not executed late) — 1, so the caller skips the fetch it would
+# otherwise immediately overwrite that report with. A malformed or oversized
+# one is discarded without comment, same as finding nothing (0).
+consume_check_request() {
+	_f="$CONTROL_DIR/check-request.json"
+	[ -f "$_f" ] || return 0
+	_bytes=$(wc -c <"$_f" 2>/dev/null || printf '%s' "$((CHECK_REQUEST_MAX_BYTES + 1))")
+	_raw=""
+	_ok=0
+	if [ "$_bytes" -le "$CHECK_REQUEST_MAX_BYTES" ]; then
+		_raw=$(cat "$_f")
+		if check_request_shape_ok "$_raw"; then _ok=1; fi
+	fi
+	rm -f "$_f"
+	[ "$_ok" = "1" ] || return 0
+	if request_expired "$(json_string "$_raw" expiresAt)"; then
+		check_failed "The check requested at $(json_string "$_raw" requestedAt) expired before the updater answered it."
+		return 1
+	fi
+	return 0
 }
 
 # --- snapshot and restore (RFC 037 R8, R8a) ---------------------------------
@@ -2130,12 +2231,15 @@ cmd_update() {
 		return 0
 	fi
 
-	do_check || true
-
 	if [ "$_mode" = "check" ]; then
+		if consume_check_request; then
+			do_check || true
+		fi
 		report_check
 		return 0
 	fi
+
+	do_check || true
 
 	lock_acquire
 

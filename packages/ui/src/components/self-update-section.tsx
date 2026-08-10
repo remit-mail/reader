@@ -14,6 +14,7 @@ import { Badge } from "./badge.js";
 import { Banner } from "./banner.js";
 import { Button, ButtonLink } from "./button.js";
 import {
+	type CheckingPrevious,
 	formatRelativeCheck,
 	formatReleaseDate,
 	type SelfUpdateState,
@@ -32,6 +33,28 @@ export interface SelfUpdateSectionProps {
 	onDismissResult: () => void;
 	/** Fixed "now" so stories and tests read the same relative times. */
 	now?: number;
+}
+
+/**
+ * The last check's answer, said alongside a check now in flight (issue
+ * #599) — pressing check never blanks a known answer while it waits for a
+ * new one.
+ */
+function previousAnswerLine(previous: CheckingPrevious, now: number): string {
+	switch (previous.kind) {
+		case "upToDate":
+			return `Last check: up to date, ${formatRelativeCheck(previous.checkedAt, now)}.`;
+		case "available":
+			return `Last check found Remit ${previous.release.version}, released ${formatReleaseDate(previous.release.releasedAt)}.`;
+		case "failed":
+			return previous.lastCheckedAt === undefined
+				? `Last check failed: ${previous.reason}`
+				: `Last check failed ${formatRelativeCheck(previous.lastCheckedAt, now)}: ${previous.reason}`;
+		default: {
+			const exhaustive: never = previous;
+			return exhaustive;
+		}
+	}
 }
 
 function SectionRow({
@@ -131,24 +154,31 @@ export function SelfUpdateSection({
 			case "checking":
 				return (
 					<SectionRow>
-						<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-							<div className="flex min-w-0 items-center gap-2">
-								<Loader2
-									className="size-4 shrink-0 animate-spin text-fg-subtle"
-									aria-hidden
-								/>
-								<p className="text-sm text-fg-muted">
-									Looking for a newer version. You are on {state.version}.
-								</p>
+						<div className="space-y-1">
+							<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+								<div className="flex min-w-0 items-center gap-2">
+									<Loader2
+										className="size-4 shrink-0 animate-spin text-fg-subtle"
+										aria-hidden
+									/>
+									<p className="text-sm text-fg-muted">
+										Looking for a newer version. You are on {state.version}.
+									</p>
+								</div>
+								<Button
+									variant="secondary"
+									size="sm"
+									className="shrink-0"
+									onClick={handleCheck}
+								>
+									Check again
+								</Button>
 							</div>
-							<Button
-								variant="secondary"
-								size="sm"
-								className="shrink-0"
-								onClick={handleCheck}
-							>
-								Check again
-							</Button>
+							{state.previous && (
+								<p className="text-xs text-fg-subtle">
+									{previousAnswerLine(state.previous, now)}
+								</p>
+							)}
 						</div>
 					</SectionRow>
 				);

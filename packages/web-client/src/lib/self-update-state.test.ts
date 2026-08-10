@@ -67,10 +67,8 @@ function input(overrides: Partial<DeriveInput> = {}): DeriveInput {
 		data: undefined,
 		isError: false,
 		error: undefined,
-		isFetching: false,
 		held: null,
 		dismissedRunId: null,
-		checkRequested: false,
 		now: NOW,
 		...overrides,
 	};
@@ -229,17 +227,102 @@ describe("deriveUpdateSurface — the surface without a run", () => {
 		);
 	});
 
-	test("a pressed check shows checking while the refetch is in flight", () => {
+	test("a check the server reports pending shows checking (issue #599)", () => {
 		const result = deriveUpdateSurface(
 			input({
-				data: response(),
-				checkRequested: true,
-				isFetching: true,
+				data: response({ check: { status: "pending" } }),
 			}),
 		);
 		assert.equal(
 			result.surface.status === "ready" && result.surface.section.status,
 			"checking",
+		);
+	});
+
+	test("a pending check keeps the previous up-to-date answer visible, not a blank spinner (#599)", () => {
+		const result = deriveUpdateSurface(
+			input({
+				data: response({
+					check: {
+						status: "pending",
+						lastCheckedAt: "2026-07-20T11:40:00.000Z",
+						updateAvailable: false,
+					},
+				}),
+			}),
+		);
+		assert.equal(result.surface.status, "ready");
+		if (result.surface.status !== "ready") return;
+		assert.equal(result.surface.section.status, "checking");
+		assert.deepEqual(
+			result.surface.section.status === "checking"
+				? result.surface.section.previous
+				: undefined,
+			{ kind: "upToDate", checkedAt: Date.parse("2026-07-20T11:40:00.000Z") },
+		);
+	});
+
+	test("a pending check keeps the previously found release visible", () => {
+		const result = deriveUpdateSurface(
+			input({
+				data: response({
+					check: {
+						status: "pending",
+						updateAvailable: true,
+						latestVersion: "0.9.4",
+						summary: "Faster sync.",
+						publishedAt: "2026-07-14T09:00:00.000Z",
+					},
+				}),
+			}),
+		);
+		assert.equal(result.surface.status, "ready");
+		if (result.surface.status !== "ready") return;
+		assert.equal(result.surface.section.status, "checking");
+		const previous =
+			result.surface.section.status === "checking"
+				? result.surface.section.previous
+				: undefined;
+		assert.equal(previous?.kind, "available");
+		assert.equal(
+			previous?.kind === "available" ? previous.release.version : undefined,
+			"0.9.4",
+		);
+	});
+
+	test("a pending check with no prior answer shows no previous answer", () => {
+		const result = deriveUpdateSurface(
+			input({ data: response({ check: { status: "pending" } }) }),
+		);
+		const section =
+			result.surface.status === "ready" ? result.surface.section : undefined;
+		assert.equal(
+			section?.status === "checking" ? section.previous : "not checking",
+			undefined,
+		);
+	});
+
+	test("a check resolving ok moves the checked-at timestamp forward", () => {
+		const result = deriveUpdateSurface(
+			input({
+				data: response({
+					check: {
+						status: "ok",
+						updateAvailable: false,
+						lastCheckedAt: "2026-07-20T12:00:00.000Z",
+					},
+				}),
+				now: NOW,
+			}),
+		);
+		assert.equal(result.surface.status, "ready");
+		if (result.surface.status !== "ready") return;
+		assert.equal(result.surface.section.status, "upToDate");
+		assert.equal(
+			result.surface.section.status === "upToDate"
+				? result.surface.section.checkedAt
+				: undefined,
+			NOW,
 		);
 	});
 });

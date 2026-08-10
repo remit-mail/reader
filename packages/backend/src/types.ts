@@ -14,6 +14,7 @@ export type OperationIds =
 	| "ConfigOperations_getConfig"
 	| "SystemOperations_getSystemUpdate"
 	| "SystemOperations_applySystemUpdate"
+	| "SystemOperations_requestSystemUpdateCheck"
 	| "AccountOperations_createAccount"
 	| "AccountOperations_testConnection"
 	| "AccountDetailOperations_updateAccount"

@@ -20,12 +20,18 @@
  *    reach the update source is a failed check, never a failed update.
  */
 import type {
+	RemitImapSystemUpdateCheck,
 	RemitImapSystemUpdateOutcome,
 	RemitImapSystemUpdatePhase,
 	RemitImapSystemUpdateResponse,
 	RemitImapSystemUpdateRun,
 } from "@remit/api-http-client/types.gen.ts";
-import type { ReleaseInfo, SelfUpdateState, UpdatePhase } from "@remit/ui";
+import type {
+	CheckingPrevious,
+	ReleaseInfo,
+	SelfUpdateState,
+	UpdatePhase,
+} from "@remit/ui";
 import { getErrorStatus } from "./error-classifier";
 
 /**
@@ -82,10 +88,8 @@ export interface DeriveInput {
 	data: RemitImapSystemUpdateResponse | undefined;
 	isError: boolean;
 	error: unknown;
-	isFetching: boolean;
 	held: HeldRun | null;
 	dismissedRunId: string | null;
-	checkRequested: boolean;
 	now: number;
 }
 
@@ -124,6 +128,25 @@ export function isSurfaceAbsent(error: unknown): boolean {
 }
 
 /**
+ * A release out of whatever fields a check block carries, regardless of its
+ * current `status` — while a check is `pending` the fields left over from the
+ * previous answer are what "the last known answer" means (issue #599).
+ */
+function releaseFromCheckFields(
+	check: RemitImapSystemUpdateCheck,
+	now: number,
+): ReleaseInfo | undefined {
+	if (!check.updateAvailable || !check.latestVersion) return undefined;
+	return {
+		version: check.latestVersion,
+		releasedAt: parseIso(check.publishedAt) ?? now,
+		releaseNotesUrl:
+			check.releaseNotesUrl ?? releaseNotesUrl(check.latestVersion),
+		summary: check.summary ?? "",
+	};
+}
+
+/**
  * The available release from the check block, or undefined when the check
  * reports none. Independent of what the pane is currently showing, so a retry
  * offered from a failed run can still open consent.
@@ -134,14 +157,34 @@ export function releaseFromCheck(
 ): ReleaseInfo | undefined {
 	const check = data?.check;
 	if (check?.status !== "ok") return undefined;
-	if (!check.updateAvailable || !check.latestVersion) return undefined;
-	return {
-		version: check.latestVersion,
-		releasedAt: parseIso(check.publishedAt) ?? now,
-		releaseNotesUrl:
-			check.releaseNotesUrl ?? releaseNotesUrl(check.latestVersion),
-		summary: check.summary ?? "",
-	};
+	return releaseFromCheckFields(check, now);
+}
+
+/**
+ * What the last check answered, read off whatever fields survive alongside a
+ * `pending` status — the check block keeps them so the panel can show the
+ * last known answer next to "checking now" (issue #599).
+ */
+function previousFromCheck(
+	check: RemitImapSystemUpdateCheck,
+	now: number,
+): CheckingPrevious | undefined {
+	if (check.error !== undefined) {
+		return {
+			kind: "failed",
+			reason: check.error,
+			lastCheckedAt: parseIso(check.lastCheckedAt),
+		};
+	}
+	const release = releaseFromCheckFields(check, now);
+	if (release) return { kind: "available", release };
+	if (check.lastCheckedAt !== undefined) {
+		return {
+			kind: "upToDate",
+			checkedAt: parseIso(check.lastCheckedAt) ?? now,
+		};
+	}
+	return undefined;
 }
 
 /**
@@ -238,11 +281,21 @@ function terminalSection(
 
 function checkSection(
 	data: RemitImapSystemUpdateResponse,
-	isChecking: boolean,
 	now: number,
 ): SelfUpdateState {
 	const check = data.check;
-	if (isChecking) return { status: "checking", version: data.currentVersion };
+
+	// The server, not a local guess, says a check is in flight — a press that
+	// never reached the seam renders nothing new until it does (issue #599).
+	// Whatever the previous answer left in the same check block is carried
+	// forward, so this never blanks a known answer to show the spinner.
+	if (check.status === "pending") {
+		return {
+			status: "checking",
+			version: data.currentVersion,
+			previous: previousFromCheck(check, now),
+		};
+	}
 
 	if (check.status === "failed") {
 		return {
@@ -412,8 +465,7 @@ function deriveHeld(
 }
 
 function displayFromData(input: DeriveInput): UpdateSurface {
-	const { data, isError, isFetching, dismissedRunId, checkRequested, now } =
-		input;
+	const { data, isError, dismissedRunId, now } = input;
 
 	if (isError) {
 		return {
@@ -464,7 +516,7 @@ function displayFromData(input: DeriveInput): UpdateSurface {
 
 	return {
 		status: "ready",
-		section: checkSection(data, checkRequested && isFetching, now),
+		section: checkSection(data, now),
 		overlay: { kind: "none" },
 	};
 }

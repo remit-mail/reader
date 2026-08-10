@@ -24,9 +24,19 @@ export type UpdatePhase = "preparing" | "restarting" | "reconnecting";
  */
 export type UpdateRunId = string;
 
+/**
+ * What the last check answered, carried alongside a check now in flight so
+ * the pane never blanks a known answer while it waits for a new one (issue
+ * #599). Absent only when no check has ever landed at all.
+ */
+export type CheckingPrevious =
+	| { kind: "upToDate"; checkedAt: number }
+	| { kind: "available"; release: ReleaseInfo }
+	| { kind: "failed"; reason: string; lastCheckedAt?: number };
+
 export type SelfUpdateState =
 	| { status: "upToDate"; version: string; checkedAt: number }
-	| { status: "checking"; version: string }
+	| { status: "checking"; version: string; previous?: CheckingPrevious }
 	/**
 	 * A configured instance whose first automatic check has not landed yet. It is
 	 * its own resting state, never a spinner: the updater checks on a cadence, and

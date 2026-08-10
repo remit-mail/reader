@@ -96,6 +96,12 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     op applySystemUpdate(@body body: ApplyUpdateInput): SystemUpdateResponse;
+
+    @doc("Request an out-of-cadence manifest check. Writes the request to the control seam and returns 202 with the same resource, its check block moved to `pending`. 409 when a check is already pending. Owner-only, and absent (404) unless a manifest URL is configured (RFC 037 D7, D8, issue #599). GET /system/update remains the only read: poll it until the check leaves `pending`.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/check")
+    op requestSystemUpdateCheck(): SystemUpdateResponse;
   }
 
   // ============================================

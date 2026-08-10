@@ -534,6 +534,7 @@ export {
 	type WizardMessage,
 } from "./components/selection-wizard.js";
 export {
+	type CheckingPrevious,
 	demoLogsCommand,
 	demoRelease,
 	demoRunId,

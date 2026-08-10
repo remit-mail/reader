@@ -101,16 +101,26 @@ async function settle(dom: DomHarness): Promise<void> {
 
 /**
  * Mount the provider with a probe on the hook, so a test can drive `install`
- * and read the surface back. The POST answers with a run in flight, which is
- * what the real seam returns the moment it accepts the request.
+ * and read the surface back. The apply POST answers with a run in flight,
+ * which is what the real seam returns the moment it accepts the request; the
+ * check POST answers `pending`, the same way (issue #599). A test that needs
+ * the check POST to answer something else passes `checkResponse`.
  */
 function mountApi(
 	getResponse: () => unknown,
 	children: ReactNode = null,
+	checkResponse: () => unknown = () => ({
+		currentVersion: "0.9.3",
+		check: { status: "pending" },
+		run: null,
+	}),
 ): { dom: DomHarness; api: () => SelfUpdateApi } {
 	http = mockFetch((call) => {
 		if (call.path.endsWith("/system/update") && call.method === "GET") {
 			return getResponse();
+		}
+		if (call.path.endsWith("/system/update/check") && call.method === "POST") {
+			return checkResponse();
 		}
 		return {
 			currentVersion: "0.9.3",
@@ -142,6 +152,18 @@ async function startUpdate(
 ): Promise<void> {
 	await act(async () => {
 		api().install("0.9.4");
+		await dom.flush();
+		await dom.wait(1);
+		await dom.flush();
+	});
+}
+
+async function pressCheck(
+	dom: DomHarness,
+	api: () => SelfUpdateApi,
+): Promise<void> {
+	await act(async () => {
+		api().onCheck();
 		await dom.flush();
 		await dom.wait(1);
 		await dom.flush();
@@ -428,7 +450,118 @@ describe("useSystemUpdate — actions", () => {
 		assert.equal(after.status === "ready" && after.section.status, "upToDate");
 	});
 
-	test("checking and retrying re-poll the surface", async () => {
+	test("pressing check posts a real request and renders the server's pending answer (issue #599)", async () => {
+		const { dom, api } = mountApi(() => ({
+			currentVersion: "0.9.3",
+			check: {
+				status: "ok",
+				updateAvailable: false,
+				lastCheckedAt: "2026-07-20T11:00:00.000Z",
+			},
+			run: null,
+		}));
+		await settle(dom);
+
+		await pressCheck(dom, api);
+
+		assert.equal(http?.to("/system/update/check").length, 1);
+		const surface = api().surface;
+		assert.equal(
+			surface.status === "ready" && surface.section.status,
+			"checking",
+		);
+	});
+
+	test("a check that resolves ok advances the checked-at timestamp the panel renders (issue #599)", async () => {
+		let resolved = false;
+		const { dom, api } = mountApi(() =>
+			resolved
+				? {
+						currentVersion: "0.9.3",
+						check: {
+							status: "ok",
+							updateAvailable: false,
+							lastCheckedAt: "2026-07-20T12:00:00.000Z",
+						},
+						run: null,
+					}
+				: {
+						currentVersion: "0.9.3",
+						check: {
+							status: "ok",
+							updateAvailable: false,
+							lastCheckedAt: "2026-07-20T11:00:00.000Z",
+						},
+						run: null,
+					},
+		);
+		await settle(dom);
+
+		await pressCheck(dom, api);
+		const pending = api().surface;
+		assert.equal(
+			pending.status === "ready" && pending.section.status,
+			"checking",
+		);
+
+		resolved = true;
+		await act(async () => {
+			api().onRetryConnection();
+			await dom.flush();
+			await dom.wait(1);
+			await dom.flush();
+		});
+
+		const surface = api().surface;
+		assert.equal(
+			surface.status === "ready" && surface.section.status === "upToDate"
+				? surface.section.checkedAt
+				: undefined,
+			Date.parse("2026-07-20T12:00:00.000Z"),
+		);
+	});
+
+	test("a check the updater never answers renders the failure sentence, not a silent no-op (#587, #599)", async () => {
+		let expired = false;
+		const { dom, api } = mountApi(() =>
+			expired
+				? {
+						currentVersion: "0.9.3",
+						check: {
+							status: "failed",
+							error:
+								"The updater did not answer the check request before it expired.",
+						},
+						run: null,
+					}
+				: available,
+		);
+		await settle(dom);
+
+		await pressCheck(dom, api);
+
+		expired = true;
+		await act(async () => {
+			api().onRetryConnection();
+			await dom.flush();
+			await dom.wait(1);
+			await dom.flush();
+		});
+
+		const surface = api().surface;
+		assert.equal(
+			surface.status === "ready" && surface.section.status,
+			"checkFailed",
+		);
+		assert.equal(
+			surface.status === "ready" &&
+				surface.section.status === "checkFailed" &&
+				surface.section.reason,
+			"The updater did not answer the check request before it expired.",
+		);
+	});
+
+	test("retrying re-polls the surface", async () => {
 		let calls = 0;
 		const { dom, api } = mountApi(() => {
 			calls += 1;
@@ -437,10 +570,6 @@ describe("useSystemUpdate — actions", () => {
 		await settle(dom);
 		const afterMount = calls;
 
-		await act(async () => {
-			api().onCheck();
-			await dom.flush();
-		});
 		await act(async () => {
 			api().onRetryConnection();
 			await dom.flush();

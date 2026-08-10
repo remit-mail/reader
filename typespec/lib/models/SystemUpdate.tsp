@@ -1,10 +1,11 @@
 namespace RemitImap;
 
-@doc("Outcome of the most recent manifest check. `ok` when a manifest was fetched and validated, `failed` when it could not be, `disabled` when no manifest URL is configured or no check has ever run (RFC 037 D8).")
+@doc("Outcome of the most recent manifest check. `ok` when a manifest was fetched and validated, `failed` when it could not be, `disabled` when no manifest URL is configured or no check has ever run, `pending` while a requested check is in flight (RFC 037 D8, issue #599).")
 enum SystemUpdateCheckStatus {
   ok,
   failed,
   disabled,
+  pending,
 }
 
 @doc("Phase of an update run. Advances through the atomic update sequence; `checking` before anything is pulled, `committing` once the new version has answered the gate (RFC 037 R9, R11).")
@@ -28,7 +29,7 @@ enum SystemUpdateOutcome {
   abandoned,
 }
 
-@doc("The most recent manifest check. The check block is independent of the run block: a failed check never renders as a failed update. On `failed` the version fields are absent and an `error` sentence explains why; on `disabled` only the status is present.")
+@doc("The most recent manifest check. The check block is independent of the run block: a failed check never renders as a failed update. On `failed` the version fields are absent and an `error` sentence explains why; on `disabled` only the status is present. On `pending` every field the previous check reported is carried forward unchanged, so a check in flight never blanks the last known answer (issue #599).")
 model SystemUpdateCheck {
   @doc("Outcome of the most recent manifest check")
   status: SystemUpdateCheckStatus;

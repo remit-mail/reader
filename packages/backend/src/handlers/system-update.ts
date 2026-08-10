@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
+	SystemUpdateCheck,
 	SystemUpdateResponse,
 	SystemUpdateRun,
 } from "@remit/api-openapi-types";
@@ -94,11 +95,28 @@ const checkedVersion = (
 	state?.check.status === "ok" ? state.check.latestVersion : undefined;
 
 /**
- * Write `request.json` atomically with exactly the four fields the seam accepts
- * (#133). The updater resolves the registry and every image reference from the
- * manifest it fetches itself; a request naming any of those is rejected whole,
- * so the backend never writes one. The temp file sits in the same directory as
- * the target for the rename to be atomic on one filesystem.
+ * How long a request left unpicked-up on the control seam still means
+ * something. Past this, nobody is plausibly still waiting on it, and an
+ * updater that finally comes up must not act on it late (issue #587) — the
+ * client's own apply overlay gives up on the same order of time (fifteen
+ * minutes), so this is the window the two sides already agree an answer is
+ * due within.
+ */
+const REQUEST_TTL_MS = 15 * 60 * 1000;
+
+const expiresAt = (requestedAt: string): string =>
+	new Date(Date.parse(requestedAt) + REQUEST_TTL_MS).toISOString();
+
+const isExpired = (isoExpiresAt: string, now: Date = new Date()): boolean =>
+	now.getTime() > Date.parse(isoExpiresAt);
+
+/**
+ * Write `request.json` atomically with exactly the five fields the seam
+ * accepts (#133, #587). The updater resolves the registry and every image
+ * reference from the manifest it fetches itself; a request naming any of
+ * those is rejected whole, so the backend never writes one. The temp file
+ * sits in the same directory as the target for the rename to be atomic on one
+ * filesystem.
  */
 const writeRequest = (request: {
 	runId: string;
@@ -107,10 +125,73 @@ const writeRequest = (request: {
 	requestedBy: string;
 }): void => {
 	const dir = controlDir();
+	const body = { ...request, expiresAt: expiresAt(request.requestedAt) };
 	const tmp = join(dir, `.request.json.${request.runId}.tmp`);
-	writeFileSync(tmp, JSON.stringify(request), { mode: 0o644 });
+	writeFileSync(tmp, JSON.stringify(body), { mode: 0o644 });
 	renameSync(tmp, join(dir, "request.json"));
 };
+
+const CHECK_REQUEST_FILE = "check-request.json";
+
+interface CheckRequest {
+	requestedAt: string;
+	requestedBy: string;
+	expiresAt: string;
+}
+
+/**
+ * Write `check-request.json` atomically, carrying an expiry from the moment
+ * it is written (#587, #599): a check nobody is waiting on any more must not
+ * run — or claim to still be running — whenever the updater next looks.
+ */
+const writeCheckRequest = (request: {
+	requestedAt: string;
+	requestedBy: string;
+}): void => {
+	const dir = controlDir();
+	const body: CheckRequest = {
+		...request,
+		expiresAt: expiresAt(request.requestedAt),
+	};
+	const tmp = join(dir, `.check-request.json.${randomUUID()}.tmp`);
+	writeFileSync(tmp, JSON.stringify(body), { mode: 0o644 });
+	renameSync(tmp, join(dir, CHECK_REQUEST_FILE));
+};
+
+/**
+ * Read `check-request.json` off the control volume. Absent — never asked, or
+ * already consumed by the updater — reads as `null`.
+ */
+const readCheckRequest = (): CheckRequest | null => {
+	let raw: string;
+	try {
+		raw = readFileSync(join(controlDir(), CHECK_REQUEST_FILE), "utf8");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+		throw error;
+	}
+	return JSON.parse(raw) as CheckRequest;
+};
+
+/**
+ * The check request the updater still owes an answer to, or `null` when there
+ * is none — either nothing was asked, or the request has expired. An expired
+ * file left on the seam is not in flight: it does not block a fresh request,
+ * and its poller is told the wait is over rather than left spinning (#599).
+ */
+const pendingCheckRequest = (): CheckRequest | null => {
+	const request = readCheckRequest();
+	if (!request || isExpired(request.expiresAt)) return null;
+	return request;
+};
+
+/** Every field the last check reported, with the status moved to `pending`. */
+const asPendingCheck = (
+	check: SystemUpdateCheck | undefined,
+): SystemUpdateCheck => ({
+	...(check ?? { status: "disabled" }),
+	status: "pending",
+});
 
 /**
  * The resource returned by the POST. The updater has not yet written the
@@ -143,6 +224,20 @@ const requestedResource = (
 	};
 };
 
+/**
+ * The resource returned by the check POST: the check block moved to `pending`
+ * with every other field carried over, so the panel can show the last known
+ * answer alongside "checking now" rather than blanking (#599). The run block
+ * is untouched — a check never starts, ends or interacts with a run.
+ */
+const requestedCheckResource = (
+	state: SystemUpdateResponse | null,
+): SystemUpdateResponse => ({
+	currentVersion: state?.currentVersion ?? UNKNOWN_VERSION,
+	check: asPendingCheck(state?.check),
+	run: state?.run ?? null,
+});
+
 export const SystemOperations: Record<
 	SystemOperationIds,
 	OperationHandler<SystemOperationIds>
@@ -157,7 +252,30 @@ export const SystemOperations: Record<
 		const event = args[0] as APIGatewayProxyEvent;
 		if (!getSubFromEvent(event)) return unauthorized();
 
-		return readState() ?? emptyResource();
+		const resource = readState() ?? emptyResource();
+
+		if (pendingCheckRequest()) {
+			return { ...resource, check: asPendingCheck(resource.check) };
+		}
+
+		// A request sat on the seam past its expiry with nobody having answered
+		// it — the updater is dead, stopped, or has not reached its watch loop.
+		// The wait is reported as over rather than left spinning forever (#599);
+		// the updater reaches the same verdict independently once it does start
+		// (#587), so the two accounts never disagree once it does.
+		if (readCheckRequest()) {
+			return {
+				...resource,
+				check: {
+					...resource.check,
+					status: "failed",
+					error:
+						"The updater did not answer the check request before it expired.",
+				},
+			};
+		}
+
+		return resource;
 	},
 
 	SystemOperations_applySystemUpdate: async (
@@ -198,6 +316,31 @@ export const SystemOperations: Record<
 		return {
 			statusCode: 202,
 			body: requestedResource(state, runId, targetVersion, requestedAt),
+		} as unknown as APIGatewayProxyResult;
+	},
+
+	SystemOperations_requestSystemUpdateCheck: async (
+		_context: Context,
+		...args: unknown[]
+	): Promise<SystemUpdateResponse | APIGatewayProxyResult> => {
+		const offSurface = guardManifestConfigured();
+		if (offSurface) return offSurface;
+
+		const event = args[0] as APIGatewayProxyEvent;
+		const sub = getSubFromEvent(event);
+		if (!sub) return unauthorized();
+
+		if (pendingCheckRequest()) {
+			throw new ConflictError("A check is already in progress.");
+		}
+
+		const state = readState();
+		const requestedAt = new Date().toISOString();
+		writeCheckRequest({ requestedAt, requestedBy: sub });
+
+		return {
+			statusCode: 202,
+			body: requestedCheckResource(state),
 		} as unknown as APIGatewayProxyResult;
 	},
 };

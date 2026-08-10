@@ -150,6 +150,41 @@ export const AdvancedCheckFailed: Story = {
 	),
 };
 
+/**
+ * Pressing "Check now" with a previous answer on record: the pane keeps
+ * showing it rather than blanking to a bare spinner (issue #599).
+ */
+export const AdvancedCheckingWithPreviousAnswer: Story = {
+	render: () => (
+		<AdvancedPage
+			state={{
+				status: "checking",
+				version: CURRENT,
+				previous: { kind: "available", release: demoRelease },
+			}}
+		/>
+	),
+};
+
+/**
+ * The updater was dead, stopped, or never reached its watch loop, and the
+ * request expired unpicked-up. The wait ends in a stated failure, never an
+ * eternal spinner (issue #599; same fix family as #587).
+ */
+export const AdvancedCheckFailedUpdaterNeverAnswered: Story = {
+	render: () => (
+		<AdvancedPage
+			state={{
+				status: "checkFailed",
+				version: CURRENT,
+				reason:
+					"The updater did not answer the check request before it expired.",
+				lastCheckedAt: NOW - 3 * 24 * 60 * 60_000,
+			}}
+		/>
+	),
+};
+
 export const AdvancedSucceeded: Story = {
 	render: () => (
 		<AdvancedPage

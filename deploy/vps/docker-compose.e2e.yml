@@ -1,12 +1,19 @@
 # Overlay that turns the reference SQLite self-host stack into the target of the
-# black-box e2e suite (`npm run e2e`). Two changes and nothing else — the point
-# is that the suite tests the published images as an operator gets them:
+# black-box e2e suite (`npm run e2e`). The point is that the suite tests the
+# published images as an operator gets them, plus what only this stack needs to
+# reach a dormant backend path:
 #
 #   1. a Dovecot IMAP server on the compose network, so a real mailbox exists to
 #      sync from (docker-compose.dovecot.yml, shared with the source-built dev
 #      lane);
 #   2. the edge moved off :80/:443 onto a loopback port, so the suite can run
 #      next to anything else on the box.
+#   3. a static manifest server, so the self-update check-request loop (issue
+#      #599) has a real manifest to fetch — REMIT_UPDATE_MANIFEST_URL in
+#      e2e.env points at it. e2e-manifest/ starts empty (a 404, so the check
+#      starts in a known failed state); the suite writes and removes the real
+#      manifest.json itself. Nothing here ever presses install, so a fixture
+#      release is never pulled.
 #
 # Always used together with the files it overlays:
 #   docker compose -f docker-compose.sqlite.yml \
@@ -29,8 +36,34 @@ services:
     depends_on:
       dovecot:
         condition: service_healthy
+      manifest:
+        condition: service_started
 
   imap-worker:
     depends_on:
       dovecot:
         condition: service_healthy
+
+  updater:
+    depends_on:
+      manifest:
+        condition: service_started
+    # The entrypoint's watch loop reads this from its own process environment,
+    # never from the mounted .env file (unlike the wrapper's own settings,
+    # which fall back to reading .env off the mount) — so it needs stating
+    # here, interpolated from the same e2e.env a pressed check should not have
+    # to wait five real seconds to be noticed by.
+    environment:
+      REMIT_UPDATE_WATCH_INTERVAL: ${REMIT_UPDATE_WATCH_INTERVAL:-5}
+
+  # Serves the one file the suite's manifest URL names (e2e-manifest/serve.mjs)
+  # — no image to build, no port published: only the compose network reaches
+  # it, the same as the manifest host a real deployment's updater fetches
+  # from. Alpine's busybox ships no `httpd` applet, hence Node over a shell
+  # one-liner.
+  manifest:
+    image: docker.io/library/node:24-slim
+    volumes:
+      - ./e2e-manifest/serve.mjs:/serve.mjs:ro
+      - ./e2e-manifest/data:/www:ro
+    command: ["node", "/serve.mjs"]

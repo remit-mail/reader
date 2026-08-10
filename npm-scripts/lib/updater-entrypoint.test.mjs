@@ -248,6 +248,35 @@ describe("the updater entrypoint", () => {
 		assert.ok(box.calls().some((c) => c.startsWith("update helper=")));
 	});
 
+	it("serves a check-request without waiting on the check cadence (issue #599)", async () => {
+		// The "check now" button's request must not sit until the next scheduled
+		// check, which here is set far enough out that only the immediate trigger
+		// could produce a second check this soon.
+		const box = sandbox();
+		writeFileSync(
+			join(box.control, "check-request.json"),
+			JSON.stringify({ requestedAt: "2026-01-01T00:00:00Z" }),
+		);
+		const child = spawn("sh", [ENTRYPOINT], {
+			env: { ...box.env, REMIT_UPDATE_CHECK_INTERVAL: "86400" },
+			detached: true,
+			stdio: "ignore",
+		});
+		try {
+			await waitFor(
+				() =>
+					box.calls().filter((c) => c.startsWith("update --check helper="))
+						.length >= 2,
+			);
+		} finally {
+			process.kill(-child.pid, "SIGKILL");
+		}
+		assert.ok(
+			box.calls().filter((c) => c.startsWith("update --check helper="))
+				.length >= 2,
+		);
+	});
+
 	it("stays idle when there is no request, and does not update", async () => {
 		const box = sandbox();
 		const child = spawn("sh", [ENTRYPOINT], {

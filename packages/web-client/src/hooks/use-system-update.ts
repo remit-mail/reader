@@ -12,12 +12,14 @@
  * nothing and takes the server's answer as it finds it.
  *
  * Polling follows the run: every 30 seconds while idle, every 5 seconds while a
- * run is in flight or this page is waiting on one it started.
+ * run is in flight, this page is waiting on one it started, or a check it
+ * asked for is still pending (issue #599).
  */
 import {
 	systemOperationsApplySystemUpdateMutation,
 	systemOperationsGetSystemUpdateOptions,
 	systemOperationsGetSystemUpdateQueryKey,
+	systemOperationsRequestSystemUpdateCheckMutation,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type {
 	RemitImapSystemUpdateResponse,
@@ -55,7 +57,11 @@ export interface SelfUpdateApi {
 	currentVersion: string | undefined;
 	/** The available release, for the consent dialog. */
 	release: ReleaseInfo | undefined;
-	/** Refetch the surface, showing a `checking` pane until it settles. */
+	/**
+	 * Ask the updater for a check off the manifest, rather than waiting on its
+	 * own cadence (issue #599). Renders `checking` from the server's own
+	 * `pending` answer, and polls until the check leaves it.
+	 */
 	onCheck: () => void;
 	/** Request a specific release — consent has been given. */
 	install: (targetVersion: string) => void;
@@ -68,11 +74,12 @@ export interface SelfUpdateApi {
 function pollInterval(
 	error: unknown,
 	run: RemitImapSystemUpdateRun | null,
+	checking: boolean,
 	hasHeldRun: boolean,
 ): number | false {
 	if (isSurfaceAbsent(error) && !hasHeldRun) return false;
 	const inFlight = run !== null && run.outcome === null;
-	if (hasHeldRun || inFlight) return RUN_POLL_MS;
+	if (hasHeldRun || inFlight || checking) return RUN_POLL_MS;
 	return IDLE_POLL_MS;
 }
 
@@ -80,7 +87,6 @@ export function useSystemUpdate(): SelfUpdateApi {
 	const queryClient = useQueryClient();
 	const [held, setHeld] = useState<HeldRun | null>(null);
 	const [dismissedRunId, setDismissedRunId] = useState<string | null>(null);
-	const [checkRequested, setCheckRequested] = useState(false);
 
 	const heldRef = useRef(held);
 	heldRef.current = held;
@@ -93,6 +99,7 @@ export function useSystemUpdate(): SelfUpdateApi {
 			pollInterval(
 				query.state.error,
 				query.state.data?.run ?? null,
+				query.state.data?.check.status === "pending",
 				heldRef.current !== null,
 			),
 	});
@@ -101,10 +108,8 @@ export function useSystemUpdate(): SelfUpdateApi {
 		data: query.data,
 		isError: query.isError,
 		error: query.error,
-		isFetching: query.isFetching,
 		held,
 		dismissedRunId,
-		checkRequested,
 		now: Date.now(),
 	});
 
@@ -120,16 +125,26 @@ export function useSystemUpdate(): SelfUpdateApi {
 		if (releaseHeld) setHeld((current) => (current === null ? current : null));
 	}, [releaseHeld]);
 
-	useEffect(() => {
-		if (checkRequested && !query.isFetching) setCheckRequested(false);
-	}, [checkRequested, query.isFetching]);
-
 	const { refetch } = query;
 
+	const checkMutation = useMutation({
+		...systemOperationsRequestSystemUpdateCheckMutation(),
+		meta: { softError: true },
+		onSuccess: (response: RemitImapSystemUpdateResponse) => {
+			queryClient.setQueryData(
+				systemOperationsGetSystemUpdateQueryKey(),
+				response,
+			);
+		},
+		onError: () => {
+			void refetch();
+		},
+	});
+
+	const { mutate: mutateCheck } = checkMutation;
 	const onCheck = useCallback(() => {
-		setCheckRequested(true);
-		void refetch();
-	}, [refetch]);
+		mutateCheck({});
+	}, [mutateCheck]);
 
 	const onRetryConnection = useCallback(() => {
 		void refetch();

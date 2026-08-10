@@ -53,6 +53,31 @@ export const Checking: Story = {
 };
 
 /**
+ * Pressing check while the previous answer was "up to date". The pane keeps
+ * saying so while the new answer is in flight, rather than blanking to a bare
+ * spinner (issue #599).
+ */
+export const CheckingWithPreviousUpToDate: Story = {
+	args: withState({
+		status: "checking",
+		version: CURRENT,
+		previous: { kind: "upToDate", checkedAt: NOW - 21 * 60_000 },
+	}),
+};
+
+/**
+ * Pressing check again after an update was already found. The offer stays
+ * visible under the spinner instead of disappearing while the re-check runs.
+ */
+export const CheckingWithPreviousAvailable: Story = {
+	args: withState({
+		status: "checking",
+		version: CURRENT,
+		previous: { kind: "available", release: demoRelease },
+	}),
+};
+
+/**
  * A fresh, configured instance before its first automatic check has landed. The
  * honest resting state, not a spinner: it says a check has not run and that Remit
  * checks on its own, and offers a manual check. This is what every install shows
@@ -87,6 +112,29 @@ export const CheckFailedOffline: Story = {
 		reason: "No route to github.com — the server has no outbound network.",
 		lastCheckedAt: NOW - 3 * 24 * 60 * 60_000,
 	}),
+};
+
+/**
+ * A press that reached the backend but never got an answer: the updater was
+ * dead, stopped, or never reached its watch loop, and the request expired
+ * unpicked-up (issue #599, and the same defect as #587 — a request nobody is
+ * waiting on any more does not sit forever, on either side of the seam).
+ */
+export const CheckFailedUpdaterNeverAnswered: Story = {
+	args: withState({
+		status: "checkFailed",
+		version: CURRENT,
+		reason: "The updater did not answer the check request before it expired.",
+		lastCheckedAt: NOW - 3 * 24 * 60 * 60_000,
+	}),
+};
+
+/**
+ * The moment a check resolves: the timestamp reflects the press that just
+ * completed, not whatever the updater's own cadence last did (issue #599).
+ */
+export const CheckedJustNow: Story = {
+	args: withState({ status: "upToDate", version: CURRENT, checkedAt: NOW }),
 };
 
 /**

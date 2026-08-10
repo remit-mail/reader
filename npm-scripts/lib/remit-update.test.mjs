@@ -615,7 +615,7 @@ describe("the control seam", () => {
 		assert.ok(!box.log().includes("compose stop"));
 	});
 
-	it("takes a request carrying only the four fields the backend writes", () => {
+	it("takes a request carrying only the five fields the backend writes", () => {
 		const box = sandbox({ scenario: { probe: "ok" } });
 		writeFileSync(
 			join(box.state, "request.json"),
@@ -624,10 +624,55 @@ describe("the control seam", () => {
 				targetVersion: "v1.5.0",
 				requestedAt: "2026-07-20T08:00:00Z",
 				requestedBy: "owner@example.test",
+				expiresAt: "2099-01-01T00:00:00Z",
 			}),
 		);
 		box.run(["update"]);
 		assert.equal(box.stateJson().run.outcome, "succeeded");
+	});
+
+	it("refuses a request past its expiry, reporting it rather than installing late (#587)", () => {
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({
+				runId: "r-stale",
+				targetVersion: "v1.5.0",
+				requestedAt: "2020-01-01T00:00:00Z",
+				requestedBy: "owner@example.test",
+				expiresAt: "2020-01-01T00:15:00Z",
+			}),
+		);
+		const result = box.run(["update"]);
+		assert.notEqual(result.status, 0);
+		assert.ok(!box.log().includes("compose pull"));
+		assert.ok(!box.log().includes("compose stop"));
+		const state = box.stateJson();
+		assert.equal(state.run.outcome, "abandoned");
+		assert.equal(state.run.runId, "r-stale");
+		assert.match(state.run.message, /expired/);
+		// Consumed, not retried forever, the same way any other refusal is.
+		assert.throws(() => readFileSync(join(box.state, "request.json")));
+	});
+
+	it("treats a request with no expiry field at all as expired, not open-ended (#587)", () => {
+		// A request predating this fix, or one from a compromised/older writer,
+		// carries no expiresAt. Treated as expired rather than as an open-ended
+		// pass — the safe default is to refuse and report, never to install.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({
+				runId: "r-no-expiry",
+				targetVersion: "v1.5.0",
+				requestedAt: "2026-07-20T08:00:00Z",
+				requestedBy: "owner@example.test",
+			}),
+		);
+		const result = box.run(["update"]);
+		assert.notEqual(result.status, 0);
+		assert.ok(!box.log().includes("compose pull"));
+		assert.equal(box.stateJson().run.outcome, "abandoned");
 	});
 
 	it("rejects a file naming a registry, an image or a digest, and does nothing", () => {
@@ -689,7 +734,10 @@ describe("the control seam", () => {
 		mkdirSync(control, { recursive: true });
 		writeFileSync(
 			join(control, "request.json"),
-			JSON.stringify({ targetVersion: "v1.5.0" }),
+			JSON.stringify({
+				targetVersion: "v1.5.0",
+				expiresAt: "2099-01-01T00:00:00Z",
+			}),
 		);
 		const result = box.run(["update"], {
 			...box.env,
@@ -742,6 +790,86 @@ describe("the control seam", () => {
 		);
 		box.run(["update"]);
 		assert.throws(() => readFileSync(join(box.state, "request.json")));
+	});
+});
+
+describe("the check-request control seam (issue #599)", () => {
+	it("answers a fresh check-request with a real check, and consumes the file", () => {
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "check-request.json"),
+			JSON.stringify({
+				requestedAt: "2026-07-20T08:00:00Z",
+				requestedBy: "owner@example.test",
+				expiresAt: "2099-01-01T00:00:00Z",
+			}),
+		);
+		const result = box.run(["update", "--check"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().check.status, "ok");
+		assert.throws(() => readFileSync(join(box.state, "check-request.json")));
+	});
+
+	it("reports an expired check-request as failed instead of answering it late (#587, #599)", () => {
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "check-request.json"),
+			JSON.stringify({
+				requestedAt: "2020-01-01T00:00:00Z",
+				requestedBy: "owner@example.test",
+				expiresAt: "2020-01-01T00:15:00Z",
+			}),
+		);
+		const result = box.run(["update", "--check"]);
+		assert.equal(result.status, 0, result.stderr);
+		const check = box.stateJson().check;
+		assert.equal(check.status, "failed");
+		assert.match(check.error, /expired/);
+		assert.throws(() => readFileSync(join(box.state, "check-request.json")));
+	});
+
+	it("does not overwrite the expiry report with a fresh fetch on the same invocation", () => {
+		// The whole point of catching the expiry here: a fetch run right after
+		// would immediately erase the report this same call just wrote.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "check-request.json"),
+			JSON.stringify({
+				requestedAt: "2020-01-01T00:00:00Z",
+				requestedBy: "owner@example.test",
+				expiresAt: "2020-01-01T00:15:00Z",
+			}),
+		);
+		box.run(["update", "--check"]);
+		assert.equal(box.stateJson().check.status, "failed");
+		assert.equal(box.stateJson().check.latestVersion, undefined);
+	});
+
+	it("discards a malformed check-request without touching the routine check", () => {
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "check-request.json"),
+			JSON.stringify({ requestedAt: "2026-07-20T08:00:00Z", extra: "field" }),
+		);
+		const result = box.run(["update", "--check"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().check.status, "ok");
+		assert.throws(() => readFileSync(join(box.state, "check-request.json")));
+	});
+
+	it("leaves a plain apply run unaffected by an unrelated check-request", () => {
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "check-request.json"),
+			JSON.stringify({
+				requestedAt: "2026-07-20T08:00:00Z",
+				requestedBy: "owner@example.test",
+				expiresAt: "2099-01-01T00:00:00Z",
+			}),
+		);
+		const result = box.run(["update"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "succeeded");
 	});
 });
 

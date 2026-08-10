@@ -86,11 +86,24 @@ const applySystemUpdate =
 		event: APIGatewayProxyEvent,
 	) => Promise<unknown>;
 
+const requestSystemUpdateCheck =
+	SystemOperations.SystemOperations_requestSystemUpdateCheck as unknown as (
+		context: Context,
+		event: APIGatewayProxyEvent,
+	) => Promise<unknown>;
+
 const getUpdate = (event: APIGatewayProxyEvent) =>
 	getSystemUpdate({} as unknown as Context, event);
 
 const applyUpdate = (targetVersion: string, event: APIGatewayProxyEvent) =>
 	applySystemUpdate(postContext(targetVersion), event);
+
+const requestCheck = (event: APIGatewayProxyEvent) =>
+	requestSystemUpdateCheck({} as unknown as Context, event);
+
+const writeCheckRequestFile = (fields: Record<string, unknown>): void => {
+	writeFileSync(join(controlDir, "check-request.json"), JSON.stringify(fields));
+};
 
 const hasStatus = (value: unknown, code: number): boolean =>
 	typeof value === "object" &&
@@ -320,7 +333,7 @@ describe("POST /system/update", () => {
 		assert.ok(result.body.run.runId.length > 0);
 	});
 
-	it("writes request.json with exactly the four seam fields and nothing else", async () => {
+	it("writes request.json with exactly the five seam fields and nothing else", async () => {
 		writeState(okState);
 
 		await applyUpdate("v1.5.0", buildEvent(USER));
@@ -330,6 +343,7 @@ describe("POST /system/update", () => {
 		);
 
 		assert.deepEqual(Object.keys(request).sort(), [
+			"expiresAt",
 			"requestedAt",
 			"requestedBy",
 			"runId",
@@ -340,5 +354,166 @@ describe("POST /system/update", () => {
 		for (const forbidden of ["registry", "image", "digest"]) {
 			assert.ok(!(forbidden in request));
 		}
+	});
+
+	it("gives the request an expiry after its requestedAt (#587)", async () => {
+		writeState(okState);
+
+		await applyUpdate("v1.5.0", buildEvent(USER));
+
+		const request = JSON.parse(
+			readFileSync(join(controlDir, "request.json"), "utf8"),
+		);
+
+		assert.ok(Date.parse(request.expiresAt) > Date.parse(request.requestedAt));
+	});
+});
+
+describe("POST /system/update/check", () => {
+	it("returns 404 when no manifest URL is configured", async () => {
+		delete process.env.REMIT_UPDATE_MANIFEST_URL;
+
+		const result = await requestCheck(buildEvent(USER));
+
+		assert.ok(hasStatus(result, 404));
+	});
+
+	it("returns 401 without writing check-request.json when the caller is not authenticated", async () => {
+		writeState(okState);
+
+		const result = await requestCheck(buildEvent());
+
+		assert.ok(hasStatus(result, 401));
+		assert.throws(() =>
+			readFileSync(join(controlDir, "check-request.json"), "utf8"),
+		);
+	});
+
+	it("returns 202 and writes check-request.json with the caller's identity and an expiry", async () => {
+		writeState(okState);
+
+		const result = (await requestCheck(
+			buildEvent("another-signed-in-user"),
+		)) as { statusCode: number };
+
+		assert.equal(result.statusCode, 202);
+		const request = JSON.parse(
+			readFileSync(join(controlDir, "check-request.json"), "utf8"),
+		);
+		assert.equal(request.requestedBy, "another-signed-in-user");
+		assert.ok(Date.parse(request.expiresAt) > Date.parse(request.requestedAt));
+	});
+
+	it("returns the check block moved to pending, keeping the rest of the state", async () => {
+		writeState(okState);
+
+		const result = (await requestCheck(buildEvent(USER))) as {
+			statusCode: number;
+			body: {
+				currentVersion: string;
+				check: Record<string, unknown>;
+				run: unknown;
+			};
+		};
+
+		assert.equal(result.statusCode, 202);
+		assert.equal(result.body.currentVersion, "v1.4.1");
+		assert.equal(result.body.check.status, "pending");
+		assert.equal(result.body.check.latestVersion, "v1.5.0");
+		assert.equal(result.body.check.lastCheckedAt, "2026-07-20T08:00:00Z");
+		assert.equal(result.body.run, null);
+	});
+
+	it("returns pending with only a status when no check has ever run", async () => {
+		const result = (await requestCheck(buildEvent(USER))) as {
+			body: { check: Record<string, unknown> };
+		};
+
+		assert.deepEqual(result.body.check, { status: "pending" });
+	});
+
+	it("returns 409 when a check is already pending", async () => {
+		writeState(okState);
+		writeCheckRequestFile({
+			requestedAt: "2026-07-20T08:00:00Z",
+			requestedBy: USER,
+			expiresAt: "2099-01-01T00:00:00Z",
+		});
+
+		await assert.rejects(requestCheck(buildEvent(USER)), {
+			statusCode: 409,
+		});
+	});
+
+	it("allows a fresh request once the pending one has expired", async () => {
+		writeState(okState);
+		writeCheckRequestFile({
+			requestedAt: "2020-01-01T00:00:00Z",
+			requestedBy: USER,
+			expiresAt: "2020-01-01T00:15:00Z",
+		});
+
+		const result = (await requestCheck(buildEvent(USER))) as {
+			statusCode: number;
+		};
+
+		assert.equal(result.statusCode, 202);
+		const request = JSON.parse(
+			readFileSync(join(controlDir, "check-request.json"), "utf8"),
+		);
+		assert.ok(Date.parse(request.expiresAt) > Date.now());
+	});
+});
+
+describe("GET /system/update — a pending check", () => {
+	it("reports the check as pending while the request is unexpired", async () => {
+		writeState(okState);
+		writeCheckRequestFile({
+			requestedAt: new Date().toISOString(),
+			requestedBy: USER,
+			expiresAt: new Date(Date.now() + 60_000).toISOString(),
+		});
+
+		const result = (await getUpdate(buildEvent(USER))) as {
+			check: Record<string, unknown>;
+		};
+
+		assert.equal(result.check.status, "pending");
+		// The last known answer is carried alongside "checking now" (#599).
+		assert.equal(result.check.latestVersion, "v1.5.0");
+		assert.equal(result.check.lastCheckedAt, "2026-07-20T08:00:00Z");
+	});
+
+	it("never claims pending forever: an expired, unanswered request reports failed (#587, #599)", async () => {
+		writeState(okState);
+		writeCheckRequestFile({
+			requestedAt: "2020-01-01T00:00:00Z",
+			requestedBy: USER,
+			expiresAt: "2020-01-01T00:15:00Z",
+		});
+
+		const result = (await getUpdate(buildEvent(USER))) as {
+			check: { status: string; error?: string };
+		};
+
+		assert.equal(result.check.status, "failed");
+		assert.match(result.check.error ?? "", /did not answer/);
+	});
+
+	it("stops reporting pending once the updater has consumed the request", async () => {
+		writeState(okState);
+		// The updater deletes check-request.json once it has answered; a stale
+		// state.json check block from before the request is what the caller
+		// would still see if the seam file were the only source of truth.
+		writeState({
+			...okState,
+			check: { ...okState.check, updateAvailable: false },
+		});
+
+		const result = (await getUpdate(buildEvent(USER))) as {
+			check: { status: string };
+		};
+
+		assert.equal(result.check.status, "ok");
 	});
 });
