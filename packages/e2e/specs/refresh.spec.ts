@@ -49,6 +49,11 @@ test.describe("Mail refresh (#582)", () => {
 		page,
 		run,
 	}) => {
+		// A first paint, a full sync round and the cleanup's wait on Dovecot all
+		// come out of one budget, and the suite's 60s default does not hold all
+		// three when the round is slow.
+		test.setTimeout(180_000);
+
 		await page.goto(`/mail/${run.inboxId}`);
 		await expect(messageRow(page, run.seededSubjects[0])).toBeVisible({
 			timeout: 20_000,
@@ -79,8 +84,11 @@ test.describe("Mail refresh (#582)", () => {
 		run,
 	}) => {
 		// The poll this asserts on runs once a minute; nothing in this test may
-		// go faster than that without lying about what it proves.
-		test.setTimeout(120_000);
+		// go faster than that without lying about what it proves. What it costs
+		// instead is time: the waits below add up to two poll periods plus the
+		// sync round on either side of them, and the cleanup this test shares a
+		// budget with waits on Dovecot too.
+		test.setTimeout(240_000);
 
 		await page.goto(`/mail/${run.inboxId}`);
 		await expect(messageRow(page, run.seededSubjects[0])).toBeVisible({
@@ -103,9 +111,14 @@ test.describe("Mail refresh (#582)", () => {
 
 		// Nothing in the tab reloaded or was clicked between the append above
 		// and this assertion — the once-a-minute poll is the only thing that
-		// can have noticed the mailbox moved.
+		// can have noticed the mailbox moved. The window is two of those
+		// periods wide because the tab's poll and the append are unrelated
+		// clocks: mail landing a moment after one tick waits out the whole of
+		// the next, and the tick that lands mid-round can read totals the round
+		// has not written yet. One period holds only when the timing is kind,
+		// which is a coin toss dressed up as an assertion.
 		await expect(listRefreshButton(page)).toHaveAccessibleName(/new mail/, {
-			timeout: 75_000,
+			timeout: 135_000,
 		});
 		await expect(messageRow(page, subject)).toHaveCount(0);
 
