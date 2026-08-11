@@ -33,21 +33,17 @@ writeFileSync(join(shadow, "index.aff"), "SET UTF-8\n");
 writeFileSync(join(shadow, "index.dic"), "1\nword\n");
 
 const engineDir = mkdtempSync(join(tmpdir(), "spellcheck-engine-"));
-for (const name of ["hunspell.wasm", "hunspell.mjs", "LICENSE", "license.hunspell"]) {
+for (const name of [
+	"hunspell.wasm",
+	"hunspell.mjs",
+	"LICENSE",
+	"license.hunspell",
+]) {
 	writeFileSync(join(engineDir, name), "stub");
 }
 process.env.REMIT_SPELLCHECK_ENGINE_DIR = engineDir;
 
 const { stageSpellcheck } = await import("./vite-plugin.ts");
-
-const thrownBy = (work: () => unknown): Error => {
-	try {
-		work();
-	} catch (error) {
-		return error as Error;
-	}
-	throw new Error("nothing was thrown");
-};
 
 after(() => {
 	rmSync(shadow, { recursive: true, force: true });
@@ -57,31 +53,36 @@ after(() => {
 
 describe("a dictionary that ships no licence text", () => {
 	it("stops the build rather than staging it", () => {
-		assert.throws(() => stageSpellcheck("en-GB", "/spellcheck/"));
+		assert.throws(() => stageSpellcheck("en-GB", "/"));
 	});
 
 	// The remedy is the whole message: which directory, and why a missing
 	// licence file is fatal rather than something the notice can paper over.
 	it("names the directory and what is wrong with it", () => {
-		const failed = thrownBy(() => stageSpellcheck("en-GB", "/spellcheck/"));
-		assert.ok(
-			failed.message.includes(shadow),
-			`the failure does not name the dictionary directory: ${failed.message}`,
+		assert.throws(
+			() => stageSpellcheck("en-GB", "/"),
+			(failed: Error) => {
+				assert.ok(
+					failed.message.includes(shadow),
+					`the failure does not name the dictionary directory: ${failed.message}`,
+				);
+				assert.match(failed.message, /licence/i);
+				assert.match(failed.message, /NOTICE\.txt/);
+				return true;
+			},
 		);
-		assert.match(failed.message, /licence/i);
-		assert.match(failed.message, /NOTICE\.txt/);
 	});
 
 	// The languages before the broken one must not reach the output either: a
 	// half-staged tree with a complete-looking notice is worse than no build.
 	it("takes the whole build with it, not just that language", () => {
-		assert.throws(() => stageSpellcheck("en,en-GB", "/spellcheck/"));
+		assert.throws(() => stageSpellcheck("en,en-GB", "/"));
 	});
 });
 
 describe("a dictionary that does ship one", () => {
 	it("stages the licence text beside the files it covers", () => {
-		const build = stageSpellcheck("en", "/spellcheck/");
+		const build = stageSpellcheck("en", "/");
 		const licence = build.files.find(
 			(file) => file.path === "dictionaries/en/LICENSE",
 		);

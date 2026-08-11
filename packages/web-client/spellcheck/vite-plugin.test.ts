@@ -38,24 +38,12 @@ for (const [name, body] of Object.entries(ENGINE_FILES)) {
 process.env.REMIT_SPELLCHECK_ENGINE_DIR = engineDir;
 const { stageSpellcheck } = await import("./vite-plugin.ts");
 
-const BASE = "/spellcheck/";
-
-const staged = (requested: string) => stageSpellcheck(requested, BASE);
-
-const thrownBy = (work: () => unknown): Error => {
-	try {
-		work();
-	} catch (error) {
-		return error as Error;
-	}
-	throw new Error("nothing was thrown");
-};
+const staged = (requested: string) => stageSpellcheck(requested, "/");
 
 const fileNamed = (
 	build: ReturnType<typeof staged>,
 	path: string,
-): Buffer | undefined =>
-	build.files.find((file) => file.path === path)?.source;
+): Buffer | undefined => build.files.find((file) => file.path === path)?.source;
 
 const textOf = (build: ReturnType<typeof staged>, path: string): string => {
 	const found = fileNamed(build, path);
@@ -102,7 +90,20 @@ describe("what a build stages", () => {
 			"license.hunspell",
 			"manifest.json",
 		]);
-		assert.equal(build.base, BASE);
+	});
+
+	// Every path the browser fetches is one of a dozen fixed names, so the only
+	// thing that can carry a version is the directory holding them. An operator
+	// who rebuilds with a different set, or a dictionary that moves upstream,
+	// must land under a different one or the old bytes stay cached.
+	it("names the staged directory after what is in it", () => {
+		const dutch = staged("en,nl");
+		assert.match(dutch.directory, /^spellcheck\/[0-9a-f]{16}\/$/);
+		assert.equal(dutch.base, `/${dutch.directory}`);
+		assert.equal(dutch.servePath, `/${dutch.directory}`);
+
+		assert.notEqual(staged("en").directory, dutch.directory);
+		assert.equal(staged("nl,en").directory, dutch.directory);
 	});
 
 	// The switch: nothing staged, no engine read, no notice to be wrong. The
@@ -113,7 +114,8 @@ describe("what a build stages", () => {
 		const build = staged("");
 		assert.deepEqual(build.files, []);
 		assert.deepEqual(build.languages, []);
-		assert.equal(build.base, BASE);
+		assert.equal(build.directory, "");
+		assert.equal(build.base, "");
 	});
 
 	// GPL and MPL correspondence is discharged by the served file being the
@@ -170,7 +172,7 @@ describe("NOTICE.txt", () => {
 	it("points every language at a licence text the image ships", () => {
 		const build = staged("en,en-GB,nl");
 		const notice = textOf(build, "NOTICE.txt");
-		const referenced = [...notice.matchAll(/Licence text: spellcheck\/(\S+)/g)]
+		const referenced = [...notice.matchAll(/Licence text: (\S+?),/g)]
 			.map((match) => match[1])
 			.sort();
 		assert.deepEqual(referenced, [
@@ -189,9 +191,7 @@ describe("NOTICE.txt", () => {
 	it("states each licence, its author and the version that was staged", () => {
 		const build = staged("nl");
 		const notice = textOf(build, "NOTICE.txt");
-		const [dutch] = build.languages.filter(
-			(language) => language.tag === "nl",
-		);
+		const [dutch] = build.languages.filter((language) => language.tag === "nl");
 		assert.match(notice, /nl — OpenTaal/);
 		assert.ok(notice.includes(`Licence: ${dutch.licence}`));
 		assert.ok(notice.includes(`Authors: ${dutch.authors}`));
@@ -209,7 +209,15 @@ describe("NOTICE.txt", () => {
 	it("carries the engine's own provenance, checksum included", () => {
 		const notice = textOf(staged("en"), "NOTICE.txt");
 		const pins = readFileSync(
-			join(import.meta.dirname, "..", "..", "..", "docker", "hunspell", "pin.env"),
+			join(
+				import.meta.dirname,
+				"..",
+				"..",
+				"..",
+				"docker",
+				"hunspell",
+				"pin.env",
+			),
 			"utf8",
 		);
 		const version = /HUNSPELL_VERSION=(\S+)/.exec(pins)?.[1];
@@ -227,8 +235,8 @@ describe("the manifest the app reads", () => {
 		assert.equal(manifest.engine.project, "Hunspell");
 		assert.equal(manifest.engine.licence, "MPL-1.1");
 		assert.deepEqual(
-			manifest.languages.map((language: { licenceFile: string }) =>
-				language.licenceFile,
+			manifest.languages.map(
+				(language: { licenceFile: string }) => language.licenceFile,
 			),
 			["dictionaries/en/LICENSE", "dictionaries/nl/LICENSE"],
 		);
@@ -245,8 +253,13 @@ describe("the manifest the app reads", () => {
 // the language somebody asked for.
 describe("a language nobody can ship", () => {
 	it("stops the build and names the tag", () => {
-		const failed = thrownBy(() => staged("en,klingon"));
-		assert.match(failed.message, /"klingon"/);
-		assert.match(failed.message, /REMIT_SPELLCHECK_LANGUAGES/);
+		assert.throws(
+			() => staged("en,klingon"),
+			(failed: Error) => {
+				assert.match(failed.message, /"klingon"/);
+				assert.match(failed.message, /REMIT_SPELLCHECK_LANGUAGES/);
+				return true;
+			},
+		);
 	});
 });

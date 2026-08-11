@@ -88,12 +88,16 @@ const spellcheckAssets = (files: readonly string[]): readonly string[] =>
 describe("a build that carries no dictionaries", () => {
 	let files: readonly string[] = [];
 
-	before(() => {
-		files = build("");
-	}, { timeout: BUILD_TIMEOUT_MS });
+	before(
+		() => {
+			files = build("");
+		},
+		{ timeout: BUILD_TIMEOUT_MS },
+	);
 
 	after(() => {
-		for (const outDir of outputs) rmSync(outDir, { recursive: true, force: true });
+		for (const outDir of outputs)
+			rmSync(outDir, { recursive: true, force: true });
 	});
 
 	it("is still a web client", () => {
@@ -116,22 +120,35 @@ describe("a build that carries no dictionaries", () => {
 describe("a build that carries one", () => {
 	let files: readonly string[] = [];
 
-	before(() => {
-		files = build("nl");
-	}, { timeout: BUILD_TIMEOUT_MS });
+	before(
+		() => {
+			files = build("nl");
+		},
+		{ timeout: BUILD_TIMEOUT_MS },
+	);
 
 	it("stages the engine, the dictionary and the notice", () => {
-		for (const path of [
-			"spellcheck/hunspell.wasm",
-			"spellcheck/hunspell.mjs",
-			"spellcheck/manifest.json",
-			"spellcheck/NOTICE.txt",
-			"spellcheck/dictionaries/nl/index.aff",
-			"spellcheck/dictionaries/nl/index.dic",
-			"spellcheck/dictionaries/nl/LICENSE",
-		]) {
-			assert.ok(files.includes(path), `${path} was not emitted`);
-		}
+		// The staged directory is named after a digest of its own contents, so
+		// what is asserted is the tree under it rather than the whole path.
+		const staged = spellcheckAssets(files).map((file) =>
+			file.replace(/^spellcheck\/[0-9a-f]+\//, ""),
+		);
+		// English rides along whether or not it was asked for: it is the language
+		// every account is guaranteed to offer.
+		assert.deepEqual(staged.sort(), [
+			"LICENSE",
+			"NOTICE.txt",
+			"dictionaries/en/LICENSE",
+			"dictionaries/en/index.aff",
+			"dictionaries/en/index.dic",
+			"dictionaries/nl/LICENSE",
+			"dictionaries/nl/index.aff",
+			"dictionaries/nl/index.dic",
+			"hunspell.mjs",
+			"hunspell.wasm",
+			"license.hunspell",
+			"manifest.json",
+		]);
 	});
 
 	// The control for the two assertions above: both names are real, and a build
