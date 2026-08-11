@@ -15,6 +15,10 @@ interface DrawerProps {
  * Modal navigation drawer. Slides in from the side with a scrim behind.
  * Dismissed by scrim tap, escape key, or the close button. Focus moves into
  * the drawer on open and returns to the previously focused element on close.
+ *
+ * Visibility is `isOpen` alone, at every width: the drawer is the intelligence
+ * surface wherever the rail has no room, which includes the two-pane desktop
+ * band between 1024 and 1280px.
  */
 export const Drawer = ({
 	isOpen,
@@ -67,7 +71,7 @@ export const Drawer = ({
 
 	return (
 		<div
-			className="fixed inset-0 z-50 lg:hidden"
+			className="fixed inset-0 z-50"
 			role="dialog"
 			aria-modal="true"
 			aria-label={ariaLabel}
