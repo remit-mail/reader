@@ -732,7 +732,7 @@ export const SpellcheckSuggestions: Story = {
 			timeout: 5000,
 		});
 
-		clickOn(editable, "Ths");
+		clickOn(editable, "attachd");
 		await waitFor(() =>
 			expect(spellNode(canvasElement, "[data-testid=spell-menu]")).toBeTruthy(),
 		);
@@ -740,22 +740,26 @@ export const SpellcheckSuggestions: Story = {
 			menuRows(canvasElement, "spell-suggestion-skeleton"),
 		).toHaveLength(3);
 
+		// What Hunspell offers over SCOWL, in its own order. The word the writer
+		// meant is in it, which is the whole reason for a real dictionary.
 		await waitFor(
 			() =>
 				expect(
 					menuRows(canvasElement, "spell-suggestion").map(
 						(row) => row.textContent,
 					),
-				).toEqual(["The", "This", "Than", "That", "Them"]),
+				).toEqual(["attach", "attached", "attache", "attach d"]),
 			{ timeout: 5000 },
 		);
 
-		const [first] = menuRows(canvasElement, "spell-suggestion");
-		if (!first) throw new Error("no suggestion to pick");
-		await userEvent.click(first);
+		const meant = menuRows(canvasElement, "spell-suggestion").find(
+			(row) => row.textContent === "attached",
+		);
+		if (!meant) throw new Error("no suggestion to pick");
+		await userEvent.click(meant);
 
 		await expect(editable.textContent).toBe(
-			MISSPELT.replace("Ths report", "The report"),
+			MISSPELT.replace("attachd", "attached"),
 		);
 		await waitFor(() => expect(spellMarks(editable).length).toBe(2), {
 			timeout: 5000,

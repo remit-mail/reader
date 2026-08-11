@@ -84,6 +84,8 @@ const stubSpellcheck = (
 	tune: {
 		revisionOf?: (request: CheckRequest, nth: number) => number;
 		hold?: boolean;
+		/** Opens on a dictionary still arriving, the way a real one does. */
+		downloading?: boolean;
 	} = {},
 ): Stub => {
 	const asked: CheckRequest[] = [];
@@ -111,7 +113,16 @@ const stubSpellcheck = (
 		language: "en",
 		onStatus: (listener) => {
 			listeners.add(listener);
-			listener({ state: "ready", language: "en" });
+			listener(
+				tune.downloading
+					? {
+							state: "opening",
+							language: "en",
+							bytesLoaded: 0,
+							bytesTotal: 167_936,
+						}
+					: { state: "ready", language: "en" },
+			);
 			return () => {
 				listeners.delete(listener);
 			};
@@ -536,6 +547,47 @@ describe("spellcheck marks", () => {
 		assert.equal(marks(), undefined, "ours go when the browser's come back");
 		assert.equal(editable().getAttribute("spellcheck"), "true");
 		assert.equal(seen.at(-1)?.state, "failed", "the caller is told why");
+	});
+
+	it("checks the document the download was holding up", async () => {
+		const spellcheck = stubSpellcheck({ downloading: true });
+		await mount({
+			initialHtml: `<p>${SENTENCE}</p>`,
+			lang: "en",
+			spellcheck,
+		});
+		await settle();
+		assert.equal(
+			marks(),
+			undefined,
+			"nothing of ours is on screen while the dictionary is on its way",
+		);
+		assert.equal(editable().getAttribute("spellcheck"), "true");
+
+		// A real dictionary arrives in twenty of these before it is ready.
+		await act(async () => {
+			for (const bytesLoaded of [65_536, 131_072, 167_936]) {
+				spellcheck.push({
+					state: "opening",
+					language: "en",
+					bytesLoaded,
+					bytesTotal: 167_936,
+				});
+			}
+		});
+		await act(async () => {
+			spellcheck.push({ state: "ready", language: "en" });
+		});
+		await settle();
+
+		assert.deepEqual(
+			offsets(),
+			[
+				[0, 3],
+				[14, 18],
+			],
+			"the leaves that were waiting on the dictionary are the first pass",
+		);
 	});
 
 	it("hands checking back when the engine takes a pass and freezes", async () => {

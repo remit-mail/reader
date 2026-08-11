@@ -711,6 +711,11 @@ const SpellcheckPlugin = ({
 						schedule();
 						return;
 					}
+					// A dictionary on its way is not checking stopped, and it arrives in
+					// twenty progress reports: treating each as a stop would empty the
+					// queue the first pass is supposed to drain, and nothing would ever
+					// be checked.
+					if (status.state === "opening") return;
 					// Checking stopped, so the browser's own is back. Its squiggles are
 					// the only ones on screen from here.
 					findings.clear();
