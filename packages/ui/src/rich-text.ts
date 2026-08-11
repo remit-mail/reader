@@ -55,9 +55,9 @@ export {
 	type SpellWorkerPort,
 } from "./components/rich-text-spellcheck-provider.js";
 export {
+	findMisspellings,
 	normaliseWord,
 	SUGGESTION_LIMIT,
-	suggestionsFor,
 } from "./components/rich-text-spellcheck-words.js";
 export {
 	type ComposeCaret,
