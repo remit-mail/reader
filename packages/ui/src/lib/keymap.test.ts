@@ -54,6 +54,22 @@ describe("keymap module", () => {
 		assert.strictEqual(tooltipForAction(unbound), "");
 	});
 
+	test("the navigation hints name a direction on screen, not a place in time", () => {
+		const navigation = KEY_HINT_GROUPS.find((g) => g.title === "Navigation");
+		assert.ok(navigation, "the Navigation group is declared");
+
+		const describes = (key: string): string | undefined =>
+			navigation.hints.find((hint) => hint.keys.join("") === key)?.description;
+
+		// Both surfaces the keys serve read downward, and a conversation reads
+		// newest first — so down is back in time there. A description saying
+		// "next message" is read as the newer one, which is the opposite.
+		assert.strictEqual(describes("j"), "Focus the message below");
+		assert.strictEqual(describes("↓"), "Focus the message below");
+		assert.strictEqual(describes("k"), "Focus the message above");
+		assert.strictEqual(describes("↑"), "Focus the message above");
+	});
+
 	test("every hint's action is a non-empty key list", () => {
 		for (const group of KEY_HINT_GROUPS) {
 			for (const hint of group.hints) {

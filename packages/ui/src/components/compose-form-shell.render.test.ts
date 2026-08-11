@@ -75,6 +75,35 @@ describe("ComposeFormShell", () => {
 		assert.doesNotMatch(html, /h-full/);
 	});
 
+	it("keeps the action bar on the bottom edge while the surface grows", () => {
+		const html = renderToString(
+			createElement(ComposeFormShell, {
+				layout: "flow",
+				header: createElement("div", null, "H"),
+				actionBar: createElement("div", null, "B"),
+				// biome-ignore lint/correctness/noChildrenProp: React 19 types require children in props object when using createElement
+				children: createElement("div", null, "BODY"),
+			}),
+		);
+		// A draft of a few paragraphs is taller than a phone, and the bar is the
+		// last thing in the surface: without this Send goes off the bottom as it
+		// is written.
+		assert.match(html, /sticky bottom-0/);
+	});
+
+	it("leaves the action bar in the column when the surface fills its pane", () => {
+		const html = renderToString(
+			createElement(ComposeFormShell, {
+				layout: "fill",
+				header: createElement("div", null, "H"),
+				actionBar: createElement("div", null, "B"),
+				// biome-ignore lint/correctness/noChildrenProp: React 19 types require children in props object when using createElement
+				children: createElement("div", null, "BODY"),
+			}),
+		);
+		assert.doesNotMatch(html, /sticky/);
+	});
+
 	it("exposes mode labels for every compose mode", () => {
 		assert.equal(composeModeLabels.new, "New Message");
 		assert.equal(composeModeLabels.reply, "Reply");

@@ -43,6 +43,12 @@ export interface ComposeFormShellProps {
  * opened on must not bring a second scroller into that pane: two tracks in one
  * column, with the caret in the inner one, is the reader guessing which of them
  * a wheel gesture belongs to.
+ *
+ * A surface that grows with the writing grows past the screen on a phone after
+ * a few paragraphs, and the action bar is the last thing in it — so in `flow`
+ * the bar rides the bottom edge of whatever scrolls the page while the surface
+ * is on it. Send is reachable at every length of draft, and lands back in the
+ * column when the end of the composer comes into view.
  */
 export function ComposeFormShell({
 	banner,
@@ -66,7 +72,11 @@ export function ComposeFormShell({
 				{children}
 				{quoted && <div className="shrink-0 px-3 pb-2">{quoted}</div>}
 			</div>
-			{actionBar}
+			{fills ? (
+				actionBar
+			) : (
+				<div className="sticky bottom-0 z-10 bg-canvas">{actionBar}</div>
+			)}
 		</div>
 	);
 }

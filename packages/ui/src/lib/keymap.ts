@@ -104,17 +104,29 @@ export const KEY_HINT_GROUPS: KeyHintGroup[] = [
 	{
 		title: "Navigation",
 		hints: [
-			{ action: "focusNext", keys: ["j"], description: "Focus next message" },
+			// The keys move through what is on screen, so the description is a
+			// direction rather than a position in time. A conversation reads newest
+			// first, where the message below is the older one — "next message" read
+			// as the newer one there and named the opposite of what j does.
+			{
+				action: "focusNext",
+				keys: ["j"],
+				description: "Focus the message below",
+			},
 			{
 				action: "focusPrevious",
 				keys: ["k"],
-				description: "Focus previous message",
+				description: "Focus the message above",
 			},
-			{ action: "focusNext", keys: ["↓"], description: "Focus next message" },
+			{
+				action: "focusNext",
+				keys: ["↓"],
+				description: "Focus the message below",
+			},
 			{
 				action: "focusPrevious",
 				keys: ["↑"],
-				description: "Focus previous message",
+				description: "Focus the message above",
 			},
 			{ action: "focusFirst", keys: ["Home"], description: "Focus first" },
 			{ action: "focusLast", keys: ["End"], description: "Focus last" },

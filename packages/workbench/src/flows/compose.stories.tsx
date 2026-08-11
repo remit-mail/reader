@@ -64,6 +64,16 @@ const mailbox = {
 const DEFAULT_BODY =
 	"<p>Thanks — that works for me. I'll send the deck tomorrow.</p>";
 
+/** A draft of the length someone writes on a phone — several screens of it. */
+const LONG_DRAFT = [
+	"<p>That works. Before Thursday, three things I want written down:</p>",
+	...Array.from(
+		{ length: 24 },
+		(_, index) =>
+			`<p>Point ${index + 1}. Whoever owns the dunning mail after self-serve ships also owns the invoice numbering, and today those are two different people on two different rotas.</p>`,
+	),
+].join("");
+
 const DEFAULT_PLAIN_BODY = [
 	"Thanks — that works for me.",
 	"",
@@ -514,9 +524,12 @@ export const Inline: Story = {
 const ConversationWithReply = ({
 	subject,
 	messages,
+	draft = "",
 }: {
 	subject: string;
 	messages: ThreadMessageData[];
+	/** What has been written into the reply so far. */
+	draft?: string;
 }) => (
 	<article className="flex h-full flex-col bg-canvas">
 		<header className="border-b border-line px-5 pt-5 pb-3">
@@ -527,14 +540,14 @@ const ConversationWithReply = ({
 				{messages.length} {messages.length === 1 ? "message" : "messages"}
 			</p>
 		</header>
-		<div className="min-h-0 flex-1 overflow-auto">
+		<div className="min-h-0 flex-1 overflow-auto" data-pane-scroll>
 			{/* Same frame as `InlineCompose` — no height of its own, so the pane
 			    keeps the one scrollbar it had before the reply opened. */}
 			<div className="border-b border-line bg-canvas">
 				<Composer
 					layout="flow"
 					subject={`Re: ${subject}`}
-					body=""
+					body={draft}
 					quoted={messages[messages.length - 1]?.snippet}
 					quotedSender={messages[messages.length - 1]?.fromName}
 				/>
@@ -624,6 +637,45 @@ export const InlineOverAThread: Story = {
 			}
 		/>
 	),
+};
+
+/**
+ * A reply several screens long, on a phone-sized pane. The composer takes the
+ * height of what is written in it, so Send — the last thing in the surface —
+ * would leave the screen with the text. It rides the bottom edge of the pane
+ * instead, and lands back in the column when the end of the reply comes into
+ * view. Nothing about the growing or the single scrollbar changes.
+ */
+export const InlineWithALongDraft: Story = {
+	name: "Mobile — a long reply keeps Send in reach",
+	render: () => (
+		<div className="mx-auto mt-8 h-[844px] w-[390px] overflow-hidden rounded-md border border-line bg-canvas">
+			<ConversationWithReply
+				subject="Lunch Thursday?"
+				messages={[shortMessage]}
+				draft={LONG_DRAFT}
+			/>
+		</div>
+	),
+	play: async ({ canvasElement }) => {
+		const pane = canvasElement.querySelector<HTMLElement>("[data-pane-scroll]");
+		if (!pane) throw new Error("the pane is not mounted");
+
+		// The premise: this draft really is taller than the pane. On a composer
+		// that fits, Send is on screen whatever the bar does.
+		await waitFor(async () => {
+			const written = writingSurface(canvasElement).getBoundingClientRect();
+			await expect(written.height).toBeGreaterThan(
+				pane.getBoundingClientRect().height,
+			);
+		});
+
+		const send = within(canvasElement).getByRole("button", { name: "Send" });
+		const button = send.getBoundingClientRect();
+		const visible = pane.getBoundingClientRect();
+		await expect(button.top).toBeGreaterThanOrEqual(visible.top);
+		await expect(button.bottom).toBeLessThanOrEqual(visible.bottom);
+	},
 };
 
 /**

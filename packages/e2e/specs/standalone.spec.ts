@@ -41,6 +41,42 @@ const longBody = [
 	),
 ].join("");
 
+// A draft of the length someone actually writes on a phone. The composer takes
+// the height of what is in it, so this is several screens of surface with Send
+// at the far end of it.
+const draftLines = Array.from(
+	{ length: 30 },
+	(_, index) =>
+		`Line ${index + 1} of the reply, long enough to wrap more than once on a phone so the composer grows well past the screen.`,
+);
+
+const longDraft = draftLines.map((line) => `<p>${line}</p>`).join("");
+const longDraftText = draftLines.join("\n\n");
+const firstDraftLine = draftLines[0] ?? "";
+
+/** A real clipboard event at the writing surface — a written draft, in one go. */
+const writeDraft = (page: Page, html: string, text: string): Promise<void> =>
+	page.evaluate(
+		([htmlFlavour, textFlavour]) => {
+			const element = document.querySelector('[data-testid="compose-body"]');
+			if (!element) throw new Error("the composer is not mounted");
+			const data = new DataTransfer();
+			data.setData("text/html", htmlFlavour);
+			data.setData("text/plain", textFlavour);
+			element.dispatchEvent(
+				new ClipboardEvent("paste", {
+					bubbles: true,
+					cancelable: true,
+					clipboardData: data,
+				}),
+			);
+		},
+		[html, text],
+	);
+
+const heightOf = (locator: Locator): Promise<number> =>
+	locator.evaluate((element) => element.getBoundingClientRect().height);
+
 test.describe("Launched without browser chrome", () => {
 	test.use({ viewport: MOBILE });
 
@@ -147,17 +183,29 @@ test.describe("Launched without browser chrome", () => {
 			await expect(bodyLink).toHaveAttribute("rel", /noreferrer/);
 
 			// The quoted copy of the same mail, this time in the app's own document.
-			// Reply opens compose in place and takes the reader to it, on a message
-			// tall enough that a compose surface left where it was mounted would be
-			// off screen. This account has no SMTP, which compose says for itself
-			// rather than the button saying nothing.
+			// Reply opens compose in place and takes the reader to it. This account
+			// has no SMTP, which compose says for itself rather than the button
+			// saying nothing.
 			await page.getByRole("button", { name: "Reply", exact: true }).click();
 			const send = page.getByRole("button", { name: "Send", exact: true });
 			await expect(send).toBeVisible({ timeout: 30_000 });
-			await expect(send).toBeInViewport({ ratio: 1 });
 			await expect(
 				page.getByTestId("compose-smtp-missing-banner"),
 			).toBeInViewport();
+
+			// What a phone has to survive: the composer is as tall as what is
+			// written in it, so a draft of a few paragraphs runs past the screen
+			// and Send is the last thing in it. Send has to be whole and on screen
+			// at that length — an empty composer fits either way and proves
+			// nothing.
+			const composeBody = page.getByTestId("compose-body");
+			await composeBody.click();
+			await writeDraft(page, longDraft, longDraftText);
+			await expect(composeBody).toContainText(firstDraftLine);
+
+			const written = await heightOf(composeBody);
+			expect(written).toBeGreaterThan(MOBILE.height);
+			await expect(send).toBeInViewport({ ratio: 1 });
 
 			const quoteToggle = page.getByRole("button", { name: /wrote:$/ });
 			await expect(quoteToggle).toBeVisible({ timeout: 30_000 });
