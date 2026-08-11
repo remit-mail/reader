@@ -233,7 +233,10 @@ test.describe("The composer's own spellchecker", () => {
 
 			const notice = page.getByTestId("spellcheck-notice");
 			await expect(notice).toBeVisible({ timeout: 60_000 });
-			await expect(notice).toContainText("Dutch dictionary did not load");
+			// The language names itself the way its own speakers write it.
+			await expect(notice).toContainText(
+				"The Nederlands dictionary did not load",
+			);
 
 			// The status and the file, because "something went wrong" is not
 			// something an operator can act on.
