@@ -1,14 +1,15 @@
 import type { Preview } from "@storybook/react-vite";
 import { initialize, mswLoader } from "msw-storybook-addon";
 import { withTheme } from "../src/decorators/theme.js";
+import { resolveMockServiceWorkerUrl } from "../src/lib/mock-service-worker-url.js";
 import { handlers } from "../src/mocks/handlers.js";
 import "./tailwind.css";
 
 initialize({
 	onUnhandledRequest: "bypass",
-	// Absolute: under the story test runner the page sits several path segments
-	// deep, and a relative URL would resolve off the static root.
-	serviceWorker: { url: "/mockServiceWorker.js" },
+	serviceWorker: {
+		url: resolveMockServiceWorkerUrl(import.meta.env.VITEST === true),
+	},
 });
 
 /**
