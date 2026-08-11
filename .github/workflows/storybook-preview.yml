@@ -81,13 +81,14 @@ jobs:
     steps:
       # The default ref is this repository's default branch, never the branch
       # being previewed: the scripts that hold the guards must not come from
-      # the code they are about to build. Only the scripts are needed here, and
-      # a sparse checkout of them gets the comment to "building" seconds after
-      # the box is ticked.
+      # the code they are about to build. Only the scripts and the local actions
+      # are needed here, and a sparse checkout of them gets the comment to
+      # "building" seconds after the box is ticked.
       - uses: actions/checkout@v7
         with:
           sparse-checkout: |
             npm-scripts
+            .github/actions
           sparse-checkout-cone-mode: false
 
       - uses: actions/setup-node@v4
@@ -151,11 +152,14 @@ jobs:
         run: make
 
       # The spellcheck stories drive the real engine, which the Storybook vite
-      # config stages the same way the app build does.
-      - name: Spellchecker engine (Hunspell → WebAssembly)
+      # config stages the same way the app build does. The action itself comes
+      # from the sparse checkout at the workspace root, like every other script
+      # this job runs; only the recipe it reads is the branch's.
+      - name: Spellchecker engine
         if: steps.guard.outputs.eligible == 'true'
-        working-directory: pr-source
-        run: npm run build:hunspell
+        uses: ./.github/actions/hunspell
+        with:
+          source-dir: pr-source
 
       # Storybook renders the ui, web-client and workbench packages and
       # nothing else in the workspace, and only its own output is published.

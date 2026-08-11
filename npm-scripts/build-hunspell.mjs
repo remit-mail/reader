@@ -6,6 +6,8 @@ import { execFileSync } from "node:child_process";
 //
 // A stamp records what produced the output — the pins plus the checksums of the
 // build script and its glue — so a second run is free and a moved pin rebuilds.
+// `build-hunspell.mjs key` prints that stamp folded into one token, which is
+// what .github/actions/hunspell keys its cache on: same inputs, same decision.
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -31,9 +33,9 @@ const digestOf = (paths) => {
 	return hash.digest("hex");
 };
 
-const run = () => {
+export const engineStamp = () => {
 	const pins = readPins(join(recipeDir, "pin.env"));
-	const wanted = {
+	return {
 		version: pins.HUNSPELL_VERSION,
 		tarball: pins.HUNSPELL_SHA256,
 		image: pins.EMSDK_IMAGE,
@@ -43,6 +45,21 @@ const run = () => {
 			join(recipeDir, "pin.env"),
 		]),
 	};
+};
+
+/**
+ * The stamp folded into one token, so CI can key a cache on the same inputs the
+ * stamp check uses. A cache entry under this key holds an engine this recipe
+ * would have produced, which is what makes restoring it equivalent to building.
+ */
+export const engineKey = () =>
+	createHash("sha256")
+		.update(JSON.stringify(engineStamp()))
+		.digest("hex")
+		.slice(0, 32);
+
+const run = () => {
+	const wanted = engineStamp();
 
 	const built = (() => {
 		try {
@@ -84,4 +101,7 @@ const run = () => {
 	console.log(`hunspell ${wanted.version}: built into ${outDir}`);
 };
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) run();
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+	if (process.argv[2] === "key") console.log(engineKey());
+	else run();
+}

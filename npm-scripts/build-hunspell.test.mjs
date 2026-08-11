@@ -16,9 +16,24 @@ const pins = readPins(join(root, "docker", "hunspell", "pin.env"));
 
 describe("the spellchecker's build pins", () => {
 	it("compiles the engine with the image the recipe names", () => {
-		const stage = /^FROM (\S+) AS hunspell-wasm$/m.exec(dockerfile);
-		assert.ok(stage, "the Dockerfile has no hunspell-wasm stage");
+		const stage = /^FROM (\S+) AS hunspell-wasm-built$/m.exec(dockerfile);
+		assert.ok(stage, "the Dockerfile has no hunspell-wasm-built stage");
 		assert.equal(stage[1], pins.EMSDK_IMAGE);
+	});
+
+	it("selects that stage from the language set, so a default build compiles", () => {
+		assert.match(
+			dockerfile,
+			/^FROM hunspell-wasm-\$\{SPELLCHECK_ENGINE\} AS hunspell-wasm$/m,
+		);
+		assert.match(
+			dockerfile,
+			/^ARG SPELLCHECK_ENGINE=\$\{REMIT_SPELLCHECK_LANGUAGES:\+built\}$/m,
+		);
+		assert.match(
+			dockerfile,
+			/^ARG SPELLCHECK_ENGINE=\$\{SPELLCHECK_ENGINE:-none\}$/m,
+		);
 	});
 
 	it("pins an upstream release by checksum", () => {

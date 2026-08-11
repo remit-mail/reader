@@ -17,6 +17,16 @@
 # `npm run docker:build -- <target>` wraps this for local use; CI
 # (.github/workflows/images.yml) builds every target on push to main.
 
+# Which dictionaries this image carries, declared up here because it also
+# decides whether the engine is compiled at all. The empty list is the
+# documented opt-out, and the two ARGs below turn it into a stage name:
+# non-empty picks `hunspell-wasm-built`, empty picks `hunspell-wasm-none`, and
+# BuildKit only builds the one that is selected — so opting out never pulls the
+# Emscripten toolchain.
+ARG REMIT_SPELLCHECK_LANGUAGES=en,en-GB,nl
+ARG SPELLCHECK_ENGINE=${REMIT_SPELLCHECK_LANGUAGES:+built}
+ARG SPELLCHECK_ENGINE=${SPELLCHECK_ENGINE:-none}
+
 ########################################################################
 # manifests — the repo's package.json/package-lock.json files and the
 # patch set, with the rest of the source pruned away, so the builder's npm ci
@@ -54,12 +64,22 @@ RUN find . -type f ! -name package.json ! -name package-lock.json \
 #
 # The output is two files and the licence texts, ~630 KB before brotli, copied
 # into the builder below and staged into the web client's dist/.
+#
+# `hunspell-wasm-none` is what an empty REMIT_SPELLCHECK_LANGUAGES selects: an
+# empty /out on an image the build already pulls, so the builder's COPY below
+# stays unconditional while the 3.4 GB toolchain is never fetched. The web
+# client stages nothing from build/hunspell when the language list is empty.
 ########################################################################
-FROM docker.io/emscripten/emsdk:6.0.6 AS hunspell-wasm
+FROM docker.io/library/node:24 AS hunspell-wasm-none
+RUN mkdir -p /out
+
+FROM docker.io/emscripten/emsdk:6.0.6 AS hunspell-wasm-built
 WORKDIR /src
 COPY docker/hunspell/ ./docker/hunspell/
 ENV OUT_DIR=/out
 RUN sh docker/hunspell/build.sh
+
+FROM hunspell-wasm-${SPELLCHECK_ENGINE} AS hunspell-wasm
 
 ########################################################################
 # builder — npm ci, TypeSpec codegen (make), the web client, the generated
@@ -99,11 +119,12 @@ ENV GITHUB_SHA=${GIT_SHA}
 # Same-origin relative API base (packages/web-client/src/lib/client.ts defaults
 # VITE_API_URL-less builds to "/api"); Caddy proxies /api and /content to
 # apisix/backend, so no build-time API host is needed.
-# Which dictionaries this image carries. The list is what NOTICE.txt and the
-# staged licence files describe, so it is fixed here rather than at run time;
-# an empty list builds a web client with no spellchecker at all. Adding a tag
-# also needs its row in packages/web-client/spellcheck/languages.ts.
-ARG REMIT_SPELLCHECK_LANGUAGES=en,en-GB,nl
+# The list is what NOTICE.txt and the staged licence files describe, so it is
+# fixed here rather than at run time; an empty list builds a web client with no
+# spellchecker at all. Adding a tag also needs its row in
+# packages/web-client/spellcheck/languages.ts. The default lives on the global
+# ARG at the top of this file, which also decides whether the engine is built.
+ARG REMIT_SPELLCHECK_LANGUAGES
 ENV REMIT_SPELLCHECK_LANGUAGES=${REMIT_SPELLCHECK_LANGUAGES}
 
 RUN npm run build:dist -w packages/web-client -- --auth better-auth

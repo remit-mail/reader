@@ -385,9 +385,9 @@ jobs:
       - run: make
       # @remit/web-client-dist is the built web client, so packing it runs the
       # vite build, so it needs the spellchecker's engine. This job deliberately
-      # skips the setup action (it builds the tree a consumer would), which is
-      # where every other job gets the engine from.
-      - run: npm run build:hunspell
+      # skips the setup action (it builds the tree a consumer would), so it
+      # reaches for the engine's cache directly.
+      - uses: ./.github/actions/hunspell
       - run: npm run release:dry-run
       # Guards install-ability of the published set: a clean directory, outside
       # the repo, installing @remit/backend alone must pull and resolve its full
