@@ -44,6 +44,14 @@ const MAX_WIDTH_PX = 10_000;
 // their native width and the pane scrolls horizontally.
 const NARROW_QUERY = "(max-width: 640px)";
 
+// The DOM reports both sides of the "is this content too wide?" comparison in
+// whole pixels — `scrollWidth` rounds, `clientWidth` rounds — while the reading
+// pane itself lands on fractional widths (a flex column at 712.5px, any browser
+// zoom off 100%). So content that exactly fills its container measures up to a
+// pixel wider than the box holding it. One pixel of slack is under anything a
+// reader can see and over the rounding error.
+const SUBPIXEL_SLACK_PX = 1;
+
 // Don't scale below this — a heavily fixed-width newsletter on a tiny phone
 // would otherwise shrink to unreadable. At the floor we accept that the email
 // is downscaled as far as we'll go and the wrapper still clips the remainder
@@ -72,6 +80,19 @@ export const measureContentAxis = (
 ): number => Math.min(Math.ceil(Math.max(bodyScroll, rootScroll)), max);
 
 /**
+ * Whether measured content is genuinely wider than the box that holds it, i.e.
+ * wider by more than the whole-pixel rounding the DOM applies to both
+ * measurements. Without the slack, mail that merely fills the pane measures a
+ * pixel wider than the pane, the frame is pinned to that measurement, and the
+ * pane grows a permanent horizontal scrollbar under content that fits.
+ */
+export const exceedsContainer = (
+	contentWidth: number,
+	containerWidth: number,
+): boolean =>
+	containerWidth > 0 && contentWidth - containerWidth > SUBPIXEL_SLACK_PX;
+
+/**
  * The fit-to-width scale for a phone: downscale-only, so content already inside
  * the container renders 1:1 and only genuinely-wider content shrinks. Floored at
  * `MIN_SCALE` so a pathologically wide email doesn't shrink to unreadable. A
@@ -82,10 +103,24 @@ export const computeFitScale = (
 	contentWidth: number,
 	containerWidth: number,
 ): number => {
-	if (contentWidth <= 0 || containerWidth <= 0) return 1;
-	if (contentWidth <= containerWidth) return 1;
+	if (contentWidth <= 0) return 1;
+	if (!exceedsContainer(contentWidth, containerWidth)) return 1;
 	return Math.max(MIN_SCALE, containerWidth / contentWidth);
 };
+
+/**
+ * The iframe's width on the horizontal axis. Content that fits gets `100%` — the
+ * frame is a pane-width window on the email, and the surrounding pane has
+ * nothing to scroll. Only content that genuinely exceeds the pane pins the frame
+ * to its own measured width, which is what hands the pane something real to
+ * scroll (a wide table, a fixed-layout newsletter) instead of blowing the layout
+ * out.
+ */
+export const resolveFrameWidth = (
+	contentWidth: number,
+	containerWidth: number,
+): string =>
+	exceedsContainer(contentWidth, containerWidth) ? `${contentWidth}px` : "100%";
 
 /** Named (non-character) keys worth replaying: moving around and closing. */
 const FORWARDED_NAMED_KEYS = new Set([
@@ -166,6 +201,7 @@ export const IsolatedEmailFrame = ({
 }: IsolatedEmailFrameProps) => {
 	const hostRef = useRef<HTMLDivElement>(null);
 	const ref = useRef<HTMLIFrameElement>(null);
+	const measuredAgainstRef = useRef(-1);
 	const [height, setHeight] = useState(0);
 	const [width, setWidth] = useState(0);
 	const [containerWidth, setContainerWidth] = useState(0);
@@ -177,13 +213,23 @@ export const IsolatedEmailFrame = ({
 		[html, variant, isDark],
 	);
 
+	// A content measurement is only meaningful against the container it was taken
+	// in, so a container resize drops it and the frame falls back to `100%` until
+	// the content has been measured again. Without that, a pane that was wider
+	// when the email first laid out — before its own vertical scrollbar appeared,
+	// before a sidebar finished collapsing — keeps the frame pinned to the old,
+	// too-wide measurement and the pane scrolls sideways forever.
 	useEffect(() => {
 		const host = hostRef.current;
 		if (!host) return;
-		const measure = () =>
-			setContainerWidth((prev) =>
-				prev === host.clientWidth ? prev : host.clientWidth,
-			);
+		const measure = () => {
+			const next = host.clientWidth;
+			setContainerWidth((prev) => (prev === next ? prev : next));
+			if (next !== measuredAgainstRef.current) {
+				measuredAgainstRef.current = next;
+				setWidth(0);
+			}
+		};
 		measure();
 		const observer = new ResizeObserver(measure);
 		observer.observe(host);
@@ -234,26 +280,18 @@ export const IsolatedEmailFrame = ({
 	}, []);
 
 	// The fit-to-viewport decision, owned in one place:
-	// - Phone (`isNarrow`): render the iframe at its natural content width and
-	//   CSS-scale the whole frame down to the container, so a fixed-width
-	//   newsletter that can't reflow fits the phone whole instead of being
-	//   clipped (#727). Content already within the container renders 1:1.
-	// - Desktop framed: `max(100%, content)` so a narrow-max-width newsletter
-	//   (Substack's 640px body) fills the reading column while a genuinely wide
-	//   fixed-layout email grows past the pane and lets the pane scroll.
-	// - Plain / pre-measurement: pin to measured content width, 100% until known.
+	// - Content that fits the pane (and anything not yet measured) renders at
+	//   `100%`: the email fills the reading column and the pane has nothing to
+	//   scroll.
+	// - Content genuinely wider than the pane pins the frame to its own width,
+	//   so the pane scrolls a wide table or fixed-layout newsletter horizontally
+	//   rather than clipping it.
+	// - Phone (`isNarrow`): that same wide email is CSS-scaled down to the
+	//   container instead, so it fits whole rather than being clipped (#727).
 	const scale = isNarrow ? computeFitScale(width, containerWidth) : 1;
 	const scaled = scale < 1;
 
-	const frameWidth = scaled
-		? `${width}px`
-		: isNarrow
-			? "100%"
-			: variant === "framed" && width > 0
-				? `max(100%, ${width}px)`
-				: width === 0
-					? "100%"
-					: `${width}px`;
+	const frameWidth = resolveFrameWidth(width, containerWidth);
 
 	const frameHeight = height === 0 ? "1px" : `${height}px`;
 
