@@ -43,7 +43,7 @@ jobs:
       # @remit/web-client-dist is the built web client, and the build stages the
       # spellchecker from this engine. Without it the published assets would
       # carry a composer whose dictionaries 404.
-      - run: npm run build:hunspell
+      - uses: ./.github/actions/hunspell
       # Content-hash-gated: publishes only packages whose content changed,
       # generated (build/) before the workspace set that depends on them. Safe on
       # every run.

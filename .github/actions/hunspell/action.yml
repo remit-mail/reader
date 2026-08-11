@@ -1,0 +1,47 @@
+name: Spellchecker engine
+description: >-
+  Puts the Hunspell WebAssembly engine in build/hunspell, restoring it from a
+  cache keyed on the recipe rather than compiling it in the 3.4 GB Emscripten
+  image. Every job that builds the web client or Storybook needs the engine.
+
+# The engine is a pure function of docker/hunspell/ — a pinned release tarball
+# checksummed on download, a pinned toolchain image, the build script and its
+# glue. build-hunspell.mjs already folds exactly those into the stamp that
+# decides whether a local rebuild is needed, so the same token is the cache key:
+# a hit is an engine this recipe would have produced, and a moved pin misses.
+#
+# Deliberately its own cache rather than a slice of the codegen one. Codegen is
+# keyed on the lockfile and the TypeSpec sources, so an ordinary dependency bump
+# invalidates it — and used to recompile the engine with nothing about the
+# engine having moved.
+
+inputs:
+  source-dir:
+    description: The checkout holding the recipe, when it is not the workspace root.
+    default: "."
+
+runs:
+  using: composite
+  steps:
+    - name: Read the engine recipe
+      id: recipe
+      shell: bash
+      working-directory: ${{ inputs.source-dir }}
+      run: |
+        {
+          echo "key=$(node npm-scripts/build-hunspell.mjs key)"
+          echo "path=$(realpath -m --relative-to="$GITHUB_WORKSPACE" "$PWD/build/hunspell")"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Restore the engine
+      id: engine
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.recipe.outputs.path }}
+        key: ${{ runner.os }}-hunspell-v1-${{ steps.recipe.outputs.key }}
+
+    - name: Spellchecker engine (Hunspell → WebAssembly)
+      if: steps.engine.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: ${{ inputs.source-dir }}
+      run: npm run build:hunspell
