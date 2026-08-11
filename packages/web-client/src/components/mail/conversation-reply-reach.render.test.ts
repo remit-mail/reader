@@ -202,7 +202,7 @@ const paneRegionHolding = (pane: Element, node: Node): Element | null =>
 const SCROLLS_VERTICALLY = /(^|\s)overflow-(auto|scroll|y-auto|y-scroll)(\s|$)/;
 
 /** The inset ring `MessageCard` draws on the row the keyboard is sitting on. */
-const FOCUS_RING = /ring-accent/;
+const FOCUS_RING = /ring-accent\//;
 
 /** The turn the keyboard has, read off the ring rather than off the index. */
 const focusedTurn = (mounted: DomHarness): string => {
