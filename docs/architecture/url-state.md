@@ -14,6 +14,8 @@ Which list, which thread, which message, which surface. A path matches one thing
 
 No identity, no payload, no selection, no focus target. A closed literal union.
 
+One fragment, so one panel at a time, and it is written by `replace`: a panel is chrome over the current view rather than a place, so Back belongs to the message the reader came from. A navigation drops the fragment unless the destination asks for it, which is the distinction between a panel a reader takes with them and one that going somewhere dismisses: `NavLink` and the thread-open calls carry the rail, the slide-over and the sheet are left behind, and the search mirror keeps whatever is up because a query does not leave the view.
+
 ## R4. One owner per fact
 
 If it is in the path it is not in the query, and anything derivable from the path is not stored at all. A query param that compensates for a missing path segment is the smell, and the segment is the fix.
