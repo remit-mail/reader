@@ -125,7 +125,11 @@ import {
 	applyResidualTokens,
 	threadSearchTokens,
 } from "@/lib/thread-search-tokens";
-import type { OpenThreadPath, OpenThreadTarget } from "@/routing";
+import {
+	type OpenThreadPath,
+	type OpenThreadTarget,
+	retainOpenPanel,
+} from "@/routing";
 import { MailViewChrome } from "./MailViewChrome";
 
 /* ------------------------------------------------------------------ */
@@ -471,6 +475,7 @@ function MailboxPaneProvider({
 			to: "/mail/$mailboxId",
 			params: { mailboxId },
 			search: (prev) => prev,
+			hash: retainOpenPanel,
 		});
 	}, [mailboxId, navigate]);
 
@@ -480,6 +485,7 @@ function MailboxPaneProvider({
 				to: "/mail/$mailboxId/$threadId/$messageId",
 				params: { mailboxId, ...target },
 				search: (prev) => prev,
+				hash: retainOpenPanel,
 			});
 		},
 		[mailboxId, navigate],
@@ -1048,6 +1054,7 @@ function MailboxList() {
 				// `searchInput`: a row can be tapped before the debounce settles, when
 				// the committed query is still empty.
 				search: (prev) => ({ ...prev, q: searchInput || undefined }),
+				hash: retainOpenPanel,
 			});
 		},
 		[mailboxId, navigate, searchInput, threads],

@@ -41,7 +41,11 @@ import {
 } from "@/hooks/useTriageLayer";
 import type { ConversationTarget } from "@/lib/conversation-target";
 import { useMailContext } from "@/lib/mail-context";
-import type { OpenThreadPath, OpenThreadTarget } from "@/routing";
+import {
+	type OpenThreadPath,
+	type OpenThreadTarget,
+	retainOpenPanel,
+} from "@/routing";
 
 /* ------------------------------------------------------------------ */
 /* Context                                                              */
@@ -148,13 +152,18 @@ function BriefPaneProvider({ thread, children }: BriefPaneProps) {
 				// `searchInput`: a row can be tapped before the debounce settles, when
 				// the committed query is still empty.
 				search: (prev) => ({ ...prev, q: searchInput || undefined }),
+				hash: retainOpenPanel,
 			});
 		},
 		[navigate, searchInput],
 	);
 
 	const handleCloseThread = useCallback(() => {
-		navigate({ to: "/mail/brief", search: (prev) => prev });
+		navigate({
+			to: "/mail/brief",
+			search: (prev) => prev,
+			hash: retainOpenPanel,
+		});
 	}, [navigate]);
 
 	const handleDeselectIfRemoved = useCallback(

@@ -1,4 +1,5 @@
-import { useLocation } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useCallback } from "react";
 import { z } from "zod";
 
 /**
@@ -32,4 +33,46 @@ export function useOpenPanel(): PanelFragment | undefined {
 	return useLocation({
 		select: (location) => parsePanelFragment(location.hash),
 	});
+}
+
+/**
+ * The panels that outlive a navigation. The rail is chrome a reader keeps up
+ * while they move from one conversation to the next; the slide-over and the
+ * sheet are dismissed by going somewhere, which is what closing them means.
+ */
+const panelsSurvivingNavigation: readonly PanelFragment[] = ["intelligence"];
+
+/**
+ * A destination's `hash`, for a navigation that keeps the reader where they
+ * are. The router drops the fragment on every navigation unless the destination
+ * asks for it, so this is what a link or a `navigate` call passes to state that
+ * rule rather than restate it.
+ */
+export function retainOpenPanel(hash?: string): string {
+	const panel = parsePanelFragment(hash ?? "");
+	if (!panel) return "";
+	return panelsSurvivingNavigation.includes(panel) ? panel : "";
+}
+
+/**
+ * Opens a panel, or closes whichever one is open.
+ *
+ * `replace`, because a panel is chrome over the current view rather than a place
+ * to go: Back belongs to the message the reader came from, not to the rail they
+ * just collapsed. The fragment names a panel and never an element, so it is not
+ * an anchor to scroll to either.
+ */
+export function useSetOpenPanel(): (panel: PanelFragment | undefined) => void {
+	const navigate = useNavigate();
+	return useCallback(
+		(panel: PanelFragment | undefined) => {
+			navigate({
+				search: true,
+				hash: panel ?? "",
+				replace: true,
+				hashScrollIntoView: false,
+			});
+		},
+		[navigate],
+	);
 }

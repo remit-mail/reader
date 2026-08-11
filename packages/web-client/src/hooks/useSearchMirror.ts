@@ -71,16 +71,24 @@ export function useSearchMirror(target: SearchMirrorTarget): void {
 			...prev,
 			q: committedQuery || undefined,
 		});
+		// `hash: true`: a query is a mode of the view the reader is already in, so
+		// the panel they have up is not something they navigated away from.
 		if (!queryGoesActive) {
-			navigate({ to: ".", search, replace: true });
+			navigate({ to: ".", search, hash: true, replace: true });
 			return;
 		}
 		if (to === "/mail/$mailboxId") {
 			if (!mailboxId) return;
-			navigate({ to, params: { mailboxId }, search, replace: true });
+			navigate({
+				to,
+				params: { mailboxId },
+				search,
+				hash: true,
+				replace: true,
+			});
 			return;
 		}
-		navigate({ to, search, replace: true });
+		navigate({ to, search, hash: true, replace: true });
 	}, [
 		searchInput,
 		committedQuery,
