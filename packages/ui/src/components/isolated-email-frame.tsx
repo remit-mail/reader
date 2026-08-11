@@ -274,6 +274,14 @@ export const IsolatedEmailFrame = ({
 		let keyDoc: Document | undefined;
 		const handleLoad = () => {
 			measure();
+			// The srcDoc is rebuilt whenever the mail, theme or treatment changes,
+			// so this fires again for a new document; the observer watching the old
+			// one has to go with it.
+			observer?.disconnect();
+			observer = undefined;
+			keyDoc?.removeEventListener("keydown", forwardKeyDown);
+			keyDoc?.removeEventListener("load", measure, true);
+			keyDoc = undefined;
 			const doc = iframe.contentDocument;
 			if (!doc?.body) return;
 			observer = new ResizeObserver(measure);

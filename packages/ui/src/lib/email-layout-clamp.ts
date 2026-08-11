@@ -58,9 +58,11 @@ td, th {
 /* An author \`nowrap\` assumes a viewport that scrolls. This frame sizes itself
    to its content instead, so a pinned line either drags the pane sideways
    forever or — inside an author \`overflow:hidden\` the frame cannot measure —
-   is cut mid-character with nothing left to scroll. Flowing text wraps;
-   \`pre\`/\`code\` keep their own whitespace handling below. */
-[nowrap]:not(pre):not(code), [style*="nowrap"]:not(pre):not(code) {
+   is cut mid-character with nothing left to scroll. Flowing text wraps. The
+   \`i\` flag is load-bearing: Outlook and older generators emit \`WHITE-SPACE:
+   NOWRAP\`, and an attribute value match is case-sensitive without it. */
+[nowrap]:not(pre, code, pre *, code *),
+[style*="nowrap" i]:not(pre, code, pre *, code *) {
   white-space: normal !important;
 }
 /* Long unbroken strings (URLs, tokens) wrap instead of forcing a wide line. */
@@ -68,5 +70,12 @@ pre, code {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+/* Preformatted text keeps its spacing even where a nowrap is declared — on the
+   block or on a span inside it. \`normal\` would collapse the runs of spaces that
+   are the entire content of a \`pre\`, and the un-important rule above cannot
+   defend an inline style, so this wraps to \`pre-wrap\` instead of unwrapping. */
+:is(pre, code, pre *, code *):is([nowrap], [style*="nowrap" i]) {
+  white-space: pre-wrap !important;
 }
 `;

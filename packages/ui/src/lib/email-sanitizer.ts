@@ -28,10 +28,12 @@ export interface SanitizeOptions {
  * subtree inherits the app theme so plain mail blends with dark chrome
  * instead of becoming a bright slab (#375).
  *
- * `hasAuthorSpacing` is the same question for layout: does the mail lay out its
- * own padding or margin? A newsletter that already spaces its container must
- * not be given a second helping; a bare message with none gets breathing room
- * injected inside its own background.
+ * `hasAuthorSpacing` is the same question for layout: does the mail hold its own
+ * content off its container's left and right edges? A newsletter that already
+ * spaces its container must not be given a second helping; everything else —
+ * including a personal reply whose only declarations are a quote's indent and
+ * the gaps between paragraphs — gets breathing room injected inside its own
+ * background.
  */
 export interface SanitizedEmail {
 	html: string;
@@ -119,52 +121,156 @@ export const detectAuthorBackground = (html: string): boolean => {
 };
 
 /**
- * CSS values that space nothing: a `margin: 0` reset is not the mail laying out
- * its own breathing room, and neither is `margin: auto` centring a table.
+ * CSS keywords that space nothing: a `margin: 0` reset is not the mail laying
+ * out its own breathing room, and neither is `margin: auto` centring a table.
  */
-const NO_SPACING_VALUES =
-	/^(?:0(?:px|em|rem|%|pt|ex|ch|vw|vh)?|auto|none|initial|inherit|unset|revert)(?:\s+(?:0(?:px|em|rem|%|pt|ex|ch|vw|vh)?|auto))*$/i;
-
-const SPACING_DECL_RE =
-	/\b(?:padding|margin)(?:-(?:top|right|bottom|left|block|inline))?(?:-(?:start|end))?\s*:\s*([^;}"']+)/gi;
+const NO_SPACING_KEYWORDS = new Set([
+	"auto",
+	"none",
+	"initial",
+	"inherit",
+	"unset",
+	"revert",
+	"revert-layer",
+]);
 
 /**
- * Whether CSS text spaces anything — a `padding`/`margin` declaration whose
- * value is not a pure reset.
+ * `padding` / `margin` declarations, and only those. The lookbehind keeps the
+ * properties that merely end in the same word out of the scan — `scroll-padding`
+ * on a scroll container and Outlook's `mso-padding-alt` are not the mail
+ * spacing its container.
  */
-const declaresSpacing = (css: string): boolean => {
-	for (const match of css.matchAll(SPACING_DECL_RE)) {
-		if (!NO_SPACING_VALUES.test(match[1].trim())) return true;
+const SPACING_DECL_RE =
+	/(?<![-\w])(?:padding|margin)(?:-(top|right|bottom|left|block|inline)(?:-(?:start|end))?)?\s*:\s*([^;}"']+)/gi;
+
+const VERTICAL_SIDES = new Set(["top", "bottom", "block"]);
+
+/** CSS comments hold no declarations, in a `<style>` block or in a `style=`. */
+const stripCssComments = (css: string): string =>
+	css.replace(/\/\*[\s\S]*?\*\//g, "");
+
+/**
+ * Whether one length token pushes content off the container edge. Zero, a
+ * keyword and a negative all fail — a negative margin pulls content out rather
+ * than spacing it in. Anything unrecognised (`calc()`, `var()`) counts, on the
+ * conservative side of leaving a self-spacing mail alone.
+ */
+const isSpacingLength = (token: string): boolean => {
+	const value = token.toLowerCase();
+	if (!value || NO_SPACING_KEYWORDS.has(value)) return false;
+	if (value.startsWith("-")) return false;
+	const numeric = /^\+?(\d*\.?\d+)[a-z%]*$/.exec(value);
+	if (numeric) return Number.parseFloat(numeric[1]) !== 0;
+	return true;
+};
+
+/** The left/right components of a `padding`/`margin` shorthand value. */
+const horizontalComponents = (value: string): string[] => {
+	const parts = value.split(/\s+/).filter(Boolean);
+	if (parts.length < 2) return parts;
+	if (parts.length < 4) return [parts[1]];
+	return [parts[1], parts[3]];
+};
+
+/**
+ * Whether one declaration spaces the container horizontally. Only the
+ * horizontal axis answers the question the inset asks: a `margin-bottom` between
+ * two Outlook paragraphs is the mail spacing its own paragraphs, not laying out
+ * a container, and a mail with nothing but that still runs into a phone's screen
+ * edge without the inset.
+ */
+const spacesHorizontally = (side: string | undefined, raw: string): boolean => {
+	if (side && VERTICAL_SIDES.has(side)) return false;
+	const value = raw.replace(/!\s*important/gi, "").trim();
+	if (!value) return false;
+	if (side) return value.split(/\s+/).some(isSpacingLength);
+	return horizontalComponents(value).some(isSpacingLength);
+};
+
+/** Whether CSS text lays out horizontal container spacing. */
+const declaresContainerSpacing = (css: string): boolean => {
+	for (const match of stripCssComments(css).matchAll(SPACING_DECL_RE)) {
+		if (spacesHorizontally(match[1], match[2])) return true;
 	}
 	return false;
 };
 
-/** Every inline `style="…"` / `style='…'` value in the raw markup. */
-const extractInlineStyles = (html: string): string[] => {
-	const values: string[] = [];
-	const re = /\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
-	for (const match of html.matchAll(re)) {
-		values.push(match[1] ?? match[2] ?? "");
-	}
-	return values;
-};
+/**
+ * Elements whose spacing is a convention rather than a container. Every mail
+ * client on earth indents a quote with a left margin on the `<blockquote>`, and
+ * a reply carrying a quote is exactly the mail the injected inset exists for.
+ */
+const SPACING_EXEMPT_TAGS = new Set(["blockquote"]);
+
+/** HTML comments hold no markup — including the `<!--[if mso]>` conditionals
+ *  Outlook mail is padded with, which no other client ever renders. */
+const stripHtmlComments = (html: string): string =>
+	html.replace(/<!--[\s\S]*?-->/g, "");
 
 /**
- * Detect whether the mail lays out padding or margin of its own — in an inline
- * style, in a `<style>` block, or through a non-zero `cellpadding` on the
- * tables newsletters are still built from. Same shape and same limits as
+ * Every inline `style="…"` / `style='…'` value in the raw markup, with the tag
+ * carrying it. Scanning tags rather than the whole string is what keeps a
+ * literal `style="padding:9px"` written out in the text of a mail ABOUT CSS
+ * from reading as layout.
+ */
+const extractStyledTags = (html: string): { tag: string; style: string }[] => {
+	const found: { tag: string; style: string }[] = [];
+	const tags = /<([a-zA-Z][\w:-]*)((?:"[^"]*"|'[^']*'|[^>"'])*)>/g;
+	const styles = /\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
+	for (const [, tag, attrs] of html.matchAll(tags)) {
+		for (const match of attrs.matchAll(styles)) {
+			found.push({ tag: tag.toLowerCase(), style: match[1] ?? match[2] ?? "" });
+		}
+	}
+	return found;
+};
+
+/** `selector { … }` pairs; a nested at-rule yields its inner rules. */
+const extractCssRules = (css: string): { selector: string; body: string }[] =>
+	[...stripCssComments(css).matchAll(/([^{}]*)\{([^{}]*)\}/g)].map((match) => ({
+		selector: match[1].trim(),
+		body: match[2],
+	}));
+
+/** The element a selector actually styles — the tag of its last compound. */
+const selectorSubjectTag = (selector: string): string => {
+	const last =
+		selector
+			.trim()
+			.split(/[\s>+~]+/)
+			.pop() ?? "";
+	return (/^[a-zA-Z][\w-]*/.exec(last)?.[0] ?? "").toLowerCase();
+};
+
+const stylesOnlyQuotes = (selector: string): boolean =>
+	selector
+		.split(",")
+		.every((one) => SPACING_EXEMPT_TAGS.has(selectorSubjectTag(one)));
+
+/**
+ * Detect whether the mail lays out horizontal spacing of its own — in an inline
+ * style, in a `<style>` block, or through a non-zero `cellpadding` on the tables
+ * newsletters are still built from. Same shape and same limits as
  * `detectAuthorBackground`: a declaration scan over the raw markup, deliberately
  * conservative, because the cost of a false positive (no injected inset) is a
- * message that reads tight, while a false negative doubles a newsletter's own
- * padding.
+ * message that runs into the screen edge, while a false negative doubles a
+ * newsletter's own padding.
  */
 export const detectAuthorSpacing = (html: string): boolean => {
-	if (/\bcellpadding\s*=\s*["']?(?!0["'\s>])\d/i.test(html)) return true;
-	for (const style of extractInlineStyles(html)) {
-		if (declaresSpacing(style)) return true;
+	// Style blocks come off the raw string: old mail wraps its CSS in an HTML
+	// comment to hide it from clients that never shipped `<style>`.
+	const blocks = extractStyleBlocks(html);
+	const markup = stripHtmlComments(html);
+	if (/\bcellpadding\s*=\s*["']?(?!0["'\s>])\d/i.test(markup)) return true;
+	for (const { tag, style } of extractStyledTags(markup)) {
+		if (SPACING_EXEMPT_TAGS.has(tag)) continue;
+		if (declaresContainerSpacing(style)) return true;
 	}
-	for (const block of extractStyleBlocks(html)) {
-		if (declaresSpacing(block)) return true;
+	for (const block of blocks) {
+		for (const rule of extractCssRules(block)) {
+			if (stylesOnlyQuotes(rule.selector)) continue;
+			if (declaresContainerSpacing(rule.body)) return true;
+		}
 	}
 	return false;
 };

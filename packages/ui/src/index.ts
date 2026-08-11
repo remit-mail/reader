@@ -412,6 +412,7 @@ export {
 } from "./components/mail-header.js";
 export {
 	type EmailRenderCategory,
+	MessageBodyRegion,
 	MessageBodyView,
 	type MessageBodyViewProps,
 } from "./components/message-body-view.js";

@@ -98,14 +98,24 @@ describe("generateLayoutClampCSS (#374 / #727)", () => {
 			"a nowrap attribute must not pin a line wider than the frame",
 		);
 		assert.ok(
-			/\[style\*="nowrap"\][^{]*\{[^}]*white-space:\s*normal\s*!important/.test(
+			/\[style\*="nowrap" i\][^{]*\{[^}]*white-space:\s*normal\s*!important/.test(
 				css,
 			),
 			"an inline white-space:nowrap must not pin a line wider than the frame",
 		);
 		assert.ok(
-			/\[nowrap\]:not\(pre\):not\(code\)/.test(css),
-			"pre/code keep their own whitespace handling",
+			/\[style\*="nowrap" i\]/.test(css),
+			"Outlook emits WHITE-SPACE: NOWRAP — the attribute match must ignore case",
+		);
+		assert.ok(
+			/\[nowrap\]:not\(pre, code, pre \*, code \*\)/.test(css),
+			"pre/code AND their descendants keep their own whitespace handling",
+		);
+		assert.ok(
+			/:is\(pre, code, pre \*, code \*\):is\(\[nowrap\], \[style\*="nowrap" i\]\)[^{]*\{[^}]*white-space:\s*pre-wrap\s*!important/.test(
+				css,
+			),
+			"a nowrap inside a pre wraps rather than collapsing the block's spacing",
 		);
 	});
 

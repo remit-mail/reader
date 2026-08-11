@@ -1,5 +1,5 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
-import { MessageBodyView } from "./message-body-view.js";
+import { MessageBodyRegion, MessageBodyView } from "./message-body-view.js";
 
 /**
  * `MessageBodyView` is the single source of truth for rendering an email body:
@@ -154,11 +154,14 @@ const PHONE: Decorator = (Story) => (
 );
 
 // The reading pane's own arrangement: the pane's canvas, the message gutter,
-// and the sandboxed frame running out of that gutter. Any seam between the
-// email's ground and the pane around it shows up here.
+// and the sandboxed frame running out of that gutter — the real
+// `MessageBodyRegion` the pane uses, not a restatement of it that could drift.
+// Any seam between the email's ground and the pane around it shows up here.
 const PANE: Decorator = (Story) => (
-	<div className="w-[720px] bg-canvas px-4 py-3 [&_.message-body-frame]:-mx-4">
-		<Story />
+	<div className="w-[720px] bg-canvas px-2 py-3 lg:px-4">
+		<MessageBodyRegion>
+			<Story />
+		</MessageBodyRegion>
 	</div>
 );
 

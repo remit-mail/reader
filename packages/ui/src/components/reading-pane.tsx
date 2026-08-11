@@ -6,7 +6,7 @@ import type { ThreadData, ThreadMessageData } from "./app-shell-types.js";
 import { Avatar } from "./avatar.js";
 import { IntelligenceToggle } from "./intelligence-toggle.js";
 import { MailActionToolbar } from "./mail-action-toolbar.js";
-import { MessageBodyView } from "./message-body-view.js";
+import { MessageBodyRegion, MessageBodyView } from "./message-body-view.js";
 import { ReadingPaneEmpty } from "./reading-pane-empty.js";
 
 /* ------------------------------------------------------------------ */
@@ -249,13 +249,7 @@ export function ExpandedMessage({
 			    exactly what the app renders, not a divergent inline-HTML mock
 			    (#940). `framed` fixtures map to the newsletter treatment (author
 			    colors preserved); the rest render plain. */}
-			{/* The sandboxed email frame — and only it — cancels this block's
-			    gutter at every width, so mail renders on its own ground with its
-			    own margins and no app canvas shows down either side of it (#763).
-			    Everything else in the body slot is app chrome — the blocked-images
-			    notice, a plain-text body, an error, the attachment list — and
-			    keeps the inset the header has. */}
-			<div className="[&_.message-body-frame]:-mx-2 lg:[&_.message-body-frame]:-mx-4">
+			<MessageBodyRegion>
 				{body ?? (
 					<MessageBodyView
 						className="mt-3"
@@ -264,7 +258,7 @@ export function ExpandedMessage({
 						allowImages
 					/>
 				)}
-			</div>
+			</MessageBodyRegion>
 		</div>
 	);
 }

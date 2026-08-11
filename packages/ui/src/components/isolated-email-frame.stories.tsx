@@ -1,4 +1,6 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
+import { expect, waitFor } from "storybook/test";
+import { generateLayoutClampCSS } from "../lib/email-layout-clamp.js";
 import { IsolatedEmailFrame } from "./isolated-email-frame.js";
 
 /**
@@ -21,19 +23,11 @@ import { IsolatedEmailFrame } from "./isolated-email-frame.js";
  * scaling policy independently of the viewport.
  */
 
-// Mirror of the sanitizer's `generateLayoutClampCSS` — clamps wide author
-// markup (fixed-width tables/cells, oversized media) to the frame width and
-// wraps long unbroken tokens. In the app this is prepended by the sanitizer;
-// here we prepend it so the fixtures exercise the same reflow.
-const LAYOUT_CLAMP_CSS = `<style>
-html, body { margin: 0; padding: 0; max-width: 100%; }
-body { overflow-wrap: anywhere; word-break: break-word; }
-img, video, iframe, svg, canvas { max-width: 100% !important; height: auto; }
-table { max-width: 100% !important; table-layout: auto; }
-td, th { max-width: 100% !important; }
-* { min-width: 0; }
-pre, code { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
-</style>`;
+// The sanitizer's own clamp — clamps wide author markup (fixed-width
+// tables/cells, oversized media) to the frame width and wraps long unbroken
+// tokens. In the app the sanitizer prepends it; here the fixtures prepend the
+// same generated stylesheet, so a rule that changes there changes here.
+const LAYOUT_CLAMP_CSS = `<style>${generateLayoutClampCSS()}</style>`;
 
 const HERO = `data:image/svg+xml;utf8,${encodeURIComponent(
 	`<svg xmlns="http://www.w3.org/2000/svg" width="600" height="200" viewBox="0 0 600 200">
@@ -154,6 +148,22 @@ const NOWRAP_MAIL = `${LAYOUT_CLAMP_CSS}
 	<p>De repetitie van donderdag gaat door. We beginnen met het nieuwe stuk en repeteren om 20.00 uur verder aan het programma voor het najaarsconcert.</p>
 	<p>Groeten,<br>Ingrid</p>
 </div>
+`;
+
+// The same nowrap as Outlook and the older generators emit it: uppercase, in an
+// uppercase attribute. A case-sensitive attribute-value match sails past this
+// one and pins the line the lowercase twin wraps.
+const SHOUTED_NOWRAP_MAIL = `${LAYOUT_CLAMP_CSS}
+<div STYLE="WHITE-SPACE: NOWRAP" id="shouted">
+	<p>De repetitie van donderdag gaat door. We beginnen met het nieuwe stuk en repeteren om 20.00 uur verder aan het programma voor het najaarsconcert.</p>
+</div>
+`;
+
+// A code block with a nowrap span inside it. Unwrapping that span to `normal`
+// collapses the runs of spaces that are the entire point of a `<pre>`, so the
+// clamp has to wrap it instead of flattening it.
+const PREFORMATTED_MAIL = `${LAYOUT_CLAMP_CSS}
+<pre id="listing">outer    <span style="white-space:nowrap" id="inner">A    B</span></pre>
 `;
 
 // The reading pane's ground behind the frame, so a seam between the two shows.
@@ -352,4 +362,64 @@ export const BareMailIsOneSurfaceWithThePaneDark: Story = {
 export const NowrapTextStillWraps: Story = {
 	args: { html: NOWRAP_MAIL, variant: "framed", isDark: false, declares: BARE },
 	decorators: [PANE],
+};
+
+// An element of the sanitized mail, once the frame has parsed its srcDoc — the
+// story's first paint does not wait for that.
+const frameElement = async (canvasElement: HTMLElement, id: string) => {
+	const iframe = canvasElement.querySelector("iframe");
+	if (!iframe) throw new Error("no email frame in the story");
+	return await waitFor(() => {
+		const element = iframe.contentDocument?.getElementById(id);
+		if (!element) throw new Error(`the frame has not rendered #${id} yet`);
+		return element;
+	});
+};
+
+const computedWhiteSpace = (element: Element): string =>
+	element.ownerDocument.defaultView?.getComputedStyle(element).whiteSpace ?? "";
+
+/** The same nowrap in the case Outlook writes it. An attribute-value match is
+ *  case-sensitive by default, so this line stayed pinned while its lowercase
+ *  twin wrapped. */
+export const ShoutedNowrapStillWraps: Story = {
+	args: {
+		html: SHOUTED_NOWRAP_MAIL,
+		variant: "framed",
+		isDark: false,
+		declares: BARE,
+	},
+	decorators: [PHONE],
+	play: async ({ canvasElement }) => {
+		const shouted = await frameElement(canvasElement, "shouted");
+		await expect(computedWhiteSpace(shouted)).toBe("normal");
+	},
+};
+
+/** A `<pre>` keeps its spacing. Unwrapping a nowrap span inside it to `normal`
+ *  collapses the runs of spaces the block exists to preserve, so the clamp
+ *  wraps it to `pre-wrap` rather than flattening it. */
+export const PreformattedTextKeepsItsSpacing: Story = {
+	args: {
+		html: PREFORMATTED_MAIL,
+		variant: "framed",
+		isDark: false,
+		declares: BARE,
+	},
+	decorators: [PANE],
+	play: async ({ canvasElement }) => {
+		const inner = await frameElement(canvasElement, "inner");
+		const doc = inner.ownerDocument;
+		await expect(computedWhiteSpace(inner)).toBe("pre-wrap");
+		// Computed style is the rule; the rendered width is the spaces surviving.
+		// The twin sits in the same block so it inherits the same monospace font
+		// and the only difference between the two is the whitespace handling.
+		const collapsed = doc.createElement("span");
+		collapsed.style.whiteSpace = "normal";
+		collapsed.textContent = inner.textContent;
+		inner.parentElement?.appendChild(collapsed);
+		await expect(inner.getBoundingClientRect().width).toBeGreaterThan(
+			collapsed.getBoundingClientRect().width,
+		);
+	},
 };

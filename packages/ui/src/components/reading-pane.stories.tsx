@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { Paperclip, Star } from "lucide-react";
 import { useState } from "react";
+import { expect } from "storybook/test";
 import type { ThreadData, ThreadMessageData } from "./app-shell-types.js";
 import {
 	type AttachmentDownloadState,
@@ -346,6 +347,65 @@ export const ExpandedRowWithAttachments: StoryObj<typeof ExpandedMessage> = {
 			/>
 		</div>
 	),
+};
+
+/**
+ * The email sits square in the pane: the frame leaves the message gutter on
+ * both sides, not just the left.
+ *
+ * A block box cannot have both a width and two margins — the browser resolves
+ * the over-constraint by throwing the right margin away — so a gutter cancel on
+ * a `w-full` box moved the mail left and left a strip of app canvas down its
+ * right-hand side. Bare mail hides that (it paints the pane's own colour); a
+ * newsletter with a ground of its own shows it plainly, which is why this
+ * measures a framed message.
+ */
+const framedRow: ThreadMessageData = {
+	...newsletterThread.messages[0],
+	id: "symmetry-1",
+};
+
+const paneGutters = (canvasElement: HTMLElement) => {
+	const pane = canvasElement.querySelector<HTMLElement>("[data-pane]");
+	const frame = pane?.querySelector<HTMLElement>(".message-body-frame");
+	if (!pane || !frame) throw new Error("no framed message body in the pane");
+	const paneBox = pane.getBoundingClientRect();
+	const frameBox = frame.getBoundingClientRect();
+	return {
+		left: frameBox.left - paneBox.left,
+		right: paneBox.right - frameBox.right,
+	};
+};
+
+const assertSymmetric = async (canvasElement: HTMLElement) => {
+	const { left, right } = paneGutters(canvasElement);
+	await expect(Math.abs(left - right)).toBeLessThan(1);
+	await expect(Math.abs(left)).toBeLessThan(1);
+};
+
+/** A designed newsletter on a desktop reading column. */
+export const FramedBodySitsSquareInThePane: StoryObj<typeof ExpandedMessage> = {
+	render: () => (
+		<div data-pane className="w-[900px] bg-canvas">
+			<ExpandedMessage message={framedRow} />
+		</div>
+	),
+	play: async ({ canvasElement }) => {
+		await assertSymmetric(canvasElement);
+	},
+};
+
+/** The same at a phone width, where the gutter is half as wide and a lost
+ *  right margin is half the pane's breathing room. */
+export const FramedBodySitsSquareOnAPhone: StoryObj<typeof ExpandedMessage> = {
+	render: () => (
+		<div data-pane className="w-[390px] bg-canvas">
+			<ExpandedMessage message={framedRow} />
+		</div>
+	),
+	play: async ({ canvasElement }) => {
+		await assertSymmetric(canvasElement);
+	},
 };
 
 /**
