@@ -11,7 +11,8 @@
 		"test": "npm run test:typecheck && npm run test:run",
 		"test:typecheck": "tsgo --noEmit",
 		"test:run": "TZ=Europe/Amsterdam node $NODE_TEST_FLAGS --import tsx --test 'src/**/*.test.ts'",
-		"test:stories": "vitest run"
+		"test:stories": "vitest run && npm run test:published",
+		"test:published": "node --test-timeout=900000 --import tsx --test 'src/**/*.browser-test.ts'"
 	},
 	"dependencies": {
 		"@aws-amplify/ui-react": "^6",
