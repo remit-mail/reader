@@ -219,7 +219,10 @@ export {
 	DialogBackdrop,
 	type DialogBackdropProps,
 } from "./components/dialog-backdrop.js";
-export type { EmailFrameVariant } from "./components/email-frame-css.js";
+export type {
+	AuthorDeclarations,
+	EmailFrameVariant,
+} from "./components/email-frame-css.js";
 export {
 	EventDetail,
 	type EventDetailProps,
@@ -820,6 +823,7 @@ export {
 export {
 	createEmailSanitizer,
 	detectAuthorBackground,
+	detectAuthorSpacing,
 	type SanitizedEmail,
 	type SanitizeOptions,
 	sanitizeInlineStyle,

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
 	buildEmailSrcDoc,
 	DARK_OPT_IN_RE,
+	generateContentInsetCSS,
 	generateFramedEmailBaseCSS,
 	generatePlainEmailBaseCSS,
 	VIEWPORT_META,
@@ -103,15 +104,28 @@ describe("generatePlainEmailBaseCSS (theme tokens pinned)", () => {
 	it("injects the light-theme resolved tokens", () => {
 		const css = generatePlainEmailBaseCSS(false);
 		assert.match(css, /oklch\(0\.3 0\.025 235\)/);
-		assert.match(css, /oklch\(0\.975 0\.012 90\)/);
 		assert.match(css, /oklch\(0\.55 0\.14 150\)/);
 	});
 
 	it("injects the dark-theme resolved tokens", () => {
 		const css = generatePlainEmailBaseCSS(true);
 		assert.match(css, /oklch\(0\.88 0\.02 90\)/);
-		assert.match(css, /oklch\(0\.25 0\.025 220\)/);
 		assert.match(css, /oklch\(0\.78 0\.16 150\)/);
+	});
+
+	it("grounds the email on the reading pane's own canvas, not a lighter surface", () => {
+		// --surface (0.975 / 0.25) would render the mail as a lighter rectangle
+		// inside the pane, seam and all. --canvas is the pane itself.
+		assert.match(generatePlainEmailBaseCSS(false), /oklch\(0\.96 0\.015 90\)/);
+		assert.doesNotMatch(
+			generatePlainEmailBaseCSS(false),
+			/oklch\(0\.975 0\.012 90\)/,
+		);
+		assert.match(generatePlainEmailBaseCSS(true), /oklch\(0\.22 0\.025 220\)/);
+		assert.doesNotMatch(
+			generatePlainEmailBaseCSS(true),
+			/oklch\(0\.25 0\.025 220\)/,
+		);
 	});
 
 	it("strips author colors and backgrounds from body descendants only", () => {
@@ -125,24 +139,62 @@ describe("generatePlainEmailBaseCSS (theme tokens pinned)", () => {
 });
 
 describe("generateFramedEmailBaseCSS (K-9 dark strategy)", () => {
-	it("light theme renders as authored on a white canvas, no invert", () => {
-		const css = generateFramedEmailBaseCSS(false, false);
+	it("light theme renders an author background as authored on white, no invert", () => {
+		const css = generateFramedEmailBaseCSS(false, false, true);
 		assert.match(css, /background-color:#ffffff/);
 		assert.match(css, /color-scheme:light/);
 		assert.doesNotMatch(css, /invert/);
 	});
 
-	it("dark theme without opt-in smart-inverts to darken into the pane", () => {
-		const css = generateFramedEmailBaseCSS(true, false);
-		assert.match(css, /filter:invert\(0\.92\) hue-rotate\(180deg\)/);
+	it("dark theme without opt-in smart-inverts an author background into the pane", () => {
+		const css = generateFramedEmailBaseCSS(true, false, true);
+		assert.match(css, /html\{[^}]*filter:invert\(0\.92\) hue-rotate\(180deg\)/);
 		// Media re-inverted back to natural color.
 		assert.match(css, /img,picture,video[^{]*\{filter:invert/);
 	});
 
 	it("dark theme WITH opt-in preserves the author's own dark design (no invert)", () => {
-		const css = generateFramedEmailBaseCSS(true, true);
+		const css = generateFramedEmailBaseCSS(true, true, true);
 		assert.match(css, /color-scheme:dark light/);
 		assert.doesNotMatch(css, /invert/);
+	});
+});
+
+describe("generateFramedEmailBaseCSS (mail that brings no ground of its own)", () => {
+	it("grounds a light-theme email on the pane's canvas instead of white", () => {
+		const css = generateFramedEmailBaseCSS(false, false, false);
+		assert.match(css, /background-color:oklch\(0\.96 0\.015 90\)/);
+		assert.doesNotMatch(css, /#ffffff/);
+	});
+
+	it("grounds a dark-theme email on the pane's canvas and never inverts it", () => {
+		// The invert moves off `html` onto `body`: the author's colours still
+		// darken, but a white canvas is never painted for it to turn into a
+		// charcoal slab sitting inside the pane.
+		const css = generateFramedEmailBaseCSS(true, false, false);
+		assert.match(
+			css,
+			/html\{margin:0;background-color:oklch\(0\.22 0\.025 220\)\}/,
+		);
+		assert.match(css, /body\{margin:0;filter:invert\(0\.92\)/);
+		assert.doesNotMatch(css, /#ffffff/);
+	});
+
+	it("grounds a dark opt-in email on the pane's canvas", () => {
+		const css = generateFramedEmailBaseCSS(true, true, false);
+		assert.match(css, /background-color:oklch\(0\.22 0\.025 220\)/);
+		assert.doesNotMatch(css, /invert/);
+	});
+});
+
+describe("generateContentInsetCSS (breathing room inside the background)", () => {
+	it("pads the element that carries the background, in its border box", () => {
+		const css = generateContentInsetCSS();
+		assert.match(css, /body\{padding:16px;box-sizing:border-box\}/);
+	});
+
+	it("leaves the document itself unpadded so the ground reaches the frame edge", () => {
+		assert.match(generateContentInsetCSS(), /html\{padding:0\}/);
 	});
 });
 
@@ -167,7 +219,10 @@ describe("buildEmailSrcDoc", () => {
 
 	it("keeps the sanitized email body intact after the injected style", () => {
 		const body = '<style>.clamp{}</style><table width="600"></table>';
-		const doc = buildEmailSrcDoc(body, "framed", false);
+		const doc = buildEmailSrcDoc(body, "framed", false, {
+			background: true,
+			spacing: true,
+		});
 		assert.ok(doc.endsWith(body));
 	});
 
@@ -177,7 +232,10 @@ describe("buildEmailSrcDoc", () => {
 	});
 
 	it("uses the framed smart-invert in dark mode for a non-opt-in framed email", () => {
-		const doc = buildEmailSrcDoc("<p>x</p>", "framed", true);
+		const doc = buildEmailSrcDoc("<p>x</p>", "framed", true, {
+			background: true,
+			spacing: true,
+		});
 		assert.match(doc, /filter:invert\(0\.92\)/);
 	});
 
@@ -186,8 +244,26 @@ describe("buildEmailSrcDoc", () => {
 			"<style>:root{color-scheme:dark}</style><p>x</p>",
 			"framed",
 			true,
+			{ background: true, spacing: true },
 		);
 		assert.match(doc, /color-scheme:dark light/);
 		assert.doesNotMatch(doc, /filter:invert/);
+	});
+
+	it("insets mail that lays out no spacing of its own, after everything else", () => {
+		const doc = buildEmailSrcDoc("<p>x</p>", "plain", false, {
+			background: false,
+			spacing: false,
+		});
+		// Last in the document, so it outranks the layout clamp's `padding: 0`.
+		assert.ok(doc.endsWith(`<style>${generateContentInsetCSS()}</style>`));
+	});
+
+	it("gives a newsletter that spaces its own container no second helping", () => {
+		const doc = buildEmailSrcDoc("<p>x</p>", "framed", false, {
+			background: true,
+			spacing: true,
+		});
+		assert.doesNotMatch(doc, /box-sizing:border-box/);
 	});
 });

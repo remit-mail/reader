@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import { buildCidResolver } from "./cid-resolver.js";
 import {
 	detectAuthorBackground,
+	detectAuthorSpacing,
 	sanitizeInlineStyle,
 	sanitizeStyleElementCss,
 } from "./email-sanitizer.js";
@@ -358,5 +359,53 @@ describe("detectAuthorBackground — <style> block over-match hardening (#483)",
 			"<p>x</p>",
 		].join("");
 		assert.equal(detectAuthorBackground(html), false);
+	});
+});
+
+describe("detectAuthorSpacing — does the mail lay out its own breathing room?", () => {
+	test("a bare message declares none", () => {
+		assert.equal(
+			detectAuthorSpacing("<div><p>Hi there,</p><p>See you at 3.</p></div>"),
+			false,
+		);
+	});
+
+	test("a reset is not breathing room", () => {
+		assert.equal(
+			detectAuthorSpacing(
+				'<table style="margin:0;padding:0"><tr></tr></table>',
+			),
+			false,
+		);
+		assert.equal(
+			detectAuthorSpacing("<style>body{margin:0 auto;padding:0px}</style>"),
+			false,
+		);
+	});
+
+	test("an inline padding on a container counts", () => {
+		assert.equal(
+			detectAuthorSpacing('<td style="padding:24px;color:#111">x</td>'),
+			true,
+		);
+	});
+
+	test("a margin in a <style> block counts", () => {
+		assert.equal(
+			detectAuthorSpacing("<style>.wrap{margin-bottom:16px}</style><p>x</p>"),
+			true,
+		);
+	});
+
+	test("the tables newsletters are still built from count via cellpadding", () => {
+		assert.equal(detectAuthorSpacing('<table cellpadding="8"></table>'), true);
+		assert.equal(detectAuthorSpacing('<table cellpadding="0"></table>'), false);
+	});
+
+	test("the word margin in prose is not a declaration", () => {
+		assert.equal(
+			detectAuthorSpacing("<p>The margin was thin this quarter.</p>"),
+			false,
+		);
 	});
 });

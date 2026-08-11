@@ -133,6 +133,11 @@ export function ExpandedMessage({
 	warning?: string;
 	/** Collapse handler on the sender block. Omit for a static row. */
 	onHeaderClick?: () => void;
+	/**
+	 * Keyboard cursor. Rings the sender row, the way it rings a collapsed row —
+	 * never the message, which would draw an accent line down both sides of the
+	 * email and read as a card edge around mail that carries its own.
+	 */
 	isFocused?: boolean;
 	/** Rendered after the sender name (e.g. a trusted-sender badge). */
 	senderBadge?: ReactNode;
@@ -177,13 +182,17 @@ export function ExpandedMessage({
 	);
 
 	return (
-		<div
-			className={cn(
-				"px-2 py-3 lg:px-4",
-				isFocused && "ring-1 ring-inset ring-accent/30",
-			)}
-		>
-			<div className="flex items-start gap-3">
+		<div className="px-2 py-3 lg:px-4">
+			{/* The cursor rings the sender row, not the message. Around the message
+			    it drew an accent line down both sides of every open email, which
+			    reads as a card edge on mail that brings its own. The negative
+			    margins hold the row exactly where it sits unringed. */}
+			<div
+				className={cn(
+					"-mx-2 -my-1 flex items-start gap-3 rounded-sm px-2 py-1",
+					isFocused && "ring-1 ring-inset ring-accent/30",
+				)}
+			>
 				{/* The chevron is the disclosure control, not a picture of one: it is
 				    what a reader aims at to put a message away, so it carries the
 				    collapse itself rather than sitting beside the sender block that
@@ -240,12 +249,13 @@ export function ExpandedMessage({
 			    exactly what the app renders, not a divergent inline-HTML mock
 			    (#940). `framed` fixtures map to the newsletter treatment (author
 			    colors preserved); the rest render plain. */}
-			{/* On a phone the email runs edge to edge: the negative margin cancels
-			    this block's `px-2` so no app canvas shows beside the body and the
-			    email doesn't read as sitting in a tinted frame (#763). The header
-			    keeps its inset. The blocked-images notice is app chrome, not part
-			    of the email, so it takes the gutter back. Desktop is unchanged. */}
-			<div className="-mx-2 [&_.message-body-notice]:px-2 lg:mx-0 lg:[&_.message-body-notice]:px-0">
+			{/* The sandboxed email frame — and only it — cancels this block's
+			    gutter at every width, so mail renders on its own ground with its
+			    own margins and no app canvas shows down either side of it (#763).
+			    Everything else in the body slot is app chrome — the blocked-images
+			    notice, a plain-text body, an error, the attachment list — and
+			    keeps the inset the header has. */}
+			<div className="[&_.message-body-frame]:-mx-2 lg:[&_.message-body-frame]:-mx-4">
 				{body ?? (
 					<MessageBodyView
 						className="mt-3"

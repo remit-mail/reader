@@ -89,6 +89,26 @@ describe("generateLayoutClampCSS (#374 / #727)", () => {
 		);
 	});
 
+	test("overrides an author nowrap so flowing text can never be clipped", () => {
+		// A frame that sizes itself to its content has nothing to scroll a pinned
+		// line into; inside an author `overflow:hidden` it cannot even measure the
+		// overflow, and the line is cut mid-character.
+		assert.ok(
+			/\[nowrap\][^{]*\{[^}]*white-space:\s*normal\s*!important/.test(css),
+			"a nowrap attribute must not pin a line wider than the frame",
+		);
+		assert.ok(
+			/\[style\*="nowrap"\][^{]*\{[^}]*white-space:\s*normal\s*!important/.test(
+				css,
+			),
+			"an inline white-space:nowrap must not pin a line wider than the frame",
+		);
+		assert.ok(
+			/\[nowrap\]:not\(pre\):not\(code\)/.test(css),
+			"pre/code keep their own whitespace handling",
+		);
+	});
+
 	test("wraps long unbroken lines in pre/code blocks", () => {
 		assert.ok(/\bpre\b/.test(css));
 		assert.ok(/\bcode\b/.test(css));

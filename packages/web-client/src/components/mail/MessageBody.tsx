@@ -68,8 +68,8 @@ interface MessageBodyProps {
 	category?: EmailRenderCategory;
 	/**
 	 * Extra classes for the `.message-body` wrapper. `MessageCard` leaves this
-	 * unset: the kit's `ExpandedMessage` runs the body edge to edge on a phone
-	 * and supplies the desktop inset itself.
+	 * unset: the kit's `ExpandedMessage` owns the gutter, and runs the sandboxed
+	 * email frame out of it so mail renders on its own ground.
 	 */
 	className?: string;
 }

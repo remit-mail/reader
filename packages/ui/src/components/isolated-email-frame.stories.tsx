@@ -134,6 +134,35 @@ const WIDE_TABLE = `${LAYOUT_CLAMP_CSS}
 </div>
 `;
 
+// Mail that declares nothing: no background, no padding, no width. The frame
+// supplies the ground — the reading pane's own colour — and the breathing room
+// inside it, so the surface reaches both pane edges and only the text is inset.
+const BARE_MAIL = `${LAYOUT_CLAMP_CSS}
+<div>
+	<p>Hoi allemaal,</p>
+	<p>De repetitie van donderdag gaat door. We beginnen met het nieuwe stuk en
+	repeteren om 20.00 uur verder aan het programma voor het najaarsconcert.</p>
+	<p>Groeten,<br>Ingrid</p>
+</div>
+`;
+
+// The same mail with an author `nowrap`: the clamp wraps it rather than letting
+// the line run past a frame that has nothing to scroll it into.
+const NOWRAP_MAIL = `${LAYOUT_CLAMP_CSS}
+<div style="white-space:nowrap">
+	<p>Hoi allemaal,</p>
+	<p>De repetitie van donderdag gaat door. We beginnen met het nieuwe stuk en repeteren om 20.00 uur verder aan het programma voor het najaarsconcert.</p>
+	<p>Groeten,<br>Ingrid</p>
+</div>
+`;
+
+// The reading pane's ground behind the frame, so a seam between the two shows.
+const PANE: Decorator = (Story) => (
+	<div className="overflow-x-auto bg-canvas" style={{ width: 720 }}>
+		<Story />
+	</div>
+);
+
 const PHONE: Decorator = (Story) => (
 	<div className="overflow-x-auto" style={{ width: 390 }}>
 		<Story />
@@ -159,6 +188,13 @@ const COLUMN: Decorator = (Story) => (
 	</div>
 );
 
+// What the sanitizer reports for these fixtures. Designed mail brings its own
+// ground and its own container padding, so the frame stands back on both; the
+// bare note brings neither, so the frame supplies the pane's ground and the
+// breathing room inside it.
+const DESIGNED = { background: true, spacing: true };
+const BARE = { background: false, spacing: false };
+
 const meta: Meta<typeof IsolatedEmailFrame> = {
 	title: "Components/IsolatedEmailFrame",
 	component: IsolatedEmailFrame,
@@ -177,40 +213,65 @@ type Story = StoryObj<typeof IsolatedEmailFrame>;
  *  the frame scales the whole email down to fit the box WHOLE, with no clipping
  *  and no horizontal page scroll. */
 export const NodeWeeklyMobile: Story = {
-	args: { html: NODE_WEEKLY, variant: "framed", isDark: false },
+	args: {
+		html: NODE_WEEKLY,
+		variant: "framed",
+		isDark: false,
+		declares: DESIGNED,
+	},
 	decorators: [PHONE],
 };
 
 /** The same Node Weekly newsletter on a desktop reading column. */
 export const NodeWeeklyDesktop: Story = {
-	args: { html: NODE_WEEKLY, variant: "framed", isDark: false },
+	args: {
+		html: NODE_WEEKLY,
+		variant: "framed",
+		isDark: false,
+		declares: DESIGNED,
+	},
 	decorators: [COLUMN],
 };
 
 /** Gaslicht.com-style 600px fixed-width marketing mail at phone width: the hero
  *  image and CTA scale down with the frame to fit the phone whole. */
 export const GaslichtMobile: Story = {
-	args: { html: GASLICHT, variant: "framed", isDark: false },
+	args: {
+		html: GASLICHT,
+		variant: "framed",
+		isDark: false,
+		declares: DESIGNED,
+	},
 	decorators: [PHONE],
 };
 
 /** Substack-style fluid newsletter on a desktop column: fills the reading
  *  width via the framed `max(100%, content)` path. */
 export const SubstackDesktop: Story = {
-	args: { html: SUBSTACK, variant: "framed", isDark: false },
+	args: {
+		html: SUBSTACK,
+		variant: "framed",
+		isDark: false,
+		declares: DESIGNED,
+	},
 	decorators: [COLUMN],
 };
 
 /** Substack fluid newsletter reflowed to a phone width. */
 export const SubstackMobile: Story = {
-	args: { html: SUBSTACK, variant: "framed", isDark: false },
+	args: {
+		html: SUBSTACK,
+		variant: "framed",
+		isDark: false,
+		declares: DESIGNED,
+	},
 	decorators: [PHONE],
 };
 
 /** Framed newsletter on the DARK reading pane: smart-inverted to charcoal with
  *  the hero re-inverted back to natural color. */
 export const NewsletterDarkPane: Story = {
-	args: { html: GASLICHT, variant: "framed", isDark: true },
+	args: { html: GASLICHT, variant: "framed", isDark: true, declares: DESIGNED },
 	parameters: { theme: "dark" },
 	decorators: [COLUMN],
 };
@@ -218,14 +279,14 @@ export const NewsletterDarkPane: Story = {
 /** Plain personal email: UI font-stack + theme-aware colors injected so the
  *  black-on-white author text stays readable in either theme. */
 export const PlainEmail: Story = {
-	args: { html: PLAIN, variant: "plain", isDark: false },
+	args: { html: PLAIN, variant: "plain", isDark: false, declares: BARE },
 	decorators: [COLUMN],
 };
 
 /** Plain email in dark mode: must be light text on the dark surface, never
  *  black-on-dark. */
 export const PlainEmailDark: Story = {
-	args: { html: PLAIN, variant: "plain", isDark: true },
+	args: { html: PLAIN, variant: "plain", isDark: true, declares: BARE },
 	parameters: { theme: "dark" },
 	decorators: [COLUMN],
 };
@@ -233,25 +294,62 @@ export const PlainEmailDark: Story = {
 /** A short plain email in a fractional-width column: nothing overflows, so no
  *  horizontal scrollbar may appear under it. */
 export const FitsFractionalColumn: Story = {
-	args: { html: PLAIN, variant: "plain", isDark: false },
+	args: { html: PLAIN, variant: "plain", isDark: false, declares: BARE },
 	decorators: [FRACTIONAL_COLUMN],
 };
 
 /** A fluid newsletter filling the same fractional column: still no scrollbar. */
 export const SubstackFractionalColumn: Story = {
-	args: { html: SUBSTACK, variant: "framed", isDark: false },
+	args: {
+		html: SUBSTACK,
+		variant: "framed",
+		isDark: false,
+		declares: DESIGNED,
+	},
 	decorators: [FRACTIONAL_COLUMN],
 };
 
 /** A 1200px table that genuinely does not fit: the frame takes its content
  *  width and the column scrolls it horizontally, in place. */
 export const WideTableScrollsInPlace: Story = {
-	args: { html: WIDE_TABLE, variant: "framed", isDark: false },
+	args: {
+		html: WIDE_TABLE,
+		variant: "framed",
+		isDark: false,
+		declares: DESIGNED,
+	},
 	decorators: [COLUMN],
 };
 
 /** The same table on a phone: #727 scales it down to fit whole instead. */
 export const WideTableMobile: Story = {
-	args: { html: WIDE_TABLE, variant: "framed", isDark: false },
+	args: {
+		html: WIDE_TABLE,
+		variant: "framed",
+		isDark: false,
+		declares: DESIGNED,
+	},
 	decorators: [PHONE],
+};
+
+/** Mail that brings no ground of its own: the frame's is the pane's, so there
+ *  is no seam and no inner rectangle, and the injected inset reads as margin
+ *  rather than a colour change. */
+export const BareMailIsOneSurfaceWithThePane: Story = {
+	args: { html: BARE_MAIL, variant: "framed", isDark: false, declares: BARE },
+	decorators: [PANE],
+};
+
+/** The same on the dark pane, where an app-supplied white canvas used to be
+ *  inverted into a charcoal slab sitting inside the pane. */
+export const BareMailIsOneSurfaceWithThePaneDark: Story = {
+	args: { html: BARE_MAIL, variant: "framed", isDark: true, declares: BARE },
+	parameters: { theme: "dark" },
+	decorators: [PANE],
+};
+
+/** Author `nowrap` on flowing text: wrapped to the frame, never cut. */
+export const NowrapTextStillWraps: Story = {
+	args: { html: NOWRAP_MAIL, variant: "framed", isDark: false, declares: BARE },
+	decorators: [PANE],
 };

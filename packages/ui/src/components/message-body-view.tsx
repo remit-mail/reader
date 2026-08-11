@@ -92,6 +92,16 @@ export const MessageBodyView = ({
 		sanitized?.hasAuthorBackground ?? false,
 	);
 
+	// Stable across renders: the frame rebuilds its srcDoc — and so reloads the
+	// iframe — whenever this changes identity.
+	const declares = useMemo(
+		() => ({
+			background: sanitized?.hasAuthorBackground ?? false,
+			spacing: sanitized?.hasAuthorSpacing ?? false,
+		}),
+		[sanitized?.hasAuthorBackground, sanitized?.hasAuthorSpacing],
+	);
+
 	const blockedImageCount = useMemo(() => {
 		if (!sanitizedHtml || allowImages) return 0;
 		return (sanitizedHtml.match(/data-blocked-src/g) || []).length;
@@ -107,14 +117,11 @@ export const MessageBodyView = ({
 
 	return (
 		<div className={cn("message-body", className)}>
-			{/* `message-body-notice` is a styling hook, not a style: a container
-			    that drops the body's horizontal inset (the mobile reading pane)
-			    uses it to give the gutter back to this notice, which is app
-			    chrome rather than part of the email. */}
+			{/* The notice keeps the container's gutter: it is app chrome, not part
+			    of the email, and only `message-body-frame` below leaves the
+			    gutter. */}
 			{blockedImageCount > 0 && (
-				<div className="message-body-notice">
-					{renderBlockedNotice?.(blockedImageCount)}
-				</div>
+				<div>{renderBlockedNotice?.(blockedImageCount)}</div>
 			)}
 
 			{sanitizedHtml ? (
@@ -127,26 +134,31 @@ export const MessageBodyView = ({
 					// max-w-full + overflow-x-auto trap any residual wide content inside
 					// this box rather than dragging the page on mobile. No border,
 					// padding or background — the email renders flush (#727).
-					<div className="w-full max-w-full overflow-x-auto">
+					<div className="message-body-frame w-full max-w-full overflow-x-auto">
 						<IsolatedEmailFrame
 							html={sanitizedHtml}
 							variant="framed"
 							isDark={isDark}
+							declares={declares}
 						/>
 					</div>
 				) : (
 					// `lg:max-w-2xl` caps the reading column on desktop; `max-w-full`
 					// keeps the box within the viewport on mobile. `overflow-x-auto`
 					// traps residual wide content INSIDE this box on a phone (#727).
-					<div className="max-w-full overflow-x-auto lg:max-w-2xl">
+					<div className="message-body-frame max-w-full overflow-x-auto lg:max-w-2xl">
 						<IsolatedEmailFrame
 							html={sanitizedHtml}
 							variant={isPlain ? "plain" : "framed"}
 							isDark={isDark}
+							declares={declares}
 						/>
 					</div>
 				)
 			) : text ? (
+				// Plain text is not an email document: it has no ground of its own and
+				// no layout to respect, so it keeps the message's gutter rather than
+				// running to the pane edge like the sandboxed frame does.
 				<pre className="email-text whitespace-pre-wrap text-sm leading-relaxed">
 					{text}
 				</pre>

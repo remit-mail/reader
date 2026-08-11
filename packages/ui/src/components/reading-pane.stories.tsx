@@ -72,6 +72,40 @@ const newsletterThread: ThreadData = {
 	],
 };
 
+// Formatted HTML mail that declares no background, no padding and no width —
+// the ordinary case. The app supplies the ground and the breathing room, so the
+// email must read as one surface with the pane rather than a card inside it: no
+// border, no accent line down the side, no gutter of app canvas beside it.
+const bareThread: ThreadData = {
+	subject: "Repetitie donderdag",
+	messages: [
+		{
+			id: "bare-1",
+			fromName: "Ingrid Bakker",
+			fromEmail: "ingrid@koor.example",
+			toLabel: "you",
+			dateLabel: "Today, 11:24",
+			snippet: "De repetitie van donderdag gaat door…",
+			expanded: true,
+			bodyHtml: `<div>
+	<p>Hoi allemaal,</p>
+	<p>De repetitie van donderdag gaat door. We beginnen met het nieuwe stuk en
+	repeteren om 20.00 uur verder aan het programma voor het najaarsconcert.</p>
+	<p><b>Neem je eigen partituur mee</b> — er zijn geen reservekopie&euml;n.</p>
+	<p>Groeten,<br>Ingrid</p>
+</div>`,
+		},
+	],
+};
+
+const PLAIN_TEXT_BODY = `Hoi allemaal,
+
+De repetitie van donderdag gaat door. We beginnen met het nieuwe stuk en
+repeteren om 20.00 uur verder aan het programma voor het najaarsconcert.
+
+Groeten,
+Ingrid`;
+
 const meta: Meta<typeof ReadingPane> = {
 	title: "Screens/Kit/ReadingPane",
 	component: ReadingPane,
@@ -89,8 +123,28 @@ type Story = StoryObj<typeof ReadingPane>;
 export const WithThread: Story = { args: { thread } };
 
 /** A designed newsletter rendered through the real sanitize → sandboxed-iframe
- *  pipeline — the same rendering the live app shows (#940). */
+ *  pipeline — the same rendering the live app shows (#940). It brings its own
+ *  background and its own 24px padding and keeps both, undoubled. */
 export const Newsletter: Story = { args: { thread: newsletterThread } };
+
+/** The same newsletter on the dark pane: darkened as authored, not repainted. */
+export const NewsletterDark: Story = {
+	args: { thread: newsletterThread },
+	parameters: { theme: "dark" },
+};
+
+/** Ordinary formatted mail that declares nothing of its own. The sender header
+ *  keeps its inset; below it the email is one surface with the pane — no card
+ *  edge, no accent line, no app gutter beside it — with the breathing room
+ *  inside the email's own ground. */
+export const BareHtmlMail: Story = { args: { thread: bareThread } };
+
+/** The same on the dark pane, where a lighter app-supplied ground used to show
+ *  as a rectangle seamed into the pane. */
+export const BareHtmlMailDark: Story = {
+	args: { thread: bareThread },
+	parameters: { theme: "dark" },
+};
 
 export const Empty: Story = { args: { thread: undefined } };
 
@@ -252,7 +306,7 @@ const ThreadAttachments = () => {
 
 	return (
 		<AttachmentList
-			className="mt-4 px-2 lg:px-0"
+			className="mt-4"
 			attachments={rows}
 			onDownload={(attachmentId) => {
 				setStatus(attachmentId, { status: "downloading" });
@@ -287,6 +341,27 @@ export const ExpandedRowWithAttachments: StoryObj<typeof ExpandedMessage> = {
 							allowImages
 						/>
 						<ThreadAttachments />
+					</div>
+				}
+			/>
+		</div>
+	),
+};
+
+/**
+ * A message with no HTML part. The two body paths side by side: an email
+ * document runs flush on its own ground, while plain text — which has neither —
+ * keeps the message gutter and stays off the pane edge.
+ */
+export const PlainTextMessage: StoryObj<typeof ExpandedMessage> = {
+	render: () => (
+		<div className="max-w-3xl bg-canvas">
+			<ExpandedMessage
+				message={{ ...row, fromName: "Ingrid Bakker" }}
+				to={<>to the choir list</>}
+				body={
+					<div className="mt-3">
+						<MessageBodyView text={PLAIN_TEXT_BODY} />
 					</div>
 				}
 			/>

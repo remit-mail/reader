@@ -43,6 +43,44 @@ const PLAIN = `
 </div>
 `;
 
+// Formatted HTML mail that declares nothing: no background, no padding, no
+// width. The app supplies the ground, so the ground must be the pane's own and
+// the breathing room must sit inside it — one surface with comfortable margins,
+// not a lighter rectangle seamed into the pane.
+const UNSTYLED_HTML = `
+<div>
+	<p>Hoi allemaal,</p>
+	<p>De repetitie van donderdag gaat door. We beginnen met het nieuwe stuk en
+	repeteren om 20.00 uur verder aan het programma voor het najaarsconcert.</p>
+	<p><b>Neem je eigen partituur mee</b> — er zijn geen reservekopieën.</p>
+	<p>Groeten,<br>Ingrid</p>
+</div>
+`;
+
+// The same mail with a nowrap its author never expected a client to honour: a
+// frame that sizes to its content cannot scroll a pinned line, so the clamp
+// must wrap it instead of letting it run past the frame and be cut.
+const UNSTYLED_HTML_NOWRAP = `
+<div style="white-space:nowrap">
+	<p>Hoi allemaal,</p>
+	<p>De repetitie van donderdag gaat door. We beginnen met het nieuwe stuk en repeteren om 20.00 uur verder aan het programma voor het najaarsconcert.</p>
+	<p>Groeten,<br>Ingrid</p>
+</div>
+`;
+
+// A short plain-text message: no HTML part at all. It is not an email document
+// and has no ground of its own, so it keeps the reading pane's gutter rather
+// than running to the pane edge the way a sandboxed frame does.
+const PLAIN_TEXT = `Hoi allemaal,
+
+De repetitie van donderdag gaat door. We beginnen met het nieuwe stuk en
+repeteren om 20.00 uur verder aan het programma voor het najaarsconcert.
+
+Neem je eigen partituur mee - er zijn geen reservekopieen.
+
+Groeten,
+Ingrid`;
+
 // Marketing mail with two remote images — with images blocked the sanitizer
 // swaps them for placeholders and the privacy notice slot reports the count.
 const WITH_REMOTE_IMAGES = `
@@ -111,6 +149,15 @@ const FRACTIONAL_COLUMN: Decorator = (Story) => (
 
 const PHONE: Decorator = (Story) => (
 	<div style={{ width: 390 }}>
+		<Story />
+	</div>
+);
+
+// The reading pane's own arrangement: the pane's canvas, the message gutter,
+// and the sandboxed frame running out of that gutter. Any seam between the
+// email's ground and the pane around it shows up here.
+const PANE: Decorator = (Story) => (
+	<div className="w-[720px] bg-canvas px-4 py-3 [&_.message-body-frame]:-mx-4">
 		<Story />
 	</div>
 );
@@ -213,6 +260,63 @@ export const WideTableScrollsInPlace: Story = {
 export const WideTableMobile: Story = {
 	args: { html: WIDE_TABLE, category: "newsletter", allowImages: true },
 	decorators: [PHONE],
+};
+
+/** Formatted HTML mail that declares no background and no padding. The app
+ *  supplies both: the ground is the pane's own colour, so there is no seam and
+ *  no inner rectangle, and the breathing room sits inside that ground, so the
+ *  text is inset while the surface still reaches both pane edges. */
+export const UnstyledHtmlIsOneSurface: Story = {
+	args: { html: UNSTYLED_HTML, category: "personal", allowImages: true },
+	decorators: [PANE],
+};
+
+/** The same mail on the dark pane: the ground is still the pane's, never a
+ *  lighter slab, and the inset still reads as margin rather than a colour
+ *  change. */
+export const UnstyledHtmlIsOneSurfaceDark: Story = {
+	args: {
+		html: UNSTYLED_HTML,
+		category: "personal",
+		allowImages: true,
+		isDark: true,
+	},
+	parameters: { theme: "dark" },
+	decorators: [PANE],
+};
+
+/** A newsletter that lays out its own container: it keeps its own background
+ *  and its own 24px padding, and is given no second helping. */
+export const SelfStyledNewsletterKeepsItsOwnPadding: Story = {
+	args: { html: NODE_WEEKLY, category: "newsletter", allowImages: true },
+	decorators: [PANE],
+};
+
+/** The same newsletter on the dark pane: its design is its own and is darkened
+ *  as authored, not repainted. */
+export const SelfStyledNewsletterKeepsItsOwnPaddingDark: Story = {
+	args: {
+		html: NODE_WEEKLY,
+		category: "newsletter",
+		allowImages: true,
+		isDark: true,
+	},
+	parameters: { theme: "dark" },
+	decorators: [PANE],
+};
+
+/** A plain-text message. There is no email document to run flush, so it keeps
+ *  the message gutter and stays readable against the pane edge. */
+export const PlainTextKeepsTheGutter: Story = {
+	args: { text: PLAIN_TEXT },
+	decorators: [PANE],
+};
+
+/** Author `nowrap` on flowing text: the clamp wraps it to the frame instead of
+ *  pinning a line the frame can only cut. */
+export const NowrapTextStillWraps: Story = {
+	args: { html: UNSTYLED_HTML_NOWRAP, category: "personal", allowImages: true },
+	decorators: [PANE],
 };
 
 /** No body content: the empty-state fallback. */

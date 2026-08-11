@@ -55,6 +55,14 @@ td, th {
 * {
   min-width: 0;
 }
+/* An author \`nowrap\` assumes a viewport that scrolls. This frame sizes itself
+   to its content instead, so a pinned line either drags the pane sideways
+   forever or — inside an author \`overflow:hidden\` the frame cannot measure —
+   is cut mid-character with nothing left to scroll. Flowing text wraps;
+   \`pre\`/\`code\` keep their own whitespace handling below. */
+[nowrap]:not(pre):not(code), [style*="nowrap"]:not(pre):not(code) {
+  white-space: normal !important;
+}
 /* Long unbroken strings (URLs, tokens) wrap instead of forcing a wide line. */
 pre, code {
   white-space: pre-wrap;

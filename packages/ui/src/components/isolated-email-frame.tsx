@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMatchMedia } from "../lib/use-match-media.js";
-import { buildEmailSrcDoc, type EmailFrameVariant } from "./email-frame-css.js";
+import {
+	type AuthorDeclarations,
+	buildEmailSrcDoc,
+	type EmailFrameVariant,
+} from "./email-frame-css.js";
 
 export interface IsolatedEmailFrameProps {
 	/**
@@ -26,6 +30,13 @@ export interface IsolatedEmailFrameProps {
 	 * or apply the smart-invert.
 	 */
 	isDark?: boolean;
+	/**
+	 * What the mail declares about its own presentation, from the sanitizer. A
+	 * declared background renders as authored; where the mail declares none the
+	 * frame's ground is the reading pane's own colour. A mail that declares no
+	 * padding or margin is given breathing room inside that ground.
+	 */
+	declares?: AuthorDeclarations;
 	className?: string;
 }
 
@@ -197,6 +208,7 @@ export const IsolatedEmailFrame = ({
 	html,
 	variant = "framed",
 	isDark = false,
+	declares,
 	className,
 }: IsolatedEmailFrameProps) => {
 	const hostRef = useRef<HTMLDivElement>(null);
@@ -209,8 +221,8 @@ export const IsolatedEmailFrame = ({
 	const isNarrow = useMatchMedia(NARROW_QUERY);
 
 	const srcDoc = useMemo(
-		() => buildEmailSrcDoc(html, variant, isDark),
-		[html, variant, isDark],
+		() => buildEmailSrcDoc(html, variant, isDark, declares),
+		[html, variant, isDark, declares],
 	);
 
 	// A content measurement is only meaningful against the container it was taken
@@ -267,6 +279,14 @@ export const IsolatedEmailFrame = ({
 			observer = new ResizeObserver(measure);
 			observer.observe(doc.body);
 			if (doc.documentElement) observer.observe(doc.documentElement);
+			// A ResizeObserver watches the body's BOX, which is the frame's own
+			// width and therefore stops changing the moment the frame is sized.
+			// Content that arrives late — an image, a webfont that re-flows the
+			// text wider — changes the scroll size underneath a box that never
+			// moves, so without these the frame keeps a measurement it took
+			// before the mail finished laying out and clips the difference.
+			doc.addEventListener("load", measure, true);
+			doc.fonts?.ready.then(measure);
 			doc.addEventListener("keydown", forwardKeyDown);
 			keyDoc = doc;
 		};
@@ -275,6 +295,7 @@ export const IsolatedEmailFrame = ({
 		return () => {
 			iframe.removeEventListener("load", handleLoad);
 			keyDoc?.removeEventListener("keydown", forwardKeyDown);
+			keyDoc?.removeEventListener("load", measure, true);
 			observer?.disconnect();
 		};
 	}, []);

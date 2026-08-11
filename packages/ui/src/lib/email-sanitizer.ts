@@ -27,10 +27,16 @@ export interface SanitizeOptions {
  * so author colors survive (newsletter / designed mail). When false, the
  * subtree inherits the app theme so plain mail blends with dark chrome
  * instead of becoming a bright slab (#375).
+ *
+ * `hasAuthorSpacing` is the same question for layout: does the mail lay out its
+ * own padding or margin? A newsletter that already spaces its container must
+ * not be given a second helping; a bare message with none gets breathing room
+ * injected inside its own background.
  */
 export interface SanitizedEmail {
 	html: string;
 	hasAuthorBackground: boolean;
+	hasAuthorSpacing: boolean;
 }
 
 /**
@@ -108,6 +114,57 @@ export const detectAuthorBackground = (html: string): boolean => {
 	if (/\bbgcolor\s*=/i.test(html)) return true;
 	for (const block of extractStyleBlocks(html)) {
 		if (styleBlockHasBackground(block)) return true;
+	}
+	return false;
+};
+
+/**
+ * CSS values that space nothing: a `margin: 0` reset is not the mail laying out
+ * its own breathing room, and neither is `margin: auto` centring a table.
+ */
+const NO_SPACING_VALUES =
+	/^(?:0(?:px|em|rem|%|pt|ex|ch|vw|vh)?|auto|none|initial|inherit|unset|revert)(?:\s+(?:0(?:px|em|rem|%|pt|ex|ch|vw|vh)?|auto))*$/i;
+
+const SPACING_DECL_RE =
+	/\b(?:padding|margin)(?:-(?:top|right|bottom|left|block|inline))?(?:-(?:start|end))?\s*:\s*([^;}"']+)/gi;
+
+/**
+ * Whether CSS text spaces anything — a `padding`/`margin` declaration whose
+ * value is not a pure reset.
+ */
+const declaresSpacing = (css: string): boolean => {
+	for (const match of css.matchAll(SPACING_DECL_RE)) {
+		if (!NO_SPACING_VALUES.test(match[1].trim())) return true;
+	}
+	return false;
+};
+
+/** Every inline `style="…"` / `style='…'` value in the raw markup. */
+const extractInlineStyles = (html: string): string[] => {
+	const values: string[] = [];
+	const re = /\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
+	for (const match of html.matchAll(re)) {
+		values.push(match[1] ?? match[2] ?? "");
+	}
+	return values;
+};
+
+/**
+ * Detect whether the mail lays out padding or margin of its own — in an inline
+ * style, in a `<style>` block, or through a non-zero `cellpadding` on the
+ * tables newsletters are still built from. Same shape and same limits as
+ * `detectAuthorBackground`: a declaration scan over the raw markup, deliberately
+ * conservative, because the cost of a false positive (no injected inset) is a
+ * message that reads tight, while a false negative doubles a newsletter's own
+ * padding.
+ */
+export const detectAuthorSpacing = (html: string): boolean => {
+	if (/\bcellpadding\s*=\s*["']?(?!0["'\s>])\d/i.test(html)) return true;
+	for (const style of extractInlineStyles(html)) {
+		if (declaresSpacing(style)) return true;
+	}
+	for (const block of extractStyleBlocks(html)) {
+		if (declaresSpacing(block)) return true;
 	}
 	return false;
 };
@@ -282,6 +339,7 @@ export const createEmailSanitizer = (options: SanitizeOptions = {}) => {
 		// #375), but running the detector on the raw input is simpler and
 		// not sensitive to any future hook rewrites.
 		const hasAuthorBackground = detectAuthorBackground(html);
+		const hasAuthorSpacing = detectAuthorSpacing(html);
 
 		const sanitized = purify.sanitize(html, config);
 
@@ -293,6 +351,7 @@ export const createEmailSanitizer = (options: SanitizeOptions = {}) => {
 		return {
 			html: `<style>${layoutCss}</style>${sanitized}`,
 			hasAuthorBackground,
+			hasAuthorSpacing,
 		};
 	};
 };
