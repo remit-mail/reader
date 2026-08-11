@@ -156,8 +156,10 @@ export const MessageBodyView = ({
 			{sanitizedHtml ? (
 				// Email HTML renders inside a sandboxed iframe so its own CSS and any
 				// (already-DOMPurify'd) markup cannot bleed into the app chrome. The
-				// frame sizes itself to its content; its sandbox omits `allow-scripts`
-				// so even a hypothetical sanitizer escape can't execute.
+				// frame is the width of this box and never the width of the mail —
+				// content that cannot wrap scrolls inside the frame's own document —
+				// and its sandbox omits `allow-scripts` so even a hypothetical
+				// sanitizer escape can't execute.
 				//
 				// `message-body-frame` marks the box the gutter cancel moves, and it
 				// carries no width of its own: a block with both a width and a margin
@@ -167,11 +169,9 @@ export const MessageBodyView = ({
 				<div className="message-body-frame">
 					{framed ? (
 						// Full-width wrapper so a fluid newsletter fills the reading
-						// column; max-w-full + overflow-x-auto trap any residual wide
-						// content inside this box rather than dragging the page on
-						// mobile. No border, padding or background — the email renders
+						// column. No border, padding or background — the email renders
 						// flush (#727).
-						<div className="w-full max-w-full overflow-x-auto">
+						<div className="w-full max-w-full">
 							<IsolatedEmailFrame
 								html={sanitizedHtml}
 								variant="framed"
@@ -181,9 +181,8 @@ export const MessageBodyView = ({
 						</div>
 					) : (
 						// `lg:max-w-2xl` caps the reading column on desktop; `max-w-full`
-						// keeps the box within the viewport on mobile. `overflow-x-auto`
-						// traps residual wide content INSIDE this box on a phone (#727).
-						<div className="max-w-full overflow-x-auto lg:max-w-2xl">
+						// keeps the box within the viewport on mobile.
+						<div className="max-w-full lg:max-w-2xl">
 							<IsolatedEmailFrame
 								html={sanitizedHtml}
 								variant={isPlain ? "plain" : "framed"}

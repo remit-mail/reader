@@ -83,6 +83,21 @@ export const generateContentInsetCSS = (): string =>
 	`html{padding:0}body{padding:${CONTENT_INSET};box-sizing:border-box}`;
 
 /**
+ * The document is its own scrollport. The frame is exactly as wide as the pane
+ * and is never widened to fit the mail, so content that genuinely cannot wrap —
+ * a fixed-width table, an image with its own `min-width`, a `pre` the author
+ * pinned — has to be reachable from inside the document rather than by handing
+ * the app a wider box to hold.
+ *
+ * `body` only becomes a scroll container once `html` stops being `visible`:
+ * overflow set on the body propagates to the viewport otherwise, which would put
+ * the scrollbar back on the frame itself. Pinning `html` first is what keeps the
+ * scroll where the content is.
+ */
+export const generateScrollportCSS = (): string =>
+	"html{overflow:hidden}body{overflow-x:auto}";
+
+/**
  * Detects whether a (sanitized) email opts into dark rendering — either via a
  * `prefers-color-scheme: dark` media query or an explicit `color-scheme: dark`
  * declaration. Whitespace inside the value is tolerated. When present we honour
@@ -179,10 +194,10 @@ export type EmailFrameVariant = "plain" | "framed";
 /**
  * Assemble the full srcDoc for an isolated email frame: the viewport meta, the
  * treatment's base CSS, the (already sanitized, layout-clamped) email HTML, and
- * — for mail that lays out none of its own — the content inset last, where it
- * outranks the clamp's `padding: 0`. This is the single place the colour / font
- * / dark-mode / spacing decision is applied; callers pass treatment, theme and
- * what the mail declares, never raw CSS.
+ * last — where they outrank the clamp's own resets — the scrollport and, for
+ * mail that lays out none of its own, the content inset. This is the single
+ * place the colour / font / dark-mode / spacing decision is applied; callers
+ * pass treatment, theme and what the mail declares, never raw CSS.
  */
 export const buildEmailSrcDoc = (
 	html: string,
@@ -198,8 +213,6 @@ export const buildEmailSrcDoc = (
 					DARK_OPT_IN_RE.test(html),
 					declares.background,
 				);
-	const inset = declares.spacing
-		? ""
-		: `<style>${generateContentInsetCSS()}</style>`;
-	return `${VIEWPORT_META}<style>${base}</style>${html}${inset}`;
+	const inset = declares.spacing ? "" : generateContentInsetCSS();
+	return `${VIEWPORT_META}<style>${base}</style>${html}<style>${generateScrollportCSS()}${inset}</style>`;
 };

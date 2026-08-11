@@ -6,24 +6,20 @@ import {
 	generateContentInsetCSS,
 	generateFramedEmailBaseCSS,
 	generatePlainEmailBaseCSS,
+	generateScrollportCSS,
 	VIEWPORT_META,
 } from "./email-frame-css.js";
-import {
-	computeFitScale,
-	exceedsContainer,
-	measureContentAxis,
-	resolveFrameWidth,
-} from "./isolated-email-frame.js";
+import { measureContentAxis } from "./isolated-email-frame.js";
 
-describe("measureContentAxis (content-sizing)", () => {
+describe("measureContentAxis (the frame's height, and only its height)", () => {
 	it("takes the larger of body and documentElement scroll size", () => {
-		assert.equal(measureContentAxis(600, 900, 10_000), 900);
-		assert.equal(measureContentAxis(900, 600, 10_000), 900);
+		assert.equal(measureContentAxis(600, 900, 50_000), 900);
+		assert.equal(measureContentAxis(900, 600, 50_000), 900);
 	});
 
 	it("rounds UP so a fractional content size never leaves a 1px phantom overflow", () => {
-		assert.equal(measureContentAxis(600.1, 0, 10_000), 601);
-		assert.equal(measureContentAxis(0, 899.4, 10_000), 900);
+		assert.equal(measureContentAxis(600.1, 0, 50_000), 601);
+		assert.equal(measureContentAxis(0, 899.4, 50_000), 900);
 	});
 
 	it("caps at the supplied max so a hostile sender can't allocate unbounded layout", () => {
@@ -32,71 +28,21 @@ describe("measureContentAxis (content-sizing)", () => {
 	});
 
 	it("returns an exact integer for already-integral content (no spurious +1)", () => {
-		assert.equal(measureContentAxis(672, 0, 10_000), 672);
-		assert.equal(measureContentAxis(0, 0, 10_000), 0);
+		assert.equal(measureContentAxis(672, 0, 50_000), 672);
+		assert.equal(measureContentAxis(0, 0, 50_000), 0);
 	});
 });
 
-describe("exceedsContainer (whole-pixel measurement slack)", () => {
-	it("treats content that fills the container as fitting", () => {
-		assert.equal(exceedsContainer(712, 712), false);
+describe("generateScrollportCSS (the document holds its own overflow)", () => {
+	it("makes the body the scrollport rather than the frame", () => {
+		assert.match(generateScrollportCSS(), /body\{overflow-x:auto\}/);
 	});
 
-	it("treats a one-pixel excess as DOM rounding, not overflow", () => {
-		// A 712.5px reading pane: `clientWidth` reports 712, the frame's own
-		// `scrollWidth` rounds up to 713. The email fits.
-		assert.equal(exceedsContainer(713, 712), false);
-	});
-
-	it("reports content that is genuinely wider", () => {
-		assert.equal(exceedsContainer(1200, 712), true);
-		assert.equal(exceedsContainer(714, 712), true);
-	});
-
-	it("reports nothing before the container has been measured", () => {
-		assert.equal(exceedsContainer(900, 0), false);
-	});
-});
-
-describe("resolveFrameWidth (no phantom horizontal scrollbar)", () => {
-	it("fills the pane when the email fits, so the pane has nothing to scroll", () => {
-		assert.equal(resolveFrameWidth(712, 712), "100%");
-		assert.equal(resolveFrameWidth(713, 712), "100%");
-	});
-
-	it("fills the pane before the first measurement lands", () => {
-		assert.equal(resolveFrameWidth(0, 712), "100%");
-		assert.equal(resolveFrameWidth(712, 0), "100%");
-	});
-
-	it("pins genuinely wide email to its own width so the pane scrolls it", () => {
-		assert.equal(resolveFrameWidth(1200, 712), "1200px");
-	});
-});
-
-describe("computeFitScale (mobile fit-to-width #727)", () => {
-	it("does not scale content that already fits the container", () => {
-		assert.equal(computeFitScale(364, 364), 1);
-		assert.equal(computeFitScale(300, 364), 1);
-	});
-
-	it("does not scale a one-pixel rounding difference", () => {
-		assert.equal(computeFitScale(365, 364), 1);
-	});
-
-	it("downscales a fixed-width newsletter to the container width", () => {
-		// 648px Node-Weekly table into a 364px phone container.
-		assert.equal(computeFitScale(648, 364), 364 / 648);
-	});
-
-	it("floors the scale so a pathologically wide email stays readable", () => {
-		assert.equal(computeFitScale(4000, 364), 0.4);
-	});
-
-	it("never upscales and never divides by an unknown width", () => {
-		assert.equal(computeFitScale(0, 364), 1);
-		assert.equal(computeFitScale(648, 0), 1);
-		assert.equal(computeFitScale(-10, 364), 1);
+	it("stops the body's overflow propagating to the frame's viewport", () => {
+		// Overflow on the body becomes the viewport's unless the root claims it
+		// first, and a scrolling viewport is the app holding the email's width
+		// again.
+		assert.match(generateScrollportCSS(), /html\{overflow:hidden\}/);
 	});
 });
 
@@ -223,7 +169,17 @@ describe("buildEmailSrcDoc", () => {
 			background: true,
 			spacing: true,
 		});
-		assert.ok(doc.endsWith(body));
+		assert.ok(doc.includes(body));
+	});
+
+	it("gives every email a scrollport of its own, whatever it declares", () => {
+		for (const spacing of [true, false]) {
+			const doc = buildEmailSrcDoc("<p>x</p>", "framed", false, {
+				background: true,
+				spacing,
+			});
+			assert.ok(doc.includes(generateScrollportCSS()));
+		}
 	});
 
 	it("uses the plain base CSS for the plain variant", () => {
@@ -256,7 +212,7 @@ describe("buildEmailSrcDoc", () => {
 			spacing: false,
 		});
 		// Last in the document, so it outranks the layout clamp's `padding: 0`.
-		assert.ok(doc.endsWith(`<style>${generateContentInsetCSS()}</style>`));
+		assert.ok(doc.endsWith(`${generateContentInsetCSS()}</style>`));
 	});
 
 	it("gives a newsletter that spaces its own container no second helping", () => {

@@ -7,7 +7,7 @@ import { MessageBodyRegion, MessageBodyView } from "./message-body-view.js";
  * as framed (designed mail) or plain (theme-aware), and hands the result to the
  * sandboxed `IsolatedEmailFrame`. The app's `MessageBody` and the kit reading
  * panes both compose it, so Storybook renders email exactly as the app does
- * (#940) — sandbox, flush layout and #727 scale-to-fit all visible.
+ * (#940) — sandbox, flush layout and in-document overflow all visible.
  *
  * Unlike the `IsolatedEmailFrame` stories, these fixtures pass RAW author HTML:
  * the component runs the real sanitizer, so the layout-clamp `<style>` and the
@@ -57,9 +57,9 @@ const UNSTYLED_HTML = `
 </div>
 `;
 
-// The same mail with a nowrap its author never expected a client to honour: a
-// frame that sizes to its content cannot scroll a pinned line, so the clamp
-// must wrap it instead of letting it run past the frame and be cut.
+// The same mail with a nowrap its author never expected a client to honour:
+// flowing text pinned to one line would scroll sideways forever, so the clamp
+// wraps it to the frame instead.
 const UNSTYLED_HTML_NOWRAP = `
 <div style="white-space:nowrap">
 	<p>Hoi allemaal,</p>
@@ -103,7 +103,8 @@ const SHORT_NOTE = `
 
 // Real mail that genuinely does not fit: a report table whose inline min-width
 // beats the sanitizer's clamp (an inline style outranks its `* { min-width: 0 }`),
-// so the table stays 1200px wide however narrow the column is.
+// so the table stays 1200px wide however narrow the column is and has to be
+// reachable from inside the frame.
 const WIDE_TABLE = `
 <div style="font-family: Helvetica, Arial, sans-serif; color:#1a1a1a;">
 	<h1 style="font-size:20px;margin:0 0 12px;">Q2 regional breakdown</h1>
@@ -137,10 +138,9 @@ const COLUMN: Decorator = (Story) => (
 );
 
 // A reading column on a fractional boundary — a flex pane at 720.5px, or any
-// browser zoom off 100%. The DOM rounds every width measurement to a whole
-// pixel, so this is where a frame pinned to its measured content width used to
-// overflow its own pane by a subpixel and grow a full-width scroll track under
-// mail that plainly fits. The outline marks the column edge.
+// browser zoom off 100%. This is where a frame that took its width from its own
+// content used to overflow its pane by a subpixel and grow a full-width scroll
+// track under mail that plainly fits. The outline marks the column edge.
 const FRACTIONAL_COLUMN: Decorator = (Story) => (
 	<div style={{ width: 720.5, outline: "1px dashed rgba(120,120,120,0.6)" }}>
 		<Story />
@@ -185,7 +185,8 @@ export const Newsletter: Story = {
 	decorators: [COLUMN],
 };
 
-/** The same newsletter on a phone width — #727 scale-to-fit keeps it whole. */
+/** The same newsletter on a phone width — it reflows to the frame, and what
+ *  cannot reflow scrolls inside the frame's own document. */
 export const NewsletterMobile: Story = {
 	args: { html: NODE_WEEKLY, category: "newsletter", allowImages: true },
 	decorators: [PHONE],
@@ -253,13 +254,14 @@ export const NewsletterFillsColumnNoScrollbar: Story = {
 };
 
 /** A 1200px table that genuinely cannot fit: it scrolls horizontally inside the
- *  body's own container, and the page behind it never moves sideways. */
+ *  frame's own document, and neither the pane nor the page moves sideways. */
 export const WideTableScrollsInPlace: Story = {
 	args: { html: WIDE_TABLE, category: "newsletter", allowImages: true },
 	decorators: [COLUMN],
 };
 
-/** The same wide table on a phone: #727 scales it down to fit whole instead. */
+/** The same wide table on a phone: the same in-document scroll, one behaviour
+ *  at every width. */
 export const WideTableMobile: Story = {
 	args: { html: WIDE_TABLE, category: "newsletter", allowImages: true },
 	decorators: [PHONE],

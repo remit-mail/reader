@@ -43,7 +43,7 @@ const thread: ThreadData = {
 };
 
 // A designed (framed) newsletter so the Screens story exercises the REAL
-// renderer — sanitized + sandboxed iframe, flush layout, #727 scale-to-fit —
+// renderer — sanitized + sandboxed iframe, flush layout, in-document overflow —
 // rather than a plain inline paragraph (#940). The fixed 600px table is the
 // kind of markup that overflowed a phone before #727.
 const newsletterThread: ThreadData = {

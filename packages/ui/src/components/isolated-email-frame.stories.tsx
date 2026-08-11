@@ -4,8 +4,9 @@ import { generateLayoutClampCSS } from "../lib/email-layout-clamp.js";
 import { IsolatedEmailFrame } from "./isolated-email-frame.js";
 
 /**
- * `IsolatedEmailFrame` renders sanitized email HTML in a sandboxed iframe that
- * fits the viewport width on mobile and isolates the email's CSS from the app.
+ * `IsolatedEmailFrame` renders sanitized email HTML in a sandboxed iframe that is
+ * exactly as wide as the box holding it and isolates the email's CSS from the
+ * app.
  *
  * The component receives HTML that already carries the sanitizer's layout-clamp
  * `<style>` block, so these stories prepend the same clamp CSS to each fixture
@@ -14,13 +15,11 @@ import { IsolatedEmailFrame } from "./isolated-email-frame.js";
  * overflowed a phone — rendered at a phone width and at a desktop
  * reading-column width.
  *
- * On a phone (window ≤640px) a fixed-width email whose inline `min-width` beats
- * the clamp can't reflow; the frame renders it at its natural width and
- * CSS-scales the whole iframe down so it fits the container WHOLE rather than
- * being clipped (#727). To see the scale in this Storybook, narrow the browser
- * window to a phone width — the fit-to-width decision reads the window media
- * query, not the fixed-width decorator. The `computeFitScale` unit test pins the
- * scaling policy independently of the viewport.
+ * The app's layout never reacts to what is inside the frame. Mail that can
+ * reflow does, against the pane's width; mail that genuinely cannot — a table
+ * with its own `min-width`, an image the same, a `pre` the author pinned —
+ * scrolls inside the document, and neither the pane nor the page moves sideways
+ * at any width.
  */
 
 // The sanitizer's own clamp — clamps wide author markup (fixed-width
@@ -220,8 +219,8 @@ type Story = StoryObj<typeof IsolatedEmailFrame>;
 
 /** #727: a 600px fixed-width Node Weekly table at a 390px phone width. The inline
  *  `min-width:600px` on the `<td>` beats the clamp so the table can't collapse;
- *  the frame scales the whole email down to fit the box WHOLE, with no clipping
- *  and no horizontal page scroll. */
+ *  it scrolls inside the document instead, and the phone-width box around it
+ *  stays put. */
 export const NodeWeeklyMobile: Story = {
 	args: {
 		html: NODE_WEEKLY,
@@ -244,7 +243,7 @@ export const NodeWeeklyDesktop: Story = {
 };
 
 /** Gaslicht.com-style 600px fixed-width marketing mail at phone width: the hero
- *  image and CTA scale down with the frame to fit the phone whole. */
+ *  image reflows to the frame and the fixed body scrolls inside the document. */
 export const GaslichtMobile: Story = {
 	args: {
 		html: GASLICHT,
@@ -319,8 +318,8 @@ export const SubstackFractionalColumn: Story = {
 	decorators: [FRACTIONAL_COLUMN],
 };
 
-/** A 1200px table that genuinely does not fit: the frame takes its content
- *  width and the column scrolls it horizontally, in place. */
+/** A 1200px table that genuinely does not fit: it scrolls inside the document,
+ *  and the column holding the frame never grows a scrollbar of its own. */
 export const WideTableScrollsInPlace: Story = {
 	args: {
 		html: WIDE_TABLE,
@@ -331,7 +330,8 @@ export const WideTableScrollsInPlace: Story = {
 	decorators: [COLUMN],
 };
 
-/** The same table on a phone: #727 scales it down to fit whole instead. */
+/** The same table on a phone: the same in-document scroll, one behaviour at
+ *  every width. */
 export const WideTableMobile: Story = {
 	args: {
 		html: WIDE_TABLE,
@@ -421,5 +421,153 @@ export const PreformattedTextKeepsItsSpacing: Story = {
 		await expect(inner.getBoundingClientRect().width).toBeGreaterThan(
 			collapsed.getBoundingClientRect().width,
 		);
+	},
+};
+
+/* ------------------------------------------------------------------ */
+/* Overflow belongs to the document, not to the app                   */
+/* ------------------------------------------------------------------ */
+
+// An image with a min-width of its own: the clamp's `max-width:100% !important`
+// caps it, and the un-important `* { min-width: 0 }` loses to the inline style,
+// so the picture stays 1400px however narrow the pane is.
+const OVERSIZED_IMAGE = `${LAYOUT_CLAMP_CSS}
+<div style="font-family: Helvetica, Arial, sans-serif; color:#1a1a1a;">
+	<h1 style="font-size:20px;margin:0 0 12px;">Site plan, revision C</h1>
+	<img src="${HERO}" alt="Site plan" width="1400" style="min-width:1400px;height:auto;" />
+	<p>The lot boundary moved two metres north.</p>
+</div>
+`;
+
+// A code listing the author pinned to `white-space: pre`: rewrapping it would
+// change what it says, so it stays as wide as its longest line.
+const PINNED_PRE = `${LAYOUT_CLAMP_CSS}
+<div style="font-family: Helvetica, Arial, sans-serif; color:#1a1a1a;">
+	<p>The failing command, verbatim:</p>
+	<pre style="white-space:pre">docker compose --file docker-compose.localhost-dev-sqlite.yml up --detach --wait --remove-orphans backend frontend imap smtp
+ERROR: service "backend" failed to build: exit code 137 (out of memory)</pre>
+</div>
+`;
+
+// A pane with nothing to catch an overflow: no `overflow-x`, so content that
+// escapes the frame shows up as a scrollbar on the pane or on the page, and the
+// assertions below see it.
+const BARE_PANE: Decorator = (Story) => (
+	<div data-pane className="bg-canvas" style={{ width: 720 }}>
+		<Story />
+	</div>
+);
+
+const BARE_PHONE: Decorator = (Story) => (
+	<div data-pane className="bg-canvas" style={{ width: 390 }}>
+		<Story />
+	</div>
+);
+
+/**
+ * Content that genuinely cannot wrap scrolls where it lives — inside the
+ * document — and nothing outside the frame moves sideways for it. The frame is
+ * the pane's width and the pane has nothing to scroll, so there is no route for
+ * the overflow to reach the page either.
+ */
+const assertScrollsInsideTheDocument = async (canvasElement: HTMLElement) => {
+	const iframe = canvasElement.querySelector("iframe");
+	if (!iframe) throw new Error("no email frame in the story");
+	await waitFor(() => {
+		const body = iframe.contentDocument?.body;
+		if (!body) throw new Error("the frame has not parsed its document yet");
+		if (body.scrollWidth <= body.clientWidth) {
+			throw new Error("the document is not holding its own overflow yet");
+		}
+	});
+	const pane = canvasElement.querySelector<HTMLElement>("[data-pane]");
+	if (!pane) throw new Error("no pane in the story");
+	await expect(iframe.getBoundingClientRect().width).toBeLessThanOrEqual(
+		pane.clientWidth,
+	);
+	await expect(pane.scrollWidth).toBeLessThanOrEqual(pane.clientWidth);
+};
+
+/** A 1200px table on a desktop reading column. */
+export const WideTableScrollsInsideTheDocument: Story = {
+	args: {
+		html: WIDE_TABLE,
+		variant: "framed",
+		isDark: false,
+		declares: DESIGNED,
+	},
+	decorators: [BARE_PANE],
+	play: async ({ canvasElement }) => {
+		await assertScrollsInsideTheDocument(canvasElement);
+	},
+};
+
+/** The same table on a phone. */
+export const WideTableScrollsInsideTheDocumentOnAPhone: Story = {
+	args: {
+		html: WIDE_TABLE,
+		variant: "framed",
+		isDark: false,
+		declares: DESIGNED,
+	},
+	decorators: [BARE_PHONE],
+	play: async ({ canvasElement }) => {
+		await assertScrollsInsideTheDocument(canvasElement);
+	},
+};
+
+/** A 1400px image on a desktop reading column. */
+export const OversizedImageScrollsInsideTheDocument: Story = {
+	args: {
+		html: OVERSIZED_IMAGE,
+		variant: "framed",
+		isDark: false,
+		declares: BARE,
+	},
+	decorators: [BARE_PANE],
+	play: async ({ canvasElement }) => {
+		await assertScrollsInsideTheDocument(canvasElement);
+	},
+};
+
+/** The same image on a phone. */
+export const OversizedImageScrollsInsideTheDocumentOnAPhone: Story = {
+	args: {
+		html: OVERSIZED_IMAGE,
+		variant: "framed",
+		isDark: false,
+		declares: BARE,
+	},
+	decorators: [BARE_PHONE],
+	play: async ({ canvasElement }) => {
+		await assertScrollsInsideTheDocument(canvasElement);
+	},
+};
+
+/** A pinned code listing on a desktop reading column. */
+export const PinnedPreScrollsInsideTheDocument: Story = {
+	args: {
+		html: PINNED_PRE,
+		variant: "framed",
+		isDark: false,
+		declares: BARE,
+	},
+	decorators: [BARE_PANE],
+	play: async ({ canvasElement }) => {
+		await assertScrollsInsideTheDocument(canvasElement);
+	},
+};
+
+/** The same listing on a phone. */
+export const PinnedPreScrollsInsideTheDocumentOnAPhone: Story = {
+	args: {
+		html: PINNED_PRE,
+		variant: "framed",
+		isDark: false,
+		declares: BARE,
+	},
+	decorators: [BARE_PHONE],
+	play: async ({ canvasElement }) => {
+		await assertScrollsInsideTheDocument(canvasElement);
 	},
 };

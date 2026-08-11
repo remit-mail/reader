@@ -574,6 +574,7 @@ export {
 	ResizableHandle,
 	ResizablePanel,
 	ResizablePanelGroup,
+	WholePixelWidth,
 } from "./components/resizable.js";
 export {
 	EMPTY_RICH_TEXT,
