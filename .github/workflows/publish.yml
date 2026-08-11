@@ -40,6 +40,10 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npm ci --no-audit --no-fund --loglevel=error
       - run: make
+      # @remit/web-client-dist is the built web client, and the build stages the
+      # spellchecker from this engine. Without it the published assets would
+      # carry a composer whose dictionaries 404.
+      - run: npm run build:hunspell
       # Content-hash-gated: publishes only packages whose content changed,
       # generated (build/) before the workspace set that depends on them. Safe on
       # every run.

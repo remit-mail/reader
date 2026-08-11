@@ -16,9 +16,21 @@ import { composeSpellcheck, spellcheckFailure } from "./compose-spellcheck.js";
 interface WorkerMessage {
 	readonly type: string;
 	readonly language?: string;
+	readonly base?: string;
 }
 
 const opened: { url: string; messages: WorkerMessage[] }[] = [];
+
+/**
+ * What `REMIT_SPELLCHECK_LANGUAGES` writes into the bundle. Nothing defines it
+ * outside a Vite build, so a test that wants a build carrying English says so.
+ */
+const built = (...tags: string[]): void => {
+	Object.defineProperty(globalThis, "__REMIT_SPELLCHECK_LANGUAGES__", {
+		value: tags,
+		configurable: true,
+	});
+};
 
 class FakeWorker {
 	readonly messages: WorkerMessage[] = [];
@@ -42,24 +54,33 @@ const withWorker = <T>(run: () => Promise<T>): Promise<T> => {
 
 afterEach(() => {
 	opened.length = 0;
+	built();
 });
 
 describe("the checker the composer opens", () => {
 	it("asks the worker for the language the message is in", async () => {
+		built("en", "en-GB", "nl");
 		const provider = await withWorker(() =>
 			composeSpellcheck(() => undefined).provider("en"),
 		);
 
-		assert.equal(provider?.language, "en");
+		assert.equal(
+			provider?.language,
+			"en",
+			"plain English is checked against English, not a region's",
+		);
 		assert.equal(opened.length, 1);
 		assert.match(opened[0].url, /rich-text-spellcheck-worker/);
-		assert.deepEqual(opened[0].messages, [{ type: "open", language: "en" }]);
+		assert.deepEqual(opened[0].messages, [
+			{ type: "open", language: "en", base: "/spellcheck/" },
+		]);
 		provider?.close();
 	});
 
 	it("starts no worker for a language the build carries no words for", async () => {
+		built("en", "en-GB", "nl");
 		const provider = await withWorker(() =>
-			composeSpellcheck(() => undefined).provider("nl"),
+			composeSpellcheck(() => undefined).provider("de"),
 		);
 
 		assert.equal(provider, null);
@@ -70,9 +91,14 @@ describe("the checker the composer opens", () => {
 		const reported: PushErrorInput[] = [];
 		const { onStatus } = composeSpellcheck((input) => reported.push(input));
 
-		onStatus?.({ state: "opening", language: "en" });
+		onStatus?.({
+			state: "opening",
+			language: "en",
+			bytesLoaded: 65_536,
+			bytesTotal: 167_936,
+		});
 		onStatus?.({ state: "ready", language: "en" });
-		onStatus?.({ state: "unavailable", language: "nl" });
+		onStatus?.({ state: "unavailable", language: "de" });
 
 		assert.deepEqual(reported, []);
 	});

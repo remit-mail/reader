@@ -150,6 +150,13 @@ jobs:
         working-directory: pr-source
         run: make
 
+      # The spellcheck stories drive the real engine, which the Storybook vite
+      # config stages the same way the app build does.
+      - name: Spellchecker engine (Hunspell → WebAssembly)
+        if: steps.guard.outputs.eligible == 'true'
+        working-directory: pr-source
+        run: npm run build:hunspell
+
       # Storybook renders the ui, web-client and workbench packages and
       # nothing else in the workspace, and only its own output is published.
       - name: Build Storybook

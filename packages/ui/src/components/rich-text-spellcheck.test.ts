@@ -22,11 +22,18 @@ import type {
 	ProviderStatus,
 	SpellcheckOptions,
 	SpellProvider,
+	SpellWorkerRequest,
+	SpellWorkerResponse,
 } from "./rich-text-spellcheck.js";
 import {
 	stubKnows,
 	stubSuggestionsFor,
 } from "./rich-text-spellcheck-double.js";
+import {
+	CHECK_DEADLINE_MS,
+	openSpellProvider,
+	type SpellWorkerPort,
+} from "./rich-text-spellcheck-provider.js";
 import { findMisspellings } from "./rich-text-spellcheck-words.js";
 
 const SENTENCE = "Ths report is redy today";
@@ -531,6 +538,59 @@ describe("spellcheck marks", () => {
 		assert.equal(seen.at(-1)?.state, "failed", "the caller is told why");
 	});
 
+	it("hands checking back when the engine takes a pass and freezes", async () => {
+		const seen: ProviderStatus[] = [];
+		const posted: SpellWorkerRequest[] = [];
+		let deliver: ((message: SpellWorkerResponse) => void) | undefined;
+		// A worker that opens, says it is ready, and then answers nothing at all —
+		// a wedged WebAssembly instance, which no `error` event ever announces.
+		const dead: SpellWorkerPort = {
+			post: (message) => posted.push(message),
+			listen: (listener) => {
+				deliver = listener;
+			},
+			fail: () => {},
+			terminate: () => {},
+		};
+
+		await mount({
+			initialHtml: `<p>${SENTENCE}</p>`,
+			lang: "en",
+			spellcheck: {
+				provider: async (language: string) =>
+					openSpellProvider(language, "/spellcheck/", dead),
+				onStatus: (status: ProviderStatus) => seen.push(status),
+			},
+		});
+		await act(async () => {
+			deliver?.({ type: "ready", language: "en" });
+		});
+		await settle();
+		assert.ok(
+			posted.some((message) => message.type === "check"),
+			"the pass went out",
+		);
+		assert.equal(
+			editable().getAttribute("spellcheck"),
+			"false",
+			"ours is the checker on screen while it is answering",
+		);
+
+		await act(async () => {
+			await new Promise((resolve) =>
+				setTimeout(resolve, CHECK_DEADLINE_MS + IDLE_MS),
+			);
+		});
+
+		assert.equal(seen.at(-1)?.state, "failed", "silence is named, not endured");
+		assert.equal(
+			editable().getAttribute("spellcheck"),
+			"true",
+			"the browser checks again rather than nobody checking",
+		);
+		assert.equal(marks(), undefined);
+	});
+
 	it("says when a language has no dictionary", async () => {
 		const seen: ProviderStatus[] = [];
 		await mount({
@@ -543,7 +603,10 @@ describe("spellcheck marks", () => {
 		});
 		await settle();
 
-		assert.deepEqual(seen, [{ state: "unavailable", language: "de" }]);
+		assert.deepEqual(seen, [
+			{ state: "opening", language: "de", bytesLoaded: 0, bytesTotal: 0 },
+			{ state: "unavailable", language: "de" },
+		]);
 		assert.equal(editable().getAttribute("spellcheck"), "true");
 	});
 

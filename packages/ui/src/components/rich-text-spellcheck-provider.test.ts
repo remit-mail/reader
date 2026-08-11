@@ -18,6 +18,7 @@ import {
 	spellcheckLanguages,
 } from "./rich-text-spellcheck-languages.js";
 import {
+	CHECK_DEADLINE_MS,
 	openSpellProvider,
 	type SpellWorkerPort,
 	SUGGEST_DEADLINE_MS,
@@ -238,6 +239,69 @@ describe("a provider over a worker", () => {
 			"skeleton rows that will never fill become the failure row instead",
 		);
 		mock.timers.reset();
+		provider.close();
+	});
+
+	it("calls a checker that took the pass and went quiet stopped", async () => {
+		mock.timers.enable({ apis: ["setTimeout"] });
+		const wired = wire();
+		const seen: ProviderStatus[] = [];
+		const provider = openSpellProvider("nl", "/spellcheck/", wired.port);
+		provider.onStatus((status) => seen.push(status));
+		ready(wired, "nl");
+
+		const pass = provider.check({
+			requestId: "1",
+			language: "nl",
+			revision: 7,
+			spans: [{ spanId: "a", text: "De vergaderingg" }],
+		});
+
+		mock.timers.tick(CHECK_DEADLINE_MS);
+		mock.timers.reset();
+
+		assert.deepEqual(
+			await pass,
+			{ requestId: "1", revision: 7, findings: [] },
+			"a pass nobody answers ends, rather than hanging on a promise",
+		);
+		const last = seen.at(-1);
+		assert.ok(last?.state === "failed", "a frozen engine is a failure");
+		assert.equal(last.reason, "worker");
+		assert.match(
+			last.detail,
+			/nl checker did not answer/,
+			"a frozen engine is indistinguishable from clean text unless it says so",
+		);
+		provider.close();
+	});
+
+	it("says a checker stopped once, however many passes were waiting", async () => {
+		mock.timers.enable({ apis: ["setTimeout"] });
+		const wired = wire();
+		const seen: ProviderStatus[] = [];
+		const provider = openSpellProvider("en", "/spellcheck/", wired.port);
+		provider.onStatus((status) => seen.push(status));
+		ready(wired, "en");
+
+		const passes = [1, 2].map((nth) =>
+			provider.check({
+				requestId: `${nth}`,
+				language: "en",
+				revision: nth,
+				spans: [{ spanId: "a", text: "Ths report" }],
+			}),
+		);
+
+		mock.timers.tick(CHECK_DEADLINE_MS);
+		mock.timers.reset();
+
+		await Promise.all(passes);
+		assert.equal(
+			seen.filter((status) => status.state === "failed").length,
+			1,
+			"one stopped checker is one banner",
+		);
 		provider.close();
 	});
 

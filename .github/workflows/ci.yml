@@ -383,6 +383,11 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund --loglevel=error
       - run: make
+      # @remit/web-client-dist is the built web client, so packing it runs the
+      # vite build, so it needs the spellchecker's engine. This job deliberately
+      # skips the setup action (it builds the tree a consumer would), which is
+      # where every other job gets the engine from.
+      - run: npm run build:hunspell
       - run: npm run release:dry-run
       # Guards install-ability of the published set: a clean directory, outside
       # the repo, installing @remit/backend alone must pull and resolve its full

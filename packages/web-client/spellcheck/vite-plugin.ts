@@ -20,7 +20,12 @@ import { resolveLanguages } from "./languages.ts";
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..", "..", "..");
-const engineDir = join(repoRoot, "build", "hunspell");
+// Where `npm run build:hunspell` leaves the engine. A distributor building the
+// web client from the published package has no such tree, so the location is
+// theirs to name.
+const engineDir =
+	process.env.REMIT_SPELLCHECK_ENGINE_DIR ??
+	join(repoRoot, "build", "hunspell");
 
 const LICENCE_NAMES = ["LICENSE", "license", "LICENCE", "licence"];
 
@@ -60,7 +65,7 @@ const stageEngine = (): StagedFile[] => {
 	const wasm = join(engineDir, "hunspell.wasm");
 	if (!existsSync(wasm)) {
 		throw new Error(
-			`${wasm} is missing. Build the spellchecker engine first: npm run build:hunspell (it runs docker/hunspell/build.sh in the pinned Emscripten image). Set REMIT_SPELLCHECK_LANGUAGES= to build without a spellchecker.`,
+			`${wasm} is missing. In this repo, build the engine first: npm run build:hunspell (it runs docker/hunspell/build.sh in the pinned Emscripten image). Elsewhere, point REMIT_SPELLCHECK_ENGINE_DIR at a build of it. Set REMIT_SPELLCHECK_LANGUAGES= to build without a spellchecker at all — a build that carries no engine says so here rather than serving a composer a dictionary that 404s.`,
 		);
 	}
 	return [
