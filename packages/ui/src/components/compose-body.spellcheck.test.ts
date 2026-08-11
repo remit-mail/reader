@@ -8,6 +8,12 @@
  * A language the build has no dictionary for is not a failure: the provider
  * answers null and the browser's own checking is switched back on, so the
  * writer never faces a surface that has silently stopped marking anything.
+ *
+ * A checker that was supposed to run and is not is the case that has to be
+ * loud, in either of the two ways it happens — one that never opens, and one
+ * that opens and then stops. Both say so through `onStatus`, both hand the
+ * message back to the browser, and the second takes its own marks down on the
+ * way out so nothing is left underlined by a checker that is gone.
  */
 
 import assert from "node:assert/strict";
@@ -21,6 +27,7 @@ import type { Root, createRoot as reactCreateRoot } from "react-dom/client";
 import type { ComposeBody as ComposeBodyType } from "./compose-body.js";
 import type {
 	CheckRequest,
+	ProviderStatus,
 	SpellcheckOptions,
 	SpellProvider,
 	SuggestRequest,
@@ -87,6 +94,84 @@ const recordingSpellcheck = (): {
 	return { options, asked, closed };
 };
 
+/** A checker whose engine never loads, so nothing was ever opened to stop. */
+const brokenSpellcheck = (): {
+	options: SpellcheckOptions;
+	statuses: ProviderStatus[];
+} => {
+	const statuses: ProviderStatus[] = [];
+	return {
+		options: {
+			provider: () => Promise.reject(new Error("boom")),
+			onStatus: (status) => statuses.push(status),
+		},
+		statuses,
+	};
+};
+
+/** A checker that comes up, marks the message, and then stops running. */
+const stoppingSpellcheck = (): {
+	options: SpellcheckOptions;
+	statuses: ProviderStatus[];
+	stop: () => void;
+} => {
+	const statuses: ProviderStatus[] = [];
+	const listeners: ((status: ProviderStatus) => void)[] = [];
+	const options: SpellcheckOptions = {
+		provider: (language) => {
+			const provider: SpellProvider = {
+				language,
+				onStatus: (listener) => {
+					listeners.push(listener);
+					listener({ state: "ready", language });
+					return () => {};
+				},
+				check: (request: CheckRequest) =>
+					Promise.resolve({
+						requestId: request.requestId,
+						revision: request.revision,
+						findings: request.spans.map((span) => ({
+							spanId: span.spanId,
+							start: 0,
+							end: 3,
+							kind: "spelling" as const,
+							suggestions: ["This"],
+						})),
+					}),
+				suggest: (request: SuggestRequest) =>
+					Promise.resolve({
+						requestId: request.requestId,
+						word: request.word,
+						suggestions: [],
+					}),
+				close: () => {},
+			};
+			return Promise.resolve(provider);
+		},
+		onStatus: (status) => statuses.push(status),
+	};
+	return {
+		options,
+		statuses,
+		stop: () => {
+			for (const listener of listeners)
+				listener({
+					state: "failed",
+					language: "en",
+					reason: "worker",
+					detail: "the worker went away",
+				});
+		},
+	};
+};
+
+const marked = (): [number, number][] =>
+	(
+		(
+			globalThis as unknown as { CSS: { highlights: Map<string, Marks> } }
+		).CSS.highlights.get("spell-error")?.ranges ?? []
+	).map((range) => [range.startOffset, range.endOffset]);
+
 const settle = async (): Promise<void> => {
 	await act(async () => {
 		await Promise.resolve();
@@ -94,6 +179,14 @@ const settle = async (): Promise<void> => {
 	await act(async () => {
 		await Promise.resolve();
 	});
+};
+
+/** Long enough for the editor's idle to expire and the pass to come back. */
+const checked = async (): Promise<void> => {
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 300));
+	});
+	await settle();
 };
 
 const editable = (): HTMLElement => {
@@ -245,6 +338,52 @@ describe("the composer's spellchecker", () => {
 			editable().getAttribute("spellcheck"),
 			"true",
 			"a language nothing here checks is still checked by the browser",
+		);
+	});
+
+	it("names a checker that never came up, and hands the message back", async () => {
+		const { options, statuses } = brokenSpellcheck();
+
+		await mount(options);
+
+		assert.deepEqual(
+			statuses,
+			[{ state: "failed", language: "en", reason: "worker", detail: "boom" }],
+			"the composer hears why checking is not happening, in the shape it reports",
+		);
+		assert.equal(
+			editable().getAttribute("spellcheck"),
+			"true",
+			"a checker that never started leaves the browser's own checking on",
+		);
+	});
+
+	it("takes its marks down with a checker that stops mid-message", async () => {
+		const { options, statuses, stop } = stoppingSpellcheck();
+		await mount(options);
+		await checked();
+
+		assert.deepEqual(
+			marked(),
+			[[0, 3]],
+			"the misspelling is marked while the checker is running",
+		);
+
+		await act(async () => {
+			stop();
+		});
+		await settle();
+
+		assert.deepEqual(
+			statuses.map((status) => status.state),
+			["ready", "failed"],
+			"the stop is reported, not swallowed",
+		);
+		assert.deepEqual(marked(), [], "no mark outlives the checker that drew it");
+		assert.equal(
+			editable().getAttribute("spellcheck"),
+			"true",
+			"the browser takes the message back the moment ours stops",
 		);
 	});
 
