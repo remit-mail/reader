@@ -138,6 +138,12 @@ test.describe("The composer's own spellchecker", () => {
 
 	test.afterAll(async () => {
 		await context.close();
+		// Two of these tests never send, and a composer open for longer than the
+		// autosave debounce leaves a draft behind. They belong to this run's own
+		// user, but a draft is a row the queue keeps working on, so they go.
+		for (const draft of await api.listRemovableOutboxMessages()) {
+			await api.deleteOutboxMessage(draft.outboxMessageId);
+		}
 	});
 
 	// Case 1: a Dutch dictionary marks Dutch, and the browser stops marking it.
