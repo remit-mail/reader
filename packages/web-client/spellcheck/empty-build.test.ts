@@ -75,12 +75,13 @@ const emitted = (root: string): readonly string[] => {
 };
 
 /**
- * The worker's own bundle. Vite emits it for whatever module graph reaches the
- * `new Worker(new URL(...))`, so its presence is the question: it is the code a
- * build with no dictionaries can never run.
+ * The worker, the port it speaks over, and the bundle vite emits for the `new
+ * Worker(new URL(...))` that reaches it. Vite emits that bundle while
+ * transforming the module rather than while writing the output, so it survives
+ * tree-shaking: its absence means the specifier never resolved there at all.
  */
 const workerChunks = (files: readonly string[]): readonly string[] =>
-	files.filter((file) => /spellcheck-worker/.test(file));
+	files.filter((file) => /rich-text-spellcheck-/.test(file));
 
 const spellcheckAssets = (files: readonly string[]): readonly string[] =>
 	files.filter((file) => file.startsWith("spellcheck/"));
@@ -112,7 +113,7 @@ describe("a build that carries no dictionaries", () => {
 		assert.deepEqual(spellcheckAssets(files), []);
 	});
 
-	it("ships no worker chunk to browsers that could never start it", () => {
+	it("ships no worker to browsers that could never start it", () => {
 		assert.deepEqual(workerChunks(files), []);
 	});
 });
@@ -153,7 +154,7 @@ describe("a build that carries one", () => {
 
 	// The control for the two assertions above: both names are real, and a build
 	// that should carry them does.
-	it("ships the worker chunk the empty build must not", () => {
+	it("ships the worker the empty build must not", () => {
 		assert.notDeepEqual(workerChunks(files), []);
 	});
 });
