@@ -7,7 +7,12 @@ import {
 	generatePlainEmailBaseCSS,
 	VIEWPORT_META,
 } from "./email-frame-css.js";
-import { computeFitScale, measureContentAxis } from "./isolated-email-frame.js";
+import {
+	computeFitScale,
+	exceedsContainer,
+	measureContentAxis,
+	resolveFrameWidth,
+} from "./isolated-email-frame.js";
 
 describe("measureContentAxis (content-sizing)", () => {
 	it("takes the larger of body and documentElement scroll size", () => {
@@ -31,10 +36,51 @@ describe("measureContentAxis (content-sizing)", () => {
 	});
 });
 
+describe("exceedsContainer (whole-pixel measurement slack)", () => {
+	it("treats content that fills the container as fitting", () => {
+		assert.equal(exceedsContainer(712, 712), false);
+	});
+
+	it("treats a one-pixel excess as DOM rounding, not overflow", () => {
+		// A 712.5px reading pane: `clientWidth` reports 712, the frame's own
+		// `scrollWidth` rounds up to 713. The email fits.
+		assert.equal(exceedsContainer(713, 712), false);
+	});
+
+	it("reports content that is genuinely wider", () => {
+		assert.equal(exceedsContainer(1200, 712), true);
+		assert.equal(exceedsContainer(714, 712), true);
+	});
+
+	it("reports nothing before the container has been measured", () => {
+		assert.equal(exceedsContainer(900, 0), false);
+	});
+});
+
+describe("resolveFrameWidth (no phantom horizontal scrollbar)", () => {
+	it("fills the pane when the email fits, so the pane has nothing to scroll", () => {
+		assert.equal(resolveFrameWidth(712, 712), "100%");
+		assert.equal(resolveFrameWidth(713, 712), "100%");
+	});
+
+	it("fills the pane before the first measurement lands", () => {
+		assert.equal(resolveFrameWidth(0, 712), "100%");
+		assert.equal(resolveFrameWidth(712, 0), "100%");
+	});
+
+	it("pins genuinely wide email to its own width so the pane scrolls it", () => {
+		assert.equal(resolveFrameWidth(1200, 712), "1200px");
+	});
+});
+
 describe("computeFitScale (mobile fit-to-width #727)", () => {
 	it("does not scale content that already fits the container", () => {
 		assert.equal(computeFitScale(364, 364), 1);
 		assert.equal(computeFitScale(300, 364), 1);
+	});
+
+	it("does not scale a one-pixel rounding difference", () => {
+		assert.equal(computeFitScale(365, 364), 1);
 	});
 
 	it("downscales a fixed-width newsletter to the container width", () => {

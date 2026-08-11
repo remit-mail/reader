@@ -108,8 +108,47 @@ const PLAIN = `${LAYOUT_CLAMP_CSS}
 </div>
 `;
 
+// Mail that genuinely cannot fit: an inline `min-width` on the table outranks
+// the clamp's `* { min-width: 0 }`, so 1200px of columns stay 1200px wide and
+// the frame hands the surrounding container something real to scroll.
+const WIDE_TABLE = `${LAYOUT_CLAMP_CSS}
+<div style="font-family: Helvetica, Arial, sans-serif; color:#1a1a1a;">
+	<h1 style="font-size:20px;margin:0 0 12px;">Q2 regional breakdown</h1>
+	<table cellpadding="8" cellspacing="0" style="min-width:1200px;border-collapse:collapse;">
+		<tr style="background:#efefef;">
+			<th style="min-width:200px;text-align:left;">Region</th>
+			<th style="min-width:200px;text-align:left;">Pipeline</th>
+			<th style="min-width:200px;text-align:left;">Closed won</th>
+			<th style="min-width:200px;text-align:left;">Closed lost</th>
+			<th style="min-width:200px;text-align:left;">Forecast</th>
+			<th style="min-width:200px;text-align:left;">Owner</th>
+		</tr>
+		<tr>
+			<td>Benelux</td><td>&euro;1.2M</td><td>&euro;480k</td><td>&euro;120k</td><td>&euro;1.6M</td><td>Sanne de Vries</td>
+		</tr>
+		<tr style="background:#f8f8f8;">
+			<td>DACH</td><td>&euro;2.4M</td><td>&euro;910k</td><td>&euro;300k</td><td>&euro;3.1M</td><td>Jonas Brandt</td>
+		</tr>
+	</table>
+	<p>Full detail in the attached sheet.</p>
+</div>
+`;
+
 const PHONE: Decorator = (Story) => (
 	<div className="overflow-x-auto" style={{ width: 390 }}>
+		<Story />
+	</div>
+);
+
+// A container on a fractional boundary — a flex reading pane at 720.5px, or any
+// browser zoom off 100%. The DOM rounds every width measurement to a whole
+// pixel, so a frame pinned to its measured content width used to overflow this
+// container by a subpixel and grow a scroll track under mail that fits.
+const FRACTIONAL_COLUMN: Decorator = (Story) => (
+	<div
+		className="overflow-x-auto"
+		style={{ width: 720.5, outline: "1px dashed rgba(120,120,120,0.6)" }}
+	>
 		<Story />
 	</div>
 );
@@ -189,4 +228,30 @@ export const PlainEmailDark: Story = {
 	args: { html: PLAIN, variant: "plain", isDark: true },
 	parameters: { theme: "dark" },
 	decorators: [COLUMN],
+};
+
+/** A short plain email in a fractional-width column: nothing overflows, so no
+ *  horizontal scrollbar may appear under it. */
+export const FitsFractionalColumn: Story = {
+	args: { html: PLAIN, variant: "plain", isDark: false },
+	decorators: [FRACTIONAL_COLUMN],
+};
+
+/** A fluid newsletter filling the same fractional column: still no scrollbar. */
+export const SubstackFractionalColumn: Story = {
+	args: { html: SUBSTACK, variant: "framed", isDark: false },
+	decorators: [FRACTIONAL_COLUMN],
+};
+
+/** A 1200px table that genuinely does not fit: the frame takes its content
+ *  width and the column scrolls it horizontally, in place. */
+export const WideTableScrollsInPlace: Story = {
+	args: { html: WIDE_TABLE, variant: "framed", isDark: false },
+	decorators: [COLUMN],
+};
+
+/** The same table on a phone: #727 scales it down to fit whole instead. */
+export const WideTableMobile: Story = {
+	args: { html: WIDE_TABLE, variant: "framed", isDark: false },
+	decorators: [PHONE],
 };
