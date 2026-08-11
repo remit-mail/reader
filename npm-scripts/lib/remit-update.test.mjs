@@ -660,6 +660,49 @@ describe("the control seam", () => {
 		assert.equal(box.stateJson().run.outcome, "succeeded");
 	});
 
+	it("runs a backend-initiated update under the id the request named", () => {
+		// The id the API handed the browser is the one it polls on, so a run that
+		// mints its own is unmatchable from the first real poll onward (#583).
+		const requested = "9f3c1e2a-4b5d-4c6e-8f70-112233445566";
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({
+				runId: requested,
+				targetVersion: "v1.5.0",
+				requestedAt: "2026-07-20T08:00:00Z",
+				requestedBy: "owner@example.test",
+			}),
+		);
+		const result = box.run(["update"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.runId, requested);
+		const run = JSON.parse(readFileSync(join(box.state, "run.json"), "utf8"));
+		assert.equal(run.runId, requested);
+		assert.equal(run.outcome, "succeeded");
+	});
+
+	it("mints an id for an operator's own update, which no request named", () => {
+		const box = sandbox({ scenario: { probe: "ok" } });
+		const result = box.run(["update"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.match(box.stateJson().run.runId, /^\d{8}T\d{6}Z-[0-9a-f]+$/);
+	});
+
+	it("rejects a runId that would reach outside the snapshot directory", () => {
+		// Adopting the id means it names a directory the run creates and prunes,
+		// so an unusable one refuses the whole request rather than being replaced.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({ targetVersion: "v1.5.0", runId: "../../../etc" }),
+		);
+		const result = box.run(["update"]);
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run, null);
+		assert.ok(!box.log().includes("compose pull"));
+	});
+
 	it("rejects a file naming a registry, an image or a digest, and does nothing", () => {
 		// The acceptance criterion: a registry/image/digest never crosses the
 		// seam because the whole file is refused, not because the extra field is
