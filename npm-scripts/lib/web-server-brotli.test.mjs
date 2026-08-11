@@ -10,8 +10,10 @@
 // get those bytes, or the composer's spellchecker is dead on an old browser
 // while every other asset works.
 //
-// It lives here rather than beside the server because this is where the runner
-// that CI reaches collects its suites, and it needs nothing installed.
+// What the same server puts in the headers — which tree is immutable, and what
+// a licence file is typed as — is web-server-headers.test.mjs beside this one.
+// Both live here rather than beside the server because this is where the runner
+// CI reaches collects its suites, and neither needs anything installed.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -22,7 +24,7 @@ import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { brotliCompressSync } from "node:zlib";
 
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const serverPath = join(repoRoot, "docker", "runtime", "web", "server.mjs");
 
 const WASM = Buffer.from(

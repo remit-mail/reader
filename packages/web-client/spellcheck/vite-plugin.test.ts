@@ -9,6 +9,14 @@
  * the resolved set through the manifest to the notice is asserted end to end
  * rather than at either end.
  *
+ * This runs in the checkout, against the dictionary packages actually
+ * installed, which is what makes the byte-for-byte and licence-text assertions
+ * mean anything. `npm-scripts/lib/spellcheck-staging.test.mjs` is the other
+ * half: the same function against a synthetic tree shaped like the published
+ * package, where the question is which file gets read and what a distributor is
+ * told when one is missing. Base, `servePath` and the digest belong to that
+ * one.
+ *
  * The engine is stubbed: what it weighs is gated where it is built
  * (npm-scripts/build-hunspell.mjs), and staging it here would make every one of
  * these tests wait on a WebAssembly toolchain.
@@ -90,32 +98,6 @@ describe("what a build stages", () => {
 			"license.hunspell",
 			"manifest.json",
 		]);
-	});
-
-	// Every path the browser fetches is one of a dozen fixed names, so the only
-	// thing that can carry a version is the directory holding them. An operator
-	// who rebuilds with a different set, or a dictionary that moves upstream,
-	// must land under a different one or the old bytes stay cached.
-	it("names the staged directory after what is in it", () => {
-		const dutch = staged("en,nl");
-		assert.match(dutch.directory, /^spellcheck\/[0-9a-f]{16}\/$/);
-		assert.equal(dutch.base, `/${dutch.directory}`);
-		assert.equal(dutch.servePath, `/${dutch.directory}`);
-
-		assert.notEqual(staged("en").directory, dutch.directory);
-		assert.equal(staged("nl,en").directory, dutch.directory);
-	});
-
-	// The switch: nothing staged, no engine read, no notice to be wrong. The
-	// build has to reach this without a compiled engine on disk, because a
-	// self-hoster who wants no spellchecker has no reason to own a WebAssembly
-	// toolchain.
-	it("stages nothing at all for an empty list", () => {
-		const build = staged("");
-		assert.deepEqual(build.files, []);
-		assert.deepEqual(build.languages, []);
-		assert.equal(build.directory, "");
-		assert.equal(build.base, "");
 	});
 
 	// GPL and MPL correspondence is discharged by the served file being the
@@ -244,22 +226,5 @@ describe("the manifest the app reads", () => {
 			assert.ok(fileNamed(build, language.licenceFile));
 			assert.match(language.package, /@\d+\.\d+\.\d+/);
 		}
-	});
-});
-
-// The plugin has no say in this — it hands `resolveLanguages` whatever the
-// operator set — but the build is where an unknown tag has to stop, and the
-// message is the only thing standing between a typo and an image built without
-// the language somebody asked for.
-describe("a language nobody can ship", () => {
-	it("stops the build and names the tag", () => {
-		assert.throws(
-			() => staged("en,klingon"),
-			(failed: Error) => {
-				assert.match(failed.message, /"klingon"/);
-				assert.match(failed.message, /REMIT_SPELLCHECK_LANGUAGES/);
-				return true;
-			},
-		);
 	});
 });
