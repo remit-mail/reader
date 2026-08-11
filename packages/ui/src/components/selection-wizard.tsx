@@ -21,6 +21,7 @@ import { Fragment, type ReactNode, useEffect, useId, useRef } from "react";
 import { cn } from "../lib/cn.js";
 import {
 	backExits,
+	crossAccountMatchReason,
 	ESCALATED_MATCH_HINT,
 	ESCALATED_REVIEW_WARNING,
 	ESCALATED_SCOPE_FALLBACK,
@@ -30,6 +31,7 @@ import {
 	type MatchMode,
 	matchDoorHint,
 	matchDoorLabel,
+	matchDoorsFor,
 	matchPhrase,
 	matchSummary,
 	type RunCopy,
@@ -365,6 +367,13 @@ export interface MatchStepProps {
 	selectedCount: number;
 	mode: MatchMode;
 	/**
+	 * The one account this selection belongs to, absent when it spans several
+	 * (#523). Both widened doors are counted through a preview that account
+	 * answers, so without one they are withheld and the step states the
+	 * restriction — the ticked rows are their own match and stay on offer.
+	 */
+	accountId?: string;
+	/**
 	 * Answers the door. Typed to the three doors rather than to every mode, so
 	 * no driver can set `escalated` from a screen — the list escalates a
 	 * selection, the wizard never does.
@@ -396,6 +405,7 @@ export interface MatchStepProps {
 export function MatchStepBody({
 	selectedCount,
 	mode,
+	accountId,
 	onModeChange,
 	semanticUnavailable,
 	semanticErrorDetail,
@@ -419,44 +429,55 @@ export function MatchStepBody({
 			</>
 		);
 	}
+	const doors = matchDoorsFor(accountId);
+	const widened = doors.length > 1;
 	return (
 		<>
 			<div className="space-y-2">
+				{!widened && (
+					<p className="px-1 text-2xs text-warning">
+						{crossAccountMatchReason}
+					</p>
+				)}
 				<ChoiceCard
 					selected={mode === "selected"}
 					onSelect={() => onModeChange("selected")}
 					title={matchDoorLabel("selected", selectedCount)}
 					description={matchDoorHint("selected")}
 				/>
-				<ChoiceCard
-					selected={mode === "similar"}
-					unavailable={semanticUnavailable}
-					onSelect={
-						semanticUnavailable
-							? onSemanticFallback
-							: () => onModeChange("similar")
-					}
-					title={matchDoorLabel("similar", selectedCount)}
-					description={matchDoorHint("similar")}
-				>
-					{semanticErrorDetail && (
-						<p role="status" className="px-1 text-2xs text-danger">
-							Couldn't find similar messages: {semanticErrorDetail}
-						</p>
-					)}
-					{semanticFallbackTaken && (
-						<p role="status" className="px-1 text-2xs text-fg-subtle">
-							Similar-mail matching is unavailable right now — matching on the
-							senders instead.
-						</p>
-					)}
-				</ChoiceCard>
-				<ChoiceCard
-					selected={mode === "properties"}
-					onSelect={() => onModeChange("properties")}
-					title={matchDoorLabel("properties", selectedCount)}
-					description={matchDoorHint("properties")}
-				/>
+				{widened && (
+					<ChoiceCard
+						selected={mode === "similar"}
+						unavailable={semanticUnavailable}
+						onSelect={
+							semanticUnavailable
+								? onSemanticFallback
+								: () => onModeChange("similar")
+						}
+						title={matchDoorLabel("similar", selectedCount)}
+						description={matchDoorHint("similar")}
+					>
+						{semanticErrorDetail && (
+							<p role="status" className="px-1 text-2xs text-danger">
+								Couldn't find similar messages: {semanticErrorDetail}
+							</p>
+						)}
+						{semanticFallbackTaken && (
+							<p role="status" className="px-1 text-2xs text-fg-subtle">
+								Similar-mail matching is unavailable right now — matching on the
+								senders instead.
+							</p>
+						)}
+					</ChoiceCard>
+				)}
+				{widened && (
+					<ChoiceCard
+						selected={mode === "properties"}
+						onSelect={() => onModeChange("properties")}
+						title={matchDoorLabel("properties", selectedCount)}
+						description={matchDoorHint("properties")}
+					/>
+				)}
 			</div>
 			<div className="mt-4">
 				<SelectionSample {...sample} />

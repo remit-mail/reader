@@ -3,7 +3,11 @@ import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import type { MatchCount, StepId, WizardDraft } from "../lib/wizard-steps.js";
-import { stepsFor } from "../lib/wizard-steps.js";
+import {
+	matchDoorsFor,
+	stepBlockedReason,
+	stepsFor,
+} from "../lib/wizard-steps.js";
 import {
 	type RuleClause,
 	UNCOUNTABLE_PREDICATE_REASON,
@@ -57,6 +61,7 @@ const sample = { messages, count: counted(2), label: "Your selection" };
 const matchProps = {
 	selectedCount: 2,
 	mode: "selected" as const,
+	accountId: "acc-personal",
 	onModeChange: noop,
 	onSemanticFallback: noop,
 	sample,
@@ -288,6 +293,42 @@ describe("MatchStepBody", () => {
 			createElement(MatchStepBody, { ...matchProps, mode: "escalated" }),
 		);
 		assert.match(html, /Every message the list is showing/);
+	});
+});
+
+/**
+ * Starred, and any other surface whose rows span accounts (#523). Both widened
+ * doors are counted through a preview one account answers, so offering them
+ * walks the user to a review waiting on a count nobody can take, with Back the
+ * only way on. They are withheld, and the step says why.
+ */
+describe("MatchStepBody with no single account", () => {
+	const spanning = { ...matchProps, accountId: undefined };
+
+	it("offers the ticked rows alone, and states the restriction", () => {
+		const html = text(renderToString(createElement(MatchStepBody, spanning)));
+		assert.match(html, /These 2 messages/);
+		assert.doesNotMatch(html, /Similar to these/);
+		assert.doesNotMatch(html, /Its properties/);
+		assert.match(html, /only works within one account/);
+	});
+
+	it("leaves a review that commits rather than one pinned on the count", () => {
+		assert.deepEqual([...matchDoorsFor(undefined)], ["selected"]);
+		// The only door left is its own count, so nothing about the match is still
+		// settling by the time the review is reached.
+		const blockedReason = stepBlockedReason("review", draft(), counted(2));
+		assert.equal(blockedReason, undefined);
+		const html = text(
+			renderToString(
+				createElement(
+					SelectionWizard,
+					wizardProps({ step: "review", match: spanning, blockedReason }),
+				),
+			),
+		);
+		assert.doesNotMatch(html, /Counting matches/);
+		assert.match(html, /2 messages/);
 	});
 });
 

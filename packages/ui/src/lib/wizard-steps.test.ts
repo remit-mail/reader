@@ -9,6 +9,7 @@ import {
 	backExits,
 	clauseSentence,
 	clauseWords,
+	crossAccountMatchReason,
 	ESCALATED_MATCH_HINT,
 	ESCALATED_REVIEW_WARNING,
 	escalatedMatchLabel,
@@ -16,6 +17,7 @@ import {
 	type MatchMode,
 	matchDoorHint,
 	matchDoorLabel,
+	matchDoorsFor,
 	matchPhrase,
 	matchSummary,
 	type RunState,
@@ -681,6 +683,15 @@ describe("sample and door vocabulary", () => {
 		);
 		assert.match(ESCALATED_MATCH_HINT, /nothing to widen/);
 		assert.match(ESCALATED_REVIEW_WARNING, /by the time it runs/);
+	});
+
+	it("withholds the widened doors where there is no single account", () => {
+		assert.deepEqual(
+			[...matchDoorsFor("acc-personal")],
+			["selected", "similar", "properties"],
+		);
+		assert.deepEqual([...matchDoorsFor(undefined)], ["selected"]);
+		assert.match(crossAccountMatchReason, /within one account/);
 	});
 
 	it("names each door and what it does", () => {
