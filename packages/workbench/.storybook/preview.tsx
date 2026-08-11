@@ -6,9 +6,7 @@ import "./tailwind.css";
 
 initialize({
 	onUnhandledRequest: "bypass",
-	// Absolute: under the story test runner the page sits several path segments
-	// deep, and a relative URL would resolve off the static root.
-	serviceWorker: { url: "/mockServiceWorker.js" },
+	serviceWorker: { url: "./mockServiceWorker.js" },
 });
 
 /**
