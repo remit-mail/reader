@@ -59,5 +59,9 @@ em++ \
 
 cp COPYING.MPL "$OUT/LICENSE"
 cp license.hunspell "$OUT/license.hunspell"
+# The output describes itself: whoever stages this directory later — including a
+# distributor who has this repo's pin file nowhere — can say which release and
+# which tarball checksum the bytes beside it came from.
+cp "$HERE/pin.env" "$OUT/pin.env"
 cd /
 rm -rf "$WORK"

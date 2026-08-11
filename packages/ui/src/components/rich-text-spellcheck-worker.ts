@@ -45,7 +45,11 @@ const spell = (request: CheckRequest, checker: SpellEngine): Finding[] =>
 		})),
 	);
 
-const open = async (language: string, base: string): Promise<void> => {
+const open = async (
+	language: string,
+	base: string,
+	bytesExpected: number,
+): Promise<void> => {
 	// Whatever was answering before is not answering for this language, and a
 	// failed open must not leave the previous dictionary marking the new text.
 	engine?.close();
@@ -53,6 +57,7 @@ const open = async (language: string, base: string): Promise<void> => {
 	const result = await openEngine({
 		base,
 		tag: language,
+		bytesExpected,
 		onProgress: ({ bytesLoaded, bytesTotal }) =>
 			scope.postMessage({
 				type: "opening",
@@ -76,14 +81,16 @@ const open = async (language: string, base: string): Promise<void> => {
 
 scope.addEventListener("message", ({ data }) => {
 	if (data.type === "open") {
-		open(data.language, data.base).catch((error: unknown) => {
-			scope.postMessage({
-				type: "failed",
-				language: data.language,
-				reason: "engine",
-				detail: error instanceof Error ? error.message : String(error),
-			});
-		});
+		open(data.language, data.base, data.bytesExpected).catch(
+			(error: unknown) => {
+				scope.postMessage({
+					type: "failed",
+					language: data.language,
+					reason: "engine",
+					detail: error instanceof Error ? error.message : String(error),
+				});
+			},
+		);
 		return;
 	}
 	if (data.type === "suggest") {

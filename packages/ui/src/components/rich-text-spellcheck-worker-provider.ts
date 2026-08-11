@@ -16,6 +16,7 @@ import type {
 import {
 	dictionaryTagFor,
 	spellcheckBase,
+	spellcheckBytes,
 } from "./rich-text-spellcheck-languages.js";
 import type { SpellWorkerPort } from "./rich-text-spellcheck-provider.js";
 import { openSpellProvider } from "./rich-text-spellcheck-provider.js";
@@ -42,5 +43,10 @@ export const openSpellcheckWorker = async (
 		new URL("./rich-text-spellcheck-worker.ts", import.meta.url),
 		{ type: "module" },
 	);
-	return openSpellProvider(tag, spellcheckBase(), workerPort(worker));
+	return openSpellProvider(
+		tag,
+		spellcheckBase(),
+		workerPort(worker),
+		spellcheckBytes(tag),
+	);
 };

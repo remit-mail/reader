@@ -31,6 +31,15 @@ const dictionaryDir = (tag: string): string =>
 /** The one path that answers 503, so the download failure has a producer. */
 let refuse: string | null = null;
 
+/**
+ * The image serves these files brotli-compressed, so `content-length` is the
+ * compressed length while what arrives is the decompressed file. A quarter
+ * stands in for that ratio: anything reading the header instead of the build's
+ * own figure opens the notice at a size it then walks straight past.
+ */
+const asOnTheWire = (bytes: Buffer): string =>
+	String(Math.max(1, Math.round(bytes.byteLength / 4)));
+
 const served = async (url: string): Promise<Response> => {
 	if (url === refuse) return new Response("no", { status: 503 });
 	const dictionary = /dictionaries\/([^/]+)\/(index\.(?:aff|dic))$/.exec(url);
@@ -39,8 +48,19 @@ const served = async (url: string): Promise<Response> => {
 		: fileURLToPath(url);
 	const bytes = await readFile(path);
 	return new Response(bytes, {
-		headers: { "content-length": String(bytes.byteLength) },
+		headers: { "content-length": asOnTheWire(bytes) },
 	});
+};
+
+/** What the build weighs a language at: the engine and its two files. */
+const weightOf = async (tag: string): Promise<number> => {
+	const directory = dictionaryDir(tag);
+	const files = await Promise.all([
+		readFile(join(engineDir, "hunspell.wasm")),
+		readFile(join(directory, "index.aff")),
+		readFile(join(directory, "index.dic")),
+	]);
+	return files.reduce((total, bytes) => total + bytes.byteLength, 0);
 };
 
 let post: (message: SpellWorkerRequest) => void;
@@ -61,7 +81,12 @@ const openOn = async (
 ): Promise<Extract<SpellWorkerResponse, { type: "ready" | "failed" }>> => {
 	const ready = nextMessage("ready");
 	const failed = nextMessage("failed");
-	post({ type: "open", language: tag, base: BASE });
+	post({
+		type: "open",
+		language: tag,
+		base: BASE,
+		bytesExpected: await weightOf(tag),
+	});
 	return Promise.race([ready, failed]);
 };
 
@@ -177,6 +202,29 @@ describe("Dutch, against OpenTaal", () => {
 			["vergaderingg", "begrooting"],
 		);
 		assert.ok((await suggested("nl", "vergaderingg")).includes("vergadering"));
+	});
+});
+
+describe("what the composer is told the download costs", () => {
+	it("names the size the build weighed, not the length on the wire", async () => {
+		const from = heard.length;
+		assert.equal((await openOn("nl")).type, "ready");
+		const progress = heard
+			.slice(from)
+			.filter((message) => message.type === "opening");
+		const weight = await weightOf("nl");
+
+		assert.ok(progress.length > 1, "a download reported once is not reported");
+		assert.deepEqual(
+			[...new Set(progress.map((message) => message.bytesTotal))],
+			[weight],
+			"a figure that is rewritten mid-download was never the size of anything",
+		);
+		assert.equal(
+			progress.at(-1)?.bytesLoaded,
+			weight,
+			"and what arrives ends on it rather than past it",
+		);
 	});
 });
 

@@ -145,18 +145,18 @@ const readBody = async (
 	return whole;
 };
 
-const declaredLength = (response: Response): number => {
-	const header = response.headers.get("content-length");
-	if (!header) return 0;
-	const length = Number(header);
-	return Number.isFinite(length) ? length : 0;
-};
-
 export interface EngineRequest {
 	/** Where `hunspell.mjs`, `hunspell.wasm` and `dictionaries/` are served. */
 	readonly base: string;
 	/** The tag the build staged, which is not always the tag the writer picked. */
 	readonly tag: string;
+	/**
+	 * What the build says these files weigh. `content-length` is the wrong
+	 * number: the files are served brotli-compressed and counted here
+	 * decompressed, so believing the header names a size a quarter of the truth
+	 * and then walks past it while the writer watches.
+	 */
+	readonly bytesExpected: number;
 	onProgress(progress: DownloadProgress): void;
 	assets?: EngineAssets;
 }
@@ -164,6 +164,7 @@ export interface EngineRequest {
 export const openEngine = async ({
 	base,
 	tag,
+	bytesExpected,
 	onProgress,
 	assets = browserAssets,
 }: EngineRequest): Promise<EngineResult> => {
@@ -179,11 +180,12 @@ export const openEngine = async ({
 		.map((answer) => answer.value);
 
 	let bytesLoaded = 0;
-	let declared = 0;
-	for (const response of responses) declared += declaredLength(response);
 	const report = (added: number): void => {
 		bytesLoaded += added;
-		onProgress({ bytesLoaded, bytesTotal: Math.max(declared, bytesLoaded) });
+		onProgress({
+			bytesLoaded,
+			bytesTotal: Math.max(bytesExpected, bytesLoaded),
+		});
 	};
 	report(0);
 

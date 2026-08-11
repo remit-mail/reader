@@ -54,9 +54,10 @@ export interface SuggestResponse {
 export type ProviderStatus =
 	/**
 	 * Carries the download rather than a verdict about it: a composer that has to
-	 * say "still fetching Dutch (686 KB)" needs the two numbers, and where the
+	 * say "still fetching Dutch (2.4 MB)" needs the two numbers, and where the
 	 * line between quick and slow falls belongs to whatever renders it, not here.
-	 * Both are 0 until the first response's headers arrive.
+	 * The total is what the build weighed the files at, so it is right from the
+	 * first report and never moves under the writer.
 	 */
 	| {
 			readonly state: "opening";
@@ -105,6 +106,8 @@ export type SpellWorkerRequest =
 			readonly type: "open";
 			readonly language: LanguageTag;
 			readonly base: string;
+			/** What the build weighed these files at, for the download notice. */
+			readonly bytesExpected: number;
 	  }
 	| ({ readonly type: "check" } & CheckRequest)
 	| ({ readonly type: "suggest" } & SuggestRequest);

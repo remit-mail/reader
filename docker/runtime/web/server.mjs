@@ -10,7 +10,7 @@
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import http from "node:http";
-import { extname, join, normalize, sep } from "node:path";
+import { basename, extname, join, normalize, sep } from "node:path";
 import { createBrotliDecompress } from "node:zlib";
 
 const DIST_DIR = process.env.WEB_DIST_DIR ?? "/app/dist";
@@ -50,6 +50,22 @@ const MIME_TYPES = {
 	".wasm": "application/wasm",
 	".aff": "text/plain; charset=utf-8",
 	".dic": "text/plain; charset=utf-8",
+};
+
+// Licence texts carry no extension a MIME table can key on — `LICENSE` beside
+// every dictionary, `license.hunspell` beside the engine — and served as
+// octet-stream a browser downloads them instead of showing them, which is the
+// wrong answer to someone checking what this image carries.
+const isLicence = (name) => /^licen[cs]e/i.test(name);
+
+const IMMUTABLE_TREES = ["assets", "spellcheck"];
+
+const contentTypeOf = (filePath) => {
+	const name = basename(filePath);
+	return (
+		MIME_TYPES[extname(filePath)] ??
+		(isLicence(name) ? MIME_TYPES[".txt"] : "application/octet-stream")
+	);
 };
 
 const resolveSafePath = (urlPath) => {
@@ -106,7 +122,7 @@ const serveFile = async (res, filePath, cacheControl, acceptEncoding = "") => {
 		else res.writeHead(500).end("internal server error");
 	});
 	res.writeHead(200, {
-		"Content-Type": MIME_TYPES[extname(filePath)] ?? "application/octet-stream",
+		"Content-Type": contentTypeOf(filePath),
 		"Cache-Control": cacheControl,
 		...(precompressed && wantsBrotli ? { "Content-Encoding": "br" } : {}),
 		Vary: "Accept-Encoding",
@@ -150,10 +166,16 @@ const server = http.createServer(async (req, res) => {
 		? join(requested, "index.html")
 		: requested;
 
-	// Hashed assets (dist/assets/*) are immutable; index.html and other
-	// top-level files are revalidated every time so a deploy is visible
-	// without a hard refresh.
-	const cacheControl = candidate.includes(`${sep}assets${sep}`)
+	// Content-addressed trees are immutable; index.html and other top-level
+	// files are revalidated every time so a deploy is visible without a hard
+	// refresh. Two trees qualify: vite's hashed assets, and dist/spellcheck/,
+	// where the engine and every dictionary sit under a directory named for the
+	// digest of their own bytes. This server sends neither ETag nor
+	// Last-Modified, so anything outside them is fetched whole every time — for
+	// a 2.4 MB dictionary that meant re-downloading it on every composer open.
+	const cacheControl = IMMUTABLE_TREES.some((tree) =>
+		candidate.includes(`${sep}${tree}${sep}`),
+	)
 		? "public, max-age=31536000, immutable"
 		: "no-cache";
 	const acceptEncoding = req.headers["accept-encoding"] ?? "";

@@ -15,6 +15,7 @@ import type {
 import {
 	dictionaryTagFor,
 	spellcheckBase,
+	spellcheckBytes,
 	spellcheckLanguages,
 } from "./rich-text-spellcheck-languages.js";
 import {
@@ -86,10 +87,81 @@ describe("the tokeniser", () => {
 	});
 });
 
+/**
+ * The build writes these in; a test process has neither, so each one is put
+ * where the compiled define would have been and taken away again.
+ */
+const staged = (
+	values: { base?: string; bytes?: Record<string, number>; baseURI?: string },
+	use: () => void,
+): void => {
+	const names = ["__REMIT_SPELLCHECK_BASE__", "__REMIT_SPELLCHECK_BYTES__"];
+	if (values.base !== undefined)
+		Object.defineProperty(globalThis, names[0], {
+			value: values.base,
+			configurable: true,
+		});
+	if (values.bytes !== undefined)
+		Object.defineProperty(globalThis, names[1], {
+			value: values.bytes,
+			configurable: true,
+		});
+	if (values.baseURI !== undefined)
+		Object.defineProperty(globalThis, "document", {
+			value: { baseURI: values.baseURI },
+			configurable: true,
+		});
+	try {
+		use();
+	} finally {
+		for (const name of [...names, "document"])
+			Reflect.deleteProperty(globalThis, name);
+	}
+};
+
 describe("what this build carries", () => {
 	it("has nothing where no build staged anything", () => {
 		assert.deepEqual(spellcheckLanguages(), []);
 		assert.equal(spellcheckBase(), "/spellcheck/");
+	});
+
+	// Storybook builds relative and is published under /reader/pr/<n>/<sha>/,
+	// which no absolute path baked at build time can name. Resolving against the
+	// document is what makes the spellcheck stories work anywhere they land.
+	it("resolves a relative base against the page it is on", () => {
+		staged(
+			{
+				base: "spellcheck/0123456789abcdef/",
+				baseURI:
+					"https://remit-mail.github.io/reader/pr/755/abc123/iframe.html",
+			},
+			() =>
+				assert.equal(
+					spellcheckBase(),
+					"https://remit-mail.github.io/reader/pr/755/abc123/spellcheck/0123456789abcdef/",
+				),
+		);
+	});
+
+	it("leaves an app's own absolute base where it is", () => {
+		staged(
+			{
+				base: "/spellcheck/0123456789abcdef/",
+				baseURI: "https://mail.example.com/mail/inbox/42",
+			},
+			() =>
+				assert.equal(
+					spellcheckBase(),
+					"https://mail.example.com/spellcheck/0123456789abcdef/",
+				),
+		);
+	});
+
+	it("knows what opening a language weighs", () => {
+		staged({ bytes: { nl: 2_465_792 } }, () => {
+			assert.equal(spellcheckBytes("nl"), 2_465_792);
+			assert.equal(spellcheckBytes("de"), 0, "a language nothing staged");
+		});
 	});
 
 	it("takes the region dictionary where the build has it", () => {
@@ -109,11 +181,21 @@ describe("what this build carries", () => {
 });
 
 describe("a provider over a worker", () => {
-	it("opens on the language and the place the build serves it from", () => {
+	it("opens on the language, the place the build serves it from, and its weight", () => {
 		const wired = wire();
-		const provider = openSpellProvider("nl", "/spellcheck/", wired.port);
+		const provider = openSpellProvider(
+			"nl",
+			"/spellcheck/",
+			wired.port,
+			2_465_792,
+		);
 		assert.deepEqual(wired.posted, [
-			{ type: "open", language: "nl", base: "/spellcheck/" },
+			{
+				type: "open",
+				language: "nl",
+				base: "/spellcheck/",
+				bytesExpected: 2_465_792,
+			},
 		]);
 		provider.close();
 	});

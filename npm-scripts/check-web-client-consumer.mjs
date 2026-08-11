@@ -7,16 +7,22 @@
 // hinges on: "a clean environment with only npm access can compose the
 // primitives and bundle a servable app."
 //
-// Two checks, both off the packed tarball (works before the package is
+// Three checks, all off the packed tarball (works before the package is
 // published, and before its @remit workspace deps exist on the registry):
-//   1. Static — every third-party module the shipped harness imports is listed
-//      in the tarball's dependencies/peerDependencies.
+//   1. Static — every third-party module the shipped build code imports is
+//      listed in the tarball's dependencies/peerDependencies.
 //   2. Resolve — in a clean dir with only the declared toolchain peers
 //      installed, `@remit/web-client/vite-preset` and each toolchain import
 //      resolve.
-import { execFileSync } from "node:child_process";
+//   3. Run — the spellcheck plugin is executed in that same clean dir. Resolving
+//      a module proves nothing about what it does when called: the plugin read
+//      `docker/hunspell/pin.env` through a path that is the repo root here and
+//      `node_modules` there, so every consumer build died on an ENOENT naming a
+//      file the tarball does not ship and no escape hatch out of it.
+import { execFileSync, spawnSync } from "node:child_process";
 import {
 	cpSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
@@ -25,7 +31,10 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const run = (cmd, args, opts = {}) =>
 	execFileSync(cmd, args, { encoding: "utf8", ...opts });
@@ -104,10 +113,12 @@ withTempDir((tmp) => {
 		...Object.keys(manifest.peerDependencies ?? {}),
 	]);
 
-	// 1. Static: every third-party module the shipped harness imports (directly
-	// or via the shared vite.base at the package root) must be declared.
+	// 1. Static: every third-party module the shipped build code imports —
+	// the harness, the spellcheck plugin vite.base pulls in, and vite.base
+	// itself — must be declared.
 	const needed = new Set([
 		...scanImports(join(pkgDir, "harness")),
+		...scanImports(join(pkgDir, "spellcheck")),
 		...importSpecifiers(readFileSync(join(pkgDir, "vite.base.ts"), "utf8"))
 			.filter(isThirdParty)
 			.map(packageNameOf),
@@ -165,7 +176,112 @@ withTempDir((tmp) => {
 		{ cwd: consumer, stdio: "inherit" },
 	);
 
+	// 3. Run: stage the spellchecker from inside that consumer, which has no
+	// build/hunspell, no docker/hunspell/pin.env and no dictionary packages.
+	// Every path through it has to end in either a staged tree or a sentence
+	// naming the file and the way past it.
+	const engine = join(tmp, "engine");
+	mkdirSync(engine, { recursive: true });
+	writeFileSync(join(engine, "hunspell.wasm"), "wasm-bytes");
+	writeFileSync(join(engine, "hunspell.mjs"), "export default () => {};\n");
+	writeFileSync(join(engine, "LICENSE"), "MPL\n");
+	writeFileSync(join(engine, "license.hunspell"), "the triple\n");
+	writeFileSync(
+		join(engine, "pin.env"),
+		"HUNSPELL_VERSION=1.7.3\nHUNSPELL_SHA256=deadbeef\nEMSDK_IMAGE=nowhere\n",
+	);
+
+	writeFileSync(
+		join(consumer, "spellcheck-probe.mjs"),
+		[
+			'import { stageSpellcheck } from "./node_modules/@remit/web-client/spellcheck/vite-plugin.ts";',
+			'const build = stageSpellcheck(process.env.REMIT_SPELLCHECK_LANGUAGES, "/");',
+			"process.stdout.write(JSON.stringify(build.files.map((file) => file.path)));",
+			"",
+		].join("\n"),
+	);
+
+	const stage = (settings) => {
+		const env = { ...process.env };
+		delete env.REMIT_SPELLCHECK_ENGINE_DIR;
+		delete env.REMIT_SPELLCHECK_LANGUAGES;
+		return spawnSync(
+			process.execPath,
+			["--experimental-strip-types", "--no-warnings", "spellcheck-probe.mjs"],
+			{ cwd: consumer, encoding: "utf8", env: { ...env, ...settings } },
+		);
+	};
+
+	const refuse = (message) => {
+		console.error(message);
+		process.exit(1);
+	};
+
+	const names = (run, ...wanted) => {
+		const said = `${run.stderr}${run.stdout}`;
+		const silent = wanted.filter((word) => !said.includes(word));
+		if (run.status === 0 || silent.length > 0) {
+			refuse(
+				`@remit/web-client staged the spellchecker in a consumer without saying ${silent.join(" or ") || "anything"}:\n${said}`,
+			);
+		}
+	};
+
+	names(
+		stage({}),
+		"hunspell.wasm",
+		"REMIT_SPELLCHECK_ENGINE_DIR",
+		"REMIT_SPELLCHECK_LANGUAGES=",
+	);
+	names(
+		stage({ REMIT_SPELLCHECK_ENGINE_DIR: engine }),
+		"dictionary-en",
+		"REMIT_SPELLCHECK_LANGUAGES",
+	);
+
+	const emptied = stage({
+		REMIT_SPELLCHECK_ENGINE_DIR: engine,
+		REMIT_SPELLCHECK_LANGUAGES: "",
+	});
+	if (emptied.status !== 0 || emptied.stdout.trim() !== "[]") {
+		refuse(
+			`REMIT_SPELLCHECK_LANGUAGES= must build a web client with no spellchecker, and did not:\n${emptied.stderr}${emptied.stdout}`,
+		);
+	}
+
+	// The supported path, end to end: an engine built elsewhere and the one
+	// dictionary this consumer chose to install.
+	const dictionary = join(repoRoot, "node_modules", "dictionary-en");
+	if (!existsSync(dictionary)) {
+		refuse(
+			`${dictionary} is missing, so the consumer's staged build cannot be checked. Run npm ci first.`,
+		);
+	}
+	cpSync(dictionary, join(consumer, "node_modules", "dictionary-en"), {
+		recursive: true,
+	});
+	const staged = stage({
+		REMIT_SPELLCHECK_ENGINE_DIR: engine,
+		REMIT_SPELLCHECK_LANGUAGES: "en",
+	});
+	const wanted = [
+		"hunspell.wasm",
+		"hunspell.mjs",
+		"dictionaries/en/index.aff",
+		"dictionaries/en/index.dic",
+		"dictionaries/en/LICENSE",
+		"NOTICE.txt",
+		"manifest.json",
+	];
+	const got = staged.status === 0 ? JSON.parse(staged.stdout) : [];
+	const absent = wanted.filter((path) => !got.includes(path));
+	if (absent.length > 0) {
+		refuse(
+			`REMIT_SPELLCHECK_ENGINE_DIR is the documented way to build this package outside the repo, and it did not stage ${absent.join(", ")}:\n${staged.stderr}${staged.stdout}`,
+		);
+	}
+
 	console.log(
-		"Consumer acceptance OK: @remit/web-client harness toolchain is declared and resolvable.",
+		"Consumer acceptance OK: @remit/web-client harness toolchain is declared and resolvable, and the spellchecker stages from a consumer's own engine directory.",
 	);
 });

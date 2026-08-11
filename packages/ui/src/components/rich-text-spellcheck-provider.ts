@@ -46,6 +46,7 @@ export const openSpellProvider = (
 	language: LanguageTag,
 	base: string,
 	port: SpellWorkerPort,
+	bytesExpected = 0,
 ): SpellProvider => {
 	const pending = new Map<string, Waiting>();
 	const asking = new Map<
@@ -132,7 +133,7 @@ export const openSpellProvider = (
 		abandonSuggestions(detail);
 	};
 	port.fail(stopped);
-	port.post({ type: "open", language, base });
+	port.post({ type: "open", language, base, bytesExpected });
 
 	return {
 		language,
