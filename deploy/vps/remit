@@ -1851,18 +1851,25 @@ assert_bind_identity() {
 # meeting a refused connection. Stopping it was the whole of the visible outage:
 # the front door went dark for the entire stop→healthy window.
 #
+# tunnel is excluded for the same reason, and only exists under TLS_MODE=tunnel
+# (COMPOSE_PROFILES). It is the edge in that mode: caddy has nothing to answer
+# with if the cloudflared agent holding the connection to Cloudflare's edge goes
+# down, so the operator's browser gets a 530 from Cloudflare itself rather than
+# a held request from caddy (reader#762). Same reasoning as caddy — stock image,
+# no app volume, nothing collides by leaving it running across the window.
+#
 # Two passes, because the stop set is not one list. `compose config --services`
 # names the always-on services; `backup` sits behind an inactive profile and is
 # only seen by `ps`, yet it must stop too — it is a stock alpine image under
 # `restart: unless-stopped` that opens remit.db read-write every interval, a
 # collision during the restore.
 stop_everything() {
-	_stopset=$(compose config --services 2>/dev/null | grep -vxE 'updater|caddy' | tr '\n' ' ')
+	_stopset=$(compose config --services 2>/dev/null | grep -vxE 'updater|caddy|tunnel' | tr '\n' ' ')
 	if [ -n "$_stopset" ]; then
 		# shellcheck disable=SC2086 # a service list, split on purpose
 		compose stop $_stopset
 	fi
-	_left=$(compose ps --services --status running 2>/dev/null | grep -vxE 'updater|caddy' | tr '\n' ' ')
+	_left=$(compose ps --services --status running 2>/dev/null | grep -vxE 'updater|caddy|tunnel' | tr '\n' ' ')
 	if [ -n "$_left" ]; then
 		# shellcheck disable=SC2086 # a service list, split on purpose
 		compose stop $_left

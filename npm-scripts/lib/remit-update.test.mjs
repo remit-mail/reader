@@ -1369,6 +1369,52 @@ describe("caddy stays up across the whole update (front door never goes dark)", 
 	});
 });
 
+describe("tunnel stays up across the whole update under TLS_MODE=tunnel (reader#762)", () => {
+	// Under TLS_MODE=tunnel the cloudflared agent is the second edge component,
+	// reached by COMPOSE_PROFILES=tunnel — modeled here by putting it in
+	// all_services, the way compose lists a profile-activated service in an
+	// unscoped `config --services` once its profile is on in .env. Stopping it
+	// for the update window leaves caddy's reverse_proxy with no connection to
+	// re-dial: Cloudflare answers the operator's browser with its own 530
+	// instead of a request caddy could hold and retry.
+	const services = `${ALL_SERVICES} tunnel`;
+	const box = sandbox({
+		scenario: {
+			probe: "ok",
+			services,
+			all_services: `${services} migrate volume-init`,
+		},
+	});
+	box.run(["update"]);
+	const stops = box
+		.log()
+		.split("\n")
+		.filter((l) => l.startsWith("compose stop"));
+
+	it("never names tunnel in any stop set", () => {
+		assert.ok(stops.length > 0, "nothing was stopped");
+		for (const line of stops) {
+			assert.ok(
+				!line.split(/\s+/).includes("tunnel"),
+				`a stop named tunnel: ${line}`,
+			);
+		}
+	});
+
+	it("still stops the app plane it must (backend, workers)", () => {
+		const stopped = stops.join(" ").split(/\s+/);
+		assert.ok(stopped.includes("backend"));
+		assert.ok(stopped.includes("imap-worker"));
+	});
+
+	it("leaves tunnel running after the update commits", () => {
+		assert.ok(
+			existsSync(join(box.fake, "up-tunnel")),
+			"tunnel was taken down during the update",
+		);
+	});
+});
+
 describe("the updater proves its mount before serving (reader#272)", () => {
 	it("passes when the deployment directory is mounted at its host path", () => {
 		const box = sandbox({ scenario: { probe: "ok" } });
