@@ -1183,10 +1183,10 @@ function MailboxReading() {
 	// moves on: a bare flag would still be set when they came back.
 	const [drawerThreadId, setDrawerThreadId] = useState<string | null>(null);
 	const openThreadId = conversation?.threadId ?? null;
-	// Adjusted during render, guarded by a changed value — React's documented
-	// "adjusting state when a prop changes", the same pattern `routes/mail.tsx`
-	// re-seeds the search field with. An effect would paint one frame of an open
-	// drawer over the newly opened thread first.
+	// Derived rather than stored: the drawer is up only while the thread it was
+	// opened for is still the one on screen, so moving to another one closes it
+	// with no effect to run. Closing it from an effect would paint one frame of
+	// an open drawer over the newly opened thread first.
 	const drawerOpen =
 		!railFits && openThreadId !== null && drawerThreadId === openThreadId;
 

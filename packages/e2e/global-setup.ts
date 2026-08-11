@@ -23,10 +23,40 @@ import {
  */
 const PRE_FLAGGED_SUBJECT = "Flagged before you ever saw it";
 
+/**
+ * The seeded INBOX message whose DKIM signature names a domain its From address
+ * does not, so `authenticity.dkimMismatch` comes back true and the reading pane
+ * renders the danger banner with its "Why?" link. The mid-width spec works from
+ * this.
+ *
+ * Folded onto a message the inbox already held rather than appended as one
+ * more: every seeding budget in the suite is sized against the inbox count, and
+ * a thirteenth message through the sync pipeline put the slowest of them past
+ * its wait (#290).
+ *
+ * It carries no Authentication-Results, so the placement heuristic has no DMARC
+ * verdict to demote on and the message stays in the inbox where the spec looks
+ * for it.
+ */
+const DKIM_MISMATCH = {
+	subject: "Your receipt from the hardware store",
+	fromDomain: "northwind-hardware.test",
+	signingDomain: "bulk-relay.test",
+};
+
 const SEEDED_MESSAGES: Message[] = [
 	{ subject: "Quarterly numbers are in" },
 	{ subject: "Lunch on Thursday?" },
-	{ subject: "Your receipt from the hardware store" },
+	{
+		subject: DKIM_MISMATCH.subject,
+		from: `Northwind Hardware <receipts@${DKIM_MISMATCH.fromDomain}>`,
+		headers: [
+			[
+				"DKIM-Signature",
+				`v=1; a=rsa-sha256; d=${DKIM_MISMATCH.signingDomain}; s=s1; h=from:to; b=xxx`,
+			],
+		],
+	},
 	{ subject: PRE_FLAGGED_SUBJECT, flags: ["\\Flagged"] },
 ];
 
@@ -61,21 +91,6 @@ const CONVERSATION = {
 	sentSubject: "Re: Databricks contract renewal",
 	sentFromName: "Robin Vance",
 	replyTo: "dana@remit.test",
-};
-
-/**
- * INBOX mail whose DKIM signature names a domain the From address does not, so
- * `authenticity.dkimMismatch` comes back true and the reading pane renders the
- * danger banner with its "Why?" link. The mid-width spec works from this.
- *
- * It carries no Authentication-Results, so the placement heuristic has no DMARC
- * verdict to demote on and the message stays in the inbox where the spec looks
- * for it.
- */
-const DKIM_MISMATCH = {
-	subject: "Your account needs attention",
-	fromDomain: "northwind-bank.test",
-	signingDomain: "bulk-relay.test",
 };
 
 /**
@@ -153,20 +168,6 @@ const globalSetup = async (): Promise<void> => {
 		],
 		"Junk",
 	);
-
-	console.log("e2e setup: appending the dkim-mismatch message over IMAP");
-	await appendMessages(imapUser, [
-		{
-			subject: DKIM_MISMATCH.subject,
-			from: `Northwind Bank <alerts@${DKIM_MISMATCH.fromDomain}>`,
-			headers: [
-				[
-					"DKIM-Signature",
-					`v=1; a=rsa-sha256; d=${DKIM_MISMATCH.signingDomain}; s=s1; h=from:to; b=xxx`,
-				],
-			],
-		},
-	]);
 
 	// The cross-folder conversation. Message-IDs are minted per run so a reused
 	// stack cannot let one run's thread satisfy another's assertions, and the
@@ -266,7 +267,6 @@ const globalSetup = async (): Promise<void> => {
 		seededSubjects: [
 			...SEEDED_SUBJECTS,
 			CONVERSATION.receivedSubject,
-			DKIM_MISMATCH.subject,
 			...classificationFixtures.map((fixture) => fixture.subject),
 		],
 		conversation: {

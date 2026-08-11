@@ -57,8 +57,8 @@ export interface RunState {
 	 * does not. It is the only seeded message that carries the authenticity
 	 * banner, and so the only one whose reading pane offers a "Why?" link.
 	 *
-	 * In INBOX and therefore part of `seededSubjects`, like the pre-flagged
-	 * message: ordinary inbox mail with one extra signal on it.
+	 * One of `seededSubjects` rather than an addition to them, like the
+	 * pre-flagged message: ordinary inbox mail with one extra signal on it.
 	 */
 	dkimMismatchSubject: string;
 	dkimMismatchFromDomain: string;
