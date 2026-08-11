@@ -10,6 +10,8 @@
  * message the recipient's client can read the language off. See issue #686.
  */
 
+import { spellcheckLanguages } from "../components/rich-text-spellcheck-languages.js";
+
 /**
  * A language the composer offers, and the ISO 639-3 code `franc-min` knows it
  * by. The two are separate alphabets: the tag is what goes on the document and
@@ -111,16 +113,25 @@ export const languageLabel = (tag: string): string => {
 };
 
 /**
- * The languages an account writes in when it has not said. The browser already
- * holds an ordered answer; `en` follows it, so a browser set to one language
- * nothing can detect still leaves the chip something to show.
+ * The languages an account writes in when it has not said: the browser's own
+ * ordered answer first, then the dictionaries this build carries, then `en`.
+ *
+ * The dictionaries are in there because the browser routinely names one
+ * language and the writer uses another — Dutch mail written on an English
+ * browser is the ordinary case, not the exception. A candidate set of one turns
+ * detection off, since there is nothing to choose between, and every message
+ * then keeps the default tag and is checked against the wrong dictionary. What
+ * the deployment staged is the other statement about which languages are
+ * written here, and it is a short list, which is what keeps detection accurate.
  */
 export const defaultComposeLanguages = (
 	locales: readonly string[],
+	built: readonly string[] = spellcheckLanguages(),
 ): string[] => {
-	const known = locales.filter((locale) => detectionCodeFor(locale) !== null);
-	const tags = known.map(primaryLanguageSubtag);
-	const unique = [...new Set(tags)];
+	const known = [...locales, ...built].filter(
+		(locale) => detectionCodeFor(locale) !== null,
+	);
+	const unique = [...new Set(known.map(primaryLanguageSubtag))];
 	if (!unique.includes("en")) unique.push("en");
 	return unique;
 };

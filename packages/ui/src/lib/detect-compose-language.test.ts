@@ -5,6 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { defaultComposeLanguages } from "./compose-language.js";
 import { detectComposeLanguage } from "./detect-compose-language.js";
 
 const DUTCH =
@@ -43,6 +44,23 @@ describe("detectComposeLanguage", () => {
 	it("ignores a configured language nothing can detect", () => {
 		assert.equal(detectComposeLanguage(DUTCH, ["nl", "ja"]), null);
 		assert.equal(detectComposeLanguage(DUTCH, ["nl", "ja", "en"]), "nl");
+	});
+
+	it("reads a Dutch line written on an English browser", () => {
+		// The account has never been to the language setting, and the browser it is
+		// read on says English and nothing else. A candidate set built from that
+		// alone has nothing to choose between, and every Dutch message goes out
+		// tagged `en` with the English dictionary underlining all of it.
+		const candidates = defaultComposeLanguages(
+			["en-US", "en"],
+			["en", "en-GB", "nl"],
+		);
+		assert.equal(
+			detectComposeLanguage("OK nou dank je wel hoor flapsigaar", candidates),
+			"nl",
+		);
+		assert.equal(detectComposeLanguage(DUTCH, candidates), "nl");
+		assert.equal(detectComposeLanguage(ENGLISH, candidates), "en");
 	});
 
 	it("resolves a regional tag through its language", () => {

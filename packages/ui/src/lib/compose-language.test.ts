@@ -13,6 +13,9 @@ import {
 	wrapWithLanguage,
 } from "./compose-language.js";
 
+/** The dictionaries the published image stages, per `REMIT_SPELLCHECK_LANGUAGES`. */
+const BUILT = ["en", "en-GB", "nl"];
+
 before(() => {
 	const dom = new JSDOM("");
 	globalThis.DOMParser = dom.window.DOMParser;
@@ -65,6 +68,20 @@ describe("defaultComposeLanguages", () => {
 
 	it("falls back to English when the browser offers nothing usable", () => {
 		assert.deepEqual(defaultComposeLanguages([]), ["en"]);
+	});
+
+	it("offers what the build can spellcheck, not the browser alone", () => {
+		assert.deepEqual(defaultComposeLanguages(["en-US", "en"], BUILT), [
+			"en",
+			"nl",
+		]);
+	});
+
+	it("keeps the browser's own language first, so it stays the default", () => {
+		assert.deepEqual(defaultComposeLanguages(["nl-NL", "nl"], BUILT), [
+			"nl",
+			"en",
+		]);
 	});
 });
 

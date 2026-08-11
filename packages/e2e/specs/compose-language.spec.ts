@@ -74,9 +74,9 @@ test.describe("The language a message is written in", () => {
 		run = await provisionIsolatedRun("E2E Compose Language");
 		api = new ApiClient(run);
 
-		// The candidate set is the account setting. Without it the account falls
-		// back to the browser's languages, which in Playwright is English alone —
-		// and detection with one candidate has nothing to choose.
+		// The candidate set is the account setting, pinned here rather than left to
+		// the fallback: these specs pick German out of a menu, and the fallback
+		// offers the browser's own languages and the staged dictionaries alone.
 		await api.updateAccount(run.accountId, {
 			composeLanguages: ACCOUNT_LANGUAGES,
 		});
