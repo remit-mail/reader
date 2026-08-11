@@ -8,5 +8,10 @@
   "compilerOptions": {
     "rootDir": "."
   },
-  "include": ["vite.base.ts", "vite.config.ts", "harness/**/*.ts"]
+  "include": [
+    "vite.base.ts",
+    "vite.config.ts",
+    "harness/**/*.ts",
+    "spellcheck/**/*.ts"
+  ]
 }

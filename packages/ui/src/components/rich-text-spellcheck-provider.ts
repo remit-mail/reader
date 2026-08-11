@@ -27,17 +27,39 @@ export interface SpellWorkerPort {
  */
 export const SUGGEST_DEADLINE_MS = 5000;
 
+/**
+ * How long a pass waits before the checker is called stopped. Hunspell answers
+ * a paragraph in single-digit milliseconds, so anything past this is a wedged
+ * engine rather than a slow one — and a wedged engine is invisible: the marks
+ * simply stop moving while `spellcheck` stays off, which on screen is text with
+ * nothing wrong in it. The deadline is what turns that into a failure the
+ * writer is told about and the browser's own checker takes back.
+ */
+export const CHECK_DEADLINE_MS = 5000;
+
+interface Waiting {
+	settle(response: CheckResponse): void;
+	drop(): void;
+}
+
 export const openSpellProvider = (
 	language: LanguageTag,
+	base: string,
 	port: SpellWorkerPort,
+	bytesExpected = 0,
 ): SpellProvider => {
-	const pending = new Map<string, (response: CheckResponse) => void>();
+	const pending = new Map<string, Waiting>();
 	const asking = new Map<
 		string,
 		{ settle(response: SuggestResponse): void; abandon(reason: Error): void }
 	>();
 	const listeners = new Set<(status: ProviderStatus) => void>();
-	let status: ProviderStatus = { state: "opening", language };
+	let status: ProviderStatus = {
+		state: "opening",
+		language,
+		bytesLoaded: 0,
+		bytesTotal: 0,
+	};
 
 	/**
 	 * A check that never comes back costs a pass; a suggestion that never comes
@@ -62,6 +84,15 @@ export const openSpellProvider = (
 	};
 
 	port.listen((message) => {
+		if (message.type === "opening") {
+			publish({
+				state: "opening",
+				language,
+				bytesLoaded: message.bytesLoaded,
+				bytesTotal: message.bytesTotal,
+			});
+			return;
+		}
 		if (message.type === "ready") {
 			publish({ state: "ready", language });
 			return;
@@ -87,20 +118,22 @@ export const openSpellProvider = (
 			});
 			return;
 		}
-		const settle = pending.get(message.requestId);
-		if (!settle) return;
+		const waiting = pending.get(message.requestId);
+		if (!waiting) return;
 		pending.delete(message.requestId);
-		settle({
+		waiting.settle({
 			requestId: message.requestId,
 			revision: message.revision,
 			findings: message.findings,
 		});
 	});
-	port.fail((detail) => {
-		publish({ state: "failed", language, reason: "worker", detail });
+	const stopped = (detail: string): void => {
+		if (status.state !== "failed")
+			publish({ state: "failed", language, reason: "worker", detail });
 		abandonSuggestions(detail);
-	});
-	port.post({ type: "open", language });
+	};
+	port.fail(stopped);
+	port.post({ type: "open", language, base, bytesExpected });
 
 	return {
 		language,
@@ -113,7 +146,27 @@ export const openSpellProvider = (
 		},
 		check: (request) =>
 			new Promise((resolve) => {
-				pending.set(request.requestId, resolve);
+				const deadline = setTimeout(() => {
+					pending.delete(request.requestId);
+					stopped(
+						`the ${language} checker did not answer within ${CHECK_DEADLINE_MS}ms`,
+					);
+					// An empty answer rather than a promise nobody settles: the pass is
+					// over, and the marks it would have painted are the ones the failed
+					// status has just cleared.
+					resolve({
+						requestId: request.requestId,
+						revision: request.revision,
+						findings: [],
+					});
+				}, CHECK_DEADLINE_MS);
+				pending.set(request.requestId, {
+					settle: (response) => {
+						clearTimeout(deadline);
+						resolve(response);
+					},
+					drop: () => clearTimeout(deadline),
+				});
 				port.post({ type: "check", ...request });
 			}),
 		suggest: (request) =>
@@ -139,6 +192,7 @@ export const openSpellProvider = (
 				port.post({ type: "suggest", ...request });
 			}),
 		close: () => {
+			for (const waiting of pending.values()) waiting.drop();
 			pending.clear();
 			abandonSuggestions("the checker closed");
 			listeners.clear();

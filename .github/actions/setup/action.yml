@@ -74,12 +74,20 @@ runs:
         path: |
           build
           !build/*/node_modules
-        key: ${{ runner.os }}-codegen-v2-${{ hashFiles('typespec/**', 'Makefile', 'openapi-ts.config.js', 'package-lock.json', 'patches/**') }}
+        key: ${{ runner.os }}-codegen-v3-${{ hashFiles('typespec/**', 'Makefile', 'openapi-ts.config.js', 'package-lock.json', 'patches/**', 'docker/hunspell/**', 'npm-scripts/build-hunspell.mjs') }}
 
     - name: Codegen (generated @remit/* packages)
       if: inputs.codegen == 'true' && steps.codegen.outputs.cache-hit != 'true'
       shell: bash
       run: make
+
+    # The spellchecker's engine, compiled in the pinned Emscripten image. It is
+    # build/ output like the codegen above and shares its cache, so this runs
+    # only when the recipe or a pin actually moved.
+    - name: Spellchecker engine (Hunspell → WebAssembly)
+      if: inputs.codegen == 'true' && steps.codegen.outputs.cache-hit != 'true'
+      shell: bash
+      run: npm run build:hunspell
 
     # Gitignored, derived from the web-client route files rather than from
     # TypeSpec, and needed by both typecheck and the unit tests. Cheap enough

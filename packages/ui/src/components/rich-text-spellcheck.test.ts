@@ -22,12 +22,19 @@ import type {
 	ProviderStatus,
 	SpellcheckOptions,
 	SpellProvider,
+	SpellWorkerRequest,
+	SpellWorkerResponse,
 } from "./rich-text-spellcheck.js";
 import {
-	dictionaryFor,
-	findMisspellings,
-	suggestionsFor,
-} from "./rich-text-spellcheck-words.js";
+	stubKnows,
+	stubSuggestionsFor,
+} from "./rich-text-spellcheck-double.js";
+import {
+	CHECK_DEADLINE_MS,
+	openSpellProvider,
+	type SpellWorkerPort,
+} from "./rich-text-spellcheck-provider.js";
+import { findMisspellings } from "./rich-text-spellcheck-words.js";
 
 const SENTENCE = "Ths report is redy today";
 const IDLE_MS = 400;
@@ -77,19 +84,20 @@ const stubSpellcheck = (
 	tune: {
 		revisionOf?: (request: CheckRequest, nth: number) => number;
 		hold?: boolean;
+		/** Opens on a dictionary still arriving, the way a real one does. */
+		downloading?: boolean;
 	} = {},
 ): Stub => {
 	const asked: CheckRequest[] = [];
 	const held: (() => void)[] = [];
 	const listeners = new Set<(status: ProviderStatus) => void>();
 	let closed = 0;
-	const words = dictionaryFor("en") ?? new Set<string>();
 
 	const answer = (request: CheckRequest, nth: number): CheckResponse => ({
 		requestId: request.requestId,
 		revision: tune.revisionOf?.(request, nth) ?? request.revision,
 		findings: request.spans.flatMap((span) =>
-			findMisspellings(span.text, words).map(
+			findMisspellings(span.text, stubKnows).map(
 				(range): Finding => ({
 					spanId: span.spanId,
 					start: range.start,
@@ -105,7 +113,16 @@ const stubSpellcheck = (
 		language: "en",
 		onStatus: (listener) => {
 			listeners.add(listener);
-			listener({ state: "ready", language: "en" });
+			listener(
+				tune.downloading
+					? {
+							state: "opening",
+							language: "en",
+							bytesLoaded: 0,
+							bytesTotal: 167_936,
+						}
+					: { state: "ready", language: "en" },
+			);
 			return () => {
 				listeners.delete(listener);
 			};
@@ -122,7 +139,7 @@ const stubSpellcheck = (
 			Promise.resolve({
 				requestId: request.requestId,
 				word: request.word,
-				suggestions: suggestionsFor(request.word, words),
+				suggestions: stubSuggestionsFor(request.word),
 			}),
 		close: () => {
 			closed += 1;
@@ -532,6 +549,100 @@ describe("spellcheck marks", () => {
 		assert.equal(seen.at(-1)?.state, "failed", "the caller is told why");
 	});
 
+	it("checks the document the download was holding up", async () => {
+		const spellcheck = stubSpellcheck({ downloading: true });
+		await mount({
+			initialHtml: `<p>${SENTENCE}</p>`,
+			lang: "en",
+			spellcheck,
+		});
+		await settle();
+		assert.equal(
+			marks(),
+			undefined,
+			"nothing of ours is on screen while the dictionary is on its way",
+		);
+		assert.equal(editable().getAttribute("spellcheck"), "true");
+
+		// A real dictionary arrives in twenty of these before it is ready.
+		await act(async () => {
+			for (const bytesLoaded of [65_536, 131_072, 167_936]) {
+				spellcheck.push({
+					state: "opening",
+					language: "en",
+					bytesLoaded,
+					bytesTotal: 167_936,
+				});
+			}
+		});
+		await act(async () => {
+			spellcheck.push({ state: "ready", language: "en" });
+		});
+		await settle();
+
+		assert.deepEqual(
+			offsets(),
+			[
+				[0, 3],
+				[14, 18],
+			],
+			"the leaves that were waiting on the dictionary are the first pass",
+		);
+	});
+
+	it("hands checking back when the engine takes a pass and freezes", async () => {
+		const seen: ProviderStatus[] = [];
+		const posted: SpellWorkerRequest[] = [];
+		let deliver: ((message: SpellWorkerResponse) => void) | undefined;
+		// A worker that opens, says it is ready, and then answers nothing at all —
+		// a wedged WebAssembly instance, which no `error` event ever announces.
+		const dead: SpellWorkerPort = {
+			post: (message) => posted.push(message),
+			listen: (listener) => {
+				deliver = listener;
+			},
+			fail: () => {},
+			terminate: () => {},
+		};
+
+		await mount({
+			initialHtml: `<p>${SENTENCE}</p>`,
+			lang: "en",
+			spellcheck: {
+				provider: async (language: string) =>
+					openSpellProvider(language, "/spellcheck/", dead),
+				onStatus: (status: ProviderStatus) => seen.push(status),
+			},
+		});
+		await act(async () => {
+			deliver?.({ type: "ready", language: "en" });
+		});
+		await settle();
+		assert.ok(
+			posted.some((message) => message.type === "check"),
+			"the pass went out",
+		);
+		assert.equal(
+			editable().getAttribute("spellcheck"),
+			"false",
+			"ours is the checker on screen while it is answering",
+		);
+
+		await act(async () => {
+			await new Promise((resolve) =>
+				setTimeout(resolve, CHECK_DEADLINE_MS + IDLE_MS),
+			);
+		});
+
+		assert.equal(seen.at(-1)?.state, "failed", "silence is named, not endured");
+		assert.equal(
+			editable().getAttribute("spellcheck"),
+			"true",
+			"the browser checks again rather than nobody checking",
+		);
+		assert.equal(marks(), undefined);
+	});
+
 	it("says when a language has no dictionary", async () => {
 		const seen: ProviderStatus[] = [];
 		await mount({
@@ -544,7 +655,10 @@ describe("spellcheck marks", () => {
 		});
 		await settle();
 
-		assert.deepEqual(seen, [{ state: "unavailable", language: "de" }]);
+		assert.deepEqual(seen, [
+			{ state: "opening", language: "de", bytesLoaded: 0, bytesTotal: 0 },
+			{ state: "unavailable", language: "de" },
+		]);
 		assert.equal(editable().getAttribute("spellcheck"), "true");
 	});
 

@@ -10,7 +10,8 @@
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import http from "node:http";
-import { extname, join, normalize, sep } from "node:path";
+import { basename, extname, join, normalize, sep } from "node:path";
+import { createBrotliDecompress } from "node:zlib";
 
 const DIST_DIR = process.env.WEB_DIST_DIR ?? "/app/dist";
 const PORT = Number(process.env.PORT ?? "8080");
@@ -46,6 +47,25 @@ const MIME_TYPES = {
 	".txt": "text/plain; charset=utf-8",
 	".webmanifest": "application/manifest+json",
 	".map": "application/json; charset=utf-8",
+	".wasm": "application/wasm",
+	".aff": "text/plain; charset=utf-8",
+	".dic": "text/plain; charset=utf-8",
+};
+
+// Licence texts carry no extension a MIME table can key on — `LICENSE` beside
+// every dictionary, `license.hunspell` beside the engine — and served as
+// octet-stream a browser downloads them instead of showing them, which is the
+// wrong answer to someone checking what this image carries.
+const isLicence = (name) => /^licen[cs]e/i.test(name);
+
+const IMMUTABLE_TREES = ["assets", "spellcheck"];
+
+const contentTypeOf = (filePath) => {
+	const name = basename(filePath);
+	return (
+		MIME_TYPES[extname(filePath)] ??
+		(isLicence(name) ? MIME_TYPES[".txt"] : "application/octet-stream")
+	);
 };
 
 const resolveSafePath = (urlPath) => {
@@ -67,24 +87,52 @@ const resolveSafePath = (urlPath) => {
 // already committed — that left a missing SPA-fallback index.html crashing
 // the process on an unhandled stream error instead of answering a clean 500,
 // turning what should be a healthcheck failure into a restart loop.
-const serveFile = async (res, filePath, cacheControl) => {
+//
+// A file that exists only as `<name>.br` is a precompressed asset — the
+// spellchecker's engine and dictionaries, which are stored compressed and
+// never stored any other way. Brotli is transport here: a client that accepts
+// it gets the bytes as they sit on disk, and one that does not gets them
+// decompressed rather than a 404, because the alternative is a composer with a
+// dead spellchecker on an old browser.
+const serveFile = async (res, filePath, cacheControl, acceptEncoding = "") => {
 	let info;
 	try {
 		info = await stat(filePath);
 	} catch {
-		return false;
+		info = null;
 	}
-	if (!info.isFile()) return false;
 
-	const stream = createReadStream(filePath);
+	let path = filePath;
+	let precompressed = false;
+	if (!info?.isFile()) {
+		try {
+			const packed = await stat(`${filePath}.br`);
+			if (!packed.isFile()) return false;
+			path = `${filePath}.br`;
+			precompressed = true;
+		} catch {
+			return false;
+		}
+	}
+
+	const wantsBrotli = acceptEncoding.includes("br");
+	const stream = createReadStream(path);
 	stream.on("error", () => {
 		if (res.headersSent) res.destroy();
 		else res.writeHead(500).end("internal server error");
 	});
 	res.writeHead(200, {
-		"Content-Type": MIME_TYPES[extname(filePath)] ?? "application/octet-stream",
+		"Content-Type": contentTypeOf(filePath),
 		"Cache-Control": cacheControl,
+		...(precompressed && wantsBrotli ? { "Content-Encoding": "br" } : {}),
+		Vary: "Accept-Encoding",
 	});
+	if (precompressed && !wantsBrotli) {
+		const inflate = createBrotliDecompress();
+		inflate.on("error", () => res.destroy());
+		stream.pipe(inflate).pipe(res);
+		return true;
+	}
 	stream.pipe(res);
 	return true;
 };
@@ -118,13 +166,20 @@ const server = http.createServer(async (req, res) => {
 		? join(requested, "index.html")
 		: requested;
 
-	// Hashed assets (dist/assets/*) are immutable; index.html and other
-	// top-level files are revalidated every time so a deploy is visible
-	// without a hard refresh.
-	const cacheControl = candidate.includes(`${sep}assets${sep}`)
+	// Content-addressed trees are immutable; index.html and other top-level
+	// files are revalidated every time so a deploy is visible without a hard
+	// refresh. Two trees qualify: vite's hashed assets, and dist/spellcheck/,
+	// where the engine and every dictionary sit under a directory named for the
+	// digest of their own bytes. This server sends neither ETag nor
+	// Last-Modified, so anything outside them is fetched whole every time — for
+	// a 2.4 MB dictionary that meant re-downloading it on every composer open.
+	const cacheControl = IMMUTABLE_TREES.some((tree) =>
+		candidate.includes(`${sep}${tree}${sep}`),
+	)
 		? "public, max-age=31536000, immutable"
 		: "no-cache";
-	if (await serveFile(res, candidate, cacheControl)) return;
+	const acceptEncoding = req.headers["accept-encoding"] ?? "";
+	if (await serveFile(res, candidate, cacheControl, acceptEncoding)) return;
 
 	if (looksLikeFile) {
 		res.writeHead(404).end("not found");

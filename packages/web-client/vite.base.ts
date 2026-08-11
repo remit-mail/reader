@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import type { AliasOptions, BuildOptions, PluginOption } from "vite";
+import { spellcheckPlugin } from "./spellcheck/vite-plugin.ts";
 
 /**
  * The one place the web-client build toolchain is described. Both the dev
@@ -54,4 +55,5 @@ export const webClientPlugins = (routes: RouterPaths = {}): PluginOption[] => [
 	tanstackRouter({ target: "react", autoCodeSplitting: true, ...routes }),
 	react(),
 	tailwindcss(),
+	spellcheckPlugin(),
 ];

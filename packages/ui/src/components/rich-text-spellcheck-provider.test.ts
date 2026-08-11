@@ -1,246 +1,312 @@
 /**
- * The provider and the worker against each other. The worker module is loaded
- * with a stand-in for the worker global, so what runs here is the code that
- * ships inside the worker, over the same messages a real one exchanges.
+ * The provider against the messages a worker sends, without a worker: what is
+ * under test is the protocol — which status a message publishes, which request
+ * an answer settles, and what a menu is told when nothing comes back. The
+ * engine itself is proved against real dictionaries in
+ * `rich-text-spellcheck-worker.test.ts`.
  */
 import assert from "node:assert/strict";
-import { before, describe, it, mock } from "node:test";
+import { describe, it, mock } from "node:test";
 import type {
 	ProviderStatus,
 	SpellWorkerRequest,
 	SpellWorkerResponse,
 } from "./rich-text-spellcheck.js";
 import {
+	dictionaryTagFor,
+	spellcheckBase,
+	spellcheckBytes,
+	spellcheckLanguages,
+} from "./rich-text-spellcheck-languages.js";
+import {
+	CHECK_DEADLINE_MS,
 	openSpellProvider,
 	type SpellWorkerPort,
 	SUGGEST_DEADLINE_MS,
 } from "./rich-text-spellcheck-provider.js";
 import {
-	dictionaryFor,
 	findMisspellings,
-	suggestionsFor,
+	normaliseWord,
+	wordsIn,
 } from "./rich-text-spellcheck-words.js";
 
-interface WorkerScope {
-	postMessage(message: SpellWorkerResponse): void;
-	addEventListener(
-		type: "message",
-		listener: (event: { data: SpellWorkerRequest }) => void,
-	): void;
+interface Wire {
+	readonly port: SpellWorkerPort;
+	readonly posted: SpellWorkerRequest[];
+	answer(message: SpellWorkerResponse): void;
+	fall(detail: string): void;
+	terminated(): number;
 }
 
-let receive: (event: { data: SpellWorkerRequest }) => void;
-let deliver: ((message: SpellWorkerResponse) => void) | undefined;
-let terminated = 0;
-
-/** Wires the loaded worker module to a provider, the way a real port does. */
-const port: SpellWorkerPort = {
-	post: (message) => receive({ data: message }),
-	listen: (listener) => {
-		deliver = listener;
-	},
-	fail: () => {},
-	terminate: () => {
-		terminated += 1;
-	},
+const wire = (): Wire => {
+	const posted: SpellWorkerRequest[] = [];
+	let deliver: ((message: SpellWorkerResponse) => void) | undefined;
+	let raise: ((detail: string) => void) | undefined;
+	let terminated = 0;
+	return {
+		posted,
+		port: {
+			post: (message) => posted.push(message),
+			listen: (listener) => {
+				deliver = listener;
+			},
+			fail: (listener) => {
+				raise = listener;
+			},
+			terminate: () => {
+				terminated += 1;
+			},
+		},
+		answer: (message) => deliver?.(message),
+		fall: (detail) => raise?.(detail),
+		terminated: () => terminated,
+	};
 };
 
-before(async () => {
-	const scope: WorkerScope = {
-		postMessage: (message) => deliver?.(message),
-		addEventListener: (_type, listener) => {
-			receive = listener;
-		},
-	};
-	Object.defineProperty(globalThis, "postMessage", {
-		value: scope.postMessage,
-		configurable: true,
+const ready = (wired: Wire, language: string): void =>
+	wired.answer({ type: "ready", language });
+
+describe("the tokeniser", () => {
+	it("takes words and leaves single letters alone", () => {
+		assert.deepEqual(
+			wordsIn("A report is redy").map((range) => range.start),
+			[2, 9, 12],
+			"an initial is not a word to check",
+		);
 	});
-	Object.defineProperty(globalThis, "addEventListener", {
-		value: scope.addEventListener,
-		configurable: true,
+
+	it("ranges only what the checker does not know", () => {
+		const known = (word: string) => word.toLowerCase() !== "ths";
+		assert.deepEqual(findMisspellings("Ths report", known), [
+			{ start: 0, end: 3 },
+		]);
 	});
-	await import("./rich-text-spellcheck-worker.js");
+
+	it("reads a curly apostrophe as the straight one", () => {
+		assert.equal(normaliseWord("Don’t"), "don't");
+	});
 });
 
-describe("the stub dictionary", () => {
-	it("takes a region tag and answers for the language", () => {
-		assert.ok(dictionaryFor("en-GB"), "a region variant reads the same words");
+/**
+ * The build writes these in; a test process has neither, so each one is put
+ * where the compiled define would have been and taken away again.
+ */
+const staged = (
+	values: { base?: string; bytes?: Record<string, number>; baseURI?: string },
+	use: () => void,
+): void => {
+	const names = ["__REMIT_SPELLCHECK_BASE__", "__REMIT_SPELLCHECK_BYTES__"];
+	if (values.base !== undefined)
+		Object.defineProperty(globalThis, names[0], {
+			value: values.base,
+			configurable: true,
+		});
+	if (values.bytes !== undefined)
+		Object.defineProperty(globalThis, names[1], {
+			value: values.bytes,
+			configurable: true,
+		});
+	if (values.baseURI !== undefined)
+		Object.defineProperty(globalThis, "document", {
+			value: { baseURI: values.baseURI },
+			configurable: true,
+		});
+	try {
+		use();
+	} finally {
+		for (const name of [...names, "document"])
+			Reflect.deleteProperty(globalThis, name);
+	}
+};
+
+describe("what this build carries", () => {
+	it("has nothing where no build staged anything", () => {
+		assert.deepEqual(spellcheckLanguages(), []);
+		assert.equal(spellcheckBase(), "/spellcheck/");
+	});
+
+	// Storybook builds relative and is published under /reader/pr/<n>/<sha>/,
+	// which no absolute path baked at build time can name. Resolving against the
+	// document is what makes the spellcheck stories work anywhere they land.
+	it("resolves a relative base against the page it is on", () => {
+		staged(
+			{
+				base: "spellcheck/0123456789abcdef/",
+				baseURI:
+					"https://remit-mail.github.io/reader/pr/755/abc123/iframe.html",
+			},
+			() =>
+				assert.equal(
+					spellcheckBase(),
+					"https://remit-mail.github.io/reader/pr/755/abc123/spellcheck/0123456789abcdef/",
+				),
+		);
+	});
+
+	it("leaves an app's own absolute base where it is", () => {
+		staged(
+			{
+				base: "/spellcheck/0123456789abcdef/",
+				baseURI: "https://mail.example.com/mail/inbox/42",
+			},
+			() =>
+				assert.equal(
+					spellcheckBase(),
+					"https://mail.example.com/spellcheck/0123456789abcdef/",
+				),
+		);
+	});
+
+	it("knows what opening a language weighs", () => {
+		staged({ bytes: { nl: 2_465_792 } }, () => {
+			assert.equal(spellcheckBytes("nl"), 2_465_792);
+			assert.equal(spellcheckBytes("de"), 0, "a language nothing staged");
+		});
+	});
+
+	it("takes the region dictionary where the build has it", () => {
+		const built = ["en", "en-GB", "nl"];
+		assert.equal(dictionaryTagFor("en-GB", built), "en-GB");
+		assert.equal(dictionaryTagFor("EN-gb", built), "en-GB");
+	});
+
+	it("falls back to the language where the region is not staged", () => {
+		assert.equal(dictionaryTagFor("nl-BE", ["en", "nl"]), "nl");
 		assert.equal(
-			dictionaryFor("de"),
+			dictionaryTagFor("de", ["en", "nl"]),
 			null,
 			"no dictionary is not an empty one",
-		);
-	});
-
-	it("ranges the words it does not hold", () => {
-		const words = dictionaryFor("en");
-		assert.ok(words);
-		assert.deepEqual(findMisspellings("Ths report is redy today", words), [
-			{ start: 0, end: 3 },
-			{ start: 14, end: 18 },
-		]);
-		assert.deepEqual(
-			findMisspellings("A report", words),
-			[],
-			"a single letter is not a word to check",
-		);
-	});
-
-	it("offers the words a keystroke or two away, nearest first", () => {
-		const words = dictionaryFor("en");
-		assert.ok(words);
-		assert.deepEqual(suggestionsFor("redy", words), ["ready", "read", "very"]);
-		assert.deepEqual(
-			suggestionsFor("recieve", words),
-			["receive", "received"],
-			"a swapped pair of letters is one keystroke, not two",
-		);
-		assert.deepEqual(
-			suggestionsFor("Attachd", words),
-			["Attached"],
-			"a suggestion arrives dressed the way the word was written",
-		);
-		assert.equal(
-			suggestionsFor("Ths", words).length,
-			5,
-			"a short word has many neighbours, and the menu takes five",
-		);
-		assert.deepEqual(
-			suggestionsFor("qwertyuiop", words),
-			[],
-			"nothing near it is not the same as anything at all",
-		);
-		assert.deepEqual(
-			suggestionsFor("report", words),
-			[],
-			"a word it holds needs no correcting",
 		);
 	});
 });
 
 describe("a provider over a worker", () => {
-	it("opens, checks and closes", async () => {
+	it("opens on the language, the place the build serves it from, and its weight", () => {
+		const wired = wire();
+		const provider = openSpellProvider(
+			"nl",
+			"/spellcheck/",
+			wired.port,
+			2_465_792,
+		);
+		assert.deepEqual(wired.posted, [
+			{
+				type: "open",
+				language: "nl",
+				base: "/spellcheck/",
+				bytesExpected: 2_465_792,
+			},
+		]);
+		provider.close();
+	});
+
+	it("carries the download rather than a verdict about it", () => {
+		const wired = wire();
 		const seen: ProviderStatus[] = [];
-		const provider = openSpellProvider("en", port);
-		const unsubscribe = provider.onStatus((status) => seen.push(status));
+		const provider = openSpellProvider("nl", "/spellcheck/", wired.port);
+		provider.onStatus((status) => seen.push(status));
+
+		assert.deepEqual(seen.at(-1), {
+			state: "opening",
+			language: "nl",
+			bytesLoaded: 0,
+			bytesTotal: 0,
+		});
+
+		wired.answer({
+			type: "opening",
+			language: "nl",
+			bytesLoaded: 65_536,
+			bytesTotal: 702_464,
+		});
 
 		assert.deepEqual(
 			seen.at(-1),
-			{ state: "ready", language: "en" },
-			"a listener that subscribes late still learns the worker is up",
+			{
+				state: "opening",
+				language: "nl",
+				bytesLoaded: 65_536,
+				bytesTotal: 702_464,
+			},
+			"the two numbers reach whatever decides five seconds is long",
 		);
+		provider.close();
+	});
 
-		const response = await provider.check({
-			requestId: "7",
+	it("settles each request with its own answer", async () => {
+		const wired = wire();
+		const provider = openSpellProvider("en", "/spellcheck/", wired.port);
+		ready(wired, "en");
+
+		const first = provider.check({
+			requestId: "1",
 			language: "en",
-			revision: 3,
+			revision: 1,
 			spans: [{ spanId: "a", text: "Ths report" }],
 		});
-
-		assert.equal(response.requestId, "7");
-		assert.equal(response.revision, 3, "the answer carries the revision asked");
-		assert.deepEqual(response.findings, [
-			{
-				spanId: "a",
-				start: 0,
-				end: 3,
-				kind: "spelling",
-				suggestions: [],
-			},
-		]);
-
-		unsubscribe();
-		provider.close();
-		assert.equal(terminated, 1, "closing the provider takes the worker down");
-	});
-
-	it("answers each request with its own findings", async () => {
-		const provider = openSpellProvider("en", port);
-		const [first, second] = await Promise.all([
-			provider.check({
-				requestId: "1",
-				language: "en",
-				revision: 1,
-				spans: [{ spanId: "a", text: "redy" }],
-			}),
-			provider.check({
-				requestId: "2",
-				language: "en",
-				revision: 2,
-				spans: [{ spanId: "b", text: "the report" }],
-			}),
-		]);
-
-		assert.equal(first?.findings.length, 1);
-		assert.equal(first?.findings[0]?.spanId, "a");
-		assert.deepEqual(second?.findings, []);
-		provider.close();
-	});
-
-	it("answers a correction menu one word at a time", async () => {
-		const provider = openSpellProvider("en", port);
-		const response = await provider.suggest({
-			requestId: "9",
+		const second = provider.check({
+			requestId: "2",
 			language: "en",
-			word: "redy",
+			revision: 2,
+			spans: [{ spanId: "b", text: "the report" }],
 		});
 
-		assert.equal(response.requestId, "9");
-		assert.equal(response.word, "redy");
-		assert.deepEqual(response.suggestions, ["ready", "read", "very"]);
+		wired.answer({
+			type: "checked",
+			requestId: "2",
+			revision: 2,
+			findings: [],
+		});
+		wired.answer({
+			type: "checked",
+			requestId: "1",
+			revision: 1,
+			findings: [
+				{ spanId: "a", start: 0, end: 3, kind: "spelling", suggestions: [] },
+			],
+		});
+
+		assert.equal((await second).findings.length, 0);
+		assert.equal(
+			(await first).revision,
+			1,
+			"the answer carries what was asked",
+		);
 		provider.close();
+		assert.equal(wired.terminated(), 1, "closing takes the worker down");
 	});
 
 	it("tells a waiting menu when the worker stops answering", async () => {
-		let raise: ((detail: string) => void) | undefined;
-		const provider = openSpellProvider("en", {
-			...port,
-			post: () => {},
-			listen: () => {},
-			fail: (listener) => {
-				raise = listener;
-			},
-		});
+		const wired = wire();
+		const provider = openSpellProvider("en", "/spellcheck/", wired.port);
 		const asking = provider.suggest({
 			requestId: "1",
 			language: "en",
 			word: "redy",
 		});
-		raise?.("worker exited");
+		wired.fall("worker exited");
 
 		await assert.rejects(asking, /worker exited/);
 		provider.close();
 	});
 
 	it("tells a waiting menu when the checker closes under it", async () => {
-		const provider = openSpellProvider("en", {
-			...port,
-			post: () => {},
-			listen: () => {},
-		});
+		const wired = wire();
+		const provider = openSpellProvider("en", "/spellcheck/", wired.port);
 		const asking = provider.suggest({
 			requestId: "1",
 			language: "en",
 			word: "redy",
 		});
-
 		provider.close();
 
-		await assert.rejects(
-			asking,
-			/the checker closed/,
-			"a menu waiting on a provider that went away hears about it",
-		);
+		await assert.rejects(asking, /the checker closed/);
 	});
 
 	it("gives up on a worker that took the word and went quiet", async () => {
 		mock.timers.enable({ apis: ["setTimeout"] });
-		const provider = openSpellProvider("en", {
-			...port,
-			post: () => {},
-			listen: () => {},
-		});
+		const wired = wire();
+		const provider = openSpellProvider("en", "/spellcheck/", wired.port);
 		const asking = provider.suggest({
 			requestId: "1",
 			language: "en",
@@ -258,66 +324,99 @@ describe("a provider over a worker", () => {
 		provider.close();
 	});
 
-	it("says which language it has no words for", async () => {
-		const provider = openSpellProvider("de", port);
-		const response = await provider.check({
+	it("calls a checker that took the pass and went quiet stopped", async () => {
+		mock.timers.enable({ apis: ["setTimeout"] });
+		const wired = wire();
+		const seen: ProviderStatus[] = [];
+		const provider = openSpellProvider("nl", "/spellcheck/", wired.port);
+		provider.onStatus((status) => seen.push(status));
+		ready(wired, "nl");
+
+		const pass = provider.check({
 			requestId: "1",
-			language: "de",
-			revision: 1,
-			spans: [{ spanId: "a", text: "Vielen Dank" }],
+			language: "nl",
+			revision: 7,
+			spans: [{ spanId: "a", text: "De vergaderingg" }],
 		});
 
+		mock.timers.tick(CHECK_DEADLINE_MS);
+		mock.timers.reset();
+
 		assert.deepEqual(
-			response.findings,
-			[],
-			"a language with no dictionary marks nothing rather than everything",
+			await pass,
+			{ requestId: "1", revision: 7, findings: [] },
+			"a pass nobody answers ends, rather than hanging on a promise",
+		);
+		const last = seen.at(-1);
+		assert.ok(last?.state === "failed", "a frozen engine is a failure");
+		assert.equal(last.reason, "worker");
+		assert.match(
+			last.detail,
+			/nl checker did not answer/,
+			"a frozen engine is indistinguishable from clean text unless it says so",
+		);
+		provider.close();
+	});
+
+	it("says a checker stopped once, however many passes were waiting", async () => {
+		mock.timers.enable({ apis: ["setTimeout"] });
+		const wired = wire();
+		const seen: ProviderStatus[] = [];
+		const provider = openSpellProvider("en", "/spellcheck/", wired.port);
+		provider.onStatus((status) => seen.push(status));
+		ready(wired, "en");
+
+		const passes = [1, 2].map((nth) =>
+			provider.check({
+				requestId: `${nth}`,
+				language: "en",
+				revision: nth,
+				spans: [{ spanId: "a", text: "Ths report" }],
+			}),
+		);
+
+		mock.timers.tick(CHECK_DEADLINE_MS);
+		mock.timers.reset();
+
+		await Promise.all(passes);
+		assert.equal(
+			seen.filter((status) => status.state === "failed").length,
+			1,
+			"one stopped checker is one banner",
 		);
 		provider.close();
 	});
 
 	it("passes on a failure the worker names itself", () => {
+		const wired = wire();
 		const seen: ProviderStatus[] = [];
-		let answer: ((message: SpellWorkerResponse) => void) | undefined;
-		const provider = openSpellProvider("nl", {
-			...port,
-			post: () => {},
-			listen: (listener) => {
-				answer = listener;
-			},
-		});
+		const provider = openSpellProvider("nl", "/spellcheck/", wired.port);
 		provider.onStatus((status) => seen.push(status));
-		answer?.({
+		wired.answer({
 			type: "failed",
 			language: "nl",
 			reason: "download",
-			detail: "503 fetching the dictionary",
+			detail: "/spellcheck/dictionaries/nl/index.dic answered 503",
 		});
 
 		assert.deepEqual(seen.at(-1), {
 			state: "failed",
 			language: "nl",
 			reason: "download",
-			detail: "503 fetching the dictionary",
+			detail: "/spellcheck/dictionaries/nl/index.dic answered 503",
 		});
 		provider.close();
 	});
 
 	it("reports a worker that fell over", () => {
+		const wired = wire();
 		const seen: ProviderStatus[] = [];
-		let raise: ((detail: string) => void) | undefined;
-		const provider = openSpellProvider("en", {
-			...port,
-			post: () => {},
-			listen: () => {},
-			fail: (listener) => {
-				raise = listener;
-			},
-		});
+		const provider = openSpellProvider("en", "/spellcheck/", wired.port);
 		provider.onStatus((status) => seen.push(status));
-		raise?.("worker exited");
+		wired.fall("worker exited");
 
 		assert.deepEqual(seen, [
-			{ state: "opening", language: "en" },
+			{ state: "opening", language: "en", bytesLoaded: 0, bytesTotal: 0 },
 			{
 				state: "failed",
 				language: "en",

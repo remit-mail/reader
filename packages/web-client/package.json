@@ -17,6 +17,7 @@
 	"files": [
 		"src",
 		"harness",
+		"spellcheck",
 		"vite.base.ts",
 		"public",
 		"index.html"
@@ -33,6 +34,9 @@
 		"test": "npm run test:typecheck && npm run test:run"
 	},
 	"peerDependencies": {
+		"dictionary-en": "^4",
+		"dictionary-en-gb": "^3",
+		"dictionary-nl": "^2",
 		"react": "^19",
 		"react-dom": "^19",
 		"vite": "^7",
@@ -43,6 +47,15 @@
 		"@types/react-dom": "^19"
 	},
 	"peerDependenciesMeta": {
+		"dictionary-en": {
+			"optional": true
+		},
+		"dictionary-en-gb": {
+			"optional": true
+		},
+		"dictionary-nl": {
+			"optional": true
+		},
 		"vite": {
 			"optional": true
 		},
@@ -101,6 +114,9 @@
 		"@types/nodemailer": "*",
 		"@types/pngjs": "^6.0.5",
 		"@vitejs/plugin-react": "^4",
+		"dictionary-en": "4.0.0",
+		"dictionary-en-gb": "3.0.0",
+		"dictionary-nl": "2.0.0",
 		"electrodb": "*",
 		"esbuild": "*",
 		"expect-env": "*",

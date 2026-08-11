@@ -348,7 +348,10 @@ describe("the composer's spellchecker", () => {
 
 		assert.deepEqual(
 			statuses,
-			[{ state: "failed", language: "en", reason: "worker", detail: "boom" }],
+			[
+				{ state: "opening", language: "en", bytesLoaded: 0, bytesTotal: 0 },
+				{ state: "failed", language: "en", reason: "worker", detail: "boom" },
+			],
 			"the composer hears why checking is not happening, in the shape it reports",
 		);
 		assert.equal(
@@ -376,7 +379,7 @@ describe("the composer's spellchecker", () => {
 
 		assert.deepEqual(
 			statuses.map((status) => status.state),
-			["ready", "failed"],
+			["opening", "ready", "failed"],
 			"the stop is reported, not swallowed",
 		);
 		assert.deepEqual(marked(), [], "no mark outlives the checker that drew it");
