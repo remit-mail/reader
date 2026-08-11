@@ -44,6 +44,17 @@ const focusedDescription = (page: Page): Promise<string> =>
 const rowId = (page: Page, index: number): Promise<string> =>
 	rows(page).nth(index).getAttribute("data-message-id") as Promise<string>;
 
+/**
+ * The address without its panel. The fragment carries what is open over the
+ * view (#722) and the rail opens itself with the thread, so a comparison of
+ * whole URLs asks whether the rail settled as well as whether the click
+ * navigated.
+ */
+const addressWithoutPanel = (url: string): string => {
+	const parsed = new URL(url);
+	return parsed.pathname + parsed.search;
+};
+
 const sidebar = (page: Page): Locator =>
 	page.getByRole("navigation", { name: "Mailboxes", exact: true });
 
@@ -193,14 +204,14 @@ test.describe("Multi-select", () => {
 		// the click itself.
 		await rows(page).nth(0).click();
 		await page.waitForURL(MAILBOX_THREAD_URL);
-		const opened = page.url();
+		const opened = addressWithoutPanel(page.url());
 
 		await rows(page)
 			.nth(2)
 			.click({ modifiers: ["Shift"] });
 
 		expect(context.pages()).toHaveLength(1);
-		expect(page.url()).toBe(opened);
+		expect(addressWithoutPanel(page.url())).toBe(opened);
 	});
 
 	test("cmd/ctrl-click adds and removes single rows", async ({ page }) => {

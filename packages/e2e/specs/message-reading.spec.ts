@@ -91,8 +91,9 @@ test.describe("Message reading", () => {
 		await target.click();
 
 		// The message is the last segment, so the address names the row that was
-		// clicked and not merely some conversation.
-		await page.waitForURL(new RegExp(`/${messageId}(\\?|$)`));
+		// clicked and not merely some conversation. A panel may follow it (#722):
+		// the rail opens itself with the thread on desktop.
+		await page.waitForURL(new RegExp(`/${messageId}(\\?|#|$)`));
 		await expect(page.getByRole("article")).toBeVisible({ timeout: 15_000 });
 	});
 
