@@ -191,10 +191,15 @@ withTempDir((tmp) => {
 		"HUNSPELL_VERSION=1.7.3\nHUNSPELL_SHA256=deadbeef\nEMSDK_IMAGE=nowhere\n",
 	);
 
+	// Driven from the unpacked tarball rather than from the copy inside
+	// node_modules, because node refuses to strip types under a node_modules
+	// path. A consumer's vite compiles it either way; what is under test here is
+	// what the plugin does, and this is the same files with the same
+	// dictionaries beside them.
 	writeFileSync(
-		join(consumer, "spellcheck-probe.mjs"),
+		join(pkgDir, "spellcheck-probe.mjs"),
 		[
-			'import { stageSpellcheck } from "./node_modules/@remit/web-client/spellcheck/vite-plugin.ts";',
+			'import { stageSpellcheck } from "./spellcheck/vite-plugin.ts";',
 			'const build = stageSpellcheck(process.env.REMIT_SPELLCHECK_LANGUAGES, "/");',
 			"process.stdout.write(JSON.stringify(build.files.map((file) => file.path)));",
 			"",
@@ -208,7 +213,7 @@ withTempDir((tmp) => {
 		return spawnSync(
 			process.execPath,
 			["--experimental-strip-types", "--no-warnings", "spellcheck-probe.mjs"],
-			{ cwd: consumer, encoding: "utf8", env: { ...env, ...settings } },
+			{ cwd: pkgDir, encoding: "utf8", env: { ...env, ...settings } },
 		);
 	};
 
@@ -257,7 +262,7 @@ withTempDir((tmp) => {
 			`${dictionary} is missing, so the consumer's staged build cannot be checked. Run npm ci first.`,
 		);
 	}
-	cpSync(dictionary, join(consumer, "node_modules", "dictionary-en"), {
+	cpSync(dictionary, join(pkgDir, "node_modules", "dictionary-en"), {
 		recursive: true,
 	});
 	const staged = stage({

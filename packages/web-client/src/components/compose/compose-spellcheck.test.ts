@@ -71,14 +71,18 @@ describe("the checker the composer opens", () => {
 		);
 		assert.equal(opened.length, 1);
 		assert.match(opened[0].url, /rich-text-spellcheck-worker/);
-		assert.deepEqual(opened[0].messages, [
-			{
-				type: "open",
-				language: "en",
-				base: "/spellcheck/",
-				bytesExpected: 0,
-			},
-		]);
+		assert.deepEqual(
+			opened[0].messages,
+			[
+				{
+					type: "open",
+					language: "en",
+					base: "http://localhost/spellcheck/",
+					bytesExpected: 0,
+				},
+			],
+			"the worker is told an absolute place to fetch from, resolved against the page",
+		);
 		provider?.close();
 	});
 
