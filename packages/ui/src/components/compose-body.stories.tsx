@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
+import { defaultComposeLanguages } from "../lib/compose-language.js";
 import { ComposeBody, type ConversionFailure } from "./compose-body.js";
 import type { RichTextValue } from "./rich-text-value.js";
 
@@ -398,6 +399,31 @@ export const ReachableFromTheBody: Story = {
 export const DutchIsDetected: Story = {
 	name: "Dutch prose sets the chip",
 	args: { initialHtml: DUTCH_DOCUMENT },
+	play: async ({ canvasElement }) => {
+		await waitFor(
+			async () => {
+				await expect(chipOf(canvasElement)).toHaveTextContent("NL");
+			},
+			{ timeout: 5000 },
+		);
+		await expect(
+			canvasElement.querySelector("[data-testid=compose-body]"),
+		).toHaveAttribute("lang", "nl");
+	},
+};
+
+/**
+ * The account that has never opened the language setting, read on an English
+ * browser. Its candidate set is the browser's answer and the dictionaries this
+ * build carries — a set of one would be detection switched off, and a Dutch
+ * message would keep the English tag and the English underlines.
+ */
+export const UnconfiguredAccountStillReadsDutch: Story = {
+	name: "Dutch on an English browser, nothing configured",
+	args: {
+		initialHtml: DUTCH_DOCUMENT,
+		languages: defaultComposeLanguages(["en-US", "en"], ["en", "en-GB", "nl"]),
+	},
 	play: async ({ canvasElement }) => {
 		await waitFor(
 			async () => {
