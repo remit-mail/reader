@@ -37,6 +37,12 @@ const config: StorybookConfig = {
 			"@remit/ui/rich-text": fileURLToPath(
 				new URL("../../ui/src/rich-text.ts", import.meta.url),
 			),
+			"@remit/ui/spellcheck-worker": fileURLToPath(
+				new URL(
+					"../../ui/src/components/rich-text-spellcheck-worker-provider.ts",
+					import.meta.url,
+				),
+			),
 			"@remit/ui": fileURLToPath(
 				new URL("../../ui/src/index.ts", import.meta.url),
 			),

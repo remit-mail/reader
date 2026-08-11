@@ -1,10 +1,20 @@
 export type ErrorBannerSeverity = "error" | "warning" | "info";
 
+/**
+ * A way out of the banner. A failure the user cannot act on is still theirs to
+ * report, and a link they have to assemble themselves is one nobody follows.
+ */
+export interface ErrorBannerAction {
+	label: string;
+	href: string;
+}
+
 export interface ErrorBannerEntry {
 	id: string;
 	severity: ErrorBannerSeverity;
 	title: string;
 	detail?: string;
+	action?: ErrorBannerAction;
 	createdAt: number;
 }
 
@@ -12,6 +22,7 @@ export interface PushErrorInput {
 	severity?: ErrorBannerSeverity;
 	title: string;
 	detail?: string;
+	action?: ErrorBannerAction;
 	/**
 	 * The error being reported, when there is one. Pass it: a banner is a soft
 	 * surface, and `pushError` uses this to refuse errors that are not soft —
@@ -116,5 +127,6 @@ export const buildEntry = (
 	severity: input.severity ?? "error",
 	title: input.title,
 	detail: input.detail,
+	action: input.action,
 	createdAt: now,
 });
