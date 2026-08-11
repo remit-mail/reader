@@ -444,8 +444,8 @@ const OVERSIZED_IMAGE = `${LAYOUT_CLAMP_CSS}
 const PINNED_PRE = `${LAYOUT_CLAMP_CSS}
 <div style="font-family: Helvetica, Arial, sans-serif; color:#1a1a1a;">
 	<p>The failing command, verbatim:</p>
-	<pre style="white-space:pre">docker compose --file docker-compose.localhost-dev-sqlite.yml up --detach --wait --remove-orphans backend frontend imap smtp
-ERROR: service "backend" failed to build: exit code 137 (out of memory)</pre>
+	<pre style="white-space:pre">rsync --archive --compress --delete --exclude node_modules --exclude .git ./packages/backend deploy@build-01.internal:/srv/releases/2026-08-11
+rsync error: some files could not be transferred (code 23) at main.c(1338)</pre>
 </div>
 `;
 

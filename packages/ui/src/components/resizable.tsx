@@ -72,7 +72,7 @@ export function WholePixelWidth({
 
 	useEffect(() => {
 		const pane = ref.current?.parentElement;
-		if (!pane) return;
+		if (!pane || typeof ResizeObserver === "undefined") return;
 		const measure = () => {
 			const next = Math.floor(pane.getBoundingClientRect().width);
 			setWidth((prev) => (prev === next ? prev : next));
