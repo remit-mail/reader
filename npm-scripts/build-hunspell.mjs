@@ -8,10 +8,15 @@ import { execFileSync } from "node:child_process";
 // build script and its glue — so a second run is free and a moved pin rebuilds.
 // `build-hunspell.mjs key` prints that stamp folded into one token, which is
 // what .github/actions/hunspell keys its cache on: same inputs, same decision.
+//
+// The size ceilings are checked here rather than in build.sh because this is the
+// path CI takes: every input that can change the engine is in that key, so a
+// recipe or a pin that moves lands on a run that rebuilds and measures.
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { brotliCompressSync, constants } from "node:zlib";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const recipeDir = join(repoRoot, "docker", "hunspell");
@@ -31,6 +36,72 @@ const digestOf = (paths) => {
 	const hash = createHash("sha256");
 	for (const path of paths) hash.update(readFileSync(path));
 	return hash.digest("hex");
+};
+
+// Which output answers to which pin. Both are fetched once per browser and
+// shared by every language, so they are the part of the download nobody can
+// opt out of by writing in fewer languages.
+export const ENGINE_CEILINGS = [
+	{ file: "hunspell.wasm", pin: "HUNSPELL_MAX_WASM_BROTLI_BYTES" },
+	{ file: "hunspell.mjs", pin: "HUNSPELL_MAX_LOADER_BROTLI_BYTES" },
+];
+
+/**
+ * What the file costs on the wire. The image stores and serves brotli and
+ * nothing else (npm-scripts/compress-spellcheck.mjs), so the compressed byte
+ * count is the shipped size rather than an estimate of it.
+ */
+export const brotliSize = (bytes) =>
+	brotliCompressSync(bytes, {
+		params: {
+			[constants.BROTLI_PARAM_QUALITY]: 11,
+			[constants.BROTLI_PARAM_SIZE_HINT]: bytes.byteLength,
+		},
+	}).byteLength;
+
+/**
+ * Every ceiling this build broke, said in the terms a reader needs to decide
+ * whether to shrink the engine or move the pin: which file, what it costs now,
+ * what it was allowed, and how far over it went.
+ *
+ * A ceiling with no pin is a failure too. An unreadable pin would otherwise
+ * read as "no limit", which is the one answer a size gate must never give.
+ */
+export const ceilingBreaches = (sizes, pins) =>
+	ENGINE_CEILINGS.flatMap(({ file, pin }) => {
+		const ceiling = Number(pins[pin]);
+		if (!Number.isInteger(ceiling) || ceiling <= 0) {
+			return [
+				`docker/hunspell/pin.env sets no usable ${pin}: ${JSON.stringify(pins[pin])}`,
+			];
+		}
+		const size = sizes[file];
+		if (size <= ceiling) return [];
+		const over = size - ceiling;
+		const percent = ((over / ceiling) * 100).toFixed(1);
+		return [
+			`${file} is ${size} bytes brotli, ${over} over the ${ceiling}-byte ${pin} in docker/hunspell/pin.env (${percent}% over)`,
+		];
+	});
+
+const assertWithinCeilings = (pins) => {
+	const sizes = Object.fromEntries(
+		ENGINE_CEILINGS.map(({ file }) => [
+			file,
+			brotliSize(readFileSync(join(outDir, file))),
+		]),
+	);
+	const breaches = ceilingBreaches(sizes, pins);
+	if (breaches.length > 0) {
+		throw new Error(
+			`the spellchecker's engine grew past what this repo ships:\n  ${breaches.join(
+				"\n  ",
+			)}\nShrink it, or move the pin in the same commit that explains why every writer should pay for it.`,
+		);
+	}
+	for (const { file } of ENGINE_CEILINGS) {
+		console.log(`${file}: ${sizes[file]} bytes brotli`);
+	}
 };
 
 export const engineStamp = () => {
@@ -59,6 +130,7 @@ export const engineKey = () =>
 		.slice(0, 32);
 
 const run = () => {
+	const pins = readPins(join(recipeDir, "pin.env"));
 	const wanted = engineStamp();
 
 	const built = (() => {
@@ -73,6 +145,7 @@ const run = () => {
 		Object.entries(wanted).every(([key, value]) => built[key] === value)
 	) {
 		console.log(`hunspell ${wanted.version}: already built in ${outDir}`);
+		assertWithinCeilings(pins);
 		return;
 	}
 
@@ -97,6 +170,9 @@ const run = () => {
 		],
 		{ stdio: "inherit" },
 	);
+	// Before the stamp, so an engine that broke a ceiling is never recorded as a
+	// build somebody can reuse: the next run compiles it again and fails again.
+	assertWithinCeilings(pins);
 	writeFileSync(stampFile, `${JSON.stringify(wanted, null, "\t")}\n`);
 	console.log(`hunspell ${wanted.version}: built into ${outDir}`);
 };

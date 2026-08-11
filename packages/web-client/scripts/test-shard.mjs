@@ -92,10 +92,18 @@ if (index > total) {
 	);
 }
 
-const srcDir = join(packageRoot, "src");
-const allFiles = discoverTestFiles(srcDir);
+// The app and the build tooling that stages the spellchecker into it. Both are
+// this package's tests; only the first is measured for coverage, because the
+// 86% floor was set against the app's own files.
+const TEST_ROOTS = ["src", "spellcheck"];
 
-const globbed = globTestFiles(srcDir);
+const allFiles = TEST_ROOTS.flatMap((root) =>
+	discoverTestFiles(join(packageRoot, root)),
+).sort();
+
+const globbed = TEST_ROOTS.flatMap((root) =>
+	globTestFiles(join(packageRoot, root)),
+).sort();
 if (
 	allFiles.length !== globbed.length ||
 	allFiles.some((file, i) => file !== globbed[i])

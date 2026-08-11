@@ -30,7 +30,7 @@
 		"build:dist": "npm run generate:routes && node --import tsx harness/build.mjs",
 		"preview": "vite preview",
 		"test:typecheck": "npm run generate:routes && tsgo --noEmit && tsgo --noEmit -p tsconfig.node.json",
-		"test:run": "TSX_TSCONFIG_PATH=./tsconfig.test.json node $NODE_TEST_FLAGS --import tsx --import ./test-support/register.mjs --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-exclude='src/test-support/**' --test-coverage-lines=86 --test 'src/**/*.test.ts'",
+		"test:run": "TSX_TSCONFIG_PATH=./tsconfig.test.json node $NODE_TEST_FLAGS --import tsx --import ./test-support/register.mjs --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-exclude='src/test-support/**' --test-coverage-lines=86 --test 'src/**/*.test.ts' 'spellcheck/**/*.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run"
 	},
 	"peerDependencies": {
