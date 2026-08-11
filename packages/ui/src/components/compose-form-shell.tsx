@@ -9,6 +9,15 @@ export const composeModeLabels: Record<ComposeMode, string> = {
 	forward: "Forward",
 };
 
+/**
+ * How the surface gets its height. `fill` takes the one its container hands it
+ * and scrolls the body inside that, so the action bar is pinned to the bottom
+ * edge — a window's shape. `flow` takes the height of what is written in it and
+ * has no scroller of its own, so the surface grows downward and whatever it
+ * sits in is the only thing that scrolls.
+ */
+export type ComposeShellLayout = "fill" | "flow";
+
 export interface ComposeFormShellProps {
 	/** Optional banner above the header (e.g. SMTP-missing notice). */
 	banner?: ReactNode;
@@ -20,17 +29,20 @@ export interface ComposeFormShellProps {
 	quoted?: ReactNode;
 	/** The ComposeActionBar. */
 	actionBar: ReactNode;
+	layout?: ComposeShellLayout;
 }
 
 /**
- * Presentational compose layout: banner / header / scrollable body+quote /
- * pinned action bar. Owns the column structure so the action bar always sits
- * at the bottom and never clips below the fold. The live form composes this
- * with its provider-driven slots; stories render it with static slots.
+ * Presentational compose layout: banner / header / body+quote / action bar.
  *
- * The body region is a column so the editor can claim the space the quote and
- * the action bar leave — a body slot shorter than the region would otherwise
- * leave dead, unclickable canvas under it.
+ * In `fill` the body region is a column so the editor can claim the space the
+ * quote and the action bar leave — a body slot shorter than the region would
+ * otherwise leave dead, unclickable canvas under it.
+ *
+ * In `flow` nothing here scrolls. A composer that is a block of the page it was
+ * opened on must not bring a second scroller into that pane: two tracks in one
+ * column, with the caret in the inner one, is the reader guessing which of them
+ * a wheel gesture belongs to.
  */
 export function ComposeFormShell({
 	banner,
@@ -38,13 +50,17 @@ export function ComposeFormShell({
 	children,
 	quoted,
 	actionBar,
+	layout = "fill",
 }: ComposeFormShellProps) {
+	const fills = layout === "fill";
 	return (
-		<div className="flex h-full min-h-0 flex-col">
+		<div className={fills ? "flex h-full min-h-0 flex-col" : "flex flex-col"}>
 			{banner}
 			{header}
 			<div
-				className="flex min-h-0 flex-1 flex-col overflow-auto"
+				className={
+					fills ? "flex min-h-0 flex-1 flex-col overflow-auto" : "flex flex-col"
+				}
 				data-testid="compose-body-area"
 			>
 				{children}

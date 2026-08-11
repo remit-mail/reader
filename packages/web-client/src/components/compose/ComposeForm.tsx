@@ -14,6 +14,7 @@ import {
 	ComposeFormShell,
 	ComposeHeader,
 	type ComposeSendState,
+	type ComposeShellLayout,
 	ComposeSubjectField,
 	composeHeaderSummary,
 	defaultComposeLanguages,
@@ -67,6 +68,12 @@ interface ComposeFormProps {
 	sourceMessage?: RemitImapDescribeMessageResponse;
 	onClose: () => void;
 	onAccountChange?: (account: RemitImapAccountResponse) => void;
+	/**
+	 * How the surface takes its height. A window in its own pane fills that
+	 * pane; one opened as a block of the conversation grows with what is written
+	 * in it and leaves the pane the only scroller.
+	 */
+	layout?: ComposeShellLayout;
 }
 
 const escapeHtml = (text: string): string =>
@@ -301,6 +308,7 @@ export const ComposeForm = ({
 	sourceMessage,
 	onClose,
 	onAccountChange,
+	layout = "fill",
 }: ComposeFormProps) => {
 	const { state, setOutboxMessageId, startSendPolling } = useCompose();
 	const { pushError } = useErrorBanners();
@@ -751,6 +759,7 @@ export const ComposeForm = ({
 
 	return (
 		<ComposeFormShell
+			layout={layout}
 			banner={
 				selectedAccount && selectedAccountMissingSmtp ? (
 					<ComposeSmtpMissingBanner

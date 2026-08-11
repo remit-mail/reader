@@ -332,17 +332,22 @@ export function ReadingPane({
 						</p>
 					</div>
 
-					{thread.messages.map((message) =>
-						message.expanded ? (
-							<ExpandedMessage
-								key={message.id}
-								message={message}
-								warning={thread.warning}
-							/>
-						) : (
-							<CollapsedMessage key={message.id} message={message} />
-						),
-					)}
+					{/* Newest first. A thread arrives in the order it happened; the
+					    turn a reader opened it for is the last one, and reading it
+					    should not cost a scroll past everything that led there. */}
+					{[...thread.messages]
+						.reverse()
+						.map((message) =>
+							message.expanded ? (
+								<ExpandedMessage
+									key={message.id}
+									message={message}
+									warning={thread.warning}
+								/>
+							) : (
+								<CollapsedMessage key={message.id} message={message} />
+							),
+						)}
 				</div>
 			)}
 		</article>

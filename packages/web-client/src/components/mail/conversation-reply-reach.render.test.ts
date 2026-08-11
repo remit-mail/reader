@@ -1,15 +1,13 @@
 /**
  * Reading a message and answering it, on a desktop pane.
  *
- * The inline reply was held below the conversation rather than inside it. It
- * took whatever height the message left over, which on a normal-length one is
- * nothing: the recipient rows and the verbs stayed, the writing area went down
- * to a couple of lines, and scrolling the message could not reach it because
- * the thing to reach was already on screen and squeezed.
+ * The reply leads the pane and the thread reads newest first under it, so what
+ * is being written and the turn it answers are the two things at the top. Both
+ * live in the pane's own scrolling region: the reply has no height of its own
+ * and no scroller of its own, which is what kept a second scrollbar — with the
+ * caret in the inner one — out of a single column.
  *
- * The reply belongs to the conversation and scrolls with it, and the chevron
- * beside the sender is the control that puts a message away — reclaiming the
- * space is what a reader reaches for it to do.
+ * The chevron beside the sender is the control that puts a message away.
  */
 
 import assert from "node:assert/strict";
@@ -41,6 +39,24 @@ const MESSAGE_ID = "msg-1";
 
 const account = makeAccount({ accountId: ACCOUNT_ID });
 
+const OPENING_SENT = 1_767_139_200_000;
+const LATEST_SENT = 1_767_225_600_000;
+
+// The turn that opened the conversation, and the one that answered it. The API
+// hands them over oldest first (#81), which is the order this mock serves them
+// in — the pane is what decides which end of that goes at the top.
+const openingMessage: RemitImapThreadMessageResponse = makeThreadMessage({
+	messageId: "msg-0",
+	threadId: THREAD_ID,
+	mailboxId: MAILBOX_ID,
+	accountId: ACCOUNT_ID,
+	subject: "Lunch Thursday?",
+	fromName: "Grace Hopper",
+	fromEmail: "grace@example.com",
+	sentDate: OPENING_SENT,
+	isRead: true,
+});
+
 const threadMessage: RemitImapThreadMessageResponse = makeThreadMessage({
 	messageId: MESSAGE_ID,
 	threadId: THREAD_ID,
@@ -49,6 +65,7 @@ const threadMessage: RemitImapThreadMessageResponse = makeThreadMessage({
 	subject: "Lunch Thursday?",
 	fromName: "Ada Lovelace",
 	fromEmail: "ada@example.com",
+	sentDate: LATEST_SENT,
 	// Already read: marking one read on open is a mutation this test has no
 	// business driving.
 	isRead: true,
@@ -141,7 +158,7 @@ const mount = async (): Promise<DomHarness> => {
 	http = mockFetch((call) => {
 		if (call.path.endsWith("/config")) return { accounts: [account] };
 		if (call.path.endsWith(`/threads/${THREAD_ID}/messages`)) {
-			return { items: [threadMessage] };
+			return { items: [openingMessage, threadMessage] };
 		}
 		if (call.path.endsWith(`/messages/${MESSAGE_ID}`)) return describeMessage;
 		return { items: [] };
@@ -176,6 +193,19 @@ const pressReply = async (mounted: DomHarness): Promise<void> => {
 const paneRegionHolding = (pane: Element, node: Node): Element | null =>
 	[...pane.children].find((child) => child.contains(node)) ?? null;
 
+/**
+ * The utilities that make an element scroll vertically. A horizontal one — the
+ * formatting toolbar's strip of buttons — is a different thing and is not
+ * counted: it holds a row that would otherwise be cut off, not a column of
+ * content the reader moves through.
+ */
+const SCROLLS_VERTICALLY = /(^|\s)overflow-(auto|scroll|y-auto|y-scroll)(\s|$)/;
+
+const verticalScrollers = (root: Element): Element[] =>
+	[root, ...root.querySelectorAll("*")].filter((node) =>
+		SCROLLS_VERTICALLY.test(node.getAttribute("class") ?? ""),
+	);
+
 describe("answering the message that is open", () => {
 	it("puts the reply in the same scrolling region as the message", async () => {
 		const mounted = await mount();
@@ -199,6 +229,62 @@ describe("answering the message that is open", () => {
 		);
 	});
 
+	it("leads the pane with the reply, above the thread it answers", async () => {
+		const mounted = await mount();
+
+		await pressReply(mounted);
+
+		const compose = mounted.query('[data-testid="compose-body-area"]');
+		assert.ok(compose, "the reply opened");
+
+		const thread = mounted.query('[data-testid="conversation-messages"]');
+		assert.ok(thread, "the thread is on screen");
+
+		const following = mounted.window.Node.DOCUMENT_POSITION_FOLLOWING;
+		assert.ok(
+			(compose.compareDocumentPosition(thread) & following) === following,
+			"the reply comes before the messages, not after the last of them",
+		);
+	});
+
+	it("reads the thread newest first", async () => {
+		const mounted = await mount();
+
+		const thread = mounted.query('[data-testid="conversation-messages"]');
+		assert.ok(thread, "the thread is on screen");
+
+		const cards = [...thread.children].map((card) => card.textContent ?? "");
+		assert.equal(cards.length, 2, "both turns are on screen");
+		assert.ok(
+			cards[0]?.includes("Ada Lovelace"),
+			"the turn that answered the conversation is at the top",
+		);
+		assert.ok(
+			cards[1]?.includes("Grace Hopper"),
+			"the turn that opened it is below",
+		);
+	});
+
+	it("gives the pane one scrollbar, reply open or not", async () => {
+		const mounted = await mount();
+
+		const pane = mounted.query("article");
+		assert.ok(pane, "the conversation pane is mounted");
+		assert.equal(
+			verticalScrollers(pane).length,
+			1,
+			"reading a thread scrolls one thing",
+		);
+
+		await pressReply(mounted);
+
+		assert.equal(
+			verticalScrollers(pane).length,
+			1,
+			"the reply is a block of the pane, not a box with a scrollbar of its own next to the editor",
+		);
+	});
+
 	it("collapses the message from the chevron beside the sender", async () => {
 		const mounted = await mount();
 
@@ -215,9 +301,10 @@ describe("answering the message that is open", () => {
 			mounted.query('[aria-label="Collapse message"]') === null,
 			"the chevron collapsed the message it belongs to",
 		);
-		assert.ok(
-			mounted.query('[role="button"][aria-expanded="false"]'),
-			"the message is back to a collapsed row",
+		assert.equal(
+			mounted.queryAll('[role="button"][aria-expanded="false"]').length,
+			2,
+			"the message is back to a collapsed row, beside the one that was already collapsed",
 		);
 	});
 });

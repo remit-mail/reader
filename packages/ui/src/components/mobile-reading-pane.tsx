@@ -134,8 +134,9 @@ export function MobileReadingPane({
 				style={touchHandlers ? { touchAction: "pan-y" } : undefined}
 				{...touchHandlers}
 			>
+				{/* Newest first, as on the wide pane. */}
 				{children ??
-					thread.messages.map((message) => {
+					[...thread.messages].reverse().map((message) => {
 						const bind = (handler?: (id: string) => void) =>
 							handler ? () => handler(message.id) : undefined;
 
