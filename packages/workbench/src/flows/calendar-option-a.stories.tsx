@@ -88,19 +88,46 @@ function freePointAt(root: HTMLElement, clientY: number): GridPoint | null {
 }
 
 /**
- * The first hour the grid is both showing and free under. A hair below the line
- * rather than on it, so the gesture lands in that hour's first slot.
+ * How far below a line to aim to be unmistakably inside the hour it opens. An
+ * eighth of the ruler's own spacing: well clear of the line, well short of the
+ * half hour, whatever the density has made an hour worth in pixels.
  */
+function inset(marks: HourMark[]): number {
+	return (marks[1].y - marks[0].y) / 8;
+}
+
+/** The first hour the grid is both showing and free under. */
 function reachableHour(
 	root: HTMLElement,
 	marks: HourMark[],
 	from = 0,
 ): { index: number; point: GridPoint } {
-	for (let index = from; index < marks.length; index += 1) {
-		const point = freePointAt(root, marks[index].y + 2);
+	for (let index = Math.max(from, 0); index < marks.length; index += 1) {
+		const point = freePointAt(root, marks[index].y + inset(marks));
 		if (point) return { index, point };
 	}
 	throw new Error("no hour on the ruler has a free slot under it");
+}
+
+/**
+ * Waits for the grid to stop moving. Opening the form narrows the surface, and
+ * the surface is measured rather than declared, so the columns are still being
+ * re-laid out for a frame or two after the form is on screen.
+ */
+async function gridSettles(root: HTMLElement): Promise<void> {
+	let previous = "";
+	await waitFor(
+		() => {
+			const box = root
+				.querySelector("[role=gridcell]")
+				?.getBoundingClientRect();
+			const now = `${box?.left}:${box?.width}:${box?.top}`;
+			const steady = now === previous;
+			previous = now;
+			expect(steady).toBe(true);
+		},
+		{ timeout: 5000, interval: 120 },
+	);
 }
 
 /**
@@ -407,11 +434,12 @@ export const DragAcrossHours: Story = {
 		const { index, point } = reachableHour(canvasElement, marks);
 		const last = marks[index + 3];
 		await expect(last).toBeDefined();
-		await expect(onGrid(canvasElement, point.clientX, last.y - 2)).toBe(true);
+		/* Stop short of the closing hour: the slot the pointer is let go over is
+		   the last one taken, and on the line it would be the one after. */
+		const until = last.y - inset(marks);
+		await expect(onGrid(canvasElement, point.clientX, until)).toBe(true);
 
-		/* Stop a hair above the closing hour: the slot the pointer is let go over
-		   is the last one taken, and on the line it would be the one after. */
-		dragFrom(point, last.y - 2);
+		dragFrom(point, until);
 		await waitFor(() => expect(field("Date")).not.toBeNull(), {
 			timeout: 5000,
 		});
@@ -440,6 +468,7 @@ export const DragInsideOneSlot: Story = {
 		await waitFor(() => expect(field("Date")).not.toBeNull(), {
 			timeout: 5000,
 		});
+		await gridSettles(canvasElement);
 		const drafted = field("Start time")?.value ?? "";
 
 		const marks = hourMarks(canvasElement);
