@@ -175,13 +175,6 @@ function pickFrom(startStr: string, endStr: string, allDay: boolean): SlotPick {
 	};
 }
 
-/** The same ISO string an hour later. A bare date has no clock to move. */
-function hourAfter(iso: string): string {
-	if (iso.length < 16) return iso;
-	const hour = (Number(iso.slice(11, 13)) + 1) % 24;
-	return `${iso.slice(0, 11)}${String(hour).padStart(2, "0")}${iso.slice(13)}`;
-}
-
 export function CalendarGrid({
 	view,
 	date,
@@ -269,11 +262,12 @@ export function CalendarGrid({
 				dayHeaderFormat={DAY_HEADER_FORMAT[view]}
 				events={eventInputs}
 				eventClick={(info) => onSelectEvent(info.event.id)}
-				dateClick={(info) =>
-					onPickSlot(
-						pickFrom(info.dateStr, hourAfter(info.dateStr), info.allDay),
-					)
-				}
+				/* `select` is the only reading of a pick, and a click is a selection
+				   of one slot, so it covers the tap as well as the drag. Taking
+				   `dateClick` too would report the same gesture twice, and the second
+				   report arrives late: FullCalendar defers it past the click's own
+				   pointer events, by which time the pane the first report opened has
+				   rebuilt the grid and left it reading a detached cell. */
 				select={(info) =>
 					onPickSlot(pickFrom(info.startStr, info.endStr, info.allDay))
 				}

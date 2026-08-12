@@ -1,7 +1,47 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { expect, waitFor, within } from "storybook/test";
 import { mostOverlappedDay, quietestDay } from "../fixtures/calendar.js";
 import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
 import { CalendarDestination } from "../screens/calendar-destination.js";
+
+/**
+ * Clicks a free point in the week grid. The grid reads a pick off where the
+ * mouse was, not off which element it reached, so the gesture is a point: a
+ * visible one, in a day column, with nothing booked on it.
+ */
+function clickAnEmptySlot(root: HTMLElement): void {
+	const columns = Array.from(
+		root.querySelectorAll<HTMLElement>("[role=gridcell]"),
+	).filter((cell) => cell.getBoundingClientRect().height > 200);
+	for (const column of columns) {
+		const box = column.getBoundingClientRect();
+		const clientX = box.left + box.width / 2;
+		for (let clientY = box.top + 4; clientY < box.bottom; clientY += 8) {
+			const at = document.elementFromPoint(clientX, clientY);
+			if (!at || !column.contains(at) || at.closest("[role=button]")) continue;
+			for (const [type, buttons] of [
+				["mousedown", 1],
+				["mouseup", 0],
+				["click", 0],
+			] as const) {
+				at.dispatchEvent(
+					new MouseEvent(type, {
+						bubbles: true,
+						cancelable: true,
+						composed: true,
+						view: window,
+						button: 0,
+						buttons,
+						clientX,
+						clientY,
+					}),
+				);
+			}
+			return;
+		}
+	}
+	throw new Error("the week grid has no free slot on screen");
+}
 
 /**
  * Option A puts the calendar where the daily brief already is: a destination in
@@ -108,6 +148,39 @@ export const CreateFromASlot: Story = {
 			}}
 		/>
 	),
+};
+
+/**
+ * The gesture behind the story above, performed rather than posed. Opening the
+ * form rebalances the panes, and rebalancing them rebuilds the grid, so a click
+ * has to be finished with before the form arrives. The grid reports a pick once
+ * — as a selection — and nothing goes back to the cells afterwards.
+ */
+export const ClickAnEmptySlot: Story = {
+	name: "Click an empty slot",
+	render: () => <CalendarDestination />,
+	play: async ({ canvasElement }) => {
+		/* Browsers report a ResizeObserver backlog through the same event with no
+		   error attached; only a real uncaught exception carries one. */
+		const thrown: string[] = [];
+		const record = (event: ErrorEvent) => {
+			if (event.error) thrown.push(String(event.error));
+		};
+		window.addEventListener("error", record);
+		try {
+			clickAnEmptySlot(canvasElement);
+
+			const canvas = within(canvasElement);
+			await waitFor(() => expect(canvas.getByText("New event")).toBeVisible());
+
+			/* The grid finishes a click a task after the pointer is up, so the pane
+			   being open is not yet proof that the click landed clean. */
+			await new Promise((resolve) => setTimeout(resolve, 500));
+			await expect(thrown).toEqual([]);
+		} finally {
+			window.removeEventListener("error", record);
+		}
+	},
 };
 
 /**
