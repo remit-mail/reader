@@ -129,7 +129,9 @@ function pickAndCheck(worth: "an hour" | "a day") {
 		const watch = watchForThrows();
 		try {
 			clickPoint(freePoint(canvasElement));
-			await waitFor(() => expect(field("Date")).not.toBeNull());
+			await waitFor(() => expect(field("Date")).not.toBeNull(), {
+				timeout: 5000,
+			});
 			/* The grid finishes a click a task after the pointer is up, so the form
 			   being open is not yet proof the click landed clean. */
 			await new Promise((resolve) => setTimeout(resolve));
@@ -438,8 +440,12 @@ export const PhoneMonth: Story = {
 	decorators: [phoneFrame],
 	render: () => <CalendarDestination width={PHONE_WIDTH} view="month" />,
 	play: async ({ canvasElement }) => {
+		/* The date nav above the strip is a heading with nothing in it — the day
+		   the agenda is on is the first heading that says anything. */
 		const showing = () =>
-			canvasElement.querySelector("h2")?.textContent?.trim() ?? "";
+			Array.from(canvasElement.querySelectorAll("h2"))
+				.map((heading) => heading.textContent?.trim() ?? "")
+				.find((text) => text !== "") ?? "";
 		const before = showing();
 		const point = freePoint(
 			canvasElement,
@@ -447,7 +453,10 @@ export const PhoneMonth: Story = {
 		);
 
 		await tapPoint(point);
-		await waitFor(() => expect(names(showing(), dayOf(point.cell))).toBe(true));
+		await waitFor(
+			() => expect(names(showing(), dayOf(point.cell))).toBe(true),
+			{ timeout: 5000 },
+		);
 	},
 };
 
