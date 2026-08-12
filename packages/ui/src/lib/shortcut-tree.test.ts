@@ -1,7 +1,9 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
-import { KEY_HINT_GROUPS, type TriageAction } from "./keymap.js";
+import { ALL_TRIAGE_ACTIONS, type TriageAction } from "./keymap.js";
 import {
+	type BlockedReason,
+	type DetailSurface,
 	type EditingField,
 	type ListNode,
 	type MailList,
@@ -14,57 +16,79 @@ import {
 } from "./shortcut-tree.js";
 
 const brief: MailList = { kind: "brief" };
+const inbox: MailList = { kind: "mailbox", mailboxId: "a", role: "inbox" };
+const sent: MailList = { kind: "mailbox", mailboxId: "b", role: "sent" };
+const archive: MailList = { kind: "mailbox", mailboxId: "c", role: "other" };
 
-const listNode = (partial: Partial<ListNode> = {}): ListNode => ({
+const thread: DetailSurface = {
+	kind: "thread",
+	threadId: "t1",
+	messageId: null,
+};
+const draft: DetailSurface = { kind: "compose", draftId: null };
+
+const aim = { threadId: "t1", messageId: null };
+
+const listOnly = (partial: Partial<ListNode> = {}): ListNode => ({
 	list: brief,
-	visibility: "visible",
+	pane: { layout: "list-only" },
 	aim: null,
 	selection: [],
-	detail: null,
 	...partial,
+});
+
+const split = (
+	surface: DetailSurface,
+	partial: Partial<ListNode> = {},
+): ListNode => ({
+	...listOnly({ aim, ...partial }),
+	pane: { layout: "split", detail: { surface } },
+});
+
+const detailOnly = (
+	surface: DetailSurface,
+	partial: Partial<ListNode> = {},
+): ListNode => ({
+	...listOnly({ aim, ...partial }),
+	pane: { layout: "detail-only", detail: { surface } },
 });
 
 const tree = (partial: Partial<ShortcutTree> = {}): ShortcutTree => ({
 	overlays: [],
 	editing: null,
 	settling: null,
-	mail: { list: listNode() },
+	mail: { list: listOnly() },
 	...partial,
 });
 
-const onList = (partial: Partial<ListNode> = {}): ShortcutTree =>
-	tree({ mail: { list: listNode(partial) } });
+const on = (list: ListNode): ShortcutTree => tree({ mail: { list } });
 
-const threadOpen = (visibility: ListNode["visibility"]): ShortcutTree =>
-	onList({
-		visibility,
-		aim: { threadId: "t1", messageId: null },
-		detail: {
-			surface: { kind: "thread", threadId: "t1", messageId: null },
-		},
-	});
+const settings = (): ShortcutTree => tree({ mail: null });
 
 const everywhere: RegisteredActions = {
-	app: allActions(),
-	mail: allActions(),
-	list: allActions(),
-	detail: allActions(),
+	app: ALL_TRIAGE_ACTIONS,
+	mail: ALL_TRIAGE_ACTIONS,
+	list: ALL_TRIAGE_ACTIONS,
+	detail: ALL_TRIAGE_ACTIONS,
 };
 
-function allActions(): TriageAction[] {
-	return KEY_HINT_GROUPS.flatMap((group) =>
-		group.hints.map((hint) => hint.action),
-	);
-}
-
 const acted = (result: Resolution): string => {
-	if (result.outcome !== "act")
+	if (result.outcome !== "act") {
 		assert.fail(`expected act, got ${result.outcome}`);
+	}
 	if (result.target.kind === "level") return result.target.level;
 	if (result.target.kind === "overlay") {
 		return `overlay:${result.target.frame.id}`;
 	}
 	return `editing:${result.target.field.id}`;
+};
+
+const containedBy = (result: Resolution): string => {
+	if (result.outcome !== "contained") {
+		assert.fail(`expected contained, got ${result.outcome}`);
+	}
+	if (result.by.kind === "overlay") return `overlay:${result.by.frame.id}`;
+	return `editing:${result.by.field.id}`;
 };
 
 const blockedFor = (result: Resolution): string => {
@@ -76,21 +100,21 @@ const blockedFor = (result: Resolution): string => {
 
 describe("shortcut tree", () => {
 	test("every declared action is one the keymap can produce", () => {
-		const known = new Set(allActions());
+		const known = new Set<string>(ALL_TRIAGE_ACTIONS);
 		for (const rules of Object.values(NODE_ACTIONS)) {
-			for (const rule of rules) {
-				assert.ok(known.has(rule.action), `${rule.action} is a known action`);
+			for (const declared of rules) {
+				assert.ok(known.has(declared.action), `${declared.action} is known`);
 			}
 		}
 	});
 
 	test("every keymap action is declared somewhere in the tree", () => {
-		const declared = new Set(
+		const declared = new Set<string>(
 			Object.values(NODE_ACTIONS).flatMap((rules) =>
-				rules.map((rule) => rule.action),
+				rules.map((entry) => entry.action),
 			),
 		);
-		for (const action of allActions()) {
+		for (const action of ALL_TRIAGE_ACTIONS) {
 			assert.ok(declared.has(action), `${action} is declared`);
 		}
 	});
@@ -111,17 +135,21 @@ describe("shortcut tree", () => {
 		);
 	});
 
-	test("an overlay swallows what it does not handle", () => {
+	test("an overlay contains what it does not handle", () => {
 		const withOverlay = tree({
 			overlays: [{ id: "confirm", handles: ["back"] }],
 		});
 		assert.strictEqual(
-			resolveShortcut("focusNext", withOverlay, everywhere).outcome,
-			"unbound",
+			containedBy(resolveShortcut("selectAll", withOverlay, everywhere)),
+			"overlay:confirm",
+		);
+		assert.strictEqual(
+			containedBy(resolveShortcut("focusSearch", withOverlay, everywhere)),
+			"overlay:confirm",
 		);
 	});
 
-	test("an editing field pre-empts the level chain", () => {
+	test("an editing field answers or contains, and pre-empts the levels", () => {
 		const editing: EditingField = { id: "search", handles: ["back"] };
 		const typing = tree({ editing });
 		assert.strictEqual(
@@ -129,8 +157,8 @@ describe("shortcut tree", () => {
 			"editing:search",
 		);
 		assert.strictEqual(
-			resolveShortcut("focusNext", typing, everywhere).outcome,
-			"unbound",
+			containedBy(resolveShortcut("focusNext", typing, everywhere)),
+			"editing:search",
 		);
 	});
 
@@ -146,7 +174,7 @@ describe("shortcut tree", () => {
 	});
 
 	test("settling blocks everything, and names its scope", () => {
-		for (const action of allActions()) {
+		for (const action of ALL_TRIAGE_ACTIONS) {
 			assert.strictEqual(
 				blockedFor(
 					resolveShortcut(action, tree({ settling: "app" }), everywhere),
@@ -162,8 +190,8 @@ describe("shortcut tree", () => {
 		);
 	});
 
-	test("focusNext walks to the list when the list is on screen", () => {
-		const desktop = threadOpen("visible");
+	test("focusNext walks to the list when the list shares the screen", () => {
+		const desktop = on(split(thread));
 		assert.strictEqual(
 			acted(resolveShortcut("focusNext", desktop, everywhere)),
 			"list",
@@ -174,8 +202,8 @@ describe("shortcut tree", () => {
 		);
 	});
 
-	test("focusNext stops at the detail when the list is not on screen", () => {
-		const phone = threadOpen("hidden");
+	test("focusNext stops at the detail when the detail owns the screen", () => {
+		const phone = on(detailOnly(thread));
 		assert.strictEqual(
 			acted(resolveShortcut("focusNext", phone, everywhere)),
 			"detail",
@@ -186,16 +214,8 @@ describe("shortcut tree", () => {
 		);
 	});
 
-	test("with the list hidden and no thread, focusNext blocks on the list", () => {
-		const phoneList = onList({ visibility: "hidden" });
-		assert.strictEqual(
-			blockedFor(resolveShortcut("focusNext", phoneList, everywhere)),
-			"no-list",
-		);
-	});
-
-	test("a level that declares an action but registers no handler falls through", () => {
-		const phone = threadOpen("hidden");
+	test("a level that serves an action but registers no handler is skipped", () => {
+		const phone = on(detailOnly(thread));
 		assert.strictEqual(
 			acted(resolveShortcut("reply", phone, { list: ["reply"] })),
 			"list",
@@ -208,142 +228,211 @@ describe("shortcut tree", () => {
 		);
 	});
 
-	test("an action nobody registers is unbound, not blocked", () => {
+	test("an action no level serves is unbound, requirements or not", () => {
 		assert.strictEqual(
 			resolveShortcut("compose", tree(), {}).outcome,
 			"unbound",
 		);
-	});
-
-	test("an action with no rule anywhere is unbound", () => {
-		const bare = tree({ mail: null });
 		assert.strictEqual(
-			resolveShortcut("toggleStar", bare, everywhere).outcome,
+			resolveShortcut("muteSender", tree(), {}).outcome,
+			"unbound",
+		);
+		assert.strictEqual(
+			resolveShortcut("toggleSelect", on(detailOnly(thread)), {}).outcome,
 			"unbound",
 		);
 	});
 
-	test("list verbs need an aim", () => {
+	test("an unmet requirement only speaks when the level serves the action", () => {
+		const unaimed = on(listOnly());
 		assert.strictEqual(
-			blockedFor(resolveShortcut("toggleStar", onList(), everywhere)),
+			resolveShortcut("muteSender", unaimed, {}).outcome,
+			"unbound",
+		);
+		assert.strictEqual(
+			blockedFor(
+				resolveShortcut("muteSender", unaimed, { list: ["muteSender"] }),
+			),
 			"not-aimed",
 		);
+	});
+
+	test("the root-most served level's reason is the one reported", () => {
+		const composing = on(split(draft, { aim: null }));
 		assert.strictEqual(
-			acted(
-				resolveShortcut(
-					"toggleStar",
-					onList({ aim: { threadId: "t1", messageId: null } }),
-					everywhere,
-				),
+			blockedFor(
+				resolveShortcut("reply", composing, {
+					detail: ["reply"],
+					list: ["reply"],
+				}),
 			),
-			"list",
+			"not-aimed",
 		);
 	});
 
-	test("back clears a selection on the list and closes a thread on the detail", () => {
+	test("back closes a compose detail, which is not a thread", () => {
+		const composing = on(detailOnly(draft));
 		assert.strictEqual(
-			blockedFor(resolveShortcut("back", onList(), everywhere)),
-			"no-selection",
-		);
-		assert.strictEqual(
-			acted(resolveShortcut("back", onList({ selection: ["m1"] }), everywhere)),
-			"list",
-		);
-		assert.strictEqual(
-			acted(resolveShortcut("back", threadOpen("visible"), everywhere)),
+			acted(resolveShortcut("back", composing, everywhere)),
 			"detail",
 		);
-	});
-
-	test("a compose surface is not a thread", () => {
-		const composing = onList({
-			visibility: "hidden",
-			detail: { surface: { kind: "compose", draftId: null } },
-		});
 		assert.strictEqual(
-			blockedFor(resolveShortcut("focusNext", composing, everywhere)),
+			blockedFor(resolveShortcut("reply", composing, { detail: ["reply"] })),
 			"no-thread",
 		);
 	});
 
-	test("goBrief is already-there on the brief and acts elsewhere", () => {
+	test("back clears a selection on the list", () => {
 		assert.strictEqual(
-			blockedFor(
-				resolveShortcut("goBrief", onList({ list: brief }), everywhere),
-			),
-			"already-there",
+			blockedFor(resolveShortcut("back", on(listOnly()), everywhere)),
+			"no-selection",
 		);
 		assert.strictEqual(
 			acted(
 				resolveShortcut(
-					"goBrief",
-					onList({ list: { kind: "flagged" } }),
+					"back",
+					on(listOnly({ selection: ["m1"] })),
 					everywhere,
 				),
 			),
-			"mail",
+			"list",
+		);
+	});
+
+	test("a phone thread reports geometry, not a fault", () => {
+		const phone = on(detailOnly(thread));
+		for (const action of [
+			"toggleSelect",
+			"selectAll",
+			"toggleDensity",
+			"openFocused",
+			"focusFirst",
+			"focusLast",
+		] as TriageAction[]) {
+			assert.strictEqual(
+				blockedFor(resolveShortcut(action, phone, everywhere)),
+				"list-off-screen",
+			);
+		}
+	});
+
+	test("go-to keys know where they already are", () => {
+		assert.strictEqual(
+			blockedFor(resolveShortcut("goBrief", on(listOnly()), everywhere)),
+			"already-there",
 		);
 		assert.strictEqual(
 			blockedFor(
 				resolveShortcut(
 					"goFlagged",
-					onList({ list: { kind: "flagged" } }),
+					on(listOnly({ list: { kind: "flagged" } })),
 					everywhere,
 				),
 			),
 			"already-there",
 		);
-	});
-
-	test("mailbox lists compare by id", () => {
-		const inbox: MailList = { kind: "mailbox", mailboxId: "a" };
-		const other: MailList = { kind: "mailbox", mailboxId: "b" };
 		assert.strictEqual(
-			acted(resolveShortcut("goBrief", onList({ list: inbox }), everywhere)),
-			"mail",
+			blockedFor(
+				resolveShortcut("goInbox", on(listOnly({ list: inbox })), everywhere),
+			),
+			"already-there",
 		);
 		assert.strictEqual(
-			acted(resolveShortcut("goInbox", onList({ list: other }), everywhere)),
-			"mail",
+			blockedFor(
+				resolveShortcut("goSent", on(listOnly({ list: sent })), everywhere),
+			),
+			"already-there",
 		);
 	});
 
-	test("a go-to action outside any list is not already-there", () => {
+	test("a mailbox with no role is somewhere else entirely", () => {
+		const other = on(listOnly({ list: archive }));
+		assert.strictEqual(
+			acted(resolveShortcut("goInbox", other, everywhere)),
+			"app",
+		);
+		assert.strictEqual(
+			acted(resolveShortcut("goSent", other, everywhere)),
+			"app",
+		);
+		assert.strictEqual(
+			acted(resolveShortcut("goBrief", other, everywhere)),
+			"app",
+		);
+	});
+
+	test("a go-to key outside any list is not already-there", () => {
 		const noList = tree({ mail: { list: null } });
 		assert.strictEqual(
 			acted(resolveShortcut("goBrief", noList, everywhere)),
-			"mail",
+			"app",
+		);
+		assert.strictEqual(
+			acted(resolveShortcut("goBrief", settings(), everywhere)),
+			"app",
 		);
 	});
 
-	test("mail-level globals need nothing", () => {
+	test("help and the go-to family answer on a screen with no mail node", () => {
 		const globals: TriageAction[] = [
-			"compose",
 			"help",
-			"focusSearch",
-			"toggleIntelligence",
+			"goBrief",
+			"goFlagged",
+			"goInbox",
+			"goSent",
 			"goSettings",
 		];
 		for (const action of globals) {
 			assert.strictEqual(
-				acted(
-					resolveShortcut(action, tree({ mail: { list: null } }), everywhere),
-				),
+				acted(resolveShortcut(action, settings(), everywhere)),
+				"app",
+			);
+		}
+	});
+
+	test("the mail surface's own keys are dead where there is no mail", () => {
+		const mailOnly: TriageAction[] = [
+			"compose",
+			"focusSearch",
+			"toggleIntelligence",
+		];
+		for (const action of mailOnly) {
+			assert.strictEqual(
+				resolveShortcut(action, settings(), everywhere).outcome,
+				"unbound",
+			);
+			assert.strictEqual(
+				acted(resolveShortcut(action, tree(), everywhere)),
 				"mail",
 			);
 		}
 	});
 
-	test("the first unmet requirement is the reported reason", () => {
-		const composing = onList({
-			visibility: "visible",
-			detail: { surface: { kind: "compose", draftId: "d1" } },
-		});
-		assert.strictEqual(
-			blockedFor(
-				resolveShortcut("forward", composing, { detail: ["forward"] }),
-			),
-			"no-thread",
-		);
+	test("every blocked reason is reachable", () => {
+		const scenarios: Record<BlockedReason, () => Resolution> = {
+			settling: () =>
+				resolveShortcut("help", tree({ settling: "app" }), everywhere),
+			"list-settling": () =>
+				resolveShortcut("help", tree({ settling: "list" }), everywhere),
+			"list-off-screen": () =>
+				resolveShortcut("toggleSelect", on(detailOnly(thread)), {
+					list: ["toggleSelect"],
+				}),
+			"list-shown": () =>
+				resolveShortcut("focusNext", on(split(thread)), {
+					detail: ["focusNext"],
+				}),
+			"not-aimed": () =>
+				resolveShortcut("toggleStar", on(listOnly()), { list: ["toggleStar"] }),
+			"no-selection": () =>
+				resolveShortcut("back", on(listOnly()), { list: ["back"] }),
+			"no-thread": () =>
+				resolveShortcut("reply", on(detailOnly(draft)), { detail: ["reply"] }),
+			"already-there": () =>
+				resolveShortcut("goBrief", on(listOnly()), { app: ["goBrief"] }),
+		};
+		for (const [reason, scenario] of Object.entries(scenarios)) {
+			assert.strictEqual(blockedFor(scenario()), reason);
+		}
 	});
 });

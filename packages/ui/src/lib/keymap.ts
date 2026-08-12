@@ -48,6 +48,51 @@ export type TriageAction =
 	| "goFlagged"
 	| "goSettings";
 
+/**
+ * Presence table for {@link TriageAction}. `Record<TriageAction, true>` is what
+ * makes it exhaustive: adding a member to the union without adding it here is a
+ * type error, so anything that must reason about *every* action — the shortcut
+ * tree's completeness tests, the help overlay's audit — has a runtime list that
+ * cannot silently fall behind the type.
+ */
+const TRIAGE_ACTION_PRESENCE: Record<TriageAction, true> = {
+	focusNext: true,
+	focusPrevious: true,
+	focusFirst: true,
+	focusLast: true,
+	openFocused: true,
+	back: true,
+	toggleSelect: true,
+	extendSelectDown: true,
+	extendSelectUp: true,
+	selectAll: true,
+	reply: true,
+	replyAll: true,
+	forward: true,
+	delete: true,
+	toggleStar: true,
+	toggleRead: true,
+	muteSender: true,
+	blockSender: true,
+	vipSender: true,
+	markJunk: true,
+	toggleIntelligence: true,
+	toggleDensity: true,
+	focusSearch: true,
+	compose: true,
+	help: true,
+	goBrief: true,
+	goInbox: true,
+	goSent: true,
+	goFlagged: true,
+	goSettings: true,
+};
+
+/** Every action the app can produce, in declaration order. */
+export const ALL_TRIAGE_ACTIONS: readonly TriageAction[] = Object.keys(
+	TRIAGE_ACTION_PRESENCE,
+) as TriageAction[];
+
 /** Map of action → handler. Omitted actions are inert (no-op). */
 export type TriageHandlers = Partial<Record<TriageAction, () => void>>;
 
