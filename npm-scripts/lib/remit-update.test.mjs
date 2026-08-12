@@ -1584,6 +1584,35 @@ describe("a stopped box whose migration fails", () => {
 	});
 });
 
+describe("a stopped box where a held-back service will not start", () => {
+	// Bringing the whole always-on stack back is more than the running-stack path
+	// ever had to do, and caddy binds :80 and :443 — ports something else may have
+	// taken while the box was down. The gate has already passed, so the tag and
+	// the database stand and there is nothing to roll back; what the operator must
+	// not get is a run that goes quiet with the app plane missing.
+	const box = sandbox({
+		realDb: true,
+		scenario: {
+			probe: "ok",
+			services: "",
+			migrate_exit: 0,
+			up_fail: "caddy",
+		},
+	});
+	const result = box.run(["update", "--tag", "v1.6.0"]);
+
+	it("names what did not start and the command that finishes the run", () => {
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /caddy/);
+		assert.match(result.stderr, /update --recover/);
+	});
+
+	it("leaves the run recoverable rather than recording an outcome", () => {
+		assert.equal(box.stateJson().run.outcome, null);
+		assert.match(box.breadcrumb(), /phase=committing/);
+	});
+});
+
 describe("a stopped box whose volume cannot be read", () => {
 	// Neither road is safe from here: the plain path would migrate a database
 	// that may be there with no snapshot, and the atomic path would try to
