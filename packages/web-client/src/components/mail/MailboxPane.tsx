@@ -266,7 +266,6 @@ function MailboxPaneProvider({
 	const navigate = useNavigate();
 	const threadId = thread?.threadId;
 	const pointedAtMessageId = thread?.messageId;
-	const tier = useLayoutTier();
 	const telemetry = useTelemetry();
 	const { accounts, searchQuery, intelligenceOpen, onToggleIntelligence } =
 		useMailContext();
