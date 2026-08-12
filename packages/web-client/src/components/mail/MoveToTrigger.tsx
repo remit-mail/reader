@@ -1,5 +1,5 @@
 import { mailboxOperationsListMailboxesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import { Button, type FolderTreeNode, FolderTreePicker } from "@remit/ui";
+import { Button, cn, type FolderTreeNode, FolderTreePicker } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { FolderInput } from "lucide-react";
 import {
@@ -18,7 +18,6 @@ import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { buildMoveOptions, folderDelimiter } from "@/lib/move-options";
-import { cn } from "@/lib/utils";
 
 interface MoveToTriggerProps {
 	accountId: string;

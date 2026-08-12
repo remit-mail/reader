@@ -1,6 +1,7 @@
 import {
 	buildCidResolver,
 	type CidResolver,
+	cn,
 	type EmailRenderCategory,
 	MessageBodyView,
 } from "@remit/ui";
@@ -8,7 +9,6 @@ import { useMemo, useState } from "react";
 import { useIsDark } from "@/hooks/useIsDark";
 import { useMessageBodyContent } from "@/hooks/useMessageBodyContent";
 import { useToggleTrusted } from "@/hooks/useToggleTrusted";
-import { cn } from "@/lib/utils";
 import { BlockedImagesNotice } from "./BlockedImagesNotice";
 import { MessageBodyErrorBanner } from "./MessageBodyErrorBanner";
 

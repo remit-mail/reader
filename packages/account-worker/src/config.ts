@@ -41,11 +41,6 @@ export const getAccountFinalizeQueueUrl = (): string =>
 export const getAccountPurgeDeleteQueueUrl = (): string =>
 	env.SQS_QUEUE_URL_ACCOUNT_PURGE_DELETE;
 
-const graceSecondsRaw = process.env.ACCOUNT_DELETION_GRACE_SECONDS;
-export const graceSeconds = graceSecondsRaw
-	? Number.parseInt(graceSecondsRaw, 10)
-	: 60;
-
 // The RemitClient is resolved lazily and cached, not at module load: the
 // DynamoDB backend is injected by the composition root before the first cascade
 // runs, so building at import time would race the registration.

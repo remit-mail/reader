@@ -23,6 +23,7 @@ import type {
 	RemitImapOutboxMessageStatus,
 } from "@remit/api-http-client/types.gen.ts";
 import {
+	cn,
 	LIST_ROW_SELECTOR,
 	OutboxRow,
 	ReadingPaneEmpty,
@@ -62,7 +63,6 @@ import {
 import { isOutboxListRow, isUnsendableStatus } from "@/lib/outbox-status";
 import { normalizeSearchQuery } from "@/lib/search-query";
 import { parseSearchTokens } from "@/lib/search-tokens";
-import { cn } from "@/lib/utils";
 import { retainOpenPanels } from "@/routing";
 
 /* ------------------------------------------------------------------ */

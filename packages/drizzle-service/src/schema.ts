@@ -11,8 +11,6 @@ import * as entities from "@remit/drizzle-sqlite-schema";
 export const filterAnchorTable = entities.filterAnchors;
 export const filterTable = entities.filters;
 export const labelTable = entities.labels;
-export const mailboxAttributeEntryTable = entities.mailboxAttributeEntries;
-export const mailboxFlagTable = entities.mailboxFlags;
 export const messageLabelTable = entities.messageLabels;
 export const senderSignerStandingTable = entities.senderSignerStandings;
 export * from "./schema/i4-account-config.js";

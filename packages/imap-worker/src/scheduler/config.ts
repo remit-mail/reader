@@ -2,8 +2,8 @@
  * Periodic mailbox-sync scheduler (#1247, restructured #1251): the tick rate
  * and the offline-sync threshold are separate, independently configured
  * knobs — never hardcode a cadence — following the repo's
- * env-var-with-a-safe-default convention (see `ACCOUNT_DELETION_GRACE_SECONDS`
- * in remit-account-worker/src/config.ts).
+ * env-var-with-a-safe-default convention (see `METRICS_PORT` in
+ * remit-logger-lambda/src/metrics.ts).
  *
  * `tickIntervalSeconds` drives how often the tick itself runs — the
  * EventBridge schedule rate on a managed deployment, the runner's loop delay

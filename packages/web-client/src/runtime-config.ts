@@ -54,7 +54,6 @@ interface RawRuntimeConfig {
 }
 
 declare global {
-	// eslint-disable-next-line no-var
 	var __REMIT_CONFIG__: RawRuntimeConfig | undefined;
 }
 

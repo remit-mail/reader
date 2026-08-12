@@ -2,6 +2,7 @@ import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/type
 import {
 	Banner,
 	ConfirmDialog,
+	cn,
 	type Density,
 	deriveIsMultiSelectMode,
 	type MessageListFilter,
@@ -51,7 +52,6 @@ import { tabStopId } from "@/lib/list-focus";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import { listVerbRequest } from "@/lib/list-verb-request";
 import { shouldExitSelectionOnNavigate } from "@/lib/selection-mode";
-import { cn } from "@/lib/utils";
 import { useSelectionWizard, useWizardStepValue } from "@/lib/wizard-history";
 import { retainOpenPanels } from "@/routing";
 import { LabelApplyTrigger } from "./LabelApplyTrigger";

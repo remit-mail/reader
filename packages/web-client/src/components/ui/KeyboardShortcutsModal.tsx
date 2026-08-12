@@ -1,7 +1,6 @@
-import { DialogBackdrop, Kbd, KEY_HINT_GROUPS } from "@remit/ui";
+import { cn, DialogBackdrop, Kbd, KEY_HINT_GROUPS } from "@remit/ui";
 import { X } from "lucide-react";
 import { Fragment, useCallback, useEffect } from "react";
-import { cn } from "@/lib/utils";
 
 interface KeyboardShortcutsModalProps {
 	isOpen: boolean;

@@ -1212,7 +1212,6 @@ function StepSync({
 				smtpStartTls: effectiveSmtp?.smtpStartTls ?? false,
 			},
 		});
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
 	// Poll sync status every 2s once account is created. Stop polling once the

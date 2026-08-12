@@ -29,9 +29,7 @@ type AmplifyCall = {
 };
 
 declare global {
-	// eslint-disable-next-line no-var
 	var __AMPLIFY_MOCKS__: { configureCalls: AmplifyCall[] } | undefined;
-	// eslint-disable-next-line no-var
 	var __CACHE_BUST__: number | undefined;
 }
 

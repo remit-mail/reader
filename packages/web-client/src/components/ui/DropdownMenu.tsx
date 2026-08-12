@@ -1,5 +1,5 @@
+import { cn } from "@remit/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { cn } from "@/lib/utils";
 
 interface DropdownMenuProps {
 	trigger: React.ReactNode;
