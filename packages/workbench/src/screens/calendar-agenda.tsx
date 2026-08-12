@@ -28,15 +28,24 @@ import {
 	FlowScreen,
 	FooterNav,
 	formatCustomRecurrence,
+	ReadingPane,
 	type RecurrenceScope,
 	RecurrenceScopePrompt,
 	ResizableHandle,
 	ResizablePanel,
 	ResizablePanelGroup,
 	readCustomRecurrence,
+	type ThreadData,
 	useContainerWidth,
 } from "@remit/ui";
-import { SlidersHorizontal, Sparkles, Trash2, Wand2 } from "lucide-react";
+import {
+	ArrowLeft,
+	MailX,
+	SlidersHorizontal,
+	Sparkles,
+	Trash2,
+	Wand2,
+} from "lucide-react";
 import { type ReactNode, useMemo, useRef, useState } from "react";
 import {
 	AgendaComposer,
@@ -76,6 +85,7 @@ import {
 	NOW_ISO,
 	suggestions as seedSuggestions,
 	TODAY,
+	threadFor,
 } from "../fixtures/calendar.js";
 import {
 	agendaEvents,
@@ -226,6 +236,15 @@ function headerTitle(
 	return monthLabel(focusDate);
 }
 
+/** The phone screens that take the whole surface, one at a time. */
+type Flow =
+	| "none"
+	| "editor"
+	| "event"
+	| "calendars"
+	| "suggestions"
+	| "thread";
+
 type Panel =
 	| { kind: "none" }
 	| { kind: "create" }
@@ -249,8 +268,13 @@ export interface CalendarAgendaProps {
 	phrase?: string;
 	/** Answers a reading the phrase left open, so a story can show the other one. */
 	picks?: ChoicePicks;
-	/** Opens the phone flow a story is about. */
-	flow?: "none" | "editor" | "event" | "calendars" | "suggestions";
+	/** Opens the phone flow a story is about. A thread is opened, not seeded. */
+	flow?: Exclude<Flow, "thread">;
+	/**
+	 * Opens the mail behind a thread id, which is the only way to show one the
+	 * mailbox no longer has.
+	 */
+	openThreadId?: string;
 	/** Which step of the create walk the flow opens on. */
 	step?: number;
 	/** Opens the custom-rule editor over the form it belongs to. */
@@ -268,6 +292,7 @@ export function CalendarAgenda({
 	phrase: initialPhrase = "",
 	picks: initialPicks = {},
 	flow: initialFlow = "none",
+	openThreadId: initialThreadId = "",
 	step: initialStep = 0,
 	customRepeat = "closed",
 	scopeForEventId = "",
@@ -300,7 +325,11 @@ export function CalendarAgenda({
 			return { kind: "scope", eventId: scopeForEventId };
 		return initialPhrase === "" ? { kind: "none" } : { kind: "create" };
 	});
-	const [flow, setFlow] = useState(initialFlow);
+	const [flow, setFlow] = useState<Flow>(
+		initialThreadId !== "" && isPhone ? "thread" : initialFlow,
+	);
+	const [threadFrom, setThreadFrom] = useState<Flow>(initialFlow);
+	const [openThreadId, setOpenThreadId] = useState(initialThreadId);
 	const [step, setStep] = useState(initialStep);
 	const [customRule, setCustomRule] = useState<CustomRecurrence | null>(() =>
 		customRepeat === "open" ? defaultCustomRecurrence(draft.date) : null,
@@ -328,6 +357,7 @@ export function CalendarAgenda({
 		[phrase, picks],
 	);
 	const selectedEvent = events.find((event) => event.id === selected);
+	const openedThread = threadFor(openThreadId);
 
 	const goTo = (date: string) => {
 		const target = clampDate(date);
@@ -407,7 +437,25 @@ export function CalendarAgenda({
 
 	const openEvent = (eventId: string) => {
 		setSelected(eventId);
+		setOpenThreadId("");
 		if (isPhone) setFlow("event");
+	};
+
+	/**
+	 * The mail an event or a suggestion came out of, opened in the pane the
+	 * calendar was read in. On a phone it is a screen, and back is the screen it
+	 * was opened from rather than the strip underneath both.
+	 */
+	const openThread = (threadId: string) => {
+		setOpenThreadId(threadId);
+		if (!isPhone) return;
+		setThreadFrom(flow);
+		setFlow("thread");
+	};
+
+	const closeThread = () => {
+		setOpenThreadId("");
+		if (isPhone) setFlow(threadFrom);
 	};
 
 	const startEdit = (event: CalendarEventData) => {
@@ -444,6 +492,7 @@ export function CalendarAgenda({
 			const id = `evt_new_${events.length}`;
 			setEvents((previous) => [...previous, eventFromDraft(draft, id)]);
 			setSelected(id);
+			setOpenThreadId("");
 			goTo(draft.date);
 		}
 		if (panel.kind === "edit")
@@ -460,6 +509,7 @@ export function CalendarAgenda({
 			previous.filter((item) => item.id !== suggestion.id),
 		);
 		setSelected(id);
+		setOpenThreadId("");
 		setFlow("none");
 		goTo(suggestion.start.slice(0, 10));
 	};
@@ -595,7 +645,7 @@ export function CalendarAgenda({
 								previous.filter((item) => item.id !== suggestion.id),
 							)
 						}
-						onOpenThread={() => undefined}
+						onOpenThread={() => openThread(suggestion.threadId)}
 						touch={touch}
 					/>
 				))
@@ -612,7 +662,9 @@ export function CalendarAgenda({
 				onEdit={() => startEdit(selectedEvent)}
 				onDelete={() => deleteSelected(selectedEvent)}
 				onOpenThread={
-					selectedEvent.threadId === "" ? undefined : () => undefined
+					selectedEvent.threadId === ""
+						? undefined
+						: () => openThread(selectedEvent.threadId)
 				}
 				onClose={onClose}
 			/>
@@ -832,10 +884,37 @@ export function CalendarAgenda({
 						whenText={formatEventWhen(selectedEvent)}
 						onEdit={() => startEdit(selectedEvent)}
 						onDelete={() => deleteSelected(selectedEvent)}
+						onOpenThread={
+							selectedEvent.threadId === ""
+								? undefined
+								: () => openThread(selectedEvent.threadId)
+						}
 					/>
 				</FlowScreen>
 			);
 		}
+
+		if (flow === "thread")
+			return (
+				<FlowScreen
+					anchor="container"
+					bodyFit="fill"
+					title={openedThread ? openedThread.subject : "Thread"}
+					steps={["Thread"]}
+					activeStep={0}
+					onBack={closeThread}
+					onExit={() => {
+						setOpenThreadId("");
+						setFlow("none");
+					}}
+				>
+					{openedThread ? (
+						<ReadingPane thread={openedThread} />
+					) : (
+						<ThreadGone />
+					)}
+				</FlowScreen>
+			);
 
 		if (flow === "calendars")
 			return (
@@ -1005,9 +1084,71 @@ export function CalendarAgenda({
 					}
 				/>
 			}
-			readingPane={selectedEvent ? "default" : "off"}
-			reading={detail(() => setSelected("")) ?? undefined}
+			readingPane={openThreadId !== "" || selectedEvent ? "default" : "off"}
+			reading={
+				openThreadId !== "" ? (
+					<ThreadPane
+						thread={openedThread}
+						backLabel={
+							selectedEvent ? "Back to the event" : "Back to the strip"
+						}
+						onBack={closeThread}
+					/>
+				) : (
+					(detail(() => setSelected("")) ?? undefined)
+				)
+			}
 		/>
+	);
+}
+
+/** The mail an event came out of, opened in the pane the event was in. */
+function ThreadPane({
+	thread,
+	backLabel,
+	onBack,
+}: {
+	/** Absent when the mailbox no longer holds the thread the event names. */
+	thread: ThreadData | undefined;
+	backLabel: string;
+	onBack: () => void;
+}) {
+	return (
+		<div className="flex h-full w-full min-w-0 flex-col bg-canvas">
+			<div className="flex h-pane-header shrink-0 items-center border-b border-line px-row-inset">
+				<Button
+					variant="ghost"
+					size="sm"
+					icon={<ArrowLeft className="size-3.5" />}
+					onClick={onBack}
+				>
+					{backLabel}
+				</Button>
+			</div>
+			<div className="min-h-0 flex-1">
+				{thread ? <ReadingPane thread={thread} /> : <ThreadGone />}
+			</div>
+		</div>
+	);
+}
+
+/**
+ * The event kept the id of a thread the mailbox no longer has. Saying so where
+ * the mail would have been is the whole point: a pane that renders nothing is
+ * indistinguishable from a broken one, and the way back has to survive it.
+ */
+function ThreadGone() {
+	return (
+		<div className="flex h-full flex-col items-center justify-center gap-2 px-row-inset py-8 text-center">
+			<MailX className="size-6 text-fg-subtle" />
+			<p className="text-sm font-medium text-fg">
+				That mail is not in this mailbox any more
+			</p>
+			<p className="max-w-sm text-xs text-fg-muted">
+				It was filed, deleted, or lives on an account this reader no longer
+				carries. The event itself is untouched.
+			</p>
+		</div>
 	);
 }
 
