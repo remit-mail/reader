@@ -9,6 +9,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useState } from "react";
 import { expect, userEvent, within } from "storybook/test";
 import { allThreads, q3Intelligence, q3Thread } from "../fixtures/workspace.js";
+import { DESKTOP_WIDTH, framedAt } from "../lib/story-frame.js";
 import { MailShell } from "../screens/mail-shell.js";
 
 /**
@@ -96,7 +97,7 @@ function ReadingWithSheet() {
 	const [sheetOpen, setSheetOpen] = useState(false);
 
 	return (
-		<div className="flex h-screen flex-col">
+		<div className="flex h-full flex-col">
 			<div className="flex shrink-0 items-center gap-2 border-b border-line bg-surface-sunken px-3 py-2">
 				<button
 					className="rounded-md border border-line px-2 py-1 text-xs text-fg"
@@ -131,6 +132,9 @@ function ReadingWithSheet() {
  * unmounted the rail and dismissing the sheet never brought it back.
  */
 export const SheetOpensOverTheRail: Story = {
+	// Framed, not left to the runner's viewport: the rail is a pane of the widest
+	// tier, and the shell reflows off its own container.
+	decorators: [framedAt(DESKTOP_WIDTH)],
 	render: () => <ReadingWithSheet />,
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
