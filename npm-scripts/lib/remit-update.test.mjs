@@ -1492,7 +1492,7 @@ describe("remit status", () => {
 	});
 });
 
-describe("a box with nothing running", () => {
+describe("a box with nothing running and nothing on the volume", () => {
 	it("takes the plain path — there is nothing to snapshot or roll back to", () => {
 		const box = sandbox({ scenario: { probe: "ok", services: "" } });
 		const result = box.run(["update"]);
@@ -1501,6 +1501,62 @@ describe("a box with nothing running", () => {
 		// install.sh's first update must not silently adopt the manifest's
 		// version over the tag it was asked to install.
 		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
+	});
+});
+
+// reader#495. `remit down` leaves the accounts and the mail where they are, so
+// the box that comes back to `remit update` has an old version to snapshot and
+// something to roll back to — everything the plain path is written for the
+// absence of. Routing on running containers sent that update down the plain
+// path, which migrated a real database with no snapshot behind it.
+describe("a stopped box that still holds a database", () => {
+	const box = sandbox({
+		realDb: true,
+		scenario: {
+			probe: "ok",
+			services: "",
+			migrate_exit: 0,
+			target_schema: 9,
+		},
+		manifest: { ...MANIFEST, schemaVersion: 9 },
+	});
+	const result = box.run(["update", "--tag", "v1.6.0"]);
+
+	it("snapshots the database before the migration runs", () => {
+		assert.equal(result.status, 0, result.stderr);
+		const snapshot = box.snapshotDb();
+		assert.equal(schemaTotal(snapshot), 8);
+		assert.equal(hasFilterMoveColumn(snapshot), false);
+	});
+
+	it("starts the stack for the gate and commits on its verdict", () => {
+		assert.equal(box.stateJson().run.outcome, "succeeded");
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.6.0");
+		assert.equal(box.liveSchema(), 9);
+	});
+});
+
+describe("a stopped box whose migration fails", () => {
+	const box = sandbox({
+		realDb: true,
+		scenario: {
+			probe: "ok",
+			services: "",
+			migrate_exit: 1,
+			migrate_exit2: 0,
+		},
+	});
+	box.run(["update", "--tag", "v1.6.0"]);
+
+	it("rolls back rather than leaving .env naming the new tag", () => {
+		assert.equal(box.stateJson().run.outcome, "rolledBack");
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
+		assert.ok(box.log().includes("run restore"), box.log());
+	});
+
+	it("restores the database it snapshotted", () => {
+		assert.deepEqual(box.liveBytes(), readFileSync(box.snapshotDb()));
+		assert.equal(box.liveSchema(), 8);
 	});
 });
 

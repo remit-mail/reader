@@ -23,6 +23,7 @@
 #   probe2=ok|fail            the same after a restore
 #   restarts=N                RestartCount from the second inspect onwards
 #   services=...              services with a container, space separated
+#   has_data=yes|no           whether the sqlite volume holds a database
 #   all_services=...          what `compose config --services` lists
 #   current_schema=N          what the schema read returns (non-real mode)
 #   target_schema=N           the running schema after this run's migrate applies
@@ -608,6 +609,20 @@ run_cmd() {
 		printf '%s\n' "$_script"
 	} >>"$S/volume-scripts"
 	case "$_script" in
+	*"for _e in /data/sqlite"*)
+		# Whether the volume holds a database at all, which is what routes a
+		# stopped stack between the plain and the atomic path. 3 is "empty", and
+		# anything else the wrapper reads as data. Real-database mode answers from
+		# the seeded directory; otherwise the scenario says.
+		log "run data-probe sqlite=$FR_SQLITE"
+		if [ "${FAKE_REAL_DB:-0}" = "1" ]; then
+			_dp=0
+			exec_real "$_script" || _dp=$?
+			exit "$_dp"
+		fi
+		if [ "$(val has_data no)" = "yes" ]; then exit 0; fi
+		exit 3
+		;;
 	*__drizzle_migrations*)
 		log "run schema-read"
 		if [ "${FAKE_REAL_DB:-0}" = "1" ]; then

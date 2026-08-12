@@ -121,11 +121,12 @@ Usage: $PROG <command> [args]
   status               Services and the running tag, plus whether the origin
                        resolves to this box and answers, the last update check
                        and the last update's outcome.
-  update [--tag TAG]   Install a release. Against a running stack this is
-                       atomic: the databases are snapshotted while the old
-                       version is still live, the new one has to pass a health
-                       gate before anything is served, and a failure restores
-                       the snapshot and the previous tag.
+  update [--tag TAG]   Install a release. Wherever there is a database on the
+                       volume this is atomic: the databases are snapshotted
+                       before anything is stopped, the new version has to pass
+                       a health gate before anything is served, and a failure
+                       restores the snapshot and the previous tag. A stopped
+                       stack is started to be gated.
   update --check       Check for a newer release and report, changing nothing.
   update --recover     Finish an update that was interrupted, committing or
                        rolling back on the gate's verdict. Runs at the
@@ -1804,6 +1805,26 @@ stack_is_running() {
 	[ "$_n" -gt 0 ]
 }
 
+# Whether this deployment has anything to lose. `remit down` leaves the
+# databases where they are, so process state answers a different question:
+# a stopped box can still hold every account and message on the volume. Read
+# through the same mount the snapshot binds, so both are answering for the same
+# data. A volume that is absent, empty, or holds only zero-byte files is a fresh
+# install; anything else on it is data. 3 is the reading "the volume is empty",
+# so a probe that could not run at all — no daemon, no image, a timeout — is
+# data: the wrong answer there costs a snapshot nobody needed, and the other
+# wrong answer migrates an unprotected database.
+deployment_has_data() {
+	_dhd=0
+	volume_run "set -eu
+[ -d /data/sqlite ] || exit 3
+for _e in /data/sqlite/*; do
+  if [ -s \"\$_e\" ]; then exit 0; fi
+done
+exit 3" >/dev/null 2>&1 || _dhd=$?
+	[ "$_dhd" != "3" ]
+}
+
 running_services() {
 	compose ps --services --status running 2>/dev/null | grep -vx updater | tr '\n' ' '
 }
@@ -2162,9 +2183,9 @@ recover_run() {
 
 # --- the command ------------------------------------------------------------
 
-# The legacy path, and still the right one: on a box with nothing running there
-# is no old version to snapshot, nothing to hold down and nothing to roll back
-# to. install.sh's first `remit update` lands here.
+# The legacy path, and still the right one: on a box with no database on its
+# volume there is no old version to snapshot, nothing to hold down and nothing
+# to roll back to. install.sh's first `remit update` lands here.
 plain_update() {
 	_tag=$1
 	# The tag reaches .env only once its images are on the box. Writing it
@@ -2259,11 +2280,15 @@ cmd_update() {
 		REQUESTED_RUN_ID=$(printf '%s\n' "$_request" | sed -n 2p)
 	fi
 
-	# A box with nothing running has no old version to snapshot, nothing to hold
-	# down and nothing to roll back to, so it takes the plain path — this is
-	# install.sh's first `remit update`, and it is also why a manifest version is
-	# never adopted silently on a fresh install.
-	if ! stack_is_running; then
+	# A box with nothing running and nothing on the volume has no old version to
+	# snapshot, nothing to hold down and nothing to roll back to, so it takes the
+	# plain path — this is install.sh's first `remit update`, and it is also why a
+	# manifest version is never adopted silently on a fresh install. Data is what
+	# decides it, not processes: after a `remit down` the databases are still
+	# there, and an update taken from that box migrates them, so it is driven the
+	# same way a live one is. The stack comes up for the gate as part of that,
+	# because a migration nobody watched is exactly what the gate is for.
+	if ! stack_is_running && ! deployment_has_data; then
 		plain_update "$_tag"
 		return 0
 	fi
