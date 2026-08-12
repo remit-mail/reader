@@ -10,6 +10,8 @@ import {
 	clauseSentence,
 	clauseWords,
 	crossAccountMatchReason,
+	crossFolderDestinationReason,
+	crossFolderRuleReason,
 	ESCALATED_MATCH_HINT,
 	ESCALATED_REVIEW_WARNING,
 	escalatedMatchLabel,
@@ -32,6 +34,7 @@ import {
 	type Verb,
 	verbCopy,
 	type WizardDraft,
+	wizardScopeFor,
 } from "./wizard-steps.js";
 
 const VERBS: Verb[] = ["delete", "move", "junk", "markRead", "organize"];
@@ -856,5 +859,52 @@ describe("the match as words", () => {
 			}),
 			"every message",
 		);
+	});
+});
+
+/**
+ * A selection spanning folders of one account was told to pick a single account
+ * (#525) — an instruction a user holding one account's mail cannot follow, so
+ * the flow dead-ended on the folder step with nowhere to go.
+ */
+describe("the restriction a selection walks the wizard with", () => {
+	it("tells a selection spanning folders about folders, not accounts", () => {
+		const scope = wizardScopeFor("acc-personal", "spansFolders");
+		assert.equal(scope.destination, crossFolderDestinationReason);
+		assert.equal(scope.rule, crossFolderRuleReason);
+		assert.match(scope.destination ?? "", /within one folder/);
+		assert.doesNotMatch(scope.destination ?? "", /account/);
+		assert.doesNotMatch(scope.rule ?? "", /account/);
+	});
+
+	it("keeps the account a folder-spanning selection has", () => {
+		// The widened doors are counted through a preview that account answers, so
+		// there is nothing to withhold them for.
+		const scope = wizardScopeFor("acc-personal", "spansFolders");
+		assert.equal(scope.accountId, "acc-personal");
+		assert.deepEqual(
+			[...matchDoorsFor(scope.accountId)],
+			["selected", "similar", "properties"],
+		);
+	});
+
+	it("tells a selection spanning accounts about accounts", () => {
+		const scope = wizardScopeFor(undefined, "spansAccounts");
+		assert.equal(scope.accountId, undefined);
+		assert.match(scope.destination ?? "", /within one account/);
+		assert.match(scope.rule ?? "", /within one account/);
+		assert.deepEqual([...matchDoorsFor(scope.accountId)], ["selected"]);
+	});
+
+	it("restricts a selection with no account whatever it was handed", () => {
+		const scope = wizardScopeFor(undefined, undefined);
+		assert.match(scope.destination ?? "", /within one account/);
+		assert.match(scope.rule ?? "", /within one account/);
+	});
+
+	it("restricts nothing when one account and one folder answer for it", () => {
+		assert.deepEqual(wizardScopeFor("acc-personal", undefined), {
+			accountId: "acc-personal",
+		});
 	});
 });

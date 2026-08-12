@@ -95,7 +95,7 @@ function StarredWizardHost({
 		<SelectionWizardHost
 			verb={verb}
 			selection={selection}
-			crossAccount
+			selectionRestriction="spansAccounts"
 			onFinished={exitSelection}
 		/>
 	);

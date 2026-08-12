@@ -2,8 +2,6 @@ import { mailboxOperationsListMailboxesOptions } from "@remit/api-http-client/@t
 import {
 	type ClauseDraft,
 	type ClauseEditState,
-	crossAccountDestinationReason,
-	crossAccountRuleReason,
 	derivePropertyClauses,
 	deriveSenderClauses,
 	dominantSender,
@@ -14,6 +12,7 @@ import {
 	type RuleClause,
 	type RunState,
 	type SearchConversion,
+	type SelectionRestriction,
 	SelectionWizard,
 	type StepId,
 	searchConversionNotice,
@@ -25,6 +24,7 @@ import {
 	type Verb,
 	type WizardDraft,
 	type WizardMessage,
+	wizardScopeFor,
 } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useBlocker } from "@tanstack/react-router";
@@ -125,8 +125,12 @@ export interface SelectionWizardHostProps {
 	/** Where the selection was made, so a run invalidates the listing it changed. */
 	mailboxId?: string;
 	selection: readonly WizardSelectionMessage[];
-	/** The ticked rows span more than one account, so no rule can be created. */
-	crossAccount?: boolean;
+	/**
+	 * Which scope the ticked rows span more of than the folder and rule steps can
+	 * take. The surface that resolved the selection knows which of the two it is,
+	 * and the wizard states that one (#525).
+	 */
+	selectionRestriction?: SelectionRestriction;
 	/** Present when the selection is a predicate rather than the ticked rows. */
 	escalated?: EscalatedSelection;
 	/**
@@ -257,7 +261,7 @@ function SelectionWizardSession({
 	accountId,
 	mailboxId,
 	selection,
-	crossAccount = false,
+	selectionRestriction,
 	escalated: escalatedSelection,
 	escalatedProgress,
 	searchConversion,
@@ -451,18 +455,16 @@ function SelectionWizardSession({
 
 	// A filter, a folder, and the preview that counts a widened door all belong to
 	// one account, so a selection spanning accounts reaches none of them and is
-	// told so on the step that asks (#477 5.5, #523). The one-off scope and the
-	// ticked rows act on the messages themselves and are unaffected.
-	const accountScoped = !crossAccount && !!accountId;
-	const ruleRestriction = accountScoped ? undefined : crossAccountRuleReason;
-	const folderRestriction = accountScoped
-		? undefined
-		: crossAccountDestinationReason;
+	// told so on the step that asks (#477 5.5, #523). A selection spanning folders
+	// of one account is told about folders instead, and keeps its account: the
+	// preview behind a widened door has something to count against. The one-off
+	// scope and the ticked rows act on the messages themselves and are unaffected.
+	const wizardScope = wizardScopeFor(accountId, selectionRestriction);
 	const restrictionFor = (step: StepId): string | undefined => {
-		if (step === "folder") return folderRestriction;
+		if (step === "folder") return wizardScope.destination;
 		if (step !== "rule") return undefined;
 		return named.scope === "standing" || named.scope === "until"
-			? ruleRestriction
+			? wizardScope.rule
 			: undefined;
 	};
 	const blockedReason =
@@ -940,7 +942,7 @@ function SelectionWizardSession({
 			match={{
 				selectedCount: selection.length,
 				mode,
-				accountId: accountScoped ? accountId : undefined,
+				accountId: wizardScope.accountId,
 				onModeChange: changeMode,
 				semanticUnavailable,
 				semanticErrorDetail:
@@ -977,13 +979,13 @@ function SelectionWizardSession({
 				onSelect: (moveMailboxId) =>
 					setDraft((held) => ({ ...held, moveMailboxId })),
 				onCreateFolder: accountId ? createFolderIn : undefined,
-				restriction: folderRestriction,
+				restriction: wizardScope.destination,
 			}}
 			rule={{
 				draft: named,
 				onScopeChange: (scope) => setDraft((held) => ({ ...held, scope })),
 				onUntilChange: (until) => setDraft((held) => ({ ...held, until })),
-				restriction: ruleRestriction,
+				restriction: wizardScope.rule,
 			}}
 			name={{
 				name: named.name ?? "",
@@ -1056,7 +1058,7 @@ export function SelectionWizardHost(props: SelectionWizardHostProps) {
 							accounts,
 						),
 						selection: EMPTY_SELECTION,
-						crossAccount: false,
+						selectionRestriction: undefined,
 						escalated: undefined,
 						searchConversion: conversion,
 					}

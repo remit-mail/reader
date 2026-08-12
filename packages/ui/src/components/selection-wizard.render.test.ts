@@ -7,6 +7,7 @@ import {
 	matchDoorsFor,
 	stepBlockedReason,
 	stepsFor,
+	wizardScopeFor,
 } from "../lib/wizard-steps.js";
 import {
 	type RuleClause,
@@ -412,6 +413,27 @@ describe("FolderStepBody", () => {
 			createElement(FolderStepBody, { ...folderProps, mailboxId: undefined }),
 		);
 		assert.match(text(html), /Tap a folder to open it/);
+	});
+
+	it("states the restriction the selection actually carries (#525)", () => {
+		// Told to pick a single account, a selection already inside one account has
+		// nothing to act on and the flow dead-ends here.
+		const spansFolders = renderToString(
+			createElement(FolderStepBody, {
+				...folderProps,
+				restriction: wizardScopeFor("acc-personal", "spansFolders").destination,
+			}),
+		);
+		assert.match(text(spansFolders), /within one folder/);
+		assert.doesNotMatch(text(spansFolders), /single account/);
+
+		const spansAccounts = renderToString(
+			createElement(FolderStepBody, {
+				...folderProps,
+				restriction: wizardScopeFor(undefined, "spansAccounts").destination,
+			}),
+		);
+		assert.match(text(spansAccounts), /single account/);
 	});
 });
 

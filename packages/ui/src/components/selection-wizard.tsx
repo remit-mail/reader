@@ -636,9 +636,10 @@ export interface FolderStepProps {
 	/** The account's hierarchy separator, which the tree nests on. */
 	delimiter?: string;
 	/**
-	 * Why there is no folder list to choose from — a selection spanning accounts
-	 * has no single account whose folders these could be (#477 5.5). Said here
-	 * rather than left as an empty picker.
+	 * Why no destination can be chosen — the selection spans more accounts, or
+	 * more folders, than a move can take (#477 5.5, #525). In the words of the
+	 * scope it actually spans, so the instruction is one the user can follow. Said
+	 * here rather than left as an empty picker.
 	 */
 	restriction?: string;
 }
@@ -692,9 +693,10 @@ export interface RuleStepProps {
 	onScopeChange: (scope: RuleScope) => void;
 	onUntilChange: (until: string) => void;
 	/**
-	 * Why the two persisting scopes cannot be reached from here — a selection
-	 * spanning accounts has no single account to create the rule for (#477 5.5).
-	 * They stay pressable and say this; the one-off scope is unaffected.
+	 * Why the two persisting scopes cannot be reached from here — the selection
+	 * spans more accounts, or more folders, than a rule can take (#477 5.5, #525),
+	 * in the words of the scope it actually spans. They stay pressable and say
+	 * this; the one-off scope is unaffected.
 	 */
 	restriction?: string;
 }

@@ -54,6 +54,7 @@ import {
 	partitionSpamResults,
 	RefreshButton,
 	type SearchResult,
+	type SelectionRestriction,
 	SelectionTopBar,
 	SpamResultsOffer,
 	setBriefCategoryInQuery,
@@ -185,6 +186,8 @@ export interface BriefSelectionScope {
 	accountId?: string;
 	/** Source folder, when every selected row shares one. */
 	mailboxId?: string;
+	/** Which scope the selection spans more of than those verbs can take. */
+	restriction?: SelectionRestriction;
 	/** Why folder-scoped verbs are withheld, in the toolbar's own words. */
 	moveDisabledHint?: string;
 }
@@ -214,6 +217,7 @@ export const resolveBriefSelectionScope = (
 	}
 	if (accountIds.size > 1) {
 		return {
+			restriction: "spansAccounts",
 			moveDisabledHint:
 				"Move only works within one account — clear selection or pick messages from a single account",
 		};
@@ -222,6 +226,7 @@ export const resolveBriefSelectionScope = (
 	if (mailboxIds.size > 1) {
 		return {
 			accountId,
+			restriction: "spansFolders",
 			moveDisabledHint: `Move only works within one folder — this selection spans ${mailboxIds.size} folders`,
 		};
 	}
@@ -362,7 +367,7 @@ function BriefSelectionChrome({
 					accountId={scope.accountId}
 					mailboxId={scope.mailboxId}
 					selection={wizardSelection}
-					crossAccount={scope.moveDisabledHint !== undefined}
+					selectionRestriction={scope.restriction}
 					onFinished={exitSelection}
 				/>
 			}

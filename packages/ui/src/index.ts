@@ -989,6 +989,8 @@ export {
 	clauseWords,
 	crossAccountDestinationReason,
 	crossAccountRuleReason,
+	crossFolderDestinationReason,
+	crossFolderRuleReason,
 	ESCALATED_MATCH_HINT,
 	ESCALATED_REVIEW_WARNING,
 	ESCALATED_SCOPE_FALLBACK,
@@ -1006,6 +1008,7 @@ export {
 	type RunState,
 	runCopy,
 	type SampleEmptyReason,
+	type SelectionRestriction,
 	type StepId,
 	sampleEmptyCopy,
 	stepBlockedReason,
@@ -1018,4 +1021,6 @@ export {
 	verbCopy,
 	type WizardAnswers,
 	type WizardDraft,
+	type WizardScope,
+	wizardScopeFor,
 } from "./lib/wizard-steps.js";
