@@ -106,6 +106,11 @@ GATE_SET="queue migrate backend"
 # does not touch.
 GATE_SERVICES="queue backend"
 
+# The one-shots, by name. Exiting is how they succeed, so a list of services
+# checked for what came back after an `up` has to leave them out or read every
+# successful run as a failure.
+ONE_SHOT_SERVICES="migrate volume-init"
+
 die() {
 	printf '%s: %s\n' "$PROG" "$1" >&2
 	exit 1
@@ -121,11 +126,12 @@ Usage: $PROG <command> [args]
   status               Services and the running tag, plus whether the origin
                        resolves to this box and answers, the last update check
                        and the last update's outcome.
-  update [--tag TAG]   Install a release. Against a running stack this is
-                       atomic: the databases are snapshotted while the old
-                       version is still live, the new one has to pass a health
-                       gate before anything is served, and a failure restores
-                       the snapshot and the previous tag.
+  update [--tag TAG]   Install a release. Wherever there is a database on the
+                       volume this is atomic: the databases are snapshotted
+                       before anything is stopped, the new version has to pass
+                       a health gate before anything is served, and a failure
+                       restores the snapshot and the previous tag. A stopped
+                       stack is started to be gated.
   update --check       Check for a newer release and report, changing nothing.
   update --recover     Finish an update that was interrupted, committing or
                        rolling back on the gate's verdict. Runs at the
@@ -1804,8 +1810,41 @@ stack_is_running() {
 	[ "$_n" -gt 0 ]
 }
 
+# Whether this deployment has anything to lose. `remit down` leaves the
+# databases where they are, so process state answers a different question: a
+# stopped box can still hold every account and message on the volume. Read
+# through the same mount the snapshot binds, so both are answering for the same
+# data, and the statement read is the one the rollback depends on — a snapshot
+# without a remit.db in it is what restore_snapshot refuses, so anything else
+# here would route a run into a rollback it cannot perform.
+#
+# 0 is a database with bytes in it, 1 a volume without one, and 2 a probe that
+# did not run at all: no daemon, no image, a timeout. That third answer is not a
+# reading and must never be guessed into one — either guess is wrong, one
+# migrating an unprotected database and the other snapshotting a volume that has
+# nothing on it — so the caller refuses the update instead.
+deployment_data_state() {
+	_dds=0
+	volume_run "set -eu
+if [ -s /data/sqlite/remit.db ]; then exit 0; fi
+exit 3" >/dev/null 2>&1 || _dds=$?
+	case "$_dds" in
+	0) return 0 ;;
+	3) return 1 ;;
+	esac
+	return 2
+}
+
 running_services() {
 	compose ps --services --status running 2>/dev/null | grep -vx updater | tr '\n' ' '
+}
+
+# The always-on stack as the compose file defines it — what an unscoped
+# `compose up -d` starts — minus the updater, which drives the update and
+# replaces itself last. Never a list written out here: one name this project
+# no longer declares refuses the whole `up` it is passed to (reader#412).
+all_services() {
+	compose config --services 2>/dev/null | grep -vx updater | tr '\n' ' '
 }
 
 # --- bind-path identity (reader#272) ----------------------------------------
@@ -1894,10 +1933,27 @@ start_gate_set() {
 	gate_baseline
 }
 
+# `compose up -d` exiting 0 is not the same as the services being there
+# afterwards, and on a box that was down this is the whole always-on stack —
+# caddy included, whose :80 and :443 something else may have taken while the box
+# was stopped. So what came back is read rather than assumed, the way the
+# profile restore reads it.
+#
+# The gate has already spoken by the time this runs and its verdict stands: the
+# tag and the database are in place, and only the app plane is missing. That is
+# exactly the state recover_run's committing branch is written for, so this says
+# which services are missing and points at it. Terminating instead would record
+# a verdict on the update that the gate already answered, and returning non-zero
+# would trip set -e at the call site with nothing said at all.
 start_held_back() {
-	if [ -n "$RUN_SERVICES" ]; then
-		# shellcheck disable=SC2086 # the recorded service list, split on purpose
-		compose up -d $RUN_SERVICES
+	if [ -z "$RUN_SERVICES" ]; then
+		return 0
+	fi
+	# shellcheck disable=SC2086 # the recorded service list, split on purpose
+	compose up -d $RUN_SERVICES || true
+	_held_down=$(stopped_among "$(services_not_in "$RUN_SERVICES" "$ONE_SHOT_SERVICES")")
+	if [ -n "$_held_down" ]; then
+		die "these services did not start: ${_held_down% }. This instance is on $(get_var REMIT_TAG) with its database in place, so nothing is lost — something is holding them down, a port already taken by another process being the usual one. Check '$PROG logs', clear what is in the way, then run '$PROG update --recover' to finish."
 	fi
 }
 
@@ -2037,7 +2093,17 @@ run_update() {
 	RUN_FROM=$(get_var REMIT_TAG)
 	RUN_TARGET=$_target
 	RUN_STARTED=$(iso_now)
+	# What comes back once the gate has spoken. Normally exactly what was running
+	# when the run started, so a service the operator had stopped stays stopped.
+	# A box that was already down has nothing running to hold back, and restoring
+	# nothing would leave it on the gate set alone — queue and backend up, the
+	# origin refusing connections, and the run reporting success. The always-on
+	# stack is where the same command used to leave that box, so that is what is
+	# recorded instead.
 	RUN_SERVICES=$(running_services)
+	if [ -z "$RUN_SERVICES" ]; then
+		RUN_SERVICES=$(all_services)
+	fi
 	RUN_MIGRATE_BEFORE=""
 	mkdir -p "$STATE_DIR"
 
@@ -2162,9 +2228,9 @@ recover_run() {
 
 # --- the command ------------------------------------------------------------
 
-# The legacy path, and still the right one: on a box with nothing running there
-# is no old version to snapshot, nothing to hold down and nothing to roll back
-# to. install.sh's first `remit update` lands here.
+# The legacy path, and still the right one: on a box with no database on its
+# volume there is no old version to snapshot, nothing to hold down and nothing
+# to roll back to. install.sh's first `remit update` lands here.
 plain_update() {
 	_tag=$1
 	# The tag reaches .env only once its images are on the box. Writing it
@@ -2259,13 +2325,27 @@ cmd_update() {
 		REQUESTED_RUN_ID=$(printf '%s\n' "$_request" | sed -n 2p)
 	fi
 
-	# A box with nothing running has no old version to snapshot, nothing to hold
-	# down and nothing to roll back to, so it takes the plain path — this is
-	# install.sh's first `remit update`, and it is also why a manifest version is
-	# never adopted silently on a fresh install.
+	# A box with nothing running and no database on its volume has no old version
+	# to snapshot, nothing to hold down and nothing to roll back to, so it takes
+	# the plain path — this is install.sh's first `remit update`, and it is also
+	# why a manifest version is never adopted silently on a fresh install. Data is
+	# what decides it, not processes: after a `remit down` the databases are still
+	# there, and an update taken from that box migrates them, so it is driven the
+	# same way a live one is. The stack comes up for the gate as part of that,
+	# because a migration nobody watched is exactly what the gate is for.
+	#
+	# A probe that could not run has not said which of the two this box is, and
+	# either guess is wrong, so the update stops here having changed nothing.
 	if ! stack_is_running; then
-		plain_update "$_tag"
-		return 0
+		_data=0
+		deployment_data_state || _data=$?
+		if [ "$_data" = "2" ]; then
+			die "update: the database volume could not be read, so whether this box holds data to protect is unknown and nothing was changed. Check that the docker daemon is responding and that $HELPER_IMAGE can be pulled, then run '$PROG update' again."
+		fi
+		if [ "$_data" = "1" ]; then
+			plain_update "$_tag"
+			return 0
+		fi
 	fi
 
 	if [ -z "$_tag" ] && [ "$CHECK_AVAILABLE" = "true" ]; then

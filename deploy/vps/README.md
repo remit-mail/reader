@@ -364,7 +364,8 @@ hours after. Override the cadence with `REMIT_UPDATE_CHECK_INTERVAL` (seconds);
 the check only reports and never installs.
 
 An update takes the instance offline for a few minutes. Caddy stays up
-throughout and serves 502s. Against a running stack it is atomic, in order:
+throughout and serves 502s. Wherever the volume holds a database it is atomic,
+in order:
 
 1. The manifest at `REMIT_UPDATE_MANIFEST_URL` is fetched and validated. A
    version at or below the running one is refused, as is a manifest naming
@@ -381,7 +382,9 @@ throughout and serves 502s. Against a running stack it is atomic, in order:
 7. The gate: this run's `migrate` exited `0`, every recreated service is up and
    not restarting, every healthcheck reports healthy, and `/health` answers
    three times in a row. 300 seconds, then the update has failed.
-8. On a pass the held-back services start and the update is done.
+8. On a pass the held-back services start and the update is done. Held back is
+   what was running when the run began, so a service you had stopped stays
+   stopped; on a box where nothing was running it is the whole always-on stack.
 9. On a failure the snapshot and the previous tag are restored, the gate runs
    again, and the outcome is `rolledBack`, or `rollbackFailed`.
 
@@ -401,8 +404,13 @@ it at your own HTTPS URL serving the same JSON to hold releases back or run a
 fork.
 
 `--tag` installs any tag directly, published release or not, and takes the same
-gate and the same rollback. On a box with nothing running yet there is no old
-version to snapshot, so it pulls and starts.
+gate and the same rollback. On a box whose volume holds no database yet there is
+no old version to snapshot, so it pulls and starts; that is the first install and
+nothing else. A box stopped with `remit down` still holds its accounts and mail,
+so an update there is snapshotted, gated and rolled back like any other, and the
+stack comes back up serving. A volume that cannot be read at all — a daemon that
+is not answering, an image that will not pull — refuses the update rather than
+guess which of those two a box is, and nothing is changed.
 
 ## Rollback
 

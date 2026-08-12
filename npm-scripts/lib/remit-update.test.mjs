@@ -185,7 +185,9 @@ function sandbox({
 	// each was started from the deployment as it stands on disk — so the next
 	// `up` recreates only what a change to .env or the compose file moves.
 	let seq = 0;
-	for (const svc of `${services} migrate`.split(" ")) {
+	// filter(Boolean): a scenario with no services at all is a box that is down,
+	// and an empty name would seed a container for a service that does not exist.
+	for (const svc of `${services} migrate`.split(" ").filter(Boolean)) {
 		seq += 1;
 		writeFileSync(join(fake, `cid-${svc}`), `c${svc}${seq}`);
 		writeFileSync(join(fake, `svc-c${svc}${seq}`), svc);
@@ -285,6 +287,15 @@ function sandbox({
 			} catch {
 				return "";
 			}
+		},
+		// The services the run left up, read from the stand-in's own state — the
+		// same markers `compose ps --status running` answers from, so this is the
+		// end state an operator's stack would be in.
+		running() {
+			return readdirSync(fake)
+				.filter((f) => f.startsWith("up-"))
+				.map((f) => f.slice("up-".length))
+				.sort();
 		},
 		volumeScripts() {
 			try {
@@ -1492,7 +1503,7 @@ describe("remit status", () => {
 	});
 });
 
-describe("a box with nothing running", () => {
+describe("a box with nothing running and nothing on the volume", () => {
 	it("takes the plain path — there is nothing to snapshot or roll back to", () => {
 		const box = sandbox({ scenario: { probe: "ok", services: "" } });
 		const result = box.run(["update"]);
@@ -1501,6 +1512,130 @@ describe("a box with nothing running", () => {
 		// install.sh's first update must not silently adopt the manifest's
 		// version over the tag it was asked to install.
 		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
+	});
+});
+
+// reader#495. `remit down` leaves the accounts and the mail where they are, so
+// the box that comes back to `remit update` has an old version to snapshot and
+// something to roll back to — everything the plain path is written for the
+// absence of. Routing on running containers sent that update down the plain
+// path, which migrated a real database with no snapshot behind it.
+describe("a stopped box that still holds a database", () => {
+	const box = sandbox({
+		realDb: true,
+		scenario: {
+			probe: "ok",
+			services: "",
+			migrate_exit: 0,
+			target_schema: 9,
+		},
+		manifest: { ...MANIFEST, schemaVersion: 9 },
+	});
+	const result = box.run(["update", "--tag", "v1.6.0"]);
+
+	it("snapshots the database before the migration runs", () => {
+		assert.equal(result.status, 0, result.stderr);
+		const snapshot = box.snapshotDb();
+		assert.equal(schemaTotal(snapshot), 8);
+		assert.equal(hasFilterMoveColumn(snapshot), false);
+	});
+
+	it("commits on the gate's verdict", () => {
+		assert.equal(box.stateJson().run.outcome, "succeeded");
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.6.0");
+		assert.equal(box.liveSchema(), 9);
+	});
+
+	// The end state the same command reached before this branch existed: the
+	// plain path's unscoped `up -d` left the whole always-on stack serving.
+	// Committing on the gate set alone reports success while the origin refuses
+	// connections, and leaves queue and backend up under `unless-stopped` on a
+	// box the operator had taken down.
+	it("leaves the whole always-on stack up, not the gate set alone", () => {
+		assert.deepEqual(box.running(), ALL_SERVICES.split(" ").sort());
+	});
+});
+
+describe("a stopped box whose migration fails", () => {
+	const box = sandbox({
+		realDb: true,
+		scenario: {
+			probe: "ok",
+			services: "",
+			migrate_exit: 1,
+			migrate_exit2: 0,
+		},
+	});
+	box.run(["update", "--tag", "v1.6.0"]);
+
+	it("rolls back rather than leaving .env naming the new tag", () => {
+		assert.equal(box.stateJson().run.outcome, "rolledBack");
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
+		assert.ok(box.log().includes("run restore"), box.log());
+	});
+
+	it("restores the database it snapshotted", () => {
+		assert.deepEqual(box.liveBytes(), readFileSync(box.snapshotDb()));
+		assert.equal(box.liveSchema(), 8);
+	});
+
+	it("leaves the whole always-on stack up on the previous tag", () => {
+		assert.deepEqual(box.running(), ALL_SERVICES.split(" ").sort());
+	});
+});
+
+describe("a stopped box where a held-back service will not start", () => {
+	// Bringing the whole always-on stack back is more than the running-stack path
+	// ever had to do, and caddy binds :80 and :443 — ports something else may have
+	// taken while the box was down. The gate has already passed, so the tag and
+	// the database stand and there is nothing to roll back; what the operator must
+	// not get is a run that goes quiet with the app plane missing.
+	const box = sandbox({
+		realDb: true,
+		scenario: {
+			probe: "ok",
+			services: "",
+			migrate_exit: 0,
+			up_fail: "caddy",
+		},
+	});
+	const result = box.run(["update", "--tag", "v1.6.0"]);
+
+	it("names what did not start and the command that finishes the run", () => {
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /caddy/);
+		assert.match(result.stderr, /update --recover/);
+	});
+
+	it("leaves the run recoverable rather than recording an outcome", () => {
+		assert.equal(box.stateJson().run.outcome, null);
+		assert.match(box.breadcrumb(), /phase=committing/);
+	});
+});
+
+describe("a stopped box whose volume cannot be read", () => {
+	// Neither road is safe from here: the plain path would migrate a database
+	// that may be there with no snapshot, and the atomic path would try to
+	// snapshot one that may not be. install.sh's first `remit update` meets this
+	// on a rate-limited registry or a busy daemon, so it has to say so rather
+	// than pick.
+	const box = sandbox({
+		realDb: true,
+		scenario: { probe: "ok", services: "", data_probe: "fail" },
+	});
+	const result = box.run(["update", "--tag", "v1.6.0"]);
+
+	it("refuses, saying what failed and what to retry", () => {
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /could not be read/);
+		assert.match(result.stderr, /remit update/);
+	});
+
+	it("changes nothing", () => {
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
+		assert.ok(!box.log().includes("compose pull"), box.log());
+		assert.ok(!box.log().includes("run snapshot"), box.log());
+		assert.deepEqual(box.running(), []);
 	});
 });
 
