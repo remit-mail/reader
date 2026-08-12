@@ -39,6 +39,19 @@ const days = datesBetween("2026-06-01", "2026-07-05").map((date) =>
 
 const proposedDay = buildDay(PROPOSED_DATE, seamWeekEvents);
 
+/** The day once the invitation has been answered, as the screen assembles it. */
+const answeredEvents = [
+	...seamWeekEvents,
+	{
+		...invite.proposed,
+		myRsvp: "accepted" as const,
+		status: "confirmed" as const,
+	},
+];
+
+/** A time proposed inside the invitation's own hour, clear of the dentist. */
+const ownHour = spanAt(PROPOSED_DATE, "14:00", "14:15", "+02:00");
+
 function spanAt(date: string, from: string, to: string, offset: string) {
 	return {
 		start: `${date}T${from}:00${offset}`,
@@ -69,7 +82,8 @@ function inEveryZone(body: () => void): void {
 			body();
 		}
 	} finally {
-		process.env.TZ = before;
+		if (before === undefined) delete process.env.TZ;
+		else process.env.TZ = before;
 	}
 }
 
@@ -168,18 +182,32 @@ describe("clashesWith", () => {
 	it("answers the invitation and every proposal as the seam screen did", () => {
 		const spans = [
 			invite.proposed,
+			ownHour,
 			...proposals.map((proposal) =>
 				spanAt(proposal.date, proposal.startTime, proposal.endTime, "+02:00"),
 			),
 		];
 		for (const span of spans) {
 			assert.deepEqual(
-				clashesWith(span, seamWeekEvents, {
-					ignoreIds: ["evt_invite_billing"],
+				clashesWith(span, answeredEvents, {
+					ignoreIds: [invite.proposed.id],
 				}),
-				overlapping(span, seamWeekEvents),
+				overlapping(span, answeredEvents),
 			);
 		}
+	});
+
+	it("keeps an answered invitation out of the verdict on its own hour", () => {
+		assert.deepEqual(
+			clashesWith(ownHour, answeredEvents).map((event) => event.id),
+			[invite.proposed.id],
+		);
+		assert.deepEqual(
+			clashesWith(ownHour, answeredEvents, {
+				ignoreIds: [invite.proposed.id],
+			}),
+			[],
+		);
 	});
 
 	it("leaves the candidate out of its own clash list", () => {
