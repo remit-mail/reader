@@ -256,6 +256,7 @@ function pickAndCheck(worth: "an hour" | "a day") {
 			canvasElement.querySelector<HTMLInputElement>(`[aria-label="${name}"]`);
 		const watch = watchForThrows();
 		try {
+			await gridSettles(canvasElement);
 			clickPoint(freePoint(canvasElement));
 			await waitFor(() => expect(field("Date")).not.toBeNull(), {
 				timeout: 5000,
@@ -430,6 +431,7 @@ export const DragAcrossHours: Story = {
 	play: async ({ canvasElement }) => {
 		const field = (name: string) =>
 			canvasElement.querySelector<HTMLInputElement>(`[aria-label="${name}"]`);
+		await gridSettles(canvasElement);
 		const marks = hourMarks(canvasElement);
 		const { index, point } = reachableHour(canvasElement, marks);
 		const last = marks[index + 3];
@@ -464,6 +466,7 @@ export const DragInsideOneSlot: Story = {
 		/* Open the form first. The grid is rebuilt when the panes rebalance, which
 		   would take any leftover selection with it; what a gesture leaves behind
 		   is only visible on the second one. */
+		await gridSettles(canvasElement);
 		clickPoint(freePoint(canvasElement));
 		await waitFor(() => expect(field("Date")).not.toBeNull(), {
 			timeout: 5000,
@@ -643,6 +646,7 @@ export const PhoneMonth: Story = {
 			Array.from(canvasElement.querySelectorAll("h2"))
 				.map((heading) => heading.textContent?.trim() ?? "")
 				.find((text) => text !== "") ?? "";
+		await gridSettles(canvasElement);
 		const before = showing();
 		const point = freePoint(
 			canvasElement,
