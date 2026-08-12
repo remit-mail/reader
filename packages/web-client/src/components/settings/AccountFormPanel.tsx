@@ -9,6 +9,7 @@ import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.
 import {
 	Button,
 	ComposeLanguageSetting,
+	cn,
 	Input,
 	PasswordInput,
 	Select,
@@ -27,7 +28,6 @@ import {
 	PROVIDER_PRESETS,
 	type ProviderPreset,
 } from "../../lib/provider-presets.js";
-import { cn } from "../../lib/utils";
 import {
 	appendAppPasswordHint,
 	computeSmtpAutoFill,

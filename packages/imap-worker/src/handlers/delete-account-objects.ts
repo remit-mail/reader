@@ -7,12 +7,7 @@ import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type { Logger } from "@remit/logger-lambda";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import { env } from "expect-env";
-
-export interface DeleteAccountObjectsEvent {
-	type: "DELETE_ACCOUNT_OBJECTS";
-	accountConfigId: string;
-	continuationToken?: string;
-}
+import type { DeleteAccountObjectsEvent } from "../events.js";
 
 const s3 = new S3Client({});
 
@@ -39,7 +34,6 @@ export const handleDeleteAccountObjects = async (
 	let currentToken = continuationToken;
 	let totalDeleted = 0;
 
-	// eslint-disable-next-line no-constant-condition
 	while (true) {
 		// Check remaining time before starting a new page
 		if (getRemainingTimeMs && getRemainingTimeMs() < MIN_REMAINING_MS) {

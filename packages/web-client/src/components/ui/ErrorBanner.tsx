@@ -1,5 +1,5 @@
+import { cn } from "@remit/ui";
 import { AlertCircle, AlertTriangle, Info, X } from "lucide-react";
-import { cn } from "../../lib/utils";
 import type {
 	ErrorBannerAction,
 	ErrorBannerSeverity,

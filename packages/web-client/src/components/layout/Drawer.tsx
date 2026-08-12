@@ -1,6 +1,6 @@
+import { cn } from "@remit/ui";
 import { X } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
-import { cn } from "@/lib/utils";
 
 interface DrawerProps {
 	isOpen: boolean;

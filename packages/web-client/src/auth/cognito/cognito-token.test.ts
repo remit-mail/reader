@@ -8,9 +8,7 @@ type AmplifyAuthMocks = {
 };
 
 declare global {
-	// eslint-disable-next-line no-var
 	var __AMPLIFY_AUTH_MOCKS__: AmplifyAuthMocks | undefined;
-	// eslint-disable-next-line no-var
 	var __AMPLIFY_CONFIG_MOCKS__:
 		| { configured: boolean; configureCalls: number }
 		| undefined;

@@ -6,7 +6,6 @@ import { type AuthProvider, noneAuthProvider } from "./provider";
 type RequestFn = (req: Request) => Promise<Request>;
 
 declare global {
-	// eslint-disable-next-line no-var
 	var __REMIT_CLIENT_MOCKS__: { requestFns: RequestFn[] } | undefined;
 }
 

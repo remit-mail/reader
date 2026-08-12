@@ -76,27 +76,6 @@ export const createConnectionScope = (
 };
 
 /**
- * Create a connection scope from account credentials using a password.
- */
-export const createConnectionScopeFromAccount = (
-	account: {
-		username: string;
-		imapHost: string;
-		imapPort: number;
-		imapTls: boolean;
-	},
-	password: string,
-): ConnectionScope => {
-	return createConnectionScope({
-		user: account.username,
-		credentials: { kind: "password", password },
-		host: account.imapHost,
-		port: account.imapPort,
-		tls: account.imapTls,
-	});
-};
-
-/**
  * Create a connection scope from account data and a MailCredentials union.
  * Use this for all handlers that support both password and OAuth accounts.
  */

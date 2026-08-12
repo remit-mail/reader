@@ -4,7 +4,7 @@ import type {
 	RemitImapThreadMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import type { ThreadMessageData } from "@remit/ui";
-import { AddressList, CollapsedMessage, ExpandedMessage } from "@remit/ui";
+import { AddressList, CollapsedMessage, cn, ExpandedMessage } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { BadgeCheck, Paperclip, Star } from "lucide-react";
 import { useState } from "react";
@@ -13,7 +13,6 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { isMessageNotFoundError } from "@/components/ui/error-banners";
 import { toDisplayCategory } from "@/lib/display-category";
 import { formatDatePreset } from "@/lib/format";
-import { cn } from "@/lib/utils";
 import { AutoMovedIndicator } from "./AutoMovedIndicator";
 import { MessageActionMenu } from "./MessageActionMenu";
 import { MessageAttachments } from "./MessageAttachments";

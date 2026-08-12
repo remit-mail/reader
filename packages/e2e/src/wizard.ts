@@ -82,11 +82,3 @@ export const barMove = (page: Page): Locator =>
 
 export const barOrganize = (page: Page): Locator =>
 	page.getByRole("button", { name: "Organize selected messages" });
-
-export const barOverflowVerb = async (
-	page: Page,
-	label: string,
-): Promise<void> => {
-	await page.getByRole("button", { name: "More actions" }).click();
-	await page.getByRole("menuitem", { name: label }).click();
-};

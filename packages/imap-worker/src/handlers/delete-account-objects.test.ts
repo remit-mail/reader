@@ -8,10 +8,8 @@ import {
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import type { Logger } from "@remit/logger-lambda";
 import { mockClient } from "aws-sdk-client-mock";
-import {
-	type DeleteAccountObjectsEvent,
-	handleDeleteAccountObjects,
-} from "./delete-account-objects.js";
+import type { DeleteAccountObjectsEvent } from "../events.js";
+import { handleDeleteAccountObjects } from "./delete-account-objects.js";
 
 const noopLog = {
 	info: () => {},
