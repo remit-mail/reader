@@ -23,7 +23,7 @@
 #   probe2=ok|fail            the same after a restore
 #   restarts=N                RestartCount from the second inspect onwards
 #   services=...              services with a container, space separated
-#   has_data=yes|no           whether the sqlite volume holds a database
+#   data_probe=ok|fail        whether the sqlite volume can be read at all
 #   all_services=...          what `compose config --services` lists
 #   current_schema=N          what the schema read returns (non-real mode)
 #   target_schema=N           the running schema after this run's migrate applies
@@ -146,6 +146,20 @@ recreate() {
 }
 
 svc_of() { cat "$S/svc-$1" 2>/dev/null || printf unknown; }
+
+# Every service that has a container: the scenario's seeded stack and whatever a
+# later `up` created. `ps` has to answer from this rather than from the scenario
+# key, or a run that starts a service the scenario never named leaves no trace
+# any assertion can read — which is how a run that came up on the gate set alone
+# passed for an end state that had the whole stack serving.
+container_services() {
+	for _c in "$S"/cid-*; do
+		[ -f "$_c" ] || continue
+		_n=${_c##*/cid-}
+		[ -n "$_n" ] || continue
+		printf '%s\n' "$_n"
+	done
+}
 
 # Services that exist only while a profile is active. An unscoped `stop`, `down`
 # or `config` walks straight past them; `ps` does not, which is the asymmetry the
@@ -401,8 +415,7 @@ compose_cmd() {
 			# `ps` reports a profile container whether or not the profile is
 			# named — unlike `stop`, `down` and `config`. That asymmetry is why
 			# `remit update` already survived profiles and `remit purge` did not.
-			for _s in $(val services "queue backend caddy web apisix"); do
-				[ -f "$S/cid-$_s" ] || continue
+			for _s in $(container_services); do
 				_st=$(state_of "$_s")
 				case " $_want " in
 				*" $_st "*) printf '%s\n' "$_s" ;;
@@ -428,8 +441,8 @@ compose_cmd() {
 			printf '\n'
 			exit 0
 		fi
-		for _s in $(val services "queue backend caddy web apisix"); do
-			if [ -f "$S/cid-$_s" ] && { [ "$_all" = "1" ] || [ -f "$S/up-$_s" ]; }; then
+		for _s in $(container_services); do
+			if [ "$_all" = "1" ] || [ -f "$S/up-$_s" ]; then
 				cat "$S/cid-$_s"
 				printf '\n'
 			fi
@@ -609,18 +622,20 @@ run_cmd() {
 		printf '%s\n' "$_script"
 	} >>"$S/volume-scripts"
 	case "$_script" in
-	*"for _e in /data/sqlite"*)
-		# Whether the volume holds a database at all, which is what routes a
-		# stopped stack between the plain and the atomic path. 3 is "empty", and
-		# anything else the wrapper reads as data. Real-database mode answers from
-		# the seeded directory; otherwise the scenario says.
+	*"-s /data/sqlite/remit.db"*)
+		# Whether the volume holds a database, which is what routes a stopped stack
+		# between the plain and the atomic path. 0 is a database, 3 an empty volume,
+		# and any other status a probe that never ran — `data_probe=fail` is that
+		# reading, 125 being what docker exits when the run itself fails. Real-
+		# database mode answers from the seeded directory; without one there is no
+		# database anywhere, so the volume is empty.
 		log "run data-probe sqlite=$FR_SQLITE"
+		if [ "$(val data_probe ok)" = "fail" ]; then exit 125; fi
 		if [ "${FAKE_REAL_DB:-0}" = "1" ]; then
 			_dp=0
 			exec_real "$_script" || _dp=$?
 			exit "$_dp"
 		fi
-		if [ "$(val has_data no)" = "yes" ]; then exit 0; fi
 		exit 3
 		;;
 	*__drizzle_migrations*)

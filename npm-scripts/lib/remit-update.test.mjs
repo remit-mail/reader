@@ -185,7 +185,9 @@ function sandbox({
 	// each was started from the deployment as it stands on disk — so the next
 	// `up` recreates only what a change to .env or the compose file moves.
 	let seq = 0;
-	for (const svc of `${services} migrate`.split(" ")) {
+	// filter(Boolean): a scenario with no services at all is a box that is down,
+	// and an empty name would seed a container for a service that does not exist.
+	for (const svc of `${services} migrate`.split(" ").filter(Boolean)) {
 		seq += 1;
 		writeFileSync(join(fake, `cid-${svc}`), `c${svc}${seq}`);
 		writeFileSync(join(fake, `svc-c${svc}${seq}`), svc);
@@ -285,6 +287,15 @@ function sandbox({
 			} catch {
 				return "";
 			}
+		},
+		// The services the run left up, read from the stand-in's own state — the
+		// same markers `compose ps --status running` answers from, so this is the
+		// end state an operator's stack would be in.
+		running() {
+			return readdirSync(fake)
+				.filter((f) => f.startsWith("up-"))
+				.map((f) => f.slice("up-".length))
+				.sort();
 		},
 		volumeScripts() {
 			try {
@@ -1529,10 +1540,19 @@ describe("a stopped box that still holds a database", () => {
 		assert.equal(hasFilterMoveColumn(snapshot), false);
 	});
 
-	it("starts the stack for the gate and commits on its verdict", () => {
+	it("commits on the gate's verdict", () => {
 		assert.equal(box.stateJson().run.outcome, "succeeded");
 		assert.equal(box.dotenv("REMIT_TAG"), "v1.6.0");
 		assert.equal(box.liveSchema(), 9);
+	});
+
+	// The end state the same command reached before this branch existed: the
+	// plain path's unscoped `up -d` left the whole always-on stack serving.
+	// Committing on the gate set alone reports success while the origin refuses
+	// connections, and leaves queue and backend up under `unless-stopped` on a
+	// box the operator had taken down.
+	it("leaves the whole always-on stack up, not the gate set alone", () => {
+		assert.deepEqual(box.running(), ALL_SERVICES.split(" ").sort());
 	});
 });
 
@@ -1557,6 +1577,36 @@ describe("a stopped box whose migration fails", () => {
 	it("restores the database it snapshotted", () => {
 		assert.deepEqual(box.liveBytes(), readFileSync(box.snapshotDb()));
 		assert.equal(box.liveSchema(), 8);
+	});
+
+	it("leaves the whole always-on stack up on the previous tag", () => {
+		assert.deepEqual(box.running(), ALL_SERVICES.split(" ").sort());
+	});
+});
+
+describe("a stopped box whose volume cannot be read", () => {
+	// Neither road is safe from here: the plain path would migrate a database
+	// that may be there with no snapshot, and the atomic path would try to
+	// snapshot one that may not be. install.sh's first `remit update` meets this
+	// on a rate-limited registry or a busy daemon, so it has to say so rather
+	// than pick.
+	const box = sandbox({
+		realDb: true,
+		scenario: { probe: "ok", services: "", data_probe: "fail" },
+	});
+	const result = box.run(["update", "--tag", "v1.6.0"]);
+
+	it("refuses, saying what failed and what to retry", () => {
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /could not be read/);
+		assert.match(result.stderr, /remit update/);
+	});
+
+	it("changes nothing", () => {
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
+		assert.ok(!box.log().includes("compose pull"), box.log());
+		assert.ok(!box.log().includes("run snapshot"), box.log());
+		assert.deepEqual(box.running(), []);
 	});
 });
 

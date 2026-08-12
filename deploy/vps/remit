@@ -1806,27 +1806,40 @@ stack_is_running() {
 }
 
 # Whether this deployment has anything to lose. `remit down` leaves the
-# databases where they are, so process state answers a different question:
-# a stopped box can still hold every account and message on the volume. Read
+# databases where they are, so process state answers a different question: a
+# stopped box can still hold every account and message on the volume. Read
 # through the same mount the snapshot binds, so both are answering for the same
-# data. A volume that is absent, empty, or holds only zero-byte files is a fresh
-# install; anything else on it is data. 3 is the reading "the volume is empty",
-# so a probe that could not run at all — no daemon, no image, a timeout — is
-# data: the wrong answer there costs a snapshot nobody needed, and the other
-# wrong answer migrates an unprotected database.
-deployment_has_data() {
-	_dhd=0
+# data, and the statement read is the one the rollback depends on — a snapshot
+# without a remit.db in it is what restore_snapshot refuses, so anything else
+# here would route a run into a rollback it cannot perform.
+#
+# 0 is a database with bytes in it, 1 a volume without one, and 2 a probe that
+# did not run at all: no daemon, no image, a timeout. That third answer is not a
+# reading and must never be guessed into one — either guess is wrong, one
+# migrating an unprotected database and the other snapshotting a volume that has
+# nothing on it — so the caller refuses the update instead.
+deployment_data_state() {
+	_dds=0
 	volume_run "set -eu
-[ -d /data/sqlite ] || exit 3
-for _e in /data/sqlite/*; do
-  if [ -s \"\$_e\" ]; then exit 0; fi
-done
-exit 3" >/dev/null 2>&1 || _dhd=$?
-	[ "$_dhd" != "3" ]
+if [ -s /data/sqlite/remit.db ]; then exit 0; fi
+exit 3" >/dev/null 2>&1 || _dds=$?
+	case "$_dds" in
+	0) return 0 ;;
+	3) return 1 ;;
+	esac
+	return 2
 }
 
 running_services() {
 	compose ps --services --status running 2>/dev/null | grep -vx updater | tr '\n' ' '
+}
+
+# The always-on stack as the compose file defines it — what an unscoped
+# `compose up -d` starts — minus the updater, which drives the update and
+# replaces itself last. Never a list written out here: one name this project
+# no longer declares refuses the whole `up` it is passed to (reader#412).
+all_services() {
+	compose config --services 2>/dev/null | grep -vx updater | tr '\n' ' '
 }
 
 # --- bind-path identity (reader#272) ----------------------------------------
@@ -2058,7 +2071,17 @@ run_update() {
 	RUN_FROM=$(get_var REMIT_TAG)
 	RUN_TARGET=$_target
 	RUN_STARTED=$(iso_now)
+	# What comes back once the gate has spoken. Normally exactly what was running
+	# when the run started, so a service the operator had stopped stays stopped.
+	# A box that was already down has nothing running to hold back, and restoring
+	# nothing would leave it on the gate set alone — queue and backend up, the
+	# origin refusing connections, and the run reporting success. The always-on
+	# stack is where the same command used to leave that box, so that is what is
+	# recorded instead.
 	RUN_SERVICES=$(running_services)
+	if [ -z "$RUN_SERVICES" ]; then
+		RUN_SERVICES=$(all_services)
+	fi
 	RUN_MIGRATE_BEFORE=""
 	mkdir -p "$STATE_DIR"
 
@@ -2280,17 +2303,27 @@ cmd_update() {
 		REQUESTED_RUN_ID=$(printf '%s\n' "$_request" | sed -n 2p)
 	fi
 
-	# A box with nothing running and nothing on the volume has no old version to
-	# snapshot, nothing to hold down and nothing to roll back to, so it takes the
-	# plain path — this is install.sh's first `remit update`, and it is also why a
-	# manifest version is never adopted silently on a fresh install. Data is what
-	# decides it, not processes: after a `remit down` the databases are still
+	# A box with nothing running and no database on its volume has no old version
+	# to snapshot, nothing to hold down and nothing to roll back to, so it takes
+	# the plain path — this is install.sh's first `remit update`, and it is also
+	# why a manifest version is never adopted silently on a fresh install. Data is
+	# what decides it, not processes: after a `remit down` the databases are still
 	# there, and an update taken from that box migrates them, so it is driven the
 	# same way a live one is. The stack comes up for the gate as part of that,
 	# because a migration nobody watched is exactly what the gate is for.
-	if ! stack_is_running && ! deployment_has_data; then
-		plain_update "$_tag"
-		return 0
+	#
+	# A probe that could not run has not said which of the two this box is, and
+	# either guess is wrong, so the update stops here having changed nothing.
+	if ! stack_is_running; then
+		_data=0
+		deployment_data_state || _data=$?
+		if [ "$_data" = "2" ]; then
+			die "update: the database volume could not be read, so whether this box holds data to protect is unknown and nothing was changed. Check that the docker daemon is responding and that $HELPER_IMAGE can be pulled, then run '$PROG update' again."
+		fi
+		if [ "$_data" = "1" ]; then
+			plain_update "$_tag"
+			return 0
+		fi
 	fi
 
 	if [ -z "$_tag" ] && [ "$CHECK_AVAILABLE" = "true" ]; then
