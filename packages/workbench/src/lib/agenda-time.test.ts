@@ -46,6 +46,33 @@ function spanAt(date: string, from: string, to: string, offset: string) {
 	};
 }
 
+/**
+ * The zones the machine might be in. The hour is what noon UTC reads as there,
+ * asserted so a Node that ignored the switch could not pass the body silently.
+ */
+const ZONES = [
+	{ name: "UTC", hourAtNoonUtc: 12 },
+	{ name: "Pacific/Kiritimati", hourAtNoonUtc: 2 },
+	{ name: "America/Los_Angeles", hourAtNoonUtc: 5 },
+];
+
+function inEveryZone(body: () => void): void {
+	const before = process.env.TZ;
+	try {
+		for (const zone of ZONES) {
+			process.env.TZ = zone.name;
+			assert.equal(
+				new Date("2026-06-11T12:00:00Z").getHours(),
+				zone.hourAtNoonUtc,
+				`the machine never moved to ${zone.name}`,
+			);
+			body();
+		}
+	} finally {
+		process.env.TZ = before;
+	}
+}
+
 function clocks(slots: { startMinute: number; endMinute: number }[]): string[] {
 	return slots.map(
 		(slot) =>
@@ -212,16 +239,30 @@ describe("clashesWith", () => {
 			end: "2026-06-11T18:30:00+05:30",
 		};
 		const home = spanAt("2026-06-11", "14:30", "15:30", "+02:00");
-		assert.deepEqual(
-			clashesWith(home, [abroad]).map((event) => event.id),
-			["evt_abroad"],
-		);
 		const later = spanAt("2026-06-11", "15:00", "16:00", "+02:00");
-		assert.deepEqual(clashesWith(later, [abroad]), []);
+
+		inEveryZone(() => {
+			assert.deepEqual(
+				clashesWith(home, [abroad]).map((event) => event.id),
+				["evt_abroad"],
+			);
+			assert.deepEqual(clashesWith(later, [abroad]), []);
+		});
 	});
 });
 
 describe("slotsIn", () => {
+	it("cuts the same slots out of the same day in every machine zone", () => {
+		inEveryZone(() => {
+			const day = buildDay(PROPOSED_DATE, seamWeekEvents);
+			assert.deepEqual(clocks(slotsIn(freeStretchesOn(day), 30, 3)), [
+				"11:30–12:00",
+				"12:00–12:30",
+				"12:30–13:00",
+			]);
+		});
+	});
+
 	it("offers the day the same half hours the availability column did", () => {
 		const bFree = dayFree(dayBlocks(PROPOSED_DATE, seamWeekEvents));
 		for (const limit of [6, 8]) {
