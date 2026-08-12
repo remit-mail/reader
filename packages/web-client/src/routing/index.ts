@@ -1,8 +1,14 @@
 export {
+	formatOpenPanels,
+	isOverlayPanel,
+	type OverlayPanel,
+	overlayPanels,
 	type PanelFragment,
 	panelFragments,
-	parsePanelFragment,
-	useOpenPanel,
+	parseOpenPanels,
+	retainOpenPanels,
+	useOpenPanels,
+	useSetOpenPanels,
 } from "./fragment";
 export { NavLink, type NavLinkProps } from "./nav-link";
 export {

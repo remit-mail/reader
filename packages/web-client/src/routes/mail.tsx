@@ -27,13 +27,24 @@ import { useMailboxNameIndex } from "@/hooks/useMailboxNameIndex";
 import { useResultFolderIndex } from "@/hooks/useResultFolderIndex";
 import { useStaleAccountSync } from "@/hooks/useStaleAccountSync";
 import { hostsComposeSurface } from "@/lib/compose-routes";
-import { writeIntelligencePref } from "@/lib/intelligence-pref";
+import {
+	readIntelligencePref,
+	resolveRailOpen,
+	writeIntelligencePref,
+} from "@/lib/intelligence-pref";
 import { MailContext } from "@/lib/mail-context";
 import { MailFreshnessProvider } from "@/lib/mail-freshness";
 import { mailViewKey } from "@/lib/mail-route";
 import { buildAccountNameIndex } from "@/lib/search-token-index";
 import { committedSearchQuery, searchInputForView } from "@/lib/search-view";
 import { wizardEntryValue, wizardStepValue } from "@/lib/wizard-history";
+import {
+	isOverlayPanel,
+	type OverlayPanel,
+	useOpenPanels,
+	useOpenThreadPath,
+	useSetOpenPanels,
+} from "@/routing";
 import "@/lib/client";
 
 // `MailContext` / `useMailContext` live in `@/lib/mail-context` so the provider
@@ -79,19 +90,56 @@ function MailLayout() {
 	// tablet with no compose surface (compose lives in the reading pane, which
 	// tablet doesn't mount) — the "c" shortcut / FAB opened nothing.
 	const isSinglePane = isSinglePaneTier(tier);
-	const [showShortcuts, setShowShortcuts] = useState(false);
-	const [drawerOpen, setDrawerOpen] = useState(false);
-	// Pane 4 / the mobile details drawer share this toggle. It starts closed so
-	// the phone never slams a full-screen intelligence drawer over a freshly
-	// opened thread; the DESKTOP route opens it by default with the thread (the
-	// intelligence rail is the product's core value) and honours the persisted
-	// collapse preference there (#782). DKIM-mismatch auto-open still fires on
-	// every tier. Explicit toggles persist the user's choice.
-	const [intelligenceOpen, setIntelligenceOpen] = useState(false);
-	const handleSetIntelligenceOpen = useCallback((open: boolean) => {
-		setIntelligenceOpen(open);
-		writeIntelligencePref(open);
-	}, []);
+	// The panels the address carries (#722): the intelligence rail, the nav
+	// slide-over and the shortcuts sheet. The rail is a pane and the other two
+	// cover it, so the address holds a pane and an overlay at once — a sheet
+	// opening never takes the rail down — while two overlays cannot both be up.
+	const openPanels = useOpenPanels();
+	const setOpenPanels = useSetOpenPanels();
+	const openOverlay = openPanels.find(isOverlayPanel);
+	const showShortcuts = openOverlay === "shortcuts";
+	const drawerOpen = openOverlay === "nav";
+	// Pane 4 on desktop, the details drawer below it. `resolveRailOpen` is the
+	// one place the address and the stored preference meet: the address decides
+	// whenever it says anything at all, and the preference opens the rail with
+	// the thread where it is silent (#782).
+	const openThread = useOpenThreadPath();
+	// Held in state, not read back from storage each render: closing the rail
+	// where the address is silent changes nothing about the address, and the
+	// answer has to move anyway.
+	const [prefersRail, setPrefersRail] = useState(readIntelligencePref);
+	const intelligenceOpen = resolveRailOpen({
+		panels: openPanels,
+		prefersOpen: prefersRail,
+		isDesktop: tier === "desktop",
+		hasThread: openThread !== undefined,
+	});
+	// Every write states the whole set, because it is composed from what is
+	// showing rather than from what the address happens to spell: the rail open
+	// by preference alone is still open, and an overlay must not close it.
+	const showPanels = useCallback(
+		(rail: boolean, overlay: OverlayPanel | undefined) => {
+			setOpenPanels([
+				...(rail ? (["intelligence"] as const) : []),
+				...(overlay ? [overlay] : []),
+			]);
+		},
+		[setOpenPanels],
+	);
+	const handleSetIntelligenceOpen = useCallback(
+		(open: boolean) => {
+			writeIntelligencePref(open);
+			setPrefersRail(open);
+			showPanels(open, openOverlay);
+		},
+		[openOverlay, showPanels],
+	);
+	const showOverlay = useCallback(
+		(overlay: OverlayPanel | undefined) => {
+			showPanels(intelligenceOpen, overlay);
+		},
+		[intelligenceOpen, showPanels],
+	);
 
 	// Within one view, URL `q` seeds the input and is a one-directional write
 	// target: the debounced local value drives the search API and is mirrored
@@ -157,7 +205,7 @@ function MailLayout() {
 		bindings: [
 			{
 				key: "?",
-				handler: () => setShowShortcuts(true),
+				handler: () => showOverlay("shortcuts"),
 				noModifiers: false, // Allow shift+/
 				preventDefault: true,
 			},
@@ -193,12 +241,8 @@ function MailLayout() {
 	}, []);
 
 	const handleToggleIntelligence = useCallback(() => {
-		setIntelligenceOpen((open) => {
-			const next = !open;
-			writeIntelligencePref(next);
-			return next;
-		});
-	}, []);
+		handleSetIntelligenceOpen(!intelligenceOpen);
+	}, [handleSetIntelligenceOpen, intelligenceOpen]);
 
 	const accounts = config?.accounts ?? [];
 	const accountIds = useMemo(
@@ -218,11 +262,12 @@ function MailLayout() {
 	useStaleAccountSync(accounts);
 
 	const handleMailboxSelect = useCallback(() => {
-		// Auto-collapse the mobile drawer after the user picks an inbox
-		// from the sidebar (#199). Desktop sidebar isn't a drawer so the
-		// noop is fine there.
-		setDrawerOpen(false);
-	}, []);
+		// Auto-collapse the mobile drawer after the user picks an inbox from the
+		// sidebar (#199). Above the slide-over the sidebar is a pane, and there is
+		// no overlay of its own to take down.
+		if (openOverlay !== "nav") return;
+		showOverlay(undefined);
+	}, [openOverlay, showOverlay]);
 
 	const mailContextValue = {
 		accounts,
@@ -239,7 +284,6 @@ function MailLayout() {
 		onSearchClearQuery: handleSearchClearQuery,
 		intelligenceOpen,
 		onToggleIntelligence: handleToggleIntelligence,
-		onSetIntelligenceOpen: handleSetIntelligenceOpen,
 	};
 
 	// Single nav node: the kit renders it as a pane (≥1024px) or inside its
@@ -259,8 +303,8 @@ function MailLayout() {
 		// top bar owns compose.
 		overlay: isSinglePane ? <ComposeFab /> : undefined,
 		navOpen: drawerOpen,
-		onOpenNav: () => setDrawerOpen(true),
-		onCloseNav: () => setDrawerOpen(false),
+		onOpenNav: () => showOverlay("nav"),
+		onCloseNav: () => showOverlay(undefined),
 	};
 
 	return (
@@ -284,7 +328,7 @@ function MailLayout() {
 				)}
 				<KeyboardShortcutsModal
 					isOpen={showShortcuts}
-					onClose={() => setShowShortcuts(false)}
+					onClose={() => showOverlay(undefined)}
 				/>
 			</MailFreshnessProvider>
 		</MailContext.Provider>

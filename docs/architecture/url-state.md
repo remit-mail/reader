@@ -14,6 +14,12 @@ Which list, which thread, which message, which surface. A path matches one thing
 
 No identity, no payload, no selection, no focus target. A closed literal union.
 
+A pane and an overlay are not alternatives, so the fragment names the set that is up, comma-separated in the union's own order: `#intelligence,shortcuts`. The intelligence rail is a pane in the shell's row; the nav slide-over and the shortcuts sheet cover it, and a sheet opening must never unmount the pane underneath it. Two overlays cannot both be up, because the second hides the first.
+
+Panels are written by `replace`: chrome over the current view is not a place, so Back belongs to the message the reader came from. A navigation drops the fragment unless the destination asks for it, which is the distinction between a pane a reader takes with them and an overlay that going somewhere dismisses: `NavLink` and the thread-open calls carry the panes, the slide-over and the sheet are left behind, and the search mirror keeps everything because a query does not leave the view.
+
+A device preference may seed a panel, never own it. The address decides whenever it names anything at all, and the preference speaks only where the address is silent (`resolveRailOpen`) — otherwise a shared link arrives and the recipient's own preference overwrites the panel it was sent to show.
+
 ## R4. One owner per fact
 
 If it is in the path it is not in the query, and anything derivable from the path is not stored at all. A query param that compensates for a missing path segment is the smell, and the segment is the fix.
@@ -26,7 +32,7 @@ Anything mutually exclusive is a path segment, because sibling routes cannot bot
 
 A modal carrying a transient selection never goes in the fragment: `#confirm-delete` reloads into "Move 12 messages to Trash" with an empty selection. Test: if the overlay's own copy is computed from in-memory data, it is not URL state at any tier.
 
-Qualifies for the fragment: the intelligence rail, the nav slide-over, the shortcuts sheet, and the filter sheet's open/closed state (its values are query). Does not qualify: the bulk-delete confirm, the move picker, row action menus, the selection wizard's selection, the self-update overlay, the fatal-error and quarantine dialogs, the delete-account, folder and label confirms, and the compose discard confirm.
+Qualifies for the fragment: the intelligence rail, the nav slide-over and the shortcuts sheet, which the union names, and the filter sheet's open/closed state (its values are query) once something reads it — a name in the union with no renderer behind it is a panel that opens nothing. Does not qualify: the bulk-delete confirm, the move picker, row action menus, the selection wizard's selection, the self-update overlay, the fatal-error and quarantine dialogs, the delete-account, folder and label confirms, and the compose discard confirm.
 
 ## R7. One schema
 

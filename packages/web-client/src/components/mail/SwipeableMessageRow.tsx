@@ -10,6 +10,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { toDisplayCategory } from "@/lib/display-category";
 import { formatEmailDate } from "@/lib/format";
+import { retainOpenPanels } from "@/routing";
 import { MessageListItem } from "./MessageListItem";
 import { useModifierSelect } from "./useModifierSelect";
 
@@ -105,6 +106,7 @@ export const SwipeableMessageRow = ({
 				messageId: thread.messageId,
 			},
 			search: (prev) => prev,
+			hash: retainOpenPanels,
 		});
 	}, [navigate, mailboxId, thread.threadId, thread.messageId]);
 

@@ -41,6 +41,7 @@ import { FileText, Inbox, Trash2 } from "lucide-react";
 import { useMemo } from "react";
 import { useCompose } from "@/components/compose/ComposeProvider";
 import { groupDraftSections } from "@/lib/drafts";
+import { retainOpenPanels } from "@/routing";
 import { NavMenuButton } from "./NavMenuButton";
 
 // ---------------------------------------------------------------------------
@@ -197,6 +198,7 @@ export function DraftsView({
 			to: "/mail/$mailboxId/$threadId/$messageId",
 			params: { mailboxId, threadId, messageId },
 			search: (prev) => prev,
+			hash: retainOpenPanels,
 		});
 	};
 

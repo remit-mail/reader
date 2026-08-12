@@ -22,6 +22,8 @@ export const KeyboardShortcutsModal = ({
 		(event: KeyboardEvent) => {
 			if (event.key === "Escape") {
 				event.preventDefault();
+				event.stopPropagation();
+				event.stopImmediatePropagation();
 				onClose();
 			}
 		},
@@ -30,8 +32,11 @@ export const KeyboardShortcutsModal = ({
 
 	useEffect(() => {
 		if (!isOpen) return;
-		window.addEventListener("keydown", handleKeyDown);
-		return () => window.removeEventListener("keydown", handleKeyDown);
+		// Capture phase, as `ConfirmDialog` does: the sheet is the topmost surface,
+		// so Escape dismisses it and nothing else. Shared with the list's own
+		// Escape, the one keystroke also closed the conversation underneath.
+		window.addEventListener("keydown", handleKeyDown, true);
+		return () => window.removeEventListener("keydown", handleKeyDown, true);
 	}, [isOpen, handleKeyDown]);
 
 	if (!isOpen) return null;

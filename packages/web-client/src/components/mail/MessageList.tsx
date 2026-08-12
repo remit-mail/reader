@@ -53,6 +53,7 @@ import { listVerbRequest } from "@/lib/list-verb-request";
 import { shouldExitSelectionOnNavigate } from "@/lib/selection-mode";
 import { cn } from "@/lib/utils";
 import { useSelectionWizard, useWizardStepValue } from "@/lib/wizard-history";
+import { retainOpenPanels } from "@/routing";
 import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import {
 	type EscalatedSelection,
@@ -634,6 +635,7 @@ export const MessageList = ({
 				to: "/mail/$mailboxId/$threadId/$messageId",
 				params: { mailboxId, threadId, messageId },
 				search: (prev) => prev,
+				hash: retainOpenPanels,
 				replace: options?.replace,
 			});
 		},

@@ -35,7 +35,7 @@ import {
 	type ThreadListSnapshotEntry,
 	threadListCacheKeys,
 } from "@/lib/thread-list-cache";
-import { useOpenThreadPath } from "@/routing";
+import { retainOpenPanels, useOpenThreadPath } from "@/routing";
 import { MoveToTrigger } from "./MoveToTrigger";
 
 interface ThreadMessagesData {
@@ -193,6 +193,7 @@ export const MessageActionMenu = ({
 				to: "/mail/$mailboxId",
 				params: { mailboxId },
 				search: (prev) => prev,
+				hash: retainOpenPanels,
 			});
 		},
 		[selectedMessageId, mailboxId, navigate],
