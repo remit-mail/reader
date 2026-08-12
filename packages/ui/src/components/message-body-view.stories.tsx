@@ -1,5 +1,6 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
-import { MessageBodyRegion, MessageBodyView } from "./message-body-view.js";
+import { MessageBodyView } from "./message-body-view.js";
+import { ExpandedMessage } from "./reading-pane.js";
 
 /**
  * `MessageBodyView` is the single source of truth for rendering an email body:
@@ -153,15 +154,27 @@ const PHONE: Decorator = (Story) => (
 	</div>
 );
 
-// The reading pane's own arrangement: the pane's canvas, the message gutter,
-// and the sandboxed frame running out of that gutter — the real
-// `MessageBodyRegion` the pane uses, not a restatement of it that could drift.
-// Any seam between the email's ground and the pane around it shows up here.
+// The message the pane puts the body under. Only the header reads it — the body
+// is the story.
+const PANE_MESSAGE = {
+	id: "pane-1",
+	fromName: "Ingrid Bakker",
+	fromEmail: "ingrid@example.com",
+	toLabel: "the choir list",
+	dateLabel: "Today, 20:04",
+	snippet: "De repetitie van donderdag gaat door.",
+	bodyHtml: "",
+};
+
+// The reading pane's own arrangement, composed from the component that owns it:
+// the pane's canvas, the message gutter and the sandboxed frame running back out
+// of that gutter. The story states the pane's width and nothing else — the
+// inset, and the cancel that matches it, stay in `ExpandedMessage` where the app
+// reads them from. Any seam between the email's ground and the pane around it
+// shows up here.
 const PANE: Decorator = (Story) => (
-	<div className="w-[720px] bg-canvas px-2 py-3 lg:px-4">
-		<MessageBodyRegion>
-			<Story />
-		</MessageBodyRegion>
+	<div className="w-[720px] bg-canvas">
+		<ExpandedMessage message={PANE_MESSAGE} body={<Story />} />
 	</div>
 );
 
