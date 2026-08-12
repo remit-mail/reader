@@ -1,33 +1,24 @@
 import { useLocation } from "@tanstack/react-router";
 import { Pencil } from "lucide-react";
-import { useCallback } from "react";
-import { useCompose } from "@/components/compose/ComposeProvider";
 import { locationOpensDetail } from "@/lib/mail-route";
+import { useOpenCompose } from "@/routing";
 
 /**
  * Floating Action Button for composing a new message. Mobile-only.
  *
  * Layout follows Material 3: 56×56 surface, 16px from the right and
- * bottom edges (plus the iOS safe-area inset). Hidden when any of:
+ * bottom edges (plus the iOS safe-area inset). Hidden when either:
  *   - Viewport is `≥ lg` (1024px), where the top bar owns compose. The
  *     `/mail` shell also stops mounting the FAB above that width; the
  *     `lg:hidden` class covers the pre-hydration frame.
- *   - The compose surface is already open.
- *   - The user is reading a thread — the single pane is the conversation, and
- *     its reply bar is under this corner. Every list says so in its path.
- *   - The user is off `/mail`, which is every route with no mail in it.
+ *   - The single pane has something open — a conversation, or compose itself.
+ *     Every list says so in its path.
  */
 export const ComposeFab = () => {
-	const { state, openCompose } = useCompose();
+	const compose = useOpenCompose();
 	const location = useLocation();
-	const compose = useCallback(() => {
-		openCompose({ mode: "new" });
-	}, [openCompose]);
 
-	const isReadingThread = locationOpensDetail(location.pathname);
-
-	if (!location.pathname.startsWith("/mail") || state.isOpen || isReadingThread)
-		return null;
+	if (locationOpensDetail(location.pathname)) return null;
 
 	return (
 		<button

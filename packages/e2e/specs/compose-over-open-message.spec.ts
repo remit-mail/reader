@@ -6,10 +6,14 @@ import { expect, test } from "../src/fixtures.js";
 import { INBOX_LIST, listOnScreen } from "../src/lists.js";
 import {
 	BRIEF_URL,
+	COMPOSE_URL,
 	MAILBOX_ROW_LINK,
 	MAILBOX_THREAD_URL,
 	MAILBOX_URL,
 } from "../src/urls.js";
+
+/** The brief's own compose surface, so a spec can say which list mounted it. */
+const BRIEF_COMPOSE_URL = /\/mail\/brief\/compose(\?|$)/;
 
 test.describe("Compose over an open message", () => {
 	test.setTimeout(120_000);
@@ -45,7 +49,7 @@ test.describe("Compose over an open message", () => {
 		// The pane shows one thing, and the URL says the same: the thread is closed
 		// rather than sitting behind the surface waiting to reappear.
 		await expect(page.getByRole("article")).toBeHidden();
-		await page.waitForURL((url) => !MAILBOX_THREAD_URL.test(url.pathname));
+		await page.waitForURL(COMPOSE_URL);
 
 		// Whole and settled, writing surface included, before anything else is
 		// typed. Where the caret sits inside it is the composer's own business.
@@ -79,15 +83,13 @@ test.describe("Compose over an open message", () => {
 });
 
 /**
- * The daily brief cannot mount the compose surface, so a compose started there
- * is carried to a mailbox that can.
+ * Every list mounts the surface now, so a compose started on the brief stays on
+ * the brief. What is left to pin is what the old carry-to-a-mailbox workaround
+ * was hiding: nothing survives the navigation away from it.
  */
-test.describe("Compose off a route that cannot mount it", () => {
+test.describe("Compose off the daily brief", () => {
 	test.setTimeout(120_000);
 
-	// The folder list has to be there before the press: with no mailbox resolved
-	// there is nowhere to open the message, and the press says so rather than
-	// being remembered until one turns up.
 	const brief = async (page: import("@playwright/test").Page) => {
 		await page.goto("/mail");
 		const sidebar = page.getByRole("navigation", {
@@ -101,25 +103,21 @@ test.describe("Compose off a route that cannot mount it", () => {
 		return sidebar;
 	};
 
-	test("c on the daily brief lands in a mailbox with the surface open", async ({
-		page,
-	}) => {
+	test("c opens the surface where it was pressed", async ({ page }) => {
 		await brief(page);
 
 		await page.keyboard.press("c");
 
-		await page.waitForURL(MAILBOX_URL);
+		await page.waitForURL(BRIEF_COMPOSE_URL);
 		await expect(page.getByPlaceholder("Recipients")).toBeVisible({
 			timeout: 30_000,
 		});
 	});
 
-	// Walking back off the mailbox used to leave compose open behind a view that
-	// cannot show it, and the surface then appeared unannounced on the next
-	// mailbox the user opened.
-	test("walking back off the mailbox leaves nothing queued", async ({
-		page,
-	}) => {
+	// Walking off the surface used to leave compose open behind a view that
+	// cannot show it, and it then appeared unannounced on the next mailbox the
+	// user opened. Leaving the route is now the whole of closing it.
+	test("walking off it leaves nothing queued", async ({ page }) => {
 		const sidebar = await brief(page);
 		const recipients = page.getByPlaceholder("Recipients");
 

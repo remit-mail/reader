@@ -26,6 +26,13 @@ export const BRIEF_THREAD_URL = /\/mail\/brief\/[^/?#]+/;
 /** The same, for a conversation open in the flagged list. */
 export const FLAGGED_THREAD_URL = /\/mail\/flagged\/[^/?#]+/;
 
+/**
+ * The compose surface, over whichever list it was opened from, with or without
+ * the draft it is writing to. It is a segment too: what the pane shows is what
+ * the address names, and what it is editing is the segment under that.
+ */
+export const COMPOSE_URL = /\/mail\/[^/?#]+\/compose(\/[^/?#]+)?(\?|$)/;
+
 /** The outbox with a message open. Also a segment, for the same reason. */
 export const OUTBOX_MESSAGE_URL = /\/mail\/outbox\/draft\/[^/?#]+/;
 

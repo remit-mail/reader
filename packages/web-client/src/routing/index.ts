@@ -1,4 +1,12 @@
 export {
+	useAdoptComposeDraft,
+	useCloseCompose,
+	useComposeDraftId,
+	useEditDraft,
+	useIsComposing,
+	useOpenCompose,
+} from "./compose";
+export {
 	formatOpenPanels,
 	isOverlayPanel,
 	type OverlayPanel,

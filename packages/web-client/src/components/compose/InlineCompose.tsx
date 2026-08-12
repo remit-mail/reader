@@ -2,6 +2,7 @@ import type {
 	RemitImapAccountResponse,
 	RemitImapDescribeMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
+import { useState } from "react";
 import { ComposeForm } from "./ComposeForm";
 import type { ComposeMode } from "./ComposeProvider";
 
@@ -24,14 +25,23 @@ export const InlineCompose = ({
 	account,
 	sourceMessage,
 	onClose,
-}: InlineComposeProps) => (
-	<div className="border-b border-line bg-canvas">
-		<ComposeForm
-			layout="flow"
-			mode={mode}
-			account={account}
-			sourceMessage={sourceMessage}
-			onClose={onClose}
-		/>
-	</div>
-);
+}: InlineComposeProps) => {
+	// The reply's draft lives and dies with the reply. It is not addressable yet
+	// — that is the `$mode` child route (#720) — so it is held here, where the
+	// composer is, rather than anywhere a later composer could read it back.
+	const [outboxMessageId, setOutboxMessageId] = useState<string>();
+
+	return (
+		<div className="border-b border-line bg-canvas">
+			<ComposeForm
+				layout="flow"
+				mode={mode}
+				account={account}
+				sourceMessage={sourceMessage}
+				outboxMessageId={outboxMessageId}
+				onDraftCreated={setOutboxMessageId}
+				onClose={onClose}
+			/>
+		</div>
+	);
+};

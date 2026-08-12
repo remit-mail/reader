@@ -131,6 +131,34 @@ describe("mailViewKey", () => {
 		}
 	});
 
+	// Same trap one surface over: compose is a child of the list, and a key that
+	// moved when it opened would wipe the query the reader was mid-search on.
+	it("gives a list and its compose surface the same key", () => {
+		assert.equal(
+			mailViewKey(
+				matches([
+					MAIL_BRIEF_ROUTE_ID,
+					`${MAIL_BRIEF_ROUTE_ID}/compose/{-$outboxMessageId}`,
+				]),
+			),
+			mailViewKey(brief),
+		);
+		assert.equal(
+			mailViewKey(
+				matches(
+					[
+						MAIL_MAILBOX_ROUTE_ID,
+						`${MAIL_MAILBOX_ROUTE_ID}/compose/{-$outboxMessageId}`,
+					],
+					{
+						mailboxId: "inbox-1",
+					},
+				),
+			),
+			mailViewKey(mailbox),
+		);
+	});
+
 	it("gives a list and its reading-pane index child the same key", () => {
 		assert.equal(
 			mailViewKey(matches([MAIL_BRIEF_ROUTE_ID, `${MAIL_BRIEF_ROUTE_ID}/`])),
@@ -157,7 +185,7 @@ describe("locationIsOnList", () => {
 		);
 		assert.equal(locationIsOnList("/mail/brief/", "/mail/brief"), true);
 		assert.equal(
-			locationIsOnList("/mail/inbox-1/compose", "/mail/inbox-1"),
+			locationIsOnList("/mail/inbox-1/compose/ob-1", "/mail/inbox-1"),
 			true,
 		);
 	});
@@ -189,6 +217,12 @@ describe("locationOpensDetail", () => {
 		assert.equal(locationOpensDetail("/mail/brief/thread-1"), true);
 		assert.equal(locationOpensDetail("/mail/brief/thread-1/message-1"), true);
 		assert.equal(locationOpensDetail("/mail/inbox-1/thread-1"), true);
+	});
+
+	it("is true for the compose surface, which the FAB must not sit over", () => {
+		assert.equal(locationOpensDetail("/mail/brief/compose"), true);
+		assert.equal(locationOpensDetail("/mail/inbox-1/compose"), true);
+		assert.equal(locationOpensDetail("/mail/inbox-1/compose/ob-1"), true);
 	});
 
 	it("is false on a bare list, trailing slash and query included", () => {

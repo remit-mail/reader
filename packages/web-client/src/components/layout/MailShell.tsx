@@ -1,6 +1,8 @@
 import { AppShellSlotted } from "@remit/ui";
 import { createContext, type ReactNode, useContext } from "react";
+import { FullCompose } from "@/components/compose/FullCompose";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
+import { useIsComposing } from "@/routing";
 
 /**
  * The chrome every list shares, published by the `/mail` layout and consumed by
@@ -53,6 +55,11 @@ export interface MailShellProps {
  * Below the reading boundary the shell is one pane and takes `phone`, which
  * swaps between the list and whatever is open in place. Above it the panes sit
  * side by side and the reading and intelligence slots are filled.
+ *
+ * Compose is the one surface the single pane cannot take from the `Outlet`,
+ * because at this width there is no reading slot to fill. It is read off the
+ * address here rather than in each list's phone view, so the four lists cannot
+ * disagree about it.
  */
 export function MailShell({
 	phone,
@@ -62,6 +69,7 @@ export function MailShell({
 	hasThread = false,
 }: MailShellProps) {
 	const chrome = useContext(MailShellCtx);
+	const isComposing = useIsComposing();
 	if (!chrome) return <AppShellSkeleton />;
 
 	const shared = {
@@ -78,7 +86,7 @@ export function MailShell({
 		return (
 			<AppShellSlotted
 				{...shared}
-				list={phone}
+				list={isComposing ? <FullCompose /> : phone}
 				intelligenceOpen={chrome.intelligenceOpen}
 			/>
 		);

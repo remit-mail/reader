@@ -95,7 +95,8 @@ export function locationIsOnList(pathname: string, listPath: string): boolean {
 
 /**
  * Whether the address names something the list has open below it — a thread, a
- * message. A list on its own, and its bare reading pane, do not.
+ * message, the compose surface. A list on its own, and its bare reading pane,
+ * do not.
  *
  * Answers what an open thread used to be asked of the query. Anything sharing
  * the single pane with the conversation reads it from here rather than keeping a

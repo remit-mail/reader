@@ -18,7 +18,6 @@ import {
 	ComposeSubjectField,
 	composeHeaderSummary,
 	defaultComposeLanguages,
-	EMPTY_RICH_TEXT,
 	modeOfDraft,
 	QuotedText,
 	type RichTextValue,
@@ -66,6 +65,15 @@ interface ComposeFormProps {
 	mode: ComposeMode;
 	account?: RemitImapAccountResponse;
 	sourceMessage?: RemitImapDescribeMessageResponse;
+	/**
+	 * The draft this composer writes to. Absent until there is one, and owned by
+	 * whoever mounted the form — the address for the compose route, the inline
+	 * composer's own state for a reply. A composer that read it from somewhere
+	 * shared would open on the last draft any other composer touched.
+	 */
+	outboxMessageId?: string;
+	/** The draft the first autosave created, for the owner to record. */
+	onDraftCreated: (outboxMessageId: string) => void;
 	onClose: () => void;
 	onAccountChange?: (account: RemitImapAccountResponse) => void;
 	/**
@@ -93,6 +101,18 @@ const buildInitialHtml = (signaturePlainText: string): string => {
 	if (!signaturePlainText) return "";
 	return `<p></p><p>-- </p>${textToHtml(signaturePlainText)}`;
 };
+
+/**
+ * The document a new message opens on. One definition, because a form that
+ * starts a second message without remounting has to open on the same thing the
+ * first one did.
+ */
+const freshDocument = (
+	signaturePlainText: string,
+): { html: string; text: string } => ({
+	html: buildInitialHtml(signaturePlainText),
+	text: signaturePlainText,
+});
 
 const buildReplySubject = (subject?: string): string => {
 	if (!subject) return "Re: ";
@@ -306,13 +326,14 @@ export const ComposeForm = ({
 	mode,
 	account,
 	sourceMessage,
+	outboxMessageId,
+	onDraftCreated,
 	onClose,
 	onAccountChange,
 	layout = "fill",
 }: ComposeFormProps) => {
-	const { state, setOutboxMessageId, startSendPolling } = useCompose();
+	const { startSendPolling } = useCompose();
 	const { pushError } = useErrorBanners();
-	const { outboxMessageId } = state;
 
 	const [toAddresses, setToAddresses] = useState<AddressEntry[]>([]);
 	const [ccAddresses, setCcAddresses] = useState<AddressEntry[]>([]);
@@ -324,46 +345,67 @@ export const ComposeForm = ({
 		account?.accountId,
 	);
 	const [draftLoaded, setDraftLoaded] = useState(false);
+	/**
+	 * The document the fields on screen belong to. It trails `outboxMessageId`
+	 * for one commit whenever the document changes, and autosave has to sit that
+	 * commit out — the fields still hold the message that has just been left.
+	 */
+	const [openDocumentId, setOpenDocumentId] = useState(outboxMessageId);
 	const smtpConfigureRef = useRef<HTMLButtonElement>(null);
 	const prevOutboxMessageIdRef = useRef<string | undefined>(outboxMessageId);
 
-	// Reset form when the user switches to a different draft (outboxMessageId
-	// changes while compose is already open). Without this, the previous draft's
-	// fields stay visible and the new draft never loads because draftLoaded
-	// remains true from the prior session (#536).
+	// The document this form is on changed under it, so it starts again: another
+	// draft, or no draft at all. Without this the previous one's fields stay on
+	// screen and the new one never loads, because `draftLoaded` is still true
+	// from the session before (#536).
 	//
-	// A first autosave also sets the id, from nothing to the draft it just
-	// created. That is this session's own content arriving back, not a switch to
-	// somebody else's document, and blanking the form there would throw away
-	// whatever is being typed.
+	// "No draft at all" is Compose pressed while already composing — the address
+	// drops the draft segment and the same route stays matched, so nothing
+	// remounts the form. Leaving it alone there showed the old message under an
+	// address that said new one, and the next autosave took the create branch
+	// and wrote a second draft holding the first one's content.
+	//
+	// The one change that is not a different document is the first autosave
+	// adopting the id it just created. That is this session's own content coming
+	// back, and blanking the form there would throw away what is being typed.
 	useEffect(() => {
 		const previous = prevOutboxMessageIdRef.current;
 		if (previous === outboxMessageId) return;
 		prevOutboxMessageIdRef.current = outboxMessageId;
-		if (!outboxMessageId || previous === undefined) return;
+		if (previous === undefined) return;
+		// A draft brings its own body along in a moment; a new message opens on
+		// the signature, the same document a fresh mount would have started on.
+		const opening = outboxMessageId
+			? { html: "", text: "" }
+			: freshDocument(signatureRef.current);
 		setToAddresses([]);
 		setCcAddresses([]);
 		setBccAddresses([]);
 		setSubject("");
 		setShowCc(false);
 		setShowBcc(false);
-		setInitialHtml("");
-		setInitialText("");
+		setInitialHtml(opening.html);
+		setInitialText(opening.text);
 		setBodyMode("rich");
 		setDraftLanguage(undefined);
-		setBody(EMPTY_RICH_TEXT);
+		setBody({ ...opening, formatting: [] });
 		setDocumentGeneration((generation) => generation + 1);
 		setDraftLoaded(false);
+		setOpenDocumentId(outboxMessageId);
 	}, [outboxMessageId]);
 
 	const { signature } = useSignature(selectedAccountId);
+	// Read when a new message starts, never depended on: a signature arriving is
+	// not a reason to reopen the document somebody is typing in.
+	const signatureRef = useRef(signature.plainText);
+	signatureRef.current = signature.plainText;
 	// The editor reads its document once, so this is the document it opens on,
 	// not the live value, and it is remounted when the generation changes. Only
 	// loading a different document bumps that — remounting mid-compose would take
 	// the caret, the focus and the undo history with it.
 	const [documentGeneration, setDocumentGeneration] = useState(0);
-	const [initialHtml, setInitialHtml] = useState(() =>
-		buildInitialHtml(signature.plainText),
+	const [initialHtml, setInitialHtml] = useState(
+		() => freshDocument(signature.plainText).html,
 	);
 	const [initialText, setInitialText] = useState(signature.plainText);
 	const [bodyMode, setBodyMode] = useState<ComposeBodyMode>("rich");
@@ -373,8 +415,7 @@ export const ComposeForm = ({
 	const [composeLanguage, setComposeLanguage] = useState("en");
 	const [draftLanguage, setDraftLanguage] = useState<string | undefined>();
 	const [body, setBody] = useState<RichTextValue>(() => ({
-		html: buildInitialHtml(signature.plainText),
-		text: signature.plainText,
+		...freshDocument(signature.plainText),
 		formatting: [],
 	}));
 
@@ -475,9 +516,14 @@ export const ComposeForm = ({
 	const adoptCreatedDraft = useCallback(
 		(createdId: string) => {
 			setDraftLoaded(true);
-			setOutboxMessageId(createdId);
+			// What is on screen is what was just written, so the fields belong to
+			// the new draft the moment it exists — before the id has travelled out
+			// through the address and back. Waiting for that would hold the next
+			// autosave, and the last thing typed before a pause would not be saved.
+			setOpenDocumentId(createdId);
+			onDraftCreated(createdId);
 		},
-		[setOutboxMessageId],
+		[onDraftCreated],
 	);
 
 	const { saveStatus, saveError, saveDraft, saveImmediately, stopAutoSave } =
@@ -578,10 +624,15 @@ export const ComposeForm = ({
 
 	useEffect(() => {
 		if (!selectedAccountId) return;
-		// Don't autosave while a draft is still being loaded. The fields are mid-
-		// population when opening an existing draft, or have just been blanked for
-		// a draft switch (#535/#536). Saving now would either write the previous
-		// draft's content to the new outboxMessageId or create a spurious duplicate.
+		// Don't autosave a document the fields are no longer on. They trail the
+		// address by a commit whenever it changes, so writing here sends the
+		// message just left to whatever the address now names — the previous
+		// draft's content onto the next draft, or, with no draft named at all, a
+		// spurious second one holding it (#535/#536).
+		if (openDocumentId !== undefined && openDocumentId !== outboxMessageId)
+			return;
+		// Nor one still arriving: opening an existing draft leaves the fields
+		// mid-population until the read lands.
 		if (outboxMessageId && !draftLoaded) return;
 		if (isFormEmpty(toAddresses, ccAddresses, bccAddresses, subject, body))
 			return;
@@ -606,6 +657,7 @@ export const ComposeForm = ({
 	}, [
 		selectedAccountId,
 		outboxMessageId,
+		openDocumentId,
 		draftLoaded,
 		toAddresses,
 		ccAddresses,

@@ -23,6 +23,7 @@ import { expect, test } from "../src/fixtures.js";
 import {
 	BRIEF_THREAD_URL,
 	BRIEF_URL,
+	COMPOSE_URL,
 	FLAGGED_THREAD_URL,
 	MAILBOX_ROW_LINK,
 	MAILBOX_THREAD_URL,
@@ -334,6 +335,63 @@ test.describe("An outbox message lives in the address (#713)", () => {
 			timeout: 30_000,
 		});
 	});
+
+	// Editing a draft used to set the compose flag on `/mail/outbox`, where
+	// nothing mounted the surface: the press did nothing at all (#719).
+	test("editing a draft opens the composer on the outbox itself", async ({
+		api,
+		page,
+		run,
+	}) => {
+		await seedOutboxMessage(api, run.accountId);
+
+		await page.goto("/mail/outbox");
+		await outboxRow(page, subject).hover({ timeout: 30_000 });
+		await page.getByRole("button", { name: "Edit as draft" }).first().click();
+
+		// The message it opened on is the one that was edited, so the subject is
+		// what says the surface arrived rather than a placeholder any composer has.
+		const subjectField = page.locator("[data-subject-field]");
+		await expect(subjectField).toHaveValue(subject, { timeout: 30_000 });
+		await expect(page).toHaveURL(COMPOSE_URL);
+
+		// Assert again after something unrelated: the outbox list settles behind
+		// the composer and must not take the pane back.
+		await expect(outboxRow(page, subject)).toBeVisible({ timeout: 30_000 });
+		await expect(subjectField).toHaveValue(subject);
+	});
+
+	// The draft is a segment of the compose address, not a note kept beside it.
+	// Held beside it, Back cleared the note and Forward re-matched compose with
+	// nothing to write to: a blank composer over a draft row still on the list.
+	test("the draft the composer is on survives Back and Forward", async ({
+		api,
+		page,
+		run,
+	}) => {
+		const outboxMessageId = await seedOutboxMessage(api, run.accountId);
+
+		await page.goto("/mail/outbox");
+		await outboxRow(page, subject).hover({ timeout: 30_000 });
+		await page.getByRole("button", { name: "Edit as draft" }).first().click();
+
+		const subjectField = page.locator("[data-subject-field]");
+		await expect(subjectField).toHaveValue(subject, { timeout: 30_000 });
+		// The address says which draft, so it is shareable and it is restorable.
+		await expect(page).toHaveURL(
+			new RegExp(`/mail/outbox/compose/${outboxMessageId}`),
+		);
+
+		await page.goBack();
+		await expect(page).toHaveURL(OUTBOX_URL);
+		await expect(subjectField).toHaveCount(0);
+
+		await page.goForward();
+		await expect(page).toHaveURL(
+			new RegExp(`/mail/outbox/compose/${outboxMessageId}`),
+		);
+		await expect(subjectField).toHaveValue(subject, { timeout: 30_000 });
+	});
 });
 
 test.describe("A folder's conversation deep-links from cold (#713)", () => {
@@ -521,5 +579,179 @@ test.describe("A flagged conversation deep-links from cold (#713)", () => {
 		await page.goBack();
 		await expect(page).not.toHaveURL(FLAGGED_THREAD_URL);
 		await expect(conversation(page)).toHaveCount(0);
+	});
+});
+
+/**
+ * The compose surface is a route as well (#719, #703).
+ *
+ * It used to be a flag in React state that only the mailbox route rendered
+ * anything off, so Compose pressed anywhere else set a flag over a view that
+ * mounted nothing — and the window then turned up on whatever navigation came
+ * next. Compose is a child of each list now, so it is showing because the
+ * address says so and for no other reason.
+ */
+test.describe("Compose lives in the address (#719)", () => {
+	test.setTimeout(120_000);
+
+	const recipients = (page: Page): Locator =>
+		page.getByPlaceholder("Recipients");
+
+	const sidebar = (page: Page): Locator =>
+		page.getByRole("navigation", { name: "Mailboxes", exact: true });
+
+	test("c on the brief opens it there, rather than carrying the reader off", async ({
+		page,
+		run,
+	}) => {
+		await page.goto("/mail/brief");
+		await expect(sidebar(page)).toBeVisible({ timeout: 20_000 });
+
+		await page.keyboard.press("c");
+
+		await expect(recipients(page)).toBeVisible({ timeout: 30_000 });
+		await expect(page).toHaveURL(/\/mail\/brief\/compose/);
+
+		// Assert again after something unrelated: the brief's own rows arrive
+		// behind the surface, and none of them may take the pane back.
+		await expect(briefRow(page, run.seededSubjects[0])).toBeVisible({
+			timeout: 60_000,
+		});
+		await expect(recipients(page)).toBeVisible();
+		await expect(page).toHaveURL(COMPOSE_URL);
+	});
+
+	test("a query typed over the composer leaves it standing", async ({
+		page,
+		run,
+	}) => {
+		await openBrief(page, run.seededSubjects[0]);
+		await page.getByRole("button", { name: "Compose", exact: true }).click();
+		await expect(recipients(page)).toBeVisible({ timeout: 30_000 });
+
+		// Searching is what used to summon the queued surface. An unsent message is
+		// not the pre-search list's leftover, so the query narrows the list behind
+		// it and the composer stays.
+		const field = searchField(page);
+		await field.click();
+		await field.pressSequentially("invoice");
+		await page.waitForURL(/[?&]q=invoice/);
+
+		await expect(field).toHaveValue("invoice");
+		await expect(recipients(page)).toHaveCount(1);
+		await expect(page).toHaveURL(COMPOSE_URL);
+	});
+
+	test("back unwinds one surface per press", async ({ page, run }) => {
+		const subject = run.seededSubjects[0];
+		await openBrief(page, subject);
+		await briefRow(page, subject).click();
+		await page.waitForURL(BRIEF_THREAD_URL);
+		await settledConversation(page, subject);
+
+		await page.getByRole("button", { name: "Compose", exact: true }).click();
+		await expect(recipients(page)).toBeVisible({ timeout: 30_000 });
+		await expect(page).toHaveURL(COMPOSE_URL);
+		// One surface at a time: the conversation is not waiting behind it to be
+		// revealed by the next keystroke.
+		await expect(conversation(page)).toHaveCount(0);
+
+		await page.goBack();
+		await expect(page).toHaveURL(BRIEF_THREAD_URL);
+		await expect(recipients(page)).toHaveCount(0);
+		await settledConversation(page, subject);
+
+		await page.goBack();
+		await expect(page).toHaveURL(BRIEF_URL);
+		await expect(conversation(page)).toHaveCount(0);
+	});
+
+	// The top bar keeps Compose on screen while the reader is composing, so the
+	// press has to start a second message rather than leave the first one on
+	// screen under an address that says otherwise.
+	test("pressing Compose while composing starts a new message", async ({
+		page,
+		run,
+	}) => {
+		await page.goto("/mail/brief");
+		await page.getByRole("button", { name: "Compose", exact: true }).click();
+
+		// A recipient first: the outbox refuses a draft addressed to nobody, so a
+		// subject on its own never becomes the draft this case is about.
+		const recipientsField = recipients(page);
+		await expect(recipientsField).toBeVisible({ timeout: 30_000 });
+		await recipientsField.fill("ada@remit.test");
+		await recipientsField.press("Enter");
+
+		const subjectField = page.locator("[data-subject-field]");
+		await subjectField.fill("First message");
+
+		// The autosave writes the draft and the address takes its id, which is the
+		// state the second press has to undo.
+		await page.waitForURL(/\/mail\/brief\/compose\/[^/?#]+/, {
+			timeout: 30_000,
+		});
+
+		await page.getByRole("button", { name: "Compose", exact: true }).click();
+
+		await expect(page).toHaveURL(/\/mail\/brief\/compose$/);
+		await expect(subjectField).toHaveValue("");
+		await expect(recipients(page)).toBeVisible();
+
+		// Assert again after something unrelated: the brief settles behind the
+		// composer, and the draft that was open does not come back with it.
+		await expect(briefRow(page, run.seededSubjects[0])).toBeVisible({
+			timeout: 30_000,
+		});
+		await expect(subjectField).toHaveValue("");
+	});
+});
+
+/**
+ * A reply and a new message are two composers, and the draft each is writing
+ * belongs to the one writing it (#719).
+ *
+ * They used to share one: the reply's first autosave wrote its id into a
+ * provider every composer read, so the next new message opened on the reply.
+ * Worse if the reply had been sent by then — the composer loaded a queued
+ * outbox row and autosave went on writing to it, which is #604 again.
+ */
+test.describe("One composer's draft is not another's (#719)", () => {
+	test.setTimeout(120_000);
+
+	test("a reply's draft does not follow the next new message", async ({
+		page,
+		run,
+	}) => {
+		const subject = run.seededSubjects[0];
+		await openBrief(page, subject);
+		await briefRow(page, subject).click();
+		await page.waitForURL(BRIEF_THREAD_URL);
+		await settledConversation(page, subject);
+
+		await page.getByRole("button", { name: "Reply", exact: true }).click();
+		const subjectField = page.locator("[data-subject-field]");
+		await expect(subjectField).toHaveValue(/^Re: /, { timeout: 30_000 });
+
+		// The draft has to exist for it to be inherited, so the save lands first.
+		await page.getByTestId("compose-body").click();
+		await page.keyboard.type("Yes, that works.");
+		await expect(page.getByText("Draft saved")).toBeVisible({
+			timeout: 30_000,
+		});
+
+		// Compose takes the pane off the reply. A new message is new: no subject
+		// carried over, and no draft in the address for one to be loaded from.
+		await page.getByRole("button", { name: "Compose", exact: true }).click();
+		await expect(page.getByPlaceholder("Recipients")).toBeVisible({
+			timeout: 30_000,
+		});
+		await expect(page).toHaveURL(/\/mail\/brief\/compose$/);
+		await expect(subjectField).toHaveValue("");
+
+		// Assert again once everything behind it has settled: the reply's draft
+		// arriving late is exactly the shape this test exists for.
+		await expect(briefRow(page, subject)).toBeVisible({ timeout: 30_000 });
+		await expect(subjectField).toHaveValue("");
 	});
 });

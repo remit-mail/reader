@@ -37,11 +37,11 @@ import {
 	createRouter,
 	RouterContextProvider,
 } from "@tanstack/react-router";
-import { createElement, useEffect } from "react";
+import { createElement, useState } from "react";
 import { createDomHarness, type DomHarness } from "../../test-support/dom";
 import { type HttpMock, httpError, mockFetch } from "../../test-support/http";
 import { ComposeForm } from "./ComposeForm";
-import { ComposeProvider, useCompose } from "./ComposeProvider";
+import { ComposeProvider } from "./ComposeProvider";
 
 const ACCOUNT_ID = "acc-1";
 const OUTBOX_MESSAGE_ID = "ob-604";
@@ -108,19 +108,17 @@ const patchesAfterTheSend = (): number => {
 		.length;
 };
 
+// The draft the composer is on is its owner's to hand it — the address for the
+// compose route, local state for an inline reply. Here it is the test's.
 const Opened = ({ outboxMessageId }: { outboxMessageId?: string }) => {
-	const { state, openCompose } = useCompose();
-
-	useEffect(() => {
-		openCompose({ mode: "reply", account, sourceMessage, outboxMessageId });
-	}, [openCompose, outboxMessageId]);
-
-	if (!state.isOpen) return null;
+	const [draftId, setDraftId] = useState(outboxMessageId);
 
 	return createElement(ComposeForm, {
 		mode: "reply",
 		account,
 		sourceMessage,
+		outboxMessageId: draftId,
+		onDraftCreated: setDraftId,
 		onClose: () => {
 			closed += 1;
 		},

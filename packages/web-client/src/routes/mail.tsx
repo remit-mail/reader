@@ -13,7 +13,6 @@ import {
 } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { z } from "zod";
-import { useCompose } from "@/components/compose/ComposeProvider";
 import { ComposeFab } from "@/components/layout/ComposeFab";
 import { MailShellProvider } from "@/components/layout/MailShell";
 import { MailTopBar } from "@/components/layout/MailTopBar";
@@ -26,7 +25,6 @@ import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailboxNameIndex } from "@/hooks/useMailboxNameIndex";
 import { useResultFolderIndex } from "@/hooks/useResultFolderIndex";
 import { useStaleAccountSync } from "@/hooks/useStaleAccountSync";
-import { hostsComposeSurface } from "@/lib/compose-routes";
 import {
 	readIntelligencePref,
 	resolveRailOpen,
@@ -34,13 +32,15 @@ import {
 } from "@/lib/intelligence-pref";
 import { MailContext } from "@/lib/mail-context";
 import { MailFreshnessProvider } from "@/lib/mail-freshness";
-import { mailViewKey } from "@/lib/mail-route";
+import { mailListRoute, mailViewKey } from "@/lib/mail-route";
 import { buildAccountNameIndex } from "@/lib/search-token-index";
 import { committedSearchQuery, searchInputForView } from "@/lib/search-view";
 import { wizardEntryValue, wizardStepValue } from "@/lib/wizard-history";
 import {
 	isOverlayPanel,
 	type OverlayPanel,
+	useIsComposing,
+	useOpenCompose,
 	useOpenPanels,
 	useOpenThreadPath,
 	useSetOpenPanels,
@@ -166,7 +166,6 @@ function MailLayout() {
 	// the render before committing and nothing is painted with the stale query.
 	// An effect would commit one frame carrying the previous view's text, which
 	// the mirror then has to be defended against.
-	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	const viewKey = useRouterState({ select: (s) => mailViewKey(s.matches) });
 	const [searchViewKey, setSearchViewKey] = useState(viewKey);
 	if (searchViewKey !== viewKey) {
@@ -214,14 +213,19 @@ function MailLayout() {
 
 	// `c` / ⌘N off the mailbox routes — the brief, Flagged, the outbox. On a
 	// mailbox the pane's own triage layer owns the key, so this is disabled there
-	// rather than firing a second compose alongside it.
-	const { openCompose } = useCompose();
+	// rather than firing a second compose alongside it, and while the composer is
+	// up the key belongs to whatever is being typed.
+	const openCompose = useOpenCompose();
+	const isComposing = useIsComposing();
+	const onMailbox = useRouterState({
+		select: (s) => mailListRoute(s.matches)?.list === "mailbox",
+	});
 	const composeHandlers = useMemo(
-		() => ({ compose: () => openCompose({ mode: "new" }) }),
+		() => ({ compose: openCompose }),
 		[openCompose],
 	);
 	useTriageKeyboard({
-		enabled: !hostsComposeSurface(pathname),
+		enabled: !onMailbox && !isComposing,
 		handlers: composeHandlers,
 	});
 

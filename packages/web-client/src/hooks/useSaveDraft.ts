@@ -52,8 +52,19 @@ export const useSaveDraft = ({
 	const propIdRef = useRef(outboxMessageId);
 	const targetIdRef = useRef(outboxMessageId);
 	if (propIdRef.current !== outboxMessageId) {
+		// A write waiting out the debounce holds the document that has just been
+		// left, aimed at whatever entry is current when it fires. Leaving one is
+		// therefore dropping it: otherwise it lands on the next draft, or — with
+		// no entry to land on at all — creates one holding the last message's
+		// content, which is what a second Compose press used to do.
+		//
+		// Adoption is the exception, as it is everywhere: the id arriving is this
+		// session's own draft coming back, and a save scheduled while it was in
+		// flight is still the right content for it.
+		const leavingADocument = propIdRef.current !== undefined;
 		propIdRef.current = outboxMessageId;
 		targetIdRef.current = outboxMessageId;
+		if (leavingADocument && timerRef.current) clearTimeout(timerRef.current);
 	}
 
 	const createMutation = useMutation(

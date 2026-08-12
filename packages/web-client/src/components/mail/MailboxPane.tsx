@@ -16,8 +16,6 @@
  * On phone, use `<MailboxPane.Phone />` instead of the slot sub-views.
  */
 import {
-	outboxDetailOperationsDeleteOutboxMessageMutation,
-	outboxOperationsListOutboxMessagesQueryKey,
 	threadOperationsListThreadsQueryKey,
 	threadOperationsSearchThreadsQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
@@ -35,11 +33,7 @@ import {
 	type SearchResult,
 	useAppShellLayout,
 } from "@remit/ui";
-import {
-	useInfiniteQuery,
-	useMutation,
-	useQueryClient,
-} from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
 	createContext,
@@ -53,8 +47,6 @@ import {
 	useState,
 } from "react";
 import type { ComposeMode } from "@/components/compose/ComposeProvider";
-import { useCompose } from "@/components/compose/ComposeProvider";
-import { FullCompose } from "@/components/compose/FullCompose";
 import { Drawer } from "@/components/layout/Drawer";
 import { ConversationView } from "@/components/mail/ConversationView";
 import { DraftsView } from "@/components/mail/DraftsView";
@@ -66,8 +58,6 @@ import {
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import { PullToRefresh } from "@/components/mail/PullToRefresh";
 import { SpamRescue } from "@/components/mail/SpamRescue";
-import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
-import { buildMutationErrorBanner } from "@/components/ui/error-banners";
 import {
 	useArchiveMailbox,
 	useDraftsMailbox,
@@ -83,7 +73,6 @@ import {
 } from "@/hooks/useDeleteMessages";
 import type { EscalationSearchQuery } from "@/hooks/useEscalatedActions";
 import { useIntelligenceData } from "@/hooks/useIntelligenceData";
-import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
@@ -127,6 +116,8 @@ import {
 import {
 	type OpenThreadPath,
 	type OpenThreadTarget,
+	useIsComposing,
+	useOpenCompose,
 	useRetainOpenPanels,
 } from "@/routing";
 import { MailViewChrome } from "./MailViewChrome";
@@ -215,11 +206,7 @@ interface MailboxPaneContextValue {
 	onClearComposeRequest: () => void;
 	onToolbarDelete: () => void;
 	onToolbarStar: () => void;
-	onToolbarDiscardDraft: () => void;
 	onToolbarMove: (destMailboxId: string) => void;
-	composeState: ReturnType<typeof useCompose>["state"];
-	closeCompose: () => void;
-	hasRemitDraftOpen: boolean;
 	// Phone actions
 	onBack: () => void;
 	/** The rows either side of the open one — the phone's swipe gestures. */
@@ -539,9 +526,6 @@ function MailboxPaneProvider({
 	// so there is no fallback: until the mailbox resolves there is no number.
 	const unreadCount = useCurrentMailboxUnseenCount({ accounts }) ?? 0;
 
-	const queryClient = useQueryClient();
-	const { pushError } = useErrorBanners();
-
 	const toolbarActions = useThreadActions({
 		thread: selectedThread,
 		mailboxId,
@@ -569,48 +553,8 @@ function MailboxPaneProvider({
 		setToolbarComposeRequest("forward");
 	}, [setToolbarComposeRequest]);
 
-	const { state: composeState, openCompose, closeCompose } = useCompose();
-
-	const handleNewCompose = useCallback(() => {
-		openCompose({ mode: "new" });
-	}, [openCompose]);
-
-	// A thread opening closes compose. Only a selection arriving counts, so this
-	// cannot close the compose that just cleared one.
-	const previousSelectionRef = useRef(selectedMessageId);
-	useEffect(() => {
-		const previous = previousSelectionRef.current;
-		previousSelectionRef.current = selectedMessageId;
-		if (!selectedMessageId || selectedMessageId === previous) return;
-		closeCompose();
-	}, [selectedMessageId, closeCompose]);
-
-	const deleteOutboxMutation = useMutation({
-		...outboxDetailOperationsDeleteOutboxMessageMutation(),
-		onError: (mutationError) => {
-			pushError(
-				buildMutationErrorBanner(
-					"Couldn't discard draft",
-					"The draft wasn't deleted.",
-					mutationError,
-				),
-			);
-		},
-	});
-	const handleToolbarDiscardDraft = useCallback(() => {
-		const outboxMessageId = composeState.outboxMessageId;
-		if (!outboxMessageId) return;
-		deleteOutboxMutation.mutate({ path: { outboxMessageId } });
-		queryClient.invalidateQueries({
-			queryKey: outboxOperationsListOutboxMessagesQueryKey(),
-		});
-		closeCompose();
-	}, [
-		composeState.outboxMessageId,
-		deleteOutboxMutation,
-		queryClient,
-		closeCompose,
-	]);
+	const isComposing = useIsComposing();
+	const openCompose = useOpenCompose();
 
 	const messageIdsForFocusedThread = useCallback(
 		(thread: typeof focusedThread): string[] => {
@@ -784,17 +728,13 @@ function MailboxPaneProvider({
 		}
 	}, [normalizedSearchQuery, mailboxType, telemetry]);
 
-	const hasRemitDraftOpen =
-		isDraftsMailbox &&
-		composeState.isOpen &&
-		!!composeState.outboxMessageId &&
-		!selectedThread;
-
 	const { goBack, nextMessageId, previousMessageId } = useTriageLayer({
 		context: triage,
 		orderedIds: threads.map((t) => t.messageId),
 		selectedMessageId,
-		enabled: !composeState.isOpen,
+		// The list stays mounted under the compose surface, so the triage keys
+		// would otherwise fire at the message behind whatever is being typed.
+		enabled: !isComposing,
 		onClose: closeThread,
 		handlers: {
 			reply: triageReply,
@@ -808,18 +748,13 @@ function MailboxPaneProvider({
 			vipSender: triageVip,
 			markJunk: triageMarkJunk,
 			toggleIntelligence: selectedThread ? onToggleIntelligence : undefined,
-			compose: handleNewCompose,
+			compose: openCompose,
 			goBrief: () => goToRoute("/mail/brief"),
 			goInbox: () => goToRoute("/mail/brief"),
 			goSent: () => goToRoute("/mail/brief"),
 			goFlagged: () => goToRoute("/mail/flagged"),
 			goSettings: () => goToRoute("/settings"),
 		},
-	});
-
-	useKeyboardNavigation({
-		enabled: composeState.isOpen,
-		bindings: [{ key: "Escape", handler: closeCompose, preventDefault: true }],
 	});
 
 	// The swipe gestures open a whole conversation, so the adjacent row has to
@@ -884,11 +819,7 @@ function MailboxPaneProvider({
 		onClearComposeRequest: toolbarActions.clearComposeRequest,
 		onToolbarDelete: toolbarActions.deleteThread,
 		onToolbarStar: toolbarActions.toggleStar,
-		onToolbarDiscardDraft: handleToolbarDiscardDraft,
 		onToolbarMove: toolbarActions.moveThread,
-		composeState,
-		closeCompose,
-		hasRemitDraftOpen,
 		onBack: goBack,
 		nextThread: adjacentThread(nextMessageId),
 		previousThread: adjacentThread(previousMessageId),
@@ -1138,7 +1069,6 @@ function MailboxReading() {
 		mailboxAccountId,
 		selectedThread,
 		conversation,
-		hasRemitDraftOpen,
 		intelligenceOpen,
 		onToggleIntelligence,
 		toolbarComposeRequest,
@@ -1148,9 +1078,7 @@ function MailboxReading() {
 		onClearComposeRequest,
 		onToolbarDelete,
 		onToolbarStar,
-		onToolbarDiscardDraft,
 		onToolbarMove,
-		composeState,
 		handleDeselectIfRemoved,
 	} = useMailboxPane();
 	// Which surface intelligence has here: the rail between 1280 and up, the
@@ -1197,25 +1125,22 @@ function MailboxReading() {
 	const intelligenceShowing =
 		hasThread && (railFits ? intelligenceOpen : drawerOpen);
 
-	const detailPane =
-		composeState.isOpen && !conversation ? (
-			<FullCompose />
-		) : conversation ? (
-			<ConversationView
-				threadId={conversation.threadId}
-				mailboxId={conversation.mailboxId}
-				subject={conversation.subject}
-				selectedMessageId={conversation.messageId}
-				authenticity={conversation.authenticity}
-				onOpenIntelligence={
-					conversation.authenticity?.dkimMismatch ? openIntelligence : undefined
-				}
-				composeRequest={toolbarComposeRequest}
-				onComposeClose={onClearComposeRequest}
-			/>
-		) : (
-			<ReadingPaneEmpty />
-		);
+	const detailPane = conversation ? (
+		<ConversationView
+			threadId={conversation.threadId}
+			mailboxId={conversation.mailboxId}
+			subject={conversation.subject}
+			selectedMessageId={conversation.messageId}
+			authenticity={conversation.authenticity}
+			onOpenIntelligence={
+				conversation.authenticity?.dkimMismatch ? openIntelligence : undefined
+			}
+			composeRequest={toolbarComposeRequest}
+			onComposeClose={onClearComposeRequest}
+		/>
+	) : (
+		<ReadingPaneEmpty />
+	);
 
 	return (
 		<>
@@ -1228,14 +1153,8 @@ function MailboxReading() {
 					onReply={hasThread ? onToolbarReply : undefined}
 					onReplyAll={hasThread ? onToolbarReplyAll : undefined}
 					onForward={hasThread ? onToolbarForward : undefined}
-					canDelete={hasThread || hasRemitDraftOpen}
-					onDelete={
-						hasThread
-							? onToolbarDelete
-							: hasRemitDraftOpen
-								? onToolbarDiscardDraft
-								: undefined
-					}
+					canDelete={hasThread}
+					onDelete={hasThread ? onToolbarDelete : undefined}
 					onToggleStar={hasThread ? onToolbarStar : undefined}
 					isStarred={selectedThread?.hasStars}
 					moveContext={
@@ -1309,7 +1228,6 @@ function MailboxPhone() {
 		onBack,
 		nextThread,
 		previousThread,
-		composeState,
 		handleDeselectIfRemoved,
 	} = useMailboxPane();
 
@@ -1346,14 +1264,6 @@ function MailboxPhone() {
 					/>
 				</Drawer>
 			</>
-		);
-	}
-
-	if (composeState.isOpen) {
-		return (
-			<div className="h-full">
-				<FullCompose />
-			</div>
 		);
 	}
 
