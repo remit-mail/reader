@@ -32,6 +32,8 @@ export interface RailVisibility {
 	prefersOpen: boolean;
 	/** The rail is a pane of the desktop shell; narrower tiers have a drawer. */
 	isDesktop: boolean;
+	/** The rail reads a conversation, so with none open there is nothing to be up. */
+	hasThread: boolean;
 }
 
 /**
@@ -40,15 +42,16 @@ export interface RailVisibility {
  * An address that names any panel is the only owner of what is open, so a
  * shared link showing the shortcuts sheet is not overwritten by the recipient's
  * own preference. The preference speaks only where the address is silent, and
- * only on the tier that has a rail — it opens with the thread there (#782),
- * while a phone would get a full-screen drawer over a message nobody asked to
- * cover.
+ * only with a conversation open on the tier that has a rail — it opens with the
+ * thread there (#782), while a phone would get a full-screen drawer over a
+ * message nobody asked to cover.
  */
 export function resolveRailOpen({
 	panels,
 	prefersOpen,
 	isDesktop,
+	hasThread,
 }: RailVisibility): boolean {
 	if (panels.length > 0) return panels.includes("intelligence");
-	return isDesktop && prefersOpen;
+	return isDesktop && hasThread && prefersOpen;
 }

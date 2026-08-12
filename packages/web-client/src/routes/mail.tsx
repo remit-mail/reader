@@ -42,6 +42,7 @@ import {
 	isOverlayPanel,
 	type OverlayPanel,
 	useOpenPanels,
+	useOpenThreadPath,
 	useSetOpenPanels,
 } from "@/routing";
 import "@/lib/client";
@@ -102,10 +103,12 @@ function MailLayout() {
 	// one place the address and the stored preference meet: the address decides
 	// whenever it says anything at all, and the preference opens the rail with
 	// the thread where it is silent (#782).
+	const openThread = useOpenThreadPath();
 	const intelligenceOpen = resolveRailOpen({
 		panels: openPanels,
 		prefersOpen: readIntelligencePref(),
 		isDesktop: tier === "desktop",
+		hasThread: openThread !== undefined,
 	});
 	// Every write states the whole set, because it is composed from what is
 	// showing rather than from what the address happens to spell: the rail open

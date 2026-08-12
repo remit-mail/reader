@@ -88,10 +88,17 @@ test.describe("Reading-pane toolbar", () => {
 
 			await openBriefMessage(page, run.seededSubjects[0]);
 
-			await expect(info).toBeEnabled({ timeout: 15_000 });
-			await info.click();
+			// The rail opens with the thread on this tier and every list agrees on
+			// that (#722), so the control reports it up and the panel is on screen.
+			const hide = page.getByRole("button", { name: HIDE_INFO });
+			await expect(hide).toBeEnabled({ timeout: 15_000 });
+			await expect(infoPanel(page)).toBeVisible();
 
-			await expect(page.getByRole("button", { name: HIDE_INFO })).toBeVisible();
+			// A toggle, not a one-way door.
+			await hide.click();
+			await expect(infoPanel(page)).toHaveCount(0);
+			await expect(info).toBeEnabled();
+			await info.click();
 			await expect(infoPanel(page)).toBeVisible();
 		});
 

@@ -58,23 +58,43 @@ describe("intelligence-pref (#782)", () => {
 });
 
 describe("resolveRailOpen (#722)", () => {
+	const withThread = { hasThread: true, isDesktop: true };
+
 	it("opens the rail with the thread where the address says nothing", () => {
 		assert.equal(
-			resolveRailOpen({ panels: [], prefersOpen: true, isDesktop: true }),
+			resolveRailOpen({ ...withThread, panels: [], prefersOpen: true }),
 			true,
 		);
 	});
 
 	it("leaves the rail down where the address says nothing and the reader collapsed it", () => {
 		assert.equal(
-			resolveRailOpen({ panels: [], prefersOpen: false, isDesktop: true }),
+			resolveRailOpen({ ...withThread, panels: [], prefersOpen: false }),
 			false,
 		);
 	});
 
 	it("never seeds the rail below the tier that has one", () => {
 		assert.equal(
-			resolveRailOpen({ panels: [], prefersOpen: true, isDesktop: false }),
+			resolveRailOpen({
+				panels: [],
+				prefersOpen: true,
+				isDesktop: false,
+				hasThread: true,
+			}),
+			false,
+		);
+	});
+
+	// Otherwise the address claims a pane the shell has nothing to put in it.
+	it("never seeds the rail with no conversation open", () => {
+		assert.equal(
+			resolveRailOpen({
+				panels: [],
+				prefersOpen: true,
+				isDesktop: true,
+				hasThread: false,
+			}),
 			false,
 		);
 	});
@@ -84,17 +104,17 @@ describe("resolveRailOpen (#722)", () => {
 	it("hands a shared link's panels to the reader who opened it", () => {
 		assert.equal(
 			resolveRailOpen({
+				...withThread,
 				panels: ["shortcuts"],
 				prefersOpen: true,
-				isDesktop: true,
 			}),
 			false,
 		);
 		assert.equal(
 			resolveRailOpen({
+				...withThread,
 				panels: ["intelligence", "shortcuts"],
 				prefersOpen: false,
-				isDesktop: true,
 			}),
 			true,
 		);
@@ -106,6 +126,7 @@ describe("resolveRailOpen (#722)", () => {
 				panels: ["intelligence"],
 				prefersOpen: false,
 				isDesktop: false,
+				hasThread: true,
 			}),
 			true,
 		);
