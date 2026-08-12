@@ -1,6 +1,7 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
 import {
+	ALL_TRIAGE_ACTIONS,
 	KEY_HINT_GROUPS,
 	keysForAction,
 	shortcutHintForAction,
@@ -68,6 +69,12 @@ describe("keymap module", () => {
 		assert.strictEqual(describes("↓"), "Focus the message below");
 		assert.strictEqual(describes("k"), "Focus the message above");
 		assert.strictEqual(describes("↑"), "Focus the message above");
+	});
+
+	test("every action the app can produce has a displayed binding", () => {
+		for (const action of ALL_TRIAGE_ACTIONS) {
+			assert.ok(keysForAction(action), `${action} has keys`);
+		}
 	});
 
 	test("every hint's action is a non-empty key list", () => {
