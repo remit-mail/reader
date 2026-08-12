@@ -53,8 +53,22 @@ const seed: EventDraft = {
 	repeat: "",
 };
 
-function Live({ startExpanded }: { startExpanded: boolean }) {
-	const [draft, setDraft] = useState(seed);
+/** 23:00 to 01:00, which one date cannot hold. */
+const backwards: EventDraft = {
+	...seed,
+	title: "Release window",
+	startTime: "23:00",
+	endTime: "01:00",
+};
+
+function Live({
+	startExpanded,
+	seed: initial = seed,
+}: {
+	startExpanded: boolean;
+	seed?: EventDraft;
+}) {
+	const [draft, setDraft] = useState(initial);
 	const [expanded, setExpanded] = useState(startExpanded);
 	return (
 		<div className="max-w-sm rounded-lg border border-line bg-surface-raised p-4">
@@ -75,6 +89,22 @@ export const Folded: Story = { render: () => <Live startExpanded={false} /> };
 
 /** Everything the folded form was hiding. */
 export const Unfolded: Story = { render: () => <Live startExpanded /> };
+
+/**
+ * An end before the start is one date read backwards, not a night that runs
+ * over. The form keeps what was typed, names the problem under the fields and
+ * holds the save until it is fixed.
+ */
+export const EndBeforeStart: Story = {
+	render: () => <Live startExpanded={false} seed={backwards} />,
+};
+
+/** All day takes the clock fields away, so there is no range left to reject. */
+export const AllDay: Story = {
+	render: () => (
+		<Live startExpanded={false} seed={{ ...backwards, allDay: true }} />
+	),
+};
 
 /** The same form sized for a bottom sheet: every control a thumb target. */
 export const Touch: Story = {

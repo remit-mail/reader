@@ -80,4 +80,35 @@ describe("EventEditor", () => {
 	it("names the save action the caller asked for", () => {
 		assert.match(render({ saveLabel: "Save changes" }), /Save changes/);
 	});
+
+	it("says so and holds the save when the end is before the start", () => {
+		const html = render({
+			draft: { ...draft, startTime: "23:00", endTime: "01:00" },
+		});
+		assert.match(html, /Ends before it starts/);
+		assert.match(html, /role="alert"/);
+		assert.match(html, /disabled=""[^>]*>Add</);
+	});
+
+	it("keeps what was typed rather than swapping the two fields", () => {
+		const html = render({
+			draft: { ...draft, startTime: "23:00", endTime: "01:00" },
+		});
+		assert.match(html, /value="23:00"[^>]*aria-label="Start time"/);
+		assert.match(html, /value="01:00"[^>]*aria-label="End time"/);
+	});
+
+	it("lets a normal range save", () => {
+		const html = render({});
+		assert.doesNotMatch(html, /Ends before it starts/);
+		assert.doesNotMatch(html, /disabled=""[^>]*>Add</);
+	});
+
+	it("has no range to reject once the entry is all day", () => {
+		const html = render({
+			draft: { ...draft, startTime: "23:00", endTime: "01:00", allDay: true },
+		});
+		assert.doesNotMatch(html, /Ends before it starts/);
+		assert.doesNotMatch(html, /disabled=""[^>]*>Add</);
+	});
 });
