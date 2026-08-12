@@ -1,7 +1,5 @@
 import {
 	type ClauseEditState,
-	crossAccountDestinationReason,
-	crossAccountRuleReason,
 	demoClauseSuggestions,
 	derivePropertyClauses,
 	deriveSenderClauses,
@@ -20,6 +18,7 @@ import {
 	type SampleEmptyReason,
 	type SearchChip,
 	type SearchConversion,
+	type SelectionRestriction,
 	SelectionWizard,
 	type StepId,
 	searchConversionNotice,
@@ -32,6 +31,7 @@ import {
 	UNCOUNTABLE_PREDICATE_REASON,
 	type Verb,
 	type WizardDraft,
+	wizardScopeFor,
 } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
@@ -86,8 +86,12 @@ interface WizardEntry {
 	semanticUnavailable?: boolean;
 	/** What the mail server said when the widen was asked to run and failed. */
 	semanticError?: string;
-	/** The selection spans accounts, so no folder and no rule can be reached. */
-	crossAccount?: boolean;
+	/**
+	 * The selection spans more than one account, or more than one folder of a
+	 * single account. Either way no folder and no rule can be reached, and the
+	 * steps state the one that applies (#525).
+	 */
+	restriction?: SelectionRestriction;
 	runState?: RunState;
 	/**
 	 * Why the commit never started, when sending the same one again cannot get
@@ -264,7 +268,21 @@ function WizardDriver({
 		until,
 		name: ruleName,
 	};
-	const blockedReason = stepBlockedReason(current, draft, count);
+	// The one account the selection belongs to, as the app hands it over: a
+	// selection spanning accounts has none, and the widened doors go with it. One
+	// spanning folders of a single account keeps both, and is told about folders.
+	const wizardScope = wizardScopeFor(
+		entry.restriction === "spansAccounts" ? undefined : "acc-personal",
+		entry.restriction,
+	);
+	const stepRestriction =
+		current === "folder"
+			? wizardScope.destination
+			: current === "rule" && (scope === "standing" || scope === "until")
+				? wizardScope.rule
+				: undefined;
+	const blockedReason =
+		stepRestriction ?? stepBlockedReason(current, draft, count);
 
 	const sample = {
 		messages:
@@ -274,14 +292,6 @@ function WizardDriver({
 		emptyReason: entry.sampleEmpty,
 		loading: entry.sampleLoading,
 	};
-
-	// The one account the selection belongs to, as the app hands it over: a
-	// selection spanning accounts has none, and the widened doors go with it.
-	const accountId = entry.crossAccount ? undefined : "acc-personal";
-	const restriction = entry.crossAccount ? crossAccountRuleReason : undefined;
-	const destinationRestriction = entry.crossAccount
-		? crossAccountDestinationReason
-		: undefined;
 
 	// Both endings name what they did not reach; only the badge on each row
 	// differs, because only one of them ever sent those messages.
@@ -362,7 +372,7 @@ function WizardDriver({
 			match={{
 				selectedCount: selected.length,
 				mode,
-				accountId,
+				accountId: wizardScope.accountId,
 				onModeChange: setMode,
 				semanticUnavailable: entry.semanticUnavailable || !!entry.semanticError,
 				semanticErrorDetail: entry.semanticError,
@@ -415,13 +425,13 @@ function WizardDriver({
 				mailboxId,
 				onSelect: setMailboxId,
 				onCreateFolder: createFolder,
-				restriction: destinationRestriction,
+				restriction: wizardScope.destination,
 			}}
 			rule={{
 				draft,
 				onScopeChange: setScope,
 				onUntilChange: setUntil,
-				restriction,
+				restriction: wizardScope.rule,
 			}}
 			name={{ name: ruleName, onNameChange: setTypedName }}
 			review={{
@@ -1398,7 +1408,41 @@ export const CrossAccountDestination: Story = {
 	render: () => (
 		<SelectionFlow
 			preselected={3}
-			openAt={{ verb: "organize", startAt: "folder", crossAccount: true }}
+			openAt={{
+				verb: "organize",
+				startAt: "folder",
+				restriction: "spansAccounts",
+			}}
+		/>
+	),
+};
+
+/**
+ * A selection spanning folders of one account. The account is settled, so the
+ * step names the restriction that actually applies — told to pick a single
+ * account, a user holding one account's mail has nothing to act on (#525).
+ */
+export const CrossFolderDestination: Story = {
+	name: "Folder — selection spans folders",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{
+				verb: "organize",
+				startAt: "folder",
+				restriction: "spansFolders",
+			}}
+		/>
+	),
+};
+
+/** One account, one folder: the step asks for a destination and nothing else. */
+export const UnrestrictedDestination: Story = {
+	name: "Folder — one account, one folder",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{ verb: "organize", startAt: "folder" }}
 		/>
 	),
 };
@@ -1415,7 +1459,29 @@ export const CrossAccountMatch: Story = {
 	render: () => (
 		<SelectionFlow
 			preselected={3}
-			openAt={{ verb: "organize", startAt: "match", crossAccount: true }}
+			openAt={{
+				verb: "organize",
+				startAt: "match",
+				restriction: "spansAccounts",
+			}}
+		/>
+	),
+};
+
+/**
+ * The folder-spanning selection on the same step. One account answers the
+ * preview both widened doors are counted through, so both stay on offer.
+ */
+export const CrossFolderMatch: Story = {
+	name: "Apply to — selection spans folders",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{
+				verb: "organize",
+				startAt: "match",
+				restriction: "spansFolders",
+			}}
 		/>
 	),
 };
@@ -1429,7 +1495,22 @@ export const CrossAccountRule: Story = {
 				verb: "organize",
 				startAt: "rule",
 				scope: "standing",
-				crossAccount: true,
+				restriction: "spansAccounts",
+			}}
+		/>
+	),
+};
+
+export const CrossFolderRule: Story = {
+	name: "Rule — selection spans folders",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{
+				verb: "organize",
+				startAt: "rule",
+				scope: "standing",
+				restriction: "spansFolders",
 			}}
 		/>
 	),

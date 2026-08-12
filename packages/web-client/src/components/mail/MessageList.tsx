@@ -1351,7 +1351,7 @@ export const MessageList = ({
 				accountId={accountId}
 				mailboxId={mailboxId}
 				selection={wizardSelection}
-				crossAccount={moveDisabledHint !== undefined}
+				selectionRestriction={moveDisabledHint ? "spansAccounts" : undefined}
 				escalated={escalatedSelection}
 				escalatedProgress={escalation.progress}
 				onFinished={exitSelection}

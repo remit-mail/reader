@@ -233,6 +233,74 @@ export const crossAccountMatchReason =
 	"Matching beyond the messages you picked only works within one account — clear the selection, or pick messages from a single account.";
 
 /**
+ * Why a selection spanning folders of one account cannot become a rule (#525).
+ * The account is settled and the source folder is not, so the restriction the
+ * wizard states is the folder one — telling a single-account selection to pick
+ * one account is an instruction it cannot follow.
+ */
+export const crossFolderRuleReason =
+	"A rule only works within one folder — clear the selection, or pick messages from a single folder.";
+
+/** The same restriction on the step that asks for a folder. */
+export const crossFolderDestinationReason =
+	"A destination only works within one folder — clear the selection, or pick messages from a single folder.";
+
+/**
+ * Which scope a selection spans more of than the wizard's folder-scoped steps
+ * can take. The surface that resolved the selection knows which one it is, so it
+ * hands the case over rather than a flag both cases collapse into.
+ */
+export type SelectionRestriction = "spansAccounts" | "spansFolders";
+
+const RESTRICTION_COPY: Record<
+	SelectionRestriction,
+	{ rule: string; destination: string }
+> = {
+	spansAccounts: {
+		rule: crossAccountRuleReason,
+		destination: crossAccountDestinationReason,
+	},
+	spansFolders: {
+		rule: crossFolderRuleReason,
+		destination: crossFolderDestinationReason,
+	},
+};
+
+/** What a restricted selection leaves the wizard's account-scoped steps to work with. */
+export interface WizardScope {
+	/**
+	 * The account a filter, a folder create and a widened door's preview all
+	 * belong to. Absent only when the selection has no single account — a
+	 * selection spanning folders of one account keeps it, so its widened doors
+	 * have something to count against.
+	 */
+	accountId?: string;
+	/** What the rule step states, when the selection cannot reach a saved scope. */
+	rule?: string;
+	/** What the folder step states, when the selection cannot reach a destination. */
+	destination?: string;
+}
+
+/**
+ * The scope a selection walks the wizard with. A selection with no single
+ * account is account-restricted whatever it was handed, since the account is
+ * what the filter, the folder create and the preview all hang off.
+ */
+export const wizardScopeFor = (
+	accountId: string | undefined,
+	restriction: SelectionRestriction | undefined,
+): WizardScope => {
+	const applied = accountId === undefined ? "spansAccounts" : restriction;
+	if (!applied) return { accountId };
+	const copy = RESTRICTION_COPY[applied];
+	return {
+		accountId: applied === "spansAccounts" ? undefined : accountId,
+		rule: copy.rule,
+		destination: copy.destination,
+	};
+};
+
+/**
  * The doors the match step offers. Withholding the two widened ones is what
  * keeps a selection spanning accounts off a review that waits on a count nobody
  * can take; the step says why in `crossAccountMatchReason`.
