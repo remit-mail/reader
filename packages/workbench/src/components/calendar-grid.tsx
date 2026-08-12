@@ -19,6 +19,7 @@ import "@fullcalendar/react/skeleton.css";
 import type { CalendarRef, EventApi, EventInput } from "@fullcalendar/react";
 import timeGridPlugin from "@fullcalendar/react/timegrid";
 import {
+	addMinutesToClock,
 	type CalendarColorId,
 	type CalendarEventData,
 	type CalendarViewId,
@@ -70,19 +71,22 @@ const ROW_VIEWS = new Set<CalendarViewId>(["year", "month", "agenda"]);
  */
 const DENSITY: Record<
 	Density,
-	{ slotDuration: string; slotMinHeight: number; eventShortHeight: number }
+	{ slotMinutes: number; slotMinHeight: number; eventShortHeight: number }
 > = {
 	comfortable: {
-		slotDuration: "00:30:00",
+		slotMinutes: 30,
 		slotMinHeight: 26,
 		eventShortHeight: 34,
 	},
 	compact: {
-		slotDuration: "01:00:00",
+		slotMinutes: 60,
 		slotMinHeight: 15,
 		eventShortHeight: 22,
 	},
 };
+
+/** How long a new event is when nobody said — the same hour every other path starts from. */
+const DRAFT_MINUTES = 60;
 
 export interface SlotPick {
 	/** `YYYY-MM-DD`. */
@@ -159,7 +163,11 @@ function toInput(event: CalendarEventData, color: CalendarColorId): EventInput {
  * `getHours()` is that instant in the host's zone, so a UTC runner would draft
  * 09:00 for a click on 11:00.
  */
-function pickFrom(startStr: string, endStr: string, allDay: boolean): SlotPick {
+function rangePick(
+	startStr: string,
+	endStr: string,
+	allDay: boolean,
+): SlotPick {
 	if (allDay)
 		return {
 			date: startStr.slice(0, 10),
@@ -173,6 +181,40 @@ function pickFrom(startStr: string, endStr: string, allDay: boolean): SlotPick {
 		endTime: endStr.slice(11, 16),
 		allDay: false,
 	};
+}
+
+/** A single point on the grid, which is an hour long because nothing said otherwise. */
+function pointPick(dateStr: string, allDay: boolean): SlotPick {
+	if (allDay)
+		return {
+			date: dateStr.slice(0, 10),
+			startTime: "",
+			endTime: "",
+			allDay: true,
+		};
+	const startTime = dateStr.slice(11, 16);
+	return {
+		date: dateStr.slice(0, 10),
+		startTime,
+		endTime: addMinutesToClock(startTime, DRAFT_MINUTES),
+		allDay: false,
+	};
+}
+
+/**
+ * Whether a selection was dragged across the grid rather than landing on it.
+ * One slot, or one day, is as small as a selection gets, which is exactly what
+ * a click leaves behind — and a click is already a pick of its own.
+ */
+function isDragged(
+	startStr: string,
+	endStr: string,
+	allDay: boolean,
+	slotMinutes: number,
+): boolean {
+	const span = Date.parse(endStr) - Date.parse(startStr);
+	if (allDay) return Math.round(span / 86_400_000) > 1;
+	return span / 60_000 > slotMinutes;
 }
 
 export function CalendarGrid({
@@ -253,7 +295,7 @@ export function CalendarGrid({
 				slotMaxTime="23:00:00"
 				scrollTime="08:30:00"
 				scrollTimeReset={false}
-				slotDuration={slot.slotDuration}
+				slotDuration={{ minutes: slot.slotMinutes }}
 				slotMinHeight={slot.slotMinHeight}
 				eventShortHeight={slot.eventShortHeight}
 				displayEventEnd={false}
@@ -262,15 +304,29 @@ export function CalendarGrid({
 				dayHeaderFormat={DAY_HEADER_FORMAT[view]}
 				events={eventInputs}
 				eventClick={(info) => onSelectEvent(info.event.id)}
-				/* `select` is the only reading of a pick, and a click is a selection
-				   of one slot, so it covers the tap as well as the drag. Taking
-				   `dateClick` too would report the same gesture twice, and the second
-				   report arrives late: FullCalendar defers it past the click's own
-				   pointer events, by which time the pane the first report opened has
-				   rebuilt the grid and left it reading a detached cell. */
-				select={(info) =>
-					onPickSlot(pickFrom(info.startStr, info.endStr, info.allDay))
-				}
+				/* One gesture, two readings, and each owns a shape the other cannot
+				   reach. A point is `dateClick`'s: a finger has to hold a full second
+				   before the library will call it a selection, and a selection cancels
+				   the scroll the finger might have meant, so a tap has nowhere else to
+				   land. A dragged range is `select`'s.
+
+				   Acting on both would report a point twice, and the second report
+				   arrives late — the library finishes a click a task after the pointer
+				   is up — by which time the pane the first report opened has rebuilt
+				   the grid and left the second reading a detached cell. */
+				dateClick={(info) => onPickSlot(pointPick(info.dateStr, info.allDay))}
+				select={(info) => {
+					if (
+						!isDragged(
+							info.startStr,
+							info.endStr,
+							info.allDay,
+							slot.slotMinutes,
+						)
+					)
+						return;
+					onPickSlot(rangePick(info.startStr, info.endStr, info.allDay));
+				}}
 				datesSet={(info) => onRangeChange(info.view.title)}
 				/* ---- chrome, all of it ours ---- */
 				viewClass="bg-surface"
