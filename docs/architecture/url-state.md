@@ -59,7 +59,7 @@ Each list is a layout route whose component renders the list plus `AppShellSlott
 
 `compose` is a sibling of the thread route, so navigating there unmatches the thread in the same transition. No clearing code, no ordering, and a composer over an open thread is unrepresentable.
 
-`$mode` sits under the message, so a reply cannot exist without a source and the thread stays matched behind it. That is what "inline compose under the conversation" is. Validate the mode as a path param, not as three literal routes.
+`$mode` sits under the message, so a reply cannot exist without a source and the thread stays matched behind it. That is what "the reply at the head of the conversation" is. Validate the mode as a path param, not as three literal routes.
 
 ## FAQ
 

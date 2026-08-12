@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import { buildCidResolver } from "./cid-resolver.js";
 import {
 	detectAuthorBackground,
+	detectAuthorSpacing,
 	sanitizeInlineStyle,
 	sanitizeStyleElementCss,
 } from "./email-sanitizer.js";
@@ -358,5 +359,157 @@ describe("detectAuthorBackground — <style> block over-match hardening (#483)",
 			"<p>x</p>",
 		].join("");
 		assert.equal(detectAuthorBackground(html), false);
+	});
+});
+
+describe("detectAuthorSpacing — does the mail lay out its own breathing room?", () => {
+	test("a bare message declares none", () => {
+		assert.equal(
+			detectAuthorSpacing("<div><p>Hi there,</p><p>See you at 3.</p></div>"),
+			false,
+		);
+	});
+
+	test("a reset is not breathing room", () => {
+		assert.equal(
+			detectAuthorSpacing(
+				'<table style="margin:0;padding:0"><tr></tr></table>',
+			),
+			false,
+		);
+		assert.equal(
+			detectAuthorSpacing("<style>body{margin:0 auto;padding:0px}</style>"),
+			false,
+		);
+	});
+
+	test("a reset that shouts is still a reset", () => {
+		assert.equal(
+			detectAuthorSpacing('<div style="padding:0 !important">x</div>'),
+			false,
+		);
+	});
+
+	test("an inline padding on a container counts", () => {
+		assert.equal(
+			detectAuthorSpacing('<td style="padding:24px;color:#111">x</td>'),
+			true,
+		);
+	});
+
+	test("a horizontal margin in a <style> block counts", () => {
+		assert.equal(
+			detectAuthorSpacing("<style>.wrap{margin:0 24px}</style><p>x</p>"),
+			true,
+		);
+	});
+
+	test("the tables newsletters are still built from count via cellpadding", () => {
+		assert.equal(detectAuthorSpacing('<table cellpadding="8"></table>'), true);
+		assert.equal(detectAuthorSpacing('<table cellpadding="0"></table>'), false);
+	});
+
+	test("the word margin in prose is not a declaration", () => {
+		assert.equal(
+			detectAuthorSpacing("<p>The margin was thin this quarter.</p>"),
+			false,
+		);
+	});
+
+	test("a mail about CSS quotes a declaration without making one", () => {
+		assert.equal(
+			detectAuthorSpacing(
+				'<p>Set style="padding:9px" on the cell and it lines up.</p>',
+			),
+			false,
+		);
+	});
+
+	test("a commented-out declaration is not a declaration", () => {
+		assert.equal(
+			detectAuthorSpacing("<style>.wrap{/* padding: 20px */}</style><p>x</p>"),
+			false,
+		);
+		assert.equal(
+			detectAuthorSpacing(
+				'<!--[if mso]><td style="padding:20px"><![endif]--><p>x</p>',
+			),
+			false,
+		);
+	});
+
+	test("CSS hidden from prehistoric clients still counts", () => {
+		assert.equal(
+			detectAuthorSpacing(
+				"<style><!-- .wrap{padding:24px} --></style><p>x</p>",
+			),
+			true,
+		);
+	});
+
+	test("a property that merely ends in padding is not padding", () => {
+		assert.equal(
+			detectAuthorSpacing('<div style="scroll-padding:40px">x</div>'),
+			false,
+		);
+		assert.equal(
+			detectAuthorSpacing("<style>td{mso-padding-alt:0cm 5.4pt}</style>"),
+			false,
+		);
+	});
+
+	test("a negative margin pulls content out, it does not space it", () => {
+		assert.equal(
+			detectAuthorSpacing('<div style="margin-left:-12px">x</div>'),
+			false,
+		);
+	});
+});
+
+/**
+ * The commonest mail in an inbox is a personal reply, and a personal reply
+ * carries a quote. Every client indents that quote and spaces its paragraphs,
+ * so counting either as "the mail lays out its own container" left exactly the
+ * mail the inset exists for flush against a phone's screen edge.
+ */
+describe("detectAuthorSpacing — the mail the inset exists for", () => {
+	test("an Apple Mail reply with a quoted original declares none", () => {
+		const html = [
+			"<div>Ja hoor, tot donderdag.</div><br>",
+			'<blockquote type="cite" style="margin:0 0 0 40px;border:none;padding:0px">',
+			"<div>Kun je donderdag?</div>",
+			"</blockquote>",
+		].join("");
+		assert.equal(detectAuthorSpacing(html), false);
+	});
+
+	test("a Gmail reply with a quoted original declares none", () => {
+		const html = [
+			'<div dir="ltr">Works for me.</div>',
+			'<div class="gmail_quote">',
+			'<blockquote class="gmail_quote" style="margin:0px 0px 0px 0.8ex;',
+			'border-left:1px solid rgb(204,204,204);padding-left:1ex">',
+			"<div>Thursday still good?</div>",
+			"</blockquote></div>",
+		].join("");
+		assert.equal(detectAuthorSpacing(html), false);
+	});
+
+	test("Outlook paragraph spacing is not a container", () => {
+		const html = [
+			"<style>p.MsoNormal{margin:0cm;margin-bottom:.0001pt}</style>",
+			"<p class=MsoNormal style='margin-bottom:12.0pt'>Beste Matthijs,</p>",
+			"<p class=MsoNormal style='margin-bottom:12.0pt'>Met vriendelijke groet,</p>",
+		].join("");
+		assert.equal(detectAuthorSpacing(html), false);
+	});
+
+	test("a newsletter that lays out its own container still counts", () => {
+		const html = [
+			'<table width="600" style="margin:0 auto">',
+			'<tr><td style="width:600px;padding:24px;background:#83cd29">',
+			"<h1>Node Weekly</h1></td></tr></table>",
+		].join("");
+		assert.equal(detectAuthorSpacing(html), true);
 	});
 });

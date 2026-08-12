@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { Paperclip, Star } from "lucide-react";
 import { useState } from "react";
+import { expect } from "storybook/test";
 import type { ThreadData, ThreadMessageData } from "./app-shell-types.js";
 import {
 	type AttachmentDownloadState,
@@ -42,7 +43,7 @@ const thread: ThreadData = {
 };
 
 // A designed (framed) newsletter so the Screens story exercises the REAL
-// renderer — sanitized + sandboxed iframe, flush layout, #727 scale-to-fit —
+// renderer — sanitized + sandboxed iframe, flush layout, in-document overflow —
 // rather than a plain inline paragraph (#940). The fixed 600px table is the
 // kind of markup that overflowed a phone before #727.
 const newsletterThread: ThreadData = {
@@ -72,6 +73,40 @@ const newsletterThread: ThreadData = {
 	],
 };
 
+// Formatted HTML mail that declares no background, no padding and no width —
+// the ordinary case. The app supplies the ground and the breathing room, so the
+// email must read as one surface with the pane rather than a card inside it: no
+// border, no accent line down the side, no gutter of app canvas beside it.
+const bareThread: ThreadData = {
+	subject: "Repetitie donderdag",
+	messages: [
+		{
+			id: "bare-1",
+			fromName: "Ingrid Bakker",
+			fromEmail: "ingrid@koor.example",
+			toLabel: "you",
+			dateLabel: "Today, 11:24",
+			snippet: "De repetitie van donderdag gaat door…",
+			expanded: true,
+			bodyHtml: `<div>
+	<p>Hoi allemaal,</p>
+	<p>De repetitie van donderdag gaat door. We beginnen met het nieuwe stuk en
+	repeteren om 20.00 uur verder aan het programma voor het najaarsconcert.</p>
+	<p><b>Neem je eigen partituur mee</b> — er zijn geen reservekopie&euml;n.</p>
+	<p>Groeten,<br>Ingrid</p>
+</div>`,
+		},
+	],
+};
+
+const PLAIN_TEXT_BODY = `Hoi allemaal,
+
+De repetitie van donderdag gaat door. We beginnen met het nieuwe stuk en
+repeteren om 20.00 uur verder aan het programma voor het najaarsconcert.
+
+Groeten,
+Ingrid`;
+
 const meta: Meta<typeof ReadingPane> = {
 	title: "Screens/Kit/ReadingPane",
 	component: ReadingPane,
@@ -89,8 +124,28 @@ type Story = StoryObj<typeof ReadingPane>;
 export const WithThread: Story = { args: { thread } };
 
 /** A designed newsletter rendered through the real sanitize → sandboxed-iframe
- *  pipeline — the same rendering the live app shows (#940). */
+ *  pipeline — the same rendering the live app shows (#940). It brings its own
+ *  background and its own 24px padding and keeps both, undoubled. */
 export const Newsletter: Story = { args: { thread: newsletterThread } };
+
+/** The same newsletter on the dark pane: darkened as authored, not repainted. */
+export const NewsletterDark: Story = {
+	args: { thread: newsletterThread },
+	parameters: { theme: "dark" },
+};
+
+/** Ordinary formatted mail that declares nothing of its own. The sender header
+ *  keeps its inset; below it the email is one surface with the pane — no card
+ *  edge, no accent line, no app gutter beside it — with the breathing room
+ *  inside the email's own ground. */
+export const BareHtmlMail: Story = { args: { thread: bareThread } };
+
+/** The same on the dark pane, where a lighter app-supplied ground used to show
+ *  as a rectangle seamed into the pane. */
+export const BareHtmlMailDark: Story = {
+	args: { thread: bareThread },
+	parameters: { theme: "dark" },
+};
 
 export const Empty: Story = { args: { thread: undefined } };
 
@@ -252,7 +307,7 @@ const ThreadAttachments = () => {
 
 	return (
 		<AttachmentList
-			className="mt-4 px-2 lg:px-0"
+			className="mt-4"
 			attachments={rows}
 			onDownload={(attachmentId) => {
 				setStatus(attachmentId, { status: "downloading" });
@@ -287,6 +342,86 @@ export const ExpandedRowWithAttachments: StoryObj<typeof ExpandedMessage> = {
 							allowImages
 						/>
 						<ThreadAttachments />
+					</div>
+				}
+			/>
+		</div>
+	),
+};
+
+/**
+ * The email sits square in the pane: the frame leaves the message gutter on
+ * both sides, not just the left.
+ *
+ * A block box cannot have both a width and two margins — the browser resolves
+ * the over-constraint by throwing the right margin away — so a gutter cancel on
+ * a `w-full` box moved the mail left and left a strip of app canvas down its
+ * right-hand side. Bare mail hides that (it paints the pane's own colour); a
+ * newsletter with a ground of its own shows it plainly, which is why this
+ * measures a framed message.
+ */
+const framedRow: ThreadMessageData = {
+	...newsletterThread.messages[0],
+	id: "symmetry-1",
+};
+
+const paneGutters = (canvasElement: HTMLElement) => {
+	const pane = canvasElement.querySelector<HTMLElement>("[data-pane]");
+	const frame = pane?.querySelector<HTMLElement>(".message-body-frame");
+	if (!pane || !frame) throw new Error("no framed message body in the pane");
+	const paneBox = pane.getBoundingClientRect();
+	const frameBox = frame.getBoundingClientRect();
+	return {
+		left: frameBox.left - paneBox.left,
+		right: paneBox.right - frameBox.right,
+	};
+};
+
+const assertSymmetric = async (canvasElement: HTMLElement) => {
+	const { left, right } = paneGutters(canvasElement);
+	await expect(Math.abs(left - right)).toBeLessThan(1);
+	await expect(Math.abs(left)).toBeLessThan(1);
+};
+
+/** A designed newsletter on a desktop reading column. */
+export const FramedBodySitsSquareInThePane: StoryObj<typeof ExpandedMessage> = {
+	render: () => (
+		<div data-pane className="w-[900px] bg-canvas">
+			<ExpandedMessage message={framedRow} />
+		</div>
+	),
+	play: async ({ canvasElement }) => {
+		await assertSymmetric(canvasElement);
+	},
+};
+
+/** The same at a phone width, where the gutter is half as wide and a lost
+ *  right margin is half the pane's breathing room. */
+export const FramedBodySitsSquareOnAPhone: StoryObj<typeof ExpandedMessage> = {
+	render: () => (
+		<div data-pane className="w-[390px] bg-canvas">
+			<ExpandedMessage message={framedRow} />
+		</div>
+	),
+	play: async ({ canvasElement }) => {
+		await assertSymmetric(canvasElement);
+	},
+};
+
+/**
+ * A message with no HTML part. The two body paths side by side: an email
+ * document runs flush on its own ground, while plain text — which has neither —
+ * keeps the message gutter and stays off the pane edge.
+ */
+export const PlainTextMessage: StoryObj<typeof ExpandedMessage> = {
+	render: () => (
+		<div className="max-w-3xl bg-canvas">
+			<ExpandedMessage
+				message={{ ...row, fromName: "Ingrid Bakker" }}
+				to={<>to the choir list</>}
+				body={
+					<div className="mt-3">
+						<MessageBodyView text={PLAIN_TEXT_BODY} />
 					</div>
 				}
 			/>

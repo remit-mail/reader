@@ -122,8 +122,9 @@ export const ConversationView = ({
 		error,
 		refetch,
 	} = useQuery({
-		// The API reads a conversation oldest first (#81) and the pane renders it
-		// in that order, so no `order` is asked for and none is re-sorted here.
+		// The API reads a conversation oldest first (#81) and no `order` is asked
+		// for: which turn came first is the thread's own fact, and which end of it
+		// the pane puts at the top is the pane's.
 		...threadDetailOperationsListThreadMessagesOptions({
 			path: { threadId },
 		}),
@@ -134,6 +135,11 @@ export const ConversationView = ({
 		[messagesResponse?.items],
 	);
 	const latestMessage = messages[messages.length - 1];
+
+	// Newest first, under the reply that answers it. The turn a reader came for
+	// is the last one, and reading it should not cost a scroll past everything
+	// that led to it.
+	const orderedMessages = useMemo(() => [...messages].reverse(), [messages]);
 	const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
 	// Track which messages are expanded
@@ -158,7 +164,7 @@ export const ConversationView = ({
 				if (selected) initialExpanded.add(selected.threadMessageId);
 			}
 			setExpandedIds(initialExpanded);
-			setFocusedIndex(messages.length - 1);
+			setFocusedIndex(0);
 		}
 	}, [threadId, messages, currentThreadId, selectedMessageId]);
 
@@ -174,38 +180,39 @@ export const ConversationView = ({
 		});
 	}, []);
 
-	// Scroll focused message into view
+	// Scroll focused message into view. j and k walk the pane as it reads, so
+	// the index they move is over the displayed order, not the fetched one.
 	const scrollToMessage = useCallback(
 		(index: number) => {
-			const message = messages[index];
+			const message = orderedMessages[index];
 			if (!message) return;
 			const element = messageRefs.current.get(message.threadMessageId);
 			element?.scrollIntoView({ behavior: "smooth", block: "nearest" });
 		},
-		[messages],
+		[orderedMessages],
 	);
 
 	// Keyboard navigation handlers
 	const focusNext = useCallback(() => {
-		if (messages.length === 0) return;
-		const nextIndex = Math.min(focusedIndex + 1, messages.length - 1);
+		if (orderedMessages.length === 0) return;
+		const nextIndex = Math.min(focusedIndex + 1, orderedMessages.length - 1);
 		setFocusedIndex(nextIndex);
 		scrollToMessage(nextIndex);
-	}, [messages.length, focusedIndex, scrollToMessage]);
+	}, [orderedMessages.length, focusedIndex, scrollToMessage]);
 
 	const focusPrevious = useCallback(() => {
-		if (messages.length === 0) return;
+		if (orderedMessages.length === 0) return;
 		const prevIndex = Math.max(focusedIndex - 1, 0);
 		setFocusedIndex(prevIndex);
 		scrollToMessage(prevIndex);
-	}, [messages.length, focusedIndex, scrollToMessage]);
+	}, [orderedMessages.length, focusedIndex, scrollToMessage]);
 
 	const toggleFocusedMessage = useCallback(() => {
-		const message = messages[focusedIndex];
+		const message = orderedMessages[focusedIndex];
 		if (message) {
 			toggleExpanded(message.threadMessageId);
 		}
-	}, [messages, focusedIndex, toggleExpanded]);
+	}, [orderedMessages, focusedIndex, toggleExpanded]);
 
 	const { data: config } = useQuery({
 		...configOperationsGetConfigOptions(),
@@ -282,25 +289,18 @@ export const ConversationView = ({
 		onComposeClose?.();
 	}, [onComposeClose]);
 
-	// Compose opens below the message, which on a long one is several screens
-	// down: without this, replying to it looks like nothing happening.
-	//
-	// Aligned on its bottom edge, where the send and discard verbs are, and held
-	// there while it changes height. It mounts before the message it quotes has
-	// been fetched and grows when that lands, so a single scroll at open time
-	// puts whatever it grows past back below the fold.
+	// Compose opens at the head of the pane, which from halfway down a long
+	// thread is several screens up: without this, replying looks like nothing
+	// happening. Aligned on its top edge, where the recipients are, and left
+	// alone afterwards — it grows downward as it is written into, so following
+	// its height would pull the rows being typed into off the top.
 	const composeRef = useRef<HTMLDivElement>(null);
 	useEffect(() => {
 		if (composeMode === null || composeOpenings === 0) return;
-		const surface = composeRef.current;
-		if (!surface) return;
-		const reveal = () =>
-			surface.scrollIntoView({ behavior: "smooth", block: "end" });
-		reveal();
-		if (typeof ResizeObserver === "undefined") return;
-		const observer = new ResizeObserver(reveal);
-		observer.observe(surface);
-		return () => observer.disconnect();
+		composeRef.current?.scrollIntoView({
+			behavior: "smooth",
+			block: "start",
+		});
 	}, [composeOpenings, composeMode]);
 
 	// Register keyboard shortcuts
@@ -357,8 +357,8 @@ export const ConversationView = ({
 	// wired whatever the account's SMTP state: compose is where an account that
 	// cannot send says so.
 	const renderMessages = (mobile: boolean) => (
-		<div>
-			{messages.map((message, index) => (
+		<div data-testid="conversation-messages">
+			{orderedMessages.map((message, index) => (
 				<div
 					key={message.threadMessageId}
 					ref={(el) => {
@@ -382,6 +382,21 @@ export const ConversationView = ({
 					/>
 				</div>
 			))}
+		</div>
+	);
+
+	// The reply leads the pane, above the turn it answers: what is being written
+	// is what the reader came back for, and it is not something to go looking
+	// for under a thread. It scrolls with the conversation rather than floating
+	// over it, so the pane has one scrollbar whether or not a reply is open.
+	const compose = composeMode !== null && (
+		<div ref={composeRef}>
+			<InlineCompose
+				mode={composeMode}
+				account={activeAccount}
+				sourceMessage={latestMessageData}
+				onClose={handleCloseCompose}
+			/>
 		</div>
 	);
 
@@ -419,17 +434,8 @@ export const ConversationView = ({
 						onOpenIntelligence={onOpenIntelligence}
 					/>
 				)}
+				{compose}
 				{renderMessages(true)}
-				{composeMode !== null && (
-					<div ref={composeRef}>
-						<InlineCompose
-							mode={composeMode}
-							account={activeAccount}
-							sourceMessage={latestMessageData}
-							onClose={handleCloseCompose}
-						/>
-					</div>
-				)}
 			</MobileReadingPane>
 		);
 	}
@@ -443,22 +449,12 @@ export const ConversationView = ({
 					onOpenIntelligence={onOpenIntelligence}
 				/>
 			)}
-			{/* The reply is part of the conversation, so it scrolls with it. Held
-			    below the pane instead, it took whatever height the message left
-			    over — nothing on a long one — and no amount of scrolling could
-			    reach it. */}
+			{/* The one scroller in the pane. The reply and the thread are both in
+			    it, so neither has a scrollbar of its own and neither is squeezed
+			    by the height the other takes. */}
 			<div className="min-h-0 flex-1 overflow-auto">
+				{compose}
 				{renderMessages(false)}
-				{composeMode !== null && (
-					<div ref={composeRef}>
-						<InlineCompose
-							mode={composeMode}
-							account={activeAccount}
-							sourceMessage={latestMessageData}
-							onClose={handleCloseCompose}
-						/>
-					</div>
-				)}
 			</div>
 		</article>
 	);

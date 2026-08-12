@@ -8,6 +8,7 @@ import {
 	ComposeHeader,
 	type ComposeSaveStatus,
 	type ComposeSendState,
+	type ComposeShellLayout,
 	ComposeSmtpMissingBanner,
 	ComposeSubjectField,
 	composeHeaderSummary,
@@ -62,6 +63,16 @@ const mailbox = {
 
 const DEFAULT_BODY =
 	"<p>Thanks — that works for me. I'll send the deck tomorrow.</p>";
+
+/** A draft of the length someone writes on a phone — several screens of it. */
+const LONG_DRAFT = [
+	"<p>That works. Before Thursday, three things I want written down:</p>",
+	...Array.from(
+		{ length: 24 },
+		(_, index) =>
+			`<p>Point ${index + 1}. Whoever owns the dunning mail after self-serve ships also owns the invoice numbering, and today those are two different people on two different rotas.</p>`,
+	),
+].join("");
 
 const DEFAULT_PLAIN_BODY = [
 	"Thanks — that works for me.",
@@ -133,6 +144,9 @@ interface ComposerProps {
 	/** Renders the skeleton the app shows while the body's chunk loads. */
 	bodyLoading?: boolean;
 	collapsedHeader?: boolean;
+	/** The shape the surface takes — a window that fills its pane, or a block
+	 * of the conversation that grows with what is written in it. */
+	layout?: ComposeShellLayout;
 }
 
 /**
@@ -157,6 +171,7 @@ const Composer = ({
 	quotedSender,
 	bodyLoading = false,
 	collapsedHeader = false,
+	layout = "fill",
 }: ComposerProps) => {
 	const [toAddresses, setToAddresses] = useState(to);
 	const [ccAddresses, setCcAddresses] = useState<AddressEntry[]>([]);
@@ -218,6 +233,7 @@ const Composer = ({
 
 	return (
 		<ComposeFormShell
+			layout={layout}
 			banner={
 				smtpMissing || conversionFailure ? (
 					<>
@@ -480,14 +496,16 @@ export const OverAnOpenMessage: Story = {
 };
 
 /**
- * Inline reply within the reading pane — the same form under the conversation
- * it answers, in a compact frame. Its subject is the form, so it is shown on
- * its own rather than in the shell.
+ * Inline reply within the reading pane — the same form, as a block of the page
+ * rather than a window on it. It is as tall as what has been written in it and
+ * has no scroller of its own; the frame around it is the one that scrolls. Its
+ * subject is the form, so it is shown on its own rather than in the shell.
  */
 export const Inline: Story = {
 	render: () => (
-		<div className="mx-auto mt-8 h-[460px] w-[640px] overflow-hidden rounded-md border border-line">
+		<div className="mx-auto mt-8 h-[460px] w-[640px] overflow-auto rounded-md border border-line">
 			<Composer
+				layout="flow"
 				subject="Re: Lunch Thursday?"
 				body="<p>Sounds good. See you at 12:30.</p>"
 				quoted="Are we still on for Thursday? I can do 12:30."
@@ -500,15 +518,18 @@ export const Inline: Story = {
 /**
  * The conversation and the reply it is being written into, arranged the way
  * `ConversationView` arranges them: the subject heading is the pane's own, the
- * message and the reply share one scrolling region, and the reply's frame is
- * the one `InlineCompose` gives it.
+ * reply leads the pane, the thread reads newest first underneath it, and the
+ * one scrolling region holds both.
  */
 const ConversationWithReply = ({
 	subject,
 	messages,
+	draft = "",
 }: {
 	subject: string;
 	messages: ThreadMessageData[];
+	/** What has been written into the reply so far. */
+	draft?: string;
 }) => (
 	<article className="flex h-full flex-col bg-canvas">
 		<header className="border-b border-line px-5 pt-5 pb-3">
@@ -519,20 +540,21 @@ const ConversationWithReply = ({
 				{messages.length} {messages.length === 1 ? "message" : "messages"}
 			</p>
 		</header>
-		<div className="min-h-0 flex-1 overflow-auto">
-			{messages.map((message) => (
-				<ExpandedMessage key={message.id} message={message} />
-			))}
-			{/* Same frame as `InlineCompose` — the reply takes a height on a
-			    desktop pane rather than whatever the message leaves over. */}
-			<div className="flex flex-col border-t border-line bg-canvas max-h-[min(400px,60dvh)] lg:h-[min(560px,55dvh)] lg:max-h-none">
+		<div className="min-h-0 flex-1 overflow-auto" data-pane-scroll>
+			{/* Same frame as `InlineCompose` — no height of its own, so the pane
+			    keeps the one scrollbar it had before the reply opened. */}
+			<div className="border-b border-line bg-canvas">
 				<Composer
+					layout="flow"
 					subject={`Re: ${subject}`}
-					body=""
+					body={draft}
 					quoted={messages[messages.length - 1]?.snippet}
 					quotedSender={messages[messages.length - 1]?.fromName}
 				/>
 			</div>
+			{[...messages].reverse().map((message) => (
+				<ExpandedMessage key={message.id} message={message} />
+			))}
 		</div>
 	</article>
 );
@@ -561,10 +583,10 @@ ${Array.from(
 };
 
 /**
- * The reply under a short message: it follows the body directly, with no band
- * of empty canvas between the two.
+ * The reply over a short message: it leads the pane, and the message it answers
+ * follows it directly, with no band of empty canvas between the two.
  */
-export const InlineUnderAMessage: Story = {
+export const InlineOverAMessage: Story = {
 	render: () => (
 		<MailShell
 			{...mailbox}
@@ -579,12 +601,12 @@ export const InlineUnderAMessage: Story = {
 };
 
 /**
- * The same reply under a message several screens long — the case that used to
- * be unusable. The reply scrolls with the conversation, so it is reachable, and
- * it keeps its own height instead of being squeezed to a couple of lines by
- * whatever the message left over.
+ * The same reply over a message several screens long. Writing does not move:
+ * the composer is at the head of the pane whatever the thread under it is, and
+ * grows downward as it is written into rather than scrolling inside a box of
+ * its own.
  */
-export const InlineUnderALongMessage: Story = {
+export const InlineOverALongMessage: Story = {
 	render: () => (
 		<MailShell
 			{...mailbox}
@@ -596,6 +618,64 @@ export const InlineUnderALongMessage: Story = {
 			}
 		/>
 	),
+};
+
+/**
+ * A thread of several turns, read newest first: the reply is at the top, the
+ * turn it answers is directly under it, and the ones that led there run back in
+ * time below. One scrollbar covers the lot.
+ */
+export const InlineOverAThread: Story = {
+	render: () => (
+		<MailShell
+			{...mailbox}
+			reading={
+				<ConversationWithReply
+					subject={q3Thread.subject}
+					messages={q3Thread.messages}
+				/>
+			}
+		/>
+	),
+};
+
+/**
+ * A reply several screens long, on a phone-sized pane. The composer takes the
+ * height of what is written in it, so Send — the last thing in the surface —
+ * would leave the screen with the text. It rides the bottom edge of the pane
+ * instead, and lands back in the column when the end of the reply comes into
+ * view. Nothing about the growing or the single scrollbar changes.
+ */
+export const InlineWithALongDraft: Story = {
+	name: "Mobile — a long reply keeps Send in reach",
+	render: () => (
+		<div className="mx-auto mt-8 h-[844px] w-[390px] overflow-hidden rounded-md border border-line bg-canvas">
+			<ConversationWithReply
+				subject="Lunch Thursday?"
+				messages={[shortMessage]}
+				draft={LONG_DRAFT}
+			/>
+		</div>
+	),
+	play: async ({ canvasElement }) => {
+		const pane = canvasElement.querySelector<HTMLElement>("[data-pane-scroll]");
+		if (!pane) throw new Error("the pane is not mounted");
+
+		// The premise: this draft really is taller than the pane. On a composer
+		// that fits, Send is on screen whatever the bar does.
+		await waitFor(async () => {
+			const written = writingSurface(canvasElement).getBoundingClientRect();
+			await expect(written.height).toBeGreaterThan(
+				pane.getBoundingClientRect().height,
+			);
+		});
+
+		const send = within(canvasElement).getByRole("button", { name: "Send" });
+		const button = send.getBoundingClientRect();
+		const visible = pane.getBoundingClientRect();
+		await expect(button.top).toBeGreaterThanOrEqual(visible.top);
+		await expect(button.bottom).toBeLessThanOrEqual(visible.bottom);
+	},
 };
 
 /**

@@ -1,3 +1,4 @@
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
 	Panel,
 	PanelGroup,
@@ -49,6 +50,47 @@ export function ResizableHandle({
 			)}
 			{...props}
 		/>
+	);
+}
+
+/**
+ * Gives everything inside it a whole-pixel box. `react-resizable-panels` sizes a
+ * pane with a fractional `flexGrow`, so a pane lands on 712.5px and every box
+ * under it inherits the fraction — and a fraction is where the DOM's whole-pixel
+ * measurements start disagreeing with each other. Floor rather than round, so
+ * the box is never a hair wider than the pane holding it.
+ */
+export function WholePixelWidth({
+	className,
+	children,
+}: {
+	className?: string;
+	children: ReactNode;
+}) {
+	const ref = useRef<HTMLDivElement>(null);
+	const [width, setWidth] = useState<number | null>(null);
+
+	useEffect(() => {
+		const pane = ref.current?.parentElement;
+		if (!pane || typeof ResizeObserver === "undefined") return;
+		const measure = () => {
+			const next = Math.floor(pane.getBoundingClientRect().width);
+			setWidth((prev) => (prev === next ? prev : next));
+		};
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(pane);
+		return () => observer.disconnect();
+	}, []);
+
+	return (
+		<div
+			ref={ref}
+			className={className}
+			style={width === null ? undefined : { width: `${width}px` }}
+		>
+			{children}
+		</div>
 	);
 }
 

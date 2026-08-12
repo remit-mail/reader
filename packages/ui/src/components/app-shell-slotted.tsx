@@ -9,6 +9,7 @@ import {
 	ResizableHandle,
 	ResizablePanel,
 	ResizablePanelGroup,
+	WholePixelWidth,
 } from "./resizable.js";
 
 /* ------------------------------------------------------------------ */
@@ -250,7 +251,10 @@ export function AppShellSlotted({
 						minSize={29}
 						className="min-w-0"
 					>
-						{reading}
+						{/* The email inside this pane is laid out against the pane's own
+						    width, so the pane is the last place a fractional box is
+						    allowed. */}
+						<WholePixelWidth className="h-full">{reading}</WholePixelWidth>
 					</ResizablePanel>
 				</>
 			)}

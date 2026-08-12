@@ -54,7 +54,7 @@ export function SlidePanel({
 
 			<div
 				className={cn(
-					"safe-area-frame fixed top-0 right-0 z-50 h-full w-full border-l border-line bg-canvas shadow-xl sm:w-[400px] sm:max-w-[90vw]",
+					"safe-area-frame fixed top-0 right-0 z-50 flex h-full w-full flex-col border-l border-line bg-canvas shadow-xl sm:w-[400px] sm:max-w-[90vw]",
 					"transform transition-transform duration-200 ease-out",
 					isOpen ? "translate-x-0" : "pointer-events-none translate-x-full",
 				)}
@@ -64,7 +64,7 @@ export function SlidePanel({
 				inert={!isOpen}
 				aria-labelledby="slide-panel-title"
 			>
-				<div className="flex h-14 items-center justify-between border-b border-line px-4">
+				<div className="flex h-14 shrink-0 items-center justify-between border-b border-line px-4">
 					<h2 id="slide-panel-title" className="font-semibold">
 						{title}
 					</h2>
@@ -78,7 +78,11 @@ export function SlidePanel({
 					</button>
 				</div>
 
-				<div className="flex h-[calc(100%-3.5rem)] flex-col">
+				{/* The body takes what the header leaves, from the layout rather than
+				    from arithmetic over the header's height: a computed height puts
+				    the box on a fractional pixel and drifts the moment the header
+				    does. */}
+				<div className="flex min-h-0 flex-1 flex-col">
 					<div className="flex-1 overflow-auto p-4">{children}</div>
 					{footer && (
 						<div className="flex justify-end gap-3 border-t border-line bg-canvas p-4">

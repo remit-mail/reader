@@ -324,14 +324,11 @@ const ExpandedCard = ({
 							isTrusted={isTrusted}
 							category={toDisplayCategory(threadMessage.category)}
 						/>
-						{/* The body slot runs edge to edge on a phone; the attachment
-						    list is app chrome, not part of the email, so it takes the
-						    gutter back. */}
 						<MessageAttachments
 							messageId={threadMessage.messageId}
 							bodyParts={messageData?.bodyParts}
 							hasAttachment={threadMessage.hasAttachment}
-							className="mt-4 px-2 lg:px-0"
+							className="mt-4"
 						/>
 					</div>
 				)

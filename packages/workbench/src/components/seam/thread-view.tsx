@@ -7,6 +7,10 @@ import type { SeamMessage } from "../../fixtures/calendar-seam.js";
  * The thread, with the times it names marked in place. A detected time is not
  * moved to a panel and paraphrased — it is underlined where the sender wrote
  * it, so the reading can be checked against the sentence without scrolling.
+ *
+ * Read newest first, as the app reads a conversation: the turn a reader came
+ * for is the last one, and it does not cost a scroll past everything that led
+ * to it. Messages arrive oldest first, which is the thread's own fact.
  */
 
 export interface ThreadTranscriptProps {
@@ -28,7 +32,7 @@ export function ThreadTranscript({
 }: ThreadTranscriptProps) {
 	return (
 		<div className={cn("flex flex-col", className)}>
-			{messages.map((message) => (
+			{[...messages].reverse().map((message) => (
 				<article
 					key={message.id}
 					className="border-b border-line px-row-inset py-3 last:border-b-0"

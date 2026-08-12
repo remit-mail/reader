@@ -179,6 +179,7 @@ export {
 	ComposeFormShell,
 	type ComposeFormShellProps,
 	type ComposeMode,
+	type ComposeShellLayout,
 	composeModeLabels,
 } from "./components/compose-form-shell.js";
 export {
@@ -218,7 +219,10 @@ export {
 	DialogBackdrop,
 	type DialogBackdropProps,
 } from "./components/dialog-backdrop.js";
-export type { EmailFrameVariant } from "./components/email-frame-css.js";
+export type {
+	AuthorDeclarations,
+	EmailFrameVariant,
+} from "./components/email-frame-css.js";
 export {
 	EventDetail,
 	type EventDetailProps,
@@ -408,6 +412,7 @@ export {
 } from "./components/mail-header.js";
 export {
 	type EmailRenderCategory,
+	MessageBodyRegion,
 	MessageBodyView,
 	type MessageBodyViewProps,
 } from "./components/message-body-view.js";
@@ -569,6 +574,7 @@ export {
 	ResizableHandle,
 	ResizablePanel,
 	ResizablePanelGroup,
+	WholePixelWidth,
 } from "./components/resizable.js";
 export {
 	EMPTY_RICH_TEXT,
@@ -819,6 +825,7 @@ export {
 export {
 	createEmailSanitizer,
 	detectAuthorBackground,
+	detectAuthorSpacing,
 	type SanitizedEmail,
 	type SanitizeOptions,
 	sanitizeInlineStyle,

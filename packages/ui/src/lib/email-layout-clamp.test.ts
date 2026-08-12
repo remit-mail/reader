@@ -89,6 +89,36 @@ describe("generateLayoutClampCSS (#374 / #727)", () => {
 		);
 	});
 
+	test("overrides an author nowrap so flowing text can never be clipped", () => {
+		// The frame is the pane's width, so a pinned paragraph is read by dragging
+		// the whole email sideways; inside an author `overflow:hidden` it is cut
+		// mid-character with nothing to scroll at all.
+		assert.ok(
+			/\[nowrap\][^{]*\{[^}]*white-space:\s*normal\s*!important/.test(css),
+			"a nowrap attribute must not pin a line wider than the frame",
+		);
+		assert.ok(
+			/\[style\*="nowrap" i\][^{]*\{[^}]*white-space:\s*normal\s*!important/.test(
+				css,
+			),
+			"an inline white-space:nowrap must not pin a line wider than the frame",
+		);
+		assert.ok(
+			/\[style\*="nowrap" i\]/.test(css),
+			"Outlook emits WHITE-SPACE: NOWRAP — the attribute match must ignore case",
+		);
+		assert.ok(
+			/\[nowrap\]:not\(pre, code, pre \*, code \*\)/.test(css),
+			"pre/code AND their descendants keep their own whitespace handling",
+		);
+		assert.ok(
+			/:is\(pre, code, pre \*, code \*\):is\(\[nowrap\], \[style\*="nowrap" i\]\)[^{]*\{[^}]*white-space:\s*pre-wrap\s*!important/.test(
+				css,
+			),
+			"a nowrap inside a pre wraps rather than collapsing the block's spacing",
+		);
+	});
+
 	test("wraps long unbroken lines in pre/code blocks", () => {
 		assert.ok(/\bpre\b/.test(css));
 		assert.ok(/\bcode\b/.test(css));

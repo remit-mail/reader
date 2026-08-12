@@ -56,6 +56,35 @@ const EmptyBody = () => (
 );
 
 /**
+ * The message-body region of a reading pane. The sandboxed email frame — and
+ * only it — leaves the message's gutter, so mail renders on its own ground with
+ * its own margins and no app canvas shows down either side of it (#763).
+ * Everything else in the region is app chrome (the blocked-images notice, a
+ * plain-text body, an error, the attachment list) and keeps the inset the
+ * header has.
+ *
+ * The rule lives here, next to the `message-body-frame` marker it moves, so the
+ * pane and Storybook cannot drift apart on it. The negative margins mirror the
+ * message block's own `px-2 lg:px-4`.
+ */
+export const MessageBodyRegion = ({
+	className,
+	children,
+}: {
+	className?: string;
+	children: ReactNode;
+}) => (
+	<div
+		className={cn(
+			"[&_.message-body-frame]:-mx-2 lg:[&_.message-body-frame]:-mx-4",
+			className,
+		)}
+	>
+		{children}
+	</div>
+);
+
+/**
  * Render an email body the way the app does: sanitize the raw HTML
  * (DOMPurify + privacy/XSS scrubbing), classify it as framed (designed mail —
  * author colors preserved) or plain (theme-aware base CSS), then hand the
@@ -92,6 +121,16 @@ export const MessageBodyView = ({
 		sanitized?.hasAuthorBackground ?? false,
 	);
 
+	// Stable across renders: the frame rebuilds its srcDoc — and so reloads the
+	// iframe — whenever this changes identity.
+	const declares = useMemo(
+		() => ({
+			background: sanitized?.hasAuthorBackground ?? false,
+			spacing: sanitized?.hasAuthorSpacing ?? false,
+		}),
+		[sanitized?.hasAuthorBackground, sanitized?.hasAuthorSpacing],
+	);
+
 	const blockedImageCount = useMemo(() => {
 		if (!sanitizedHtml || allowImages) return 0;
 		return (sanitizedHtml.match(/data-blocked-src/g) || []).length;
@@ -107,46 +146,56 @@ export const MessageBodyView = ({
 
 	return (
 		<div className={cn("message-body", className)}>
-			{/* `message-body-notice` is a styling hook, not a style: a container
-			    that drops the body's horizontal inset (the mobile reading pane)
-			    uses it to give the gutter back to this notice, which is app
-			    chrome rather than part of the email. */}
+			{/* The notice keeps the container's gutter: it is app chrome, not part
+			    of the email, and only `message-body-frame` below leaves the
+			    gutter. */}
 			{blockedImageCount > 0 && (
-				<div className="message-body-notice">
-					{renderBlockedNotice?.(blockedImageCount)}
-				</div>
+				<div>{renderBlockedNotice?.(blockedImageCount)}</div>
 			)}
 
 			{sanitizedHtml ? (
 				// Email HTML renders inside a sandboxed iframe so its own CSS and any
 				// (already-DOMPurify'd) markup cannot bleed into the app chrome. The
-				// frame sizes itself to its content; its sandbox omits `allow-scripts`
-				// so even a hypothetical sanitizer escape can't execute.
-				framed ? (
-					// Full-width wrapper so a fluid newsletter fills the reading column;
-					// max-w-full + overflow-x-auto trap any residual wide content inside
-					// this box rather than dragging the page on mobile. No border,
-					// padding or background — the email renders flush (#727).
-					<div className="w-full max-w-full overflow-x-auto">
-						<IsolatedEmailFrame
-							html={sanitizedHtml}
-							variant="framed"
-							isDark={isDark}
-						/>
-					</div>
-				) : (
-					// `lg:max-w-2xl` caps the reading column on desktop; `max-w-full`
-					// keeps the box within the viewport on mobile. `overflow-x-auto`
-					// traps residual wide content INSIDE this box on a phone (#727).
-					<div className="max-w-full overflow-x-auto lg:max-w-2xl">
-						<IsolatedEmailFrame
-							html={sanitizedHtml}
-							variant={isPlain ? "plain" : "framed"}
-							isDark={isDark}
-						/>
-					</div>
-				)
+				// frame is the width of this box and never the width of the mail —
+				// content that cannot wrap scrolls inside the frame's own document —
+				// and its sandbox omits `allow-scripts` so even a hypothetical
+				// sanitizer escape can't execute.
+				//
+				// `message-body-frame` marks the box the gutter cancel moves, and it
+				// carries no width of its own: a block with both a width and a margin
+				// is over-constrained, and the browser resolves that by dropping the
+				// right margin — which left a strip of app canvas down one side of
+				// every email. The width lives on the child instead.
+				<div className="message-body-frame">
+					{framed ? (
+						// Full-width wrapper so a fluid newsletter fills the reading
+						// column. No border, padding or background — the email renders
+						// flush (#727).
+						<div className="w-full max-w-full">
+							<IsolatedEmailFrame
+								html={sanitizedHtml}
+								variant="framed"
+								isDark={isDark}
+								declares={declares}
+							/>
+						</div>
+					) : (
+						// `lg:max-w-2xl` caps the reading column on desktop; `max-w-full`
+						// keeps the box within the viewport on mobile.
+						<div className="max-w-full lg:max-w-2xl">
+							<IsolatedEmailFrame
+								html={sanitizedHtml}
+								variant={isPlain ? "plain" : "framed"}
+								isDark={isDark}
+								declares={declares}
+							/>
+						</div>
+					)}
+				</div>
 			) : text ? (
+				// Plain text is not an email document: it has no ground of its own and
+				// no layout to respect, so it keeps the message's gutter rather than
+				// running to the pane edge like the sandboxed frame does.
 				<pre className="email-text whitespace-pre-wrap text-sm leading-relaxed">
 					{text}
 				</pre>
