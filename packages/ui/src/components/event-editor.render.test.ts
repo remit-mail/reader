@@ -94,8 +94,8 @@ describe("EventEditor", () => {
 		const html = render({
 			draft: { ...draft, startTime: "23:00", endTime: "01:00" },
 		});
-		assert.match(html, /value="23:00"[^>]*aria-label="Start time"/);
-		assert.match(html, /value="01:00"[^>]*aria-label="End time"/);
+		assert.match(html, /aria-label="Start time"[^>]*value="23:00"/);
+		assert.match(html, /aria-label="End time"[^>]*value="01:00"/);
 	});
 
 	it("lets a normal range save", () => {
