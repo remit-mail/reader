@@ -63,6 +63,7 @@ import { isOutboxListRow, isUnsendableStatus } from "@/lib/outbox-status";
 import { normalizeSearchQuery } from "@/lib/search-query";
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { cn } from "@/lib/utils";
+import { retainOpenPanels } from "@/routing";
 
 /* ------------------------------------------------------------------ */
 /* Helpers (shared between List, Reading, Phone sub-views)             */
@@ -218,13 +219,18 @@ function OutboxPaneProvider({
 				to: "/mail/outbox/draft/$outboxMessageId",
 				params: { outboxMessageId },
 				search: (prev) => prev,
+				hash: retainOpenPanels,
 			});
 		},
 		[navigate],
 	);
 
 	const handleCloseMessage = useCallback(() => {
-		navigate({ to: "/mail/outbox", search: (prev) => prev });
+		navigate({
+			to: "/mail/outbox",
+			search: (prev) => prev,
+			hash: retainOpenPanels,
+		});
 	}, [navigate]);
 
 	const ctx: OutboxPaneContextValue = {

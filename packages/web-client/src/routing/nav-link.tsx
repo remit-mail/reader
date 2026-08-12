@@ -7,7 +7,7 @@ import type {
 } from "@tanstack/react-router";
 import { createLink } from "@tanstack/react-router";
 import type { ReactElement } from "react";
-import { type PanelFragment, retainOpenPanel } from "./fragment";
+import { type PanelFragment, retainOpenPanels } from "./fragment";
 
 const RouterNavLink = createLink(NavLinkSurface);
 
@@ -43,9 +43,9 @@ export type NavLinkProps<
  * `params` / `search` inference, so a route that does not exist or a param set
  * that does not match it fails to compile instead of rendering a blank pane.
  *
- * A link that names no panel carries the open one across, for the panels that
- * outlive a navigation: the rail is up until the reader puts it down, and every
- * row in a list is a link.
+ * A link that names no panel carries the open panes across: the rail is up
+ * until the reader puts it down, and every row in a list is a link. Overlays
+ * are left behind, because going somewhere is what dismisses one.
  */
 export function NavLink<
 	TRouter extends AnyRouter = RegisteredRouter,
@@ -58,5 +58,5 @@ export function NavLink({
 	fragment,
 	...props
 }: CreateLinkProps & { fragment?: PanelFragment }): ReactElement {
-	return <RouterNavLink {...props} hash={fragment ?? retainOpenPanel} />;
+	return <RouterNavLink {...props} hash={fragment ?? retainOpenPanels} />;
 }

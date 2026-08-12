@@ -44,7 +44,7 @@ import { useMailContext } from "@/lib/mail-context";
 import {
 	type OpenThreadPath,
 	type OpenThreadTarget,
-	retainOpenPanel,
+	retainOpenPanels,
 } from "@/routing";
 
 /* ------------------------------------------------------------------ */
@@ -152,7 +152,7 @@ function BriefPaneProvider({ thread, children }: BriefPaneProps) {
 				// `searchInput`: a row can be tapped before the debounce settles, when
 				// the committed query is still empty.
 				search: (prev) => ({ ...prev, q: searchInput || undefined }),
-				hash: retainOpenPanel,
+				hash: retainOpenPanels,
 			});
 		},
 		[navigate, searchInput],
@@ -162,7 +162,7 @@ function BriefPaneProvider({ thread, children }: BriefPaneProps) {
 		navigate({
 			to: "/mail/brief",
 			search: (prev) => prev,
-			hash: retainOpenPanel,
+			hash: retainOpenPanels,
 		});
 	}, [navigate]);
 

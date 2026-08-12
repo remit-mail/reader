@@ -55,7 +55,7 @@ import { useMailContext } from "@/lib/mail-context";
 import {
 	type OpenThreadPath,
 	type OpenThreadTarget,
-	retainOpenPanel,
+	retainOpenPanels,
 } from "@/routing";
 
 /* ------------------------------------------------------------------ */
@@ -158,7 +158,7 @@ function FlaggedPaneProvider({ thread, children }: FlaggedPaneProps) {
 				// `searchInput`: a row can be tapped before the debounce settles, when
 				// the committed query is still empty.
 				search: (prev) => ({ ...prev, q: searchInput || undefined }),
-				hash: retainOpenPanel,
+				hash: retainOpenPanels,
 			});
 		},
 		[navigate, searchInput],
@@ -168,7 +168,7 @@ function FlaggedPaneProvider({ thread, children }: FlaggedPaneProps) {
 		navigate({
 			to: "/mail/flagged",
 			search: (prev) => prev,
-			hash: retainOpenPanel,
+			hash: retainOpenPanels,
 		});
 	}, [navigate]);
 

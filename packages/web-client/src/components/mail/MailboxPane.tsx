@@ -108,7 +108,6 @@ import {
 	inboxFilterParams,
 	sameInboxFilter,
 } from "@/lib/inbox-filters";
-import { readIntelligencePref } from "@/lib/intelligence-pref";
 import { junkDestination } from "@/lib/junk-destination";
 import { useMailContext } from "@/lib/mail-context";
 import { useMailFreshness } from "@/lib/mail-freshness";
@@ -128,7 +127,7 @@ import {
 import {
 	type OpenThreadPath,
 	type OpenThreadTarget,
-	retainOpenPanel,
+	retainOpenPanels,
 } from "@/routing";
 import { MailViewChrome } from "./MailViewChrome";
 
@@ -268,15 +267,9 @@ function MailboxPaneProvider({
 	const threadId = thread?.threadId;
 	const pointedAtMessageId = thread?.messageId;
 	const tier = useLayoutTier();
-	const isDesktop = tier === "desktop";
 	const telemetry = useTelemetry();
-	const {
-		accounts,
-		searchQuery,
-		intelligenceOpen,
-		onToggleIntelligence,
-		onSetIntelligenceOpen,
-	} = useMailContext();
+	const { accounts, searchQuery, intelligenceOpen, onToggleIntelligence } =
+		useMailContext();
 	const tokenContext = useSearchTokenContext();
 
 	const normalizedSearchQuery = normalizeSearchQuery(searchQuery);
@@ -475,7 +468,7 @@ function MailboxPaneProvider({
 			to: "/mail/$mailboxId",
 			params: { mailboxId },
 			search: (prev) => prev,
-			hash: retainOpenPanel,
+			hash: retainOpenPanels,
 		});
 	}, [mailboxId, navigate]);
 
@@ -485,7 +478,7 @@ function MailboxPaneProvider({
 				to: "/mail/$mailboxId/$threadId/$messageId",
 				params: { mailboxId, ...target },
 				search: (prev) => prev,
-				hash: retainOpenPanel,
+				hash: retainOpenPanels,
 			});
 		},
 		[mailboxId, navigate],
@@ -539,23 +532,6 @@ function MailboxPaneProvider({
 		selectedThread?.authenticity?.dkimMismatch,
 		intelligenceOpen,
 		onToggleIntelligence,
-	]);
-
-	// Desktop default-open (#782)
-	const appliedDefaultRef = useRef(false);
-	useEffect(() => {
-		if (appliedDefaultRef.current) return;
-		if (!isDesktop) return;
-		if (!selectedThread?.messageId) return;
-		appliedDefaultRef.current = true;
-		if (readIntelligencePref() && !intelligenceOpen) {
-			onSetIntelligenceOpen(true);
-		}
-	}, [
-		isDesktop,
-		selectedThread?.messageId,
-		intelligenceOpen,
-		onSetIntelligenceOpen,
 	]);
 
 	// The mailbox's own unseen total. A count over the loaded pages undercounts
@@ -1054,7 +1030,7 @@ function MailboxList() {
 				// `searchInput`: a row can be tapped before the debounce settles, when
 				// the committed query is still empty.
 				search: (prev) => ({ ...prev, q: searchInput || undefined }),
-				hash: retainOpenPanel,
+				hash: retainOpenPanels,
 			});
 		},
 		[mailboxId, navigate, searchInput, threads],

@@ -30,6 +30,21 @@ const navSlideOver = (page: Page): Locator =>
 const intelligenceRail = (page: Page): Locator =>
 	page.getByRole("complementary").filter({ hasText: "Intelligence" }).first();
 
+const SHOW_RAIL = "Show intelligence sidebar";
+const HIDE_RAIL = "Hide intelligence sidebar";
+
+const openMessage = async (page: Page, subject: string): Promise<void> => {
+	const row = page.locator(MAILBOX_ROW_LINK).filter({ hasText: subject });
+	await expect(row).toBeVisible({ timeout: 30_000 });
+	await row.click();
+	await page.waitForURL(MAILBOX_THREAD_URL);
+	await expect(
+		page
+			.getByRole("article")
+			.getByRole("heading", { name: subject, exact: true }),
+	).toBeVisible({ timeout: 15_000 });
+};
+
 const openInbox = async (page: Page): Promise<void> => {
 	await page.goto("/mail");
 	const sidebar = page.getByRole("navigation", {
@@ -60,7 +75,7 @@ test.describe("Panels the address carries", () => {
 		await expect(page).not.toHaveURL(/#shortcuts/);
 	});
 
-	test("the rail is in the address and stays up across messages", async ({
+	test("the rail is in the address once the reader puts it there", async ({
 		page,
 		run,
 	}) => {
@@ -69,31 +84,70 @@ test.describe("Panels the address carries", () => {
 		const first = run.seededSubjects[0];
 		const other = run.seededSubjects.find((subject) => subject !== first);
 		if (!other) throw new Error("expected a second seeded inbox subject");
+		await openMessage(page, first);
 
-		const row = page.locator(MAILBOX_ROW_LINK).filter({ hasText: first });
-		await expect(row).toBeVisible({ timeout: 30_000 });
-		await row.click();
-		await page.waitForURL(MAILBOX_THREAD_URL);
-
-		// Desktop opens the rail with the thread, and the address says so.
+		// The rail opens with the thread on this tier and the address stays out of
+		// it: a preference is this device's, not something to hand a reader who is
+		// sent the link.
 		await expect(intelligenceRail(page)).toBeVisible({ timeout: 15_000 });
-		await expect(page).toHaveURL(/#intelligence/);
+		await expect(page).not.toHaveURL(/#/);
+
+		await page.getByRole("button", { name: HIDE_RAIL }).click();
+		await expect(intelligenceRail(page)).toHaveCount(0);
+
+		await page.getByRole("button", { name: SHOW_RAIL }).click();
+		await expect(intelligenceRail(page)).toBeVisible();
+		await expect(page).toHaveURL(/#intelligence$/);
 
 		// A second message is a navigation, and the router drops the fragment on
-		// one unless the destination carries it. The rail is chrome a reader keeps
+		// one unless the destination carries it. The rail is a pane a reader keeps
 		// up while they read down a list, so a row carries it.
 		await page.locator(MAILBOX_ROW_LINK).filter({ hasText: other }).click();
 		await expect(intelligenceRail(page)).toBeVisible();
-		await expect(page).toHaveURL(/#intelligence/);
+		await expect(page).toHaveURL(/#intelligence$/);
 
 		await page.reload();
 		await expect(intelligenceRail(page)).toBeVisible({ timeout: 30_000 });
+	});
 
-		await page
-			.getByRole("button", { name: "Hide intelligence sidebar" })
-			.click();
+	// The sheet is modal over the rail, not an alternative to it. Modelled as one
+	// exclusive slot, `?` unmounted the rail and Esc never brought it back: gone
+	// for the session, with the stored preference still saying open.
+	test("a sheet opens over the rail and leaves it standing", async ({
+		page,
+		run,
+	}) => {
+		await openInbox(page);
+		await openMessage(page, run.seededSubjects[0]);
+		await expect(intelligenceRail(page)).toBeVisible({ timeout: 15_000 });
+
+		await page.keyboard.press("?");
+		await expect(shortcutsSheet(page)).toBeVisible({ timeout: 15_000 });
+		await expect(intelligenceRail(page)).toBeVisible();
+		await expect(page).toHaveURL(/#intelligence,shortcuts$/);
+
+		await page.keyboard.press("Escape");
+		await expect(shortcutsSheet(page)).toHaveCount(0);
+		await expect(intelligenceRail(page)).toBeVisible();
+		await expect(page).toHaveURL(/#intelligence$/);
+	});
+
+	// The address is the only owner of what is open whenever it names anything.
+	// Seeding the rail from the preference without that check overwrote the
+	// fragment on arrival, and the link's own panel never showed.
+	test("a link's panel is the one that opens, not this device's preference", async ({
+		page,
+		run,
+	}) => {
+		await openInbox(page);
+		await openMessage(page, run.seededSubjects[0]);
+		const conversation = page.url();
+
+		await page.goto(`${conversation}#shortcuts`);
+
+		await expect(shortcutsSheet(page)).toBeVisible({ timeout: 30_000 });
+		await expect(page).toHaveURL(/#shortcuts$/);
 		await expect(intelligenceRail(page)).toHaveCount(0);
-		await expect(page).not.toHaveURL(/#intelligence/);
 	});
 });
 
