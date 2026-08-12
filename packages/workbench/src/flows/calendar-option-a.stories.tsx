@@ -50,6 +50,107 @@ function freePoint(
 	throw new Error("the grid has no free point on screen");
 }
 
+/** Where an hour the time ruler names sits on screen. */
+interface HourMark {
+	time: string;
+	y: number;
+}
+
+function hourMarks(root: HTMLElement): HourMark[] {
+	return Array.from(root.querySelectorAll<HTMLElement>("*"))
+		.filter(
+			(el) =>
+				el.children.length === 0 &&
+				/^\d\d:\d\d$/.test(el.textContent?.trim() ?? "") &&
+				!el.closest("[role=button]"),
+		)
+		.map((el) => ({
+			time: el.textContent?.trim() ?? "",
+			y: el.getBoundingClientRect().top,
+		}))
+		.sort((a, b) => a.y - b.y);
+}
+
+/** A free point at this height, in whichever day column has nothing there. */
+function freePointAt(root: HTMLElement, clientY: number): GridPoint | null {
+	const columns = Array.from(
+		root.querySelectorAll<HTMLElement>("[role=gridcell]"),
+	)
+		.map((cell) => ({ cell, box: cell.getBoundingClientRect() }))
+		.filter(({ box }) => box.height > 200);
+	for (const { cell, box } of columns) {
+		const clientX = box.left + box.width / 2;
+		const at = document.elementFromPoint(clientX, clientY);
+		if (!at || !cell.contains(at) || at.closest("[role=button]")) continue;
+		return { cell, el: at as HTMLElement, clientX, clientY };
+	}
+	return null;
+}
+
+/**
+ * The first hour the grid is both showing and free under. A hair below the line
+ * rather than on it, so the gesture lands in that hour's first slot.
+ */
+function reachableHour(
+	root: HTMLElement,
+	marks: HourMark[],
+	from = 0,
+): { index: number; point: GridPoint } {
+	for (let index = from; index < marks.length; index += 1) {
+		const point = freePointAt(root, marks[index].y + 2);
+		if (point) return { index, point };
+	}
+	throw new Error("no hour on the ruler has a free slot under it");
+}
+
+/**
+ * A drag. The grid reads it off the pointer's path, so the moves in between are
+ * not decoration: without them it never learns where the gesture ended.
+ */
+function dragFrom(point: GridPoint, toY: number): void {
+	const fire = (
+		target: EventTarget,
+		type: string,
+		clientY: number,
+		buttons: number,
+	) =>
+		target.dispatchEvent(
+			new MouseEvent(type, {
+				bubbles: true,
+				cancelable: true,
+				composed: true,
+				view: window,
+				button: 0,
+				buttons,
+				clientX: point.clientX,
+				clientY,
+			}),
+		);
+	fire(point.el, "mousedown", point.clientY, 1);
+	const steps = 6;
+	for (let step = 1; step <= steps; step += 1)
+		fire(
+			document,
+			"mousemove",
+			point.clientY + ((toY - point.clientY) * step) / steps,
+			1,
+		);
+	fire(document, "mouseup", toY, 0);
+}
+
+/** Whether the grid is what the pointer would reach at this height. */
+function onGrid(root: HTMLElement, clientX: number, clientY: number): boolean {
+	const at = document.elementFromPoint(clientX, clientY);
+	return Boolean(at && root.contains(at) && at.closest("[role=gridcell]"));
+}
+
+/** Chips standing for nothing — a selection the grid was left holding. */
+function untitledChips(root: HTMLElement): HTMLElement[] {
+	return Array.from(
+		root.querySelectorAll<HTMLElement>("[role=gridcell] [role=button]"),
+	).filter((chip) => (chip.textContent ?? "").trim() === "");
+}
+
 function clickPoint(point: GridPoint): void {
 	for (const [type, buttons] of [
 		["mousedown", 1],
@@ -289,6 +390,73 @@ export const ClickADayInAYear: Story = {
 	name: "Click a day in a year",
 	render: () => <CalendarDestination view="year" />,
 	play: pickAndCheck("a day"),
+};
+
+/**
+ * The other reading of the same grid. Pull down the ruler and the draft is what
+ * was pulled — these hours, not the hour a click would have assumed — because a
+ * span the pointer travelled is a span somebody meant.
+ */
+export const DragAcrossHours: Story = {
+	name: "Drag across hours",
+	render: () => <CalendarDestination />,
+	play: async ({ canvasElement }) => {
+		const field = (name: string) =>
+			canvasElement.querySelector<HTMLInputElement>(`[aria-label="${name}"]`);
+		const marks = hourMarks(canvasElement);
+		const { index, point } = reachableHour(canvasElement, marks);
+		const last = marks[index + 3];
+		await expect(last).toBeDefined();
+		await expect(onGrid(canvasElement, point.clientX, last.y - 2)).toBe(true);
+
+		/* Stop a hair above the closing hour: the slot the pointer is let go over
+		   is the last one taken, and on the line it would be the one after. */
+		dragFrom(point, last.y - 2);
+		await waitFor(() => expect(field("Date")).not.toBeNull(), {
+			timeout: 5000,
+		});
+		await expect(field("Start time")?.value).toBe(marks[index].time);
+		await expect(field("End time")?.value).toBe(last.time);
+	},
+};
+
+/**
+ * A drag the width of one slot is a click with an unsteady hand, and no grid can
+ * tell the two apart — so it is answered as a click, with the hour a click
+ * drafts. The slot it lit on the way is put out again rather than left glowing
+ * under a draft twice its length.
+ */
+export const DragInsideOneSlot: Story = {
+	name: "A drag that never leaves the slot",
+	render: () => <CalendarDestination />,
+	play: async ({ canvasElement }) => {
+		const field = (name: string) =>
+			canvasElement.querySelector<HTMLInputElement>(`[aria-label="${name}"]`);
+
+		/* Open the form first. The grid is rebuilt when the panes rebalance, which
+		   would take any leftover selection with it; what a gesture leaves behind
+		   is only visible on the second one. */
+		clickPoint(freePoint(canvasElement));
+		await waitFor(() => expect(field("Date")).not.toBeNull(), {
+			timeout: 5000,
+		});
+		const drafted = field("Start time")?.value ?? "";
+
+		const marks = hourMarks(canvasElement);
+		const elsewhere = marks.findIndex((mark) => mark.time !== drafted);
+		await expect(elsewhere).toBeGreaterThanOrEqual(0);
+		const { index, point } = reachableHour(canvasElement, marks, elsewhere);
+		dragFrom(point, point.clientY + 3);
+
+		await waitFor(
+			() => expect(field("Start time")?.value).toBe(marks[index].time),
+			{ timeout: 5000 },
+		);
+		await expect(field("End time")?.value).toBe(
+			addMinutesToClock(marks[index].time, 60),
+		);
+		await expect(untitledChips(canvasElement)).toEqual([]);
+	},
 };
 
 /**

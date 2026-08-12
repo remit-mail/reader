@@ -323,8 +323,13 @@ export function CalendarGrid({
 							info.allDay,
 							slot.slotMinutes,
 						)
-					)
+					) {
+						/* The point reading is answering this one. Left alone the
+						   selection would stay lit under the draft, a slot wide where
+						   the draft is an hour, until a click somewhere else. */
+						info.view.calendar.unselect();
 						return;
+					}
 					onPickSlot(rangePick(info.startStr, info.endStr, info.allDay));
 				}}
 				datesSet={(info) => onRangeChange(info.view.title)}
