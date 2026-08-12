@@ -1,7 +1,284 @@
+import { addMinutesToClock } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { expect, waitFor } from "storybook/test";
 import { mostOverlappedDay, quietestDay } from "../fixtures/calendar.js";
 import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
 import { CalendarDestination } from "../screens/calendar-destination.js";
+
+interface GridPoint {
+	cell: HTMLElement;
+	el: HTMLElement;
+	clientX: number;
+	clientY: number;
+}
+
+/** The day number a grid cell is headed with. */
+function dayOf(cell: HTMLElement): string {
+	return cell.textContent?.match(/\d+/)?.[0] ?? "";
+}
+
+function names(label: string, day: string): boolean {
+	return new RegExp(`\\b${day}\\b`).test(label);
+}
+
+/**
+ * A point on the grid with nothing booked on it and nothing in front of it. The
+ * grid reads a pick off where the pointer was rather than off what it reached,
+ * so a gesture here is a point; the roomiest cell on screen is the one with the
+ * most space to miss its events in.
+ */
+function freePoint(
+	root: HTMLElement,
+	accept: (cell: HTMLElement) => boolean = () => true,
+): GridPoint {
+	/* Measure every cell once. A year is hundreds of them, and reading a box
+	   inside the comparator makes the sort flush layout on every comparison. */
+	const cells = Array.from(
+		root.querySelectorAll<HTMLElement>("[role=gridcell]"),
+	)
+		.map((cell) => ({ cell, box: cell.getBoundingClientRect() }))
+		.sort((a, b) => b.box.height - a.box.height);
+	for (const { cell, box } of cells) {
+		if (!accept(cell)) continue;
+		const clientX = box.left + box.width / 2;
+		for (let clientY = box.top + 4; clientY < box.bottom; clientY += 8) {
+			const at = document.elementFromPoint(clientX, clientY);
+			if (!at || !cell.contains(at) || at.closest("[role=button]")) continue;
+			return { cell, el: at as HTMLElement, clientX, clientY };
+		}
+	}
+	throw new Error("the grid has no free point on screen");
+}
+
+/** Where an hour the time ruler names sits on screen. */
+interface HourMark {
+	time: string;
+	y: number;
+}
+
+function hourMarks(root: HTMLElement): HourMark[] {
+	return Array.from(root.querySelectorAll<HTMLElement>("*"))
+		.filter(
+			(el) =>
+				el.children.length === 0 &&
+				/^\d\d:\d\d$/.test(el.textContent?.trim() ?? "") &&
+				!el.closest("[role=button]"),
+		)
+		.map((el) => ({
+			time: el.textContent?.trim() ?? "",
+			y: el.getBoundingClientRect().top,
+		}))
+		.sort((a, b) => a.y - b.y);
+}
+
+/** A free point at this height, in whichever day column has nothing there. */
+function freePointAt(root: HTMLElement, clientY: number): GridPoint | null {
+	const columns = Array.from(
+		root.querySelectorAll<HTMLElement>("[role=gridcell]"),
+	)
+		.map((cell) => ({ cell, box: cell.getBoundingClientRect() }))
+		.filter(({ box }) => box.height > 200);
+	for (const { cell, box } of columns) {
+		const clientX = box.left + box.width / 2;
+		const at = document.elementFromPoint(clientX, clientY);
+		if (!at || !cell.contains(at) || at.closest("[role=button]")) continue;
+		return { cell, el: at as HTMLElement, clientX, clientY };
+	}
+	return null;
+}
+
+/**
+ * How far below a line to aim to be unmistakably inside the hour it opens. An
+ * eighth of the ruler's own spacing: well clear of the line, well short of the
+ * half hour, whatever the density has made an hour worth in pixels.
+ */
+function inset(marks: HourMark[]): number {
+	return (marks[1].y - marks[0].y) / 8;
+}
+
+/** The first hour the grid is both showing and free under. */
+function reachableHour(
+	root: HTMLElement,
+	marks: HourMark[],
+	from = 0,
+): { index: number; point: GridPoint } {
+	for (let index = Math.max(from, 0); index < marks.length; index += 1) {
+		const point = freePointAt(root, marks[index].y + inset(marks));
+		if (point) return { index, point };
+	}
+	throw new Error("no hour on the ruler has a free slot under it");
+}
+
+/**
+ * Waits for the grid to stop moving. Opening the form narrows the surface, and
+ * the surface is measured rather than declared, so the columns are still being
+ * re-laid out for a frame or two after the form is on screen.
+ */
+async function gridSettles(root: HTMLElement): Promise<void> {
+	let previous = "";
+	await waitFor(
+		() => {
+			const box = root
+				.querySelector("[role=gridcell]")
+				?.getBoundingClientRect();
+			const now = `${box?.left}:${box?.width}:${box?.top}`;
+			const steady = now === previous;
+			previous = now;
+			expect(steady).toBe(true);
+		},
+		{ timeout: 5000, interval: 120 },
+	);
+}
+
+/**
+ * A drag. The grid reads it off the pointer's path, so the moves in between are
+ * not decoration: without them it never learns where the gesture ended.
+ */
+function dragFrom(point: GridPoint, toY: number): void {
+	const fire = (
+		target: EventTarget,
+		type: string,
+		clientY: number,
+		buttons: number,
+	) =>
+		target.dispatchEvent(
+			new MouseEvent(type, {
+				bubbles: true,
+				cancelable: true,
+				composed: true,
+				view: window,
+				button: 0,
+				buttons,
+				clientX: point.clientX,
+				clientY,
+			}),
+		);
+	fire(point.el, "mousedown", point.clientY, 1);
+	const steps = 6;
+	for (let step = 1; step <= steps; step += 1)
+		fire(
+			document,
+			"mousemove",
+			point.clientY + ((toY - point.clientY) * step) / steps,
+			1,
+		);
+	fire(document, "mouseup", toY, 0);
+}
+
+/** Whether the grid is what the pointer would reach at this height. */
+function onGrid(root: HTMLElement, clientX: number, clientY: number): boolean {
+	const at = document.elementFromPoint(clientX, clientY);
+	return Boolean(at && root.contains(at) && at.closest("[role=gridcell]"));
+}
+
+/** Chips standing for nothing — a selection the grid was left holding. */
+function untitledChips(root: HTMLElement): HTMLElement[] {
+	return Array.from(
+		root.querySelectorAll<HTMLElement>("[role=gridcell] [role=button]"),
+	).filter((chip) => (chip.textContent ?? "").trim() === "");
+}
+
+function clickPoint(point: GridPoint): void {
+	for (const [type, buttons] of [
+		["mousedown", 1],
+		["mouseup", 0],
+		["click", 0],
+	] as const) {
+		point.el.dispatchEvent(
+			new MouseEvent(type, {
+				bubbles: true,
+				cancelable: true,
+				composed: true,
+				view: window,
+				button: 0,
+				buttons,
+				clientX: point.clientX,
+				clientY: point.clientY,
+			}),
+		);
+	}
+}
+
+/**
+ * A finger, which the grid reads differently: selecting with a thumb takes a
+ * second-long hold, because a shorter one is how a page is scrolled. So a tap
+ * is only ever a point, and only the point reading answers it.
+ */
+async function tapPoint(point: GridPoint): Promise<void> {
+	const touch = new Touch({
+		identifier: 1,
+		target: point.el,
+		clientX: point.clientX,
+		clientY: point.clientY,
+		pageX: point.clientX + window.scrollX,
+		pageY: point.clientY + window.scrollY,
+	});
+	const fire = (type: string, touches: Touch[]) =>
+		point.el.dispatchEvent(
+			new TouchEvent(type, {
+				bubbles: true,
+				cancelable: true,
+				composed: true,
+				view: window,
+				touches,
+				targetTouches: touches,
+				changedTouches: [touch],
+			}),
+		);
+	fire("touchstart", [touch]);
+	await new Promise((resolve) => setTimeout(resolve));
+	fire("touchend", []);
+}
+
+/**
+ * Uncaught exceptions raised while a gesture is being read. A browser reports a
+ * ResizeObserver backlog through the same event with no error on it; only a
+ * real throw carries one.
+ */
+function watchForThrows(): { thrown: string[]; stop: () => void } {
+	const thrown: string[] = [];
+	const record = (event: ErrorEvent) => {
+		if (event.error) thrown.push(String(event.error));
+	};
+	window.addEventListener("error", record);
+	return { thrown, stop: () => window.removeEventListener("error", record) };
+}
+
+/**
+ * Clicks a free point and reads back what the form was given for it. The
+ * queries go straight at the DOM because a year draws twelve months at once,
+ * and an accessible-name scan of a grid that size, polled, costs more than the
+ * gesture under test.
+ */
+function pickAndCheck(worth: "an hour" | "a day") {
+	return async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+		const field = (name: string) =>
+			canvasElement.querySelector<HTMLInputElement>(`[aria-label="${name}"]`);
+		const watch = watchForThrows();
+		try {
+			await gridSettles(canvasElement);
+			clickPoint(freePoint(canvasElement));
+			await waitFor(() => expect(field("Date")).not.toBeNull(), {
+				timeout: 5000,
+			});
+			/* The grid finishes a click a task after the pointer is up, so the form
+			   being open is not yet proof the click landed clean. */
+			await new Promise((resolve) => setTimeout(resolve));
+			await expect(watch.thrown).toEqual([]);
+			await expect(field("Date")?.value).toMatch(/^\d{4}-\d\d-\d\d$/);
+
+			if (worth === "a day") {
+				await expect(field("Start time")).toBeNull();
+				return;
+			}
+			const start = field("Start time")?.value ?? "";
+			await expect(start).toMatch(/^\d\d:\d\d$/);
+			await expect(field("End time")?.value).toBe(addMinutesToClock(start, 60));
+		} finally {
+			watch.stop();
+		}
+	};
+}
 
 /**
  * Option A puts the calendar where the daily brief already is: a destination in
@@ -108,6 +385,110 @@ export const CreateFromASlot: Story = {
 			}}
 		/>
 	),
+};
+
+/**
+ * The gesture behind the story above, performed rather than posed. The form it
+ * opens rebalances the panes, and rebalancing them rebuilds the grid, so the
+ * click has to be finished with before the form arrives — nothing may go back
+ * to the cells once they have been replaced.
+ *
+ * A click is a point rather than a span, so what it drafts is the hour every
+ * other way of creating starts from, whatever the slots on screen are worth.
+ */
+export const ClickAnEmptySlot: Story = {
+	name: "Click an empty slot",
+	render: () => <CalendarDestination />,
+	play: pickAndCheck("an hour"),
+};
+
+/**
+ * The same click a magnification out. A month has days, not hours, so what it
+ * drafts is a day: the form opens on the date with no time claimed for it,
+ * rather than inventing a morning nobody asked for.
+ */
+export const ClickADayInAMonth: Story = {
+	name: "Click a day in a month",
+	render: () => <CalendarDestination view="month" />,
+	play: pickAndCheck("a day"),
+};
+
+/** A year is the same bargain at twelve times the reach. */
+export const ClickADayInAYear: Story = {
+	name: "Click a day in a year",
+	render: () => <CalendarDestination view="year" />,
+	play: pickAndCheck("a day"),
+};
+
+/**
+ * The other reading of the same grid. Pull down the ruler and the draft is what
+ * was pulled — these hours, not the hour a click would have assumed — because a
+ * span the pointer travelled is a span somebody meant.
+ */
+export const DragAcrossHours: Story = {
+	name: "Drag across hours",
+	render: () => <CalendarDestination />,
+	play: async ({ canvasElement }) => {
+		const field = (name: string) =>
+			canvasElement.querySelector<HTMLInputElement>(`[aria-label="${name}"]`);
+		await gridSettles(canvasElement);
+		const marks = hourMarks(canvasElement);
+		const { index, point } = reachableHour(canvasElement, marks);
+		const last = marks[index + 3];
+		await expect(last).toBeDefined();
+		/* Stop short of the closing hour: the slot the pointer is let go over is
+		   the last one taken, and on the line it would be the one after. */
+		const until = last.y - inset(marks);
+		await expect(onGrid(canvasElement, point.clientX, until)).toBe(true);
+
+		dragFrom(point, until);
+		await waitFor(() => expect(field("Date")).not.toBeNull(), {
+			timeout: 5000,
+		});
+		await expect(field("Start time")?.value).toBe(marks[index].time);
+		await expect(field("End time")?.value).toBe(last.time);
+	},
+};
+
+/**
+ * A drag the width of one slot is a click with an unsteady hand, and no grid can
+ * tell the two apart — so it is answered as a click, with the hour a click
+ * drafts. The slot it lit on the way is put out again rather than left glowing
+ * under a draft twice its length.
+ */
+export const DragInsideOneSlot: Story = {
+	name: "A drag that never leaves the slot",
+	render: () => <CalendarDestination />,
+	play: async ({ canvasElement }) => {
+		const field = (name: string) =>
+			canvasElement.querySelector<HTMLInputElement>(`[aria-label="${name}"]`);
+
+		/* Open the form first. The grid is rebuilt when the panes rebalance, which
+		   would take any leftover selection with it; what a gesture leaves behind
+		   is only visible on the second one. */
+		await gridSettles(canvasElement);
+		clickPoint(freePoint(canvasElement));
+		await waitFor(() => expect(field("Date")).not.toBeNull(), {
+			timeout: 5000,
+		});
+		await gridSettles(canvasElement);
+		const drafted = field("Start time")?.value ?? "";
+
+		const marks = hourMarks(canvasElement);
+		const elsewhere = marks.findIndex((mark) => mark.time !== drafted);
+		await expect(elsewhere).toBeGreaterThanOrEqual(0);
+		const { index, point } = reachableHour(canvasElement, marks, elsewhere);
+		dragFrom(point, point.clientY + 3);
+
+		await waitFor(
+			() => expect(field("Start time")?.value).toBe(marks[index].time),
+			{ timeout: 5000 },
+		);
+		await expect(field("End time")?.value).toBe(
+			addMinutesToClock(marks[index].time, 60),
+		);
+		await expect(untitledChips(canvasElement)).toEqual([]);
+	},
 };
 
 /**
@@ -258,6 +639,26 @@ export const PhoneMonth: Story = {
 	parameters: phoneParams,
 	decorators: [phoneFrame],
 	render: () => <CalendarDestination width={PHONE_WIDTH} view="month" />,
+	play: async ({ canvasElement }) => {
+		/* The date nav above the strip is a heading with nothing in it — the day
+		   the agenda is on is the first heading that says anything. */
+		const showing = () =>
+			Array.from(canvasElement.querySelectorAll("h2"))
+				.map((heading) => heading.textContent?.trim() ?? "")
+				.find((text) => text !== "") ?? "";
+		await gridSettles(canvasElement);
+		const before = showing();
+		const point = freePoint(
+			canvasElement,
+			(cell) => dayOf(cell) !== "" && !names(before, dayOf(cell)),
+		);
+
+		await tapPoint(point);
+		await waitFor(
+			() => expect(names(showing(), dayOf(point.cell))).toBe(true),
+			{ timeout: 5000 },
+		);
+	},
 };
 
 /**
