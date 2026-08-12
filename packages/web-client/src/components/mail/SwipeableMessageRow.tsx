@@ -10,7 +10,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { toDisplayCategory } from "@/lib/display-category";
 import { formatEmailDate } from "@/lib/format";
-import { retainOpenPanels } from "@/routing";
+import { useRetainOpenPanels } from "@/routing";
 import { MessageListItem } from "./MessageListItem";
 import { useModifierSelect } from "./useModifierSelect";
 
@@ -75,6 +75,7 @@ export const SwipeableMessageRow = ({
 }: SwipeableMessageRowProps) => {
 	const [peek, setPeek] = useState<SwipePeek>("none");
 	const navigate = useNavigate();
+	const retainPanels = useRetainOpenPanels();
 
 	const handleAct = useCallback(
 		(side: "leading" | "trailing") => {
@@ -106,9 +107,9 @@ export const SwipeableMessageRow = ({
 				messageId: thread.messageId,
 			},
 			search: (prev) => prev,
-			hash: retainOpenPanels,
+			hash: retainPanels,
 		});
-	}, [navigate, mailboxId, thread.threadId, thread.messageId]);
+	}, [navigate, retainPanels, mailboxId, thread.threadId, thread.messageId]);
 
 	const modifierSelect = useModifierSelect(thread.messageId, onRowSelect);
 

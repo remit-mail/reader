@@ -1,6 +1,7 @@
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import { z } from "zod";
+import { useIsDesktop } from "@/hooks/useMediaQuery";
 
 /**
  * The fragment tier carries panel visibility and nothing else — no identity, no
@@ -58,20 +59,47 @@ export function useOpenPanels(): readonly PanelFragment[] {
 }
 
 /**
+ * Whether a navigation carries this panel at this tier.
+ *
+ * A pane is chrome a reader keeps up while they move from one conversation to
+ * the next; an overlay is dismissed by going somewhere, which is what closing
+ * it means. Below desktop the rail is not a pane at all — it is a full-screen
+ * drawer over the open message — so it belongs to the thread it was opened for
+ * and a navigation leaves it behind, rather than covering a message nobody
+ * asked to cover (#777).
+ */
+const isRetainedPanel = (panel: PanelFragment, isDesktop: boolean): boolean =>
+	!isOverlayPanel(panel) && isDesktop;
+
+/**
  * A destination's `hash`, for a navigation that keeps the reader where they
  * are. The router drops the fragment on every navigation unless the destination
  * asks for it, so this is what a link or a `navigate` call passes to state the
- * rule rather than restate it: a pane is chrome a reader keeps up while they
- * move from one conversation to the next, and an overlay is dismissed by going
- * somewhere, which is what closing it means.
+ * rule rather than restate it.
  *
- * The parameter is optional because the router hands a `hash` updater the
- * previous fragment as `string | undefined`.
+ * The tier is bound here rather than passed at the call site, so the updater
+ * still has the shape the router hands a previous fragment to. That parameter
+ * is optional because the router types it `string | undefined`.
  */
-export function retainOpenPanels(hash = ""): string {
-	return formatOpenPanels(
-		parseOpenPanels(hash).filter((panel) => !isOverlayPanel(panel)),
-	);
+export function retainOpenPanelsAtTier(
+	isDesktop: boolean,
+): (hash?: string) => string {
+	return (hash = "") =>
+		formatOpenPanels(
+			parseOpenPanels(hash).filter((panel) =>
+				isRetainedPanel(panel, isDesktop),
+			),
+		);
+}
+
+/**
+ * The `hash` updater for a navigation from the surface the reader is on. The
+ * layout tier is read here, once, so no call site decides for itself what a
+ * navigation keeps.
+ */
+export function useRetainOpenPanels(): (hash?: string) => string {
+	const isDesktop = useIsDesktop();
+	return useMemo(() => retainOpenPanelsAtTier(isDesktop), [isDesktop]);
 }
 
 /**

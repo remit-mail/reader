@@ -44,7 +44,7 @@ import { useMailContext } from "@/lib/mail-context";
 import {
 	type OpenThreadPath,
 	type OpenThreadTarget,
-	retainOpenPanels,
+	useRetainOpenPanels,
 } from "@/routing";
 
 /* ------------------------------------------------------------------ */
@@ -102,6 +102,7 @@ interface BriefPaneProps {
 
 function BriefPaneProvider({ thread, children }: BriefPaneProps) {
 	const navigate = useNavigate();
+	const retainPanels = useRetainOpenPanels();
 	const { searchInput } = useMailContext();
 	const threadId = thread?.threadId;
 	const pointedAtMessageId = thread?.messageId;
@@ -152,19 +153,19 @@ function BriefPaneProvider({ thread, children }: BriefPaneProps) {
 				// `searchInput`: a row can be tapped before the debounce settles, when
 				// the committed query is still empty.
 				search: (prev) => ({ ...prev, q: searchInput || undefined }),
-				hash: retainOpenPanels,
+				hash: retainPanels,
 			});
 		},
-		[navigate, searchInput],
+		[navigate, retainPanels, searchInput],
 	);
 
 	const handleCloseThread = useCallback(() => {
 		navigate({
 			to: "/mail/brief",
 			search: (prev) => prev,
-			hash: retainOpenPanels,
+			hash: retainPanels,
 		});
-	}, [navigate]);
+	}, [navigate, retainPanels]);
 
 	const handleDeselectIfRemoved = useCallback(
 		(removedIds: string[]) => {

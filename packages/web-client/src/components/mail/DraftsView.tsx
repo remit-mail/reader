@@ -41,7 +41,7 @@ import { FileText, Inbox, Trash2 } from "lucide-react";
 import { useMemo } from "react";
 import { useCompose } from "@/components/compose/ComposeProvider";
 import { groupDraftSections } from "@/lib/drafts";
-import { retainOpenPanels } from "@/routing";
+import { useRetainOpenPanels } from "@/routing";
 import { NavMenuButton } from "./NavMenuButton";
 
 // ---------------------------------------------------------------------------
@@ -156,6 +156,7 @@ export function DraftsView({
 }: DraftsViewProps) {
 	const { openCompose, state: composeState } = useCompose();
 	const navigate = useNavigate();
+	const retainPanels = useRetainOpenPanels();
 	const queryClient = useQueryClient();
 
 	// Fetch the full outbox list — both sources are already fetched by the
@@ -198,7 +199,7 @@ export function DraftsView({
 			to: "/mail/$mailboxId/$threadId/$messageId",
 			params: { mailboxId, threadId, messageId },
 			search: (prev) => prev,
-			hash: retainOpenPanels,
+			hash: retainPanels,
 		});
 	};
 

@@ -35,7 +35,7 @@ import {
 	type ThreadListSnapshotEntry,
 	threadListCacheKeys,
 } from "@/lib/thread-list-cache";
-import { retainOpenPanels, useOpenThreadPath } from "@/routing";
+import { useOpenThreadPath, useRetainOpenPanels } from "@/routing";
 import { MoveToTrigger } from "./MoveToTrigger";
 
 interface ThreadMessagesData {
@@ -103,6 +103,7 @@ export const MessageActionMenu = ({
 }: MessageActionMenuProps) => {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
+	const retainPanels = useRetainOpenPanels();
 	const { pushError } = useErrorBanners();
 	const selectedMessageId = useOpenThreadPath()?.messageId;
 
@@ -193,10 +194,10 @@ export const MessageActionMenu = ({
 				to: "/mail/$mailboxId",
 				params: { mailboxId },
 				search: (prev) => prev,
-				hash: retainOpenPanels,
+				hash: retainPanels,
 			});
 		},
-		[selectedMessageId, mailboxId, navigate],
+		[selectedMessageId, mailboxId, navigate, retainPanels],
 	);
 
 	const { deleteMessages, isPending: isDeleting } = useDeleteMessages({

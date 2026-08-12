@@ -55,7 +55,7 @@ import { useMailContext } from "@/lib/mail-context";
 import {
 	type OpenThreadPath,
 	type OpenThreadTarget,
-	retainOpenPanels,
+	useRetainOpenPanels,
 } from "@/routing";
 
 /* ------------------------------------------------------------------ */
@@ -113,6 +113,7 @@ interface FlaggedPaneProps {
 
 function FlaggedPaneProvider({ thread, children }: FlaggedPaneProps) {
 	const navigate = useNavigate();
+	const retainPanels = useRetainOpenPanels();
 	const { searchInput } = useMailContext();
 	const threadId = thread?.threadId;
 	const pointedAtMessageId = thread?.messageId;
@@ -158,19 +159,19 @@ function FlaggedPaneProvider({ thread, children }: FlaggedPaneProps) {
 				// `searchInput`: a row can be tapped before the debounce settles, when
 				// the committed query is still empty.
 				search: (prev) => ({ ...prev, q: searchInput || undefined }),
-				hash: retainOpenPanels,
+				hash: retainPanels,
 			});
 		},
-		[navigate, searchInput],
+		[navigate, retainPanels, searchInput],
 	);
 
 	const handleCloseThread = useCallback(() => {
 		navigate({
 			to: "/mail/flagged",
 			search: (prev) => prev,
-			hash: retainOpenPanels,
+			hash: retainPanels,
 		});
-	}, [navigate]);
+	}, [navigate, retainPanels]);
 
 	const handleDeselectIfRemoved = useCallback(
 		(removedIds: string[]) => {

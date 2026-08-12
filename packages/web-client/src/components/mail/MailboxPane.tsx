@@ -127,7 +127,7 @@ import {
 import {
 	type OpenThreadPath,
 	type OpenThreadTarget,
-	retainOpenPanels,
+	useRetainOpenPanels,
 } from "@/routing";
 import { MailViewChrome } from "./MailViewChrome";
 
@@ -264,6 +264,7 @@ function MailboxPaneProvider({
 	children,
 }: MailboxPaneProps) {
 	const navigate = useNavigate();
+	const retainPanels = useRetainOpenPanels();
 	const threadId = thread?.threadId;
 	const pointedAtMessageId = thread?.messageId;
 	const telemetry = useTelemetry();
@@ -467,9 +468,9 @@ function MailboxPaneProvider({
 			to: "/mail/$mailboxId",
 			params: { mailboxId },
 			search: (prev) => prev,
-			hash: retainOpenPanels,
+			hash: retainPanels,
 		});
-	}, [mailboxId, navigate]);
+	}, [mailboxId, navigate, retainPanels]);
 
 	const handleOpenThread = useCallback(
 		(target: OpenThreadTarget) => {
@@ -477,10 +478,10 @@ function MailboxPaneProvider({
 				to: "/mail/$mailboxId/$threadId/$messageId",
 				params: { mailboxId, ...target },
 				search: (prev) => prev,
-				hash: retainOpenPanels,
+				hash: retainPanels,
 			});
 		},
-		[mailboxId, navigate],
+		[mailboxId, navigate, retainPanels],
 	);
 
 	const handleDeselectIfRemoved = useCallback(
@@ -942,6 +943,7 @@ function MailboxList() {
 		useMailContext();
 	const tier = useLayoutTier();
 	const navigate = useNavigate();
+	const retainPanels = useRetainOpenPanels();
 
 	const listTitle = mailboxName ?? "Inbox";
 	const preset = useMemo(() => inboxFilterConfig(), []);
@@ -1029,10 +1031,10 @@ function MailboxList() {
 				// `searchInput`: a row can be tapped before the debounce settles, when
 				// the committed query is still empty.
 				search: (prev) => ({ ...prev, q: searchInput || undefined }),
-				hash: retainOpenPanels,
+				hash: retainPanels,
 			});
 		},
-		[mailboxId, navigate, searchInput, threads],
+		[mailboxId, navigate, retainPanels, searchInput, threads],
 	);
 
 	// Drafts keep their own dedicated view (and header); they don't carry the

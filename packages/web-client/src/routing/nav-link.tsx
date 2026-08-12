@@ -7,7 +7,7 @@ import type {
 } from "@tanstack/react-router";
 import { createLink } from "@tanstack/react-router";
 import type { ReactElement } from "react";
-import { type PanelFragment, retainOpenPanels } from "./fragment";
+import { type PanelFragment, useRetainOpenPanels } from "./fragment";
 
 const RouterNavLink = createLink(NavLinkSurface);
 
@@ -45,7 +45,8 @@ export type NavLinkProps<
  *
  * A link that names no panel carries the open panes across: the rail is up
  * until the reader puts it down, and every row in a list is a link. Overlays
- * are left behind, because going somewhere is what dismisses one.
+ * are left behind, because going somewhere is what dismisses one — and below
+ * desktop so is the rail, which is a drawer over the message there.
  */
 export function NavLink<
 	TRouter extends AnyRouter = RegisteredRouter,
@@ -58,5 +59,6 @@ export function NavLink({
 	fragment,
 	...props
 }: CreateLinkProps & { fragment?: PanelFragment }): ReactElement {
-	return <RouterNavLink {...props} hash={fragment ?? retainOpenPanels} />;
+	const retainPanels = useRetainOpenPanels();
+	return <RouterNavLink {...props} hash={fragment ?? retainPanels} />;
 }
