@@ -104,9 +104,13 @@ function MailLayout() {
 	// whenever it says anything at all, and the preference opens the rail with
 	// the thread where it is silent (#782).
 	const openThread = useOpenThreadPath();
+	// Held in state, not read back from storage each render: closing the rail
+	// where the address is silent changes nothing about the address, and the
+	// answer has to move anyway.
+	const [prefersRail, setPrefersRail] = useState(readIntelligencePref);
 	const intelligenceOpen = resolveRailOpen({
 		panels: openPanels,
-		prefersOpen: readIntelligencePref(),
+		prefersOpen: prefersRail,
 		isDesktop: tier === "desktop",
 		hasThread: openThread !== undefined,
 	});
@@ -125,6 +129,7 @@ function MailLayout() {
 	const handleSetIntelligenceOpen = useCallback(
 		(open: boolean) => {
 			writeIntelligencePref(open);
+			setPrefersRail(open);
 			showPanels(open, openOverlay);
 		},
 		[openOverlay, showPanels],
