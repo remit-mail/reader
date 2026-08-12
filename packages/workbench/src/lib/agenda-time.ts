@@ -197,6 +197,70 @@ export function freeStretchesOn(
 	return stretches;
 }
 
+export interface ClashOptions {
+	/** Spans that are not a clash: the candidate itself, or one already answered. */
+	ignoreIds?: readonly string[];
+}
+
+/**
+ * Whatever a candidate span runs into, so the clash is named before the answer.
+ *
+ * A declined event is not a commitment and an all-day banner is not an hour, so
+ * neither clashes. Spans are compared as instants, which is why every ISO the
+ * fixtures write carries its offset: two events written in different zones are
+ * still measured against the same line.
+ */
+export function clashesWith(
+	candidate: { start: string; end: string },
+	source: readonly CalendarEventData[],
+	{ ignoreIds = [] }: ClashOptions = {},
+): CalendarEventData[] {
+	const from = Date.parse(candidate.start);
+	const to = Date.parse(candidate.end);
+	return source.filter((item) => {
+		if (item.allDay || item.myRsvp === "declined") return false;
+		if (ignoreIds.includes(item.id)) return false;
+		return Date.parse(item.start) < to && from < Date.parse(item.end);
+	});
+}
+
+/** Half an hour of a day, offered to someone else. */
+export interface TimeSlot {
+	date: string;
+	startMinute: number;
+	endMinute: number;
+}
+
+/** Nothing is offered before the day has properly started. */
+export const OFFER_FROM_MINUTE = 9 * 60 + 30;
+
+/**
+ * Slots worth offering someone, cut off the free stretches at the requested
+ * length. Rounded up to the next quarter hour so nothing lands at 11:47.
+ */
+export function slotsIn(
+	stretches: readonly FreeStretch[],
+	minutes: number,
+	limit = 6,
+	notBeforeMinute = OFFER_FROM_MINUTE,
+): TimeSlot[] {
+	const slots: TimeSlot[] = [];
+	for (const stretch of stretches) {
+		let cursor = Math.max(stretch.startMinute, notBeforeMinute);
+		cursor = Math.ceil(cursor / 15) * 15;
+		while (cursor + minutes <= stretch.endMinute && slots.length < limit) {
+			slots.push({
+				date: stretch.date,
+				startMinute: cursor,
+				endMinute: cursor + minutes,
+			});
+			cursor += minutes;
+		}
+		if (slots.length >= limit) return slots;
+	}
+	return slots;
+}
+
 /**
  * One entry in the strip. A day with something on it stands alone; a run of
  * days with nothing at all becomes a single line, because six empty screens is
