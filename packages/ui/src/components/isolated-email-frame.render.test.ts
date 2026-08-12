@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import {
 	buildEmailSrcDoc,
 	DARK_OPT_IN_RE,
@@ -9,7 +11,65 @@ import {
 	generateScrollportCSS,
 	VIEWPORT_META,
 } from "./email-frame-css.js";
-import { measureContentAxis } from "./isolated-email-frame.js";
+import {
+	IsolatedEmailFrame,
+	measureContentAxis,
+} from "./isolated-email-frame.js";
+
+const SHORT_MAIL = "<p>Thursday works. See you at one.</p>";
+
+// The shape the frame used to measure itself against: a table wider than any
+// reading column, with a `min-width` the clamp cannot collapse.
+const WIDE_MAIL =
+	'<table width="2400"><tr><td width="2400" style="min-width:2400px">' +
+	"<p>A ledger nobody can reflow.</p></td></tr></table>";
+
+const renderFrame = (html: string): string =>
+	renderToString(
+		createElement(IsolatedEmailFrame, {
+			html,
+			variant: "framed",
+			isDark: false,
+			declares: { background: true, spacing: true },
+		}),
+	);
+
+/**
+ * The style the iframe ELEMENT carries. The email's own markup rides along in
+ * `srcdoc`, quotes and all, so it goes before anything reads an attribute off
+ * the element.
+ */
+const frameStyle = (html: string): string => {
+	const element = renderFrame(html).replace(/srcdoc="[^"]*"/, "");
+	return /style="([^"]*)"/.exec(element)?.[1] ?? "";
+};
+
+describe("the frame's box is the app's layout, never the mail's", () => {
+	it("takes the width of the box holding it", () => {
+		assert.match(frameStyle(SHORT_MAIL), /width:100%/);
+	});
+
+	it("gives mail that cannot fit the same box as mail that can", () => {
+		// The whole width policy in one assertion: nothing about the email
+		// reaches the element the app has laid out, so no mail can move a box
+		// the reader can see.
+		assert.equal(frameStyle(WIDE_MAIL), frameStyle(SHORT_MAIL));
+	});
+
+	it("never resolves a width off the mail's own markup", () => {
+		assert.doesNotMatch(frameStyle(WIDE_MAIL), /2400/);
+	});
+
+	it("holds no scrollport of its own", () => {
+		// A frame that scrolled would put the email's overflow in the app's
+		// chrome. The document inside it owns that, via the scrollport CSS.
+		assert.doesNotMatch(frameStyle(WIDE_MAIL), /overflow/);
+		assert.ok(
+			renderFrame(WIDE_MAIL).includes(generateScrollportCSS()),
+			"the document the frame carries is the one that scrolls",
+		);
+	});
+});
 
 describe("measureContentAxis (the frame's height, and only its height)", () => {
 	it("takes the larger of body and documentElement scroll size", () => {

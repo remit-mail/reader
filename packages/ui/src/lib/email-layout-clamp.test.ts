@@ -90,9 +90,9 @@ describe("generateLayoutClampCSS (#374 / #727)", () => {
 	});
 
 	test("overrides an author nowrap so flowing text can never be clipped", () => {
-		// A frame that sizes itself to its content has nothing to scroll a pinned
-		// line into; inside an author `overflow:hidden` it cannot even measure the
-		// overflow, and the line is cut mid-character.
+		// The frame is the pane's width, so a pinned paragraph is read by dragging
+		// the whole email sideways; inside an author `overflow:hidden` it is cut
+		// mid-character with nothing to scroll at all.
 		assert.ok(
 			/\[nowrap\][^{]*\{[^}]*white-space:\s*normal\s*!important/.test(css),
 			"a nowrap attribute must not pin a line wider than the frame",

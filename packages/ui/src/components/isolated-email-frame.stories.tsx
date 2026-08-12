@@ -103,7 +103,7 @@ const PLAIN = `${LAYOUT_CLAMP_CSS}
 
 // Mail that genuinely cannot fit: an inline `min-width` on the table outranks
 // the clamp's `* { min-width: 0 }`, so 1200px of columns stay 1200px wide and
-// the frame hands the surrounding container something real to scroll.
+// the email's own document is what the reader scrolls to see the rest.
 const WIDE_TABLE = `${LAYOUT_CLAMP_CSS}
 <div style="font-family: Helvetica, Arial, sans-serif; color:#1a1a1a;">
 	<h1 style="font-size:20px;margin:0 0 12px;">Q2 regional breakdown</h1>
@@ -139,8 +139,8 @@ const BARE_MAIL = `${LAYOUT_CLAMP_CSS}
 </div>
 `;
 
-// The same mail with an author `nowrap`: the clamp wraps it rather than letting
-// the line run past a frame that has nothing to scroll it into.
+// The same mail with an author `nowrap`: the clamp wraps it rather than leaving
+// a paragraph that reads only by dragging the email sideways.
 const NOWRAP_MAIL = `${LAYOUT_CLAMP_CSS}
 <div style="white-space:nowrap">
 	<p>Hoi allemaal,</p>
@@ -569,5 +569,109 @@ export const PinnedPreScrollsInsideTheDocumentOnAPhone: Story = {
 	decorators: [BARE_PHONE],
 	play: async ({ canvasElement }) => {
 		await assertScrollsInsideTheDocument(canvasElement);
+	},
+};
+
+/* ------------------------------------------------------------------ */
+/* The frame is the column, whatever the mail is                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Two columns of the same width, a two-line note in one and 1200px of table in
+ * the other. Both frames are their column, exactly — the width the reader sees
+ * comes from the app's layout and nothing about the mail can move it. The old
+ * policy measured the content and sized the frame to it, which is what put a
+ * scroll track under mail that fitted.
+ */
+const assertBothFramesAreTheirColumn = async (canvasElement: HTMLElement) => {
+	const panes = [...canvasElement.querySelectorAll<HTMLElement>("[data-pane]")];
+	await expect(panes.length).toBe(2);
+	for (const pane of panes) {
+		const iframe = pane.querySelector("iframe");
+		if (!iframe) throw new Error("no email frame in the pane");
+		await waitFor(() => {
+			if (!iframe.contentDocument?.body) {
+				throw new Error("the frame has not parsed its document yet");
+			}
+		});
+		await expect(
+			Math.abs(iframe.getBoundingClientRect().width - pane.clientWidth),
+		).toBeLessThanOrEqual(1);
+		await expect(pane.scrollWidth).toBeLessThanOrEqual(pane.clientWidth);
+	}
+};
+
+const twoColumns = (width: number) => (
+	<div className="flex flex-col gap-4">
+		<div data-pane className="bg-canvas" style={{ width }}>
+			<IsolatedEmailFrame
+				html={BARE_MAIL}
+				variant="framed"
+				isDark={false}
+				declares={BARE}
+			/>
+		</div>
+		<div data-pane className="bg-canvas" style={{ width }}>
+			<IsolatedEmailFrame
+				html={WIDE_TABLE}
+				variant="framed"
+				isDark={false}
+				declares={DESIGNED}
+			/>
+		</div>
+	</div>
+);
+
+/** A desktop reading column. */
+export const FrameIsTheColumnWhateverTheMail: Story = {
+	render: () => twoColumns(720),
+	play: async ({ canvasElement }) => {
+		await assertBothFramesAreTheirColumn(canvasElement);
+	},
+};
+
+/** The same pair on a phone, where the table is three times the column. */
+export const FrameIsTheColumnWhateverTheMailOnAPhone: Story = {
+	render: () => twoColumns(390),
+	play: async ({ canvasElement }) => {
+		await assertBothFramesAreTheirColumn(canvasElement);
+	},
+};
+
+// A pane as wide as the page, with nothing to catch an overflow: an email that
+// escaped its frame has nowhere to go but the document itself, where a
+// horizontal scrollbar under the whole app is what the reader would see.
+const PAGE_WIDE_PANE: Decorator = (Story) => (
+	<div data-pane className="w-full bg-canvas">
+		<Story />
+	</div>
+);
+
+/**
+ * A 1400px image in a pane the width of the page. The mail scrolls where it
+ * lives and the page holds still — the app never learns how wide the picture
+ * was.
+ */
+export const OversizedImageLeavesThePageStill: Story = {
+	args: {
+		html: OVERSIZED_IMAGE,
+		variant: "framed",
+		isDark: false,
+		declares: BARE,
+	},
+	decorators: [PAGE_WIDE_PANE],
+	play: async ({ canvasElement }) => {
+		const pane = canvasElement.querySelector<HTMLElement>("[data-pane]");
+		if (!pane) throw new Error("no pane in the story");
+		const iframe = pane.querySelector("iframe");
+		if (!iframe) throw new Error("no email frame in the pane");
+		await waitFor(() => {
+			if (!iframe.contentDocument?.body) {
+				throw new Error("the frame has not parsed its document yet");
+			}
+		});
+		await expect(pane.scrollWidth).toBeLessThanOrEqual(pane.clientWidth);
+		const page = canvasElement.ownerDocument.documentElement;
+		await expect(page.scrollWidth).toBeLessThanOrEqual(page.clientWidth);
 	},
 };

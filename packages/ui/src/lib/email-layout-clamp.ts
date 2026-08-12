@@ -55,10 +55,10 @@ td, th {
 * {
   min-width: 0;
 }
-/* An author \`nowrap\` assumes a viewport that scrolls. This frame sizes itself
-   to its content instead, so a pinned line either drags the pane sideways
-   forever or — inside an author \`overflow:hidden\` the frame cannot measure —
-   is cut mid-character with nothing left to scroll. Flowing text wraps. The
+/* An author \`nowrap\` assumes a viewport as wide as the line. The frame is the
+   pane's width whatever the mail is, so a pinned paragraph turns reading one
+   sentence into a sideways drag — and inside an author \`overflow:hidden\` it is
+   cut mid-character with nothing left to scroll at all. Flowing text wraps. The
    \`i\` flag is load-bearing: Outlook and older generators emit \`WHITE-SPACE:
    NOWRAP\`, and an attribute value match is case-sensitive without it. */
 [nowrap]:not(pre, code, pre *, code *),
