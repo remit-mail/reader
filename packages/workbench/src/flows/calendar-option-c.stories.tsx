@@ -214,6 +214,68 @@ export const EventThread: Story = {
 };
 
 /**
+ * The mail is gone — filed, deleted or on an account that has since been
+ * removed. The pane says so where the thread would have been, and back is where
+ * it always was, because a button that answers with nothing is the one failure
+ * a reader cannot tell apart from a broken build.
+ */
+export const ThreadGone: Story = {
+	name: "The thread is gone",
+	render: () => (
+		<CalendarAgenda
+			date="2026-06-10"
+			selectedEventId="evt_q3_roadmap"
+			openThreadId="thr_filed_away"
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+
+		await expect(
+			canvas.getByText("That mail is not in this mailbox any more"),
+		).toBeInTheDocument();
+
+		await userEvent.click(canvas.getByText("Back to the event"));
+
+		await waitFor(() =>
+			expect(canvas.getByText("From this thread")).toBeInTheDocument(),
+		);
+	},
+};
+
+/**
+ * Making an event while a thread is open. The pane belongs to the event that
+ * was just made, not to the mail that was being read before it — a thread left
+ * standing there reads as the new event's mail, and it is not.
+ */
+export const ThreadMakesWay: Story = {
+	name: "The thread makes way for a new event",
+	render: () => (
+		<CalendarAgenda
+			date="2026-06-10"
+			selectedEventId="evt_q3_roadmap"
+			openThreadId="thr_q3"
+			phrase="lunch with Jane friday 1pm"
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const subject = "Q3 roadmap review — agenda + pre-read";
+
+		await expect(
+			canvas.getByRole("heading", { name: subject }),
+		).toBeInTheDocument();
+
+		await userEvent.click(canvas.getByLabelText("Describe the event"));
+		await userEvent.keyboard("{Enter}");
+
+		await waitFor(() =>
+			expect(canvas.queryByRole("heading", { name: subject })).toBeNull(),
+		);
+	},
+};
+
+/**
  * Editing one morning's standup asks which instances it is for before the form
  * opens. Answering afterwards would mean typing a change without knowing what it
  * changes. "The whole series" and "this and following" rewrite every instance
@@ -473,6 +535,39 @@ export const PhoneSuggestions: Story = {
 	parameters: phoneParams,
 	decorators: [phoneFrame],
 	render: () => <CalendarAgenda width={PHONE_WIDTH} flow="suggestions" />,
+};
+
+/**
+ * The same missing mail on the screen where a blank one would be a dead end:
+ * the phone has nothing behind the thread to fall back to, so the screen says
+ * what happened and keeps its way back.
+ */
+export const PhoneThreadGone: Story = {
+	name: "Phone — the thread is gone",
+	parameters: phoneParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<CalendarAgenda
+			width={PHONE_WIDTH}
+			date="2026-06-10"
+			flow="event"
+			selectedEventId="evt_q3_roadmap"
+			openThreadId="thr_filed_away"
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+
+		await expect(
+			canvas.getByText("That mail is not in this mailbox any more"),
+		).toBeInTheDocument();
+
+		await userEvent.click(canvas.getByLabelText("Back"));
+
+		await waitFor(() =>
+			expect(canvas.getByText("From this thread")).toBeInTheDocument(),
+		);
+	},
 };
 
 /**

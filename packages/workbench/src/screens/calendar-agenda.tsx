@@ -40,6 +40,7 @@ import {
 } from "@remit/ui";
 import {
 	ArrowLeft,
+	MailX,
 	SlidersHorizontal,
 	Sparkles,
 	Trash2,
@@ -269,6 +270,11 @@ export interface CalendarAgendaProps {
 	picks?: ChoicePicks;
 	/** Opens the phone flow a story is about. A thread is opened, not seeded. */
 	flow?: Exclude<Flow, "thread">;
+	/**
+	 * Opens the mail behind a thread id, which is the only way to show one the
+	 * mailbox no longer has.
+	 */
+	openThreadId?: string;
 	/** Which step of the create walk the flow opens on. */
 	step?: number;
 	/** Opens the custom-rule editor over the form it belongs to. */
@@ -286,6 +292,7 @@ export function CalendarAgenda({
 	phrase: initialPhrase = "",
 	picks: initialPicks = {},
 	flow: initialFlow = "none",
+	openThreadId: initialThreadId = "",
 	step: initialStep = 0,
 	customRepeat = "closed",
 	scopeForEventId = "",
@@ -318,9 +325,11 @@ export function CalendarAgenda({
 			return { kind: "scope", eventId: scopeForEventId };
 		return initialPhrase === "" ? { kind: "none" } : { kind: "create" };
 	});
-	const [flow, setFlow] = useState<Flow>(initialFlow);
-	const [threadFrom, setThreadFrom] = useState<Flow>("none");
-	const [openThreadId, setOpenThreadId] = useState("");
+	const [flow, setFlow] = useState<Flow>(
+		initialThreadId !== "" && isPhone ? "thread" : initialFlow,
+	);
+	const [threadFrom, setThreadFrom] = useState<Flow>(initialFlow);
+	const [openThreadId, setOpenThreadId] = useState(initialThreadId);
 	const [step, setStep] = useState(initialStep);
 	const [customRule, setCustomRule] = useState<CustomRecurrence | null>(() =>
 		customRepeat === "open" ? defaultCustomRecurrence(draft.date) : null,
@@ -483,6 +492,7 @@ export function CalendarAgenda({
 			const id = `evt_new_${events.length}`;
 			setEvents((previous) => [...previous, eventFromDraft(draft, id)]);
 			setSelected(id);
+			setOpenThreadId("");
 			goTo(draft.date);
 		}
 		if (panel.kind === "edit")
@@ -499,6 +509,7 @@ export function CalendarAgenda({
 			previous.filter((item) => item.id !== suggestion.id),
 		);
 		setSelected(id);
+		setOpenThreadId("");
 		setFlow("none");
 		goTo(suggestion.start.slice(0, 10));
 	};
@@ -883,12 +894,12 @@ export function CalendarAgenda({
 			);
 		}
 
-		if (flow === "thread" && openedThread)
+		if (flow === "thread")
 			return (
 				<FlowScreen
 					anchor="container"
 					bodyFit="fill"
-					title={openedThread.subject}
+					title={openedThread ? openedThread.subject : "Thread"}
 					steps={["Thread"]}
 					activeStep={0}
 					onBack={closeThread}
@@ -897,7 +908,11 @@ export function CalendarAgenda({
 						setFlow("none");
 					}}
 				>
-					<ReadingPane thread={openedThread} />
+					{openedThread ? (
+						<ReadingPane thread={openedThread} />
+					) : (
+						<ThreadGone />
+					)}
 				</FlowScreen>
 			);
 
@@ -1069,9 +1084,9 @@ export function CalendarAgenda({
 					}
 				/>
 			}
-			readingPane={openedThread || selectedEvent ? "default" : "off"}
+			readingPane={openThreadId !== "" || selectedEvent ? "default" : "off"}
 			reading={
-				openedThread ? (
+				openThreadId !== "" ? (
 					<ThreadPane
 						thread={openedThread}
 						backLabel={
@@ -1093,7 +1108,8 @@ function ThreadPane({
 	backLabel,
 	onBack,
 }: {
-	thread: ThreadData;
+	/** Absent when the mailbox no longer holds the thread the event names. */
+	thread: ThreadData | undefined;
 	backLabel: string;
 	onBack: () => void;
 }) {
@@ -1110,8 +1126,28 @@ function ThreadPane({
 				</Button>
 			</div>
 			<div className="min-h-0 flex-1">
-				<ReadingPane thread={thread} />
+				{thread ? <ReadingPane thread={thread} /> : <ThreadGone />}
 			</div>
+		</div>
+	);
+}
+
+/**
+ * The event kept the id of a thread the mailbox no longer has. Saying so where
+ * the mail would have been is the whole point: a pane that renders nothing is
+ * indistinguishable from a broken one, and the way back has to survive it.
+ */
+function ThreadGone() {
+	return (
+		<div className="flex h-full flex-col items-center justify-center gap-2 px-row-inset py-8 text-center">
+			<MailX className="size-6 text-fg-subtle" />
+			<p className="text-sm font-medium text-fg">
+				That mail is not in this mailbox any more
+			</p>
+			<p className="max-w-sm text-xs text-fg-muted">
+				It was filed, deleted, or lives on an account this reader no longer
+				carries. The event itself is untouched.
+			</p>
 		</div>
 	);
 }
