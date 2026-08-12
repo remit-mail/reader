@@ -225,7 +225,7 @@ export function clashesWith(
 }
 
 /** Half an hour of a day, offered to someone else. */
-export interface TimeSlot {
+export interface OfferedSlot {
 	date: string;
 	startMinute: number;
 	endMinute: number;
@@ -243,8 +243,8 @@ export function slotsIn(
 	minutes: number,
 	limit = 6,
 	notBeforeMinute = OFFER_FROM_MINUTE,
-): TimeSlot[] {
-	const slots: TimeSlot[] = [];
+): OfferedSlot[] {
+	const slots: OfferedSlot[] = [];
 	for (const stretch of stretches) {
 		let cursor = Math.max(stretch.startMinute, notBeforeMinute);
 		cursor = Math.ceil(cursor / 15) * 15;
