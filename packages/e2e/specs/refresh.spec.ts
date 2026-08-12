@@ -9,7 +9,7 @@
  * control is clicked.
  */
 import type { Locator, Page } from "@playwright/test";
-import { waitFor } from "../src/api.js";
+import { type AccountSyncStatus, waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages, waitForServerMailbox } from "../src/imap.js";
 
@@ -17,6 +17,13 @@ const DESKTOP = { width: 1512, height: 864 };
 
 const messageRow = (page: Page, subject: string): Locator =>
 	page.locator("[data-message-row]").filter({ hasText: subject });
+
+const inboxLastSyncedAt = (
+	status: AccountSyncStatus,
+	inboxId: string,
+): number =>
+	status.mailboxes.find((mailbox) => mailbox.mailboxId === inboxId)
+		?.lastSyncedAt ?? 0;
 
 // Scoped to the mailbox pane's own header (`SelectionTopBar`, rendered
 // `data-selection-bar`) so this never matches the shell's global refresh,
@@ -89,6 +96,27 @@ test.describe("Mail refresh (#582)", () => {
 		// sync round on either side of them, and the cleanup this test shares a
 		// budget with waits on Dovecot too.
 		test.setTimeout(240_000);
+
+		// The tab takes its "what did this mailbox hold" baseline from the first
+		// sync status it reads, and that status is the last round's record of the
+		// server rather than the read model — a message deleted since that round
+		// is still counted in it. Left alone, the baseline can therefore already
+		// include a message this test's append then replaces, and a total that
+		// ends where it started is not new mail. Run a round before the tab opens
+		// so the baseline it takes is the mailbox as the server has it, leaving
+		// the append below as the only thing that can move the total.
+		const cursor = await api
+			.getSyncStatus(run.accountId)
+			.then((status) => inboxLastSyncedAt(status, run.inboxId));
+		await api.triggerSync(run.accountId);
+		await waitFor(
+			() => api.getSyncStatus(run.accountId),
+			(status) => inboxLastSyncedAt(status, run.inboxId) > cursor,
+			{
+				timeoutMs: 30_000,
+				what: "a sync round to record the inbox as the server now has it",
+			},
+		);
 
 		await page.goto(`/mail/${run.inboxId}`);
 		await expect(messageRow(page, run.seededSubjects[0])).toBeVisible({
