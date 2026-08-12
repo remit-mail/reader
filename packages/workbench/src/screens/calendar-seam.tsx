@@ -75,7 +75,6 @@ import {
 	HOLD_EXPIRY_LABEL,
 	invite,
 	inviteThreadId,
-	overlapping,
 	PROPOSED_DATE,
 	proposals,
 	proposalThreadId,
@@ -88,6 +87,7 @@ import {
 	type TimeSlot,
 	toMinutes,
 } from "../fixtures/calendar-seam.js";
+import { clashesWith } from "../lib/agenda-time.js";
 import { MailShell } from "./mail-shell.js";
 
 /** Below this the reading pane has no room for a day beside the thread. */
@@ -368,16 +368,19 @@ export function CalendarSeam({
 	const openInvite = threadId === inviteThreadId;
 	const openProposal = threadId === proposalThreadId;
 
-	const conflicts = overlapping(invite.proposed, events);
+	const conflicts = clashesWith(invite.proposed, events, {
+		ignoreIds: [invite.proposed.id],
+	});
 
 	const proposalVerdicts = proposals.map((proposal) => ({
 		proposal,
-		clash: overlapping(
+		clash: clashesWith(
 			{
 				start: isoAt(proposal.date, proposal.startTime),
 				end: isoAt(proposal.date, proposal.endTime),
 			},
 			events,
+			{ ignoreIds: [invite.proposed.id] },
 		),
 	}));
 

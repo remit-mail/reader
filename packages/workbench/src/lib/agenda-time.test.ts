@@ -12,17 +12,87 @@ import { describe, it } from "node:test";
 import { buildDay } from "../fixtures/calendar.js";
 import { agendaEvents } from "../fixtures/calendar-agenda.js";
 import {
+	dayBlocks,
+	dayFree,
+	invite,
+	overlapping,
+	PROPOSED_DATE,
+	proposals,
+	seamWeekEvents,
+	slotOffers,
+} from "../fixtures/calendar-seam.js";
+import {
 	buildAgendaRows,
+	clashesWith,
 	datesBetween,
+	formatMinute,
 	formatSpan,
 	freeStretchesOn,
 	groupOverlapping,
 	readNextUp,
+	slotsIn,
 } from "./agenda-time.js";
 
 const days = datesBetween("2026-06-01", "2026-07-05").map((date) =>
 	buildDay(date, agendaEvents),
 );
+
+const proposedDay = buildDay(PROPOSED_DATE, seamWeekEvents);
+
+/** The day once the invitation has been answered, as the screen assembles it. */
+const answeredEvents = [
+	...seamWeekEvents,
+	{
+		...invite.proposed,
+		myRsvp: "accepted" as const,
+		status: "confirmed" as const,
+	},
+];
+
+/** A time proposed inside the invitation's own hour, clear of the dentist. */
+const ownHour = spanAt(PROPOSED_DATE, "14:00", "14:15", "+02:00");
+
+function spanAt(date: string, from: string, to: string, offset: string) {
+	return {
+		start: `${date}T${from}:00${offset}`,
+		end: `${date}T${to}:00${offset}`,
+	};
+}
+
+/**
+ * The zones the machine might be in. The hour is what noon UTC reads as there,
+ * asserted so a Node that ignored the switch could not pass the body silently.
+ */
+const ZONES = [
+	{ name: "UTC", hourAtNoonUtc: 12 },
+	{ name: "Pacific/Kiritimati", hourAtNoonUtc: 2 },
+	{ name: "America/Los_Angeles", hourAtNoonUtc: 5 },
+];
+
+function inEveryZone(body: () => void): void {
+	const before = process.env.TZ;
+	try {
+		for (const zone of ZONES) {
+			process.env.TZ = zone.name;
+			assert.equal(
+				new Date("2026-06-11T12:00:00Z").getHours(),
+				zone.hourAtNoonUtc,
+				`the machine never moved to ${zone.name}`,
+			);
+			body();
+		}
+	} finally {
+		if (before === undefined) delete process.env.TZ;
+		else process.env.TZ = before;
+	}
+}
+
+function clocks(slots: { startMinute: number; endMinute: number }[]): string[] {
+	return slots.map(
+		(slot) =>
+			`${formatMinute(slot.startMinute)}–${formatMinute(slot.endMinute)}`,
+	);
+}
 
 describe("free time", () => {
 	it("measures the gap the busiest day still leaves open", () => {
@@ -97,6 +167,209 @@ describe("groupOverlapping", () => {
 			groupOverlapping(day.timed).map((group) => group.length),
 			[1, 5, 1, 1, 1],
 		);
+	});
+});
+
+describe("clashesWith", () => {
+	it("names what the invitation runs into, across accounts", () => {
+		const clash = clashesWith(invite.proposed, seamWeekEvents);
+		assert.deepEqual(
+			clash.map((event) => event.id),
+			["evt_dentist"],
+		);
+	});
+
+	it("answers the invitation and every proposal as the seam screen did", () => {
+		const spans = [
+			invite.proposed,
+			ownHour,
+			...proposals.map((proposal) =>
+				spanAt(proposal.date, proposal.startTime, proposal.endTime, "+02:00"),
+			),
+		];
+		for (const span of spans) {
+			assert.deepEqual(
+				clashesWith(span, answeredEvents, {
+					ignoreIds: [invite.proposed.id],
+				}),
+				overlapping(span, answeredEvents),
+			);
+		}
+	});
+
+	it("keeps an answered invitation out of the verdict on its own hour", () => {
+		assert.deepEqual(
+			clashesWith(ownHour, answeredEvents).map((event) => event.id),
+			[invite.proposed.id],
+		);
+		assert.deepEqual(
+			clashesWith(ownHour, answeredEvents, {
+				ignoreIds: [invite.proposed.id],
+			}),
+			[],
+		);
+	});
+
+	it("leaves the candidate out of its own clash list", () => {
+		const source = [...seamWeekEvents, invite.proposed];
+		assert.ok(
+			clashesWith(invite.proposed, source).some(
+				(event) => event.id === invite.proposed.id,
+			),
+		);
+		assert.deepEqual(
+			clashesWith(invite.proposed, source, {
+				ignoreIds: [invite.proposed.id],
+			}).map((event) => event.id),
+			["evt_dentist"],
+		);
+	});
+
+	it("gives every proposed time the verdict the thread pane prints", () => {
+		const verdicts = proposals.map((proposal) =>
+			clashesWith(
+				spanAt(proposal.date, proposal.startTime, proposal.endTime, "+02:00"),
+				seamWeekEvents,
+			).map((event) => event.id),
+		);
+		assert.deepEqual(verdicts, [
+			["evt_seam_support"],
+			["evt_seam_design_review"],
+			[],
+		]);
+	});
+
+	it("lets one span end where the next begins", () => {
+		const clash = clashesWith(
+			spanAt(PROPOSED_DATE, "15:00", "15:30", "+02:00"),
+			seamWeekEvents,
+		);
+		assert.deepEqual(clash, []);
+	});
+
+	it("skips an all-day banner and a declined invitation", () => {
+		const evening = spanAt(PROPOSED_DATE, "18:45", "19:15", "+02:00");
+		const clash = clashesWith(evening, seamWeekEvents);
+		assert.ok(!clash.some((event) => event.id === "evt_aws_meetup"));
+		assert.deepEqual(
+			clash.map((event) => event.id),
+			["evt_offsite_dinner"],
+		);
+		const banner = { ...invite.proposed, id: "evt_banner", allDay: true };
+		assert.deepEqual(clashesWith(invite.proposed, [banner]), []);
+	});
+
+	it("answers the same in every machine zone, off the offsets it is given", () => {
+		const abroad = {
+			...invite.proposed,
+			id: "evt_abroad",
+			start: "2026-06-11T17:30:00+05:30",
+			end: "2026-06-11T18:30:00+05:30",
+		};
+		const home = spanAt("2026-06-11", "14:30", "15:30", "+02:00");
+		const later = spanAt("2026-06-11", "15:00", "16:00", "+02:00");
+
+		inEveryZone(() => {
+			assert.deepEqual(
+				clashesWith(home, [abroad]).map((event) => event.id),
+				["evt_abroad"],
+			);
+			assert.deepEqual(clashesWith(later, [abroad]), []);
+		});
+	});
+});
+
+describe("slotsIn", () => {
+	it("cuts the same slots out of the same day in every machine zone", () => {
+		inEveryZone(() => {
+			const day = buildDay(PROPOSED_DATE, seamWeekEvents);
+			assert.deepEqual(clocks(slotsIn(freeStretchesOn(day), 30, 3)), [
+				"11:30–12:00",
+				"12:00–12:30",
+				"12:30–13:00",
+			]);
+		});
+	});
+
+	it("offers the day the same half hours the availability column did", () => {
+		const bFree = dayFree(dayBlocks(PROPOSED_DATE, seamWeekEvents));
+		for (const limit of [6, 8]) {
+			assert.deepEqual(
+				clocks(slotsIn(freeStretchesOn(proposedDay), 30, limit)),
+				slotOffers(bFree, 30, limit).map((slot) => `${slot.start}–${slot.end}`),
+			);
+		}
+	});
+
+	it("stamps every slot with the day it was cut from", () => {
+		const [first] = slotsIn(freeStretchesOn(proposedDay), 30, 1);
+		assert.equal(first.date, PROPOSED_DATE);
+	});
+
+	it("rounds up to the next quarter hour", () => {
+		const ragged = [
+			{
+				date: PROPOSED_DATE,
+				startMinute: 11 * 60 + 47,
+				endMinute: 13 * 60,
+				minutes: 73,
+				wholeDay: false,
+			},
+		];
+		assert.deepEqual(clocks(slotsIn(ragged, 30, 6)), [
+			"12:00–12:30",
+			"12:30–13:00",
+		]);
+	});
+
+	it("offers nothing before the day has started", () => {
+		const dawn = [
+			{
+				date: PROPOSED_DATE,
+				startMinute: 8 * 60,
+				endMinute: 10 * 60,
+				minutes: 120,
+				wholeDay: false,
+			},
+		];
+		assert.deepEqual(clocks(slotsIn(dawn, 30, 6)), ["09:30–10:00"]);
+		assert.deepEqual(clocks(slotsIn(dawn, 30, 6, 8 * 60)), [
+			"08:00–08:30",
+			"08:30–09:00",
+			"09:00–09:30",
+			"09:30–10:00",
+		]);
+	});
+
+	it("stops at the limit and skips a stretch too short to cut", () => {
+		const stretches = [
+			{
+				date: PROPOSED_DATE,
+				startMinute: 10 * 60,
+				endMinute: 10 * 60 + 20,
+				minutes: 20,
+				wholeDay: false,
+			},
+			{
+				date: PROPOSED_DATE,
+				startMinute: 15 * 60,
+				endMinute: 18 * 60,
+				minutes: 180,
+				wholeDay: false,
+			},
+		];
+		assert.deepEqual(clocks(slotsIn(stretches, 30, 2)), [
+			"15:00–15:30",
+			"15:30–16:00",
+		]);
+	});
+
+	it("holds a declined evening as busy, where the old column offered it", () => {
+		const stretches = freeStretchesOn(proposedDay);
+		const last = stretches[stretches.length - 1];
+		assert.equal(formatMinute(last.endMinute), "18:30");
+		const bLast = dayFree(dayBlocks(PROPOSED_DATE, seamWeekEvents)).at(-1);
+		assert.equal(bLast?.end, "19:00");
 	});
 });
 
