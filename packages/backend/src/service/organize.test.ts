@@ -923,6 +923,95 @@ describe("applyOrganize resolves move precedence against current Active filters 
 	});
 });
 
+describe("applyOrganize arbitrates on the configured similarityThreshold (reader #399)", () => {
+	/**
+	 * Deps whose embedder returns a vector at cosine ≈ 0.707 to the anchor —
+	 * above a tuned 0.5 cut-off, below the 0.75 default, so the two thresholds
+	 * disagree about whether the other filter contests the move.
+	 */
+	const halfMatchDeps = (
+		store: ReturnType<typeof createMemoryVectorStore>,
+		filterAnchorRows: FilterAnchorItem[],
+	): OrganizeMatchDeps => ({
+		semantic: () => ({
+			buildAnchor: async () => anchorPayload,
+			vectorStore: store,
+			embed: async () => [1, 1, 0, 0],
+		}),
+		listAccountFilterMessages: async () => [],
+		filterAnchors: { listByAccountConfig: async () => filterAnchorRows },
+	});
+
+	const contender: FilterAnchorItem = {
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		filterId: "filter-tuned",
+		anchorEmbedding: ANCHOR_VECTOR,
+		anchorEmbeddingId: "test-model@4",
+		anchorSourceText: "book me a table",
+		anchorMessageId: "msg-anchor-3",
+		createdAt: 0,
+		updatedAt: 0,
+	};
+	const contenderFilter = filterItem({
+		filterId: "filter-tuned",
+		ruleChangedAt: 1_000,
+		actionChangedAt: 1_000,
+		actionMailboxId: "mbox-new",
+		hasAnchor: true,
+	});
+
+	const runWithThreshold = async (similarityThreshold: number) => {
+		const store = createMemoryVectorStore();
+		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
+		const p = predicate({ actionMailboxId: "mbox-old", similarityThreshold });
+		const { messageIds: matched } = await matchOrganize(
+			matchDeps(store),
+			ACCOUNT_CONFIG_ID,
+			p,
+		);
+		const tracked = trackingClient({
+			activeFilters: [contenderFilter],
+			filterAnchorRows: [contender],
+			threadMessages: { "msg-1": { subject: "Dinner reservation" } },
+		});
+		const mover = trackingMoveService();
+		const result = await applyOrganize(
+			{
+				client: tracked.client,
+				moveService: mover.moveService,
+				match: halfMatchDeps(store, [contender]),
+			},
+			ACCOUNT_CONFIG_ID,
+			matched,
+			p,
+		);
+		return { result, moves: mover.moves };
+	};
+
+	it("suppresses the move for a contender that only clears the tuned cut-off", async () => {
+		const { result, moves } = await runWithThreshold(0.5);
+
+		assert.equal(result.applied, 1);
+		assert.equal(result.failed, 0);
+		assert.deepEqual(
+			moves,
+			[],
+			"the tuned threshold this pass matched on is the one arbitration uses",
+		);
+	});
+
+	it("moves when the contender falls under the configured cut-off", async () => {
+		const { result, moves } = await runWithThreshold(0.9);
+
+		assert.equal(result.applied, 1);
+		assert.deepEqual(
+			moves.map((m) => m.messageId),
+			["msg-1"],
+			"a contender below the cut-off does not contest the move",
+		);
+	});
+});
+
 describe("matchOrganize with ListId and FromDomain clauses", () => {
 	const senderChunk = (
 		messageId: string,

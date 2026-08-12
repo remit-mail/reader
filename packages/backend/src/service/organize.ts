@@ -545,13 +545,20 @@ const findFilterMessageForPrecedence = async (
 
 /**
  * Whether one *other* Active filter with a move action currently matches this
- * message — mirrors `FilterPipeline.filterMatches` (mailbox-service
- * filters/pipeline.ts) exactly: literal clauses first, then, for a filter
- * with a semantic anchor, its own persisted `FilterAnchor` compared against
- * the candidate's embedding. A stale/incompatible anchor on the *other*
- * filter is isolated to that filter (skipped, not thrown) — the same
- * resilience `filterMatches` gives index-time matching, so one bad anchor
- * elsewhere never breaks this back-apply's move.
+ * message — follows `FilterPipeline.filterMatches` (mailbox-service
+ * filters/pipeline.ts): literal clauses first, then, for a filter with a
+ * semantic anchor, its own persisted `FilterAnchor` compared against the
+ * candidate's embedding at the configured `similarityThreshold`, falling back
+ * to {@link DEFAULT_SEMANTIC_MATCH_THRESHOLD} exactly as the pipeline does, so
+ * a tuned account arbitrates on the same cut-off it matched on. A
+ * stale/incompatible anchor on the *other* filter is isolated to that filter
+ * (skipped, not thrown) — the same resilience `filterMatches` gives index-time
+ * matching, so one bad anchor elsewhere never breaks this back-apply's move.
+ *
+ * One thing is still unmirrored: the pipeline's anchor-drift guard (RFC 039
+ * Decision 1a), which compares `anchorEmbeddingId` against the embedder's
+ * `embeddingId` and lazily re-embeds a drifted anchor. Here a drifted anchor
+ * is scored as-is (reader #399).
  */
 const filterCurrentlyMatches = async (
 	filterAnchorService: Pick<IFilterAnchorRepository, "get">,
@@ -559,6 +566,7 @@ const filterCurrentlyMatches = async (
 	filter: FilterItem,
 	msg: FilterMessage,
 	embed: () => Promise<number[] | null>,
+	similarityThreshold: number | undefined,
 ): Promise<boolean> => {
 	if (!literalClausesMatch(filter.literalClauses, filter.matchOperator, msg)) {
 		return false;
@@ -573,11 +581,9 @@ const filterCurrentlyMatches = async (
 	if (!anchor) return false;
 	const vector = await embed();
 	if (!vector) return false;
+	const threshold = similarityThreshold ?? DEFAULT_SEMANTIC_MATCH_THRESHOLD;
 	try {
-		return (
-			cosineSimilarity(vector, anchor.anchorEmbedding) >=
-			DEFAULT_SEMANTIC_MATCH_THRESHOLD
-		);
+		return cosineSimilarity(vector, anchor.anchorEmbedding) >= threshold;
 	} catch {
 		return false;
 	}
@@ -608,6 +614,7 @@ const findCurrentMoveWinner = async (
 	movers: readonly FilterItem[],
 	accountConfigId: string,
 	messageId: string,
+	similarityThreshold: number | undefined,
 ): Promise<FilterItem | undefined> => {
 	if (movers.length === 0) return undefined;
 	const msg = await findFilterMessageForPrecedence(
@@ -637,6 +644,7 @@ const findCurrentMoveWinner = async (
 			filter,
 			msg,
 			embed,
+			similarityThreshold,
 		);
 		if (isMatch) matched.push(filter);
 	}
@@ -712,6 +720,7 @@ export const applyOrganize = async (
 				movers,
 				accountConfigId,
 				messageId,
+				predicate.similarityThreshold,
 			);
 			if (winner && winner.actionMailboxId !== predicate.actionMailboxId) {
 				// A more-recently-changed filter currently claims this message's
