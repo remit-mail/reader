@@ -24,7 +24,9 @@
 #   restarts=N                RestartCount from the second inspect onwards
 #   services=...              services with a container, space separated
 #   data_probe=ok|fail        whether the sqlite volume can be read at all
-#   all_services=...          what `compose config --services` lists
+#   all_services=...          overrides what `compose config --services` lists;
+#                             unset, it is read from the compose file the -f
+#                             argument names, the way compose reads it
 #   current_schema=N          what the schema read returns (non-real mode)
 #   target_schema=N           the running schema after this run's migrate applies
 #   target_schema2=N          the same after a restore (rollback re-runs migrate)
@@ -166,6 +168,117 @@ container_services() {
 # wrapper has to be written against.
 profile_services() { val profile_services ""; }
 
+# Which profiles are on. Compose reads COMPOSE_PROFILES from the environment
+# first and the --env-file second, and remit.env.template writes
+# `COMPOSE_PROFILES=${TLS_MODE:-}` into .env — so a tunnelled deployment is one
+# line in the sandbox's .env, not a scenario key. `--profile '*'` overrides both.
+active_profiles() {
+	if [ "$_all_profiles" = "1" ]; then
+		printf '*'
+		return 0
+	fi
+	if [ -n "${COMPOSE_PROFILES:-}" ]; then
+		printf '%s' "$COMPOSE_PROFILES"
+		return 0
+	fi
+	[ -n "$_env_file" ] && [ -f "$_env_file" ] || return 0
+	_ap=$(awk 'index($0, "COMPOSE_PROFILES=") == 1 { print substr($0, 18); exit }' "$_env_file")
+	# Compose interpolates the .env against itself before it reads a setting out
+	# of it, and the template's line is `COMPOSE_PROFILES=${TLS_MODE:-}`. Taken
+	# literally that is a profile name nothing matches, so a deployment on
+	# TLS_MODE=tunnel would list no tunnel and the suite would never see one.
+	# shellcheck disable=SC2016 # a literal ${…} in the file, not an expansion
+	case "$_ap" in
+	*'${'*)
+		_apk=${_ap#*'${'}
+		_apk=${_apk%%\}*}
+		_apd=""
+		case "$_apk" in
+		*:-*)
+			_apd=${_apk#*:-}
+			_apk=${_apk%%:-*}
+			;;
+		esac
+		_ap=$(awk -v k="$_apk" 'index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }' "$_env_file")
+		if [ -z "$_ap" ]; then _ap=$_apd; fi
+		;;
+	esac
+	printf '%s' "$_ap"
+}
+
+# The services the compose file the -f argument names declares, in file order,
+# resolved against the profile set in $1 (`*` for every profile). Written out
+# here, "the whole stack" would be this file's idea of the deployment rather
+# than the deployment's, and a service added to the compose file would be
+# covered by nothing (reader#786).
+file_services() {
+	[ -n "$_compose_file" ] && [ -f "$_compose_file" ] || return 0
+	awk -v active="$1" '
+		function note(svc, text,   i, k, parts) {
+			gsub(/[][",]/, " ", text)
+			k = split(text, parts, /[ \t]+/)
+			for (i = 1; i <= k; i++) {
+				if (parts[i] != "") { profiled[svc] = profiled[svc] " " parts[i] }
+			}
+		}
+		BEGIN {
+			k = split(active, parts, /[, \t]+/)
+			for (i = 1; i <= k; i++) {
+				if (parts[i] != "") { on[parts[i]] = 1 }
+			}
+		}
+		/^[^ \t#]/ { under = ($0 ~ /^services:[ \t]*$/); svc = ""; inprof = 0; next }
+		!under { next }
+		/^  [^ \t#]/ {
+			inprof = 0
+			svc = ""
+			if ($0 ~ /^  [A-Za-z0-9_.-]+:[ \t]*$/) {
+				svc = $0
+				sub(/^  /, "", svc)
+				sub(/:.*$/, "", svc)
+				order[++count] = svc
+			}
+			next
+		}
+		svc == "" { next }
+		/^    profiles:/ {
+			inprof = 1
+			rest = $0
+			sub(/^    profiles:/, "", rest)
+			note(svc, rest)
+			next
+		}
+		inprof && /^ *- / {
+			rest = $0
+			sub(/^ *- */, "", rest)
+			note(svc, rest)
+			next
+		}
+		{ inprof = 0 }
+		END {
+			for (i = 1; i <= count; i++) {
+				svc = order[i]
+				if (profiled[svc] == "" || on["*"]) { print svc; continue }
+				k = split(profiled[svc], parts, /[ \t]+/)
+				for (j = 1; j <= k; j++) {
+					if (on[parts[j]]) { print svc; break }
+				}
+			}
+		}
+	' "$_compose_file"
+}
+
+# What `config --services` answers from: the scenario when it narrows the
+# deployment, the compose file otherwise.
+declared_services() {
+	_dsl=$(val all_services "")
+	if [ -n "$_dsl" ]; then
+		printf '%s' "$_dsl"
+		return 0
+	fi
+	file_services "$1"
+}
+
 # Volumes the project declares. The ones a profile-only service mounts are
 # invisible to an unscoped `config --volumes`, so a purge confirmation derived
 # from that list understates what it destroys.
@@ -191,8 +304,7 @@ is_profile_service() {
 # orphan container left by a service that was removed is still `no such
 # service` — so a container is not evidence here either.
 is_known_service() {
-	for _k in $(val all_services "queue migrate volume-init backend apisix web caddy imap-worker smtp-worker account-worker search-index-worker") \
-		$(profile_services); do
+	for _k in $(declared_services '*') $(profile_services); do
 		[ "$_k" = "$1" ] && return 0
 	done
 	return 1
@@ -373,7 +485,7 @@ compose_cmd() {
 			# to sort them first, and one that forgets is a comparison that never
 			# matches — a check that silently does nothing. A stand-in that emits a
 			# fixed order cannot fail that caller (reader#412).
-			_list=$(val all_services "queue migrate volume-init backend apisix web caddy imap-worker smtp-worker account-worker search-index-worker")
+			_list=$(declared_services "$(active_profiles)")
 			if [ "$_all_profiles" = "1" ]; then
 				_list="$_list $(profile_services)"
 			fi
@@ -381,8 +493,8 @@ compose_cmd() {
 			printf '%s' $((_n + 1)) >"$S/config-seq"
 			# shellcheck disable=SC2086 # a service list, split on purpose
 			printf '%s\n' $_list | awk -v n="$_n" '
-				{ line[NR] = $0 }
-				END { for (i = 0; i < NR; i++) print line[(i + n) % NR + 1] }
+				$0 != "" && !seen[$0]++ { line[++c] = $0 }
+				END { for (i = 0; i < c; i++) print line[(i + n) % c + 1] }
 			'
 			;;
 		*" --volumes "*)
