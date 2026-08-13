@@ -5,9 +5,9 @@
  * the shell hands down record — so the count, ⌘A and j/k are checked here
  * against what is in the DOM.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
+import { afterEach, before, beforeEach, describe, it } from "node:test";
 import React, { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { briefSectionsLong, briefUnseen } from "../fixtures/workspace.js";
@@ -24,41 +24,15 @@ const personalIds =
 		.find((section) => section.id === "personal")
 		?.threads.map((t) => t.id) ?? [];
 
-let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
 
 before(async () => {
 	(globalThis as { React?: typeof React }).React = React;
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.MouseEvent = dom.window.MouseEvent;
-	globalThis.MutationObserver = dom.window.MutationObserver;
-	globalThis.AbortController = dom.window.AbortController;
-	Object.defineProperty(globalThis, "navigator", {
-		value: dom.window.navigator,
-		configurable: true,
-	});
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-});
-
-after(() => {
-	dom.window.close();
 });
 
 beforeEach(() => {
-	container = dom.window.document.getElementById(
-		"root",
-	) as unknown as HTMLElement;
+	container = document.getElementById("root") as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
 	act(() => {
@@ -115,11 +89,11 @@ const selectionLabel = (): string =>
 
 const press = (key: string, init: KeyboardEventInit = {}) => {
 	const target =
-		(dom.window.document.activeElement as unknown as EventTarget | null) ??
-		(dom.window.document.body as unknown as EventTarget);
+		(document.activeElement as unknown as EventTarget | null) ??
+		(document.body as unknown as EventTarget);
 	act(() => {
 		target.dispatchEvent(
-			new dom.window.KeyboardEvent("keydown", {
+			new KeyboardEvent("keydown", {
 				key,
 				bubbles: true,
 				cancelable: true,
@@ -135,7 +109,7 @@ const press = (key: string, init: KeyboardEventInit = {}) => {
 const click = async (element: Element, metaKey = false) => {
 	await act(async () => {
 		element.dispatchEvent(
-			new dom.window.MouseEvent("click", {
+			new MouseEvent("click", {
 				bubbles: true,
 				cancelable: true,
 				metaKey,

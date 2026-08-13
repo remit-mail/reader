@@ -4,17 +4,14 @@
  * registry is stubbed because jsdom carries no CSS Custom Highlight API, so
  * what is asserted is the ranges the editor would have handed a browser.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
-import type { $getRoot as getRootType, LexicalEditor } from "lexical";
-import type {
-	act as reactAct,
-	createElement as reactCreateElement,
-	useEffect as reactUseEffect,
-} from "react";
-import type { Root, createRoot as reactCreateRoot } from "react-dom/client";
-import type { RichTextEditor as RichTextEditorType } from "./rich-text-editor.js";
+import { afterEach, before, beforeEach, describe, it } from "node:test";
+import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+import { $getRoot, type LexicalEditor } from "lexical";
+import { act, createElement, useEffect } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { RichTextEditor } from "./rich-text-editor.js";
 import type {
 	CheckRequest,
 	CheckResponse,
@@ -51,18 +48,10 @@ interface MarkHost {
 	Highlight: typeof StubMarks;
 }
 
-let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
 const roots: Root[] = [];
 const containers: HTMLElement[] = [];
-let act: typeof reactAct;
-let createElement: typeof reactCreateElement;
-let useEffect: typeof reactUseEffect;
-let createRoot: typeof reactCreateRoot;
-let RichTextEditor: typeof RichTextEditorType;
-let useLexicalComposerContext: () => [LexicalEditor];
-let $getRoot: typeof getRootType;
 
 const marks = (): StubMarks | undefined =>
 	(globalThis as unknown as MarkHost).CSS.highlights.get("spell-error");
@@ -175,8 +164,8 @@ const mount = async (
 		return null;
 	};
 
-	container = dom.window.document.createElement("div");
-	dom.window.document.body.append(container);
+	container = document.createElement("div");
+	document.body.append(container);
 	containers.push(container);
 	await act(async () => {
 		root = createRoot(container);
@@ -223,25 +212,10 @@ const editable = (scope: HTMLElement = container): HTMLElement => {
 	return element;
 };
 
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.Node = dom.window.Node;
-	globalThis.Event = dom.window.Event;
-	globalThis.MouseEvent = dom.window.MouseEvent;
-	globalThis.DOMParser = dom.window.DOMParser;
-	globalThis.MutationObserver = dom.window.MutationObserver;
-	globalThis.Range = dom.window.Range;
+before(() => {
 	// jsdom has no layout, and Lexical measures the caret's range whenever it
 	// writes the DOM selection.
-	Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", {
+	Object.defineProperty(Range.prototype, "getBoundingClientRect", {
 		value: () => ({
 			top: 0,
 			bottom: 0,
@@ -254,19 +228,6 @@ before(async () => {
 		}),
 		configurable: true,
 	});
-	globalThis.AbortController = dom.window.AbortController;
-	globalThis.AbortSignal = dom.window.AbortSignal;
-	globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
-	globalThis.requestAnimationFrame = dom.window.requestAnimationFrame.bind(
-		dom.window,
-	);
-	globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(
-		dom.window,
-	);
-	Object.defineProperty(globalThis, "navigator", {
-		value: dom.window.navigator,
-		configurable: true,
-	});
 	Object.defineProperty(globalThis, "CSS", {
 		value: { highlights: new Map<string, StubMarks>() },
 		configurable: true,
@@ -275,17 +236,6 @@ before(async () => {
 		value: StubMarks,
 		configurable: true,
 	});
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-
-	({ act, createElement, useEffect } = await import("react"));
-	({ createRoot } = await import("react-dom/client"));
-	({ $getRoot } = await import("lexical"));
-	({ useLexicalComposerContext } = (await import(
-		"@lexical/react/LexicalComposerContext"
-	)) as unknown as { useLexicalComposerContext: () => [LexicalEditor] });
-	({ RichTextEditor } = await import("./rich-text-editor.js"));
 });
 
 beforeEach(() => {
@@ -295,10 +245,6 @@ beforeEach(() => {
 afterEach(async () => {
 	await unmountAll();
 	container.remove();
-});
-
-after(() => {
-	dom.window.close();
 });
 
 describe("spellcheck marks", () => {

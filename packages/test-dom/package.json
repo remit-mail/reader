@@ -1,0 +1,17 @@
+{
+	"name": "@remit/test-dom",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"description": "Browser globals for the unit-test processes, installed on import.",
+	"exports": {
+		".": {
+			"types": "./dom-env.d.mts",
+			"default": "./dom-env.mjs"
+		}
+	},
+	"license": "MIT",
+	"dependencies": {
+		"jsdom": "^29.1.1"
+	}
+}

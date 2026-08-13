@@ -4,9 +4,9 @@
  * one set, so a chip set on either is set on both. Mounted against jsdom — the
  * point is what survives pressing things.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
+import { afterEach, before, beforeEach, describe, it } from "node:test";
 import React, { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
@@ -20,7 +20,6 @@ import { MailShell } from "./mail-shell.js";
 const DESKTOP_WIDTH = 1440;
 const PHONE_WIDTH = 390;
 
-let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
 
@@ -29,37 +28,10 @@ before(async () => {
 	// transpiles it with the classic JSX runtime, which reads a global `React`.
 	// Storybook and the app both use the automatic runtime.
 	(globalThis as { React?: typeof React }).React = React;
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.MutationObserver = dom.window.MutationObserver;
-	globalThis.MouseEvent = dom.window.MouseEvent;
-	// The resizable pane group listens with a signal, and jsdom accepts only its
-	// own.
-	globalThis.AbortController = dom.window.AbortController;
-	Object.defineProperty(globalThis, "navigator", {
-		value: dom.window.navigator,
-		configurable: true,
-	});
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-});
-
-after(() => {
-	dom.window.close();
 });
 
 beforeEach(() => {
-	container = dom.window.document.getElementById(
-		"root",
-	) as unknown as HTMLElement;
+	container = document.getElementById("root") as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
 });
@@ -99,7 +71,7 @@ function subjectPerAccount(): [string, string] {
 function click(element: Element, metaKey = false) {
 	act(() => {
 		element.dispatchEvent(
-			new dom.window.MouseEvent("click", {
+			new MouseEvent("click", {
 				bubbles: true,
 				cancelable: true,
 				metaKey,

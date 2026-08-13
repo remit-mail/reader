@@ -16,15 +16,12 @@
  * way out so nothing is left underlined by a checker that is gone.
  */
 
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
-import type {
-	act as reactAct,
-	createElement as reactCreateElement,
-} from "react";
-import type { Root, createRoot as reactCreateRoot } from "react-dom/client";
-import type { ComposeBody as ComposeBodyType } from "./compose-body.js";
+import { afterEach, before, beforeEach, describe, it } from "node:test";
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { ComposeBody } from "./compose-body.js";
 import type {
 	CheckRequest,
 	ProviderStatus,
@@ -33,13 +30,8 @@ import type {
 	SuggestRequest,
 } from "./rich-text-spellcheck.js";
 
-let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
-let act: typeof reactAct;
-let createElement: typeof reactCreateElement;
-let createRoot: typeof reactCreateRoot;
-let ComposeBody: typeof ComposeBodyType;
 
 /** Short enough that detection declines and the chip stays on the account default. */
 const DOCUMENT = "<p>Ths is redy.</p>";
@@ -215,35 +207,7 @@ const chooseLanguage = async (tag: string): Promise<void> => {
 	await settle();
 };
 
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.Node = dom.window.Node;
-	globalThis.Event = dom.window.Event;
-	globalThis.MouseEvent = dom.window.MouseEvent;
-	globalThis.DOMParser = dom.window.DOMParser;
-	globalThis.MutationObserver = dom.window.MutationObserver;
-	globalThis.Range = dom.window.Range;
-	globalThis.AbortController = dom.window.AbortController;
-	globalThis.AbortSignal = dom.window.AbortSignal;
-	globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
-	globalThis.requestAnimationFrame = dom.window.requestAnimationFrame.bind(
-		dom.window,
-	);
-	globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(
-		dom.window,
-	);
-	Object.defineProperty(globalThis, "navigator", {
-		value: dom.window.navigator,
-		configurable: true,
-	});
+before(() => {
 	// The marks are drawn through the CSS Custom Highlight registry, which jsdom
 	// has neither half of. Without both, the editor draws nothing and never opens
 	// a provider at all — which is the browser this suite would be testing.
@@ -255,18 +219,11 @@ before(async () => {
 		value: Marks,
 		configurable: true,
 	});
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-
-	({ act, createElement } = await import("react"));
-	({ createRoot } = await import("react-dom/client"));
-	({ ComposeBody } = await import("./compose-body.js"));
 });
 
 beforeEach(() => {
-	container = dom.window.document.createElement("div");
-	dom.window.document.body.append(container);
+	container = document.createElement("div");
+	document.body.append(container);
 });
 
 afterEach(async () => {
@@ -274,10 +231,6 @@ afterEach(async () => {
 		root.unmount();
 	});
 	container.remove();
-});
-
-after(() => {
-	dom.window.close();
 });
 
 const mount = async (options: SpellcheckOptions): Promise<void> => {

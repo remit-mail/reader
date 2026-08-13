@@ -8,10 +8,17 @@
  * paragraph makes the two strings differ, and the same comparison would
  * interrupt the ordinary prose it is meant to leave alone.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { before, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
-import type { LexicalEditor } from "lexical";
+import { describe, it } from "node:test";
+import {
+	$getRoot,
+	$insertNodes,
+	createEditor,
+	type LexicalEditor,
+} from "lexical";
+import { $adoptHtml, $documentFormatting } from "./rich-text-document.js";
+import { RICH_TEXT_NODES } from "./rich-text-nodes.js";
 
 interface Row {
 	what: string;
@@ -86,50 +93,25 @@ const ROWS: Row[] = [
 	},
 ];
 
-let formattingOf: (html: string) => string[];
-
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	const dom: JSDOM = new JSDOMCtor(
-		"<!doctype html><html><body></body></html>",
-		{
-			url: "http://localhost/",
+const formattingOf = (html: string) => {
+	const editor: LexicalEditor = createEditor({
+		namespace: "test",
+		nodes: [...RICH_TEXT_NODES],
+		onError: (error) => {
+			throw error;
 		},
+	});
+	editor.update(
+		() => {
+			const root = $getRoot();
+			root.clear();
+			root.select();
+			if (html !== "") $insertNodes($adoptHtml(editor, html));
+		},
+		{ discrete: true },
 	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.DOMParser = dom.window.DOMParser;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.Node = dom.window.Node;
-
-	const { $getRoot, $insertNodes, createEditor } = await import("lexical");
-	const { $adoptHtml, $documentFormatting } = await import(
-		"./rich-text-document.js"
-	);
-	const { RICH_TEXT_NODES } = await import("./rich-text-nodes.js");
-
-	formattingOf = (html: string) => {
-		const editor: LexicalEditor = createEditor({
-			namespace: "test",
-			nodes: [...RICH_TEXT_NODES],
-			onError: (error) => {
-				throw error;
-			},
-		});
-		editor.update(
-			() => {
-				const root = $getRoot();
-				root.clear();
-				root.select();
-				if (html !== "") $insertNodes($adoptHtml(editor, html));
-			},
-			{ discrete: true },
-		);
-		return editor.read(() => $documentFormatting());
-	};
-});
-
+	return editor.read(() => $documentFormatting());
+};
 describe("what switching to plain text warns about", () => {
 	for (const row of ROWS) {
 		it(`${row.warns ? "warns about" : "says nothing about"} ${row.what}`, () => {

@@ -22,15 +22,14 @@
 		"temporal-polyfill": "^1.0.1"
 	},
 	"devDependencies": {
+		"@remit/test-dom": "*",
 		"@storybook/addon-vitest": "^9.1.20",
 		"@storybook/react-vite": "^9",
 		"@tailwindcss/vite": "^4",
-		"@types/jsdom": "^28.0.3",
 		"@types/react": "^19",
 		"@types/react-dom": "^19",
 		"@vitejs/plugin-react": "^4",
 		"@vitest/browser-playwright": "^4.1.10",
-		"jsdom": "^29.1.1",
 		"msw": "^2",
 		"msw-storybook-addon": "^2",
 		"playwright": "1.58.2",

@@ -1,6 +1,6 @@
+import "@remit/test-dom";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { JSDOM } from "jsdom";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import type { CalendarDescriptor, EventDraft } from "./calendar-types.js";
@@ -52,7 +52,7 @@ const render = (props: Partial<Parameters<typeof EventEditor>[0]>) =>
 
 /** The same render read as a document, so no assertion depends on attribute order. */
 const parse = (props: Partial<Parameters<typeof EventEditor>[0]>) =>
-	JSDOM.fragment(render(props));
+	document.createRange().createContextualFragment(render(props));
 
 const field = (dom: DocumentFragment, label: string) =>
 	dom.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);

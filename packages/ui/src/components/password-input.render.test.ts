@@ -1,62 +1,20 @@
 /**
  * The reveal toggle: it starts hidden, flips only the input's `type`, and
  * renames itself for the state it will produce next. Mounted against jsdom
- * since the toggle is internal state driven by a real click. React is imported
- * after the jsdom globals are installed so the controlled-input value tracker
- * binds to jsdom's prototypes.
+ * since the toggle is internal state driven by a real click.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
-import type {
-	act as reactAct,
-	createElement as reactCreateElement,
-} from "react";
-import type { Root, createRoot as reactCreateRoot } from "react-dom/client";
-import type { PasswordInput as PasswordInputType } from "./password-input.js";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { PasswordInput } from "./password-input.js";
 
-let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
-let act: typeof reactAct;
-let createElement: typeof reactCreateElement;
-let createRoot: typeof reactCreateRoot;
-let PasswordInput: typeof PasswordInputType;
-
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.Event = dom.window.Event;
-	Object.defineProperty(globalThis, "navigator", {
-		value: dom.window.navigator,
-		configurable: true,
-	});
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-
-	const react = await import("react");
-	act = react.act;
-	createElement = react.createElement;
-	({ createRoot } = await import("react-dom/client"));
-	({ PasswordInput } = await import("./password-input.js"));
-});
-
-after(() => {
-	dom.window.close();
-});
 
 beforeEach(() => {
-	container = dom.window.document.getElementById(
-		"root",
-	) as unknown as HTMLElement;
+	container = document.getElementById("root") as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
 });
@@ -143,7 +101,7 @@ describe("PasswordInput", () => {
 		act(() => {
 			root.render(createElement(PasswordInput, { id: "pw" }));
 		});
-		assert.notEqual(dom.window.document.activeElement, toggle());
+		assert.notEqual(document.activeElement, toggle());
 		assert.equal(toggle().hasAttribute("autofocus"), false);
 	});
 });

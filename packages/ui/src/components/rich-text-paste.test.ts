@@ -5,10 +5,17 @@
  * sanitize, parse, convert — and reads the document back out as the HTML that
  * would be sent.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { before, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
-import type { LexicalEditor } from "lexical";
+import { describe, it } from "node:test";
+import {
+	$getRoot,
+	$insertNodes,
+	createEditor,
+	type LexicalEditor,
+} from "lexical";
+import { $adoptHtml, $readRichText } from "./rich-text-document.js";
+import { RICH_TEXT_NODES } from "./rich-text-nodes.js";
 
 const PASTED_IMAGE = [
 	"<p>before</p>",
@@ -29,46 +36,25 @@ const PASTED = [
 	"<script>alert(1)</script>",
 ].join("");
 
-let adoptAndSerialize: (html: string) => { html: string; text: string };
-
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	const dom: JSDOM = new JSDOMCtor(
-		"<!doctype html><html><body></body></html>",
-		{ url: "http://localhost/" },
+const adoptAndSerialize = (html: string) => {
+	const editor: LexicalEditor = createEditor({
+		namespace: "test",
+		nodes: [...RICH_TEXT_NODES],
+		onError: (error) => {
+			throw error;
+		},
+	});
+	editor.update(
+		() => {
+			const root = $getRoot();
+			root.clear();
+			root.select();
+			$insertNodes($adoptHtml(editor, html));
+		},
+		{ discrete: true },
 	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.DOMParser = dom.window.DOMParser;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.Node = dom.window.Node;
-
-	const { $getRoot, $insertNodes, createEditor } = await import("lexical");
-	const { $adoptHtml, $readRichText } = await import("./rich-text-document.js");
-	const { RICH_TEXT_NODES } = await import("./rich-text-nodes.js");
-
-	adoptAndSerialize = (html: string) => {
-		const editor: LexicalEditor = createEditor({
-			namespace: "test",
-			nodes: [...RICH_TEXT_NODES],
-			onError: (error) => {
-				throw error;
-			},
-		});
-		editor.update(
-			() => {
-				const root = $getRoot();
-				root.clear();
-				root.select();
-				$insertNodes($adoptHtml(editor, html));
-			},
-			{ discrete: true },
-		);
-		return editor.read(() => $readRichText(editor));
-	};
-});
-
+	return editor.read(() => $readRichText(editor));
+};
 describe("adopting pasted HTML", () => {
 	it("keeps the heading, the list and the table", () => {
 		const { html } = adoptAndSerialize(PASTED);
