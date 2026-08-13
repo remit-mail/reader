@@ -33,6 +33,13 @@ const SNAPSHOT_LIB = join(ROOT, "deploy", "vps", "backup", "snapshot-db.sh");
 const FAKES = join(HERE, "remit-test");
 const SQLITE_SHIM = join(FAKES, "sqlite3-shim.mjs");
 
+// Taken from the template verbatim: the value is `${TLS_MODE:-}`, and a sandbox
+// that pre-resolves it writes an .env no operator has.
+const COMPOSE_PROFILES_LINE =
+	readFileSync(join(ROOT, "deploy", "vps", "remit.env.template"), "utf8")
+		.split("\n")
+		.find((line) => line.startsWith("COMPOSE_PROFILES=")) ?? "";
+
 const TMP_ROOT = join(ROOT, ".tmp");
 mkdirSync(TMP_ROOT, { recursive: true });
 const sandboxes = [];
@@ -50,6 +57,34 @@ const MANIFEST = {
 
 const ALL_SERVICES =
 	"queue backend caddy web apisix imap-worker smtp-worker account-worker search-index-worker";
+
+// The always-on stack the shipped compose file declares — every service with no
+// `profiles:` key. The stand-in answers `config --services` from that file, so
+// this is the list the wrapper derives its held-back set from, and "the whole
+// always-on stack" means this rather than whatever a sandbox happens to seed.
+// A service added to the deployment fails the check that compares the two.
+const COMPOSE_ALWAYS_ON = [
+	"account-worker",
+	"apisix",
+	"backend",
+	"caddy",
+	"doctor",
+	"imap-worker",
+	"migrate",
+	"queue",
+	"scheduler",
+	"search-index-worker",
+	"smtp-worker",
+	"updater",
+	"volume-init",
+	"web",
+];
+
+// What is serving once that stack is up: the updater drives the update and
+// replaces itself last, and migrate and volume-init exit as soon as they finish.
+const WHOLE_STACK = COMPOSE_ALWAYS_ON.filter(
+	(service) => !["migrate", "updater", "volume-init"].includes(service),
+);
 
 // A real remit.db at schema total 8 (6 entity migrations, 1 auth, 1 meta), the
 // tables named exactly as the migrate one-shot writes them, so the wrapper's own
@@ -139,6 +174,7 @@ function sandbox({
 	realDb = false,
 	bareDb = false,
 	tag = "v1.0.0",
+	tlsMode = "internal",
 } = {}) {
 	const dir = mkdtempSync(join(TMP_ROOT, "remit-update-"));
 	sandboxes.push(dir);
@@ -164,7 +200,10 @@ function sandbox({
 		[
 			`REMIT_TAG=${tag}`,
 			"PUBLIC_ORIGIN=https://mail.example.test",
-			"TLS_MODE=internal",
+			`TLS_MODE=${tlsMode}`,
+			// Compose reads its active profiles from here, so the mode is what turns
+			// the tunnel agent on — not a scenario key.
+			COMPOSE_PROFILES_LINE,
 			"REMIT_UPDATE_MANIFEST_URL=https://updates.example.test/stable.json",
 			...dotenv,
 			"",
@@ -320,6 +359,73 @@ function sandbox({
 
 const orderOf = (log, needle) =>
 	log.split("\n").findIndex((line) => line.includes(needle));
+
+// What `docker compose config --services` answers in a sandbox, read straight
+// from the stand-in rather than through the wrapper.
+function composeServices(box, flags = []) {
+	const run = spawnSync(
+		join(box.dir, "bin", "docker"),
+		[
+			"compose",
+			"--project-directory",
+			box.deployment,
+			"-f",
+			join(box.deployment, "docker-compose.sqlite.yml"),
+			"--env-file",
+			join(box.deployment, ".env"),
+			...flags,
+			"config",
+			"--services",
+		],
+		{ env: box.env, encoding: "utf8" },
+	);
+	assert.equal(run.status, 0, run.stderr);
+	return run.stdout.split("\n").filter(Boolean).sort();
+}
+
+// The premise every assertion below about "the whole stack" rests on. A list
+// written into the stand-in is the deployment's stack only until someone adds a
+// service to the compose file, and then it silently is not: the update suite
+// asserted a nine-name stack against a fourteen-service deployment for as long
+// as that list was written out (reader#786).
+describe("the stand-in's service list is the compose file's", () => {
+	it("lists what the deployment declares, not a list of its own", () => {
+		const box = sandbox();
+		assert.deepEqual(composeServices(box), [...COMPOSE_ALWAYS_ON].sort());
+	});
+
+	it("hides a service behind an inactive profile, the way compose does", () => {
+		const box = sandbox();
+		for (const service of ["tunnel", "backup", "dozzle", "victoriametrics"]) {
+			assert.ok(
+				!composeServices(box).includes(service),
+				`${service} is listed on a deployment whose profile is off`,
+			);
+		}
+	});
+
+	it("lists one whose profile COMPOSE_PROFILES names", () => {
+		const box = sandbox({ tlsMode: "tunnel" });
+		assert.deepEqual(
+			composeServices(box),
+			[...COMPOSE_ALWAYS_ON, "tunnel"].sort(),
+		);
+	});
+
+	it("lists every service under --profile '*'", () => {
+		const box = sandbox();
+		assert.deepEqual(
+			composeServices(box, ["--profile", "*"]),
+			[
+				...COMPOSE_ALWAYS_ON,
+				"backup",
+				"dozzle",
+				"tunnel",
+				"victoriametrics",
+			].sort(),
+		);
+	});
+});
 
 describe("remit update — the happy path", () => {
 	const box = sandbox({ scenario: { probe: "ok", migrate_exit: 0 } });
@@ -1382,19 +1488,14 @@ describe("caddy stays up across the whole update (front door never goes dark)", 
 
 describe("tunnel stays up across the whole update under TLS_MODE=tunnel (reader#762)", () => {
 	// Under TLS_MODE=tunnel the cloudflared agent is the second edge component,
-	// reached by COMPOSE_PROFILES=tunnel — modeled here by putting it in
-	// all_services, the way compose lists a profile-activated service in an
-	// unscoped `config --services` once its profile is on in .env. Stopping it
-	// for the update window leaves caddy's reverse_proxy with no connection to
-	// re-dial: Cloudflare answers the operator's browser with its own 530
-	// instead of a request caddy could hold and retry.
-	const services = `${ALL_SERVICES} tunnel`;
+	// reached by the template's COMPOSE_PROFILES line — so setting the mode is
+	// what puts tunnel in an unscoped `config --services`, exactly as on a real
+	// deployment. Stopping it for the update window leaves caddy's reverse_proxy
+	// with no connection to re-dial: Cloudflare answers the operator's browser
+	// with its own 530 instead of a request caddy could hold and retry.
 	const box = sandbox({
-		scenario: {
-			probe: "ok",
-			services,
-			all_services: `${services} migrate volume-init`,
-		},
+		tlsMode: "tunnel",
+		scenario: { probe: "ok", services: `${ALL_SERVICES} tunnel` },
 	});
 	box.run(["update"]);
 	const stops = box
@@ -1552,7 +1653,18 @@ describe("a stopped box that still holds a database", () => {
 	// connections, and leaves queue and backend up under `unless-stopped` on a
 	// box the operator had taken down.
 	it("leaves the whole always-on stack up, not the gate set alone", () => {
-		assert.deepEqual(box.running(), ALL_SERVICES.split(" ").sort());
+		assert.deepEqual(box.running(), WHOLE_STACK);
+	});
+
+	it("holds the updater back, because it replaces itself last", () => {
+		const commit = box
+			.log()
+			.split("\n")
+			.filter((l) => l.startsWith("compose up -d ") && l.includes("apisix"));
+		assert.equal(commit.length, 1);
+		const started = commit[0].split(/\s+/);
+		assert.ok(started.includes("scheduler"));
+		assert.ok(!started.includes("updater"));
 	});
 });
 
@@ -1580,7 +1692,7 @@ describe("a stopped box whose migration fails", () => {
 	});
 
 	it("leaves the whole always-on stack up on the previous tag", () => {
-		assert.deepEqual(box.running(), ALL_SERVICES.split(" ").sort());
+		assert.deepEqual(box.running(), WHOLE_STACK);
 	});
 });
 
