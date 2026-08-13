@@ -6,8 +6,9 @@ export {
 	type PanelFragment,
 	panelFragments,
 	parseOpenPanels,
-	retainOpenPanels,
+	retainOpenPanelsAtTier,
 	useOpenPanels,
+	useRetainOpenPanels,
 	useSetOpenPanels,
 } from "./fragment";
 export { NavLink, type NavLinkProps } from "./nav-link";

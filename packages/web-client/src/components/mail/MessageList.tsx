@@ -53,7 +53,7 @@ import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import { listVerbRequest } from "@/lib/list-verb-request";
 import { shouldExitSelectionOnNavigate } from "@/lib/selection-mode";
 import { useSelectionWizard, useWizardStepValue } from "@/lib/wizard-history";
-import { retainOpenPanels } from "@/routing";
+import { useRetainOpenPanels } from "@/routing";
 import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import {
 	type EscalatedSelection,
@@ -234,6 +234,7 @@ export const MessageList = ({
 }: MessageListProps) => {
 	const parentRef = useRef<HTMLDivElement>(null);
 	const navigate = useNavigate();
+	const retainPanels = useRetainOpenPanels();
 	const isDesktop = useIsDesktop();
 	const wizard = useSelectionWizard();
 	const { verb: wizardVerb, start: startWizard, startFromSearch } = wizard;
@@ -635,11 +636,11 @@ export const MessageList = ({
 				to: "/mail/$mailboxId/$threadId/$messageId",
 				params: { mailboxId, threadId, messageId },
 				search: (prev) => prev,
-				hash: retainOpenPanels,
+				hash: retainPanels,
 				replace: options?.replace,
 			});
 		},
-		[navigate, mailboxId, threads],
+		[navigate, retainPanels, mailboxId, threads],
 	);
 
 	// Enter: open the focused row in the reading pane. This is the focus→open
