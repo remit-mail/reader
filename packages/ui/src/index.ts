@@ -240,6 +240,7 @@ export {
 	EventRepeatField,
 	EventTitleField,
 	EventWhenField,
+	endsBeforeStart,
 } from "./components/event-editor.js";
 export {
 	EventEditorPane,

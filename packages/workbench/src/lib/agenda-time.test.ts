@@ -9,6 +9,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import type { CalendarEventData } from "@remit/ui";
 import { buildDay } from "../fixtures/calendar.js";
 import { agendaEvents } from "../fixtures/calendar-agenda.js";
 import {
@@ -87,6 +88,17 @@ function inEveryZone(body: () => void): void {
 	}
 }
 
+/** One evening dropped on a clear day, written the way the editor writes it. */
+function lateEvent(date: string, from: string, to: string): CalendarEventData {
+	return {
+		...invite.proposed,
+		id: `evt_late_${from}_${to}`,
+		...spanAt(date, from, to, "+02:00"),
+		myRsvp: "accepted" as const,
+		status: "confirmed" as const,
+	};
+}
+
 function clocks(slots: { startMinute: number; endMinute: number }[]): string[] {
 	return slots.map(
 		(slot) =>
@@ -112,6 +124,27 @@ describe("free time", () => {
 	it("treats a day with nothing timed on it as free all day", () => {
 		const [whole] = freeStretchesOn(buildDay("2026-06-13", agendaEvents));
 		assert.equal(whole.wholeDay, true);
+	});
+
+	/**
+	 * The editor writes one date, so 23:00–01:00 comes back as a span that ends
+	 * before it starts. It is still one evening taken off the day, never two
+	 * bands over the same morning — the strip keys them by their start minute.
+	 */
+	it("gives one band for an event whose end is before its start", () => {
+		const day = buildDay("2026-06-13", [
+			...agendaEvents,
+			lateEvent("2026-06-13", "23:00", "01:00"),
+		]);
+		assert.deepEqual(clocks(freeStretchesOn(day)), ["08:00–22:00"]);
+	});
+
+	it("clips a stretch to the window the day is measured inside", () => {
+		const day = buildDay("2026-06-13", [
+			...agendaEvents,
+			lateEvent("2026-06-13", "22:30", "23:00"),
+		]);
+		assert.deepEqual(clocks(freeStretchesOn(day)), ["08:00–22:00"]);
 	});
 });
 

@@ -156,7 +156,19 @@ export function busySpansOn(day: CalendarDay): BusySpan[] {
 	return merged;
 }
 
-/** The gaps between those spans, inside the window worth calling a day. */
+function insideWindow(minute: number): number {
+	return Math.min(Math.max(minute, DAY_START_MINUTE), DAY_END_MINUTE);
+}
+
+/**
+ * The gaps between those spans, inside the window worth calling a day.
+ *
+ * Both ends of every span are pulled into the window before they are measured,
+ * and the cursor only ever moves forward, so an event running past the window
+ * cannot stretch a band past it either and a span that ends before it starts —
+ * an overnight event, which the editor writes onto one date — cannot leave the
+ * cursor where the tail would emit a second band over the first.
+ */
 export function freeStretchesOn(
 	day: CalendarDay,
 	minMinutes = FREE_MINUTES,
@@ -176,15 +188,17 @@ export function freeStretchesOn(
 	const stretches: FreeStretch[] = [];
 	let cursor = DAY_START_MINUTE;
 	for (const span of merged) {
-		if (span.from - cursor >= minMinutes)
+		const from = insideWindow(span.from);
+		const to = insideWindow(span.to);
+		if (from - cursor >= minMinutes)
 			stretches.push({
 				date: day.date,
 				startMinute: cursor,
-				endMinute: span.from,
-				minutes: span.from - cursor,
+				endMinute: from,
+				minutes: from - cursor,
 				wholeDay: false,
 			});
-		cursor = Math.max(cursor, span.to);
+		cursor = Math.max(cursor, from, to);
 	}
 	if (DAY_END_MINUTE - cursor >= minMinutes)
 		stretches.push({

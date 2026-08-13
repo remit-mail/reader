@@ -71,53 +71,90 @@ export function EventTitleField({
 	);
 }
 
+/**
+ * A draft carries one date, so an end before the start is not a night that runs
+ * over — it is a span the calendar reads backwards. The form says so and refuses
+ * to save it rather than swapping the two fields behind whoever typed them.
+ */
+export function endsBeforeStart(draft: EventDraft): boolean {
+	if (draft.allDay) return false;
+	if (draft.startTime === "" || draft.endTime === "") return false;
+	return draft.endTime < draft.startTime;
+}
+
 export function EventWhenField({ draft, onChange, touch }: EventFieldProps) {
 	const fieldHeight = touch ? "min-h-11" : "";
+	const backwards = endsBeforeStart(draft);
+	const messageId = useId();
 	return (
-		<div className="flex flex-wrap items-center gap-2">
-			<Input
-				type="date"
-				value={draft.date}
-				aria-label="Date"
-				onChange={(e) => setField({ draft, onChange }, "date", e.target.value)}
-				className={cn("w-40", fieldHeight)}
-			/>
-			{draft.allDay ? (
-				<span className="text-sm text-fg-muted">All day</span>
-			) : (
-				<>
-					<Input
-						type="time"
-						value={draft.startTime}
-						aria-label="Start time"
-						onChange={(e) =>
-							setField({ draft, onChange }, "startTime", e.target.value)
-						}
-						className={cn("w-28", fieldHeight)}
-					/>
-					<span className="text-sm text-fg-subtle">to</span>
-					<Input
-						type="time"
-						value={draft.endTime}
-						aria-label="End time"
-						onChange={(e) =>
-							setField({ draft, onChange }, "endTime", e.target.value)
-						}
-						className={cn("w-28", fieldHeight)}
-					/>
-				</>
-			)}
-			<label className="flex items-center gap-2 text-sm text-fg-muted">
-				<input
-					type="checkbox"
-					checked={draft.allDay}
+		<div className="flex flex-col gap-1.5">
+			<div className="flex flex-wrap items-center gap-2">
+				<Input
+					type="date"
+					value={draft.date}
+					aria-label="Date"
 					onChange={(e) =>
-						setField({ draft, onChange }, "allDay", e.target.checked)
+						setField({ draft, onChange }, "date", e.target.value)
 					}
-					className="size-4 accent-current"
+					className={cn("w-40", fieldHeight)}
 				/>
-				All day
-			</label>
+				{draft.allDay ? (
+					<span className="text-sm text-fg-muted">All day</span>
+				) : (
+					<>
+						<Input
+							type="time"
+							value={draft.startTime}
+							aria-label="Start time"
+							max={draft.endTime === "" ? undefined : draft.endTime}
+							aria-invalid={backwards}
+							aria-describedby={backwards ? messageId : undefined}
+							onChange={(e) =>
+								setField({ draft, onChange }, "startTime", e.target.value)
+							}
+							className={cn(
+								"w-28",
+								fieldHeight,
+								backwards && "border-danger/60",
+							)}
+						/>
+						<span className="text-sm text-fg-subtle">to</span>
+						<Input
+							type="time"
+							value={draft.endTime}
+							aria-label="End time"
+							min={draft.startTime === "" ? undefined : draft.startTime}
+							aria-invalid={backwards}
+							aria-describedby={backwards ? messageId : undefined}
+							onChange={(e) =>
+								setField({ draft, onChange }, "endTime", e.target.value)
+							}
+							className={cn(
+								"w-28",
+								fieldHeight,
+								backwards && "border-danger/60",
+							)}
+						/>
+					</>
+				)}
+				<label className="flex items-center gap-2 text-sm text-fg-muted">
+					<input
+						type="checkbox"
+						checked={draft.allDay}
+						onChange={(e) =>
+							setField({ draft, onChange }, "allDay", e.target.checked)
+						}
+						className="size-4 accent-current"
+					/>
+					All day
+				</label>
+			</div>
+			{backwards && (
+				<p id={messageId} className="text-xs text-danger" role="alert">
+					Ends before it starts. Move the end past {draft.startTime}, or start
+					earlier.
+				</p>
+			)}
 		</div>
 	);
 }
@@ -294,6 +331,7 @@ export function EventEditor({
 				variant="primary"
 				size={touch || roomy ? "md" : "sm"}
 				onClick={onSave}
+				disabled={endsBeforeStart(draft)}
 				className={touch ? "min-h-11 flex-1" : ""}
 			>
 				{saveLabel}
