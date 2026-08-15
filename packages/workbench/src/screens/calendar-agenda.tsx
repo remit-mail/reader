@@ -44,7 +44,6 @@ import {
 	SlidersHorizontal,
 	Sparkles,
 	Trash2,
-	UserX,
 	Wand2,
 } from "lucide-react";
 import { type ReactNode, useMemo, useRef, useState } from "react";
@@ -454,8 +453,8 @@ export function CalendarAgenda({
 
 	/**
 	 * A guest is a correspondent, so their name on an event is a way into what
-	 * they have written. A pointer only has to arrive at the row; a thumb taps,
-	 * and gets a screen rather than a card sitting under the finger.
+	 * they have written. On a desktop the row opens what they wrote underneath
+	 * it; a thumb gets a screen rather than a card sitting under the finger.
 	 */
 	const openGuest = (email: string) => {
 		setActiveAttendee(email);
@@ -696,7 +695,7 @@ export function CalendarAgenda({
 				activeAttendee={activeAttendee}
 				onActivateAttendee={openGuest}
 				renderAttendeeContext={(guest) => (
-					<AttendeeContextCard attendee={guest} />
+					<AttendeeContextCard attendee={guest} className="w-full" />
 				)}
 			/>
 		) : null;
@@ -874,7 +873,26 @@ export function CalendarAgenda({
 	const phoneFlow = (): ReactNode => {
 		if (flow === "editor") return editorFlow();
 
-		if (flow === "event" && selectedEvent) {
+		if (flow === "attendee" && openedGuest)
+			return (
+				<FlowScreen
+					anchor="container"
+					title={openedGuest.name}
+					subtitle={openedGuest.email}
+					steps={["Guest"]}
+					activeStep={0}
+					onBack={closeGuest}
+					onExit={closeGuest}
+				>
+					<AttendeeContextCard
+						attendee={openedGuest}
+						className="w-full border-0 p-0 shadow-none"
+					/>
+				</FlowScreen>
+			);
+
+		/** A guest who is no longer on the event leaves the event itself open. */
+		if ((flow === "event" || flow === "attendee") && selectedEvent) {
 			const calendar =
 				calendarsById.get(selectedEvent.calendarId) ?? calendars[0];
 			return (
@@ -927,28 +945,6 @@ export function CalendarAgenda({
 				</FlowScreen>
 			);
 		}
-
-		if (flow === "attendee")
-			return (
-				<FlowScreen
-					anchor="container"
-					title={openedGuest ? openedGuest.name : "Guest"}
-					subtitle={openedGuest ? openedGuest.email : activeAttendee}
-					steps={["Guest"]}
-					activeStep={0}
-					onBack={closeGuest}
-					onExit={closeGuest}
-				>
-					{openedGuest ? (
-						<AttendeeContextCard
-							attendee={openedGuest}
-							className="w-full border-0 p-0 shadow-none"
-						/>
-					) : (
-						<GuestGone />
-					)}
-				</FlowScreen>
-			);
 
 		if (flow === "thread")
 			return (
@@ -1203,26 +1199,6 @@ function ThreadGone() {
 			<p className="max-w-sm text-xs text-fg-muted">
 				It was filed, deleted, or lives on an account this reader no longer
 				carries. The event itself is untouched.
-			</p>
-		</div>
-	);
-}
-
-/**
- * The guest was taken off the event while their screen was open. Saying so is
- * the difference between a screen that has nothing to show and one that looks
- * broken.
- */
-function GuestGone() {
-	return (
-		<div className="flex flex-col items-center gap-2 px-row-inset py-8 text-center">
-			<UserX className="size-6 text-fg-subtle" />
-			<p className="text-sm font-medium text-fg">
-				That guest is not on this event any more
-			</p>
-			<p className="max-w-sm text-xs text-fg-muted">
-				They were removed from the guest list, so there is nothing left here to
-				read. The event itself is untouched.
 			</p>
 		</div>
 	);

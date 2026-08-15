@@ -31,11 +31,11 @@ export interface EventDetailProps {
 	onClose?: () => void;
 	/** The guest whose context is open. Empty for none. */
 	activeAttendee?: string;
-	/** Hover, focus or tap on a guest. Absent leaves the list inert, as today. */
+	/** Called with a guest to open and with "" to close. Absent leaves the list inert. */
 	onActivateAttendee?: (email: string) => void;
-	/** Rendered anchored to the active guest. The kit knows nothing about mail. */
+	/** Rendered under the open guest. The kit knows nothing about mail. */
 	renderAttendeeContext?: (attendee: CalendarAttendee) => React.ReactNode;
-	/** A thumb has to tap; a pointer only has to arrive. */
+	/** A thumb needs a bigger row than a pointer does. */
 	touch?: boolean;
 	/**
 	 * `bare` drops the header and the scrolling frame, for a surface that already
