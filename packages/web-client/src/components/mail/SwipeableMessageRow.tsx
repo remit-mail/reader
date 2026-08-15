@@ -6,11 +6,10 @@ import {
 	type SwipePeek,
 	type ThreadRowData,
 } from "@remit/ui";
-import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { toDisplayCategory } from "@/lib/display-category";
 import { formatEmailDate } from "@/lib/format";
-import { useRetainOpenPanels } from "@/routing";
+import { useOpenThread } from "@/routing";
 import { MessageListItem } from "./MessageListItem";
 import { useModifierSelect } from "./useModifierSelect";
 
@@ -74,8 +73,7 @@ export const SwipeableMessageRow = ({
 	density,
 }: SwipeableMessageRowProps) => {
 	const [peek, setPeek] = useState<SwipePeek>("none");
-	const navigate = useNavigate();
-	const retainPanels = useRetainOpenPanels();
+	const openThread = useOpenThread();
 
 	const handleAct = useCallback(
 		(side: "leading" | "trailing") => {
@@ -99,17 +97,8 @@ export const SwipeableMessageRow = ({
 	}, [onToggleCheck, thread.messageId]);
 
 	const handleOpen = useCallback(() => {
-		navigate({
-			to: "/mail/$mailboxId/$threadId/$messageId",
-			params: {
-				mailboxId,
-				threadId: thread.threadId,
-				messageId: thread.messageId,
-			},
-			search: (prev) => prev,
-			hash: retainPanels,
-		});
-	}, [navigate, retainPanels, mailboxId, thread.threadId, thread.messageId]);
+		openThread({ threadId: thread.threadId, messageId: thread.messageId });
+	}, [openThread, thread.threadId, thread.messageId]);
 
 	const modifierSelect = useModifierSelect(thread.messageId, onRowSelect);
 

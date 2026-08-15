@@ -14,9 +14,8 @@ import {
 import { MailShell } from "@/components/layout/MailShell";
 import { FlaggedPane } from "@/components/mail/FlaggedPane";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { useSearchMirror } from "@/hooks/useSearchMirror";
 import { flaggedSearchSchema } from "@/lib/mail-search";
-import { useOpenThreadPath } from "@/routing";
+import { useOpenThreadPath, useSearchMirror } from "@/routing";
 
 const FlaggedError = ({ error, reset }: ErrorComponentProps) => (
 	<div className="flex h-full items-center justify-center bg-canvas p-4">

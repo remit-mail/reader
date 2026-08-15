@@ -1,10 +1,10 @@
 import { mailboxOperationsListMailboxesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import { useQueries } from "@tanstack/react-query";
-import { useLocation, useParams } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { buildMailboxRoleMap, labelForMailbox } from "@/lib/folder-roles";
+import { useBrowsedList } from "@/routing";
 
 interface UseCurrentMailboxNameOptions {
 	accounts: RemitImapAccountResponse[];
@@ -27,9 +27,7 @@ interface UseCurrentMailboxNameOptions {
 export const useCurrentMailboxName = ({
 	accounts,
 }: UseCurrentMailboxNameOptions): string | null => {
-	const params = useParams({ strict: false });
-	const location = useLocation();
-	const mailboxId = (params as { mailboxId?: string }).mailboxId;
+	const { list, mailboxId } = useBrowsedList();
 	const { t } = useTranslation("mail", { useSuspense: false });
 	const translator = useCallback(
 		(key: string, fallback: string) => t(key, { defaultValue: fallback }),
@@ -45,7 +43,7 @@ export const useCurrentMailboxName = ({
 		})),
 	});
 
-	if (location.pathname.startsWith("/mail/outbox")) return "Outbox";
+	if (list === "outbox") return "Outbox";
 	if (!mailboxId) return null;
 
 	for (let i = 0; i < accounts.length; i++) {
@@ -74,8 +72,7 @@ export const useCurrentMailboxName = ({
 export const useCurrentMailboxUnseenCount = ({
 	accounts,
 }: UseCurrentMailboxNameOptions): number | null => {
-	const params = useParams({ strict: false });
-	const mailboxId = (params as { mailboxId?: string }).mailboxId;
+	const { mailboxId } = useBrowsedList();
 
 	const queries = useQueries({
 		queries: accounts.map((account) => ({

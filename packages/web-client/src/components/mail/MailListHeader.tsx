@@ -58,7 +58,6 @@ import {
 	useAppShellLayout,
 	useSuggestList,
 } from "@remit/ui";
-import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { Menu, Search, X } from "lucide-react";
 import {
 	type ReactNode,
@@ -88,7 +87,11 @@ import {
 	searchTokenLabel,
 } from "@/lib/search-tokens";
 import { spamOfferForResults } from "@/lib/spam-offer";
-import { useOpenWizard } from "@/lib/wizard-history";
+import {
+	useBrowsedList,
+	useOpenWizard,
+	useScopeSearchToMailbox,
+} from "@/routing";
 
 export interface MailListHeaderProps {
 	title: string;
@@ -176,7 +179,7 @@ export function MailListHeader({
 		searchViewKey,
 	} = useMailContext();
 	const tokenContext = useSearchTokenContext();
-	const navigate = useNavigate();
+	const scopeSearchToMailbox = useScopeSearchToMailbox();
 	const layout = useAppShellLayout();
 	const tier = useLayoutTier();
 	const [searchOpen, setSearchOpen] = useState(false);
@@ -301,10 +304,10 @@ export function MailListHeader({
 	// The mailbox's appointed role is what lets a search scoped to Spam show its
 	// rows rather than drop them.
 	const { scope } = useSearchScope(accounts);
-	const matches = useRouterState({ select: (s) => s.matches });
-	const scopedMailboxId = routeMailboxId(matches);
+	const browsed = useBrowsedList();
+	const scopedMailboxId = routeMailboxId(browsed);
 	const routeScope = resultsScopeForRoute(
-		matches,
+		browsed,
 		scope,
 		scopedMailboxId ? resultFolderIndex.get(scopedMailboxId)?.role : undefined,
 	);
@@ -320,11 +323,7 @@ export function MailListHeader({
 		? {
 				kind: "global",
 				onScopeToSpam: () =>
-					navigate({
-						to: "/mail/$mailboxId",
-						params: { mailboxId: spamOffer.mailboxId },
-						search: { q: searchQuery || undefined },
-					}),
+					scopeSearchToMailbox(spamOffer.mailboxId, searchQuery),
 			}
 		: routeScope;
 

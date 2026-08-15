@@ -10,7 +10,6 @@ import type {
 import type { NavAccount, NavLinkComponent, NavMailboxRole } from "@remit/ui";
 import { NavSidebar } from "@remit/ui";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -25,7 +24,7 @@ import {
 	removeSavedSearch,
 	saveSearch,
 } from "@/lib/saved-searches";
-import { NavLink } from "@/routing";
+import { NavLink, useSearchEverything, useSelectedNavId } from "@/routing";
 
 interface MailSidebarAdapterProps {
 	accounts: RemitImapAccountResponse[];
@@ -113,26 +112,6 @@ function toNavMailbox(
 }
 
 /**
- * Resolves the currently selected nav ID from the active route so the kit
- * component can highlight the right item.
- *   - /mail/outbox → "outbox"
- *   - /mail/flagged → "flagged"
- *   - /mail/brief → "brief"
- *   - /mail/$mailboxId → mailboxId
- */
-function useSelectedNavId(): string {
-	const location = useLocation();
-	const params = useParams({ strict: false }) as { mailboxId?: string };
-
-	if (location.pathname.startsWith("/settings")) return "settings";
-	if (location.pathname.startsWith("/mail/outbox")) return "outbox";
-	if (location.pathname.startsWith("/mail/flagged")) return "flagged";
-	if (location.pathname.startsWith("/mail/brief")) return "brief";
-	if (params.mailboxId) return params.mailboxId;
-	return "";
-}
-
-/**
  * Pane 1 of the 4-pane shell. Data bridge that fetches mailboxes per account,
  * maps them onto the kit's NavAccount shape, and renders each entry as a real
  * router anchor via the kit's `linkComponent` render-prop. Replaces the retired
@@ -144,7 +123,7 @@ export function MailSidebarAdapter({
 	variant = "desktop",
 }: MailSidebarAdapterProps) {
 	const queryClient = useQueryClient();
-	const navigate = useNavigate();
+	const searchEverything = useSearchEverything();
 	const selectedNavId = useSelectedNavId();
 	const { searchInput, onSearchChange } = useMailContext();
 	const [savedSearches, setSavedSearches] = useState(loadSavedSearches);
@@ -341,10 +320,10 @@ export function MailSidebarAdapter({
 	const handleSelectSavedSearch = useCallback(
 		(query: string) => {
 			onSearchChange(query);
-			navigate({ to: "/mail/brief", search: { q: query } });
+			searchEverything(query);
 			onMailboxSelect?.();
 		},
-		[onSearchChange, navigate, onMailboxSelect],
+		[onSearchChange, searchEverything, onMailboxSelect],
 	);
 
 	return (

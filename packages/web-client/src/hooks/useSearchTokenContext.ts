@@ -1,7 +1,7 @@
-import { useRouterState } from "@tanstack/react-router";
 import { useMailContext } from "@/lib/mail-context";
 import { isScopedRoute } from "@/lib/search-scope";
 import type { SearchTokenContext } from "@/lib/search-tokens";
+import { useBrowsedList } from "@/routing";
 
 /**
  * The one context every search engine parses the query through.
@@ -20,7 +20,8 @@ import type { SearchTokenContext } from "@/lib/search-tokens";
  */
 export function useSearchTokenContext(): SearchTokenContext {
 	const { mailboxNameIndex, accountNameIndex } = useMailContext();
-	const scoped = useRouterState({ select: (s) => isScopedRoute(s.matches) });
+	const browsed = useBrowsedList();
+	const scoped = isScopedRoute(browsed);
 	return {
 		...(scoped ? {} : { mailboxesByName: mailboxNameIndex }),
 		accountsByName: accountNameIndex,

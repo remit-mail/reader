@@ -14,7 +14,7 @@ import {
 	useSelection,
 	type Verb,
 } from "@remit/ui";
-import { useBlocker, useNavigate } from "@tanstack/react-router";
+import { useBlocker } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Search } from "lucide-react";
 import type { RefObject } from "react";
@@ -52,8 +52,11 @@ import { tabStopId } from "@/lib/list-focus";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import { listVerbRequest } from "@/lib/list-verb-request";
 import { shouldExitSelectionOnNavigate } from "@/lib/selection-mode";
-import { useSelectionWizard, useWizardStepValue } from "@/lib/wizard-history";
-import { useRetainOpenPanels } from "@/routing";
+import {
+	useOpenThread,
+	useSelectionWizard,
+	useWizardStepValue,
+} from "@/routing";
 import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import {
 	type EscalatedSelection,
@@ -233,8 +236,7 @@ export const MessageList = ({
 	hideHeader = false,
 }: MessageListProps) => {
 	const parentRef = useRef<HTMLDivElement>(null);
-	const navigate = useNavigate();
-	const retainPanels = useRetainOpenPanels();
+	const openThread = useOpenThread();
 	const isDesktop = useIsDesktop();
 	const wizard = useSelectionWizard();
 	const { verb: wizardVerb, start: startWizard, startFromSearch } = wizard;
@@ -632,15 +634,9 @@ export const MessageList = ({
 				(thread) => thread.messageId === messageId,
 			)?.threadId;
 			if (!threadId) return;
-			navigate({
-				to: "/mail/$mailboxId/$threadId/$messageId",
-				params: { mailboxId, threadId, messageId },
-				search: (prev) => prev,
-				hash: retainPanels,
-				replace: options?.replace,
-			});
+			openThread({ threadId, messageId }, { replace: options?.replace });
 		},
-		[navigate, retainPanels, mailboxId, threads],
+		[openThread, threads],
 	);
 
 	// Enter: open the focused row in the reading pane. This is the focus→open

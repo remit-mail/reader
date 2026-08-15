@@ -35,7 +35,6 @@ import { MailFreshnessProvider } from "@/lib/mail-freshness";
 import { mailListRoute, mailViewKey } from "@/lib/mail-route";
 import { buildAccountNameIndex } from "@/lib/search-token-index";
 import { committedSearchQuery, searchInputForView } from "@/lib/search-view";
-import { wizardEntryValue, wizardStepValue } from "@/lib/wizard-history";
 import {
 	isOverlayPanel,
 	type OverlayPanel,
@@ -44,6 +43,8 @@ import {
 	useOpenPanels,
 	useOpenThreadPath,
 	useSetOpenPanels,
+	wizardEntryValue,
+	wizardStepValue,
 } from "@/routing";
 import "@/lib/client";
 

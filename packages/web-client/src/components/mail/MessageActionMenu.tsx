@@ -4,7 +4,6 @@ import {
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import {
 	BadgeCheck,
 	Check,
@@ -35,7 +34,7 @@ import {
 	type ThreadListSnapshotEntry,
 	threadListCacheKeys,
 } from "@/lib/thread-list-cache";
-import { useOpenThreadPath, useRetainOpenPanels } from "@/routing";
+import { useCloseThread, useOpenThreadPath } from "@/routing";
 import { MoveToTrigger } from "./MoveToTrigger";
 
 interface ThreadMessagesData {
@@ -102,8 +101,7 @@ export const MessageActionMenu = ({
 	onToggleRaw,
 }: MessageActionMenuProps) => {
 	const queryClient = useQueryClient();
-	const navigate = useNavigate();
-	const retainPanels = useRetainOpenPanels();
+	const closeThread = useCloseThread();
 	const { pushError } = useErrorBanners();
 	const selectedMessageId = useOpenThreadPath()?.messageId;
 
@@ -190,14 +188,9 @@ export const MessageActionMenu = ({
 		(removedIds: string[]) => {
 			if (!selectedMessageId) return;
 			if (!removedIds.includes(selectedMessageId)) return;
-			navigate({
-				to: "/mail/$mailboxId",
-				params: { mailboxId },
-				search: (prev) => prev,
-				hash: retainPanels,
-			});
+			closeThread();
 		},
-		[selectedMessageId, mailboxId, navigate, retainPanels],
+		[selectedMessageId, closeThread],
 	);
 
 	const { deleteMessages, isPending: isDeleting } = useDeleteMessages({
