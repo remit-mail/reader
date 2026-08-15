@@ -223,8 +223,8 @@ export const ConversationView = ({
 	});
 
 	// The reply is a segment under the message it answers, so what is being
-	// written and which turn it answers are both the address's to state. Nothing
-	// here keeps a second opinion about whether a composer is up.
+	// written and which turn it answers are the address's to state. Nothing here
+	// keeps a second opinion about whether a composer is up.
 	const reply = useReplySurface();
 	const openReply = useOpenReply();
 
