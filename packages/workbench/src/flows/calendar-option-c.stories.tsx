@@ -298,7 +298,9 @@ export const AttendeeContext: Story = {
 		);
 		await expect(canvas.getByText("Lunch walk Wednesday?")).toBeInTheDocument();
 
-		await userEvent.unhover(guest);
+		await userEvent.unhover(
+			canvas.getByRole("button", { name: /Priya Natarajan/ }),
+		);
 
 		await waitFor(() =>
 			expect(canvas.queryByText("Lunch walk Wednesday?")).toBeNull(),

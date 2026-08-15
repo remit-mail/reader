@@ -1,5 +1,5 @@
 import { Check, Clock, Minus, X } from "lucide-react";
-import { Fragment, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { cn } from "../lib/cn.js";
 import { Avatar } from "./avatar.js";
 import type { CalendarAttendee, RsvpState } from "./calendar-types.js";
@@ -151,22 +151,19 @@ export function AttendeeList({
 			</p>
 			{attendees.map((attendee) => {
 				const active = attendee.email === activeEmail;
-				const row = (
-					<AttendeeRow
-						attendee={attendee}
-						active={active}
-						onActivate={onActivate}
-						touch={touch}
-					/>
-				);
-				if (!active || !renderContext)
-					return <Fragment key={attendee.email}>{row}</Fragment>;
 				return (
 					<div key={attendee.email} className="relative">
-						{row}
-						<div className="absolute left-0 top-full z-20 pt-1">
-							{renderContext(attendee)}
-						</div>
+						<AttendeeRow
+							attendee={attendee}
+							active={active}
+							onActivate={onActivate}
+							touch={touch}
+						/>
+						{active && renderContext && (
+							<div className="absolute left-0 top-full z-20 pt-1">
+								{renderContext(attendee)}
+							</div>
+						)}
 					</div>
 				);
 			})}
