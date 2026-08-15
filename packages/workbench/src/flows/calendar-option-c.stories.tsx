@@ -1,6 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
-import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
+import {
+	DESKTOP_WIDTH,
+	framedAt,
+	PHONE_WIDTH,
+	phoneFrame,
+	phoneParams,
+} from "../lib/story-frame.js";
 import { CalendarAgenda } from "../screens/calendar-agenda.js";
 
 /**
@@ -42,6 +48,26 @@ const meta: Meta = {
 export default meta;
 
 type Story = StoryObj;
+
+const TOSCANINI = "Table for six at Toscanini";
+const TOSCANINI_PLACE = "Toscanini, Lindengracht";
+const OFFSITE_TRAIN = "Train to the offsite";
+const MUTE_DANA = "Never suggest from Dana Okafor";
+const THE_OFFER =
+	"Dana Okafor sends mail like this often. Stop reading dates out of it?";
+const RULE_TAKEN =
+	"Nothing more will be suggested from dana@northwind.example. Their mail still arrives as normal.";
+const MUTED_HEADING = "Waiting for you · 1 sender muted";
+const UNMUTE_DANA = "Unmute dana@northwind.example";
+
+async function dropSuggestion(
+	canvas: ReturnType<typeof within>,
+	title: string,
+): Promise<void> {
+	const card = canvas.getByText(title).closest("div");
+	if (!card) throw new Error(`no suggestion card for ${title}`);
+	await userEvent.click(within(card).getByLabelText("Dismiss suggestion"));
+}
 
 /**
  * The strip on the day it lands. Today carries the accent rail, the days above
@@ -320,6 +346,158 @@ export const Month: Story = {
 /** The widest step: a year, still the same strip, still the same Today. */
 export const Year: Story = {
 	render: () => <CalendarAgenda view="year" />,
+};
+
+/**
+ * Dropping a reading is the only moment the reader has said anything about who
+ * sent it, so it is the moment to ask. The card is replaced where it stood by
+ * what happened and what can be done about it — the rule is offered, never
+ * taken on the reader's behalf.
+ */
+export const DroppingTeachesARule: Story = {
+	name: "Dropping teaches a rule",
+	// Framed, not left to the runner's viewport: the column of decisions is a
+	// pane of the widest tier, and the surface reflows off its own container.
+	decorators: [framedAt(DESKTOP_WIDTH)],
+	render: () => <CalendarAgenda />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+
+		await dropSuggestion(canvas, TOSCANINI);
+
+		await waitFor(() =>
+			expect(canvas.getByText(THE_OFFER)).toBeInTheDocument(),
+		);
+		await expect(
+			canvas.getByRole("button", { name: MUTE_DANA }),
+		).toBeInTheDocument();
+		await expect(canvas.queryByText(TOSCANINI_PLACE)).toBeNull();
+	},
+};
+
+/**
+ * The rule taken. Dana's other reading goes with it, so the same unwanted
+ * suggestion stops coming back rather than being dismissed once a week, and the
+ * heading carries the count — a rule nobody can see is a rule nobody can
+ * revoke.
+ */
+export const SenderMuted: Story = {
+	name: "The sender is muted",
+	decorators: [framedAt(DESKTOP_WIDTH)],
+	render: () => <CalendarAgenda />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+
+		await dropSuggestion(canvas, TOSCANINI);
+		await userEvent.click(canvas.getByRole("button", { name: MUTE_DANA }));
+
+		await waitFor(() => expect(canvas.queryByText(OFFSITE_TRAIN)).toBeNull());
+		await expect(canvas.getByText(MUTED_HEADING)).toBeInTheDocument();
+		await expect(canvas.getByText(RULE_TAKEN)).toBeInTheDocument();
+		await expect(canvas.getByText("Stay in Lisbon")).toBeInTheDocument();
+	},
+};
+
+/**
+ * The offer declined. One bad reading is usually just one bad reading, so
+ * saying so drops that card alone and leaves everything else the sender has
+ * written still on offer.
+ */
+export const DroppingJustThisOne: Story = {
+	name: "Dropping just this one",
+	decorators: [framedAt(DESKTOP_WIDTH)],
+	render: () => <CalendarAgenda />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+
+		await dropSuggestion(canvas, TOSCANINI);
+		await userEvent.click(
+			canvas.getByRole("button", { name: "Just this one" }),
+		);
+
+		await waitFor(() => expect(canvas.queryByText(THE_OFFER)).toBeNull());
+		await expect(canvas.getByText(OFFSITE_TRAIN)).toBeInTheDocument();
+		await expect(canvas.queryByText(TOSCANINI)).toBeNull();
+		await expect(canvas.queryByText(MUTED_HEADING)).toBeNull();
+	},
+};
+
+/**
+ * A rule that changes what arrives tomorrow has to be reversible today. Undo on
+ * the notice puts the card back where it stood and lifts the rule with it; once
+ * the notice has been replaced by the next decision, the count in the heading is
+ * still the way back.
+ */
+export const SenderRuleUndone: Story = {
+	name: "The rule is undone",
+	decorators: [framedAt(DESKTOP_WIDTH)],
+	render: () => <CalendarAgenda />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+
+		await dropSuggestion(canvas, TOSCANINI);
+		await userEvent.click(canvas.getByRole("button", { name: MUTE_DANA }));
+		await userEvent.click(canvas.getByRole("button", { name: "Undo" }));
+
+		await waitFor(() =>
+			expect(canvas.getByText(TOSCANINI)).toBeInTheDocument(),
+		);
+		await expect(canvas.getByText(OFFSITE_TRAIN)).toBeInTheDocument();
+		await expect(canvas.queryByText(MUTED_HEADING)).toBeNull();
+
+		await dropSuggestion(canvas, TOSCANINI);
+		await userEvent.click(canvas.getByRole("button", { name: MUTE_DANA }));
+		await dropSuggestion(canvas, "Stay in Lisbon");
+
+		await waitFor(() =>
+			expect(canvas.getByText(MUTED_HEADING)).toBeInTheDocument(),
+		);
+		await expect(canvas.queryByText(OFFSITE_TRAIN)).toBeNull();
+
+		await userEvent.click(canvas.getByRole("button", { name: UNMUTE_DANA }));
+
+		await waitFor(() =>
+			expect(canvas.getByText(OFFSITE_TRAIN)).toBeInTheDocument(),
+		);
+		await expect(canvas.queryByText(MUTED_HEADING)).toBeNull();
+	},
+};
+
+/**
+ * Unmuting while the notice is still up. The notice was saying nothing more
+ * would come from that address, and that stops being true the moment the rule
+ * is lifted — so it goes back to asking, with the rule on offer again. A
+ * screen reader hears the notice arrive, which is the only announcement that a
+ * suggestion was dropped at all.
+ */
+export const UnmutingRestoresTheOffer: Story = {
+	name: "Unmuting restores the offer",
+	decorators: [framedAt(DESKTOP_WIDTH)],
+	render: () => <CalendarAgenda />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+
+		await dropSuggestion(canvas, TOSCANINI);
+		const offer = await waitFor(() => canvas.getByText(THE_OFFER));
+		await expect(offer.closest('[role="status"]')).not.toBeNull();
+
+		await userEvent.click(canvas.getByRole("button", { name: MUTE_DANA }));
+		await waitFor(() =>
+			expect(canvas.getByText(RULE_TAKEN)).toBeInTheDocument(),
+		);
+
+		await userEvent.click(canvas.getByRole("button", { name: UNMUTE_DANA }));
+
+		await waitFor(() =>
+			expect(canvas.getByText(THE_OFFER)).toBeInTheDocument(),
+		);
+		await expect(canvas.queryByText(RULE_TAKEN)).toBeNull();
+		await expect(
+			canvas.getByRole("button", { name: MUTE_DANA }),
+		).toBeInTheDocument();
+		await expect(canvas.getByText(OFFSITE_TRAIN)).toBeInTheDocument();
+		await expect(canvas.queryByText(MUTED_HEADING)).toBeNull();
+	},
 };
 
 /* ------------------------------------------------------------------ */

@@ -13,9 +13,10 @@
  * Nothing here edits the foundation's fixtures; `agendaEvents` is that list
  * plus these.
  */
-import type { CalendarEventData } from "@remit/ui";
+import type { CalendarEventData, EventSuggestion } from "@remit/ui";
 import {
 	events as fixtureEvents,
+	suggestions as fixtureSuggestions,
 	HOME_ZONE,
 	hobbyCalendarId,
 	MONTHLY_REVIEW_RULE,
@@ -282,6 +283,36 @@ export const agendaEvents: CalendarEventData[] = [
 	...oneToOnes,
 	...monthlyReviews,
 	...around,
+];
+
+/**
+ * A second reading out of the same offsite thread. One sender writing two mails
+ * the reader picks dates out of is the ordinary case, and it is the case a rule
+ * about that sender is for: without it, muting is a promise about mail that has
+ * not arrived yet.
+ */
+const offsiteTravel: EventSuggestion = {
+	id: "sug_offsite_travel",
+	title: "Train to the offsite",
+	start: at("2026-06-18", "07:42"),
+	end: at("2026-06-18", "08:36"),
+	allDay: false,
+	location: "Amsterdam Centraal, platform 5",
+	threadId: "thr_dana",
+	threadSubject: "Offsite logistics — rooms, travel, the dinner",
+	sender: "Dana Okafor",
+	senderAddress: "dana@northwind.example",
+	confidence: 0.44,
+	ambiguity: 'Says "the 07:42 out of Centraal" and never says which day.',
+	suggestedCalendarId: workCalendarId,
+	timeZone: HOME_ZONE,
+	zoneCertainty: "local",
+};
+
+/** The foundation's readings, plus the second one from the offsite thread. */
+export const agendaSuggestions: EventSuggestion[] = [
+	...fixtureSuggestions,
+	offsiteTravel,
 ];
 
 /** The far ends of the strip, so the loader knows where to stop asking. */
