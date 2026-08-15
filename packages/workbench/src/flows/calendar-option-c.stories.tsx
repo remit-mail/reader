@@ -301,7 +301,7 @@ export const ThreadMakesWay: Story = {
 	},
 };
 
-const FLIGHT = "KL1693 Amsterdam → Lisbon";
+const CALL = "Kickoff call — Lisbon venue";
 const PICK_A_CLOCK = /Pick a clock first/;
 
 /**
@@ -334,10 +334,9 @@ export const ZoneIsStated: Story = {
 };
 
 /**
- * The flight confirmation prints an arrival hour and never says whose clock it
- * is on. Add is dimmed and pressing it books nothing — it says what is missing
- * instead. Guessing here is an hour wrong at an airport, so the reader answers
- * or nothing happens.
+ * Rita names 16:00 and never says whose clock. Add is dimmed and pressing it
+ * books nothing — it says what is missing instead. An hour guessed here is a
+ * call joined after it started, so the reader answers or nothing happens.
  */
 export const ZoneWeCannotDetermine: Story = {
 	name: "The zone we cannot determine",
@@ -345,7 +344,7 @@ export const ZoneWeCannotDetermine: Story = {
 	render: () => <CalendarAgenda width={DESKTOP_WIDTH} />,
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		const card = within(canvas.getByRole("article", { name: FLIGHT }));
+		const card = within(canvas.getByRole("article", { name: CALL }));
 
 		await userEvent.click(card.getByRole("button", { name: "Add" }));
 
@@ -356,14 +355,15 @@ export const ZoneWeCannotDetermine: Story = {
 					.some((region) => PICK_A_CLOCK.test(region.textContent ?? "")),
 			).toBe(true),
 		);
-		await expect(canvas.queryByRole("heading", { name: FLIGHT })).toBeNull();
-		await expect(canvas.getByRole("article", { name: FLIGHT })).toBeVisible();
+		await expect(canvas.queryByRole("heading", { name: CALL })).toBeNull();
+		await expect(canvas.getByRole("article", { name: CALL })).toBeVisible();
 	},
 };
 
 /**
- * The same card, answered. Picking the clock the airline meant clears the block,
- * and Add then books the arrival on that zone rather than on the reader's.
+ * The same card, answered. Picking Lisbon's clock moves the call an hour: the
+ * event lands at 17:00 on the reader's own, which is what 16:00 in Lisbon is.
+ * The answer changes the instant, not the label on it.
  */
 export const ZonePicked: Story = {
 	name: "The clock is picked",
@@ -371,17 +371,20 @@ export const ZonePicked: Story = {
 	render: () => <CalendarAgenda width={DESKTOP_WIDTH} />,
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		const card = within(canvas.getByRole("article", { name: FLIGHT }));
+		const card = within(canvas.getByRole("article", { name: CALL }));
 
 		await userEvent.click(
-			card.getByRole("button", { name: /20:25 in Lisbon/ }),
+			card.getByRole("button", { name: /16:00 in Lisbon/ }),
 		);
 		await userEvent.click(card.getByRole("button", { name: "Add" }));
 
 		await waitFor(() =>
-			expect(canvas.getByRole("heading", { name: FLIGHT })).toBeInTheDocument(),
+			expect(canvas.getByRole("heading", { name: CALL })).toBeInTheDocument(),
 		);
-		await expect(canvas.queryByRole("article", { name: FLIGHT })).toBeNull();
+		await expect(
+			canvas.getByText("Wednesday 17 June · 17:00 – 18:00"),
+		).toBeInTheDocument();
+		await expect(canvas.queryByRole("article", { name: CALL })).toBeNull();
 	},
 };
 

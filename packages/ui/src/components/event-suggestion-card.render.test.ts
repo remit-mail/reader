@@ -41,13 +41,13 @@ const twoClocks = {
 	zoneOptions: [
 		{
 			timeZone: "Europe/Lisbon",
-			label: "20:25 in Lisbon",
-			note: "21:25 on your own clock.",
+			label: "16:00 in Lisbon",
+			note: "17:00 on your own clock.",
 		},
 		{
 			timeZone: "Europe/Amsterdam",
-			label: "20:25 in Amsterdam",
-			note: "19:25 where the plane lands.",
+			label: "16:00 in Amsterdam",
+			note: "15:00 where she is.",
 		},
 	],
 };
@@ -91,7 +91,7 @@ describe("EventSuggestionCard", () => {
 	it("offers the clocks and dims Add while none is picked", () => {
 		const html = render(twoClocks);
 		assert.match(html, /Which clock is this on\?/);
-		assert.match(html, /20:25 in Lisbon/);
+		assert.match(html, /16:00 in Lisbon/);
 		assert.match(html, /Pick a clock first/);
 		assert.match(html, /aria-describedby/);
 		assert.match(html, /opacity-55/);

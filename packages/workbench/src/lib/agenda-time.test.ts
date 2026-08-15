@@ -10,7 +10,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { CalendarEventData } from "@remit/ui";
-import { buildDay } from "../fixtures/calendar.js";
+import {
+	buildDay,
+	eventFromSuggestion,
+	HOME_ZONE,
+	suggestions,
+} from "../fixtures/calendar.js";
 import { agendaEvents } from "../fixtures/calendar-agenda.js";
 import {
 	dayBlocks,
@@ -30,6 +35,7 @@ import {
 	freeStretchesOn,
 	groupOverlapping,
 	readNextUp,
+	wallTimeOn,
 } from "./agenda-time.js";
 
 const days = datesBetween("2026-06-01", "2026-07-05").map((date) =>
@@ -37,6 +43,17 @@ const days = datesBetween("2026-06-01", "2026-07-05").map((date) =>
 );
 
 const proposedDay = buildDay(PROPOSED_DATE, seamWeekEvents);
+
+/** The hour a mail printed with no clock behind it, on a placeholder offset. */
+const PRINTED_HOUR = "2026-06-17T16:00:00+02:00";
+
+function suggestionNamed(id: string) {
+	const found = suggestions.find((candidate) => candidate.id === id);
+	if (!found) throw new Error(`unknown suggestion ${id}`);
+	return found;
+}
+
+const zoneless = suggestionNamed("sug_lisbon_call");
 
 /** The day once the invitation has been answered, as the screen assembles it. */
 const answeredEvents = [
@@ -323,5 +340,47 @@ describe("formatSpan", () => {
 		assert.equal(formatSpan(45), "45m");
 		assert.equal(formatSpan(120), "2h");
 		assert.equal(formatSpan(285), "4h 45m");
+	});
+});
+
+describe("a clock the mail never named", () => {
+	it("reads the printed hour on the zone that was picked, wherever the machine is", () => {
+		inEveryZone(() => {
+			assert.equal(
+				wallTimeOn(PRINTED_HOUR, "Europe/Lisbon", HOME_ZONE),
+				"2026-06-17T17:00:00+02:00",
+			);
+			assert.equal(
+				wallTimeOn(PRINTED_HOUR, HOME_ZONE, HOME_ZONE),
+				"2026-06-17T16:00:00+02:00",
+			);
+			assert.equal(
+				wallTimeOn(PRINTED_HOUR, "America/Los_Angeles", HOME_ZONE),
+				"2026-06-18T01:00:00+02:00",
+			);
+		});
+	});
+
+	it("books the instant the answer meant, not a relabelled one", () => {
+		const booked = eventFromSuggestion(zoneless, "evt_booked", "Europe/Lisbon");
+		assert.equal(booked.start, "2026-06-17T17:00:00+02:00");
+		assert.equal(booked.end, "2026-06-17T18:00:00+02:00");
+		assert.equal(booked.timeZone, "Europe/Lisbon");
+		assert.equal(booked.zoneCertainty, "explicit");
+	});
+
+	it("leaves the printed hour standing when the answer is the reader's own clock", () => {
+		const booked = eventFromSuggestion(zoneless, "evt_booked", HOME_ZONE);
+		assert.equal(booked.start, zoneless.start);
+		assert.equal(booked.timeZone, HOME_ZONE);
+	});
+
+	it("touches nothing on a suggestion whose mail stated the clock", () => {
+		const stay = suggestionNamed("sug_lisbon_stay");
+		const booked = eventFromSuggestion(stay, "evt_stay", "");
+		assert.equal(booked.start, stay.start);
+		assert.equal(booked.end, stay.end);
+		assert.equal(booked.timeZone, stay.timeZone);
+		assert.equal(booked.zoneCertainty, stay.zoneCertainty);
 	});
 });

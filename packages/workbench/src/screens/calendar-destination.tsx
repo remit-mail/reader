@@ -386,15 +386,10 @@ export function CalendarDestination({
 
 	const acceptSuggestion = (suggestion: EventSuggestion, timeZone: string) => {
 		const id = `evt_from_${suggestion.id}`;
-		const promoted = eventFromSuggestion(suggestion, id);
-		setEvents((prev) => [
-			...prev,
-			timeZone === ""
-				? promoted
-				: { ...promoted, timeZone, zoneCertainty: "explicit" },
-		]);
+		const promoted = eventFromSuggestion(suggestion, id, timeZone);
+		setEvents((prev) => [...prev, promoted]);
 		setSuggestions((prev) => prev.filter((item) => item.id !== suggestion.id));
-		setDate(suggestion.start.slice(0, 10));
+		setDate(promoted.start.slice(0, 10));
 		setSelected(id);
 		setFlow("none");
 	};
@@ -407,7 +402,7 @@ export function CalendarDestination({
 	const reviewSuggestion = (suggestion: EventSuggestion) => {
 		setPanel({
 			kind: "create",
-			base: eventFromSuggestion(suggestion, ""),
+			base: eventFromSuggestion(suggestion, "", ""),
 			suggestionId: suggestion.id,
 			draft: {
 				...emptyDraft(),

@@ -821,22 +821,22 @@ export const q3Thread: ThreadData = {
 	],
 };
 
-/** The mail the flight is read out of, and the one it never states a zone in. */
-export const klmThread: ThreadData = {
-	subject: "Your booking is confirmed — KL1693 Amsterdam to Lisbon",
+/** The mail the kickoff call is read out of, and the clock it never names. */
+export const lisbonCallThread: ThreadData = {
+	subject: "Kickoff call on Wednesday at 16:00",
 	messages: [
 		{
-			id: "msg_klm_1",
-			fromName: "KLM",
-			fromEmail: "noreply@klm.example",
+			id: "msg_lisbon_call_1",
+			fromName: "Rita Sousa",
+			fromEmail: "rita@aldeia.example",
 			toLabel: "Alice Tan",
-			dateLabel: "Today 07:48",
+			dateLabel: "Today 08:12",
 			expanded: true,
 			snippet:
-				"Booking reference 8ZQK4M. Departs 19 June 18:40 from Schiphol, arrives 20:25.",
-			bodyHtml: `<p>Your booking is confirmed.</p>
-<p>KL1693 · 19 June · Amsterdam (AMS) 18:40 → Lisbon (LIS) 20:25</p>
-<p>Booking reference 8ZQK4M. Check in from 24 hours before departure.</p>`,
+				"Wednesday at 16:00 works on our side for the kickoff — I will send a link.",
+			bodyHtml: `<p>Hi Alice,</p>
+<p>Wednesday at 16:00 works on our side for the kickoff. I will send a link nearer the day.</p>
+<p>Rita</p>`,
 		},
 	],
 };

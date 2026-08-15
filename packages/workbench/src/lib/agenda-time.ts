@@ -8,6 +8,7 @@
  * clock from a parameter, so a story and a test give the same answer.
  */
 import type { CalendarEventData } from "@remit/ui";
+import { Temporal } from "temporal-polyfill";
 import type { CalendarDay } from "../fixtures/calendar.js";
 
 /** The window a free stretch is measured inside. Nobody wants "free 02:00–07:00". */
@@ -207,6 +208,28 @@ export function freeStretchesOn(
 export interface ClashOptions {
 	/** Spans that are not a clash: the candidate itself, or one already answered. */
 	ignoreIds?: readonly string[];
+}
+
+/**
+ * The hour a mail printed, read as a time on `sourceZone` and written again on
+ * `displayZone` — the clock this calendar stores and draws.
+ *
+ * A zoneless reading carries an offset it has no right to: 16:00 sits in the
+ * fixture on +02:00 because something had to be written there. Once the reader
+ * says which clock the mail meant, the wall time is what survives and the
+ * instant is recomputed from it, so picking Lisbon moves the event an hour
+ * rather than relabelling it. Both zones are arguments; neither is read from
+ * the environment.
+ */
+export function wallTimeOn(
+	iso: string,
+	sourceZone: string,
+	displayZone: string,
+): string {
+	return Temporal.PlainDateTime.from(iso.slice(0, 19))
+		.toZonedDateTime(sourceZone)
+		.withTimeZone(displayZone)
+		.toString({ timeZoneName: "never" });
 }
 
 /**
