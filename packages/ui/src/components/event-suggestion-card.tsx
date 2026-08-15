@@ -46,7 +46,12 @@ export interface EventSuggestionCardProps {
 	whenText: string;
 	/** The zone the reader settled on, empty when the mail already knew. */
 	onAdd: (timeZone: string) => void;
-	onReview: () => void;
+	/**
+	 * Correcting the reading first. It is handed the same settled zone Add is,
+	 * empty while the question is open — an editor that opened on the hour the
+	 * reader had already answered would be throwing that answer away.
+	 */
+	onReview: (timeZone: string) => void;
 	onDismiss: () => void;
 	onOpenThread: () => void;
 	/** The clock picked so far. Omit to let the card hold the choice itself. */
@@ -214,7 +219,9 @@ export function EventSuggestionCard({
 					variant="secondary"
 					size={touch ? "md" : "sm"}
 					icon={<SlidersHorizontal className="size-3.5" />}
-					onClick={onReview}
+					onClick={() =>
+						onReview(settlement.settled ? settlement.timeZone : "")
+					}
 					className={touch ? "min-h-11" : ""}
 				>
 					Change first

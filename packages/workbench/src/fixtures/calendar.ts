@@ -5,7 +5,7 @@ import type {
 	EventSuggestion,
 	ThreadData,
 } from "@remit/ui";
-import { wallTimeOn } from "../lib/agenda-time.js";
+import { wallSpanOn } from "../lib/agenda-time.js";
 import {
 	allThreads,
 	hobbyId,
@@ -835,16 +835,15 @@ export function eventFromSuggestion(
 	settledZone: string,
 ): CalendarEventData {
 	const settled = settledZone !== "";
+	const span = settled
+		? wallSpanOn(suggestion, settledZone, HOME_ZONE)
+		: { start: suggestion.start, end: suggestion.end };
 	return {
 		id,
 		calendarId: suggestion.suggestedCalendarId,
 		title: suggestion.title,
-		start: settled
-			? wallTimeOn(suggestion.start, settledZone, HOME_ZONE)
-			: suggestion.start,
-		end: settled
-			? wallTimeOn(suggestion.end, settledZone, HOME_ZONE)
-			: suggestion.end,
+		start: span.start,
+		end: span.end,
 		allDay: suggestion.allDay,
 		location: suggestion.location,
 		notes: "",
