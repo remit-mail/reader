@@ -1,6 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
-import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
+import {
+	DESKTOP_WIDTH,
+	framedAt,
+	PHONE_WIDTH,
+	phoneFrame,
+	phoneParams,
+} from "../lib/story-frame.js";
 import { CalendarAgenda } from "../screens/calendar-agenda.js";
 
 /**
@@ -285,7 +291,8 @@ const PICK_A_CLOCK = /Pick a clock first/;
  */
 export const ZoneIsStated: Story = {
 	name: "The zone the mail stated",
-	render: () => <CalendarAgenda />,
+	decorators: [framedAt(DESKTOP_WIDTH)],
+	render: () => <CalendarAgenda width={DESKTOP_WIDTH} />,
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
 		const card = within(
@@ -314,7 +321,8 @@ export const ZoneIsStated: Story = {
  */
 export const ZoneWeCannotDetermine: Story = {
 	name: "The zone we cannot determine",
-	render: () => <CalendarAgenda />,
+	decorators: [framedAt(DESKTOP_WIDTH)],
+	render: () => <CalendarAgenda width={DESKTOP_WIDTH} />,
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
 		const card = within(canvas.getByRole("article", { name: FLIGHT }));
@@ -339,7 +347,8 @@ export const ZoneWeCannotDetermine: Story = {
  */
 export const ZonePicked: Story = {
 	name: "The clock is picked",
-	render: () => <CalendarAgenda />,
+	decorators: [framedAt(DESKTOP_WIDTH)],
+	render: () => <CalendarAgenda width={DESKTOP_WIDTH} />,
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
 		const card = within(canvas.getByRole("article", { name: FLIGHT }));
