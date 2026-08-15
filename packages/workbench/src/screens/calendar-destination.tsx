@@ -384,9 +384,15 @@ export function CalendarDestination({
 		setFlow("none");
 	};
 
-	const acceptSuggestion = (suggestion: EventSuggestion) => {
+	const acceptSuggestion = (suggestion: EventSuggestion, timeZone: string) => {
 		const id = `evt_from_${suggestion.id}`;
-		setEvents((prev) => [...prev, eventFromSuggestion(suggestion, id)]);
+		const promoted = eventFromSuggestion(suggestion, id);
+		setEvents((prev) => [
+			...prev,
+			timeZone === ""
+				? promoted
+				: { ...promoted, timeZone, zoneCertainty: "explicit" },
+		]);
 		setSuggestions((prev) => prev.filter((item) => item.id !== suggestion.id));
 		setDate(suggestion.start.slice(0, 10));
 		setSelected(id);
@@ -571,7 +577,7 @@ export function CalendarDestination({
 							key={suggestion.id}
 							suggestion={suggestion}
 							whenText={formatSuggestionWhen(suggestion)}
-							onAdd={() => acceptSuggestion(suggestion)}
+							onAdd={(timeZone) => acceptSuggestion(suggestion, timeZone)}
 							onReview={() => reviewSuggestion(suggestion)}
 							onDismiss={() => dismissSuggestion(suggestion.id)}
 							onOpenThread={() => openThread(suggestion.threadId)}

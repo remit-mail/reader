@@ -1,0 +1,211 @@
+/**
+ * The zone gate — mounted against jsdom rather than `renderToString`, because
+ * what has to be proven is that pressing Add does nothing while the clock is
+ * unsettled.
+ *
+ * Nothing here may read the zone the process happens to run in, so the cases
+ * offer clocks the ambient zone is never one of and assert the exact zone that
+ * comes back. The suite is run under `TZ=UTC` and `TZ=Europe/Amsterdam`.
+ */
+import assert from "node:assert/strict";
+import { after, afterEach, before, beforeEach, describe, it } from "node:test";
+import type { JSDOM } from "jsdom";
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import type { EventSuggestion } from "./calendar-types.js";
+import {
+	EventSuggestionCard,
+	settleZone,
+	ZONE_UNSETTLED_REASON,
+} from "./event-suggestion-card.js";
+
+const LISBON = "Europe/Lisbon";
+const AUCKLAND = "Pacific/Auckland";
+
+const suggestion: EventSuggestion = {
+	id: "sug_flight",
+	title: "KL1693 Amsterdam → Lisbon",
+	start: "2026-06-19T18:40:00+02:00",
+	end: "2026-06-19T20:25:00+02:00",
+	allDay: false,
+	location: "Schiphol, gate D-pier",
+	threadId: "thr_klm",
+	threadSubject: "Your booking is confirmed",
+	sender: "KLM",
+	confidence: 0.88,
+	ambiguity: "",
+	suggestedCalendarId: "c5",
+	timeZone: "",
+	zoneCertainty: "ambiguous",
+};
+
+const zoneless: EventSuggestion = {
+	...suggestion,
+	zoneOptions: [
+		{ timeZone: LISBON, label: "20:25 in Lisbon", note: "21:25 for you." },
+		{ timeZone: AUCKLAND, label: "20:25 in Auckland", note: "06:25 for you." },
+	],
+};
+
+const stated: EventSuggestion = {
+	...suggestion,
+	timeZone: LISBON,
+	zoneCertainty: "explicit",
+};
+
+let dom: JSDOM;
+let container: HTMLElement;
+let root: Root;
+
+before(async () => {
+	const { JSDOM: JSDOMCtor } = await import("jsdom");
+	dom = new JSDOMCtor(
+		"<!doctype html><html><body><div id=root></div></body></html>",
+		{ url: "http://localhost/", pretendToBeVisual: true },
+	);
+	globalThis.window = dom.window as unknown as typeof globalThis.window;
+	globalThis.document = dom.window.document;
+	globalThis.HTMLElement = dom.window.HTMLElement;
+	globalThis.Element = dom.window.Element;
+	globalThis.MouseEvent = dom.window.MouseEvent;
+	Object.defineProperty(globalThis, "navigator", {
+		value: dom.window.navigator,
+		configurable: true,
+	});
+	(
+		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+	).IS_REACT_ACT_ENVIRONMENT = true;
+});
+
+after(() => {
+	dom.window.close();
+});
+
+beforeEach(() => {
+	container = dom.window.document.getElementById(
+		"root",
+	) as unknown as HTMLElement;
+	container.innerHTML = "";
+	root = createRoot(container);
+});
+
+afterEach(() => {
+	act(() => {
+		root.unmount();
+	});
+});
+
+function mount(entry: EventSuggestion, onAdd: (timeZone: string) => void) {
+	act(() => {
+		root.render(
+			createElement(EventSuggestionCard, {
+				suggestion: entry,
+				whenText: "Friday 19 June · 18:40 – 20:25",
+				onAdd,
+				onReview: () => undefined,
+				onDismiss: () => undefined,
+				onOpenThread: () => undefined,
+			}),
+		);
+	});
+}
+
+function buttonNamed(text: string): HTMLElement {
+	const found = Array.from(container.querySelectorAll("button")).find(
+		(candidate) => candidate.textContent?.includes(text),
+	);
+	assert.ok(found, `no button reading ${text}`);
+	return found as unknown as HTMLElement;
+}
+
+function press(target: HTMLElement) {
+	act(() => {
+		target.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+	});
+}
+
+/** The paragraph the dimmed Add points at through `aria-describedby`. */
+function describedReason(): HTMLElement | null {
+	const id = buttonNamed("Add").getAttribute("aria-describedby");
+	if (id === null) return null;
+	return dom.window.document.getElementById(id);
+}
+
+function announced(): string {
+	return Array.from(container.querySelectorAll('[role="status"]'))
+		.map((node) => node.textContent ?? "")
+		.join(" ");
+}
+
+describe("the zone gate", () => {
+	it("refuses Add until a clock is picked, and says why", () => {
+		const added: string[] = [];
+		mount(zoneless, (timeZone) => added.push(timeZone));
+
+		assert.equal(announced(), "");
+		assert.equal(describedReason()?.textContent, ZONE_UNSETTLED_REASON);
+		assert.ok(describedReason()?.classList.contains("sr-only"));
+
+		press(buttonNamed("Add"));
+
+		assert.deepEqual(added, []);
+		assert.match(announced(), /Pick a clock first/);
+		assert.equal(describedReason()?.classList.contains("sr-only"), false);
+	});
+
+	it("adds on the clock that was picked, never on the ambient one", () => {
+		const added: string[] = [];
+		mount(zoneless, (timeZone) => added.push(timeZone));
+
+		press(buttonNamed("20:25 in Auckland"));
+		press(buttonNamed("Add"));
+
+		assert.deepEqual(added, [AUCKLAND]);
+		assert.notEqual(
+			AUCKLAND,
+			Intl.DateTimeFormat().resolvedOptions().timeZone,
+			"the case only proves anything while the ambient zone is a different one",
+		);
+	});
+
+	it("settles nothing when the mail already stated the clock", () => {
+		const added: string[] = [];
+		mount(stated, (timeZone) => added.push(timeZone));
+
+		press(buttonNamed("Add"));
+
+		assert.deepEqual(added, [""]);
+		assert.equal(announced(), "");
+	});
+});
+
+describe("settleZone", () => {
+	it("settles a suggestion that carries no clocks to answer", () => {
+		assert.deepEqual(settleZone(stated, ""), { settled: true, timeZone: "" });
+	});
+
+	it("holds a suggestion whose clock nobody has picked", () => {
+		assert.deepEqual(settleZone(zoneless, ""), {
+			settled: false,
+			reason: ZONE_UNSETTLED_REASON,
+		});
+	});
+
+	it("holds a choice that is not one of the clocks offered", () => {
+		assert.deepEqual(settleZone(zoneless, "Europe/Amsterdam"), {
+			settled: false,
+			reason: ZONE_UNSETTLED_REASON,
+		});
+		assert.deepEqual(settleZone(zoneless, "UTC"), {
+			settled: false,
+			reason: ZONE_UNSETTLED_REASON,
+		});
+	});
+
+	it("carries the picked clock through untouched", () => {
+		assert.deepEqual(settleZone(zoneless, LISBON), {
+			settled: true,
+			timeZone: LISBON,
+		});
+	});
+});
