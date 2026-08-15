@@ -7,7 +7,7 @@ import {
 import { Clock, Globe, MapPin, X } from "lucide-react";
 import { calendarsById } from "../../fixtures/calendar.js";
 import type { SeamThread } from "../../fixtures/calendar-mail.js";
-import { AttendeeContextCard, AttendeeStrip } from "./attendee-context.js";
+import { AttendeeContextCard, AttendeeStrip } from "../attendee-context.js";
 import { ThreadTranscript } from "./thread-view.js";
 
 /**

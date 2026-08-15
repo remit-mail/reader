@@ -13,6 +13,7 @@ import { cn } from "../lib/cn.js";
 import { AttendeeList, RsvpBadge } from "./attendee-row.js";
 import { Button } from "./button.js";
 import type {
+	CalendarAttendee,
 	CalendarDescriptor,
 	CalendarEventData,
 } from "./calendar-types.js";
@@ -28,6 +29,14 @@ export interface EventDetailProps {
 	onOpenThread?: () => void;
 	/** Puts the pane back to whatever it shows with nothing selected. */
 	onClose?: () => void;
+	/** The guest whose context is open. Empty for none. */
+	activeAttendee?: string;
+	/** Hover, focus or tap on a guest. Absent leaves the list inert, as today. */
+	onActivateAttendee?: (email: string) => void;
+	/** Rendered anchored to the active guest. The kit knows nothing about mail. */
+	renderAttendeeContext?: (attendee: CalendarAttendee) => React.ReactNode;
+	/** A thumb has to tap; a pointer only has to arrive. */
+	touch?: boolean;
 	/**
 	 * `bare` drops the header and the scrolling frame, for a surface that already
 	 * carries both — a full-screen flow whose footer holds the same actions.
@@ -64,6 +73,10 @@ export function EventDetail({
 	onDelete,
 	onOpenThread,
 	onClose,
+	activeAttendee = "",
+	onActivateAttendee,
+	renderAttendeeContext,
+	touch = false,
 	chrome = "header",
 	className,
 }: EventDetailProps) {
@@ -128,7 +141,14 @@ export function EventDetail({
 			)}
 
 			{event.attendees.length > 0 && (
-				<AttendeeList attendees={event.attendees} className="mt-3" />
+				<AttendeeList
+					attendees={event.attendees}
+					activeEmail={activeAttendee}
+					onActivate={onActivateAttendee}
+					renderContext={renderAttendeeContext}
+					touch={touch}
+					className="mt-3"
+				/>
 			)}
 
 			{event.notes !== "" && (

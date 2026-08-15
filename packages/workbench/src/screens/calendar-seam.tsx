@@ -40,7 +40,7 @@ import {
 	Sparkles,
 } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
-import { AttendeeContextCard } from "../components/seam/attendee-context.js";
+import { AttendeeContextCard } from "../components/attendee-context.js";
 import {
 	type AvailabilityMark,
 	AvailabilityStrip,
