@@ -58,6 +58,7 @@ const THE_OFFER =
 const RULE_TAKEN =
 	"Nothing more will be suggested from dana@northwind.example. Their mail still arrives as normal.";
 const MUTED_HEADING = "Waiting for you · 1 sender muted";
+const UNMUTE_DANA = "Unmute dana@northwind.example";
 
 async function dropSuggestion(
 	canvas: ReturnType<typeof within>,
@@ -458,6 +459,46 @@ export const SenderRuleUndone: Story = {
 		await waitFor(() =>
 			expect(canvas.getByText(OFFSITE_TRAIN)).toBeInTheDocument(),
 		);
+		await expect(canvas.queryByText(MUTED_HEADING)).toBeNull();
+	},
+};
+
+/**
+ * Unmuting while the notice is still up. The notice was saying nothing more
+ * would come from that address, and that stops being true the moment the rule
+ * is lifted — so it goes back to asking, with the rule on offer again. A
+ * screen reader hears the notice arrive, which is the only announcement that a
+ * suggestion was dropped at all.
+ */
+export const UnmutingRestoresTheOffer: Story = {
+	name: "Unmuting restores the offer",
+	decorators: [framedAt(DESKTOP_WIDTH)],
+	render: () => <CalendarAgenda />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+
+		await dropSuggestion(canvas, TOSCANINI);
+		await waitFor(() =>
+			expect(
+				within(canvas.getByRole("status")).getByText(THE_OFFER),
+			).toBeInTheDocument(),
+		);
+
+		await userEvent.click(canvas.getByRole("button", { name: MUTE_DANA }));
+		await waitFor(() =>
+			expect(canvas.getByText(RULE_TAKEN)).toBeInTheDocument(),
+		);
+
+		await userEvent.click(canvas.getByRole("button", { name: UNMUTE_DANA }));
+
+		await waitFor(() =>
+			expect(canvas.getByText(THE_OFFER)).toBeInTheDocument(),
+		);
+		await expect(canvas.queryByText(RULE_TAKEN)).toBeNull();
+		await expect(
+			canvas.getByRole("button", { name: MUTE_DANA }),
+		).toBeInTheDocument();
+		await expect(canvas.getByText(OFFSITE_TRAIN)).toBeInTheDocument();
 		await expect(canvas.queryByText(MUTED_HEADING)).toBeNull();
 	},
 };
