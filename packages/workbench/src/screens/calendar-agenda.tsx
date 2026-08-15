@@ -374,8 +374,10 @@ export function CalendarAgenda({
 	);
 	const selectedEvent = events.find((event) => event.id === selected);
 	const openedThread = threadFor(openThreadId);
+	const isMuted = (suggestion: EventSuggestion) =>
+		rules.includes(suggestion.senderAddress);
 	const visibleSuggestions = suggestions.filter(
-		(suggestion) => !rules.includes(suggestion.senderAddress),
+		(suggestion) => !isMuted(suggestion),
 	);
 
 	const goTo = (date: string) => {
@@ -553,7 +555,19 @@ export function CalendarAgenda({
 		setDropped(null);
 	};
 
-	const unmuteSenders = () => setRules([]);
+	/**
+	 * Lifting the rule takes the claim down with it: a notice still saying
+	 * nothing more will come from that address would be telling the reader the
+	 * opposite of what is now true, with no way to take the rule again.
+	 */
+	const unmuteSender = (address: string) => {
+		setRules((previous) => previous.filter((rule) => rule !== address));
+		setDropped((previous) =>
+			previous && previous.suggestion.senderAddress === address
+				? { ...previous, ruled: false }
+				: previous,
+		);
+	};
 
 	const acceptSuggestion = (suggestion: EventSuggestion) => {
 		const id = `evt_from_${suggestion.id}`;
@@ -677,7 +691,7 @@ export function CalendarAgenda({
 
 	const suggestionColumn = (touch: boolean) => {
 		const column: ReactNode[] = suggestions.map((suggestion) =>
-			rules.includes(suggestion.senderAddress) ? null : (
+			isMuted(suggestion) ? null : (
 				<EventSuggestionCard
 					key={suggestion.id}
 					suggestion={suggestion}
@@ -717,19 +731,29 @@ export function CalendarAgenda({
 							? "Waiting for you"
 							: `Waiting for you · ${mutedCountLabel(rules.length)}`}
 					</span>
-					{rules.length > 0 && (
-						<button
-							type="button"
-							onClick={unmuteSenders}
-							className={cn(
-								"shrink-0 rounded-sm text-2xs font-medium normal-case tracking-normal text-accent-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring",
-								touch && "min-h-11 px-1",
-							)}
-						>
-							Unmute
-						</button>
-					)}
 				</h3>
+				{rules.length > 0 && (
+					<ul className="flex flex-col gap-1">
+						{rules.map((address) => (
+							<li key={address} className="flex items-center gap-2">
+								<span className="min-w-0 flex-1 truncate text-2xs text-fg-subtle">
+									{address}
+								</span>
+								<button
+									type="button"
+									aria-label={`Unmute ${address}`}
+									onClick={() => unmuteSender(address)}
+									className={cn(
+										"shrink-0 rounded-sm text-2xs font-medium text-accent-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring",
+										touch && "min-h-11 px-1",
+									)}
+								>
+									Unmute
+								</button>
+							</li>
+						))}
+					</ul>
+				)}
 				{visibleSuggestions.length === 0 && !dropped ? (
 					<p className="text-xs text-fg-subtle">
 						Nothing unread in your mail looks like a date.

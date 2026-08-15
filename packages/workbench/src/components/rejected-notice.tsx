@@ -15,7 +15,9 @@ export interface RejectedNoticeProps {
 /**
  * Rejecting one reading is a chance to stop the next twenty. The rule is
  * offered, never applied on the reader's behalf, and it is undoable while the
- * notice is still on screen.
+ * notice is still on screen. It replaces the card silently on screen, so it
+ * announces itself — otherwise a reader who cannot see the column is told
+ * nothing about either the drop or the offer.
  */
 export function RejectedNotice({
 	title,
@@ -28,7 +30,10 @@ export function RejectedNotice({
 	touch,
 }: RejectedNoticeProps) {
 	return (
-		<div className="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3">
+		<div
+			role="status"
+			className="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3"
+		>
 			<p className="text-xs text-fg-muted">
 				<span className="text-fg">{title}</span> dropped.
 			</p>

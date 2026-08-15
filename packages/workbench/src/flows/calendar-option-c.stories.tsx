@@ -454,7 +454,7 @@ export const SenderRuleUndone: Story = {
 		);
 		await expect(canvas.queryByText(OFFSITE_TRAIN)).toBeNull();
 
-		await userEvent.click(canvas.getByRole("button", { name: "Unmute" }));
+		await userEvent.click(canvas.getByRole("button", { name: UNMUTE_DANA }));
 
 		await waitFor(() =>
 			expect(canvas.getByText(OFFSITE_TRAIN)).toBeInTheDocument(),
