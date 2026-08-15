@@ -821,6 +821,26 @@ export const q3Thread: ThreadData = {
 	],
 };
 
+/** The mail the kickoff call is read out of, and the clock it never names. */
+export const lisbonCallThread: ThreadData = {
+	subject: "Kickoff call on Wednesday at 16:00",
+	messages: [
+		{
+			id: "msg_lisbon_call_1",
+			fromName: "Rita Sousa",
+			fromEmail: "rita@aldeia.example",
+			toLabel: "Alice Tan",
+			dateLabel: "Today 08:12",
+			expanded: true,
+			snippet:
+				"Wednesday at 16:00 works on our side for the kickoff — I will send a link.",
+			bodyHtml: `<p>Hi Alice,</p>
+<p>Wednesday at 16:00 works on our side for the kickoff. I will send a link nearer the day.</p>
+<p>Rita</p>`,
+		},
+	],
+};
+
 export const q3Intelligence: IntelligenceData = {
 	sender: {
 		name: "Priya Natarajan",

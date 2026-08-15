@@ -49,7 +49,10 @@ export function SuggestionCard({
 	className,
 }: SuggestionCardProps) {
 	const { suggestion } = entry;
-	const needsZone = Boolean(entry.zoneOptions) && zoneChoice === "";
+	const zoneOptions = suggestion.zoneOptions;
+	const needsZone =
+		zoneOptions !== undefined &&
+		!zoneOptions.some((option) => option.timeZone === zoneChoice);
 
 	return (
 		<article
@@ -98,22 +101,22 @@ export function SuggestionCard({
 				</p>
 			)}
 
-			{entry.zoneOptions && (
+			{zoneOptions && (
 				<div className="flex flex-col gap-1.5 rounded-md border border-warning/40 p-2">
 					<p className="flex items-center gap-1.5 text-2xs font-semibold text-warning">
 						<Globe className="size-3 shrink-0" aria-hidden />
 						Which clock is this on?
 					</p>
-					{entry.zoneOptions.map((option) => (
+					{zoneOptions.map((option) => (
 						<button
-							key={option.id}
+							key={option.timeZone}
 							type="button"
-							aria-pressed={zoneChoice === option.id}
-							onClick={() => onZoneChoice(option.id)}
+							aria-pressed={zoneChoice === option.timeZone}
+							onClick={() => onZoneChoice(option.timeZone)}
 							className={cn(
 								"rounded-md border px-2 py-1 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
 								touch && "min-h-11",
-								zoneChoice === option.id
+								zoneChoice === option.timeZone
 									? "border-accent bg-accent-soft"
 									: "border-line bg-surface hover:border-line-strong",
 							)}

@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
 import type { EventSuggestion } from "./calendar-types.js";
 import { EventSuggestionCard } from "./event-suggestion-card.js";
 
@@ -79,6 +80,64 @@ export const WithAmbiguity: Story = {
 			{...handlers}
 		/>
 	),
+};
+
+const twoClocks = [
+	{
+		timeZone: "Europe/Lisbon",
+		label: "16:00 in Lisbon",
+		note: "17:00 on your own clock. The hour she keeps.",
+	},
+	{
+		timeZone: "Europe/Amsterdam",
+		label: "16:00 in Amsterdam",
+		note: "15:00 where she is.",
+	},
+];
+
+const call: EventSuggestion = {
+	...base,
+	id: "s3",
+	title: "Kickoff call — Lisbon venue",
+	allDay: false,
+	location: "Meet link",
+	threadSubject: "Kickoff call on Wednesday at 16:00",
+	sender: "Rita Sousa",
+	confidence: 0.66,
+	ambiguity:
+		"Rita writes from Lisbon and names 16:00 without a clock. Lisbon runs an hour behind Amsterdam.",
+	timeZone: "",
+	zoneCertainty: "ambiguous",
+	zoneOptions: twoClocks,
+};
+
+function GatedCall({ picked }: { picked: string }) {
+	const [zoneChoice, setZoneChoice] = useState(picked);
+	return (
+		<EventSuggestionCard
+			suggestion={call}
+			whenText="Wednesday 17 June · 16:00 – 17:00"
+			zoneChoice={zoneChoice}
+			onZoneChoice={setZoneChoice}
+			{...handlers}
+		/>
+	);
+}
+
+/**
+ * The mail printed an hour and never said whose clock it is on. Add is dimmed
+ * and stays dimmed until one is picked — an hour guessed wrong is a call missed,
+ * and the card would rather ask than annotate.
+ */
+export const ZoneWeCannotDetermine: Story = {
+	name: "The zone we cannot determine",
+	render: () => <GatedCall picked="" />,
+};
+
+/** Answered. Add is live, and what it books is the clock that was named. */
+export const ZonePicked: Story = {
+	name: "The clock is picked",
+	render: () => <GatedCall picked="Europe/Lisbon" />,
 };
 
 /** The same card sized for a phone sheet. */

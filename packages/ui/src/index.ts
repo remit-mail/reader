@@ -148,6 +148,7 @@ export {
 	type RecurrenceScope,
 	type RsvpState,
 	type ZoneCertainty,
+	type ZoneOption,
 } from "./components/calendar-types.js";
 export {
 	Card,
@@ -251,6 +252,9 @@ export {
 export {
 	EventSuggestionCard,
 	type EventSuggestionCardProps,
+	settleZone,
+	ZONE_UNSETTLED_REASON,
+	type ZoneSettlement,
 } from "./components/event-suggestion-card.js";
 export {
 	FieldLabel,
