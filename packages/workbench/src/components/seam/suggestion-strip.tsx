@@ -11,7 +11,7 @@ import {
 	X,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import type { SeamSuggestion } from "../../fixtures/calendar-seam.js";
+import type { SeamSuggestion } from "../../fixtures/calendar-mail.js";
 import { ParseBadge, ParseProvenance } from "./parse-provenance.js";
 
 /**

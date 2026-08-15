@@ -1,7 +1,7 @@
 import { Avatar, cn } from "@remit/ui";
 import { Clock } from "lucide-react";
 import type { ReactNode } from "react";
-import type { SeamMessage } from "../../fixtures/calendar-seam.js";
+import type { SeamMessage } from "../../fixtures/calendar-mail.js";
 
 /**
  * The thread, with the times it names marked in place. A detected time is not

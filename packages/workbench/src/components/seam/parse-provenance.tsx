@@ -4,7 +4,7 @@ import {
 	type ParseMethod,
 	parseMethodLabel,
 	parseMethodNote,
-} from "../../fixtures/calendar-seam.js";
+} from "../../fixtures/calendar-mail.js";
 
 /**
  * Which rung of the ladder answered. Deterministic readings run first — an

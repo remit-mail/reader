@@ -1,6 +1,6 @@
 import { Avatar, type CalendarAttendee, cn, RsvpBadge } from "@remit/ui";
 import { Mail } from "lucide-react";
-import { contactMail } from "../../fixtures/calendar-seam.js";
+import { contactMail } from "../../fixtures/calendar-mail.js";
 
 /**
  * An attendee is a person you already have a correspondence with, so their name
