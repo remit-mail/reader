@@ -478,11 +478,8 @@ export const UnmutingRestoresTheOffer: Story = {
 		const canvas = within(canvasElement);
 
 		await dropSuggestion(canvas, TOSCANINI);
-		await waitFor(() =>
-			expect(
-				within(canvas.getByRole("status")).getByText(THE_OFFER),
-			).toBeInTheDocument(),
-		);
+		const offer = await waitFor(() => canvas.getByText(THE_OFFER));
+		await expect(offer.closest('[role="status"]')).not.toBeNull();
 
 		await userEvent.click(canvas.getByRole("button", { name: MUTE_DANA }));
 		await waitFor(() =>
