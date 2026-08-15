@@ -821,6 +821,26 @@ export const q3Thread: ThreadData = {
 	],
 };
 
+/** The mail the flight is read out of, and the one it never states a zone in. */
+export const klmThread: ThreadData = {
+	subject: "Your booking is confirmed — KL1693 Amsterdam to Lisbon",
+	messages: [
+		{
+			id: "msg_klm_1",
+			fromName: "KLM",
+			fromEmail: "noreply@klm.example",
+			toLabel: "Alice Tan",
+			dateLabel: "Today 07:48",
+			expanded: true,
+			snippet:
+				"Booking reference 8ZQK4M. Departs 19 June 18:40 from Schiphol, arrives 20:25.",
+			bodyHtml: `<p>Your booking is confirmed.</p>
+<p>KL1693 · 19 June · Amsterdam (AMS) 18:40 → Lisbon (LIS) 20:25</p>
+<p>Booking reference 8ZQK4M. Check in from 24 hours before departure.</p>`,
+		},
+	],
+};
+
 export const q3Intelligence: IntelligenceData = {
 	sender: {
 		name: "Priya Natarajan",

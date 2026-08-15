@@ -8,6 +8,7 @@ import type {
 import {
 	allThreads,
 	hobbyId,
+	klmThread,
 	personalId,
 	q3Thread,
 	workId,
@@ -512,6 +513,35 @@ export const eventsById = new Map(events.map((e) => [e.id, e]));
 
 export const suggestions: EventSuggestion[] = [
 	{
+		id: "sug_flight",
+		title: "KL1693 Amsterdam → Lisbon",
+		start: at(19, 18, 40),
+		end: at(19, 20, 25),
+		allDay: false,
+		location: "Schiphol, gate D-pier",
+		threadId: "thr_klm",
+		threadSubject: "Your booking is confirmed — KL1693 Amsterdam to Lisbon",
+		sender: "KLM",
+		confidence: 0.88,
+		ambiguity:
+			"The confirmation prints 20:25 for the arrival and never says whose clock. Lisbon runs an hour behind Amsterdam, so this is either 20:25 or 21:25 for you.",
+		suggestedCalendarId: travelCalendarId,
+		timeZone: "",
+		zoneCertainty: "ambiguous",
+		zoneOptions: [
+			{
+				timeZone: "Europe/Lisbon",
+				label: "20:25 in Lisbon",
+				note: "21:25 on your own clock. What an airline usually means.",
+			},
+			{
+				timeZone: HOME_ZONE,
+				label: "20:25 in Amsterdam",
+				note: "19:25 where the plane lands.",
+			},
+		],
+	},
+	{
 		id: "sug_lisbon_stay",
 		title: "Stay in Lisbon",
 		start: day(19),
@@ -560,6 +590,18 @@ export const suggestions: EventSuggestion[] = [
 		suggestedCalendarId: workCalendarId,
 		timeZone: HOME_ZONE,
 		zoneCertainty: "ambiguous",
+		zoneOptions: [
+			{
+				timeZone: "Europe/Stockholm",
+				label: "09:00 in Stockholm",
+				note: "08:00 on your own clock. The hours their office keeps.",
+			},
+			{
+				timeZone: HOME_ZONE,
+				label: "09:00 in Amsterdam",
+				note: "10:00 where they are.",
+			},
+		],
 	},
 	{
 		id: "sug_meetup_talk",
@@ -760,6 +802,7 @@ export function formatSuggestionWhen(suggestion: EventSuggestion): string {
 export function threadFor(threadId: string): ThreadData | undefined {
 	if (threadId === "") return undefined;
 	if (threadId === "thr_q3") return q3Thread;
+	if (threadId === "thr_klm") return klmThread;
 	const row = allThreads.find((candidate) => candidate.id === threadId);
 	if (!row) return undefined;
 	return {

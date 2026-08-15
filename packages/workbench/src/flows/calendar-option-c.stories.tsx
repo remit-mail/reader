@@ -275,6 +275,87 @@ export const ThreadMakesWay: Story = {
 	},
 };
 
+const FLIGHT = "KL1693 Amsterdam → Lisbon";
+const PICK_A_CLOCK = /Pick a clock first/;
+
+/**
+ * The Airbnb mail stated its zone, so nothing is in the way: Add puts the stay
+ * on the calendar and the pane opens on the event it just made. This is the
+ * case the zone gate must leave alone.
+ */
+export const ZoneIsStated: Story = {
+	name: "The zone the mail stated",
+	render: () => <CalendarAgenda />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const card = within(
+			canvas.getByRole("article", { name: "Stay in Lisbon" }),
+		);
+
+		await expect(
+			card.queryByText("Which clock is this on?"),
+		).not.toBeInTheDocument();
+
+		await userEvent.click(card.getByRole("button", { name: "Add" }));
+
+		await waitFor(() =>
+			expect(
+				canvas.getByRole("heading", { name: "Stay in Lisbon" }),
+			).toBeInTheDocument(),
+		);
+	},
+};
+
+/**
+ * The flight confirmation prints an arrival hour and never says whose clock it
+ * is on. Add is dimmed and pressing it books nothing — it says what is missing
+ * instead. Guessing here is an hour wrong at an airport, so the reader answers
+ * or nothing happens.
+ */
+export const ZoneWeCannotDetermine: Story = {
+	name: "The zone we cannot determine",
+	render: () => <CalendarAgenda />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const card = within(canvas.getByRole("article", { name: FLIGHT }));
+
+		await userEvent.click(card.getByRole("button", { name: "Add" }));
+
+		await waitFor(() =>
+			expect(
+				canvas
+					.getAllByRole("status")
+					.some((region) => PICK_A_CLOCK.test(region.textContent ?? "")),
+			).toBe(true),
+		);
+		await expect(canvas.queryByRole("heading", { name: FLIGHT })).toBeNull();
+		await expect(canvas.getByRole("article", { name: FLIGHT })).toBeVisible();
+	},
+};
+
+/**
+ * The same card, answered. Picking the clock the airline meant clears the block,
+ * and Add then books the arrival on that zone rather than on the reader's.
+ */
+export const ZonePicked: Story = {
+	name: "The clock is picked",
+	render: () => <CalendarAgenda />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const card = within(canvas.getByRole("article", { name: FLIGHT }));
+
+		await userEvent.click(
+			card.getByRole("button", { name: /20:25 in Lisbon/ }),
+		);
+		await userEvent.click(card.getByRole("button", { name: "Add" }));
+
+		await waitFor(() =>
+			expect(canvas.getByRole("heading", { name: FLIGHT })).toBeInTheDocument(),
+		);
+		await expect(canvas.queryByRole("article", { name: FLIGHT })).toBeNull();
+	},
+};
+
 /**
  * Editing one morning's standup asks which instances it is for before the form
  * opens. Answering afterwards would mean typing a change without knowing what it
