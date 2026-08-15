@@ -50,6 +50,7 @@ export default meta;
 type Story = StoryObj;
 
 const TOSCANINI = "Table for six at Toscanini";
+const TOSCANINI_PLACE = "Toscanini, Lindengracht";
 const OFFSITE_TRAIN = "Train to the offsite";
 const MUTE_DANA = "Never suggest from Dana Okafor";
 const THE_OFFER =
@@ -369,7 +370,7 @@ export const DroppingTeachesARule: Story = {
 		await expect(
 			canvas.getByRole("button", { name: MUTE_DANA }),
 		).toBeInTheDocument();
-		await expect(canvas.queryByText(TOSCANINI)).toBeNull();
+		await expect(canvas.queryByText(TOSCANINI_PLACE)).toBeNull();
 	},
 };
 
