@@ -4,8 +4,9 @@
  * unsettled.
  *
  * Nothing here may read the zone the process happens to run in, so the cases
- * offer clocks the ambient zone is never one of and assert the exact zone that
- * comes back. The suite is run under `TZ=UTC` and `TZ=Europe/Amsterdam`.
+ * offer clocks the ambient zone is never one of, assert the exact zone that
+ * comes back, and move the machine between zones themselves rather than leaving
+ * that to whoever runs the suite.
  */
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
@@ -23,16 +24,16 @@ const LISBON = "Europe/Lisbon";
 const AUCKLAND = "Pacific/Auckland";
 
 const suggestion: EventSuggestion = {
-	id: "sug_flight",
-	title: "KL1693 Amsterdam → Lisbon",
-	start: "2026-06-19T18:40:00+02:00",
-	end: "2026-06-19T20:25:00+02:00",
+	id: "sug_lisbon_call",
+	title: "Kickoff call — Lisbon venue",
+	start: "2026-06-17T16:00:00+02:00",
+	end: "2026-06-17T17:00:00+02:00",
 	allDay: false,
-	location: "Schiphol, gate D-pier",
-	threadId: "thr_klm",
-	threadSubject: "Your booking is confirmed",
-	sender: "KLM",
-	confidence: 0.88,
+	location: "Meet link",
+	threadId: "thr_lisbon_call",
+	threadSubject: "Kickoff call on Wednesday at 16:00",
+	sender: "Rita Sousa",
+	confidence: 0.66,
 	ambiguity: "",
 	suggestedCalendarId: "c5",
 	timeZone: "",
@@ -42,8 +43,8 @@ const suggestion: EventSuggestion = {
 const zoneless: EventSuggestion = {
 	...suggestion,
 	zoneOptions: [
-		{ timeZone: LISBON, label: "20:25 in Lisbon", note: "21:25 for you." },
-		{ timeZone: AUCKLAND, label: "20:25 in Auckland", note: "06:25 for you." },
+		{ timeZone: LISBON, label: "16:00 in Lisbon", note: "17:00 for you." },
+		{ timeZone: AUCKLAND, label: "16:00 in Auckland", note: "03:00 for you." },
 	],
 };
 
@@ -157,7 +158,7 @@ describe("the zone gate", () => {
 		const added: string[] = [];
 		mount(zoneless, (timeZone) => added.push(timeZone));
 
-		press(buttonNamed("20:25 in Auckland"));
+		press(buttonNamed("16:00 in Auckland"));
 		press(buttonNamed("Add"));
 
 		assert.deepEqual(added, [AUCKLAND]);
@@ -179,33 +180,69 @@ describe("the zone gate", () => {
 	});
 });
 
+/**
+ * The zones the machine might be in. The hour is what noon UTC reads as there,
+ * asserted so a Node that ignored the switch could not pass the body silently.
+ */
+const ZONES = [
+	{ name: "UTC", hourAtNoonUtc: 12 },
+	{ name: "Europe/Amsterdam", hourAtNoonUtc: 14 },
+	{ name: "Pacific/Kiritimati", hourAtNoonUtc: 2 },
+];
+
+function inEveryZone(body: () => void): void {
+	const before = process.env.TZ;
+	try {
+		for (const zone of ZONES) {
+			process.env.TZ = zone.name;
+			assert.equal(
+				new Date("2026-06-17T12:00:00Z").getHours(),
+				zone.hourAtNoonUtc,
+				`the machine never moved to ${zone.name}`,
+			);
+			body();
+		}
+	} finally {
+		if (before === undefined) delete process.env.TZ;
+		else process.env.TZ = before;
+	}
+}
+
 describe("settleZone", () => {
 	it("settles a suggestion that carries no clocks to answer", () => {
-		assert.deepEqual(settleZone(stated, ""), { settled: true, timeZone: "" });
+		inEveryZone(() => {
+			assert.deepEqual(settleZone(stated, ""), { settled: true, timeZone: "" });
+		});
 	});
 
 	it("holds a suggestion whose clock nobody has picked", () => {
-		assert.deepEqual(settleZone(zoneless, ""), {
-			settled: false,
-			reason: ZONE_UNSETTLED_REASON,
+		inEveryZone(() => {
+			assert.deepEqual(settleZone(zoneless, ""), {
+				settled: false,
+				reason: ZONE_UNSETTLED_REASON,
+			});
 		});
 	});
 
 	it("holds a choice that is not one of the clocks offered", () => {
-		assert.deepEqual(settleZone(zoneless, "Europe/Amsterdam"), {
-			settled: false,
-			reason: ZONE_UNSETTLED_REASON,
-		});
-		assert.deepEqual(settleZone(zoneless, "UTC"), {
-			settled: false,
-			reason: ZONE_UNSETTLED_REASON,
+		inEveryZone(() => {
+			assert.deepEqual(settleZone(zoneless, "Europe/Amsterdam"), {
+				settled: false,
+				reason: ZONE_UNSETTLED_REASON,
+			});
+			assert.deepEqual(settleZone(zoneless, "UTC"), {
+				settled: false,
+				reason: ZONE_UNSETTLED_REASON,
+			});
 		});
 	});
 
 	it("carries the picked clock through untouched", () => {
-		assert.deepEqual(settleZone(zoneless, LISBON), {
-			settled: true,
-			timeZone: LISBON,
+		inEveryZone(() => {
+			assert.deepEqual(settleZone(zoneless, LISBON), {
+				settled: true,
+				timeZone: LISBON,
+			});
 		});
 	});
 });

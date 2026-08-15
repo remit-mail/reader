@@ -5,10 +5,11 @@ import type {
 	EventSuggestion,
 	ThreadData,
 } from "@remit/ui";
+import { wallTimeOn } from "../lib/agenda-time.js";
 import {
 	allThreads,
 	hobbyId,
-	klmThread,
+	lisbonCallThread,
 	personalId,
 	q3Thread,
 	workId,
@@ -513,31 +514,36 @@ export const eventsById = new Map(events.map((e) => [e.id, e]));
 
 export const suggestions: EventSuggestion[] = [
 	{
-		id: "sug_flight",
-		title: "KL1693 Amsterdam → Lisbon",
-		start: at(19, 18, 40),
-		end: at(19, 20, 25),
+		id: "sug_lisbon_call",
+		title: "Kickoff call — Lisbon venue",
+		/**
+		 * The hour the mail printed, on an offset that is a placeholder: which
+		 * clock it is on is exactly what nobody stated, so nothing may be read
+		 * off this until a zone is picked.
+		 */
+		start: at(17, 16),
+		end: at(17, 17),
 		allDay: false,
-		location: "Schiphol, gate D-pier",
-		threadId: "thr_klm",
-		threadSubject: "Your booking is confirmed — KL1693 Amsterdam to Lisbon",
-		sender: "KLM",
-		confidence: 0.88,
+		location: "Meet link",
+		threadId: "thr_lisbon_call",
+		threadSubject: "Kickoff call on Wednesday at 16:00",
+		sender: "Rita Sousa",
+		confidence: 0.66,
 		ambiguity:
-			"The confirmation prints 20:25 for the arrival and never says whose clock. Lisbon runs an hour behind Amsterdam, so this is either 20:25 or 21:25 for you.",
-		suggestedCalendarId: travelCalendarId,
+			"Rita writes from Lisbon and names 16:00 without a clock. Lisbon runs an hour behind Amsterdam, so this is either 16:00 or 17:00 for you.",
+		suggestedCalendarId: workCalendarId,
 		timeZone: "",
 		zoneCertainty: "ambiguous",
 		zoneOptions: [
 			{
 				timeZone: "Europe/Lisbon",
-				label: "20:25 in Lisbon",
-				note: "21:25 on your own clock. What an airline usually means.",
+				label: "16:00 in Lisbon",
+				note: "17:00 on your own clock. The hour she keeps.",
 			},
 			{
 				timeZone: HOME_ZONE,
-				label: "20:25 in Amsterdam",
-				note: "19:25 where the plane lands.",
+				label: "16:00 in Amsterdam",
+				note: "15:00 where she is.",
 			},
 		],
 	},
@@ -590,18 +596,6 @@ export const suggestions: EventSuggestion[] = [
 		suggestedCalendarId: workCalendarId,
 		timeZone: HOME_ZONE,
 		zoneCertainty: "ambiguous",
-		zoneOptions: [
-			{
-				timeZone: "Europe/Stockholm",
-				label: "09:00 in Stockholm",
-				note: "08:00 on your own clock. The hours their office keeps.",
-			},
-			{
-				timeZone: HOME_ZONE,
-				label: "09:00 in Amsterdam",
-				note: "10:00 where they are.",
-			},
-		],
 	},
 	{
 		id: "sug_meetup_talk",
@@ -802,7 +796,7 @@ export function formatSuggestionWhen(suggestion: EventSuggestion): string {
 export function threadFor(threadId: string): ThreadData | undefined {
 	if (threadId === "") return undefined;
 	if (threadId === "thr_q3") return q3Thread;
-	if (threadId === "thr_klm") return klmThread;
+	if (threadId === "thr_lisbon_call") return lisbonCallThread;
 	const row = allThreads.find((candidate) => candidate.id === threadId);
 	if (!row) return undefined;
 	return {
@@ -822,17 +816,30 @@ export function threadFor(threadId: string): ThreadData | undefined {
 	};
 }
 
-/** A suggestion, once a person has said yes to it. */
+/**
+ * A suggestion, once a person has said yes to it.
+ *
+ * `settledZone` is the clock the reader picked, empty when the mail stated one
+ * itself. Picking a clock is not a label: the hour the mail printed is read on
+ * that zone and written again on this calendar's, so the event lands on the
+ * instant the answer meant.
+ */
 export function eventFromSuggestion(
 	suggestion: EventSuggestion,
 	id: string,
+	settledZone: string,
 ): CalendarEventData {
+	const settled = settledZone !== "";
 	return {
 		id,
 		calendarId: suggestion.suggestedCalendarId,
 		title: suggestion.title,
-		start: suggestion.start,
-		end: suggestion.end,
+		start: settled
+			? wallTimeOn(suggestion.start, settledZone, HOME_ZONE)
+			: suggestion.start,
+		end: settled
+			? wallTimeOn(suggestion.end, settledZone, HOME_ZONE)
+			: suggestion.end,
 		allDay: suggestion.allDay,
 		location: suggestion.location,
 		notes: "",
@@ -840,8 +847,8 @@ export function eventFromSuggestion(
 		myRsvp: "accepted",
 		threadId: suggestion.threadId,
 		threadSubject: suggestion.threadSubject,
-		timeZone: suggestion.timeZone,
-		zoneCertainty: suggestion.zoneCertainty,
+		timeZone: settled ? settledZone : suggestion.timeZone,
+		zoneCertainty: settled ? "explicit" : suggestion.zoneCertainty,
 		recurrenceRule: "",
 		seriesId: "",
 		seriesException: false,

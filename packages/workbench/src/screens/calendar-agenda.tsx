@@ -505,20 +505,15 @@ export function CalendarAgenda({
 
 	const acceptSuggestion = (suggestion: EventSuggestion, timeZone: string) => {
 		const id = `evt_from_${suggestion.id}`;
-		const promoted = eventFromSuggestion(suggestion, id);
-		setEvents((previous) => [
-			...previous,
-			timeZone === ""
-				? promoted
-				: { ...promoted, timeZone, zoneCertainty: "explicit" },
-		]);
+		const promoted = eventFromSuggestion(suggestion, id, timeZone);
+		setEvents((previous) => [...previous, promoted]);
 		setSuggestions((previous) =>
 			previous.filter((item) => item.id !== suggestion.id),
 		);
 		setSelected(id);
 		setOpenThreadId("");
 		setFlow("none");
-		goTo(suggestion.start.slice(0, 10));
+		goTo(promoted.start.slice(0, 10));
 	};
 
 	const deleteSelected = (event: CalendarEventData) => {

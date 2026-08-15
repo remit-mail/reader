@@ -321,6 +321,7 @@ export function CalendarSeam({
 		const promoted = eventFromSuggestion(
 			entry.suggestion,
 			`evt_from_${entry.suggestion.id}`,
+			"",
 		);
 		setConfirmed((prev) => [
 			...prev,
