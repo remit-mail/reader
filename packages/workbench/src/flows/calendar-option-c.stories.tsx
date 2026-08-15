@@ -276,6 +276,37 @@ export const ThreadMakesWay: Story = {
 };
 
 /**
+ * A guest is a correspondent. Pointing at one in the guest list opens what they
+ * have written lately — the context you were about to go looking for anyway,
+ * and it is one hover away only because the mail and the calendar are the same
+ * application. Pointing away closes it again, so the list never holds open a
+ * card about somebody you have stopped reading.
+ */
+export const AttendeeContext: Story = {
+	name: "What a guest has written",
+	render: () => (
+		<CalendarAgenda date="2026-06-10" selectedEventId="evt_q3_roadmap" />
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+
+		const guest = canvas.getByRole("button", { name: /Priya Natarajan/ });
+		await userEvent.hover(guest);
+
+		await waitFor(() =>
+			expect(canvas.getByText("Recent mail · 3")).toBeInTheDocument(),
+		);
+		await expect(canvas.getByText("Lunch walk Wednesday?")).toBeInTheDocument();
+
+		await userEvent.unhover(guest);
+
+		await waitFor(() =>
+			expect(canvas.queryByText("Lunch walk Wednesday?")).toBeNull(),
+		);
+	},
+};
+
+/**
  * Editing one morning's standup asks which instances it is for before the form
  * opens. Answering afterwards would mean typing a change without knowing what it
  * changes. "The whole series" and "this and following" rewrite every instance
@@ -515,6 +546,42 @@ export const PhoneEventThread: Story = {
 
 		await waitFor(() =>
 			expect(canvas.getByText("3 messages")).toBeInTheDocument(),
+		);
+
+		await userEvent.click(canvas.getByLabelText("Back"));
+
+		await waitFor(() =>
+			expect(canvas.getByText("From this thread")).toBeInTheDocument(),
+		);
+	},
+};
+
+/**
+ * The same guest, read with a thumb. A tap is the only way in, so it opens a
+ * screen rather than a card sitting under the finger, and back is the event it
+ * was opened from.
+ */
+export const PhoneAttendeeContext: Story = {
+	name: "Phone — what a guest has written",
+	parameters: phoneParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<CalendarAgenda
+			width={PHONE_WIDTH}
+			date="2026-06-10"
+			flow="event"
+			selectedEventId="evt_q3_roadmap"
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+
+		await userEvent.click(canvas.getByRole("button", { name: /Dana Okafor/ }));
+
+		await waitFor(() =>
+			expect(
+				canvas.getByText("Offsite logistics — rooms, travel, the dinner"),
+			).toBeInTheDocument(),
 		);
 
 		await userEvent.click(canvas.getByLabelText("Back"));

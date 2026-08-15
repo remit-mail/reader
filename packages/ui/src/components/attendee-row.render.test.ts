@@ -54,6 +54,47 @@ describe("AttendeeRow", () => {
 		);
 		assert.doesNotMatch(html, /Organiser/);
 	});
+
+	it("stays inert where a name leads nowhere", () => {
+		const html = renderToString(
+			createElement(AttendeeRow, { attendee: attendees[0] }),
+		);
+		assert.doesNotMatch(html, /<button/);
+	});
+
+	it("becomes a control where a name leads somewhere", () => {
+		const html = renderToString(
+			createElement(AttendeeRow, {
+				attendee: attendees[0],
+				onActivate: () => undefined,
+			}),
+		);
+		assert.match(html, /<button/);
+		assert.match(html, /aria-pressed="false"/);
+	});
+
+	it("marks the row whose context is open", () => {
+		const html = renderToString(
+			createElement(AttendeeRow, {
+				attendee: attendees[0],
+				active: true,
+				onActivate: () => undefined,
+			}),
+		);
+		assert.match(html, /aria-pressed="true"/);
+	});
+
+	it("gives a thumb a row it can hit", () => {
+		const html = renderToString(
+			createElement(AttendeeRow, {
+				attendee: attendees[0],
+				onActivate: () => undefined,
+				touch: true,
+			}),
+		);
+		assert.match(html, /min-h-11/);
+		assert.doesNotMatch(html, /min-h-9/);
+	});
 });
 
 describe("AttendeeList", () => {
@@ -69,5 +110,44 @@ describe("AttendeeList", () => {
 			renderToString(createElement(AttendeeList, { attendees: [] })),
 			"",
 		);
+	});
+
+	it("leaves every row inert when the surface offers nothing behind them", () => {
+		const html = renderToString(createElement(AttendeeList, { attendees }));
+		assert.doesNotMatch(html, /<button/);
+	});
+
+	it("makes every row a control when a guest can be opened", () => {
+		const html = renderToString(
+			createElement(AttendeeList, { attendees, onActivate: () => undefined }),
+		);
+		assert.equal(html.match(/<button/g)?.length, attendees.length);
+	});
+
+	it("anchors the context to the guest it is about and to no other", () => {
+		const html = renderToString(
+			createElement(AttendeeList, {
+				attendees,
+				activeEmail: "dana@northwind.example",
+				onActivate: () => undefined,
+				renderContext: (attendee) =>
+					createElement("p", null, `Recent mail · ${attendee.name}`),
+			}),
+		);
+		assert.match(html, /Recent mail · Dana Okafor/);
+		assert.doesNotMatch(html, /Recent mail · Priya Natarajan/);
+	});
+
+	it("opens no context for a guest who is not on the list", () => {
+		const html = renderToString(
+			createElement(AttendeeList, {
+				attendees,
+				activeEmail: "nobody@northwind.example",
+				onActivate: () => undefined,
+				renderContext: (attendee) =>
+					createElement("p", null, `Recent mail · ${attendee.name}`),
+			}),
+		);
+		assert.doesNotMatch(html, /Recent mail/);
 	});
 });
