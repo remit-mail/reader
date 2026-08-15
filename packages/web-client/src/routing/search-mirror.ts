@@ -2,7 +2,7 @@ import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { useMailContext } from "@/lib/mail-context";
 import { shouldMirrorQuery } from "@/lib/search-view";
-import { useIsComposing } from "@/routing";
+import { useIsComposing } from "./compose";
 
 /**
  * The list the mirror writes to. Each list calls the hook with its own route,
