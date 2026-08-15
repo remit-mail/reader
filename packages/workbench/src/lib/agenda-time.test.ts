@@ -35,7 +35,7 @@ import {
 	freeStretchesOn,
 	groupOverlapping,
 	readNextUp,
-	wallTimeOn,
+	wallSpanOn,
 } from "./agenda-time.js";
 
 const days = datesBetween("2026-06-01", "2026-07-05").map((date) =>
@@ -54,6 +54,17 @@ function suggestionNamed(id: string) {
 }
 
 const zoneless = suggestionNamed("sug_lisbon_call");
+
+/** The call as the mail printed it, read on one clock and written on ours. */
+function printed(sourceZone: string) {
+	return wallSpanOn(zoneless, sourceZone, HOME_ZONE);
+}
+
+function elapsedMinutes(span: { start: string; end: string }): number {
+	return (
+		(new Date(span.end).getTime() - new Date(span.start).getTime()) / 60_000
+	);
+}
 
 /** The day once the invitation has been answered, as the screen assembles it. */
 const answeredEvents = [
@@ -346,19 +357,88 @@ describe("formatSpan", () => {
 describe("a clock the mail never named", () => {
 	it("reads the printed hour on the zone that was picked, wherever the machine is", () => {
 		inEveryZone(() => {
-			assert.equal(
-				wallTimeOn(PRINTED_HOUR, "Europe/Lisbon", HOME_ZONE),
-				"2026-06-17T17:00:00+02:00",
-			);
-			assert.equal(
-				wallTimeOn(PRINTED_HOUR, HOME_ZONE, HOME_ZONE),
-				"2026-06-17T16:00:00+02:00",
-			);
-			assert.equal(
-				wallTimeOn(PRINTED_HOUR, "America/Los_Angeles", HOME_ZONE),
-				"2026-06-18T01:00:00+02:00",
-			);
+			assert.deepEqual(printed("Europe/Lisbon"), {
+				start: "2026-06-17T17:00:00+02:00",
+				end: "2026-06-17T18:00:00+02:00",
+			});
+			assert.deepEqual(printed(HOME_ZONE), {
+				start: "2026-06-17T16:00:00+02:00",
+				end: "2026-06-17T17:00:00+02:00",
+			});
+			assert.deepEqual(printed("America/Los_Angeles"), {
+				start: "2026-06-18T01:00:00+02:00",
+				end: "2026-06-18T02:00:00+02:00",
+			});
 		});
+	});
+
+	it("keeps whole-hour arithmetic away from the zones that are not on it", () => {
+		assert.equal(printed("Asia/Kolkata").start, "2026-06-17T12:30:00+02:00");
+		assert.equal(printed("Asia/Kathmandu").start, "2026-06-17T12:15:00+02:00");
+		assert.equal(printed("Pacific/Chatham").start, "2026-06-17T05:15:00+02:00");
+	});
+
+	it("carries the printed length over a spring-forward instead of losing an hour", () => {
+		const booked = wallSpanOn(
+			{ start: "2026-03-29T01:30:00+00:00", end: "2026-03-29T03:30:00+00:00" },
+			"Europe/Lisbon",
+			HOME_ZONE,
+		);
+		assert.deepEqual(booked, {
+			start: "2026-03-29T03:30:00+02:00",
+			end: "2026-03-29T05:30:00+02:00",
+		});
+		assert.equal(elapsedMinutes(booked), 120);
+	});
+
+	it("carries the printed length over a fall-back instead of inventing one", () => {
+		const booked = wallSpanOn(
+			{ start: "2026-10-25T01:30:00+01:00", end: "2026-10-25T02:30:00+01:00" },
+			"Europe/Lisbon",
+			HOME_ZONE,
+		);
+		assert.deepEqual(booked, {
+			start: "2026-10-25T02:30:00+02:00",
+			end: "2026-10-25T02:30:00+01:00",
+		});
+		assert.equal(elapsedMinutes(booked), 60);
+	});
+
+	it("moves a wall time the zone skips forward to the hour that replaced it", () => {
+		const booked = wallSpanOn(
+			{ start: "2026-03-29T02:30:00+01:00", end: "2026-03-29T03:00:00+01:00" },
+			HOME_ZONE,
+			HOME_ZONE,
+		);
+		assert.deepEqual(booked, {
+			start: "2026-03-29T03:30:00+02:00",
+			end: "2026-03-29T04:00:00+02:00",
+		});
+		assert.equal(elapsedMinutes(booked), 30);
+	});
+
+	it("takes the first of a wall time the zone repeats", () => {
+		const booked = wallSpanOn(
+			{ start: "2026-10-25T02:30:00+02:00", end: "2026-10-25T03:00:00+02:00" },
+			HOME_ZONE,
+			HOME_ZONE,
+		);
+		assert.deepEqual(booked, {
+			start: "2026-10-25T02:30:00+02:00",
+			end: "2026-10-25T02:00:00+01:00",
+		});
+		assert.equal(elapsedMinutes(booked), 30);
+	});
+
+	it("leaves an all-day value alone, having no clock to read", () => {
+		assert.deepEqual(
+			wallSpanOn(
+				{ start: "2026-06-19", end: "2026-06-23" },
+				"Europe/Lisbon",
+				HOME_ZONE,
+			),
+			{ start: "2026-06-19", end: "2026-06-23" },
+		);
 	});
 
 	it("books the instant the answer meant, not a relabelled one", () => {

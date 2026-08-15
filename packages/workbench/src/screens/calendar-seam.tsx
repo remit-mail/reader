@@ -321,14 +321,9 @@ export function CalendarSeam({
 		const promoted = eventFromSuggestion(
 			entry.suggestion,
 			`evt_from_${entry.suggestion.id}`,
-			"",
+			zone,
 		);
-		setConfirmed((prev) => [
-			...prev,
-			zone === ""
-				? promoted
-				: { ...promoted, zoneCertainty: "explicit", timeZone: zone },
-		]);
+		setConfirmed((prev) => [...prev, promoted]);
 		setPending((prev) =>
 			prev.filter((item) => item.suggestion.id !== entry.suggestion.id),
 		);
@@ -420,7 +415,8 @@ export function CalendarSeam({
 
 	const topCard = pending[0];
 	const topCardBlocked = Boolean(
-		topCard?.zoneOptions && (zones[topCard.suggestion.id] ?? "") === "",
+		topCard?.suggestion.zoneOptions &&
+			(zones[topCard.suggestion.id] ?? "") === "",
 	);
 
 	const suggestionCards = (touch: boolean) => (

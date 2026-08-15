@@ -210,26 +210,53 @@ export interface ClashOptions {
 	ignoreIds?: readonly string[];
 }
 
+export interface WallSpan {
+	start: string;
+	end: string;
+}
+
 /**
- * The hour a mail printed, read as a time on `sourceZone` and written again on
+ * The hours a mail printed, read as times on `sourceZone` and written again on
  * `displayZone` — the clock this calendar stores and draws.
  *
  * A zoneless reading carries an offset it has no right to: 16:00 sits in the
  * fixture on +02:00 because something had to be written there. Once the reader
- * says which clock the mail meant, the wall time is what survives and the
- * instant is recomputed from it, so picking Lisbon moves the event an hour
+ * says which clock the mail meant, the wall times are what survive and the
+ * instants are recomputed from them, so picking Lisbon moves the event an hour
  * rather than relabelling it. Both zones are arguments; neither is read from
  * the environment.
+ *
+ * Only the start is converted; the end is the start plus the span the mail
+ * printed. Converting both ends independently silently rewrites the length of
+ * anything that straddles a transition — an hour of a two-hour meeting is lost
+ * across a spring-forward and an hour is invented across a fall-back.
+ *
+ * A wall time the source zone skips moves forward to the hour that replaced it,
+ * and one it repeats takes the first of the two, which is what `compatible`
+ * disambiguation means. An all-day value has no clock to read and passes
+ * through untouched.
  */
-export function wallTimeOn(
-	iso: string,
+export function wallSpanOn(
+	span: WallSpan,
 	sourceZone: string,
 	displayZone: string,
-): string {
-	return Temporal.PlainDateTime.from(iso.slice(0, 19))
+): WallSpan {
+	if (!span.start.includes("T") || !span.end.includes("T"))
+		return { start: span.start, end: span.end };
+	const printedStart = Temporal.PlainDateTime.from(span.start.slice(0, 19));
+	const printedEnd = Temporal.PlainDateTime.from(span.end.slice(0, 19));
+	const start = printedStart
 		.toZonedDateTime(sourceZone)
-		.withTimeZone(displayZone)
-		.toString({ timeZoneName: "never" });
+		.withTimeZone(displayZone);
+	const end = start.add(
+		printedStart.until(printedEnd, {
+			largestUnit: "minute",
+		}),
+	);
+	return {
+		start: start.toString({ timeZoneName: "never" }),
+		end: end.toString({ timeZoneName: "never" }),
+	};
 }
 
 /**

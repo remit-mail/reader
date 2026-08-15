@@ -253,6 +253,7 @@ export function CalendarDestination({
 	const [events, setEvents] = useState<CalendarEventData[]>(seedEvents);
 	const [suggestions, setSuggestions] =
 		useState<EventSuggestion[]>(seedSuggestions);
+	const [zones, setZones] = useState<Record<string, string>>({});
 	const [selected, setSelected] = useState(selectedEventId);
 	const [visible, setVisible] = useState(
 		() =>
@@ -399,20 +400,21 @@ export function CalendarDestination({
 	 * thread and zone Add carries, and saving takes the card off the list — a
 	 * suggestion is answered once, by whichever path answered it.
 	 */
-	const reviewSuggestion = (suggestion: EventSuggestion) => {
+	const reviewSuggestion = (suggestion: EventSuggestion, timeZone: string) => {
+		const base = eventFromSuggestion(suggestion, "", timeZone);
 		setPanel({
 			kind: "create",
-			base: eventFromSuggestion(suggestion, "", ""),
+			base,
 			suggestionId: suggestion.id,
 			draft: {
 				...emptyDraft(),
-				title: suggestion.title,
-				date: suggestion.start.slice(0, 10),
-				startTime: suggestion.allDay ? "" : suggestion.start.slice(11, 16),
-				endTime: suggestion.allDay ? "" : suggestion.end.slice(11, 16),
-				allDay: suggestion.allDay,
-				location: suggestion.location,
-				calendarId: suggestion.suggestedCalendarId,
+				title: base.title,
+				date: base.start.slice(0, 10),
+				startTime: base.allDay ? "" : base.start.slice(11, 16),
+				endTime: base.allDay ? "" : base.end.slice(11, 16),
+				allDay: base.allDay,
+				location: base.location,
+				calendarId: base.calendarId,
 			},
 		});
 		setStep(0);
@@ -572,8 +574,12 @@ export function CalendarDestination({
 							key={suggestion.id}
 							suggestion={suggestion}
 							whenText={formatSuggestionWhen(suggestion)}
+							zoneChoice={zones[suggestion.id] ?? ""}
+							onZoneChoice={(timeZone) =>
+								setZones((prev) => ({ ...prev, [suggestion.id]: timeZone }))
+							}
 							onAdd={(timeZone) => acceptSuggestion(suggestion, timeZone)}
-							onReview={() => reviewSuggestion(suggestion)}
+							onReview={(timeZone) => reviewSuggestion(suggestion, timeZone)}
 							onDismiss={() => dismissSuggestion(suggestion.id)}
 							onOpenThread={() => openThread(suggestion.threadId)}
 							touch={touch}
