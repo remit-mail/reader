@@ -1,4 +1,7 @@
-import { useParams } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
+import { useCallback } from "react";
+import { useNavigateToBrowsedList } from "./browsed-list";
+import { useRetainOpenPanels } from "./fragment";
 
 /**
  * The outbox message the reader has open, read off the path.
@@ -14,4 +17,27 @@ export function useOutboxDraftId(): string | undefined {
 		shouldThrow: false,
 	});
 	return draft?.outboxMessageId;
+}
+
+/** Open an outbox message in the reading pane. */
+export function useOpenOutboxDraft(): (outboxMessageId: string) => void {
+	const navigate = useNavigate();
+	const retainPanels = useRetainOpenPanels();
+
+	return useCallback(
+		(outboxMessageId: string) => {
+			navigate({
+				to: "/mail/outbox/draft/$outboxMessageId",
+				params: { outboxMessageId },
+				search: (prev: Record<string, unknown>) => prev,
+				hash: retainPanels,
+			});
+		},
+		[navigate, retainPanels],
+	);
+}
+
+/** Close it again, landing back on the outbox. */
+export function useCloseOutboxDraft(): () => void {
+	return useNavigateToBrowsedList();
 }

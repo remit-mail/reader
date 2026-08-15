@@ -34,7 +34,6 @@ import {
 	useAppShellLayout,
 } from "@remit/ui";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import {
 	createContext,
 	type ReactNode,
@@ -116,11 +115,13 @@ import {
 	type OpenThreadPath,
 	type OpenThreadTarget,
 	type ReplyMode,
+	useCloseThread,
+	useGoToSection,
 	useIsComposing,
 	useIsReplying,
 	useOpenCompose,
 	useOpenReply,
-	useRetainOpenPanels,
+	useOpenThread,
 } from "@/routing";
 import { MailViewChrome } from "./MailViewChrome";
 
@@ -252,8 +253,9 @@ function MailboxPaneProvider({
 	thread,
 	children,
 }: MailboxPaneProps) {
-	const navigate = useNavigate();
-	const retainPanels = useRetainOpenPanels();
+	const openThread = useOpenThread();
+	const closeThread = useCloseThread();
+	const goToSection = useGoToSection();
 	const threadId = thread?.threadId;
 	const pointedAtMessageId = thread?.messageId;
 	const telemetry = useTelemetry();
@@ -452,27 +454,6 @@ function MailboxPaneProvider({
 	// Esc unwinds one step at a time: an active selection first (handled by the
 	// triage layer), then the open thread — which is a navigation up to the list,
 	// so nothing is left mounted below it.
-	const closeThread = useCallback(() => {
-		navigate({
-			to: "/mail/$mailboxId",
-			params: { mailboxId },
-			search: (prev) => prev,
-			hash: retainPanels,
-		});
-	}, [mailboxId, navigate, retainPanels]);
-
-	const handleOpenThread = useCallback(
-		(target: OpenThreadTarget) => {
-			navigate({
-				to: "/mail/$mailboxId/$threadId/$messageId",
-				params: { mailboxId, ...target },
-				search: (prev) => prev,
-				hash: retainPanels,
-			});
-		},
-		[mailboxId, navigate, retainPanels],
-	);
-
 	const handleDeselectIfRemoved = useCallback(
 		(removedIds: string[]) => {
 			if (!selectedMessageId) return;
@@ -713,13 +694,6 @@ function MailboxPaneProvider({
 		if (!intelligenceOpen) onToggleIntelligence();
 	}, [intelligenceOpen, onToggleIntelligence]);
 
-	const goToRoute = useCallback(
-		(to: "/mail/brief" | "/mail/flagged" | "/settings") => {
-			navigate({ to });
-		},
-		[navigate],
-	);
-
 	const mailboxType = isDraftsMailbox
 		? "drafts"
 		: archiveMailboxId === mailboxId
@@ -759,11 +733,11 @@ function MailboxPaneProvider({
 			markJunk: triageMarkJunk,
 			toggleIntelligence: selectedThread ? onToggleIntelligence : undefined,
 			compose: openCompose,
-			goBrief: () => goToRoute("/mail/brief"),
-			goInbox: () => goToRoute("/mail/brief"),
-			goSent: () => goToRoute("/mail/brief"),
-			goFlagged: () => goToRoute("/mail/flagged"),
-			goSettings: () => goToRoute("/settings"),
+			goBrief: () => goToSection("brief"),
+			goInbox: () => goToSection("brief"),
+			goSent: () => goToSection("brief"),
+			goFlagged: () => goToSection("flagged"),
+			goSettings: () => goToSection("settings"),
 		},
 	});
 
@@ -783,7 +757,7 @@ function MailboxPaneProvider({
 		selectedMessageId,
 		selectedThread,
 		conversation,
-		onOpenThread: handleOpenThread,
+		onOpenThread: openThread,
 		threads,
 		isLoading,
 		isError,
@@ -879,8 +853,7 @@ function MailboxList() {
 	const { searchQuery, searchInput, accounts, resultFolderIndex } =
 		useMailContext();
 	const tier = useLayoutTier();
-	const navigate = useNavigate();
-	const retainPanels = useRetainOpenPanels();
+	const openThread = useOpenThread();
 
 	const listTitle = mailboxName ?? "Inbox";
 	const preset = useMemo(() => inboxFilterConfig(), []);
@@ -952,26 +925,15 @@ function MailboxList() {
 				result.threadId ??
 				threads.find((thread) => thread.messageId === result.id)?.threadId;
 			if (!threadId) return;
-			navigate({
-				to: "/mail/$mailboxId/$threadId/$messageId",
-				// Both sections are scoped to this mailbox, so a result's own
-				// mailbox is normally this one; keep reading it off the result so a
-				// row can never open under a mailbox it does not belong to.
-				params: {
-					mailboxId: result.mailboxId ?? mailboxId,
-					threadId,
-					messageId: result.id,
-				},
-				// Commit the active query with the open so the debounced q-mirror —
-				// which walks back up to the list when the query goes active — is
-				// already satisfied and leaves the conversation alone. The *live*
-				// `searchInput`: a row can be tapped before the debounce settles, when
-				// the committed query is still empty.
-				search: (prev) => ({ ...prev, q: searchInput || undefined }),
-				hash: retainPanels,
-			});
+			// Both sections are scoped to this mailbox, so a result's own mailbox is
+			// normally this one; keep reading it off the result so a row can never
+			// open under a mailbox it does not belong to.
+			openThread(
+				{ threadId, messageId: result.id },
+				{ mailboxId: result.mailboxId ?? mailboxId, query: searchInput },
+			);
 		},
-		[mailboxId, navigate, retainPanels, searchInput, threads],
+		[mailboxId, openThread, searchInput, threads],
 	);
 
 	// Drafts keep their own dedicated view (and header); they don't carry the
@@ -979,7 +941,6 @@ function MailboxList() {
 	if (isDraftsMailbox && mailboxAccountId) {
 		return (
 			<DraftsView
-				mailboxId={mailboxId}
 				accountId={mailboxAccountId}
 				selectedMessageId={selectedMessageId}
 				imapThreads={threads}

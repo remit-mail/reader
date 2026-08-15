@@ -65,7 +65,7 @@ import {
 } from "@/lib/organize/rule-model";
 import { searchRuleAccountId } from "@/lib/organize/search-to-rule";
 import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
-import { useWizardEntryValue, useWizardStep } from "@/lib/wizard-history";
+import { useWizardEntryValue, useWizardStep } from "@/routing";
 import { organizeRunState } from "./organize-run-state";
 
 const EMPTY_DRAFT: WizardDraft = { clauses: [], matchOperator: "any" };

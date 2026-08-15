@@ -1,6 +1,6 @@
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback } from "react";
-import { useBrowsedList } from "./browsed-list";
+import { useBrowsedList, useNavigateToBrowsedList } from "./browsed-list";
 import { useRetainOpenPanels } from "./fragment";
 
 /**
@@ -176,30 +176,5 @@ export function useAdoptComposeDraft(): (outboxMessageId: string) => void {
  * return and strand them inside a surface they just dismissed.
  */
 export function useCloseCompose(): () => void {
-	const navigate = useNavigate();
-	const retainPanels = useRetainOpenPanels();
-	const { list, mailboxId } = useBrowsedList();
-
-	return useCallback(() => {
-		const search = (prev: Record<string, unknown>) => prev;
-		const hash = retainPanels;
-		if (list === "flagged") {
-			navigate({ to: "/mail/flagged", search, hash });
-			return;
-		}
-		if (list === "outbox") {
-			navigate({ to: "/mail/outbox", search, hash });
-			return;
-		}
-		if (list === "mailbox" && mailboxId) {
-			navigate({
-				to: "/mail/$mailboxId",
-				params: { mailboxId },
-				search,
-				hash,
-			});
-			return;
-		}
-		navigate({ to: "/mail/brief", search, hash });
-	}, [navigate, retainPanels, list, mailboxId]);
+	return useNavigateToBrowsedList();
 }

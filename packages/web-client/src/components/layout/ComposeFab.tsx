@@ -1,7 +1,5 @@
-import { useLocation } from "@tanstack/react-router";
 import { Pencil } from "lucide-react";
-import { locationOpensDetail } from "@/lib/mail-route";
-import { useOpenCompose } from "@/routing";
+import { useOpenCompose, useOpensDetail } from "@/routing";
 
 /**
  * Floating Action Button for composing a new message. Mobile-only.
@@ -16,9 +14,9 @@ import { useOpenCompose } from "@/routing";
  */
 export const ComposeFab = () => {
 	const compose = useOpenCompose();
-	const location = useLocation();
+	const opensDetail = useOpensDetail();
 
-	if (locationOpensDetail(location.pathname)) return null;
+	if (opensDetail) return null;
 
 	return (
 		<button
