@@ -5,8 +5,8 @@
  * \Drafts special-use folder (issue #505):
  *
  *   1. "Not yet sent (Remit)" — outbox rows with status === "draft" belonging
- *      to the account that owns the open \Drafts mailbox. Clicking a row opens
- *      compose pre-filled via openCompose({ mode: "new", outboxMessageId }).
+ *      to the account that owns the open \Drafts mailbox. Clicking a row names
+ *      the draft and navigates to the folder's compose route.
  *
  *   2. "On the server" — IMAP \Drafts thread rows already loaded for the
  *      mailbox. Clicking a row opens the normal reading pane (read-only;
@@ -39,9 +39,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { FileText, Inbox, Trash2 } from "lucide-react";
 import { useMemo } from "react";
-import { useCompose } from "@/components/compose/ComposeProvider";
+
 import { groupDraftSections } from "@/lib/drafts";
-import { useRetainOpenPanels } from "@/routing";
+import {
+	useComposeDraftId,
+	useEditDraft,
+	useRetainOpenPanels,
+} from "@/routing";
 import { NavMenuButton } from "./NavMenuButton";
 
 // ---------------------------------------------------------------------------
@@ -154,7 +158,8 @@ export function DraftsView({
 	title,
 	unreadCount,
 }: DraftsViewProps) {
-	const { openCompose, state: composeState } = useCompose();
+	const openDraftId = useComposeDraftId();
+	const editDraft = useEditDraft();
 	const navigate = useNavigate();
 	const retainPanels = useRetainOpenPanels();
 	const queryClient = useQueryClient();
@@ -184,10 +189,6 @@ export function DraftsView({
 
 	const handleRemitDraftDelete = (outboxMessageId: string) => {
 		deleteMutation.mutate({ path: { outboxMessageId } });
-	};
-
-	const handleRemitDraftOpen = (outboxMessageId: string) => {
-		openCompose({ mode: "new", outboxMessageId });
 	};
 
 	const handleImapDraftOpen = (messageId: string) => {
@@ -246,11 +247,8 @@ export function DraftsView({
 											<RemitDraftRow
 												key={thread.id}
 												row={thread}
-												isSelected={
-													composeState.isOpen &&
-													thread.id === composeState.outboxMessageId
-												}
-												onOpen={handleRemitDraftOpen}
+												isSelected={thread.id === openDraftId}
+												onOpen={editDraft}
 												onDelete={handleRemitDraftDelete}
 												isDeleting={deleteMutation.isPending}
 											/>

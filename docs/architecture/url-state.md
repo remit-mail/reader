@@ -47,23 +47,25 @@ Lists are `brief`, `flagged`, `outbox` and `<mailboxId>`. Mailbox ids are UUIDs 
 Each list is a layout route whose component renders the list plus `AppShellSlotted` with `reading={<Outlet/>}`. The detail surface is a child route of the list it was opened from, so co-location comes from the router.
 
 ```
-/mail                         redirect to /mail/brief
-/mail/brief                   list layout, reading={<Outlet/>}
-  $threadId                   thread open
-    $messageId                that message expanded and scrolled to
-      $mode                   reply | reply-all | forward
-  compose                     new message
+/mail                              redirect to /mail/brief
+/mail/brief                        list layout, reading={<Outlet/>}
+  $threadId                        thread open
+    $messageId                     that message expanded and scrolled to
+      $mode                        reply | reply-all | forward
+  compose/{-$outboxMessageId}      writing a message, on that draft once saved
 /mail/flagged
 /mail/outbox
+  draft/$outboxMessageId           reading an outbox message
 /mail/$mailboxId
-  $threadId                   thread open
-    $messageId                that message expanded and scrolled to
-      $mode                   reply | reply-all | forward
-  compose                     new message
-  draft/$outboxMessageId      under $mailboxId and outbox only
+  $threadId                        thread open
+    $messageId                     that message expanded and scrolled to
+      $mode                        reply | reply-all | forward
+  compose/{-$outboxMessageId}      writing a message, on that draft once saved
 ```
 
 `compose` is a sibling of the thread route, so navigating there unmatches the thread in the same transition. No clearing code, no ordering, and a composer over an open thread is unrepresentable.
+
+`compose/<outboxMessageId>` writes a draft and `outbox/draft/<outboxMessageId>` reads an outbox message: two surfaces over one entity are two addresses, and "Edit as draft" is the move from one to the other. The draft is an optional segment of the compose route rather than a child of it, because the first autosave adopts the id it just created while the reader is still typing — a child route would unmount the composer mid-sentence, where a param arriving is only a rewritten address. Every list carries the segment for that reason, not just the two a draft can be opened from.
 
 `$mode` sits under the message, so a reply cannot exist without a source and the thread stays matched behind it. That is what "the reply at the head of the conversation" is. Validate the mode as a path param, not as three literal routes.
 
@@ -71,6 +73,6 @@ Each list is a layout route whose component renders the list plus `AppShellSlott
 
 **Why not `?action=compose&compose:replyTo=<messageId>`?** A query param combines with anything, so compose open and thread open become expressible at once and something has to choose between them. The `compose:` namespacing is itself the tell that the query is carrying hierarchy. With reply as a child route, `replyTo` disappears and the source is the path.
 
-**Why not an optional `{-$mailboxId}` segment?** The installed router supports it, but it collapses the brief and a mailbox into one route with one component, and the component branches on whether it received a mailboxId: the arbiter, one level down.
+**Why not an optional `{-$mailboxId}` segment?** The installed router supports it, but it collapses the brief and a mailbox into one route with one component, and the component branches on whether it received a mailboxId: the arbiter, one level down. An optional segment is fine where its presence changes nothing about what mounts — `compose/{-$outboxMessageId}` is one surface either way, and the id is what it is writing to rather than which view this is.
 
 **Is `?data={...}` allowed anywhere?** For last-mile detail that legitimately combines, validated against the domain's own zod schema. Never to name what is on screen: a bag holds any combination, so illegal states become representable again and the app has to parse and branch to decide what mounts.

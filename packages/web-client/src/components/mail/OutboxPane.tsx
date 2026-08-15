@@ -48,7 +48,6 @@ import {
 	useMemo,
 	useRef,
 } from "react";
-import { useCompose } from "@/components/compose/ComposeProvider";
 import { MessageBody } from "@/components/mail/MessageBody";
 import { NavMenuButton } from "@/components/mail/NavMenuButton";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
@@ -63,7 +62,7 @@ import {
 import { isOutboxListRow, isUnsendableStatus } from "@/lib/outbox-status";
 import { normalizeSearchQuery } from "@/lib/search-query";
 import { parseSearchTokens } from "@/lib/search-tokens";
-import { useRetainOpenPanels } from "@/routing";
+import { useEditDraft, useRetainOpenPanels } from "@/routing";
 
 /* ------------------------------------------------------------------ */
 /* Helpers (shared between List, Reading, Phone sub-views)             */
@@ -266,7 +265,7 @@ function OutboxMessageRow({
 	onSelect,
 }: OutboxMessageRowProps) {
 	const queryClient = useQueryClient();
-	const { openCompose } = useCompose();
+	const editDraft = useEditDraft();
 	const { pushError } = useErrorBanners();
 
 	const invalidateOutbox = useCallback(() => {
@@ -331,12 +330,7 @@ function OutboxMessageRow({
 					: undefined
 			}
 			retrying={retryMutation.isPending}
-			onEdit={() =>
-				openCompose({
-					mode: "new",
-					outboxMessageId: message.outboxMessageId,
-				})
-			}
+			onEdit={() => editDraft(message.outboxMessageId)}
 			onDelete={() =>
 				deleteMutation.mutate({
 					path: { outboxMessageId: message.outboxMessageId },

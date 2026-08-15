@@ -2,20 +2,26 @@ import { configOperationsGetConfigOptions } from "@remit/api-http-client/@tansta
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
+import {
+	useAdoptComposeDraft,
+	useCloseCompose,
+	useComposeDraftId,
+} from "@/routing";
 import { ComposeForm } from "./ComposeForm";
-import { useCompose } from "./ComposeProvider";
+import { composeSurfaceTitle } from "./compose-title";
 import { MobileComposeSheet } from "./MobileComposeSheet";
 
-const MODE_LABELS: Record<string, string> = {
-	reply: "Reply",
-	reply_all: "Reply All",
-	forward: "Forward",
-	new: "New Message",
-};
-
+/**
+ * The compose surface, mounted by the compose route and by nothing else. It is
+ * on screen because the address says so, and writing to the draft the address
+ * names — so there is no flag to consult and nothing to be out of step with.
+ */
 export const FullCompose = () => {
-	const { state, closeCompose } = useCompose();
+	const outboxMessageId = useComposeDraftId();
+	const adoptCreatedDraft = useAdoptComposeDraft();
+	const closeCompose = useCloseCompose();
 	const isDesktop = useIsDesktop();
 	const {
 		isError: isConfigError,
@@ -26,16 +32,18 @@ export const FullCompose = () => {
 		staleTime: Infinity,
 	});
 
+	useKeyboardNavigation({
+		bindings: [{ key: "Escape", handler: closeCompose, preventDefault: true }],
+	});
+
 	if (!isDesktop) return <MobileComposeSheet />;
-
-	if (!state.isOpen) return null;
-
-	const title = MODE_LABELS[state.mode] ?? "New Message";
 
 	const header = (
 		<header className="flex items-center justify-between gap-2 px-4 py-3 border-b border-line shrink-0">
 			<div className="flex items-center gap-2 min-w-0">
-				<h2 className="text-lg font-semibold truncate">{title}</h2>
+				<h2 className="text-lg font-semibold truncate">
+					{composeSurfaceTitle(outboxMessageId)}
+				</h2>
 			</div>
 			<button
 				type="button"
@@ -69,11 +77,14 @@ export const FullCompose = () => {
 		<div className="flex h-full min-h-0 flex-col bg-canvas">
 			{header}
 			<div className="min-h-0 flex-1 overflow-hidden">
+				{/* No key on the draft: the first autosave writes the id it created
+				    into the address, and remounting the form on that would take the
+				    caret out of the sentence being typed. Switching to a different
+				    draft is the form's own `outboxMessageId` effect. */}
 				<ComposeForm
-					key={state.outboxMessageId ?? "new"}
-					mode={state.mode}
-					account={state.account}
-					sourceMessage={state.sourceMessage}
+					mode="new"
+					outboxMessageId={outboxMessageId}
+					onDraftCreated={adoptCreatedDraft}
 					onClose={closeCompose}
 				/>
 			</div>

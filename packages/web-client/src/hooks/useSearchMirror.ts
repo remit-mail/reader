@@ -2,6 +2,7 @@ import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { useMailContext } from "@/lib/mail-context";
 import { shouldMirrorQuery } from "@/lib/search-view";
+import { useIsComposing } from "@/routing";
 
 /**
  * The list the mirror writes to. Each list calls the hook with its own route,
@@ -40,12 +41,17 @@ export type SearchMirrorTarget =
  * was opened under it (not a pre-search leftover) and must survive. The close
  * otherwise raced the tap: the row shows before the debounce settles, so this
  * mirror can land just after the open and undo it.
+ *
+ * A composer is not the pre-search list's leftover either. It is the reader's
+ * own unsent message, so a search started while it is up narrows the list
+ * behind it and leaves it standing.
  */
 export function useSearchMirror(target: SearchMirrorTarget): void {
 	const navigate = useNavigate();
 	const { searchInput, searchQuery: committedQuery } = useMailContext();
 	const { q: urlQuery = "" } = useSearch({ from: "/mail" });
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
+	const isComposing = useIsComposing();
 
 	// Read at effect time rather than depended on: the URL is what the mirror
 	// compares against, not what re-triggers it.
@@ -67,13 +73,17 @@ export function useSearchMirror(target: SearchMirrorTarget): void {
 		if (!mayWrite) return;
 		const queryGoesActive =
 			Boolean(committedQuery) && urlQueryRef.current !== committedQuery;
+		// The composer is the reader's own unsent message, not a leftover of the
+		// list they were on, so a query going active narrows the list behind it and
+		// leaves it where it is.
+		const closesTheOpenSurface = queryGoesActive && !isComposing;
 		const search = (prev: Record<string, unknown>) => ({
 			...prev,
 			q: committedQuery || undefined,
 		});
 		// A query is a mode of the view the reader is already in, so the panels
 		// they have up are not ones they navigated away from.
-		if (!queryGoesActive) {
+		if (!closesTheOpenSurface) {
 			navigate({ to: ".", search, hash: true, replace: true });
 			return;
 		}
@@ -97,5 +107,6 @@ export function useSearchMirror(target: SearchMirrorTarget): void {
 		mailboxId,
 		listPath,
 		pathname,
+		isComposing,
 	]);
 }

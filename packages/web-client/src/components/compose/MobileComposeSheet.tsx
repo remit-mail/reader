@@ -4,15 +4,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import { Drawer } from "vaul";
 import { ErrorState } from "@/components/ui/ErrorState";
+import {
+	useAdoptComposeDraft,
+	useCloseCompose,
+	useComposeDraftId,
+} from "@/routing";
 import { ComposeForm } from "./ComposeForm";
-import { useCompose } from "./ComposeProvider";
-
-const MODE_LABELS: Record<string, string> = {
-	reply: "Reply",
-	reply_all: "Reply All",
-	forward: "Forward",
-	new: "New Message",
-};
+import { composeSurfaceTitle } from "./compose-title";
 
 /**
  * Returns true when the draft has meaningful content (subject or body
@@ -40,7 +38,9 @@ const useIsDraftDirty = (): (() => boolean) => {
 };
 
 export const MobileComposeSheet = () => {
-	const { state, closeCompose } = useCompose();
+	const outboxMessageId = useComposeDraftId();
+	const adoptCreatedDraft = useAdoptComposeDraft();
+	const closeCompose = useCloseCompose();
 	const isDraftDirty = useIsDraftDirty();
 	const [showConfirm, setShowConfirm] = useState(false);
 
@@ -75,13 +75,9 @@ export const MobileComposeSheet = () => {
 		setShowConfirm(false);
 	}, []);
 
-	if (!state.isOpen) return null;
-
-	const title = MODE_LABELS[state.mode] ?? "New Message";
-
 	return (
 		<Drawer.Root
-			open={state.isOpen}
+			open
 			onOpenChange={handleOpenChange}
 			// Don't auto-dismiss on drag when dirty — we intercept via onOpenChange
 		>
@@ -94,7 +90,7 @@ export const MobileComposeSheet = () => {
 					<Drawer.Handle className="mx-auto mt-2 mb-1 h-1.5 w-12 rounded-full bg-fg-muted/30" />
 
 					<Drawer.Title className="px-4 py-2 text-base font-semibold border-b border-line">
-						{title}
+						{composeSurfaceTitle(outboxMessageId)}
 					</Drawer.Title>
 
 					{isConfigError ? (
@@ -110,9 +106,9 @@ export const MobileComposeSheet = () => {
 					) : (
 						<div className="flex-1 overflow-hidden">
 							<ComposeForm
-								mode={state.mode}
-								account={state.account}
-								sourceMessage={state.sourceMessage}
+								mode="new"
+								outboxMessageId={outboxMessageId}
+								onDraftCreated={adoptCreatedDraft}
 								onClose={closeCompose}
 							/>
 						</div>

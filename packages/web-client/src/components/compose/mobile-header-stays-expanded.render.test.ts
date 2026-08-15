@@ -23,11 +23,11 @@ import {
 	createRouter,
 	RouterContextProvider,
 } from "@tanstack/react-router";
-import { act, createElement, useEffect } from "react";
+import { act, createElement } from "react";
 import { createDomHarness, type DomHarness } from "../../test-support/dom";
 import { type HttpMock, mockFetch } from "../../test-support/http";
 import { ComposeForm } from "./ComposeForm";
-import { ComposeProvider, useCompose } from "./ComposeProvider";
+import { ComposeProvider } from "./ComposeProvider";
 
 const ACCOUNT_ID = "acc-1";
 const PHONE = {
@@ -97,21 +97,13 @@ const testRouter = (): AnyRouter =>
 		history: createMemoryHistory({ initialEntries: ["/mail/mbx-1"] }),
 	}) as unknown as AnyRouter;
 
-const Opened = () => {
-	const { state, openCompose } = useCompose();
-
-	useEffect(() => {
-		openCompose({ mode: "new", account });
-	}, [openCompose]);
-
-	if (!state.isOpen) return null;
-
-	return createElement(ComposeForm, {
+const Opened = () =>
+	createElement(ComposeForm, {
 		mode: "new",
 		account,
+		onDraftCreated: () => {},
 		onClose: () => {},
 	});
-};
 
 const mount = async (): Promise<void> => {
 	http = mockFetch(async (call) => {
