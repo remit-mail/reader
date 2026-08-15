@@ -6,6 +6,10 @@
  * with no thread, so the pane has nothing to fetch by. The segment names which
  * message inside the thread the reader pointed at, and the surface it renders is
  * the thread's.
+ *
+ * It mounts the pane rather than delegating to an index route, because the
+ * reply is a segment under it: a conversation that came back on a child match
+ * would collapse and scroll to the top the moment someone pressed Reply.
  */
 import { createFileRoute } from "@tanstack/react-router";
 import { MailboxPane } from "@/components/mail/MailboxPane";

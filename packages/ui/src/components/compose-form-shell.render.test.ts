@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { ComposeFormShell, composeModeLabels } from "./compose-form-shell.js";
+import { ComposeFormShell } from "./compose-form-shell.js";
 
 describe("ComposeFormShell", () => {
 	it("renders header, body and action bar slots in order", () => {
@@ -102,12 +102,5 @@ describe("ComposeFormShell", () => {
 			}),
 		);
 		assert.doesNotMatch(html, /sticky/);
-	});
-
-	it("exposes mode labels for every compose mode", () => {
-		assert.equal(composeModeLabels.new, "New Message");
-		assert.equal(composeModeLabels.reply, "Reply");
-		assert.equal(composeModeLabels.reply_all, "Reply All");
-		assert.equal(composeModeLabels.forward, "Forward");
 	});
 });

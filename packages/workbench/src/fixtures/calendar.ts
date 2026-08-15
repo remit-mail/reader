@@ -528,6 +528,7 @@ export const suggestions: EventSuggestion[] = [
 		threadId: "thr_lisbon_call",
 		threadSubject: "Kickoff call on Wednesday at 16:00",
 		sender: "Rita Sousa",
+		senderAddress: "rita@aldeia.example",
 		confidence: 0.66,
 		ambiguity:
 			"Rita writes from Lisbon and names 16:00 without a clock. Lisbon runs an hour behind Amsterdam, so this is either 16:00 or 17:00 for you.",
@@ -557,6 +558,7 @@ export const suggestions: EventSuggestion[] = [
 		threadId: "thr_airbnb",
 		threadSubject: "Your reservation in Lisbon is confirmed",
 		sender: "Airbnb",
+		senderAddress: "automated@airbnb.example",
 		confidence: 0.94,
 		ambiguity: "",
 		suggestedCalendarId: travelCalendarId,
@@ -573,6 +575,7 @@ export const suggestions: EventSuggestion[] = [
 		threadId: "thr_dana",
 		threadSubject: "Offsite logistics — rooms, travel, the dinner",
 		sender: "Dana Okafor",
+		senderAddress: "dana@northwind.example",
 		confidence: 0.71,
 		ambiguity:
 			'The thread says "the Friday after the offsite" — read as 19 June.',
@@ -590,6 +593,7 @@ export const suggestions: EventSuggestion[] = [
 		threadId: "thr_wahlberg",
 		threadSubject: "Following up: analytics pilot proposal",
 		sender: "Erik Wahlberg",
+		senderAddress: "erik@vendor-analytics.example",
 		confidence: 0.38,
 		ambiguity:
 			'Asked for "some time Tuesday" and named no hour. Two Tuesdays fit.',
@@ -607,6 +611,7 @@ export const suggestions: EventSuggestion[] = [
 		threadId: "thr_meetup",
 		threadSubject: "AWS User Group Amsterdam meets Thursday",
 		sender: "AWS User Group Amsterdam",
+		senderAddress: "announce@awsug-amsterdam.example",
 		confidence: 0.55,
 		ambiguity: 'Says "Thursday" in a mail sent on a Thursday.',
 		suggestedCalendarId: personalCalendarId,

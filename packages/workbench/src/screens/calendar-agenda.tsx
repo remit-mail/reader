@@ -18,6 +18,7 @@ import {
 	type CustomRecurrence,
 	CustomRecurrenceDialog,
 	CustomRecurrenceEditor,
+	cn,
 	type Density,
 	defaultCustomRecurrence,
 	defaultEndDate,
@@ -72,6 +73,7 @@ import {
 	ONE_OFF_EDIT_STEPS,
 	SCOPED_EDIT_STEPS,
 } from "../components/event-wizard.js";
+import { RejectedNotice } from "../components/rejected-notice.js";
 import {
 	allCalendarIds,
 	buildDay,
@@ -83,12 +85,12 @@ import {
 	formatSuggestionWhen,
 	HOME_ZONE,
 	NOW_ISO,
-	suggestions as seedSuggestions,
 	TODAY,
 	threadFor,
 } from "../fixtures/calendar.js";
 import {
 	agendaEvents,
+	agendaSuggestions,
 	STRIP_FIRST_DATE,
 	STRIP_LAST_DATE,
 } from "../fixtures/calendar-agenda.js";
@@ -245,6 +247,18 @@ type Flow =
 	| "suggestions"
 	| "thread";
 
+/** A reading the reader has just dropped, and what was offered along with it. */
+interface DroppedSuggestion {
+	suggestion: EventSuggestion;
+	/** Where it sat in the column, so undo puts it back rather than on the end. */
+	index: number;
+	ruled: boolean;
+}
+
+function mutedCountLabel(count: number): string {
+	return count === 1 ? "1 sender muted" : `${count} senders muted`;
+}
+
 type Panel =
 	| { kind: "none" }
 	| { kind: "create" }
@@ -306,8 +320,10 @@ export function CalendarAgenda({
 	const [density, setDensity] = useState<AgendaDensity>(initialDensity);
 	const [events, setEvents] = useState<CalendarEventData[]>(agendaEvents);
 	const [suggestions, setSuggestions] =
-		useState<EventSuggestion[]>(seedSuggestions);
+		useState<EventSuggestion[]>(agendaSuggestions);
 	const [zones, setZones] = useState<Record<string, string>>({});
+	const [dropped, setDropped] = useState<DroppedSuggestion | null>(null);
+	const [rules, setRules] = useState<string[]>([]);
 	const [selected, setSelected] = useState(selectedEventId);
 	const [visible, setVisible] = useState(
 		() =>
@@ -359,6 +375,11 @@ export function CalendarAgenda({
 	);
 	const selectedEvent = events.find((event) => event.id === selected);
 	const openedThread = threadFor(openThreadId);
+	const isMuted = (suggestion: EventSuggestion) =>
+		rules.includes(suggestion.senderAddress);
+	const visibleSuggestions = suggestions.filter(
+		(suggestion) => !isMuted(suggestion),
+	);
 
 	const goTo = (date: string) => {
 		const target = clampDate(date);
@@ -503,6 +524,52 @@ export function CalendarAgenda({
 		dismiss();
 	};
 
+	/**
+	 * Dropping a reading is the only moment the reader has said anything about
+	 * the sender, so it is the moment to ask — and the rule is never taken for
+	 * them, never silent, and never one-way.
+	 */
+	const dropSuggestion = (suggestion: EventSuggestion) => {
+		const index = suggestions.findIndex((item) => item.id === suggestion.id);
+		setSuggestions((previous) =>
+			previous.filter((item) => item.id !== suggestion.id),
+		);
+		setDropped({ suggestion, index: Math.max(index, 0), ruled: false });
+	};
+
+	const muteSender = () => {
+		if (!dropped) return;
+		setRules((previous) => [...previous, dropped.suggestion.senderAddress]);
+		setDropped({ ...dropped, ruled: true });
+	};
+
+	const restoreDropped = () => {
+		if (!dropped) return;
+		setSuggestions((previous) => {
+			const next = [...previous];
+			next.splice(dropped.index, 0, dropped.suggestion);
+			return next;
+		});
+		setRules((previous) =>
+			previous.filter((rule) => rule !== dropped.suggestion.senderAddress),
+		);
+		setDropped(null);
+	};
+
+	/**
+	 * Lifting the rule takes the claim down with it: a notice still saying
+	 * nothing more will come from that address would be telling the reader the
+	 * opposite of what is now true, with no way to take the rule again.
+	 */
+	const unmuteSender = (address: string) => {
+		setRules((previous) => previous.filter((rule) => rule !== address));
+		setDropped((previous) =>
+			previous && previous.suggestion.senderAddress === address
+				? { ...previous, ruled: false }
+				: previous,
+		);
+	};
+
 	const acceptSuggestion = (suggestion: EventSuggestion, timeZone: string) => {
 		const id = `evt_from_${suggestion.id}`;
 		const promoted = eventFromSuggestion(suggestion, id, timeZone);
@@ -624,43 +691,85 @@ export function CalendarAgenda({
 		);
 	};
 
-	const suggestionColumn = (touch: boolean) => (
-		<section className="flex flex-col gap-2">
-			<h3 className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
-				<Sparkles className="size-3" />
-				Waiting for you
-			</h3>
-			{suggestions.length === 0 ? (
-				<p className="text-xs text-fg-subtle">
-					Nothing unread in your mail looks like a date.
-				</p>
-			) : (
-				suggestions.map((suggestion) => (
-					<EventSuggestionCard
-						key={suggestion.id}
-						suggestion={suggestion}
-						whenText={formatSuggestionWhen(suggestion)}
-						zoneChoice={zones[suggestion.id] ?? ""}
-						onZoneChoice={(timeZone) =>
-							setZones((previous) => ({
-								...previous,
-								[suggestion.id]: timeZone,
-							}))
-						}
-						onAdd={(timeZone) => acceptSuggestion(suggestion, timeZone)}
-						onReview={() => goTo(suggestion.start.slice(0, 10))}
-						onDismiss={() =>
-							setSuggestions((previous) =>
-								previous.filter((item) => item.id !== suggestion.id),
-							)
-						}
-						onOpenThread={() => openThread(suggestion.threadId)}
-						touch={touch}
-					/>
-				))
-			)}
-		</section>
-	);
+	const suggestionColumn = (touch: boolean) => {
+		const column: ReactNode[] = suggestions.map((suggestion) =>
+			isMuted(suggestion) ? null : (
+				<EventSuggestionCard
+					key={suggestion.id}
+					suggestion={suggestion}
+					whenText={formatSuggestionWhen(suggestion)}
+					zoneChoice={zones[suggestion.id] ?? ""}
+					onZoneChoice={(timeZone) =>
+						setZones((previous) => ({ ...previous, [suggestion.id]: timeZone }))
+					}
+					onAdd={(timeZone) => acceptSuggestion(suggestion, timeZone)}
+					onReview={() => goTo(suggestion.start.slice(0, 10))}
+					onDismiss={() => dropSuggestion(suggestion)}
+					onOpenThread={() => openThread(suggestion.threadId)}
+					touch={touch}
+				/>
+			),
+		);
+
+		if (dropped)
+			column.splice(
+				dropped.index,
+				0,
+				<RejectedNotice
+					key="dropped"
+					title={dropped.suggestion.title}
+					sender={dropped.suggestion.sender}
+					senderAddress={dropped.suggestion.senderAddress}
+					ruled={dropped.ruled}
+					onRule={muteSender}
+					onDecline={() => setDropped(null)}
+					onUndo={restoreDropped}
+					touch={touch}
+				/>,
+			);
+
+		return (
+			<section className="flex flex-col gap-2">
+				<h3 className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
+					<Sparkles className="size-3 shrink-0" />
+					<span className="min-w-0 flex-1 truncate">
+						{rules.length === 0
+							? "Waiting for you"
+							: `Waiting for you · ${mutedCountLabel(rules.length)}`}
+					</span>
+				</h3>
+				{rules.length > 0 && (
+					<ul className="flex flex-col gap-1">
+						{rules.map((address) => (
+							<li key={address} className="flex items-center gap-2">
+								<span className="min-w-0 flex-1 truncate text-2xs text-fg-subtle">
+									{address}
+								</span>
+								<button
+									type="button"
+									aria-label={`Unmute ${address}`}
+									onClick={() => unmuteSender(address)}
+									className={cn(
+										"shrink-0 rounded-sm text-2xs font-medium text-accent-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring",
+										touch && "min-h-11 px-1",
+									)}
+								>
+									Unmute
+								</button>
+							</li>
+						))}
+					</ul>
+				)}
+				{visibleSuggestions.length === 0 && !dropped ? (
+					<p className="text-xs text-fg-subtle">
+						Nothing unread in your mail looks like a date.
+					</p>
+				) : (
+					column
+				)}
+			</section>
+		);
+	};
 
 	const detail = (onClose: () => void) =>
 		selectedEvent ? (
@@ -994,7 +1103,7 @@ export function CalendarAgenda({
 					<PhoneSurface
 						title={monthLabel(visibleDate)}
 						onToday={() => goTo(TODAY)}
-						suggestionCount={suggestions.length}
+						suggestionCount={visibleSuggestions.length}
 						onOpenSuggestions={() => setFlow("suggestions")}
 						visible={visible}
 						onToggleCalendar={toggleCalendar}

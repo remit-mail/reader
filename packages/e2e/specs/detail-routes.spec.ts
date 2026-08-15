@@ -29,6 +29,8 @@ import {
 	MAILBOX_THREAD_URL,
 	OUTBOX_MESSAGE_URL,
 	OUTBOX_URL,
+	REPLY_DRAFT_URL,
+	REPLY_URL,
 } from "../src/urls.js";
 
 const DESKTOP = { width: 1512, height: 864 };
@@ -753,5 +755,234 @@ test.describe("One composer's draft is not another's (#719)", () => {
 		// arriving late is exactly the shape this test exists for.
 		await expect(briefRow(page, subject)).toBeVisible({ timeout: 30_000 });
 		await expect(subjectField).toHaveValue("");
+	});
+});
+
+/**
+ * A reply is a segment under the message it answers (#720).
+ *
+ * It used to be React state inside the conversation, raised by a request prop
+ * the toolbar set and the conversation consumed a render later. Nothing about
+ * it was in the address, so it could not be shared, could not survive a reload,
+ * and the request could still be standing when the thread it was aimed at had
+ * gone. The mode and the message are segments now, so a reply cannot exist
+ * without a source, and leaving the conversation leaves the reply with it.
+ */
+test.describe("A reply lives under its message (#720)", () => {
+	test.setTimeout(120_000);
+
+	const replySubject = (page: Page): Locator =>
+		page.locator("[data-subject-field]");
+
+	const openReply = async (page: Page, subject: string): Promise<void> => {
+		await openBrief(page, subject);
+		await briefRow(page, subject).click();
+		await page.waitForURL(BRIEF_THREAD_URL);
+		await settledConversation(page, subject);
+		await page.getByRole("button", { name: "Reply", exact: true }).click();
+		await expect(replySubject(page)).toHaveValue(/^Re: /, { timeout: 30_000 });
+	};
+
+	test.afterEach(async ({ api, run }) => {
+		const answered = run.seededSubjects[0];
+		for (const entry of await api.listRemovableOutboxMessages()) {
+			if (
+				entry.subject.startsWith(`Re: ${answered}`) ||
+				entry.subject.startsWith(`Fwd: ${answered}`)
+			) {
+				await api.deleteOutboxMessage(entry.outboxMessageId);
+			}
+		}
+	});
+
+	test("a reply cannot outlive the thread it answers", async ({
+		page,
+		run,
+	}) => {
+		const subject = run.seededSubjects[0];
+		const elsewhere = run.seededSubjects[1];
+
+		await openBrief(page, subject);
+		await briefRow(page, subject).click();
+		await page.waitForURL(BRIEF_THREAD_URL);
+		await settledConversation(page, subject);
+		const message = new URL(page.url()).pathname;
+
+		await page.getByRole("button", { name: "Reply", exact: true }).click();
+		await expect(replySubject(page)).toHaveValue(/^Re: /, { timeout: 30_000 });
+
+		// Under the message rather than beside it: the address the conversation
+		// was already on is the prefix, so the source is a fact of the path.
+		await expect(page).toHaveURL(new RegExp(`${message}/reply`));
+		await expect(page).toHaveURL(REPLY_URL);
+		await expect(conversation(page)).toBeVisible();
+
+		// Assert again after something unrelated: the brief settles behind the
+		// reply, and none of its rows may take the pane back.
+		await expect(briefRow(page, subject)).toBeVisible({ timeout: 30_000 });
+		await expect(replySubject(page)).toHaveValue(/^Re: /);
+
+		// Another conversation unmatches the reply in the same transition, so
+		// there is nothing left over to be revealed by a later keystroke.
+		await briefRow(page, elsewhere).click();
+		await settledConversation(page, elsewhere);
+		await expect(replySubject(page)).toHaveCount(0);
+		await expect(page).not.toHaveURL(REPLY_URL);
+
+		// And back to the thread that was being answered: no orphan composer over
+		// a conversation whose address says nothing is being written.
+		await briefRow(page, subject).click();
+		await settledConversation(page, subject);
+		await expect(replySubject(page)).toHaveCount(0);
+		await expect(page).not.toHaveURL(REPLY_URL);
+	});
+
+	test("the draft a reply is writing is the segment under it", async ({
+		page,
+		run,
+	}) => {
+		const subject = run.seededSubjects[0];
+		await openReply(page, subject);
+
+		const written = `Answered at ${Date.now()}.`;
+		await page.getByTestId("compose-body").click();
+		await page.keyboard.type(written);
+		await expect(page.getByText("Draft saved")).toBeVisible({
+			timeout: 30_000,
+		});
+
+		// The id the autosave created is recorded under the reply rather than as a
+		// route of its own, so the address gains a segment while the composer keeps
+		// what is in it — a child route would have taken the caret out of the
+		// sentence being typed.
+		await page.waitForURL(REPLY_DRAFT_URL, { timeout: 30_000 });
+		await expect(page.getByTestId("compose-body")).toContainText(written);
+
+		const draftAddress = page.url();
+		await page.reload();
+
+		// Cold, from the address alone: the same reply on the same draft, rather
+		// than a blank one beside a draft row nothing points at.
+		await expect(page.getByTestId("compose-body")).toContainText(written, {
+			timeout: 30_000,
+		});
+		await expect(replySubject(page)).toHaveValue(/^Re: /);
+		await expect(page).toHaveURL(draftAddress);
+	});
+
+	/**
+	 * The draft segment travels when the mode changes. Reply All over a reply is
+	 * the same message being written — the recipients change and the text does
+	 * not — so an address that dropped the draft would say "another document" to
+	 * the composer, which blanks the fields and leaves what was typed reachable
+	 * only from the Outbox.
+	 */
+	test("answering again keeps what is already written", async ({
+		page,
+		run,
+	}) => {
+		const subject = run.seededSubjects[0];
+		await openReply(page, subject);
+
+		const written = `Still writing at ${Date.now()}.`;
+		await page.getByTestId("compose-body").click();
+		await page.keyboard.type(written);
+		await expect(page.getByText("Draft saved")).toBeVisible({
+			timeout: 30_000,
+		});
+		await page.waitForURL(REPLY_DRAFT_URL, { timeout: 30_000 });
+		const draft = new URL(page.url()).pathname.split("/").pop();
+
+		await page.getByRole("button", { name: "Reply all", exact: true }).click();
+		await expect(page).toHaveURL(new RegExp(`/reply-all/${draft}(\\?|#|$)`));
+		await expect(page.getByTestId("compose-body")).toContainText(written);
+		await expect(replySubject(page)).toHaveValue(/^Re: /);
+
+		// Forward is the same move again, and it does change something: the
+		// subject. What was written into the message is not it.
+		await page.getByRole("button", { name: "Forward", exact: true }).click();
+		await expect(page).toHaveURL(new RegExp(`/forward/${draft}(\\?|#|$)`));
+		await expect(replySubject(page)).toHaveValue(/^Fwd: /);
+		await expect(page.getByTestId("compose-body")).toContainText(written);
+
+		// Assert again after something unrelated: the brief settles behind the
+		// composer, and pressing the verb the address already names leaves the
+		// message being written exactly as it is.
+		await expect(briefRow(page, subject)).toBeVisible({ timeout: 30_000 });
+		await page.getByRole("button", { name: "Forward", exact: true }).click();
+		await expect(page).toHaveURL(new RegExp(`/forward/${draft}(\\?|#|$)`));
+		await expect(page.getByTestId("compose-body")).toContainText(written);
+	});
+
+	/**
+	 * The list is still mounted beside the reply, and its keyboard layer answers
+	 * the row its own cursor is on. Left running, r restarts the reply on screen
+	 * — and after a k, aims one at a different conversation entirely.
+	 */
+	test("the list's keyboard leaves an open reply alone", async ({
+		page,
+		run,
+	}) => {
+		const subject = run.seededSubjects[0];
+		await openReply(page, subject);
+
+		const written = `Half a sentence ${Date.now()}.`;
+		await page.getByTestId("compose-body").click();
+		await page.keyboard.type(written);
+		await expect(page.getByText("Draft saved")).toBeVisible({
+			timeout: 30_000,
+		});
+		await page.waitForURL(REPLY_DRAFT_URL, { timeout: 30_000 });
+		const replying = page.url();
+
+		// Out of the editor, which is where the list's keys reach the window
+		// again: the reader clicked the conversation to read the turn they are
+		// answering.
+		await conversation(page)
+			.getByRole("heading", { name: subject, exact: true })
+			.click();
+		await page.keyboard.press("k");
+		await page.keyboard.press("r");
+
+		await expect(page).toHaveURL(replying);
+		await expect(page.getByTestId("compose-body")).toContainText(written);
+		await expect(replySubject(page)).toHaveValue(/^Re: /);
+	});
+
+	/**
+	 * The phone is where the reply route mounting nothing is load-bearing: there
+	 * is no reading slot for an `Outlet` to fill, so the conversation is the
+	 * single pane and it renders the composer off the address itself.
+	 */
+	test.describe("On a phone", () => {
+		test.use({ viewport: { width: 390, height: 844 } });
+
+		test("a message's own Reply opens the composer in the conversation", async ({
+			page,
+			run,
+		}) => {
+			const subject = run.seededSubjects[0];
+			await openBrief(page, subject);
+			await briefRow(page, subject).click();
+			await page.waitForURL(BRIEF_THREAD_URL);
+
+			// The verb belongs to the message it sits under, so the address names
+			// that message and the composer answers it.
+			await page
+				.getByRole("button", { name: "Reply", exact: true })
+				.first()
+				.click();
+
+			await expect(page.locator("[data-subject-field]")).toHaveValue(/^Re: /, {
+				timeout: 30_000,
+			});
+			await expect(page).toHaveURL(REPLY_URL);
+
+			// Assert again after something unrelated: the conversation is still
+			// under the reply, and the brief has not taken the pane back.
+			await expect(page.getByTestId("conversation-messages")).toBeVisible();
+			await expect(page.locator("[data-subject-field]")).toHaveValue(/^Re: /);
+			await expect(page).toHaveURL(REPLY_URL);
+		});
 	});
 });

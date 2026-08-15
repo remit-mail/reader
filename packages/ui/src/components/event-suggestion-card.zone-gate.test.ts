@@ -33,6 +33,7 @@ const suggestion: EventSuggestion = {
 	threadId: "thr_lisbon_call",
 	threadSubject: "Kickoff call on Wednesday at 16:00",
 	sender: "Rita Sousa",
+	senderAddress: "rita@aldeia.example",
 	confidence: 0.66,
 	ambiguity: "",
 	suggestedCalendarId: "c5",

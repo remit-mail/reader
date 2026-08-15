@@ -617,7 +617,6 @@ export interface ZoneOption {
 export interface SeamSuggestion {
 	suggestion: EventSuggestion;
 	method: ParseMethod;
-	senderAddress: string;
 	/** The exact field or words the reading rests on. */
 	evidence: string;
 	fields: { label: string; value: string; source: string }[];
@@ -642,6 +641,7 @@ const flightSuggestion: EventSuggestion = {
 	threadId: "thr_klm",
 	threadSubject: "Your booking is confirmed — KL1693 Amsterdam to Lisbon",
 	sender: "KLM",
+	senderAddress: "noreply@klm.example",
 	confidence: 0.88,
 	ambiguity:
 		"The confirmation prints 20:25 for the arrival and never says whose clock. Lisbon runs an hour behind Amsterdam, so this is either 20:25 or 21:25 for you.",
@@ -660,6 +660,7 @@ const parcelSuggestion: EventSuggestion = {
 	threadId: "thr_bol",
 	threadSubject: "Je pakket komt morgen tussen 10:15 en 12:45",
 	sender: "bol.com",
+	senderAddress: "verzending@bol.example",
 	confidence: 0.62,
 	ambiguity: '"morgen" was measured from the day the mail was sent, 9 June.',
 	suggestedCalendarId: personalCalendarId,
@@ -671,7 +672,6 @@ export const seamSuggestions: SeamSuggestion[] = [
 	{
 		suggestion: flightSuggestion,
 		method: "markup",
-		senderAddress: "noreply@klm.example",
 		evidence: "schema.org FlightReservation · departureTime, arrivalTime",
 		fields: [
 			{
@@ -702,7 +702,6 @@ export const seamSuggestions: SeamSuggestion[] = [
 	{
 		suggestion: reuse("sug_lisbon_stay"),
 		method: "markup",
-		senderAddress: "automated@airbnb.example",
 		evidence: "schema.org LodgingReservation · checkinTime, checkoutTime",
 		fields: [
 			{ label: "Check in", value: "19 June", source: "checkinTime" },
@@ -713,7 +712,6 @@ export const seamSuggestions: SeamSuggestion[] = [
 	{
 		suggestion: parcelSuggestion,
 		method: "pattern",
-		senderAddress: "verzending@bol.example",
 		evidence: '"komt morgen tussen 10:15 en 12:45"',
 		fields: [
 			{ label: "When", value: "10 June", source: '"morgen", sent on 9 June' },
@@ -727,7 +725,6 @@ export const seamSuggestions: SeamSuggestion[] = [
 	{
 		suggestion: reuse("sug_toscanini"),
 		method: "pattern",
-		senderAddress: "dana@northwind.example",
 		evidence: '"the Friday after the offsite, half seven"',
 		fields: [
 			{
@@ -742,7 +739,6 @@ export const seamSuggestions: SeamSuggestion[] = [
 	{
 		suggestion: { ...reuse("sug_analytics_pilot"), zoneCertainty: "local" },
 		method: "pattern",
-		senderAddress: "eva@vendor-analytics.example",
 		evidence: '"some time Tuesday"',
 		fields: [
 			{ label: "When", value: "16 June", source: '"Tuesday", nearest ahead' },

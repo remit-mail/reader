@@ -46,7 +46,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import type { ComposeMode } from "@/components/compose/ComposeProvider";
 import { Drawer } from "@/components/layout/Drawer";
 import { ConversationView } from "@/components/mail/ConversationView";
 import { DraftsView } from "@/components/mail/DraftsView";
@@ -116,8 +115,11 @@ import {
 import {
 	type OpenThreadPath,
 	type OpenThreadTarget,
+	type ReplyMode,
 	useIsComposing,
+	useIsReplying,
 	useOpenCompose,
+	useOpenReply,
 	useRetainOpenPanels,
 } from "@/routing";
 import { MailViewChrome } from "./MailViewChrome";
@@ -199,11 +201,11 @@ interface MailboxPaneContextValue {
 	listCommandsRef: RefObject<MessageListCommands | null>;
 	onRetry: () => void;
 	// Toolbar / reading pane actions
-	toolbarComposeRequest: ComposeMode | null;
-	onToolbarReply: () => void;
-	onToolbarReplyAll: () => void;
-	onToolbarForward: () => void;
-	onClearComposeRequest: () => void;
+	/**
+	 * Answer the open conversation. Absent when none is open, which is what the
+	 * toolbar turns into its own explanation.
+	 */
+	onReply: ((mode: ReplyMode) => void) | undefined;
 	onToolbarDelete: () => void;
 	onToolbarStar: () => void;
 	onToolbarMove: (destMailboxId: string) => void;
@@ -541,19 +543,34 @@ function MailboxPaneProvider({
 
 	const getThreadMessageIds = useThreadMessageIds();
 
-	const { requestCompose: setToolbarComposeRequest } = toolbarActions;
+	const openReply = useOpenReply();
 
-	const handleToolbarReply = useCallback(() => {
-		setToolbarComposeRequest("reply");
-	}, [setToolbarComposeRequest]);
-	const handleToolbarReplyAll = useCallback(() => {
-		setToolbarComposeRequest("reply_all");
-	}, [setToolbarComposeRequest]);
-	const handleToolbarForward = useCallback(() => {
-		setToolbarComposeRequest("forward");
-	}, [setToolbarComposeRequest]);
+	// The toolbar answers the conversation on screen; the keyboard answers the
+	// row the cursor is on, which may be one the address has not opened yet. Both
+	// are one navigation, because the mode and the message it answers are
+	// segments of the same address.
+	const replyToOpenThread = useMemo(() => {
+		if (!selectedThread || !selectedMessageId) return undefined;
+		return (mode: ReplyMode) =>
+			openReply({
+				threadId: selectedThread.threadId,
+				messageId: selectedMessageId,
+				mode,
+			});
+	}, [openReply, selectedThread, selectedMessageId]);
+
+	const replyToFocusedThread = useMemo(() => {
+		if (!focusedThread) return undefined;
+		return (mode: ReplyMode) =>
+			openReply({
+				threadId: focusedThread.threadId,
+				messageId: focusedThread.messageId,
+				mode,
+			});
+	}, [openReply, focusedThread]);
 
 	const isComposing = useIsComposing();
+	const isReplying = useIsReplying();
 	const openCompose = useOpenCompose();
 
 	const messageIdsForFocusedThread = useCallback(
@@ -599,26 +616,18 @@ function MailboxPaneProvider({
 		senderEmail: focusedThread?.fromEmail ?? undefined,
 	});
 
-	const ensureFocusedOpen = useCallback(() => {
-		if (selectedMessageId || !triageFocusedId) return false;
-		const row = threads.find((t) => t.messageId === triageFocusedId);
-		if (!row) return false;
-		handleOpenThread({ threadId: row.threadId, messageId: triageFocusedId });
-		return true;
-	}, [selectedMessageId, triageFocusedId, threads, handleOpenThread]);
-
-	const triageReply = useCallback(() => {
-		if (ensureFocusedOpen()) return;
-		if (selectedThread) setToolbarComposeRequest("reply");
-	}, [ensureFocusedOpen, selectedThread, setToolbarComposeRequest]);
-	const triageReplyAll = useCallback(() => {
-		if (ensureFocusedOpen()) return;
-		if (selectedThread) setToolbarComposeRequest("reply_all");
-	}, [ensureFocusedOpen, selectedThread, setToolbarComposeRequest]);
-	const triageForward = useCallback(() => {
-		if (ensureFocusedOpen()) return;
-		if (selectedThread) setToolbarComposeRequest("forward");
-	}, [ensureFocusedOpen, selectedThread, setToolbarComposeRequest]);
+	const triageReply = useCallback(
+		() => replyToFocusedThread?.("reply"),
+		[replyToFocusedThread],
+	);
+	const triageReplyAll = useCallback(
+		() => replyToFocusedThread?.("reply-all"),
+		[replyToFocusedThread],
+	);
+	const triageForward = useCallback(
+		() => replyToFocusedThread?.("forward"),
+		[replyToFocusedThread],
+	);
 
 	const triageTargetMessageIds = useCallback(
 		(): string[] => messageIdsForFocusedThread(focusedThread),
@@ -732,9 +741,10 @@ function MailboxPaneProvider({
 		context: triage,
 		orderedIds: threads.map((t) => t.messageId),
 		selectedMessageId,
-		// The list stays mounted under the compose surface, so the triage keys
-		// would otherwise fire at the message behind whatever is being typed.
-		enabled: !isComposing,
+		// The list stays mounted under both writing surfaces, so the triage keys
+		// would otherwise fire at the message behind whatever is being typed — or
+		// answer a row the cursor moved to while a reply was open.
+		enabled: !isComposing && !isReplying,
 		onClose: closeThread,
 		handlers: {
 			reply: triageReply,
@@ -812,11 +822,7 @@ function MailboxPaneProvider({
 		onTriageContextChange: handleTriageContextChange,
 		listCommandsRef,
 		onRetry: () => refetch(),
-		toolbarComposeRequest: toolbarActions.composeRequest,
-		onToolbarReply: handleToolbarReply,
-		onToolbarReplyAll: handleToolbarReplyAll,
-		onToolbarForward: handleToolbarForward,
-		onClearComposeRequest: toolbarActions.clearComposeRequest,
+		onReply: replyToOpenThread,
 		onToolbarDelete: toolbarActions.deleteThread,
 		onToolbarStar: toolbarActions.toggleStar,
 		onToolbarMove: toolbarActions.moveThread,
@@ -1071,11 +1077,7 @@ function MailboxReading() {
 		conversation,
 		intelligenceOpen,
 		onToggleIntelligence,
-		toolbarComposeRequest,
-		onToolbarReply,
-		onToolbarReplyAll,
-		onToolbarForward,
-		onClearComposeRequest,
+		onReply,
 		onToolbarDelete,
 		onToolbarStar,
 		onToolbarMove,
@@ -1135,8 +1137,6 @@ function MailboxReading() {
 			onOpenIntelligence={
 				conversation.authenticity?.dkimMismatch ? openIntelligence : undefined
 			}
-			composeRequest={toolbarComposeRequest}
-			onComposeClose={onClearComposeRequest}
 		/>
 	) : (
 		<ReadingPaneEmpty />
@@ -1150,9 +1150,9 @@ function MailboxReading() {
 					intelligenceOpen={intelligenceShowing}
 					canToggleIntelligence={hasThread}
 					onToggleIntelligence={toggleIntelligence}
-					onReply={hasThread ? onToolbarReply : undefined}
-					onReplyAll={hasThread ? onToolbarReplyAll : undefined}
-					onForward={hasThread ? onToolbarForward : undefined}
+					onReply={onReply ? () => onReply("reply") : undefined}
+					onReplyAll={onReply ? () => onReply("reply-all") : undefined}
+					onForward={onReply ? () => onReply("forward") : undefined}
 					canDelete={hasThread}
 					onDelete={hasThread ? onToolbarDelete : undefined}
 					onToggleStar={hasThread ? onToolbarStar : undefined}

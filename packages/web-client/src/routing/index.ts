@@ -26,3 +26,15 @@ export {
 	useOpenThreadPath,
 } from "./open-thread";
 export { useOutboxDraftId } from "./outbox-draft";
+export {
+	type ReplyAddress,
+	type ReplyMode,
+	type ReplySurface,
+	type ReplyTarget,
+	replyModes,
+	useAdoptReplyDraft,
+	useCloseReply,
+	useIsReplying,
+	useOpenReply,
+	useReplySurface,
+} from "./reply";
