@@ -5,10 +5,12 @@ import {
 	ComposeBodySkeleton,
 	ComposeFormShell,
 	ComposeHeader,
+	type ComposeShellLayout,
 	ComposeSubjectField,
 	ConfirmDialog,
 	composeHeaderSummary,
 	DialogBackdrop,
+	ExpandedMessage,
 	inboxFilterConfig,
 	Kbd,
 	KEY_HINT_GROUPS,
@@ -297,9 +299,16 @@ const FromRow = () => (
  */
 const ComposeSurface = ({
 	draft,
+	layout,
 }: {
 	/** The draft it opened on, for the stories where it was resumed. */
 	draft?: { to: string; subject: string };
+	/**
+	 * How it takes its height. A window in its own pane fills that pane; a reply
+	 * opened as a block of the conversation grows with what is written in it and
+	 * leaves the pane the only scroller.
+	 */
+	layout?: ComposeShellLayout;
 }) => {
 	const [toAddresses, setToAddresses] = useState<AddressEntry[]>(
 		draft ? [{ email: draft.to, displayName: undefined }] : [],
@@ -308,6 +317,7 @@ const ComposeSurface = ({
 
 	return (
 		<ComposeFormShell
+			layout={layout}
 			header={
 				<ComposeHeader
 					onExpand={() => undefined}
@@ -521,4 +531,80 @@ export const ComposeOnThePhone: Story = {
 	render: () => (
 		<MailShell {...brief} width={PHONE_WIDTH} list={<ComposeSurface />} />
 	),
+};
+
+/**
+ * The reply, as a segment under the message it answers.
+ *
+ * It is not an alternative to the conversation the way compose is: the thread
+ * stays matched behind it and the composer leads the pane, above the turn it
+ * answers. What used to open it was a request the toolbar raised and the
+ * conversation acted on a render later, so the assertion that counts is the
+ * second one — after something unrelated, with one composer and the thread
+ * still under it.
+ */
+export const ReplyUnderTheMessage: Story = {
+	name: "Reply under the message",
+	render: function ReplyUnderTheMessageRender() {
+		const [replying, setReplying] = useState(false);
+		return (
+			<MailShell
+				{...mailbox}
+				selectedThreadId="thr_q3"
+				thread={q3Thread}
+				reading={
+					<article className="flex h-full flex-col bg-canvas">
+						<header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
+							<button
+								className="rounded-md border border-line px-2 py-1 text-xs text-fg"
+								onClick={() => setReplying(true)}
+								type="button"
+							>
+								Reply
+							</button>
+						</header>
+						{/* The one scroller in the pane: the reply and the thread are both
+						    in it, so neither has a scrollbar of its own. */}
+						<div className="min-h-0 flex-1 overflow-auto">
+							{replying ? (
+								<div className="border-b border-line bg-canvas">
+									<ComposeSurface
+										layout="flow"
+										draft={{
+											to: "priya@northwind.example",
+											subject: `Re: ${q3Thread.subject}`,
+										}}
+									/>
+								</div>
+							) : null}
+							<div data-testid="conversation-messages">
+								{[...q3Thread.messages].reverse().map((message) => (
+									<ExpandedMessage key={message.id} message={message} />
+								))}
+							</div>
+						</div>
+					</article>
+				}
+			/>
+		);
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+
+		await userEvent.click(canvas.getByRole("button", { name: "Reply" }));
+
+		const subject = await canvas.findByPlaceholderText("Subject");
+		await expect(subject).toHaveValue(`Re: ${q3Thread.subject}`);
+		await expect(canvas.getByTestId("conversation-messages")).toBeVisible();
+
+		const search = canvas.getByLabelText("Search mail");
+		await userEvent.type(search, "invoice");
+
+		// One composer, still the one that was opened, and the conversation it
+		// answers still under it.
+		await expect(search).toHaveFocus();
+		await expect(canvas.getAllByLabelText("To:")).toHaveLength(1);
+		await expect(subject).toHaveValue(`Re: ${q3Thread.subject}`);
+		await expect(canvas.getByTestId("conversation-messages")).toBeVisible();
+	},
 };

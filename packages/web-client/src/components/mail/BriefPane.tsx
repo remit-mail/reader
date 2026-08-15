@@ -44,6 +44,8 @@ import { useMailContext } from "@/lib/mail-context";
 import {
 	type OpenThreadPath,
 	type OpenThreadTarget,
+	type ReplyMode,
+	useOpenReply,
 	useRetainOpenPanels,
 } from "@/routing";
 
@@ -70,6 +72,12 @@ interface BriefPaneContextValue {
 	 * account — the brief spans accounts, so there is no route mailbox to key by.
 	 */
 	actions: ThreadActions;
+	/**
+	 * Answer the open conversation, or the row the cursor is on when none is
+	 * open. Absent when there is nothing to answer, which is what the toolbar
+	 * turns into its own explanation.
+	 */
+	onReply: ((mode: ReplyMode) => void) | undefined;
 	/** Keyboard, multi-select and next/previous, shared with the mailbox view. */
 	triage: TriageContext;
 	onDeleteMessages: (messageIds: string[]) => void;
@@ -204,15 +212,29 @@ function BriefPaneProvider({ thread, children }: BriefPaneProps) {
 	const triageTarget = focusedThread ?? selectedThread;
 	const triageActions = useThreadActions({ thread: triageTarget });
 
+	// The row a verb is aimed at carries its own thread, so answering one the
+	// address has not opened yet is a single navigation to the reply under it —
+	// there is no open-it-first step for the answering half to be dropped from.
+	const openReply = useOpenReply();
+	const replyToTarget = useMemo(() => {
+		if (!triageTarget) return undefined;
+		return (mode: ReplyMode) =>
+			openReply({
+				threadId: triageTarget.threadId,
+				messageId: triageTarget.messageId,
+				mode,
+			});
+	}, [openReply, triageTarget]);
+
 	const { nextMessageId, previousMessageId } = useTriageLayer({
 		context: triage,
 		orderedIds: triage.orderedIds,
 		selectedMessageId,
 		onClose: handleCloseThread,
 		handlers: {
-			reply: () => actions.requestCompose("reply"),
-			replyAll: () => actions.requestCompose("reply_all"),
-			forward: () => actions.requestCompose("forward"),
+			reply: () => replyToTarget?.("reply"),
+			replyAll: () => replyToTarget?.("reply-all"),
+			forward: () => replyToTarget?.("forward"),
 			// The list takes any verb aimed at its selection and opens the wizard
 			// on it, so a shortcut can never reach a bulk action the bar would have
 			// reviewed. What comes back here is a verb aimed at the bare cursor.
@@ -252,6 +274,7 @@ function BriefPaneProvider({ thread, children }: BriefPaneProps) {
 		nextThread: adjacentThread(nextMessageId),
 		previousThread: adjacentThread(previousMessageId),
 		actions,
+		onReply: replyToTarget,
 		triage,
 		onDeleteMessages: deleteMessages,
 		handleDeselectIfRemoved,
@@ -289,7 +312,7 @@ function BriefList() {
  * Mount in the `reading` slot of `AppShellSlotted`. Only rendered ≥ 1024px.
  */
 function BriefReading() {
-	const { conversation, actions } = useBriefPane();
+	const { conversation, actions, onReply } = useBriefPane();
 	const { intelligenceOpen, onToggleIntelligence } = useMailContext();
 	// The rail's own width gate, not the shell tier: between 1024 and 1280 the
 	// reading pane is mounted but the rail is not, so "enabled" would promise an
@@ -305,13 +328,9 @@ function BriefReading() {
 				intelligenceOpen={canToggleIntelligence && intelligenceOpen}
 				canToggleIntelligence={canToggleIntelligence}
 				onToggleIntelligence={onToggleIntelligence}
-				onReply={hasThread ? () => actions.requestCompose("reply") : undefined}
-				onReplyAll={
-					hasThread ? () => actions.requestCompose("reply_all") : undefined
-				}
-				onForward={
-					hasThread ? () => actions.requestCompose("forward") : undefined
-				}
+				onReply={onReply ? () => onReply("reply") : undefined}
+				onReplyAll={onReply ? () => onReply("reply-all") : undefined}
+				onForward={onReply ? () => onReply("forward") : undefined}
 				onDelete={hasThread ? actions.deleteThread : undefined}
 				onToggleStar={hasThread ? actions.toggleStar : undefined}
 				isStarred={actions.isStarred}
@@ -333,8 +352,6 @@ function BriefReading() {
 						subject={conversation.subject}
 						selectedMessageId={conversation.messageId}
 						authenticity={conversation.authenticity}
-						composeRequest={actions.composeRequest}
-						onComposeClose={actions.clearComposeRequest}
 					/>
 				) : (
 					<ReadingPaneEmpty />

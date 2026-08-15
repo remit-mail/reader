@@ -33,6 +33,17 @@ export const FLAGGED_THREAD_URL = /\/mail\/flagged\/[^/?#]+/;
  */
 export const COMPOSE_URL = /\/mail\/[^/?#]+\/compose(\/[^/?#]+)?(\?|$)/;
 
+/**
+ * A reply, reply-all or forward: a segment under the message it answers, with
+ * or without the draft it is writing to. The source is the segment above it, so
+ * an address that names a reply names what it answers as well.
+ */
+export const REPLY_URL =
+	/\/mail\/[^/?#]+\/[^/?#]+\/[^/?#]+\/(reply|reply-all|forward)(\/[^/?#]+)?(\?|#|$)/;
+
+/** The same reply, once the first autosave has given it a draft to write to. */
+export const REPLY_DRAFT_URL = /\/(reply|reply-all|forward)\/[^/?#]+(\?|#|$)/;
+
 /** The outbox with a message open. Also a segment, for the same reason. */
 export const OUTBOX_MESSAGE_URL = /\/mail\/outbox\/draft\/[^/?#]+/;
 

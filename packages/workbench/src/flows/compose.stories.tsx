@@ -541,8 +541,8 @@ const ConversationWithReply = ({
 			</p>
 		</header>
 		<div className="min-h-0 flex-1 overflow-auto" data-pane-scroll>
-			{/* Same frame as `InlineCompose` — no height of its own, so the pane
-			    keeps the one scrollbar it had before the reply opened. */}
+			{/* Same frame as `ConversationCompose` — no height of its own, so the
+			    pane keeps the one scrollbar it had before the reply opened. */}
 			<div className="border-b border-line bg-canvas">
 				<Composer
 					layout="flow"
