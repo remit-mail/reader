@@ -47,27 +47,29 @@ Lists are `brief`, `flagged`, `outbox` and `<mailboxId>`. Mailbox ids are UUIDs 
 Each list is a layout route whose component renders the list plus `AppShellSlotted` with `reading={<Outlet/>}`. The detail surface is a child route of the list it was opened from, so co-location comes from the router.
 
 ```
-/mail                              redirect to /mail/brief
-/mail/brief                        list layout, reading={<Outlet/>}
-  $threadId                        thread open
-    $messageId                     that message expanded and scrolled to
-      $mode                        reply | reply-all | forward
-  compose/{-$outboxMessageId}      writing a message, on that draft once saved
+/mail                                     redirect to /mail/brief
+/mail/brief                               list layout, reading={<Outlet/>}
+  $threadId                               thread open
+    $messageId                            that message expanded and scrolled to
+      $mode/{-$outboxMessageId}           reply | reply-all | forward
+  compose/{-$outboxMessageId}             writing a message, on that draft once saved
 /mail/flagged
 /mail/outbox
-  draft/$outboxMessageId           reading an outbox message
+  draft/$outboxMessageId                  reading an outbox message
 /mail/$mailboxId
-  $threadId                        thread open
-    $messageId                     that message expanded and scrolled to
-      $mode                        reply | reply-all | forward
-  compose/{-$outboxMessageId}      writing a message, on that draft once saved
+  $threadId                               thread open
+    $messageId                            that message expanded and scrolled to
+      $mode/{-$outboxMessageId}           reply | reply-all | forward
+  compose/{-$outboxMessageId}             writing a message, on that draft once saved
 ```
 
 `compose` is a sibling of the thread route, so navigating there unmatches the thread in the same transition. No clearing code, no ordering, and a composer over an open thread is unrepresentable.
 
 `compose/<outboxMessageId>` writes a draft and `outbox/draft/<outboxMessageId>` reads an outbox message: two surfaces over one entity are two addresses, and "Edit as draft" is the move from one to the other. The draft is an optional segment of the compose route rather than a child of it, because the first autosave adopts the id it just created while the reader is still typing — a child route would unmount the composer mid-sentence, where a param arriving is only a rewritten address. Every list carries the segment for that reason, not just the two a draft can be opened from.
 
-`$mode` sits under the message, so a reply cannot exist without a source and the thread stays matched behind it. That is what "the reply at the head of the conversation" is. Validate the mode as a path param, not as three literal routes.
+`$mode` sits under the message, so a reply cannot exist without a source and the thread stays matched behind it. That is what "the reply at the head of the conversation" is. The mode is validated as a path param rather than written as three literal routes, because the three differ in what the composer opens on and not in what the address mounts. Its draft is an optional segment for the same reason compose's is, and it makes the reply survive a reload: the writing comes back on the draft it was writing to instead of starting a second one beside it.
+
+The message route mounts the reading pane itself rather than handing it to an index route, so opening a reply matches a child without remounting the conversation underneath it. Nothing is mounted by the `$mode` route: the composer belongs inside the thread, and on a phone the thread is the single pane with no reading `Outlet` to fill, so the conversation reads the reply off the address — the move the shell already makes for compose.
 
 ## FAQ
 

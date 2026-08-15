@@ -12,8 +12,14 @@ import {
 	useRef,
 	useState,
 } from "react";
+import type { ReplyMode } from "@/routing";
 
-export type ComposeMode = "reply" | "reply_all" | "forward" | "new";
+/**
+ * What a composer opened on. The three ways to answer a message are the path
+ * segment `$mode` verbatim, so the address and the form say one word each
+ * rather than translating between two vocabularies.
+ */
+export type ComposeMode = ReplyMode | "new";
 
 /**
  * A message on its way out outlives the composer that wrote it: the surface
