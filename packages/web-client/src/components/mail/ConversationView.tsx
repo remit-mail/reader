@@ -315,10 +315,22 @@ export const ConversationView = ({
 		);
 	}
 
+	// An address naming a reply over a conversation with nothing in it says so.
+	// The mailbox is shared with other clients, so a thread can empty underneath
+	// the reader between opening it and answering it, and a composer that simply
+	// failed to appear reads as a broken button.
 	if (messages.length === 0) {
 		return (
-			<div className="flex h-full items-center justify-center">
-				<EmptyState message="No messages in this thread" />
+			<div className="flex h-full items-center justify-center p-4">
+				{reply ? (
+					<ErrorState
+						variant="inline"
+						title="There is nothing here to answer"
+						error="This conversation has no messages left. Another mail client may have moved or deleted them."
+					/>
+				) : (
+					<EmptyState message="No messages in this thread" />
+				)}
 			</div>
 		);
 	}

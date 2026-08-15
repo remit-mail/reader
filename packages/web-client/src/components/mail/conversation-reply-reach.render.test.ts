@@ -202,8 +202,14 @@ const mount = async (): Promise<DomHarness> => {
 
 /**
  * The same conversation at the address that names a reply — which is the whole
- * of what opens one. A cold load rather than a press, because the reply is the
- * segment and not a state a keystroke sets.
+ * of what opens one.
+ *
+ * A cold load rather than a press: a navigation inside this harness moves the
+ * router but never re-renders the tree, so nothing here can say what the pane
+ * does as an address changes under it. Every case below is what one address
+ * renders, and the transitions between two of them — the reply opening, and its
+ * closing again with the conversation left standing — are asserted in
+ * `packages/e2e/specs/detail-routes.spec.ts`, against a real browser.
  */
 const mountReplying = async (): Promise<DomHarness> => {
 	const [mounted] = await mountAt(REPLY_PATH);

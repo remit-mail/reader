@@ -34,6 +34,7 @@ export {
 	replyModes,
 	useAdoptReplyDraft,
 	useCloseReply,
+	useIsReplying,
 	useOpenReply,
 	useReplySurface,
 } from "./reply";

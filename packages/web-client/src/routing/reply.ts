@@ -103,6 +103,19 @@ export function useReplySurface(): ReplySurface | undefined {
 	}, [params]);
 }
 
+/**
+ * Whether a composer is open inside the conversation.
+ *
+ * The list's keyboard layer suspends on this: with a reply up, r, R and f are
+ * the composer's business, and a list still answering them would restart the
+ * reply on screen — or aim one at whichever row the cursor happens to be on.
+ * A segment naming no mode does not count: there is no composer to protect, and
+ * r is then the way out of a hand-typed address.
+ */
+export function useIsReplying(): boolean {
+	return useReplySurface()?.kind === "reply";
+}
+
 interface ReplyNavigation {
 	to: typeof BRIEF_REPLY | typeof FLAGGED_REPLY;
 	params: ReplyTarget & { outboxMessageId: string | undefined };
@@ -140,6 +153,26 @@ function replyTarget(
 }
 
 /**
+ * The draft a new reply address inherits: the one already being written, when
+ * the reply on screen answers the same message.
+ *
+ * Reply All over a reply is the same message being written — the recipients
+ * change and the text does not — so the draft segment travels with the mode.
+ * Dropping it would say "a different document" to the composer, which blanks
+ * the fields and leaves the draft reachable only from the Outbox. A different
+ * message is a different reply and inherits nothing.
+ */
+function inheritedDraft(
+	open: ReplySurface | undefined,
+	target: ReplyTarget,
+): string | undefined {
+	if (open?.kind !== "reply") return undefined;
+	if (open.threadId !== target.threadId) return undefined;
+	if (open.sourceMessageId !== target.messageId) return undefined;
+	return open.outboxMessageId;
+}
+
+/**
  * Answer a message: the mode and the turn it answers, as one navigation.
  *
  * The message travels with the mode, so replying from a row the address had not
@@ -154,16 +187,17 @@ export function useOpenReply(): (target: ReplyTarget) => void {
 	const navigate = useNavigate();
 	const retainPanels = useRetainOpenPanels();
 	const { list, mailboxId } = useBrowsedList();
+	const open = useReplySurface();
 
 	return useCallback(
 		(target: ReplyTarget) => {
 			navigate({
-				...replyTarget(list, mailboxId, target, undefined),
+				...replyTarget(list, mailboxId, target, inheritedDraft(open, target)),
 				search: (prev: Record<string, unknown>) => prev,
 				hash: retainPanels,
 			});
 		},
-		[navigate, retainPanels, list, mailboxId],
+		[navigate, retainPanels, list, mailboxId, open],
 	);
 }
 

@@ -45,6 +45,8 @@ import {
 	type OpenThreadPath,
 	type OpenThreadTarget,
 	type ReplyMode,
+	useIsComposing,
+	useIsReplying,
 	useOpenReply,
 	useRetainOpenPanels,
 } from "@/routing";
@@ -216,6 +218,8 @@ function BriefPaneProvider({ thread, children }: BriefPaneProps) {
 	// Both are one navigation, because the mode and the message it answers are
 	// segments of the same address — there is no open-it-first step for the
 	// answering half to be dropped from.
+	const isComposing = useIsComposing();
+	const isReplying = useIsReplying();
 	const openReply = useOpenReply();
 	const replyToOpenThread = useMemo(() => {
 		if (!selectedThread || !selectedMessageId) return undefined;
@@ -241,6 +245,10 @@ function BriefPaneProvider({ thread, children }: BriefPaneProps) {
 		context: triage,
 		orderedIds: triage.orderedIds,
 		selectedMessageId,
+		// The list stays mounted under both writing surfaces, so the triage keys
+		// would otherwise fire at the message behind whatever is being typed — or
+		// answer a row the cursor moved to while a reply was open.
+		enabled: !isComposing && !isReplying,
 		onClose: handleCloseThread,
 		handlers: {
 			reply: () => replyToFocusedThread?.("reply"),

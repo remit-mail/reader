@@ -178,9 +178,7 @@ export { ComposeBodySkeleton } from "./components/compose-body-skeleton.js";
 export {
 	ComposeFormShell,
 	type ComposeFormShellProps,
-	type ComposeMode,
 	type ComposeShellLayout,
-	composeModeLabels,
 } from "./components/compose-form-shell.js";
 export {
 	ComposeHeader,

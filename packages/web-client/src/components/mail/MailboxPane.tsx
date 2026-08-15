@@ -117,6 +117,7 @@ import {
 	type OpenThreadTarget,
 	type ReplyMode,
 	useIsComposing,
+	useIsReplying,
 	useOpenCompose,
 	useOpenReply,
 	useRetainOpenPanels,
@@ -569,6 +570,7 @@ function MailboxPaneProvider({
 	}, [openReply, focusedThread]);
 
 	const isComposing = useIsComposing();
+	const isReplying = useIsReplying();
 	const openCompose = useOpenCompose();
 
 	const messageIdsForFocusedThread = useCallback(
@@ -739,9 +741,10 @@ function MailboxPaneProvider({
 		context: triage,
 		orderedIds: threads.map((t) => t.messageId),
 		selectedMessageId,
-		// The list stays mounted under the compose surface, so the triage keys
-		// would otherwise fire at the message behind whatever is being typed.
-		enabled: !isComposing,
+		// The list stays mounted under both writing surfaces, so the triage keys
+		// would otherwise fire at the message behind whatever is being typed — or
+		// answer a row the cursor moved to while a reply was open.
+		enabled: !isComposing && !isReplying,
 		onClose: closeThread,
 		handlers: {
 			reply: triageReply,
