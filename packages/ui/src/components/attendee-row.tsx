@@ -72,7 +72,7 @@ export function AttendeeRow({
 	const face = (
 		<>
 			<Avatar name={attendee.name} email={attendee.email} size="sm" />
-			<span className="min-w-0 flex-1 text-left">
+			<span className="min-w-0 flex-1">
 				<span className="block truncate text-sm text-fg">{attendee.name}</span>
 				{attendee.role === "organizer" && (
 					<span className="block text-2xs text-fg-subtle">Organiser</span>
@@ -106,7 +106,7 @@ export function AttendeeRow({
 				onActivate("");
 			}}
 			className={cn(
-				"flex w-full items-center gap-2.5 rounded-md px-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+				"flex w-full items-center gap-2.5 rounded-md px-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring",
 				touch ? "min-h-11" : "min-h-9",
 				active ? "bg-accent-2-soft" : "hover:bg-surface-sunken",
 				className,

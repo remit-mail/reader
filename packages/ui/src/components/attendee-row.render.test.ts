@@ -59,9 +59,12 @@ describe("AttendeeRow", () => {
 		const html = renderToString(
 			createElement(AttendeeRow, { attendee: attendees[1] }),
 		);
-		assert.doesNotMatch(html, /<button/);
 		assert.match(html, /^<div class="flex min-h-9 items-center gap-2\.5">/);
-		assert.doesNotMatch(html, /aria-expanded|w-full|relative/);
+		assert.match(html, /<span class="min-w-0 flex-1">/);
+		assert.doesNotMatch(
+			html,
+			/<button|aria-expanded|w-full|text-left|relative/,
+		);
 	});
 
 	it("becomes a control where a name leads somewhere", () => {
@@ -116,8 +119,12 @@ describe("AttendeeList", () => {
 
 	it("leaves the markup it always had when nothing can be opened", () => {
 		const html = renderToString(createElement(AttendeeList, { attendees }));
-		assert.doesNotMatch(html, /<button/);
-		assert.equal(html.match(/<div/g)?.length, 1);
+		assert.doesNotMatch(html, /<button|aria-expanded|w-full/);
+		assert.doesNotMatch(html, /<div>/);
+		assert.equal(
+			html.match(/<div class="flex min-h-9 items-center gap-2\.5">/g)?.length,
+			attendees.length,
+		);
 	});
 
 	it("makes every row a control when a guest can be opened", () => {
