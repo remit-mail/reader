@@ -84,9 +84,8 @@ interface FlaggedPaneContextValue {
 	 */
 	actions: ThreadActions;
 	/**
-	 * Answer the open conversation, or the row the cursor is on when none is
-	 * open. Absent when there is nothing to answer, which is what the toolbar
-	 * turns into its own explanation.
+	 * Answer the conversation the address has open. Absent when it names none,
+	 * which is what the toolbar turns into its own explanation.
 	 */
 	onReply: ((mode: ReplyMode) => void) | undefined;
 	/** Keyboard, multi-select and next/previous, shared with the mailbox view. */
@@ -218,11 +217,23 @@ function FlaggedPaneProvider({ thread, children }: FlaggedPaneProps) {
 	const triageTarget = focusedThread ?? selectedThread;
 	const triageActions = useThreadActions({ thread: triageTarget });
 
-	// The row a verb is aimed at carries its own thread, so answering one the
-	// address has not opened yet is a single navigation to the reply under it —
-	// there is no open-it-first step for the answering half to be dropped from.
+	// The toolbar answers the conversation on screen; the keyboard answers the
+	// row the cursor is on, which may be one the address has not opened yet.
+	// Both are one navigation, because the mode and the message it answers are
+	// segments of the same address — there is no open-it-first step for the
+	// answering half to be dropped from.
 	const openReply = useOpenReply();
-	const replyToTarget = useMemo(() => {
+	const replyToOpenThread = useMemo(() => {
+		if (!selectedThread || !selectedMessageId) return undefined;
+		return (mode: ReplyMode) =>
+			openReply({
+				threadId: selectedThread.threadId,
+				messageId: selectedMessageId,
+				mode,
+			});
+	}, [openReply, selectedThread, selectedMessageId]);
+
+	const replyToFocusedThread = useMemo(() => {
 		if (!triageTarget) return undefined;
 		return (mode: ReplyMode) =>
 			openReply({
@@ -238,9 +249,9 @@ function FlaggedPaneProvider({ thread, children }: FlaggedPaneProps) {
 		selectedMessageId,
 		onClose: handleCloseThread,
 		handlers: {
-			reply: () => replyToTarget?.("reply"),
-			replyAll: () => replyToTarget?.("reply-all"),
-			forward: () => replyToTarget?.("forward"),
+			reply: () => replyToFocusedThread?.("reply"),
+			replyAll: () => replyToFocusedThread?.("reply-all"),
+			forward: () => replyToFocusedThread?.("forward"),
 			// The list takes any verb aimed at its selection and opens the wizard
 			// on it, so a shortcut can never reach a bulk action the bar would have
 			// reviewed. What comes back here is a verb aimed at the bare cursor.
@@ -280,7 +291,7 @@ function FlaggedPaneProvider({ thread, children }: FlaggedPaneProps) {
 		nextThread: adjacentThread(nextMessageId),
 		previousThread: adjacentThread(previousMessageId),
 		actions,
-		onReply: replyToTarget,
+		onReply: replyToOpenThread,
 		triage,
 		onDeleteMessages: deleteMessages,
 		handleDeselectIfRemoved,

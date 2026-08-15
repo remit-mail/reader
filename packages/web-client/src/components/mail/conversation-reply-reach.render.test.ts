@@ -126,31 +126,50 @@ afterEach(() => {
 // `window`.
 (globalThis as { self?: typeof globalThis }).self ??= globalThis;
 
-// The conversation is what the mailbox route renders, and the per-message
-// action menu reads the route's own search — so it is mounted on a route
-// rather than beside one.
+// The conversation is what the message route renders, and the reply is the
+// segment under it — so the tree here is the app's: the folder, the thread, the
+// message, and the mode below it. Pressing r is a navigation to that segment,
+// which is the whole of what opens the reply.
 const testRouter = (): AnyRouter => {
 	// The compose provider sits at the root the way `__root.tsx` mounts it.
 	const rootRoute = createRootRoute({
 		component: () =>
 			createElement(ComposeProvider, null, createElement(Outlet)),
 	});
+	const mailboxRoute = createRoute({
+		getParentRoute: () => rootRoute,
+		path: "/mail/$mailboxId",
+		validateSearch: (search: Record<string, unknown>) => search,
+	});
+	const threadRoute = createRoute({
+		getParentRoute: () => mailboxRoute,
+		path: "$threadId",
+	});
+	const messageRoute = createRoute({
+		getParentRoute: () => threadRoute,
+		path: "$messageId",
+		component: () =>
+			createElement(ConversationView, {
+				threadId: THREAD_ID,
+				mailboxId: MAILBOX_ID,
+				subject: "Lunch Thursday?",
+				selectedMessageId: MESSAGE_ID,
+			}),
+	});
+	const replyRoute = createRoute({
+		getParentRoute: () => messageRoute,
+		path: "$mode/{-$outboxMessageId}",
+	});
 	const routeTree = rootRoute.addChildren([
-		createRoute({
-			getParentRoute: () => rootRoute,
-			path: "/mail/$mailboxId",
-			validateSearch: (search: Record<string, unknown>) => search,
-			component: () =>
-				createElement(ConversationView, {
-					threadId: THREAD_ID,
-					mailboxId: MAILBOX_ID,
-					subject: "Lunch Thursday?",
-				}),
-		}),
+		mailboxRoute.addChildren([
+			threadRoute.addChildren([messageRoute.addChildren([replyRoute])]),
+		]),
 	]);
 	return createRouter({
 		routeTree,
-		history: createMemoryHistory({ initialEntries: [`/mail/${MAILBOX_ID}`] }),
+		history: createMemoryHistory({
+			initialEntries: [`/mail/${MAILBOX_ID}/${THREAD_ID}/${MESSAGE_ID}`],
+		}),
 	}) as unknown as AnyRouter;
 };
 
@@ -174,7 +193,11 @@ const mount = async (): Promise<DomHarness> => {
 	return harness;
 };
 
-/** The r shortcut the reading pane binds — how a reader opens the reply. */
+/**
+ * The r shortcut the reading pane binds — how a reader opens the reply. It is a
+ * navigation, so the wait after it is for the route to settle rather than for a
+ * state update to paint.
+ */
 const pressReply = async (mounted: DomHarness): Promise<void> => {
 	mounted.dispatch(
 		mounted.window,

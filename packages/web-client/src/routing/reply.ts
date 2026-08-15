@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { z } from "zod";
 import type { MailListRoute } from "@/lib/mail-route";
 import { useBrowsedList } from "./browsed-list";
@@ -89,16 +89,18 @@ function useReplyParams(): ReplyParams | undefined {
  */
 export function useReplySurface(): ReplySurface | undefined {
 	const params = useReplyParams();
-	if (!params) return undefined;
-	const mode = replyModeSchema.safeParse(params.mode);
-	if (!mode.success) return { kind: "unknown", segment: params.mode };
-	return {
-		kind: "reply",
-		mode: mode.data,
-		threadId: params.threadId,
-		sourceMessageId: params.messageId,
-		outboxMessageId: params.outboxMessageId,
-	};
+	return useMemo(() => {
+		if (!params) return undefined;
+		const mode = replyModeSchema.safeParse(params.mode);
+		if (!mode.success) return { kind: "unknown", segment: params.mode };
+		return {
+			kind: "reply",
+			mode: mode.data,
+			threadId: params.threadId,
+			sourceMessageId: params.messageId,
+			outboxMessageId: params.outboxMessageId,
+		};
+	}, [params]);
 }
 
 interface ReplyNavigation {

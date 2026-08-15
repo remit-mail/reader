@@ -551,7 +551,6 @@ export const ReplyUnderTheMessage: Story = {
 			<MailShell
 				{...mailbox}
 				selectedThreadId="thr_q3"
-				thread={q3Thread}
 				reading={
 					<article className="flex h-full flex-col bg-canvas">
 						<header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
