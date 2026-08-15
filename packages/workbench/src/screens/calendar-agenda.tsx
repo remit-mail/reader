@@ -323,6 +323,7 @@ export function CalendarAgenda({
 		useState<EventSuggestion[]>(agendaSuggestions);
 	const [dropped, setDropped] = useState<DroppedSuggestion | null>(null);
 	const [rules, setRules] = useState<string[]>([]);
+	const [zones, setZones] = useState<Record<string, string>>({});
 	const [selected, setSelected] = useState(selectedEventId);
 	const [visible, setVisible] = useState(
 		() =>
@@ -569,9 +570,15 @@ export function CalendarAgenda({
 		);
 	};
 
-	const acceptSuggestion = (suggestion: EventSuggestion) => {
+	const acceptSuggestion = (suggestion: EventSuggestion, timeZone: string) => {
 		const id = `evt_from_${suggestion.id}`;
-		setEvents((previous) => [...previous, eventFromSuggestion(suggestion, id)]);
+		const promoted = eventFromSuggestion(suggestion, id);
+		setEvents((previous) => [
+			...previous,
+			timeZone === ""
+				? promoted
+				: { ...promoted, timeZone, zoneCertainty: "explicit" },
+		]);
 		setSuggestions((previous) =>
 			previous.filter((item) => item.id !== suggestion.id),
 		);
@@ -696,7 +703,14 @@ export function CalendarAgenda({
 					key={suggestion.id}
 					suggestion={suggestion}
 					whenText={formatSuggestionWhen(suggestion)}
-					onAdd={() => acceptSuggestion(suggestion)}
+					zoneChoice={zones[suggestion.id] ?? ""}
+					onZoneChoice={(timeZone) =>
+						setZones((previous) => ({
+							...previous,
+							[suggestion.id]: timeZone,
+						}))
+					}
+					onAdd={(timeZone) => acceptSuggestion(suggestion, timeZone)}
 					onReview={() => goTo(suggestion.start.slice(0, 10))}
 					onDismiss={() => dropSuggestion(suggestion)}
 					onOpenThread={() => openThread(suggestion.threadId)}
