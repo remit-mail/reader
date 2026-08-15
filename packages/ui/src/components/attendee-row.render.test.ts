@@ -55,11 +55,13 @@ describe("AttendeeRow", () => {
 		assert.doesNotMatch(html, /Organiser/);
 	});
 
-	it("stays inert where a name leads nowhere", () => {
+	it("renders exactly what it always did for a caller with nothing to open", () => {
 		const html = renderToString(
-			createElement(AttendeeRow, { attendee: attendees[0] }),
+			createElement(AttendeeRow, { attendee: attendees[1] }),
 		);
 		assert.doesNotMatch(html, /<button/);
+		assert.match(html, /^<div class="flex min-h-9 items-center gap-2\.5">/);
+		assert.doesNotMatch(html, /aria-expanded|w-full|relative/);
 	});
 
 	it("becomes a control where a name leads somewhere", () => {
@@ -70,10 +72,10 @@ describe("AttendeeRow", () => {
 			}),
 		);
 		assert.match(html, /<button/);
-		assert.match(html, /aria-pressed="false"/);
+		assert.match(html, /aria-expanded="false"/);
 	});
 
-	it("marks the row whose context is open", () => {
+	it("says the row is the one standing open", () => {
 		const html = renderToString(
 			createElement(AttendeeRow, {
 				attendee: attendees[0],
@@ -81,7 +83,7 @@ describe("AttendeeRow", () => {
 				onActivate: () => undefined,
 			}),
 		);
-		assert.match(html, /aria-pressed="true"/);
+		assert.match(html, /aria-expanded="true"/);
 	});
 
 	it("gives a thumb a row it can hit", () => {
@@ -112,9 +114,10 @@ describe("AttendeeList", () => {
 		);
 	});
 
-	it("leaves every row inert when the surface offers nothing behind them", () => {
+	it("leaves the markup it always had when nothing can be opened", () => {
 		const html = renderToString(createElement(AttendeeList, { attendees }));
 		assert.doesNotMatch(html, /<button/);
+		assert.equal(html.match(/<div/g)?.length, 1);
 	});
 
 	it("makes every row a control when a guest can be opened", () => {
@@ -124,7 +127,7 @@ describe("AttendeeList", () => {
 		assert.equal(html.match(/<button/g)?.length, attendees.length);
 	});
 
-	it("anchors the context to the guest it is about and to no other", () => {
+	it("puts the context under the guest it is about and under no other", () => {
 		const html = renderToString(
 			createElement(AttendeeList, {
 				attendees,

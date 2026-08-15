@@ -59,8 +59,9 @@ export const List: Story = {
 
 /**
  * The same list where the surface has something to say about the person behind
- * a row. Pointing at one opens it, pointing away closes it, and what opens is
- * the caller's — the kit anchors it and knows nothing else about it.
+ * a row. A row is then a disclosure: it opens under the guest, the same
+ * activation closes it, and what opens is the caller's — the kit places it and
+ * knows nothing else about it.
  */
 export const WithContext: Story = {
 	render: () => {

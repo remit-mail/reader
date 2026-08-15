@@ -276,11 +276,10 @@ export const ThreadMakesWay: Story = {
 };
 
 /**
- * A guest is a correspondent. Pointing at one in the guest list opens what they
- * have written lately — the context you were about to go looking for anyway,
- * and it is one hover away only because the mail and the calendar are the same
- * application. Pointing away closes it again, so the list never holds open a
- * card about somebody you have stopped reading.
+ * A guest is a correspondent, so their name opens what they have written
+ * lately — the context you were about to go looking for anyway, and it is one
+ * click away only because the mail and the calendar are the same application.
+ * The same click closes it: opening is something you asked for, so is closing.
  */
 export const AttendeeContext: Story = {
 	name: "What a guest has written",
@@ -289,21 +288,84 @@ export const AttendeeContext: Story = {
 	),
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
+		const guest = () => canvas.getByRole("button", { name: /Priya Natarajan/ });
 
-		const guest = canvas.getByRole("button", { name: /Priya Natarajan/ });
-		await userEvent.hover(guest);
+		await userEvent.click(guest());
 
 		await waitFor(() =>
 			expect(canvas.getByText("Recent mail · 3")).toBeInTheDocument(),
 		);
 		await expect(canvas.getByText("Lunch walk Wednesday?")).toBeInTheDocument();
 
-		await userEvent.unhover(
-			canvas.getByRole("button", { name: /Priya Natarajan/ }),
-		);
+		await userEvent.click(guest());
 
 		await waitFor(() =>
 			expect(canvas.queryByText("Lunch walk Wednesday?")).toBeNull(),
+		);
+	},
+};
+
+/**
+ * The same guest from the keyboard. Arriving at a row is not asking for
+ * anything, so tabbing to it opens nothing; Enter opens, Escape closes, and
+ * taking focus elsewhere closes too — a reader who tabs past a guest never ends
+ * up with a panel they cannot get rid of.
+ */
+export const KeyboardGuestContext: Story = {
+	name: "A guest opened from the keyboard",
+	render: () => (
+		<CalendarAgenda date="2026-06-10" selectedEventId="evt_q3_roadmap" />
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const guest = () => canvas.getByRole("button", { name: /Dana Okafor/ });
+		const offsite = "Offsite logistics — rooms, travel, the dinner";
+
+		guest().focus();
+		await expect(canvas.queryByText(offsite)).toBeNull();
+
+		await userEvent.keyboard("{Enter}");
+		await waitFor(() => expect(canvas.getByText(offsite)).toBeInTheDocument());
+
+		await userEvent.keyboard("{Escape}");
+		await waitFor(() => expect(canvas.queryByText(offsite)).toBeNull());
+
+		guest().focus();
+		await userEvent.keyboard("{Enter}");
+		await waitFor(() => expect(canvas.getByText(offsite)).toBeInTheDocument());
+
+		canvas.getByRole("button", { name: "Edit" }).focus();
+		await waitFor(() => expect(canvas.queryByText(offsite)).toBeNull());
+	},
+};
+
+/**
+ * A guest low in the narrowest pane the desktop has. What opens is part of the
+ * pane rather than a card floating over it, so it pushes the rest of the guest
+ * list down and scrolls with everything else instead of being cut off at the
+ * fold or sitting on top of the guest underneath.
+ */
+export const GuestContextInAShortPane: Story = {
+	name: "The context never covers the guest under it",
+	render: () => (
+		<CalendarAgenda
+			width={1024}
+			date="2026-06-10"
+			selectedEventId="evt_q3_roadmap"
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+
+		await userEvent.click(canvas.getByRole("button", { name: /Aisha Khan/ }));
+
+		const note = await waitFor(() =>
+			canvas.getByText("No mail with this address"),
+		);
+		const below = canvas.getByRole("button", { name: /Sven Larsen/ });
+
+		await expect(note.getBoundingClientRect().bottom).toBeLessThan(
+			below.getBoundingClientRect().top,
 		);
 	},
 };

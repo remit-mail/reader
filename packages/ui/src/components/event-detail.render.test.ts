@@ -103,7 +103,7 @@ describe("EventDetail", () => {
 	});
 
 	it("leaves the guest list inert where a name leads nowhere", () => {
-		assert.doesNotMatch(render({}), /aria-pressed/);
+		assert.doesNotMatch(render({}), /aria-expanded/);
 	});
 
 	it("opens the caller's context under the guest it is about", () => {
@@ -120,7 +120,7 @@ describe("EventDetail", () => {
 					createElement("p", null, `Recent mail · ${attendee.name}`),
 			}),
 		);
-		assert.match(html, /aria-pressed="true"/);
+		assert.match(html, /aria-expanded="true"/);
 		assert.match(html, /Recent mail · Priya Natarajan/);
 	});
 });
