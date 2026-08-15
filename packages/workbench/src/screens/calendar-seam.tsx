@@ -86,7 +86,7 @@ import {
 	slotOffers,
 	type TimeSlot,
 	toMinutes,
-} from "../fixtures/calendar-seam.js";
+} from "../fixtures/calendar-mail.js";
 import { clashesWith } from "../lib/agenda-time.js";
 import { MailShell } from "./mail-shell.js";
 

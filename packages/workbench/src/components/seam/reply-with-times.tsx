@@ -3,7 +3,7 @@ import { CornerUpLeft, Timer, X } from "lucide-react";
 import {
 	HOLD_EXPIRY_LABEL,
 	type TimeSlot,
-} from "../../fixtures/calendar-seam.js";
+} from "../../fixtures/calendar-mail.js";
 
 /**
  * Answering with times. The slots go into the reply as plain text, because the

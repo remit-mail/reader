@@ -6,7 +6,7 @@ import {
 	type SoftHold,
 	type TimeSlot,
 	toMinutes,
-} from "../../fixtures/calendar-seam.js";
+} from "../../fixtures/calendar-mail.js";
 
 /**
  * One day's commitments, drawn beside the mail that is asking for a slot of it.

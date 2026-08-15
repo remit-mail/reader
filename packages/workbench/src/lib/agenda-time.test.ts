@@ -21,7 +21,7 @@ import {
 	proposals,
 	seamWeekEvents,
 	slotOffers,
-} from "../fixtures/calendar-seam.js";
+} from "../fixtures/calendar-mail.js";
 import {
 	buildAgendaRows,
 	clashesWith,
