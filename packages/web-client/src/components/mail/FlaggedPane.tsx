@@ -55,6 +55,10 @@ import { useMailContext } from "@/lib/mail-context";
 import {
 	type OpenThreadPath,
 	type OpenThreadTarget,
+	type ReplyMode,
+	useIsComposing,
+	useIsReplying,
+	useOpenReply,
 	useRetainOpenPanels,
 } from "@/routing";
 
@@ -81,6 +85,11 @@ interface FlaggedPaneContextValue {
 	 * account — Flagged spans accounts, so there is no route mailbox to key by.
 	 */
 	actions: ThreadActions;
+	/**
+	 * Answer the conversation the address has open. Absent when it names none,
+	 * which is what the toolbar turns into its own explanation.
+	 */
+	onReply: ((mode: ReplyMode) => void) | undefined;
 	/** Keyboard, multi-select and next/previous, shared with the mailbox view. */
 	triage: TriageContext;
 	onDeleteMessages: (messageIds: string[]) => void;
@@ -210,15 +219,47 @@ function FlaggedPaneProvider({ thread, children }: FlaggedPaneProps) {
 	const triageTarget = focusedThread ?? selectedThread;
 	const triageActions = useThreadActions({ thread: triageTarget });
 
+	// The toolbar answers the conversation on screen; the keyboard answers the
+	// row the cursor is on, which may be one the address has not opened yet.
+	// Both are one navigation, because the mode and the message it answers are
+	// segments of the same address — there is no open-it-first step for the
+	// answering half to be dropped from.
+	const isComposing = useIsComposing();
+	const isReplying = useIsReplying();
+	const openReply = useOpenReply();
+	const replyToOpenThread = useMemo(() => {
+		if (!selectedThread || !selectedMessageId) return undefined;
+		return (mode: ReplyMode) =>
+			openReply({
+				threadId: selectedThread.threadId,
+				messageId: selectedMessageId,
+				mode,
+			});
+	}, [openReply, selectedThread, selectedMessageId]);
+
+	const replyToFocusedThread = useMemo(() => {
+		if (!triageTarget) return undefined;
+		return (mode: ReplyMode) =>
+			openReply({
+				threadId: triageTarget.threadId,
+				messageId: triageTarget.messageId,
+				mode,
+			});
+	}, [openReply, triageTarget]);
+
 	const { nextMessageId, previousMessageId } = useTriageLayer({
 		context: triage,
 		orderedIds: triage.orderedIds,
 		selectedMessageId,
+		// The list stays mounted under both writing surfaces, so the triage keys
+		// would otherwise fire at the message behind whatever is being typed — or
+		// answer a row the cursor moved to while a reply was open.
+		enabled: !isComposing && !isReplying,
 		onClose: handleCloseThread,
 		handlers: {
-			reply: () => actions.requestCompose("reply"),
-			replyAll: () => actions.requestCompose("reply_all"),
-			forward: () => actions.requestCompose("forward"),
+			reply: () => replyToFocusedThread?.("reply"),
+			replyAll: () => replyToFocusedThread?.("reply-all"),
+			forward: () => replyToFocusedThread?.("forward"),
 			// The list takes any verb aimed at its selection and opens the wizard
 			// on it, so a shortcut can never reach a bulk action the bar would have
 			// reviewed. What comes back here is a verb aimed at the bare cursor.
@@ -258,6 +299,7 @@ function FlaggedPaneProvider({ thread, children }: FlaggedPaneProps) {
 		nextThread: adjacentThread(nextMessageId),
 		previousThread: adjacentThread(previousMessageId),
 		actions,
+		onReply: replyToOpenThread,
 		triage,
 		onDeleteMessages: deleteMessages,
 		handleDeselectIfRemoved,
@@ -292,7 +334,7 @@ function FlaggedListSlot() {
  * Mount in the `reading` slot of `AppShellSlotted`. Only rendered ≥ 1024px.
  */
 function FlaggedReading() {
-	const { conversation, actions } = useFlaggedPane();
+	const { conversation, actions, onReply } = useFlaggedPane();
 	const { intelligenceOpen, onToggleIntelligence } = useMailContext();
 	// The rail's own width gate, not the shell tier: between 1024 and 1280 the
 	// reading pane is mounted but the rail is not, so "enabled" would promise an
@@ -308,13 +350,9 @@ function FlaggedReading() {
 				intelligenceOpen={canToggleIntelligence && intelligenceOpen}
 				canToggleIntelligence={canToggleIntelligence}
 				onToggleIntelligence={onToggleIntelligence}
-				onReply={hasThread ? () => actions.requestCompose("reply") : undefined}
-				onReplyAll={
-					hasThread ? () => actions.requestCompose("reply_all") : undefined
-				}
-				onForward={
-					hasThread ? () => actions.requestCompose("forward") : undefined
-				}
+				onReply={onReply ? () => onReply("reply") : undefined}
+				onReplyAll={onReply ? () => onReply("reply-all") : undefined}
+				onForward={onReply ? () => onReply("forward") : undefined}
 				onDelete={hasThread ? actions.deleteThread : undefined}
 				onToggleStar={hasThread ? actions.toggleStar : undefined}
 				isStarred={actions.isStarred}
@@ -336,8 +374,6 @@ function FlaggedReading() {
 						subject={conversation.subject}
 						selectedMessageId={conversation.messageId}
 						authenticity={conversation.authenticity}
-						composeRequest={actions.composeRequest}
-						onComposeClose={actions.clearComposeRequest}
 					/>
 				) : (
 					<ReadingPaneEmpty />

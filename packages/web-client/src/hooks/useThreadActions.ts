@@ -1,14 +1,16 @@
 /**
  * useThreadActions — the reading pane's verbs for one open thread.
  *
- * Delete, move, star and the compose requests (reply / reply-all / forward),
- * over the same mutation hooks the mailbox list uses. The mailbox view keys
- * them by its route; the brief and Flagged are cross-account, so they key by
- * the open thread's own `mailboxId` / `accountId` (#149).
+ * Delete, move and star, over the same mutation hooks the mailbox list uses.
+ * The mailbox view keys them by its route; the brief and Flagged are
+ * cross-account, so they key by the open thread's own `mailboxId` /
+ * `accountId` (#149).
+ *
+ * Answering a message is not here: reply, reply-all and forward are a segment
+ * under the message, so they are a navigation rather than a verb a pane holds.
  */
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import { useCallback, useState } from "react";
-import type { ComposeMode } from "@/components/compose/ComposeProvider";
+import { useCallback } from "react";
 import { useDeleteMessages } from "@/hooks/useDeleteMessages";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
@@ -31,9 +33,6 @@ export interface ThreadActions {
 	deleteThread: () => void;
 	moveThread: (destinationMailboxId: string) => void;
 	toggleStar: () => void;
-	composeRequest: ComposeMode | null;
-	requestCompose: (mode: ComposeMode) => void;
-	clearComposeRequest: () => void;
 }
 
 export const useThreadActions = ({
@@ -91,11 +90,6 @@ export const useThreadActions = ({
 		toggleStarFor(thread.messageId, thread.hasStars);
 	}, [thread, toggleStarFor]);
 
-	const [composeRequest, setComposeRequest] = useState<ComposeMode | null>(
-		null,
-	);
-	const clearComposeRequest = useCallback(() => setComposeRequest(null), []);
-
 	return {
 		mailboxId: resolvedMailboxId,
 		accountId: resolvedAccountId,
@@ -103,8 +97,5 @@ export const useThreadActions = ({
 		deleteThread,
 		moveThread,
 		toggleStar,
-		composeRequest,
-		requestCompose: setComposeRequest,
-		clearComposeRequest,
 	};
 };

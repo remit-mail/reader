@@ -1,14 +1,12 @@
 import {
 	configOperationsGetConfigOptions,
-	messageOperationsDescribeMessageOptions,
 	threadDetailOperationsListThreadMessagesOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapMessageAuthenticity } from "@remit/api-http-client/types.gen.ts";
 import { MobileReadingPane } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ComposeMode } from "@/components/compose/ComposeProvider";
-import { InlineCompose } from "@/components/compose/InlineCompose";
+import { ConversationCompose } from "@/components/compose/ConversationCompose";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
@@ -17,6 +15,7 @@ import { useMarkAsRead } from "@/hooks/useMarkAsRead";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useSwipeNavigation } from "@/hooks/useSwipeNavigation";
 import { useToggleStar } from "@/hooks/useToggleStar";
+import { type ReplyMode, useOpenReply, useReplySurface } from "@/routing";
 import { AuthenticityBanner } from "./AuthenticityBanner";
 import { MessageCard } from "./MessageCard";
 
@@ -47,21 +46,6 @@ interface ConversationViewProps {
 	 * list is always visible in the resizable side pane.
 	 */
 	onBack?: () => void;
-	/**
-	 * When set, immediately opens the inline compose in this mode. The
-	 * parent (e.g. the reading-pane toolbar) sets this to wire the
-	 * top-bar reply/reply-all/forward buttons into the inline compose
-	 * that lives inside the conversation. Reset by calling
-	 * `onComposeClose` after the compose opens.
-	 */
-	composeRequest?: ComposeMode | null;
-	/**
-	 * Called once the conversation has acted on `composeRequest` (or
-	 * whenever the inline compose is dismissed). The caller must reset
-	 * `composeRequest` to `null`: a request left standing is read as a fresh
-	 * one on every render.
-	 */
-	onComposeClose?: () => void;
 	/**
 	 * Mobile only: swipe-left handler to open the next message in the list the
 	 * thread was opened from. Omitted at the end of the list so the gesture
@@ -103,8 +87,6 @@ export const ConversationView = ({
 	authenticity,
 	onOpenIntelligence,
 	onBack,
-	composeRequest,
-	onComposeClose,
 	onSwipeNext,
 	onSwipePrevious,
 	mobileIntelligenceOpen,
@@ -240,72 +222,65 @@ export const ConversationView = ({
 		messages,
 	});
 
-	// Compose state for inline reply/forward.
-	// Controlled via the `composeRequest` prop (toolbar wire-up) or
-	// locally via r/a/f keyboard shortcuts.
-	const [composeMode, setComposeMode] = useState<ComposeMode | null>(null);
+	// The reply is a segment under the message it answers, so what is being
+	// written and which turn it answers are the address's to state. Nothing here
+	// keeps a second opinion about whether a composer is up.
+	const reply = useReplySurface();
+	const openReply = useOpenReply();
 
-	// Counts openings rather than tracking the mode: replying from a second
-	// message while compose is already open is the same request again, and the
-	// reader still has to be taken to it.
-	const [composeOpenings, setComposeOpenings] = useState(0);
-	const openCompose = useCallback((mode: ComposeMode) => {
-		setComposeMode(mode);
-		setComposeOpenings((count) => count + 1);
-	}, []);
+	// Which turn a verb aimed at the whole conversation answers: the message the
+	// address names, or the latest turn when it names none. A per-message button
+	// passes its own instead, which the address could not express before this.
+	const answeredMessageId = selectedMessageId ?? latestMessage?.messageId;
 
-	// When the toolbar passes a composeRequest, open the inline compose.
-	useEffect(() => {
-		if (composeRequest && composeRequest !== "new") {
-			openCompose(composeRequest);
-			// Notify the parent that the request has been consumed.
-			onComposeClose?.();
-		}
-	}, [composeRequest, onComposeClose, openCompose]);
+	const replyWith = useCallback(
+		(mode: ReplyMode, messageId: string | undefined) => {
+			if (!messageId) return;
+			openReply({ threadId, messageId, mode });
+		},
+		[openReply, threadId],
+	);
 
-	// Reply and forward act on the latest turn of the conversation, which is the
-	// last message now that the thread reads oldest first.
-	const { data: latestMessageData } = useQuery({
-		...messageOperationsDescribeMessageOptions({
-			path: { messageId: latestMessage?.messageId ?? "" },
-		}),
-		enabled: !!latestMessage && composeMode !== null,
-	});
-
-	const handleReply = useCallback(() => openCompose("reply"), [openCompose]);
+	const handleReply = useCallback(
+		() => replyWith("reply", answeredMessageId),
+		[replyWith, answeredMessageId],
+	);
 
 	const handleReplyAll = useCallback(
-		() => openCompose("reply_all"),
-		[openCompose],
+		() => replyWith("reply-all", answeredMessageId),
+		[replyWith, answeredMessageId],
 	);
 
 	const handleForward = useCallback(
-		() => openCompose("forward"),
-		[openCompose],
+		() => replyWith("forward", answeredMessageId),
+		[replyWith, answeredMessageId],
 	);
-
-	const handleCloseCompose = useCallback(() => {
-		setComposeMode(null);
-		onComposeClose?.();
-	}, [onComposeClose]);
 
 	// Compose opens at the head of the pane, which from halfway down a long
 	// thread is several screens up: without this, replying looks like nothing
 	// happening. Aligned on its top edge, where the recipients are, and left
 	// alone afterwards — it grows downward as it is written into, so following
 	// its height would pull the rows being typed into off the top.
+	//
+	// Keyed on what is being answered and how, not on the draft under it: the
+	// address gains a draft segment while the reader types, and scrolling there
+	// would move the pane mid-sentence.
 	const composeRef = useRef<HTMLDivElement>(null);
+	const answering =
+		reply?.kind === "reply"
+			? `${reply.mode}:${reply.sourceMessageId}`
+			: undefined;
 	useEffect(() => {
-		if (composeMode === null || composeOpenings === 0) return;
+		if (!answering) return;
 		composeRef.current?.scrollIntoView({
 			behavior: "smooth",
 			block: "start",
 		});
-	}, [composeOpenings, composeMode]);
+	}, [answering]);
 
 	// Register keyboard shortcuts
 	useKeyboardNavigation({
-		enabled: !isLoading && messages.length > 0 && composeMode === null,
+		enabled: !isLoading && messages.length > 0 && reply === undefined,
 		bindings: [
 			{ key: "j", handler: focusNext, preventDefault: true },
 			{ key: "ArrowDown", handler: focusNext, preventDefault: true },
@@ -340,10 +315,22 @@ export const ConversationView = ({
 		);
 	}
 
+	// An address naming a reply over a conversation with nothing in it says so.
+	// The mailbox is shared with other clients, so a thread can empty underneath
+	// the reader between opening it and answering it, and a composer that simply
+	// failed to appear reads as a broken button.
 	if (messages.length === 0) {
 		return (
-			<div className="flex h-full items-center justify-center">
-				<EmptyState message="No messages in this thread" />
+			<div className="flex h-full items-center justify-center p-4">
+				{reply ? (
+					<ErrorState
+						variant="inline"
+						title="There is nothing here to answer"
+						error="This conversation has no messages left. Another mail client may have moved or deleted them."
+					/>
+				) : (
+					<EmptyState message="No messages in this thread" />
+				)}
 			</div>
 		);
 	}
@@ -355,7 +342,8 @@ export const ConversationView = ({
 	// its own px-5 inset (matches the AppShell ReadingPane geometry). On mobile
 	// each expanded card owns a per-message action bar. Its reply verbs are
 	// wired whatever the account's SMTP state: compose is where an account that
-	// cannot send says so.
+	// cannot send says so. A card's verb answers that card's message, which is
+	// the turn the address then names.
 	const renderMessages = (mobile: boolean) => (
 		<div data-testid="conversation-messages">
 			{orderedMessages.map((message, index) => (
@@ -376,9 +364,17 @@ export const ConversationView = ({
 						}
 						accountId={mailboxAccountId}
 						mobile={mobile}
-						onReply={mobile ? handleReply : undefined}
-						onReplyAll={mobile ? handleReplyAll : undefined}
-						onForward={mobile ? handleForward : undefined}
+						onReply={
+							mobile ? () => replyWith("reply", message.messageId) : undefined
+						}
+						onReplyAll={
+							mobile
+								? () => replyWith("reply-all", message.messageId)
+								: undefined
+						}
+						onForward={
+							mobile ? () => replyWith("forward", message.messageId) : undefined
+						}
 					/>
 				</div>
 			))}
@@ -389,14 +385,23 @@ export const ConversationView = ({
 	// is what the reader came back for, and it is not something to go looking
 	// for under a thread. It scrolls with the conversation rather than floating
 	// over it, so the pane has one scrollbar whether or not a reply is open.
-	const compose = composeMode !== null && (
+	//
+	// A segment naming no mode is a hand-typed address, and it says so where the
+	// composer would have been rather than opening nothing: the conversation
+	// behind it is still open and still readable.
+	const compose = reply && (
 		<div ref={composeRef}>
-			<InlineCompose
-				mode={composeMode}
-				account={activeAccount}
-				sourceMessage={latestMessageData}
-				onClose={handleCloseCompose}
-			/>
+			{reply.kind === "reply" ? (
+				<ConversationCompose surface={reply} />
+			) : (
+				<div className="border-b border-line bg-canvas p-4">
+					<ErrorState
+						variant="inline"
+						title="That is not a way to answer a message"
+						error={`"${reply.segment}" is not reply, reply-all or forward.`}
+					/>
+				</div>
+			)}
 		</div>
 	);
 

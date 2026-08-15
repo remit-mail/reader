@@ -1,14 +1,5 @@
 import type { ReactNode } from "react";
 
-export type ComposeMode = "new" | "reply" | "reply_all" | "forward";
-
-export const composeModeLabels: Record<ComposeMode, string> = {
-	new: "New Message",
-	reply: "Reply",
-	reply_all: "Reply All",
-	forward: "Forward",
-};
-
 /**
  * How the surface gets its height. `fill` takes the one its container hands it
  * and scrolls the body inside that, so the action bar is pinned to the bottom

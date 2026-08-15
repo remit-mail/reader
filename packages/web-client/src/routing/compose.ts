@@ -1,6 +1,6 @@
-import { useNavigate, useParams, useRouterState } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback } from "react";
-import { mailListRoute } from "@/lib/mail-route";
+import { useBrowsedList } from "./browsed-list";
 import { useRetainOpenPanels } from "./fragment";
 
 /**
@@ -48,21 +48,6 @@ export function useIsComposing(): boolean {
  */
 export function useComposeDraftId(): string | undefined {
 	return useComposeParams()?.outboxMessageId;
-}
-
-/**
- * The list the address is browsing, as the two values a navigation to it needs.
- * Both are primitives, so a caller holding them in a dependency array settles.
- */
-function useBrowsedList(): {
-	list: "brief" | "flagged" | "outbox" | "mailbox" | undefined;
-	mailboxId: string | undefined;
-} {
-	const list = useRouterState({
-		select: (state) => mailListRoute(state.matches)?.list,
-	});
-	const mailbox = useParams({ from: "/mail/$mailboxId", shouldThrow: false });
-	return { list, mailboxId: mailbox?.mailboxId };
 }
 
 interface ComposeNavigation {

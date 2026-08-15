@@ -140,7 +140,7 @@ const getReplyAddresses = (
 		displayName: a.displayName,
 	}));
 
-	if (mode !== "reply_all") return { to, cc: [] };
+	if (mode !== "reply-all") return { to, cc: [] };
 
 	const myEmailLower = myEmail?.toLowerCase();
 	const toEmails = new Set(to.map((a) => a.email.toLowerCase()));
@@ -353,6 +353,14 @@ export const ComposeForm = ({
 	const [openDocumentId, setOpenDocumentId] = useState(outboxMessageId);
 	const smtpConfigureRef = useRef<HTMLButtonElement>(null);
 	const prevOutboxMessageIdRef = useRef<string | undefined>(outboxMessageId);
+	/**
+	 * Whether the document on screen came from a draft the server already held.
+	 * A reply carries the message it answers whether it is being started or being
+	 * resumed, so this is what separates the two: the source seeds a reply that
+	 * has nothing behind it, and leaves a saved one holding the recipients and
+	 * the subject the reader edited.
+	 */
+	const resumedDraftRef = useRef(outboxMessageId !== undefined);
 
 	// The document this form is on changed under it, so it starts again: another
 	// draft, or no draft at all. Without this the previous one's fields stay on
@@ -373,6 +381,7 @@ export const ComposeForm = ({
 		if (previous === outboxMessageId) return;
 		prevOutboxMessageIdRef.current = outboxMessageId;
 		if (previous === undefined) return;
+		resumedDraftRef.current = outboxMessageId !== undefined;
 		// A draft brings its own body along in a moment; a new message opens on
 		// the signature, the same document a fresh mount would have started on.
 		const opening = outboxMessageId
@@ -473,9 +482,10 @@ export const ComposeForm = ({
 	}, [draftData, draftLoaded]);
 
 	useEffect(() => {
+		if (resumedDraftRef.current) return;
 		if (!sourceMessage) return;
 
-		if (mode === "reply" || mode === "reply_all") {
+		if (mode === "reply" || mode === "reply-all") {
 			const { to, cc } = getReplyAddresses(sourceMessage, mode, account?.email);
 			setToAddresses(to);
 			setCcAddresses(cc);
@@ -493,7 +503,7 @@ export const ComposeForm = ({
 	// to an empty quote when nothing renderable exists (the user can still
 	// attribute the reply manually).
 	const isQuoting =
-		mode === "reply" || mode === "reply_all" || mode === "forward";
+		mode === "reply" || mode === "reply-all" || mode === "forward";
 	const { data: sourceBody } = useMessageBodyContent({
 		messageId: sourceMessage?.message.messageId,
 		bodyParts: sourceMessage?.bodyParts,
@@ -679,7 +689,7 @@ export const ComposeForm = ({
 				stopAutoSave();
 
 				const replyData =
-					sourceMessage && (mode === "reply" || mode === "reply_all")
+					sourceMessage && (mode === "reply" || mode === "reply-all")
 						? getReferences(sourceMessage)
 						: {};
 

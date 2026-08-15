@@ -33,6 +33,7 @@ const base: EventSuggestion = {
 	threadId: "thr_airbnb",
 	threadSubject: "Your reservation in Lisbon is confirmed",
 	sender: "Airbnb",
+	senderAddress: "automated@airbnb.example",
 	confidence: 0.94,
 	ambiguity: "",
 	suggestedCalendarId: "c5",

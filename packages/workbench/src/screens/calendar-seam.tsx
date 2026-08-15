@@ -41,6 +41,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import { AttendeeContextCard } from "../components/attendee-context.js";
+import { RejectedNotice } from "../components/rejected-notice.js";
 import {
 	type AvailabilityMark,
 	AvailabilityStrip,
@@ -53,7 +54,6 @@ import {
 } from "../components/seam/reply-with-times.js";
 import { SeamEventDetail } from "../components/seam/seam-event-detail.js";
 import {
-	RejectedNotice,
 	SuggestionCard,
 	SuggestionDeck,
 	SuggestionHeading,
@@ -240,7 +240,7 @@ export function CalendarSeam({
 		const seed = seamSuggestions.find(
 			(entry) => entry.suggestion.id === rejectedSuggestionId,
 		);
-		return senderRuleTaken && seed ? [seed.senderAddress] : [];
+		return senderRuleTaken && seed ? [seed.suggestion.senderAddress] : [];
 	});
 
 	/* --- the calendar this option is arguing with ---------------------- */
@@ -350,14 +350,14 @@ export function CalendarSeam({
 		restored.splice(rejected.index, 0, rejected.entry);
 		setPending(restored);
 		setRules((prev) =>
-			prev.filter((rule) => rule !== rejected.entry.senderAddress),
+			prev.filter((rule) => rule !== rejected.entry.suggestion.senderAddress),
 		);
 		setRejected(null);
 	};
 
 	const takeRule = () => {
 		if (!rejected) return;
-		setRules((prev) => [...prev, rejected.entry.senderAddress]);
+		setRules((prev) => [...prev, rejected.entry.suggestion.senderAddress]);
 		setRejected({ ...rejected, ruled: true });
 	};
 
@@ -449,9 +449,10 @@ export function CalendarSeam({
 				<RejectedNotice
 					title={rejected.entry.suggestion.title}
 					sender={rejected.entry.suggestion.sender}
-					senderAddress={rejected.entry.senderAddress}
+					senderAddress={rejected.entry.suggestion.senderAddress}
 					ruled={rejected.ruled}
 					onRule={takeRule}
+					onDecline={() => setRejected(null)}
 					onUndo={undoReject}
 					touch={touch}
 				/>
@@ -752,9 +753,10 @@ export function CalendarSeam({
 						<RejectedNotice
 							title={rejected.entry.suggestion.title}
 							sender={rejected.entry.suggestion.sender}
-							senderAddress={rejected.entry.senderAddress}
+							senderAddress={rejected.entry.suggestion.senderAddress}
 							ruled={rejected.ruled}
 							onRule={takeRule}
+							onDecline={() => setRejected(null)}
 							onUndo={undoReject}
 							touch
 						/>

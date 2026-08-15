@@ -126,35 +126,55 @@ afterEach(() => {
 // `window`.
 (globalThis as { self?: typeof globalThis }).self ??= globalThis;
 
-// The conversation is what the mailbox route renders, and the per-message
-// action menu reads the route's own search — so it is mounted on a route
-// rather than beside one.
-const testRouter = (): AnyRouter => {
+const MESSAGE_PATH = `/mail/${MAILBOX_ID}/${THREAD_ID}/${MESSAGE_ID}`;
+const REPLY_PATH = `${MESSAGE_PATH}/reply`;
+
+// The conversation is what the message route renders, and the reply is the
+// segment under it — so the tree here is the app's: the folder, the thread, the
+// message, and the mode below it. The address is what opens the reply, so the
+// cases below mount at one or the other.
+const testRouter = (href: string): AnyRouter => {
 	// The compose provider sits at the root the way `__root.tsx` mounts it.
 	const rootRoute = createRootRoute({
 		component: () =>
 			createElement(ComposeProvider, null, createElement(Outlet)),
 	});
+	const mailboxRoute = createRoute({
+		getParentRoute: () => rootRoute,
+		path: "/mail/$mailboxId",
+		validateSearch: (search: Record<string, unknown>) => search,
+	});
+	const threadRoute = createRoute({
+		getParentRoute: () => mailboxRoute,
+		path: "$threadId",
+	});
+	const messageRoute = createRoute({
+		getParentRoute: () => threadRoute,
+		path: "$messageId",
+		component: () =>
+			createElement(ConversationView, {
+				threadId: THREAD_ID,
+				mailboxId: MAILBOX_ID,
+				subject: "Lunch Thursday?",
+				selectedMessageId: MESSAGE_ID,
+			}),
+	});
+	const replyRoute = createRoute({
+		getParentRoute: () => messageRoute,
+		path: "$mode/{-$outboxMessageId}",
+	});
 	const routeTree = rootRoute.addChildren([
-		createRoute({
-			getParentRoute: () => rootRoute,
-			path: "/mail/$mailboxId",
-			validateSearch: (search: Record<string, unknown>) => search,
-			component: () =>
-				createElement(ConversationView, {
-					threadId: THREAD_ID,
-					mailboxId: MAILBOX_ID,
-					subject: "Lunch Thursday?",
-				}),
-		}),
+		mailboxRoute.addChildren([
+			threadRoute.addChildren([messageRoute.addChildren([replyRoute])]),
+		]),
 	]);
 	return createRouter({
 		routeTree,
-		history: createMemoryHistory({ initialEntries: [`/mail/${MAILBOX_ID}`] }),
+		history: createMemoryHistory({ initialEntries: [href] }),
 	}) as unknown as AnyRouter;
 };
 
-const mount = async (): Promise<DomHarness> => {
+const mountAt = async (href: string): Promise<[DomHarness, AnyRouter]> => {
 	http = mockFetch((call) => {
 		if (call.path.endsWith("/config")) return { accounts: [account] };
 		if (call.path.endsWith(`/threads/${THREAD_ID}/messages`)) {
@@ -164,17 +184,39 @@ const mount = async (): Promise<DomHarness> => {
 		return { items: [] };
 	});
 
-	const router = testRouter();
+	const router = testRouter(href);
 	await router.load();
 	harness = createDomHarness();
 	harness.renderApp(createElement(RouterProvider, { router }));
 	await harness.flush();
 	await harness.wait(20);
 	await harness.flush();
-	return harness;
+	return [harness, router];
 };
 
-/** The r shortcut the reading pane binds — how a reader opens the reply. */
+/** The conversation, with nothing being written under it. */
+const mount = async (): Promise<DomHarness> => {
+	const [mounted] = await mountAt(MESSAGE_PATH);
+	return mounted;
+};
+
+/**
+ * The same conversation at the address that names a reply — which is the whole
+ * of what opens one.
+ *
+ * A cold load rather than a press: a navigation inside this harness moves the
+ * router but never re-renders the tree, so nothing here can say what the pane
+ * does as an address changes under it. Every case below is what one address
+ * renders, and the transitions between two of them — the reply opening, and its
+ * closing again with the conversation left standing — are asserted in
+ * `packages/e2e/specs/detail-routes.spec.ts`, against a real browser.
+ */
+const mountReplying = async (): Promise<DomHarness> => {
+	const [mounted] = await mountAt(REPLY_PATH);
+	return mounted;
+};
+
+/** The r shortcut the reading pane binds — how a reader asks for the reply. */
 const pressReply = async (mounted: DomHarness): Promise<void> => {
 	mounted.dispatch(
 		mounted.window,
@@ -224,9 +266,7 @@ const verticalScrollers = (root: Element): Element[] =>
 
 describe("answering the message that is open", () => {
 	it("puts the reply in the same scrolling region as the message", async () => {
-		const mounted = await mount();
-
-		await pressReply(mounted);
+		const mounted = await mountReplying();
 
 		const pane = mounted.query("article");
 		assert.ok(pane, "the conversation pane is mounted");
@@ -246,9 +286,7 @@ describe("answering the message that is open", () => {
 	});
 
 	it("leads the pane with the reply, above the thread it answers", async () => {
-		const mounted = await mount();
-
-		await pressReply(mounted);
+		const mounted = await mountReplying();
 
 		const compose = mounted.query('[data-testid="compose-body-area"]');
 		assert.ok(compose, "the reply opened");
@@ -313,7 +351,7 @@ describe("answering the message that is open", () => {
 		);
 	});
 
-	it("gives the pane one scrollbar, reply open or not", async () => {
+	it("gives the pane one scrollbar with nothing being written", async () => {
 		const mounted = await mount();
 
 		const pane = mounted.query("article");
@@ -323,14 +361,29 @@ describe("answering the message that is open", () => {
 			1,
 			"reading a thread scrolls one thing",
 		);
+	});
 
-		await pressReply(mounted);
+	it("gives the pane one scrollbar with the reply open", async () => {
+		const mounted = await mountReplying();
 
+		const pane = mounted.query("article");
+		assert.ok(pane, "the conversation pane is mounted");
 		assert.equal(
 			verticalScrollers(pane).length,
 			1,
 			"the reply is a block of the pane, not a box with a scrollbar of its own next to the editor",
 		);
+	});
+
+	// The address is the whole of what opens a reply, so what the key does is
+	// move it: the mode lands under the message that was open, and the thread
+	// that was matched behind it stays matched.
+	it("moves the address to the reply under the open message", async () => {
+		const [mounted, router] = await mountAt(MESSAGE_PATH);
+
+		await pressReply(mounted);
+
+		assert.equal(router.state.location.pathname, REPLY_PATH);
 	});
 
 	it("collapses the message from the chevron beside the sender", async () => {

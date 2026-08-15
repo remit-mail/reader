@@ -98,6 +98,8 @@ export interface EventSuggestion {
 	threadId: string;
 	threadSubject: string;
 	sender: string;
+	/** The address a rule about this sender is written against. */
+	senderAddress: string;
 	/** 0–1. The component derives its own wording; the seam carries the value. */
 	confidence: number;
 	/** What the parse could not settle, empty when nothing. */
