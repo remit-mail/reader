@@ -2,7 +2,7 @@ import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { useMailContext } from "@/lib/mail-context";
 import { shouldMirrorQuery } from "@/lib/search-view";
-import { useIsComposing } from "@/routing";
+import { useIsComposing, useIsReplying } from "@/routing";
 
 /**
  * The list the mirror writes to. Each list calls the hook with its own route,
@@ -44,7 +44,9 @@ export type SearchMirrorTarget =
  *
  * A composer is not the pre-search list's leftover either. It is the reader's
  * own unsent message, so a search started while it is up narrows the list
- * behind it and leaves it standing.
+ * behind it and leaves it standing. A reply, a reply-all and a forward hold
+ * unsent text the same way and are spared the same way. Both are read off the
+ * path, so neither has to be kept in step with the surface that is showing.
  */
 export function useSearchMirror(target: SearchMirrorTarget): void {
 	const navigate = useNavigate();
@@ -52,6 +54,8 @@ export function useSearchMirror(target: SearchMirrorTarget): void {
 	const { q: urlQuery = "" } = useSearch({ from: "/mail" });
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	const isComposing = useIsComposing();
+	const isReplying = useIsReplying();
+	const isWriting = isComposing || isReplying;
 
 	// Read at effect time rather than depended on: the URL is what the mirror
 	// compares against, not what re-triggers it.
@@ -73,10 +77,10 @@ export function useSearchMirror(target: SearchMirrorTarget): void {
 		if (!mayWrite) return;
 		const queryGoesActive =
 			Boolean(committedQuery) && urlQueryRef.current !== committedQuery;
-		// The composer is the reader's own unsent message, not a leftover of the
-		// list they were on, so a query going active narrows the list behind it and
+		// A message being written is the reader's own, not a leftover of the list
+		// they were on, so a query going active narrows the list behind it and
 		// leaves it where it is.
-		const closesTheOpenSurface = queryGoesActive && !isComposing;
+		const closesTheOpenSurface = queryGoesActive && !isWriting;
 		const search = (prev: Record<string, unknown>) => ({
 			...prev,
 			q: committedQuery || undefined,
@@ -107,6 +111,6 @@ export function useSearchMirror(target: SearchMirrorTarget): void {
 		mailboxId,
 		listPath,
 		pathname,
-		isComposing,
+		isWriting,
 	]);
 }

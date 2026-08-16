@@ -950,6 +950,42 @@ test.describe("A reply lives under its message (#720)", () => {
 	});
 
 	/**
+	 * A query going active closes the reading pane, because a message opened from
+	 * the pre-search list is not in the result set. A reply is not that leftover:
+	 * it is the reader's own unsent message, so the query narrows the list behind
+	 * it and what is being written stays on screen.
+	 */
+	test("a query typed over the reply leaves it standing", async ({
+		page,
+		run,
+	}) => {
+		const subject = run.seededSubjects[0];
+		await openReply(page, subject);
+
+		const written = `Typed before searching ${Date.now()}.`;
+		await page.getByTestId("compose-body").click();
+		await page.keyboard.type(written);
+		await expect(page.getByText("Draft saved")).toBeVisible({
+			timeout: 30_000,
+		});
+		await page.waitForURL(REPLY_DRAFT_URL, { timeout: 30_000 });
+		const replying = new URL(page.url()).pathname;
+
+		const field = searchField(page);
+		await field.click();
+		await field.pressSequentially("invoice");
+		await page.waitForURL(/[?&]q=invoice/);
+
+		// The query landed on the address the reply is already at, rather than on
+		// the bare list with the reply dropped off the end of it.
+		await expect(field).toHaveValue("invoice");
+		await expect(page).toHaveURL(REPLY_URL);
+		expect(new URL(page.url()).pathname).toBe(replying);
+		await expect(replySubject(page)).toHaveValue(/^Re: /);
+		await expect(page.getByTestId("compose-body")).toContainText(written);
+	});
+
+	/**
 	 * The phone is where the reply route mounting nothing is load-bearing: there
 	 * is no reading slot for an `Outlet` to fill, so the conversation is the
 	 * single pane and it renders the composer off the address itself.
