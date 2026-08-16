@@ -24,9 +24,10 @@ export interface MailActionToolbarProps {
 	/** Whether a thread is open. Drives the no-op-explain behaviour, never `disabled`. */
 	hasThread: boolean;
 	/**
-	 * Fired when an action button is pressed with no thread open. The host
-	 * surfaces a one-line inline explanation — never a toast, never a disabled
-	 * button (`doc/rules/ux.md`: never disable a control).
+	 * Fired when an action button is pressed and there is nothing behind it —
+	 * no thread open, or no handler wired for that verb. The host surfaces a
+	 * one-line inline explanation — never a toast, never a disabled button
+	 * (`doc/rules/ux.md`: never disable a control).
 	 */
 	onUnavailable?: (action: MailAction) => void;
 	/** A one-line inline notice rendered under the toolbar (e.g. "Open a message first"). */
@@ -59,10 +60,12 @@ export interface MailActionToolbarProps {
 
 /**
  * The reading-pane action toolbar, shared between the remit-ui AppShell
- * reference and the live client. Buttons are always pressable: with no thread
- * open they no-op and call `onUnavailable(action)` so the host can explain why,
- * rather than greying out (the never-disable tenet — a `disabled` button gives
- * the user no path to learn what it does or what they must do first).
+ * reference and the live client. Buttons are always pressable: where a press
+ * cannot act — no thread open, or no handler wired for that verb — it calls
+ * `onUnavailable(action)` so the host can explain why, rather than greying out
+ * (the never-disable tenet — a `disabled` button gives the user no path to
+ * learn what it does or what they must do first). Every press is answered; the
+ * bar has no branch that ends in silence.
  */
 export function MailActionToolbar({
 	hasThread,
@@ -85,12 +88,16 @@ export function MailActionToolbar({
 	children,
 	className,
 }: MailActionToolbarProps) {
+	// A verb with no handler behind it is unavailable in exactly the way one with
+	// no thread is, and says so the same way. Dropping the press instead left the
+	// three reply verbs pressable and mute for as long as a host took to wire
+	// them (#803).
 	const act = (action: MailAction, handler?: () => void) => () => {
-		if (!hasThread) {
+		if (!hasThread || !handler) {
 			onUnavailable?.(action);
 			return;
 		}
-		handler?.();
+		handler();
 	};
 
 	return (
@@ -166,7 +173,7 @@ export function MailActionToolbar({
 				<div className="flex-1" />
 				{children}
 			</header>
-			{!hasThread && unavailableHint && (
+			{unavailableHint && (
 				// biome-ignore lint/a11y/useSemanticElements: <p> with role="status" preserves block layout; <output> is inline
 				<p
 					role="status"

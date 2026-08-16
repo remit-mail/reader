@@ -48,6 +48,7 @@ import {
 	useIsComposing,
 	useIsReplying,
 	useOpenReply,
+	useReplyToOpenThread,
 	useRetainOpenPanels,
 } from "@/routing";
 
@@ -221,15 +222,7 @@ function BriefPaneProvider({ thread, children }: BriefPaneProps) {
 	const isComposing = useIsComposing();
 	const isReplying = useIsReplying();
 	const openReply = useOpenReply();
-	const replyToOpenThread = useMemo(() => {
-		if (!selectedThread || !selectedMessageId) return undefined;
-		return (mode: ReplyMode) =>
-			openReply({
-				threadId: selectedThread.threadId,
-				messageId: selectedMessageId,
-				mode,
-			});
-	}, [openReply, selectedThread, selectedMessageId]);
+	const replyToOpenThread = useReplyToOpenThread(selectedThread?.messageId);
 
 	const replyToFocusedThread = useMemo(() => {
 		if (!triageTarget) return undefined;

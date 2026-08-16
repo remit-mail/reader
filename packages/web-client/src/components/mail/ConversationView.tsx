@@ -303,11 +303,19 @@ export const ConversationView = ({
 		return <LoadingSkeleton />;
 	}
 
+	// A reply addressed over a conversation that never arrived says why the
+	// composer is not there, rather than repeating the read failure unchanged —
+	// otherwise pressing Reply on a failed thread changes the address and nothing
+	// on screen, which is the shape of a broken button.
 	if (isError) {
 		return (
 			<div className="flex h-full items-center justify-center">
 				<ErrorState
-					title="Couldn't load this conversation"
+					title={
+						reply
+							? "Couldn't load this conversation, so there is nothing to answer"
+							: "Couldn't load this conversation"
+					}
 					error={error}
 					onRetry={() => refetch()}
 				/>

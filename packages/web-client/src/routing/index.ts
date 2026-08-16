@@ -37,4 +37,5 @@ export {
 	useIsReplying,
 	useOpenReply,
 	useReplySurface,
+	useReplyToOpenThread,
 } from "./reply";

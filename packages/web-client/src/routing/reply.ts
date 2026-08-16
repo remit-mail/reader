@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { MailListRoute } from "@/lib/mail-route";
 import { useBrowsedList } from "./browsed-list";
 import { useRetainOpenPanels } from "./fragment";
+import { useOpenThreadPath } from "./open-thread";
 
 /**
  * The three ways to answer a message. They are one path param rather than three
@@ -199,6 +200,34 @@ export function useOpenReply(): (target: ReplyTarget) => void {
 		},
 		[navigate, retainPanels, list, mailboxId, open],
 	);
+}
+
+/**
+ * Answer the conversation the address has open, for every list that can have
+ * one.
+ *
+ * The thread and the turn being answered are both path segments, so this is the
+ * address answering for itself: a listing row still in flight cannot make the
+ * verbs wait, and a thread request that fails outright cannot take them away.
+ * Re-reading the thread id off a fetched row was the same fact in two places.
+ *
+ * `newestMessageId` is the one thing the address can be silent about — a bare
+ * thread address leaves which turn answers for the conversation to the thread
+ * itself. Absent while that is still unknown, which is the toolbar's to
+ * explain.
+ */
+export function useReplyToOpenThread(
+	newestMessageId: string | undefined,
+): ((mode: ReplyMode) => void) | undefined {
+	const thread = useOpenThreadPath();
+	const openReply = useOpenReply();
+	const threadId = thread?.threadId;
+	const messageId = thread?.messageId ?? newestMessageId;
+
+	return useMemo(() => {
+		if (!threadId || !messageId) return undefined;
+		return (mode: ReplyMode) => openReply({ threadId, messageId, mode });
+	}, [openReply, threadId, messageId]);
 }
 
 /**
