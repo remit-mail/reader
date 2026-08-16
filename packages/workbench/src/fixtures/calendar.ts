@@ -38,9 +38,6 @@ const OFFSET = "+02:00";
 export const TODAY = "2026-06-10";
 export const NOW_ISO = `${TODAY}T09:30:00${OFFSET}`;
 
-/** Monday of the fixture week; the six days after it follow. */
-export const WEEK_START = "2026-06-08";
-
 function pad(n: number): string {
 	return String(n).padStart(2, "0");
 }
@@ -503,8 +500,6 @@ export const events: CalendarEventData[] = [
 		threadSubject: "Sunday lunch?",
 	}),
 ];
-
-export const eventsById = new Map(events.map((e) => [e.id, e]));
 
 /* ------------------------------------------------------------------ */
 /* Suggestions — read out of mail, not on the grid                     */

@@ -43,13 +43,6 @@ export function addDays(date: string, days: number): string {
 	return cursor.toISOString().slice(0, 10);
 }
 
-export function daysBetween(from: string, to: string): number {
-	return Math.round(
-		(Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) /
-			86_400_000,
-	);
-}
-
 export function datesBetween(from: string, to: string): string[] {
 	const dates: string[] = [];
 	for (let cursor = from; cursor <= to; cursor = addDays(cursor, 1))
@@ -236,43 +229,6 @@ export function clashesWith(
 		if (ignoreIds.includes(item.id)) return false;
 		return Date.parse(item.start) < to && from < Date.parse(item.end);
 	});
-}
-
-/** Half an hour of a day, offered to someone else. */
-export interface OfferedSlot {
-	date: string;
-	startMinute: number;
-	endMinute: number;
-}
-
-/** Nothing is offered before the day has properly started. */
-export const OFFER_FROM_MINUTE = 9 * 60 + 30;
-
-/**
- * Slots worth offering someone, cut off the free stretches at the requested
- * length. Rounded up to the next quarter hour so nothing lands at 11:47.
- */
-export function slotsIn(
-	stretches: readonly FreeStretch[],
-	minutes: number,
-	limit = 6,
-	notBeforeMinute = OFFER_FROM_MINUTE,
-): OfferedSlot[] {
-	const slots: OfferedSlot[] = [];
-	for (const stretch of stretches) {
-		let cursor = Math.max(stretch.startMinute, notBeforeMinute);
-		cursor = Math.ceil(cursor / 15) * 15;
-		while (cursor + minutes <= stretch.endMinute && slots.length < limit) {
-			slots.push({
-				date: stretch.date,
-				startMinute: cursor,
-				endMinute: cursor + minutes,
-			});
-			cursor += minutes;
-		}
-		if (slots.length >= limit) return slots;
-	}
-	return slots;
 }
 
 /**

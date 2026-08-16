@@ -10,7 +10,6 @@
 // every deployed instance and rewrite all five tables. Match better-auth's
 // runtime expectations by hand when a version bump changes them, and let
 // vps-migrations-drift.sqlite.test.ts catch the migration side.
-import { relations } from "drizzle-orm";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const auth_user = sqliteTable("auth_user", {
@@ -106,22 +105,3 @@ export const auth_jwks = sqliteTable("auth_jwks", {
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 	expiresAt: integer("expires_at", { mode: "timestamp" }),
 });
-
-export const auth_userRelations = relations(auth_user, ({ many }) => ({
-	auth_sessions: many(auth_session),
-	auth_accounts: many(auth_account),
-}));
-
-export const auth_sessionRelations = relations(auth_session, ({ one }) => ({
-	auth_user: one(auth_user, {
-		fields: [auth_session.userId],
-		references: [auth_user.id],
-	}),
-}));
-
-export const auth_accountRelations = relations(auth_account, ({ one }) => ({
-	auth_user: one(auth_user, {
-		fields: [auth_account.userId],
-		references: [auth_user.id],
-	}),
-}));
