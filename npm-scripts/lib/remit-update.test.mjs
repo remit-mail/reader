@@ -1006,6 +1006,30 @@ describe("the control seam", () => {
 		assert.match(box.stateJson().run.message, /carried no time it was made/);
 	});
 
+	it("discards a request stamped ahead of the instance's own clock", () => {
+		// The window needs a floor as well as a ceiling. A box with no RTC comes up
+		// reading roughly its own shutdown time, so a request written just before a
+		// `remit stop` reads as minutes old days later — the surviving-a-stop case
+		// #587 names, and the one an age bounded only from above lets through.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({
+				runId: "r-ahead",
+				targetVersion: "v1.5.0",
+				requestedAt: agedBy(-10 * 24 * 60 * 60),
+				requestedBy: "owner@example.test",
+			}),
+		);
+		const result = box.run(["update"]);
+		assert.notEqual(result.status, 0);
+		assert.ok(!box.log().includes("compose pull"));
+		assert.ok(!box.log().includes("compose stop"));
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
+		assert.equal(box.stateJson().run.outcome, "abandoned");
+		assert.match(box.stateJson().run.message, /ahead of this instance's own/);
+	});
+
 	it("discards a request whose time is not a time", () => {
 		const box = sandbox({ scenario: { probe: "ok" } });
 		writeFileSync(
@@ -1042,10 +1066,13 @@ describe("the control seam", () => {
 		assert.equal(box.stateJson().run.runId, "r-fresh");
 	});
 
-	it("reads an ISO 8601 UTC instant the same way the backend writes it", () => {
+	it("reads back every timestamp shape the backend writes, to the second", () => {
 		// The conversion is hand-rolled arithmetic, because neither GNU nor busybox
 		// date parses a timestamp portably. A month, leap-day or century error here
-		// expires a live request or keeps a dead one.
+		// expires a live request or keeps a dead one. The claim is bounded to what
+		// the backend emits — `new Date().toISOString()`, always UTC, sometimes
+		// with milliseconds; the two places this parser and Date.parse disagree are
+		// pinned in the test below.
 		const stamps = [
 			"1970-01-01T00:00:00Z",
 			"2000-02-29T12:34:56Z",
@@ -1075,6 +1102,32 @@ describe("the control seam", () => {
 			);
 			assert.equal(result.stdout.trim(), "", junk);
 		}
+	});
+
+	it("diverges from Date.parse only where the divergence is safe", () => {
+		// Two shapes the backend cannot produce, pinned so a later widening of the
+		// parser is a deliberate act rather than a side effect.
+		const readsAs = (stamp) =>
+			spawnSync("sh", ["-c", '. "$0"\niso_epoch "$1"', REMIT, stamp], {
+				env: { ...process.env, REMIT_LIB_ONLY: "1" },
+				encoding: "utf8",
+			}).stdout.trim();
+
+		// An explicit offset is a time Date.parse reads and this parser refuses.
+		// Refusing expires the request, which is the safe direction: the seam's
+		// contract is UTC, and an offset silently read as UTC would be wrong by
+		// hours in whichever direction the window does not forgive.
+		assert.ok(!Number.isNaN(Date.parse("2026-08-17T10:00:00+02:00")));
+		assert.equal(readsAs("2026-08-17T10:00:00+02:00"), "");
+
+		// A leap second is a time this parser reads and Date.parse refuses. It
+		// rolls into the following minute — one second wrong against a window
+		// measured in minutes, and no request the backend writes carries one.
+		assert.ok(Number.isNaN(Date.parse("2026-08-17T23:59:60Z")));
+		assert.equal(
+			readsAs("2026-08-17T23:59:60Z"),
+			String(Date.parse("2026-08-18T00:00:00Z") / 1000),
+		);
 	});
 
 	it("consumes the request so a refusal is not retried forever", () => {

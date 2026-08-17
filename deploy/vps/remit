@@ -1540,8 +1540,14 @@ requested_target() {
 $(request_keys "$_raw")
 EOF
 	[ "$_saw_target" = "1" ] || return 1
+	# Bounded from below as well as above. A stamp in this instance's future was
+	# not written against this clock, and a box with no RTC is exactly where that
+	# happens: it comes up reading roughly its own shutdown time, so a request
+	# written just before the stop looks minutes old days later. Without the
+	# floor, the surviving-a-`remit stop` case #587 names is the one the window
+	# misses.
 	_age=$(request_age_seconds "$_raw") || return 2
-	if [ "$_age" -gt "$REQUEST_MAX_AGE_SECONDS" ]; then
+	if [ "$_age" -lt 0 ] || [ "$_age" -gt "$REQUEST_MAX_AGE_SECONDS" ]; then
 		return 2
 	fi
 	_want=$(json_string "$_raw" targetVersion)
@@ -1580,8 +1586,11 @@ discard_expired_request() {
 	RUN_STARTED=$(iso_now)
 	RUN_PHASE=checking
 	_at=$(json_string "$1" requestedAt)
-	if [ -z "$(iso_epoch "$_at")" ]; then
+	_atsec=$(iso_epoch "$_at")
+	if [ -z "$_atsec" ]; then
 		_why="carried no time it was made"
+	elif [ "$_atsec" -gt "$(epoch)" ]; then
+		_why="is stamped $_at, which is ahead of this instance's own clock"
 	else
 		_why="was made at $_at, longer ago than the $((REQUEST_MAX_AGE_SECONDS / 60)) minutes a request stays current"
 	fi
