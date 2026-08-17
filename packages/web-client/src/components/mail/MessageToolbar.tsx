@@ -46,12 +46,6 @@ export interface MessageToolbarProps {
 	onForward?: () => void;
 	/** Delete all messages in the open thread. */
 	onDelete?: () => void;
-	/**
-	 * Override the enabled state of the delete button. Defaults to `hasThread`.
-	 * Pass `true` when a non-thread item (e.g. a Remit draft) is active so the
-	 * trash icon acts without acting on the other thread-scoped verbs.
-	 */
-	canDelete?: boolean;
 	/** Toggle the star on the most-recent message in the thread. */
 	onToggleStar?: () => void;
 	/** Whether the most-recent message is starred. */
@@ -65,6 +59,12 @@ export interface MessageToolbarProps {
 		currentMailboxId: string;
 		onMove: (destinationMailboxId: string) => void;
 	};
+	/**
+	 * Whether the lookup behind `moveContext` is still in flight. Absent context
+	 * is either a read that has not landed or one that settled holding nothing,
+	 * and the two owe the reader different sentences (#818).
+	 */
+	moveContextLoading?: boolean;
 }
 
 const OPEN_FIRST = "Open a message first";
@@ -82,11 +82,31 @@ const NOT_LOADED_YET = "This conversation hasn't loaded yet";
  * fanning out over every account's mailbox list. With the message on screen and
  * that fan-out still in flight, "open a message first" is simply false (#818).
  */
-const MAILBOXES_NOT_LOADED = "The mailbox list hasn't loaded yet";
+const MAILBOXES_LOADING = "The mailbox list hasn't loaded yet";
+
+/** The same read, settled and holding no account for this mailbox: it errored,
+ *  or no account lists the folder. Waiting will not fix either one. */
+const MAILBOXES_MISSING =
+	"Couldn't find this mailbox's account — reload to try again";
+
+/** The accessible name of each verb's button, for the sentence that invites a
+ *  press to be repeated once what it waited for arrives. */
+const LABELS: Record<MailAction, string> = {
+	reply: "Reply",
+	replyAll: "Reply all",
+	forward: "Forward",
+	delete: "Move to Trash",
+	move: "Move to mailbox",
+	flag: "Star",
+};
 
 interface Press {
 	action: MailAction;
 	messageId: string | null;
+	/** Whether a thread was open when the press was made. A Move made over an
+	 *  open message is carried into the picker; one made over an empty pane
+	 *  asked for nothing that could still arrive. */
+	overThread: boolean;
 }
 
 export const MessageToolbar = ({
@@ -99,50 +119,68 @@ export const MessageToolbar = ({
 	onReplyAll,
 	onForward,
 	onDelete,
-	canDelete,
 	onToggleStar,
 	isStarred,
 	moveContext,
+	moveContextLoading,
 }: MessageToolbarProps) => {
 	const [press, setPress] = useState<Press | null>(null);
-	const canDeleteResolved = canDelete ?? hasThread;
 	const actingOn = messageId ?? null;
 
+	// The one place availability is decided. It agrees with `MailActionToolbar`
+	// by construction — a null reason implies both a thread and a handler, which
+	// is exactly what the shared bar requires before it calls one — so no press
+	// can fall between the two and end in silence.
 	const whyUnavailable = (action: MailAction): string | null => {
-		if (action === "delete") {
-			if (!canDeleteResolved) return OPEN_FIRST;
-			return onDelete ? null : NOT_LOADED_YET;
-		}
 		if (!hasThread) return OPEN_FIRST;
-		if (action === "move") return moveContext ? null : MAILBOXES_NOT_LOADED;
+		if (action === "move") {
+			if (moveContext) return null;
+			return moveContextLoading ? MAILBOXES_LOADING : MAILBOXES_MISSING;
+		}
 		const handler = {
 			reply: onReply,
 			replyAll: onReplyAll,
 			forward: onForward,
+			delete: onDelete,
 			flag: onToggleStar,
 		}[action];
 		return handler ? null : NOT_LOADED_YET;
 	};
 
 	// Derived rather than stored: the sentence is re-read from the press on every
-	// render, so it leaves the moment its reason does — the handler arrives, the
-	// thread opens, or the reader moves to another message.
+	// render, so it leaves the moment its reason does. What it leaves behind is
+	// an invitation, not nothing — the press was made and never acted on.
+	const pressed = press && press.messageId === actingOn ? press : null;
+	const reason = pressed ? whyUnavailable(pressed.action) : null;
+	// Move is the exception: its press is carried into the picker below, which
+	// mounts already open, so there is nothing left to ask for.
+	const carriedMove =
+		pressed?.action === "move" && pressed.overThread && Boolean(moveContext);
 	const hint =
-		press && press.messageId === actingOn ? whyUnavailable(press.action) : null;
+		reason ??
+		(pressed && !carriedMove
+			? `${LABELS[pressed.action]} is ready — press it again`
+			: null);
 
-	const explain = (action: MailAction) => () =>
-		setPress({ action, messageId: actingOn });
-	// Every verb the bar renders answers a press, wired or not.
+	const record = (action: MailAction) =>
+		setPress({ action, messageId: actingOn, overThread: hasThread });
+	const explain = (action: MailAction) => () => record(action);
+	// Every verb the bar renders answers a press, wired or not — and a press
+	// that acts takes down whatever an earlier one left behind, so a stale
+	// complaint never reads as this verb's failure.
 	const wired = (action: MailAction, handler: (() => void) | undefined) =>
-		handler ?? explain(action);
+		handler
+			? () => {
+					setPress(null);
+					handler();
+				}
+			: explain(action);
 
 	return (
 		<MailActionToolbar
 			hasThread={hasThread}
 			isStarred={isStarred}
-			onUnavailable={(action: MailAction) =>
-				setPress({ action, messageId: actingOn })
-			}
+			onUnavailable={record}
 			unavailableHint={hint}
 			replyTitle={`Reply ${tooltipForAction("reply")}`}
 			replyAllTitle={`Reply all ${tooltipForAction("replyAll")}`}
@@ -152,9 +190,7 @@ export const MessageToolbar = ({
 			onReply={wired("reply", onReply)}
 			onReplyAll={wired("replyAll", onReplyAll)}
 			onForward={wired("forward", onForward)}
-			onDelete={
-				canDeleteResolved ? wired("delete", onDelete) : explain("delete")
-			}
+			onDelete={wired("delete", onDelete)}
 			onToggleStar={wired("flag", onToggleStar)}
 			onMove={explain("move")}
 			moveSlot={
@@ -164,6 +200,7 @@ export const MessageToolbar = ({
 						currentMailboxId={moveContext.currentMailboxId}
 						onMove={moveContext.onMove}
 						label="Move to mailbox"
+						defaultOpen={carriedMove}
 					/>
 				) : undefined
 			}

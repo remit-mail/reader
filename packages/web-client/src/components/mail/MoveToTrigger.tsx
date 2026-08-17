@@ -40,6 +40,12 @@ interface MoveToTriggerProps {
 	 * Optional accessible label override for the trigger button.
 	 */
 	label?: string;
+	/**
+	 * Mount with the picker already open. Carries a Move pressed before the
+	 * account behind the mailbox had resolved through to the picker it asked
+	 * for, rather than dropping the press once the button appears (#818).
+	 */
+	defaultOpen?: boolean;
 }
 
 const TRIGGER_BASE =
@@ -63,8 +69,9 @@ export const MoveToTrigger = ({
 	disabledHint,
 	variant = "icon-only",
 	label,
+	defaultOpen = false,
 }: MoveToTriggerProps) => {
-	const [isOpen, setIsOpen] = useState(false);
+	const [isOpen, setIsOpen] = useState(defaultOpen);
 	const [pickedId, setPickedId] = useState<string>();
 	const isDesktop = useIsDesktop();
 	const containerRef = useRef<HTMLDivElement>(null);
