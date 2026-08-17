@@ -24,6 +24,12 @@ import { MoveToTrigger } from "./MoveToTrigger";
  */
 export interface MessageToolbarProps {
 	hasThread: boolean;
+	/**
+	 * The message the verbs act on, as the address states it. The inline notice
+	 * a press leaves behind belongs to that message and to nothing after it, so
+	 * opening another one takes the sentence down (#818).
+	 */
+	messageId?: string;
 	intelligenceOpen: boolean;
 	/**
 	 * Whether pressing the intelligence toggle would open anything: the view has
@@ -71,8 +77,21 @@ const OPEN_FIRST = "Open a message first";
  */
 const NOT_LOADED_YET = "This conversation hasn't loaded yet";
 
+/**
+ * Move alone waits on a second read — the account owning this mailbox, found by
+ * fanning out over every account's mailbox list. With the message on screen and
+ * that fan-out still in flight, "open a message first" is simply false (#818).
+ */
+const MAILBOXES_NOT_LOADED = "The mailbox list hasn't loaded yet";
+
+interface Press {
+	action: MailAction;
+	messageId: string | null;
+}
+
 export const MessageToolbar = ({
 	hasThread,
+	messageId,
 	intelligenceOpen,
 	canToggleIntelligence,
 	onToggleIntelligence,
@@ -85,30 +104,59 @@ export const MessageToolbar = ({
 	isStarred,
 	moveContext,
 }: MessageToolbarProps) => {
-	const [hint, setHint] = useState<string | null>(null);
+	const [press, setPress] = useState<Press | null>(null);
 	const canDeleteResolved = canDelete ?? hasThread;
-	const explain = (message: string) => () => setHint(message);
+	const actingOn = messageId ?? null;
+
+	const whyUnavailable = (action: MailAction): string | null => {
+		if (action === "delete") {
+			if (!canDeleteResolved) return OPEN_FIRST;
+			return onDelete ? null : NOT_LOADED_YET;
+		}
+		if (!hasThread) return OPEN_FIRST;
+		if (action === "move") return moveContext ? null : MAILBOXES_NOT_LOADED;
+		const handler = {
+			reply: onReply,
+			replyAll: onReplyAll,
+			forward: onForward,
+			flag: onToggleStar,
+		}[action];
+		return handler ? null : NOT_LOADED_YET;
+	};
+
+	// Derived rather than stored: the sentence is re-read from the press on every
+	// render, so it leaves the moment its reason does — the handler arrives, the
+	// thread opens, or the reader moves to another message.
+	const hint =
+		press && press.messageId === actingOn ? whyUnavailable(press.action) : null;
+
+	const explain = (action: MailAction) => () =>
+		setPress({ action, messageId: actingOn });
 	// Every verb the bar renders answers a press, wired or not.
-	const wired = (handler: (() => void) | undefined) =>
-		handler ?? explain(NOT_LOADED_YET);
+	const wired = (action: MailAction, handler: (() => void) | undefined) =>
+		handler ?? explain(action);
 
 	return (
 		<MailActionToolbar
 			hasThread={hasThread}
 			isStarred={isStarred}
-			onUnavailable={(_action: MailAction) => setHint(OPEN_FIRST)}
+			onUnavailable={(action: MailAction) =>
+				setPress({ action, messageId: actingOn })
+			}
 			unavailableHint={hint}
 			replyTitle={`Reply ${tooltipForAction("reply")}`}
 			replyAllTitle={`Reply all ${tooltipForAction("replyAll")}`}
 			forwardTitle={`Forward ${tooltipForAction("forward")}`}
 			deleteTitle={`Move to Trash ${tooltipForAction("delete")}`}
 			flagTitle={`Star ${tooltipForAction("toggleStar")}`}
-			onReply={wired(onReply)}
-			onReplyAll={wired(onReplyAll)}
-			onForward={wired(onForward)}
-			onDelete={canDeleteResolved ? wired(onDelete) : explain(OPEN_FIRST)}
-			onToggleStar={wired(onToggleStar)}
-			onMove={explain(OPEN_FIRST)}
+			onReply={wired("reply", onReply)}
+			onReplyAll={wired("replyAll", onReplyAll)}
+			onForward={wired("forward", onForward)}
+			onDelete={
+				canDeleteResolved ? wired("delete", onDelete) : explain("delete")
+			}
+			onToggleStar={wired("flag", onToggleStar)}
+			onMove={explain("move")}
 			moveSlot={
 				moveContext ? (
 					<MoveToTrigger

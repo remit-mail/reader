@@ -1143,6 +1143,7 @@ function MailboxReading() {
 			<section className="flex h-full w-full min-w-0 flex-col bg-canvas">
 				<MessageToolbar
 					hasThread={hasThread}
+					messageId={conversation?.messageId}
 					intelligenceOpen={intelligenceShowing}
 					canToggleIntelligence={hasThread}
 					onToggleIntelligence={toggleIntelligence}
