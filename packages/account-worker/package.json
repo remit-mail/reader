@@ -48,19 +48,8 @@
 		"@types/aws-lambda": "*"
 	},
 	"devDependencies": {
-		"@aws-sdk/client-cloudfront": "*",
-		"@aws-sdk/client-cognito-identity-provider": "*",
-		"@aws-sdk/client-dynamodb": "*",
-		"@aws-sdk/client-s3": "*",
 		"@aws-sdk/core": "*",
-		"@aws-sdk/lib-dynamodb": "*",
-		"@aws-sdk/lib-storage": "*",
-		"@aws-sdk/s3-request-presigner": "*",
-		"@remit/domain-enums": "*",
-		"@remit/search-service": "*",
-		"aws-sdk-client-mock": "*",
-		"esbuild": "^0.28.1",
-		"p-map": "*"
+		"esbuild": "^0.28.1"
 	},
 	"license": "MIT",
 	"publishConfig": {

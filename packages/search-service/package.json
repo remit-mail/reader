@@ -47,7 +47,6 @@
 		"@types/better-sqlite3": "^7.6.13"
 	},
 	"devDependencies": {
-		"@remit/storage-service": "*",
 		"aws-sdk-client-mock": "*"
 	},
 	"license": "MIT",

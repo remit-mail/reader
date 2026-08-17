@@ -35,10 +35,7 @@
 		"@types/aws-lambda": "*"
 	},
 	"devDependencies": {
-		"@aws-sdk/core": "*",
-		"@remit/storage-service": "*",
-		"esbuild": "^0.28.1",
-		"p-map": "*"
+		"esbuild": "^0.28.1"
 	},
 	"license": "MIT",
 	"publishConfig": {
