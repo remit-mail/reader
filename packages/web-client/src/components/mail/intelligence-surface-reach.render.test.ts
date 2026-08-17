@@ -52,7 +52,7 @@ const row = makeThreadMessage({
 	fromName: "Mondial Relay",
 	fromEmail: "delivery.notice@gmail.example",
 	hasStars: true,
-	star: "starred",
+	star: "yellow",
 	authenticity: {
 		dkimMismatch: true,
 		fromDomain: "mondialrelay.fr",
