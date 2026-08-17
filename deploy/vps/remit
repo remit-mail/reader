@@ -1581,7 +1581,7 @@ discard_expired_request() {
 	RUN_PHASE=checking
 	_at=$(json_string "$1" requestedAt)
 	if [ -z "$(iso_epoch "$_at")" ]; then
-		_why="carried no time it was made, so nothing in it showed the update was still wanted"
+		_why="carried no time it was made"
 	else
 		_why="was made at $_at, longer ago than the $((REQUEST_MAX_AGE_SECONDS / 60)) minutes a request stays current"
 	fi

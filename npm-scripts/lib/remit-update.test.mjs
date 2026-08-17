@@ -965,7 +965,7 @@ describe("the control seam", () => {
 		assert.throws(() => readFileSync(join(box.state, "request.json")));
 	});
 
-	it("says the request was discarded, in status and on the seam", () => {
+	it("says the request was discarded, in the log and on the seam", () => {
 		// Silence would trade a surprise install for a surprise no-op. run.json is
 		// what `remit status` prints and what the app renders, so the operator can
 		// tell an install was asked for and deliberately not performed.
@@ -979,14 +979,16 @@ describe("the control seam", () => {
 				requestedBy: "owner@example.test",
 			}),
 		);
-		box.run(["update"]);
+		const result = box.run(["update"]);
 		const run = box.stateJson().run;
 		assert.equal(run.outcome, "abandoned");
 		// The id the request named, so a page still polling gets a verdict on its
 		// own run rather than never hearing back.
 		assert.equal(run.runId, "r-stale");
+		// The same sentence report_last_run prints under `remit status` and the app
+		// renders, and the line the updater's own log carries.
 		assert.match(run.message, /discarded rather than installed/);
-		assert.match(box.run(["status"]).stdout, /discarded rather than installed/);
+		assert.match(result.stdout, /discarded rather than installed/);
 	});
 
 	it("discards a request carrying no time it was made", () => {
