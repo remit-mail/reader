@@ -20,7 +20,6 @@ import {
 	PROPOSED_DATE,
 	proposals,
 	seamWeekEvents,
-	slotOffers,
 } from "../fixtures/calendar-mail.js";
 import {
 	buildAgendaRows,
@@ -31,7 +30,6 @@ import {
 	freeStretchesOn,
 	groupOverlapping,
 	readNextUp,
-	slotsIn,
 } from "./agenda-time.js";
 
 const days = datesBetween("2026-06-01", "2026-07-05").map((date) =>
@@ -145,6 +143,14 @@ describe("free time", () => {
 			lateEvent("2026-06-13", "22:30", "23:00"),
 		]);
 		assert.deepEqual(clocks(freeStretchesOn(day)), ["08:00–22:00"]);
+	});
+
+	it("holds a declined evening as busy, where the old column offered it", () => {
+		const stretches = freeStretchesOn(proposedDay);
+		const last = stretches[stretches.length - 1];
+		assert.equal(formatMinute(last.endMinute), "18:30");
+		const bLast = dayFree(dayBlocks(PROPOSED_DATE, seamWeekEvents)).at(-1);
+		assert.equal(bLast?.end, "19:00");
 	});
 });
 
@@ -309,100 +315,6 @@ describe("clashesWith", () => {
 			);
 			assert.deepEqual(clashesWith(later, [abroad]), []);
 		});
-	});
-});
-
-describe("slotsIn", () => {
-	it("cuts the same slots out of the same day in every machine zone", () => {
-		inEveryZone(() => {
-			const day = buildDay(PROPOSED_DATE, seamWeekEvents);
-			assert.deepEqual(clocks(slotsIn(freeStretchesOn(day), 30, 3)), [
-				"11:30–12:00",
-				"12:00–12:30",
-				"12:30–13:00",
-			]);
-		});
-	});
-
-	it("offers the day the same half hours the availability column did", () => {
-		const bFree = dayFree(dayBlocks(PROPOSED_DATE, seamWeekEvents));
-		for (const limit of [6, 8]) {
-			assert.deepEqual(
-				clocks(slotsIn(freeStretchesOn(proposedDay), 30, limit)),
-				slotOffers(bFree, 30, limit).map((slot) => `${slot.start}–${slot.end}`),
-			);
-		}
-	});
-
-	it("stamps every slot with the day it was cut from", () => {
-		const [first] = slotsIn(freeStretchesOn(proposedDay), 30, 1);
-		assert.equal(first.date, PROPOSED_DATE);
-	});
-
-	it("rounds up to the next quarter hour", () => {
-		const ragged = [
-			{
-				date: PROPOSED_DATE,
-				startMinute: 11 * 60 + 47,
-				endMinute: 13 * 60,
-				minutes: 73,
-				wholeDay: false,
-			},
-		];
-		assert.deepEqual(clocks(slotsIn(ragged, 30, 6)), [
-			"12:00–12:30",
-			"12:30–13:00",
-		]);
-	});
-
-	it("offers nothing before the day has started", () => {
-		const dawn = [
-			{
-				date: PROPOSED_DATE,
-				startMinute: 8 * 60,
-				endMinute: 10 * 60,
-				minutes: 120,
-				wholeDay: false,
-			},
-		];
-		assert.deepEqual(clocks(slotsIn(dawn, 30, 6)), ["09:30–10:00"]);
-		assert.deepEqual(clocks(slotsIn(dawn, 30, 6, 8 * 60)), [
-			"08:00–08:30",
-			"08:30–09:00",
-			"09:00–09:30",
-			"09:30–10:00",
-		]);
-	});
-
-	it("stops at the limit and skips a stretch too short to cut", () => {
-		const stretches = [
-			{
-				date: PROPOSED_DATE,
-				startMinute: 10 * 60,
-				endMinute: 10 * 60 + 20,
-				minutes: 20,
-				wholeDay: false,
-			},
-			{
-				date: PROPOSED_DATE,
-				startMinute: 15 * 60,
-				endMinute: 18 * 60,
-				minutes: 180,
-				wholeDay: false,
-			},
-		];
-		assert.deepEqual(clocks(slotsIn(stretches, 30, 2)), [
-			"15:00–15:30",
-			"15:30–16:00",
-		]);
-	});
-
-	it("holds a declined evening as busy, where the old column offered it", () => {
-		const stretches = freeStretchesOn(proposedDay);
-		const last = stretches[stretches.length - 1];
-		assert.equal(formatMinute(last.endMinute), "18:30");
-		const bLast = dayFree(dayBlocks(PROPOSED_DATE, seamWeekEvents)).at(-1);
-		assert.equal(bLast?.end, "19:00");
 	});
 });
 
