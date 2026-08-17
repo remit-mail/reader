@@ -6,22 +6,12 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-	MAIL_BRIEF_ROUTE_ID,
-	type MailRouteMatch,
-	mailViewKey,
-} from "./mail-route.js";
+import { MAIL_BRIEF_ROUTE_ID, mailViewKey } from "./mail-route.js";
 import {
 	committedSearchQuery,
 	searchInputForView,
 	shouldMirrorQuery,
 } from "./search-view.js";
-
-const matches = (routeId: string, mailboxId?: string): MailRouteMatch[] => [
-	{ routeId: "__root__" },
-	{ routeId: "/mail" },
-	{ routeId, ...(mailboxId ? { params: { mailboxId } } : {}) },
-];
 
 describe("searchInputForView", () => {
 	it("clears the field when the destination carries no query", () => {
@@ -221,7 +211,7 @@ const settle = (shell: Shell): Shell => ({ ...shell, debounced: shell.field });
 
 describe("search across a view change", () => {
 	const searching: Shell = {
-		viewKey: mailViewKey(matches("/mail/$mailboxId", "inbox-1")),
+		viewKey: mailViewKey("/mail/inbox-1"),
 		listPath: "/mail/inbox-1",
 		field: "invoice",
 		debounced: "invoice",
@@ -231,12 +221,7 @@ describe("search across a view change", () => {
 	it("ends the search when the user leaves the view", () => {
 		// The nav link drops `q`, so the destination carries none.
 		const next = mirror(
-			render(
-				searching,
-				mailViewKey(matches("/mail/$mailboxId", "sent-1")),
-				"",
-				"/mail/sent-1",
-			),
+			render(searching, mailViewKey("/mail/sent-1"), "", "/mail/sent-1"),
 		);
 		assert.equal(next.field, "");
 		assert.equal(next.url, "");
@@ -248,7 +233,7 @@ describe("search across a view change", () => {
 	// the reader had just pushed, so Inbox never arrives.
 	it("does not navigate back to the list the reader is leaving", () => {
 		const brief: Shell = {
-			viewKey: mailViewKey(matches(MAIL_BRIEF_ROUTE_ID)),
+			viewKey: mailViewKey(MAIL_BRIEF_ROUTE_ID),
 			listPath: MAIL_BRIEF_ROUTE_ID,
 			field: "inv",
 			debounced: "",
@@ -266,7 +251,7 @@ describe("search across a view change", () => {
 		// mirror must not write it back — that is #47 returning by another route.
 		const landed = render(
 			searching,
-			mailViewKey(matches("/mail/$mailboxId", "sent-1")),
+			mailViewKey("/mail/sent-1"),
 			"",
 			"/mail/sent-1",
 		);
@@ -280,7 +265,7 @@ describe("search across a view change", () => {
 		const next = mirror(
 			render(
 				searching,
-				mailViewKey(matches(MAIL_BRIEF_ROUTE_ID)),
+				mailViewKey(MAIL_BRIEF_ROUTE_ID),
 				"invoice",
 				MAIL_BRIEF_ROUTE_ID,
 			),
@@ -292,7 +277,7 @@ describe("search across a view change", () => {
 	it("never clobbers characters the user is still typing", () => {
 		// Opening a result and the q-mirror both re-render the same view. Neither
 		// is a view change, so neither may reach into the field.
-		const mailbox = mailViewKey(matches("/mail/$mailboxId", "inbox-1"));
+		const mailbox = mailViewKey("/mail/inbox-1");
 		let shell = typing(
 			{ ...searching, field: "", debounced: "", url: "" },
 			"i",

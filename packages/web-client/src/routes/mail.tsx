@@ -9,7 +9,6 @@ import {
 	Outlet,
 	useNavigate,
 	useRouterState,
-	useSearch,
 } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { z } from "zod";
@@ -19,11 +18,11 @@ import { MailTopBar } from "@/components/layout/MailTopBar";
 import { MailNav } from "@/components/mail/MailNav";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
-import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailboxNameIndex } from "@/hooks/useMailboxNameIndex";
 import { useResultFolderIndex } from "@/hooks/useResultFolderIndex";
+import { useSearchField } from "@/hooks/useSearchField";
 import { useStaleAccountSync } from "@/hooks/useStaleAccountSync";
 import {
 	readIntelligencePref,
@@ -32,9 +31,8 @@ import {
 } from "@/lib/intelligence-pref";
 import { MailContext } from "@/lib/mail-context";
 import { MailFreshnessProvider } from "@/lib/mail-freshness";
-import { mailListRoute, mailViewKey } from "@/lib/mail-route";
+import { mailListRoute } from "@/lib/mail-route";
 import { buildAccountNameIndex } from "@/lib/search-token-index";
-import { committedSearchQuery, searchInputForView } from "@/lib/search-view";
 import { wizardEntryValue, wizardStepValue } from "@/lib/wizard-history";
 import {
 	isOverlayPanel,
@@ -80,7 +78,6 @@ export const Route = createFileRoute("/mail")({
 });
 
 function MailLayout() {
-	const { q: searchQuery = "" } = useSearch({ from: "/mail" });
 	const navigate = useNavigate();
 	const tier = useLayoutTier();
 	// Below the reading boundary (phone AND tablet) the shell shows a SINGLE
@@ -141,38 +138,11 @@ function MailLayout() {
 		[intelligenceOpen, showPanels],
 	);
 
-	// Within one view, URL `q` seeds the input and is a one-directional write
-	// target: the debounced local value drives the search API and is mirrored
-	// back by the list route's own `useSearchMirror`. Across views the URL wins
-	// again — see the view-change adjustment below and `lib/search-view.ts` (#47).
-	const [searchInput, setSearchInput] = useState(searchQuery);
-	const debouncedSearchInput = useDebouncedValue(searchInput, 200);
-	const committedQuery = committedSearchQuery(
-		searchInput,
-		debouncedSearchInput,
-	);
-
-	// Search is a mode of the view it was typed in, so leaving that view re-seeds
-	// the field from wherever we land (#47): empty when the sidebar dropped `q`
-	// (a folder switch starts that folder's search fresh), and the carried query
-	// when the top bar's scope chip was removed and sent the user to the brief to
-	// search everything. Views that differ only in what is open below the list —
-	// a thread, a mirrored `q` — are the same view, so in-flight typing survives
-	// them (`searchInputForView`, `mailViewKey`).
-	//
-	// Adjusted during render, not in an effect. This is React's documented
-	// "adjusting state when a prop changes" pattern: both updates are to this
-	// component's own state and are guarded by a changed value, so React re-runs
-	// the render before committing and nothing is painted with the stale query.
-	// An effect would commit one frame carrying the previous view's text, which
-	// the mirror then has to be defended against.
-	const viewKey = useRouterState({ select: (s) => mailViewKey(s.matches) });
-	const [searchViewKey, setSearchViewKey] = useState(viewKey);
-	if (searchViewKey !== viewKey) {
-		const seeded = searchInputForView(searchViewKey, viewKey, searchQuery);
-		setSearchViewKey(viewKey);
-		if (seeded !== undefined) setSearchInput(seeded);
-	}
+	// The one search field and the query it commits (`useSearchField`): seeded
+	// from the URL, mirrored back by each list route's own `useSearchMirror`,
+	// and re-seeded from the address whenever the reader leaves the view (#47).
+	const { searchInput, committedQuery, viewKey, setSearchInput } =
+		useSearchField();
 
 	const {
 		data: config,
@@ -229,20 +199,12 @@ function MailLayout() {
 		handlers: composeHandlers,
 	});
 
-	const handleSearchChange = useCallback((query: string) => {
-		setSearchInput(query);
-	}, []);
-
 	// Clears the search field; the list route's mirror drops `q` from the URL
-	// after the debounce settles.
+	// after the debounce settles. Esc inside the field does the same, keeping the
+	// thread open (#489), so the two are one handler under two names.
 	const handleSearchClear = useCallback(() => {
 		setSearchInput("");
-	}, []);
-
-	// Esc inside the search field clears only the query (#489).
-	const handleSearchClearQuery = useCallback(() => {
-		setSearchInput("");
-	}, []);
+	}, [setSearchInput]);
 
 	const handleToggleIntelligence = useCallback(() => {
 		handleSetIntelligenceOpen(!intelligenceOpen);
@@ -283,9 +245,9 @@ function MailLayout() {
 		searchQuery: committedQuery,
 		searchInput,
 		searchViewKey: viewKey,
-		onSearchChange: handleSearchChange,
+		onSearchChange: setSearchInput,
 		onSearchClear: handleSearchClear,
-		onSearchClearQuery: handleSearchClearQuery,
+		onSearchClearQuery: handleSearchClear,
 		intelligenceOpen,
 		onToggleIntelligence: handleToggleIntelligence,
 	};

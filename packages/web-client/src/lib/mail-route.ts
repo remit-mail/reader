@@ -56,20 +56,26 @@ export function mailListRoute(
  * key of a list and of anything nested under it are equal; `lib/search-view.ts`
  * re-seeds the search field whenever this changes, and a key that moved when a
  * message opened would wipe the query the reader had just typed.
+ *
+ * Read off the location's pathname, for the reason `locationIsOnList` is: the
+ * router commits the address before it swaps the matches, and a route the
+ * reader has not visited yet has its component to fetch before it can. The
+ * search field follows the address, so text typed once the address says the
+ * next mailbox belongs to that mailbox — keying this off the matches instead
+ * made those keystrokes read as the previous view's leftovers and dropped them.
+ *
+ * The whole address, never the /mail match's own pathname, which is "/mail" on
+ * every child route.
  */
-export function mailViewKey(matches: readonly MailRouteMatch[]): string {
-	const route = mailListRoute(matches);
-	if (!route) return "";
-	switch (route.list) {
-		case "mailbox":
-			return route.mailboxId ? mailboxViewKey(route.mailboxId) : "";
-		case "flagged":
-			return MAIL_FLAGGED_ROUTE_ID;
-		case "outbox":
-			return MAIL_OUTBOX_ROUTE_ID;
-		case "brief":
-			return MAIL_BRIEF_ROUTE_ID;
-	}
+export function mailViewKey(pathname: string): string {
+	const segments = pathname.split(/[?#]/)[0].split("/").filter(Boolean);
+	if (segments[0] !== "mail") return "";
+	const list = segments[1];
+	if (!list) return "";
+	if (list === "brief") return MAIL_BRIEF_ROUTE_ID;
+	if (list === "flagged") return MAIL_FLAGGED_ROUTE_ID;
+	if (list === "outbox") return MAIL_OUTBOX_ROUTE_ID;
+	return mailboxViewKey(list);
 }
 
 /** One mailbox's view key. Two mailboxes are two views. */

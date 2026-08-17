@@ -9,19 +9,29 @@
  * URL win on every view change: the field re-seeds from the location it lands
  * on, so switching mailbox clears a stale query while a deep link or a saved
  * search that carries `q` still arrives with the query intact.
+ *
+ * "Every view change" is the move the reader made, not every render that
+ * notices one. Text typed once the address already names the destination was
+ * typed in the destination, so it is that view's query and survives
+ * (`hooks/useSearchField.ts`).
  */
 import { locationIsOnList } from "./mail-route";
 
 /**
  * The field text after a view transition, or `undefined` when nothing changes
  * (same view — typing, opening a result, mirroring `q` back to the URL).
+ *
+ * `typedInView` is the view the text in the field was written in, not the view
+ * of the previous render. The two differ for exactly one render after the
+ * address moves, which is where a keystroke that followed the move lands
+ * (#808); calling it the previous render's view re-seeded that keystroke away.
  */
 export function searchInputForView(
-	previousViewKey: string,
+	typedInView: string,
 	viewKey: string,
 	urlQuery: string,
 ): string | undefined {
-	if (previousViewKey === viewKey) return undefined;
+	if (typedInView === viewKey) return undefined;
 	return urlQuery;
 }
 
