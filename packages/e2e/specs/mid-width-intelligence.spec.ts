@@ -15,6 +15,7 @@ import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
 import { INBOX_LIST, listOnScreen } from "../src/lists.js";
 import {
+	BRIEF_THREAD_URL,
 	MAILBOX_ROW_LINK,
 	MAILBOX_THREAD_URL,
 	MAILBOX_URL,
@@ -200,5 +201,66 @@ test.describe("Intelligence on a phone", () => {
 		await expect(
 			page.getByRole("button", { name: "Back to messages" }),
 		).toBeVisible();
+	});
+});
+
+/**
+ * The same width on the daily brief, which is where `/mail` lands — so this is
+ * the default view, not a corner of the app. The brief read the rail's own
+ * width gate as its answer for both tiers and wired no drawer at all, so the
+ * toolbar's control was greyed out here and the banner's "Why?" was absent at
+ * every desktop width (#817).
+ */
+test.describe("Intelligence on the brief where the rail does not fit", () => {
+	test.use({ viewport: { width: 1100, height: 900 } });
+
+	test.beforeEach(async ({ page, run }) => {
+		await page.goto("/mail");
+		const row = page
+			.locator("[data-message-row]")
+			.filter({ hasText: run.dkimMismatchSubject });
+		await expect(async () => {
+			await page.reload();
+			await expect(row).toBeVisible({ timeout: 5_000 });
+		}).toPass({ timeout: 60_000 });
+		await row.click();
+		await page.waitForURL(BRIEF_THREAD_URL);
+		await expect(
+			page.getByRole("article").getByRole("heading", {
+				name: run.dkimMismatchSubject,
+				exact: true,
+			}),
+		).toBeVisible({ timeout: 15_000 });
+	});
+
+	test("the toolbar's intelligence control opens the drawer", async ({
+		page,
+	}) => {
+		await expect(page.getByRole("button", { name: SHOW_INFO })).toBeEnabled();
+
+		await page.getByRole("button", { name: SHOW_INFO }).click();
+
+		const drawer = intelligenceDrawer(page);
+		await expect(drawer).toBeVisible({ timeout: 15_000 });
+		await expect(
+			drawer.getByText("Intelligence", { exact: true }),
+		).toBeVisible();
+		await expect(page.getByRole("button", { name: HIDE_INFO })).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+	});
+
+	test("the banner's Why? opens the same surface", async ({ page }) => {
+		await page.getByRole("button", { name: "Why?", exact: true }).click();
+
+		const drawer = intelligenceDrawer(page);
+		await expect(drawer).toBeVisible({ timeout: 15_000 });
+		await expect(
+			drawer.getByText("Intelligence", { exact: true }),
+		).toBeVisible();
+
+		await closeControl(page).click();
+		await expect(intelligenceDrawer(page)).toHaveCount(0);
 	});
 });
