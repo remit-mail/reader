@@ -4,98 +4,75 @@
  * writer sees, and reopened from its own serialization, so it is the draft that
  * comes back rather than the document that was saved.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { before, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
-import type { ElementNode, LexicalEditor } from "lexical";
-import type { ImageNode as ImageNodeClass } from "./rich-text-image-node.js";
+import { describe, it } from "node:test";
+import {
+	$getRoot,
+	$insertNodes,
+	$isElementNode,
+	createEditor,
+	type ElementNode,
+	type LexicalEditor,
+} from "lexical";
+import { $adoptHtml, $readRichText } from "./rich-text-document.js";
+import { ImageNode } from "./rich-text-image-node.js";
+import { RICH_TEXT_NODES, richTextTheme } from "./rich-text-nodes.js";
 
 const LOGO = "https://example.com/logo.png";
 const PIXEL =
 	"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 const PASTED = `<p>Chart: <img src="${LOGO}" alt="The logo"></p>`;
 
-let openEditor: (html: string) => LexicalEditor;
-let imageOf: (editor: LexicalEditor) => HTMLImageElement;
-let $theImage: () => ImageNodeClass;
-let readHtml: (editor: LexicalEditor) => string;
-let readText: (editor: LexicalEditor) => string;
-
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	const dom: JSDOM = new JSDOMCtor(
-		"<!doctype html><html><body></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.DOMParser = dom.window.DOMParser;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.Node = dom.window.Node;
-	globalThis.MutationObserver = dom.window.MutationObserver;
-	globalThis.Range = dom.window.Range;
-	globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
-
-	const { $getRoot, $insertNodes, $isElementNode, createEditor } = await import(
-		"lexical"
-	);
-	const { $adoptHtml, $readRichText } = await import("./rich-text-document.js");
-	const { ImageNode } = await import("./rich-text-image-node.js");
-	const { RICH_TEXT_NODES, richTextTheme } = await import(
-		"./rich-text-nodes.js"
-	);
-
-	openEditor = (html: string) => {
-		const editor: LexicalEditor = createEditor({
-			namespace: "test",
-			nodes: [...RICH_TEXT_NODES],
-			onError: (error) => {
-				throw error;
+const openEditor = (html: string) => {
+	const editor: LexicalEditor = createEditor({
+		namespace: "test",
+		nodes: [...RICH_TEXT_NODES],
+		onError: (error) => {
+			throw error;
+		},
+		theme: richTextTheme,
+	});
+	const root = document.createElement("div");
+	root.contentEditable = "true";
+	document.body.appendChild(root);
+	editor.setRootElement(root);
+	if (html !== "")
+		editor.update(
+			() => {
+				$getRoot().clear();
+				$getRoot().select();
+				$insertNodes($adoptHtml(editor, html));
 			},
-			theme: richTextTheme,
-		});
-		const root = document.createElement("div");
-		root.contentEditable = "true";
-		document.body.appendChild(root);
-		editor.setRootElement(root);
-		if (html !== "")
-			editor.update(
-				() => {
-					$getRoot().clear();
-					$getRoot().select();
-					$insertNodes($adoptHtml(editor, html));
-				},
-				{ discrete: true },
-			);
-		return editor;
-	};
+			{ discrete: true },
+		);
+	return editor;
+};
 
-	imageOf = (editor: LexicalEditor) => {
-		const image = editor.getRootElement()?.querySelector("img");
-		if (!image) throw new Error("the editor is showing no image");
-		return image;
-	};
+const imageOf = (editor: LexicalEditor) => {
+	const image = editor.getRootElement()?.querySelector("img");
+	if (!image) throw new Error("the editor is showing no image");
+	return image;
+};
 
-	$theImage = () => {
-		const found: ImageNodeClass[] = [];
-		const visit = (node: ElementNode) => {
-			for (const child of node.getChildren()) {
-				if (child instanceof ImageNode) found.push(child);
-				if ($isElementNode(child)) visit(child);
-			}
-		};
-		visit($getRoot());
-		if (found.length !== 1)
-			throw new Error(`the document holds ${found.length} images`);
-		return found[0];
+const $theImage = (): ImageNode => {
+	const found: ImageNode[] = [];
+	const visit = (node: ElementNode) => {
+		for (const child of node.getChildren()) {
+			if (child instanceof ImageNode) found.push(child);
+			if ($isElementNode(child)) visit(child);
+		}
 	};
+	visit($getRoot());
+	if (found.length !== 1)
+		throw new Error(`the document holds ${found.length} images`);
+	return found[0];
+};
 
-	readHtml = (editor: LexicalEditor) =>
-		editor.read(() => $readRichText(editor)).html;
-	readText = (editor: LexicalEditor) =>
-		editor.read(() => $readRichText(editor)).text;
-});
+const readHtml = (editor: LexicalEditor) =>
+	editor.read(() => $readRichText(editor)).html;
+const readText = (editor: LexicalEditor) =>
+	editor.read(() => $readRichText(editor)).text;
 
 describe("the image the composer shows", () => {
 	it("draws the picture rather than a placeholder for it", () => {

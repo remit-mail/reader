@@ -2,9 +2,9 @@
  * BriefSections arrow-key traversal (#143) — mounted against jsdom rather than
  * `renderToString`, since focus and keydown need a real `document`.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { LIST_ROW_SELECTOR } from "../lib/roving-focus.js";
@@ -61,39 +61,11 @@ const sections: ThreadSection[] = [
 	},
 ];
 
-let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
 
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.KeyboardEvent = dom.window.KeyboardEvent;
-	globalThis.MutationObserver = dom.window.MutationObserver;
-	Object.defineProperty(globalThis, "navigator", {
-		value: dom.window.navigator,
-		configurable: true,
-	});
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-});
-
-after(() => {
-	dom.window.close();
-});
-
 beforeEach(() => {
-	container = dom.window.document.getElementById(
-		"root",
-	) as unknown as HTMLElement;
+	container = document.getElementById("root") as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
 });
@@ -106,7 +78,7 @@ afterEach(() => {
 
 function pressKey(target: Element, key: string, shiftKey = false) {
 	target.dispatchEvent(
-		new dom.window.KeyboardEvent("keydown", { key, bubbles: true, shiftKey }),
+		new KeyboardEvent("keydown", { key, bubbles: true, shiftKey }),
 	);
 }
 
@@ -147,7 +119,7 @@ describe("BriefSections arrow-key traversal", () => {
 		act(() => items[0]?.focus());
 		act(() => pressKey(items[0] as Element, "ArrowDown"));
 		act(() => pressKey(items[1] as Element, "ArrowDown"));
-		assert.equal(dom.window.document.activeElement, items[2]);
+		assert.equal(document.activeElement, items[2]);
 
 		act(() => (items[2] as HTMLElement).click());
 		assert.equal(selected, "t3");
@@ -159,10 +131,10 @@ describe("BriefSections arrow-key traversal", () => {
 
 		act(() => items[2]?.focus());
 		act(() => pressKey(items[2] as Element, "ArrowUp"));
-		assert.equal(dom.window.document.activeElement, items[1]);
+		assert.equal(document.activeElement, items[1]);
 
 		act(() => pressKey(items[1] as Element, "Home"));
-		assert.equal(dom.window.document.activeElement, items[0]);
+		assert.equal(document.activeElement, items[0]);
 	});
 
 	it("steps over the section headers between rows", () => {
@@ -175,7 +147,7 @@ describe("BriefSections arrow-key traversal", () => {
 
 		act(() => items[1]?.focus());
 		act(() => pressKey(items[1] as Element, "ArrowDown"));
-		assert.equal(dom.window.document.activeElement, items[2]);
+		assert.equal(document.activeElement, items[2]);
 	});
 });
 

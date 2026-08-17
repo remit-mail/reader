@@ -4,15 +4,14 @@
  * a real keydown reaches, what the `g …` window does across two presses, and
  * what the layer leaves bound after it is taken down.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { TriageAction, TriageHandlers } from "./keymap.js";
 import { useTriageKeyboard } from "./use-triage-keyboard.js";
 
-let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
 let fired: TriageAction[];
@@ -39,9 +38,9 @@ const mount = (enabled = true) => {
 const press = (
 	key: string,
 	init: KeyboardEventInit = {},
-	target: EventTarget = dom.window.document.body,
+	target: EventTarget = document.body,
 ): KeyboardEvent => {
-	const event = new dom.window.KeyboardEvent("keydown", {
+	const event = new KeyboardEvent("keydown", {
 		key,
 		bubbles: true,
 		cancelable: true,
@@ -53,31 +52,9 @@ const press = (
 	return event as unknown as KeyboardEvent;
 };
 
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.SVGElement = dom.window.SVGElement;
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-});
-
-after(() => {
-	dom.window.close();
-});
-
 beforeEach(() => {
 	fired = [];
-	container = dom.window.document.getElementById(
-		"root",
-	) as unknown as HTMLElement;
+	container = document.getElementById("root") as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
 });
@@ -123,7 +100,7 @@ describe("useTriageKeyboard", () => {
 
 	it("stays inert while focus is in an editable surface", () => {
 		mount();
-		const field = dom.window.document.getElementById("field");
+		const field = document.getElementById("field");
 		assert.ok(field);
 		press("j", {}, field);
 		assert.deepEqual(fired, []);

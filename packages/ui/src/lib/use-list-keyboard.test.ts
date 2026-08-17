@@ -4,16 +4,15 @@
  * path reads its modifiers the same way, the selection follows the rows on
  * screen, and the footer offers only the actions the layer registered.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { type ListKeyboard, useListKeyboard } from "./use-list-keyboard.js";
 
 const ALL_IDS = ["m1", "m2", "m3", "m4"];
 
-let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
 let list: ListKeyboard;
@@ -48,7 +47,7 @@ const rerender = async (rowIds: string[]) => {
 };
 
 const pane = (): HTMLElement => {
-	const element = dom.window.document.getElementById("pane");
+	const element = document.getElementById("pane");
 	assert.ok(element, "the harness rendered no pane");
 	return element as unknown as HTMLElement;
 };
@@ -60,7 +59,7 @@ const press = (
 ) => {
 	act(() => {
 		target.dispatchEvent(
-			new dom.window.KeyboardEvent("keydown", {
+			new KeyboardEvent("keydown", {
 				key,
 				bubbles: true,
 				cancelable: true,
@@ -89,31 +88,8 @@ const click = (
 
 const selected = () => Array.from(list.cursor.selection.selectedIds).sort();
 
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.SVGElement = dom.window.SVGElement;
-	globalThis.MutationObserver = dom.window.MutationObserver;
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-});
-
-after(() => {
-	dom.window.close();
-});
-
 beforeEach(() => {
-	container = dom.window.document.getElementById(
-		"root",
-	) as unknown as HTMLElement;
+	container = document.getElementById("root") as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
 	mount();
@@ -158,7 +134,7 @@ describe("useListKeyboard", () => {
 	});
 
 	it("leaves a key pressed outside its own element alone", () => {
-		press("j", {}, dom.window.document.body);
+		press("j", {}, document.body);
 		assert.equal(list.keyboard.focusedId, undefined);
 	});
 

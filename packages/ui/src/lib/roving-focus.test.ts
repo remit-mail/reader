@@ -4,9 +4,9 @@
  * real KeyboardEvents at a real focused node, asserting on the DOM side effects
  * the hook owns (focus, tabIndex), which `renderToString` cannot reach.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { act, createElement, type RefObject, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
@@ -51,38 +51,11 @@ describe("rovingNextIndex", () => {
 	});
 });
 
-let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
 
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.KeyboardEvent = dom.window.KeyboardEvent;
-	Object.defineProperty(globalThis, "navigator", {
-		value: dom.window.navigator,
-		configurable: true,
-	});
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-});
-
-after(() => {
-	dom.window.close();
-});
-
 beforeEach(() => {
-	container = dom.window.document.getElementById(
-		"root",
-	) as unknown as HTMLElement;
+	container = document.getElementById("root") as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
 });
@@ -95,7 +68,7 @@ afterEach(() => {
 
 function pressKey(target: Element, key: string, shiftKey = false) {
 	target.dispatchEvent(
-		new dom.window.KeyboardEvent("keydown", { key, bubbles: true, shiftKey }),
+		new KeyboardEvent("keydown", { key, bubbles: true, shiftKey }),
 	);
 }
 
@@ -158,7 +131,7 @@ describe("useRovingFocus", () => {
 		act(() => items[0]?.focus());
 		act(() => pressKey(items[0] as Element, "ArrowDown"));
 
-		assert.equal(dom.window.document.activeElement, items[1]);
+		assert.equal(document.activeElement, items[1]);
 		assert.equal(items[1]?.tabIndex, 0);
 		assert.equal(items[0]?.tabIndex, -1);
 	});
@@ -169,7 +142,7 @@ describe("useRovingFocus", () => {
 		act(() => items[0]?.focus());
 		act(() => pressKey(items[0] as Element, "ArrowUp"));
 
-		assert.equal(dom.window.document.activeElement, items[0]);
+		assert.equal(document.activeElement, items[0]);
 	});
 
 	it("ArrowDown clamps at the last row", () => {
@@ -178,7 +151,7 @@ describe("useRovingFocus", () => {
 		act(() => items[1]?.focus());
 		act(() => pressKey(items[1] as Element, "ArrowDown"));
 
-		assert.equal(dom.window.document.activeElement, items[1]);
+		assert.equal(document.activeElement, items[1]);
 	});
 
 	it("Home/End jump to the first/last row", () => {
@@ -186,10 +159,10 @@ describe("useRovingFocus", () => {
 		const items = rows();
 		act(() => items[2]?.focus());
 		act(() => pressKey(items[2] as Element, "End"));
-		assert.equal(dom.window.document.activeElement, items[3]);
+		assert.equal(document.activeElement, items[3]);
 
 		act(() => pressKey(items[3] as Element, "Home"));
-		assert.equal(dom.window.document.activeElement, items[0]);
+		assert.equal(document.activeElement, items[0]);
 	});
 
 	it("mouse-focusing a row moves the tab stop there too", () => {
@@ -207,7 +180,7 @@ describe("useRovingFocus", () => {
 		act(() => items[0]?.focus());
 		act(() => pressKey(items[0] as Element, "ArrowDown"));
 
-		assert.equal(dom.window.document.activeElement, items[1]);
+		assert.equal(document.activeElement, items[1]);
 		assert.match(items[1]?.textContent ?? "", /row-1/);
 	});
 
@@ -219,7 +192,7 @@ describe("useRovingFocus", () => {
 		act(() => nested[1]?.focus());
 		act(() => pressKey(nested[1] as Element, "ArrowDown"));
 
-		assert.equal(dom.window.document.activeElement, rows()[0]);
+		assert.equal(document.activeElement, rows()[0]);
 	});
 
 	it("leaves Shift+Arrow to the layer above instead of moving the cursor", () => {
@@ -228,14 +201,14 @@ describe("useRovingFocus", () => {
 		const spy = () => {
 			seen += 1;
 		};
-		dom.window.addEventListener("keydown", spy);
+		window.addEventListener("keydown", spy);
 		const items = rows();
 		act(() => items[0]?.focus());
 		act(() => pressKey(items[0] as Element, "ArrowDown", true));
 		act(() => pressKey(items[0] as Element, "ArrowUp", true));
-		dom.window.removeEventListener("keydown", spy);
+		window.removeEventListener("keydown", spy);
 
-		assert.equal(dom.window.document.activeElement, items[0]);
+		assert.equal(document.activeElement, items[0]);
 		assert.equal(seen, 2);
 	});
 
@@ -245,12 +218,12 @@ describe("useRovingFocus", () => {
 		const spy = () => {
 			seen += 1;
 		};
-		dom.window.addEventListener("keydown", spy);
+		window.addEventListener("keydown", spy);
 		const items = rows();
 		act(() => items[0]?.focus());
 		act(() => pressKey(items[0] as Element, "ArrowDown"));
 		act(() => pressKey(items[1] as Element, "Enter"));
-		dom.window.removeEventListener("keydown", spy);
+		window.removeEventListener("keydown", spy);
 
 		assert.equal(seen, 1);
 	});

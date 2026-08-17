@@ -18,9 +18,9 @@
  * and snapped back, and nothing else happened.
  */
 
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { ThreadRowData } from "./app-shell-types.js";
@@ -39,45 +39,11 @@ const thread: ThreadRowData = {
 	isRead: false,
 };
 
-let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
 
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.SVGElement = dom.window.SVGElement;
-	globalThis.PointerEvent = dom.window.PointerEvent;
-	// jsdom does not implement the pointer-capture methods at all (not even
-	// as no-ops) — SwipeableRow calls setPointerCapture once it claims the
-	// horizontal axis, so an unpolyfilled call throws mid-gesture.
-	dom.window.Element.prototype.setPointerCapture = () => undefined;
-	dom.window.Element.prototype.releasePointerCapture = () => undefined;
-	dom.window.Element.prototype.hasPointerCapture = () => false;
-	Object.defineProperty(globalThis, "navigator", {
-		value: dom.window.navigator,
-		configurable: true,
-	});
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-});
-
-after(() => {
-	dom.window.close();
-});
-
 beforeEach(() => {
-	container = dom.window.document.getElementById(
-		"root",
-	) as unknown as HTMLElement;
+	container = document.getElementById("root") as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
 });
@@ -114,7 +80,7 @@ function mount(handlers: Handlers) {
 	// The open affordance is the one button with no aria-label — the
 	// leading/trailing action buttons ("Mark as read" etc.) only render once
 	// peeked, but querying by absence of aria-label is stable at rest too.
-	const row = [...dom.window.document.querySelectorAll("button")].find(
+	const row = [...document.querySelectorAll("button")].find(
 		(b) => !b.hasAttribute("aria-label"),
 	);
 	assert.ok(row, "open-affordance button did not mount");
@@ -122,7 +88,7 @@ function mount(handlers: Handlers) {
 }
 
 function contextMenu(row: Element) {
-	const event = new dom.window.MouseEvent("contextmenu", {
+	const event = new MouseEvent("contextmenu", {
 		bubbles: true,
 		cancelable: true,
 	});
@@ -139,7 +105,7 @@ function contextMenu(row: Element) {
 function pointerDown(row: Element, x = 10, y = 10) {
 	act(() => {
 		row.dispatchEvent(
-			new dom.window.PointerEvent("pointerdown", {
+			new PointerEvent("pointerdown", {
 				bubbles: true,
 				pointerType: "touch",
 				pointerId: 1,
@@ -153,7 +119,7 @@ function pointerDown(row: Element, x = 10, y = 10) {
 function pointerMove(row: Element, x: number, y: number) {
 	act(() => {
 		row.dispatchEvent(
-			new dom.window.PointerEvent("pointermove", {
+			new PointerEvent("pointermove", {
 				bubbles: true,
 				pointerType: "touch",
 				pointerId: 1,
@@ -174,7 +140,7 @@ function pointerUp(row: Element) {
 	// (the horizontal-swipe case here), so this also matches real behavior.
 	act(() => {
 		row.dispatchEvent(
-			new dom.window.PointerEvent("pointerup", {
+			new PointerEvent("pointerup", {
 				bubbles: true,
 				pointerType: "touch",
 				pointerId: 1,

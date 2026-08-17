@@ -4,45 +4,18 @@
  * jsdom does not implement it for anchors; `detail-surface.stories.tsx` covers
  * that in Chromium.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { act, createElement, type MouseEvent } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { NavLinkSurface } from "./nav-link-surface.js";
 
-let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
 
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.MouseEvent = dom.window.MouseEvent;
-	Object.defineProperty(globalThis, "navigator", {
-		value: dom.window.navigator,
-		configurable: true,
-	});
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-});
-
-after(() => {
-	dom.window.close();
-});
-
 beforeEach(() => {
-	container = dom.window.document.getElementById(
-		"root",
-	) as unknown as HTMLElement;
+	container = document.getElementById("root") as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
 });
@@ -65,7 +38,7 @@ function mount(props: Parameters<typeof NavLinkSurface>[0]) {
 function click(target: Element, init: { metaKey?: boolean } = {}) {
 	act(() => {
 		target.dispatchEvent(
-			new dom.window.MouseEvent("click", {
+			new MouseEvent("click", {
 				bubbles: true,
 				cancelable: true,
 				...init,
@@ -78,13 +51,13 @@ describe("NavLinkSurface interaction", () => {
 	it("puts a link with an href in the tab order", () => {
 		const link = mount({ href: "/mail/brief" });
 		link.focus();
-		assert.equal(dom.window.document.activeElement, link);
+		assert.equal(document.activeElement, link);
 	});
 
 	it("keeps a link with no href out of the tab order", () => {
 		const link = mount({});
 		link.focus();
-		assert.notEqual(dom.window.document.activeElement, link);
+		assert.notEqual(document.activeElement, link);
 	});
 
 	it("passes a modified click through with its modifier intact", () => {
@@ -105,7 +78,7 @@ describe("NavLinkSurface interaction", () => {
 
 	it("adds no click handling of its own when the caller passes none", () => {
 		const link = mount({ href: "/mail/brief" });
-		const event = new dom.window.MouseEvent("click", {
+		const event = new MouseEvent("click", {
 			bubbles: true,
 			cancelable: true,
 		});

@@ -2,14 +2,13 @@
  * The rendered rows are read from the DOM, so a list body that caps, collapses
  * or filters itself below its consumer still reports what it shows.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { useRenderedRowIds } from "./use-rendered-row-ids.js";
 
-let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
 let rowIds: string[] | undefined;
@@ -39,28 +38,8 @@ const settle = async () => {
 	});
 };
 
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.MutationObserver = dom.window.MutationObserver;
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-});
-
-after(() => dom.window.close());
-
 beforeEach(() => {
-	container = dom.window.document.getElementById(
-		"root",
-	) as unknown as HTMLElement;
+	container = document.getElementById("root") as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
 });

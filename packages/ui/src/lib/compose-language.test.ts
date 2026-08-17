@@ -1,7 +1,7 @@
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { before, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { data } from "franc-min/data.js";
-import { JSDOM } from "jsdom";
 import {
 	browserSpellcheckHelp,
 	COMPOSE_LANGUAGE_OPTIONS,
@@ -15,11 +15,6 @@ import {
 
 /** The dictionaries the published image stages, per `REMIT_SPELLCHECK_LANGUAGES`. */
 const BUILT = ["en", "en-GB", "nl"];
-
-before(() => {
-	const dom = new JSDOM("");
-	globalThis.DOMParser = dom.window.DOMParser;
-});
 
 describe("detectionCodeFor", () => {
 	it("resolves a region through its language", () => {

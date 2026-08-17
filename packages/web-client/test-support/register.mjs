@@ -1,6 +1,6 @@
 import { register } from "node:module";
 import { pathToFileURL } from "node:url";
-import "./dom-env.mjs";
+import "@remit/test-dom";
 import "./query-timers.mjs";
 
 register("./loader.mjs", pathToFileURL(`${import.meta.dirname}/`));

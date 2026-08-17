@@ -2,23 +2,14 @@
  * Opening folders, and the inline create form that sits at the end of an opened
  * folder's children: where it opens, what it says the parent is, and how it
  * behaves while the mail server is confirming the folder. Mounted against jsdom
- * for the anchoring, the field state and the async resolve. React is imported
- * after the jsdom globals are installed so the controlled value tracker binds to
- * jsdom's prototypes.
+ * for the anchoring, the field state and the async resolve.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
-import type {
-	act as reactAct,
-	createElement as reactCreateElement,
-	useState as reactUseState,
-} from "react";
-import type { Root, createRoot as reactCreateRoot } from "react-dom/client";
-import type {
-	FolderTreeNode,
-	FolderTreePicker as FolderTreePickerType,
-} from "./folder-tree-picker.js";
+import { afterEach, before, beforeEach, describe, it } from "node:test";
+import { act, createElement, useState } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { type FolderTreeNode, FolderTreePicker } from "./folder-tree-picker.js";
 
 const folders: FolderTreeNode[] = [
 	{ id: "inbox", label: "Inbox", path: "INBOX", isCurrent: true },
@@ -29,57 +20,23 @@ const folders: FolderTreeNode[] = [
 	{ id: "archive", label: "Archive", path: "Archive" },
 ];
 
-let dom: JSDOM;
 const scrolledIntoView: Element[] = [];
 let container: HTMLElement;
 let root: Root;
-let act: typeof reactAct;
-let createElement: typeof reactCreateElement;
-let useState: typeof reactUseState;
-let createRoot: typeof reactCreateRoot;
-let FolderTreePicker: typeof FolderTreePickerType;
 
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.Event = dom.window.Event;
-	Object.defineProperty(globalThis, "navigator", {
-		value: dom.window.navigator,
-		configurable: true,
-	});
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-	Object.defineProperty(dom.window.HTMLElement.prototype, "scrollIntoView", {
+before(() => {
+	Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
 		configurable: true,
 		value: function scrollIntoView(this: Element) {
 			scrolledIntoView.push(this);
 		},
 	});
-
-	const react = await import("react");
-	act = react.act;
-	createElement = react.createElement;
-	useState = react.useState;
-	({ createRoot } = await import("react-dom/client"));
-	({ FolderTreePicker } = await import("./folder-tree-picker.js"));
-});
-
-after(() => {
-	dom.window.close();
 });
 
 beforeEach(() => {
 	scrolledIntoView.length = 0;
-	container = dom.window.document.createElement("div");
-	dom.window.document.body.append(container);
+	container = document.createElement("div");
+	document.body.append(container);
 	root = createRoot(container);
 });
 
@@ -90,7 +47,7 @@ afterEach(async () => {
 	container.remove();
 });
 
-type PickerProps = Partial<Parameters<typeof FolderTreePickerType>[0]>;
+type PickerProps = Partial<Parameters<typeof FolderTreePicker>[0]>;
 
 const mount = async (props: PickerProps = {}) => {
 	await act(async () => {
@@ -149,12 +106,12 @@ const typeName = async (value: string) => {
 	const input = nameField();
 	assert.ok(input, "name field not rendered");
 	const setter = Object.getOwnPropertyDescriptor(
-		dom.window.HTMLInputElement.prototype,
+		HTMLInputElement.prototype,
 		"value",
 	)?.set;
 	await act(async () => {
 		setter?.call(input, value);
-		input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+		input.dispatchEvent(new Event("input", { bubbles: true }));
 	});
 };
 
@@ -165,21 +122,19 @@ const typeFilter = async (value: string) => {
 	const input = filterField();
 	assert.ok(input, "filter field not rendered");
 	const setter = Object.getOwnPropertyDescriptor(
-		dom.window.HTMLInputElement.prototype,
+		HTMLInputElement.prototype,
 		"value",
 	)?.set;
 	await act(async () => {
 		setter?.call(input, value);
-		input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+		input.dispatchEvent(new Event("input", { bubbles: true }));
 	});
 };
 
 const press = async (target: Element | null | undefined, key: string) => {
 	assert.ok(target, "control not rendered");
 	await act(async () => {
-		target.dispatchEvent(
-			new dom.window.KeyboardEvent("keydown", { key, bubbles: true }),
-		);
+		target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
 	});
 };
 
@@ -680,7 +635,7 @@ describe("a draft outlives the rows under it", () => {
 
 describe("filter and keyboard", () => {
 	const focused = (): string | null =>
-		dom.window.document.activeElement?.getAttribute("aria-label") ?? null;
+		document.activeElement?.getAttribute("aria-label") ?? null;
 
 	it("opens the ancestors a match hides behind", async () => {
 		await mount({});

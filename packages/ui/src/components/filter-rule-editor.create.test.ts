@@ -3,20 +3,15 @@
  * folder is chosen, that a nested folder is told apart from a same-named
  * sibling, and that a folder can be made inside another one from here. Mounted
  * against jsdom for the tree interaction, the create form state and the async
- * resolve. React is imported after the jsdom globals are installed so the
- * controlled value tracker binds to jsdom's prototypes.
+ * resolve.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
-import type {
-	act as reactAct,
-	createElement as reactCreateElement,
-	useState as reactUseState,
-} from "react";
-import type { Root, createRoot as reactCreateRoot } from "react-dom/client";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import { act, createElement, useState } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import type { FilterRule, PreviewCount } from "./filter-rule.js";
-import type { FilterRuleEditor as FilterRuleEditorType } from "./filter-rule-editor.js";
+import { FilterRuleEditor } from "./filter-rule-editor.js";
 import type { FolderTreeNode } from "./folder-tree-picker.js";
 
 // `Prullenbak` labelled Trash is the account's own naming; two folders named
@@ -42,54 +37,11 @@ const rule: FilterRule = {
 
 const preview: PreviewCount = { status: "ready", count: 3 };
 
-let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
-let act: typeof reactAct;
-let createElement: typeof reactCreateElement;
-let useState: typeof reactUseState;
-let createRoot: typeof reactCreateRoot;
-let FilterRuleEditor: typeof FilterRuleEditorType;
-
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.Event = dom.window.Event;
-	Object.defineProperty(globalThis, "navigator", {
-		value: dom.window.navigator,
-		configurable: true,
-	});
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-	Object.defineProperty(dom.window.HTMLElement.prototype, "scrollIntoView", {
-		configurable: true,
-		value: () => undefined,
-	});
-
-	const react = await import("react");
-	act = react.act;
-	createElement = react.createElement;
-	useState = react.useState;
-	({ createRoot } = await import("react-dom/client"));
-	({ FilterRuleEditor } = await import("./filter-rule-editor.js"));
-});
-
-after(() => {
-	dom.window.close();
-});
 
 beforeEach(() => {
-	container = dom.window.document.getElementById(
-		"root",
-	) as unknown as HTMLElement;
+	container = document.getElementById("root") as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
 });
@@ -140,8 +92,7 @@ const mount = async ({
 };
 
 const click = async (element: Element | null | undefined) => {
-	if (!(element instanceof dom.window.HTMLElement))
-		assert.fail("control not rendered");
+	if (!(element instanceof HTMLElement)) assert.fail("control not rendered");
 	await act(async () => {
 		element.click();
 	});
@@ -187,10 +138,10 @@ const typeName = async (value: string) => {
 	assert.ok(input, "the folder name field is on screen");
 	await act(async () => {
 		Object.getOwnPropertyDescriptor(
-			dom.window.HTMLInputElement.prototype,
+			HTMLInputElement.prototype,
 			"value",
 		)?.set?.call(input, value);
-		input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+		input.dispatchEvent(new Event("input", { bubbles: true }));
 	});
 };
 

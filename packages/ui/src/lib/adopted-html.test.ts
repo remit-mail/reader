@@ -3,29 +3,10 @@
  * over content nobody here wrote — a web page, another mail client, Word — so
  * the fixtures below are the shapes those actually put on the clipboard.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { before, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
-import type {
-	sanitizeAdoptedHtml as SanitizeAdoptedHtml,
-	sanitizeQuotedHtml as SanitizeQuotedHtml,
-} from "./adopted-html.js";
-
-let sanitizeAdoptedHtml: typeof SanitizeAdoptedHtml;
-let sanitizeQuotedHtml: typeof SanitizeQuotedHtml;
-
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	const dom: JSDOM = new JSDOMCtor(
-		"<!doctype html><html><body></body></html>",
-		{ url: "http://localhost/" },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	({ sanitizeAdoptedHtml, sanitizeQuotedHtml } = await import(
-		"./adopted-html.js"
-	));
-});
+import { describe, it } from "node:test";
+import { sanitizeAdoptedHtml, sanitizeQuotedHtml } from "./adopted-html.js";
 
 describe("sanitizeAdoptedHtml", () => {
 	it("keeps the structure a pasted document is made of", () => {

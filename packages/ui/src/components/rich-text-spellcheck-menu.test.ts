@@ -3,21 +3,14 @@
  * findings the marks already hold, the suggestions arrive after it, and what
  * the writer picks lands in the document as one undoable step.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
-import type {
-	$getRoot as getRootType,
-	LexicalEditor,
-	UNDO_COMMAND as undoCommandType,
-} from "lexical";
-import type {
-	act as reactAct,
-	createElement as reactCreateElement,
-	useEffect as reactUseEffect,
-} from "react";
-import type { Root, createRoot as reactCreateRoot } from "react-dom/client";
-import type { RichTextEditor as RichTextEditorType } from "./rich-text-editor.js";
+import { afterEach, before, beforeEach, describe, it } from "node:test";
+import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+import { $getRoot, type LexicalEditor, UNDO_COMMAND } from "lexical";
+import { act, createElement, useEffect } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { RichTextEditor } from "./rich-text-editor.js";
 import type {
 	CheckRequest,
 	CheckResponse,
@@ -47,17 +40,8 @@ interface MarkHost {
 	Highlight: typeof StubMarks;
 }
 
-let dom: JSDOM;
 let container: HTMLElement;
 const roots: Root[] = [];
-let act: typeof reactAct;
-let createElement: typeof reactCreateElement;
-let useEffect: typeof reactUseEffect;
-let createRoot: typeof reactCreateRoot;
-let RichTextEditor: typeof RichTextEditorType;
-let useLexicalComposerContext: () => [LexicalEditor];
-let $getRoot: typeof getRootType;
-let UNDO_COMMAND: typeof undoCommandType;
 let desktopLayout = true;
 
 const offsets = (): [number, number][] =>
@@ -140,8 +124,8 @@ const mount = async (
 		return null;
 	};
 
-	container = dom.window.document.createElement("div");
-	dom.window.document.body.append(container);
+	container = document.createElement("div");
+	document.body.append(container);
 	await act(async () => {
 		const root = createRoot(container);
 		roots.push(root);
@@ -187,7 +171,7 @@ const characters = (): Node => {
  * browser is the one that does this; here the test has to.
  */
 const putCaret = (offset: number): void => {
-	dom.window.document.getSelection()?.setPosition(characters(), offset);
+	document.getSelection()?.setPosition(characters(), offset);
 };
 
 /**
@@ -197,19 +181,15 @@ const putCaret = (offset: number): void => {
  * the desktop gate stays in `container`, and this still reaches it there.
  */
 const menu = (): HTMLElement | null =>
-	dom.window.document.body.querySelector<HTMLElement>(
-		"[data-testid=spell-menu]",
-	);
+	document.body.querySelector<HTMLElement>("[data-testid=spell-menu]");
 
 const rows = (testId: string): HTMLElement[] => [
-	...dom.window.document.body.querySelectorAll<HTMLElement>(
-		`[data-testid=${testId}]`,
-	),
+	...document.body.querySelectorAll<HTMLElement>(`[data-testid=${testId}]`),
 ];
 
 /** Any element inside the menu, wherever it landed — see {@link menu}. */
 const spellNode = (selector: string): HTMLElement | null =>
-	dom.window.document.body.querySelector<HTMLElement>(selector);
+	document.body.querySelector<HTMLElement>(selector);
 
 /**
  * jsdom carries no `PointerEvent`, and what the editor reads off one is the
@@ -220,7 +200,7 @@ const pointerEvent = (
 	pointerType: string,
 	at: { clientX: number; clientY: number; button?: number },
 ): MouseEvent => {
-	const event = new dom.window.MouseEvent(type, { bubbles: true, ...at });
+	const event = new MouseEvent(type, { bubbles: true, ...at });
 	Object.defineProperty(event, "pointerType", { value: pointerType });
 	return event;
 };
@@ -288,7 +268,7 @@ const caretAt = async (
 const keyDownOn = async (key: string): Promise<void> => {
 	await act(async () => {
 		editable().dispatchEvent(
-			new dom.window.KeyboardEvent("keydown", {
+			new KeyboardEvent("keydown", {
 				key,
 				bubbles: true,
 				cancelable: true,
@@ -304,7 +284,7 @@ const chordAt = async (
 	await caretAt(editor, offset);
 	await act(async () => {
 		editable().dispatchEvent(
-			new dom.window.KeyboardEvent("keydown", {
+			new KeyboardEvent("keydown", {
 				key: ".",
 				ctrlKey: true,
 				bubbles: true,
@@ -320,40 +300,24 @@ const click = async (element: HTMLElement): Promise<void> => {
 	});
 };
 
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.Node = dom.window.Node;
-	globalThis.Event = dom.window.Event;
-	globalThis.MouseEvent = dom.window.MouseEvent;
-	globalThis.KeyboardEvent = dom.window.KeyboardEvent;
-	globalThis.DOMParser = dom.window.DOMParser;
-	globalThis.MutationObserver = dom.window.MutationObserver;
-	globalThis.Range = dom.window.Range;
-	Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", {
+before(() => {
+	Object.defineProperty(Range.prototype, "getBoundingClientRect", {
 		value: () => ({ top: 12, bottom: 24, left: 8, right: 40 }),
 		configurable: true,
 	});
-	Object.defineProperty(dom.window.Element.prototype, "getBoundingClientRect", {
+	Object.defineProperty(Element.prototype, "getBoundingClientRect", {
 		value: () => ({ top: 0, bottom: 400, left: 0, right: 600 }),
 		configurable: true,
 	});
 	// jsdom lays nothing out, and the sheet reads its own height to know how far
 	// down it has been dragged.
-	Object.defineProperty(dom.window.HTMLElement.prototype, "offsetHeight", {
+	Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
 		value: 360,
 		configurable: true,
 	});
 	// The layout question every surface here answers: a popover on the word, or
 	// the same rows in a sheet.
-	Object.defineProperty(dom.window, "matchMedia", {
+	Object.defineProperty(window, "matchMedia", {
 		value: () => ({
 			matches: desktopLayout,
 			addEventListener: () => {},
@@ -366,19 +330,6 @@ before(async () => {
 		unobserve(): void {}
 		disconnect(): void {}
 	} as unknown as typeof ResizeObserver;
-	globalThis.AbortController = dom.window.AbortController;
-	globalThis.AbortSignal = dom.window.AbortSignal;
-	globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
-	globalThis.requestAnimationFrame = dom.window.requestAnimationFrame.bind(
-		dom.window,
-	);
-	globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(
-		dom.window,
-	);
-	Object.defineProperty(globalThis, "navigator", {
-		value: dom.window.navigator,
-		configurable: true,
-	});
 	Object.defineProperty(globalThis, "CSS", {
 		value: { highlights: new Map<string, StubMarks>() },
 		configurable: true,
@@ -387,17 +338,6 @@ before(async () => {
 		value: StubMarks,
 		configurable: true,
 	});
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-
-	({ act, createElement, useEffect } = await import("react"));
-	({ createRoot } = await import("react-dom/client"));
-	({ $getRoot, UNDO_COMMAND } = await import("lexical"));
-	({ useLexicalComposerContext } = (await import(
-		"@lexical/react/LexicalComposerContext"
-	)) as unknown as { useLexicalComposerContext: () => [LexicalEditor] });
-	({ RichTextEditor } = await import("./rich-text-editor.js"));
 });
 
 beforeEach(() => {
@@ -412,10 +352,6 @@ afterEach(async () => {
 		for (const mounted of live) mounted.unmount();
 	});
 	container.remove();
-});
-
-after(() => {
-	dom.window.close();
 });
 
 describe("the correction menu", () => {
@@ -629,9 +565,7 @@ describe("the correction menu", () => {
 		await pressAt(1, "mouse", { travel: 40 });
 		assert.equal(menu(), null, "and so was a mouse that was dragged");
 
-		dom.window.document
-			.getSelection()
-			?.setBaseAndExtent(characters(), 0, characters(), 3);
+		document.getSelection()?.setBaseAndExtent(characters(), 0, characters(), 3);
 		await act(async () => {
 			editable().dispatchEvent(
 				pointerEvent("pointerdown", "touch", { clientX: 40, clientY: 20 }),
@@ -693,7 +627,7 @@ describe("the correction menu", () => {
 		await pressAt(1, "mouse", { button: 2 });
 		assert.equal(menu(), null, "the right button raises nothing of ours");
 
-		const contextMenu = new dom.window.MouseEvent("contextmenu", {
+		const contextMenu = new MouseEvent("contextmenu", {
 			bubbles: true,
 			cancelable: true,
 		});
@@ -782,7 +716,7 @@ describe("the correction menu", () => {
 		assert.ok(menu());
 		await act(async () => {
 			menu()?.dispatchEvent(
-				new dom.window.KeyboardEvent("keydown", {
+				new KeyboardEvent("keydown", {
 					key: "Escape",
 					bubbles: true,
 				}),
@@ -790,7 +724,7 @@ describe("the correction menu", () => {
 		});
 		assert.equal(menu(), null, "Escape closes it");
 		assert.equal(
-			dom.window.document.activeElement,
+			document.activeElement,
 			editable(),
 			"and hands the message back its caret",
 		);
@@ -798,8 +732,8 @@ describe("the correction menu", () => {
 		await clickAt(1);
 		assert.ok(menu());
 		await act(async () => {
-			dom.window.document.body.dispatchEvent(
-				new dom.window.MouseEvent("pointerdown", { bubbles: true }),
+			document.body.dispatchEvent(
+				new MouseEvent("pointerdown", { bubbles: true }),
 			);
 		});
 		assert.equal(menu(), null, "so does a press outside it");
@@ -864,7 +798,7 @@ describe("the correction menu", () => {
 
 		await act(async () => {
 			menu()?.dispatchEvent(
-				new dom.window.KeyboardEvent("keydown", {
+				new KeyboardEvent("keydown", {
 					key: "Escape",
 					bubbles: true,
 				}),

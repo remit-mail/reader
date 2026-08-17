@@ -1,5 +1,5 @@
 /**
- * Mount-and-poke harness over the jsdom globals `dom-env.mjs` installs.
+ * Mount-and-poke harness over the jsdom globals `@remit/test-dom` installs.
  *
  * Excluded from coverage by `test:run`; it lives under `src/` only because the
  * build's `rootDir` is `src/`. Node's test runner gives every test file its own

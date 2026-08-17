@@ -7,24 +7,22 @@
  * real PointerEvents at a real mounted node and assert on the callback and
  * the DOM side effects react-aria owns (contextmenu suppression).
  *
- * jsdom is a devDependency scoped to this one test — react-aria's
- * pointerdown → threshold timer → onLongPress path, its global
+ * react-aria's pointerdown → threshold timer → onLongPress path, its global
  * pointerup/pointercancel listeners, and its contextmenu suppression all
  * need a real `document`/`window`/`PointerEvent`, which `renderToString`
  * (the pattern used elsewhere in this repo for presentational components)
  * cannot exercise.
  */
 
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { useLongPress } from "./use-long-press.js";
 
 const THRESHOLD = 40;
 
-let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
 
@@ -54,14 +52,14 @@ function mount(props: {
 	act(() => {
 		root.render(createElement(Row, props));
 	});
-	const row = dom.window.document.getElementById("row");
+	const row = document.getElementById("row");
 	assert.ok(row, "row did not mount");
 	return row;
 }
 
 function pointerDown(row: Element, pointerType = "touch") {
 	row.dispatchEvent(
-		new dom.window.PointerEvent("pointerdown", {
+		new PointerEvent("pointerdown", {
 			bubbles: true,
 			pointerType,
 			pointerId: 1,
@@ -72,7 +70,7 @@ function pointerDown(row: Element, pointerType = "touch") {
 }
 
 function dispatchContextMenu(row: Element) {
-	const event = new dom.window.MouseEvent("contextmenu", {
+	const event = new MouseEvent("contextmenu", {
 		bubbles: true,
 		cancelable: true,
 	});
@@ -81,8 +79,8 @@ function dispatchContextMenu(row: Element) {
 }
 
 function pointerUp() {
-	dom.window.document.dispatchEvent(
-		new dom.window.PointerEvent("pointerup", {
+	document.dispatchEvent(
+		new PointerEvent("pointerup", {
 			bubbles: true,
 			pointerType: "touch",
 			pointerId: 1,
@@ -94,7 +92,7 @@ function pointerUp() {
 
 function pointerUpOn(row: Element) {
 	row.dispatchEvent(
-		new dom.window.PointerEvent("pointerup", {
+		new PointerEvent("pointerup", {
 			bubbles: true,
 			pointerType: "touch",
 			pointerId: 1,
@@ -105,44 +103,15 @@ function pointerUpOn(row: Element) {
 }
 
 function pointerCancel(row: Element) {
-	row.dispatchEvent(
-		new dom.window.PointerEvent("pointercancel", { bubbles: true }),
-	);
+	row.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true }));
 }
 
 function wait(ms: number) {
 	return act(() => new Promise((resolve) => setTimeout(resolve, ms)));
 }
 
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.SVGElement = dom.window.SVGElement;
-	globalThis.PointerEvent = dom.window.PointerEvent;
-	Object.defineProperty(globalThis, "navigator", {
-		value: dom.window.navigator,
-		configurable: true,
-	});
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-});
-
-after(() => {
-	dom.window.close();
-});
-
 beforeEach(() => {
-	container = dom.window.document.getElementById(
-		"root",
-	) as unknown as HTMLElement;
+	container = document.getElementById("root") as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
 });
@@ -241,7 +210,7 @@ describe("useLongPress (react-aria wrapper)", () => {
 
 	it("does not suppress contextmenu when no pointer interaction preceded it", async () => {
 		mount({ onLongPress: () => undefined });
-		const row = dom.window.document.getElementById("row") as Element;
+		const row = document.getElementById("row") as Element;
 
 		assert.equal(dispatchContextMenu(row).defaultPrevented, false);
 	});

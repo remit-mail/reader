@@ -4,10 +4,10 @@
  * Storybook what it does in the app, and the keys are pressed here where a
  * reviewer presses them: on whatever the list has given focus to.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { MessageListPane, type ThreadSection } from "@remit/ui";
-import type { JSDOM } from "jsdom";
 import React, { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { type ListTriage, useListTriage } from "./list-selection.js";
@@ -43,7 +43,6 @@ const narrowed: ThreadSection[] = [
 	{ id: "today", label: "Today", threads: [thread("t1", "Design review")] },
 ];
 
-let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
 let triage: ListTriage;
@@ -77,8 +76,7 @@ const remount = () => {
 
 /** Where the list has put focus — the pane, or the row the cursor is on. */
 const focused = (): EventTarget =>
-	(dom.window.document.activeElement as unknown as EventTarget) ??
-	dom.window.document.body;
+	(document.activeElement as unknown as EventTarget) ?? document.body;
 
 const press = (
 	key: string,
@@ -87,7 +85,7 @@ const press = (
 ) => {
 	act(() => {
 		target.dispatchEvent(
-			new dom.window.KeyboardEvent("keydown", {
+			new KeyboardEvent("keydown", {
 				key,
 				bubbles: true,
 				cancelable: true,
@@ -134,31 +132,8 @@ const advertised: Record<string, () => void> = {
 	},
 };
 
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.MutationObserver = dom.window.MutationObserver;
-	globalThis.SVGElement = dom.window.SVGElement;
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-});
-
-after(() => {
-	dom.window.close();
-});
-
 beforeEach(() => {
-	container = dom.window.document.getElementById(
-		"root",
-	) as unknown as HTMLElement;
+	container = document.getElementById("root") as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
 	mount();
@@ -198,7 +173,7 @@ describe("the prototype's list keyboard", () => {
 	it("gives the cursor's row real focus, and the list one tab stop", () => {
 		press("j");
 		press("j");
-		assert.equal(dom.window.document.activeElement, rowFor("t2"));
+		assert.equal(document.activeElement, rowFor("t2"));
 		assert.deepEqual(
 			rows().map((row) => row.tabIndex),
 			[-1, 0, -1],
@@ -213,7 +188,7 @@ describe("the prototype's list keyboard", () => {
 
 	it("ticks the row under the cursor with Space, from the row itself", () => {
 		press("j");
-		assert.equal(dom.window.document.activeElement, rowFor("t1"));
+		assert.equal(document.activeElement, rowFor("t1"));
 		press(" ", {}, rowFor("t1"));
 		assert.deepEqual(
 			selected(),
@@ -224,7 +199,7 @@ describe("the prototype's list keyboard", () => {
 
 	it("opens the row under the cursor with Enter, from the row itself", () => {
 		press("j");
-		const event = new dom.window.KeyboardEvent("keydown", {
+		const event = new KeyboardEvent("keydown", {
 			key: "Enter",
 			bubbles: true,
 			cancelable: true,

@@ -2,9 +2,9 @@
  * NavSidebar arrow-key traversal (#143) — mounted against jsdom rather than
  * `renderToString`, since focus and keydown need a real `document`.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { NavAccount } from "./app-shell-types.js";
@@ -22,38 +22,11 @@ const accounts: NavAccount[] = [
 	},
 ];
 
-let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
 
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.KeyboardEvent = dom.window.KeyboardEvent;
-	Object.defineProperty(globalThis, "navigator", {
-		value: dom.window.navigator,
-		configurable: true,
-	});
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-});
-
-after(() => {
-	dom.window.close();
-});
-
 beforeEach(() => {
-	container = dom.window.document.getElementById(
-		"root",
-	) as unknown as HTMLElement;
+	container = document.getElementById("root") as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
 });
@@ -65,9 +38,7 @@ afterEach(() => {
 });
 
 function pressKey(target: Element, key: string) {
-	target.dispatchEvent(
-		new dom.window.KeyboardEvent("keydown", { key, bubbles: true }),
-	);
+	target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
 }
 
 function navItems(): HTMLElement[] {
@@ -103,13 +74,13 @@ describe("NavSidebar arrow-key traversal", () => {
 		const items = navItems();
 		act(() => items[0]?.focus());
 		act(() => pressKey(items[0] as Element, "ArrowDown"));
-		assert.equal(dom.window.document.activeElement, items[1]);
+		assert.equal(document.activeElement, items[1]);
 
 		act(() => pressKey(items[1] as Element, "ArrowDown"));
-		assert.equal(dom.window.document.activeElement, items[2]);
+		assert.equal(document.activeElement, items[2]);
 
 		act(() => pressKey(items[2] as Element, "ArrowUp"));
-		assert.equal(dom.window.document.activeElement, items[1]);
+		assert.equal(document.activeElement, items[1]);
 	});
 
 	it("End reaches the last mailbox and Home returns to the top", () => {
@@ -118,10 +89,10 @@ describe("NavSidebar arrow-key traversal", () => {
 		act(() => items[0]?.focus());
 		act(() => pressKey(items[0] as Element, "End"));
 		const last = items[items.length - 1];
-		assert.equal(dom.window.document.activeElement, last);
+		assert.equal(document.activeElement, last);
 
 		act(() => pressKey(last as Element, "Home"));
-		assert.equal(dom.window.document.activeElement, items[0]);
+		assert.equal(document.activeElement, items[0]);
 	});
 
 	it("traverses the drawer variant too", () => {
@@ -129,7 +100,7 @@ describe("NavSidebar arrow-key traversal", () => {
 		const items = navItems();
 		act(() => items[0]?.focus());
 		act(() => pressKey(items[0] as Element, "ArrowDown"));
-		assert.equal(dom.window.document.activeElement, items[1]);
+		assert.equal(document.activeElement, items[1]);
 	});
 
 	it("leaves Left/Right to the browser", () => {
@@ -137,6 +108,6 @@ describe("NavSidebar arrow-key traversal", () => {
 		const items = navItems();
 		act(() => items[0]?.focus());
 		act(() => pressKey(items[0] as Element, "ArrowRight"));
-		assert.equal(dom.window.document.activeElement, items[0]);
+		assert.equal(document.activeElement, items[0]);
 	});
 });

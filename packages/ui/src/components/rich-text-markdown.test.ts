@@ -8,9 +8,10 @@
  * so a table pasted there and a table pasted in rich mode and then switched
  * produce the same characters.
  */
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { before, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
+import { describe, it } from "node:test";
+import { htmlToMarkdown, markdownToHtml } from "./rich-text-document.js";
 
 const TABLE_HTML = [
 	"<table><thead><tr><th>Region</th><th>Total</th></tr></thead>",
@@ -24,29 +25,6 @@ const TABLE_MARKDOWN = [
 	"| EMEA | 412 |",
 	"| Americas | 388 |",
 ].join("\n");
-
-let htmlToMarkdown: (html: string) => string;
-let markdownToHtml: (markdown: string) => string;
-
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	const dom: JSDOM = new JSDOMCtor(
-		"<!doctype html><html><body></body></html>",
-		{
-			url: "http://localhost/",
-		},
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.DOMParser = dom.window.DOMParser;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.Node = dom.window.Node;
-
-	({ htmlToMarkdown, markdownToHtml } = await import(
-		"./rich-text-document.js"
-	));
-});
 
 describe("HTML down-converted for the plain surface", () => {
 	it("writes a table as pipe rows under a divider", () => {

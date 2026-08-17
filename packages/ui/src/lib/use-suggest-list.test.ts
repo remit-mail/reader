@@ -6,14 +6,13 @@
  * themselves are pure and tested in `suggest-keys.test.ts`.
  */
 
+import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { JSDOM } from "jsdom";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { useSuggestList } from "./use-suggest-list.js";
 
-let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
 
@@ -43,7 +42,7 @@ function mount(options: string[]) {
 	act(() => {
 		root.render(createElement(Field, { options }));
 	});
-	const field = dom.window.document.getElementById("field");
+	const field = document.getElementById("field");
 	assert.ok(field, "field did not mount");
 	// React's change-event polyfill tracks the focused input across keystrokes;
 	// keys arriving at an unfocused field are not a state this ever sees.
@@ -54,7 +53,7 @@ function mount(options: string[]) {
 }
 
 function press(field: Element, key: string) {
-	const event = new dom.window.KeyboardEvent("keydown", {
+	const event = new KeyboardEvent("keydown", {
 		key,
 		bubbles: true,
 		cancelable: true,
@@ -65,32 +64,9 @@ function press(field: Element, key: string) {
 	return event;
 }
 
-before(async () => {
-	const { JSDOM: JSDOMCtor } = await import("jsdom");
-	dom = new JSDOMCtor(
-		"<!doctype html><html><body><div id=root></div></body></html>",
-		{ url: "http://localhost/", pretendToBeVisual: true },
-	);
-	globalThis.window = dom.window as unknown as typeof globalThis.window;
-	globalThis.document = dom.window.document;
-	globalThis.HTMLElement = dom.window.HTMLElement;
-	globalThis.Element = dom.window.Element;
-	globalThis.SVGElement = dom.window.SVGElement;
-	globalThis.KeyboardEvent = dom.window.KeyboardEvent;
-	(
-		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-	).IS_REACT_ACT_ENVIRONMENT = true;
-});
-
-after(() => {
-	dom.window.close();
-});
-
 beforeEach(() => {
 	accepted.length = 0;
-	container = dom.window.document.getElementById(
-		"root",
-	) as unknown as HTMLElement;
+	container = document.getElementById("root") as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
 });
