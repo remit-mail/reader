@@ -45,6 +45,7 @@ import {
 	type OpenThreadPath,
 	type OpenThreadTarget,
 	type ReplyMode,
+	replyToThread,
 	useIsComposing,
 	useIsReplying,
 	useOpenReply,
@@ -221,15 +222,10 @@ function BriefPaneProvider({ thread, children }: BriefPaneProps) {
 	const isComposing = useIsComposing();
 	const isReplying = useIsReplying();
 	const openReply = useOpenReply();
-	const replyToOpenThread = useMemo(() => {
-		if (!selectedThread || !selectedMessageId) return undefined;
-		return (mode: ReplyMode) =>
-			openReply({
-				threadId: selectedThread.threadId,
-				messageId: selectedMessageId,
-				mode,
-			});
-	}, [openReply, selectedThread, selectedMessageId]);
+	const replyToOpenThread = useMemo(
+		() => replyToThread(openReply, threadId, selectedMessageId),
+		[openReply, threadId, selectedMessageId],
+	);
 
 	const replyToFocusedThread = useMemo(() => {
 		if (!triageTarget) return undefined;

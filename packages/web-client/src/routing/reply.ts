@@ -202,6 +202,33 @@ export function useOpenReply(): (target: ReplyTarget) => void {
 }
 
 /**
+ * Answer the conversation a list has open, from the segments naming it.
+ *
+ * The thread and the turn being answered are both in the path, so this is the
+ * address answering for itself: a listing row still in flight cannot make the
+ * verbs wait, and a thread request that fails outright cannot take them away.
+ * Reading the thread id back off a fetched row was the same fact in two places.
+ *
+ * A plain function rather than a hook, because every list already holds both
+ * values and the router state behind them. Reaching for them again here would
+ * subscribe each pane to the router a second time, and a pane re-rendering on
+ * every address change is felt by everything it wraps.
+ *
+ * `messageId` is the one thing the address can be silent about — a bare thread
+ * address leaves which turn answers for the conversation to the thread, so the
+ * caller passes the newest one once it knows. Absent until then, which is the
+ * toolbar's to explain.
+ */
+export function replyToThread(
+	openReply: (target: ReplyTarget) => void,
+	threadId: string | undefined,
+	messageId: string | undefined,
+): ((mode: ReplyMode) => void) | undefined {
+	if (!threadId || !messageId) return undefined;
+	return (mode: ReplyMode) => openReply({ threadId, messageId, mode });
+}
+
+/**
  * Record the draft the reply just created, in the address.
  *
  * A replace, and every panel left alone: the reader started one message, so the

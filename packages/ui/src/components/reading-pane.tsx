@@ -288,7 +288,16 @@ function MessageToolbar({
 	return (
 		<MailActionToolbar
 			hasThread={hasThread}
-			onUnavailable={() => setHint("Open a message first")}
+			// This shell documents the layout and has no mail behind its verbs, so
+			// with a thread open a press says that rather than borrowing the line
+			// about opening one.
+			onUnavailable={() =>
+				setHint(
+					hasThread
+						? "Not wired in the layout reference"
+						: "Open a message first",
+				)
+			}
 			unavailableHint={hint}
 		>
 			<IntelligenceToggle

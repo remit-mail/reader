@@ -63,6 +63,14 @@ export interface MessageToolbarProps {
 
 const OPEN_FIRST = "Open a message first";
 
+/**
+ * A thread is open and the verb still has nothing to act on — the conversation
+ * has not said which turn answers for it yet. A press has to say so: the
+ * shared toolbar only explains itself when there is no thread at all, so an
+ * unwired handler under an open one would be swallowed in silence (#803).
+ */
+const NOT_LOADED_YET = "This conversation hasn't loaded yet";
+
 export const MessageToolbar = ({
 	hasThread,
 	intelligenceOpen,
@@ -80,6 +88,9 @@ export const MessageToolbar = ({
 	const [hint, setHint] = useState<string | null>(null);
 	const canDeleteResolved = canDelete ?? hasThread;
 	const explain = (message: string) => () => setHint(message);
+	// Every verb the bar renders answers a press, wired or not.
+	const wired = (handler: (() => void) | undefined) =>
+		handler ?? explain(NOT_LOADED_YET);
 
 	return (
 		<MailActionToolbar
@@ -92,11 +103,11 @@ export const MessageToolbar = ({
 			forwardTitle={`Forward ${tooltipForAction("forward")}`}
 			deleteTitle={`Move to Trash ${tooltipForAction("delete")}`}
 			flagTitle={`Star ${tooltipForAction("toggleStar")}`}
-			onReply={onReply}
-			onReplyAll={onReplyAll}
-			onForward={onForward}
-			onDelete={canDeleteResolved ? onDelete : explain(OPEN_FIRST)}
-			onToggleStar={onToggleStar}
+			onReply={wired(onReply)}
+			onReplyAll={wired(onReplyAll)}
+			onForward={wired(onForward)}
+			onDelete={canDeleteResolved ? wired(onDelete) : explain(OPEN_FIRST)}
+			onToggleStar={wired(onToggleStar)}
 			onMove={explain(OPEN_FIRST)}
 			moveSlot={
 				moveContext ? (
