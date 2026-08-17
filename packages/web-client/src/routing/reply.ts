@@ -4,7 +4,6 @@ import { z } from "zod";
 import type { MailListRoute } from "@/lib/mail-route";
 import { useBrowsedList } from "./browsed-list";
 import { useRetainOpenPanels } from "./fragment";
-import { useOpenThreadPath } from "./open-thread";
 
 /**
  * The three ways to answer a message. They are one path param rather than three
@@ -203,31 +202,30 @@ export function useOpenReply(): (target: ReplyTarget) => void {
 }
 
 /**
- * Answer the conversation the address has open, for every list that can have
- * one.
+ * Answer the conversation a list has open, from the segments naming it.
  *
- * The thread and the turn being answered are both path segments, so this is the
+ * The thread and the turn being answered are both in the path, so this is the
  * address answering for itself: a listing row still in flight cannot make the
  * verbs wait, and a thread request that fails outright cannot take them away.
- * Re-reading the thread id off a fetched row was the same fact in two places.
+ * Reading the thread id back off a fetched row was the same fact in two places.
  *
- * `newestMessageId` is the one thing the address can be silent about — a bare
- * thread address leaves which turn answers for the conversation to the thread
- * itself. Absent while that is still unknown, which is the toolbar's to
- * explain.
+ * A plain function rather than a hook, because every list already holds both
+ * values and the router state behind them. Reaching for them again here would
+ * subscribe each pane to the router a second time, and a pane re-rendering on
+ * every address change is felt by everything it wraps.
+ *
+ * `messageId` is the one thing the address can be silent about — a bare thread
+ * address leaves which turn answers for the conversation to the thread, so the
+ * caller passes the newest one once it knows. Absent until then, which is the
+ * toolbar's to explain.
  */
-export function useReplyToOpenThread(
-	newestMessageId: string | undefined,
+export function replyToThread(
+	openReply: (target: ReplyTarget) => void,
+	threadId: string | undefined,
+	messageId: string | undefined,
 ): ((mode: ReplyMode) => void) | undefined {
-	const thread = useOpenThreadPath();
-	const openReply = useOpenReply();
-	const threadId = thread?.threadId;
-	const messageId = thread?.messageId ?? newestMessageId;
-
-	return useMemo(() => {
-		if (!threadId || !messageId) return undefined;
-		return (mode: ReplyMode) => openReply({ threadId, messageId, mode });
-	}, [openReply, threadId, messageId]);
+	if (!threadId || !messageId) return undefined;
+	return (mode: ReplyMode) => openReply({ threadId, messageId, mode });
 }
 
 /**

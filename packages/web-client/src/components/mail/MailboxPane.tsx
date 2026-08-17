@@ -116,11 +116,11 @@ import {
 	type OpenThreadPath,
 	type OpenThreadTarget,
 	type ReplyMode,
+	replyToThread,
 	useIsComposing,
 	useIsReplying,
 	useOpenCompose,
 	useOpenReply,
-	useReplyToOpenThread,
 	useRetainOpenPanels,
 } from "@/routing";
 import { MailViewChrome } from "./MailViewChrome";
@@ -550,7 +550,10 @@ function MailboxPaneProvider({
 	// row the cursor is on, which may be one the address has not opened yet. Both
 	// are one navigation, because the mode and the message it answers are
 	// segments of the same address.
-	const replyToOpenThread = useReplyToOpenThread(selectedThread?.messageId);
+	const replyToOpenThread = useMemo(
+		() => replyToThread(openReply, threadId, selectedMessageId),
+		[openReply, threadId, selectedMessageId],
+	);
 
 	const replyToFocusedThread = useMemo(() => {
 		if (!focusedThread) return undefined;

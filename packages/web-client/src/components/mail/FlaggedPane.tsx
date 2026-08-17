@@ -56,10 +56,10 @@ import {
 	type OpenThreadPath,
 	type OpenThreadTarget,
 	type ReplyMode,
+	replyToThread,
 	useIsComposing,
 	useIsReplying,
 	useOpenReply,
-	useReplyToOpenThread,
 	useRetainOpenPanels,
 } from "@/routing";
 
@@ -228,7 +228,10 @@ function FlaggedPaneProvider({ thread, children }: FlaggedPaneProps) {
 	const isComposing = useIsComposing();
 	const isReplying = useIsReplying();
 	const openReply = useOpenReply();
-	const replyToOpenThread = useReplyToOpenThread(selectedThread?.messageId);
+	const replyToOpenThread = useMemo(
+		() => replyToThread(openReply, threadId, selectedMessageId),
+		[openReply, threadId, selectedMessageId],
+	);
 
 	const replyToFocusedThread = useMemo(() => {
 		if (!triageTarget) return undefined;

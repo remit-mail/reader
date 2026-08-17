@@ -32,10 +32,10 @@ export {
 	type ReplySurface,
 	type ReplyTarget,
 	replyModes,
+	replyToThread,
 	useAdoptReplyDraft,
 	useCloseReply,
 	useIsReplying,
 	useOpenReply,
 	useReplySurface,
-	useReplyToOpenThread,
 } from "./reply";
