@@ -1,4 +1,5 @@
 import type {
+	FilterAnchorItem,
 	FilterItem,
 	IFilterAnchorRepository,
 	OrganizeJobRequestItem,
@@ -6,6 +7,7 @@ import type {
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { FilterClauseField, FilterState } from "@remit/domain-enums";
 import {
+	type AnchorEmbedder,
 	buildMatchText,
 	cosineSimilarity,
 	DEFAULT_SEMANTIC_MATCH_THRESHOLD,
@@ -13,6 +15,7 @@ import {
 	literalClausesMatch,
 	NO_ACTION,
 	PlacementMoveService,
+	refreshAnchorForEmbedder,
 	selectMoveWinner,
 } from "@remit/mailbox-service";
 import {
@@ -96,6 +99,13 @@ export interface OrganizeSemanticDeps {
 	 * kNN read (see `semantic-capability.ts`).
 	 */
 	embed: (text: string) => Promise<number[]>;
+	/**
+	 * The configured model's `<modelId>@<dimensions>` id, compared against a
+	 * persisted anchor's `anchorEmbeddingId` to catch a same-dimension model
+	 * swap that would otherwise score a current-model vector against a
+	 * stale-model anchor (RFC 039 Decision 1a, reader #399).
+	 */
+	readonly embeddingId: string;
 }
 
 /**
@@ -133,8 +143,10 @@ export interface OrganizeMatchDeps {
 	 * "the standing filter this anchor came from," if one still exists, to
 	 * read its fixed-at-save-time vector instead of re-deriving one from the
 	 * anchor message's current chunks (reader #350 / RFC 039 Decision 1).
+	 * `put` is the write half of the lazy anchor-drift repair
+	 * ({@link refreshAnchorForEmbedder}), never a new standing rule.
 	 */
-	filterAnchors: Pick<IFilterAnchorRepository, "listByAccountConfig">;
+	filterAnchors: Pick<IFilterAnchorRepository, "listByAccountConfig" | "put">;
 }
 
 /** The matched ids plus whether the semantic widen was skipped as unavailable. */
@@ -189,31 +201,27 @@ const filterMessageFromChunks = (
  * rows, read-only, and never touches the vector store. Returns `undefined`
  * when no standing filter was ever anchored on this message (or it has since
  * been deleted), in which case the caller falls back to deriving the anchor
- * live from the message's current chunk vectors, exactly as before.
+ * live from the message's current chunk vectors, exactly as before. The whole
+ * row is returned, not just its payload, so the caller can run the same
+ * anchor-drift repair index-time matching does.
  */
 const findPersistedAnchor = async (
 	filterAnchors: Pick<IFilterAnchorRepository, "listByAccountConfig">,
 	accountConfigId: string,
 	anchorMessageId: string,
-): Promise<AnchorPayload | undefined> => {
-	const anchors = await filterAnchors.listByAccountConfig(accountConfigId);
-	const persisted = anchors.find(
+): Promise<FilterAnchorItem | undefined> =>
+	(await filterAnchors.listByAccountConfig(accountConfigId)).find(
 		(anchor) => anchor.anchorMessageId === anchorMessageId,
 	);
-	if (!persisted) return undefined;
-	return {
-		anchorEmbedding: persisted.anchorEmbedding,
-		anchorEmbeddingId: persisted.anchorEmbeddingId,
-		anchorSourceText: persisted.anchorSourceText,
-	};
-};
 
 /**
  * The semantic (anchor) arm: read the anchor vector — the persisted
  * `FilterAnchor` for a message a standing filter was built from (fixed at
  * save time, unaffected by the anchor message's later deletion or
- * re-chunking), or else pool it fresh from the anchor message's existing
- * chunk vectors, the same as before this filter existed or ever had one.
+ * re-chunking, and re-embedded in place when the embedding model has drifted
+ * since — {@link refreshAnchorForEmbedder}), or else pool it fresh from the
+ * anchor message's existing chunk vectors, the same as before this filter
+ * existed or ever had one.
  * Fan out with a k-NN query gated on the cosine threshold, then refine by
  * literal clauses reconstructed from the same chunk vectors. Every read here
  * goes through the vector store; a deployment without the vector pipeline
@@ -228,13 +236,17 @@ const matchSemantic = async (
 	limit: number,
 ): Promise<string[] | null> => {
 	const semantic = deps.semantic();
-	const anchor =
-		(await findPersistedAnchor(
-			deps.filterAnchors,
-			accountConfigId,
-			predicate.anchorMessageId,
-		)) ??
-		(await semantic.buildAnchor(accountConfigId, predicate.anchorMessageId));
+	const persisted = await findPersistedAnchor(
+		deps.filterAnchors,
+		accountConfigId,
+		predicate.anchorMessageId,
+	);
+	const anchor: AnchorPayload | null = persisted
+		? await refreshAnchorForEmbedder(
+				{ anchorRepository: deps.filterAnchors, embedder: semantic },
+				persisted,
+			)
+		: await semantic.buildAnchor(accountConfigId, predicate.anchorMessageId);
 	if (!anchor) return null;
 	const threshold =
 		predicate.similarityThreshold ?? DEFAULT_SEMANTIC_MATCH_THRESHOLD;
@@ -408,6 +420,7 @@ const buildSemanticFromEnv = (): OrganizeSemanticDeps => {
 			buildMessageAnchor({ store }, { accountConfigId, anchorMessageId }),
 		vectorStore: store,
 		embed: async (text) => (await embedder.embed([text]))[0],
+		embeddingId: embedder.embeddingId,
 	};
 	return cachedSemantic;
 };
@@ -547,14 +560,18 @@ const findFilterMessageForPrecedence = async (
  * Whether one *other* Active filter with a move action currently matches this
  * message — mirrors `FilterPipeline.filterMatches` (mailbox-service
  * filters/pipeline.ts) exactly: literal clauses first, then, for a filter
- * with a semantic anchor, its own persisted `FilterAnchor` compared against
+ * with a semantic anchor, its own persisted `FilterAnchor` — re-embedded in
+ * place through the same {@link refreshAnchorForEmbedder} the pipeline calls
+ * when the model has drifted since the anchor was written — compared against
  * the candidate's embedding. A stale/incompatible anchor on the *other*
  * filter is isolated to that filter (skipped, not thrown) — the same
- * resilience `filterMatches` gives index-time matching, so one bad anchor
- * elsewhere never breaks this back-apply's move.
+ * resilience `filterMatches` gives index-time matching, so one bad anchor,
+ * or one anchor that cannot be re-embedded, never breaks this back-apply's
+ * move.
  */
 const filterCurrentlyMatches = async (
-	filterAnchorService: Pick<IFilterAnchorRepository, "get">,
+	filterAnchorService: Pick<IFilterAnchorRepository, "get" | "put">,
+	embedder: () => AnchorEmbedder,
 	accountConfigId: string,
 	filter: FilterItem,
 	msg: FilterMessage,
@@ -566,14 +583,18 @@ const filterCurrentlyMatches = async (
 	if (!filter.hasAnchor) {
 		return filter.literalClauses.length > 0;
 	}
-	const anchor = await filterAnchorService.get(
+	const stored = await filterAnchorService.get(
 		accountConfigId,
 		filter.filterId,
 	);
-	if (!anchor) return false;
+	if (!stored) return false;
 	const vector = await embed();
 	if (!vector) return false;
 	try {
+		const anchor = await refreshAnchorForEmbedder(
+			{ anchorRepository: filterAnchorService, embedder: embedder() },
+			stored,
+		);
 		return (
 			cosineSimilarity(vector, anchor.anchorEmbedding) >=
 			DEFAULT_SEMANTIC_MATCH_THRESHOLD
@@ -633,6 +654,7 @@ const findCurrentMoveWinner = async (
 	for (const filter of movers) {
 		const isMatch = await filterCurrentlyMatches(
 			deps.client.filterAnchor,
+			() => deps.match.semantic(),
 			accountConfigId,
 			filter,
 			msg,

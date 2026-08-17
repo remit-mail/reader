@@ -8,6 +8,10 @@ import type {
 import { FilterState } from "@remit/domain-enums";
 import type { PlacementMoveService } from "../placement-move.js";
 import {
+	type AnchorEmbedder,
+	refreshAnchorForEmbedder,
+} from "./anchor-drift.js";
+import {
 	buildMatchText,
 	cosineSimilarity,
 	DEFAULT_SEMANTIC_MATCH_THRESHOLD,
@@ -20,22 +24,12 @@ import {
 /**
  * Turns the candidate message's text into a single message-level vector to
  * compare against a filter's persisted `anchorEmbedding`. The anchor side is
- * never embedded here — it is read from `FilterAnchor` as a fixed fact (RFC 034
- * Decision 2.1/2.3); only the incoming message is embedded, and only once per
- * message, and only when a semantic filter is actually in play.
+ * embedded here only to repair a drifted anchor in place (see
+ * {@link refreshAnchorForEmbedder}); the match itself reads `FilterAnchor` as
+ * a fixed fact (RFC 034 Decision 2.1/2.3), and the incoming message is
+ * embedded once per message, only when a semantic filter is actually in play.
  */
-export interface MessageEmbedder {
-	embed(text: string): Promise<number[]>;
-	/**
-	 * `<modelId>@<dimensions>` identifier of the model currently configured —
-	 * the same scheme `EmbeddingService.embeddingId`
-	 * (`packages/search-service/src/embeddings.ts`) derives. Compared against
-	 * `FilterAnchor.anchorEmbeddingId` to detect a model drift a same-dimension
-	 * swap would otherwise pass through silently (RFC 039 Decision 1a, reader
-	 * #295).
-	 */
-	readonly embeddingId: string;
-}
+export type MessageEmbedder = AnchorEmbedder;
 
 export interface FilterLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
@@ -236,26 +230,16 @@ export class FilterPipeline {
 			return false;
 		}
 
-		const embedder = this.config.embedder;
-		if (embedder && anchor.anchorEmbeddingId !== embedder.embeddingId) {
-			// The embedding model has drifted since this anchor was last written
-			// (RFC 039 Decision 1a) — re-embed the already-persisted
-			// `anchorSourceText` and write it back in place, lazily, on this read.
-			// No migration job walks these rows proactively; a re-embed failure
-			// here propagates to the per-filter catch in `match()`, which logs and
-			// skips this filter for this one evaluation exactly as an unrecoverable
-			// stale anchor does today — never a terminal state, so the next
-			// message that reaches this filter retries.
-			const anchorEmbedding = await embedder.embed(anchor.anchorSourceText);
-			anchor = await this.config.filterAnchorService.put({
-				accountConfigId,
-				filterId: filter.filterId,
-				anchorEmbedding,
-				anchorEmbeddingId: embedder.embeddingId,
-				anchorSourceText: anchor.anchorSourceText,
-				anchorMessageId: anchor.anchorMessageId,
-			});
-		}
+		// A re-embed failure here propagates to the per-filter catch in
+		// `match()`, which logs and skips this filter for this one evaluation
+		// exactly as an unrecoverable stale anchor does today.
+		anchor = await refreshAnchorForEmbedder(
+			{
+				anchorRepository: this.config.filterAnchorService,
+				embedder: this.config.embedder,
+			},
+			anchor,
+		);
 
 		const vector = await embed();
 		if (!vector) {

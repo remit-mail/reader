@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import type { FilterAnchorItem, FilterItem } from "@remit/data-ports";
+import type {
+	CreateFilterAnchorInput,
+	FilterAnchorItem,
+	FilterItem,
+} from "@remit/data-ports";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { FilterMatchOperator, FilterState } from "@remit/domain-enums";
 import type {
@@ -28,11 +32,16 @@ const moduleNotFound = (): Error => {
 const ACCOUNT_CONFIG_ID = "cfg-1";
 const ANCHOR_VECTOR = [1, 0, 0, 0];
 const ORTHOGONAL_VECTOR = [0, 1, 0, 0];
+/** The model the fixtures' embedder is currently configured with. */
+const CURRENT_EMBEDDING_ID = "test-model@4";
+/** The model a persisted anchor was written under before a same-dimension swap. */
+const STALE_EMBEDDING_ID = "older-model@4";
+const ANCHOR_SOURCE_TEXT = "book me a table";
 
 const anchorPayload: AnchorPayload = {
 	anchorEmbedding: ANCHOR_VECTOR,
-	anchorEmbeddingId: "test-model@4",
-	anchorSourceText: "book me a table",
+	anchorEmbeddingId: CURRENT_EMBEDDING_ID,
+	anchorSourceText: ANCHOR_SOURCE_TEXT,
 };
 
 const metadata = (over: Partial<ChunkMetadata>): ChunkMetadata => ({
@@ -113,6 +122,7 @@ const trackingClient = (
 	const labeled: Array<{ messageId: string; labelId: string }> = [];
 	let filterWrites = 0;
 	let filterAnchorWrites = 0;
+	const anchorPuts: CreateFilterAnchorInput[] = [];
 	const activeFilters = seed.activeFilters ?? [];
 	const filterAnchorRows = seed.filterAnchorRows ?? [];
 	const threadMessages = seed.threadMessages ?? {};
@@ -162,9 +172,16 @@ const trackingClient = (
 			refreshExpiry: async (filter: FilterItem) => filter,
 		},
 		filterAnchor: {
-			put: async () => {
+			put: async (input: CreateFilterAnchorInput) => {
 				filterAnchorWrites += 1;
-				return {} as never;
+				anchorPuts.push(input);
+				const row: FilterAnchorItem = { ...input, createdAt: 0, updatedAt: 1 };
+				const at = filterAnchorRows.findIndex(
+					(existing) => existing.filterId === input.filterId,
+				);
+				if (at === -1) filterAnchorRows.push(row);
+				else filterAnchorRows[at] = row;
+				return row;
 			},
 			get: async (_accountConfigId: string, filterId: string) =>
 				filterAnchorRows.find((row) => row.filterId === filterId) ?? null,
@@ -176,6 +193,7 @@ const trackingClient = (
 		labeled,
 		filterWrites: () => filterWrites,
 		filterAnchorWrites: () => filterAnchorWrites,
+		anchorPuts,
 	};
 };
 
@@ -238,10 +256,16 @@ const matchDeps = (
 				vectorStore: store,
 				embed: async (text: string) =>
 					text.includes("reservation") ? ANCHOR_VECTOR : ORTHOGONAL_VECTOR,
+				embeddingId: CURRENT_EMBEDDING_ID,
 			};
 		},
 		listAccountFilterMessages: async () => corpus,
-		filterAnchors: { listByAccountConfig: async () => filterAnchorRows },
+		filterAnchors: {
+			listByAccountConfig: async () => filterAnchorRows,
+			put: async () => {
+				throw new Error("matchDeps must not repair an anchor");
+			},
+		},
 		semanticBuilds: () => semanticBuilds,
 	};
 };
@@ -273,10 +297,16 @@ const vectorlessDeps = (
 				embed: async () => {
 					throw moduleNotFound();
 				},
+				embeddingId: CURRENT_EMBEDDING_ID,
 			};
 		},
 		listAccountFilterMessages: async () => corpus,
-		filterAnchors: { listByAccountConfig: async () => [] },
+		filterAnchors: {
+			listByAccountConfig: async () => [],
+			put: async () => {
+				throw moduleNotFound();
+			},
+		},
 		semanticUsed: () => semanticUsed,
 	};
 };
@@ -391,8 +421,8 @@ describe("matchOrganize honors the persisted FilterAnchor (reader #350)", () => 
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			filterId: "filter-a",
 			anchorEmbedding: ANCHOR_VECTOR,
-			anchorEmbeddingId: "test-model@4",
-			anchorSourceText: "book me a table",
+			anchorEmbeddingId: CURRENT_EMBEDDING_ID,
+			anchorSourceText: ANCHOR_SOURCE_TEXT,
 			anchorMessageId: "msg-anchor",
 			createdAt: 0,
 			updatedAt: 0,
@@ -409,9 +439,15 @@ describe("matchOrganize honors the persisted FilterAnchor (reader #350)", () => 
 				},
 				vectorStore: store,
 				embed: async () => ANCHOR_VECTOR,
+				embeddingId: CURRENT_EMBEDDING_ID,
 			}),
 			listAccountFilterMessages: async () => [],
-			filterAnchors: { listByAccountConfig: async () => [persistedAnchor] },
+			filterAnchors: {
+				listByAccountConfig: async () => [persistedAnchor],
+				put: async () => {
+					throw new Error("a current anchor must not be rewritten");
+				},
+			},
 		};
 
 		const { messageIds } = await matchOrganize(
@@ -553,9 +589,15 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 					getByMessage: async () => [],
 				},
 				embed: async () => [],
+				embeddingId: CURRENT_EMBEDDING_ID,
 			}),
 			listAccountFilterMessages: async () => [],
-			filterAnchors: { listByAccountConfig: async () => [] },
+			filterAnchors: {
+				listByAccountConfig: async () => [],
+				put: async () => {
+					throw new Error("unreachable");
+				},
+			},
 		};
 
 		await assert.rejects(
@@ -885,8 +927,8 @@ describe("applyOrganize resolves move precedence against current Active filters 
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			filterId: "filter-newer-semantic",
 			anchorEmbedding: ANCHOR_VECTOR,
-			anchorEmbeddingId: "test-model@4",
-			anchorSourceText: "book me a table",
+			anchorEmbeddingId: CURRENT_EMBEDDING_ID,
+			anchorSourceText: ANCHOR_SOURCE_TEXT,
 			anchorMessageId: "msg-anchor-2",
 			createdAt: 0,
 			updatedAt: 0,
@@ -919,6 +961,179 @@ describe("applyOrganize resolves move precedence against current Active filters 
 			mover.moves,
 			[],
 			"a newer semantic filter's own persisted anchor outranks the move",
+		);
+	});
+});
+
+/**
+ * A same-dimension embedding-model swap leaves every persisted FilterAnchor
+ * stamped with the old model's id and its vector in the old model's space.
+ * Index-time matching repairs that lazily (RFC 039 Decision 1a); the
+ * back-apply paths must do the same, or they score a current-model vector
+ * against a stale-model anchor and silently disagree with the pipeline they
+ * claim to mirror (reader #399).
+ */
+describe("back-apply repairs a drifted anchor the way index-time matching does (reader #399)", () => {
+	const staleAnchor = (filterId: string): FilterAnchorItem => ({
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		filterId,
+		// Written under the previous model: same dimensions, different space, so
+		// nothing but the id stamp distinguishes it from a usable anchor.
+		anchorEmbedding: ORTHOGONAL_VECTOR,
+		anchorEmbeddingId: STALE_EMBEDDING_ID,
+		anchorSourceText: ANCHOR_SOURCE_TEXT,
+		anchorMessageId: "msg-anchor",
+		createdAt: 0,
+		updatedAt: 0,
+	});
+
+	/** Every text embeds into the current model's space. */
+	const currentModelDeps = (
+		store: ReturnType<typeof createMemoryVectorStore>,
+		anchors: FilterAnchorItem[],
+		embed: (text: string) => Promise<number[]> = async () => ANCHOR_VECTOR,
+	): OrganizeMatchDeps & { anchorPuts: CreateFilterAnchorInput[] } => {
+		const anchorPuts: CreateFilterAnchorInput[] = [];
+		return {
+			semantic: () => ({
+				buildAnchor: async () => {
+					throw new Error("a persisted anchor must be repaired, not replaced");
+				},
+				vectorStore: store,
+				embed,
+				embeddingId: CURRENT_EMBEDDING_ID,
+			}),
+			listAccountFilterMessages: async () => [],
+			filterAnchors: {
+				listByAccountConfig: async () => anchors,
+				put: async (input: CreateFilterAnchorInput) => {
+					anchorPuts.push(input);
+					return { ...input, createdAt: 0, updatedAt: 1 };
+				},
+			},
+			anchorPuts,
+		};
+	};
+
+	it("matchSemantic re-embeds a drifted persisted anchor instead of querying with the stale vector", async () => {
+		const store = createMemoryVectorStore();
+		await store.upsert([
+			bodyChunk("msg-1", ANCHOR_VECTOR),
+			bodyChunk("msg-stale-space", ORTHOGONAL_VECTOR),
+		]);
+		const deps = currentModelDeps(store, [staleAnchor("filter-a")]);
+
+		const { messageIds } = await matchOrganize(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate(),
+		);
+
+		assert.deepEqual(
+			messageIds,
+			["msg-1"],
+			"the widen runs on the re-embedded anchor, not the stale-space vector that would have matched msg-stale-space",
+		);
+		assert.deepEqual(
+			deps.anchorPuts.map((put) => [put.filterId, put.anchorEmbeddingId]),
+			[["filter-a", CURRENT_EMBEDDING_ID]],
+			"the repair is written back in place under the current model's id",
+		);
+		assert.deepEqual(deps.anchorPuts[0].anchorEmbedding, ANCHOR_VECTOR);
+		assert.equal(deps.anchorPuts[0].anchorSourceText, ANCHOR_SOURCE_TEXT);
+	});
+
+	it("filterCurrentlyMatches re-embeds a drifted anchor, so the drifted filter still outranks the move", async () => {
+		const store = createMemoryVectorStore();
+		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
+		const p = predicate({
+			actionLabelId: "lbl-1",
+			actionMailboxId: "mbox-old",
+		});
+		const newerSemanticFilter = filterItem({
+			filterId: "filter-newer-semantic",
+			ruleChangedAt: 1_000,
+			actionChangedAt: 1_000,
+			actionMailboxId: "mbox-new",
+			hasAnchor: true,
+		});
+		const drifted = staleAnchor("filter-newer-semantic");
+
+		const { messageIds: matched } = await matchOrganize(
+			matchDeps(store),
+			ACCOUNT_CONFIG_ID,
+			p,
+		);
+		const tracked = trackingClient({
+			activeFilters: [newerSemanticFilter],
+			filterAnchorRows: [drifted],
+			threadMessages: { "msg-1": { subject: "Dinner reservation" } },
+		});
+		const mover = trackingMoveService();
+		const result = await applyOrganize(
+			{
+				client: tracked.client,
+				moveService: mover.moveService,
+				match: currentModelDeps(store, [drifted]),
+			},
+			ACCOUNT_CONFIG_ID,
+			matched,
+			p,
+		);
+
+		assert.equal(result.applied, 1);
+		assert.deepEqual(
+			mover.moves,
+			[],
+			"scored against the re-embedded anchor the newer filter contests the move; against the stale one it would silently lose",
+		);
+		assert.deepEqual(
+			tracked.anchorPuts.map((put) => [put.filterId, put.anchorEmbeddingId]),
+			[["filter-newer-semantic", CURRENT_EMBEDDING_ID]],
+			"the repair is written back in place, not left for the next pass",
+		);
+	});
+
+	it("keeps a failed re-embed isolated to its own filter rather than throwing out of the arbitration", async () => {
+		const store = createMemoryVectorStore();
+		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
+		const p = predicate({ actionMailboxId: "mbox-target" });
+		const drifted = staleAnchor("filter-broken-anchor");
+		const tracked = trackingClient({
+			activeFilters: [
+				filterItem({
+					filterId: "filter-broken-anchor",
+					ruleChangedAt: 1_000,
+					actionChangedAt: 1_000,
+					actionMailboxId: "mbox-elsewhere",
+					hasAnchor: true,
+				}),
+			],
+			filterAnchorRows: [drifted],
+			threadMessages: { "msg-1": { subject: "Dinner reservation" } },
+		});
+		const mover = trackingMoveService();
+
+		const result = await applyOrganize(
+			{
+				client: tracked.client,
+				moveService: mover.moveService,
+				match: currentModelDeps(store, [drifted], async (text) => {
+					if (text === ANCHOR_SOURCE_TEXT) throw new Error("embedder refused");
+					return ANCHOR_VECTOR;
+				}),
+			},
+			ACCOUNT_CONFIG_ID,
+			["msg-1"],
+			p,
+		);
+
+		assert.equal(result.applied, 1);
+		assert.equal(result.failed, 0);
+		assert.deepEqual(
+			mover.moves.map((move) => move.destinationMailboxId),
+			["mbox-target"],
+			"one un-repairable anchor skips that filter, it does not abort the pass",
 		);
 	});
 });

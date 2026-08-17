@@ -59,6 +59,11 @@ export {
 	testImapConnection,
 	testSmtpConnection,
 } from "./connection-test.js";
+export {
+	type AnchorDriftDeps,
+	type AnchorEmbedder,
+	refreshAnchorForEmbedder,
+} from "./filters/anchor-drift.js";
 export { extractListId, normalizeListId } from "./filters/list-id.js";
 export {
 	buildMatchText,
