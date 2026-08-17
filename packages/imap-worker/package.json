@@ -25,7 +25,6 @@
     "dev": "node --import tsx src/e2e-processor-shim.ts"
   },
   "devDependencies": {
-    "@aws-sdk/core": "*",
     "@remit/storage-service": "*",
     "aws-sdk-client-mock": "*",
     "esbuild": "^0.28.1"

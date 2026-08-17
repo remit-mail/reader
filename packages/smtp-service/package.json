@@ -20,7 +20,6 @@
 		"test:integ": "RUN_INTEG_TESTS=true node --env-file=../../localhost-dev-aws.env --import tsx --test --test-force-exit 'src/**/*.integ.test.ts'"
 	},
 	"devDependencies": {
-		"@remit/domain-enums": "*",
 		"@types/node": "*"
 	},
 	"dependencies": {

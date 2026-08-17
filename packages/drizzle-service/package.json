@@ -18,10 +18,8 @@
     "fix": "biome check --write src"
   },
   "devDependencies": {
-    "@remit/api-zod-schemas": "*",
     "drizzle-kit": "^0.31.1",
-    "tsx": "*",
-    "zod": "*"
+    "tsx": "*"
   },
   "dependencies": {
     "@remit/data-ports": "*",
