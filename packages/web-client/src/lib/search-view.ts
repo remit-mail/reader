@@ -74,6 +74,15 @@ export interface MirrorDecision {
  * address is already the new one. A write from the outgoing list in that window
  * navigates back to itself, superseding the load in flight and replacing the
  * entry the reader just pushed — they click Inbox and land on the brief.
+ *
+ * The mirror asks this again whenever the address moves, not only when the
+ * field does (#808), so a settled query the URL has drifted away from is
+ * written again. That cannot loop: the answer is false the moment the URL says
+ * the committed query, which is what every write makes it say. Nor does it let
+ * the mirror fight a query arriving by URL — that arrives mid-debounce, where
+ * the first rule already refuses, and by the time the debounce settles the
+ * field has been re-seeded from the address it landed on
+ * (`hooks/useSearchField.ts`).
  */
 export function shouldMirrorQuery({
 	searchInput,

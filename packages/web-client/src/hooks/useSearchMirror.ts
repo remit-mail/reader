@@ -1,5 +1,5 @@
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useMailContext } from "@/lib/mail-context";
 import { shouldMirrorQuery } from "@/lib/search-view";
 import { useIsComposing, useIsReplying } from "@/routing";
@@ -21,6 +21,16 @@ export type SearchMirrorTarget =
  * the field, so a query arriving by URL is never overwritten mid-debounce, and
  * the query the user just left behind is never written onto the view they landed
  * on (`shouldMirrorQuery`).
+ *
+ * It watches the URL as well as the field, so a settled query that the address
+ * stops agreeing with is written again rather than left (#808). Typing lands
+ * more than one navigation — the debounce settles mid-word, and the word is
+ * finished while that write is still in flight — and the two can commit out of
+ * order, leaving the address on the prefix. Comparing against the URL without
+ * re-running on it made that final: the field said `invoice`, the address said
+ * `invo`, and nothing was left to disagree with. Re-running cannot start a
+ * loop, because every write makes the URL equal the committed query and the
+ * next run has nothing to do.
  *
  * It also writes only while the reader is still on this list. A list stays
  * mounted, effects and all, until the list they navigated to is ready to paint,
@@ -57,11 +67,6 @@ export function useSearchMirror(target: SearchMirrorTarget): void {
 	const isReplying = useIsReplying();
 	const isWriting = isComposing || isReplying;
 
-	// Read at effect time rather than depended on: the URL is what the mirror
-	// compares against, not what re-triggers it.
-	const urlQueryRef = useRef(urlQuery);
-	urlQueryRef.current = urlQuery;
-
 	const { to } = target;
 	const mailboxId = "params" in target ? target.params.mailboxId : undefined;
 	const listPath = mailboxId ? `/mail/${mailboxId}` : to;
@@ -70,13 +75,13 @@ export function useSearchMirror(target: SearchMirrorTarget): void {
 		const mayWrite = shouldMirrorQuery({
 			searchInput,
 			committedQuery,
-			urlQuery: urlQueryRef.current,
+			urlQuery,
 			pathname,
 			listPath,
 		});
 		if (!mayWrite) return;
 		const queryGoesActive =
-			Boolean(committedQuery) && urlQueryRef.current !== committedQuery;
+			Boolean(committedQuery) && urlQuery !== committedQuery;
 		// A message being written is the reader's own, not a leftover of the list
 		// they were on, so a query going active narrows the list behind it and
 		// leaves it where it is.
@@ -106,6 +111,7 @@ export function useSearchMirror(target: SearchMirrorTarget): void {
 	}, [
 		searchInput,
 		committedQuery,
+		urlQuery,
 		navigate,
 		to,
 		mailboxId,
