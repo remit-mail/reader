@@ -200,9 +200,13 @@ function MailLayout() {
 	});
 
 	// Clears the search field; the list route's mirror drops `q` from the URL
-	// after the debounce settles. Esc inside the field does the same, keeping the
-	// thread open (#489), so the two are one handler under two names.
+	// after the debounce settles.
 	const handleSearchClear = useCallback(() => {
+		setSearchInput("");
+	}, [setSearchInput]);
+
+	// Esc inside the search field clears only the query (#489).
+	const handleSearchClearQuery = useCallback(() => {
 		setSearchInput("");
 	}, [setSearchInput]);
 
@@ -247,7 +251,7 @@ function MailLayout() {
 		searchViewKey: viewKey,
 		onSearchChange: setSearchInput,
 		onSearchClear: handleSearchClear,
-		onSearchClearQuery: handleSearchClear,
+		onSearchClearQuery: handleSearchClearQuery,
 		intelligenceOpen,
 		onToggleIntelligence: handleToggleIntelligence,
 	};
