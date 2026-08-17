@@ -55,6 +55,13 @@ const MANIFEST = {
 	registry: "ghcr.io/remit-mail/reader",
 };
 
+// The seam's requests carry the time they were made and are only installed
+// while they are still current (#587), so a fixture's timestamp is part of what
+// it tests: a hardcoded one rots into an expired request the moment the date
+// passes it.
+const justNow = () => new Date().toISOString();
+const agedBy = (seconds) => new Date(Date.now() - seconds * 1000).toISOString();
+
 const ALL_SERVICES =
 	"queue backend caddy web apisix imap-worker smtp-worker account-worker search-index-worker";
 
@@ -754,7 +761,10 @@ describe("the control seam", () => {
 		const box = sandbox({ scenario: { probe: "ok" } });
 		writeFileSync(
 			join(box.state, "request.json"),
-			JSON.stringify({ targetVersion: "v1.0.0; touch /pwned" }),
+			JSON.stringify({
+				targetVersion: "v1.0.0; touch /pwned",
+				requestedAt: justNow(),
+			}),
 		);
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
@@ -769,7 +779,7 @@ describe("the control seam", () => {
 			JSON.stringify({
 				runId: "r-1",
 				targetVersion: "v1.5.0",
-				requestedAt: "2026-07-20T08:00:00Z",
+				requestedAt: justNow(),
 				requestedBy: "owner@example.test",
 			}),
 		);
@@ -787,7 +797,7 @@ describe("the control seam", () => {
 			JSON.stringify({
 				runId: requested,
 				targetVersion: "v1.5.0",
-				requestedAt: "2026-07-20T08:00:00Z",
+				requestedAt: justNow(),
 				requestedBy: "owner@example.test",
 			}),
 		);
@@ -812,7 +822,11 @@ describe("the control seam", () => {
 		const box = sandbox({ scenario: { probe: "ok" } });
 		writeFileSync(
 			join(box.state, "request.json"),
-			JSON.stringify({ targetVersion: "v1.5.0", runId: "../../../etc" }),
+			JSON.stringify({
+				targetVersion: "v1.5.0",
+				runId: "../../../etc",
+				requestedAt: justNow(),
+			}),
 		);
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
@@ -829,6 +843,7 @@ describe("the control seam", () => {
 			join(box.state, "request.json"),
 			JSON.stringify({
 				targetVersion: "v1.5.0",
+				requestedAt: justNow(),
 				registry: "ghcr.io/attacker",
 				image: "evil:latest",
 			}),
@@ -863,7 +878,11 @@ describe("the control seam", () => {
 		const box = sandbox({ scenario: { probe: "ok" } });
 		writeFileSync(
 			join(box.state, "request.json"),
-			JSON.stringify({ targetVersion: "v1.5.0", meta: { via: "api" } }),
+			JSON.stringify({
+				targetVersion: "v1.5.0",
+				requestedAt: justNow(),
+				meta: { via: "api" },
+			}),
 		);
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
@@ -879,7 +898,7 @@ describe("the control seam", () => {
 		mkdirSync(control, { recursive: true });
 		writeFileSync(
 			join(control, "request.json"),
-			JSON.stringify({ targetVersion: "v1.5.0" }),
+			JSON.stringify({ targetVersion: "v1.5.0", requestedAt: justNow() }),
 		);
 		const result = box.run(["update"], {
 			...box.env,
@@ -917,18 +936,150 @@ describe("the control seam", () => {
 		const box = sandbox({ scenario: { probe: "ok" } });
 		writeFileSync(
 			join(box.state, "request.json"),
-			JSON.stringify({ targetVersion: "v9.9.9" }),
+			JSON.stringify({ targetVersion: "v9.9.9", requestedAt: justNow() }),
 		);
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
 		assert.ok(!box.log().includes("compose pull"));
 	});
 
+	it("discards a request older than the window instead of installing it", () => {
+		// The #587 scenario: the updater was absent — a failed preflight, a stopped
+		// box — while the request sat on the seam. The container that finally finds
+		// it must not stop the stack for an install nobody is waiting on any more.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({
+				runId: "r-stale",
+				targetVersion: "v1.5.0",
+				requestedAt: agedBy(3 * 24 * 60 * 60),
+				requestedBy: "owner@example.test",
+			}),
+		);
+		const result = box.run(["update"]);
+		assert.notEqual(result.status, 0);
+		assert.ok(!box.log().includes("compose pull"));
+		assert.ok(!box.log().includes("compose stop"));
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
+		assert.throws(() => readFileSync(join(box.state, "request.json")));
+	});
+
+	it("says the request was discarded, in status and on the seam", () => {
+		// Silence would trade a surprise install for a surprise no-op. run.json is
+		// what `remit status` prints and what the app renders, so the operator can
+		// tell an install was asked for and deliberately not performed.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({
+				runId: "r-stale",
+				targetVersion: "v1.5.0",
+				requestedAt: agedBy(3 * 24 * 60 * 60),
+				requestedBy: "owner@example.test",
+			}),
+		);
+		box.run(["update"]);
+		const run = box.stateJson().run;
+		assert.equal(run.outcome, "abandoned");
+		// The id the request named, so a page still polling gets a verdict on its
+		// own run rather than never hearing back.
+		assert.equal(run.runId, "r-stale");
+		assert.match(run.message, /discarded rather than installed/);
+		assert.match(box.run(["status"]).stdout, /discarded rather than installed/);
+	});
+
+	it("discards a request carrying no time it was made", () => {
+		// The pre-#587 shape. An absent timestamp cannot show the request is
+		// current, so it is expired rather than assumed fresh.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({ runId: "r-old", targetVersion: "v1.5.0" }),
+		);
+		const result = box.run(["update"]);
+		assert.notEqual(result.status, 0);
+		assert.ok(!box.log().includes("compose pull"));
+		assert.equal(box.stateJson().run.outcome, "abandoned");
+		assert.match(box.stateJson().run.message, /carried no time it was made/);
+	});
+
+	it("discards a request whose time is not a time", () => {
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({
+				runId: "r-junk",
+				targetVersion: "v1.5.0",
+				requestedAt: "yesterday",
+			}),
+		);
+		const result = box.run(["update"]);
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
+		assert.ok(!box.stateJson().run.message.includes("yesterday"));
+	});
+
+	it("installs a request still inside the window", () => {
+		// The window is bounded from below as well: an update the owner asked for
+		// minutes ago is theirs, and a run that has been waiting on a slow pull or
+		// a restarted updater still installs.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({
+				runId: "r-fresh",
+				targetVersion: "v1.5.0",
+				requestedAt: agedBy(25 * 60),
+				requestedBy: "owner@example.test",
+			}),
+		);
+		const result = box.run(["update"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "succeeded");
+		assert.equal(box.stateJson().run.runId, "r-fresh");
+	});
+
+	it("reads an ISO 8601 UTC instant the same way the backend writes it", () => {
+		// The conversion is hand-rolled arithmetic, because neither GNU nor busybox
+		// date parses a timestamp portably. A month, leap-day or century error here
+		// expires a live request or keeps a dead one.
+		const stamps = [
+			"1970-01-01T00:00:00Z",
+			"2000-02-29T12:34:56Z",
+			"2024-12-31T23:59:59Z",
+			"2026-03-01T00:00:00Z",
+			"2026-08-17T23:00:02.123Z",
+			"2100-03-01T00:00:00Z",
+		];
+		for (const stamp of stamps) {
+			const result = spawnSync(
+				"sh",
+				["-c", '. "$0"\niso_epoch "$1"', REMIT, stamp],
+				{ env: { ...process.env, REMIT_LIB_ONLY: "1" }, encoding: "utf8" },
+			);
+			assert.equal(result.status, 0, result.stderr);
+			assert.equal(
+				result.stdout.trim(),
+				String(Math.floor(Date.parse(stamp) / 1000)),
+				stamp,
+			);
+		}
+		for (const junk of ["", "yesterday", "2026-08-17", "2026-08-17T10:00:00"]) {
+			const result = spawnSync(
+				"sh",
+				["-c", '. "$0"\niso_epoch "$1"', REMIT, junk],
+				{ env: { ...process.env, REMIT_LIB_ONLY: "1" }, encoding: "utf8" },
+			);
+			assert.equal(result.stdout.trim(), "", junk);
+		}
+	});
+
 	it("consumes the request so a refusal is not retried forever", () => {
 		const box = sandbox({ scenario: { probe: "ok" } });
 		writeFileSync(
 			join(box.state, "request.json"),
-			JSON.stringify({ targetVersion: "v9.9.9" }),
+			JSON.stringify({ targetVersion: "v9.9.9", requestedAt: justNow() }),
 		);
 		box.run(["update"]);
 		assert.throws(() => readFileSync(join(box.state, "request.json")));

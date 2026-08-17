@@ -341,4 +341,26 @@ describe("POST /system/update", () => {
 			assert.ok(!(forbidden in request));
 		}
 	});
+
+	it("stamps requestedAt with the moment of the request, in UTC", async () => {
+		// The updater installs a request only while it is still current (#587), so
+		// requestedAt is the field that decides it. A missing, fixed or non-UTC
+		// stamp would make every request expire on arrival.
+		writeState(okState);
+		const before = Date.now();
+
+		await applyUpdate("v1.5.0", buildEvent(USER));
+
+		const after = Date.now();
+		const request = JSON.parse(
+			readFileSync(join(controlDir, "request.json"), "utf8"),
+		) as { requestedAt: string };
+
+		assert.match(
+			request.requestedAt,
+			/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/,
+		);
+		const stamped = Date.parse(request.requestedAt);
+		assert.ok(stamped >= before - 1000 && stamped <= after + 1000);
+	});
 });
