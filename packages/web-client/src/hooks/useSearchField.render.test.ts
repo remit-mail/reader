@@ -1,19 +1,21 @@
 /**
- * What a typed query survives, and what ends it (#808, #47).
+ * A query typed as the reader arrives on a list (#808).
  *
- * The failure this pins: three e2e specs hung their whole timeout on
- * `waitForURL(/q=invoice/)` because the query never reached the address at all.
- * Typing into the field in the window between the router committing the next
- * mailbox and React rendering it put the keystroke and the view change in one
- * render, where the view-change re-seed took the field back to the URL's `q` —
- * empty. The field held nothing, so the mirror had nothing to write, and no
- * later render had any reason to reconsider.
+ * Three e2e specs hung their whole timeout on `waitForURL(/q=invoice/)` because
+ * the query never reached the address at all. Typing in the window between the
+ * router committing the next mailbox and React rendering it put the keystroke
+ * and the view change in one render, where the view-change re-seed took the
+ * field back to the destination's `q` — empty. The field held nothing, so the
+ * mirror had nothing to write, and no later render had any reason to reconsider.
  *
  * Driven through a real router, because the window under test is the router's
  * own: the address commits before the matches swap, and a route the reader has
- * not visited has its component to fetch before it can. Reasoning about that
- * from the outside is not evidence, so the mailbox route here loads on a delay
- * the way an unvisited one does.
+ * not visited yet has its component to fetch before it can. Reasoning about
+ * that from the outside is not evidence, so the mailbox route here loads on a
+ * delay the way an unvisited one does.
+ *
+ * The other half — a query ending with the view it was typed in (#47) — is in
+ * `lib/search-view.test.ts`, which drives the same rules over the whole shell.
  */
 
 import assert from "node:assert/strict";
@@ -44,7 +46,6 @@ afterEach(() => {
 
 const FIELD_LABEL = "Search mail";
 const MAILBOX_ID = "9f1c-abc";
-const OTHER_MAILBOX_ID = "3d20-sent";
 
 /** What the field committed, so a test can assert what the mirror would write. */
 let committed = "";
@@ -144,56 +145,4 @@ describe("a query typed as the reader arrives on a mailbox", () => {
 			assert.equal(committed, "invoice");
 		});
 	}
-});
-
-describe("a query typed before the reader leaves", () => {
-	it("ends with the view it was typed in (#47)", async () => {
-		const router = buildRouter(0);
-		const { created, field } = await mount(router);
-
-		created.type(field, "invoice");
-		await created.wait(DEBOUNCE_SETTLED);
-		assert.equal(committed, "invoice");
-
-		openMailbox(router, MAILBOX_ID);
-		await created.wait(DEBOUNCE_SETTLED);
-
-		assert.equal(field.value, "");
-		assert.equal(committed, "");
-	});
-
-	it("does not follow the reader from one mailbox to the next (#47)", async () => {
-		const router = buildRouter(0);
-		const { created, field } = await mount(router);
-
-		openMailbox(router, MAILBOX_ID);
-		await created.wait(10);
-		created.type(field, "invoice");
-		await created.wait(DEBOUNCE_SETTLED);
-		assert.equal(field.value, "invoice");
-
-		openMailbox(router, OTHER_MAILBOX_ID);
-		await created.wait(DEBOUNCE_SETTLED);
-
-		assert.equal(field.value, "");
-		assert.equal(committed, "");
-	});
-
-	it("arrives with the query a destination carries (deep link, saved search)", async () => {
-		const router = buildRouter(0);
-		const { created, field } = await mount(router);
-
-		created.type(field, "invoice");
-		await created.wait(DEBOUNCE_SETTLED);
-
-		void router.navigate({
-			to: "/mail/$mailboxId",
-			params: { mailboxId: MAILBOX_ID },
-			search: { q: "receipts" },
-		});
-		await created.wait(DEBOUNCE_SETTLED);
-
-		assert.equal(field.value, "receipts");
-		assert.equal(committed, "receipts");
-	});
 });
