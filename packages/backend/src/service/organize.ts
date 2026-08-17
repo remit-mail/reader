@@ -226,7 +226,14 @@ const findPersistedAnchor = async (
  * none, so that case keeps querying with the stored vector rather than going
  * dark — and is classified without recording the absence, which would
  * otherwise disable every later `/search/semantic` (see
- * `semantic-capability.ts`). Any other failure, a failed write included,
+ * `semantic-capability.ts`).
+ *
+ * The classifier is wider than a missing embedder: `LocalEmbeddingService`
+ * raises ERR_EMBEDDING_MODEL_UNAVAILABLE for anything that stops the pipeline
+ * loading, a corrupt model file included, and a write failure carrying one of
+ * those codes lands here too. Any of them falls back to the stale vector, so
+ * the fallback is logged — it is the wrong-score condition this repair exists
+ * to close, taken deliberately over returning nothing. Every other failure
  * propagates.
  */
 const anchorForWiden = async (
@@ -239,6 +246,16 @@ const anchorForWiden = async (
 		persisted,
 	).catch((error: unknown) => {
 		if (!isSemanticCapabilityAbsence(error)) throw error;
+		logger.warn(
+			{
+				alert: "filter_anchor_repair_unavailable",
+				filterId: persisted.filterId,
+				accountConfigId: persisted.accountConfigId,
+				errorName: (error as { name?: string })?.name,
+				error: inspect(error),
+			},
+			"Cannot re-embed a drifted anchor in this deployment; widening on the stored (previous-model) vector rather than returning nothing",
+		);
 		return persisted;
 	});
 
