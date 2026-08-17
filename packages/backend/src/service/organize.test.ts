@@ -21,7 +21,10 @@ import {
 	type OrganizeMatchDeps,
 	type OrganizePredicate,
 } from "./organize.js";
-import { _resetSemanticCapabilityForTest } from "./semantic-capability.js";
+import {
+	_resetSemanticCapabilityForTest,
+	isSemanticSearchUnavailable,
+} from "./semantic-capability.js";
 
 const moduleNotFound = (): Error => {
 	const error = new Error("Cannot find package 'sqlite-vec' imported from …");
@@ -578,6 +581,67 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 		assert.equal(semanticUnavailable, true);
 	});
 
+	it("keeps widening from a drifted persisted anchor when no embedding model is available", async () => {
+		// Self-host: sqlite-vec is present, `@huggingface/transformers` is not.
+		// The anchor's stamp will never match — after a model swap, or forever
+		// for one pooled from pre-#349 chunks and stamped
+		// UNKNOWN_CHUNK_EMBEDDING_ID — and there is no embedder to repair it
+		// with, so the widen must query with the vector it has rather than go
+		// dark and take every later /search/semantic with it.
+		const store = createMemoryVectorStore();
+		await store.upsert([
+			bodyChunk("msg-1", ANCHOR_VECTOR),
+			bodyChunk("msg-stored-space", ORTHOGONAL_VECTOR),
+		]);
+		const drifted: FilterAnchorItem = {
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			filterId: "filter-a",
+			anchorEmbedding: ORTHOGONAL_VECTOR,
+			anchorEmbeddingId: STALE_EMBEDDING_ID,
+			anchorSourceText: ANCHOR_SOURCE_TEXT,
+			anchorMessageId: "msg-anchor",
+			createdAt: 0,
+			updatedAt: 0,
+		};
+		const deps: OrganizeMatchDeps = {
+			semantic: () => ({
+				buildAnchor: async () => {
+					throw new Error("a persisted anchor must not be re-derived");
+				},
+				vectorStore: store,
+				embed: async () => {
+					throw moduleNotFound();
+				},
+				embeddingId: CURRENT_EMBEDDING_ID,
+			}),
+			listAccountFilterMessages: async () => [],
+			filterAnchors: {
+				listByAccountConfig: async () => [drifted],
+				put: async () => {
+					throw new Error("an unrepairable anchor must not be rewritten");
+				},
+			},
+		};
+
+		const { messageIds, semanticUnavailable } = await matchOrganize(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate(),
+		);
+
+		assert.deepEqual(
+			messageIds,
+			["msg-stored-space"],
+			"the kNN read needs no embedder, so the stored anchor vector still returns real hits",
+		);
+		assert.equal(semanticUnavailable, false);
+		assert.equal(
+			isSemanticSearchUnavailable(),
+			false,
+			"one unrepairable anchor must not disable free-text semantic search for the rest of the process",
+		);
+	});
+
 	it("propagates a genuine (non-capability) semantic failure loudly", async () => {
 		const deps: OrganizeMatchDeps = {
 			semantic: () => ({
@@ -974,12 +1038,15 @@ describe("applyOrganize resolves move precedence against current Active filters 
  * claim to mirror (reader #399).
  */
 describe("back-apply repairs a drifted anchor the way index-time matching does (reader #399)", () => {
-	const staleAnchor = (filterId: string): FilterAnchorItem => ({
-		accountConfigId: ACCOUNT_CONFIG_ID,
-		filterId,
+	const staleAnchor = (
+		filterId: string,
 		// Written under the previous model: same dimensions, different space, so
 		// nothing but the id stamp distinguishes it from a usable anchor.
-		anchorEmbedding: ORTHOGONAL_VECTOR,
+		anchorEmbedding: number[] = ORTHOGONAL_VECTOR,
+	): FilterAnchorItem => ({
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		filterId,
+		anchorEmbedding,
 		anchorEmbeddingId: STALE_EMBEDDING_ID,
 		anchorSourceText: ANCHOR_SOURCE_TEXT,
 		anchorMessageId: "msg-anchor",
@@ -1098,7 +1165,11 @@ describe("back-apply repairs a drifted anchor the way index-time matching does (
 		const store = createMemoryVectorStore();
 		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
 		const p = predicate({ actionMailboxId: "mbox-target" });
-		const drifted = staleAnchor("filter-broken-anchor");
+		// The stale vector would score a match, so scoring against it — which is
+		// exactly what this path did before the repair existed — suppresses the
+		// move. A stamp that cannot be honoured is not a match: the filter is
+		// skipped and loudly logged, and the rest of the pass is unaffected.
+		const drifted = staleAnchor("filter-broken-anchor", ANCHOR_VECTOR);
 		const tracked = trackingClient({
 			activeFilters: [
 				filterItem({
@@ -1133,7 +1204,7 @@ describe("back-apply repairs a drifted anchor the way index-time matching does (
 		assert.deepEqual(
 			mover.moves.map((move) => move.destinationMailboxId),
 			["mbox-target"],
-			"one un-repairable anchor skips that filter, it does not abort the pass",
+			"an un-repairable anchor skips its own filter — it neither decides the arbitration on a stale score nor aborts the pass",
 		);
 	});
 });

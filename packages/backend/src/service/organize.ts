@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import type {
 	FilterAnchorItem,
 	FilterItem,
@@ -6,6 +7,7 @@ import type {
 } from "@remit/data-ports";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { FilterClauseField, FilterState } from "@remit/domain-enums";
+import { logger } from "@remit/logger-lambda";
 import {
 	type AnchorEmbedder,
 	buildMatchText,
@@ -29,7 +31,10 @@ import {
 	buildVectorStoreFromEnv,
 } from "@remit/search-service/from-env";
 import type { RemitClient } from "./data-client.js";
-import { noteSemanticCapabilityAbsence } from "./semantic-capability.js";
+import {
+	isSemanticCapabilityAbsence,
+	noteSemanticCapabilityAbsence,
+} from "./semantic-capability.js";
 
 /**
  * Hard cap on both the previewed and the applied set. A back-apply is a
@@ -215,6 +220,29 @@ const findPersistedAnchor = async (
 	);
 
 /**
+ * The anchor the widen queries with: the persisted row, re-embedded in place
+ * when the embedding model has drifted since it was written. A deployment that
+ * ships no embedding model cannot repair it, and the kNN read itself needs
+ * none, so that case keeps querying with the stored vector rather than going
+ * dark — and is classified without recording the absence, which would
+ * otherwise disable every later `/search/semantic` (see
+ * `semantic-capability.ts`). Any other failure, a failed write included,
+ * propagates.
+ */
+const anchorForWiden = async (
+	deps: OrganizeMatchDeps,
+	semantic: OrganizeSemanticDeps,
+	persisted: FilterAnchorItem,
+): Promise<FilterAnchorItem> =>
+	refreshAnchorForEmbedder(
+		{ anchorRepository: deps.filterAnchors, embedder: semantic },
+		persisted,
+	).catch((error: unknown) => {
+		if (!isSemanticCapabilityAbsence(error)) throw error;
+		return persisted;
+	});
+
+/**
  * The semantic (anchor) arm: read the anchor vector — the persisted
  * `FilterAnchor` for a message a standing filter was built from (fixed at
  * save time, unaffected by the anchor message's later deletion or
@@ -242,10 +270,7 @@ const matchSemantic = async (
 		predicate.anchorMessageId,
 	);
 	const anchor: AnchorPayload | null = persisted
-		? await refreshAnchorForEmbedder(
-				{ anchorRepository: deps.filterAnchors, embedder: semantic },
-				persisted,
-			)
+		? await anchorForWiden(deps, semantic, persisted)
 		: await semantic.buildAnchor(accountConfigId, predicate.anchorMessageId);
 	if (!anchor) return null;
 	const threshold =
@@ -590,18 +615,30 @@ const filterCurrentlyMatches = async (
 	if (!stored) return false;
 	const vector = await embed();
 	if (!vector) return false;
-	try {
-		const anchor = await refreshAnchorForEmbedder(
+	const repairAnchor = async (): Promise<FilterAnchorItem> =>
+		refreshAnchorForEmbedder(
 			{ anchorRepository: filterAnchorService, embedder: embedder() },
 			stored,
 		);
-		return (
-			cosineSimilarity(vector, anchor.anchorEmbedding) >=
-			DEFAULT_SEMANTIC_MATCH_THRESHOLD
-		);
-	} catch {
-		return false;
-	}
+	return repairAnchor()
+		.then(
+			(anchor) =>
+				cosineSimilarity(vector, anchor.anchorEmbedding) >=
+				DEFAULT_SEMANTIC_MATCH_THRESHOLD,
+		)
+		.catch((error: unknown) => {
+			logger.error(
+				{
+					alert: "filter_anchor_match_failed",
+					filterId: filter.filterId,
+					accountConfigId,
+					errorName: (error as { name?: string })?.name,
+					error: inspect(error),
+				},
+				"Filter anchor comparison failed during back-apply precedence; skipping this filter, the rest still arbitrate (bad/stale anchor vector or a failed repair, non-fatal)",
+			);
+			return false;
+		});
 };
 
 /**

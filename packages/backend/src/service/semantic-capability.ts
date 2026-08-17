@@ -20,7 +20,13 @@ import { isSelfHostSqlBackend } from "../data-backend.js";
  * model involved — so it needs only `sqlite-vec`, which the backend image now
  * carries as a musl build (Dockerfile sqlite-vec-musl stage,
  * SQLITE_VEC_EXTENSION_PATH). matchOrganize never consults the memoized flag
- * below; a missing embedder therefore never disables the widen.
+ * below; a missing embedder therefore never disables the widen. The one place
+ * the widen would reach for an embedder is repairing a persisted FilterAnchor
+ * whose model has drifted (organize.ts matchSemantic): with no embedder there
+ * is no repair to be had, so it queries with the stored vector and classifies
+ * the failure through {@link isSemanticCapabilityAbsence}, which deliberately
+ * does not record the absence. Recording it there would take every later
+ * free-text semantic query down on the strength of one filter's stale stamp.
  *
  * The e2e-dev lane runs this backend from source rather than the container, so
  * `@huggingface/transformers` IS present and the local embedder instead tries to
@@ -60,16 +66,24 @@ export const _resetSemanticCapabilityForTest = (): void => {
 export const isSemanticSearchUnavailable = (): boolean => semanticUnavailable;
 
 /**
+ * Whether a failure is this deployment simply not carrying the semantic
+ * pipeline — the missing-module/extension shape on a self-host SQL backend.
+ * Records nothing, for the caller that must degrade one operation without
+ * disabling `/search/semantic` process-wide.
+ */
+export const isSemanticCapabilityAbsence = (error: unknown): boolean => {
+	if (!isSelfHostSqlBackend()) return false;
+	const code = (error as { code?: unknown } | null)?.code;
+	return typeof code === "string" && CAPABILITY_ABSENCE_CODES.has(code);
+};
+
+/**
  * Classify a semantic-search failure. Returns true — and remembers the
  * absence — when it is the missing-module/extension shape on a self-host SQL
  * backend; any other error is the caller's to rethrow.
  */
 export const noteSemanticCapabilityAbsence = (error: unknown): boolean => {
-	if (!isSelfHostSqlBackend()) return false;
-	const code = (error as { code?: unknown } | null)?.code;
-	if (typeof code !== "string" || !CAPABILITY_ABSENCE_CODES.has(code)) {
-		return false;
-	}
+	if (!isSemanticCapabilityAbsence(error)) return false;
 	if (!semanticUnavailable) {
 		logger.warn(
 			{ error: error instanceof Error ? error.message : String(error) },
