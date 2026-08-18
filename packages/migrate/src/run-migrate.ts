@@ -1,6 +1,7 @@
 // esbuild bundles this as text (see npm-scripts/docker-bundle.mjs's ".sql"
 // loader) so the migrate step runs the exact SQL the test harness applies —
 // one source of truth, two consumers.
+import sqliteAddressSightingsIndexSql from "../../../npm-scripts/sqlite-address-sightings-index.sql";
 import sqliteSearchIndexSql from "../../../npm-scripts/sqlite-search-index.sql";
 import {
 	type DisplayNameRepairClient,
@@ -8,6 +9,12 @@ import {
 	formatDisplayNameReport,
 	sweepDisplayNames,
 } from "../../drizzle-service/src/repair/address-display-name.js";
+import {
+	formatJunkOnlyReport,
+	type JunkOnlyRepairClient,
+	type JunkOnlyRepairMode,
+	sweepJunkOnlyAddresses,
+} from "../../drizzle-service/src/repair/junk-only-address.js";
 import {
 	formatStrandedSentReport,
 	type StrandedSentRepairClient,
@@ -89,6 +96,7 @@ import { logger } from "../../logger-lambda/src/logger.js";
  * no remedy: the message is on no server folder to re-fetch. It flips a status
  * and writes the reason, on rows an hour past any retry, and touches nothing
  * else.
+
  */
 
 /**
@@ -185,7 +193,19 @@ const strandedSentStep = async (
 	}
 };
 
-type ParamRepairClient = DisplayNameRepairClient & StrandedSentRepairClient;
+const junkOnlyAddressStep = async (
+	client: JunkOnlyRepairClient,
+	mode: JunkOnlyRepairMode,
+): Promise<void> => {
+	const report = await sweepJunkOnlyAddresses(client, mode);
+	for (const line of formatJunkOnlyReport(report)) {
+		logStep({ step: "junk-only-address-repair" }, line);
+	}
+};
+
+type ParamRepairClient = DisplayNameRepairClient &
+	StrandedSentRepairClient &
+	JunkOnlyRepairClient;
 
 const runSqlite = async (mode: Mode): Promise<void> => {
 	const dbPath = process.env.SQLITE_DB_PATH;
@@ -220,6 +240,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 			logReport(await checkThreadMessageCategory(sqliteRepairClient));
 			await displayNameStep(paramRepairClient, "check");
 			await strandedSentStep(paramRepairClient, "check");
+			await junkOnlyAddressStep(paramRepairClient, "check");
 			return;
 		}
 
@@ -267,6 +288,11 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		// Independent of every other step here: it reads and writes one column of
 		// `outbox_message`, which no index and no trigger installed below covers.
 		await strandedSentStep(paramRepairClient, "repair");
+
+		logStep({}, "installing address-sightings index (sqlite)");
+		sqlite.exec(sqliteAddressSightingsIndexSql);
+
+		await junkOnlyAddressStep(paramRepairClient, "repair");
 
 		// The external-content FTS5 trigram table + its thread_message
 		// maintenance triggers, the final idempotent step (RFC 036 D4). The

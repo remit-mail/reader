@@ -9,6 +9,7 @@ import type {
 	IMailboxRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
+	MailboxItem,
 	MessageItem,
 	ThreadMessageItem,
 } from "@remit/data-ports";
@@ -64,7 +65,7 @@ const harvest = async (envelope: Partial<ImapEnvelope>): Promise<Saved> => {
 	} as unknown as IEnvelopeRepository;
 
 	const addressService = {
-		upsertAddress: async (input: CreateAddressInput) => {
+		upsertCorrespondentAddress: async (input: CreateAddressInput) => {
 			saved.addresses.push(input);
 		},
 		upsertEnvelopeAddress: async (input: CreateEnvelopeAddressInput) => {
@@ -93,13 +94,18 @@ const harvest = async (envelope: Partial<ImapEnvelope>): Promise<Saved> => {
 	await (
 		service as unknown as {
 			saveMessage: (
-				mailboxId: string,
+				mailbox: MailboxItem,
 				accountId: string,
 				accountConfigId: string,
 				msg: ImapMessage,
 			) => Promise<unknown>;
 		}
-	).saveMessage("mbx-1", "acct-1", "cfg-1", msg);
+	).saveMessage(
+		{ mailboxId: "mbx-1", fullPath: "INBOX" } as MailboxItem,
+		"acct-1",
+		"cfg-1",
+		msg,
+	);
 
 	return saved;
 };

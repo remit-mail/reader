@@ -4,20 +4,13 @@ import type {
 	MailboxSpecialUseValue,
 } from "@remit/data-ports";
 import { resolveMailboxByLeafName } from "@remit/data-ports/mailbox-name";
+import { JUNK_FOLDER_NAMES } from "@remit/data-ports/mailbox-role";
 import { eq } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { randomId } from "../id.js";
 import { mailboxSpecialUseTable, mailboxTable } from "../schema/i4-mailbox.js";
 
 type DB = Db<Record<string, unknown>>;
-
-const JUNK_FOLDER_NAMES = [
-	"junk",
-	"spam",
-	"junk e-mail",
-	"junk email",
-	"bulk mail",
-];
 
 function rowToSpecialUse(
 	row: typeof mailboxSpecialUseTable.$inferSelect,

@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { SQSClient } from "@aws-sdk/client-sqs";
 import type {
+	IAddressRepository,
 	IMessagePlacementMoveRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
@@ -33,6 +34,7 @@ interface Harness {
 	row: MessageItem;
 	puts: PutMessagePlacementMoveInput[];
 	marker: MessagePlacementMoveItem | null;
+	reconciled: string[];
 }
 
 const buildHarness = (): Harness => {
@@ -46,7 +48,14 @@ const buildHarness = (): Harness => {
 	} as unknown as MessageItem;
 
 	const puts: PutMessagePlacementMoveInput[] = [];
-	const harness = { row, puts, marker: null } as Harness;
+	const reconciled: string[] = [];
+	const harness = { row, puts, marker: null, reconciled } as Harness;
+
+	const addressService = {
+		reconcileJunkOnlyForMessage: async (messageId: string) => {
+			reconciled.push(`${messageId}@${row.mailboxId}`);
+		},
+	} as unknown as IAddressRepository;
 
 	const messageService = {
 		get: async () => row,
@@ -101,6 +110,7 @@ const buildHarness = (): Harness => {
 		messageService,
 		threadMessageService,
 		markerService,
+		addressService,
 		sqsQueueUrl: "https://sqs.eu-west-1.amazonaws.com/000/message-mgmt",
 		moveSettleTimeoutMs: 200,
 		moveSettlePollMs: 10,
@@ -221,5 +231,29 @@ describe("PlacementMoveService — a second destination while the first move is 
 		assert.equal(harness.puts.length, 2);
 		assert.equal(harness.puts[1]?.sourceMailboxId, ARCHIVE_ID);
 		assert.equal(harness.puts[1]?.destinationMailboxId, JUNK_ID);
+	});
+
+	it("marks the sender when the classifier demotes the message", async () => {
+		await harness.service.moveMessage(
+			ACCOUNT_CONFIG_ID,
+			MESSAGE_ID,
+			JUNK_ID,
+			ACCOUNT_ID,
+		);
+
+		assert.deepEqual(harness.reconciled, [`${MESSAGE_ID}@${JUNK_ID}`]);
+	});
+
+	it("asks nothing of a destination the message is already in", async () => {
+		Object.assign(harness.row, { mailboxId: JUNK_ID });
+
+		await harness.service.moveMessage(
+			ACCOUNT_CONFIG_ID,
+			MESSAGE_ID,
+			JUNK_ID,
+			ACCOUNT_ID,
+		);
+
+		assert.deepEqual(harness.reconciled, []);
 	});
 });

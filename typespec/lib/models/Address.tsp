@@ -54,6 +54,11 @@ model WellknownFlag extends AddressFlagBase {
   value: boolean;
 }
 
+@doc("Address was only ever seen on mail in a Junk folder: withheld from autocomplete suggestions until the account corresponds with it, flags it, or meets it on live mail. Written by sync and by the boot-time repair; clear it by patching this key to null.")
+model JunkOnlyFlag extends AddressFlagBase {
+  value: boolean;
+}
+
 @doc("Category override for auto-classification")
 model CategoryFlag extends AddressFlagBase {
   value: MessageCategory;
@@ -76,6 +81,7 @@ model AddressFlags {
   muted?: MutedFlag;
   vip?: VipFlag;
   wellknown?: WellknownFlag;
+  junkOnly?: JunkOnlyFlag;
   category?: CategoryFlag;
   autoArchive?: AutoArchiveFlag;
   unsubscribed?: UnsubscribedFlag;
@@ -260,6 +266,10 @@ model UpdateAddressFlagsInput {
   muted?: MutedFlag | null;
   vip?: VipFlag | null;
   wellknown?: WellknownFlag | null;
+
+  @doc("Set to `null` to offer this address in autocomplete again")
+  junkOnly?: JunkOnlyFlag | null;
+
   category?: CategoryFlag | null;
   autoArchive?: AutoArchiveFlag | null;
   unsubscribed?: UnsubscribedFlag | null;

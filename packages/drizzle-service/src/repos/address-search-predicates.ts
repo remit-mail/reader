@@ -80,6 +80,21 @@ const flagValue = (name: string): SQL<number> =>
 export const addressPreference = (): SQL<number> =>
 	sql<number>`(2 * ${flagValue("vip")} + ${flagValue("trusted")})`;
 
+const accountHasCorresponded = (): SQL<number> =>
+	sql<number>`(${addressTable.outboundCount} + ${addressTable.replyCount}
+		+ ${flagValue("vip")} + ${flagValue("trusted")})`;
+
+const accountHasFlagged = (): SQL<number> =>
+	sql<number>`(${flagValue("blocked")} + ${flagValue("muted")})`;
+
+export const addressListable = (term: string | undefined): SQL => {
+	const shown = sql`${flagValue("junkOnly")} = 0
+		or ${accountHasCorresponded()} > 0
+		or ${accountHasFlagged()} > 0`;
+	if (!term) return sql`(${shown})`;
+	return sql`(${shown} or ${addressTable.normalizedEmail} = ${term.toLowerCase()})`;
+};
+
 export const addressCorrespondence = (): SQL<number> =>
 	sql<number>`(${addressTable.replyCount} + ${addressTable.inboundCount} + ${addressTable.outboundCount})`;
 

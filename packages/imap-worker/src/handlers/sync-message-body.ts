@@ -178,6 +178,7 @@ export const syncMessageBody = async (
 				messageService,
 				threadMessageService,
 				markerService,
+				addressService,
 				sqsQueueUrl: placementMoveQueueUrl,
 			})
 		: undefined;

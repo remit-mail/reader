@@ -128,6 +128,34 @@ test.describe("Spam rescue", () => {
 		);
 	});
 
+	// Must run before the rescue below, while the seeded message still lives
+	// nowhere but Junk.
+	test("a sender only ever seen in Spam is not suggested on a fragment", async ({
+		api,
+		run,
+	}) => {
+		const junkId = await junkMailboxId(api, run.accountId);
+		await waitForSpamMessage(api, junkId, run.spamSubject);
+		await waitFor(
+			() => api.searchAddresses(run.spamSenderEmail),
+			(items) =>
+				items.some(
+					(address) => address.normalizedEmail === run.spamSenderEmail,
+				),
+			{
+				timeoutMs: 30_000,
+				what: `the address record for ${run.spamSenderEmail}`,
+			},
+		);
+
+		const [localPart] = run.spamSenderEmail.split("@");
+		const suggestions = await api.searchAddresses(localPart);
+
+		expect(suggestions.map((address) => address.normalizedEmail)).not.toContain(
+			run.spamSenderEmail,
+		);
+	});
+
 	test("moving a message out of Spam completes without an error", async ({
 		api,
 		page,

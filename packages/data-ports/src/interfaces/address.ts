@@ -11,6 +11,9 @@ import type {
 export interface IAddressRepository {
 	createAddress(input: CreateAddressInput): Promise<AddressItem>;
 	upsertAddress(input: CreateAddressInput): Promise<AddressItem>;
+	upsertCorrespondentAddress(input: CreateAddressInput): Promise<AddressItem>;
+	upsertJunkAddress(input: CreateAddressInput): Promise<AddressItem>;
+	reconcileJunkOnlyForMessage(messageId: string): Promise<void>;
 	getAddress(accountConfigId: string, addressId: string): Promise<AddressItem>;
 	getAddress(
 		accountConfigId: string,

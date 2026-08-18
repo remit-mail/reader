@@ -3,6 +3,7 @@ import { type AddressEntry, ComposeAddressField } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { offerableAsRecipient } from "@/lib/recipient-suggestions";
 
 export type { AddressEntry };
 
@@ -32,7 +33,7 @@ export const AddressField = ({
 
 	const suggestions = useMemo<AddressEntry[]>(
 		() =>
-			(data?.items ?? []).map((item) => ({
+			(data?.items ?? []).filter(offerableAsRecipient).map((item) => ({
 				email: item.normalizedEmail,
 				displayName: item.displayName,
 			})),

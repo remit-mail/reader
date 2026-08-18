@@ -159,7 +159,7 @@ const buildHarness = (options: {
 					upsertBodyParts: async () => undefined,
 				} as unknown as IEnvelopeRepository,
 				address: {
-					upsertAddress: async () => undefined,
+					upsertCorrespondentAddress: async () => undefined,
 					upsertEnvelopeAddress: async () => undefined,
 				} as unknown as IAddressRepository,
 				threadMessage: threadMessageService,

@@ -17,6 +17,11 @@ import { type MessageMoveConfig, MessageMoveService } from "./message-move.js";
 import { MessageSyncService } from "./message-sync.js";
 import type { IImapConnection, ImapMessage } from "./types.js";
 
+const stubAddressService = (): IAddressRepository =>
+	({
+		reconcileJunkOnlyForMessage: async () => {},
+	}) as unknown as IAddressRepository;
+
 // A copy is a per-folder placement of the same mail. These tests pin the three
 // properties issue #75 turns on: the copy row is deterministic (idempotent), a
 // delete removes exactly the placement it targets, and neither the copy nor the
@@ -176,6 +181,7 @@ const buildWorld = () => {
 		mailboxService,
 		mailboxSpecialUseService,
 		threadMessageService,
+		addressService: stubAddressService(),
 		sqsQueueUrl: "http://localhost:9324/000000000000/message-mgmt",
 	};
 
@@ -288,7 +294,7 @@ const buildSyncOverDestination = (
 					upsertBodyParts: async () => undefined,
 				} as unknown as IEnvelopeRepository,
 				address: {
-					upsertAddress: async () => undefined,
+					upsertCorrespondentAddress: async () => undefined,
 					upsertEnvelopeAddress: async () => undefined,
 				} as unknown as IAddressRepository,
 				threadMessage: world.threadMessageService,

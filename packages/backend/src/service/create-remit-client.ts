@@ -329,6 +329,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 				messageService: repositories.message,
 				threadMessageService: repositories.threadMessage,
 				markerService: repositories.placementMove,
+				addressService: repositories.address,
 				sqsQueueUrl: placementMoveQueueUrl,
 			})
 		: undefined;
@@ -364,6 +365,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		mailboxService: repositories.mailbox,
 		mailboxSpecialUseService: repositories.mailboxSpecialUse,
 		threadMessageService: repositories.threadMessage,
+		addressService: repositories.address,
 		sqsQueueUrl,
 		logger,
 	});

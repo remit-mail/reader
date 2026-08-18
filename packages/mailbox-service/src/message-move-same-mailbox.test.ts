@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type {
+	IAddressRepository,
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
 import { type MessageMoveConfig, MessageMoveService } from "./message-move.js";
+
+const stubAddressService = (): IAddressRepository =>
+	({
+		reconcileJunkOnlyForMessage: async () => {},
+	}) as unknown as IAddressRepository;
 
 const ACCOUNT = "acc-1";
 const ACCOUNT_CONFIG = "cfg-1";
@@ -67,6 +73,7 @@ const buildWorld = () => {
 		mailboxService,
 		mailboxSpecialUseService,
 		threadMessageService,
+		addressService: stubAddressService(),
 		sqsQueueUrl: "http://localhost:9324/000000000000/remit-messages.fifo",
 	};
 

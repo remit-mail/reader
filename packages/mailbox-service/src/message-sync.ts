@@ -22,6 +22,11 @@ import {
 	isValidMessageId,
 } from "@remit/data-ports/id";
 import {
+	isJunkMailbox,
+	isTrashMailbox,
+	type MailboxRole,
+} from "@remit/data-ports/mailbox-role";
+import {
 	AddressRole,
 	MailboxCursorState,
 	MessageKeywordFlag,
@@ -84,6 +89,14 @@ export const isParseableEmailAddress = (
 		return false;
 	}
 	return host.includes(".");
+};
+
+export type AddressSighting = "junk" | "discarded" | "correspondent";
+
+export const addressSightingIn = (mailbox: MailboxRole): AddressSighting => {
+	if (isJunkMailbox(mailbox)) return "junk";
+	if (isTrashMailbox(mailbox)) return "discarded";
+	return "correspondent";
 };
 
 /**
@@ -424,7 +437,7 @@ export class MessageSyncService {
 		// poison pill that previously froze the mailbox, #817).
 		const outcomes = await pMap(
 			applicable,
-			(msg) => this.trySaveMessage(mailboxId, accountId, accountConfigId, msg),
+			(msg) => this.trySaveMessage(mailbox, accountId, accountConfigId, msg),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
 
@@ -657,7 +670,7 @@ export class MessageSyncService {
 		const applicable = newMessages.filter((msg) => msg.envelope !== undefined);
 		const outcomes = await pMap(
 			applicable,
-			(msg) => this.trySaveMessage(mailboxId, accountId, accountConfigId, msg),
+			(msg) => this.trySaveMessage(mailbox, accountId, accountConfigId, msg),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
 		const syncedMessages: SyncedMessage[] = outcomes.flatMap((o) =>
@@ -883,7 +896,7 @@ export class MessageSyncService {
 
 		const outcomes = await pMap(
 			applicable,
-			(msg) => this.tryApplyChange(mailboxId, accountId, accountConfigId, msg),
+			(msg) => this.tryApplyChange(mailbox, accountId, accountConfigId, msg),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
 
@@ -988,12 +1001,13 @@ export class MessageSyncService {
 	 * holds the watermark back instead of failing the round.
 	 */
 	private async tryApplyChange(
-		mailboxId: string,
+		mailbox: MailboxItem,
 		accountId: string,
 		accountConfigId: string,
 		msg: ImapMessage,
 	): Promise<BatchOutcome> {
-		return this.applyChange(mailboxId, accountId, accountConfigId, msg)
+		const mailboxId = mailbox.mailboxId;
+		return this.applyChange(mailbox, accountId, accountConfigId, msg)
 			.then((result): BatchOutcome => ({ kind: "saved", uid: msg.uid, result }))
 			.catch((error): BatchOutcome => {
 				this.log.warn(
@@ -1010,7 +1024,7 @@ export class MessageSyncService {
 	}
 
 	private async applyChange(
-		mailboxId: string,
+		mailbox: MailboxItem,
 		accountId: string,
 		accountConfigId: string,
 		msg: ImapMessage,
@@ -1020,7 +1034,7 @@ export class MessageSyncService {
 		const messageId = deriveMessageIdFromSource(accountId, {
 			messageId: msg.envelope.messageId,
 			uid: msg.uid,
-			mailboxId,
+			mailboxId: mailbox.mailboxId,
 			date: msg.envelope.date,
 			subject: msg.envelope.subject,
 			fromMailbox: msg.envelope.from?.[0]?.mailbox,
@@ -1032,7 +1046,7 @@ export class MessageSyncService {
 			messageId,
 		);
 		if (!existing) {
-			return this.saveMessage(mailboxId, accountId, accountConfigId, msg);
+			return this.saveMessage(mailbox, accountId, accountConfigId, msg);
 		}
 
 		await this.applyServerFlags(existing, msg.flags);
@@ -1227,12 +1241,13 @@ export class MessageSyncService {
 	 * permanently freezing the mailbox (#817).
 	 */
 	private async trySaveMessage(
-		mailboxId: string,
+		mailbox: MailboxItem,
 		accountId: string,
 		accountConfigId: string,
 		msg: ImapMessage,
 	): Promise<BatchOutcome> {
-		return this.saveMessage(mailboxId, accountId, accountConfigId, msg)
+		const mailboxId = mailbox.mailboxId;
+		return this.saveMessage(mailbox, accountId, accountConfigId, msg)
 			.then((result): BatchOutcome => ({ kind: "saved", uid: msg.uid, result }))
 			.catch((error): BatchOutcome => {
 				this.log.warn(
@@ -1249,12 +1264,15 @@ export class MessageSyncService {
 	}
 
 	private async saveMessage(
-		mailboxId: string,
+		mailbox: MailboxItem,
 		accountId: string,
 		accountConfigId: string,
 		msg: ImapMessage,
 	): Promise<SaveMessageResult | null> {
 		if (!msg.envelope) return null;
+
+		const mailboxId = mailbox.mailboxId;
+		const sighting = addressSightingIn(mailbox);
 
 		// Store envelope to preserve narrowing in closures
 		const envelope = msg.envelope;
@@ -1338,6 +1356,7 @@ export class MessageSyncService {
 					accountConfigId,
 					addresses,
 					role,
+					sighting,
 				);
 			}
 
@@ -1358,6 +1377,10 @@ export class MessageSyncService {
 				rootBodyPartId,
 			});
 			owned = created || item.mailboxId === mailboxId;
+
+			if (sighting === "junk") {
+				await repos.address.reconcileJunkOnlyForMessage(messageId);
+			}
 
 			await this.createThreadForMessage(
 				repos.threadMessage,
@@ -1393,6 +1416,7 @@ export class MessageSyncService {
 		accountConfigId: string,
 		addresses: ImapAddress[] | undefined,
 		role: (typeof AddressRole)[keyof typeof AddressRole],
+		sighting: AddressSighting,
 	) {
 		if (!addresses) return;
 
@@ -1430,7 +1454,7 @@ export class MessageSyncService {
 
 			const envelopeAddressId = deriveEnvelopeAddressId(messageId, role, order);
 
-			await addressService.upsertAddress({
+			const addressInput = {
 				addressId,
 				accountConfigId,
 				localPart,
@@ -1438,7 +1462,14 @@ export class MessageSyncService {
 				normalizedEmail,
 				normalizedCompound,
 				displayName,
-			});
+			};
+			if (sighting === "junk") {
+				await addressService.upsertJunkAddress(addressInput);
+			} else if (sighting === "discarded") {
+				await addressService.upsertAddress(addressInput);
+			} else {
+				await addressService.upsertCorrespondentAddress(addressInput);
+			}
 
 			await addressService.upsertEnvelopeAddress({
 				envelopeAddressId,

@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { SQSClient } from "@aws-sdk/client-sqs";
 import { getClient, type RemitClient, setClient } from "@remit/backend/client";
 import type {
+	IAddressRepository,
 	IMessageFlagPushRepository,
 	IMessageFlagRepository,
 	IMessagePlacementMoveRepository,
@@ -177,6 +178,9 @@ const buildHarness = (): Harness => {
 		messageService,
 		threadMessageService,
 		markerService: placementMarkerService,
+		addressService: {
+			reconcileJunkOnlyForMessage: async () => {},
+		} as unknown as IAddressRepository,
 		sqsQueueUrl: "https://sqs.eu-west-1.amazonaws.com/000/message-mgmt",
 	});
 

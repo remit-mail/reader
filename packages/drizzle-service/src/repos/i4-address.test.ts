@@ -990,6 +990,223 @@ describe("AddressRepo", () => {
 		await repo.deleteAddress(configB, b.addressId);
 	});
 
+	describe("addresses met only in Junk (#822)", () => {
+		const junkInput = (accountConfigId: string, email: string) => ({
+			...makeAddressInput(accountConfigId, email),
+			displayName: "Pharma Deals",
+			normalizedCompound: `pharma deals ${email}`,
+		});
+
+		test("a suggestion list never offers a withheld address", async () => {
+			const accountConfigId = randomId();
+			const withheld = await repo.upsertJunkAddress(
+				junkInput(accountConfigId, "sales@pharma.example"),
+			);
+			const ordinary = await repo.upsertCorrespondentAddress(
+				makeAddressInput(accountConfigId, "colleague@pharma.example"),
+			);
+
+			const page = await repo.listByAccountConfig({
+				accountConfigId,
+				search: "pharma",
+			});
+
+			assert.deepEqual(
+				page.items.map((a) => a.addressId),
+				[ordinary.addressId],
+			);
+
+			await repo.deleteManyAddresses(accountConfigId, [
+				withheld.addressId,
+				ordinary.addressId,
+			]);
+		});
+
+		test("an exact address still resolves a withheld row", async () => {
+			const accountConfigId = randomId();
+			const withheld = await repo.upsertJunkAddress(
+				junkInput(accountConfigId, "sales@pharma.example"),
+			);
+
+			const page = await repo.listByAccountConfig({
+				accountConfigId,
+				search: "sales@pharma.example",
+			});
+
+			assert.deepEqual(
+				page.items.map((a) => a.addressId),
+				[withheld.addressId],
+			);
+
+			await repo.deleteAddress(accountConfigId, withheld.addressId);
+		});
+
+		test("a bare listing never offers a withheld address", async () => {
+			const accountConfigId = randomId();
+			const withheld = await repo.upsertJunkAddress(
+				junkInput(accountConfigId, "sales@pharma.example"),
+			);
+			const ordinary = await repo.upsertCorrespondentAddress(
+				makeAddressInput(accountConfigId, "colleague@pharma.example"),
+			);
+
+			const page = await repo.listByAccountConfig({ accountConfigId });
+
+			assert.deepEqual(
+				page.items.map((a) => a.addressId),
+				[ordinary.addressId],
+			);
+
+			await repo.deleteManyAddresses(accountConfigId, [
+				withheld.addressId,
+				ordinary.addressId,
+			]);
+		});
+
+		test("the row is still there to resolve the message that carried it", async () => {
+			const accountConfigId = randomId();
+			const input = junkInput(accountConfigId, "sales@pharma.example");
+			const withheld = await repo.upsertJunkAddress(input);
+
+			const fetched = await repo.getAddress(accountConfigId, input.addressId);
+			assert.equal(fetched.normalizedEmail, "sales@pharma.example");
+			assert.equal(fetched.flags?.junkOnly?.value, true);
+
+			await repo.deleteAddress(accountConfigId, withheld.addressId);
+		});
+
+		test("one sighting on live mail restores it", async () => {
+			const accountConfigId = randomId();
+			const input = junkInput(accountConfigId, "misfiled@pharma.example");
+			await repo.upsertJunkAddress(input);
+
+			const harvested = await repo.upsertCorrespondentAddress(input);
+
+			assert.equal(harvested.flags?.junkOnly, undefined);
+			const page = await repo.listByAccountConfig({
+				accountConfigId,
+				search: "misfiled",
+			});
+			assert.deepEqual(
+				page.items.map((a) => a.addressId),
+				[input.addressId],
+			);
+
+			await repo.deleteAddress(accountConfigId, input.addressId);
+		});
+
+		test("a sighting in Junk leaves an address the account knows alone", async () => {
+			const accountConfigId = randomId();
+			const known = makeAddressInput(accountConfigId, "friend@pharma.example");
+			await repo.upsertCorrespondentAddress({
+				...known,
+				displayName: "Real Friend",
+			});
+
+			const after = await repo.upsertJunkAddress({
+				...known,
+				displayName: "Pharma Deals",
+				normalizedCompound: "pharma deals friend@pharma.example",
+			});
+
+			assert.equal(after.displayName, "Real Friend");
+			assert.equal(after.flags?.junkOnly, undefined);
+
+			await repo.deleteAddress(accountConfigId, known.addressId);
+		});
+
+		test("a sighting in Trash decides nothing either way", async () => {
+			const accountConfigId = randomId();
+			const input = junkInput(accountConfigId, "discarded@pharma.example");
+			await repo.upsertJunkAddress(input);
+
+			const after = await repo.upsertAddress(input);
+
+			assert.equal(after.flags?.junkOnly?.value, true);
+
+			await repo.deleteAddress(accountConfigId, input.addressId);
+		});
+
+		test("a sender the account blocked stays findable, and marked", async () => {
+			const accountConfigId = randomId();
+			const input = junkInput(accountConfigId, "reported@pharma.example");
+			await repo.upsertJunkAddress(input);
+			await repo.mergeFlags(accountConfigId, input.addressId, {
+				blocked: { value: true, setAt: 1 },
+			});
+
+			const page = await repo.listByAccountConfig({
+				accountConfigId,
+				search: "pharma",
+			});
+
+			assert.deepEqual(
+				page.items.map((a) => a.addressId),
+				[input.addressId],
+			);
+			assert.equal(page.items[0].flags?.junkOnly?.value, true);
+
+			await repo.deleteAddress(accountConfigId, input.addressId);
+		});
+
+		test("the account's own mail to a sender offers them again", async () => {
+			const accountConfigId = randomId();
+			const input = junkInput(accountConfigId, "supplier@pharma.example");
+			await repo.upsertJunkAddress(input);
+			await repo.incrementOutboundCount(accountConfigId, input.addressId, 1);
+
+			const page = await repo.listByAccountConfig({
+				accountConfigId,
+				search: "pharma",
+			});
+
+			assert.deepEqual(
+				page.items.map((a) => a.addressId),
+				[input.addressId],
+			);
+
+			await repo.deleteAddress(accountConfigId, input.addressId);
+		});
+
+		test("clearing the mark by hand offers the address again", async () => {
+			const accountConfigId = randomId();
+			const input = junkInput(accountConfigId, "rescued@pharma.example");
+			await repo.upsertJunkAddress(input);
+
+			await repo.mergeFlags(accountConfigId, input.addressId, {
+				junkOnly: null,
+			});
+
+			const page = await repo.listByAccountConfig({
+				accountConfigId,
+				search: "pharma",
+			});
+
+			assert.deepEqual(
+				page.items.map((a) => a.addressId),
+				[input.addressId],
+			);
+
+			await repo.deleteAddress(accountConfigId, input.addressId);
+		});
+
+		test("clearing the mark keeps the rest of the flags", async () => {
+			const accountConfigId = randomId();
+			const input = junkInput(accountConfigId, "noisy@pharma.example");
+			await repo.upsertJunkAddress(input);
+			await repo.mergeFlags(accountConfigId, input.addressId, {
+				muted: { value: true, setAt: 7 },
+			});
+
+			const harvested = await repo.upsertCorrespondentAddress(input);
+
+			assert.equal(harvested.flags?.junkOnly, undefined);
+			assert.equal(harvested.flags?.muted?.value, true);
+
+			await repo.deleteAddress(accountConfigId, input.addressId);
+		});
+	});
+
 	describe("continuation token rejection (#172)", () => {
 		for (const [label, token] of [
 			["an unparseable", "not-a-cursor"],
