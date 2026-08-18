@@ -31,12 +31,7 @@ interface Harness {
 		deletedAt?: number;
 	};
 	outbox: Record<string, unknown>;
-	specialUseSent: { mailboxId: string; fullPath: string } | null;
-	mailboxes: {
-		mailboxId: string;
-		fullPath: string;
-		hierarchyDelimiter: string;
-	}[];
+	sentMailbox: { mailboxId: string; fullPath: string } | null;
 	append: (
 		path: string,
 		raw: Buffer,
@@ -72,15 +67,7 @@ const fresh = (): Harness => ({
 		inReplyTo: "parent@example.com",
 		sentAt: 1700000000000,
 	},
-	specialUseSent: { mailboxId: "sent-mbx", fullPath: "Sent" },
-	mailboxes: [
-		{ mailboxId: "inbox-mbx", fullPath: "INBOX", hierarchyDelimiter: "/" },
-		{
-			mailboxId: "sent-items-mbx",
-			fullPath: "Sent Items",
-			hierarchyDelimiter: "/",
-		},
-	],
+	sentMailbox: { mailboxId: "sent-mbx", fullPath: "INBOX/Sent" },
 	append: async (path, raw, flags) => {
 		h.calls.push({ method: "connection.append", args: [path, raw, flags] });
 		return { uid: 55, uidValidity: 7 };
@@ -107,10 +94,7 @@ const deps = (): AppendSentMessageDeps =>
 				discardAll: record("outboxAttachment.discardAll"),
 			},
 			mailboxSpecialUse: {
-				findBySpecialUse: async () => h.specialUseSent,
-			},
-			mailbox: {
-				listAllByAccount: async () => h.mailboxes,
+				findSentMailbox: async () => h.sentMailbox,
 			},
 			secrets: {},
 		}),
@@ -150,7 +134,7 @@ describe("handleAppendSentMessage", () => {
 		await handleAppendSentMessage(event, noopLog, 1, deps());
 
 		const append = called("connection.append")[0];
-		assert.equal(append?.args[0], "Sent");
+		assert.equal(append?.args[0], "INBOX/Sent");
 		assert.deepEqual(append?.args[2], ["\\Seen"]);
 		assert.deepEqual(called("outboxMessage.delete")[0]?.args, [
 			"cfg-1",
@@ -194,60 +178,8 @@ describe("handleAppendSentMessage", () => {
 		assert.match(raw, /^From: alice@example\.com$/m);
 	});
 
-	it("falls back to a conventionally-named Sent folder when no special-use flag is set", async () => {
-		h.specialUseSent = null;
-
-		await handleAppendSentMessage(event, noopLog, 1, deps());
-
-		assert.equal(called("connection.append")[0]?.args[0], "Sent Items");
-	});
-
-	it("files into a Sent folder nested under INBOX when no special-use flag is set", async () => {
-		h.specialUseSent = null;
-		h.mailboxes = [
-			{ mailboxId: "inbox-mbx", fullPath: "INBOX", hierarchyDelimiter: "/" },
-			{
-				mailboxId: "sent-mbx",
-				fullPath: "INBOX/Sent",
-				hierarchyDelimiter: "/",
-			},
-			{
-				mailboxId: "sent-messages-mbx",
-				fullPath: "INBOX/Sent Messages",
-				hierarchyDelimiter: "/",
-			},
-		];
-
-		await handleAppendSentMessage(event, noopLog, 1, deps());
-
-		assert.equal(called("connection.append")[0]?.args[0], "INBOX/Sent");
-		assert.deepEqual(called("outboxMessage.delete")[0]?.args, [
-			"cfg-1",
-			"out-1",
-		]);
-	});
-
-	it("files into a nested Sent folder under a non-INBOX prefix and a dot delimiter", async () => {
-		h.specialUseSent = null;
-		h.mailboxes = [
-			{ mailboxId: "inbox-mbx", fullPath: "INBOX", hierarchyDelimiter: "." },
-			{
-				mailboxId: "sent-mbx",
-				fullPath: "Mail.Sent Items",
-				hierarchyDelimiter: ".",
-			},
-		];
-
-		await handleAppendSentMessage(event, noopLog, 1, deps());
-
-		assert.equal(called("connection.append")[0]?.args[0], "Mail.Sent Items");
-	});
-
 	it("settles the row as unfiled when the account has no Sent folder at all", async () => {
-		h.specialUseSent = null;
-		h.mailboxes = [
-			{ mailboxId: "inbox-mbx", fullPath: "INBOX", hierarchyDelimiter: "/" },
-		];
+		h.sentMailbox = null;
 
 		await handleAppendSentMessage(event, noopLog, 1, deps());
 
@@ -261,7 +193,7 @@ describe("handleAppendSentMessage", () => {
 		assert.deepEqual(update?.args.slice(0, 2), ["cfg-1", "out-1"]);
 		const patch = update?.args[2] as { status: string; lastError: string };
 		assert.equal(patch.status, "unfiled");
-		assert.match(patch.lastError, /no Sent folder/);
+		assert.match(patch.lastError, /no folder appointed to the Sent role/);
 	});
 
 	it("skips the append while the outbox row is not yet sent", async () => {

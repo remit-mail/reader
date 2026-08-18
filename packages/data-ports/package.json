@@ -33,6 +33,10 @@
 			"types": "./src/display-name.ts",
 			"default": "./src/display-name.ts"
 		},
+		"./folder-role": {
+			"types": "./src/folder-role.ts",
+			"default": "./src/folder-role.ts"
+		},
 		"./mailbox-name": {
 			"types": "./src/mailbox-name.ts",
 			"default": "./src/mailbox-name.ts"

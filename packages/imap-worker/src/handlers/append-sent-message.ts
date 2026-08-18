@@ -1,9 +1,5 @@
 import { getClient } from "@remit/backend/client";
-import type {
-	IMailboxRepository,
-	IMailboxSpecialUseRepository,
-} from "@remit/data-ports";
-import { MailboxSpecialUse, OutboxMessageStatus } from "@remit/domain-enums";
+import { OutboxMessageStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
 	buildMailMessage,
@@ -12,29 +8,11 @@ import {
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { AppendSentMessageEvent } from "../events.js";
-import { resolveSentMailboxByName } from "../sent-mailbox.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
-const findSentMailbox = async (
-	mailboxSpecialUseService: IMailboxSpecialUseRepository,
-	mailboxService: IMailboxRepository,
-	accountId: string,
-): Promise<{ mailboxId: string; fullPath: string } | null> => {
-	const bySpecialUse = await mailboxSpecialUseService.findBySpecialUse(
-		accountId,
-		MailboxSpecialUse.Sent,
-	);
-	if (bySpecialUse) {
-		return bySpecialUse;
-	}
-
-	const mailboxes = await mailboxService.listAllByAccount(accountId);
-	return resolveSentMailboxByName(mailboxes);
-};
-
 const UNFILED_NO_SENT_MAILBOX =
-	"Sent, but not filed: this account has no Sent folder. Create one named Sent and later messages will be filed there.";
+	"Sent, but not filed: this account has no folder appointed to the Sent role and none that a Sent folder could be recognised by. Appoint one in the account's folder settings and later messages will be filed there.";
 
 const UNFILED_SIGNED_OUT =
 	"Sent, but not filed: this account has to be signed in again before a copy can be stored in Sent.";
@@ -100,7 +78,6 @@ export const handleAppendSentMessage = async (
 		outboxMessage: outboxMessageService,
 		outboxAttachment: outboxAttachmentService,
 		mailboxSpecialUse: mailboxSpecialUseService,
-		mailbox: mailboxService,
 		secrets,
 	} = await getClient();
 
@@ -144,11 +121,7 @@ export const handleAppendSentMessage = async (
 		);
 	};
 
-	const sentMailbox = await findSentMailbox(
-		mailboxSpecialUseService,
-		mailboxService,
-		accountId,
-	);
+	const sentMailbox = await mailboxSpecialUseService.findSentMailbox(accountId);
 	if (!sentMailbox) {
 		await settleUnfiled(UNFILED_NO_SENT_MAILBOX);
 		return;

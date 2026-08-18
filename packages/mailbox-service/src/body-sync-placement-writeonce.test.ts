@@ -30,7 +30,6 @@ import type {
 	MessageItem,
 	UpdateMessageInput,
 } from "@remit/data-ports";
-import { MailboxSpecialUse } from "@remit/domain-enums";
 import type { StorageService } from "@remit/storage-service";
 import type { PlacementConfig } from "./body-sync.js";
 import { BodySyncService } from "./body-sync.js";
@@ -129,8 +128,8 @@ const buildHarness = (
 	} as unknown as IEnvelopeRepository;
 
 	const mailboxSpecialUseService = {
-		findBySpecialUse: async (_accountId: string, specialUse: string) =>
-			specialUse === MailboxSpecialUse.Junk ? MAILBOXES.junk : null,
+		findJunkMailbox: async () => MAILBOXES.junk,
+		findArchiveMailbox: async () => null,
 		findInboxMailbox: async () => MAILBOXES.inbox,
 	} as unknown as IMailboxSpecialUseRepository;
 

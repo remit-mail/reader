@@ -14,7 +14,6 @@ import { NotFoundError } from "@remit/data-ports/errors";
 import { deriveAddressId } from "@remit/data-ports/id";
 import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
-	MailboxSpecialUse,
 	MessageCategory,
 	PlacementAction,
 	PlacementConfidence,
@@ -1477,10 +1476,8 @@ export class BodySyncService {
 		// against the same signals that placed it in the first place.
 		if (hasDecidedPlacement(message.placementDecidedAt)) return {};
 
-		const junkMailbox = await mailboxSpecialUseService.findBySpecialUse(
-			accountId,
-			MailboxSpecialUse.Junk,
-		);
+		const junkMailbox =
+			await mailboxSpecialUseService.findJunkMailbox(accountId);
 		const inboxMailbox =
 			await mailboxSpecialUseService.findInboxMailbox(accountId);
 
@@ -1612,10 +1609,8 @@ export class BodySyncService {
 	): Promise<PlacementOutcome> {
 		if (!autoArchive) return {};
 
-		const archiveMailbox = await mailboxSpecialUseService.findBySpecialUse(
-			accountId,
-			MailboxSpecialUse.Archive,
-		);
+		const archiveMailbox =
+			await mailboxSpecialUseService.findArchiveMailbox(accountId);
 		if (!archiveMailbox || message.mailboxId === archiveMailbox.mailboxId) {
 			return {};
 		}

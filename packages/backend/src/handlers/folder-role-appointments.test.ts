@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { AccountSettingItem } from "@remit/data-ports";
+import type { RoleMailboxCandidate } from "@remit/data-ports/folder-role";
 import { CanonicalMailboxRole, MailboxSpecialUse } from "@remit/domain-enums";
 import {
 	CANONICAL_ROLES,
-	type FolderCandidate,
-	findFolderForRole,
 	groupFolderAppointmentsByAccount,
 	loadFolderAppointmentsForAccount,
 	resolveFolderAppointments,
@@ -40,60 +39,18 @@ describe("CANONICAL_ROLES", () => {
 	});
 });
 
-describe("findFolderForRole", () => {
-	const folders: FolderCandidate[] = [
-		{ mailboxId: "mb-inbox", fullPath: "INBOX" },
-		{
-			mailboxId: "mb-drafts-empty",
-			fullPath: "INBOX/Drafts",
-			specialUse: [MailboxSpecialUse.Drafts],
-		},
-		{ mailboxId: "mb-concepten", fullPath: "INBOX/Concepten" },
-		{ mailboxId: "mb-sent", fullPath: "INBOX/Sent" },
-		{ mailboxId: "mb-sent-messages", fullPath: "INBOX/Sent Messages" },
-		{ mailboxId: "mb-news", fullPath: "INBOX/Nieuwsbrieven" },
-	];
-
-	it("matches the reserved INBOX name for Inbox", () => {
-		assert.equal(
-			findFolderForRole(CanonicalMailboxRole.Inbox, folders),
-			"mb-inbox",
-		);
-	});
-
-	it("prefers the SPECIAL-USE flag over a name hint", () => {
-		assert.equal(
-			findFolderForRole(CanonicalMailboxRole.Drafts, folders),
-			"mb-drafts-empty",
-		);
-	});
-
-	it("falls back to a weak name hint when no flag is present", () => {
-		assert.equal(
-			findFolderForRole(CanonicalMailboxRole.Sent, folders),
-			"mb-sent",
-		);
-	});
-
-	it("returns null when nothing matches", () => {
-		assert.equal(findFolderForRole(CanonicalMailboxRole.Junk, folders), null);
-	});
-
-	it("never matches a plain user folder", () => {
-		assert.equal(
-			findFolderForRole(CanonicalMailboxRole.Archive, folders),
-			null,
-		);
-	});
-});
-
 describe("resolveFolderAppointments", () => {
-	const folders: FolderCandidate[] = [
-		{ mailboxId: "mb-inbox", fullPath: "INBOX" },
-		{ mailboxId: "mb-concepten", fullPath: "INBOX/Concepten" },
+	const folders: RoleMailboxCandidate[] = [
+		{ mailboxId: "mb-inbox", fullPath: "INBOX", hierarchyDelimiter: "/" },
+		{
+			mailboxId: "mb-concepten",
+			fullPath: "INBOX/Concepten",
+			hierarchyDelimiter: "/",
+		},
 		{
 			mailboxId: "mb-spam",
 			fullPath: "INBOX/Spam",
+			hierarchyDelimiter: "/",
 			specialUse: [MailboxSpecialUse.Junk],
 		},
 	];
