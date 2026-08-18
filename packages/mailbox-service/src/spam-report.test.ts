@@ -428,6 +428,29 @@ describe("SpamReportService.reportSpam", () => {
 		assert.ok((message.spamReport as { reportedAt: number }).reportedAt > 0);
 	});
 
+	it("refuses to mint a row for a sender address carrying no @ at all", async () => {
+		// slice() around a lastIndexOf of -1 splits "no-at-sign" into a
+		// plausible-looking local part and domain, so a length check alone
+		// waves the one input it exists to catch straight through into a
+		// corrupt address row.
+		const { service, addresses } = buildWorld({
+			harvestedSender: false,
+			fromEmail: "no-at-sign",
+		});
+
+		await assert.rejects(
+			() =>
+				service.reportSpam({
+					accountConfigId: ACCOUNT_CONFIG,
+					accountId: ACCOUNT,
+					messageId: MESSAGE_ID,
+				}),
+			/not a usable email address/,
+		);
+
+		assert.equal(addresses.size, 0);
+	});
+
 	it("reports a message whose sender was never harvested into an address row", async () => {
 		// The row is what carries the blocked flag, and harvesting is what
 		// ordinarily writes it. When it is absent, blocking the sender used to

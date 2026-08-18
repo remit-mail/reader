@@ -167,7 +167,7 @@ export class SpamReportService {
 		const separator = from.normalizedEmail.lastIndexOf("@");
 		const localPart = from.normalizedEmail.slice(0, separator);
 		const domain = from.normalizedEmail.slice(separator + 1);
-		if (localPart.length === 0 || domain.length === 0) {
+		if (separator < 0 || localPart.length === 0 || domain.length === 0) {
 			throw new Error(
 				`Sender address ${from.normalizedEmail} is not a usable email address`,
 			);
