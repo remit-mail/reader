@@ -51,7 +51,7 @@ interface UseReportSpamOptions {
  * despite a non-zero `failureCount`.
  */
 export const GENERIC_SPAM_ACTION_FAILURE =
-	"This message could not be processed. Please try again.";
+	"This message could not be processed. Please try again. If it keeps failing, report it.";
 
 /**
  * The server's designed failure text names the message by embedding its raw

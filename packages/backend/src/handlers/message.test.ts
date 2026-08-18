@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { MoveNotSettledError } from "@remit/mailbox-service";
+import {
+	MoveNotSettledError,
+	NoJunkMailboxError,
+} from "@remit/mailbox-service";
 import { GENERIC_FAILURE_REASON, settleSpamReportBulk } from "./message.js";
 
 describe("settleSpamReportBulk", () => {
@@ -23,6 +26,19 @@ describe("settleSpamReportBulk", () => {
 					"Message msg-2's move to Junk has not settled yet; try again in a moment.",
 			},
 		]);
+	});
+
+	it("tells the user to create the missing Junk folder rather than to try again", async () => {
+		// Retrying cannot resolve this one, so the generic retry copy would be a
+		// dead end. The service's own text names the folder and the fix.
+		const outcome = await settleSpamReportBulk(["msg-1"], async () => {
+			throw new NoJunkMailboxError();
+		});
+
+		const reason = outcome.failures?.[0].reason ?? "";
+		assert.match(reason, /no Junk folder/);
+		assert.match(reason, /Create one/);
+		assert.notEqual(reason, GENERIC_FAILURE_REASON);
 	});
 
 	it("omits failures entirely when every message succeeds", async () => {

@@ -3,12 +3,23 @@ import type {
 	MailboxSpecialUseItem,
 	MailboxSpecialUseValue,
 } from "@remit/data-ports";
+import { resolveMailboxByLeafName } from "@remit/data-ports/mailbox-name";
 import { eq } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { randomId } from "../id.js";
 import { mailboxSpecialUseTable, mailboxTable } from "../schema/i4-mailbox.js";
 
 type DB = Db<Record<string, unknown>>;
+
+const TRASH_FOLDER_NAMES = ["trash", "deleted items", "deleted", "bin"];
+const ARCHIVE_FOLDER_NAMES = ["archive", "archives", "all mail"];
+const JUNK_FOLDER_NAMES = [
+	"junk",
+	"spam",
+	"junk e-mail",
+	"junk email",
+	"bulk mail",
+];
 
 function rowToSpecialUse(
 	row: typeof mailboxSpecialUseTable.$inferSelect,
@@ -103,28 +114,26 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 			: null;
 	}
 
+	private async findByLeafName(
+		accountId: string,
+		names: readonly string[],
+	): Promise<{ mailboxId: string; fullPath: string } | null> {
+		const rows = await this.db
+			.select()
+			.from(mailboxTable)
+			.where(eq(mailboxTable.accountId, accountId));
+		const found = resolveMailboxByLeafName(rows, names);
+		return found
+			? { mailboxId: found.mailboxId, fullPath: found.fullPath }
+			: null;
+	}
+
 	async findTrashMailbox(
 		accountId: string,
 	): Promise<{ mailboxId: string; fullPath: string } | null> {
 		const bySpecialUse = await this.findBySpecialUse(accountId, "Trash");
 		if (bySpecialUse) return bySpecialUse;
-
-		const rows = await this.db
-			.select()
-			.from(mailboxTable)
-			.where(eq(mailboxTable.accountId, accountId));
-
-		const names = [
-			"trash",
-			"deleted items",
-			"deleted",
-			"[gmail]/trash",
-			"[gmail]/bin",
-		];
-		const found = rows.find((r) => names.includes(r.fullPath.toLowerCase()));
-		return found
-			? { mailboxId: found.mailboxId, fullPath: found.fullPath }
-			: null;
+		return this.findByLeafName(accountId, TRASH_FOLDER_NAMES);
 	}
 
 	async findArchiveMailbox(
@@ -132,17 +141,7 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 	): Promise<{ mailboxId: string; fullPath: string } | null> {
 		const bySpecialUse = await this.findBySpecialUse(accountId, "Archive");
 		if (bySpecialUse) return bySpecialUse;
-
-		const rows = await this.db
-			.select()
-			.from(mailboxTable)
-			.where(eq(mailboxTable.accountId, accountId));
-
-		const names = ["archive", "archives", "[gmail]/all mail"];
-		const found = rows.find((r) => names.includes(r.fullPath.toLowerCase()));
-		return found
-			? { mailboxId: found.mailboxId, fullPath: found.fullPath }
-			: null;
+		return this.findByLeafName(accountId, ARCHIVE_FOLDER_NAMES);
 	}
 
 	async findJunkMailbox(
@@ -150,16 +149,6 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 	): Promise<{ mailboxId: string; fullPath: string } | null> {
 		const bySpecialUse = await this.findBySpecialUse(accountId, "Junk");
 		if (bySpecialUse) return bySpecialUse;
-
-		const rows = await this.db
-			.select()
-			.from(mailboxTable)
-			.where(eq(mailboxTable.accountId, accountId));
-
-		const names = ["junk", "spam", "bulk mail", "junk e-mail", "[gmail]/spam"];
-		const found = rows.find((r) => names.includes(r.fullPath.toLowerCase()));
-		return found
-			? { mailboxId: found.mailboxId, fullPath: found.fullPath }
-			: null;
+		return this.findByLeafName(accountId, JUNK_FOLDER_NAMES);
 	}
 }

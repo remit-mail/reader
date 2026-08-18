@@ -6,6 +6,7 @@ import {
 	useMemo,
 	useState,
 } from "react";
+import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import { isAlwaysFatal } from "@/lib/error-classifier";
 import { reportFatalError } from "@/lib/fatal-error";
 import { ErrorBannerStack } from "./ErrorBannerStack.js";
@@ -13,6 +14,7 @@ import {
 	appendBanner,
 	buildEntry,
 	dismissBanner,
+	type ErrorBannerAction,
 	type ErrorBannerEntry,
 	type PushErrorInput,
 } from "./error-banners.js";
@@ -27,6 +29,37 @@ interface ErrorBannerContextValue {
 const ErrorBannerContext = createContext<ErrorBannerContextValue | undefined>(
 	undefined,
 );
+
+/**
+ * A way out of every failure banner. A soft failure is still a failure the
+ * user could not prevent and cannot diagnose, and a banner offering only
+ * "Dismiss" is a dead end — the fatal screen has carried a prefilled report
+ * since issue #55 and the soft surface never did. The report is seeded from
+ * the banner it belongs to, so it names the failure instead of asking the
+ * user to describe it, and it carries the same breadcrumbs — failing request,
+ * navigation, console — the fatal report does.
+ *
+ * A caller that already has a better way out keeps it, and a warning or an
+ * informational banner gets none: those are not failures to report.
+ */
+export const bannerWayOut = (
+	input: PushErrorInput,
+): ErrorBannerAction | undefined => {
+	if (input.action) return input.action;
+	if ((input.severity ?? "error") !== "error") return undefined;
+	return {
+		label: "Report an issue",
+		href: buildGitHubIssueUrl(
+			buildBugReportContext({
+				title: `Bug: ${input.title}`,
+				errorMessage: input.detail
+					? `${input.title} — ${input.detail}`
+					: input.title,
+				stack: input.error instanceof Error ? input.error.stack : undefined,
+			}),
+		),
+	};
+};
 
 const generateId = (): string => {
 	if (
@@ -58,7 +91,11 @@ export const ErrorBannerProvider = ({ children }: { children: ReactNode }) => {
 		if (input.error != null && isAlwaysFatal(input.error)) {
 			return reportFatalError(input.error).correlationId;
 		}
-		const entry = buildEntry(input, generateId(), Date.now());
+		const entry = buildEntry(
+			{ ...input, action: bannerWayOut(input) },
+			generateId(),
+			Date.now(),
+		);
 		setErrors((current) => appendBanner(current, entry));
 		return entry.id;
 	}, []);
