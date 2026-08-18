@@ -134,3 +134,19 @@ export const shouldEscalate = (
 	if (isSoftErrorMeta(meta)) return false;
 	return true;
 };
+
+/**
+ * The meta a call site sets to keep its own non-5xx failures off the
+ * full-screen fatal page, because it renders them itself — a banner, a retry,
+ * an empty state. Rules 2 and 3 above still win: a 5xx and a client-side
+ * exception escalate regardless.
+ *
+ * Two classes of call site must always carry it. One is a request the user
+ * never asked for and is not waiting on — a debounced autosave, a
+ * dwell-triggered mark-as-read: a refusal there is not news worth stopping the
+ * app for. The other is any surface holding text the user has not finished
+ * writing. The fatal page unmounts the app, so escalating from a composer
+ * throws the message away and leaves nothing to retry, which is a worse outcome
+ * than the failure it reports.
+ */
+export const softErrorMeta: { softError: true } = { softError: true };

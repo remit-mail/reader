@@ -5,6 +5,7 @@ import {
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
+import { softErrorMeta } from "../lib/error-classifier";
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -28,6 +29,19 @@ interface UseSaveDraftOptions {
 	outboxMessageId?: string;
 	onDraftCreated: (id: string) => void;
 }
+
+/**
+ * A draft with no recipient yet has nothing the create endpoint will accept —
+ * `CreateOutboxMessageInput.toAddresses` carries `@minItems(1)`, so the request
+ * comes back 400. Forward opens in exactly that state, with a subject and a
+ * quote and no address, and it is a normal place to be while writing rather
+ * than a failure to report. The update endpoint has no such constraint, so only
+ * a draft that does not exist yet is held back.
+ */
+const nothingToCreateYet = (
+	targetId: string | undefined,
+	data: DraftData,
+): boolean => targetId === undefined && data.toAddresses.length === 0;
 
 const settled = (promise: Promise<unknown>): Promise<void> =>
 	promise.then(
@@ -67,12 +81,17 @@ export const useSaveDraft = ({
 		if (leavingADocument && timerRef.current) clearTimeout(timerRef.current);
 	}
 
-	const createMutation = useMutation(
-		outboxOperationsCreateOutboxMessageMutation(),
-	);
-	const updateMutation = useMutation(
-		outboxDetailOperationsUpdateOutboxMessageMutation(),
-	);
+	// A write that fails belongs in the composer's banner beside the message it
+	// could not save, never on the full-screen page that unmounts the composer
+	// and the message with it. A 5xx still escalates.
+	const createMutation = useMutation({
+		...outboxOperationsCreateOutboxMessageMutation(),
+		meta: softErrorMeta,
+	});
+	const updateMutation = useMutation({
+		...outboxDetailOperationsUpdateOutboxMessageMutation(),
+		meta: softErrorMeta,
+	});
 
 	const executeSave = useCallback(
 		async (data: DraftData) => {
@@ -134,6 +153,7 @@ export const useSaveDraft = ({
 			timerRef.current = setTimeout(() => {
 				const targetId = targetIdRef.current;
 				if (targetId && closedIdsRef.current.has(targetId)) return;
+				if (nothingToCreateYet(targetId, data)) return;
 				// Keep the real error, not just a vague "error" status — the caller
 				// surfaces its detail in a banner. A fatal 5xx additionally escalates
 				// through the global MutationCache.onError sink.

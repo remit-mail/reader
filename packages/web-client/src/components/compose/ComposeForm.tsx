@@ -40,6 +40,7 @@ import {
 import { useMessageBodyContent } from "../../hooks/useMessageBodyContent";
 import { useSaveDraft } from "../../hooks/useSaveDraft";
 import { useSignature } from "../../hooks/useSignature.js";
+import { softErrorMeta } from "../../lib/error-classifier";
 import { accountIsMissingSmtp } from "../settings/account-form-helpers.js";
 import { useErrorBanners } from "../ui/ErrorBannerProvider.js";
 import {
@@ -555,12 +556,17 @@ export const ComposeForm = ({
 		});
 	}, [saveError, pushError]);
 
-	const sendMutation = useMutation(
-		outboxDetailOperationsSendOutboxMessageMutation(),
-	);
+	// A refused send is reported below, next to the message it did not send, and
+	// the composer stays up so the user can fix the address and press it again.
+	// A 5xx still escalates.
+	const sendMutation = useMutation({
+		...outboxDetailOperationsSendOutboxMessageMutation(),
+		meta: softErrorMeta,
+	});
 
 	const deleteMutation = useMutation({
 		...outboxDetailOperationsDeleteOutboxMessageMutation(),
+		meta: softErrorMeta,
 		onError: (error) => {
 			// Discard closes the dialog optimistically. A soft 4xx (409/404 the
 			// draft is already gone) must not pass silently as success — surface a
