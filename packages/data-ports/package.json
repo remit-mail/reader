@@ -25,6 +25,10 @@
 			"types": "./src/account-settings.ts",
 			"default": "./src/account-settings.ts"
 		},
+		"./display-name": {
+			"types": "./src/display-name.ts",
+			"default": "./src/display-name.ts"
+		},
 		"./wellknown": {
 			"types": "./src/wellknown.ts",
 			"default": "./src/wellknown.ts"

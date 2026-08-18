@@ -11,6 +11,7 @@ import type {
 	MailboxItem,
 	ThreadMessageItem,
 } from "@remit/data-ports";
+import { storedDisplayName } from "@remit/data-ports/display-name";
 import {
 	deriveAddressId,
 	deriveBodyPartId,
@@ -83,6 +84,19 @@ export const isParseableEmailAddress = (
 		return false;
 	}
 	return host.includes(".");
+};
+
+/**
+ * The name an envelope carries for an address, as it should be stored: any
+ * claim to be some other address removed (issue #826), the rest of the name
+ * kept. Refused wherever a name lands — the address book, the envelope the
+ * message header renders, and the sender label on the thread row.
+ */
+export const harvestedDisplayName = (
+	address: ImapAddress | undefined,
+): string => {
+	if (!address?.name) return "";
+	return storedDisplayName(address.name, `${address.mailbox}@${address.host}`);
 };
 
 /**
@@ -1402,7 +1416,7 @@ export class MessageSyncService {
 			addressData.push({
 				localPart: addr.mailbox,
 				domain: addr.host,
-				displayName: addr.name || "",
+				displayName: harvestedDisplayName(addr),
 				order: i,
 			});
 		}
@@ -1505,12 +1519,14 @@ export class MessageSyncService {
 
 		// Extract sender info. When the server could not parse the From address,
 		// omit fromEmail rather than persist a fabricated string — a display name
-		// may still be present and useful, so keep it.
+		// may still be present and useful, so keep it. This is the sender label the
+		// message list shows and the search index tokenizes, so it takes the same
+		// guard as the address book (issue #826).
 		const fromAddr = envelope.from?.[0];
 		const fromEmail = isParseableEmailAddress(fromAddr)
 			? `${fromAddr?.mailbox}@${fromAddr?.host}`.toLowerCase()
 			: undefined;
-		const fromName = fromAddr?.name;
+		const fromName = harvestedDisplayName(fromAddr) || undefined;
 
 		// Calculate reference order (position in the thread chain)
 		// references.length gives the position since References = [root, parent1, parent2, ...]

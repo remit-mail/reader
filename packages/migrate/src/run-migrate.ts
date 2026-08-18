@@ -3,6 +3,12 @@
 // one source of truth, two consumers.
 import sqliteSearchIndexSql from "../../../npm-scripts/sqlite-search-index.sql";
 import {
+	type DisplayNameRepairClient,
+	type DisplayNameRepairMode,
+	formatDisplayNameReport,
+	sweepDisplayNames,
+} from "../../drizzle-service/src/repair/address-display-name.js";
+import {
 	type CategoryDivergenceReport,
 	checkThreadMessageCategory,
 	formatCheckReport,
@@ -13,8 +19,8 @@ import {
 	repairThreadMessageCategory,
 } from "../../drizzle-service/src/repair/thread-message-category.js";
 // Reached by module path rather than through either package's entry point: this
-// entrypoint is bundled by esbuild, and the repair module imports nothing, so
-// bundling it drags in no schema or driver.
+// entrypoint is bundled by esbuild, and the repair modules import nothing but a
+// pure predicate, so bundling them drags in no schema or driver.
 import { logger } from "../../logger-lambda/src/logger.js";
 
 /**
@@ -33,7 +39,7 @@ import { logger } from "../../logger-lambda/src/logger.js";
 
 /**
  * This migrator applies generated schema migrations, installs the idempotent
- * DDL objects around them, and rewrites row content in exactly one place.
+ * DDL objects around them, and rewrites row content in two places.
  *
  * That last clause is an amendment (#321, D16). This file used to state that it
  * never rewrites row content, and the rule behind it still holds: when a
@@ -43,7 +49,7 @@ import { logger } from "../../logger-lambda/src/logger.js";
  * about than a bespoke one-shot rewrite that every future install carries
  * forever.
  *
- * The exception is `thread_message.category`, and the reason is delivery. It is
+ * The first exception is `thread_message.category`, and the reason is delivery. It is
  * a denormalized copy of `message.category` that nothing has ever read, so its
  * write path was never load-bearing and the column drifted; #304 turns it into
  * the SQL predicate behind the inbox category filter. The correction therefore
@@ -58,6 +64,17 @@ import { logger } from "../../logger-lambda/src/logger.js";
  * The repair is bounded to a value that is a primary-key probe away in the same
  * database: it copies `message.category` onto rows that disagree with it, and
  * nothing else. It is not a precedent for converting rows whose meaning changed.
+ *
+ * The second is a display name that claims to be somebody else's address (#826).
+ * Nothing here converts a meaning: an attacker chose that string, it was stored
+ * verbatim, and on 2026-08-18 it took private mail to a stranger. Purge and
+ * re-sync is no remedy — the spoofing messages are still on the server, so a
+ * re-sync plants the names again — and the guard that now refuses them only
+ * covers what is harvested next. It runs from Node rather than as a SQL
+ * migration because the decision has to be the same function the guard uses;
+ * see the repair module for what a SQL twin of it destroys. It removes the
+ * address and keeps the rest of the name — the remedy is the claim, not the
+ * text around it.
  */
 
 /**
@@ -124,6 +141,21 @@ const repairThreadMessageCategoryStep = async (
 	log(formatRepairResult(result, await readResidual(client)));
 };
 
+/**
+ * The scan is a full pass over three tables and runs on every boot. It reads
+ * only the names SQL can narrow to an address shape, and the steady state after
+ * one repair is that none of them needs rewriting — a read, never a write lock.
+ */
+const displayNameStep = async (
+	client: DisplayNameRepairClient,
+	mode: DisplayNameRepairMode,
+): Promise<void> => {
+	const report = await sweepDisplayNames(client, mode);
+	for (const line of formatDisplayNameReport(report)) {
+		logStep({ step: "display-name-repair" }, line);
+	}
+};
+
 const runSqlite = async (mode: Mode): Promise<void> => {
 	const dbPath = process.env.SQLITE_DB_PATH;
 	if (!dbPath) {
@@ -146,9 +178,14 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		all: async (sql) => sqlite.prepare(sql).all(),
 		run: async (sql) => sqlite.prepare(sql).run().changes,
 	};
+	const displayNameClient: DisplayNameRepairClient = {
+		all: async (sql, params) => sqlite.prepare(sql).all(...params),
+		run: async (sql, params) => sqlite.prepare(sql).run(...params).changes,
+	};
 	try {
 		if (mode === "check") {
 			logReport(await checkThreadMessageCategory(sqliteRepairClient));
+			await displayNameStep(displayNameClient, "check");
 			return;
 		}
 
@@ -186,6 +223,12 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		// FTS trigger fires on `subject`/`from_name`/`from_email` only, so the
 		// repair re-tokenizes nothing.
 		await repairThreadMessageCategoryStep(sqliteRepairClient);
+
+		// Before the FTS transaction for the same reason, and because it does write
+		// `thread_message.from_name`: the AFTER UPDATE trigger re-tokenizes those
+		// rows where the index already exists, and where it does not, the backfill
+		// below reads the repaired names.
+		await displayNameStep(displayNameClient, "repair");
 
 		// The external-content FTS5 trigram table + its thread_message
 		// maintenance triggers, the final idempotent step (RFC 036 D4). The
