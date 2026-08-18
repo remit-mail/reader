@@ -1,7 +1,4 @@
-import {
-	configOperationsGetConfigOptions,
-	threadDetailOperationsListThreadMessagesOptions,
-} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import { threadDetailOperationsListThreadMessagesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapMessageAuthenticity } from "@remit/api-http-client/types.gen.ts";
 import { MobileReadingPane } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
@@ -196,19 +193,17 @@ export const ConversationView = ({
 		}
 	}, [orderedMessages, focusedIndex, toggleExpanded]);
 
-	const { data: config } = useQuery({
-		...configOperationsGetConfigOptions(),
-		staleTime: Infinity,
-	});
-	const activeAccount = config?.accounts?.[0];
-
-	// Mark messages as read immediately when expanded.
+	// Mark messages as read immediately when expanded. The unread badge that has
+	// to be refreshed belongs to the account this mailbox is in, so the
+	// invalidation is scoped to that one rather than to the first configured
+	// account, whose list was being refetched while the right one went stale
+	// (#819).
 	useMarkAsRead({
 		messages,
 		expandedIds,
 		threadId,
 		mailboxId,
-		accountId: activeAccount?.accountId,
+		accountId: mailboxAccountId,
 	});
 
 	// Star toggle functionality

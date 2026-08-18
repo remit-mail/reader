@@ -373,6 +373,24 @@ export const ComposeForm = ({
 	 * the subject the reader edited.
 	 */
 	const resumedDraftRef = useRef(outboxMessageId !== undefined);
+	/**
+	 * The identity this form has already taken from the surface that mounted it.
+	 * A reply learns which account the message reached only once the mailbox it
+	 * was delivered to resolves, which lands after the first render — so From
+	 * follows the prop instead of only its initial value. Applied once per
+	 * identity, so a reader who then picks another one keeps it.
+	 */
+	const appliedAccountIdRef = useRef(account?.accountId);
+
+	useEffect(() => {
+		const accountId = account?.accountId;
+		if (!accountId || appliedAccountIdRef.current === accountId) return;
+		appliedAccountIdRef.current = accountId;
+		// A saved draft carries the account it was written from; that is the one
+		// it reopens on.
+		if (resumedDraftRef.current) return;
+		setSelectedAccountId(accountId);
+	}, [account?.accountId]);
 
 	// The document this form is on changed under it, so it starts again: another
 	// draft, or no draft at all. Without this the previous one's fields stay on
