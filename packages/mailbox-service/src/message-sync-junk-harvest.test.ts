@@ -46,7 +46,6 @@ const mailboxAt = (
 	specialUse?: MailboxItem["specialUse"],
 ): MailboxItem =>
 	({
-		mailboxId: "mbx-1",
 		fullPath,
 		hierarchyDelimiter: "/",
 		specialUse,
@@ -135,7 +134,6 @@ const BOTH = ["sales@pharma.example", "victim@ischen.nl"];
 
 describe("what a mailbox says about the addresses on its messages", () => {
 	const at = (fullPath: string, specialUse?: string[]) => ({
-		mailboxId: "mbx-1",
 		fullPath,
 		hierarchyDelimiter: "/",
 		specialUse,
@@ -159,17 +157,18 @@ describe("what a mailbox says about the addresses on its messages", () => {
 		assert.equal(addressSightingIn(at("INBOX/Spam")), "junk");
 		assert.equal(addressSightingIn(at("INBOX/Junk E-mail")), "junk");
 		assert.equal(
-			addressSightingIn({
-				mailboxId: "mbx-1",
-				fullPath: "Mail.Junk",
-				hierarchyDelimiter: ".",
-			}),
+			addressSightingIn({ fullPath: "Mail.Junk", hierarchyDelimiter: "." }),
 			"junk",
 		);
 	});
 
 	it("never reads a prefix as the folder it names", () => {
 		assert.equal(addressSightingIn(at("Spam/Receipts")), "correspondent");
+	});
+
+	it("answers for a mailbox carrying no delimiter", () => {
+		assert.equal(addressSightingIn({ fullPath: "Spam" }), "junk");
+		assert.equal(addressSightingIn({ fullPath: "INBOX" }), "correspondent");
 	});
 
 	it("harvests every envelope address of an ordinary message", async () => {
