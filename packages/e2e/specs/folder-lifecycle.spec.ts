@@ -2,7 +2,7 @@
  * The trust spec for folder create/delete: it proves the features against the
  * real IMAP server, not just the app's own cache.
  *
- * A folder is created from the Settings › Folders form; the assertion is that
+ * A folder is created from the Settings › Folder roles form; the assertion is that
  * Dovecot itself now lists it (server-side LIST, after the worker syncs) — the
  * app claiming it exists is not enough. Mail is then appended into that folder
  * over IMAP the way any client would, synced, and the delete wizard is driven

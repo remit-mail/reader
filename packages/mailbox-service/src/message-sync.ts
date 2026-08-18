@@ -3,6 +3,7 @@ import type {
 	IAddressRepository,
 	IEnvelopeRepository,
 	IMailboxRepository,
+	IMailboxSpecialUseRepository,
 	IMessageFlagPushRepository,
 	IMessageFlagRepository,
 	IMessageRepository,
@@ -21,11 +22,6 @@ import {
 	deriveThreadId,
 	isValidMessageId,
 } from "@remit/data-ports/id";
-import {
-	isJunkMailbox,
-	isTrashMailbox,
-	type MailboxRole,
-} from "@remit/data-ports/mailbox-role";
 import {
 	AddressRole,
 	MailboxCursorState,
@@ -93,9 +89,34 @@ export const isParseableEmailAddress = (
 
 export type AddressSighting = "junk" | "discarded" | "correspondent";
 
-export const addressSightingIn = (mailbox: MailboxRole): AddressSighting => {
-	if (isJunkMailbox(mailbox)) return "junk";
-	if (isTrashMailbox(mailbox)) return "discarded";
+/** The account's Junk and Trash mailboxes, resolved once per batch. */
+export interface AccountFolderRoles {
+	readonly junkMailboxId: string | null;
+	readonly trashMailboxId: string | null;
+}
+
+/**
+ * What a sighting of an address in this mailbox is worth. Junk withholds the
+ * sender from autocomplete (#822), Trash decides nothing either way, and
+ * anywhere else is a correspondent.
+ *
+ * Decided by mailbox IDENTITY against the account's resolved roles, not by the
+ * folder's flag and name: a role belongs to exactly one folder (RFC 032), and
+ * the folder it belongs to is whichever one the user appointed. Reading the
+ * name here meant a second folder called `Spam` also withheld its senders,
+ * while the folder the user actually appointed harvested every spammer in it as
+ * a correspondent (#837).
+ */
+export const addressSightingIn = (
+	mailboxId: string,
+	roles: AccountFolderRoles,
+): AddressSighting => {
+	if (roles.junkMailboxId !== null && mailboxId === roles.junkMailboxId) {
+		return "junk";
+	}
+	if (roles.trashMailboxId !== null && mailboxId === roles.trashMailboxId) {
+		return "discarded";
+	}
 	return "correspondent";
 };
 
@@ -238,6 +259,13 @@ export class MessageSyncService {
 	constructor(
 		private connectionFactory: ManagedConnectionFactory,
 		private mailboxService: IMailboxRepository,
+		/**
+		 * The account’s folder-role map. Required, not optional: which folder
+		 * holds the Junk role decides whether a sighting withholds its sender
+		 * from autocomplete, and a construction without it would quietly harvest
+		 * spammers as correspondents.
+		 */
+		private mailboxSpecialUseService: IMailboxSpecialUseRepository,
 		messageService: IMessageRepository,
 		envelopeService: IEnvelopeRepository,
 		addressService: IAddressRepository,
@@ -435,9 +463,11 @@ export class MessageSyncService {
 		// which catches its own error and reports a `failed` outcome instead of
 		// rejecting. So one bad message can no longer abort the whole batch (the
 		// poison pill that previously froze the mailbox, #817).
+		const roles = await this.folderRolesFor(accountId);
 		const outcomes = await pMap(
 			applicable,
-			(msg) => this.trySaveMessage(mailbox, accountId, accountConfigId, msg),
+			(msg) =>
+				this.trySaveMessage(mailbox, accountId, accountConfigId, msg, roles),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
 
@@ -668,9 +698,11 @@ export class MessageSyncService {
 		const newMessages =
 			newUids.length > 0 ? await this.fetchMessageBatch(newUids) : [];
 		const applicable = newMessages.filter((msg) => msg.envelope !== undefined);
+		const roles = await this.folderRolesFor(accountId);
 		const outcomes = await pMap(
 			applicable,
-			(msg) => this.trySaveMessage(mailbox, accountId, accountConfigId, msg),
+			(msg) =>
+				this.trySaveMessage(mailbox, accountId, accountConfigId, msg, roles),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
 		const syncedMessages: SyncedMessage[] = outcomes.flatMap((o) =>
@@ -894,9 +926,11 @@ export class MessageSyncService {
 			);
 		}
 
+		const roles = await this.folderRolesFor(accountId);
 		const outcomes = await pMap(
 			applicable,
-			(msg) => this.tryApplyChange(mailbox, accountId, accountConfigId, msg),
+			(msg) =>
+				this.tryApplyChange(mailbox, accountId, accountConfigId, msg, roles),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
 
@@ -1005,9 +1039,10 @@ export class MessageSyncService {
 		accountId: string,
 		accountConfigId: string,
 		msg: ImapMessage,
+		roles: AccountFolderRoles,
 	): Promise<BatchOutcome> {
 		const mailboxId = mailbox.mailboxId;
-		return this.applyChange(mailbox, accountId, accountConfigId, msg)
+		return this.applyChange(mailbox, accountId, accountConfigId, msg, roles)
 			.then((result): BatchOutcome => ({ kind: "saved", uid: msg.uid, result }))
 			.catch((error): BatchOutcome => {
 				this.log.warn(
@@ -1028,6 +1063,7 @@ export class MessageSyncService {
 		accountId: string,
 		accountConfigId: string,
 		msg: ImapMessage,
+		roles: AccountFolderRoles,
 	): Promise<SaveMessageResult | null> {
 		if (!msg.envelope) return null;
 
@@ -1046,7 +1082,7 @@ export class MessageSyncService {
 			messageId,
 		);
 		if (!existing) {
-			return this.saveMessage(mailbox, accountId, accountConfigId, msg);
+			return this.saveMessage(mailbox, accountId, accountConfigId, msg, roles);
 		}
 
 		await this.applyServerFlags(existing, msg.flags);
@@ -1240,14 +1276,31 @@ export class MessageSyncService {
 	 * cycle. This is the guardrail that stops a single unsaveable message from
 	 * permanently freezing the mailbox (#817).
 	 */
+	/**
+	 * Which folders hold Junk and Trash for this account, resolved once per
+	 * batch rather than per message: the lookup reads an appointment row and
+	 * the account’s mailbox list, and every message in a batch shares both.
+	 */
+	private async folderRolesFor(accountId: string): Promise<AccountFolderRoles> {
+		const [junk, trash] = await Promise.all([
+			this.mailboxSpecialUseService.findJunkMailbox(accountId),
+			this.mailboxSpecialUseService.findTrashMailbox(accountId),
+		]);
+		return {
+			junkMailboxId: junk?.mailboxId ?? null,
+			trashMailboxId: trash?.mailboxId ?? null,
+		};
+	}
+
 	private async trySaveMessage(
 		mailbox: MailboxItem,
 		accountId: string,
 		accountConfigId: string,
 		msg: ImapMessage,
+		roles: AccountFolderRoles,
 	): Promise<BatchOutcome> {
 		const mailboxId = mailbox.mailboxId;
-		return this.saveMessage(mailbox, accountId, accountConfigId, msg)
+		return this.saveMessage(mailbox, accountId, accountConfigId, msg, roles)
 			.then((result): BatchOutcome => ({ kind: "saved", uid: msg.uid, result }))
 			.catch((error): BatchOutcome => {
 				this.log.warn(
@@ -1268,11 +1321,12 @@ export class MessageSyncService {
 		accountId: string,
 		accountConfigId: string,
 		msg: ImapMessage,
+		roles: AccountFolderRoles,
 	): Promise<SaveMessageResult | null> {
 		if (!msg.envelope) return null;
 
 		const mailboxId = mailbox.mailboxId;
-		const sighting = addressSightingIn(mailbox);
+		const sighting = addressSightingIn(mailboxId, roles);
 
 		// Store envelope to preserve narrowing in closures
 		const envelope = msg.envelope;

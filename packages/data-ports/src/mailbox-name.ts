@@ -34,7 +34,7 @@ const rank = (
  * lower case.
  */
 export const resolveMailboxByLeafName = <T extends MailboxNameCandidate>(
-	mailboxes: T[],
+	mailboxes: readonly T[],
 	names: readonly string[],
 ): T | null => {
 	let best: { mailbox: T; rank: number } | null = null;

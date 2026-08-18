@@ -1,5 +1,5 @@
 /**
- * Creating a folder from Settings › Folders. The screen makes the folder where
+ * Creating a folder from Settings › Folder roles. The screen makes the folder where
  * the user is looking in the tree, waits for the mail server to confirm it, and
  * shows it in place — so a real browser against a real build is the only place
  * the whole path shows: the form submits, the backend queues the mailbox, and

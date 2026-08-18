@@ -23,6 +23,7 @@ import type { ManagedConnectionFactory } from "./connection-factory.js";
 import type { FlagPushService } from "./flag-push.js";
 import { FlagQueueService } from "./flag-queue.js";
 import { MessageSyncService } from "./message-sync.js";
+import { noFolderRoles } from "./test-helpers/folder-roles.js";
 import type { IImapConnection, ImapMessage } from "./types.js";
 
 const ACCOUNT_ID = "acc-1";
@@ -267,6 +268,7 @@ const buildHarness = (options: HarnessOptions): Harness => {
 	const service = new MessageSyncService(
 		connectionFactory,
 		mailboxService,
+		noFolderRoles,
 		{} as IMessageRepository,
 		{} as IEnvelopeRepository,
 		addressRepository,

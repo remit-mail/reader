@@ -30,6 +30,7 @@ import { MailboxCursorState } from "@remit/domain-enums";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
 import { MessageSyncService, selectUidsToSync } from "./message-sync.js";
 import { QuarantineService } from "./quarantine.js";
+import { noFolderRoles } from "./test-helpers/folder-roles.js";
 import type { IImapConnection, ImapMessage } from "./types.js";
 
 const ACCOUNT_ID = "acc-1";
@@ -179,6 +180,7 @@ const buildHarness = (options: {
 			close: async () => {},
 		} as ManagedConnectionFactory,
 		mailboxService,
+		noFolderRoles,
 		{} as IMessageRepository,
 		{} as IEnvelopeRepository,
 		{} as IAddressRepository,

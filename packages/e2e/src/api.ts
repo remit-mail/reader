@@ -510,6 +510,22 @@ export class ApiClient {
 		});
 	}
 
+	/**
+	 * Appoint a canonical role to a folder — the endpoint Settings › Folder
+	 * roles calls. Every special-folder lookup reads what this writes, so a spec
+	 * uses it to say which folder an operation must land in rather than relying
+	 * on the server flag or the folder name.
+	 */
+	appointFolderRole(
+		accountId: string,
+		role: string,
+		mailboxId: string | null,
+	): Promise<unknown> {
+		return this.json("PUT", `/accounts/${accountId}/folder-roles/${role}`, {
+			mailboxId,
+		});
+	}
+
 	/** Delete a folder by id — the same endpoint the delete wizard calls. Specs use it to sweep scratch folders in cleanup. */
 	deleteMailbox(accountId: string, mailboxId: string): Promise<Response> {
 		return this.request(

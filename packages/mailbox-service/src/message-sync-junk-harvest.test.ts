@@ -13,9 +13,13 @@ import type {
 	MessageItem,
 	ThreadMessageItem,
 } from "@remit/data-ports";
-import { MailboxSpecialUse } from "@remit/domain-enums";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
-import { addressSightingIn, MessageSyncService } from "./message-sync.js";
+import {
+	type AccountFolderRoles,
+	addressSightingIn,
+	MessageSyncService,
+} from "./message-sync.js";
+import { folderRoles } from "./test-helpers/folder-roles.js";
 import type { ImapEnvelope, ImapMessage } from "./types.js";
 
 const stub = <T>(): T => ({}) as T;
@@ -41,17 +45,21 @@ interface Saved {
 	reconciled: string[];
 }
 
-const mailboxAt = (
-	fullPath: string,
-	specialUse?: MailboxItem["specialUse"],
-): MailboxItem =>
+const mailboxAt = (fullPath: string): MailboxItem =>
 	({
+		mailboxId: `mbx-${fullPath}`,
 		fullPath,
 		hierarchyDelimiter: "/",
-		specialUse,
 	}) as MailboxItem;
 
-const save = async (mailbox: MailboxItem): Promise<Saved> => {
+/**
+ * Save one message into `mailbox`, with the account holding `role` in that same
+ * folder. `undefined` is an account whose Junk and Trash are elsewhere.
+ */
+const save = async (
+	mailbox: MailboxItem,
+	role?: "Junk" | "Trash",
+): Promise<Saved> => {
 	const saved: Saved = {
 		correspondents: [],
 		junk: [],
@@ -98,6 +106,13 @@ const save = async (mailbox: MailboxItem): Promise<Saved> => {
 	const service = new MessageSyncService(
 		stub<ManagedConnectionFactory>(),
 		stub<IMailboxRepository>(),
+		folderRoles(
+			role === "Junk"
+				? { junkMailboxId: mailbox.mailboxId }
+				: role === "Trash"
+					? { trashMailboxId: mailbox.mailboxId }
+					: {},
+		),
 		messageService,
 		envelopeService,
 		addressService,
@@ -120,9 +135,13 @@ const save = async (mailbox: MailboxItem): Promise<Saved> => {
 				accountId: string,
 				accountConfigId: string,
 				msg: ImapMessage,
+				roles: AccountFolderRoles,
 			) => Promise<unknown>;
 		}
-	).saveMessage(mailbox, "acct-1", "cfg-1", msg);
+	).saveMessage(mailbox, "acct-1", "cfg-1", msg, {
+		junkMailboxId: role === "Junk" ? mailbox.mailboxId : null,
+		trashMailboxId: role === "Trash" ? mailbox.mailboxId : null,
+	});
 
 	return saved;
 };
@@ -133,42 +152,32 @@ const emails = (inputs: Array<{ normalizedEmail: string }>): string[] =>
 const BOTH = ["sales@pharma.example", "victim@ischen.nl"];
 
 describe("what a mailbox says about the addresses on its messages", () => {
-	const at = (fullPath: string, specialUse?: string[]) => ({
-		fullPath,
-		hierarchyDelimiter: "/",
-		specialUse,
+	const ROLES = (junk: string | null, trash: string | null) => ({
+		junkMailboxId: junk,
+		trashMailboxId: trash,
 	});
 
-	it("reads the special-use designation", () => {
+	it("reads the folder the account appointed, not the folder’s name", () => {
+		// The account appointed `INBOX/Rubbish` as Junk. A second folder called
+		// `Spam` is an ordinary folder, and its senders are correspondents —
+		// a role belongs to one folder (RFC 032), so a name cannot claim it.
+		const roles = ROLES("mbx-rubbish", null);
+		assert.equal(addressSightingIn("mbx-rubbish", roles), "junk");
+		assert.equal(addressSightingIn("mbx-spam", roles), "correspondent");
+	});
+
+	it("keeps a message in Trash from deciding either way", () => {
 		assert.equal(
-			addressSightingIn(at("INBOX/Spam", [MailboxSpecialUse.Junk])),
-			"junk",
-		);
-		assert.equal(addressSightingIn(at("INBOX")), "correspondent");
-	});
-
-	it("falls back to the folder name on a server without SPECIAL-USE", () => {
-		assert.equal(addressSightingIn(at("Spam")), "junk");
-		assert.equal(addressSightingIn(at("[Gmail]/Spam")), "junk");
-		assert.equal(addressSightingIn(at("Deleted Items")), "discarded");
-	});
-
-	it("reads a Junk folder nested under any prefix", () => {
-		assert.equal(addressSightingIn(at("INBOX/Spam")), "junk");
-		assert.equal(addressSightingIn(at("INBOX/Junk E-mail")), "junk");
-		assert.equal(
-			addressSightingIn({ fullPath: "Mail.Junk", hierarchyDelimiter: "." }),
-			"junk",
+			addressSightingIn("mbx-trash", ROLES(null, "mbx-trash")),
+			"discarded",
 		);
 	});
 
-	it("never reads a prefix as the folder it names", () => {
-		assert.equal(addressSightingIn(at("Spam/Receipts")), "correspondent");
-	});
-
-	it("answers for a mailbox carrying no delimiter", () => {
-		assert.equal(addressSightingIn({ fullPath: "Spam" }), "junk");
-		assert.equal(addressSightingIn({ fullPath: "INBOX" }), "correspondent");
+	it("reads an account with neither role as all correspondents", () => {
+		assert.equal(
+			addressSightingIn("mbx-anything", ROLES(null, null)),
+			"correspondent",
+		);
 	});
 
 	it("harvests every envelope address of an ordinary message", async () => {
@@ -180,29 +189,20 @@ describe("what a mailbox says about the addresses on its messages", () => {
 	});
 
 	it("withholds every envelope address of a message in Junk", async () => {
-		const saved = await save(mailboxAt("INBOX/Spam", [MailboxSpecialUse.Junk]));
+		const saved = await save(mailboxAt("INBOX/Rubbish"), "Junk");
 
 		assert.deepEqual(emails(saved.junk), BOTH);
 		assert.equal(saved.correspondents.length, 0);
 	});
 
 	it("still records the envelope a message in Junk renders", async () => {
-		const saved = await save(mailboxAt("INBOX/Spam", [MailboxSpecialUse.Junk]));
+		const saved = await save(mailboxAt("INBOX/Rubbish"), "Junk");
 
 		assert.deepEqual(emails(saved.envelopeAddresses), BOTH);
 	});
 
-	it("withholds when Junk is one designation among several", async () => {
-		const saved = await save(
-			mailboxAt("Archive", [MailboxSpecialUse.Junk, MailboxSpecialUse.Archive]),
-		);
-
-		assert.equal(saved.correspondents.length, 0);
-		assert.equal(saved.junk.length, 2);
-	});
-
 	it("keeps a message in Trash from deciding either way", async () => {
-		const saved = await save(mailboxAt("Trash", [MailboxSpecialUse.Trash]));
+		const saved = await save(mailboxAt("Trash"), "Trash");
 
 		assert.deepEqual(emails(saved.neutral), BOTH);
 		assert.equal(saved.correspondents.length, 0);
@@ -210,7 +210,7 @@ describe("what a mailbox says about the addresses on its messages", () => {
 	});
 
 	it("re-asks every sighting of a sender a message in Junk carries", async () => {
-		const saved = await save(mailboxAt("INBOX/Spam", [MailboxSpecialUse.Junk]));
+		const saved = await save(mailboxAt("INBOX/Rubbish"), "Junk");
 
 		assert.equal(saved.reconciled.length, 1);
 		assert.deepEqual(saved.reconciled, [saved.envelopeAddresses[0].messageId]);
@@ -218,14 +218,14 @@ describe("what a mailbox says about the addresses on its messages", () => {
 
 	it("asks nothing of a sender met on live mail", async () => {
 		const inbox = await save(mailboxAt("INBOX"));
-		const trash = await save(mailboxAt("Trash", [MailboxSpecialUse.Trash]));
+		const trash = await save(mailboxAt("Trash"), "Trash");
 
 		assert.deepEqual(inbox.reconciled, []);
 		assert.deepEqual(trash.reconciled, []);
 	});
 
 	it("harvests the same message once an ordinary folder holds it", async () => {
-		await save(mailboxAt("INBOX/Spam", [MailboxSpecialUse.Junk]));
+		await save(mailboxAt("INBOX/Rubbish"), "Junk");
 		const moved = await save(mailboxAt("INBOX"));
 
 		assert.deepEqual(emails(moved.correspondents), BOTH);

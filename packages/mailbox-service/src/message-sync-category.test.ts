@@ -31,7 +31,8 @@ import type {
 } from "@remit/data-ports";
 import { MessageCategory } from "@remit/domain-enums";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
-import { MessageSyncService } from "./message-sync.js";
+import { type AccountFolderRoles, MessageSyncService } from "./message-sync.js";
+import { NO_FOLDER_ROLES, noFolderRoles } from "./test-helpers/folder-roles.js";
 import type { ImapMessage } from "./types.js";
 
 const envelope = {
@@ -97,6 +98,7 @@ const saveIntoMailbox = async (
 	const service = new MessageSyncService(
 		stub<ManagedConnectionFactory>(),
 		stub<IMailboxRepository>(),
+		noFolderRoles,
 		messageService,
 		envelopeService,
 		addressService,
@@ -110,6 +112,7 @@ const saveIntoMailbox = async (
 				accountId: string,
 				accountConfigId: string,
 				msg: ImapMessage,
+				roles: AccountFolderRoles,
 			) => Promise<unknown>;
 		}
 	).saveMessage(
@@ -117,6 +120,7 @@ const saveIntoMailbox = async (
 		"acct-1",
 		"cfg-1",
 		imapMessage,
+		NO_FOLDER_ROLES,
 	);
 
 	assert.equal(inputs.length, 1);

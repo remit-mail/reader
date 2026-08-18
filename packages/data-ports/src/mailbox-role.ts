@@ -1,20 +1,17 @@
-import { MailboxSpecialUse } from "@remit/domain-enums";
-import { resolveMailboxByLeafName } from "./mailbox-name.js";
+import { CanonicalMailboxRole } from "@remit/domain-enums";
+import { ROLE_NAME_HINTS, resolveMailboxForRole } from "./folder-role.js";
 
-export const JUNK_FOLDER_NAMES: readonly string[] = [
-	"junk",
-	"spam",
-	"junk e-mail",
-	"junk email",
-	"bulk mail",
-];
+/**
+ * The conventional names for a role, taken from the one table every
+ * special-folder lookup shares (`folder-role.ts`). Exported so the SQLite junk
+ * repair can spell the same rule; a second list here is how `INBOX/Sent` and
+ * `INBOX/Spam` came to be resolvable in one place and not another.
+ */
+export const JUNK_FOLDER_NAMES: readonly string[] =
+	ROLE_NAME_HINTS[CanonicalMailboxRole.Junk] ?? [];
 
-export const TRASH_FOLDER_NAMES: readonly string[] = [
-	"trash",
-	"deleted items",
-	"deleted",
-	"bin",
-];
+export const TRASH_FOLDER_NAMES: readonly string[] =
+	ROLE_NAME_HINTS[CanonicalMailboxRole.Trash] ?? [];
 
 export interface MailboxRole {
 	readonly fullPath: string;
@@ -22,25 +19,27 @@ export interface MailboxRole {
 	readonly specialUse?: readonly string[];
 }
 
+/**
+ * Whether one mailbox, considered alone, carries a role: its SPECIAL-USE flag
+ * or its conventional name. A single mailbox carries no account context, so
+ * this cannot see the user's appointment — a caller holding an accountId asks
+ * `IMailboxSpecialUseRepository` instead, which does.
+ */
 const carriesRole = (
 	mailbox: MailboxRole,
-	specialUse: string,
-	namesWhenServerDoesNotSaySo: readonly string[],
+	role: (typeof CanonicalMailboxRole)[keyof typeof CanonicalMailboxRole],
 ): boolean =>
-	mailbox.specialUse?.includes(specialUse) === true ||
-	resolveMailboxByLeafName(
-		[
-			{
-				mailboxId: "",
-				fullPath: mailbox.fullPath,
-				hierarchyDelimiter: mailbox.hierarchyDelimiter ?? "",
-			},
-		],
-		namesWhenServerDoesNotSaySo,
-	) !== null;
+	resolveMailboxForRole(role, [
+		{
+			mailboxId: "",
+			fullPath: mailbox.fullPath,
+			hierarchyDelimiter: mailbox.hierarchyDelimiter ?? "",
+			specialUse: mailbox.specialUse,
+		},
+	]) !== null;
 
 export const isJunkMailbox = (mailbox: MailboxRole): boolean =>
-	carriesRole(mailbox, MailboxSpecialUse.Junk, JUNK_FOLDER_NAMES);
+	carriesRole(mailbox, CanonicalMailboxRole.Junk);
 
 export const isTrashMailbox = (mailbox: MailboxRole): boolean =>
-	carriesRole(mailbox, MailboxSpecialUse.Trash, TRASH_FOLDER_NAMES);
+	carriesRole(mailbox, CanonicalMailboxRole.Trash);

@@ -655,11 +655,11 @@ describe("RunStepBody", () => {
 				verb: "junk",
 				scope: "once",
 				failureReason:
-					"This account has no Junk folder appointed, so there is nowhere to file these. Appoint one under Settings › Folders.",
+					"This account has no Junk folder appointed, so there is nowhere to file these. Appoint one under Settings › Folder roles.",
 			}),
 		);
 		assert.match(text(html), /no Junk folder appointed/);
-		assert.match(text(html), /Settings › Folders/);
+		assert.match(text(html), /Settings › Folder roles/);
 		assert.doesNotMatch(html, /Nothing has changed\./);
 	});
 

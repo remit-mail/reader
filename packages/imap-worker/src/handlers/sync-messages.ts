@@ -383,6 +383,7 @@ const syncMailboxMessages = async (
 	const syncService = new MessageSyncService(
 		connectionFactory,
 		mailboxService,
+		mailboxSpecialUseService,
 		messageService,
 		envelopeService,
 		addressService,
