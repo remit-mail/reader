@@ -367,6 +367,24 @@ describe("handleMessageDelete", () => {
 		);
 	});
 
+	it("refuses to expunge a move-to-trash that names no destination", async () => {
+		const destinationless = {
+			...moveEvent,
+			destinationMailboxId: undefined,
+			destinationMailboxPath: undefined,
+		} as MessageDeleteEvent;
+
+		await handleMessageDelete(destinationless, noopLog, deps());
+
+		assert.equal(called("connection.deleteMessages").length, 0);
+		assert.equal(called("message.delete").length, 0);
+		assert.equal(
+			(called("message.update")[0]?.args[1] as { syncStatus?: string })
+				?.syncStatus,
+			"failed",
+		);
+	});
+
 	it("expunges on the server and removes every thread row before the message row", async () => {
 		await handleMessageDelete(permanentEvent, noopLog, deps());
 

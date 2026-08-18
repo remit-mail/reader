@@ -52,3 +52,16 @@ export const NonDestructive: Story = {
 		destructive: false,
 	},
 };
+
+/**
+ * Deleting mail that already sits in Trash expunges it on the server, so the
+ * dialog asks that question instead of "move to Trash?" — the wording follows
+ * the consequence, never the button that opened it (#845).
+ */
+export const PermanentDelete: Story = {
+	args: {
+		title: "Permanently delete 12 messages?",
+		description: "They are erased from the mail server and cannot be restored.",
+		confirmLabel: "Delete permanently",
+	},
+};

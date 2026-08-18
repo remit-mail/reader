@@ -160,3 +160,36 @@ export const formatDeleteToTrashTitle = (count: number): string => {
 	const noun = count === 1 ? "message" : "messages";
 	return `Move ${quantity} ${noun} to Trash?`;
 };
+
+export interface DeleteConfirmationCopy {
+	title: string;
+	description: string;
+	confirmLabel: string;
+}
+
+/**
+ * The confirmation for a delete, worded for what the delete actually does.
+ * Deleting mail that already sits in Trash expunges it on the server and
+ * nothing survives that, so it is asked as a permanent delete — a dialog that
+ * says "Move to Trash" over an expunge collects an answer to a question the
+ * user was never asked.
+ */
+export const deleteConfirmationCopy = (
+	count: number,
+	isPermanent: boolean,
+): DeleteConfirmationCopy => {
+	if (!isPermanent) {
+		return {
+			title: formatDeleteToTrashTitle(count),
+			description: "You can restore them from Trash later.",
+			confirmLabel: "Move to Trash",
+		};
+	}
+	const quantity = count === 1 ? "1" : formatNumber(count);
+	const noun = count === 1 ? "message" : "messages";
+	return {
+		title: `Permanently delete ${quantity} ${noun}?`,
+		description: "They are erased from the mail server and cannot be restored.",
+		confirmLabel: "Delete permanently",
+	};
+};

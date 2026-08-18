@@ -1,6 +1,7 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
 import {
+	deleteConfirmationCopy,
 	formatDate,
 	formatDatePreset,
 	formatDeleteToTrashTitle,
@@ -117,6 +118,32 @@ describe("formatDeleteToTrashTitle", () => {
 		assert.strictEqual(
 			formatDeleteToTrashTitle(3412),
 			"Move 3,412 messages to Trash?",
+		);
+	});
+});
+
+describe("deleteConfirmationCopy", () => {
+	test("asks to move when the delete files the mail in Trash", () => {
+		assert.deepStrictEqual(deleteConfirmationCopy(3, false), {
+			title: "Move 3 messages to Trash?",
+			description: "You can restore them from Trash later.",
+			confirmLabel: "Move to Trash",
+		});
+	});
+
+	test("asks about destruction when the delete expunges", () => {
+		assert.deepStrictEqual(deleteConfirmationCopy(3, true), {
+			title: "Permanently delete 3 messages?",
+			description:
+				"They are erased from the mail server and cannot be restored.",
+			confirmLabel: "Delete permanently",
+		});
+	});
+
+	test("uses the singular noun for one message on the permanent path", () => {
+		assert.strictEqual(
+			deleteConfirmationCopy(1, true).title,
+			"Permanently delete 1 message?",
 		);
 	});
 });

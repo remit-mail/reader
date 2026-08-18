@@ -21,7 +21,7 @@ import type { RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
-import { useJunkMailbox } from "@/hooks/useArchiveMailbox";
+import { useJunkMailbox, useTrashMailbox } from "@/hooks/useArchiveMailbox";
 import {
 	type EscalatedAction,
 	type EscalationSearchQuery,
@@ -46,7 +46,7 @@ import {
 	escalatedStatusLabel,
 	escalationActionLabel,
 } from "@/lib/escalation-label";
-import { formatDeleteToTrashTitle, formatEmailDate } from "@/lib/format";
+import { deleteConfirmationCopy, formatEmailDate } from "@/lib/format";
 import { junkDestination } from "@/lib/junk-destination";
 import { tabStopId } from "@/lib/list-focus";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
@@ -295,6 +295,12 @@ export const MessageList = ({
 	// mailbox — the message-flags API has no `$Junk` field, so "junk" is a move.
 	const { junkMailboxId } = useJunkMailbox(accountId);
 	const junkDestinationId = junkDestination(junkMailboxId, mailboxId);
+
+	// Deleting inside Trash is an expunge on the mail server, not a move, so the
+	// confirmation has to ask that question instead of "move to Trash?" (#845).
+	const { trashMailboxId } = useTrashMailbox(accountId);
+	const deleteIsPermanent =
+		trashMailboxId !== undefined && trashMailboxId === mailboxId;
 
 	// Selection state
 	const {
@@ -1339,9 +1345,10 @@ export const MessageList = ({
 			/>
 			<ConfirmDialog
 				isOpen={pendingDelete !== null}
-				title={formatDeleteToTrashTitle(pendingDelete?.length ?? 0)}
-				description="You can restore them from Trash later."
-				confirmLabel="Move to Trash"
+				{...deleteConfirmationCopy(
+					pendingDelete?.length ?? 0,
+					deleteIsPermanent,
+				)}
 				destructive
 				isBusy={isDeleting}
 				onConfirm={handleConfirmDelete}

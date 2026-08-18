@@ -98,10 +98,12 @@ describe("deleting a message re-asks what its senders stand on", () => {
 		assert.deepEqual(reconciled, []);
 	});
 
-	it("asks nothing when the account has no Trash folder", async () => {
+	it("asks nothing when the account has no Trash folder, because the delete is refused", async () => {
 		const { service, reconciled } = buildWorld(false);
 
-		await service.deleteMessages(ACCOUNT_CONFIG, [MESSAGE_ID], ACCOUNT);
+		await assert.rejects(() =>
+			service.deleteMessages(ACCOUNT_CONFIG, [MESSAGE_ID], ACCOUNT),
+		);
 
 		assert.deepEqual(reconciled, []);
 	});

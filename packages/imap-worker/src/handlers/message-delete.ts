@@ -198,7 +198,18 @@ export const handleMessageDelete = async (
 					);
 					await connection.openBox(mailboxPath, false);
 
-					if (operation === "move_to_trash" && destinationMailboxPath) {
+					if (operation === "move_to_trash" && !destinationMailboxPath) {
+						// A move-to-Trash that names no destination is a broken event, not
+						// a licence to expunge: falling through to the permanent-delete
+						// branch would destroy mail the user asked to move.
+						log.error(
+							{ messageId, uid, mailboxPath },
+							"Refused to delete: move to trash carries no destination mailbox",
+						);
+						await messageService.update(messageId, {
+							syncStatus: MessageSyncStatus.failed,
+						});
+					} else if (operation === "move_to_trash" && destinationMailboxPath) {
 						// Move to Trash
 						const result = await connection.moveMessages(
 							[uid],
