@@ -136,8 +136,15 @@ export class SpamReportService {
 	 * creates it, but a message whose harvest never landed — or whose row was
 	 * taken by a cascade — still has a sender the user is entitled to block, and
 	 * a missing row used to abort report-spam before the message ever reached
-	 * Junk. The write is the same idempotent, derived-id upsert the harvester
-	 * makes, so it converges on one row rather than minting a parallel one.
+	 * Junk. The id is the harvester's own derivation, so this converges on the
+	 * one row rather than minting a parallel one.
+	 *
+	 * A row that already exists is left exactly as it stands. Reporting spam is
+	 * evidence about the sender, never about the account's standing record of
+	 * them: an upsert here would carry whatever the upsert path does on
+	 * conflict — today a display name chosen by the spammer, and any flag a
+	 * later sighting-clearing rule hangs off it — into an operation that means
+	 * the opposite.
 	 */
 	private ensureSenderAddress = async (
 		accountConfigId: string,
@@ -151,6 +158,13 @@ export class SpamReportService {
 				`Sender address ${from.normalizedEmail} is not a usable email address`,
 			);
 		}
+		// The list form answers `[]` for a row that is not there, where the
+		// single form throws — absence is the case this exists to handle, not a
+		// fault.
+		const [known] = await this.addressService.getAddress(accountConfigId, [
+			from.addressId,
+		]);
+		if (known) return;
 		await this.addressService.upsertAddress({
 			addressId: from.addressId,
 			accountConfigId,

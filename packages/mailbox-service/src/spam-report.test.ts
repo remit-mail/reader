@@ -67,6 +67,8 @@ const buildWorld = (
 		originalMailboxId?: string;
 		/** Whether the sender was ever harvested into an `address` row. */
 		harvestedSender?: boolean;
+		/** Flags already standing on the harvested sender's row. */
+		senderFlags?: Record<string, unknown>;
 		junkMailbox?: { mailboxId: string; fullPath: string } | null;
 	} = {},
 ): World => {
@@ -101,7 +103,9 @@ const buildWorld = (
 	]);
 
 	const addresses = new Map<string, { flags: AddressFlags }>(
-		harvestedSender ? [[fromAddressId, { flags: {} }]] : [],
+		harvestedSender
+			? [[fromAddressId, { flags: (opts.senderFlags ?? {}) as AddressFlags }]]
+			: [],
 	);
 
 	const threadRows: ThreadRow[] = [
@@ -189,9 +193,14 @@ const buildWorld = (
 	} as unknown as IMessageRepository;
 
 	const addressService = {
+		getAddress: async (_accountConfigId: string, addressIds: string[]) =>
+			addressIds
+				.filter((id) => addresses.has(id))
+				.map((id) => ({ addressId: id, ...addresses.get(id) })),
+		// Deliberately destructive on conflict, mirroring the real repo's
+		// `onConflictDoUpdate`: a caller that upserts over a row it did not
+		// create loses what stood on it.
 		upsertAddress: async (input: { addressId: string }) => {
-			const existing = addresses.get(input.addressId);
-			if (existing) return { ...input, flags: existing.flags };
 			addresses.set(input.addressId, { flags: {} });
 			return { ...input, flags: {} };
 		},
@@ -442,6 +451,34 @@ describe("SpamReportService.reportSpam", () => {
 		const message = messages.get(MESSAGE_ID);
 		assert.equal(message?.mailboxId, JUNK_MAILBOX);
 		assert.equal(moveEvents(sent).length, 1);
+	});
+
+	it("leaves an existing sender row's other flags standing", async () => {
+		// Report spam adds the block; it is not a sighting of the sender and
+		// must not carry an upsert's on-conflict behaviour onto a row it did
+		// not create. A mark that withholds a spammer from autocomplete lives
+		// in these same flags, and clearing it here would put the spammer back
+		// in the compose picker — the opposite of what the button means.
+		const { service, addresses } = buildWorld({
+			senderFlags: {
+				junkOnly: { value: true, setAt: 1, setBy: "junk-harvest" },
+			},
+		});
+
+		await service.reportSpam({
+			accountConfigId: ACCOUNT_CONFIG,
+			accountId: ACCOUNT,
+			messageId: MESSAGE_ID,
+			setBy: "user-1",
+		});
+
+		const flags = addresses.get(ADDRESS_ID)?.flags as Record<string, unknown>;
+		assert.equal((flags.blocked as { value: boolean }).value, true);
+		assert.deepEqual(flags.junkOnly, {
+			value: true,
+			setAt: 1,
+			setBy: "junk-harvest",
+		});
 	});
 
 	it("names the missing Junk folder and changes nothing when the account has none", async () => {
