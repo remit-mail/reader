@@ -66,22 +66,23 @@ const SIGHTING_IN_LIVE_MAIL = sightingWhere(
 );
 const EVERY_SIGHTING_IN_JUNK = `NOT ${sightingWhere(` AND NOT ${IN_JUNK}`)}`;
 
-export const ACCOUNT_HAS_TAKEN_A_POSITION = `(
+// Only what the account has done with the sender, or said in its favour.
+// Blocking or muting is the opposite opinion and must neither bar the mark nor
+// lift one already standing — Report spam sets `blocked`.
+export const ACCOUNT_HAS_CORRESPONDED = `(
 	address.outbound_count > 0
 	OR address.reply_count > 0
 	OR ${flagIsSet("vip")}
 	OR ${flagIsSet("trusted")}
-	OR ${flagIsSet("blocked")}
-	OR ${flagIsSet("muted")}
 )`;
 
 export const WITHHOLDABLE = `NOT ${flagIsSet(JUNK_ONLY_FLAG)}
-	AND NOT ${ACCOUNT_HAS_TAKEN_A_POSITION}
+	AND NOT ${ACCOUNT_HAS_CORRESPONDED}
 	AND ${ANY_SIGHTING}
 	AND ${EVERY_SIGHTING_IN_JUNK}`;
 
 export const RESTORABLE = `${flagIsSet(JUNK_ONLY_FLAG)}
-	AND (${ACCOUNT_HAS_TAKEN_A_POSITION} OR ${SIGHTING_IN_LIVE_MAIL})`;
+	AND (${ACCOUNT_HAS_CORRESPONDED} OR ${SIGHTING_IN_LIVE_MAIL})`;
 
 export const withholdSql = (scope = ""): string =>
 	`UPDATE address

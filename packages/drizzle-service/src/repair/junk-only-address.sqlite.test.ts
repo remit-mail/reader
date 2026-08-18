@@ -294,7 +294,7 @@ describe("addresses standing only on mail in Junk", () => {
 		assert.equal(withheld("spammer"), true);
 	});
 
-	test("never withholds a sender the account blocked or muted", async () => {
+	test("withholds a sender the account blocked or muted", async () => {
 		address("reported", {}, '{"blocked":{"value":true,"setAt":1}}');
 		address("hushed", {}, '{"muted":{"value":true,"setAt":1}}');
 		sighting("reported", "spam-1");
@@ -302,8 +302,26 @@ describe("addresses standing only on mail in Junk", () => {
 
 		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
 
-		assert.equal(withheld("reported"), false);
-		assert.equal(withheld("hushed"), false);
+		assert.equal(withheld("reported"), true);
+		assert.equal(withheld("hushed"), true);
+	});
+
+	test("blocking a withheld sender never lifts the mark", async () => {
+		address("spammer");
+		sighting("spammer", "spam-1");
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		sqlite
+			.prepare(
+				`UPDATE address SET flags = json_set(flags, '$.blocked',
+					json_object('value', json('true'), 'setAt', 1))
+				 WHERE address_id = ?`,
+			)
+			.run("spammer");
+		const report = await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		assert.equal(report.restorable, 0);
+		assert.equal(withheld("spammer"), true);
 	});
 
 	test("reads a Junk folder a server does not designate", async () => {

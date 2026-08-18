@@ -1127,13 +1127,33 @@ describe("AddressRepo", () => {
 			await repo.deleteAddress(accountConfigId, input.addressId);
 		});
 
-		test("a sender the account flagged is offered again", async () => {
+		test("a sender the account blocked stays findable, and marked", async () => {
 			const accountConfigId = randomId();
 			const input = junkInput(accountConfigId, "reported@pharma.example");
 			await repo.upsertJunkAddress(input);
 			await repo.mergeFlags(accountConfigId, input.addressId, {
 				blocked: { value: true, setAt: 1 },
 			});
+
+			const page = await repo.listByAccountConfig({
+				accountConfigId,
+				search: "pharma",
+			});
+
+			assert.deepEqual(
+				page.items.map((a) => a.addressId),
+				[input.addressId],
+			);
+			assert.equal(page.items[0].flags?.junkOnly?.value, true);
+
+			await repo.deleteAddress(accountConfigId, input.addressId);
+		});
+
+		test("the account's own mail to a sender offers them again", async () => {
+			const accountConfigId = randomId();
+			const input = junkInput(accountConfigId, "supplier@pharma.example");
+			await repo.upsertJunkAddress(input);
+			await repo.incrementOutboundCount(accountConfigId, input.addressId, 1);
 
 			const page = await repo.listByAccountConfig({
 				accountConfigId,

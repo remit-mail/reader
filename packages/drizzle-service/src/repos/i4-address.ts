@@ -33,11 +33,11 @@ import { addressTable } from "../schema/i4-address.js";
 import { envelopeAddressTable } from "../schema/message-data.js";
 import {
 	addressCorrespondence,
+	addressListable,
 	addressMatchRank,
 	addressPreference,
 	addressRecency,
 	addressSearchMatch,
-	addressSuggestible,
 } from "./address-search-predicates.js";
 import { shouldPromoteWellknown } from "./i4-address-wellknown.js";
 
@@ -677,7 +677,7 @@ export class AddressRepo implements IAddressRepository {
 				and(
 					eq(addressTable.accountConfigId, accountConfigId),
 					search ? addressSearchMatch(search) : undefined,
-					addressSuggestible(search),
+					addressListable(search),
 					position ? after(order, position) : undefined,
 				),
 			)

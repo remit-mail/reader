@@ -80,15 +80,23 @@ const flagValue = (name: string): SQL<number> =>
 export const addressPreference = (): SQL<number> =>
 	sql<number>`(2 * ${flagValue("vip")} + ${flagValue("trusted")})`;
 
-const accountHasTakenAPosition = (): SQL<number> =>
+const accountHasCorresponded = (): SQL<number> =>
 	sql<number>`(${addressTable.outboundCount} + ${addressTable.replyCount}
-		+ ${flagValue("vip")} + ${flagValue("trusted")}
-		+ ${flagValue("blocked")} + ${flagValue("muted")})`;
+		+ ${flagValue("vip")} + ${flagValue("trusted")})`;
 
-export const addressSuggestible = (term: string | undefined): SQL => {
-	const unmarked = sql`${flagValue("junkOnly")} = 0 or ${accountHasTakenAPosition()} > 0`;
-	if (!term) return sql`(${unmarked})`;
-	return sql`(${unmarked} or ${addressTable.normalizedEmail} = ${term.toLowerCase()})`;
+const accountHasFlagged = (): SQL<number> =>
+	sql<number>`(${flagValue("blocked")} + ${flagValue("muted")})`;
+
+// Whether a row may be found, not whether it may be offered as a recipient:
+// one caller is the compose picker and another is the Senders settings screen,
+// which has to show the account a sender it blocked or muted. The picker asks
+// its own question of the flags this returns.
+export const addressListable = (term: string | undefined): SQL => {
+	const shown = sql`${flagValue("junkOnly")} = 0
+		or ${accountHasCorresponded()} > 0
+		or ${accountHasFlagged()} > 0`;
+	if (!term) return sql`(${shown})`;
+	return sql`(${shown} or ${addressTable.normalizedEmail} = ${term.toLowerCase()})`;
 };
 
 export const addressCorrespondence = (): SQL<number> =>
