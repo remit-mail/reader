@@ -11,6 +11,13 @@ import type {
 export interface IAddressRepository {
 	createAddress(input: CreateAddressInput): Promise<AddressItem>;
 	upsertAddress(input: CreateAddressInput): Promise<AddressItem>;
+	/**
+	 * Record an address met on a message that lives in a Junk mailbox: the row
+	 * exists so the message renders its own addresses, and carries the mark that
+	 * withholds it from autocomplete. An address the account already knows is
+	 * left untouched (#822).
+	 */
+	upsertJunkAddress(input: CreateAddressInput): Promise<AddressItem>;
 	getAddress(accountConfigId: string, addressId: string): Promise<AddressItem>;
 	getAddress(
 		accountConfigId: string,

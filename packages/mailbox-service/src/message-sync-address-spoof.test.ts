@@ -9,6 +9,7 @@ import type {
 	IMailboxRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
+	MailboxItem,
 	MessageItem,
 	ThreadMessageItem,
 } from "@remit/data-ports";
@@ -93,13 +94,13 @@ const harvest = async (envelope: Partial<ImapEnvelope>): Promise<Saved> => {
 	await (
 		service as unknown as {
 			saveMessage: (
-				mailboxId: string,
+				mailbox: MailboxItem,
 				accountId: string,
 				accountConfigId: string,
 				msg: ImapMessage,
 			) => Promise<unknown>;
 		}
-	).saveMessage("mbx-1", "acct-1", "cfg-1", msg);
+	).saveMessage({ mailboxId: "mbx-1" } as MailboxItem, "acct-1", "cfg-1", msg);
 
 	return saved;
 };

@@ -80,6 +80,15 @@ const flagValue = (name: string): SQL<number> =>
 export const addressPreference = (): SQL<number> =>
 	sql<number>`(2 * ${flagValue("vip")} + ${flagValue("trusted")})`;
 
+/**
+ * Whether the account has ever met this address outside a Junk folder (#822).
+ * Sync marks an address it only ever saw inside Junk, and the boot-time repair
+ * marks the ones already stored; a suggestion list is the one place that mark
+ * withholds a row, so the address book keeps it and the message it came on
+ * still renders it.
+ */
+export const addressSuggestible = (): SQL => sql`${flagValue("junkOnly")} = 0`;
+
 export const addressCorrespondence = (): SQL<number> =>
 	sql<number>`(${addressTable.replyCount} + ${addressTable.inboundCount} + ${addressTable.outboundCount})`;
 

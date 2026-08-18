@@ -9,6 +9,12 @@ import {
 	sweepDisplayNames,
 } from "../../drizzle-service/src/repair/address-display-name.js";
 import {
+	formatJunkOnlyReport,
+	type JunkOnlyRepairClient,
+	type JunkOnlyRepairMode,
+	sweepJunkOnlyAddresses,
+} from "../../drizzle-service/src/repair/junk-only-address.js";
+import {
 	formatStrandedSentReport,
 	type StrandedSentRepairClient,
 	type StrandedSentRepairMode,
@@ -89,6 +95,18 @@ import { logger } from "../../logger-lambda/src/logger.js";
  * no remedy: the message is on no server folder to re-fetch. It flips a status
  * and writes the reason, on rows an hour past any retry, and touches nothing
  * else.
+ *
+ * The fourth is an address that stands only on mail in a Junk folder (#822).
+ * Sync harvested a contact off every envelope it ever saw, spam included, and
+ * offered them all as autocomplete suggestions — 517 of them on the instance
+ * that was hit, which is how #826 found a spoofed name to ride. The guard that
+ * now refuses them only covers what is harvested next, and purge and re-sync is
+ * no remedy either, because the spam is still on the server. Unlike the others
+ * this one reconciles in both directions on every boot: it withholds an address
+ * whose every sighting is in Junk and restores one the moment a sighting turns
+ * up anywhere else, so the mark can never outlive the evidence. Nothing is
+ * deleted, and an address the account has written to or replied to is never
+ * withheld at all.
  */
 
 /**
@@ -185,7 +203,24 @@ const strandedSentStep = async (
 	}
 };
 
-type ParamRepairClient = DisplayNameRepairClient & StrandedSentRepairClient;
+/**
+ * The rows already harvested out of Junk, reconciled against where their
+ * messages actually live. Both directions run in both modes; `check` counts
+ * them and writes nothing.
+ */
+const junkOnlyAddressStep = async (
+	client: JunkOnlyRepairClient,
+	mode: JunkOnlyRepairMode,
+): Promise<void> => {
+	const report = await sweepJunkOnlyAddresses(client, mode);
+	for (const line of formatJunkOnlyReport(report)) {
+		logStep({ step: "junk-only-address-repair" }, line);
+	}
+};
+
+type ParamRepairClient = DisplayNameRepairClient &
+	StrandedSentRepairClient &
+	JunkOnlyRepairClient;
 
 const runSqlite = async (mode: Mode): Promise<void> => {
 	const dbPath = process.env.SQLITE_DB_PATH;
@@ -220,6 +255,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 			logReport(await checkThreadMessageCategory(sqliteRepairClient));
 			await displayNameStep(paramRepairClient, "check");
 			await strandedSentStep(paramRepairClient, "check");
+			await junkOnlyAddressStep(paramRepairClient, "check");
 			return;
 		}
 
@@ -267,6 +303,12 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		// Independent of every other step here: it reads and writes one column of
 		// `outbox_message`, which no index and no trigger installed below covers.
 		await strandedSentStep(paramRepairClient, "repair");
+
+		// After the display-name repair, which rewrites the same `address` rows
+		// this one reads: whichever names are still to be corrected, the mark this
+		// writes must land on top of them rather than under them. It touches only
+		// `address.flags`, which the FTS index below does not cover.
+		await junkOnlyAddressStep(paramRepairClient, "repair");
 
 		// The external-content FTS5 trigram table + its thread_message
 		// maintenance triggers, the final idempotent step (RFC 036 D4). The

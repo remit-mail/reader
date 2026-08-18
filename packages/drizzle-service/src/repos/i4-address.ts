@@ -32,6 +32,7 @@ import {
 	addressPreference,
 	addressRecency,
 	addressSearchMatch,
+	addressSuggestible,
 } from "./address-search-predicates.js";
 import { shouldPromoteWellknown } from "./i4-address-wellknown.js";
 
@@ -151,6 +152,18 @@ function rowToEnvelopeAddress(
 
 const VIP_SUGGESTIONS_DEFAULT_LIMIT = 10;
 
+const JUNK_HARVEST = "junk-harvest";
+
+/**
+ * The stored flags with the autocomplete withholding mark dropped, computed in
+ * SQL so a sighting clears it in the same statement that records the sighting.
+ * The empty-string guard is the same one the search predicates carry: a row
+ * written before `flags` was always populated holds `''`, and `json_remove`
+ * raises on text that is not JSON.
+ */
+const withoutJunkOnlySql = (): SQL<string> =>
+	sql<string>`json_remove(coalesce(nullif(${addressTable.flags}, ''), '{}'), '$.junkOnly')`;
+
 export class AddressRepo implements IAddressRepository {
 	constructor(private db: DB) {}
 
@@ -183,6 +196,11 @@ export class AddressRepo implements IAddressRepository {
 	/**
 	 * Message sync sends `""` for a bare address, so a sighting carrying no
 	 * display name must leave the stored one alone rather than erase it.
+	 *
+	 * Every write here is a sighting outside Junk — sync routes the others to
+	 * {@link upsertJunkAddress} — so it also clears the mark that withholds a
+	 * row from autocomplete (#822). One sighting in the ordinary mail is the
+	 * whole evidence the mark was ever waiting for.
 	 */
 	async upsertAddress(input: CreateAddressInput): Promise<AddressItem> {
 		const now = Date.now();
@@ -212,11 +230,52 @@ export class AddressRepo implements IAddressRepository {
 					? {
 							displayName: input.displayName,
 							normalizedCompound: input.normalizedCompound,
+							flags: withoutJunkOnlySql(),
 							updatedAt: now,
 						}
-					: { updatedAt: now },
+					: { flags: withoutJunkOnlySql(), updatedAt: now },
 			})
 			.returning();
+		return rowToAddress(row);
+	}
+
+	/**
+	 * An address met on a message that lives in a Junk mailbox. The row is
+	 * written so the message renders its own From, To and Cc, and marked so
+	 * autocomplete withholds it (#822).
+	 *
+	 * An existing row is left exactly as it stands — not even the display name.
+	 * A sighting in Junk is no evidence about an address the account already
+	 * knows, and the name on it was chosen by whoever sent the spam.
+	 */
+	async upsertJunkAddress(input: CreateAddressInput): Promise<AddressItem> {
+		const now = Date.now();
+		const [row] = await this.db
+			.insert(addressTable)
+			.values({
+				addressId: input.addressId,
+				accountConfigId: input.accountConfigId,
+				displayName: input.displayName,
+				localPart: input.localPart,
+				domain: input.domain,
+				normalizedEmail: input.normalizedEmail,
+				normalizedCompound: input.normalizedCompound,
+				flags: {
+					...(input.flags ?? {}),
+					junkOnly: { value: true, setAt: now, setBy: JUNK_HARVEST },
+				},
+				inboundCount: input.inboundCount ?? 0,
+				outboundCount: input.outboundCount ?? 0,
+				replyCount: input.replyCount ?? 0,
+				lastInboundAt: input.lastInboundAt ?? 0,
+				lastOutboundAt: input.lastOutboundAt,
+				lastReplyAt: input.lastReplyAt ?? 0,
+				createdAt: now,
+				updatedAt: now,
+			})
+			.onConflictDoNothing()
+			.returning();
+		if (!row) return this.getAddress(input.accountConfigId, input.addressId);
 		return rowToAddress(row);
 	}
 
@@ -573,6 +632,7 @@ export class AddressRepo implements IAddressRepository {
 				and(
 					eq(addressTable.accountConfigId, accountConfigId),
 					search ? addressSearchMatch(search) : undefined,
+					addressSuggestible(),
 					position ? after(order, position) : undefined,
 				),
 			)

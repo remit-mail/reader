@@ -24,6 +24,7 @@ import {
 import {
 	AddressRole,
 	MailboxCursorState,
+	MailboxSpecialUse,
 	MessageKeywordFlag,
 	MessageSystemFlag,
 	StarColor,
@@ -85,6 +86,32 @@ export const isParseableEmailAddress = (
 	}
 	return host.includes(".");
 };
+
+/**
+ * Whether the addresses on a mailbox's messages may enter the address book as
+ * ordinary contacts (issue #822).
+ *
+ * Junk is the one folder whose contents the account never asked for, and every
+ * address on a spam message — the forged From, the whole blind-copied list —
+ * used to become an autocomplete suggestion indistinguishable from a real
+ * correspondent. On the instance that was hit, 517 suggestions came from mail
+ * that exists nowhere else, and one of them took private mail to a stranger
+ * (#826).
+ *
+ * The designation is read, never the folder name: a server names its spam
+ * folder whatever it likes, and `INBOX/Spam` carrying `\Junk` is what the
+ * account in question has. Trash is deliberately not included — deleted mail is
+ * largely correspondence, and the address book is where "I once knew this
+ * person" belongs.
+ *
+ * The decision is per mailbox rather than per message, so it needs no
+ * cross-folder query: a message that also lives in an ordinary folder is
+ * harvested when that folder syncs it, and a message moved out of Junk is
+ * harvested when its new folder does.
+ */
+export const harvestsAddresses = (mailbox: {
+	specialUse?: MailboxItem["specialUse"];
+}): boolean => !mailbox.specialUse?.includes(MailboxSpecialUse.Junk);
 
 /**
  * The name an envelope carries for an address, as it should be stored: any
@@ -424,7 +451,7 @@ export class MessageSyncService {
 		// poison pill that previously froze the mailbox, #817).
 		const outcomes = await pMap(
 			applicable,
-			(msg) => this.trySaveMessage(mailboxId, accountId, accountConfigId, msg),
+			(msg) => this.trySaveMessage(mailbox, accountId, accountConfigId, msg),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
 
@@ -657,7 +684,7 @@ export class MessageSyncService {
 		const applicable = newMessages.filter((msg) => msg.envelope !== undefined);
 		const outcomes = await pMap(
 			applicable,
-			(msg) => this.trySaveMessage(mailboxId, accountId, accountConfigId, msg),
+			(msg) => this.trySaveMessage(mailbox, accountId, accountConfigId, msg),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
 		const syncedMessages: SyncedMessage[] = outcomes.flatMap((o) =>
@@ -883,7 +910,7 @@ export class MessageSyncService {
 
 		const outcomes = await pMap(
 			applicable,
-			(msg) => this.tryApplyChange(mailboxId, accountId, accountConfigId, msg),
+			(msg) => this.tryApplyChange(mailbox, accountId, accountConfigId, msg),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
 
@@ -988,12 +1015,13 @@ export class MessageSyncService {
 	 * holds the watermark back instead of failing the round.
 	 */
 	private async tryApplyChange(
-		mailboxId: string,
+		mailbox: MailboxItem,
 		accountId: string,
 		accountConfigId: string,
 		msg: ImapMessage,
 	): Promise<BatchOutcome> {
-		return this.applyChange(mailboxId, accountId, accountConfigId, msg)
+		const mailboxId = mailbox.mailboxId;
+		return this.applyChange(mailbox, accountId, accountConfigId, msg)
 			.then((result): BatchOutcome => ({ kind: "saved", uid: msg.uid, result }))
 			.catch((error): BatchOutcome => {
 				this.log.warn(
@@ -1010,7 +1038,7 @@ export class MessageSyncService {
 	}
 
 	private async applyChange(
-		mailboxId: string,
+		mailbox: MailboxItem,
 		accountId: string,
 		accountConfigId: string,
 		msg: ImapMessage,
@@ -1020,7 +1048,7 @@ export class MessageSyncService {
 		const messageId = deriveMessageIdFromSource(accountId, {
 			messageId: msg.envelope.messageId,
 			uid: msg.uid,
-			mailboxId,
+			mailboxId: mailbox.mailboxId,
 			date: msg.envelope.date,
 			subject: msg.envelope.subject,
 			fromMailbox: msg.envelope.from?.[0]?.mailbox,
@@ -1032,7 +1060,7 @@ export class MessageSyncService {
 			messageId,
 		);
 		if (!existing) {
-			return this.saveMessage(mailboxId, accountId, accountConfigId, msg);
+			return this.saveMessage(mailbox, accountId, accountConfigId, msg);
 		}
 
 		await this.applyServerFlags(existing, msg.flags);
@@ -1227,12 +1255,13 @@ export class MessageSyncService {
 	 * permanently freezing the mailbox (#817).
 	 */
 	private async trySaveMessage(
-		mailboxId: string,
+		mailbox: MailboxItem,
 		accountId: string,
 		accountConfigId: string,
 		msg: ImapMessage,
 	): Promise<BatchOutcome> {
-		return this.saveMessage(mailboxId, accountId, accountConfigId, msg)
+		const mailboxId = mailbox.mailboxId;
+		return this.saveMessage(mailbox, accountId, accountConfigId, msg)
 			.then((result): BatchOutcome => ({ kind: "saved", uid: msg.uid, result }))
 			.catch((error): BatchOutcome => {
 				this.log.warn(
@@ -1249,12 +1278,14 @@ export class MessageSyncService {
 	}
 
 	private async saveMessage(
-		mailboxId: string,
+		mailbox: MailboxItem,
 		accountId: string,
 		accountConfigId: string,
 		msg: ImapMessage,
 	): Promise<SaveMessageResult | null> {
 		if (!msg.envelope) return null;
+
+		const mailboxId = mailbox.mailboxId;
 
 		// Store envelope to preserve narrowing in closures
 		const envelope = msg.envelope;
@@ -1338,6 +1369,7 @@ export class MessageSyncService {
 					accountConfigId,
 					addresses,
 					role,
+					harvestsAddresses(mailbox),
 				);
 			}
 
@@ -1393,6 +1425,7 @@ export class MessageSyncService {
 		accountConfigId: string,
 		addresses: ImapAddress[] | undefined,
 		role: (typeof AddressRole)[keyof typeof AddressRole],
+		harvest: boolean,
 	) {
 		if (!addresses) return;
 
@@ -1430,7 +1463,12 @@ export class MessageSyncService {
 
 			const envelopeAddressId = deriveEnvelopeAddressId(messageId, role, order);
 
-			await addressService.upsertAddress({
+			// The EnvelopeAddress below is written either way: it is this message's
+			// own record of who it was addressed to, and a message in Junk has to
+			// render its From, To and Cc like any other. What Junk decides is
+			// whether the Address row behind it enters the address book as an
+			// ordinary contact (#822).
+			const addressInput = {
 				addressId,
 				accountConfigId,
 				localPart,
@@ -1438,7 +1476,12 @@ export class MessageSyncService {
 				normalizedEmail,
 				normalizedCompound,
 				displayName,
-			});
+			};
+			if (harvest) {
+				await addressService.upsertAddress(addressInput);
+			} else {
+				await addressService.upsertJunkAddress(addressInput);
+			}
 
 			await addressService.upsertEnvelopeAddress({
 				envelopeAddressId,

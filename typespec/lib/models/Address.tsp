@@ -54,6 +54,11 @@ model WellknownFlag extends AddressFlagBase {
   value: boolean;
 }
 
+@doc("Every message this address has been seen on lives in a Junk folder: withheld from address autocomplete until a sighting outside Junk, or correspondence, says otherwise")
+model JunkOnlyFlag extends AddressFlagBase {
+  value: boolean;
+}
+
 @doc("Category override for auto-classification")
 model CategoryFlag extends AddressFlagBase {
   value: MessageCategory;
@@ -76,6 +81,7 @@ model AddressFlags {
   muted?: MutedFlag;
   vip?: VipFlag;
   wellknown?: WellknownFlag;
+  junkOnly?: JunkOnlyFlag;
   category?: CategoryFlag;
   autoArchive?: AutoArchiveFlag;
   unsubscribed?: UnsubscribedFlag;
