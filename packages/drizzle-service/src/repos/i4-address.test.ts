@@ -417,6 +417,156 @@ describe("AddressRepo", () => {
 		]);
 	});
 
+	test("listByAccountConfig never lets a display name outrank the address a term matches", async () => {
+		const accountConfigId = randomId();
+		// The 2021 spam row: its display name is the account's own address, its
+		// real address is somewhere else entirely.
+		const spoof = await repo.createAddress({
+			...makeAddressInput(
+				accountConfigId,
+				"aramirez@secresaludguaviare.gov.co",
+			),
+			displayName: "matthijs@ischen.nl",
+			normalizedCompound:
+				"matthijs@ischen.nl aramirez@secresaludguaviare.gov.co",
+			inboundCount: 500,
+		});
+		// The address typed, as a prefix of a domain somebody else registered,
+		// louder than the account's own correspondence with itself.
+		const lookalike = await repo.createAddress({
+			...makeAddressInput(accountConfigId, "matthijs@ischen.nl.evil.example"),
+			displayName: "matthijs@ischen.nl",
+			normalizedCompound: "matthijs@ischen.nl matthijs@ischen.nl.evil.example",
+			inboundCount: 900,
+		});
+		const own = await repo.createAddress({
+			...makeAddressInput(accountConfigId, "matthijs@ischen.nl"),
+			displayName: "Matthijs van Henten",
+			normalizedCompound: "matthijs van henten matthijs@ischen.nl",
+			inboundCount: 3,
+		});
+
+		const found = await repo.listByAccountConfig({
+			accountConfigId,
+			search: "matthijs@ischen.nl",
+		});
+		assert.deepEqual(
+			found.items.map((a) => a.normalizedEmail),
+			[own.normalizedEmail, lookalike.normalizedEmail, spoof.normalizedEmail],
+			"the address typed must lead every address that only prefixes or claims it",
+		);
+
+		const onlySuggestion = await repo.listByAccountConfig({
+			accountConfigId,
+			search: "matthijs@ischen.nl",
+			limit: 1,
+		});
+		assert.deepEqual(
+			onlySuggestion.items.map((a) => a.normalizedEmail),
+			[own.normalizedEmail],
+			"a single suggestion slot goes to the address that matches whole",
+		);
+
+		await repo.deleteManyAddresses(accountConfigId, [
+			spoof.addressId,
+			lookalike.addressId,
+			own.addressId,
+		]);
+	});
+
+	test("listByAccountConfig keeps a leading display-name match above a domain that only contains the term", async () => {
+		const accountConfigId = randomId();
+		const shop = await repo.createAddress({
+			...makeAddressInput(accountConfigId, "hello@other.test"),
+			displayName: "Corner Shop",
+			normalizedCompound: "corner shop hello@other.test",
+		});
+		const leadingDomain = await repo.createAddress({
+			...makeAddressInput(
+				accountConfigId,
+				"sales@cornerstone-analytics.example",
+			),
+			displayName: "Sales Team",
+			normalizedCompound: "sales team sales@cornerstone-analytics.example",
+			inboundCount: 200,
+		});
+		const middleDomain = await repo.createAddress({
+			...makeAddressInput(accountConfigId, "news@list-corner.example"),
+			displayName: "Loud List",
+			normalizedCompound: "loud list news@list-corner.example",
+			inboundCount: 500,
+		});
+
+		const found = await repo.listByAccountConfig({
+			accountConfigId,
+			search: "corner",
+		});
+		assert.deepEqual(
+			found.items.map((a) => a.addressId),
+			[shop.addressId, leadingDomain.addressId, middleDomain.addressId],
+			"the name a reader types stays the first suggestion",
+		);
+
+		await repo.deleteManyAddresses(accountConfigId, [
+			shop.addressId,
+			leadingDomain.addressId,
+			middleDomain.addressId,
+		]);
+	});
+
+	test("listByAccountConfig ranks an address match above a display-name match for the same term", async () => {
+		const accountConfigId = randomId();
+		const byAddress = await repo.createAddress({
+			...makeAddressInput(accountConfigId, "corner@shop.test"),
+			displayName: "Zed Ziegler",
+			normalizedCompound: "zed ziegler corner@shop.test",
+		});
+		const byName = await repo.createAddress({
+			...makeAddressInput(accountConfigId, "hello@other.test"),
+			displayName: "Corner Shop",
+			normalizedCompound: "corner shop hello@other.test",
+			inboundCount: 500,
+		});
+
+		const found = await repo.listByAccountConfig({
+			accountConfigId,
+			search: "corner",
+		});
+		assert.deepEqual(
+			found.items.map((a) => a.addressId),
+			[byAddress.addressId, byName.addressId],
+			"the address decides ahead of free text the sender wrote",
+		);
+
+		await repo.deleteManyAddresses(accountConfigId, [
+			byAddress.addressId,
+			byName.addressId,
+		]);
+	});
+
+	test("listByAccountConfig still resolves a display-name match no address matches", async () => {
+		const accountConfigId = randomId();
+		const created = await repo.createAddress({
+			...makeAddressInput(accountConfigId, "w.baker@kliniek.nl"),
+			displayName: "Wendy Baker",
+			normalizedCompound: "wendy baker w.baker@kliniek.nl",
+		});
+
+		for (const term of ["wendy", "baker", "wendy baker"]) {
+			const found = await repo.listByAccountConfig({
+				accountConfigId,
+				search: term,
+			});
+			assert.deepEqual(
+				found.items.map((a) => a.addressId),
+				[created.addressId],
+				`"${term}" must resolve the address by its display name`,
+			);
+		}
+
+		await repo.deleteManyAddresses(accountConfigId, [created.addressId]);
+	});
+
 	test("cross-tenant: a search never reaches another account's addresses", async () => {
 		const mine = randomId();
 		const theirs = randomId();
