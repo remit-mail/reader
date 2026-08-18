@@ -44,7 +44,13 @@ interface Saved {
 const mailboxAt = (
 	fullPath: string,
 	specialUse?: MailboxItem["specialUse"],
-): MailboxItem => ({ mailboxId: "mbx-1", fullPath, specialUse }) as MailboxItem;
+): MailboxItem =>
+	({
+		mailboxId: "mbx-1",
+		fullPath,
+		hierarchyDelimiter: "/",
+		specialUse,
+	}) as MailboxItem;
 
 const save = async (mailbox: MailboxItem): Promise<Saved> => {
 	const saved: Saved = {
@@ -128,21 +134,42 @@ const emails = (inputs: Array<{ normalizedEmail: string }>): string[] =>
 const BOTH = ["sales@pharma.example", "victim@ischen.nl"];
 
 describe("what a mailbox says about the addresses on its messages", () => {
+	const at = (fullPath: string, specialUse?: string[]) => ({
+		mailboxId: "mbx-1",
+		fullPath,
+		hierarchyDelimiter: "/",
+		specialUse,
+	});
+
 	it("reads the special-use designation", () => {
 		assert.equal(
-			addressSightingIn({
-				fullPath: "INBOX/Spam",
-				specialUse: [MailboxSpecialUse.Junk],
-			}),
+			addressSightingIn(at("INBOX/Spam", [MailboxSpecialUse.Junk])),
 			"junk",
 		);
-		assert.equal(addressSightingIn({ fullPath: "INBOX" }), "correspondent");
+		assert.equal(addressSightingIn(at("INBOX")), "correspondent");
 	});
 
 	it("falls back to the folder name on a server without SPECIAL-USE", () => {
-		assert.equal(addressSightingIn({ fullPath: "Spam" }), "junk");
-		assert.equal(addressSightingIn({ fullPath: "[Gmail]/Spam" }), "junk");
-		assert.equal(addressSightingIn({ fullPath: "Deleted Items" }), "discarded");
+		assert.equal(addressSightingIn(at("Spam")), "junk");
+		assert.equal(addressSightingIn(at("[Gmail]/Spam")), "junk");
+		assert.equal(addressSightingIn(at("Deleted Items")), "discarded");
+	});
+
+	it("reads a Junk folder nested under any prefix", () => {
+		assert.equal(addressSightingIn(at("INBOX/Spam")), "junk");
+		assert.equal(addressSightingIn(at("INBOX/Junk E-mail")), "junk");
+		assert.equal(
+			addressSightingIn({
+				mailboxId: "mbx-1",
+				fullPath: "Mail.Junk",
+				hierarchyDelimiter: ".",
+			}),
+			"junk",
+		);
+	});
+
+	it("never reads a prefix as the folder it names", () => {
+		assert.equal(addressSightingIn(at("Spam/Receipts")), "correspondent");
 	});
 
 	it("harvests every envelope address of an ordinary message", async () => {

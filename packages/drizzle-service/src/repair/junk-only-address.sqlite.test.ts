@@ -393,6 +393,55 @@ describe("addresses standing only on mail in Junk", () => {
 		assert.equal(withheld("by-name"), true);
 	});
 
+	test("reads a Junk folder nested under any prefix", async () => {
+		mailbox("nested-spam", null);
+		message("spam-6", "nested-spam");
+		address("nested");
+		sighting("nested", "spam-6");
+		sqlite
+			.prepare(
+				"UPDATE mailbox SET full_path = 'INBOX/Spam' WHERE mailbox_id = ?",
+			)
+			.run("nested-spam");
+
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		assert.equal(withheld("nested"), true);
+	});
+
+	test("reads a Junk folder under a delimiter that is not a slash", async () => {
+		mailbox("dotted-spam", null);
+		message("spam-7", "dotted-spam");
+		address("dotted");
+		sighting("dotted", "spam-7");
+		sqlite
+			.prepare(
+				`UPDATE mailbox SET full_path = 'Mail.Junk E-mail',
+					hierarchy_delimiter = '.' WHERE mailbox_id = ?`,
+			)
+			.run("dotted-spam");
+
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		assert.equal(withheld("dotted"), true);
+	});
+
+	test("never reads a prefix as the folder it names", async () => {
+		mailbox("spam-parent", null);
+		message("mail-2", "spam-parent");
+		address("under-spam");
+		sighting("under-spam", "mail-2");
+		sqlite
+			.prepare(
+				"UPDATE mailbox SET full_path = 'Spam/Receipts' WHERE mailbox_id = ?",
+			)
+			.run("spam-parent");
+
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		assert.equal(withheld("under-spam"), false);
+	});
+
 	test("reads the designation from either place it is stored", async () => {
 		mailbox("column-only", '["Junk"]');
 		mailbox("entry-only", null);

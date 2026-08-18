@@ -26,12 +26,26 @@ const STORED_FLAGS = "coalesce(nullif(address.flags, ''), '{}')";
 const flagIsSet = (name: string): string =>
 	`coalesce(json_extract(${STORED_FLAGS}, '$.${name}.value'), 0) = 1`;
 
-const quoted = (paths: readonly string[]): string =>
-	paths.map((path) => `'${path}'`).join(", ");
+const quoted = (names: readonly string[]): string =>
+	names.map((name) => `'${name}'`).join(", ");
+
+// `resolveMailboxByLeafName` in SQL: everything after the last hierarchy
+// delimiter, which is the whole path for a mailbox that carries none. rtrim's
+// second argument is a set of characters, so trimming every non-delimiter
+// character off the right stops at the last delimiter and leaves the prefix to
+// measure. An account whose Junk folder is `INBOX/Spam` has to read as Junk
+// here exactly as it does in `findJunkMailbox`.
+const MAILBOX_LEAF = `lower(substr(
+		mailbox.full_path,
+		length(rtrim(
+			mailbox.full_path,
+			replace(mailbox.full_path, mailbox.hierarchy_delimiter, '')
+		)) + 1
+	))`;
 
 const mailboxCarriesRole = (
 	specialUse: string,
-	paths: readonly string[],
+	names: readonly string[],
 ): string => `(
 	exists (
 		SELECT 1 FROM mailbox_special_use_entry entry
@@ -43,7 +57,7 @@ const mailboxCarriesRole = (
 		WHERE mailbox.mailbox_id = message.mailbox_id
 		  AND (
 			mailbox.special_use LIKE '%"${specialUse}"%'
-			OR lower(mailbox.full_path) IN (${quoted(paths)})
+			OR ${MAILBOX_LEAF} IN (${quoted(names)})
 		  )
 	)
 )`;
