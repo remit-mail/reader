@@ -1,5 +1,5 @@
 /**
- * Deleting a folder from Settings › Folders. A folder is created from the UI,
+ * Deleting a folder from Settings › Folder roles. A folder is created from the UI,
  * then removed through the delete wizard reached from its own row in the tree:
  * an empty folder is a single destructive confirm that calls the real
  * delete-mailbox endpoint and drops the folder from the tree. The wizard's

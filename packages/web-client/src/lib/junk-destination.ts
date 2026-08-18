@@ -6,7 +6,7 @@
  */
 
 export const NO_JUNK_FOLDER_REASON =
-	"This account has no Junk folder appointed, so there is nowhere to file these. Appoint one under Settings › Folders.";
+	"This account has no Junk folder appointed, so there is nowhere to file these. Appoint one under Settings › Folder roles.";
 
 export const ALREADY_IN_JUNK_REASON =
 	"These are already in Junk, so there is nowhere to file them.";

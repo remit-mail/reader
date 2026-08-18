@@ -31,7 +31,7 @@ describe("junkWithheldReason", () => {
 
 	it("names the setting that appoints a folder", () => {
 		assert.equal(junkWithheldReason(undefined, INBOX), NO_JUNK_FOLDER_REASON);
-		assert.match(NO_JUNK_FOLDER_REASON, /Settings › Folders/);
+		assert.match(NO_JUNK_FOLDER_REASON, /Settings › Folder roles/);
 	});
 
 	it("says the mail is already where the verb would put it", () => {

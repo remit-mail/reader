@@ -94,15 +94,30 @@ export const ROLE_NAME_HINTS: Partial<
 		"junk email",
 		"bulk mail",
 	],
-	[CanonicalMailboxRole.Trash]: [
-		"trash",
-		"deleted items",
-		"deleted messages",
-		"deleted",
-		"bin",
-	],
+	// No bare "deleted" and no "bin": both are ordinary folder names a user
+	// keeps mail in, and a wrong guess here files deletes into a folder the
+	// user never meant as Trash. Gmail's en-GB "Bin" and its "[Gmail]/Trash"
+	// both advertise \Trash, so the flag already covers them (#837).
+	[CanonicalMailboxRole.Trash]: ["trash", "deleted items", "deleted messages"],
 	[CanonicalMailboxRole.All]: ["all mail", "all"],
 };
+
+/**
+ * The pane where a user appoints a folder to a role, named as it is labelled.
+ * Every refusal that asks for an appointment points here, in one wording — the
+ * settings screen is titled "Folder roles", and copies of this sentence had
+ * already drifted to "Folders".
+ */
+export const FOLDER_ROLES_SETTINGS_PATH = "Settings › Folder roles";
+
+/**
+ * Why an operation that files or destroys mail was refused. A delete, an
+ * Empty Trash and the count the handler reports before one all act on the
+ * folder the user appointed or the server flagged, and all refuse in these
+ * words — one sentence, so two surfaces cannot tell a user two things about
+ * one account.
+ */
+export const NO_TRASH_FOLDER_REASON = `This account has no Trash folder, so nothing was deleted. Appoint one under ${FOLDER_ROLES_SETTINGS_PATH}, then try again.`;
 
 /** The minimal mailbox shape role resolution reads. */
 export interface RoleMailboxCandidate extends MailboxNameCandidate {

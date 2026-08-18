@@ -88,24 +88,24 @@ describe("resolveMailboxForRole precedence", () => {
 });
 
 describe("resolveMailboxForRole on [Gmail]/Trash beside a top-level Bin", () => {
-	// #837: the name proposal ranks depth above the name, so the top-level `Bin`
-	// outranks `[Gmail]/Trash` and a delete would land in the wrong folder. The
-	// proposal is a guess, and the user's appointment settles it either way.
+	// #837: joining Trash to the leaf-name resolver made depth outrank the name,
+	// so a top-level `Bin` beat `[Gmail]/Trash` and deletes landed in the wrong
+	// folder. `bin` is no longer a hint — Gmail flags both \Trash — so the name
+	// rule reaches `[Gmail]/Trash` and nothing reaches `Bin`.
 	const mailboxes = [
 		mailbox("mb-inbox", "INBOX"),
 		mailbox("mb-bin", "Bin"),
 		mailbox("mb-gmail-trash", "[Gmail]/Trash"),
 	];
 
-	it("resolves to whichever folder the user appointed", () => {
+	it("proposes [Gmail]/Trash, never the folder called Bin", () => {
 		assert.equal(
-			resolveMailboxForRole(
-				CanonicalMailboxRole.Trash,
-				mailboxes,
-				"mb-gmail-trash",
-			)?.mailboxId,
+			resolveMailboxForRole(CanonicalMailboxRole.Trash, mailboxes)?.mailboxId,
 			"mb-gmail-trash",
 		);
+	});
+
+	it("resolves to whichever folder the user appointed", () => {
 		assert.equal(
 			resolveMailboxForRole(CanonicalMailboxRole.Trash, mailboxes, "mb-bin")
 				?.mailboxId,

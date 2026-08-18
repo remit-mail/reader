@@ -112,10 +112,11 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 		assert.equal(found?.mailboxId, chosen.mailboxId);
 	});
 
-	test("an appointment on [Gmail]/Trash wins over a top-level Bin the name rule would pick", async () => {
-		// #837: the name proposal ranks a shallow folder above a nested one, so
-		// `Bin` beats `[Gmail]/Trash` and deletes land in the wrong folder. What
-		// the user appointed settles it.
+	test("proposes [Gmail]/Trash beside a top-level Bin, and yields to the appointment", async () => {
+		// #837: joining Trash to the leaf-name resolver made depth outrank the
+		// name, so `Bin` beat `[Gmail]/Trash` and deletes landed in the folder
+		// the user keeps mail in. `bin` is no longer a hint, and an appointment
+		// overrides the proposal either way.
 		const { accountId, accountConfigId } = await makeAccount();
 		await mailboxes.create(makeMailboxInput(accountId, "INBOX"));
 		const bin = await mailboxes.create(makeMailboxInput(accountId, "Bin"));
@@ -125,18 +126,18 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 
 		assert.equal(
 			(await repo.findTrashMailbox(accountId))?.mailboxId,
-			bin.mailboxId,
+			gmailTrash.mailboxId,
 		);
 
 		await appoint(
 			accountConfigId,
 			accountId,
 			CanonicalMailboxRole.Trash,
-			gmailTrash.mailboxId,
+			bin.mailboxId,
 		);
 		assert.equal(
 			(await repo.findTrashMailbox(accountId))?.mailboxId,
-			gmailTrash.mailboxId,
+			bin.mailboxId,
 		);
 	});
 

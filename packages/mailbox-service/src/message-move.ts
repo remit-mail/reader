@@ -12,6 +12,7 @@ import type {
 	IThreadMessageRepository,
 } from "@remit/data-ports";
 import { HTTPError } from "@remit/data-ports/errors";
+import { NO_TRASH_FOLDER_REASON } from "@remit/data-ports/folder-role";
 import { deriveCopyMessageId } from "@remit/data-ports/id";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
@@ -106,18 +107,17 @@ export interface MessageMoveConfig {
 
 /**
  * The account resolves no Trash folder, so a move-to-Trash delete has nowhere
- * to put the mail. A designed, user-facing outcome carrying its own text and
- * a 409 so the backend returns it verbatim: the absence of a Trash folder is
- * a blocker the user resolves by appointing one, never a licence to expunge.
+ * to put the mail and an Empty Trash has nothing it may empty. A designed,
+ * user-facing outcome carrying its own text and a 409 the backend returns
+ * verbatim: the absence of a Trash folder is a blocker the user resolves by
+ * appointing one, never a licence to expunge.
  */
 export class NoTrashMailboxError extends HTTPError {
 	name = "NoTrashMailboxError";
 	statusCode = 409;
 
 	constructor() {
-		super(
-			"This account has no Trash folder, so nothing was deleted. Appoint one under Settings → Folder roles, then delete again.",
-		);
+		super(NO_TRASH_FOLDER_REASON);
 	}
 }
 
