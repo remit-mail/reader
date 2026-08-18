@@ -41,7 +41,10 @@ case "$*" in
 	exit 0
 	;;
 "update --recover" | "update --check") ;;
-*update*) rm -f "$REMIT_UPDATE_CONTROL_DIR/request.json" ;;
+*update*)
+	rm -f "$REMIT_UPDATE_CONTROL_DIR/request.json"
+	[ "\${STUB_UPDATE_FAIL:-0}" = "1" ] && exit 1
+	;;
 esac
 exit 0
 `;
@@ -246,6 +249,44 @@ describe("the updater entrypoint", () => {
 			process.kill(-child.pid, "SIGKILL");
 		}
 		assert.ok(box.calls().some((c) => c.startsWith("update helper=")));
+	});
+
+	it("keeps watching after the wrapper refuses a request (#587)", async () => {
+		// A request the wrapper discards for age exits non-zero. The watcher has to
+		// survive that: a container that died on the first expired request would
+		// stop serving every later one, which is a worse failure than the install
+		// this refuses.
+		const box = sandbox();
+		writeFileSync(
+			join(box.control, "request.json"),
+			JSON.stringify({
+				targetVersion: "v1.5.0",
+				requestedAt: "2020-01-01T00:00:00Z",
+			}),
+		);
+		const child = spawn("sh", [ENTRYPOINT], {
+			env: { ...box.env, STUB_UPDATE_FAIL: "1" },
+			detached: true,
+			stdio: "ignore",
+		});
+		try {
+			await waitFor(
+				() => box.calls().filter((c) => c.startsWith("update helper=")).length,
+			);
+			writeFileSync(
+				join(box.control, "request.json"),
+				JSON.stringify({
+					targetVersion: "v1.5.0",
+					requestedAt: new Date().toISOString(),
+				}),
+			);
+			await waitFor(
+				() =>
+					box.calls().filter((c) => c.startsWith("update helper=")).length >= 2,
+			);
+		} finally {
+			process.kill(-child.pid, "SIGKILL");
+		}
 	});
 
 	it("stays idle when there is no request, and does not update", async () => {

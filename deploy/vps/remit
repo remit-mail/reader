@@ -912,6 +912,37 @@ CHECK_AVAILABLE=""
 epoch() { date -u +%s; }
 iso_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
+# Epoch seconds for the one timestamp shape written here and by the backend:
+# ISO 8601, UTC, with an optional fractional part. `date` cannot do the reverse
+# portably — GNU parses -d, busybox wants -D — so the conversion is arithmetic.
+# Anything that is not that shape emits nothing, which every caller reads as no
+# usable time rather than as an instant of its own.
+iso_epoch() {
+	printf '%s' "$1" | awk '
+		/^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]/ {
+			rest = substr($0, 20)
+			if (rest != "Z" && rest !~ /^\.[0-9]+Z$/) exit
+			y = substr($0, 1, 4) + 0
+			mo = substr($0, 6, 2) + 0
+			d = substr($0, 9, 2) + 0
+			h = substr($0, 12, 2) + 0
+			mi = substr($0, 15, 2) + 0
+			s = substr($0, 18, 2) + 0
+			if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 60) exit
+			# Days from the civil date, Howard Hinnant era arithmetic: March-based
+			# years make the leap day the last of the year, so no month table is
+			# needed and every century rule falls out of the division.
+			if (mo <= 2) y -= 1
+			era = int((y >= 0 ? y : y - 399) / 400)
+			yoe = y - era * 400
+			mp = (mo + 9) % 12
+			doy = int((153 * mp + 2) / 5) + d - 1
+			doe = yoe * 365 + int(yoe / 4) - int(yoe / 100) + doy
+			print (era * 146097 + doe - 719468) * 86400 + h * 3600 + mi * 60 + s
+		}
+	'
+}
+
 # The manifest URL is deployment configuration, so .env is where it lives; the
 # environment overrides it for a one-off check against a different origin.
 manifest_url() {
@@ -1414,6 +1445,18 @@ recheck_availability() {
 REQUEST_MAX_BYTES=4096
 ALLOWED_REQUEST_KEYS=" runId targetVersion requestedAt requestedBy "
 
+# requestedAt is load-bearing, not decoration (#587). A request is a person
+# waiting at a screen, and the file outlives them: the updater can be stopped,
+# idling on a failed preflight, or the whole box down, and the request is still
+# on the seam when it comes back. Installing it then stops the stack on a day
+# nobody asked for. Half an hour is longer than the app's overlay waits before
+# it gives up, so no request anyone is still watching expires, and short enough
+# that one found the next morning never installs. A request whose requestedAt is
+# missing or unreadable is expired by the same rule: an absent timestamp is
+# exactly the pre-#587 request this window exists to catch, and there is nothing
+# in it to show the request is anyone's.
+REQUEST_MAX_AGE_SECONDS=1800
+
 # Emits each top-level key of a flat JSON object, one per line, tracking string
 # escapes and depth so a value that contains `":` does not read as a key. Any
 # nesting, or an array, emits the sentinel __INVALID__ — which is not a
@@ -1460,10 +1503,22 @@ request_run_id_valid() {
 	printf '%s' "$1" | grep -qE '^[A-Za-z0-9][A-Za-z0-9-]{0,63}$'
 }
 
+request_age_seconds() {
+	_at=$(iso_epoch "$(json_string "$1" requestedAt)")
+	[ -n "$_at" ] || return 1
+	printf '%s' "$(($(epoch) - _at))"
+}
+
 # Emits the accepted target version, and the run id the request named on a
 # second line — empty when the request carried none. Both are refused together:
 # a request whose runId is unusable is rejected whole, like every other
 # malformed field, rather than being run under an id of our own.
+#
+# Status 2 is the one refusal the caller reports rather than swallows: the file
+# was well-formed and simply too old. It is tested before the version, because
+# a request left on the seam for days is stale whether or not a newer release
+# has since shipped, and "this is not the published release" is the wrong thing
+# to tell an operator whose real problem is an updater that was not running.
 requested_target() {
 	[ -f "$CONTROL_DIR/request.json" ] || return 1
 	_bytes=$(wc -c <"$CONTROL_DIR/request.json" 2>/dev/null || printf '%s' "$((REQUEST_MAX_BYTES + 1))")
@@ -1485,6 +1540,16 @@ requested_target() {
 $(request_keys "$_raw")
 EOF
 	[ "$_saw_target" = "1" ] || return 1
+	# Bounded from below as well as above. A stamp in this instance's future was
+	# not written against this clock, and a box with no RTC is exactly where that
+	# happens: it comes up reading roughly its own shutdown time, so a request
+	# written just before the stop looks minutes old days later. Without the
+	# floor, the surviving-a-`remit stop` case #587 names is the one the window
+	# misses.
+	_age=$(request_age_seconds "$_raw") || return 2
+	if [ "$_age" -lt 0 ] || [ "$_age" -gt "$REQUEST_MAX_AGE_SECONDS" ]; then
+		return 2
+	fi
 	_want=$(json_string "$_raw" targetVersion)
 	if ! version_valid "$_want"; then
 		return 1
@@ -1500,6 +1565,39 @@ EOF
 		fi
 	fi
 	printf '%s\n%s' "$_want" "$_run"
+}
+
+# An expired request is discarded, and the discard is recorded as a run that
+# changed nothing. Silence here would trade a surprise install for a surprise
+# no-op: run.json is what `remit status` and the app both read, so it is the
+# only place the operator can learn that an install was asked for and not
+# performed. The run keeps the id the request named, so a page still polling
+# gets a verdict on its own run rather than never hearing back. Nothing out of
+# the file reaches the message unvalidated — the version is rendered only if it
+# is a version, the time only if it is a time.
+discard_expired_request() {
+	RUN_ID=$(json_string "$1" runId)
+	if ! request_run_id_valid "$RUN_ID"; then
+		RUN_ID=$(new_run_id)
+	fi
+	RUN_FROM=$(get_var REMIT_TAG)
+	RUN_TARGET=$(json_string "$1" targetVersion)
+	version_valid "$RUN_TARGET" || RUN_TARGET=""
+	RUN_STARTED=$(iso_now)
+	RUN_PHASE=checking
+	_at=$(json_string "$1" requestedAt)
+	_atsec=$(iso_epoch "$_at")
+	if [ -z "$_atsec" ]; then
+		_why="carried no time it was made"
+	elif [ "$_atsec" -gt "$(epoch)" ]; then
+		_why="is stamped $_at, which is ahead of this instance's own clock"
+	else
+		_why="was made at $_at, longer ago than the $((REQUEST_MAX_AGE_SECONDS / 60)) minutes a request stays current"
+	fi
+	mkdir -p "$STATE_DIR"
+	terminate abandoned \
+		"The update request on the control volume $_why, so it was discarded rather than installed; this instance is still running $RUN_FROM. Ask for the update again to install it now." \
+		"$PROG update"
 }
 
 # --- snapshot and restore (RFC 037 R8, R8a) ---------------------------------
@@ -2314,10 +2412,16 @@ cmd_update() {
 	lock_acquire
 
 	if [ -z "$_tag" ] && [ -f "$CONTROL_DIR/request.json" ]; then
-		_request=$(requested_target || true)
+		_raw_request=$(cat "$CONTROL_DIR/request.json" 2>/dev/null || true)
+		_refusal=0
+		_request=$(requested_target) || _refusal=$?
 		# Consumed either way: a request that was refused must not be retried on
 		# every later run, and one that was taken is now the run's business.
 		rm -f "$CONTROL_DIR/request.json"
+		if [ "$_refusal" = "2" ]; then
+			discard_expired_request "$_raw_request"
+			return 1
+		fi
 		if [ -z "$_request" ]; then
 			die "update: the update request on the control volume was rejected and discarded — it was oversized, carried a field other than a target version, named an unusable run id, or did not name the published release"
 		fi
