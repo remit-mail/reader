@@ -144,6 +144,7 @@ interface MailboxPaneContextValue {
 	isError: boolean;
 	error: unknown;
 	mailboxAccountId: string | undefined;
+	mailboxAccountLoading: boolean;
 	mailboxName: string | null;
 	unreadCount: number;
 	isDraftsMailbox: boolean;
@@ -375,7 +376,8 @@ function MailboxPaneProvider({
 				: undefined,
 	});
 
-	const { accountId: mailboxAccountId } = useMailboxAccount(mailboxId);
+	const { accountId: mailboxAccountId, isLoading: mailboxAccountLoading } =
+		useMailboxAccount(mailboxId);
 	const mailboxName = useCurrentMailboxName({ accounts });
 
 	// The server answered the active predicate, so these rows are the list: the
@@ -769,6 +771,7 @@ function MailboxPaneProvider({
 		isError,
 		error,
 		mailboxAccountId,
+		mailboxAccountLoading,
 		mailboxName,
 		unreadCount,
 		isDraftsMailbox,
@@ -1053,6 +1056,7 @@ function MailboxReading() {
 	const {
 		mailboxId,
 		mailboxAccountId,
+		mailboxAccountLoading,
 		selectedThread,
 		conversation,
 		intelligenceOpen,
@@ -1127,13 +1131,13 @@ function MailboxReading() {
 			<section className="flex h-full w-full min-w-0 flex-col bg-canvas">
 				<MessageToolbar
 					hasThread={hasThread}
+					messageId={conversation?.messageId}
 					intelligenceOpen={intelligenceShowing}
 					canToggleIntelligence={hasThread}
 					onToggleIntelligence={toggleIntelligence}
 					onReply={onReply ? () => onReply("reply") : undefined}
 					onReplyAll={onReply ? () => onReply("reply-all") : undefined}
 					onForward={onReply ? () => onReply("forward") : undefined}
-					canDelete={hasThread}
 					onDelete={hasThread ? onToolbarDelete : undefined}
 					onToggleStar={hasThread ? onToolbarStar : undefined}
 					isStarred={selectedThread?.hasStars}
@@ -1146,6 +1150,7 @@ function MailboxReading() {
 								}
 							: undefined
 					}
+					moveContextLoading={mailboxAccountLoading}
 				/>
 				<div className="min-h-0 flex-1 overflow-hidden">{detailPane}</div>
 			</section>
