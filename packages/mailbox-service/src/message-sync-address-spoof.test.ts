@@ -14,7 +14,8 @@ import type {
 	ThreadMessageItem,
 } from "@remit/data-ports";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
-import { MessageSyncService } from "./message-sync.js";
+import { type AccountFolderRoles, MessageSyncService } from "./message-sync.js";
+import { NO_FOLDER_ROLES, noFolderRoles } from "./test-helpers/folder-roles.js";
 import type { ImapAddress, ImapEnvelope, ImapMessage } from "./types.js";
 
 const stub = <T>(): T => ({}) as T;
@@ -76,6 +77,7 @@ const harvest = async (envelope: Partial<ImapEnvelope>): Promise<Saved> => {
 	const service = new MessageSyncService(
 		stub<ManagedConnectionFactory>(),
 		stub<IMailboxRepository>(),
+		noFolderRoles,
 		messageService,
 		envelopeService,
 		addressService,
@@ -98,6 +100,7 @@ const harvest = async (envelope: Partial<ImapEnvelope>): Promise<Saved> => {
 				accountId: string,
 				accountConfigId: string,
 				msg: ImapMessage,
+				roles: AccountFolderRoles,
 			) => Promise<unknown>;
 		}
 	).saveMessage(
@@ -105,6 +108,7 @@ const harvest = async (envelope: Partial<ImapEnvelope>): Promise<Saved> => {
 		"acct-1",
 		"cfg-1",
 		msg,
+		NO_FOLDER_ROLES,
 	);
 
 	return saved;
