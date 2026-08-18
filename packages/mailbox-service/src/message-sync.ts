@@ -11,6 +11,7 @@ import type {
 	MailboxItem,
 	ThreadMessageItem,
 } from "@remit/data-ports";
+import { isImpersonatingDisplayName } from "@remit/data-ports/display-name";
 import {
 	deriveAddressId,
 	deriveBodyPartId,
@@ -85,26 +86,18 @@ export const isParseableEmailAddress = (
 	return host.includes(".");
 };
 
-const EMAIL_SHAPED_NAME = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 /**
- * A display name is free text the sender chooses, and one that is itself an
- * email address reads as that address everywhere the name is shown. An envelope
- * of `victim@example.com <attacker@example.gov.co>` therefore plants the
- * victim's own address as the label on the attacker's, and autocomplete then
- * offers it back when the victim types their own address — which is how
- * private mail left this instance on 2026-08-18 (issues #826, #822).
- *
- * A name that is the address it labels carries the same information twice and
- * is harmless, so it stays. Anything else email-shaped is dropped: the address
- * itself is verifiable and is kept, only the claim about who it is goes.
+ * The name an envelope carries for an address, as it should be stored: empty
+ * when it claims to be some other address (issue #826), otherwise verbatim.
+ * The claim is refused wherever a name lands — the address book, the envelope
+ * the message header renders, and the sender label on the thread row.
  */
-export const isImpersonatingDisplayName = (address: ImapAddress): boolean => {
-	const name = address.name?.trim();
-	if (!name || !EMAIL_SHAPED_NAME.test(name)) return false;
-	return (
-		name.toLowerCase() !== `${address.mailbox}@${address.host}`.toLowerCase()
-	);
+export const harvestedDisplayName = (
+	address: ImapAddress | undefined,
+): string => {
+	if (!address?.name) return "";
+	const own = `${address.mailbox}@${address.host}`;
+	return isImpersonatingDisplayName(address.name, own) ? "" : address.name;
 };
 
 /**
@@ -1424,7 +1417,7 @@ export class MessageSyncService {
 			addressData.push({
 				localPart: addr.mailbox,
 				domain: addr.host,
-				displayName: isImpersonatingDisplayName(addr) ? "" : addr.name || "",
+				displayName: harvestedDisplayName(addr),
 				order: i,
 			});
 		}
@@ -1527,12 +1520,14 @@ export class MessageSyncService {
 
 		// Extract sender info. When the server could not parse the From address,
 		// omit fromEmail rather than persist a fabricated string — a display name
-		// may still be present and useful, so keep it.
+		// may still be present and useful, so keep it. This is the sender label the
+		// message list shows and the search index tokenizes, so it takes the same
+		// guard as the address book (issue #826).
 		const fromAddr = envelope.from?.[0];
 		const fromEmail = isParseableEmailAddress(fromAddr)
 			? `${fromAddr?.mailbox}@${fromAddr?.host}`.toLowerCase()
 			: undefined;
-		const fromName = fromAddr?.name;
+		const fromName = harvestedDisplayName(fromAddr) || undefined;
 
 		// Calculate reference order (position in the thread chain)
 		// references.length gives the position since References = [root, parent1, parent2, ...]
