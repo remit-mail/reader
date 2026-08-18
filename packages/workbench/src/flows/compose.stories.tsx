@@ -228,7 +228,7 @@ const Composer = ({
 	const sendState: ComposeSendState =
 		send ??
 		(toAddresses.length === 0
-			? { status: "blocked", reason: "Add at least one recipient." }
+			? { status: "blocked", reason: "Add a To address before sending." }
 			: { status: "ready" });
 
 	return (
@@ -354,7 +354,10 @@ export const Blank: Story = {
 					subject=""
 					body=""
 					plainBody=""
-					send={{ status: "blocked", reason: "Add at least one recipient." }}
+					send={{
+						status: "blocked",
+						reason: "Add a To address before sending.",
+					}}
 				/>
 			}
 		/>
@@ -843,7 +846,7 @@ export const SendWithNoRecipient: StoryObj<typeof Composer> = {
 	name: "Send with nobody to send it to",
 	args: {
 		to: [],
-		send: { status: "blocked", reason: "Add at least one recipient." },
+		send: { status: "blocked", reason: "Add a To address before sending." },
 		onBlocked: fn(),
 		onSend: fn(),
 	},
@@ -856,7 +859,7 @@ export const SendWithNoRecipient: StoryObj<typeof Composer> = {
 		const canvas = within(canvasElement);
 		await userEvent.click(canvas.getByRole("button", { name: "Send" }));
 		await expect(args.onBlocked).toHaveBeenCalledWith(
-			"Add at least one recipient.",
+			"Add a To address before sending.",
 		);
 		await expect(args.onSend).not.toHaveBeenCalled();
 	},

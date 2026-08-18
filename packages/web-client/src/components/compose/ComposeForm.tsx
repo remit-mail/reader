@@ -213,6 +213,17 @@ type SendReadiness =
 	| { status: "blocked"; reason: string }
 	| { status: "ready"; accountId: string };
 
+/**
+ * Naming To, not "a recipient". Sending goes through the draft, and a draft is
+ * created against `CreateOutboxMessageInput`, whose `@minItems(1)` is on
+ * `toAddresses` alone — so a message addressed only in Cc has a recipient and
+ * still cannot be sent from here, and being told to add one it can already see
+ * leaves it with nothing to do. The server's own send guard counts Cc and Bcc,
+ * because a Bcc-only envelope is real mail; it is answering whether the message
+ * has anywhere to go, which is not the question this one asks.
+ */
+const NO_TO_ADDRESS_MESSAGE = "Add a To address before sending.";
+
 const isFormEmpty = (
 	toAddresses: AddressEntry[],
 	ccAddresses: AddressEntry[],
@@ -627,7 +638,7 @@ export const ComposeForm = ({
 			return { status: "blocked", reason: SMTP_MISSING_MESSAGE };
 		}
 		if (toAddresses.length === 0) {
-			return { status: "blocked", reason: "Add at least one recipient." };
+			return { status: "blocked", reason: NO_TO_ADDRESS_MESSAGE };
 		}
 		return { status: "ready", accountId: selectedAccountId };
 	}, [

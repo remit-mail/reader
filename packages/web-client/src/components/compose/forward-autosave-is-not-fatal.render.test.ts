@@ -249,8 +249,8 @@ describe("a forwarded message and the draft it cannot create yet", () => {
 		const indicator = harness?.byText("output", "Not saved");
 		assert.match(
 			indicator?.textContent ?? "",
-			/add a recipient/i,
-			"the composer states it is not saving, and what would make it save",
+			/add a To address/i,
+			"the composer names the field the create schema actually requires",
 		);
 
 		await addRecipient("them@example.com");
@@ -288,9 +288,28 @@ describe("a forwarded message and the draft it cannot create yet", () => {
 		await harness?.flush();
 		await harness?.wait(100);
 
-		assert.match(harness?.text() ?? "", /Add at least one recipient/);
+		assert.match(harness?.text() ?? "", /Add a To address before sending/);
 		assert.equal(creates().length, 0, "nothing was created");
 		assert.equal(sends().length, 0, "nothing was sent");
+	});
+
+	it("drops the held sentence the moment the To address arrives", async () => {
+		await mount();
+
+		harness?.type(subjectField(), "Fwd: Lunch and the three paragraphs after");
+		await harness?.flush();
+		assert.match(harness?.text() ?? "", /Not saved/);
+
+		await addRecipient("them@example.com");
+
+		// Before the debounce, not after it: the sentence stopped being true the
+		// moment the address landed, and standing for another two seconds tells
+		// the user their draft is being dropped when it is on its way.
+		assert.doesNotMatch(
+			harness?.text() ?? "",
+			/Not saved/,
+			"a reason that no longer holds is off screen at once",
+		);
 	});
 });
 
