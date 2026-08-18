@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type {
+	IAddressRepository,
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
 	IMessageRepository,
@@ -48,6 +49,9 @@ const buildWorld = (
 	const config: MessageMoveConfig = {
 		messageService,
 		mailboxService: {} as unknown as IMailboxRepository,
+		addressService: {
+			reconcileJunkOnlyForMessage: async () => {},
+		} as unknown as IAddressRepository,
 		mailboxSpecialUseService: {
 			// A folder merely named `Deleted` is what the name proposal would
 			// return; the confirmed lookup is what this path asks for.
