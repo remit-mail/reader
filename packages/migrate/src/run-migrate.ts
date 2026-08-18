@@ -98,8 +98,7 @@ import { logger } from "../../logger-lambda/src/logger.js";
  * else.
  *
  * The fourth is an address that stands only on mail in a Junk folder (#822).
- * It is the one that reconciles in both directions on every boot, so a mark can
- * never outlive the evidence that set it. Nothing is deleted.
+ * It reconciles in both directions and deletes nothing.
  */
 
 /**

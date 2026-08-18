@@ -1022,11 +1022,6 @@ describe("AddressRepo", () => {
 			]);
 		});
 
-		/**
-		 * The same endpoint resolves one exact sender for the per-sender controls
-		 * a message view renders. Withholding that answer would leave every one of
-		 * them dead on a spam message.
-		 */
 		test("an exact address still resolves a withheld row", async () => {
 			const accountConfigId = randomId();
 			const withheld = await repo.upsertJunkAddress(

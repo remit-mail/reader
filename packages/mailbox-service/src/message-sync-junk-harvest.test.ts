@@ -170,10 +170,6 @@ describe("what a mailbox says about the addresses on its messages", () => {
 		assert.equal(saved.junk.length, 2);
 	});
 
-	/**
-	 * Deleting spam must not put its sender back in autocomplete, and keeping a
-	 * deleted correspondent must not take theirs out.
-	 */
 	it("keeps a message in Trash from deciding either way", async () => {
 		const saved = await save(mailboxAt("Trash", [MailboxSpecialUse.Trash]));
 

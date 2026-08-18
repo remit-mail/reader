@@ -128,14 +128,8 @@ test.describe("Spam rescue", () => {
 		);
 	});
 
-	/**
-	 * The other half of what that lookup answers. A sender the account has only
-	 * ever met in Spam is not a contact, and offering it back on a fragment is
-	 * how the spoofed display name of #826 reached a compose field (#822). The
-	 * exact-address resolution above and this are the same endpoint, and both
-	 * have to hold at once — so this runs before the rescue, while the seeded
-	 * message still lives nowhere but Junk.
-	 */
+	// Must run before the rescue below, while the seeded message still lives
+	// nowhere but Junk.
 	test("a sender only ever seen in Spam is not suggested on a fragment", async ({
 		api,
 		run,
