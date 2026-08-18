@@ -268,6 +268,61 @@ describe("addresses standing only on mail in Junk", () => {
 		assert.equal(withheld("ex-colleague"), false);
 	});
 
+	test("one deleted message does not keep a spammer suggestible", async () => {
+		address("spammer");
+		sighting("spammer", "spam-1");
+		sighting("spammer", "bin-1");
+
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		assert.equal(withheld("spammer"), true);
+	});
+
+	test("Trash reads the same whichever move happened first", async () => {
+		address("junk-then-bin");
+		address("bin-then-junk");
+		sighting("junk-then-bin", "spam-1");
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		sighting("junk-then-bin", "bin-1");
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		sighting("bin-then-junk", "bin-1");
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		sighting("bin-then-junk", "spam-1");
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		assert.equal(withheld("junk-then-bin"), true);
+		assert.equal(withheld("bin-then-junk"), true);
+	});
+
+	test("a cold sweep agrees with the moves that built the state", async () => {
+		address("spammer");
+		sighting("spammer", "spam-1");
+		sighting("spammer", "bin-1");
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		sqlite
+			.prepare("UPDATE address SET flags = '{}' WHERE address_id = ?")
+			.run("spammer");
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		assert.equal(withheld("spammer"), true);
+	});
+
+	test("deleting every spam message leaves the mark standing", async () => {
+		address("spammer");
+		sighting("spammer", "spam-1");
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		sqlite
+			.prepare("UPDATE message SET mailbox_id = 'trash' WHERE message_id = ?")
+			.run("spam-1");
+		const report = await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		assert.equal(report.restorable, 0);
+		assert.equal(withheld("spammer"), true);
+	});
+
 	test("deleting the spam does not put its sender back", async () => {
 		address("spammer");
 		sighting("spammer", "spam-1");

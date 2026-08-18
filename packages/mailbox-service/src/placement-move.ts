@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import type {
+	IAddressRepository,
 	IMessagePlacementMoveRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
@@ -42,6 +43,7 @@ export interface PlacementMoveConfig {
 	messageService: IMessageRepository;
 	threadMessageService: IThreadMessageRepository;
 	markerService: IMessagePlacementMoveRepository;
+	addressService: IAddressRepository;
 	sqsQueueUrl: string;
 	sqsEndpoint?: string;
 	logger?: PlacementMoveLogger;
@@ -84,6 +86,7 @@ export class PlacementMoveService {
 	private messageService: IMessageRepository;
 	private threadMessageService: IThreadMessageRepository;
 	private markerService: IMessagePlacementMoveRepository;
+	private addressService: IAddressRepository;
 	private sqs: SQSClient;
 	private queueUrl: string;
 	private log: PlacementMoveLogger;
@@ -94,6 +97,7 @@ export class PlacementMoveService {
 		this.messageService = config.messageService;
 		this.threadMessageService = config.threadMessageService;
 		this.markerService = config.markerService;
+		this.addressService = config.addressService;
 		this.queueUrl = config.sqsQueueUrl;
 		this.log = config.logger ?? noopLogger;
 		this.moveSettleTimeoutMs =
@@ -195,6 +199,12 @@ export class PlacementMoveService {
 			originalMailboxId: sourceMailboxId,
 			originalUid: message.uid,
 		});
+
+		// Part of the local move, after the Message row that carries the
+		// destination: the classifier demoting mail is the highest-volume way a
+		// sender reaches Junk, and it must mark them here rather than at the next
+		// boot.
+		await this.addressService.reconcileJunkOnlyForMessage(messageId);
 
 		// The queue kick is a serious operational step, not a routine one — a
 		// failure here MUST propagate (never swallowed): the marker stays

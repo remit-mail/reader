@@ -492,6 +492,7 @@ export const buildOrganizeMoveService = (
 		messageService: client.message,
 		threadMessageService: client.threadMessage,
 		markerService: client.placementMove,
+		addressService: client.address,
 		sqsQueueUrl: queueUrl,
 	});
 };

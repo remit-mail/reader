@@ -60,11 +60,15 @@ const sightingWhere = (extra: string): string => `exists (
 	WHERE envelope_address.address_id = address.address_id${extra}
 )`;
 
-const ANY_SIGHTING = sightingWhere("");
+// Both directions read these same two facts, and Trash is in neither: a
+// deleted message is evidence of nothing, so it can no more mark a sender than
+// it can clear one. Reading it as "outside Junk" let a single deleted message
+// keep a spammer suggestible, and made the outcome depend on the order the two
+// moves happened in.
+const SIGHTING_IN_JUNK = sightingWhere(` AND ${IN_JUNK}`);
 const SIGHTING_IN_LIVE_MAIL = sightingWhere(
 	` AND NOT ${IN_JUNK} AND NOT ${IN_TRASH}`,
 );
-const EVERY_SIGHTING_IN_JUNK = `NOT ${sightingWhere(` AND NOT ${IN_JUNK}`)}`;
 
 // Only what the account has done with the sender, or said in its favour.
 // Blocking or muting is the opposite opinion and must neither bar the mark nor
@@ -78,8 +82,8 @@ export const ACCOUNT_HAS_CORRESPONDED = `(
 
 export const WITHHOLDABLE = `NOT ${flagIsSet(JUNK_ONLY_FLAG)}
 	AND NOT ${ACCOUNT_HAS_CORRESPONDED}
-	AND ${ANY_SIGHTING}
-	AND ${EVERY_SIGHTING_IN_JUNK}`;
+	AND ${SIGHTING_IN_JUNK}
+	AND NOT ${SIGHTING_IN_LIVE_MAIL}`;
 
 export const RESTORABLE = `${flagIsSet(JUNK_ONLY_FLAG)}
 	AND (${ACCOUNT_HAS_CORRESPONDED} OR ${SIGHTING_IN_LIVE_MAIL})`;

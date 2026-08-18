@@ -33,12 +33,10 @@ export const AddressField = ({
 
 	const suggestions = useMemo<AddressEntry[]>(
 		() =>
-			(data?.items ?? [])
-				.filter((item) => offerableAsRecipient(item.flags))
-				.map((item) => ({
-					email: item.normalizedEmail,
-					displayName: item.displayName,
-				})),
+			(data?.items ?? []).filter(offerableAsRecipient).map((item) => ({
+				email: item.normalizedEmail,
+				displayName: item.displayName,
+			})),
 		[data],
 	);
 
