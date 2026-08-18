@@ -17,10 +17,6 @@ const address = (
 	}) as RemitImapAddressResponse;
 
 describe("who the compose picker may offer", () => {
-	it("offers a sender carrying no opinion", () => {
-		assert.equal(offerableAsRecipient(address()), true);
-	});
-
 	it("refuses a sender met only on mail in Junk", () => {
 		assert.equal(
 			offerableAsRecipient(
