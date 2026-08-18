@@ -25,9 +25,19 @@ export function useIntelligenceDrawer(
 	openThreadId: string | null,
 ): IntelligenceDrawer {
 	const [drawerThreadId, setDrawerThreadId] = useState<string | null>(null);
+	// Leaving the thread puts the drawer away for good, rather than leaving it
+	// armed for the reader's return. Held state alone would reopen it: press
+	// system Back and come to the same message again and the scrim would be
+	// waiting, which is the defect this hook exists to end (#778).
+	//
+	// Adjusted during render, not in an effect: React re-runs the render before
+	// committing, so nothing paints with the stale thread. An effect would show
+	// one frame of an open drawer over the message first.
+	if (drawerThreadId !== null && drawerThreadId !== openThreadId) {
+		setDrawerThreadId(null);
+	}
 	// Derived rather than stored: moving to another thread closes it with no
-	// effect to run. Closing it from an effect would paint one frame of an open
-	// drawer over the newly opened thread first.
+	// effect to run.
 	const isOpen = openThreadId !== null && drawerThreadId === openThreadId;
 
 	const close = useCallback(() => setDrawerThreadId(null), []);

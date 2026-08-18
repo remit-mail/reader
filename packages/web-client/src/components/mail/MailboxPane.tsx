@@ -508,23 +508,6 @@ function MailboxPaneProvider({
 	const focusedThread =
 		threads.find((t) => t.messageId === triageFocusedId) ?? selectedThread;
 
-	// Auto-open intelligence pane on DKIM mismatch.
-	const autoOpenedForRef = useRef<string | null>(null);
-	useEffect(() => {
-		const id = selectedThread?.messageId ?? null;
-		if (!id) return;
-		if (autoOpenedForRef.current === id) return;
-		if (selectedThread?.authenticity?.dkimMismatch) {
-			autoOpenedForRef.current = id;
-			if (!intelligenceOpen) onToggleIntelligence();
-		}
-	}, [
-		selectedThread?.messageId,
-		selectedThread?.authenticity?.dkimMismatch,
-		intelligenceOpen,
-		onToggleIntelligence,
-	]);
-
 	// The mailbox's own unseen total. A count over the loaded pages undercounts
 	// every mailbox larger than one page and creeps upward as the user scrolls,
 	// so there is no fallback: until the mailbox resolves there is no number.
@@ -1085,6 +1068,28 @@ function MailboxReading() {
 	// has no room.
 	const railFits = useAppShellLayout()?.showIntelligencePane ?? false;
 	const hasThread = Boolean(conversation);
+
+	// The rail opens itself on a DKIM mismatch. It lives here, behind the rail's
+	// own width gate, because raising it writes `#intelligence` into the address
+	// — and a panel the address names with no renderer behind it is a panel that
+	// opens nothing (`docs/architecture/url-state.md`, R6). Below this width the
+	// banner is the announcement and its "Why?" is the way in.
+	const autoOpenedForRef = useRef<string | null>(null);
+	useEffect(() => {
+		if (!railFits) return;
+		const id = selectedThread?.messageId ?? null;
+		if (!id) return;
+		if (autoOpenedForRef.current === id) return;
+		if (!selectedThread?.authenticity?.dkimMismatch) return;
+		autoOpenedForRef.current = id;
+		if (!intelligenceOpen) onToggleIntelligence();
+	}, [
+		railFits,
+		selectedThread?.messageId,
+		selectedThread?.authenticity?.dkimMismatch,
+		intelligenceOpen,
+		onToggleIntelligence,
+	]);
 
 	const drawer = useIntelligenceDrawer(conversation?.threadId ?? null);
 	const drawerOpen = !railFits && drawer.isOpen;

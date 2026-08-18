@@ -147,20 +147,68 @@ describe("RichTextEditor opening on a caret", () => {
 		assert.equal(document.activeElement === editable, true);
 	});
 
-	it("leaves the caret in a field the reader is typing in", async () => {
-		const elsewhere = document.createElement("input");
-		elsewhere.setAttribute("aria-label", "Search mail");
-		document.body.append(elsewhere);
-		elsewhere.focus();
+	/**
+	 * One case per kind of thing that can hold focus when the chunk lands. The
+	 * open is only allowed to lose to something the reader is typing in.
+	 */
+	const holders: readonly [string, () => HTMLElement, boolean][] = [
+		[
+			"a search field",
+			() => {
+				const field = document.createElement("input");
+				field.setAttribute("aria-label", "Search mail");
+				return field;
+			},
+			true,
+		],
+		[
+			"a subject field with no type attribute",
+			() => document.createElement("input"),
+			true,
+		],
+		["a plain textarea", () => document.createElement("textarea"), true],
+		[
+			"a select being typed through",
+			() => document.createElement("select"),
+			true,
+		],
+		[
+			"another contenteditable",
+			() => {
+				const surface = document.createElement("div");
+				surface.setAttribute("contenteditable", "true");
+				return surface;
+			},
+			true,
+		],
+		[
+			"the button that opened the composer",
+			() => document.createElement("button"),
+			false,
+		],
+		[
+			"a checkbox",
+			() => {
+				const box = document.createElement("input");
+				box.setAttribute("type", "checkbox");
+				return box;
+			},
+			false,
+		],
+	];
 
-		await mount();
+	for (const [what, build, keepsIt] of holders) {
+		it(`${keepsIt ? "leaves the caret on" : "takes the caret from"} ${what}`, async () => {
+			const elsewhere = build();
+			elsewhere.setAttribute("data-holder", "");
+			document.body.append(elsewhere);
+			elsewhere.focus();
 
-		const holder = document.activeElement?.getAttribute("aria-label");
-		elsewhere.remove();
-		assert.equal(
-			holder,
-			"Search mail",
-			`the caret ended up on ${holder ?? "nothing"}`,
-		);
-	});
+			await mount();
+
+			const held = document.activeElement?.hasAttribute("data-holder") === true;
+			elsewhere.remove();
+			assert.equal(held, keepsIt);
+		});
+	}
 });

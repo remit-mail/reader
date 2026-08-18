@@ -30,6 +30,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { isWritingElsewhere } from "./editor-focus.js";
 import { RichTextCorrectionMenu } from "./rich-text-correction-menu.js";
 import { $adoptHtml, $readRichText } from "./rich-text-document.js";
 import { RICH_TEXT_NODES, richTextTheme } from "./rich-text-nodes.js";
@@ -876,24 +877,6 @@ const SpellcheckPlugin = ({
 	);
 };
 
-/**
- * Somewhere the reader is already writing. The editor arrives on its own chunk,
- * so its mount lands whenever that chunk does — on a cold cache, well after the
- * composer opened and the reader moved on to the recipients, the subject or the
- * search field. Taking the caret then takes it out of a sentence in progress,
- * and the rest of what they type lands in the message body.
- */
-const isWritingElsewhere = (root: HTMLElement | null): boolean => {
-	const active = (root?.ownerDocument ?? globalThis.document)?.activeElement;
-	if (!(active instanceof HTMLElement) || active === root) return false;
-	if (root?.contains(active)) return false;
-	return (
-		active.isContentEditable ||
-		active.tagName === "INPUT" ||
-		active.tagName === "TEXTAREA"
-	);
-};
-
 const AutoFocus = ({ caret }: { caret?: ComposeCaret }) => {
 	const [editor] = useLexicalComposerContext();
 
@@ -914,14 +897,7 @@ const AutoFocus = ({ caret }: { caret?: ComposeCaret }) => {
 					}
 					root.selectEnd();
 				},
-				{
-					onUpdate: () => {
-						// Checked again here: the update settles a turn later, which is
-						// long enough for the reader to have started typing somewhere.
-						if (isWritingElsewhere(editor.getRootElement())) return;
-						editor.focus();
-					},
-				},
+				{ onUpdate: () => editor.focus() },
 			);
 		}, 0);
 		return () => clearTimeout(timer);
