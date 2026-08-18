@@ -1027,6 +1027,52 @@ describe("AddressRepo", () => {
 			]);
 		});
 
+		/**
+		 * The same endpoint resolves one exact sender for the per-sender controls
+		 * a message view renders. Withholding that answer would leave every one of
+		 * them dead on a spam message.
+		 */
+		test("an exact address still resolves a withheld row", async () => {
+			const accountConfigId = randomId();
+			const withheld = await repo.upsertJunkAddress(
+				junkInput(accountConfigId, "sales@pharma.example"),
+			);
+
+			const page = await repo.listByAccountConfig({
+				accountConfigId,
+				search: "sales@pharma.example",
+			});
+
+			assert.deepEqual(
+				page.items.map((a) => a.addressId),
+				[withheld.addressId],
+			);
+
+			await repo.deleteAddress(accountConfigId, withheld.addressId);
+		});
+
+		test("a bare listing never offers a withheld address", async () => {
+			const accountConfigId = randomId();
+			const withheld = await repo.upsertJunkAddress(
+				junkInput(accountConfigId, "sales@pharma.example"),
+			);
+			const ordinary = await repo.upsertAddress(
+				makeAddressInput(accountConfigId, "colleague@pharma.example"),
+			);
+
+			const page = await repo.listByAccountConfig({ accountConfigId });
+
+			assert.deepEqual(
+				page.items.map((a) => a.addressId),
+				[ordinary.addressId],
+			);
+
+			await repo.deleteManyAddresses(accountConfigId, [
+				withheld.addressId,
+				ordinary.addressId,
+			]);
+		});
+
 		test("the row is still there to resolve the message that carried it", async () => {
 			const accountConfigId = randomId();
 			const input = junkInput(accountConfigId, "sales@pharma.example");

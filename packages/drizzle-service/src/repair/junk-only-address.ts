@@ -142,7 +142,7 @@ export const sweepJunkOnlyAddresses = async (
 			: await client.run(
 					`UPDATE address
 					 SET flags = json_set(${FLAGS}, '$.junkOnly',
-						 json_object('value', json('true'), 'setAt', ?, 'setBy', '${REPAIR_SET_BY}')),
+						 json_object('value', json('true'), 'setAt', CAST(? AS INTEGER), 'setBy', '${REPAIR_SET_BY}')),
 						 updated_at = ?
 					 WHERE ${WITHHOLDABLE}`,
 					[now, now],

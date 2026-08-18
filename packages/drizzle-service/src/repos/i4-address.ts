@@ -632,7 +632,7 @@ export class AddressRepo implements IAddressRepository {
 				and(
 					eq(addressTable.accountConfigId, accountConfigId),
 					search ? addressSearchMatch(search) : undefined,
-					addressSuggestible(),
+					addressSuggestible(search),
 					position ? after(order, position) : undefined,
 				),
 			)

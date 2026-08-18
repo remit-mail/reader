@@ -173,6 +173,8 @@ describe("addresses standing only on mail in Junk", () => {
 		assert.equal(report.withholdable, 1);
 		assert.equal(report.withheld, 1);
 		assert.equal(withheld("spammer"), true);
+		// `int64` on the wire, so the timestamp must not land as a float.
+		assert.match(read("spammer").flags, /"setAt":\d+,/);
 	});
 
 	test("keeps an address with one sighting outside Junk", async () => {

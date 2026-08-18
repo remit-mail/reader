@@ -81,13 +81,23 @@ export const addressPreference = (): SQL<number> =>
 	sql<number>`(2 * ${flagValue("vip")} + ${flagValue("trusted")})`;
 
 /**
- * Whether the account has ever met this address outside a Junk folder (#822).
- * Sync marks an address it only ever saw inside Junk, and the boot-time repair
- * marks the ones already stored; a suggestion list is the one place that mark
- * withholds a row, so the address book keeps it and the message it came on
- * still renders it.
+ * What a suggestion list may offer (#822). Sync marks an address it has only
+ * ever met inside a Junk folder, and the boot-time repair marks the ones
+ * already stored; the row itself stays, so the message that carried it still
+ * renders it.
+ *
+ * The mark is lifted for a term that spells the address out. This endpoint
+ * answers two questions with one query — what the reader could mean by a
+ * fragment, and which row is this exact sender — and only the first is a
+ * suggestion. Withholding the second turns every per-sender control on a spam
+ * message into a dead button, and a reader who typed the whole address is not
+ * being offered anything they did not already have.
  */
-export const addressSuggestible = (): SQL => sql`${flagValue("junkOnly")} = 0`;
+export const addressSuggestible = (term: string | undefined): SQL => {
+	const unmarked = sql`${flagValue("junkOnly")} = 0`;
+	if (!term) return unmarked;
+	return sql`(${unmarked} or ${addressTable.normalizedEmail} = ${term.toLowerCase()})`;
+};
 
 export const addressCorrespondence = (): SQL<number> =>
 	sql<number>`(${addressTable.replyCount} + ${addressTable.inboundCount} + ${addressTable.outboundCount})`;
