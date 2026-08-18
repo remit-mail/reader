@@ -7,6 +7,7 @@ import {
 	type CanonicalMailboxRoleValue,
 	composeFolderRoleAppointmentName,
 	type RoleMailboxCandidate,
+	resolveConfirmedMailboxForRole,
 	resolveMailboxForRole,
 } from "@remit/data-ports/folder-role";
 import { CanonicalMailboxRole } from "@remit/domain-enums";
@@ -34,7 +35,11 @@ function rowToSpecialUse(
 }
 
 export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
-	constructor(private db: DB) {}
+	private readonly accountSetting: AccountSettingRepo;
+
+	constructor(private db: DB) {
+		this.accountSetting = new AccountSettingRepo(db);
+	}
 
 	async create(
 		mailboxId: string,
@@ -103,6 +108,16 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 		return this.findMailboxForRole(accountId, CanonicalMailboxRole.Trash);
 	}
 
+	findConfirmedTrashMailbox(
+		accountId: string,
+	): Promise<{ mailboxId: string; fullPath: string } | null> {
+		return this.findMailboxForRole(
+			accountId,
+			CanonicalMailboxRole.Trash,
+			resolveConfirmedMailboxForRole,
+		);
+	}
+
 	findArchiveMailbox(
 		accountId: string,
 	): Promise<{ mailboxId: string; fullPath: string } | null> {
@@ -125,12 +140,13 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 	private async findMailboxForRole(
 		accountId: string,
 		role: CanonicalMailboxRoleValue,
+		resolve: typeof resolveMailboxForRole = resolveMailboxForRole,
 	): Promise<{ mailboxId: string; fullPath: string } | null> {
 		const [candidates, appointedMailboxId] = await Promise.all([
 			this.roleCandidates(accountId),
 			this.appointedMailboxId(accountId, role),
 		]);
-		const found = resolveMailboxForRole(role, candidates, appointedMailboxId);
+		const found = resolve(role, candidates, appointedMailboxId);
 		return found
 			? { mailboxId: found.mailboxId, fullPath: found.fullPath }
 			: null;
@@ -151,7 +167,7 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 			.where(eq(accountTable.accountId, accountId));
 		if (!account) return undefined;
 
-		const setting = await new AccountSettingRepo(this.db).get(
+		const setting = await this.accountSetting.get(
 			account.accountConfigId,
 			composeFolderRoleAppointmentName(accountId, role),
 		);

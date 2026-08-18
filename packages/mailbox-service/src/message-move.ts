@@ -649,19 +649,25 @@ export class MessageMoveService {
 	};
 
 	/**
-	 * Empty the Trash mailbox (permanent delete all).
+	 * Empty the Trash mailbox: an EXPUNGE of everything in it, with no undo.
 	 *
-	 * @param accountId - Account ID
+	 * Resolved through `findConfirmedTrashMailbox`, so the folder is the one the
+	 * user appointed or the one the server flagged \Trash — never one that
+	 * merely reads like a trash folder. A user with an ordinary folder called
+	 * `Deleted` would otherwise lose its contents permanently, and on a
+	 * `.`-delimited server the old whole-path name match resolved nothing at all
+	 * and the operation reported success over an empty count. Unresolved is a
+	 * refusal that names the remedy, not a silent no-op.
 	 */
 	emptyTrash = async (
 		accountConfigId: string,
 		accountId: string,
 	): Promise<void> => {
 		const trashMailbox =
-			await this.mailboxSpecialUseService.findTrashMailbox(accountId);
+			await this.mailboxSpecialUseService.findConfirmedTrashMailbox(accountId);
 
 		if (!trashMailbox) {
-			throw new Error("No Trash mailbox found for account");
+			throw new NoTrashMailboxError();
 		}
 
 		// Get all messages in Trash

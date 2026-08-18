@@ -157,6 +157,32 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 		assert.equal(found?.mailboxId, archive.mailboxId);
 	});
 
+	test("never offers a user folder named Deleted as the Trash to expunge", async () => {
+		// Empty Trash EXPUNGES what this returns. An ordinary folder called
+		// `Deleted` matches the name proposal, and emptying it would destroy mail
+		// the user never put in a trash folder (audit #841).
+		const { accountId, accountConfigId } = await makeAccount();
+		await mailboxes.create(makeMailboxInput(accountId, "INBOX"));
+		const keepsakes = await mailboxes.create(
+			makeMailboxInput(accountId, "Deleted"),
+		);
+		const trash = await mailboxes.create(
+			makeMailboxInput(accountId, "[Gmail]/Trash"),
+		);
+
+		assert.equal(await repo.findConfirmedTrashMailbox(accountId), null);
+
+		await appoint(
+			accountConfigId,
+			accountId,
+			CanonicalMailboxRole.Trash,
+			trash.mailboxId,
+		);
+		const confirmed = await repo.findConfirmedTrashMailbox(accountId);
+		assert.equal(confirmed?.mailboxId, trash.mailboxId);
+		assert.notEqual(confirmed?.mailboxId, keepsakes.mailboxId);
+	});
+
 	test("resolves an INBOX-nested Junk folder that advertises \\Junk", async () => {
 		const { accountId } = await makeAccount();
 		await mailboxes.create(makeMailboxInput(accountId, "INBOX"));

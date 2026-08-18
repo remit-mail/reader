@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { CanonicalMailboxRole, MailboxSpecialUse } from "@remit/domain-enums";
 import {
 	type RoleMailboxCandidate,
+	resolveConfirmedMailboxForRole,
 	resolveMailboxForRole,
 } from "./folder-role.js";
 
@@ -121,6 +122,46 @@ describe("resolveMailboxForRole on [Gmail]/Trash beside a top-level Bin", () => 
 		assert.equal(
 			resolveMailboxForRole(CanonicalMailboxRole.Trash, flagged)?.mailboxId,
 			"mb-gmail-trash",
+		);
+	});
+});
+
+describe("resolveConfirmedMailboxForRole", () => {
+	// What Empty Trash resolves through: an expunge may only touch a folder
+	// somebody actually designated (audit #841).
+	const mailboxes = [
+		mailbox("mb-inbox", "INBOX"),
+		mailbox("mb-deleted", "Deleted"),
+		mailbox("mb-gmail-trash", "[Gmail]/Trash"),
+	];
+
+	it("refuses a folder that only matches by name", () => {
+		assert.equal(
+			resolveConfirmedMailboxForRole(CanonicalMailboxRole.Trash, mailboxes),
+			null,
+		);
+	});
+
+	it("takes the appointment over the folder the name rule would have picked", () => {
+		assert.equal(
+			resolveConfirmedMailboxForRole(
+				CanonicalMailboxRole.Trash,
+				mailboxes,
+				"mb-gmail-trash",
+			)?.mailboxId,
+			"mb-gmail-trash",
+		);
+	});
+
+	it("takes the server flag when nothing is appointed", () => {
+		const flagged = [
+			mailbox("mb-deleted", "Deleted"),
+			mailbox("mb-trash", "[Gmail]/Trash", [MailboxSpecialUse.Trash]),
+		];
+		assert.equal(
+			resolveConfirmedMailboxForRole(CanonicalMailboxRole.Trash, flagged)
+				?.mailboxId,
+			"mb-trash",
 		);
 	});
 });

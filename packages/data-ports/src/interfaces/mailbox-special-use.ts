@@ -30,6 +30,14 @@ export interface IMailboxSpecialUseRepository {
 	findTrashMailbox(
 		accountId: string,
 	): Promise<{ mailboxId: string; fullPath: string } | null>;
+	/**
+	 * Trash without the name guess: the appointment or the \Trash flag, nothing
+	 * else. Empty Trash expunges whatever this returns, and a folder merely
+	 * named `Deleted` is not consent to destroy its contents.
+	 */
+	findConfirmedTrashMailbox(
+		accountId: string,
+	): Promise<{ mailboxId: string; fullPath: string } | null>;
 	findArchiveMailbox(
 		accountId: string,
 	): Promise<{ mailboxId: string; fullPath: string } | null>;

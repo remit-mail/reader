@@ -110,23 +110,18 @@ export interface RoleMailboxCandidate extends MailboxNameCandidate {
 }
 
 /**
- * The single mailbox that holds a canonical role for an account (RFC 032
- * exclusive-folder-appointment, #976), in one precedence order every caller
- * shares:
+ * The mailbox a role is CONFIRMED to hold: the one the user appointed, or the
+ * one the server flagged (RFC 6154). No name guessing — `null` here means
+ * nobody has said which folder this is, only that a folder happens to be named
+ * something plausible. An operation that destroys mail resolves through this
+ * and refuses when it comes back empty; `resolveMailboxForRole` adds the guess
+ * on top for the operations where being wrong only misfiles a message.
  *
- * 1. the mailbox the user appointed, when it is still one of this account's
- *    mailboxes — an appointment naming a folder that has since been deleted or
- *    renamed, or one carried over from another account, is stale and resolves
- *    on as if unset rather than resolving to nothing;
- * 2. the server's own SPECIAL-USE flag (RFC 6154) — language-independent truth;
- * 3. the reserved `INBOX` name, for the Inbox role only (RFC 3501);
- * 4. a conventional name, matched on the folder's own leaf segment so it
- *    resolves at any depth under any prefix.
- *
- * `null` when nothing matches: the role has no folder, and the caller says so
- * rather than picking one.
+ * An appointment naming a mailbox this account does not hold — deleted,
+ * renamed, or carried in from elsewhere — is stale, and falls through to the
+ * flag as if unset.
  */
-export const resolveMailboxForRole = <T extends RoleMailboxCandidate>(
+export const resolveConfirmedMailboxForRole = <T extends RoleMailboxCandidate>(
 	role: CanonicalMailboxRoleValue,
 	mailboxes: readonly T[],
 	appointedMailboxId?: string,
@@ -143,9 +138,41 @@ export const resolveMailboxForRole = <T extends RoleMailboxCandidate>(
 	}
 
 	if (role === CanonicalMailboxRole.Inbox) {
-		const inbox = mailboxes.find((m) => m.fullPath.toUpperCase() === "INBOX");
-		if (inbox) return inbox;
+		return mailboxes.find((m) => m.fullPath.toUpperCase() === "INBOX") ?? null;
 	}
+
+	return null;
+};
+
+/**
+ * The single mailbox that holds a canonical role for an account (RFC 032
+ * exclusive-folder-appointment, #976), in one precedence order every caller
+ * shares:
+ *
+ * 1. the mailbox the user appointed;
+ * 2. the server's own SPECIAL-USE flag (RFC 6154) — language-independent truth;
+ * 3. the reserved `INBOX` name, for the Inbox role only (RFC 3501);
+ * 4. a conventional name, matched on the folder's own leaf segment so it
+ *    resolves at any depth under any prefix.
+ *
+ * The last of those is a guess: a folder named `Deleted` is not evidence that
+ * the user means it as Trash. Use it only where being wrong misfiles a message
+ * a user can move back — never where it destroys mail.
+ *
+ * `null` when nothing matches: the role has no folder, and the caller says so
+ * rather than picking one.
+ */
+export const resolveMailboxForRole = <T extends RoleMailboxCandidate>(
+	role: CanonicalMailboxRoleValue,
+	mailboxes: readonly T[],
+	appointedMailboxId?: string,
+): T | null => {
+	const confirmed = resolveConfirmedMailboxForRole(
+		role,
+		mailboxes,
+		appointedMailboxId,
+	);
+	if (confirmed) return confirmed;
 
 	const hints = ROLE_NAME_HINTS[role];
 	if (!hints) return null;
