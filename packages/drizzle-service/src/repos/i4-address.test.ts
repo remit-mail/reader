@@ -431,10 +431,19 @@ describe("AddressRepo", () => {
 				"matthijs@ischen.nl aramirez@secresaludguaviare.gov.co",
 			inboundCount: 500,
 		});
+		// The address typed, as a prefix of a domain somebody else registered,
+		// louder than the account's own correspondence with itself.
+		const lookalike = await repo.createAddress({
+			...makeAddressInput(accountConfigId, "matthijs@ischen.nl.evil.example"),
+			displayName: "matthijs@ischen.nl",
+			normalizedCompound: "matthijs@ischen.nl matthijs@ischen.nl.evil.example",
+			inboundCount: 900,
+		});
 		const own = await repo.createAddress({
 			...makeAddressInput(accountConfigId, "matthijs@ischen.nl"),
 			displayName: "Matthijs van Henten",
 			normalizedCompound: "matthijs van henten matthijs@ischen.nl",
+			inboundCount: 3,
 		});
 
 		const found = await repo.listByAccountConfig({
@@ -443,8 +452,8 @@ describe("AddressRepo", () => {
 		});
 		assert.deepEqual(
 			found.items.map((a) => a.normalizedEmail),
-			[own.normalizedEmail, spoof.normalizedEmail],
-			"the address typed must lead the address that only claims it",
+			[own.normalizedEmail, lookalike.normalizedEmail, spoof.normalizedEmail],
+			"the address typed must lead every address that only prefixes or claims it",
 		);
 
 		const onlySuggestion = await repo.listByAccountConfig({
@@ -455,12 +464,53 @@ describe("AddressRepo", () => {
 		assert.deepEqual(
 			onlySuggestion.items.map((a) => a.normalizedEmail),
 			[own.normalizedEmail],
-			"a single suggestion slot goes to the real address",
+			"a single suggestion slot goes to the address that matches whole",
 		);
 
 		await repo.deleteManyAddresses(accountConfigId, [
 			spoof.addressId,
+			lookalike.addressId,
 			own.addressId,
+		]);
+	});
+
+	test("listByAccountConfig keeps a leading display-name match above a domain that only contains the term", async () => {
+		const accountConfigId = randomId();
+		const shop = await repo.createAddress({
+			...makeAddressInput(accountConfigId, "hello@other.test"),
+			displayName: "Corner Shop",
+			normalizedCompound: "corner shop hello@other.test",
+		});
+		const leadingDomain = await repo.createAddress({
+			...makeAddressInput(
+				accountConfigId,
+				"sales@cornerstone-analytics.example",
+			),
+			displayName: "Sales Team",
+			normalizedCompound: "sales team sales@cornerstone-analytics.example",
+			inboundCount: 200,
+		});
+		const middleDomain = await repo.createAddress({
+			...makeAddressInput(accountConfigId, "news@list-corner.example"),
+			displayName: "Loud List",
+			normalizedCompound: "loud list news@list-corner.example",
+			inboundCount: 500,
+		});
+
+		const found = await repo.listByAccountConfig({
+			accountConfigId,
+			search: "corner",
+		});
+		assert.deepEqual(
+			found.items.map((a) => a.addressId),
+			[shop.addressId, leadingDomain.addressId, middleDomain.addressId],
+			"the name a reader types stays the first suggestion",
+		);
+
+		await repo.deleteManyAddresses(accountConfigId, [
+			shop.addressId,
+			leadingDomain.addressId,
+			middleDomain.addressId,
 		]);
 	});
 

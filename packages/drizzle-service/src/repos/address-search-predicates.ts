@@ -7,23 +7,12 @@ import { addressTable } from "../schema/i4-address.js";
 
 const escapeLike = (term: string): string => term.replace(/[\\%_]/g, "\\$&");
 
-const EMAIL_COLUMNS = [
+const SEARCH_COLUMNS = [
 	sql`${addressTable.normalizedEmail}`,
 	sql`${addressTable.localPart}`,
+	sql`lower(coalesce(${addressTable.displayName}, ''))`,
 	sql`${addressTable.domain}`,
 ] as const;
-
-const storedDisplayName = sql`lower(coalesce(${addressTable.displayName}, ''))`;
-
-/**
- * A display name is free text the sender picks. One shaped like an address that
- * is not this row's own address claims an identity the row cannot back, so it
- * is not read as a name at all: the row stays findable through the folded
- * compound, at no rank, below every row the term genuinely addresses.
- */
-const SPOOFED_DISPLAY_NAME = sql`(${storedDisplayName} like '%_@_%.__%' and ${storedDisplayName} <> ${addressTable.normalizedEmail})`;
-
-const DISPLAY_NAME_COLUMN = sql`(case when ${SPOOFED_DISPLAY_NAME} then '' else ${storedDisplayName} end)`;
 
 /**
  * SQL `lower()` and `like` both fold ASCII only, so a column read through them
@@ -47,7 +36,7 @@ const patterns = (term: string) => {
 export const addressSearchMatch = (term: string): SQL => {
 	const { anywhere } = patterns(term);
 	const matched = or(
-		...[...EMAIL_COLUMNS, DISPLAY_NAME_COLUMN, FOLDED_FALLBACK].map((column) =>
+		...[...SEARCH_COLUMNS, FOLDED_FALLBACK].map((column) =>
 			like(column, anywhere),
 		),
 	);
@@ -56,37 +45,29 @@ export const addressSearchMatch = (term: string): SQL => {
 };
 
 /**
- * The first condition that holds, scored highest-first, zero when none does.
- */
-const tier = (conditions: readonly SQL[]): SQL<number> => {
-	const arms = conditions.map(
-		(condition, index) =>
-			sql`when ${condition} then ${conditions.length - index}`,
-	);
-	return sql<number>`case ${sql.join(arms, sql` `)} else 0 end`;
-};
-
-/**
- * Where the term hit, as one number. The address decides it: a match on the
- * whole address, the local part or the domain outranks any display-name match,
- * and within each group a match at the start outranks one in the middle. The
- * display name only separates rows the address ranks equally. A mid-string
- * match still comes back — this only decides the order.
+ * Where the term hit, as one number, highest tier first. The address the term
+ * spells out ranks above every prefix of it: a display name is free text the
+ * sender picks, and a domain somebody else registered is a prefix away from the
+ * address the reader typed, so neither may take the suggestion slot from the
+ * address that matches whole. Below that, a match at the start of a column
+ * outranks one in the middle, and within each the whole address, the local part
+ * and the display name outrank the domain they share. A mid-string match still
+ * comes back — this only decides the order.
  */
 export const addressMatchRank = (term: string | undefined): SQL<number> => {
 	// Not the bare literal `0`: SQLite reads an integer literal in ORDER BY as a
 	// column index and rejects it as out of range.
 	if (!term) return sql<number>`cast(0 as integer)`;
 	const { leading, anywhere } = patterns(term);
-	const addressTiers = [
-		...EMAIL_COLUMNS.map((column) => like(column, leading)),
-		...EMAIL_COLUMNS.map((column) => like(column, anywhere)),
+	const tiers = [
+		sql`${addressTable.normalizedEmail} = ${term.toLowerCase()}`,
+		...SEARCH_COLUMNS.map((column) => like(column, leading)),
+		...SEARCH_COLUMNS.map((column) => like(column, anywhere)),
 	];
-	const nameTiers = [
-		like(DISPLAY_NAME_COLUMN, leading),
-		like(DISPLAY_NAME_COLUMN, anywhere),
-	];
-	return sql<number>`(${tier(addressTiers)} * ${nameTiers.length + 1} + ${tier(nameTiers)})`;
+	const arms = tiers.map(
+		(condition, index) => sql`when ${condition} then ${tiers.length - index}`,
+	);
+	return sql<number>`case ${sql.join(arms, sql` `)} else 0 end`;
 };
 
 // `json_extract` raises on text that is not JSON, and this runs on every row in
