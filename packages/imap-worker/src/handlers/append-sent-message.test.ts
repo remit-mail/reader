@@ -31,7 +31,11 @@ interface Harness {
 	};
 	outbox: Record<string, unknown>;
 	specialUseSent: { mailboxId: string; fullPath: string } | null;
-	mailboxes: { mailboxId: string; fullPath: string }[];
+	mailboxes: {
+		mailboxId: string;
+		fullPath: string;
+		hierarchyDelimiter: string;
+	}[];
 	append: (
 		path: string,
 		raw: Buffer,
@@ -66,8 +70,12 @@ const fresh = (): Harness => ({
 	},
 	specialUseSent: { mailboxId: "sent-mbx", fullPath: "Sent" },
 	mailboxes: [
-		{ mailboxId: "inbox-mbx", fullPath: "INBOX" },
-		{ mailboxId: "sent-items-mbx", fullPath: "Sent Items" },
+		{ mailboxId: "inbox-mbx", fullPath: "INBOX", hierarchyDelimiter: "/" },
+		{
+			mailboxId: "sent-items-mbx",
+			fullPath: "Sent Items",
+			hierarchyDelimiter: "/",
+		},
 	],
 	append: async (path, raw, flags) => {
 		h.calls.push({ method: "connection.append", args: [path, raw, flags] });
@@ -87,6 +95,7 @@ const deps = (): AppendSentMessageDeps =>
 			},
 			outboxMessage: {
 				get: async () => h.outbox,
+				update: record("outboxMessage.update"),
 				delete: record("outboxMessage.delete"),
 			},
 			outboxAttachment: {
@@ -96,7 +105,7 @@ const deps = (): AppendSentMessageDeps =>
 				findBySpecialUse: async () => h.specialUseSent,
 			},
 			mailbox: {
-				listByAccount: async () => ({ items: h.mailboxes }),
+				listAllByAccount: async () => h.mailboxes,
 			},
 			secrets: {},
 		}),
@@ -188,14 +197,66 @@ describe("handleAppendSentMessage", () => {
 		assert.equal(called("connection.append")[0]?.args[0], "Sent Items");
 	});
 
-	it("skips the append when the account has no Sent folder at all", async () => {
+	it("files into a Sent folder nested under INBOX when no special-use flag is set", async () => {
 		h.specialUseSent = null;
-		h.mailboxes = [{ mailboxId: "inbox-mbx", fullPath: "INBOX" }];
+		h.mailboxes = [
+			{ mailboxId: "inbox-mbx", fullPath: "INBOX", hierarchyDelimiter: "/" },
+			{
+				mailboxId: "sent-mbx",
+				fullPath: "INBOX/Sent",
+				hierarchyDelimiter: "/",
+			},
+			{
+				mailboxId: "sent-messages-mbx",
+				fullPath: "INBOX/Sent Messages",
+				hierarchyDelimiter: "/",
+			},
+		];
+
+		await handleAppendSentMessage(event, noopLog, deps());
+
+		assert.equal(called("connection.append")[0]?.args[0], "INBOX/Sent");
+		assert.deepEqual(called("outboxMessage.delete")[0]?.args, [
+			"cfg-1",
+			"out-1",
+		]);
+	});
+
+	it("files into a nested Sent folder under a non-INBOX prefix and a dot delimiter", async () => {
+		h.specialUseSent = null;
+		h.mailboxes = [
+			{ mailboxId: "inbox-mbx", fullPath: "INBOX", hierarchyDelimiter: "." },
+			{
+				mailboxId: "sent-mbx",
+				fullPath: "Mail.Sent Items",
+				hierarchyDelimiter: ".",
+			},
+		];
+
+		await handleAppendSentMessage(event, noopLog, deps());
+
+		assert.equal(called("connection.append")[0]?.args[0], "Mail.Sent Items");
+	});
+
+	it("settles the row as unfiled when the account has no Sent folder at all", async () => {
+		h.specialUseSent = null;
+		h.mailboxes = [
+			{ mailboxId: "inbox-mbx", fullPath: "INBOX", hierarchyDelimiter: "/" },
+		];
 
 		await handleAppendSentMessage(event, noopLog, deps());
 
 		assert.equal(called("connection.append").length, 0);
 		assert.equal(called("outboxMessage.delete").length, 0);
+
+		// The message was delivered over SMTP. Leaving the row at `sent` hides it
+		// from the Outbox list and it exists in no server folder either, so the
+		// user loses it entirely.
+		const update = called("outboxMessage.update")[0];
+		assert.deepEqual(update?.args.slice(0, 2), ["cfg-1", "out-1"]);
+		const patch = update?.args[2] as { status: string; lastError: string };
+		assert.equal(patch.status, "unfiled");
+		assert.match(patch.lastError, /no Sent folder/);
 	});
 
 	it("skips the append while the outbox row is not yet sent", async () => {

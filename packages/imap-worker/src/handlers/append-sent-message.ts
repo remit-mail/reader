@@ -3,7 +3,7 @@ import type {
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
 } from "@remit/data-ports";
-import { MailboxSpecialUse } from "@remit/domain-enums";
+import { MailboxSpecialUse, OutboxMessageStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
 	buildMailMessage,
@@ -12,6 +12,7 @@ import {
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { AppendSentMessageEvent } from "../events.js";
+import { resolveSentMailboxByName } from "../sent-mailbox.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
@@ -28,25 +29,12 @@ const findSentMailbox = async (
 		return bySpecialUse;
 	}
 
-	const commonSentNames = [
-		"Sent",
-		"Sent Items",
-		"Sent Messages",
-		"[Gmail]/Sent Mail",
-	];
-	const mailboxResult = await mailboxService.listByAccount(accountId);
-
-	for (const name of commonSentNames) {
-		const found = mailboxResult.items.find(
-			(m) => m.fullPath.toLowerCase() === name.toLowerCase(),
-		);
-		if (found) {
-			return { mailboxId: found.mailboxId, fullPath: found.fullPath };
-		}
-	}
-
-	return null;
+	const mailboxes = await mailboxService.listAllByAccount(accountId);
+	return resolveSentMailboxByName(mailboxes);
 };
+
+const UNFILED_NO_SENT_MAILBOX =
+	"Sent, but not filed: this account has no Sent folder. Create one named Sent and later messages will be filed there.";
 
 export interface AppendSentMessageDeps {
 	getClient: typeof getClient;
@@ -110,7 +98,21 @@ export const handleAppendSentMessage = async (
 		accountId,
 	);
 	if (!sentMailbox) {
-		log.info({ accountId }, "No Sent mailbox found, skipping IMAP APPEND");
+		// The message left over SMTP; only the filing failed. Settling the row
+		// as `unfiled` keeps it in the Outbox list rather than deleting it, so a
+		// delivered message stays readable somewhere.
+		log.error(
+			{ accountId, outboxMessageId },
+			"No Sent mailbox found, marking the sent message unfiled",
+		);
+		await outboxMessageService.update(
+			account.accountConfigId,
+			outboxMessageId,
+			{
+				status: OutboxMessageStatus.unfiled,
+				lastError: UNFILED_NO_SENT_MAILBOX,
+			},
+		);
 		return;
 	}
 

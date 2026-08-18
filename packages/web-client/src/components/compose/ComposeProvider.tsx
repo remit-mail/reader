@@ -59,7 +59,12 @@ export const ComposeProvider = ({
 		enabled: !!pollingMessageId,
 		refetchInterval: (query) => {
 			const status = query.state.data?.status;
-			if (status === "sent" || status === "failed" || status === "blocked")
+			if (
+				status === "sent" ||
+				status === "unfiled" ||
+				status === "failed" ||
+				status === "blocked"
+			)
 				return false;
 			if (Date.now() - startedAtRef.current > MAX_POLL_DURATION_MS)
 				return false;
@@ -72,6 +77,7 @@ export const ComposeProvider = ({
 
 		const terminal =
 			polledMessage.status === "sent" ||
+			polledMessage.status === "unfiled" ||
 			polledMessage.status === "failed" ||
 			polledMessage.status === "blocked";
 

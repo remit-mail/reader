@@ -59,7 +59,7 @@ import {
 	matchesOutboxSearch,
 	outboxQueryIsUnsupported,
 } from "@/lib/outbox-search";
-import { isOutboxListRow, isUnsendableStatus } from "@/lib/outbox-status";
+import { isOutboxListRow, showsLastError } from "@/lib/outbox-status";
 import { normalizeSearchQuery } from "@/lib/search-query";
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { useEditDraft, useRetainOpenPanels } from "@/routing";
@@ -86,6 +86,11 @@ const STATUS_CONFIG: Record<
 		icon: CheckCircle,
 		label: "Sent",
 		className: "text-positive",
+	},
+	unfiled: {
+		icon: AlertTriangle,
+		label: "Sent, not filed",
+		className: "text-warning",
 	},
 	failed: {
 		icon: AlertCircle,
@@ -310,7 +315,7 @@ function OutboxMessageRow({
 	>;
 	if (!STATUS_CONFIG[status]) return null;
 
-	const showError = isUnsendableStatus(message.status);
+	const showError = showsLastError(message.status);
 
 	return (
 		<OutboxRow
@@ -414,7 +419,7 @@ function OutboxMessageDetail({ message, onBack }: OutboxMessageDetailProps) {
 							<span className={cn("text-xs font-medium", config.className)}>
 								{config.label}
 							</span>
-							{isUnsendableStatus(message.status) && message.lastError && (
+							{showsLastError(message.status) && message.lastError && (
 								<span className="text-xs text-fg-muted">
 									— {message.lastError}
 								</span>

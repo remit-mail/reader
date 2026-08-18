@@ -11,7 +11,7 @@ export interface OutboxRowProps {
 	/** Pre-formatted timestamp shown at the row's trailing edge. */
 	time: string;
 	status: OutboxStatus;
-	/** Surfaced after the status label for failed/blocked rows. */
+	/** Surfaced after the status label for failed, blocked and unfiled rows. */
 	error?: string;
 	selected?: boolean;
 	onSelect: () => void;
@@ -26,7 +26,7 @@ export interface OutboxRowProps {
 const tintForStatus = (status: OutboxStatus, selected?: boolean): string => {
 	if (selected) return "bg-accent-2-soft";
 	if (status === "failed") return "bg-danger-soft";
-	if (status === "blocked") return "bg-warning/10";
+	if (status === "blocked" || status === "unfiled") return "bg-warning/10";
 	return "";
 };
 
@@ -49,7 +49,8 @@ export function OutboxRow({
 	onDelete,
 	deleting,
 }: OutboxRowProps) {
-	const showActions = status === "failed" || status === "blocked";
+	const showActions =
+		status === "failed" || status === "blocked" || status === "unfiled";
 
 	return (
 		<div
@@ -96,12 +97,16 @@ export function OutboxRow({
 										} as const,
 									]
 								: []),
-							{
-								label: "Edit as draft",
-								iconOnly: true,
-								icon: <Send className="size-3.5" />,
-								onClick: onEdit,
-							},
+							...(status === "unfiled"
+								? []
+								: [
+										{
+											label: "Edit as draft",
+											iconOnly: true,
+											icon: <Send className="size-3.5" />,
+											onClick: onEdit,
+										} as const,
+									]),
 						]}
 						destructive={{
 							label: "Delete message",

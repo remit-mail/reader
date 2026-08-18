@@ -29,6 +29,7 @@ const STATUS_DESCRIPTORS: Record<OutboxDisplayStatus, OutboxStatusDescriptor> =
 		queued: { label: "Queued", tone: "neutral" },
 		sending: { label: "Sending…", tone: "info" },
 		sent: { label: "Sent", tone: "success" },
+		unfiled: { label: "Sent, not filed", tone: "warning" },
 		failed: { label: "Failed", tone: "error" },
 		blocked: { label: "Blocked", tone: "warning" },
 	};
@@ -56,11 +57,12 @@ export const describeOutboxStatus = (
  *
  * Critically: `sent` is NOT included. A successful send must never display
  * a stale lastError — that is the contradictory "green check + 'SMTP not
- * configured'" UI bug from issue #192.
+ * configured'" UI bug from issue #192. `unfiled` is: the message was
+ * delivered but could not be filed, and the reason is the whole point of
+ * the row still being there.
  */
-export const isUnsendableStatus = (
-	status: RemitImapOutboxMessageStatus,
-): boolean => status === "failed" || status === "blocked";
+export const showsLastError = (status: RemitImapOutboxMessageStatus): boolean =>
+	status === "failed" || status === "blocked" || status === "unfiled";
 
 /**
  * Whether the outbox list view should render this row.
@@ -68,7 +70,9 @@ export const isUnsendableStatus = (
  * `draft` belongs in the Drafts view. `sent` rows are deleted by the IMAP
  * APPEND handler (issue #178) — but until that happens we hide them from
  * the Outbox list so a successfully-sent message never appears in two
- * places at once (issue #193).
+ * places at once (issue #193). `unfiled` is the settled failure of that
+ * APPEND: the message is on no server folder, so the Outbox row is the only
+ * copy the user has and it stays listed.
  */
 export const isOutboxListRow = (
 	status: RemitImapOutboxMessageStatus,

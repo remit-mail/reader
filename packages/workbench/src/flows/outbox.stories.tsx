@@ -9,7 +9,8 @@ import { MailShell } from "../screens/mail-shell.js";
 
 /**
  * Design source for the outbox (#788): the status-tinted message list (queued /
- * sending / sent / failed / blocked), row actions on the unsendable states, and
+ * sending / sent / unfiled / failed / blocked), row actions on the states the
+ * user still has to act on, and
  * the empty zero-state. Mirrors `routes/mail/outbox.tsx`, a two-pane view —
  * list and reading, no intelligence rail — inside the app shell. The status
  * badge is the shared remit-ui `OutboxStatusBadge`.
@@ -34,10 +35,14 @@ interface Row {
 const rowTint: Partial<Record<OutboxStatus, string>> = {
 	failed: "bg-danger-soft",
 	blocked: "bg-warning/10",
+	unfiled: "bg-warning/10",
 };
 
 function OutboxRow({ row }: { row: Row }) {
-	const showActions = row.status === "failed" || row.status === "blocked";
+	const showActions =
+		row.status === "failed" ||
+		row.status === "blocked" ||
+		row.status === "unfiled";
 	return (
 		<div
 			className={`flex items-start gap-3 border-b border-line px-4 py-3 ${
@@ -67,13 +72,15 @@ function OutboxRow({ row }: { row: Row }) {
 							<RotateCcw className="size-3.5" />
 						</button>
 					)}
-					<button
-						type="button"
-						className="rounded-md p-1.5"
-						title="Edit as draft"
-					>
-						<Send className="size-3.5" />
-					</button>
+					{row.status !== "unfiled" && (
+						<button
+							type="button"
+							className="rounded-md p-1.5"
+							title="Edit as draft"
+						>
+							<Send className="size-3.5" />
+						</button>
+					)}
 					<button type="button" className="rounded-md p-1.5" title="Delete">
 						<Trash2 className="size-3.5" />
 					</button>
@@ -120,6 +127,13 @@ export const AllStatuses: Story = {
 								to: "grace@example.com",
 								subject: "Invoice #1042",
 								when: "1:58 PM",
+							},
+							{
+								status: "unfiled",
+								to: "amara@example.com",
+								subject: "Signed lease",
+								when: "1:52 PM",
+								error: "Sent, but not filed: this account has no Sent folder",
 							},
 							{
 								status: "failed",
