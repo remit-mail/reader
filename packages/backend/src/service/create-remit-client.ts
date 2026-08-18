@@ -364,6 +364,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		mailboxService: repositories.mailbox,
 		mailboxSpecialUseService: repositories.mailboxSpecialUse,
 		threadMessageService: repositories.threadMessage,
+		addressService: repositories.address,
 		sqsQueueUrl,
 		logger,
 	});

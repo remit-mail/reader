@@ -1,6 +1,7 @@
 // esbuild bundles this as text (see npm-scripts/docker-bundle.mjs's ".sql"
 // loader) so the migrate step runs the exact SQL the test harness applies —
 // one source of truth, two consumers.
+import sqliteAddressSightingsIndexSql from "../../../npm-scripts/sqlite-address-sightings-index.sql";
 import sqliteSearchIndexSql from "../../../npm-scripts/sqlite-search-index.sql";
 import {
 	type DisplayNameRepairClient,
@@ -97,16 +98,8 @@ import { logger } from "../../logger-lambda/src/logger.js";
  * else.
  *
  * The fourth is an address that stands only on mail in a Junk folder (#822).
- * Sync harvested a contact off every envelope it ever saw, spam included, and
- * offered them all as autocomplete suggestions — 517 of them on the instance
- * that was hit, which is how #826 found a spoofed name to ride. The guard that
- * now refuses them only covers what is harvested next, and purge and re-sync is
- * no remedy either, because the spam is still on the server. Unlike the others
- * this one reconciles in both directions on every boot: it withholds an address
- * whose every sighting is in Junk and restores one the moment a sighting turns
- * up anywhere else, so the mark can never outlive the evidence. Nothing is
- * deleted, and an address the account has written to or replied to is never
- * withheld at all.
+ * It is the one that reconciles in both directions on every boot, so a mark can
+ * never outlive the evidence that set it. Nothing is deleted.
  */
 
 /**
@@ -203,11 +196,6 @@ const strandedSentStep = async (
 	}
 };
 
-/**
- * The rows already harvested out of Junk, reconciled against where their
- * messages actually live. Both directions run in both modes; `check` counts
- * them and writes nothing.
- */
 const junkOnlyAddressStep = async (
 	client: JunkOnlyRepairClient,
 	mode: JunkOnlyRepairMode,
@@ -304,10 +292,9 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		// `outbox_message`, which no index and no trigger installed below covers.
 		await strandedSentStep(paramRepairClient, "repair");
 
-		// After the display-name repair, which rewrites the same `address` rows
-		// this one reads: whichever names are still to be corrected, the mark this
-		// writes must land on top of them rather than under them. It touches only
-		// `address.flags`, which the FTS index below does not cover.
+		logStep({}, "installing address-sightings index (sqlite)");
+		sqlite.exec(sqliteAddressSightingsIndexSql);
+
 		await junkOnlyAddressStep(paramRepairClient, "repair");
 
 		// The external-content FTS5 trigram table + its thread_message

@@ -990,11 +990,6 @@ describe("AddressRepo", () => {
 		await repo.deleteAddress(configB, b.addressId);
 	});
 
-	/**
-	 * The write path's half of #822: an address met inside a Junk mailbox is
-	 * recorded so the message renders it, and withheld from the suggestion list
-	 * until the account meets it anywhere else.
-	 */
 	describe("addresses met only in Junk (#822)", () => {
 		const junkInput = (accountConfigId: string, email: string) => ({
 			...makeAddressInput(accountConfigId, email),
@@ -1007,7 +1002,7 @@ describe("AddressRepo", () => {
 			const withheld = await repo.upsertJunkAddress(
 				junkInput(accountConfigId, "sales@pharma.example"),
 			);
-			const ordinary = await repo.upsertAddress(
+			const ordinary = await repo.upsertCorrespondentAddress(
 				makeAddressInput(accountConfigId, "colleague@pharma.example"),
 			);
 
@@ -1056,7 +1051,7 @@ describe("AddressRepo", () => {
 			const withheld = await repo.upsertJunkAddress(
 				junkInput(accountConfigId, "sales@pharma.example"),
 			);
-			const ordinary = await repo.upsertAddress(
+			const ordinary = await repo.upsertCorrespondentAddress(
 				makeAddressInput(accountConfigId, "colleague@pharma.example"),
 			);
 
@@ -1085,12 +1080,12 @@ describe("AddressRepo", () => {
 			await repo.deleteAddress(accountConfigId, withheld.addressId);
 		});
 
-		test("one sighting outside Junk restores it", async () => {
+		test("one sighting on live mail restores it", async () => {
 			const accountConfigId = randomId();
 			const input = junkInput(accountConfigId, "misfiled@pharma.example");
 			await repo.upsertJunkAddress(input);
 
-			const harvested = await repo.upsertAddress(input);
+			const harvested = await repo.upsertCorrespondentAddress(input);
 
 			assert.equal(harvested.flags?.junkOnly, undefined);
 			const page = await repo.listByAccountConfig({
@@ -1108,7 +1103,10 @@ describe("AddressRepo", () => {
 		test("a sighting in Junk leaves an address the account knows alone", async () => {
 			const accountConfigId = randomId();
 			const known = makeAddressInput(accountConfigId, "friend@pharma.example");
-			await repo.upsertAddress({ ...known, displayName: "Real Friend" });
+			await repo.upsertCorrespondentAddress({
+				...known,
+				displayName: "Real Friend",
+			});
 
 			const after = await repo.upsertJunkAddress({
 				...known,
@@ -1122,6 +1120,61 @@ describe("AddressRepo", () => {
 			await repo.deleteAddress(accountConfigId, known.addressId);
 		});
 
+		test("a sighting in Trash decides nothing either way", async () => {
+			const accountConfigId = randomId();
+			const input = junkInput(accountConfigId, "discarded@pharma.example");
+			await repo.upsertJunkAddress(input);
+
+			const after = await repo.upsertAddress(input);
+
+			assert.equal(after.flags?.junkOnly?.value, true);
+
+			await repo.deleteAddress(accountConfigId, input.addressId);
+		});
+
+		test("a sender the account flagged is offered again", async () => {
+			const accountConfigId = randomId();
+			const input = junkInput(accountConfigId, "reported@pharma.example");
+			await repo.upsertJunkAddress(input);
+			await repo.mergeFlags(accountConfigId, input.addressId, {
+				blocked: { value: true, setAt: 1 },
+			});
+
+			const page = await repo.listByAccountConfig({
+				accountConfigId,
+				search: "pharma",
+			});
+
+			assert.deepEqual(
+				page.items.map((a) => a.addressId),
+				[input.addressId],
+			);
+
+			await repo.deleteAddress(accountConfigId, input.addressId);
+		});
+
+		test("clearing the mark by hand offers the address again", async () => {
+			const accountConfigId = randomId();
+			const input = junkInput(accountConfigId, "rescued@pharma.example");
+			await repo.upsertJunkAddress(input);
+
+			await repo.mergeFlags(accountConfigId, input.addressId, {
+				junkOnly: null,
+			});
+
+			const page = await repo.listByAccountConfig({
+				accountConfigId,
+				search: "pharma",
+			});
+
+			assert.deepEqual(
+				page.items.map((a) => a.addressId),
+				[input.addressId],
+			);
+
+			await repo.deleteAddress(accountConfigId, input.addressId);
+		});
+
 		test("clearing the mark keeps the rest of the flags", async () => {
 			const accountConfigId = randomId();
 			const input = junkInput(accountConfigId, "noisy@pharma.example");
@@ -1130,7 +1183,7 @@ describe("AddressRepo", () => {
 				muted: { value: true, setAt: 7 },
 			});
 
-			const harvested = await repo.upsertAddress(input);
+			const harvested = await repo.upsertCorrespondentAddress(input);
 
 			assert.equal(harvested.flags?.junkOnly, undefined);
 			assert.equal(harvested.flags?.muted?.value, true);

@@ -36,6 +36,7 @@ const FLAG_KEYS = [
 	"blocked",
 	"muted",
 	"vip",
+	"junkOnly",
 	"category",
 	"autoArchive",
 	"unsubscribed",

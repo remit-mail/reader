@@ -22,9 +22,13 @@ import {
 	isValidMessageId,
 } from "@remit/data-ports/id";
 import {
+	isJunkMailbox,
+	isTrashMailbox,
+	type MailboxRole,
+} from "@remit/data-ports/mailbox-role";
+import {
 	AddressRole,
 	MailboxCursorState,
-	MailboxSpecialUse,
 	MessageKeywordFlag,
 	MessageSystemFlag,
 	StarColor,
@@ -87,31 +91,13 @@ export const isParseableEmailAddress = (
 	return host.includes(".");
 };
 
-/**
- * Whether the addresses on a mailbox's messages may enter the address book as
- * ordinary contacts (issue #822).
- *
- * Junk is the one folder whose contents the account never asked for, and every
- * address on a spam message — the forged From, the whole blind-copied list —
- * used to become an autocomplete suggestion indistinguishable from a real
- * correspondent. On the instance that was hit, 517 suggestions came from mail
- * that exists nowhere else, and one of them took private mail to a stranger
- * (#826).
- *
- * The designation is read, never the folder name: a server names its spam
- * folder whatever it likes, and `INBOX/Spam` carrying `\Junk` is what the
- * account in question has. Trash is deliberately not included — deleted mail is
- * largely correspondence, and the address book is where "I once knew this
- * person" belongs.
- *
- * The decision is per mailbox rather than per message, so it needs no
- * cross-folder query: a message that also lives in an ordinary folder is
- * harvested when that folder syncs it, and a message moved out of Junk is
- * harvested when its new folder does.
- */
-export const harvestsAddresses = (mailbox: {
-	specialUse?: MailboxItem["specialUse"];
-}): boolean => !mailbox.specialUse?.includes(MailboxSpecialUse.Junk);
+export type AddressSighting = "junk" | "discarded" | "correspondent";
+
+export const addressSightingIn = (mailbox: MailboxRole): AddressSighting => {
+	if (isJunkMailbox(mailbox)) return "junk";
+	if (isTrashMailbox(mailbox)) return "discarded";
+	return "correspondent";
+};
 
 /**
  * The name an envelope carries for an address, as it should be stored: any
@@ -1369,7 +1355,7 @@ export class MessageSyncService {
 					accountConfigId,
 					addresses,
 					role,
-					harvestsAddresses(mailbox),
+					addressSightingIn(mailbox),
 				);
 			}
 
@@ -1425,7 +1411,7 @@ export class MessageSyncService {
 		accountConfigId: string,
 		addresses: ImapAddress[] | undefined,
 		role: (typeof AddressRole)[keyof typeof AddressRole],
-		harvest: boolean,
+		sighting: AddressSighting,
 	) {
 		if (!addresses) return;
 
@@ -1463,11 +1449,6 @@ export class MessageSyncService {
 
 			const envelopeAddressId = deriveEnvelopeAddressId(messageId, role, order);
 
-			// The EnvelopeAddress below is written either way: it is this message's
-			// own record of who it was addressed to, and a message in Junk has to
-			// render its From, To and Cc like any other. What Junk decides is
-			// whether the Address row behind it enters the address book as an
-			// ordinary contact (#822).
 			const addressInput = {
 				addressId,
 				accountConfigId,
@@ -1477,10 +1458,12 @@ export class MessageSyncService {
 				normalizedCompound,
 				displayName,
 			};
-			if (harvest) {
+			if (sighting === "junk") {
+				await addressService.upsertJunkAddress(addressInput);
+			} else if (sighting === "discarded") {
 				await addressService.upsertAddress(addressInput);
 			} else {
-				await addressService.upsertJunkAddress(addressInput);
+				await addressService.upsertCorrespondentAddress(addressInput);
 			}
 
 			await addressService.upsertEnvelopeAddress({

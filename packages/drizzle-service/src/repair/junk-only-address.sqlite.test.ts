@@ -1,15 +1,5 @@
-/**
- * The repair against the shape a deployment actually runs: the committed
- * `CREATE TABLE` blocks, not a schema pushed from the drizzle table objects.
- *
- * What this has to hold on a live database with no second copy of the data:
- * an address the account has written to or replied to keeps its place however
- * its mail was filed, one sighting outside Junk is enough to keep a row, a
- * mark is lifted again the moment the evidence turns, no row is removed, a
- * second run writes nothing, and `--check` writes nothing at all.
- */
-
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { after, before, beforeEach, describe, test } from "node:test";
 import Database from "better-sqlite3";
 import { shippedTableDdl } from "../test-shipped-sqlite-schema.js";
@@ -136,6 +126,15 @@ describe("addresses standing only on mail in Junk", () => {
 		]) {
 			sqlite.exec(shippedTableDdl(DDL_TAG, table));
 		}
+		sqlite.exec(
+			readFileSync(
+				new URL(
+					"../../../../npm-scripts/sqlite-address-sightings-index.sql",
+					import.meta.url,
+				),
+				"utf8",
+			),
+		);
 	});
 
 	after(() => {
@@ -188,10 +187,6 @@ describe("addresses standing only on mail in Junk", () => {
 		assert.equal(withheld("colleague"), false);
 	});
 
-	/**
-	 * The whole message moved into Junk after it was harvested — the case the
-	 * write-time guard cannot reach, because the harvest already happened.
-	 */
 	test("withholds an address whose only message moved into Junk", async () => {
 		address("newsletter");
 		sighting("newsletter", "mail-1");
@@ -204,10 +199,6 @@ describe("addresses standing only on mail in Junk", () => {
 		assert.equal(withheld("newsletter"), true);
 	});
 
-	/**
-	 * And back out again. The mark is lifted by the same pass that would have
-	 * set it, so a rescue out of the spam folder never needs a second mechanism.
-	 */
 	test("restores an address whose message moved out of Junk", async () => {
 		address("misfiled");
 		sighting("misfiled", "spam-1");
@@ -277,11 +268,58 @@ describe("addresses standing only on mail in Junk", () => {
 		assert.equal(withheld("ex-colleague"), false);
 	});
 
-	/**
-	 * A server that advertises the designation without the normalized entry rows,
-	 * and one that has the rows without the column: either alone is the account's
-	 * Junk folder.
-	 */
+	test("deleting the spam does not put its sender back", async () => {
+		address("spammer");
+		sighting("spammer", "spam-1");
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		sqlite
+			.prepare("UPDATE message SET mailbox_id = 'trash' WHERE message_id = ?")
+			.run("spam-1");
+		const report = await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		assert.equal(report.restorable, 0);
+		assert.equal(withheld("spammer"), true);
+	});
+
+	test("purging the spam does not put its sender back", async () => {
+		address("spammer");
+		sighting("spammer", "spam-1");
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		sqlite.prepare("DELETE FROM message WHERE message_id = ?").run("spam-1");
+		const report = await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		assert.equal(report.restorable, 0);
+		assert.equal(withheld("spammer"), true);
+	});
+
+	test("never withholds a sender the account blocked or muted", async () => {
+		address("reported", {}, '{"blocked":{"value":true,"setAt":1}}');
+		address("hushed", {}, '{"muted":{"value":true,"setAt":1}}');
+		sighting("reported", "spam-1");
+		sighting("hushed", "spam-1");
+
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		assert.equal(withheld("reported"), false);
+		assert.equal(withheld("hushed"), false);
+	});
+
+	test("reads a Junk folder a server does not designate", async () => {
+		mailbox("named-spam", null);
+		message("spam-5", "named-spam");
+		address("by-name");
+		sighting("by-name", "spam-5");
+		sqlite
+			.prepare("UPDATE mailbox SET full_path = 'Spam' WHERE mailbox_id = ?")
+			.run("named-spam");
+
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		assert.equal(withheld("by-name"), true);
+	});
+
 	test("reads the designation from either place it is stored", async () => {
 		mailbox("column-only", '["Junk"]');
 		mailbox("entry-only", null);

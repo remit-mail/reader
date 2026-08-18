@@ -5,6 +5,7 @@ import {
 	type SQSClient,
 } from "@aws-sdk/client-sqs";
 import type {
+	IAddressRepository,
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
 	IMessageRepository,
@@ -96,6 +97,7 @@ export interface MessageMoveConfig {
 	mailboxService: IMailboxRepository;
 	mailboxSpecialUseService: IMailboxSpecialUseRepository;
 	threadMessageService: IThreadMessageRepository;
+	addressService: IAddressRepository;
 	sqsQueueUrl: string;
 	sqsEndpoint?: string;
 	logger?: MessageMoveLogger;
@@ -125,6 +127,7 @@ export class MessageMoveService {
 	private mailboxService: IMailboxRepository;
 	private mailboxSpecialUseService: IMailboxSpecialUseRepository;
 	private threadMessageService: IThreadMessageRepository;
+	private addressService: IAddressRepository;
 	private sqs: SQSClient;
 	private queueUrl: string;
 	private log: MessageMoveLogger;
@@ -134,6 +137,7 @@ export class MessageMoveService {
 		this.mailboxService = config.mailboxService;
 		this.mailboxSpecialUseService = config.mailboxSpecialUseService;
 		this.threadMessageService = config.threadMessageService;
+		this.addressService = config.addressService;
 		this.queueUrl = config.sqsQueueUrl;
 		this.log = config.logger ?? noopLogger;
 
@@ -384,6 +388,8 @@ export class MessageMoveService {
 			destinationMailboxId,
 			isMovingToTrash,
 		);
+
+		await this.addressService.reconcileJunkOnlyForMessage(messageId);
 
 		// If moving FROM Trash, clear isDeleted
 		if (isMovingFromTrash) {

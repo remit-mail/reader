@@ -204,6 +204,7 @@ const buildWorld = (
 			addresses.set(input.addressId, { flags: {} });
 			return { ...input, flags: {} };
 		},
+		reconcileJunkOnlyForMessage: async () => {},
 		mergeFlags: async (
 			_accountConfigId: string,
 			addressId: string,
@@ -273,6 +274,7 @@ const buildWorld = (
 		mailboxService,
 		mailboxSpecialUseService,
 		threadMessageService,
+		addressService,
 		sqsQueueUrl: "http://localhost:9324/000000000000/message-mgmt",
 	});
 	(

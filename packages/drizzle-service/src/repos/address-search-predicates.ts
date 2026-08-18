@@ -80,22 +80,14 @@ const flagValue = (name: string): SQL<number> =>
 export const addressPreference = (): SQL<number> =>
 	sql<number>`(2 * ${flagValue("vip")} + ${flagValue("trusted")})`;
 
-/**
- * What a suggestion list may offer (#822). Sync marks an address it has only
- * ever met inside a Junk folder, and the boot-time repair marks the ones
- * already stored; the row itself stays, so the message that carried it still
- * renders it.
- *
- * The mark is lifted for a term that spells the address out. This endpoint
- * answers two questions with one query — what the reader could mean by a
- * fragment, and which row is this exact sender — and only the first is a
- * suggestion. Withholding the second turns every per-sender control on a spam
- * message into a dead button, and a reader who typed the whole address is not
- * being offered anything they did not already have.
- */
+const accountHasTakenAPosition = (): SQL<number> =>
+	sql<number>`(${addressTable.outboundCount} + ${addressTable.replyCount}
+		+ ${flagValue("vip")} + ${flagValue("trusted")}
+		+ ${flagValue("blocked")} + ${flagValue("muted")})`;
+
 export const addressSuggestible = (term: string | undefined): SQL => {
-	const unmarked = sql`${flagValue("junkOnly")} = 0`;
-	if (!term) return unmarked;
+	const unmarked = sql`${flagValue("junkOnly")} = 0 or ${accountHasTakenAPosition()} > 0`;
+	if (!term) return sql`(${unmarked})`;
 	return sql`(${unmarked} or ${addressTable.normalizedEmail} = ${term.toLowerCase()})`;
 };
 

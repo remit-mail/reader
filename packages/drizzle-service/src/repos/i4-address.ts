@@ -24,6 +24,11 @@ import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { envelopeAddressId as deriveEnvelopeAddressId } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
+import {
+	JUNK_ONLY_FLAG,
+	restoreSql,
+	withholdSql,
+} from "../repair/junk-only-address.js";
 import { addressTable } from "../schema/i4-address.js";
 import { envelopeAddressTable } from "../schema/message-data.js";
 import {
@@ -153,16 +158,21 @@ function rowToEnvelopeAddress(
 const VIP_SUGGESTIONS_DEFAULT_LIMIT = 10;
 
 const JUNK_HARVEST = "junk-harvest";
+const JUNK_MOVE = "junk-move";
 
-/**
- * The stored flags with the autocomplete withholding mark dropped, computed in
- * SQL so a sighting clears it in the same statement that records the sighting.
- * The empty-string guard is the same one the search predicates carry: a row
- * written before `flags` was always populated holds `''`, and `json_remove`
- * raises on text that is not JSON.
- */
-const withoutJunkOnlySql = (): SQL<string> =>
-	sql<string>`json_remove(coalesce(nullif(${addressTable.flags}, ''), '{}'), '$.junkOnly')`;
+const withoutJunkOnlyFlagSql = (): SQL<string> =>
+	sql<string>`json_remove(coalesce(nullif(${addressTable.flags}, ''), '{}'), ${`$.${JUNK_ONLY_FLAG}`})`;
+
+const boundToDrizzle = (query: string, params: readonly unknown[]): SQL => {
+	const chunks = query.split("?");
+	const head = sql.raw(chunks[0]);
+	return chunks
+		.slice(1)
+		.reduce(
+			(acc, chunk, index) => sql`${acc}${params[index]}${sql.raw(chunk)}`,
+			sql`${head}`,
+		);
+};
 
 export class AddressRepo implements IAddressRepository {
 	constructor(private db: DB) {}
@@ -196,11 +206,6 @@ export class AddressRepo implements IAddressRepository {
 	/**
 	 * Message sync sends `""` for a bare address, so a sighting carrying no
 	 * display name must leave the stored one alone rather than erase it.
-	 *
-	 * Every write here is a sighting outside Junk — sync routes the others to
-	 * {@link upsertJunkAddress} — so it also clears the mark that withholds a
-	 * row from autocomplete (#822). One sighting in the ordinary mail is the
-	 * whole evidence the mark was ever waiting for.
 	 */
 	async upsertAddress(input: CreateAddressInput): Promise<AddressItem> {
 		const now = Date.now();
@@ -230,24 +235,53 @@ export class AddressRepo implements IAddressRepository {
 					? {
 							displayName: input.displayName,
 							normalizedCompound: input.normalizedCompound,
-							flags: withoutJunkOnlySql(),
 							updatedAt: now,
 						}
-					: { flags: withoutJunkOnlySql(), updatedAt: now },
+					: { updatedAt: now },
 			})
 			.returning();
 		return rowToAddress(row);
 	}
 
-	/**
-	 * An address met on a message that lives in a Junk mailbox. The row is
-	 * written so the message renders its own From, To and Cc, and marked so
-	 * autocomplete withholds it (#822).
-	 *
-	 * An existing row is left exactly as it stands — not even the display name.
-	 * A sighting in Junk is no evidence about an address the account already
-	 * knows, and the name on it was chosen by whoever sent the spam.
-	 */
+	async upsertCorrespondentAddress(
+		input: CreateAddressInput,
+	): Promise<AddressItem> {
+		const now = Date.now();
+		const [row] = await this.db
+			.insert(addressTable)
+			.values({
+				addressId: input.addressId,
+				accountConfigId: input.accountConfigId,
+				displayName: input.displayName,
+				localPart: input.localPart,
+				domain: input.domain,
+				normalizedEmail: input.normalizedEmail,
+				normalizedCompound: input.normalizedCompound,
+				flags: input.flags ?? {},
+				inboundCount: input.inboundCount ?? 0,
+				outboundCount: input.outboundCount ?? 0,
+				replyCount: input.replyCount ?? 0,
+				lastInboundAt: input.lastInboundAt ?? 0,
+				lastOutboundAt: input.lastOutboundAt,
+				lastReplyAt: input.lastReplyAt ?? 0,
+				createdAt: now,
+				updatedAt: now,
+			})
+			.onConflictDoUpdate({
+				target: addressTable.addressId,
+				set: input.displayName
+					? {
+							displayName: input.displayName,
+							normalizedCompound: input.normalizedCompound,
+							flags: withoutJunkOnlyFlagSql(),
+							updatedAt: now,
+						}
+					: { flags: withoutJunkOnlyFlagSql(), updatedAt: now },
+			})
+			.returning();
+		return rowToAddress(row);
+	}
+
 	async upsertJunkAddress(input: CreateAddressInput): Promise<AddressItem> {
 		const now = Date.now();
 		const [row] = await this.db
@@ -262,7 +296,7 @@ export class AddressRepo implements IAddressRepository {
 				normalizedCompound: input.normalizedCompound,
 				flags: {
 					...(input.flags ?? {}),
-					junkOnly: { value: true, setAt: now, setBy: JUNK_HARVEST },
+					[JUNK_ONLY_FLAG]: { value: true, setAt: now, setBy: JUNK_HARVEST },
 				},
 				inboundCount: input.inboundCount ?? 0,
 				outboundCount: input.outboundCount ?? 0,
@@ -277,6 +311,17 @@ export class AddressRepo implements IAddressRepository {
 			.returning();
 		if (!row) return this.getAddress(input.accountConfigId, input.addressId);
 		return rowToAddress(row);
+	}
+
+	async reconcileJunkOnlyForMessage(messageId: string): Promise<void> {
+		const scope = ` AND address.address_id IN (
+			SELECT address_id FROM envelope_address WHERE message_id = ?
+		)`;
+		const now = Date.now();
+		await this.db.run(
+			boundToDrizzle(withholdSql(scope), [now, JUNK_MOVE, now, messageId]),
+		);
+		await this.db.run(boundToDrizzle(restoreSql(scope), [now, messageId]));
 	}
 
 	async getAddress(
