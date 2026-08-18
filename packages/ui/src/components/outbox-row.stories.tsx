@@ -24,6 +24,14 @@ export const Sending: Story = { args: { status: "sending" } };
 
 export const Sent: Story = { args: { status: "sent" } };
 
+export const Unfiled: Story = {
+	args: {
+		status: "unfiled",
+		error:
+			"Sent, but not filed: this account has no Sent folder. Create one named Sent and later messages will be filed there.",
+	},
+};
+
 export const Failed: Story = {
 	args: {
 		status: "failed",

@@ -4,7 +4,7 @@ import type {
 	OutboxMessageItem,
 	UpdateOutboxMessageInput,
 } from "@remit/data-ports";
-import { AccountAuthType } from "@remit/domain-enums";
+import { AccountAuthType, OutboxMessageStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import type { SecretsService } from "@remit/secrets-service";
@@ -90,6 +90,15 @@ export interface SendMessageDeps {
 	engagement: EngagementCounterDeps;
 }
 
+const UNFILED_NOT_QUEUED =
+	"Sent, but not filed: the copy for the Sent folder could not be queued.";
+
+const SENDABLE_STATUSES: ReadonlySet<OutboxMessageItem["status"]> = new Set([
+	OutboxMessageStatus.draft,
+	OutboxMessageStatus.queued,
+	OutboxMessageStatus.sending,
+]);
+
 export const sendMessage = async (
 	event: SendMessageEvent,
 	log: Logger,
@@ -106,8 +115,15 @@ export const sendMessage = async (
 	const { accountConfigId } = account;
 
 	const outbox = await deps.getOutbox(accountConfigId, outboxMessageId);
-	if (outbox.status === "sent") {
-		log.info({ outboxMessageId }, "Message already sent, skipping");
+	// The fence against SQS at-least-once redelivery, stated as the states a
+	// send may proceed FROM. Every other state has already been on the wire, so
+	// naming them one by one is how a state added later silently starts sending
+	// twice.
+	if (!SENDABLE_STATUSES.has(outbox.status)) {
+		log.info(
+			{ outboxMessageId, status: outbox.status },
+			"Message already left the queue, skipping",
+		);
 		return;
 	}
 
@@ -229,13 +245,21 @@ export const sendMessage = async (
 			);
 		});
 
+		// The filing is what deletes this row, so an enqueue that never lands
+		// leaves it at `sent` — a delivered message the Outbox hides and no Sent
+		// folder holds. Settle it here instead: the send itself is done, so
+		// throwing would only redeliver an event that cannot re-send.
 		await deps
 			.emitAppendSentMessage(accountId, outboxMessageId)
-			.catch((error: unknown) => {
-				log.warn(
+			.catch(async (error: unknown) => {
+				log.error(
 					{ outboxMessageId, error: String(error) },
-					"Failed to enqueue APPEND_SENT_MESSAGE (best-effort)",
+					"Failed to enqueue APPEND_SENT_MESSAGE; settling the row as unfiled",
 				);
+				await deps.updateOutbox(accountConfigId, outboxMessageId, {
+					status: OutboxMessageStatus.unfiled,
+					lastError: UNFILED_NOT_QUEUED,
+				});
 			});
 		return;
 	}

@@ -256,10 +256,14 @@ export class OutboxQueueService {
 			outboxMessageId,
 			"act",
 		);
+		// `unfiled` is discardable: the message was delivered but never landed in
+		// a Sent folder, so this row is the only copy the user has and dismissing
+		// it is their acknowledgement.
 		if (
 			existing.status !== OutboxMessageStatus.draft &&
 			existing.status !== OutboxMessageStatus.failed &&
-			existing.status !== OutboxMessageStatus.blocked
+			existing.status !== OutboxMessageStatus.blocked &&
+			existing.status !== OutboxMessageStatus.unfiled
 		) {
 			throw new ConflictError(
 				`This message is already ${existing.status} and can no longer be discarded. Open the Outbox to see where it stands.`,

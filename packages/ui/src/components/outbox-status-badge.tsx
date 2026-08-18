@@ -8,7 +8,13 @@ import {
 import { cn } from "../lib/cn.js";
 
 /** The non-draft outbox lifecycle states (drafts live in a separate view). */
-export type OutboxStatus = "queued" | "sending" | "sent" | "failed" | "blocked";
+export type OutboxStatus =
+	| "queued"
+	| "sending"
+	| "sent"
+	| "unfiled"
+	| "failed"
+	| "blocked";
 
 interface StatusConfig {
 	icon: typeof Clock;
@@ -26,6 +32,11 @@ export const outboxStatusConfig: Record<OutboxStatus, StatusConfig> = {
 		spin: true,
 	},
 	sent: { icon: CheckCircle, label: "Sent", className: "text-positive" },
+	unfiled: {
+		icon: AlertTriangle,
+		label: "Sent, not filed",
+		className: "text-warning",
+	},
 	failed: { icon: AlertCircle, label: "Failed", className: "text-danger" },
 	blocked: { icon: AlertTriangle, label: "Blocked", className: "text-warning" },
 };

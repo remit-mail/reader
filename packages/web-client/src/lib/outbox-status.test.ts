@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import {
 	describeOutboxStatus,
 	isOutboxListRow,
-	isUnsendableStatus,
+	showsLastError,
 } from "./outbox-status.js";
 
 describe("describeOutboxStatus", () => {
@@ -25,6 +25,13 @@ describe("describeOutboxStatus", () => {
 		assert.equal(desc.label, "Sent");
 	});
 
+	test("unfiled says the message was sent but not filed", () => {
+		const desc = describeOutboxStatus("unfiled");
+		assert.ok(desc);
+		assert.equal(desc.tone, "warning");
+		assert.match(desc.label, /not filed/);
+	});
+
 	test("failed is error tone (distinct from blocked)", () => {
 		const desc = describeOutboxStatus("failed");
 		assert.ok(desc);
@@ -33,19 +40,23 @@ describe("describeOutboxStatus", () => {
 	});
 });
 
-describe("isUnsendableStatus", () => {
-	test("sent must NOT be flagged as unsendable — never show error subtitle on success (issue #192)", () => {
-		assert.equal(isUnsendableStatus("sent"), false);
+describe("showsLastError", () => {
+	test("sent must NOT surface an error — never show an error subtitle on success (issue #192)", () => {
+		assert.equal(showsLastError("sent"), false);
 	});
 
-	test("failed and blocked are unsendable", () => {
-		assert.equal(isUnsendableStatus("failed"), true);
-		assert.equal(isUnsendableStatus("blocked"), true);
+	test("failed and blocked surface their error", () => {
+		assert.equal(showsLastError("failed"), true);
+		assert.equal(showsLastError("blocked"), true);
 	});
 
-	test("queued and sending are not unsendable", () => {
-		assert.equal(isUnsendableStatus("queued"), false);
-		assert.equal(isUnsendableStatus("sending"), false);
+	test("unfiled surfaces its reason — the row exists only to carry it", () => {
+		assert.equal(showsLastError("unfiled"), true);
+	});
+
+	test("queued and sending carry no error", () => {
+		assert.equal(showsLastError("queued"), false);
+		assert.equal(showsLastError("sending"), false);
 	});
 });
 
@@ -60,5 +71,9 @@ describe("isOutboxListRow", () => {
 		assert.equal(isOutboxListRow("sending"), true);
 		assert.equal(isOutboxListRow("failed"), true);
 		assert.equal(isOutboxListRow("blocked"), true);
+	});
+
+	test("keeps an unfiled row listed — it is the only copy the user has", () => {
+		assert.equal(isOutboxListRow("unfiled"), true);
 	});
 });

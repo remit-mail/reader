@@ -46,6 +46,21 @@ describe("OutboxRow", () => {
 		assert.doesNotMatch(html, /disabled=""/);
 	});
 
+	it("offers only delete for an unfiled row and names the reason", () => {
+		const html = renderToString(
+			createElement(OutboxRow, {
+				...baseProps,
+				status: "unfiled",
+				error: "this account has no Sent folder",
+			}),
+		);
+		assert.match(html, /Sent, not filed/);
+		assert.match(html, /this account has no Sent folder/);
+		assert.match(html, /aria-label="Delete message"/);
+		assert.doesNotMatch(html, /aria-label="Retry sending"/);
+		assert.doesNotMatch(html, /aria-label="Edit as draft"/);
+	});
+
 	it("omits retry for a blocked row but keeps edit and delete", () => {
 		const html = renderToString(
 			createElement(OutboxRow, {

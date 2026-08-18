@@ -3,7 +3,7 @@ import type {
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
 } from "@remit/data-ports";
-import { MailboxSpecialUse } from "@remit/domain-enums";
+import { MailboxSpecialUse, OutboxMessageStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
 	buildMailMessage,
@@ -12,6 +12,7 @@ import {
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { AppendSentMessageEvent } from "../events.js";
+import { resolveSentMailboxByName } from "../sent-mailbox.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
@@ -28,25 +29,38 @@ const findSentMailbox = async (
 		return bySpecialUse;
 	}
 
-	const commonSentNames = [
-		"Sent",
-		"Sent Items",
-		"Sent Messages",
-		"[Gmail]/Sent Mail",
-	];
-	const mailboxResult = await mailboxService.listByAccount(accountId);
-
-	for (const name of commonSentNames) {
-		const found = mailboxResult.items.find(
-			(m) => m.fullPath.toLowerCase() === name.toLowerCase(),
-		);
-		if (found) {
-			return { mailboxId: found.mailboxId, fullPath: found.fullPath };
-		}
-	}
-
-	return null;
+	const mailboxes = await mailboxService.listAllByAccount(accountId);
+	return resolveSentMailboxByName(mailboxes);
 };
+
+const UNFILED_NO_SENT_MAILBOX =
+	"Sent, but not filed: this account has no Sent folder. Create one named Sent and later messages will be filed there.";
+
+const UNFILED_SIGNED_OUT =
+	"Sent, but not filed: this account has to be signed in again before a copy can be stored in Sent.";
+
+const unfiledAppendRefused = (fullPath: string, error: unknown): string =>
+	`Sent, but not filed: the mail server refused to store a copy in ${fullPath} (${error instanceof Error ? error.message : String(error)}).`;
+
+/**
+ * Fallback when `APPEND_SENT_MAX_ATTEMPTS` is unset (local dev, unit tests).
+ * Matches the shared `MAX_RECEIVE_COUNT` every queue's redrive policy uses,
+ * same pattern as `FLAG_PUSH_MAX_ATTEMPTS` / `BODY_SYNC_MAX_ATTEMPTS`.
+ */
+const DEFAULT_APPEND_SENT_MAX_ATTEMPTS = 3;
+
+export const getAppendSentMaxAttempts = (
+	processEnv: NodeJS.ProcessEnv = process.env,
+): number => {
+	const raw = processEnv.APPEND_SENT_MAX_ATTEMPTS;
+	if (!raw) return DEFAULT_APPEND_SENT_MAX_ATTEMPTS;
+	const parsed = Number.parseInt(raw, 10);
+	return Number.isFinite(parsed) && parsed > 0
+		? parsed
+		: DEFAULT_APPEND_SENT_MAX_ATTEMPTS;
+};
+
+export const APPEND_SENT_MAX_ATTEMPTS = getAppendSentMaxAttempts();
 
 export interface AppendSentMessageDeps {
 	getClient: typeof getClient;
@@ -65,6 +79,13 @@ const defaultDeps: AppendSentMessageDeps = {
 export const handleAppendSentMessage = async (
 	event: AppendSentMessageEvent,
 	log: Logger,
+	/**
+	 * SQS's own delivery count for this record. The APPEND is the last step of a
+	 * message the user has already had delivered, so exhausting the redrive
+	 * budget must settle the row rather than dead-letter it: a DLQ'd record
+	 * leaves the row at `sent`, which no view shows.
+	 */
+	receiveCount = 1,
 	deps: AppendSentMessageDeps = defaultDeps,
 ): Promise<void> => {
 	const {
@@ -96,7 +117,7 @@ export const handleAppendSentMessage = async (
 		account.accountConfigId,
 		outboxMessageId,
 	);
-	if (outbox.status !== "sent") {
+	if (outbox.status !== OutboxMessageStatus.sent) {
 		log.info(
 			{ outboxMessageId, status: outbox.status },
 			"Outbox message not in sent status, skipping APPEND",
@@ -104,17 +125,38 @@ export const handleAppendSentMessage = async (
 		return;
 	}
 
+	// The message left over SMTP; only the filing can still fail. Settling the
+	// row as `unfiled` keeps it in the Outbox list rather than deleting it, so a
+	// delivered message stays readable somewhere. Every path out of this handler
+	// that is not a confirmed APPEND ends here.
+	const settleUnfiled = async (reason: string): Promise<void> => {
+		log.error(
+			{ accountId, outboxMessageId, reason },
+			"Sent message could not be filed, settling the outbox row as unfiled",
+		);
+		await outboxMessageService.update(
+			account.accountConfigId,
+			outboxMessageId,
+			{
+				status: OutboxMessageStatus.unfiled,
+				lastError: reason,
+			},
+		);
+	};
+
 	const sentMailbox = await findSentMailbox(
 		mailboxSpecialUseService,
 		mailboxService,
 		accountId,
 	);
 	if (!sentMailbox) {
-		log.info({ accountId }, "No Sent mailbox found, skipping IMAP APPEND");
+		await settleUnfiled(UNFILED_NO_SENT_MAILBOX);
 		return;
 	}
 
-	await withOAuthLifecycle(
+	let appended = false;
+
+	const failure = await withOAuthLifecycle(
 		buildLifecycleDeps(secrets, accountService),
 		account,
 		log,
@@ -141,6 +183,8 @@ export const handleAppendSentMessage = async (
 						},
 						"Appended sent message to Sent mailbox",
 					);
+
+					appended = true;
 				})
 				.finally(() => scope.disconnect());
 
@@ -168,5 +212,31 @@ export const handleAppendSentMessage = async (
 				"Deleted outbox row after successful APPEND to Sent",
 			);
 		},
+	).then(
+		() => null,
+		(error: unknown) => {
+			// Below the redrive budget this is an ordinary retry — connections
+			// drop, servers go away, and the row is still `sent` for the next
+			// attempt to pick up. At the budget the record would dead-letter, and a
+			// dead-lettered APPEND is exactly how a delivered message goes missing.
+			//
+			// Once the APPEND itself has landed the copy is in Sent whatever else
+			// failed, so that case keeps the plain retry semantics.
+			if (appended || receiveCount < APPEND_SENT_MAX_ATTEMPTS) throw error;
+			return error;
+		},
+	);
+
+	// The APPEND landed: the copy is in Sent even if the row delete that follows
+	// it failed, so there is nothing to settle and a retry may still run.
+	if (appended) return;
+
+	// A terminal auth failure returns here without throwing — withOAuthLifecycle
+	// flips the account to reauth_required and ACKs the record, which without
+	// this would leave the row at `sent` and the message nowhere.
+	await settleUnfiled(
+		failure
+			? unfiledAppendRefused(sentMailbox.fullPath, failure)
+			: UNFILED_SIGNED_OUT,
 	);
 };

@@ -309,6 +309,37 @@ describe("sendMessage handler", () => {
 		assert.equal(recorded.statuses.length, 0);
 	});
 
+	it("never re-sends a message that was sent but could not be filed", async () => {
+		// The redelivery fence is the only thing between SQS at-least-once and a
+		// second copy on the wire. `unfiled` is past the send, so it belongs on
+		// the same side of the fence as `sent`.
+		const { deps, recorded } = buildDeps({
+			outbox: buildOutbox({ status: "unfiled" }),
+		});
+
+		await sendMessage(event, silentLogger, deps);
+
+		assert.equal(recorded.sendCalls, 0);
+		assert.equal(recorded.marked.length, 0);
+		assert.equal(recorded.updates.length, 0);
+	});
+
+	it("settles the row as unfiled when the append event cannot be queued", async () => {
+		const { deps, recorded } = buildDeps({
+			account: buildAccount({ smtpHost: "smtp.example.com", smtpPort: 587 }),
+			appendThrows: new Error("queue unreachable"),
+		});
+
+		await sendMessage(event, silentLogger, deps);
+
+		// The send itself succeeded. Without a settle the row keeps the `sent`
+		// status the Outbox list hides, and no APPEND is ever going to delete it.
+		assert.equal(recorded.marked.length, 1);
+		const patch = recorded.updates.at(-1)?.patch;
+		assert.equal(patch?.status, "unfiled");
+		assert.match(String(patch?.lastError), /could not be queued/);
+	});
+
 	it("drops event when account is deleted (tombstone fence)", async () => {
 		const { deps, recorded } = buildDeps({
 			account: buildAccount({

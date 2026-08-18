@@ -348,6 +348,24 @@ describe("an outbox entry that has left draft (#604)", () => {
 		assert.equal(response.statusCode, 409);
 	});
 
+	it("still discards a message that was sent but never filed", async () => {
+		installClient();
+		const outboxMessageId = await sentOutboxMessageId();
+		const client = await getClient();
+		await client.outboxMessage.update(ACCOUNT_CONFIG_ID, outboxMessageId, {
+			status: OutboxMessageStatus.unfiled,
+		});
+
+		const response = await respond(() =>
+			deleteDraft(
+				requestContext({ params: { outboxMessageId } }),
+				authorizedEvent(),
+			),
+		);
+
+		assert.equal(response.statusCode, 204);
+	});
+
 	it("still accepts an autosave PATCH while the entry is a draft", async () => {
 		installClient();
 		const draft = await createDraft(

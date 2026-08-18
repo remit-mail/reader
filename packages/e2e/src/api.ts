@@ -120,11 +120,16 @@ interface ResultList<T> {
 }
 
 /**
- * The outbox statuses the API will delete — the same three the queue accepts.
+ * The outbox statuses the API will delete — the same ones the queue accepts.
  * An account with no SMTP configured leaves its entries `blocked`, which is
  * exactly what a spec that opened compose against one produces.
  */
-const REMOVABLE_OUTBOX_STATUSES = new Set(["draft", "failed", "blocked"]);
+const REMOVABLE_OUTBOX_STATUSES = new Set([
+	"draft",
+	"failed",
+	"blocked",
+	"unfiled",
+]);
 
 const cookieHeader = (response: Response): string =>
 	response.headers
