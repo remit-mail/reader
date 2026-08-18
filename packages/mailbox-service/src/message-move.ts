@@ -11,6 +11,7 @@ import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
+import { HTTPError } from "@remit/data-ports/errors";
 import { deriveCopyMessageId } from "@remit/data-ports/id";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
@@ -104,6 +105,23 @@ export interface MessageMoveConfig {
 }
 
 /**
+ * The account resolves no Trash folder, so a move-to-Trash delete has nowhere
+ * to put the mail. A designed, user-facing outcome carrying its own text and
+ * a 409 so the backend returns it verbatim: the absence of a Trash folder is
+ * a blocker the user resolves by appointing one, never a licence to expunge.
+ */
+export class NoTrashMailboxError extends HTTPError {
+	name = "NoTrashMailboxError";
+	statusCode = 409;
+
+	constructor() {
+		super(
+			"This account has no Trash folder, so nothing was deleted. Appoint one under Settings → Folder roles, then delete again.",
+		);
+	}
+}
+
+/**
  * Options for delete operations
  */
 export interface DeleteOptions {
@@ -191,9 +209,26 @@ export class MessageMoveService {
 		);
 		const mailboxMap = new Map(mailboxes.map((m) => [m.mailboxId, m]));
 
-		// Find trash mailbox once
-		const trashMailbox =
-			await this.mailboxSpecialUseService.findTrashMailbox(accountId);
+		// A permanent delete is only ever what the caller explicitly asked for.
+		// Everything else is a move to Trash, and a Trash folder that does not
+		// resolve blocks it — the user was asked "move to Trash?" and expunging
+		// their mail instead is unrecoverable and answers a question nobody put
+		// to them. Thrown before any local write or event, so the server and the
+		// projection are both left untouched.
+		const wantsPermanentDelete =
+			options.permanent === true || options.toTrash === false;
+
+		const trashMailbox = wantsPermanentDelete
+			? null
+			: await this.mailboxSpecialUseService.findTrashMailbox(accountId);
+
+		if (!wantsPermanentDelete && !trashMailbox) {
+			this.log.error(
+				{ accountId, messageCount: messages.length },
+				"Refused to delete: account resolves no Trash mailbox",
+			);
+			throw new NoTrashMailboxError();
+		}
 
 		// Group messages by operation type
 		const moveToTrashMessages: Array<{
@@ -212,12 +247,8 @@ export class MessageMoveService {
 			if (!sourceMailbox) continue;
 
 			const isInTrash =
-				trashMailbox && message.mailboxId === trashMailbox.mailboxId;
-			const shouldMoveToTrash =
-				options.toTrash !== false &&
-				!options.permanent &&
-				!isInTrash &&
-				trashMailbox;
+				trashMailbox !== null && message.mailboxId === trashMailbox.mailboxId;
+			const shouldMoveToTrash = trashMailbox !== null && !isInTrash;
 
 			const entry = {
 				messageId: message.messageId,
@@ -228,7 +259,7 @@ export class MessageMoveService {
 				},
 			};
 
-			if (shouldMoveToTrash && trashMailbox) {
+			if (shouldMoveToTrash) {
 				moveToTrashMessages.push(entry);
 			} else {
 				permanentDeleteMessages.push(entry);

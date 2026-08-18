@@ -185,6 +185,7 @@ export {
 	type MessageMoveConfig,
 	type MessageMoveLogger,
 	MessageMoveService,
+	NoTrashMailboxError,
 } from "./message-move.js";
 export {
 	type ParsedMessageContent,

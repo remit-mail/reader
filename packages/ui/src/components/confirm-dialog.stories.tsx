@@ -52,3 +52,31 @@ export const NonDestructive: Story = {
 		destructive: false,
 	},
 };
+
+/**
+ * Deleting mail that already sits in Trash expunges it on the server, so the
+ * dialog asks that question instead of "move to Trash?" — the wording follows
+ * the consequence, never the button that opened it (#845).
+ */
+export const PermanentDelete: Story = {
+	args: {
+		title: "Permanently delete 12 messages?",
+		description: "They are erased from the mail server and cannot be restored.",
+		confirmLabel: "Delete permanently",
+	},
+};
+
+/**
+ * The account's Trash appointment has not resolved yet, so which of the two
+ * dialogs above applies is not yet known. Rather than guess the reversible
+ * wording over what may be an expunge, the copy stays neutral and the confirm
+ * holds until the answer arrives.
+ */
+export const OutcomeUnknown: Story = {
+	args: {
+		title: "Delete 12 messages?",
+		description: "Checking where this account files deleted mail…",
+		confirmLabel: "Delete",
+		isBusy: true,
+	},
+};

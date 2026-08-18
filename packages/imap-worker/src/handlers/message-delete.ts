@@ -3,7 +3,7 @@ import type {
 	IThreadMessageRepository,
 	ThreadMessageItem,
 } from "@remit/data-ports";
-import { MessageSyncStatus } from "@remit/domain-enums";
+import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
 	guardConnectionCursor,
@@ -56,16 +56,27 @@ export const deleteAllThreadMessagesForMessage = async (
  * the caller silently drops the update. Same root cause as PR #186 fixed for
  * `flag-queue.ts`.
  */
+type ThreadMessageRowState = Pick<
+	ThreadMessageItem,
+	| "sentDate"
+	| "mailboxId"
+	| "isRead"
+	| "isDeleted"
+	| "hasStars"
+	| "hasAttachment"
+>;
+
+const currentComposites = (threadMessage: ThreadMessageRowState) => ({
+	sentDate: threadMessage.sentDate,
+	mailboxId: threadMessage.mailboxId,
+	isRead: threadMessage.isRead,
+	isDeleted: threadMessage.isDeleted,
+	hasStars: threadMessage.hasStars,
+	hasAttachment: threadMessage.hasAttachment,
+});
+
 export const buildThreadMessageTrashUpdate = (
-	threadMessage: Pick<
-		ThreadMessageItem,
-		| "sentDate"
-		| "mailboxId"
-		| "isRead"
-		| "isDeleted"
-		| "hasStars"
-		| "hasAttachment"
-	>,
+	threadMessage: ThreadMessageRowState,
 	newUid: number,
 	destinationMailboxId: string,
 ) => ({
@@ -74,14 +85,27 @@ export const buildThreadMessageTrashUpdate = (
 		mailboxId: destinationMailboxId,
 		isDeleted: true,
 	},
-	composites: {
-		sentDate: threadMessage.sentDate,
-		mailboxId: threadMessage.mailboxId,
-		isRead: threadMessage.isRead,
-		isDeleted: threadMessage.isDeleted,
-		hasStars: threadMessage.hasStars,
-		hasAttachment: threadMessage.hasAttachment,
+	composites: currentComposites(threadMessage),
+});
+
+/**
+ * The inverse payload: put the thread row back where the message still is on
+ * the server. The delete was recorded optimistically, so a delete abandoned
+ * before any IMAP write has to hand the row back rather than leave it claiming
+ * Trash — an invisible `failed` on a row the user cannot see is the shape of
+ * the incident this whole change is about.
+ */
+export const buildThreadMessageMoveRevert = (
+	threadMessage: ThreadMessageRowState,
+	sourceUid: number,
+	sourceMailboxId: string,
+) => ({
+	set: {
+		uid: sourceUid,
+		mailboxId: sourceMailboxId,
+		isDeleted: false,
 	},
+	composites: currentComposites(threadMessage),
 });
 
 export interface MessageDeleteDeps {
@@ -198,7 +222,63 @@ export const handleMessageDelete = async (
 					);
 					await connection.openBox(mailboxPath, false);
 
-					if (operation === "move_to_trash" && destinationMailboxPath) {
+					// Only an operation that explicitly says so destroys mail. The
+					// event is `JSON.parse`d and cast in the queue handler with no
+					// validation, so a missing, misspelled or future `operation` must
+					// abandon the delete — the "anything that is not move_to_trash is
+					// an expunge" inference is the same one that destroyed mail in the
+					// service, and an unrecoverable EXPUNGE is not a default.
+					const abandonDelete = async (
+						reason: string,
+						alert: string,
+					): Promise<void> => {
+						log.error(
+							{ alert, accountId, messageId, uid, mailboxPath, operation },
+							reason,
+						);
+						await messageService.updateUid(messageId, uid, mailboxId);
+						await messageService.update(messageId, {
+							status: MessageStatus.active,
+							syncStatus: MessageSyncStatus.failed,
+						});
+						const threadMessage = await threadMessageService.findByMessageId(
+							account.accountConfigId,
+							messageId,
+						);
+						if (!threadMessage) return;
+						const args = buildThreadMessageMoveRevert(
+							threadMessage,
+							uid,
+							mailboxId,
+						);
+						await threadMessageService.update(
+							threadMessage.accountConfigId,
+							threadMessage.threadMessageId,
+							args.set,
+							{ composites: args.composites },
+						);
+					};
+
+					if (
+						operation !== "move_to_trash" &&
+						operation !== "permanent_delete"
+					) {
+						await abandonDelete(
+							"Refused to delete: event carries an unrecognized operation",
+							"message_delete_unknown_operation",
+						);
+					} else if (
+						operation === "move_to_trash" &&
+						(!destinationMailboxPath || !destinationMailboxId)
+					) {
+						// Defence in depth. `MessageMoveService` always sets both fields,
+						// so nothing mints such an event today; the guard exists so that
+						// a future producer that forgets one cannot reach the expunge.
+						await abandonDelete(
+							"Refused to delete: move to trash carries no destination mailbox",
+							"message_delete_missing_destination",
+						);
+					} else if (operation === "move_to_trash" && destinationMailboxPath) {
 						// Move to Trash
 						const result = await connection.moveMessages(
 							[uid],
@@ -244,7 +324,7 @@ export const handleMessageDelete = async (
 							});
 						}
 					} else {
-						// Permanent delete
+						// Permanent delete — reached only by `operation === "permanent_delete"`.
 						await connection.deleteMessages([uid]);
 
 						// Delete ThreadMessage rows BEFORE the Message row to collapse the

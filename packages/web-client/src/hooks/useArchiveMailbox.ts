@@ -81,6 +81,18 @@ export const useJunkMailbox = (
 };
 
 /**
+ * Returns the account's appointed Trash mailbox id. The delete confirmation
+ * needs it to tell a move-to-Trash apart from a delete inside Trash, which is
+ * an unrecoverable expunge and has to be asked as one (#845).
+ */
+export const useTrashMailbox = (
+	accountId: string | undefined,
+): { trashMailboxId: string | undefined; isLoading: boolean } => {
+	const { mailboxId, isLoading } = useFolderRoleMailbox(accountId, "Trash");
+	return { trashMailboxId: mailboxId, isLoading };
+};
+
+/**
  * Returns an account's full role→mailbox appointment map, for callers that
  * need more than one role at once (e.g. the Move-to picker excluding both
  * Drafts and Sent, and ordering system folders by role). Empty while loading

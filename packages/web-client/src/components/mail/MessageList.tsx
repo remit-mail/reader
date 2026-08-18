@@ -21,7 +21,7 @@ import type { RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
-import { useJunkMailbox } from "@/hooks/useArchiveMailbox";
+import { useJunkMailbox, useTrashMailbox } from "@/hooks/useArchiveMailbox";
 import {
 	type EscalatedAction,
 	type EscalationSearchQuery,
@@ -46,7 +46,11 @@ import {
 	escalatedStatusLabel,
 	escalationActionLabel,
 } from "@/lib/escalation-label";
-import { formatDeleteToTrashTitle, formatEmailDate } from "@/lib/format";
+import {
+	type DeleteOutcome,
+	deleteConfirmationCopy,
+	formatEmailDate,
+} from "@/lib/format";
 import { junkDestination } from "@/lib/junk-destination";
 import { tabStopId } from "@/lib/list-focus";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
@@ -295,6 +299,18 @@ export const MessageList = ({
 	// mailbox — the message-flags API has no `$Junk` field, so "junk" is a move.
 	const { junkMailboxId } = useJunkMailbox(accountId);
 	const junkDestinationId = junkDestination(junkMailboxId, mailboxId);
+
+	// Deleting inside Trash is an expunge on the mail server, not a move, so the
+	// confirmation has to ask that question instead of "move to Trash?" (#845).
+	// Until the appointment resolves the outcome is genuinely unknown, and the
+	// dialog says so rather than guessing the reversible half of the answer.
+	const { trashMailboxId, isLoading: isTrashRoleLoading } =
+		useTrashMailbox(accountId);
+	const deleteOutcome: DeleteOutcome = isTrashRoleLoading
+		? "unknown"
+		: trashMailboxId === mailboxId
+			? "permanent"
+			: "trash";
 
 	// Selection state
 	const {
@@ -1339,11 +1355,9 @@ export const MessageList = ({
 			/>
 			<ConfirmDialog
 				isOpen={pendingDelete !== null}
-				title={formatDeleteToTrashTitle(pendingDelete?.length ?? 0)}
-				description="You can restore them from Trash later."
-				confirmLabel="Move to Trash"
+				{...deleteConfirmationCopy(pendingDelete?.length ?? 0, deleteOutcome)}
 				destructive
-				isBusy={isDeleting}
+				isBusy={isDeleting || deleteOutcome === "unknown"}
 				onConfirm={handleConfirmDelete}
 				onCancel={handleCancelDelete}
 			/>
