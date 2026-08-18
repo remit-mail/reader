@@ -20,6 +20,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+	addressQuery,
 	locationIsOnList,
 	locationOpensDetail,
 	MAIL_BRIEF_ROUTE_ID,
@@ -237,5 +238,24 @@ describe("locationOpensDetail", () => {
 	it("is false outside the mail shell", () => {
 		assert.equal(locationOpensDetail("/settings/accounts"), false);
 		assert.equal(locationOpensDetail("/onboarding"), false);
+	});
+});
+
+describe("addressQuery", () => {
+	it("reads the query the address carries", () => {
+		assert.equal(addressQuery({ q: "invoice" }), "invoice");
+	});
+
+	it("is empty where the address carries none", () => {
+		assert.equal(addressQuery({}), "");
+		assert.equal(addressQuery({ wizard: "pick" }), "");
+	});
+
+	it("is empty for anything that is not a query string", () => {
+		// The location's search is parsed, not validated: a hand-edited `?q[]=`
+		// arrives as an array and must not reach the field as one.
+		assert.equal(addressQuery({ q: ["invoice"] }), "");
+		assert.equal(addressQuery(undefined), "");
+		assert.equal(addressQuery(null), "");
 	});
 });

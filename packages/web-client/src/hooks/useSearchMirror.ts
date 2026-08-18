@@ -1,6 +1,7 @@
-import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { useMailContext } from "@/lib/mail-context";
+import { addressQuery } from "@/lib/mail-route";
 import { shouldMirrorQuery } from "@/lib/search-view";
 import { useIsComposing, useIsReplying } from "@/routing";
 
@@ -30,7 +31,11 @@ export type SearchMirrorTarget =
  * re-running on it made that final: the field said `invoice`, the address said
  * `invo`, and nothing was left to disagree with. Re-running cannot start a
  * loop, because every write makes the URL equal the committed query and the
- * next run has nothing to do.
+ * next run has nothing to do. The `q` it compares against is the committed
+ * address's, the same place the pathname below comes from: the matched route
+ * answers with the outgoing list's query for a render after the address has
+ * moved on, and a mirror reading one from each would write against a URL that
+ * no longer exists.
  *
  * It also writes only while the reader is still on this list. A list stays
  * mounted, effects and all, until the list they navigated to is ready to paint,
@@ -61,7 +66,9 @@ export type SearchMirrorTarget =
 export function useSearchMirror(target: SearchMirrorTarget): void {
 	const navigate = useNavigate();
 	const { searchInput, searchQuery: committedQuery } = useMailContext();
-	const { q: urlQuery = "" } = useSearch({ from: "/mail" });
+	const urlQuery = useRouterState({
+		select: (s) => addressQuery(s.location.search),
+	});
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	const isComposing = useIsComposing();
 	const isReplying = useIsReplying();

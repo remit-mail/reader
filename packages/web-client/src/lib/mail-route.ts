@@ -78,6 +78,22 @@ export function mailViewKey(pathname: string): string {
 	return mailboxViewKey(list);
 }
 
+/**
+ * What the address says the query is.
+ *
+ * Read off the location's own search, never off the matched route's, for the
+ * reason `mailViewKey` reads the location's pathname: the router commits the
+ * whole address at once and swaps the matches afterwards. Taking the view from
+ * one and the query from the other splits a single move in two — the field sees
+ * the mailbox it is going to next to the query of the one it is leaving, and
+ * re-seeds itself with a query the reader has already navigated away from (#47).
+ */
+export function addressQuery(search: unknown): string {
+	if (typeof search !== "object" || search === null) return "";
+	const { q } = search as { q?: unknown };
+	return typeof q === "string" ? q : "";
+}
+
 /** One mailbox's view key. Two mailboxes are two views. */
 export function mailboxViewKey(mailboxId: string): string {
 	return `${MAIL_MAILBOX_ROUTE_ID}:${mailboxId}`;

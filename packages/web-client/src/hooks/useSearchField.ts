@@ -1,6 +1,6 @@
-import { useRouter, useRouterState, useSearch } from "@tanstack/react-router";
+import { useRouter, useRouterState } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
-import { mailViewKey } from "@/lib/mail-route";
+import { addressQuery, mailViewKey } from "@/lib/mail-route";
 import { committedSearchQuery, searchInputForView } from "@/lib/search-view";
 import { useDebouncedValue } from "./useDebouncedValue";
 
@@ -41,12 +41,21 @@ export interface SearchField {
  * a leftover of the one being left. Without it a query typed in that window was
  * wiped in the render that followed, and since the field then held nothing the
  * mirror had nothing to write — the query never reached the URL at all.
+ *
+ * Which view and which query both come off the committed address, never one
+ * from the address and the other from the matched route. The matches swap a
+ * render behind the address, so mixing the two reads the destination's view
+ * against the outgoing list's `q` and re-seeds the field with the query the
+ * reader has just navigated away from — the stamp then calls that text the new
+ * view's, and nothing reconsiders it (#47).
  */
 export function useSearchField(): SearchField {
-	const { q: urlQuery = "" } = useSearch({ from: "/mail" });
 	const router = useRouter();
 	const viewKey = useRouterState({
 		select: (state) => mailViewKey(state.location.pathname),
+	});
+	const urlQuery = useRouterState({
+		select: (state) => addressQuery(state.location.search),
 	});
 
 	const [searchInput, setInput] = useState(urlQuery);
