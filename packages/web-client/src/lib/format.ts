@@ -168,6 +168,14 @@ export interface DeleteConfirmationCopy {
 }
 
 /**
+ * What a delete will actually do to the selected mail. `unknown` is the state
+ * before the account's Trash appointment has resolved — a real state on a cold
+ * open, and the one the copy must not guess at, because guessing "move to
+ * Trash" over an expunge is the dishonesty this whole flow exists to remove.
+ */
+export type DeleteOutcome = "trash" | "permanent" | "unknown";
+
+/**
  * The confirmation for a delete, worded for what the delete actually does.
  * Deleting mail that already sits in Trash expunges it on the server and
  * nothing survives that, so it is asked as a permanent delete — a dialog that
@@ -176,20 +184,29 @@ export interface DeleteConfirmationCopy {
  */
 export const deleteConfirmationCopy = (
 	count: number,
-	isPermanent: boolean,
+	outcome: DeleteOutcome,
 ): DeleteConfirmationCopy => {
-	if (!isPermanent) {
-		return {
-			title: formatDeleteToTrashTitle(count),
-			description: "You can restore them from Trash later.",
-			confirmLabel: "Move to Trash",
-		};
-	}
 	const quantity = count === 1 ? "1" : formatNumber(count);
 	const noun = count === 1 ? "message" : "messages";
+
+	if (outcome === "unknown") {
+		return {
+			title: `Delete ${quantity} ${noun}?`,
+			description: "Checking where this account files deleted mail…",
+			confirmLabel: "Delete",
+		};
+	}
+	if (outcome === "permanent") {
+		return {
+			title: `Permanently delete ${quantity} ${noun}?`,
+			description:
+				"They are erased from the mail server and cannot be restored.",
+			confirmLabel: "Delete permanently",
+		};
+	}
 	return {
-		title: `Permanently delete ${quantity} ${noun}?`,
-		description: "They are erased from the mail server and cannot be restored.",
-		confirmLabel: "Delete permanently",
+		title: formatDeleteToTrashTitle(count),
+		description: "You can restore them from Trash later.",
+		confirmLabel: "Move to Trash",
 	};
 };

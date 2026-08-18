@@ -65,3 +65,18 @@ export const PermanentDelete: Story = {
 		confirmLabel: "Delete permanently",
 	},
 };
+
+/**
+ * The account's Trash appointment has not resolved yet, so which of the two
+ * dialogs above applies is not yet known. Rather than guess the reversible
+ * wording over what may be an expunge, the copy stays neutral and the confirm
+ * holds until the answer arrives.
+ */
+export const OutcomeUnknown: Story = {
+	args: {
+		title: "Delete 12 messages?",
+		description: "Checking where this account files deleted mail…",
+		confirmLabel: "Delete",
+		isBusy: true,
+	},
+};

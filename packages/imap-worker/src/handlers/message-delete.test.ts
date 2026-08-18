@@ -367,6 +367,50 @@ describe("handleMessageDelete", () => {
 		);
 	});
 
+	// The queue handler `JSON.parse`s the body and casts it to WorkerEvent with
+	// no validation, so an event whose `operation` is missing, misspelled or
+	// from a newer producer reaches here. It must never be read as an expunge.
+	for (const [name, operation] of [
+		["missing", undefined],
+		["unknown", "trash"],
+		["empty", ""],
+	] as const) {
+		it(`abandons the delete and hands the row back when operation is ${name}`, async () => {
+			const malformed = {
+				...moveEvent,
+				operation,
+			} as unknown as MessageDeleteEvent;
+
+			await handleMessageDelete(malformed, noopLog, deps());
+
+			assert.equal(
+				called("connection.deleteMessages").length,
+				0,
+				"nothing may be expunged for an operation nobody wrote",
+			);
+			assert.equal(called("message.delete").length, 0);
+			assert.equal(called("threadMessage.delete").length, 0);
+
+			// The row goes back to the mailbox the server still holds it in, so
+			// the failure is visible as the message reappearing rather than as an
+			// invisible syncStatus on a row that claims Trash.
+			assert.deepEqual(called("message.updateUid")[0]?.args, [
+				"msg-1",
+				10,
+				"src-mbx",
+			]);
+			assert.deepEqual(called("message.update")[0]?.args[1], {
+				status: "active",
+				syncStatus: "failed",
+			});
+			assert.deepEqual(called("threadMessage.update")[0]?.args[2], {
+				uid: 10,
+				mailboxId: "src-mbx",
+				isDeleted: false,
+			});
+		});
+	}
+
 	it("refuses to expunge a move-to-trash that names no destination", async () => {
 		const destinationless = {
 			...moveEvent,
@@ -378,11 +422,10 @@ describe("handleMessageDelete", () => {
 
 		assert.equal(called("connection.deleteMessages").length, 0);
 		assert.equal(called("message.delete").length, 0);
-		assert.equal(
-			(called("message.update")[0]?.args[1] as { syncStatus?: string })
-				?.syncStatus,
-			"failed",
-		);
+		assert.deepEqual(called("message.update")[0]?.args[1], {
+			status: "active",
+			syncStatus: "failed",
+		});
 	});
 
 	it("expunges on the server and removes every thread row before the message row", async () => {

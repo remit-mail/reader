@@ -46,7 +46,11 @@ import {
 	escalatedStatusLabel,
 	escalationActionLabel,
 } from "@/lib/escalation-label";
-import { deleteConfirmationCopy, formatEmailDate } from "@/lib/format";
+import {
+	type DeleteOutcome,
+	deleteConfirmationCopy,
+	formatEmailDate,
+} from "@/lib/format";
 import { junkDestination } from "@/lib/junk-destination";
 import { tabStopId } from "@/lib/list-focus";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
@@ -298,9 +302,15 @@ export const MessageList = ({
 
 	// Deleting inside Trash is an expunge on the mail server, not a move, so the
 	// confirmation has to ask that question instead of "move to Trash?" (#845).
-	const { trashMailboxId } = useTrashMailbox(accountId);
-	const deleteIsPermanent =
-		trashMailboxId !== undefined && trashMailboxId === mailboxId;
+	// Until the appointment resolves the outcome is genuinely unknown, and the
+	// dialog says so rather than guessing the reversible half of the answer.
+	const { trashMailboxId, isLoading: isTrashRoleLoading } =
+		useTrashMailbox(accountId);
+	const deleteOutcome: DeleteOutcome = isTrashRoleLoading
+		? "unknown"
+		: trashMailboxId === mailboxId
+			? "permanent"
+			: "trash";
 
 	// Selection state
 	const {
@@ -1345,12 +1355,9 @@ export const MessageList = ({
 			/>
 			<ConfirmDialog
 				isOpen={pendingDelete !== null}
-				{...deleteConfirmationCopy(
-					pendingDelete?.length ?? 0,
-					deleteIsPermanent,
-				)}
+				{...deleteConfirmationCopy(pendingDelete?.length ?? 0, deleteOutcome)}
 				destructive
-				isBusy={isDeleting}
+				isBusy={isDeleting || deleteOutcome === "unknown"}
 				onConfirm={handleConfirmDelete}
 				onCancel={handleCancelDelete}
 			/>
