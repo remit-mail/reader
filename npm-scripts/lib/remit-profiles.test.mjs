@@ -16,11 +16,11 @@ import { spawnSync } from "node:child_process";
 import {
 	copyFileSync,
 	existsSync,
+	linkSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
-	statSync,
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -136,14 +136,14 @@ function sandbox({ profileRunning = true, stopped = [], scenario = {} } = {}) {
 		leakTmp() {
 			writeFileSync(join(deployment, ".remit-profiles-held.tmp"), "dozzle\n");
 		},
-		// Which file the record is, not what is in it. A rename puts a different
-		// file where the old one was; a truncate-and-write keeps the same one.
-		holdInode() {
-			try {
-				return statSync(join(deployment, ".remit-profiles-held")).ino;
-			} catch {
-				return null;
-			}
+		// A second name for the file the record is now, and a reader of it
+		// afterwards. A write that truncates the record rewrites the file both
+		// names point at, so it shows through this one; a rename only moves the
+		// other name to a new file and leaves this one on the original bytes.
+		pinHold() {
+			const pin = join(dir, "held.pin");
+			linkSync(join(deployment, ".remit-profiles-held"), pin);
+			return () => readFileSync(pin, "utf8");
 		},
 		// The record a restart leaves beside .env so the next one can finish what
 		// it started.
@@ -580,7 +580,8 @@ describe("a record naming only services the compose file no longer has", () => {
 describe("a service that exists and failed to start stays in the record", () => {
 	const box = sandbox({ scenario: { up_fail: "victoriametrics" } });
 	box.hold(["dozzle", "victoriametrics", "grafana"]);
-	const before = box.holdInode();
+	const pinned = box.pinHold();
+	const before = pinned();
 	const result = box.run(["restart", "--hard"]);
 
 	it("keeps the one that exists, drops the one that does not", () => {
@@ -590,10 +591,11 @@ describe("a service that exists and failed to start stays in the record", () => 
 
 	// The record is what a killed run leaves for the next one, so the write that
 	// replaces it must not be a window where it is empty. Written to a temp file
-	// and renamed over: the record on disk is the old list or the new one, never
-	// a truncated one, which is a different file where the old one was.
+	// and renamed over, the file the record was is never written to at all — so
+	// a second name for it still reads the list the run started with, while a
+	// truncate-and-write would show the new one through both names.
 	it("replaces the record rather than truncating it in place", () => {
-		assert.notEqual(box.holdInode(), before);
+		assert.equal(pinned(), before);
 		assert.equal(box.holdTmpLeft(), false);
 	});
 });
