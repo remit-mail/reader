@@ -10,7 +10,7 @@ import {
 import { Check, Clock, MapPin, TriangleAlert, X } from "lucide-react";
 import { calendarsById } from "../../fixtures/calendar.js";
 import type { InviteData } from "../../fixtures/calendar-mail.js";
-import { AttendeeStrip } from "./attendee-context.js";
+import { AttendeeStrip } from "../attendee-context.js";
 import { ParseBadge } from "./parse-provenance.js";
 
 /**

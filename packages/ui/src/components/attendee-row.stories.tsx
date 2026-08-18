@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
 import { AttendeeList, RsvpBadge } from "./attendee-row.js";
 import type { CalendarAttendee } from "./calendar-types.js";
 
@@ -54,6 +55,32 @@ export const List: Story = {
 			<AttendeeList attendees={attendees} />
 		</div>
 	),
+};
+
+/**
+ * The same list where the surface has something to say about the person behind
+ * a row. A row is then a disclosure: it opens under the guest, the same
+ * activation closes it, and what opens is the caller's — the kit places it and
+ * knows nothing else about it.
+ */
+export const WithContext: Story = {
+	render: () => {
+		const [active, setActive] = useState("");
+		return (
+			<div className="max-w-sm rounded-lg border border-line bg-surface p-3">
+				<AttendeeList
+					attendees={attendees}
+					activeEmail={active}
+					onActivate={setActive}
+					renderContext={(attendee) => (
+						<p className="w-64 rounded-lg border border-line bg-surface-raised p-3 text-xs text-fg-muted shadow-xl shadow-black/25">
+							{`Everything ${attendee.name} has written lately would go here.`}
+						</p>
+					)}
+				/>
+			</div>
+		);
+	},
 };
 
 export const EveryReply: Story = {

@@ -101,4 +101,26 @@ describe("EventDetail", () => {
 	it("names the calendar and its account", () => {
 		assert.match(render({}), /Northwind/);
 	});
+
+	it("leaves the guest list inert where a name leads nowhere", () => {
+		assert.doesNotMatch(render({}), /aria-expanded/);
+	});
+
+	it("opens the caller's context under the guest it is about", () => {
+		const html = renderToString(
+			createElement(EventDetail, {
+				event,
+				calendar,
+				whenText: "Wednesday 10 June · 10:00 – 11:30",
+				onEdit: () => undefined,
+				onDelete: () => undefined,
+				activeAttendee: "priya@northwind.example",
+				onActivateAttendee: () => undefined,
+				renderAttendeeContext: (attendee) =>
+					createElement("p", null, `Recent mail · ${attendee.name}`),
+			}),
+		);
+		assert.match(html, /aria-expanded="true"/);
+		assert.match(html, /Recent mail · Priya Natarajan/);
+	});
 });
