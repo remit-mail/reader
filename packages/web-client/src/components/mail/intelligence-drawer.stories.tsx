@@ -4,20 +4,20 @@ import { ChevronLeft, Info } from "lucide-react";
 import { useState } from "react";
 import { expect, userEvent, within } from "storybook/test";
 import { Drawer } from "@/components/layout/Drawer";
-import { resolveRailOpen } from "@/lib/intelligence-pref";
-import { parseOpenPanels, retainOpenPanelsAtTier } from "@/routing";
+import { useIntelligenceDrawer } from "@/hooks/useIntelligenceDrawer";
 
 /**
- * The intelligence drawer below the desktop tier (#777).
+ * The intelligence drawer below the desktop tier (#777, #778).
  *
  * There is no fourth pane here: the rail is a full-screen drawer over the open
- * message, so it belongs to the thread it was opened for. The address is the
- * only place its open state lives, and a navigation drops it — otherwise a DKIM
- * mismatch on one message leaves the drawer covering every message opened
- * after it.
+ * message, so it belongs to the thread it was opened for and to nothing else.
+ * It is modal, so it opens only when the reader asks — a DKIM mismatch shows
+ * the banner and leaves the message alone. A drawer that opened itself would
+ * put a scrim over the message, and the reader's next tap would land on the
+ * scrim rather than on Back.
  *
- * Both rules are the app's own: the fragment goes through
- * `retainOpenPanelsAtTier`, and what is up is `resolveRailOpen`.
+ * The rule is the app's own: `useIntelligenceDrawer` is the hook the phone and
+ * mid-width panes both run on.
  */
 const meta: Meta = {
 	title: "Flows/Reading/Intelligence Drawer",
@@ -29,8 +29,6 @@ type Story = StoryObj;
 
 const PHONE_WIDTH = 390;
 const PHONE_HEIGHT = 720;
-
-const retainOnPhone = retainOpenPanelsAtTier(false);
 
 const intelligence: IntelligenceData = {
 	sender: {
@@ -77,23 +75,14 @@ const messages: readonly Message[] = [
 ];
 
 /**
- * The phone reader, driven by the address alone: `hash` is the whole state,
- * and every navigation writes it through the same helper the panes use.
+ * The phone reader. What is open is the thread on screen and, beside it, the
+ * drawer the reader asked for — held by `useIntelligenceDrawer` against that
+ * thread, so opening another one takes the drawer down with it.
  */
-const PhoneReader = ({ initialHash = "" }: { initialHash?: string }) => {
-	const [hash, setHash] = useState(initialHash);
+const PhoneReader = () => {
 	const [openId, setOpenId] = useState<string | undefined>(messages[0]?.id);
 	const open = messages.find((message) => message.id === openId);
-	const drawerOpen = resolveRailOpen({
-		panels: parseOpenPanels(hash),
-		prefersOpen: true,
-		isDesktop: false,
-		hasThread: open !== undefined,
-	});
-	const navigate = (nextId: string | undefined) => {
-		setHash(retainOnPhone(hash));
-		setOpenId(nextId);
-	};
+	const drawer = useIntelligenceDrawer(open?.id ?? null);
 
 	return (
 		<div className="flex flex-col gap-2">
@@ -113,7 +102,7 @@ const PhoneReader = ({ initialHash = "" }: { initialHash?: string }) => {
 							<button
 								type="button"
 								aria-label="Back"
-								onClick={() => navigate(undefined)}
+								onClick={() => setOpenId(undefined)}
 								className="inline-flex size-11 items-center justify-center rounded-md text-fg hover:bg-surface-raised"
 							>
 								<ChevronLeft className="size-5" />
@@ -124,7 +113,7 @@ const PhoneReader = ({ initialHash = "" }: { initialHash?: string }) => {
 							<button
 								type="button"
 								aria-label="Message details"
-								onClick={() => setHash("intelligence")}
+								onClick={drawer.toggle}
 								className="inline-flex size-11 items-center justify-center rounded-md text-fg hover:bg-surface-raised"
 							>
 								<Info className="size-5" />
@@ -141,7 +130,7 @@ const PhoneReader = ({ initialHash = "" }: { initialHash?: string }) => {
 							<li key={message.id}>
 								<button
 									type="button"
-									onClick={() => navigate(message.id)}
+									onClick={() => setOpenId(message.id)}
 									className="flex w-full flex-col items-start gap-0.5 border-b border-line px-4 py-3 text-left hover:bg-surface-raised"
 								>
 									<span className="text-sm font-semibold text-fg">
@@ -156,8 +145,8 @@ const PhoneReader = ({ initialHash = "" }: { initialHash?: string }) => {
 					</ul>
 				)}
 				<Drawer
-					isOpen={drawerOpen}
-					onClose={() => setHash("")}
+					isOpen={drawer.isOpen}
+					onClose={drawer.close}
 					ariaLabel="Message details"
 					side="right"
 				>
@@ -165,34 +154,58 @@ const PhoneReader = ({ initialHash = "" }: { initialHash?: string }) => {
 				</Drawer>
 			</div>
 			<p className="font-mono text-2xs text-fg-subtle">
-				{`/mail/inbox${open ? `/${open.id}` : ""}${hash ? `#${hash}` : ""}`}
+				{`/mail/inbox${open ? `/${open.id}` : ""}`}
 			</p>
 		</div>
 	);
 };
 
-/** A message with no drawer over it: the address names no panel. */
+/** The reader's own press on the details control. */
+const openDetails = async (canvasElement: HTMLElement): Promise<void> => {
+	await userEvent.click(
+		within(canvasElement).getByLabelText("Message details"),
+	);
+};
+
+/**
+ * The warned message as it opens: the banner's own wording, and nothing over
+ * it. A mismatch is what the panel explains, never a reason to cover the
+ * message with it — a scrim there takes the reader's next tap, Back included.
+ */
 export const Closed: Story = {
 	render: () => <PhoneReader />,
-};
-
-/**
- * The drawer over the message it was opened for — here by a DKIM mismatch,
- * which opens it without being asked.
- */
-export const OpenOverThread: Story = {
-	render: () => <PhoneReader initialHash="intelligence" />,
-};
-
-/**
- * The same drawer, then Back and another message. The fragment is dropped on
- * the way out, so the second message is not covered by a panel opened for the
- * first. Press Back with the drawer up to walk it.
- */
-export const DroppedByNavigation: Story = {
-	render: () => <PhoneReader initialHash="intelligence" />,
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
+		await expect(canvas.queryByRole("dialog")).toBeNull();
+		await expect(canvas.getByLabelText("Back")).toBeVisible();
+	},
+};
+
+/** The drawer over the message it was opened for. */
+export const OpenOverThread: Story = {
+	render: () => <PhoneReader />,
+	play: async ({ canvasElement }) => {
+		await openDetails(canvasElement);
+		await expect(within(canvasElement).getByRole("dialog")).toBeVisible();
+	},
+};
+
+/**
+ * Dismissed, and gone for the next message too: the drawer is held against the
+ * thread it was opened for, so nothing carries it forward.
+ */
+export const DismissedAndNotCarried: Story = {
+	render: () => <PhoneReader />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await openDetails(canvasElement);
+		await expect(canvas.getByRole("dialog")).toBeVisible();
+
+		// The scrim carries the same name as the header's close button and comes
+		// first in the drawer, so the visible control is the second of the two.
+		await userEvent.click(canvas.getAllByLabelText("Close menu")[1]);
+		await expect(canvas.queryByRole("dialog")).toBeNull();
+
 		await userEvent.click(canvas.getByLabelText("Back"));
 		await userEvent.click(canvas.getByText("Standup moved to 10:15"));
 		await expect(canvas.queryByRole("dialog")).toBeNull();
@@ -204,5 +217,8 @@ export const DroppedByNavigation: Story = {
 export const OpenOverThreadDark: Story = {
 	name: "Open Over Thread (dark)",
 	parameters: { theme: "dark" },
-	render: () => <PhoneReader initialHash="intelligence" />,
+	render: () => <PhoneReader />,
+	play: async ({ canvasElement }) => {
+		await openDetails(canvasElement);
+	},
 };

@@ -876,6 +876,24 @@ const SpellcheckPlugin = ({
 	);
 };
 
+/**
+ * Somewhere the reader is already writing. The editor arrives on its own chunk,
+ * so its mount lands whenever that chunk does — on a cold cache, well after the
+ * composer opened and the reader moved on to the recipients, the subject or the
+ * search field. Taking the caret then takes it out of a sentence in progress,
+ * and the rest of what they type lands in the message body.
+ */
+const isWritingElsewhere = (root: HTMLElement | null): boolean => {
+	const active = (root?.ownerDocument ?? globalThis.document)?.activeElement;
+	if (!(active instanceof HTMLElement) || active === root) return false;
+	if (root?.contains(active)) return false;
+	return (
+		active.isContentEditable ||
+		active.tagName === "INPUT" ||
+		active.tagName === "TEXTAREA"
+	);
+};
+
 const AutoFocus = ({ caret }: { caret?: ComposeCaret }) => {
 	const [editor] = useLexicalComposerContext();
 
@@ -886,6 +904,7 @@ const AutoFocus = ({ caret }: { caret?: ComposeCaret }) => {
 		// the caret is placed here rather than left to `focus`, which would open a
 		// new message below the signature instead of above it.
 		const timer = setTimeout(() => {
+			if (isWritingElsewhere(editor.getRootElement())) return;
 			editor.update(
 				() => {
 					const root = $getRoot();
@@ -895,7 +914,14 @@ const AutoFocus = ({ caret }: { caret?: ComposeCaret }) => {
 					}
 					root.selectEnd();
 				},
-				{ onUpdate: () => editor.focus() },
+				{
+					onUpdate: () => {
+						// Checked again here: the update settles a turn later, which is
+						// long enough for the reader to have started typing somewhere.
+						if (isWritingElsewhere(editor.getRootElement())) return;
+						editor.focus();
+					},
+				},
 			);
 		}, 0);
 		return () => clearTimeout(timer);

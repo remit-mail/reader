@@ -118,3 +118,49 @@ describe("RichTextEditor", () => {
 		assert.equal(field.value, "https://");
 	});
 });
+
+/**
+ * The writing surface is loaded on its own chunk, so it mounts whenever that
+ * chunk arrives rather than when the composer opened. A reader who pressed
+ * Compose and started typing in the search field, the recipients or the subject
+ * is mid-sentence by then, and the caret is theirs.
+ */
+describe("RichTextEditor opening on a caret", () => {
+	const mount = async (): Promise<void> => {
+		await act(async () => {
+			root = createRoot(container);
+			root.render(createElement(RichTextEditor, { initialCaret: "start" }));
+		});
+		// The caret is claimed off a timer, so let it run.
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+	};
+
+	it("takes the caret when nothing else holds it", async () => {
+		await mount();
+
+		const editable = container.querySelector<HTMLElement>(
+			"[data-testid=compose-body]",
+		);
+		assert.ok(editable, "the editable surface is mounted");
+		assert.equal(document.activeElement === editable, true);
+	});
+
+	it("leaves the caret in a field the reader is typing in", async () => {
+		const elsewhere = document.createElement("input");
+		elsewhere.setAttribute("aria-label", "Search mail");
+		document.body.append(elsewhere);
+		elsewhere.focus();
+
+		await mount();
+
+		const holder = document.activeElement?.getAttribute("aria-label");
+		elsewhere.remove();
+		assert.equal(
+			holder,
+			"Search mail",
+			`the caret ended up on ${holder ?? "nothing"}`,
+		);
+	});
+});
