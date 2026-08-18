@@ -65,7 +65,7 @@ const harvest = async (envelope: Partial<ImapEnvelope>): Promise<Saved> => {
 	} as unknown as IEnvelopeRepository;
 
 	const addressService = {
-		upsertAddress: async (input: CreateAddressInput) => {
+		upsertCorrespondentAddress: async (input: CreateAddressInput) => {
 			saved.addresses.push(input);
 		},
 		upsertEnvelopeAddress: async (input: CreateEnvelopeAddressInput) => {
@@ -100,7 +100,12 @@ const harvest = async (envelope: Partial<ImapEnvelope>): Promise<Saved> => {
 				msg: ImapMessage,
 			) => Promise<unknown>;
 		}
-	).saveMessage({ mailboxId: "mbx-1" } as MailboxItem, "acct-1", "cfg-1", msg);
+	).saveMessage(
+		{ mailboxId: "mbx-1", fullPath: "INBOX" } as MailboxItem,
+		"acct-1",
+		"cfg-1",
+		msg,
+	);
 
 	return saved;
 };

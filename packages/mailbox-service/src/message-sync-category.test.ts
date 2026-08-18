@@ -25,6 +25,7 @@ import type {
 	IMailboxRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
+	MailboxItem,
 	MessageItem,
 	ThreadMessageItem,
 } from "@remit/data-ports";
@@ -89,7 +90,7 @@ const saveIntoMailbox = async (
 	} as unknown as IEnvelopeRepository;
 
 	const addressService = {
-		upsertAddress: async () => {},
+		upsertCorrespondentAddress: async () => {},
 		upsertEnvelopeAddress: async () => {},
 	} as unknown as IAddressRepository;
 
@@ -105,13 +106,18 @@ const saveIntoMailbox = async (
 	await (
 		service as unknown as {
 			saveMessage: (
-				mailboxId: string,
+				mailbox: MailboxItem,
 				accountId: string,
 				accountConfigId: string,
 				msg: ImapMessage,
 			) => Promise<unknown>;
 		}
-	).saveMessage("mbx-1", "acct-1", "cfg-1", imapMessage);
+	).saveMessage(
+		{ mailboxId: "mbx-1", fullPath: "INBOX" } as MailboxItem,
+		"acct-1",
+		"cfg-1",
+		imapMessage,
+	);
 
 	assert.equal(inputs.length, 1);
 	const [input] = inputs;

@@ -294,7 +294,7 @@ const buildSyncOverDestination = (
 					upsertBodyParts: async () => undefined,
 				} as unknown as IEnvelopeRepository,
 				address: {
-					upsertAddress: async () => undefined,
+					upsertCorrespondentAddress: async () => undefined,
 					upsertEnvelopeAddress: async () => undefined,
 				} as unknown as IAddressRepository,
 				threadMessage: world.threadMessageService,
