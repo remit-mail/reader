@@ -1,13 +1,3 @@
-/**
- * The repair against the shape a deployment actually runs: the committed
- * `CREATE TABLE` blocks, not a schema pushed from the drizzle table objects.
- *
- * What this has to hold, on a live database with no second copy of the data:
- * every name the harvest guard would keep survives, a name that says something
- * besides the address keeps that something, no row is removed, and a second run
- * writes nothing.
- */
-
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { storedDisplayName } from "@remit/data-ports/display-name";
@@ -232,11 +222,6 @@ describe("rewriting display names that claim another address", () => {
 	});
 });
 
-/**
- * The SQL in this repair narrows; it never decides. That only holds if no name
- * the rule rewrites can slip past the narrowing — the case where a planted name
- * would survive the sweep unseen.
- */
 describe("the SQL narrowing is a superset of the rule", () => {
 	test("selects every name the rule rewrites", () => {
 		const sqlite = new Database(":memory:");

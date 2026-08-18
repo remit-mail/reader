@@ -1,16 +1,3 @@
-/**
- * Harvesting takes the display name straight off the envelope, and a sender
- * chooses that string. A 2021 spam message reached this account's INBOX with
- * `matthijs@ischen.nl <aramirez@secresaludguaviare.gov.co>`: the account's own
- * address as the label on a stranger's. It was stored, autocomplete offered it
- * back when the account holder typed his own address, and a private reply left
- * the instance (issue #826).
- *
- * The name lands in three columns on this one save — the address book, the
- * envelope the message header renders, and the sender label the message list
- * shows and search indexes — so all three are asserted here.
- */
-
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type {
@@ -50,10 +37,6 @@ interface Saved {
 	threadMessages: CreateThreadMessageInput[];
 }
 
-/**
- * Drive the real save path so the stored value is the one the write path
- * produces, not one a test handed to a private method.
- */
 const harvest = async (envelope: Partial<ImapEnvelope>): Promise<Saved> => {
 	const saved: Saved = {
 		addresses: [],
@@ -149,12 +132,6 @@ describe("harvesting an envelope display name", () => {
 		);
 	});
 
-	/**
-	 * The incident with one word prepended. An anchored guard reads this as an
-	 * ordinary name and stores it, and autocomplete then ties it with the real
-	 * address on the term `matthijs` and breaks the tie on correspondence. The
-	 * word itself is not the lie, so it survives the address being removed.
-	 */
 	it("keeps what a name says besides the address it claims", async () => {
 		const input = await onlyAddress({
 			from: [{ ...spoof, name: "Matthijs <matthijs@ischen.nl>" }],

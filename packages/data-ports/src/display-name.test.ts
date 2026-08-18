@@ -5,9 +5,6 @@ import { storedDisplayName } from "./display-name.js";
 const OWN = "matthijs@ischen.nl";
 const SPOOFED = "aramirez@secresaludguaviare.gov.co";
 
-/**
- * The name is a stranger's address and nothing else, so nothing survives it.
- */
 const emptied: ReadonlyArray<readonly [string, string]> = [
 	["the incident", "matthijs@ischen.nl"],
 	["quoted", '"matthijs@ischen.nl"'],
@@ -21,11 +18,6 @@ const emptied: ReadonlyArray<readonly [string, string]> = [
 	["a non-ASCII local part", "Özcan@example.com"],
 ];
 
-/**
- * The name says something besides the address, and that something is what its
- * recipient knows the sender by. Removing it to remove the address destroys
- * real text on a live instance.
- */
 const stripped: ReadonlyArray<readonly [string, string, string]> = [
 	["parenthesised", "Support (support@acme.com)", "Support"],
 	["angle-bracketed", "Matthijs <matthijs@ischen.nl>", "Matthijs"],
@@ -84,11 +76,6 @@ describe("a display name that claims to be an address", () => {
 		assert.equal(storedDisplayName(name, OWN), name);
 	});
 
-	/**
-	 * SQLite folds `A-Z` and stops; JS folds the whole of Unicode. A rule spelled
-	 * once in SQL and once in TypeScript disagrees exactly here, and the
-	 * disagreement rewrites a name on a live database.
-	 */
 	it("folds case beyond ASCII on both sides", () => {
 		assert.equal(
 			storedDisplayName("Özcan@example.com", "özcan@example.com"),
