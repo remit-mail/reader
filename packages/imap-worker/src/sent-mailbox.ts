@@ -6,36 +6,55 @@ export type SentMailboxCandidate = Pick<
 >;
 
 const SENT_FOLDER_NAMES = [
-	"Sent",
-	"Sent Items",
-	"Sent Messages",
-	"Sent Mail",
+	"sent",
+	"sent items",
+	"sent messages",
+	"sent mail",
 ] as const;
 
-const leafName = (mailbox: SentMailboxCandidate): string => {
-	const parts = mailbox.fullPath.split(mailbox.hierarchyDelimiter);
-	return parts[parts.length - 1] ?? mailbox.fullPath;
+// A flat mailbox namespace reports no delimiter at all — ImapFlow gives `""`
+// for a NIL LIST delimiter — and splitting on "" returns single characters, so
+// the path is its own leaf.
+const segments = (mailbox: SentMailboxCandidate): string[] =>
+	mailbox.hierarchyDelimiter.length === 0
+		? [mailbox.fullPath]
+		: mailbox.fullPath.split(mailbox.hierarchyDelimiter);
+
+const rank = (mailbox: SentMailboxCandidate): number | null => {
+	const parts = segments(mailbox);
+	const leaf = parts[parts.length - 1] ?? mailbox.fullPath;
+	const nameIndex = SENT_FOLDER_NAMES.indexOf(
+		leaf.toLowerCase() as (typeof SENT_FOLDER_NAMES)[number],
+	);
+	if (nameIndex < 0) {
+		return null;
+	}
+	// Depth outranks the name: a "Sent" buried under Trash or an archive must
+	// never beat the account's real "Sent Items" one level up.
+	return parts.length * SENT_FOLDER_NAMES.length + nameIndex;
 };
 
-const depth = (mailbox: SentMailboxCandidate): number =>
-	mailbox.fullPath.split(mailbox.hierarchyDelimiter).length;
-
-const shallowestFirst = (
-	a: SentMailboxCandidate,
-	b: SentMailboxCandidate,
-): number => depth(a) - depth(b) || a.fullPath.localeCompare(b.fullPath);
-
+/**
+ * The Sent folder by conventional name, for servers that advertise no `\Sent`
+ * special-use. Matches the folder's own leaf segment, so it resolves at any
+ * depth under any prefix (`INBOX/Sent`, `Mail.Sent Items`, `[Gmail]/Sent Mail`)
+ * without knowing which prefixes a server uses.
+ */
 export const resolveSentMailboxByName = (
 	mailboxes: SentMailboxCandidate[],
 ): SentMailboxCandidate | null => {
-	for (const name of SENT_FOLDER_NAMES) {
-		const matches = mailboxes
-			.filter((m) => leafName(m).toLowerCase() === name.toLowerCase())
-			.sort(shallowestFirst);
-		const found = matches[0];
-		if (found) {
-			return found;
+	let best: { mailbox: SentMailboxCandidate; rank: number } | null = null;
+	for (const mailbox of mailboxes) {
+		const candidate = rank(mailbox);
+		if (candidate === null) continue;
+		if (
+			!best ||
+			candidate < best.rank ||
+			(candidate === best.rank &&
+				mailbox.fullPath.localeCompare(best.mailbox.fullPath) < 0)
+		) {
+			best = { mailbox, rank: candidate };
 		}
 	}
-	return null;
+	return best?.mailbox ?? null;
 };

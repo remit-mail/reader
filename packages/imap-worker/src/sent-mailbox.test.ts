@@ -83,6 +83,24 @@ describe("resolveSentMailboxByName", () => {
 		assert.equal(found, null);
 	});
 
+	it("prefers a shallower Sent over a deeper better-named one", () => {
+		const found = resolveSentMailboxByName([
+			mailbox("INBOX.Sent Items", "."),
+			mailbox("INBOX.Trash.Sent", "."),
+		]);
+
+		assert.equal(found?.fullPath, "INBOX.Sent Items");
+	});
+
+	it("resolves a flat namespace that reports no delimiter at all", () => {
+		const found = resolveSentMailboxByName([
+			mailbox("INBOX", ""),
+			mailbox("Sent", ""),
+		]);
+
+		assert.equal(found?.fullPath, "Sent");
+	});
+
 	it("returns null when the account has no Sent folder", () => {
 		const found = resolveSentMailboxByName([
 			mailbox("INBOX"),

@@ -18,8 +18,9 @@ export const processEvent = async (
 	log: Logger,
 	/**
 	 * SQS's own delivery count for the record carrying this event (1 on first
-	 * delivery). Read by SYNC_MESSAGE_BODY, PLACEMENT_MOVE_PUSH and FLAG_PUSH
-	 * — each knows from it when this is the last attempt before the queue's
+	 * delivery). Read by SYNC_MESSAGE_BODY, PLACEMENT_MOVE_PUSH, FLAG_PUSH and
+	 * APPEND_SENT_MESSAGE — each knows from it when this is the last attempt
+	 * before the queue's
 	 * own redrive policy would DLQ the record, so it can resolve
 	 * retry exhaustion into a terminal outcome (issue #1270) instead of
 	 * dead-lettering blindly.
@@ -50,7 +51,7 @@ export const processEvent = async (
 		case "EMPTY_TRASH":
 			return handleEmptyTrash(event, log);
 		case "APPEND_SENT_MESSAGE":
-			return handleAppendSentMessage(event, log);
+			return handleAppendSentMessage(event, log, receiveCount);
 		case "DELETE_ACCOUNT_OBJECTS":
 			return handleDeleteAccountObjects(event, log);
 		case "IMAP_WORKER_STOP":

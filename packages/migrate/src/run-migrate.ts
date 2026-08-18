@@ -9,6 +9,12 @@ import {
 	sweepDisplayNames,
 } from "../../drizzle-service/src/repair/address-display-name.js";
 import {
+	formatStrandedSentReport,
+	type StrandedSentRepairClient,
+	type StrandedSentRepairMode,
+	sweepStrandedSentOutbox,
+} from "../../drizzle-service/src/repair/stranded-sent-outbox.js";
+import {
 	type CategoryDivergenceReport,
 	checkThreadMessageCategory,
 	formatCheckReport,
@@ -39,7 +45,7 @@ import { logger } from "../../logger-lambda/src/logger.js";
 
 /**
  * This migrator applies generated schema migrations, installs the idempotent
- * DDL objects around them, and rewrites row content in two places.
+ * DDL objects around them, and rewrites row content in three places.
  *
  * That last clause is an amendment (#321, D16). This file used to state that it
  * never rewrites row content, and the rule behind it still holds: when a
@@ -75,6 +81,14 @@ import { logger } from "../../logger-lambda/src/logger.js";
  * see the repair module for what a SQL twin of it destroys. It removes the
  * address and keeps the rest of the name — the remedy is the claim, not the
  * text around it.
+ *
+ * The third is an outbox row stranded at `sent` (#824), and the reason is
+ * again delivery. The message was sent, the copy for the Sent folder never
+ * landed, and `sent` is the status the Outbox list hides — so it is mail the
+ * user has lost sight of on an instance already running. Purge and re-sync is
+ * no remedy: the message is on no server folder to re-fetch. It flips a status
+ * and writes the reason, on rows an hour past any retry, and touches nothing
+ * else.
  */
 
 /**
@@ -156,6 +170,23 @@ const displayNameStep = async (
 	}
 };
 
+/**
+ * A count, and an UPDATE only when the count found rows. The steady state on a
+ * healthy instance is zero stranded rows, so this is a read on every boot but
+ * the first one after the fix ships.
+ */
+const strandedSentStep = async (
+	client: StrandedSentRepairClient,
+	mode: StrandedSentRepairMode,
+): Promise<void> => {
+	const report = await sweepStrandedSentOutbox(client, mode);
+	for (const line of formatStrandedSentReport(report)) {
+		logStep({ step: "stranded-sent-repair" }, line);
+	}
+};
+
+type ParamRepairClient = DisplayNameRepairClient & StrandedSentRepairClient;
+
 const runSqlite = async (mode: Mode): Promise<void> => {
 	const dbPath = process.env.SQLITE_DB_PATH;
 	if (!dbPath) {
@@ -178,14 +209,17 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		all: async (sql) => sqlite.prepare(sql).all(),
 		run: async (sql) => sqlite.prepare(sql).run().changes,
 	};
-	const displayNameClient: DisplayNameRepairClient = {
+	// One handle, both parameterised repairs: the two clients are the same
+	// three lines, and a second copy is a second thing to keep in step.
+	const paramRepairClient: ParamRepairClient = {
 		all: async (sql, params) => sqlite.prepare(sql).all(...params),
 		run: async (sql, params) => sqlite.prepare(sql).run(...params).changes,
 	};
 	try {
 		if (mode === "check") {
 			logReport(await checkThreadMessageCategory(sqliteRepairClient));
-			await displayNameStep(displayNameClient, "check");
+			await displayNameStep(paramRepairClient, "check");
+			await strandedSentStep(paramRepairClient, "check");
 			return;
 		}
 
@@ -228,7 +262,11 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		// `thread_message.from_name`: the AFTER UPDATE trigger re-tokenizes those
 		// rows where the index already exists, and where it does not, the backfill
 		// below reads the repaired names.
-		await displayNameStep(displayNameClient, "repair");
+		await displayNameStep(paramRepairClient, "repair");
+
+		// Independent of every other step here: it reads and writes one column of
+		// `outbox_message`, which no index and no trigger installed below covers.
+		await strandedSentStep(paramRepairClient, "repair");
 
 		// The external-content FTS5 trigram table + its thread_message
 		// maintenance triggers, the final idempotent step (RFC 036 D4). The
