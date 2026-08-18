@@ -453,12 +453,12 @@ describe("SpamReportService.reportSpam", () => {
 		assert.equal(moveEvents(sent).length, 1);
 	});
 
-	it("leaves an existing sender row's other flags standing", async () => {
+	it("keeps the junkOnly mark that withholds the sender from autocomplete", async () => {
 		// Report spam adds the block; it is not a sighting of the sender and
 		// must not carry an upsert's on-conflict behaviour onto a row it did
-		// not create. A mark that withholds a spammer from autocomplete lives
-		// in these same flags, and clearing it here would put the spammer back
-		// in the compose picker — the opposite of what the button means.
+		// not create. The mark that withholds a spammer from autocomplete (#822)
+		// lives in these same flags, and clearing it here would put the spammer
+		// back in the compose picker — the opposite of what the button means.
 		const { service, addresses } = buildWorld({
 			senderFlags: {
 				junkOnly: { value: true, setAt: 1, setBy: "junk-harvest" },
@@ -511,6 +511,26 @@ describe("SpamReportService.reportSpam", () => {
 });
 
 describe("SpamReportService.notSpam", () => {
+	it("mints no address row for a sender that was never harvested", async () => {
+		// A sender with no row has no block to lift, so the flag write is
+		// already true. Creating the row to write it would put an address
+		// nothing ever harvested into the address book, where autocomplete
+		// would then offer it.
+		const { service, messages, addresses } = buildWorld({
+			harvestedSender: false,
+			startMailbox: JUNK_MAILBOX,
+		});
+
+		await service.notSpam({
+			accountConfigId: ACCOUNT_CONFIG,
+			accountId: ACCOUNT,
+			messageId: MESSAGE_ID,
+		});
+
+		assert.equal(addresses.size, 0);
+		assert.equal(messages.get(MESSAGE_ID)?.spamReport, undefined);
+	});
+
 	it("restores the original mailbox and clears the flag without setting trust", async () => {
 		const { service, messages, addresses } = buildWorld();
 

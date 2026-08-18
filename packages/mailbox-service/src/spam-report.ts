@@ -132,6 +132,20 @@ export class SpamReportService {
 	};
 
 	/**
+	 * The list form answers `[]` for a row that is not there, where the single
+	 * form throws — absence is a case both callers handle, not a fault.
+	 */
+	private senderIsKnown = async (
+		accountConfigId: string,
+		addressId: string,
+	): Promise<boolean> => {
+		const [known] = await this.addressService.getAddress(accountConfigId, [
+			addressId,
+		]);
+		return known !== undefined;
+	};
+
+	/**
 	 * Blocking a sender owns the row it writes to. Harvesting is what ordinarily
 	 * creates it, but a message whose harvest never landed — or whose row was
 	 * taken by a cascade — still has a sender the user is entitled to block, and
@@ -158,13 +172,7 @@ export class SpamReportService {
 				`Sender address ${from.normalizedEmail} is not a usable email address`,
 			);
 		}
-		// The list form answers `[]` for a row that is not there, where the
-		// single form throws — absence is the case this exists to handle, not a
-		// fault.
-		const [known] = await this.addressService.getAddress(accountConfigId, [
-			from.addressId,
-		]);
-		if (known) return;
+		if (await this.senderIsKnown(accountConfigId, from.addressId)) return;
 		await this.addressService.upsertAddress({
 			addressId: from.addressId,
 			accountConfigId,
@@ -284,11 +292,15 @@ export class SpamReportService {
 	notSpam = async (params: SpamReportParams): Promise<void> => {
 		const { accountConfigId, accountId, messageId } = params;
 
+		// Unblocking a sender the account has no row for is already true, and
+		// minting one here would put an address nothing ever harvested into the
+		// address book — the withdrawal of a judgement is not a sighting.
 		const from = await this.resolveFromAddress(accountConfigId, messageId);
-		await this.ensureSenderAddress(accountConfigId, from);
-		await this.addressService.mergeFlags(accountConfigId, from.addressId, {
-			blocked: null,
-		});
+		if (await this.senderIsKnown(accountConfigId, from.addressId)) {
+			await this.addressService.mergeFlags(accountConfigId, from.addressId, {
+				blocked: null,
+			});
+		}
 
 		const message = await this.messageService.get(messageId);
 
