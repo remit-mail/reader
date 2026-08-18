@@ -4,10 +4,7 @@ import type {
 	MailboxSpecialUseValue,
 } from "@remit/data-ports";
 import { resolveMailboxByLeafName } from "@remit/data-ports/mailbox-name";
-import {
-	JUNK_FOLDER_NAMES,
-	TRASH_FOLDER_NAMES,
-} from "@remit/data-ports/mailbox-role";
+import { JUNK_FOLDER_NAMES } from "@remit/data-ports/mailbox-role";
 import { eq } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { randomId } from "../id.js";
@@ -119,7 +116,14 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 			.from(mailboxTable)
 			.where(eq(mailboxTable.accountId, accountId));
 
-		const found = resolveMailboxByLeafName(rows, TRASH_FOLDER_NAMES);
+		const names = [
+			"trash",
+			"deleted items",
+			"deleted",
+			"[gmail]/trash",
+			"[gmail]/bin",
+		];
+		const found = rows.find((r) => names.includes(r.fullPath.toLowerCase()));
 		return found
 			? { mailboxId: found.mailboxId, fullPath: found.fullPath }
 			: null;

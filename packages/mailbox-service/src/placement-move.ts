@@ -200,10 +200,6 @@ export class PlacementMoveService {
 			originalUid: message.uid,
 		});
 
-		// Part of the local move, after the Message row that carries the
-		// destination: the classifier demoting mail is the highest-volume way a
-		// sender reaches Junk, and it must mark them here rather than at the next
-		// boot.
 		await this.addressService.reconcileJunkOnlyForMessage(messageId);
 
 		// The queue kick is a serious operational step, not a routine one — a

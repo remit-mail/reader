@@ -87,10 +87,6 @@ const accountHasCorresponded = (): SQL<number> =>
 const accountHasFlagged = (): SQL<number> =>
 	sql<number>`(${flagValue("blocked")} + ${flagValue("muted")})`;
 
-// Whether a row may be found, not whether it may be offered as a recipient:
-// one caller is the compose picker and another is the Senders settings screen,
-// which has to show the account a sender it blocked or muted. The picker asks
-// its own question of the flags this returns.
 export const addressListable = (term: string | undefined): SQL => {
 	const shown = sql`${flagValue("junkOnly")} = 0
 		or ${accountHasCorresponded()} > 0

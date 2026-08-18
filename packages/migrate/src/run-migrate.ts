@@ -96,9 +96,7 @@ import { logger } from "../../logger-lambda/src/logger.js";
  * no remedy: the message is on no server folder to re-fetch. It flips a status
  * and writes the reason, on rows an hour past any retry, and touches nothing
  * else.
- *
- * The fourth is an address that stands only on mail in a Junk folder (#822).
- * It reconciles in both directions and deletes nothing.
+
  */
 
 /**

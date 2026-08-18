@@ -29,12 +29,6 @@ const flagIsSet = (name: string): string =>
 const quoted = (names: readonly string[]): string =>
 	names.map((name) => `'${name}'`).join(", ");
 
-// `resolveMailboxByLeafName` in SQL: everything after the last hierarchy
-// delimiter, which is the whole path for a mailbox that carries none. rtrim's
-// second argument is a set of characters, so trimming every non-delimiter
-// character off the right stops at the last delimiter and leaves the prefix to
-// measure. An account whose Junk folder is `INBOX/Spam` has to read as Junk
-// here exactly as it does in `findJunkMailbox`.
 const MAILBOX_LEAF = `lower(substr(
 		mailbox.full_path,
 		length(rtrim(
@@ -74,19 +68,11 @@ const sightingWhere = (extra: string): string => `exists (
 	WHERE envelope_address.address_id = address.address_id${extra}
 )`;
 
-// Both directions read these same two facts, and Trash is in neither: a
-// deleted message is evidence of nothing, so it can no more mark a sender than
-// it can clear one. Reading it as "outside Junk" let a single deleted message
-// keep a spammer suggestible, and made the outcome depend on the order the two
-// moves happened in.
 const SIGHTING_IN_JUNK = sightingWhere(` AND ${IN_JUNK}`);
 const SIGHTING_IN_LIVE_MAIL = sightingWhere(
 	` AND NOT ${IN_JUNK} AND NOT ${IN_TRASH}`,
 );
 
-// Only what the account has done with the sender, or said in its favour.
-// Blocking or muting is the opposite opinion and must neither bar the mark nor
-// lift one already standing — Report spam sets `blocked`.
 export const ACCOUNT_HAS_CORRESPONDED = `(
 	address.outbound_count > 0
 	OR address.reply_count > 0

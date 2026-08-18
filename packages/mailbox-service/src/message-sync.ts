@@ -1378,10 +1378,6 @@ export class MessageSyncService {
 			});
 			owned = created || item.mailboxId === mailboxId;
 
-			// After the Message row, which is what makes this sighting visible to
-			// the predicate. The harvest above leaves an already-stored address
-			// alone, because one sighting cannot tell whether the account also
-			// meets it on live mail; this asks that of every sighting at once.
 			if (sighting === "junk") {
 				await repos.address.reconcileJunkOnlyForMessage(messageId);
 			}

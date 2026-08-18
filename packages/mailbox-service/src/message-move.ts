@@ -258,6 +258,8 @@ export class MessageMoveService {
 					true,
 				);
 
+				await this.addressService.reconcileJunkOnlyForMessage(messageId);
+
 				events.push({
 					type: "MESSAGE_DELETE",
 					eventId: randomUUID(),
