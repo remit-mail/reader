@@ -9,41 +9,78 @@
  * claim. On 2026-08-18 autocomplete offered such a row back and private mail
  * left the instance.
  *
- * The rule is one predicate because it has to hold in two places at once: the
- * harvest that decides what to store, and the repair that clears what is
+ * The rule is one function because it has to hold in two places at once: the
+ * harvest that decides what to store, and the repair that rewrites what is
  * already stored. Two spellings of it disagree at the edges — SQL `lower()`
  * folds ASCII only where JS folds all of Unicode — and every disagreement
- * destroys a name on a live database.
+ * rewrites a name on a live database that holds the only copy of it.
  *
- * A name is refused when it carries an address anywhere in it that is not the
- * address it labels: `Matthijs <matthijs@ischen.nl>` on a Colombian government
- * address is the same lie as the bare address, one word longer. A name that
- * carries only the address it labels says nothing false and is kept.
+ * What comes out is the name minus the claim, not the empty string. A sender
+ * signing itself `Support (support@acme.com)` from `noreply@acme.com` is
+ * ordinary mail, and `Support` is the name its recipient knows it by; deleting
+ * that to remove the address takes real text off a live instance. Only the
+ * address is removed, with the punctuation that was holding it, and a name that
+ * is nothing but the claim comes back empty.
+ *
+ * An address the name shares with the address it labels is not a claim about
+ * anyone else, so it stays — `Matthijs <matthijs@ischen.nl>` on
+ * `matthijs@ischen.nl` is the same information twice.
  */
 
 const EMBEDDED_ADDRESS =
 	/[^\s@<>()[\],;:"'\\]+@[^\s@<>()[\],;:"'\\]+\.[^\s@<>()[\],;:"'\\.]{2,}/gu;
 
+/** `( )`, `< >`, `""` — a delimiter pair the removed address was sitting in. */
+const EMPTIED_PAIR = /[<([{"']\s*[>)\]}"']/gu;
+
+/**
+ * What is left holding the address once it is gone: the separators around it.
+ * Brackets and quotes are not trimmed here — EMPTIED_PAIR has already taken the
+ * ones that were wrapping the address, and a name can legitimately end in one.
+ */
+const EDGE_SEPARATORS = /^[\s,;:|/\\-]+|[\s,;:|/\\-]+$/gu;
+
+const tidy = (text: string): string =>
+	text
+		.replace(EMPTIED_PAIR, " ")
+		.replace(/\s+/gu, " ")
+		.replace(EDGE_SEPARATORS, "")
+		.trim();
+
 /**
  * `normalizedEmail` absent means the envelope carried no address this name
  * could be describing, so any address in the name is a claim about nobody.
  */
-export const isImpersonatingDisplayName = (
-	displayName: string | undefined,
-	normalizedEmail: string | undefined,
+const claimsAnotherAddress = (
+	text: string,
+	own: string | undefined,
 ): boolean => {
-	if (!displayName) return false;
-	const own = normalizedEmail?.toLowerCase();
-	for (const [address] of displayName.matchAll(EMBEDDED_ADDRESS)) {
+	for (const [address] of text.matchAll(EMBEDDED_ADDRESS)) {
 		if (address.toLowerCase() !== own) return true;
 	}
 	return false;
 };
 
 /**
- * The SQL narrowing that precedes the predicate: every string the predicate can
- * refuse contains `x@y.zz`, so a row this pattern misses cannot be impersonating
- * and never has to be read. `LIKE` is a superset, never the decision — the
- * decision is always `isImpersonatingDisplayName`.
+ * The display name as it should be stored, for both the harvest and the repair.
+ * Unchanged when the name claims nothing.
  */
-export const EMBEDDED_ADDRESS_LIKE = "%_@_%.__%";
+export const storedDisplayName = (
+	displayName: string | undefined,
+	normalizedEmail: string | undefined,
+): string => {
+	if (!displayName) return "";
+	const own = normalizedEmail?.toLowerCase();
+	if (!claimsAnotherAddress(displayName, own)) return displayName;
+
+	const remainder = tidy(
+		displayName.replace(EMBEDDED_ADDRESS, (address) =>
+			address.toLowerCase() === own ? address : " ",
+		),
+	);
+	// Stripping leaves at most the row's own address behind, so the re-check is a
+	// backstop rather than a case: nothing that still claims another address is
+	// ever stored, whatever the shape it was hiding in.
+	if (!remainder || claimsAnotherAddress(remainder, own)) return "";
+	return remainder;
+};

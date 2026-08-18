@@ -11,7 +11,7 @@ import type {
 	MailboxItem,
 	ThreadMessageItem,
 } from "@remit/data-ports";
-import { isImpersonatingDisplayName } from "@remit/data-ports/display-name";
+import { storedDisplayName } from "@remit/data-ports/display-name";
 import {
 	deriveAddressId,
 	deriveBodyPartId,
@@ -87,17 +87,16 @@ export const isParseableEmailAddress = (
 };
 
 /**
- * The name an envelope carries for an address, as it should be stored: empty
- * when it claims to be some other address (issue #826), otherwise verbatim.
- * The claim is refused wherever a name lands — the address book, the envelope
- * the message header renders, and the sender label on the thread row.
+ * The name an envelope carries for an address, as it should be stored: any
+ * claim to be some other address removed (issue #826), the rest of the name
+ * kept. Refused wherever a name lands — the address book, the envelope the
+ * message header renders, and the sender label on the thread row.
  */
 export const harvestedDisplayName = (
 	address: ImapAddress | undefined,
 ): string => {
 	if (!address?.name) return "";
-	const own = `${address.mailbox}@${address.host}`;
-	return isImpersonatingDisplayName(address.name, own) ? "" : address.name;
+	return storedDisplayName(address.name, `${address.mailbox}@${address.host}`);
 };
 
 /**

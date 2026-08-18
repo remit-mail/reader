@@ -152,14 +152,33 @@ describe("harvesting an envelope display name", () => {
 	/**
 	 * The incident with one word prepended. An anchored guard reads this as an
 	 * ordinary name and stores it, and autocomplete then ties it with the real
-	 * address on the term `matthijs` and breaks the tie on correspondence.
+	 * address on the term `matthijs` and breaks the tie on correspondence. The
+	 * word itself is not the lie, so it survives the address being removed.
 	 */
-	it("drops a name that merely carries another address", async () => {
+	it("keeps what a name says besides the address it claims", async () => {
 		const input = await onlyAddress({
 			from: [{ ...spoof, name: "Matthijs <matthijs@ischen.nl>" }],
 		});
 
-		assert.equal(input.displayName, "");
+		assert.equal(input.displayName, "Matthijs");
+		assert.equal(
+			input.normalizedCompound,
+			"matthijs aramirez@secresaludguaviare.gov.co",
+		);
+	});
+
+	it("keeps a name a sender wrote its own support address into", async () => {
+		const input = await onlyAddress({
+			from: [
+				{
+					name: "Support (support@acme.com)",
+					mailbox: "noreply",
+					host: "acme.com",
+				},
+			],
+		});
+
+		assert.equal(input.displayName, "Support");
 	});
 
 	it("keeps a name that is the address it labels", async () => {
@@ -254,6 +273,14 @@ describe("harvesting an envelope display name", () => {
 
 		assert.equal(envelopeAddresses.length, 1);
 		assert.equal(envelopeAddresses[0]?.displayName, "");
+	});
+
+	it("keeps the sender label's text and drops only the address", async () => {
+		const { threadMessages } = await harvest({
+			from: [{ ...spoof, name: "Support <matthijs@ischen.nl>" }],
+		});
+
+		assert.equal(threadMessages[0]?.fromName, "Support");
 	});
 
 	it("drops the sender label the message list shows", async () => {

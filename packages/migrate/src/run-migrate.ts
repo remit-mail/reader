@@ -72,7 +72,9 @@ import { logger } from "../../logger-lambda/src/logger.js";
  * re-sync plants the names again — and the guard that now refuses them only
  * covers what is harvested next. It runs from Node rather than as a SQL
  * migration because the decision has to be the same function the guard uses;
- * see the repair module for what a SQL twin of it destroys.
+ * see the repair module for what a SQL twin of it destroys. It removes the
+ * address and keeps the rest of the name — the remedy is the claim, not the
+ * text around it.
  */
 
 /**
@@ -142,7 +144,7 @@ const repairThreadMessageCategoryStep = async (
 /**
  * The scan is a full pass over three tables and runs on every boot. It reads
  * only the names SQL can narrow to an address shape, and the steady state after
- * one repair is that none of them decides true — a read, never a write lock.
+ * one repair is that none of them needs rewriting — a read, never a write lock.
  */
 const displayNameStep = async (
 	client: DisplayNameRepairClient,
