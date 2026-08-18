@@ -29,6 +29,10 @@
 			"types": "./src/display-name.ts",
 			"default": "./src/display-name.ts"
 		},
+		"./mailbox-name": {
+			"types": "./src/mailbox-name.ts",
+			"default": "./src/mailbox-name.ts"
+		},
 		"./wellknown": {
 			"types": "./src/wellknown.ts",
 			"default": "./src/wellknown.ts"

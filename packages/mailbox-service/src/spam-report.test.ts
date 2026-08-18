@@ -10,10 +10,15 @@ import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
+import { deriveAddressId } from "@remit/data-ports/id";
 import { AddressRole } from "@remit/domain-enums";
 import { FlagPushService } from "./flag-push.js";
 import { MessageMoveService } from "./message-move.js";
-import { MoveNotSettledError, SpamReportService } from "./spam-report.js";
+import {
+	MoveNotSettledError,
+	NoJunkMailboxError,
+	SpamReportService,
+} from "./spam-report.js";
 
 const ACCOUNT = "acc-1";
 const ACCOUNT_CONFIG = "cfg-1";
@@ -21,7 +26,8 @@ const ACCOUNT_EMAIL = "me@example.com";
 const INBOX_MAILBOX = "mbx-inbox";
 const JUNK_MAILBOX = "mbx-junk";
 const MESSAGE_ID = "msg-1";
-const ADDRESS_ID = "addr-1";
+const SENDER_EMAIL = "sender@example.com";
+const ADDRESS_ID = deriveAddressId(ACCOUNT_CONFIG, SENDER_EMAIL);
 const THREAD_ID = "thread-1";
 
 interface ThreadRow {
@@ -59,10 +65,21 @@ const buildWorld = (
 		startMailbox?: string;
 		fromEmail?: string;
 		originalMailboxId?: string;
+		/** Whether the sender was ever harvested into an `address` row. */
+		harvestedSender?: boolean;
+		/** Flags already standing on the harvested sender's row. */
+		senderFlags?: Record<string, unknown>;
+		junkMailbox?: { mailboxId: string; fullPath: string } | null;
 	} = {},
 ): World => {
 	const startMailbox = opts.startMailbox ?? INBOX_MAILBOX;
-	const fromEmail = opts.fromEmail ?? "sender@example.com";
+	const fromEmail = opts.fromEmail ?? SENDER_EMAIL;
+	const fromAddressId = deriveAddressId(ACCOUNT_CONFIG, fromEmail);
+	const harvestedSender = opts.harvestedSender ?? true;
+	const junkMailbox =
+		opts.junkMailbox === undefined
+			? { mailboxId: JUNK_MAILBOX, fullPath: "Junk" }
+			: opts.junkMailbox;
 
 	const messages = new Map<string, Record<string, unknown>>([
 		[
@@ -85,9 +102,11 @@ const buildWorld = (
 		],
 	]);
 
-	const addresses = new Map<string, { flags: AddressFlags }>([
-		[ADDRESS_ID, { flags: {} }],
-	]);
+	const addresses = new Map<string, { flags: AddressFlags }>(
+		harvestedSender
+			? [[fromAddressId, { flags: (opts.senderFlags ?? {}) as AddressFlags }]]
+			: [],
+	);
 
 	const threadRows: ThreadRow[] = [
 		{
@@ -134,7 +153,8 @@ const buildWorld = (
 					{
 						envelopeAddressId: "ea-1",
 						messageId: id,
-						addressId: ADDRESS_ID,
+						addressId: fromAddressId,
+						displayName: "Spammy Sender",
 						normalizedEmail: fromEmail,
 						addressRole: AddressRole.From,
 						addressOrder: 0,
@@ -173,6 +193,17 @@ const buildWorld = (
 	} as unknown as IMessageRepository;
 
 	const addressService = {
+		getAddress: async (_accountConfigId: string, addressIds: string[]) =>
+			addressIds
+				.filter((id) => addresses.has(id))
+				.map((id) => ({ addressId: id, ...addresses.get(id) })),
+		// Deliberately destructive on conflict, mirroring the real repo's
+		// `onConflictDoUpdate`: a caller that upserts over a row it did not
+		// create loses what stood on it.
+		upsertAddress: async (input: { addressId: string }) => {
+			addresses.set(input.addressId, { flags: {} });
+			return { ...input, flags: {} };
+		},
 		mergeFlags: async (
 			_accountConfigId: string,
 			addressId: string,
@@ -199,10 +230,7 @@ const buildWorld = (
 	} as unknown as IAccountRepository;
 
 	const mailboxSpecialUseService = {
-		findJunkMailbox: async () => ({
-			mailboxId: JUNK_MAILBOX,
-			fullPath: "Junk",
-		}),
+		findJunkMailbox: async () => junkMailbox,
 		findTrashMailbox: async () => null,
 	} as unknown as IMailboxSpecialUseRepository;
 
@@ -399,9 +427,133 @@ describe("SpamReportService.reportSpam", () => {
 		assert.ok(message !== undefined);
 		assert.ok((message.spamReport as { reportedAt: number }).reportedAt > 0);
 	});
+
+	it("refuses to mint a row for a sender address carrying no @ at all", async () => {
+		// slice() around a lastIndexOf of -1 splits "no-at-sign" into a
+		// plausible-looking local part and domain, so a length check alone
+		// waves the one input it exists to catch straight through into a
+		// corrupt address row.
+		const { service, addresses } = buildWorld({
+			harvestedSender: false,
+			fromEmail: "no-at-sign",
+		});
+
+		await assert.rejects(
+			() =>
+				service.reportSpam({
+					accountConfigId: ACCOUNT_CONFIG,
+					accountId: ACCOUNT,
+					messageId: MESSAGE_ID,
+				}),
+			/not a usable email address/,
+		);
+
+		assert.equal(addresses.size, 0);
+	});
+
+	it("reports a message whose sender was never harvested into an address row", async () => {
+		// The row is what carries the blocked flag, and harvesting is what
+		// ordinarily writes it. When it is absent, blocking the sender used to
+		// throw NotFoundError and take the whole report down with it — the
+		// message never reached Junk and the user got a retry that could not
+		// work (test.remit.email, 18 Aug 2026).
+		const { service, messages, addresses, sent } = buildWorld({
+			harvestedSender: false,
+		});
+
+		await service.reportSpam({
+			accountConfigId: ACCOUNT_CONFIG,
+			accountId: ACCOUNT,
+			messageId: MESSAGE_ID,
+			setBy: "user-1",
+		});
+
+		const address = addresses.get(ADDRESS_ID);
+		assert.equal(address?.flags.blocked?.value, true);
+
+		const message = messages.get(MESSAGE_ID);
+		assert.equal(message?.mailboxId, JUNK_MAILBOX);
+		assert.equal(moveEvents(sent).length, 1);
+	});
+
+	it("keeps the junkOnly mark that withholds the sender from autocomplete", async () => {
+		// Report spam adds the block; it is not a sighting of the sender and
+		// must not carry an upsert's on-conflict behaviour onto a row it did
+		// not create. The mark that withholds a spammer from autocomplete (#822)
+		// lives in these same flags, and clearing it here would put the spammer
+		// back in the compose picker — the opposite of what the button means.
+		const { service, addresses } = buildWorld({
+			senderFlags: {
+				junkOnly: { value: true, setAt: 1, setBy: "junk-harvest" },
+			},
+		});
+
+		await service.reportSpam({
+			accountConfigId: ACCOUNT_CONFIG,
+			accountId: ACCOUNT,
+			messageId: MESSAGE_ID,
+			setBy: "user-1",
+		});
+
+		const flags = addresses.get(ADDRESS_ID)?.flags as Record<string, unknown>;
+		assert.equal((flags.blocked as { value: boolean }).value, true);
+		assert.deepEqual(flags.junkOnly, {
+			value: true,
+			setAt: 1,
+			setBy: "junk-harvest",
+		});
+	});
+
+	it("names the missing Junk folder and changes nothing when the account has none", async () => {
+		const { service, messages, addresses, sent, markerPuts } = buildWorld({
+			junkMailbox: null,
+		});
+
+		await assert.rejects(
+			() =>
+				service.reportSpam({
+					accountConfigId: ACCOUNT_CONFIG,
+					accountId: ACCOUNT,
+					messageId: MESSAGE_ID,
+				}),
+			(error: unknown) =>
+				error instanceof NoJunkMailboxError &&
+				/no Junk folder/.test(error.message) &&
+				/Create one/.test(error.message),
+		);
+
+		// Nothing half-applied: no sender blocked, no report stamp on a message
+		// still sitting where it was, no move, no keyword marker.
+		assert.equal(addresses.get(ADDRESS_ID)?.flags.blocked, undefined);
+		const message = messages.get(MESSAGE_ID);
+		assert.equal(message?.spamReport, undefined);
+		assert.equal(message?.mailboxId, INBOX_MAILBOX);
+		assert.equal(moveEvents(sent).length, 0);
+		assert.equal(markerPuts.length, 0);
+	});
 });
 
 describe("SpamReportService.notSpam", () => {
+	it("mints no address row for a sender that was never harvested", async () => {
+		// A sender with no row has no block to lift, so the flag write is
+		// already true. Creating the row to write it would put an address
+		// nothing ever harvested into the address book, where autocomplete
+		// would then offer it.
+		const { service, messages, addresses } = buildWorld({
+			harvestedSender: false,
+			startMailbox: JUNK_MAILBOX,
+		});
+
+		await service.notSpam({
+			accountConfigId: ACCOUNT_CONFIG,
+			accountId: ACCOUNT,
+			messageId: MESSAGE_ID,
+		});
+
+		assert.equal(addresses.size, 0);
+		assert.equal(messages.get(MESSAGE_ID)?.spamReport, undefined);
+	});
+
 	it("restores the original mailbox and clears the flag without setting trust", async () => {
 		const { service, messages, addresses } = buildWorld();
 

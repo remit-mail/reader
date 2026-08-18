@@ -3,12 +3,21 @@ import type {
 	MailboxSpecialUseItem,
 	MailboxSpecialUseValue,
 } from "@remit/data-ports";
+import { resolveMailboxByLeafName } from "@remit/data-ports/mailbox-name";
 import { eq } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { randomId } from "../id.js";
 import { mailboxSpecialUseTable, mailboxTable } from "../schema/i4-mailbox.js";
 
 type DB = Db<Record<string, unknown>>;
+
+const JUNK_FOLDER_NAMES = [
+	"junk",
+	"spam",
+	"junk e-mail",
+	"junk email",
+	"bulk mail",
+];
 
 function rowToSpecialUse(
 	row: typeof mailboxSpecialUseTable.$inferSelect,
@@ -155,9 +164,7 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 			.select()
 			.from(mailboxTable)
 			.where(eq(mailboxTable.accountId, accountId));
-
-		const names = ["junk", "spam", "bulk mail", "junk e-mail", "[gmail]/spam"];
-		const found = rows.find((r) => names.includes(r.fullPath.toLowerCase()));
+		const found = resolveMailboxByLeafName(rows, JUNK_FOLDER_NAMES);
 		return found
 			? { mailboxId: found.mailboxId, fullPath: found.fullPath }
 			: null;

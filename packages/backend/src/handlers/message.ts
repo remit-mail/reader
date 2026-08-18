@@ -24,6 +24,7 @@ import {
 	isMessageBodySyncBroken,
 	MailboxCursorPausedError,
 	MoveNotSettledError,
+	NoJunkMailboxError,
 } from "@remit/mailbox-service";
 import {
 	isStorageNotFoundError as isStorageNotFoundErrorFromService,
@@ -339,22 +340,29 @@ export interface SpamReportBulkOutcome {
 }
 
 /**
- * The one designed, allowlisted failure reason returned to the client
- * verbatim — everything else is flattened to `GENERIC_FAILURE_REASON`, same
- * policy as `error.ts`'s "Internal server error" flattening for an unhandled
- * error. Without this, an arbitrary thrown error's raw text — an internal
- * "No Junk mailbox found for account <id>", an AWS SDK message naming a
- * queue URL or `ECONNREFUSED host:port` — would land straight in a 200
- * response body, since `SpamReportBulkResult.reason` is documented as shown
- * to the user as-is.
+ * The fallback for a failure nobody designed copy for — an AWS SDK message
+ * naming a queue URL, an `ECONNREFUSED host:port`, a programmer error.
+ * Everything reaching it is flattened, same policy as `error.ts`'s "Internal
+ * server error" flattening, because `SpamReportBulkResult.reason` is shown to
+ * the user as-is. It says "try again" because retrying is the only thing left
+ * to say about a cause we cannot name; an outcome the service DOES understand
+ * carries its own text through `DESIGNED_FAILURES` instead of landing here.
  */
 export const GENERIC_FAILURE_REASON =
-	"This message could not be processed. Please try again.";
+	"This message could not be processed. Please try again. If it keeps failing, report it.";
+
+/**
+ * The designed, user-facing outcomes whose own message is returned verbatim:
+ * each names what happened and what the user can do about it, which the
+ * generic text cannot.
+ */
+const DESIGNED_FAILURES = [MoveNotSettledError, NoJunkMailboxError];
+
+const isDesignedFailure = (reason: unknown): reason is Error =>
+	DESIGNED_FAILURES.some((designed) => reason instanceof designed);
 
 const failureReason = (reason: unknown): string =>
-	reason instanceof MoveNotSettledError
-		? reason.message
-		: GENERIC_FAILURE_REASON;
+	isDesignedFailure(reason) ? reason.message : GENERIC_FAILURE_REASON;
 
 /**
  * Drive one report-spam/not-spam operation per message, concurrently. Each

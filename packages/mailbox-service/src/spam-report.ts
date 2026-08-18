@@ -5,6 +5,7 @@ import type {
 	IMessageRepository,
 	MessageItem,
 } from "@remit/data-ports";
+import { deriveAddressId } from "@remit/data-ports/id";
 import {
 	AddressRole,
 	MessageKeywordFlag,
@@ -30,6 +31,22 @@ export class MoveNotSettledError extends Error {
 			`Message ${messageId}'s move to Junk has not settled yet; try again in a moment.`,
 		);
 		this.name = "MoveNotSettledError";
+	}
+}
+
+/**
+ * The account advertises no Junk folder and has none under any conventional
+ * name, so there is nowhere to file the report. A designed, user-facing
+ * outcome — the user has to create the folder, and no amount of retrying
+ * changes that — so it carries its own text through the bulk handler's
+ * allowlist rather than being flattened to the generic retry copy.
+ */
+export class NoJunkMailboxError extends Error {
+	constructor() {
+		super(
+			"This account has no Junk folder. Create one named Junk or Spam in your mail provider, then report this message again.",
+		);
+		this.name = "NoJunkMailboxError";
 	}
 }
 
@@ -86,9 +103,20 @@ export class SpamReportService {
 			config.moveSettlePollMs ?? DEFAULT_MOVE_SETTLE_POLL_MS;
 	}
 
+	/**
+	 * The sender to act on. `addressId` is derived rather than read off the
+	 * envelope row so it always names the row `ensureSenderAddress` writes and
+	 * the harvester writes — one derivation, one row, whatever the envelope
+	 * happens to carry.
+	 */
 	private resolveFromAddress = async (
+		accountConfigId: string,
 		messageId: string,
-	): Promise<{ addressId: string; normalizedEmail: string }> => {
+	): Promise<{
+		addressId: string;
+		normalizedEmail: string;
+		displayName: string;
+	}> => {
 		const description = await this.messageService.describe(messageId);
 		const from = description.envelopeAddress.find(
 			(a) => a.addressRole === AddressRole.From,
@@ -96,7 +124,65 @@ export class SpamReportService {
 		if (!from) {
 			throw new Error(`Message ${messageId} has no From address to act on`);
 		}
-		return { addressId: from.addressId, normalizedEmail: from.normalizedEmail };
+		return {
+			addressId: deriveAddressId(accountConfigId, from.normalizedEmail),
+			normalizedEmail: from.normalizedEmail,
+			displayName: from.displayName ?? "",
+		};
+	};
+
+	/**
+	 * The list form answers `[]` for a row that is not there, where the single
+	 * form throws — absence is a case both callers handle, not a fault.
+	 */
+	private senderIsKnown = async (
+		accountConfigId: string,
+		addressId: string,
+	): Promise<boolean> => {
+		const [known] = await this.addressService.getAddress(accountConfigId, [
+			addressId,
+		]);
+		return known !== undefined;
+	};
+
+	/**
+	 * Blocking a sender owns the row it writes to. Harvesting is what ordinarily
+	 * creates it, but a message whose harvest never landed — or whose row was
+	 * taken by a cascade — still has a sender the user is entitled to block, and
+	 * a missing row used to abort report-spam before the message ever reached
+	 * Junk. The id is the harvester's own derivation, so this converges on the
+	 * one row rather than minting a parallel one.
+	 *
+	 * A row that already exists is left exactly as it stands. Reporting spam is
+	 * evidence about the sender, never about the account's standing record of
+	 * them: an upsert here would carry whatever the upsert path does on
+	 * conflict — today a display name chosen by the spammer, and any flag a
+	 * later sighting-clearing rule hangs off it — into an operation that means
+	 * the opposite.
+	 */
+	private ensureSenderAddress = async (
+		accountConfigId: string,
+		from: { addressId: string; normalizedEmail: string; displayName: string },
+	): Promise<void> => {
+		const separator = from.normalizedEmail.lastIndexOf("@");
+		const localPart = from.normalizedEmail.slice(0, separator);
+		const domain = from.normalizedEmail.slice(separator + 1);
+		if (separator < 0 || localPart.length === 0 || domain.length === 0) {
+			throw new Error(
+				`Sender address ${from.normalizedEmail} is not a usable email address`,
+			);
+		}
+		if (await this.senderIsKnown(accountConfigId, from.addressId)) return;
+		await this.addressService.upsertAddress({
+			addressId: from.addressId,
+			accountConfigId,
+			localPart,
+			domain,
+			normalizedEmail: from.normalizedEmail,
+			normalizedCompound:
+				`${from.displayName.toLowerCase()} ${from.normalizedEmail}`.trim(),
+			displayName: from.displayName,
+		});
 	};
 
 	/**
@@ -128,12 +214,24 @@ export class SpamReportService {
 		const { accountConfigId, accountId, messageId, setBy } = params;
 		const now = Date.now();
 
-		const from = await this.resolveFromAddress(messageId);
+		// Resolved before anything is written: with nowhere to file the report,
+		// the operation cannot happen, and a blocked sender plus a `spamReport`
+		// stamp on a message still sitting in the inbox is a report that half
+		// happened. Fail here and the press changed nothing.
+		const junkMailbox =
+			await this.mailboxSpecialUseService.findJunkMailbox(accountId);
+		if (!junkMailbox) {
+			this.log.error({ accountId, messageId }, "No Junk mailbox for account");
+			throw new NoJunkMailboxError();
+		}
+
+		const from = await this.resolveFromAddress(accountConfigId, messageId);
 		const account = await this.accountService.get(accountId);
 		const isOwnAddress =
 			from.normalizedEmail.toLowerCase() === account.email.toLowerCase();
 
 		if (!isOwnAddress) {
+			await this.ensureSenderAddress(accountConfigId, from);
 			await this.addressService.mergeFlags(accountConfigId, from.addressId, {
 				blocked: { value: true, setAt: now, setBy },
 			});
@@ -152,12 +250,6 @@ export class SpamReportService {
 		await this.messageService.update(messageId, {
 			spamReport: { reportedAt: now },
 		});
-
-		const junkMailbox =
-			await this.mailboxSpecialUseService.findJunkMailbox(accountId);
-		if (!junkMailbox) {
-			throw new Error(`No Junk mailbox found for account ${accountId}`);
-		}
 
 		const alreadyInJunk = before.mailboxId === junkMailbox.mailboxId;
 
@@ -200,10 +292,15 @@ export class SpamReportService {
 	notSpam = async (params: SpamReportParams): Promise<void> => {
 		const { accountConfigId, accountId, messageId } = params;
 
-		const from = await this.resolveFromAddress(messageId);
-		await this.addressService.mergeFlags(accountConfigId, from.addressId, {
-			blocked: null,
-		});
+		// Unblocking a sender the account has no row for is already true, and
+		// minting one here would put an address nothing ever harvested into the
+		// address book — the withdrawal of a judgement is not a sighting.
+		const from = await this.resolveFromAddress(accountConfigId, messageId);
+		if (await this.senderIsKnown(accountConfigId, from.addressId)) {
+			await this.addressService.mergeFlags(accountConfigId, from.addressId, {
+				blocked: null,
+			});
+		}
 
 		const message = await this.messageService.get(messageId);
 

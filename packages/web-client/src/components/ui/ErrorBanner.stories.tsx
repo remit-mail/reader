@@ -6,10 +6,10 @@ import { ErrorBanner } from "./ErrorBanner";
  * message list, so it is opaque and it names its own severity out loud rather
  * than leaving colour to carry the meaning.
  *
- * A failure the user cannot act on still gets an action link, prefilled, so
- * reporting it is one click instead of a form they have to assemble. The
- * hrefs below stand in for the real report URL, which the app builds from
- * build-time constants Storybook has no `define` for.
+ * Every error banner carries a prefilled report link, so reporting a failure
+ * the user cannot act on is one click instead of a form they have to
+ * assemble. The hrefs below stand in for the real report URL, which the app
+ * builds from build-time constants Storybook has no `define` for.
  */
 const meta: Meta<typeof ErrorBanner> = {
 	title: "Components/ErrorBanner",
@@ -27,21 +27,38 @@ type Story = StoryObj<typeof ErrorBanner>;
 const REPORT_URL =
 	"https://github.com/remit-mail/reader/issues/new?title=Spellcheck+stopped";
 
-/** A mutation that failed, with the reason underneath. */
+/** A mutation that failed, with the reason underneath and a way out. */
 export const Failed: Story = {
 	name: "Error",
 	args: {
 		severity: "error",
 		title: "Couldn't move message",
 		detail: "Connection reset by peer",
+		action: { label: "Report an issue", href: REPORT_URL },
 	},
 };
 
-/** Nothing more to say than the title. */
+/** Nothing more to say than the title — the report link still stands. */
 export const NoDetail: Story = {
 	args: {
 		severity: "error",
 		title: "Couldn't move message",
+		action: { label: "Report an issue", href: REPORT_URL },
+	},
+};
+
+/**
+ * Report spam failing because the account has nowhere to file it. The reason
+ * names the folder and the fix, so this one is actionable without the report
+ * link — which is offered anyway, because the user should not have to decide.
+ */
+export const NoJunkFolder: Story = {
+	args: {
+		severity: "error",
+		title: "Couldn't report this message as spam",
+		detail:
+			"This account has no Junk folder. Create one named Junk or Spam in your mail provider, then report this message again.",
+		action: { label: "Report an issue", href: REPORT_URL },
 	},
 };
 

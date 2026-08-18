@@ -254,6 +254,7 @@ export {
 } from "./snippet.js";
 export {
 	MoveNotSettledError,
+	NoJunkMailboxError,
 	type SpamReportConfig,
 	type SpamReportLogger,
 	type SpamReportParams,
