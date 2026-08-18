@@ -166,7 +166,7 @@ export { Checkbox, type CheckboxProps } from "./components/checkbox.js";
 export {
 	ComposeActionBar,
 	type ComposeActionBarProps,
-	type ComposeSaveStatus,
+	type ComposeSaveState,
 	type ComposeSendState,
 } from "./components/compose-action-bar.js";
 export {

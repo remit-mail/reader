@@ -353,7 +353,14 @@ const ComposeSurface = ({
 					onSend={() => undefined}
 					onBlocked={() => undefined}
 					onDiscard={() => undefined}
-					saveStatus="idle"
+					save={
+						toAddresses.length === 0
+							? {
+									status: "unsaved",
+									reason: "Not saved — add a recipient to keep this draft.",
+								}
+							: { status: "idle" }
+					}
 				/>
 			}
 		>

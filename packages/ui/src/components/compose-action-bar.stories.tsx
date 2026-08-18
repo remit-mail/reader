@@ -17,7 +17,7 @@ const meta: Meta<typeof ComposeActionBar> = {
 		onSend: fn(),
 		onBlocked: fn(),
 		onDiscard: fn(),
-		saveStatus: "idle",
+		save: { status: "idle" },
 	},
 };
 export default meta;
@@ -26,11 +26,34 @@ type Story = StoryObj<typeof ComposeActionBar>;
 
 export const Ready: Story = {};
 
-export const Saving: Story = { args: { saveStatus: "saving" } };
+export const Saving: Story = { args: { save: { status: "saving" } } };
 
-export const Saved: Story = { args: { saveStatus: "saved" } };
+export const Saved: Story = { args: { save: { status: "saved" } } };
 
-export const SaveFailed: Story = { args: { saveStatus: "error" } };
+export const SaveFailed: Story = { args: { save: { status: "error" } } };
+
+/**
+ * Nothing has been written to the server yet and nothing will be until the
+ * message has somewhere to go. Silence here was the worst of both: the text was
+ * not being kept, and the composer looked exactly like one that had nothing to
+ * keep.
+ */
+export const NotSavedYet: Story = {
+	name: "Unsaved — the draft has nowhere to go yet",
+	args: {
+		send: { status: "blocked", reason: "Add at least one recipient." },
+		save: {
+			status: "unsaved",
+			reason: "Not saved — add a recipient to keep this draft.",
+		},
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(canvas.getByRole("status")).toHaveTextContent(
+			"Not saved — add a recipient to keep this draft.",
+		);
+	},
+};
 
 export const Sending: Story = {
 	name: "Sending — also while the pending draft is written",

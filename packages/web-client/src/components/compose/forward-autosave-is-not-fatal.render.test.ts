@@ -7,8 +7,10 @@
  * with it: the one failure mode a composer must never have.
  *
  * Both halves are held here. The invalid request is not made at all while the
- * draft has no recipient to create it with, and a write that does fail lands in
- * a banner beside the message rather than over it. A 5xx keeps its own rule.
+ * draft has no recipient to create it with — and the composer says so, because
+ * a message being held unsaved in silence is the same loss with the noise taken
+ * out. A write that does fail lands in a banner beside the message rather than
+ * over it. A 5xx and a 401 keep their own rules.
  */
 
 import assert from "node:assert/strict";
@@ -235,7 +237,32 @@ describe("a forwarded message and the draft it cannot create yet", () => {
 
 		assert.equal(creates().length, 0, "no create was attempted");
 		assert.equal(fatalOverlay(), null, "the composer stayed on screen");
-		assert.equal(bannerAlerts().length, 0, "nothing was reported to the user");
+		assert.equal(bannerAlerts().length, 0, "nothing was raised as a failure");
+	});
+
+	it("says the draft is not being saved, and what would make it save", async () => {
+		await mount();
+
+		harness?.type(subjectField(), "Fwd: Lunch and the three paragraphs after");
+		await harness?.flush();
+
+		const indicator = harness?.byText("output", "Not saved");
+		assert.match(
+			indicator?.textContent ?? "",
+			/add a recipient/i,
+			"the composer states it is not saving, and what would make it save",
+		);
+
+		await addRecipient("them@example.com");
+		await harness?.wait(AUTOSAVE_DEBOUNCE_MS + 300);
+
+		assert.equal(creates().length, 1, "the held content was written");
+		assert.equal(
+			creates()[0]?.body?.subject,
+			"Fwd: Lunch and the three paragraphs after",
+			"including everything typed while it was held",
+		);
+		assert.match(harness?.text() ?? "", /Draft saved/);
 	});
 
 	it("creates the draft, with everything the forward seeded, once a recipient is there", async () => {
@@ -285,6 +312,18 @@ describe("a failed autosave and the message it is holding", () => {
 			subjectField().value,
 			"Fwd: Lunch on Thursday",
 			"what was written is still on screen",
+		);
+	});
+
+	it("escalates a 401 — a dismissible banner is no way back in", async () => {
+		await mount({ outboxMessageId: OUTBOX_MESSAGE_ID, patchStatus: 401 });
+
+		harness?.type(subjectField(), "Fwd: Lunch on Thursday");
+		await harness?.wait(AUTOSAVE_DEBOUNCE_MS + 300);
+
+		assert.ok(
+			fatalOverlay(),
+			"a signed-out session must reach the page that signs back in",
 		);
 	});
 

@@ -6,7 +6,7 @@ import {
 	ComposeBodySkeleton,
 	ComposeFormShell,
 	ComposeHeader,
-	type ComposeSaveStatus,
+	type ComposeSaveState,
 	type ComposeSendState,
 	type ComposeShellLayout,
 	ComposeSmtpMissingBanner,
@@ -134,7 +134,7 @@ interface ComposerProps {
 	body?: string;
 	plainBody?: string;
 	mode?: ComposeBodyMode;
-	saveStatus?: ComposeSaveStatus;
+	save?: ComposeSaveState;
 	send?: ComposeSendState;
 	onBlocked?: (reason: string) => void;
 	onSend?: () => void;
@@ -162,7 +162,7 @@ const Composer = ({
 	body = DEFAULT_BODY,
 	plainBody = DEFAULT_PLAIN_BODY,
 	mode = "rich",
-	saveStatus = "idle",
+	save = { status: "idle" },
 	send,
 	onBlocked = () => undefined,
 	onSend = () => undefined,
@@ -314,7 +314,7 @@ const Composer = ({
 					onSend={onSend}
 					onBlocked={onBlocked}
 					onDiscard={discard}
-					saveStatus={saving ? "saving" : saveStatus}
+					save={saving ? { status: "saving" } : save}
 				/>
 			}
 		>
@@ -364,7 +364,7 @@ export const Blank: Story = {
 /** Full-page compose (desktop). The action bar stays pinned, never clipped. */
 export const Full: Story = {
 	render: () => (
-		<MailShell {...mailbox} reading={<Composer saveStatus="saved" />} />
+		<MailShell {...mailbox} reading={<Composer save={{ status: "saved" }} />} />
 	),
 };
 
@@ -383,7 +383,7 @@ export const Spellcheck: Story = {
 	render: () => (
 		<MailShell
 			{...mailbox}
-			reading={<Composer body={MISSPELT_DRAFT} saveStatus="saved" />}
+			reading={<Composer body={MISSPELT_DRAFT} save={{ status: "saved" }} />}
 		/>
 	),
 	play: async ({ canvasElement }) => {
@@ -693,7 +693,7 @@ export const MobileComposeSheet: Story = {
 				<>
 					<div className="absolute inset-0 z-40 bg-black/40" />
 					<div className="absolute inset-x-0 bottom-0 z-50 h-[95%] overflow-hidden rounded-t-lg bg-canvas">
-						<Composer saveStatus="saving" />
+						<Composer save={{ status: "saving" }} />
 					</div>
 				</>
 			}
@@ -709,7 +709,7 @@ export const PlainText: Story = {
 	render: () => (
 		<MailShell
 			{...mailbox}
-			reading={<Composer mode="plain" saveStatus="saved" />}
+			reading={<Composer mode="plain" save={{ status: "saved" }} />}
 		/>
 	),
 };
@@ -720,7 +720,7 @@ export const PlainText: Story = {
  */
 export const SaveFailed: Story = {
 	render: () => (
-		<MailShell {...mailbox} reading={<Composer saveStatus="error" />} />
+		<MailShell {...mailbox} reading={<Composer save={{ status: "error" }} />} />
 	),
 };
 
@@ -729,7 +729,9 @@ export const Sending: Story = {
 	render: () => (
 		<MailShell
 			{...mailbox}
-			reading={<Composer send={{ status: "sending" }} saveStatus="saved" />}
+			reading={
+				<Composer send={{ status: "sending" }} save={{ status: "saved" }} />
+			}
 		/>
 	),
 };
@@ -764,7 +766,7 @@ export const MobileKeyboardUp: Story = {
 				<>
 					<div className="absolute inset-0 z-40 bg-black/40" />
 					<div className="absolute inset-x-0 bottom-0 z-50 h-[60%] overflow-hidden rounded-t-lg bg-canvas">
-						<Composer collapsedHeader saveStatus="saved" />
+						<Composer collapsedHeader save={{ status: "saved" }} />
 					</div>
 				</>
 			}

@@ -5,7 +5,7 @@ import type {
 	IOutboxMessageRepository,
 	OutboxMessageItem,
 } from "@remit/data-ports";
-import { ConflictError } from "@remit/data-ports/errors";
+import { BadRequestError, ConflictError } from "@remit/data-ports/errors";
 import { OutboxMessageStatus } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import type { OutboxAttachmentService } from "./outbox-attachment.js";
@@ -63,6 +63,29 @@ export interface UpdateDraftInput {
 	inReplyTo?: string;
 	references?: string[];
 }
+
+/**
+ * Nobody to send to. `@minItems(1)` on the create input is the only thing that
+ * has ever stood between a zero-recipient message and nodemailer, which refuses
+ * an empty envelope — and refuses it inside the SMTP worker, where the failure
+ * lands in the DLQ rather than in front of the person who pressed Send. Neither
+ * route into the queue passes that schema: a draft is created with a recipient
+ * and can be edited down to none, and `send` never sees the create input at all.
+ *
+ * Cc and Bcc count. A message addressed only in Bcc is a real message with a
+ * real envelope; only a message with no address anywhere has nowhere to go.
+ */
+const hasNowhereToGo = (message: {
+	toAddresses?: string[];
+	ccAddresses?: string[];
+	bccAddresses?: string[];
+}): boolean =>
+	(message.toAddresses?.length ?? 0) === 0 &&
+	(message.ccAddresses?.length ?? 0) === 0 &&
+	(message.bccAddresses?.length ?? 0) === 0;
+
+const NO_RECIPIENT_MESSAGE =
+	"This message has nobody to send to. Add a recipient before sending it.";
 
 const generateMessageId = (domain: string): string => {
 	const timestamp = Date.now();
@@ -198,6 +221,10 @@ export class OutboxQueueService {
 			);
 		}
 
+		if (hasNowhereToGo(existing)) {
+			throw new BadRequestError(NO_RECIPIENT_MESSAGE);
+		}
+
 		const updated = await this.outboxMessageService.updateStatus(
 			accountConfigId,
 			outboxMessageId,
@@ -217,6 +244,10 @@ export class OutboxQueueService {
 	createAndSend = async (
 		input: CreateDraftInput,
 	): Promise<OutboxMessageItem> => {
+		if (hasNowhereToGo(input)) {
+			throw new BadRequestError(NO_RECIPIENT_MESSAGE);
+		}
+
 		const domain = extractDomain(input.fromAddress);
 		const messageIdValue = generateMessageId(domain);
 

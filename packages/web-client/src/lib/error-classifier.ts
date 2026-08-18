@@ -101,6 +101,17 @@ export const isClientBug = (error: unknown): boolean =>
 export const isAlwaysFatal = (error: unknown): boolean =>
 	isServerError(error) || isClientBug(error);
 
+/**
+ * The session is gone. Not 403: the update handler answers 403 for a message
+ * belonging to another account config, which is a refusal the call site can
+ * state where it stands. A 401 is the user being signed out from under
+ * whatever they were doing, and a banner cannot carry them back in — only the
+ * full-screen page has the control that re-authenticates and returns them to
+ * the screen they were on.
+ */
+export const isUnauthenticated = (error: unknown): boolean =>
+	getErrorStatus(error) === 401;
+
 const isSoftErrorMeta = (meta: Record<string, unknown> | undefined): boolean =>
 	meta?.softError === true;
 
@@ -115,7 +126,11 @@ const isSoftErrorMeta = (meta: Record<string, unknown> | undefined): boolean =>
  *     answered "I'm broken"; that is never benign.
  *  3. A client-side exception ALWAYS escalates, on the same terms. It is our
  *     bug; there is nothing for the user to retry and nothing to dismiss.
- *  4. The ONLY soft (do-NOT-escalate) exemptions:
+ *  4. A 401 ALWAYS escalates, on the same terms. Dismissing it leaves the user
+ *     signed out with no way back in, and a send that keeps failing becomes a
+ *     loop with no exit — `BetterAuthShell` re-gates only when `useSession()`
+ *     revalidates, which a banner never makes happen.
+ *  5. The ONLY soft (do-NOT-escalate) exemptions:
  *     a. aborts / cancellations — never a failure;
  *     b. network/offline errors — environmental, recovered by React Query's
  *        reconnect/retry;
@@ -130,6 +145,7 @@ export const shouldEscalate = (
 	if (isServerError(error)) return true;
 	if (isAbortError(error)) return false;
 	if (isNetworkError(error)) return false;
+	if (isUnauthenticated(error)) return true;
 	if (isAlwaysFatal(error)) return true;
 	if (isSoftErrorMeta(meta)) return false;
 	return true;
@@ -138,8 +154,8 @@ export const shouldEscalate = (
 /**
  * The meta a call site sets to keep its own non-5xx failures off the
  * full-screen fatal page, because it renders them itself — a banner, a retry,
- * an empty state. Rules 2 and 3 above still win: a 5xx and a client-side
- * exception escalate regardless.
+ * an empty state. Rules 2, 3 and 4 above still win: a 5xx, a client-side
+ * exception and a 401 escalate regardless.
  *
  * Two classes of call site must always carry it. One is a request the user
  * never asked for and is not waiting on — a debounced autosave, a

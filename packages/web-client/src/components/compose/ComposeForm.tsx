@@ -537,7 +537,7 @@ export const ComposeForm = ({
 		[onDraftCreated],
 	);
 
-	const { saveStatus, saveError, saveDraft, saveImmediately, stopAutoSave } =
+	const { saveState, saveError, saveDraft, saveImmediately, stopAutoSave } =
 		useSaveDraft({
 			outboxMessageId,
 			onDraftCreated: adoptCreatedDraft,
@@ -870,7 +870,7 @@ export const ComposeForm = ({
 					onSend={attemptSend}
 					onBlocked={reportBlocked}
 					onDiscard={handleDiscard}
-					saveStatus={saveStatus}
+					save={saveState}
 				/>
 			}
 		>

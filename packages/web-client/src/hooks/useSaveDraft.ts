@@ -3,11 +3,10 @@ import {
 	outboxOperationsCreateOutboxMessageMutation,
 	outboxOperationsListOutboxMessagesOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import type { ComposeSaveState } from "@remit/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import { softErrorMeta } from "../lib/error-classifier";
-
-export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 export type ImmediateSave =
 	| { outcome: "saved"; outboxMessageId: string }
@@ -43,6 +42,21 @@ const nothingToCreateYet = (
 	data: DraftData,
 ): boolean => targetId === undefined && data.toAddresses.length === 0;
 
+/**
+ * Held back, and saying so. One frozen object, because this is set from inside
+ * the autosave effect: a fresh literal every render would be a new state on
+ * every render, and the effect re-runs on each of them.
+ */
+const NOT_SAVED_WITHOUT_A_RECIPIENT: ComposeSaveState = Object.freeze({
+	status: "unsaved",
+	reason: "Not saved — add a recipient to keep this draft.",
+});
+
+const IDLE: ComposeSaveState = Object.freeze({ status: "idle" });
+const SAVING: ComposeSaveState = Object.freeze({ status: "saving" });
+const SAVED: ComposeSaveState = Object.freeze({ status: "saved" });
+const SAVE_FAILED: ComposeSaveState = Object.freeze({ status: "error" });
+
 const settled = (promise: Promise<unknown>): Promise<void> =>
 	promise.then(
 		() => undefined,
@@ -53,7 +67,7 @@ export const useSaveDraft = ({
 	outboxMessageId,
 	onDraftCreated,
 }: UseSaveDraftOptions) => {
-	const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+	const [saveState, setSaveState] = useState<ComposeSaveState>(IDLE);
 	const [saveError, setSaveError] = useState<unknown>(null);
 	const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const closedIdsRef = useRef<Set<string>>(new Set());
@@ -95,7 +109,7 @@ export const useSaveDraft = ({
 
 	const executeSave = useCallback(
 		async (data: DraftData) => {
-			setSaveStatus("saving");
+			setSaveState(SAVING);
 			setSaveError(null);
 
 			const targetId = targetIdRef.current;
@@ -113,7 +127,7 @@ export const useSaveDraft = ({
 						references: data.references,
 					},
 				});
-				setSaveStatus("saved");
+				setSaveState(SAVED);
 				return result;
 			}
 
@@ -125,7 +139,7 @@ export const useSaveDraft = ({
 			});
 			targetIdRef.current = result.outboxMessageId;
 			onDraftCreated(result.outboxMessageId);
-			setSaveStatus("saved");
+			setSaveState(SAVED);
 			queryClient.invalidateQueries({
 				queryKey: outboxOperationsListOutboxMessagesOptions().queryKey,
 			});
@@ -150,16 +164,22 @@ export const useSaveDraft = ({
 	const saveDraft = useCallback(
 		(data: DraftData) => {
 			if (timerRef.current) clearTimeout(timerRef.current);
+			// Said now rather than two seconds from now: the composer is holding
+			// text nothing is going to persist, and the moment it starts holding it
+			// is the moment the user has to be able to see that.
+			if (nothingToCreateYet(targetIdRef.current, data)) {
+				setSaveState(NOT_SAVED_WITHOUT_A_RECIPIENT);
+				return;
+			}
 			timerRef.current = setTimeout(() => {
 				const targetId = targetIdRef.current;
 				if (targetId && closedIdsRef.current.has(targetId)) return;
-				if (nothingToCreateYet(targetId, data)) return;
 				// Keep the real error, not just a vague "error" status — the caller
 				// surfaces its detail in a banner. A fatal 5xx additionally escalates
 				// through the global MutationCache.onError sink.
 				enqueueSave(data).catch((error: unknown) => {
 					setSaveError(error);
-					setSaveStatus("error");
+					setSaveState(SAVE_FAILED);
 				});
 			}, 2000);
 		},
@@ -181,7 +201,7 @@ export const useSaveDraft = ({
 					}),
 				)
 				.catch((error: unknown): ImmediateSave => {
-					setSaveStatus("error");
+					setSaveState(SAVE_FAILED);
 					return { outcome: "failed", error };
 				});
 		},
@@ -198,5 +218,5 @@ export const useSaveDraft = ({
 		if (closedOutboxMessageId) closedIdsRef.current.add(closedOutboxMessageId);
 	}, []);
 
-	return { saveStatus, saveError, saveDraft, saveImmediately, stopAutoSave };
+	return { saveState, saveError, saveDraft, saveImmediately, stopAutoSave };
 };

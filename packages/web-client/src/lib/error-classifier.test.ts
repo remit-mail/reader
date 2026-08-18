@@ -278,4 +278,19 @@ describe("shouldEscalate (the fail-fast decision table — #1059)", () => {
 		assert.equal(shouldEscalate(bug), true);
 		assert.equal(shouldEscalate(bug, { softError: true }), true);
 	});
+
+	it("escalates a 401 EVEN when the call site marked it soft (rule 4 wins)", () => {
+		assert.equal(
+			shouldEscalate(new ApiError("signed out", 401), { softError: true }),
+			true,
+			"a dismissible banner leaves the user signed out with no way back in",
+		);
+	});
+
+	it("leaves a soft 403 soft — the call site can state that refusal in place", () => {
+		assert.equal(
+			shouldEscalate(new ApiError("not yours", 403), { softError: true }),
+			false,
+		);
+	});
 });
