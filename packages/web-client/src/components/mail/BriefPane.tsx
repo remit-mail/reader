@@ -31,6 +31,7 @@ import { IntelligencePane } from "@/components/mail/IntelligencePane";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import type { OpenMessageOptions } from "@/components/mail/ThreadListInteraction";
 import { useDeleteMessages } from "@/hooks/useDeleteMessages";
+import { useIntelligenceDrawer } from "@/hooks/useIntelligenceDrawer";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { type ThreadActions, useThreadActions } from "@/hooks/useThreadActions";
 import { useThreadRow } from "@/hooks/useThreadRow";
@@ -408,7 +409,7 @@ function BriefPhone() {
 		previousThread,
 		handleDeselectIfRemoved,
 	} = useBriefPane();
-	const { intelligenceOpen, onToggleIntelligence } = useMailContext();
+	const drawer = useIntelligenceDrawer(conversation?.threadId ?? null);
 
 	if (conversation) {
 		return (
@@ -420,21 +421,21 @@ function BriefPhone() {
 					selectedMessageId={conversation.messageId}
 					authenticity={conversation.authenticity}
 					onBack={onCloseThread}
-					onOpenIntelligence={onToggleIntelligence}
+					onOpenIntelligence={drawer.toggle}
 					onSwipeNext={nextThread ? () => onOpenThread(nextThread) : undefined}
 					onSwipePrevious={
 						previousThread ? () => onOpenThread(previousThread) : undefined
 					}
-					mobileIntelligenceOpen={intelligenceOpen}
+					mobileIntelligenceOpen={drawer.isOpen}
 				/>
 				<Drawer
-					isOpen={intelligenceOpen}
-					onClose={onToggleIntelligence}
+					isOpen={drawer.isOpen}
+					onClose={drawer.close}
 					ariaLabel="Message details"
 					side="right"
 				>
 					<IntelligencePane
-						onClose={onToggleIntelligence}
+						onClose={drawer.close}
 						thread={selectedThread}
 						mailboxId={selectedThread?.mailboxId}
 						accountId={selectedThread?.accountId}

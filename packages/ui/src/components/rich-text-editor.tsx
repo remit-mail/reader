@@ -30,6 +30,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { isWritingElsewhere } from "./editor-focus.js";
 import { RichTextCorrectionMenu } from "./rich-text-correction-menu.js";
 import { $adoptHtml, $readRichText } from "./rich-text-document.js";
 import { RICH_TEXT_NODES, richTextTheme } from "./rich-text-nodes.js";
@@ -886,6 +887,7 @@ const AutoFocus = ({ caret }: { caret?: ComposeCaret }) => {
 		// the caret is placed here rather than left to `focus`, which would open a
 		// new message below the signature instead of above it.
 		const timer = setTimeout(() => {
+			if (isWritingElsewhere(editor.getRootElement())) return;
 			editor.update(
 				() => {
 					const root = $getRoot();

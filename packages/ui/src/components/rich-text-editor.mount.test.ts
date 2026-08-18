@@ -118,3 +118,97 @@ describe("RichTextEditor", () => {
 		assert.equal(field.value, "https://");
 	});
 });
+
+/**
+ * The writing surface is loaded on its own chunk, so it mounts whenever that
+ * chunk arrives rather than when the composer opened. A reader who pressed
+ * Compose and started typing in the search field, the recipients or the subject
+ * is mid-sentence by then, and the caret is theirs.
+ */
+describe("RichTextEditor opening on a caret", () => {
+	const mount = async (): Promise<void> => {
+		await act(async () => {
+			root = createRoot(container);
+			root.render(createElement(RichTextEditor, { initialCaret: "start" }));
+		});
+		// The caret is claimed off a timer, so let it run.
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+	};
+
+	it("takes the caret when nothing else holds it", async () => {
+		await mount();
+
+		const editable = container.querySelector<HTMLElement>(
+			"[data-testid=compose-body]",
+		);
+		assert.ok(editable, "the editable surface is mounted");
+		assert.equal(document.activeElement === editable, true);
+	});
+
+	/**
+	 * One case per kind of thing that can hold focus when the chunk lands. The
+	 * open is only allowed to lose to something the reader is typing in.
+	 */
+	const holders: readonly [string, () => HTMLElement, boolean][] = [
+		[
+			"a search field",
+			() => {
+				const field = document.createElement("input");
+				field.setAttribute("aria-label", "Search mail");
+				return field;
+			},
+			true,
+		],
+		[
+			"a subject field with no type attribute",
+			() => document.createElement("input"),
+			true,
+		],
+		["a plain textarea", () => document.createElement("textarea"), true],
+		[
+			"a select being typed through",
+			() => document.createElement("select"),
+			true,
+		],
+		[
+			"another contenteditable",
+			() => {
+				const surface = document.createElement("div");
+				surface.setAttribute("contenteditable", "true");
+				return surface;
+			},
+			true,
+		],
+		[
+			"the button that opened the composer",
+			() => document.createElement("button"),
+			false,
+		],
+		[
+			"a checkbox",
+			() => {
+				const box = document.createElement("input");
+				box.setAttribute("type", "checkbox");
+				return box;
+			},
+			false,
+		],
+	];
+
+	for (const [what, build, keepsIt] of holders) {
+		it(`${keepsIt ? "leaves the caret on" : "takes the caret from"} ${what}`, async () => {
+			const elsewhere = build();
+			elsewhere.setAttribute("data-holder", "");
+			document.body.append(elsewhere);
+			elsewhere.focus();
+
+			await mount();
+
+			const held = document.activeElement?.hasAttribute("data-holder") === true;
+			elsewhere.remove();
+			assert.equal(held, keepsIt);
+		});
+	}
+});

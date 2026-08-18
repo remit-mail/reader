@@ -147,6 +147,33 @@ describe("PlainTextEditor", () => {
 		assert.equal(textarea.selectionStart, textarea.value.length);
 	});
 
+	/**
+	 * The surface arrives in the same lazily-loaded chunk as the rich editor, so
+	 * its mount is whenever that chunk lands rather than when the composer
+	 * opened. Resuming a plain-text draft is the reachable path: the draft read
+	 * remounts the body once it resolves, by which time the reader may well be
+	 * typing in the search field.
+	 */
+	it("leaves the caret in a field the reader is typing in", async () => {
+		const elsewhere = document.createElement("input");
+		elsewhere.setAttribute("aria-label", "Search mail");
+		document.body.append(elsewhere);
+		elsewhere.focus();
+
+		await mount("", { initialCaret: "start" });
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		});
+
+		const holder = document.activeElement?.getAttribute("aria-label");
+		elsewhere.remove();
+		assert.equal(
+			holder,
+			"Search mail",
+			`the caret ended up on ${holder ?? "nothing"}`,
+		);
+	});
+
 	it("sends on Cmd+Enter", async () => {
 		let sent = 0;
 		await mount("Ready to go.", {

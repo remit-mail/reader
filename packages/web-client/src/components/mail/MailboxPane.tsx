@@ -72,6 +72,7 @@ import {
 } from "@/hooks/useDeleteMessages";
 import type { EscalationSearchQuery } from "@/hooks/useEscalatedActions";
 import { useIntelligenceData } from "@/hooks/useIntelligenceData";
+import { useIntelligenceDrawer } from "@/hooks/useIntelligenceDrawer";
 import { useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
@@ -506,23 +507,6 @@ function MailboxPaneProvider({
 
 	const focusedThread =
 		threads.find((t) => t.messageId === triageFocusedId) ?? selectedThread;
-
-	// Auto-open intelligence pane on DKIM mismatch.
-	const autoOpenedForRef = useRef<string | null>(null);
-	useEffect(() => {
-		const id = selectedThread?.messageId ?? null;
-		if (!id) return;
-		if (autoOpenedForRef.current === id) return;
-		if (selectedThread?.authenticity?.dkimMismatch) {
-			autoOpenedForRef.current = id;
-			if (!intelligenceOpen) onToggleIntelligence();
-		}
-	}, [
-		selectedThread?.messageId,
-		selectedThread?.authenticity?.dkimMismatch,
-		intelligenceOpen,
-		onToggleIntelligence,
-	]);
 
 	// The mailbox's own unseen total. A count over the loaded pages undercounts
 	// every mailbox larger than one page and creeps upward as the user scrolls,
@@ -1085,41 +1069,41 @@ function MailboxReading() {
 	const railFits = useAppShellLayout()?.showIntelligencePane ?? false;
 	const hasThread = Boolean(conversation);
 
-	// The drawer is modal, so it opens only when it is asked for — and only for
-	// the thread it was asked for. `intelligenceOpen` is the rail's persisted
-	// preference and the DKIM auto-open sets it on every tier, so driving the
-	// drawer from it would throw a scrim over a message the moment one was
-	// selected. Naming the thread is also what closes it again when the reader
-	// moves on: a bare flag would still be set when they came back.
-	const [drawerThreadId, setDrawerThreadId] = useState<string | null>(null);
-	const openThreadId = conversation?.threadId ?? null;
-	// Derived rather than stored: the drawer is up only while the thread it was
-	// opened for is still the one on screen, so moving to another one closes it
-	// with no effect to run. Closing it from an effect would paint one frame of
-	// an open drawer over the newly opened thread first.
-	const drawerOpen =
-		!railFits && openThreadId !== null && drawerThreadId === openThreadId;
+	// The rail opens itself on a DKIM mismatch. It lives here, behind the rail's
+	// own width gate, because raising it writes `#intelligence` into the address
+	// — and a panel the address names with no renderer behind it is a panel that
+	// opens nothing (`docs/architecture/url-state.md`, R6). Below this width the
+	// banner is the announcement and its "Why?" is the way in.
+	const autoOpenedForRef = useRef<string | null>(null);
+	useEffect(() => {
+		if (!railFits) return;
+		const id = selectedThread?.messageId ?? null;
+		if (!id) return;
+		if (autoOpenedForRef.current === id) return;
+		if (!selectedThread?.authenticity?.dkimMismatch) return;
+		autoOpenedForRef.current = id;
+		if (!intelligenceOpen) onToggleIntelligence();
+	}, [
+		railFits,
+		selectedThread?.messageId,
+		selectedThread?.authenticity?.dkimMismatch,
+		intelligenceOpen,
+		onToggleIntelligence,
+	]);
 
-	const closeIntelligenceDrawer = useCallback(
-		() => setDrawerThreadId(null),
-		[],
-	);
-	const openIntelligenceDrawer = useCallback(
-		() => setDrawerThreadId(openThreadId),
-		[openThreadId],
-	);
-	// The banner's "Why?" — always an open, never a close.
-	const openIntelligence = railFits
-		? onToggleIntelligence
-		: openIntelligenceDrawer;
+	const drawer = useIntelligenceDrawer(conversation?.threadId ?? null);
+	const drawerOpen = !railFits && drawer.isOpen;
+	const closeIntelligenceDrawer = drawer.close;
+	const openIntelligence = railFits ? onToggleIntelligence : drawer.open;
 	// The toolbar's control, which toggles whichever surface this width has.
+	const { toggle: toggleDrawer } = drawer;
 	const toggleIntelligence = useCallback(() => {
 		if (railFits) {
 			onToggleIntelligence();
 			return;
 		}
-		setDrawerThreadId(drawerOpen ? null : openThreadId);
-	}, [railFits, onToggleIntelligence, drawerOpen, openThreadId]);
+		toggleDrawer();
+	}, [railFits, onToggleIntelligence, toggleDrawer]);
 	const intelligenceShowing =
 		hasThread && (railFits ? intelligenceOpen : drawerOpen);
 
@@ -1219,13 +1203,12 @@ function MailboxPhone() {
 		selectedThread,
 		conversation,
 		onOpenThread,
-		intelligenceOpen,
-		onToggleIntelligence,
 		onBack,
 		nextThread,
 		previousThread,
 		handleDeselectIfRemoved,
 	} = useMailboxPane();
+	const drawer = useIntelligenceDrawer(conversation?.threadId ?? null);
 
 	if (conversation) {
 		return (
@@ -1237,21 +1220,21 @@ function MailboxPhone() {
 					selectedMessageId={conversation.messageId}
 					authenticity={conversation.authenticity}
 					onBack={onBack}
-					onOpenIntelligence={onToggleIntelligence}
+					onOpenIntelligence={drawer.toggle}
 					onSwipeNext={nextThread ? () => onOpenThread(nextThread) : undefined}
 					onSwipePrevious={
 						previousThread ? () => onOpenThread(previousThread) : undefined
 					}
-					mobileIntelligenceOpen={intelligenceOpen}
+					mobileIntelligenceOpen={drawer.isOpen}
 				/>
 				<Drawer
-					isOpen={intelligenceOpen}
-					onClose={onToggleIntelligence}
+					isOpen={drawer.isOpen}
+					onClose={drawer.close}
 					ariaLabel="Message details"
 					side="right"
 				>
 					<IntelligencePane
-						onClose={onToggleIntelligence}
+						onClose={drawer.close}
 						thread={selectedThread}
 						mailboxId={mailboxId}
 						accountId={mailboxAccountId}

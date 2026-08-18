@@ -8,6 +8,7 @@ import {
 	useState,
 } from "react";
 import { Banner } from "./banner.js";
+import { isWritingElsewhere } from "./editor-focus.js";
 import { htmlToMarkdown } from "./rich-text-document.js";
 import type { ComposeCaret } from "./rich-text-value.js";
 
@@ -95,6 +96,7 @@ export const PlainTextEditor = ({
 		const textarea = textareaRef.current;
 		if (!textarea) return;
 		const timer = setTimeout(() => {
+			if (isWritingElsewhere(textarea)) return;
 			textarea.focus();
 			const at = initialCaret === "start" ? 0 : textarea.value.length;
 			textarea.setSelectionRange(at, at);
