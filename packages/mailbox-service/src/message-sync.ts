@@ -1272,6 +1272,7 @@ export class MessageSyncService {
 		if (!msg.envelope) return null;
 
 		const mailboxId = mailbox.mailboxId;
+		const sighting = addressSightingIn(mailbox);
 
 		// Store envelope to preserve narrowing in closures
 		const envelope = msg.envelope;
@@ -1355,8 +1356,14 @@ export class MessageSyncService {
 					accountConfigId,
 					addresses,
 					role,
-					addressSightingIn(mailbox),
+					sighting,
 				);
+			}
+
+			// The harvest above leaves an already-stored address alone, because one
+			// sighting cannot tell whether the account also meets it on live mail.
+			if (sighting === "junk") {
+				await repos.address.reconcileJunkOnlyForMessage(messageId);
 			}
 
 			// IMAP returns BODYSTRUCTURE in the same FETCH that returns the

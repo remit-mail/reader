@@ -38,6 +38,7 @@ interface Saved {
 	junk: CreateAddressInput[];
 	neutral: CreateAddressInput[];
 	envelopeAddresses: CreateEnvelopeAddressInput[];
+	reconciled: string[];
 }
 
 const mailboxAt = (
@@ -51,6 +52,7 @@ const save = async (mailbox: MailboxItem): Promise<Saved> => {
 		junk: [],
 		neutral: [],
 		envelopeAddresses: [],
+		reconciled: [],
 	};
 
 	const messageService = {
@@ -82,6 +84,9 @@ const save = async (mailbox: MailboxItem): Promise<Saved> => {
 		},
 		upsertEnvelopeAddress: async (input: CreateEnvelopeAddressInput) => {
 			saved.envelopeAddresses.push(input);
+		},
+		reconcileJunkOnlyForMessage: async (messageId: string) => {
+			saved.reconciled.push(messageId);
 		},
 	} as unknown as IAddressRepository;
 
@@ -176,6 +181,21 @@ describe("what a mailbox says about the addresses on its messages", () => {
 		assert.deepEqual(emails(saved.neutral), BOTH);
 		assert.equal(saved.correspondents.length, 0);
 		assert.equal(saved.junk.length, 0);
+	});
+
+	it("re-asks every sighting of a sender a message in Junk carries", async () => {
+		const saved = await save(mailboxAt("INBOX/Spam", [MailboxSpecialUse.Junk]));
+
+		assert.equal(saved.reconciled.length, 1);
+		assert.deepEqual(saved.reconciled, [saved.envelopeAddresses[0].messageId]);
+	});
+
+	it("asks nothing of a sender met on live mail", async () => {
+		const inbox = await save(mailboxAt("INBOX"));
+		const trash = await save(mailboxAt("Trash", [MailboxSpecialUse.Trash]));
+
+		assert.deepEqual(inbox.reconciled, []);
+		assert.deepEqual(trash.reconciled, []);
 	});
 
 	it("harvests the same message once an ordinary folder holds it", async () => {
