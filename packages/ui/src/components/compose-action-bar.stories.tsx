@@ -17,7 +17,7 @@ const meta: Meta<typeof ComposeActionBar> = {
 		onSend: fn(),
 		onBlocked: fn(),
 		onDiscard: fn(),
-		saveStatus: "idle",
+		save: { status: "idle" },
 	},
 };
 export default meta;
@@ -26,11 +26,35 @@ type Story = StoryObj<typeof ComposeActionBar>;
 
 export const Ready: Story = {};
 
-export const Saving: Story = { args: { saveStatus: "saving" } };
+export const Saving: Story = { args: { save: { status: "saving" } } };
 
-export const Saved: Story = { args: { saveStatus: "saved" } };
+export const Saved: Story = { args: { save: { status: "saved" } } };
 
-export const SaveFailed: Story = { args: { saveStatus: "error" } };
+export const SaveFailed: Story = { args: { save: { status: "error" } } };
+
+/**
+ * Nothing has been written to the server yet and nothing will be until the
+ * draft has a To address to be created against. Silence here was the worst of
+ * both: the text was not being kept, and the composer looked exactly like one
+ * that had nothing to keep. The sentence names To rather than "a recipient",
+ * which a message addressed only in Cc already has.
+ */
+export const NotSavedYet: Story = {
+	name: "Unsaved — the draft has no To address yet",
+	args: {
+		send: { status: "blocked", reason: "Add a To address before sending." },
+		save: {
+			status: "unsaved",
+			reason: "Not saved — add a To address to keep this draft.",
+		},
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(canvas.getByRole("status")).toHaveTextContent(
+			"Not saved — add a To address to keep this draft.",
+		);
+	},
+};
 
 export const Sending: Story = {
 	name: "Sending — also while the pending draft is written",
@@ -45,7 +69,7 @@ export const Sending: Story = {
 export const NoRecipient: Story = {
 	name: "Blocked — nobody to send to",
 	args: {
-		send: { status: "blocked", reason: "Add at least one recipient." },
+		send: { status: "blocked", reason: "Add a To address before sending." },
 	},
 	render: (args) => {
 		const [reason, setReason] = useState<string>();
@@ -74,7 +98,7 @@ export const NoRecipient: Story = {
 		const canvas = within(canvasElement);
 		await userEvent.click(canvas.getByRole("button", { name: "Send" }));
 		await expect(canvas.getByTestId("compose-unavailable")).toHaveTextContent(
-			"Add at least one recipient.",
+			"Add a To address before sending.",
 		);
 		await expect(args.onSend).not.toHaveBeenCalled();
 	},

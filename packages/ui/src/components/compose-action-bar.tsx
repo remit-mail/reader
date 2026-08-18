@@ -1,7 +1,20 @@
 import { Loader2, Send, Trash2 } from "lucide-react";
 import { Button } from "./button.js";
 
-export type ComposeSaveStatus = "idle" | "saving" | "saved" | "error";
+/**
+ * What the draft is doing, and — when it is not being saved — the sentence that
+ * says why. Built the same way as `ComposeSendState` and for the same reason:
+ * a composer holding text it is not persisting must never be able to say so
+ * without saying what is missing. The bare "idle" this replaces rendered
+ * nothing at all, so a message that could not be saved yet looked identical to
+ * one that had nothing to save.
+ */
+export type ComposeSaveState =
+	| { status: "idle" }
+	| { status: "saving" }
+	| { status: "saved" }
+	| { status: "error" }
+	| { status: "unsaved"; reason: string };
 
 /**
  * Whether Send can act, and when it cannot, the sentence that says why.
@@ -22,20 +35,25 @@ export interface ComposeActionBarProps {
 	/** Called with the reason when Send is pressed while it cannot act. */
 	onBlocked: (reason: string) => void;
 	onDiscard: () => void;
-	saveStatus?: ComposeSaveStatus;
+	save?: ComposeSaveState;
 }
 
-const SaveStatusIndicator = ({ status }: { status: ComposeSaveStatus }) => {
-	if (status === "saving") {
+const SaveStateIndicator = ({ save }: { save: ComposeSaveState }) => {
+	if (save.status === "saving") {
 		return (
-			<span className="animate-pulse text-xs text-fg-muted">Saving...</span>
+			<output className="animate-pulse text-xs text-fg-muted">Saving...</output>
 		);
 	}
-	if (status === "saved") {
-		return <span className="text-xs text-fg-muted">Draft saved</span>;
+	if (save.status === "saved") {
+		return <output className="text-xs text-fg-muted">Draft saved</output>;
 	}
-	if (status === "error") {
-		return <span className="text-xs text-danger">Save failed</span>;
+	if (save.status === "error") {
+		return <output className="text-xs text-danger">Save failed</output>;
+	}
+	if (save.status === "unsaved") {
+		return (
+			<output className="truncate text-xs text-warning">{save.reason}</output>
+		);
 	}
 	return null;
 };
@@ -51,7 +69,7 @@ export function ComposeActionBar({
 	onSend,
 	onBlocked,
 	onDiscard,
-	saveStatus = "idle",
+	save = { status: "idle" },
 }: ComposeActionBarProps) {
 	const sending = send.status === "sending";
 	const blockedReason = send.status === "blocked" ? send.reason : undefined;
@@ -84,7 +102,7 @@ export function ComposeActionBar({
 				>
 					Send
 				</Button>
-				<SaveStatusIndicator status={saveStatus} />
+				<SaveStateIndicator save={save} />
 			</div>
 			<Button
 				variant="ghost"

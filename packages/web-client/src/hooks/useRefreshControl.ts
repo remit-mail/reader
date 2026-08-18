@@ -32,8 +32,13 @@ const messageFor = (error: unknown): string =>
 		? error.message
 		: "Something went wrong";
 
+// The user pulled to refresh and is watching the spinner, so this is theirs to
+// be answered: a 401 here escalates over the soft meta rather than resolving
+// into a spinner that stops for no stated reason.
 const escalateIfFatal = (error: unknown): void => {
-	if (shouldEscalate(error, { softError: true })) reportFatalError(error);
+	if (shouldEscalate(error, { softError: true }, "user")) {
+		reportFatalError(error);
+	}
 };
 
 const maxLastSynced = (

@@ -40,6 +40,7 @@ import {
 import { useMessageBodyContent } from "../../hooks/useMessageBodyContent";
 import { useSaveDraft } from "../../hooks/useSaveDraft";
 import { useSignature } from "../../hooks/useSignature.js";
+import { softErrorMeta } from "../../lib/error-classifier";
 import { accountIsMissingSmtp } from "../settings/account-form-helpers.js";
 import { useErrorBanners } from "../ui/ErrorBannerProvider.js";
 import {
@@ -211,6 +212,17 @@ type SendReadiness =
 	| { status: "sending" }
 	| { status: "blocked"; reason: string }
 	| { status: "ready"; accountId: string };
+
+/**
+ * Naming To, not "a recipient". Sending goes through the draft, and a draft is
+ * created against `CreateOutboxMessageInput`, whose `@minItems(1)` is on
+ * `toAddresses` alone — so a message addressed only in Cc has a recipient and
+ * still cannot be sent from here, and being told to add one it can already see
+ * leaves it with nothing to do. The server's own send guard counts Cc and Bcc,
+ * because a Bcc-only envelope is real mail; it is answering whether the message
+ * has anywhere to go, which is not the question this one asks.
+ */
+const NO_TO_ADDRESS_MESSAGE = "Add a To address before sending.";
 
 const isFormEmpty = (
 	toAddresses: AddressEntry[],
@@ -536,7 +548,7 @@ export const ComposeForm = ({
 		[onDraftCreated],
 	);
 
-	const { saveStatus, saveError, saveDraft, saveImmediately, stopAutoSave } =
+	const { saveState, saveError, saveDraft, saveImmediately, stopAutoSave } =
 		useSaveDraft({
 			outboxMessageId,
 			onDraftCreated: adoptCreatedDraft,
@@ -555,12 +567,17 @@ export const ComposeForm = ({
 		});
 	}, [saveError, pushError]);
 
-	const sendMutation = useMutation(
-		outboxDetailOperationsSendOutboxMessageMutation(),
-	);
+	// A refused send is reported below, next to the message it did not send, and
+	// the composer stays up so the user can fix the address and press it again.
+	// A 5xx still escalates.
+	const sendMutation = useMutation({
+		...outboxDetailOperationsSendOutboxMessageMutation(),
+		meta: softErrorMeta,
+	});
 
 	const deleteMutation = useMutation({
 		...outboxDetailOperationsDeleteOutboxMessageMutation(),
+		meta: softErrorMeta,
 		onError: (error) => {
 			// Discard closes the dialog optimistically. A soft 4xx (409/404 the
 			// draft is already gone) must not pass silently as success — surface a
@@ -621,7 +638,7 @@ export const ComposeForm = ({
 			return { status: "blocked", reason: SMTP_MISSING_MESSAGE };
 		}
 		if (toAddresses.length === 0) {
-			return { status: "blocked", reason: "Add at least one recipient." };
+			return { status: "blocked", reason: NO_TO_ADDRESS_MESSAGE };
 		}
 		return { status: "ready", accountId: selectedAccountId };
 	}, [
@@ -864,7 +881,7 @@ export const ComposeForm = ({
 					onSend={attemptSend}
 					onBlocked={reportBlocked}
 					onDiscard={handleDiscard}
-					saveStatus={saveStatus}
+					save={saveState}
 				/>
 			}
 		>

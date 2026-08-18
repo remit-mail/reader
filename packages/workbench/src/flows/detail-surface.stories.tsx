@@ -347,13 +347,23 @@ const ComposeSurface = ({
 				<ComposeActionBar
 					send={
 						toAddresses.length === 0
-							? { status: "blocked", reason: "Add at least one recipient." }
+							? {
+									status: "blocked",
+									reason: "Add a To address before sending.",
+								}
 							: { status: "ready" }
 					}
 					onSend={() => undefined}
 					onBlocked={() => undefined}
 					onDiscard={() => undefined}
-					saveStatus="idle"
+					save={
+						toAddresses.length === 0
+							? {
+									status: "unsaved",
+									reason: "Not saved — add a To address to keep this draft.",
+								}
+							: { status: "idle" }
+					}
 				/>
 			}
 		>

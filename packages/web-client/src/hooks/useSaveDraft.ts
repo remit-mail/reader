@@ -3,10 +3,10 @@ import {
 	outboxOperationsCreateOutboxMessageMutation,
 	outboxOperationsListOutboxMessagesOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import type { ComposeSaveState } from "@remit/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
-
-export type SaveStatus = "idle" | "saving" | "saved" | "error";
+import { softErrorMeta } from "../lib/error-classifier";
 
 export type ImmediateSave =
 	| { outcome: "saved"; outboxMessageId: string }
@@ -29,6 +29,44 @@ interface UseSaveDraftOptions {
 	onDraftCreated: (id: string) => void;
 }
 
+/**
+ * A draft with no To address yet has nothing the create endpoint will accept —
+ * `CreateOutboxMessageInput.toAddresses` carries `@minItems(1)`, so the request
+ * comes back 400. Cc and Bcc do not stand in for it; the constraint names
+ * `toAddresses` and nothing else. Forward opens in exactly that state, with a
+ * subject and a quote and no address, and it is a normal place to be while
+ * writing rather than a failure to report. The update endpoint has no such
+ * constraint, so only a draft that does not exist yet is held back.
+ *
+ * The send guard in `outbox-queue.ts` counts Cc and Bcc, and is right to: a
+ * Bcc-only envelope is real mail. It answers a different question — whether
+ * this message has anywhere to go — from this one, which is only whether the
+ * create schema will take it.
+ */
+const nothingToCreateYet = (
+	targetId: string | undefined,
+	data: DraftData,
+): boolean => targetId === undefined && data.toAddresses.length === 0;
+
+/**
+ * Held back, and naming what is actually missing. "A recipient" was a lie to
+ * anyone who had filled in Cc: they had one, and were being told to add what
+ * they could see on screen.
+ *
+ * Module scope, not a literal built in the render: this is set from inside the
+ * autosave effect, and a fresh object each time would be a new state on every
+ * render with the effect re-running on each of them.
+ */
+const NOT_SAVED_WITHOUT_A_TO_ADDRESS: ComposeSaveState = {
+	status: "unsaved",
+	reason: "Not saved — add a To address to keep this draft.",
+};
+
+const IDLE: ComposeSaveState = { status: "idle" };
+const SAVING: ComposeSaveState = { status: "saving" };
+const SAVED: ComposeSaveState = { status: "saved" };
+const SAVE_FAILED: ComposeSaveState = { status: "error" };
+
 const settled = (promise: Promise<unknown>): Promise<void> =>
 	promise.then(
 		() => undefined,
@@ -39,7 +77,7 @@ export const useSaveDraft = ({
 	outboxMessageId,
 	onDraftCreated,
 }: UseSaveDraftOptions) => {
-	const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+	const [saveState, setSaveState] = useState<ComposeSaveState>(IDLE);
 	const [saveError, setSaveError] = useState<unknown>(null);
 	const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const closedIdsRef = useRef<Set<string>>(new Set());
@@ -67,16 +105,21 @@ export const useSaveDraft = ({
 		if (leavingADocument && timerRef.current) clearTimeout(timerRef.current);
 	}
 
-	const createMutation = useMutation(
-		outboxOperationsCreateOutboxMessageMutation(),
-	);
-	const updateMutation = useMutation(
-		outboxDetailOperationsUpdateOutboxMessageMutation(),
-	);
+	// A write that fails belongs in the composer's banner beside the message it
+	// could not save, never on the full-screen page that unmounts the composer
+	// and the message with it. A 5xx still escalates.
+	const createMutation = useMutation({
+		...outboxOperationsCreateOutboxMessageMutation(),
+		meta: softErrorMeta,
+	});
+	const updateMutation = useMutation({
+		...outboxDetailOperationsUpdateOutboxMessageMutation(),
+		meta: softErrorMeta,
+	});
 
 	const executeSave = useCallback(
 		async (data: DraftData) => {
-			setSaveStatus("saving");
+			setSaveState(SAVING);
 			setSaveError(null);
 
 			const targetId = targetIdRef.current;
@@ -94,7 +137,7 @@ export const useSaveDraft = ({
 						references: data.references,
 					},
 				});
-				setSaveStatus("saved");
+				setSaveState(SAVED);
 				return result;
 			}
 
@@ -106,13 +149,18 @@ export const useSaveDraft = ({
 			});
 			targetIdRef.current = result.outboxMessageId;
 			onDraftCreated(result.outboxMessageId);
-			setSaveStatus("saved");
+			setSaveState(SAVED);
 			queryClient.invalidateQueries({
 				queryKey: outboxOperationsListOutboxMessagesOptions().queryKey,
 			});
 			return result;
 		},
-		[createMutation, updateMutation, onDraftCreated, queryClient],
+		[
+			createMutation.mutateAsync,
+			updateMutation.mutateAsync,
+			onDraftCreated,
+			queryClient,
+		],
 	);
 
 	// One entry takes one write at a time. Overlapping writes settle in whatever
@@ -131,6 +179,20 @@ export const useSaveDraft = ({
 	const saveDraft = useCallback(
 		(data: DraftData) => {
 			if (timerRef.current) clearTimeout(timerRef.current);
+			// Said now rather than two seconds from now: the composer is holding
+			// text nothing is going to persist, and the moment it starts holding it
+			// is the moment the user has to be able to see that.
+			if (nothingToCreateYet(targetIdRef.current, data)) {
+				setSaveState(NOT_SAVED_WITHOUT_A_TO_ADDRESS);
+				return;
+			}
+			// The sentence goes the moment its reason does, rather than standing
+			// for the two seconds until the write it is no longer true about
+			// lands. Only that sentence is cleared: a "Draft saved" from the
+			// previous write is still the truth about this document.
+			setSaveState((current) =>
+				current.status === "unsaved" ? IDLE : current,
+			);
 			timerRef.current = setTimeout(() => {
 				const targetId = targetIdRef.current;
 				if (targetId && closedIdsRef.current.has(targetId)) return;
@@ -139,7 +201,7 @@ export const useSaveDraft = ({
 				// through the global MutationCache.onError sink.
 				enqueueSave(data).catch((error: unknown) => {
 					setSaveError(error);
-					setSaveStatus("error");
+					setSaveState(SAVE_FAILED);
 				});
 			}, 2000);
 		},
@@ -161,7 +223,7 @@ export const useSaveDraft = ({
 					}),
 				)
 				.catch((error: unknown): ImmediateSave => {
-					setSaveStatus("error");
+					setSaveState(SAVE_FAILED);
 					return { outcome: "failed", error };
 				});
 		},
@@ -178,5 +240,5 @@ export const useSaveDraft = ({
 		if (closedOutboxMessageId) closedIdsRef.current.add(closedOutboxMessageId);
 	}, []);
 
-	return { saveStatus, saveError, saveDraft, saveImmediately, stopAutoSave };
+	return { saveState, saveError, saveDraft, saveImmediately, stopAutoSave };
 };

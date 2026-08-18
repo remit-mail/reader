@@ -278,4 +278,50 @@ describe("shouldEscalate (the fail-fast decision table — #1059)", () => {
 		assert.equal(shouldEscalate(bug), true);
 		assert.equal(shouldEscalate(bug, { softError: true }), true);
 	});
+
+	it("escalates a 401 on a write EVEN when the call site marked it soft (rule 4 wins)", () => {
+		assert.equal(
+			shouldEscalate(
+				new ApiError("signed out", 401),
+				{ softError: true },
+				"user",
+			),
+			true,
+			"a dismissible banner leaves the user signed out with no way back in",
+		);
+	});
+
+	it("leaves a soft 401 soft when nobody is waiting on the answer", () => {
+		assert.equal(
+			shouldEscalate(
+				new ApiError("signed out", 401),
+				{ softError: true },
+				"nobody",
+			),
+			false,
+			"a background poll's 401 must not put the fatal page over the whole app",
+		);
+	});
+
+	it("defaults to nobody waiting, so an unstated call site keeps a soft 401 soft", () => {
+		assert.equal(
+			shouldEscalate(new ApiError("signed out", 401), { softError: true }),
+			false,
+		);
+	});
+
+	it("escalates a 401 on a read that never opted out", () => {
+		assert.equal(
+			shouldEscalate(new ApiError("signed out", 401), undefined, "nobody"),
+			true,
+			"a read with no softError escalates on the default, waiting or not",
+		);
+	});
+
+	it("leaves a soft 403 soft — the call site can state that refusal in place", () => {
+		assert.equal(
+			shouldEscalate(new ApiError("not yours", 403), { softError: true }),
+			false,
+		);
+	});
 });

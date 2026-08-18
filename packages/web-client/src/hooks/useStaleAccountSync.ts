@@ -140,13 +140,17 @@ export const __peekStaleAccountSyncGuard = (): ReadonlySet<string> =>
  * per-account guard so a later remount can retry, then log and move on. But a
  * 5xx is OUR API broken, and per the contract (#1059) that always escalates to
  * the full-screen overlay — even from a background trigger.
+ *
+ * Nobody is waiting on this one. It fires on mount, so escalating its 401 would
+ * put the full-screen page up on load for anyone whose session had lapsed,
+ * ahead of the sign-in the shell is already about to ask for.
  */
 export const handleBackgroundSyncFailure = (
 	accountId: string,
 	error: unknown,
 ): void => {
 	triggeredAccountIds.delete(accountId);
-	if (shouldEscalate(error, { softError: true })) {
+	if (shouldEscalate(error, { softError: true }, "nobody")) {
 		reportFatalError(error);
 		return;
 	}

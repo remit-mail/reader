@@ -221,6 +221,21 @@ describe("handleBackgroundSyncFailure", () => {
 		assert.equal(escalated, false);
 	});
 
+	test("a 401 on the background probe does NOT escalate", () => {
+		silenceWarn();
+		let escalated = false;
+		subscribeFatalError(() => {
+			escalated = true;
+		});
+
+		// The probe fires on mount and nobody is waiting on it. Escalating its
+		// 401 would put the full-screen page up on load for a lapsed session,
+		// ahead of the sign-in the shell is already about to ask for.
+		handleBackgroundSyncFailure("a-1", new ApiError("signed out", 401));
+
+		assert.equal(escalated, false);
+	});
+
 	test("a network blip on the background probe does NOT escalate", () => {
 		silenceWarn();
 		let escalated = false;
