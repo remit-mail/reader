@@ -85,6 +85,28 @@ export const isParseableEmailAddress = (
 	return host.includes(".");
 };
 
+const EMAIL_SHAPED_NAME = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * A display name is free text the sender chooses, and one that is itself an
+ * email address reads as that address everywhere the name is shown. An envelope
+ * of `victim@example.com <attacker@example.gov.co>` therefore plants the
+ * victim's own address as the label on the attacker's, and autocomplete then
+ * offers it back when the victim types their own address — which is how
+ * private mail left this instance on 2026-08-18 (issues #826, #822).
+ *
+ * A name that is the address it labels carries the same information twice and
+ * is harmless, so it stays. Anything else email-shaped is dropped: the address
+ * itself is verifiable and is kept, only the claim about who it is goes.
+ */
+export const isImpersonatingDisplayName = (address: ImapAddress): boolean => {
+	const name = address.name?.trim();
+	if (!name || !EMAIL_SHAPED_NAME.test(name)) return false;
+	return (
+		name.toLowerCase() !== `${address.mailbox}@${address.host}`.toLowerCase()
+	);
+};
+
 /**
  * Parse an external `Date:` header into an epoch-millisecond integer.
  *
@@ -1402,7 +1424,7 @@ export class MessageSyncService {
 			addressData.push({
 				localPart: addr.mailbox,
 				domain: addr.host,
-				displayName: addr.name || "",
+				displayName: isImpersonatingDisplayName(addr) ? "" : addr.name || "",
 				order: i,
 			});
 		}
