@@ -2,10 +2,18 @@
  * Build-time constants injected by vite.config.ts via `define`.
  * __APP_SHA__ is the full git SHA (or "dev" in local builds without git).
  * __APP_BUILD_TIME__ is an ISO timestamp.
+ *
+ * Read through `typeof` because not every host that renders this app's
+ * components applies the `define` — Storybook's test runner mounts them
+ * without it — and a bare reference is a ReferenceError at module scope that
+ * takes the importing story down with it. An unknown build is the same
+ * "dev" the git-less local build already resolves to.
  */
 
-export const APP_SHA: string = __APP_SHA__;
-export const APP_BUILD_TIME: string = __APP_BUILD_TIME__;
+export const APP_SHA: string =
+	typeof __APP_SHA__ === "undefined" ? "dev" : __APP_SHA__;
+export const APP_BUILD_TIME: string =
+	typeof __APP_BUILD_TIME__ === "undefined" ? "unknown" : __APP_BUILD_TIME__;
 
 /** First 7 characters of the SHA, matching git's default short form. */
 export const APP_SHORT_SHA: string = APP_SHA.slice(0, 7);
