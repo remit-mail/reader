@@ -523,7 +523,14 @@ export const ComposeForm = ({
 			setSubject(buildReplySubject(sourceMessage.envelope.subject));
 		}
 
+		// A forward is addressed to nobody, so it writes the address fields the
+		// way a reply writes them. Setting only the subject read as "keep what is
+		// already there", which sent the forward to the person being answered
+		// (#797).
 		if (mode === "forward") {
+			setToAddresses([]);
+			setCcAddresses([]);
+			setBccAddresses([]);
 			setSubject(buildForwardSubject(sourceMessage.envelope.subject));
 		}
 	}, [mode, sourceMessage, account?.email]);

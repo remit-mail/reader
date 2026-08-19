@@ -140,7 +140,7 @@ export const ComposeAddressField = ({
 	}, [commitInput, suggest.dismiss]);
 
 	return (
-		<div className="relative">
+		<div className="relative" data-address-field={label}>
 			<div className="flex items-start gap-2">
 				<label
 					htmlFor={`address-field-${label}`}
