@@ -18,8 +18,7 @@
 		"@aws-amplify/ui-react": "^6",
 		"@fullcalendar/react": "^7.0.2",
 		"@remit/ui": "*",
-		"lucide-react": "^0.468",
-		"temporal-polyfill": "^1.0.1"
+		"lucide-react": "^0.468"
 	},
 	"devDependencies": {
 		"@remit/test-dom": "*",
