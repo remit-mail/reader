@@ -13,23 +13,26 @@
  */
 
 /**
- * The types an `<input>` accepts prose in. Everything else it can be — a
- * checkbox, a radio, a button, a file or colour picker — is a control the
- * reader clicks, not one they are mid-word in.
+ * The types an `<input>` is a control rather than a writing surface in — a
+ * checkbox, a radio, a button, a file or colour picker, something the reader
+ * clicks and is never mid-word in.
+ *
+ * Named the other way round on purpose. An `<input>` with an empty or
+ * unrecognised `type` renders as a text field, so listing the ones that accept
+ * prose would read every new or misspelt type as a control and take the caret
+ * out of a field the reader is typing in.
  */
-const TEXT_INPUT_TYPES = new Set([
-	"text",
-	"search",
-	"email",
-	"url",
-	"tel",
-	"password",
-	"number",
-	"date",
-	"datetime-local",
-	"month",
-	"time",
-	"week",
+const NON_TEXT_INPUT_TYPES = new Set([
+	"button",
+	"checkbox",
+	"color",
+	"file",
+	"hidden",
+	"image",
+	"radio",
+	"range",
+	"reset",
+	"submit",
 ]);
 
 /**
@@ -59,7 +62,7 @@ const takesTyping = (element: Element): boolean => {
 	if (tag === "SELECT") return true;
 	if (tag === "INPUT") {
 		const type = (element.getAttribute("type") ?? "text").toLowerCase();
-		return TEXT_INPUT_TYPES.has(type);
+		return !NON_TEXT_INPUT_TYPES.has(type);
 	}
 	// The attribute as well as the property: `isContentEditable` is computed by
 	// the engine, and a document that never lays out does not answer for it.
