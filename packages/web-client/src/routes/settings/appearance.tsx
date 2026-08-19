@@ -15,6 +15,7 @@ import {
 	type ThemePreference,
 } from "@/lib/theme-preference";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
+import { appearanceHelp } from "./-shared/help-copy";
 
 export const Route = createFileRoute("/settings/appearance")({
 	component: AppearanceSettings,
@@ -31,29 +32,6 @@ function readDensity(): Density {
 	if (typeof localStorage === "undefined") return "comfortable";
 	return (localStorage.getItem(DENSITY_KEY) as Density | null) ?? "comfortable";
 }
-
-/* ------------------------------------------------------------------ */
-/* Help rail copy                                                     */
-/* ------------------------------------------------------------------ */
-
-const appearanceHelp = (
-	<div className="space-y-3">
-		<p>
-			<strong className="text-fg">Density</strong> controls how much information
-			fits on screen. Compact is great on smaller displays; Comfortable gives
-			each item more breathing room.
-		</p>
-		<p>
-			<strong className="text-fg">Theme</strong> switches between light, dark,
-			and system-preference modes instantly. The change takes effect across the
-			whole app immediately.
-		</p>
-		<p className="text-2xs text-fg-subtle">
-			Preferences are stored locally in this browser. Server-side sync is coming
-			soon.
-		</p>
-	</div>
-);
 
 /* ------------------------------------------------------------------ */
 /* Page component                                                     */

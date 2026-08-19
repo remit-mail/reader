@@ -11,25 +11,11 @@ import { SelfUpdatePanel } from "@/components/settings/SelfUpdatePanel";
 import { TlsRootCaDownload } from "@/components/settings/TlsRootCaDownload";
 import { AppVersion } from "@/components/ui/AppVersion";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
+import { advancedHelp } from "./-shared/help-copy";
 
 export const Route = createFileRoute("/settings/advanced")({
 	component: AdvancedSettings,
 });
-
-const advancedHelp = (
-	<div className="space-y-3">
-		<p>
-			<strong className="text-fg">Notification rules</strong> and data export
-			are coming in a future release.
-		</p>
-		<p>
-			A message Remit cannot read is{" "}
-			<strong className="text-fg">set aside</strong> rather than skipped, and
-			the folder keeps syncing. Setting one aside is a defect in Remit, so every
-			entry can be reported with the diagnostics already attached.
-		</p>
-	</div>
-);
 
 function AdvancedSettings() {
 	const navigate = useNavigate();

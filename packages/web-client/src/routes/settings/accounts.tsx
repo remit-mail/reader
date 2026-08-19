@@ -27,6 +27,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { useReturnFromRedirect } from "@/hooks/useReturnFromRedirect";
 import { formatRelativeTime } from "@/lib/format";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
+import { accountsHelp } from "./-shared/help-copy";
 
 const accountsSearchSchema = z.object({
 	editAccountId: z.string().optional(),
@@ -120,28 +121,6 @@ function deriveState(
 function needsReauth(account: RemitImapAccountResponse): boolean {
 	return account.connectionState === "reauth_required";
 }
-
-/* ------------------------------------------------------------------ */
-/* Help rail copy — matches Storybook accountsHelp exactly            */
-/* ------------------------------------------------------------------ */
-
-const accountsHelp = (
-	<div className="space-y-3">
-		<p>
-			<strong className="text-fg">Sync health</strong> shows the IMAP connection
-			state and the last successful sync per account.
-		</p>
-		<p>
-			<strong className="text-fg">Error</strong> means the last connection
-			attempt failed — the raw server response is shown on the card. Reconnect
-			re-runs the connection test from the add-account wizard.
-		</p>
-		<p>
-			<strong className="text-fg">Muted</strong> accounts keep syncing but stay
-			out of the daily brief and unified counts.
-		</p>
-	</div>
-);
 
 /* ------------------------------------------------------------------ */
 /* Loading skeleton                                                   */
