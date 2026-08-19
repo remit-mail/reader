@@ -71,13 +71,67 @@ describe("classifyDisplayNameCorrespondence", () => {
 		);
 	});
 
-	it("claims nothing when the display name is the address itself", () => {
+	it("claims nothing when the display name is an address at the sending domain", () => {
 		assert.equal(
 			classifyDisplayNameCorrespondence(
 				"billing@serviceupdatebank.atlassian.net",
 				"serviceupdatebank.atlassian.net",
 			),
 			DisplayNameCorrespondence.NoClaim,
+		);
+	});
+
+	it("claims nothing when the display name spells the envelope address itself", () => {
+		assert.equal(
+			classifyDisplayNameCorrespondence("matthijs@ischen.nl", "ischen.nl"),
+			DisplayNameCorrespondence.NoClaim,
+		);
+	});
+
+	it("claims nothing when the display name is an address on a sibling subdomain", () => {
+		assert.equal(
+			classifyDisplayNameCorrespondence(
+				"noreply@example.co.uk",
+				"mail.example.co.uk",
+			),
+			DisplayNameCorrespondence.NoClaim,
+		);
+	});
+
+	it("is a foreign address when the display name spells an address over another domain", () => {
+		assert.equal(
+			classifyDisplayNameCorrespondence(
+				"matthijs@ischen.nl",
+				"secresaludguaviare.gov.co",
+			),
+			DisplayNameCorrespondence.ForeignAddress,
+		);
+	});
+
+	it("is a foreign address when the spelled-out address is decorated with a name", () => {
+		assert.equal(
+			classifyDisplayNameCorrespondence(
+				"Matthijs (matthijs@ischen.nl)",
+				"secresaludguaviare.gov.co",
+			),
+			DisplayNameCorrespondence.ForeignAddress,
+		);
+	});
+
+	it("compares an at sign that spells no address as an ordinary name", () => {
+		assert.equal(
+			classifyDisplayNameCorrespondence(
+				"Support @ InfoMedics",
+				"infomedics.nl",
+			),
+			DisplayNameCorrespondence.Corresponds,
+		);
+		assert.equal(
+			classifyDisplayNameCorrespondence(
+				"Support @ InfoMedics",
+				"serviceupdatebank.atlassian.net",
+			),
+			DisplayNameCorrespondence.Unrelated,
 		);
 	});
 
@@ -210,6 +264,25 @@ describe("extractSenderMismatch", () => {
 				bulkSender: false,
 			}),
 			{},
+		);
+	});
+
+	it("flags a display name spelling the recipient's own address over a foreign domain", async () => {
+		const parsed = await parse([
+			"From: matthijs@ischen.nl <aramirez@secresaludguaviare.gov.co>",
+			"To: matthijs@ischen.nl",
+			"Subject: Re: factura",
+			"X-HalOne-Spam-Probability: 1",
+			"",
+			"hola",
+		]);
+		assert.equal(
+			extractSenderMismatch(parsed, {
+				fromDomain: "secresaludguaviare.gov.co",
+				spamClassified: true,
+				bulkSender: false,
+			}).displayNameCorrespondence,
+			DisplayNameCorrespondence.ForeignAddress,
 		);
 	});
 

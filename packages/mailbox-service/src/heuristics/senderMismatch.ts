@@ -76,6 +76,22 @@ const editDistance = (a: string, b: string): number => {
 	return previous[b.length];
 };
 
+const ADDRESS_SHAPE = /[^\s<>@,;:"]+@([a-z0-9-]+(?:\.[a-z0-9-]+)+)/i;
+
+const registrableDomain = (host: string): string =>
+	getDomain(host) ?? host.toLowerCase();
+
+/**
+ * The registrable domain of the address a display name spells out, or
+ * `undefined` when it holds an `@` without an address behind it — `Bob @ Acme`
+ * asserts no address and is left to the ordinary comparison.
+ */
+const claimedAddressDomain = (displayName: string): string | undefined => {
+	const host = ADDRESS_SHAPE.exec(displayName)?.[1];
+	if (host === undefined) return undefined;
+	return registrableDomain(host);
+};
+
 /**
  * The distance a name of this length may be from a domain label and still be
  * read as an imitation of it. Tight on purpose: an unrelated brand name and an
@@ -109,14 +125,27 @@ const lookalikeThreshold = (length: number): number => {
  * A bounded edit distance is the secondary test, and only reaches names that
  * nearly match a label — `InfoMedics` against `1nfomedics.nl`. It cannot promote
  * an unrelated name on its own.
+ *
+ * A name that spells out an address is decided before any of that. Over the
+ * sending domain it claims nothing — `billing@` shown over
+ * `serviceupdatebank.atlassian.net` names the same party the envelope does.
+ * Over any other registrable domain it is the strongest non-correspondence
+ * signal there is: the message asserts, in the one field the recipient reads,
+ * that it comes from an address that cannot have sent it.
  */
 export const classifyDisplayNameCorrespondence = (
 	displayName: string | undefined,
 	fromDomain: string,
 ): CorrespondenceValue => {
 	const raw = (displayName ?? "").trim();
-	if (raw === "" || raw.includes("@")) {
-		return DisplayNameCorrespondence.NoClaim;
+	if (raw === "") return DisplayNameCorrespondence.NoClaim;
+
+	const claimed = claimedAddressDomain(raw);
+	if (claimed !== undefined) {
+		if (claimed === registrableDomain(fromDomain)) {
+			return DisplayNameCorrespondence.NoClaim;
+		}
+		return DisplayNameCorrespondence.ForeignAddress;
 	}
 
 	const name = normalize(raw);

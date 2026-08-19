@@ -344,6 +344,26 @@ describe("buildAuthenticityIntel", () => {
 			assert.match(result.summary, /only looks like/);
 		});
 
+		test("a display name spelling a foreign address names the domain it cannot come from", () => {
+			const result = buildAuthenticityIntel(
+				makeThread({
+					fromEmail: "aramirez@secresaludguaviare.gov.co",
+					fromName: "matthijs@ischen.nl",
+					authenticity: {
+						fromDomain: "secresaludguaviare.gov.co",
+						dkimDomain: "secresaludguaviare.gov.co",
+						dkimMismatch: false,
+						displayNameCorrespondence: "ForeignAddress",
+						offDomainLinkDomains: [],
+					},
+				} as Partial<RemitImapThreadMessageResponse>),
+				0,
+			);
+			assert.equal(result.verdict, "caution");
+			assert.match(result.summary, /"matthijs@ischen\.nl"/);
+			assert.match(result.summary, /secresaludguaviare\.gov\.co/);
+		});
+
 		test("stays verified when the comparisons agreed", () => {
 			const result = buildAuthenticityIntel(
 				makeThread({
