@@ -125,20 +125,25 @@ const event: AppendSentMessageEvent = {
 const called = (method: string): Call[] =>
 	h.calls.filter((c) => c.method === method);
 
+type BackendClient = Awaited<ReturnType<AppendSentMessageDeps["getClient"]>>;
+
 const depsWithFailingDelete = (): AppendSentMessageDeps => {
 	const base = deps();
 	return {
 		...base,
-		getClient: async () => {
-			const client = (await base.getClient()) as unknown as {
-				outboxMessage: { delete: () => Promise<void> };
+		getClient: async (): Promise<BackendClient> => {
+			const client = await base.getClient();
+			return {
+				...client,
+				outboxMessage: {
+					...client.outboxMessage,
+					delete: async (): Promise<void> => {
+						throw new Error("storage down");
+					},
+				},
 			};
-			client.outboxMessage.delete = async () => {
-				throw new Error("storage down");
-			};
-			return client;
 		},
-	} as AppendSentMessageDeps;
+	};
 };
 
 describe("handleAppendSentMessage", () => {
