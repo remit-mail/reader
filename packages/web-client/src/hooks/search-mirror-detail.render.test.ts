@@ -197,8 +197,9 @@ for (const listPath of LIST_PATHS) {
  * re-seeds on a view change, so the view key of the list and of the thread route
  * under it must be equal.
  *
- * Read off the matches the router resolved for a real address, so the ids under
- * test are the ones path segments produce rather than ids written out here.
+ * Read off the address the router committed for a real navigation, so the keys
+ * under test are the ones path segments produce rather than ids written out
+ * here.
  */
 describe("the view key of an open thread", () => {
 	const viewKeyAt = async (
@@ -207,11 +208,7 @@ describe("the view key of an open thread", () => {
 	): Promise<string> => {
 		const router = routerAt(listPath, href);
 		await router.load();
-		return mailViewKey(
-			router.state.matches.map((match: { routeId: string }) => ({
-				routeId: match.routeId,
-			})),
-		);
+		return mailViewKey(router.state.location.pathname);
 	};
 
 	for (const listPath of LIST_PATHS) {

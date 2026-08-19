@@ -56,20 +56,42 @@ export function mailListRoute(
  * key of a list and of anything nested under it are equal; `lib/search-view.ts`
  * re-seeds the search field whenever this changes, and a key that moved when a
  * message opened would wipe the query the reader had just typed.
+ *
+ * Read off the location's pathname, for the reason `locationIsOnList` is: the
+ * router commits the address before it swaps the matches, and a route the
+ * reader has not visited yet has its component to fetch before it can. The
+ * search field follows the address, so text typed once the address says the
+ * next mailbox belongs to that mailbox — keying this off the matches instead
+ * made those keystrokes read as the previous view's leftovers and dropped them.
+ *
+ * The whole address, never the /mail match's own pathname, which is "/mail" on
+ * every child route.
  */
-export function mailViewKey(matches: readonly MailRouteMatch[]): string {
-	const route = mailListRoute(matches);
-	if (!route) return "";
-	switch (route.list) {
-		case "mailbox":
-			return route.mailboxId ? mailboxViewKey(route.mailboxId) : "";
-		case "flagged":
-			return MAIL_FLAGGED_ROUTE_ID;
-		case "outbox":
-			return MAIL_OUTBOX_ROUTE_ID;
-		case "brief":
-			return MAIL_BRIEF_ROUTE_ID;
-	}
+export function mailViewKey(pathname: string): string {
+	const segments = pathname.split(/[?#]/)[0].split("/").filter(Boolean);
+	if (segments[0] !== "mail") return "";
+	const list = segments[1];
+	if (!list) return "";
+	if (list === "brief") return MAIL_BRIEF_ROUTE_ID;
+	if (list === "flagged") return MAIL_FLAGGED_ROUTE_ID;
+	if (list === "outbox") return MAIL_OUTBOX_ROUTE_ID;
+	return mailboxViewKey(list);
+}
+
+/**
+ * What the address says the query is.
+ *
+ * Read off the location's own search, never off the matched route's, for the
+ * reason `mailViewKey` reads the location's pathname: the router commits the
+ * whole address at once and swaps the matches afterwards. Taking the view from
+ * one and the query from the other splits a single move in two — the field sees
+ * the mailbox it is going to next to the query of the one it is leaving, and
+ * re-seeds itself with a query the reader has already navigated away from (#47).
+ */
+export function addressQuery(search: unknown): string {
+	if (typeof search !== "object" || search === null) return "";
+	const { q } = search as { q?: unknown };
+	return typeof q === "string" ? q : "";
 }
 
 /** One mailbox's view key. Two mailboxes are two views. */

@@ -2,9 +2,9 @@
  * Three contracts, each of which has already cost a regression.
  *
  * The list is read off a matched route id, never the parent /mail layout's
- * pathname: that pathname is "/mail" on every child route, and keying off it
- * routed every mailbox through the brief pane, so the message-row anchors
- * vanished.
+ * own pathname: that pathname is "/mail" on every child route, and keying off
+ * it routed every mailbox through the brief pane, so the message-row anchors
+ * vanished. The location's pathname is the whole address and says which list.
  *
  * The view key of a list equals the view key of anything nested under it. A
  * thread is a child route of the list it was opened from, so a key that moved
@@ -12,13 +12,15 @@
  * the view — and the query they had just typed would be re-seeded from the URL
  * and disappear the moment they opened a hit.
  *
- * And "am I the current list" is answered by the pathname, not by the matches,
+ * And "where is the reader" is answered by the pathname, not by the matches,
  * because the matches lag a navigation by as long as the destination takes to
- * mount.
+ * mount — both for "am I the current list" and for which view the search field
+ * is searching (#808).
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+	addressQuery,
 	locationIsOnList,
 	locationOpensDetail,
 	MAIL_BRIEF_ROUTE_ID,
@@ -26,6 +28,7 @@ import {
 	MAIL_MAILBOX_ROUTE_ID,
 	MAIL_OUTBOX_ROUTE_ID,
 	type MailRouteMatch,
+	mailboxViewKey,
 	mailListRoute,
 	mailViewKey,
 } from "./mail-route.js";
@@ -85,47 +88,57 @@ describe("mailListRoute", () => {
 
 describe("mailViewKey", () => {
 	it("gives the four lists four distinct keys", () => {
-		const keys = [brief, flagged, outbox, mailbox].map(mailViewKey);
+		const keys = [
+			"/mail/brief",
+			"/mail/flagged",
+			"/mail/outbox",
+			"/mail/inbox-1",
+		].map(mailViewKey);
 		assert.equal(new Set(keys).size, 4);
 	});
 
 	it("distinguishes two mailboxes", () => {
 		assert.notEqual(
-			mailViewKey(matches([MAIL_MAILBOX_ROUTE_ID], { mailboxId: "inbox-1" })),
-			mailViewKey(matches([MAIL_MAILBOX_ROUTE_ID], { mailboxId: "archive-1" })),
+			mailViewKey("/mail/inbox-1"),
+			mailViewKey("/mail/archive-1"),
 		);
 	});
 
 	it("is empty outside the mail shell", () => {
-		assert.equal(mailViewKey([{ routeId: "__root__" }]), "");
+		assert.equal(mailViewKey("/onboarding"), "");
 	});
 
-	it("is empty on a mailbox route whose param has not resolved", () => {
-		assert.equal(mailViewKey(matches([MAIL_MAILBOX_ROUTE_ID])), "");
+	it("is empty on /mail itself, which names no list", () => {
+		assert.equal(mailViewKey("/mail"), "");
+	});
+
+	it("reads the list from the address the router has committed", () => {
+		// The matches lag a navigation by as long as the destination takes to
+		// mount, and the search field follows the address: text typed once this
+		// says the next mailbox is that mailbox's query, not the previous view's.
+		assert.equal(mailViewKey("/mail/inbox-1"), mailboxViewKey("inbox-1"));
+		assert.equal(mailViewKey("/mail/brief"), MAIL_BRIEF_ROUTE_ID);
+		assert.equal(mailViewKey("/mail/flagged"), MAIL_FLAGGED_ROUTE_ID);
+		assert.equal(mailViewKey("/mail/outbox"), MAIL_OUTBOX_ROUTE_ID);
 	});
 
 	// The trap: opening a thread must not read as leaving the list, or the
 	// search field re-seeds and the typed query is gone.
 	it("gives a list and its open thread the same key", () => {
-		const lists: [readonly string[], Record<string, string> | undefined][] = [
-			[[MAIL_BRIEF_ROUTE_ID], undefined],
-			[[MAIL_FLAGGED_ROUTE_ID], undefined],
-			[[MAIL_OUTBOX_ROUTE_ID], undefined],
-			[[MAIL_MAILBOX_ROUTE_ID], { mailboxId: "inbox-1" }],
-		];
-
-		for (const [routeIds, params] of lists) {
-			const list = routeIds[0];
-			const thread = `${list}/$threadId`;
-			const message = `${thread}/$messageId`;
+		for (const list of [
+			"/mail/brief",
+			"/mail/flagged",
+			"/mail/outbox",
+			"/mail/inbox-1",
+		]) {
 			assert.equal(
-				mailViewKey(matches([list, thread], params)),
-				mailViewKey(matches([list], params)),
+				mailViewKey(`${list}/th-1`),
+				mailViewKey(list),
 				`${list} changes view key when a thread opens`,
 			);
 			assert.equal(
-				mailViewKey(matches([list, thread, message], params)),
-				mailViewKey(matches([list], params)),
+				mailViewKey(`${list}/th-1/msg-1`),
+				mailViewKey(list),
 				`${list} changes view key when a message expands`,
 			);
 		}
@@ -135,34 +148,23 @@ describe("mailViewKey", () => {
 	// moved when it opened would wipe the query the reader was mid-search on.
 	it("gives a list and its compose surface the same key", () => {
 		assert.equal(
-			mailViewKey(
-				matches([
-					MAIL_BRIEF_ROUTE_ID,
-					`${MAIL_BRIEF_ROUTE_ID}/compose/{-$outboxMessageId}`,
-				]),
-			),
-			mailViewKey(brief),
+			mailViewKey("/mail/brief/compose"),
+			mailViewKey("/mail/brief"),
 		);
 		assert.equal(
-			mailViewKey(
-				matches(
-					[
-						MAIL_MAILBOX_ROUTE_ID,
-						`${MAIL_MAILBOX_ROUTE_ID}/compose/{-$outboxMessageId}`,
-					],
-					{
-						mailboxId: "inbox-1",
-					},
-				),
-			),
-			mailViewKey(mailbox),
+			mailViewKey("/mail/inbox-1/compose/draft-1"),
+			mailViewKey("/mail/inbox-1"),
 		);
 	});
 
-	it("gives a list and its reading-pane index child the same key", () => {
+	it("ignores a query string and a fragment", () => {
 		assert.equal(
-			mailViewKey(matches([MAIL_BRIEF_ROUTE_ID, `${MAIL_BRIEF_ROUTE_ID}/`])),
-			mailViewKey(brief),
+			mailViewKey("/mail/brief?q=invoice"),
+			mailViewKey("/mail/brief"),
+		);
+		assert.equal(
+			mailViewKey("/mail/brief#intelligence"),
+			mailViewKey("/mail/brief"),
 		);
 	});
 });
@@ -236,5 +238,24 @@ describe("locationOpensDetail", () => {
 	it("is false outside the mail shell", () => {
 		assert.equal(locationOpensDetail("/settings/accounts"), false);
 		assert.equal(locationOpensDetail("/onboarding"), false);
+	});
+});
+
+describe("addressQuery", () => {
+	it("reads the query the address carries", () => {
+		assert.equal(addressQuery({ q: "invoice" }), "invoice");
+	});
+
+	it("is empty where the address carries none", () => {
+		assert.equal(addressQuery({}), "");
+		assert.equal(addressQuery({ wizard: "pick" }), "");
+	});
+
+	it("is empty for anything that is not a query string", () => {
+		// The location's search is parsed, not validated: a hand-edited `?q[]=`
+		// arrives as an array and must not reach the field as one.
+		assert.equal(addressQuery({ q: ["invoice"] }), "");
+		assert.equal(addressQuery(undefined), "");
+		assert.equal(addressQuery(null), "");
 	});
 });

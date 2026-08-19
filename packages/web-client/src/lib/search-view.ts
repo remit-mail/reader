@@ -9,19 +9,29 @@
  * URL win on every view change: the field re-seeds from the location it lands
  * on, so switching mailbox clears a stale query while a deep link or a saved
  * search that carries `q` still arrives with the query intact.
+ *
+ * "Every view change" is the move the reader made, not every render that
+ * notices one. Text typed once the address already names the destination was
+ * typed in the destination, so it is that view's query and survives
+ * (`hooks/useSearchField.ts`).
  */
 import { locationIsOnList } from "./mail-route";
 
 /**
  * The field text after a view transition, or `undefined` when nothing changes
  * (same view — typing, opening a result, mirroring `q` back to the URL).
+ *
+ * `typedInView` is the view the text in the field was written in, not the view
+ * of the previous render. The two differ for exactly one render after the
+ * address moves, which is where a keystroke that followed the move lands
+ * (#808); calling it the previous render's view re-seeded that keystroke away.
  */
 export function searchInputForView(
-	previousViewKey: string,
+	typedInView: string,
 	viewKey: string,
 	urlQuery: string,
 ): string | undefined {
-	if (previousViewKey === viewKey) return undefined;
+	if (typedInView === viewKey) return undefined;
 	return urlQuery;
 }
 
@@ -64,6 +74,15 @@ export interface MirrorDecision {
  * address is already the new one. A write from the outgoing list in that window
  * navigates back to itself, superseding the load in flight and replacing the
  * entry the reader just pushed — they click Inbox and land on the brief.
+ *
+ * The mirror asks this again whenever the address moves, not only when the
+ * field does (#808), so a settled query the URL has drifted away from is
+ * written again. That cannot loop: the answer is false the moment the URL says
+ * the committed query, which is what every write makes it say. Nor does it let
+ * the mirror fight a query arriving by URL — that arrives mid-debounce, where
+ * the first rule already refuses, and by the time the debounce settles the
+ * field has been re-seeded from the address it landed on
+ * (`hooks/useSearchField.ts`).
  */
 export function shouldMirrorQuery({
 	searchInput,

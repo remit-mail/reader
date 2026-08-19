@@ -6,22 +6,12 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-	MAIL_BRIEF_ROUTE_ID,
-	type MailRouteMatch,
-	mailViewKey,
-} from "./mail-route.js";
+import { MAIL_BRIEF_ROUTE_ID, mailViewKey } from "./mail-route.js";
 import {
 	committedSearchQuery,
 	searchInputForView,
 	shouldMirrorQuery,
 } from "./search-view.js";
-
-const matches = (routeId: string, mailboxId?: string): MailRouteMatch[] => [
-	{ routeId: "__root__" },
-	{ routeId: "/mail" },
-	{ routeId, ...(mailboxId ? { params: { mailboxId } } : {}) },
-];
 
 describe("searchInputForView", () => {
 	it("clears the field when the destination carries no query", () => {
@@ -173,7 +163,10 @@ describe("shouldMirrorQuery", () => {
  * both have to end it without ever writing over what the user is typing.
  */
 interface Shell {
+	/** The view the address names, which is what a render reads. */
 	viewKey: string;
+	/** The view the text in the field was typed in (`hooks/useSearchField.ts`). */
+	typedInView: string;
 	/** The path of the list whose mirror is running. */
 	listPath: string;
 	field: string;
@@ -189,10 +182,8 @@ const render = (
 	listPath = shell.listPath,
 ): Shell => {
 	const field =
-		viewKey === shell.viewKey
-			? shell.field
-			: (searchInputForView(shell.viewKey, viewKey, url) ?? shell.field);
-	return { ...shell, viewKey, listPath, field, url };
+		searchInputForView(shell.typedInView, viewKey, url) ?? shell.field;
+	return { ...shell, viewKey, typedInView: viewKey, listPath, field, url };
 };
 
 /**
@@ -213,15 +204,22 @@ const mirror = (shell: Shell, pathname = shell.listPath): Shell => {
 	return { ...shell, url: committed };
 };
 
-const typing = (shell: Shell, text: string): Shell => ({
+/**
+ * A keystroke, stamped with the view the address named when it landed. That is
+ * the address the router has already committed, which for one render is ahead
+ * of the view the shell is showing.
+ */
+const typing = (shell: Shell, text: string, atView = shell.viewKey): Shell => ({
 	...shell,
 	field: text,
+	typedInView: atView,
 });
 const settle = (shell: Shell): Shell => ({ ...shell, debounced: shell.field });
 
 describe("search across a view change", () => {
 	const searching: Shell = {
-		viewKey: mailViewKey(matches("/mail/$mailboxId", "inbox-1")),
+		viewKey: mailViewKey("/mail/inbox-1"),
+		typedInView: mailViewKey("/mail/inbox-1"),
 		listPath: "/mail/inbox-1",
 		field: "invoice",
 		debounced: "invoice",
@@ -231,12 +229,7 @@ describe("search across a view change", () => {
 	it("ends the search when the user leaves the view", () => {
 		// The nav link drops `q`, so the destination carries none.
 		const next = mirror(
-			render(
-				searching,
-				mailViewKey(matches("/mail/$mailboxId", "sent-1")),
-				"",
-				"/mail/sent-1",
-			),
+			render(searching, mailViewKey("/mail/sent-1"), "", "/mail/sent-1"),
 		);
 		assert.equal(next.field, "");
 		assert.equal(next.url, "");
@@ -248,7 +241,8 @@ describe("search across a view change", () => {
 	// the reader had just pushed, so Inbox never arrives.
 	it("does not navigate back to the list the reader is leaving", () => {
 		const brief: Shell = {
-			viewKey: mailViewKey(matches(MAIL_BRIEF_ROUTE_ID)),
+			viewKey: mailViewKey(MAIL_BRIEF_ROUTE_ID),
+			typedInView: mailViewKey(MAIL_BRIEF_ROUTE_ID),
 			listPath: MAIL_BRIEF_ROUTE_ID,
 			field: "inv",
 			debounced: "",
@@ -266,7 +260,7 @@ describe("search across a view change", () => {
 		// mirror must not write it back — that is #47 returning by another route.
 		const landed = render(
 			searching,
-			mailViewKey(matches("/mail/$mailboxId", "sent-1")),
+			mailViewKey("/mail/sent-1"),
 			"",
 			"/mail/sent-1",
 		);
@@ -280,7 +274,7 @@ describe("search across a view change", () => {
 		const next = mirror(
 			render(
 				searching,
-				mailViewKey(matches(MAIL_BRIEF_ROUTE_ID)),
+				mailViewKey(MAIL_BRIEF_ROUTE_ID),
 				"invoice",
 				MAIL_BRIEF_ROUTE_ID,
 			),
@@ -289,10 +283,27 @@ describe("search across a view change", () => {
 		assert.equal(next.url, "invoice");
 	});
 
+	// #808: `waitForURL` returns on the address, so a reader — and a test — can
+	// type before the destination is on screen. That keystroke and the view
+	// change arrive in one render, and re-seeding it away left the field empty,
+	// the mirror with nothing to write, and no later render any reason to
+	// reconsider: the query never reached the URL at all.
+	it("keeps a query typed once the address already named the destination", () => {
+		const sent = mailViewKey("/mail/sent-1");
+		const typedOnArrival = typing(
+			{ ...searching, field: "", debounced: "", url: "" },
+			"invoice",
+			sent,
+		);
+		const landed = settle(render(typedOnArrival, sent, "", "/mail/sent-1"));
+		assert.equal(landed.field, "invoice");
+		assert.equal(mirror(landed).url, "invoice");
+	});
+
 	it("never clobbers characters the user is still typing", () => {
 		// Opening a result and the q-mirror both re-render the same view. Neither
 		// is a view change, so neither may reach into the field.
-		const mailbox = mailViewKey(matches("/mail/$mailboxId", "inbox-1"));
+		const mailbox = mailViewKey("/mail/inbox-1");
 		let shell = typing(
 			{ ...searching, field: "", debounced: "", url: "" },
 			"i",
