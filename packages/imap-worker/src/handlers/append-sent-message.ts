@@ -201,15 +201,15 @@ export const handleAppendSentMessage = async (
 		},
 	);
 
-	// The APPEND landed: the copy is in Sent even if the row delete that follows
-	// it failed, so there is nothing to settle as unfiled. The row that outlives
-	// its delete is reconciled by the stranded-sent sweep (#824), which is the
-	// cheaper half of the trade — a second copy in Sent is not recoverable.
+	// The APPEND landed: the copy is in Sent whatever failed after it, so there
+	// is nothing to settle as unfiled. A row that outlives its delete holds
+	// `sent`, which every view hides, until the migrator's boot-time stranded-row
+	// repair settles it — the next container start, not sooner (#824).
 	if (appended) {
 		if (failure) {
 			log.error(
 				{ accountId, outboxMessageId, reason: String(failure) },
-				"Sent message was filed but its outbox row survived, leaving it for the stranded-sent sweep",
+				"Sent message was filed but its outbox row survived its delete and stays hidden until the boot-time repair",
 			);
 		}
 		return;
