@@ -774,6 +774,12 @@ test.describe("A reply lives under its message (#720)", () => {
 	const replySubject = (page: Page): Locator =>
 		page.locator("[data-subject-field]");
 
+	/** The chips in an address field, one per recipient the message carries. */
+	const recipients = (page: Page, field: string): Locator =>
+		page.locator(`[data-address-field="${field}"]`).getByRole("button", {
+			name: /^Remove /,
+		});
+
 	const openReply = async (page: Page, subject: string): Promise<void> => {
 		await openBrief(page, subject);
 		await briefRow(page, subject).click();
@@ -912,6 +918,41 @@ test.describe("A reply lives under its message (#720)", () => {
 		await page.getByRole("button", { name: "Forward", exact: true }).click();
 		await expect(page).toHaveURL(new RegExp(`/forward/${draft}(\\?|#|$)`));
 		await expect(page.getByTestId("compose-body")).toContainText(written);
+	});
+
+	/**
+	 * A forward is addressed to nobody (#797). The reply branch fills To with the
+	 * person being answered, and the draft travels with the mode, so a forward
+	 * that only rewrote the subject sent the conversation straight back to them
+	 * unless the reader noticed the field.
+	 */
+	test("forwarding a reply drops the person it was answering", async ({
+		page,
+		run,
+	}) => {
+		const subject = run.seededSubjects[0];
+		await openReply(page, subject);
+
+		// The reply is addressed before anything is typed, which is the state the
+		// forward has to clear rather than carry.
+		await expect(recipients(page, "To")).not.toHaveCount(0);
+
+		await page.getByRole("button", { name: "Forward", exact: true }).click();
+		await expect(replySubject(page)).toHaveValue(/^Fwd: /);
+		await expect(recipients(page, "To")).toHaveCount(0);
+		await expect(recipients(page, "Cc")).toHaveCount(0);
+		await expect(recipients(page, "Bcc")).toHaveCount(0);
+
+		// Assert again after something unrelated: the brief settles behind the
+		// composer, and nothing arriving late re-addresses the forward.
+		await expect(briefRow(page, subject)).toBeVisible({ timeout: 30_000 });
+		await expect(recipients(page, "To")).toHaveCount(0);
+
+		// Back to Reply and the answer is addressed again, so the empty field is
+		// the forward's doing rather than a composer that stopped filling it.
+		await page.getByRole("button", { name: "Reply", exact: true }).click();
+		await expect(replySubject(page)).toHaveValue(/^Re: /);
+		await expect(recipients(page, "To")).not.toHaveCount(0);
 	});
 
 	/**
