@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { SemanticSearchResult } from "@remit/api-openapi-types";
 import type {
 	SearchParams,
 	SearchResult,
 	SearchService,
 } from "@remit/search-service";
+import { toResponse } from "./search.js";
 
 interface CapturedSearch {
 	calls: SearchParams[];
@@ -27,27 +27,6 @@ const buildFakeSearch = (
 		},
 	};
 	return { service, captured };
-};
-
-const toResponse = (item: SearchResult): SemanticSearchResult => {
-	const result: SemanticSearchResult = {
-		messageId: item.messageId,
-		threadId: item.threadId,
-		score: item.score,
-		matchedChunkType: item.matchedChunkType,
-		mailboxIds: item.mailboxIds,
-		sentDate: item.sentDate,
-	};
-	if (item.fromName !== undefined) {
-		result.fromName = item.fromName ?? undefined;
-	}
-	if (item.subject !== undefined) {
-		result.subject = item.subject;
-	}
-	if (item.category !== undefined) {
-		result.category = item.category;
-	}
-	return result;
 };
 
 describe("SemanticSearch handler response mapping", () => {
