@@ -170,49 +170,82 @@ export interface DeleteConfirmationCopy {
 /**
  * What a delete will actually do to the selected mail.
  *
- * `unknown` is the state before the account's Trash appointment has resolved —
- * a real state on a cold open, and the one the copy must not guess at, because
+ * `unknown` is the state before the account's Trash appointment has resolved — a
+ * real state on a cold open, and the one the copy must not guess at, because
  * guessing "move to Trash" over an expunge is the dishonesty this whole flow
  * exists to remove.
  *
- * `unavailable` is that appointment failing to resolve at all. A read that
+ * `noTrash` is a resolved answer of "none": the account appoints no Trash, so
+ * the server refuses the delete outright (#846) rather than moving anything.
+ * It is a different fact from "this row is not in Trash" and must never share
+ * an outcome with it — one promises a restore that can happen, the other a
+ * delete that will not.
+ *
+ * `unavailable` is the appointment failing to resolve at all. A read that
  * cannot answer is not an answer: treating an errored `/config` as "no Trash
  * here" reinstates the same lie on the failure path, where an expired session
  * would collect "Move to Trash?" over an expunge. The delete is refused and the
  * failure is stated instead.
  */
-export type DeleteOutcome = "trash" | "permanent" | "unknown" | "unavailable";
+export type DeleteOutcome =
+	| "trash"
+	| "permanent"
+	| "noTrash"
+	| "unknown"
+	| "unavailable";
+
+/** A row about to be deleted, and the account whose Trash decides its fate. */
+export interface DeleteTarget {
+	accountId: string | undefined;
+	mailboxId: string;
+}
 
 export interface DeleteOutcomeInput {
-	/** The folder each row about to be deleted is filed in. */
-	mailboxIds: readonly string[];
-	/** Every mailbox appointed to Trash, across the accounts in play. */
-	trashMailboxIds: ReadonlySet<string>;
-	/** The appointments have not arrived yet. */
-	isLoading: boolean;
+	targets: readonly DeleteTarget[];
+	/**
+	 * Each account's appointed Trash. A key present with `undefined` is an
+	 * account that appoints none — an answer, not a gap. A key absent is an
+	 * account nothing is known about yet.
+	 */
+	trashByAccount: ReadonlyMap<string, string | undefined>;
+	/**
+	 * The appointments have actually arrived. Never `!isLoading`: React Query
+	 * v5 leaves a paused offline query pending-but-not-fetching, which reads as
+	 * loaded while `data` is still undefined.
+	 */
+	hasAppointments: boolean;
 	/** The read for them failed. */
 	isError: boolean;
 }
 
 /**
- * The outcome of deleting the rows filed in `mailboxIds`.
+ * The outcome of deleting `targets`.
  *
  * One row bound for an expunge makes the whole delete unrecoverable, so a mixed
  * set is permanent: the wording may overstate what is destroyed, never what is
- * kept. Pure, so every branch — the failure one above all — is testable without
- * a DOM.
+ * kept. One row on an account with no Trash refuses the whole call, so that
+ * outranks both. Pure, so every branch — the failure ones above all — is
+ * testable without a DOM.
  */
 export const deleteOutcomeFor = ({
-	mailboxIds,
-	trashMailboxIds,
-	isLoading,
+	targets,
+	trashByAccount,
+	hasAppointments,
 	isError,
 }: DeleteOutcomeInput): DeleteOutcome => {
 	if (isError) return "unavailable";
-	if (isLoading) return "unknown";
-	if (mailboxIds.length === 0) return "unknown";
-	if (mailboxIds.some((id) => trashMailboxIds.has(id))) return "permanent";
-	return "trash";
+	if (!hasAppointments) return "unknown";
+	if (targets.length === 0) return "unknown";
+
+	let expunges = false;
+	for (const target of targets) {
+		if (target.accountId === undefined) return "unknown";
+		if (!trashByAccount.has(target.accountId)) return "unknown";
+		const trashMailboxId = trashByAccount.get(target.accountId);
+		if (trashMailboxId === undefined) return "noTrash";
+		if (trashMailboxId === target.mailboxId) expunges = true;
+	}
+	return expunges ? "permanent" : "trash";
 };
 
 /**
@@ -222,10 +255,12 @@ export const deleteOutcomeFor = ({
  * says "Move to Trash" over an expunge collects an answer to a question the
  * user was never asked.
  *
- * `unavailable` is not a confirmation at all but a refusal: nothing is deleted,
- * and the label names the way back rather than the delete. The caller wires it
- * to re-authentication, because a failed account read is a session that ended
- * under the reader far more often than it is anything else.
+ * `noTrash` and `unavailable` are not confirmations at all but refusals:
+ * nothing is deleted, and the label names the way out rather than the delete.
+ * The caller wires each to its own remedy — folder settings for the missing
+ * appointment, re-authentication for the failed read, because an account read
+ * that fails is a session that ended under the reader far more often than it is
+ * anything else.
  */
 export const deleteConfirmationCopy = (
 	count: number,
@@ -234,6 +269,14 @@ export const deleteConfirmationCopy = (
 	const quantity = count === 1 ? "1" : formatNumber(count);
 	const noun = count === 1 ? "message" : "messages";
 
+	if (outcome === "noTrash") {
+		return {
+			title: `Can't delete ${quantity} ${noun}`,
+			description:
+				"No folder on this account is appointed as Trash, so there is nowhere to move the mail — and deleting it would erase it from the server instead. Appoint a Trash folder to delete from here.",
+			confirmLabel: "Open folder settings",
+		};
+	}
 	if (outcome === "unavailable") {
 		return {
 			title: `Can't delete ${quantity} ${noun}`,

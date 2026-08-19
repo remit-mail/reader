@@ -81,41 +81,45 @@ export const useJunkMailbox = (
 };
 
 /**
- * Every mailbox appointed to Trash, across all accounts. The delete
+ * Each account's appointed Trash mailbox, keyed by account. The delete
  * confirmation needs it to tell a move-to-Trash apart from a delete inside
- * Trash, which is an unrecoverable expunge and has to be asked as one (#845).
+ * Trash, which is an unrecoverable expunge and has to be asked as one (#845),
+ * and apart from an account that appoints no Trash at all, where the server
+ * refuses the delete outright (#846).
  *
- * Not keyed by account, because the brief and Flagged answer for selections
- * that span accounts (#855) and a per-account lookup cannot say whether *this*
- * row sits in *its own* account's Trash. Mailbox ids are unique across
- * accounts, so membership of the set is the whole answer.
+ * A map rather than a set of ids, because the brief and Flagged answer for
+ * selections that span accounts (#855): "is this row in Trash" is a question
+ * about the row's own account, and "does any Trash exist" has to be answerable
+ * as "no" rather than as silence.
+ *
+ * `hasAppointments` is data presence, never `!isLoading`. React Query v5
+ * computes `isLoading` as `isPending && isFetching`, so an offline query is
+ * paused and reports neither loading nor error while `data` is still
+ * undefined — which read as "no Trash anywhere", and promised a reversible
+ * move over an expunge that would replay on reconnect.
  */
-export const useTrashMailboxIds = (): {
-	trashMailboxIds: ReadonlySet<string>;
-	isLoading: boolean;
+export const useTrashByAccount = (): {
+	trashByAccount: ReadonlyMap<string, string | undefined>;
+	hasAppointments: boolean;
 	isError: boolean;
 } => {
-	const {
-		data: config,
-		isLoading,
-		isError,
-	} = useQuery({
+	const { data: config, isError } = useQuery({
 		...configOperationsGetConfigOptions(),
 		staleTime: Infinity,
 	});
 
-	const trashMailboxIds = useMemo(() => {
-		const ids = new Set<string>();
+	const trashByAccount = useMemo(() => {
+		const byAccount = new Map<string, string | undefined>();
 		for (const account of config?.accounts ?? []) {
-			const appointed = account.folderAppointments.find(
-				(fa) => fa.role === "Trash",
-			)?.mailboxId;
-			if (appointed) ids.add(appointed);
+			byAccount.set(
+				account.accountId,
+				account.folderAppointments.find((fa) => fa.role === "Trash")?.mailboxId,
+			);
 		}
-		return ids;
+		return byAccount;
 	}, [config]);
 
-	return { trashMailboxIds, isLoading, isError };
+	return { trashByAccount, hasAppointments: config !== undefined, isError };
 };
 
 /**

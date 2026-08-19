@@ -38,6 +38,7 @@ import { useDeleteOutcome } from "@/hooks/useDeleteOutcome";
 import { useFollowFocusOpen } from "@/hooks/useFollowFocusOpen";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
+import type { DeleteTarget } from "@/lib/format";
 import { tabStopId } from "@/lib/list-focus";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
@@ -45,12 +46,12 @@ import type { MessageListCommands } from "./MessageList";
 import type { MessageRowSelection } from "./MessageRow";
 
 /** Nothing pending, as a stable identity so the outcome memo does not churn. */
-const EMPTY_IDS: readonly string[] = [];
+const NO_TARGETS: readonly DeleteTarget[] = [];
 
 interface PendingDelete {
 	ids: string[];
-	/** The folders those rows were filed in when the delete was asked for. */
-	mailboxIds: string[];
+	/** Where those rows were filed when the delete was asked for. */
+	targets: DeleteTarget[];
 }
 
 interface ThreadRowInteraction {
@@ -284,9 +285,7 @@ export function ThreadListInteraction({
 	const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(
 		null,
 	);
-	const deleteOutcome = useDeleteOutcome(
-		pendingDelete?.mailboxIds ?? EMPTY_IDS,
-	);
+	const deleteOutcome = useDeleteOutcome(pendingDelete?.targets ?? NO_TARGETS);
 
 	// A verb, routed the same way the bar routes its own (#477 1.4, #508). Over a
 	// selection every verb opens the wizard, so the keyboard cannot reach a bulk
@@ -306,19 +305,24 @@ export function ThreadListInteraction({
 			// A row this list cannot place is a row whose delete cannot be worded,
 			// and a confirmation nobody can answer is worse than no confirmation.
 			// The press is still claimed — handing it back runs the pane's own
-			// unconfirmed delete — and the refusal is said out loud.
-			const mailboxId = rows.find(
-				(row) => row.id === focusedMessageId,
-			)?.mailboxId;
-			if (!mailboxId) {
+			// unconfirmed delete — and the refusal is said out loud, with the one
+			// control that can actually change the answer.
+			const pending = rows.find((row) => row.id === focusedMessageId);
+			if (!pending?.mailboxId || !pending.accountId) {
 				pushError({
 					title: "Couldn't delete this message",
 					detail:
-						"This list has lost track of which folder it is in, so reader can't tell whether deleting it would move it to Trash or erase it. Refresh the list and try again.",
+						"This list has lost track of which account and folder it is in, so reader can't tell whether deleting it would move it to Trash or erase it. Nothing was deleted.",
+					action: { label: "Reload the list", href: window.location.href },
 				});
 				return true;
 			}
-			setPendingDelete({ ids: [focusedMessageId], mailboxIds: [mailboxId] });
+			setPendingDelete({
+				ids: [focusedMessageId],
+				targets: [
+					{ accountId: pending.accountId, mailboxId: pending.mailboxId },
+				],
+			});
 			return true;
 		},
 		[

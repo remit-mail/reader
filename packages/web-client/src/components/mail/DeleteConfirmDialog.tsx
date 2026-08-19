@@ -5,15 +5,19 @@
  * and Flagged — so the wording and the refusal cannot drift apart again the way
  * they did between #845 and #855.
  *
- * `unavailable` is the case that is not a confirmation. When the account's
- * folder settings could not be read, reader cannot say whether a delete moves
- * the mail or erases it, so it refuses: the confirm control re-authenticates
- * instead of deleting, and the caller's `onConfirm` is never reached. A read
- * that failed must never render as "this folder is not Trash".
+ * Two of the outcomes are not confirmations at all. When the account appoints
+ * no Trash the server refuses the delete outright, and when its folder settings
+ * could not be read reader cannot say whether a delete moves the mail or erases
+ * it. Both refuse: the affirmative control carries the remedy the copy names —
+ * folder settings, or signing back in — and the caller's `onConfirm` is never
+ * reached. Neither may render as "this folder is not Trash".
  */
 import { ConfirmDialog } from "@remit/ui";
 import { useAuthProvider } from "@/auth/provider";
 import { type DeleteOutcome, deleteConfirmationCopy } from "@/lib/format";
+
+/** Where a missing Trash appointment is made — the remedy the copy names. */
+const FOLDER_SETTINGS_PATH = "/settings/folders";
 
 interface DeleteConfirmDialogProps {
 	isOpen: boolean;
@@ -37,6 +41,18 @@ export const DeleteConfirmDialog = ({
 	const { Account } = useAuthProvider();
 	const copy = deleteConfirmationCopy(count, outcome);
 
+	if (outcome === "noTrash") {
+		return (
+			<ConfirmDialog
+				isOpen={isOpen}
+				{...copy}
+				onConfirm={() => {
+					window.location.assign(FOLDER_SETTINGS_PATH);
+				}}
+				onCancel={onCancel}
+			/>
+		);
+	}
 	if (outcome === "unavailable") {
 		return (
 			<Account

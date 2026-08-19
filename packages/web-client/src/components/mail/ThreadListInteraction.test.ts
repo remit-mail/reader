@@ -377,6 +377,23 @@ describe("ThreadListInteraction — the confirmation states the outcome it will 
 		assert.match(dialogText(), /restore them from Trash later/);
 	});
 
+	it("refuses a row with no account the same way", () => {
+		const deleted: string[][] = [];
+		const list = mountList({
+			initialIds: ["m1"],
+			rows: [{ ...row("m1"), accountId: undefined }],
+			onDeleteMessages: (ids) => deleted.push(ids),
+		});
+
+		act(() => list.commands().focusFirst());
+		act(() => {
+			assert.equal(list.commands().requestVerb("delete"), true);
+		});
+
+		assert.match(dialogText(), /Couldn.t delete this message/);
+		assert.deepEqual(deleted, []);
+	});
+
 	it("refuses a row it cannot place instead of opening a dialog nobody can answer", () => {
 		const deleted: string[][] = [];
 		const list = mountList({
@@ -396,7 +413,13 @@ describe("ThreadListInteraction — the confirmation states the outcome it will 
 
 		const text = dialogText();
 		assert.match(text, /Couldn.t delete this message/);
-		assert.match(text, /Refresh the list and try again/);
+		assert.match(text, /Nothing was deleted/);
+		assert.ok(
+			Array.from(
+				dom.window.document.querySelectorAll<HTMLAnchorElement>("a"),
+			).some((link) => link.textContent === "Reload the list"),
+			"the refusal offers the control its own sentence names",
+		);
 		assert.doesNotMatch(
 			text,
 			/Checking where this account files deleted mail/,

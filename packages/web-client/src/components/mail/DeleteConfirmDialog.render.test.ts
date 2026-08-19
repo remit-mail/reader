@@ -180,3 +180,35 @@ describe("DeleteConfirmDialog — a read that failed refuses the delete", () => 
 		assert.equal(view.button("Reload reader")?.disabled, false);
 	});
 });
+
+/**
+ * An account that appoints no Trash is a resolved answer of "none", not a
+ * missing one: the server refuses that delete outright (#846) rather than
+ * moving anything, so the dialog may not offer a move — and the remedy is the
+ * appointment, not the session.
+ */
+describe("DeleteConfirmDialog — no Trash appointed is not a move", () => {
+	it("refuses rather than promising a restore", () => {
+		const view = mount({ outcome: "noTrash", count: 2 });
+		const text = view.text();
+		assert.match(text, /Can.t delete 2 messages/);
+		assert.match(text, /appointed as Trash/);
+		assert.doesNotMatch(text, /Move 2 messages to Trash?/);
+		assert.doesNotMatch(text, /restore them from Trash later/);
+	});
+
+	it("names the screen that fixes it, and cannot reach the delete", () => {
+		let confirmed = 0;
+		const view = mount({
+			outcome: "noTrash",
+			onConfirm: () => {
+				confirmed += 1;
+			},
+		});
+		const settings = view.button("Open folder settings");
+		assert.ok(settings, "the remedy the copy names is on screen");
+		assert.equal(settings?.disabled, false, "and it can be pressed");
+		assert.equal(view.button("Move to Trash"), undefined);
+		assert.equal(confirmed, 0);
+	});
+});

@@ -37,8 +37,7 @@ import {
 	bulkActionCompletionText,
 	bulkActionProgressLabel,
 	bulkActionProgressTone,
-	bulkActionStoppedDetail,
-	bulkActionStoppedTitle,
+	runEndingBanner,
 } from "@/lib/bulk-action-copy";
 import type { BulkRunOutcome } from "@/lib/bulk-actions";
 import {
@@ -301,7 +300,10 @@ export const MessageList = ({
 	// confirmation has to ask that question instead of "move to Trash?" (#845).
 	// Every row here is filed in the open mailbox, so that one folder is the
 	// whole set the delete acts on.
-	const deleteScope = useMemo(() => [mailboxId], [mailboxId]);
+	const deleteScope = useMemo(
+		() => [{ accountId, mailboxId }],
+		[accountId, mailboxId],
+	);
 	const deleteOutcome = useDeleteOutcome(deleteScope);
 
 	// Selection state
@@ -354,20 +356,10 @@ export const MessageList = ({
 	// once the user has left it, so an ending is never said twice.
 	const reportRunOutcome = useCallback(
 		(kind: BulkActionKind, matched: number, outcome: BulkRunOutcome) => {
+			const banner = runEndingBanner(kind, matched, outcome, deleteOutcome);
 			// A run stopped by a thrown batch is already banner-ed where it threw.
-			if (outcome.error !== undefined) return;
-			if (outcome.cancelled) {
-				pushError({
-					severity: "warning",
-					title: bulkActionStoppedTitle(outcome.done),
-					detail: bulkActionStoppedDetail(kind, outcome.done, matched),
-				});
-				return;
-			}
-			pushError({
-				severity: "info",
-				title: bulkActionCompletionText(kind, outcome.done, deleteOutcome),
-			});
+			if (!banner) return;
+			pushError(banner);
 		},
 		[pushError, deleteOutcome],
 	);
