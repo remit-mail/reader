@@ -15,7 +15,7 @@ import type { OperationHandler, SemanticSearchOperationIds } from "../types.js";
 
 const DEFAULT_LIMIT = 25;
 
-const toResponse = (item: SearchResult): SemanticSearchResult => {
+export const toResponse = (item: SearchResult): SemanticSearchResult => {
 	const result: SemanticSearchResult = {
 		messageId: item.messageId,
 		threadId: item.threadId,
