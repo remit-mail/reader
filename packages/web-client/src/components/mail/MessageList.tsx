@@ -21,7 +21,8 @@ import type { RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
-import { useJunkMailbox, useTrashMailbox } from "@/hooks/useArchiveMailbox";
+import { useJunkMailbox } from "@/hooks/useArchiveMailbox";
+import { useDeleteOutcome } from "@/hooks/useDeleteOutcome";
 import {
 	type EscalatedAction,
 	type EscalationSearchQuery,
@@ -46,11 +47,7 @@ import {
 	escalatedStatusLabel,
 	escalationActionLabel,
 } from "@/lib/escalation-label";
-import {
-	type DeleteOutcome,
-	deleteConfirmationCopy,
-	formatEmailDate,
-} from "@/lib/format";
+import { deleteConfirmationCopy, formatEmailDate } from "@/lib/format";
 import { junkDestination } from "@/lib/junk-destination";
 import { tabStopId } from "@/lib/list-focus";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
@@ -302,15 +299,10 @@ export const MessageList = ({
 
 	// Deleting inside Trash is an expunge on the mail server, not a move, so the
 	// confirmation has to ask that question instead of "move to Trash?" (#845).
-	// Until the appointment resolves the outcome is genuinely unknown, and the
-	// dialog says so rather than guessing the reversible half of the answer.
-	const { trashMailboxId, isLoading: isTrashRoleLoading } =
-		useTrashMailbox(accountId);
-	const deleteOutcome: DeleteOutcome = isTrashRoleLoading
-		? "unknown"
-		: trashMailboxId === mailboxId
-			? "permanent"
-			: "trash";
+	// Every row here is filed in the open mailbox, so that one folder is the
+	// whole set the delete acts on.
+	const deleteScope = useMemo(() => [mailboxId], [mailboxId]);
+	const deleteOutcome = useDeleteOutcome(deleteScope);
 
 	// Selection state
 	const {

@@ -56,7 +56,9 @@ export const NonDestructive: Story = {
 /**
  * Deleting mail that already sits in Trash expunges it on the server, so the
  * dialog asks that question instead of "move to Trash?" — the wording follows
- * the consequence, never the button that opened it (#845).
+ * the consequence, never the button that opened it (#845). On Flagged and the
+ * brief the rows span mailboxes, and one row bound for an expunge is enough to
+ * make the whole delete unrecoverable, so a mixed set is asked here too (#855).
  */
 export const PermanentDelete: Story = {
 	args: {

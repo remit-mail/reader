@@ -19,6 +19,7 @@
 import {
 	ConfirmDialog,
 	SelectionTopBar,
+	type ThreadRowData,
 	useListCursor,
 	type Verb,
 } from "@remit/ui";
@@ -33,10 +34,11 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useDeleteOutcome } from "@/hooks/useDeleteOutcome";
 import { useFollowFocusOpen } from "@/hooks/useFollowFocusOpen";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
-import { formatDeleteToTrashTitle } from "@/lib/format";
+import { deleteConfirmationCopy } from "@/lib/format";
 import { tabStopId } from "@/lib/list-focus";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import type { MessageListCommands } from "./MessageList";
@@ -147,6 +149,13 @@ export interface OpenMessageOptions {
 
 interface ThreadListInteractionProps {
 	selectedMessageId: string | undefined;
+	/**
+	 * The rows this list is showing. Read only to name the folder a row is
+	 * filed in, which is what decides whether deleting it moves it to Trash or
+	 * expunges it — this list spans mailboxes and accounts, so the answer is per
+	 * row and there is no route mailbox to take it from (#855).
+	 */
+	rows: readonly ThreadRowData[];
 	/** Opens a row — the same navigation a click performs. */
 	onOpen: (messageId: string, options?: OpenMessageOptions) => void;
 	/** Deletes a set of messages. Absent disables the delete key for this list. */
@@ -168,6 +177,7 @@ interface ThreadListInteractionProps {
 
 export function ThreadListInteraction({
 	selectedMessageId,
+	rows,
 	onOpen,
 	onDeleteMessages,
 	onSelectionVerb,
@@ -255,11 +265,23 @@ export function ThreadListInteraction({
 		open: followOpen,
 	});
 
-	// Pending move-to-Trash for the row under the cursor, awaiting confirmation.
+	// Pending delete for the row under the cursor, awaiting confirmation.
 	// The id is snapshotted at request time so a cursor move behind the dialog
 	// cannot retarget it. A delete over a selection is a bulk action and walks the
 	// wizard instead — the same contract the mailbox list's delete has.
 	const [pendingDelete, setPendingDelete] = useState<string[] | null>(null);
+
+	// The folders the pending rows are filed in. A row this list cannot place
+	// contributes `undefined`, which is what turns the outcome unknown rather
+	// than letting an unplaced row read as an ordinary move to Trash.
+	const pendingMailboxIds = useMemo(
+		() =>
+			(pendingDelete ?? []).map(
+				(id) => rows.find((row) => row.id === id)?.mailboxId,
+			),
+		[pendingDelete, rows],
+	);
+	const deleteOutcome = useDeleteOutcome(pendingMailboxIds);
 
 	// A verb, routed the same way the bar routes its own (#477 1.4, #508). Over a
 	// selection every verb opens the wizard, so the keyboard cannot reach a bulk
@@ -418,11 +440,9 @@ export function ThreadListInteraction({
 			</div>
 			<ConfirmDialog
 				isOpen={confirmOpen}
-				title={formatDeleteToTrashTitle(pendingDelete?.length ?? 0)}
-				description="You can restore them from Trash later."
-				confirmLabel="Move to Trash"
+				{...deleteConfirmationCopy(pendingDelete?.length ?? 0, deleteOutcome)}
 				destructive
-				isBusy={isDeleting}
+				isBusy={isDeleting || deleteOutcome === "unknown"}
 				onConfirm={confirmDelete}
 				onCancel={cancelDelete}
 			/>

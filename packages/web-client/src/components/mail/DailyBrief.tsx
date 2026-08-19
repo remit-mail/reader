@@ -888,6 +888,7 @@ export function DailyBrief({
 		<FilterPanelProvider hasSheet={showsRows && !resultsPanelOwnsBody}>
 			<ThreadListInteraction
 				selectedMessageId={selectedMessageId}
+				rows={filteredRows}
 				onOpen={openRow}
 				onDeleteMessages={onDeleteMessages}
 				onSelectionVerb={wizard.start}

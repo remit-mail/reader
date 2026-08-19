@@ -81,15 +81,36 @@ export const useJunkMailbox = (
 };
 
 /**
- * Returns the account's appointed Trash mailbox id. The delete confirmation
- * needs it to tell a move-to-Trash apart from a delete inside Trash, which is
- * an unrecoverable expunge and has to be asked as one (#845).
+ * Every mailbox appointed to Trash, across all accounts. The delete
+ * confirmation needs it to tell a move-to-Trash apart from a delete inside
+ * Trash, which is an unrecoverable expunge and has to be asked as one (#845).
+ *
+ * Not keyed by account, because the brief and Flagged answer for selections
+ * that span accounts (#855) and a per-account lookup cannot say whether *this*
+ * row sits in *its own* account's Trash. Mailbox ids are unique across
+ * accounts, so membership of the set is the whole answer.
  */
-export const useTrashMailbox = (
-	accountId: string | undefined,
-): { trashMailboxId: string | undefined; isLoading: boolean } => {
-	const { mailboxId, isLoading } = useFolderRoleMailbox(accountId, "Trash");
-	return { trashMailboxId: mailboxId, isLoading };
+export const useTrashMailboxIds = (): {
+	trashMailboxIds: ReadonlySet<string>;
+	isLoading: boolean;
+} => {
+	const { data: config, isLoading } = useQuery({
+		...configOperationsGetConfigOptions(),
+		staleTime: Infinity,
+	});
+
+	const trashMailboxIds = useMemo(() => {
+		const ids = new Set<string>();
+		for (const account of config?.accounts ?? []) {
+			const appointed = account.folderAppointments.find(
+				(fa) => fa.role === "Trash",
+			)?.mailboxId;
+			if (appointed) ids.add(appointed);
+		}
+		return ids;
+	}, [config]);
+
+	return { trashMailboxIds, isLoading };
 };
 
 /**

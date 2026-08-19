@@ -6,13 +6,20 @@
  * their headers, so what the consumer passed and what is rendered are different
  * lists. These cases mount rows directly and change them, which is the same
  * thing from the provider's point of view.
+ *
+ * The confirmation is worded from the folder the row is actually filed in
+ * (#855): this list spans mailboxes and accounts, and deleting mail that is
+ * already in Trash expunges it on the server rather than moving it.
  */
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import type { Verb } from "@remit/ui";
+import { configOperationsGetConfigQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import type { ThreadRowData, Verb } from "@remit/ui";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { JSDOM } from "jsdom";
 import { act, createElement, createRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { makeAccount, makeConfig } from "@/test-support/fixtures";
 import type { MessageListCommands } from "./MessageList";
 import {
 	ThreadListInteraction,
@@ -57,6 +64,56 @@ afterEach(() => {
 	act(() => root.unmount());
 });
 
+const TRASH_MAILBOX_ID = "mbx-trash";
+
+const row = (id: string, mailboxId = "mbx-inbox"): ThreadRowData => ({
+	id,
+	accountId: "acc-1",
+	mailboxId,
+	threadId: `t-${id}`,
+	fromName: "Alice",
+	fromEmail: "alice@example.com",
+	subject: "Quarterly report",
+	snippet: "",
+	timeLabel: "9:42",
+});
+
+/**
+ * A client that already holds the account's folder appointments, so the
+ * confirmation's outcome is settled on the first render rather than arriving a
+ * frame later.
+ */
+const seededClient = (trashMailboxId: string): QueryClient => {
+	const client = new QueryClient();
+	client.setQueryData(
+		configOperationsGetConfigQueryKey(),
+		makeConfig([
+			makeAccount({
+				accountId: "acc-1",
+				folderAppointments: [{ role: "Trash", mailboxId: trashMailboxId }],
+			}),
+		]),
+	);
+	return client;
+};
+
+/**
+ * The cold open: nothing cached and the config request still in flight. The
+ * generated client reads `globalThis.fetch` per request, so a request that
+ * never settles holds the query pending without touching the network.
+ */
+const withConfigInFlight = <T>(body: (client: QueryClient) => T): T => {
+	const original = globalThis.fetch;
+	globalThis.fetch = (() => new Promise(() => undefined)) as typeof fetch;
+	try {
+		return body(
+			new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+		);
+	} finally {
+		globalThis.fetch = original;
+	}
+};
+
 const rowElements = (ids: string[]) =>
 	ids.map((id) =>
 		createElement("button", { key: id, type: "button", "data-message-id": id }),
@@ -68,26 +125,35 @@ const rowElements = (ids: string[]) =>
  */
 function mountList(options: {
 	initialIds: string[];
+	rows?: readonly ThreadRowData[];
+	client?: QueryClient;
 	onDeleteMessages?: (ids: string[]) => void;
 	onSelectionVerb?: (verb: Verb) => void;
 }) {
 	const onDeleteMessages = options.onDeleteMessages ?? (() => undefined);
 	const onSelectionVerb = options.onSelectionVerb ?? (() => undefined);
+	const rows = options.rows ?? options.initialIds.map((id) => row(id));
+	const client = options.client ?? seededClient(TRASH_MAILBOX_ID);
 	const commandsRef = createRef<MessageListCommands | null>();
 	let setIds: ((ids: string[]) => void) | undefined;
 	const Harness = () => {
 		const [ids, set] = useState(options.initialIds);
 		setIds = set;
 		return createElement(
-			ThreadListInteraction,
-			{
-				selectedMessageId: undefined,
-				onOpen: () => undefined,
-				onDeleteMessages,
-				onSelectionVerb,
-				commandsRef,
-			},
-			...rowElements(ids),
+			QueryClientProvider,
+			{ client },
+			createElement(
+				ThreadListInteraction,
+				{
+					selectedMessageId: undefined,
+					rows,
+					onOpen: () => undefined,
+					onDeleteMessages,
+					onSelectionVerb,
+					commandsRef,
+				},
+				...rowElements(ids),
+			),
 		);
 	};
 	act(() => root.render(createElement(Harness)));
@@ -272,6 +338,87 @@ describe("ThreadListInteraction — delete confirms first", () => {
 });
 
 /**
+ * Issue #855. Flagged and the brief span mailboxes, so a row here can already
+ * be in its account's Trash — where the same keypress is an IMAP expunge, not a
+ * move. The confirmation used to promise "Move to Trash" over every one of
+ * them, collecting an answer to a question the user was never asked.
+ */
+describe("ThreadListInteraction — the confirmation states the outcome it will produce", () => {
+	const dialogText = (): string => dom.window.document.body.textContent ?? "";
+
+	const askDelete = (list: ReturnType<typeof mountList>) => {
+		act(() => list.commands().focusFirst());
+		act(() => {
+			list.commands().requestVerb("delete");
+		});
+	};
+
+	it("asks a row already in Trash as a permanent delete", () => {
+		const list = mountList({
+			initialIds: ["m1", "m2"],
+			rows: [row("m1", TRASH_MAILBOX_ID), row("m2")],
+		});
+
+		askDelete(list);
+
+		const text = dialogText();
+		assert.match(text, /Permanently delete 1 message\?/);
+		assert.match(text, /cannot be restored/);
+		assert.doesNotMatch(
+			text,
+			/Move 1 message to Trash\?/,
+			"a move is not what this delete does",
+		);
+	});
+
+	it("still offers the reversible move for a row filed outside Trash", () => {
+		const list = mountList({
+			initialIds: ["m1"],
+			rows: [row("m1")],
+		});
+
+		askDelete(list);
+
+		assert.match(dialogText(), /Move 1 message to Trash\?/);
+		assert.match(dialogText(), /restore them from Trash later/);
+	});
+
+	it("states the outcome is unknown while the Trash appointment is loading", () => {
+		const text = withConfigInFlight((client) => {
+			const list = mountList({
+				initialIds: ["m1"],
+				rows: [row("m1")],
+				client,
+			});
+			askDelete(list);
+			return dialogText();
+		});
+
+		assert.match(text, /Delete 1 message\?/);
+		assert.match(text, /Checking where this account files deleted mail/);
+		assert.doesNotMatch(
+			text,
+			/Move 1 message to Trash\?/,
+			"the reversible half is a guess until the appointment resolves",
+		);
+	});
+
+	it("states the outcome is unknown for a row it cannot place", () => {
+		const list = mountList({
+			initialIds: ["m1"],
+			rows: [],
+		});
+
+		askDelete(list);
+
+		assert.match(
+			dialogText(),
+			/Checking where this account files deleted mail/,
+		);
+	});
+});
+
+/**
  * A background refresh drops the ids that left and keeps every survivor — the
  * same intersect-on-refresh guarantee `useSelection.test.ts` locks for the pure
  * helper (#111), here through the live provider whose effect runs it whenever
@@ -280,6 +427,7 @@ describe("ThreadListInteraction — delete confirms first", () => {
  */
 function mountSelectableList(initialIds: string[]) {
 	const commandsRef = createRef<MessageListCommands | null>();
+	const client = seededClient(TRASH_MAILBOX_ID);
 	let setIds: ((ids: string[]) => void) | undefined;
 	let selected: string[] = [];
 	const Probe = () => {
@@ -291,16 +439,21 @@ function mountSelectableList(initialIds: string[]) {
 		const [ids, set] = useState(initialIds);
 		setIds = set;
 		return createElement(
-			ThreadListInteraction,
-			{
-				selectedMessageId: undefined,
-				onOpen: () => undefined,
-				onDeleteMessages: () => undefined,
-				onSelectionVerb: () => undefined,
-				commandsRef,
-			},
-			...rowElements(ids),
-			createElement(Probe, { key: "probe" }),
+			QueryClientProvider,
+			{ client },
+			createElement(
+				ThreadListInteraction,
+				{
+					selectedMessageId: undefined,
+					rows: initialIds.map((id) => row(id)),
+					onOpen: () => undefined,
+					onDeleteMessages: () => undefined,
+					onSelectionVerb: () => undefined,
+					commandsRef,
+				},
+				...rowElements(ids),
+				createElement(Probe, { key: "probe" }),
+			),
 		);
 	};
 	act(() => root.render(createElement(Harness)));

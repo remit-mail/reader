@@ -275,6 +275,7 @@ export function FlaggedList({
 		>
 			<ThreadListInteraction
 				selectedMessageId={selectedMessageId}
+				rows={rows}
 				onOpen={openRow}
 				onDeleteMessages={onDeleteMessages}
 				onSelectionVerb={wizard.start}
