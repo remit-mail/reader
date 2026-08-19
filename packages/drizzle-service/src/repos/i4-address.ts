@@ -10,6 +10,7 @@ import type {
 	UpdateAddressInput,
 } from "@remit/data-ports";
 import { BadRequestError } from "@remit/data-ports/errors";
+import { shouldPromoteWellknown } from "@remit/data-ports/wellknown";
 import {
 	and,
 	asc,
@@ -39,7 +40,6 @@ import {
 	addressRecency,
 	addressSearchMatch,
 } from "./address-search-predicates.js";
-import { shouldPromoteWellknown } from "./i4-address-wellknown.js";
 
 type DB = Db<Record<string, unknown>>;
 
