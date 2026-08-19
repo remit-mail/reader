@@ -374,15 +374,6 @@ export const ComposeForm = ({
 	 */
 	const resumedDraftRef = useRef(outboxMessageId !== undefined);
 	/**
-	 * The mode the fields on screen are addressed for. A resumed draft arrives
-	 * addressed already, so it starts on the mode it was opened under and the
-	 * recipients the reader edited stand; changing it is the reader re-addressing
-	 * the same message, and each mode then writes all of the fields it owns.
-	 */
-	const addressedModeRef = useRef<ComposeMode | undefined>(
-		outboxMessageId === undefined ? undefined : mode,
-	);
-	/**
 	 * The identity this form has already taken from the surface that mounted it.
 	 * A reply learns which account the message reached only once the mailbox it
 	 * was delivered to resolves, which lands after the first render — so From
@@ -521,29 +512,27 @@ export const ComposeForm = ({
 	}, [draftData, draftLoaded]);
 
 	useEffect(() => {
+		if (resumedDraftRef.current) return;
 		if (!sourceMessage) return;
-		if (addressedModeRef.current === mode) return;
-		addressedModeRef.current = mode;
 
-		// A forward is addressed to nobody. The recipients standing here belong to
-		// the message being answered, so a forward that only rewrote the subject
-		// sent the conversation on to the person the reply was for (#797).
+		if (mode === "reply" || mode === "reply-all") {
+			const { to, cc } = getReplyAddresses(sourceMessage, mode, account?.email);
+			setToAddresses(to);
+			setCcAddresses(cc);
+			if (cc.length > 0) setShowCc(true);
+			setSubject(buildReplySubject(sourceMessage.envelope.subject));
+		}
+
+		// A forward is addressed to nobody, so it writes the address fields the
+		// way a reply writes them. Setting only the subject read as "keep what is
+		// already there", which sent the forward to the person being answered
+		// (#797).
 		if (mode === "forward") {
 			setToAddresses([]);
 			setCcAddresses([]);
 			setBccAddresses([]);
-			setShowCc(false);
-			setShowBcc(false);
 			setSubject(buildForwardSubject(sourceMessage.envelope.subject));
-			return;
 		}
-
-		if (mode !== "reply" && mode !== "reply-all") return;
-		const { to, cc } = getReplyAddresses(sourceMessage, mode, account?.email);
-		setToAddresses(to);
-		setCcAddresses(cc);
-		if (cc.length > 0) setShowCc(true);
-		setSubject(buildReplySubject(sourceMessage.envelope.subject));
 	}, [mode, sourceMessage, account?.email]);
 
 	// Quoted reply/forward content lives at the per-part `contentUrl` since

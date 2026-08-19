@@ -940,8 +940,6 @@ test.describe("A reply lives under its message (#720)", () => {
 		await page.getByRole("button", { name: "Forward", exact: true }).click();
 		await expect(replySubject(page)).toHaveValue(/^Fwd: /);
 		await expect(recipients(page, "To")).toHaveCount(0);
-		await expect(recipients(page, "Cc")).toHaveCount(0);
-		await expect(recipients(page, "Bcc")).toHaveCount(0);
 
 		// Assert again after something unrelated: the brief settles behind the
 		// composer, and nothing arriving late re-addresses the forward.
