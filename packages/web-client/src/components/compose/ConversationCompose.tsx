@@ -3,6 +3,7 @@ import {
 	messageOperationsDescribeMessageOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { useQuery } from "@tanstack/react-query";
+import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import {
 	type ReplyAddress,
 	useAdoptReplyDraft,
@@ -38,6 +39,17 @@ export const ConversationCompose = ({ surface }: { surface: ReplyAddress }) => {
 		staleTime: Infinity,
 	});
 
+	// The answer leaves from the identity the message reached, so the account is
+	// the one owning the mailbox it was delivered to. Taking the head of the
+	// configured list answered every account's mail from the first identity, and
+	// left the reader's own address in the Cc of a Reply All (#819).
+	const { accountId: deliveredToAccountId } = useMailboxAccount(
+		sourceMessage?.message.mailboxId,
+	);
+	const account = config?.accounts?.find(
+		(candidate) => candidate.accountId === deliveredToAccountId,
+	);
+
 	return (
 		<div className="border-b border-line bg-canvas">
 			{/* No key on the draft: the first autosave writes the id it created into
@@ -46,7 +58,7 @@ export const ConversationCompose = ({ surface }: { surface: ReplyAddress }) => {
 			<ComposeForm
 				layout="flow"
 				mode={surface.mode}
-				account={config?.accounts?.[0]}
+				account={account}
 				sourceMessage={sourceMessage}
 				outboxMessageId={surface.outboxMessageId}
 				onDraftCreated={adoptCreatedDraft}
