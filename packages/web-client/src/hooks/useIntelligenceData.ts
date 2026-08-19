@@ -167,6 +167,10 @@ function describeSenderMismatch(
 			clauses.push(
 				`The name it shows, "${claimedBrand}", only looks like ${auth.fromDomain}.`,
 			);
+		} else if (correspondence === DisplayNameCorrespondence.ForeignAddress) {
+			clauses.push(
+				`The name it shows, "${claimedBrand}", is an address ${auth.fromDomain} cannot send from.`,
+			);
 		}
 	}
 
