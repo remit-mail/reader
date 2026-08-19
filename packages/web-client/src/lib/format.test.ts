@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
+import type { DeleteTarget } from "./format.js";
 import {
 	deleteConfirmationCopy,
 	deleteOutcomeFor,
@@ -170,24 +171,30 @@ describe("deleteOutcomeFor", () => {
 		["acct-2", undefined],
 	]);
 	const settled = { trashByAccount, hasAppointments: true, isError: false };
+	// No default for the account: a default parameter is applied to an explicit
+	// `undefined` too, so "the row names no account" silently became "acct-1"
+	// and the case asserting it read back as an ordinary move to Trash.
 	const target = (
 		mailboxId: string,
-		accountId: string | undefined = "acct-1",
-	) => ({
-		accountId,
-		mailboxId,
-	});
+		accountId: string | undefined,
+	): DeleteTarget => ({ accountId, mailboxId });
 
 	test("a row outside Trash is a reversible move", () => {
 		assert.strictEqual(
-			deleteOutcomeFor({ ...settled, targets: [target("mbx-inbox")] }),
+			deleteOutcomeFor({
+				...settled,
+				targets: [target("mbx-inbox", "acct-1")],
+			}),
 			"trash",
 		);
 	});
 
 	test("a row inside its own account's Trash is an expunge", () => {
 		assert.strictEqual(
-			deleteOutcomeFor({ ...settled, targets: [target("mbx-trash")] }),
+			deleteOutcomeFor({
+				...settled,
+				targets: [target("mbx-trash", "acct-1")],
+			}),
 			"permanent",
 		);
 	});
@@ -196,7 +203,7 @@ describe("deleteOutcomeFor", () => {
 		assert.strictEqual(
 			deleteOutcomeFor({
 				...settled,
-				targets: [target("mbx-inbox"), target("mbx-trash")],
+				targets: [target("mbx-inbox", "acct-1"), target("mbx-trash", "acct-1")],
 			}),
 			"permanent",
 		);
@@ -217,7 +224,7 @@ describe("deleteOutcomeFor", () => {
 		assert.strictEqual(
 			deleteOutcomeFor({
 				...settled,
-				targets: [target("mbx-trash"), target("mbx-inbox", "acct-2")],
+				targets: [target("mbx-trash", "acct-1"), target("mbx-inbox", "acct-2")],
 			}),
 			"noTrash",
 		);
@@ -240,7 +247,7 @@ describe("deleteOutcomeFor", () => {
 	test("appointments that have not arrived commit to neither wording", () => {
 		assert.strictEqual(
 			deleteOutcomeFor({
-				targets: [target("mbx-inbox")],
+				targets: [target("mbx-inbox", "acct-1")],
 				trashByAccount: new Map(),
 				hasAppointments: false,
 				isError: false,
@@ -273,7 +280,7 @@ describe("deleteOutcomeFor", () => {
 	test("a failed read refuses the delete rather than promising a move", () => {
 		assert.strictEqual(
 			deleteOutcomeFor({
-				targets: [target("mbx-inbox")],
+				targets: [target("mbx-inbox", "acct-1")],
 				trashByAccount: new Map(),
 				hasAppointments: false,
 				isError: true,
@@ -286,7 +293,7 @@ describe("deleteOutcomeFor", () => {
 		assert.strictEqual(
 			deleteOutcomeFor({
 				...settled,
-				targets: [target("mbx-inbox")],
+				targets: [target("mbx-inbox", "acct-1")],
 				isError: true,
 			}),
 			"unavailable",
