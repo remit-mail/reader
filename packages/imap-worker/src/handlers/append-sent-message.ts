@@ -193,16 +193,27 @@ export const handleAppendSentMessage = async (
 			// attempt to pick up. At the budget the record would dead-letter, and a
 			// dead-lettered APPEND is exactly how a delivered message goes missing.
 			//
-			// Once the APPEND itself has landed the copy is in Sent whatever else
-			// failed, so that case keeps the plain retry semantics.
-			if (appended || receiveCount < APPEND_SENT_MAX_ATTEMPTS) throw error;
+			// The budget binds whether or not the APPEND landed. A redelivery
+			// starts from the top and appends again, so an unbudgeted retry files
+			// one copy per attempt in the user's Sent folder.
+			if (receiveCount < APPEND_SENT_MAX_ATTEMPTS) throw error;
 			return error;
 		},
 	);
 
-	// The APPEND landed: the copy is in Sent even if the row delete that follows
-	// it failed, so there is nothing to settle and a retry may still run.
-	if (appended) return;
+	// The APPEND landed: the copy is in Sent whatever failed after it, so there
+	// is nothing to settle as unfiled. A row that outlives its delete holds
+	// `sent`, which every view hides, until the migrator's boot-time stranded-row
+	// repair settles it — the next container start, not sooner (#824).
+	if (appended) {
+		if (failure) {
+			log.error(
+				{ accountId, outboxMessageId, reason: String(failure) },
+				"Sent message was filed but its outbox row survived its delete and stays hidden until the boot-time repair",
+			);
+		}
+		return;
+	}
 
 	// A terminal auth failure returns here without throwing — withOAuthLifecycle
 	// flips the account to reauth_required and ACKs the record, which without

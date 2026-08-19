@@ -125,6 +125,27 @@ const event: AppendSentMessageEvent = {
 const called = (method: string): Call[] =>
 	h.calls.filter((c) => c.method === method);
 
+type BackendClient = Awaited<ReturnType<AppendSentMessageDeps["getClient"]>>;
+
+const depsWithFailingDelete = (): AppendSentMessageDeps => {
+	const base = deps();
+	return {
+		...base,
+		getClient: async (): Promise<BackendClient> => {
+			const client = await base.getClient();
+			return {
+				...client,
+				outboxMessage: {
+					...client.outboxMessage,
+					delete: async (): Promise<void> => {
+						throw new Error("storage down");
+					},
+				},
+			};
+		},
+	};
+};
+
 describe("handleAppendSentMessage", () => {
 	beforeEach(() => {
 		h = fresh();
@@ -268,24 +289,27 @@ describe("handleAppendSentMessage", () => {
 	});
 
 	it("leaves the row alone when the APPEND landed but the delete did not", async () => {
-		const failingDeps = deps();
-		const client = await failingDeps.getClient();
-		(
-			client as unknown as { outboxMessage: { delete: () => Promise<void> } }
-		).outboxMessage.delete = async () => {
-			throw new Error("storage down");
-		};
-
 		await assert.rejects(
-			handleAppendSentMessage(event, noopLog, APPEND_SENT_MAX_ATTEMPTS, {
-				...failingDeps,
-				getClient: async () => client,
-			} as AppendSentMessageDeps),
+			handleAppendSentMessage(event, noopLog, 1, depsWithFailingDelete()),
 			/storage down/,
 		);
 
 		// The copy is in Sent, so the message is findable — settling it as unfiled
 		// would say the opposite.
+		assert.equal(called("outboxMessage.update").length, 0);
+	});
+
+	it("stops redelivering a landed APPEND at the budget instead of filing another copy", async () => {
+		// A redelivery starts from the top and appends again, so retrying past the
+		// budget files one copy per attempt in the user's Sent folder (#830).
+		await handleAppendSentMessage(
+			event,
+			noopLog,
+			APPEND_SENT_MAX_ATTEMPTS,
+			depsWithFailingDelete(),
+		);
+
+		assert.equal(called("connection.append").length, 1);
 		assert.equal(called("outboxMessage.update").length, 0);
 	});
 });
