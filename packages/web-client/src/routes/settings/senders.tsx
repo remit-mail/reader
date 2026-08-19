@@ -34,6 +34,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { formatDate } from "@/lib/format";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
+import { sendersHelp } from "./-shared/help-copy";
 
 export const Route = createFileRoute("/settings/senders")({
 	component: SendersSettings,
@@ -50,33 +51,6 @@ const groupLabels: Record<SenderGroup, string> = {
 	muted: "Muted",
 	blocked: "Blocked",
 };
-
-/* ------------------------------------------------------------------ */
-/* Help rail copy — matches Storybook sendersHelp exactly             */
-/* ------------------------------------------------------------------ */
-
-const sendersHelp = (
-	<div className="space-y-3">
-		<p>
-			<strong className="text-fg">VIP</strong> senders get priority surface in
-			the daily brief and notification escalation, even when an account is
-			quiet.
-		</p>
-		<p>
-			<strong className="text-fg">Muted</strong> senders never notify and stay
-			out of the brief. Their mail still syncs and stays searchable.
-		</p>
-		<p>
-			<strong className="text-fg">Blocked</strong> senders never load images and
-			go straight to junk.
-		</p>
-		<p>
-			Tip: flag from the keyboard on any message — <Kbd>v</Kbd> VIP,{" "}
-			<Kbd>m</Kbd> mute, <Kbd>b</Kbd> block. Every rule an automation creates
-			shows up here and can be removed.
-		</p>
-	</div>
-);
 
 /* ------------------------------------------------------------------ */
 /* VIP group: served from suggestions endpoint                        */
