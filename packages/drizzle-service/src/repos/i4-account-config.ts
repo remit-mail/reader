@@ -1,8 +1,6 @@
 import type {
 	AccountConfigDescription,
 	AccountConfigItem,
-	AccountItem,
-	AddressItem,
 	CreateAccountConfigInput,
 	IAccountConfigRepository,
 	ResultList,
@@ -18,6 +16,8 @@ import {
 	accountTable,
 } from "../schema/i4-account-config.js";
 import { addressTable } from "../schema/i4-address.js";
+import { rowToAccount } from "./i4-account.js";
+import { rowToAddress } from "./i4-address.js";
 
 type DB = Db<Record<string, unknown>>;
 
@@ -31,62 +31,6 @@ function rowToAccountConfig(
 		state: row.state as AccountConfigItem["state"],
 		deletedAt: row.deletedAt ?? undefined,
 		cascadeStartedAt: row.cascadeStartedAt ?? undefined,
-		createdAt: row.createdAt,
-		updatedAt: row.updatedAt,
-	};
-}
-
-function rowToAccount(row: typeof accountTable.$inferSelect): AccountItem {
-	return {
-		accountId: row.accountId,
-		accountConfigId: row.accountConfigId,
-		username: row.username,
-		email: row.email,
-		authType: row.authType as AccountItem["authType"],
-		passwordHash: row.passwordHash ?? undefined,
-		oauthRefreshTokenHash: row.oauthRefreshTokenHash ?? undefined,
-		oauthTokenUpdatedAt: row.oauthTokenUpdatedAt ?? undefined,
-		imapHost: row.imapHost,
-		imapPort: row.imapPort,
-		imapTls: row.imapTls,
-		imapStartTls: row.imapStartTls,
-		smtpEnabled: row.smtpEnabled,
-		smtpHost: row.smtpHost,
-		smtpPort: row.smtpPort,
-		smtpTls: row.smtpTls,
-		smtpStartTls: row.smtpStartTls,
-		smtpUsername: row.smtpUsername,
-		smtpPasswordHash: row.smtpPasswordHash ?? undefined,
-		isActive: row.isActive,
-		connectionState: row.connectionState as AccountItem["connectionState"],
-		lastConnectedAt: row.lastConnectedAt ?? undefined,
-		lastSyncAt: row.lastSyncAt ?? undefined,
-		lastError: row.lastError ?? undefined,
-		syncPhase: (row.syncPhase as AccountItem["syncPhase"]) ?? undefined,
-		mailboxCountTotal: row.mailboxCountTotal ?? undefined,
-		mailboxCountSynced: row.mailboxCountSynced ?? undefined,
-		createdAt: row.createdAt,
-		updatedAt: row.updatedAt,
-		deletedAt: row.deletedAt ?? undefined,
-	};
-}
-
-function rowToAddress(row: typeof addressTable.$inferSelect): AddressItem {
-	return {
-		addressId: row.addressId,
-		accountConfigId: row.accountConfigId,
-		displayName: row.displayName ?? undefined,
-		localPart: row.localPart,
-		domain: row.domain,
-		normalizedEmail: row.normalizedEmail,
-		normalizedCompound: row.normalizedCompound,
-		flags: (row.flags ?? {}) as AddressItem["flags"],
-		inboundCount: row.inboundCount,
-		outboundCount: row.outboundCount,
-		replyCount: row.replyCount,
-		lastInboundAt: row.lastInboundAt,
-		lastOutboundAt: row.lastOutboundAt ?? undefined,
-		lastReplyAt: row.lastReplyAt,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 	};
