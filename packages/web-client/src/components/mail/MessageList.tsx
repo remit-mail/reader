@@ -1,7 +1,6 @@
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import {
 	Banner,
-	ConfirmDialog,
 	cn,
 	type Density,
 	deriveIsMultiSelectMode,
@@ -47,7 +46,7 @@ import {
 	escalatedStatusLabel,
 	escalationActionLabel,
 } from "@/lib/escalation-label";
-import { deleteConfirmationCopy, formatEmailDate } from "@/lib/format";
+import { formatEmailDate } from "@/lib/format";
 import { junkDestination } from "@/lib/junk-destination";
 import { tabStopId } from "@/lib/list-focus";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
@@ -55,6 +54,7 @@ import { listVerbRequest } from "@/lib/list-verb-request";
 import { shouldExitSelectionOnNavigate } from "@/lib/selection-mode";
 import { useSelectionWizard, useWizardStepValue } from "@/lib/wizard-history";
 import { useRetainOpenPanels } from "@/routing";
+import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import {
 	type EscalatedSelection,
@@ -366,10 +366,10 @@ export const MessageList = ({
 			}
 			pushError({
 				severity: "info",
-				title: bulkActionCompletionText(kind, outcome.done),
+				title: bulkActionCompletionText(kind, outcome.done, deleteOutcome),
 			});
 		},
-		[pushError],
+		[pushError, deleteOutcome],
 	);
 
 	// The one way selection mode ends (#115): cancel, a completed delete or
@@ -751,7 +751,9 @@ export const MessageList = ({
 		// (#202). On desktop the rows leaving the list beside the reading pane is
 		// signal enough.
 		if (!isDesktop) {
-			setCompletionBanner(bulkActionCompletionText("delete", ids.length));
+			setCompletionBanner(
+				bulkActionCompletionText("delete", ids.length, deleteOutcome),
+			);
 		}
 	}, [
 		pendingDelete,
@@ -761,6 +763,7 @@ export const MessageList = ({
 		openRow,
 		isDesktop,
 		setFocusedMessageId,
+		deleteOutcome,
 	]);
 
 	// Every way out of the confirmation that isn't the delete — Escape, Cancel,
@@ -1345,11 +1348,11 @@ export const MessageList = ({
 					(listState === "ready" ? virtualBody : undefined)
 				}
 			/>
-			<ConfirmDialog
+			<DeleteConfirmDialog
 				isOpen={pendingDelete !== null}
-				{...deleteConfirmationCopy(pendingDelete?.length ?? 0, deleteOutcome)}
-				destructive
-				isBusy={isDeleting || deleteOutcome === "unknown"}
+				count={pendingDelete?.length ?? 0}
+				outcome={deleteOutcome}
+				isDeleting={isDeleting}
 				onConfirm={handleConfirmDelete}
 				onCancel={handleCancelDelete}
 			/>

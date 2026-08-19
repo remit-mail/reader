@@ -189,7 +189,7 @@ describe("MessageList confirmed delete stays on the list on mobile (#202)", () =
 	it("raises a completion banner on mobile so the delete is not silent", () => {
 		assert.match(
 			source,
-			/if \(!isDesktop\) \{\s*setCompletionBanner\(\s*bulkActionCompletionText\("delete", ids\.length\),?\s*\);\s*\}/,
+			/if \(!isDesktop\) \{\s*setCompletionBanner\(\s*bulkActionCompletionText\("delete", ids\.length, deleteOutcome\),?\s*\);\s*\}/,
 		);
 	});
 });

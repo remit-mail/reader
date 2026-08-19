@@ -1,4 +1,4 @@
-import { formatNumber } from "@/lib/format";
+import { type DeleteOutcome, formatNumber } from "@/lib/format";
 
 /**
  * Wording for the three bulk actions a selection can run (#114). One place
@@ -52,12 +52,23 @@ export const bulkActionProgressLabel = (
  * Shown once a run finishes with nothing left over. The second sentence is
  * the honest part: the bulk endpoints enqueue the IMAP write, so the mail
  * server is still applying it when this appears.
+ *
+ * A delete inside Trash expunges rather than moves (#855), so the run that just
+ * finished is named by its outcome — telling a reader their mail is "moved to
+ * Trash" after it was erased is the same lie the confirmation stopped telling,
+ * one screen later.
  */
 export const bulkActionCompletionText = (
 	kind: BulkActionKind,
 	done: number,
-): string =>
-	`${formatNumber(done)} ${pastTense[kind]}. Your mail server is still catching up.`;
+	outcome: DeleteOutcome = "trash",
+): string => {
+	const past =
+		kind === "delete" && outcome === "permanent"
+			? "permanently deleted"
+			: pastTense[kind];
+	return `${formatNumber(done)} ${past}. Your mail server is still catching up.`;
+};
 
 /**
  * Shown when a run ended before it covered what it was started against. The

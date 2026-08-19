@@ -168,12 +168,52 @@ export interface DeleteConfirmationCopy {
 }
 
 /**
- * What a delete will actually do to the selected mail. `unknown` is the state
- * before the account's Trash appointment has resolved — a real state on a cold
- * open, and the one the copy must not guess at, because guessing "move to
- * Trash" over an expunge is the dishonesty this whole flow exists to remove.
+ * What a delete will actually do to the selected mail.
+ *
+ * `unknown` is the state before the account's Trash appointment has resolved —
+ * a real state on a cold open, and the one the copy must not guess at, because
+ * guessing "move to Trash" over an expunge is the dishonesty this whole flow
+ * exists to remove.
+ *
+ * `unavailable` is that appointment failing to resolve at all. A read that
+ * cannot answer is not an answer: treating an errored `/config` as "no Trash
+ * here" reinstates the same lie on the failure path, where an expired session
+ * would collect "Move to Trash?" over an expunge. The delete is refused and the
+ * failure is stated instead.
  */
-export type DeleteOutcome = "trash" | "permanent" | "unknown";
+export type DeleteOutcome = "trash" | "permanent" | "unknown" | "unavailable";
+
+export interface DeleteOutcomeInput {
+	/** The folder each row about to be deleted is filed in. */
+	mailboxIds: readonly string[];
+	/** Every mailbox appointed to Trash, across the accounts in play. */
+	trashMailboxIds: ReadonlySet<string>;
+	/** The appointments have not arrived yet. */
+	isLoading: boolean;
+	/** The read for them failed. */
+	isError: boolean;
+}
+
+/**
+ * The outcome of deleting the rows filed in `mailboxIds`.
+ *
+ * One row bound for an expunge makes the whole delete unrecoverable, so a mixed
+ * set is permanent: the wording may overstate what is destroyed, never what is
+ * kept. Pure, so every branch — the failure one above all — is testable without
+ * a DOM.
+ */
+export const deleteOutcomeFor = ({
+	mailboxIds,
+	trashMailboxIds,
+	isLoading,
+	isError,
+}: DeleteOutcomeInput): DeleteOutcome => {
+	if (isError) return "unavailable";
+	if (isLoading) return "unknown";
+	if (mailboxIds.length === 0) return "unknown";
+	if (mailboxIds.some((id) => trashMailboxIds.has(id))) return "permanent";
+	return "trash";
+};
 
 /**
  * The confirmation for a delete, worded for what the delete actually does.
@@ -181,6 +221,11 @@ export type DeleteOutcome = "trash" | "permanent" | "unknown";
  * nothing survives that, so it is asked as a permanent delete — a dialog that
  * says "Move to Trash" over an expunge collects an answer to a question the
  * user was never asked.
+ *
+ * `unavailable` is not a confirmation at all but a refusal: nothing is deleted,
+ * and the label names the way back rather than the delete. The caller wires it
+ * to re-authentication, because a failed account read is a session that ended
+ * under the reader far more often than it is anything else.
  */
 export const deleteConfirmationCopy = (
 	count: number,
@@ -189,6 +234,14 @@ export const deleteConfirmationCopy = (
 	const quantity = count === 1 ? "1" : formatNumber(count);
 	const noun = count === 1 ? "message" : "messages";
 
+	if (outcome === "unavailable") {
+		return {
+			title: `Can't delete ${quantity} ${noun}`,
+			description:
+				"reader couldn't read this account's folder settings, so it can't say whether this would move the mail to Trash or erase it. Nothing has been deleted.",
+			confirmLabel: "Sign in again",
+		};
+	}
 	if (outcome === "unknown") {
 		return {
 			title: `Delete ${quantity} ${noun}?`,

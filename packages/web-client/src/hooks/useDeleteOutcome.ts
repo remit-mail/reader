@@ -9,32 +9,21 @@
  * are actually about to delete — the brief and Flagged hold rows from several
  * mailboxes and several accounts at once.
  *
- * One row bound for an expunge makes the whole delete unrecoverable, so a mixed
- * set is asked as a permanent delete: the dialog may only overstate what is
- * kept when nothing is lost by it, never understate it.
+ * The decision itself is `deleteOutcomeFor`, kept pure in `lib/format`; this is
+ * only the read that feeds it.
  */
 import { useMemo } from "react";
-import type { DeleteOutcome } from "@/lib/format";
+import { type DeleteOutcome, deleteOutcomeFor } from "@/lib/format";
 import { useTrashMailboxIds } from "./useArchiveMailbox";
 
-/**
- * The outcome of deleting the rows filed in `mailboxIds`. `unknown` whenever
- * the answer is not established yet — the Trash appointments still loading, an
- * empty set, or a row whose mailbox this view cannot name — because guessing
- * the reversible half over an expunge is the dishonesty this exists to remove.
- */
+/** The outcome of deleting the rows filed in `mailboxIds`. */
 export const useDeleteOutcome = (
-	mailboxIds: readonly (string | undefined)[],
+	mailboxIds: readonly string[],
 ): DeleteOutcome => {
-	const { trashMailboxIds, isLoading } = useTrashMailboxIds();
+	const { trashMailboxIds, isLoading, isError } = useTrashMailboxIds();
 
-	return useMemo(() => {
-		if (isLoading) return "unknown";
-		if (mailboxIds.length === 0) return "unknown";
-		if (mailboxIds.some((id) => id === undefined)) return "unknown";
-		if (mailboxIds.some((id) => id !== undefined && trashMailboxIds.has(id))) {
-			return "permanent";
-		}
-		return "trash";
-	}, [mailboxIds, trashMailboxIds, isLoading]);
+	return useMemo(
+		() => deleteOutcomeFor({ mailboxIds, trashMailboxIds, isLoading, isError }),
+		[mailboxIds, trashMailboxIds, isLoading, isError],
+	);
 };

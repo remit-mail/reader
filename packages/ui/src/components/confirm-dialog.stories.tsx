@@ -82,3 +82,19 @@ export const OutcomeUnknown: Story = {
 		isBusy: true,
 	},
 };
+
+/**
+ * The read for those appointments failed rather than lagged, so there is no
+ * answer coming and nothing to confirm. The dialog states the refusal and its
+ * affirmative control is the way back in — never the delete, and never a button
+ * that cannot be pressed (#855).
+ */
+export const OutcomeUnavailable: Story = {
+	args: {
+		title: "Can't delete 12 messages",
+		description:
+			"reader couldn't read this account's folder settings, so it can't say whether this would move the mail to Trash or erase it. Nothing has been deleted.",
+		confirmLabel: "Sign in again",
+		destructive: false,
+	},
+};

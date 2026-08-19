@@ -35,7 +35,7 @@ describe("reporting how a run ended", () => {
 		assert.match(reportBody ?? "", /bulkActionStoppedTitle\(outcome\.done\)/);
 		assert.match(
 			reportBody ?? "",
-			/bulkActionCompletionText\(kind, outcome\.done\)/,
+			/bulkActionCompletionText\(kind, outcome\.done, deleteOutcome\)/,
 		);
 	});
 

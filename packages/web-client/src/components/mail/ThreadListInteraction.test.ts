@@ -13,12 +13,21 @@
  */
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import { configOperationsGetConfigQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import {
+	configOperationsGetConfigOptions,
+	configOperationsGetConfigQueryKey,
+} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { ThreadRowData, Verb } from "@remit/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { JSDOM } from "jsdom";
-import { act, createElement, createRef, useState } from "react";
+import { act, createElement, createRef, Fragment, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import {
+	type AuthProvider,
+	AuthProviderProvider,
+	noneAuthProvider,
+} from "@/auth/provider";
+import { ErrorBannerProvider } from "@/components/ui/ErrorBannerProvider";
 import { makeAccount, makeConfig } from "@/test-support/fixtures";
 import type { MessageListCommands } from "./MessageList";
 import {
@@ -114,6 +123,45 @@ const withConfigInFlight = <T>(body: (client: QueryClient) => T): T => {
 	}
 };
 
+/**
+ * The read for the appointments failed rather than lagged. Retries are off and
+ * the rejection is awaited, so the query is settled in `error` by the time the
+ * body runs — the state TanStack leaves behind as `status: "error"` with no
+ * data, which used to read as "no Trash mailbox anywhere".
+ */
+const withConfigFailed = async (
+	body: (client: QueryClient) => void | Promise<void>,
+): Promise<void> => {
+	const original = globalThis.fetch;
+	globalThis.fetch = (() =>
+		Promise.reject(new Error("offline"))) as unknown as typeof fetch;
+	try {
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		await client
+			.fetchQuery(configOperationsGetConfigOptions())
+			.catch(() => undefined);
+		await body(client);
+	} finally {
+		globalThis.fetch = original;
+	}
+};
+
+/**
+ * A deployment with an identity system and a live session, so the refusal's way
+ * back in is the sign-in control rather than the no-identity fallback.
+ */
+const sessionAuthProvider = (signOut: () => void): AuthProvider => ({
+	...noneAuthProvider,
+	Account: ({ children }) =>
+		createElement(
+			Fragment,
+			null,
+			children({ email: "reader@example.com", signOut }),
+		),
+});
+
 const rowElements = (ids: string[]) =>
 	ids.map((id) =>
 		createElement("button", { key: id, type: "button", "data-message-id": id }),
@@ -127,6 +175,7 @@ function mountList(options: {
 	initialIds: string[];
 	rows?: readonly ThreadRowData[];
 	client?: QueryClient;
+	authProvider?: AuthProvider;
 	onDeleteMessages?: (ids: string[]) => void;
 	onSelectionVerb?: (verb: Verb) => void;
 }) {
@@ -134,25 +183,34 @@ function mountList(options: {
 	const onSelectionVerb = options.onSelectionVerb ?? (() => undefined);
 	const rows = options.rows ?? options.initialIds.map((id) => row(id));
 	const client = options.client ?? seededClient(TRASH_MAILBOX_ID);
+	const authProvider = options.authProvider ?? noneAuthProvider;
 	const commandsRef = createRef<MessageListCommands | null>();
 	let setIds: ((ids: string[]) => void) | undefined;
 	const Harness = () => {
 		const [ids, set] = useState(options.initialIds);
 		setIds = set;
 		return createElement(
-			QueryClientProvider,
-			{ client },
+			AuthProviderProvider,
+			{ value: authProvider },
 			createElement(
-				ThreadListInteraction,
-				{
-					selectedMessageId: undefined,
-					rows,
-					onOpen: () => undefined,
-					onDeleteMessages,
-					onSelectionVerb,
-					commandsRef,
-				},
-				...rowElements(ids),
+				QueryClientProvider,
+				{ client },
+				createElement(
+					ErrorBannerProvider,
+					null,
+					createElement(
+						ThreadListInteraction,
+						{
+							selectedMessageId: undefined,
+							rows,
+							onOpen: () => undefined,
+							onDeleteMessages,
+							onSelectionVerb,
+							commandsRef,
+						},
+						...rowElements(ids),
+					),
+				),
 			),
 		);
 	};
@@ -403,18 +461,78 @@ describe("ThreadListInteraction — the confirmation states the outcome it will 
 		);
 	});
 
-	it("states the outcome is unknown for a row it cannot place", () => {
+	it("refuses a row it cannot place instead of opening a dialog nobody can answer", () => {
+		const deleted: string[][] = [];
 		const list = mountList({
 			initialIds: ["m1"],
 			rows: [],
+			onDeleteMessages: (ids) => deleted.push(ids),
 		});
 
-		askDelete(list);
+		act(() => list.commands().focusFirst());
+		act(() => {
+			assert.equal(
+				list.commands().requestVerb("delete"),
+				true,
+				"the press is still claimed — handing it back runs the pane’s own unconfirmed delete",
+			);
+		});
 
-		assert.match(
-			dialogText(),
+		const text = dialogText();
+		assert.match(text, /Couldn.t delete this message/);
+		assert.match(text, /Refresh the list and try again/);
+		assert.doesNotMatch(
+			text,
 			/Checking where this account files deleted mail/,
+			"no load is happening, so nothing may claim one is",
 		);
+		assert.equal(
+			Array.from(
+				dom.window.document.querySelectorAll<HTMLButtonElement>("button"),
+			).some((button) => button.textContent === "Move to Trash"),
+			false,
+			"and no confirmation stands behind the refusal",
+		);
+		assert.deepEqual(deleted, [], "nothing is deleted by a refusal");
+	});
+
+	it("refuses the delete when the folder settings could not be read at all", async () => {
+		await withConfigFailed(async (client) => {
+			const deleted: string[][] = [];
+			let signedOut = 0;
+			const list = mountList({
+				initialIds: ["m1"],
+				rows: [row("m1")],
+				client,
+				authProvider: sessionAuthProvider(() => {
+					signedOut += 1;
+				}),
+				onDeleteMessages: (ids) => deleted.push(ids),
+			});
+
+			askDelete(list);
+
+			const text = dialogText();
+			assert.match(text, /Can.t delete 1 message/);
+			assert.match(text, /Nothing has been deleted/);
+			assert.doesNotMatch(
+				text,
+				/Move 1 message to Trash\?/,
+				"an errored read is not permission to promise a reversible move",
+			);
+			assert.doesNotMatch(text, /restore them from Trash later/);
+
+			// The affirmative control signs back in; it is never the delete.
+			const confirm = Array.from(
+				dom.window.document.querySelectorAll<HTMLButtonElement>("button"),
+			).find((button) => button.textContent === "Sign in again");
+			assert.ok(confirm, "the way back in is on screen");
+			assert.equal(confirm?.disabled, false, "and it can be pressed");
+
+			act(() => confirm?.click());
+			assert.equal(signedOut, 1, "the control re-authenticates");
+			assert.deepEqual(deleted, [], "the refusal never reaches a delete");
+		});
 	});
 });
 
@@ -428,6 +546,7 @@ describe("ThreadListInteraction — the confirmation states the outcome it will 
 function mountSelectableList(initialIds: string[]) {
 	const commandsRef = createRef<MessageListCommands | null>();
 	const client = seededClient(TRASH_MAILBOX_ID);
+	const authProvider = noneAuthProvider;
 	let setIds: ((ids: string[]) => void) | undefined;
 	let selected: string[] = [];
 	const Probe = () => {
@@ -439,20 +558,28 @@ function mountSelectableList(initialIds: string[]) {
 		const [ids, set] = useState(initialIds);
 		setIds = set;
 		return createElement(
-			QueryClientProvider,
-			{ client },
+			AuthProviderProvider,
+			{ value: authProvider },
 			createElement(
-				ThreadListInteraction,
-				{
-					selectedMessageId: undefined,
-					rows: initialIds.map((id) => row(id)),
-					onOpen: () => undefined,
-					onDeleteMessages: () => undefined,
-					onSelectionVerb: () => undefined,
-					commandsRef,
-				},
-				...rowElements(ids),
-				createElement(Probe, { key: "probe" }),
+				QueryClientProvider,
+				{ client },
+				createElement(
+					ErrorBannerProvider,
+					null,
+					createElement(
+						ThreadListInteraction,
+						{
+							selectedMessageId: undefined,
+							rows: initialIds.map((id) => row(id)),
+							onOpen: () => undefined,
+							onDeleteMessages: () => undefined,
+							onSelectionVerb: () => undefined,
+							commandsRef,
+						},
+						...rowElements(ids),
+						createElement(Probe, { key: "probe" }),
+					),
+				),
 			),
 		);
 	};

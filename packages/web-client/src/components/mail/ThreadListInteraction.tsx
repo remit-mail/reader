@@ -17,7 +17,6 @@
  * verb acts on a message the user cannot see.
  */
 import {
-	ConfirmDialog,
 	SelectionTopBar,
 	type ThreadRowData,
 	useListCursor,
@@ -34,15 +33,25 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { useDeleteOutcome } from "@/hooks/useDeleteOutcome";
 import { useFollowFocusOpen } from "@/hooks/useFollowFocusOpen";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
-import { deleteConfirmationCopy } from "@/lib/format";
 import { tabStopId } from "@/lib/list-focus";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
+import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import type { MessageListCommands } from "./MessageList";
 import type { MessageRowSelection } from "./MessageRow";
+
+/** Nothing pending, as a stable identity so the outcome memo does not churn. */
+const EMPTY_IDS: readonly string[] = [];
+
+interface PendingDelete {
+	ids: string[];
+	/** The folders those rows were filed in when the delete was asked for. */
+	mailboxIds: string[];
+}
 
 interface ThreadRowInteraction {
 	focused: boolean;
@@ -188,6 +197,7 @@ export function ThreadListInteraction({
 	children,
 }: ThreadListInteractionProps) {
 	const isDesktop = useIsDesktop();
+	const { pushError } = useErrorBanners();
 	const containerRef = useRef<HTMLDivElement>(null);
 	const orderedIds = useRenderedRowIds(containerRef);
 	const cursor = useListCursor({
@@ -265,23 +275,18 @@ export function ThreadListInteraction({
 		open: followOpen,
 	});
 
-	// Pending delete for the row under the cursor, awaiting confirmation.
-	// The id is snapshotted at request time so a cursor move behind the dialog
-	// cannot retarget it. A delete over a selection is a bulk action and walks the
-	// wizard instead — the same contract the mailbox list's delete has.
-	const [pendingDelete, setPendingDelete] = useState<string[] | null>(null);
-
-	// The folders the pending rows are filed in. A row this list cannot place
-	// contributes `undefined`, which is what turns the outcome unknown rather
-	// than letting an unplaced row read as an ordinary move to Trash.
-	const pendingMailboxIds = useMemo(
-		() =>
-			(pendingDelete ?? []).map(
-				(id) => rows.find((row) => row.id === id)?.mailboxId,
-			),
-		[pendingDelete, rows],
+	// Pending delete for the row under the cursor, awaiting confirmation. Both
+	// the id and the folder it is filed in are snapshotted at request time, so
+	// neither a cursor move nor a background refresh behind the dialog can
+	// retarget it or change the question it is asking. A delete over a selection
+	// is a bulk action and walks the wizard instead — the same contract the
+	// mailbox list's delete has.
+	const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(
+		null,
 	);
-	const deleteOutcome = useDeleteOutcome(pendingMailboxIds);
+	const deleteOutcome = useDeleteOutcome(
+		pendingDelete?.mailboxIds ?? EMPTY_IDS,
+	);
 
 	// A verb, routed the same way the bar routes its own (#477 1.4, #508). Over a
 	// selection every verb opens the wizard, so the keyboard cannot reach a bulk
@@ -298,15 +303,37 @@ export function ThreadListInteraction({
 				return true;
 			}
 			if (verb !== "delete" || !focusedMessageId) return false;
-			setPendingDelete([focusedMessageId]);
+			// A row this list cannot place is a row whose delete cannot be worded,
+			// and a confirmation nobody can answer is worse than no confirmation.
+			// The press is still claimed — handing it back runs the pane's own
+			// unconfirmed delete — and the refusal is said out loud.
+			const mailboxId = rows.find(
+				(row) => row.id === focusedMessageId,
+			)?.mailboxId;
+			if (!mailboxId) {
+				pushError({
+					title: "Couldn't delete this message",
+					detail:
+						"This list has lost track of which folder it is in, so reader can't tell whether deleting it would move it to Trash or erase it. Refresh the list and try again.",
+				});
+				return true;
+			}
+			setPendingDelete({ ids: [focusedMessageId], mailboxIds: [mailboxId] });
 			return true;
 		},
-		[pendingDelete, selectedCount, onSelectionVerb, focusedMessageId],
+		[
+			pendingDelete,
+			selectedCount,
+			onSelectionVerb,
+			focusedMessageId,
+			rows,
+			pushError,
+		],
 	);
 
 	const confirmDelete = useCallback(() => {
 		if (pendingDelete === null) return;
-		onDeleteMessages(pendingDelete);
+		onDeleteMessages(pendingDelete.ids);
 		setPendingDelete(null);
 		exitSelection();
 	}, [pendingDelete, onDeleteMessages, exitSelection]);
@@ -438,11 +465,11 @@ export function ThreadListInteraction({
 			<div ref={containerRef} className="contents">
 				{children}
 			</div>
-			<ConfirmDialog
+			<DeleteConfirmDialog
 				isOpen={confirmOpen}
-				{...deleteConfirmationCopy(pendingDelete?.length ?? 0, deleteOutcome)}
-				destructive
-				isBusy={isDeleting || deleteOutcome === "unknown"}
+				count={pendingDelete?.ids.length ?? 0}
+				outcome={deleteOutcome}
+				isDeleting={isDeleting}
 				onConfirm={confirmDelete}
 				onCancel={cancelDelete}
 			/>

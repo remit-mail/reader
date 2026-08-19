@@ -93,8 +93,13 @@ export const useJunkMailbox = (
 export const useTrashMailboxIds = (): {
 	trashMailboxIds: ReadonlySet<string>;
 	isLoading: boolean;
+	isError: boolean;
 } => {
-	const { data: config, isLoading } = useQuery({
+	const {
+		data: config,
+		isLoading,
+		isError,
+	} = useQuery({
 		...configOperationsGetConfigOptions(),
 		staleTime: Infinity,
 	});
@@ -110,7 +115,7 @@ export const useTrashMailboxIds = (): {
 		return ids;
 	}, [config]);
 
-	return { trashMailboxIds, isLoading };
+	return { trashMailboxIds, isLoading, isError };
 };
 
 /**

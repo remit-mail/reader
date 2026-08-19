@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { describe, test } from "node:test";
 import {
 	deleteConfirmationCopy,
+	deleteOutcomeFor,
 	formatDate,
 	formatDatePreset,
 	formatDeleteToTrashTitle,
@@ -153,5 +154,100 @@ describe("deleteConfirmationCopy", () => {
 			description: "Checking where this account files deleted mail…",
 			confirmLabel: "Delete",
 		});
+	});
+});
+
+/**
+ * Issue #855. The failure branch is the one that matters: TanStack sets
+ * `status: "error"` with `data` undefined, so a config read that failed leaves
+ * an empty Trash set behind. Reading that as "this folder is not Trash" hands an
+ * expired session a "Move to Trash?" dialog over an expunge — #845 reinstated on
+ * the error path.
+ */
+describe("deleteOutcomeFor", () => {
+	const trash = new Set(["mbx-trash"]);
+	const settled = { trashMailboxIds: trash, isLoading: false, isError: false };
+
+	test("a row outside Trash is a reversible move", () => {
+		assert.strictEqual(
+			deleteOutcomeFor({ ...settled, mailboxIds: ["mbx-inbox"] }),
+			"trash",
+		);
+	});
+
+	test("a row inside Trash is an expunge", () => {
+		assert.strictEqual(
+			deleteOutcomeFor({ ...settled, mailboxIds: ["mbx-trash"] }),
+			"permanent",
+		);
+	});
+
+	test("one row inside Trash makes a mixed set permanent", () => {
+		assert.strictEqual(
+			deleteOutcomeFor({
+				...settled,
+				mailboxIds: ["mbx-inbox", "mbx-trash", "mbx-archive"],
+			}),
+			"permanent",
+		);
+	});
+
+	test("appointments still loading commit to neither wording", () => {
+		assert.strictEqual(
+			deleteOutcomeFor({
+				mailboxIds: ["mbx-inbox"],
+				trashMailboxIds: new Set(),
+				isLoading: true,
+				isError: false,
+			}),
+			"unknown",
+		);
+	});
+
+	test("a failed read refuses the delete rather than promising a move", () => {
+		assert.strictEqual(
+			deleteOutcomeFor({
+				mailboxIds: ["mbx-inbox"],
+				trashMailboxIds: new Set(),
+				isLoading: false,
+				isError: true,
+			}),
+			"unavailable",
+		);
+	});
+
+	test("a failed read outranks a settled appointment set", () => {
+		assert.strictEqual(
+			deleteOutcomeFor({
+				...settled,
+				mailboxIds: ["mbx-inbox"],
+				isError: true,
+			}),
+			"unavailable",
+		);
+	});
+
+	test("nothing pending is not an answer", () => {
+		assert.strictEqual(
+			deleteOutcomeFor({ ...settled, mailboxIds: [] }),
+			"unknown",
+		);
+	});
+});
+
+describe("deleteConfirmationCopy — the refusal", () => {
+	test("states what failed and offers the way back in", () => {
+		assert.deepStrictEqual(deleteConfirmationCopy(1, "unavailable"), {
+			title: "Can't delete 1 message",
+			description:
+				"reader couldn't read this account's folder settings, so it can't say whether this would move the mail to Trash or erase it. Nothing has been deleted.",
+			confirmLabel: "Sign in again",
+		});
+	});
+
+	test("never offers the reversible wording on the failure path", () => {
+		const copy = deleteConfirmationCopy(3, "unavailable");
+		assert.ok(!copy.title.includes("Move"));
+		assert.ok(!copy.description.includes("restore"));
 	});
 });
