@@ -31,7 +31,6 @@ import {
 	RefreshButton,
 	type RescueCandidate,
 	type SearchResult,
-	useAppShellLayout,
 } from "@remit/ui";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -46,9 +45,9 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { Drawer } from "@/components/layout/Drawer";
 import { ConversationView } from "@/components/mail/ConversationView";
 import { DraftsView } from "@/components/mail/DraftsView";
+import { IntelligenceDrawer } from "@/components/mail/IntelligenceDrawer";
 import { IntelligencePane } from "@/components/mail/IntelligencePane";
 import {
 	MessageList,
@@ -73,6 +72,7 @@ import {
 import type { EscalationSearchQuery } from "@/hooks/useEscalatedActions";
 import { useIntelligenceData } from "@/hooks/useIntelligenceData";
 import { useIntelligenceDrawer } from "@/hooks/useIntelligenceDrawer";
+import { useIntelligenceSurface } from "@/hooks/useIntelligenceSurface";
 import { useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
@@ -1059,19 +1059,14 @@ function MailboxReading() {
 		mailboxAccountLoading,
 		selectedThread,
 		conversation,
-		intelligenceOpen,
-		onToggleIntelligence,
 		onReply,
 		onToolbarDelete,
 		onToolbarStar,
 		onToolbarMove,
 		handleDeselectIfRemoved,
 	} = useMailboxPane();
-	// Which surface intelligence has here: the rail between 1280 and up, the
-	// mobile drawer below that, where the reading pane is mounted and the rail
-	// has no room.
-	const railFits = useAppShellLayout()?.showIntelligencePane ?? false;
 	const hasThread = Boolean(conversation);
+	const intelligence = useIntelligenceSurface(conversation?.threadId);
 
 	// The rail opens itself on a DKIM mismatch. It lives here, behind the rail's
 	// own width gate, because raising it writes `#intelligence` into the address
@@ -1079,6 +1074,7 @@ function MailboxReading() {
 	// opens nothing (`docs/architecture/url-state.md`, R6). Below this width the
 	// banner is the announcement and its "Why?" is the way in.
 	const autoOpenedForRef = useRef<string | null>(null);
+	const { railFits, openRail } = intelligence;
 	useEffect(() => {
 		if (!railFits) return;
 		const id = selectedThread?.messageId ?? null;
@@ -1086,30 +1082,13 @@ function MailboxReading() {
 		if (autoOpenedForRef.current === id) return;
 		if (!selectedThread?.authenticity?.dkimMismatch) return;
 		autoOpenedForRef.current = id;
-		if (!intelligenceOpen) onToggleIntelligence();
+		openRail();
 	}, [
 		railFits,
+		openRail,
 		selectedThread?.messageId,
 		selectedThread?.authenticity?.dkimMismatch,
-		intelligenceOpen,
-		onToggleIntelligence,
 	]);
-
-	const drawer = useIntelligenceDrawer(conversation?.threadId ?? null);
-	const drawerOpen = !railFits && drawer.isOpen;
-	const closeIntelligenceDrawer = drawer.close;
-	const openIntelligence = railFits ? onToggleIntelligence : drawer.open;
-	// The toolbar's control, which toggles whichever surface this width has.
-	const { toggle: toggleDrawer } = drawer;
-	const toggleIntelligence = useCallback(() => {
-		if (railFits) {
-			onToggleIntelligence();
-			return;
-		}
-		toggleDrawer();
-	}, [railFits, onToggleIntelligence, toggleDrawer]);
-	const intelligenceShowing =
-		hasThread && (railFits ? intelligenceOpen : drawerOpen);
 
 	const detailPane = conversation ? (
 		<ConversationView
@@ -1118,9 +1097,7 @@ function MailboxReading() {
 			subject={conversation.subject}
 			selectedMessageId={conversation.messageId}
 			authenticity={conversation.authenticity}
-			onOpenIntelligence={
-				conversation.authenticity?.dkimMismatch ? openIntelligence : undefined
-			}
+			onOpenIntelligence={intelligence.open}
 		/>
 	) : (
 		<ReadingPaneEmpty />
@@ -1132,9 +1109,9 @@ function MailboxReading() {
 				<MessageToolbar
 					hasThread={hasThread}
 					messageId={conversation?.messageId}
-					intelligenceOpen={intelligenceShowing}
-					canToggleIntelligence={hasThread}
-					onToggleIntelligence={toggleIntelligence}
+					intelligenceOpen={intelligence.isShowing}
+					canToggleIntelligence={intelligence.canToggle}
+					onToggleIntelligence={intelligence.toggle}
 					onReply={onReply ? () => onReply("reply") : undefined}
 					onReplyAll={onReply ? () => onReply("reply-all") : undefined}
 					onForward={onReply ? () => onReply("forward") : undefined}
@@ -1154,21 +1131,14 @@ function MailboxReading() {
 				/>
 				<div className="min-h-0 flex-1 overflow-hidden">{detailPane}</div>
 			</section>
-			<Drawer
-				isOpen={drawerOpen}
-				onClose={closeIntelligenceDrawer}
-				ariaLabel="Message details"
-				side="right"
-			>
-				<IntelligencePane
-					onClose={closeIntelligenceDrawer}
-					thread={selectedThread}
-					mailboxId={mailboxId}
-					accountId={mailboxAccountId}
-					hideCloseButton
-					onAfterOptimisticRemove={handleDeselectIfRemoved}
-				/>
-			</Drawer>
+			<IntelligenceDrawer
+				isOpen={intelligence.drawerOpen}
+				onClose={intelligence.closeDrawer}
+				thread={selectedThread}
+				mailboxId={mailboxId}
+				accountId={mailboxAccountId}
+				onAfterOptimisticRemove={handleDeselectIfRemoved}
+			/>
 		</>
 	);
 }
@@ -1232,21 +1202,14 @@ function MailboxPhone() {
 					}
 					mobileIntelligenceOpen={drawer.isOpen}
 				/>
-				<Drawer
+				<IntelligenceDrawer
 					isOpen={drawer.isOpen}
 					onClose={drawer.close}
-					ariaLabel="Message details"
-					side="right"
-				>
-					<IntelligencePane
-						onClose={drawer.close}
-						thread={selectedThread}
-						mailboxId={mailboxId}
-						accountId={mailboxAccountId}
-						hideCloseButton
-						onAfterOptimisticRemove={handleDeselectIfRemoved}
-					/>
-				</Drawer>
+					thread={selectedThread}
+					mailboxId={mailboxId}
+					accountId={mailboxAccountId}
+					onAfterOptimisticRemove={handleDeselectIfRemoved}
+				/>
 			</>
 		);
 	}

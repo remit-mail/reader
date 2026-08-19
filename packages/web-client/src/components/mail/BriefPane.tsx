@@ -14,7 +14,7 @@
  */
 import { unifiedThreadOperationsListAllThreadsOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import { ReadingPaneEmpty, useAppShellLayout } from "@remit/ui";
+import { ReadingPaneEmpty } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -24,14 +24,15 @@ import {
 	useContext,
 	useMemo,
 } from "react";
-import { Drawer } from "@/components/layout/Drawer";
 import { ConversationView } from "@/components/mail/ConversationView";
 import { DailyBrief } from "@/components/mail/DailyBrief";
+import { IntelligenceDrawer } from "@/components/mail/IntelligenceDrawer";
 import { IntelligencePane } from "@/components/mail/IntelligencePane";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import type { OpenMessageOptions } from "@/components/mail/ThreadListInteraction";
 import { useDeleteMessages } from "@/hooks/useDeleteMessages";
 import { useIntelligenceDrawer } from "@/hooks/useIntelligenceDrawer";
+import { useIntelligenceSurface } from "@/hooks/useIntelligenceSurface";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { type ThreadActions, useThreadActions } from "@/hooks/useThreadActions";
 import { useThreadRow } from "@/hooks/useThreadRow";
@@ -328,52 +329,64 @@ function BriefList() {
  * Mount in the `reading` slot of `AppShellSlotted`. Only rendered ≥ 1024px.
  */
 function BriefReading() {
-	const { conversation, actions, onReply } = useBriefPane();
-	const { intelligenceOpen, onToggleIntelligence } = useMailContext();
-	// The rail's own width gate, not the shell tier: between 1024 and 1280 the
-	// reading pane is mounted but the rail is not, so "enabled" would promise an
-	// open that cannot happen.
-	const railFits = useAppShellLayout()?.showIntelligencePane ?? false;
+	const {
+		conversation,
+		selectedThread,
+		actions,
+		onReply,
+		handleDeselectIfRemoved,
+	} = useBriefPane();
 	const hasThread = Boolean(conversation);
-	const canToggleIntelligence = railFits && hasThread;
+	const intelligence = useIntelligenceSurface(conversation?.threadId);
 
 	return (
-		<section className="flex h-full w-full min-w-0 flex-col bg-canvas">
-			<MessageToolbar
-				hasThread={hasThread}
-				intelligenceOpen={canToggleIntelligence && intelligenceOpen}
-				canToggleIntelligence={canToggleIntelligence}
-				onToggleIntelligence={onToggleIntelligence}
-				onReply={onReply ? () => onReply("reply") : undefined}
-				onReplyAll={onReply ? () => onReply("reply-all") : undefined}
-				onForward={onReply ? () => onReply("forward") : undefined}
-				onDelete={hasThread ? actions.deleteThread : undefined}
-				onToggleStar={hasThread ? actions.toggleStar : undefined}
-				isStarred={actions.isStarred}
-				moveContext={
-					hasThread && actions.accountId && actions.mailboxId
-						? {
-								accountId: actions.accountId,
-								currentMailboxId: actions.mailboxId,
-								onMove: actions.moveThread,
-							}
-						: undefined
-				}
+		<>
+			<section className="flex h-full w-full min-w-0 flex-col bg-canvas">
+				<MessageToolbar
+					hasThread={hasThread}
+					intelligenceOpen={intelligence.isShowing}
+					canToggleIntelligence={intelligence.canToggle}
+					onToggleIntelligence={intelligence.toggle}
+					onReply={onReply ? () => onReply("reply") : undefined}
+					onReplyAll={onReply ? () => onReply("reply-all") : undefined}
+					onForward={onReply ? () => onReply("forward") : undefined}
+					onDelete={hasThread ? actions.deleteThread : undefined}
+					onToggleStar={hasThread ? actions.toggleStar : undefined}
+					isStarred={actions.isStarred}
+					moveContext={
+						hasThread && actions.accountId && actions.mailboxId
+							? {
+									accountId: actions.accountId,
+									currentMailboxId: actions.mailboxId,
+									onMove: actions.moveThread,
+								}
+							: undefined
+					}
+				/>
+				<div className="min-h-0 flex-1 overflow-hidden">
+					{conversation ? (
+						<ConversationView
+							threadId={conversation.threadId}
+							mailboxId={conversation.mailboxId}
+							subject={conversation.subject}
+							selectedMessageId={conversation.messageId}
+							authenticity={conversation.authenticity}
+							onOpenIntelligence={intelligence.open}
+						/>
+					) : (
+						<ReadingPaneEmpty />
+					)}
+				</div>
+			</section>
+			<IntelligenceDrawer
+				isOpen={intelligence.drawerOpen}
+				onClose={intelligence.closeDrawer}
+				thread={selectedThread}
+				mailboxId={selectedThread?.mailboxId}
+				accountId={selectedThread?.accountId}
+				onAfterOptimisticRemove={handleDeselectIfRemoved}
 			/>
-			<div className="min-h-0 flex-1 overflow-hidden">
-				{conversation ? (
-					<ConversationView
-						threadId={conversation.threadId}
-						mailboxId={conversation.mailboxId}
-						subject={conversation.subject}
-						selectedMessageId={conversation.messageId}
-						authenticity={conversation.authenticity}
-					/>
-				) : (
-					<ReadingPaneEmpty />
-				)}
-			</div>
-		</section>
+		</>
 	);
 }
 
@@ -428,21 +441,14 @@ function BriefPhone() {
 					}
 					mobileIntelligenceOpen={drawer.isOpen}
 				/>
-				<Drawer
+				<IntelligenceDrawer
 					isOpen={drawer.isOpen}
 					onClose={drawer.close}
-					ariaLabel="Message details"
-					side="right"
-				>
-					<IntelligencePane
-						onClose={drawer.close}
-						thread={selectedThread}
-						mailboxId={selectedThread?.mailboxId}
-						accountId={selectedThread?.accountId}
-						hideCloseButton
-						onAfterOptimisticRemove={handleDeselectIfRemoved}
-					/>
-				</Drawer>
+					thread={selectedThread}
+					mailboxId={selectedThread?.mailboxId}
+					accountId={selectedThread?.accountId}
+					onAfterOptimisticRemove={handleDeselectIfRemoved}
+				/>
 			</>
 		);
 	}

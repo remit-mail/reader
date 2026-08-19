@@ -9,7 +9,8 @@ import { AuthenticityBanner } from "@/components/mail/AuthenticityBanner";
  *
  * Between 1024 and 1280px the shell has room for the reading pane but not the
  * intelligence rail, so the link opens the same right-anchored drawer the phone
- * uses — `MailboxPane.Reading` mounts it whenever the rail does not fit. The
+ * uses. Every list pane mounts it wherever the rail does not fit — the mailbox,
+ * the brief and Flagged all read that from `useIntelligenceSurface` (#817). The
  * warning itself reads as one sentence: the link sits in the text flow at the
  * body's own size rather than floating off to the right as chrome.
  */
@@ -73,8 +74,8 @@ const intelligence: IntelligenceData = {
 };
 
 /**
- * The reading pane as `MailboxPane.Reading` composes it at this width: the
- * banner above the thread body, and the drawer it opens over the panes.
+ * The reading pane as every list pane composes it at this width: the banner
+ * above the thread body, and the drawer it opens over the panes.
  */
 const TwoPaneReading = () => {
 	const [drawerOpen, setDrawerOpen] = useState(false);

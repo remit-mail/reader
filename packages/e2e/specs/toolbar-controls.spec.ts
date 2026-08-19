@@ -121,14 +121,15 @@ test.describe("Reading-pane toolbar", () => {
 		});
 	});
 
-	// 1024–1279: the reading pane is mounted but the rail is not. What the toggle
-	// reads as here follows the view. A mailbox has the drawer, so the control
-	// acts and says so; the brief has no surface at this width, so it says the
-	// opposite. Neither may sit in the pressed "Hide" state before it is used.
+	// 1024–1279: the reading pane is mounted but the rail is not. The drawer is
+	// the surface here, and every list has one (#817), so the control acts and
+	// says so — never sitting in the pressed "Hide" state before it is used.
+	// What it opens, and what closes it again, is
+	// `mid-width-intelligence.spec.ts`.
 	test.describe("too narrow for the rail", () => {
 		test.use({ viewport: { width: 1100, height: 900 } });
 
-		test("an open message in the daily brief leaves the info button disabled and unpressed", async ({
+		test("an open message in the daily brief leaves the info button enabled and unpressed", async ({
 			page,
 			run,
 		}) => {
@@ -137,15 +138,13 @@ test.describe("Reading-pane toolbar", () => {
 
 			const info = page.getByRole("button", { name: SHOW_INFO });
 			await expect(info).toBeVisible({ timeout: 20_000 });
-			await expect(info).toBeDisabled();
+			await expect(info).toBeEnabled();
 			await expect(info).toHaveAttribute("aria-pressed", "false");
 			await expect(page.getByRole("button", { name: HIDE_INFO })).toHaveCount(
 				0,
 			);
 		});
 
-		// What it opens, and what closes it again, is
-		// `mid-width-intelligence.spec.ts`.
 		test("an open message in a mailbox leaves the info button enabled and unpressed", async ({
 			page,
 		}) => {
