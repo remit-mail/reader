@@ -160,7 +160,7 @@ const depsWithFailingUpdate = (): AppendSentMessageDeps => {
 				...client,
 				outboxMessage: {
 					...client.outboxMessage,
-					update: async (): Promise<void> => {
+					update: async (): Promise<never> => {
 						throw new Error("storage down");
 					},
 				},
