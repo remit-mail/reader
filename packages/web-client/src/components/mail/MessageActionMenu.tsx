@@ -32,28 +32,12 @@ import {
 	patchThreadListQueries,
 	restoreThreadListQueries,
 	snapshotThreadListQueries,
-	type ThreadListSnapshotEntry,
+	type ThreadMessagesData,
+	type ThreadMutationContext,
 	threadListCacheKeys,
 } from "@/lib/thread-list-cache";
 import { useOpenThreadPath, useRetainOpenPanels } from "@/routing";
 import { MoveToTrigger } from "./MoveToTrigger";
-
-interface ThreadMessagesData {
-	items: RemitImapThreadMessageResponse[];
-	[key: string]: unknown;
-}
-
-interface SnapshotEntry<T> {
-	queryKey: readonly unknown[];
-	data: T;
-}
-
-interface MarkUnreadContext {
-	threadMessagesPrefix: readonly unknown[];
-	listPrefixes: ReadonlyArray<readonly unknown[]>;
-	previousThreadMessages: SnapshotEntry<ThreadMessagesData>[];
-	previousThreadsList: ThreadListSnapshotEntry[];
-}
 
 interface MessageActionMenuProps {
 	messageId: string;
@@ -109,7 +93,7 @@ export const MessageActionMenu = ({
 
 	const { mutate: updateFlags, isPending: isUpdatingFlags } = useMutation({
 		...messageBulkOperationsUpdateFlagsMutation(),
-		onMutate: async (variables): Promise<MarkUnreadContext> => {
+		onMutate: async (variables): Promise<ThreadMutationContext> => {
 			const isReadNext = variables.body.isRead ?? true;
 			const targetIds = new Set(variables.body.messageIds ?? []);
 
