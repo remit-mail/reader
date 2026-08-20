@@ -15,7 +15,8 @@ import {
 	patchThreadListQueries,
 	restoreThreadListQueries,
 	snapshotThreadListQueries,
-	type ThreadListSnapshotEntry,
+	type ThreadMessagesData,
+	type ThreadMutationContext,
 	threadListCacheKeys,
 } from "@/lib/thread-list-cache";
 
@@ -29,23 +30,6 @@ interface UseMoveMessagesOptions {
 	 * before the server response arrives.
 	 */
 	onAfterOptimisticRemove?: (messageIds: string[]) => void;
-}
-
-interface ThreadMessagesData {
-	items: RemitImapThreadMessageResponse[];
-	[key: string]: unknown;
-}
-
-interface SnapshotEntry<T> {
-	queryKey: readonly unknown[];
-	data: T;
-}
-
-interface MoveContext {
-	threadMessagesPrefix: readonly unknown[];
-	listPrefixes: ReadonlyArray<readonly unknown[]>;
-	previousThreadMessages: SnapshotEntry<ThreadMessagesData>[];
-	previousThreadsList: ThreadListSnapshotEntry[];
 }
 
 /**
@@ -73,7 +57,7 @@ export const useMoveMessages = ({
 
 	const { mutateAsync, isPending, isError } = useMutation({
 		...messageBulkOperationsMoveMessagesMutation(),
-		onMutate: async (variables): Promise<MoveContext> => {
+		onMutate: async (variables): Promise<ThreadMutationContext> => {
 			const messageIds = new Set(variables.body.messageIds ?? []);
 
 			const threadMessagesPrefix = threadId

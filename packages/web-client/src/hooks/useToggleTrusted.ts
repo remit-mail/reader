@@ -11,19 +11,15 @@ import type {
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { buildMutationErrorBanner } from "@/components/ui/error-banners";
+import type { SnapshotEntry } from "@/lib/thread-list-cache";
 
 interface UseToggleTrustedOptions {
 	messageId: string;
 }
 
-interface SnapshotEntry {
-	queryKey: readonly unknown[];
-	data: RemitImapDescribeMessageResponse;
-}
-
 interface ToggleTrustedContext {
 	describePrefix: readonly unknown[];
-	previous: SnapshotEntry[];
+	previous: SnapshotEntry<RemitImapDescribeMessageResponse>[];
 }
 
 export const buildTrustedFlag = (

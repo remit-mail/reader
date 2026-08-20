@@ -7,9 +7,31 @@ import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/type
 import type { QueryClient } from "@tanstack/react-query";
 import { patchThreadListCache, type ThreadListCache } from "./thread-cache.js";
 
-export interface ThreadListSnapshotEntry {
+export interface SnapshotEntry<T> {
 	queryKey: readonly unknown[];
-	data: ThreadListCache;
+	data: T;
+}
+
+export type ThreadListSnapshotEntry = SnapshotEntry<ThreadListCache>;
+
+/** A cached page of one thread's messages, as the thread-detail endpoint serves it. */
+export interface ThreadMessagesData {
+	items: RemitImapThreadMessageResponse[];
+	[key: string]: unknown;
+}
+
+/**
+ * The rollback state an optimistic thread mutation captures in `onMutate`.
+ *
+ * The shape belongs to the snapshot/restore helpers below rather than to any
+ * one mutation, so mark-read, star, delete and move all carry the same one
+ * (#868).
+ */
+export interface ThreadMutationContext {
+	threadMessagesPrefix: readonly unknown[];
+	listPrefixes: ReadonlyArray<readonly unknown[]>;
+	previousThreadMessages: SnapshotEntry<ThreadMessagesData>[];
+	previousThreadsList: ThreadListSnapshotEntry[];
 }
 
 /**

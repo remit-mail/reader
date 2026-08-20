@@ -13,7 +13,8 @@ import {
 	patchThreadListQueries,
 	restoreThreadListQueries,
 	snapshotThreadListQueries,
-	type ThreadListSnapshotEntry,
+	type ThreadMessagesData,
+	type ThreadMutationContext,
 	threadListCacheKeys,
 } from "@/lib/thread-list-cache";
 
@@ -48,23 +49,6 @@ export const resolveMailboxForMessage = (
 	messages?.find((message) => message.messageId === messageId)?.mailboxId ??
 	fallbackMailboxId;
 
-interface ThreadMessagesData {
-	items: RemitImapThreadMessageResponse[];
-	[key: string]: unknown;
-}
-
-interface SnapshotEntry<T> {
-	queryKey: readonly unknown[];
-	data: T;
-}
-
-interface ToggleStarContext {
-	threadMessagesPrefix: readonly unknown[];
-	listPrefixes: ReadonlyArray<readonly unknown[]>;
-	previousThreadMessages: SnapshotEntry<ThreadMessagesData>[];
-	previousThreadsList: ThreadListSnapshotEntry[];
-}
-
 export const toggleStarsInItems = (
 	items: RemitImapThreadMessageResponse[],
 	messageId: string,
@@ -84,7 +68,7 @@ export const useToggleStar = ({
 
 	const { mutate, isPending, variables } = useMutation({
 		...messageOperationsUpdateMessageFlagsMutation(),
-		onMutate: async (vars): Promise<ToggleStarContext> => {
+		onMutate: async (vars): Promise<ThreadMutationContext> => {
 			const messageId = vars.path.messageId;
 			const nextStarred = vars.body.isStarred ?? false;
 

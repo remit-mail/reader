@@ -16,7 +16,8 @@ import {
 	patchThreadListQueries,
 	restoreThreadListQueries,
 	snapshotThreadListQueries,
-	type ThreadListSnapshotEntry,
+	type ThreadMessagesData,
+	type ThreadMutationContext,
 	threadListCacheKeys,
 } from "@/lib/thread-list-cache";
 
@@ -37,23 +38,6 @@ interface UseDeleteMessagesOptions {
 	 * before the server response arrives.
 	 */
 	onAfterOptimisticRemove?: (messageIds: string[]) => void;
-}
-
-interface ThreadMessagesData {
-	items: RemitImapThreadMessageResponse[];
-	[key: string]: unknown;
-}
-
-interface SnapshotEntry<T> {
-	queryKey: readonly unknown[];
-	data: T;
-}
-
-interface DeleteContext {
-	threadMessagesPrefix: readonly unknown[];
-	listPrefixes: ReadonlyArray<readonly unknown[]>;
-	previousThreadMessages: SnapshotEntry<ThreadMessagesData>[];
-	previousThreadsList: ThreadListSnapshotEntry[];
 }
 
 /**
@@ -94,7 +78,7 @@ export const useDeleteMessages = ({
 
 	const { mutateAsync, isPending } = useMutation({
 		...messageBulkOperationsDeleteMessagesMutation(),
-		onMutate: async (variables): Promise<DeleteContext> => {
+		onMutate: async (variables): Promise<ThreadMutationContext> => {
 			const messageIds = new Set(variables.body.messageIds ?? []);
 
 			const threadMessagesPrefix = threadId

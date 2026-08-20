@@ -16,7 +16,8 @@ import {
 	patchThreadListQueries,
 	restoreThreadListQueries,
 	snapshotThreadListQueries,
-	type ThreadListSnapshotEntry,
+	type ThreadMessagesData,
+	type ThreadMutationContext,
 	threadListCacheKeys,
 } from "@/lib/thread-list-cache";
 
@@ -26,23 +27,6 @@ interface UseMarkAsReadOptions {
 	threadId: string;
 	mailboxId: string;
 	accountId?: string;
-}
-
-interface ThreadMessagesData {
-	items: RemitImapThreadMessageResponse[];
-	[key: string]: unknown;
-}
-
-interface SnapshotEntry<T> {
-	queryKey: readonly unknown[];
-	data: T;
-}
-
-interface MarkAsReadContext {
-	threadMessagesPrefix: readonly unknown[];
-	listPrefixes: ReadonlyArray<readonly unknown[]>;
-	previousThreadMessages: SnapshotEntry<ThreadMessagesData>[];
-	previousThreadsList: ThreadListSnapshotEntry[];
 }
 
 /**
@@ -145,7 +129,7 @@ export const useMarkAsRead = ({
 	const { mutate: markAsRead } = useMutation({
 		...messageBulkOperationsUpdateFlagsMutation(),
 		meta: softErrorMeta,
-		onMutate: async (variables): Promise<MarkAsReadContext> => {
+		onMutate: async (variables): Promise<ThreadMutationContext> => {
 			const messageIds = new Set(variables.body.messageIds ?? []);
 			const isRead = variables.body.isRead ?? true;
 
