@@ -1,7 +1,6 @@
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import {
 	Banner,
-	ConfirmDialog,
 	cn,
 	type Density,
 	deriveIsMultiSelectMode,
@@ -21,7 +20,8 @@ import type { RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
-import { useJunkMailbox, useTrashMailbox } from "@/hooks/useArchiveMailbox";
+import { useJunkMailbox } from "@/hooks/useArchiveMailbox";
+import { useDeleteOutcome } from "@/hooks/useDeleteOutcome";
 import {
 	type EscalatedAction,
 	type EscalationSearchQuery,
@@ -37,8 +37,7 @@ import {
 	bulkActionCompletionText,
 	bulkActionProgressLabel,
 	bulkActionProgressTone,
-	bulkActionStoppedDetail,
-	bulkActionStoppedTitle,
+	runEndingBanner,
 } from "@/lib/bulk-action-copy";
 import type { BulkRunOutcome } from "@/lib/bulk-actions";
 import {
@@ -46,11 +45,7 @@ import {
 	escalatedStatusLabel,
 	escalationActionLabel,
 } from "@/lib/escalation-label";
-import {
-	type DeleteOutcome,
-	deleteConfirmationCopy,
-	formatEmailDate,
-} from "@/lib/format";
+import { formatEmailDate } from "@/lib/format";
 import { junkDestination } from "@/lib/junk-destination";
 import { tabStopId } from "@/lib/list-focus";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
@@ -58,6 +53,7 @@ import { listVerbRequest } from "@/lib/list-verb-request";
 import { shouldExitSelectionOnNavigate } from "@/lib/selection-mode";
 import { useSelectionWizard, useWizardStepValue } from "@/lib/wizard-history";
 import { useRetainOpenPanels } from "@/routing";
+import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import {
 	type EscalatedSelection,
@@ -302,15 +298,13 @@ export const MessageList = ({
 
 	// Deleting inside Trash is an expunge on the mail server, not a move, so the
 	// confirmation has to ask that question instead of "move to Trash?" (#845).
-	// Until the appointment resolves the outcome is genuinely unknown, and the
-	// dialog says so rather than guessing the reversible half of the answer.
-	const { trashMailboxId, isLoading: isTrashRoleLoading } =
-		useTrashMailbox(accountId);
-	const deleteOutcome: DeleteOutcome = isTrashRoleLoading
-		? "unknown"
-		: trashMailboxId === mailboxId
-			? "permanent"
-			: "trash";
+	// Every row here is filed in the open mailbox, so that one folder is the
+	// whole set the delete acts on.
+	const deleteScope = useMemo(
+		() => [{ accountId, mailboxId }],
+		[accountId, mailboxId],
+	);
+	const deleteOutcome = useDeleteOutcome(deleteScope);
 
 	// Selection state
 	const {
@@ -362,22 +356,12 @@ export const MessageList = ({
 	// once the user has left it, so an ending is never said twice.
 	const reportRunOutcome = useCallback(
 		(kind: BulkActionKind, matched: number, outcome: BulkRunOutcome) => {
+			const banner = runEndingBanner(kind, matched, outcome, deleteOutcome);
 			// A run stopped by a thrown batch is already banner-ed where it threw.
-			if (outcome.error !== undefined) return;
-			if (outcome.cancelled) {
-				pushError({
-					severity: "warning",
-					title: bulkActionStoppedTitle(outcome.done),
-					detail: bulkActionStoppedDetail(kind, outcome.done, matched),
-				});
-				return;
-			}
-			pushError({
-				severity: "info",
-				title: bulkActionCompletionText(kind, outcome.done),
-			});
+			if (!banner) return;
+			pushError(banner);
 		},
-		[pushError],
+		[pushError, deleteOutcome],
 	);
 
 	// The one way selection mode ends (#115): cancel, a completed delete or
@@ -759,7 +743,9 @@ export const MessageList = ({
 		// (#202). On desktop the rows leaving the list beside the reading pane is
 		// signal enough.
 		if (!isDesktop) {
-			setCompletionBanner(bulkActionCompletionText("delete", ids.length));
+			setCompletionBanner(
+				bulkActionCompletionText("delete", ids.length, deleteOutcome),
+			);
 		}
 	}, [
 		pendingDelete,
@@ -769,6 +755,7 @@ export const MessageList = ({
 		openRow,
 		isDesktop,
 		setFocusedMessageId,
+		deleteOutcome,
 	]);
 
 	// Every way out of the confirmation that isn't the delete — Escape, Cancel,
@@ -1353,11 +1340,11 @@ export const MessageList = ({
 					(listState === "ready" ? virtualBody : undefined)
 				}
 			/>
-			<ConfirmDialog
+			<DeleteConfirmDialog
 				isOpen={pendingDelete !== null}
-				{...deleteConfirmationCopy(pendingDelete?.length ?? 0, deleteOutcome)}
-				destructive
-				isBusy={isDeleting || deleteOutcome === "unknown"}
+				count={pendingDelete?.length ?? 0}
+				outcome={deleteOutcome}
+				isDeleting={isDeleting}
 				onConfirm={handleConfirmDelete}
 				onCancel={handleCancelDelete}
 			/>

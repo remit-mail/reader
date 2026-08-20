@@ -1,7 +1,9 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
+import type { DeleteTarget } from "./format.js";
 import {
 	deleteConfirmationCopy,
+	deleteOutcomeFor,
 	formatDate,
 	formatDatePreset,
 	formatDeleteToTrashTitle,
@@ -153,5 +155,185 @@ describe("deleteConfirmationCopy", () => {
 			description: "Checking where this account files deleted mail…",
 			confirmLabel: "Delete",
 		});
+	});
+});
+
+/**
+ * Issue #855. The failure branch is the one that matters: TanStack sets
+ * `status: "error"` with `data` undefined, so a config read that failed leaves
+ * an empty Trash set behind. Reading that as "this folder is not Trash" hands an
+ * expired session a "Move to Trash?" dialog over an expunge — #845 reinstated on
+ * the error path.
+ */
+describe("deleteOutcomeFor", () => {
+	const trashByAccount = new Map([
+		["acct-1", "mbx-trash"],
+		["acct-2", undefined],
+	]);
+	const settled = { trashByAccount, hasAppointments: true, isError: false };
+	// No default for the account: a default parameter is applied to an explicit
+	// `undefined` too, so "the row names no account" silently became "acct-1"
+	// and the case asserting it read back as an ordinary move to Trash.
+	const target = (
+		mailboxId: string,
+		accountId: string | undefined,
+	): DeleteTarget => ({ accountId, mailboxId });
+
+	test("a row outside Trash is a reversible move", () => {
+		assert.strictEqual(
+			deleteOutcomeFor({
+				...settled,
+				targets: [target("mbx-inbox", "acct-1")],
+			}),
+			"trash",
+		);
+	});
+
+	test("a row inside its own account's Trash is an expunge", () => {
+		assert.strictEqual(
+			deleteOutcomeFor({
+				...settled,
+				targets: [target("mbx-trash", "acct-1")],
+			}),
+			"permanent",
+		);
+	});
+
+	test("one row inside Trash makes a mixed set permanent", () => {
+		assert.strictEqual(
+			deleteOutcomeFor({
+				...settled,
+				targets: [target("mbx-inbox", "acct-1"), target("mbx-trash", "acct-1")],
+			}),
+			"permanent",
+		);
+	});
+
+	test("an account that appoints no Trash is its own answer, not a move", () => {
+		assert.strictEqual(
+			deleteOutcomeFor({
+				...settled,
+				targets: [target("mbx-inbox", "acct-2")],
+			}),
+			"noTrash",
+			"the server refuses that delete rather than moving anything",
+		);
+	});
+
+	test("a refused account outranks an expunge in the same set", () => {
+		assert.strictEqual(
+			deleteOutcomeFor({
+				...settled,
+				targets: [target("mbx-trash", "acct-1"), target("mbx-inbox", "acct-2")],
+			}),
+			"noTrash",
+		);
+	});
+
+	test("another account's Trash is not this row's Trash", () => {
+		assert.strictEqual(
+			deleteOutcomeFor({
+				...settled,
+				trashByAccount: new Map([
+					["acct-1", "mbx-trash"],
+					["acct-2", "mbx-other-trash"],
+				]),
+				targets: [target("mbx-trash", "acct-2")],
+			}),
+			"trash",
+		);
+	});
+
+	test("appointments that have not arrived commit to neither wording", () => {
+		assert.strictEqual(
+			deleteOutcomeFor({
+				targets: [target("mbx-inbox", "acct-1")],
+				trashByAccount: new Map(),
+				hasAppointments: false,
+				isError: false,
+			}),
+			"unknown",
+			"a paused offline query reports neither loading nor error",
+		);
+	});
+
+	test("an account nothing is known about yet is unknown, not a move", () => {
+		assert.strictEqual(
+			deleteOutcomeFor({
+				...settled,
+				targets: [target("mbx-inbox", "acct-9")],
+			}),
+			"unknown",
+		);
+	});
+
+	test("a row with no account is unknown, not a move", () => {
+		assert.strictEqual(
+			deleteOutcomeFor({
+				...settled,
+				targets: [target("mbx-inbox", undefined)],
+			}),
+			"unknown",
+		);
+	});
+
+	test("a failed read refuses the delete rather than promising a move", () => {
+		assert.strictEqual(
+			deleteOutcomeFor({
+				targets: [target("mbx-inbox", "acct-1")],
+				trashByAccount: new Map(),
+				hasAppointments: false,
+				isError: true,
+			}),
+			"unavailable",
+		);
+	});
+
+	test("a failed read outranks a settled appointment set", () => {
+		assert.strictEqual(
+			deleteOutcomeFor({
+				...settled,
+				targets: [target("mbx-inbox", "acct-1")],
+				isError: true,
+			}),
+			"unavailable",
+		);
+	});
+
+	test("nothing pending is not an answer", () => {
+		assert.strictEqual(
+			deleteOutcomeFor({ ...settled, targets: [] }),
+			"unknown",
+		);
+	});
+});
+
+describe("deleteConfirmationCopy — the refusal", () => {
+	test("states what failed and offers the way back in", () => {
+		assert.deepStrictEqual(deleteConfirmationCopy(1, "unavailable"), {
+			title: "Can't delete 1 message",
+			description:
+				"reader couldn't read this account's folder settings, so it can't say whether this would move the mail to Trash or erase it. Nothing has been deleted.",
+			confirmLabel: "Sign in again",
+		});
+	});
+
+	test("never offers the reversible wording on the failure path", () => {
+		const copy = deleteConfirmationCopy(3, "unavailable");
+		assert.ok(!copy.title.includes("Move"));
+		assert.ok(!copy.description.includes("restore"));
+	});
+
+	test("sends an unappointed Trash to the screen that appoints one", () => {
+		const copy = deleteConfirmationCopy(3, "noTrash");
+		assert.strictEqual(copy.title, "Can't delete 3 messages");
+		assert.match(copy.description, /appointed as Trash/);
+		assert.strictEqual(copy.confirmLabel, "Open folder settings");
+	});
+
+	test("never promises a restore when no Trash is appointed", () => {
+		const copy = deleteConfirmationCopy(3, "noTrash");
+		assert.ok(!copy.title.includes("Move"));
+		assert.ok(!copy.description.includes("restore"));
 	});
 });

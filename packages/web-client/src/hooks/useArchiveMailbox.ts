@@ -81,15 +81,45 @@ export const useJunkMailbox = (
 };
 
 /**
- * Returns the account's appointed Trash mailbox id. The delete confirmation
- * needs it to tell a move-to-Trash apart from a delete inside Trash, which is
- * an unrecoverable expunge and has to be asked as one (#845).
+ * Each account's appointed Trash mailbox, keyed by account. The delete
+ * confirmation needs it to tell a move-to-Trash apart from a delete inside
+ * Trash, which is an unrecoverable expunge and has to be asked as one (#845),
+ * and apart from an account that appoints no Trash at all, where the server
+ * refuses the delete outright (#846).
+ *
+ * A map rather than a set of ids, because the brief and Flagged answer for
+ * selections that span accounts (#855): "is this row in Trash" is a question
+ * about the row's own account, and "does any Trash exist" has to be answerable
+ * as "no" rather than as silence.
+ *
+ * `hasAppointments` is data presence, never `!isLoading`. React Query v5
+ * computes `isLoading` as `isPending && isFetching`, so an offline query is
+ * paused and reports neither loading nor error while `data` is still
+ * undefined — which read as "no Trash anywhere", and promised a reversible
+ * move over an expunge that would replay on reconnect.
  */
-export const useTrashMailbox = (
-	accountId: string | undefined,
-): { trashMailboxId: string | undefined; isLoading: boolean } => {
-	const { mailboxId, isLoading } = useFolderRoleMailbox(accountId, "Trash");
-	return { trashMailboxId: mailboxId, isLoading };
+export const useTrashByAccount = (): {
+	trashByAccount: ReadonlyMap<string, string | undefined>;
+	hasAppointments: boolean;
+	isError: boolean;
+} => {
+	const { data: config, isError } = useQuery({
+		...configOperationsGetConfigOptions(),
+		staleTime: Infinity,
+	});
+
+	const trashByAccount = useMemo(() => {
+		const byAccount = new Map<string, string | undefined>();
+		for (const account of config?.accounts ?? []) {
+			byAccount.set(
+				account.accountId,
+				account.folderAppointments.find((fa) => fa.role === "Trash")?.mailboxId,
+			);
+		}
+		return byAccount;
+	}, [config]);
+
+	return { trashByAccount, hasAppointments: config !== undefined, isError };
 };
 
 /**

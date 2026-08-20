@@ -56,7 +56,9 @@ export const NonDestructive: Story = {
 /**
  * Deleting mail that already sits in Trash expunges it on the server, so the
  * dialog asks that question instead of "move to Trash?" — the wording follows
- * the consequence, never the button that opened it (#845).
+ * the consequence, never the button that opened it (#845). On Flagged and the
+ * brief the rows span mailboxes, and one row bound for an expunge is enough to
+ * make the whole delete unrecoverable, so a mixed set is asked here too (#855).
  */
 export const PermanentDelete: Story = {
 	args: {
@@ -78,5 +80,21 @@ export const OutcomeUnknown: Story = {
 		description: "Checking where this account files deleted mail…",
 		confirmLabel: "Delete",
 		isBusy: true,
+	},
+};
+
+/**
+ * The read for those appointments failed rather than lagged, so there is no
+ * answer coming and nothing to confirm. The dialog states the refusal and its
+ * affirmative control is the way back in — never the delete, and never a button
+ * that cannot be pressed (#855).
+ */
+export const OutcomeUnavailable: Story = {
+	args: {
+		title: "Can't delete 12 messages",
+		description:
+			"reader couldn't read this account's folder settings, so it can't say whether this would move the mail to Trash or erase it. Nothing has been deleted.",
+		confirmLabel: "Sign in again",
+		destructive: false,
 	},
 };

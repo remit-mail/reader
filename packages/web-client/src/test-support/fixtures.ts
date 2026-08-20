@@ -6,6 +6,7 @@
 
 import type {
 	RemitImapAccountResponse,
+	RemitImapConfigDescriptionResponse,
 	RemitImapMailboxResponse,
 	RemitImapThreadMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
@@ -82,4 +83,17 @@ export const makeThreadMessage = (
 	createdAt: 0,
 	updatedAt: 0,
 	...overrides,
+});
+
+export const makeConfig = (
+	accounts: RemitImapAccountResponse[],
+): RemitImapConfigDescriptionResponse => ({
+	accountConfig: {
+		accountConfigId: "cfg-1",
+		userId: "user-1",
+		state: "active",
+		createdAt: 0,
+		updatedAt: 0,
+	},
+	accounts,
 });
