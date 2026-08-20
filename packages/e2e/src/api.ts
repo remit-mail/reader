@@ -44,6 +44,15 @@ export interface AccountSyncStatus {
 	mailboxes: MailboxSyncProgress[];
 }
 
+/**
+ * One canonical role and the folder the deployment resolves it to. `mailboxId`
+ * is absent when the account holds no folder for the role at all.
+ */
+export interface FolderAppointment {
+	role: string;
+	mailboxId?: string;
+}
+
 export interface Thread {
 	threadId: string;
 	messageId: string;
@@ -487,6 +496,36 @@ export class ApiClient {
 			continuationToken = result.continuationToken;
 		} while (continuationToken);
 		return ids;
+	}
+
+	/**
+	 * The account's role-to-folder map as the deployment resolves it: the user's
+	 * appointment, else the server's SPECIAL-USE flag, else a conventional name
+	 * matched on the folder's own leaf segment. Read through GET /config, the
+	 * one surface that serves the map without writing an appointment first.
+	 */
+	async listFolderAppointments(
+		accountId: string,
+	): Promise<FolderAppointment[]> {
+		const config = await this.json<{
+			accounts?: Array<{
+				accountId: string;
+				folderAppointments?: FolderAppointment[];
+			}>;
+		}>("GET", "/config");
+		const account = (config.accounts ?? []).find(
+			(entry) => entry.accountId === accountId,
+		);
+		if (!account) {
+			throw new Error(`GET /config carried no account ${accountId}`);
+		}
+		// The map is total — one entry per canonical role — so an absent or empty
+		// one is the deployment having stopped serving it, not an account with no
+		// special folders.
+		if (!account.folderAppointments?.length) {
+			throw new Error(`GET /config carried no folder roles for ${accountId}`);
+		}
+		return account.folderAppointments;
 	}
 
 	async listMailboxes(accountId: string): Promise<Mailbox[]> {

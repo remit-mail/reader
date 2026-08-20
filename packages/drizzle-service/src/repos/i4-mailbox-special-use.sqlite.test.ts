@@ -14,11 +14,15 @@ import { AccountSettingRepo } from "./i4-account-setting.js";
 import { MailboxRepo } from "./i4-mailbox.js";
 import { MailboxSpecialUseRepo } from "./i4-mailbox-special-use.js";
 
-const makeMailboxInput = (accountId: string, fullPath: string) => ({
+const makeMailboxInput = (
+	accountId: string,
+	fullPath: string,
+	hierarchyDelimiter = "/",
+) => ({
 	accountId,
 	namespaceType: "personal" as const,
 	namespacePrefix: "",
-	hierarchyDelimiter: "/",
+	hierarchyDelimiter,
 	fullPath,
 	uidValidity: 1,
 	uidNext: 1,
@@ -208,6 +212,59 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 
 		const found = await repo.findJunkMailbox(accountId);
 		assert.equal(found?.mailboxId, spam.mailboxId);
+	});
+
+	test("resolves an INBOX-nested Trash folder that advertises no special use", async () => {
+		// #837: `findTrashMailbox` carried its own copy of the discarded
+		// whole-path rule, so `INBOX/Trash` resolved to nothing and a delete
+		// refused on an account that plainly has a Trash folder.
+		const { accountId } = await makeAccount();
+		await mailboxes.create(makeMailboxInput(accountId, "INBOX"));
+		const trash = await mailboxes.create(
+			makeMailboxInput(accountId, "INBOX/Trash"),
+		);
+
+		assert.equal(
+			(await repo.findTrashMailbox(accountId))?.mailboxId,
+			trash.mailboxId,
+		);
+		// Resolving the name widens where a delete FILES mail, never what an
+		// Empty Trash may expunge (#846): that still needs the flag or an
+		// appointment.
+		assert.equal(await repo.findConfirmedTrashMailbox(accountId), null);
+	});
+
+	test("resolves an INBOX-nested Archive folder that advertises no special use", async () => {
+		const { accountId } = await makeAccount();
+		await mailboxes.create(makeMailboxInput(accountId, "INBOX"));
+		const archive = await mailboxes.create(
+			makeMailboxInput(accountId, "INBOX/Archive"),
+		);
+
+		assert.equal(
+			(await repo.findArchiveMailbox(accountId))?.mailboxId,
+			archive.mailboxId,
+		);
+	});
+
+	test("splits the leaf on the account's own delimiter, not on a slash", async () => {
+		const { accountId } = await makeAccount();
+		await mailboxes.create(makeMailboxInput(accountId, "INBOX", "."));
+		const trash = await mailboxes.create(
+			makeMailboxInput(accountId, "INBOX.Trash", "."),
+		);
+		const archive = await mailboxes.create(
+			makeMailboxInput(accountId, "INBOX.Archive", "."),
+		);
+
+		assert.equal(
+			(await repo.findTrashMailbox(accountId))?.mailboxId,
+			trash.mailboxId,
+		);
+		assert.equal(
+			(await repo.findArchiveMailbox(accountId))?.mailboxId,
+			archive.mailboxId,
+		);
 	});
 
 	test("answers null when the account has no Junk folder at all", async () => {

@@ -166,12 +166,53 @@ export const appendMessages = async (
 	return messages.map((message) => message.subject);
 };
 
+/**
+ * One entry of the server's own LIST: the path, the delimiter that path is
+ * composed with, and the SPECIAL-USE the server advertises for it. A spec about
+ * how a folder resolves to a role reads this to prove its fixture is what it
+ * claims — an unflagged folder that turned out to carry a flag would pass the
+ * assertion for the wrong reason.
+ */
+export interface ServerMailbox {
+	path: string;
+	delimiter: string;
+	specialUse?: string;
+}
+
 /** The mailboxes Dovecot itself reports — the ground truth a sync is measured against. */
-export const listServerMailboxes = async (user: string): Promise<string[]> => {
+export const describeServerMailboxes = async (
+	user: string,
+): Promise<ServerMailbox[]> => {
 	const client = await connect(user);
 	try {
 		const list = await client.list();
-		return list.map((entry) => entry.path);
+		return list.map((entry) => ({
+			path: entry.path,
+			delimiter: entry.delimiter,
+			specialUse: entry.specialUse,
+		}));
+	} finally {
+		await client.logout();
+	}
+};
+
+/** The paths of {@link describeServerMailboxes}, for a spec that only compares sets. */
+export const listServerMailboxes = async (user: string): Promise<string[]> => {
+	const mailboxes = await describeServerMailboxes(user);
+	return mailboxes.map((mailbox) => mailbox.path);
+};
+
+/**
+ * CREATE a folder on the server, the way another mail client would — so the app
+ * learns the path and its delimiter from LIST rather than from its own write.
+ */
+export const createServerMailbox = async (
+	user: string,
+	path: string,
+): Promise<void> => {
+	const client = await connect(user);
+	try {
+		await client.mailboxCreate(path);
 	} finally {
 		await client.logout();
 	}
