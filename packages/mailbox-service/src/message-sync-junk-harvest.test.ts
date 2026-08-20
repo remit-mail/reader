@@ -43,6 +43,7 @@ interface Saved {
 	neutral: CreateAddressInput[];
 	envelopeAddresses: CreateEnvelopeAddressInput[];
 	reconciled: string[];
+	withheld: string[];
 }
 
 const mailboxAt = (fullPath: string): MailboxItem =>
@@ -66,6 +67,7 @@ const save = async (
 		neutral: [],
 		envelopeAddresses: [],
 		reconciled: [],
+		withheld: [],
 	};
 
 	const messageService = {
@@ -100,6 +102,9 @@ const save = async (
 		},
 		reconcileJunkOnlyForMessage: async (messageId: string) => {
 			saved.reconciled.push(messageId);
+		},
+		withholdAddressesSeenInJunk: async (messageId: string) => {
+			saved.withheld.push(messageId);
 		},
 	} as unknown as IAddressRepository;
 
@@ -209,19 +214,20 @@ describe("what a mailbox says about the addresses on its messages", () => {
 		assert.equal(saved.junk.length, 0);
 	});
 
-	it("re-asks every sighting of a sender a message in Junk carries", async () => {
+	it("withholds every sender a message in Junk carries", async () => {
 		const saved = await save(mailboxAt("INBOX/Rubbish"), "Junk");
 
-		assert.equal(saved.reconciled.length, 1);
-		assert.deepEqual(saved.reconciled, [saved.envelopeAddresses[0].messageId]);
+		assert.equal(saved.withheld.length, 1);
+		assert.deepEqual(saved.withheld, [saved.envelopeAddresses[0].messageId]);
+		assert.deepEqual(saved.reconciled, []);
 	});
 
 	it("asks nothing of a sender met on live mail", async () => {
 		const inbox = await save(mailboxAt("INBOX"));
 		const trash = await save(mailboxAt("Trash"), "Trash");
 
-		assert.deepEqual(inbox.reconciled, []);
-		assert.deepEqual(trash.reconciled, []);
+		assert.deepEqual(inbox.withheld, []);
+		assert.deepEqual(trash.withheld, []);
 	});
 
 	it("harvests the same message once an ordinary folder holds it", async () => {

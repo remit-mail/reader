@@ -73,6 +73,18 @@ const SIGHTING_IN_LIVE_MAIL = sightingWhere(
 	` AND NOT ${IN_JUNK} AND NOT ${IN_TRASH}`,
 );
 
+/**
+ * Standing on live mail other than one named message. `message.mailbox_id` is
+ * where Reader last wrote the message down, not where it is: a `messageId` is
+ * folder-independent, and a save that meets an already-stored message in a
+ * second folder leaves the stored row pointing at the first. So the message a
+ * caller has just met in Junk still reads as INBOX here, and reading it would
+ * have the sighting refute itself (#859).
+ */
+const SIGHTING_IN_LIVE_MAIL_ELSEWHERE = sightingWhere(
+	` AND envelope_address.message_id <> ? AND NOT ${IN_JUNK} AND NOT ${IN_TRASH}`,
+);
+
 export const ACCOUNT_HAS_CORRESPONDED = `(
 	address.outbound_count > 0
 	OR address.reply_count > 0
@@ -85,22 +97,54 @@ export const WITHHOLDABLE = `NOT ${flagIsSet(JUNK_ONLY_FLAG)}
 	AND ${SIGHTING_IN_JUNK}
 	AND NOT ${SIGHTING_IN_LIVE_MAIL}`;
 
+/**
+ * A sighting of the message in Junk is the caller's own observation, so the
+ * only question left is whether the sender stands on anything else.
+ */
+const WITHHOLDABLE_SEEN_IN_JUNK = `NOT ${flagIsSet(JUNK_ONLY_FLAG)}
+	AND NOT ${ACCOUNT_HAS_CORRESPONDED}
+	AND NOT ${SIGHTING_IN_LIVE_MAIL_ELSEWHERE}`;
+
 export const RESTORABLE = `${flagIsSet(JUNK_ONLY_FLAG)}
 	AND (${ACCOUNT_HAS_CORRESPONDED} OR ${SIGHTING_IN_LIVE_MAIL})`;
 
-export const withholdSql = (scope = ""): string =>
+/** Attributions the mark carries, naming what put it there. */
+const REPAIR_SET_BY = "junk-only-repair";
+export const JUNK_SIGHTING_SET_BY = "junk-sighting";
+
+const MARK_FROM_SIGHTING = `coalesce(json_extract(${STORED_FLAGS}, '$.${JUNK_ONLY_FLAG}.setBy'), '') = '${JUNK_SIGHTING_SET_BY}'`;
+
+/**
+ * The sweep re-derives the mark from stored rows, and a sender marked because
+ * another client filed its mail into Junk stands on a message whose stored row
+ * still names the folder it arrived in. Reading that as live mail would lift
+ * the mark at every boot, so the sweep leaves an observed sighting alone and
+ * only a favourable opinion lifts it (#859).
+ */
+const SWEEP_RESTORABLE = `${flagIsSet(JUNK_ONLY_FLAG)}
+	AND (${ACCOUNT_HAS_CORRESPONDED}
+	  OR (${SIGHTING_IN_LIVE_MAIL} AND NOT ${MARK_FROM_SIGHTING}))`;
+
+const withholdUpdate = (predicate: string): string =>
 	`UPDATE address
 	 SET flags = json_set(${STORED_FLAGS}, '$.${JUNK_ONLY_FLAG}',
 		   json_object('value', json('true'), 'setAt', CAST(? AS INTEGER), 'setBy', ?)),
 		 updated_at = ?
-	 WHERE ${WITHHOLDABLE}${scope}`;
+	 WHERE ${predicate}`;
 
-export const restoreSql = (scope = ""): string =>
+const restoreUpdate = (predicate: string): string =>
 	`UPDATE address
 	 SET flags = json_remove(${STORED_FLAGS}, '$.${JUNK_ONLY_FLAG}'), updated_at = ?
-	 WHERE ${RESTORABLE}${scope}`;
+	 WHERE ${predicate}`;
 
-const REPAIR_SET_BY = "junk-only-repair";
+export const withholdSql = (scope = ""): string =>
+	withholdUpdate(`${WITHHOLDABLE}${scope}`);
+
+export const withholdSeenInJunkSql = (scope = ""): string =>
+	withholdUpdate(`${WITHHOLDABLE_SEEN_IN_JUNK}${scope}`);
+
+export const restoreSql = (scope = ""): string =>
+	restoreUpdate(`${RESTORABLE}${scope}`);
 
 const countWhere = async (
 	client: JunkOnlyRepairClient,
@@ -119,7 +163,7 @@ export const sweepJunkOnlyAddresses = async (
 	now: number = Date.now(),
 ): Promise<JunkOnlyReport> => {
 	const withholdable = await countWhere(client, WITHHOLDABLE);
-	const restorable = await countWhere(client, RESTORABLE);
+	const restorable = await countWhere(client, SWEEP_RESTORABLE);
 
 	if (mode === "check") {
 		return { mode, withholdable, withheld: 0, restorable, restored: 0 };
@@ -130,7 +174,10 @@ export const sweepJunkOnlyAddresses = async (
 			? 0
 			: await client.run(withholdSql(), [now, REPAIR_SET_BY, now]);
 
-	const restored = restorable === 0 ? 0 : await client.run(restoreSql(), [now]);
+	const restored =
+		restorable === 0
+			? 0
+			: await client.run(restoreUpdate(SWEEP_RESTORABLE), [now]);
 
 	return { mode, withholdable, withheld, restorable, restored };
 };

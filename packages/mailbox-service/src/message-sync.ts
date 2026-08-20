@@ -1432,8 +1432,12 @@ export class MessageSyncService {
 			});
 			owned = created || item.mailboxId === mailboxId;
 
+			// The sighting itself is the evidence, not the Message row this save
+			// may have left pointing at the folder the mail arrived in: a
+			// `messageId` is folder-independent, so mail another client filed into
+			// Junk reaches this line with a stored row still owned by INBOX (#859).
 			if (sighting === "junk") {
-				await repos.address.reconcileJunkOnlyForMessage(messageId);
+				await repos.address.withholdAddressesSeenInJunk(messageId);
 			}
 
 			await this.createThreadForMessage(

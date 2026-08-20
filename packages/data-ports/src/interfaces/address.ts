@@ -14,6 +14,15 @@ export interface IAddressRepository {
 	upsertCorrespondentAddress(input: CreateAddressInput): Promise<AddressItem>;
 	upsertJunkAddress(input: CreateAddressInput): Promise<AddressItem>;
 	reconcileJunkOnlyForMessage(messageId: string): Promise<void>;
+	/**
+	 * Withhold the addresses of a message just met in a Junk folder, for the
+	 * case where the message was already stored from somewhere else: the stored
+	 * row still names the folder it arrived in, so re-deriving the sighting from
+	 * it would read the message as live mail and refuse. Every other standing —
+	 * a favourable opinion, a sighting on any other live message — still holds
+	 * the sender in autocomplete.
+	 */
+	withholdAddressesSeenInJunk(messageId: string): Promise<void>;
 	getAddress(accountConfigId: string, addressId: string): Promise<AddressItem>;
 	getAddress(
 		accountConfigId: string,

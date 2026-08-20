@@ -188,6 +188,52 @@ describe("reconciling one message's addresses at the moment it moves", () => {
 		assert.equal(await withheld("bystander"), false);
 	});
 
+	test("another client filing INBOX mail into Junk withholds the sender", async () => {
+		message("msg", "inbox");
+		await harvest("spammer");
+		sighting("spammer", "msg");
+		assert.deepEqual(await suggested("spammer"), ["spammer"]);
+
+		await repo.withholdAddressesSeenInJunk("msg");
+
+		assert.equal(await withheld("spammer"), true);
+		assert.deepEqual(await suggested("spammer"), []);
+	});
+
+	test("a sender still on live mail survives a sighting in Junk", async () => {
+		message("spam", "inbox");
+		message("real", "inbox");
+		await harvest("colleague");
+		sighting("colleague", "spam");
+		sighting("colleague", "real");
+
+		await repo.withholdAddressesSeenInJunk("spam");
+
+		assert.equal(await withheld("colleague"), false);
+	});
+
+	test("a sender the account has written to survives a sighting in Junk", async () => {
+		message("msg", "inbox");
+		await harvest("client");
+		sighting("client", "msg");
+		await repo.incrementOutboundCount(CONFIG, "client", Date.now());
+
+		await repo.withholdAddressesSeenInJunk("msg");
+
+		assert.equal(await withheld("client"), false);
+	});
+
+	test("a sighting in Junk touches no address the message does not carry", async () => {
+		message("msg", "inbox");
+		message("other", "inbox");
+		await harvest("bystander");
+		sighting("bystander", "other");
+
+		await repo.withholdAddressesSeenInJunk("msg");
+
+		assert.equal(await withheld("bystander"), false);
+	});
+
 	test("a second reconcile of the same move writes nothing new", async () => {
 		message("msg", "inbox");
 		await harvest("spammer");

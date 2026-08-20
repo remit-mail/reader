@@ -215,6 +215,33 @@ describe("addresses standing only on mail in Junk", () => {
 		assert.equal(withheld("misfiled"), false);
 	});
 
+	test("leaves a mark the sync's own sighting in Junk put there", async () => {
+		address(
+			"spammer",
+			{},
+			'{"junkOnly":{"value":true,"setAt":1,"setBy":"junk-sighting"}}',
+		);
+		sighting("spammer", "mail-1");
+
+		const report = await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		assert.equal(report.restorable, 0);
+		assert.equal(withheld("spammer"), true);
+	});
+
+	test("restores a sighting's mark once the account writes to the sender", async () => {
+		address(
+			"reformed",
+			{ outbound: 1 },
+			'{"junkOnly":{"value":true,"setAt":1,"setBy":"junk-sighting"}}',
+		);
+		sighting("reformed", "mail-1");
+
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		assert.equal(withheld("reformed"), false);
+	});
+
 	test("never withholds an address the account has written to", async () => {
 		address("client", { outbound: 1 });
 		sighting("client", "spam-1");

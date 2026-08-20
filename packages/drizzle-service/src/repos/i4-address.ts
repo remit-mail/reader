@@ -27,7 +27,9 @@ import { envelopeAddressId as deriveEnvelopeAddressId } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
 import {
 	JUNK_ONLY_FLAG,
+	JUNK_SIGHTING_SET_BY,
 	restoreSql,
+	withholdSeenInJunkSql,
 	withholdSql,
 } from "../repair/junk-only-address.js";
 import { addressTable } from "../schema/i4-address.js";
@@ -159,6 +161,10 @@ const VIP_SUGGESTIONS_DEFAULT_LIMIT = 10;
 
 const JUNK_HARVEST = "junk-harvest";
 const JUNK_MOVE = "junk-move";
+
+const messageScope = (): string => ` AND address.address_id IN (
+		SELECT address_id FROM envelope_address WHERE message_id = ?
+	)`;
 
 const withoutJunkOnlyFlagSql = (): SQL<string> =>
 	sql<string>`json_remove(coalesce(nullif(${addressTable.flags}, ''), '{}'), ${`$.${JUNK_ONLY_FLAG}`})`;
@@ -314,14 +320,25 @@ export class AddressRepo implements IAddressRepository {
 	}
 
 	async reconcileJunkOnlyForMessage(messageId: string): Promise<void> {
-		const scope = ` AND address.address_id IN (
-			SELECT address_id FROM envelope_address WHERE message_id = ?
-		)`;
+		const scope = messageScope();
 		const now = Date.now();
 		await this.db.run(
 			boundToDrizzle(withholdSql(scope), [now, JUNK_MOVE, now, messageId]),
 		);
 		await this.db.run(boundToDrizzle(restoreSql(scope), [now, messageId]));
+	}
+
+	async withholdAddressesSeenInJunk(messageId: string): Promise<void> {
+		const now = Date.now();
+		await this.db.run(
+			boundToDrizzle(withholdSeenInJunkSql(messageScope()), [
+				now,
+				JUNK_SIGHTING_SET_BY,
+				now,
+				messageId,
+				messageId,
+			]),
+		);
 	}
 
 	async getAddress(
