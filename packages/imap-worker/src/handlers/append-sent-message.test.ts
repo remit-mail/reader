@@ -66,6 +66,7 @@ const fresh = (): Harness => ({
 		references: ["parent@example.com"],
 		inReplyTo: "parent@example.com",
 		sentAt: 1700000000000,
+		appendedUid: 0,
 	},
 	sentMailbox: { mailboxId: "sent-mbx", fullPath: "INBOX/Sent" },
 	append: async (path, raw, flags) => {
@@ -125,6 +126,9 @@ const event: AppendSentMessageEvent = {
 const called = (method: string): Call[] =>
 	h.calls.filter((c) => c.method === method);
 
+const patches = (): unknown[] =>
+	called("outboxMessage.update").map((c) => c.args[2]);
+
 type BackendClient = Awaited<ReturnType<AppendSentMessageDeps["getClient"]>>;
 
 const depsWithFailingDelete = (): AppendSentMessageDeps => {
@@ -138,6 +142,25 @@ const depsWithFailingDelete = (): AppendSentMessageDeps => {
 				outboxMessage: {
 					...client.outboxMessage,
 					delete: async (): Promise<void> => {
+						throw new Error("storage down");
+					},
+				},
+			};
+		},
+	};
+};
+
+const depsWithFailingUpdate = (): AppendSentMessageDeps => {
+	const base = deps();
+	return {
+		...base,
+		getClient: async (): Promise<BackendClient> => {
+			const client = await base.getClient();
+			return {
+				...client,
+				outboxMessage: {
+					...client.outboxMessage,
+					update: async (): Promise<void> => {
 						throw new Error("storage down");
 					},
 				},
@@ -296,12 +319,10 @@ describe("handleAppendSentMessage", () => {
 
 		// The copy is in Sent, so the message is findable — settling it as unfiled
 		// would say the opposite.
-		assert.equal(called("outboxMessage.update").length, 0);
+		assert.deepEqual(patches(), [{ appendedUid: 55 }]);
 	});
 
 	it("stops redelivering a landed APPEND at the budget instead of filing another copy", async () => {
-		// A redelivery starts from the top and appends again, so retrying past the
-		// budget files one copy per attempt in the user's Sent folder (#830).
 		await handleAppendSentMessage(
 			event,
 			noopLog,
@@ -310,6 +331,119 @@ describe("handleAppendSentMessage", () => {
 		);
 
 		assert.equal(called("connection.append").length, 1);
-		assert.equal(called("outboxMessage.update").length, 0);
+		assert.deepEqual(patches(), [{ appendedUid: 55 }]);
+	});
+
+	it("records the uid the APPEND produced before it deletes the row", async () => {
+		await handleAppendSentMessage(event, noopLog, 1, deps());
+
+		// Order is the whole of it: a uid written after the delete is a uid a
+		// redelivery never sees, and the redelivery is what files the second copy.
+		const order = h.calls.map((c) => c.method);
+		assert.deepEqual(patches(), [{ appendedUid: 55 }]);
+		assert.ok(
+			order.indexOf("outboxMessage.update") <
+				order.indexOf("outboxMessage.delete"),
+		);
+	});
+
+	it("records a copy the server filed but named no uid for", async () => {
+		// UIDPLUS is an extension. Without it the APPEND succeeds and reports
+		// nothing, and "filed" still has to be told apart from "not filed".
+		h.append = async () => ({ uid: 0, uidValidity: 0 });
+
+		await handleAppendSentMessage(event, noopLog, 1, deps());
+
+		assert.deepEqual(patches(), [{ appendedUid: -1 }]);
+		assert.equal(called("outboxMessage.delete").length, 1);
+	});
+
+	it("files nothing a second time when a redelivery finds a recorded uid (#858)", async () => {
+		h.outbox = { ...h.outbox, appendedUid: 55 };
+
+		await handleAppendSentMessage(event, noopLog, 1, deps());
+
+		// The copy is already in the user's Sent folder. All this redelivery owes
+		// is the delete the last attempt could not make.
+		assert.equal(called("connection.append").length, 0);
+		assert.equal(h.disconnectCount, 0);
+		assert.deepEqual(called("outboxMessage.delete")[0]?.args, [
+			"cfg-1",
+			"out-1",
+		]);
+		assert.deepEqual(called("outboxAttachment.discardAll")[0]?.args, [
+			"cfg-1",
+			"acc-1",
+			"out-1",
+		]);
+	});
+
+	it("retries the delete a redelivery owes while the queue has attempts left", async () => {
+		h.outbox = { ...h.outbox, appendedUid: 55 };
+
+		await assert.rejects(
+			handleAppendSentMessage(event, noopLog, 1, depsWithFailingDelete()),
+			/storage down/,
+		);
+
+		assert.equal(called("connection.append").length, 0);
+		assert.deepEqual(patches(), []);
+	});
+
+	it("keeps the row when the uid cannot be recorded", async () => {
+		await assert.rejects(
+			handleAppendSentMessage(event, noopLog, 1, depsWithFailingUpdate()),
+			/storage down/,
+		);
+
+		// The other half of "written before the delete, never after". A row
+		// deleted without its uid is a row a redelivery reads as never filed.
+		assert.equal(called("outboxMessage.delete").length, 0);
+		assert.equal(called("outboxAttachment.discardAll").length, 0);
+	});
+
+	it("acks an event whose outbox row is already gone", async () => {
+		// Its own last attempt deleted it, or the boot repair dropped it. Throwing
+		// the same NotFoundError on every redelivery only dead-letters the record.
+		const notFound = Object.assign(new Error("gone"), {
+			name: "NotFoundError",
+		});
+		const base = deps();
+		const failing: AppendSentMessageDeps = {
+			...base,
+			getClient: async (): Promise<BackendClient> => {
+				const client = await base.getClient();
+				return {
+					...client,
+					outboxMessage: {
+						...client.outboxMessage,
+						get: async () => {
+							throw notFound;
+						},
+					},
+				} as BackendClient;
+			},
+		};
+
+		await handleAppendSentMessage(event, noopLog, 1, failing);
+
+		assert.equal(called("connection.append").length, 0);
+		assert.deepEqual(patches(), []);
+	});
+
+	it("gives up on that delete at the budget rather than dead-lettering it", async () => {
+		h.outbox = { ...h.outbox, appendedUid: 55 };
+
+		await handleAppendSentMessage(
+			event,
+			noopLog,
+			APPEND_SENT_MAX_ATTEMPTS,
+			depsWithFailingDelete(),
+		);
+
+		// The row stays `sent` and hidden, which the boot-time repair drops on the
+		// strength of the same recorded uid. Settling it as unfiled would tell the
+		// user a message sitting in Sent was never filed.
+		assert.deepEqual(patches(), []);
 	});
 });

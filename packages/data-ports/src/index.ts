@@ -25,6 +25,11 @@ export type {
 } from "./interfaces/outbox-attachment.js";
 export { holdsRoom } from "./interfaces/outbox-attachment.js";
 export type { IOutboxMessageRepository } from "./interfaces/outbox-message.js";
+export {
+	APPENDED_UID_NONE,
+	APPENDED_UID_UNREPORTED,
+	isSentCopyFiled,
+} from "./interfaces/outbox-message.js";
 export type { IQuarantineRepository } from "./interfaces/quarantine.js";
 export type { ISenderSignerStandingRepository } from "./interfaces/sender-signer-standing.js";
 export type { IThreadMessageRepository } from "./interfaces/thread-message.js";

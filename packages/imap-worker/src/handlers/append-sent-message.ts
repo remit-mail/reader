@@ -1,4 +1,9 @@
 import { getClient } from "@remit/backend/client";
+import {
+	APPENDED_UID_NONE,
+	APPENDED_UID_UNREPORTED,
+	isSentCopyFiled,
+} from "@remit/data-ports";
 import { OutboxMessageStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
@@ -8,6 +13,7 @@ import {
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { AppendSentMessageEvent } from "../events.js";
+import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
@@ -16,6 +22,9 @@ const UNFILED_NO_SENT_MAILBOX =
 
 const UNFILED_SIGNED_OUT =
 	"Sent, but not filed: this account has to be signed in again before a copy can be stored in Sent.";
+
+const ROW_SURVIVED_ITS_DELETE =
+	"Sent message was filed but its outbox row survived its delete and stays hidden until the boot-time repair";
 
 const unfiledAppendRefused = (fullPath: string, error: unknown): string =>
 	`Sent, but not filed: the mail server refused to store a copy in ${fullPath} (${error instanceof Error ? error.message : String(error)}).`;
@@ -90,10 +99,23 @@ export const handleAppendSentMessage = async (
 		return;
 	}
 
-	const outbox = await outboxMessageService.get(
-		account.accountConfigId,
-		outboxMessageId,
-	);
+	// A row this event names can be gone by the time the event is redelivered:
+	// its own last attempt deleted it, or the boot repair dropped it on the
+	// strength of a recorded uid. Either way the work is done, and re-throwing
+	// the same NotFoundError on every redelivery only dead-letters it.
+	const outbox = await outboxMessageService
+		.get(account.accountConfigId, outboxMessageId)
+		.catch((error: unknown) => {
+			if (isNotFoundError(error)) return null;
+			throw error;
+		});
+	if (!outbox) {
+		log.warn(
+			{ accountId, outboxMessageId },
+			"Skipping APPEND_SENT_MESSAGE: the outbox row is already gone",
+		);
+		return;
+	}
 	if (outbox.status !== OutboxMessageStatus.sent) {
 		log.info(
 			{ outboxMessageId, status: outbox.status },
@@ -121,13 +143,58 @@ export const handleAppendSentMessage = async (
 		);
 	};
 
+	// The copy is in Sent, so the row is a leftover and deleting it is all that
+	// is left to do. Both steps are idempotent against a row that is already
+	// gone, so nothing here needs to know how far the last attempt got.
+	//
+	// Files first, row second, the same order outbox-queue.ts discards a draft
+	// in. Nothing but this row points at those objects: a row that outlives its
+	// files is hidden and the boot repair drops it, while files that outlive
+	// their row name a message nothing can reach and are vouched for forever.
+	const dropOutboxRow = async (): Promise<void> => {
+		await outboxAttachmentService.discardAll(
+			account.accountConfigId,
+			accountId,
+			outboxMessageId,
+		);
+		await outboxMessageService.delete(account.accountConfigId, outboxMessageId);
+		log.info(
+			{ outboxMessageId },
+			"Deleted outbox row after successful APPEND to Sent",
+		);
+	};
+
+	// Everything this recovers from happened after the copy reached Sent, so
+	// re-appending is off the table and the delete is the only step left to
+	// retry. Below the redrive budget that retry is worth having; at it the
+	// record would dead-letter, so the row is left at `sent` for the repair.
+	const retryDropWithinBudget = (error: unknown): void => {
+		if (receiveCount < APPEND_SENT_MAX_ATTEMPTS) throw error;
+		log.error({ accountId, outboxMessageId, error }, ROW_SURVIVED_ITS_DELETE);
+	};
+
+	// A redelivery of an event whose APPEND already landed. The copy is in the
+	// user's Sent folder and the only step still owed is the delete that failed
+	// last time; starting from the top would file a second copy of a message the
+	// user sent once (#858). Ahead of the Sent-mailbox lookup on purpose — a
+	// message that is already filed does not need one, and an account that lost
+	// its Sent appointment in between must not settle as unfiled.
+	if (isSentCopyFiled(outbox)) {
+		log.info(
+			{ outboxMessageId, appendedUid: outbox.appendedUid },
+			"Sent copy was already filed by an earlier attempt, skipping the APPEND",
+		);
+		await dropOutboxRow().catch(retryDropWithinBudget);
+		return;
+	}
+
 	const sentMailbox = await mailboxSpecialUseService.findSentMailbox(accountId);
 	if (!sentMailbox) {
 		await settleUnfiled(UNFILED_NO_SENT_MAILBOX);
 		return;
 	}
 
-	let appended = false;
+	let appendedUid = APPENDED_UID_NONE;
 
 	const failure = await withOAuthLifecycle(
 		buildLifecycleDeps(secrets, accountService),
@@ -157,33 +224,25 @@ export const handleAppendSentMessage = async (
 						"Appended sent message to Sent mailbox",
 					);
 
-					appended = true;
+					// A server without UIDPLUS files the copy and names no uid for
+					// it, which is still a filed copy and has to read as one.
+					appendedUid = result.uid > 0 ? result.uid : APPENDED_UID_UNREPORTED;
 				})
 				.finally(() => scope.disconnect());
 
+			// The idempotency key, and the only reason a redelivery is safe. It is
+			// written before the delete and never after it: from here on every step
+			// can fail and be retried without the user gaining a second copy, and
+			// the one window that still can is this single row update.
+			await outboxMessageService.update(
+				account.accountConfigId,
+				outboxMessageId,
+				{ appendedUid },
+			);
+
 			// The message now lives in the IMAP Sent folder. Drop the outbox row so
 			// the user does not see it twice in the UI (Outbox + Sent). Issue #178.
-			//
-			// The row goes first, and nothing that can fail may come before it. The
-			// APPEND above has already happened; anything between it and this delete
-			// that throws leaves the row for the job to retry, and the retry appends
-			// a second copy to the user's Sent folder. A storage error is not worth
-			// a duplicate message — the attachment objects that outlive their row
-			// are exactly what the sweep collects, so losing this delete costs a
-			// sweep and nothing else.
-			await outboxMessageService.delete(
-				account.accountConfigId,
-				outboxMessageId,
-			);
-			await outboxAttachmentService.discardAll(
-				account.accountConfigId,
-				accountId,
-				outboxMessageId,
-			);
-			log.info(
-				{ outboxMessageId },
-				"Deleted outbox row after successful APPEND to Sent",
-			);
+			await dropOutboxRow();
 		},
 	).then(
 		() => null,
@@ -193,9 +252,9 @@ export const handleAppendSentMessage = async (
 			// attempt to pick up. At the budget the record would dead-letter, and a
 			// dead-lettered APPEND is exactly how a delivered message goes missing.
 			//
-			// The budget binds whether or not the APPEND landed. A redelivery
-			// starts from the top and appends again, so an unbudgeted retry files
-			// one copy per attempt in the user's Sent folder.
+			// The budget still binds after a landed APPEND, though no longer to
+			// hold off a duplicate: the recorded uid does that, and the retries
+			// the budget allows re-drive the delete alone.
 			if (receiveCount < APPEND_SENT_MAX_ATTEMPTS) throw error;
 			return error;
 		},
@@ -204,12 +263,12 @@ export const handleAppendSentMessage = async (
 	// The APPEND landed: the copy is in Sent whatever failed after it, so there
 	// is nothing to settle as unfiled. A row that outlives its delete holds
 	// `sent`, which every view hides, until the migrator's boot-time stranded-row
-	// repair settles it — the next container start, not sooner (#824).
-	if (appended) {
+	// repair drops it — the next container start, not sooner (#824).
+	if (isSentCopyFiled({ appendedUid })) {
 		if (failure) {
 			log.error(
 				{ accountId, outboxMessageId, reason: String(failure) },
-				"Sent message was filed but its outbox row survived its delete and stays hidden until the boot-time repair",
+				ROW_SURVIVED_ITS_DELETE,
 			);
 		}
 		return;

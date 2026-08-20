@@ -5,6 +5,32 @@ import type {
 	UpdateOutboxMessageInput,
 } from "../types.js";
 
+/** `appendedUid` when no IMAP APPEND has been confirmed for the row. */
+export const APPENDED_UID_NONE = 0;
+
+/**
+ * `appendedUid` when an APPEND was confirmed but the server named no uid for
+ * it. UIDPLUS is an extension; a server without it files the copy and reports
+ * nothing, and "filed" still has to be distinguishable from "not filed".
+ */
+export const APPENDED_UID_UNREPORTED = -1;
+
+/**
+ * Whether the copy in Sent exists. One definition, because the handler deciding
+ * whether to APPEND and the repair deciding what a stranded row means both have
+ * to agree on it exactly.
+ *
+ * Only the two values that mean "filed" say so, rather than everything that is
+ * not `APPENDED_UID_NONE`. The two mistakes are not each other's equal: reading
+ * a filed row as unfiled files a second copy the user then deletes, and reading
+ * an unfiled row as filed drops the row of a delivered message that is in no
+ * folder — the disappearance the whole repair exists to prevent (#824).
+ */
+export const isSentCopyFiled = (
+	message: Pick<OutboxMessageItem, "appendedUid">,
+): boolean =>
+	message.appendedUid > 0 || message.appendedUid === APPENDED_UID_UNREPORTED;
+
 export interface IOutboxMessageRepository {
 	create(input: CreateOutboxMessageInput): Promise<OutboxMessageItem>;
 	/**

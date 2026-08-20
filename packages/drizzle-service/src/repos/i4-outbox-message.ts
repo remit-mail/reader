@@ -37,6 +37,7 @@ function rowToOutboxMessage(
 		lastSmtpCode: row.lastSmtpCode ?? undefined,
 		sentAt: row.sentAt ?? undefined,
 		smtpMessageId: row.smtpMessageId ?? undefined,
+		appendedUid: row.appendedUid,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 	};
@@ -139,6 +140,8 @@ export class OutboxMessageRepo implements IOutboxMessageRepository {
 		if (input.sentAt !== undefined) updates.sentAt = input.sentAt;
 		if (input.smtpMessageId !== undefined)
 			updates.smtpMessageId = input.smtpMessageId;
+		if (input.appendedUid !== undefined)
+			updates.appendedUid = input.appendedUid;
 		if (input.toAddresses !== undefined)
 			updates.toAddresses = input.toAddresses;
 		if (input.ccAddresses !== undefined)
