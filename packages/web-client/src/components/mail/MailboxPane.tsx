@@ -72,7 +72,11 @@ import {
 import type { EscalationSearchQuery } from "@/hooks/useEscalatedActions";
 import { useIntelligenceData } from "@/hooks/useIntelligenceData";
 import { useIntelligenceDrawer } from "@/hooks/useIntelligenceDrawer";
-import { useIntelligenceSurface } from "@/hooks/useIntelligenceSurface";
+import {
+	type IntelligenceCommands,
+	useIntelligenceSurface,
+	usePublishIntelligenceCommands,
+} from "@/hooks/useIntelligenceSurface";
 import { useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
@@ -168,8 +172,14 @@ interface MailboxPaneContextValue {
 	 * when no category is selected.
 	 */
 	listFilter: MessageListFilter | undefined;
-	intelligenceOpen: boolean;
 	onToggleIntelligence: () => void;
+	/**
+	 * Where the mounted reading surface publishes the intelligence commands the
+	 * keyboard layer drives. The rail's width gate is the shell's own
+	 * measurement and this provider sits above the shell, so the surface that is
+	 * mounted answers for its own tier rather than this one guessing.
+	 */
+	intelligenceRef: RefObject<IntelligenceCommands | null>;
 	/**
 	 * Deselects the open message when it's the one a mutation just removed
 	 * from this mailbox's list — wired into every mutation that can take the
@@ -260,8 +270,7 @@ function MailboxPaneProvider({
 	const threadId = thread?.threadId;
 	const pointedAtMessageId = thread?.messageId;
 	const telemetry = useTelemetry();
-	const { accounts, searchQuery, intelligenceOpen, onToggleIntelligence } =
-		useMailContext();
+	const { accounts, searchQuery, onToggleIntelligence } = useMailContext();
 	const tokenContext = useSearchTokenContext();
 
 	const normalizedSearchQuery = normalizeSearchQuery(searchQuery);
@@ -499,6 +508,8 @@ function MailboxPaneProvider({
 			onAfterOptimisticRemove: handleDeselectIfRemoved,
 		});
 
+	const intelligenceRef = useRef<IntelligenceCommands | null>(null);
+
 	const triage = useTriageContext();
 	const {
 		listCommandsRef,
@@ -691,9 +702,14 @@ function MailboxPaneProvider({
 		updateFocusedSenderFlags({ vip: { value: next } });
 	}, [focusedAddressId, focusedAddress, updateFocusedSenderFlags]);
 
+	// Block sender lives in intelligence, so the key raises whichever surface
+	// this width has: the rail above 1280, the drawer below it. Reaching for
+	// `onToggleIntelligence` from here wrote `#intelligence` at every tier, and
+	// a panel the address names with no renderer behind it is a panel that opens
+	// nothing (`docs/architecture/url-state.md`, R6).
 	const triageBlock = useCallback(() => {
-		if (!intelligenceOpen) onToggleIntelligence();
-	}, [intelligenceOpen, onToggleIntelligence]);
+		intelligenceRef.current?.open();
+	}, []);
 
 	const goToRoute = useCallback(
 		(to: "/mail/brief" | "/mail/flagged" | "/settings") => {
@@ -736,10 +752,12 @@ function MailboxPaneProvider({
 			toggleStar: triageStar,
 			toggleRead: triageToggleRead,
 			muteSender: triageMute,
-			blockSender: triageBlock,
+			blockSender: selectedThread ? triageBlock : undefined,
 			vipSender: triageVip,
 			markJunk: triageMarkJunk,
-			toggleIntelligence: selectedThread ? onToggleIntelligence : undefined,
+			toggleIntelligence: selectedThread
+				? () => intelligenceRef.current?.toggle()
+				: undefined,
 			compose: openCompose,
 			goBrief: () => goToRoute("/mail/brief"),
 			goInbox: () => goToRoute("/mail/brief"),
@@ -783,8 +801,8 @@ function MailboxPaneProvider({
 		onToggleFilterAttribute,
 		onClearFilters,
 		listFilter,
-		intelligenceOpen,
 		onToggleIntelligence,
+		intelligenceRef,
 		handleDeselectIfRemoved,
 		// Escalation ("select all N matching") re-issues this predicate server-side
 		// and acts on every match, so it is only offered when the predicate IS the
@@ -1064,9 +1082,11 @@ function MailboxReading() {
 		onToolbarStar,
 		onToolbarMove,
 		handleDeselectIfRemoved,
+		intelligenceRef,
 	} = useMailboxPane();
 	const hasThread = Boolean(conversation);
 	const intelligence = useIntelligenceSurface(conversation?.threadId);
+	usePublishIntelligenceCommands(intelligenceRef, intelligence);
 
 	// The rail opens itself on a DKIM mismatch. It lives here, behind the rail's
 	// own width gate, because raising it writes `#intelligence` into the address
@@ -1182,8 +1202,14 @@ function MailboxPhone() {
 		nextThread,
 		previousThread,
 		handleDeselectIfRemoved,
+		intelligenceRef,
 	} = useMailboxPane();
+	// The drawer directly, not `useIntelligenceSurface`: this view is what the
+	// shell mounts where it has one pane, so there is no rail to choose between
+	// — and the rail's own width gate answers yes on a wide portrait tablet the
+	// shell still put here.
 	const drawer = useIntelligenceDrawer(conversation?.threadId ?? null);
+	usePublishIntelligenceCommands(intelligenceRef, drawer);
 
 	if (conversation) {
 		return (

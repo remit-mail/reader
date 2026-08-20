@@ -32,14 +32,18 @@ import { type OpenThreadPath, useOpenThreadPath } from "@/routing";
 import { createDomHarness, type DomHarness } from "@/test-support/dom";
 import { makeThreadMessage } from "@/test-support/fixtures";
 import { type HttpMock, mockFetch } from "@/test-support/http";
+import {
+	describedMessage,
+	intelligenceDrawer,
+	MESSAGE_ID,
+	settle,
+	THREAD_ID,
+} from "@/test-support/intelligence-surface";
 import { BriefPane } from "./BriefPane";
 import { FlaggedPane } from "./FlaggedPane";
 
 /** Below the rail's 1280px gate, above the reading pane's 1024px one. */
 const TWO_PANE_WIDTH = 1100;
-
-const THREAD_ID = "thread-1";
-const MESSAGE_ID = "msg-1";
 
 const SHOW_INTELLIGENCE = "Show intelligence sidebar";
 const HIDE_INTELLIGENCE = "Hide intelligence sidebar";
@@ -59,24 +63,6 @@ const row = makeThreadMessage({
 		dkimDomain: "gmail.example",
 	},
 });
-
-/** What the reading pane reads each message's own headers and body from. */
-const describedMessage = {
-	messageId: MESSAGE_ID,
-	envelope: {
-		from: [
-			{
-				addressId: "addr-1",
-				name: "Mondial Relay",
-				email: "delivery.notice@gmail.example",
-			},
-		],
-		to: [],
-		cc: [],
-		bcc: [],
-	},
-	bodyParts: [],
-};
 
 let harness: DomHarness | undefined;
 let http: HttpMock | undefined;
@@ -197,15 +183,6 @@ const mount = async (pane: PaneUnderTest): Promise<DomHarness> => {
 	return mounted;
 };
 
-const settle = async (mounted: DomHarness): Promise<void> => {
-	await mounted.flush();
-	await mounted.wait(20);
-	await mounted.flush();
-};
-
-const drawer = (mounted: DomHarness): HTMLElement | null =>
-	mounted.query('[role="dialog"][aria-label="Message details"]');
-
 describe("intelligence is reachable wherever the reading pane mounts (#817)", () => {
 	for (const pane of panes) {
 		it(`${pane.name} offers a live toolbar control below the rail's width`, async () => {
@@ -221,7 +198,7 @@ describe("intelligence is reachable wherever the reading pane mounts (#817)", ()
 			mounted.click(toggle);
 			await settle(mounted);
 
-			assert.ok(drawer(mounted), "pressing it opened nothing");
+			assert.ok(intelligenceDrawer(mounted), "pressing it opened nothing");
 			assert.ok(
 				mounted.query(`[aria-label="${HIDE_INTELLIGENCE}"]`),
 				"the toolbar still reports the surface as closed",
@@ -235,7 +212,7 @@ describe("intelligence is reachable wherever the reading pane mounts (#817)", ()
 			await settle(mounted);
 
 			assert.ok(
-				drawer(mounted),
+				intelligenceDrawer(mounted),
 				"the banner's Why? reached no intelligence surface",
 			);
 		});
