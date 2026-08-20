@@ -2,7 +2,6 @@ import {
 	messageBulkOperationsUpdateFlagsMutation,
 	threadDetailOperationsListThreadMessagesQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
