@@ -39,10 +39,10 @@ export const FLAG_PUSH_MAX_ATTEMPTS = getFlagPushMaxAttempts();
 /**
  * How long a marker may sit deferred behind a move before it is dropped
  * outright. A move that settles takes seconds to low minutes; one stuck past
- * this window has almost certainly already exhausted its own retries with no
- * terminal resolver of its own for a regular move (unlike flag-push and
- * placement-move), so deferring further would cycle one SQS round trip per
- * sync tick forever instead of surfacing the stall.
+ * this window has almost certainly already exhausted its own retries and been
+ * resolved as broken by its own terminal resolver, so deferring further would
+ * cycle one SQS round trip per sync tick forever instead of surfacing the
+ * stall.
  */
 const DEFAULT_FLAG_PUSH_DEFER_MAX_MS = 10 * 60 * 1000;
 
