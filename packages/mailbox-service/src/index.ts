@@ -187,7 +187,6 @@ export {
 } from "./mailbox-sync.js";
 export {
 	type DeleteOptions,
-	emptyTrashScope,
 	type MessageMoveConfig,
 	type MessageMoveLogger,
 	MessageMoveService,

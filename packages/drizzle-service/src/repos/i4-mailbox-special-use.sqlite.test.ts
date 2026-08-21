@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
-import { composeFolderRoleAppointmentName } from "@remit/data-ports/folder-role";
+import {
+	composeFolderRoleAppointmentName,
+	meetsTrashAssurance,
+} from "@remit/data-ports/folder-role";
 import { CanonicalMailboxRole } from "@remit/domain-enums";
 import {
 	accountSettingTable,
@@ -175,7 +178,9 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 			makeMailboxInput(accountId, "[Gmail]/Trash"),
 		);
 
-		assert.equal(await repo.findConfirmedTrashMailbox(accountId), null);
+		const proposal = await repo.resolveTrashRole(accountId);
+		assert.equal(proposal.kind, "proposed");
+		assert.equal(meetsTrashAssurance(proposal, "confirmed"), false);
 
 		await appoint(
 			accountConfigId,
@@ -183,9 +188,11 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 			CanonicalMailboxRole.Trash,
 			trash.mailboxId,
 		);
-		const confirmed = await repo.findConfirmedTrashMailbox(accountId);
-		assert.equal(confirmed?.mailboxId, trash.mailboxId);
-		assert.notEqual(confirmed?.mailboxId, keepsakes.mailboxId);
+		assert.deepEqual(await repo.resolveTrashRole(accountId), {
+			kind: "appointed",
+			mailbox: { mailboxId: trash.mailboxId, fullPath: "[Gmail]/Trash" },
+		});
+		assert.notEqual(trash.mailboxId, keepsakes.mailboxId);
 	});
 
 	test("keeps a stale Trash appointment visible instead of answering the fallback", async () => {
@@ -215,9 +222,12 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 			},
 		});
 
-		// The expunge read stops here too: the flagged folder is where a delete
-		// files mail, not evidence the user meant it to be emptied.
-		assert.equal(await repo.findConfirmedTrashMailbox(accountId), null);
+		// The flagged folder is where a delete files mail, and no evidence at all
+		// that the user meant it to be emptied.
+		assert.equal(
+			meetsTrashAssurance(await repo.resolveTrashRole(accountId), "confirmed"),
+			false,
+		);
 		assert.equal(
 			(await repo.findTrashMailbox(accountId))?.mailboxId,
 			flagged.mailboxId,
@@ -267,7 +277,10 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 		// Resolving the name widens where a delete FILES mail, never what an
 		// Empty Trash may expunge (#846): that still needs the flag or an
 		// appointment.
-		assert.equal(await repo.findConfirmedTrashMailbox(accountId), null);
+		assert.equal(
+			meetsTrashAssurance(await repo.resolveTrashRole(accountId), "confirmed"),
+			false,
+		);
 	});
 
 	test("resolves an INBOX-nested Archive folder that advertises no special use", async () => {

@@ -14,7 +14,6 @@ import type {
 import { FolderRoleUnresolvedError } from "@remit/data-ports/errors";
 import {
 	type FolderRoleUnresolvedReason,
-	meetsTrashAssurance,
 	NO_TRASH_FOLDER_REASON,
 	type RoleResolution,
 	STALE_TRASH_FOLDER_REASON,
@@ -184,12 +183,17 @@ const REFUSAL_BY_REASON: Record<
 	unconfirmed: UnconfirmedTrashMailboxError,
 };
 
+/** The coded 409 for one refusal reason. The only place a reason becomes an error. */
+const trashRefusal = (
+	reason: FolderRoleUnresolvedReason,
+	accountId: string,
+): FolderRoleUnresolvedError => new REFUSAL_BY_REASON[reason](accountId);
+
 /**
  * The Trash folder a verb may act on at the assurance it demands, or the coded
  * refusal naming which of the three reasons stopped it. Every Trash gate goes
- * through here — the delete, the expunge, and the count the handler reports
- * before one — so no two of them can tell a user different things about the
- * same account.
+ * through here — the delete and the expunge — so no two of them can tell a
+ * user different things about the same account.
  */
 export const requireTrashMailbox = <T>(
 	resolution: RoleResolution<T>,
@@ -198,22 +202,8 @@ export const requireTrashMailbox = <T>(
 ): T => {
 	const outcome = trashMailboxAt(resolution, level);
 	if (outcome.allowed) return outcome.mailbox;
-	throw new REFUSAL_BY_REASON[outcome.reason](accountId);
+	throw trashRefusal(outcome.reason, accountId);
 };
-
-/**
- * What an Empty Trash acts on: the folder's messages whose last move has
- * settled. A row still `pending` is a move-to-Trash the server has not
- * confirmed, so it is outside this Empty Trash's scope — it settles on its own
- * and the next Empty Trash covers it. Shared with the handler that counts, so
- * the number the user is shown is the number that gets expunged.
- */
-export const emptyTrashScope = <T extends { syncStatus: string }>(
-	messages: readonly T[],
-): T[] =>
-	messages.filter(
-		(message) => message.syncStatus !== MessageSyncStatus.pending,
-	);
 
 /**
  * Options for delete operations
@@ -312,24 +302,22 @@ export class MessageMoveService {
 		const wantsPermanentDelete =
 			options.permanent === true || options.toTrash === false;
 
-		const trashResolution = wantsPermanentDelete
+		const trashGate = wantsPermanentDelete
 			? null
-			: await this.mailboxSpecialUseService.resolveTrashRole(accountId);
+			: trashMailboxAt(
+					await this.mailboxSpecialUseService.resolveTrashRole(accountId),
+					"resolved",
+				);
 
-		if (trashResolution && !meetsTrashAssurance(trashResolution, "resolved")) {
+		if (trashGate && !trashGate.allowed) {
 			this.log.error(
-				{
-					accountId,
-					messageCount: messages.length,
-					resolution: trashResolution.kind,
-				},
-				"Refused to delete: account resolves no Trash mailbox",
+				{ accountId, messageCount: messages.length, reason: trashGate.reason },
+				"Refused to delete: this account's Trash is unresolved",
 			);
+			throw trashRefusal(trashGate.reason, accountId);
 		}
 
-		const trashMailbox = trashResolution
-			? requireTrashMailbox(trashResolution, "resolved", accountId)
-			: null;
+		const trashMailbox = trashGate ? trashGate.mailbox : null;
 
 		// Group messages by operation type
 		const moveToTrashMessages: Array<{
@@ -759,19 +747,25 @@ export class MessageMoveService {
 	 * permanently. Each of the three ways that evidence can be absent refuses
 	 * under its own reason, so the surface can name the remedy instead of
 	 * offering a silent no-op.
+	 *
+	 * Reports the rows it marked, read once here, so the number the caller shows
+	 * a user is the number this operation acted on. Pressed twice before the
+	 * worker runs it re-marks the same rows and reports the same number: the
+	 * folder really does still hold them, and the second expunge finds nothing
+	 * to do.
 	 */
 	emptyTrash = async (
 		accountConfigId: string,
 		accountId: string,
-	): Promise<void> => {
+	): Promise<{ deletedCount: number }> => {
 		const trashMailbox = requireTrashMailbox(
 			await this.mailboxSpecialUseService.resolveTrashRole(accountId),
 			"confirmed",
 			accountId,
 		);
 
-		const messages = emptyTrashScope(
-			await this.messageService.listAllByMailbox(trashMailbox.mailboxId),
+		const messages = await this.messageService.listAllByMailbox(
+			trashMailbox.mailboxId,
 		);
 
 		// Mark all as deleting locally
@@ -807,6 +801,8 @@ export class MessageMoveService {
 		};
 
 		await this.enqueueEvent(event);
+
+		return { deletedCount: messages.length };
 	};
 
 	/**

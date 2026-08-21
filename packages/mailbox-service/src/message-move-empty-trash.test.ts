@@ -16,7 +16,6 @@ import type {
 } from "@remit/data-ports";
 import type { RoleResolution } from "@remit/data-ports/folder-role";
 import {
-	emptyTrashScope,
 	type MessageMoveConfig,
 	MessageMoveService,
 	NoTrashMailboxError,
@@ -48,6 +47,11 @@ interface TrashMessage {
 	syncStatus: string;
 }
 
+interface EnqueuedEvent {
+	type: string;
+	trashMailboxId?: string;
+}
+
 const buildWorld = (
 	trashResolution: RoleResolution<TrashMailbox>,
 	trashContents: TrashMessage[] = [
@@ -56,6 +60,7 @@ const buildWorld = (
 ) => {
 	const emptied: string[] = [];
 	const markedDeleting: string[] = [];
+	const events: EnqueuedEvent[] = [];
 	const messagesByMailbox = new Map<string, TrashMessage[]>([
 		[DELETED_FOLDER, [{ messageId: "keepsake-1", syncStatus: "synced" }]],
 		[REAL_TRASH, trashContents],
@@ -95,10 +100,14 @@ const buildWorld = (
 
 	const service = new MessageMoveService(config);
 	(
-		service as unknown as { sqs: { send: (c: unknown) => Promise<unknown> } }
-	).sqs = { send: async () => ({}) };
+		service as unknown as {
+			enqueueEvent: (event: EnqueuedEvent) => Promise<void>;
+		}
+	).enqueueEvent = async (event) => {
+		events.push(event);
+	};
 
-	return { service, emptied, markedDeleting };
+	return { service, emptied, markedDeleting, events };
 };
 
 describe("MessageMoveService.emptyTrash", () => {
@@ -163,34 +172,52 @@ describe("MessageMoveService.emptyTrash", () => {
 		assert.deepEqual(markedDeleting, []);
 	});
 
-	it("leaves a message whose move to Trash has not settled alone", async () => {
-		// F7: a `pending` row is a move the server has not confirmed, so it is
-		// outside this Empty Trash's scope. Marking it deleting would race the
-		// move it is still waiting on; it settles and the next Empty Trash
-		// covers it.
+	it("reports what it marked, from the one read that decided it", async () => {
+		const { service, markedDeleting } = buildWorld(appointedTrash, [
+			{ messageId: "junk-1", syncStatus: "synced" },
+			{ messageId: "junk-2", syncStatus: "synced" },
+			{ messageId: "junk-3", syncStatus: "synced" },
+		]);
+
+		const { deletedCount } = await service.emptyTrash(ACCOUNT_CONFIG, ACCOUNT);
+
+		assert.equal(deletedCount, markedDeleting.length);
+		assert.equal(deletedCount, 3);
+	});
+
+	it("marks and counts a message whose move to Trash has not settled", async () => {
+		// The user saw the message in Trash and asked for the folder to be
+		// emptied. Skipping it reports a number the folder contradicts, and the
+		// queue is per-account FIFO, so the move has landed on the server before
+		// the expunge is even delivered.
 		const { service, markedDeleting } = buildWorld(appointedTrash, [
 			{ messageId: "settled-1", syncStatus: "synced" },
 			{ messageId: "still-moving-1", syncStatus: "pending" },
 		]);
 
-		await service.emptyTrash(ACCOUNT_CONFIG, ACCOUNT);
+		const { deletedCount } = await service.emptyTrash(ACCOUNT_CONFIG, ACCOUNT);
 
-		assert.deepEqual(markedDeleting, ["settled-1"]);
+		assert.deepEqual(markedDeleting, ["settled-1", "still-moving-1"]);
+		assert.equal(deletedCount, 2);
 	});
-});
 
-describe("emptyTrashScope", () => {
-	it("is what the handler counts, so the number shown is the number expunged", async () => {
-		// The count the API reports and the rows the service marks come from this
-		// one filter. Two filters would let the confirmation promise a message
-		// the expunge then leaves behind.
+	it("reports the same count when pressed twice before the worker runs", async () => {
+		// The rows it marked are still in that folder, so N stays true and the
+		// re-mark is idempotent. Reporting 0 the second time while still
+		// enqueuing an expunge would read as success over an untouched Trash.
+		const { service, events } = buildWorld(appointedTrash, [
+			{ messageId: "junk-1", syncStatus: "synced" },
+			{ messageId: "junk-2", syncStatus: "synced" },
+		]);
+
+		const first = await service.emptyTrash(ACCOUNT_CONFIG, ACCOUNT);
+		const second = await service.emptyTrash(ACCOUNT_CONFIG, ACCOUNT);
+
+		assert.equal(first.deletedCount, 2);
+		assert.equal(second.deletedCount, 2);
 		assert.deepEqual(
-			emptyTrashScope([
-				{ messageId: "settled-1", syncStatus: "synced" },
-				{ messageId: "still-moving-1", syncStatus: "pending" },
-				{ messageId: "settled-2", syncStatus: "failed" },
-			]).map((message) => message.messageId),
-			["settled-1", "settled-2"],
+			events.map((event) => event.type),
+			["EMPTY_TRASH", "EMPTY_TRASH"],
 		);
 	});
 });

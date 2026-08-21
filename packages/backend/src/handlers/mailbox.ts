@@ -5,7 +5,6 @@ import type {
 import type { IAccountSettingRepository, MailboxItem } from "@remit/data-ports";
 import { ForbiddenError, NotFoundError } from "@remit/data-ports/errors";
 import { MailboxSyncStatus, MessageSystemFlag } from "@remit/domain-enums";
-import { emptyTrashScope, requireTrashMailbox } from "@remit/mailbox-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import {
@@ -412,25 +411,10 @@ export const TrashOperations: Record<
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "act");
 
-		// The same gate and the same scope `emptyTrash` expunges through, so the
-		// count reported is the count of the folder that gets emptied. It
-		// refuses rather than returning zero when the role is unresolved:
-		// "0 deleted" reads as success, and the user goes on believing their
-		// Trash is empty.
-		const trashMailbox = requireTrashMailbox(
-			await client.mailboxSpecialUse.resolveTrashRole(accountId),
-			"confirmed",
-			accountId,
-		);
-
-		const messages = emptyTrashScope(
-			await client.message.listAllByMailbox(trashMailbox.mailboxId),
-		);
-		const deletedCount = messages.length;
-
-		// MessageMoveService handles: Message status updates + SQS event
-		await client.messageMove.emptyTrash(accountConfigId, accountId);
-
-		return { deletedCount };
+		// The service resolves Trash, marks the rows and counts them, all off one
+		// read, and refuses with a coded 409 when the role is unresolved. Counting
+		// here as well would be a second answer free to disagree with the one that
+		// acts, and "0 deleted" reads as success to a user whose Trash is untouched.
+		return client.messageMove.emptyTrash(accountConfigId, accountId);
 	},
 };
