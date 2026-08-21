@@ -254,22 +254,39 @@ describe("the adapters over resolveRoleForAccount", () => {
 		mailbox("mb-trash", "[Gmail]/Trash", [MailboxSpecialUse.Trash]),
 	];
 
-	it("still hands a stale appointment the flagged mailbox", () => {
-		// The refusal that makes this return null lands with the surface that can
-		// tell the user why (S3). Until then, both adapters answer exactly as they
-		// did before the union existed.
+	it("withholds a stale appointment's fallback from the confirmed answer only", () => {
+		// A vanished appointment is not confirmation of anything, so the expunge
+		// gate sees nothing. Filing mail still works: the fallback is a fine place
+		// to put a message the user can move back.
 		assert.equal(
 			resolveConfirmedMailboxForRole(
 				CanonicalMailboxRole.Trash,
 				mailboxes,
 				"mb-gone",
-			)?.mailboxId,
-			"mb-trash",
+			),
+			null,
 		);
 		assert.equal(
 			resolveMailboxForRole(CanonicalMailboxRole.Trash, mailboxes, "mb-gone")
 				?.mailboxId,
 			"mb-trash",
+		);
+	});
+
+	it("keeps a stale appointment on the flag, never on a folder named like one", () => {
+		// The confirmed adapter is not built on top of the other one: were it,
+		// null-on-stale would drop the seven non-Trash roles past their
+		// SPECIAL-USE flag and into the name hint, and a folder somebody called
+		// "Sent" would start collecting this account's sent mail.
+		const sent = [
+			mailbox("mb-inbox", "INBOX"),
+			mailbox("mb-sent-copy", "Sent"),
+			mailbox("mb-sent", "[Gmail]/Sent Mail", [MailboxSpecialUse.Sent]),
+		];
+		assert.equal(
+			resolveMailboxForRole(CanonicalMailboxRole.Sent, sent, "mb-gone")
+				?.mailboxId,
+			"mb-sent",
 		);
 	});
 

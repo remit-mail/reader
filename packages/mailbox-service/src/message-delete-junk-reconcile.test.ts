@@ -8,6 +8,7 @@ import type {
 	IThreadMessageRepository,
 } from "@remit/data-ports";
 import { type MessageMoveConfig, MessageMoveService } from "./message-move.js";
+import { trashRole } from "./test-helpers/folder-roles.js";
 
 const ACCOUNT = "acc-1";
 const ACCOUNT_CONFIG = "cfg-1";
@@ -51,9 +52,11 @@ const buildWorld = (trashExists: boolean) => {
 		],
 	} as unknown as IMailboxRepository;
 
+	const trash = trashExists ? { mailboxId: TRASH, fullPath: "Trash" } : null;
+
 	const mailboxSpecialUseService = {
-		findTrashMailbox: async () =>
-			trashExists ? { mailboxId: TRASH, fullPath: "Trash" } : null,
+		findTrashMailbox: async () => trash,
+		resolveTrashRole: async () => trashRole(trash),
 	} as unknown as IMailboxSpecialUseRepository;
 
 	const addressService = {

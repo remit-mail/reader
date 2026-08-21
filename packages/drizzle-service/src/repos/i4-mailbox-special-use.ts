@@ -8,7 +8,6 @@ import {
 	composeFolderRoleAppointmentName,
 	type RoleMailboxCandidate,
 	type RoleResolution,
-	resolveConfirmedMailboxForRole,
 	resolveMailboxForRole,
 	resolveRoleForAccount,
 	type UnappointedRoleResolution,
@@ -144,16 +143,6 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 		return this.findMailboxForRole(accountId, CanonicalMailboxRole.Trash);
 	}
 
-	findConfirmedTrashMailbox(
-		accountId: string,
-	): Promise<{ mailboxId: string; fullPath: string } | null> {
-		return this.findMailboxForRole(
-			accountId,
-			CanonicalMailboxRole.Trash,
-			resolveConfirmedMailboxForRole,
-		);
-	}
-
 	/**
 	 * Trash with its evidence, for the verbs that weigh it. Reads exactly what
 	 * `findMailboxForRole` reads — a `null` answer is thrown away there, and this
@@ -194,13 +183,12 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 	private async findMailboxForRole(
 		accountId: string,
 		role: CanonicalMailboxRoleValue,
-		resolve: typeof resolveMailboxForRole = resolveMailboxForRole,
 	): Promise<{ mailboxId: string; fullPath: string } | null> {
 		const [candidates, appointedMailboxId] = await Promise.all([
 			this.roleCandidates(accountId),
 			this.appointedMailboxId(accountId, role),
 		]);
-		const found = resolve(role, candidates, appointedMailboxId);
+		const found = resolveMailboxForRole(role, candidates, appointedMailboxId);
 		return found
 			? { mailboxId: found.mailboxId, fullPath: found.fullPath }
 			: null;

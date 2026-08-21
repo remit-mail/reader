@@ -19,6 +19,7 @@ import {
 	NoJunkMailboxError,
 	SpamReportService,
 } from "./spam-report.js";
+import { trashRole } from "./test-helpers/folder-roles.js";
 
 const ACCOUNT = "acc-1";
 const ACCOUNT_CONFIG = "cfg-1";
@@ -233,6 +234,7 @@ const buildWorld = (
 	const mailboxSpecialUseService = {
 		findJunkMailbox: async () => junkMailbox,
 		findTrashMailbox: async () => null,
+		resolveTrashRole: async () => trashRole(null),
 	} as unknown as IMailboxSpecialUseRepository;
 
 	const mailboxService = {

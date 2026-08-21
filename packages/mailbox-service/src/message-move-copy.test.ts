@@ -15,7 +15,7 @@ import { MailboxCursorState } from "@remit/domain-enums";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
 import { type MessageMoveConfig, MessageMoveService } from "./message-move.js";
 import { MessageSyncService } from "./message-sync.js";
-import { noFolderRoles } from "./test-helpers/folder-roles.js";
+import { noFolderRoles, trashRole } from "./test-helpers/folder-roles.js";
 import type { IImapConnection, ImapMessage } from "./types.js";
 
 const stubAddressService = (): IAddressRepository =>
@@ -175,6 +175,7 @@ const buildWorld = () => {
 	// where a copy's placement row must be reachable.
 	const mailboxSpecialUseService = {
 		findTrashMailbox: async () => null,
+		resolveTrashRole: async () => trashRole(null),
 	} as unknown as IMailboxSpecialUseRepository;
 
 	const config: MessageMoveConfig = {

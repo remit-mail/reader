@@ -150,6 +150,20 @@ export const FOLDER_ROLES_SETTINGS_PATH = "Settings › Folder roles";
  */
 export const NO_TRASH_FOLDER_REASON = `This account has no Trash folder, so nothing was deleted. Appoint one under ${FOLDER_ROLES_SETTINGS_PATH}, then try again.`;
 
+/**
+ * The folder somebody chose as this account's Trash is no longer on the mail
+ * server. Reader will not quietly file mail into whatever it would have picked
+ * had nobody chosen: the user's choice went missing and only they can replace
+ * it.
+ */
+export const STALE_TRASH_FOLDER_REASON = `The folder appointed as this account's Trash is no longer on the mail server, so nothing was deleted. Appoint one under ${FOLDER_ROLES_SETTINGS_PATH}, then try again.`;
+
+/**
+ * A folder matches the Trash name hint and nothing else — enough to file a
+ * delete somewhere retrievable, never enough to expunge a whole folder.
+ */
+export const UNCONFIRMED_TRASH_FOLDER_REASON = `Nobody has confirmed which folder is this account's Trash, so it was not emptied. Appoint one under ${FOLDER_ROLES_SETTINGS_PATH}, then try again.`;
+
 /** The minimal mailbox shape role resolution reads. */
 export interface RoleMailboxCandidate extends MailboxNameCandidate {
 	specialUse?: readonly string[];
@@ -249,25 +263,49 @@ export const resolveRoleForAccount = <T extends RoleMailboxCandidate>(
  */
 export type TrashAssuranceLevel = "confirmed" | "resolved";
 
-export const meetsTrashAssurance = <T>(
+/**
+ * Why a canonical role names no folder an action may act on. `none`: the
+ * account has no candidate at all. `stale`: the folder the user appointed is
+ * gone from the server. `unconfirmed`: a folder matches by name, but nobody —
+ * neither the user nor the server's own flag — ever said it holds the role.
+ * These three and no others; a target that is merely unsettled is a different
+ * refusal under its own code.
+ */
+export type FolderRoleUnresolvedReason = "none" | "stale" | "unconfirmed";
+
+export type TrashGateOutcome<T> =
+	| { allowed: true; mailbox: T }
+	| { allowed: false; reason: FolderRoleUnresolvedReason };
+
+/**
+ * The Trash folder a verb at this assurance level may act on, or which of the
+ * three reasons stops it. One switch: the delete, the expunge and the count
+ * reported before one all decide here, so no two of them can answer a user
+ * differently about the same account.
+ */
+export const trashMailboxAt = <T>(
 	resolution: RoleResolution<T>,
 	level: TrashAssuranceLevel,
-): boolean => {
+): TrashGateOutcome<T> => {
 	switch (resolution.kind) {
 		case "appointed":
 		case "flagged":
-			return true;
+			return { allowed: true, mailbox: resolution.mailbox };
 		case "proposed":
-			return level === "resolved";
+			return level === "resolved"
+				? { allowed: true, mailbox: resolution.mailbox }
+				: { allowed: false, reason: "unconfirmed" };
+		case "appointment_stale":
+			return { allowed: false, reason: "stale" };
 		default:
-			return false;
+			return { allowed: false, reason: "none" };
 	}
 };
 
-const withoutStale = <T>(
+export const meetsTrashAssurance = <T>(
 	resolution: RoleResolution<T>,
-): { kind: "appointed"; mailbox: T } | UnappointedRoleResolution<T> =>
-	resolution.kind === "appointment_stale" ? resolution.fallback : resolution;
+	level: TrashAssuranceLevel,
+): boolean => trashMailboxAt(resolution, level).allowed;
 
 /**
  * The mailbox a role is CONFIRMED to hold: the one the user appointed, or the
@@ -278,17 +316,16 @@ const withoutStale = <T>(
  * on top for the operations where being wrong only misfiles a message.
  *
  * An appointment naming a mailbox this account does not hold — deleted,
- * renamed, or carried in from elsewhere — is stale, and falls through to the
- * flag as if unset.
+ * renamed, or carried in from elsewhere — is stale, and answers `null` here
+ * too: the fallback is the folder the user did not choose, which is fine to
+ * file mail into and no basis at all for destroying it.
  */
 export const resolveConfirmedMailboxForRole = <T extends RoleMailboxCandidate>(
 	role: CanonicalMailboxRoleValue,
 	mailboxes: readonly T[],
 	appointedMailboxId?: string,
 ): T | null => {
-	const resolution = withoutStale(
-		resolveRoleForAccount(role, mailboxes, appointedMailboxId),
-	);
+	const resolution = resolveRoleForAccount(role, mailboxes, appointedMailboxId);
 	switch (resolution.kind) {
 		case "appointed":
 		case "flagged":
@@ -302,15 +339,21 @@ export const resolveConfirmedMailboxForRole = <T extends RoleMailboxCandidate>(
 /**
  * The role's mailbox including the name guess: `null` only when nothing
  * matches at all, so the caller says the role has no folder rather than picking
- * one.
+ * one. A stale appointment answers with its fallback — every role but Trash
+ * files mail on this read, and refusing them all would be a behaviour change
+ * with no surface to explain it.
+ *
+ * Built on `resolveRoleForAccount` directly, never on the confirmed adapter: a
+ * stale appointment must still reach the `\Sent` flag here, not fall past it
+ * into a folder that merely reads like one.
  */
 export const resolveMailboxForRole = <T extends RoleMailboxCandidate>(
 	role: CanonicalMailboxRoleValue,
 	mailboxes: readonly T[],
 	appointedMailboxId?: string,
 ): T | null => {
-	const resolution = withoutStale(
-		resolveRoleForAccount(role, mailboxes, appointedMailboxId),
-	);
-	return resolution.kind === "none" ? null : resolution.mailbox;
+	const resolution = resolveRoleForAccount(role, mailboxes, appointedMailboxId);
+	const effective =
+		resolution.kind === "appointment_stale" ? resolution.fallback : resolution;
+	return effective.kind === "none" ? null : effective.mailbox;
 };
