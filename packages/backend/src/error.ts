@@ -16,16 +16,21 @@ export const handleError = async (
 				},
 				"Error with statusCode",
 			);
-			// Only an error that opted in gets a coded body. Every other failure
-			// keeps `{ message }`, so no 5xx and no auth refusal starts leaking a
-			// shape the API never declared.
+			// Only an error that opted in gets a coded body, and only below 500:
+			// a coded 5xx is a mistake at the throw site, not a contract, and the
+			// status bound keeps it from reaching a client rather than trusting
+			// every future thrower to leave `publicApiError` alone.
+			const statusCode =
+				typeof error.statusCode === "number" ? error.statusCode : 500;
 			const publicApiError =
-				"publicApiError" in error && isPublicApiError(error.publicApiError)
+				statusCode < 500 &&
+				"publicApiError" in error &&
+				isPublicApiError(error.publicApiError)
 					? error.publicApiError
 					: undefined;
 			return formatResponse(
 				{ message: error.message, ...publicApiError },
-				error.statusCode as number,
+				statusCode,
 			);
 		}
 

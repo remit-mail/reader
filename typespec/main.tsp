@@ -157,7 +157,7 @@ namespace RemitApi {
       @path accountId: UUID,
       @path role: CanonicalMailboxRole,
       @body input: AppointFolderRoleInput,
-    ): AccountResponse | FolderRoleConflict;
+    ): AccountResponse | AppointFolderRoleConflict;
   }
 
   // ============================================

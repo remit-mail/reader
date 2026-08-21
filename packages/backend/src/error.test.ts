@@ -56,6 +56,21 @@ describe("handleError coded refusals", () => {
 		});
 	});
 
+	it("strips a code a 5xx should never have carried", async () => {
+		const error = new UnhandledError("Something went wrong");
+		error.publicApiError = {
+			code: "folder_role_unresolved",
+			details: { role: "Trash", reason: "none", accountId: "account-7" },
+		};
+
+		const response = await handleError(error);
+
+		assert.equal(response.statusCode, 500);
+		assert.deepEqual(parseBody(response.body), {
+			message: "Something went wrong",
+		});
+	});
+
 	it("answers an unauthenticated request with a 401 and an error body", async () => {
 		const response = await handleError(new ClientError("Session expired"));
 

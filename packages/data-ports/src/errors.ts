@@ -15,7 +15,10 @@ export const isPublicApiError = (value: unknown): value is PublicApiError => {
 	if (typeof value !== "object" || value === null) return false;
 	if (!("code" in value) || typeof value.code !== "string") return false;
 	if (!("details" in value) || value.details === undefined) return true;
-	return typeof value.details === "object" && value.details !== null;
+	if (typeof value.details !== "object" || value.details === null) return false;
+	return Object.values(value.details).every(
+		(detail) => typeof detail === "string",
+	);
 };
 
 export class HTTPError extends Error {
