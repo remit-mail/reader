@@ -51,6 +51,53 @@ export const chunkIds = (
 	return chunks;
 };
 
+/** One message a run covers, as the surface that selected it knows it. */
+export interface BulkActionTarget {
+	id: string;
+	/**
+	 * Owning IMAP account — the `accountId` of the account API, never the
+	 * caller's `accountConfigId` (#456). Undefined on a row from a per-mailbox
+	 * listing, which does not carry one because every row in it shares the same
+	 * account.
+	 */
+	accountId: string | undefined;
+}
+
+/**
+ * Split `targets` into chunks of at most `size` that each carry exactly one
+ * account (#872).
+ *
+ * The bulk endpoints reject a batch spanning accounts outright, before applying
+ * any of it, and the daily brief and Flagged are both cross-account lists — so
+ * a selection ticked across two accounts sent as one batch deleted nothing.
+ * Account is a property of the batch, not of the verb: delete and mark-read
+ * cover whatever was ticked, and this is where that becomes one call per
+ * account.
+ *
+ * Targets with no account form a group of their own, which keeps the id in the
+ * run rather than dropping a message the user asked to be acted on. A surface
+ * that carries no account is single-account by construction; one that carries
+ * it for some rows and not others sends the unattributed ones together, and if
+ * the server refuses that batch the run reports it like any other failure.
+ *
+ * Accounts and ids keep the order they were selected in.
+ */
+export const chunkTargets = (
+	targets: readonly BulkActionTarget[],
+	size = BULK_ACTION_CHUNK_SIZE,
+): string[][] => {
+	const byAccount = new Map<string | undefined, string[]>();
+	for (const target of targets) {
+		const held = byAccount.get(target.accountId);
+		if (held) {
+			held.push(target.id);
+			continue;
+		}
+		byAccount.set(target.accountId, [target.id]);
+	}
+	return [...byAccount.values()].flatMap((ids) => chunkIds(ids, size));
+};
+
 export interface BatchResult {
 	successCount: number;
 	failureCount: number;
@@ -93,15 +140,20 @@ export interface BulkActionOutcome {
  * caller always gets back exactly the ids the action never reached, ready to
  * retry as-is: every action here is idempotent (re-trashing, re-moving or
  * re-marking a message it already applied to is a no-op).
+ *
+ * Chunks never mix accounts (see `chunkTargets`), and the run walks them as one
+ * sequence: cancellation lands at whichever boundary comes next, whether or not
+ * that is an account boundary, and progress counts toward the whole selection
+ * rather than restarting per account.
  */
 export const runChunkedAction = async (
-	ids: readonly string[],
+	targets: readonly BulkActionTarget[],
 	applyBatch: ApplyBatch,
 	onProgress: (progress: BulkActionProgress) => void,
 	isCancelled: () => boolean,
 ): Promise<BulkActionOutcome> => {
-	const chunks = chunkIds(ids);
-	const total = ids.length;
+	const chunks = chunkTargets(targets);
+	const total = targets.length;
 	let done = 0;
 	const failedIds: string[] = [];
 
@@ -137,13 +189,18 @@ export const runChunkedAction = async (
  * Each chunk is a full mutation of its own, so it keeps that hook's optimistic
  * patch, rollback and error banner. The run stops at the first rejected chunk
  * and reports nothing itself: the hook that owns the call has already raised it.
+ *
+ * Every call site on this path hands over ids from a single account — a
+ * focused row, or a selection the surface already scoped — so nothing here
+ * carries an account to split by. A caller with a cross-account selection
+ * belongs on `runChunkedAction`, whose targets name one (#872).
  */
 export const runChunkedMutation = async (
 	ids: readonly string[],
 	send: (chunk: string[]) => Promise<unknown>,
 ): Promise<void> => {
 	await runChunkedAction(
-		ids,
+		ids.map((id) => ({ id, accountId: undefined })),
 		async (chunk) => {
 			await send(chunk);
 			return { successCount: chunk.length, failureCount: 0 };
