@@ -32,6 +32,7 @@ import {
 } from "../repair/junk-only-address.js";
 import { addressTable } from "../schema/i4-address.js";
 import { envelopeAddressTable } from "../schema/message-data.js";
+import { runInTransaction } from "../tx.js";
 import {
 	addressCorrespondence,
 	addressListable,
@@ -48,6 +49,23 @@ type AddressUpdate = Partial<{
 		| (typeof addressTable.$inferInsert)[K]
 		| SQL;
 }>;
+
+const MERGE_FLAGS_ATTEMPTS = 8;
+
+/**
+ * The stored flags exactly as they sit in the column, so a merge can guard its
+ * write on the bytes it read rather than on a re-serialization of them.
+ */
+const storedFlagsSql = sql<string>`cast(${addressTable.flags} as text)`;
+
+/** A row harvested before the column existed carries `''`, not `'{}'`. */
+const parseStoredFlags = (stored: string): AddressFlags =>
+	stored === "" ? {} : (JSON.parse(stored) as AddressFlags);
+
+type MergeAttempt =
+	| { outcome: "merged"; address: AddressItem }
+	| { outcome: "missing" }
+	| { outcome: "contended" };
 
 /**
  * The stored `"<display name> <email>"` compound, folded in JavaScript exactly
@@ -400,36 +418,77 @@ export class AddressRepo implements IAddressRepository {
 		return rowToAddress(row);
 	}
 
+	/**
+	 * Read the flags, fold `merge` over them, and write the result back only if
+	 * the column still holds the bytes the read returned. Read and write share
+	 * one serialized unit, so the only writer that can slip between them is the
+	 * junk-only reconcile, which runs its raw statement outside the write queue;
+	 * that write fails the guard and the merge folds again over the winner
+	 * instead of overwriting it. The unit never throws, so a reconcile statement
+	 * landing inside its savepoint is never rolled back with it.
+	 */
+	private async mergeStoredFlags(
+		accountConfigId: string,
+		addressId: string,
+		merge: (current: AddressFlags) => AddressFlags,
+		extra: AddressUpdate = {},
+	): Promise<AddressItem> {
+		const key = and(
+			eq(addressTable.accountConfigId, accountConfigId),
+			eq(addressTable.addressId, addressId),
+		);
+		for (let attempt = 0; attempt < MERGE_FLAGS_ATTEMPTS; attempt++) {
+			const result = await runInTransaction(
+				this.db,
+				async (tx): Promise<MergeAttempt> => {
+					const [current] = await tx
+						.select({ stored: storedFlagsSql })
+						.from(addressTable)
+						.where(key);
+					if (!current) return { outcome: "missing" };
+					const [row] = await tx
+						.update(addressTable)
+						.set({
+							...extra,
+							flags: merge(parseStoredFlags(current.stored)) as never,
+							updatedAt: Date.now(),
+						})
+						.where(and(key, eq(storedFlagsSql, current.stored)))
+						.returning();
+					return row
+						? { outcome: "merged", address: rowToAddress(row) }
+						: { outcome: "contended" };
+				},
+			);
+			if (result.outcome === "merged") return result.address;
+			if (result.outcome === "missing")
+				throw new NotFoundError(`Address not found: ${addressId}`);
+		}
+		throw new Error(
+			`Address flags stayed contended after ${MERGE_FLAGS_ATTEMPTS} attempts: ${addressId}`,
+		);
+	}
+
 	async mergeFlags(
 		accountConfigId: string,
 		addressId: string,
 		patch: FlagsMergePatch,
 	): Promise<AddressItem> {
-		const current = await this.getAddress(accountConfigId, addressId);
-		const next: AddressFlags = { ...(current.flags ?? {}) };
-		for (const [key, value] of Object.entries(patch) as [
-			keyof AddressFlags,
-			AddressFlags[keyof AddressFlags] | null | undefined,
-		][]) {
-			if (value === undefined) continue;
-			if (value === null) {
-				delete next[key];
-				continue;
+		return this.mergeStoredFlags(accountConfigId, addressId, (current) => {
+			const next: AddressFlags = { ...current };
+			for (const [key, value] of Object.entries(patch) as [
+				keyof AddressFlags,
+				AddressFlags[keyof AddressFlags] | null | undefined,
+			][]) {
+				if (value === undefined) continue;
+				if (value === null) {
+					delete next[key];
+					continue;
+				}
+				(next[key] as AddressFlags[keyof AddressFlags]) = value;
 			}
-			(next[key] as AddressFlags[keyof AddressFlags]) = value;
-		}
-		const [row] = await this.db
-			.update(addressTable)
-			.set({ flags: next as never, updatedAt: Date.now() })
-			.where(
-				and(
-					eq(addressTable.accountConfigId, accountConfigId),
-					eq(addressTable.addressId, addressId),
-				),
-			)
-			.returning();
-		if (!row) throw new NotFoundError(`Address not found: ${addressId}`);
-		return rowToAddress(row);
+			return next;
+		});
 	}
 
 	async promoteWellknownByUser(
@@ -437,23 +496,10 @@ export class AddressRepo implements IAddressRepository {
 		addressId: string,
 		now: number,
 	): Promise<AddressItem> {
-		const current = await this.getAddress(accountConfigId, addressId);
-		const next: AddressFlags = {
-			...(current.flags ?? {}),
+		return this.mergeStoredFlags(accountConfigId, addressId, (current) => ({
+			...current,
 			wellknown: { value: true, setAt: now, setBy: "user-junk-rescue" },
-		};
-		const [row] = await this.db
-			.update(addressTable)
-			.set({ flags: next as never, updatedAt: Date.now() })
-			.where(
-				and(
-					eq(addressTable.accountConfigId, accountConfigId),
-					eq(addressTable.addressId, addressId),
-				),
-			)
-			.returning();
-		if (!row) throw new NotFoundError(`Address not found: ${addressId}`);
-		return rowToAddress(row);
+		}));
 	}
 
 	async demoteSenderTrust(
@@ -461,25 +507,12 @@ export class AddressRepo implements IAddressRepository {
 		addressId: string,
 		_now: number,
 	): Promise<AddressItem> {
-		const current = await this.getAddress(accountConfigId, addressId);
-		const { wellknown: _w, vip: _v, ...rest } = current.flags ?? {};
-		const [row] = await this.db
-			.update(addressTable)
-			.set({
-				flags: rest as never,
-				inboundCount: 0,
-				replyCount: 0,
-				updatedAt: Date.now(),
-			})
-			.where(
-				and(
-					eq(addressTable.accountConfigId, accountConfigId),
-					eq(addressTable.addressId, addressId),
-				),
-			)
-			.returning();
-		if (!row) throw new NotFoundError(`Address not found: ${addressId}`);
-		return rowToAddress(row);
+		return this.mergeStoredFlags(
+			accountConfigId,
+			addressId,
+			({ wellknown: _w, vip: _v, ...rest }) => rest,
+			{ inboundCount: 0, replyCount: 0 },
+		);
 	}
 
 	async deleteAddress(
