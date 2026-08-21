@@ -24,10 +24,10 @@ const ACCOUNT_ID = "acc-1";
 const account = makeAccount({
 	accountId: ACCOUNT_ID,
 	folderAppointments: [
-		{ role: "Inbox", mailboxId: "mbx-inbox" },
-		{ role: "Drafts", mailboxId: "mbx-concepten" },
-		{ role: "Sent", mailboxId: "mbx-verzonden" },
-		{ role: "Archive", mailboxId: "mbx-archief" },
+		{ role: "Inbox", source: "Appointed", mailboxId: "mbx-inbox" },
+		{ role: "Drafts", source: "Appointed", mailboxId: "mbx-concepten" },
+		{ role: "Sent", source: "Appointed", mailboxId: "mbx-verzonden" },
+		{ role: "Archive", source: "Appointed", mailboxId: "mbx-archief" },
 	],
 });
 

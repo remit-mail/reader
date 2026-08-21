@@ -70,6 +70,7 @@ export const accountSettingRegistry = {
 	[AccountSettingName.MailboxDisplayName]: StringSettingSchema,
 	[AccountSettingName.MailboxMuted]: MutedFlagSettingSchema,
 	[AccountSettingName.FolderRoleAppointment]: StringSettingSchema,
+	[AccountSettingName.FolderRoleAppointmentLabel]: StringSettingSchema,
 	/**
 	 * Deprecated tombstone: superseded by `FolderRoleAppointment` (RFC 032
 	 * exclusive-folder-appointment, #976). Kept only so `baseSettingName`

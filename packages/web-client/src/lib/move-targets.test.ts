@@ -28,7 +28,7 @@ const make = (
 const appoint = (
 	role: RemitImapFolderAppointment["role"],
 	mailboxId: string,
-): RemitImapFolderAppointment => ({ role, mailboxId });
+): RemitImapFolderAppointment => ({ role, source: "Appointed", mailboxId });
 
 describe("buildMoveTargets — excluded destinations (#236, #976)", () => {
 	test("drops the account's appointed Drafts and Sent mailboxes", () => {

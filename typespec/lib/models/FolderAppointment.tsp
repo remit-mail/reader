@@ -1,6 +1,7 @@
 import "typespec-electrodb-emitter";
 
 import "../enums/CanonicalMailboxRole.tsp";
+import "../enums/FolderAppointmentSource.tsp";
 import "../scalars/string.tsp";
 
 namespace RemitImap;
@@ -10,8 +11,17 @@ model FolderAppointment {
   @doc("Which canonical role this entry fills.")
   role: CanonicalMailboxRole;
 
-  @doc("The mailbox appointed to the role. Absent when the role is unfilled — either nothing was detected yet, or the account genuinely has no such folder. When absent on a GET, this is a server-proposed best guess (SPECIAL-USE flag, then the reserved INBOX name, then a weak name hint) rather than a user's persisted choice; it becomes persisted only once the user calls appointFolderRole.")
+  @doc("Where `mailboxId` came from. Read this rather than inferring provenance from the shape of the entry: only `Appointed` means a person decided, and only `Appointed` and `Flagged` are evidence strong enough to destroy mail with.")
+  source: FolderAppointmentSource;
+
+  @doc("The mailbox this role resolves to. Absent when resolution names none — `source: None`, or a `Stale` appointment with nothing to fall back to.")
   mailboxId?: UUID;
+
+  @doc("The mailbox the user appointed, when the account no longer holds it. Present exactly when `source` is `Stale`; the appointment is kept rather than collected, so the user can repair it instead of silently losing the choice.")
+  staleAppointmentMailboxId?: UUID;
+
+  @doc("The path that stale mailbox last had, recorded beside the appointment when it was made. Display only — resolution never reads it — and present only alongside `staleAppointmentMailboxId`, and only for an appointment made after the path was first recorded.")
+  staleAppointmentPath?: String512;
 }
 
 @doc("Input for PUT /accounts/{accountId}/folder-roles/{role}. Appoints the mailbox to the role, replacing whichever mailbox previously held it (exclusive by construction — the map has one slot per role). Pass `mailboxId: null` to clear the role back to unfilled.")

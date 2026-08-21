@@ -38,6 +38,9 @@ enum AccountSettingName {
   @doc("Per-account appointment of a canonical role to a mailbox (RFC 032 exclusive-folder-appointment, issue #976). Stored per-(account, role): the persisted name is composed as `FolderRoleAppointment#<accountId>#<role>`. String-valued (a mailboxId).")
   FolderRoleAppointment,
 
+  @doc("The path the appointed mailbox had when the user appointed it, so a folder that later vanishes can still be named back to them (issue #887). Stored per-(account, role): the persisted name is composed as `FolderRoleAppointmentLabel#<accountId>#<role>`. String-valued. Display only — role resolution never reads it, and it is a sibling row rather than a field on the appointment so that guarantee is structural.")
+  FolderRoleAppointmentLabel,
+
   @doc("Deprecated tombstone: superseded by `FolderRoleAppointment` (RFC 032 exclusive-folder-appointment, issue #976). Retained only so `baseSettingName` recognises leftover `MailboxRole#<mailboxId>` rows written by the #963/#964 backfill instead of throwing; readers ignore this base. Do not write new rows under this name. Remove once the row-deletion migration ships.")
   MailboxRole,
 }

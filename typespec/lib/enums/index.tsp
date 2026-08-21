@@ -10,6 +10,7 @@ import "./MailboxAttribute.tsp";
 import "./MailboxSpecialUse.tsp";
 import "./MailboxSyncStatus.tsp";
 import "./CanonicalMailboxRole.tsp";
+import "./FolderAppointmentSource.tsp";
 
 // MIME Enums
 import "./MediaType.tsp";
