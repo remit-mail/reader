@@ -7,10 +7,12 @@ import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
+import type { RoleResolution } from "@remit/data-ports/folder-role";
 import {
 	type MessageMoveConfig,
 	MessageMoveService,
 	NoTrashMailboxError,
+	StaleTrashAppointmentError,
 } from "./message-move.js";
 
 const ACCOUNT = "acc-1";
@@ -19,13 +21,15 @@ const INBOX = "mbx-inbox";
 const TRASH = "mbx-trash";
 const MESSAGE_ID = "msg-1";
 
+type TrashMailbox = { mailboxId: string; fullPath: string };
+
 interface EnqueuedEvent {
 	operation: string;
 	destinationMailboxPath?: string;
 }
 
 const buildWorld = (
-	trash: { mailboxId: string; fullPath: string } | null,
+	trashResolution: RoleResolution<TrashMailbox>,
 	startingMailboxId = INBOX,
 ) => {
 	const patches: Array<Record<string, unknown>> = [];
@@ -74,7 +78,7 @@ const buildWorld = (
 	} as unknown as IMailboxRepository;
 
 	const mailboxSpecialUseService = {
-		findTrashMailbox: async () => trash,
+		resolveTrashRole: async () => trashResolution,
 	} as unknown as IMailboxSpecialUseRepository;
 
 	const addressService = {
@@ -102,12 +106,14 @@ const buildWorld = (
 	return { service, patches, events, message };
 };
 
+const flaggedTrash: RoleResolution<TrashMailbox> = {
+	kind: "flagged",
+	mailbox: { mailboxId: TRASH, fullPath: "INBOX/Trash" },
+};
+
 describe("delete only expunges when it was asked to", () => {
 	it("moves to a Trash the account resolves under a nested path", async () => {
-		const { service, events, message } = buildWorld({
-			mailboxId: TRASH,
-			fullPath: "INBOX/Trash",
-		});
+		const { service, events, message } = buildWorld(flaggedTrash);
 
 		await service.deleteMessages(ACCOUNT_CONFIG, [MESSAGE_ID], ACCOUNT);
 
@@ -120,13 +126,14 @@ describe("delete only expunges when it was asked to", () => {
 	});
 
 	it("refuses, and touches nothing, when no Trash resolves", async () => {
-		const { service, patches, events, message } = buildWorld(null);
+		const { service, patches, events, message } = buildWorld({ kind: "none" });
 
 		await assert.rejects(
 			() => service.deleteMessages(ACCOUNT_CONFIG, [MESSAGE_ID], ACCOUNT),
 			(error: unknown) =>
 				error instanceof NoTrashMailboxError &&
 				error.statusCode === 409 &&
+				error.publicApiError?.details?.reason === "none" &&
 				error.message.includes("no Trash folder"),
 		);
 
@@ -136,11 +143,52 @@ describe("delete only expunges when it was asked to", () => {
 		assert.equal(message.status, "active");
 	});
 
-	it("expunges only when the caller asked for a permanent delete", async () => {
-		const { service, events } = buildWorld({
-			mailboxId: TRASH,
-			fullPath: "INBOX/Trash",
+	it("refuses a stale appointment rather than filing into the fallback", async () => {
+		// #887 Done item 2: the user appointed a folder another client has since
+		// deleted. Silently filing 200 messages into the flagged folder overrides
+		// a choice they made and cannot see was lost.
+		const { service, patches, events, message } = buildWorld({
+			kind: "appointment_stale",
+			appointedMailboxId: "mbx-appointed-and-gone",
+			fallback: flaggedTrash,
 		});
+
+		await assert.rejects(
+			() => service.deleteMessages(ACCOUNT_CONFIG, [MESSAGE_ID], ACCOUNT),
+			(error: unknown) =>
+				error instanceof StaleTrashAppointmentError &&
+				error.statusCode === 409 &&
+				error.publicApiError?.details?.reason === "stale" &&
+				error.publicApiError?.details?.accountId === ACCOUNT,
+		);
+
+		assert.deepEqual(events, []);
+		assert.deepEqual(patches, []);
+		assert.equal(message.mailboxId, INBOX);
+		assert.equal(message.status, "active");
+	});
+
+	it("files into a Trash that resolves by name alone", async () => {
+		// A name guess is enough to move mail somewhere retrievable; only the
+		// expunge demands more (D4).
+		const { service, events, message } = buildWorld({
+			kind: "proposed",
+			mailbox: { mailboxId: TRASH, fullPath: "Trash" },
+		});
+
+		await service.deleteMessages(ACCOUNT_CONFIG, [MESSAGE_ID], ACCOUNT);
+
+		assert.deepEqual(
+			events.map((event) => event.operation),
+			["move_to_trash"],
+		);
+		assert.equal(message.mailboxId, TRASH);
+	});
+
+	it("expunges only when the caller asked for a permanent delete", async () => {
+		// fc685509: an explicit permanent delete never resolves Trash at all, so
+		// an account with none can still empty a message it selected.
+		const { service, events } = buildWorld({ kind: "none" });
 
 		await service.deleteMessages(ACCOUNT_CONFIG, [MESSAGE_ID], ACCOUNT, {
 			permanent: true,
@@ -152,9 +200,11 @@ describe("delete only expunges when it was asked to", () => {
 		);
 	});
 
-	it("expunges a message already in Trash, which the dialog asks as such", async () => {
+	it("expunges a message already inside a Trash that resolves by name", async () => {
+		// D4a: the rows were selected and the dialog named the consequence, so
+		// consent is per message. Empty Trash has no such consent and refuses.
 		const { service, events } = buildWorld(
-			{ mailboxId: TRASH, fullPath: "INBOX/Trash" },
+			{ kind: "proposed", mailbox: { mailboxId: TRASH, fullPath: "Trash" } },
 			TRASH,
 		);
 

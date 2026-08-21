@@ -187,10 +187,14 @@ export {
 } from "./mailbox-sync.js";
 export {
 	type DeleteOptions,
+	emptyTrashScope,
 	type MessageMoveConfig,
 	type MessageMoveLogger,
 	MessageMoveService,
 	NoTrashMailboxError,
+	requireTrashMailbox,
+	StaleTrashAppointmentError,
+	UnconfirmedTrashMailboxError,
 } from "./message-move.js";
 export {
 	type ParsedMessageContent,

@@ -12,7 +12,16 @@ import type {
 	IThreadMessageRepository,
 } from "@remit/data-ports";
 import { FolderRoleUnresolvedError } from "@remit/data-ports/errors";
-import { NO_TRASH_FOLDER_REASON } from "@remit/data-ports/folder-role";
+import {
+	type FolderRoleUnresolvedReason,
+	meetsTrashAssurance,
+	NO_TRASH_FOLDER_REASON,
+	type RoleResolution,
+	STALE_TRASH_FOLDER_REASON,
+	type TrashAssuranceLevel,
+	trashMailboxAt,
+	UNCONFIRMED_TRASH_FOLDER_REASON,
+} from "@remit/data-ports/folder-role";
 import { deriveCopyMessageId } from "@remit/data-ports/id";
 import {
 	CanonicalMailboxRole,
@@ -130,6 +139,83 @@ export class NoTrashMailboxError extends FolderRoleUnresolvedError {
 }
 
 /**
+ * The folder the user appointed as Trash is gone from the server. Distinct from
+ * having no Trash at all: there is a decision on file, and the repair is to
+ * point it at a folder that exists — not to let reader pick one instead.
+ */
+export class StaleTrashAppointmentError extends FolderRoleUnresolvedError {
+	name = "StaleTrashAppointmentError";
+
+	constructor(accountId: string) {
+		super(
+			STALE_TRASH_FOLDER_REASON,
+			CanonicalMailboxRole.Trash,
+			"stale",
+			accountId,
+		);
+	}
+}
+
+/**
+ * A folder resolves as Trash by its name alone. Enough to move mail into,
+ * never enough to expunge — so only the Empty Trash path raises it.
+ */
+export class UnconfirmedTrashMailboxError extends FolderRoleUnresolvedError {
+	name = "UnconfirmedTrashMailboxError";
+
+	constructor(accountId: string) {
+		super(
+			UNCONFIRMED_TRASH_FOLDER_REASON,
+			CanonicalMailboxRole.Trash,
+			"unconfirmed",
+			accountId,
+		);
+	}
+}
+
+const REFUSAL_BY_REASON: Record<
+	FolderRoleUnresolvedReason,
+	new (
+		accountId: string,
+	) => FolderRoleUnresolvedError
+> = {
+	none: NoTrashMailboxError,
+	stale: StaleTrashAppointmentError,
+	unconfirmed: UnconfirmedTrashMailboxError,
+};
+
+/**
+ * The Trash folder a verb may act on at the assurance it demands, or the coded
+ * refusal naming which of the three reasons stopped it. Every Trash gate goes
+ * through here — the delete, the expunge, and the count the handler reports
+ * before one — so no two of them can tell a user different things about the
+ * same account.
+ */
+export const requireTrashMailbox = <T>(
+	resolution: RoleResolution<T>,
+	level: TrashAssuranceLevel,
+	accountId: string,
+): T => {
+	const outcome = trashMailboxAt(resolution, level);
+	if (outcome.allowed) return outcome.mailbox;
+	throw new REFUSAL_BY_REASON[outcome.reason](accountId);
+};
+
+/**
+ * What an Empty Trash acts on: the folder's messages whose last move has
+ * settled. A row still `pending` is a move-to-Trash the server has not
+ * confirmed, so it is outside this Empty Trash's scope — it settles on its own
+ * and the next Empty Trash covers it. Shared with the handler that counts, so
+ * the number the user is shown is the number that gets expunged.
+ */
+export const emptyTrashScope = <T extends { syncStatus: string }>(
+	messages: readonly T[],
+): T[] =>
+	messages.filter(
+		(message) => message.syncStatus !== MessageSyncStatus.pending,
+	);
+
+/**
  * Options for delete operations
  */
 export interface DeleteOptions {
@@ -226,17 +312,24 @@ export class MessageMoveService {
 		const wantsPermanentDelete =
 			options.permanent === true || options.toTrash === false;
 
-		const trashMailbox = wantsPermanentDelete
+		const trashResolution = wantsPermanentDelete
 			? null
-			: await this.mailboxSpecialUseService.findTrashMailbox(accountId);
+			: await this.mailboxSpecialUseService.resolveTrashRole(accountId);
 
-		if (!wantsPermanentDelete && !trashMailbox) {
+		if (trashResolution && !meetsTrashAssurance(trashResolution, "resolved")) {
 			this.log.error(
-				{ accountId, messageCount: messages.length },
+				{
+					accountId,
+					messageCount: messages.length,
+					resolution: trashResolution.kind,
+				},
 				"Refused to delete: account resolves no Trash mailbox",
 			);
-			throw new NoTrashMailboxError(accountId);
 		}
+
+		const trashMailbox = trashResolution
+			? requireTrashMailbox(trashResolution, "resolved", accountId)
+			: null;
 
 		// Group messages by operation type
 		const moveToTrashMessages: Array<{
@@ -659,28 +752,26 @@ export class MessageMoveService {
 	/**
 	 * Empty the Trash mailbox: an EXPUNGE of everything in it, with no undo.
 	 *
-	 * Resolved through `findConfirmedTrashMailbox`, so the folder is the one the
-	 * user appointed or the one the server flagged \Trash — never one that
-	 * merely reads like a trash folder. A user with an ordinary folder called
-	 * `Deleted` would otherwise lose its contents permanently, and on a
-	 * `.`-delimited server the old whole-path name match resolved nothing at all
-	 * and the operation reported success over an empty count. Unresolved is a
-	 * refusal that names the remedy, not a silent no-op.
+	 * Demands confirmed evidence: the folder the user appointed or the one the
+	 * server flagged \Trash — never one that merely reads like a trash folder,
+	 * and never the fallback behind an appointment that went missing. A user
+	 * with an ordinary folder called `Deleted` would otherwise lose its contents
+	 * permanently. Each of the three ways that evidence can be absent refuses
+	 * under its own reason, so the surface can name the remedy instead of
+	 * offering a silent no-op.
 	 */
 	emptyTrash = async (
 		accountConfigId: string,
 		accountId: string,
 	): Promise<void> => {
-		const trashMailbox =
-			await this.mailboxSpecialUseService.findConfirmedTrashMailbox(accountId);
+		const trashMailbox = requireTrashMailbox(
+			await this.mailboxSpecialUseService.resolveTrashRole(accountId),
+			"confirmed",
+			accountId,
+		);
 
-		if (!trashMailbox) {
-			throw new NoTrashMailboxError(accountId);
-		}
-
-		// Get all messages in Trash
-		const messages = await this.messageService.listAllByMailbox(
-			trashMailbox.mailboxId,
+		const messages = emptyTrashScope(
+			await this.messageService.listAllByMailbox(trashMailbox.mailboxId),
 		);
 
 		// Mark all as deleting locally

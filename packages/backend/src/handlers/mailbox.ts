@@ -5,7 +5,7 @@ import type {
 import type { IAccountSettingRepository, MailboxItem } from "@remit/data-ports";
 import { ForbiddenError, NotFoundError } from "@remit/data-ports/errors";
 import { MailboxSyncStatus, MessageSystemFlag } from "@remit/domain-enums";
-import { NoTrashMailboxError } from "@remit/mailbox-service";
+import { emptyTrashScope, requireTrashMailbox } from "@remit/mailbox-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import {
@@ -412,20 +412,19 @@ export const TrashOperations: Record<
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "act");
 
-		// The same confirmed resolution `emptyTrash` expunges through, so the
+		// The same gate and the same scope `emptyTrash` expunges through, so the
 		// count reported is the count of the folder that gets emptied. It
-		// refuses rather than returning zero when no folder is appointed and
-		// none is flagged: "0 deleted" reads as success, and the user goes on
-		// believing their Trash is empty.
-		const trashMailbox =
-			await client.mailboxSpecialUse.findConfirmedTrashMailbox(accountId);
+		// refuses rather than returning zero when the role is unresolved:
+		// "0 deleted" reads as success, and the user goes on believing their
+		// Trash is empty.
+		const trashMailbox = requireTrashMailbox(
+			await client.mailboxSpecialUse.resolveTrashRole(accountId),
+			"confirmed",
+			accountId,
+		);
 
-		if (!trashMailbox) {
-			throw new NoTrashMailboxError(accountId);
-		}
-
-		const messages = await client.message.listAllByMailbox(
-			trashMailbox.mailboxId,
+		const messages = emptyTrashScope(
+			await client.message.listAllByMailbox(trashMailbox.mailboxId),
 		);
 		const deletedCount = messages.length;
 

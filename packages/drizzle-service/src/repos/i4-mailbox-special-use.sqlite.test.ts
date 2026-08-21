@@ -214,6 +214,14 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 				mailbox: { mailboxId: flagged.mailboxId, fullPath: "[Gmail]/Trash" },
 			},
 		});
+
+		// The expunge read stops here too: the flagged folder is where a delete
+		// files mail, not evidence the user meant it to be emptied.
+		assert.equal(await repo.findConfirmedTrashMailbox(accountId), null);
+		assert.equal(
+			(await repo.findTrashMailbox(accountId))?.mailboxId,
+			flagged.mailboxId,
+		);
 	});
 
 	test("resolves an INBOX-nested Junk folder that advertises \\Junk", async () => {

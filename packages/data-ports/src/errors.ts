@@ -1,4 +1,9 @@
-import type { CanonicalMailboxRoleValue } from "./folder-role.js";
+import type {
+	CanonicalMailboxRoleValue,
+	FolderRoleUnresolvedReason,
+} from "./folder-role.js";
+
+export type { FolderRoleUnresolvedReason };
 
 /**
  * The half of an error a client may read: a stable `code` it branches on and
@@ -50,16 +55,6 @@ export class ConflictError extends HTTPError {
 	name = "ConflictError";
 	public statusCode = 409;
 }
-
-/**
- * Why a canonical role names no folder this action may act on. `none`: the
- * account has no candidate at all. `stale`: the folder the user appointed is
- * gone from the server. `unconfirmed`: a folder matches by name, but nobody —
- * neither the user nor the server's own flag — ever said it holds the role.
- * These three and no others; a target that is merely unsettled is a different
- * refusal under its own code.
- */
-export type FolderRoleUnresolvedReason = "none" | "stale" | "unconfirmed";
 
 /**
  * A destructive action refused because the role it needs is unresolved. The
