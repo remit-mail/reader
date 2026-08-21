@@ -19,10 +19,10 @@ export const handleError = async (
 			// Only an error that opted in gets a coded body. Every other failure
 			// keeps `{ message }`, so no 5xx and no auth refusal starts leaking a
 			// shape the API never declared.
-			const carrier: { publicApiError?: unknown } = error;
-			const publicApiError = isPublicApiError(carrier.publicApiError)
-				? carrier.publicApiError
-				: undefined;
+			const publicApiError =
+				"publicApiError" in error && isPublicApiError(error.publicApiError)
+					? error.publicApiError
+					: undefined;
 			return formatResponse(
 				{ message: error.message, ...publicApiError },
 				error.statusCode as number,
