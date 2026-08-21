@@ -47,7 +47,11 @@ import { useOrganizeJob } from "@/hooks/useOrganizeJob";
 import { useOrganizeWiden } from "@/hooks/useOrganizeWiden";
 import { useRulePreview } from "@/hooks/useRulePreview";
 import { useSelectedSubjects } from "@/hooks/useSelectedSubjects";
-import type { BulkActionProgress, BulkRunOutcome } from "@/lib/bulk-actions";
+import type {
+	BulkActionProgress,
+	BulkActionTarget,
+	BulkRunOutcome,
+} from "@/lib/bulk-actions";
 import { NO_JUNK_FOLDER_REASON } from "@/lib/junk-destination";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
@@ -66,15 +70,10 @@ import {
 import { searchRuleAccountId } from "@/lib/organize/search-to-rule";
 import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
 import { useWizardEntryValue, useWizardStep } from "@/lib/wizard-history";
+import type { WizardSelectionMessage } from "@/lib/wizard-selection";
 import { organizeRunState } from "./organize-run-state";
 
 const EMPTY_DRAFT: WizardDraft = { clauses: [], matchOperator: "any" };
-
-/** A ticked row, as the wizard's samples and its clause prefill read it. */
-export interface WizardSelectionMessage extends WizardMessage {
-	/** Sender address — the widen's literal fallback and the prefill match on it. */
-	email: string;
-}
 
 interface SelectionWizardSessionProps extends SelectionWizardHostProps {
 	/** The step the URL holds. The session is mounted only while there is one. */
@@ -307,7 +306,14 @@ function SelectionWizardSession({
 		OrganizeScope | undefined
 	>(undefined);
 	const [bulkRun, setBulkRun] = useState<
-		| { matched: number; outcome?: BulkRunOutcome; failureReason?: string }
+		| {
+				matched: number;
+				/** What the run was sent, so a retry of what it missed keeps each
+				 *  id's account. Empty for an escalated run, which has no id list. */
+				sent: readonly BulkActionTarget[];
+				outcome?: BulkRunOutcome;
+				failureReason?: string;
+		  }
 		| undefined
 	>(undefined);
 	// The predicate the create chains its pass to. Undefined when the rule cannot
@@ -324,6 +330,16 @@ function SelectionWizardSession({
 
 	const messageIds = useMemo(
 		() => selection.map((message) => message.id),
+		[selection],
+	);
+	// What a bulk run over the ticked rows covers, each row still naming its
+	// account so the run can batch per account.
+	const bulkTargets = useMemo<BulkActionTarget[]>(
+		() =>
+			selection.map((message) => ({
+				id: message.id,
+				accountId: message.accountId,
+			})),
 		[selection],
 	);
 	const senders = useMemo(
@@ -586,19 +602,22 @@ function SelectionWizardSession({
 	}, [blockedReason, current, steps, goToStep]);
 
 	const runBulk = useCallback(
-		async (ids: readonly string[]) => {
+		async (targets: readonly BulkActionTarget[]) => {
 			const action = bulkActionFor(verb, named.moveMailboxId, junkMailboxId);
 			if (!action) {
 				setBulkRun({
-					matched: ids.length,
+					matched: targets.length,
+					sent: targets,
 					failureReason: noDestinationReason(verb),
 				});
 				return;
 			}
-			setBulkRun({ matched: ids.length });
-			const outcome = await runAction(action, [...ids]);
-			setBulkRun({ matched: ids.length, outcome });
-			if (walkedAway.current) onRunEnded?.(action.kind, ids.length, outcome);
+			setBulkRun({ matched: targets.length, sent: targets });
+			const outcome = await runAction(action, targets);
+			setBulkRun({ matched: targets.length, sent: targets, outcome });
+			if (walkedAway.current) {
+				onRunEnded?.(action.kind, targets.length, outcome);
+			}
 		},
 		[verb, named.moveMailboxId, junkMailboxId, runAction, onRunEnded],
 	);
@@ -612,13 +631,14 @@ function SelectionWizardSession({
 		if (!action) {
 			setBulkRun({
 				matched: escalated.total,
+				sent: [],
 				failureReason: noDestinationReason(verb),
 			});
 			return;
 		}
-		setBulkRun({ matched: escalated.total });
+		setBulkRun({ matched: escalated.total, sent: [] });
 		const outcome = await escalated.run(action);
-		setBulkRun({ matched: escalated.total, outcome });
+		setBulkRun({ matched: escalated.total, sent: [], outcome });
 		if (walkedAway.current) {
 			onRunEnded?.(action.kind, escalated.total, outcome);
 		}
@@ -670,7 +690,13 @@ function SelectionWizardSession({
 			startJob(organizeDraft);
 			return;
 		}
-		void runBulk(scope === "just-these" ? messageIds : matchedIds);
+		// A widened match is resolved by the account's own preview, so every id it
+		// returned belongs to the account the wizard is scoped to.
+		void runBulk(
+			scope === "just-these"
+				? bulkTargets
+				: matchedIds.map((id) => ({ id, accountId })),
+		);
 	}, [
 		escalated,
 		runEscalated,
@@ -678,7 +704,8 @@ function SelectionWizardSession({
 		named,
 		anchorMessageId,
 		verb,
-		messageIds,
+		accountId,
+		bulkTargets,
 		matchedIds,
 		createFilterAsync,
 		startJob,
@@ -850,8 +877,16 @@ function SelectionWizardSession({
 			sendCommit();
 			return;
 		}
-		const outstanding = bulkRun?.outcome?.failedIds ?? [];
-		void runBulk(outstanding.length > 0 ? outstanding : messageIds);
+		const outstanding = new Set(bulkRun?.outcome?.failedIds ?? []);
+		// A run hands back ids, and each one's account came from the batch it was
+		// sent in — so a retry re-sends the targets the run was given, filtered to
+		// what it never reached.
+		const sent = bulkRun?.sent ?? bulkTargets;
+		void runBulk(
+			outstanding.size > 0
+				? sent.filter((target) => outstanding.has(target.id))
+				: sent,
+		);
 	};
 
 	// Cancel rewinds the entries the wizard owns and leaves the selection where

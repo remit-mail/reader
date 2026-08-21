@@ -38,14 +38,12 @@ import { rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { dedupeByThread } from "@/lib/starred-rows";
 import { useSelectionWizard } from "@/lib/wizard-history";
+import { wizardSelectionFrom } from "@/lib/wizard-selection";
 import type { OpenThreadTarget } from "@/routing";
 import { MailViewChrome } from "./MailViewChrome";
 import type { MessageListCommands } from "./MessageList";
 import { MessageRow } from "./MessageRow";
-import {
-	SelectionWizardHost,
-	type WizardSelectionMessage,
-} from "./SelectionWizardHost";
+import { SelectionWizardHost } from "./SelectionWizardHost";
 import {
 	type OpenMessageOptions,
 	ThreadListInteraction,
@@ -78,17 +76,8 @@ function StarredWizardHost({
 	verb: Verb;
 }) {
 	const { selectedIds, exitSelection } = useThreadListSelection();
-	const selection = useMemo<WizardSelectionMessage[]>(
-		() =>
-			rows
-				.filter((row) => selectedIds.has(row.id))
-				.map((row) => ({
-					id: row.id,
-					sender: row.fromName,
-					email: row.fromEmail,
-					subject: row.subject,
-					date: row.timeLabel,
-				})),
+	const selection = useMemo(
+		() => wizardSelectionFrom(rows, selectedIds),
 		[rows, selectedIds],
 	);
 	return (

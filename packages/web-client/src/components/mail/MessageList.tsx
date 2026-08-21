@@ -52,13 +52,13 @@ import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import { listVerbRequest } from "@/lib/list-verb-request";
 import { shouldExitSelectionOnNavigate } from "@/lib/selection-mode";
 import { useSelectionWizard, useWizardStepValue } from "@/lib/wizard-history";
+import type { WizardSelectionMessage } from "@/lib/wizard-selection";
 import { useRetainOpenPanels } from "@/routing";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import {
 	type EscalatedSelection,
 	SelectionWizardHost,
-	type WizardSelectionMessage,
 } from "./SelectionWizardHost";
 import { SwipeableMessageRow } from "./SwipeableMessageRow";
 
@@ -497,10 +497,11 @@ export const MessageList = ({
 				email: thread.fromEmail ?? "",
 				subject: thread.subject ?? "(No subject)",
 				date: formatEmailDate(thread.sentDate),
+				accountId,
 			});
 		}
 		return rows;
-	}, [threads, selectedIds]);
+	}, [threads, selectedIds, accountId]);
 	const handleRowSelect = useCallback(
 		(messageId: string, modifiers: SelectionModifiers): boolean => {
 			if (modifiers.shiftKey) {

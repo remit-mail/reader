@@ -106,15 +106,13 @@ import {
 	type SelectionWizardControl,
 	useSelectionWizard,
 } from "@/lib/wizard-history";
+import { wizardSelectionFrom } from "@/lib/wizard-selection";
 import type { OpenThreadTarget } from "@/routing";
 import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import { MailListHeader, type MailListHeaderProps } from "./MailListHeader";
 import type { MessageListCommands } from "./MessageList";
 import { MessageRow } from "./MessageRow";
-import {
-	SelectionWizardHost,
-	type WizardSelectionMessage,
-} from "./SelectionWizardHost";
+import { SelectionWizardHost } from "./SelectionWizardHost";
 import {
 	type OpenMessageOptions,
 	ThreadListInteraction,
@@ -283,17 +281,8 @@ function BriefSelectionChrome({
 	);
 	// The ticked rows as the wizard reads them — the sample under every screen
 	// that names a match, and the senders its widen falls back to.
-	const wizardSelection = useMemo<WizardSelectionMessage[]>(
-		() =>
-			rows
-				.filter((row) => selectedIds.has(row.id))
-				.map((row) => ({
-					id: row.id,
-					sender: row.fromName,
-					email: row.fromEmail,
-					subject: row.subject,
-					date: row.timeLabel,
-				})),
+	const wizardSelection = useMemo(
+		() => wizardSelectionFrom(rows, selectedIds),
 		[rows, selectedIds],
 	);
 

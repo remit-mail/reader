@@ -17,6 +17,7 @@ import {
 import {
 	type ApplyBatch,
 	type BulkActionProgress,
+	type BulkActionTarget,
 	type BulkRunOutcome,
 	type FetchIdsPage,
 	honestProgress,
@@ -100,18 +101,21 @@ export interface UseEscalatedActionsResult {
 	runningAction: EscalatedAction | undefined;
 	progress: BulkActionProgress | undefined;
 	/**
-	 * Runs `action` in chunks. Pass `ids` for a materialized (bounded)
-	 * selection; omit it to run against the escalated predicate (`phase` must
-	 * be "escalated"). Resolves once the run ends for any reason — cancelled,
-	 * errored, or complete — with a `done`/`failedIds` outcome the caller reads
-	 * to decide what is still outstanding.
+	 * Runs `action` in chunks. Pass `targets` for a materialized (bounded)
+	 * selection; omit them to run against the escalated predicate (`phase` must
+	 * be "escalated"). Each target names the account that owns it, so a
+	 * selection spanning accounts is sent as one batch per account rather than
+	 * as one batch the endpoint refuses whole (#872). Resolves once the run ends
+	 * for any reason — cancelled, errored, or complete — with a
+	 * `done`/`failedIds` outcome the caller reads to decide what is still
+	 * outstanding.
 	 * Infrastructure failures are reported through the app's existing
 	 * escalation seam (`pushError`, which itself escalates a 5xx/exception to
 	 * the fatal overlay) — not swallowed here.
 	 */
 	runAction: (
 		action: EscalatedAction,
-		ids?: string[],
+		targets?: readonly BulkActionTarget[],
 	) => Promise<BulkRunOutcome>;
 }
 
@@ -225,16 +229,26 @@ export const useEscalatedActions = ({
 		[],
 	);
 
+	/**
+	 * The unseen counts a run moved, per account. A cross-account selection has
+	 * no single owning account — the surface leaves the option undefined exactly
+	 * then — so the run's own targets are what name the accounts to refresh.
+	 */
 	const invalidateAfterRun = useCallback(
-		(action: EscalatedAction) => {
+		(action: EscalatedAction, targets: readonly BulkActionTarget[]) => {
 			invalidateThreadListQueries(
 				queryClient,
 				threadListCacheKeys(mailboxesTouchedBy(action, mailboxId)),
 			);
-			if (accountId) {
+			const touched = new Set<string>();
+			if (accountId) touched.add(accountId);
+			for (const target of targets) {
+				if (target.accountId) touched.add(target.accountId);
+			}
+			for (const touchedAccountId of touched) {
 				queryClient.invalidateQueries({
 					queryKey: mailboxOperationsListMailboxesQueryKey({
-						path: { accountId },
+						path: { accountId: touchedAccountId },
 					}),
 				});
 			}
@@ -279,7 +293,7 @@ export const useEscalatedActions = ({
 	const runAction = useCallback(
 		async (
 			action: EscalatedAction,
-			ids?: string[],
+			targets?: readonly BulkActionTarget[],
 		): Promise<BulkRunOutcome> => {
 			cancelRef.current = false;
 			runningRef.current = true;
@@ -301,9 +315,9 @@ export const useEscalatedActions = ({
 			let outcome: BulkRunOutcome;
 			try {
 				outcome =
-					ids !== undefined
+					targets !== undefined
 						? await runChunkedAction(
-								ids,
+								targets,
 								applyBatch,
 								onProgress,
 								() => cancelRef.current,
@@ -333,7 +347,7 @@ export const useEscalatedActions = ({
 				);
 			}
 			if (outcome.done > 0) {
-				invalidateAfterRun(action);
+				invalidateAfterRun(action, targets ?? []);
 			}
 			return outcome;
 		},

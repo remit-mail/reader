@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
 	BULK_ACTION_CHUNK_SIZE,
+	type BulkActionTarget,
 	chunkIds,
+	chunkTargets,
 	type FetchIdsPageResult,
 	honestProgress,
 	runChunkedAction,
@@ -11,6 +13,13 @@ import {
 
 const ids = (count: number, prefix = "m"): string[] =>
 	Array.from({ length: count }, (_, i) => `${prefix}${i}`);
+
+/** Ids from one account, as a materialized selection hands them over. */
+const targets = (
+	count: number,
+	accountId: string | undefined = undefined,
+	prefix = "m",
+): BulkActionTarget[] => ids(count, prefix).map((id) => ({ id, accountId }));
 
 describe("chunkIds", () => {
 	test("empty input yields no chunks", () => {
@@ -45,6 +54,63 @@ describe("chunkIds", () => {
 	});
 });
 
+describe("chunkTargets", () => {
+	// Regression for #872: the bulk endpoints reject a batch spanning accounts
+	// before applying any of it, and the brief and Flagged both span accounts.
+	test("never puts two accounts in one chunk", () => {
+		assert.deepEqual(
+			chunkTargets(
+				[
+					{ id: "a1", accountId: "acct-a" },
+					{ id: "b1", accountId: "acct-b" },
+					{ id: "a2", accountId: "acct-a" },
+				],
+				100,
+			),
+			[["a1", "a2"], ["b1"]],
+		);
+	});
+
+	test("chunks each account by size on its own", () => {
+		assert.deepEqual(
+			chunkTargets(
+				[
+					{ id: "a1", accountId: "acct-a" },
+					{ id: "a2", accountId: "acct-a" },
+					{ id: "a3", accountId: "acct-a" },
+					{ id: "b1", accountId: "acct-b" },
+				],
+				2,
+			),
+			[["a1", "a2"], ["a3"], ["b1"]],
+		);
+	});
+
+	test("targets with no account keep their place in the run as a group of their own", () => {
+		assert.deepEqual(
+			chunkTargets(
+				[
+					{ id: "u1", accountId: undefined },
+					{ id: "a1", accountId: "acct-a" },
+					{ id: "u2", accountId: undefined },
+				],
+				100,
+			),
+			[["u1", "u2"], ["a1"]],
+		);
+	});
+
+	test("a single-account selection is one run of chunks, as before", () => {
+		const got = chunkTargets(targets(BULK_ACTION_CHUNK_SIZE + 1, "acct-a"));
+		assert.equal(got.length, 2);
+		assert.equal(got[0].length, BULK_ACTION_CHUNK_SIZE);
+	});
+
+	test("empty input yields no chunks", () => {
+		assert.deepEqual(chunkTargets([]), []);
+	});
+});
+
 describe("runChunkedAction", () => {
 	const neverCancelled = () => false;
 	const noopProgress = () => undefined;
@@ -69,7 +135,7 @@ describe("runChunkedAction", () => {
 	});
 
 	test("sequences one call per 100-id chunk, in order", async () => {
-		const input = ids(BULK_ACTION_CHUNK_SIZE + 1);
+		const input = targets(BULK_ACTION_CHUNK_SIZE + 1);
 		const calls: string[][] = [];
 		const outcome = await runChunkedAction(
 			input,
@@ -88,7 +154,7 @@ describe("runChunkedAction", () => {
 	});
 
 	test("a returned batch counts every id in it as accepted", async () => {
-		const input = ids(5);
+		const input = targets(5);
 		const outcome = await runChunkedAction(
 			input,
 			async (chunk) => ({ successCount: chunk.length, failureCount: 0 }),
@@ -100,7 +166,7 @@ describe("runChunkedAction", () => {
 	});
 
 	test("cancelling mid-run folds every unreached chunk into failedIds", async () => {
-		const input = ids(BULK_ACTION_CHUNK_SIZE * 3);
+		const input = targets(BULK_ACTION_CHUNK_SIZE * 3);
 		let calls = 0;
 		let cancelled = false;
 		const outcome = await runChunkedAction(
@@ -121,7 +187,7 @@ describe("runChunkedAction", () => {
 	});
 
 	test("an infra failure mid-run stops the run and reports the error", async () => {
-		const input = ids(BULK_ACTION_CHUNK_SIZE * 2);
+		const input = targets(BULK_ACTION_CHUNK_SIZE * 2);
 		const boom = new Error("network blip");
 		const outcome = await runChunkedAction(
 			input,
@@ -136,8 +202,107 @@ describe("runChunkedAction", () => {
 		assert.equal(outcome.failedIds.length, input.length);
 	});
 
+	test("a selection spanning accounts is sent as one batch per account", async () => {
+		const calls: string[][] = [];
+		const outcome = await runChunkedAction(
+			[
+				{ id: "a1", accountId: "acct-a" },
+				{ id: "b1", accountId: "acct-b" },
+				{ id: "a2", accountId: "acct-a" },
+			],
+			async (chunk) => {
+				calls.push(chunk);
+				return { successCount: chunk.length, failureCount: 0 };
+			},
+			noopProgress,
+			neverCancelled,
+		);
+		assert.deepEqual(calls, [["a1", "a2"], ["b1"]]);
+		assert.equal(outcome.done, 3);
+		assert.deepEqual(outcome.failedIds, []);
+	});
+
+	test("progress counts toward the whole selection, not toward each account", async () => {
+		const seen: { done: number; total: number }[] = [];
+		await runChunkedAction(
+			[
+				{ id: "a1", accountId: "acct-a" },
+				{ id: "b1", accountId: "acct-b" },
+			],
+			async (chunk) => ({ successCount: chunk.length, failureCount: 0 }),
+			(p) => seen.push(p),
+			neverCancelled,
+		);
+		assert.deepEqual(seen, [
+			{ done: 1, total: 2 },
+			{ done: 2, total: 2 },
+		]);
+	});
+
+	test("cancelling at an account boundary hands back the accounts never reached", async () => {
+		let cancelled = false;
+		const outcome = await runChunkedAction(
+			[
+				{ id: "a1", accountId: "acct-a" },
+				{ id: "b1", accountId: "acct-b" },
+				{ id: "c1", accountId: "acct-c" },
+			],
+			async (chunk) => {
+				cancelled = true;
+				return { successCount: chunk.length, failureCount: 0 };
+			},
+			() => undefined,
+			() => cancelled,
+		);
+		assert.equal(outcome.cancelled, true);
+		assert.equal(outcome.done, 1);
+		assert.deepEqual(outcome.failedIds, ["b1", "c1"]);
+	});
+
+	test("one account's batch failing leaves the rest unsent and says how far it got", async () => {
+		const boom = new Error("500");
+		const outcome = await runChunkedAction(
+			[
+				{ id: "a1", accountId: "acct-a" },
+				{ id: "b1", accountId: "acct-b" },
+			],
+			async (chunk) => {
+				if (chunk[0] === "b1") throw boom;
+				return { successCount: chunk.length, failureCount: 0 };
+			},
+			() => undefined,
+			neverCancelled,
+		);
+		assert.equal(outcome.error, boom);
+		assert.equal(outcome.done, 1);
+		assert.deepEqual(outcome.failedIds, ["b1"]);
+	});
+
+	test("the accounts behind a failed one are handed back whole, never half-sent", async () => {
+		const calls: string[][] = [];
+		const outcome = await runChunkedAction(
+			[
+				{ id: "a1", accountId: "acct-a" },
+				{ id: "b1", accountId: "acct-b" },
+				{ id: "c1", accountId: "acct-c" },
+			],
+			async (chunk) => {
+				calls.push(chunk);
+				throw new Error("auth expired");
+			},
+			() => undefined,
+			neverCancelled,
+		);
+		// The run stops where it threw rather than trying the accounts behind it:
+		// what it hands back is exactly what is still untouched, which is what a
+		// retry re-sends.
+		assert.deepEqual(calls, [["a1"]]);
+		assert.equal(outcome.done, 0);
+		assert.deepEqual(outcome.failedIds, ["a1", "b1", "c1"]);
+	});
+
 	test("reports progress after each chunk", async () => {
-		const input = ids(BULK_ACTION_CHUNK_SIZE + 1);
+		const input = targets(BULK_ACTION_CHUNK_SIZE + 1);
 		const progressCalls: { done: number; total: number }[] = [];
 		await runChunkedAction(
 			input,
