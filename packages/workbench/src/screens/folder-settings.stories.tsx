@@ -3,6 +3,7 @@ import {
 	FolderRenameDialog,
 	type FolderTreeNode,
 	type ManagedFolder,
+	type RoleAppointment,
 	RoleAppointmentList,
 	type SettingsNavItem,
 	SettingsShell,
@@ -115,13 +116,13 @@ const messageCounts: Record<string, number> = {
 	"mbx-receipts": 12,
 };
 
-const appointments: Record<string, string | null> = {
-	inbox: "mbx-inbox",
-	drafts: null,
-	sent: null,
-	archive: "mbx-archive",
-	junk: "mbx-junk",
-	trash: "mbx-trash",
+const appointments: Record<string, RoleAppointment> = {
+	inbox: { mailboxId: "mbx-inbox", source: "Reserved" },
+	drafts: { mailboxId: null, source: "None" },
+	sent: { mailboxId: null, source: "None" },
+	archive: { mailboxId: "mbx-archive", source: "Appointed" },
+	junk: { mailboxId: "mbx-junk", source: "Flagged" },
+	trash: { mailboxId: "mbx-trash", source: "Proposed" },
 };
 
 const foldersHelp = (

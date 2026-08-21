@@ -74,7 +74,6 @@ export const DeleteConfirmDialog = ({
 						role: "Trash",
 						reason: outcome === "noTrash" ? "none" : "stale",
 						action: { kind: "delete", count },
-						trashFolderLabel,
 						staleFolderLabel,
 						onAppointed: async () => onConfirm(),
 					});
