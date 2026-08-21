@@ -18,10 +18,6 @@ describe("MailboxSpecialUseRepo and the appointment label row", () => {
 
 	it("never names the label setting", () => {
 		assert.equal(source.includes("FolderRoleAppointmentLabel"), false);
-		assert.equal(
-			source.includes("composeFolderRoleAppointmentLabelName"),
-			false,
-		);
 	});
 
 	it("composes the appointment name in exactly one place", () => {

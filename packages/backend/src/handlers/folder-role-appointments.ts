@@ -93,18 +93,17 @@ export const loadFolderAppointmentsForAccount = async (
 ): Promise<Map<string, PersistedFolderAppointment>> => {
 	const entries = await Promise.all(
 		CANONICAL_ROLES.map(async (role) => {
-			const [appointment, label] = await Promise.all([
-				accountSetting.get(
-					accountConfigId,
-					composeFolderRoleAppointmentName(accountId, role),
-				),
-				accountSetting.get(
-					accountConfigId,
-					composeFolderRoleAppointmentLabelName(accountId, role),
-				),
-			]);
+			const appointment = await accountSetting.get(
+				accountConfigId,
+				composeFolderRoleAppointmentName(accountId, role),
+			);
 			const mailboxId = appointment ? stringValueOf(appointment) : undefined;
 			if (mailboxId === undefined) return [role, undefined] as const;
+
+			const label = await accountSetting.get(
+				accountConfigId,
+				composeFolderRoleAppointmentLabelName(accountId, role),
+			);
 			const lastKnownPath = label ? stringValueOf(label) : undefined;
 			return [
 				role,

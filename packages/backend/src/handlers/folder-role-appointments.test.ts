@@ -423,6 +423,9 @@ describe("who may write a folder-role appointment", () => {
 
 		const count = (text: string, needle: string) =>
 			text.split(needle).length - 1;
+		// Without these, renaming the receiver satisfies the guard with 0 === 0.
+		assert.ok(count(body, "accountSetting.upsert(") > 0);
+		assert.ok(count(body, "accountSetting.delete(") > 0);
 		assert.equal(
 			count(source, "accountSetting.upsert("),
 			count(body, "accountSetting.upsert("),
