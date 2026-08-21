@@ -8,6 +8,7 @@ import type { Logger } from "@remit/logger-lambda";
 import {
 	guardConnectionCursor,
 	isCursorRebuildNeeded,
+	isMessageGoneFromOpenMailbox,
 	MailboxCursorPausedError,
 } from "@remit/mailbox-service";
 import { isAccountDeleted } from "../account-check.js";
@@ -359,14 +360,32 @@ export const handleMessageDelete = async (
 					const errorMessage =
 						error instanceof Error ? error.message : String(error);
 
-					// Message not found on IMAP - already deleted (idempotent)
-					if (
-						errorMessage.includes("not found") ||
-						errorMessage.includes("NONEXISTENT")
-					) {
+					// Reconcile a permanent delete the server already applied (#212).
+					// The error text only nominates a candidate — the source box
+					// decides, since a landed move-to-trash reports that same text from
+					// a LOCAL lookup (#845) — and a probe that cannot answer counts as
+					// not-confirmed, leaving the original error to the rethrow below.
+					const isGoneFromSource =
+						operation === "permanent_delete" &&
+						(errorMessage.includes("not found") ||
+							errorMessage.includes("NONEXISTENT")) &&
+						(await scope
+							.getConnection()
+							.then((connection) =>
+								isMessageGoneFromOpenMailbox(connection, uid),
+							)
+							.catch((probeError: unknown) => {
+								log.warn(
+									{ messageId, uid, mailboxPath, probeError },
+									"Could not confirm whether the message is gone; keeping local rows",
+								);
+								return false;
+							}));
+
+					if (isGoneFromSource) {
 						log.info(
 							{ messageId, uid },
-							"Message not found on IMAP, cleaning up local",
+							"Message confirmed gone from IMAP, cleaning up local",
 						);
 						// Clean up local entities. Multi-mailbox copies are handled by the
 						// helper so we don't leave orphan rows (see issue #212).

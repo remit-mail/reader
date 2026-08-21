@@ -205,6 +205,8 @@ interface Connection {
 	) => Promise<{ uidMap: Map<number, number> }>;
 	deleteMessages: (uids: number[]) => Promise<void>;
 	createMailbox: (path: string) => Promise<void>;
+	fetchMessages: (uids: number[]) => Promise<{ uid: number }[]>;
+	search: (criteria: unknown[]) => Promise<number[]>;
 }
 
 interface Harness {
@@ -217,6 +219,7 @@ interface Harness {
 	mailbox: { mailboxId: string; uidValidity: number; cursorState?: string };
 	mailboxError?: Error;
 	connection: Connection;
+	threadMessageUpdateError?: Error;
 	threadMessage: Record<string, unknown> | null;
 	allThreadMessages: { accountConfigId: string; threadMessageId: string }[];
 	getConnectionCount: number;
@@ -240,7 +243,22 @@ const buildConnection = (): Connection => ({
 	createMailbox: record(
 		"connection.createMailbox",
 	) as Connection["createMailbox"],
+	// The source box still holds the uid unless a case says otherwise, so the
+	// presence probe only reports "gone" where a test made it true.
+	fetchMessages: async (uids: number[]) => uids.map((uid) => ({ uid })),
+	search: async (...args: unknown[]) => {
+		h.calls.push({ method: "connection.search", args });
+		return [10];
+	},
 });
+
+const sourceNoLongerHoldsTheUid = (): void => {
+	h.connection.fetchMessages = async () => [];
+	h.connection.search = async (...args: unknown[]) => {
+		h.calls.push({ method: "connection.search", args });
+		return [];
+	};
+};
 
 const fresh = (): Harness => ({
 	calls: [],
@@ -277,7 +295,10 @@ const deps = (): MessageDeleteDeps =>
 			threadMessage: {
 				findByMessageId: async () => h.threadMessage,
 				findAllByMessageId: async () => h.allThreadMessages,
-				update: record("threadMessage.update"),
+				update: async (...args: unknown[]) => {
+					h.calls.push({ method: "threadMessage.update", args });
+					if (h.threadMessageUpdateError) throw h.threadMessageUpdateError;
+				},
 				delete: record("threadMessage.delete"),
 			},
 			mailbox: {
@@ -440,15 +461,121 @@ describe("handleMessageDelete", () => {
 		);
 	});
 
-	it("cleans up locally and swallows the error when the message is already gone on IMAP", async () => {
+	// Regression on #212: a permanent delete the server has already applied must
+	// still reconcile the local rows, now that the text alone no longer decides.
+	it("cleans up locally and swallows the error when the message is confirmed gone on IMAP", async () => {
 		h.connection.deleteMessages = async () => {
 			throw new Error("NONEXISTENT uid");
 		};
+		sourceNoLongerHoldsTheUid();
 
 		await handleMessageDelete(permanentEvent, noopLog, deps());
 
 		assert.equal(called("message.delete").length, 1);
 		assert.equal(called("threadMessage.delete").length, 2);
+	});
+
+	// Issue #845. The three cases below are the same bug from three directions:
+	// "not found" in an error string is never on its own a reason to destroy the
+	// only local record of live mail.
+
+	it("keeps the rows when a move-to-trash fails after the MOVE landed", async () => {
+		// The MOVE succeeded; the ThreadMessage write behind it did not. The
+		// message is sitting in Trash, and the NotFoundError names a local row,
+		// not a mail-server one.
+		h.threadMessageUpdateError = Object.assign(
+			new Error("Thread message not found"),
+			{ name: "NotFoundError" },
+		);
+		sourceNoLongerHoldsTheUid();
+
+		await assert.rejects(
+			handleMessageDelete(moveEvent, noopLog, deps()),
+			/not found/,
+		);
+
+		assert.equal(
+			called("message.delete").length,
+			0,
+			"the message is in Trash; deleting its row loses the only handle on it",
+		);
+		assert.equal(called("threadMessage.delete").length, 0);
+		assert.equal(
+			called("connection.search").length,
+			0,
+			"a move-to-trash never probes: absence from the source is its success signature",
+		);
+		assert.equal(
+			(called("message.update")[0]?.args[1] as { syncStatus?: string })
+				?.syncStatus,
+			"failed",
+		);
+	});
+
+	it("keeps the rows on a NONEXISTENT move-to-trash whose source still holds the uid", async () => {
+		h.connection.moveMessages = async () => {
+			throw new Error("NONEXISTENT: mailbox does not exist");
+		};
+
+		await assert.rejects(
+			handleMessageDelete(moveEvent, noopLog, deps()),
+			/NONEXISTENT/,
+		);
+
+		assert.equal(called("message.delete").length, 0);
+		assert.equal(called("threadMessage.delete").length, 0);
+		assert.equal(
+			(called("message.update")[0]?.args[1] as { syncStatus?: string })
+				?.syncStatus,
+			"failed",
+		);
+	});
+
+	it("keeps the rows when a permanent delete's source still holds the uid", async () => {
+		h.connection.deleteMessages = async () => {
+			throw new Error("NONEXISTENT uid");
+		};
+		// imapflow drops rows on back-to-back FETCHes (#408); the SEARCH is what
+		// the verdict rests on, and it still lists the uid.
+		h.connection.fetchMessages = async () => [];
+
+		await assert.rejects(
+			handleMessageDelete(permanentEvent, noopLog, deps()),
+			/NONEXISTENT/,
+		);
+
+		assert.equal(
+			called("connection.search").length,
+			1,
+			"the error text only selects a candidate; the source box decides",
+		);
+		assert.equal(called("message.delete").length, 0);
+		assert.equal(called("threadMessage.delete").length, 0);
+	});
+
+	it("keeps the rows and rethrows the original error when the probe cannot answer", async () => {
+		// The SELECT is what failed, so there is no open box left for the probe
+		// to ask. The IMAP error must still be the one that rejects, and the row
+		// must not be stranded mid-delete for the record to carry to the DLQ.
+		h.connection.openBox = async () => {
+			throw new Error("NONEXISTENT mailbox does not exist");
+		};
+		h.connection.fetchMessages = async () => {
+			throw new Error("No mailbox selected");
+		};
+
+		await assert.rejects(
+			handleMessageDelete(permanentEvent, noopLog, deps()),
+			/NONEXISTENT mailbox does not exist/,
+		);
+
+		assert.equal(called("message.delete").length, 0);
+		assert.equal(called("threadMessage.delete").length, 0);
+		assert.equal(
+			(called("message.update")[0]?.args[1] as { syncStatus?: string })
+				?.syncStatus,
+			"failed",
+		);
 	});
 
 	it("creates the trash mailbox and rethrows on TRYCREATE", async () => {
