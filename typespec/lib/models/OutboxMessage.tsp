@@ -119,6 +119,27 @@ model OutboxMessage {
   @visibility(Lifecycle.Read)
   smtpMessageId?: string;
 
+  @doc("""
+    Whether the IMAP APPEND that files a copy in Sent has been confirmed, and
+    the uid it produced. Written between the APPEND and the row delete that
+    follows it, so a redelivered APPEND event skips straight to the delete
+    instead of filing a second copy of the same message.
+    
+    Three readings, no absent one: the named sentinel `0` means no APPEND has
+    been confirmed for this row. The named sentinel `-1` means an APPEND was
+    confirmed but the server named no uid for it — UIDPLUS is an extension, and
+    a server without it files the copy and reports nothing. Any positive value
+    is the uid the server assigned. Only the latter two mean the copy exists, so
+    a value neither of them reads as unfiled, which re-files at worst rather
+    than dropping the row of a message that reached no folder.
+    
+    Deliberately not paired with a uidValidity: this never addresses the
+    message, it only records that the copy exists. Everything that names a
+    message forever (Message, Quarantine) stores both.
+    """)
+  @visibility(Lifecycle.Read)
+  appendedUid: int64 = 0;
+
   @visibility(Lifecycle.Read)
   @createdAt
   createdAt: int64;

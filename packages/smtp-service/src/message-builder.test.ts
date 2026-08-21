@@ -20,6 +20,7 @@ const baseOutbox = (
 	messageIdValue: "generated-id@example.com",
 	references: [],
 	status: "queued",
+	appendedUid: 0,
 	createdAt: 1_700_000_000_000,
 	updatedAt: 1_700_000_000_000,
 	...overrides,

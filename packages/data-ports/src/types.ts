@@ -423,6 +423,7 @@ export type CreateOutboxMessageInput = Omit<
 	| "ccAddresses"
 	| "bccAddresses"
 	| "references"
+	| "appendedUid"
 > & {
 	ccAddresses?: string[];
 	bccAddresses?: string[];
@@ -437,6 +438,7 @@ export type UpdateOutboxMessageInput = Partial<
 		| "lastSmtpCode"
 		| "sentAt"
 		| "smtpMessageId"
+		| "appendedUid"
 		| "toAddresses"
 		| "ccAddresses"
 		| "bccAddresses"

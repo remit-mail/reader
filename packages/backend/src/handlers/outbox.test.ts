@@ -26,6 +26,7 @@ import type {
 	OutboxMessageItem,
 	UpdateOutboxMessageInput,
 } from "@remit/data-ports";
+import { APPENDED_UID_NONE } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import { OutboxMessageStatus } from "@remit/domain-enums";
 import {
@@ -75,6 +76,7 @@ const createInMemoryOutboxRepository = (): IOutboxMessageRepository => {
 				ccAddresses: input.ccAddresses ?? [],
 				bccAddresses: input.bccAddresses ?? [],
 				references: input.references ?? [],
+				appendedUid: APPENDED_UID_NONE,
 				outboxMessageId: `outbox-${sequence}`,
 				createdAt: now,
 				updatedAt: now,

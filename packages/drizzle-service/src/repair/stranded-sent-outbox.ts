@@ -14,14 +14,25 @@
  * once, at boot — the migrate one-shot is the only step every self-host
  * instance runs before its app containers start (#281).
  *
+ * Two different things strand a row, and `appended_uid` is what tells them
+ * apart (issue #858). At `0` the APPEND was never confirmed: the message is in
+ * no folder, and `unfiled` with an error the user can read is the honest
+ * outcome. At anything else the copy is in the user's Sent folder and only the
+ * delete that follows the APPEND failed, so the row is a leftover — marking it
+ * `unfiled` would tell the user a message that is sitting in Sent was never
+ * filed, and show it to them twice. Those rows are dropped instead, finishing
+ * the delete the handler owed. Their attachment objects are collected by the
+ * scheduler's attachment sweep, which is where every object that outlives its
+ * row already ends up.
+ *
  * The age bound is what separates a stranded row from an ordinary one. A
  * message sent seconds before a restart has its APPEND event still queued, and
  * that event settles the row itself once the workers come back; rewriting it
  * here would take a filing that was about to succeed. An hour is far past any
  * redrive budget, so a row older than that has no event coming.
  *
- * It is a status flip and an error string, on rows whose only other outcome is
- * to stay invisible. Nothing is deleted and no message content is touched.
+ * No message content is touched, and nothing is dropped that the mail server is
+ * not already holding a copy of.
  */
 
 /**
@@ -38,7 +49,12 @@ export type StrandedSentRepairMode = "check" | "repair";
 export type StrandedSentReport = {
 	readonly mode: StrandedSentRepairMode;
 	readonly stranded: number;
+	/** Stranded rows whose APPEND was never confirmed. */
+	readonly neverFiled: number;
+	/** Stranded rows whose copy reached Sent and whose delete did not. */
+	readonly filed: number;
 	readonly settled: number;
+	readonly dropped: number;
 };
 
 /**
@@ -50,46 +66,93 @@ export const STRANDED_AFTER_MILLIS = 60 * 60 * 1000;
 const STRANDED_SENT_REASON =
 	"Sent, but not filed: filing a copy in the Sent folder never completed. The message was delivered.";
 
-const NOW_MILLIS = "CAST(unixepoch('subsec') * 1000 AS INTEGER)";
+/**
+ * The cutoff is computed once and bound to all four statements, rather than
+ * each of them subtracting the age bound from its own `unixepoch()`. Four
+ * clocks give four different populations: a row that crosses the hour between
+ * the count and a write, or between the two deletes, is counted and not written
+ * or has its files taken and its row left.
+ */
+const STRANDED = "status = 'sent' AND coalesce(sent_at, updated_at) < ?";
 
-const AGE = `coalesce(sent_at, updated_at) < ${NOW_MILLIS} - ?`;
+/**
+ * `isSentCopyFiled` in @remit/data-ports, in SQL. Only the two values that mean
+ * "filed" say so, so a value neither writes reads as unfiled — which settles a
+ * row rather than dropping it.
+ */
+const FILED_UID = "(appended_uid > 0 OR appended_uid = -1)";
 
-const COUNT_SQL = `SELECT count(*) AS row_count
+const NEVER_FILED = `${STRANDED} AND NOT ${FILED_UID}`;
+
+const FILED = `${STRANDED} AND ${FILED_UID}`;
+
+const COUNT_SQL = `SELECT
+	coalesce(sum(CASE WHEN NOT ${FILED_UID} THEN 1 ELSE 0 END), 0) AS never_filed,
+	coalesce(sum(CASE WHEN ${FILED_UID} THEN 1 ELSE 0 END), 0) AS filed
 FROM outbox_message
-WHERE status = 'sent' AND ${AGE}`;
+WHERE ${STRANDED}`;
 
 const SETTLE_SQL = `UPDATE outbox_message
 SET status = 'unfiled', last_error = ?
-WHERE status = 'sent' AND ${AGE}`;
+WHERE ${NEVER_FILED}`;
+
+const DROP_ATTACHMENTS_SQL = `DELETE FROM outbox_attachment
+WHERE outbox_message_id IN (
+	SELECT outbox_message_id FROM outbox_message WHERE ${FILED}
+)`;
+
+const DROP_MESSAGES_SQL = `DELETE FROM outbox_message
+WHERE ${FILED}`;
 
 const countStranded = async (
 	client: StrandedSentRepairClient,
-): Promise<number> => {
-	const [row] = (await client.all(COUNT_SQL, [STRANDED_AFTER_MILLIS])) as {
-		row_count: number;
+	strandedBefore: number,
+): Promise<{ neverFiled: number; filed: number }> => {
+	const [row] = (await client.all(COUNT_SQL, [strandedBefore])) as {
+		never_filed: number;
+		filed: number;
 	}[];
-	return row?.row_count ?? 0;
+	return { neverFiled: row?.never_filed ?? 0, filed: row?.filed ?? 0 };
 };
 
 /**
- * The UPDATE runs only when the count found rows. SQLite takes its exclusive
- * write lock the moment an UPDATE begins, before it can know the WHERE matches
- * nothing, and a lock the migrator cannot get inside its `busy_timeout` fails
- * the migration and holds every gated service down. Zero is the steady state.
+ * Each write runs only when the count found rows for it. SQLite takes its
+ * exclusive write lock the moment a statement begins, before it can know the
+ * WHERE matches nothing, and a lock the migrator cannot get inside its
+ * `busy_timeout` fails the migration and holds every gated service down. Zero
+ * is the steady state.
+ *
+ * The attachment rows go before the message rows they hang off. Reversed, a
+ * crash between the two statements leaves attachment rows naming a message that
+ * no longer exists — nothing would ever find them again, and their objects would
+ * be vouched for forever.
  */
 export const sweepStrandedSentOutbox = async (
 	client: StrandedSentRepairClient,
 	mode: StrandedSentRepairMode,
 ): Promise<StrandedSentReport> => {
-	const stranded = await countStranded(client);
+	const strandedBefore = Date.now() - STRANDED_AFTER_MILLIS;
+	const { neverFiled, filed } = await countStranded(client, strandedBefore);
+	const stranded = neverFiled + filed;
+	const nothingWritten = { mode, stranded, neverFiled, filed } as const;
+
 	if (mode === "check" || stranded === 0) {
-		return { mode, stranded, settled: 0 };
+		return { ...nothingWritten, settled: 0, dropped: 0 };
 	}
-	const settled = await client.run(SETTLE_SQL, [
-		STRANDED_SENT_REASON,
-		STRANDED_AFTER_MILLIS,
-	]);
-	return { mode, stranded, settled };
+
+	const settled =
+		neverFiled === 0
+			? 0
+			: await client.run(SETTLE_SQL, [STRANDED_SENT_REASON, strandedBefore]);
+
+	if (filed === 0) {
+		return { ...nothingWritten, settled, dropped: 0 };
+	}
+
+	await client.run(DROP_ATTACHMENTS_SQL, [strandedBefore]);
+	const dropped = await client.run(DROP_MESSAGES_SQL, [strandedBefore]);
+
+	return { ...nothingWritten, settled, dropped };
 };
 
 export const formatStrandedSentReport = (
@@ -98,12 +161,31 @@ export const formatStrandedSentReport = (
 	if (report.stranded === 0) {
 		return ["No sent message is stranded in the outbox"];
 	}
+
+	const lines: string[] = [];
 	if (report.mode === "check") {
-		return [
-			`${report.stranded} sent message(s) stranded in the outbox, would be marked unfiled`,
-		];
+		if (report.neverFiled > 0) {
+			lines.push(
+				`${report.neverFiled} sent message(s) stranded in the outbox, would be marked unfiled`,
+			);
+		}
+		if (report.filed > 0) {
+			lines.push(
+				`${report.filed} sent message(s) already filed in Sent, their outbox row would be dropped`,
+			);
+		}
+		return lines;
 	}
-	return [
-		`${report.settled} of ${report.stranded} stranded sent message(s) marked unfiled`,
-	];
+
+	if (report.neverFiled > 0) {
+		lines.push(
+			`${report.settled} of ${report.neverFiled} stranded sent message(s) marked unfiled`,
+		);
+	}
+	if (report.filed > 0) {
+		lines.push(
+			`${report.dropped} of ${report.filed} already-filed sent message(s) dropped from the outbox`,
+		);
+	}
+	return lines;
 };

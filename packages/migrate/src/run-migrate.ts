@@ -179,9 +179,9 @@ const displayNameStep = async (
 };
 
 /**
- * A count, and an UPDATE only when the count found rows. The steady state on a
- * healthy instance is zero stranded rows, so this is a read on every boot but
- * the first one after the fix ships.
+ * A count, and a write only for the populations the count found rows in. The
+ * steady state on a healthy instance is zero stranded rows, so this is a read on
+ * every boot but the first one after the fix ships.
  */
 const strandedSentStep = async (
 	client: StrandedSentRepairClient,
@@ -285,8 +285,9 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		// below reads the repaired names.
 		await displayNameStep(paramRepairClient, "repair");
 
-		// Independent of every other step here: it reads and writes one column of
-		// `outbox_message`, which no index and no trigger installed below covers.
+		// Independent of every other step here: it touches `outbox_message` and
+		// `outbox_attachment`, which no index and no trigger installed below
+		// covers.
 		await strandedSentStep(paramRepairClient, "repair");
 
 		logStep({}, "installing address-sightings index (sqlite)");
