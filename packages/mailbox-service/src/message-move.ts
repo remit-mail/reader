@@ -11,10 +11,14 @@ import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
-import { HTTPError } from "@remit/data-ports/errors";
+import { FolderRoleUnresolvedError } from "@remit/data-ports/errors";
 import { NO_TRASH_FOLDER_REASON } from "@remit/data-ports/folder-role";
 import { deriveCopyMessageId } from "@remit/data-ports/id";
-import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
+import {
+	CanonicalMailboxRole,
+	MessageStatus,
+	MessageSyncStatus,
+} from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 
 /**
@@ -112,12 +116,16 @@ export interface MessageMoveConfig {
  * verbatim: the absence of a Trash folder is a blocker the user resolves by
  * appointing one, never a licence to expunge.
  */
-export class NoTrashMailboxError extends HTTPError {
+export class NoTrashMailboxError extends FolderRoleUnresolvedError {
 	name = "NoTrashMailboxError";
-	statusCode = 409;
 
-	constructor() {
-		super(NO_TRASH_FOLDER_REASON);
+	constructor(accountId: string) {
+		super(
+			NO_TRASH_FOLDER_REASON,
+			CanonicalMailboxRole.Trash,
+			"none",
+			accountId,
+		);
 	}
 }
 
@@ -227,7 +235,7 @@ export class MessageMoveService {
 				{ accountId, messageCount: messages.length },
 				"Refused to delete: account resolves no Trash mailbox",
 			);
-			throw new NoTrashMailboxError();
+			throw new NoTrashMailboxError(accountId);
 		}
 
 		// Group messages by operation type
@@ -667,7 +675,7 @@ export class MessageMoveService {
 			await this.mailboxSpecialUseService.findConfirmedTrashMailbox(accountId);
 
 		if (!trashMailbox) {
-			throw new NoTrashMailboxError();
+			throw new NoTrashMailboxError(accountId);
 		}
 
 		// Get all messages in Trash

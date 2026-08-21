@@ -1,5 +1,29 @@
+import type { CanonicalMailboxRoleValue } from "./folder-role.js";
+
+/**
+ * The half of an error a client may read: a stable `code` it branches on and
+ * string `details` it words its own prompt from. Opt-in — an error that
+ * declares none keeps today's `{ message }` body, so no response gains a
+ * shape the API never promised and no internal failure leaks its innards.
+ */
+export interface PublicApiError {
+	code: string;
+	details?: Record<string, string>;
+}
+
+export const isPublicApiError = (value: unknown): value is PublicApiError => {
+	if (typeof value !== "object" || value === null) return false;
+	if (!("code" in value) || typeof value.code !== "string") return false;
+	if (!("details" in value) || value.details === undefined) return true;
+	if (typeof value.details !== "object" || value.details === null) return false;
+	return Object.values(value.details).every(
+		(detail) => typeof detail === "string",
+	);
+};
+
 export class HTTPError extends Error {
 	public statusCode = 500;
+	publicApiError?: PublicApiError;
 }
 
 export class BadRequestError extends HTTPError {
@@ -25,6 +49,40 @@ export class NotFoundError extends HTTPError {
 export class ConflictError extends HTTPError {
 	name = "ConflictError";
 	public statusCode = 409;
+}
+
+/**
+ * Why a canonical role names no folder this action may act on. `none`: the
+ * account has no candidate at all. `stale`: the folder the user appointed is
+ * gone from the server. `unconfirmed`: a folder matches by name, but nobody —
+ * neither the user nor the server's own flag — ever said it holds the role.
+ * These three and no others; a target that is merely unsettled is a different
+ * refusal under its own code.
+ */
+export type FolderRoleUnresolvedReason = "none" | "stale" | "unconfirmed";
+
+/**
+ * A destructive action refused because the role it needs is unresolved. The
+ * client reads `code` and words its prompt from `details` — never from the
+ * message — so the copy can change without breaking the branch, and the
+ * account the prompt has to appoint a folder on travels with the refusal
+ * (the delete endpoint's body carries no accountId).
+ */
+export class FolderRoleUnresolvedError extends ConflictError {
+	name = "FolderRoleUnresolvedError";
+
+	constructor(
+		message: string,
+		role: CanonicalMailboxRoleValue,
+		reason: FolderRoleUnresolvedReason,
+		accountId: string,
+	) {
+		super(message);
+		this.publicApiError = {
+			code: "folder_role_unresolved",
+			details: { role, reason, accountId },
+		};
+	}
 }
 
 /**

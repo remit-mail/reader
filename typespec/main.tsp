@@ -157,7 +157,7 @@ namespace RemitApi {
       @path accountId: UUID,
       @path role: CanonicalMailboxRole,
       @body input: AppointFolderRoleInput,
-    ): AccountResponse;
+    ): AccountResponse | AppointFolderRoleConflict;
   }
 
   // ============================================
@@ -292,7 +292,9 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/empty")
-    op emptyTrash(@path accountId: UUID): EmptyTrashResponse;
+    op emptyTrash(
+      @path accountId: UUID,
+    ): EmptyTrashResponse | FolderRoleConflict;
   }
 
   // ============================================
@@ -721,7 +723,7 @@ namespace RemitApi {
     @route("/delete")
     op deleteMessages(
       @body input: DeleteMessagesInput,
-    ): MessageBulkOperationResult;
+    ): MessageBulkOperationResult | FolderRoleConflict;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
