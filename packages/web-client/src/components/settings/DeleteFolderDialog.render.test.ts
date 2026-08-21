@@ -46,8 +46,8 @@ const mailboxes: RemitImapMailboxResponse[] = [
 ];
 
 const appointments: RemitImapFolderAppointment[] = [
-	{ role: "Inbox", mailboxId: "inbox" },
-	{ role: "Archive", mailboxId: "archive" },
+	{ role: "Inbox", source: "Appointed", mailboxId: "inbox" },
+	{ role: "Archive", source: "Appointed", mailboxId: "archive" },
 ];
 
 // The role labels the app resolves through i18n, so a folder appointed to a
@@ -213,7 +213,7 @@ describe("DeleteFolderDialog", () => {
 			allMailboxes: [...mailboxes, trash],
 			folderAppointments: [
 				...appointments,
-				{ role: "Trash", mailboxId: "trash" },
+				{ role: "Trash", source: "Appointed", mailboxId: "trash" },
 			],
 		});
 		assert.match(container.textContent ?? "", /Delete Trash/);

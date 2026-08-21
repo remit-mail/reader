@@ -44,7 +44,7 @@ const make = (
 const appoint = (
 	role: RemitImapFolderAppointment["role"],
 	mailboxId: string,
-): RemitImapFolderAppointment => ({ role, mailboxId });
+): RemitImapFolderAppointment => ({ role, source: "Appointed", mailboxId });
 
 const applePaths = [
 	make({ mailboxId: "mb-inbox", fullPath: "INBOX" }),

@@ -92,7 +92,9 @@ const seededClient = (trashMailboxId: string): QueryClient => {
 		makeConfig([
 			makeAccount({
 				accountId: "acc-1",
-				folderAppointments: [{ role: "Trash", mailboxId: trashMailboxId }],
+				folderAppointments: [
+					{ role: "Trash", source: "Appointed", mailboxId: trashMailboxId },
+				],
 			}),
 		]),
 	);

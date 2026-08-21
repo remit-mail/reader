@@ -188,6 +188,34 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 		assert.notEqual(confirmed?.mailboxId, keepsakes.mailboxId);
 	});
 
+	test("keeps a stale Trash appointment visible instead of answering the fallback", async () => {
+		// The appointed folder is gone — deleted by another client. `null` and the
+		// flagged folder both hide that; the resolution names the id the user chose
+		// so a refusal can offer the repair (#887).
+		const { accountId, accountConfigId } = await makeAccount();
+		await mailboxes.create(makeMailboxInput(accountId, "INBOX"));
+		const flagged = await mailboxes.create(
+			makeMailboxInput(accountId, "[Gmail]/Trash"),
+		);
+		await repo.create(flagged.mailboxId, "Trash");
+		const appointed = randomUUID();
+		await appoint(
+			accountConfigId,
+			accountId,
+			CanonicalMailboxRole.Trash,
+			appointed,
+		);
+
+		assert.deepEqual(await repo.resolveTrashRole(accountId), {
+			kind: "appointment_stale",
+			appointedMailboxId: appointed,
+			fallback: {
+				kind: "flagged",
+				mailbox: { mailboxId: flagged.mailboxId, fullPath: "[Gmail]/Trash" },
+			},
+		});
+	});
+
 	test("resolves an INBOX-nested Junk folder that advertises \\Junk", async () => {
 		const { accountId } = await makeAccount();
 		await mailboxes.create(makeMailboxInput(accountId, "INBOX"));

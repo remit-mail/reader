@@ -43,9 +43,11 @@ export const FolderRoleOperations: Record<
 		const existing = await account.get(accountId);
 		assertAccountOwnership(existing, accountConfigId, "act");
 
+		let lastKnownPath: string | undefined;
 		if (body.mailboxId) {
 			const target = await mailbox.get(accountId, body.mailboxId);
 			assertMailboxInAccount(target, accountId, "act");
+			lastKnownPath = target.fullPath;
 		}
 
 		await writeFolderRoleAppointment(
@@ -54,6 +56,7 @@ export const FolderRoleOperations: Record<
 			accountId,
 			role,
 			body.mailboxId ?? null,
+			lastKnownPath,
 		);
 
 		const [signature, overrides, folderAppointments] = await Promise.all([

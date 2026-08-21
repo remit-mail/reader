@@ -11,7 +11,7 @@ import {
 const appoint = (
 	role: RemitImapFolderAppointment["role"],
 	mailboxId: string | undefined,
-): RemitImapFolderAppointment => ({ role, mailboxId });
+): RemitImapFolderAppointment => ({ role, source: "Appointed", mailboxId });
 
 describe("buildMailboxRoleMap", () => {
 	test("maps mailboxId to its appointed role", () => {

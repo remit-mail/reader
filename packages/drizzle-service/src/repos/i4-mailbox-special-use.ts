@@ -7,8 +7,11 @@ import {
 	type CanonicalMailboxRoleValue,
 	composeFolderRoleAppointmentName,
 	type RoleMailboxCandidate,
+	type RoleResolution,
 	resolveConfirmedMailboxForRole,
 	resolveMailboxForRole,
+	resolveRoleForAccount,
+	type UnappointedRoleResolution,
 } from "@remit/data-ports/folder-role";
 import { CanonicalMailboxRole } from "@remit/domain-enums";
 import { eq, inArray } from "drizzle-orm";
@@ -23,6 +26,39 @@ type DB = Db<Record<string, unknown>>;
 interface RoleCandidate extends RoleMailboxCandidate {
 	fullPath: string;
 }
+
+interface RoleMailbox {
+	mailboxId: string;
+	fullPath: string;
+}
+
+const projectMailbox = (candidate: RoleCandidate): RoleMailbox => ({
+	mailboxId: candidate.mailboxId,
+	fullPath: candidate.fullPath,
+});
+
+const projectUnappointed = (
+	resolution: UnappointedRoleResolution<RoleCandidate>,
+): UnappointedRoleResolution<RoleMailbox> =>
+	resolution.kind === "none"
+		? resolution
+		: { kind: resolution.kind, mailbox: projectMailbox(resolution.mailbox) };
+
+const projectResolution = (
+	resolution: RoleResolution<RoleCandidate>,
+): RoleResolution<RoleMailbox> => {
+	if (resolution.kind === "appointment_stale") {
+		return {
+			kind: "appointment_stale",
+			appointedMailboxId: resolution.appointedMailboxId,
+			fallback: projectUnappointed(resolution.fallback),
+		};
+	}
+	if (resolution.kind === "appointed") {
+		return { kind: "appointed", mailbox: projectMailbox(resolution.mailbox) };
+	}
+	return projectUnappointed(resolution);
+};
 
 function rowToSpecialUse(
 	row: typeof mailboxSpecialUseTable.$inferSelect,
@@ -115,6 +151,24 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 			accountId,
 			CanonicalMailboxRole.Trash,
 			resolveConfirmedMailboxForRole,
+		);
+	}
+
+	/**
+	 * Trash with its evidence, for the verbs that weigh it. Reads exactly what
+	 * `findMailboxForRole` reads — a `null` answer is thrown away there, and this
+	 * keeps it.
+	 */
+	async resolveTrashRole(
+		accountId: string,
+	): Promise<RoleResolution<RoleMailbox>> {
+		const role = CanonicalMailboxRole.Trash;
+		const [candidates, appointedMailboxId] = await Promise.all([
+			this.roleCandidates(accountId),
+			this.appointedMailboxId(accountId, role),
+		]);
+		return projectResolution(
+			resolveRoleForAccount(role, candidates, appointedMailboxId),
 		);
 	}
 

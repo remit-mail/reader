@@ -1,3 +1,4 @@
+import type { RoleResolution } from "../folder-role.js";
 import type {
 	MailboxSpecialUseItem,
 	MailboxSpecialUseValue,
@@ -38,6 +39,16 @@ export interface IMailboxSpecialUseRepository {
 	findConfirmedTrashMailbox(
 		accountId: string,
 	): Promise<{ mailboxId: string; fullPath: string } | null>;
+	/**
+	 * Trash with the evidence attached, for the two verbs that weigh it: a
+	 * delete files mail somewhere retrievable, an Empty Trash destroys it, and
+	 * they refuse on different grounds. `null` cannot tell them apart — an
+	 * appointment naming a folder that is gone is a different answer from no
+	 * folder at all, and only this read distinguishes them.
+	 */
+	resolveTrashRole(
+		accountId: string,
+	): Promise<RoleResolution<{ mailboxId: string; fullPath: string }>>;
 	findArchiveMailbox(
 		accountId: string,
 	): Promise<{ mailboxId: string; fullPath: string } | null>;

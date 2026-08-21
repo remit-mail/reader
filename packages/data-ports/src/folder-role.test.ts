@@ -2,9 +2,15 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { CanonicalMailboxRole, MailboxSpecialUse } from "@remit/domain-enums";
 import {
+	composeFolderRoleAppointmentLabelName,
+	composeFolderRoleAppointmentName,
+	meetsTrashAssurance,
+	parseFolderRoleAppointmentLabelName,
+	parseFolderRoleAppointmentName,
 	type RoleMailboxCandidate,
 	resolveConfirmedMailboxForRole,
 	resolveMailboxForRole,
+	resolveRoleForAccount,
 } from "./folder-role.js";
 
 const mailbox = (
@@ -163,5 +169,150 @@ describe("resolveConfirmedMailboxForRole", () => {
 				?.mailboxId,
 			"mb-trash",
 		);
+	});
+});
+
+describe("resolveRoleForAccount", () => {
+	it("answers none when nothing names a Trash folder", () => {
+		// #887 Done item 4: an account whose folders happen to include a Dutch
+		// "Prullenbak" has no Trash reader may act on — no flag, no appointment,
+		// and "prullenbak" is not a hint.
+		const mailboxes = [
+			mailbox("mb-inbox", "INBOX"),
+			mailbox("mb-werk", "Werk"),
+			mailbox("mb-prullenbak", "Prullenbak"),
+		];
+		assert.deepEqual(
+			resolveRoleForAccount(CanonicalMailboxRole.Trash, mailboxes),
+			{ kind: "none" },
+		);
+	});
+
+	it("proposes a folder named Trash, and that is not enough to empty it", () => {
+		// #887 Done item 1: the name is a guess. It files a delete somewhere
+		// retrievable; it never authorises an expunge.
+		const mailboxes = [
+			mailbox("mb-inbox", "INBOX"),
+			mailbox("mb-werk", "Werk"),
+			mailbox("mb-trash", "Trash"),
+		];
+		const resolution = resolveRoleForAccount(
+			CanonicalMailboxRole.Trash,
+			mailboxes,
+		);
+		assert.deepEqual(resolution, {
+			kind: "proposed",
+			mailbox: mailboxes[2],
+		});
+		assert.equal(meetsTrashAssurance(resolution, "confirmed"), false);
+		assert.equal(meetsTrashAssurance(resolution, "resolved"), true);
+	});
+
+	it("names the appointment that went stale, and what took its place", () => {
+		const mailboxes = [
+			mailbox("mb-inbox", "INBOX"),
+			mailbox("mb-trash", "[Gmail]/Trash", [MailboxSpecialUse.Trash]),
+		];
+		const resolution = resolveRoleForAccount(
+			CanonicalMailboxRole.Trash,
+			mailboxes,
+			"mb-rubbish-deleted-by-apple-mail",
+		);
+		assert.deepEqual(resolution, {
+			kind: "appointment_stale",
+			appointedMailboxId: "mb-rubbish-deleted-by-apple-mail",
+			fallback: { kind: "flagged", mailbox: mailboxes[1] },
+		});
+		assert.equal(meetsTrashAssurance(resolution, "confirmed"), false);
+		assert.equal(meetsTrashAssurance(resolution, "resolved"), false);
+	});
+
+	it("tags the appointment the user made and the flag the server set apart", () => {
+		const mailboxes = [
+			mailbox("mb-inbox", "INBOX"),
+			mailbox("mb-trash", "[Gmail]/Trash", [MailboxSpecialUse.Trash]),
+		];
+		assert.equal(
+			resolveRoleForAccount(CanonicalMailboxRole.Trash, mailboxes).kind,
+			"flagged",
+		);
+		assert.equal(
+			resolveRoleForAccount(CanonicalMailboxRole.Trash, mailboxes, "mb-inbox")
+				.kind,
+			"appointed",
+		);
+		assert.equal(
+			resolveRoleForAccount(CanonicalMailboxRole.Inbox, mailboxes).kind,
+			"reserved",
+		);
+	});
+});
+
+describe("the adapters over resolveRoleForAccount", () => {
+	const mailboxes = [
+		mailbox("mb-inbox", "INBOX"),
+		mailbox("mb-trash", "[Gmail]/Trash", [MailboxSpecialUse.Trash]),
+	];
+
+	it("still hands a stale appointment the flagged mailbox", () => {
+		// The refusal that makes this return null lands with the surface that can
+		// tell the user why (S3). Until then, both adapters answer exactly as they
+		// did before the union existed.
+		assert.equal(
+			resolveConfirmedMailboxForRole(
+				CanonicalMailboxRole.Trash,
+				mailboxes,
+				"mb-gone",
+			)?.mailboxId,
+			"mb-trash",
+		);
+		assert.equal(
+			resolveMailboxForRole(CanonicalMailboxRole.Trash, mailboxes, "mb-gone")
+				?.mailboxId,
+			"mb-trash",
+		);
+	});
+
+	it("keeps the name guess out of the confirmed answer", () => {
+		const unflagged = [
+			mailbox("mb-inbox", "INBOX"),
+			mailbox("mb-bak", "Trash"),
+		];
+		assert.equal(
+			resolveConfirmedMailboxForRole(CanonicalMailboxRole.Trash, unflagged),
+			null,
+		);
+		assert.equal(
+			resolveMailboxForRole(CanonicalMailboxRole.Trash, unflagged)?.mailboxId,
+			"mb-bak",
+		);
+	});
+});
+
+describe("the appointment name and its label sibling", () => {
+	it("never lets the label row parse as an appointment", () => {
+		// The label is display only. If the appointment parser matched it, a path
+		// string would be read back as a mailboxId and resolution would follow it.
+		const label = composeFolderRoleAppointmentLabelName(
+			"acc-1",
+			CanonicalMailboxRole.Trash,
+		);
+		assert.equal(parseFolderRoleAppointmentName(label), undefined);
+		assert.deepEqual(parseFolderRoleAppointmentLabelName(label), {
+			accountId: "acc-1",
+			role: CanonicalMailboxRole.Trash,
+		});
+	});
+
+	it("never lets an appointment row parse as a label", () => {
+		const appointment = composeFolderRoleAppointmentName(
+			"acc-1",
+			CanonicalMailboxRole.Trash,
+		);
+		assert.equal(parseFolderRoleAppointmentLabelName(appointment), undefined);
+		assert.deepEqual(parseFolderRoleAppointmentName(appointment), {
+			accountId: "acc-1",
+			role: CanonicalMailboxRole.Trash,
+		});
 	});
 });
