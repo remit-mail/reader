@@ -8,6 +8,7 @@ import type { Logger } from "@remit/logger-lambda";
 import {
 	guardConnectionCursor,
 	isCursorRebuildNeeded,
+	isMessageGoneFromOpenMailbox,
 	MailboxCursorPausedError,
 } from "@remit/mailbox-service";
 import { isAccountDeleted } from "../account-check.js";
@@ -359,14 +360,29 @@ export const handleMessageDelete = async (
 					const errorMessage =
 						error instanceof Error ? error.message : String(error);
 
-					// Message not found on IMAP - already deleted (idempotent)
-					if (
-						errorMessage.includes("not found") ||
-						errorMessage.includes("NONEXISTENT")
-					) {
+					// Reconcile a permanent delete whose message the server no longer
+					// holds (idempotent, issue #212) — but only on evidence.
+					//
+					// Reading "not found" out of the error text was two inferences at
+					// once. A `move_to_trash` that fails AFTER the MOVE landed reports
+					// exactly that text from a LOCAL lookup, and absence from the source
+					// box is the MOVE's success signature, so the text meant "the move
+					// worked" while the code read it as "the mail is gone" and deleted
+					// live mail out of Trash (issue #845). The text now only selects a
+					// candidate; the source box is asked whether the UID is really gone.
+					const isGoneFromSource =
+						operation === "permanent_delete" &&
+						(errorMessage.includes("not found") ||
+							errorMessage.includes("NONEXISTENT")) &&
+						(await isMessageGoneFromOpenMailbox(
+							await scope.getConnection(),
+							uid,
+						));
+
+					if (isGoneFromSource) {
 						log.info(
 							{ messageId, uid },
-							"Message not found on IMAP, cleaning up local",
+							"Message confirmed gone from IMAP, cleaning up local",
 						);
 						// Clean up local entities. Multi-mailbox copies are handled by the
 						// helper so we don't leave orphan rows (see issue #212).
