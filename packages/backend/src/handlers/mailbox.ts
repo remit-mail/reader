@@ -421,7 +421,7 @@ export const TrashOperations: Record<
 			await client.mailboxSpecialUse.findConfirmedTrashMailbox(accountId);
 
 		if (!trashMailbox) {
-			throw new NoTrashMailboxError();
+			throw new NoTrashMailboxError(accountId);
 		}
 
 		const messages = await client.message.listAllByMailbox(
