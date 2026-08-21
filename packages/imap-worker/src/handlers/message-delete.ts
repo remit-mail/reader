@@ -360,24 +360,11 @@ export const handleMessageDelete = async (
 					const errorMessage =
 						error instanceof Error ? error.message : String(error);
 
-					// Reconcile a permanent delete whose message the server no longer
-					// holds (idempotent, issue #212) — but only on evidence.
-					//
-					// Reading "not found" out of the error text was two inferences at
-					// once. A `move_to_trash` that fails AFTER the MOVE landed reports
-					// exactly that text from a LOCAL lookup, and absence from the source
-					// box is the MOVE's success signature, so the text meant "the move
-					// worked" while the code read it as "the mail is gone" and deleted
-					// live mail out of Trash (issue #845). The text now only selects a
-					// candidate; the source box is asked whether the UID is really gone.
-					//
-					// A probe that cannot answer is not an answer. The candidate text
-					// is at its most tempting when the SELECT itself failed, and then
-					// there is no open box left to ask, so the probe throws in exactly
-					// that case. Letting it reject would swallow the real IMAP error and
-					// leave the row mid-delete until the record reaches the DLQ, so an
-					// unanswerable probe reads as "not confirmed" and the original error
-					// takes the ordinary failed-and-rethrow path below.
+					// Reconcile a permanent delete the server already applied (#212).
+					// The error text only nominates a candidate — the source box
+					// decides, since a landed move-to-trash reports that same text from
+					// a LOCAL lookup (#845) — and a probe that cannot answer counts as
+					// not-confirmed, leaving the original error to the rethrow below.
 					const isGoneFromSource =
 						operation === "permanent_delete" &&
 						(errorMessage.includes("not found") ||
