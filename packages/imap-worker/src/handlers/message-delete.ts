@@ -13,7 +13,7 @@ import {
 } from "@remit/mailbox-service";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
-import type { MessageDeleteEvent } from "../events.js";
+import { isCurrentSchemaVersion, type MessageDeleteEvent } from "../events.js";
 import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
@@ -109,6 +109,18 @@ export const buildThreadMessageMoveRevert = (
 	composites: currentComposites(threadMessage),
 });
 
+/**
+ * Hand a row back after an abandoned expunge. The mail never left Trash, so
+ * only the deletion mark reverts — the uid and mailbox on the row are still
+ * where the server has it.
+ */
+export const buildThreadMessageUndelete = (
+	threadMessage: ThreadMessageRowState,
+) => ({
+	set: { isDeleted: false },
+	composites: currentComposites(threadMessage),
+});
+
 export interface MessageDeleteDeps {
 	getClient: typeof getClient;
 	buildLifecycleDeps: typeof buildLifecycleDeps;
@@ -172,6 +184,49 @@ export const handleMessageDelete = async (
 		return;
 	}
 
+	// Only an operation that explicitly says so destroys mail. The event is
+	// `JSON.parse`d and cast in the queue handler with no validation, so a
+	// missing, misspelled or future field must abandon the delete — the
+	// "anything that is not move_to_trash is an expunge" inference is the same
+	// one that destroyed mail in the service, and an unrecoverable EXPUNGE is
+	// not a default. Abandoning hands the row back where the server still has
+	// it: an invisible `failed` on a row the user cannot see is the shape of
+	// the incident this whole change is about.
+	const abandonDelete = async (
+		reason: string,
+		alert: string,
+	): Promise<void> => {
+		log.error(
+			{ alert, accountId, messageId, uid, mailboxPath, operation },
+			reason,
+		);
+		await messageService.updateUid(messageId, uid, mailboxId);
+		await messageService.update(messageId, {
+			status: MessageStatus.active,
+			syncStatus: MessageSyncStatus.failed,
+		});
+		const threadMessage = await threadMessageService.findByMessageId(
+			account.accountConfigId,
+			messageId,
+		);
+		if (!threadMessage) return;
+		const args = buildThreadMessageMoveRevert(threadMessage, uid, mailboxId);
+		await threadMessageService.update(
+			threadMessage.accountConfigId,
+			threadMessage.threadMessageId,
+			args.set,
+			{ composites: args.composites },
+		);
+	};
+
+	if (!isCurrentSchemaVersion(event.schemaVersion)) {
+		await abandonDelete(
+			"Refused to delete: event was minted under an unknown contract",
+			"message_delete_unknown_schema_version",
+		);
+		return;
+	}
+
 	await withOAuthLifecycle(
 		buildLifecycleDeps(secrets, accountService),
 		account,
@@ -222,43 +277,6 @@ export const handleMessageDelete = async (
 						mailbox,
 					);
 					await connection.openBox(mailboxPath, false);
-
-					// Only an operation that explicitly says so destroys mail. The
-					// event is `JSON.parse`d and cast in the queue handler with no
-					// validation, so a missing, misspelled or future `operation` must
-					// abandon the delete — the "anything that is not move_to_trash is
-					// an expunge" inference is the same one that destroyed mail in the
-					// service, and an unrecoverable EXPUNGE is not a default.
-					const abandonDelete = async (
-						reason: string,
-						alert: string,
-					): Promise<void> => {
-						log.error(
-							{ alert, accountId, messageId, uid, mailboxPath, operation },
-							reason,
-						);
-						await messageService.updateUid(messageId, uid, mailboxId);
-						await messageService.update(messageId, {
-							status: MessageStatus.active,
-							syncStatus: MessageSyncStatus.failed,
-						});
-						const threadMessage = await threadMessageService.findByMessageId(
-							account.accountConfigId,
-							messageId,
-						);
-						if (!threadMessage) return;
-						const args = buildThreadMessageMoveRevert(
-							threadMessage,
-							uid,
-							mailboxId,
-						);
-						await threadMessageService.update(
-							threadMessage.accountConfigId,
-							threadMessage.threadMessageId,
-							args.set,
-							{ composites: args.composites },
-						);
-					};
 
 					if (
 						operation !== "move_to_trash" &&
@@ -398,16 +416,16 @@ export const handleMessageDelete = async (
 						return;
 					}
 
-					// TRYCREATE - Trash doesn't exist
+					// TRYCREATE — the destination this event names is not on the
+					// server. Creating it would resurrect an empty `Trash` beside the
+					// real one and hand the name-hint rule two folders to choose
+					// between; the folder picker offers the ones that exist instead.
 					if (errorMessage.includes("TRYCREATE") && destinationMailboxPath) {
-						log.info(
-							{ destinationMailboxPath },
-							"Trash mailbox doesn't exist, creating",
+						await abandonDelete(
+							"Refused to delete: the destination mailbox does not exist on the server",
+							"message_delete_destination_missing",
 						);
-						const connection = await scope.getConnection();
-						await connection.createMailbox(destinationMailboxPath);
-						// Re-throw to let the event be retried
-						throw error;
+						return;
 					}
 
 					// Mark as failed for other errors

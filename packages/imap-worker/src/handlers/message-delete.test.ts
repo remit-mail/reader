@@ -330,6 +330,7 @@ const deps = (): MessageDeleteDeps =>
 
 const moveEvent: MessageDeleteEvent = {
 	type: "MESSAGE_DELETE",
+	schemaVersion: 2,
 	accountId: "acc-1",
 	messageId: "msg-1",
 	mailboxId: "src-mbx",
@@ -342,6 +343,7 @@ const moveEvent: MessageDeleteEvent = {
 
 const permanentEvent: MessageDeleteEvent = {
 	type: "MESSAGE_DELETE",
+	schemaVersion: 2,
 	accountId: "acc-1",
 	messageId: "msg-1",
 	mailboxId: "src-mbx",
@@ -578,18 +580,53 @@ describe("handleMessageDelete", () => {
 		);
 	});
 
-	it("creates the trash mailbox and rethrows on TRYCREATE", async () => {
+	it("abandons rather than creating the destination on TRYCREATE", async () => {
+		// Creating it resurrects an empty `Trash` beside the real one, and the
+		// name-hint rule then has two folders to choose between. The picker
+		// offers the ones the account actually has.
 		h.connection.moveMessages = async () => {
 			throw new Error("TRYCREATE: no such mailbox");
 		};
 
-		await assert.rejects(
-			handleMessageDelete(moveEvent, noopLog, deps()),
-			/TRYCREATE/,
-		);
+		await handleMessageDelete(moveEvent, noopLog, deps());
 
-		assert.equal(called("connection.createMailbox")[0]?.args[0], "Trash");
-		assert.equal(h.getConnectionCount, 2, "reconnects to create the mailbox");
+		assert.equal(called("connection.createMailbox").length, 0);
+		assert.deepEqual(called("message.updateUid")[0]?.args, [
+			"msg-1",
+			10,
+			"src-mbx",
+		]);
+		assert.deepEqual(called("message.update")[0]?.args[1], {
+			status: "active",
+			syncStatus: "failed",
+		});
+		assert.deepEqual(called("threadMessage.update")[0]?.args[2], {
+			uid: 10,
+			mailboxId: "src-mbx",
+			isDeleted: false,
+		});
+	});
+
+	it("abandons an event minted under an unknown contract, before connecting", async () => {
+		const unversioned = {
+			...moveEvent,
+			schemaVersion: undefined,
+		} as unknown as MessageDeleteEvent;
+
+		await handleMessageDelete(unversioned, noopLog, deps());
+
+		assert.equal(h.getConnectionCount, 0);
+		assert.equal(called("connection.deleteMessages").length, 0);
+		assert.deepEqual(called("message.updateUid")[0]?.args, [
+			"msg-1",
+			10,
+			"src-mbx",
+		]);
+		assert.deepEqual(called("threadMessage.update")[0]?.args[2], {
+			uid: 10,
+			mailboxId: "src-mbx",
+			isDeleted: false,
+		});
 	});
 
 	it("marks failed and rethrows on an unclassified IMAP error", async () => {

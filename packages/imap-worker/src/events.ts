@@ -4,6 +4,21 @@ export interface BaseEvent {
 	timestamp: number; // Unix timestamp
 }
 
+/**
+ * The contract version the mail-destroying events are minted under. Bumped
+ * whenever a handler starts relying on a field an older producer never set.
+ */
+export const MUTATION_EVENT_SCHEMA_VERSION = 2;
+
+/**
+ * Queue payloads are `JSON.parse`d and cast with no validation, so the declared
+ * type is a promise the queue cannot keep. A handler that cannot vouch for an
+ * event's shape abandons it — treating a missing field as "skip the check"
+ * makes the unverified expunge the default for every event we cannot vouch for.
+ */
+export const isCurrentSchemaVersion = (value: unknown): boolean =>
+	value === MUTATION_EVENT_SCHEMA_VERSION;
+
 export interface SyncMailboxesEvent extends BaseEvent {
 	type: "SYNC_MAILBOXES";
 	/**
@@ -88,6 +103,7 @@ export type MailboxManagementEvent =
  */
 export interface MessageDeleteEvent extends BaseEvent {
 	type: "MESSAGE_DELETE";
+	schemaVersion: typeof MUTATION_EVENT_SCHEMA_VERSION;
 	messageId: string;
 	mailboxId: string;
 	mailboxPath: string;
@@ -115,8 +131,16 @@ export interface MessageMoveEvent extends BaseEvent {
  */
 export interface EmptyTrashEvent extends BaseEvent {
 	type: "EMPTY_TRASH";
+	schemaVersion: typeof MUTATION_EVENT_SCHEMA_VERSION;
 	trashMailboxId: string;
 	trashMailboxPath: string;
+	/**
+	 * The Trash folder's UIDVALIDITY at the moment the user consented. The
+	 * handler compares it against what the SELECT serves: a path reused by a
+	 * different folder (rename plus recreate) answers with a different value,
+	 * and this is the only comparison the mutating connection cannot race.
+	 */
+	trashUidValidity: number;
 }
 
 /**
