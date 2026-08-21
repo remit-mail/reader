@@ -7,13 +7,6 @@ const translator = shortUuid.createTranslator(shortUuid.constants.uuid25Base36);
 
 export const base36uuid = (): string => translator.generate();
 
-export const fromUUID = (uuid: string): string => translator.fromUUID(uuid);
-
-export const toUUID = (shortId: string): string => translator.toUUID(shortId);
-
-export const generateUuidv5 = (name: string, namespace: string): string =>
-	uuidv5(name, namespace);
-
 export const base36uuidv5 = (name: string, namespace: string): string =>
 	translator.fromUUID(uuidv5(name, namespace));
 
@@ -117,16 +110,6 @@ export const ROOT_PART_PATH = "0";
 
 export const deriveBodyPartId = (messageId: string, partPath: string): string =>
 	base36uuidv5(`bodypart:${messageId}:${partPath}`, REMIT_NAMESPACE);
-
-export const deriveBodyPartParameterId = (
-	messageId: string,
-	partPath: string,
-	parameterName: string,
-): string =>
-	base36uuidv5(
-		`bodypartparam:${messageId}:${partPath}:${parameterName.toLowerCase()}`,
-		REMIT_NAMESPACE,
-	);
 
 /**
  * Identity of a quarantined message (issue #72). Derived rather than generated

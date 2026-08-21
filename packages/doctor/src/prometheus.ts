@@ -126,11 +126,3 @@ export const seriesNamed = (
 	samples: readonly Sample[],
 	name: string,
 ): Sample[] => samples.filter((sample) => sample.name === name);
-
-/** The sum of one series, `0` when nothing exported it. */
-export const sumOf = (samples: readonly Sample[], name: string): number =>
-	seriesNamed(samples, name).reduce(
-		(total, sample) =>
-			total + (Number.isFinite(sample.value) ? sample.value : 0),
-		0,
-	);
