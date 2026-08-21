@@ -1,10 +1,13 @@
 import { getClient } from "@remit/backend/client";
 import type { ThreadMessageItem } from "@remit/data-ports";
-import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
+import { MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
+import { recordImapFailure } from "@remit/logger-lambda";
 import {
 	guardConnectionCursor,
+	type IImapConnection,
 	isCursorRebuildNeeded,
+	isPlacementUnsettled,
 	MailboxCursorPausedError,
 } from "@remit/mailbox-service";
 import { isAccountDeleted } from "../account-check.js";
@@ -14,6 +17,28 @@ import type { MessageMoveEvent, SyncMessagesEvent } from "../events.js";
 import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
+import { resolveExhaustedMessageMoveFailure } from "./message-move-terminal.js";
+
+/**
+ * Fallback when `MESSAGE_MOVE_MAX_ATTEMPTS` is unset (local dev, unit tests).
+ * Matches the `maxReceiveCount` the message queue's redrive policy uses
+ * (`remit-messages.fifo`, `deploy/vps/queues.json`), same pattern as
+ * `FLAG_PUSH_MAX_ATTEMPTS` and `PLACEMENT_MOVE_MAX_ATTEMPTS`.
+ */
+const DEFAULT_MESSAGE_MOVE_MAX_ATTEMPTS = 3;
+
+export const getMessageMoveMaxAttempts = (
+	processEnv: NodeJS.ProcessEnv = process.env,
+): number => {
+	const raw = processEnv.MESSAGE_MOVE_MAX_ATTEMPTS;
+	if (!raw) return DEFAULT_MESSAGE_MOVE_MAX_ATTEMPTS;
+	const parsed = Number.parseInt(raw, 10);
+	return Number.isFinite(parsed) && parsed > 0
+		? parsed
+		: DEFAULT_MESSAGE_MOVE_MAX_ATTEMPTS;
+};
+
+export const MESSAGE_MOVE_MAX_ATTEMPTS = getMessageMoveMaxAttempts();
 
 type EmitSyncMessages = (
 	event: Omit<SyncMessagesEvent, "eventId" | "timestamp">,
@@ -39,6 +64,23 @@ export const emitMoveResync = async (
 			emit({ type: "SYNC_MESSAGES", accountId, mailboxId }),
 		),
 	);
+};
+
+/**
+ * SEARCH a mailbox for a message by its RFC822 Message-ID header. Read-only
+ * (EXAMINE, not SELECT) — this is a verification probe, never a write.
+ * Returns the first matching UID, or `null` if nothing matched.
+ */
+export const searchMailboxByMessageId = async (
+	connection: IImapConnection,
+	mailboxPath: string,
+	messageIdHeader: string,
+): Promise<number | null> => {
+	await connection.openBox(mailboxPath, true);
+	const uids = await connection.search([
+		`HEADER Message-ID "${messageIdHeader}"`,
+	]);
+	return uids[0] ?? null;
 };
 
 /**
@@ -97,10 +139,18 @@ export const buildThreadMessageMoveUpdate = (
 /**
  * Handle MESSAGE_MOVE events.
  * Executes IMAP MOVE command and updates local state with new UID.
+ *
+ * A failing move retries on SQS redelivery until `receiveCount` reaches
+ * {@link MESSAGE_MOVE_MAX_ATTEMPTS}, at which point
+ * {@link resolveExhaustedMessageMoveFailure} asks IMAP where the message
+ * actually is and settles the row into one terminal outcome (issue #655).
+ * Before that, `syncStatus: failed` marked every attempt and nothing ever
+ * settled the row, so an exhausted move sat `moving`/`failed` forever.
  */
 export const handleMessageMove = async (
 	event: MessageMoveEvent,
 	log: Logger,
+	receiveCount = 1,
 ): Promise<void> => {
 	const {
 		account: accountService,
@@ -137,6 +187,32 @@ export const handleMessageMove = async (
 	}
 
 	if (isAccountDeleted(account, log)) {
+		return;
+	}
+
+	const [message] = await messageService.get([messageId]);
+
+	// The message row is already gone — some other reconciliation path deleted
+	// it. The move is moot; ack without touching IMAP.
+	if (!message) {
+		log.warn(
+			{ accountId, messageId },
+			"Skipping MESSAGE_MOVE: message row no longer exists",
+		);
+		return;
+	}
+
+	// This move already settled — `updateUid` cleared `status: moving` once the
+	// server confirmed it. A redelivery reaching here would MOVE a UID the
+	// source no longer holds, fail, and on exhaustion read the source's honest
+	// "gone" as grounds to reconcile away a row that is correct. There is no
+	// marker to find missing (unlike FLAG_PUSH and PLACEMENT_MOVE_PUSH), so the
+	// row's own pending marker is what stands in for one.
+	if (!isPlacementUnsettled(message)) {
+		log.info(
+			{ accountId, messageId, uid: message.uid, status: message.status },
+			"Skipping MESSAGE_MOVE: the move already settled against confirmed IMAP state",
+		);
 		return;
 	}
 
@@ -200,56 +276,65 @@ export const handleMessageMove = async (
 								destinationMailboxPath,
 							);
 
-							// Get new UID from COPYUID response
-							const newUid = result.uidMap.get(uid);
+							// Get new UID from COPYUID response. A server without UIDPLUS
+							// answers a perfectly successful MOVE with no COPYUID entry,
+							// so an empty map is UNCONFIRMED, never evidence the message
+							// is gone: the destination is asked by Message-ID before any
+							// verdict, exactly as `attemptMove` does. Marking the row
+							// `failed` and returning (the behaviour issue #655 opens on)
+							// left it `moving`/`failed` with no DLQ entry and no metric,
+							// because a handler that returns never redelivers.
+							const newUid =
+								result.uidMap.get(uid) ??
+								(message.messageIdHeader
+									? await searchMailboxByMessageId(
+											rawConnection,
+											destinationMailboxPath,
+											message.messageIdHeader,
+										)
+									: null);
 
-							if (newUid) {
-								// Update message with new UID
-								await messageService.updateUid(
-									messageId,
+							if (!newUid) {
+								throw new Error(
+									`Message move unconfirmed (no COPYUID entry, not found at ${destinationMailboxPath}) — retrying`,
+								);
+							}
+
+							// Update message with new UID
+							await messageService.updateUid(
+								messageId,
+								newUid,
+								destinationMailboxId,
+							);
+
+							// Update ThreadMessage UID and mailboxId
+							const threadMessage = await threadMessageService.findByMessageId(
+								account.accountConfigId,
+								messageId,
+							);
+							if (threadMessage) {
+								const args = buildThreadMessageMoveUpdate(
+									threadMessage,
 									newUid,
 									destinationMailboxId,
 								);
-
-								// Update ThreadMessage UID and mailboxId
-								const threadMessage =
-									await threadMessageService.findByMessageId(
-										account.accountConfigId,
-										messageId,
-									);
-								if (threadMessage) {
-									const args = buildThreadMessageMoveUpdate(
-										threadMessage,
-										newUid,
-										destinationMailboxId,
-									);
-									await threadMessageService.update(
-										threadMessage.accountConfigId,
-										threadMessage.threadMessageId,
-										args.set,
-										{ composites: args.composites },
-									);
-								}
-
-								log.info(
-									{
-										messageId,
-										oldUid: uid,
-										newUid,
-										destination: destinationMailboxPath,
-									},
-									"Message moved successfully",
+								await threadMessageService.update(
+									threadMessage.accountConfigId,
+									threadMessage.threadMessageId,
+									args.set,
+									{ composites: args.composites },
 								);
-							} else {
-								// Message may have been deleted on server
-								log.error(
-									{ messageId, uid },
-									"Message not found in COPYUID response - may have been deleted",
-								);
-								await messageService.update(messageId, {
-									syncStatus: MessageSyncStatus.failed,
-								});
 							}
+
+							log.info(
+								{
+									messageId,
+									oldUid: uid,
+									newUid,
+									destination: destinationMailboxPath,
+								},
+								"Message moved successfully",
+							);
 						},
 						() =>
 							emitMoveResync(emitEvent, {
@@ -284,31 +369,59 @@ export const handleMessageMove = async (
 						);
 						const connection = await scope.getConnection();
 						await connection.createMailbox(destinationMailboxPath);
-						// Re-throw to let the event be retried
+						// Re-throw to let the event be retried against the folder just
+						// created. Kept unconditional past the attempt budget: the
+						// destination now exists, so the record is worth redriving from
+						// the DLQ, and the terminal resolver has nothing to settle — it
+						// would find the message exactly where it started.
 						throw error;
 					}
 
-					// Handle message not found on IMAP - already moved/deleted (idempotent)
-					if (
-						errorMessage.includes("not found") ||
-						errorMessage.includes("NONEXISTENT")
-					) {
-						log.info(
-							{ messageId, uid },
-							"Message not found on IMAP, updating local state as synced",
-						);
+					if (receiveCount < MESSAGE_MOVE_MAX_ATTEMPTS) {
+						// Transient move failure — expected (connections drop). No
+						// alarm; queue redelivery retries, and `failed` marks the row
+						// as unsettled meanwhile. It is not a terminal signal: only the
+						// resolver below settles anything.
 						await messageService.update(messageId, {
-							status: MessageStatus.active,
-							syncStatus: MessageSyncStatus.synced,
+							syncStatus: MessageSyncStatus.failed,
+						});
+						throw error;
+					}
+
+					// Redelivery budget exhausted: resolve into exactly one of the two
+					// terminal outcomes instead of dead-lettering with no diagnosis,
+					// and never by inferring the server's state from our own failures.
+					const { outcome } = await resolveExhaustedMessageMoveFailure(
+						{ messageService, threadMessageService, log },
+						{
+							accountId,
+							accountConfigId: account.accountConfigId,
+							messageId,
+							uid,
+							sourceMailboxPath,
+							getConnection: scope.getConnection,
+						},
+					);
+
+					if (outcome === "reconciled") {
+						// Whichever folder the message actually sits in re-projects it
+						// with the server's own UID.
+						await emitMoveResync(emitEvent, {
+							accountId,
+							sourceMailboxId,
+							destinationMailboxId,
 						});
 						return;
 					}
 
-					// Mark as failed for other errors
-					await messageService.update(messageId, {
-						syncStatus: MessageSyncStatus.failed,
-					});
-					throw error;
+					// Terminal and never re-thrown, so the handler-outcome series
+					// records this record as a success. Counted here or it is invisible.
+					recordImapFailure("MESSAGE_MOVE_EXHAUSTED", "other");
+					log.error(
+						{ error: errorMessage },
+						"Message move retry exhausted; message still exists at its source",
+					);
+					// Terminal — never re-thrown, so the caller acks either way.
 				})
 				.finally(() => scope.disconnect());
 		},

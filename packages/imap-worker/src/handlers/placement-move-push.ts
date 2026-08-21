@@ -20,6 +20,7 @@ import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import {
 	buildThreadMessageMoveUpdate,
 	emitMoveResync,
+	searchMailboxByMessageId,
 } from "./message-move.js";
 
 /**
@@ -47,23 +48,6 @@ interface MoveOutcome {
 	kind: "moved" | "not-found" | "trycreate";
 	newUid?: number;
 }
-
-/**
- * SEARCH a mailbox for a message by its RFC822 Message-ID header. Read-only
- * (EXAMINE, not SELECT) — this is a verification probe, never a write.
- * Returns the first matching UID, or `null` if nothing matched.
- */
-const searchMailboxByMessageId = async (
-	connection: IImapConnection,
-	mailboxPath: string,
-	messageIdHeader: string,
-): Promise<number | null> => {
-	await connection.openBox(mailboxPath, true);
-	const uids = await connection.search([
-		`HEADER Message-ID "${messageIdHeader}"`,
-	]);
-	return uids[0] ?? null;
-};
 
 /**
  * Attempt the IMAP MOVE.

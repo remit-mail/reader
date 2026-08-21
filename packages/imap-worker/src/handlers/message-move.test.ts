@@ -7,7 +7,9 @@ import type { MessageMoveEvent } from "../events.js";
 import {
 	buildThreadMessageMoveUpdate,
 	emitMoveResync,
+	getMessageMoveMaxAttempts,
 	handleMessageMove,
+	MESSAGE_MOVE_MAX_ATTEMPTS,
 	moveThenResync,
 } from "./message-move.js";
 
@@ -185,7 +187,39 @@ describe("moveThenResync (#1031)", () => {
 	});
 });
 
-describe("handleMessageMove — deleted mailbox is terminal (#287/#289)", () => {
+describe("getMessageMoveMaxAttempts — env-derived threshold (#655)", () => {
+	it("parses the injected env var", () => {
+		assert.equal(
+			getMessageMoveMaxAttempts({ MESSAGE_MOVE_MAX_ATTEMPTS: "3" }),
+			3,
+		);
+		assert.equal(
+			getMessageMoveMaxAttempts({ MESSAGE_MOVE_MAX_ATTEMPTS: "5" }),
+			5,
+		);
+	});
+
+	it("defaults to the message queue's own maxReceiveCount when unset", () => {
+		assert.equal(getMessageMoveMaxAttempts({}), 3);
+	});
+
+	it("defaults on a non-numeric or non-positive value", () => {
+		assert.equal(
+			getMessageMoveMaxAttempts({ MESSAGE_MOVE_MAX_ATTEMPTS: "nope" }),
+			3,
+		);
+		assert.equal(
+			getMessageMoveMaxAttempts({ MESSAGE_MOVE_MAX_ATTEMPTS: "0" }),
+			3,
+		);
+	});
+
+	it("MESSAGE_MOVE_MAX_ATTEMPTS is a concrete, positive number at module load", () => {
+		assert.ok(MESSAGE_MOVE_MAX_ATTEMPTS > 0);
+	});
+});
+
+describe("handleMessageMove — the move's own pending state gates every attempt", () => {
 	const acctId = "mm-acc-zzz";
 
 	const cappedAccount = (): AccountItem =>
@@ -219,13 +253,25 @@ describe("handleMessageMove — deleted mailbox is terminal (#287/#289)", () => 
 		timestamp: 1700000000000,
 	} as MessageMoveEvent;
 
+	const pendingRow = () => ({
+		messageId: "mm-msg-zzz",
+		mailboxId: "mm-dst-zzz",
+		uid: 10,
+		status: "moving",
+		syncStatus: "pending",
+	});
+
 	// The client is supplied by injection (`setClient`), so these tests register
 	// the repositories they then mock rather than reaching a composition.
 	before(() => {
 		setClient({
 			account: { get: async () => undefined },
 			mailbox: { get: async () => undefined },
-			message: { updateUid: async () => undefined },
+			message: {
+				get: async () => [],
+				update: async () => undefined,
+				updateUid: async () => undefined,
+			},
 			secrets: { decrypt: async () => undefined },
 		} as unknown as RemitClient);
 	});
@@ -236,6 +282,7 @@ describe("handleMessageMove — deleted mailbox is terminal (#287/#289)", () => 
 		const client = await getClient();
 		mock.method(client.account, "get", async () => cappedAccount());
 		mock.method(client.secrets, "decrypt", async () => "fake-password");
+		mock.method(client.message, "get", async () => [pendingRow()]);
 		mock.method(client.mailbox, "get", async () => {
 			throw Object.assign(new Error("Mailbox not found: mm-src-zzz"), {
 				name: "NotFoundError",
@@ -251,5 +298,45 @@ describe("handleMessageMove — deleted mailbox is terminal (#287/#289)", () => 
 			0,
 			"a deleted mailbox never reaches the IMAP move",
 		);
+	});
+
+	// Without this gate a redelivery of an already-confirmed move re-runs the
+	// MOVE against a UID the source no longer holds, and on exhaustion the
+	// terminal resolver reads the source's honest "gone" as grounds to delete a
+	// row that is correct and settled.
+	it("acks without connecting when the move already settled", async () => {
+		const client = await getClient();
+		mock.method(client.account, "get", async () => cappedAccount());
+		mock.method(client.secrets, "decrypt", async () => "fake-password");
+		mock.method(client.message, "get", async () => [
+			{ ...pendingRow(), uid: 4711, status: "active", syncStatus: "synced" },
+		]);
+		const mailboxGet = mock.method(client.mailbox, "get", async () => {
+			throw new Error("a settled move must never resolve a mailbox");
+		});
+		const update = mock.method(client.message, "update", async () => {});
+
+		await handleMessageMove(event, silentLogger, MESSAGE_MOVE_MAX_ATTEMPTS);
+
+		assert.equal(mailboxGet.mock.calls.length, 0);
+		assert.equal(
+			update.mock.calls.length,
+			0,
+			"a settled row is never written again",
+		);
+	});
+
+	it("acks without connecting when the message row is already gone", async () => {
+		const client = await getClient();
+		mock.method(client.account, "get", async () => cappedAccount());
+		mock.method(client.secrets, "decrypt", async () => "fake-password");
+		mock.method(client.message, "get", async () => []);
+		const mailboxGet = mock.method(client.mailbox, "get", async () => {
+			throw new Error("a missing row must never resolve a mailbox");
+		});
+
+		await handleMessageMove(event, silentLogger, MESSAGE_MOVE_MAX_ATTEMPTS);
+
+		assert.equal(mailboxGet.mock.calls.length, 0);
 	});
 });
