@@ -370,14 +370,30 @@ export const handleMessageDelete = async (
 					// worked" while the code read it as "the mail is gone" and deleted
 					// live mail out of Trash (issue #845). The text now only selects a
 					// candidate; the source box is asked whether the UID is really gone.
+					//
+					// A probe that cannot answer is not an answer. The candidate text
+					// is at its most tempting when the SELECT itself failed, and then
+					// there is no open box left to ask, so the probe throws in exactly
+					// that case. Letting it reject would swallow the real IMAP error and
+					// leave the row mid-delete until the record reaches the DLQ, so an
+					// unanswerable probe reads as "not confirmed" and the original error
+					// takes the ordinary failed-and-rethrow path below.
 					const isGoneFromSource =
 						operation === "permanent_delete" &&
 						(errorMessage.includes("not found") ||
 							errorMessage.includes("NONEXISTENT")) &&
-						(await isMessageGoneFromOpenMailbox(
-							await scope.getConnection(),
-							uid,
-						));
+						(await scope
+							.getConnection()
+							.then((connection) =>
+								isMessageGoneFromOpenMailbox(connection, uid),
+							)
+							.catch((probeError: unknown) => {
+								log.warn(
+									{ messageId, uid, mailboxPath, probeError },
+									"Could not confirm whether the message is gone; keeping local rows",
+								);
+								return false;
+							}));
 
 					if (isGoneFromSource) {
 						log.info(

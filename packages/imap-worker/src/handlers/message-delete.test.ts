@@ -553,6 +553,31 @@ describe("handleMessageDelete", () => {
 		assert.equal(called("threadMessage.delete").length, 0);
 	});
 
+	it("keeps the rows and rethrows the original error when the probe cannot answer", async () => {
+		// The SELECT is what failed, so there is no open box left for the probe
+		// to ask. The IMAP error must still be the one that rejects, and the row
+		// must not be stranded mid-delete for the record to carry to the DLQ.
+		h.connection.openBox = async () => {
+			throw new Error("NONEXISTENT mailbox does not exist");
+		};
+		h.connection.fetchMessages = async () => {
+			throw new Error("No mailbox selected");
+		};
+
+		await assert.rejects(
+			handleMessageDelete(permanentEvent, noopLog, deps()),
+			/NONEXISTENT mailbox does not exist/,
+		);
+
+		assert.equal(called("message.delete").length, 0);
+		assert.equal(called("threadMessage.delete").length, 0);
+		assert.equal(
+			(called("message.update")[0]?.args[1] as { syncStatus?: string })
+				?.syncStatus,
+			"failed",
+		);
+	});
+
 	it("creates the trash mailbox and rethrows on TRYCREATE", async () => {
 		h.connection.moveMessages = async () => {
 			throw new Error("TRYCREATE: no such mailbox");
