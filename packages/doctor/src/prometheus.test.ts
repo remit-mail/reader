@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseMetrics, seriesNamed, sumOf } from "./prometheus.js";
+import { parseMetrics, seriesNamed } from "./prometheus.js";
 
 describe("parseMetrics", () => {
 	it("reads a labelled sample", () => {
@@ -87,19 +87,10 @@ describe("parseMetrics", () => {
 	});
 });
 
-describe("seriesNamed and sumOf", () => {
+describe("seriesNamed", () => {
 	const samples = parseMetrics('a{k="1"} 2\na{k="2"} 3\nb 9\nc +Inf\n');
 
 	it("selects one series", () => {
 		assert.equal(seriesNamed(samples, "a").length, 2);
-	});
-
-	it("sums a series and reads an absent one as zero", () => {
-		assert.equal(sumOf(samples, "a"), 5);
-		assert.equal(sumOf(samples, "missing"), 0);
-	});
-
-	it("does not let a non-finite sample poison a sum", () => {
-		assert.equal(sumOf(samples, "c"), 0);
 	});
 });

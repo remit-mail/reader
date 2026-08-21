@@ -65,8 +65,3 @@ export const getServices = async (): Promise<Services> => {
 	};
 	return cached;
 };
-
-/** Reset the singleton — test use only. */
-export const _resetForTest = (): void => {
-	cached = undefined;
-};

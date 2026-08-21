@@ -16,8 +16,8 @@
  * 8-bit UTF-8 bodies, empty text/plain alternatives) — the same class of shape
  * that caused the body-sync regression in #394.
  *
- * Mapper unit-level defence lives in `test/fixtures/mime/`; this suite is the
- * integration-layer belt-and-braces against the same regression class.
+ * Mapper unit-level defence lives in `body-part-mapper.property.test.ts`; this
+ * suite is the integration-layer belt-and-braces against the same class.
  */
 
 import assert from "node:assert/strict";
