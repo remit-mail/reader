@@ -342,6 +342,152 @@ describe("MailboxSyncService.syncMailboxes — reconcile does not delete pending
 	});
 });
 
+describe("MailboxSyncService.syncMailboxes — a lookalike is not a folder the user keeps mail in (#837)", () => {
+	const namespaces: ImapNamespaces = {
+		personal: [{ prefix: "", delimiter: "/" }],
+		other: [],
+		shared: [],
+	};
+
+	const serverConnection = (
+		folders: Array<{ fullPath: string; attributes: string[] }>,
+	): IImapConnection =>
+		({
+			getNamespaces: async () => namespaces,
+			listMailboxes: async () =>
+				folders.map((folder) => ({
+					fullPath: folder.fullPath,
+					name: folder.fullPath.split("/").pop() ?? folder.fullPath,
+					delimiter: "/",
+					attributes: folder.attributes,
+					parentPath: null,
+				})),
+			getMailboxStatus: async () => ({
+				messages: 0,
+				recent: 0,
+				unseen: 0,
+				uidNext: 1,
+				uidValidity: 1,
+				highestModseq: "0",
+				deletedCount: 0,
+			}),
+		}) as unknown as IImapConnection;
+
+	const buildServices = (
+		existing: Array<{ mailboxId: string; fullPath: string }>,
+	) => {
+		const deleted: string[] = [];
+		const mailboxService = {
+			listByAccount: async () => ({
+				items: existing.map((m) => ({
+					mailboxId: m.mailboxId,
+					fullPath: m.fullPath,
+					uidNext: 1,
+					uidValidity: 1,
+					messageCount: 0,
+					unseenCount: 0,
+					deletedCount: 0,
+					highestModseq: "0",
+					specialUse: undefined,
+					syncStatus: MailboxSyncStatus.synced,
+				})),
+				continuationToken: undefined,
+			}),
+			update: async () => ({}),
+			delete: async (_accountId: string, mailboxId: string) => {
+				deleted.push(mailboxId);
+			},
+			create: async () => ({}),
+		} as unknown as IMailboxRepository;
+
+		const specialUseService = {
+			listByMailboxId: async () => [],
+			deleteByMailboxId: async () => undefined,
+			createMany: async () => undefined,
+		} as unknown as IMailboxSpecialUseRepository;
+
+		return { mailboxService, specialUseService, deleted };
+	};
+
+	const syncWith = async (
+		folders: Array<{ fullPath: string; attributes: string[] }>,
+		existing: Array<{ mailboxId: string; fullPath: string }>,
+	): Promise<string[]> => {
+		const { mailboxService, specialUseService, deleted } =
+			buildServices(existing);
+		const service = new MailboxSyncService(
+			mailboxService,
+			specialUseService,
+			silentLogger,
+		);
+		await service.syncMailboxes(
+			{ accountId: "acc-1" },
+			serverConnection(folders),
+		);
+		return deleted;
+	};
+
+	it("keeps a folder called Deleted beside the folder the server flagged", async () => {
+		// `deleted` and `bin` were Trash names in this file's own copy of the hint
+		// table long after #843 dropped them from the shared one. Every sync of an
+		// account holding a flagged Trash and a user folder called `Deleted` took
+		// the user's folder, and its mail, out of the client.
+		const deleted = await syncWith(
+			[
+				{ fullPath: "INBOX", attributes: [] },
+				{ fullPath: "Trash", attributes: ["\\Trash"] },
+				{ fullPath: "Deleted", attributes: [] },
+				{ fullPath: "Bin", attributes: [] },
+			],
+			[
+				{ mailboxId: "inbox", fullPath: "INBOX" },
+				{ mailboxId: "trash", fullPath: "Trash" },
+				{ mailboxId: "keepsakes", fullPath: "Deleted" },
+				{ mailboxId: "bin", fullPath: "Bin" },
+			],
+		);
+
+		assert.deepEqual(deleted, []);
+	});
+
+	it("still hides the unflagged twin of a folder the server flagged", async () => {
+		const deleted = await syncWith(
+			[
+				{ fullPath: "INBOX", attributes: [] },
+				{ fullPath: "[Gmail]/Trash", attributes: ["\\Trash"] },
+				{ fullPath: "Trash", attributes: [] },
+			],
+			[
+				{ mailboxId: "inbox", fullPath: "INBOX" },
+				{ mailboxId: "gmail-trash", fullPath: "[Gmail]/Trash" },
+				{ mailboxId: "lookalike", fullPath: "Trash" },
+			],
+		);
+
+		assert.deepEqual(deleted, ["lookalike"]);
+	});
+
+	it("keeps a folder that holds a role of its own", async () => {
+		// `all mail` is a conventional name for Archive as well as for All, and the
+		// account already has a flagged Archive. The folder holds the All role, so
+		// it is a folder in its own right rather than a lookalike of Archive.
+		const deleted = await syncWith(
+			[
+				{ fullPath: "INBOX", attributes: [] },
+				{ fullPath: "Archive", attributes: ["\\Archive"] },
+				{ fullPath: "INBOX/All Mail", attributes: [] },
+			],
+			[
+				{ mailboxId: "inbox", fullPath: "INBOX" },
+				{ mailboxId: "archive", fullPath: "Archive" },
+				{ mailboxId: "all-mail", fullPath: "INBOX/All Mail" },
+			],
+		);
+
+		assert.deepEqual(deleted, []);
+	});
+});
+
 /**
  * The folder set can also change under a running sweep: a delete asked for while
  * the account is enumerating lands between the LIST and one folder's STATUS.

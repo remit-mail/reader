@@ -11,8 +11,14 @@ import type {
 	MailboxItem,
 } from "@remit/data-ports";
 import {
+	CANONICAL_ROLES,
+	type CanonicalMailboxRoleValue,
+	ROLE_NAME_HINTS,
+	ROLE_SPECIAL_USE,
+} from "@remit/data-ports/folder-role";
+import {
 	MailboxCursorState,
-	MailboxSpecialUse,
+	type MailboxSpecialUse,
 	MailboxSyncStatus,
 	NamespaceType,
 } from "@remit/domain-enums";
@@ -51,23 +57,27 @@ const areSpecialUseSetsEqual = (
 };
 
 /**
- * Map common folder names to their expected special-use designation.
- * Used to detect duplicate folders (e.g., "Trash" vs "[Gmail]/Trash").
+ * The role a folder's own leaf name is most conventionally for, read from the
+ * one hint table every special-folder lookup shares (`@remit/data-ports`,
+ * #837). A name that several roles list goes to the role that ranks it highest,
+ * so `All Mail` is an All folder rather than a lookalike of Archive.
+ *
+ * A second copy of these names lived here, and it is the one that could destroy
+ * something: it still called `Deleted` and `Bin` Trash names, which #843 dropped
+ * precisely because they are ordinary folders a user keeps mail in — and this
+ * lookup does not merely skip a folder, it deletes the row and everything the
+ * client can see in it.
  */
-const FOLDER_NAME_TO_SPECIAL_USE: Record<string, MailboxSpecialUseValue> = {
-	trash: MailboxSpecialUse.Trash,
-	"deleted items": MailboxSpecialUse.Trash,
-	deleted: MailboxSpecialUse.Trash,
-	bin: MailboxSpecialUse.Trash,
-	drafts: MailboxSpecialUse.Drafts,
-	draft: MailboxSpecialUse.Drafts,
-	sent: MailboxSpecialUse.Sent,
-	"sent items": MailboxSpecialUse.Sent,
-	"sent mail": MailboxSpecialUse.Sent,
-	junk: MailboxSpecialUse.Junk,
-	spam: MailboxSpecialUse.Junk,
-	archive: MailboxSpecialUse.Archive,
-	archives: MailboxSpecialUse.Archive,
+const roleForFolderName = (
+	name: string,
+): CanonicalMailboxRoleValue | undefined => {
+	let best: { role: CanonicalMailboxRoleValue; rank: number } | undefined;
+	for (const role of CANONICAL_ROLES) {
+		const rank = ROLE_NAME_HINTS[role]?.indexOf(name) ?? -1;
+		if (rank < 0) continue;
+		if (!best || rank < best.rank) best = { role, rank };
+	}
+	return best?.role;
 };
 
 /**
@@ -451,8 +461,8 @@ export class MailboxSyncService {
 
 		const mailbox = await this.mailboxService.create(input);
 
-		// Keep the MailboxSpecialUseEntry table in sync — other services (e.g.
-		// MessageMoveService.findTrashMailbox) still query by entry. Denormalized
+		// Keep the MailboxSpecialUseEntry table in sync — every backend and worker
+		// special-folder lookup reads it through MailboxSpecialUseRepo. Denormalized
 		// copy on Mailbox is the read-side optimization, the entries remain the
 		// authoritative join source for cross-mailbox lookups.
 		if (parsed.specialUse.length > 0) {
@@ -653,21 +663,28 @@ export class MailboxSyncService {
 		const folderName = mailbox.fullPath.split(mailbox.delimiter).pop() ?? "";
 		const normalizedName = folderName.toLowerCase();
 
-		// Check if this folder name maps to a special-use designation
-		const expectedSpecialUse = FOLDER_NAME_TO_SPECIAL_USE[normalizedName];
-		if (!expectedSpecialUse) {
+		// Check if this folder name is a conventional name for a role
+		const role = roleForFolderName(normalizedName);
+		if (!role) {
 			return false; // Not a special-use folder name
+		}
+
+		const expectedSpecialUse = ROLE_SPECIAL_USE[role];
+		if (!expectedSpecialUse) {
+			return false; // The role has no SPECIAL-USE flag to be a duplicate of
 		}
 
 		// Check if this mailbox has the special-use attribute
 		const parsed = parseImapAttributes(mailbox.attributes);
-		if (parsed.specialUse.includes(expectedSpecialUse)) {
+		if (parsed.specialUse.some((use) => use === expectedSpecialUse)) {
 			return false; // This IS the canonical folder
 		}
 
 		// Check if another folder already claimed this special-use
-		const claimedPath = claimedSpecialUse.get(expectedSpecialUse);
-		if (!claimedPath) {
+		const claimed = [...claimedSpecialUse].find(
+			([specialUse]) => specialUse === expectedSpecialUse,
+		);
+		if (!claimed) {
 			return false; // No other folder has this special-use
 		}
 
@@ -675,7 +692,7 @@ export class MailboxSyncService {
 		this.log.debug(
 			{
 				fullPath: mailbox.fullPath,
-				claimedPath,
+				claimedPath: claimed[1],
 				specialUse: expectedSpecialUse,
 			},
 			"Skipping duplicate folder",
