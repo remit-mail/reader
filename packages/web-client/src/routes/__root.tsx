@@ -7,6 +7,7 @@ import { Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { ComposeProvider } from "@/components/compose/ComposeProvider";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
+import { RoleAppointmentPromptProvider } from "@/components/mail/RoleAppointmentPromptProvider";
 import { SelfUpdateOverlay } from "@/components/self-update/SelfUpdateOverlay";
 import { ErrorBannerProvider } from "@/components/ui/ErrorBannerProvider";
 import {
@@ -57,17 +58,19 @@ const SkipLink = () => {
 function RootLayout() {
 	return (
 		<ErrorBannerProvider>
-			<SelfUpdateProvider>
-				<ComposeProvider>
-					<SkipLink />
-					<main id="main-content" className="h-dvh overflow-hidden">
-						<Suspense fallback={<AppShellSkeleton />}>
-							<Outlet />
-						</Suspense>
-					</main>
-				</ComposeProvider>
-				<SelfUpdateOverlay />
-			</SelfUpdateProvider>
+			<RoleAppointmentPromptProvider>
+				<SelfUpdateProvider>
+					<ComposeProvider>
+						<SkipLink />
+						<main id="main-content" className="h-dvh overflow-hidden">
+							<Suspense fallback={<AppShellSkeleton />}>
+								<Outlet />
+							</Suspense>
+						</main>
+					</ComposeProvider>
+					<SelfUpdateOverlay />
+				</SelfUpdateProvider>
+			</RoleAppointmentPromptProvider>
 			<FatalErrorOverlay />
 		</ErrorBannerProvider>
 	);

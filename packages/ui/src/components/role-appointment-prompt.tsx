@@ -4,7 +4,10 @@ import type { FolderTreeNode } from "../lib/folder-tree.js";
 import { Banner } from "./banner.js";
 import { Button } from "./button.js";
 import { Dialog } from "./dialog.js";
-import { FolderTreePicker, type FolderTreePickerProps } from "./folder-tree-picker.js";
+import {
+	FolderTreePicker,
+	type FolderTreePickerProps,
+} from "./folder-tree-picker.js";
 
 /* ------------------------------------------------------------------ */
 /* The appointment ceremony at a refused action (#887, #847). The       */
@@ -43,7 +46,8 @@ export interface RoleAppointmentPromptCopyContext {
 	selectedCount?: number;
 }
 
-const plural = (count: number): string => (count === 1 ? "message" : "messages");
+const plural = (count: number): string =>
+	count === 1 ? "message" : "messages";
 
 const quantified = (count: number): string =>
 	`${count.toLocaleString()} ${plural(count)}`;
@@ -263,7 +267,11 @@ export const RoleAppointmentPrompt = ({
 				{phase.kind === "appoint-failed" && (
 					<div className="px-5 pb-3">
 						<Banner tone="danger" variant="soft">
-							{failureCopy(phase.cause, action, selected?.label ?? "That folder")}
+							{failureCopy(
+								phase.cause,
+								action,
+								selected?.label ?? "That folder",
+							)}
 						</Banner>
 					</div>
 				)}

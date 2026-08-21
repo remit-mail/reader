@@ -168,6 +168,21 @@ export interface DeleteConfirmationCopy {
 }
 
 /**
+ * What the caller knows about the account's Trash. Two folder names, never one:
+ * the folder reader guessed and the folder that vanished are different facts.
+ * Both optional — a caller holding no open mailbox passes neither, and the copy
+ * drops the name clause rather than inventing one.
+ */
+export interface DeleteConfirmationContext {
+	/** The folder reader files this account's deletes in. */
+	trashFolderLabel?: string;
+	/** The folder the user appointed, now gone from the mail server. */
+	staleFolderLabel?: string;
+	/** That folder is a name match nobody ever confirmed. */
+	trashIsUnconfirmed?: boolean;
+}
+
+/**
  * What a delete will actually do to the selected mail.
  *
  * `unknown` is the state before the account's Trash appointment has resolved — a
@@ -186,13 +201,42 @@ export interface DeleteConfirmationCopy {
  * here" reinstates the same lie on the failure path, where an expired session
  * would collect "Move to Trash?" over an expunge. The delete is refused and the
  * failure is stated instead.
+ *
+ * `staleTrash` is a resolved answer of "the folder you chose is gone" (#887).
+ * It is a repair rather than a first choice, and the copy says so, which a
+ * single `noTrash` member cannot — this function only ever sees the member.
+ *
+ * `unconfirmed` is a folder reader matched by name that nobody ever confirmed.
+ * Only Empty Trash refuses on it (D4); `deleteOutcomeFor` never produces it,
+ * because the targets an ordinary delete is about say nothing about a whole
+ * folder. The Empty Trash surface derives it from the server's own 409, and the
+ * branch lives here so both surfaces word it identically.
  */
 export type DeleteOutcome =
 	| "trash"
 	| "permanent"
 	| "noTrash"
+	| "staleTrash"
+	| "unconfirmed"
 	| "unknown"
 	| "unavailable";
+
+/** Where an account's Trash answer came from (`FolderAppointmentSource`). */
+export type TrashSource =
+	| "Appointed"
+	| "Flagged"
+	| "Reserved"
+	| "Proposed"
+	| "Stale"
+	| "None";
+
+/** One account's Trash, as `/config` resolved it. */
+export interface TrashResolution {
+	mailboxId: string | undefined;
+	source: TrashSource;
+	/** `Stale` only: the path the folder the user chose last had. */
+	staleFolderPath?: string;
+}
 
 /** A row about to be deleted, and the account whose Trash decides its fate. */
 export interface DeleteTarget {
@@ -203,11 +247,11 @@ export interface DeleteTarget {
 export interface DeleteOutcomeInput {
 	targets: readonly DeleteTarget[];
 	/**
-	 * Each account's appointed Trash. A key present with `undefined` is an
-	 * account that appoints none — an answer, not a gap. A key absent is an
-	 * account nothing is known about yet.
+	 * Each account's Trash and where that answer came from. A key present is an
+	 * answer, `source` and all — a key absent is an account nothing is known
+	 * about yet.
 	 */
-	trashByAccount: ReadonlyMap<string, string | undefined>;
+	trashByAccount: ReadonlyMap<string, TrashResolution>;
 	/**
 	 * The appointments have actually arrived. Never `!isLoading`: React Query
 	 * v5 leaves a paused offline query pending-but-not-fetching, which reads as
@@ -240,10 +284,11 @@ export const deleteOutcomeFor = ({
 	let expunges = false;
 	for (const target of targets) {
 		if (target.accountId === undefined) return "unknown";
-		if (!trashByAccount.has(target.accountId)) return "unknown";
-		const trashMailboxId = trashByAccount.get(target.accountId);
-		if (trashMailboxId === undefined) return "noTrash";
-		if (trashMailboxId === target.mailboxId) expunges = true;
+		const trash = trashByAccount.get(target.accountId);
+		if (trash === undefined) return "unknown";
+		if (trash.source === "Stale") return "staleTrash";
+		if (trash.mailboxId === undefined) return "noTrash";
+		if (trash.mailboxId === target.mailboxId) expunges = true;
 	}
 	return expunges ? "permanent" : "trash";
 };
@@ -255,26 +300,47 @@ export const deleteOutcomeFor = ({
  * says "Move to Trash" over an expunge collects an answer to a question the
  * user was never asked.
  *
- * `noTrash` and `unavailable` are not confirmations at all but refusals:
- * nothing is deleted, and the label names the way out rather than the delete.
- * The caller wires each to its own remedy — folder settings for the missing
- * appointment, re-authentication for the failed read, because an account read
- * that fails is a session that ended under the reader far more often than it is
- * anything else.
+ * `noTrash`, `staleTrash`, `unconfirmed` and `unavailable` are not
+ * confirmations at all but refusals: nothing is deleted, and the label names
+ * the way out rather than the delete. The first three are answered in place by
+ * the appointment prompt — a link to Settings as the only remedy leaves the
+ * user to reassemble what they were doing. `unavailable` still routes to
+ * re-authentication, because an account read that fails is a session that ended
+ * under the reader far more often than it is anything else.
  */
 export const deleteConfirmationCopy = (
 	count: number,
 	outcome: DeleteOutcome,
+	context: DeleteConfirmationContext = {},
 ): DeleteConfirmationCopy => {
 	const quantity = count === 1 ? "1" : formatNumber(count);
 	const noun = count === 1 ? "message" : "messages";
+	const { trashFolderLabel, staleFolderLabel, trashIsUnconfirmed } = context;
 
 	if (outcome === "noTrash") {
 		return {
-			title: `Can't delete ${quantity} ${noun}`,
+			title: `Can't delete ${quantity} ${noun} yet`,
 			description:
-				"No folder on this account is appointed as Trash, so there is nowhere to move the mail — and deleting it would erase it from the server instead. Appoint a Trash folder to delete from here.",
-			confirmLabel: "Open folder settings",
+				"No folder on this account is set as Trash, so there is nowhere to move the mail. Nothing has been deleted.",
+			confirmLabel: "Pick a Trash folder",
+		};
+	}
+	if (outcome === "staleTrash") {
+		return {
+			title: `Can't delete ${quantity} ${noun} yet`,
+			description: staleFolderLabel
+				? `The folder you set as this account's Trash — ${staleFolderLabel} — is gone from the mail server. Nothing has been deleted.`
+				: "The folder you set as this account's Trash is gone from the mail server. Nothing has been deleted.",
+			confirmLabel: "Pick another folder",
+		};
+	}
+	if (outcome === "unconfirmed") {
+		return {
+			title: "Confirm this account's Trash folder",
+			description: trashFolderLabel
+				? `reader files this account's deleted mail in ${trashFolderLabel} because of its name — nobody confirmed it. Emptying a folder erases everything in it from the mail server, and that cannot be restored. Nothing has been emptied.`
+				: "reader files this account's deleted mail in a folder it matched by name — nobody confirmed it. Emptying a folder erases everything in it from the mail server, and that cannot be restored. Nothing has been emptied.",
+			confirmLabel: "Confirm the folder",
 		};
 	}
 	if (outcome === "unavailable") {
@@ -293,6 +359,18 @@ export const deleteConfirmationCopy = (
 		};
 	}
 	if (outcome === "permanent") {
+		// D4a: the expunge still goes through on a Trash nobody confirmed — the
+		// user asked for these specific rows — but they are told which folder
+		// reader treats as Trash, and that nobody chose it, before it happens.
+		if (trashIsUnconfirmed) {
+			return {
+				title: `Permanently delete ${quantity} ${noun}?`,
+				description: trashFolderLabel
+					? `They are in ${trashFolderLabel}, which reader treats as this account's Trash because of its name — nobody confirmed it. They are erased from the mail server and cannot be restored.`
+					: "They are in a folder reader treats as this account's Trash because of its name — nobody confirmed it. They are erased from the mail server and cannot be restored.",
+				confirmLabel: "Delete permanently",
+			};
+		}
 		return {
 			title: `Permanently delete ${quantity} ${noun}?`,
 			description:

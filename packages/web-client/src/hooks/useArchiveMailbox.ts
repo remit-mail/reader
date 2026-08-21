@@ -5,6 +5,7 @@ import type {
 } from "@remit/api-http-client/types.gen.ts";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
+import type { TrashResolution } from "@/lib/format";
 
 /**
  * RFC 032 exclusive-folder-appointment (#976): every "which mailbox plays
@@ -99,7 +100,7 @@ export const useJunkMailbox = (
  * move over an expunge that would replay on reconnect.
  */
 export const useTrashByAccount = (): {
-	trashByAccount: ReadonlyMap<string, string | undefined>;
+	trashByAccount: ReadonlyMap<string, TrashResolution>;
 	hasAppointments: boolean;
 	isError: boolean;
 } => {
@@ -109,12 +110,16 @@ export const useTrashByAccount = (): {
 	});
 
 	const trashByAccount = useMemo(() => {
-		const byAccount = new Map<string, string | undefined>();
+		const byAccount = new Map<string, TrashResolution>();
 		for (const account of config?.accounts ?? []) {
-			byAccount.set(
-				account.accountId,
-				account.folderAppointments.find((fa) => fa.role === "Trash")?.mailboxId,
+			const trash = account.folderAppointments.find(
+				(appointment) => appointment.role === "Trash",
 			);
+			byAccount.set(account.accountId, {
+				mailboxId: trash?.mailboxId,
+				source: trash?.source ?? "None",
+				staleFolderPath: trash?.staleAppointmentPath,
+			});
 		}
 		return byAccount;
 	}, [config]);

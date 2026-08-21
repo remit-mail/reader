@@ -81,6 +81,24 @@ export class FolderRoleUnresolvedError extends ConflictError {
 }
 
 /**
+ * A role cannot be appointed to a mailbox the mail server has not settled yet
+ * (imap-mutations R2: wait). Its own code, because the role is not unresolved —
+ * the target is: the client words a wait, not a retry. Clearing a role is never
+ * refused this way.
+ */
+export class MailboxNotSettledError extends ConflictError {
+	name = "MailboxNotSettledError";
+
+	constructor(message: string, mailboxId: string, syncStatus: string) {
+		super(message);
+		this.publicApiError = {
+			code: "mailbox_not_settled",
+			details: { mailboxId, syncStatus },
+		};
+	}
+}
+
+/**
  * A message exists but its body could not be fetched/parsed after every
  * body-sync retry was spent (issue #1270 / epic #1281 invariant 3). This is
  * distinct from `NotFoundError`: the message is real, but its content is

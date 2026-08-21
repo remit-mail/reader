@@ -1,0 +1,226 @@
+import {
+	configOperationsGetConfigOptions,
+	configOperationsGetConfigQueryKey,
+	folderRoleOperationsAppointFolderRoleMutation,
+	mailboxOperationsListMailboxesOptions,
+} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import type { RemitImapCanonicalMailboxRole } from "@remit/api-http-client/types.gen.ts";
+import {
+	type PromptAction,
+	type PromptPhase,
+	type PromptReason,
+	RoleAppointmentPrompt,
+} from "@remit/ui";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	createContext,
+	type ReactNode,
+	useCallback,
+	useContext,
+	useMemo,
+	useState,
+} from "react";
+import { isMailboxNotSettledRefusal } from "@/components/ui/folder-role-refusal";
+import { useCreateMailbox } from "@/hooks/useCreateMailbox";
+import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
+import { buildMailboxRoleMap, labelForMailbox } from "@/lib/folder-roles";
+import { buildMoveOptions, folderDelimiter } from "@/lib/move-options";
+
+export interface AppointmentRequest {
+	accountId: string;
+	role: RemitImapCanonicalMailboxRole;
+	/** From the refusal that opened this, never re-derived from live state. */
+	reason: PromptReason;
+	action: PromptAction;
+	/** `unconfirmed`: the folder reader guessed. Filled from `/config` if absent. */
+	trashFolderLabel?: string;
+	/** `stale`: the folder that vanished. Filled from `/config` if absent. */
+	staleFolderLabel?: string;
+	guessedMailboxId?: string;
+	/**
+	 * Re-issues the caller's own action once the folder is appointed. The caller
+	 * owns it so its optimistic and cache machinery is not duplicated here — and
+	 * so a chunked run replays the whole original selection, not the chunk the
+	 * server happened to refuse.
+	 */
+	onAppointed: () => Promise<void>;
+}
+
+interface RoleAppointmentPromptContextValue {
+	requestAppointment: (request: AppointmentRequest) => void;
+}
+
+const RoleAppointmentPromptContext = createContext<
+	RoleAppointmentPromptContextValue | undefined
+>(undefined);
+
+/** The appointment write failed, so nothing after it may run. */
+const APPOINT_FAILED = Symbol("appoint-failed");
+
+/**
+ * The appointment ceremony, mounted once and reached from wherever an action is
+ * refused — the `ErrorBannerProvider` shape, for the same reason: the two entry
+ * paths (a pre-flight refusal in `DeleteConfirmDialog`, a server 409 in
+ * `useDeleteMessages`) sit far apart in the tree and neither owns the prompt.
+ *
+ * This owns both writes' order (D16 item 1: appoint, wait for the 200,
+ * invalidate and await `/config`, then re-issue) because `useTrashByAccount`
+ * reads at `staleTime: Infinity` and would otherwise word the retry from the
+ * pre-appointment answer.
+ */
+export const RoleAppointmentPromptProvider = ({
+	children,
+}: {
+	children: ReactNode;
+}) => {
+	const queryClient = useQueryClient();
+	const translator = useFolderLabelTranslator();
+	const [request, setRequest] = useState<AppointmentRequest | null>(null);
+	const [selectedId, setSelectedId] = useState<string>();
+	const [phase, setPhase] = useState<PromptPhase>({ kind: "choosing" });
+
+	const accountId = request?.accountId;
+	const { data: config } = useQuery({
+		...configOperationsGetConfigOptions(),
+		staleTime: Infinity,
+	});
+	const { data: mailboxData } = useQuery({
+		...mailboxOperationsListMailboxesOptions({
+			path: { accountId: accountId ?? "" },
+		}),
+		enabled: !!accountId,
+	});
+	const { createFolderIn } = useCreateMailbox(accountId);
+	const appointMutation = useMutation(
+		folderRoleOperationsAppointFolderRoleMutation(),
+	);
+
+	const account = config?.accounts.find((one) => one.accountId === accountId);
+	const mailboxes = useMemo(() => mailboxData?.items ?? [], [mailboxData]);
+	const appointments = useMemo(
+		() => account?.folderAppointments ?? [],
+		[account],
+	);
+
+	const folders = useMemo(
+		() =>
+			buildMoveOptions({
+				mailboxes,
+				folderAppointments: appointments,
+				translator,
+			}),
+		[mailboxes, appointments, translator],
+	);
+
+	const trash = appointments.find(
+		(appointment) => appointment.role === request?.role,
+	);
+	const guessedMailboxId = request?.guessedMailboxId ?? trash?.mailboxId;
+	const guessed = mailboxes.find(
+		(mailbox) => mailbox.mailboxId === guessedMailboxId,
+	);
+	const trashFolderLabel =
+		request?.trashFolderLabel ??
+		(guessed
+			? labelForMailbox(
+					guessed,
+					buildMailboxRoleMap(appointments).get(guessed.mailboxId),
+					translator,
+				)
+			: undefined);
+
+	const close = useCallback(() => {
+		setRequest(null);
+		setSelectedId(undefined);
+		setPhase({ kind: "choosing" });
+	}, []);
+
+	const requestAppointment = useCallback((next: AppointmentRequest) => {
+		setRequest(next);
+		setPhase({ kind: "choosing" });
+		// Only a confirmation of an existing guess starts with something chosen:
+		// the common case is one tap, and the tree is there to correct it.
+		setSelectedId(
+			next.reason === "unconfirmed" ? next.guessedMailboxId : undefined,
+		);
+	}, []);
+
+	const handleConfirm = useCallback(
+		(mailboxId: string) => {
+			if (!request) return;
+			setPhase({ kind: "appointing" });
+			void appointMutation
+				.mutateAsync({
+					path: { accountId: request.accountId, role: request.role },
+					body: { mailboxId },
+				})
+				.catch((error: unknown) => {
+					setPhase({
+						kind: "appoint-failed",
+						cause: isMailboxNotSettledRefusal(error)
+							? "mailbox-pending"
+							: "generic",
+					});
+					return APPOINT_FAILED;
+				})
+				.then(async (result) => {
+					if (result === APPOINT_FAILED) return;
+					await queryClient.invalidateQueries({
+						queryKey: configOperationsGetConfigQueryKey(),
+					});
+					setPhase({ kind: "acting" });
+					await request.onAppointed();
+					close();
+				})
+				// The replay is the caller's mutation and banners its own failure;
+				// leaving the ceremony up over it would ask for the folder twice.
+				.catch(close);
+		},
+		[request, appointMutation, queryClient, close],
+	);
+
+	const value = useMemo(() => ({ requestAppointment }), [requestAppointment]);
+
+	return (
+		<RoleAppointmentPromptContext.Provider value={value}>
+			{children}
+			{request && (
+				<RoleAppointmentPrompt
+					open
+					reason={request.reason}
+					action={request.action}
+					folders={folders}
+					delimiter={folderDelimiter(mailboxes)}
+					trashFolderLabel={trashFolderLabel}
+					staleFolderLabel={
+						request.staleFolderLabel ?? trash?.staleAppointmentPath
+					}
+					accountEmail={
+						(config?.accounts.length ?? 0) > 1 ? account?.email : undefined
+					}
+					phase={phase}
+					selectedId={selectedId}
+					onSelect={setSelectedId}
+					onCreateFolder={createFolderIn}
+					onConfirm={handleConfirm}
+					onCancel={close}
+				/>
+			)}
+		</RoleAppointmentPromptContext.Provider>
+	);
+};
+
+/**
+ * Opens the appointment ceremony for a refused action. The caller keeps the
+ * replay, so the action that was stopped is the action that runs.
+ */
+export const useRoleAppointmentPrompt =
+	(): RoleAppointmentPromptContextValue => {
+		const context = useContext(RoleAppointmentPromptContext);
+		if (!context) {
+			throw new Error(
+				"useRoleAppointmentPrompt must be used within a RoleAppointmentPromptProvider",
+			);
+		}
+		return context;
+	};

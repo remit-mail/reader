@@ -304,7 +304,11 @@ export const MessageList = ({
 		() => [{ accountId, mailboxId }],
 		[accountId, mailboxId],
 	);
-	const deleteOutcome = useDeleteOutcome(deleteScope);
+	const {
+		outcome: deleteOutcome,
+		trashIsUnconfirmed,
+		staleFolderLabel,
+	} = useDeleteOutcome(deleteScope);
 
 	// Selection state
 	const {
@@ -1345,6 +1349,12 @@ export const MessageList = ({
 				isOpen={pendingDelete !== null}
 				count={pendingDelete?.length ?? 0}
 				outcome={deleteOutcome}
+				accountId={accountId}
+				// Every row here is filed in the open mailbox, so on an expunge that
+				// mailbox is the Trash the copy has to name.
+				trashFolderLabel={listTitle}
+				staleFolderLabel={staleFolderLabel}
+				trashIsUnconfirmed={trashIsUnconfirmed}
 				isDeleting={isDeleting}
 				onConfirm={handleConfirmDelete}
 				onCancel={handleCancelDelete}

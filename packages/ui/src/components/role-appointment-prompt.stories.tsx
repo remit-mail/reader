@@ -37,7 +37,13 @@ const FOLDERS: readonly FolderTreeNode[] = [
 
 type HarnessProps = Omit<
 	RoleAppointmentPromptProps,
-	"open" | "selectedId" | "onSelect" | "onConfirm" | "onCancel" | "folders" | "delimiter"
+	| "open"
+	| "selectedId"
+	| "onSelect"
+	| "onConfirm"
+	| "onCancel"
+	| "folders"
+	| "delimiter"
 > & { initialSelectedId?: string };
 
 function Harness({ initialSelectedId, ...props }: HarnessProps) {

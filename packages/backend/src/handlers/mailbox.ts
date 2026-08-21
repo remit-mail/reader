@@ -4,6 +4,10 @@ import type {
 } from "@remit/api-openapi-types";
 import type { IAccountSettingRepository, MailboxItem } from "@remit/data-ports";
 import { ForbiddenError, NotFoundError } from "@remit/data-ports/errors";
+import {
+	type CanonicalMailboxRoleValue,
+	composeFolderRoleAppointmentLabelName,
+} from "@remit/data-ports/folder-role";
 import { MailboxSyncStatus, MessageSystemFlag } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
@@ -25,6 +29,7 @@ import {
 	type MailboxOverrides,
 } from "./account-overrides.js";
 import { assertAccountOwnership } from "./account-ownership.js";
+import { loadFolderAppointmentsForAccount } from "./folder-role-appointments.js";
 
 /**
  * The mute flag and the display-name override are user preferences that live
@@ -68,8 +73,39 @@ export interface MailboxPatchClient {
 			accountId: string,
 		): Promise<MailboxItem>;
 	};
-	accountSetting: Pick<IAccountSettingRepository, "upsert" | "delete">;
+	accountSetting: Pick<IAccountSettingRepository, "get" | "upsert" | "delete">;
 }
+
+/**
+ * A reader-side rename keeps the mailboxId, so the appointment survives it —
+ * but the path recorded beside it (#887) would still name where the folder was
+ * before. Move the label with the folder, or a later third-party delete names a
+ * path the user has not seen since the rename.
+ */
+const refreshAppointmentLabels = async (
+	accountSetting: Pick<IAccountSettingRepository, "get" | "upsert">,
+	accountConfigId: string,
+	accountId: string,
+	mailboxId: string,
+	newPath: string,
+): Promise<void> => {
+	const persisted = await loadFolderAppointmentsForAccount(
+		accountSetting,
+		accountConfigId,
+		accountId,
+	);
+	for (const [role, appointment] of persisted) {
+		if (appointment.mailboxId !== mailboxId) continue;
+		await accountSetting.upsert({
+			accountConfigId,
+			name: composeFolderRoleAppointmentLabelName(
+				accountId,
+				role as CanonicalMailboxRoleValue,
+			),
+			value: { kind: "String", value: newPath },
+		});
+	}
+};
 
 /**
  * Apply a mailbox PATCH body: override changes first (mute flag + display-name/
@@ -109,7 +145,19 @@ export const applyMailboxPatch = async (
 		return client.mailbox.get(accountId, mailboxId);
 	}
 
-	return client.mailboxQueue.renameMailbox(mailboxId, fullPath, accountId);
+	const renamed = await client.mailboxQueue.renameMailbox(
+		mailboxId,
+		fullPath,
+		accountId,
+	);
+	await refreshAppointmentLabels(
+		client.accountSetting,
+		accountConfigId,
+		accountId,
+		mailboxId,
+		renamed.fullPath,
+	);
+	return renamed;
 };
 
 /**

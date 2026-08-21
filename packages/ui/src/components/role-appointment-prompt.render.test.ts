@@ -62,7 +62,10 @@ describe("roleAppointmentPromptCopy", () => {
 	});
 
 	it("counts one message as one message", () => {
-		const copy = roleAppointmentPromptCopy("none", { kind: "delete", count: 1 });
+		const copy = roleAppointmentPromptCopy("none", {
+			kind: "delete",
+			count: 1,
+		});
 		assert.equal(copy.confirmLabel, "Set as Trash and delete 1 message");
 	});
 
@@ -153,7 +156,10 @@ describe("RoleAppointmentPrompt", () => {
 	});
 
 	it("names the account only where there is more than one", () => {
-		assert.match(render({ accountEmail: "you@example.com" }), /you@example.com/);
+		assert.match(
+			render({ accountEmail: "you@example.com" }),
+			/you@example.com/,
+		);
 		assert.doesNotMatch(render({}), /you@example\.com/);
 	});
 

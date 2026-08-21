@@ -167,7 +167,10 @@ export const ReservedSource: Story = {
 	name: "reserved",
 	args: {
 		folders: HOSTNET_FOLDERS,
-		initial: { ...SETTLED, inbox: { mailboxId: "mb-inbox", source: "Reserved" } },
+		initial: {
+			...SETTLED,
+			inbox: { mailboxId: "mb-inbox", source: "Reserved" },
+		},
 	},
 };
 
