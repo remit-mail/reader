@@ -1,4 +1,18 @@
 import type { IMailboxSpecialUseRepository } from "@remit/data-ports";
+import type { RoleResolution } from "@remit/data-ports/folder-role";
+
+type RoleMailbox = { mailboxId: string; fullPath: string };
+
+/**
+ * The evidence-carrying answer behind `findTrashMailbox`, so a stub that names
+ * a Trash folder answers both reads consistently. A named folder stands in as
+ * server-flagged: the suites using this are testing something other than how
+ * the role was decided.
+ */
+export const trashRole = (
+	trash: RoleMailbox | null,
+): RoleResolution<RoleMailbox> =>
+	trash ? { kind: "flagged", mailbox: trash } : { kind: "none" };
 
 /**
  * A folder-role map for an account that has appointed nothing and whose server
@@ -9,23 +23,26 @@ import type { IMailboxSpecialUseRepository } from "@remit/data-ports";
 export const noFolderRoles = {
 	findJunkMailbox: async () => null,
 	findTrashMailbox: async () => null,
+	resolveTrashRole: async () => trashRole(null),
 } as unknown as IMailboxSpecialUseRepository;
 
 /** A folder-role map naming the mailboxes that hold Junk and Trash. */
 export const folderRoles = (roles: {
 	junkMailboxId?: string;
 	trashMailboxId?: string;
-}): IMailboxSpecialUseRepository =>
-	({
+}): IMailboxSpecialUseRepository => {
+	const trash = roles.trashMailboxId
+		? { mailboxId: roles.trashMailboxId, fullPath: roles.trashMailboxId }
+		: null;
+	return {
 		findJunkMailbox: async () =>
 			roles.junkMailboxId
 				? { mailboxId: roles.junkMailboxId, fullPath: roles.junkMailboxId }
 				: null,
-		findTrashMailbox: async () =>
-			roles.trashMailboxId
-				? { mailboxId: roles.trashMailboxId, fullPath: roles.trashMailboxId }
-				: null,
-	}) as unknown as IMailboxSpecialUseRepository;
+		findTrashMailbox: async () => trash,
+		resolveTrashRole: async () => trashRole(trash),
+	} as unknown as IMailboxSpecialUseRepository;
+};
 
 /** The same account, as the resolved map `saveMessage` is handed. */
 export const NO_FOLDER_ROLES = {
