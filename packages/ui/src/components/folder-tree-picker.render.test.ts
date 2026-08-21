@@ -101,8 +101,20 @@ describe("FolderTreePicker render", () => {
 
 	it("applies caller-supplied labels", () => {
 		const html = render({
-			labels: { optionLabel: (label) => `Verplaats naar ${label}` },
+			labels: { optionLabel: (folder) => `Verplaats naar ${folder.label}` },
 		});
 		assert.match(html, /aria-label="Verplaats naar Archive"/);
+	});
+
+	it("announces the message count as part of the row's own name", () => {
+		const html = render({
+			folders: [{ id: "t", label: "Trash", path: "Trash", messageCount: 512 }],
+			labels: {
+				optionLabel: (folder) =>
+					`Set ${folder.label}, ${folder.messageCount} messages, as Trash`,
+			},
+		});
+		assert.match(html, /aria-label="Set Trash, 512 messages, as Trash"/);
+		assert.match(html, />512</);
 	});
 });

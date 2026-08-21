@@ -1,5 +1,6 @@
 import { Check, Folder } from "lucide-react";
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
+import { Banner } from "./banner.js";
 import { Button } from "./button.js";
 import {
 	canonicalRoleLabel,
@@ -38,8 +39,27 @@ export interface CandidateFolder {
 	messageCount: number;
 }
 
+/** Where a role's answer came from (#887). */
+export type RoleAppointmentSource =
+	| "Appointed"
+	| "Flagged"
+	| "Reserved"
+	| "Proposed"
+	| "Stale"
+	| "None";
+
+export interface RoleAppointment {
+	/** The mailbox the role resolves to, or null when it resolves to none. */
+	mailboxId: string | null;
+	source: RoleAppointmentSource;
+	/** `Stale` only: the path the folder the user chose last had. */
+	staleFolderPath?: string;
+}
+
 /** Empty <option> value standing for "no folder appointed". */
 const NONE = "";
+
+const UNRESOLVED: RoleAppointment = { mailboxId: null, source: "None" };
 
 /** Picker option text: `Concepten · 340 msgs`. */
 function folderOptionLabel(folder: CandidateFolder): string {
@@ -47,11 +67,28 @@ function folderOptionLabel(folder: CandidateFolder): string {
 	return `${providerLeaf(folder.providerPath)} · ${folder.messageCount} ${noun}`;
 }
 
+const messages = (count: number): string =>
+	`${count} ${count === 1 ? "message" : "messages"}`;
+
+/**
+ * The provenance clause in front of the path and count. Read the source rather
+ * than inferring it from the shape of the row: only `Appointed` means a person
+ * decided, and `Proposed` is a name match nobody confirmed.
+ */
+const provenanceClause = (
+	source: RoleAppointmentSource,
+	roleLabel: string,
+): string => {
+	if (source === "Appointed") return "Chosen by you";
+	if (source === "Flagged") return `The mail server marks it as ${roleLabel}`;
+	if (source === "Reserved") return "The account's own INBOX";
+	return "Matched by name, not confirmed";
+};
+
 interface RoleAppointmentRowProps {
 	role: FolderRole;
 	folders: readonly CandidateFolder[];
-	/** The mailbox appointed to this role, or null when the role is unfilled. */
-	appointedId: string | null;
+	appointment: RoleAppointment;
 	/** Committed display-name override for the appointed folder. */
 	displayName: string;
 	onAppoint: (role: FolderRole, mailboxId: string | null) => void;
@@ -64,20 +101,59 @@ interface RoleAppointmentRowProps {
  * folder that actually holds mail), and — once a folder is appointed — a rename
  * field for its sidebar label. Selecting a folder here clears it from any other
  * role on write; the picker can never produce a duplicate.
+ *
+ * The line under the control says where the row's answer came from, and is
+ * pointed at by the Select's `aria-describedby` so the provenance is announced
+ * with the control that changes it.
  */
 function RoleAppointmentRow({
 	role,
 	folders,
-	appointedId,
+	appointment,
 	displayName,
 	onAppoint,
 	onRename,
 }: RoleAppointmentRowProps) {
 	const [draftName, setDraftName] = useState(displayName);
-	const appointed = folders.find((f) => f.mailboxId === appointedId) ?? null;
+	const selectRef = useRef<HTMLSelectElement>(null);
+	const subtitleId = useId();
+	const { mailboxId, source, staleFolderPath } = appointment;
+	const appointed = folders.find((f) => f.mailboxId === mailboxId) ?? null;
 	const label = canonicalRoleLabel(role);
 	const renameDirty =
 		appointed != null && draftName.trim() !== displayName.trim();
+
+	const subtitle = (() => {
+		if (source === "None") {
+			const needsOne = role === "trash" ? " Deleting mail needs one." : "";
+			return (
+				<span id={subtitleId} className="pl-[7.5rem] text-xs text-fg-muted">
+					{`Not set — pick the folder this account uses for ${label}.${needsOne}`}
+				</span>
+			);
+		}
+		if (source === "Stale" || !appointed) return null;
+		return (
+			<span
+				id={subtitleId}
+				className="truncate pl-[7.5rem] text-2xs text-fg-subtle"
+				title={appointed.providerPath}
+			>
+				{`${provenanceClause(source, label)} · ${appointed.providerPath} · ${messages(appointed.messageCount)}`}
+			</span>
+		);
+	})();
+
+	const staleFallback = (() => {
+		if (role === "trash") {
+			return "Deleting mail is stopped until you pick another one.";
+		}
+		if (!appointed) return "Nothing is filling the role in the meantime.";
+		return `reader is using ${providerLeaf(appointed.providerPath)} instead.`;
+	})();
+	const staleNotice = `The folder you chose for ${label}${
+		staleFolderPath ? ` — ${staleFolderPath} —` : ""
+	} is gone from the mail server. ${staleFallback}`;
 
 	return (
 		<div className="flex flex-col gap-1 border-b border-line px-row-inset py-2.5 last:border-b-0">
@@ -87,9 +163,11 @@ function RoleAppointmentRow({
 					{label}
 				</span>
 				<Select
+					ref={selectRef}
 					className="w-56 shrink-0"
-					value={appointedId ?? NONE}
+					value={mailboxId ?? NONE}
 					aria-label={`Folder for ${label}`}
+					aria-describedby={subtitle ? subtitleId : undefined}
 					onChange={(event) =>
 						onAppoint(
 							role,
@@ -126,14 +204,21 @@ function RoleAppointmentRow({
 					</>
 				)}
 			</div>
-			{appointed && (
-				<span
-					className="truncate pl-[7.5rem] text-2xs text-fg-subtle"
-					title={appointed.providerPath}
-				>
-					{appointed.providerPath} · {appointed.messageCount}{" "}
-					{appointed.messageCount === 1 ? "message" : "messages"}
-				</span>
+			{subtitle}
+			{source === "Stale" && (
+				<Banner tone="warning" variant="soft" className="ml-[7.5rem]">
+					<span className="flex flex-wrap items-center gap-2">
+						<span className="flex-1">{staleNotice}</span>
+						<Button
+							variant="secondary"
+							size="sm"
+							className="shrink-0"
+							onClick={() => selectRef.current?.focus()}
+						>
+							Pick a folder
+						</Button>
+					</span>
+				</Banner>
 			)}
 		</div>
 	);
@@ -143,8 +228,8 @@ export interface RoleAppointmentListProps {
 	accountEmail: string;
 	/** Every folder the account exposes (candidates for any role). */
 	folders: readonly CandidateFolder[];
-	/** role → appointed mailboxId. A missing role means "None". */
-	appointments: Readonly<Record<string, string | null>>;
+	/** role → what fills it and where that answer came from. */
+	appointments: Readonly<Record<string, RoleAppointment>>;
 	/** mailboxId → committed display-name override. */
 	displayNames?: Readonly<Record<string, string>>;
 	onAppoint: (role: FolderRole, mailboxId: string | null) => void;
@@ -167,7 +252,9 @@ export function RoleAppointmentList({
 	onRename,
 }: RoleAppointmentListProps) {
 	const appointedIds = new Set(
-		Object.values(appointments).filter((id): id is string => id != null),
+		Object.values(appointments)
+			.map((appointment) => appointment.mailboxId)
+			.filter((id): id is string => id != null),
 	);
 	const leftovers = folders.filter((f) => !appointedIds.has(f.mailboxId));
 
@@ -180,19 +267,25 @@ export function RoleAppointmentList({
 				<p className="text-xs text-fg-muted">
 					Each role points to one folder. Pick the folder that holds the mail —
 					the counts help you tell real folders from empty look-alikes.
-					Appointing a folder here removes it from any other role.
+					Appointing a folder here removes it from any other role. Each row says
+					where its answer came from — your choice, the mail server's own flag,
+					or a name reader matched.
 				</p>
 			</header>
 			<div className="rounded-sm border border-line bg-surface">
 				{APPOINTABLE_ROLES.map((role) => {
-					const appointedId = appointments[role] ?? null;
+					const appointment = appointments[role] ?? UNRESOLVED;
 					return (
 						<RoleAppointmentRow
 							key={role}
 							role={role}
 							folders={folders}
-							appointedId={appointedId}
-							displayName={appointedId ? (displayNames[appointedId] ?? "") : ""}
+							appointment={appointment}
+							displayName={
+								appointment.mailboxId
+									? (displayNames[appointment.mailboxId] ?? "")
+									: ""
+							}
 							onAppoint={onAppoint}
 							onRename={onRename}
 						/>
@@ -214,8 +307,7 @@ export function RoleAppointmentList({
 									{providerLeaf(folder.providerPath)}
 								</span>
 								<span className="ml-auto shrink-0 text-2xs text-fg-subtle">
-									{folder.messageCount}{" "}
-									{folder.messageCount === 1 ? "message" : "messages"}
+									{messages(folder.messageCount)}
 								</span>
 							</li>
 						))}

@@ -55,7 +55,7 @@ export const FolderManager = ({
 			delimiter={delimiter}
 			labels={{
 				treeAriaLabel: "Your folders",
-				optionLabel: (label) => label,
+				optionLabel: (folder) => folder.label,
 				...labels,
 			}}
 			rowActions={(folder) => {
