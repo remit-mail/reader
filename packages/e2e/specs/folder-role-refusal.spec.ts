@@ -7,7 +7,9 @@
  * the fallback this replaces (file the mail into whatever reader would have
  * picked) was invisible in exactly the same way. So the first run reads the
  * message's UID out of Dovecot: IMAP has no in-place move, so an unchanged UID
- * is the server saying it was not touched at all.
+ * is the server saying it was not touched at all. It reads that UID again behind
+ * a second delete that is allowed to work, because a read taken the instant the
+ * 409 lands cannot tell a refusal from a move still sitting on the queue.
  *
  * Each run owns a throwaway user. One appoints a Trash role and then deletes
  * that folder off the server, neither of which may reach another spec's account.
@@ -29,31 +31,20 @@ const STAMP = Date.now();
 /** Dovecot gives every maildir a `\Trash`-flagged `Trash`, at the root. */
 const FLAGGED_TRASH = "Trash";
 
-const messageIdInInbox = async (
-	api: ApiClient,
-	inboxId: string,
-	subject: string,
-): Promise<string> => {
-	const threads = await waitFor(
-		() => api.listThreads(inboxId),
-		(items) => items.some((thread) => thread.subject === subject),
-		{ timeoutMs: 90_000, what: `"${subject}" to sync into the inbox` },
-	);
-	const match = threads.find((thread) => thread.subject === subject);
-	if (!match) throw new Error("unreachable: matched but not found");
-	return match.messageId;
-};
-
 test.describe("A delete whose appointed Trash folder is gone", () => {
 	const appointedPath = `INBOX/Bak ${STAMP}`;
 	const subject = `Stale trash appointment ${STAMP}`;
+	const barrierSubject = `Stale trash barrier ${STAMP}`;
 	let run: IsolatedRun;
 	let api: ApiClient;
 
 	test.beforeAll(async () => {
 		run = await provisionIsolatedRun("E2E Folder Role Refusal Stale");
 		api = new ApiClient(run);
-		await appendMessages(run.imapUser, [{ subject }]);
+		await appendMessages(run.imapUser, [
+			{ subject },
+			{ subject: barrierSubject },
+		]);
 		await api.triggerSync(run.accountId);
 	});
 
@@ -82,7 +73,7 @@ test.describe("A delete whose appointed Trash folder is gone", () => {
 			},
 		);
 
-		const messageId = await messageIdInInbox(api, run.inboxId, subject);
+		const messageId = await api.messageIdForSubject(run.inboxId, subject);
 		const uidsBefore = await serverUidsForSubject(
 			run.imapUser,
 			"INBOX",
@@ -94,18 +85,43 @@ test.describe("A delete whose appointed Trash folder is gone", () => {
 		expect(response.status).toBe(409);
 		const body = (await response.json()) as ApiErrorBody;
 		expect(body.code).toBe("folder_role_unresolved");
+		expect(body.details?.role).toBe("Trash");
 		expect(body.details?.reason).toBe("stale");
 		expect(body.details?.accountId).toBe(run.accountId);
 
-		// The refusal's claim, read off Dovecot: same mailbox, same UID, so no
-		// move happened — and the folder reader would have fallen back to never
-		// received it.
+		// Repair the appointment and delete a second message. The account's
+		// mutations are one FIFO group, so once that one has reached the server
+		// anything the refusal had wrongly enqueued would have run before it.
+		const mailboxes = await waitFor(
+			() => api.listMailboxes(run.accountId),
+			(list) => list.some((box) => box.fullPath === FLAGGED_TRASH),
+			{ timeoutMs: 90_000, what: "the flagged Trash folder to sync" },
+		);
+		const flaggedTrash = mailboxes.find(
+			(box) => box.fullPath === FLAGGED_TRASH,
+		);
+		if (!flaggedTrash) throw new Error("unreachable: matched but not found");
+		await api.appointFolderRole(run.accountId, "Trash", flaggedTrash.mailboxId);
+
+		const barrierId = await api.messageIdForSubject(
+			run.inboxId,
+			barrierSubject,
+		);
+		const barrierDelete = await api.deleteMessages([barrierId]);
+		expect(barrierDelete.successCount).toBe(1);
 		await waitForServerMailbox(
 			run.imapUser,
-			"INBOX",
-			(subjects) => subjects.includes(subject),
-			{ what: `"${subject}" to still be in the inbox` },
+			FLAGGED_TRASH,
+			(subjects) => subjects.includes(barrierSubject),
+			{
+				timeoutMs: 90_000,
+				what: `"${barrierSubject}" to reach the flagged Trash folder`,
+			},
 		);
+
+		// The refusal's claim, read off Dovecot once the queue behind it has
+		// drained: same mailbox, same UID, so no move happened — and the folder
+		// reader would have fallen back to never received it.
 		expect(await serverUidsForSubject(run.imapUser, "INBOX", subject)).toEqual(
 			uidsBefore,
 		);
@@ -130,7 +146,7 @@ test.describe("Empty Trash on the folder the server flagged", () => {
 	test("empties it, rather than refusing a folder nobody appointed", async () => {
 		test.setTimeout(240_000);
 
-		const messageId = await messageIdInInbox(api, run.inboxId, subject);
+		const messageId = await api.messageIdForSubject(run.inboxId, subject);
 		const deleted = await api.deleteMessages([messageId]);
 		expect(deleted.successCount).toBe(1);
 
@@ -140,7 +156,10 @@ test.describe("Empty Trash on the folder the server flagged", () => {
 			run.imapUser,
 			FLAGGED_TRASH,
 			(subjects) => subjects.includes(subject),
-			{ what: `"${subject}" to reach the flagged Trash folder` },
+			{
+				timeoutMs: 90_000,
+				what: `"${subject}" to reach the flagged Trash folder`,
+			},
 		);
 
 		const emptied = await api.emptyTrash(run.accountId);
@@ -150,7 +169,7 @@ test.describe("Empty Trash on the folder the server flagged", () => {
 			run.imapUser,
 			FLAGGED_TRASH,
 			(subjects) => subjects.length === 0,
-			{ what: "the flagged Trash folder to end up empty" },
+			{ timeoutMs: 90_000, what: "the flagged Trash folder to end up empty" },
 		);
 	});
 });

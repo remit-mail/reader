@@ -699,6 +699,27 @@ export class ApiClient {
 	}
 
 	/**
+	 * The id of the message carrying one subject in a mailbox, once it has
+	 * synced. Every spec that seeds mail on the server and then acts on it
+	 * through the API starts here, because the sync that picks the append up is
+	 * asynchronous: reading the listing once answers about a mailbox the
+	 * deployment has not looked at yet.
+	 */
+	async messageIdForSubject(
+		mailboxId: string,
+		subject: string,
+	): Promise<string> {
+		const threads = await waitFor(
+			() => this.listThreads(mailboxId),
+			(items) => items.some((thread) => thread.subject === subject),
+			{ timeoutMs: 90_000, what: `"${subject}" to sync into the read model` },
+		);
+		const match = threads.find((thread) => thread.subject === subject);
+		if (!match) throw new Error("unreachable: matched but not found");
+		return match.messageId;
+	}
+
+	/**
 	 * The filtered per-mailbox listing the inbox chips issue, paged to
 	 * exhaustion so a spec reads the whole match set rather than whatever fits
 	 * in one page — which is the distinction the filter itself is about (#306).
