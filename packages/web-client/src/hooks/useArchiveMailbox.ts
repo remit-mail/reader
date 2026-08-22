@@ -82,6 +82,17 @@ export const useJunkMailbox = (
 };
 
 /**
+ * Returns the account's appointed Trash mailbox id, which is how the mailbox
+ * pane tells it is looking at Trash and may offer to empty it (#847).
+ */
+export const useTrashMailbox = (
+	accountId: string | undefined,
+): { trashMailboxId: string | undefined; isLoading: boolean } => {
+	const { mailboxId, isLoading } = useFolderRoleMailbox(accountId, "Trash");
+	return { trashMailboxId: mailboxId, isLoading };
+};
+
+/**
  * Each account's appointed Trash mailbox, keyed by account. The delete
  * confirmation needs it to tell a move-to-Trash apart from a delete inside
  * Trash, which is an unrecoverable expunge and has to be asked as one (#845),

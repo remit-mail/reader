@@ -97,3 +97,36 @@ export const useCurrentMailboxUnseenCount = ({
 
 	return null;
 };
+
+/**
+ * The current mailbox's total message count, from the same warm-cache mailbox
+ * query. `0` while it is unresolvable, so a surface gated on "holds at least
+ * one message" — Empty Trash (#847) — stays down rather than offering a verb
+ * over a folder nothing is known about yet.
+ */
+export const useCurrentMailboxMessageCount = ({
+	accounts,
+}: UseCurrentMailboxNameOptions): number => {
+	const params = useParams({ strict: false });
+	const mailboxId = (params as { mailboxId?: string }).mailboxId;
+
+	const queries = useQueries({
+		queries: accounts.map((account) => ({
+			...mailboxOperationsListMailboxesOptions({
+				path: { accountId: account.accountId },
+			}),
+			staleTime: Infinity,
+		})),
+	});
+
+	if (!mailboxId) return 0;
+
+	for (const query of queries) {
+		const items = query.data?.items;
+		if (!items) continue;
+		const match = items.find((mailbox) => mailbox.mailboxId === mailboxId);
+		if (match) return match.messageCount;
+	}
+
+	return 0;
+};
