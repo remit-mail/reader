@@ -1,3 +1,5 @@
+import type { MUTATION_EVENT_SCHEMA_VERSION } from "@remit/data-ports/mutation-events";
+
 export interface BaseEvent {
 	accountId: string;
 	eventId: string; // Idempotency key
@@ -88,6 +90,7 @@ export type MailboxManagementEvent =
  */
 export interface MessageDeleteEvent extends BaseEvent {
 	type: "MESSAGE_DELETE";
+	schemaVersion: typeof MUTATION_EVENT_SCHEMA_VERSION;
 	messageId: string;
 	mailboxId: string;
 	mailboxPath: string;
@@ -115,8 +118,16 @@ export interface MessageMoveEvent extends BaseEvent {
  */
 export interface EmptyTrashEvent extends BaseEvent {
 	type: "EMPTY_TRASH";
+	schemaVersion: typeof MUTATION_EVENT_SCHEMA_VERSION;
 	trashMailboxId: string;
 	trashMailboxPath: string;
+	/**
+	 * The Trash folder's UIDVALIDITY at the moment the user consented. The
+	 * handler compares it against what the SELECT serves: a path reused by a
+	 * different folder (rename plus recreate) answers with a different value,
+	 * and this is the only comparison the mutating connection cannot race.
+	 */
+	trashUidValidity: number;
 }
 
 /**

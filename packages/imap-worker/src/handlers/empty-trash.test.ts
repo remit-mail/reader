@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
+import type { RoleResolution } from "@remit/data-ports/folder-role";
 import type { Logger } from "@remit/logger-lambda";
 import type { EmptyTrashEvent } from "../events.js";
 import { type EmptyTrashDeps, handleEmptyTrash } from "./empty-trash.js";
@@ -28,6 +29,14 @@ interface Connection {
 	deleteMessages: (uids: number[]) => Promise<void>;
 }
 
+interface LocalMessage {
+	messageId: string;
+	uid: number;
+	status: string;
+}
+
+type TrashMailbox = { mailboxId: string; fullPath: string };
+
 interface Harness {
 	calls: Call[];
 	account: {
@@ -37,9 +46,11 @@ interface Harness {
 	} | null;
 	mailbox: { mailboxId: string; uidValidity: number; cursorState?: string };
 	mailboxError?: Error;
+	trashResolution: RoleResolution<TrashMailbox>;
 	connection: Connection;
-	localMessages: { messageId: string }[];
-	threadMessage: { accountConfigId: string; threadMessageId: string } | null;
+	localMessages: LocalMessage[];
+	threadMessage: boolean;
+	messagesWithoutListingRow: string[];
 	getConnectionCount: number;
 	disconnectCount: number;
 }
@@ -60,16 +71,44 @@ const buildConnection = (): Connection => ({
 	) as Connection["deleteMessages"],
 });
 
+const deleting = (messageId: string, uid: number): LocalMessage => ({
+	messageId,
+	uid,
+	status: "deleting",
+});
+
 const fresh = (): Harness => ({
 	calls: [],
 	account: { accountId: "acc-1", accountConfigId: "cfg-1" },
 	mailbox: { mailboxId: "trash-mbx", uidValidity: 1, cursorState: undefined },
+	trashResolution: {
+		kind: "flagged",
+		mailbox: { mailboxId: "trash-mbx", fullPath: "Trash" },
+	},
 	connection: buildConnection(),
-	localMessages: [{ messageId: "msg-1" }, { messageId: "msg-2" }],
-	threadMessage: { accountConfigId: "cfg-1", threadMessageId: "tm-1" },
+	localMessages: [deleting("msg-1", 10), deleting("msg-2", 11)],
+	threadMessage: true,
+	messagesWithoutListingRow: [],
 	getConnectionCount: 0,
 	disconnectCount: 0,
 });
+
+// Empty Trash only flips `isDeleted` on the listing row, so its presence is how
+// the revert tells its own marks from a permanent delete's (which removes them
+// up front).
+const listingRow = (messageId: string) =>
+	h.messagesWithoutListingRow.includes(messageId) || !h.threadMessage
+		? null
+		: {
+				accountConfigId: "cfg-1",
+				threadMessageId: `tm-${messageId}`,
+				sentDate: 1_700_000_000_000,
+				mailboxId: "trash-mbx",
+				isRead: false,
+				isDeleted: true,
+				hasStars: false,
+				hasAttachment: false,
+			};
 
 const deps = (): EmptyTrashDeps =>
 	({
@@ -83,10 +122,17 @@ const deps = (): EmptyTrashDeps =>
 			message: {
 				listAllByMailbox: async () => h.localMessages,
 				delete: record("message.delete"),
+				update: record("message.update"),
 			},
 			threadMessage: {
-				findByMessageId: async () => h.threadMessage,
+				findByMessageId: async (_cfg: string, messageId: string) =>
+					listingRow(messageId),
+				findAllByMessageId: async (_cfg: string, messageId: string) => {
+					const row = listingRow(messageId);
+					return row ? [row] : [];
+				},
 				delete: record("threadMessage.delete"),
+				update: record("threadMessage.update"),
 			},
 			mailbox: {
 				get: async () => {
@@ -94,6 +140,9 @@ const deps = (): EmptyTrashDeps =>
 					return h.mailbox;
 				},
 				update: record("mailbox.update"),
+			},
+			mailboxSpecialUse: {
+				resolveTrashRole: async () => h.trashResolution,
 			},
 			secrets: {},
 		}),
@@ -117,13 +166,30 @@ const deps = (): EmptyTrashDeps =>
 
 const event: EmptyTrashEvent = {
 	type: "EMPTY_TRASH",
+	schemaVersion: 2,
 	accountId: "acc-1",
 	trashMailboxId: "trash-mbx",
 	trashMailboxPath: "Trash",
+	trashUidValidity: 1,
 } as EmptyTrashEvent;
 
 const called = (method: string): Call[] =>
 	h.calls.filter((c) => c.method === method);
+
+const revertedMessageIds = (): string[] =>
+	called("message.update")
+		.filter(
+			(c) =>
+				(c.args[1] as { status?: string; syncStatus?: string }).status ===
+					"active" &&
+				(c.args[1] as { syncStatus?: string }).syncStatus === "synced",
+		)
+		.map((c) => c.args[0] as string);
+
+const undeletedThreadMessageIds = (): string[] =>
+	called("threadMessage.update")
+		.filter((c) => (c.args[2] as { isDeleted?: boolean }).isDeleted === false)
+		.map((c) => c.args[1] as string);
 
 describe("handleEmptyTrash", () => {
 	beforeEach(() => {
@@ -142,21 +208,66 @@ describe("handleEmptyTrash", () => {
 		assert.equal(h.disconnectCount, 1, "the scope is always disconnected");
 	});
 
-	it("skips the IMAP expunge when the trash is already empty on the server", async () => {
+	it("keeps the local row for a uid the expunge never covered", async () => {
+		// Mail that reached Trash after the SEARCH — or a move the unordered dev
+		// queue let outrun this event — is still on the server, so deleting its
+		// rows would hide mail the user can still see in another client.
+		h.localMessages = [
+			deleting("msg-1", 10),
+			deleting("msg-2", 11),
+			{ messageId: "msg-late", uid: 12, status: "active" },
+		];
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.deepEqual(
+			called("message.delete").map((c) => c.args[0]),
+			["msg-1", "msg-2"],
+		);
+	});
+
+	it("hands every row back when another client emptied the trash first", async () => {
+		// Apple Mail got there first, so the SEARCH is empty and this expunge
+		// covers nothing. Leaving the rows `deleting` hides mail that no longer
+		// exists anywhere, with nothing left to clear the mark.
 		h.connection.search = async () => [];
 
 		await handleEmptyTrash(event, noopLog, deps());
 
 		assert.equal(called("connection.deleteMessages").length, 0);
-		assert.equal(
-			called("message.delete").length,
-			2,
-			"local rows are still cleaned up",
-		);
+		assert.equal(called("message.delete").length, 0);
+		assert.deepEqual(revertedMessageIds(), ["msg-1", "msg-2"]);
+		assert.deepEqual(undeletedThreadMessageIds(), ["tm-msg-1", "tm-msg-2"]);
+	});
+
+	it("hands back what a partial sweep left when the event is redelivered", async () => {
+		// The first attempt expunged and cleaned up msg-1, then died before
+		// msg-2. On redelivery the server has nothing left to find, and msg-2
+		// would otherwise sit marked for a deletion that will never come.
+		h.localMessages = [deleting("msg-2", 11)];
+		h.connection.search = async () => [];
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.equal(called("message.delete").length, 0);
+		assert.deepEqual(revertedMessageIds(), ["msg-2"]);
+	});
+
+	it("leaves a row whose listing rows another operation already removed", async () => {
+		// A permanent delete inside Trash removes its listing rows up front and
+		// marks the Message `deleting`. Reverting it here would resurrect a row
+		// that operation is about to remove.
+		h.localMessages = [deleting("msg-1", 10), deleting("msg-expunging", 12)];
+		h.messagesWithoutListingRow = ["msg-expunging"];
+		h.connection.search = async () => [];
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.deepEqual(revertedMessageIds(), ["msg-1"]);
 	});
 
 	it("deletes the message even when it has no thread row", async () => {
-		h.threadMessage = null;
+		h.threadMessage = false;
 
 		await handleEmptyTrash(event, noopLog, deps());
 
@@ -182,19 +293,6 @@ describe("handleEmptyTrash", () => {
 		await assert.rejects(handleEmptyTrash(event, noopLog, deps()), /not found/);
 	});
 
-	it("skips without opening a connection when the cursor is rebuilding", async () => {
-		h.mailbox = {
-			mailboxId: "trash-mbx",
-			uidValidity: 1,
-			cursorState: "rebuilding",
-		};
-
-		await handleEmptyTrash(event, noopLog, deps());
-
-		assert.equal(h.getConnectionCount, 0);
-		assert.equal(called("message.delete").length, 0);
-	});
-
 	it("acks terminally without connecting when the Trash mailbox was deleted", async () => {
 		h.mailboxError = Object.assign(new Error("Mailbox not found: trash-mbx"), {
 			name: "NotFoundError",
@@ -206,7 +304,78 @@ describe("handleEmptyTrash", () => {
 		assert.equal(called("message.delete").length, 0);
 	});
 
-	it("pauses quietly when openBox trips a UIDVALIDITY mismatch", async () => {
+	it("abandons and reverts an event minted under an unknown contract", async () => {
+		const unversioned = {
+			type: "EMPTY_TRASH",
+			accountId: "acc-1",
+			trashMailboxId: "trash-mbx",
+			trashMailboxPath: "Trash",
+		} as unknown as EmptyTrashEvent;
+
+		await handleEmptyTrash(unversioned, noopLog, deps());
+
+		assert.equal(h.getConnectionCount, 0, "no connection is ever opened");
+		assert.equal(called("connection.deleteMessages").length, 0);
+		assert.deepEqual(revertedMessageIds(), ["msg-1", "msg-2"]);
+		assert.deepEqual(undeletedThreadMessageIds(), ["tm-msg-1", "tm-msg-2"]);
+	});
+
+	it("abandons when the Trash role now names a different folder", async () => {
+		h.trashResolution = {
+			kind: "appointed",
+			mailbox: { mailboxId: "other-mbx", fullPath: "INBOX/Bak" },
+		};
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.equal(h.getConnectionCount, 0);
+		assert.equal(called("connection.deleteMessages").length, 0);
+		assert.deepEqual(revertedMessageIds(), ["msg-1", "msg-2"]);
+	});
+
+	it("abandons when the Trash role no longer rests on confirmed evidence", async () => {
+		h.trashResolution = {
+			kind: "proposed",
+			mailbox: { mailboxId: "trash-mbx", fullPath: "Trash" },
+		};
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.equal(called("connection.deleteMessages").length, 0);
+		assert.deepEqual(revertedMessageIds(), ["msg-1", "msg-2"]);
+	});
+
+	it("refuses the expunge when the served UIDVALIDITY is not the one consented to", async () => {
+		// The path was reused: a third-party client renamed Trash away and made a
+		// fresh one. Same path, different folder, and nobody consented to empty it.
+		h.connection.openBox = async () => ({ uidvalidity: 77 });
+		h.mailbox = { mailboxId: "trash-mbx", uidValidity: 77 };
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.equal(called("connection.deleteMessages").length, 0);
+		assert.deepEqual(revertedMessageIds(), ["msg-1", "msg-2"]);
+		assert.deepEqual(undeletedThreadMessageIds(), ["tm-msg-1", "tm-msg-2"]);
+		assert.equal(h.disconnectCount, 1);
+	});
+
+	it("reverts only the rows this empty marked, never a freshly synced one", async () => {
+		h.localMessages = [
+			deleting("msg-1", 10),
+			{ messageId: "msg-arrived", uid: 12, status: "active" },
+		];
+		h.connection.openBox = async () => ({ uidvalidity: 77 });
+		h.mailbox = { mailboxId: "trash-mbx", uidValidity: 77 };
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.deepEqual(revertedMessageIds(), ["msg-1"]);
+		assert.deepEqual(undeletedThreadMessageIds(), ["tm-msg-1"]);
+	});
+
+	it("reverts the marks when openBox trips a UIDVALIDITY mismatch", async () => {
+		// The event is acked and nothing re-issues it, so leaving the folder
+		// marked `deleting` hides healthy mail until the user notices.
 		h.connection.openBox = async () => ({ uidvalidity: 999 });
 
 		await handleEmptyTrash(event, noopLog, deps());
@@ -217,7 +386,22 @@ describe("handleEmptyTrash", () => {
 			"cursor_invalid",
 		);
 		assert.equal(called("message.delete").length, 0);
+		assert.deepEqual(revertedMessageIds(), ["msg-1", "msg-2"]);
 		assert.equal(h.disconnectCount, 1);
+	});
+
+	it("reverts the marks without connecting when the cursor is rebuilding", async () => {
+		h.mailbox = {
+			mailboxId: "trash-mbx",
+			uidValidity: 1,
+			cursorState: "rebuilding",
+		};
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.equal(h.getConnectionCount, 0);
+		assert.equal(called("message.delete").length, 0);
+		assert.deepEqual(revertedMessageIds(), ["msg-1", "msg-2"]);
 	});
 
 	it("rethrows an unclassified IMAP error so the event is retried", async () => {

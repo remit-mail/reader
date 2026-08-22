@@ -22,6 +22,7 @@ import {
 	UNCONFIRMED_TRASH_FOLDER_REASON,
 } from "@remit/data-ports/folder-role";
 import { deriveCopyMessageId } from "@remit/data-ports/id";
+import { MUTATION_EVENT_SCHEMA_VERSION } from "@remit/data-ports/mutation-events";
 import {
 	CanonicalMailboxRole,
 	MessageStatus,
@@ -35,6 +36,7 @@ import { createQueueProducer } from "@remit/sqs-client/producer";
  */
 interface MessageDeleteEvent {
 	type: "MESSAGE_DELETE";
+	schemaVersion: typeof MUTATION_EVENT_SCHEMA_VERSION;
 	eventId: string;
 	timestamp: number;
 	accountId: string;
@@ -62,11 +64,14 @@ interface MessageMoveEvent {
 
 interface EmptyTrashEvent {
 	type: "EMPTY_TRASH";
+	schemaVersion: typeof MUTATION_EVENT_SCHEMA_VERSION;
 	eventId: string;
 	timestamp: number;
 	accountId: string;
 	trashMailboxId: string;
 	trashMailboxPath: string;
+	/** The folder's UIDVALIDITY at consent time; the worker re-checks it. */
+	trashUidValidity: number;
 }
 
 interface MessageCopyEvent {
@@ -382,6 +387,7 @@ export class MessageMoveService {
 
 				events.push({
 					type: "MESSAGE_DELETE",
+					schemaVersion: MUTATION_EVENT_SCHEMA_VERSION,
 					eventId: randomUUID(),
 					timestamp: Date.now(),
 					accountId,
@@ -425,6 +431,7 @@ export class MessageMoveService {
 
 			events.push({
 				type: "MESSAGE_DELETE",
+				schemaVersion: MUTATION_EVENT_SCHEMA_VERSION,
 				eventId: randomUUID(),
 				timestamp: Date.now(),
 				accountId,
@@ -764,6 +771,15 @@ export class MessageMoveService {
 			accountId,
 		);
 
+		// The identity the user consented to, carried on the event so the worker
+		// can tell this folder from a different one that has since taken over its
+		// path. Read here rather than re-read there: the value at consent time is
+		// the whole point, and the stored row is rewritten by every sync.
+		const { uidValidity: trashUidValidity } = await this.mailboxService.get(
+			accountId,
+			trashMailbox.mailboxId,
+		);
+
 		const messages = await this.messageService.listAllByMailbox(
 			trashMailbox.mailboxId,
 		);
@@ -793,11 +809,13 @@ export class MessageMoveService {
 		// Enqueue single event for worker to handle batch
 		const event: EmptyTrashEvent = {
 			type: "EMPTY_TRASH",
+			schemaVersion: MUTATION_EVENT_SCHEMA_VERSION,
 			eventId: randomUUID(),
 			timestamp: Date.now(),
 			accountId,
 			trashMailboxId: trashMailbox.mailboxId,
 			trashMailboxPath: trashMailbox.fullPath,
+			trashUidValidity,
 		};
 
 		await this.enqueueEvent(event);

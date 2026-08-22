@@ -37,6 +37,10 @@
 			"types": "./src/folder-role.ts",
 			"default": "./src/folder-role.ts"
 		},
+		"./mutation-events": {
+			"types": "./src/mutation-events.ts",
+			"default": "./src/mutation-events.ts"
+		},
 		"./mailbox-name": {
 			"types": "./src/mailbox-name.ts",
 			"default": "./src/mailbox-name.ts"

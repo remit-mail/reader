@@ -49,7 +49,9 @@ interface TrashMessage {
 
 interface EnqueuedEvent {
 	type: string;
+	schemaVersion?: number;
 	trashMailboxId?: string;
+	trashUidValidity?: number;
 }
 
 const buildWorld = (
@@ -87,7 +89,12 @@ const buildWorld = (
 
 	const config: MessageMoveConfig = {
 		messageService,
-		mailboxService: {} as unknown as IMailboxRepository,
+		mailboxService: {
+			get: async (_accountId: string, mailboxId: string) => ({
+				mailboxId,
+				uidValidity: 42,
+			}),
+		} as unknown as IMailboxRepository,
 		addressService: {
 			reconcileJunkOnlyForMessage: async () => {},
 		} as unknown as IAddressRepository,
@@ -219,5 +226,17 @@ describe("MessageMoveService.emptyTrash", () => {
 			events.map((event) => event.type),
 			["EMPTY_TRASH", "EMPTY_TRASH"],
 		);
+	});
+
+	it("carries the folder's identity as it stood at consent time", async () => {
+		// The worker compares this against what its own SELECT serves. Without
+		// it the expunge would be authorised by a path, and a path is reusable.
+		const { service, events } = buildWorld(appointedTrash);
+
+		await service.emptyTrash(ACCOUNT_CONFIG, ACCOUNT);
+
+		assert.equal(events[0]?.schemaVersion, 2);
+		assert.equal(events[0]?.trashMailboxId, REAL_TRASH);
+		assert.equal(events[0]?.trashUidValidity, 42);
 	});
 });
