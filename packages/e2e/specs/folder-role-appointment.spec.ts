@@ -41,7 +41,10 @@ test.describe("An appointed folder role", () => {
 	test("sends Report spam to the appointed folder, not the one the server flagged", async () => {
 		test.setTimeout(180_000);
 
-		const appointed = await api.createMailbox(run.accountId, APPOINTED_PATH);
+		const appointed = await api.createSettledMailbox(
+			run.accountId,
+			APPOINTED_PATH,
+		);
 		await api.appointFolderRole(run.accountId, "Junk", appointed.mailboxId);
 
 		// The account also has the Dovecot `Junk` that carries \Junk, which is

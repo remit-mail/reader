@@ -11,7 +11,9 @@
  * from several mailboxes and several accounts at once.
  *
  * The decision itself is `deleteOutcomeFor`, kept pure in `lib/format`; this is
- * only the read that feeds it.
+ * only the read that feeds it. The two facts beside it are what the copy needs
+ * to name a folder: whether the Trash it resolved is a name match nobody
+ * confirmed (D4a), and the folder a stale appointment lost.
  */
 import { useMemo } from "react";
 import {
@@ -21,15 +23,43 @@ import {
 } from "@/lib/format";
 import { useTrashByAccount } from "./useArchiveMailbox";
 
+export interface DeleteOutcomeResult {
+	outcome: DeleteOutcome;
+	/** The Trash these rows resolve to was matched by name, never confirmed. */
+	trashIsUnconfirmed: boolean;
+	/** The folder the user appointed, when it is gone from the mail server. */
+	staleFolderLabel?: string;
+}
+
 /** The outcome of deleting `targets`. */
 export const useDeleteOutcome = (
 	targets: readonly DeleteTarget[],
-): DeleteOutcome => {
+): DeleteOutcomeResult => {
 	const { trashByAccount, hasAppointments, isError } = useTrashByAccount();
 
-	return useMemo(
-		() =>
-			deleteOutcomeFor({ targets, trashByAccount, hasAppointments, isError }),
-		[targets, trashByAccount, hasAppointments, isError],
-	);
+	return useMemo(() => {
+		const outcome = deleteOutcomeFor({
+			targets,
+			trashByAccount,
+			hasAppointments,
+			isError,
+		});
+		const trashFor = (target: DeleteTarget) =>
+			target.accountId ? trashByAccount.get(target.accountId) : undefined;
+		return {
+			outcome,
+			// Only the rows the delete would actually expunge — a row filed
+			// somewhere else says nothing about the folder it is moving into.
+			trashIsUnconfirmed: targets.some((target) => {
+				const trash = trashFor(target);
+				return (
+					trash?.source === "Proposed" && trash.mailboxId === target.mailboxId
+				);
+			}),
+			// The account `deleteOutcomeFor` refused on, found the way it found it.
+			staleFolderLabel: targets
+				.map(trashFor)
+				.find((trash) => trash?.source === "Stale")?.staleFolderPath,
+		};
+	}, [targets, trashByAccount, hasAppointments, isError]);
 };

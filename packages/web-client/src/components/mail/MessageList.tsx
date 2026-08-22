@@ -304,7 +304,11 @@ export const MessageList = ({
 		() => [{ accountId, mailboxId }],
 		[accountId, mailboxId],
 	);
-	const deleteOutcome = useDeleteOutcome(deleteScope);
+	const {
+		outcome: deleteOutcome,
+		trashIsUnconfirmed,
+		staleFolderLabel,
+	} = useDeleteOutcome(deleteScope);
 
 	// Selection state
 	const {
@@ -688,76 +692,75 @@ export const MessageList = ({
 
 	// Confirm handler: run the actual delete, then clear selection and move
 	// focus to a sensible neighbor (the row after the first deleted one).
-	const handleConfirmDelete = useCallback(() => {
-		if (!pendingDelete) return;
-
-		const ids = pendingDelete;
-		if (ids.length === 0) {
-			setPendingDelete(null);
-			return;
-		}
-
-		const deletedSet = new Set(ids);
-		const firstDeletedIndex = threads.findIndex((t) =>
-			deletedSet.has(t.messageId),
-		);
-		// Next surviving row at or after the first deleted row, else the one
-		// before it. Computed against the pre-delete order.
-		let nextFocus: string | undefined;
-		for (let i = firstDeletedIndex + 1; i < threads.length; i++) {
-			if (!deletedSet.has(threads[i].messageId)) {
-				nextFocus = threads[i].messageId;
-				break;
+	const handleConfirmDelete = useCallback(
+		(ids: string[]) => {
+			if (ids.length === 0) {
+				setPendingDelete(null);
+				return;
 			}
-		}
-		if (nextFocus === undefined) {
-			for (let i = firstDeletedIndex - 1; i >= 0; i--) {
+
+			const deletedSet = new Set(ids);
+			const firstDeletedIndex = threads.findIndex((t) =>
+				deletedSet.has(t.messageId),
+			);
+			// Next surviving row at or after the first deleted row, else the one
+			// before it. Computed against the pre-delete order.
+			let nextFocus: string | undefined;
+			for (let i = firstDeletedIndex + 1; i < threads.length; i++) {
 				if (!deletedSet.has(threads[i].messageId)) {
 					nextFocus = threads[i].messageId;
 					break;
 				}
 			}
-		}
-
-		onDeleteMessages?.(ids);
-		exitSelection();
-		focusBeforeConfirmRef.current = null;
-		setPendingDelete(null);
-
-		if (nextFocus !== undefined) {
-			// Same hand-back as cancelling, aimed at the surviving neighbour
-			// instead: confirming also closes a dialog that held DOM focus.
-			pendingDomFocusRef.current = nextFocus;
-			cursorMovedByPointerRef.current = false;
-			setFocusedMessageId(nextFocus);
-			// Desktop is two-pane: opening the neighbour fills the reading pane
-			// beside the list. On a single-pane mobile layout the same navigation
-			// replaces the list with a full-screen message, so a bulk delete looks
-			// like it opened a random neighbour instead of removing the rows (#202).
-			// Mobile keeps the cursor move but stays on the list.
-			if (isDesktop) {
-				openRow(nextFocus, { replace: true });
+			if (nextFocus === undefined) {
+				for (let i = firstDeletedIndex - 1; i >= 0; i--) {
+					if (!deletedSet.has(threads[i].messageId)) {
+						nextFocus = threads[i].messageId;
+						break;
+					}
+				}
 			}
-		}
 
-		// Mobile keeps the list up, so it needs its own signal the delete landed
-		// (#202). On desktop the rows leaving the list beside the reading pane is
-		// signal enough.
-		if (!isDesktop) {
-			setCompletionBanner(
-				bulkActionCompletionText("delete", ids.length, deleteOutcome),
-			);
-		}
-	}, [
-		pendingDelete,
-		threads,
-		onDeleteMessages,
-		exitSelection,
-		openRow,
-		isDesktop,
-		setFocusedMessageId,
-		deleteOutcome,
-	]);
+			onDeleteMessages?.(ids);
+			exitSelection();
+			focusBeforeConfirmRef.current = null;
+			setPendingDelete(null);
+
+			if (nextFocus !== undefined) {
+				// Same hand-back as cancelling, aimed at the surviving neighbour
+				// instead: confirming also closes a dialog that held DOM focus.
+				pendingDomFocusRef.current = nextFocus;
+				cursorMovedByPointerRef.current = false;
+				setFocusedMessageId(nextFocus);
+				// Desktop is two-pane: opening the neighbour fills the reading pane
+				// beside the list. On a single-pane mobile layout the same navigation
+				// replaces the list with a full-screen message, so a bulk delete looks
+				// like it opened a random neighbour instead of removing the rows (#202).
+				// Mobile keeps the cursor move but stays on the list.
+				if (isDesktop) {
+					openRow(nextFocus, { replace: true });
+				}
+			}
+
+			// Mobile keeps the list up, so it needs its own signal the delete landed
+			// (#202). On desktop the rows leaving the list beside the reading pane is
+			// signal enough.
+			if (!isDesktop) {
+				setCompletionBanner(
+					bulkActionCompletionText("delete", ids.length, deleteOutcome),
+				);
+			}
+		},
+		[
+			threads,
+			onDeleteMessages,
+			exitSelection,
+			openRow,
+			isDesktop,
+			setFocusedMessageId,
+			deleteOutcome,
+		],
+	);
 
 	// Every way out of the confirmation that isn't the delete — Escape, Cancel,
 	// the backdrop — arrives here, so this is the one place the keyboard has to
@@ -1343,8 +1346,14 @@ export const MessageList = ({
 			/>
 			<DeleteConfirmDialog
 				isOpen={pendingDelete !== null}
-				count={pendingDelete?.length ?? 0}
+				messageIds={pendingDelete ?? []}
 				outcome={deleteOutcome}
+				accountId={accountId}
+				// Every row here is filed in the open mailbox, so on an expunge that
+				// mailbox is the Trash the copy has to name.
+				trashFolderLabel={listTitle}
+				staleFolderLabel={staleFolderLabel}
+				trashIsUnconfirmed={trashIsUnconfirmed}
 				isDeleting={isDeleting}
 				onConfirm={handleConfirmDelete}
 				onCancel={handleCancelDelete}

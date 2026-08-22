@@ -14,6 +14,12 @@ export interface FolderTreeNode {
 	 * rendered as a marker rather than a disabled control.
 	 */
 	isCurrent?: boolean;
+	/**
+	 * How much mail the folder holds. A folder named `Trash` may be an empty
+	 * look-alike beside the real one, and the count is the only thing that tells
+	 * them apart. Absent means the surface has no count, not zero.
+	 */
+	messageCount?: number;
 }
 
 export interface FolderTreeRow {

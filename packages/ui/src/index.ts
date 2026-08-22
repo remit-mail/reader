@@ -582,9 +582,20 @@ export {
 export {
 	APPOINTABLE_ROLES,
 	type CandidateFolder,
+	type RoleAppointment,
 	RoleAppointmentList,
 	type RoleAppointmentListProps,
+	type RoleAppointmentSource,
 } from "./components/role-appointment-list.js";
+export {
+	type PromptAction,
+	type PromptPhase,
+	type PromptReason,
+	RoleAppointmentPrompt,
+	type RoleAppointmentPromptCopy,
+	type RoleAppointmentPromptProps,
+	roleAppointmentPromptCopy,
+} from "./components/role-appointment-prompt.js";
 export {
 	type RowAction,
 	RowActions,

@@ -5,9 +5,11 @@ import {
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import { useRoleAppointmentPrompt } from "@/components/mail/RoleAppointmentPromptProvider";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
+import { isFolderRoleRefusal } from "@/components/ui/folder-role-refusal";
 import { resolveMailboxesForMessages } from "@/hooks/useMarkAsRead";
 import { runChunkedMutation } from "@/lib/bulk-actions";
 import {
@@ -75,6 +77,14 @@ export const useDeleteMessages = ({
 }: UseDeleteMessagesOptions) => {
 	const queryClient = useQueryClient();
 	const { pushError } = useErrorBanners();
+	const { requestAppointment } = useRoleAppointmentPrompt();
+
+	// The refused chunk is not what the user asked for. The whole selection is
+	// held here so the appointment's confirm replays all of it (#887).
+	const selectionRef = useRef<string[]>([]);
+	const runRef = useRef<(messageIds: string[]) => Promise<void>>(
+		async () => {},
+	);
 
 	const { mutateAsync, isPending } = useMutation({
 		...messageBulkOperationsDeleteMessagesMutation(),
@@ -149,6 +159,21 @@ export const useDeleteMessages = ({
 				}
 				restoreThreadListQueries(queryClient, context.previousThreadsList);
 			}
+			// A provenance refusal is answered by the prompt, not by a banner: the
+			// generic banner is suppressed for this one error, and every other
+			// failure keeps today's.
+			const refusal = isFolderRoleRefusal(err);
+			if (refusal) {
+				const replay = selectionRef.current;
+				requestAppointment({
+					accountId: refusal.accountId,
+					role: refusal.role,
+					reason: refusal.reason,
+					action: { kind: "delete", count: replay.length },
+					onAppointed: () => runRef.current(replay),
+				});
+				return;
+			}
 			const count = vars.body.messageIds?.length ?? 0;
 			pushError({
 				title:
@@ -177,14 +202,25 @@ export const useDeleteMessages = ({
 		},
 	});
 
+	const runSelection = useCallback(
+		(messageIds: string[]): Promise<void> =>
+			runChunkedMutation(messageIds, (chunk) =>
+				mutateAsync({ body: { messageIds: chunk } }),
+			),
+		[mutateAsync],
+	);
+
+	useEffect(() => {
+		runRef.current = runSelection;
+	}, [runSelection]);
+
 	const deleteMessages = useCallback(
 		(messageIds: string[]) => {
 			if (messageIds.length === 0) return;
-			void runChunkedMutation(messageIds, (chunk) =>
-				mutateAsync({ body: { messageIds: chunk } }),
-			);
+			selectionRef.current = messageIds;
+			void runSelection(messageIds);
 		},
-		[mutateAsync],
+		[runSelection],
 	);
 
 	return { deleteMessages, isPending };

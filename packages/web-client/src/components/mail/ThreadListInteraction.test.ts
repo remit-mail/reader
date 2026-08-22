@@ -23,6 +23,7 @@ import { AuthProviderProvider, noneAuthProvider } from "@/auth/provider";
 import { ErrorBannerProvider } from "@/components/ui/ErrorBannerProvider";
 import { makeAccount, makeConfig } from "@/test-support/fixtures";
 import type { MessageListCommands } from "./MessageList";
+import { RoleAppointmentPromptProvider } from "./RoleAppointmentPromptProvider";
 import {
 	ThreadListInteraction,
 	useThreadListSelection,
@@ -137,16 +138,20 @@ function mountList(options: {
 					ErrorBannerProvider,
 					null,
 					createElement(
-						ThreadListInteraction,
-						{
-							selectedMessageId: undefined,
-							rows,
-							onOpen: () => undefined,
-							onDeleteMessages,
-							onSelectionVerb,
-							commandsRef,
-						},
-						...rowElements(ids),
+						RoleAppointmentPromptProvider,
+						null,
+						createElement(
+							ThreadListInteraction,
+							{
+								selectedMessageId: undefined,
+								rows,
+								onOpen: () => undefined,
+								onDeleteMessages,
+								onSelectionVerb,
+								commandsRef,
+							},
+							...rowElements(ids),
+						),
 					),
 				),
 			),
@@ -469,17 +474,21 @@ function mountSelectableList(initialIds: string[]) {
 					ErrorBannerProvider,
 					null,
 					createElement(
-						ThreadListInteraction,
-						{
-							selectedMessageId: undefined,
-							rows: initialIds.map((id) => row(id)),
-							onOpen: () => undefined,
-							onDeleteMessages: () => undefined,
-							onSelectionVerb: () => undefined,
-							commandsRef,
-						},
-						...rowElements(ids),
-						createElement(Probe, { key: "probe" }),
+						RoleAppointmentPromptProvider,
+						null,
+						createElement(
+							ThreadListInteraction,
+							{
+								selectedMessageId: undefined,
+								rows: initialIds.map((id) => row(id)),
+								onOpen: () => undefined,
+								onDeleteMessages: () => undefined,
+								onSelectionVerb: () => undefined,
+								commandsRef,
+							},
+							...rowElements(ids),
+							createElement(Probe, { key: "probe" }),
+						),
 					),
 				),
 			),

@@ -17,6 +17,7 @@ import {
 	FolderRenameDialog,
 	type FolderRole,
 	type ManagedFolder,
+	type RoleAppointment,
 	RoleAppointmentList,
 	SettingsShell,
 } from "@remit/ui";
@@ -25,6 +26,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { DeleteFolderDialog } from "@/components/settings/DeleteFolderDialog";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { isMailboxNotSettledRefusal } from "@/components/ui/folder-role-refusal";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
 import { guardFolderDeletion } from "@/lib/delete-folder";
@@ -167,10 +169,15 @@ function AccountFolders({ account }: { account: RemitImapAccountResponse }) {
 		messageCount: mailbox.messageCount,
 	}));
 
-	const appointments: Record<string, string | null> = {};
+	const appointments: Record<string, RoleAppointment> = {};
 	for (const appointment of account.folderAppointments) {
 		const role = CANONICAL_TO_NAV_ROLE[appointment.role];
-		if (role) appointments[role] = appointment.mailboxId ?? null;
+		if (!role) continue;
+		appointments[role] = {
+			mailboxId: appointment.mailboxId ?? null,
+			source: appointment.source,
+			staleFolderPath: appointment.staleAppointmentPath,
+		};
 	}
 
 	const displayNames: Record<string, string> = {};
@@ -192,7 +199,9 @@ function AccountFolders({ account }: { account: RemitImapAccountResponse }) {
 		<div className="space-y-4">
 			{(appointMutation.isError || renameMutation.isError) && (
 				<Banner tone="danger" variant="soft">
-					Couldn't save that change. Please try again.
+					{isMailboxNotSettledRefusal(appointMutation.error)
+						? "That folder is still being created on the mail server — wait for it to finish, then try again."
+						: "Couldn't save that change. Please try again."}
 				</Banner>
 			)}
 			<RoleAppointmentList

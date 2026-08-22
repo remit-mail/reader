@@ -50,6 +50,12 @@ export interface FolderRowProps {
 	current?: boolean;
 	/** Inline tag shown on the current row, e.g. `current`. */
 	currentTag?: string;
+	/**
+	 * How much mail the folder holds, right-aligned. The accessible name is the
+	 * caller's `ariaLabel`, so a surface that needs the count announced folds it
+	 * in there rather than relying on this.
+	 */
+	messageCount?: number;
 	/** A hairline under the label, drawn for every row but the last. */
 	separated?: boolean;
 	/**
@@ -77,6 +83,7 @@ export const FolderRow = ({
 	context = false,
 	current = false,
 	currentTag,
+	messageCount,
 	separated = false,
 	actions,
 	tabIndex,
@@ -96,6 +103,12 @@ export const FolderRow = ({
 	const icon = (
 		<Folder className="size-4 shrink-0 text-fg-subtle" aria-hidden="true" />
 	);
+	const count =
+		messageCount === undefined ? null : (
+			<span aria-hidden="true" className="shrink-0 text-2xs text-fg-subtle">
+				{messageCount} {messageCount === 1 ? "msg" : "msgs"}
+			</span>
+		);
 	if (context) {
 		return (
 			<div className="relative flex items-center">
@@ -112,6 +125,7 @@ export const FolderRow = ({
 					{chevron}
 					{icon}
 					<span className="min-w-0 flex-1 truncate">{label}</span>
+					{count}
 				</div>
 				{actions}
 				{separated && <FolderRowSeparator depth={depth} />}
@@ -142,6 +156,7 @@ export const FolderRow = ({
 				{chevron}
 				{icon}
 				<span className="min-w-0 flex-1 truncate">{label}</span>
+				{count}
 				{current && currentTag && (
 					<span className="shrink-0 text-xs text-fg-muted">{currentTag}</span>
 				)}

@@ -33,6 +33,10 @@ export const folderDelimiter = (
  * `displayNameOverride`, so a picker reads `Inbox`/`Trash` rather than the
  * provider's leaf, while the provider path it nests and filters under stays
  * untouched.
+ *
+ * The message count travels with every option (#887): a folder named `Trash`
+ * may be an empty look-alike beside the real one, and the count is the only
+ * thing that tells them apart. The Move-to picker shows it for the same reason.
  */
 export const buildMoveOptions = ({
 	mailboxes,
@@ -51,5 +55,6 @@ export const buildMoveOptions = ({
 		label: labelForMailbox(mailbox, roleMap.get(mailbox.mailboxId), translator),
 		path: mailbox.fullPath,
 		isCurrent: mailbox.mailboxId === currentMailboxId,
+		messageCount: mailbox.messageCount,
 	}));
 };

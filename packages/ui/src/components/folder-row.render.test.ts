@@ -81,6 +81,20 @@ describe("FolderRow", () => {
 		assert.ok(html.indexOf(">Delete<") > html.indexOf("</button>"));
 	});
 
+	it("shows how much mail the folder holds, and leaves zero visible", () => {
+		assert.match(render({ messageCount: 512 }), />512</);
+		assert.match(render({ messageCount: 512 }), />msgs</);
+		assert.match(render({ messageCount: 1 }), />msg</);
+		assert.match(render({ messageCount: 0 }), />0</);
+		assert.doesNotMatch(render({}), /msgs/);
+	});
+
+	it("keeps the count out of the accessible name it was not folded into", () => {
+		const html = render({ messageCount: 512 });
+		assert.match(html, /aria-label="Move to Travel"/);
+		assert.match(html, /aria-hidden="true"[^>]*class="[^"]*text-2xs/);
+	});
+
 	it("takes its place in a roving tab order", () => {
 		assert.match(render({ tabIndex: 0 }), /tabindex="0"/);
 		assert.match(render({ tabIndex: -1 }), /tabindex="-1"/);

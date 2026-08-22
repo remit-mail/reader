@@ -9,9 +9,12 @@
  */
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import i18next from "i18next";
 import type { JSDOM } from "jsdom";
-import { act, createElement, Fragment } from "react";
+import React, { act, createElement, Fragment } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { I18nextProvider, initReactI18next } from "react-i18next";
 import {
 	type AuthProvider,
 	AuthProviderProvider,
@@ -19,10 +22,25 @@ import {
 } from "@/auth/provider";
 import type { DeleteOutcome } from "@/lib/format";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
+import { RoleAppointmentPromptProvider } from "./RoleAppointmentPromptProvider";
+
+// remit-ui's `.tsx` is transpiled with the classic JSX runtime, which
+// references a global `React`; the app uses the automatic runtime, so this
+// shim only exists for the test harness.
+(globalThis as { React?: typeof React }).React = React;
+
+const i18n = i18next.createInstance();
+i18n.use(initReactI18next).init({
+	lng: "en",
+	ns: ["mail"],
+	defaultNS: "mail",
+	resources: { en: { mail: {} } },
+});
 
 let dom: JSDOM;
 let container: HTMLElement;
 let root: Root;
+const originalFetch = globalThis.fetch;
 
 before(async () => {
 	const { JSDOM: JSDOMCtor } = await import("jsdom");
@@ -51,10 +69,61 @@ beforeEach(() => {
 	) as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
+	globalThis.fetch = (async (input: RequestInfo | URL) => {
+		const path = new URL(
+			input instanceof Request ? input.url : String(input),
+			"http://localhost",
+		).pathname;
+		return new Response(JSON.stringify(answerFor(path)), {
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+		});
+	}) as typeof fetch;
 });
+
+const ACCOUNT = "acc-1";
+
+/** Enough of the account for the appointment prompt to have folders to offer. */
+const answerFor = (path: string): unknown => {
+	if (path.endsWith("/config")) {
+		return {
+			accounts: [
+				{
+					accountId: ACCOUNT,
+					email: `${ACCOUNT}@example.com`,
+					folderAppointments: [{ role: "Trash", source: "None" }],
+				},
+			],
+		};
+	}
+	if (path.endsWith("/mailboxes")) {
+		return {
+			items: [
+				{
+					mailboxId: "mbx-trash",
+					accountId: ACCOUNT,
+					fullPath: "Prullenbak",
+					hierarchyDelimiter: "/",
+					messageCount: 3,
+				},
+			],
+		};
+	}
+	return {};
+};
+
+/** Let the queries and the two writes behind the confirm run to completion. */
+const settle = async (): Promise<void> => {
+	for (let round = 0; round < 8; round += 1) {
+		await act(async () => {
+			await Promise.resolve();
+		});
+	}
+};
 
 afterEach(() => {
 	act(() => root.unmount());
+	globalThis.fetch = originalFetch;
 });
 
 /** A deployment with an identity system and a live session to sign back into. */
@@ -72,23 +141,47 @@ const mount = (options: {
 	outcome: DeleteOutcome;
 	count?: number;
 	isDeleting?: boolean;
+	accountId?: string;
+	trashFolderLabel?: string;
+	staleFolderLabel?: string;
+	trashIsUnconfirmed?: boolean;
 	authProvider?: AuthProvider;
-	onConfirm?: () => void;
+	onConfirm?: (messageIds: string[]) => void;
 }) => {
 	const onConfirm = options.onConfirm ?? (() => undefined);
+	const messageIds = Array.from(
+		{ length: options.count ?? 1 },
+		(_, index) => `msg-${index}`,
+	);
 	act(() =>
 		root.render(
 			createElement(
-				AuthProviderProvider,
-				{ value: options.authProvider ?? noneAuthProvider },
-				createElement(DeleteConfirmDialog, {
-					isOpen: true,
-					count: options.count ?? 1,
-					outcome: options.outcome,
-					isDeleting: options.isDeleting,
-					onConfirm,
-					onCancel: () => undefined,
-				}),
+				I18nextProvider,
+				{ i18n },
+				createElement(
+					QueryClientProvider,
+					{ client: new QueryClient() },
+					createElement(
+						RoleAppointmentPromptProvider,
+						null,
+						createElement(
+							AuthProviderProvider,
+							{ value: options.authProvider ?? noneAuthProvider },
+							createElement(DeleteConfirmDialog, {
+								isOpen: true,
+								messageIds,
+								outcome: options.outcome,
+								accountId: options.accountId,
+								trashFolderLabel: options.trashFolderLabel,
+								staleFolderLabel: options.staleFolderLabel,
+								trashIsUnconfirmed: options.trashIsUnconfirmed,
+								isDeleting: options.isDeleting,
+								onConfirm,
+								onCancel: () => undefined,
+							}),
+						),
+					),
+				),
 			),
 		),
 	);
@@ -98,6 +191,8 @@ const mount = (options: {
 			Array.from(
 				dom.window.document.querySelectorAll<HTMLButtonElement>("button"),
 			).find((b) => b.textContent === label),
+		byLabel: (label: string) =>
+			dom.window.document.querySelector<HTMLElement>(`[aria-label="${label}"]`),
 	};
 };
 
@@ -182,33 +277,120 @@ describe("DeleteConfirmDialog — a read that failed refuses the delete", () => 
 });
 
 /**
- * An account that appoints no Trash is a resolved answer of "none", not a
- * missing one: the server refuses that delete outright (#846) rather than
- * moving anything, so the dialog may not offer a move — and the remedy is the
- * appointment, not the session.
+ * An account that appoints no Trash, or one whose appointed folder is gone, is
+ * a resolved answer: the server refuses that delete outright (#846) rather than
+ * moving anything. The remedy is the appointment, made where the refusal
+ * happened — never a link to Settings the user has to come back from (#887).
  */
-describe("DeleteConfirmDialog — no Trash appointed is not a move", () => {
+describe("DeleteConfirmDialog — a refusal answers itself", () => {
 	it("refuses rather than promising a restore", () => {
-		const view = mount({ outcome: "noTrash", count: 2 });
+		const view = mount({ outcome: "noTrash", count: 2, accountId: "acc-1" });
 		const text = view.text();
-		assert.match(text, /Can.t delete 2 messages/);
-		assert.match(text, /appointed as Trash/);
+		assert.match(text, /Can.t delete 2 messages yet/);
+		assert.match(text, /No folder on this account is set as Trash/);
 		assert.doesNotMatch(text, /Move 2 messages to Trash?/);
 		assert.doesNotMatch(text, /restore them from Trash later/);
 	});
 
-	it("names the screen that fixes it, and cannot reach the delete", () => {
+	it("opens the appointment prompt instead of leaving for Settings", () => {
 		let confirmed = 0;
 		const view = mount({
 			outcome: "noTrash",
+			accountId: "acc-1",
 			onConfirm: () => {
 				confirmed += 1;
 			},
 		});
-		const settings = view.button("Open folder settings");
-		assert.ok(settings, "the remedy the copy names is on screen");
-		assert.equal(settings?.disabled, false, "and it can be pressed");
-		assert.equal(view.button("Move to Trash"), undefined);
-		assert.equal(confirmed, 0);
+		assert.equal(view.button("Open folder settings"), undefined);
+		const pick = view.button("Pick a Trash folder");
+		assert.ok(pick, "the remedy the copy names is on screen");
+		assert.equal(pick?.disabled, false);
+
+		act(() => pick?.click());
+		assert.match(view.text(), /No folder is set as Trash/);
+		assert.equal(confirmed, 0, "the refusal never reaches the delete");
+	});
+
+	it("names the folder that vanished, and repairs it in place", () => {
+		const view = mount({
+			outcome: "staleTrash",
+			count: 2,
+			accountId: "acc-1",
+			staleFolderLabel: "INBOX/Prullenbak",
+		});
+		assert.match(view.text(), /INBOX\/Prullenbak/);
+		const pick = view.button("Pick another folder");
+		assert.ok(pick);
+		act(() => pick?.click());
+		assert.match(view.text(), /The Trash folder you chose is gone/);
+	});
+
+	it("still acts when no single account owns the rows", () => {
+		const confirmed: string[][] = [];
+		const view = mount({
+			outcome: "noTrash",
+			onConfirm: (ids) => confirmed.push(ids),
+		});
+		const pick = view.button("Pick a Trash folder");
+		assert.equal(pick?.disabled, false, "never a control that does nothing");
+		act(() => pick?.click());
+		assert.deepEqual(
+			confirmed,
+			[["msg-0"]],
+			"the server's own 409 names the account",
+		);
+	});
+
+	// The dialog is gone by the time the appointment lands, so the replay cannot
+	// read the caller's pending state — it carries the rows it was about.
+	it("hands the replay the rows the delete was about", async () => {
+		const confirmed: string[][] = [];
+		const view = mount({
+			outcome: "noTrash",
+			count: 3,
+			accountId: ACCOUNT,
+			onConfirm: (ids) => confirmed.push(ids),
+		});
+
+		act(() => view.button("Pick a Trash folder")?.click());
+		await settle();
+		assert.deepEqual(
+			confirmed,
+			[],
+			"nothing is deleted before a folder is set",
+		);
+
+		act(() => view.byLabel("Set Prullenbak, 3 messages, as Trash")?.click());
+		await settle();
+		act(() => view.button("Set as Trash and delete 3 messages")?.click());
+		await settle();
+
+		assert.deepEqual(confirmed, [["msg-0", "msg-1", "msg-2"]]);
+	});
+});
+
+/**
+ * D4a: an expunge inside a Trash reader only matched by name still goes
+ * through — the user asked for these specific rows — but they are told which
+ * folder that is, and that nobody chose it, before it happens.
+ */
+describe("DeleteConfirmDialog — an expunge inside a Trash nobody confirmed", () => {
+	it("keeps today's words for a confirmed Trash", () => {
+		const view = mount({ outcome: "permanent", count: 3 });
+		assert.doesNotMatch(view.text(), /nobody confirmed it/);
+	});
+
+	it("names the folder and says nobody chose it", () => {
+		const view = mount({
+			outcome: "permanent",
+			count: 3,
+			trashFolderLabel: "Deleted Messages",
+			trashIsUnconfirmed: true,
+		});
+		const text = view.text();
+		assert.match(text, /Permanently delete 3 messages\?/);
+		assert.match(text, /They are in Deleted Messages/);
+		assert.match(text, /nobody confirmed it/);
+		assert.equal(view.button("Delete permanently")?.disabled, false);
 	});
 });

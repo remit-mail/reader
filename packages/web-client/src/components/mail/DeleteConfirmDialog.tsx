@@ -5,49 +5,85 @@
  * and Flagged — so the wording and the refusal cannot drift apart again the way
  * they did between #845 and #855.
  *
- * Two of the outcomes are not confirmations at all. When the account appoints
- * no Trash the server refuses the delete outright, and when its folder settings
- * could not be read reader cannot say whether a delete moves the mail or erases
- * it. Both refuse: the affirmative control carries the remedy the copy names —
- * folder settings, or signing back in — and the caller's `onConfirm` is never
- * reached. Neither may render as "this folder is not Trash".
+ * Three of the outcomes are not confirmations at all. When the account has no
+ * Trash, or the folder it appointed is gone, the server refuses the delete
+ * outright; when its folder settings could not be read reader cannot say
+ * whether a delete moves the mail or erases it. All three refuse and the
+ * caller's `onConfirm` is never reached directly. The first two are answered
+ * in place — the affirmative control opens the appointment prompt, whose own
+ * confirm appoints the folder and then runs this delete. None of them may
+ * render as "this folder is not Trash".
  */
 import { ConfirmDialog } from "@remit/ui";
 import { useAuthProvider } from "@/auth/provider";
 import { type DeleteOutcome, deleteConfirmationCopy } from "@/lib/format";
-
-/** Where a missing Trash appointment is made — the remedy the copy names. */
-const FOLDER_SETTINGS_PATH = "/settings/folders";
+import { useRoleAppointmentPrompt } from "./RoleAppointmentPromptProvider";
 
 interface DeleteConfirmDialogProps {
 	isOpen: boolean;
-	/** How many messages the pending delete covers. */
-	count: number;
+	/**
+	 * The rows the pending delete covers. Carried rather than counted, because
+	 * an appointment replays this delete after the dialog has closed — reading
+	 * the caller's pending state by then would replay nothing.
+	 */
+	messageIds: readonly string[];
 	outcome: DeleteOutcome;
+	/** The account the appointment would be made on, when the rows share one. */
+	accountId?: string;
+	/** The folder reader files this account's deletes in. */
+	trashFolderLabel?: string;
+	/** The folder the user appointed, now gone from the mail server. */
+	staleFolderLabel?: string;
+	/** That folder is a name match nobody ever confirmed. */
+	trashIsUnconfirmed?: boolean;
 	/** A delete is already in flight, so the confirm cannot be pressed again. */
 	isDeleting?: boolean;
-	onConfirm: () => void;
+	onConfirm: (messageIds: string[]) => void;
 	onCancel: () => void;
 }
 
 export const DeleteConfirmDialog = ({
 	isOpen,
-	count,
+	messageIds,
 	outcome,
+	accountId,
+	trashFolderLabel,
+	staleFolderLabel,
+	trashIsUnconfirmed = false,
 	isDeleting = false,
 	onConfirm,
 	onCancel,
 }: DeleteConfirmDialogProps) => {
 	const { Account } = useAuthProvider();
-	const copy = deleteConfirmationCopy(count, outcome);
+	const { requestAppointment } = useRoleAppointmentPrompt();
+	const count = messageIds.length;
+	const confirm = () => onConfirm([...messageIds]);
+	const copy = deleteConfirmationCopy(count, outcome, {
+		trashFolderLabel,
+		staleFolderLabel,
+		trashIsUnconfirmed,
+	});
 
-	if (outcome === "noTrash") {
+	if (outcome === "noTrash" || outcome === "staleTrash") {
 		return (
 			<ConfirmDialog
 				isOpen={isOpen}
 				{...copy}
 				onConfirm={() => {
-					window.location.assign(FOLDER_SETTINGS_PATH);
+					// With no account to appoint on, the delete is issued anyway and
+					// the server's own 409 opens the prompt naming the account it
+					// refused for. Never a control that does nothing.
+					if (!accountId) return confirm();
+					const replay = [...messageIds];
+					onCancel();
+					requestAppointment({
+						accountId,
+						role: "Trash",
+						reason: outcome === "noTrash" ? "none" : "stale",
+						action: { kind: "delete", count },
+						staleFolderLabel,
+						onAppointed: async () => onConfirm(replay),
+					});
 				}}
 				onCancel={onCancel}
 			/>
@@ -88,7 +124,7 @@ export const DeleteConfirmDialog = ({
 			// The confirm holds while the appointment is still arriving: the answer
 			// is seconds away and it decides which of two dialogs this is.
 			isBusy={isDeleting || outcome === "unknown"}
-			onConfirm={onConfirm}
+			onConfirm={confirm}
 			onCancel={onCancel}
 		/>
 	);

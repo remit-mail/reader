@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { FolderRole } from "./folder-role.js";
 import {
 	type CandidateFolder,
+	type RoleAppointment,
 	RoleAppointmentList,
 } from "./role-appointment-list.js";
 
@@ -48,26 +49,45 @@ const HOSTNET_FOLDERS: readonly CandidateFolder[] = [
 	{ mailboxId: "mb-spam", providerPath: "INBOX/Spam", messageCount: 88 },
 ];
 
+const appointed = (mailboxId: string): RoleAppointment => ({
+	mailboxId,
+	source: "Appointed",
+});
+
+/** Everything except the role each story is about, so one row carries the news. */
+const SETTLED: Record<string, RoleAppointment> = {
+	inbox: { mailboxId: "mb-inbox", source: "Reserved" },
+	drafts: appointed("mb-concepten"),
+	sent: appointed("mb-sent-messages"),
+	archive: appointed("mb-archive"),
+	junk: appointed("mb-spam"),
+	trash: appointed("mb-deleted"),
+};
+
 function Harness({
 	folders,
 	initial,
 }: {
 	folders: readonly CandidateFolder[];
-	initial: Record<string, string | null>;
+	initial: Record<string, RoleAppointment>;
 }) {
 	const [appointments, setAppointments] = useState(initial);
 	const [displayNames, setDisplayNames] = useState<Record<string, string>>({});
 
 	const handleAppoint = (role: FolderRole, mailboxId: string | null) => {
 		setAppointments((prev) => {
-			const next: Record<string, string | null> = {
+			const next: Record<string, RoleAppointment> = {
 				...prev,
-				[role]: mailboxId,
+				[role]: mailboxId
+					? { mailboxId, source: "Appointed" }
+					: { mailboxId: null, source: "None" },
 			};
 			// Exclusivity: appointing a folder to one role clears it from any other.
 			if (mailboxId) {
-				for (const r of Object.keys(next)) {
-					if (r !== role && next[r] === mailboxId) next[r] = null;
+				for (const other of Object.keys(next)) {
+					if (other === role) continue;
+					if (next[other]?.mailboxId !== mailboxId) continue;
+					next[other] = { mailboxId: null, source: "None" };
 				}
 			}
 			return next;
@@ -105,17 +125,7 @@ type Story = StoryObj<typeof Harness>;
  * The empty look-alikes drop to "Other folders".
  */
 export const Hostnet: Story = {
-	args: {
-		folders: HOSTNET_FOLDERS,
-		initial: {
-			inbox: "mb-inbox",
-			drafts: "mb-concepten",
-			sent: "mb-sent-messages",
-			archive: "mb-archive",
-			junk: "mb-spam",
-			trash: "mb-deleted",
-		},
-	},
+	args: { folders: HOSTNET_FOLDERS, initial: SETTLED },
 };
 
 /**
@@ -127,12 +137,84 @@ export const ProposedDefaults: Story = {
 	args: {
 		folders: HOSTNET_FOLDERS,
 		initial: {
-			inbox: "mb-inbox",
-			drafts: "mb-drafts",
-			sent: "mb-sent",
-			archive: "mb-archive",
-			junk: "mb-spam",
-			trash: "mb-deleted",
+			...SETTLED,
+			drafts: { mailboxId: "mb-drafts", source: "Flagged" },
+			sent: { mailboxId: "mb-sent", source: "Flagged" },
+		},
+	},
+};
+
+/** `Appointed` — a person decided, and the row says so. */
+export const AppointedSource: Story = {
+	name: "appointed",
+	args: { folders: HOSTNET_FOLDERS, initial: SETTLED },
+};
+
+/** `Flagged` — the mail server's own SPECIAL-USE flag, not a guess. */
+export const FlaggedSource: Story = {
+	name: "flagged",
+	args: {
+		folders: HOSTNET_FOLDERS,
+		initial: {
+			...SETTLED,
+			trash: { mailboxId: "mb-deleted", source: "Flagged" },
+		},
+	},
+};
+
+/** `Reserved` — INBOX is the one role the protocol names for us. */
+export const ReservedSource: Story = {
+	name: "reserved",
+	args: {
+		folders: HOSTNET_FOLDERS,
+		initial: {
+			...SETTLED,
+			inbox: { mailboxId: "mb-inbox", source: "Reserved" },
+		},
+	},
+};
+
+/** `Proposed` — a name matched. Nobody confirmed it, and the row does not pretend otherwise. */
+export const ProposedSource: Story = {
+	name: "proposed",
+	args: {
+		folders: HOSTNET_FOLDERS,
+		initial: {
+			...SETTLED,
+			trash: { mailboxId: "mb-deleted", source: "Proposed" },
+		},
+	},
+};
+
+/**
+ * `Stale` — the folder the user chose is gone from the mail server. The one row
+ * representing a broken decision, so it is a callout with its repair rather
+ * than a subtitle. Deleting mail is stopped until Trash is repaired.
+ */
+export const StaleSource: Story = {
+	name: "stale",
+	args: {
+		folders: HOSTNET_FOLDERS,
+		initial: {
+			...SETTLED,
+			trash: {
+				mailboxId: null,
+				source: "Stale",
+				staleFolderPath: "INBOX/Prullenbak",
+			},
+		},
+	},
+};
+
+/** `None` — a decision waiting to be made. No icon, no danger colour. */
+export const NoneSource: Story = {
+	name: "none",
+	args: {
+		folders: HOSTNET_FOLDERS,
+		initial: {
+			...SETTLED,
+			trash: { mailboxId: null, source: "None" },
+			archive: { mailboxId: null, source: "None" },
 		},
 	},
 };

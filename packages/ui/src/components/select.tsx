@@ -1,17 +1,25 @@
 import { ChevronDown } from "lucide-react";
-import type { ReactNode, SelectHTMLAttributes } from "react";
+import type { ReactNode, Ref, SelectHTMLAttributes } from "react";
 import { cn } from "../lib/cn.js";
 
 export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
 	/** Optional leading icon (lucide-react element). */
 	icon?: ReactNode;
+	/** So a surface blocked on this choice can put the cursor on it. */
+	ref?: Ref<HTMLSelectElement>;
 }
 
 /**
  * Native select styled to match Input: same height, hairline border,
  * sunken surface, focus ring. Options render in <option> children.
  */
-export function Select({ icon, className, children, ...props }: SelectProps) {
+export function Select({
+	icon,
+	className,
+	children,
+	ref,
+	...props
+}: SelectProps) {
 	return (
 		<div
 			className={cn(
@@ -22,6 +30,7 @@ export function Select({ icon, className, children, ...props }: SelectProps) {
 		>
 			{icon && <span className="shrink-0 text-fg-subtle">{icon}</span>}
 			<select
+				ref={ref}
 				className="min-w-0 flex-1 appearance-none bg-transparent py-0 pr-8 text-fg outline-none"
 				{...props}
 			>

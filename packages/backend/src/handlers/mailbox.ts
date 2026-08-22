@@ -4,6 +4,10 @@ import type {
 } from "@remit/api-openapi-types";
 import type { IAccountSettingRepository, MailboxItem } from "@remit/data-ports";
 import { ForbiddenError, NotFoundError } from "@remit/data-ports/errors";
+import {
+	type CanonicalMailboxRoleValue,
+	composeFolderRoleAppointmentLabelName,
+} from "@remit/data-ports/folder-role";
 import { MailboxSyncStatus, MessageSystemFlag } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
@@ -25,6 +29,7 @@ import {
 	type MailboxOverrides,
 } from "./account-overrides.js";
 import { assertAccountOwnership } from "./account-ownership.js";
+import { loadFolderAppointmentsForAccount } from "./folder-role-appointments.js";
 
 /**
  * The mute flag and the display-name override are user preferences that live
@@ -68,8 +73,72 @@ export interface MailboxPatchClient {
 			accountId: string,
 		): Promise<MailboxItem>;
 	};
-	accountSetting: Pick<IAccountSettingRepository, "upsert" | "delete">;
+	accountSetting: Pick<IAccountSettingRepository, "get" | "upsert" | "delete">;
 }
+
+/**
+ * Where a recorded path lands after the rename, or `undefined` when the rename
+ * did not move it. IMAP RENAME moves the whole subtree in one command and
+ * `renameChildPaths` rewrites every descendant row with it, so a label under
+ * the renamed branch moves exactly as far as its prefix does.
+ */
+const rebasePath = (
+	recorded: string,
+	oldPath: string,
+	newPath: string,
+	delimiter: string,
+): string | undefined => {
+	if (recorded === oldPath) return newPath;
+	const branch = `${oldPath}${delimiter}`;
+	if (!recorded.startsWith(branch)) return undefined;
+	return `${newPath}${recorded.slice(oldPath.length)}`;
+};
+
+/**
+ * A reader-side rename keeps every mailboxId, so the appointments survive it —
+ * but the paths recorded beside them (#887) would still name where the folders
+ * were before. Move the labels with the branch, or a later third-party delete
+ * names a path the user has not seen since the rename.
+ *
+ * The renamed folder is matched by id; its descendants are matched by the path
+ * each label already holds, which is the path their rows carried until this
+ * rename rewrote them.
+ */
+const refreshAppointmentLabels = async (
+	accountSetting: Pick<IAccountSettingRepository, "get" | "upsert">,
+	accountConfigId: string,
+	accountId: string,
+	renamed: { mailboxId: string; oldPath: string; newPath: string },
+	delimiter: string,
+): Promise<void> => {
+	const persisted = await loadFolderAppointmentsForAccount(
+		accountSetting,
+		accountConfigId,
+		accountId,
+	);
+	for (const [role, appointment] of persisted) {
+		const moved =
+			appointment.mailboxId === renamed.mailboxId
+				? renamed.newPath
+				: appointment.lastKnownPath === undefined
+					? undefined
+					: rebasePath(
+							appointment.lastKnownPath,
+							renamed.oldPath,
+							renamed.newPath,
+							delimiter,
+						);
+		if (moved === undefined || moved === appointment.lastKnownPath) continue;
+		await accountSetting.upsert({
+			accountConfigId,
+			name: composeFolderRoleAppointmentLabelName(
+				accountId,
+				role as CanonicalMailboxRoleValue,
+			),
+			value: { kind: "String", value: moved },
+		});
+	}
+};
 
 /**
  * Apply a mailbox PATCH body: override changes first (mute flag + display-name/
@@ -109,7 +178,26 @@ export const applyMailboxPatch = async (
 		return client.mailbox.get(accountId, mailboxId);
 	}
 
-	return client.mailboxQueue.renameMailbox(mailboxId, fullPath, accountId);
+	// Read before the rename: the labels of the folders under this one are
+	// rebased off the path it is leaving, which the row no longer carries after.
+	const before = await client.mailbox.get(accountId, mailboxId);
+	const renamed = await client.mailboxQueue.renameMailbox(
+		mailboxId,
+		fullPath,
+		accountId,
+	);
+	await refreshAppointmentLabels(
+		client.accountSetting,
+		accountConfigId,
+		accountId,
+		{
+			mailboxId,
+			oldPath: before.fullPath,
+			newPath: renamed.fullPath,
+		},
+		before.hierarchyDelimiter,
+	);
+	return renamed;
 };
 
 /**

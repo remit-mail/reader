@@ -285,7 +285,11 @@ export function ThreadListInteraction({
 	const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(
 		null,
 	);
-	const deleteOutcome = useDeleteOutcome(pendingDelete?.targets ?? NO_TARGETS);
+	const {
+		outcome: deleteOutcome,
+		trashIsUnconfirmed,
+		staleFolderLabel,
+	} = useDeleteOutcome(pendingDelete?.targets ?? NO_TARGETS);
 
 	// A verb, routed the same way the bar routes its own (#477 1.4, #508). Over a
 	// selection every verb opens the wizard, so the keyboard cannot reach a bulk
@@ -335,12 +339,15 @@ export function ThreadListInteraction({
 		],
 	);
 
-	const confirmDelete = useCallback(() => {
-		if (pendingDelete === null) return;
-		onDeleteMessages(pendingDelete.ids);
-		setPendingDelete(null);
-		exitSelection();
-	}, [pendingDelete, onDeleteMessages, exitSelection]);
+	const confirmDelete = useCallback(
+		(ids: string[]) => {
+			if (ids.length === 0) return;
+			onDeleteMessages(ids);
+			setPendingDelete(null);
+			exitSelection();
+		},
+		[onDeleteMessages, exitSelection],
+	);
 
 	const cancelDelete = useCallback(() => setPendingDelete(null), []);
 
@@ -471,8 +478,11 @@ export function ThreadListInteraction({
 			</div>
 			<DeleteConfirmDialog
 				isOpen={confirmOpen}
-				count={pendingDelete?.ids.length ?? 0}
+				messageIds={pendingDelete?.ids ?? []}
 				outcome={deleteOutcome}
+				accountId={pendingDelete?.targets[0]?.accountId}
+				staleFolderLabel={staleFolderLabel}
+				trashIsUnconfirmed={trashIsUnconfirmed}
 				isDeleting={isDeleting}
 				onConfirm={confirmDelete}
 				onCancel={cancelDelete}

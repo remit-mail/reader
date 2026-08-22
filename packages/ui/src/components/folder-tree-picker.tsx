@@ -55,8 +55,12 @@ export interface FolderTreePickerLabels {
 	emptyMessage?: (query: string) => string;
 	/** Shown when there is no folder to list at all, filter or no filter. */
 	noFolders?: string;
-	/** Accessible label for a selectable row, e.g. `Move to X`. */
-	optionLabel?: (label: string) => string;
+	/**
+	 * Accessible label for a selectable row. Takes the folder rather than its
+	 * label, so a surface can announce the message count as part of the name
+	 * instead of leaving it as decoration beside it.
+	 */
+	optionLabel?: (folder: FolderTreeNode) => string;
 	newFolder?: string;
 	newSubfolder?: (label: string) => string;
 	nameLabel?: string;
@@ -113,7 +117,7 @@ const defaultLabels: Required<FolderTreePickerLabels> = {
 	contextSuffix: "(containing folder)",
 	emptyMessage: (query) => `No folders match "${query}"`,
 	noFolders: "No folders to show",
-	optionLabel: (label) => `Move to ${label}`,
+	optionLabel: (folder) => `Move to ${folder.label}`,
 	newFolder: "New folder",
 	newSubfolder: (label) => `New folder inside ${label}`,
 	topLevel: "Top level",
@@ -376,7 +380,7 @@ export const FolderTreePicker = ({
 
 	const rowAriaLabel = (row: FolderTreeRow): string => {
 		if (row.context) return `${row.folder.label} ${text.contextSuffix}`;
-		if (isSelectable(row)) return text.optionLabel(row.folder.label);
+		if (isSelectable(row)) return text.optionLabel(row.folder);
 		return `${row.folder.label} ${text.currentSuffix}`;
 	};
 
@@ -394,6 +398,7 @@ export const FolderTreePicker = ({
 				context={row.context}
 				current={folder.isCurrent}
 				currentTag={text.currentTag}
+				messageCount={folder.messageCount}
 				selected={selectable && folder.id === selectedId}
 				separated={separated}
 				actions={rowActions?.(folder)}

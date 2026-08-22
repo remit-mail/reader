@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { CanonicalMailboxRole, MailboxSpecialUse } from "@remit/domain-enums";
+import {
+	CanonicalMailboxRole,
+	MailboxSpecialUse,
+	MailboxSyncStatus,
+} from "@remit/domain-enums";
 import {
 	composeFolderRoleAppointmentLabelName,
 	composeFolderRoleAppointmentName,
@@ -173,6 +177,24 @@ describe("resolveConfirmedMailboxForRole", () => {
 });
 
 describe("resolveRoleForAccount", () => {
+	it("resolves an appointment naming a mailbox whose last sync failed", () => {
+		// `failed` has three writers (imap-worker mailbox-management: create :166
+		// rolls nothing back, rename :275 restores oldPath, delete :384 leaves the
+		// folder) and in two the folder is really at the path the row names.
+		const failed: RoleMailboxCandidate & { syncStatus: string } = {
+			...mailbox("mb-trash", "INBOX/Prullenbak"),
+			syncStatus: MailboxSyncStatus.failed,
+		};
+		assert.deepEqual(
+			resolveRoleForAccount(
+				CanonicalMailboxRole.Trash,
+				[mailbox("mb-inbox", "INBOX"), failed],
+				"mb-trash",
+			),
+			{ kind: "appointed", mailbox: failed },
+		);
+	});
+
 	it("answers none when nothing names a Trash folder", () => {
 		// #887 Done item 4: an account whose folders happen to include a Dutch
 		// "Prullenbak" has no Trash reader may act on — no flag, no appointment,
