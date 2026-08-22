@@ -101,10 +101,16 @@ const liveMessageCount = async (
 
 export type DeleteFolderPhase =
 	| "idle"
+	| "checking"
 	| "moving"
 	| "deleting"
 	| "done"
 	| "error";
+
+/** What a delete-as-empty found: nothing to save, or mail the folder still holds. */
+export type EmptyDeleteOutcome =
+	| { blocked: false }
+	| { blocked: true; messageCount: number };
 
 interface UseDeleteFolderOptions {
 	accountId: string;
@@ -162,6 +168,28 @@ export function useDeleteFolder({
 			),
 		[accountId, mailboxId],
 	);
+
+	/**
+	 * Deleting a folder takes its mail with it, and `messageCount` on the folder
+	 * row is the last synced IMAP STATUS. Re-read the server first: mail that
+	 * arrived since blocks the delete instead of being destroyed by it.
+	 */
+	const deleteIfEmpty = useCallback(async (): Promise<EmptyDeleteOutcome> => {
+		setPhase("checking");
+		setErrorMessage(undefined);
+		const counted = await attempt(remainingCount());
+		if (!counted.ok) {
+			setErrorMessage(counted.error);
+			setPhase("error");
+			return { blocked: false };
+		}
+		if (counted.value > 0) {
+			setPhase("idle");
+			return { blocked: true, messageCount: counted.value };
+		}
+		await deleteMailbox();
+		return { blocked: false };
+	}, [remainingCount, deleteMailbox]);
 
 	const cancel = useCallback(() => {
 		abortRef.current?.abort();
@@ -260,6 +288,7 @@ export function useDeleteFolder({
 		progress,
 		errorMessage,
 		deleteMailbox,
+		deleteIfEmpty,
 		moveThenDelete,
 		cancel,
 		reset,

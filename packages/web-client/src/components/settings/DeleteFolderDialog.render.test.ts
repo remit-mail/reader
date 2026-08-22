@@ -355,7 +355,7 @@ describe("DeleteFolderDialog", () => {
 		let closed = false;
 		route = ({ method }) => {
 			if (method === "DELETE") return new Response(null, { status: 204 });
-			return new Response("{}", { status: 200 });
+			return json({ items: mailboxes });
 		};
 		render({
 			open: true,
@@ -369,6 +369,45 @@ describe("DeleteFolderDialog", () => {
 		});
 		await flush();
 		assert.equal(closed, true);
+	});
+
+	it("refuses to delete a folder whose cached count is stale-empty", async () => {
+		let deleted = false;
+		let closed = false;
+		route = ({ method }) => {
+			if (method === "DELETE") {
+				deleted = true;
+				return new Response(null, { status: 204 });
+			}
+			// Mail landed in Empty since its last STATUS, so the server-backed
+			// listing disagrees with the folder row the dialog opened on.
+			return json({
+				items: mailboxes.map((box) =>
+					box.mailboxId === "empty" ? { ...box, messageCount: 2 } : box,
+				),
+			});
+		};
+		render({
+			open: true,
+			folder: mailboxes[2] as RemitImapMailboxResponse,
+			onClose: () => {
+				closed = true;
+			},
+		});
+		assert.match(container.textContent ?? "", /empty and will be removed/);
+		await act(async () => {
+			buttonByText(/^Delete folder$/)?.click();
+		});
+		await flush();
+		assert.equal(deleted, false, "a fresh count above zero blocks the delete");
+		assert.equal(closed, false, "the dialog stays open on the mail it found");
+		assert.match(container.textContent ?? "", /This folder is not empty/);
+		assert.match(container.textContent ?? "", /2 emails arrived/);
+		assert.match(container.textContent ?? "", /holds 2 emails/);
+		assert.ok(
+			buttonByText(/Move them to another folder/),
+			"the non-empty flow takes over",
+		);
 	});
 
 	it("moves the mail in batches then deletes the emptied folder", async () => {

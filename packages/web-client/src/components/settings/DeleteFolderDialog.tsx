@@ -37,8 +37,9 @@ const emailCount = (count: number): string =>
 	`${count} ${count === 1 ? "email" : "emails"}`;
 
 /**
- * Per-folder delete wizard. An empty folder is a single destructive confirm; a
- * folder with mail first asks what happens to the messages — delete them with
+ * Per-folder delete wizard. An empty folder is a single destructive confirm,
+ * settled against a fresh server read rather than the folder's last synced
+ * count; a folder with mail first asks what happens to the messages — delete them with
  * the folder, or move them elsewhere (batched, with visible progress) before
  * the now-empty folder is removed. Closing mid-move keeps already-moved mail
  * moved; re-opening enumerates what's left and continues.
@@ -54,6 +55,7 @@ export function DeleteFolderDialog({
 	const [stage, setStage] = useState<FateStage>(() =>
 		initialStage(folder.messageCount),
 	);
+	const [arrivedSinceSync, setArrivedSinceSync] = useState<number>();
 	const [destinationId, setDestinationId] = useState<string>();
 	const { createFolderIn } = useCreateMailbox(accountId);
 	const translator = useFolderLabelTranslator();
@@ -62,6 +64,7 @@ export function DeleteFolderDialog({
 		progress,
 		errorMessage,
 		deleteMailbox,
+		deleteIfEmpty,
 		moveThenDelete,
 		cancel,
 		reset,
@@ -74,6 +77,7 @@ export function DeleteFolderDialog({
 	useEffect(() => {
 		if (!open) return;
 		setStage(initialStage(folder.messageCount));
+		setArrivedSinceSync(undefined);
 		reset();
 	}, [open, folder.messageCount, reset]);
 
@@ -88,6 +92,13 @@ export function DeleteFolderDialog({
 		cancel();
 		onClose();
 	}, [cancel, onClose]);
+
+	const handleDeleteEmpty = useCallback(async () => {
+		const outcome = await deleteIfEmpty();
+		if (!outcome.blocked) return;
+		setArrivedSinceSync(outcome.messageCount);
+		setStage("choose-fate");
+	}, [deleteIfEmpty]);
 
 	const destinations = useMemo<FolderTreeNode[]>(
 		() =>
@@ -117,6 +128,7 @@ export function DeleteFolderDialog({
 	if (!open) return null;
 
 	const title = `Delete ${name}`;
+	const messageCount = arrivedSinceSync ?? folder.messageCount;
 
 	const body = (() => {
 		if (phase === "moving") {
@@ -127,6 +139,15 @@ export function DeleteFolderDialog({
 					<p className="text-xs text-fg-muted" role="status" aria-live="polite">
 						{progress ? moveProgressLabel(progress) : "Moved 0 of 0"}
 					</p>
+				</div>
+			);
+		}
+
+		if (phase === "checking") {
+			return (
+				<div className="flex flex-col items-center gap-3 px-5 py-10 text-center">
+					<Loader2 className="size-8 animate-spin text-accent-2" />
+					<p className="text-sm font-medium text-fg">Checking the folder…</p>
 				</div>
 			);
 		}
@@ -178,7 +199,7 @@ export function DeleteFolderDialog({
 							variant="danger"
 							size="sm"
 							icon={<Trash2 className="size-3.5" />}
-							onClick={() => deleteMailbox()}
+							onClick={() => handleDeleteEmpty()}
 						>
 							Delete folder
 						</Button>
@@ -191,9 +212,14 @@ export function DeleteFolderDialog({
 			return (
 				<>
 					<div className="space-y-3 px-5 py-4 text-sm text-fg-muted">
+						{arrivedSinceSync !== undefined && (
+							<Banner tone="warning" variant="soft">
+								{`This folder is not empty: ${emailCount(arrivedSinceSync)} arrived since it was last synced. Nothing was deleted.`}
+							</Banner>
+						)}
 						<p>
 							<strong className="text-fg">{name}</strong> holds{" "}
-							{emailCount(folder.messageCount)}. What should happen to them?
+							{emailCount(messageCount)}. What should happen to them?
 						</p>
 						<div className="space-y-2">
 							<button
@@ -244,8 +270,8 @@ export function DeleteFolderDialog({
 					<div className="space-y-3 px-5 py-4 text-sm text-fg-muted">
 						<p>
 							Delete <strong className="text-fg">{name}</strong> and its{" "}
-							{emailCount(folder.messageCount)}? The messages are removed from
-							the server with the folder and can't be recovered.
+							{emailCount(messageCount)}? The messages are removed from the
+							server with the folder and can't be recovered.
 						</p>
 					</div>
 					<footer className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">
@@ -272,7 +298,7 @@ export function DeleteFolderDialog({
 		return (
 			<div className="flex h-[26rem] flex-col">
 				<p className="px-5 pt-4 text-sm text-fg-muted">
-					Move the {emailCount(folder.messageCount)} in{" "}
+					Move the {emailCount(messageCount)} in{" "}
 					<strong className="text-fg">{name}</strong> to:
 				</p>
 				<div className="flex min-h-0 flex-1 overflow-hidden">
@@ -301,7 +327,7 @@ export function DeleteFolderDialog({
 							className="h-11 w-full font-semibold"
 						>
 							<span className="truncate">
-								{`Move ${emailCount(folder.messageCount)} to ${destination.label}`}
+								{`Move ${emailCount(messageCount)} to ${destination.label}`}
 							</span>
 						</Button>
 					</footer>
