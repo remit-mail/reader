@@ -166,6 +166,7 @@ function AccountFolders({ account }: { account: RemitImapAccountResponse }) {
 	const candidates: CandidateFolder[] = mailboxes.map((mailbox) => ({
 		mailboxId: mailbox.mailboxId,
 		providerPath: mailbox.fullPath,
+		hierarchyDelimiter: mailbox.hierarchyDelimiter,
 		messageCount: mailbox.messageCount,
 	}));
 
@@ -241,7 +242,10 @@ function AccountFolders({ account }: { account: RemitImapAccountResponse }) {
 						translator,
 					)}
 					defaultLabel={labelForMailbox(
-						{ fullPath: renaming.fullPath },
+						{
+							fullPath: renaming.fullPath,
+							hierarchyDelimiter: renaming.hierarchyDelimiter,
+						},
 						roleMap.get(renaming.mailboxId),
 						translator,
 					)}

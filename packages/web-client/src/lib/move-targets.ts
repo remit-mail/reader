@@ -2,11 +2,8 @@ import type {
 	RemitImapFolderAppointment,
 	RemitImapMailboxResponse,
 } from "@remit/api-http-client/types.gen.ts";
-import {
-	buildMailboxRoleMap,
-	getMailboxDisplayName,
-	ROLE_PRIORITY,
-} from "./folder-roles.js";
+import { mailboxLeafName } from "@remit/data-ports/mailbox-name";
+import { buildMailboxRoleMap, ROLE_PRIORITY } from "./folder-roles.js";
 
 // Outbox has no IMAP special-use flag (RFC 6154 doesn't define one) and isn't
 // a canonical role (RFC 032 exclusive-folder-appointment) either — it's
@@ -27,7 +24,7 @@ const OUTBOX_LOCALE_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 const isOutboxDestination = (mailbox: RemitImapMailboxResponse): boolean => {
-	const leaf = getMailboxDisplayName(mailbox.fullPath).trim().toLowerCase();
+	const leaf = mailboxLeafName(mailbox).trim().toLowerCase();
 	return OUTBOX_LOCALE_NAMES.has(leaf);
 };
 
@@ -65,10 +62,9 @@ export const buildMoveTargets = (
 			? ROLE_PRIORITY.indexOf(roleMap.get(b.mailboxId) ?? "inbox")
 			: NON_SYSTEM_PRIORITY;
 		if (aPriority !== bPriority) return aPriority - bPriority;
-		return getMailboxDisplayName(a.fullPath).localeCompare(
-			getMailboxDisplayName(b.fullPath),
-			undefined,
-			{ sensitivity: "base", numeric: true },
-		);
+		return mailboxLeafName(a).localeCompare(mailboxLeafName(b), undefined, {
+			sensitivity: "base",
+			numeric: true,
+		});
 	});
 };

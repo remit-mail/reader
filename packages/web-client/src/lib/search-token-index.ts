@@ -13,7 +13,7 @@ import type {
 	RemitImapAccountResponse,
 	RemitImapMailboxResponse,
 } from "@remit/api-http-client/types.gen.ts";
-import { getMailboxDisplayName } from "./folder-roles.js";
+import { mailboxLeafName } from "@remit/data-ports/mailbox-name";
 import type { SearchSuggestionValue } from "./search-suggestions.js";
 
 /**
@@ -52,11 +52,9 @@ export function buildMailboxNameIndex(
 		for (const mailbox of mailboxes) {
 			const fullPath = mailbox.fullPath?.toLowerCase();
 			if (!fullPath) continue;
-			const lastSegment = fullPath.split("/").pop();
+			const leaf = mailboxLeafName(mailbox).toLowerCase();
 			if (!index.has(fullPath)) index.set(fullPath, mailbox.mailboxId);
-			if (lastSegment && !index.has(lastSegment)) {
-				index.set(lastSegment, mailbox.mailboxId);
-			}
+			if (!index.has(leaf)) index.set(leaf, mailbox.mailboxId);
 		}
 	}
 	return index;
@@ -78,14 +76,14 @@ export function buildMailboxSuggestionValues(
 	const all = mailboxesByAccount.flat().filter((mailbox) => mailbox.fullPath);
 	const leafCounts = new Map<string, number>();
 	for (const mailbox of all) {
-		const leaf = getMailboxDisplayName(mailbox.fullPath).toLowerCase();
+		const leaf = mailboxLeafName(mailbox).toLowerCase();
 		leafCounts.set(leaf, (leafCounts.get(leaf) ?? 0) + 1);
 	}
 	const emailByAccountId = new Map(
 		accounts.map((account) => [account.accountId, account.email]),
 	);
 	return all.map((mailbox) => {
-		const leaf = getMailboxDisplayName(mailbox.fullPath);
+		const leaf = mailboxLeafName(mailbox);
 		const unique = leafCounts.get(leaf.toLowerCase()) === 1;
 		const hint =
 			accounts.length > 1 ? emailByAccountId.get(mailbox.accountId) : undefined;

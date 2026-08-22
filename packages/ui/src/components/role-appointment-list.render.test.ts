@@ -11,16 +11,28 @@ import {
 const noop = () => {};
 
 const folders: CandidateFolder[] = [
-	{ mailboxId: "mb-inbox", providerPath: "INBOX", messageCount: 4821 },
+	{
+		mailboxId: "mb-inbox",
+		providerPath: "INBOX",
+		hierarchyDelimiter: "/",
+		messageCount: 4821,
+	},
 	{
 		mailboxId: "mb-concepten",
 		providerPath: "INBOX/Concepten",
+		hierarchyDelimiter: "/",
 		messageCount: 340,
 	},
-	{ mailboxId: "mb-drafts", providerPath: "INBOX/Drafts", messageCount: 0 },
+	{
+		mailboxId: "mb-drafts",
+		providerPath: "INBOX/Drafts",
+		hierarchyDelimiter: "/",
+		messageCount: 0,
+	},
 	{
 		mailboxId: "mb-news",
 		providerPath: "INBOX/Nieuwsbrieven",
+		hierarchyDelimiter: "/",
 		messageCount: 2870,
 	},
 ];
@@ -213,5 +225,65 @@ describe("RoleAppointmentList", () => {
 			new RegExp(`aria-describedby="${notice[1]}"`),
 			"the Select that repairs the role points at it",
 		);
+	});
+});
+
+describe("RoleAppointmentList — the server’s own delimiter (#877)", () => {
+	const dotted: CandidateFolder[] = [
+		{
+			mailboxId: "mb-inbox",
+			providerPath: "INBOX",
+			hierarchyDelimiter: ".",
+			messageCount: 4821,
+		},
+		{
+			mailboxId: "mb-concepten",
+			providerPath: "INBOX.Projects.Concepten",
+			hierarchyDelimiter: ".",
+			messageCount: 340,
+		},
+		{
+			mailboxId: "mb-news",
+			providerPath: "INBOX.Projects.Nieuwsbrieven",
+			hierarchyDelimiter: ".",
+			messageCount: 2870,
+		},
+	];
+
+	const renderDotted = (
+		appointments: Record<string, RoleAppointment>,
+	): string =>
+		renderToString(
+			createElement(RoleAppointmentList, {
+				accountEmail: "you@example.com",
+				folders: dotted,
+				appointments,
+				displayNames: {},
+				onAppoint: noop,
+				onRename: noop,
+			}),
+		);
+
+	it("offers the picker option by its leaf", () => {
+		assert.match(renderDotted({}), /Concepten · 340 msgs/);
+		assert.doesNotMatch(renderDotted({}), /INBOX.Projects.Concepten · 340/);
+	});
+
+	it("names the stale-appointment fallback by its leaf", () => {
+		const html = renderDotted({
+			drafts: {
+				mailboxId: "mb-concepten",
+				source: "Stale",
+				staleFolderPath: "INBOX.Projects.Oud",
+			},
+		});
+		assert.match(html, /reader is using Concepten instead\./);
+	});
+
+	it("lists an unappointed folder by its leaf under Other folders", () => {
+		const html = renderDotted({ drafts: appointed("mb-concepten") });
+		const other = html.slice(html.indexOf("Other folders"));
+		assert.match(other, />Nieuwsbrieven</);
+		assert.doesNotMatch(other, />INBOX.Projects.Nieuwsbrieven</);
 	});
 });

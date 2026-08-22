@@ -3,10 +3,10 @@ import {
 	mailboxOperationsListMailboxesOptions,
 	mailboxOperationsListMailboxesQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import { mailboxLeafName } from "@remit/data-ports/mailbox-name";
 import type { FolderTreeNode } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef } from "react";
-import { getMailboxDisplayName } from "@/lib/folder-roles";
 import { waitForMailboxSynced } from "@/lib/mailbox-sync-wait";
 import {
 	composeFolderPath,
@@ -136,7 +136,7 @@ export function useCreateMailbox(accountId: string | undefined) {
 			pendingByPath.current.delete(fullPath);
 			return {
 				id: confirmed.mailboxId,
-				label: getMailboxDisplayName(confirmed.fullPath),
+				label: mailboxLeafName(confirmed),
 				path: confirmed.fullPath,
 			};
 		},

@@ -6,6 +6,7 @@ import {
 	filterFolderTree,
 	folderAncestors,
 	folderDepth,
+	folderLeaf,
 	folderParent,
 	matchesQuery,
 	orderFolderNodes,
@@ -277,5 +278,23 @@ describe("create rows", () => {
 			"Travel",
 			"Deleted Messages",
 		]);
+	});
+});
+
+describe("folderLeaf", () => {
+	it("takes the leaf under a dot-delimited namespace", () => {
+		assert.equal(folderLeaf("INBOX.Projects.Q3", "."), "Q3");
+	});
+
+	it("takes the leaf under a slash-delimited namespace", () => {
+		assert.equal(folderLeaf("INBOX/Sent Messages", "/"), "Sent Messages");
+	});
+
+	it("keeps the whole name when the server reports no delimiter", () => {
+		assert.equal(folderLeaf("Projects/Q3", ""), "Projects/Q3");
+	});
+
+	it("keeps a top-level name that carries no delimiter", () => {
+		assert.equal(folderLeaf("INBOX", "."), "INBOX");
 	});
 });

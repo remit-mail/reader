@@ -67,6 +67,7 @@ const mount = (
 				mailboxId: `mbx-${body.fullPath}`,
 				accountId: ACCOUNT,
 				fullPath: body.fullPath,
+				hierarchyDelimiter: "/",
 				syncStatus: createdSyncStatus,
 			} as RemitImapMailboxResponse);
 			return { mailboxId: `mbx-${body.fullPath}`, fullPath: body.fullPath };
@@ -173,6 +174,7 @@ describe("useCreateMailbox.createFolder validation", () => {
 					mailboxId: `mbx-${body.fullPath}`,
 					accountId: ACCOUNT,
 					fullPath: body.fullPath,
+					hierarchyDelimiter: "/",
 				} as RemitImapMailboxResponse);
 				return { mailboxId: `mbx-${body.fullPath}`, fullPath: body.fullPath };
 			}

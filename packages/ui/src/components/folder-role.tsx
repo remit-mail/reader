@@ -48,7 +48,11 @@ export function canonicalRoleLabel(role: FolderRole): string {
 	return ROLE_LABEL[role];
 }
 
-/** Leaf segment of a provider path (`INBOX/Spam` → `Spam`). */
+/**
+ * Leaf segment of a provider path (`INBOX/Spam` → `Spam`). Only for the two
+ * surfaces whose wire payload carries no `hierarchyDelimiter` — quarantine
+ * entries and search-result provenance. Everything else: `folderLeaf`.
+ */
 export function providerLeaf(providerPath: string): string {
 	const parts = providerPath.split("/");
 	return parts[parts.length - 1] || providerPath;
