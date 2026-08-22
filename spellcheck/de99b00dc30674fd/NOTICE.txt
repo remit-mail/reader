@@ -1,0 +1,36 @@
+This build of Remit Reader carries the spelling dictionaries listed below.
+Each stays under its own licence; the licence text travels with the files,
+and nothing in this image modifies a dictionary. Reader itself is MIT.
+
+Engine
+
+  Hunspell 1.7.3
+  Source: https://github.com/hunspell/hunspell
+  Tarball: https://github.com/hunspell/hunspell/releases/download/v1.7.3/hunspell-1.7.3.tar.gz
+  sha256: 433274dac0619cb00c2e18b43a3dd3a9d50da5b5613fa9b5c21781e35dd76bc1
+  Licence: MPL-1.1 (the option taken from Hunspell's MPL-1.1/GPL-2.0/LGPL-2.1 triple)
+  Licence text: LICENSE, beside this file
+  Build recipe: docker/hunspell/build.sh
+
+Dictionaries
+
+en — SCOWL
+  Authors: Kevin Atkinson and contributors
+  Source: https://github.com/wooorm/dictionaries/tree/main/dictionaries/en
+  Package: dictionary-en@4.0.0
+  Licence: MIT AND BSD-3-Clause
+  Licence text: dictionaries/en/LICENSE, beside this file
+
+en-GB — SCOWL
+  Authors: Kevin Atkinson and contributors
+  Source: https://github.com/wooorm/dictionaries/tree/main/dictionaries/en-GB
+  Package: dictionary-en-gb@3.0.0
+  Licence: MIT AND BSD-3-Clause
+  Licence text: dictionaries/en-GB/LICENSE, beside this file
+
+nl — OpenTaal
+  Authors: Stichting OpenTaal
+  Source: https://github.com/wooorm/dictionaries/tree/main/dictionaries/nl
+  Package: dictionary-nl@2.0.0
+  Licence: CC-BY-3.0
+  Licence text: dictionaries/nl/LICENSE, beside this file

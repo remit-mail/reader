@@ -1,0 +1,70 @@
+import{E as m}from"./ErrorBanner-LFxfu5P7.js";import"./iframe-BxLfZl0d.js";import"./preload-helper-PPVm8Dsz.js";import"./address-display-BUwHKuK4.js";import"./chevron-down-DBsC1ZFK.js";import"./createLucideIcon-DDkWk8mg.js";import"./chevron-right-C4q9meQG.js";import"./address-tag-BKpYEEBZ.js";import"./cn-d2XQ1MEC.js";import"./x-BYZsfpI2.js";import"./app-password-hint-Cd3cVqBz.js";import"./settings-screen-4CNYaKLs.js";import"./shell-top-bar-DY17pDjf.js";import"./app-top-bar-CDKnEEHt.js";import"./button-y3nctzTP.js";import"./app-shell-types-BijkK5CA.js";import"./dialog-eylec2KB.js";import"./dialog-backdrop-Bi3FaUL6.js";import"./menu-DryEcbTT.js";import"./search-bar-CLC825eR.js";import"./search-chip-input-BNVUlIsB.js";import"./search-token-chip-Dz97Zxy_.js";import"./search-B2ZXIDXt.js";import"./bug-D1uHXz12.js";import"./settings-DOyaDNvi.js";import"./intelligence-panel-CeWtREI1.js";import"./avatar-B9NbFnlE.js";import"./badge-Bz4-5UiN.js";import"./star-BnMPyPKH.js";import"./bell-off-Blwn2rSB.js";import"./sparkles-C4hHWkPe.js";import"./shield-check-BvhB3Ir6.js";import"./shield-alert-Beo-XT4k.js";import"./message-list-pane-C3bOK_wZ.js";import"./roving-focus-C9a9OTc4.js";import"./brief-sections-DO6TSpkC.js";import"./brief-section-BmvtQzHO.js";import"./filter-sheet-BEHefar1.js";import"./row-keyboard-4SpR8O0u.js";import"./kbd-DVhAck-o.js";import"./message-list-state-C6ND82Ai.js";import"./circle-alert-dyRtukXU.js";import"./loader-circle-tcZ5ujJC.js";import"./message-row-CyiafRov.js";import"./label-chip-z1uWipku.js";import"./paperclip-BuRqVWrf.js";import"./check-DP9bkLrx.js";import"./touch-list-CmMQ_7T6.js";import"./swipeable-row-BgWSb5Ct.js";import"./index-7yp0vHVi.js";import"./index-CmfuxwI8.js";import"./mail-1A9kE0lO.js";import"./mail-open-dSdNCmZv.js";import"./trash-2-DGdeO5MV.js";import"./refresh-cw-CTFJpCrS.js";import"./mobile-message-action-bar-iE9DK-dq.js";import"./popover-menu-wtYxHIzp.js";import"./reply-pGfOTtuM.js";import"./reading-pane-Bg7DCBEV.js";import"./info-DzxrBM2t.js";import"./folder-input-DJySXBqv.js";import"./purify.es-P3vI1IgJ.js";import"./isolated-email-frame-CiQ5nqLR.js";import"./inbox-DwY9RJbq.js";import"./arrow-left-BS13oimZ.js";import"./nav-sidebar-CJQSQKeA.js";import"./send-DMtwrNan.js";import"./folder-BIbRcK0i.js";import"./octagon-alert-CBmLBGXA.js";import"./mails-Dvt-mx6n.js";import"./calendar-toolbar-DivBxbq_.js";import"./rescue-from-spam-flow-DNjKLg7-.js";import"./banner-DLDN0WMz.js";import"./bottom-sheet-B9Qz9meM.js";import"./folder-tree-picker-BBwmFFvh.js";import"./folder-tree-DmcSGgXr.js";import"./folder-row-B7bqIcao.js";import"./input-2W6pRlc_.js";import"./new-folder-action-CYLRlXtB.js";import"./new-folder-form-CF2Ldd7M.js";import"./field-label-7InU1Onk.js";import"./checkbox-BYzietGb.js";import"./minus-D96JXrD1.js";import"./rescue-candidate-row-CoxAMhRV.js";import"./sender-trust-indicator-BadV_BHZ.js";import"./circle-check-eI2De_DD.js";import"./attachment-list-Curyi-58.js";import"./attachment-file-qTo3Y5Tj.js";import"./download-BDc64jbo.js";import"./attendee-row-DL_l3O00.js";import"./clock-L-8RlEWY.js";import"./auth-card-DYpztZp7.js";import"./auth-footer-BCJz-_3r.js";import"./auth-hero-C4waWWyr.js";import"./auto-moved-badge-eN8-oK4u.js";import"./undo-2-CnFziX6B.js";import"./blocked-reason-CNUZJNDw.js";import"./brief-empty-DuSFtRQa.js";import"./calendar-event-chip-DxA8-gyK.js";import"./calendar-color-CqvBY603.js";import"./repeat-CKnkGjIf.js";import"./globe-DO3SfyBP.js";import"./calendar-list-CppJLEOv.js";import"./security-select-DBbDi8zm.js";import"./select-CYvsvKoV.js";import"./category-badge-CgjzeGC0.js";import"./compose-action-bar-Z9yHsg3N.js";import"./compose-address-field-BRnXbcUj.js";import"./suggest-list-BMzgWPLj.js";import"./compose-subject-field-DYmArI7z.js";import"./compose-language-setting-Be59pwN4.js";import"./compose-language-B4uv5zOH.js";import"./compose-smtp-missing-banner-ConQ4olh.js";import"./triangle-alert-C1LDOpRR.js";import"./arrow-right-df2EV9q3.js";import"./confirm-dialog-DZtrzTeN.js";import"./custom-recurrence-BqaPCQ83.js";import"./recurrence-BtiVw_PT.js";import"./sender-group-switch-spr5t-yH.js";import"./event-detail-C0vJkdru.js";import"./pencil-Cr8-EMk7.js";import"./event-editor-FafJ6s0e.js";import"./event-quick-entry-3cmbB-x8.js";import"./event-suggestion-card-ax2X79EV.js";import"./plus-BBNcy7LS.js";import"./filter-clause-chip-BA1YVAaA.js";import"./filter-rule-editor-BlatNNU1.js";import"./segmented-control--0FMmQDf.js";import"./selection-wizard-B2hbCbQ8.js";import"./progress-bar-Dnj1Ex1y.js";import"./search-conversion-notice-iPZQm2pT.js";import"./search-conversion-BhyEgkS8.js";import"./folder-manage-actions-W8smL7SW.js";import"./folder-manager-C7lpI4Um.js";import"./folder-rename-dialog-D63O3FQ1.js";import"./folder-role-dmq7aBm0.js";import"./mail-header-BcIP8LgN.js";import"./mobile-search-view-CTtg9bKK.js";import"./search-results-sb46YlpO.js";import"./spam-results-offer-kPGyblKw.js";import"./outbox-row-BJbXPqCf.js";import"./circle-check-big-lx686hz5.js";import"./row-actions-CbbuvgLb.js";import"./rotate-ccw-C97OaACd.js";import"./password-input-C_IWFvWh.js";import"./eye-off-DeJR8Efh.js";import"./pull-to-refresh-y5WIZJbr.js";import"./use-match-media-PQnav3Jn.js";import"./quarantine-section-zIjsNdMK.js";import"./external-link-DqT_wRnl.js";import"./quoted-text-D1_D2WLt.js";import"./recurrence-scope-prompt-BaTXBOIK.js";import"./refresh-button-D7hUJJBO.js";import"./rescue-banner-BaC5-Hu7.js";import"./role-appointment-list-BD5CCVOc.js";import"./role-appointment-prompt-D2zD7uW3.js";import"./selection-top-bar-Bk6A9nwr.js";import"./self-update-section-DAVVomEB.js";import"./self-update-sRZdiOBg.js";import"./self-update-progress-overlay-BpSv5gaV.js";import"./slide-panel-Bk4Pl4x9.js";import"./wizard-B-dUGEPO.js";const ne={title:"Components/ErrorBanner",component:m,parameters:{layout:"padded",docs:{description:{component:`The soft, dismissible notification (#55). It sits over the toolbar and the
+message list, so it is opaque and it names its own severity out loud rather
+than leaving colour to carry the meaning.
+
+Every error banner carries a prefilled report link, so reporting a failure
+the user cannot act on is one click instead of a form they have to
+assemble. The hrefs below stand in for the real report URL, which the app
+builds from build-time constants Storybook has no \`define\` for.`}}},args:{id:"banner-1",onDismiss:()=>{}}},p="https://github.com/remit-mail/reader/issues/new?title=Spellcheck+stopped",t={name:"Error",args:{severity:"error",title:"Couldn't move message",detail:"Connection reset by peer",action:{label:"Report an issue",href:p}}},e={args:{severity:"error",title:"Couldn't move message",action:{label:"Report an issue",href:p}}},o={args:{severity:"error",title:"Couldn't report this message as spam",detail:"This account has no Junk folder. Create one named Junk or Spam in your mail provider, then report this message again.",action:{label:"Report an issue",href:p}}},i={args:{severity:"warning",title:"Draft saved locally",detail:"The server did not answer, so this draft has not been uploaded."}},a={args:{severity:"info",title:"Sync finished",detail:"1,204 messages are up to date."}},r={args:{severity:"warning",title:"Spellcheck stopped",detail:"Spellcheck for en is off: the checker could not start. Your browser is checking this message instead. Failed to fetch dynamically imported module.",action:{label:"Report this",href:p}}},s={name:"With Action Link (dark)",parameters:{theme:"dark"},args:r.args};t.parameters={...t.parameters,docs:{...t.parameters?.docs,source:{originalSource:`{
+  name: "Error",
+  args: {
+    severity: "error",
+    title: "Couldn't move message",
+    detail: "Connection reset by peer",
+    action: {
+      label: "Report an issue",
+      href: REPORT_URL
+    }
+  }
+}`,...t.parameters?.docs?.source},description:{story:"A mutation that failed, with the reason underneath and a way out.",...t.parameters?.docs?.description}}};e.parameters={...e.parameters,docs:{...e.parameters?.docs,source:{originalSource:`{
+  args: {
+    severity: "error",
+    title: "Couldn't move message",
+    action: {
+      label: "Report an issue",
+      href: REPORT_URL
+    }
+  }
+}`,...e.parameters?.docs?.source},description:{story:"Nothing more to say than the title — the report link still stands.",...e.parameters?.docs?.description}}};o.parameters={...o.parameters,docs:{...o.parameters?.docs,source:{originalSource:`{
+  args: {
+    severity: "error",
+    title: "Couldn't report this message as spam",
+    detail: "This account has no Junk folder. Create one named Junk or Spam in your mail provider, then report this message again.",
+    action: {
+      label: "Report an issue",
+      href: REPORT_URL
+    }
+  }
+}`,...o.parameters?.docs?.source},description:{story:`Report spam failing because the account has nowhere to file it. The reason
+names the folder and the fix, so this one is actionable without the report
+link — which is offered anyway, because the user should not have to decide.`,...o.parameters?.docs?.description}}};i.parameters={...i.parameters,docs:{...i.parameters?.docs,source:{originalSource:`{
+  args: {
+    severity: "warning",
+    title: "Draft saved locally",
+    detail: "The server did not answer, so this draft has not been uploaded."
+  }
+}`,...i.parameters?.docs?.source},description:{story:"Something degraded rather than broke.",...i.parameters?.docs?.description}}};a.parameters={...a.parameters,docs:{...a.parameters?.docs,source:{originalSource:`{
+  args: {
+    severity: "info",
+    title: "Sync finished",
+    detail: "1,204 messages are up to date."
+  }
+}`,...a.parameters?.docs?.source},description:{story:"A statement of fact, not a problem.",...a.parameters?.docs?.description}}};r.parameters={...r.parameters,docs:{...r.parameters?.docs,source:{originalSource:`{
+  args: {
+    severity: "warning",
+    title: "Spellcheck stopped",
+    detail: "Spellcheck for en is off: the checker could not start. Your browser is checking this message instead. Failed to fetch dynamically imported module.",
+    action: {
+      label: "Report this",
+      href: REPORT_URL
+    }
+  }
+}`,...r.parameters?.docs?.source},description:{story:`The spellchecker stopping (#707): the writer cannot fix this one, so the
+banner says what stopped, what is happening instead, and offers the report
+already filled in.`,...r.parameters?.docs?.description}}};s.parameters={...s.parameters,docs:{...s.parameters?.docs,source:{originalSource:`{
+  name: "With Action Link (dark)",
+  parameters: {
+    theme: "dark"
+  },
+  args: WithActionLink.args
+}`,...s.parameters?.docs?.source},description:{story:"The action link on the dark theme.",...s.parameters?.docs?.description}}};const ce=["Failed","NoDetail","NoJunkFolder","Warning","Info","WithActionLink","WithActionLinkDark"];export{t as Failed,a as Info,e as NoDetail,o as NoJunkFolder,i as Warning,r as WithActionLink,s as WithActionLinkDark,ce as __namedExportsOrder,ne as default};

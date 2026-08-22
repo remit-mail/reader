@@ -1,0 +1,1 @@
+const o=["KB","MB","GB","TB"],u=t=>{if(!Number.isFinite(t)||t<0)return"unknown size";const e=Math.round(t);if(e<1024)return e===1?"1 byte":`${e} bytes`;const i=1023.95;let n=e/1024,r=0;for(;n>=i&&r<o.length-1;)n/=1024,r+=1;return`${n.toFixed(1).replace(/\.0$/,"")} ${o[r]}`};export{u as f};
