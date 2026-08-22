@@ -1,11 +1,11 @@
 import { Check, Folder } from "lucide-react";
 import { useId, useRef, useState } from "react";
+import { folderLeaf } from "../lib/folder-tree.js";
 import { Banner } from "./banner.js";
 import { Button } from "./button.js";
 import {
 	canonicalRoleLabel,
 	type FolderRole,
-	providerLeaf,
 	roleIcon,
 } from "./folder-role.js";
 import { Input } from "./input.js";
@@ -35,6 +35,8 @@ export interface CandidateFolder {
 	mailboxId: string;
 	/** Server truth — the IMAP path. Read-only. */
 	providerPath: string;
+	/** How the folder's own server separates path segments; `""` means flat. */
+	hierarchyDelimiter: string;
 	/** Live message count, so the user can pick the folder that holds mail. */
 	messageCount: number;
 }
@@ -64,7 +66,8 @@ const UNRESOLVED: RoleAppointment = { mailboxId: null, source: "None" };
 /** Picker option text: `Concepten · 340 msgs`. */
 function folderOptionLabel(folder: CandidateFolder): string {
 	const noun = folder.messageCount === 1 ? "msg" : "msgs";
-	return `${providerLeaf(folder.providerPath)} · ${folder.messageCount} ${noun}`;
+	const leaf = folderLeaf(folder.providerPath, folder.hierarchyDelimiter);
+	return `${leaf} · ${folder.messageCount} ${noun}`;
 }
 
 const messages = (count: number): string =>
@@ -151,7 +154,10 @@ function RoleAppointmentRow({
 		role === "trash"
 			? " Deleting mail is stopped until you pick another one."
 			: appointed
-				? ` reader is using ${providerLeaf(appointed.providerPath)} instead.`
+				? ` reader is using ${folderLeaf(
+						appointed.providerPath,
+						appointed.hierarchyDelimiter,
+					)} instead.`
 				: "";
 	const staleNotice = `The folder you chose for ${label}${
 		staleFolderPath ? ` — ${staleFolderPath} —` : ""
@@ -312,7 +318,7 @@ export function RoleAppointmentList({
 							>
 								<Folder className="size-4 shrink-0 text-fg-subtle" />
 								<span className="truncate">
-									{providerLeaf(folder.providerPath)}
+									{folderLeaf(folder.providerPath, folder.hierarchyDelimiter)}
 								</span>
 								<span className="ml-auto shrink-0 text-2xs text-fg-subtle">
 									{messages(folder.messageCount)}

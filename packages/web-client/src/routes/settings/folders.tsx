@@ -166,6 +166,7 @@ function AccountFolders({ account }: { account: RemitImapAccountResponse }) {
 	const candidates: CandidateFolder[] = mailboxes.map((mailbox) => ({
 		mailboxId: mailbox.mailboxId,
 		providerPath: mailbox.fullPath,
+		hierarchyDelimiter: mailbox.hierarchyDelimiter,
 		messageCount: mailbox.messageCount,
 	}));
 

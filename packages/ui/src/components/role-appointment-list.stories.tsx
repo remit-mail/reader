@@ -18,35 +18,60 @@ import {
  * numbers are wired in.
  */
 const HOSTNET_FOLDERS: readonly CandidateFolder[] = [
-	{ mailboxId: "mb-inbox", providerPath: "INBOX", messageCount: 4821 },
+	{
+		mailboxId: "mb-inbox",
+		providerPath: "INBOX",
+		hierarchyDelimiter: "/",
+		messageCount: 4821,
+	},
 	{
 		mailboxId: "mb-archive",
 		providerPath: "INBOX/Archive",
+		hierarchyDelimiter: "/",
 		messageCount: 19243,
 	},
 	{
 		mailboxId: "mb-concepten",
 		providerPath: "INBOX/Concepten",
+		hierarchyDelimiter: "/",
 		messageCount: 340,
 	},
 	{
 		mailboxId: "mb-deleted",
 		providerPath: "INBOX/Deleted Messages",
+		hierarchyDelimiter: "/",
 		messageCount: 512,
 	},
-	{ mailboxId: "mb-drafts", providerPath: "INBOX/Drafts", messageCount: 0 },
+	{
+		mailboxId: "mb-drafts",
+		providerPath: "INBOX/Drafts",
+		hierarchyDelimiter: "/",
+		messageCount: 0,
+	},
 	{
 		mailboxId: "mb-news",
 		providerPath: "INBOX/Nieuwsbrieven",
+		hierarchyDelimiter: "/",
 		messageCount: 2870,
 	},
-	{ mailboxId: "mb-sent", providerPath: "INBOX/Sent", messageCount: 0 },
+	{
+		mailboxId: "mb-sent",
+		providerPath: "INBOX/Sent",
+		hierarchyDelimiter: "/",
+		messageCount: 0,
+	},
 	{
 		mailboxId: "mb-sent-messages",
 		providerPath: "INBOX/Sent Messages",
+		hierarchyDelimiter: "/",
 		messageCount: 6105,
 	},
-	{ mailboxId: "mb-spam", providerPath: "INBOX/Spam", messageCount: 88 },
+	{
+		mailboxId: "mb-spam",
+		providerPath: "INBOX/Spam",
+		hierarchyDelimiter: "/",
+		messageCount: 88,
+	},
 ];
 
 const appointed = (mailboxId: string): RoleAppointment => ({

@@ -183,6 +183,7 @@ function FolderSettingsPage({ renaming = false }: { renaming?: boolean }) {
 					folders={folders.map((folder) => ({
 						mailboxId: folder.id,
 						providerPath: folder.path,
+						hierarchyDelimiter: "/",
 						messageCount: messageCounts[folder.id] ?? 0,
 					}))}
 					appointments={appointments}

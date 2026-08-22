@@ -851,6 +851,7 @@ export {
 	filterFolderTree,
 	folderAncestors,
 	folderDepth,
+	folderLeaf,
 	folderParent,
 	matchesQuery,
 	orderFolderNodes,

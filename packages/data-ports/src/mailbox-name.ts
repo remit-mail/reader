@@ -29,8 +29,7 @@ const rank = (
 	names: readonly string[],
 ): number | null => {
 	const parts = segments(mailbox);
-	const leaf = parts[parts.length - 1] ?? mailbox.fullPath;
-	const nameIndex = names.indexOf(leaf.toLowerCase());
+	const nameIndex = names.indexOf(mailboxLeafName(mailbox).toLowerCase());
 	if (nameIndex < 0) return null;
 	// Depth outranks the name: a "Spam" buried under Trash or an archive must
 	// never beat the account's real "Junk" one level up.

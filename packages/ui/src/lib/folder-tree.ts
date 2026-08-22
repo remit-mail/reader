@@ -38,6 +38,14 @@ export type FolderTreeDisplayRow =
 	| { kind: "folder"; row: FolderTreeRow; index: number }
 	| { kind: "create"; parent: FolderTreeNode; depth: number };
 
+// A server that reports no delimiter has a flat namespace, so the path is its
+// own leaf; splitting on "" would return single characters.
+export const folderLeaf = (path: string, delimiter: string): string => {
+	if (delimiter.length === 0) return path;
+	const parts = path.split(delimiter);
+	return parts[parts.length - 1] || path;
+};
+
 export const folderParent = (path: string, delimiter: string): string => {
 	const cut = path.lastIndexOf(delimiter);
 	return cut === -1 ? "" : path.slice(0, cut);

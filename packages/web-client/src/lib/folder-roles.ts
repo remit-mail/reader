@@ -2,8 +2,10 @@ import type {
 	RemitImapCanonicalMailboxRole,
 	RemitImapFolderAppointment,
 } from "@remit/api-http-client/types.gen.ts";
-import type { MailboxPath } from "@remit/data-ports/mailbox-name";
-import { mailboxLeafName } from "@remit/data-ports/mailbox-name";
+import {
+	type MailboxPath,
+	mailboxLeafName,
+} from "@remit/data-ports/mailbox-name";
 import type { NavMailboxRole } from "@remit/ui";
 
 /**
