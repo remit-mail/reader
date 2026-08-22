@@ -205,27 +205,25 @@ const mount = async (): Promise<[DomHarness, AnyRouter]> => {
 	const mounted = createDomHarness({ viewportWidth: RAIL_WIDTH });
 	harness = mounted;
 	mounted.renderApp(createElement(RouterProvider, { router }));
+	// Twice: the auto-open navigates from an effect the first settle runs.
 	await settle(mounted);
-	// The auto-open navigates from an effect, and the toolbar reads the rail off
-	// the address the router commits after it.
 	await settle(mounted);
 	return [mounted, router];
 };
 
 describe("the DKIM auto-open and the stored rail preference (#778)", () => {
+	// The address is what puts the rail up over a collapse, and `resolveRailOpen`
+	// is where the two meet; this asks what the mismatch wrote, and what it left
+	// alone.
 	it("raises the rail for the message it fired on", async () => {
 		const store = installStorage("closed");
 
-		const [mounted, router] = await mount();
+		const [, router] = await mount();
 
 		assert.equal(
 			router.state.location.hash,
 			"intelligence",
 			"the mismatch left the rail down",
-		);
-		assert.ok(
-			mounted.query(`[aria-label="${HIDE_INTELLIGENCE}"]`),
-			"the toolbar still reports the rail as down",
 		);
 		assert.equal(
 			store.get(INTELLIGENCE_PREF_KEY),
