@@ -7,8 +7,18 @@ export interface FolderNode {
 	messageCount: number;
 }
 
+/** Where a role's answer came from (`FolderAppointmentSource`). */
+export type RoleAppointmentSource =
+	| "Appointed"
+	| "Flagged"
+	| "Reserved"
+	| "Proposed"
+	| "Stale"
+	| "None";
+
 export interface RoleAppointment {
 	role: string;
+	source: RoleAppointmentSource;
 	mailboxId?: string | null;
 }
 
@@ -39,18 +49,36 @@ export const hasChildFolders = (
 	);
 };
 
-/** The canonical role a mailbox is appointed to, or `undefined` when unfilled. */
-export const appointedRole = (
+/**
+ * Sources that vouch for the mailbox they name: a person chose it, the server
+ * flagged it, or the protocol reserves the name. `Proposed` is a name guess,
+ * and `Stale` resolves to the fallback behind an appointment that went missing
+ * — neither is somebody's word for this folder.
+ */
+const VOUCHED_SOURCES: readonly RoleAppointmentSource[] = [
+	"Appointed",
+	"Flagged",
+	"Reserved",
+];
+
+/** The canonical role a mailbox is vouched for, or `undefined` when none is. */
+export const vouchedRole = (
 	mailboxId: string,
 	appointments: readonly RoleAppointment[],
 ): string | undefined =>
-	appointments.find((a) => a.mailboxId != null && a.mailboxId === mailboxId)
-		?.role;
+	appointments.find(
+		(a) =>
+			a.mailboxId != null &&
+			a.mailboxId === mailboxId &&
+			VOUCHED_SOURCES.includes(a.source),
+	)?.role;
 
 /**
  * Why a folder can't be deleted, or `{ deletable: true }` when it can. The
- * inbox is reserved, a folder that fills a canonical role must be released
- * first, and a folder with subfolders must have them handled before it goes.
+ * inbox is reserved, a folder somebody vouched for in a canonical role must be
+ * released first, and a folder with subfolders must have them handled before it
+ * goes. A role a folder only fills because its name reads that way is no reason
+ * to keep the folder: the message would name a remedy that does not apply.
  */
 export function guardFolderDeletion(
 	folder: FolderNode,
@@ -64,7 +92,7 @@ export function guardFolderDeletion(
 			message: "The inbox can't be deleted.",
 		};
 
-	const role = appointedRole(folder.mailboxId, appointments);
+	const role = vouchedRole(folder.mailboxId, appointments);
 	if (role)
 		return {
 			deletable: false,
