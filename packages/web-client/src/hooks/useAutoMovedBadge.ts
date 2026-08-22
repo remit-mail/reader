@@ -3,6 +3,7 @@ import type {
 	RemitImapAutoMovedInfo,
 	RemitImapMessageSpamReport,
 } from "@remit/api-http-client/types.gen.ts";
+import { mailboxLeafName } from "@remit/data-ports/mailbox-name";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback } from "react";
 import {
@@ -11,7 +12,6 @@ import {
 	resolveUndoTargetMailboxId,
 	spamReportLabel,
 } from "@/lib/auto-moved";
-import { getMailboxDisplayName } from "@/lib/folder-roles";
 import { useInboxMailbox, useJunkMailbox } from "./useArchiveMailbox";
 import { useMoveMessages } from "./useMoveMessages";
 import { useReportSpam } from "./useReportSpam";
@@ -132,7 +132,7 @@ export const useAutoMovedBadge = ({
 	const sourceFolderName = autoMoved.fromMailboxId
 		? mailboxes?.items
 				.filter((mailbox) => mailbox.mailboxId === autoMoved.fromMailboxId)
-				.map((mailbox) => getMailboxDisplayName(mailbox.fullPath))[0]
+				.map((mailbox) => mailboxLeafName(mailbox))[0]
 		: undefined;
 
 	return {

@@ -1,16 +1,28 @@
-export interface MailboxNameCandidate {
-	mailboxId: string;
+export interface MailboxPath {
 	fullPath: string;
 	hierarchyDelimiter: string;
+}
+
+export interface MailboxNameCandidate extends MailboxPath {
+	mailboxId: string;
 }
 
 // A flat mailbox namespace reports no delimiter at all — ImapFlow gives `""`
 // for a NIL LIST delimiter — and splitting on "" returns single characters, so
 // the path is its own leaf.
-const segments = (mailbox: MailboxNameCandidate): string[] =>
+const segments = (mailbox: MailboxPath): string[] =>
 	mailbox.hierarchyDelimiter.length === 0
 		? [mailbox.fullPath]
 		: mailbox.fullPath.split(mailbox.hierarchyDelimiter);
+
+/**
+ * The folder's own name: the last segment of its path under the delimiter its
+ * own server reports (`INBOX/Spam` → `Spam`, `INBOX.Projects.Q3` → `Q3`).
+ */
+export const mailboxLeafName = (mailbox: MailboxPath): string => {
+	const parts = segments(mailbox);
+	return parts[parts.length - 1] || mailbox.fullPath;
+};
 
 const rank = (
 	mailbox: MailboxNameCandidate,

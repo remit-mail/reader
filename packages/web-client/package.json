@@ -75,6 +75,7 @@
 	"dependencies": {
 		"@hookform/resolvers": "*",
 		"@remit/api-http-client": "*",
+		"@remit/data-ports": "*",
 		"@remit/domain-enums": "*",
 		"@remit/ui": "*",
 		"@tanstack/react-query": "^5",

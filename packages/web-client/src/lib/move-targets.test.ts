@@ -214,3 +214,22 @@ describe("buildMoveTargets — Outbox locale exclusion (#290)", () => {
 		assert.deepStrictEqual(ids, ["custom", "inbox", "outboxy", "trash"]);
 	});
 });
+
+describe("buildMoveTargets — the server’s own delimiter (#877)", () => {
+	test("orders and filters by the leaf under a dot-delimited namespace", () => {
+		const dotted = (mailboxId: string, fullPath: string) =>
+			make({ mailboxId, fullPath, hierarchyDelimiter: "." });
+		const result = buildMoveTargets(
+			[
+				dotted("beta", "INBOX.Projects.Beta"),
+				dotted("outbox", "INBOX.Outbox"),
+				dotted("alpha", "INBOX.Zoo.Alpha"),
+			],
+			[],
+		);
+		assert.deepStrictEqual(
+			result.map((mailbox) => mailbox.mailboxId),
+			["alpha", "beta"],
+		);
+	});
+});

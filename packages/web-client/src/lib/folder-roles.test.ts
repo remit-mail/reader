@@ -3,7 +3,6 @@ import { describe, test } from "node:test";
 import type { RemitImapFolderAppointment } from "@remit/api-http-client/types.gen.ts";
 import {
 	buildMailboxRoleMap,
-	getMailboxDisplayName,
 	labelForMailbox,
 	shouldShowUnreadBadgeForRole,
 } from "./folder-roles.js";
@@ -43,16 +42,6 @@ describe("buildMailboxRoleMap", () => {
 	});
 });
 
-describe("getMailboxDisplayName", () => {
-	test("returns the leaf segment of a nested path", () => {
-		assert.equal(getMailboxDisplayName("INBOX/Sent Messages"), "Sent Messages");
-	});
-
-	test("returns the whole path when there is no delimiter", () => {
-		assert.equal(getMailboxDisplayName("INBOX"), "INBOX");
-	});
-});
-
 describe("labelForMailbox", () => {
 	const t = (key: string, fallback: string) =>
 		key === "sidebar.sent" ? "Verzonden" : fallback;
@@ -60,7 +49,11 @@ describe("labelForMailbox", () => {
 	test("a trimmed displayNameOverride wins over everything", () => {
 		assert.equal(
 			labelForMailbox(
-				{ fullPath: "INBOX/Sent", displayNameOverride: "  My Sent  " },
+				{
+					fullPath: "INBOX/Sent",
+					hierarchyDelimiter: "/",
+					displayNameOverride: "  My Sent  ",
+				},
 				"sent",
 				t,
 			),
@@ -70,30 +63,80 @@ describe("labelForMailbox", () => {
 
 	test("falls back to the translated canonical role label", () => {
 		assert.equal(
-			labelForMailbox({ fullPath: "INBOX/Verzonden" }, "sent", t),
+			labelForMailbox(
+				{ fullPath: "INBOX/Verzonden", hierarchyDelimiter: "/" },
+				"sent",
+				t,
+			),
 			"Verzonden",
 		);
 	});
 
 	test("falls back to the provider leaf when there is no role", () => {
 		assert.equal(
-			labelForMailbox({ fullPath: "INBOX/Nieuwsbrieven" }, undefined, t),
+			labelForMailbox(
+				{ fullPath: "INBOX/Nieuwsbrieven", hierarchyDelimiter: "/" },
+				undefined,
+				t,
+			),
 			"Nieuwsbrieven",
 		);
 	});
 
 	test("falls back to the leaf when no translator is supplied", () => {
-		assert.equal(labelForMailbox({ fullPath: "INBOX/Sent" }, "sent"), "Sent");
+		assert.equal(
+			labelForMailbox(
+				{ fullPath: "INBOX/Sent", hierarchyDelimiter: "/" },
+				"sent",
+			),
+			"Sent",
+		);
 	});
 
 	test("a blank/whitespace override is ignored", () => {
 		assert.equal(
 			labelForMailbox(
-				{ fullPath: "INBOX/Sent", displayNameOverride: "   " },
+				{
+					fullPath: "INBOX/Sent",
+					hierarchyDelimiter: "/",
+					displayNameOverride: "   ",
+				},
 				"sent",
 				t,
 			),
 			"Verzonden",
+		);
+	});
+});
+
+describe("labelForMailbox — the server’s own delimiter (#877)", () => {
+	test("a dot-delimited nested folder renders its leaf", () => {
+		assert.equal(
+			labelForMailbox(
+				{ fullPath: "INBOX.Projects.Q3", hierarchyDelimiter: "." },
+				undefined,
+			),
+			"Q3",
+		);
+	});
+
+	test("a flat namespace renders the whole name", () => {
+		assert.equal(
+			labelForMailbox(
+				{ fullPath: "Projects/Q3", hierarchyDelimiter: "" },
+				undefined,
+			),
+			"Projects/Q3",
+		);
+	});
+
+	test("a slash in a dot-delimited name is part of the name", () => {
+		assert.equal(
+			labelForMailbox(
+				{ fullPath: "INBOX.Reading/Writing", hierarchyDelimiter: "." },
+				undefined,
+			),
+			"Reading/Writing",
 		);
 	});
 });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { resolveMailboxByLeafName } from "./mailbox-name.js";
+import { mailboxLeafName, resolveMailboxByLeafName } from "./mailbox-name.js";
 
 const JUNK_NAMES = ["junk", "spam", "junk e-mail", "junk email", "bulk mail"];
 
@@ -66,5 +66,41 @@ describe("resolveMailboxByLeafName", () => {
 			JUNK_NAMES,
 		);
 		assert.equal(found, null);
+	});
+});
+
+describe("mailboxLeafName", () => {
+	it("takes the leaf under a dot-delimited namespace", () => {
+		assert.equal(
+			mailboxLeafName({
+				fullPath: "INBOX.Projects.Q3",
+				hierarchyDelimiter: ".",
+			}),
+			"Q3",
+		);
+	});
+
+	it("takes the leaf under a slash-delimited namespace", () => {
+		assert.equal(
+			mailboxLeafName({
+				fullPath: "INBOX/Sent Messages",
+				hierarchyDelimiter: "/",
+			}),
+			"Sent Messages",
+		);
+	});
+
+	it("keeps the whole name when the server reports no delimiter", () => {
+		assert.equal(
+			mailboxLeafName({ fullPath: "Projects/Q3", hierarchyDelimiter: "" }),
+			"Projects/Q3",
+		);
+	});
+
+	it("keeps a top-level name that carries no delimiter", () => {
+		assert.equal(
+			mailboxLeafName({ fullPath: "INBOX", hierarchyDelimiter: "." }),
+			"INBOX",
+		);
 	});
 });

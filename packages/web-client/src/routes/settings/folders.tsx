@@ -241,7 +241,10 @@ function AccountFolders({ account }: { account: RemitImapAccountResponse }) {
 						translator,
 					)}
 					defaultLabel={labelForMailbox(
-						{ fullPath: renaming.fullPath },
+						{
+							fullPath: renaming.fullPath,
+							hierarchyDelimiter: renaming.hierarchyDelimiter,
+						},
 						roleMap.get(renaming.mailboxId),
 						translator,
 					)}

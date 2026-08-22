@@ -209,3 +209,32 @@ describe("buildAccountSuggestionValues", () => {
 		);
 	});
 });
+
+describe("the server’s own delimiter (#877)", () => {
+	it("offers the leaf of a dot-delimited folder as its shortest spelling", () => {
+		const values = buildMailboxSuggestionValues([
+			[
+				mailbox({
+					mailboxId: "m1",
+					fullPath: "INBOX.Projects.Q3",
+					hierarchyDelimiter: ".",
+				}),
+			],
+		]);
+		assert.deepEqual(values, [{ value: "Q3", label: "Q3" }]);
+	});
+
+	it("resolves in: by the leaf of a dot-delimited folder", () => {
+		const index = buildMailboxNameIndex([
+			[
+				mailbox({
+					mailboxId: "m1",
+					fullPath: "INBOX.Projects.Q3",
+					hierarchyDelimiter: ".",
+				}),
+			],
+		]);
+		assert.equal(index.get("q3"), "m1");
+		assert.equal(index.get("inbox.projects.q3"), "m1");
+	});
+});

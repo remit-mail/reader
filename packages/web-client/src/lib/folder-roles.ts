@@ -2,6 +2,8 @@ import type {
 	RemitImapCanonicalMailboxRole,
 	RemitImapFolderAppointment,
 } from "@remit/api-http-client/types.gen.ts";
+import type { MailboxPath } from "@remit/data-ports/mailbox-name";
+import { mailboxLeafName } from "@remit/data-ports/mailbox-name";
 import type { NavMailboxRole } from "@remit/ui";
 
 /**
@@ -79,12 +81,6 @@ export function buildMailboxRoleMap(
 	return byMailbox;
 }
 
-/** Leaf segment of a provider path (`INBOX/Spam` → `Spam`). */
-export const getMailboxDisplayName = (fullPath: string): string => {
-	const parts = fullPath.split("/");
-	return parts[parts.length - 1] || fullPath;
-};
-
 type Translator = (key: string, fallback: string) => string;
 
 /**
@@ -92,13 +88,13 @@ type Translator = (key: string, fallback: string) => string;
  * canonical localized label for the appointed role, else the provider leaf.
  */
 export function labelForMailbox(
-	mailbox: { fullPath: string; displayNameOverride?: string },
+	mailbox: MailboxPath & { displayNameOverride?: string },
 	role: NavMailboxRole | undefined,
 	t?: Translator,
 ): string {
 	const override = mailbox.displayNameOverride?.trim();
 	if (override) return override;
-	const leaf = getMailboxDisplayName(mailbox.fullPath);
+	const leaf = mailboxLeafName(mailbox);
 	if (!role || !t) return leaf;
 	return t(`sidebar.${role}`, leaf);
 }
