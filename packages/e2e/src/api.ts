@@ -129,6 +129,18 @@ interface ResultList<T> {
 }
 
 /**
+ * The flat error body the API emits: `message` for a human, and — only where
+ * the endpoint promised one — a stable `code` a client branches on with
+ * `details` it words its own copy from. A spec asserting a refusal reads the
+ * code and the details, never the message.
+ */
+export interface ApiErrorBody {
+	message?: string;
+	code?: string;
+	details?: Record<string, string>;
+}
+
+/**
  * The outbox statuses the API will delete — the same ones the queue accepts.
  * An account with no SMTP configured leaves its entries `blocked`, which is
  * exactly what a spec that opened compose against one produces.
@@ -467,6 +479,24 @@ export class ApiClient {
 		failureCount: number;
 	}> {
 		return this.json("POST", "/messages/delete", { messageIds });
+	}
+
+	/**
+	 * The same call, answered rather than thrown. A delete may be refused with a
+	 * coded 409 whose body is the contract under test, and `deleteMessages`
+	 * flattens that into a message string a spec cannot branch on.
+	 */
+	attemptDeleteMessages(messageIds: string[]): Promise<Response> {
+		return this.request("POST", "/messages/delete", { messageIds });
+	}
+
+	/**
+	 * Permanently delete everything in the account's Trash — the call the Empty
+	 * Trash strip makes. `deletedCount` is the service's own count, taken off the
+	 * same read that marked the rows.
+	 */
+	emptyTrash(accountId: string): Promise<{ deletedCount: number }> {
+		return this.json("POST", `/accounts/${accountId}/trash/empty`);
 	}
 
 	/**

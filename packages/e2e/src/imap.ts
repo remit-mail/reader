@@ -219,6 +219,24 @@ export const createServerMailbox = async (
 };
 
 /**
+ * DELETE a folder on the server, the way another mail client would — behind the
+ * app's back, so the app only learns it is gone from a later LIST. This is how a
+ * spec produces a folder reader still holds a decision about but the server no
+ * longer has.
+ */
+export const deleteServerMailbox = async (
+	user: string,
+	path: string,
+): Promise<void> => {
+	const client = await connect(user);
+	try {
+		await client.mailboxDelete(path);
+	} finally {
+		await client.logout();
+	}
+};
+
+/**
  * The UIDs Dovecot holds for one subject in a mailbox.
  *
  * A UID is the message's identity on the server, and IMAP has no in-place MOVE:
