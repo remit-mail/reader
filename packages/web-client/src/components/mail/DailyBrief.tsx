@@ -101,6 +101,7 @@ import { useMailFreshness } from "@/lib/mail-freshness";
 import { relatedSearchResults, rowToSearchResult } from "@/lib/search-result";
 import { showInlineSearchResults } from "@/lib/search-surface";
 import { parseSearchTokens } from "@/lib/search-tokens";
+import { resolveSelectionAccountScope } from "@/lib/selection-account-scope";
 import { spamOfferForResults } from "@/lib/spam-offer";
 import {
 	type SelectionWizardControl,
@@ -206,30 +207,24 @@ export const resolveBriefSelectionScope = (
 	selectedIds: ReadonlySet<string>,
 ): BriefSelectionScope => {
 	if (selectedIds.size === 0) return {};
-	const accountIds = new Set<string>();
+	const selected = rows.filter((row) => selectedIds.has(row.id));
+	const account = resolveSelectionAccountScope(
+		selected.map((row) => row.accountId),
+	);
+	if (account.restriction) return account;
 	const mailboxIds = new Set<string>();
-	for (const row of rows) {
-		if (!selectedIds.has(row.id)) continue;
-		if (row.accountId) accountIds.add(row.accountId);
+	for (const row of selected) {
 		if (row.mailboxId) mailboxIds.add(row.mailboxId);
 	}
-	if (accountIds.size > 1) {
-		return {
-			restriction: "spansAccounts",
-			moveDisabledHint:
-				"Move only works within one account — clear selection or pick messages from a single account",
-		};
-	}
-	const accountId = accountIds.size === 1 ? [...accountIds][0] : undefined;
 	if (mailboxIds.size > 1) {
 		return {
-			accountId,
+			accountId: account.accountId,
 			restriction: "spansFolders",
 			moveDisabledHint: `Move only works within one folder — this selection spans ${mailboxIds.size} folders`,
 		};
 	}
 	return {
-		accountId,
+		accountId: account.accountId,
 		mailboxId: mailboxIds.size === 1 ? [...mailboxIds][0] : undefined,
 	};
 };
