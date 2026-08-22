@@ -909,6 +909,42 @@ describe("the control seam", () => {
 		assert.ok(!box.log().includes("compose stop"));
 	});
 
+	it("rejects tokens standing before the object the request opens with", () => {
+		const box = sandbox({ scenario: { probe: "ok" } });
+		const request = JSON.stringify({
+			targetVersion: "v1.5.0",
+			requestedAt: justNow(),
+		});
+		writeFileSync(
+			join(box.state, "request.json"),
+			`"registry":"ghcr.io/attacker" ${request}`,
+		);
+		const result = box.run(["update"]);
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run, null);
+		assert.ok(!box.log().includes("compose pull"));
+		assert.ok(!box.log().includes("compose stop"));
+	});
+
+	it("rejects a key the file ran together with the one before it", () => {
+		// A member carrying no comma between it and its predecessor is invisible
+		// to a parser that only counts braces: the key is never read, so the
+		// whitelist never sees it and the field it names crosses the seam
+		// unexamined. The gap itself is the refusal (#241).
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			`{"targetVersion":"v1.5.0","requestedAt":"${justNow()}" "registry":"ghcr.io/attacker"}`,
+		);
+		const result = box.run(["update"]);
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run, null);
+		assert.ok(!box.log().includes("compose pull"));
+		assert.ok(!box.log().includes("compose stop"));
+		assert.ok(!box.log().includes("attacker"));
+		assert.ok(!box.volumeScripts().includes("attacker"));
+	});
+
 	it("takes a request padded with whitespace around the object", () => {
 		const box = sandbox({ scenario: { probe: "ok" } });
 		writeFileSync(
