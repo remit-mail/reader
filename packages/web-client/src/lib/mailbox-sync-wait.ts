@@ -50,7 +50,11 @@ export const MAILBOX_SYNC_FAILED_MESSAGE =
 export const MAILBOX_SYNC_TIMEOUT_MESSAGE =
 	"The folder was created but the mail server hasn't confirmed it yet, so nothing was attached to it. It's in your folder list — try again in a moment.";
 
-const defaultDelay = (ms: number, signal?: AbortSignal): Promise<void> =>
+/** `setTimeout` that rejects with the signal's reason instead of outliving it. */
+export const abortableDelay = (
+	ms: number,
+	signal?: AbortSignal,
+): Promise<void> =>
 	new Promise((resolve, reject) => {
 		if (signal?.aborted) {
 			reject(signal.reason);
@@ -81,7 +85,7 @@ export async function waitForMailboxSynced<T extends MailboxSyncSignal>({
 	signal,
 	timeoutMs = MAILBOX_SYNC_TIMEOUT_MS,
 	pollIntervalMs = MAILBOX_SYNC_POLL_INTERVAL_MS,
-	delay = defaultDelay,
+	delay = abortableDelay,
 	now = Date.now,
 }: WaitForMailboxSyncedOptions<T>): Promise<T> {
 	const deadline = now() + timeoutMs;

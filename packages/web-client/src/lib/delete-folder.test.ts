@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
 	advanceMove,
 	beginMove,
+	elapsedLabel,
 	excludeFolder,
 	type FolderNode,
 	failMove,
@@ -259,6 +260,19 @@ describe("move progress", () => {
 			moveProgressLabel({ total: 150, moved: 100, phase: "moving" }),
 			"Moved 100 of 150",
 		);
+	});
+});
+
+describe("elapsedLabel", () => {
+	it("counts a wait in minutes and padded seconds", () => {
+		assert.equal(elapsedLabel(0), "0:00");
+		assert.equal(elapsedLabel(9_400), "0:09");
+		assert.equal(elapsedLabel(65_000), "1:05");
+		assert.equal(elapsedLabel(600_000), "10:00");
+	});
+
+	it("reads a backwards clock as no time at all", () => {
+		assert.equal(elapsedLabel(-5_000), "0:00");
 	});
 });
 
