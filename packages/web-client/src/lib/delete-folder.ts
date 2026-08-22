@@ -134,6 +134,12 @@ export function moveProgressLabel(progress: MoveProgress): string {
 	return `Moved ${progress.moved} of ${progress.total}`;
 }
 
+/** How long a wait has run, as `m:ss` — clamped at zero so a clock skew reads as 0:00. */
+export function elapsedLabel(ms: number): string {
+	const seconds = Math.max(0, Math.floor(ms / 1000));
+	return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
 /** Where the wizard opens: a straight confirm for an empty folder, otherwise the fate step. */
 export function initialStage(
 	messageCount: number,

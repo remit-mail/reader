@@ -1,17 +1,18 @@
 /**
- * waitForFreshMailboxCount — the gate a folder delete holds behind while the
- * server is asked what the folder actually holds. It resolves only on a count
- * a sync round read after the trigger, and rejects on everything else: a
- * folder that is not listed, a round that never lands, an aborted wait.
+ * awaitFreshMailboxCount — the gate a folder delete holds behind while the
+ * server is asked what the folder actually holds. It reports a count only from
+ * a round that stamped past the baseline, reports `pending` rather than a count
+ * when the segment runs out, and refuses outright on a folder the account does
+ * not list.
  */
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+	awaitFreshMailboxCount,
 	FRESH_COUNT_MISSING_MESSAGE,
-	FRESH_COUNT_TIMEOUT_MESSAGE,
 	type MailboxCountReading,
-	waitForFreshMailboxCount,
+	mailboxSyncStamp,
 } from "./fresh-mailbox-count.js";
 
 const reading = (
@@ -25,51 +26,84 @@ const reading = (
 
 const noDelay = () => Promise.resolve();
 
-describe("waitForFreshMailboxCount", () => {
-	it("resolves with the count a round stamped after the trigger", async () => {
+/** A clock that jumps a minute per reading, so a segment expires in two polls. */
+const impatientClock = () => {
+	let clock = 0;
+	return () => {
+		clock += 60_000;
+		return clock;
+	};
+};
+
+describe("mailboxSyncStamp", () => {
+	it("reads the folder's stamp, and zero for a folder never synced", () => {
+		assert.equal(mailboxSyncStamp([reading(0, 100)], "mbx-1"), 100);
+		assert.equal(mailboxSyncStamp([reading(0)], "mbx-1"), 0);
+	});
+
+	it("refuses a folder the account does not list", () => {
+		assert.throws(() => mailboxSyncStamp([], "mbx-1"), {
+			message: FRESH_COUNT_MISSING_MESSAGE,
+		});
+	});
+});
+
+describe("awaitFreshMailboxCount", () => {
+	it("resolves with the count a round stamped past the baseline", async () => {
 		const responses = [[reading(0, 100)], [reading(0, 100)], [reading(3, 200)]];
 		let call = 0;
-		let triggered = 0;
-		const count = await waitForFreshMailboxCount({
+		const outcome = await awaitFreshMailboxCount({
 			mailboxId: "mbx-1",
+			since: 100,
 			readMailboxes: async () => responses[call++] as MailboxCountReading[],
-			triggerSync: async () => {
-				triggered += 1;
-			},
 			delay: noDelay,
 		});
-		assert.equal(count, 3);
-		assert.equal(triggered, 1, "the round is asked for once");
-		assert.equal(call, 3, "the baseline read, then two polls");
+		assert.deepEqual(outcome, { status: "fresh", messageCount: 3 });
+		assert.equal(call, 3);
 	});
 
-	it("never reads a count from a round older than the trigger", async () => {
+	it("never reports a count from a round older than the baseline", async () => {
 		// The stamp stands still — the folder was never re-read, so the zero
 		// sitting in the row is exactly the stale count that must not be trusted.
-		await assert.rejects(
-			waitForFreshMailboxCount({
-				mailboxId: "mbx-1",
-				readMailboxes: async () => [reading(0, 100)],
-				triggerSync: async () => undefined,
-				delay: noDelay,
-				now: (() => {
-					let clock = 0;
-					return () => {
-						clock += 30_000;
-						return clock;
-					};
-				})(),
-			}),
-			{ message: FRESH_COUNT_TIMEOUT_MESSAGE },
-		);
+		const outcome = await awaitFreshMailboxCount({
+			mailboxId: "mbx-1",
+			since: 100,
+			readMailboxes: async () => [reading(0, 100)],
+			delay: noDelay,
+			now: impatientClock(),
+		});
+		assert.deepEqual(outcome, { status: "pending" });
 	});
 
-	it("refuses a folder the account does not list", async () => {
+	it("resumes against the same baseline and then reports the count", async () => {
+		let stamp = 100;
+		const readMailboxes = async () => [reading(2, stamp)];
+		const first = await awaitFreshMailboxCount({
+			mailboxId: "mbx-1",
+			since: 100,
+			readMailboxes,
+			delay: noDelay,
+			now: impatientClock(),
+		});
+		assert.deepEqual(first, { status: "pending" });
+
+		stamp = 300;
+		const second = await awaitFreshMailboxCount({
+			mailboxId: "mbx-1",
+			since: 100,
+			readMailboxes,
+			delay: noDelay,
+			now: impatientClock(),
+		});
+		assert.deepEqual(second, { status: "fresh", messageCount: 2 });
+	});
+
+	it("refuses a folder the account no longer lists", async () => {
 		await assert.rejects(
-			waitForFreshMailboxCount({
+			awaitFreshMailboxCount({
 				mailboxId: "mbx-1",
+				since: 100,
 				readMailboxes: async () => [],
-				triggerSync: async () => undefined,
 				delay: noDelay,
 			}),
 			{ message: FRESH_COUNT_MISSING_MESSAGE },
@@ -78,52 +112,34 @@ describe("waitForFreshMailboxCount", () => {
 
 	it("propagates a failed read rather than counting it as zero", async () => {
 		await assert.rejects(
-			waitForFreshMailboxCount({
+			awaitFreshMailboxCount({
 				mailboxId: "mbx-1",
+				since: 100,
 				readMailboxes: async () => {
 					throw new Error("sync status 500");
 				},
-				triggerSync: async () => undefined,
 				delay: noDelay,
 			}),
 			{ message: "sync status 500" },
 		);
 	});
 
-	it("propagates a failed trigger", async () => {
-		await assert.rejects(
-			waitForFreshMailboxCount({
-				mailboxId: "mbx-1",
-				readMailboxes: async () => [reading(0, 100)],
-				triggerSync: async () => {
-					throw new Error("queue unreachable");
-				},
-				delay: noDelay,
-			}),
-			{ message: "queue unreachable" },
-		);
-	});
-
 	it("stops on abort and never reports a count", async () => {
 		const controller = new AbortController();
 		let call = 0;
-		let triggered = 0;
+		controller.abort();
 		await assert.rejects(
-			waitForFreshMailboxCount({
+			awaitFreshMailboxCount({
 				mailboxId: "mbx-1",
+				since: 100,
 				readMailboxes: async () => {
 					call += 1;
-					controller.abort();
-					return [reading(0, 100)];
-				},
-				triggerSync: async () => {
-					triggered += 1;
+					return [reading(0, 200)];
 				},
 				signal: controller.signal,
 				delay: noDelay,
 			}),
 		);
-		assert.equal(call, 1, "the abort lands before the poll reads again");
-		assert.equal(triggered, 0, "an aborted wait asks for no round");
+		assert.equal(call, 0, "an aborted wait reads nothing");
 	});
 });

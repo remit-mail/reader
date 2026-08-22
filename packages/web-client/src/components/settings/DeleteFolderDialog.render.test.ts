@@ -531,6 +531,57 @@ describe("DeleteFolderDialog", () => {
 		assert.equal(deleted, false, "a cancelled check never reaches the delete");
 	});
 
+	it("asks whether to keep waiting, and resumes without a second round", async () => {
+		let deleted = false;
+		let reported = false;
+		let triggered = 0;
+		route = ({ url, method }) => {
+			if (method === "DELETE") {
+				deleted = true;
+				return new Response(null, { status: 204 });
+			}
+			if (isSyncStatus(url)) return json(syncStatus({}, reported ? 1 : 0));
+			if (isSyncTrigger(url, method)) {
+				triggered += 1;
+				return json({ triggered: true, message: "ok" });
+			}
+			return json({ items: mailboxes });
+		};
+		render({ open: true, folder: mailboxes[2] as RemitImapMailboxResponse });
+
+		// A sync fans the whole account out, so the folder's round can land long
+		// after the trigger. Run the clock forward instead of waiting on it.
+		const realNow = Date.now;
+		let fake = realNow();
+		// Past the segment in one step, so the stall is reached without a poll
+		// sleeping through it.
+		Date.now = () => {
+			fake += 200_000;
+			return fake;
+		};
+		try {
+			await act(async () => {
+				buttonByText(/^Delete folder$/)?.click();
+			});
+			await flush();
+		} finally {
+			Date.now = realNow;
+		}
+
+		assert.equal(triggered, 1, "one round is asked for");
+		assert.equal(deleted, false, "an unreported folder is not deleted");
+		assert.match(container.textContent ?? "", /hasn't reported back/);
+		assert.ok(buttonByText(/^Keep waiting$/), "the wait is the user's call");
+
+		reported = true;
+		await act(async () => {
+			buttonByText(/^Keep waiting$/)?.click();
+		});
+		await flush();
+		assert.equal(triggered, 1, "resuming asks for no second round");
+		assert.equal(deleted, true, "the reported count settles the delete");
+	});
+
 	it("moves the mail in batches then deletes the emptied folder", async () => {
 		let closed = false;
 		let moved: string[] = [];

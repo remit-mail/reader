@@ -10,11 +10,15 @@ import {
 	FolderTreePicker,
 } from "@remit/ui";
 import { AlertTriangle, FolderInput, Loader2, Trash2, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useDeleteFolder } from "@/hooks/useDeleteFolder";
 import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
-import { initialStage, moveProgressLabel } from "@/lib/delete-folder";
+import {
+	elapsedLabel,
+	initialStage,
+	moveProgressLabel,
+} from "@/lib/delete-folder";
 import { buildMailboxRoleMap, labelForMailbox } from "@/lib/folder-roles";
 import { buildMoveOptions } from "@/lib/move-options";
 
@@ -39,9 +43,11 @@ const emailCount = (count: number): string =>
 /**
  * Per-folder delete wizard. An empty folder is a single destructive confirm,
  * settled against a sync round asked for on the spot rather than the folder's
- * last synced count; a folder with mail first asks what happens to the messages
- * — delete them with the folder, or move them elsewhere (batched, with visible
- * progress) before the now-empty folder is removed. Closing mid-move keeps
+ * last synced count — a wait the user can watch, keep, or cancel, and which
+ * deletes nothing until the server answers; a folder with mail asks what
+ * happens to the messages first — delete them with the folder, or move them
+ * elsewhere (batched, with visible progress) before the now-empty folder is
+ * removed. Closing mid-move keeps
  * already-moved mail moved; re-opening enumerates what's left and continues.
  */
 export function DeleteFolderDialog({
@@ -63,6 +69,7 @@ export function DeleteFolderDialog({
 		phase,
 		progress,
 		errorMessage,
+		checkStartedAt,
 		deleteMailbox,
 		deleteIfEmpty,
 		moveThenDelete,
@@ -73,16 +80,27 @@ export function DeleteFolderDialog({
 		mailboxId: folder.mailboxId,
 		onDeleted: onClose,
 	});
+	const [checkElapsed, setCheckElapsed] = useState("0:00");
 
-	// The count the wizard opens on, read once. It must not re-stage the dialog
-	// mid-flow: the refusal below invalidates the folder list on purpose, and a
-	// count landing from that refetch would wipe the refusal off the screen.
-	const openingCountRef = useRef(folder.messageCount);
-	openingCountRef.current = folder.messageCount;
+	// The check has no progress to report — only that it is still waiting — so
+	// the wait itself is what the surface shows, ticking, for as long as it runs.
+	const waiting = phase === "checking" || phase === "check-stalled";
+	useEffect(() => {
+		if (!waiting || checkStartedAt === undefined) return;
+		const update = () =>
+			setCheckElapsed(elapsedLabel(Date.now() - checkStartedAt));
+		update();
+		const timer = setInterval(update, 1000);
+		return () => clearInterval(timer);
+	}, [waiting, checkStartedAt]);
 
+	// Opening the dialog stages it; a count arriving later deliberately does not.
+	// The refusal below invalidates the folder list on purpose, and re-staging on
+	// the count that refetch brings back would wipe the refusal off the screen.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: folder.messageCount is read at open and must not re-run this.
 	useEffect(() => {
 		if (!open) return;
-		setStage(initialStage(openingCountRef.current));
+		setStage(initialStage(folder.messageCount));
 		setArrivedSinceSync(undefined);
 		reset();
 	}, [open, reset]);
@@ -156,6 +174,31 @@ export function DeleteFolderDialog({
 					<p className="text-sm font-medium text-fg">
 						Checking the folder on the mail server…
 					</p>
+					<p className="text-xs text-fg-muted" role="status" aria-live="polite">
+						{`Waiting ${checkElapsed}. Nothing is deleted until the server answers.`}
+					</p>
+				</div>
+			);
+		}
+
+		if (phase === "check-stalled") {
+			return (
+				<div className="space-y-4 px-5 py-4">
+					<Banner tone="warning" variant="soft">
+						{`The mail server hasn't reported back on this folder yet — ${checkElapsed} so far. Nothing has been deleted.`}
+					</Banner>
+					<p className="text-xs text-fg-muted">
+						A sync covers the whole account, so a busy mailbox can take a while
+						to come round to this folder.
+					</p>
+					<div className="flex justify-end gap-2">
+						<Button variant="secondary" size="sm" onClick={handleClose}>
+							Cancel
+						</Button>
+						<Button size="sm" onClick={() => handleDeleteEmpty()}>
+							Keep waiting
+						</Button>
+					</div>
 				</div>
 			);
 		}

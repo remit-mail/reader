@@ -1,24 +1,32 @@
 import { abortableDelay } from "./mailbox-sync-wait";
 
 /**
- * How many messages a folder holds *on the mail server right now*.
+ * How many messages a folder holds *on the mail server*, rather than how many
+ * the last sync round left in the local row.
  *
- * Every count the client can read locally — the mailbox row's `messageCount`,
- * and so the folder list and the sync-status projection over it — is whatever
- * the last sync round wrote. Mail that arrived since is invisible in it, which
- * is fine for a badge and fatal for a delete: `deleteMailbox` takes the folder's
- * mail with it and IMAP has no undo.
+ * Every count the client can read — the mailbox row's `messageCount`, and so
+ * the folder list and the sync-status projection over it — is whatever the last
+ * round wrote. Mail that arrived since is invisible in it, which is fine for a
+ * badge and fatal for a delete: `deleteMailbox` takes the folder's mail with it
+ * and IMAP has no undo.
  *
- * So this asks the server rather than the cache: trigger a sync round, wait for
- * evidence that the round actually ran against this folder — its `lastSyncedAt`
- * advancing past the stamp taken before the trigger — and only then read the
- * count the round wrote. Nothing here decides anything on a count that predates
- * the trigger.
+ * So the count is taken from a round asked for on the spot: trigger a sync,
+ * then wait for the folder's `lastSyncedAt` to advance past the stamp read
+ * before the trigger, and read the count that round wrote alongside it (every
+ * message-sync round writes both from the same IMAP STATUS).
  *
- * The wait is bounded and every way out other than a confirmed round throws:
- * a folder missing from the account, a round that never lands inside
- * `timeoutMs`, a failed read, an aborted wait. Uncertainty about what a folder
- * holds is never permission to delete it.
+ * What the advancing stamp proves is that *some* round's write landed after the
+ * baseline read — not necessarily the round this triggered. A round already in
+ * flight can land first and satisfy the wait. That is accepted: its STATUS was
+ * taken within milliseconds of the baseline, and the error it can carry is a
+ * count from a moment too early, which either agrees with the trigger's round
+ * or reports mail the folder had and the delete then refuses. The mistake lands
+ * on the side of not deleting.
+ *
+ * Nothing here decides on a count read before the trigger, and every way out
+ * other than an advanced stamp throws or reports `pending`: a folder missing
+ * from the account, a failed read, an aborted wait. Uncertainty about what a
+ * folder holds is never permission to delete it.
  */
 
 /** The read fields the wait needs off a sync-status entry. */
@@ -28,27 +36,38 @@ export interface MailboxCountReading {
 	lastSyncedAt?: number;
 }
 
-export interface WaitForFreshMailboxCountOptions {
+/** A count from a round that reported after the baseline, or no round yet. */
+export type FreshCountOutcome =
+	| { status: "fresh"; messageCount: number }
+	| { status: "pending" };
+
+export interface AwaitFreshMailboxCountOptions {
 	/** Reads every mailbox's sync-status entry; called once per poll. */
 	readMailboxes: () => Promise<readonly MailboxCountReading[]>;
-	/** Asks the server for a sync round; resolves on the enqueue ack. */
-	triggerSync: () => Promise<void>;
 	/** The folder to count. */
 	mailboxId: string;
+	/** The folder's `lastSyncedAt` as read before the sync was triggered. */
+	since: number;
 	/** Aborts the wait; a round that lands afterwards resolves nothing. */
 	signal?: AbortSignal;
-	timeoutMs?: number;
+	/** How long this stretch of waiting runs before reporting `pending`. */
+	segmentMs?: number;
 	pollIntervalMs?: number;
 	/** Injectable clock/sleep for tests. */
 	delay?: (ms: number, signal?: AbortSignal) => Promise<void>;
 	now?: () => number;
 }
 
-export const FRESH_COUNT_TIMEOUT_MS = 45_000;
+/**
+ * How long one stretch of waiting runs before handing the decision back to the
+ * user. An explicit sync fans the whole account out on one FIFO group with
+ * INBOX first, so a folder on a large account can sit behind minutes of other
+ * mailboxes: this is not long enough to conclude anything, only long enough
+ * that someone watching a spinner deserves to be asked whether to keep waiting.
+ */
+export const FRESH_COUNT_SEGMENT_MS = 120_000;
 export const FRESH_COUNT_POLL_INTERVAL_MS = 2_000;
 
-export const FRESH_COUNT_TIMEOUT_MESSAGE =
-	"The mail server hasn't reported back on this folder yet, so nothing was deleted. Try again in a moment.";
 export const FRESH_COUNT_MISSING_MESSAGE =
 	"This folder is no longer in the account's folder list, so nothing was deleted.";
 
@@ -61,28 +80,35 @@ const entryFor = (
 	return entry;
 };
 
-/** Resolve with the message count a sync round read off the server after it was asked for. */
-export async function waitForFreshMailboxCount({
+/** The folder's last sync stamp, or a refusal when the account does not list it. */
+export const mailboxSyncStamp = (
+	mailboxes: readonly MailboxCountReading[],
+	mailboxId: string,
+): number => entryFor(mailboxes, mailboxId).lastSyncedAt ?? 0;
+
+/**
+ * Poll for one segment. Resolves `fresh` with the count once a round reports
+ * past `since`, `pending` when the segment runs out with the folder still
+ * unreported — the caller asks the user whether to wait on, and calling again
+ * with the same `since` resumes without triggering a second round.
+ */
+export async function awaitFreshMailboxCount({
 	readMailboxes,
-	triggerSync,
 	mailboxId,
+	since,
 	signal,
-	timeoutMs = FRESH_COUNT_TIMEOUT_MS,
+	segmentMs = FRESH_COUNT_SEGMENT_MS,
 	pollIntervalMs = FRESH_COUNT_POLL_INTERVAL_MS,
 	delay = abortableDelay,
 	now = Date.now,
-}: WaitForFreshMailboxCountOptions): Promise<number> {
-	signal?.throwIfAborted();
-	const before = entryFor(await readMailboxes(), mailboxId).lastSyncedAt ?? 0;
-	signal?.throwIfAborted();
-	await triggerSync();
-
-	const deadline = now() + timeoutMs;
+}: AwaitFreshMailboxCountOptions): Promise<FreshCountOutcome> {
+	const deadline = now() + segmentMs;
 	for (;;) {
 		signal?.throwIfAborted();
 		const entry = entryFor(await readMailboxes(), mailboxId);
-		if ((entry.lastSyncedAt ?? 0) > before) return entry.messagesTotal;
-		if (now() >= deadline) throw new Error(FRESH_COUNT_TIMEOUT_MESSAGE);
+		if ((entry.lastSyncedAt ?? 0) > since)
+			return { status: "fresh", messageCount: entry.messagesTotal };
+		if (now() >= deadline) return { status: "pending" };
 		await delay(pollIntervalMs, signal);
 	}
 }

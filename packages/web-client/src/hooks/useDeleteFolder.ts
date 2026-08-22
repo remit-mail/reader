@@ -20,8 +20,10 @@ import {
 	type MoveProgress,
 } from "@/lib/delete-folder";
 import {
+	awaitFreshMailboxCount,
+	type FreshCountOutcome,
 	type MailboxCountReading,
-	waitForFreshMailboxCount,
+	mailboxSyncStamp,
 } from "@/lib/fresh-mailbox-count";
 
 const PAGE_CAP = 50;
@@ -108,6 +110,7 @@ const liveMessageCount = async (
 export type DeleteFolderPhase =
 	| "idle"
 	| "checking"
+	| "check-stalled"
 	| "moving"
 	| "deleting"
 	| "done"
@@ -115,11 +118,14 @@ export type DeleteFolderPhase =
 
 /**
  * What a delete-as-empty did. `blocked` carries the count that stopped it;
- * `failed` means nothing was established, and is never treated as empty.
+ * `pending` means the server has not reported yet and the user decides whether
+ * to wait on; `failed` means nothing was established. Neither is ever treated
+ * as empty.
  */
 export type EmptyDeleteOutcome =
 	| { status: "deleted" }
 	| { status: "blocked"; messageCount: number }
+	| { status: "pending" }
 	| { status: "failed" };
 
 interface UseDeleteFolderOptions {
@@ -137,7 +143,11 @@ export function useDeleteFolder({
 	const [phase, setPhase] = useState<DeleteFolderPhase>("idle");
 	const [progress, setProgress] = useState<MoveProgress | null>(null);
 	const [errorMessage, setErrorMessage] = useState<string>();
+	const [checkStartedAt, setCheckStartedAt] = useState<number>();
 	const abortRef = useRef<AbortController | null>(null);
+	/** The folder's sync stamp before the round was asked for; set while a check
+	 * is running or paused, so resuming it re-uses the same baseline. */
+	const sinceRef = useRef<number | undefined>(undefined);
 
 	const invalidate = useCallback(() => {
 		queryClient.invalidateQueries({
@@ -194,8 +204,13 @@ export function useDeleteFolder({
 	 * Delete a folder the user was told is empty. Every count the client holds is
 	 * the last sync round's, so this waits (R2 of the IMAP mutation rules) for a
 	 * round asked for here to report on the folder, and deletes only on the count
-	 * that round read. A timeout, a read failure or a folder gone from the account
-	 * refuses the delete: not knowing what a folder holds is never permission.
+	 * that round read. A read failure or a folder gone from the account refuses
+	 * the delete: not knowing what a folder holds is never permission.
+	 *
+	 * The round can take minutes — it fans the whole account out behind INBOX —
+	 * so the wait runs in segments. A segment that ends unreported returns
+	 * `pending` and the user decides; calling again resumes the same wait against
+	 * the same baseline, and never asks for a second round.
 	 */
 	const deleteIfEmpty = useCallback(async (): Promise<EmptyDeleteOutcome> => {
 		const controller = new AbortController();
@@ -203,28 +218,54 @@ export function useDeleteFolder({
 		const { signal } = controller;
 		setPhase("checking");
 		setErrorMessage(undefined);
+
+		const resuming = sinceRef.current !== undefined;
 		const counted = await attempt(
-			waitForFreshMailboxCount({
-				readMailboxes: readMailboxSyncStatus,
-				triggerSync: () =>
-					syncOperationsTriggerSync({
+			(async (): Promise<FreshCountOutcome> => {
+				if (!resuming) {
+					signal.throwIfAborted();
+					sinceRef.current = mailboxSyncStamp(
+						await readMailboxSyncStatus(),
+						mailboxId,
+					);
+					signal.throwIfAborted();
+					setCheckStartedAt(Date.now());
+					await syncOperationsTriggerSync({
 						path: { accountId },
 						throwOnError: true,
-					}).then(() => undefined),
-				mailboxId,
-				signal,
-			}),
+					});
+				}
+				return awaitFreshMailboxCount({
+					readMailboxes: readMailboxSyncStatus,
+					mailboxId,
+					since: sinceRef.current ?? 0,
+					signal,
+				});
+			})(),
 		);
-		if (signal.aborted) return { status: "failed" };
+
+		if (signal.aborted) {
+			// The dialog is closing or the user cancelled; leave nothing running
+			// and no phase for a later caller to inherit.
+			setPhase("idle");
+			sinceRef.current = undefined;
+			return { status: "failed" };
+		}
 		if (!counted.ok) {
+			sinceRef.current = undefined;
 			setErrorMessage(counted.error);
 			setPhase("error");
 			return { status: "failed" };
 		}
-		if (counted.value > 0) {
+		if (counted.value.status === "pending") {
+			setPhase("check-stalled");
+			return { status: "pending" };
+		}
+		sinceRef.current = undefined;
+		if (counted.value.messageCount > 0) {
 			setPhase("idle");
 			invalidate();
-			return { status: "blocked", messageCount: counted.value };
+			return { status: "blocked", messageCount: counted.value.messageCount };
 		}
 		await deleteMailbox();
 		return { status: "deleted" };
@@ -317,15 +358,19 @@ export function useDeleteFolder({
 	const reset = useCallback(() => {
 		abortRef.current?.abort();
 		abortRef.current = null;
+		sinceRef.current = undefined;
 		setPhase("idle");
 		setProgress(null);
 		setErrorMessage(undefined);
+		setCheckStartedAt(undefined);
 	}, []);
 
 	return {
 		phase,
 		progress,
 		errorMessage,
+		/** When the running check asked for its round; the surface shows the wait. */
+		checkStartedAt,
 		deleteMailbox,
 		deleteIfEmpty,
 		moveThenDelete,
