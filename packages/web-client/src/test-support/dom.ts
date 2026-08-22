@@ -10,6 +10,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { DEFAULT_VIEWPORT, setViewport } from "../../test-support/dom-env.mjs";
+import { RoleAppointmentPromptProvider } from "../components/mail/RoleAppointmentPromptProvider";
 import { ErrorBannerProvider } from "../components/ui/ErrorBannerProvider";
 
 export interface DomHarness {
@@ -99,7 +100,11 @@ export const createDomHarness = (options: DomOptions = {}): DomHarness => {
 				createElement(
 					QueryClientProvider,
 					{ client: queryClient },
-					createElement(ErrorBannerProvider, null, element),
+					createElement(
+						ErrorBannerProvider,
+						null,
+						createElement(RoleAppointmentPromptProvider, null, element),
+					),
 				),
 			);
 		},

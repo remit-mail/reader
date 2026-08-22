@@ -80,9 +80,13 @@ export const RoleAppointmentPromptProvider = ({
 	const [phase, setPhase] = useState<PromptPhase>({ kind: "choosing" });
 
 	const accountId = request?.accountId;
+	// Nothing is asked of the server until an action is actually refused: this
+	// provider is mounted at the root, so an ungated read would put a request
+	// behind every screen that never opens a prompt.
 	const { data: config } = useQuery({
 		...configOperationsGetConfigOptions(),
 		staleTime: Infinity,
+		enabled: !!accountId,
 	});
 	const { data: mailboxData } = useQuery({
 		...mailboxOperationsListMailboxesOptions({
