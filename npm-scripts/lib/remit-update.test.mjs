@@ -900,7 +900,7 @@ describe("the control seam", () => {
 		});
 		writeFileSync(
 			join(box.state, "request.json"),
-			`${request} ${JSON.stringify({ registry: "ghcr.io/attacker" })}`,
+			`${request} ghcr.io/attacker`,
 		);
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
