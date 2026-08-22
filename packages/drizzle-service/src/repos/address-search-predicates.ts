@@ -1,4 +1,4 @@
-import { or, type SQL, sql } from "drizzle-orm";
+import { eq, or, type SQL, sql } from "drizzle-orm";
 import { addressTable } from "../schema/i4-address.js";
 
 // The address search seam. A term is matched as a substring of the display name,
@@ -49,10 +49,12 @@ export const addressSearchMatch = (term: string): SQL => {
  * spells out ranks above every prefix of it: a display name is free text the
  * sender picks, and a domain somebody else registered is a prefix away from the
  * address the reader typed, so neither may take the suggestion slot from the
- * address that matches whole. Below that, a match at the start of a column
- * outranks one in the middle, and within each the whole address, the local part
- * and the display name outrank the domain they share. A mid-string match still
- * comes back — this only decides the order.
+ * address that matches whole. A term that spells out a domain whole ranks next,
+ * so `ischen.nl` reaches the domain it names before `ischen.nl.co`, which only
+ * starts with it (#829). Below that, a match at the start of a column outranks
+ * one in the middle, and within each the whole address, the local part and the
+ * display name outrank the domain they share. A mid-string match still comes
+ * back — this only decides the order.
  */
 export const addressMatchRank = (term: string | undefined): SQL<number> => {
 	// Not the bare literal `0`: SQLite reads an integer literal in ORDER BY as a
@@ -60,7 +62,8 @@ export const addressMatchRank = (term: string | undefined): SQL<number> => {
 	if (!term) return sql<number>`cast(0 as integer)`;
 	const { leading, anywhere } = patterns(term);
 	const tiers = [
-		sql`${addressTable.normalizedEmail} = ${term.toLowerCase()}`,
+		eq(addressTable.normalizedEmail, term.toLowerCase()),
+		eq(addressTable.domain, term.toLowerCase()),
 		...SEARCH_COLUMNS.map((column) => like(column, leading)),
 		...SEARCH_COLUMNS.map((column) => like(column, anywhere)),
 	];
