@@ -12,16 +12,24 @@
  * need a real `document`/`window`/`PointerEvent`, which `renderToString`
  * (the pattern used elsewhere in this repo for presentational components)
  * cannot exercise.
+ *
+ * The clock is mocked. Every timing assertion here is about one boundary —
+ * the press crossed the threshold, or it ended first — and racing that
+ * boundary against a wall clock on a loaded runner turns a passing test red
+ * (#645). Time only moves when `advance` moves it.
  */
 
 import "@remit/test-dom";
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { useLongPress } from "./use-long-press.js";
 
 const THRESHOLD = 40;
+
+/** Past react-aria's own teardown of its transient post-pointerup contextmenu listener. */
+const AFTER_ARIA_CONTEXTMENU_TEARDOWN = 100;
 
 let container: HTMLElement;
 let root: Root;
@@ -106,17 +114,21 @@ function pointerCancel(row: Element) {
 	row.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true }));
 }
 
-function wait(ms: number) {
-	return act(() => new Promise((resolve) => setTimeout(resolve, ms)));
+function advance(ms: number) {
+	return act(() => {
+		mock.timers.tick(ms);
+	});
 }
 
 beforeEach(() => {
 	container = document.getElementById("root") as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
+	mock.timers.enable({ apis: ["setTimeout"] });
 });
 
 afterEach(() => {
+	mock.timers.reset();
 	act(() => {
 		root.unmount();
 	});
@@ -128,7 +140,10 @@ describe("useLongPress (react-aria wrapper)", () => {
 		const row = mount({ onLongPress: () => fired++ });
 
 		pointerDown(row);
-		await wait(THRESHOLD + 40);
+		await advance(THRESHOLD - 1);
+		assert.equal(fired, 0, "the threshold had not elapsed yet");
+
+		await advance(1);
 
 		assert.equal(fired, 1);
 	});
@@ -138,9 +153,9 @@ describe("useLongPress (react-aria wrapper)", () => {
 		const row = mount({ onLongPress: () => fired++ });
 
 		pointerDown(row);
-		await wait(THRESHOLD / 2);
+		await advance(THRESHOLD - 1);
 		pointerUp();
-		await wait(THRESHOLD + 40);
+		await advance(THRESHOLD);
 
 		assert.equal(fired, 0);
 	});
@@ -153,9 +168,9 @@ describe("useLongPress (react-aria wrapper)", () => {
 		const row = mount({ onLongPress: () => fired++ });
 
 		pointerDown(row);
-		await wait(THRESHOLD / 2);
+		await advance(THRESHOLD - 1);
 		pointerCancel(row);
-		await wait(THRESHOLD + 40);
+		await advance(THRESHOLD);
 
 		assert.equal(fired, 0);
 	});
@@ -165,7 +180,7 @@ describe("useLongPress (react-aria wrapper)", () => {
 		const row = mount({ onLongPress: () => fired++, isDisabled: true });
 
 		pointerDown(row);
-		await wait(THRESHOLD + 40);
+		await advance(THRESHOLD);
 
 		assert.equal(fired, 0);
 	});
@@ -175,7 +190,7 @@ describe("useLongPress (react-aria wrapper)", () => {
 		const row = mount({ onLongPress: () => fired++ });
 
 		pointerDown(row);
-		await wait(THRESHOLD + 40);
+		await advance(THRESHOLD);
 		assert.equal(
 			fired,
 			1,
@@ -228,7 +243,7 @@ describe("useLongPress (react-aria wrapper)", () => {
 			"the touch long-press menu is still suppressed",
 		);
 		pointerUpOn(row);
-		await wait(THRESHOLD);
+		await advance(AFTER_ARIA_CONTEXTMENU_TEARDOWN);
 
 		assert.equal(
 			dispatchContextMenu(row).defaultPrevented,
@@ -238,15 +253,15 @@ describe("useLongPress (react-aria wrapper)", () => {
 	});
 
 	it("does not suppress the keyboard menu after a touch tap that raised no menu", async () => {
-		// A tap that lifts without a menu must still disarm suppression. The wait
-		// clears react-aria's own transient post-touch contextmenu listener,
-		// which it removes shortly after pointerup — in a browser a keyboard menu
-		// arrives long after that window, so only this hook's ref decides.
+		// A tap that lifts without a menu must still disarm suppression. The
+		// advance clears react-aria's own transient post-touch contextmenu
+		// listener, which it removes shortly after pointerup — in a browser a
+		// keyboard menu arrives long after that, so only this hook's ref decides.
 		const row = mount({ onLongPress: () => undefined });
 
 		pointerDown(row, "touch");
 		pointerUpOn(row);
-		await wait(THRESHOLD);
+		await advance(AFTER_ARIA_CONTEXTMENU_TEARDOWN);
 
 		assert.equal(dispatchContextMenu(row).defaultPrevented, false);
 	});
