@@ -206,6 +206,9 @@ const mount = async (): Promise<[DomHarness, AnyRouter]> => {
 	harness = mounted;
 	mounted.renderApp(createElement(RouterProvider, { router }));
 	await settle(mounted);
+	// The auto-open navigates from an effect, and the toolbar reads the rail off
+	// the address the router commits after it.
+	await settle(mounted);
 	return [mounted, router];
 };
 
