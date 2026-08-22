@@ -9,12 +9,6 @@ import {
 	type FolderTreePickerProps,
 } from "./folder-tree-picker.js";
 
-/* ------------------------------------------------------------------ */
-/* The appointment ceremony at a refused action (#887, #847). The       */
-/* refusal and its repair are one surface: the confirm both appoints    */
-/* the folder and completes the action that was stopped.                */
-/* ------------------------------------------------------------------ */
-
 /** Why the action was refused. Never re-derived from live state while open. */
 export type PromptReason = "none" | "stale" | "unconfirmed";
 
@@ -137,7 +131,7 @@ const pendingCopy = (
 	}
 	if (action.kind === "delete") {
 		return {
-			headline: `Deleting ${action.count} ${plural(action.count)}…`,
+			headline: `Deleting ${quantified(action.count)}…`,
 			status: `Moving them to ${folderLabel}`,
 		};
 	}

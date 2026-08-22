@@ -167,7 +167,7 @@ export const useDeleteMessages = ({
 				const replay = selectionRef.current;
 				requestAppointment({
 					accountId: refusal.accountId,
-					role: "Trash",
+					role: refusal.role,
 					reason: refusal.reason,
 					action: { kind: "delete", count: replay.length },
 					onAppointed: () => runRef.current(replay),

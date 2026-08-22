@@ -339,12 +339,15 @@ export function ThreadListInteraction({
 		],
 	);
 
-	const confirmDelete = useCallback(() => {
-		if (pendingDelete === null) return;
-		onDeleteMessages(pendingDelete.ids);
-		setPendingDelete(null);
-		exitSelection();
-	}, [pendingDelete, onDeleteMessages, exitSelection]);
+	const confirmDelete = useCallback(
+		(ids: string[]) => {
+			if (ids.length === 0) return;
+			onDeleteMessages(ids);
+			setPendingDelete(null);
+			exitSelection();
+		},
+		[onDeleteMessages, exitSelection],
+	);
 
 	const cancelDelete = useCallback(() => setPendingDelete(null), []);
 
@@ -475,7 +478,7 @@ export function ThreadListInteraction({
 			</div>
 			<DeleteConfirmDialog
 				isOpen={confirmOpen}
-				count={pendingDelete?.ids.length ?? 0}
+				messageIds={pendingDelete?.ids ?? []}
 				outcome={deleteOutcome}
 				accountId={pendingDelete?.targets[0]?.accountId}
 				staleFolderLabel={staleFolderLabel}

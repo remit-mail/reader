@@ -21,8 +21,12 @@ import { useRoleAppointmentPrompt } from "./RoleAppointmentPromptProvider";
 
 interface DeleteConfirmDialogProps {
 	isOpen: boolean;
-	/** How many messages the pending delete covers. */
-	count: number;
+	/**
+	 * The rows the pending delete covers. Carried rather than counted, because
+	 * an appointment replays this delete after the dialog has closed — reading
+	 * the caller's pending state by then would replay nothing.
+	 */
+	messageIds: readonly string[];
 	outcome: DeleteOutcome;
 	/** The account the appointment would be made on, when the rows share one. */
 	accountId?: string;
@@ -34,13 +38,13 @@ interface DeleteConfirmDialogProps {
 	trashIsUnconfirmed?: boolean;
 	/** A delete is already in flight, so the confirm cannot be pressed again. */
 	isDeleting?: boolean;
-	onConfirm: () => void;
+	onConfirm: (messageIds: string[]) => void;
 	onCancel: () => void;
 }
 
 export const DeleteConfirmDialog = ({
 	isOpen,
-	count,
+	messageIds,
 	outcome,
 	accountId,
 	trashFolderLabel,
@@ -52,6 +56,8 @@ export const DeleteConfirmDialog = ({
 }: DeleteConfirmDialogProps) => {
 	const { Account } = useAuthProvider();
 	const { requestAppointment } = useRoleAppointmentPrompt();
+	const count = messageIds.length;
+	const confirm = () => onConfirm([...messageIds]);
 	const copy = deleteConfirmationCopy(count, outcome, {
 		trashFolderLabel,
 		staleFolderLabel,
@@ -67,7 +73,8 @@ export const DeleteConfirmDialog = ({
 					// With no account to appoint on, the delete is issued anyway and
 					// the server's own 409 opens the prompt naming the account it
 					// refused for. Never a control that does nothing.
-					if (!accountId) return onConfirm();
+					if (!accountId) return confirm();
+					const replay = [...messageIds];
 					onCancel();
 					requestAppointment({
 						accountId,
@@ -75,7 +82,7 @@ export const DeleteConfirmDialog = ({
 						reason: outcome === "noTrash" ? "none" : "stale",
 						action: { kind: "delete", count },
 						staleFolderLabel,
-						onAppointed: async () => onConfirm(),
+						onAppointed: async () => onConfirm(replay),
 					});
 				}}
 				onCancel={onCancel}
@@ -117,7 +124,7 @@ export const DeleteConfirmDialog = ({
 			// The confirm holds while the appointment is still arriving: the answer
 			// is seconds away and it decides which of two dialogs this is.
 			isBusy={isDeleting || outcome === "unknown"}
-			onConfirm={onConfirm}
+			onConfirm={confirm}
 			onCancel={onCancel}
 		/>
 	);

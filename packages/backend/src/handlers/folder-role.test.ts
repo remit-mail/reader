@@ -11,6 +11,7 @@ const mailbox = (over: Partial<MailboxItem>): MailboxItem =>
 	({
 		mailboxId: "mb-1",
 		fullPath: "INBOX/Prullenbak",
+		hierarchyDelimiter: "/",
 		...over,
 	}) as unknown as MailboxItem;
 
@@ -72,14 +73,21 @@ describe("applyMailboxPatch — the appointment label follows a rename", () => {
 		"acc-1",
 		CanonicalMailboxRole.Trash,
 	);
+	const sentLabelName = composeFolderRoleAppointmentLabelName(
+		"acc-1",
+		CanonicalMailboxRole.Sent,
+	);
+	const appointmentName = (role: string) =>
+		`FolderRoleAppointment#acc-1#${role}`;
 
 	const settingsFor = (
 		rows: Record<string, string>,
+		renamed = "INBOX",
 	): { store: Record<string, string>; client: MailboxPatchClient } => {
 		const store: Record<string, string> = { ...rows };
 		const client = {
 			mailbox: {
-				get: async () => mailbox({}),
+				get: async () => mailbox({ fullPath: renamed }),
 			},
 			mailboxQueue: {
 				renameMailbox: async (mailboxId: string, newPath: string) =>
@@ -105,11 +113,14 @@ describe("applyMailboxPatch — the appointment label follows a rename", () => {
 		return { store, client };
 	};
 
-	it("rewrites the recorded path for every role the folder holds", async () => {
-		const { store, client } = settingsFor({
-			[`FolderRoleAppointment#acc-1#${CanonicalMailboxRole.Trash}`]: "mb-1",
-			[labelName]: "INBOX/Prullenbak",
-		});
+	it("rewrites the recorded path for the folder that was renamed", async () => {
+		const { store, client } = settingsFor(
+			{
+				[appointmentName(CanonicalMailboxRole.Trash)]: "mb-1",
+				[labelName]: "INBOX/Prullenbak",
+			},
+			"INBOX/Prullenbak",
+		);
 
 		await applyMailboxPatch(client, "cfg-1", "mb-1", "acc-1", {
 			fullPath: "INBOX/Verwijderd",
@@ -118,16 +129,56 @@ describe("applyMailboxPatch — the appointment label follows a rename", () => {
 		assert.equal(store[labelName], "INBOX/Verwijderd");
 	});
 
-	it("leaves a folder no role appoints alone", async () => {
-		const { store, client } = settingsFor({
-			[`FolderRoleAppointment#acc-1#${CanonicalMailboxRole.Trash}`]: "mb-other",
-			[labelName]: "INBOX/Prullenbak",
-		});
+	// IMAP RENAME moves the subtree in one command and `renameChildPaths`
+	// rewrites every descendant row, so every label under the branch moves too.
+	it("carries every appointed folder under the renamed branch with it", async () => {
+		const { store, client } = settingsFor(
+			{
+				[appointmentName(CanonicalMailboxRole.Trash)]: "mb-trash",
+				[labelName]: "INBOX/Prullenbak",
+				[appointmentName(CanonicalMailboxRole.Sent)]: "mb-sent",
+				[sentLabelName]: "INBOX/Verzonden",
+			},
+			"INBOX",
+		);
 
 		await applyMailboxPatch(client, "cfg-1", "mb-1", "acc-1", {
-			fullPath: "INBOX/Verwijderd",
+			fullPath: "Mail",
 		});
 
-		assert.equal(store[labelName], "INBOX/Prullenbak");
+		assert.equal(store[labelName], "Mail/Prullenbak");
+		assert.equal(store[sentLabelName], "Mail/Verzonden");
+	});
+
+	it("leaves a folder outside the renamed branch alone", async () => {
+		const { store, client } = settingsFor(
+			{
+				[appointmentName(CanonicalMailboxRole.Trash)]: "mb-trash",
+				[labelName]: "Archief/Prullenbak",
+			},
+			"INBOX",
+		);
+
+		await applyMailboxPatch(client, "cfg-1", "mb-1", "acc-1", {
+			fullPath: "Mail",
+		});
+
+		assert.equal(store[labelName], "Archief/Prullenbak");
+	});
+
+	it("never rebases a sibling that merely shares the prefix", async () => {
+		const { store, client } = settingsFor(
+			{
+				[appointmentName(CanonicalMailboxRole.Trash)]: "mb-trash",
+				[labelName]: "INBOXES/Prullenbak",
+			},
+			"INBOX",
+		);
+
+		await applyMailboxPatch(client, "cfg-1", "mb-1", "acc-1", {
+			fullPath: "Mail",
+		});
+
+		assert.equal(store[labelName], "INBOXES/Prullenbak");
 	});
 });

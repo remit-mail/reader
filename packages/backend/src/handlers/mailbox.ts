@@ -77,17 +77,39 @@ export interface MailboxPatchClient {
 }
 
 /**
- * A reader-side rename keeps the mailboxId, so the appointment survives it —
- * but the path recorded beside it (#887) would still name where the folder was
- * before. Move the label with the folder, or a later third-party delete names a
- * path the user has not seen since the rename.
+ * Where a recorded path lands after the rename, or `undefined` when the rename
+ * did not move it. IMAP RENAME moves the whole subtree in one command and
+ * `renameChildPaths` rewrites every descendant row with it, so a label under
+ * the renamed branch moves exactly as far as its prefix does.
+ */
+const rebasePath = (
+	recorded: string,
+	oldPath: string,
+	newPath: string,
+	delimiter: string,
+): string | undefined => {
+	if (recorded === oldPath) return newPath;
+	const branch = `${oldPath}${delimiter}`;
+	if (!recorded.startsWith(branch)) return undefined;
+	return `${newPath}${recorded.slice(oldPath.length)}`;
+};
+
+/**
+ * A reader-side rename keeps every mailboxId, so the appointments survive it —
+ * but the paths recorded beside them (#887) would still name where the folders
+ * were before. Move the labels with the branch, or a later third-party delete
+ * names a path the user has not seen since the rename.
+ *
+ * The renamed folder is matched by id; its descendants are matched by the path
+ * each label already holds, which is the path their rows carried until this
+ * rename rewrote them.
  */
 const refreshAppointmentLabels = async (
 	accountSetting: Pick<IAccountSettingRepository, "get" | "upsert">,
 	accountConfigId: string,
 	accountId: string,
-	mailboxId: string,
-	newPath: string,
+	renamed: { mailboxId: string; oldPath: string; newPath: string },
+	delimiter: string,
 ): Promise<void> => {
 	const persisted = await loadFolderAppointmentsForAccount(
 		accountSetting,
@@ -95,14 +117,25 @@ const refreshAppointmentLabels = async (
 		accountId,
 	);
 	for (const [role, appointment] of persisted) {
-		if (appointment.mailboxId !== mailboxId) continue;
+		const moved =
+			appointment.mailboxId === renamed.mailboxId
+				? renamed.newPath
+				: appointment.lastKnownPath === undefined
+					? undefined
+					: rebasePath(
+							appointment.lastKnownPath,
+							renamed.oldPath,
+							renamed.newPath,
+							delimiter,
+						);
+		if (moved === undefined || moved === appointment.lastKnownPath) continue;
 		await accountSetting.upsert({
 			accountConfigId,
 			name: composeFolderRoleAppointmentLabelName(
 				accountId,
 				role as CanonicalMailboxRoleValue,
 			),
-			value: { kind: "String", value: newPath },
+			value: { kind: "String", value: moved },
 		});
 	}
 };
@@ -145,6 +178,9 @@ export const applyMailboxPatch = async (
 		return client.mailbox.get(accountId, mailboxId);
 	}
 
+	// Read before the rename: the labels of the folders under this one are
+	// rebased off the path it is leaving, which the row no longer carries after.
+	const before = await client.mailbox.get(accountId, mailboxId);
 	const renamed = await client.mailboxQueue.renameMailbox(
 		mailboxId,
 		fullPath,
@@ -154,8 +190,12 @@ export const applyMailboxPatch = async (
 		client.accountSetting,
 		accountConfigId,
 		accountId,
-		mailboxId,
-		renamed.fullPath,
+		{
+			mailboxId,
+			oldPath: before.fullPath,
+			newPath: renamed.fullPath,
+		},
+		before.hierarchyDelimiter,
 	);
 	return renamed;
 };

@@ -69,12 +69,57 @@ beforeEach(() => {
 	) as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
-	globalThis.fetch = (async () =>
-		new Response(JSON.stringify({ accounts: [], items: [] }), {
+	globalThis.fetch = (async (input: RequestInfo | URL) => {
+		const path = new URL(
+			input instanceof Request ? input.url : String(input),
+			"http://localhost",
+		).pathname;
+		return new Response(JSON.stringify(answerFor(path)), {
 			status: 200,
 			headers: { "Content-Type": "application/json" },
-		})) as typeof fetch;
+		});
+	}) as typeof fetch;
 });
+
+const ACCOUNT = "acc-1";
+
+/** Enough of the account for the appointment prompt to have folders to offer. */
+const answerFor = (path: string): unknown => {
+	if (path.endsWith("/config")) {
+		return {
+			accounts: [
+				{
+					accountId: ACCOUNT,
+					email: `${ACCOUNT}@example.com`,
+					folderAppointments: [{ role: "Trash", source: "None" }],
+				},
+			],
+		};
+	}
+	if (path.endsWith("/mailboxes")) {
+		return {
+			items: [
+				{
+					mailboxId: "mbx-trash",
+					accountId: ACCOUNT,
+					fullPath: "Prullenbak",
+					hierarchyDelimiter: "/",
+					messageCount: 3,
+				},
+			],
+		};
+	}
+	return {};
+};
+
+/** Let the queries and the two writes behind the confirm run to completion. */
+const settle = async (): Promise<void> => {
+	for (let round = 0; round < 8; round += 1) {
+		await act(async () => {
+			await Promise.resolve();
+		});
+	}
+};
 
 afterEach(() => {
 	act(() => root.unmount());
@@ -101,9 +146,13 @@ const mount = (options: {
 	staleFolderLabel?: string;
 	trashIsUnconfirmed?: boolean;
 	authProvider?: AuthProvider;
-	onConfirm?: () => void;
+	onConfirm?: (messageIds: string[]) => void;
 }) => {
 	const onConfirm = options.onConfirm ?? (() => undefined);
+	const messageIds = Array.from(
+		{ length: options.count ?? 1 },
+		(_, index) => `msg-${index}`,
+	);
 	act(() =>
 		root.render(
 			createElement(
@@ -120,7 +169,7 @@ const mount = (options: {
 							{ value: options.authProvider ?? noneAuthProvider },
 							createElement(DeleteConfirmDialog, {
 								isOpen: true,
-								count: options.count ?? 1,
+								messageIds,
 								outcome: options.outcome,
 								accountId: options.accountId,
 								trashFolderLabel: options.trashFolderLabel,
@@ -142,6 +191,8 @@ const mount = (options: {
 			Array.from(
 				dom.window.document.querySelectorAll<HTMLButtonElement>("button"),
 			).find((b) => b.textContent === label),
+		byLabel: (label: string) =>
+			dom.window.document.querySelector<HTMLElement>(`[aria-label="${label}"]`),
 	};
 };
 
@@ -275,17 +326,46 @@ describe("DeleteConfirmDialog — a refusal answers itself", () => {
 	});
 
 	it("still acts when no single account owns the rows", () => {
-		let confirmed = 0;
+		const confirmed: string[][] = [];
 		const view = mount({
 			outcome: "noTrash",
-			onConfirm: () => {
-				confirmed += 1;
-			},
+			onConfirm: (ids) => confirmed.push(ids),
 		});
 		const pick = view.button("Pick a Trash folder");
 		assert.equal(pick?.disabled, false, "never a control that does nothing");
 		act(() => pick?.click());
-		assert.equal(confirmed, 1, "the server's own 409 names the account");
+		assert.deepEqual(
+			confirmed,
+			[["msg-0"]],
+			"the server's own 409 names the account",
+		);
+	});
+
+	// The dialog is gone by the time the appointment lands, so the replay cannot
+	// read the caller's pending state — it carries the rows it was about.
+	it("hands the replay the rows the delete was about", async () => {
+		const confirmed: string[][] = [];
+		const view = mount({
+			outcome: "noTrash",
+			count: 3,
+			accountId: ACCOUNT,
+			onConfirm: (ids) => confirmed.push(ids),
+		});
+
+		act(() => view.button("Pick a Trash folder")?.click());
+		await settle();
+		assert.deepEqual(
+			confirmed,
+			[],
+			"nothing is deleted before a folder is set",
+		);
+
+		act(() => view.byLabel("Set Prullenbak, 3 messages, as Trash")?.click());
+		await settle();
+		act(() => view.button("Set as Trash and delete 3 messages")?.click());
+		await settle();
+
+		assert.deepEqual(confirmed, [["msg-0", "msg-1", "msg-2"]]);
 	});
 });
 

@@ -44,19 +44,22 @@ export const useDeleteOutcome = (
 			hasAppointments,
 			isError,
 		});
-		const resolutions = targets
-			.map((target) =>
-				target.accountId ? trashByAccount.get(target.accountId) : undefined,
-			)
-			.filter((resolution) => resolution !== undefined);
+		const trashFor = (target: DeleteTarget) =>
+			target.accountId ? trashByAccount.get(target.accountId) : undefined;
 		return {
 			outcome,
-			trashIsUnconfirmed: resolutions.some(
-				(resolution) => resolution.source === "Proposed",
-			),
-			staleFolderLabel: resolutions.find(
-				(resolution) => resolution.source === "Stale",
-			)?.staleFolderPath,
+			// Only the rows the delete would actually expunge — a row filed
+			// somewhere else says nothing about the folder it is moving into.
+			trashIsUnconfirmed: targets.some((target) => {
+				const trash = trashFor(target);
+				return (
+					trash?.source === "Proposed" && trash.mailboxId === target.mailboxId
+				);
+			}),
+			// The account `deleteOutcomeFor` refused on, found the way it found it.
+			staleFolderLabel: targets
+				.map(trashFor)
+				.find((trash) => trash?.source === "Stale")?.staleFolderPath,
 		};
 	}, [targets, trashByAccount, hasAppointments, isError]);
 };

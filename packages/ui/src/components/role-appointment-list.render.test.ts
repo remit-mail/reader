@@ -183,4 +183,35 @@ describe("RoleAppointmentList", () => {
 			/The folder you chose for Trash is gone from the mail server\./,
 		);
 	});
+
+	it("says nothing about a fallback it cannot name", () => {
+		const html = render({
+			drafts: {
+				mailboxId: null,
+				source: "Stale",
+				staleFolderPath: "INBOX/Concepten",
+			},
+		});
+		assert.match(html, /is gone from the mail server\.</);
+		assert.doesNotMatch(html, /reader is using/);
+	});
+
+	it("announces the stale callout with the control that repairs it", () => {
+		const html = render({
+			trash: {
+				mailboxId: null,
+				source: "Stale",
+				staleFolderPath: "INBOX/Prullenbak",
+			},
+		});
+		const notice = /id="([^"]+)"[^>]*>The folder you chose for Trash/.exec(
+			html,
+		);
+		assert.ok(notice, "the callout carries an id");
+		assert.match(
+			html,
+			new RegExp(`aria-describedby="${notice[1]}"`),
+			"the Select that repairs the role points at it",
+		);
+	});
 });

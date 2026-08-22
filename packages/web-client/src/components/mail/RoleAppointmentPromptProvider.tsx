@@ -18,6 +18,7 @@ import {
 	useCallback,
 	useContext,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import { isMailboxNotSettledRefusal } from "@/components/ui/folder-role-refusal";
@@ -58,15 +59,9 @@ const RoleAppointmentPromptContext = createContext<
 const APPOINT_FAILED = Symbol("appoint-failed");
 
 /**
- * The appointment ceremony, mounted once and reached from wherever an action is
- * refused — the `ErrorBannerProvider` shape, for the same reason: the two entry
- * paths (a pre-flight refusal in `DeleteConfirmDialog`, a server 409 in
- * `useDeleteMessages`) sit far apart in the tree and neither owns the prompt.
- *
- * This owns both writes' order (D16 item 1: appoint, wait for the 200,
- * invalidate and await `/config`, then re-issue) because `useTrashByAccount`
- * reads at `staleTime: Infinity` and would otherwise word the retry from the
- * pre-appointment answer.
+ * The appointment ceremony, mounted once and reached from either entry path.
+ * It owns both writes' order (D16 item 1): appoint, wait for the 200,
+ * invalidate and await `/config`, then re-issue the action that was refused.
  */
 export const RoleAppointmentPromptProvider = ({
 	children,
@@ -133,13 +128,19 @@ export const RoleAppointmentPromptProvider = ({
 				)
 			: undefined);
 
+	// Written synchronously so a refusal raised during the replay is already the
+	// live request by the time the finished ceremony tries to tear itself down.
+	const liveRequest = useRef<AppointmentRequest | null>(null);
+
 	const close = useCallback(() => {
+		liveRequest.current = null;
 		setRequest(null);
 		setSelectedId(undefined);
 		setPhase({ kind: "choosing" });
 	}, []);
 
 	const requestAppointment = useCallback((next: AppointmentRequest) => {
+		liveRequest.current = next;
 		setRequest(next);
 		setPhase({ kind: "choosing" });
 		// Only a confirmation of an existing guess starts with something chosen:
@@ -148,6 +149,21 @@ export const RoleAppointmentPromptProvider = ({
 			next.reason === "unconfirmed" ? next.guessedMailboxId : undefined,
 		);
 	}, []);
+
+	/**
+	 * Tear the ceremony down only if it is still the one on screen. The replay
+	 * can be refused a second time — a selection spanning two accounts that both
+	 * lack a Trash — and that refusal opens its own prompt before this one
+	 * finishes. Closing unconditionally would destroy it in the same tick, with
+	 * the rows rolled back and no account of why.
+	 */
+	const closeFinished = useCallback(
+		(finished: AppointmentRequest) => {
+			if (liveRequest.current !== finished) return;
+			close();
+		},
+		[close],
+	);
 
 	const handleConfirm = useCallback(
 		(mailboxId: string) => {
@@ -174,13 +190,13 @@ export const RoleAppointmentPromptProvider = ({
 					});
 					setPhase({ kind: "acting" });
 					await request.onAppointed();
-					close();
+					closeFinished(request);
 				})
 				// The replay is the caller's mutation and banners its own failure;
 				// leaving the ceremony up over it would ask for the folder twice.
-				.catch(close);
+				.catch(() => closeFinished(request));
 		},
-		[request, appointMutation, queryClient, close],
+		[request, appointMutation, queryClient, closeFinished],
 	);
 
 	const value = useMemo(() => ({ requestAppointment }), [requestAppointment]);

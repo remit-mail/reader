@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FolderTreeNode } from "../lib/folder-tree.js";
 import {
 	type PromptPhase,
@@ -44,16 +44,32 @@ type HarnessProps = Omit<
 	| "onCancel"
 	| "folders"
 	| "delimiter"
-> & { initialSelectedId?: string };
+> & {
+	initialSelectedId?: string;
+	/** Phases the story steps through, so one story can show a sequence. */
+	phaseCycle?: readonly PromptPhase[];
+};
 
-function Harness({ initialSelectedId, ...props }: HarnessProps) {
+function Harness({ initialSelectedId, phaseCycle, ...props }: HarnessProps) {
 	const [selectedId, setSelectedId] = useState(initialSelectedId);
+	const [step, setStep] = useState(0);
+
+	useEffect(() => {
+		if (!phaseCycle || phaseCycle.length < 2) return;
+		const timer = setInterval(
+			() => setStep((current) => (current + 1) % phaseCycle.length),
+			2200,
+		);
+		return () => clearInterval(timer);
+	}, [phaseCycle]);
+
 	return (
 		<RoleAppointmentPrompt
 			{...props}
 			open
 			folders={FOLDERS}
 			delimiter="/"
+			phase={phaseCycle?.[step] ?? props.phase}
 			selectedId={selectedId}
 			onSelect={setSelectedId}
 			onConfirm={() => {}}
@@ -113,7 +129,11 @@ export const Unconfirmed: Story = {
 	},
 };
 
-/** Two writes behind one press: the appointment, then the action it unblocks. */
+/**
+ * Two writes behind one press, and the story steps through both: the
+ * appointment, then the delete it unblocks. Neither has a way out — the write
+ * has left, and cancelling a half-applied ceremony is worse than waiting.
+ */
 export const Pending: Story = {
 	name: "pending",
 	args: {
@@ -121,6 +141,7 @@ export const Pending: Story = {
 		action: { kind: "delete", count: 12 },
 		initialSelectedId: "mb-prullenbak",
 		phase: { kind: "appointing" },
+		phaseCycle: [{ kind: "appointing" }, { kind: "acting" }],
 	},
 };
 

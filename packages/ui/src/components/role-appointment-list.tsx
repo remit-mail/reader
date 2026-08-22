@@ -144,16 +144,18 @@ function RoleAppointmentRow({
 		);
 	})();
 
-	const staleFallback = (() => {
-		if (role === "trash") {
-			return "Deleting mail is stopped until you pick another one.";
-		}
-		if (!appointed) return "Nothing is filling the role in the meantime.";
-		return `reader is using ${providerLeaf(appointed.providerPath)} instead.`;
-	})();
+	// Trash is the one role where a broken appointment stops a verb; the others
+	// fall back to a live folder. With no fallback to name, the sentence stops
+	// rather than inventing one.
+	const staleFallback =
+		role === "trash"
+			? " Deleting mail is stopped until you pick another one."
+			: appointed
+				? ` reader is using ${providerLeaf(appointed.providerPath)} instead.`
+				: "";
 	const staleNotice = `The folder you chose for ${label}${
 		staleFolderPath ? ` — ${staleFolderPath} —` : ""
-	} is gone from the mail server. ${staleFallback}`;
+	} is gone from the mail server.${staleFallback}`;
 
 	return (
 		<div className="flex flex-col gap-1 border-b border-line px-row-inset py-2.5 last:border-b-0">
@@ -167,7 +169,11 @@ function RoleAppointmentRow({
 					className="w-56 shrink-0"
 					value={mailboxId ?? NONE}
 					aria-label={`Folder for ${label}`}
-					aria-describedby={subtitle ? subtitleId : undefined}
+					// Whichever line the row renders — the provenance subtitle or the
+					// stale callout — is the one that explains this control.
+					aria-describedby={
+						subtitle || source === "Stale" ? subtitleId : undefined
+					}
 					onChange={(event) =>
 						onAppoint(
 							role,
@@ -208,7 +214,9 @@ function RoleAppointmentRow({
 			{source === "Stale" && (
 				<Banner tone="warning" variant="soft" className="ml-[7.5rem]">
 					<span className="flex flex-wrap items-center gap-2">
-						<span className="flex-1">{staleNotice}</span>
+						<span id={subtitleId} className="flex-1">
+							{staleNotice}
+						</span>
 						<Button
 							variant="secondary"
 							size="sm"

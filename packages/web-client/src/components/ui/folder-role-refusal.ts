@@ -5,56 +5,70 @@
  * appointment prompt over an unrelated conflict. A 409 without one of these
  * codes is somebody else's error and keeps today's banner.
  */
+import type {
+	ApiError,
+	RemitImapCanonicalMailboxRole,
+} from "@remit/api-http-client/types.gen.ts";
+import { CanonicalMailboxRole } from "@remit/domain-enums";
 
 /** Why the role is unresolved, as the API's `details.reason` spells it. */
 export type FolderRoleRefusalReason = "none" | "stale" | "unconfirmed";
 
+/** `FolderRoleConflict`'s `details`, narrowed to the values the prompt needs. */
 export interface FolderRoleRefusal {
 	reason: FolderRoleRefusalReason;
-	role: string;
+	role: RemitImapCanonicalMailboxRole;
 	accountId: string;
 }
 
-const REASONS: ReadonlySet<string> = new Set(["none", "stale", "unconfirmed"]);
+const REASONS: ReadonlySet<string> = new Set<FolderRoleRefusalReason>([
+	"none",
+	"stale",
+	"unconfirmed",
+]);
 
-const bodyOf = (error: unknown): Record<string, unknown> | undefined =>
+const ROLES: ReadonlySet<string> = new Set(Object.values(CanonicalMailboxRole));
+
+/**
+ * The wire body as `handleError` emits it — flat, so `code` and `details` sit
+ * at the top level. Everything is re-checked at runtime: this is a network
+ * boundary, and the type only says what the contract promises.
+ */
+const bodyOf = (error: unknown): Partial<ApiError> | undefined =>
 	typeof error === "object" && error !== null
-		? (error as Record<string, unknown>)
+		? (error as Partial<ApiError>)
 		: undefined;
 
-const detailsOf = (
-	body: Record<string, unknown>,
-): Record<string, unknown> | undefined => {
-	const { details } = body;
-	if (typeof details !== "object" || details === null) return undefined;
-	return details as Record<string, unknown>;
-};
-
 const stringAt = (
-	details: Record<string, unknown>,
+	details: ApiError["details"],
 	key: string,
 ): string | undefined => {
-	const value = details[key];
+	const value = details?.[key];
 	return typeof value === "string" ? value : undefined;
 };
 
 /**
- * The refusal, or `undefined` for every other failure. Both facts the prompt
- * needs travel with it: the account to appoint on (the delete endpoint's body
- * carries none) and the reason, which decides the framing.
+ * The refusal, or `undefined` for every other failure. Every fact the prompt
+ * needs travels with it: the account to appoint on (the delete endpoint's body
+ * carries none), the role, and the reason, which decides the framing.
  */
 export const isFolderRoleRefusal = (
 	error: unknown,
 ): FolderRoleRefusal | undefined => {
 	const body = bodyOf(error);
 	if (body?.code !== "folder_role_unresolved") return undefined;
-	const details = detailsOf(body);
-	if (!details) return undefined;
+	const { details } = body;
+	if (typeof details !== "object" || details === null) return undefined;
 	const reason = stringAt(details, "reason");
 	const role = stringAt(details, "role");
 	const accountId = stringAt(details, "accountId");
-	if (!reason || !REASONS.has(reason) || !role || !accountId) return undefined;
-	return { reason: reason as FolderRoleRefusalReason, role, accountId };
+	if (!reason || !REASONS.has(reason)) return undefined;
+	if (!role || !ROLES.has(role) || !accountId) return undefined;
+	return {
+		reason: reason as FolderRoleRefusalReason,
+		role: role as RemitImapCanonicalMailboxRole,
+		accountId,
+	};
 };
 
 /**
