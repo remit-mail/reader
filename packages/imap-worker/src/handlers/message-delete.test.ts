@@ -5,6 +5,7 @@ import type { Logger } from "@remit/logger-lambda";
 import type { MessageDeleteEvent } from "../events.js";
 import {
 	buildThreadMessageTrashUpdate,
+	buildThreadMessageUndelete,
 	deleteAllThreadMessagesForMessage,
 	handleMessageDelete,
 	type MessageDeleteDeps,
@@ -110,6 +111,45 @@ describe("buildThreadMessageTrashUpdate", () => {
 			hasStars: tm.hasStars,
 			hasAttachment: tm.hasAttachment,
 		});
+	});
+});
+
+describe("buildThreadMessageUndelete", () => {
+	// Every `set` payload here is hand-written, so the three builders can drift
+	// apart silently. Undelete is the exact inverse of the trash update's
+	// deletion mark, and it must move nothing else: the mail is still in Trash
+	// at the uid the row already carries.
+
+	it("clears only the deletion mark that buildThreadMessageTrashUpdate set", () => {
+		const trashed = buildThreadMessageTrashUpdate(
+			baseThreadMessage,
+			42,
+			trashMailboxId,
+		);
+		const undelete = buildThreadMessageUndelete(baseThreadMessage);
+
+		assert.strictEqual(trashed.set.isDeleted, true);
+		assert.strictEqual(undelete.set.isDeleted, false);
+		assert.deepStrictEqual(
+			Object.keys(undelete.set),
+			["isDeleted"],
+			"undelete must not move the row's uid or mailbox",
+		);
+	});
+
+	it("carries the CURRENT row state in composites, like every other builder", () => {
+		const undelete = buildThreadMessageUndelete(baseThreadMessage);
+
+		assert.deepStrictEqual(
+			undelete.composites,
+			buildThreadMessageTrashUpdate(baseThreadMessage, 42, trashMailboxId)
+				.composites,
+		);
+		assert.strictEqual(
+			undelete.composites.isDeleted,
+			baseThreadMessage.isDeleted,
+			"composites hold the state to check against, never the new value",
+		);
 	});
 });
 
@@ -221,7 +261,7 @@ interface Harness {
 	connection: Connection;
 	threadMessageUpdateError?: Error;
 	threadMessage: Record<string, unknown> | null;
-	allThreadMessages: { accountConfigId: string; threadMessageId: string }[];
+	allThreadMessages: Record<string, unknown>[];
 	getConnectionCount: number;
 	disconnectCount: number;
 }
@@ -271,8 +311,8 @@ const fresh = (): Harness => ({
 		threadMessageId: "tm-1",
 	},
 	allThreadMessages: [
-		{ accountConfigId: "cfg-1", threadMessageId: "tm-1" },
-		{ accountConfigId: "cfg-1", threadMessageId: "tm-2" },
+		{ ...baseThreadMessage, accountConfigId: "cfg-1", threadMessageId: "tm-1" },
+		{ ...baseThreadMessage, accountConfigId: "cfg-1", threadMessageId: "tm-2" },
 	],
 	getConnectionCount: 0,
 	disconnectCount: 0,
@@ -627,6 +667,42 @@ describe("handleMessageDelete", () => {
 			mailboxId: "src-mbx",
 			isDeleted: false,
 		});
+	});
+
+	it("hands back every listing row a message has, not just the first", async () => {
+		const unversioned = {
+			...moveEvent,
+			schemaVersion: undefined,
+		} as unknown as MessageDeleteEvent;
+
+		await handleMessageDelete(unversioned, noopLog, deps());
+
+		assert.deepEqual(
+			called("threadMessage.update").map((c) => c.args[1]),
+			["tm-1", "tm-2"],
+		);
+	});
+
+	it("finishes the removal when an abandoned delete has no listing rows left", async () => {
+		// A permanent delete removes them before it enqueues, and they cannot be
+		// rebuilt here. Restoring the Message alone leaves mail nothing can list,
+		// which is worse than either consistent state; the server copy survives
+		// and a full sync brings it back.
+		h.allThreadMessages = [];
+		const unversioned = {
+			...permanentEvent,
+			schemaVersion: undefined,
+		} as unknown as MessageDeleteEvent;
+
+		await handleMessageDelete(unversioned, noopLog, deps());
+
+		assert.equal(called("connection.deleteMessages").length, 0);
+		assert.deepEqual(called("message.delete")[0]?.args, ["msg-1"]);
+		assert.equal(
+			called("message.update").length,
+			0,
+			"never leave a Message row no listing can reach",
+		);
 	});
 
 	it("marks failed and rethrows on an unclassified IMAP error", async () => {

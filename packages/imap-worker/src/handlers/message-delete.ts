@@ -3,6 +3,7 @@ import type {
 	IThreadMessageRepository,
 	ThreadMessageItem,
 } from "@remit/data-ports";
+import { isCurrentSchemaVersion } from "@remit/data-ports/mutation-events";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
@@ -13,7 +14,7 @@ import {
 } from "@remit/mailbox-service";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
-import { isCurrentSchemaVersion, type MessageDeleteEvent } from "../events.js";
+import type { MessageDeleteEvent } from "../events.js";
 import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
@@ -200,23 +201,49 @@ export const handleMessageDelete = async (
 			{ alert, accountId, messageId, uid, mailboxPath, operation },
 			reason,
 		);
+
+		const threadMessages = await threadMessageService.findAllByMessageId(
+			account.accountConfigId,
+			messageId,
+		);
+
+		// A permanent delete removes the listing rows before it enqueues, and
+		// they cannot be rebuilt from here — the row is denormalized off an
+		// envelope only the sync path shapes. Restoring the Message alone would
+		// leave mail nothing can list, which is the silent vanish rather than a
+		// visible failure, so the local removal finishes instead. The server copy
+		// survives (nothing was expunged) and a full sync of the mailbox brings
+		// it back. Reachable only through the rollout window, where a v1 event
+		// carries no `schemaVersion`.
+		if (threadMessages.length === 0) {
+			log.error(
+				{
+					alert: "message_delete_abandoned_after_local_cleanup",
+					accountId,
+					messageId,
+					uid,
+					mailboxPath,
+				},
+				"Abandoned delete had no listing rows left to restore; the server copy was not expunged",
+			);
+			await messageService.delete(messageId);
+			return;
+		}
+
 		await messageService.updateUid(messageId, uid, mailboxId);
 		await messageService.update(messageId, {
 			status: MessageStatus.active,
 			syncStatus: MessageSyncStatus.failed,
 		});
-		const threadMessage = await threadMessageService.findByMessageId(
-			account.accountConfigId,
-			messageId,
-		);
-		if (!threadMessage) return;
-		const args = buildThreadMessageMoveRevert(threadMessage, uid, mailboxId);
-		await threadMessageService.update(
-			threadMessage.accountConfigId,
-			threadMessage.threadMessageId,
-			args.set,
-			{ composites: args.composites },
-		);
+		for (const threadMessage of threadMessages) {
+			const args = buildThreadMessageMoveRevert(threadMessage, uid, mailboxId);
+			await threadMessageService.update(
+				threadMessage.accountConfigId,
+				threadMessage.threadMessageId,
+				args.set,
+				{ composites: args.composites },
+			);
+		}
 	};
 
 	if (!isCurrentSchemaVersion(event.schemaVersion)) {

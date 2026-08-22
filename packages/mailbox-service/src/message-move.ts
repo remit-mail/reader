@@ -22,6 +22,7 @@ import {
 	UNCONFIRMED_TRASH_FOLDER_REASON,
 } from "@remit/data-ports/folder-role";
 import { deriveCopyMessageId } from "@remit/data-ports/id";
+import { MUTATION_EVENT_SCHEMA_VERSION } from "@remit/data-ports/mutation-events";
 import {
 	CanonicalMailboxRole,
 	MessageStatus,
@@ -33,14 +34,6 @@ import { createQueueProducer } from "@remit/sqs-client/producer";
  * Event types for message move/delete operations.
  * These match the worker event types in remit-imap-worker/events.ts.
  */
-
-/**
- * The contract version the mail-destroying events are minted under, matching
- * `MUTATION_EVENT_SCHEMA_VERSION` in remit-imap-worker/events.ts. The worker
- * abandons anything else rather than inferring the fields it is missing.
- */
-const MUTATION_EVENT_SCHEMA_VERSION = 2;
-
 interface MessageDeleteEvent {
 	type: "MESSAGE_DELETE";
 	schemaVersion: typeof MUTATION_EVENT_SCHEMA_VERSION;

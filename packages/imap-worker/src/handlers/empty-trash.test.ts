@@ -50,6 +50,7 @@ interface Harness {
 	connection: Connection;
 	localMessages: LocalMessage[];
 	threadMessage: boolean;
+	messagesWithoutListingRow: string[];
 	getConnectionCount: number;
 	disconnectCount: number;
 }
@@ -87,9 +88,27 @@ const fresh = (): Harness => ({
 	connection: buildConnection(),
 	localMessages: [deleting("msg-1", 10), deleting("msg-2", 11)],
 	threadMessage: true,
+	messagesWithoutListingRow: [],
 	getConnectionCount: 0,
 	disconnectCount: 0,
 });
+
+// Empty Trash only flips `isDeleted` on the listing row, so its presence is how
+// the revert tells its own marks from a permanent delete's (which removes them
+// up front).
+const listingRow = (messageId: string) =>
+	h.messagesWithoutListingRow.includes(messageId) || !h.threadMessage
+		? null
+		: {
+				accountConfigId: "cfg-1",
+				threadMessageId: `tm-${messageId}`,
+				sentDate: 1_700_000_000_000,
+				mailboxId: "trash-mbx",
+				isRead: false,
+				isDeleted: true,
+				hasStars: false,
+				hasAttachment: false,
+			};
 
 const deps = (): EmptyTrashDeps =>
 	({
@@ -107,18 +126,11 @@ const deps = (): EmptyTrashDeps =>
 			},
 			threadMessage: {
 				findByMessageId: async (_cfg: string, messageId: string) =>
-					h.threadMessage
-						? {
-								accountConfigId: "cfg-1",
-								threadMessageId: `tm-${messageId}`,
-								sentDate: 1_700_000_000_000,
-								mailboxId: "trash-mbx",
-								isRead: false,
-								isDeleted: true,
-								hasStars: false,
-								hasAttachment: false,
-							}
-						: null,
+					listingRow(messageId),
+				findAllByMessageId: async (_cfg: string, messageId: string) => {
+					const row = listingRow(messageId);
+					return row ? [row] : [];
+				},
 				delete: record("threadMessage.delete"),
 				update: record("threadMessage.update"),
 			},
@@ -214,13 +226,44 @@ describe("handleEmptyTrash", () => {
 		);
 	});
 
-	it("expunges nothing and keeps every row when the server trash is empty", async () => {
+	it("hands every row back when another client emptied the trash first", async () => {
+		// Apple Mail got there first, so the SEARCH is empty and this expunge
+		// covers nothing. Leaving the rows `deleting` hides mail that no longer
+		// exists anywhere, with nothing left to clear the mark.
 		h.connection.search = async () => [];
 
 		await handleEmptyTrash(event, noopLog, deps());
 
 		assert.equal(called("connection.deleteMessages").length, 0);
 		assert.equal(called("message.delete").length, 0);
+		assert.deepEqual(revertedMessageIds(), ["msg-1", "msg-2"]);
+		assert.deepEqual(undeletedThreadMessageIds(), ["tm-msg-1", "tm-msg-2"]);
+	});
+
+	it("hands back what a partial sweep left when the event is redelivered", async () => {
+		// The first attempt expunged and cleaned up msg-1, then died before
+		// msg-2. On redelivery the server has nothing left to find, and msg-2
+		// would otherwise sit marked for a deletion that will never come.
+		h.localMessages = [deleting("msg-2", 11)];
+		h.connection.search = async () => [];
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.equal(called("message.delete").length, 0);
+		assert.deepEqual(revertedMessageIds(), ["msg-2"]);
+	});
+
+	it("leaves a row whose listing rows another operation already removed", async () => {
+		// A permanent delete inside Trash removes its listing rows up front and
+		// marks the Message `deleting`. Reverting it here would resurrect a row
+		// that operation is about to remove.
+		h.localMessages = [deleting("msg-1", 10), deleting("msg-expunging", 12)];
+		h.messagesWithoutListingRow = ["msg-expunging"];
+		h.connection.search = async () => [];
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.deepEqual(revertedMessageIds(), ["msg-1"]);
 	});
 
 	it("deletes the message even when it has no thread row", async () => {

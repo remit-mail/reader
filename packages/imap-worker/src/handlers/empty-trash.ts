@@ -1,5 +1,7 @@
 import { getClient } from "@remit/backend/client";
+import type { MessageItem } from "@remit/data-ports";
 import { trashMailboxAt } from "@remit/data-ports/folder-role";
+import { isCurrentSchemaVersion } from "@remit/data-ports/mutation-events";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
@@ -9,7 +11,7 @@ import {
 } from "@remit/mailbox-service";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
-import { type EmptyTrashEvent, isCurrentSchemaVersion } from "../events.js";
+import type { EmptyTrashEvent } from "../events.js";
 import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
@@ -78,12 +80,48 @@ export const handleEmptyTrash = async (
 	}
 
 	// `emptyTrash` marks every row in the folder `deleting` + `isDeleted` before
-	// enqueueing, so an expunge that does not happen leaves healthy mail hidden
-	// from every listing with nothing to unhide it. Reverting by status scope
-	// rather than by a remembered set keeps the repair correct for rows that
-	// arrived after the mark. Not `failed`: the mail is intact on the server,
-	// and saying otherwise about a whole folder is a lie. The failure lives in
-	// the log and in what the folder-roles pane shows.
+	// enqueueing, so any row this expunge does not carry through is hidden from
+	// every listing with nothing else to unhide it: no sync clears it, a repeat
+	// Empty Trash skips it again, and listings filter `isDeleted`. Handing it
+	// back is right whichever way it got left behind — mail already gone from
+	// the server becomes visible and the next cursor rebuild reconciles it, and
+	// an unsettled move is rewritten by its own MESSAGE_DELETE. Not `failed`:
+	// the mail is intact, and saying otherwise about a whole folder is a lie.
+	const handBackMarkedRows = async (
+		rows: readonly { messageId: string; status: MessageItem["status"] }[],
+	): Promise<number> => {
+		let revertedCount = 0;
+		for (const message of rows) {
+			if (message.status !== MessageStatus.deleting) continue;
+
+			// Empty Trash only flips `isDeleted` on the listing rows; a permanent
+			// delete removes them up front. So a `deleting` row with no listing row
+			// was marked by some other in-flight operation, and reverting the
+			// Message under it would resurrect what that one is about to remove.
+			const threadMessages = await threadMessageService.findAllByMessageId(
+				account.accountConfigId,
+				message.messageId,
+			);
+			if (threadMessages.length === 0) continue;
+
+			await messageService.update(message.messageId, {
+				status: MessageStatus.active,
+				syncStatus: MessageSyncStatus.synced,
+			});
+			for (const threadMessage of threadMessages) {
+				const args = buildThreadMessageUndelete(threadMessage);
+				await threadMessageService.update(
+					threadMessage.accountConfigId,
+					threadMessage.threadMessageId,
+					args.set,
+					{ composites: args.composites },
+				);
+			}
+			revertedCount += 1;
+		}
+		return revertedCount;
+	};
+
 	const abandonEmptyTrash = async (
 		reason: string,
 		alert: string,
@@ -93,29 +131,9 @@ export const handleEmptyTrash = async (
 			{ alert, accountId, trashMailboxId, trashMailboxPath, ...context },
 			reason,
 		);
-
-		const rows = await messageService.listAllByMailbox(trashMailboxId);
-		for (const message of rows) {
-			if (message.status !== MessageStatus.deleting) continue;
-
-			await messageService.update(message.messageId, {
-				status: MessageStatus.active,
-				syncStatus: MessageSyncStatus.synced,
-			});
-
-			const threadMessage = await threadMessageService.findByMessageId(
-				account.accountConfigId,
-				message.messageId,
-			);
-			if (!threadMessage) continue;
-			const args = buildThreadMessageUndelete(threadMessage);
-			await threadMessageService.update(
-				threadMessage.accountConfigId,
-				threadMessage.threadMessageId,
-				args.set,
-				{ composites: args.composites },
-			);
-		}
+		await handBackMarkedRows(
+			await messageService.listAllByMailbox(trashMailboxId),
+		);
 	};
 
 	if (!isCurrentSchemaVersion(event.schemaVersion)) {
@@ -226,10 +244,7 @@ export const handleEmptyTrash = async (
 					}
 
 					// Local cleanup follows the expunge, uid by uid. What was expunged
-					// is a fact this connection observed; anything else in the folder —
-					// mail that landed between the SEARCH and now, or a move the
-					// unordered dev queue let outrun this event — is still on the
-					// server and keeps its rows.
+					// is a fact this connection observed, and only those rows go.
 					const expunged = new Set(uids);
 					const localMessages =
 						await messageService.listAllByMailbox(trashMailboxId);
@@ -253,7 +268,18 @@ export const handleEmptyTrash = async (
 						}
 					}
 
-					log.info({ accountId, deletedCount }, "Trash emptied successfully");
+					// Everything the SEARCH did not name is still marked for a deletion
+					// that will never come: mail another client already emptied, mail
+					// that reached Trash after the SEARCH, or a redelivery finishing a
+					// partial sweep. All three must come back rather than sit invisible.
+					const revertedCount = await handBackMarkedRows(
+						localMessages.filter((message) => !expunged.has(message.uid)),
+					);
+
+					log.info(
+						{ accountId, deletedCount, revertedCount },
+						"Trash emptied successfully",
+					);
 				})
 				.catch(async (error: unknown) => {
 					if (error instanceof MailboxCursorPausedError) {
