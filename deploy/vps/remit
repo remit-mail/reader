@@ -1463,13 +1463,22 @@ REQUEST_MAX_AGE_SECONDS=1800
 # whitelisted key, so the caller rejects the whole file. This is deliberately
 # stricter than a JSON parser: the request is a flat object of strings and
 # anything else is refused.
+#
+# The object is the whole file, not a fragment of it, and every key it holds is
+# a key the file declared (#241). Outside a string only four things are legal:
+# the one object, the punctuation between its members, whitespace, and nothing
+# else. So a token before the opening brace, a token after the closing one, a
+# second object, and a member the file ran together with the one before it
+# because it carried no comma, are all the same refusal. A parse that reads to
+# the first closing brace and stops, or that skips from a value straight into
+# the next quoted key, reads only the half an attacker wants read.
 request_keys() {
 	printf '%s' "$1" | tr '\n\r' '  ' | awk '
 		{
 			s = $0
 			n = length(s)
 			depth = 0; instr = 0; esc = 0; expectkey = 0
-			collecting = 0; key = ""; invalid = 0
+			collecting = 0; key = ""; invalid = 0; closed = 0; wantsep = 0
 			for (i = 1; i <= n; i++) {
 				c = substr(s, i, 1)
 				if (instr) {
@@ -1478,11 +1487,15 @@ request_keys() {
 					if (c == "\"") {
 						instr = 0
 						if (collecting) { print key; collecting = 0; key = "" }
+						else { wantsep = 1 }
 						continue
 					}
 					if (collecting) key = key c
 					continue
 				}
+				if (c == " " || c == "\t") { continue }
+				if (depth == 0 && (closed || c != "{")) { invalid = 1; break }
+				if (wantsep && c != "," && c != "}") { invalid = 1; break }
 				if (c == "\"") {
 					instr = 1
 					if (depth == 1 && expectkey) { collecting = 1; key = ""; expectkey = 0 }
@@ -1490,9 +1503,11 @@ request_keys() {
 				}
 				if (c == "{") { depth++; if (depth == 1) { expectkey = 1 } else { invalid = 1 } ; continue }
 				if (c == "[") { invalid = 1; continue }
-				if (c == "}") { depth--; continue }
+				if (c == "}") { depth--; wantsep = 0; if (depth == 0) { closed = 1 } ; continue }
 				if (c == "]") { invalid = 1; continue }
-				if (c == "," && depth == 1) { expectkey = 1; continue }
+				if (c == "," && depth == 1) { expectkey = 1; wantsep = 0; continue }
+				if (c == ":" && depth == 1) { continue }
+				invalid = 1; break
 			}
 			if (invalid || depth != 0) print "__INVALID__"
 		}
