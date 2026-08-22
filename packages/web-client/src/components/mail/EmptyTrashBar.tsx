@@ -168,7 +168,8 @@ export function EmptyTrashBar({
 				description={confirm.description}
 				confirmLabel={confirm.confirmLabel}
 				destructive
-				isBusy={isEmptying}
+				// The dialog hands the decision over and closes; the in-flight state
+				// lives on the strip's own button, which is where the verb is.
 				onConfirm={() => {
 					setConfirming(false);
 					onEmpty();
