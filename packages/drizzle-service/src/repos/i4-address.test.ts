@@ -474,6 +474,85 @@ describe("AddressRepo", () => {
 		]);
 	});
 
+	test("listByAccountConfig ranks the domain a bare term names above one that only starts with it", async () => {
+		const accountConfigId = randomId();
+		const lookalike = await repo.createAddress({
+			...makeAddressInput(accountConfigId, "matthijs@ischen.nl.co"),
+			displayName: "Ischen Support",
+			normalizedCompound: "ischen support matthijs@ischen.nl.co",
+			inboundCount: 900,
+		});
+		// The envelope's own spelling: `domain` is stored unfolded.
+		const own = await repo.createAddress({
+			...makeAddressInput(accountConfigId, "matthijs@ischen.nl"),
+			domain: "Ischen.NL",
+			displayName: "Matthijs van Henten",
+			normalizedCompound: "matthijs van henten matthijs@ischen.nl",
+			inboundCount: 1,
+		});
+
+		const found = await repo.listByAccountConfig({
+			accountConfigId,
+			search: "ischen.nl",
+		});
+		assert.deepEqual(
+			found.items.map((a) => a.normalizedEmail),
+			[own.normalizedEmail, lookalike.normalizedEmail],
+			"the domain the term names leads one that registered a suffix of it",
+		);
+
+		const onlySuggestion = await repo.listByAccountConfig({
+			accountConfigId,
+			search: "ischen.nl",
+			limit: 1,
+		});
+		assert.deepEqual(
+			onlySuggestion.items.map((a) => a.normalizedEmail),
+			[own.normalizedEmail],
+			"volume on the lookalike must not take the single suggestion slot",
+		);
+
+		await repo.deleteManyAddresses(accountConfigId, [
+			lookalike.addressId,
+			own.addressId,
+		]);
+	});
+
+	test("listByAccountConfig keeps an address the term spells out whole above a row that only owns the domain", async () => {
+		const accountConfigId = randomId();
+		// A harvested header that carried the bare domain where an address belongs.
+		const bare = await repo.createAddress({
+			addressId: randomId(),
+			accountConfigId,
+			localPart: "ischen.nl",
+			domain: "",
+			normalizedEmail: "ischen.nl",
+			normalizedCompound: "ischen.nl",
+			displayName: "Ischen",
+		});
+		const domainOwner = await repo.createAddress({
+			...makeAddressInput(accountConfigId, "matthijs@ischen.nl"),
+			displayName: "Matthijs van Henten",
+			normalizedCompound: "matthijs van henten matthijs@ischen.nl",
+			inboundCount: 900,
+		});
+
+		const found = await repo.listByAccountConfig({
+			accountConfigId,
+			search: "ischen.nl",
+		});
+		assert.deepEqual(
+			found.items.map((a) => a.normalizedEmail),
+			[bare.normalizedEmail, domainOwner.normalizedEmail],
+			"the address that matches whole stays above the domain tier below it",
+		);
+
+		await repo.deleteManyAddresses(accountConfigId, [
+			bare.addressId,
+			domainOwner.addressId,
+		]);
+	});
+
 	test("listByAccountConfig keeps a leading display-name match above a domain that only contains the term", async () => {
 		const accountConfigId = randomId();
 		const shop = await repo.createAddress({
