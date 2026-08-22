@@ -889,6 +889,40 @@ describe("the control seam", () => {
 		assert.ok(!box.log().includes("compose pull"));
 	});
 
+	it("rejects trailing tokens after the object the request ends with", () => {
+		// A file whose first object is well-formed is still a file the backend did
+		// not write. Reading only up to the balanced brace honours the half an
+		// attacker wants honoured, so the whole file is refused (#241).
+		const box = sandbox({ scenario: { probe: "ok" } });
+		const request = JSON.stringify({
+			targetVersion: "v1.5.0",
+			requestedAt: justNow(),
+		});
+		writeFileSync(
+			join(box.state, "request.json"),
+			`${request} ${JSON.stringify({ registry: "ghcr.io/attacker" })}`,
+		);
+		const result = box.run(["update"]);
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run, null);
+		assert.ok(!box.log().includes("compose pull"));
+		assert.ok(!box.log().includes("compose stop"));
+	});
+
+	it("takes a request padded with whitespace around the object", () => {
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			`\n  ${JSON.stringify({
+				targetVersion: "v1.5.0",
+				requestedAt: justNow(),
+			})}\n\n`,
+		);
+		const result = box.run(["update"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "succeeded");
+	});
+
 	it("reads the request off the control volume, separate from the state volume", () => {
 		// The updater mounts request.json/state.json on a volume shared with the
 		// backend, while the run's lock, breadcrumb and snapshots stay on its own
