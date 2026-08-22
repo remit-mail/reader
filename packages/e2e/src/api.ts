@@ -550,6 +550,32 @@ export class ApiClient {
 	}
 
 	/**
+	 * Create a folder and hold until the mail server confirms it, which is what
+	 * the create surface itself does. A role cannot be appointed to a folder
+	 * that is still `pending` (#887), so a spec that appoints one waits here.
+	 */
+	async createSettledMailbox(
+		accountId: string,
+		fullPath: string,
+	): Promise<Mailbox> {
+		const created = await this.createMailbox(accountId, fullPath);
+		const mailboxes = await waitFor(
+			() => this.listMailboxes(accountId),
+			(list) =>
+				list.some(
+					(box) =>
+						box.mailboxId === created.mailboxId && box.syncStatus === "synced",
+				),
+			{ timeoutMs: 60_000, what: `"${fullPath}" to settle on the mail server` },
+		);
+		const settled = mailboxes.find(
+			(box) => box.mailboxId === created.mailboxId,
+		);
+		if (!settled) throw new Error("unreachable: matched but not found");
+		return settled;
+	}
+
+	/**
 	 * Appoint a canonical role to a folder — the endpoint Settings › Folder
 	 * roles calls. Every special-folder lookup reads what this writes, so a spec
 	 * uses it to say which folder an operation must land in rather than relying
