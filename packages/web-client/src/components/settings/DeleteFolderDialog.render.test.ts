@@ -566,6 +566,10 @@ describe("DeleteFolderDialog", () => {
 			await flush();
 		} finally {
 			Date.now = realNow;
+			// The reads taken under the fake clock cached a future timestamp, which
+			// reads as fresh once the real clock is back; drop them so the resumed
+			// wait talks to the server again.
+			queryClient.clear();
 		}
 
 		assert.equal(triggered, 1, "one round is asked for");
