@@ -10,7 +10,7 @@ import {
 	FolderTreePicker,
 } from "@remit/ui";
 import { AlertTriangle, FolderInput, Loader2, Trash2, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useDeleteFolder } from "@/hooks/useDeleteFolder";
 import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
@@ -38,11 +38,11 @@ const emailCount = (count: number): string =>
 
 /**
  * Per-folder delete wizard. An empty folder is a single destructive confirm,
- * settled against a fresh server read rather than the folder's last synced
- * count; a folder with mail first asks what happens to the messages — delete them with
- * the folder, or move them elsewhere (batched, with visible progress) before
- * the now-empty folder is removed. Closing mid-move keeps already-moved mail
- * moved; re-opening enumerates what's left and continues.
+ * settled against a sync round asked for on the spot rather than the folder's
+ * last synced count; a folder with mail first asks what happens to the messages
+ * — delete them with the folder, or move them elsewhere (batched, with visible
+ * progress) before the now-empty folder is removed. Closing mid-move keeps
+ * already-moved mail moved; re-opening enumerates what's left and continues.
  */
 export function DeleteFolderDialog({
 	open,
@@ -74,12 +74,18 @@ export function DeleteFolderDialog({
 		onDeleted: onClose,
 	});
 
+	// The count the wizard opens on, read once. It must not re-stage the dialog
+	// mid-flow: the refusal below invalidates the folder list on purpose, and a
+	// count landing from that refetch would wipe the refusal off the screen.
+	const openingCountRef = useRef(folder.messageCount);
+	openingCountRef.current = folder.messageCount;
+
 	useEffect(() => {
 		if (!open) return;
-		setStage(initialStage(folder.messageCount));
+		setStage(initialStage(openingCountRef.current));
 		setArrivedSinceSync(undefined);
 		reset();
-	}, [open, folder.messageCount, reset]);
+	}, [open, reset]);
 
 	useEffect(() => {
 		if (!open) return;
@@ -95,7 +101,7 @@ export function DeleteFolderDialog({
 
 	const handleDeleteEmpty = useCallback(async () => {
 		const outcome = await deleteIfEmpty();
-		if (!outcome.blocked) return;
+		if (outcome.status !== "blocked") return;
 		setArrivedSinceSync(outcome.messageCount);
 		setStage("choose-fate");
 	}, [deleteIfEmpty]);
@@ -147,7 +153,9 @@ export function DeleteFolderDialog({
 			return (
 				<div className="flex flex-col items-center gap-3 px-5 py-10 text-center">
 					<Loader2 className="size-8 animate-spin text-accent-2" />
-					<p className="text-sm font-medium text-fg">Checking the folder…</p>
+					<p className="text-sm font-medium text-fg">
+						Checking the folder on the mail server…
+					</p>
 				</div>
 			);
 		}
@@ -214,7 +222,7 @@ export function DeleteFolderDialog({
 					<div className="space-y-3 px-5 py-4 text-sm text-fg-muted">
 						{arrivedSinceSync !== undefined && (
 							<Banner tone="warning" variant="soft">
-								{`This folder is not empty: ${emailCount(arrivedSinceSync)} arrived since it was last synced. Nothing was deleted.`}
+								{`This folder is not empty: the mail server reports ${emailCount(arrivedSinceSync)} in it. Nothing was deleted.`}
 							</Banner>
 						)}
 						<p>

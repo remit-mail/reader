@@ -64,6 +64,7 @@ i18n.use(initReactI18next).init({
 
 let container: HTMLElement;
 let root: Root;
+let queryClient: QueryClient;
 const originalFetch = globalThis.fetch;
 
 interface FetchCall {
@@ -71,7 +72,7 @@ interface FetchCall {
 	method: string;
 	body: string;
 }
-type FetchRoute = (call: FetchCall) => Response;
+type FetchRoute = (call: FetchCall) => Response | Promise<Response>;
 let route: FetchRoute = () => new Response("{}", { status: 200 });
 
 const json = (body: unknown): Response =>
@@ -79,6 +80,31 @@ const json = (body: unknown): Response =>
 		status: 200,
 		headers: { "Content-Type": "application/json" },
 	});
+
+/**
+ * `GET /sync/status`, the read the empty-folder delete waits on. `lastSyncedAt`
+ * only advances once `POST /sync` has been answered, so a count read before the
+ * trigger is distinguishable from one a triggered round wrote.
+ */
+const syncStatus = (
+	counts: Readonly<Record<string, number>>,
+	rounds: number,
+) => ({
+	accountId: "acc-1",
+	syncPhase: "complete",
+	mailboxes: mailboxes.map((box) => ({
+		mailboxId: box.mailboxId,
+		fullPath: box.fullPath,
+		phase: "complete",
+		messagesTotal: counts[box.mailboxId] ?? box.messageCount,
+		messagesSynced: 0,
+		lastSyncedAt: 1000 + rounds,
+	})),
+});
+
+const isSyncStatus = (url: string): boolean => url.includes("/sync/status");
+const isSyncTrigger = (url: string, method: string): boolean =>
+	method === "POST" && url.endsWith("/sync");
 
 const threadItems = (ids: readonly string[]) => ({
 	items: ids.map((id) => ({
@@ -95,16 +121,22 @@ beforeEach(() => {
 	container = document.createElement("div");
 	document.body.appendChild(container);
 	root = createRoot(container);
+	queryClient = new QueryClient({
+		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+	});
 	globalThis.fetch = (async (input: RequestInfo | URL) => {
 		const request = input as Request;
 		const body = request.method === "GET" ? "" : await request.clone().text();
-		return route({ url: request.url, method: request.method, body });
+		return await route({ url: request.url, method: request.method, body });
 	}) as typeof fetch;
 });
 
 afterEach(() => {
 	act(() => root.unmount());
 	container.remove();
+	// Drops the cached queries with their gc timers, which otherwise hold the
+	// test process open for their full gcTime.
+	queryClient.clear();
 	globalThis.fetch = originalFetch;
 });
 
@@ -122,7 +154,7 @@ const render = (props: {
 				{ i18n },
 				createElement(
 					QueryClientProvider,
-					{ client: new QueryClient() },
+					{ client: queryClient },
 					createElement(DeleteFolderDialog, {
 						open: props.open,
 						accountId: "acc-1",
@@ -353,8 +385,16 @@ describe("DeleteFolderDialog", () => {
 
 	it("deletes an empty folder and closes on success", async () => {
 		let closed = false;
-		route = ({ method }) => {
+		let rounds = 0;
+		let triggered = 0;
+		route = ({ url, method }) => {
 			if (method === "DELETE") return new Response(null, { status: 204 });
+			if (isSyncStatus(url)) return json(syncStatus({}, rounds));
+			if (isSyncTrigger(url, method)) {
+				triggered += 1;
+				rounds += 1;
+				return json({ triggered: true, message: "ok" });
+			}
 			return json({ items: mailboxes });
 		};
 		render({
@@ -368,24 +408,27 @@ describe("DeleteFolderDialog", () => {
 			buttonByText(/^Delete folder$/)?.click();
 		});
 		await flush();
+		assert.equal(triggered, 1, "the delete asks the server for a sync round");
 		assert.equal(closed, true);
 	});
 
-	it("refuses to delete a folder whose cached count is stale-empty", async () => {
+	it("refuses to delete a folder the server says still holds mail", async () => {
 		let deleted = false;
 		let closed = false;
-		route = ({ method }) => {
+		let rounds = 0;
+		route = ({ url, method }) => {
 			if (method === "DELETE") {
 				deleted = true;
 				return new Response(null, { status: 204 });
 			}
-			// Mail landed in Empty since its last STATUS, so the server-backed
-			// listing disagrees with the folder row the dialog opened on.
-			return json({
-				items: mailboxes.map((box) =>
-					box.mailboxId === "empty" ? { ...box, messageCount: 2 } : box,
-				),
-			});
+			// Mail landed in Empty since its last sync round, so the count the
+			// round reports contradicts the zero the dialog opened on.
+			if (isSyncStatus(url)) return json(syncStatus({ empty: 2 }, rounds));
+			if (isSyncTrigger(url, method)) {
+				rounds += 1;
+				return json({ triggered: true, message: "ok" });
+			}
+			return json({ items: mailboxes });
 		};
 		render({
 			open: true,
@@ -402,12 +445,90 @@ describe("DeleteFolderDialog", () => {
 		assert.equal(deleted, false, "a fresh count above zero blocks the delete");
 		assert.equal(closed, false, "the dialog stays open on the mail it found");
 		assert.match(container.textContent ?? "", /This folder is not empty/);
-		assert.match(container.textContent ?? "", /2 emails arrived/);
+		assert.match(container.textContent ?? "", /reports 2 emails/);
 		assert.match(container.textContent ?? "", /holds 2 emails/);
 		assert.ok(
 			buttonByText(/Move them to another folder/),
 			"the non-empty flow takes over",
 		);
+	});
+
+	it("refuses the delete when the count cannot be read", async () => {
+		let deleted = false;
+		route = ({ url, method }) => {
+			if (method === "DELETE") {
+				deleted = true;
+				return new Response(null, { status: 204 });
+			}
+			if (isSyncStatus(url))
+				return new Response(JSON.stringify({ detail: "server exploded" }), {
+					status: 500,
+					headers: { "Content-Type": "application/json" },
+				});
+			if (isSyncTrigger(url, method))
+				return json({ triggered: true, message: "ok" });
+			return json({ items: mailboxes });
+		};
+		render({ open: true, folder: mailboxes[2] as RemitImapMailboxResponse });
+		await act(async () => {
+			buttonByText(/^Delete folder$/)?.click();
+		});
+		await flush();
+		assert.equal(deleted, false, "an unreadable count is not an empty folder");
+		assert.ok(
+			buttonByText(/^Close$/),
+			"the failure is stated, not swallowed into a delete",
+		);
+	});
+
+	it("does not delete when the dialog is closed mid-check", async () => {
+		let deleted = false;
+		let closed = false;
+		let rounds = 0;
+		let releaseStatus: (() => void) | undefined;
+		route = ({ url, method }) => {
+			if (method === "DELETE") {
+				deleted = true;
+				return new Response(null, { status: 204 });
+			}
+			if (isSyncStatus(url)) {
+				const answer = json(syncStatus({}, rounds));
+				if (rounds === 0) return answer;
+				// The round has landed but the answer is still in flight; the user
+				// gets to cancel before it arrives.
+				return new Promise<Response>((resolve) => {
+					releaseStatus = () => resolve(answer);
+				});
+			}
+			if (isSyncTrigger(url, method)) {
+				rounds += 1;
+				return json({ triggered: true, message: "ok" });
+			}
+			return json({ items: mailboxes });
+		};
+		render({
+			open: true,
+			folder: mailboxes[2] as RemitImapMailboxResponse,
+			onClose: () => {
+				closed = true;
+			},
+		});
+		await act(async () => {
+			buttonByText(/^Delete folder$/)?.click();
+		});
+		await flush();
+		assert.ok(releaseStatus, "the check is waiting on the server");
+		await act(async () => {
+			container
+				.querySelector<HTMLButtonElement>('button[aria-label="Cancel"]')
+				?.click();
+		});
+		await act(async () => {
+			releaseStatus?.();
+		});
+		await flush();
+		assert.equal(closed, true, "the cancel closes the dialog");
+		assert.equal(deleted, false, "a cancelled check never reaches the delete");
 	});
 
 	it("moves the mail in batches then deletes the emptied folder", async () => {

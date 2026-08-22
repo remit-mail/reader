@@ -1,11 +1,13 @@
 import {
 	configOperationsGetConfigQueryKey,
 	mailboxOperationsListMailboxesQueryKey,
+	syncOperationsGetSyncStatusOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import {
 	mailboxDetailOperationsDeleteMailbox,
 	mailboxOperationsListMailboxes,
 	messageBulkOperationsMoveMessages,
+	syncOperationsTriggerSync,
 	threadOperationsListThreads,
 } from "@remit/api-http-client/sdk.gen.ts";
 import { useQueryClient } from "@tanstack/react-query";
@@ -17,6 +19,10 @@ import {
 	MOVE_BATCH_SIZE,
 	type MoveProgress,
 } from "@/lib/delete-folder";
+import {
+	type MailboxCountReading,
+	waitForFreshMailboxCount,
+} from "@/lib/fresh-mailbox-count";
 
 const PAGE_CAP = 50;
 
@@ -107,10 +113,14 @@ export type DeleteFolderPhase =
 	| "done"
 	| "error";
 
-/** What a delete-as-empty found: nothing to save, or mail the folder still holds. */
+/**
+ * What a delete-as-empty did. `blocked` carries the count that stopped it;
+ * `failed` means nothing was established, and is never treated as empty.
+ */
 export type EmptyDeleteOutcome =
-	| { blocked: false }
-	| { blocked: true; messageCount: number };
+	| { status: "deleted" }
+	| { status: "blocked"; messageCount: number }
+	| { status: "failed" };
 
 interface UseDeleteFolderOptions {
 	accountId: string;
@@ -169,27 +179,56 @@ export function useDeleteFolder({
 		[accountId, mailboxId],
 	);
 
+	const readMailboxSyncStatus = useCallback(
+		(): Promise<readonly MailboxCountReading[]> =>
+			queryClient
+				.fetchQuery({
+					...syncOperationsGetSyncStatusOptions({ path: { accountId } }),
+					staleTime: 0,
+				})
+				.then((data) => data.mailboxes ?? []),
+		[queryClient, accountId],
+	);
+
 	/**
-	 * Deleting a folder takes its mail with it, and `messageCount` on the folder
-	 * row is the last synced IMAP STATUS. Re-read the server first: mail that
-	 * arrived since blocks the delete instead of being destroyed by it.
+	 * Delete a folder the user was told is empty. Every count the client holds is
+	 * the last sync round's, so this waits (R2 of the IMAP mutation rules) for a
+	 * round asked for here to report on the folder, and deletes only on the count
+	 * that round read. A timeout, a read failure or a folder gone from the account
+	 * refuses the delete: not knowing what a folder holds is never permission.
 	 */
 	const deleteIfEmpty = useCallback(async (): Promise<EmptyDeleteOutcome> => {
+		const controller = new AbortController();
+		abortRef.current = controller;
+		const { signal } = controller;
 		setPhase("checking");
 		setErrorMessage(undefined);
-		const counted = await attempt(remainingCount());
+		const counted = await attempt(
+			waitForFreshMailboxCount({
+				readMailboxes: readMailboxSyncStatus,
+				triggerSync: () =>
+					syncOperationsTriggerSync({
+						path: { accountId },
+						throwOnError: true,
+					}).then(() => undefined),
+				mailboxId,
+				signal,
+			}),
+		);
+		if (signal.aborted) return { status: "failed" };
 		if (!counted.ok) {
 			setErrorMessage(counted.error);
 			setPhase("error");
-			return { blocked: false };
+			return { status: "failed" };
 		}
 		if (counted.value > 0) {
 			setPhase("idle");
-			return { blocked: true, messageCount: counted.value };
+			invalidate();
+			return { status: "blocked", messageCount: counted.value };
 		}
 		await deleteMailbox();
-		return { blocked: false };
-	}, [remainingCount, deleteMailbox]);
+		return { status: "deleted" };
+	}, [accountId, mailboxId, readMailboxSyncStatus, deleteMailbox, invalidate]);
 
 	const cancel = useCallback(() => {
 		abortRef.current?.abort();
