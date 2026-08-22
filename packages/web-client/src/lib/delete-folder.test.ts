@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
 	advanceMove,
-	appointedRole,
 	beginMove,
 	excludeFolder,
 	type FolderNode,
@@ -11,6 +10,7 @@ import {
 	hasChildFolders,
 	initialStage,
 	moveProgressLabel,
+	vouchedRole,
 } from "./delete-folder.js";
 
 const folder = (
@@ -36,11 +36,72 @@ describe("guardFolderDeletion", () => {
 		const guard = guardFolderDeletion(
 			target,
 			[target],
-			[{ role: "Archive", mailboxId: "arch" }],
+			[{ role: "Archive", source: "Appointed", mailboxId: "arch" }],
 		);
 		assert.equal(guard.deletable, false);
 		assert.equal(guard.reason, "role");
 		assert.match(guard.message ?? "", /Archive/);
+	});
+
+	it("blocks a folder the mail server flagged for the role", () => {
+		const target = folder({ mailboxId: "sent", fullPath: "Sent" });
+		const guard = guardFolderDeletion(
+			target,
+			[target],
+			[{ role: "Sent", source: "Flagged", mailboxId: "sent" }],
+		);
+		assert.equal(guard.deletable, false);
+		assert.equal(guard.reason, "role");
+	});
+
+	it("deletes a folder whose only role claim is a name proposal", () => {
+		const target = folder({ mailboxId: "arch", fullPath: "Archive" });
+		const guard = guardFolderDeletion(
+			target,
+			[target],
+			[{ role: "Archive", source: "Proposed", mailboxId: "arch" }],
+		);
+		assert.deepEqual(guard, { deletable: true });
+	});
+
+	it("deletes the name-proposed fallback a stale appointment resolves to", () => {
+		const target = folder({ mailboxId: "deleted-items", fullPath: "Deleted" });
+		const guard = guardFolderDeletion(
+			target,
+			[target],
+			[{ role: "Trash", source: "Stale", mailboxId: "deleted-items" }],
+		);
+		assert.deepEqual(guard, { deletable: true });
+	});
+
+	it("blocks the flagged folder a stale appointment falls back to", () => {
+		const target = folder({
+			mailboxId: "server-trash",
+			fullPath: "Trash",
+			specialUse: ["Trash"],
+		});
+		const guard = guardFolderDeletion(
+			target,
+			[target],
+			[{ role: "Trash", source: "Stale", mailboxId: "server-trash" }],
+		);
+		assert.equal(guard.deletable, false);
+		assert.equal(guard.reason, "role");
+		assert.match(guard.message ?? "", /Trash/);
+	});
+
+	it("reads the flag for the role the entry names, not any flag the folder has", () => {
+		const target = folder({
+			mailboxId: "archive",
+			fullPath: "Archive",
+			specialUse: ["Archive"],
+		});
+		const guard = guardFolderDeletion(
+			target,
+			[target],
+			[{ role: "Trash", source: "Stale", mailboxId: "archive" }],
+		);
+		assert.deepEqual(guard, { deletable: true });
 	});
 
 	it("blocks a folder that has subfolders", () => {
@@ -62,14 +123,18 @@ describe("guardFolderDeletion", () => {
 		const guard = guardFolderDeletion(
 			target,
 			[target, other],
-			[{ role: "Archive", mailboxId: "other-box" }],
+			[{ role: "Archive", source: "Appointed", mailboxId: "other-box" }],
 		);
 		assert.deepEqual(guard, { deletable: true });
 	});
 
 	it("ignores an unfilled role appointment with no mailbox", () => {
 		const target = folder({ mailboxId: "r", fullPath: "Receipts" });
-		const guard = guardFolderDeletion(target, [target], [{ role: "Junk" }]);
+		const guard = guardFolderDeletion(
+			target,
+			[target],
+			[{ role: "Junk", source: "None" }],
+		);
 		assert.equal(guard.deletable, true);
 	});
 });
@@ -106,18 +171,40 @@ describe("hasChildFolders", () => {
 	});
 });
 
-describe("appointedRole", () => {
+describe("vouchedRole", () => {
 	it("returns the role a mailbox fills", () => {
 		assert.equal(
-			appointedRole("a", [{ role: "Trash", mailboxId: "a" }]),
+			vouchedRole({ mailboxId: "a" }, [
+				{ role: "Trash", source: "Appointed", mailboxId: "a" },
+			]),
 			"Trash",
 		);
 	});
 
 	it("returns undefined when the mailbox fills no role", () => {
 		assert.equal(
-			appointedRole("a", [{ role: "Trash", mailboxId: "b" }]),
+			vouchedRole({ mailboxId: "a" }, [
+				{ role: "Trash", source: "Appointed", mailboxId: "b" },
+			]),
 			undefined,
+		);
+	});
+
+	it("returns undefined for a role nobody vouched for", () => {
+		assert.equal(
+			vouchedRole({ mailboxId: "a" }, [
+				{ role: "Trash", source: "Proposed", mailboxId: "a" },
+			]),
+			undefined,
+		);
+	});
+
+	it("returns the role a stale entry falls back to when the server flags it", () => {
+		assert.equal(
+			vouchedRole({ mailboxId: "a", specialUse: ["Trash"] }, [
+				{ role: "Trash", source: "Stale", mailboxId: "a" },
+			]),
+			"Trash",
 		);
 	});
 });
