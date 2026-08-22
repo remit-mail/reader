@@ -34,24 +34,38 @@ export interface RailVisibility {
 	isDesktop: boolean;
 	/** The rail reads a conversation, so with none open there is nothing to be up. */
 	hasThread: boolean;
+	/** The message a transient raise was made for, if one is live. */
+	raisedFor: string | null;
+	/** The message on screen, which is what a raise is measured against. */
+	openMessage: string | null;
 }
 
 /**
  * Whether the rail is up.
  *
- * An address that names any panel is the only owner of what is open, so a
- * shared link showing the shortcuts sheet is not overwritten by the recipient's
- * own preference. The preference speaks only where the address is silent, and
- * only with a conversation open on the tier that has a rail — it opens with the
- * thread there (#782), while a phone would get a full-screen drawer over a
- * message nobody asked to cover.
+ * A raise answers first, and only for the message it was made for: a DKIM
+ * mismatch or the banner's "Why?" surfaces the rail over a collapse, because
+ * the reader is being shown something about what is in front of them — and
+ * opening anything else ends it, so one mismatched signature is not the chrome
+ * of the whole session (#778). It is measured rather than stored, which is why
+ * it never reaches the address or the preference.
+ *
+ * Otherwise an address that names any panel is the only owner of what is open,
+ * so a shared link showing the shortcuts sheet is not overwritten by the
+ * recipient's own preference. The preference speaks only where the address is
+ * silent, and only with a conversation open on the tier that has a rail — it
+ * opens with the thread there (#782), while a phone would get a full-screen
+ * drawer over a message nobody asked to cover.
  */
 export function resolveRailOpen({
 	panels,
 	prefersOpen,
 	isDesktop,
 	hasThread,
+	raisedFor,
+	openMessage,
 }: RailVisibility): boolean {
+	if (raisedFor !== null && raisedFor === openMessage) return true;
 	if (panels.length > 0) return panels.includes("intelligence");
 	return isDesktop && hasThread && prefersOpen;
 }

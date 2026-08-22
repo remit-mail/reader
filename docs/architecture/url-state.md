@@ -32,7 +32,7 @@ Anything mutually exclusive is a path segment, because sibling routes cannot bot
 
 A modal carrying a transient selection never goes in the fragment: `#confirm-delete` reloads into "Move 12 messages to Trash" with an empty selection. Test: if the overlay's own copy is computed from in-memory data, it is not URL state at any tier.
 
-Qualifies for the fragment: the intelligence rail, the nav slide-over and the shortcuts sheet, which the union names, and the filter sheet's open/closed state (its values are query) once something reads it — a name in the union with no renderer behind it is a panel that opens nothing. Does not qualify: the bulk-delete confirm, the move picker, row action menus, the selection wizard's selection, the self-update overlay, the fatal-error and quarantine dialogs, the delete-account, folder and label confirms, and the compose discard confirm.
+Qualifies for the fragment: the intelligence rail, the nav slide-over and the shortcuts sheet, which the union names, and the filter sheet's open/closed state (its values are query) once something reads it — a name in the union with no renderer behind it is a panel that opens nothing. Does not qualify: the rail raised for one message by a DKIM mismatch or the authenticity banner's "Why?", whose whole copy comes from that message and which the message raises again on a cold load (#778); the bulk-delete confirm, the move picker, row action menus, the selection wizard's selection, the self-update overlay, the fatal-error and quarantine dialogs, the delete-account, folder and label confirms, and the compose discard confirm.
 
 ## R7. One schema
 

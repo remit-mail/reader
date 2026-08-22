@@ -25,11 +25,20 @@ import {
 	Outlet,
 	RouterProvider,
 } from "@tanstack/react-router";
-import { createElement, type ReactNode, useCallback } from "react";
+import { createElement, type ReactNode, useCallback, useState } from "react";
 import { ComposeProvider } from "@/components/compose/ComposeProvider";
-import { MailContext, type MailContextValue } from "@/lib/mail-context";
+import {
+	MailContext,
+	type MailContextValue,
+	useMailContext,
+} from "@/lib/mail-context";
 import { EMPTY_RESULT_FOLDER_INDEX } from "@/lib/result-folder";
-import { useOpenPanels, useOpenThreadPath, useSetOpenPanels } from "@/routing";
+import {
+	isOverlayPanel,
+	useOpenPanels,
+	useOpenThreadPath,
+	useSetOpenPanels,
+} from "@/routing";
 import {
 	createDomHarness,
 	type DomHarness,
@@ -91,13 +100,22 @@ afterEach(() => {
 function MailLayout({ children }: { children: ReactNode }) {
 	const openPanels = useOpenPanels();
 	const setOpenPanels = useSetOpenPanels();
-	const intelligenceOpen = openPanels.includes("intelligence");
+	// A raise is held in memory against the open message, the way the layout
+	// holds it; the address carries the reader's own answer alone.
+	const [raised, setRaised] = useState(false);
+	const intelligenceOpen = openPanels.includes("intelligence") || raised;
+	// The overlays travel through the write, the way the layout composes the
+	// whole set: a sheet up over the rail is not closed by the rail moving.
+	const overlays = openPanels.filter(isOverlayPanel);
 	const onToggleIntelligence = useCallback(() => {
-		setOpenPanels(intelligenceOpen ? [] : ["intelligence"]);
-	}, [intelligenceOpen, setOpenPanels]);
+		setRaised(false);
+		setOpenPanels(
+			intelligenceOpen ? overlays : ["intelligence" as const, ...overlays],
+		);
+	}, [intelligenceOpen, overlays, setOpenPanels]);
 	const onRaiseIntelligence = useCallback(() => {
-		setOpenPanels(["intelligence"]);
-	}, [setOpenPanels]);
+		setRaised(true);
+	}, []);
 
 	const value: MailContextValue = {
 		accounts: [],
@@ -120,10 +138,10 @@ function MailLayout({ children }: { children: ReactNode }) {
 /**
  * The shell as `MailShell` mounts it: one pane carrying the phone view below
  * the reading boundary, the slots above it, and the rail's visibility taken
- * from the address the same way the layout takes it.
+ * from the layout's own answer, which is the shell's only source for it.
  */
 function Shell({ width }: { width: number }) {
-	const intelligenceOpen = useOpenPanels().includes("intelligence");
+	const { intelligenceOpen } = useMailContext();
 	if (width < 1024) {
 		return createElement(AppShellSlotted, {
 			initialWidth: width,
@@ -300,16 +318,24 @@ describe("the intelligence keys reach the surface the width has (#840)", () => {
 		);
 	});
 
-	it("writes the fragment for block sender where the rail is the surface", async () => {
+	// Block sender asks about the message on screen, so it raises the rail for
+	// that message and leaves the address alone (#778) — the surface it must
+	// reach is still the rail, which is what this width has.
+	it("raises the rail for block sender where the rail is the surface", async () => {
 		const [mounted, router] = await mountAt(RAIL_WIDTH);
 
 		await press(mounted, "b");
 
-		assert.equal(router.state.location.hash, "intelligence");
+		assert.ok(rail(mounted), "block sender reached no rail");
 		assert.equal(
 			intelligenceDrawer(mounted),
 			null,
 			"the drawer came up where the rail is the surface",
+		);
+		assert.equal(
+			router.state.location.hash,
+			"",
+			"a raise for one message was written into the address",
 		);
 	});
 });
