@@ -95,6 +95,9 @@ function MailLayout({ children }: { children: ReactNode }) {
 	const onToggleIntelligence = useCallback(() => {
 		setOpenPanels(intelligenceOpen ? [] : ["intelligence"]);
 	}, [intelligenceOpen, setOpenPanels]);
+	const onRaiseIntelligence = useCallback(() => {
+		setOpenPanels(["intelligence"]);
+	}, [setOpenPanels]);
 
 	const value: MailContextValue = {
 		accounts: [],
@@ -109,6 +112,7 @@ function MailLayout({ children }: { children: ReactNode }) {
 		onSearchClearQuery: () => {},
 		intelligenceOpen,
 		onToggleIntelligence,
+		onRaiseIntelligence,
 	};
 	return createElement(MailContext.Provider, { value }, children);
 }

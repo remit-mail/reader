@@ -65,6 +65,7 @@ const mailContext = (
 	onSearchClearQuery: () => {},
 	intelligenceOpen: false,
 	onToggleIntelligence: () => {},
+	onRaiseIntelligence: () => {},
 });
 
 type ListPath = "/mail/brief" | "/mail/flagged";

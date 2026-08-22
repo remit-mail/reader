@@ -10,7 +10,7 @@ import {
 	useNavigate,
 	useRouterState,
 } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { z } from "zod";
 import { ComposeFab } from "@/components/layout/ComposeFab";
 import { MailShellProvider } from "@/components/layout/MailShell";
@@ -21,28 +21,16 @@ import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailboxNameIndex } from "@/hooks/useMailboxNameIndex";
+import { useRailPanels } from "@/hooks/useRailPanels";
 import { useResultFolderIndex } from "@/hooks/useResultFolderIndex";
 import { useSearchField } from "@/hooks/useSearchField";
 import { useStaleAccountSync } from "@/hooks/useStaleAccountSync";
-import {
-	readIntelligencePref,
-	resolveRailOpen,
-	writeIntelligencePref,
-} from "@/lib/intelligence-pref";
 import { MailContext } from "@/lib/mail-context";
 import { MailFreshnessProvider } from "@/lib/mail-freshness";
 import { mailListRoute } from "@/lib/mail-route";
 import { buildAccountNameIndex } from "@/lib/search-token-index";
 import { wizardEntryValue, wizardStepValue } from "@/lib/wizard-history";
-import {
-	isOverlayPanel,
-	type OverlayPanel,
-	useIsComposing,
-	useOpenCompose,
-	useOpenPanels,
-	useOpenThreadPath,
-	useSetOpenPanels,
-} from "@/routing";
+import { useIsComposing, useOpenCompose } from "@/routing";
 import "@/lib/client";
 
 // `MailContext` / `useMailContext` live in `@/lib/mail-context` so the provider
@@ -87,56 +75,18 @@ function MailLayout() {
 	// tablet with no compose surface (compose lives in the reading pane, which
 	// tablet doesn't mount) — the "c" shortcut / FAB opened nothing.
 	const isSinglePane = isSinglePaneTier(tier);
-	// The panels the address carries (#722): the intelligence rail, the nav
-	// slide-over and the shortcuts sheet. The rail is a pane and the other two
-	// cover it, so the address holds a pane and an overlay at once — a sheet
-	// opening never takes the rail down — while two overlays cannot both be up.
-	const openPanels = useOpenPanels();
-	const setOpenPanels = useSetOpenPanels();
-	const openOverlay = openPanels.find(isOverlayPanel);
+	// What the address, the stored preference and the two rail verbs come to
+	// (`hooks/useRailPanels`): a raise surfaces the rail for the thread in hand,
+	// the reader's own toggle is the one that stores where they want it (#778).
+	const {
+		openOverlay,
+		intelligenceOpen,
+		showOverlay,
+		toggleIntelligence,
+		raiseIntelligence,
+	} = useRailPanels();
 	const showShortcuts = openOverlay === "shortcuts";
 	const drawerOpen = openOverlay === "nav";
-	// Pane 4 on desktop, the details drawer below it. `resolveRailOpen` is the
-	// one place the address and the stored preference meet: the address decides
-	// whenever it says anything at all, and the preference opens the rail with
-	// the thread where it is silent (#782).
-	const openThread = useOpenThreadPath();
-	// Held in state, not read back from storage each render: closing the rail
-	// where the address is silent changes nothing about the address, and the
-	// answer has to move anyway.
-	const [prefersRail, setPrefersRail] = useState(readIntelligencePref);
-	const intelligenceOpen = resolveRailOpen({
-		panels: openPanels,
-		prefersOpen: prefersRail,
-		isDesktop: tier === "desktop",
-		hasThread: openThread !== undefined,
-	});
-	// Every write states the whole set, because it is composed from what is
-	// showing rather than from what the address happens to spell: the rail open
-	// by preference alone is still open, and an overlay must not close it.
-	const showPanels = useCallback(
-		(rail: boolean, overlay: OverlayPanel | undefined) => {
-			setOpenPanels([
-				...(rail ? (["intelligence"] as const) : []),
-				...(overlay ? [overlay] : []),
-			]);
-		},
-		[setOpenPanels],
-	);
-	const handleSetIntelligenceOpen = useCallback(
-		(open: boolean) => {
-			writeIntelligencePref(open);
-			setPrefersRail(open);
-			showPanels(open, openOverlay);
-		},
-		[openOverlay, showPanels],
-	);
-	const showOverlay = useCallback(
-		(overlay: OverlayPanel | undefined) => {
-			showPanels(intelligenceOpen, overlay);
-		},
-		[intelligenceOpen, showPanels],
-	);
 
 	// The one search field and the query it commits (`useSearchField`): seeded
 	// from the URL, mirrored back by each list route's own `useSearchMirror`,
@@ -210,10 +160,6 @@ function MailLayout() {
 		setSearchInput("");
 	}, [setSearchInput]);
 
-	const handleToggleIntelligence = useCallback(() => {
-		handleSetIntelligenceOpen(!intelligenceOpen);
-	}, [handleSetIntelligenceOpen, intelligenceOpen]);
-
 	const accounts = config?.accounts ?? [];
 	const accountIds = useMemo(
 		() => accounts.map((account) => account.accountId),
@@ -253,7 +199,8 @@ function MailLayout() {
 		onSearchClear: handleSearchClear,
 		onSearchClearQuery: handleSearchClearQuery,
 		intelligenceOpen,
-		onToggleIntelligence: handleToggleIntelligence,
+		onToggleIntelligence: toggleIntelligence,
+		onRaiseIntelligence: raiseIntelligence,
 	};
 
 	// Single nav node: the kit renders it as a pane (≥1024px) or inside its

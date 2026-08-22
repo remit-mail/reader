@@ -19,7 +19,11 @@ export interface IntelligenceSurface extends IntelligenceCommands {
 	closeDrawer: () => void;
 	/** Whether this width has room for the rail, so the rail is the surface. */
 	railFits: boolean;
-	/** Raise the rail if it fits and is down. The DKIM auto-open's way in. */
+	/**
+	 * Raise the rail if it fits and is down, for this thread only. The DKIM
+	 * auto-open's way in, so it never stores a preference the reader never gave
+	 * (#778).
+	 */
 	openRail: () => void;
 }
 
@@ -39,7 +43,8 @@ export interface IntelligenceCommands {
 export const useIntelligenceSurface = (
 	openThreadId: string | undefined,
 ): IntelligenceSurface => {
-	const { intelligenceOpen, onToggleIntelligence } = useMailContext();
+	const { intelligenceOpen, onToggleIntelligence, onRaiseIntelligence } =
+		useMailContext();
 	const railFits = useAppShellLayout()?.showIntelligencePane ?? false;
 	const threadId = openThreadId ?? null;
 	const drawer = useIntelligenceDrawer(threadId);
@@ -57,8 +62,8 @@ export const useIntelligenceSurface = (
 	}, [railFits, onToggleIntelligence, toggleDrawer]);
 	const openRail = useCallback(() => {
 		if (!railFits || intelligenceOpen) return;
-		onToggleIntelligence();
-	}, [railFits, intelligenceOpen, onToggleIntelligence]);
+		onRaiseIntelligence();
+	}, [railFits, intelligenceOpen, onRaiseIntelligence]);
 	const open = useCallback(() => {
 		if (!railFits) {
 			openDrawer();
