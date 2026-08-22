@@ -128,6 +128,12 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	// The hook's contextmenu arming is module state bounded by a timer, and a
+	// test that leaves the finger down leaves it armed. Release the pointer so
+	// the next test starts disarmed rather than inheriting a dead timer id.
+	act(() => {
+		pointerUp();
+	});
 	mock.timers.reset();
 	act(() => {
 		root.unmount();
