@@ -56,17 +56,9 @@ test.describe("An appointed folder role", () => {
 		);
 		expect(mailboxes.map((box) => box.fullPath)).toContain(APPOINTED_PATH);
 
-		const thread = await waitFor(
-			() => api.listThreads(run.inboxId),
-			(items) => items.some((t) => t.subject === SUBJECT),
-			{ timeoutMs: 60_000, what: `"${SUBJECT}" to sync into the inbox` },
-		).then((items) => {
-			const match = items.find((t) => t.subject === SUBJECT);
-			if (!match) throw new Error("unreachable: matched but not found");
-			return match;
-		});
+		const messageId = await api.messageIdForSubject(run.inboxId, SUBJECT);
 
-		const reportResult = await api.reportSpam([thread.messageId]);
+		const reportResult = await api.reportSpam([messageId]);
 		expect(reportResult.successCount).toBe(1);
 
 		// Measured on the mail server, not the read model: the read model

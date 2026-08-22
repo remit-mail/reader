@@ -129,6 +129,18 @@ interface ResultList<T> {
 }
 
 /**
+ * The flat error body the API emits: `message` for a human, and — only where
+ * the endpoint promised one — a stable `code` a client branches on with
+ * `details` it words its own copy from. A spec asserting a refusal reads the
+ * code and the details, never the message.
+ */
+export interface ApiErrorBody {
+	message?: string;
+	code?: string;
+	details?: Record<string, string>;
+}
+
+/**
  * The outbox statuses the API will delete — the same ones the queue accepts.
  * An account with no SMTP configured leaves its entries `blocked`, which is
  * exactly what a spec that opened compose against one produces.
@@ -470,6 +482,24 @@ export class ApiClient {
 	}
 
 	/**
+	 * The same call, answered rather than thrown. A delete may be refused with a
+	 * coded 409 whose body is the contract under test, and `deleteMessages`
+	 * flattens that into a message string a spec cannot branch on.
+	 */
+	attemptDeleteMessages(messageIds: string[]): Promise<Response> {
+		return this.request("POST", "/messages/delete", { messageIds });
+	}
+
+	/**
+	 * Permanently delete everything in the account's Trash — the call the Empty
+	 * Trash strip makes. `deletedCount` is the service's own count, taken off the
+	 * same read that marked the rows.
+	 */
+	emptyTrash(accountId: string): Promise<{ deletedCount: number }> {
+		return this.json("POST", `/accounts/${accountId}/trash/empty`);
+	}
+
+	/**
 	 * Every message id currently matching a free-text query in one mailbox,
 	 * paged to exhaustion at the write side's own 100-id cap — the same page
 	 * size `useEscalatedActions` uses, so a spec can compute "how many actually
@@ -666,6 +696,27 @@ export class ApiClient {
 			`/mailboxes/${mailboxId}/threads`,
 		);
 		return result.items ?? [];
+	}
+
+	/**
+	 * The id of the message carrying one subject in a mailbox, once it has
+	 * synced. Every spec that seeds mail on the server and then acts on it
+	 * through the API starts here, because the sync that picks the append up is
+	 * asynchronous: reading the listing once answers about a mailbox the
+	 * deployment has not looked at yet.
+	 */
+	async messageIdForSubject(
+		mailboxId: string,
+		subject: string,
+	): Promise<string> {
+		const threads = await waitFor(
+			() => this.listThreads(mailboxId),
+			(items) => items.some((thread) => thread.subject === subject),
+			{ timeoutMs: 90_000, what: `"${subject}" to sync into the read model` },
+		);
+		const match = threads.find((thread) => thread.subject === subject);
+		if (!match) throw new Error("unreachable: matched but not found");
+		return match.messageId;
 	}
 
 	/**
