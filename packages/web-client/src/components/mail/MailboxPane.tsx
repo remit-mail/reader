@@ -47,6 +47,7 @@ import {
 } from "react";
 import { ConversationView } from "@/components/mail/ConversationView";
 import { DraftsView } from "@/components/mail/DraftsView";
+import { EmptyTrashBar } from "@/components/mail/EmptyTrashBar";
 import { IntelligenceDrawer } from "@/components/mail/IntelligenceDrawer";
 import { IntelligencePane } from "@/components/mail/IntelligencePane";
 import {
@@ -60,8 +61,11 @@ import {
 	useArchiveMailbox,
 	useDraftsMailbox,
 	useJunkMailbox,
+	useTrashByAccount,
+	useTrashMailbox,
 } from "@/hooks/useArchiveMailbox";
 import {
+	useCurrentMailboxMessageCount,
 	useCurrentMailboxName,
 	useCurrentMailboxUnseenCount,
 } from "@/hooks/useCurrentMailboxName";
@@ -69,6 +73,7 @@ import {
 	dropDeletedThreads,
 	useDeleteMessages,
 } from "@/hooks/useDeleteMessages";
+import { useEmptyTrash } from "@/hooks/useEmptyTrash";
 import type { EscalationSearchQuery } from "@/hooks/useEscalatedActions";
 import { useIntelligenceData } from "@/hooks/useIntelligenceData";
 import { useIntelligenceDrawer } from "@/hooks/useIntelligenceDrawer";
@@ -886,6 +891,18 @@ function MailboxList() {
 	const listTitle = mailboxName ?? "Inbox";
 	const preset = useMemo(() => inboxFilterConfig(), []);
 
+	// Empty Trash, on the same test the Spam rescue strip uses: the open mailbox
+	// is the one this account appoints to the role. Whether it may be emptied is
+	// never decided here — the press goes to the server and the 409 answers it.
+	const { trashMailboxId } = useTrashMailbox(mailboxAccountId);
+	const trashMessageCount = useCurrentMailboxMessageCount({ accounts });
+	const { trashByAccount } = useTrashByAccount();
+	const emptyTrash = useEmptyTrash({
+		accountId: mailboxAccountId,
+		mailboxId,
+	});
+	const isTrashFolder = trashMailboxId != null && trashMailboxId === mailboxId;
+
 	// The account owning this folder — undefined for the instant before
 	// `useMailboxAccount` resolves it, which simply means there is nothing to
 	// refresh yet.
@@ -1025,7 +1042,7 @@ function MailboxList() {
 			messageList
 		);
 
-	const body =
+	const spamBody =
 		isSpamFolder && rescueCandidates.length > 0 && mailboxAccountId ? (
 			<SpamRescue
 				accountId={mailboxAccountId}
@@ -1038,6 +1055,27 @@ function MailboxList() {
 		) : (
 			listBody
 		);
+
+	const body = isTrashFolder ? (
+		<EmptyTrashBar
+			messageCount={trashMessageCount}
+			isEmptying={emptyTrash.isEmptying}
+			deletedCount={emptyTrash.deletedCount}
+			refusalReason={emptyTrash.refusal?.reason}
+			trashFolderLabel={mailboxName ?? undefined}
+			staleFolderLabel={
+				mailboxAccountId
+					? trashByAccount.get(mailboxAccountId)?.staleFolderPath
+					: undefined
+			}
+			onEmpty={emptyTrash.emptyTrash}
+			onRepair={emptyTrash.repair}
+		>
+			{spamBody}
+		</EmptyTrashBar>
+	) : (
+		spamBody
+	);
 
 	return (
 		<MailViewChrome
