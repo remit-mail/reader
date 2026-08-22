@@ -64,12 +64,42 @@ describe("guardFolderDeletion", () => {
 		assert.deepEqual(guard, { deletable: true });
 	});
 
-	it("deletes the fallback a stale appointment resolves to", () => {
+	it("deletes the name-proposed fallback a stale appointment resolves to", () => {
 		const target = folder({ mailboxId: "deleted-items", fullPath: "Deleted" });
 		const guard = guardFolderDeletion(
 			target,
 			[target],
 			[{ role: "Trash", source: "Stale", mailboxId: "deleted-items" }],
+		);
+		assert.deepEqual(guard, { deletable: true });
+	});
+
+	it("blocks the flagged folder a stale appointment falls back to", () => {
+		const target = folder({
+			mailboxId: "server-trash",
+			fullPath: "Trash",
+			specialUse: ["Trash"],
+		});
+		const guard = guardFolderDeletion(
+			target,
+			[target],
+			[{ role: "Trash", source: "Stale", mailboxId: "server-trash" }],
+		);
+		assert.equal(guard.deletable, false);
+		assert.equal(guard.reason, "role");
+		assert.match(guard.message ?? "", /Trash/);
+	});
+
+	it("reads the flag for the role the entry names, not any flag the folder has", () => {
+		const target = folder({
+			mailboxId: "archive",
+			fullPath: "Archive",
+			specialUse: ["Archive"],
+		});
+		const guard = guardFolderDeletion(
+			target,
+			[target],
+			[{ role: "Trash", source: "Stale", mailboxId: "archive" }],
 		);
 		assert.deepEqual(guard, { deletable: true });
 	});
@@ -144,7 +174,7 @@ describe("hasChildFolders", () => {
 describe("vouchedRole", () => {
 	it("returns the role a mailbox fills", () => {
 		assert.equal(
-			vouchedRole("a", [
+			vouchedRole({ mailboxId: "a" }, [
 				{ role: "Trash", source: "Appointed", mailboxId: "a" },
 			]),
 			"Trash",
@@ -153,7 +183,7 @@ describe("vouchedRole", () => {
 
 	it("returns undefined when the mailbox fills no role", () => {
 		assert.equal(
-			vouchedRole("a", [
+			vouchedRole({ mailboxId: "a" }, [
 				{ role: "Trash", source: "Appointed", mailboxId: "b" },
 			]),
 			undefined,
@@ -162,8 +192,19 @@ describe("vouchedRole", () => {
 
 	it("returns undefined for a role nobody vouched for", () => {
 		assert.equal(
-			vouchedRole("a", [{ role: "Trash", source: "Proposed", mailboxId: "a" }]),
+			vouchedRole({ mailboxId: "a" }, [
+				{ role: "Trash", source: "Proposed", mailboxId: "a" },
+			]),
 			undefined,
+		);
+	});
+
+	it("returns the role a stale entry falls back to when the server flags it", () => {
+		assert.equal(
+			vouchedRole({ mailboxId: "a", specialUse: ["Trash"] }, [
+				{ role: "Trash", source: "Stale", mailboxId: "a" },
+			]),
+			"Trash",
 		);
 	});
 });

@@ -1,3 +1,5 @@
+import type { RemitImapFolderAppointment } from "@remit/api-http-client/types.gen.ts";
+
 export const MOVE_BATCH_SIZE = 100;
 
 export interface FolderNode {
@@ -5,16 +7,12 @@ export interface FolderNode {
 	fullPath: string;
 	hierarchyDelimiter: string;
 	messageCount: number;
+	/** RFC 6154 SPECIAL-USE flags, bare (`Trash`, not `\Trash`). */
+	specialUse?: readonly string[];
 }
 
-/** Where a role's answer came from (`FolderAppointmentSource`). */
-export type RoleAppointmentSource =
-	| "Appointed"
-	| "Flagged"
-	| "Reserved"
-	| "Proposed"
-	| "Stale"
-	| "None";
+/** Where a role's answer came from. */
+export type RoleAppointmentSource = RemitImapFolderAppointment["source"];
 
 export interface RoleAppointment {
 	role: string;
@@ -50,10 +48,10 @@ export const hasChildFolders = (
 };
 
 /**
- * Sources that vouch for the mailbox they name: a person chose it, the server
- * flagged it, or the protocol reserves the name. `Proposed` is a name guess,
- * and `Stale` resolves to the fallback behind an appointment that went missing
- * — neither is somebody's word for this folder.
+ * Sources that vouch for the mailbox they name: a person chose it, or the
+ * server flagged it. `Proposed` is a guess at a folder's name and vouches for
+ * nothing. `Reserved` is unreachable behind the inbox branch below and stays
+ * anyway — this set is a statement about evidence, not about branch order.
  */
 const VOUCHED_SOURCES: readonly RoleAppointmentSource[] = [
 	"Appointed",
@@ -61,17 +59,29 @@ const VOUCHED_SOURCES: readonly RoleAppointmentSource[] = [
 	"Reserved",
 ];
 
-/** The canonical role a mailbox is vouched for, or `undefined` when none is. */
+/**
+ * A `Stale` entry resolves to whatever the account would have had with no
+ * appointment at all, and that fallback can be the folder the server itself
+ * flags for the role. The entry no longer carries which it was, so read the
+ * flag off the folder: the mail server's designation is unchanged by the
+ * user's own choice going missing, and nothing behind this guard re-checks it.
+ * Flag values are the bare RFC 6154 names, identical to the canonical roles.
+ */
+const vouchesFor = (
+	appointment: RoleAppointment,
+	folder: Pick<FolderNode, "mailboxId" | "specialUse">,
+): boolean => {
+	if (appointment.mailboxId !== folder.mailboxId) return false;
+	if (appointment.source === "Stale")
+		return folder.specialUse?.includes(appointment.role) ?? false;
+	return VOUCHED_SOURCES.includes(appointment.source);
+};
+
+/** The canonical role a folder is vouched for, or `undefined` when none is. */
 export const vouchedRole = (
-	mailboxId: string,
+	folder: Pick<FolderNode, "mailboxId" | "specialUse">,
 	appointments: readonly RoleAppointment[],
-): string | undefined =>
-	appointments.find(
-		(a) =>
-			a.mailboxId != null &&
-			a.mailboxId === mailboxId &&
-			VOUCHED_SOURCES.includes(a.source),
-	)?.role;
+): string | undefined => appointments.find((a) => vouchesFor(a, folder))?.role;
 
 /**
  * Why a folder can't be deleted, or `{ deletable: true }` when it can. The
@@ -92,7 +102,7 @@ export function guardFolderDeletion(
 			message: "The inbox can't be deleted.",
 		};
 
-	const role = vouchedRole(folder.mailboxId, appointments);
+	const role = vouchedRole(folder, appointments);
 	if (role)
 		return {
 			deletable: false,

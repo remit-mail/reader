@@ -71,13 +71,9 @@ const initialFolders: ManagedFolder[] = [
 		deleteBlockedReason:
 			"This folder is your Junk folder. Reassign that role before deleting it.",
 	},
-	{
-		id: "mbx-trash",
-		label: "Trash",
-		path: "INBOX/Prullenbak",
-		deleteBlockedReason:
-			"This folder is your Trash folder. Reassign that role before deleting it.",
-	},
+	// Trash here is `Proposed` — a name match nobody confirmed, so it deletes
+	// like any other folder while Archive (Appointed) and Spam (Flagged) refuse.
+	{ id: "mbx-trash", label: "Trash", path: "INBOX/Prullenbak" },
 	{
 		id: "mbx-travel",
 		label: "Travel",
