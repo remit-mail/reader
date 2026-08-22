@@ -58,7 +58,10 @@ describe("intelligence-pref (#782)", () => {
 });
 
 describe("resolveRailOpen (#722)", () => {
-	const withThread = { hasThread: true, isDesktop: true };
+	const OPEN_MESSAGE = "thread-1/msg-1";
+	// No raise live, and a message on screen for one to be measured against.
+	const unraised = { raisedFor: null, openMessage: OPEN_MESSAGE };
+	const withThread = { hasThread: true, isDesktop: true, ...unraised };
 
 	it("opens the rail with the thread where the address says nothing", () => {
 		assert.equal(
@@ -81,6 +84,7 @@ describe("resolveRailOpen (#722)", () => {
 				prefersOpen: true,
 				isDesktop: false,
 				hasThread: true,
+				...unraised,
 			}),
 			false,
 		);
@@ -94,6 +98,7 @@ describe("resolveRailOpen (#722)", () => {
 				prefersOpen: true,
 				isDesktop: true,
 				hasThread: false,
+				...unraised,
 			}),
 			false,
 		);
@@ -127,6 +132,68 @@ describe("resolveRailOpen (#722)", () => {
 				prefersOpen: false,
 				isDesktop: false,
 				hasThread: true,
+				...unraised,
+			}),
+			true,
+		);
+	});
+});
+
+/**
+ * A DKIM mismatch, or the banner's "Why?", puts the rail up for the message the
+ * reader is looking at. It is measured against that message rather than stored,
+ * so it reaches neither the address nor the preference, and the next thread the
+ * reader opens is not carrying it (#778).
+ */
+describe("a raised rail belongs to its message (#778)", () => {
+	const OPEN_MESSAGE = "thread-1/msg-1";
+	const collapsed = {
+		hasThread: true,
+		isDesktop: true,
+		panels: [] as const,
+		prefersOpen: false,
+	};
+
+	it("puts the rail up over a collapse for the message it was raised for", () => {
+		assert.equal(
+			resolveRailOpen({
+				...collapsed,
+				raisedFor: OPEN_MESSAGE,
+				openMessage: OPEN_MESSAGE,
+			}),
+			true,
+		);
+	});
+
+	it("ends with the message, so the next thread opens as the reader left it", () => {
+		assert.equal(
+			resolveRailOpen({
+				...collapsed,
+				raisedFor: OPEN_MESSAGE,
+				openMessage: "thread-2/msg-2",
+			}),
+			false,
+		);
+		assert.equal(
+			resolveRailOpen({
+				...collapsed,
+				hasThread: false,
+				raisedFor: OPEN_MESSAGE,
+				openMessage: null,
+			}),
+			false,
+		);
+	});
+
+	// The reader is being shown something about the message in front of them, so
+	// a link that named other panels does not get to suppress it.
+	it("surfaces over an address that named another panel", () => {
+		assert.equal(
+			resolveRailOpen({
+				...collapsed,
+				panels: ["shortcuts"],
+				raisedFor: OPEN_MESSAGE,
+				openMessage: OPEN_MESSAGE,
 			}),
 			true,
 		);

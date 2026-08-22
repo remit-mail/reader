@@ -54,7 +54,14 @@ export interface MailContextValue {
 	 * alone would lose the preference and disagree with the shell.
 	 */
 	intelligenceOpen: boolean;
+	/** The reader's own control over pane 4, which stores what they chose. */
 	onToggleIntelligence: () => void;
+	/**
+	 * Puts pane 4 up for the thread in hand without touching the stored
+	 * preference: a DKIM mismatch surfacing the rail is about this message, not
+	 * about where the reader wants the rail from now on (#778).
+	 */
+	onRaiseIntelligence: () => void;
 }
 
 export const MailContext = createContext<MailContextValue | null>(null);
@@ -78,6 +85,7 @@ export const useMailContext = (): MailContextValue => {
 			onSearchClearQuery: () => {},
 			intelligenceOpen: false,
 			onToggleIntelligence: () => {},
+			onRaiseIntelligence: () => {},
 		}
 	);
 };

@@ -63,6 +63,7 @@ const mailContext = (input: string, committed: string): MailContextValue => ({
 	onSearchClearQuery: () => {},
 	intelligenceOpen: false,
 	onToggleIntelligence: () => {},
+	onRaiseIntelligence: () => {},
 });
 
 /**
