@@ -63,7 +63,9 @@ export const addressMatchRank = (term: string | undefined): SQL<number> => {
 	const { leading, anywhere } = patterns(term);
 	const tiers = [
 		eq(addressTable.normalizedEmail, term.toLowerCase()),
-		eq(addressTable.domain, term.toLowerCase()),
+		// `domain` is stored as the envelope spelled it, so `Ischen.NL` only meets
+		// a folded term through `lower()`; `like` folds ASCII on its own.
+		sql`lower(${addressTable.domain}) = ${term.toLowerCase()}`,
 		...SEARCH_COLUMNS.map((column) => like(column, leading)),
 		...SEARCH_COLUMNS.map((column) => like(column, anywhere)),
 	];

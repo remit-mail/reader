@@ -482,8 +482,10 @@ describe("AddressRepo", () => {
 			normalizedCompound: "ischen support matthijs@ischen.nl.co",
 			inboundCount: 900,
 		});
+		// The envelope's own spelling: `domain` is stored unfolded.
 		const own = await repo.createAddress({
 			...makeAddressInput(accountConfigId, "matthijs@ischen.nl"),
+			domain: "Ischen.NL",
 			displayName: "Matthijs van Henten",
 			normalizedCompound: "matthijs van henten matthijs@ischen.nl",
 			inboundCount: 1,
