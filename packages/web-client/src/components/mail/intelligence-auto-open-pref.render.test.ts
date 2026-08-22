@@ -6,10 +6,8 @@
  * the wrong domain wrote `remit:intelligence-open` to `open` and kept the rail
  * up for every later thread and every later session, including for a reader who
  * had collapsed the rail on purpose. The rail's two verbs are bound here through
- * the real `useRailPanels`. That a raise ends with the message it was made for
- * is proved in `lib/intelligence-pref.test.ts`: this environment never
- * re-renders a mounted component when the router's own state moves, so what a
- * navigation carries is only observable here through the reader's own answer.
+ * the real `useRailPanels`, and the layout carries a render button so a
+ * navigation is followed by the render the router does not force here.
  */
 
 import assert from "node:assert/strict";
@@ -24,7 +22,7 @@ import {
 	Outlet,
 	RouterProvider,
 } from "@tanstack/react-router";
-import { createElement, type ReactNode } from "react";
+import { createElement, type ReactNode, useState } from "react";
 import { ComposeProvider } from "@/components/compose/ComposeProvider";
 import { useRailPanels } from "@/hooks/useRailPanels";
 import { INTELLIGENCE_PREF_KEY } from "@/lib/intelligence-pref";
@@ -58,6 +56,7 @@ const NEXT_MESSAGE_ID = "msg-2";
 
 const SHOW_INTELLIGENCE = "Show intelligence sidebar";
 const HIDE_INTELLIGENCE = "Hide intelligence sidebar";
+const RENDER_AGAIN = "render again";
 
 /** Signed by another domain: what the reading pane's auto-open fires on. */
 const row = makeThreadMessage({
@@ -120,8 +119,15 @@ afterEach(() => {
 // `window`.
 (globalThis as { self?: typeof globalThis }).self ??= globalThis;
 
-/** The `/mail` layout's own binding, from the hook the layout uses. */
+/**
+ * The `/mail` layout's own binding, from the hook the layout uses, plus the
+ * button every router-driven spec here needs: this environment does not re-run
+ * a mounted component when the router's own state moves, so a navigation is
+ * followed by a press that renders the layout again
+ * (`hooks/search-mirror-convergence.render.test.ts`).
+ */
 function MailLayout({ children }: { children: ReactNode }) {
+	const [renders, setRenders] = useState(0);
 	const { intelligenceOpen, toggleIntelligence, raiseIntelligence } =
 		useRailPanels();
 	const value: MailContextValue = {
@@ -142,11 +148,16 @@ function MailLayout({ children }: { children: ReactNode }) {
 	return createElement(
 		MailContext.Provider,
 		{ value },
-		createElement(MailFreshnessProvider, {
-			accountIds: [],
-			// biome-ignore lint/correctness/noChildrenProp: no JSX in a `.ts` test, and createElement's variadic children do not satisfy a required prop
-			children,
-		}),
+		createElement(
+			"button",
+			{
+				type: "button",
+				"aria-label": RENDER_AGAIN,
+				onClick: () => setRenders(renders + 1),
+			},
+			String(renders),
+		),
+		createElement(MailFreshnessProvider, { accountIds: [], children }),
 	);
 }
 
@@ -155,14 +166,14 @@ function Shell() {
 	return createElement(AppShellSlotted, {
 		initialWidth: RAIL_WIDTH,
 		nav: null,
-		list: createElement(MailboxPane.List),
+		list: null,
 		reading: createElement(MailboxPane.Reading),
 		intelligence: createElement(MailboxPane.Intelligence),
 		intelligenceOpen,
 	});
 }
 
-const testRouter = (): AnyRouter => {
+const testRouter = (hash: string): AnyRouter => {
 	const rootRoute = createRootRoute({
 		component: () =>
 			createElement(
@@ -208,11 +219,13 @@ const testRouter = (): AnyRouter => {
 	]);
 	return createRouter({
 		routeTree,
-		history: createMemoryHistory({ initialEntries: [MESSAGE_PATH] }),
+		history: createMemoryHistory({
+			initialEntries: [`${MESSAGE_PATH}${hash}`],
+		}),
 	}) as unknown as AnyRouter;
 };
 
-const mount = async (): Promise<[DomHarness, AnyRouter]> => {
+const mount = async (hash = ""): Promise<[DomHarness, AnyRouter]> => {
 	http = mockFetch((call) => {
 		if (call.path.endsWith("/config")) return { accounts: [] };
 		if (call.path.endsWith(`/threads/${THREAD_ID}/messages`)) {
@@ -226,7 +239,7 @@ const mount = async (): Promise<[DomHarness, AnyRouter]> => {
 		return { items: [] };
 	});
 
-	const router = testRouter();
+	const router = testRouter(hash);
 	await router.load();
 	const mounted = createDomHarness({ viewportWidth: RAIL_WIDTH });
 	harness = mounted;
@@ -238,10 +251,11 @@ const mount = async (): Promise<[DomHarness, AnyRouter]> => {
 };
 
 /**
- * Opening the next thread, as every list opens one: the thread route, with the
+ * Opening the next thread, as every list opens one: the message route, with the
  * fragment run through the real retain updater the rows pass as `hash`
- * (`MessageList.openRow`). The rows themselves are virtualized, so jsdom has no
- * row to click.
+ * (`MessageList.openRow`). The rows are virtualized, so there is no row in jsdom
+ * to click; the press that follows is the layout's render, which the router does
+ * not force here.
  */
 const openNextThread = async (
 	mounted: DomHarness,
@@ -257,6 +271,7 @@ const openNextThread = async (
 		hash: retainOpenPanelsAtTier(true),
 	});
 	await settle(mounted);
+	mounted.click(mounted.byLabel(RENDER_AGAIN));
 	await settle(mounted);
 };
 
@@ -279,6 +294,26 @@ describe("the DKIM auto-open and the stored rail preference (#778)", () => {
 			router.state.location.hash,
 			"",
 			"a raise for one message was written into the address",
+		);
+	});
+
+	it("leaves the raised rail behind when the reader opens the next thread", async () => {
+		const store = installStorage("closed");
+
+		const [mounted, router] = await mount();
+		assert.equal(railIsUp(mounted), true, "the mismatch left the rail down");
+
+		await openNextThread(mounted, router);
+
+		assert.equal(
+			railIsUp(mounted),
+			false,
+			"the raise travelled to a thread that never asked for it",
+		);
+		assert.equal(
+			store.get(INTELLIGENCE_PREF_KEY),
+			"closed",
+			"the reader's collapse did not survive the mismatch",
 		);
 	});
 
@@ -331,6 +366,27 @@ describe("the DKIM auto-open and the stored rail preference (#778)", () => {
 			store.get(INTELLIGENCE_PREF_KEY),
 			"open",
 			"the reader's own toggle stopped storing what they chose",
+		);
+	});
+
+	// A link naming the shortcuts sheet arrives with the rail down, because the
+	// address has spoken; the mismatch raises it anyway. Putting that rail away
+	// is an answer to the surfacing, not the reader revising a preference they
+	// still hold — and reading it as one flipped `open` to `closed` unasked.
+	it("puts a raised rail away without storing a collapse", async () => {
+		const store = installStorage("open");
+
+		const [mounted] = await mount("#shortcuts");
+		assert.equal(railIsUp(mounted), true, "the mismatch left the rail down");
+
+		mounted.click(mounted.byLabel(HIDE_INTELLIGENCE));
+		await settle(mounted);
+
+		assert.equal(railIsUp(mounted), false, "the rail would not go away");
+		assert.equal(
+			store.get(INTELLIGENCE_PREF_KEY),
+			"open",
+			"putting one message's rail away collapsed the rail everywhere",
 		);
 	});
 

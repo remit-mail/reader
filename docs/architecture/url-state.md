@@ -18,7 +18,7 @@ A pane and an overlay are not alternatives, so the fragment names the set that i
 
 Panels are written by `replace`: chrome over the current view is not a place, so Back belongs to the message the reader came from. A navigation drops the fragment unless the destination asks for it, which is the distinction between a pane a reader takes with them and an overlay that going somewhere dismisses: `NavLink` and the thread-open calls carry the panes, the slide-over and the sheet are left behind, and the search mirror keeps everything because a query does not leave the view.
 
-A device preference may seed a panel, never own it. The address decides whenever it names anything at all, and the preference speaks only where the address is silent (`resolveRailOpen`) — otherwise a shared link arrives and the recipient's own preference overwrites the panel it was sent to show.
+A device preference may seed a panel, never own it. The address decides whenever it names anything at all, and the preference speaks only where the address is silent (`resolveRailOpen`) — otherwise a shared link arrives and the recipient's own preference overwrites the panel it was sent to show. One thing outranks the address: a panel raised for the message on screen, which is not URL state at all under R6 and answers first, because a link naming other panels must not suppress what the reader is being shown about what is in front of them (#778).
 
 ## R4. One owner per fact
 

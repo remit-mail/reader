@@ -36,7 +36,11 @@ export interface RailPanels {
 	/** Whether pane 4 is up, by the reader's standing answer or a raise. */
 	intelligenceOpen: boolean;
 	showOverlay: (overlay: OverlayPanel | undefined) => void;
-	/** The reader's own control, which is what a stored preference is made of. */
+	/**
+	 * The reader's own control, which is what a stored preference is made of —
+	 * except over a rail only a raise has up, where it ends the raise and stores
+	 * nothing.
+	 */
 	toggleIntelligence: () => void;
 	/** Puts the rail up for the message in front of the reader, and no further. */
 	raiseIntelligence: () => void;
@@ -97,12 +101,19 @@ export const useRailPanels = (): RailPanels => {
 		[chosenOpen, showPanels],
 	);
 	const toggleIntelligence = useCallback(() => {
+		// Putting away a rail that only a raise has up answers the surfacing, not
+		// the question of where the reader wants the rail — the answer they gave
+		// last stands, and the address never carried this rail to rewrite.
+		if (intelligenceOpen && !chosenOpen) {
+			setRaisedFor(null);
+			return;
+		}
 		const open = !intelligenceOpen;
 		writeIntelligencePref(open);
 		setPrefersRail(open);
 		setRaisedFor(null);
 		showPanels(open, openOverlay);
-	}, [intelligenceOpen, openOverlay, showPanels]);
+	}, [chosenOpen, intelligenceOpen, openOverlay, showPanels]);
 	const raiseIntelligence = useCallback(() => {
 		setRaisedFor(openMessage);
 	}, [openMessage]);
