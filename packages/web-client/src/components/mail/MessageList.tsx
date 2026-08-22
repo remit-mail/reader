@@ -50,6 +50,7 @@ import { junkDestination } from "@/lib/junk-destination";
 import { tabStopId } from "@/lib/list-focus";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import { listVerbRequest } from "@/lib/list-verb-request";
+import { resolveSelectionAccountScope } from "@/lib/selection-account-scope";
 import { shouldExitSelectionOnNavigate } from "@/lib/selection-mode";
 import { useSelectionWizard, useWizardStepValue } from "@/lib/wizard-history";
 import type { WizardSelectionMessage } from "@/lib/wizard-selection";
@@ -206,6 +207,23 @@ const SearchResultsHeader = ({ query }: { query: string }) => (
 		</span>
 	</div>
 );
+
+/**
+ * Why Move is withheld from a selection, in the toolbar's own words. Rows from
+ * a per-mailbox endpoint carry no account of their own, so the list's own
+ * account stands in for them and a row that does carry one is still compared
+ * against it. Pure, so it tests without a DOM.
+ */
+export const resolveMoveDisabledHint = (
+	threads: readonly RemitImapThreadMessageResponse[],
+	selectedIds: ReadonlySet<string>,
+	listAccountId: string | undefined,
+): string | undefined =>
+	resolveSelectionAccountScope(
+		threads
+			.filter((thread) => selectedIds.has(thread.messageId))
+			.map((thread) => thread.accountId ?? listAccountId),
+	).moveDisabledHint;
 
 export const MessageList = ({
 	mailboxId,
@@ -776,28 +794,13 @@ export const MessageList = ({
 		setFocusedMessageId(restoreTo);
 	}, [setFocusedMessageId]);
 
-	// Cross-account guard: every selected thread row must belong to the
-	// same account as the current mailbox. The list is already scoped to
-	// one mailbox so in practice this is always single-account, but we
-	// detect drift defensively (e.g. a future global selection mode) and
-	// disable Move with an inline hint rather than silently aggregating.
-	//
-	// `MessageList` re-renders on every virtualizer scroll tick. Memoize
-	// the guard so we only walk the selected slice when selection or
-	// thread identity actually changes.
-	const moveDisabledHint = useMemo(() => {
-		if (selectedCount === 0) return undefined;
-		const selectedAccountConfigIds = new Set<string>();
-		for (const thread of threads) {
-			if (selectedIds.has(thread.messageId)) {
-				selectedAccountConfigIds.add(thread.accountConfigId);
-			}
-		}
-		if (selectedAccountConfigIds.size > 1) {
-			return "Move only works within one account — clear selection or pick messages from a single account";
-		}
-		return undefined;
-	}, [selectedCount, selectedIds, threads]);
+	// `MessageList` re-renders on every virtualizer scroll tick. Memoize the
+	// guard so we only walk the selected slice when selection or thread
+	// identity actually changes.
+	const moveDisabledHint = useMemo(
+		() => resolveMoveDisabledHint(threads, selectedIds, accountId),
+		[accountId, selectedIds, threads],
+	);
 
 	// Organize builds a rule out of clauses, and a search predicate is not a set
 	// of clauses — its facets have no `ClauseField`. Over an escalated selection
