@@ -1,7 +1,6 @@
 import assert from "node:assert";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
-import { envelopeAddressId } from "../id.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
 import { AddressRepo } from "./i4-address.js";
 
@@ -140,7 +139,6 @@ describe("AddressRepo", () => {
 	test("createEnvelopeAddress and getEnvelopeAddress", async () => {
 		const messageId = randomUUID();
 		const addressId = randomUUID();
-		const envId = envelopeAddressId(messageId, "from", 0);
 
 		const addr = await repo.createAddress({
 			...makeAddressInput(randomId()),
@@ -155,18 +153,18 @@ describe("AddressRepo", () => {
 			addressOrder: 0,
 		});
 
-		assert.equal(ea.envelopeAddressId, envId);
 		assert.equal(ea.messageId, messageId);
 		assert.equal(ea.addressRole, "from");
 
-		const fetched = await repo.getEnvelopeAddress(envId);
-		assert.equal(fetched.envelopeAddressId, envId);
+		const fetched = await repo.getEnvelopeAddress(ea.envelopeAddressId);
+		assert.equal(fetched.envelopeAddressId, ea.envelopeAddressId);
+		assert.equal(fetched.addressId, addressId);
 
-		await repo.deleteEnvelopeAddress(envId);
+		await repo.deleteEnvelopeAddress(ea.envelopeAddressId);
 		await repo.deleteAddress(addr.accountConfigId, addr.addressId);
 	});
 
-	test("upsertEnvelopeAddress is idempotent", async () => {
+	test("upsertEnvelopeAddress keys the row on messageId, role and order", async () => {
 		const messageId = randomUUID();
 		const input = {
 			messageId,
@@ -176,14 +174,22 @@ describe("AddressRepo", () => {
 			addressOrder: 1,
 		};
 		const first = await repo.upsertEnvelopeAddress(input);
-		const second = await repo.upsertEnvelopeAddress(input);
-		assert.equal(
-			first.envelopeAddressId,
-			envelopeAddressId(messageId, "to", 1),
-		);
+		const second = await repo.upsertEnvelopeAddress({
+			...input,
+			addressId: randomUUID(),
+			normalizedEmail: "y@example.com",
+		});
 		assert.equal(second.envelopeAddressId, first.envelopeAddressId);
+		assert.equal(second.normalizedEmail, "x@example.com");
+
+		const reordered = await repo.upsertEnvelopeAddress({
+			...input,
+			addressOrder: 2,
+		});
+		assert.notEqual(reordered.envelopeAddressId, first.envelopeAddressId);
 
 		await repo.deleteEnvelopeAddress(first.envelopeAddressId);
+		await repo.deleteEnvelopeAddress(reordered.envelopeAddressId);
 	});
 
 	test("deleteManyEnvelopeAddresses removes in batch", async () => {
