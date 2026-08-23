@@ -9,11 +9,17 @@
  * and a UI that reports "Deleted 3" is exactly as convincing when nothing left
  * the second mailbox.
  *
- * Each account is its own Dovecot user with its own Trash, so every subject is
- * asked three things: it left its own INBOX, it arrived in its own Trash, and
- * it is not in the other account's Trash. The last one is what distinguishes a
- * split that batched by account from one that sent every id under whichever
- * account came first.
+ * What catches a regression to one batch is the per-account pair: each
+ * account's subjects have to have left that account's own INBOX and arrived in
+ * that account's own Trash. A batch spanning accounts is refused whole before
+ * any of it is applied (`assertMessagesOwned` in
+ * `packages/backend/src/handlers/message.ts`), so a client that sent one call
+ * fails the run outright — the run screen never says it deleted them, and the
+ * waits on the second server never settle.
+ *
+ * The two cross-Trash reads at the end are insurance, not the proof: they cover
+ * a filing the endpoint would have to have done while refusing to do it, which
+ * nothing can currently produce.
  *
  * Every wait is on the mail server. A delete is answered off the read model and
  * the IMAP move is queued behind that answer, so a read taken when the run
@@ -116,6 +122,16 @@ const selectRows = async (page: Page, subjects: string[]): Promise<void> => {
 	);
 };
 
+/**
+ * The run screen's headline once the run has ended: the verb in the past tense
+ * and the number it reached. Anchored, so a run that reached ten of them cannot
+ * satisfy an assertion about one.
+ */
+const expectRunOutcome = (page: Page, outcome: string): Promise<void> =>
+	expect(page.getByText(new RegExp(`^${outcome}$`))).toBeVisible({
+		timeout: 60_000,
+	});
+
 const expectLeftInbox = (account: IsolatedAccount, subjects: string[]) =>
 	waitForServerMailbox(
 		account.imapUser,
@@ -138,6 +154,21 @@ const expectSeen = (account: IsolatedAccount, subject: string) =>
 		(flags) => flags.includes("\\Seen"),
 		{ timeoutMs: 60_000, what: `\\Seen to be set on "${subject}"` },
 	);
+
+/**
+ * The flag is unset, on a message that is there. An absent subject has no flags
+ * either, so the presence read is what stops the pre-assertion passing on a
+ * mailbox the fixture never reached.
+ */
+const expectUnseen = async (
+	account: IsolatedAccount,
+	subject: string,
+): Promise<void> => {
+	const held = await listServerSubjects(account.imapUser, "INBOX");
+	expect(held).toContain(subject);
+	const flags = await serverFlagsForSubject(account.imapUser, "INBOX", subject);
+	expect(flags).not.toContain("\\Seen");
+};
 
 test.describe("A brief selection spanning two accounts", () => {
 	let run: IsolatedRun;
@@ -179,9 +210,7 @@ test.describe("A brief selection spanning two accounts", () => {
 		});
 		await advanceTo(page, "Review");
 		await commitButton(page, "Delete").click();
-		await expect(page.getByText(`Deleted ${selected.length}`)).toBeVisible({
-			timeout: 60_000,
-		});
+		await expectRunOutcome(page, `Deleted ${selected.length}`);
 		await dismissRun(page);
 
 		await expectLeftInbox(run, FIRST_DELETED);
@@ -192,7 +221,9 @@ test.describe("A brief selection spanning two accounts", () => {
 		// Neither account's mail was filed under the other's Trash. Both waits
 		// above have already settled, so these are reads of a finished state.
 		const firstTrash = await listServerSubjects(run.imapUser, TRASH);
-		expect(firstTrash).not.toContain(SECOND_DELETED[0]);
+		for (const subject of SECOND_DELETED) {
+			expect(firstTrash).not.toContain(subject);
+		}
 		const secondTrash = await listServerSubjects(second.imapUser, TRASH);
 		for (const subject of FIRST_DELETED) {
 			expect(secondTrash).not.toContain(subject);
@@ -204,19 +235,10 @@ test.describe("A brief selection spanning two accounts", () => {
 		const selected = [...FIRST_READ, ...SECOND_READ];
 		const page = await openBrief(context, selected);
 
-		// The flag is unset on both servers before the verb runs, so the assertion
+		// Neither server holds the flag before the verb runs, so the assertions
 		// after it cannot be satisfied by mail that arrived already seen.
-		for (const [account, subject] of [
-			[run, FIRST_READ[0]],
-			[second, SECOND_READ[0]],
-		] as const) {
-			const flags = await serverFlagsForSubject(
-				account.imapUser,
-				"INBOX",
-				subject,
-			);
-			expect(flags).not.toContain("\\Seen");
-		}
+		for (const subject of FIRST_READ) await expectUnseen(run, subject);
+		for (const subject of SECOND_READ) await expectUnseen(second, subject);
 
 		await selectRows(page, selected);
 		await barMarkRead(page);
@@ -225,12 +247,10 @@ test.describe("A brief selection spanning two accounts", () => {
 		});
 		await advanceTo(page, "Review");
 		await commitButton(page, "Mark read").click();
-		await expect(page.getByText(`Marked read ${selected.length}`)).toBeVisible({
-			timeout: 60_000,
-		});
+		await expectRunOutcome(page, `Marked read ${selected.length}`);
 		await dismissRun(page);
 
-		await expectSeen(run, FIRST_READ[0]);
-		await expectSeen(second, SECOND_READ[0]);
+		for (const subject of FIRST_READ) await expectSeen(run, subject);
+		for (const subject of SECOND_READ) await expectSeen(second, subject);
 	});
 });
