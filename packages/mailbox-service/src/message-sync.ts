@@ -16,7 +16,6 @@ import { storedDisplayName } from "@remit/data-ports/display-name";
 import {
 	deriveAddressId,
 	deriveBodyPartId,
-	deriveEnvelopeAddressId,
 	deriveEnvelopeId,
 	deriveMessageIdFromSource,
 	deriveThreadId,
@@ -1506,8 +1505,6 @@ export class MessageSyncService {
 
 			const addressId = deriveAddressId(accountConfigId, normalizedEmail);
 
-			const envelopeAddressId = deriveEnvelopeAddressId(messageId, role, order);
-
 			const addressInput = {
 				addressId,
 				accountConfigId,
@@ -1526,7 +1523,6 @@ export class MessageSyncService {
 			}
 
 			await addressService.upsertEnvelopeAddress({
-				envelopeAddressId,
 				messageId,
 				addressId,
 				displayName,

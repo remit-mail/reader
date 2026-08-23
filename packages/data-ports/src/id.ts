@@ -21,16 +21,6 @@ export const deriveAddressId = (
 		REMIT_NAMESPACE,
 	);
 
-export const deriveEnvelopeAddressId = (
-	messageId: string,
-	role: string,
-	order: number,
-): string =>
-	base36uuidv5(
-		`envelopeaddress:${messageId}:${role}:${order}`,
-		REMIT_NAMESPACE,
-	);
-
 export const isValidMessageId = (messageId: string | undefined): boolean => {
 	if (!messageId) return false;
 	const trimmed = messageId.trim();

@@ -295,7 +295,7 @@ export type UpdateAddressInput = Partial<
 export type CreateEnvelopeAddressInput = Omit<
 	EnvelopeAddressItem,
 	"envelopeAddressId" | "createdAt" | "updatedAt"
-> & { envelopeAddressId: string };
+>;
 
 export type CreateEnvelopeInput = Omit<
 	EnvelopeItem,

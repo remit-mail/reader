@@ -23,7 +23,7 @@ import {
 } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
-import { envelopeAddressId as deriveEnvelopeAddressId } from "../id.js";
+import { envelopeAddressId } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
 import {
 	JUNK_ONLY_FLAG,
@@ -744,15 +744,14 @@ export class AddressRepo implements IAddressRepository {
 		input: CreateEnvelopeAddressInput,
 	): Promise<EnvelopeAddressItem> {
 		const now = Date.now();
-		const envelopeAddressId = deriveEnvelopeAddressId(
-			input.messageId,
-			input.addressRole,
-			input.addressOrder,
-		);
 		const [row] = await this.db
 			.insert(envelopeAddressTable)
 			.values({
-				envelopeAddressId,
+				envelopeAddressId: envelopeAddressId(
+					input.messageId,
+					input.addressRole,
+					input.addressOrder,
+				),
 				messageId: input.messageId,
 				addressId: input.addressId,
 				displayName: input.displayName,
@@ -770,7 +769,7 @@ export class AddressRepo implements IAddressRepository {
 		input: CreateEnvelopeAddressInput,
 	): Promise<EnvelopeAddressItem> {
 		const now = Date.now();
-		const envelopeAddressId = deriveEnvelopeAddressId(
+		const rowId = envelopeAddressId(
 			input.messageId,
 			input.addressRole,
 			input.addressOrder,
@@ -778,7 +777,7 @@ export class AddressRepo implements IAddressRepository {
 		const [row] = await this.db
 			.insert(envelopeAddressTable)
 			.values({
-				envelopeAddressId,
+				envelopeAddressId: rowId,
 				messageId: input.messageId,
 				addressId: input.addressId,
 				displayName: input.displayName,
@@ -791,7 +790,7 @@ export class AddressRepo implements IAddressRepository {
 			.onConflictDoNothing()
 			.returning();
 		if (!row) {
-			return this.getEnvelopeAddress(envelopeAddressId);
+			return this.getEnvelopeAddress(rowId);
 		}
 		return rowToEnvelopeAddress(row);
 	}
