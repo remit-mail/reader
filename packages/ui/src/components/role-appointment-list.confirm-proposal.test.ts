@@ -1,7 +1,7 @@
 import "@remit/test-dom";
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { act, createElement } from "react";
+import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { FolderRole } from "./folder-role.js";
 import {
@@ -112,5 +112,56 @@ describe("confirming a proposed folder role", () => {
 	it("offers nothing to commit when the proposal resolves to no folder", async () => {
 		await mount({ trash: { mailboxId: null, source: "Proposed" } });
 		assert.equal(buttonNamed("Set as Trash"), undefined);
+	});
+});
+
+function Controlled({ accepts }: { accepts: boolean }) {
+	const [appointments, setAppointments] = useState<
+		Record<string, RoleAppointment>
+	>({ trash: { mailboxId: "mb-deleted", source: "Proposed" } });
+	return createElement(RoleAppointmentList, {
+		accountEmail: "you@example.com",
+		folders,
+		appointments,
+		displayNames: {},
+		onAppoint: (role: FolderRole, mailboxId: string | null) => {
+			appointed.push([role, mailboxId]);
+			if (!accepts || mailboxId === null) return;
+			setAppointments({ [role]: { mailboxId, source: "Appointed" } });
+		},
+		onRename: () => {},
+	});
+}
+
+describe("where focus goes when a proposal is committed", () => {
+	const mountControlled = async (accepts: boolean) => {
+		await act(async () => {
+			root.render(createElement(Controlled, { accepts }));
+		});
+	};
+
+	const trashPicker = (): Element | null =>
+		container.querySelector('select[aria-label="Folder for Trash"]');
+
+	it("hands focus to the picker once the role re-resolves", async () => {
+		await mountControlled(true);
+		const button = buttonNamed("Set as Trash");
+		button?.focus();
+		await click(button);
+		assert.equal(
+			buttonNamed("Set as Trash"),
+			undefined,
+			"the commit removes itself",
+		);
+		assert.equal(document.activeElement, trashPicker());
+	});
+
+	it("leaves focus on the commit when the role does not re-resolve", async () => {
+		await mountControlled(false);
+		const button = buttonNamed("Set as Trash");
+		button?.focus();
+		await click(button);
+		assert.equal(buttonNamed("Set as Trash"), button);
+		assert.equal(document.activeElement, button);
 	});
 });

@@ -216,9 +216,9 @@ export const ProposedSource: Story = {
 };
 
 /**
- * What a stock Dovecot account looks like on first visit: every role but INBOX
- * matched by name alone. Each row carries its own commit, so the screen stays
- * a list rather than five stacked callouts.
+ * Density check: a server that advertises no SPECIAL-USE flags, so every role
+ * but INBOX rests on a name match alone. Each row carries its own commit, so
+ * the screen stays a list rather than five stacked callouts.
  */
 export const ProposedThroughout: Story = {
 	name: "proposed throughout",

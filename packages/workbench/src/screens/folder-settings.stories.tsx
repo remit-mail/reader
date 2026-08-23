@@ -1,6 +1,7 @@
 import {
 	FolderManager,
 	FolderRenameDialog,
+	type FolderRole,
 	type FolderTreeNode,
 	type ManagedFolder,
 	type RoleAppointment,
@@ -112,7 +113,7 @@ const messageCounts: Record<string, number> = {
 	"mbx-receipts": 12,
 };
 
-const appointments: Record<string, RoleAppointment> = {
+const initialAppointments: Record<string, RoleAppointment> = {
 	inbox: { mailboxId: "mbx-inbox", source: "Reserved" },
 	drafts: { mailboxId: null, source: "None" },
 	sent: { mailboxId: null, source: "None" },
@@ -157,10 +158,27 @@ const createFolder = (
 function FolderSettingsPage({ renaming = false }: { renaming?: boolean }) {
 	const [helpOpen, setHelpOpen] = useState(true);
 	const [folders, setFolders] = useState(initialFolders);
+	const [appointments, setAppointments] = useState(initialAppointments);
 	const [renamed, setRenamed] = useState<ManagedFolder | null>(
 		renaming ? (initialFolders[4] as ManagedFolder) : null,
 	);
 	const [draft, setDraft] = useState("Travel");
+
+	const handleAppoint = (role: FolderRole, mailboxId: string | null) =>
+		setAppointments((current) => {
+			const next: Record<string, RoleAppointment> = {
+				...current,
+				[role]: mailboxId
+					? { mailboxId, source: "Appointed" }
+					: { mailboxId: null, source: "None" },
+			};
+			for (const other of Object.keys(next)) {
+				if (other === role) continue;
+				if (!mailboxId || next[other]?.mailboxId !== mailboxId) continue;
+				next[other] = { mailboxId: null, source: "None" };
+			}
+			return next;
+		});
 
 	return (
 		<SettingsShell
@@ -184,7 +202,7 @@ function FolderSettingsPage({ renaming = false }: { renaming?: boolean }) {
 					}))}
 					appointments={appointments}
 					displayNames={{}}
-					onAppoint={() => {}}
+					onAppoint={handleAppoint}
 					onRename={() => {}}
 				/>
 				<section className="space-y-1.5">
