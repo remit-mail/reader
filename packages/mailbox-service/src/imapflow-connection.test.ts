@@ -130,6 +130,26 @@ describe("convertSearchCriteria — a criterion never silently widens to ALL (#9
 		);
 	});
 
+	it("keeps a __proto__ header name as an own query term instead of losing it to the prototype setter", () => {
+		const query = convertSearchCriteria([["HEADER", "__proto__", "x"]]);
+		const header = query.header;
+
+		assert.ok(typeof header === "object" && header !== null);
+		assert.deepStrictEqual(Object.getOwnPropertyNames(header), ["__proto__"]);
+		assert.strictEqual(
+			Object.getOwnPropertyDescriptor(header, "__proto__")?.value,
+			"x",
+		);
+		assert.notDeepStrictEqual(query, {});
+	});
+
+	it("throws on an empty criteria list rather than compiling to {}", () => {
+		assert.throws(
+			() => convertSearchCriteria([]),
+			/Empty IMAP search criteria list/,
+		);
+	});
+
 	it("merges several header criteria into one header query", () => {
 		assert.deepStrictEqual(
 			convertSearchCriteria([

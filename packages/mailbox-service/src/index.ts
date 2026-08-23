@@ -130,7 +130,6 @@ export { SOCIAL_DOMAINS } from "./heuristics/socialDomains.js";
 export { TRANSACTIONAL_DOMAINS } from "./heuristics/transactionalDomains.js";
 // IMAP connection (ImapFlow-based)
 export {
-	convertSearchCriteria,
 	createImapFlowConnectionFromAccount,
 	createImapFlowConnectionWithCredentials,
 	ImapFlowConnection,

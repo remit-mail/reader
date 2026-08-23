@@ -98,7 +98,7 @@ const unsupported = (criterion: unknown): Error =>
 
 const applyValueCriterion = (
 	result: Record<string, unknown>,
-	header: Record<string, string>,
+	header: Map<string, string>,
 	criterion: unknown[],
 ): void => {
 	const [key, ...values] = criterion;
@@ -112,7 +112,7 @@ const applyValueCriterion = (
 		if (typeof value !== "string" && value !== true) {
 			throw unsupported(criterion);
 		}
-		header[name.toLowerCase()] = value === true ? "" : value;
+		header.set(name.toLowerCase(), value === true ? "" : value);
 		return;
 	}
 
@@ -124,10 +124,13 @@ const applyValueCriterion = (
 /**
  * Compile node-imap style search criteria into an ImapFlow search object.
  *
- * A criterion this does not understand throws. imapflow reads an empty object
- * as `SEARCH ALL` (`imapflow/lib/commands/search.js`), so quietly skipping one
- * turns a narrow probe into "every message in the mailbox" — the reconcile and
- * move paths then act on a stranger's UID (#912).
+ * A criterion this does not understand throws, and so does an empty criteria
+ * list. imapflow reads an empty object as `SEARCH ALL`
+ * (`imapflow/lib/commands/search.js`), so quietly skipping one turns a narrow
+ * probe into "every message in the mailbox" — the reconcile and move paths then
+ * act on a stranger's UID (#912). Header names accumulate in a Map so that a
+ * name like `__proto__` lands as a query term rather than hitting the
+ * prototype setter and vanishing.
  *
  * Values travel as structured tokens, never interpolated into a criterion
  * string, so a quote or a CRLF in a header value cannot alter the query.
@@ -135,8 +138,14 @@ const applyValueCriterion = (
 export const convertSearchCriteria = (
 	criteria: unknown[],
 ): Record<string, unknown> => {
+	if (criteria.length === 0) {
+		throw new Error(
+			"Empty IMAP search criteria list — it would compile to SEARCH ALL",
+		);
+	}
+
 	const result: Record<string, unknown> = {};
-	const header: Record<string, string> = {};
+	const header = new Map<string, string>();
 
 	for (const criterion of criteria) {
 		if (typeof criterion === "string") {
@@ -152,7 +161,7 @@ export const convertSearchCriteria = (
 		throw unsupported(criterion);
 	}
 
-	if (Object.keys(header).length > 0) result.header = header;
+	if (header.size > 0) result.header = Object.fromEntries(header);
 	return result;
 };
 

@@ -70,9 +70,6 @@ export const emitMoveResync = async (
  * SEARCH a mailbox for a message by its RFC822 Message-ID header. Read-only
  * (EXAMINE, not SELECT) — this is a verification probe, never a write.
  * Returns the first matching UID, or `null` if nothing matched.
- *
- * The header travels as a structured criterion, so a Message-ID carrying a
- * quote or a CRLF cannot alter the query.
  */
 export const searchMailboxByMessageId = async (
 	connection: IImapConnection,
