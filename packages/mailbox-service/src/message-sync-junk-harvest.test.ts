@@ -201,6 +201,15 @@ describe("what a mailbox says about the addresses on its messages", () => {
 		assert.deepEqual(emails(saved.envelopeAddresses), BOTH);
 	});
 
+	it("leaves the identity of an envelope address to the store", async () => {
+		const saved = await save(mailboxAt("INBOX"));
+
+		assert.ok(saved.envelopeAddresses.length > 0);
+		for (const envelopeAddress of saved.envelopeAddresses) {
+			assert.ok(!("envelopeAddressId" in envelopeAddress));
+		}
+	});
+
 	it("keeps a message in Trash from deciding either way", async () => {
 		const saved = await save(mailboxAt("Trash"), "Trash");
 

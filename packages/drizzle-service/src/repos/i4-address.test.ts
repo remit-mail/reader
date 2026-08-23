@@ -148,7 +148,6 @@ describe("AddressRepo", () => {
 		});
 
 		const ea = await repo.createEnvelopeAddress({
-			envelopeAddressId: envId,
 			messageId,
 			addressId,
 			normalizedEmail: "test@example.com",
@@ -170,7 +169,6 @@ describe("AddressRepo", () => {
 	test("upsertEnvelopeAddress is idempotent", async () => {
 		const messageId = randomUUID();
 		const input = {
-			envelopeAddressId: envelopeAddressId(messageId, "to", 1),
 			messageId,
 			addressId: randomUUID(),
 			normalizedEmail: "x@example.com",
@@ -179,15 +177,18 @@ describe("AddressRepo", () => {
 		};
 		const first = await repo.upsertEnvelopeAddress(input);
 		const second = await repo.upsertEnvelopeAddress(input);
-		assert.equal(first.envelopeAddressId, second.envelopeAddressId);
+		assert.equal(
+			first.envelopeAddressId,
+			envelopeAddressId(messageId, "to", 1),
+		);
+		assert.equal(second.envelopeAddressId, first.envelopeAddressId);
 
-		await repo.deleteEnvelopeAddress(input.envelopeAddressId);
+		await repo.deleteEnvelopeAddress(first.envelopeAddressId);
 	});
 
 	test("deleteManyEnvelopeAddresses removes in batch", async () => {
 		const messageId = randomUUID();
 		const ea1 = {
-			envelopeAddressId: envelopeAddressId(messageId, "from", 0),
 			messageId,
 			addressId: randomUUID(),
 			normalizedEmail: "a@x.com",
@@ -196,22 +197,21 @@ describe("AddressRepo", () => {
 		};
 		const ea2 = {
 			...ea1,
-			envelopeAddressId: envelopeAddressId(messageId, "to", 1),
 			addressRole: "to" as const,
 			addressOrder: 1,
 		};
 
-		await repo.createEnvelopeAddress(ea1);
-		await repo.createEnvelopeAddress(ea2);
+		const created1 = await repo.createEnvelopeAddress(ea1);
+		const created2 = await repo.createEnvelopeAddress(ea2);
 
 		await repo.deleteManyEnvelopeAddresses([
-			ea1.envelopeAddressId,
-			ea2.envelopeAddressId,
+			created1.envelopeAddressId,
+			created2.envelopeAddressId,
 		]);
 
 		const results = await repo.getEnvelopeAddress([
-			ea1.envelopeAddressId,
-			ea2.envelopeAddressId,
+			created1.envelopeAddressId,
+			created2.envelopeAddressId,
 		]);
 		assert.equal(results.length, 0);
 	});
