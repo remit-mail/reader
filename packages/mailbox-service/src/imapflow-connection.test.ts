@@ -1,6 +1,7 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import {
+	convertSearchCriteria,
 	ImapFlowConnection,
 	toInternalDate,
 	toIsoDateString,
@@ -112,6 +113,76 @@ const fakeMailbox = (path: string, exists: number) => ({
 	readOnly: true,
 });
 
+describe("convertSearchCriteria — a criterion never silently widens to ALL (#912)", () => {
+	it("compiles a Message-ID header criterion into a header query", () => {
+		assert.deepStrictEqual(
+			convertSearchCriteria([["HEADER", "Message-ID", "<abc@example.com>"]]),
+			{ header: { "message-id": "<abc@example.com>" } },
+		);
+	});
+
+	it("carries a Message-ID holding a quote and a CRLF as a value, not as syntax", () => {
+		const hostile = '<a"b@example.com>\r\nUID 1';
+
+		assert.deepStrictEqual(
+			convertSearchCriteria([["HEADER", "Message-ID", hostile]]),
+			{ header: { "message-id": hostile } },
+		);
+	});
+
+	it("merges several header criteria into one header query", () => {
+		assert.deepStrictEqual(
+			convertSearchCriteria([
+				["HEADER", "Message-ID", "<a@example.com>"],
+				["HEADER", "X-Remit-Trace", "abc"],
+			]),
+			{ header: { "message-id": "<a@example.com>", "x-remit-trace": "abc" } },
+		);
+	});
+
+	it("still compiles the flag and value criteria every caller uses", () => {
+		assert.deepStrictEqual(convertSearchCriteria(["ALL"]), {});
+		assert.deepStrictEqual(convertSearchCriteria(["DELETED"]), {
+			deleted: true,
+		});
+		assert.deepStrictEqual(convertSearchCriteria([["UID", "42"]]), {
+			uid: "42",
+		});
+	});
+
+	it("throws on an unrecognised string criterion instead of compiling to {}", () => {
+		assert.throws(
+			() => convertSearchCriteria(['HEADER Message-ID "<abc@example.com>"']),
+			/Unsupported IMAP search criterion/,
+		);
+	});
+
+	it("throws on an unrecognised keyed criterion", () => {
+		assert.throws(
+			() => convertSearchCriteria([["BODY", "invoice"]]),
+			/Unsupported IMAP search criterion/,
+		);
+	});
+
+	it("throws on a keyed criterion carrying the wrong number of values", () => {
+		assert.throws(
+			() => convertSearchCriteria([["UID"]]),
+			/Unsupported IMAP search criterion/,
+		);
+		assert.throws(
+			() => convertSearchCriteria([["HEADER", "Message-ID"]]),
+			/Unsupported IMAP search criterion/,
+		);
+	});
+
+	it("throws on a criterion that is neither a string nor an array", () => {
+		assert.throws(
+			() => convertSearchCriteria([{ header: "Message-ID" }]),
+			/Unsupported IMAP search criterion/,
+		);
+	});
+});
+
 describe("ImapFlowConnection.search — the probe every stale-row reconcile rests on (#102)", () => {
 	const buildSearchConnection = (
 		result: unknown,
@@ -137,6 +208,21 @@ describe("ImapFlowConnection.search — the probe every stale-row reconcile rest
 		assert.deepStrictEqual(result, [42]);
 		assert.deepStrictEqual(calls, [
 			{ query: { uid: "42" }, options: { uid: true } },
+		]);
+	});
+
+	it("hands imapflow a header query for a Message-ID probe, not an empty object", async () => {
+		const calls: Array<{ query: unknown; options: unknown }> = [];
+		const connection = buildSearchConnection([], calls);
+		await connection.openBox("Archive", true);
+
+		await connection.search([["HEADER", "Message-ID", "<abc@example.com>"]]);
+
+		assert.deepStrictEqual(calls, [
+			{
+				query: { header: { "message-id": "<abc@example.com>" } },
+				options: { uid: true },
+			},
 		]);
 	});
 

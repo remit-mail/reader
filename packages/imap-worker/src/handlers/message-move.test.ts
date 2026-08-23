@@ -3,6 +3,10 @@ import { afterEach, before, describe, it, mock } from "node:test";
 import { getClient, type RemitClient, setClient } from "@remit/backend/client";
 import type { AccountItem, ThreadMessageItem } from "@remit/data-ports";
 import type { Logger } from "@remit/logger-lambda";
+import {
+	convertSearchCriteria,
+	type IImapConnection,
+} from "@remit/mailbox-service";
 import type { MessageMoveEvent } from "../events.js";
 import {
 	buildThreadMessageMoveUpdate,
@@ -11,6 +15,7 @@ import {
 	handleMessageMove,
 	MESSAGE_MOVE_MAX_ATTEMPTS,
 	moveThenResync,
+	searchMailboxByMessageId,
 } from "./message-move.js";
 
 const silentLogger = (() => {
@@ -338,5 +343,68 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 		await handleMessageMove(event, silentLogger, MESSAGE_MOVE_MAX_ATTEMPTS);
 
 		assert.equal(mailboxGet.mock.calls.length, 0);
+	});
+});
+
+describe("searchMailboxByMessageId — the probe that binds a move to a UID (#912)", () => {
+	const isHeaderQuery = (value: unknown): value is Record<string, string> =>
+		typeof value === "object" && value !== null && !Array.isArray(value);
+
+	/**
+	 * Stands in for the destination folder. Criteria are compiled by the real
+	 * converter, and an empty query answers every UID — the rule imapflow
+	 * applies when it turns `{}` into SEARCH ALL.
+	 */
+	const buildDestination = (
+		messages: Array<{ uid: number; messageIdHeader: string }>,
+	): IImapConnection => {
+		const opened: string[] = [];
+		return {
+			openBox: async (mailboxPath: string) => {
+				opened.push(mailboxPath);
+				return {} as never;
+			},
+			search: async (criteria: unknown[]) => {
+				const query = convertSearchCriteria(criteria);
+				const header = isHeaderQuery(query.header) ? query.header : undefined;
+				const wanted = header?.["message-id"];
+				if (wanted === undefined) return messages.map((row) => row.uid);
+				return messages
+					.filter((row) => row.messageIdHeader === wanted)
+					.map((row) => row.uid);
+			},
+		} as unknown as IImapConnection;
+	};
+
+	it("answers null when the folder holds no message with that Message-ID", async () => {
+		const destination = buildDestination([
+			{ uid: 11, messageIdHeader: "<stranger-a@example.com>" },
+			{ uid: 12, messageIdHeader: "<stranger-b@example.com>" },
+		]);
+
+		assert.strictEqual(
+			await searchMailboxByMessageId(
+				destination,
+				"Archive",
+				"<moved@example.com>",
+			),
+			null,
+		);
+	});
+
+	it("answers the UID of the message carrying that Message-ID", async () => {
+		const destination = buildDestination([
+			{ uid: 11, messageIdHeader: "<stranger-a@example.com>" },
+			{ uid: 12, messageIdHeader: "<moved@example.com>" },
+		]);
+
+		assert.strictEqual(
+			await searchMailboxByMessageId(
+				destination,
+				"Archive",
+				"<moved@example.com>",
+			),
+			12,
+		);
 	});
 });
