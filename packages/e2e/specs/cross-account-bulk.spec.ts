@@ -103,10 +103,16 @@ const openBrief = async (
 
 const selectRows = async (page: Page, subjects: string[]): Promise<void> => {
 	for (const subject of subjects) {
-		await rowToggle(row(page, subject)).click();
+		const target = row(page, subject);
+		await rowToggle(target).click();
+		await expect(rowToggle(target)).toHaveAccessibleName("Deselect message");
 	}
+	// The bar words a selection covering every loaded row differently from a
+	// partial one — "All 2 loaded selected" against "2 messages selected" — and
+	// which it is depends on what else the brief happens to hold. The rows above
+	// are what carries the claim; this only checks the bar counted them all.
 	await expect(selectionStatus(page)).toHaveText(
-		`${subjects.length} messages selected`,
+		new RegExp(`\\b${subjects.length}\\b`),
 	);
 };
 
