@@ -199,13 +199,37 @@ export const ReservedSource: Story = {
 	},
 };
 
-/** `Proposed` — a name matched. Nobody confirmed it, and the row does not pretend otherwise. */
+/**
+ * `Proposed` — a name matched. Nobody confirmed it, and the row does not
+ * pretend otherwise. `Set as Trash` commits the folder the picker already
+ * shows, which re-picking that same option cannot do.
+ */
 export const ProposedSource: Story = {
 	name: "proposed",
 	args: {
 		folders: HOSTNET_FOLDERS,
 		initial: {
 			...SETTLED,
+			trash: { mailboxId: "mb-deleted", source: "Proposed" },
+		},
+	},
+};
+
+/**
+ * Density check: a server that advertises no SPECIAL-USE flags, so every role
+ * but INBOX rests on a name match alone. Each row carries its own commit, so
+ * the screen stays a list rather than five stacked callouts.
+ */
+export const ProposedThroughout: Story = {
+	name: "proposed throughout",
+	args: {
+		folders: HOSTNET_FOLDERS,
+		initial: {
+			inbox: { mailboxId: "mb-inbox", source: "Reserved" },
+			drafts: { mailboxId: "mb-concepten", source: "Proposed" },
+			sent: { mailboxId: "mb-sent-messages", source: "Proposed" },
+			archive: { mailboxId: "mb-archive", source: "Proposed" },
+			junk: { mailboxId: "mb-spam", source: "Proposed" },
 			trash: { mailboxId: "mb-deleted", source: "Proposed" },
 		},
 	},

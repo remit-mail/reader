@@ -1,5 +1,5 @@
 import { Check, Folder } from "lucide-react";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { folderLeaf } from "../lib/folder-tree.js";
 import { Banner } from "./banner.js";
 import { Button } from "./button.js";
@@ -119,12 +119,19 @@ function RoleAppointmentRow({
 }: RoleAppointmentRowProps) {
 	const [draftName, setDraftName] = useState(displayName);
 	const selectRef = useRef<HTMLSelectElement>(null);
+	const confirmingProposal = useRef(false);
 	const subtitleId = useId();
 	const { mailboxId, source, staleFolderPath } = appointment;
 	const appointed = folders.find((f) => f.mailboxId === mailboxId) ?? null;
 	const label = canonicalRoleLabel(role);
 	const renameDirty =
 		appointed != null && draftName.trim() !== displayName.trim();
+
+	useEffect(() => {
+		if (!confirmingProposal.current || source === "Proposed") return;
+		confirmingProposal.current = false;
+		selectRef.current?.focus();
+	}, [source]);
 
 	const subtitle = (() => {
 		if (source === "None") {
@@ -194,6 +201,19 @@ function RoleAppointmentRow({
 						</option>
 					))}
 				</Select>
+				{source === "Proposed" && appointed && (
+					<Button
+						variant="secondary"
+						size="sm"
+						className="shrink-0"
+						onClick={() => {
+							confirmingProposal.current = true;
+							onAppoint(role, appointed.mailboxId);
+						}}
+					>
+						{`Set as ${label}`}
+					</Button>
+				)}
 				{appointed && (
 					<>
 						<Input
