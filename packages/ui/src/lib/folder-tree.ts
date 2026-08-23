@@ -38,8 +38,10 @@ export type FolderTreeDisplayRow =
 	| { kind: "folder"; row: FolderTreeRow; index: number }
 	| { kind: "create"; parent: FolderTreeNode; depth: number };
 
-// A server that reports no delimiter has a flat namespace, so the path is its
-// own leaf; splitting on "" would return single characters.
+// A server that reports no delimiter has a flat namespace: the path is its own
+// leaf and every folder is a root. Splitting on "" would return single
+// characters, and `"Inbox".lastIndexOf("")` is 5 rather than -1, so each of
+// these answers the flat case before it touches the path.
 export const folderLeaf = (path: string, delimiter: string): string => {
 	if (delimiter.length === 0) return path;
 	const parts = path.split(delimiter);
@@ -47,19 +49,24 @@ export const folderLeaf = (path: string, delimiter: string): string => {
 };
 
 export const folderParent = (path: string, delimiter: string): string => {
+	if (delimiter.length === 0) return "";
 	const cut = path.lastIndexOf(delimiter);
 	return cut === -1 ? "" : path.slice(0, cut);
 };
 
 export const folderDepth = (path: string, delimiter: string): number =>
-	path.split(delimiter).length - 1;
+	delimiter.length === 0 ? 0 : path.split(delimiter).length - 1;
 
+// Every step up is strictly shorter than the path below it, so the walk is
+// bounded by the length of the path whatever a parent comes back as.
 export const folderAncestors = (path: string, delimiter: string): string[] => {
 	const out: string[] = [];
-	let parent = folderParent(path, delimiter);
-	while (parent) {
+	let child = path;
+	let parent = folderParent(child, delimiter);
+	while (parent && parent.length < child.length) {
 		out.push(parent);
-		parent = folderParent(parent, delimiter);
+		child = parent;
+		parent = folderParent(child, delimiter);
 	}
 	return out;
 };
@@ -182,12 +189,16 @@ export const collapseFolderTree = (
 
 /**
  * Drops a create action at the end of every open folder's children, so "New
- * folder" reads as the last folder inside the one you opened.
+ * folder" reads as the last folder inside the one you opened. A flat namespace
+ * has no inside, so it gets the rows on their own and creates at the top level.
  */
 export const withCreateRows = (
 	rows: readonly FolderTreeRow[],
 	delimiter: string,
 ): FolderTreeDisplayRow[] => {
+	if (delimiter.length === 0)
+		return rows.map((row, index) => ({ kind: "folder", row, index }));
+
 	const out: FolderTreeDisplayRow[] = [];
 	const open: FolderTreeRow[] = [];
 
