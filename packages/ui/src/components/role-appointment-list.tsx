@@ -194,6 +194,16 @@ function RoleAppointmentRow({
 						</option>
 					))}
 				</Select>
+				{source === "Proposed" && appointed && (
+					<Button
+						variant="secondary"
+						size="sm"
+						className="shrink-0"
+						onClick={() => onAppoint(role, appointed.mailboxId)}
+					>
+						{`Set as ${label}`}
+					</Button>
+				)}
 				{appointed && (
 					<>
 						<Input
