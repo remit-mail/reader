@@ -69,7 +69,10 @@ const settledConversation = async (
 ): Promise<Locator> => {
 	const article = conversation(page);
 	await expect(article).toBeVisible({ timeout: 30_000 });
-	await expect(article.locator(".animate-pulse")).toBeHidden({
+	// The article is the whole pane, not one slot per message, so a
+	// multi-message thread renders two `.animate-pulse` skeletons. A strict
+	// `toBeHidden` throws on the second, so wait for the count to hit zero.
+	await expect(article.locator(".animate-pulse")).toHaveCount(0, {
 		timeout: 30_000,
 	});
 	await expect(
