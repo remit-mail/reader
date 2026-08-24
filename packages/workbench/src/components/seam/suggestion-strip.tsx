@@ -1,4 +1,4 @@
-import { Button, cn } from "@remit/ui";
+import { Button, cn, settleZone } from "@remit/ui";
 import {
 	Check,
 	ChevronDown,
@@ -49,7 +49,8 @@ export function SuggestionCard({
 	className,
 }: SuggestionCardProps) {
 	const { suggestion } = entry;
-	const needsZone = Boolean(entry.zoneOptions) && zoneChoice === "";
+	const zoneOptions = suggestion.zoneOptions;
+	const settlement = settleZone(suggestion, zoneChoice);
 
 	return (
 		<article
@@ -98,22 +99,22 @@ export function SuggestionCard({
 				</p>
 			)}
 
-			{entry.zoneOptions && (
+			{zoneOptions && (
 				<div className="flex flex-col gap-1.5 rounded-md border border-warning/40 p-2">
 					<p className="flex items-center gap-1.5 text-2xs font-semibold text-warning">
 						<Globe className="size-3 shrink-0" aria-hidden />
 						Which clock is this on?
 					</p>
-					{entry.zoneOptions.map((option) => (
+					{zoneOptions.map((option) => (
 						<button
-							key={option.id}
+							key={option.timeZone}
 							type="button"
-							aria-pressed={zoneChoice === option.id}
-							onClick={() => onZoneChoice(option.id)}
+							aria-pressed={zoneChoice === option.timeZone}
+							onClick={() => onZoneChoice(option.timeZone)}
 							className={cn(
 								"rounded-md border px-2 py-1 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
 								touch && "min-h-11",
-								zoneChoice === option.id
+								zoneChoice === option.timeZone
 									? "border-accent bg-accent-soft"
 									: "border-line bg-surface hover:border-line-strong",
 							)}
@@ -161,7 +162,7 @@ export function SuggestionCard({
 					size={touch ? "md" : "sm"}
 					icon={<Check className="size-3.5" />}
 					onClick={onConfirm}
-					disabled={needsZone}
+					disabled={!settlement.settled}
 					className={cn(touch && "min-h-11 flex-1")}
 				>
 					Confirm
@@ -176,11 +177,8 @@ export function SuggestionCard({
 					Not this
 				</Button>
 			</div>
-			{needsZone && (
-				<p className="text-2xs text-fg-subtle">
-					Pick a clock first. The mail never said, and the reader will not
-					choose for you.
-				</p>
+			{!settlement.settled && (
+				<p className="text-2xs text-fg-subtle">{settlement.reason}</p>
 			)}
 		</article>
 	);

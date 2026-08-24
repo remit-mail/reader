@@ -604,23 +604,12 @@ export const HOLD_EXPIRY_LABEL = "Friday 09:00";
 /* Suggestions, each with the rung of the ladder that answered         */
 /* ------------------------------------------------------------------ */
 
-/**
- * The two clocks a zoneless time could be on. Present only when the source
- * genuinely did not say: the reader picks, and until they do nothing is added.
- */
-export interface ZoneOption {
-	id: string;
-	label: string;
-	note: string;
-}
-
 export interface SeamSuggestion {
 	suggestion: EventSuggestion;
 	method: ParseMethod;
 	/** The exact field or words the reading rests on. */
 	evidence: string;
 	fields: { label: string; value: string; source: string }[];
-	zoneOptions?: ZoneOption[];
 }
 
 const baseById = new Map(baseSuggestions.map((item) => [item.id, item]));
@@ -644,10 +633,22 @@ const flightSuggestion: EventSuggestion = {
 	senderAddress: "noreply@klm.example",
 	confidence: 0.88,
 	ambiguity:
-		"The confirmation prints 20:25 for the arrival and never says whose clock. Lisbon runs an hour behind Amsterdam, so this is either 20:25 or 21:25 for you.",
+		"The confirmation prints 18:40 and 20:25 and never says whose clock either is on. Lisbon runs an hour behind Amsterdam, so the arrival is either 20:25 or 21:25 for you.",
 	suggestedCalendarId: travelCalendarId,
 	timeZone: "",
 	zoneCertainty: "ambiguous",
+	zoneOptions: [
+		{
+			timeZone: "Europe/Lisbon",
+			label: "20:25 in Lisbon",
+			note: "21:25 on your own clock. What an airline usually means.",
+		},
+		{
+			timeZone: HOME_ZONE,
+			label: "20:25 in Amsterdam",
+			note: "19:25 where the plane lands.",
+		},
+	],
 };
 
 const parcelSuggestion: EventSuggestion = {
@@ -685,18 +686,6 @@ export const seamSuggestions: SeamSuggestion[] = [
 				source: "arrivalTime, no zone given",
 			},
 			{ label: "Calendar", value: "Travel", source: "your rule for KLM" },
-		],
-		zoneOptions: [
-			{
-				id: "lisbon",
-				label: "20:25 in Lisbon",
-				note: "21:25 on your own clock. What an airline usually means.",
-			},
-			{
-				id: "home",
-				label: "20:25 in Amsterdam",
-				note: "19:25 where the plane lands.",
-			},
 		],
 	},
 	{

@@ -83,6 +83,26 @@ export interface CalendarEventData {
 }
 
 /**
+ * One clock a zoneless time could be on. Present only when the source genuinely
+ * did not say which, and the reader is the one who settles it.
+ */
+export interface ZoneOption {
+	/** IANA zone, and the identity of the choice. */
+	timeZone: string;
+	/** The time as this clock reads it — "20:25 in Lisbon". */
+	label: string;
+	/** What that means on the reader's own clock. */
+	note: string;
+}
+
+/**
+ * The clocks a zoneless time could be on. Never empty: a question with no
+ * answers is a card the reader can look at and never get past, so having no
+ * question to ask is the absent list, not the empty one.
+ */
+export type ZoneOptions = readonly [ZoneOption, ...ZoneOption[]];
+
+/**
  * A candidate read out of mail. It is deliberately not a `CalendarEventData`:
  * nothing reaches the grid until a person confirms it, so a suggestion cannot
  * be mistaken for an event by type, let alone by pixel.
@@ -107,6 +127,11 @@ export interface EventSuggestion {
 	suggestedCalendarId: string;
 	timeZone: string;
 	zoneCertainty: ZoneCertainty;
+	/**
+	 * The clocks the time could be on. Absent when the source said which, which
+	 * is the only case where `timeZone` above can be trusted on its own.
+	 */
+	zoneOptions?: ZoneOptions;
 }
 
 /** Which instances of a series an edit applies to, chosen before the edit. */

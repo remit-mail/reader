@@ -1,8 +1,14 @@
 import { addMinutesToClock } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, waitFor } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { mostOverlappedDay, quietestDay } from "../fixtures/calendar.js";
-import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
+import {
+	DESKTOP_WIDTH,
+	framedAt,
+	PHONE_WIDTH,
+	phoneFrame,
+	phoneParams,
+} from "../lib/story-frame.js";
 import { CalendarDestination } from "../screens/calendar-destination.js";
 
 interface GridPoint {
@@ -785,6 +791,67 @@ export const PhoneRecurrenceScope: Story = {
 			scopeForEventId="evt_standup_10"
 		/>
 	),
+};
+
+/**
+ * Correcting a reading keeps the answer that was already given. The clock is
+ * picked on the card, so the editor opens on 17:00 — what 16:00 in Lisbon is
+ * here — rather than on the hour the mail printed and nobody could place.
+ */
+export const ReviewCarriesTheClock: Story = {
+	name: "Change first, after the clock is picked",
+	decorators: [framedAt(DESKTOP_WIDTH)],
+	render: () => <CalendarDestination width={DESKTOP_WIDTH} />,
+	play: async ({ canvasElement }) => {
+		const field = (name: string) =>
+			canvasElement.querySelector<HTMLInputElement>(`[aria-label="${name}"]`);
+		const canvas = within(canvasElement);
+		const card = within(
+			canvas.getByRole("article", { name: "Kickoff call — Lisbon venue" }),
+		);
+
+		await userEvent.click(
+			card.getByRole("button", { name: /16:00 in Lisbon/ }),
+		);
+		await userEvent.click(card.getByRole("button", { name: "Change first" }));
+
+		await waitFor(() => expect(field("Start time")).not.toBeNull());
+		await expect(field("Start time")?.value).toBe("17:00");
+		await expect(field("End time")?.value).toBe("18:00");
+	},
+};
+
+/**
+ * Correcting a reading is not a way around the question. Pressing Change first
+ * before a clock is picked opens nothing and says what is missing — an editor
+ * seeded with 16:00 would hand the reader the unplaced hour in a field that
+ * looks settled, and saving it books the call an hour early.
+ */
+export const ReviewIsGatedToo: Story = {
+	name: "Change first, before the clock is picked",
+	decorators: [framedAt(DESKTOP_WIDTH)],
+	render: () => <CalendarDestination width={DESKTOP_WIDTH} />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const card = within(
+			canvas.getByRole("article", { name: "Kickoff call — Lisbon venue" }),
+		);
+
+		await userEvent.click(card.getByRole("button", { name: "Change first" }));
+
+		await waitFor(() =>
+			expect(
+				canvas
+					.getAllByRole("status")
+					.some((region) =>
+						/Pick a clock first/.test(region.textContent ?? ""),
+					),
+			).toBe(true),
+		);
+		await expect(
+			canvasElement.querySelector('[aria-label="Start time"]'),
+		).toBeNull();
+	},
 };
 
 /**
