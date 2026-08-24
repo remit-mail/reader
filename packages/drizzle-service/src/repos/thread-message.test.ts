@@ -7,6 +7,7 @@ import { createSqliteTestDb } from "../test-db-sqlite.js";
 import {
 	clampThreadSearchLimit,
 	DrizzleThreadMessageRepository,
+	deriveThreadMessageId,
 	THREAD_SEARCH_MAX_LIMIT,
 } from "./thread-message.js";
 
@@ -934,5 +935,14 @@ describe("DrizzleThreadMessageRepository — core CRUD", () => {
 
 		assert.equal(await repo.countByThread(acct, threadId), 3);
 		assert.equal(await repo.countByThread(other, threadId), 0);
+	});
+});
+
+describe("derived ids are stored primary keys: a changed value orphans every row already written and needs a migration, never a new expectation here", () => {
+	test("deriveThreadMessageId pins the thread_message primary key", () => {
+		assert.equal(
+			deriveThreadMessageId("thread-golden", "message-golden"),
+			"agmlamuvd9feee9fmfvqxrb35",
+		);
 	});
 });
