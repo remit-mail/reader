@@ -55,6 +55,10 @@ const chips = (page: Page): Locator =>
 		name: /^Remove /,
 	});
 
+/** The field itself. Not by placeholder: a chip in To takes the placeholder away. */
+const toField = (page: Page): Locator =>
+	page.locator('[data-address-field="To"] input');
+
 /**
  * Type an address, leave it uncommitted, and press Send.
  *
@@ -67,7 +71,7 @@ const typeAndSend = async (
 	address: string,
 	committedChips: number,
 ): Promise<void> => {
-	await page.getByPlaceholder("Recipients").fill(address);
+	await toField(page).fill(address);
 	await expect(chips(page)).toHaveCount(committedChips);
 	await page.getByRole("button", { name: "Send", exact: true }).click();
 };
@@ -124,8 +128,8 @@ test.describe("Sending with a recipient that is typed but not committed (#845.6)
 		const subject = `Uncommitted second ${Date.now()}`;
 
 		await openCompose(page, subject);
-		await page.getByPlaceholder("Recipients").fill(COMMITTED);
-		await page.getByPlaceholder("Recipients").press("Enter");
+		await toField(page).fill(COMMITTED);
+		await toField(page).press("Enter");
 		await expect(chips(page)).toHaveCount(1);
 
 		await typeAndSend(page, TYPED, 1);
