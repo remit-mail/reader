@@ -37,16 +37,28 @@ const patterns = (term: string) => {
 /**
  * The envelope delivers internationalized domains in punycode, so every column
  * holds `xn--bcher-kva.de` even though the reader types `bücher.de` (#905). A
- * term carrying non-ASCII is converted the same way — label by label, so a
- * partial like `bücher` still maps to its punycode prefix — and both spellings
- * are searched. Terms that cannot be converted keep only their original form.
+ * term that names a domain is converted the same way, label by label, and both
+ * spellings are searched. Only a whole label converts to what the row holds:
+ * `bücher` becomes `xn--bcher-kva`, but half of it, `büche`, becomes
+ * `xn--bche-0ra`, which prefixes nothing. Only a term carrying a `.` or an `@`
+ * is folded at all, so a name like `Özcan` does not pay for a second spelling
+ * in every predicate. The address is rebuilt around the converted domain, so
+ * the whole address the reader typed still meets the row it names.
+ *
+ * The other direction is out of scope: sync writes `addr.host` as the envelope
+ * spelled it, so an SMTPUTF8 delivery can store a domain in unicode that a
+ * punycode term then misses. #905 covers the punycode rows only.
  */
 const punyVariants = (term: string): string[] => {
 	const folded = term.toLowerCase();
-	const [, domain = folded] = folded.split("@");
+	if (!/[.@]/.test(folded)) return [folded];
+	const at = folded.indexOf("@");
+	const local = at === -1 ? "" : folded.slice(0, at);
+	const domain = at === -1 ? folded : folded.slice(at + 1);
 	if (!/[^\p{ASCII}]/u.test(domain)) return [folded];
 	const ascii = domainToASCII(domain);
-	return ascii ? [folded, ascii] : [folded];
+	if (!ascii) return [folded];
+	return [folded, local ? `${local}@${ascii}` : ascii];
 };
 
 export const addressSearchMatch = (term: string): SQL => {
