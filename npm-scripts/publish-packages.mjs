@@ -33,6 +33,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { GENERATED_PACKAGES } from "./lib/generated-packages.mjs";
+import { isMissingPackage, isMissingVersion } from "./lib/registry-errors.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dryRun = process.argv.includes("--dry-run");
@@ -175,23 +176,36 @@ const freshContentHash = (pkgDir) =>
 		return hashPackageDir(extractedTarballDir(tempDir));
 	});
 
-const publishedContentHash = (name, version) =>
-	withTempDir((tempDir) => {
-		run(
-			"npm",
-			[
-				"pack",
-				`${name}@${version}`,
-				"--pack-destination",
-				tempDir,
-				"--loglevel=error",
-			],
-			{
-				cwd: repoRoot,
-			},
-		);
-		return hashPackageDir(extractedTarballDir(tempDir));
-	});
+// Null when the registry advertises the version but cannot serve it yet: `npm
+// view` reads the packument the moment a publish lands, while the tarball takes
+// seconds longer to reach the replica this pack hits, so a publish on main and a
+// pull request's dry run raced and the run died on a version the registry had
+// just accepted. Nothing to compare against is not identical content — it
+// decides a bump, which is what an unknown always should.
+const publishedContentHash = (name, version) => {
+	try {
+		return withTempDir((tempDir) => {
+			run(
+				"npm",
+				[
+					"pack",
+					`${name}@${version}`,
+					"--pack-destination",
+					tempDir,
+					"--loglevel=error",
+				],
+				{
+					cwd: repoRoot,
+				},
+			);
+			return hashPackageDir(extractedTarballDir(tempDir));
+		});
+	} catch (error) {
+		if (!isMissingVersion(error)) throw error;
+		console.log(`  ${name}@${version} not fetchable yet; treating as changed`);
+		return null;
+	}
+};
 
 const registryLatest = (name) => {
 	try {
@@ -200,8 +214,7 @@ const registryLatest = (name) => {
 			stdio: ["ignore", "pipe", "pipe"],
 		}).trim();
 	} catch (error) {
-		const text = `${error.stdout ?? ""}${error.stderr ?? ""}`;
-		if (text.includes("E404") || text.includes("404")) return null;
+		if (isMissingPackage(error)) return null;
 		throw error;
 	}
 };
