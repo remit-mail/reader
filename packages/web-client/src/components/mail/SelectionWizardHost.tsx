@@ -73,7 +73,12 @@ import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
 import { useWizardEntryValue, useWizardStep } from "@/lib/wizard-history";
 import type { WizardSelectionMessage } from "@/lib/wizard-selection";
 import { organizeRunState } from "./organize-run-state";
-import { retryIntent } from "./selection-wizard-retry";
+import {
+	retryIntent,
+	runIsInFlight,
+	stopRunner,
+	wizardExit,
+} from "./selection-wizard-run-controls";
 
 const EMPTY_DRAFT: WizardDraft = { clauses: [], matchOperator: "any" };
 
@@ -932,21 +937,9 @@ function SelectionWizardSession({
 		onFinished();
 	}, [closeWizard, steps, current, onFinished]);
 
-	// Ends the run rather than leaving it. The escalated predicate is run by the
-	// list's runner and a bounded selection by this wizard's own, so the stop
-	// follows whichever one is paging.
 	const { stop: stopBulk } = bulk;
-	// A commit that never started has nothing paging and nothing to end.
-	const runInFlight =
-		bulkRun !== undefined &&
-		bulkRun.outcome === undefined &&
-		bulkRun.failureReason === undefined;
 	const stopRun = useCallback(() => {
-		if (escalated) {
-			escalated.stop();
-			return;
-		}
-		stopBulk();
+		stopRunner(escalated, stopBulk);
 	}, [escalated, stopBulk]);
 
 	// Hardware back on the run screen leaves the wizard, the movement the header
@@ -998,7 +991,7 @@ function SelectionWizardSession({
 			// Every exit from the run screen is the same movement: the header's X,
 			// the header arrow, the footer and hardware Back all leave a run that
 			// has already been sent, and all of them drop the selection with it.
-			onExit={current === "run" ? dismiss : cancel}
+			onExit={wizardExit(current, { dismiss, cancel })}
 			onContinue={advance}
 			onCommit={commit}
 			match={{
@@ -1078,7 +1071,7 @@ function SelectionWizardSession({
 				failureReason: run.failureReason,
 				onRetry: retry,
 				onDismiss: dismiss,
-				onCancelRun: runInFlight ? stopRun : undefined,
+				onCancelRun: runIsInFlight(bulkRun) ? stopRun : undefined,
 			}}
 		/>
 	);

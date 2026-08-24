@@ -1,5 +1,5 @@
-import type { RunState } from "@remit/ui";
-import type { BulkActionTarget } from "@/lib/bulk-actions";
+import type { RunState, StepId } from "@remit/ui";
+import type { BulkActionTarget, BulkRunOutcome } from "@/lib/bulk-actions";
 import type { OrganizeScope } from "@/lib/organize/organize-model";
 
 export interface RetryContext {
@@ -58,3 +58,44 @@ export const retryIntent = (context: RetryContext): RetryIntent => {
 				: context.sent,
 	};
 };
+
+/**
+ * What a commit has left paging. A commit that never started, one whose runner
+ * has handed back its outcome, and one that could not start at all all have
+ * nothing to end — so the run screen offers no control that would claim to end
+ * them (#521).
+ */
+export const runIsInFlight = (
+	bulkRun: { outcome?: BulkRunOutcome; failureReason?: string } | undefined,
+): boolean =>
+	bulkRun !== undefined &&
+	bulkRun.outcome === undefined &&
+	bulkRun.failureReason === undefined;
+
+/**
+ * Ends the run rather than leaving it. An escalated predicate is paged by the
+ * list's own runner and a bounded selection by the wizard's, so the stop has to
+ * follow whichever one is paging: a stop that reaches only one of them leaves
+ * the other's control on screen doing nothing.
+ */
+export const stopRunner = (
+	escalated: { stop: () => void } | undefined,
+	stopBulk: () => void,
+): void => {
+	if (escalated) {
+		escalated.stop();
+		return;
+	}
+	stopBulk();
+};
+
+/**
+ * Which of the two movements the wizard's exit is, on the step it is taken
+ * from. Everywhere but the run screen it rewinds the entries the wizard owns
+ * and leaves the selection where it was; on the run screen the action has
+ * already been sent, so leaving walks away from a run that keeps going.
+ */
+export const wizardExit = (
+	step: StepId,
+	movements: { dismiss: () => void; cancel: () => void },
+): (() => void) => (step === "run" ? movements.dismiss : movements.cancel);

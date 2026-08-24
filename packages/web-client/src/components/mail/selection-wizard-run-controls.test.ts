@@ -1,5 +1,5 @@
 /**
- * What the run screen's retry asks for (#526).
+ * What the run screen's controls decide (#521, #526).
  *
  * The wizard host wires routing, history and several data hooks together, so
  * the decision is taken out of it and asserted by its result — the same move
@@ -10,8 +10,14 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { BulkActionTarget } from "@/lib/bulk-actions";
-import { type RetryContext, retryIntent } from "./selection-wizard-retry";
+import type { BulkActionTarget, BulkRunOutcome } from "@/lib/bulk-actions";
+import {
+	type RetryContext,
+	retryIntent,
+	runIsInFlight,
+	stopRunner,
+	wizardExit,
+} from "./selection-wizard-run-controls";
 
 const target = (id: string): BulkActionTarget => ({ id, accountId: "acc-1" });
 
@@ -133,4 +139,92 @@ describe("retrying a bounded run", () => {
 			targets: [{ id: "m2", accountId: "acc-personal" }],
 		});
 	});
+});
+
+describe("whether the run screen offers a way to end the run", () => {
+	const outcome: BulkRunOutcome = {
+		done: 2,
+		failedIds: [],
+		cancelled: false,
+	};
+
+	it("offers nothing before a commit has been sent", () => {
+		assert.equal(runIsInFlight(undefined), false);
+	});
+
+	it("offers it while the runner is still paging", () => {
+		assert.equal(runIsInFlight({}), true);
+	});
+
+	it("withdraws it once the runner has handed back an outcome", () => {
+		assert.equal(runIsInFlight({ outcome }), false);
+	});
+
+	// Nothing was sent, so there is nothing paging to end — the screen carries
+	// why instead, and a control claiming to stop a run would stop nothing.
+	it("withdraws it for a commit that could not start", () => {
+		assert.equal(runIsInFlight({ failureReason: "no Junk folder" }), false);
+	});
+});
+
+describe("which runner the stop reaches", () => {
+	const spies = () => {
+		const called: string[] = [];
+		return {
+			called,
+			escalated: { stop: () => called.push("escalated") },
+			stopBulk: () => called.push("bulk"),
+		};
+	};
+
+	it("stops the list's runner when the selection is a predicate", () => {
+		const { called, escalated, stopBulk } = spies();
+		stopRunner(escalated, stopBulk);
+		assert.deepEqual(called, ["escalated"]);
+	});
+
+	// A bounded select-all runs on the wizard's own runner and reaches the same
+	// control, so a stop that only knows about the predicate leaves that button
+	// on screen doing nothing at all.
+	it("stops the wizard's own runner for a bounded selection", () => {
+		const { called, stopBulk } = spies();
+		stopRunner(undefined, stopBulk);
+		assert.deepEqual(called, ["bulk"]);
+	});
+});
+
+describe("which movement the wizard's exit is", () => {
+	const movements = () => {
+		const called: string[] = [];
+		return {
+			called,
+			handlers: {
+				dismiss: () => called.push("dismiss"),
+				cancel: () => called.push("cancel"),
+			},
+		};
+	};
+
+	it("walks away from the run on the run screen, leaving it going", () => {
+		const { called, handlers } = movements();
+		wizardExit("run", handlers)();
+		assert.deepEqual(called, ["dismiss"]);
+	});
+
+	// Rewinding the entries the wizard owns is only safe before anything is
+	// sent; taken off the run screen it offers the commit a second time.
+	for (const step of [
+		"match",
+		"properties",
+		"folder",
+		"rule",
+		"name",
+		"review",
+	] as const) {
+		it(`rewinds the walk from ${step}`, () => {
+			const { called, handlers } = movements();
+			wizardExit(step, handlers)();
+			assert.deepEqual(called, ["cancel"]);
+		});
+	}
 });
