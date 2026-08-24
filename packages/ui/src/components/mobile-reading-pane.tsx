@@ -1,6 +1,7 @@
 import { ArrowLeft, Info } from "lucide-react";
 import { type HTMLAttributes, type ReactNode, useState } from "react";
 import { cn } from "../lib/cn.js";
+import { AboveScrim } from "./above-scrim.js";
 import type { ThreadData } from "./app-shell-types.js";
 import { Button } from "./button.js";
 import { Dialog } from "./dialog.js";
@@ -111,21 +112,23 @@ export function MobileReadingPane({
 					{thread.subject}
 				</h2>
 				{showIntelligenceToggle && (
-					<Button
-						variant="ghost"
-						size="sm"
-						icon={<Info className="size-4" />}
-						onClick={toggleIntelligence}
-						aria-label={
-							isOpen ? "Hide intelligence panel" : "Show intelligence panel"
-						}
-						aria-pressed={isOpen}
-						title="Intelligence"
-						className={cn(
-							"shrink-0",
-							isOpen && "bg-accent-2-soft text-accent-2",
-						)}
-					/>
+					<AboveScrim elevated={isOpen} className="shrink-0">
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={<Info className="size-4" />}
+							onClick={toggleIntelligence}
+							aria-label={
+								isOpen ? "Hide intelligence panel" : "Show intelligence panel"
+							}
+							aria-pressed={isOpen}
+							title="Intelligence"
+							className={cn(
+								"shrink-0",
+								isOpen && "bg-accent-2-soft text-accent-2",
+							)}
+						/>
+					</AboveScrim>
 				)}
 			</header>
 

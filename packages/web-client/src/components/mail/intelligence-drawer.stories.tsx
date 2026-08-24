@@ -4,6 +4,7 @@ import { ChevronLeft, Info } from "lucide-react";
 import { useState } from "react";
 import { expect, userEvent, within } from "storybook/test";
 import { Drawer } from "@/components/layout/Drawer";
+import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import { useIntelligenceDrawer } from "@/hooks/useIntelligenceDrawer";
 
 /**
@@ -29,6 +30,8 @@ type Story = StoryObj;
 
 const PHONE_WIDTH = 390;
 const PHONE_HEIGHT = 720;
+const MID_WIDTH = 1100;
+const MID_HEIGHT = 640;
 
 const intelligence: IntelligenceData = {
 	sender: {
@@ -210,6 +213,91 @@ export const DismissedAndNotCarried: Story = {
 		await userEvent.click(canvas.getByText("Standup moved to 10:15"));
 		await expect(canvas.queryByRole("dialog")).toBeNull();
 		await expect(canvas.getByText("/mail/inbox/msg-standup")).toBeVisible();
+	},
+};
+
+/**
+ * The two-pane desktop band between 1024 and 1280px, where the rail has no room
+ * and the drawer is the surface. The drawer is right-anchored and 320px wide,
+ * so it lands squarely on the reading toolbar's own intelligence toggle — the
+ * control that put it there.
+ */
+const MidWidthReader = () => {
+	const drawer = useIntelligenceDrawer(messages[0]?.id ?? null);
+
+	return (
+		<div
+			className="flex flex-col overflow-hidden rounded-lg border border-line bg-canvas"
+			// As on the phone frame: the transform makes this a containing block,
+			// so the drawer's `position: fixed` resolves against it.
+			style={{
+				width: MID_WIDTH,
+				height: MID_HEIGHT,
+				transform: "translateZ(0)",
+			}}
+		>
+			<MessageToolbar
+				hasThread
+				intelligenceOpen={drawer.isOpen}
+				canToggleIntelligence
+				intelligenceElevated={drawer.isOpen}
+				onToggleIntelligence={drawer.toggle}
+			/>
+			<div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 text-sm text-fg">
+				<h1 className="text-lg font-semibold leading-snug">
+					{messages[0]?.subject}
+				</h1>
+				<p className="mt-1 text-2xs text-fg-subtle">{messages[0]?.from}</p>
+				<p className="mt-4 max-w-2xl">{messages[0]?.body}</p>
+			</div>
+			<Drawer
+				isOpen={drawer.isOpen}
+				onClose={drawer.close}
+				ariaLabel="Message details"
+				side="right"
+			>
+				<IntelligencePanel data={intelligence} hideCloseButton />
+			</Drawer>
+		</div>
+	);
+};
+
+/**
+ * The toggle the drawer covers. It is the only way into this surface for a
+ * message with no warning on it, so it has to close what it opened — and a
+ * z-index cannot get it there: the drawer is one stacking context holding both
+ * its scrim and its panel, so any value that clears the scrim clears the panel
+ * too and the control paints over the drawer's own content. It moves instead,
+ * onto the layer the drawer renders between the two (#747).
+ */
+export const CoveredToggleClosesTheDrawer: Story = {
+	render: () => <MidWidthReader />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+
+		await userEvent.click(
+			canvas.getByRole("button", { name: "Show intelligence sidebar" }),
+		);
+		const drawer = canvas.getByRole("dialog", { name: "Message details" });
+		await expect(drawer).toBeVisible();
+
+		// Between the scrim and the panel: clear of the one, under the other.
+		const lifted = canvas.getByRole("button", {
+			name: "Hide intelligence sidebar",
+		});
+		await expect(drawer).toContainElement(lifted);
+		const scrim = within(drawer).getAllByLabelText("Close menu")[0];
+		await expect(
+			scrim.compareDocumentPosition(lifted) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+
+		await userEvent.click(lifted);
+		await expect(
+			canvas.queryByRole("dialog", { name: "Message details" }),
+		).toBeNull();
+		await expect(
+			canvas.getByRole("button", { name: "Show intelligence sidebar" }),
+		).toHaveAttribute("aria-pressed", "false");
 	},
 };
 

@@ -1,4 +1,5 @@
 import {
+	AboveScrim,
 	IntelligenceToggle,
 	type MailAction,
 	MailActionToolbar,
@@ -41,9 +42,10 @@ export interface MessageToolbarProps {
 	onToggleIntelligence: () => void;
 	/**
 	 * The intelligence drawer is up, and its scrim covers this toolbar (#747).
-	 * The toggle is lifted above that scrim so the control that opened the
-	 * modal can still act on it — closing what it opened — while every other
-	 * verb stays where the scrim put it, out of reach.
+	 * The toggle moves into the drawer's own elevation layer — after the scrim,
+	 * before the panel — so the control that opened the modal can still act on
+	 * it, closing what it opened, while every other verb stays where the scrim
+	 * put it, out of reach.
 	 */
 	intelligenceElevated?: boolean;
 
@@ -213,12 +215,13 @@ export const MessageToolbar = ({
 				) : undefined
 			}
 		>
-			<IntelligenceToggle
-				open={intelligenceOpen}
-				enabled={canToggleIntelligence}
-				onToggle={onToggleIntelligence}
-				className={intelligenceElevated ? "relative z-[60]" : undefined}
-			/>
+			<AboveScrim elevated={intelligenceElevated}>
+				<IntelligenceToggle
+					open={intelligenceOpen}
+					enabled={canToggleIntelligence}
+					onToggle={onToggleIntelligence}
+				/>
+			</AboveScrim>
 		</MailActionToolbar>
 	);
 };

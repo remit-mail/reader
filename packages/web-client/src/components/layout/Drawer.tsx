@@ -1,11 +1,42 @@
-import { cn } from "@remit/ui";
+import { cn, useScrimElevationLayer } from "@remit/ui";
 import { X } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
+
+const FOCUSABLE_SELECTOR =
+	"a[href], button, input, select, textarea, [tabindex]";
+
+const isTabbable = (element: HTMLElement): boolean => {
+	if (element.tabIndex < 0) return false;
+	if (element.hasAttribute("disabled")) return false;
+	if (element.getAttribute("aria-disabled") === "true") return false;
+	if (element.closest("[inert], [hidden], [aria-hidden='true']")) return false;
+	const style = getComputedStyle(element);
+	return style.display !== "none" && style.visibility !== "hidden";
+};
+
+/**
+ * The elements Tab may reach, in the order it reaches them.
+ *
+ * A modal opened from inside the drawer takes the ring with it: the
+ * intelligence pane's reclassify dialog renders under the drawer's own panel,
+ * so a ring scoped to the panel puts its Cancel last and leaves every control
+ * behind that dialog's backdrop in the cycle — Tab walks onto buttons no
+ * pointer can reach, which is the bug the trap exists to prevent.
+ */
+const tabRing = (panel: HTMLElement): HTMLElement[] => {
+	const nested = panel.querySelectorAll<HTMLElement>(
+		'[role="dialog"][aria-modal="true"]',
+	);
+	const root = nested[nested.length - 1] ?? panel;
+	return [...root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)].filter(
+		isTabbable,
+	);
+};
 
 interface DrawerProps {
 	isOpen: boolean;
 	onClose: () => void;
-	children: ReactNode;
+	children?: ReactNode;
 	ariaLabel?: string;
 	side?: "left" | "right";
 	widthClassName?: string;
@@ -30,6 +61,7 @@ export const Drawer = ({
 }: DrawerProps) => {
 	const drawerRef = useRef<HTMLDivElement>(null);
 	const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+	const elevationLayerRef = useScrimElevationLayer();
 
 	useEffect(() => {
 		if (!isOpen) return;
@@ -46,21 +78,20 @@ export const Drawer = ({
 			// offers nothing outside it — and letting Tab walk out would land on
 			// controls a pointer cannot reach under the scrim (#747).
 			if (event.key !== "Tab" || !drawerRef.current) return;
-			const focusable = [
-				...drawerRef.current.querySelectorAll<HTMLElement>(
-					"button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])",
-				),
-			].filter((el) => !el.hasAttribute("disabled"));
-			if (focusable.length === 0) return;
-			const first = focusable[0];
-			const last = focusable[focusable.length - 1];
+			const ring = tabRing(drawerRef.current);
+			if (ring.length === 0) return;
+			const first = ring[0];
+			const last = ring[ring.length - 1];
 			const active = document.activeElement;
+			const inside = active instanceof HTMLElement && ring.includes(active);
 			if (event.shiftKey) {
-				if (active === first || !drawerRef.current.contains(active)) {
+				if (!inside || active === first) {
 					event.preventDefault();
 					last.focus();
 				}
-			} else if (active === last || !drawerRef.current.contains(active)) {
+				return;
+			}
+			if (!inside || active === last) {
 				event.preventDefault();
 				first.focus();
 			}
@@ -69,10 +100,7 @@ export const Drawer = ({
 		document.addEventListener("keydown", handleKey);
 
 		// Move focus into the drawer
-		const focusable = drawerRef.current?.querySelector<HTMLElement>(
-			"button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])",
-		);
-		focusable?.focus();
+		if (drawerRef.current) tabRing(drawerRef.current)[0]?.focus();
 
 		// Lock body scroll
 		const previousOverflow = document.body.style.overflow;
@@ -105,6 +133,14 @@ export const Drawer = ({
 				aria-label="Close menu"
 				onClick={onClose}
 				className="absolute inset-0 bg-black/40 animate-in fade-in duration-150 cursor-default"
+			/>
+			{/* Elevation layer: the controls that opened this drawer, lifted clear
+			    of the scrim by standing after it and under the panel by standing
+			    before it. Both are `z-auto` here, so DOM order is the whole rule
+			    (#747). Click-through except where a control actually sits. */}
+			<div
+				ref={elevationLayerRef}
+				className="pointer-events-none absolute inset-0"
 			/>
 			{/* Drawer panel */}
 			<div

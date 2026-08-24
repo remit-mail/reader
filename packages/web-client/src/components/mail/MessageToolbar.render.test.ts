@@ -122,27 +122,3 @@ describe("MessageToolbar keeps the intelligence toggle in place (#52)", () => {
 		assert.equal(/\sdisabled(=""|\s|>)/.test(render(true)), false);
 	});
 });
-
-/**
- * The drawer is modal, so once it is up its scrim covers this toolbar — but a
- * control that opens a modal has to be able to close it again (#747). While
- * the drawer holds the intelligence surface, the toggle is lifted above the
- * scrim; every other verb stays where the scrim put it.
- */
-describe("MessageToolbar lifts the intelligence toggle over the drawer's scrim (#747)", () => {
-	const render = (intelligenceElevated: boolean): string =>
-		renderToString(
-			createElement(MessageToolbar, {
-				hasThread: true,
-				intelligenceOpen: true,
-				canToggleIntelligence: true,
-				intelligenceElevated,
-				onToggleIntelligence: () => undefined,
-			}) as never,
-		);
-
-	it("stacks the toggle above the scrim only while the drawer is up", () => {
-		assert.match(render(true), /relative z-\[60\]/);
-		assert.doesNotMatch(render(false), /z-\[60\]/);
-	});
-});

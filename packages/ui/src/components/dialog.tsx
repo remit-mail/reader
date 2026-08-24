@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useRef } from "react";
 import { cn } from "../lib/cn.js";
+import { useScrimElevationLayer } from "./above-scrim.js";
 import { DialogBackdrop } from "./dialog-backdrop.js";
 
 export interface DialogProps {
@@ -26,6 +27,7 @@ export function Dialog({
 	anchor = "center",
 }: DialogProps) {
 	const dialogRef = useRef<HTMLDivElement>(null);
+	const elevationLayerRef = useScrimElevationLayer();
 
 	const handleKeyDown = useCallback(
 		(e: KeyboardEvent) => {
@@ -76,6 +78,13 @@ export function Dialog({
 			)}
 		>
 			<DialogBackdrop label="Dismiss dialog" onDismiss={onClose} />
+			{/* Elevation layer: after the backdrop, and under a card that carries
+			    its own `z-10`, so the control that opened this dialog can still act
+			    on it without painting over what the dialog says (#747). */}
+			<div
+				ref={elevationLayerRef}
+				className="pointer-events-none absolute inset-0"
+			/>
 			<div
 				ref={dialogRef}
 				role="dialog"

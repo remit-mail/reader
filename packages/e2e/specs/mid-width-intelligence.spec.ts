@@ -124,9 +124,10 @@ test.describe("Intelligence where the rail does not fit", () => {
 
 	// The toolbar's control reaches the same surface the banner does. It is the
 	// only way in for a message with no warning on it. The drawer is modal, so
-	// once it is up its scrim covers this toolbar — but the toggle is lifted
-	// above that scrim (#747): the control that opened the modal can act on it,
-	// closing what it opened, while every other verb stays out of reach.
+	// once it is up its scrim covers this toolbar — but the toggle moves onto
+	// the drawer's own elevation layer, after the scrim and before the panel
+	// (#747): the control that opened the modal can act on it, closing what it
+	// opened, while every other verb stays out of reach.
 	test("the toolbar's intelligence control opens the same surface", async ({
 		page,
 		run,
