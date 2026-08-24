@@ -14,6 +14,11 @@
  * a real delete, and it is the first answer it sees. Both claims then stand
  * together — the watch settles and stops, and the send it settled on really did
  * leave the process and land in Sent.
+ *
+ * The watch is not the only reader of that row. The draft is a path segment, so
+ * Back after a send reopens the composer on the id that was just deleted; the
+ * second test is that address, and it has to close the surface rather than fail
+ * on it.
  */
 
 import type { BrowserContext } from "@playwright/test";
@@ -23,6 +28,7 @@ import { expect, test } from "../src/fixtures.js";
 import { listServerSubjects } from "../src/imap.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
 import { waitForAcceptedMessage } from "../src/smtp-sink.js";
+import { COMPOSE_URL } from "../src/urls.js";
 
 const DESKTOP = { width: 1512, height: 864 };
 
@@ -115,7 +121,11 @@ test.describe("A send settled by its outbox row disappearing (#921)", () => {
 		});
 		// Registered here and not earlier: composing a fresh message reads no outbox
 		// entry, and holding one that predates the send would gate the wrong request.
+		//
+		// Reads only. Send flushes the draft with a PATCH on this same path, and
+		// holding that would park the write the gate is waiting on behind the gate.
 		await page.route(OUTBOX_DETAIL, async (route) => {
+			if (route.request().method() !== "GET") return route.continue();
 			await rowIsGone;
 			await route.continue();
 		});
@@ -170,5 +180,35 @@ test.describe("A send settled by its outbox row disappearing (#921)", () => {
 			{ timeoutMs: 120_000, what: "the Sent copy to be filed on the server" },
 		);
 		expect(filed).toContain(subject);
+	});
+
+	test("reopening the composer on a sent message closes it instead of failing", async () => {
+		test.setTimeout(240_000);
+
+		const subject = `Poll settles reopen ${Date.now()}`;
+		const { outboxMessageId } = await api.sendMessage({
+			accountId: run.accountId,
+			toAddresses: ["ada@remit.test"],
+			subject,
+			textBody: BODY,
+		});
+
+		const outboxRowStatus = async (): Promise<number> => {
+			const response = await api.request("GET", `/outbox/${outboxMessageId}`);
+			await response.text();
+			return response.status;
+		};
+		await waitFor(outboxRowStatus, (status) => status === 404, {
+			timeoutMs: 120_000,
+			what: "the sent outbox row to be deleted",
+		});
+
+		// The draft is a path segment, so this address is what Back after a send
+		// lands on, and what a restored tab reopens.
+		const page = await context.newPage();
+		await page.goto(`/mail/brief/compose/${outboxMessageId}`);
+
+		await expect(page).not.toHaveURL(COMPOSE_URL, { timeout: 30_000 });
+		await expect(page.getByTestId("fatal-error-overlay")).toHaveCount(0);
 	});
 });

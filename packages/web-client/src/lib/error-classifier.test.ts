@@ -7,8 +7,10 @@ import {
 	isAbortError,
 	isClientBug,
 	isNetworkError,
+	isNotFound,
 	isServerError,
 	shouldEscalate,
+	softErrorStatuses,
 } from "./error-classifier";
 import { NetworkError, taggedFetch } from "./network-error";
 
@@ -323,5 +325,51 @@ describe("shouldEscalate (the fail-fast decision table — #1059)", () => {
 			shouldEscalate(new ApiError("not yours", 403), { softError: true }),
 			false,
 		);
+	});
+});
+
+/**
+ * The send watch reads a row the server deletes on success, so the 404 is the
+ * outcome it is there to see. Everything else that endpoint can answer is still
+ * news — a lapsed session most of all, because a background read that renders it
+ * as nothing leaves the user on a screen that has quietly stopped working.
+ */
+describe("meta.softErrorStatuses (one outcome owned, the rest not)", () => {
+	const ownsNotFound = softErrorStatuses(404);
+
+	it("does NOT escalate the status the call site named", () => {
+		assert.equal(
+			shouldEscalate(new ApiError("gone", 404), ownsNotFound, "nobody"),
+			false,
+		);
+	});
+
+	it("escalates every other 4xx, the lapsed session included", () => {
+		assert.equal(
+			shouldEscalate(new ApiError("signed out", 401), ownsNotFound, "nobody"),
+			true,
+		);
+		assert.equal(
+			shouldEscalate(new ApiError("not yours", 403), ownsNotFound, "nobody"),
+			true,
+		);
+	});
+
+	it("escalates a 5xx and a client bug, as every opt-out does", () => {
+		assert.equal(
+			shouldEscalate(new ApiError("boom", 500), ownsNotFound, "nobody"),
+			true,
+		);
+		assert.equal(
+			shouldEscalate(new TypeError("x is undefined"), ownsNotFound, "nobody"),
+			true,
+		);
+	});
+
+	it("names the record's absence, whichever client raised it", () => {
+		assert.equal(isNotFound(new ApiError("gone", 404)), true);
+		assert.equal(isNotFound({ status: 404 }), true);
+		assert.equal(isNotFound(new ApiError("gone", 410)), false);
+		assert.equal(isNotFound(new TypeError("x is undefined")), false);
 	});
 });

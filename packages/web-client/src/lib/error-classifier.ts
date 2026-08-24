@@ -132,8 +132,16 @@ export const isUnauthenticated = (error: unknown): boolean =>
  */
 export type Awaiting = "user" | "nobody";
 
-const isSoftErrorMeta = (meta: Record<string, unknown> | undefined): boolean =>
-	meta?.softError === true;
+const isSoftErrorMeta = (
+	error: unknown,
+	meta: Record<string, unknown> | undefined,
+): boolean => {
+	if (meta?.softError === true) return true;
+	const owned = meta?.softErrorStatuses;
+	if (!Array.isArray(owned)) return false;
+	const status = getErrorStatus(error);
+	return status !== undefined && owned.includes(status);
+};
 
 /**
  * The single fail-fast decision: should this error escalate to the full-screen
@@ -157,7 +165,8 @@ const isSoftErrorMeta = (meta: Record<string, unknown> | undefined): boolean =>
  *        reconnect/retry;
  *     c. a non-5xx error on a query/mutation that opted out via
  *        `meta.softError === true` — the call site owns that error's UX
- *        (e.g. a 404 empty state, a 4xx "Reconnect" banner).
+ *        (e.g. a 404 empty state, a 4xx "Reconnect" banner) — or, where it owns
+ *        one status and not the rest, `meta.softErrorStatuses`.
  */
 export const shouldEscalate = (
 	error: unknown,
@@ -169,7 +178,7 @@ export const shouldEscalate = (
 	if (isNetworkError(error)) return false;
 	if (awaiting === "user" && isUnauthenticated(error)) return true;
 	if (isAlwaysFatal(error)) return true;
-	if (isSoftErrorMeta(meta)) return false;
+	if (isSoftErrorMeta(error, meta)) return false;
 	return true;
 };
 
@@ -188,3 +197,18 @@ export const shouldEscalate = (
  * than the failure it reports.
  */
 export const softErrorMeta: { softError: true } = { softError: true };
+
+/**
+ * The narrow form, for a call site that owns one outcome and none of the others.
+ * A read whose record may legitimately be gone owns the 404 and nothing else: a
+ * blanket `softErrorMeta` there would also swallow the 401 and the 403, and a
+ * background read that answers a lapsed session with nothing leaves the user
+ * looking at a screen that has quietly stopped working.
+ */
+export const softErrorStatuses = (
+	...statuses: number[]
+): { softErrorStatuses: number[] } => ({ softErrorStatuses: statuses });
+
+/** The record is not there. */
+export const isNotFound = (error: unknown): boolean =>
+	getErrorStatus(error) === 404;

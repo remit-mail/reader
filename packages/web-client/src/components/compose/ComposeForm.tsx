@@ -40,7 +40,7 @@ import {
 import { useMessageBodyContent } from "../../hooks/useMessageBodyContent";
 import { useSaveDraft } from "../../hooks/useSaveDraft";
 import { useSignature } from "../../hooks/useSignature.js";
-import { softErrorMeta } from "../../lib/error-classifier";
+import { isNotFound, softErrorMeta } from "../../lib/error-classifier";
 import { accountIsMissingSmtp } from "../settings/account-form-helpers.js";
 import { useErrorBanners } from "../ui/ErrorBannerProvider.js";
 import {
@@ -59,7 +59,7 @@ const LazyComposeBody = lazy(() =>
 import { useIsDesktop } from "../../hooks/useMediaQuery.js";
 import { useVisualViewport } from "../../hooks/useVisualViewport.js";
 import type { ComposeMode } from "./ComposeProvider";
-import { useCompose } from "./ComposeProvider";
+import { OUTBOX_ROW_META, useCompose } from "./ComposeProvider";
 import { FromSelector } from "./FromSelector";
 
 interface ComposeFormProps {
@@ -458,12 +458,24 @@ export const ComposeForm = ({
 		formatting: [],
 	}));
 
-	const { data: draftData } = useQuery({
+	const { data: draftData, error: draftError } = useQuery({
 		...outboxDetailOperationsGetOutboxMessageOptions({
 			path: { outboxMessageId: outboxMessageId ?? "" },
 		}),
 		enabled: !!outboxMessageId && !draftLoaded,
+		meta: OUTBOX_ROW_META,
+		retry: (failureCount, error) => !isNotFound(error) && failureCount < 1,
 	});
+
+	// The draft id is a path segment, so Back after a send — or a restored tab —
+	// reopens the composer on a row the send already filed and deleted. There is
+	// no document left to reopen and nothing failed, so the surface closes the way
+	// it closes on Send. Only the 404 is read this way; a lapsed session still
+	// escalates.
+	useEffect(() => {
+		if (!isNotFound(draftError)) return;
+		onClose();
+	}, [draftError, onClose]);
 
 	useEffect(() => {
 		if (!draftData || draftLoaded) return;

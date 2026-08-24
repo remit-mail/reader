@@ -9,10 +9,9 @@ import {
 	useContext,
 	useEffect,
 	useMemo,
-	useRef,
 	useState,
 } from "react";
-import { getErrorStatus, softErrorMeta } from "@/lib/error-classifier";
+import { isNotFound, softErrorStatuses } from "@/lib/error-classifier";
 import type { ReplyMode } from "@/routing";
 
 /**
@@ -53,8 +52,11 @@ const isSettledStatus = (status: string | undefined): boolean =>
  * to Sent and drops the outbox row, so the row's absence is the settled state
  * and the 404 is the confirmation. `sent` lives for under a second and this poll
  * runs every two, so the 404 is the outcome it normally reads.
+ *
+ * Only the 404 is this call site's to own. A 401 or a 403 here is a session that
+ * lapsed under a send, which the app owes the user an answer about.
  */
-const isRowGone = (error: unknown): boolean => getErrorStatus(error) === 404;
+export const OUTBOX_ROW_META = softErrorStatuses(404);
 
 export const ComposeProvider = ({
 	children,
@@ -64,7 +66,6 @@ export const ComposeProvider = ({
 	const [pollingMessageId, setPollingMessageId] = useState<
 		string | undefined
 	>();
-	const startedAtRef = useRef(0);
 	const queryClient = useQueryClient();
 
 	const { data: polledMessage, error: pollError } = useQuery({
@@ -72,30 +73,40 @@ export const ComposeProvider = ({
 			path: { outboxMessageId: pollingMessageId ?? "" },
 		}),
 		enabled: !!pollingMessageId,
-		meta: softErrorMeta,
-		retry: (failureCount, error) => !isRowGone(error) && failureCount < 1,
+		meta: OUTBOX_ROW_META,
+		retry: (failureCount, error) => !isNotFound(error) && failureCount < 1,
 		refetchInterval: (query) => {
 			if (isSettledStatus(query.state.data?.status)) return false;
-			if (isRowGone(query.state.error)) return false;
-			if (Date.now() - startedAtRef.current > MAX_POLL_DURATION_MS)
-				return false;
+			if (isNotFound(query.state.error)) return false;
 			return POLL_INTERVAL_MS;
 		},
 	});
 
-	useEffect(() => {
-		if (!pollingMessageId) return;
-		if (!isSettledStatus(polledMessage?.status) && !isRowGone(pollError))
-			return;
-
+	const stopWatching = useCallback(() => {
 		setPollingMessageId(undefined);
 		queryClient.invalidateQueries({
 			queryKey: outboxOperationsListOutboxMessagesQueryKey(),
 		});
-	}, [polledMessage, pollError, pollingMessageId, queryClient]);
+	}, [queryClient]);
+
+	useEffect(() => {
+		if (!pollingMessageId) return;
+		if (!isSettledStatus(polledMessage?.status) && !isNotFound(pollError))
+			return;
+
+		stopWatching();
+	}, [polledMessage, pollError, pollingMessageId, stopWatching]);
+
+	// The cap has to put the watch down rather than only stop the interval: a
+	// query left enabled comes back on the next window focus, minutes later, to
+	// poll a send nobody is waiting on any more.
+	useEffect(() => {
+		if (!pollingMessageId) return;
+		const giveUp = setTimeout(stopWatching, MAX_POLL_DURATION_MS);
+		return () => clearTimeout(giveUp);
+	}, [pollingMessageId, stopWatching]);
 
 	const startSendPolling = useCallback((outboxMessageId: string) => {
-		startedAtRef.current = Date.now();
 		setPollingMessageId(outboxMessageId);
 	}, []);
 
