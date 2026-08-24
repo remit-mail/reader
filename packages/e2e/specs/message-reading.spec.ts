@@ -59,7 +59,7 @@ test.describe("Message reading", () => {
 
 		const article = page.getByRole("article");
 		await expect(article).toBeVisible({ timeout: 15_000 });
-		await expect(article.locator(".animate-pulse")).toBeHidden({
+		await expect(article.locator(".animate-pulse")).toHaveCount(0, {
 			timeout: 20_000,
 		});
 
