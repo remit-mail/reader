@@ -12,6 +12,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { getErrorStatus, softErrorMeta } from "@/lib/error-classifier";
 import type { ReplyMode } from "@/routing";
 
 /**
@@ -41,6 +42,20 @@ const ComposeContext = createContext<ComposeContextValue | undefined>(
 const POLL_INTERVAL_MS = 2000;
 const MAX_POLL_DURATION_MS = 60_000;
 
+const isSettledStatus = (status: string | undefined): boolean =>
+	status === "sent" ||
+	status === "unfiled" ||
+	status === "failed" ||
+	status === "blocked";
+
+/**
+ * A send that lands is filed and then forgotten: the worker APPENDs the message
+ * to Sent and drops the outbox row, so the row's absence is the settled state
+ * and the 404 is the confirmation. `sent` lives for under a second and this poll
+ * runs every two, so the 404 is the outcome it normally reads.
+ */
+const isRowGone = (error: unknown): boolean => getErrorStatus(error) === 404;
+
 export const ComposeProvider = ({
 	children,
 }: {
@@ -52,20 +67,16 @@ export const ComposeProvider = ({
 	const startedAtRef = useRef(0);
 	const queryClient = useQueryClient();
 
-	const { data: polledMessage } = useQuery({
+	const { data: polledMessage, error: pollError } = useQuery({
 		...outboxDetailOperationsGetOutboxMessageOptions({
 			path: { outboxMessageId: pollingMessageId ?? "" },
 		}),
 		enabled: !!pollingMessageId,
+		meta: softErrorMeta,
+		retry: (failureCount, error) => !isRowGone(error) && failureCount < 1,
 		refetchInterval: (query) => {
-			const status = query.state.data?.status;
-			if (
-				status === "sent" ||
-				status === "unfiled" ||
-				status === "failed" ||
-				status === "blocked"
-			)
-				return false;
+			if (isSettledStatus(query.state.data?.status)) return false;
+			if (isRowGone(query.state.error)) return false;
 			if (Date.now() - startedAtRef.current > MAX_POLL_DURATION_MS)
 				return false;
 			return POLL_INTERVAL_MS;
@@ -73,21 +84,15 @@ export const ComposeProvider = ({
 	});
 
 	useEffect(() => {
-		if (!polledMessage || !pollingMessageId) return;
+		if (!pollingMessageId) return;
+		if (!isSettledStatus(polledMessage?.status) && !isRowGone(pollError))
+			return;
 
-		const terminal =
-			polledMessage.status === "sent" ||
-			polledMessage.status === "unfiled" ||
-			polledMessage.status === "failed" ||
-			polledMessage.status === "blocked";
-
-		if (terminal) {
-			setPollingMessageId(undefined);
-			queryClient.invalidateQueries({
-				queryKey: outboxOperationsListOutboxMessagesQueryKey(),
-			});
-		}
-	}, [polledMessage, pollingMessageId, queryClient]);
+		setPollingMessageId(undefined);
+		queryClient.invalidateQueries({
+			queryKey: outboxOperationsListOutboxMessagesQueryKey(),
+		});
+	}, [polledMessage, pollError, pollingMessageId, queryClient]);
 
 	const startSendPolling = useCallback((outboxMessageId: string) => {
 		startedAtRef.current = Date.now();

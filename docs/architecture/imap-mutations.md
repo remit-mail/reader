@@ -12,6 +12,8 @@ A mutation is a record-pending state change, settled by confirmation:
 
 No fire-and-forget writes to the server. No local state that claims server truth before confirmation. Reconciliation treats pending records as in-flight, never as absent — a reconcile sweep must not delete or rebuild a record whose mutation has not settled.
 
+A mutation may settle by deleting its own record: a send APPENDs the message to Sent and then drops the outbox row, so the delete is the confirmation. Where that is the design, the record's absence is a settled state and every reader of it treats a 404 as the confirmed outcome, not a failure — but only where the flow says so, because absence otherwise means a pending record that went missing.
+
 ## R2. Every dependent operation decides: wait or reconcile — explicitly
 
 Any operation that reads or references a record with a pending mutation must choose one of two models, and the choice is a design decision stated in the PR or design doc, never an implicit default:
