@@ -66,7 +66,9 @@ const SENT_LEAF_NAMES = new Set([
 ]);
 
 const couldHoldTheSentRole = (mailbox: Mailbox): boolean =>
-	(mailbox.specialUse ?? "").toLowerCase().includes("\\sent") ||
+	(mailbox.specialUse ?? []).some(
+		(designation) => designation.toLowerCase() === "\\sent",
+	) ||
 	SENT_LEAF_NAMES.has(
 		(mailbox.fullPath.split("/").pop() ?? "").toLowerCase().trim(),
 	);
