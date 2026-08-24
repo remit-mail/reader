@@ -8,7 +8,6 @@
  */
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import { RefreshButton, ShellTopBar, shortcutHintForAction } from "@remit/ui";
-import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { AccountMenu } from "@/auth/AccountMenu";
 import { useRefreshControl } from "@/hooks/useRefreshControl";
@@ -16,7 +15,7 @@ import { useSearchScope } from "@/hooks/useSearchScope";
 import { openBugReport } from "@/lib/bug-report";
 import { useMailContext } from "@/lib/mail-context";
 import { useMailFreshness } from "@/lib/mail-freshness";
-import { useOpenCompose } from "@/routing";
+import { useGoToSection, useOpenCompose } from "@/routing";
 
 interface MailTopBarProps {
 	accounts: RemitImapAccountResponse[];
@@ -25,7 +24,7 @@ interface MailTopBarProps {
 export function MailTopBar({ accounts }: MailTopBarProps) {
 	const { searchInput, onSearchChange, onSearchClear, onSearchClearQuery } =
 		useMailContext();
-	const navigate = useNavigate();
+	const goToSection = useGoToSection();
 	const compose = useOpenCompose();
 	const { scope, clearScope } = useSearchScope(accounts);
 	const chips =
@@ -59,7 +58,7 @@ export function MailTopBar({ accounts }: MailTopBarProps) {
 			}}
 			onCompose={compose}
 			onReportBug={openBugReport}
-			onOpenSettings={() => navigate({ to: "/settings/accounts" })}
+			onOpenSettings={() => goToSection("accounts")}
 			composeShortcut={shortcutHintForAction("compose")}
 			refreshControl={
 				<RefreshButton

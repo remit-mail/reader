@@ -13,7 +13,7 @@
  * "Every view change" is the move the reader made, not every render that
  * notices one. Text typed once the address already names the destination was
  * typed in the destination, so it is that view's query and survives
- * (`hooks/useSearchField.ts`).
+ * (`routing/search-field.ts`).
  */
 import { locationIsOnList } from "./mail-route";
 
@@ -82,7 +82,7 @@ export interface MirrorDecision {
  * the mirror fight a query arriving by URL — that arrives mid-debounce, where
  * the first rule already refuses, and by the time the debounce settles the
  * field has been re-seeded from the address it landed on
- * (`hooks/useSearchField.ts`).
+ * (`routing/search-field.ts`).
  */
 export function shouldMirrorQuery({
 	searchInput,

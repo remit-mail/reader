@@ -26,7 +26,6 @@
  */
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { ReadingPaneEmpty } from "@remit/ui";
-import { useNavigate } from "@tanstack/react-router";
 import {
 	createContext,
 	type ReactNode,
@@ -59,10 +58,12 @@ import {
 	type OpenThreadTarget,
 	type ReplyMode,
 	replyToThread,
+	useCloseThread,
+	useGoToSection,
 	useIsComposing,
 	useIsReplying,
 	useOpenReply,
-	useRetainOpenPanels,
+	useOpenThread,
 } from "@/routing";
 
 /* ------------------------------------------------------------------ */
@@ -124,8 +125,9 @@ interface FlaggedPaneProps {
 }
 
 function FlaggedPaneProvider({ thread, children }: FlaggedPaneProps) {
-	const navigate = useNavigate();
-	const retainPanels = useRetainOpenPanels();
+	const openThread = useOpenThread();
+	const closeThread = useCloseThread();
+	const goToSection = useGoToSection();
 	const { searchInput } = useMailContext();
 	const threadId = thread?.threadId;
 	const pointedAtMessageId = thread?.messageId;
@@ -161,37 +163,18 @@ function FlaggedPaneProvider({ thread, children }: FlaggedPaneProps) {
 
 	const handleOpenThread = useCallback(
 		(target: OpenThreadTarget, options?: OpenMessageOptions) => {
-			navigate({
-				to: "/mail/flagged/$threadId/$messageId",
-				params: target,
-				replace: options?.replace,
-				// Commit the active query with the open so the debounced q-mirror —
-				// which walks back up to the list when the query goes active — is
-				// already satisfied and leaves the conversation alone. The *live*
-				// `searchInput`: a row can be tapped before the debounce settles, when
-				// the committed query is still empty.
-				search: (prev) => ({ ...prev, q: searchInput || undefined }),
-				hash: retainPanels,
-			});
+			openThread(target, { replace: options?.replace, query: searchInput });
 		},
-		[navigate, retainPanels, searchInput],
+		[openThread, searchInput],
 	);
-
-	const handleCloseThread = useCallback(() => {
-		navigate({
-			to: "/mail/flagged",
-			search: (prev) => prev,
-			hash: retainPanels,
-		});
-	}, [navigate, retainPanels]);
 
 	const handleDeselectIfRemoved = useCallback(
 		(removedIds: string[]) => {
 			if (!selectedMessageId) return;
 			if (!removedIds.includes(selectedMessageId)) return;
-			handleCloseThread();
+			closeThread();
 		},
-		[selectedMessageId, handleCloseThread],
+		[selectedMessageId, closeThread],
 	);
 
 	const actions = useThreadActions({
@@ -253,7 +236,7 @@ function FlaggedPaneProvider({ thread, children }: FlaggedPaneProps) {
 		// would otherwise fire at the message behind whatever is being typed — or
 		// answer a row the cursor moved to while a reply was open.
 		enabled: !isComposing && !isReplying,
-		onClose: handleCloseThread,
+		onClose: closeThread,
 		handlers: {
 			reply: () => replyToFocusedThread?.("reply"),
 			replyAll: () => replyToFocusedThread?.("reply-all"),
@@ -271,8 +254,8 @@ function FlaggedPaneProvider({ thread, children }: FlaggedPaneProps) {
 				if (!triageTarget) return;
 				toggleReadFor([triageTarget.messageId], !triageTarget.isRead);
 			},
-			goBrief: () => navigate({ to: "/mail/brief" }),
-			goSettings: () => navigate({ to: "/settings" }),
+			goBrief: () => goToSection("brief"),
+			goSettings: () => goToSection("settings"),
 		},
 	});
 
@@ -293,7 +276,7 @@ function FlaggedPaneProvider({ thread, children }: FlaggedPaneProps) {
 		selectedThread,
 		conversation,
 		onOpenThread: handleOpenThread,
-		onCloseThread: handleCloseThread,
+		onCloseThread: closeThread,
 		nextThread: adjacentThread(nextMessageId),
 		previousThread: adjacentThread(previousMessageId),
 		actions,

@@ -23,14 +23,18 @@ import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailboxNameIndex } from "@/hooks/useMailboxNameIndex";
 import { useRailPanels } from "@/hooks/useRailPanels";
 import { useResultFolderIndex } from "@/hooks/useResultFolderIndex";
-import { useSearchField } from "@/hooks/useSearchField";
 import { useStaleAccountSync } from "@/hooks/useStaleAccountSync";
 import { MailContext } from "@/lib/mail-context";
 import { MailFreshnessProvider } from "@/lib/mail-freshness";
 import { mailListRoute } from "@/lib/mail-route";
 import { buildAccountNameIndex } from "@/lib/search-token-index";
-import { wizardEntryValue, wizardStepValue } from "@/lib/wizard-history";
-import { useIsComposing, useOpenCompose } from "@/routing";
+import {
+	useIsComposing,
+	useOpenCompose,
+	useSearchField,
+	wizardEntryValue,
+	wizardStepValue,
+} from "@/routing";
 import "@/lib/client";
 
 // `MailContext` / `useMailContext` live in `@/lib/mail-context` so the provider

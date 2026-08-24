@@ -63,7 +63,6 @@ import {
 	toggleBriefFilterInQuery,
 } from "@remit/ui";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import {
 	type ReactNode,
@@ -103,12 +102,14 @@ import { showInlineSearchResults } from "@/lib/search-surface";
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { resolveSelectionAccountScope } from "@/lib/selection-account-scope";
 import { spamOfferForResults } from "@/lib/spam-offer";
-import {
-	type SelectionWizardControl,
-	useSelectionWizard,
-} from "@/lib/wizard-history";
 import { wizardSelectionFrom } from "@/lib/wizard-selection";
-import type { OpenThreadTarget } from "@/routing";
+import {
+	type OpenThreadTarget,
+	type SelectionWizardControl,
+	useGoToSection,
+	useScopeSearchToMailbox,
+	useSelectionWizard,
+} from "@/routing";
 import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import { MailListHeader, type MailListHeaderProps } from "./MailListHeader";
 import type { MessageListCommands } from "./MessageList";
@@ -160,14 +161,14 @@ interface ErrorBannerProps {
 }
 
 const ErrorBanner = ({ accountEmail }: ErrorBannerProps) => {
-	const navigate = useNavigate();
+	const goToSection = useGoToSection();
 	return (
 		<div className="flex items-center gap-2 px-row-inset py-2 border-b border-line bg-danger-soft/40 text-xs text-danger">
 			<AlertCircle className="size-3.5 shrink-0" />
 			<span className="flex-1 truncate">{accountEmail} can't connect</span>
 			<button
 				type="button"
-				onClick={() => navigate({ to: "/settings/accounts" })}
+				onClick={() => goToSection("accounts")}
 				className="shrink-0 underline text-danger hover:opacity-80"
 			>
 				Reconnect
@@ -398,7 +399,7 @@ export function DailyBrief({
 	const isDesktop = useIsDesktop();
 	const tier = useLayoutTier();
 	const wizard = useSelectionWizard();
-	const navigate = useNavigate();
+	const scopeSearchToMailbox = useScopeSearchToMailbox();
 
 	const nonMuted = useMemo(
 		() => sortAccountsByCreatedAt(accounts.filter((a) => !a.muted?.value)),
@@ -811,11 +812,7 @@ export function DailyBrief({
 				<SpamResultsOffer
 					count={briefSpamOffer.count}
 					onScopeToSpam={() =>
-						navigate({
-							to: "/mail/$mailboxId",
-							params: { mailboxId: briefSpamOffer.mailboxId },
-							search: { q: searchQuery || undefined },
-						})
+						scopeSearchToMailbox(briefSpamOffer.mailboxId, searchQuery)
 					}
 				/>
 			)}

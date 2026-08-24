@@ -11,9 +11,8 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { MailShell } from "@/components/layout/MailShell";
 import { MailboxPane } from "@/components/mail/MailboxPane";
-import { useSearchMirror } from "@/hooks/useSearchMirror";
 import { mailboxSearchSchema } from "@/lib/mail-search";
-import { useOpenThreadPath } from "@/routing";
+import { useOpenThreadPath, useSearchMirror } from "@/routing";
 
 function MailboxLayout() {
 	const { mailboxId } = Route.useParams();

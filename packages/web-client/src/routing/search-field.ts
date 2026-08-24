@@ -1,8 +1,8 @@
 import { useRouter, useRouterState } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { addressQuery, mailViewKey } from "@/lib/mail-route";
 import { committedSearchQuery, searchInputForView } from "@/lib/search-view";
-import { useDebouncedValue } from "./useDebouncedValue";
 
 export interface SearchField {
 	/** The live field text, which every search surface binds. */

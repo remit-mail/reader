@@ -1,5 +1,4 @@
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
-import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useMailContext } from "@/lib/mail-context";
 import {
@@ -7,6 +6,7 @@ import {
 	type SearchScopeState,
 	searchScopeForRoute,
 } from "@/lib/search-scope";
+import { useBrowsedList, useSearchEverything } from "@/routing";
 import { useCurrentMailboxName } from "./useCurrentMailboxName";
 
 /**
@@ -22,14 +22,11 @@ export function useSearchScope(accounts: RemitImapAccountResponse[]): {
 	scope: SearchScopeState;
 	clearScope: (chipId: string) => void;
 } {
-	const navigate = useNavigate();
+	const searchEverything = useSearchEverything();
 	const { searchInput } = useMailContext();
 	const mailboxName = useCurrentMailboxName({ accounts });
-	// Select the matches, not the scope: a select closing over `mailboxName`
-	// only re-runs on router state changes, so the chip would keep reading the
-	// previous folder until the next navigation.
-	const matches = useRouterState({ select: (s) => s.matches });
-	const scope = searchScopeForRoute(matches, mailboxName);
+	const browsed = useBrowsedList();
+	const scope = searchScopeForRoute(browsed, mailboxName);
 
 	// Takes the chip id the field removed rather than assuming which chip that
 	// was. The bar owns one chip today; keying on the id means a second one
@@ -37,12 +34,9 @@ export function useSearchScope(accounts: RemitImapAccountResponse[]): {
 	const clearScope = useCallback(
 		(chipId: string) => {
 			if (chipId !== SEARCH_SCOPE_CHIP_ID) return;
-			navigate({
-				to: "/mail/brief",
-				search: { q: searchInput || undefined },
-			});
+			searchEverything(searchInput);
 		},
-		[navigate, searchInput],
+		[searchEverything, searchInput],
 	);
 
 	return { scope, clearScope };

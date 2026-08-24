@@ -32,7 +32,7 @@ import { MailContext, type MailContextValue } from "@/lib/mail-context";
 import { mailViewKey } from "@/lib/mail-route";
 import { EMPTY_RESULT_FOLDER_INDEX } from "@/lib/result-folder";
 import { createDomHarness, type DomHarness } from "../test-support/dom";
-import { useSearchMirror } from "./useSearchMirror";
+import { useSearchMirror } from "./search-mirror";
 
 let harness: DomHarness | undefined;
 
