@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { AttendeeList, RsvpBadge } from "./attendee-row.js";
 import type { CalendarAttendee } from "./calendar-types.js";
 
@@ -73,13 +74,33 @@ export const WithContext: Story = {
 					activeEmail={active}
 					onActivate={setActive}
 					renderContext={(attendee) => (
-						<p className="w-64 rounded-lg border border-line bg-surface-raised p-3 text-xs text-fg-muted shadow-xl shadow-black/25">
+						<p className="w-64 rounded-lg border border-line bg-surface-raised p-3 text-xs text-fg-muted">
 							{`Everything ${attendee.name} has written lately would go here.`}
 						</p>
 					)}
 				/>
 			</div>
 		);
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const guest = canvas.getByRole("button", { name: /Aisha Khan/ });
+
+		await userEvent.click(guest);
+
+		const opened = await waitFor(() =>
+			canvas.getByText(/Everything Aisha Khan has written/),
+		);
+		await expect(guest).toHaveAttribute("aria-expanded", "true");
+		await expect(guest).toHaveAttribute(
+			"aria-controls",
+			opened.parentElement?.id,
+		);
+
+		await userEvent.click(opened);
+
+		await waitFor(() => expect(opened).toBeInTheDocument());
+		await expect(guest).toHaveAttribute("aria-expanded", "true");
 	},
 };
 

@@ -1,5 +1,5 @@
 import { Check, Clock, Minus, X } from "lucide-react";
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type ReactNode, useId } from "react";
 import { cn } from "../lib/cn.js";
 import { Avatar } from "./avatar.js";
 import type { CalendarAttendee, RsvpState } from "./calendar-types.js";
@@ -57,6 +57,8 @@ export interface AttendeeRowProps {
 	 * as today.
 	 */
 	onActivate?: (email: string) => void;
+	/** The disclosure this row opens, so the button can name what it controls. */
+	contextId?: string;
 	/** A thumb needs a bigger row than a pointer does. */
 	touch?: boolean;
 	className?: string;
@@ -66,6 +68,7 @@ export function AttendeeRow({
 	attendee,
 	active = false,
 	onActivate,
+	contextId,
 	touch = false,
 	className,
 }: AttendeeRowProps) {
@@ -93,14 +96,17 @@ export function AttendeeRow({
 		<button
 			type="button"
 			aria-expanded={active}
+			aria-controls={active && contextId !== undefined ? contextId : undefined}
 			onClick={() => onActivate(active ? "" : attendee.email)}
 			onKeyDown={(event) => {
 				if (event.key === "Escape") onActivate("");
 			}}
 			onBlur={(event) => {
 				if (!active) return;
-				// What the row opened is rendered beside it, so focus moving in there
-				// is not focus leaving the guest.
+				// Only focus landing on something else is focus leaving the guest.
+				// Clicking the text inside the disclosure focuses nothing at all, and
+				// what the row opened is rendered beside it, so neither closes it.
+				if (event.relatedTarget === null) return;
 				if (event.currentTarget.parentElement?.contains(event.relatedTarget))
 					return;
 				onActivate("");
@@ -143,6 +149,7 @@ export function AttendeeList({
 	touch = false,
 	className,
 }: AttendeeListProps) {
+	const listId = useId();
 	if (attendees.length === 0) return null;
 	const tally = (["accepted", "tentative", "declined", "noReply"] as const)
 		.map((state) => ({
@@ -158,13 +165,15 @@ export function AttendeeList({
 			<p className="pb-1 text-2xs uppercase tracking-wider text-fg-subtle">
 				{`${attendees.length} guests · ${tally}`}
 			</p>
-			{attendees.map((attendee) => {
+			{attendees.map((attendee, index) => {
 				const active = attendee.email === activeEmail;
+				const contextId = `${listId}-guest-${index}`;
 				const row = (
 					<AttendeeRow
 						attendee={attendee}
 						active={active}
 						onActivate={onActivate}
+						contextId={renderContext ? contextId : undefined}
 						touch={touch}
 					/>
 				);
@@ -173,7 +182,9 @@ export function AttendeeList({
 					<div key={attendee.email}>
 						{row}
 						{active && renderContext && (
-							<div className="py-1">{renderContext(attendee)}</div>
+							<div id={contextId} className="py-1">
+								{renderContext(attendee)}
+							</div>
 						)}
 					</div>
 				);

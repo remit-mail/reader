@@ -804,7 +804,7 @@ export function CalendarSeam({
 			>
 				<AttendeeContextCard
 					attendee={attendeePerson}
-					className="w-full border-0 p-0 shadow-none"
+					className="w-full border-0 p-0"
 				/>
 			</FlowScreen>
 		);

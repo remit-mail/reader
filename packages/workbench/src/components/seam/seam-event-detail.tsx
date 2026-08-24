@@ -102,7 +102,10 @@ export function SeamEventDetail({
 							/>
 							{active && !touch && (
 								<div className="absolute left-0 top-full z-20 mt-1">
-									<AttendeeContextCard attendee={active} />
+									<AttendeeContextCard
+										attendee={active}
+										className="shadow-xl shadow-black/25"
+									/>
 								</div>
 							)}
 						</div>

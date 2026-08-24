@@ -148,6 +148,23 @@ describe("AttendeeList", () => {
 		assert.doesNotMatch(html, /Recent mail · Priya Natarajan/);
 	});
 
+	it("names the disclosure the open row controls", () => {
+		const html = renderToString(
+			createElement(AttendeeList, {
+				attendees,
+				activeEmail: "dana@northwind.example",
+				onActivate: () => undefined,
+				renderContext: (attendee) =>
+					createElement("p", null, `Recent mail · ${attendee.name}`),
+			}),
+		);
+		const controls = html.match(/aria-controls="([^"]+)"/g) ?? [];
+		assert.equal(controls.length, 1);
+		const id = /aria-controls="([^"]+)"/.exec(html)?.[1];
+		assert.ok(id);
+		assert.ok(html.includes(`<div id="${id}"`));
+	});
+
 	it("opens no context for a guest who is not on the list", () => {
 		const html = renderToString(
 			createElement(AttendeeList, {

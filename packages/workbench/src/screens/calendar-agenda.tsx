@@ -998,7 +998,7 @@ export function CalendarAgenda({
 				>
 					<AttendeeContextCard
 						attendee={openedGuest}
-						className="w-full border-0 p-0 shadow-none"
+						className="w-full border-0 p-0"
 					/>
 				</FlowScreen>
 			);

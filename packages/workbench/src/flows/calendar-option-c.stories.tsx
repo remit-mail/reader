@@ -397,6 +397,41 @@ export const GuestContextInAShortPane: Story = {
 };
 
 /**
+ * A guest you have never written to. What opens says so and holds nothing to
+ * click, and reading it is not asking for it to go away: the click that lands on
+ * the words leaves it open, so the only ways out are the guest, Escape, and
+ * going somewhere else.
+ */
+export const EmptyGuestContextSurvivesAClick: Story = {
+	name: "Reading a guest with no mail does not dismiss it",
+	render: () => (
+		<CalendarAgenda date="2026-06-10" selectedEventId="evt_q3_roadmap" />
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const guest = () => canvas.getByRole("button", { name: /Aisha Khan/ });
+
+		await userEvent.click(guest());
+
+		const note = await waitFor(() =>
+			canvas.getByText("No mail with this address"),
+		);
+		await expect(guest()).toHaveAttribute("aria-expanded", "true");
+
+		await userEvent.click(note);
+
+		await waitFor(() => expect(note).toBeInTheDocument());
+		await expect(guest()).toHaveAttribute("aria-expanded", "true");
+
+		await userEvent.click(guest());
+
+		await waitFor(() =>
+			expect(canvas.queryByText("No mail with this address")).toBeNull(),
+		);
+	},
+};
+
+/**
  * Editing one morning's standup asks which instances it is for before the form
  * opens. Answering afterwards would mean typing a change without knowing what it
  * changes. "The whole series" and "this and following" rewrite every instance

@@ -19,7 +19,7 @@ export function AttendeeContextCard({
 	return (
 		<div
 			className={cn(
-				"flex w-72 flex-col gap-2 rounded-lg border border-line bg-surface-raised p-3 shadow-xl shadow-black/25",
+				"flex w-72 flex-col gap-2 rounded-lg border border-line bg-surface-raised p-3",
 				className,
 			)}
 		>
