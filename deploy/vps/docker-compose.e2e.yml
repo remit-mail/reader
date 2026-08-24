@@ -6,7 +6,9 @@
 #      a real mailbox exists to sync from and a real submission has somewhere to
 #      land (docker-compose.dovecot.yml, shared with the source-built dev lane);
 #   2. the edge moved off :80/:443 onto a loopback port, so the suite can run
-#      next to anything else on the box.
+#      next to anything else on the box;
+#   3. the queue sidecar's port published on loopback, so a spec can put an
+#      event on the queue the workers read.
 #
 # Always used together with the files it overlays:
 #   docker compose -f docker-compose.sqlite.yml \
@@ -24,6 +26,17 @@ services:
   caddy:
     ports: !override
       - "127.0.0.1:${E2E_HTTP_PORT:-18080}:80"
+
+  # At-least-once delivery is a property of the queue, not of the app, so the
+  # only way to drive a redelivery from outside is to put the event back on the
+  # queue (#925 spec 6, #858). Loopback, exactly like the mail-server ports:
+  # the sidecar authenticates nobody and speaks for every account on the
+  # deployment, so this is reachable from the host running the suite and from
+  # nowhere else. Nothing in a real deployment publishes it —
+  # docker-compose.sqlite.yml keeps it on the compose network.
+  queue:
+    ports:
+      - "127.0.0.1:${E2E_QUEUE_PORT:-19324}:9324"
 
   backend:
     depends_on:
