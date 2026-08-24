@@ -19,18 +19,29 @@
  * reason on screen — could not be asserted at all. Nothing here is refused; the
  * account simply has no folder, which is what #824 delivered mail into.
  *
- * Its own throwaway user, and nothing re-derives that folder list inside the
- * window: the scheduler takes accounts a quarter of an hour past their last
- * sync, and the client's poll is minutes out from the mount. A sync that did
- * land would file the copy and drop the row, which fails this spec rather than
- * quietly passing it.
+ * The removal only holds while nothing re-derives the folder list, because
+ * Dovecot has a `Sent` folder again the moment anything logs in and a sync
+ * would take it back into the account. Booting the app is one of those: reading
+ * `/config` triggers a mailbox sync for every account the user has. So the app
+ * is loaded first and its boot sync watched all the way in — a folder made
+ * behind its back is what that is read off — and the folder is taken away after
+ * it. Nothing else syncs inside the window that follows: the scheduler takes
+ * accounts a quarter of an hour past their last sync, and the client's own poll
+ * is minutes out. A sync that did land would file the copy and drop the row,
+ * which fails this spec rather than quietly passing it.
+ *
+ * Its own throwaway user, which is also what makes the folder expendable.
  */
 
 import type { BrowserContext } from "@playwright/test";
 import { ApiClient, type Mailbox, waitFor } from "../src/api.js";
 import { baseUrl } from "../src/env.js";
 import { expect, test } from "../src/fixtures.js";
-import { listServerMailboxes, listServerSubjects } from "../src/imap.js";
+import {
+	createServerMailbox,
+	listServerMailboxes,
+	listServerSubjects,
+} from "../src/imap.js";
 import { expectNoFatalOverlay } from "../src/overlay.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
 import {
@@ -115,29 +126,15 @@ test.describe("A send with no Sent folder to file into (#824)", () => {
 	test("the message goes out and its row stays, saying it was not filed", async () => {
 		test.setTimeout(300_000);
 
-		const mailboxes = await waitFor(
-			() => api.listMailboxes(run.accountId),
-			(list) => list.some((box) => box.fullPath === SENT_FOLDER),
-			{ timeoutMs: 90_000, what: "the Sent folder to sync" },
-		);
-		const sent = mailboxes.find((box) => box.fullPath === SENT_FOLDER);
-		if (!sent) throw new Error("unreachable: matched but not found");
+		const stamp = Date.now();
+		const subject = `Sent but unfiled ${stamp}`;
+		const syncMarker = `INBOX/Sync marker ${stamp}`;
 
-		const deleted = await api.deleteMailbox(run.accountId, sent.mailboxId);
-		expect(deleted.status).toBe(204);
-		await waitFor(
-			() => mailboxRowStatus(api, run.accountId, sent.mailboxId),
-			(status) => status === 404,
-			{ timeoutMs: 90_000, what: "the Sent folder to leave the account" },
-		);
-
-		// The role falls back to the server's flag and then to a conventional
-		// name, so "no Sent folder" is a claim about every folder the account has.
-		const left = await api.listMailboxes(run.accountId);
-		expect(left.filter(couldHoldTheSentRole)).toEqual([]);
+		// Made behind the app's back, so its arrival in the account is the boot's
+		// folder sync finishing — the one that would put a deleted Sent back.
+		await createServerMailbox(run.imapUser, syncMarker);
 
 		const page = await context.newPage();
-		const subject = `Sent but unfiled ${Date.now()}`;
 
 		const polls: number[] = [];
 		let sentOutboxMessageId: string | undefined;
@@ -163,6 +160,32 @@ test.describe("A send with no Sent folder to file into (#824)", () => {
 		});
 
 		await page.goto("/mail");
+		await waitFor(
+			() => api.listMailboxes(run.accountId),
+			(list) => list.some((box) => box.fullPath === syncMarker),
+			{
+				timeoutMs: 120_000,
+				what: "the folder list the app re-derives when it boots",
+			},
+		);
+
+		const mailboxes = await api.listMailboxes(run.accountId);
+		const sent = mailboxes.find((box) => box.fullPath === SENT_FOLDER);
+		if (!sent) throw new Error(`the account has no ${SENT_FOLDER} folder`);
+
+		const deleted = await api.deleteMailbox(run.accountId, sent.mailboxId);
+		expect(deleted.status).toBe(204);
+		await waitFor(
+			() => mailboxRowStatus(api, run.accountId, sent.mailboxId),
+			(status) => status === 404,
+			{ timeoutMs: 90_000, what: "the Sent folder to leave the account" },
+		);
+
+		// The role falls back to the server's flag and then to a conventional
+		// name, so "no Sent folder" is a claim about every folder the account has.
+		const left = await api.listMailboxes(run.accountId);
+		expect(left.filter(couldHoldTheSentRole)).toEqual([]);
+
 		await page.getByRole("button", { name: "Compose", exact: true }).click();
 
 		const body = page.getByTestId("compose-body");
