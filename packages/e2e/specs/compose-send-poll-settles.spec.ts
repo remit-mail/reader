@@ -26,7 +26,10 @@ import { ApiClient, waitFor } from "../src/api.js";
 import { baseUrl } from "../src/env.js";
 import { expect, test } from "../src/fixtures.js";
 import { listServerSubjects } from "../src/imap.js";
+import { waitForOutboxStatus } from "../src/outbox.js";
+import { expectNoFatalOverlay } from "../src/overlay.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
+import { holdRoute } from "../src/routes.js";
 import { waitForAcceptedMessage } from "../src/smtp-sink.js";
 import { COMPOSE_URL } from "../src/urls.js";
 
@@ -121,14 +124,7 @@ test.describe("A send settled by its outbox row disappearing (#921)", () => {
 		});
 		// Registered here and not earlier: composing a fresh message reads no outbox
 		// entry, and holding one that predates the send would gate the wrong request.
-		//
-		// Reads only. Send flushes the draft with a PATCH on this same path, and
-		// holding that would park the write the gate is waiting on behind the gate.
-		await page.route(OUTBOX_DETAIL, async (route) => {
-			if (route.request().method() !== "GET") return route.continue();
-			await rowIsGone;
-			await route.continue();
-		});
+		await holdRoute(page, OUTBOX_DETAIL, { until: rowIsGone });
 
 		await page.getByRole("button", { name: "Send", exact: true }).click();
 
@@ -139,20 +135,11 @@ test.describe("A send settled by its outbox row disappearing (#921)", () => {
 		await expect
 			.poll(() => sentOutboxMessageId, { timeout: 30_000 })
 			.toBeDefined();
+		if (!sentOutboxMessageId) {
+			throw new Error("unreachable: the send was matched but not captured");
+		}
 
-		const outboxRowStatus = async (): Promise<number> => {
-			const response = await api.request(
-				"GET",
-				`/outbox/${sentOutboxMessageId}`,
-			);
-			await response.text();
-			return response.status;
-		};
-
-		await waitFor(outboxRowStatus, (status) => status === 404, {
-			timeoutMs: 120_000,
-			what: "the sent outbox row to be deleted",
-		});
+		await waitForOutboxStatus(api, sentOutboxMessageId, 404);
 		openTheGate?.();
 
 		await expect
@@ -163,12 +150,11 @@ test.describe("A send settled by its outbox row disappearing (#921)", () => {
 			.toBe(true);
 
 		const polledWhenSettled = polls.length;
-		await page.waitForTimeout(QUIET_WINDOW_MS);
 
 		// The defect in two lines: the 404 took the whole screen, and because the
 		// overlay is a sibling of the watch rather than above it, the watch that
 		// produced the 404 kept going and produced dozens more.
-		await expect(page.getByTestId("fatal-error-overlay")).toHaveCount(0);
+		await expectNoFatalOverlay(page, QUIET_WINDOW_MS);
 		expect(polls.length).toBe(polledWhenSettled);
 
 		// And the absence really was settlement, not a give-up: the message left the
@@ -193,15 +179,7 @@ test.describe("A send settled by its outbox row disappearing (#921)", () => {
 			textBody: BODY,
 		});
 
-		const outboxRowStatus = async (): Promise<number> => {
-			const response = await api.request("GET", `/outbox/${outboxMessageId}`);
-			await response.text();
-			return response.status;
-		};
-		await waitFor(outboxRowStatus, (status) => status === 404, {
-			timeoutMs: 120_000,
-			what: "the sent outbox row to be deleted",
-		});
+		await waitForOutboxStatus(api, outboxMessageId, 404);
 
 		// The draft is a path segment, so this address is what Back after a send
 		// lands on, and what a restored tab reopens.
@@ -209,6 +187,6 @@ test.describe("A send settled by its outbox row disappearing (#921)", () => {
 		await page.goto(`/mail/brief/compose/${outboxMessageId}`);
 
 		await expect(page).not.toHaveURL(COMPOSE_URL, { timeout: 30_000 });
-		await expect(page.getByTestId("fatal-error-overlay")).toHaveCount(0);
+		await expectNoFatalOverlay(page);
 	});
 });

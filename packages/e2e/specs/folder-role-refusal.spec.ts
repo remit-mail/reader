@@ -15,6 +15,7 @@
  * that folder off the server, neither of which may reach another spec's account.
  */
 import { ApiClient, type ApiErrorBody, waitFor } from "../src/api.js";
+import { drainWithBarrier } from "../src/barrier.js";
 import { expect, test } from "../src/fixtures.js";
 import {
 	appendMessages,
@@ -89,9 +90,7 @@ test.describe("A delete whose appointed Trash folder is gone", () => {
 		expect(body.details?.reason).toBe("stale");
 		expect(body.details?.accountId).toBe(run.accountId);
 
-		// Repair the appointment and delete a second message. The account's
-		// mutations are one FIFO group, so once that one has reached the server
-		// anything the refusal had wrongly enqueued would have run before it.
+		// Repair the appointment, then put a second delete behind the refusal.
 		const mailboxes = await waitFor(
 			() => api.listMailboxes(run.accountId),
 			(list) => list.some((box) => box.fullPath === FLAGGED_TRASH),
@@ -107,15 +106,16 @@ test.describe("A delete whose appointed Trash folder is gone", () => {
 			run.inboxId,
 			barrierSubject,
 		);
-		const barrierDelete = await api.deleteMessages([barrierId]);
-		expect(barrierDelete.successCount).toBe(1);
-		await waitForServerMailbox(
-			run.imapUser,
-			FLAGGED_TRASH,
-			(subjects) => subjects.includes(barrierSubject),
+		await drainWithBarrier(
+			async () => {
+				const barrierDelete = await api.deleteMessages([barrierId]);
+				expect(barrierDelete.successCount).toBe(1);
+			},
 			{
+				imapUser: run.imapUser,
+				mailbox: FLAGGED_TRASH,
+				subject: barrierSubject,
 				timeoutMs: 90_000,
-				what: `"${barrierSubject}" to reach the flagged Trash folder`,
 			},
 		);
 
