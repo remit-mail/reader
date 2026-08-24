@@ -6,6 +6,7 @@
  * application's own account of what it did; the bytes here are the ones that
  * left it.
  */
+import { expect } from "@playwright/test";
 import { waitFor } from "./api.js";
 import { smtpSinkApi } from "./env.js";
 
@@ -70,4 +71,36 @@ export const waitForAcceptedMessage = async (
 		);
 	}
 	return { id: match.ID, subject: match.Subject, raw: await response.text() };
+};
+
+/**
+ * How many messages the sink has accepted under this subject.
+ *
+ * The sink is shared by the whole run and is never emptied, so its own totals
+ * belong to every spec at once and mean nothing to any of them. A subject
+ * stamped with the moment the spec started is the only thing a count can be
+ * taken over — which is what makes "exactly once" a claim about this send and
+ * not about the sink.
+ */
+export const countAcceptedMessages = async (
+	subject: string,
+): Promise<number> => {
+	const messages = await listAccepted();
+	return messages.filter((item) => item.Subject === subject).length;
+};
+
+/**
+ * Assert the sink accepted nothing under this subject, having given it a
+ * window to.
+ *
+ * A send is asynchronous end to end, so an absence read the instant an action
+ * is refused is an absence that had no chance to be anything else. The sink
+ * only ever grows, so one count at the end of the window covers all of it.
+ */
+export const expectNothingAccepted = async (
+	subject: string,
+	quietWindowMs: number,
+): Promise<void> => {
+	await new Promise((resolve) => setTimeout(resolve, quietWindowMs));
+	expect(await countAcceptedMessages(subject)).toBe(0);
 };
