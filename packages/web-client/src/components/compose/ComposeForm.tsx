@@ -273,6 +273,7 @@ interface WiredComposeHeaderProps {
 	subject: string;
 	setSubject: (v: string) => void;
 	fieldHandles: AddressFieldHandles;
+	onToPendingChange: (pending: AddressEntry | undefined) => void;
 }
 
 const WiredComposeHeader = ({
@@ -292,6 +293,7 @@ const WiredComposeHeader = ({
 	subject,
 	setSubject,
 	fieldHandles,
+	onToPendingChange,
 }: WiredComposeHeaderProps) => {
 	const isDesktop = useIsDesktop();
 	const { isKeyboardOpen } = useVisualViewport();
@@ -324,6 +326,7 @@ const WiredComposeHeader = ({
 					addresses={toAddresses}
 					onChange={setToAddresses}
 					placeholder="Recipients"
+					onPendingChange={onToPendingChange}
 					ref={fieldHandles.to}
 				/>
 			}
@@ -370,6 +373,14 @@ export const ComposeForm = ({
 	const [toAddresses, setToAddresses] = useState<AddressEntry[]>([]);
 	const [ccAddresses, setCcAddresses] = useState<AddressEntry[]>([]);
 	const [bccAddresses, setBccAddresses] = useState<AddressEntry[]>([]);
+	/**
+	 * The address To is holding but has not committed. A press on Send takes it,
+	 * so the refusal for having no recipient must not stand while it is on
+	 * screen — the button's own reason comes from this state, before the press.
+	 */
+	const [pendingTo, setPendingTo] = useState<AddressEntry | undefined>(
+		undefined,
+	);
 	const toFieldRef = useRef<ComposeAddressFieldHandle>(null);
 	const ccFieldRef = useRef<ComposeAddressFieldHandle>(null);
 	const bccFieldRef = useRef<ComposeAddressFieldHandle>(null);
@@ -710,8 +721,8 @@ export const ComposeForm = ({
 		[isSending, selectedAccountId, selectedAccountMissingSmtp],
 	);
 	const sendReadiness = useMemo<SendReadiness>(
-		() => readinessFor(toAddresses.length),
-		[readinessFor, toAddresses.length],
+		() => readinessFor(toAddresses.length + (pendingTo ? 1 : 0)),
+		[readinessFor, toAddresses.length, pendingTo],
 	);
 	const sendState: ComposeSendState = sendReadiness;
 
@@ -953,6 +964,7 @@ export const ComposeForm = ({
 					subject={subject}
 					setSubject={setSubject}
 					fieldHandles={fieldHandles}
+					onToPendingChange={setPendingTo}
 				/>
 			}
 			quoted={

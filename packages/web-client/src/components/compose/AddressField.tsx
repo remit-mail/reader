@@ -16,6 +16,7 @@ interface AddressFieldProps {
 	addresses: AddressEntry[];
 	onChange: (addresses: AddressEntry[]) => void;
 	placeholder?: string;
+	onPendingChange?: (pending: AddressEntry | undefined) => void;
 	ref?: Ref<ComposeAddressFieldHandle>;
 }
 
@@ -25,6 +26,7 @@ export const AddressField = ({
 	addresses,
 	onChange,
 	placeholder,
+	onPendingChange,
 	ref,
 }: AddressFieldProps) => {
 	const [query, setQuery] = useState("");
@@ -54,6 +56,7 @@ export const AddressField = ({
 			placeholder={placeholder}
 			suggestions={suggestions}
 			onQueryChange={setQuery}
+			onPendingChange={onPendingChange}
 			ref={ref}
 		/>
 	);

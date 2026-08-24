@@ -45,6 +45,11 @@ export interface ComposeAddressFieldProps {
 	suggestions?: readonly AddressEntry[];
 	/** The current text, reported so the caller can look candidates up. */
 	onQueryChange?: (query: string) => void;
+	/**
+	 * The address the field is holding but has not committed, so a caller whose
+	 * own state turns on having a recipient counts the one on screen.
+	 */
+	onPendingChange?: (pending: AddressEntry | undefined) => void;
 	ref?: Ref<ComposeAddressFieldHandle>;
 }
 
@@ -76,10 +81,16 @@ export const ComposeAddressField = ({
 	placeholder,
 	suggestions = [],
 	onQueryChange,
+	onPendingChange,
 	ref,
 }: ComposeAddressFieldProps) => {
 	const [inputValue, setInputValue] = useState("");
 	const inputRef = useRef<HTMLInputElement>(null);
+
+	const pending = useMemo(() => parseEmailInput(inputValue), [inputValue]);
+	useEffect(() => {
+		onPendingChange?.(pending);
+	}, [pending, onPendingChange]);
 
 	const existingEmails = new Set(addresses.map((a) => a.email.toLowerCase()));
 	const filteredSuggestions =
@@ -113,16 +124,15 @@ export const ComposeAddressField = ({
 	);
 
 	const commitPending = useCallback((): AddressEntry[] => {
-		const entry = parseEmailInput(inputValue);
-		if (!entry || existingEmails.has(entry.email.toLowerCase()))
+		if (!pending || existingEmails.has(pending.email.toLowerCase()))
 			return addresses;
 
-		const next = [...addresses, entry];
+		const next = [...addresses, pending];
 		onChange(next);
 		setInputValue("");
 		onQueryChange?.("");
 		return next;
-	}, [inputValue, addresses, existingEmails, onChange, onQueryChange]);
+	}, [pending, addresses, existingEmails, onChange, onQueryChange]);
 
 	useImperativeHandle(ref, () => ({ commitPending }), [commitPending]);
 

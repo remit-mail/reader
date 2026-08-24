@@ -115,16 +115,29 @@ export const IncompleteAddressIsNotTaken: Story = {
 	},
 };
 
+const NO_RECIPIENT_REFUSAL = "Add a To address before sending.";
+
 /**
  * A press elsewhere is what an address typed and left in the field has to
- * survive. The button reads the field the way the composer's Send does — through
- * `commitPending`, in the same tick as the press — rather than the list the field
- * has got round to committing, which the blur timer is still 150 ms away from.
+ * survive, and this is the shape the composer holds the field in for it.
+ *
+ * The press reads the field through `commitPending`, in the same tick, rather
+ * than the list the field has got round to committing — the blur timer is still
+ * 150 ms away from that. What the button says before it is pressed comes from
+ * `onPendingChange`, so a refusal for having no recipient never stands while
+ * one is on screen.
  */
 const SendHarness = ({ initial = [] }: { initial?: AddressEntry[] }) => {
 	const [addresses, setAddresses] = useState<AddressEntry[]>(initial);
+	const [pending, setPending] = useState<AddressEntry | undefined>(undefined);
 	const [sentTo, setSentTo] = useState<string[] | undefined>(undefined);
+	const [refusal, setRefusal] = useState<string | undefined>(undefined);
 	const field = useRef<ComposeAddressFieldHandle>(null);
+
+	const blocked =
+		addresses.length + (pending ? 1 : 0) === 0
+			? NO_RECIPIENT_REFUSAL
+			: undefined;
 
 	return (
 		<div className="w-[520px]">
@@ -133,22 +146,24 @@ const SendHarness = ({ initial = [] }: { initial?: AddressEntry[] }) => {
 				addresses={addresses}
 				onChange={setAddresses}
 				placeholder="Recipients"
+				onPendingChange={setPending}
 				ref={field}
 			/>
 			<button
 				type="button"
 				onClick={() => {
+					if (blocked !== undefined) {
+						setRefusal(blocked);
+						return;
+					}
 					const recipients = field.current?.commitPending() ?? addresses;
 					setSentTo(recipients.map((recipient) => recipient.email));
 				}}
 			>
 				Send
 			</button>
-			{sentTo !== undefined && (
-				<p data-testid="sent-to">
-					{sentTo.length === 0 ? "nobody" : sentTo.join(", ")}
-				</p>
-			)}
+			{sentTo !== undefined && <p data-testid="sent-to">{sentTo.join(", ")}</p>}
+			{refusal !== undefined && <p data-testid="refusal">{refusal}</p>}
 		</div>
 	);
 };
@@ -164,6 +179,19 @@ export const SendTakesTheAddressStillInTheField: Story = {
 		await userEvent.click(canvas.getByRole("button", { name: "Send" }));
 		await expect(canvas.getByTestId("sent-to")).toHaveTextContent(
 			"typed@northwind.example",
+		);
+		await expect(canvas.queryByTestId("refusal")).not.toBeInTheDocument();
+	},
+};
+
+/** With nothing typed and no chip there is nothing to send to, and it says so. */
+export const SendRefusesAnEmptyField: Story = {
+	render: () => <SendHarness />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await userEvent.click(canvas.getByRole("button", { name: "Send" }));
+		await expect(canvas.getByTestId("refusal")).toHaveTextContent(
+			NO_RECIPIENT_REFUSAL,
 		);
 	},
 };
