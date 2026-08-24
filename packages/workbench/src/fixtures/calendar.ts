@@ -523,6 +523,7 @@ export const suggestions: EventSuggestion[] = [
 		threadId: "thr_lisbon_call",
 		threadSubject: "Kickoff call on Wednesday at 16:00",
 		sender: "Rita Sousa",
+		senderAddress: "rita@aldeia.example",
 		confidence: 0.66,
 		ambiguity:
 			"Rita writes from Lisbon and names 16:00 without a clock. Lisbon runs an hour behind Amsterdam, so this is either 16:00 or 17:00 for you.",
