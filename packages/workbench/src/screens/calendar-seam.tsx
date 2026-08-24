@@ -40,8 +40,8 @@ import {
 	Sparkles,
 } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
+import { AttendeeContextCard } from "../components/attendee-context.js";
 import { RejectedNotice } from "../components/rejected-notice.js";
-import { AttendeeContextCard } from "../components/seam/attendee-context.js";
 import {
 	type AvailabilityMark,
 	AvailabilityStrip,
@@ -804,7 +804,7 @@ export function CalendarSeam({
 			>
 				<AttendeeContextCard
 					attendee={attendeePerson}
-					className="w-full border-0 p-0 shadow-none"
+					className="w-full border-0 p-0"
 				/>
 			</FlowScreen>
 		);

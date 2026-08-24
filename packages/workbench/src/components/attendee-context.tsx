@@ -1,6 +1,6 @@
 import { Avatar, type CalendarAttendee, cn, RsvpBadge } from "@remit/ui";
 import { Mail } from "lucide-react";
-import { contactMail } from "../../fixtures/calendar-mail.js";
+import { contactMail } from "../fixtures/calendar-mail.js";
 
 /**
  * An attendee is a person you already have a correspondence with, so their name
@@ -19,7 +19,7 @@ export function AttendeeContextCard({
 	return (
 		<div
 			className={cn(
-				"flex w-72 flex-col gap-2 rounded-lg border border-line bg-surface-raised p-3 shadow-xl shadow-black/25",
+				"flex w-72 flex-col gap-2 rounded-lg border border-line bg-surface-raised p-3",
 				className,
 			)}
 		>

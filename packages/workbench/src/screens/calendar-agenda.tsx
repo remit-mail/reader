@@ -64,6 +64,7 @@ import {
 	NextUpCard,
 	PositionMap,
 } from "../components/agenda-panels.js";
+import { AttendeeContextCard } from "../components/attendee-context.js";
 import { CalendarGrid, type SlotPick } from "../components/calendar-grid.js";
 import {
 	EVENT_WIZARD_LAST_STEP,
@@ -245,7 +246,8 @@ type Flow =
 	| "event"
 	| "calendars"
 	| "suggestions"
-	| "thread";
+	| "thread"
+	| "attendee";
 
 /** A reading the reader has just dropped, and what was offered along with it. */
 interface DroppedSuggestion {
@@ -282,8 +284,11 @@ export interface CalendarAgendaProps {
 	phrase?: string;
 	/** Answers a reading the phrase left open, so a story can show the other one. */
 	picks?: ChoicePicks;
-	/** Opens the phone flow a story is about. A thread is opened, not seeded. */
-	flow?: Exclude<Flow, "thread">;
+	/**
+	 * Opens the phone flow a story is about. A thread and a guest are opened
+	 * from the screen that names them, not seeded.
+	 */
+	flow?: Exclude<Flow, "thread" | "attendee">;
 	/**
 	 * Opens the mail behind a thread id, which is the only way to show one the
 	 * mailbox no longer has.
@@ -346,6 +351,7 @@ export function CalendarAgenda({
 	);
 	const [threadFrom, setThreadFrom] = useState<Flow>(initialFlow);
 	const [openThreadId, setOpenThreadId] = useState(initialThreadId);
+	const [activeAttendee, setActiveAttendee] = useState("");
 	const [step, setStep] = useState(initialStep);
 	const [customRule, setCustomRule] = useState<CustomRecurrence | null>(() =>
 		customRepeat === "open" ? defaultCustomRecurrence(draft.date) : null,
@@ -374,6 +380,9 @@ export function CalendarAgenda({
 	);
 	const selectedEvent = events.find((event) => event.id === selected);
 	const openedThread = threadFor(openThreadId);
+	const openedGuest = selectedEvent?.attendees.find(
+		(guest) => guest.email === activeAttendee,
+	);
 	const isMuted = (suggestion: EventSuggestion) =>
 		rules.includes(suggestion.senderAddress);
 	const visibleSuggestions = suggestions.filter(
@@ -459,7 +468,23 @@ export function CalendarAgenda({
 	const openEvent = (eventId: string) => {
 		setSelected(eventId);
 		setOpenThreadId("");
+		setActiveAttendee("");
 		if (isPhone) setFlow("event");
+	};
+
+	/**
+	 * A guest is a correspondent, so their name on an event is a way into what
+	 * they have written. On a desktop the row opens what they wrote underneath
+	 * it; a thumb gets a screen rather than a card sitting under the finger.
+	 */
+	const openGuest = (email: string) => {
+		setActiveAttendee(email);
+		if (isPhone && email !== "") setFlow("attendee");
+	};
+
+	const closeGuest = () => {
+		setActiveAttendee("");
+		setFlow("event");
 	};
 
 	/**
@@ -779,6 +804,11 @@ export function CalendarAgenda({
 						: () => openThread(selectedEvent.threadId)
 				}
 				onClose={onClose}
+				activeAttendee={activeAttendee}
+				onActivateAttendee={openGuest}
+				renderAttendeeContext={(guest) => (
+					<AttendeeContextCard attendee={guest} className="w-full" />
+				)}
 			/>
 		) : null;
 
@@ -955,7 +985,26 @@ export function CalendarAgenda({
 	const phoneFlow = (): ReactNode => {
 		if (flow === "editor") return editorFlow();
 
-		if (flow === "event" && selectedEvent) {
+		if (flow === "attendee" && openedGuest)
+			return (
+				<FlowScreen
+					anchor="container"
+					title={openedGuest.name}
+					subtitle={openedGuest.email}
+					steps={["Guest"]}
+					activeStep={0}
+					onBack={closeGuest}
+					onExit={closeGuest}
+				>
+					<AttendeeContextCard
+						attendee={openedGuest}
+						className="w-full border-0 p-0"
+					/>
+				</FlowScreen>
+			);
+
+		/** A guest who is no longer on the event leaves the event itself open. */
+		if ((flow === "event" || flow === "attendee") && selectedEvent) {
 			const calendar =
 				calendarsById.get(selectedEvent.calendarId) ?? calendars[0];
 			return (
@@ -1001,6 +1050,9 @@ export function CalendarAgenda({
 								? undefined
 								: () => openThread(selectedEvent.threadId)
 						}
+						activeAttendee={activeAttendee}
+						onActivateAttendee={openGuest}
+						touch
 					/>
 				</FlowScreen>
 			);

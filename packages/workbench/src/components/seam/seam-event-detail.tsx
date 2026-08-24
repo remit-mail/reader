@@ -7,7 +7,7 @@ import {
 import { Clock, Globe, MapPin, X } from "lucide-react";
 import { calendarsById } from "../../fixtures/calendar.js";
 import type { SeamThread } from "../../fixtures/calendar-mail.js";
-import { AttendeeContextCard, AttendeeStrip } from "./attendee-context.js";
+import { AttendeeContextCard, AttendeeStrip } from "../attendee-context.js";
 import { ThreadTranscript } from "./thread-view.js";
 
 /**
@@ -102,7 +102,10 @@ export function SeamEventDetail({
 							/>
 							{active && !touch && (
 								<div className="absolute left-0 top-full z-20 mt-1">
-									<AttendeeContextCard attendee={active} />
+									<AttendeeContextCard
+										attendee={active}
+										className="shadow-xl shadow-black/25"
+									/>
 								</div>
 							)}
 						</div>
