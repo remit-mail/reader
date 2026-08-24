@@ -3,20 +3,21 @@ import {
 	type AddressEntry,
 	ComposeAddressField,
 	type ComposeAddressFieldHandle,
+	type ParsedAddressInput,
 } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { type Ref, useMemo, useState } from "react";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { offerableAsRecipient } from "@/lib/recipient-suggestions";
 
-export type { AddressEntry, ComposeAddressFieldHandle };
+export type { AddressEntry, ComposeAddressFieldHandle, ParsedAddressInput };
 
 interface AddressFieldProps {
 	label: string;
 	addresses: AddressEntry[];
 	onChange: (addresses: AddressEntry[]) => void;
 	placeholder?: string;
-	onPendingChange?: (pending: AddressEntry | undefined) => void;
+	onPendingChange?: (pending: ParsedAddressInput) => void;
 	ref?: Ref<ComposeAddressFieldHandle>;
 }
 

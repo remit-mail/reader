@@ -5,6 +5,7 @@ import {
 	type AddressEntry,
 	ComposeAddressField,
 	type ComposeAddressFieldHandle,
+	type ParsedAddressInput,
 } from "./compose-address-field.js";
 
 const KNOWN: AddressEntry[] = [
@@ -117,6 +118,9 @@ export const IncompleteAddressIsNotTaken: Story = {
 
 const NO_RECIPIENT_REFUSAL = "Add a To address before sending.";
 
+const notAnAddress = (text: string) =>
+	`To holds "${text}", which is not an address.`;
+
 /**
  * A press elsewhere is what an address typed and left in the field has to
  * survive, and this is the shape the composer holds the field in for it.
@@ -124,20 +128,25 @@ const NO_RECIPIENT_REFUSAL = "Add a To address before sending.";
  * The press reads the field through `commitPending`, in the same tick, rather
  * than the list the field has got round to committing — the blur timer is still
  * 150 ms away from that. What the button says before it is pressed comes from
- * `onPendingChange`, so a refusal for having no recipient never stands while
- * one is on screen.
+ * `onPendingChange`, so neither refusal ever stands while an address is on
+ * screen, and text that is not an address stops the send instead of leaving
+ * with it.
  */
 const SendHarness = ({ initial = [] }: { initial?: AddressEntry[] }) => {
 	const [addresses, setAddresses] = useState<AddressEntry[]>(initial);
-	const [pending, setPending] = useState<AddressEntry | undefined>(undefined);
+	const [pending, setPending] = useState<ParsedAddressInput>({
+		entries: [],
+		unparsed: "",
+	});
 	const [sentTo, setSentTo] = useState<string[] | undefined>(undefined);
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
 	const field = useRef<ComposeAddressFieldHandle>(null);
 
-	const blocked =
-		addresses.length + (pending ? 1 : 0) === 0
-			? NO_RECIPIENT_REFUSAL
-			: undefined;
+	const refuse = (committed: ParsedAddressInput["unparsed"], count: number) => {
+		if (committed.trim()) return notAnAddress(committed.trim());
+		if (count === 0) return NO_RECIPIENT_REFUSAL;
+		return undefined;
+	};
 
 	return (
 		<div className="w-[520px]">
@@ -152,11 +161,21 @@ const SendHarness = ({ initial = [] }: { initial?: AddressEntry[] }) => {
 			<button
 				type="button"
 				onClick={() => {
-					if (blocked !== undefined) {
-						setRefusal(blocked);
+					const beforePress = refuse(
+						pending.unparsed,
+						addresses.length + pending.entries.length,
+					);
+					if (beforePress !== undefined) {
+						setRefusal(beforePress);
 						return;
 					}
-					const recipients = field.current?.commitPending() ?? addresses;
+					const committed = field.current?.commitPending();
+					const recipients = committed?.addresses ?? addresses;
+					const onPress = refuse(committed?.unparsed ?? "", recipients.length);
+					if (onPress !== undefined) {
+						setRefusal(onPress);
+						return;
+					}
 					setSentTo(recipients.map((recipient) => recipient.email));
 				}}
 			>
@@ -213,29 +232,79 @@ export const SendTakesTheAddressAfterAChip: Story = {
 	},
 };
 
+/** A pasted list arrives in one onChange and never sees the comma keydown. */
+export const SendTakesAPastedList: Story = {
+	render: () => <SendHarness />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await userEvent.click(canvas.getByLabelText("To:"));
+		await userEvent.paste("alice@northwind.example, bob@northwind.example");
+		await userEvent.click(canvas.getByRole("button", { name: "Send" }));
+		await expect(canvas.getByTestId("sent-to")).toHaveTextContent(
+			"alice@northwind.example, bob@northwind.example",
+		);
+	},
+};
+
+/**
+ * Text that is not an address stops the send and is quoted back. Going ahead
+ * would deliver the message to everyone but the person that text was for, and
+ * the composer closing on it would take the text away unread.
+ */
+export const SendRefusesTextThatIsNotAnAddress: Story = {
+	render: () => (
+		<SendHarness initial={[{ email: "chipped@northwind.example" }]} />
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const input = canvas.getByLabelText<HTMLInputElement>("To:");
+		await userEvent.type(input, "alice@northwind");
+		await userEvent.click(canvas.getByRole("button", { name: "Send" }));
+
+		await expect(canvas.getByTestId("refusal")).toHaveTextContent(
+			notAnAddress("alice@northwind"),
+		);
+		await expect(canvas.queryByTestId("sent-to")).not.toBeInTheDocument();
+		await expect(input).toHaveValue("alice@northwind");
+	},
+};
+
+/**
+ * Candidates a complete address is a substring of, so the typed text is itself
+ * committable and the suggestion picked is somebody else. That is what makes
+ * the story below a claim about the blur timer rather than about deduplication.
+ */
+const NEARBY: AddressEntry[] = [
+	{ email: "beta@northwind.example", displayName: "Beta Team" },
+	{ email: "a@northwind.example.org", displayName: "Alpha Team" },
+];
+
 /**
  * The other press the field has to survive, and the reason the blur commit is
  * still on a timer: a click travelling towards a suggestion must not be answered
  * by the typed text becoming a chip and the list going with it.
  */
 export const SuggestionSurvivesTheBlurItCauses: Story = {
-	render: () => <Harness />,
+	render: () => <Harness candidates={NEARBY} />,
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
 		const input = canvas.getByLabelText<HTMLInputElement>("To:");
-		await userEvent.type(input, "grace@northwind.example");
+		await userEvent.type(input, "a@northwind.example");
 		const list = await canvas.findByRole("listbox");
-		await userEvent.click(within(list).getByText("Grace Hopper"));
+		await userEvent.click(within(list).getByText("Beta Team"));
 
-		await expect(canvas.getByText("Grace Hopper")).toBeVisible();
+		await expect(canvas.getByText("Beta Team")).toBeVisible();
 		await expect(input).toHaveValue("");
-		// The blur the click caused still has its commit to run. It finds an empty
-		// field and leaves the one chip the suggestion made.
-		await waitFor(() =>
-			expect(canvas.getAllByRole("button", { name: /^Remove / })).toHaveLength(
-				1,
-			),
-		);
+
+		// Past the blur timer, not merely past the click: the commit it scheduled
+		// is cancelled, so the address that was typed never becomes a second chip.
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		await expect(
+			canvas.getAllByRole("button", { name: /^Remove / }),
+		).toHaveLength(1);
+		await expect(
+			canvas.queryByText("a@northwind.example"),
+		).not.toBeInTheDocument();
 	},
 };
 

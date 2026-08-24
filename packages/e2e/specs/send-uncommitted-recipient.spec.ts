@@ -23,6 +23,7 @@ import { expect, test } from "../src/fixtures.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
 import {
 	type AcceptedEnvelope,
+	expectNothingAccepted,
 	readAcceptedEnvelope,
 	waitForAcceptedMessage,
 } from "../src/smtp-sink.js";
@@ -35,8 +36,24 @@ const COMMITTED = "committed@remit.test";
 /** Typed into the field and left there, which is the whole subject here. */
 const TYPED = "typed@remit.test";
 
+/** Typed into Cc and left there. */
+const TYPED_CC = "typed-cc@remit.test";
+
+/** Typed into To and left there, and not an address — there is no top-level domain. */
+const NOT_AN_ADDRESS = "typed@remit";
+
 /** What the composer says when it reads no recipient at all. */
 const NO_RECIPIENT_REFUSAL = "Add a To address before sending.";
+
+/** What it says instead when a field holds text it cannot read as an address. */
+const notAnAddressRefusal = (label: string, text: string): string =>
+	`${label} holds "${text}", which is not an address.`;
+
+/**
+ * Long enough for a send to have reached the sink, had one been made. The suite
+ * reads a real submission back in well under this.
+ */
+const QUIET_WINDOW_MS = 15_000;
 
 const openCompose = async (page: Page, subject: string): Promise<void> => {
 	await page.goto("/mail");
@@ -55,9 +72,11 @@ const chips = (page: Page): Locator =>
 		name: /^Remove /,
 	});
 
-/** The field itself. Not by placeholder: a chip in To takes the placeholder away. */
-const toField = (page: Page): Locator =>
-	page.locator('[data-address-field="To"] input');
+/** A field itself. Not by placeholder: a chip in To takes the placeholder away. */
+const addressField = (page: Page, label: string): Locator =>
+	page.locator(`[data-address-field="${label}"] input`);
+
+const toField = (page: Page): Locator => addressField(page, "To");
 
 /**
  * Type an address, leave it uncommitted, and press Send.
@@ -144,5 +163,56 @@ test.describe("Sending with a recipient that is typed but not committed (#845.6)
 		const envelope = await acceptedEnvelope(subject);
 		expect([...envelope.to].sort()).toEqual([COMMITTED, TYPED].sort());
 		expect(envelope.bcc).toEqual([]);
+	});
+
+	// Cc is the same field under a different label, and a message copied to
+	// somebody is a claim about who received it, so it is read off the sink too.
+	test("an address left in Cc is copied to as well", async () => {
+		test.setTimeout(180_000);
+		const page = await context.newPage();
+		const subject = `Uncommitted cc ${Date.now()}`;
+
+		await openCompose(page, subject);
+		await toField(page).fill(COMMITTED);
+		await toField(page).press("Enter");
+		await expect(chips(page)).toHaveCount(1);
+
+		await page.getByRole("button", { name: "Cc", exact: true }).click();
+		await addressField(page, "Cc").fill(TYPED_CC);
+		await page.getByRole("button", { name: "Send", exact: true }).click();
+
+		await expect(page.getByTestId("compose-body")).toBeHidden({
+			timeout: 30_000,
+		});
+
+		const envelope = await acceptedEnvelope(subject);
+		expect(envelope.to).toEqual([COMMITTED]);
+		expect(envelope.cc).toEqual([TYPED_CC]);
+		expect(envelope.bcc).toEqual([]);
+	});
+
+	/**
+	 * The other half of taking what is on screen: text that is not an address
+	 * cannot be sent to and must not be thrown away either. The send stops, the
+	 * text is named and left in the field, and nothing reaches the sink — read
+	 * over a window, because an absence checked on the instant of a refusal never
+	 * had the chance to be anything else.
+	 */
+	test("text that is not an address stops the send and is named", async () => {
+		test.setTimeout(180_000);
+		const page = await context.newPage();
+		const subject = `Uncommitted unparseable ${Date.now()}`;
+
+		await openCompose(page, subject);
+		await typeAndSend(page, NOT_AN_ADDRESS, 0);
+
+		await expect(
+			page.getByText(notAnAddressRefusal("To", NOT_AN_ADDRESS)),
+		).toBeVisible({ timeout: 30_000 });
+		await expect(page.getByTestId("compose-body")).toBeVisible();
+		await expect(toField(page)).toHaveValue(NOT_AN_ADDRESS);
+		await expect(page.getByText(NO_RECIPIENT_REFUSAL)).toHaveCount(0);
+
+		await expectNothingAccepted(subject, QUIET_WINDOW_MS);
 	});
 });

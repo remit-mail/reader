@@ -48,7 +48,11 @@ import {
 	buildMutationErrorBanner,
 	formatErrorDetail,
 } from "../ui/error-banners.js";
-import type { AddressEntry, ComposeAddressFieldHandle } from "./AddressField";
+import type {
+	AddressEntry,
+	ComposeAddressFieldHandle,
+	ParsedAddressInput,
+} from "./AddressField";
 import { AddressField } from "./AddressField";
 import { ComposeSmtpMissingBanner } from "./ComposeSmtpMissingBanner";
 import { composeSpellcheck } from "./compose-spellcheck.js";
@@ -239,6 +243,28 @@ interface AddressFieldHandles {
  */
 const NO_TO_ADDRESS_MESSAGE = "Add a To address before sending.";
 
+/** A field holding text that is not an address, and which field it is. */
+interface UnparsedField {
+	label: string;
+	text: string;
+}
+
+/**
+ * Text a recipient field could not read as an address stops the send and is
+ * quoted back. It is on screen and it was meant for somebody, so sending
+ * without it would deliver a message to fewer people than it was addressed to,
+ * and the composer closing on the send would take the text with it.
+ */
+const unparsedRefusal = ({ label, text }: UnparsedField): string =>
+	`${label} holds "${text}", which is not an address.`;
+
+const firstUnparsed = (
+	fields: readonly UnparsedField[],
+): UnparsedField | undefined =>
+	fields.find((field) => field.text.trim() !== "");
+
+const EMPTY_PENDING: ParsedAddressInput = { entries: [], unparsed: "" };
+
 const isFormEmpty = (
 	toAddresses: AddressEntry[],
 	ccAddresses: AddressEntry[],
@@ -273,7 +299,7 @@ interface WiredComposeHeaderProps {
 	subject: string;
 	setSubject: (v: string) => void;
 	fieldHandles: AddressFieldHandles;
-	onToPendingChange: (pending: AddressEntry | undefined) => void;
+	onToPendingChange: (pending: ParsedAddressInput) => void;
 }
 
 const WiredComposeHeader = ({
@@ -374,13 +400,11 @@ export const ComposeForm = ({
 	const [ccAddresses, setCcAddresses] = useState<AddressEntry[]>([]);
 	const [bccAddresses, setBccAddresses] = useState<AddressEntry[]>([]);
 	/**
-	 * The address To is holding but has not committed. A press on Send takes it,
-	 * so the refusal for having no recipient must not stand while it is on
+	 * What To is holding but has not committed. A press on Send takes it, so the
+	 * refusal for having no recipient must not stand while an address is on
 	 * screen — the button's own reason comes from this state, before the press.
 	 */
-	const [pendingTo, setPendingTo] = useState<AddressEntry | undefined>(
-		undefined,
-	);
+	const [pendingTo, setPendingTo] = useState<ParsedAddressInput>(EMPTY_PENDING);
 	const toFieldRef = useRef<ComposeAddressFieldHandle>(null);
 	const ccFieldRef = useRef<ComposeAddressFieldHandle>(null);
 	const bccFieldRef = useRef<ComposeAddressFieldHandle>(null);
@@ -388,6 +412,12 @@ export const ComposeForm = ({
 		() => ({ to: toFieldRef, cc: ccFieldRef, bcc: bccFieldRef }),
 		[],
 	);
+	/** A new document leaves nothing typed behind in a field that did not remount. */
+	const clearPendingFields = useCallback(() => {
+		toFieldRef.current?.clearPending();
+		ccFieldRef.current?.clearPending();
+		bccFieldRef.current?.clearPending();
+	}, []);
 	const [subject, setSubject] = useState("");
 	const [showCc, setShowCc] = useState(false);
 	const [showBcc, setShowBcc] = useState(false);
@@ -458,6 +488,7 @@ export const ComposeForm = ({
 		setToAddresses([]);
 		setCcAddresses([]);
 		setBccAddresses([]);
+		clearPendingFields();
 		setSubject("");
 		setShowCc(false);
 		setShowBcc(false);
@@ -469,7 +500,7 @@ export const ComposeForm = ({
 		setDocumentGeneration((generation) => generation + 1);
 		setDraftLoaded(false);
 		setOpenDocumentId(outboxMessageId);
-	}, [outboxMessageId]);
+	}, [outboxMessageId, clearPendingFields]);
 
 	const { signature } = useSignature(selectedAccountId);
 	// Read when a new message starts, never depended on: a signature arriving is
@@ -565,6 +596,11 @@ export const ComposeForm = ({
 		if (resumedDraftRef.current) return;
 		if (!sourceMessage) return;
 
+		// The fields are being rewritten for a different answer, so what was typed
+		// into one and left there belongs to the answer being left behind. Without
+		// this the blur timer commits it into the new one 150 ms later.
+		clearPendingFields();
+
 		if (mode === "reply" || mode === "reply-all") {
 			const { to, cc } = getReplyAddresses(sourceMessage, mode, account?.email);
 			setToAddresses(to);
@@ -583,7 +619,7 @@ export const ComposeForm = ({
 			setBccAddresses([]);
 			setSubject(buildForwardSubject(sourceMessage.envelope.subject));
 		}
-	}, [mode, sourceMessage, account?.email]);
+	}, [mode, sourceMessage, account?.email, clearPendingFields]);
 
 	// Quoted reply/forward content lives at the per-part `contentUrl` since
 	// #224 PR 3 — fetch it via the same hook MessageBody uses, and degrade
@@ -705,13 +741,16 @@ export const ComposeForm = ({
 	// ready state carries the account the message goes out from, so the send
 	// path has no condition of its own left to refuse on in silence.
 	const readinessFor = useCallback(
-		(toCount: number): SendReadiness => {
+		(toCount: number, unparsed: UnparsedField | undefined): SendReadiness => {
 			if (isSending) return { status: "sending" };
 			if (!selectedAccountId) {
 				return { status: "blocked", reason: "Choose an account to send from." };
 			}
 			if (selectedAccountMissingSmtp) {
 				return { status: "blocked", reason: SMTP_MISSING_MESSAGE };
+			}
+			if (unparsed) {
+				return { status: "blocked", reason: unparsedRefusal(unparsed) };
 			}
 			if (toCount === 0) {
 				return { status: "blocked", reason: NO_TO_ADDRESS_MESSAGE };
@@ -721,13 +760,22 @@ export const ComposeForm = ({
 		[isSending, selectedAccountId, selectedAccountMissingSmtp],
 	);
 	const sendReadiness = useMemo<SendReadiness>(
-		() => readinessFor(toAddresses.length + (pendingTo ? 1 : 0)),
+		() =>
+			readinessFor(
+				toAddresses.length + pendingTo.entries.length,
+				firstUnparsed([{ label: "To", text: pendingTo.unparsed }]),
+			),
 		[readinessFor, toAddresses.length, pendingTo],
 	);
 	const sendState: ComposeSendState = sendReadiness;
 
 	useEffect(() => {
 		if (!selectedAccountId) return;
+		// Nor one that is on its way out. Send commits the address fields as it
+		// goes, which lands here as a recipient change and would re-arm the timer
+		// `stopAutoSave` has just dropped — a draft write arriving after the send
+		// took the row out of draft (#845.6).
+		if (sendInFlightRef.current) return;
 		// Don't autosave a document the fields are no longer on. They trail the
 		// address by a commit whenever it changes, so writing here sends the
 		// message just left to whatever the address now names — the previous
@@ -903,13 +951,23 @@ export const ComposeForm = ({
 	const attemptSend = useCallback(() => {
 		if (sendReadiness.status === "sending") return;
 
+		const to = fieldHandles.to.current?.commitPending();
+		const cc = fieldHandles.cc.current?.commitPending();
+		const bcc = fieldHandles.bcc.current?.commitPending();
 		const recipients: Recipients = {
-			to: fieldHandles.to.current?.commitPending() ?? toAddresses,
-			cc: fieldHandles.cc.current?.commitPending() ?? ccAddresses,
-			bcc: fieldHandles.bcc.current?.commitPending() ?? bccAddresses,
+			to: to?.addresses ?? toAddresses,
+			cc: cc?.addresses ?? ccAddresses,
+			bcc: bcc?.addresses ?? bccAddresses,
 		};
 
-		const readiness = readinessFor(recipients.to.length);
+		const readiness = readinessFor(
+			recipients.to.length,
+			firstUnparsed([
+				{ label: "To", text: to?.unparsed ?? "" },
+				{ label: "Cc", text: cc?.unparsed ?? "" },
+				{ label: "Bcc", text: bcc?.unparsed ?? "" },
+			]),
+		);
 		if (readiness.status === "sending") return;
 		if (readiness.status === "blocked") {
 			reportBlocked(readiness.reason);

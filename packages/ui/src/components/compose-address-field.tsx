@@ -7,13 +7,23 @@ import {
 	useRef,
 	useState,
 } from "react";
+import {
+	type AddressEntry,
+	type ParsedAddressInput,
+	parseAddressInput,
+} from "../lib/parse-address-input.js";
 import { useSuggestList } from "../lib/use-suggest-list.js";
 import { AddressTag } from "./address-tag.js";
 import { type Suggestion, SuggestList } from "./suggest-list.js";
 
-export interface AddressEntry {
-	email: string;
-	displayName?: string;
+export type { AddressEntry, ParsedAddressInput };
+
+/** What the field holds, after a commit. */
+export interface ComposeAddressCommit {
+	/** Every address the field now has, the ones just taken included. */
+	addresses: AddressEntry[];
+	/** What was left in the field because it is not an address. */
+	unparsed: string;
 }
 
 /**
@@ -23,17 +33,18 @@ export interface AddressEntry {
  * suggestion is not answered by the list disappearing under it. Anything that
  * acts on the recipients — sending — is a press that blurs the field, and so
  * lands inside that window and reads the list as it stood before the last
- * address was typed. `commitPending` closes it: it turns what is in the field
- * into an address and hands back the list including it, in the same tick as the
- * press.
+ * address was typed. `commitPending` closes it: it takes what is in the field
+ * and hands back the list including it, in the same tick as the press.
  */
 export interface ComposeAddressFieldHandle {
 	/**
-	 * Take what is typed and return the addresses as they now stand. Returns them
-	 * unchanged when the field is empty, holds something that is not an address,
-	 * or repeats one already there.
+	 * Take the addresses the field is holding and report what it holds after.
+	 * Anything that is not an address stays in the field and is named in
+	 * `unparsed`, for the caller to refuse on rather than send without.
 	 */
-	commitPending: () => AddressEntry[];
+	commitPending: () => ComposeAddressCommit;
+	/** Drop what is typed and not committed — the field's share of a new document. */
+	clearPending: () => void;
 }
 
 export interface ComposeAddressFieldProps {
@@ -46,33 +57,18 @@ export interface ComposeAddressFieldProps {
 	/** The current text, reported so the caller can look candidates up. */
 	onQueryChange?: (query: string) => void;
 	/**
-	 * The address the field is holding but has not committed, so a caller whose
-	 * own state turns on having a recipient counts the one on screen.
+	 * What the field is holding but has not committed, so a caller whose own
+	 * state turns on having a recipient counts what is on screen.
 	 */
-	onPendingChange?: (pending: AddressEntry | undefined) => void;
+	onPendingChange?: (pending: ParsedAddressInput) => void;
 	ref?: Ref<ComposeAddressFieldHandle>;
 }
 
 /** Beyond Enter, the keys that take the highlighted suggestion in a chips field. */
 const ACCEPT_KEYS = ["Tab", ","] as const;
 
-const isValidEmail = (value: string): boolean =>
-	/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
-
-const parseEmailInput = (value: string): AddressEntry | undefined => {
-	const trimmed = value.trim();
-	if (!trimmed) return undefined;
-
-	const angleMatch = trimmed.match(/^(.+?)\s*<([^>]+)>$/);
-	if (angleMatch) {
-		const displayName = angleMatch[1].trim();
-		const email = angleMatch[2].trim();
-		if (isValidEmail(email)) return { email, displayName };
-	}
-
-	if (isValidEmail(trimmed)) return { email: trimmed };
-	return undefined;
-};
+/** How long a click has to reach a suggestion before the blur commits the field. */
+const BLUR_COMMIT_MS = 150;
 
 export const ComposeAddressField = ({
 	label,
@@ -87,10 +83,20 @@ export const ComposeAddressField = ({
 	const [inputValue, setInputValue] = useState("");
 	const inputRef = useRef<HTMLInputElement>(null);
 
-	const pending = useMemo(() => parseEmailInput(inputValue), [inputValue]);
+	const pending = useMemo(() => parseAddressInput(inputValue), [inputValue]);
 	useEffect(() => {
 		onPendingChange?.(pending);
 	}, [pending, onPendingChange]);
+
+	const blurCommitRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+		undefined,
+	);
+	const cancelBlurCommit = useCallback(() => {
+		if (blurCommitRef.current === undefined) return;
+		clearTimeout(blurCommitRef.current);
+		blurCommitRef.current = undefined;
+	}, []);
+	useEffect(() => cancelBlurCommit, [cancelBlurCommit]);
 
 	const existingEmails = new Set(addresses.map((a) => a.email.toLowerCase()));
 	const filteredSuggestions =
@@ -98,14 +104,22 @@ export const ComposeAddressField = ({
 			? suggestions.filter((s) => !existingEmails.has(s.email.toLowerCase()))
 			: [];
 
+	const setInput = useCallback(
+		(next: string) => {
+			setInputValue(next);
+			onQueryChange?.(next);
+		},
+		[onQueryChange],
+	);
+
 	const addAddress = useCallback(
 		(entry: AddressEntry) => {
+			cancelBlurCommit();
 			if (existingEmails.has(entry.email.toLowerCase())) return;
 			onChange([...addresses, entry]);
-			setInputValue("");
-			onQueryChange?.("");
+			setInput("");
 		},
-		[addresses, existingEmails, onChange, onQueryChange],
+		[addresses, existingEmails, onChange, setInput, cancelBlurCommit],
 	);
 
 	const removeAddress = useCallback(
@@ -123,18 +137,42 @@ export const ComposeAddressField = ({
 		[addAddress],
 	);
 
-	const commitPending = useCallback((): AddressEntry[] => {
-		if (!pending || existingEmails.has(pending.email.toLowerCase()))
-			return addresses;
+	const commitPending = useCallback((): ComposeAddressCommit => {
+		cancelBlurCommit();
+		if (pending.entries.length === 0) {
+			return { addresses, unparsed: pending.unparsed };
+		}
 
-		const next = [...addresses, pending];
+		const taken = new Set(existingEmails);
+		const next = [...addresses];
+		for (const entry of pending.entries) {
+			const key = entry.email.toLowerCase();
+			if (taken.has(key)) continue;
+			taken.add(key);
+			next.push(entry);
+		}
+
 		onChange(next);
-		setInputValue("");
-		onQueryChange?.("");
-		return next;
-	}, [pending, addresses, existingEmails, onChange, onQueryChange]);
+		setInput(pending.unparsed);
+		return { addresses: next, unparsed: pending.unparsed };
+	}, [
+		pending,
+		addresses,
+		existingEmails,
+		onChange,
+		setInput,
+		cancelBlurCommit,
+	]);
 
-	useImperativeHandle(ref, () => ({ commitPending }), [commitPending]);
+	const clearPending = useCallback(() => {
+		cancelBlurCommit();
+		setInput("");
+	}, [setInput, cancelBlurCommit]);
+
+	useImperativeHandle(ref, () => ({ commitPending, clearPending }), [
+		commitPending,
+		clearPending,
+	]);
 
 	// A blur that has already been answered — by a send committing the field in
 	// the same press — must not commit again off the value it saw on the way out.
@@ -190,11 +228,13 @@ export const ComposeAddressField = ({
 	// input before it lands, and committing straight away would take the list out
 	// from under the pointer.
 	const handleBlur = useCallback(() => {
-		setTimeout(() => {
+		cancelBlurCommit();
+		blurCommitRef.current = setTimeout(() => {
+			blurCommitRef.current = undefined;
 			latestCommitRef.current();
 			suggest.dismiss();
-		}, 150);
-	}, [suggest.dismiss]);
+		}, BLUR_COMMIT_MS);
+	}, [cancelBlurCommit, suggest.dismiss]);
 
 	return (
 		<div className="relative" data-address-field={label}>
@@ -228,8 +268,7 @@ export const ComposeAddressField = ({
 						value={inputValue}
 						onChange={(e) => {
 							suggest.reopen();
-							setInputValue(e.target.value);
-							onQueryChange?.(e.target.value);
+							setInput(e.target.value);
 						}}
 						onKeyDown={handleKeyDown}
 						onBlur={handleBlur}
