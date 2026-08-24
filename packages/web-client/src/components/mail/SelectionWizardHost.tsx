@@ -1,4 +1,5 @@
 import { mailboxOperationsListMailboxesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import {
 	type ClauseDraft,
 	type ClauseEditState,
@@ -72,6 +73,12 @@ import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
 import { useWizardEntryValue, useWizardStep } from "@/lib/wizard-history";
 import type { WizardSelectionMessage } from "@/lib/wizard-selection";
 import { organizeRunState } from "./organize-run-state";
+import {
+	retryIntent,
+	runIsInFlight,
+	stopRunner,
+	wizardExit,
+} from "./selection-wizard-run-controls";
 
 const EMPTY_DRAFT: WizardDraft = { clauses: [], matchOperator: "any" };
 
@@ -170,6 +177,34 @@ const NO_CONVERSION: SearchConversion = {
 
 /** A search entry has nothing ticked; its match is the query's clauses (#477 3.2). */
 const EMPTY_SELECTION: readonly WizardSelectionMessage[] = [];
+
+/**
+ * What a search entry overrides on the props the surface handed over. Its rule
+ * belongs to the account the surface named, and to the one the query names when
+ * it names one (#524) — reaching past both for the first configured account
+ * writes the rule against whichever account happens to be first in the list, and
+ * the mail the user was looking at is never filtered.
+ */
+export const searchEntryOverrides = (
+	conversion: SearchConversion,
+	props: Pick<SelectionWizardHostProps, "accountId">,
+	accounts: readonly Pick<RemitImapAccountResponse, "accountId">[],
+): Pick<
+	SelectionWizardSessionProps,
+	| "verb"
+	| "accountId"
+	| "selection"
+	| "selectionRestriction"
+	| "escalated"
+	| "searchConversion"
+> => ({
+	verb: "organize",
+	accountId: searchRuleAccountId(conversion, props.accountId, accounts),
+	selection: EMPTY_SELECTION,
+	selectionRestriction: undefined,
+	escalated: undefined,
+	searchConversion: conversion,
+});
 
 /** How far a commit has got, whichever of the three ways it took. */
 interface RunSnapshot {
@@ -851,42 +886,39 @@ function SelectionWizardSession({
 	// walking back to Review, which would push an entry the wizard does not own
 	// and leave Cancel rewinding to a step instead of out.
 	const retry = (): void => {
-		// A status that could not be read is a job still running on the server, so
-		// the screen looks at that job again rather than queuing a second pass over
-		// the same mail (#526).
-		if (run.state === "statusUnknown") {
-			organizeJob.refreshStatus();
-			return;
-		}
-		// The predicate is re-resolved, not resumed: every verb it carries is
-		// idempotent, so the messages the first pass already reached are a no-op.
-		if (escalated) {
-			void runEscalated();
-			return;
-		}
-		if (committedScope === "standing" || committedScope === "temporary") {
-			if (createFilter.isError) {
+		const intent = retryIntent({
+			runState: run.state,
+			isEscalated: escalated !== undefined,
+			committedScope,
+			createFilterFailed: createFilter.isError,
+			backApplyPending: backApplyDraft !== undefined,
+			widenRunsAsJob: widenedRunsAsJob(verb),
+			failedIds: bulkRun?.outcome?.failedIds ?? [],
+			sent: bulkRun?.sent ?? bulkTargets,
+		});
+		switch (intent.kind) {
+			case "refreshStatus":
+				organizeJob.refreshStatus();
+				return;
+			case "rerunEscalated":
+				void runEscalated();
+				return;
+			case "resetAndResend":
 				createFilter.reset();
 				sendCommit();
 				return;
-			}
-			if (backApplyDraft) startJob(backApplyDraft);
-			return;
+			case "resend":
+				sendCommit();
+				return;
+			case "startBackApply":
+				if (backApplyDraft) startJob(backApplyDraft);
+				return;
+			case "waitOnJob":
+				return;
+			case "rerunBulk":
+				void runBulk(intent.targets);
+				return;
 		}
-		if (committedScope === "all-like-these" && widenedRunsAsJob(verb)) {
-			sendCommit();
-			return;
-		}
-		const outstanding = new Set(bulkRun?.outcome?.failedIds ?? []);
-		// A run hands back ids, and each one's account came from the batch it was
-		// sent in — so a retry re-sends the targets the run was given, filtered to
-		// what it never reached.
-		const sent = bulkRun?.sent ?? bulkTargets;
-		void runBulk(
-			outstanding.size > 0
-				? sent.filter((target) => outstanding.has(target.id))
-				: sent,
-		);
 	};
 
 	// Cancel rewinds the entries the wizard owns and leaves the selection where
@@ -905,21 +937,9 @@ function SelectionWizardSession({
 		onFinished();
 	}, [closeWizard, steps, current, onFinished]);
 
-	// Ends the run rather than leaving it. The escalated predicate is run by the
-	// list's runner and a bounded selection by this wizard's own, so the stop
-	// follows whichever one is paging.
 	const { stop: stopBulk } = bulk;
-	// A commit that never started has nothing paging and nothing to end.
-	const runInFlight =
-		bulkRun !== undefined &&
-		bulkRun.outcome === undefined &&
-		bulkRun.failureReason === undefined;
 	const stopRun = useCallback(() => {
-		if (escalated) {
-			escalated.stop();
-			return;
-		}
-		stopBulk();
+		stopRunner(escalated, stopBulk);
 	}, [escalated, stopBulk]);
 
 	// Hardware back on the run screen leaves the wizard, the movement the header
@@ -971,7 +991,7 @@ function SelectionWizardSession({
 			// Every exit from the run screen is the same movement: the header's X,
 			// the header arrow, the footer and hardware Back all leave a run that
 			// has already been sent, and all of them drop the selection with it.
-			onExit={current === "run" ? dismiss : cancel}
+			onExit={wizardExit(current, { dismiss, cancel })}
 			onContinue={advance}
 			onCommit={commit}
 			match={{
@@ -1051,7 +1071,7 @@ function SelectionWizardSession({
 				failureReason: run.failureReason,
 				onRetry: retry,
 				onDismiss: dismiss,
-				onCancelRun: runInFlight ? stopRun : undefined,
+				onCancelRun: runIsInFlight(bulkRun) ? stopRun : undefined,
 			}}
 		/>
 	);
@@ -1084,20 +1104,7 @@ export function SelectionWizardHost(props: SelectionWizardHostProps) {
 	return (
 		<SelectionWizardSession
 			{...props}
-			{...(conversion
-				? {
-						verb: "organize" as const,
-						accountId: searchRuleAccountId(
-							conversion,
-							props.accountId,
-							accounts,
-						),
-						selection: EMPTY_SELECTION,
-						selectionRestriction: undefined,
-						escalated: undefined,
-						searchConversion: conversion,
-					}
-				: {})}
+			{...(conversion ? searchEntryOverrides(conversion, props, accounts) : {})}
 			step={step}
 			goToStep={goToStep}
 			goBack={goBack}

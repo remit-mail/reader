@@ -1,41 +1,82 @@
-import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
-
 /**
  * A filter made from a search belongs to the account the search ran over (#524).
- * The surface hands its account to the host on the props; a search entry that
- * reads past it writes the rule against whichever account happens to be first in
- * the list, and the mail the user was looking at is never filtered.
  *
- * Which account wins is decided — and tested — in
- * `../../lib/organize/search-to-rule.test.ts`. What is read off the source here
- * is that the host asks that question with the surface's account in hand, which
- * is the wiring the bug lived in and which no unit of the resolver can prove.
- * The host wires routing, history and several data hooks together, so it is read
- * rather than rendered, as this package's other component-level rules are (see
- * `SelectionWizardHost.run-exit.test.ts`).
+ * The surface hands its account to the host on the props; a search entry that
+ * reaches past it writes the rule against whichever account happens to be first
+ * in the list, and the mail the user was looking at is never filtered. Which
+ * account wins between the query and the surface is
+ * `../../lib/organize/search-to-rule.test.ts`; what is asserted here is the set
+ * of props a search entry replaces, the account among them.
  */
 
-const here = dirname(fileURLToPath(import.meta.url));
-const source = readFileSync(resolve(here, "SelectionWizardHost.tsx"), "utf8");
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import type { SearchConversion } from "@remit/ui";
+import { searchEntryOverrides } from "./SelectionWizardHost";
 
-const host = source.match(
-	/export function SelectionWizardHost\(([\s\S]*)$/,
-)?.[1];
+const conversion = (
+	over: Partial<SearchConversion> = {},
+): SearchConversion => ({
+	clauses: [],
+	matchOperator: "all",
+	droppedFacets: [],
+	keptTerms: false,
+	droppedSemantic: false,
+	...over,
+});
 
-describe("the search entry's account", () => {
-	it("is resolved with the account the surface handed over", () => {
-		assert.ok(host, "the host is gone");
-		const call = host.match(/searchRuleAccountId\(([\s\S]*?)\)/)?.[1];
-		assert.ok(call, "the search entry resolves no account of its own");
-		assert.match(call, /\bprops\.accountId\b/);
+const accounts = [{ accountId: "acc-first" }, { accountId: "acc-surface" }];
+
+describe("the account a search entry writes its rule against", () => {
+	it("is the one the surface handed over", () => {
+		assert.equal(
+			searchEntryOverrides(conversion(), { accountId: "acc-surface" }, accounts)
+				.accountId,
+			"acc-surface",
+		);
 	});
 
-	it("never reaches past it for the first configured account", () => {
-		assert.ok(host, "the host is gone");
-		assert.doesNotMatch(host, /accounts\[0\]/);
+	it("is the one the query names when it names one", () => {
+		assert.equal(
+			searchEntryOverrides(
+				conversion({ targetAccountId: "acc-typed" }),
+				{ accountId: "acc-surface" },
+				accounts,
+			).accountId,
+			"acc-typed",
+		);
+	});
+
+	// The first configured account is the last resort, never the answer while the
+	// surface has one of its own.
+	it("falls back to the first configured account only when the surface has none", () => {
+		assert.equal(
+			searchEntryOverrides(conversion(), { accountId: undefined }, accounts)
+				.accountId,
+			"acc-first",
+		);
+	});
+});
+
+describe("what else a search entry replaces", () => {
+	it("ticks nothing, carries no restriction and drops any escalation", () => {
+		const overrides = searchEntryOverrides(
+			conversion(),
+			{ accountId: "acc-surface" },
+			accounts,
+		);
+		assert.equal(overrides.verb, "organize");
+		assert.deepEqual(overrides.selection, []);
+		assert.equal(overrides.selectionRestriction, undefined);
+		assert.equal(overrides.escalated, undefined);
+	});
+
+	it("hands the conversion on so the properties step can seed its clauses", () => {
+		const seeded = conversion({ keptTerms: true });
+		assert.equal(
+			searchEntryOverrides(seeded, { accountId: "acc-surface" }, accounts)
+				.searchConversion,
+			seeded,
+		);
 	});
 });
