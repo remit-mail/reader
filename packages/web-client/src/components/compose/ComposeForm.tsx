@@ -446,8 +446,27 @@ export const ComposeForm = ({
 	 * resumed holds what its reader saved and must not be overwritten when it
 	 * mounts — but a switch of mode over the same message asks for different
 	 * recipients, which is how Reply All reaches the Cc field (#796).
+	 *
+	 * Taken at mount rather than on the first run that has a source: the source
+	 * is fetched fresh after a reload, so a reader who presses Reply All before
+	 * it lands would otherwise have that press recorded as the mode the draft
+	 * opened under, and Reply All would stay dead.
 	 */
-	const seededModeRef = useRef<ComposeMode | undefined>(undefined);
+	const seededModeRef = useRef<ComposeMode | undefined>(
+		outboxMessageId !== undefined ? mode : undefined,
+	);
+	/**
+	 * The reader's own address the recipients were last written against, absent
+	 * until something has been written. The account resolves from the source's
+	 * mailbox, so it lands after the source: a seed made before it arrived kept
+	 * the reader in their own Cc (#819), and is redone once it does.
+	 */
+	const seededMyEmailRef = useRef<{ myEmail: string | undefined } | undefined>(
+		undefined,
+	);
+	// Read where a mode change must not itself be the trigger.
+	const modeRef = useRef(mode);
+	modeRef.current = mode;
 	/**
 	 * The identity this form has already taken from the surface that mounted it.
 	 * A reply learns which account the message reached only once the mailbox it
@@ -487,7 +506,9 @@ export const ComposeForm = ({
 		prevOutboxMessageIdRef.current = outboxMessageId;
 		if (previous === undefined) return;
 		resumedDraftRef.current = outboxMessageId !== undefined;
-		seededModeRef.current = undefined;
+		seededModeRef.current =
+			outboxMessageId !== undefined ? modeRef.current : undefined;
+		seededMyEmailRef.current = undefined;
 		// A draft brings its own body along in a moment; a new message opens on
 		// the signature, the same document a fresh mount would have started on.
 		const opening = outboxMessageId
@@ -602,18 +623,17 @@ export const ComposeForm = ({
 
 	useEffect(() => {
 		if (!sourceMessage) return;
-		// A draft the reader came back to holds what they saved, so mounting
-		// over it seeds nothing — but its opening mode is remembered, so a switch
-		// of mode over the same message still rewrites the fields for the answer
-		// now asked for (#796).
-		if (resumedDraftRef.current) {
-			if (seededModeRef.current === undefined) {
-				seededModeRef.current = mode;
-				return;
-			}
-			if (seededModeRef.current === mode) return;
+		// A draft the reader came back to holds what they saved, so mounting over
+		// it seeds nothing — but a switch of mode over the same message asks for
+		// a different answer, and rewrites the fields for it (#796). A rewrite
+		// made before the account resolved is redone when its address arrives,
+		// which is what takes the reader back out of their own Cc (#819).
+		if (resumedDraftRef.current && seededModeRef.current === mode) {
+			const seeded = seededMyEmailRef.current;
+			if (!seeded || seeded.myEmail === account?.email) return;
 		}
 		seededModeRef.current = mode;
+		seededMyEmailRef.current = { myEmail: account?.email };
 
 		// The fields are being rewritten for a different answer, so what was typed
 		// into one and left there belongs to the answer being left behind. Without
