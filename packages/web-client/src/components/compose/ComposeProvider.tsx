@@ -9,9 +9,9 @@ import {
 	useContext,
 	useEffect,
 	useMemo,
-	useRef,
 	useState,
 } from "react";
+import { isNotFound, softErrorStatuses } from "@/lib/error-classifier";
 import type { ReplyMode } from "@/routing";
 
 /**
@@ -41,6 +41,23 @@ const ComposeContext = createContext<ComposeContextValue | undefined>(
 const POLL_INTERVAL_MS = 2000;
 const MAX_POLL_DURATION_MS = 60_000;
 
+const isSettledStatus = (status: string | undefined): boolean =>
+	status === "sent" ||
+	status === "unfiled" ||
+	status === "failed" ||
+	status === "blocked";
+
+/**
+ * A send that lands is filed and then forgotten: the worker APPENDs the message
+ * to Sent and drops the outbox row, so the row's absence is the settled state
+ * and the 404 is the confirmation. `sent` lives for under a second and this poll
+ * runs every two, so the 404 is the outcome it normally reads.
+ *
+ * Only the 404 is this call site's to own. A 401 or a 403 here is a session that
+ * lapsed under a send, which the app owes the user an answer about.
+ */
+export const OUTBOX_ROW_META = softErrorStatuses(404);
+
 export const ComposeProvider = ({
 	children,
 }: {
@@ -49,48 +66,47 @@ export const ComposeProvider = ({
 	const [pollingMessageId, setPollingMessageId] = useState<
 		string | undefined
 	>();
-	const startedAtRef = useRef(0);
 	const queryClient = useQueryClient();
 
-	const { data: polledMessage } = useQuery({
+	const { data: polledMessage, error: pollError } = useQuery({
 		...outboxDetailOperationsGetOutboxMessageOptions({
 			path: { outboxMessageId: pollingMessageId ?? "" },
 		}),
 		enabled: !!pollingMessageId,
+		meta: OUTBOX_ROW_META,
+		retry: (failureCount, error) => !isNotFound(error) && failureCount < 1,
 		refetchInterval: (query) => {
-			const status = query.state.data?.status;
-			if (
-				status === "sent" ||
-				status === "unfiled" ||
-				status === "failed" ||
-				status === "blocked"
-			)
-				return false;
-			if (Date.now() - startedAtRef.current > MAX_POLL_DURATION_MS)
-				return false;
+			if (isSettledStatus(query.state.data?.status)) return false;
+			if (isNotFound(query.state.error)) return false;
 			return POLL_INTERVAL_MS;
 		},
 	});
 
+	const stopWatching = useCallback(() => {
+		setPollingMessageId(undefined);
+		queryClient.invalidateQueries({
+			queryKey: outboxOperationsListOutboxMessagesQueryKey(),
+		});
+	}, [queryClient]);
+
 	useEffect(() => {
-		if (!polledMessage || !pollingMessageId) return;
+		if (!pollingMessageId) return;
+		if (!isSettledStatus(polledMessage?.status) && !isNotFound(pollError))
+			return;
 
-		const terminal =
-			polledMessage.status === "sent" ||
-			polledMessage.status === "unfiled" ||
-			polledMessage.status === "failed" ||
-			polledMessage.status === "blocked";
+		stopWatching();
+	}, [polledMessage, pollError, pollingMessageId, stopWatching]);
 
-		if (terminal) {
-			setPollingMessageId(undefined);
-			queryClient.invalidateQueries({
-				queryKey: outboxOperationsListOutboxMessagesQueryKey(),
-			});
-		}
-	}, [polledMessage, pollingMessageId, queryClient]);
+	// The cap has to put the watch down rather than only stop the interval: a
+	// query left enabled comes back on the next window focus, minutes later, to
+	// poll a send nobody is waiting on any more.
+	useEffect(() => {
+		if (!pollingMessageId) return;
+		const giveUp = setTimeout(stopWatching, MAX_POLL_DURATION_MS);
+		return () => clearTimeout(giveUp);
+	}, [pollingMessageId, stopWatching]);
 
 	const startSendPolling = useCallback((outboxMessageId: string) => {
-		startedAtRef.current = Date.now();
 		setPollingMessageId(outboxMessageId);
 	}, []);
 
