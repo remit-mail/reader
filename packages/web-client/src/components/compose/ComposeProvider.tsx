@@ -58,6 +58,15 @@ const isSettledStatus = (status: string | undefined): boolean =>
  */
 export const OUTBOX_ROW_META = softErrorStatuses(404);
 
+/**
+ * The watch is over on a settled status and on any error the read comes back
+ * with. The 404 is the settled state itself; every other refusal has already
+ * escalated once through the query cache, and asking again every two seconds
+ * only repeats that escalation — a fresh fatal event per tick — until the cap.
+ */
+const isWatchOver = (status: string | undefined, error: unknown): boolean =>
+	isSettledStatus(status) || error != null;
+
 export const ComposeProvider = ({
 	children,
 }: {
@@ -76,8 +85,8 @@ export const ComposeProvider = ({
 		meta: OUTBOX_ROW_META,
 		retry: (failureCount, error) => !isNotFound(error) && failureCount < 1,
 		refetchInterval: (query) => {
-			if (isSettledStatus(query.state.data?.status)) return false;
-			if (isNotFound(query.state.error)) return false;
+			if (isWatchOver(query.state.data?.status, query.state.error))
+				return false;
 			return POLL_INTERVAL_MS;
 		},
 	});
@@ -91,8 +100,7 @@ export const ComposeProvider = ({
 
 	useEffect(() => {
 		if (!pollingMessageId) return;
-		if (!isSettledStatus(polledMessage?.status) && !isNotFound(pollError))
-			return;
+		if (!isWatchOver(polledMessage?.status, pollError)) return;
 
 		stopWatching();
 	}, [polledMessage, pollError, pollingMessageId, stopWatching]);
