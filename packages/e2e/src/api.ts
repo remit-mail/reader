@@ -14,7 +14,8 @@ export interface Credentials {
 export interface Mailbox {
 	mailboxId: string;
 	fullPath: string;
-	specialUse?: string;
+	/** The RFC 6154 designations the server advertises, e.g. `["\\Sent"]`. */
+	specialUse?: string[];
 	messageCount?: number;
 	/** `pending` until the imap-worker confirms the folder on the server, then `synced`. */
 	syncStatus?: "synced" | "pending" | "failed" | "deleting";
@@ -437,6 +438,7 @@ export class ApiClient {
 		outboxMessageId: string;
 		subject?: string;
 		status: string;
+		lastError?: string;
 		htmlBody?: string;
 		textBody?: string;
 	}> {
