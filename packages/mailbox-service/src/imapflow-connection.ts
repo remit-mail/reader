@@ -68,6 +68,103 @@ export const toInternalDate = (value: unknown): Date | null => {
 	return new Date();
 };
 
+const FLAG_CRITERIA: Record<string, Record<string, boolean>> = {
+	ALL: {},
+	SEEN: { seen: true },
+	UNSEEN: { seen: false },
+	FLAGGED: { flagged: true },
+	UNFLAGGED: { flagged: false },
+	DELETED: { deleted: true },
+	UNDELETED: { deleted: false },
+	ANSWERED: { answered: true },
+	UNANSWERED: { answered: false },
+	DRAFT: { draft: true },
+	UNDRAFT: { draft: false },
+};
+
+const VALUE_CRITERIA: Record<string, string> = {
+	UID: "uid",
+	FROM: "from",
+	TO: "to",
+	SUBJECT: "subject",
+	SINCE: "since",
+	BEFORE: "before",
+};
+
+const unsupported = (criterion: unknown): Error =>
+	new Error(
+		`Unsupported IMAP search criterion ${JSON.stringify(criterion)} — dropping it would widen the query to SEARCH ALL`,
+	);
+
+const applyValueCriterion = (
+	result: Record<string, unknown>,
+	header: Map<string, string>,
+	criterion: unknown[],
+): void => {
+	const [key, ...values] = criterion;
+	if (typeof key !== "string") throw unsupported(criterion);
+
+	if (key.toUpperCase() === "HEADER") {
+		const [name, value] = values;
+		if (values.length !== 2 || typeof name !== "string") {
+			throw unsupported(criterion);
+		}
+		if (typeof value !== "string" && value !== true) {
+			throw unsupported(criterion);
+		}
+		header.set(name.toLowerCase(), value === true ? "" : value);
+		return;
+	}
+
+	const field = VALUE_CRITERIA[key.toUpperCase()];
+	if (field === undefined || values.length !== 1) throw unsupported(criterion);
+	result[field] = values[0];
+};
+
+/**
+ * Compile node-imap style search criteria into an ImapFlow search object.
+ *
+ * A criterion this does not understand throws, and so does an empty criteria
+ * list. imapflow reads an empty object as `SEARCH ALL`
+ * (`imapflow/lib/commands/search.js`), so quietly skipping one turns a narrow
+ * probe into "every message in the mailbox" — the reconcile and move paths then
+ * act on a stranger's UID (#912). Header names accumulate in a Map so that a
+ * name like `__proto__` lands as a query term rather than hitting the
+ * prototype setter and vanishing.
+ *
+ * Values travel as structured tokens, never interpolated into a criterion
+ * string, so a quote or a CRLF in a header value cannot alter the query.
+ */
+export const convertSearchCriteria = (
+	criteria: unknown[],
+): Record<string, unknown> => {
+	if (criteria.length === 0) {
+		throw new Error(
+			"Empty IMAP search criteria list — it would compile to SEARCH ALL",
+		);
+	}
+
+	const result: Record<string, unknown> = {};
+	const header = new Map<string, string>();
+
+	for (const criterion of criteria) {
+		if (typeof criterion === "string") {
+			const flags = FLAG_CRITERIA[criterion.toUpperCase()];
+			if (flags === undefined) throw unsupported(criterion);
+			Object.assign(result, flags);
+			continue;
+		}
+		if (Array.isArray(criterion)) {
+			applyValueCriterion(result, header, criterion);
+			continue;
+		}
+		throw unsupported(criterion);
+	}
+
+	if (header.size > 0) result.header = Object.fromEntries(header);
+	return result;
+};
+
 /**
  * ImapFlow-based IMAP connection
  *
@@ -414,90 +511,12 @@ export class ImapFlowConnection {
 			throw new Error("No mailbox selected");
 		}
 
-		// Convert node-imap style criteria to ImapFlow search object
-		const searchQuery = this.convertSearchCriteria(criteria);
+		const searchQuery = convertSearchCriteria(criteria);
 
 		const result = await this.client?.search(searchQuery, { uid: true });
 		if (!Array.isArray(result)) {
 			throw new Error(`IMAP SEARCH failed in mailbox ${this.currentMailbox}`);
 		}
-		return result;
-	};
-
-	/**
-	 * Convert node-imap style search criteria to ImapFlow format
-	 */
-	private convertSearchCriteria = (
-		criteria: unknown[],
-	): Record<string, unknown> => {
-		const result: Record<string, unknown> = {};
-
-		for (const criterion of criteria) {
-			if (typeof criterion === "string") {
-				// Simple flags like "ALL", "UNSEEN", etc.
-				switch (criterion.toUpperCase()) {
-					case "ALL":
-						// ALL is default, no filter needed
-						break;
-					case "UNSEEN":
-						result.seen = false;
-						break;
-					case "SEEN":
-						result.seen = true;
-						break;
-					case "FLAGGED":
-						result.flagged = true;
-						break;
-					case "UNFLAGGED":
-						result.flagged = false;
-						break;
-					case "DELETED":
-						result.deleted = true;
-						break;
-					case "UNDELETED":
-						result.deleted = false;
-						break;
-					case "ANSWERED":
-						result.answered = true;
-						break;
-					case "UNANSWERED":
-						result.answered = false;
-						break;
-					case "DRAFT":
-						result.draft = true;
-						break;
-					case "UNDRAFT":
-						result.draft = false;
-						break;
-				}
-			} else if (Array.isArray(criterion)) {
-				// Criteria with values like ["UID", "1:*"]
-				const [key, value] = criterion;
-				if (typeof key === "string") {
-					switch (key.toUpperCase()) {
-						case "UID":
-							result.uid = value;
-							break;
-						case "FROM":
-							result.from = value;
-							break;
-						case "TO":
-							result.to = value;
-							break;
-						case "SUBJECT":
-							result.subject = value;
-							break;
-						case "SINCE":
-							result.since = value;
-							break;
-						case "BEFORE":
-							result.before = value;
-							break;
-					}
-				}
-			}
-		}
-
 		return result;
 	};
 

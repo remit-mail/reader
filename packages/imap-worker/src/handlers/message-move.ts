@@ -78,7 +78,7 @@ export const searchMailboxByMessageId = async (
 ): Promise<number | null> => {
 	await connection.openBox(mailboxPath, true);
 	const uids = await connection.search([
-		`HEADER Message-ID "${messageIdHeader}"`,
+		["HEADER", "Message-ID", messageIdHeader],
 	]);
 	return uids[0] ?? null;
 };
