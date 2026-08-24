@@ -26,10 +26,14 @@ import { waitForAcceptedMessage } from "../src/smtp-sink.js";
 
 const DESKTOP = { width: 1512, height: 864 };
 
-/** GET on one outbox message. The list endpoint has no id segment and is not this. */
-const OUTBOX_DETAIL = /\/api\/outbox\/[0-9a-fA-F-]{36}(?:\?|$)/;
+/**
+ * One outbox message, addressed by id. The list endpoint has no id segment and
+ * the sub-resources all have one more, so neither is matched — and the id itself
+ * is left unread, because what it is made of is the server's business.
+ */
+const OUTBOX_DETAIL = /\/api\/outbox\/[^/?]+(?:\?|$)/;
 
-const SEND_REQUEST = /\/api\/outbox\/([0-9a-fA-F-]{36})\/send$/;
+const SEND_REQUEST = /\/api\/outbox\/([^/?]+)\/send(?:\?|$)/;
 
 /** Three poll intervals, so a watch that had not stopped would have shown it. */
 const QUIET_WINDOW_MS = 6_000;
