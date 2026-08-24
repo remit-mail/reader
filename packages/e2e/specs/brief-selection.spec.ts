@@ -301,7 +301,7 @@ test.describe("Daily brief opens a search hit from another folder (#635)", () =>
 
 		const article = page.getByRole("article").first();
 		await expect(article).toBeVisible({ timeout: 20_000 });
-		await expect(article.locator(".animate-pulse")).toBeHidden({
+		await expect(article.locator(".animate-pulse")).toHaveCount(0, {
 			timeout: 20_000,
 		});
 		await expect(
