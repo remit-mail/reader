@@ -41,6 +41,64 @@ const listAccepted = (): Promise<SinkListEntry[]> =>
 		(page) => page.messages,
 	);
 
+interface SinkAddress {
+	Address: string;
+}
+
+interface SinkMessage {
+	From: SinkAddress | null;
+	To: SinkAddress[] | null;
+	Cc: SinkAddress[] | null;
+	Bcc: SinkAddress[] | null;
+	ReturnPath: string;
+}
+
+/**
+ * Who a submission was for, as the sink read it.
+ *
+ * `to` and `cc` come off the accepted bytes, `returnPath` off the SMTP
+ * conversation that carried them, and `bcc` off the difference: Mailpit lists
+ * there every envelope recipient the headers do not name. So the three
+ * recipient fields together are the whole set the submission was addressed to,
+ * and an empty `bcc` is what makes the other two exhaustive.
+ *
+ * Every address is lower-cased. Nothing in the suite addresses mail in mixed
+ * case, and comparing sets is the whole point of reading them.
+ */
+export interface AcceptedEnvelope {
+	/** The From address, empty on a message that carries no From at all. */
+	from: string;
+	to: string[];
+	cc: string[];
+	bcc: string[];
+	/** The envelope sender: SMTP MAIL FROM, not the From header. */
+	returnPath: string;
+}
+
+const addressesOf = (entries: SinkAddress[] | null): string[] =>
+	(entries ?? []).map((entry) => entry.Address.toLowerCase());
+
+/**
+ * The addressing of one accepted message, by the id `waitForAcceptedMessage`
+ * returned.
+ *
+ * A misdirected send is a claim about who the submission named, which is not
+ * something the chips compose drew can answer: they are what the app meant, and
+ * this is what the recipient's server was handed (#797, #819).
+ */
+export const readAcceptedEnvelope = async (
+	id: string,
+): Promise<AcceptedEnvelope> => {
+	const message = await sinkJson<SinkMessage>(`/api/v1/message/${id}`);
+	return {
+		from: message.From?.Address.toLowerCase() ?? "",
+		to: addressesOf(message.To),
+		cc: addressesOf(message.Cc),
+		bcc: addressesOf(message.Bcc),
+		returnPath: message.ReturnPath.toLowerCase(),
+	};
+};
+
 /**
  * Poll the sink until it has accepted a message with this subject, then return
  * its raw source.
