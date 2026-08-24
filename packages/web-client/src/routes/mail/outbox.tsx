@@ -8,9 +8,8 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { MailShell } from "@/components/layout/MailShell";
 import { OutboxPane } from "@/components/mail/OutboxPane";
-import { useSearchMirror } from "@/hooks/useSearchMirror";
 import { outboxSearchSchema } from "@/lib/mail-search";
-import { useOutboxDraftId } from "@/routing";
+import { useOutboxDraftId, useSearchMirror } from "@/routing";
 
 function OutboxLayout() {
 	const outboxMessageId = useOutboxDraftId();

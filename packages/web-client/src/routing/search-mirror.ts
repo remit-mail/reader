@@ -3,7 +3,8 @@ import { useEffect } from "react";
 import { useMailContext } from "@/lib/mail-context";
 import { addressQuery } from "@/lib/mail-route";
 import { shouldMirrorQuery } from "@/lib/search-view";
-import { useIsComposing, useIsReplying } from "@/routing";
+import { useIsComposing } from "./compose";
+import { useIsReplying } from "./reply";
 
 /**
  * The list the mirror writes to. Each list calls the hook with its own route,

@@ -30,7 +30,6 @@ import {
 	useRovingFocus,
 } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import {
 	AlertCircle,
 	AlertTriangle,
@@ -62,7 +61,11 @@ import {
 import { isOutboxListRow, showsLastError } from "@/lib/outbox-status";
 import { normalizeSearchQuery } from "@/lib/search-query";
 import { parseSearchTokens } from "@/lib/search-tokens";
-import { useEditDraft, useRetainOpenPanels } from "@/routing";
+import {
+	useCloseOutboxDraft,
+	useEditDraft,
+	useOpenOutboxDraft,
+} from "@/routing";
 
 /* ------------------------------------------------------------------ */
 /* Helpers (shared between List, Reading, Phone sub-views)             */
@@ -177,8 +180,8 @@ function OutboxPaneProvider({
 	outboxMessageId: selectedMessageId,
 	children,
 }: OutboxPaneProps) {
-	const navigate = useNavigate();
-	const retainPanels = useRetainOpenPanels();
+	const openDraft = useOpenOutboxDraft();
+	const closeDraft = useCloseOutboxDraft();
 
 	const { data: outboxResponse, isLoading } = useQuery(
 		outboxOperationsListOutboxMessagesOptions(),
@@ -218,26 +221,6 @@ function OutboxPaneProvider({
 		[messages, selectedMessageId],
 	);
 
-	const handleOpenMessage = useCallback(
-		(outboxMessageId: string) => {
-			navigate({
-				to: "/mail/outbox/draft/$outboxMessageId",
-				params: { outboxMessageId },
-				search: (prev) => prev,
-				hash: retainPanels,
-			});
-		},
-		[navigate, retainPanels],
-	);
-
-	const handleCloseMessage = useCallback(() => {
-		navigate({
-			to: "/mail/outbox",
-			search: (prev) => prev,
-			hash: retainPanels,
-		});
-	}, [navigate, retainPanels]);
-
 	const ctx: OutboxPaneContextValue = {
 		messages,
 		hasQuery,
@@ -245,8 +228,8 @@ function OutboxPaneProvider({
 		isLoading,
 		selectedMessageId,
 		selectedMessage,
-		onOpenMessage: handleOpenMessage,
-		onCloseMessage: handleCloseMessage,
+		onOpenMessage: openDraft,
+		onCloseMessage: closeDraft,
 	};
 
 	return (

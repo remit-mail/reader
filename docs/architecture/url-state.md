@@ -71,6 +71,12 @@ Each list is a layout route whose component renders the list plus `AppShellSlott
 
 The message route mounts the reading pane itself rather than handing it to an index route, so opening a reply matches a child without remounting the conversation underneath it. Nothing is mounted by the `$mode` route: the composer belongs inside the thread, and on a phone the thread is the single pane with no reading `Outlet` to fill, so the conversation reads the reply off the address — the move the shell already makes for compose.
 
+## Enforcement
+
+Router imports live in `src/routes/**` and `src/routing/**`. Everywhere else `Link`, `useNavigate`, `useSearch`, `useParams`, `useLocation`, `useRouterState` and `useRouter` are a lint error, so a component cannot grow a second opinion about the address.
+
+What the rest of the app gets instead is a hook per intent — open a conversation, close it, start a message, run a search everywhere or in one folder, go to a section — resolved against the list the address is browsing. A component says what it wants; which route that is, and which params it needs, is one decision in one place, checked against the generated route tree.
+
 ## FAQ
 
 **Why not `?action=compose&compose:replyTo=<messageId>`?** A query param combines with anything, so compose open and thread open become expressible at once and something has to choose between them. The `compose:` namespacing is itself the tell that the query is carrying hierarchy. With reply as a child route, `replyTo` disappears and the source is the path.

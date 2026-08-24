@@ -70,8 +70,8 @@ import {
 } from "@/lib/organize/rule-model";
 import { searchRuleAccountId } from "@/lib/organize/search-to-rule";
 import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
-import { useWizardEntryValue, useWizardStep } from "@/lib/wizard-history";
 import type { WizardSelectionMessage } from "@/lib/wizard-selection";
+import { useWizardEntryValue, useWizardStep } from "@/routing";
 import { organizeRunState } from "./organize-run-state";
 import {
 	retryIntent,

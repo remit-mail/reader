@@ -34,7 +34,7 @@ import {
 } from "@tanstack/react-router";
 import { createElement, useState } from "react";
 import { createDomHarness, type DomHarness } from "../test-support/dom";
-import { useSearchField } from "./useSearchField";
+import { useSearchField } from "./search-field";
 
 let harness: DomHarness | undefined;
 
