@@ -44,9 +44,6 @@ const days = datesBetween("2026-06-01", "2026-07-05").map((date) =>
 
 const proposedDay = buildDay(PROPOSED_DATE, seamWeekEvents);
 
-/** The hour a mail printed with no clock behind it, on a placeholder offset. */
-const PRINTED_HOUR = "2026-06-17T16:00:00+02:00";
-
 function suggestionNamed(id: string) {
 	const found = suggestions.find((candidate) => candidate.id === id);
 	if (!found) throw new Error(`unknown suggestion ${id}`);

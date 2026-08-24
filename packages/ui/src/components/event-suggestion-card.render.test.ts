@@ -37,7 +37,7 @@ const render = (overrides: Partial<EventSuggestion>, zoneChoice?: string) =>
 		}),
 	);
 
-const twoClocks = {
+const twoClocks: Partial<EventSuggestion> = {
 	zoneOptions: [
 		{
 			timeZone: "Europe/Lisbon",

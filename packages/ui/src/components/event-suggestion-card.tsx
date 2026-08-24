@@ -28,6 +28,10 @@ export type ZoneSettlement =
  * come from the reader and it has to be one of the clocks offered — a stale or
  * unrecognised choice leaves the suggestion unsettled rather than guessing, and
  * nothing here reads the zone the browser happens to be in.
+ *
+ * This is the only place the rule is written. Every surface that offers the
+ * clocks — the card here, the seam's strip, the phone deck behind it — asks
+ * this, so none of them can disagree about whether a suggestion is answered.
  */
 export function settleZone(
 	suggestion: EventSuggestion,
@@ -48,8 +52,9 @@ export interface EventSuggestionCardProps {
 	onAdd: (timeZone: string) => void;
 	/**
 	 * Correcting the reading first. It is handed the same settled zone Add is,
-	 * empty while the question is open — an editor that opened on the hour the
-	 * reader had already answered would be throwing that answer away.
+	 * and is refused on the same terms — an editor opened on an hour nobody has
+	 * placed on a clock seeds the draft with the wrong time, which is the
+	 * mistake Add is dimmed to prevent.
 	 */
 	onReview: (timeZone: string) => void;
 	onDismiss: () => void;
@@ -74,9 +79,10 @@ function confidenceText(confidence: number): string {
  * a machine reading of a mail never becomes a provisional block that someone
  * has to notice and remove.
  *
- * Where the mail never said which clock a time is on, Add is dimmed until the
+ * Where the mail never said which clock a time is on, every way out of the card
+ * that carries the time — Add, and correcting it first — is dimmed until the
  * reader picks one and refuses the press until then: booking the wrong hour is
- * worse than asking.
+ * worse than asking, and so is opening an editor already filled with it.
  */
 export function EventSuggestionCard({
 	suggestion,
@@ -100,6 +106,13 @@ export function EventSuggestionCard({
 		else setOwnChoice(timeZone);
 	};
 	const settlement = settleZone(suggestion, choice);
+	const carryingTheZone = (act: (timeZone: string) => void) => () => {
+		if (!settlement.settled) {
+			setNudged(true);
+			return;
+		}
+		act(settlement.timeZone);
+	};
 
 	return (
 		<article
@@ -200,13 +213,7 @@ export function EventSuggestionCard({
 					variant="primary"
 					size={touch ? "md" : "sm"}
 					icon={<Plus className="size-3.5" />}
-					onClick={() => {
-						if (!settlement.settled) {
-							setNudged(true);
-							return;
-						}
-						onAdd(settlement.timeZone);
-					}}
+					onClick={carryingTheZone(onAdd)}
 					aria-describedby={settlement.settled ? undefined : reasonId}
 					className={cn(
 						touch && "min-h-11 flex-1",
@@ -219,10 +226,12 @@ export function EventSuggestionCard({
 					variant="secondary"
 					size={touch ? "md" : "sm"}
 					icon={<SlidersHorizontal className="size-3.5" />}
-					onClick={() =>
-						onReview(settlement.settled ? settlement.timeZone : "")
-					}
-					className={touch ? "min-h-11" : ""}
+					onClick={carryingTheZone(onReview)}
+					aria-describedby={settlement.settled ? undefined : reasonId}
+					className={cn(
+						touch && "min-h-11",
+						!settlement.settled && "opacity-55",
+					)}
 				>
 					Change first
 				</Button>

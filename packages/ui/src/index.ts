@@ -149,6 +149,7 @@ export {
 	type RsvpState,
 	type ZoneCertainty,
 	type ZoneOption,
+	type ZoneOptions,
 } from "./components/calendar-types.js";
 export {
 	Card,

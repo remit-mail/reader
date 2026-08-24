@@ -31,6 +31,7 @@ import {
 	FooterNav,
 	MessageListPane,
 	type RsvpState,
+	settleZone,
 	useContainerWidth,
 } from "@remit/ui";
 import {
@@ -414,10 +415,9 @@ export function CalendarSeam({
 	);
 
 	const topCard = pending[0];
-	const topCardBlocked = Boolean(
-		topCard?.suggestion.zoneOptions &&
-			(zones[topCard.suggestion.id] ?? "") === "",
-	);
+	const topCardBlocked =
+		topCard !== undefined &&
+		!settleZone(topCard.suggestion, zones[topCard.suggestion.id] ?? "").settled;
 
 	const suggestionCards = (touch: boolean) => (
 		<div className="flex max-w-2xl flex-col gap-2 px-row-inset pb-3">

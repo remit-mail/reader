@@ -1,4 +1,4 @@
-import { Button, cn } from "@remit/ui";
+import { Button, cn, settleZone } from "@remit/ui";
 import {
 	Check,
 	ChevronDown,
@@ -50,9 +50,7 @@ export function SuggestionCard({
 }: SuggestionCardProps) {
 	const { suggestion } = entry;
 	const zoneOptions = suggestion.zoneOptions;
-	const needsZone =
-		zoneOptions !== undefined &&
-		!zoneOptions.some((option) => option.timeZone === zoneChoice);
+	const settlement = settleZone(suggestion, zoneChoice);
 
 	return (
 		<article
@@ -164,7 +162,7 @@ export function SuggestionCard({
 					size={touch ? "md" : "sm"}
 					icon={<Check className="size-3.5" />}
 					onClick={onConfirm}
-					disabled={needsZone}
+					disabled={!settlement.settled}
 					className={cn(touch && "min-h-11 flex-1")}
 				>
 					Confirm
@@ -179,11 +177,8 @@ export function SuggestionCard({
 					Not this
 				</Button>
 			</div>
-			{needsZone && (
-				<p className="text-2xs text-fg-subtle">
-					Pick a clock first. The mail never said, and the reader will not
-					choose for you.
-				</p>
+			{!settlement.settled && (
+				<p className="text-2xs text-fg-subtle">{settlement.reason}</p>
 			)}
 		</article>
 	);

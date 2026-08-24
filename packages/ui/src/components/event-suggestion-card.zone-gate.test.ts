@@ -1,7 +1,7 @@
 /**
  * The zone gate — mounted against jsdom rather than `renderToString`, because
- * what has to be proven is that pressing Add does nothing while the clock is
- * unsettled.
+ * what has to be proven is that pressing either way out of the card does
+ * nothing while the clock is unsettled.
  *
  * Nothing here may read the zone the process happens to run in, so the cases
  * offer clocks the ambient zone is never one of, assert the exact zone that
@@ -13,7 +13,7 @@ import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import type { JSDOM } from "jsdom";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { EventSuggestion } from "./calendar-types.js";
+import type { EventSuggestion, ZoneOptions } from "./calendar-types.js";
 import {
 	EventSuggestionCard,
 	settleZone,
@@ -96,14 +96,19 @@ afterEach(() => {
 	});
 });
 
-function mount(entry: EventSuggestion, onAdd: (timeZone: string) => void) {
+interface Answers {
+	onAdd?: (timeZone: string) => void;
+	onReview?: (timeZone: string) => void;
+}
+
+function mount(entry: EventSuggestion, answers: Answers = {}) {
 	act(() => {
 		root.render(
 			createElement(EventSuggestionCard, {
 				suggestion: entry,
 				whenText: "Friday 19 June · 18:40 – 20:25",
-				onAdd,
-				onReview: () => undefined,
+				onAdd: answers.onAdd ?? (() => undefined),
+				onReview: answers.onReview ?? (() => undefined),
 				onDismiss: () => undefined,
 				onOpenThread: () => undefined,
 			}),
@@ -141,7 +146,7 @@ function announced(): string {
 describe("the zone gate", () => {
 	it("refuses Add until a clock is picked, and says why", () => {
 		const added: string[] = [];
-		mount(zoneless, (timeZone) => added.push(timeZone));
+		mount(zoneless, { onAdd: (timeZone) => added.push(timeZone) });
 
 		assert.equal(announced(), "");
 		assert.equal(describedReason()?.textContent, ZONE_UNSETTLED_REASON);
@@ -156,7 +161,7 @@ describe("the zone gate", () => {
 
 	it("adds on the clock that was picked, never on the ambient one", () => {
 		const added: string[] = [];
-		mount(zoneless, (timeZone) => added.push(timeZone));
+		mount(zoneless, { onAdd: (timeZone) => added.push(timeZone) });
 
 		press(buttonNamed("16:00 in Auckland"));
 		press(buttonNamed("Add"));
@@ -171,12 +176,86 @@ describe("the zone gate", () => {
 
 	it("settles nothing when the mail already stated the clock", () => {
 		const added: string[] = [];
-		mount(stated, (timeZone) => added.push(timeZone));
+		mount(stated, { onAdd: (timeZone) => added.push(timeZone) });
 
 		press(buttonNamed("Add"));
 
 		assert.deepEqual(added, [""]);
 		assert.equal(announced(), "");
+	});
+});
+
+/**
+ * Correcting the reading first is the other way the time leaves the card, and
+ * an editor seeded with the unconverted hour books the wrong one just as
+ * quietly as Add would.
+ */
+describe("the same gate on Change first", () => {
+	it("refuses Change first until a clock is picked, and says why", () => {
+		const reviewed: string[] = [];
+		mount(zoneless, { onReview: (timeZone) => reviewed.push(timeZone) });
+
+		const describes =
+			buttonNamed("Change first").getAttribute("aria-describedby");
+		assert.equal(
+			describes,
+			buttonNamed("Add").getAttribute("aria-describedby"),
+		);
+		assert.equal(
+			describes === null
+				? null
+				: dom.window.document.getElementById(describes)?.textContent,
+			ZONE_UNSETTLED_REASON,
+		);
+
+		press(buttonNamed("Change first"));
+
+		assert.deepEqual(reviewed, []);
+		assert.match(announced(), /Pick a clock first/);
+	});
+
+	it("opens on the clock that was picked, never on an empty one", () => {
+		const reviewed: string[] = [];
+		mount(zoneless, { onReview: (timeZone) => reviewed.push(timeZone) });
+
+		press(buttonNamed("16:00 in Auckland"));
+		press(buttonNamed("Change first"));
+
+		assert.deepEqual(reviewed, [AUCKLAND]);
+	});
+
+	it("stays live when the mail already stated the clock", () => {
+		const reviewed: string[] = [];
+		mount(stated, { onReview: (timeZone) => reviewed.push(timeZone) });
+
+		press(buttonNamed("Change first"));
+
+		assert.deepEqual(reviewed, [""]);
+		assert.equal(
+			buttonNamed("Change first").getAttribute("aria-describedby"),
+			null,
+		);
+	});
+});
+
+describe("the clocks a suggestion offers", () => {
+	it("cannot be an empty list, which would ask with nothing to press", () => {
+		// @ts-expect-error
+		const none: ZoneOptions = [];
+		assert.equal(none.length, 0);
+	});
+
+	it("never asks the question without a clock to answer it with", () => {
+		mount(zoneless);
+		assert.ok(container.textContent?.includes("Which clock is this on?"));
+		assert.equal(container.querySelectorAll("[aria-pressed]").length, 2);
+
+		mount(stated);
+		assert.equal(
+			container.textContent?.includes("Which clock is this on?"),
+			false,
+		);
+		assert.equal(container.querySelectorAll("[aria-pressed]").length, 0);
 	});
 });
 

@@ -822,6 +822,39 @@ export const ReviewCarriesTheClock: Story = {
 };
 
 /**
+ * Correcting a reading is not a way around the question. Pressing Change first
+ * before a clock is picked opens nothing and says what is missing — an editor
+ * seeded with 16:00 would hand the reader the unplaced hour in a field that
+ * looks settled, and saving it books the call an hour early.
+ */
+export const ReviewIsGatedToo: Story = {
+	name: "Change first, before the clock is picked",
+	decorators: [framedAt(DESKTOP_WIDTH)],
+	render: () => <CalendarDestination width={DESKTOP_WIDTH} />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const card = within(
+			canvas.getByRole("article", { name: "Kickoff call — Lisbon venue" }),
+		);
+
+		await userEvent.click(card.getByRole("button", { name: "Change first" }));
+
+		await waitFor(() =>
+			expect(
+				canvas
+					.getAllByRole("status")
+					.some((region) =>
+						/Pick a clock first/.test(region.textContent ?? ""),
+					),
+			).toBe(true),
+		);
+		await expect(
+			canvasElement.querySelector('[aria-label="Start time"]'),
+		).toBeNull();
+	},
+};
+
+/**
  * The suggestions the reader pulled out of mail, on a screen of their own.
  * Nothing here is on the calendar, and nothing gets there without Add.
  * Correcting a reading first opens the create walk with the reading in it.

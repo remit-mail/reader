@@ -96,6 +96,13 @@ export interface ZoneOption {
 }
 
 /**
+ * The clocks a zoneless time could be on. Never empty: a question with no
+ * answers is a card the reader can look at and never get past, so having no
+ * question to ask is the absent list, not the empty one.
+ */
+export type ZoneOptions = readonly [ZoneOption, ...ZoneOption[]];
+
+/**
  * A candidate read out of mail. It is deliberately not a `CalendarEventData`:
  * nothing reaches the grid until a person confirms it, so a suggestion cannot
  * be mistaken for an event by type, let alone by pixel.
@@ -124,7 +131,7 @@ export interface EventSuggestion {
 	 * The clocks the time could be on. Absent when the source said which, which
 	 * is the only case where `timeZone` above can be trusted on its own.
 	 */
-	zoneOptions?: ZoneOption[];
+	zoneOptions?: ZoneOptions;
 }
 
 /** Which instances of a series an edit applies to, chosen before the edit. */
