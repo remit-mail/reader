@@ -18,15 +18,23 @@
  * The window this is about is two seconds wide and nothing enforces it, so the
  * spec times its own last two actions and fails when they overrun rather than
  * passing on an autosave that beat it there.
+ *
+ * The same send also carries the count (#925 spec 6). One press has to leave one
+ * message on the wire and one copy in Sent, and this is the send already being
+ * driven end to end, so the claim costs two reads rather than a run of its own.
  */
 
 import type { BrowserContext } from "@playwright/test";
 import { ApiClient, waitFor } from "../src/api.js";
 import { baseUrl } from "../src/env.js";
 import { expect, test } from "../src/fixtures.js";
-import { readMimeShapeOfRaw } from "../src/imap.js";
+import { readMimeShapeOfRaw, serverUidsForSubject } from "../src/imap.js";
+import { waitForOutboxStatus } from "../src/outbox.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
-import { waitForAcceptedMessage } from "../src/smtp-sink.js";
+import {
+	countAcceptedMessages,
+	waitForAcceptedMessage,
+} from "../src/smtp-sink.js";
 
 const DESKTOP = { width: 1512, height: 864 };
 
@@ -45,6 +53,7 @@ test.describe("Sending inside the autosave debounce window (#674)", () => {
 	let context: BrowserContext;
 
 	test.beforeAll(async ({ browser }) => {
+		test.setTimeout(180_000);
 		run = await provisionIsolatedRun("E2E Compose Send Flush");
 		api = new ApiClient(run);
 		context = await browser.newContext({
@@ -52,6 +61,16 @@ test.describe("Sending inside the autosave debounce window (#674)", () => {
 			baseURL: baseUrl,
 			viewport: DESKTOP,
 		});
+
+		// The Sent copy is APPENDed to whichever mailbox carries the \Sent
+		// special-use, and a row whose account has none settles `unfiled` instead
+		// of being deleted. Dovecot creates the folder on first login, so this is
+		// a wait on the sync having seen it.
+		await waitFor(
+			() => api.listMailboxes(run.accountId),
+			(boxes) => boxes.some((box) => box.fullPath === "Sent"),
+			{ timeoutMs: 90_000, what: "the Sent folder to sync" },
+		);
 	});
 
 	test.afterAll(async () => {
@@ -59,7 +78,7 @@ test.describe("Sending inside the autosave debounce window (#674)", () => {
 	});
 
 	test("the last edit before Send is in the message that goes out", async () => {
-		test.setTimeout(180_000);
+		test.setTimeout(300_000);
 
 		const page = await context.newPage();
 		const subject = `Send flush ${Date.now()}`;
@@ -126,5 +145,19 @@ test.describe("Sending inside the autosave debounce window (#674)", () => {
 		expect(part("text/plain")).toContain(SETTLED_LINE);
 		expect(part("text/plain")).toContain(LATE_LINE);
 		expect(part("text/html")).toContain(LATE_LINE);
+
+		// The row is deleted last, after the copy is filed, so a 404 is the whole
+		// send settled and the point past which nothing about it is still moving.
+		// Waited on rather than the `sent` status, which lives under a second
+		// against a two-second poll and is never there to be read.
+		await waitForOutboxStatus(api, draft.outboxMessageId, 404);
+
+		// One press, one message on the wire and one copy in the archive. Counted
+		// per subject: the sink is shared by the whole run and never emptied, so
+		// its own totals belong to every spec at once.
+		expect(await countAcceptedMessages(subject)).toBe(1);
+		expect(
+			await serverUidsForSubject(run.imapUser, "Sent", subject),
+		).toHaveLength(1);
 	});
 });
