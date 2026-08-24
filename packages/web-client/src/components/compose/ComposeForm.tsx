@@ -442,6 +442,13 @@ export const ComposeForm = ({
 	 */
 	const resumedDraftRef = useRef(outboxMessageId !== undefined);
 	/**
+	 * The mode the fields on screen were last written for. A draft that is
+	 * resumed holds what its reader saved and must not be overwritten when it
+	 * mounts — but a switch of mode over the same message asks for different
+	 * recipients, which is how Reply All reaches the Cc field (#796).
+	 */
+	const seededModeRef = useRef<ComposeMode | undefined>(undefined);
+	/**
 	 * The identity this form has already taken from the surface that mounted it.
 	 * A reply learns which account the message reached only once the mailbox it
 	 * was delivered to resolves, which lands after the first render — so From
@@ -480,6 +487,7 @@ export const ComposeForm = ({
 		prevOutboxMessageIdRef.current = outboxMessageId;
 		if (previous === undefined) return;
 		resumedDraftRef.current = outboxMessageId !== undefined;
+		seededModeRef.current = undefined;
 		// A draft brings its own body along in a moment; a new message opens on
 		// the signature, the same document a fresh mount would have started on.
 		const opening = outboxMessageId
@@ -593,8 +601,19 @@ export const ComposeForm = ({
 	}, [draftData, draftLoaded]);
 
 	useEffect(() => {
-		if (resumedDraftRef.current) return;
 		if (!sourceMessage) return;
+		// A draft the reader came back to holds what they saved, so mounting
+		// over it seeds nothing — but its opening mode is remembered, so a switch
+		// of mode over the same message still rewrites the fields for the answer
+		// now asked for (#796).
+		if (resumedDraftRef.current) {
+			if (seededModeRef.current === undefined) {
+				seededModeRef.current = mode;
+				return;
+			}
+			if (seededModeRef.current === mode) return;
+		}
+		seededModeRef.current = mode;
 
 		// The fields are being rewritten for a different answer, so what was typed
 		// into one and left there belongs to the answer being left behind. Without
