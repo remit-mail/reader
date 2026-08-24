@@ -63,7 +63,7 @@ export const useScrimElevationLayer = (): ((
 };
 
 export interface AboveScrimProps {
-	children: ReactNode;
+	children?: ReactNode;
 	/**
 	 * Whether this control belongs on top of the modal surface that is up. Only
 	 * the control that opened it does; every other verb in the toolbar stays
