@@ -57,6 +57,23 @@ const sendingEnabled = {
 	smtpTls: false,
 };
 
+/** An SMTP server as the deployment addresses it. */
+export interface SmtpTarget {
+	host: string;
+	port: number;
+}
+
+export interface IsolatedAccountOptions {
+	/**
+	 * The lane this account submits to, when it is not the one every other
+	 * account uses. `rejectingSmtpFromStack` is the other one: it refuses every
+	 * recipient, which is how a spec gets a send that fails on the wire rather
+	 * than before it. Routed per account and not per stack, so the lane a spec
+	 * asks for is the lane only that spec's mail goes down.
+	 */
+	smtp?: SmtpTarget;
+}
+
 export interface IsolatedRun {
 	email: string;
 	password: string;
@@ -112,6 +129,7 @@ export const connectIsolatedAccount = async (
 	api: ApiClient,
 	label: string,
 	seed: Message[] = [],
+	{ smtp }: IsolatedAccountOptions = {},
 ): Promise<IsolatedAccount> => {
 	const imapUser = mintImapUser();
 	if (seed.length > 0) await appendMessages(imapUser, seed);
@@ -125,6 +143,7 @@ export const connectIsolatedAccount = async (
 		imapTls: false,
 		imapStartTls: false,
 		...sendingEnabled,
+		...(smtp && { smtpHost: smtp.host, smtpPort: smtp.port }),
 	});
 	await api.triggerSync(accountId);
 	const boxes = await waitFor(
@@ -142,6 +161,7 @@ export const connectIsolatedAccount = async (
 export const provisionIsolatedRun = async (
 	label: string,
 	seed: Message[] = [],
+	options: IsolatedAccountOptions = {},
 ): Promise<IsolatedRun> => {
 	const credentials = {
 		email: `e2e-iso-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@remit.test`,
@@ -152,7 +172,7 @@ export const provisionIsolatedRun = async (
 	const token = await fetchBearerToken(cookie);
 	const api = new ApiClient({ ...credentials, token });
 
-	const account = await connectIsolatedAccount(api, label, seed);
+	const account = await connectIsolatedAccount(api, label, seed, options);
 
 	return {
 		email: credentials.email,

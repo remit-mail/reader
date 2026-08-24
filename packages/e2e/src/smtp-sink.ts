@@ -26,8 +26,18 @@ export interface AcceptedMessage {
 	raw: string;
 }
 
-const sinkJson = async <T>(path: string): Promise<T> => {
-	const response = await fetch(`${smtpSinkApi}${path}`);
+/**
+ * Which sink a read is taken over. Defaults to the lane every account uses; the
+ * lane that refuses (`rejectingSmtpSinkApi`) is the other one, and a spec that
+ * routed an account there has to say so on every read — the two sinks hold
+ * different mail and neither one's totals answer for the other.
+ */
+export interface SinkOptions {
+	sinkApi?: string;
+}
+
+const sinkJson = async <T>(sinkApi: string, path: string): Promise<T> => {
+	const response = await fetch(`${sinkApi}${path}`);
 	if (!response.ok) {
 		throw new Error(
 			`GET ${path} on the SMTP sink failed: ${response.status} ${await response.text()}`,
@@ -36,8 +46,8 @@ const sinkJson = async <T>(path: string): Promise<T> => {
 	return (await response.json()) as T;
 };
 
-const listAccepted = (): Promise<SinkListEntry[]> =>
-	sinkJson<SinkListResponse>("/api/v1/messages?limit=200").then(
+const listAccepted = (sinkApi: string): Promise<SinkListEntry[]> =>
+	sinkJson<SinkListResponse>(sinkApi, "/api/v1/messages?limit=200").then(
 		(page) => page.messages,
 	);
 
@@ -88,8 +98,9 @@ const addressesOf = (entries: SinkAddress[] | null): string[] =>
  */
 export const readAcceptedEnvelope = async (
 	id: string,
+	{ sinkApi = smtpSinkApi }: SinkOptions = {},
 ): Promise<AcceptedEnvelope> => {
-	const message = await sinkJson<SinkMessage>(`/api/v1/message/${id}`);
+	const message = await sinkJson<SinkMessage>(sinkApi, `/api/v1/message/${id}`);
 	return {
 		from: message.From?.Address.toLowerCase() ?? "",
 		to: addressesOf(message.To),
@@ -110,10 +121,13 @@ export const readAcceptedEnvelope = async (
  */
 export const waitForAcceptedMessage = async (
 	subject: string,
-	{ timeoutMs = 90_000 }: { timeoutMs?: number } = {},
+	{
+		timeoutMs = 90_000,
+		sinkApi = smtpSinkApi,
+	}: SinkOptions & { timeoutMs?: number } = {},
 ): Promise<AcceptedMessage> => {
 	const messages = await waitFor(
-		listAccepted,
+		() => listAccepted(sinkApi),
 		(items) => items.some((item) => item.Subject === subject),
 		{ timeoutMs, what: `"${subject}" to reach the SMTP sink` },
 	);
@@ -122,7 +136,7 @@ export const waitForAcceptedMessage = async (
 		throw new Error("unreachable: the subject was matched but not found");
 	}
 
-	const response = await fetch(`${smtpSinkApi}/api/v1/message/${match.ID}/raw`);
+	const response = await fetch(`${sinkApi}/api/v1/message/${match.ID}/raw`);
 	if (!response.ok) {
 		throw new Error(
 			`raw source for ${match.ID} failed: ${response.status} ${await response.text()}`,
@@ -142,8 +156,9 @@ export const waitForAcceptedMessage = async (
  */
 export const countAcceptedMessages = async (
 	subject: string,
+	{ sinkApi = smtpSinkApi }: SinkOptions = {},
 ): Promise<number> => {
-	const messages = await listAccepted();
+	const messages = await listAccepted(sinkApi);
 	return messages.filter((item) => item.Subject === subject).length;
 };
 
@@ -158,7 +173,8 @@ export const countAcceptedMessages = async (
 export const expectNothingAccepted = async (
 	subject: string,
 	quietWindowMs: number,
+	options: SinkOptions = {},
 ): Promise<void> => {
 	await new Promise((resolve) => setTimeout(resolve, quietWindowMs));
-	expect(await countAcceptedMessages(subject)).toBe(0);
+	expect(await countAcceptedMessages(subject, options)).toBe(0);
 };

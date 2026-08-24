@@ -1,7 +1,7 @@
 /**
  * The outbox row a send is carried by, read as the client's watch reads it.
  */
-import { type ApiClient, waitFor } from "./api.js";
+import { type ApiClient, type OutboxRow, waitFor } from "./api.js";
 
 /**
  * Poll one outbox row until the API answers with this HTTP status.
@@ -27,3 +27,26 @@ export const waitForOutboxStatus = async (
 		what: `the outbox row to answer ${status}`,
 	});
 };
+
+/**
+ * Poll one outbox row until it settles on this status, and answer with the row.
+ *
+ * The row's own status, not the HTTP one: a send that ends badly leaves the row
+ * where it was, and what it settled on — with whatever reason it carries — is
+ * the whole of what the user is left holding.
+ *
+ * Never waited on for `sent`. That one lives for well under a second before the
+ * filing deletes the row, so a poll that catches it does so by luck and a poll
+ * that misses it fails a spec about something else entirely.
+ */
+export const waitForSettledOutboxRow = (
+	api: ApiClient,
+	outboxMessageId: string,
+	status: string,
+	{ timeoutMs = 120_000 }: { timeoutMs?: number } = {},
+): Promise<OutboxRow> =>
+	waitFor(
+		() => api.getOutboxMessage(outboxMessageId),
+		(row) => row.status === status,
+		{ timeoutMs, what: `the outbox row to settle ${status}` },
+	);

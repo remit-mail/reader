@@ -29,6 +29,13 @@ Mailpit accepts the submission a send makes and hands the accepted bytes back
 over HTTP, which is how a spec reads the message a recipient would have got
 rather than the outbox row the app kept.
 
+Both also get a second Mailpit that refuses: its recipient allowlist names an
+address nothing sends to, so every submission is turned away at RCPT TO with a
+550. A spec routes one isolated account there with `provisionIsolatedRun`'s
+`smtp` option (`rejectingSmtpFromStack`) and reads that lane's own sink
+(`rejectingSmtpSinkApi`) to prove the refused message reached nobody. Every
+other account uses the lane that accepts.
+
 What the source stack does not have is the packaged edge: no Caddy, no APISIX.
 The browser talks to vite, whose proxy table mirrors the Caddy routing 1:1.
 Specs that assert something ABOUT the edge therefore have nothing to assert
@@ -59,10 +66,11 @@ between runs, and it reads its configuration from the generated env whichever
 lane wrote it, so it needs no argument to know which one it is talking to.
 
 The source stack needs the monorepo installed and generated (`npm ci && make`),
-which the suite itself does not. Six ports move it if something else is in the
+which the suite itself does not. Eight ports move it if something else is in the
 way: `E2E_HTTP_PORT`, `E2E_IMAP_PORT`, `E2E_SMTP_PORT`, `E2E_SMTP_HTTP_PORT`,
-`SERVER_PORT`, `QUEUE_SIDECAR_PORT`. Setting `E2E_DEV_SLOT` instead derives all
-six from the slot name, which is how several lanes share one host.
+`E2E_SMTP_REJECT_PORT`, `E2E_SMTP_REJECT_HTTP_PORT`, `SERVER_PORT`,
+`QUEUE_SIDECAR_PORT`. Setting `E2E_DEV_SLOT` instead derives all eight from the
+slot name, which is how several lanes share one host.
 
 ## Isolation
 
