@@ -1,9 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import {
 	type AddressEntry,
 	ComposeAddressField,
+	type ComposeAddressFieldHandle,
 } from "./compose-address-field.js";
 
 const KNOWN: AddressEntry[] = [
@@ -111,6 +112,102 @@ export const IncompleteAddressIsNotTaken: Story = {
 		const input = within(canvasElement).getByLabelText<HTMLInputElement>("To:");
 		await userEvent.type(input, "not-an-address{enter}");
 		await expect(input).toHaveValue("not-an-address");
+	},
+};
+
+/**
+ * A press elsewhere is what an address typed and left in the field has to
+ * survive. The button reads the field the way the composer's Send does — through
+ * `commitPending`, in the same tick as the press — rather than the list the field
+ * has got round to committing, which the blur timer is still 150 ms away from.
+ */
+const SendHarness = ({ initial = [] }: { initial?: AddressEntry[] }) => {
+	const [addresses, setAddresses] = useState<AddressEntry[]>(initial);
+	const [sentTo, setSentTo] = useState<string[] | undefined>(undefined);
+	const field = useRef<ComposeAddressFieldHandle>(null);
+
+	return (
+		<div className="w-[520px]">
+			<ComposeAddressField
+				label="To"
+				addresses={addresses}
+				onChange={setAddresses}
+				placeholder="Recipients"
+				ref={field}
+			/>
+			<button
+				type="button"
+				onClick={() => {
+					const recipients = field.current?.commitPending() ?? addresses;
+					setSentTo(recipients.map((recipient) => recipient.email));
+				}}
+			>
+				Send
+			</button>
+			{sentTo !== undefined && (
+				<p data-testid="sent-to">
+					{sentTo.length === 0 ? "nobody" : sentTo.join(", ")}
+				</p>
+			)}
+		</div>
+	);
+};
+
+export const SendTakesTheAddressStillInTheField: Story = {
+	render: () => <SendHarness />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await userEvent.type(
+			canvas.getByLabelText("To:"),
+			"typed@northwind.example",
+		);
+		await userEvent.click(canvas.getByRole("button", { name: "Send" }));
+		await expect(canvas.getByTestId("sent-to")).toHaveTextContent(
+			"typed@northwind.example",
+		);
+	},
+};
+
+export const SendTakesTheAddressAfterAChip: Story = {
+	render: () => (
+		<SendHarness initial={[{ email: "chipped@northwind.example" }]} />
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await userEvent.type(
+			canvas.getByLabelText("To:"),
+			"typed@northwind.example",
+		);
+		await userEvent.click(canvas.getByRole("button", { name: "Send" }));
+		await expect(canvas.getByTestId("sent-to")).toHaveTextContent(
+			"chipped@northwind.example, typed@northwind.example",
+		);
+	},
+};
+
+/**
+ * The other press the field has to survive, and the reason the blur commit is
+ * still on a timer: a click travelling towards a suggestion must not be answered
+ * by the typed text becoming a chip and the list going with it.
+ */
+export const SuggestionSurvivesTheBlurItCauses: Story = {
+	render: () => <Harness />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const input = canvas.getByLabelText<HTMLInputElement>("To:");
+		await userEvent.type(input, "grace@northwind.example");
+		const list = await canvas.findByRole("listbox");
+		await userEvent.click(within(list).getByText("Grace Hopper"));
+
+		await expect(canvas.getByText("Grace Hopper")).toBeVisible();
+		await expect(input).toHaveValue("");
+		// The blur the click caused still has its commit to run. It finds an empty
+		// field and leaves the one chip the suggestion made.
+		await waitFor(() =>
+			expect(canvas.getAllByRole("button", { name: /^Remove / })).toHaveLength(
+				1,
+			),
+		);
 	},
 };
 

@@ -1,4 +1,12 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import type { Ref } from "react";
+import {
+	useCallback,
+	useEffect,
+	useImperativeHandle,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { useSuggestList } from "../lib/use-suggest-list.js";
 import { AddressTag } from "./address-tag.js";
 import { type Suggestion, SuggestList } from "./suggest-list.js";
@@ -6,6 +14,26 @@ import { type Suggestion, SuggestList } from "./suggest-list.js";
 export interface AddressEntry {
 	email: string;
 	displayName?: string;
+}
+
+/**
+ * What a caller acting on the field's contents holds it by.
+ *
+ * The field commits on blur behind a timer, so that a click travelling towards a
+ * suggestion is not answered by the list disappearing under it. Anything that
+ * acts on the recipients — sending — is a press that blurs the field, and so
+ * lands inside that window and reads the list as it stood before the last
+ * address was typed. `commitPending` closes it: it turns what is in the field
+ * into an address and hands back the list including it, in the same tick as the
+ * press.
+ */
+export interface ComposeAddressFieldHandle {
+	/**
+	 * Take what is typed and return the addresses as they now stand. Returns them
+	 * unchanged when the field is empty, holds something that is not an address,
+	 * or repeats one already there.
+	 */
+	commitPending: () => AddressEntry[];
 }
 
 export interface ComposeAddressFieldProps {
@@ -17,6 +45,7 @@ export interface ComposeAddressFieldProps {
 	suggestions?: readonly AddressEntry[];
 	/** The current text, reported so the caller can look candidates up. */
 	onQueryChange?: (query: string) => void;
+	ref?: Ref<ComposeAddressFieldHandle>;
 }
 
 /** Beyond Enter, the keys that take the highlighted suggestion in a chips field. */
@@ -47,6 +76,7 @@ export const ComposeAddressField = ({
 	placeholder,
 	suggestions = [],
 	onQueryChange,
+	ref,
 }: ComposeAddressFieldProps) => {
 	const [inputValue, setInputValue] = useState("");
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -82,12 +112,26 @@ export const ComposeAddressField = ({
 		[addAddress],
 	);
 
-	const commitInput = useCallback(() => {
+	const commitPending = useCallback((): AddressEntry[] => {
 		const entry = parseEmailInput(inputValue);
-		if (entry) {
-			addAddress(entry);
-		}
-	}, [inputValue, addAddress]);
+		if (!entry || existingEmails.has(entry.email.toLowerCase()))
+			return addresses;
+
+		const next = [...addresses, entry];
+		onChange(next);
+		setInputValue("");
+		onQueryChange?.("");
+		return next;
+	}, [inputValue, addresses, existingEmails, onChange, onQueryChange]);
+
+	useImperativeHandle(ref, () => ({ commitPending }), [commitPending]);
+
+	// A blur that has already been answered — by a send committing the field in
+	// the same press — must not commit again off the value it saw on the way out.
+	const latestCommitRef = useRef(commitPending);
+	useEffect(() => {
+		latestCommitRef.current = commitPending;
+	}, [commitPending]);
 
 	// The open state, the highlight, and the arrow/Enter/Escape handling are the
 	// app's one typeahead behaviour, shared with the filter-rule value field.
@@ -119,7 +163,7 @@ export const ComposeAddressField = ({
 			if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
 				if (inputValue.trim()) {
 					e.preventDefault();
-					commitInput();
+					commitPending();
 				}
 			}
 		},
@@ -128,16 +172,19 @@ export const ComposeAddressField = ({
 			addresses.length,
 			removeAddress,
 			suggest.handleKeyDown,
-			commitInput,
+			commitPending,
 		],
 	);
 
+	// The delay is what keeps a click on a suggestion alive: the press blurs the
+	// input before it lands, and committing straight away would take the list out
+	// from under the pointer.
 	const handleBlur = useCallback(() => {
 		setTimeout(() => {
-			commitInput();
+			latestCommitRef.current();
 			suggest.dismiss();
 		}, 150);
-	}, [commitInput, suggest.dismiss]);
+	}, [suggest.dismiss]);
 
 	return (
 		<div className="relative" data-address-field={label}>

@@ -28,6 +28,7 @@ import {
 } from "@remit/ui";
 import type { ComposeBodyMode } from "@remit/ui/rich-text";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import type { RefObject } from "react";
 import {
 	lazy,
 	Suspense,
@@ -47,7 +48,7 @@ import {
 	buildMutationErrorBanner,
 	formatErrorDetail,
 } from "../ui/error-banners.js";
-import type { AddressEntry } from "./AddressField";
+import type { AddressEntry, ComposeAddressFieldHandle } from "./AddressField";
 import { AddressField } from "./AddressField";
 import { ComposeSmtpMissingBanner } from "./ComposeSmtpMissingBanner";
 import { composeSpellcheck } from "./compose-spellcheck.js";
@@ -213,6 +214,20 @@ type SendReadiness =
 	| { status: "blocked"; reason: string }
 	| { status: "ready"; accountId: string };
 
+/** The three recipient lists a send goes out with. */
+interface Recipients {
+	to: AddressEntry[];
+	cc: AddressEntry[];
+	bcc: AddressEntry[];
+}
+
+/** The fields a send takes its recipients from, in the order they are read. */
+interface AddressFieldHandles {
+	to: RefObject<ComposeAddressFieldHandle | null>;
+	cc: RefObject<ComposeAddressFieldHandle | null>;
+	bcc: RefObject<ComposeAddressFieldHandle | null>;
+}
+
 /**
  * Naming To, not "a recipient". Sending goes through the draft, and a draft is
  * created against `CreateOutboxMessageInput`, whose `@minItems(1)` is on
@@ -257,6 +272,7 @@ interface WiredComposeHeaderProps {
 	setShowBcc: (v: boolean) => void;
 	subject: string;
 	setSubject: (v: string) => void;
+	fieldHandles: AddressFieldHandles;
 }
 
 const WiredComposeHeader = ({
@@ -275,6 +291,7 @@ const WiredComposeHeader = ({
 	setShowBcc,
 	subject,
 	setSubject,
+	fieldHandles,
 }: WiredComposeHeaderProps) => {
 	const isDesktop = useIsDesktop();
 	const { isKeyboardOpen } = useVisualViewport();
@@ -307,6 +324,7 @@ const WiredComposeHeader = ({
 					addresses={toAddresses}
 					onChange={setToAddresses}
 					placeholder="Recipients"
+					ref={fieldHandles.to}
 				/>
 			}
 			cc={
@@ -315,6 +333,7 @@ const WiredComposeHeader = ({
 						label="Cc"
 						addresses={ccAddresses}
 						onChange={setCcAddresses}
+						ref={fieldHandles.cc}
 					/>
 				) : undefined
 			}
@@ -324,6 +343,7 @@ const WiredComposeHeader = ({
 						label="Bcc"
 						addresses={bccAddresses}
 						onChange={setBccAddresses}
+						ref={fieldHandles.bcc}
 					/>
 				) : undefined
 			}
@@ -350,6 +370,13 @@ export const ComposeForm = ({
 	const [toAddresses, setToAddresses] = useState<AddressEntry[]>([]);
 	const [ccAddresses, setCcAddresses] = useState<AddressEntry[]>([]);
 	const [bccAddresses, setBccAddresses] = useState<AddressEntry[]>([]);
+	const toFieldRef = useRef<ComposeAddressFieldHandle>(null);
+	const ccFieldRef = useRef<ComposeAddressFieldHandle>(null);
+	const bccFieldRef = useRef<ComposeAddressFieldHandle>(null);
+	const fieldHandles = useMemo<AddressFieldHandles>(
+		() => ({ to: toFieldRef, cc: ccFieldRef, bcc: bccFieldRef }),
+		[],
+	);
 	const [subject, setSubject] = useState("");
 	const [showCc, setShowCc] = useState(false);
 	const [showBcc, setShowBcc] = useState(false);
@@ -666,24 +693,26 @@ export const ComposeForm = ({
 	// no-op: the state it reads has no way to be blocked without a reason. A
 	// ready state carries the account the message goes out from, so the send
 	// path has no condition of its own left to refuse on in silence.
-	const sendReadiness = useMemo<SendReadiness>(() => {
-		if (isSending) return { status: "sending" };
-		if (!selectedAccountId) {
-			return { status: "blocked", reason: "Choose an account to send from." };
-		}
-		if (selectedAccountMissingSmtp) {
-			return { status: "blocked", reason: SMTP_MISSING_MESSAGE };
-		}
-		if (toAddresses.length === 0) {
-			return { status: "blocked", reason: NO_TO_ADDRESS_MESSAGE };
-		}
-		return { status: "ready", accountId: selectedAccountId };
-	}, [
-		isSending,
-		selectedAccountId,
-		selectedAccountMissingSmtp,
-		toAddresses.length,
-	]);
+	const readinessFor = useCallback(
+		(toCount: number): SendReadiness => {
+			if (isSending) return { status: "sending" };
+			if (!selectedAccountId) {
+				return { status: "blocked", reason: "Choose an account to send from." };
+			}
+			if (selectedAccountMissingSmtp) {
+				return { status: "blocked", reason: SMTP_MISSING_MESSAGE };
+			}
+			if (toCount === 0) {
+				return { status: "blocked", reason: NO_TO_ADDRESS_MESSAGE };
+			}
+			return { status: "ready", accountId: selectedAccountId };
+		},
+		[isSending, selectedAccountId, selectedAccountMissingSmtp],
+	);
+	const sendReadiness = useMemo<SendReadiness>(
+		() => readinessFor(toAddresses.length),
+		[readinessFor, toAddresses.length],
+	);
 	const sendState: ComposeSendState = sendReadiness;
 
 	useEffect(() => {
@@ -734,7 +763,7 @@ export const ComposeForm = ({
 	]);
 
 	const handleSend = useCallback(
-		async (accountId: string) => {
+		async (accountId: string, recipients: Recipients) => {
 			if (sendInFlightRef.current) return;
 
 			sendInFlightRef.current = true;
@@ -760,14 +789,14 @@ export const ComposeForm = ({
 				// that fails stops the send rather than transmitting the older copy.
 				const flushed = await saveImmediately({
 					accountId,
-					toAddresses: toAddresses.map((a) => a.email),
+					toAddresses: recipients.to.map((a) => a.email),
 					ccAddresses:
-						ccAddresses.length > 0
-							? ccAddresses.map((a) => a.email)
+						recipients.cc.length > 0
+							? recipients.cc.map((a) => a.email)
 							: undefined,
 					bccAddresses:
-						bccAddresses.length > 0
-							? bccAddresses.map((a) => a.email)
+						recipients.bcc.length > 0
+							? recipients.bcc.map((a) => a.email)
 							: undefined,
 					subject: subject || undefined,
 					textBody,
@@ -815,9 +844,6 @@ export const ComposeForm = ({
 			}
 		},
 		[
-			toAddresses,
-			ccAddresses,
-			bccAddresses,
 			subject,
 			body,
 			bodyMode,
@@ -856,14 +882,39 @@ export const ComposeForm = ({
 		[pushError],
 	);
 
+	/**
+	 * Send goes out to the addresses on screen, not to the ones the fields have
+	 * got round to committing. Each field commits on blur behind a timer, and the
+	 * press that sends is the press that blurs — so a recipient typed and left in
+	 * the field is taken here, in the same tick, before the message is judged to
+	 * have anywhere to go (#845.6).
+	 */
 	const attemptSend = useCallback(() => {
 		if (sendReadiness.status === "sending") return;
-		if (sendReadiness.status === "blocked") {
-			reportBlocked(sendReadiness.reason);
+
+		const recipients: Recipients = {
+			to: fieldHandles.to.current?.commitPending() ?? toAddresses,
+			cc: fieldHandles.cc.current?.commitPending() ?? ccAddresses,
+			bcc: fieldHandles.bcc.current?.commitPending() ?? bccAddresses,
+		};
+
+		const readiness = readinessFor(recipients.to.length);
+		if (readiness.status === "sending") return;
+		if (readiness.status === "blocked") {
+			reportBlocked(readiness.reason);
 			return;
 		}
-		void handleSend(sendReadiness.accountId);
-	}, [sendReadiness, reportBlocked, handleSend]);
+		void handleSend(readiness.accountId, recipients);
+	}, [
+		sendReadiness.status,
+		fieldHandles,
+		toAddresses,
+		ccAddresses,
+		bccAddresses,
+		readinessFor,
+		reportBlocked,
+		handleSend,
+	]);
 
 	const handleAccountChange = useCallback(
 		(acct: RemitImapAccountResponse) => {
@@ -901,6 +952,7 @@ export const ComposeForm = ({
 					setShowBcc={setShowBcc}
 					subject={subject}
 					setSubject={setSubject}
+					fieldHandles={fieldHandles}
 				/>
 			}
 			quoted={

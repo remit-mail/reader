@@ -172,6 +172,7 @@ export {
 export {
 	type AddressEntry,
 	ComposeAddressField,
+	type ComposeAddressFieldHandle,
 	type ComposeAddressFieldProps,
 } from "./components/compose-address-field.js";
 export { ComposeBodySkeleton } from "./components/compose-body-skeleton.js";
