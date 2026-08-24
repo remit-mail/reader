@@ -437,6 +437,7 @@ export class ApiClient {
 		outboxMessageId: string;
 		subject?: string;
 		status: string;
+		lastError?: string;
 		htmlBody?: string;
 		textBody?: string;
 	}> {
