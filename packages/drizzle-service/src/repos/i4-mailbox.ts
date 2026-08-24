@@ -306,6 +306,9 @@ export class MailboxRepo implements IMailboxRepository {
 		pathPrefix: string,
 		delimiter = "/",
 	): Promise<MailboxItem[]> {
+		// A flat namespace nests nothing: with no delimiter the prefix is the
+		// folder’s own path, which would match every sibling starting with it.
+		if (delimiter.length === 0) return [];
 		const rows = await this.db
 			.select()
 			.from(mailboxTable)

@@ -19,7 +19,7 @@ export function composeFolderPath(name: string, parent?: FolderTarget): string {
  * match `inbox/x` against `INBOX/x` without folding case anywhere else.
  */
 const canonicalizePath = (path: string, delimiter: string): string => {
-	const parts = path.split(delimiter);
+	const parts = delimiter.length === 0 ? [path] : path.split(delimiter);
 	if (parts[0]?.toLowerCase() === "inbox") parts[0] = "INBOX";
 	return parts.join(delimiter);
 };
@@ -29,7 +29,8 @@ const canonicalizePath = (path: string, delimiter: string): string => {
  * name must be non-empty, must not contain the hierarchy delimiter (nesting is
  * expressed by the parent select, not by typing a path), and must not collide
  * with an existing folder — INBOX compared case-insensitively, everything else
- * exactly.
+ * exactly. A server that reports no delimiter has a flat namespace, so there is
+ * no separator to forbid and every name would otherwise contain it.
  */
 export function validateNewFolderName({
 	name,
@@ -44,7 +45,7 @@ export function validateNewFolderName({
 }): string | undefined {
 	const trimmed = name.trim();
 	if (trimmed === "") return "Enter a folder name.";
-	if (trimmed.includes(delimiter))
+	if (delimiter.length > 0 && trimmed.includes(delimiter))
 		return `A folder name can't contain "${delimiter}".`;
 	const candidate = canonicalizePath(
 		composeFolderPath(trimmed, parent),

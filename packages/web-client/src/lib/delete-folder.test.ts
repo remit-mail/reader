@@ -285,3 +285,20 @@ describe("initialStage", () => {
 		assert.equal(initialStage(3), "choose-fate");
 	});
 });
+
+describe("hasChildFolders in a flat namespace", () => {
+	it("does not read a shared prefix as a child", () => {
+		const target = folder({
+			mailboxId: "work",
+			fullPath: "Work",
+			hierarchyDelimiter: "",
+		});
+		assert.equal(
+			hasChildFolders(target, [
+				target,
+				{ mailboxId: "shop", fullPath: "Workshop" },
+			]),
+			false,
+		);
+	});
+});

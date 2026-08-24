@@ -135,6 +135,14 @@ describe("MailboxRepo", () => {
 		);
 	});
 
+	test("findByPathPrefix finds nothing in a flat namespace", async () => {
+		const accountId = randomId();
+		await repo.create(makeMailboxInput(accountId, "Work"));
+		await repo.create(makeMailboxInput(accountId, "Workshop"));
+
+		assert.deepEqual(await repo.findByPathPrefix(accountId, "Work", ""), []);
+	});
+
 	test("renameChildPaths updates all children", async () => {
 		const accountId = randomId();
 		await repo.create(makeMailboxInput(accountId, "OldName/Sub1"));

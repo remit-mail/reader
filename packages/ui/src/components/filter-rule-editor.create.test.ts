@@ -29,6 +29,13 @@ const folders: FolderTreeNode[] = [
 	},
 ];
 
+// A server that reports no hierarchy delimiter has a flat namespace, where a
+// path carries no separator to read a trail out of.
+const flatFolders: FolderTreeNode[] = [
+	{ id: "mbx-inbox", label: "Inbox", path: "INBOX" },
+	{ id: "mbx-work", label: "Work", path: "Work" },
+];
+
 const rule: FilterRule = {
 	clauses: [{ id: "c1", field: "From", value: "a@example.com" }],
 	matchOperator: "all",
@@ -61,6 +68,8 @@ interface MountOptions {
 		signal?: AbortSignal,
 	) => Promise<FolderTreeNode>;
 	onChangeMove?: (id: string) => void;
+	options?: readonly FolderTreeNode[];
+	delimiter?: string;
 }
 
 /** Holds the destination the way the app does, so a pick shows on screen. */
@@ -68,6 +77,8 @@ const mount = async ({
 	initialDestination,
 	onCreateFolder,
 	onChangeMove,
+	options = folders,
+	delimiter,
 }: MountOptions = {}) => {
 	const Controlled = () => {
 		const [moveMailboxId, setMoveMailboxId] = useState<string | undefined>(
@@ -75,7 +86,8 @@ const mount = async ({
 		);
 		return createElement(FilterRuleEditor, {
 			rule: { ...rule, moveMailboxId },
-			folders,
+			folders: options,
+			delimiter,
 			preview,
 			onChangeMove: (id: string) => {
 				setMoveMailboxId(id || undefined);
@@ -233,6 +245,17 @@ describe("FilterRuleEditor move destination", () => {
 		});
 		await click(byText("Don't move matches"));
 		assert.deepEqual(picked, [""]);
+	});
+
+	it("reads a flat-namespace destination as its whole path, not per character", async () => {
+		await mount({ options: flatFolders, delimiter: "" });
+		await openTree();
+		await click(byAriaLabel("Move to Work"));
+		assert.ok(
+			byText("Move matches to Work"),
+			"the whole path is one segment when nothing nests",
+		);
+		assert.equal(byText("Move matches to W / o / r / k"), undefined);
 	});
 
 	it("offers no create affordance without onCreateFolder", async () => {
