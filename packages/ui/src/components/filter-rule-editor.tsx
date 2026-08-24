@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode, useMemo, useState } from "react";
-import type { FolderTreeNode } from "../lib/folder-tree.js";
+import { type FolderTreeNode, folderPathSegments } from "../lib/folder-tree.js";
 import { Button } from "./button.js";
 import {
 	AddChipButton,
@@ -216,7 +216,7 @@ function MoveDestinationField({
 
 	/** Two folders can share a leaf name, so a destination reads as its trail. */
 	const trail = (folder: FolderTreeNode): string => {
-		const segments = folder.path.split(delimiter);
+		const segments = folderPathSegments(folder.path, delimiter);
 		return segments
 			.map((segment, index) => {
 				const path = segments.slice(0, index + 1).join(delimiter);

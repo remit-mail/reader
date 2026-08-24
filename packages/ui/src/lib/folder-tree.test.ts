@@ -8,6 +8,7 @@ import {
 	folderDepth,
 	folderLeaf,
 	folderParent,
+	folderPathSegments,
 	matchesQuery,
 	orderFolderNodes,
 	queryExpandedPaths,
@@ -305,6 +306,14 @@ describe("a flat namespace", () => {
 		node("workshop", "Workshop", "Workshop"),
 		node("inbox", "Inbox", "INBOX"),
 	];
+
+	it("keeps a path whole rather than splitting it into characters", () => {
+		assert.deepEqual(folderPathSegments("Projects/Q3", ""), ["Projects/Q3"]);
+		assert.deepEqual(folderPathSegments("Projects/Q3", "/"), [
+			"Projects",
+			"Q3",
+		]);
+	});
 
 	it("makes every folder a root with no parent, depth or ancestors", () => {
 		assert.equal(folderParent("Projects/Q3", ""), "");

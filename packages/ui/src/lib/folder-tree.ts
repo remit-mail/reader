@@ -42,9 +42,13 @@ export type FolderTreeDisplayRow =
 // leaf and every folder is a root. Splitting on "" would return single
 // characters, and `"Inbox".lastIndexOf("")` is 5 rather than -1, so each of
 // these answers the flat case before it touches the path.
+export const folderPathSegments = (
+	path: string,
+	delimiter: string,
+): string[] => (delimiter.length === 0 ? [path] : path.split(delimiter));
+
 export const folderLeaf = (path: string, delimiter: string): string => {
-	if (delimiter.length === 0) return path;
-	const parts = path.split(delimiter);
+	const parts = folderPathSegments(path, delimiter);
 	return parts[parts.length - 1] || path;
 };
 
@@ -55,7 +59,7 @@ export const folderParent = (path: string, delimiter: string): string => {
 };
 
 export const folderDepth = (path: string, delimiter: string): number =>
-	delimiter.length === 0 ? 0 : path.split(delimiter).length - 1;
+	folderPathSegments(path, delimiter).length - 1;
 
 // Every step up is strictly shorter than the path below it, so the walk is
 // bounded by the length of the path whatever a parent comes back as.

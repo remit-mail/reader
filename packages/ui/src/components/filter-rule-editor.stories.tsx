@@ -60,10 +60,15 @@ function LiveEditor({
 	propertyRule,
 	labels = demoLabels,
 	initialClauseEdit,
+	folders = demoFolders,
+	delimiter,
 	onCreateFolder,
 	onCreateLabel,
 }: {
 	initialRule: FilterRule;
+	folders?: FolderTreeNode[];
+	/** The provider's hierarchy separator; `""` is a flat namespace. */
+	delimiter?: string;
 	semanticAvailable?: boolean;
 	/** Offers the match-mode control; omit to render the editor without one. */
 	initialMatchMode?: RuleMatchMode;
@@ -179,7 +184,8 @@ function LiveEditor({
 	return (
 		<FilterRuleEditor
 			rule={rule}
-			folders={demoFolders}
+			folders={folders}
+			delimiter={delimiter}
 			labels={labels}
 			preview={preview}
 			semanticAvailable={semanticAvailable}
@@ -457,6 +463,30 @@ export const DestinationNestedFolders: Story = {
 		await openFolder(canvasElement, "Inbox");
 		await openFolder(canvasElement, "Travel");
 	},
+};
+
+// A server that reports no hierarchy delimiter has a flat namespace: every
+// folder sits at the top level and a path is a name, not a trail.
+const flatFolders: FolderTreeNode[] = [
+	{ id: "mbx-inbox", label: "Inbox", path: "INBOX" },
+	{ id: "mbx-archive", label: "Archive", path: "Archive" },
+	{ id: "mbx-work", label: "Work", path: "Work" },
+	{ id: "mbx-workshop", label: "Workshop", path: "Workshop" },
+];
+
+/**
+ * A flat namespace, where the chosen destination reads as its whole path —
+ * `Work`, not one segment per character.
+ */
+export const DestinationFlatNamespace: Story = {
+	name: "Destination — a flat namespace (server reports no delimiter)",
+	render: () => (
+		<LiveEditor
+			initialRule={{ ...demoRule, moveMailboxId: "mbx-work" }}
+			folders={flatFolders}
+			delimiter=""
+		/>
+	),
 };
 
 /**
