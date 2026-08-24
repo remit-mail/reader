@@ -143,6 +143,22 @@ const createInMemoryOutboxRepository = (): IOutboxMessageRepository => {
 const acceptingSqsClient = (): SQSClient =>
 	({ send: async () => ({}) }) as unknown as SQSClient;
 
+/** A queue that refuses every send until `accept()` is called. */
+const refusingSqsClient = (): { client: SQSClient; accept: () => void } => {
+	let accepting = false;
+	return {
+		client: {
+			send: async () => {
+				if (!accepting) throw new Error("SQS unavailable");
+				return {};
+			},
+		} as unknown as SQSClient,
+		accept: () => {
+			accepting = true;
+		},
+	};
+};
+
 const accountRepository = {
 	get: async () => ({
 		accountId: ACCOUNT_ID,
@@ -210,7 +226,7 @@ const createAttachmentRepository = (
 		},
 	}) as unknown as IOutboxAttachmentRepository;
 
-const installClient = (): void => {
+const installClient = (sqsClient: SQSClient = acceptingSqsClient()): void => {
 	const outboxMessage = createInMemoryOutboxRepository();
 	const storage = createMockStorageService();
 	attachmentRows = new Map<string, OutboxAttachmentItem>();
@@ -230,7 +246,7 @@ const installClient = (): void => {
 			outboxAttachmentService,
 			accountService: accountRepository,
 			sqsSmtpQueueUrl: "http://localhost:9324/queue/outbox-test",
-			sqsClient: acceptingSqsClient(),
+			sqsClient,
 		}),
 	} as unknown as RemitClient);
 };
@@ -259,6 +275,8 @@ const updateDraft =
 	OutboxDetailOperations.OutboxDetailOperations_updateOutboxMessage as Handler;
 const deleteDraft =
 	OutboxDetailOperations.OutboxDetailOperations_deleteOutboxMessage as Handler;
+const getMessage =
+	OutboxDetailOperations.OutboxDetailOperations_getOutboxMessage as Handler;
 
 type Outcome =
 	| { readonly ok: true; readonly body: Record<string, unknown> }
@@ -391,6 +409,90 @@ describe("an outbox entry that has left draft (#604)", () => {
 		assert.equal(response.statusCode, 200);
 		const body = JSON.parse(response.body) as { subject?: string };
 		assert.equal(body.subject, "still editing");
+	});
+});
+
+describe("a send whose enqueue fails (#845.8)", () => {
+	const draftAgainstQueue = async (
+		queue: SQSClient,
+	): Promise<{ outboxMessageId: string; response: APIGatewayProxyResult }> => {
+		installClient(queue);
+		const draft = await createDraft(
+			requestContext({}),
+			authorizedEvent({
+				accountId: ACCOUNT_ID,
+				toAddresses: ["recipient@example.com"],
+				subject: "the one that got stuck",
+				textBody: "sending",
+			}),
+		);
+		const outboxMessageId = String(draft.outboxMessageId);
+		const response = await respond(() =>
+			sendMessage(
+				requestContext({ params: { outboxMessageId } }),
+				authorizedEvent(),
+			),
+		);
+		return { outboxMessageId, response };
+	};
+
+	const statusOf = async (outboxMessageId: string): Promise<unknown> => {
+		const response = await respond(() =>
+			getMessage(
+				requestContext({ params: { outboxMessageId } }),
+				authorizedEvent(),
+			),
+		);
+		assert.equal(response.statusCode, 200);
+		return (JSON.parse(response.body) as { status?: string }).status;
+	};
+
+	it("answers 500, never a success the send never had", async () => {
+		const { response } = await draftAgainstQueue(refusingSqsClient().client);
+
+		assert.equal(response.statusCode, 500);
+	});
+
+	it("leaves the row a draft, not stranded at queued", async () => {
+		const { outboxMessageId } = await draftAgainstQueue(
+			refusingSqsClient().client,
+		);
+
+		assert.equal(await statusOf(outboxMessageId), OutboxMessageStatus.draft);
+	});
+
+	it("still lets the user discard what could not be queued", async () => {
+		const { outboxMessageId } = await draftAgainstQueue(
+			refusingSqsClient().client,
+		);
+
+		const response = await respond(() =>
+			deleteDraft(
+				requestContext({ params: { outboxMessageId } }),
+				authorizedEvent(),
+			),
+		);
+
+		assert.equal(response.statusCode, 204);
+	});
+
+	it("sends once the queue comes back", async () => {
+		const queue = refusingSqsClient();
+		const { outboxMessageId } = await draftAgainstQueue(queue.client);
+		queue.accept();
+
+		const response = await respond(() =>
+			sendMessage(
+				requestContext({ params: { outboxMessageId } }),
+				authorizedEvent(),
+			),
+		);
+
+		assert.equal(response.statusCode, 200);
+		assert.equal(
+			(JSON.parse(response.body) as { status?: string }).status,
+			OutboxMessageStatus.queued,
+		);
 	});
 });
 

@@ -231,7 +231,21 @@ export class OutboxQueueService {
 			OutboxMessageStatus.queued,
 		);
 
-		await this.enqueueSend(existing.accountId, outboxMessageId);
+		// `queued` is a dead end for a row the queue never accepted: `send` takes
+		// draft, failed and blocked, `deleteDraft` those three plus unfiled, so a
+		// row parked at `queued` by a failed enqueue is neither sendable nor
+		// discardable (#845.8). Put it back where it came from and let the enqueue
+		// failure surface — the row stays reachable, the caller still hears no.
+		await this.enqueueSend(existing.accountId, outboxMessageId).catch(
+			async (error: unknown) => {
+				await this.outboxMessageService.updateStatus(
+					accountConfigId,
+					outboxMessageId,
+					existing.status,
+				);
+				throw error;
+			},
+		);
 
 		this.log.info(
 			{ outboxMessageId, accountId: existing.accountId },
