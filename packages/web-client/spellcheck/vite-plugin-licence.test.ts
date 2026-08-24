@@ -7,22 +7,47 @@
  * an image whose notice points at a `LICENSE` nobody staged. That is the one
  * failure mode a reader cannot see and a distributor is answerable for.
  *
- * The dictionary is shadowed rather than the real one damaged: node resolves
- * from the importer outwards, so a package planted in this directory's own
- * `node_modules` answers for `dictionary-en-gb` here and nowhere else. That
- * makes this file its own process — node's test runner gives each file one —
- * because module resolution is cached per process and a sibling test resolving
- * the real package first would decide which one this sees.
+ * The dictionary is shadowed inside this test's own temporary tree rather than
+ * anywhere on the shared resolution path: the plugin sources are copied in
+ * beside a private `node_modules`, so `require.resolve` from that copy answers
+ * for the shadow and nowhere else. Planting into `spellcheck/node_modules`
+ * instead would be visible to every other test file — node's runner isolates
+ * the module cache per process, never the filesystem, and runs files
+ * concurrently.
  */
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	copyFileSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { after, describe, it } from "node:test";
 
-const shadowRoot = join(import.meta.dirname, "node_modules");
-const shadow = join(shadowRoot, "dictionary-en-gb");
+const here = import.meta.dirname;
+const tmpRoot = mkdtempSync(join(tmpdir(), "spellcheck-licence-"));
+
+// The plugin under test, imported from inside the temporary tree so its
+// package resolution starts at the tree's own `node_modules`.
+const src = join(tmpRoot, "spellcheck");
+const engineDir = join(tmpRoot, "engine");
+mkdirSync(src, { recursive: true });
+for (const name of ["vite-plugin.ts", "languages.ts"]) {
+	copyFileSync(join(here, name), join(src, name));
+}
+
+// A licence-less shadow of `dictionary-en-gb`, plus the real `dictionary-en`
+// copied across for the case that does stage a licence.
+const modules = join(tmpRoot, "node_modules");
+const real = (name: string) =>
+	dirname(createRequire(import.meta.url).resolve(name));
+const shadow = join(modules, "dictionary-en-gb");
 mkdirSync(shadow, { recursive: true });
 writeFileSync(
 	join(shadow, "package.json"),
@@ -31,8 +56,26 @@ writeFileSync(
 writeFileSync(join(shadow, "index.js"), "");
 writeFileSync(join(shadow, "index.aff"), "SET UTF-8\n");
 writeFileSync(join(shadow, "index.dic"), "1\nword\n");
+const realEn = real("dictionary-en");
+const stagedEn = join(modules, "dictionary-en");
+mkdirSync(stagedEn, { recursive: true });
+for (const entry of [
+	"package.json",
+	"index.js",
+	"index.aff",
+	"index.dic",
+] as const) {
+	copyFileSync(join(realEn, entry), join(stagedEn, entry));
+}
+// The licence text under whatever name upstream ships it.
+const licenceFile = readdirSync(realEn).find((entry) =>
+	/^licen[cs]e/i.test(entry),
+);
+assert.ok(licenceFile);
+copyFileSync(join(realEn, licenceFile), join(stagedEn, licenceFile));
 
-const engineDir = mkdtempSync(join(tmpdir(), "spellcheck-engine-"));
+// Pins read from beside the engine; the stub carries its own.
+mkdirSync(engineDir, { recursive: true });
 for (const name of [
 	"hunspell.wasm",
 	"hunspell.mjs",
@@ -41,14 +84,18 @@ for (const name of [
 ]) {
 	writeFileSync(join(engineDir, name), "stub");
 }
+writeFileSync(
+	join(engineDir, "pin.env"),
+	["HUNSPELL_VERSION=0.0.0-test", "HUNSPELL_SHA256=test"].join("\n"),
+);
 process.env.REMIT_SPELLCHECK_ENGINE_DIR = engineDir;
 
-const { stageSpellcheck } = await import("./vite-plugin.ts");
+const { stageSpellcheck } = await import(
+	join(src, "vite-plugin.ts").replace("file://", "")
+);
 
 after(() => {
-	rmSync(shadow, { recursive: true, force: true });
-	rmSync(shadowRoot, { recursive: true, force: true });
-	rmSync(engineDir, { recursive: true, force: true });
+	rmSync(tmpRoot, { recursive: true, force: true });
 });
 
 describe("a dictionary that ships no licence text", () => {
