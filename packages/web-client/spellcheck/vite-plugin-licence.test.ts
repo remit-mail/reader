@@ -29,15 +29,20 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, describe, it } from "node:test";
+import { pathToFileURL } from "node:url";
 
 const here = import.meta.dirname;
 const tmpRoot = mkdtempSync(join(tmpdir(), "spellcheck-licence-"));
+after(() => {
+	rmSync(tmpRoot, { recursive: true, force: true });
+});
 
 // The plugin under test, imported from inside the temporary tree so its
 // package resolution starts at the tree's own `node_modules`.
 const src = join(tmpRoot, "spellcheck");
 const engineDir = join(tmpRoot, "engine");
 mkdirSync(src, { recursive: true });
+// Every local import of vite-plugin.ts must be listed here.
 for (const name of ["vite-plugin.ts", "languages.ts"]) {
 	copyFileSync(join(here, name), join(src, name));
 }
@@ -90,13 +95,9 @@ writeFileSync(
 );
 process.env.REMIT_SPELLCHECK_ENGINE_DIR = engineDir;
 
-const { stageSpellcheck } = await import(
-	join(src, "vite-plugin.ts").replace("file://", "")
+const { stageSpellcheck }: typeof import("./vite-plugin.ts") = await import(
+	pathToFileURL(join(src, "vite-plugin.ts")).href
 );
-
-after(() => {
-	rmSync(tmpRoot, { recursive: true, force: true });
-});
 
 describe("a dictionary that ships no licence text", () => {
 	it("stops the build rather than staging it", () => {
