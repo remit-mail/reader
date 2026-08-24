@@ -1,3 +1,4 @@
+import { domainToASCII } from "node:url";
 import { eq, or, type SQL, sql } from "drizzle-orm";
 import { addressTable } from "../schema/i4-address.js";
 
@@ -33,12 +34,30 @@ const patterns = (term: string) => {
 	return { leading: `${escaped}%`, anywhere: `%${escaped}%` };
 };
 
+/**
+ * The envelope delivers internationalized domains in punycode, so every column
+ * holds `xn--bcher-kva.de` even though the reader types `bücher.de` (#905). A
+ * term carrying non-ASCII is converted the same way — label by label, so a
+ * partial like `bücher` still maps to its punycode prefix — and both spellings
+ * are searched. Terms that cannot be converted keep only their original form.
+ */
+const punyVariants = (term: string): string[] => {
+	const folded = term.toLowerCase();
+	const [, domain = folded] = folded.split("@");
+	if (!/[^\p{ASCII}]/u.test(domain)) return [folded];
+	const ascii = domainToASCII(domain);
+	return ascii ? [folded, ascii] : [folded];
+};
+
 export const addressSearchMatch = (term: string): SQL => {
-	const { anywhere } = patterns(term);
+	const variants = punyVariants(term);
 	const matched = or(
-		...[...SEARCH_COLUMNS, FOLDED_FALLBACK].map((column) =>
-			like(column, anywhere),
-		),
+		...variants.flatMap((variant) => {
+			const { anywhere } = patterns(variant);
+			return [...SEARCH_COLUMNS, FOLDED_FALLBACK].map((column) =>
+				like(column, anywhere),
+			);
+		}),
 	);
 	if (matched === undefined) throw new Error("no address column to search");
 	return matched;
@@ -60,6 +79,15 @@ export const addressMatchRank = (term: string | undefined): SQL<number> => {
 	// Not the bare literal `0`: SQLite reads an integer literal in ORDER BY as a
 	// column index and rejects it as out of range.
 	if (!term) return sql<number>`cast(0 as integer)`;
+	// The best rank across every spelling of the term: whichever form the row
+	// was stored under decides where it sorts. With one argument `max()` is an
+	// aggregate, so it is only used when there is more than one spelling.
+	const ranks = punyVariants(term).map(rankOneTerm);
+	if (ranks.length === 1) return ranks[0];
+	return sql<number>`max(${sql.join(ranks, sql`, `)})`;
+};
+
+const rankOneTerm = (term: string): SQL<number> => {
 	const { leading, anywhere } = patterns(term);
 	const tiers = [
 		eq(addressTable.normalizedEmail, term.toLowerCase()),
@@ -97,7 +125,13 @@ export const addressListable = (term: string | undefined): SQL => {
 		or ${accountHasCorresponded()} > 0
 		or ${accountHasFlagged()} > 0`;
 	if (!term) return sql`(${shown})`;
-	return sql`(${shown} or ${addressTable.normalizedEmail} = ${term.toLowerCase()})`;
+	const exact = or(
+		...punyVariants(term).map(
+			(variant) =>
+				sql`${addressTable.normalizedEmail} = ${variant.toLowerCase()}`,
+		),
+	);
+	return sql`(${shown} or ${exact})`;
 };
 
 export const addressCorrespondence = (): SQL<number> =>

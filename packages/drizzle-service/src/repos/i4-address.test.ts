@@ -1320,4 +1320,52 @@ describe("AddressRepo", () => {
 			});
 		}
 	});
+
+	describe("unicode domains match punycode rows (#905)", () => {
+		test("bücher.de finds a row stored as xn--bcher-kva.de", async () => {
+			const accountConfigId = randomId();
+			const addr = await repo.createAddress({
+				addressId: randomId(),
+				accountConfigId,
+				localPart: "postmaster",
+				domain: "xn--bcher-kva.de",
+				normalizedEmail: "postmaster@xn--bcher-kva.de",
+				normalizedCompound: "postmaster@xn--bcher-kva.de:postmaster",
+				lastInboundAt: Date.now(),
+			});
+
+			try {
+				const { items } = await repo.listByAccountConfig({
+					accountConfigId,
+					search: "bücher.de",
+				});
+				assert.ok(items.some((item) => item.addressId === addr.addressId));
+			} finally {
+				await repo.deleteAddress(accountConfigId, addr.addressId);
+			}
+		});
+
+		test("a partial unicode term still matches its punycode prefix", async () => {
+			const accountConfigId = randomId();
+			const addr = await repo.createAddress({
+				addressId: randomId(),
+				accountConfigId,
+				localPart: "postmaster",
+				domain: "xn--bcher-kva.de",
+				normalizedEmail: "postmaster@xn--bcher-kva.de",
+				normalizedCompound: "postmaster@xn--bcher-kva.de:postmaster",
+				lastInboundAt: Date.now(),
+			});
+
+			try {
+				const { items } = await repo.listByAccountConfig({
+					accountConfigId,
+					search: "bücher",
+				});
+				assert.ok(items.some((item) => item.addressId === addr.addressId));
+			} finally {
+				await repo.deleteAddress(accountConfigId, addr.addressId);
+			}
+		});
+	});
 });
