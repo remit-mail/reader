@@ -171,8 +171,11 @@ export {
 } from "./components/compose-action-bar.js";
 export {
 	type AddressEntry,
+	type ComposeAddressCommit,
 	ComposeAddressField,
+	type ComposeAddressFieldHandle,
 	type ComposeAddressFieldProps,
+	type ParsedAddressInput,
 } from "./components/compose-address-field.js";
 export { ComposeBodySkeleton } from "./components/compose-body-skeleton.js";
 export {

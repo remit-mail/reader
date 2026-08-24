@@ -1,17 +1,24 @@
 import { addressOperationsSearchAddressesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import { type AddressEntry, ComposeAddressField } from "@remit/ui";
+import {
+	type AddressEntry,
+	ComposeAddressField,
+	type ComposeAddressFieldHandle,
+	type ParsedAddressInput,
+} from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { type Ref, useMemo, useState } from "react";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { offerableAsRecipient } from "@/lib/recipient-suggestions";
 
-export type { AddressEntry };
+export type { AddressEntry, ComposeAddressFieldHandle, ParsedAddressInput };
 
 interface AddressFieldProps {
 	label: string;
 	addresses: AddressEntry[];
 	onChange: (addresses: AddressEntry[]) => void;
 	placeholder?: string;
+	onPendingChange?: (pending: ParsedAddressInput) => void;
+	ref?: Ref<ComposeAddressFieldHandle>;
 }
 
 /** Looks the account's known correspondents up for the field to offer. */
@@ -20,6 +27,8 @@ export const AddressField = ({
 	addresses,
 	onChange,
 	placeholder,
+	onPendingChange,
+	ref,
 }: AddressFieldProps) => {
 	const [query, setQuery] = useState("");
 	const debouncedQuery = useDebouncedValue(query, 200);
@@ -48,6 +57,8 @@ export const AddressField = ({
 			placeholder={placeholder}
 			suggestions={suggestions}
 			onQueryChange={setQuery}
+			onPendingChange={onPendingChange}
+			ref={ref}
 		/>
 	);
 };

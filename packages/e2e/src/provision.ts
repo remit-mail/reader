@@ -85,25 +85,34 @@ const cookiesToStorageState = (cookie: string): StorageState => ({
 	origins: [],
 });
 
+export interface IsolatedAccount {
+	accountId: string;
+	/** The IMAP username, which is also the address this identity sends from. */
+	imapUser: string;
+	inboxId: string;
+}
+
 /**
+ * Connect one mailbox to a user, as an identity it can send from.
+ *
+ * A second call adds a second identity, which is what makes "the account a
+ * message left from" a question at all: a one-account instance's only account
+ * is also its first, so answering from the account the message reached and
+ * answering from the head of the list produce the same bytes (#819). A second
+ * account is safe here for the reason the isolated user exists at all — nothing
+ * outside this run reads that user's account list, so the per-account screens
+ * every other spec reads are untouched.
+ *
  * @param seed Mail put in the mailbox before the account is connected. Mail
  * appended after onboarding does not reliably reach the classification path on
  * a triggered sync, so a spec whose subject is the category of its fixtures has
  * to seed here or it measures that instead.
  */
-export const provisionIsolatedRun = async (
+export const connectIsolatedAccount = async (
+	api: ApiClient,
 	label: string,
 	seed: Message[] = [],
-): Promise<IsolatedRun> => {
-	const credentials = {
-		email: `e2e-iso-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@remit.test`,
-		password: "e2e-password-1234",
-		name: label,
-	};
-	const cookie = await signUp(credentials);
-	const token = await fetchBearerToken(cookie);
-	const api = new ApiClient({ ...credentials, token });
-
+): Promise<IsolatedAccount> => {
 	const imapUser = mintImapUser();
 	if (seed.length > 0) await appendMessages(imapUser, seed);
 	const { accountId } = await api.createAccount({
@@ -121,18 +130,37 @@ export const provisionIsolatedRun = async (
 	const boxes = await waitFor(
 		() => api.listMailboxes(accountId),
 		(list) => list.some((box) => box.fullPath === "INBOX"),
-		{ timeoutMs: 90_000, what: "the isolated account's INBOX to sync" },
+		{ timeoutMs: 90_000, what: `the INBOX of ${label} to sync` },
 	);
 	const inbox = boxes.find((box) => box.fullPath === "INBOX");
 	if (!inbox) throw new Error("unreachable: INBOX matched but not found");
+
+	return { accountId, imapUser, inboxId: inbox.mailboxId };
+};
+
+/** @param seed Seeded into the run's first account, as `connectIsolatedAccount` describes. */
+export const provisionIsolatedRun = async (
+	label: string,
+	seed: Message[] = [],
+): Promise<IsolatedRun> => {
+	const credentials = {
+		email: `e2e-iso-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@remit.test`,
+		password: "e2e-password-1234",
+		name: label,
+	};
+	const cookie = await signUp(credentials);
+	const token = await fetchBearerToken(cookie);
+	const api = new ApiClient({ ...credentials, token });
+
+	const account = await connectIsolatedAccount(api, label, seed);
 
 	return {
 		email: credentials.email,
 		password: credentials.password,
 		token,
-		accountId,
-		imapUser,
-		inboxId: inbox.mailboxId,
+		accountId: account.accountId,
+		imapUser: account.imapUser,
+		inboxId: account.inboxId,
 		storageState: cookiesToStorageState(cookie),
 	};
 };
