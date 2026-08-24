@@ -36,6 +36,14 @@ address nothing sends to, so every submission is turned away at RCPT TO with a
 (`rejectingSmtpSinkApi`) to prove the refused message reached nobody. Every
 other account uses the lane that accepts.
 
+Both also publish the queue sidecar on loopback (`E2E_QUEUE_PORT`), which is the
+one internal listener either lane puts on the host. At-least-once delivery is
+the queue's property and not the app's, so a redelivered event cannot be asked
+for over any public surface; a spec that wants one speaks the same SQS protocol
+the workers do and puts the event back itself (`src/queue.ts`). Nothing else in
+the suite reaches past the public surface, and a real deployment keeps this port
+on the compose network.
+
 What the source stack does not have is the packaged edge: no Caddy, no APISIX.
 The browser talks to vite, whose proxy table mirrors the Caddy routing 1:1.
 Specs that assert something ABOUT the edge therefore have nothing to assert

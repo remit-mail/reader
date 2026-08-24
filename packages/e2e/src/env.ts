@@ -74,3 +74,13 @@ export const rejectingSmtpFromStack = {
  * sinks hold different mail, so a count taken over the wrong one proves nothing.
  */
 export const rejectingSmtpSinkApi = `http://127.0.0.1:${required("E2E_SMTP_REJECT_HTTP_PORT")}`;
+
+/**
+ * The queue sidecar, over the SQS protocol the workers themselves speak to it.
+ *
+ * The one internal listener either lane publishes to the host, and only on
+ * loopback: it authenticates nobody and carries every account's work. A spec
+ * uses it to put an event back on a queue, which is the only way to produce the
+ * redelivery an at-least-once queue produces on its own (#858).
+ */
+export const queueApi = `http://127.0.0.1:${required("E2E_QUEUE_PORT")}`;

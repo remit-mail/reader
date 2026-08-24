@@ -96,6 +96,12 @@ e2e_dev_install_env() {
 		printf 'E2E_SMTP_STACK_PORT=%s\n' "$E2E_SMTP_PORT"
 		printf 'E2E_SMTP_REJECT_STACK_PORT=%s\n' "$E2E_SMTP_REJECT_PORT"
 
+		# The sidecar is a host process on this lane, so the port the app addresses
+		# it on is already the port the suite can reach it on. Named under the E2E_
+		# prefix because that is the only prefix e2e-test.sh forwards, and derived
+		# rather than committed for the reason the queue URLs below are.
+		printf 'E2E_QUEUE_PORT=%s\n' "$QUEUE_SIDECAR_PORT"
+
 		# PUBLIC_ORIGIN has to name the address the browser actually loads, port
 		# included, or better-auth rejects the Origin and every UI spec fails on
 		# sign-in. The other four are the same origin under the names the backend
