@@ -89,6 +89,25 @@ export interface Address {
 	};
 }
 
+/**
+ * One outbox entry as the server holds it. This is the message that goes on the
+ * wire — compose has already serialized its document into the two body fields —
+ * so it is what a spec about the body asserts against, rather than anything the
+ * editor says about itself.
+ *
+ * `lastError` is the sentence a send that ended badly left behind, and the only
+ * account of it the user is given; a status that settled without one is a
+ * failure the app never explained.
+ */
+export interface OutboxRow {
+	outboxMessageId: string;
+	subject?: string;
+	status: string;
+	lastError?: string;
+	htmlBody?: string;
+	textBody?: string;
+}
+
 export interface MessageSummary {
 	messageId: string;
 	mailboxId: string;
@@ -428,20 +447,7 @@ export class ApiClient {
 		return drafts;
 	}
 
-	/**
-	 * One outbox entry as the server holds it. This is the message that goes on
-	 * the wire — compose has already serialized its document into these two
-	 * fields — so it is what a spec about the body asserts against, rather than
-	 * anything the editor says about itself.
-	 */
-	getOutboxMessage(outboxMessageId: string): Promise<{
-		outboxMessageId: string;
-		subject?: string;
-		status: string;
-		lastError?: string;
-		htmlBody?: string;
-		textBody?: string;
-	}> {
+	getOutboxMessage(outboxMessageId: string): Promise<OutboxRow> {
 		return this.json("GET", `/outbox/${outboxMessageId}`);
 	}
 

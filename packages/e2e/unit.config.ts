@@ -11,6 +11,8 @@ process.env.E2E_IMAP_PASSWORD ??= "unit";
 process.env.E2E_IMAP_HOST ??= "127.0.0.1";
 process.env.E2E_SMTP_HOST ??= "127.0.0.1";
 process.env.E2E_SMTP_HTTP_PORT ??= "0";
+process.env.E2E_SMTP_REJECT_HOST ??= "127.0.0.1";
+process.env.E2E_SMTP_REJECT_HTTP_PORT ??= "0";
 
 import { defineConfig } from "@playwright/test";
 

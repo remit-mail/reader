@@ -53,3 +53,24 @@ export const smtpFromStack = {
 
 /** Where the suite reads the bytes the sink accepted: Mailpit's HTTP API. */
 export const smtpSinkApi = `http://127.0.0.1:${required("E2E_SMTP_HTTP_PORT")}`;
+
+/**
+ * How the deployment reaches the lane that refuses — a second Mailpit whose
+ * recipient allowlist matches nobody, so it answers every RCPT TO with 550.
+ * Same split as `smtpFromStack`.
+ *
+ * An account only goes here because a spec asked for it, through
+ * `provisionIsolatedRun`'s smtp override. Nothing else in the suite sends to a
+ * server that refuses, and the default lane is unaffected by this one existing.
+ */
+export const rejectingSmtpFromStack = {
+	host: required("E2E_SMTP_REJECT_HOST"),
+	port: Number(process.env.E2E_SMTP_REJECT_STACK_PORT ?? 1025),
+};
+
+/**
+ * Where the suite reads what the refusing lane accepted — which, for a message
+ * it refused, has to be nothing. Its own API and not the default lane's: the two
+ * sinks hold different mail, so a count taken over the wrong one proves nothing.
+ */
+export const rejectingSmtpSinkApi = `http://127.0.0.1:${required("E2E_SMTP_REJECT_HTTP_PORT")}`;

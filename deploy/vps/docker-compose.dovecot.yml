@@ -11,6 +11,12 @@
 # it, so `smtpEnabled` was false on every account and the send path resolved
 # every outbox row to `blocked` — the composed MIME never left the process.
 #
+# A second Mailpit refuses instead of accepting. Every send spec worked from a
+# server that took whatever it was handed, so the whole refusal half of the send
+# path — the row that settles `failed`, the reason it carries, the retry that
+# gets it out — had nothing to run against. Only an account a spec deliberately
+# points at it goes there; the lane above is what every other account uses.
+#
 # The bind mounts are relative to this directory, so compose must be invoked
 # with `--project-directory deploy/vps` (see npm-scripts/e2e-compose.sh).
 
@@ -55,6 +61,32 @@ services:
       # the published port. The API is only ever read from the host.
       - "127.0.0.1:${E2E_SMTP_PORT:-11025}:1025"
       - "127.0.0.1:${E2E_SMTP_HTTP_PORT:-18025}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mailpit-rejecting:
+    image: axllent/mailpit:v1.30.6
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+      MP_MAX_MESSAGES: "0"
+      # The refusal, and the whole difference between this lane and the one
+      # above. Mailpit's recipient allowlist is a regular expression matched at
+      # RCPT TO, and this one names an address no spec sends to, so every
+      # recipient is answered `550 5.1.0 Requested action not taken: mailbox
+      # unavailable` and the submission ends with nothing accepted. Set it to
+      # something a spec does address if a lane that accepts some recipients and
+      # refuses others is ever wanted.
+      MP_SMTP_ALLOWED_RECIPIENTS: ${E2E_SMTP_REJECT_ALLOWED_RECIPIENTS:?set E2E_SMTP_REJECT_ALLOWED_RECIPIENTS}
+    ports:
+      # Same split as the lane above: submission, then the HTTP API. The API is
+      # read to prove the refused message reached nobody, so this lane needs one
+      # of its own — the other lane's totals say nothing about this one's.
+      - "127.0.0.1:${E2E_SMTP_REJECT_PORT:-11027}:1025"
+      - "127.0.0.1:${E2E_SMTP_REJECT_HTTP_PORT:-18027}:8025"
     healthcheck:
       test: ["CMD", "/mailpit", "readyz"]
       interval: 2s
