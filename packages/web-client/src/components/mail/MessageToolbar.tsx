@@ -39,6 +39,13 @@ export interface MessageToolbarProps {
 	 */
 	canToggleIntelligence: boolean;
 	onToggleIntelligence: () => void;
+	/**
+	 * The intelligence drawer is up, and its scrim covers this toolbar (#747).
+	 * The toggle is lifted above that scrim so the control that opened the
+	 * modal can still act on it — closing what it opened — while every other
+	 * verb stays where the scrim put it, out of reach.
+	 */
+	intelligenceElevated?: boolean;
 
 	/* ---- wired action callbacks (omit to keep the no-op-explain behaviour) ---- */
 	onReply?: () => void;
@@ -114,6 +121,7 @@ export const MessageToolbar = ({
 	messageId,
 	intelligenceOpen,
 	canToggleIntelligence,
+	intelligenceElevated,
 	onToggleIntelligence,
 	onReply,
 	onReplyAll,
@@ -209,6 +217,7 @@ export const MessageToolbar = ({
 				open={intelligenceOpen}
 				enabled={canToggleIntelligence}
 				onToggle={onToggleIntelligence}
+				className={intelligenceElevated ? "relative z-[60]" : undefined}
 			/>
 		</MailActionToolbar>
 	);

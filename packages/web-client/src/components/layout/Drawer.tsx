@@ -40,6 +40,29 @@ export const Drawer = ({
 			if (event.key === "Escape") {
 				event.preventDefault();
 				onClose();
+				return;
+			}
+			// Trap Tab inside the drawer: it is `aria-modal`, so a screen reader
+			// offers nothing outside it — and letting Tab walk out would land on
+			// controls a pointer cannot reach under the scrim (#747).
+			if (event.key !== "Tab" || !drawerRef.current) return;
+			const focusable = [
+				...drawerRef.current.querySelectorAll<HTMLElement>(
+					"button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])",
+				),
+			].filter((el) => !el.hasAttribute("disabled"));
+			if (focusable.length === 0) return;
+			const first = focusable[0];
+			const last = focusable[focusable.length - 1];
+			const active = document.activeElement;
+			if (event.shiftKey) {
+				if (active === first || !drawerRef.current.contains(active)) {
+					event.preventDefault();
+					last.focus();
+				}
+			} else if (active === last || !drawerRef.current.contains(active)) {
+				event.preventDefault();
+				first.focus();
 			}
 		};
 

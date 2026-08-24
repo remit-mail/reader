@@ -123,10 +123,10 @@ test.describe("Intelligence where the rail does not fit", () => {
 	});
 
 	// The toolbar's control reaches the same surface the banner does. It is the
-	// only way in for a message with no warning on it, and the scrim covers the
-	// toolbar once the drawer is up, so the drawer's own control is what closes
-	// it again — what the toolbar has to get right is the state it reports on
-	// either side of that.
+	// only way in for a message with no warning on it. The drawer is modal, so
+	// once it is up its scrim covers this toolbar — but the toggle is lifted
+	// above that scrim (#747): the control that opened the modal can act on it,
+	// closing what it opened, while every other verb stays out of reach.
 	test("the toolbar's intelligence control opens the same surface", async ({
 		page,
 		run,
@@ -144,7 +144,8 @@ test.describe("Intelligence where the rail does not fit", () => {
 			"true",
 		);
 
-		await closeControl(page).click();
+		// Aimed at the toolbar through the up drawer: the toggle, not the scrim.
+		await page.getByRole("button", { name: HIDE_INFO }).click();
 		await expect(intelligenceDrawer(page)).toHaveCount(0);
 		await expect(page.getByRole("button", { name: SHOW_INFO })).toHaveAttribute(
 			"aria-pressed",
