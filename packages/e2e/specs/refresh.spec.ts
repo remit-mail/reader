@@ -9,7 +9,10 @@
  * control is clicked.
  */
 import type { Locator, Page } from "@playwright/test";
-import { type AccountSyncStatus, waitFor } from "../src/api.js";
+import {
+	type AccountSyncStatus,
+	waitFor,
+} from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages, waitForServerMailbox } from "../src/imap.js";
 
@@ -17,6 +20,13 @@ const DESKTOP = { width: 1512, height: 864 };
 
 const messageRow = (page: Page, subject: string): Locator =>
 	page.locator("[data-message-row]").filter({ hasText: subject });
+
+/** The phases the worker writes while a sync round is actually running. */
+const SYNC_IN_PROGRESS = new Set([
+	"discovering_mailboxes",
+	"syncing_inbox",
+	"syncing_others",
+]);
 
 const inboxLastSyncedAt = (
 	status: AccountSyncStatus,
@@ -54,12 +64,35 @@ test.describe("Mail refresh (#582)", () => {
 
 	test("clicking the inbox's refresh control drives a real sync round to completion and surfaces the result", async ({
 		page,
+		api,
 		run,
 	}) => {
 		// A first paint, a full sync round and the cleanup's wait on Dovecot all
 		// come out of one budget, and the suite's 60s default does not hold all
 		// three when the round is slow.
 		test.setTimeout(180_000);
+
+		// The setup's own round may still be running when this test starts — its
+		// gate only waited for the INBOX row to exist, not for every folder to
+		// settle, and under load the tail of the round outlives the whole test so
+		// far. A refresh clicked while an earlier round is mid-flight can be
+		// "confirmed" by that round settling instead of by the one the click
+		// enqueued: the control reports done, invalidates the list, and the list
+		// refetch lands before the appended message has synced — the row never
+		// arrives within the window (#761). Waiting for the server to report no
+		// round in flight makes the click's round unambiguous; this is the explicit
+		// wait half of the wait-or-reconcile decision (docs/architecture/
+		// imap-mutations.md), taken here rather than in the client because the tab
+		// cannot distinguish rounds from the status endpoint alone.
+		await waitFor(
+			() => api.getSyncStatus(run.accountId),
+			(status: AccountSyncStatus) =>
+			!SYNC_IN_PROGRESS.has(status.syncPhase ?? "idle"),
+			{
+				timeoutMs: 120_000,
+				what: "any earlier sync round to settle before the click",
+			},
+		);
 
 		await page.goto(`/mail/${run.inboxId}`);
 		await expect(messageRow(page, run.seededSubjects[0])).toBeVisible({
