@@ -300,10 +300,9 @@ export function RoleAppointmentList({
 				</h2>
 				<p className="text-xs text-fg-muted">
 					Each role points to one folder. Pick the folder that holds the mail —
-					the counts help you tell real folders from empty look-alikes.
-					Appointing a folder here removes it from any other role. Each row says
-					where its answer came from — your choice, the mail server's own flag,
-					or a name reader matched.
+					the counts help you tell real folders from empty look-alikes. Each row
+					says where its answer came from — your choice, the mail server's own
+					flag, or a name reader matched.
 				</p>
 			</header>
 			<div className="rounded-sm border border-line bg-surface">
