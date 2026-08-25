@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -167,6 +168,27 @@ describe("the updater entrypoint", () => {
 		assert.equal(calls.filter((c) => c.startsWith("update helper=")).length, 0);
 		// The request is left untouched — nothing consumed it.
 		assert.ok(box.calls().length >= 1);
+	});
+
+	it("serves a panel-requested check off the control volume (#599)", async () => {
+		const box = sandbox();
+		writeFileSync(join(box.control, "check-request.json"), JSON.stringify({}));
+		const child = spawn("sh", [ENTRYPOINT], {
+			env: box.env,
+			detached: true,
+			stdio: "ignore",
+		});
+		try {
+			await waitFor(() =>
+				box.calls().some((c) => c.startsWith("update --check helper=")),
+			);
+		} finally {
+			process.kill(-child.pid, "SIGKILL");
+		}
+		// The request is consumed — a leftover marker must not re-check every
+		// tick — and the check itself runs immediately, not on the cadence.
+		assert.equal(existsSync(join(box.control, "check-request.json")), false);
+		assert.ok(box.calls().some((c) => c.startsWith("update --check helper=")));
 	});
 
 	it("runs a check right after recovery, so state lands without a request", async () => {

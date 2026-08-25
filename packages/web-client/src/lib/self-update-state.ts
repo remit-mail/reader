@@ -261,6 +261,13 @@ function checkSection(
 		return { status: "neverChecked", version: data.currentVersion };
 	}
 
+	// The server accepted an explicit check request (#599): the manifest fetch is
+	// in flight on the updater, so the pane waits on it rather than re-serving
+	// the previous verdict as current.
+	if (check.status === "pending") {
+		return { status: "checking", version: data.currentVersion };
+	}
+
 	const release = releaseFromCheck(data, now);
 	if (release) {
 		return { status: "available", version: data.currentVersion, release };

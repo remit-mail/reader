@@ -1,10 +1,11 @@
 namespace RemitImap;
 
-@doc("Outcome of the most recent manifest check. `ok` when a manifest was fetched and validated, `failed` when it could not be, `disabled` when no manifest URL is configured or no check has ever run (RFC 037 D8).")
+@doc("Outcome of the most recent manifest check. `ok` when a manifest was fetched and validated, `failed` when it could not be, `disabled` when no manifest URL is configured or no check has ever run (RFC 037 D8), `pending` when a check has been requested from the panel and has not yet run — reported only in the response to the request that caused it (#599).")
 enum SystemUpdateCheckStatus {
   ok,
   failed,
   disabled,
+  pending,
 }
 
 @doc("Phase of an update run. Advances through the atomic update sequence; `checking` before anything is pulled, `committing` once the new version has answered the gate (RFC 037 R9, R11).")

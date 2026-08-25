@@ -67,11 +67,15 @@ export interface SelfUpdateApi {
 
 function pollInterval(
 	error: unknown,
+	data: RemitImapSystemUpdateResponse | undefined,
 	run: RemitImapSystemUpdateRun | null,
 	hasHeldRun: boolean,
 ): number | false {
 	if (isSurfaceAbsent(error) && !hasHeldRun) return false;
 	const inFlight = run !== null && run.outcome === null;
+	// A check requested from the panel is in flight on the updater (#599); poll
+	// at the run cadence so the fresh verdict lands without a long wait.
+	if (data?.check.status === "pending") return RUN_POLL_MS;
 	if (hasHeldRun || inFlight) return RUN_POLL_MS;
 	return IDLE_POLL_MS;
 }
@@ -92,6 +96,7 @@ export function useSystemUpdate(): SelfUpdateApi {
 		refetchInterval: (query) =>
 			pollInterval(
 				query.state.error,
+				query.state.data,
 				query.state.data?.run ?? null,
 				heldRef.current !== null,
 			),
@@ -128,8 +133,27 @@ export function useSystemUpdate(): SelfUpdateApi {
 
 	const onCheck = useCallback(() => {
 		setCheckRequested(true);
-		void refetch();
-	}, [refetch]);
+		// A plain refetch only re-reads state.json, so the answer would be exactly
+		// as old as it was before the press. refresh=true has the backend record a
+		// check request for the updater, and reports the check as pending; the
+		// cache takes that view until a poll picks up the updater's own verdict.
+		void queryClient
+			.fetchQuery({
+				...systemOperationsGetSystemUpdateOptions({
+					query: { refresh: true },
+				}),
+				retry: false,
+			})
+			.then((data) => {
+				queryClient.setQueryData(
+					systemOperationsGetSystemUpdateQueryKey(),
+					data,
+				);
+			})
+			.catch(() => {
+				void refetch();
+			});
+	}, [queryClient, refetch]);
 
 	const onRetryConnection = useCallback(() => {
 		void refetch();

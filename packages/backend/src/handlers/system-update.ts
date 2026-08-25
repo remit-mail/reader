@@ -113,6 +113,20 @@ const writeRequest = (request: {
 };
 
 /**
+ * Record a check request on the control seam (#599). The updater consumes it on
+ * its watch loop and runs a manifest check immediately, so a press of check in
+ * the panel — not just the updater's own cadence — moves `lastCheckedAt`. Like
+ * request.json it is written atomically and carries no authority: its presence
+ * is the whole message, so it is empty.
+ */
+const writeCheckRequest = (): void => {
+	const dir = controlDir();
+	const tmp = join(dir, `.check-request.json.tmp`);
+	writeFileSync(tmp, JSON.stringify({}), { mode: 0o644 });
+	renameSync(tmp, join(dir, "check-request.json"));
+};
+
+/**
  * The resource returned by the POST. The updater has not yet written the
  * authoritative run — it polls the seam — so this bootstraps the run block with
  * the id just requested and the first phase, giving the client a `runId` to poll
@@ -157,7 +171,19 @@ export const SystemOperations: Record<
 		const event = args[0] as APIGatewayProxyEvent;
 		if (!getSubFromEvent(event)) return unauthorized();
 
-		return readState() ?? emptyResource();
+		const state = readState() ?? emptyResource();
+
+		// A refresh asks for a fresh answer, and only the updater can fetch one. The
+		// request is recorded on the control seam for the watch loop to pick up; the
+		// response reports the check as pending rather than re-serving an hour-old
+		// verdict as if it were current (#599). The stored state is untouched — the
+		// updater's own check supersedes this view when it lands.
+		if (event.queryStringParameters?.refresh === "true") {
+			writeCheckRequest();
+			return { ...state, check: { status: "pending" } };
+		}
+
+		return state;
 	},
 
 	SystemOperations_applySystemUpdate: async (

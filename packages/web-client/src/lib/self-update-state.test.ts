@@ -242,6 +242,24 @@ describe("deriveUpdateSurface — the surface without a run", () => {
 			"checking",
 		);
 	});
+
+	test("a server-reported pending check waits on the updater instead of re-serving the old verdict (#599)", () => {
+		const result = deriveUpdateSurface(
+			input({ data: response({ check: { status: "pending" } }) }),
+		);
+		assert.equal(
+			result.surface.status === "ready" && result.surface.section.status,
+			"checking",
+		);
+		// And it offers no release: nothing has been checked yet.
+		assert.equal(
+			releaseFromCheck(
+				response({ check: { status: "pending" } }) as never,
+				NOW,
+			),
+			undefined,
+		);
+	});
 });
 
 describe("deriveUpdateSurface — check and run stay independent", () => {

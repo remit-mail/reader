@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -65,9 +66,13 @@ afterEach(() => {
 	delete process.env.REMIT_TAG;
 });
 
-const buildEvent = (sub?: string): APIGatewayProxyEvent =>
+const buildEvent = (
+	sub?: string,
+	query?: Record<string, string>,
+): APIGatewayProxyEvent =>
 	({
 		headers: {},
+		queryStringParameters: query,
 		requestContext: sub ? { authorizer: { claims: { sub } } } : {},
 	}) as unknown as APIGatewayProxyEvent;
 
@@ -128,6 +133,40 @@ describe("GET /system/update", () => {
 		const result = await getUpdate(buildEvent(USER));
 
 		assert.deepEqual(result, okState);
+	});
+
+	it("records a check request on the control volume when refresh is set (#599)", async () => {
+		writeState(okState);
+
+		const result = await getUpdate(buildEvent(USER, { refresh: "true" }));
+
+		// The press reaches the updater through the seam, and the answer reports
+		// the check as in flight instead of re-serving the stored verdict.
+		const file = readFileSync(join(controlDir, "check-request.json"), "utf8");
+		assert.deepEqual(JSON.parse(file), {});
+		assert.deepEqual(result, {
+			...okState,
+			check: { status: "pending" },
+		});
+	});
+
+	it("reports a pending check over an unknown version when no state exists yet", async () => {
+		const result = await getUpdate(buildEvent(USER, { refresh: "true" }));
+
+		assert.deepEqual(result, {
+			currentVersion: "unknown",
+			check: { status: "pending" },
+			run: null,
+		});
+	});
+
+	it("returns 401 and records nothing when a refresh is not authenticated", async () => {
+		writeState(okState);
+
+		const result = await getUpdate(buildEvent(undefined, { refresh: "true" }));
+
+		assert.ok(hasStatus(result, 401));
+		assert.equal(existsSync(join(controlDir, "check-request.json")), false);
 	});
 
 	it("reports an unknown version, not its own process env, when no state file exists", async () => {
