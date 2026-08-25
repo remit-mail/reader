@@ -49,16 +49,13 @@ const closeButton = (): HTMLElement => {
 const render = (isOpen: boolean, children: ReactNode): void => {
 	act(() => {
 		root.render(
-			createElement(
-				Drawer,
-				{
-					isOpen,
-					onClose: () => undefined,
-					ariaLabel: "Message details",
-					side: "right",
-				},
+			createElement(Drawer, {
+				isOpen,
+				onClose: () => undefined,
+				ariaLabel: "Message details",
+				side: "right",
 				children,
-			),
+			}),
 		);
 	});
 };
