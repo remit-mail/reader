@@ -35,6 +35,7 @@ import {
 import { createElement, useEffect } from "react";
 import { ComposeProvider } from "@/components/compose/ComposeProvider";
 import { useTriageContext, useTriageLayer } from "@/hooks/useTriageLayer";
+import { MailFreshnessProvider } from "@/lib/mail-freshness";
 import { useOpenThreadPath } from "@/routing";
 import { createDomHarness, type DomHarness } from "@/test-support/dom";
 import { makeAccount, makeThreadMessage } from "@/test-support/fixtures";
@@ -412,7 +413,14 @@ function BriefLayout() {
 const briefRouter = (href: string): AnyRouter => {
 	const rootRoute = createRootRoute({
 		component: () =>
-			createElement(ComposeProvider, null, createElement(Outlet)),
+			createElement(
+				ComposeProvider,
+				null,
+				createElement(MailFreshnessProvider, {
+					accountIds: [],
+					children: createElement(Outlet),
+				}),
+			),
 	});
 	const mailRoute = createRoute({
 		getParentRoute: () => rootRoute,
