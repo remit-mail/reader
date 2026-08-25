@@ -654,33 +654,51 @@ test.describe("Compose lives in the address (#719)", () => {
 	}) => {
 		// Hold the lazy chunk until the reader is mid-word, then release it into
 		// the middle of the query — the exact timing CI hit, made deterministic.
+		// Bounded so a failed expect below can't strand this spinning forever in
+		// a serial suite.
 		let release = false;
+		let interceptions = 0;
+		const deadline = Date.now() + 60_000;
 
 		await openBrief(page, run.seededSubjects[0]);
 		// Registered only once the shell has loaded: its eager modules ride the
 		// same names, and holding those would hold the page itself.
 		await page.route(/rich-text/, async (route) => {
-			while (!release) await new Promise((r) => setTimeout(r, 50));
+			interceptions++;
+			while (!release && Date.now() < deadline) {
+				await new Promise((r) => setTimeout(r, 50));
+			}
 			await route.continue();
 		});
-		await page.getByRole("button", { name: "Compose", exact: true }).click();
-		const field = searchField(page);
-		await expect(recipients(page)).toBeVisible({ timeout: 30_000 });
 
-		await field.click();
-		await field.pressSequentially("invo", { delay: 100 });
-		release = true;
-		await field.pressSequentially("ice", { delay: 100 });
-		await page.waitForURL(/[?&]q=invoice/);
+		try {
+			await page.getByRole("button", { name: "Compose", exact: true }).click();
+			const field = searchField(page);
+			await expect(recipients(page)).toBeVisible({ timeout: 30_000 });
 
-		await expect(field).toHaveValue("invoice");
-		await expect(page).toHaveURL(COMPOSE_URL);
-		// The race only counts if the surface actually arrived during the query:
-		// without this the test could pass with a chunk that never landed.
-		const body = page.locator("[data-testid=compose-body]");
-		await expect(body).toBeVisible();
-		await expect(body).not.toContainText("invoice");
-		await expect(field).toBeFocused();
+			await field.click();
+			await field.pressSequentially("invo", { delay: 100 });
+
+			const body = page.locator("[data-testid=compose-body]");
+			// If the built chunk stops matching /rich-text/ (the image lane runs
+			// hashed rollup output) the hold silently no-ops — fail loudly here
+			// instead of degrading into a duplicate of the test above.
+			expect(interceptions).toBeGreaterThan(0);
+			await expect(body).toBeHidden();
+
+			release = true;
+			// Wait for the surface to actually land before typing the rest of the
+			// word, so the steal window provably overlaps typing.
+			await expect(body).toBeVisible({ timeout: 30_000 });
+			await field.pressSequentially("ice", { delay: 100 });
+			await page.waitForURL(/[?&]q=invoice/);
+
+			await expect(field).toHaveValue("invoice");
+			await expect(page).toHaveURL(COMPOSE_URL);
+			await expect(field).toBeFocused();
+		} finally {
+			await page.unroute(/rich-text/);
+		}
 	});
 
 	test("back unwinds one surface per press", async ({ page, run }) => {
