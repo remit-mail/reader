@@ -88,17 +88,23 @@ const updateKey = systemOperationsGetSystemUpdateQueryKey();
 const BUDGET_MS =
 	(APPLY_BUDGET_SECONDS + NEVER_CAME_BACK_MARGIN_SECONDS) * 1000;
 
-async function settle(dom: DomHarness): Promise<void> {
-	for (let attempt = 0; attempt < 40; attempt += 1) {
+/**
+ * Poll `ready` across flushes until it holds. A mocked answer still travels
+ * through the fetch seam's own promise chain — the request body, the responder,
+ * the response stream — so the render an assert reads is an unknown number of
+ * turns out, and a fixed count of them is a race under load. Waiting on the
+ * condition itself is what makes these tests deterministic.
+ */
+async function waitFor(
+	dom: DomHarness,
+	ready: () => boolean,
+	what: string,
+): Promise<void> {
+	for (let attempt = 0; attempt < 200; attempt += 1) {
 		await dom.flush();
-		const state = dom.queryClient.getQueryState(updateKey);
-		const done =
-			state &&
-			state.fetchStatus === "idle" &&
-			(state.data !== undefined || state.error != null);
-		if (done) {
-			// The cache has settled; give React the turns to commit the render it
-			// scheduled off that settle before the assert reads the DOM.
+		if (ready()) {
+			// The state is there; give React the turns to commit the render it
+			// scheduled off it before the assert reads the DOM.
 			await dom.flush();
 			await dom.wait(1);
 			await dom.flush();
@@ -106,6 +112,29 @@ async function settle(dom: DomHarness): Promise<void> {
 		}
 		await dom.wait(1);
 	}
+	throw new Error(`timed out waiting for ${what}`);
+}
+
+/** How many times the poll has answered, either way — it never goes backwards. */
+function answers(dom: DomHarness): number {
+	const state = dom.queryClient.getQueryState(updateKey);
+	if (!state) return 0;
+	return state.dataUpdateCount + state.errorUpdateCount;
+}
+
+async function settle(dom: DomHarness): Promise<void> {
+	await waitFor(
+		dom,
+		() => {
+			const state = dom.queryClient.getQueryState(updateKey);
+			return (
+				state !== undefined &&
+				state.fetchStatus === "idle" &&
+				(state.data !== undefined || state.error != null)
+			);
+		},
+		"the update query to answer",
+	);
 }
 
 /**
@@ -152,18 +181,55 @@ async function startUpdate(
 	await act(async () => {
 		api().install("0.9.4");
 		await dom.flush();
-		await dom.wait(1);
+	});
+	await waitFor(
+		dom,
+		() => {
+			const surface = api().surface;
+			return surface.status === "ready" && surface.overlay.kind === "applying";
+		},
+		"the install to be accepted",
+	);
+}
+
+/** Re-poll and wait for the answer, whichever way it lands. */
+async function retryConnection(
+	dom: DomHarness,
+	api: () => SelfUpdateApi,
+): Promise<void> {
+	const before = answers(dom);
+	await act(async () => {
+		api().onRetryConnection();
 		await dom.flush();
 	});
+	await waitFor(
+		dom,
+		() =>
+			dom.queryClient.getQueryState(updateKey)?.fetchStatus === "idle" &&
+			answers(dom) > before,
+		"the re-poll to answer",
+	);
 }
 
 async function press(dom: DomHarness, api: () => SelfUpdateApi): Promise<void> {
+	const before = answers(dom);
 	await act(async () => {
 		api().onCheck();
 		await dom.flush();
-		await dom.wait(1);
-		await dom.flush();
 	});
+	// The press fires a raw SDK call: on success it refetches, so the poll
+	// answers again; on failure the reason lands on the pane.
+	await waitFor(
+		dom,
+		() => {
+			const surface = api().surface;
+			return (
+				answers(dom) > before ||
+				(surface.status === "ready" && surface.section.status === "checkFailed")
+			);
+		},
+		"the pressed check to be requested",
+	);
 }
 
 async function renderSurface(
@@ -298,12 +364,7 @@ describe("SelfUpdateOverlay — the blocking screen", () => {
 		await startUpdate(dom, api);
 
 		failing = true;
-		await act(async () => {
-			api().onRetryConnection();
-			await dom.flush();
-			await dom.wait(1);
-			await dom.flush();
-		});
+		await retryConnection(dom, api);
 
 		const surface = api().surface;
 		assert.equal(
@@ -329,12 +390,7 @@ describe("SelfUpdateOverlay — the blocking screen", () => {
 		const realNow = Date.now;
 		Date.now = () => realNow() + BUDGET_MS + 60_000;
 		try {
-			await act(async () => {
-				api().onRetryConnection();
-				await dom.flush();
-				await dom.wait(1);
-				await dom.flush();
-			});
+			await retryConnection(dom, api);
 			assert.doesNotMatch(dom.html(), /Installing Remit 0\.9\.4/);
 			assert.match(dom.html(), /has not answered since the restart/);
 			assert.match(dom.html(), /remit logs/);
@@ -360,12 +416,7 @@ describe("SelfUpdateOverlay — the blocking screen", () => {
 		await startUpdate(dom, api);
 
 		finished = true;
-		await act(async () => {
-			api().onRetryConnection();
-			await dom.flush();
-			await dom.wait(1);
-			await dom.flush();
-		});
+		await retryConnection(dom, api);
 
 		const surface = api().surface;
 		assert.equal(
@@ -471,10 +522,7 @@ describe("useSystemUpdate — actions", () => {
 		await settle(dom);
 		const afterMount = calls;
 
-		await act(async () => {
-			api().onRetryConnection();
-			await dom.flush();
-		});
+		await retryConnection(dom, api);
 
 		assert.equal(calls > afterMount, true);
 	});
