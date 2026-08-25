@@ -8,7 +8,6 @@ import { ApiError } from "./api";
 import {
 	APPLY_BUDGET_SECONDS,
 	appliesSchemaMigration,
-	CHECK_ANSWER_BUDGET_MS,
 	checkRequestFailureReason,
 	type DeriveInput,
 	deriveUpdateSurface,
@@ -271,37 +270,17 @@ describe("deriveUpdateSurface — the surface without a run", () => {
 		);
 	});
 
-	test("a press the updater never answers becomes a loud failure naming it (#599)", () => {
+	test("a failed press is reported verbatim, never swallowed into the old verdict (#599)", () => {
 		const result = deriveUpdateSurface(
 			input({
 				data: response({
 					check: {
 						status: "ok",
-						updateAvailable: false,
+						updateAvailable: true,
+						latestVersion: "0.9.4",
 						lastCheckedAt: "2026-07-20T11:00:00.000Z",
 					},
 				}),
-				checkPress: {
-					pressedAt: NOW - CHECK_ANSWER_BUDGET_MS - 1,
-					since: "2026-07-20T11:00:00.000Z",
-				},
-			}),
-		);
-		assert.equal(result.surface.status, "ready");
-		if (result.surface.status !== "ready") return;
-		const section = result.surface.section;
-		assert.equal(section.status, "checkFailed");
-		if (section.status !== "checkFailed") return;
-		assert.match(section.reason, /updater did not answer/);
-		assert.match(section.reason, /remit logs updater/);
-		// The age of the answer it is still showing survives the failure.
-		assert.equal(section.lastCheckedAt, Date.parse("2026-07-20T11:00:00.000Z"));
-	});
-
-	test("a refresh request that failed is reported, never swallowed (#599)", () => {
-		const result = deriveUpdateSurface(
-			input({
-				data: response(),
 				checkFailure: checkRequestFailureReason(new ApiError("boom", 500)),
 			}),
 		);
@@ -311,6 +290,8 @@ describe("deriveUpdateSurface — the surface without a run", () => {
 		assert.equal(section.status, "checkFailed");
 		if (section.status !== "checkFailed") return;
 		assert.match(section.reason, /answered 500/);
+		// The age of the answer it is still showing survives the failure.
+		assert.equal(section.lastCheckedAt, Date.parse("2026-07-20T11:00:00.000Z"));
 	});
 });
 

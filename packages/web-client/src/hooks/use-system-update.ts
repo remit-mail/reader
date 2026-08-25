@@ -41,7 +41,6 @@ import { shouldEscalate, softErrorMeta } from "@/lib/error-classifier";
 import { reportFatalError } from "@/lib/fatal-error";
 import {
 	appliesSchemaMigration,
-	CHECK_ANSWER_BUDGET_MS,
 	type CheckPress,
 	checkAnswered,
 	checkRequestFailureReason,
@@ -55,6 +54,19 @@ import {
 
 const IDLE_POLL_MS = 30_000;
 const RUN_POLL_MS = 5_000;
+
+/**
+ * How long a pressed check waits for the updater before the pane calls it a
+ * failure. The backend only records the request; the updater picks it up on a
+ * five-second watch tick, so half a minute is several ticks — patient enough for
+ * a busy box, short enough that a press against a dead updater is answered
+ * rather than left spinning for good.
+ */
+export const CHECK_ANSWER_BUDGET_MS = 30_000;
+
+/** The press was recorded and nothing came back. Names the process and the log. */
+export const UPDATER_SILENT_REASON =
+	"The updater did not answer. Run `remit logs updater` to see why.";
 
 export interface SelfUpdateApi {
 	surface: UpdateSurface;
@@ -77,17 +89,13 @@ function pollInterval(
 	error: unknown,
 	run: RemitImapSystemUpdateRun | null,
 	hasHeldRun: boolean,
-	press: CheckPress | null,
-	now: number,
+	hasPress: boolean,
 ): number | false {
 	if (isSurfaceAbsent(error) && !hasHeldRun) return false;
 	const inFlight = run !== null && run.outcome === null;
-	if (hasHeldRun || inFlight) return RUN_POLL_MS;
-	// A press is waiting on the updater's next watch tick (#599). Poll at the run
-	// cadence for as long as the wait lasts, and no longer: past the budget the
-	// pane has said the updater went quiet, and nothing is coming.
-	if (press !== null && now - press.pressedAt < CHECK_ANSWER_BUDGET_MS)
-		return RUN_POLL_MS;
+	// A press is waiting on the updater's next watch tick (#599), so it polls at
+	// the run cadence — and only until the wait ends, which drops the press.
+	if (hasHeldRun || inFlight || hasPress) return RUN_POLL_MS;
 	return IDLE_POLL_MS;
 }
 
@@ -112,8 +120,7 @@ export function useSystemUpdate(): SelfUpdateApi {
 				query.state.error,
 				query.state.data?.run ?? null,
 				heldRef.current !== null,
-				pressRef.current,
-				Date.now(),
+				pressRef.current !== null,
 			),
 	});
 
@@ -149,6 +156,23 @@ export function useSystemUpdate(): SelfUpdateApi {
 		if (checkPress !== null && checkAnswered(checkPress, query.data))
 			setCheckPress(null);
 	}, [checkPress, query.data]);
+
+	// The wait has to end itself. A poll that answers with the same bytes changes
+	// nothing this hook reads, so nothing would re-render to notice the budget had
+	// run out, and the spinner would sit there for good (#599).
+	useEffect(() => {
+		if (checkPress === null) return;
+		const remaining =
+			checkPress.pressedAt + CHECK_ANSWER_BUDGET_MS - Date.now();
+		const timer = setTimeout(
+			() => {
+				setCheckPress(null);
+				setCheckFailure(UPDATER_SILENT_REASON);
+			},
+			Math.max(0, remaining),
+		);
+		return () => clearTimeout(timer);
+	}, [checkPress]);
 
 	const { refetch } = query;
 

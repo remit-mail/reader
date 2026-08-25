@@ -36,19 +36,6 @@ import { getErrorStatus } from "./error-classifier";
 export const APPLY_BUDGET_SECONDS = 600;
 export const NEVER_CAME_BACK_MARGIN_SECONDS = 300;
 
-/**
- * How long a pressed check waits for the updater before the pane calls it a
- * failure. The backend only records the request; the updater picks it up on a
- * five-second watch tick, so half a minute is several ticks — patient enough for
- * a busy box, short enough that a press against a dead updater is answered
- * rather than left spinning for good.
- */
-export const CHECK_ANSWER_BUDGET_MS = 30_000;
-
-/** The press was recorded and nothing came back. Names the process and the log. */
-export const UPDATER_SILENT_REASON =
-	"The updater did not answer. Run `remit logs updater` to see why.";
-
 /** Shown on the dead-connection screens, where no server-authored command exists. */
 export const FALLBACK_LOGS_COMMAND = "remit logs";
 
@@ -307,18 +294,11 @@ function checkSection(
 		};
 	}
 
-	// The press is recorded and the updater has not answered it. The pane waits
-	// on a genuinely newer `lastCheckedAt` rather than re-serving the verdict it
-	// already had, and stops waiting rather than spinning for good (#599).
+	// The press is recorded and the updater has not answered it: the pane waits on
+	// a genuinely newer `lastCheckedAt` rather than re-serving the verdict it
+	// already had (#599). The caller drops the press when the wait runs out, which
+	// arrives here as a failure.
 	if (press !== null && !checkAnswered(press, data)) {
-		if (now - press.pressedAt >= CHECK_ANSWER_BUDGET_MS) {
-			return {
-				status: "checkFailed",
-				version: data.currentVersion,
-				reason: UPDATER_SILENT_REASON,
-				lastCheckedAt,
-			};
-		}
 		return { status: "checking", version: data.currentVersion };
 	}
 

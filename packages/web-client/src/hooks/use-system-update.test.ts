@@ -19,7 +19,6 @@ import { SelfUpdatePanel } from "../components/settings/SelfUpdatePanel";
 import { __resetFatalError, getCurrentFatalError } from "../lib/fatal-error";
 import {
 	APPLY_BUDGET_SECONDS,
-	CHECK_ANSWER_BUDGET_MS,
 	NEVER_CAME_BACK_MARGIN_SECONDS,
 } from "../lib/self-update-state";
 import { createDomHarness, type DomHarness } from "../test-support/dom";
@@ -30,6 +29,7 @@ import {
 	mockFetch,
 } from "../test-support/http";
 import {
+	CHECK_ANSWER_BUDGET_MS,
 	type SelfUpdateApi,
 	SelfUpdateProvider,
 	useSelfUpdate,
@@ -480,26 +480,29 @@ describe("useSystemUpdate — actions", () => {
 	});
 
 	test("a press the updater never answers ends loudly, not in a spinner (#599)", async () => {
+		// The poll keeps answering with the same bytes, so nothing the hook reads
+		// changes and no render would notice the wait running out on its own.
 		const { dom, api } = mountApi(
 			() => available,
 			createElement(SelfUpdatePanel),
 		);
 		await settle(dom);
 
-		await press(dom, api);
-		assert.match(dom.html(), /Looking for a newer version/);
-
 		const realNow = Date.now;
-		Date.now = () => realNow() + CHECK_ANSWER_BUDGET_MS + 1_000;
 		try {
 			await act(async () => {
-				api().onRetryConnection();
+				api().onCheck();
+				// The press is stamped off the real clock; the wait it then arms is
+				// measured against one already past the budget, so the deadline the
+				// hook sets for itself lands on the next tick, not in half a minute.
+				Date.now = () => realNow() + CHECK_ANSWER_BUDGET_MS + 1_000;
 				await dom.flush();
-				await dom.wait(1);
+				await dom.wait(5);
 				await dom.flush();
 			});
 			assert.match(dom.html(), /The updater did not answer/);
 			assert.match(dom.html(), /remit logs updater/);
+			assert.doesNotMatch(dom.html(), /Looking for a newer version/);
 		} finally {
 			Date.now = realNow;
 		}
