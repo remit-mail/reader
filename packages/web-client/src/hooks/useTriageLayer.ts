@@ -14,9 +14,12 @@
  * context comes first, the pane builds its handlers from it, and the keyboard
  * registration comes last.
  *
- * While a thread is open, `ConversationView` binds its own window listener
- * for the messages inside it — `hasOpenThread` hands over every key aimed at a
- * message rather than the two listeners racing for it (#723).
+ * While a thread is open, `ConversationView` binds its own window listener for
+ * the messages inside it, and both used to act on one press (#723). The split
+ * is the one `shortcut-tree` already declares: the cursor keys belong to
+ * whichever surface has a list on screen, and answering a thread belongs to
+ * the open thread — so `hasOpenThread` hands r, a and f over, and the list
+ * keeps j/k, Home/End and Enter for as long as it is mounted.
  */
 import { type TriageHandlers, useTriageKeyboard } from "@remit/ui";
 import { type RefObject, useCallback, useRef, useState } from "react";
@@ -88,15 +91,13 @@ interface UseTriageLayerOptions {
 	/** The pane's own verbs — reply, star, delete and the rest. */
 	handlers: TriageHandlers;
 	/**
-	 * A thread is open, so `ConversationView` is mounted and binds its own
-	 * j/k/Enter/r/f for walking and answering the messages inside it. This
-	 * layer's window listener drops all eight of the actions the conversation
-	 * has taken over (`focusNext`, `focusPrevious`, `focusFirst`, `focusLast`,
-	 * `openFocused`, `reply`, `replyAll`, `forward`) while that is true, so the
-	 * two window listeners never both act on one keypress (#723). The three the
-	 * conversation has no binding of its own for — Home, End and `a` — go
-	 * nowhere rather than moving a cursor nobody can see or answering a message
-	 * other than the one `r` answers.
+	 * A thread is open, so `ConversationView` is mounted and answers for it.
+	 * This layer drops the three verbs aimed at a whole message — `reply`,
+	 * `replyAll` and `forward` — while that is true, so one press opens one
+	 * reply (#723) and `a` can never answer a different message than `r` just
+	 * did. The cursor keys are not in here: a mounted list keeps those at every
+	 * width, and it is the conversation that stands down from them wherever the
+	 * list is on screen beside it (`ConversationView.listOnScreen`).
 	 */
 	hasOpenThread?: boolean;
 }
@@ -141,15 +142,11 @@ export const useTriageLayer = ({
 			// Enter, Space and ⌘A — select-all-text in the reading pane still works.
 			...(hasList
 				? {
-						...(hasOpenThread
-							? {}
-							: {
-									focusNext: () => listCommandsRef.current?.focusNext(),
-									focusPrevious: () => listCommandsRef.current?.focusPrevious(),
-									focusFirst: () => listCommandsRef.current?.focusFirst(),
-									focusLast: () => listCommandsRef.current?.focusLast(),
-									openFocused: () => listCommandsRef.current?.openFocused(),
-								}),
+						focusNext: () => listCommandsRef.current?.focusNext(),
+						focusPrevious: () => listCommandsRef.current?.focusPrevious(),
+						focusFirst: () => listCommandsRef.current?.focusFirst(),
+						focusLast: () => listCommandsRef.current?.focusLast(),
+						openFocused: () => listCommandsRef.current?.openFocused(),
 						toggleSelect: () => listCommandsRef.current?.toggleSelect(),
 						extendSelectDown: () => listCommandsRef.current?.extendSelectDown(),
 						extendSelectUp: () => listCommandsRef.current?.extendSelectUp(),

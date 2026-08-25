@@ -56,6 +56,14 @@ interface ConversationViewProps {
 	onSwipePrevious?: () => void;
 	/** Whether the intelligence drawer is currently open (drives the ⓘ button pressed state). */
 	mobileIntelligenceOpen?: boolean;
+	/**
+	 * The message list is on screen beside this conversation, so it — not this
+	 * pane — owns j/k, the arrows and Enter (`shortcut-tree`: those sit at
+	 * `detail` only where no list is visible). Both used to act on the same
+	 * press, moving two cursors at once (#723). Answering the conversation is
+	 * unaffected: r, R and f are the open thread's at every width.
+	 */
+	listOnScreen?: boolean;
 }
 
 const LoadingSkeleton = () => (
@@ -87,6 +95,7 @@ export const ConversationView = ({
 	onSwipeNext,
 	onSwipePrevious,
 	mobileIntelligenceOpen,
+	listOnScreen = false,
 }: ConversationViewProps) => {
 	const isDesktop = useIsDesktop();
 	const { handlers: swipeHandlers } = useSwipeNavigation({
@@ -277,12 +286,23 @@ export const ConversationView = ({
 	useKeyboardNavigation({
 		enabled: !isLoading && messages.length > 0 && reply === undefined,
 		bindings: [
-			{ key: "j", handler: focusNext, preventDefault: true },
-			{ key: "ArrowDown", handler: focusNext, preventDefault: true },
-			{ key: "k", handler: focusPrevious, preventDefault: true },
-			{ key: "ArrowUp", handler: focusPrevious, preventDefault: true },
-			{ key: "Enter", handler: toggleFocusedMessage, preventDefault: true },
-			{ key: "o", handler: toggleFocusedMessage, preventDefault: true },
+			// Left unbound rather than bound and guarded: an unbound key is never
+			// preventDefault-ed, so it reaches the list's own window listener
+			// instead of the two racing on one press.
+			...(listOnScreen
+				? []
+				: [
+						{ key: "j", handler: focusNext, preventDefault: true },
+						{ key: "ArrowDown", handler: focusNext, preventDefault: true },
+						{ key: "k", handler: focusPrevious, preventDefault: true },
+						{ key: "ArrowUp", handler: focusPrevious, preventDefault: true },
+						{
+							key: "Enter",
+							handler: toggleFocusedMessage,
+							preventDefault: true,
+						},
+						{ key: "o", handler: toggleFocusedMessage, preventDefault: true },
+					]),
 			{ key: "r", handler: handleReply, preventDefault: true },
 			{
 				key: "R",

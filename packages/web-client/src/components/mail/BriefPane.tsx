@@ -360,6 +360,7 @@ function BriefReading() {
 							selectedMessageId={conversation.messageId}
 							authenticity={conversation.authenticity}
 							onOpenIntelligence={intelligence.open}
+							listOnScreen
 						/>
 					) : (
 						<ReadingPaneEmpty />

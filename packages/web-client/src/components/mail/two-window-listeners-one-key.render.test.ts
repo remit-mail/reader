@@ -6,15 +6,21 @@
  * conversation's own message cursor) each bind their own keydown listener on
  * `window`. Both used to act on the same press, so opening a thread and
  * pressing `j` once walked the list underneath it and the conversation on top
- * of it at the same time. `hasOpenThread` is what makes `useTriageLayer` drop
- * the keys the conversation already owns instead of racing it for them.
+ * of it at the same time.
+ *
+ * Each key is settled where `shortcut-tree` already declares it, rather than
+ * handing the open thread everything: `focusNext`/`focusPrevious` sit at
+ * `detail` only where no list is visible, so a list on screen keeps the cursor
+ * keys and `ConversationView` stands down from them; `reply`/`replyAll`/
+ * `forward` sit at `detail` on `threadOpen` alone, so the open thread answers
+ * at every width and the layer drops all three.
  *
  * The first half stands the list in with a stub `MessageListCommands` — the
  * same seam `MailboxPane` wires the real list through (`listCommandsRef`), so
  * every key the list would have served is recorded rather than inferred,
  * without the real list's virtualization along for the ride. The second half
  * gives up that reading to mount a real pane instead, because what each pane
- * actually passes for `hasOpenThread` is the other half of the handover.
+ * passes for `hasOpenThread` is the other half of the handover.
  */
 
 import assert from "node:assert/strict";
@@ -148,6 +154,14 @@ const press = async (mounted: DomHarness, key: string): Promise<void> => {
 };
 
 /**
+ * The two shapes a pane takes with a thread open: `two-pane` is the desktop
+ * reading pane, where the list stays mounted beside the conversation, and
+ * `conversation-only` is the phone view, where opening a thread takes the list
+ * off screen entirely.
+ */
+type Surface = "two-pane" | "conversation-only";
+
+/**
  * The pane's own wiring, the way `MailboxPane` binds it to the real list: the
  * layer over a stub list, with the conversation mounted above it exactly while
  * a thread is open. Every list action and every pane verb the stub is asked for
@@ -156,12 +170,15 @@ const press = async (mounted: DomHarness, key: string): Promise<void> => {
  */
 function PaneShell({
 	hasOpenThread,
+	surface,
 	onListAction,
 }: {
 	hasOpenThread: boolean;
+	surface: Surface;
 	onListAction: (action: string) => void;
 }) {
 	const triage = useTriageContext();
+	const hasList = surface === "two-pane";
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: registered once, the way a mounted list reports itself once — the stub never changes shape across the test.
 	useEffect(() => {
@@ -179,11 +196,11 @@ function PaneShell({
 			requestVerb: () => false,
 			toggleDensity: () => onListAction("toggleDensity"),
 		};
-		triage.listCommandsRef.current = commands;
+		triage.listCommandsRef.current = hasList ? commands : null;
 		triage.onTriageContextChange({
 			focusedMessageId: MESSAGE_ID,
 			selectedIds: [],
-			hasList: true,
+			hasList,
 			blocksKeyboard: false,
 			orderedIds: [MESSAGE_ID, OTHER_MESSAGE_ID],
 		});
@@ -209,11 +226,13 @@ function PaneShell({
 		mailboxId: MAILBOX_ID,
 		subject: "Lunch Thursday?",
 		selectedMessageId: MESSAGE_ID,
+		listOnScreen: hasList,
 	});
 }
 
 const testRouter = (
 	href: string,
+	surface: Surface,
 	onListAction: (action: string) => void,
 ): AnyRouter => {
 	const rootRoute = createRootRoute({
@@ -229,7 +248,11 @@ const testRouter = (
 		getParentRoute: () => mailboxRoute,
 		path: "/",
 		component: () =>
-			createElement(PaneShell, { hasOpenThread: false, onListAction }),
+			createElement(PaneShell, {
+				hasOpenThread: false,
+				surface: "two-pane",
+				onListAction,
+			}),
 	});
 	const threadRoute = createRoute({
 		getParentRoute: () => mailboxRoute,
@@ -239,7 +262,11 @@ const testRouter = (
 		getParentRoute: () => threadRoute,
 		path: "$messageId",
 		component: () =>
-			createElement(PaneShell, { hasOpenThread: true, onListAction }),
+			createElement(PaneShell, {
+				hasOpenThread: true,
+				surface,
+				onListAction,
+			}),
 	});
 	const replyRoute = createRoute({
 		getParentRoute: () => messageRoute,
@@ -259,6 +286,7 @@ const testRouter = (
 
 const mount = async (
 	href: string,
+	surface: Surface,
 	onListAction: (action: string) => void,
 ): Promise<[DomHarness, AnyRouter]> => {
 	http = mockFetch((call) => {
@@ -270,7 +298,7 @@ const mount = async (
 		return { items: [] };
 	});
 
-	const router = testRouter(href, onListAction);
+	const router = testRouter(href, surface, onListAction);
 	await router.load();
 	const mounted = createDomHarness();
 	harness = mounted;
@@ -297,10 +325,10 @@ const focusedTurn = (mounted: DomHarness): string => {
 	return focused[0]?.textContent ?? "";
 };
 
-describe("one press with a thread open (#723)", () => {
-	it("j moves the conversation's cursor and leaves the pane's list cursor alone", async () => {
+describe("one press with a thread open beside the list (#723)", () => {
+	it("j moves the list's cursor and leaves the conversation's alone", async () => {
 		const listActions: string[] = [];
-		const [mounted] = await mount(MESSAGE_PATH, (action) =>
+		const [mounted] = await mount(MESSAGE_PATH, "two-pane", (action) =>
 			listActions.push(action),
 		);
 
@@ -311,20 +339,36 @@ describe("one press with a thread open (#723)", () => {
 
 		await press(mounted, "j");
 
-		assert.ok(
-			focusedTurn(mounted).includes("Grace Hopper"),
-			"j moved the conversation's own cursor to the next turn",
-		);
 		assert.deepEqual(
 			listActions,
-			[],
-			"the pane's list cursor took no action — the conversation is the sole owner of j while its thread is open",
+			["focusNext"],
+			"the visible list is the one surface j moves, and it did not move",
+		);
+		assert.ok(
+			focusedTurn(mounted).includes("Ada Lovelace"),
+			"the conversation walked its own turns as well, so one press moved two cursors",
 		);
 	});
 
-	it("r answers the conversation rather than the row the pane is aimed at", async () => {
+	it("Home and End reach the list the reader can see", async () => {
 		const listActions: string[] = [];
-		const [mounted, router] = await mount(MESSAGE_PATH, (action) =>
+		const [mounted] = await mount(MESSAGE_PATH, "two-pane", (action) =>
+			listActions.push(action),
+		);
+
+		await press(mounted, "Home");
+		await press(mounted, "End");
+
+		assert.deepEqual(
+			listActions,
+			["focusFirst", "focusLast"],
+			"the ends of the visible list stopped answering with a thread open",
+		);
+	});
+
+	it("r answers the open conversation rather than the row the pane is aimed at", async () => {
+		const listActions: string[] = [];
+		const [mounted, router] = await mount(MESSAGE_PATH, "two-pane", (action) =>
 			listActions.push(action),
 		);
 
@@ -342,24 +386,21 @@ describe("one press with a thread open (#723)", () => {
 		);
 	});
 
-	// Home, End and `a` are the half of the handover the conversation has no
-	// binding of its own for. Kept by the layer they act on the list under the
-	// open thread, where End walks a cursor nobody can see and `a` answers a
-	// different message than `r` just did.
-	it("Home, End and a go nowhere rather than reaching the list underneath", async () => {
+	// `a` is the verb with no binding in the conversation — it answers with `R`
+	// there. Left registered on the pane it would answer the row the list cursor
+	// happens to be on, which is a different message than `r` just answered.
+	it("a goes nowhere rather than answering a different message than r", async () => {
 		const listActions: string[] = [];
-		const [mounted, router] = await mount(MESSAGE_PATH, (action) =>
+		const [mounted, router] = await mount(MESSAGE_PATH, "two-pane", (action) =>
 			listActions.push(action),
 		);
 
-		await press(mounted, "Home");
-		await press(mounted, "End");
 		await press(mounted, "a");
 
 		assert.deepEqual(
 			listActions,
 			[],
-			"a key the conversation owns while it is open still reached the list",
+			"the pane answered a message of its own choosing under the open conversation",
 		);
 		assert.equal(
 			router.state.location.pathname,
@@ -369,21 +410,43 @@ describe("one press with a thread open (#723)", () => {
 	});
 });
 
-describe("the same keys with no thread open (#723)", () => {
-	it("hands j, End and a back to the list", async () => {
+describe("one press with the conversation alone on screen (#723)", () => {
+	it("j moves the conversation's own cursor once the list is off screen", async () => {
 		const listActions: string[] = [];
-		const [mounted] = await mount(LIST_PATH, (action) =>
+		const [mounted] = await mount(MESSAGE_PATH, "conversation-only", (action) =>
 			listActions.push(action),
 		);
 
+		assert.ok(
+			focusedTurn(mounted).includes("Ada Lovelace"),
+			"the conversation cursor starts on the latest turn",
+		);
+
 		await press(mounted, "j");
-		await press(mounted, "End");
+
+		assert.ok(
+			focusedTurn(mounted).includes("Grace Hopper"),
+			"the conversation lost j to a list the reader cannot see",
+		);
+		assert.deepEqual(listActions, [], "an unmounted list still took the press");
+	});
+});
+
+describe("the verbs with no thread open (#723)", () => {
+	it("hands r, a and f back to the pane", async () => {
+		const listActions: string[] = [];
+		const [mounted] = await mount(LIST_PATH, "two-pane", (action) =>
+			listActions.push(action),
+		);
+
+		await press(mounted, "r");
 		await press(mounted, "a");
+		await press(mounted, "f");
 
 		assert.deepEqual(
 			listActions,
-			["focusNext", "focusLast", "replyAll"],
-			"the layer kept the keys dropped after the conversation closed",
+			["reply", "replyAll", "forward"],
+			"the layer kept the verbs dropped after the conversation closed",
 		);
 	});
 });
@@ -418,6 +481,7 @@ const briefRouter = (href: string): AnyRouter => {
 				null,
 				createElement(MailFreshnessProvider, {
 					accountIds: [],
+					// biome-ignore lint/correctness/noChildrenProp: no JSX in a `.ts` test, and createElement's variadic children do not satisfy a required prop
 					children: createElement(Outlet),
 				}),
 			),

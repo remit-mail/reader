@@ -1124,6 +1124,7 @@ function MailboxReading() {
 			selectedMessageId={conversation.messageId}
 			authenticity={conversation.authenticity}
 			onOpenIntelligence={intelligence.open}
+			listOnScreen
 		/>
 	) : (
 		<ReadingPaneEmpty />
