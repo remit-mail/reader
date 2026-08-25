@@ -9,7 +9,9 @@
  * Answering a message is not here: reply, reply-all and forward are a segment
  * under the message, so they are a navigation rather than a verb a pane holds.
  */
+import { threadDetailOperationsListThreadMessagesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
+import { useQuery } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { useDeleteMessages } from "@/hooks/useDeleteMessages";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
@@ -72,6 +74,24 @@ export const useThreadActions = ({
 		mailboxId: resolvedMailboxId ?? "",
 	});
 
+	// The conversation the pane has open, on the key `ConversationView` already
+	// holds — one request, one cache entry, and the toolbar and the message card
+	// answer from the same row. A list row is a copy that survives its listing:
+	// once the mail no longer matches the browsed predicate the row stops being
+	// refreshed, and a star read off it is whatever was true when it was last
+	// listed (#602).
+	const { data: conversation } = useQuery({
+		...threadDetailOperationsListThreadMessagesOptions({
+			path: { threadId: thread?.threadId ?? "" },
+		}),
+		enabled: Boolean(thread?.threadId),
+	});
+
+	const openMessage = conversation?.items.find(
+		(message) => message.messageId === thread?.messageId,
+	);
+	const isStarred = openMessage?.hasStars ?? thread?.hasStars;
+
 	const deleteThread = useCallback(() => {
 		if (!thread) return;
 		deleteMessages(threadMessageIds(thread));
@@ -87,13 +107,13 @@ export const useThreadActions = ({
 
 	const toggleStar = useCallback(() => {
 		if (!thread) return;
-		toggleStarFor(thread.messageId, thread.hasStars);
-	}, [thread, toggleStarFor]);
+		toggleStarFor(thread.messageId, isStarred ?? false);
+	}, [thread, isStarred, toggleStarFor]);
 
 	return {
 		mailboxId: resolvedMailboxId,
 		accountId: resolvedAccountId,
-		isStarred: thread?.hasStars,
+		isStarred,
 		deleteThread,
 		moveThread,
 		toggleStar,

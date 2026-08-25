@@ -166,6 +166,7 @@ export function MailActionToolbar({
 							}
 							title={flagTitle}
 							aria-label="Star"
+							aria-pressed={Boolean(isStarred)}
 							onClick={act("flag", onToggleStar)}
 						/>
 					</>
