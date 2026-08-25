@@ -393,9 +393,12 @@ function AccountsSettings() {
 					{config.accounts.map((account) => {
 						const isReauth = needsReauth(account);
 						const isOAuthAccount = account.authType === "oauthMicrosoft";
-						const isReconnecting =
-							reconnectingAccountId === account.accountId &&
-							reconnectMutation.isPending;
+						// The mutation settling does not mean the window has gone anywhere:
+						// `assign` leaves the page here while the browser fetches Microsoft's
+						// page. The busy state rides the latch instead, which only clears on
+						// evidence — the server saying the account no longer needs re-auth,
+						// or the start call failing.
+						const isReconnecting = reconnectingAccountId === account.accountId;
 
 						const primaryAction: RowAction =
 							isReauth && isOAuthAccount

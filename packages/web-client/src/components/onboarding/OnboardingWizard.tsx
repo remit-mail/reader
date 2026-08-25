@@ -284,6 +284,12 @@ function StepMicrosoftEmail({
 	const [error, setError] = useState<string | null>(null);
 	const [awaitingReturn, setAwaitingReturn] = useState(false);
 	const [preparing, setPreparing] = useState(false);
+	// `visibilitychange` fires for every look at this window, including one
+	// taken while the redirect is still fetching Microsoft's page — app-switch
+	// away and back lands here with the page never having left. Being looked at
+	// only proves the redirect ended once the page has actually been hidden,
+	// so a look counts as evidence only after a hidden interval since it began.
+	const hiddenSinceRedirect = useRef(false);
 	// The account read is in flight across a step the user can leave — Escape and
 	// Back both unmount it — and it ends in a redirect that would take the whole
 	// window with it.
@@ -333,8 +339,9 @@ function StepMicrosoftEmail({
 	useReturnFromRedirect(
 		awaitingReturn,
 		useCallback(() => {
-			// Being looked at again is the proof the redirect is over, however it
-			// ended: the window that was leaving is back, so the button is too.
+			if (!hiddenSinceRedirect.current) return;
+			// The window that was leaving is back, so the button is too.
+			hiddenSinceRedirect.current = false;
 			setPreparing(false);
 			void refetchConfig().then(({ data, isError }) => {
 				if (!stepIsMounted.current) return;
@@ -353,6 +360,21 @@ function StepMicrosoftEmail({
 		}, [refetchConfig, onConnected]),
 	);
 
+	useEffect(() => {
+		if (!awaitingReturn) return;
+		const handle = () => {
+			if (document.visibilityState === "hidden") {
+				hiddenSinceRedirect.current = true;
+			}
+		};
+		document.addEventListener("visibilitychange", handle);
+		window.addEventListener("pagehide", handle);
+		return () => {
+			document.removeEventListener("visibilitychange", handle);
+			window.removeEventListener("pagehide", handle);
+		};
+	}, [awaitingReturn]);
+
 	// The account list is read first and the redirect goes from what it says, so
 	// the window that comes back has something to recognise a new account
 	// against. A list that cannot be read stops the flow here, where it can be
@@ -362,6 +384,7 @@ function StepMicrosoftEmail({
 	const handleSubmit = () => {
 		if (redirecting) return;
 		setError(null);
+		hiddenSinceRedirect.current = false;
 		setPreparing(true);
 		void refetchConfig().then(({ data, isError }) => {
 			if (!stepIsMounted.current) return;
