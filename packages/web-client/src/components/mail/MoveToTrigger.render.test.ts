@@ -206,6 +206,41 @@ describe("MoveToTrigger", () => {
 		);
 	});
 
+	it("stays open when the press lands inside the portalled panel (#601)", () => {
+		// The panel is not in the trigger's subtree any more, so the outside-press
+		// guard has to recognise it by its own ref — otherwise the first press on
+		// a folder closes the picker before it can be picked.
+		const dom = mount({ mailboxes: FOLDERS });
+		dom.click(dom.byLabel("Move to folder"));
+
+		dom.dispatch(
+			pickerByLabel(dom, "Move to Work"),
+			new dom.window.MouseEvent("mousedown", { bubbles: true }),
+		);
+
+		assert.equal(
+			dom.byLabel("Move to folder").getAttribute("aria-expanded"),
+			"true",
+		);
+	});
+
+	it("takes the keyboard into the picker and hands it back on close", () => {
+		// Regression: with the panel on the body, Tab from the trigger walked on
+		// to the next toolbar button instead of entering the picker.
+		const dom = mount({ mailboxes: FOLDERS });
+		dom.click(dom.byLabel("Move to folder"));
+
+		const filter = pickerRoot(dom).querySelector('input[type="search"]');
+		assert.ok(filter, "the picker has a filter field");
+		assert.equal(dom.document.activeElement, filter);
+
+		dom.dispatch(
+			dom.window.document,
+			new dom.window.KeyboardEvent("keydown", { key: "Escape" }),
+		);
+		assert.equal(dom.document.activeElement, dom.byLabel("Move to folder"));
+	});
+
 	it("refuses to open, and says why, when the selection spans accounts", () => {
 		const hint = "Select messages from one account to move them";
 		const dom = mount({ mailboxes: FOLDERS, disabledHint: hint });

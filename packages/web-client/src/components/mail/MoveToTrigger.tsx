@@ -82,6 +82,7 @@ export const MoveToTrigger = ({
 	const isDesktop = useIsDesktop();
 	const containerRef = useRef<HTMLDivElement>(null);
 	const panelRef = useRef<HTMLDivElement>(null);
+	const triggerRef = useRef<HTMLButtonElement>(null);
 	const triggerLabel = label ?? "Move to folder";
 	const popoverId = useId();
 	const { t } = useTranslation("mail", { useSuspense: false });
@@ -126,6 +127,13 @@ export const MoveToTrigger = ({
 	const close = useCallback(() => {
 		setIsOpen(false);
 		setPickedId(undefined);
+		// The panel is about to unmount. Where the keyboard was inside it, hand
+		// focus back to the trigger rather than dropping it on the body; where it
+		// was elsewhere — a press that landed outside — leave it where it is.
+		const active = document.activeElement;
+		if (active && panelRef.current?.contains(active)) {
+			triggerRef.current?.focus();
+		}
 	}, []);
 
 	// Tapping a folder both picks it and opens it, so the move waits for a
@@ -175,6 +183,7 @@ export const MoveToTrigger = ({
 	const TriggerButton = (
 		<button
 			type="button"
+			ref={triggerRef}
 			onClick={(event) => {
 				event.stopPropagation();
 				if (isTriggerDisabled) return;
@@ -215,6 +224,10 @@ export const MoveToTrigger = ({
 			onSelect={setPickedId}
 			onCreateFolder={createFolderIn}
 			onCancel={close}
+			// The desktop panel is portalled onto the body, so Tab from the
+			// trigger would otherwise walk on to the next toolbar button. The
+			// drawer runs its own focus and must not raise a phone keyboard.
+			autoFocusFilter={isDesktop}
 			labels={{
 				filterPlaceholder: t("move_picker_filter_placeholder", {
 					defaultValue: "Filter folders…",
