@@ -234,6 +234,7 @@ function BriefPaneProvider({ thread, children }: BriefPaneProps) {
 		// would otherwise fire at the message behind whatever is being typed — or
 		// answer a row the cursor moved to while a reply was open.
 		enabled: !isComposing && !isReplying,
+		hasOpenThread: threadId !== undefined,
 		onClose: closeThread,
 		handlers: {
 			reply: () => replyToFocusedThread?.("reply"),

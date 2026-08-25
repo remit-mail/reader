@@ -13,6 +13,10 @@
  * It is two hooks because a pane's verbs are aimed at the focused row: the
  * context comes first, the pane builds its handlers from it, and the keyboard
  * registration comes last.
+ *
+ * While a thread is open, `ConversationView` binds its own window listener
+ * for the messages inside it — `hasOpenThread` hands it the four keys they'd
+ * otherwise both act on (#723) rather than the two racing.
  */
 import { type TriageHandlers, useTriageKeyboard } from "@remit/ui";
 import { type RefObject, useCallback, useRef, useState } from "react";
@@ -83,6 +87,15 @@ interface UseTriageLayerOptions {
 	onClose: () => void;
 	/** The pane's own verbs — reply, star, delete and the rest. */
 	handlers: TriageHandlers;
+	/**
+	 * A thread is open, so `ConversationView` is mounted and binds its own
+	 * j/k/Enter/r/f for walking and answering the messages inside it. This
+	 * layer's window listener drops the matching four actions (`focusNext`,
+	 * `focusPrevious`, `openFocused`, `reply`, `forward`) while that is true,
+	 * so the two window listeners never both act on one keypress (#723) — the
+	 * conversation is the sole owner of those keys until it closes.
+	 */
+	hasOpenThread?: boolean;
 }
 
 export interface TriageLayer {
@@ -99,6 +112,7 @@ export const useTriageLayer = ({
 	enabled = true,
 	onClose,
 	handlers,
+	hasOpenThread = false,
 }: UseTriageLayerOptions): TriageLayer => {
 	const { listCommandsRef, hasList, blocksKeyboard } = context;
 
@@ -106,6 +120,12 @@ export const useTriageLayer = ({
 		if (listCommandsRef.current?.clearSelection()) return;
 		if (selectedMessageId) onClose();
 	}, [listCommandsRef, selectedMessageId, onClose]);
+
+	// Dropped rather than kept and guarded: an unregistered action is never
+	// preventDefault-ed (see useTriageKeyboard), so the keystroke falls through
+	// to ConversationView's own listener instead of two handlers racing on one
+	// keypress.
+	const { reply, forward, ...restHandlers } = handlers;
 
 	useTriageKeyboard({
 		// A modal owns the keyboard outright. Suspending the layer is what keeps a
@@ -118,11 +138,15 @@ export const useTriageLayer = ({
 			// Enter, Space and ⌘A — select-all-text in the reading pane still works.
 			...(hasList
 				? {
-						focusNext: () => listCommandsRef.current?.focusNext(),
-						focusPrevious: () => listCommandsRef.current?.focusPrevious(),
+						...(hasOpenThread
+							? {}
+							: {
+									focusNext: () => listCommandsRef.current?.focusNext(),
+									focusPrevious: () => listCommandsRef.current?.focusPrevious(),
+									openFocused: () => listCommandsRef.current?.openFocused(),
+								}),
 						focusFirst: () => listCommandsRef.current?.focusFirst(),
 						focusLast: () => listCommandsRef.current?.focusLast(),
-						openFocused: () => listCommandsRef.current?.openFocused(),
 						toggleSelect: () => listCommandsRef.current?.toggleSelect(),
 						extendSelectDown: () => listCommandsRef.current?.extendSelectDown(),
 						extendSelectUp: () => listCommandsRef.current?.extendSelectUp(),
@@ -131,7 +155,8 @@ export const useTriageLayer = ({
 					}
 				: {}),
 			back: goBack,
-			...handlers,
+			...restHandlers,
+			...(hasOpenThread ? {} : { reply, forward }),
 		},
 	});
 
