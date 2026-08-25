@@ -65,8 +65,40 @@ const FOLDERS = [
 	makeMailbox({ mailboxId: "mbx-receipts", fullPath: "Receipts" }),
 ];
 
+// The desktop picker renders through a portal into document.body, so its
+// content sits outside the render container these helpers normally scope to.
+const pickerRoot = (dom: DomHarness): ParentNode => {
+	const trigger = dom.byLabel("Move to folder");
+	return trigger.getAttribute("aria-haspopup") === "dialog"
+		? dom.container
+		: dom.document.body;
+};
+
 const rowText = (dom: DomHarness): string[] =>
-	dom.queryAll("[role=treeitem]").map((row) => row.textContent ?? "");
+	[...pickerRoot(dom).querySelectorAll("[role=treeitem]")].map(
+		(row) => row.textContent ?? "",
+	);
+
+const pickerText = (dom: DomHarness): string =>
+	pickerRoot(dom).textContent ?? "";
+
+const pickerByLabel = (dom: DomHarness, label: string): HTMLElement => {
+	const found = pickerRoot(dom).querySelector(`[aria-label="${label}"]`);
+	if (!found) throw new Error(`no picker element labelled "${label}"`);
+	return found as HTMLElement;
+};
+
+const pickerByText = (
+	dom: DomHarness,
+	selector: string,
+	text: string,
+): HTMLElement => {
+	const found = [...pickerRoot(dom).querySelectorAll(selector)].find((node) =>
+		(node.textContent ?? "").includes(text),
+	);
+	if (!found) throw new Error(`no picker ${selector} containing "${text}"`);
+	return found as HTMLElement;
+};
 
 describe("MoveToTrigger", () => {
 	it("reports itself as collapsed until it is opened", () => {
@@ -103,7 +135,7 @@ describe("MoveToTrigger", () => {
 			false,
 		);
 
-		dom.click(dom.byLabel("Move to Work"));
+		dom.click(pickerByLabel(dom, "Move to Work"));
 		assert.ok(rowText(dom).some((label) => label.includes("Clients")));
 	});
 
@@ -117,10 +149,10 @@ describe("MoveToTrigger", () => {
 
 		// Picking a folder also opens it, so the move is a separate press —
 		// otherwise the first tap would fire before anything nested was reachable.
-		dom.click(dom.byLabel("Move to Work"));
+		dom.click(pickerByLabel(dom, "Move to Work"));
 		assert.deepEqual(moved, []);
 
-		dom.click(dom.byText("button", "Move to Work"));
+		dom.click(pickerByText(dom, "button", "Move to Work"));
 		assert.deepEqual(moved, ["mbx-work"]);
 		assert.equal(
 			dom.byLabel("Move to folder").getAttribute("aria-expanded"),
@@ -131,10 +163,10 @@ describe("MoveToTrigger", () => {
 	it("names the destination on the button that runs the move", () => {
 		const dom = mount({ mailboxes: FOLDERS });
 		dom.click(dom.byLabel("Move to folder"));
-		dom.click(dom.byLabel("Move to Work"));
-		dom.click(dom.byLabel("Move to Clients"));
+		dom.click(pickerByLabel(dom, "Move to Work"));
+		dom.click(pickerByLabel(dom, "Move to Clients"));
 
-		assert.match(dom.text(), /Move to Clients/);
+		assert.match(pickerText(dom), /Move to Clients/);
 	});
 
 	it("closes on Escape and on a click outside it", () => {
@@ -157,6 +189,21 @@ describe("MoveToTrigger", () => {
 			new dom.window.MouseEvent("mousedown", { bubbles: true }),
 		);
 		assert.equal(isOpen(), false);
+	});
+
+	it("renders the desktop picker outside its own subtree (#601)", () => {
+		// Regression: an in-place absolute popover is clipped by the reading
+		// pane's overflow-hidden shell and painted underneath the thread list.
+		const dom = mount({ mailboxes: FOLDERS });
+		dom.click(dom.byLabel("Move to folder"));
+
+		const trigger = dom.byLabel("Move to folder");
+		const tree = pickerRoot(dom).querySelector("[role=tree]");
+		assert.ok(tree, "the picker is open");
+		assert.ok(
+			!trigger.parentElement?.contains(tree),
+			"the picker escapes the trigger's subtree via a portal",
+		);
 	});
 
 	it("refuses to open, and says why, when the selection spans accounts", () => {
@@ -212,6 +259,6 @@ describe("MoveToTrigger", () => {
 		dom.click(dom.byLabel("Move to folder"));
 		// No cached mailboxes and no network in the test harness: the picker
 		// shows its loading state rather than an empty list of destinations.
-		assert.match(dom.text(), /Loading folders/);
+		assert.match(pickerText(dom), /Loading folders/);
 	});
 });

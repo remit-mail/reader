@@ -1,5 +1,11 @@
 import { mailboxOperationsListMailboxesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import { Button, cn, type FolderTreeNode, FolderTreePicker } from "@remit/ui";
+import {
+	Button,
+	cn,
+	type FolderTreeNode,
+	FolderTreePicker,
+	PopoverMenuPortal,
+} from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { FolderInput } from "lucide-react";
 import {
@@ -75,6 +81,7 @@ export const MoveToTrigger = ({
 	const [pickedId, setPickedId] = useState<string>();
 	const isDesktop = useIsDesktop();
 	const containerRef = useRef<HTMLDivElement>(null);
+	const panelRef = useRef<HTMLDivElement>(null);
 	const triggerLabel = label ?? "Move to folder";
 	const popoverId = useId();
 	const { t } = useTranslation("mail", { useSuspense: false });
@@ -134,12 +141,13 @@ export const MoveToTrigger = ({
 	useEffect(() => {
 		if (!isOpen || !isDesktop) return;
 		const handlePointer = (event: MouseEvent) => {
-			if (
-				containerRef.current &&
-				!containerRef.current.contains(event.target as Node)
-			) {
-				close();
-			}
+			const target = event.target as Node;
+			if (containerRef.current?.contains(target)) return;
+			// The picker renders through a portal into document.body, so it
+			// sits outside the trigger's subtree — count presses on it as
+			// inside, or picking a folder would close the picker first.
+			if (panelRef.current?.contains(target)) return;
+			close();
 		};
 		// The popover owns Escape while it is open (#732). The global triage
 		// layer listens on window and maps Escape to `back`, which closes the
@@ -158,6 +166,9 @@ export const MoveToTrigger = ({
 			document.removeEventListener("keydown", handleKey);
 		};
 	}, [isOpen, isDesktop, close]);
+
+	const anchorRect = () =>
+		containerRef.current?.getBoundingClientRect() ?? null;
 
 	const isTriggerDisabled = disabled || !!disabledHint;
 
@@ -260,18 +271,27 @@ export const MoveToTrigger = ({
 	return (
 		<div ref={containerRef} className="relative inline-block">
 			{TriggerButton}
-			{isOpen && (
+			{/* Portalled + fixed-positioned: an in-place absolute popover is
+			    clipped by the reading pane's overflow-hidden shell and ends up
+			    painted underneath the thread list (#601). */}
+			<PopoverMenuPortal
+				open={isOpen}
+				align="end"
+				panelRef={panelRef}
+				getAnchor={anchorRect}
+			>
 				<div
 					id={popoverId}
+					ref={panelRef}
 					className={cn(
-						"absolute right-0 mt-1 z-50 w-72 max-h-96 flex flex-col",
+						"w-72 max-h-96 flex flex-col",
 						"bg-surface border border-line rounded-md shadow-lg",
 					)}
 				>
 					{pickerBody}
 					{confirmBar}
 				</div>
-			)}
+			</PopoverMenuPortal>
 		</div>
 	);
 };

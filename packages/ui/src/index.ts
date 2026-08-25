@@ -493,6 +493,7 @@ export {
 	type PopoverMenuItem,
 	PopoverMenuPanel,
 	type PopoverMenuPanelProps,
+	PopoverMenuPortal,
 	type PopoverMenuProps,
 	PopoverMenuRow,
 	type PopoverMenuRowProps,
