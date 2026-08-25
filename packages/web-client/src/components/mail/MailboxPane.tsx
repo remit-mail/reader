@@ -726,6 +726,7 @@ function MailboxPaneProvider({
 		// would otherwise fire at the message behind whatever is being typed — or
 		// answer a row the cursor moved to while a reply was open.
 		enabled: !isComposing && !isReplying,
+		hasOpenThread: threadId !== undefined,
 		onClose: closeThread,
 		handlers: {
 			reply: triageReply,
@@ -1123,6 +1124,7 @@ function MailboxReading() {
 			selectedMessageId={conversation.messageId}
 			authenticity={conversation.authenticity}
 			onOpenIntelligence={intelligence.open}
+			listOnScreen
 		/>
 	) : (
 		<ReadingPaneEmpty />
