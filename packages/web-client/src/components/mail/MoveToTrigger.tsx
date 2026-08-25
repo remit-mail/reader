@@ -141,8 +141,15 @@ export const MoveToTrigger = ({
 				close();
 			}
 		};
+		// The popover owns Escape while it is open (#732). The global triage
+		// layer listens on window and maps Escape to `back`, which closes the
+		// conversation; stopping propagation keeps one press from dismissing
+		// both. A second Escape then reaches the layer and closes as usual.
 		const handleKey = (event: KeyboardEvent) => {
-			if (event.key === "Escape") close();
+			if (event.key === "Escape") {
+				event.stopPropagation();
+				close();
+			}
 		};
 		document.addEventListener("mousedown", handlePointer);
 		document.addEventListener("keydown", handleKey);

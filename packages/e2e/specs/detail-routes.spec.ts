@@ -132,10 +132,16 @@ test.describe("A brief conversation deep-links from cold (#718)", () => {
 		// And the verbs act on it. Move needs the account and the folder the thread
 		// is filed in, which is exactly what a cold address does not carry: the
 		// thread's own rows answer for it, so the button opens a real picker rather
-		// than explaining it has nothing to act on. Left open — Escape is the key
-		// that closes the conversation, so it is not a way to dismiss a popover.
+		// than explaining it has nothing to act on.
 		await page.getByRole("button", { name: "Move to mailbox" }).click();
 		await expect(page.getByText(NO_THREAD_HINT)).toHaveCount(0);
+
+		// One Escape dismisses the popover and leaves the conversation open
+		// (#732); only a second press closes it.
+		await page.keyboard.press("Escape");
+		await expect(
+			page.getByRole("button", { name: "Move to mailbox" }),
+		).toHaveAttribute("aria-expanded", "false");
 		await expect(
 			article.getByRole("heading", { name: subject, exact: true }),
 		).toBeVisible();
@@ -453,10 +459,16 @@ test.describe("A folder's conversation deep-links from cold (#713)", () => {
 		// And the verbs act on it. Move needs the account and the folder the thread
 		// is filed in, which is exactly what a cold address does not carry: the
 		// thread's own rows answer for it, so the button opens a real picker rather
-		// than explaining it has nothing to act on. Left open — Escape is the key
-		// that closes the conversation, so it is not a way to dismiss a popover.
+		// than explaining it has nothing to act on.
 		await page.getByRole("button", { name: "Move to mailbox" }).click();
 		await expect(page.getByText(NO_THREAD_HINT)).toHaveCount(0);
+
+		// One Escape dismisses the popover and leaves the conversation open
+		// (#732); only a second press closes it.
+		await page.keyboard.press("Escape");
+		await expect(
+			page.getByRole("button", { name: "Move to mailbox" }),
+		).toHaveAttribute("aria-expanded", "false");
 		await expect(
 			article.getByRole("heading", { name: subject, exact: true }),
 		).toBeVisible();
@@ -554,10 +566,16 @@ test.describe("A flagged conversation deep-links from cold (#713)", () => {
 		// And the verbs act on it. Move needs the account and the folder the thread
 		// is filed in, which is exactly what a cold address does not carry: the
 		// thread's own rows answer for it, so the button opens a real picker rather
-		// than explaining it has nothing to act on. Left open — Escape is the key
-		// that closes the conversation, so it is not a way to dismiss a popover.
+		// than explaining it has nothing to act on.
 		await page.getByRole("button", { name: "Move to mailbox" }).click();
 		await expect(page.getByText(NO_THREAD_HINT)).toHaveCount(0);
+
+		// One Escape dismisses the popover and leaves the conversation open
+		// (#732); only a second press closes it.
+		await page.keyboard.press("Escape");
+		await expect(
+			page.getByRole("button", { name: "Move to mailbox" }),
+		).toHaveAttribute("aria-expanded", "false");
 		await expect(
 			article.getByRole("heading", { name: target.subject, exact: true }),
 		).toBeVisible();
