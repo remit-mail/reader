@@ -36,6 +36,19 @@ import { getErrorStatus } from "./error-classifier";
 export const APPLY_BUDGET_SECONDS = 600;
 export const NEVER_CAME_BACK_MARGIN_SECONDS = 300;
 
+/**
+ * How long a pressed check waits for the updater before the pane calls it a
+ * failure. The backend only records the request; the updater picks it up on a
+ * five-second watch tick, so half a minute is several ticks — patient enough for
+ * a busy box, short enough that a press against a dead updater is answered
+ * rather than left spinning for good.
+ */
+export const CHECK_ANSWER_BUDGET_MS = 30_000;
+
+/** The press was recorded and nothing came back. Names the process and the log. */
+export const UPDATER_SILENT_REASON =
+	"The updater did not answer. Run `remit logs updater` to see why.";
+
 /** Shown on the dead-connection screens, where no server-authored command exists. */
 export const FALLBACK_LOGS_COMMAND = "remit logs";
 
@@ -55,6 +68,44 @@ export interface HeldRun {
 	phase: UpdatePhase;
 	/** Epoch millis when the client began holding this run. */
 	startedAt: number;
+}
+
+/**
+ * The check this page asked for, held for as long as the page that asked lives.
+ * The server records the request and answers with the state it already had, so
+ * the wait is the client's to keep: `since` is `check.lastCheckedAt` as the
+ * server reported it at the moment of the press, and the answer has landed once
+ * the server reports a different one. Comparing against that stored value rather
+ * than against the press's own clock keeps the rule honest on a box whose clock
+ * differs from the browser's.
+ */
+export interface CheckPress {
+	/** Epoch millis when the control was pressed, for the bounded wait. */
+	pressedAt: number;
+	since: string | undefined;
+}
+
+export function checkAnswered(
+	press: CheckPress,
+	data: RemitImapSystemUpdateResponse | undefined,
+): boolean {
+	const lastCheckedAt = data?.check.lastCheckedAt;
+	return lastCheckedAt !== undefined && lastCheckedAt !== press.since;
+}
+
+/**
+ * Why the request the press fired never reached the seam. The status is named
+ * because a 500 here is a real fault on the box — the control volume unwritable
+ * is the one seen in the wild — and a press that quietly re-served the old
+ * verdict is exactly how #599 stayed invisible for an hour.
+ */
+export function checkRequestFailureReason(error: unknown): string {
+	const status = getErrorStatus(error);
+	const cause =
+		status === undefined
+			? "the server did not answer"
+			: `the server answered ${status}`;
+	return `The check could not be requested — ${cause}. Run \`remit logs backend\` to see why.`;
 }
 
 export type UpdateOverlay =
@@ -82,10 +133,12 @@ export interface DeriveInput {
 	data: RemitImapSystemUpdateResponse | undefined;
 	isError: boolean;
 	error: unknown;
-	isFetching: boolean;
 	held: HeldRun | null;
 	dismissedRunId: string | null;
-	checkRequested: boolean;
+	/** The check this page pressed for, or null when it is not waiting on one. */
+	checkPress: CheckPress | null;
+	/** Why the request that press fired failed, or null when it did not. */
+	checkFailure: string | null;
 	now: number;
 }
 
@@ -238,34 +291,56 @@ function terminalSection(
 
 function checkSection(
 	data: RemitImapSystemUpdateResponse,
-	isChecking: boolean,
+	press: CheckPress | null,
+	failure: string | null,
 	now: number,
 ): SelfUpdateState {
 	const check = data.check;
-	if (isChecking) return { status: "checking", version: data.currentVersion };
+	const lastCheckedAt = parseIso(check.lastCheckedAt);
+
+	if (failure !== null) {
+		return {
+			status: "checkFailed",
+			version: data.currentVersion,
+			reason: failure,
+			lastCheckedAt,
+		};
+	}
+
+	// The press is recorded and the updater has not answered it. The pane waits
+	// on a genuinely newer `lastCheckedAt` rather than re-serving the verdict it
+	// already had, and stops waiting rather than spinning for good (#599).
+	if (press !== null && !checkAnswered(press, data)) {
+		if (now - press.pressedAt >= CHECK_ANSWER_BUDGET_MS) {
+			return {
+				status: "checkFailed",
+				version: data.currentVersion,
+				reason: UPDATER_SILENT_REASON,
+				lastCheckedAt,
+			};
+		}
+		return { status: "checking", version: data.currentVersion };
+	}
 
 	if (check.status === "failed") {
 		return {
 			status: "checkFailed",
 			version: data.currentVersion,
 			reason: check.error ?? "Remit could not reach the update service.",
-			lastCheckedAt: parseIso(check.lastCheckedAt),
+			lastCheckedAt,
 		};
 	}
 
 	// A configured surface that has not run its first check yet is never-checked,
 	// not checking: the updater runs the check on a cadence and has not written a
 	// result. A spinner here would run forever, since nothing on this poll is in
-	// flight. Only a genuine refetch (handled above) shows the spinner.
+	// flight. Only a press this page is still waiting on shows the spinner.
 	if (check.status === "disabled") {
-		return { status: "neverChecked", version: data.currentVersion };
-	}
-
-	// The server accepted an explicit check request (#599): the manifest fetch is
-	// in flight on the updater, so the pane waits on it rather than re-serving
-	// the previous verdict as current.
-	if (check.status === "pending") {
-		return { status: "checking", version: data.currentVersion };
+		return {
+			status: "neverChecked",
+			version: data.currentVersion,
+			lastCheckedAt,
+		};
 	}
 
 	const release = releaseFromCheck(data, now);
@@ -419,7 +494,7 @@ function deriveHeld(
 }
 
 function displayFromData(input: DeriveInput): UpdateSurface {
-	const { data, isError, isFetching, dismissedRunId, checkRequested, now } =
+	const { data, isError, dismissedRunId, checkPress, checkFailure, now } =
 		input;
 
 	if (isError) {
@@ -471,7 +546,7 @@ function displayFromData(input: DeriveInput): UpdateSurface {
 
 	return {
 		status: "ready",
-		section: checkSection(data, checkRequested && isFetching, now),
+		section: checkSection(data, checkPress, checkFailure, now),
 		overlay: { kind: "none" },
 	};
 }

@@ -162,7 +162,7 @@ export const SystemOperations: Record<
 	OperationHandler<SystemOperationIds>
 > = {
 	SystemOperations_getSystemUpdate: async (
-		_context: Context,
+		context: Context,
 		...args: unknown[]
 	): Promise<SystemUpdateResponse | APIGatewayProxyResult> => {
 		const offSurface = guardManifestConfigured();
@@ -171,19 +171,15 @@ export const SystemOperations: Record<
 		const event = args[0] as APIGatewayProxyEvent;
 		if (!getSubFromEvent(event)) return unauthorized();
 
-		const state = readState() ?? emptyResource();
+		// A refresh asks for a fresh answer, and only the updater can fetch one, so
+		// the request goes on the control seam for its watch loop to pick up (#599).
+		// The answer is the stored state as it stands, `lastCheckedAt` included: the
+		// caller holds its own press and watches that timestamp move, so the
+		// response never has to claim a verdict the updater has not reached.
+		const { refresh } = context.request.query as { refresh?: boolean };
+		if (refresh === true) writeCheckRequest();
 
-		// A refresh asks for a fresh answer, and only the updater can fetch one. The
-		// request is recorded on the control seam for the watch loop to pick up; the
-		// response reports the check as pending rather than re-serving an hour-old
-		// verdict as if it were current (#599). The stored state is untouched — the
-		// updater's own check supersedes this view when it lands.
-		if (event.queryStringParameters?.refresh === "true") {
-			writeCheckRequest();
-			return { ...state, check: { status: "pending" } };
-		}
-
-		return state;
+		return readState() ?? emptyResource();
 	},
 
 	SystemOperations_applySystemUpdate: async (

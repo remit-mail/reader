@@ -16,12 +16,19 @@ import { act, createElement, type ReactNode } from "react";
 import { SelfUpdateOverlay } from "../components/self-update/SelfUpdateOverlay";
 import { AdvancedNavIcon } from "../components/settings/AdvancedNavIcon";
 import { SelfUpdatePanel } from "../components/settings/SelfUpdatePanel";
+import { __resetFatalError, getCurrentFatalError } from "../lib/fatal-error";
 import {
 	APPLY_BUDGET_SECONDS,
+	CHECK_ANSWER_BUDGET_MS,
 	NEVER_CAME_BACK_MARGIN_SECONDS,
 } from "../lib/self-update-state";
 import { createDomHarness, type DomHarness } from "../test-support/dom";
-import { type HttpMock, httpError, mockFetch } from "../test-support/http";
+import {
+	type HttpCall,
+	type HttpMock,
+	httpError,
+	mockFetch,
+} from "../test-support/http";
 import {
 	type SelfUpdateApi,
 	SelfUpdateProvider,
@@ -36,9 +43,11 @@ let http: HttpMock | undefined;
 beforeEach(() => {
 	globalThis.localStorage = globalThis.window.localStorage;
 	localStorage.clear();
+	__resetFatalError();
 });
 
 afterEach(() => {
+	__resetFatalError();
 	http?.restore();
 	http = undefined;
 	harness?.close();
@@ -105,12 +114,12 @@ async function settle(dom: DomHarness): Promise<void> {
  * what the real seam returns the moment it accepts the request.
  */
 function mountApi(
-	getResponse: () => unknown,
+	getResponse: (call: HttpCall) => unknown,
 	children: ReactNode = null,
 ): { dom: DomHarness; api: () => SelfUpdateApi } {
 	http = mockFetch((call) => {
 		if (call.path.endsWith("/system/update") && call.method === "GET") {
-			return getResponse();
+			return getResponse(call);
 		}
 		return {
 			currentVersion: "0.9.3",
@@ -142,6 +151,15 @@ async function startUpdate(
 ): Promise<void> {
 	await act(async () => {
 		api().install("0.9.4");
+		await dom.flush();
+		await dom.wait(1);
+		await dom.flush();
+	});
+}
+
+async function press(dom: DomHarness, api: () => SelfUpdateApi): Promise<void> {
+	await act(async () => {
+		api().onCheck();
 		await dom.flush();
 		await dom.wait(1);
 		await dom.flush();
@@ -428,7 +446,23 @@ describe("useSystemUpdate — actions", () => {
 		assert.equal(after.status === "ready" && after.section.status, "upToDate");
 	});
 
-	test("checking and retrying re-poll the surface", async () => {
+	test("the press asks the updater for a check, not another read of the same file (#599)", async () => {
+		// The whole of #599: a plain re-read answers with the verdict it already
+		// had. Only refresh=true records a request the updater will act on.
+		const { dom, api } = mountApi(() => available);
+		await settle(dom);
+		const before = http?.calls.length ?? 0;
+
+		await press(dom, api);
+
+		const refreshes = (http?.calls ?? [])
+			.slice(before)
+			.filter((call) => call.url.includes("refresh=true"));
+		assert.equal(refreshes.length, 1);
+		assert.equal(refreshes[0].method, "GET");
+	});
+
+	test("retrying the connection re-polls the surface", async () => {
 		let calls = 0;
 		const { dom, api } = mountApi(() => {
 			calls += 1;
@@ -438,14 +472,58 @@ describe("useSystemUpdate — actions", () => {
 		const afterMount = calls;
 
 		await act(async () => {
-			api().onCheck();
-			await dom.flush();
-		});
-		await act(async () => {
 			api().onRetryConnection();
 			await dom.flush();
 		});
 
 		assert.equal(calls > afterMount, true);
+	});
+
+	test("a press the updater never answers ends loudly, not in a spinner (#599)", async () => {
+		const { dom, api } = mountApi(
+			() => available,
+			createElement(SelfUpdatePanel),
+		);
+		await settle(dom);
+
+		await press(dom, api);
+		assert.match(dom.html(), /Looking for a newer version/);
+
+		const realNow = Date.now;
+		Date.now = () => realNow() + CHECK_ANSWER_BUDGET_MS + 1_000;
+		try {
+			await act(async () => {
+				api().onRetryConnection();
+				await dom.flush();
+				await dom.wait(1);
+				await dom.flush();
+			});
+			assert.match(dom.html(), /The updater did not answer/);
+			assert.match(dom.html(), /remit logs updater/);
+		} finally {
+			Date.now = realNow;
+		}
+	});
+
+	test("a refused refresh is shown, never swallowed back into the old verdict (#599)", async () => {
+		let refused = false;
+		const { dom, api } = mountApi(
+			(call) =>
+				refused && call.url.includes("refresh=true")
+					? httpError(500)
+					: available,
+			createElement(SelfUpdatePanel),
+		);
+		await settle(dom);
+
+		refused = true;
+		await press(dom, api);
+
+		assert.match(dom.html(), /could not be requested/);
+		assert.match(dom.html(), /answered 500/);
+		assert.doesNotMatch(dom.html(), /Install 0\.9\.4/);
+		// The press is a raw SDK call, outside the cache the global sink watches:
+		// a 5xx escalates from here or from nowhere at all.
+		assert.equal(getCurrentFatalError()?.error !== undefined, true);
 	});
 });

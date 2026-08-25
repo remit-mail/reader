@@ -87,7 +87,7 @@ namespace RemitApi {
 
   @route("/system/update")
   namespace SystemOperations {
-    @doc("Read the self-update resource: the running version, the outcome of the most recent manifest check, and the state of the current or last run. With `refresh=true`, records a check request on the control volume for the updater to pick up and reports the check as `pending`; the stored state is otherwise untouched. Owner-only, and absent (404) unless a manifest URL is configured (RFC 037 D7, D8).")
+    @doc("Read the self-update resource: the running version, the outcome of the most recent manifest check, and the state of the current or last run. With `refresh=true`, records a check request on the control volume for the updater to pick up and answers with the stored state as it stands; the caller watches `check.lastCheckedAt` for the updater's answer. Owner-only, and absent (404) unless a manifest URL is configured (RFC 037 D7, D8).")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
     op getSystemUpdate(@query refresh?: boolean): SystemUpdateResponse;
