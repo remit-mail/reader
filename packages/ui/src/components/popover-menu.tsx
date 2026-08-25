@@ -53,8 +53,11 @@ function clampToViewport(
 /**
  * Measures the anchor and the panel's own size, then keeps the panel's fixed
  * position clamped to the viewport for as long as it is open — reset on every
- * resize and on scroll anywhere in the ancestor chain, since a fixed position
- * does not follow a scrolled anchor on its own.
+ * resize, on scroll anywhere in the ancestor chain (a fixed position does not
+ * follow a scrolled anchor on its own), and whenever the panel's own box
+ * changes. A panel placed once at the size it opened with runs off the bottom
+ * as soon as its content arrives: a loading line gives way to a full list, a
+ * confirmation bar appears on a pick, a filter shrinks it back.
  */
 function useAnchoredPlacement(
 	panelRef: RefObject<HTMLElement | null>,
@@ -92,7 +95,14 @@ function useAnchoredPlacement(
 		place();
 		window.addEventListener("resize", place);
 		window.addEventListener("scroll", place, true);
+		const panel = panelRef.current;
+		let observer: ResizeObserver | null = null;
+		if (panel && typeof ResizeObserver !== "undefined") {
+			observer = new ResizeObserver(place);
+			observer.observe(panel);
+		}
 		return () => {
+			observer?.disconnect();
 			window.removeEventListener("resize", place);
 			window.removeEventListener("scroll", place, true);
 		};
@@ -116,6 +126,11 @@ export interface PopoverMenuPortalProps {
  * page — the compose body, a card, anything with its own `overflow` — no
  * matter how high its `z-index` climbs; escaping that ancestor takes leaving
  * its DOM subtree, which only a portal does.
+ *
+ * The wrapper carries the menu layer's own `z-50`: as a body child it would
+ * otherwise stack by document order alone and lose to every fixed surface
+ * already on the page. `z-[60]` stays above it, for confirmation dialogs and
+ * error banners that must cover an open menu.
  */
 export function PopoverMenuPortal({
 	open,
@@ -127,7 +142,10 @@ export function PopoverMenuPortal({
 	const style = useAnchoredPlacement(panelRef, open, align, getAnchor);
 	if (!open) return null;
 	return createPortal(
-		<div style={style ?? { position: "fixed", visibility: "hidden" }}>
+		<div
+			className="z-50"
+			style={style ?? { position: "fixed", visibility: "hidden" }}
+		>
 			{children}
 		</div>,
 		document.body,

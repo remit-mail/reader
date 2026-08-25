@@ -102,6 +102,12 @@ export interface FolderTreePickerProps {
 	) => Promise<FolderTreeNode>;
 	/** Escape. The picker never owns its presentation, so it cannot close itself. */
 	onCancel?: () => void;
+	/**
+	 * Takes focus on mount. A picker that opens away from where it was triggered
+	 * — a portalled popover — leaves the keyboard behind on the trigger, so Tab
+	 * walks the surrounding toolbar instead of entering the tree.
+	 */
+	autoFocusFilter?: boolean;
 	/** The provider's hierarchy separator. */
 	delimiter?: string;
 	labels?: FolderTreePickerLabels;
@@ -147,6 +153,7 @@ export const FolderTreePicker = ({
 	onCancel,
 	delimiter = "/",
 	labels,
+	autoFocusFilter = false,
 }: FolderTreePickerProps) => {
 	const text = { ...defaultLabels, ...labels };
 	const [query, setQuery] = useState("");
@@ -163,9 +170,15 @@ export const FolderTreePicker = ({
 	const [focusedIndex, setFocusedIndex] = useState(-1);
 
 	const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
+	const filterRef = useRef<HTMLInputElement>(null);
 	const roving = useRef(false);
 	const createAbort = useRef<AbortController | null>(null);
 	useEffect(() => () => createAbort.current?.abort(), []);
+
+	useEffect(() => {
+		if (!autoFocusFilter) return;
+		filterRef.current?.focus();
+	}, [autoFocusFilter]);
 
 	const trimmedQuery = query.trim().toLowerCase();
 	const ordered = useMemo(
@@ -413,6 +426,7 @@ export const FolderTreePicker = ({
 	return (
 		<div className="flex min-h-0 w-full min-w-0 flex-col">
 			<Input
+				ref={filterRef}
 				variant="inline"
 				className="border-b border-line px-3 py-2"
 				icon={<Search className="size-4" aria-hidden="true" />}

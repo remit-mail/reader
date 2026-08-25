@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { Mail, MailOpen, Tag } from "lucide-react";
-import { PopoverMenu } from "./popover-menu.js";
+import { useState } from "react";
+import { PopoverMenu, PopoverMenuRow } from "./popover-menu.js";
 
 const meta: Meta<typeof PopoverMenu> = {
 	title: "Kit/PopoverMenu",
@@ -75,6 +76,50 @@ export const ManyItems: Story = {
 			icon: <Tag className="size-4" />,
 			onSelect: () => undefined,
 		})),
+	},
+};
+
+function GrowingMenu() {
+	const [rows, setRows] = useState(2);
+	return (
+		<div className="flex h-screen items-end justify-end p-4">
+			<PopoverMenu
+				triggerLabel="More actions"
+				items={Array.from({ length: rows }, (_, i) => ({
+					key: `label-${i}`,
+					label: `Label ${i + 1}`,
+					icon: <Tag className="size-4" />,
+					onSelect: () => undefined,
+				}))}
+			>
+				<PopoverMenuRow
+					label="Show more"
+					onSelect={() => setRows((current) => current + 10)}
+				/>
+			</PopoverMenu>
+		</div>
+	);
+}
+
+/**
+ * A panel that grows after it has been placed — a list arriving from a fetch,
+ * a confirmation bar appearing on a pick. It stays anchored to its trigger as
+ * it grows, rather than keeping the position it was given at its opening size
+ * and running off the bottom of the screen.
+ */
+export const GrowsAfterOpening: Story = {
+	name: "Panel grows after it opens",
+	parameters: { layout: "fullscreen" },
+	render: () => <GrowingMenu />,
+	play: async ({ canvasElement }) => {
+		canvasElement
+			.querySelector<HTMLButtonElement>('[aria-label="More actions"]')
+			?.click();
+		await new Promise((resolve) => setTimeout(resolve, 60));
+		// The panel is portalled onto the body, so it is outside the canvas.
+		Array.from(document.body.querySelectorAll<HTMLButtonElement>("button"))
+			.find((button) => button.textContent?.trim() === "Show more")
+			?.click();
 	},
 };
 
