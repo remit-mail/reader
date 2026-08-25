@@ -206,6 +206,39 @@ describe("Drawer's ring is what a reader can reach", () => {
 
 		assert.equal(document.activeElement, named("Cancel"));
 	});
+
+	/**
+	 * The pane renders that dialog without moving focus into it, so focus sits
+	 * on the drawer control that opened it — now behind the dialog's backdrop.
+	 * Tab has to enter the dialog's ring rather than walk the controls the
+	 * backdrop covers.
+	 */
+	it("pulls focus behind a nested dialog's backdrop into its ring", () => {
+		const nestedDialog = createElement(
+			"div",
+			{
+				key: "nested",
+				role: "dialog",
+				"aria-modal": "true",
+				"aria-label": "Reclassify sender",
+			},
+			button("automated"),
+			button("Cancel"),
+		);
+
+		open(createElement(Fragment, null, button("trigger"), nestedDialog));
+		named("trigger").focus();
+
+		press("Tab");
+
+		assert.equal(document.activeElement, named("automated"));
+
+		named("trigger").focus();
+
+		press("Tab", true);
+
+		assert.equal(document.activeElement, named("Cancel"));
+	});
 });
 
 describe("Drawer gives focus back on the way out", () => {

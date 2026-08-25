@@ -73,25 +73,29 @@ export const Drawer = ({
 				onClose();
 				return;
 			}
-			// Wrap Tab at the ends of the drawer's ring: walking off the last
-			// control cycles back to the first instead of landing on controls a
-			// pointer cannot reach under the scrim (#747). Focus that is already
-			// outside the drawer — an error banner, the fatal-error overlay — is
-			// left alone; the drawer does not pull it back in.
+			// Trap Tab inside the drawer's ring: walking off either end cycles
+			// round, and focus that is in the drawer but outside the ring — a
+			// control behind a nested dialog's backdrop — is pulled in, so Tab
+			// never lands where a pointer cannot reach (#747). The trap only
+			// applies while the drawer already holds focus; an error banner or
+			// the fatal-error overlay above it keeps its own Tab (#970).
 			if (event.key !== "Tab" || !drawerRef.current) return;
+			const active = document.activeElement;
+			if (!(active instanceof HTMLElement)) return;
+			if (!drawerRef.current.contains(active)) return;
 			const ring = tabRing(drawerRef.current);
 			if (ring.length === 0) return;
 			const first = ring[0];
 			const last = ring[ring.length - 1];
-			const active = document.activeElement;
+			const inside = ring.includes(active);
 			if (event.shiftKey) {
-				if (active === first) {
+				if (!inside || active === first) {
 					event.preventDefault();
 					last.focus();
 				}
 				return;
 			}
-			if (active === last) {
+			if (!inside || active === last) {
 				event.preventDefault();
 				first.focus();
 			}
