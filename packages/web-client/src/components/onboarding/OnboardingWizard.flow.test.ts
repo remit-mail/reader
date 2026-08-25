@@ -25,6 +25,12 @@ interface TestConnectionResult {
 
 const OK: TestConnectionResult = { imapSuccess: true, smtpSuccess: true };
 
+/**
+ * Same-origin and hash-only: jsdom implements that navigation, so the redirect
+ * the wizard starts runs for real instead of logging an unimplemented one.
+ */
+const CONSENT_URL = "http://localhost/#microsoft-consent";
+
 interface Backend {
 	test?: TestConnectionResult;
 	syncPhase?: string;
@@ -39,6 +45,9 @@ const cancelled: string[] = [];
 const start = (backend: Backend = {}, skipWelcome = false): DomHarness => {
 	http = mockFetch((call) => {
 		if (call.path === "/accounts/test-connection") return backend.test ?? OK;
+		if (call.path.endsWith("/oauth/microsoft/start")) {
+			return { authorizationUrl: CONSENT_URL };
+		}
 		if (call.path === "/accounts") return { accountId: "acc-new" };
 		if (call.path === "/config") {
 			return {
@@ -274,6 +283,89 @@ describe("OnboardingWizard — a connection that does not work", () => {
 			),
 			[],
 		);
+	});
+});
+
+/** Enough rounds for the config read, the start call and its redirect. */
+const settle = async (dom: DomHarness): Promise<void> => {
+	for (let round = 0; round < 4; round += 1) {
+		await dom.flush();
+		await dom.wait(20);
+	}
+};
+
+/** Welcome → Connector → the Microsoft step, with the redirect started. */
+const walkToRedirect = async (dom: DomHarness): Promise<void> => {
+	clickText(dom, "Add your first account");
+	clickText(dom, "Outlook / Microsoft 365");
+	clickText(dom, "Continue with Microsoft");
+	await settle(dom);
+	clickText(dom, "Sign in with Microsoft");
+	await settle(dom);
+};
+
+const setVisibility = (state: "hidden" | "visible"): void => {
+	Object.defineProperty(document, "visibilityState", {
+		configurable: true,
+		get: () => state,
+	});
+};
+
+/** jsdom has no `PageTransitionEvent`; `persisted` is what the hook reads. */
+const pageShow = (persisted: boolean): Event => {
+	const event = new Event("pageshow");
+	Object.defineProperty(event, "persisted", { value: persisted });
+	return event;
+};
+
+describe("OnboardingWizard — the Microsoft redirect and the way back (#646)", () => {
+	afterEach(() => {
+		Reflect.deleteProperty(document, "visibilityState");
+	});
+
+	it("stays busy while the redirect is only being looked at", async () => {
+		const dom = start();
+		await walkToRedirect(dom);
+
+		assert.match(dom.text(), /Redirecting…/);
+
+		// An app-switch away and back during the `assign` fetch: the window is
+		// looked at again without ever having left.
+		dom.dispatch(dom.document, new Event("visibilitychange"));
+		dom.dispatch(dom.window, pageShow(false));
+		await settle(dom);
+
+		assert.match(
+			dom.text(),
+			/Redirecting…/,
+			"a look at a window that never left un-busied the button",
+		);
+	});
+
+	it("re-arms the button once the window has been away and come back", async () => {
+		const dom = start();
+		await walkToRedirect(dom);
+
+		setVisibility("hidden");
+		dom.dispatch(dom.document, new Event("visibilitychange"));
+		dom.dispatch(dom.window, new Event("pagehide"));
+		setVisibility("visible");
+		dom.dispatch(dom.document, new Event("visibilitychange"));
+		await settle(dom);
+
+		assert.doesNotMatch(dom.text(), /Redirecting…/);
+		assert.match(dom.text(), /Start over/);
+	});
+
+	it("re-arms the button on a page restored from the back-forward cache", async () => {
+		const dom = start();
+		await walkToRedirect(dom);
+
+		dom.dispatch(dom.window, pageShow(true));
+		await settle(dom);
+
+		assert.doesNotMatch(dom.text(), /Redirecting…/);
+		assert.match(dom.text(), /Start over/);
 	});
 });
 

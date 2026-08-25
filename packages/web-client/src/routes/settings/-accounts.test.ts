@@ -1,7 +1,19 @@
 // biome-ignore lint/style/useFilenamingConvention: TanStack Router convention
 import assert from "node:assert";
-import { describe, test } from "node:test";
-import { mapOauthError } from "./accounts.tsx";
+import { afterEach, describe, test } from "node:test";
+import {
+	type AnyRoute,
+	type AnyRouter,
+	createMemoryHistory,
+	createRootRoute,
+	createRouter,
+	Outlet,
+	RouterProvider,
+} from "@tanstack/react-router";
+import { createElement } from "react";
+import { createDomHarness, type DomHarness } from "@/test-support/dom";
+import { type HttpMock, mockFetch } from "@/test-support/http";
+import { mapOauthError, Route } from "./accounts.tsx";
 
 describe("mapOauthError", () => {
 	test("access_denied returns cancellation message", () => {
@@ -61,5 +73,126 @@ describe("mapOauthError", () => {
 	test("empty string returns generic fallback", () => {
 		const result = mapOauthError("");
 		assert.ok(typeof result === "string" && result.length > 0);
+	});
+});
+
+/**
+ * The Reconnect button and the redirect it starts (#646, PR #955).
+ *
+ * The busy state rides a latch, not the mutation settling, because
+ * `window.location.assign` returns with the page still here. The latch needs an
+ * end as well as a start: Back out of Microsoft's consent screen restores this
+ * page with the account still asking to be re-authenticated, so nothing else
+ * clears it and the button reads "Redirecting…" for good.
+ */
+
+/** Same-origin and hash-only, so jsdom performs it rather than logging it. */
+const CONSENT_URL = "http://localhost/#microsoft-consent";
+
+const REAUTH_ACCOUNT = {
+	accountId: "acc-1",
+	email: "matthijs@ischen.nl",
+	displayName: "Matthijs",
+	authType: "oauthMicrosoft",
+	connectionState: "reauth_required",
+};
+
+// The router reads `self` at construction; the shared jsdom globals stop at
+// `window`.
+(globalThis as { self?: typeof globalThis }).self ??= globalThis;
+
+let harness: DomHarness | undefined;
+let http: HttpMock | undefined;
+
+const settle = async (dom: DomHarness): Promise<void> => {
+	for (let round = 0; round < 4; round += 1) {
+		await dom.flush();
+		await dom.wait(20);
+	}
+};
+
+/** jsdom has no `PageTransitionEvent`; `persisted` is what the hook reads. */
+const pageShow = (persisted: boolean): Event => {
+	const event = new Event("pageshow");
+	Object.defineProperty(event, "persisted", { value: persisted });
+	return event;
+};
+
+/** The real route, mounted the way the generated tree mounts it. */
+const mountAccounts = async (): Promise<DomHarness> => {
+	http = mockFetch((call) => {
+		if (call.path.endsWith("/oauth/microsoft/start")) {
+			return { authorizationUrl: CONSENT_URL };
+		}
+		if (call.path.endsWith("/config")) {
+			return { accounts: [REAUTH_ACCOUNT], mailboxes: [] };
+		}
+		return {};
+	});
+
+	const rootRoute = createRootRoute({ component: Outlet });
+	const accountsRoute = (
+		Route as unknown as { update: (options: unknown) => AnyRoute }
+	).update({
+		id: "/settings/accounts",
+		path: "/settings/accounts",
+		getParentRoute: () => rootRoute,
+	});
+	const routeTree = rootRoute.addChildren([
+		accountsRoute,
+	]) as unknown as AnyRoute;
+	const router = createRouter({
+		routeTree,
+		history: createMemoryHistory({ initialEntries: ["/settings/accounts"] }),
+	}) as unknown as AnyRouter;
+	await router.load();
+
+	const mounted = createDomHarness();
+	harness = mounted;
+	mounted.renderApp(createElement(RouterProvider, { router }));
+	await settle(mounted);
+	return mounted;
+};
+
+const startReconnect = async (dom: DomHarness): Promise<void> => {
+	dom.click(dom.byText("button", "Reconnect"));
+	await settle(dom);
+};
+
+describe("the Reconnect button and the redirect it starts", () => {
+	afterEach(() => {
+		harness?.close();
+		harness = undefined;
+		http?.restore();
+		http = undefined;
+	});
+
+	test("goes busy and stays busy while the redirect is in flight", async () => {
+		const dom = await mountAccounts();
+		await startReconnect(dom);
+
+		assert.match(dom.text(), /Redirecting…/);
+
+		// A look at a window that never left is not the redirect ending.
+		dom.dispatch(dom.document, new Event("visibilitychange"));
+		dom.dispatch(dom.window, pageShow(false));
+		await settle(dom);
+
+		assert.match(dom.text(), /Redirecting…/);
+	});
+
+	test("re-arms when the restored page still needs re-authenticating", async () => {
+		const dom = await mountAccounts();
+		await startReconnect(dom);
+
+		dom.dispatch(dom.window, pageShow(true));
+		await settle(dom);
+
+		assert.doesNotMatch(
+			dom.text(),
+			/Redirecting…/,
+			"Back out of the consent screen left the button busy for good",
+		);
+		assert.ok(dom.byText("button", "Reconnect"));
 	});
 });

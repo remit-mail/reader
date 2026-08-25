@@ -24,6 +24,7 @@ import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
 import { AccountFormPanel } from "@/components/settings/AccountFormPanel";
 import { DangerZone } from "@/components/settings/DangerZone";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { useRedirectEnded } from "@/hooks/useRedirectEnded";
 import { useReturnFromRedirect } from "@/hooks/useReturnFromRedirect";
 import { formatRelativeTime } from "@/lib/format";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
@@ -270,9 +271,20 @@ function AccountsSettings() {
 		if (!account || !needsReauth(account)) setReconnectingAccountId(null);
 	}, [config, reconnectingAccountId]);
 
+	// A redirect that ends without the reconnect landing — Back out of the
+	// consent screen, or an `assign` that never navigates — leaves an account
+	// that still asks to be re-authenticated, so the watch above has nothing to
+	// clear the latch on and the button would read "Redirecting…" for good. This
+	// window being back is the evidence the redirect is over, whatever it
+	// decided, and the control it left behind is live again.
+	const markReconnectStarted = useRedirectEnded(() => {
+		setReconnectingAccountId(null);
+	});
+
 	const reconnectMutation = useMutation({
 		...microsoftOAuthOperationsMicrosoftOAuthStartMutation(),
 		onSuccess: (data) => {
+			markReconnectStarted();
 			window.location.assign(data.authorizationUrl);
 		},
 		onError: (err) => {
