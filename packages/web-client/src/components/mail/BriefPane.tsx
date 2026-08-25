@@ -173,6 +173,7 @@ function BriefPaneProvider({ thread, children }: BriefPaneProps) {
 
 	const actions = useThreadActions({
 		thread: selectedThread,
+		isOpen: true,
 		onAfterOptimisticRemove: handleDeselectIfRemoved,
 	});
 
@@ -197,7 +198,10 @@ function BriefPaneProvider({ thread, children }: BriefPaneProps) {
 		[briefThreads, focusedThreadId],
 	);
 	const triageTarget = focusedThread ?? selectedThread;
-	const triageActions = useThreadActions({ thread: triageTarget });
+	const triageActions = useThreadActions({
+		thread: triageTarget,
+		isOpen: triageTarget?.messageId === selectedMessageId,
+	});
 
 	// The toolbar answers the conversation on screen; the keyboard answers the
 	// row the cursor is on, which may be one the address has not opened yet.

@@ -517,6 +517,7 @@ function MailboxPaneProvider({
 
 	const toolbarActions = useThreadActions({
 		thread: selectedThread,
+		isOpen: true,
 		mailboxId,
 		accountId: mailboxAccountId,
 		onAfterOptimisticRemove: handleDeselectIfRemoved,

@@ -9,18 +9,28 @@
  * Answering a message is not here: reply, reply-all and forward are a segment
  * under the message, so they are a navigation rather than a verb a pane holds.
  */
-import { threadDetailOperationsListThreadMessagesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import { useQuery } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { useDeleteMessages } from "@/hooks/useDeleteMessages";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useThreadMessageIds } from "@/hooks/useThreadMessageIds";
+import { useThreadConversation } from "@/hooks/useThreadRow";
 import { useToggleStar } from "@/hooks/useToggleStar";
 
 interface UseThreadActionsOptions {
 	thread: RemitImapThreadMessageResponse | undefined;
+	/**
+	 * Whether the pane has this thread open, so its conversation is on screen
+	 * and already fetched. The star then answers from that conversation: a list
+	 * row is a copy that survives its listing, and once the mail no longer
+	 * matches the browsed predicate the row stops being refreshed, so a star
+	 * read off it is whatever was true when it was last listed (#602).
+	 *
+	 * A cursor target is not open — it answers from its own live listing row,
+	 * because pulling a conversation for it would be a request per keystroke.
+	 */
+	isOpen?: boolean;
 	/** Mailbox whose listings the mutations patch. Defaults to the thread's own. */
 	mailboxId?: string;
 	/** Account the move picker offers folders from. Defaults to the thread's own. */
@@ -39,6 +49,7 @@ export interface ThreadActions {
 
 export const useThreadActions = ({
 	thread,
+	isOpen = false,
 	mailboxId,
 	accountId,
 	onAfterOptimisticRemove,
@@ -69,28 +80,23 @@ export const useThreadActions = ({
 		onAfterOptimisticRemove,
 	});
 
-	const { toggleStar: toggleStarFor } = useToggleStar({
-		threadId: thread?.threadId ?? "",
-		mailboxId: resolvedMailboxId ?? "",
-	});
+	// The conversation the pane has open, off the entry `ConversationView` and
+	// `useThreadRow` already hold, so the toolbar and the message card answer
+	// from the same row for no extra request.
+	const conversation = useThreadConversation(
+		isOpen ? thread?.threadId : undefined,
+	);
 
-	// The conversation the pane has open, on the key `ConversationView` already
-	// holds — one request, one cache entry, and the toolbar and the message card
-	// answer from the same row. A list row is a copy that survives its listing:
-	// once the mail no longer matches the browsed predicate the row stops being
-	// refreshed, and a star read off it is whatever was true when it was last
-	// listed (#602).
-	const { data: conversation } = useQuery({
-		...threadDetailOperationsListThreadMessagesOptions({
-			path: { threadId: thread?.threadId ?? "" },
-		}),
-		enabled: Boolean(thread?.threadId),
-	});
-
-	const openMessage = conversation?.items.find(
+	const openMessage = conversation.find(
 		(message) => message.messageId === thread?.messageId,
 	);
 	const isStarred = openMessage?.hasStars ?? thread?.hasStars;
+
+	const { toggleStar: toggleStarFor } = useToggleStar({
+		threadId: thread?.threadId ?? "",
+		mailboxId: resolvedMailboxId ?? "",
+		messages: conversation,
+	});
 
 	const deleteThread = useCallback(() => {
 		if (!thread) return;

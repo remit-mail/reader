@@ -57,8 +57,10 @@ const conversationRow = (starred: boolean) =>
 const mountToolbar = async (options: {
 	server: ServerState;
 	row: Partial<RemitImapThreadMessageResponse>;
+	/** Defaults to the reading pane's case: this thread is the one on screen. */
+	isOpen?: boolean;
 }) => {
-	const { server } = options;
+	const { server, isOpen = true } = options;
 	http = mockFetch((call) => {
 		if (call.method === "PATCH") {
 			const body = call.body as { isStarred?: boolean } | undefined;
@@ -83,7 +85,7 @@ const mountToolbar = async (options: {
 	});
 
 	const Harness = () => {
-		const actions = useThreadActions({ thread });
+		const actions = useThreadActions({ thread, isOpen });
 		return createElement(MessageToolbar, {
 			hasThread: true,
 			intelligenceOpen: false,
@@ -111,6 +113,9 @@ const starButton = (dom: DomHarness) => dom.byLabel("Star");
 
 const rendersStarred = (dom: DomHarness): boolean =>
 	starButton(dom).getAttribute("aria-pressed") === "true";
+
+const conversationRequests = (): number =>
+	http?.to(`/threads/${THREAD_ID}/messages`).length ?? 0;
 
 const starRequests = (): Array<boolean | undefined> =>
 	(http?.calls ?? [])
@@ -158,16 +163,38 @@ describe("the reading pane's star follows the open message (#602)", () => {
 		assert.equal(server.starred, true);
 		assert.deepEqual(starRequests(), [true]);
 
-		// The conversation now carries the star; the next press has to ask for
-		// it to come off rather than asking for the same star again.
-		dom.queryClient.setQueryData(conversationKey, {
-			items: [conversationRow(true)],
-		});
+		// Nothing is put into the cache by hand here: the settle-invalidate has
+		// to re-read the conversation, which the mock now serves starred. Seeding
+		// it would make the second press pass even if the refresh never happened.
+		await dom.wait(20);
 		await dom.flush();
+		assert.equal(
+			rendersStarred(dom),
+			true,
+			"the star lights from the refreshed conversation",
+		);
 
 		dom.click(starButton(dom));
 		await dom.flush();
 		assert.equal(server.starred, false, "the second press unstars");
 		assert.deepEqual(starRequests(), [true, false]);
+	});
+
+	it("asks for no conversation for a thread the pane has not opened", async () => {
+		// The triage cursor moves a row at a time. A conversation pulled for the
+		// row under the cursor would be a request per keystroke, so a target that
+		// is not the open thread answers from its own listing row.
+		const dom = await mountToolbar({
+			server: { starred: false },
+			row: { hasStars: true },
+			isOpen: false,
+		});
+
+		assert.equal(conversationRequests(), 0);
+		assert.equal(
+			rendersStarred(dom),
+			true,
+			"the cursor target answers from the row it came from",
+		);
 	});
 });
