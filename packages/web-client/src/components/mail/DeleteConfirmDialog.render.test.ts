@@ -326,11 +326,11 @@ describe("DeleteConfirmDialog — a refusal answers itself", () => {
 	// #876: a row already inside the folder reader only matched by name refuses
 	// like Empty Trash's own "unconfirmed" — not a plain "Delete permanently"
 	// the server would 409 on.
-	it("asks to confirm the guessed folder before an expunge nobody confirmed", () => {
+	it("asks to confirm the guessed folder before an expunge nobody confirmed", async () => {
 		const view = mount({
 			outcome: "unconfirmed",
 			count: 3,
-			accountId: "acc-1",
+			accountId: ACCOUNT,
 			trashFolderLabel: "Deleted Messages",
 		});
 		const text = view.text();
@@ -340,7 +340,21 @@ describe("DeleteConfirmDialog — a refusal answers itself", () => {
 		const confirm = view.button("Confirm the folder");
 		assert.ok(confirm, "the remedy the copy names is on screen");
 		act(() => confirm?.click());
-		assert.match(view.text(), /Confirm this account's Trash folder/);
+		// DeleteConfirmDialog's own "unconfirmed" copy shares its title with the
+		// appointment prompt's, so the title alone cannot tell the two dialogs
+		// apart — matching only that string would pass whether or not the
+		// prompt actually replaced the dialog. The picker prompt is the
+		// prompt's own wording and never appears in DeleteConfirmDialog's copy.
+		assert.match(
+			view.text(),
+			/Confirm Deleted Messages, or pick the folder this account really uses\./,
+		);
+		await settle();
+		act(() => view.byLabel("Set Prullenbak, 3 messages, as Trash")?.click());
+		assert.ok(
+			view.button("Set as Trash and delete 3 messages"),
+			"the folder picker and the delete-specific confirm label are the prompt's own, not the dialog's",
+		);
 	});
 
 	it("still acts when no single account owns the rows", () => {

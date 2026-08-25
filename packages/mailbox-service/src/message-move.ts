@@ -333,7 +333,14 @@ export class MessageMoveService {
 		// destroy mail that is already there. Checked once, before any local
 		// write, so a batch that touches such a message is refused whole rather
 		// than partially expunged.
-		if (trashResolution && trashMailbox) {
+		//
+		// Gated on `!wantsPermanentDelete` — the caller's actual intent — rather
+		// than on `trashResolution`'s truthiness alone: `resolveTrashRole`
+		// resolving to something falsy some day must not silently open this
+		// gate back up. `trashResolution && trashMailbox` stays alongside it
+		// only so the compiler can narrow the type; it carries no meaning of
+		// its own here.
+		if (!wantsPermanentDelete && trashResolution && trashMailbox) {
 			const deletesInPlace = messages.some(
 				(message) => message.mailboxId === trashMailbox.mailboxId,
 			);
