@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -71,6 +72,11 @@ const buildEvent = (sub?: string): APIGatewayProxyEvent =>
 		requestContext: sub ? { authorizer: { claims: { sub } } } : {},
 	}) as unknown as APIGatewayProxyEvent;
 
+// The query as openapi-backend hands it over: validated and coerced against the
+// spec, so `refresh` reaches the handler as a boolean or not at all.
+const getContext = (query: Record<string, unknown> = {}): Context =>
+	({ request: { query } }) as unknown as Context;
+
 const postContext = (targetVersion: string): Context =>
 	({ request: { requestBody: { targetVersion } } }) as unknown as Context;
 
@@ -86,8 +92,10 @@ const applySystemUpdate =
 		event: APIGatewayProxyEvent,
 	) => Promise<unknown>;
 
-const getUpdate = (event: APIGatewayProxyEvent) =>
-	getSystemUpdate({} as unknown as Context, event);
+const getUpdate = (
+	event: APIGatewayProxyEvent,
+	query: Record<string, unknown> = {},
+) => getSystemUpdate(getContext(query), event);
 
 const applyUpdate = (targetVersion: string, event: APIGatewayProxyEvent) =>
 	applySystemUpdate(postContext(targetVersion), event);
@@ -128,6 +136,49 @@ describe("GET /system/update", () => {
 		const result = await getUpdate(buildEvent(USER));
 
 		assert.deepEqual(result, okState);
+	});
+
+	it("records a check request on the control volume when refresh is set (#599)", async () => {
+		writeState(okState);
+
+		const result = await getUpdate(buildEvent(USER), { refresh: true });
+
+		// The press reaches the updater through the seam, and the answer is the
+		// stored state — lastCheckedAt included, so the panel can say how old the
+		// verdict it is still showing is.
+		const file = readFileSync(join(controlDir, "check-request.json"), "utf8");
+		assert.deepEqual(JSON.parse(file), {});
+		assert.deepEqual(result, okState);
+	});
+
+	it("records a check request over an unknown version when no state exists yet", async () => {
+		const result = await getUpdate(buildEvent(USER), { refresh: true });
+
+		assert.equal(existsSync(join(controlDir, "check-request.json")), true);
+		assert.deepEqual(result, {
+			currentVersion: "unknown",
+			check: { status: "disabled" },
+			run: null,
+		});
+	});
+
+	it("records nothing when the query carries no refresh", async () => {
+		// `?refresh=1` is rejected by the spec before it reaches here, so the only
+		// value that records a request is the boolean the validator produced.
+		writeState(okState);
+
+		await getUpdate(buildEvent(USER));
+
+		assert.equal(existsSync(join(controlDir, "check-request.json")), false);
+	});
+
+	it("returns 401 and records nothing when a refresh is not authenticated", async () => {
+		writeState(okState);
+
+		const result = await getUpdate(buildEvent(), { refresh: true });
+
+		assert.ok(hasStatus(result, 401));
+		assert.equal(existsSync(join(controlDir, "check-request.json")), false);
 	});
 
 	it("reports an unknown version, not its own process env, when no state file exists", async () => {

@@ -8,6 +8,7 @@ import { ApiError } from "./api";
 import {
 	APPLY_BUDGET_SECONDS,
 	appliesSchemaMigration,
+	checkRequestFailureReason,
 	type DeriveInput,
 	deriveUpdateSurface,
 	type HeldRun,
@@ -67,10 +68,10 @@ function input(overrides: Partial<DeriveInput> = {}): DeriveInput {
 		data: undefined,
 		isError: false,
 		error: undefined,
-		isFetching: false,
 		held: null,
 		dismissedRunId: null,
-		checkRequested: false,
+		checkPress: null,
+		checkFailure: null,
 		now: NOW,
 		...overrides,
 	};
@@ -229,18 +230,68 @@ describe("deriveUpdateSurface — the surface without a run", () => {
 		);
 	});
 
-	test("a pressed check shows checking while the refetch is in flight", () => {
+	test("a press keeps checking while the server still reports the answer it had (#599)", () => {
+		const stale = {
+			status: "ok" as const,
+			updateAvailable: false,
+			lastCheckedAt: "2026-07-20T11:00:00.000Z",
+		};
 		const result = deriveUpdateSurface(
 			input({
-				data: response(),
-				checkRequested: true,
-				isFetching: true,
+				data: response({ check: stale }),
+				checkPress: { pressedAt: NOW - 5_000, since: stale.lastCheckedAt },
 			}),
 		);
 		assert.equal(
 			result.surface.status === "ready" && result.surface.section.status,
 			"checking",
 		);
+	});
+
+	test("a press settles the moment the server reports a newer lastCheckedAt (#599)", () => {
+		const result = deriveUpdateSurface(
+			input({
+				data: response({
+					check: {
+						status: "ok",
+						updateAvailable: false,
+						lastCheckedAt: "2026-07-20T11:59:50.000Z",
+					},
+				}),
+				checkPress: {
+					pressedAt: NOW - 5_000,
+					since: "2026-07-20T11:00:00.000Z",
+				},
+			}),
+		);
+		assert.equal(
+			result.surface.status === "ready" && result.surface.section.status,
+			"upToDate",
+		);
+	});
+
+	test("a failed press is reported verbatim, never swallowed into the old verdict (#599)", () => {
+		const result = deriveUpdateSurface(
+			input({
+				data: response({
+					check: {
+						status: "ok",
+						updateAvailable: true,
+						latestVersion: "0.9.4",
+						lastCheckedAt: "2026-07-20T11:00:00.000Z",
+					},
+				}),
+				checkFailure: checkRequestFailureReason(new ApiError("boom", 500)),
+			}),
+		);
+		assert.equal(result.surface.status, "ready");
+		if (result.surface.status !== "ready") return;
+		const section = result.surface.section;
+		assert.equal(section.status, "checkFailed");
+		if (section.status !== "checkFailed") return;
+		assert.match(section.reason, /answered 500/);
+		// The age of the answer it is still showing survives the failure.
+		assert.equal(section.lastCheckedAt, Date.parse("2026-07-20T11:00:00.000Z"));
 	});
 });
 

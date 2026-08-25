@@ -57,6 +57,44 @@ export interface HeldRun {
 	startedAt: number;
 }
 
+/**
+ * The check this page asked for, held for as long as the page that asked lives.
+ * The server records the request and answers with the state it already had, so
+ * the wait is the client's to keep: `since` is `check.lastCheckedAt` as the
+ * server reported it at the moment of the press, and the answer has landed once
+ * the server reports a different one. Comparing against that stored value rather
+ * than against the press's own clock keeps the rule honest on a box whose clock
+ * differs from the browser's.
+ */
+export interface CheckPress {
+	/** Epoch millis when the control was pressed, for the bounded wait. */
+	pressedAt: number;
+	since: string | undefined;
+}
+
+export function checkAnswered(
+	press: CheckPress,
+	data: RemitImapSystemUpdateResponse | undefined,
+): boolean {
+	const lastCheckedAt = data?.check.lastCheckedAt;
+	return lastCheckedAt !== undefined && lastCheckedAt !== press.since;
+}
+
+/**
+ * Why the request the press fired never reached the seam. The status is named
+ * because a 500 here is a real fault on the box — the control volume unwritable
+ * is the one seen in the wild — and a press that quietly re-served the old
+ * verdict is exactly how #599 stayed invisible for an hour.
+ */
+export function checkRequestFailureReason(error: unknown): string {
+	const status = getErrorStatus(error);
+	const cause =
+		status === undefined
+			? "the server did not answer"
+			: `the server answered ${status}`;
+	return `The check could not be requested — ${cause}. Run \`remit logs backend\` to see why.`;
+}
+
 export type UpdateOverlay =
 	| { kind: "none" }
 	| {
@@ -82,10 +120,12 @@ export interface DeriveInput {
 	data: RemitImapSystemUpdateResponse | undefined;
 	isError: boolean;
 	error: unknown;
-	isFetching: boolean;
 	held: HeldRun | null;
 	dismissedRunId: string | null;
-	checkRequested: boolean;
+	/** The check this page pressed for, or null when it is not waiting on one. */
+	checkPress: CheckPress | null;
+	/** Why the request that press fired failed, or null when it did not. */
+	checkFailure: string | null;
 	now: number;
 }
 
@@ -238,27 +278,49 @@ function terminalSection(
 
 function checkSection(
 	data: RemitImapSystemUpdateResponse,
-	isChecking: boolean,
+	press: CheckPress | null,
+	failure: string | null,
 	now: number,
 ): SelfUpdateState {
 	const check = data.check;
-	if (isChecking) return { status: "checking", version: data.currentVersion };
+	const lastCheckedAt = parseIso(check.lastCheckedAt);
+
+	if (failure !== null) {
+		return {
+			status: "checkFailed",
+			version: data.currentVersion,
+			reason: failure,
+			lastCheckedAt,
+		};
+	}
+
+	// The press is recorded and the updater has not answered it: the pane waits on
+	// a genuinely newer `lastCheckedAt` rather than re-serving the verdict it
+	// already had (#599). The caller drops the press when the wait runs out, which
+	// arrives here as a failure.
+	if (press !== null && !checkAnswered(press, data)) {
+		return { status: "checking", version: data.currentVersion };
+	}
 
 	if (check.status === "failed") {
 		return {
 			status: "checkFailed",
 			version: data.currentVersion,
 			reason: check.error ?? "Remit could not reach the update service.",
-			lastCheckedAt: parseIso(check.lastCheckedAt),
+			lastCheckedAt,
 		};
 	}
 
 	// A configured surface that has not run its first check yet is never-checked,
 	// not checking: the updater runs the check on a cadence and has not written a
 	// result. A spinner here would run forever, since nothing on this poll is in
-	// flight. Only a genuine refetch (handled above) shows the spinner.
+	// flight. Only a press this page is still waiting on shows the spinner.
 	if (check.status === "disabled") {
-		return { status: "neverChecked", version: data.currentVersion };
+		return {
+			status: "neverChecked",
+			version: data.currentVersion,
+			lastCheckedAt,
+		};
 	}
 
 	const release = releaseFromCheck(data, now);
@@ -412,7 +474,7 @@ function deriveHeld(
 }
 
 function displayFromData(input: DeriveInput): UpdateSurface {
-	const { data, isError, isFetching, dismissedRunId, checkRequested, now } =
+	const { data, isError, dismissedRunId, checkPress, checkFailure, now } =
 		input;
 
 	if (isError) {
@@ -464,7 +526,7 @@ function displayFromData(input: DeriveInput): UpdateSurface {
 
 	return {
 		status: "ready",
-		section: checkSection(data, checkRequested && isFetching, now),
+		section: checkSection(data, checkPress, checkFailure, now),
 		overlay: { kind: "none" },
 	};
 }
