@@ -201,11 +201,15 @@ describe("the panes that answer a keyboard verb over a selection", () => {
 			)
 			.sort();
 
-	it("are these three panes and no others", () => {
+	it("are these four panes and no others", () => {
 		assert.deepEqual(panes(), [
 			"BriefPane.tsx",
 			"FlaggedPane.tsx",
 			"MailboxPane.tsx",
+			// Registers a keyboard table for one global verb only — compose (#724).
+			// It routes nothing over a selection: the outbox list offers no
+			// delete/markRead/junk, so it appears here but never in `routed()`.
+			"OutboxPane.tsx",
 		]);
 	});
 
