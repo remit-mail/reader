@@ -325,6 +325,26 @@ describe("DeleteConfirmDialog — a refusal answers itself", () => {
 		assert.match(view.text(), /The Trash folder you chose is gone/);
 	});
 
+	// #876: a row already inside the folder reader only matched by name refuses
+	// like Empty Trash's own "unconfirmed" — not a plain "Delete permanently"
+	// the server would 409 on.
+	it("asks to confirm the guessed folder before an expunge nobody confirmed", () => {
+		const view = mount({
+			outcome: "unconfirmed",
+			count: 3,
+			accountId: "acc-1",
+			trashFolderLabel: "Deleted Messages",
+		});
+		const text = view.text();
+		assert.match(text, /Confirm this account's Trash folder/);
+		assert.match(text, /Deleted Messages/);
+		assert.doesNotMatch(text, /Permanently delete 3 messages\?/);
+		const confirm = view.button("Confirm the folder");
+		assert.ok(confirm, "the remedy the copy names is on screen");
+		act(() => confirm?.click());
+		assert.match(view.text(), /Confirm this account's Trash folder/);
+	});
+
 	it("still acts when no single account owns the rows", () => {
 		const confirmed: string[][] = [];
 		const view = mount({

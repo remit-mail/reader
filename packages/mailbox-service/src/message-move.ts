@@ -162,7 +162,8 @@ export class StaleTrashAppointmentError extends FolderRoleUnresolvedError {
 
 /**
  * A folder resolves as Trash by its name alone. Enough to move mail into,
- * never enough to expunge — so only the Empty Trash path raises it.
+ * never enough to expunge — raised by Empty Trash and by a delete that would
+ * expunge a message already sitting in that folder.
  */
 export class UnconfirmedTrashMailboxError extends FolderRoleUnresolvedError {
 	name = "UnconfirmedTrashMailboxError";
@@ -307,12 +308,13 @@ export class MessageMoveService {
 		const wantsPermanentDelete =
 			options.permanent === true || options.toTrash === false;
 
-		const trashGate = wantsPermanentDelete
+		const trashResolution = wantsPermanentDelete
 			? null
-			: trashMailboxAt(
-					await this.mailboxSpecialUseService.resolveTrashRole(accountId),
-					"resolved",
-				);
+			: await this.mailboxSpecialUseService.resolveTrashRole(accountId);
+
+		const trashGate = trashResolution
+			? trashMailboxAt(trashResolution, "resolved")
+			: null;
 
 		if (trashGate && !trashGate.allowed) {
 			this.log.error(
@@ -323,6 +325,34 @@ export class MessageMoveService {
 		}
 
 		const trashMailbox = trashGate ? trashGate.mailbox : null;
+
+		// A message already sitting in the folder resolved as Trash deletes by
+		// expunging it, not by moving it — the same unrecoverable act Empty
+		// Trash performs, so it demands the same confirmed evidence. The name
+		// guess ("resolved") is enough to file mail into; it is never enough to
+		// destroy mail that is already there. Checked once, before any local
+		// write, so a batch that touches such a message is refused whole rather
+		// than partially expunged.
+		if (trashResolution && trashMailbox) {
+			const deletesInPlace = messages.some(
+				(message) => message.mailboxId === trashMailbox.mailboxId,
+			);
+
+			if (deletesInPlace) {
+				const confirmedTrashGate = trashMailboxAt(trashResolution, "confirmed");
+				if (!confirmedTrashGate.allowed) {
+					this.log.error(
+						{
+							accountId,
+							messageCount: messages.length,
+							reason: confirmedTrashGate.reason,
+						},
+						"Refused to delete: this account's Trash is not confirmed",
+					);
+					throw trashRefusal(confirmedTrashGate.reason, accountId);
+				}
+			}
+		}
 
 		// Group messages by operation type
 		const moveToTrashMessages: Array<{

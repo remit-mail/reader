@@ -207,10 +207,11 @@ export interface DeleteConfirmationContext {
  * single `noTrash` member cannot — this function only ever sees the member.
  *
  * `unconfirmed` is a folder reader matched by name that nobody ever confirmed.
- * Only Empty Trash refuses on it (D4); `deleteOutcomeFor` never produces it,
- * because the targets an ordinary delete is about say nothing about a whole
- * folder. The Empty Trash surface derives it from the server's own 409, and the
- * branch lives here so both surfaces word it identically.
+ * Empty Trash refuses on it for the whole folder (D4); `deleteOutcomeFor`
+ * produces it too, for the narrower case of a row that is already inside that
+ * folder — deleting it expunges on the same name guess, and the guess is never
+ * enough to destroy mail (#876). Both surfaces derive it from the server's own
+ * 409, and the branch lives here so they word it identically.
  */
 export type DeleteOutcome =
 	| "trash"
@@ -268,8 +269,10 @@ export interface DeleteOutcomeInput {
  * One row bound for an expunge makes the whole delete unrecoverable, so a mixed
  * set is permanent: the wording may overstate what is destroyed, never what is
  * kept. One row on an account with no Trash refuses the whole call, so that
- * outranks both. Pure, so every branch — the failure ones above all — is
- * testable without a DOM.
+ * outranks both. An expunge on a Trash nobody confirmed outranks a plain
+ * expunge in turn — the server refuses it (#876), so the dialog asks for the
+ * same confirmation up front rather than offering a confirm that 409s. Pure,
+ * so every branch — the failure ones above all — is testable without a DOM.
  */
 export const deleteOutcomeFor = ({
 	targets,
@@ -282,14 +285,19 @@ export const deleteOutcomeFor = ({
 	if (targets.length === 0) return "unknown";
 
 	let expunges = false;
+	let expungesUnconfirmed = false;
 	for (const target of targets) {
 		if (target.accountId === undefined) return "unknown";
 		const trash = trashByAccount.get(target.accountId);
 		if (trash === undefined) return "unknown";
 		if (trash.source === "Stale") return "staleTrash";
 		if (trash.mailboxId === undefined) return "noTrash";
-		if (trash.mailboxId === target.mailboxId) expunges = true;
+		if (trash.mailboxId === target.mailboxId) {
+			expunges = true;
+			if (trash.source === "Proposed") expungesUnconfirmed = true;
+		}
 	}
+	if (expungesUnconfirmed) return "unconfirmed";
 	return expunges ? "permanent" : "trash";
 };
 
@@ -335,11 +343,18 @@ export const deleteConfirmationCopy = (
 		};
 	}
 	if (outcome === "unconfirmed") {
+		const folderClause = trashFolderLabel
+			? `reader files this account's deleted mail in ${trashFolderLabel} because of its name — nobody confirmed it.`
+			: "reader files this account's deleted mail in a folder it matched by name — nobody confirmed it.";
+		// count === 0: Empty Trash, acting on everything the folder holds. A
+		// positive count: a delete whose rows already sit in that folder, so
+		// this expunges them specifically, not the folder's whole contents.
 		return {
 			title: "Confirm this account's Trash folder",
-			description: trashFolderLabel
-				? `reader files this account's deleted mail in ${trashFolderLabel} because of its name — nobody confirmed it. Emptying a folder erases everything in it from the mail server, and that cannot be restored. Nothing has been emptied.`
-				: "reader files this account's deleted mail in a folder it matched by name — nobody confirmed it. Emptying a folder erases everything in it from the mail server, and that cannot be restored. Nothing has been emptied.",
+			description:
+				count > 0
+					? `${folderClause} Deleting ${quantity} ${noun} there erases them from the mail server, and that cannot be restored. Nothing has been deleted.`
+					: `${folderClause} Emptying a folder erases everything in it from the mail server, and that cannot be restored. Nothing has been emptied.`,
 			confirmLabel: "Confirm the folder",
 		};
 	}

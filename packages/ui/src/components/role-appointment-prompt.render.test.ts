@@ -127,6 +127,19 @@ describe("roleAppointmentPromptCopy", () => {
 		);
 		assert.equal(copy.confirmLabel, "Set as Trash and empty it");
 	});
+
+	it("words the irreversibility as a delete of these rows, not a folder emptying (#876)", () => {
+		const copy = roleAppointmentPromptCopy(
+			"unconfirmed",
+			{ kind: "delete", count: 3 },
+			{ trashFolderLabel: "Deleted Messages" },
+		);
+		assert.equal(
+			copy.description,
+			"Nothing has been deleted. reader files this account's deleted mail in Deleted Messages because of its name — you never chose it, and the mail server doesn't mark it as Trash. Deleting 3 messages there erases them from the mail server, and that cannot be restored.",
+		);
+		assert.equal(copy.confirmLabel, "Set as Trash and delete 3 messages");
+	});
 });
 
 describe("RoleAppointmentPrompt", () => {

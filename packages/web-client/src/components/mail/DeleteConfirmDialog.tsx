@@ -5,14 +5,15 @@
  * and Flagged — so the wording and the refusal cannot drift apart again the way
  * they did between #845 and #855.
  *
- * Three of the outcomes are not confirmations at all. When the account has no
- * Trash, or the folder it appointed is gone, the server refuses the delete
- * outright; when its folder settings could not be read reader cannot say
- * whether a delete moves the mail or erases it. All three refuse and the
- * caller's `onConfirm` is never reached directly. The first two are answered
- * in place — the affirmative control opens the appointment prompt, whose own
- * confirm appoints the folder and then runs this delete. None of them may
- * render as "this folder is not Trash".
+ * Four of the outcomes are not confirmations at all. When the account has no
+ * Trash, the folder it appointed is gone, or the row would expunge inside a
+ * Trash nobody ever confirmed, the server refuses the delete outright; when
+ * its folder settings could not be read reader cannot say whether a delete
+ * moves the mail or erases it. All four refuse and the caller's `onConfirm` is
+ * never reached directly. The first three are answered in place — the
+ * affirmative control opens the appointment prompt, whose own confirm appoints
+ * the folder and then runs this delete. None of them may render as "this
+ * folder is not Trash".
  */
 import { ConfirmDialog } from "@remit/ui";
 import { useAuthProvider } from "@/auth/provider";
@@ -64,7 +65,17 @@ export const DeleteConfirmDialog = ({
 		trashIsUnconfirmed,
 	});
 
-	if (outcome === "noTrash" || outcome === "staleTrash") {
+	if (
+		outcome === "noTrash" ||
+		outcome === "staleTrash" ||
+		outcome === "unconfirmed"
+	) {
+		const reason =
+			outcome === "noTrash"
+				? "none"
+				: outcome === "staleTrash"
+					? "stale"
+					: "unconfirmed";
 		return (
 			<ConfirmDialog
 				isOpen={isOpen}
@@ -79,9 +90,10 @@ export const DeleteConfirmDialog = ({
 					requestAppointment({
 						accountId,
 						role: "Trash",
-						reason: outcome === "noTrash" ? "none" : "stale",
+						reason,
 						action: { kind: "delete", count },
 						staleFolderLabel,
+						trashFolderLabel,
 						onAppointed: async () => onConfirm(replay),
 					});
 				}}

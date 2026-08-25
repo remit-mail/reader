@@ -13,6 +13,7 @@ import {
 	MessageMoveService,
 	NoTrashMailboxError,
 	StaleTrashAppointmentError,
+	UnconfirmedTrashMailboxError,
 } from "./message-move.js";
 
 const ACCOUNT = "acc-1";
@@ -200,13 +201,33 @@ describe("delete only expunges when it was asked to", () => {
 		);
 	});
 
-	it("expunges a message already inside a Trash that resolves by name", async () => {
-		// D4a: the rows were selected and the dialog named the consequence, so
-		// consent is per message. Empty Trash has no such consent and refuses.
-		const { service, events } = buildWorld(
+	it("refuses to expunge a message already inside a Trash that only resolves by name", async () => {
+		// #876: a message already sitting in the guessed folder used to fall
+		// straight through to an expunge, on the same name guess Empty Trash
+		// refuses to act on. Deleting it is exactly as unrecoverable, so it
+		// demands the same confirmed evidence — nobody, neither the user nor the
+		// server, ever said this folder is Trash.
+		const { service, patches, events, message } = buildWorld(
 			{ kind: "proposed", mailbox: { mailboxId: TRASH, fullPath: "Trash" } },
 			TRASH,
 		);
+
+		await assert.rejects(
+			() => service.deleteMessages(ACCOUNT_CONFIG, [MESSAGE_ID], ACCOUNT),
+			(error: unknown) =>
+				error instanceof UnconfirmedTrashMailboxError &&
+				error.statusCode === 409 &&
+				error.publicApiError?.details?.reason === "unconfirmed" &&
+				error.publicApiError?.details?.accountId === ACCOUNT,
+		);
+
+		assert.deepEqual(events, []);
+		assert.deepEqual(patches, []);
+		assert.equal(message.mailboxId, TRASH);
+	});
+
+	it("expunges a message already inside a confirmed Trash", async () => {
+		const { service, events } = buildWorld(flaggedTrash, TRASH);
 
 		await service.deleteMessages(ACCOUNT_CONFIG, [MESSAGE_ID], ACCOUNT);
 

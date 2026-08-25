@@ -102,7 +102,9 @@ export const roleAppointmentPromptCopy = (
 	}
 
 	const irreversible =
-		"Emptying a folder erases everything in it from the mail server, and that cannot be restored.";
+		action.kind === "delete"
+			? `Deleting ${quantified(action.count)} there erases them from the mail server, and that cannot be restored.`
+			: "Emptying a folder erases everything in it from the mail server, and that cannot be restored.";
 	return {
 		title: "Confirm this account's Trash folder",
 		description: trashFolderLabel
