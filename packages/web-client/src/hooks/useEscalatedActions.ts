@@ -8,8 +8,10 @@ import {
 import type { ThreadOperationsSearchThreadsData } from "@remit/api-http-client/types.gen.ts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRoleAppointmentPrompt } from "@/components/mail/RoleAppointmentPromptProvider";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { buildMutationErrorBanner } from "@/components/ui/error-banners";
+import { isFolderRoleRefusal } from "@/components/ui/folder-role-refusal";
 import {
 	bulkActionFailureDetail,
 	bulkActionFailureTitle,
@@ -152,6 +154,14 @@ export const useEscalatedActions = ({
 	const runningRef = useRef(false);
 	const queryClient = useQueryClient();
 	const { pushError } = useErrorBanners();
+	const { requestAppointment } = useRoleAppointmentPrompt();
+	// The run replays itself once a folder is appointed, so it needs a handle on
+	// itself that does not make `runAction` its own dependency.
+	const runRef = useRef<UseEscalatedActionsResult["runAction"]>(async () => ({
+		done: 0,
+		failedIds: [],
+		cancelled: false,
+	}));
 
 	// A different search (or leaving search/desktop) makes any in-flight
 	// escalation meaningless — it would otherwise keep counting or offering to
@@ -298,6 +308,10 @@ export const useEscalatedActions = ({
 			cancelRef.current = false;
 			runningRef.current = true;
 			setRunningAction(action);
+			// Read before the run clears the phase below, so a refusal can say how
+			// many messages the appointment's replay is about.
+			const matched =
+				targets?.length ?? (phase.kind === "escalated" ? phase.total : 0);
 			// `honestProgress` widens `total` if `done` overtakes it (#109) — the
 			// predicate can match more by the time the run pages it than the count
 			// saw, and the bar must never show more done than out of.
@@ -337,7 +351,25 @@ export const useEscalatedActions = ({
 			setProgress(undefined);
 			setPhase({ kind: "idle" });
 
-			if (outcome.error) {
+			// A provenance refusal is answered by the appointment prompt here exactly
+			// as it is on the single-row path (#887, #876). Left to the banner it
+			// arrives as the API's own sentence — "Appoint one under Settings ›
+			// Folder roles" — which asks the user to reassemble a select-all they
+			// have already made.
+			const refusal = outcome.error
+				? isFolderRoleRefusal(outcome.error)
+				: undefined;
+			if (refusal) {
+				requestAppointment({
+					accountId: refusal.accountId,
+					role: refusal.role,
+					reason: refusal.reason,
+					action: { kind: "delete", count: matched },
+					onAppointed: async () => {
+						await runRef.current(action, targets);
+					},
+				});
+			} else if (outcome.error) {
 				pushError(
 					buildMutationErrorBanner(
 						bulkActionFailureTitle(action.kind, outcome.done),
@@ -351,8 +383,16 @@ export const useEscalatedActions = ({
 			}
 			return outcome;
 		},
-		[applyBatchFor, fetchPagesOf, phase, pushError, invalidateAfterRun],
+		[
+			applyBatchFor,
+			fetchPagesOf,
+			phase,
+			pushError,
+			invalidateAfterRun,
+			requestAppointment,
+		],
 	);
+	runRef.current = runAction;
 
 	return {
 		phase,

@@ -287,8 +287,8 @@ export function ThreadListInteraction({
 	);
 	const {
 		outcome: deleteOutcome,
-		trashIsUnconfirmed,
 		staleFolderLabel,
+		guessedMailboxId,
 	} = useDeleteOutcome(pendingDelete?.targets ?? NO_TARGETS);
 
 	// A verb, routed the same way the bar routes its own (#477 1.4, #508). Over a
@@ -482,7 +482,7 @@ export function ThreadListInteraction({
 				outcome={deleteOutcome}
 				accountId={pendingDelete?.targets[0]?.accountId}
 				staleFolderLabel={staleFolderLabel}
-				trashIsUnconfirmed={trashIsUnconfirmed}
+				guessedMailboxId={guessedMailboxId}
 				isDeleting={isDeleting}
 				onConfirm={confirmDelete}
 				onCancel={cancelDelete}

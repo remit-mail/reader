@@ -212,6 +212,7 @@ export const RoleAppointmentPromptProvider = ({
 					folders={folders}
 					delimiter={folderDelimiter(mailboxes)}
 					trashFolderLabel={trashFolderLabel}
+					guessedMailboxId={guessedMailboxId}
 					staleFolderLabel={
 						request.staleFolderLabel ?? trash?.staleAppointmentPath
 					}

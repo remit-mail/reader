@@ -130,6 +130,55 @@ export const Unconfirmed: Story = {
 };
 
 /**
+ * A delete refused because the rows are already inside the folder reader only
+ * matched by name: confirming it expunges them where they sit, so the copy says
+ * "delete", never "empty", and the confirm is the danger variant.
+ */
+export const UnconfirmedDelete: Story = {
+	name: "unconfirmed — delete in place",
+	args: {
+		reason: "unconfirmed",
+		action: { kind: "delete", count: 3 },
+		trashFolderLabel: "Deleted Messages",
+		guessedMailboxId: "mb-deleted",
+		initialSelectedId: "mb-deleted",
+		phase: choosing,
+	},
+};
+
+/**
+ * The same refusal answered with a different folder. The rows are not in that
+ * one, so the delete moves them there and the confirm is not destructive.
+ */
+export const UnconfirmedDeleteElsewhere: Story = {
+	name: "unconfirmed — delete into another folder",
+	args: {
+		reason: "unconfirmed",
+		action: { kind: "delete", count: 3 },
+		trashFolderLabel: "Deleted Messages",
+		guessedMailboxId: "mb-deleted",
+		initialSelectedId: "mb-prullenbak",
+		phase: choosing,
+	},
+};
+
+/**
+ * That confirm in flight. It says the rows are being erased where they sit —
+ * "moving them to Deleted Messages" would narrate the opposite.
+ */
+export const UnconfirmedDeleteInFlight: Story = {
+	name: "unconfirmed — delete in place, acting",
+	args: {
+		reason: "unconfirmed",
+		action: { kind: "delete", count: 3 },
+		trashFolderLabel: "Deleted Messages",
+		guessedMailboxId: "mb-deleted",
+		initialSelectedId: "mb-deleted",
+		phase: { kind: "acting" },
+	},
+};
+
+/**
  * Two writes behind one press, and the story steps through both: the
  * appointment, then the delete it unblocks. Neither has a way out — the write
  * has left, and cancelling a half-applied ceremony is worse than waiting.

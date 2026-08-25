@@ -326,8 +326,8 @@ export const MessageList = ({
 	);
 	const {
 		outcome: deleteOutcome,
-		trashIsUnconfirmed,
 		staleFolderLabel,
+		guessedMailboxId,
 	} = useDeleteOutcome(deleteScope);
 
 	// Selection state
@@ -1352,7 +1352,7 @@ export const MessageList = ({
 				// mailbox is the Trash the copy has to name.
 				trashFolderLabel={listTitle}
 				staleFolderLabel={staleFolderLabel}
-				trashIsUnconfirmed={trashIsUnconfirmed}
+				guessedMailboxId={guessedMailboxId}
 				isDeleting={isDeleting}
 				onConfirm={handleConfirmDelete}
 				onCancel={handleCancelDelete}

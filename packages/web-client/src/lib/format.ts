@@ -1,3 +1,8 @@
+import {
+	type FolderAppointmentSourceValue,
+	trashSourceMeetsAssurance,
+} from "@remit/data-ports/folder-role";
+
 /**
  * Get the user's preferred locale from browser settings.
  * Falls back to 'en-US' if unavailable.
@@ -178,8 +183,6 @@ export interface DeleteConfirmationContext {
 	trashFolderLabel?: string;
 	/** The folder the user appointed, now gone from the mail server. */
 	staleFolderLabel?: string;
-	/** That folder is a name match nobody ever confirmed. */
-	trashIsUnconfirmed?: boolean;
 }
 
 /**
@@ -207,10 +210,11 @@ export interface DeleteConfirmationContext {
  * single `noTrash` member cannot — this function only ever sees the member.
  *
  * `unconfirmed` is a folder reader matched by name that nobody ever confirmed.
- * Only Empty Trash refuses on it (D4); `deleteOutcomeFor` never produces it,
- * because the targets an ordinary delete is about say nothing about a whole
- * folder. The Empty Trash surface derives it from the server's own 409, and the
- * branch lives here so both surfaces word it identically.
+ * Empty Trash refuses on it for the whole folder (D4); `deleteOutcomeFor`
+ * produces it too, for the narrower case of a row that is already inside that
+ * folder — deleting it expunges on the same name guess, and the guess is never
+ * enough to destroy mail (#876). Both surfaces derive it from the server's own
+ * 409, and the branch lives here so they word it identically.
  */
 export type DeleteOutcome =
 	| "trash"
@@ -222,13 +226,7 @@ export type DeleteOutcome =
 	| "unavailable";
 
 /** Where an account's Trash answer came from (`FolderAppointmentSource`). */
-export type TrashSource =
-	| "Appointed"
-	| "Flagged"
-	| "Reserved"
-	| "Proposed"
-	| "Stale"
-	| "None";
+export type TrashSource = FolderAppointmentSourceValue;
 
 /** One account's Trash, as `/config` resolved it. */
 export interface TrashResolution {
@@ -268,8 +266,10 @@ export interface DeleteOutcomeInput {
  * One row bound for an expunge makes the whole delete unrecoverable, so a mixed
  * set is permanent: the wording may overstate what is destroyed, never what is
  * kept. One row on an account with no Trash refuses the whole call, so that
- * outranks both. Pure, so every branch — the failure ones above all — is
- * testable without a DOM.
+ * outranks both. An expunge on a Trash nobody confirmed outranks a plain
+ * expunge in turn — the server refuses it (#876), so the dialog asks for the
+ * same confirmation up front rather than offering a confirm that 409s. Pure,
+ * so every branch — the failure ones above all — is testable without a DOM.
  */
 export const deleteOutcomeFor = ({
 	targets,
@@ -282,16 +282,32 @@ export const deleteOutcomeFor = ({
 	if (targets.length === 0) return "unknown";
 
 	let expunges = false;
+	let expungesUnconfirmed = false;
 	for (const target of targets) {
 		if (target.accountId === undefined) return "unknown";
 		const trash = trashByAccount.get(target.accountId);
 		if (trash === undefined) return "unknown";
 		if (trash.source === "Stale") return "staleTrash";
 		if (trash.mailboxId === undefined) return "noTrash";
-		if (trash.mailboxId === target.mailboxId) expunges = true;
+		if (trash.mailboxId === target.mailboxId) {
+			expunges = true;
+			if (!trashSourceMeetsAssurance(trash.source, "confirmed"))
+				expungesUnconfirmed = true;
+		}
 	}
+	if (expungesUnconfirmed) return "unconfirmed";
 	return expunges ? "permanent" : "trash";
 };
+
+/**
+ * The delete erases mail rather than filing it. Both outcomes a row already
+ * inside Trash produces say so — `unconfirmed` is only ever reached that way
+ * (#876) — and anything that reports what a delete did reads this rather than
+ * testing for `permanent`, which is how a run of expunged mail came to be
+ * announced as "moved to Trash".
+ */
+export const deleteExpunges = (outcome: DeleteOutcome): boolean =>
+	outcome === "permanent" || outcome === "unconfirmed";
 
 /**
  * The confirmation for a delete, worded for what the delete actually does.
@@ -315,7 +331,7 @@ export const deleteConfirmationCopy = (
 ): DeleteConfirmationCopy => {
 	const quantity = count === 1 ? "1" : formatNumber(count);
 	const noun = count === 1 ? "message" : "messages";
-	const { trashFolderLabel, staleFolderLabel, trashIsUnconfirmed } = context;
+	const { trashFolderLabel, staleFolderLabel } = context;
 
 	if (outcome === "noTrash") {
 		return {
@@ -335,11 +351,18 @@ export const deleteConfirmationCopy = (
 		};
 	}
 	if (outcome === "unconfirmed") {
+		const folderClause = trashFolderLabel
+			? `reader files this account's deleted mail in ${trashFolderLabel} because of its name — nobody confirmed it.`
+			: "reader files this account's deleted mail in a folder it matched by name — nobody confirmed it.";
+		// count === 0: Empty Trash, acting on everything the folder holds. A
+		// positive count: a delete whose rows already sit in that folder, so
+		// this expunges them specifically, not the folder's whole contents.
 		return {
 			title: "Confirm this account's Trash folder",
-			description: trashFolderLabel
-				? `reader files this account's deleted mail in ${trashFolderLabel} because of its name — nobody confirmed it. Emptying a folder erases everything in it from the mail server, and that cannot be restored. Nothing has been emptied.`
-				: "reader files this account's deleted mail in a folder it matched by name — nobody confirmed it. Emptying a folder erases everything in it from the mail server, and that cannot be restored. Nothing has been emptied.",
+			description:
+				count > 0
+					? `${folderClause} Deleting ${quantity} ${noun} there erases them from the mail server, and that cannot be restored. Nothing has been deleted.`
+					: `${folderClause} Emptying a folder erases everything in it from the mail server, and that cannot be restored. Nothing has been emptied.`,
 			confirmLabel: "Confirm the folder",
 		};
 	}
@@ -359,18 +382,6 @@ export const deleteConfirmationCopy = (
 		};
 	}
 	if (outcome === "permanent") {
-		// D4a: the expunge still goes through on a Trash nobody confirmed — the
-		// user asked for these specific rows — but they are told which folder
-		// reader treats as Trash, and that nobody chose it, before it happens.
-		if (trashIsUnconfirmed) {
-			return {
-				title: `Permanently delete ${quantity} ${noun}?`,
-				description: trashFolderLabel
-					? `They are in ${trashFolderLabel}, which reader treats as this account's Trash because of its name — nobody confirmed it. They are erased from the mail server and cannot be restored.`
-					: "They are in a folder reader treats as this account's Trash because of its name — nobody confirmed it. They are erased from the mail server and cannot be restored.",
-				confirmLabel: "Delete permanently",
-			};
-		}
 		return {
 			title: `Permanently delete ${quantity} ${noun}?`,
 			description:
