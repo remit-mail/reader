@@ -497,9 +497,11 @@ describe("useSystemUpdate — actions", () => {
 				// hook sets for itself lands on the next tick, not in half a minute.
 				Date.now = () => realNow() + CHECK_ANSWER_BUDGET_MS + 1_000;
 				await dom.flush();
-				await dom.wait(5);
-				await dom.flush();
 			});
+			// The effects have run and the deadline is armed — let it fire.
+			await dom.wait(5);
+			await dom.flush();
+
 			assert.match(dom.html(), /The updater did not answer/);
 			assert.match(dom.html(), /remit logs updater/);
 			assert.doesNotMatch(dom.html(), /Looking for a newer version/);
