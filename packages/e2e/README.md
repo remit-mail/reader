@@ -14,13 +14,13 @@ running. Two things can be running.
 
 **The image stack** (`npm run e2e`) drives the published
 `ghcr.io/remit-mail/reader/*` images exactly as an operator gets them: the
-reference SQLite compose file, plus the two mail servers and a loopback edge
+reference SQLite compose file, plus the mail servers and a loopback edge
 port (`deploy/vps/docker-compose.e2e.yml`). This is the deploy signal, and it
 runs every spec.
 
 **The source stack** (`npm run e2e:dev`) is the same deployment shape assembled
 from the worktree — the queue sidecar, the migrator, the backend, the imap and
-smtp workers, and the vite dev server, all from source, with the same two mail
+smtp workers, and the vite dev server, all from source, with the same mail
 containers (`deploy/vps/docker-compose.dovecot.yml`). It is cheap enough to run
 on a pull request, which makes it a regression guard rather than a deploy gate.
 
@@ -35,6 +35,15 @@ address nothing sends to, so every submission is turned away at RCPT TO with a
 `smtp` option (`rejectingSmtpFromStack`) and reads that lane's own sink
 (`rejectingSmtpSinkApi`) to prove the refused message reached nobody. Every
 other account uses the lane that accepts.
+
+Both also get a second Dovecot that flags no folder `\Trash`, autocreating
+`Deleted Messages` instead. Every mailbox the first one hands out carries the
+flag, which left a Trash role resolved from a folder's name — the evidence an
+expunge may not act on — with no server to run against. A spec routes one
+isolated account there with `provisionIsolatedRun`'s `imap` option
+(`namedTrashImapLane`); the suite's own IMAP helpers follow the account, so a
+spec reads the server the app wrote to. Every other account uses the first lane,
+whose flags are unaffected.
 
 Both also publish the queue sidecar on loopback (`E2E_QUEUE_PORT`), which is the
 one internal listener either lane puts on the host. At-least-once delivery is
@@ -74,11 +83,12 @@ between runs, and it reads its configuration from the generated env whichever
 lane wrote it, so it needs no argument to know which one it is talking to.
 
 The source stack needs the monorepo installed and generated (`npm ci && make`),
-which the suite itself does not. Eight ports move it if something else is in the
-way: `E2E_HTTP_PORT`, `E2E_IMAP_PORT`, `E2E_SMTP_PORT`, `E2E_SMTP_HTTP_PORT`,
-`E2E_SMTP_REJECT_PORT`, `E2E_SMTP_REJECT_HTTP_PORT`, `SERVER_PORT`,
-`QUEUE_SIDECAR_PORT`. Setting `E2E_DEV_SLOT` instead derives all eight from the
-slot name, which is how several lanes share one host.
+which the suite itself does not. Nine ports move it if something else is in the
+way: `E2E_HTTP_PORT`, `E2E_IMAP_PORT`, `E2E_IMAP_NAMED_TRASH_PORT`,
+`E2E_SMTP_PORT`, `E2E_SMTP_HTTP_PORT`, `E2E_SMTP_REJECT_PORT`,
+`E2E_SMTP_REJECT_HTTP_PORT`, `SERVER_PORT`, `QUEUE_SIDECAR_PORT`. Setting
+`E2E_DEV_SLOT` instead derives all nine from the slot name, which is how several
+lanes share one host.
 
 ## Isolation
 

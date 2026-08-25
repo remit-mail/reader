@@ -161,9 +161,12 @@ export const STALE_TRASH_FOLDER_REASON = `The folder appointed as this account's
 
 /**
  * A folder matches the Trash name hint and nothing else — enough to file a
- * delete somewhere retrievable, never enough to expunge a whole folder.
+ * delete somewhere retrievable, never enough to erase what is already in it.
+ * Emptying that folder and deleting a message already inside it both land here
+ * (#876), so the sentence names neither verb: "nothing was deleted" is true of
+ * both, the way its two siblings above are.
  */
-export const UNCONFIRMED_TRASH_FOLDER_REASON = `Nobody has confirmed which folder is this account's Trash, so it was not emptied. Appoint one under ${FOLDER_ROLES_SETTINGS_PATH}, then try again.`;
+export const UNCONFIRMED_TRASH_FOLDER_REASON = `Nobody has confirmed which folder is this account's Trash, so nothing was deleted. Appoint one under ${FOLDER_ROLES_SETTINGS_PATH}, then try again.`;
 
 /** The minimal mailbox shape role resolution reads. */
 export interface RoleMailboxCandidate extends MailboxNameCandidate {

@@ -35,6 +35,8 @@ interface DeleteConfirmDialogProps {
 	trashFolderLabel?: string;
 	/** The folder the user appointed, now gone from the mail server. */
 	staleFolderLabel?: string;
+	/** `unconfirmed`: that guessed folder by id, so the prompt opens on it. */
+	guessedMailboxId?: string;
 	/** A delete is already in flight, so the confirm cannot be pressed again. */
 	isDeleting?: boolean;
 	onConfirm: (messageIds: string[]) => void;
@@ -48,6 +50,7 @@ export const DeleteConfirmDialog = ({
 	accountId,
 	trashFolderLabel,
 	staleFolderLabel,
+	guessedMailboxId,
 	isDeleting = false,
 	onConfirm,
 	onCancel,
@@ -90,6 +93,7 @@ export const DeleteConfirmDialog = ({
 						action: { kind: "delete", count },
 						staleFolderLabel,
 						trashFolderLabel,
+						guessedMailboxId,
 						onAppointed: async () => onConfirm(replay),
 					});
 				}}

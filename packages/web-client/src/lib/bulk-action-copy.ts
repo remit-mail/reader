@@ -1,6 +1,6 @@
 import type { ErrorBannerSeverity } from "@/components/ui/error-banners";
 import type { BulkRunOutcome } from "@/lib/bulk-actions";
-import { type DeleteOutcome, formatNumber } from "@/lib/format";
+import { type DeleteOutcome, deleteExpunges, formatNumber } from "@/lib/format";
 
 /** A run ending, as the list banners it. */
 export interface RunEndingBanner {
@@ -38,7 +38,7 @@ const pastTense: Record<BulkActionKind, string> = {
  * it does for one that finished — the half that ran is still erased.
  */
 const pastTenseFor = (kind: BulkActionKind, outcome: DeleteOutcome): string =>
-	kind === "delete" && outcome === "permanent"
+	kind === "delete" && deleteExpunges(outcome)
 		? "permanently deleted"
 		: pastTense[kind];
 

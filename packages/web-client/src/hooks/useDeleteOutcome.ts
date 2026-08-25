@@ -11,8 +11,9 @@
  * from several mailboxes and several accounts at once.
  *
  * The decision itself is `deleteOutcomeFor`, kept pure in `lib/format`; this is
- * only the read that feeds it. The fact beside it is what the copy needs to name
- * a folder: the folder a stale appointment lost.
+ * only the read that feeds it. The two facts beside it are the folders the
+ * refusal has to name: the one a stale appointment lost, and the one reader
+ * guessed and is asking the user to confirm.
  */
 import { useMemo } from "react";
 import {
@@ -26,6 +27,12 @@ export interface DeleteOutcomeResult {
 	outcome: DeleteOutcome;
 	/** The folder the user appointed, when it is gone from the mail server. */
 	staleFolderLabel?: string;
+	/**
+	 * `unconfirmed`: the folder reader matched by name, which the rows are
+	 * already inside. The prompt opens with it chosen, so confirming the guess is
+	 * one tap.
+	 */
+	guessedMailboxId?: string;
 }
 
 /** The outcome of deleting `targets`. */
@@ -49,6 +56,15 @@ export const useDeleteOutcome = (
 			staleFolderLabel: targets
 				.map(trashFor)
 				.find((trash) => trash?.source === "Stale")?.staleFolderPath,
+			// The folder that produced `unconfirmed`: a row's own mailbox, which is
+			// also its account's guessed Trash. Only that row says which folder is
+			// being asked about — a row filed elsewhere is moving, not expunging.
+			guessedMailboxId:
+				outcome === "unconfirmed"
+					? targets.find(
+							(target) => trashFor(target)?.mailboxId === target.mailboxId,
+						)?.mailboxId
+					: undefined,
 		};
 	}, [targets, trashByAccount, hasAppointments, isError]);
 };

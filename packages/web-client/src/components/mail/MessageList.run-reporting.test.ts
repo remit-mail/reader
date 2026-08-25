@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { runEndingBanner } from "@/lib/bulk-action-copy";
 import type { BulkRunOutcome } from "@/lib/bulk-actions";
+import { type DeleteOutcome, deleteExpunges } from "@/lib/format";
 
 /**
  * A run states how it ended, to whoever is still there to read it (#521). The
@@ -27,6 +28,8 @@ import type { BulkRunOutcome } from "@/lib/bulk-actions";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(resolve(here, "MessageList.tsx"), "utf8");
+
+const expunging: DeleteOutcome[] = ["permanent", "unconfirmed"];
 
 const ended = (over: Partial<BulkRunOutcome> = {}): BulkRunOutcome => ({
 	done: 100,
@@ -92,18 +95,24 @@ describe("reporting how a run ended", () => {
 		);
 	});
 
-	it("names an expunge as an expunge, however the run ended", () => {
-		assert.match(
-			runEndingBanner("delete", 100, ended(), "permanent")?.title ?? "",
-			/^100 permanently deleted\./,
-		);
-		assert.match(
-			runEndingBanner("delete", 3000, ended({ cancelled: true }), "permanent")
-				?.detail ?? "",
-			/100 of 3,000 permanently deleted\./,
-			"the half that ran is erased whether or not the rest did",
-		);
-	});
+	// Both outcomes a row already inside Trash produces, because both erase it.
+	// `unconfirmed` is only ever reached that way (#876), and a ternary that knew
+	// only `permanent` reported an expunge as "moved to Trash".
+	for (const outcome of expunging) {
+		it(`names a ${outcome} delete as an expunge, however the run ended`, () => {
+			assert.ok(deleteExpunges(outcome), "the copy reads this predicate");
+			assert.match(
+				runEndingBanner("delete", 100, ended(), outcome)?.title ?? "",
+				/^100 permanently deleted\./,
+			);
+			assert.match(
+				runEndingBanner("delete", 3000, ended({ cancelled: true }), outcome)
+					?.detail ?? "",
+				/100 of 3,000 permanently deleted\./,
+				"the half that ran is erased whether or not the rest did",
+			);
+		});
+	}
 });
 
 describe("the run the wizard leaves behind", () => {

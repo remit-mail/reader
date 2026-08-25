@@ -300,6 +300,16 @@ export const deleteOutcomeFor = ({
 };
 
 /**
+ * The delete erases mail rather than filing it. Both outcomes a row already
+ * inside Trash produces say so — `unconfirmed` is only ever reached that way
+ * (#876) — and anything that reports what a delete did reads this rather than
+ * testing for `permanent`, which is how a run of expunged mail came to be
+ * announced as "moved to Trash".
+ */
+export const deleteExpunges = (outcome: DeleteOutcome): boolean =>
+	outcome === "permanent" || outcome === "unconfirmed";
+
+/**
  * The confirmation for a delete, worded for what the delete actually does.
  * Deleting mail that already sits in Trash expunges it on the server and
  * nothing survives that, so it is asked as a permanent delete — a dialog that
