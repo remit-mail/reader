@@ -14,6 +14,7 @@ import {
 import { type SendResult, SmtpConnectionError } from "@remit/smtp-service";
 import type { SendMessageEvent } from "../events.js";
 import {
+	getSendMessageMaxAttempts,
 	SEND_MESSAGE_MAX_ATTEMPTS,
 	type SendMessageDeps,
 	sendMessage,
@@ -658,6 +659,18 @@ describe("sendMessage OAuth reauth/ACK contract", () => {
 	});
 });
 
+/**
+ * A connection failure as `smtp-client.ts` raises one: the code nodemailer put
+ * on the underlying error is what says how far the submission got, and it
+ * survives only on the cause.
+ */
+const connectionError = (code: string): SmtpConnectionError =>
+	new SmtpConnectionError(
+		"network",
+		`SMTP connection failed: ${code}`,
+		Object.assign(new Error(code), { code }),
+	);
+
 describe("sendMessage retry-budget exhaustion (issue #951)", () => {
 	it("rethrows a password account's auth failure below the retry budget, leaving the row `sending`", async () => {
 		const { deps, recorded } = buildDeps({
@@ -705,14 +718,11 @@ describe("sendMessage retry-budget exhaustion (issue #951)", () => {
 		assert.match(String(failedUpdate.patch.lastError), /authentication failed/);
 	});
 
-	it("settles an exhausted network failure at `failed`, not stranded at `sending`", async () => {
+	it("settles an exhausted refused connection at `failed`, not stranded at `sending`", async () => {
 		const { deps, recorded } = buildDeps({
 			account: buildAccount({ smtpHost: "smtp.example.com", smtpPort: 587 }),
 			send: async () => {
-				throw new SmtpConnectionError(
-					"network",
-					"SMTP connection failed: ECONNREFUSED",
-				);
+				throw connectionError("ECONNREFUSED");
 			},
 		});
 
@@ -723,6 +733,49 @@ describe("sendMessage retry-budget exhaustion (issue #951)", () => {
 		);
 		assert.ok(failedUpdate, "should settle the row as failed");
 		assert.match(String(failedUpdate.patch.lastError), /ECONNREFUSED/);
+	});
+
+	for (const code of ["ECONNRESET", "ETIMEDOUT"]) {
+		it(`settles an exhausted ${code} at \`unfiled\` — the server may hold the message`, async () => {
+			// Both classify as `network` and both can land after DATA, so a
+			// `failed` row here would offer a Retry that delivers a second copy.
+			const { deps, recorded } = buildDeps({
+				account: buildAccount({ smtpHost: "smtp.example.com", smtpPort: 587 }),
+				send: async () => {
+					throw connectionError(code);
+				},
+			});
+
+			await sendMessage(event, silentLogger, deps, SEND_MESSAGE_MAX_ATTEMPTS);
+
+			assert.equal(
+				recorded.updates.find((u) => u.patch.status === "failed"),
+				undefined,
+				"a row that may have been delivered must not be re-sendable",
+			);
+			const settled = recorded.updates.at(-1)?.patch;
+			assert.equal(settled?.status, "unfiled");
+			assert.match(
+				String(settled?.lastError),
+				/may already have been delivered/,
+			);
+			assert.match(String(settled?.lastError), new RegExp(code));
+		});
+	}
+
+	it("settles an exhausted connection failure that names no code at `unfiled`", async () => {
+		// Nothing says the message did not reach the server, and the answer that
+		// cannot produce a second copy is the one to settle on.
+		const { deps, recorded } = buildDeps({
+			account: buildAccount({ smtpHost: "smtp.example.com", smtpPort: 587 }),
+			send: async () => {
+				throw new SmtpConnectionError("network", "SMTP connection failed");
+			},
+		});
+
+		await sendMessage(event, silentLogger, deps, SEND_MESSAGE_MAX_ATTEMPTS);
+
+		assert.equal(recorded.updates.at(-1)?.patch.status, "unfiled");
 	});
 
 	it("settles an exhausted transient SMTP failure at `failed` instead of leaving it `queued` forever", async () => {
@@ -747,6 +800,37 @@ describe("sendMessage retry-budget exhaustion (issue #951)", () => {
 			recorded.statuses.find((s) => s.status === "queued"),
 			undefined,
 			"must not leave the row requeued once the budget is spent",
+		);
+	});
+});
+
+describe("the retry budget is the queue's, read from the environment", () => {
+	it("takes the deployment's own maxReceiveCount when it is set", () => {
+		// The e2e stack sets 1 (`deploy/vps/e2e.env`): its pollers hold a record
+		// for 300s, so a spec cannot wait out three deliveries.
+		assert.equal(
+			getSendMessageMaxAttempts({ SEND_MESSAGE_MAX_ATTEMPTS: "1" }),
+			1,
+		);
+		assert.equal(
+			getSendMessageMaxAttempts({ SEND_MESSAGE_MAX_ATTEMPTS: "5" }),
+			5,
+		);
+	});
+
+	it("falls back to remit-smtp's maxReceiveCount when it is unset or unusable", () => {
+		assert.equal(getSendMessageMaxAttempts({}), 3);
+		assert.equal(
+			getSendMessageMaxAttempts({ SEND_MESSAGE_MAX_ATTEMPTS: "" }),
+			3,
+		);
+		assert.equal(
+			getSendMessageMaxAttempts({ SEND_MESSAGE_MAX_ATTEMPTS: "not-a-number" }),
+			3,
+		);
+		assert.equal(
+			getSendMessageMaxAttempts({ SEND_MESSAGE_MAX_ATTEMPTS: "0" }),
+			3,
 		);
 	});
 });

@@ -5,7 +5,7 @@ import type {
 	UpdateOutboxMessageInput,
 } from "@remit/data-ports";
 import { AccountAuthType, OutboxMessageStatus } from "@remit/domain-enums";
-import type { Logger } from "@remit/logger-lambda";
+import { type Logger, recordSmtpFailure } from "@remit/logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import type { SecretsService } from "@remit/secrets-service";
 import {
@@ -92,6 +92,38 @@ export interface SendMessageDeps {
 
 const UNFILED_NOT_QUEUED =
 	"Sent, but not filed: the copy for the Sent folder could not be queued.";
+
+const UNFILED_CONNECTION_LOST =
+	"The connection to the outgoing server dropped during the send, so this message may already have been delivered. Check with the recipient before sending it again.";
+
+/**
+ * The connection failures that prove nothing was submitted: no session ever
+ * opened, so the server holds no copy and `failed` is safe — Retry sends the
+ * only copy there is.
+ *
+ * `ECONNRESET` and `ETIMEDOUT` classify as `network` too and are deliberately
+ * absent. Either can land after DATA, with the message already queued on the
+ * server, and a `failed` row invites a Retry that delivers it twice.
+ */
+const NEVER_SUBMITTED_CODES: ReadonlySet<string> = new Set([
+	"ECONNREFUSED",
+	"ENOTFOUND",
+	"EHOSTUNREACH",
+]);
+
+const errorCode = (cause: unknown): string =>
+	cause instanceof Error && "code" in cause && typeof cause.code === "string"
+		? cause.code
+		: "";
+
+/**
+ * Whether the message can be re-sent without risking a second copy. An auth
+ * rejection is decided before the envelope; a connection failure carries the
+ * code that says how far it got. Anything else counts as possibly delivered,
+ * which is the answer that cannot produce a duplicate.
+ */
+const neverSubmitted = (err: SmtpConnectionError): boolean =>
+	err.kind === "auth" || NEVER_SUBMITTED_CODES.has(errorCode(err.cause));
 
 const SENDABLE_STATUSES: ReadonlySet<OutboxMessageItem["status"]> = new Set([
 	OutboxMessageStatus.draft,
@@ -242,26 +274,39 @@ export const sendMessage = async (
 			await deps.updateConnectionState(accountId, "reauth_required");
 			return; // ACK — do not retry
 		}
-		// Neither auth kind ever succeeds by retrying against the same
-		// credentials, and network never reaches the wire — nodemailer throws
-		// this before DATA, so the message was never submitted and there is
-		// nothing on the server to reconcile against (wait-or-reconcile,
-		// docs/architecture/imap-mutations.md R2: neither applies — the row
-		// settles directly). A password account's auth failure and every
-		// network failure retry on SQS redelivery until the queue's own
-		// budget runs out, then settle here instead of dead-lettering with
-		// the row stuck at `sending` (issue #951).
+		// A password account's auth failure and every network failure retry on
+		// SQS redelivery until the queue's own budget runs out, then settle
+		// here instead of dead-lettering with the row stuck at `sending`
+		// (issue #951). Where it settles is the double-send question:
+		// `neverSubmitted` says the message cannot be on the server, so
+		// `failed` offers the Retry the user needs; anything else settles
+		// `unfiled`, the state that says a copy may be out there and which
+		// Retry is not offered on. Wait-or-reconcile
+		// (docs/architecture/imap-mutations.md R2): neither applies — a
+		// submission leaves no server-side handle to reconcile against, so the
+		// row settles on what the failure itself proves.
 		if (err instanceof SmtpConnectionError) {
 			if (receiveCount < SEND_MESSAGE_MAX_ATTEMPTS) {
 				throw err;
 			}
-			await deps.updateOutbox(accountConfigId, outboxMessageId, {
-				status: "failed",
-				lastError: err.message,
-			});
+			const settled = neverSubmitted(err)
+				? { status: OutboxMessageStatus.failed, lastError: err.message }
+				: {
+						status: OutboxMessageStatus.unfiled,
+						lastError: `${UNFILED_CONNECTION_LOST} (${err.message})`,
+					};
+			await deps.updateOutbox(accountConfigId, outboxMessageId, settled);
+			// Terminal and never re-thrown, so the handler-outcome series
+			// records this record as a success. Counted here or it is invisible.
+			recordSmtpFailure(err.kind);
 			log.error(
-				{ outboxMessageId, errorKind: err.kind, receiveCount },
-				"SMTP send retry exhausted; settling as failed",
+				{
+					outboxMessageId,
+					errorKind: err.kind,
+					receiveCount,
+					status: settled.status,
+				},
+				"SMTP send retry exhausted; settling the row",
 			);
 			return; // ACK — settled terminal, no more retries
 		}
@@ -332,6 +377,9 @@ export const sendMessage = async (
 			lastError: result.error?.message,
 			lastSmtpCode: result.smtpCode,
 		});
+		// Terminal and never re-thrown, so the handler-outcome series records
+		// this record as a success. Counted here or it is invisible.
+		recordSmtpFailure("other");
 		log.error(
 			{
 				outboxMessageId,
