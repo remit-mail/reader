@@ -13,7 +13,11 @@ import {
 } from "@remit/secrets-service";
 import { type SendResult, SmtpConnectionError } from "@remit/smtp-service";
 import type { SendMessageEvent } from "../events.js";
-import { type SendMessageDeps, sendMessage } from "./send-message-core.js";
+import {
+	SEND_MESSAGE_MAX_ATTEMPTS,
+	type SendMessageDeps,
+	sendMessage,
+} from "./send-message-core.js";
 
 const silentLogger = {
 	info: () => {},
@@ -650,6 +654,103 @@ describe("sendMessage OAuth reauth/ACK contract", () => {
 			recorded.connectionStateUpdates.length,
 			0,
 			"must not flip connectionState for password account",
+		);
+	});
+});
+
+describe("sendMessage retry-budget exhaustion (issue #951)", () => {
+	it("rethrows a password account's auth failure below the retry budget, leaving the row `sending`", async () => {
+		const { deps, recorded } = buildDeps({
+			account: buildAccount({
+				smtpHost: "smtp.example.com",
+				smtpPort: 587,
+				authType: AccountAuthType.Password,
+			}),
+			send: async () => {
+				throw new SmtpConnectionError("auth", "535 authentication failed");
+			},
+		});
+
+		await assert.rejects(
+			() =>
+				sendMessage(event, silentLogger, deps, SEND_MESSAGE_MAX_ATTEMPTS - 1),
+			/535 authentication failed/,
+		);
+		assert.equal(
+			recorded.updates.length,
+			0,
+			"must not settle the row before the retry budget is spent",
+		);
+	});
+
+	it("settles a password account's exhausted auth failure at `failed`, not stranded at `sending`", async () => {
+		const { deps, recorded } = buildDeps({
+			account: buildAccount({
+				smtpHost: "smtp.example.com",
+				smtpPort: 587,
+				authType: AccountAuthType.Password,
+			}),
+			send: async () => {
+				throw new SmtpConnectionError("auth", "535 authentication failed");
+			},
+		});
+
+		await sendMessage(event, silentLogger, deps, SEND_MESSAGE_MAX_ATTEMPTS);
+
+		assert.equal(recorded.connectionStateUpdates.length, 0);
+		const failedUpdate = recorded.updates.find(
+			(u) => u.patch.status === "failed",
+		);
+		assert.ok(failedUpdate, "should settle the row as failed");
+		assert.match(String(failedUpdate.patch.lastError), /authentication failed/);
+	});
+
+	it("settles an exhausted network failure at `failed`, not stranded at `sending`", async () => {
+		const { deps, recorded } = buildDeps({
+			account: buildAccount({ smtpHost: "smtp.example.com", smtpPort: 587 }),
+			send: async () => {
+				throw new SmtpConnectionError(
+					"network",
+					"SMTP connection failed: ECONNREFUSED",
+				);
+			},
+		});
+
+		await sendMessage(event, silentLogger, deps, SEND_MESSAGE_MAX_ATTEMPTS);
+
+		const failedUpdate = recorded.updates.find(
+			(u) => u.patch.status === "failed",
+		);
+		assert.ok(failedUpdate, "should settle the row as failed");
+		assert.match(String(failedUpdate.patch.lastError), /ECONNREFUSED/);
+		assert.equal(
+			recorded.statuses.find((s) => s.status === "sending"),
+			undefined,
+		);
+	});
+
+	it("settles an exhausted transient SMTP failure at `failed` instead of leaving it `queued` forever", async () => {
+		const { deps, recorded } = buildDeps({
+			account: buildAccount({ smtpHost: "smtp.example.com", smtpPort: 587 }),
+			sendResult: {
+				success: false,
+				error: new Error("temporarily unavailable"),
+				smtpCode: 421,
+				isTransient: true,
+			},
+		});
+
+		await sendMessage(event, silentLogger, deps, SEND_MESSAGE_MAX_ATTEMPTS);
+
+		const failedUpdate = recorded.updates.find(
+			(u) => u.patch.status === "failed",
+		);
+		assert.ok(failedUpdate, "should settle the row as failed");
+		assert.equal(failedUpdate.patch.lastSmtpCode, 421);
+		assert.equal(
+			recorded.statuses.find((s) => s.status === "queued"),
+			undefined,
+			"must not leave the row requeued once the budget is spent",
 		);
 	});
 });

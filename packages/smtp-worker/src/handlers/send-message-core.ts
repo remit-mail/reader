@@ -99,10 +99,32 @@ const SENDABLE_STATUSES: ReadonlySet<OutboxMessageItem["status"]> = new Set([
 	OutboxMessageStatus.sending,
 ]);
 
+/**
+ * Fallback when `SEND_MESSAGE_MAX_ATTEMPTS` is unset (local dev, unit tests).
+ * Matches `remit-smtp`'s `maxReceiveCount` (`deploy/vps/queues.json`), same
+ * pattern as `MESSAGE_MOVE_MAX_ATTEMPTS` / `FLAG_PUSH_MAX_ATTEMPTS` in
+ * imap-worker.
+ */
+const DEFAULT_SEND_MESSAGE_MAX_ATTEMPTS = 3;
+
+export const getSendMessageMaxAttempts = (
+	processEnv: NodeJS.ProcessEnv = process.env,
+): number => {
+	const raw = processEnv.SEND_MESSAGE_MAX_ATTEMPTS;
+	if (!raw) return DEFAULT_SEND_MESSAGE_MAX_ATTEMPTS;
+	const parsed = Number.parseInt(raw, 10);
+	return Number.isFinite(parsed) && parsed > 0
+		? parsed
+		: DEFAULT_SEND_MESSAGE_MAX_ATTEMPTS;
+};
+
+export const SEND_MESSAGE_MAX_ATTEMPTS = getSendMessageMaxAttempts();
+
 export const sendMessage = async (
 	event: SendMessageEvent,
 	log: Logger,
 	deps: SendMessageDeps,
+	receiveCount = 1,
 ): Promise<void> => {
 	const { outboxMessageId, accountId } = event;
 
@@ -207,18 +229,41 @@ export const sendMessage = async (
 	} catch (err) {
 		// A terminal SMTP auth rejection (e.g. expired OAuth token surfaced at
 		// connect time) flips the account to reauth_required and ACKs.
-		// Only OAuth accounts have a re-auth recovery path. For password
-		// accounts, rethrow to preserve pre-PR batch-item-failure behaviour.
-		if (err instanceof SmtpConnectionError && err.kind === "auth") {
-			if (account.authType !== AccountAuthType.OauthMicrosoft) {
-				throw err;
-			}
+		// Only OAuth accounts have a re-auth recovery path.
+		if (
+			err instanceof SmtpConnectionError &&
+			err.kind === "auth" &&
+			account.authType === AccountAuthType.OauthMicrosoft
+		) {
 			log.warn(
 				{ accountId, errorKind: err.kind },
 				"SMTP auth rejected during send; marking account reauth_required",
 			);
 			await deps.updateConnectionState(accountId, "reauth_required");
 			return; // ACK — do not retry
+		}
+		// Neither auth kind ever succeeds by retrying against the same
+		// credentials, and network never reaches the wire — nodemailer throws
+		// this before DATA, so the message was never submitted and there is
+		// nothing on the server to reconcile against (wait-or-reconcile,
+		// docs/architecture/imap-mutations.md R2: neither applies — the row
+		// settles directly). A password account's auth failure and every
+		// network failure retry on SQS redelivery until the queue's own
+		// budget runs out, then settle here instead of dead-lettering with
+		// the row stuck at `sending` (issue #951).
+		if (err instanceof SmtpConnectionError) {
+			if (receiveCount < SEND_MESSAGE_MAX_ATTEMPTS) {
+				throw err;
+			}
+			await deps.updateOutbox(accountConfigId, outboxMessageId, {
+				status: "failed",
+				lastError: err.message,
+			});
+			log.error(
+				{ outboxMessageId, errorKind: err.kind, receiveCount },
+				"SMTP send retry exhausted; settling as failed",
+			);
+			return; // ACK — settled terminal, no more retries
 		}
 		throw err;
 	}
@@ -265,16 +310,38 @@ export const sendMessage = async (
 	}
 
 	if (result.isTransient) {
-		log.warn(
+		// A 4xx from the server is retried on SQS redelivery the same way a
+		// connection failure is above; once the queue's own budget runs out
+		// this settles the row at `failed` rather than leaving it at `queued`
+		// forever once the record dead-letters (issue #951).
+		if (receiveCount < SEND_MESSAGE_MAX_ATTEMPTS) {
+			log.warn(
+				{
+					outboxMessageId,
+					smtpCode: result.smtpCode,
+					error: result.error?.message,
+				},
+				"Transient failure, will retry",
+			);
+			await deps.updateOutboxStatus(accountConfigId, outboxMessageId, "queued");
+			throw new Error(`SMTP transient error: ${result.error?.message}`);
+		}
+
+		await deps.updateOutbox(accountConfigId, outboxMessageId, {
+			status: "failed",
+			lastError: result.error?.message,
+			lastSmtpCode: result.smtpCode,
+		});
+		log.error(
 			{
 				outboxMessageId,
 				smtpCode: result.smtpCode,
 				error: result.error?.message,
+				receiveCount,
 			},
-			"Transient failure, will retry",
+			"Transient failure retry exhausted; settling as failed",
 		);
-		await deps.updateOutboxStatus(accountConfigId, outboxMessageId, "queued");
-		throw new Error(`SMTP transient error: ${result.error?.message}`);
+		return;
 	}
 
 	// Permanent failure - mark as failed, don't throw (no retry)
