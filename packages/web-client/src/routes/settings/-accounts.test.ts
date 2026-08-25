@@ -111,6 +111,18 @@ const settle = async (dom: DomHarness): Promise<void> => {
 	}
 };
 
+/**
+ * jsdom reports "prerender" unless it is pretending to be visual, and the
+ * shared environment deliberately does not — so a spec that means "the window
+ * is being looked at" has to say so.
+ */
+const setVisibility = (state: "hidden" | "visible"): void => {
+	Object.defineProperty(document, "visibilityState", {
+		configurable: true,
+		get: () => state,
+	});
+};
+
 /** jsdom has no `PageTransitionEvent`; `persisted` is what the hook reads. */
 const pageShow = (persisted: boolean): Event => {
 	const event = new Event("pageshow");
@@ -165,6 +177,7 @@ describe("the Reconnect button and the redirect it starts", () => {
 		harness = undefined;
 		http?.restore();
 		http = undefined;
+		Reflect.deleteProperty(document, "visibilityState");
 	});
 
 	test("goes busy and stays busy while the redirect is in flight", async () => {
@@ -174,6 +187,7 @@ describe("the Reconnect button and the redirect it starts", () => {
 		assert.match(dom.text(), /Redirecting…/);
 
 		// A look at a window that never left is not the redirect ending.
+		setVisibility("visible");
 		dom.dispatch(dom.document, new Event("visibilitychange"));
 		dom.dispatch(dom.window, pageShow(false));
 		await settle(dom);

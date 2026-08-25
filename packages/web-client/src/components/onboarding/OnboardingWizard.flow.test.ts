@@ -304,6 +304,11 @@ const walkToRedirect = async (dom: DomHarness): Promise<void> => {
 	await settle(dom);
 };
 
+/**
+ * jsdom reports "prerender" unless it is pretending to be visual, and the
+ * shared environment deliberately does not — so a spec that means "the window
+ * is being looked at" has to say so.
+ */
 const setVisibility = (state: "hidden" | "visible"): void => {
 	Object.defineProperty(document, "visibilityState", {
 		configurable: true,
@@ -331,6 +336,7 @@ describe("OnboardingWizard — the Microsoft redirect and the way back (#646)", 
 
 		// An app-switch away and back during the `assign` fetch: the window is
 		// looked at again without ever having left.
+		setVisibility("visible");
 		dom.dispatch(dom.document, new Event("visibilitychange"));
 		dom.dispatch(dom.window, pageShow(false));
 		await settle(dom);

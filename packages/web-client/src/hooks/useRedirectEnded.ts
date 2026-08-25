@@ -31,6 +31,12 @@ export const useRedirectEnded = (onEnded: () => void): (() => void) => {
 	const latest = useRef(onEnded);
 	latest.current = onEnded;
 
+	const settle = useCallback((): void => {
+		if (!armed.current || !hidden.current) return;
+		hidden.current = false;
+		latest.current();
+	}, []);
+
 	useEffect(() => {
 		const markHidden = () => {
 			hidden.current = true;
@@ -41,7 +47,11 @@ export const useRedirectEnded = (onEnded: () => void): (() => void) => {
 		};
 		const handlePageShow = (event: PageTransitionEvent) => {
 			if (!event.persisted) return;
+			// A restored page is the whole round trip in one event: the hide that
+			// preceded it belongs to the document this one resumes, and nothing
+			// else is going to report it.
 			markHidden();
+			settle();
 		};
 		document.addEventListener("visibilitychange", handleVisibility);
 		window.addEventListener("pagehide", markHidden);
@@ -51,16 +61,12 @@ export const useRedirectEnded = (onEnded: () => void): (() => void) => {
 			window.removeEventListener("pagehide", markHidden);
 			window.removeEventListener("pageshow", handlePageShow);
 		};
-	}, []);
+	}, [settle]);
 
 	// Always listening: the gate is the pair of refs above, which a redirect
 	// arms and a hidden interval satisfies, not whether this hook is mounted
 	// with a flag already flipped.
-	useReturnFromRedirect(true, () => {
-		if (!armed.current || !hidden.current) return;
-		hidden.current = false;
-		latest.current();
-	});
+	useReturnFromRedirect(true, settle);
 
 	return useCallback(() => {
 		armed.current = true;
