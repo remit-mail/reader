@@ -43,7 +43,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AtSign, Inbox, Loader2, Mail, Server } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useReturnFromRedirect } from "../../hooks/useReturnFromRedirect.js";
+import { useRedirectEnded } from "../../hooks/useRedirectEnded.js";
 // useRef is kept for the hasCreatedRef guard — not for DOM refs
 import {
 	type DiscoveryResult,
@@ -303,14 +303,43 @@ function StepMicrosoftEmail({
 		configOperationsGetConfigOptions(),
 	);
 
+	// Microsoft's answer comes back to whichever window the platform picks, and
+	// on iOS that is often the browser rather than the app launched from the
+	// home screen. So this window decides on the account list rather than on
+	// having been the one that got the redirect: an account that was not there
+	// before carries the wizard forward.
+	//
+	// Every return leg is a chance to find that account, not a verdict on the
+	// sign-in — a user who comes back mid-flow to read a password has not failed
+	// anything, so nothing here concludes and the check stays armed until an
+	// account appears or the user leaves the step.
+	const markRedirectStarted = useRedirectEnded(() => {
+		setPreparing(false);
+		void refetchConfig().then(({ data, isError }) => {
+			if (!stepIsMounted.current) return;
+			if (isError || !data) {
+				setError(
+					"Couldn't check whether the sign-in finished. Open Settings › Accounts to see whether the account is connected.",
+				);
+				return;
+			}
+			setError(null);
+			const connected = data.accounts.find(
+				(account) => !accountIdsBeforeRedirect.current.has(account.accountId),
+			);
+			if (connected) onConnected(connected.accountId);
+		});
+	});
+
 	const startMutation = useMutation({
 		...microsoftOAuthOperationsMicrosoftOAuthStartMutation(),
 		onSuccess: (data) => {
 			// A step the user left while this was in flight does not get to take the
 			// window with it. `assign` is not synchronous either — the page is still
 			// here while the browser fetches Microsoft's — so the control stays busy
-			// until the window is actually looked at again.
+			// until this window has been away and come back.
 			if (!stepIsMounted.current) return;
+			markRedirectStarted();
 			setAwaitingReturn(true);
 			window.location.assign(data.authorizationUrl);
 		},
@@ -319,39 +348,6 @@ function StepMicrosoftEmail({
 			setError(err instanceof Error ? err.message : "Failed to start sign-in");
 		},
 	});
-
-	// Microsoft's answer comes back to whichever window the platform picks, and
-	// on iOS that is often the browser rather than the app launched from the
-	// home screen. So this window decides on the account list rather than on
-	// having been the one that got the redirect: an account that was not there
-	// before carries the wizard forward.
-	//
-	// Every look at this window is a chance to find that account, not a verdict
-	// on the sign-in — a user who switches back mid-flow to read a password has
-	// not failed anything, so nothing here concludes and the check stays armed
-	// until an account appears or the user leaves the step.
-	useReturnFromRedirect(
-		awaitingReturn,
-		useCallback(() => {
-			// Being looked at again is the proof the redirect is over, however it
-			// ended: the window that was leaving is back, so the button is too.
-			setPreparing(false);
-			void refetchConfig().then(({ data, isError }) => {
-				if (!stepIsMounted.current) return;
-				if (isError || !data) {
-					setError(
-						"Couldn't check whether the sign-in finished. Open Settings › Accounts to see whether the account is connected.",
-					);
-					return;
-				}
-				setError(null);
-				const connected = data.accounts.find(
-					(account) => !accountIdsBeforeRedirect.current.has(account.accountId),
-				);
-				if (connected) onConnected(connected.accountId);
-			});
-		}, [refetchConfig, onConnected]),
-	);
 
 	// The account list is read first and the redirect goes from what it says, so
 	// the window that comes back has something to recognise a new account
