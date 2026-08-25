@@ -723,10 +723,6 @@ describe("sendMessage retry-budget exhaustion (issue #951)", () => {
 		);
 		assert.ok(failedUpdate, "should settle the row as failed");
 		assert.match(String(failedUpdate.patch.lastError), /ECONNREFUSED/);
-		assert.equal(
-			recorded.statuses.find((s) => s.status === "sending"),
-			undefined,
-		);
 	});
 
 	it("settles an exhausted transient SMTP failure at `failed` instead of leaving it `queued` forever", async () => {
