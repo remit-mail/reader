@@ -10,10 +10,15 @@ import {
 	MAILBOX_ROW_LINK,
 	MAILBOX_THREAD_URL,
 	MAILBOX_URL,
+	OUTBOX_URL,
 } from "../src/urls.js";
 
 /** The brief's own compose surface, so a spec can say which list mounted it. */
 const BRIEF_COMPOSE_URL = /\/mail\/brief\/compose(\?|$)/;
+
+/** Same, for Flagged and the outbox. */
+const FLAGGED_COMPOSE_URL = /\/mail\/flagged\/compose(\?|$)/;
+const OUTBOX_COMPOSE_URL = /\/mail\/outbox\/compose(\?|$)/;
 
 test.describe("Compose over an open message", () => {
 	test.setTimeout(120_000);
@@ -135,5 +140,55 @@ test.describe("Compose off the daily brief", () => {
 			timeout: 30_000,
 		});
 		await expect(recipients).toHaveCount(0);
+	});
+});
+
+/**
+ * The brief's own coverage above pins the wiring for one list. Flagged and the
+ * outbox carry the same wiring (#767) but nothing presses `c` on either.
+ */
+test.describe("Compose off Flagged and the outbox", () => {
+	test.setTimeout(120_000);
+
+	test("c opens the surface on Flagged", async ({ page }) => {
+		await page.goto("/mail");
+		const sidebar = page.getByRole("navigation", {
+			name: "Mailboxes",
+			exact: true,
+		});
+		await expect(sidebar).toBeVisible({ timeout: 20_000 });
+		await sidebar.getByRole("link", { name: "Starred", exact: true }).click();
+		await page.waitForURL(/\/mail\/flagged(\?|$)/);
+		await expect(page.getByText("Select a thread to read")).toBeVisible({
+			timeout: 30_000,
+		});
+
+		await page.keyboard.press("c");
+
+		await page.waitForURL(FLAGGED_COMPOSE_URL);
+		await expect(page.getByPlaceholder("Recipients")).toBeVisible({
+			timeout: 30_000,
+		});
+	});
+
+	test("c opens the surface on the outbox", async ({ page }) => {
+		await page.goto("/mail");
+		const sidebar = page.getByRole("navigation", {
+			name: "Mailboxes",
+			exact: true,
+		});
+		await expect(sidebar).toBeVisible({ timeout: 20_000 });
+		await sidebar.getByRole("link", { name: /outbox/i }).click();
+		await page.waitForURL(OUTBOX_URL);
+		await expect(page.getByText("Select a message to read")).toBeVisible({
+			timeout: 30_000,
+		});
+
+		await page.keyboard.press("c");
+
+		await page.waitForURL(OUTBOX_COMPOSE_URL);
+		await expect(page.getByPlaceholder("Recipients")).toBeVisible({
+			timeout: 30_000,
+		});
 	});
 });
