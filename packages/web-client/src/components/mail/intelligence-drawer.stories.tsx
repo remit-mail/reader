@@ -1,9 +1,16 @@
-import { type IntelligenceData, IntelligencePanel } from "@remit/ui";
+import {
+	Avatar,
+	type IntelligenceData,
+	IntelligencePanel,
+	RefreshButton,
+	ShellTopBar,
+} from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ChevronLeft, Info } from "lucide-react";
 import { useState } from "react";
 import { expect, userEvent, within } from "storybook/test";
 import { Drawer } from "@/components/layout/Drawer";
+import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import { useIntelligenceDrawer } from "@/hooks/useIntelligenceDrawer";
 
 /**
@@ -29,6 +36,8 @@ type Story = StoryObj;
 
 const PHONE_WIDTH = 390;
 const PHONE_HEIGHT = 720;
+const MID_WIDTH = 1100;
+const MID_HEIGHT = 640;
 
 const intelligence: IntelligenceData = {
 	sender: {
@@ -210,6 +219,119 @@ export const DismissedAndNotCarried: Story = {
 		await userEvent.click(canvas.getByText("Standup moved to 10:15"));
 		await expect(canvas.queryByRole("dialog")).toBeNull();
 		await expect(canvas.getByText("/mail/inbox/msg-standup")).toBeVisible();
+	},
+};
+
+/**
+ * The two-pane desktop band between 1024 and 1280px, where the rail has no room
+ * and the drawer is the surface. The drawer is right-anchored and 320px wide,
+ * so it lands squarely on the reading toolbar's own intelligence toggle — the
+ * control that put it there. The shell's top bar is here because the geometry
+ * is the point: it is what stands the toolbar clear of the drawer's own header,
+ * as it does in the app.
+ */
+const MidWidthReader = () => {
+	const drawer = useIntelligenceDrawer(messages[0]?.id ?? null);
+	const [search, setSearch] = useState("");
+
+	return (
+		<div
+			className="flex flex-col overflow-hidden rounded-lg border border-line bg-canvas"
+			// As on the phone frame: the transform makes this a containing block,
+			// so the drawer's `position: fixed` resolves against it.
+			style={{
+				width: MID_WIDTH,
+				height: MID_HEIGHT,
+				transform: "translateZ(0)",
+			}}
+		>
+			<ShellTopBar
+				search={{
+					value: search,
+					scope: "global",
+					onChange: setSearch,
+					onClear: () => setSearch(""),
+					onClearQuery: () => setSearch(""),
+					onRemoveChip: () => undefined,
+				}}
+				onCompose={() => undefined}
+				onReportBug={() => undefined}
+				onOpenSettings={() => undefined}
+				refreshControl={
+					<RefreshButton
+						state="idle"
+						label="Refresh all accounts"
+						onRefresh={() => undefined}
+					/>
+				}
+				account={
+					<Avatar
+						name="Matthijs van Henten"
+						email="mvh@example.com"
+						size="sm"
+					/>
+				}
+			/>
+			<MessageToolbar
+				hasThread
+				intelligenceOpen={drawer.isOpen}
+				canToggleIntelligence
+				onToggleIntelligence={drawer.toggle}
+			/>
+			<div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 text-sm text-fg">
+				<h1 className="text-lg font-semibold leading-snug">
+					{messages[0]?.subject}
+				</h1>
+				<p className="mt-1 text-2xs text-fg-subtle">{messages[0]?.from}</p>
+				<p className="mt-4 max-w-2xl">{messages[0]?.body}</p>
+			</div>
+			<Drawer
+				isOpen={drawer.isOpen}
+				onClose={drawer.close}
+				ariaLabel="Message details"
+				side="right"
+			>
+				<IntelligencePanel data={intelligence} hideCloseButton />
+			</Drawer>
+		</div>
+	);
+};
+
+/**
+ * The toggle the drawer covers. It is the only way into this surface for a
+ * message with no warning on it, so the drawer lands on it — and stays there:
+ * the toggle is the way in and nothing else. Getting back out is the drawer's
+ * own job, and its X sits clear of the toggle to do it (#747).
+ */
+export const CoveredToggle: Story = {
+	render: () => <MidWidthReader />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+
+		await userEvent.click(
+			canvas.getByRole("button", { name: "Show intelligence sidebar" }),
+		);
+		const drawer = canvas.getByRole("dialog", { name: "Message details" });
+		await expect(drawer).toBeVisible();
+
+		// The toggle stays in the toolbar the drawer covers. Nothing lifts it over
+		// the surface it opened, so a press aimed at it reaches the drawer.
+		await expect(drawer).not.toContainElement(
+			canvas.getByRole("button", { name: "Hide intelligence sidebar" }),
+		);
+
+		// The header's X, not the scrim that shares its name: the second of the
+		// two, and the one a reader can see.
+		const close = within(drawer).getAllByLabelText("Close menu")[1];
+		await expect(close).toBeVisible();
+		await userEvent.click(close);
+
+		await expect(
+			canvas.queryByRole("dialog", { name: "Message details" }),
+		).toBeNull();
+		await expect(
+			canvas.getByRole("button", { name: "Show intelligence sidebar" }),
+		).toHaveAttribute("aria-pressed", "false");
 	},
 };
 
