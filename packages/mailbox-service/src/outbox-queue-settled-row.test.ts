@@ -38,7 +38,7 @@ const row = (status: OutboxMessageItem["status"]): OutboxMessageItem =>
 		status,
 		createdAt: 0,
 		updatedAt: 0,
-	}) as OutboxMessageItem;
+	}) as unknown as OutboxMessageItem;
 
 interface Harness {
 	service: OutboxQueueService;
