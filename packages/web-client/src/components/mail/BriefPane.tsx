@@ -51,6 +51,7 @@ import {
 	useGoToSection,
 	useIsComposing,
 	useIsReplying,
+	useOpenCompose,
 	useOpenReply,
 	useOpenThread,
 } from "@/routing";
@@ -206,6 +207,7 @@ function BriefPaneProvider({ thread, children }: BriefPaneProps) {
 	// answering half to be dropped from.
 	const isComposing = useIsComposing();
 	const isReplying = useIsReplying();
+	const openCompose = useOpenCompose();
 	const openReply = useOpenReply();
 	const replyToOpenThread = useMemo(
 		() => replyToThread(openReply, threadId, selectedMessageId),
@@ -248,6 +250,7 @@ function BriefPaneProvider({ thread, children }: BriefPaneProps) {
 				if (!triageTarget) return;
 				toggleReadFor([triageTarget.messageId], !triageTarget.isRead);
 			},
+			compose: openCompose,
 			goFlagged: () => goToSection("flagged"),
 			goSettings: () => goToSection("settings"),
 		},

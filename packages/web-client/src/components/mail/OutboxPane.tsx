@@ -28,6 +28,7 @@ import {
 	OutboxRow,
 	ReadingPaneEmpty,
 	useRovingFocus,
+	useTriageKeyboard,
 } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -64,6 +65,8 @@ import { parseSearchTokens } from "@/lib/search-tokens";
 import {
 	useCloseOutboxDraft,
 	useEditDraft,
+	useIsComposing,
+	useOpenCompose,
 	useOpenOutboxDraft,
 } from "@/routing";
 
@@ -182,6 +185,17 @@ function OutboxPaneProvider({
 }: OutboxPaneProps) {
 	const openDraft = useOpenOutboxDraft();
 	const closeDraft = useCloseOutboxDraft();
+
+	// No triage layer here — the outbox list has no reply/star verbs to serve —
+	// so compose is wired directly: `c` and ⌘N start a message like they do on
+	// every other list (#724). Suspended while the composer is already up, so a
+	// second press cannot throw away the draft being written.
+	const isComposing = useIsComposing();
+	const openCompose = useOpenCompose();
+	useTriageKeyboard({
+		enabled: !isComposing,
+		handlers: { compose: openCompose },
+	});
 
 	const { data: outboxResponse, isLoading } = useQuery(
 		outboxOperationsListOutboxMessagesOptions(),

@@ -62,6 +62,7 @@ import {
 	useGoToSection,
 	useIsComposing,
 	useIsReplying,
+	useOpenCompose,
 	useOpenReply,
 	useOpenThread,
 } from "@/routing";
@@ -212,6 +213,7 @@ function FlaggedPaneProvider({ thread, children }: FlaggedPaneProps) {
 	// answering half to be dropped from.
 	const isComposing = useIsComposing();
 	const isReplying = useIsReplying();
+	const openCompose = useOpenCompose();
 	const openReply = useOpenReply();
 	const replyToOpenThread = useMemo(
 		() => replyToThread(openReply, threadId, selectedMessageId),
@@ -254,6 +256,7 @@ function FlaggedPaneProvider({ thread, children }: FlaggedPaneProps) {
 				if (!triageTarget) return;
 				toggleReadFor([triageTarget.messageId], !triageTarget.isRead);
 			},
+			compose: openCompose,
 			goBrief: () => goToSection("brief"),
 			goSettings: () => goToSection("settings"),
 		},
