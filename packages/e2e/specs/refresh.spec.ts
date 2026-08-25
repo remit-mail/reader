@@ -18,6 +18,13 @@ const DESKTOP = { width: 1512, height: 864 };
 const messageRow = (page: Page, subject: string): Locator =>
 	page.locator("[data-message-row]").filter({ hasText: subject });
 
+/** The phases the worker writes while a sync round is actually running. */
+const SYNC_IN_PROGRESS = new Set([
+	"discovering_mailboxes",
+	"syncing_inbox",
+	"syncing_others",
+]);
+
 const inboxLastSyncedAt = (
 	status: AccountSyncStatus,
 	inboxId: string,
@@ -54,6 +61,7 @@ test.describe("Mail refresh (#582)", () => {
 
 	test("clicking the inbox's refresh control drives a real sync round to completion and surfaces the result", async ({
 		page,
+		api,
 		run,
 	}) => {
 		// A first paint, a full sync round and the cleanup's wait on Dovecot all
@@ -65,6 +73,29 @@ test.describe("Mail refresh (#582)", () => {
 		await expect(messageRow(page, run.seededSubjects[0])).toBeVisible({
 			timeout: 20_000,
 		});
+
+		// Two rounds can still be in flight here: the setup's own, whose gate only
+		// waited for the INBOX row to exist rather than for every folder to settle,
+		// and the one the load above triggered off `GET /config`, which the e2e
+		// freshness window is too short to gate. A refresh clicked while either is
+		// mid-flight can be "confirmed" by that round settling instead of by the
+		// one the click enqueued: the control reports done, invalidates the list,
+		// and the list refetch lands before the appended message has synced — the
+		// row never arrives within the window (#761). Waiting here, after the load
+		// and before the append, for the server to report no round in flight makes
+		// the click's round unambiguous; this is the explicit wait half of the
+		// wait-or-reconcile decision (docs/architecture/imap-mutations.md), taken
+		// here rather than in the client because the tab cannot distinguish rounds
+		// from the status endpoint alone.
+		await waitFor(
+			() => api.getSyncStatus(run.accountId),
+			(status: AccountSyncStatus) =>
+				!SYNC_IN_PROGRESS.has(status.syncPhase ?? "idle"),
+			{
+				timeoutMs: 45_000,
+				what: "any earlier sync round to settle before the click",
+			},
+		);
 
 		const subject = `Refresh manual ${tag}`;
 		// Appended on the server only — nothing here calls the sync API first,
