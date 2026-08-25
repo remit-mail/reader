@@ -107,13 +107,22 @@ describe("Drawer keeps Tab inside itself", () => {
 		assert.equal(document.activeElement, closeButton());
 	});
 
-	it("pulls focus back in when it is somewhere else entirely", () => {
+	it("leaves focus outside the drawer alone", () => {
 		open(createElement(Fragment, null, button("alpha")));
 		outside.focus();
 
 		press("Tab");
 
-		assert.equal(document.activeElement, closeButton());
+		assert.equal(document.activeElement, outside);
+	});
+
+	it("leaves focus outside the drawer alone on shift+Tab too", () => {
+		open(createElement(Fragment, null, button("alpha")));
+		outside.focus();
+
+		press("Tab", true);
+
+		assert.equal(document.activeElement, outside);
 	});
 
 	it("leaves an interior Tab to the browser", () => {

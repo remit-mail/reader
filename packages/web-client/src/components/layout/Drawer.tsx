@@ -73,24 +73,25 @@ export const Drawer = ({
 				onClose();
 				return;
 			}
-			// Trap Tab inside the drawer: it is `aria-modal`, so a screen reader
-			// offers nothing outside it — and letting Tab walk out would land on
-			// controls a pointer cannot reach under the scrim (#747).
+			// Wrap Tab at the ends of the drawer's ring: walking off the last
+			// control cycles back to the first instead of landing on controls a
+			// pointer cannot reach under the scrim (#747). Focus that is already
+			// outside the drawer — an error banner, the fatal-error overlay — is
+			// left alone; the drawer does not pull it back in.
 			if (event.key !== "Tab" || !drawerRef.current) return;
 			const ring = tabRing(drawerRef.current);
 			if (ring.length === 0) return;
 			const first = ring[0];
 			const last = ring[ring.length - 1];
 			const active = document.activeElement;
-			const inside = active instanceof HTMLElement && ring.includes(active);
 			if (event.shiftKey) {
-				if (!inside || active === first) {
+				if (active === first) {
 					event.preventDefault();
 					last.focus();
 				}
 				return;
 			}
-			if (!inside || active === last) {
+			if (active === last) {
 				event.preventDefault();
 				first.focus();
 			}
