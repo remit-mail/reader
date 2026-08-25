@@ -15,8 +15,8 @@
  * registration comes last.
  *
  * While a thread is open, `ConversationView` binds its own window listener
- * for the messages inside it — `hasOpenThread` hands it the four keys they'd
- * otherwise both act on (#723) rather than the two racing.
+ * for the messages inside it — `hasOpenThread` hands over every key aimed at a
+ * message rather than the two listeners racing for it (#723).
  */
 import { type TriageHandlers, useTriageKeyboard } from "@remit/ui";
 import { type RefObject, useCallback, useRef, useState } from "react";
@@ -90,10 +90,13 @@ interface UseTriageLayerOptions {
 	/**
 	 * A thread is open, so `ConversationView` is mounted and binds its own
 	 * j/k/Enter/r/f for walking and answering the messages inside it. This
-	 * layer's window listener drops the matching four actions (`focusNext`,
-	 * `focusPrevious`, `openFocused`, `reply`, `forward`) while that is true,
-	 * so the two window listeners never both act on one keypress (#723) — the
-	 * conversation is the sole owner of those keys until it closes.
+	 * layer's window listener drops all eight of the actions the conversation
+	 * has taken over (`focusNext`, `focusPrevious`, `focusFirst`, `focusLast`,
+	 * `openFocused`, `reply`, `replyAll`, `forward`) while that is true, so the
+	 * two window listeners never both act on one keypress (#723). The three the
+	 * conversation has no binding of its own for — Home, End and `a` — go
+	 * nowhere rather than moving a cursor nobody can see or answering a message
+	 * other than the one `r` answers.
 	 */
 	hasOpenThread?: boolean;
 }
@@ -125,7 +128,7 @@ export const useTriageLayer = ({
 	// preventDefault-ed (see useTriageKeyboard), so the keystroke falls through
 	// to ConversationView's own listener instead of two handlers racing on one
 	// keypress.
-	const { reply, forward, ...restHandlers } = handlers;
+	const { reply, replyAll, forward, ...restHandlers } = handlers;
 
 	useTriageKeyboard({
 		// A modal owns the keyboard outright. Suspending the layer is what keeps a
@@ -143,10 +146,10 @@ export const useTriageLayer = ({
 							: {
 									focusNext: () => listCommandsRef.current?.focusNext(),
 									focusPrevious: () => listCommandsRef.current?.focusPrevious(),
+									focusFirst: () => listCommandsRef.current?.focusFirst(),
+									focusLast: () => listCommandsRef.current?.focusLast(),
 									openFocused: () => listCommandsRef.current?.openFocused(),
 								}),
-						focusFirst: () => listCommandsRef.current?.focusFirst(),
-						focusLast: () => listCommandsRef.current?.focusLast(),
 						toggleSelect: () => listCommandsRef.current?.toggleSelect(),
 						extendSelectDown: () => listCommandsRef.current?.extendSelectDown(),
 						extendSelectUp: () => listCommandsRef.current?.extendSelectUp(),
@@ -156,7 +159,7 @@ export const useTriageLayer = ({
 				: {}),
 			back: goBack,
 			...restHandlers,
-			...(hasOpenThread ? {} : { reply, forward }),
+			...(hasOpenThread ? {} : { reply, replyAll, forward }),
 		},
 	});
 
