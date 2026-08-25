@@ -644,6 +644,45 @@ test.describe("Compose lives in the address (#719)", () => {
 		await expect(page).toHaveURL(COMPOSE_URL);
 	});
 
+	// #835: the writing surface loads on its own chunk, and on a cold cache that
+	// chunk lands while the reader is already typing in the search field. The
+	// editor must arrive without claiming the caret — every character goes where
+	// the reader put it, and the body never becomes the active element.
+	test("the editor arriving mid-word leaves the search field alone", async ({
+		page,
+		run,
+	}) => {
+		// Hold the lazy chunk until the reader is mid-word, then release it into
+		// the middle of the query — the exact timing CI hit, made deterministic.
+		let release = false;
+
+		await openBrief(page, run.seededSubjects[0]);
+		// Registered only once the shell has loaded: its eager modules ride the
+		// same names, and holding those would hold the page itself.
+		await page.route(/rich-text/, async (route) => {
+			while (!release) await new Promise((r) => setTimeout(r, 50));
+			await route.continue();
+		});
+		await page.getByRole("button", { name: "Compose", exact: true }).click();
+		const field = searchField(page);
+		await expect(recipients(page)).toBeVisible({ timeout: 30_000 });
+
+		await field.click();
+		await field.pressSequentially("invo", { delay: 100 });
+		release = true;
+		await field.pressSequentially("ice", { delay: 100 });
+		await page.waitForURL(/[?&]q=invoice/);
+
+		await expect(field).toHaveValue("invoice");
+		await expect(page).toHaveURL(COMPOSE_URL);
+		// The race only counts if the surface actually arrived during the query:
+		// without this the test could pass with a chunk that never landed.
+		const body = page.locator("[data-testid=compose-body]");
+		await expect(body).toBeVisible();
+		await expect(body).not.toContainText("invoice");
+		await expect(field).toBeFocused();
+	});
+
 	test("back unwinds one surface per press", async ({ page, run }) => {
 		const subject = run.seededSubjects[0];
 		await openBrief(page, subject);
