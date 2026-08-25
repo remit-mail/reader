@@ -16,6 +16,21 @@ import { type ReplyMode, useOpenReply, useReplySurface } from "@/routing";
 import { AuthenticityBanner } from "./AuthenticityBanner";
 import { MessageCard } from "./MessageCard";
 
+/**
+ * The cursor commands the global keyboard layer drives when the conversation is
+ * the surface serving them. Published upward the way the message list publishes
+ * its own, so one dispatcher decides which of the two cursors a press moves
+ * rather than both answering it (#723).
+ */
+export interface ConversationCommands {
+	focusNext: () => void;
+	focusPrevious: () => void;
+	focusFirst: () => void;
+	focusLast: () => void;
+	/** Enter: expand or collapse the turn the cursor is on. */
+	openFocused: () => void;
+}
+
 interface ConversationViewProps {
 	threadId: string;
 	mailboxId: string;
@@ -56,6 +71,12 @@ interface ConversationViewProps {
 	onSwipePrevious?: () => void;
 	/** Whether the intelligence drawer is currently open (drives the ⓘ button pressed state). */
 	mobileIntelligenceOpen?: boolean;
+	/**
+	 * Publishes this conversation's cursor to the pane's keyboard layer, and
+	 * `null` whenever there is nothing to walk. Left out, the conversation has no
+	 * cursor anything can drive — a mount with no layer over it.
+	 */
+	onCursorChange?: (cursor: ConversationCommands | null) => void;
 }
 
 const LoadingSkeleton = () => (
@@ -87,6 +108,7 @@ export const ConversationView = ({
 	onSwipeNext,
 	onSwipePrevious,
 	mobileIntelligenceOpen,
+	onCursorChange,
 }: ConversationViewProps) => {
 	const isDesktop = useIsDesktop();
 	const { handlers: swipeHandlers } = useSwipeNavigation({
@@ -186,6 +208,19 @@ export const ConversationView = ({
 		scrollToMessage(prevIndex);
 	}, [orderedMessages.length, focusedIndex, scrollToMessage]);
 
+	const focusFirst = useCallback(() => {
+		if (orderedMessages.length === 0) return;
+		setFocusedIndex(0);
+		scrollToMessage(0);
+	}, [orderedMessages.length, scrollToMessage]);
+
+	const focusLast = useCallback(() => {
+		if (orderedMessages.length === 0) return;
+		const lastIndex = orderedMessages.length - 1;
+		setFocusedIndex(lastIndex);
+		scrollToMessage(lastIndex);
+	}, [orderedMessages.length, scrollToMessage]);
+
 	const toggleFocusedMessage = useCallback(() => {
 		const message = orderedMessages[focusedIndex];
 		if (message) {
@@ -273,15 +308,42 @@ export const ConversationView = ({
 		});
 	}, [answering]);
 
-	// Register keyboard shortcuts
+	const readable = !isLoading && messages.length > 0 && reply === undefined;
+
+	// The cursor keys are the pane's to route, not this component's to claim. A
+	// second window listener for them moved this cursor and the message list's on
+	// the same press (#723); published here, the one dispatcher in the pane's
+	// triage layer decides which of the two a press reaches.
+	useEffect(() => {
+		if (!onCursorChange) return;
+		if (!readable) {
+			onCursorChange(null);
+			return;
+		}
+		onCursorChange({
+			focusNext,
+			focusPrevious,
+			focusFirst,
+			focusLast,
+			openFocused: toggleFocusedMessage,
+		});
+		return () => onCursorChange(null);
+	}, [
+		onCursorChange,
+		readable,
+		focusNext,
+		focusPrevious,
+		focusFirst,
+		focusLast,
+		toggleFocusedMessage,
+	]);
+
+	// The keys the triage layer does not own, aimed at the conversation the
+	// address names. `o` has no binding in the keymap, and the reply verbs answer
+	// the open turn rather than the row a list cursor sits on.
 	useKeyboardNavigation({
-		enabled: !isLoading && messages.length > 0 && reply === undefined,
+		enabled: readable,
 		bindings: [
-			{ key: "j", handler: focusNext, preventDefault: true },
-			{ key: "ArrowDown", handler: focusNext, preventDefault: true },
-			{ key: "k", handler: focusPrevious, preventDefault: true },
-			{ key: "ArrowUp", handler: focusPrevious, preventDefault: true },
-			{ key: "Enter", handler: toggleFocusedMessage, preventDefault: true },
 			{ key: "o", handler: toggleFocusedMessage, preventDefault: true },
 			{ key: "r", handler: handleReply, preventDefault: true },
 			{

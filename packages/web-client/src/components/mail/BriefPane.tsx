@@ -318,6 +318,7 @@ function BriefReading() {
 		actions,
 		onReply,
 		handleDeselectIfRemoved,
+		triage,
 	} = useBriefPane();
 	const hasThread = Boolean(conversation);
 	const intelligence = useIntelligenceSurface(conversation?.threadId);
@@ -355,6 +356,7 @@ function BriefReading() {
 							selectedMessageId={conversation.messageId}
 							authenticity={conversation.authenticity}
 							onOpenIntelligence={intelligence.open}
+							onCursorChange={triage.onConversationCursorChange}
 						/>
 					) : (
 						<ReadingPaneEmpty />
@@ -404,6 +406,7 @@ function BriefPhone() {
 		nextThread,
 		previousThread,
 		handleDeselectIfRemoved,
+		triage,
 	} = useBriefPane();
 	const drawer = useIntelligenceDrawer(conversation?.threadId ?? null);
 
@@ -423,6 +426,7 @@ function BriefPhone() {
 						previousThread ? () => onOpenThread(previousThread) : undefined
 					}
 					mobileIntelligenceOpen={drawer.isOpen}
+					onCursorChange={triage.onConversationCursorChange}
 				/>
 				<IntelligenceDrawer
 					isOpen={drawer.isOpen}

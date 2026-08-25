@@ -243,22 +243,6 @@ const paneRegionHolding = (pane: Element, node: Node): Element | null =>
  */
 const SCROLLS_VERTICALLY = /(^|\s)overflow-(auto|scroll|y-auto|y-scroll)(\s|$)/;
 
-/** The inset ring `MessageCard` draws on the row the keyboard is sitting on. */
-const FOCUS_RING = /ring-accent\//;
-
-/** The turn the keyboard has, read off the ring rather than off the index. */
-const focusedTurn = (mounted: DomHarness): string => {
-	const thread = mounted.query('[data-testid="conversation-messages"]');
-	assert.ok(thread, "the thread is on screen");
-	const focused = [...thread.children].filter((card) =>
-		[...card.querySelectorAll("*")].some((node) =>
-			FOCUS_RING.test(node.getAttribute("class") ?? ""),
-		),
-	);
-	assert.equal(focused.length, 1, "one turn carries the keyboard focus");
-	return focused[0]?.textContent ?? "";
-};
-
 const verticalScrollers = (root: Element): Element[] =>
 	[root, ...root.querySelectorAll("*")].filter((node) =>
 		SCROLLS_VERTICALLY.test(node.getAttribute("class") ?? ""),
@@ -316,38 +300,6 @@ describe("answering the message that is open", () => {
 		assert.ok(
 			cards[1]?.includes("Grace Hopper"),
 			"the turn that opened it is below",
-		);
-	});
-
-	it("walks the thread with j and k in the order it is displayed in", async () => {
-		const mounted = await mount();
-
-		assert.ok(
-			focusedTurn(mounted).includes("Ada Lovelace"),
-			"the keyboard starts on the turn at the top, which is the latest one",
-		);
-
-		const press = async (key: string): Promise<void> => {
-			mounted.dispatch(
-				mounted.window,
-				new mounted.window.KeyboardEvent("keydown", { key, bubbles: true }),
-			);
-			await mounted.flush();
-		};
-
-		// Down the pane is back in time now that the thread reads newest first.
-		// A reorder that left the handlers alone would invert this silently, and
-		// the help overlay describes the same direction this asserts.
-		await press("j");
-		assert.ok(
-			focusedTurn(mounted).includes("Grace Hopper"),
-			"j moves to the turn below, which is the older one",
-		);
-
-		await press("k");
-		assert.ok(
-			focusedTurn(mounted).includes("Ada Lovelace"),
-			"k moves to the turn above, which is the newer one",
 		);
 	});
 

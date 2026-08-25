@@ -5,7 +5,12 @@
  * The list publishes `MessageListCommands` into `listCommandsRef` and reports
  * its cursor and selection through `onTriageContextChange`; the keyboard hook
  * registers the navigation and selection keys only while a list is serving
- * them, so with no list mounted Enter, Space and ⌘A stay with the browser.
+ * them, so with no list mounted Space and ⌘A stay with the browser.
+ *
+ * The open conversation publishes a cursor of its own the same way. Exactly one
+ * of the two answers the navigation keys — the list wherever one is mounted,
+ * the conversation where none is — which is what keeps a single press from
+ * moving both cursors (#723).
  *
  * This lived inside `MailboxPane`, which is why the brief and Flagged had a
  * keyboard hint bar and no keyboard (#149). Every pane mounts it now.
@@ -16,6 +21,7 @@
  */
 import { type TriageHandlers, useTriageKeyboard } from "@remit/ui";
 import { type RefObject, useCallback, useRef, useState } from "react";
+import type { ConversationCommands } from "@/components/mail/ConversationView";
 import type { MessageListCommands } from "@/components/mail/MessageList";
 import { adjacentMessageId } from "@/lib/adjacent-message";
 
@@ -30,6 +36,13 @@ export interface TriageContextUpdate {
 
 export interface TriageContext {
 	listCommandsRef: RefObject<MessageListCommands | null>;
+	/**
+	 * The open conversation's own cursor, as the conversation publishes it. It
+	 * serves the navigation keys only where there is no list to serve them — the
+	 * phone's reading view — so one press never moves both cursors (#723).
+	 */
+	conversationCursor: ConversationCommands | null;
+	onConversationCursorChange: (cursor: ConversationCommands | null) => void;
 	onTriageContextChange: (context: TriageContextUpdate) => void;
 	/** The list's roving cursor — where a verb with no selection is aimed. */
 	focusedMessageId: string | undefined;
@@ -50,6 +63,10 @@ export const useTriageContext = (): TriageContext => {
 	// Null whenever no list is mounted (reading-only phone view, drafts) — the
 	// keyboard layer then simply has nothing to drive.
 	const listCommandsRef = useRef<MessageListCommands | null>(null);
+	// Null whenever no conversation is open, and while the one that is has
+	// nothing to walk — a thread still loading, or a reply being typed over it.
+	const [conversationCursor, setConversationCursor] =
+		useState<ConversationCommands | null>(null);
 	const [hasList, setHasList] = useState(false);
 	const [blocksKeyboard, setBlocksKeyboard] = useState(false);
 
@@ -63,6 +80,8 @@ export const useTriageContext = (): TriageContext => {
 
 	return {
 		listCommandsRef,
+		conversationCursor,
+		onConversationCursorChange: setConversationCursor,
 		onTriageContextChange,
 		focusedMessageId,
 		selectedIds,
@@ -100,12 +119,28 @@ export const useTriageLayer = ({
 	onClose,
 	handlers,
 }: UseTriageLayerOptions): TriageLayer => {
-	const { listCommandsRef, hasList, blocksKeyboard } = context;
+	const { listCommandsRef, conversationCursor, hasList, blocksKeyboard } =
+		context;
 
 	const goBack = useCallback(() => {
 		if (listCommandsRef.current?.clearSelection()) return;
 		if (selectedMessageId) onClose();
 	}, [listCommandsRef, selectedMessageId, onClose]);
+
+	// One cursor answers the navigation keys, and the list is it wherever one is
+	// mounted: on the desktop tiers the reading pane follows that cursor, so the
+	// list is how a reader walks their mail. The conversation's own cursor takes
+	// the keys only where the list is not on screen to take them — the phone's
+	// reading view, where j and k walk the open thread's turns instead (#723).
+	const navigationCursor: ConversationCommands | null = hasList
+		? {
+				focusNext: () => listCommandsRef.current?.focusNext(),
+				focusPrevious: () => listCommandsRef.current?.focusPrevious(),
+				focusFirst: () => listCommandsRef.current?.focusFirst(),
+				focusLast: () => listCommandsRef.current?.focusLast(),
+				openFocused: () => listCommandsRef.current?.openFocused(),
+			}
+		: conversationCursor;
 
 	useTriageKeyboard({
 		// A modal owns the keyboard outright. Suspending the layer is what keeps a
@@ -113,16 +148,14 @@ export const useTriageLayer = ({
 		// first one is still on screen.
 		enabled: enabled && !blocksKeyboard,
 		handlers: {
-			// Registered only while a list is mounted to serve them. An unregistered
-			// action is never preventDefault-ed, so with no list the browser keeps
-			// Enter, Space and ⌘A — select-all-text in the reading pane still works.
+			// Registered only while a surface is mounted to serve them. An
+			// unregistered action is never preventDefault-ed, so with neither a list
+			// nor a conversation the browser keeps Enter — and with no list, Space
+			// and ⌘A stay with it too, so select-all-text in the reading pane works.
+			...(navigationCursor ?? {}),
+			// Selection is the list's alone: a conversation has no rows to tick.
 			...(hasList
 				? {
-						focusNext: () => listCommandsRef.current?.focusNext(),
-						focusPrevious: () => listCommandsRef.current?.focusPrevious(),
-						focusFirst: () => listCommandsRef.current?.focusFirst(),
-						focusLast: () => listCommandsRef.current?.focusLast(),
-						openFocused: () => listCommandsRef.current?.openFocused(),
 						toggleSelect: () => listCommandsRef.current?.toggleSelect(),
 						extendSelectDown: () => listCommandsRef.current?.extendSelectDown(),
 						extendSelectUp: () => listCommandsRef.current?.extendSelectUp(),

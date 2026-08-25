@@ -321,6 +321,7 @@ function FlaggedReading() {
 		actions,
 		onReply,
 		handleDeselectIfRemoved,
+		triage,
 	} = useFlaggedPane();
 	const hasThread = Boolean(conversation);
 	const intelligence = useIntelligenceSurface(conversation?.threadId);
@@ -358,6 +359,7 @@ function FlaggedReading() {
 							selectedMessageId={conversation.messageId}
 							authenticity={conversation.authenticity}
 							onOpenIntelligence={intelligence.open}
+							onCursorChange={triage.onConversationCursorChange}
 						/>
 					) : (
 						<ReadingPaneEmpty />
@@ -405,6 +407,7 @@ function FlaggedPhone() {
 		nextThread,
 		previousThread,
 		handleDeselectIfRemoved,
+		triage,
 	} = useFlaggedPane();
 	const drawer = useIntelligenceDrawer(conversation?.threadId ?? null);
 
@@ -424,6 +427,7 @@ function FlaggedPhone() {
 						previousThread ? () => onOpenThread(previousThread) : undefined
 					}
 					mobileIntelligenceOpen={drawer.isOpen}
+					onCursorChange={triage.onConversationCursorChange}
 				/>
 				<IntelligenceDrawer
 					isOpen={drawer.isOpen}

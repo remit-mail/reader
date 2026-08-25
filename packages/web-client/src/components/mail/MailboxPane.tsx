@@ -44,7 +44,10 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { ConversationView } from "@/components/mail/ConversationView";
+import {
+	type ConversationCommands,
+	ConversationView,
+} from "@/components/mail/ConversationView";
 import { DraftsView } from "@/components/mail/DraftsView";
 import { EmptyTrashBar } from "@/components/mail/EmptyTrashBar";
 import { IntelligenceDrawer } from "@/components/mail/IntelligenceDrawer";
@@ -218,6 +221,8 @@ interface MailboxPaneContextValue {
 	}) => void;
 	/** Where the list publishes the commands the keyboard layer drives. */
 	listCommandsRef: RefObject<MessageListCommands | null>;
+	/** Where the open conversation publishes the cursor of its own (#723). */
+	onConversationCursorChange: (cursor: ConversationCommands | null) => void;
 	onRetry: () => void;
 	// Toolbar / reading pane actions
 	/**
@@ -802,6 +807,7 @@ function MailboxPaneProvider({
 		isLoadingMore: isFetchingNextPage,
 		onTriageContextChange: handleTriageContextChange,
 		listCommandsRef,
+		onConversationCursorChange: triage.onConversationCursorChange,
 		onRetry: () => refetch(),
 		onReply: replyToOpenThread,
 		onToolbarDelete: toolbarActions.deleteThread,
@@ -1083,6 +1089,7 @@ function MailboxReading() {
 		onToolbarMove,
 		handleDeselectIfRemoved,
 		intelligenceRef,
+		onConversationCursorChange,
 	} = useMailboxPane();
 	const hasThread = Boolean(conversation);
 	const intelligence = useIntelligenceSurface(conversation?.threadId);
@@ -1118,6 +1125,7 @@ function MailboxReading() {
 			selectedMessageId={conversation.messageId}
 			authenticity={conversation.authenticity}
 			onOpenIntelligence={intelligence.open}
+			onCursorChange={onConversationCursorChange}
 		/>
 	) : (
 		<ReadingPaneEmpty />
@@ -1203,6 +1211,7 @@ function MailboxPhone() {
 		previousThread,
 		handleDeselectIfRemoved,
 		intelligenceRef,
+		onConversationCursorChange,
 	} = useMailboxPane();
 	// The drawer directly, not `useIntelligenceSurface`: this view is what the
 	// shell mounts where it has one pane, so there is no rail to choose between
@@ -1227,6 +1236,7 @@ function MailboxPhone() {
 						previousThread ? () => onOpenThread(previousThread) : undefined
 					}
 					mobileIntelligenceOpen={drawer.isOpen}
+					onCursorChange={onConversationCursorChange}
 				/>
 				<IntelligenceDrawer
 					isOpen={drawer.isOpen}
