@@ -100,23 +100,12 @@ function Harness({
 	const [displayNames, setDisplayNames] = useState<Record<string, string>>({});
 
 	const handleAppoint = (role: FolderRole, mailboxId: string | null) => {
-		setAppointments((prev) => {
-			const next: Record<string, RoleAppointment> = {
-				...prev,
-				[role]: mailboxId
-					? { mailboxId, source: "Appointed" }
-					: { mailboxId: null, source: "None" },
-			};
-			// Exclusivity: appointing a folder to one role clears it from any other.
-			if (mailboxId) {
-				for (const other of Object.keys(next)) {
-					if (other === role) continue;
-					if (next[other]?.mailboxId !== mailboxId) continue;
-					next[other] = { mailboxId: null, source: "None" };
-				}
-			}
-			return next;
-		});
+		setAppointments((prev) => ({
+			...prev,
+			[role]: mailboxId
+				? { mailboxId, source: "Appointed" }
+				: { mailboxId: null, source: "None" },
+		}));
 	};
 
 	const handleRename = (mailboxId: string, name: string) =>
