@@ -3,10 +3,11 @@
  * made the window appear.
  */
 import { expect, test } from "../src/fixtures.js";
-import { INBOX_LIST, listOnScreen } from "../src/lists.js";
+import { FLAGGED_LIST, INBOX_LIST, listOnScreen } from "../src/lists.js";
 import {
 	BRIEF_URL,
 	COMPOSE_URL,
+	FLAGGED_URL,
 	MAILBOX_ROW_LINK,
 	MAILBOX_THREAD_URL,
 	MAILBOX_URL,
@@ -150,18 +151,21 @@ test.describe("Compose off the daily brief", () => {
 test.describe("Compose off Flagged and the outbox", () => {
 	test.setTimeout(120_000);
 
-	test("c opens the surface on Flagged", async ({ page }) => {
+	const goToMail = async (page: import("@playwright/test").Page) => {
 		await page.goto("/mail");
 		const sidebar = page.getByRole("navigation", {
 			name: "Mailboxes",
 			exact: true,
 		});
 		await expect(sidebar).toBeVisible({ timeout: 20_000 });
+		return sidebar;
+	};
+
+	test("c opens the surface on Flagged", async ({ page }) => {
+		const sidebar = await goToMail(page);
 		await sidebar.getByRole("link", { name: "Starred", exact: true }).click();
-		await page.waitForURL(/\/mail\/flagged(\?|$)/);
-		await expect(page.getByText("Select a thread to read")).toBeVisible({
-			timeout: 30_000,
-		});
+		await page.waitForURL(FLAGGED_URL);
+		await listOnScreen(page, FLAGGED_LIST);
 
 		await page.keyboard.press("c");
 
@@ -172,12 +176,7 @@ test.describe("Compose off Flagged and the outbox", () => {
 	});
 
 	test("c opens the surface on the outbox", async ({ page }) => {
-		await page.goto("/mail");
-		const sidebar = page.getByRole("navigation", {
-			name: "Mailboxes",
-			exact: true,
-		});
-		await expect(sidebar).toBeVisible({ timeout: 20_000 });
+		const sidebar = await goToMail(page);
 		await sidebar.getByRole("link", { name: /outbox/i }).click();
 		await page.waitForURL(OUTBOX_URL);
 		await expect(page.getByText("Select a message to read")).toBeVisible({
