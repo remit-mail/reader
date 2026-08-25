@@ -41,6 +41,57 @@ export const imapFromStack = {
 };
 
 /**
+ * One mail server, addressed from both sides: the published loopback port the
+ * suite APPENDs through, and the coordinates the deployment dials it on.
+ */
+export interface ImapLane {
+	suite: { host: string; port: number };
+	stack: { host: string; port: number };
+}
+
+export const defaultImapLane: ImapLane = {
+	suite: imap,
+	stack: imapFromStack,
+};
+
+/**
+ * A second Dovecot that flags no folder \Trash and autocreates `Deleted
+ * Messages` instead, so the Trash role resolves from that folder's name and
+ * from nothing else. Every mailbox the default lane hands out carries the flag,
+ * which left the name tier — the evidence an expunge may not act on (#876) —
+ * with no server to run against.
+ *
+ * An account only goes here because a spec asked for it, through
+ * `provisionIsolatedRun`'s imap override.
+ */
+export const namedTrashImapLane: ImapLane = {
+	suite: {
+		host: "127.0.0.1",
+		port: Number(required("E2E_IMAP_NAMED_TRASH_PORT")),
+	},
+	stack: {
+		host: required("E2E_IMAP_NAMED_TRASH_HOST"),
+		port: Number(process.env.E2E_IMAP_NAMED_TRASH_STACK_PORT ?? 143),
+	},
+};
+
+const laneByUser = new Map<string, ImapLane>();
+
+/**
+ * A mailbox lives on exactly one server, and the username is that mailbox's
+ * identity — so every IMAP helper can find the lane from the user it was handed
+ * rather than carrying one through signatures nothing else needs. Provisioning
+ * registers the mapping; anything unregistered is on the lane every other
+ * account uses.
+ */
+export const registerImapLane = (user: string, lane: ImapLane): void => {
+	laneByUser.set(user, lane);
+};
+
+export const imapLaneFor = (user: string): ImapLane =>
+	laneByUser.get(user) ?? defaultImapLane;
+
+/**
  * How the deployment reaches the SMTP sink — the address an account's
  * `smtpHost`/`smtpPort` is set to, so a send leaves the process instead of
  * resolving to `blocked`. Same split as `imapFromStack`: the compose service

@@ -35,8 +35,6 @@ interface DeleteConfirmDialogProps {
 	trashFolderLabel?: string;
 	/** The folder the user appointed, now gone from the mail server. */
 	staleFolderLabel?: string;
-	/** That folder is a name match nobody ever confirmed. */
-	trashIsUnconfirmed?: boolean;
 	/** A delete is already in flight, so the confirm cannot be pressed again. */
 	isDeleting?: boolean;
 	onConfirm: (messageIds: string[]) => void;
@@ -50,7 +48,6 @@ export const DeleteConfirmDialog = ({
 	accountId,
 	trashFolderLabel,
 	staleFolderLabel,
-	trashIsUnconfirmed = false,
 	isDeleting = false,
 	onConfirm,
 	onCancel,
@@ -62,7 +59,6 @@ export const DeleteConfirmDialog = ({
 	const copy = deleteConfirmationCopy(count, outcome, {
 		trashFolderLabel,
 		staleFolderLabel,
-		trashIsUnconfirmed,
 	});
 
 	if (

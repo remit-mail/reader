@@ -27,6 +27,14 @@ const folders: FolderTreeNode[] = [
 
 const noop = () => {};
 
+/** A delete refused because its rows already sit in the folder reader guessed. */
+const refusedInPlace: Partial<RoleAppointmentPromptProps> = {
+	reason: "unconfirmed",
+	action: { kind: "delete", count: 3 },
+	trashFolderLabel: "Deleted Messages",
+	guessedMailboxId: "mb-deleted",
+};
+
 const render = (props: Partial<RoleAppointmentPromptProps>) =>
 	renderToString(
 		createElement(RoleAppointmentPrompt, {
@@ -224,6 +232,37 @@ describe("RoleAppointmentPrompt", () => {
 				phase: { kind: "acting" },
 			}),
 			/Emptying Prullenbak…/,
+		);
+	});
+
+	it("narrates a delete inside the confirmed folder as an erase, not a move (#876)", () => {
+		const inPlace = render({
+			...refusedInPlace,
+			selectedId: "mb-deleted",
+			phase: { kind: "acting" },
+		});
+		assert.match(inPlace, /Erasing them from Deleted Messages/);
+		assert.doesNotMatch(inPlace, /Moving them to/);
+
+		// The rows are in the guessed folder; into any other folder they move.
+		assert.match(
+			render({
+				...refusedInPlace,
+				selectedId: "mb-prullenbak",
+				phase: { kind: "acting" },
+			}),
+			/Moving them to Prullenbak/,
+		);
+	});
+
+	it("marks the confirm that erases in place as the destructive one", () => {
+		assert.match(
+			render({ ...refusedInPlace, selectedId: "mb-deleted" }),
+			/text-danger/,
+		);
+		assert.match(
+			render({ ...refusedInPlace, selectedId: "mb-prullenbak" }),
+			/text-warning/,
 		);
 	});
 

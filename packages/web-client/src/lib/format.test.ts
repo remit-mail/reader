@@ -1,5 +1,7 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
+import { trashSourceMeetsAssurance } from "@remit/data-ports/folder-role";
+import { FolderAppointmentSource } from "@remit/domain-enums";
 import type { DeleteTarget, TrashResolution } from "./format.js";
 import {
 	deleteConfirmationCopy,
@@ -369,22 +371,23 @@ describe("deleteOutcomeFor", () => {
 		);
 	});
 
-	test("never answers `unconfirmed` for a row that expunges inside a confirmed Trash", () => {
-		const sources: TrashResolution["source"][] = [
-			"Appointed",
-			"Flagged",
-			"Reserved",
-		];
-		for (const source of sources) {
-			assert.notStrictEqual(
-				deleteOutcomeFor({
-					...settled,
-					trashByAccount: new Map<string, TrashResolution>([
-						["acct-1", { mailboxId: "mbx-trash", source }],
-					]),
-					targets: [target("mbx-trash", "acct-1")],
-				}),
-				"unconfirmed",
+	test("words an expunge from the same evidence the service gates it on", () => {
+		// Derived from the shared gate rather than listed here: a hand-written
+		// list is how the dialog came to offer a confirm the server 409s on.
+		// `Stale` is excluded because it refuses under its own outcome first.
+		for (const source of Object.values(FolderAppointmentSource)) {
+			if (source === FolderAppointmentSource.Stale) continue;
+			const outcome = deleteOutcomeFor({
+				...settled,
+				trashByAccount: new Map<string, TrashResolution>([
+					["acct-1", { mailboxId: "mbx-trash", source }],
+				]),
+				targets: [target("mbx-trash", "acct-1")],
+			});
+			assert.strictEqual(
+				outcome === "unconfirmed",
+				!trashSourceMeetsAssurance(source, "confirmed"),
+				`${source} must ask for what the service demands before an expunge`,
 			);
 		}
 	});
@@ -459,24 +462,9 @@ describe("deleteConfirmationCopy — the refusal", () => {
 		});
 	});
 
-	test("names the folder before an expunge inside a Trash nobody confirmed", () => {
-		const copy = deleteConfirmationCopy(2, "permanent", {
-			trashFolderLabel: "Deleted Messages",
-			trashIsUnconfirmed: true,
-		});
-		assert.strictEqual(copy.title, "Permanently delete 2 messages?");
-		assert.strictEqual(
-			copy.description,
-			"They are in Deleted Messages, which reader treats as this account's Trash because of its name — nobody confirmed it. They are erased from the mail server and cannot be restored.",
-		);
-		assert.strictEqual(copy.confirmLabel, "Delete permanently");
-	});
-
 	test("drops the name clause when the caller holds no folder name", () => {
-		const copy = deleteConfirmationCopy(2, "permanent", {
-			trashIsUnconfirmed: true,
-		});
-		assert.match(copy.description, /because of its name — nobody confirmed it/);
+		const copy = deleteConfirmationCopy(3, "unconfirmed");
+		assert.match(copy.description, /matched by name — nobody confirmed it/);
 		assert.ok(!copy.description.includes("undefined"));
 	});
 });

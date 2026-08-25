@@ -11,6 +11,11 @@
 # it, so `smtpEnabled` was false on every account and the send path resolved
 # every outbox row to `blocked` — the composed MIME never left the process.
 #
+# A second Dovecot flags no folder \Trash. Every mailbox the lane above hands
+# out carries the flag, so a Trash that resolves from a folder's name and from
+# nothing else — the evidence an expunge may not act on — had no server to run
+# against. Only an account a spec deliberately points at it goes there.
+#
 # A second Mailpit refuses instead of accepting. Every send spec worked from a
 # server that took whatever it was handed, so the whole refusal half of the send
 # path — the row that settles `failed`, the reason it carries, the retry that
@@ -34,6 +39,25 @@ services:
       # app reaches it as `dovecot:143` on the compose network instead; on the
       # dev lane the app is a host process and uses this port too.
       - "127.0.0.1:${E2E_IMAP_PORT:-11143}:143"
+    healthcheck:
+      test: ["CMD", "doveadm", "service", "status"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  dovecot-named-trash:
+    image: dovecot/dovecot:2.3.21
+    entrypoint: ["/bin/sh", "/etc/dovecot/e2e-entrypoint.sh"]
+    environment:
+      E2E_IMAP_PASSWORD: ${E2E_IMAP_PASSWORD:?set E2E_IMAP_PASSWORD}
+    volumes:
+      - ../../docker/test/dovecot/dovecot-named-trash.conf:/etc/dovecot/dovecot.conf:ro
+      - ../../docker/test/dovecot/entrypoint.sh:/etc/dovecot/e2e-entrypoint.sh:ro
+    ports:
+      # Same split as the lane above: the app reaches it as
+      # `dovecot-named-trash:143` on the compose network, the suite APPENDs
+      # through this published loopback port.
+      - "127.0.0.1:${E2E_IMAP_NAMED_TRASH_PORT:-11145}:143"
     healthcheck:
       test: ["CMD", "doveadm", "service", "status"]
       interval: 2s

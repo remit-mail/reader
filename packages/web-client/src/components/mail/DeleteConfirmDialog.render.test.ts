@@ -144,7 +144,6 @@ const mount = (options: {
 	accountId?: string;
 	trashFolderLabel?: string;
 	staleFolderLabel?: string;
-	trashIsUnconfirmed?: boolean;
 	authProvider?: AuthProvider;
 	onConfirm?: (messageIds: string[]) => void;
 }) => {
@@ -174,7 +173,6 @@ const mount = (options: {
 								accountId: options.accountId,
 								trashFolderLabel: options.trashFolderLabel,
 								staleFolderLabel: options.staleFolderLabel,
-								trashIsUnconfirmed: options.trashIsUnconfirmed,
 								isDeleting: options.isDeleting,
 								onConfirm,
 								onCancel: () => undefined,
@@ -389,28 +387,12 @@ describe("DeleteConfirmDialog — a refusal answers itself", () => {
 	});
 });
 
-/**
- * D4a: an expunge inside a Trash reader only matched by name still goes
- * through — the user asked for these specific rows — but they are told which
- * folder that is, and that nobody chose it, before it happens.
- */
-describe("DeleteConfirmDialog — an expunge inside a Trash nobody confirmed", () => {
-	it("keeps today's words for a confirmed Trash", () => {
+describe("DeleteConfirmDialog — an expunge inside a confirmed Trash", () => {
+	it("asks for the expunge itself, with no folder to confirm first", () => {
 		const view = mount({ outcome: "permanent", count: 3 });
-		assert.doesNotMatch(view.text(), /nobody confirmed it/);
-	});
-
-	it("names the folder and says nobody chose it", () => {
-		const view = mount({
-			outcome: "permanent",
-			count: 3,
-			trashFolderLabel: "Deleted Messages",
-			trashIsUnconfirmed: true,
-		});
 		const text = view.text();
 		assert.match(text, /Permanently delete 3 messages\?/);
-		assert.match(text, /They are in Deleted Messages/);
-		assert.match(text, /nobody confirmed it/);
+		assert.doesNotMatch(text, /nobody confirmed it/);
 		assert.equal(view.button("Delete permanently")?.disabled, false);
 	});
 });

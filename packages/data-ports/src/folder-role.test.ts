@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
 	CanonicalMailboxRole,
+	FolderAppointmentSource,
 	MailboxSpecialUse,
 	MailboxSyncStatus,
 } from "@remit/domain-enums";
@@ -15,6 +16,7 @@ import {
 	resolveConfirmedMailboxForRole,
 	resolveMailboxForRole,
 	resolveRoleForAccount,
+	trashSourceMeetsAssurance,
 } from "./folder-role.js";
 
 const mailbox = (
@@ -325,6 +327,31 @@ describe("the adapters over resolveRoleForAccount", () => {
 			resolveMailboxForRole(CanonicalMailboxRole.Trash, unflagged)?.mailboxId,
 			"mb-bak",
 		);
+	});
+});
+
+describe("trashSourceMeetsAssurance", () => {
+	it("confirms the user's appointment and the server's flag, and nothing else", () => {
+		// The set a client may word an expunge from. `Reserved` reads as
+		// designated and is not: it is the INBOX name rule, which nobody chose.
+		const confirmed = Object.values(FolderAppointmentSource).filter((source) =>
+			trashSourceMeetsAssurance(source, "confirmed"),
+		);
+		assert.deepEqual(confirmed, [
+			FolderAppointmentSource.Appointed,
+			FolderAppointmentSource.Flagged,
+		]);
+	});
+
+	it("adds the name guess at `resolved`, where a wrong guess only misfiles", () => {
+		const resolved = Object.values(FolderAppointmentSource).filter((source) =>
+			trashSourceMeetsAssurance(source, "resolved"),
+		);
+		assert.deepEqual(resolved, [
+			FolderAppointmentSource.Appointed,
+			FolderAppointmentSource.Flagged,
+			FolderAppointmentSource.Proposed,
+		]);
 	});
 });
 

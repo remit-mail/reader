@@ -9,7 +9,7 @@
 import type { MessageStructureObject } from "imapflow";
 import { ImapFlow } from "imapflow";
 import { waitFor } from "./api.js";
-import { imap, mintImapUser } from "./env.js";
+import { imap, imapLaneFor, mintImapUser } from "./env.js";
 
 export interface Message {
 	subject: string;
@@ -134,9 +134,13 @@ const rfc5322 = (message: Message, recipient: string): string => {
 };
 
 const connect = async (user: string): Promise<ImapFlow> => {
+	// The server this mailbox is on, which is not always the default one: a spec
+	// can put its account on the lane that flags no Trash, and reading that
+	// mailbox off the default server would answer about an empty maildir.
+	const { host, port } = imapLaneFor(user).suite;
 	const client = new ImapFlow({
-		host: imap.host,
-		port: imap.port,
+		host,
+		port,
 		secure: false,
 		auth: { user, pass: imap.password },
 		logger: false,

@@ -1,3 +1,8 @@
+import {
+	type FolderAppointmentSourceValue,
+	trashSourceMeetsAssurance,
+} from "@remit/data-ports/folder-role";
+
 /**
  * Get the user's preferred locale from browser settings.
  * Falls back to 'en-US' if unavailable.
@@ -178,8 +183,6 @@ export interface DeleteConfirmationContext {
 	trashFolderLabel?: string;
 	/** The folder the user appointed, now gone from the mail server. */
 	staleFolderLabel?: string;
-	/** That folder is a name match nobody ever confirmed. */
-	trashIsUnconfirmed?: boolean;
 }
 
 /**
@@ -223,13 +226,7 @@ export type DeleteOutcome =
 	| "unavailable";
 
 /** Where an account's Trash answer came from (`FolderAppointmentSource`). */
-export type TrashSource =
-	| "Appointed"
-	| "Flagged"
-	| "Reserved"
-	| "Proposed"
-	| "Stale"
-	| "None";
+export type TrashSource = FolderAppointmentSourceValue;
 
 /** One account's Trash, as `/config` resolved it. */
 export interface TrashResolution {
@@ -294,7 +291,8 @@ export const deleteOutcomeFor = ({
 		if (trash.mailboxId === undefined) return "noTrash";
 		if (trash.mailboxId === target.mailboxId) {
 			expunges = true;
-			if (trash.source === "Proposed") expungesUnconfirmed = true;
+			if (!trashSourceMeetsAssurance(trash.source, "confirmed"))
+				expungesUnconfirmed = true;
 		}
 	}
 	if (expungesUnconfirmed) return "unconfirmed";
@@ -323,7 +321,7 @@ export const deleteConfirmationCopy = (
 ): DeleteConfirmationCopy => {
 	const quantity = count === 1 ? "1" : formatNumber(count);
 	const noun = count === 1 ? "message" : "messages";
-	const { trashFolderLabel, staleFolderLabel, trashIsUnconfirmed } = context;
+	const { trashFolderLabel, staleFolderLabel } = context;
 
 	if (outcome === "noTrash") {
 		return {
@@ -374,18 +372,6 @@ export const deleteConfirmationCopy = (
 		};
 	}
 	if (outcome === "permanent") {
-		// D4a: the expunge still goes through on a Trash nobody confirmed — the
-		// user asked for these specific rows — but they are told which folder
-		// reader treats as Trash, and that nobody chose it, before it happens.
-		if (trashIsUnconfirmed) {
-			return {
-				title: `Permanently delete ${quantity} ${noun}?`,
-				description: trashFolderLabel
-					? `They are in ${trashFolderLabel}, which reader treats as this account's Trash because of its name — nobody confirmed it. They are erased from the mail server and cannot be restored.`
-					: "They are in a folder reader treats as this account's Trash because of its name — nobody confirmed it. They are erased from the mail server and cannot be restored.",
-				confirmLabel: "Delete permanently",
-			};
-		}
 		return {
 			title: `Permanently delete ${quantity} ${noun}?`,
 			description:

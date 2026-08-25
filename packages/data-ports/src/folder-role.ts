@@ -1,6 +1,7 @@
 import {
 	AccountSettingName,
 	CanonicalMailboxRole,
+	FolderAppointmentSource,
 	MailboxSpecialUse,
 } from "@remit/domain-enums";
 import {
@@ -306,6 +307,40 @@ export const meetsTrashAssurance = <T>(
 	resolution: RoleResolution<T>,
 	level: TrashAssuranceLevel,
 ): boolean => trashMailboxAt(resolution, level).allowed;
+
+export type FolderAppointmentSourceValue =
+	(typeof FolderAppointmentSource)[keyof typeof FolderAppointmentSource];
+
+/** The resolution each reported source came from (`toFolderAppointment`). */
+const RESOLUTION_FOR_SOURCE: Record<
+	FolderAppointmentSourceValue,
+	RoleResolution<null>
+> = {
+	[FolderAppointmentSource.Appointed]: { kind: "appointed", mailbox: null },
+	[FolderAppointmentSource.Flagged]: { kind: "flagged", mailbox: null },
+	[FolderAppointmentSource.Reserved]: { kind: "reserved", mailbox: null },
+	[FolderAppointmentSource.Proposed]: { kind: "proposed", mailbox: null },
+	[FolderAppointmentSource.Stale]: {
+		kind: "appointment_stale",
+		appointedMailboxId: "",
+		fallback: { kind: "none" },
+	},
+	[FolderAppointmentSource.None]: { kind: "none" },
+};
+
+/**
+ * The same gate as {@link trashMailboxAt}, asked of the source `/config`
+ * reports rather than of the resolution the server computed — so a client can
+ * word a delete from the answer the service will give it.
+ *
+ * It runs that switch rather than restating it. A hand-written mirror gets
+ * `Reserved` wrong: it reads as designated, and the gate accepts only the user's
+ * appointment and the server's flag.
+ */
+export const trashSourceMeetsAssurance = (
+	source: FolderAppointmentSourceValue,
+	level: TrashAssuranceLevel,
+): boolean => meetsTrashAssurance(RESOLUTION_FOR_SOURCE[source], level);
 
 /**
  * The mailbox a role is CONFIRMED to hold: the one the user appointed, or the
