@@ -132,50 +132,56 @@ const buildCredentialDeps = (): AccountCredentialsDeps => ({
 export const handleSendMessage = (
 	event: SendMessageEvent,
 	log: Logger,
+	receiveCount = 1,
 ): Promise<void> => {
 	const credentialDeps = buildCredentialDeps();
-	return sendMessage(event, log, {
-		getOutbox: async (accountConfigId, id) =>
-			(await getPorts()).outboxMessage.get(accountConfigId, id),
-		getAccount: async (id) => (await getPorts()).account.get(id),
-		updateOutbox: async (accountConfigId, id, patch) =>
-			(await getPorts()).outboxMessage.update(accountConfigId, id, patch),
-		updateOutboxStatus: async (accountConfigId, id, status) =>
-			(await getPorts()).outboxMessage.updateStatus(
-				accountConfigId,
-				id,
-				status,
-			),
-		markOutboxSent: async (accountConfigId, id, fields) =>
-			(await getPorts()).outboxMessage.markSent(accountConfigId, id, fields),
-		secrets,
-		resolveCredentials: (account) =>
-			resolveConnectionCredentials(account, credentialDeps),
-		updateConnectionState: async (id, state) => {
-			const { account } = await getPorts();
-			await account.update(id, {
-				connectionState:
-					state as (typeof ConnectionState)[keyof typeof ConnectionState],
-			});
-		},
-		send: sendMail,
-		emitAppendSentMessage,
-		engagement: {
-			resolveAddressId: deriveAddressId,
-			incrementOutboundCount: async (accountConfigId, addressId, now) =>
-				(await getPorts()).address.incrementOutboundCount(
+	return sendMessage(
+		event,
+		log,
+		{
+			getOutbox: async (accountConfigId, id) =>
+				(await getPorts()).outboxMessage.get(accountConfigId, id),
+			getAccount: async (id) => (await getPorts()).account.get(id),
+			updateOutbox: async (accountConfigId, id, patch) =>
+				(await getPorts()).outboxMessage.update(accountConfigId, id, patch),
+			updateOutboxStatus: async (accountConfigId, id, status) =>
+				(await getPorts()).outboxMessage.updateStatus(
 					accountConfigId,
-					addressId,
-					now,
+					id,
+					status,
 				),
-			incrementReplyCount: async (accountConfigId, addressId, now) =>
-				(await getPorts()).address.incrementReplyCount(
-					accountConfigId,
-					addressId,
-					now,
-				),
-			findMessageByHeader,
-			getEnvelopeFromEmail,
+			markOutboxSent: async (accountConfigId, id, fields) =>
+				(await getPorts()).outboxMessage.markSent(accountConfigId, id, fields),
+			secrets,
+			resolveCredentials: (account) =>
+				resolveConnectionCredentials(account, credentialDeps),
+			updateConnectionState: async (id, state) => {
+				const { account } = await getPorts();
+				await account.update(id, {
+					connectionState:
+						state as (typeof ConnectionState)[keyof typeof ConnectionState],
+				});
+			},
+			send: sendMail,
+			emitAppendSentMessage,
+			engagement: {
+				resolveAddressId: deriveAddressId,
+				incrementOutboundCount: async (accountConfigId, addressId, now) =>
+					(await getPorts()).address.incrementOutboundCount(
+						accountConfigId,
+						addressId,
+						now,
+					),
+				incrementReplyCount: async (accountConfigId, addressId, now) =>
+					(await getPorts()).address.incrementReplyCount(
+						accountConfigId,
+						addressId,
+						now,
+					),
+				findMessageByHeader,
+				getEnvelopeFromEmail,
+			},
 		},
-	});
+		receiveCount,
+	);
 };
