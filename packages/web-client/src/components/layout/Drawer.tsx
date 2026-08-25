@@ -134,14 +134,6 @@ export const Drawer = ({
 				onClick={onClose}
 				className="absolute inset-0 bg-black/40 animate-in fade-in duration-150 cursor-default"
 			/>
-			{/* Elevation layer: the controls that opened this drawer, lifted clear
-			    of the scrim by standing after it and under the panel by standing
-			    before it. Both are `z-auto` here, so DOM order is the whole rule
-			    (#747). Click-through except where a control actually sits. */}
-			<div
-				ref={elevationLayerRef}
-				className="pointer-events-none absolute inset-0"
-			/>
 			{/* Drawer panel */}
 			<div
 				ref={drawerRef}
@@ -163,6 +155,19 @@ export const Drawer = ({
 				</div>
 				<div className="flex-1 overflow-y-auto">{children}</div>
 			</div>
+			{/* Elevation layer: the controls that opened this drawer, lifted clear
+			    of everything this surface paints. It cannot stand between the scrim
+			    and the panel: at the widths where the reading pane is mounted, the
+			    toolbar slot the control occupies lies under the panel itself — the
+			    pane runs to the screen's right edge and the drawer slides over its
+			    right-hand end — so "under the panel" leaves the press on the
+			    drawer's own chrome. Standing last is what keeps it on the control
+			    (#747). Both are `z-auto` here, so DOM order is the whole rule.
+			    Click-through except where a control actually sits. */}
+			<div
+				ref={elevationLayerRef}
+				className="pointer-events-none absolute inset-0"
+			/>
 		</div>
 	);
 };

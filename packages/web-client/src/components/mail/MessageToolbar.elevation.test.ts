@@ -4,9 +4,12 @@
  * The drawer is modal: one stacking context holding both its scrim and its
  * panel. A z-index on the toggle from outside that context clears the scrim
  * only by clearing the panel too, so the control ends up painted over the
- * drawer's own content. What the toggle does instead is move — into the
- * drawer's elevation layer, which stands after the scrim and before the panel,
- * where DOM order is the whole rule.
+ * drawer's content. What the toggle does instead is move — into the
+ * drawer's elevation layer, which stands after the scrim and after the panel,
+ * where DOM order is the whole rule. It must stand after the panel too: at
+ * the widths where the reading pane is mounted the toggle's own slot lies
+ * under the panel, so anything under it leaves the press on the drawer's
+ * chrome.
  *
  * Mounted rather than rendered to a string: where the button ends up, and
  * whether the press reaches it, are facts about the tree and not about the
@@ -90,7 +93,7 @@ describe("the intelligence toggle against the drawer it opened (#747)", () => {
 		assert.equal(toggle().closest('[role="dialog"]'), null);
 	});
 
-	it("moves into the drawer, after the scrim and before the panel", () => {
+	it("moves into the drawer, after the scrim and after the panel", () => {
 		const onToggle = () => undefined;
 		mount(false, onToggle);
 		mount(true, onToggle);
@@ -105,8 +108,10 @@ describe("the intelligence toggle against the drawer it opened (#747)", () => {
 		);
 		assert.ok(
 			panel().compareDocumentPosition(lifted) &
-				Node.DOCUMENT_POSITION_PRECEDING,
-			"before the panel, so it never paints over what the drawer says",
+				Node.DOCUMENT_POSITION_FOLLOWING,
+			"after the panel too: at the widths where the reading pane is mounted " +
+				"the toggle's own slot lies under the panel, so anything under the " +
+				"panel leaves the press on the drawer's chrome (#747)",
 		);
 	});
 

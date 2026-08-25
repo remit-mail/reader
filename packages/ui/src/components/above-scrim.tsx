@@ -34,14 +34,16 @@ const useIsomorphicLayoutEffect =
 
 /**
  * Ref callback for a modal surface's elevation layer — the empty, click-through
- * box it renders between its scrim and its panel.
+ * box it renders over its scrim and panel.
  *
- * A modal surface is one stacking context holding both its scrim and its panel,
- * so "above the scrim, under the panel" cannot be reached with a z-index from
- * outside it: any value that clears the scrim clears the panel too, and the
- * control ends up painted over the panel's own content. Inside the surface both
- * are `z-auto` and DOM order decides, so the layer's position between them is
- * the whole of the rule.
+ * A modal surface is one stacking context holding its scrim, its panel and this
+ * layer, so "above the surface" cannot be reached with a z-index from outside
+ * it: any value that clears the surface is a value that fights whatever else
+ * lives at that height. Inside the surface everything is `z-auto` and DOM order
+ * decides, so where the layer stands among the siblings is the whole of the
+ * rule. It stands last: at the widths where the reading pane is mounted, the
+ * toolbar slot the elevated control occupies lies under the panel itself, so
+ * "between scrim and panel" leaves the press on the panel's chrome (#747).
  */
 export const useScrimElevationLayer = (): ((
 	node: HTMLElement | null,
