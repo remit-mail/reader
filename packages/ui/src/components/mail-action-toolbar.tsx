@@ -32,6 +32,11 @@ export interface MailActionToolbarProps {
 	onUnavailable?: (action: MailAction) => void;
 	/** A one-line inline notice rendered under the toolbar (e.g. "Open a message first"). */
 	unavailableHint?: ReactNode;
+	/**
+	 * Whether the open message is starred. Undefined until the conversation
+	 * says — the button then omits `aria-pressed` rather than announcing an
+	 * unstarred state it does not know yet.
+	 */
 	isStarred?: boolean;
 	/**
 	 * Whether to render the triage cluster (move-to-trash / move / flag).
@@ -166,6 +171,7 @@ export function MailActionToolbar({
 							}
 							title={flagTitle}
 							aria-label="Star"
+							aria-pressed={isStarred}
 							onClick={act("flag", onToggleStar)}
 						/>
 					</>

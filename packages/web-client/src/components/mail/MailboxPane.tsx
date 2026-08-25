@@ -227,6 +227,8 @@ interface MailboxPaneContextValue {
 	onReply: ((mode: ReplyMode) => void) | undefined;
 	onToolbarDelete: () => void;
 	onToolbarStar: () => void;
+	/** Whether the open message is starred, as the conversation reports it. */
+	isStarred: boolean | undefined;
 	onToolbarMove: (destMailboxId: string) => void;
 	// Phone actions
 	onBack: () => void;
@@ -515,6 +517,7 @@ function MailboxPaneProvider({
 
 	const toolbarActions = useThreadActions({
 		thread: selectedThread,
+		isOpen: true,
 		mailboxId,
 		accountId: mailboxAccountId,
 		onAfterOptimisticRemove: handleDeselectIfRemoved,
@@ -806,6 +809,7 @@ function MailboxPaneProvider({
 		onReply: replyToOpenThread,
 		onToolbarDelete: toolbarActions.deleteThread,
 		onToolbarStar: toolbarActions.toggleStar,
+		isStarred: toolbarActions.isStarred,
 		onToolbarMove: toolbarActions.moveThread,
 		onBack: goBack,
 		nextThread: adjacentThread(nextMessageId),
@@ -1080,6 +1084,7 @@ function MailboxReading() {
 		onReply,
 		onToolbarDelete,
 		onToolbarStar,
+		isStarred,
 		onToolbarMove,
 		handleDeselectIfRemoved,
 		intelligenceRef,
@@ -1137,7 +1142,7 @@ function MailboxReading() {
 					onForward={onReply ? () => onReply("forward") : undefined}
 					onDelete={hasThread ? onToolbarDelete : undefined}
 					onToggleStar={hasThread ? onToolbarStar : undefined}
-					isStarred={selectedThread?.hasStars}
+					isStarred={isStarred}
 					moveContext={
 						hasThread && mailboxAccountId
 							? {

@@ -151,6 +151,53 @@ test.describe("Starred mail", () => {
 		await expect(starredRow(page, subject)).toHaveCount(0, { timeout: 30_000 });
 	});
 
+	test("the reading pane's toolbar star goes on and back off across reloads", async ({
+		page,
+		run,
+	}) => {
+		// Issue #602, and the control it reports: the pane-header star, not the
+		// one on the message card. It answered from the list row that opened the
+		// conversation, and a row stops being refreshed once the mail no longer
+		// matches the browsed predicate — so the star read unstarred however many
+		// times it had been set, and the second press asked for the same star
+		// again instead of taking it off.
+		const subject = run.seededSubjects.find(
+			(candidate) => candidate !== run.preFlaggedSubject,
+		);
+		if (!subject) throw new Error("no unflagged seeded subject to star");
+
+		await openInboxMessage(page, subject);
+		const toolbarStar = page.getByRole("button", { name: "Star", exact: true });
+		await expect(toolbarStar).toHaveAttribute("aria-pressed", "false", {
+			timeout: 15_000,
+		});
+
+		await toolbarStar.click();
+		await expect(toolbarStar).toHaveAttribute("aria-pressed", "true", {
+			timeout: 15_000,
+		});
+
+		// A fresh document load, so the query cache is gone and the list below is
+		// what the server serves.
+		await openStarred(page, run);
+		await expect(starredRow(page, subject)).toHaveCount(1, { timeout: 30_000 });
+
+		// The second press. Reached from a cold load again, so the star the
+		// toolbar shows came back from the server rather than from a patch this
+		// session made.
+		await openInboxMessage(page, subject);
+		await expect(toolbarStar).toHaveAttribute("aria-pressed", "true", {
+			timeout: 15_000,
+		});
+		await toolbarStar.click();
+		await expect(toolbarStar).toHaveAttribute("aria-pressed", "false", {
+			timeout: 15_000,
+		});
+
+		await openStarred(page, run);
+		await expect(starredRow(page, subject)).toHaveCount(0, { timeout: 30_000 });
+	});
+
 	test("mail flagged on the server before it synced arrives starred", async ({
 		api,
 		page,
