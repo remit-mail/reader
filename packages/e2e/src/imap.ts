@@ -183,6 +183,23 @@ export interface ServerMailbox {
 	specialUse?: string;
 }
 
+/**
+ * Read from the LIST flags rather than ImapFlow's own `specialUse`, which falls
+ * back to guessing one from the folder's name when the server advertises none —
+ * `Deleted Messages` comes back `\Trash`. That guess is the very thing these
+ * fixtures exist to tell apart from the flag, and the app never sees it: it
+ * parses these same flags (`attribute-mapper.ts`).
+ */
+const SPECIAL_USE_FLAGS = new Set([
+	"\\All",
+	"\\Archive",
+	"\\Drafts",
+	"\\Flagged",
+	"\\Junk",
+	"\\Sent",
+	"\\Trash",
+]);
+
 /** The mailboxes Dovecot itself reports — the ground truth a sync is measured against. */
 export const describeServerMailboxes = async (
 	user: string,
@@ -193,7 +210,7 @@ export const describeServerMailboxes = async (
 		return list.map((entry) => ({
 			path: entry.path,
 			delimiter: entry.delimiter,
-			specialUse: entry.specialUse,
+			specialUse: [...entry.flags].find((flag) => SPECIAL_USE_FLAGS.has(flag)),
 		}));
 	} finally {
 		await client.logout();
