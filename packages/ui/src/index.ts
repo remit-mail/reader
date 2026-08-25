@@ -4,11 +4,6 @@
 // instead of chaining them) without importing react-aria directly.
 export { mergeProps } from "react-aria";
 export {
-	AboveScrim,
-	type AboveScrimProps,
-	useScrimElevationLayer,
-} from "./components/above-scrim.js";
-export {
 	AddressDisplay,
 	type AddressDisplayProps,
 	AddressList,

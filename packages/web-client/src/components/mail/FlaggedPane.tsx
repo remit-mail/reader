@@ -349,7 +349,6 @@ function FlaggedReading() {
 					hasThread={hasThread}
 					intelligenceOpen={intelligence.isShowing}
 					canToggleIntelligence={intelligence.canToggle}
-					intelligenceElevated={intelligence.drawerOpen}
 					onToggleIntelligence={intelligence.toggle}
 					onReply={onReply ? () => onReply("reply") : undefined}
 					onReplyAll={onReply ? () => onReply("reply-all") : undefined}

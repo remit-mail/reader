@@ -123,18 +123,21 @@ test.describe("Intelligence where the rail does not fit", () => {
 	});
 
 	// The toolbar's control reaches the same surface the banner does. It is the
-	// only way in for a message with no warning on it. The drawer is modal, so
-	// once it is up its scrim covers this toolbar — but the toggle moves onto
-	// the drawer's own elevation layer, after the scrim and before the panel
-	// (#747): the control that opened the modal can act on it, closing what it
-	// opened, while every other verb stays out of reach.
+	// only way in for a message with no warning on it, and the drawer is modal:
+	// once it is up, the drawer is what a press aimed at the toggle reaches, so
+	// the toggle is the way in and nothing else. Getting back out is the drawer's
+	// own job, and the toggle is live again behind it (#747).
 	test("the toolbar's intelligence control opens the same surface", async ({
 		page,
 		run,
 	}) => {
 		await openMessage(page, run.dkimMismatchSubject);
 
-		await page.getByRole("button", { name: SHOW_INFO }).click();
+		const toggle = page.getByRole("button", { name: SHOW_INFO });
+		const box = await toggle.boundingBox();
+		if (!box) throw new Error("expected the intelligence toggle on screen");
+
+		await toggle.click();
 		const drawer = intelligenceDrawer(page);
 		await expect(drawer).toBeVisible({ timeout: 15_000 });
 		await expect(
@@ -145,13 +148,19 @@ test.describe("Intelligence where the rail does not fit", () => {
 			"true",
 		);
 
-		// Aimed at the toolbar through the up drawer: the toggle, not the scrim.
-		await page.getByRole("button", { name: HIDE_INFO }).click();
-		await expect(intelligenceDrawer(page)).toHaveCount(0);
-		await expect(page.getByRole("button", { name: SHOW_INFO })).toHaveAttribute(
-			"aria-pressed",
-			"false",
+		const covered = await page.evaluate(
+			({ x, y }) =>
+				Boolean(document.elementFromPoint(x, y)?.closest('[role="dialog"]')),
+			{ x: box.x + box.width / 2, y: box.y + box.height / 2 },
 		);
+		expect(covered).toBe(true);
+
+		await closeControl(page).click();
+		await expect(intelligenceDrawer(page)).toHaveCount(0);
+		await expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+		await toggle.click();
+		await expect(intelligenceDrawer(page)).toBeVisible({ timeout: 15_000 });
 	});
 });
 

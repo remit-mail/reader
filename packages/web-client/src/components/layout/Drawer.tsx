@@ -1,4 +1,4 @@
-import { cn, useScrimElevationLayer } from "@remit/ui";
+import { cn } from "@remit/ui";
 import { X } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
 
@@ -36,7 +36,7 @@ const tabRing = (panel: HTMLElement): HTMLElement[] => {
 interface DrawerProps {
 	isOpen: boolean;
 	onClose: () => void;
-	children?: ReactNode;
+	children: ReactNode;
 	ariaLabel?: string;
 	side?: "left" | "right";
 	widthClassName?: string;
@@ -61,7 +61,6 @@ export const Drawer = ({
 }: DrawerProps) => {
 	const drawerRef = useRef<HTMLDivElement>(null);
 	const previouslyFocusedRef = useRef<HTMLElement | null>(null);
-	const elevationLayerRef = useScrimElevationLayer();
 
 	useEffect(() => {
 		if (!isOpen) return;
@@ -155,19 +154,6 @@ export const Drawer = ({
 				</div>
 				<div className="flex-1 overflow-y-auto">{children}</div>
 			</div>
-			{/* Elevation layer: the controls that opened this drawer, lifted clear
-			    of everything this surface paints. It cannot stand between the scrim
-			    and the panel: at the widths where the reading pane is mounted, the
-			    toolbar slot the control occupies lies under the panel itself — the
-			    pane runs to the screen's right edge and the drawer slides over its
-			    right-hand end — so "under the panel" leaves the press on the
-			    drawer's own chrome. Standing last is what keeps it on the control
-			    (#747). Both are `z-auto` here, so DOM order is the whole rule.
-			    Click-through except where a control actually sits. */}
-			<div
-				ref={elevationLayerRef}
-				className="pointer-events-none absolute inset-0"
-			/>
 		</div>
 	);
 };

@@ -1,4 +1,10 @@
-import { type IntelligenceData, IntelligencePanel } from "@remit/ui";
+import {
+	Avatar,
+	type IntelligenceData,
+	IntelligencePanel,
+	RefreshButton,
+	ShellTopBar,
+} from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ChevronLeft, Info } from "lucide-react";
 import { useState } from "react";
@@ -220,10 +226,13 @@ export const DismissedAndNotCarried: Story = {
  * The two-pane desktop band between 1024 and 1280px, where the rail has no room
  * and the drawer is the surface. The drawer is right-anchored and 320px wide,
  * so it lands squarely on the reading toolbar's own intelligence toggle — the
- * control that put it there.
+ * control that put it there. The shell's top bar is here because the geometry
+ * is the point: it is what stands the toolbar clear of the drawer's own header,
+ * as it does in the app.
  */
 const MidWidthReader = () => {
 	const drawer = useIntelligenceDrawer(messages[0]?.id ?? null);
+	const [search, setSearch] = useState("");
 
 	return (
 		<div
@@ -236,11 +245,37 @@ const MidWidthReader = () => {
 				transform: "translateZ(0)",
 			}}
 		>
+			<ShellTopBar
+				search={{
+					value: search,
+					scope: "global",
+					onChange: setSearch,
+					onClear: () => setSearch(""),
+					onClearQuery: () => setSearch(""),
+					onRemoveChip: () => undefined,
+				}}
+				onCompose={() => undefined}
+				onReportBug={() => undefined}
+				onOpenSettings={() => undefined}
+				refreshControl={
+					<RefreshButton
+						state="idle"
+						label="Refresh all accounts"
+						onRefresh={() => undefined}
+					/>
+				}
+				account={
+					<Avatar
+						name="Matthijs van Henten"
+						email="mvh@example.com"
+						size="sm"
+					/>
+				}
+			/>
 			<MessageToolbar
 				hasThread
 				intelligenceOpen={drawer.isOpen}
 				canToggleIntelligence
-				intelligenceElevated={drawer.isOpen}
 				onToggleIntelligence={drawer.toggle}
 			/>
 			<div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 text-sm text-fg">
@@ -264,13 +299,11 @@ const MidWidthReader = () => {
 
 /**
  * The toggle the drawer covers. It is the only way into this surface for a
- * message with no warning on it, so it has to close what it opened — and a
- * z-index cannot get it there: the drawer is one stacking context holding both
- * its scrim and its panel, so any value that clears the scrim clears the panel
- * too and the control paints over the drawer's own content. It moves instead,
- * onto the layer the drawer renders between the two (#747).
+ * message with no warning on it, so the drawer lands on it — and stays there:
+ * the toggle is the way in and nothing else. Getting back out is the drawer's
+ * own job, and its X sits clear of the toggle to do it (#747).
  */
-export const CoveredToggleClosesTheDrawer: Story = {
+export const CoveredToggle: Story = {
 	render: () => <MidWidthReader />,
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
@@ -281,17 +314,18 @@ export const CoveredToggleClosesTheDrawer: Story = {
 		const drawer = canvas.getByRole("dialog", { name: "Message details" });
 		await expect(drawer).toBeVisible();
 
-		// Between the scrim and the panel: clear of the one, under the other.
-		const lifted = canvas.getByRole("button", {
-			name: "Hide intelligence sidebar",
-		});
-		await expect(drawer).toContainElement(lifted);
-		const scrim = within(drawer).getAllByLabelText("Close menu")[0];
-		await expect(
-			scrim.compareDocumentPosition(lifted) & Node.DOCUMENT_POSITION_FOLLOWING,
-		).toBeTruthy();
+		// The toggle stays in the toolbar the drawer covers. Nothing lifts it over
+		// the surface it opened, so a press aimed at it reaches the drawer.
+		await expect(drawer).not.toContainElement(
+			canvas.getByRole("button", { name: "Hide intelligence sidebar" }),
+		);
 
-		await userEvent.click(lifted);
+		// The header's X, not the scrim that shares its name: the second of the
+		// two, and the one a reader can see.
+		const close = within(drawer).getAllByLabelText("Close menu")[1];
+		await expect(close).toBeVisible();
+		await userEvent.click(close);
+
 		await expect(
 			canvas.queryByRole("dialog", { name: "Message details" }),
 		).toBeNull();
