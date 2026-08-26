@@ -124,7 +124,11 @@ export function StepConnector({
 	);
 }
 
-export function StepMicrosoftEmail({ onBack, onNext }: StepNav = {}) {
+export function StepMicrosoftEmail({
+	error,
+	onBack,
+	onNext,
+}: { error?: string } & StepNav = {}) {
 	return (
 		<WizardShell
 			steps={steps}
@@ -155,6 +159,7 @@ export function StepMicrosoftEmail({ onBack, onNext }: StepNav = {}) {
 						Microsoft page.
 					</p>
 				</div>
+				{error && <Banner tone="danger">{error}</Banner>}
 			</div>
 		</WizardShell>
 	);

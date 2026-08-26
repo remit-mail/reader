@@ -43,7 +43,10 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AtSign, Inbox, Loader2, Mail, Server } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRedirectEnded } from "../../hooks/useRedirectEnded.js";
+import {
+	REDIRECT_STALL_MESSAGE,
+	useRedirectEnded,
+} from "../../hooks/useRedirectEnded.js";
 // useRef is kept for the hasCreatedRef guard — not for DOM refs
 import {
 	type DiscoveryResult,
@@ -313,8 +316,15 @@ function StepMicrosoftEmail({
 	// sign-in — a user who comes back mid-flow to read a password has not failed
 	// anything, so nothing here concludes and the check stays armed until an
 	// account appears or the user leaves the step.
-	const markRedirectStarted = useRedirectEnded(() => {
+	const markRedirectStarted = useRedirectEnded((end) => {
 		setPreparing(false);
+		// A redirect that never took the window says nothing about the account, so
+		// there is nothing to read the config for — only a failure to state.
+		if (end === "stalled") {
+			setAwaitingReturn(false);
+			setError(REDIRECT_STALL_MESSAGE);
+			return;
+		}
 		void refetchConfig().then(({ data, isError }) => {
 			if (!stepIsMounted.current) return;
 			if (isError || !data) {

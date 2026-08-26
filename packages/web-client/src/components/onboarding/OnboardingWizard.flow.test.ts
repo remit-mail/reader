@@ -7,8 +7,12 @@
  */
 
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
-import { createElement } from "react";
+import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { act, createElement } from "react";
+import {
+	REDIRECT_STALL_MESSAGE,
+	REDIRECT_STALL_MS,
+} from "../../hooks/useRedirectEnded";
 import { createDomHarness, type DomHarness } from "../../test-support/dom";
 import { type HttpMock, mockFetch } from "../../test-support/http";
 import { OnboardingWizard } from "./OnboardingWizard";
@@ -294,14 +298,29 @@ const settle = async (dom: DomHarness): Promise<void> => {
 	}
 };
 
-/** Welcome → Connector → the Microsoft step, with the redirect started. */
-const walkToRedirect = async (dom: DomHarness): Promise<void> => {
+/** Welcome → Connector → the Microsoft step, before the redirect starts. */
+const walkToMicrosoftStep = async (dom: DomHarness): Promise<void> => {
 	clickText(dom, "Add your first account");
 	clickText(dom, "Outlook / Microsoft 365");
 	clickText(dom, "Continue with Microsoft");
 	await settle(dom);
+};
+
+/** Welcome → Connector → the Microsoft step, with the redirect started. */
+const walkToRedirect = async (dom: DomHarness): Promise<void> => {
+	await walkToMicrosoftStep(dom);
 	clickText(dom, "Sign in with Microsoft");
 	await settle(dom);
+};
+
+/** `settle`, for a spec that has taken the clock over: tick instead of wait. */
+const settleOnMockedClock = async (dom: DomHarness): Promise<void> => {
+	for (let round = 0; round < 4; round += 1) {
+		await dom.flush();
+		await act(async () => {
+			mock.timers.tick(20);
+		});
+	}
 };
 
 /**
@@ -325,7 +344,42 @@ const pageShow = (persisted: boolean): Event => {
 
 describe("OnboardingWizard — the Microsoft redirect and the way back (#646)", () => {
 	afterEach(() => {
+		mock.timers.reset();
 		Reflect.deleteProperty(document, "visibilityState");
+	});
+
+	it("states the failure when the redirect never leaves the page (#964)", async () => {
+		const dom = start();
+		await walkToMicrosoftStep(dom);
+
+		// The stall watch is armed inside the click, so the clock has to be the
+		// mocked one before the button is pressed.
+		setVisibility("visible");
+		mock.timers.enable({ apis: ["setTimeout"] });
+		clickText(dom, "Sign in with Microsoft");
+		await settleOnMockedClock(dom);
+
+		assert.match(dom.text(), /Redirecting…/);
+
+		// No `pagehide` and no restore: the window stays where it is, being
+		// looked at, past the point where a redirect that is going to happen has
+		// happened.
+		await act(async () => {
+			mock.timers.tick(REDIRECT_STALL_MS);
+		});
+		await dom.flush();
+
+		const button = dom.byText("button", "Sign in with Microsoft");
+		assert.equal(
+			button.getAttribute("disabled"),
+			null,
+			"an `assign` that never navigated held the button busy for good",
+		);
+		assert.doesNotMatch(dom.text(), /Redirecting…/);
+		assert.ok(
+			dom.text().includes(REDIRECT_STALL_MESSAGE),
+			"the button went live again without saying what failed",
+		);
 	});
 
 	it("stays busy while the redirect is only being looked at", async () => {

@@ -88,6 +88,16 @@ export const MicrosoftEmail: Story = {
 	render: () => <StepMicrosoftEmail />,
 };
 
+/**
+ * The redirect never took the window: the button is live again and says what
+ * failed, rather than reading "Redirecting…" until a reload (#964).
+ */
+export const MicrosoftRedirectStalled: Story = {
+	render: () => (
+		<StepMicrosoftEmail error="Couldn't open Microsoft's sign-in page. Check your connection, and anything blocking redirects, then try again." />
+	),
+};
+
 /** Email address entry with the inline autodiscovery lookup running. */
 export const AddressAutodiscovery: Story = {
 	render: () => <StepAddress discovering />,

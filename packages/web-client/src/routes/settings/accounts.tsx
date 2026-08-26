@@ -24,7 +24,10 @@ import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
 import { AccountFormPanel } from "@/components/settings/AccountFormPanel";
 import { DangerZone } from "@/components/settings/DangerZone";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { useRedirectEnded } from "@/hooks/useRedirectEnded";
+import {
+	REDIRECT_STALL_MESSAGE,
+	useRedirectEnded,
+} from "@/hooks/useRedirectEnded";
 import { useReturnFromRedirect } from "@/hooks/useReturnFromRedirect";
 import { formatRelativeTime } from "@/lib/format";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
@@ -276,9 +279,12 @@ function AccountsSettings() {
 	// that still asks to be re-authenticated, so the watch above has nothing to
 	// clear the latch on and the button would read "Redirecting…" for good. This
 	// window being back is the evidence the redirect is over, whatever it
-	// decided, and the control it left behind is live again.
-	const markReconnectStarted = useRedirectEnded(() => {
+	// decided, and the control it left behind is live again. A redirect that
+	// never took the window has no such evidence coming, so the stall says so
+	// rather than handing back a button that looks like nothing happened.
+	const markReconnectStarted = useRedirectEnded((end) => {
 		setReconnectingAccountId(null);
+		if (end === "stalled") setOauthErrorMessage(REDIRECT_STALL_MESSAGE);
 	});
 
 	const reconnectMutation = useMutation({
