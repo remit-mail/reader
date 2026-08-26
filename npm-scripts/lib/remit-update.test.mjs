@@ -168,6 +168,35 @@ function applyMigrationAndWrite(dbPath, subject) {
 	db.close();
 }
 
+// The pair of flat files a completed update leaves wherever its STATE_DIR was:
+// what it did, and what the check before it found.
+function writeRecord(dir, { outcome, message, latestVersion, lastCheckedAt }) {
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(
+		join(dir, "run.json"),
+		`${JSON.stringify({
+			runId: `${lastCheckedAt}-run`,
+			fromVersion: "v0.2.15",
+			targetVersion: latestVersion,
+			phase: "committing",
+			outcome,
+			startedAt: lastCheckedAt,
+			updatedAt: lastCheckedAt,
+			message,
+			logCommand: "remit logs updater",
+		})}\n`,
+	);
+	writeFileSync(
+		join(dir, "check.json"),
+		`${JSON.stringify({
+			status: "ok",
+			lastCheckedAt,
+			latestVersion,
+			updateAvailable: false,
+		})}\n`,
+	);
+}
+
 function writeExecutable(path, body) {
 	writeFileSync(path, body);
 	spawnSync("chmod", ["+x", path]);
@@ -182,6 +211,11 @@ function sandbox({
 	bareDb = false,
 	tag = "v1.0.0",
 	tlsMode = "internal",
+	// An operator at a host shell, where REMIT_UPDATE_STATE_DIR is unset and
+	// STATE_DIR falls back to the directory beside .env. Every other test sets
+	// it, which is what kept the divergence between that directory and the
+	// updater's volume out of the suite (reader#573).
+	operatorShell = false,
 } = {}) {
 	const dir = mkdtempSync(join(TMP_ROOT, "remit-update-"));
 	sandboxes.push(dir);
@@ -190,6 +224,9 @@ function sandbox({
 	const fake = join(dir, "fake");
 	const bin = join(dir, "bin");
 	const sqlite = join(dir, "sqlite");
+	// A host directory standing in for the updater_state volume, the way sqlite
+	// stands in for sqlite_data.
+	const updaterState = join(dir, "updater-state");
 	for (const d of [
 		deployment,
 		join(deployment, "backup"),
@@ -197,6 +234,7 @@ function sandbox({
 		fake,
 		bin,
 		sqlite,
+		updaterState,
 	]) {
 		mkdirSync(d, { recursive: true });
 	}
@@ -275,7 +313,8 @@ function sandbox({
 		HOME: dir,
 		FAKE_DOCKER_DIR: fake,
 		REMIT_DIR: deployment,
-		REMIT_UPDATE_STATE_DIR: state,
+		...(operatorShell ? {} : { REMIT_UPDATE_STATE_DIR: state }),
+		REMIT_UPDATE_STATE_VOLUME: updaterState,
 		REMIT_UPDATE_GATE_BUDGET: "2",
 		REMIT_UPDATE_PROBE_INTERVAL: "0",
 		...(realDb
@@ -293,6 +332,7 @@ function sandbox({
 		dir,
 		deployment,
 		state,
+		updaterState,
 		fake,
 		sqlite,
 		liveDb,
@@ -1877,6 +1917,50 @@ describe("remit status", () => {
 		assert.match(status.stdout, /Tag:\s+v1\.5\.0/);
 		assert.match(status.stdout, /Updates:\s+up to date/);
 		assert.match(status.stdout, /Update:\s+succeeded/);
+	});
+});
+
+// reader#573. install.sh's first update is the only one that runs in the
+// operator's shell; every one after it runs in the updater container, against
+// the updater_state volume. The directory beside .env keeps the install-time
+// verdict forever, so a status that reads it answers "the rollback failed" on a
+// box the app, reading the volume, calls up to date.
+describe("remit status from a host shell, with a stale record beside .env", () => {
+	function box(scenario = {}) {
+		const b = sandbox({
+			operatorShell: true,
+			scenario: { probe: "ok", ...scenario },
+		});
+		writeRecord(b.updaterState, {
+			outcome: "succeeded",
+			message: "reader is on v0.2.16.",
+			latestVersion: "v0.2.16",
+			lastCheckedAt: "2026-08-01T09:20:11Z",
+		});
+		writeRecord(join(b.deployment, ".update"), {
+			outcome: "rollbackFailed",
+			message: "the database migration did not run.",
+			latestVersion: "v0.2.0",
+			lastCheckedAt: "2026-07-25T06:17:55Z",
+		});
+		return b;
+	}
+
+	it("reports the run the updater recorded on its volume", () => {
+		const status = box().run(["status"]);
+		assert.equal(status.status, 0, status.stderr);
+		assert.match(status.stdout, /Update:\s+succeeded/);
+		assert.match(status.stdout, /up to date \(v0\.2\.16/);
+		assert.ok(!status.stdout.includes("rollbackFailed"), status.stdout);
+	});
+
+	// A deployment installed before the updater existed has no volume, and the
+	// directory is then the only record there is.
+	it("falls back to the directory when there is no updater volume", () => {
+		const status = box({ updater_volume: "absent" }).run(["status"]);
+		assert.equal(status.status, 0, status.stderr);
+		assert.match(status.stdout, /Update:\s+rollbackFailed/);
+		assert.match(status.stdout, /up to date \(v0\.2\.0/);
 	});
 });
 
