@@ -260,6 +260,8 @@ interface Harness {
 	mailboxError?: Error;
 	connection: Connection;
 	threadMessageUpdateError?: Error;
+	messageRow: { messageIdHeader?: string } | undefined;
+	destinationSearchUids: number[];
 	threadMessage: Record<string, unknown> | null;
 	allThreadMessages: Record<string, unknown>[];
 	getConnectionCount: number;
@@ -273,6 +275,16 @@ const record =
 	async (...args: unknown[]) => {
 		h.calls.push({ method, args });
 	};
+
+const MESSAGE_ID_HEADER = "<trashed-message@example.com>";
+
+// The source-presence probe (`isMessageGoneFromOpenMailbox`) and the
+// destination probe both go through `connection.search`; only the criterion
+// form tells them apart.
+const isMessageIdSearch = (criteria: unknown): boolean =>
+	Array.isArray(criteria) &&
+	Array.isArray(criteria[0]) &&
+	criteria[0][0] === "HEADER";
 
 const buildConnection = (): Connection => ({
 	openBox: async () => ({ uidvalidity: 1 }),
@@ -288,7 +300,7 @@ const buildConnection = (): Connection => ({
 	fetchMessages: async (uids: number[]) => uids.map((uid) => ({ uid })),
 	search: async (...args: unknown[]) => {
 		h.calls.push({ method: "connection.search", args });
-		return [10];
+		return isMessageIdSearch(args[0]) ? h.destinationSearchUids : [10];
 	},
 });
 
@@ -296,7 +308,7 @@ const sourceNoLongerHoldsTheUid = (): void => {
 	h.connection.fetchMessages = async () => [];
 	h.connection.search = async (...args: unknown[]) => {
 		h.calls.push({ method: "connection.search", args });
-		return [];
+		return isMessageIdSearch(args[0]) ? h.destinationSearchUids : [];
 	};
 };
 
@@ -304,6 +316,8 @@ const fresh = (): Harness => ({
 	calls: [],
 	account: { accountId: "acc-1", accountConfigId: "cfg-1" },
 	mailbox: { mailboxId: "src-mbx", uidValidity: 1, cursorState: undefined },
+	messageRow: { messageIdHeader: MESSAGE_ID_HEADER },
+	destinationSearchUids: [],
 	connection: buildConnection(),
 	threadMessage: {
 		...baseThreadMessage,
@@ -328,6 +342,10 @@ const deps = (): MessageDeleteDeps =>
 				},
 			},
 			message: {
+				get: async (messageIds: string[]) => {
+					h.calls.push({ method: "message.get", args: [messageIds] });
+					return h.messageRow ? [h.messageRow] : [];
+				},
 				updateUid: record("message.updateUid"),
 				update: record("message.update"),
 				delete: record("message.delete"),
@@ -417,17 +435,98 @@ describe("handleMessageDelete", () => {
 		assert.equal(h.disconnectCount, 1);
 	});
 
-	it("marks the message failed when the MOVE returns no new uid", async () => {
-		h.connection.moveMessages = async () => ({ uidMap: new Map() });
+	// UIDPLUS is an extension: a server without it answers a perfectly
+	// successful MOVE with no COPYUID entry. An empty uidMap is therefore
+	// UNCONFIRMED, and the destination is asked by Message-ID before any
+	// verdict — the rule every sibling handler already carries. Issue #979.
+	describe("no COPYUID entry on the move to trash", () => {
+		it("settles the row on the probed uid when the message is at the destination (non-UIDPLUS server, genuine success)", async () => {
+			h.connection.moveMessages = async () => ({ uidMap: new Map() });
+			h.destinationSearchUids = [77];
 
-		await handleMessageDelete(moveEvent, noopLog, deps());
+			await handleMessageDelete(moveEvent, noopLog, deps());
 
-		assert.equal(called("message.updateUid").length, 0);
-		assert.equal(
-			(called("message.update")[0]?.args[1] as { syncStatus?: string })
-				?.syncStatus,
-			"failed",
-		);
+			assert.deepEqual(called("message.updateUid")[0]?.args, [
+				"msg-1",
+				77,
+				"trash-mbx",
+			]);
+			assert.deepEqual(called("threadMessage.update")[0]?.args[2], {
+				uid: 77,
+				mailboxId: "trash-mbx",
+				isDeleted: true,
+			});
+			assert.equal(
+				called("message.update").length,
+				0,
+				"a settled move never marks the row failed",
+			);
+		});
+
+		it("probes the DESTINATION mailbox, read-only, by Message-ID", async () => {
+			h.connection.moveMessages = async () => ({ uidMap: new Map() });
+			h.destinationSearchUids = [77];
+			const opened: unknown[][] = [];
+			h.connection.openBox = (async (...args: unknown[]) => {
+				opened.push(args);
+				return { uidvalidity: 1 };
+			}) as Connection["openBox"];
+
+			await handleMessageDelete(moveEvent, noopLog, deps());
+
+			assert.deepEqual(
+				opened.at(-1),
+				["Trash", true],
+				"the probe must EXAMINE the destination, never SELECT it writable",
+			);
+			assert.deepEqual(called("connection.search")[0]?.args[0], [
+				["HEADER", "Message-ID", MESSAGE_ID_HEADER],
+			]);
+		});
+
+		it("leaves local state alone when the probe finds nothing — never reverts, never deletes (#655)", async () => {
+			h.connection.moveMessages = async () => ({ uidMap: new Map() });
+			h.destinationSearchUids = [];
+
+			await handleMessageDelete(moveEvent, noopLog, deps());
+
+			assert.equal(called("message.updateUid").length, 0);
+			assert.equal(
+				called("message.delete").length,
+				0,
+				"an unconfirmed move must never delete the local row",
+			);
+			assert.equal(
+				called("threadMessage.delete").length,
+				0,
+				"an unconfirmed move must never delete the listing rows",
+			);
+			assert.equal(
+				called("threadMessage.update").length,
+				0,
+				"an unconfirmed move must never revert the listing row to the source",
+			);
+			assert.equal(
+				(called("message.update")[0]?.args[1] as { syncStatus?: string })
+					?.syncStatus,
+				"failed",
+			);
+		});
+
+		it("does not probe when the row carries no Message-ID header", async () => {
+			h.connection.moveMessages = async () => ({ uidMap: new Map() });
+			h.messageRow = {};
+
+			await handleMessageDelete(moveEvent, noopLog, deps());
+
+			assert.equal(called("connection.search").length, 0);
+			assert.equal(called("message.updateUid").length, 0);
+			assert.equal(
+				(called("message.update")[0]?.args[1] as { syncStatus?: string })
+					?.syncStatus,
+				"failed",
+			);
+		});
 	});
 
 	// The queue handler `JSON.parse`s the body and casts it to WorkerEvent with
