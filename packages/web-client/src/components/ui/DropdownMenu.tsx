@@ -24,7 +24,7 @@ export const DropdownMenu = ({
 	useOverlayScope({
 		id: "dropdown-menu",
 		open: isOpen,
-		handlers: { back: () => setIsOpen(false) },
+		answers: { back: () => setIsOpen(false) },
 	});
 
 	useEffect(() => {

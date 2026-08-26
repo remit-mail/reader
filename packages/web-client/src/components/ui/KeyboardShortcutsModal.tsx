@@ -25,7 +25,7 @@ export const KeyboardShortcutsModal = ({
 	useOverlayScope({
 		id: "shortcuts",
 		open: isOpen,
-		handlers: { back: onClose },
+		answers: { back: onClose },
 	});
 
 	if (!isOpen) return null;

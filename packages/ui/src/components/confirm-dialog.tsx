@@ -42,7 +42,7 @@ export const ConfirmDialog = ({
 	useOverlayScope({
 		id: "confirm-dialog",
 		open: isOpen,
-		handlers: { back: onCancel },
+		answers: { back: onCancel },
 	});
 
 	// Whoever opened the dialog gets the focus back when it closes. Without this

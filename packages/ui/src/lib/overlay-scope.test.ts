@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
-	type OverlayHandlers,
+	type OverlayAnswers,
 	resolveAgainstOverlays,
 	useOverlayScope,
 } from "./overlay-scope.js";
@@ -44,15 +44,15 @@ const press = (key: string) => {
 function Scope({
 	id,
 	open,
-	handlers,
+	answers,
 	children,
 }: {
 	id: string;
 	open: boolean;
-	handlers?: OverlayHandlers;
+	answers?: OverlayAnswers;
 	children?: ReactNode;
 }) {
-	useOverlayScope({ id, open, handlers });
+	useOverlayScope({ id, open, answers });
 	return children ?? null;
 }
 
@@ -67,7 +67,7 @@ describe("an overlay on the stack", () => {
 			createElement(Scope, {
 				id: "sheet",
 				open: true,
-				handlers: { back: () => dismissed.push("sheet") },
+				answers: { back: () => dismissed.push("sheet") },
 			}),
 		);
 
@@ -82,29 +82,31 @@ describe("an overlay on the stack", () => {
 	});
 
 	it("hands the key back once it closes", () => {
-		render(createElement(Scope, { id: "sheet", open: true, handlers: {} }));
-		render(createElement(Scope, { id: "sheet", open: false, handlers: {} }));
+		render(createElement(Scope, { id: "sheet", open: true, answers: {} }));
+		render(createElement(Scope, { id: "sheet", open: false, answers: {} }));
 
 		press("Escape");
 
 		assert.deepEqual(seen, ["Escape"]);
 	});
 
-	it("dismisses only the topmost of a stack", () => {
+	it("dismisses the last overlay to open, not the one under it", () => {
 		const dismissed: string[] = [];
-		render(
+		const stack = (confirming: boolean) =>
 			createElement(Scope, {
 				id: "drawer",
 				open: true,
-				handlers: { back: () => dismissed.push("drawer") },
+				answers: { back: () => dismissed.push("drawer") },
 				// biome-ignore lint/correctness/noChildrenProp: no JSX in a `.ts` test
 				children: createElement(Scope, {
 					id: "confirm",
-					open: true,
-					handlers: { back: () => dismissed.push("confirm") },
+					open: confirming,
+					answers: { back: () => dismissed.push("confirm") },
 				}),
-			}),
-		);
+			});
+
+		render(stack(false));
+		render(stack(true));
 
 		press("Escape");
 
@@ -121,7 +123,7 @@ describe("an overlay on the stack", () => {
 			createElement(Scope, {
 				id: "sheet",
 				open: true,
-				handlers: { back: () => dismissed.push("sheet") },
+				answers: { back: () => dismissed.push("sheet") },
 				// biome-ignore lint/correctness/noChildrenProp: no JSX in a `.ts` test
 				children: createElement("input", {
 					"data-escape-owner": "",
@@ -139,7 +141,7 @@ describe("an overlay on the stack", () => {
 
 describe("what the surfaces under an overlay may act on", () => {
 	it("contains an action the overlay does not serve", () => {
-		render(createElement(Scope, { id: "sheet", open: true, handlers: {} }));
+		render(createElement(Scope, { id: "sheet", open: true, answers: {} }));
 
 		assert.equal(resolveAgainstOverlays("compose")?.outcome, "contained");
 	});
@@ -155,7 +157,7 @@ describe("what the surfaces under an overlay may act on", () => {
 			return createElement(Scope, {
 				id: "confirm",
 				open: modal,
-				handlers: { back: () => undefined },
+				answers: { back: () => undefined },
 			});
 		}
 

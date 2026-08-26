@@ -152,7 +152,7 @@ export const MoveToTrigger = ({
 	useOverlayScope({
 		id: "move-to",
 		open: isOpen && isDesktop,
-		handlers: { back: close },
+		answers: { back: close },
 	});
 
 	// Desktop popover: dismiss on outside click.

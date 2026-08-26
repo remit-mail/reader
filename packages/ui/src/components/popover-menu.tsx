@@ -297,7 +297,7 @@ export function PopoverMenu({
 	useOverlayScope({
 		id: "popover-menu",
 		open,
-		handlers: { back: () => setOpen(false) },
+		answers: { back: () => setOpen(false) },
 	});
 
 	useEffect(() => {

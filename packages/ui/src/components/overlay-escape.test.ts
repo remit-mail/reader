@@ -64,7 +64,9 @@ describe("Escape is scoped to the overlay it lands on (#958)", () => {
 				// type, so a component with required children needs the cast.
 				{
 					isOpen: true,
-					onClose: () => closed++,
+					onClose: () => {
+						closed++;
+					},
 					title: "Add Account",
 				} as SlidePanelProps,
 				"panel body",

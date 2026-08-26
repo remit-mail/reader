@@ -34,7 +34,7 @@ export function SlidePanel({
 	useOverlayScope({
 		id: "slide-panel",
 		open: isOpen,
-		handlers: { back: onClose },
+		answers: { back: onClose },
 	});
 
 	return (

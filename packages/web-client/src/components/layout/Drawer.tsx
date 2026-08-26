@@ -62,7 +62,7 @@ export const Drawer = ({
 	const drawerRef = useRef<HTMLDivElement>(null);
 	const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
-	useOverlayScope({ id: "drawer", open: isOpen, handlers: { back: onClose } });
+	useOverlayScope({ id: "drawer", open: isOpen, answers: { back: onClose } });
 
 	useEffect(() => {
 		if (!isOpen) return;

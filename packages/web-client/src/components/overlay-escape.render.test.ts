@@ -91,11 +91,11 @@ describe("Escape is scoped to the overlay it lands on (#958)", () => {
 			createElement(DropdownMenu, {
 				trigger: "More",
 				// biome-ignore lint/correctness/noChildrenProp: no JSX in a `.ts` test, and createElement's variadic children do not satisfy a required prop
-				children: createElement(
-					DropdownMenuItem,
-					{ onClick: () => undefined },
-					"Mark as read",
-				),
+				children: createElement(DropdownMenuItem, {
+					onClick: () => undefined,
+					// biome-ignore lint/correctness/noChildrenProp: same
+					children: "Mark as read",
+				}),
 			}),
 		);
 		const trigger = container.querySelector("button") as HTMLButtonElement;

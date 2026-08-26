@@ -28,7 +28,7 @@ export function Dialog({
 }: DialogProps) {
 	const dialogRef = useRef<HTMLDivElement>(null);
 
-	useOverlayScope({ id: "dialog", open, handlers: { back: onClose } });
+	useOverlayScope({ id: "dialog", open, answers: { back: onClose } });
 
 	useEffect(() => {
 		if (!open) return;

@@ -10,7 +10,7 @@
  * (#958) while `c` opened compose out from under a modal (#959).
  *
  * A mounted overlay declares itself here for as long as it is on screen, with
- * the handlers it answers for, and the rest follows from that one declaration:
+ * what it answers for, and the rest follows from that one declaration:
  *
  * - Escape is answered by one listener, shared by every overlay. It sits on
  *   `window` in the capture phase, ahead of the triage layers and of every other
@@ -22,8 +22,12 @@
  *   the top frame does not serve, so the key is inert instead of racing.
  *
  * An overlay that answers nothing — the selection wizard, which has its own Back
- * and Close and wants Escape to do neither — passes no handlers and still
+ * and Close and wants Escape to do neither — declares no answers and still
  * contains the keyboard while it is up.
+ *
+ * The stack is in the order the overlays opened, which is the order they are
+ * stacked: a confirmation raised from inside a drawer joins after it and is the
+ * one Escape reaches.
  *
  * The stack is module state rather than a React context on purpose: a window
  * listener is global, so the register it answers from is too, and an overlay
@@ -39,11 +43,11 @@ import {
 } from "./shortcut-tree.js";
 
 /** What an overlay answers, keyed by the action it answers. */
-export type OverlayHandlers = Partial<Record<TriageAction, () => void>>;
+export type OverlayAnswers = Partial<Record<TriageAction, () => void>>;
 
 interface ScopeEntry {
 	frame: OverlayFrame;
-	run: () => OverlayHandlers;
+	run: () => OverlayAnswers;
 }
 
 const ESCAPE_OWNER_SELECTOR = "[data-escape-owner]";
@@ -105,7 +109,7 @@ export interface OverlayScopeOptions {
 	 * modal, a drawer and a menu all want it to mean. Every action outside the
 	 * table is contained: inert for the surfaces underneath, never forwarded.
 	 */
-	handlers?: OverlayHandlers;
+	answers?: OverlayAnswers;
 }
 
 /**
@@ -116,14 +120,14 @@ export interface OverlayScopeOptions {
 export function useOverlayScope({
 	id,
 	open,
-	handlers = {},
+	answers = {},
 }: OverlayScopeOptions): void {
-	// Read at keystroke time so a re-rendered handler never re-registers the
+	// Read at keystroke time so a re-rendered answer never re-registers the
 	// frame — a frame that leaves and rejoins the stack loses its place in it.
-	const handlersRef = useRef(handlers);
-	handlersRef.current = handlers;
+	const answersRef = useRef(answers);
+	answersRef.current = answers;
 
-	const served = Object.keys(handlers).sort().join(",");
+	const served = Object.keys(answers).sort().join(",");
 
 	useEffect(() => {
 		if (!open) return;
@@ -132,7 +136,7 @@ export function useOverlayScope({
 				id,
 				handles: served === "" ? [] : (served.split(",") as TriageAction[]),
 			},
-			run: () => handlersRef.current,
+			run: () => answersRef.current,
 		};
 		setEntries([...entries, entry]);
 		return () => {
