@@ -329,6 +329,24 @@ describe("sendMessage handler", () => {
 		assert.equal(recorded.updates.length, 0);
 	});
 
+	it("drops the event for a row the enqueue settled at `failed`", async () => {
+		// The other half of #936. An error from SQS `SendMessage` says the response
+		// was lost, not that the broker refused the event, so the row is settled
+		// outside this fence and the event that landed anyway dies here. Settling
+		// it at `draft` instead would send it — and leave the user a row they can
+		// send a second time.
+		const { deps, recorded } = buildDeps({
+			outbox: buildOutbox({ status: "failed" }),
+		});
+
+		await sendMessage(event, silentLogger, deps);
+
+		assert.equal(recorded.sendCalls, 0, "must not send");
+		assert.equal(recorded.marked.length, 0);
+		assert.equal(recorded.updates.length, 0);
+		assert.equal(recorded.statuses.length, 0);
+	});
+
 	it("settles the row as unfiled when the append event cannot be queued", async () => {
 		const { deps, recorded } = buildDeps({
 			account: buildAccount({ smtpHost: "smtp.example.com", smtpPort: 587 }),

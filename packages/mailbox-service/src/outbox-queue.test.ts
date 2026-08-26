@@ -72,6 +72,15 @@ const createHarness = (stored: OutboxMessageItem): Harness => {
 			harness.statusWrites.push(status);
 			return draft({ status });
 		},
+		updateIfStatus: async (
+			_configId: string,
+			_id: string,
+			_expected: OutboxMessageItem["status"],
+			input: { status?: OutboxMessageItem["status"] },
+		) => {
+			if (input.status) harness.statusWrites.push(input.status);
+			return draft(input as Partial<OutboxMessageItem>);
+		},
 	} as unknown as IOutboxMessageRepository;
 
 	harness.service = new OutboxQueueService({

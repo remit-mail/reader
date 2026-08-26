@@ -431,6 +431,21 @@ export const ComposeForm = ({
 	 * commit out — the fields still hold the message that has just been left.
 	 */
 	const [openDocumentId, setOpenDocumentId] = useState(outboxMessageId);
+	/**
+	 * What the server's copy of this document would autosave as, so a draft that
+	 * is only being looked at writes nothing.
+	 *
+	 * Opening one runs the autosave effect on the render that fills the fields
+	 * from the read, and that write is no longer free: an edit returns a settled
+	 * failure to `draft` (#933), so opening a Failed message and pressing Escape
+	 * would take it out of the Outbox with the reader having changed nothing. The
+	 * first run after a load records what was loaded; only a payload that differs
+	 * from it is an edit. Nothing updates it afterwards — once the reader has
+	 * touched the document, every later run saves as it always did, retries of a
+	 * failed write included.
+	 */
+	const loadedPayloadRef = useRef<string | undefined>(undefined);
+	const captureLoadedPayloadRef = useRef(false);
 	const smtpConfigureRef = useRef<HTMLButtonElement>(null);
 	const prevOutboxMessageIdRef = useRef<string | undefined>(outboxMessageId);
 	/**
@@ -528,6 +543,8 @@ export const ComposeForm = ({
 		setBody({ ...opening, formatting: [] });
 		setDocumentGeneration((generation) => generation + 1);
 		setDraftLoaded(false);
+		loadedPayloadRef.current = undefined;
+		captureLoadedPayloadRef.current = false;
 		setOpenDocumentId(outboxMessageId);
 	}, [outboxMessageId, clearPendingFields]);
 
@@ -619,6 +636,7 @@ export const ComposeForm = ({
 		setDocumentGeneration((generation) => generation + 1);
 		setSelectedAccountId(draftData.accountId);
 		setDraftLoaded(true);
+		captureLoadedPayloadRef.current = true;
 	}, [draftData, draftLoaded]);
 
 	useEffect(() => {
@@ -834,7 +852,7 @@ export const ComposeForm = ({
 			composeLanguage,
 		);
 
-		saveDraft({
+		const payload = {
 			accountId: selectedAccountId,
 			toAddresses: toAddresses.map((a) => a.email),
 			ccAddresses:
@@ -844,7 +862,19 @@ export const ComposeForm = ({
 			subject: subject || undefined,
 			textBody,
 			htmlBody,
-		});
+		};
+
+		// Nor a document nobody has touched. Reopening one is not editing it, and
+		// a PATCH is now a status change as well as a content one (#933).
+		const fingerprint = JSON.stringify(payload);
+		if (captureLoadedPayloadRef.current) {
+			captureLoadedPayloadRef.current = false;
+			loadedPayloadRef.current = fingerprint;
+			return;
+		}
+		if (loadedPayloadRef.current === fingerprint) return;
+
+		saveDraft(payload);
 	}, [
 		selectedAccountId,
 		outboxMessageId,

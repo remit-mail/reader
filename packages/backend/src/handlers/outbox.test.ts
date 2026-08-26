@@ -109,6 +109,15 @@ const createInMemoryOutboxRepository = (): IOutboxMessageRepository => {
 			outboxMessageId: string,
 			status: OutboxMessageItem["status"],
 		) => repository.update(accountConfigId, outboxMessageId, { status }),
+		updateIfStatus: async (
+			accountConfigId: string,
+			outboxMessageId: string,
+			expected: OutboxMessageItem["status"],
+			input: UpdateOutboxMessageInput,
+		) => {
+			if (mustGet(outboxMessageId).status !== expected) return null;
+			return repository.update(accountConfigId, outboxMessageId, input);
+		},
 		markSent: async (
 			accountConfigId: string,
 			outboxMessageId: string,

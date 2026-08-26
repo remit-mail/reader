@@ -67,6 +67,15 @@ const createHarness = (stored: OutboxMessageItem): Harness => {
 			harness.statusWrites.push(status);
 			return { ...stored, status };
 		},
+		updateIfStatus: async (
+			_configId: string,
+			_id: string,
+			_expected: OutboxMessageItem["status"],
+			input: { status?: OutboxMessageItem["status"] },
+		) => {
+			if (input.status) harness.statusWrites.push(input.status);
+			return { ...stored, ...input };
+		},
 		delete: async (_configId: string, id: string) => {
 			harness.deleted.push(id);
 		},
