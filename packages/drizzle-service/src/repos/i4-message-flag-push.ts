@@ -8,7 +8,11 @@ import { messageFlagPushTable } from "../schema/i4-message-flag-push.js";
 
 type DB = Db<Record<string, unknown>>;
 
-const DEFAULT_STATE: MessageFlagPushItem["state"] = "pending";
+export type { MessageFlagPushItem, PutMessageFlagPushInput };
+export type FlagPushOperation = MessageFlagPushItem["operation"];
+export type MessageFlagPushState = MessageFlagPushItem["state"];
+
+const DEFAULT_STATE: MessageFlagPushState = "pending";
 
 function rowToItem(
 	row: typeof messageFlagPushTable.$inferSelect,
@@ -106,7 +110,7 @@ export class MessageFlagPushRepo {
 	updateState = async (
 		messageId: string,
 		flagName: string,
-		state: MessageFlagPushItem["state"],
+		state: MessageFlagPushState,
 	): Promise<MessageFlagPushItem> => {
 		const [row] = await this.db
 			.update(messageFlagPushTable)

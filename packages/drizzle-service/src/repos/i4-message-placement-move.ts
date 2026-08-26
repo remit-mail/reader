@@ -8,7 +8,10 @@ import { messagePlacementMoveTable } from "../schema/i4-message-placement-move.j
 
 type DB = Db<Record<string, unknown>>;
 
-const DEFAULT_STATE: MessagePlacementMoveItem["state"] = "pending";
+export type { MessagePlacementMoveItem, PutMessagePlacementMoveInput };
+export type MessagePlacementMoveState = MessagePlacementMoveItem["state"];
+
+const DEFAULT_STATE: MessagePlacementMoveState = "pending";
 
 function rowToItem(
 	row: typeof messagePlacementMoveTable.$inferSelect,
@@ -94,7 +97,7 @@ export class MessagePlacementMoveRepo {
 	 */
 	updateState = async (
 		messageId: string,
-		state: MessagePlacementMoveItem["state"],
+		state: MessagePlacementMoveState,
 	): Promise<MessagePlacementMoveItem> => {
 		const [row] = await this.db
 			.update(messagePlacementMoveTable)

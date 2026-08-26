@@ -18,8 +18,18 @@ export * from "./repos/i4-address.js";
 export * from "./repos/i4-mailbox.js";
 export * from "./repos/i4-mailbox-lock.js";
 export * from "./repos/i4-mailbox-special-use.js";
-export { MessageFlagPushRepo } from "./repos/i4-message-flag-push.js";
-export { MessagePlacementMoveRepo } from "./repos/i4-message-placement-move.js";
+export {
+	type FlagPushOperation,
+	type MessageFlagPushItem,
+	MessageFlagPushRepo,
+	type MessageFlagPushState,
+	type PutMessageFlagPushInput,
+} from "./repos/i4-message-flag-push.js";
+export {
+	type MessagePlacementMoveItem,
+	MessagePlacementMoveRepo,
+	type PutMessagePlacementMoveInput,
+} from "./repos/i4-message-placement-move.js";
 export * from "./repos/i4-organize-job-request.js";
 export { OutboxAttachmentRepo } from "./repos/i4-outbox-attachment.js";
 export * from "./repos/i4-outbox-message.js";
