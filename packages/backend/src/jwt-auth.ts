@@ -56,6 +56,26 @@ const hasLocalBypass = (): boolean =>
 	Boolean(process.env.LOCAL_ACCOUNT_CONFIG_ID);
 
 /**
+ * The one route that runs without a token.
+ *
+ * Microsoft redirects the browser here after consent, so the request carries no
+ * Authorization header and no session to derive one from. The handler takes its
+ * identity from the HMAC-signed `state` parameter and validates it there; that
+ * signature is the gate, not a JWT.
+ *
+ * Hardcoded and single-entry, matching the edge exemption in
+ * packages/apisix/src/route-table.ts. `@useAuth(NoAuth)` in the spec does not
+ * open a path here — a future public route is added by hand.
+ */
+const PUBLIC_ROUTE = {
+	method: "GET",
+	path: "/accounts/oauth/microsoft/callback",
+};
+
+const isPublicRoute = (event: APIGatewayProxyEvent): boolean =>
+	event.httpMethod === PUBLIC_ROUTE.method && event.path === PUBLIC_ROUTE.path;
+
+/**
  * Authenticate a self-host request from a better-auth RS256 JWT.
  *
  * On a valid token the verified `sub` is injected into the event's authorizer
@@ -71,6 +91,8 @@ const hasLocalBypass = (): boolean =>
 export const authenticateSelfHostRequest = async (
 	event: APIGatewayProxyEvent,
 ): Promise<APIGatewayProxyResult | null> => {
+	if (isPublicRoute(event)) return null;
+
 	const existingSub = event.requestContext?.authorizer?.claims?.sub;
 	if (typeof existingSub === "string" && existingSub.length > 0) return null;
 
