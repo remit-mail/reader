@@ -462,12 +462,17 @@ describe("a send whose enqueue fails (#845.8)", () => {
 		assert.equal(response.statusCode, 500);
 	});
 
-	it("leaves the row a draft, not stranded at queued", async () => {
+	it("settles the row at failed, not stranded at queued and not back at draft", async () => {
 		const { outboxMessageId } = await draftAgainstQueue(
 			refusingSqsClient().client,
 		);
 
-		assert.equal(await statusOf(outboxMessageId), OutboxMessageStatus.draft);
+		// `queued` is the dead end this suite exists for. `draft` is the other
+		// wrong answer: it is inside the SMTP worker's send fence, and an error
+		// from SQS does not prove the event was refused — one that landed anyway
+		// would send a row the user can still send by hand. `failed` is outside
+		// the fence and, since #933, still editable and sendable.
+		assert.equal(await statusOf(outboxMessageId), OutboxMessageStatus.failed);
 	});
 
 	it("still lets the user discard what could not be queued", async () => {
