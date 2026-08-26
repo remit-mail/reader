@@ -591,7 +591,7 @@ export {
 export {
 	APPOINTABLE_ROLES,
 	type CandidateFolder,
-	folderRolesHelp,
+	FolderRolesHelp,
 	type RoleAppointment,
 	RoleAppointmentList,
 	type RoleAppointmentListProps,

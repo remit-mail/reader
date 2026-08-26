@@ -2,8 +2,8 @@ import {
 	FolderManager,
 	FolderRenameDialog,
 	type FolderRole,
+	FolderRolesHelp,
 	type FolderTreeNode,
-	folderRolesHelp,
 	type ManagedFolder,
 	type RoleAppointment,
 	RoleAppointmentList,
@@ -172,7 +172,7 @@ function FolderSettingsPage({ renaming = false }: { renaming?: boolean }) {
 			activeId="folders"
 			title="Folder roles"
 			description="Appoint which real folder fills each canonical role, per account."
-			help={folderRolesHelp}
+			help={<FolderRolesHelp />}
 			helpOpen={helpOpen}
 			onToggleHelp={() => setHelpOpen((open) => !open)}
 			onBackToMail={() => undefined}
