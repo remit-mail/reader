@@ -130,7 +130,7 @@ export const buildThreadMessageUndelete = (
  * read-only questions instead of one. Both handles wrap the SAME connection but
  * are scoped to their own mailbox: a `guardConnectionCursor` wrap binds its
  * checks to the ONE mailbox snapshot it was built with, so the destination must
- * never be opened through the source's guard (#1272).
+ * never be opened through the source's guard.
  *
  * The source is asked first, and a source that still holds the uid ends it: the
  * MOVE did not happen, so nothing at the destination can be this message.
