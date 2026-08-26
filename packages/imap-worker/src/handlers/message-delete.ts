@@ -7,6 +7,7 @@ import type {
 import { isCurrentSchemaVersion } from "@remit/data-ports/mutation-events";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
+import { recordImapFailure } from "@remit/logger-lambda";
 import {
 	guardConnectionCursor,
 	type IImapConnection,
@@ -16,11 +17,58 @@ import {
 } from "@remit/mailbox-service";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
+import { emitEvent } from "../emit.js";
 import type { MessageDeleteEvent } from "../events.js";
 import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
+import { resolveExhaustedMessageDeleteFailure } from "./message-delete-terminal.js";
 import { searchMailboxByMessageId } from "./message-move.js";
+
+/**
+ * Fallback when `MESSAGE_DELETE_MAX_ATTEMPTS` is unset (local dev, unit tests).
+ * Matches the `maxReceiveCount` the message-management queue's redrive policy
+ * uses (`remit-message-mgmt`, `deploy/vps/queues.json`), same pattern as
+ * `MESSAGE_MOVE_MAX_ATTEMPTS` and `FLAG_PUSH_MAX_ATTEMPTS`.
+ */
+const DEFAULT_MESSAGE_DELETE_MAX_ATTEMPTS = 3;
+
+export const getMessageDeleteMaxAttempts = (
+	processEnv: NodeJS.ProcessEnv = process.env,
+): number => {
+	const raw = processEnv.MESSAGE_DELETE_MAX_ATTEMPTS;
+	if (!raw) return DEFAULT_MESSAGE_DELETE_MAX_ATTEMPTS;
+	const parsed = Number.parseInt(raw, 10);
+	return Number.isFinite(parsed) && parsed > 0
+		? parsed
+		: DEFAULT_MESSAGE_DELETE_MAX_ATTEMPTS;
+};
+
+export const MESSAGE_DELETE_MAX_ATTEMPTS = getMessageDeleteMaxAttempts();
+
+/**
+ * The message left the folder the event named, so both folders' counts are a
+ * projection that no longer matches IMAP. Re-read them through the existing
+ * per-folder sync rather than mutating counts locally.
+ */
+const emitDeleteResync = async (
+	emit: MessageDeleteDeps["emitEvent"],
+	params: {
+		accountId: string;
+		sourceMailboxId: string;
+		destinationMailboxId?: string;
+	},
+): Promise<void> => {
+	const { accountId, sourceMailboxId, destinationMailboxId } = params;
+	const mailboxIds = destinationMailboxId
+		? [sourceMailboxId, destinationMailboxId]
+		: [sourceMailboxId];
+	await Promise.all(
+		mailboxIds.map((mailboxId) =>
+			emit({ type: "SYNC_MESSAGES", accountId, mailboxId }),
+		),
+	);
+};
 
 /**
  * Delete every ThreadMessage row that points at this messageId.
@@ -173,6 +221,7 @@ export interface MessageDeleteDeps {
 	buildLifecycleDeps: typeof buildLifecycleDeps;
 	withOAuthLifecycle: typeof withOAuthLifecycle;
 	createConnectionScope: typeof createConnectionScopeWithCredentials;
+	emitEvent: typeof emitEvent;
 }
 
 const defaultDeps: MessageDeleteDeps = {
@@ -180,15 +229,26 @@ const defaultDeps: MessageDeleteDeps = {
 	buildLifecycleDeps,
 	withOAuthLifecycle,
 	createConnectionScope: createConnectionScopeWithCredentials,
+	emitEvent,
 };
 
 /**
  * Handle MESSAGE_DELETE events.
  * Either moves to Trash (IMAP MOVE) or permanently deletes (IMAP DELETE).
+ *
+ * A failing delete retries on SQS redelivery until `receiveCount` reaches
+ * {@link MESSAGE_DELETE_MAX_ATTEMPTS}, at which point
+ * {@link resolveExhaustedMessageDeleteFailure} asks IMAP where the message
+ * actually is and settles the row into one terminal outcome (issue #980).
+ * Before that budget existed, a failing delete either redelivered until the
+ * queue dead-lettered it — head-of-line blocking the account's whole delete
+ * pipeline on its per-group FIFO (#287, #289, #290) — or, on the unconfirmed
+ * move-to-trash path, marked the row and returned with no retry at all.
  */
 export const handleMessageDelete = async (
 	event: MessageDeleteEvent,
 	log: Logger,
+	receiveCount = 1,
 	deps: MessageDeleteDeps = defaultDeps,
 ): Promise<void> => {
 	const {
@@ -196,6 +256,7 @@ export const handleMessageDelete = async (
 		buildLifecycleDeps,
 		withOAuthLifecycle,
 		createConnectionScope: createConnectionScopeWithCredentials,
+		emitEvent: emit,
 	} = deps;
 
 	const {
@@ -456,16 +517,15 @@ export const handleMessageDelete = async (
 							// ambiguity is the blind revert #655 recorded when it was
 							// pulled from PR #652.
 							//
-							// This marks and returns rather than throwing. Throwing is the
-							// shape `handleMessageMove` uses, but it can only carry a
-							// budget: this handler has no `receiveCount`, no MAX_ATTEMPTS
-							// and no exhaustion path, so every redelivery on the account's
-							// per-group FIFO would re-MOVE a uid the source no longer
-							// holds, fail identically, and stall that account's whole
-							// delete pipeline (#287, #289, #290) until the queue's
-							// maxReceiveCount dead-letters it — leaving the row in this
-							// same state, minus the pipeline. Issue #980 wires the budget;
-							// the throw belongs with it, not ahead of it.
+							// Throwing here is the shape `handleMessageMove` uses, and it
+							// is safe now that the throw carries a budget (#980): the
+							// catch below retries a bounded number of times and then asks
+							// the server where the message is rather than redelivering on
+							// the account's per-group FIFO until the queue dead-letters
+							// it (#287, #289, #290). The retries are worth having — the
+							// probe that could not confirm may have hit a transient NO or
+							// a SEARCH the server refused, and the next attempt gets a
+							// straight answer.
 							log.error(
 								{
 									alert: "message_delete_trash_move_unconfirmed",
@@ -474,12 +534,17 @@ export const handleMessageDelete = async (
 									uid,
 									mailboxPath,
 									destinationMailboxPath,
+									receiveCount,
 								},
 								"Move to trash unconfirmed: no COPYUID entry, and the server did not confirm the message at the destination; local rows left as they stand",
 							);
-							await messageService.update(messageId, {
-								syncStatus: MessageSyncStatus.failed,
-							});
+							recordImapFailure(
+								"MESSAGE_DELETE_TRASH_MOVE_UNCONFIRMED",
+								"other",
+							);
+							throw new Error(
+								`Move to trash unconfirmed for message ${messageId} (uid ${uid}) at ${destinationMailboxPath}`,
+							);
 						}
 					} else {
 						// Permanent delete — reached only by `operation === "permanent_delete"`.
@@ -567,11 +632,51 @@ export const handleMessageDelete = async (
 						return;
 					}
 
-					// Mark as failed for other errors
-					await messageService.update(messageId, {
-						syncStatus: MessageSyncStatus.failed,
-					});
-					throw error;
+					if (receiveCount < MESSAGE_DELETE_MAX_ATTEMPTS) {
+						// Transient delete failure — expected (connections drop). No
+						// alarm; queue redelivery retries, and `failed` marks the row as
+						// unsettled meanwhile. It is not a terminal signal: only the
+						// resolver below settles anything.
+						await messageService.update(messageId, {
+							syncStatus: MessageSyncStatus.failed,
+						});
+						throw error;
+					}
+
+					// Redelivery budget exhausted: resolve into exactly one of the two
+					// terminal outcomes instead of dead-lettering with no diagnosis,
+					// and never by inferring the server's state from our own failures.
+					const { outcome } = await resolveExhaustedMessageDeleteFailure(
+						{ messageService, threadMessageService, log },
+						{
+							accountId,
+							accountConfigId: account.accountConfigId,
+							messageId,
+							uid,
+							sourceMailboxPath: mailboxPath,
+							getConnection: scope.getConnection,
+						},
+					);
+
+					if (outcome === "reconciled") {
+						// The local rows are gone, so whichever folder actually holds the
+						// message re-projects it with the server's own UID.
+						await emitDeleteResync(emit, {
+							accountId,
+							sourceMailboxId: mailboxId,
+							destinationMailboxId,
+						});
+						return;
+					}
+
+					// Terminal and never re-thrown, so the handler-outcome series
+					// records this record as a success. Counted here or it is invisible.
+					recordImapFailure("MESSAGE_DELETE_EXHAUSTED", "other");
+					log.error(
+						{ error: errorMessage },
+						"Message delete retry exhausted; message still exists at its source",
+					);
+					// Terminal — never re-thrown, so the caller acks either way.
 				})
 				.finally(() => scope.disconnect());
 		},

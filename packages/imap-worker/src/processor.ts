@@ -19,7 +19,8 @@ export const processEvent = async (
 	/**
 	 * SQS's own delivery count for the record carrying this event (1 on first
 	 * delivery). Read by SYNC_MESSAGE_BODY, PLACEMENT_MOVE_PUSH, FLAG_PUSH,
-	 * APPEND_SENT_MESSAGE and MESSAGE_MOVE — each knows from it when this is
+	 * APPEND_SENT_MESSAGE, MESSAGE_MOVE and MESSAGE_DELETE — each knows from it
+	 * when this is
 	 * the last attempt before the queue's own redrive policy would DLQ the
 	 * record, so it can resolve retry exhaustion into a terminal outcome
 	 * (issue #1270) instead of dead-lettering blindly.
@@ -38,7 +39,7 @@ export const processEvent = async (
 		case "MAILBOX_DELETE":
 			return processMailboxManagement(event, log);
 		case "MESSAGE_DELETE":
-			return handleMessageDelete(event, log);
+			return handleMessageDelete(event, log, receiveCount);
 		case "MESSAGE_MOVE":
 			return handleMessageMove(event, log, receiveCount);
 		case "PLACEMENT_MOVE_PUSH":
