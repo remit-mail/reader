@@ -371,19 +371,6 @@ const bodyContentRejection = (
 		: null;
 
 /**
- * The refusal a predicate carries on its own, decidable without reading the
- * corpus: an anchorless predicate can only ever take the vector-free literal
- * path, so a body-content clause on it is refused up front. `createOrganizeJob`
- * runs this before enqueueing, so a rule the matcher can never honour is
- * answered on the request instead of failing a job the client already has a 202
- * for (reader #463).
- */
-export const organizePredicateRejection = (
-	predicate: OrganizePredicate,
-): OrganizeRejection | null =>
-	hasAnchor(predicate) ? null : bodyContentRejection(predicate.literalClauses);
-
-/**
  * The literal-only arm: scan a bounded, vector-free slice of the corpus and keep
  * the messages whose literal clauses match. Used both for a purely-literal
  * predicate and as the degraded fallback when a widen is requested on a

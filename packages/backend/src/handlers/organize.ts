@@ -17,7 +17,6 @@ import {
 	matchOrganize,
 	ORGANIZE_MATCH_LIMIT,
 	type OrganizePredicate,
-	organizePredicateRejection,
 } from "../service/organize.js";
 import { sqsClient } from "../service/sqs.js";
 import type {
@@ -108,11 +107,6 @@ export const OrganizeOperations: Record<
 		await assertAccount(client, accountId, accountConfigId, "act");
 
 		const predicate = predicateFromInput(input);
-		// A rule the matcher can never honour is answered here, not with a 202
-		// the worker has to fail later (reader #463).
-		const rejection = organizePredicateRejection(predicate);
-		if (rejection) throw new BadRequestError(rejection.message);
-
 		const ttl = Math.floor(Date.now() / 1000) + ORGANIZE_JOB_TTL_SECONDS;
 
 		const job = await client.organizeJobRequest.create({

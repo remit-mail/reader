@@ -22,7 +22,6 @@ import {
 	type OrganizeMatchDeps,
 	type OrganizeMatched,
 	type OrganizePredicate,
-	organizePredicateRejection,
 } from "./organize.js";
 import {
 	_resetSemanticCapabilityForTest,
@@ -347,40 +346,6 @@ const candidate = (
 		listId: "",
 		...over,
 	},
-});
-
-describe("organizePredicateRejection (reader #463)", () => {
-	it("refuses an anchorless body-content predicate without reading the corpus", () => {
-		const rejection = organizePredicateRejection({
-			...predicate(),
-			anchorMessageId: "None",
-			literalClauses: [{ field: "HasWords", value: "invoice" }],
-		});
-
-		assert.equal(rejection?.reason, "BodyContentWithoutVectorPipeline");
-		assert.equal(rejection?.message, BODY_CONTENT_REJECTION_MESSAGE);
-	});
-
-	it("accepts a body-content predicate that carries an anchor, which the widen can evaluate", () => {
-		assert.equal(
-			organizePredicateRejection({
-				...predicate(),
-				literalClauses: [{ field: "HasWords", value: "invoice" }],
-			}),
-			null,
-		);
-	});
-
-	it("accepts an anchorless predicate whose clauses the corpus slice serves", () => {
-		assert.equal(
-			organizePredicateRejection({
-				...predicate(),
-				anchorMessageId: "None",
-				literalClauses: [{ field: "Subject", value: "reservation" }],
-			}),
-			null,
-		);
-	});
 });
 
 describe("matchOrganize", () => {
