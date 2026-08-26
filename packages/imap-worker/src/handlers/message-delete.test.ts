@@ -477,11 +477,15 @@ describe("handleMessageDelete", () => {
 			await handleMessageDelete(moveEvent, noopLog, deps());
 
 			assert.deepEqual(
-				opened.at(-1),
-				["Trash", true],
-				"the probe must EXAMINE the destination, never SELECT it writable",
+				opened,
+				[
+					["INBOX", false],
+					["INBOX", true],
+					["Trash", true],
+				],
+				"the source is re-asked read-only, then the destination is EXAMINEd — neither probe may SELECT a box writable",
 			);
-			assert.deepEqual(called("connection.search")[0]?.args[0], [
+			assert.deepEqual(called("connection.search").at(-1)?.args[0], [
 				["HEADER", "Message-ID", MESSAGE_ID_HEADER],
 			]);
 		});
