@@ -87,6 +87,22 @@ const hasNowhereToGo = (message: {
 const NO_RECIPIENT_MESSAGE =
 	"This message has nobody to send to. Add a recipient before sending it.";
 
+/**
+ * Whether the message is still the user's to work on: nothing is in flight for
+ * it, so both Send and Edit apply.
+ *
+ * Editing takes the same set as sending on purpose. A row the user may send
+ * again is a row they may correct first, and splitting the two is what left a
+ * message refused for a bad address with no route back to sent — Retry queued
+ * the same bad envelope, and Edit took a 409 on the flush that precedes the
+ * send (#933). Everything else is in the worker's hands or terminal: `queued`
+ * and `sending` are mid-flight, `sent` and `unfiled` are delivered.
+ */
+const isOpenForWork = (status: OutboxMessageItem["status"]): boolean =>
+	status === OutboxMessageStatus.draft ||
+	status === OutboxMessageStatus.failed ||
+	status === OutboxMessageStatus.blocked;
+
 const generateMessageId = (domain: string): string => {
 	const timestamp = Date.now();
 	const random = randomUUID().replace(/-/g, "").slice(0, 16);
@@ -168,16 +184,24 @@ export class OutboxQueueService {
 			outboxMessageId,
 			"act",
 		);
-		if (existing.status !== OutboxMessageStatus.draft) {
+		if (!isOpenForWork(existing.status)) {
 			throw new ConflictError(
 				`This message is already ${existing.status} and can no longer be edited as a draft. Start a new message to change it.`,
 			);
 		}
 
+		// Editing a settled failure returns the row to `draft`: it is no longer the
+		// message that failed, and the Outbox renders a `failed` row with its
+		// `lastError` — a failure reported against text that never went out. The
+		// same row moves to Drafts carrying its content, recipients and
+		// attachments, so there is no copy to reconcile.
 		const updated = await this.outboxMessageService.update(
 			accountConfigId,
 			outboxMessageId,
 			{
+				...(existing.status !== OutboxMessageStatus.draft && {
+					status: OutboxMessageStatus.draft,
+				}),
 				...(input.toAddresses !== undefined && {
 					toAddresses: input.toAddresses,
 				}),
@@ -211,11 +235,7 @@ export class OutboxQueueService {
 			outboxMessageId,
 			"act",
 		);
-		if (
-			existing.status !== OutboxMessageStatus.draft &&
-			existing.status !== OutboxMessageStatus.failed &&
-			existing.status !== OutboxMessageStatus.blocked
-		) {
+		if (!isOpenForWork(existing.status)) {
 			throw new ConflictError(
 				`This message is already ${existing.status} and cannot be sent again. Open the Outbox to see where it stands.`,
 			);
@@ -282,7 +302,21 @@ export class OutboxQueueService {
 			status: OutboxMessageStatus.queued,
 		});
 
-		await this.enqueueSend(input.accountId, outbox.outboxMessageId);
+		// Same dead end as in `send`, minus a prior status to put the row back to:
+		// a row parked at `queued` by an enqueue that threw is neither sendable nor
+		// discardable (#845.8, #931). This row is new, so it settles at `draft` —
+		// the composed text survives and Send is one press away — and the enqueue
+		// failure still reaches the caller.
+		await this.enqueueSend(input.accountId, outbox.outboxMessageId).catch(
+			async (error: unknown) => {
+				await this.outboxMessageService.updateStatus(
+					input.accountConfigId,
+					outbox.outboxMessageId,
+					OutboxMessageStatus.draft,
+				);
+				throw error;
+			},
+		);
 
 		this.log.info(
 			{ outboxMessageId: outbox.outboxMessageId, accountId: input.accountId },
