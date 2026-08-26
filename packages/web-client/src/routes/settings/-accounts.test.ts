@@ -1,6 +1,6 @@
 // biome-ignore lint/style/useFilenamingConvention: TanStack Router convention
 import assert from "node:assert";
-import { afterEach, describe, test } from "node:test";
+import { afterEach, describe, mock, test } from "node:test";
 import {
 	type AnyRoute,
 	type AnyRouter,
@@ -10,7 +10,11 @@ import {
 	Outlet,
 	RouterProvider,
 } from "@tanstack/react-router";
-import { createElement } from "react";
+import { act, createElement } from "react";
+import {
+	REDIRECT_STALL_MESSAGE,
+	REDIRECT_STALL_MS,
+} from "@/hooks/useRedirectEnded";
 import { createDomHarness, type DomHarness } from "@/test-support/dom";
 import { type HttpMock, mockFetch } from "@/test-support/http";
 import { mapOauthError, Route } from "./accounts.tsx";
@@ -166,6 +170,16 @@ const mountAccounts = async (): Promise<DomHarness> => {
 	return mounted;
 };
 
+/** `settle`, for a spec that has taken the clock over: tick instead of wait. */
+const settleOnMockedClock = async (dom: DomHarness): Promise<void> => {
+	for (let round = 0; round < 4; round += 1) {
+		await dom.flush();
+		await act(async () => {
+			mock.timers.tick(20);
+		});
+	}
+};
+
 const startReconnect = async (dom: DomHarness): Promise<void> => {
 	dom.click(dom.byText("button", "Reconnect"));
 	await settle(dom);
@@ -173,6 +187,7 @@ const startReconnect = async (dom: DomHarness): Promise<void> => {
 
 describe("the Reconnect button and the redirect it starts", () => {
 	afterEach(() => {
+		mock.timers.reset();
 		harness?.close();
 		harness = undefined;
 		http?.restore();
@@ -193,6 +208,37 @@ describe("the Reconnect button and the redirect it starts", () => {
 		await settle(dom);
 
 		assert.match(dom.text(), /Redirecting…/);
+	});
+
+	test("states the failure when the redirect never leaves the page", async () => {
+		const dom = await mountAccounts();
+		// The stall timer is armed inside the click, so the clock has to be the
+		// mocked one before the button is pressed.
+		setVisibility("visible");
+		mock.timers.enable({ apis: ["setTimeout"] });
+		dom.click(dom.byText("button", "Reconnect"));
+		await settleOnMockedClock(dom);
+
+		assert.match(dom.text(), /Redirecting…/);
+
+		// No `pagehide` and no restore: the window stays where it is, being
+		// looked at, past the point where a redirect that is going to happen has
+		// happened.
+		await act(async () => {
+			mock.timers.tick(REDIRECT_STALL_MS);
+		});
+		await dom.flush();
+
+		assert.doesNotMatch(
+			dom.text(),
+			/Redirecting…/,
+			"an `assign` that never navigated held the button busy for good",
+		);
+		assert.ok(dom.byText("button", "Reconnect"));
+		assert.ok(
+			dom.text().includes(REDIRECT_STALL_MESSAGE),
+			"the button went live again without saying what failed",
+		);
 	});
 
 	test("re-arms when the restored page still needs re-authenticating", async () => {
