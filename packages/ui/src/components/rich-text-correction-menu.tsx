@@ -1,6 +1,7 @@
 import { BookPlus, EyeOff } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { DESKTOP_MEDIA_QUERY } from "../lib/layout-breakpoints.js";
+import { useOverlayScope } from "../lib/overlay-scope.js";
 import { useRovingFocus } from "../lib/roving-focus.js";
 import { useMatchMedia } from "../lib/use-match-media.js";
 import { BottomSheet } from "./bottom-sheet.js";
@@ -135,33 +136,29 @@ export const RichTextCorrectionMenu = ({
 		panelRef.current?.focus();
 	}, []);
 
+	// Escape and every other shortcut go through the shared overlay stack, which
+	// dismisses the menu and leaves nothing for the layer behind it: the panel's
+	// own `onKeyDown` only fires while the panel actually holds focus, and a focus
+	// call that lands a beat later than the browser is ready for is not something
+	// to depend on. The phone branch rides `BottomSheet`'s scope instead.
+	useOverlayScope({
+		id: "correction-menu",
+		open: desktop,
+		answers: { back: () => onDismiss(true) },
+	});
+
 	// A press rather than a click, and a pointer press rather than a mouse one:
 	// the tap that opened this menu is followed by the browser's compatibility
 	// mouse events, which a `mousedown` listener reads as a press somewhere else
 	// and closes the menu on the way up.
-	//
-	// Escape is caught here too, at the document rather than the panel: the
-	// panel takes focus on mount so the panel's own `onKeyDown` ordinarily
-	// gets there first and this one never fires (its `stopPropagation` keeps
-	// the keydown from reaching here), but a focus call that lands a beat
-	// later than the browser is ready for is not something to depend on —
-	// this is what actually closes the menu when that happens.
 	useEffect(() => {
 		if (!desktop) return;
 		const onPointer = (event: Event) => {
 			if (panelRef.current?.contains(event.target as Node)) return;
 			onDismiss(false);
 		};
-		const onDocumentKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			onDismiss(true);
-		};
 		document.addEventListener("pointerdown", onPointer);
-		document.addEventListener("keydown", onDocumentKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointer);
-			document.removeEventListener("keydown", onDocumentKeyDown);
-		};
+		return () => document.removeEventListener("pointerdown", onPointer);
 	}, [desktop, onDismiss]);
 
 	/**

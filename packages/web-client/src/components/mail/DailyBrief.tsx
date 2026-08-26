@@ -873,7 +873,6 @@ export function DailyBrief({
 				onOpen={openRow}
 				onDeleteMessages={onDeleteMessages}
 				onSelectionVerb={wizard.start}
-				wizardOpen={wizard.isOpen}
 				commandsRef={commandsRef}
 				onTriageContextChange={onTriageContextChange}
 			>

@@ -909,6 +909,13 @@ export {
 	DESKTOP_MIN_WIDTH,
 } from "./lib/layout-breakpoints.js";
 export {
+	type OverlayAnswers,
+	type OverlayScopeOptions,
+	overlayStack,
+	resolveAgainstOverlays,
+	useOverlayScope,
+} from "./lib/overlay-scope.js";
+export {
 	derivePropertyClauses,
 	normalizeSubject,
 	sharedSubjectFragment,

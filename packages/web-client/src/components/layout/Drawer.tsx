@@ -1,4 +1,4 @@
-import { cn } from "@remit/ui";
+import { cn, type OverlayAnswers, useOverlayScope } from "@remit/ui";
 import { X } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
 
@@ -40,6 +40,13 @@ interface DrawerProps {
 	ariaLabel?: string;
 	side?: "left" | "right";
 	widthClassName?: string;
+	/**
+	 * Shortcuts the drawer keeps serving while it is up, beyond Escape. The key
+	 * that opened it is the one that has to reach it — `i` closes the
+	 * intelligence drawer it opened — and everything left undeclared is
+	 * contained, so no verb acts on the list behind the scrim.
+	 */
+	answers?: OverlayAnswers;
 }
 
 /**
@@ -58,9 +65,16 @@ export const Drawer = ({
 	ariaLabel = "Navigation",
 	side = "left",
 	widthClassName = "w-[80vw] max-w-[320px]",
+	answers,
 }: DrawerProps) => {
 	const drawerRef = useRef<HTMLDivElement>(null);
 	const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+
+	useOverlayScope({
+		id: "drawer",
+		open: isOpen,
+		answers: { back: onClose, ...answers },
+	});
 
 	useEffect(() => {
 		if (!isOpen) return;
@@ -68,11 +82,6 @@ export const Drawer = ({
 		previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
 
 		const handleKey = (event: KeyboardEvent) => {
-			if (event.key === "Escape") {
-				event.preventDefault();
-				onClose();
-				return;
-			}
 			// Trap Tab inside the drawer's ring: walking off either end cycles
 			// round, and focus that is in the drawer but outside the ring — a
 			// control behind a nested dialog's backdrop — is pulled in, so Tab
@@ -115,7 +124,7 @@ export const Drawer = ({
 			document.body.style.overflow = previousOverflow;
 			previouslyFocusedRef.current?.focus();
 		};
-	}, [isOpen, onClose]);
+	}, [isOpen]);
 
 	if (!isOpen) return null;
 

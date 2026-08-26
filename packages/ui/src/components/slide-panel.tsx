@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
-import { type ReactNode, useEffect } from "react";
+import type { ReactNode } from "react";
 import { cn } from "../lib/cn.js";
+import { useOverlayScope } from "../lib/overlay-scope.js";
 
 /* ------------------------------------------------------------------ */
 /* SlidePanel: right-edge slide-over for a focused sub-task (editing   */
@@ -28,15 +29,13 @@ export function SlidePanel({
 	footer,
 }: SlidePanelProps) {
 	// Escape closes the panel from anywhere inside it, which is what a dialog
-	// owes the keyboard. The scrim is a pointer affordance only.
-	useEffect(() => {
-		if (!isOpen) return;
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key === "Escape") onClose();
-		};
-		document.addEventListener("keydown", onKeyDown);
-		return () => document.removeEventListener("keydown", onKeyDown);
-	}, [isOpen, onClose]);
+	// owes the keyboard, and nothing behind it sees the press. The scrim is a
+	// pointer affordance only.
+	useOverlayScope({
+		id: "slide-panel",
+		open: isOpen,
+		answers: { back: onClose },
+	});
 
 	return (
 		<>

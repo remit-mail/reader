@@ -174,13 +174,24 @@ describe("MoveToTrigger", () => {
 		const isOpen = () =>
 			dom.byLabel("Move to folder").getAttribute("aria-expanded") === "true";
 
+		// The window-level triage layer maps Escape to `back`, which closes the
+		// conversation behind the picker; one press must not do both (#732, #958).
+		const seen: string[] = [];
+		const listener = (event: Event) => seen.push((event as KeyboardEvent).key);
+		dom.window.addEventListener("keydown", listener);
+
 		dom.click(dom.byLabel("Move to folder"));
 		assert.equal(isOpen(), true);
 		dom.dispatch(
-			dom.window.document,
-			new dom.window.KeyboardEvent("keydown", { key: "Escape" }),
+			dom.window.document.body,
+			new dom.window.KeyboardEvent("keydown", {
+				key: "Escape",
+				bubbles: true,
+			}),
 		);
 		assert.equal(isOpen(), false);
+		assert.deepEqual(seen, [], "the layer behind the picker saw the press");
+		dom.window.removeEventListener("keydown", listener);
 
 		dom.click(dom.byLabel("Move to folder"));
 		assert.equal(isOpen(), true);

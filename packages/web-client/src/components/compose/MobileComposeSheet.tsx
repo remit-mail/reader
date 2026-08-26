@@ -1,5 +1,5 @@
 import { configOperationsGetConfigOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import { ConfirmDialog } from "@remit/ui";
+import { ConfirmDialog, useOverlayScope } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import { Drawer } from "vaul";
@@ -74,6 +74,10 @@ export const MobileComposeSheet = () => {
 	const handleCancelDiscard = useCallback(() => {
 		setShowConfirm(false);
 	}, []);
+
+	// vaul answers Escape itself; declaring the scope is what keeps the rest of
+	// the keyboard off the list behind the sheet.
+	useOverlayScope({ id: "mobile-compose", open: true });
 
 	return (
 		<Drawer.Root

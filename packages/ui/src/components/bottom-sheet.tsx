@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn.js";
+import { useOverlayScope } from "../lib/overlay-scope.js";
 
 const SNAP_MS = 320;
 const SNAP_EASE = "cubic-bezier(0.32, 0.9, 0.3, 1)";
@@ -32,6 +33,8 @@ export function BottomSheet({
 	children,
 	dismissLabel = "Dismiss",
 }: BottomSheetProps) {
+	useOverlayScope({ id: "bottom-sheet", open, answers: { back: onClose } });
+
 	const sheetRef = useRef<HTMLDivElement>(null);
 	const [height, setHeight] = useState(HEIGHT_FALLBACK);
 	const [drag, setDrag] = useState<number | null>(null);

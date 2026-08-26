@@ -14,6 +14,11 @@
  * context comes first, the pane builds its handlers from it, and the keyboard
  * registration comes last.
  *
+ * A modal open over the pane is not this layer's problem. Every overlay declares
+ * itself on the shared stack (`@remit/ui`'s `overlay-scope`) and `useTriageKeyboard`
+ * contains what the top frame does not serve, so the pane no longer reports which
+ * of its own dialogs is up and every other layer on the page suspends with it.
+ *
  * While a thread is open, `ConversationView` binds its own window listener for
  * the messages inside it, and both used to act on one press (#723). The split
  * is the one `shortcut-tree` already declares: the cursor keys belong to
@@ -30,7 +35,6 @@ export interface TriageContextUpdate {
 	focusedMessageId: string | undefined;
 	selectedIds: string[];
 	hasList: boolean;
-	blocksKeyboard: boolean;
 	/** Row ids in display order, when the list knows them. Feeds adjacency. */
 	orderedIds?: string[];
 }
@@ -45,7 +49,6 @@ export interface TriageContext {
 	/** Row ids in display order, as last reported by the list. */
 	orderedIds: string[];
 	hasList: boolean;
-	blocksKeyboard: boolean;
 }
 
 export const useTriageContext = (): TriageContext => {
@@ -58,14 +61,12 @@ export const useTriageContext = (): TriageContext => {
 	// keyboard layer then simply has nothing to drive.
 	const listCommandsRef = useRef<MessageListCommands | null>(null);
 	const [hasList, setHasList] = useState(false);
-	const [blocksKeyboard, setBlocksKeyboard] = useState(false);
 
 	const onTriageContextChange = useCallback((context: TriageContextUpdate) => {
 		setFocusedMessageId(context.focusedMessageId);
 		setSelectedIds(context.selectedIds);
 		if (context.orderedIds) setOrderedIds(context.orderedIds);
 		setHasList(context.hasList);
-		setBlocksKeyboard(context.blocksKeyboard);
 	}, []);
 
 	return {
@@ -75,7 +76,6 @@ export const useTriageContext = (): TriageContext => {
 		selectedIds,
 		orderedIds,
 		hasList,
-		blocksKeyboard,
 	};
 };
 
@@ -118,7 +118,7 @@ export const useTriageLayer = ({
 	handlers,
 	hasOpenThread = false,
 }: UseTriageLayerOptions): TriageLayer => {
-	const { listCommandsRef, hasList, blocksKeyboard } = context;
+	const { listCommandsRef, hasList } = context;
 
 	const goBack = useCallback(() => {
 		if (listCommandsRef.current?.clearSelection()) return;
@@ -132,10 +132,7 @@ export const useTriageLayer = ({
 	const { reply, replyAll, forward, ...restHandlers } = handlers;
 
 	useTriageKeyboard({
-		// A modal owns the keyboard outright. Suspending the layer is what keeps a
-		// second Delete press from reaching a delete while the confirmation for the
-		// first one is still on screen.
-		enabled: enabled && !blocksKeyboard,
+		enabled,
 		handlers: {
 			// Registered only while a list is mounted to serve them. An unregistered
 			// action is never preventDefault-ed, so with no list the browser keeps

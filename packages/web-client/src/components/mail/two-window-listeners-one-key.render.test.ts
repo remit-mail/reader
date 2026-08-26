@@ -201,7 +201,6 @@ function PaneShell({
 			focusedMessageId: MESSAGE_ID,
 			selectedIds: [],
 			hasList,
-			blocksKeyboard: false,
 			orderedIds: [MESSAGE_ID, OTHER_MESSAGE_ID],
 		});
 	}, []);

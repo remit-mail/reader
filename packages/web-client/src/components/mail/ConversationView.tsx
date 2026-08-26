@@ -292,25 +292,62 @@ export const ConversationView = ({
 			...(listOnScreen
 				? []
 				: [
-						{ key: "j", handler: focusNext, preventDefault: true },
-						{ key: "ArrowDown", handler: focusNext, preventDefault: true },
-						{ key: "k", handler: focusPrevious, preventDefault: true },
-						{ key: "ArrowUp", handler: focusPrevious, preventDefault: true },
+						{
+							key: "j",
+							action: "focusNext" as const,
+							handler: focusNext,
+							preventDefault: true,
+						},
+						{
+							key: "ArrowDown",
+							action: "focusNext" as const,
+							handler: focusNext,
+							preventDefault: true,
+						},
+						{
+							key: "k",
+							action: "focusPrevious" as const,
+							handler: focusPrevious,
+							preventDefault: true,
+						},
+						{
+							key: "ArrowUp",
+							action: "focusPrevious" as const,
+							handler: focusPrevious,
+							preventDefault: true,
+						},
 						{
 							key: "Enter",
+							action: "openFocused" as const,
 							handler: toggleFocusedMessage,
 							preventDefault: true,
 						},
-						{ key: "o", handler: toggleFocusedMessage, preventDefault: true },
+						{
+							key: "o",
+							action: "openFocused" as const,
+							handler: toggleFocusedMessage,
+							preventDefault: true,
+						},
 					]),
-			{ key: "r", handler: handleReply, preventDefault: true },
+			{
+				key: "r",
+				action: "reply" as const,
+				handler: handleReply,
+				preventDefault: true,
+			},
 			{
 				key: "R",
+				action: "replyAll" as const,
 				handler: handleReplyAll,
 				noModifiers: false,
 				preventDefault: true,
 			},
-			{ key: "f", handler: handleForward, preventDefault: true },
+			{
+				key: "f",
+				action: "forward" as const,
+				handler: handleForward,
+				preventDefault: true,
+			},
 		],
 	});
 

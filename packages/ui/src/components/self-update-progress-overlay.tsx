@@ -1,6 +1,7 @@
 import { AlertOctagon, Check, Loader2 } from "lucide-react";
 import { type RefObject, useEffect, useRef } from "react";
 import { cn } from "../lib/cn.js";
+import { useOverlayScope } from "../lib/overlay-scope.js";
 import { Button } from "./button.js";
 import {
 	type UpdatePhase,
@@ -76,6 +77,9 @@ export function SelfUpdateProgressOverlay({
 }: SelfUpdateProgressOverlayProps) {
 	const ref = useRef<HTMLDivElement>(null);
 	useBlockingFocus(ref);
+	// Nothing to answer: the update is running and there is no way out of it, so
+	// every shortcut is contained rather than acting on a mailbox that is gone.
+	useOverlayScope({ id: "self-update", open: true });
 	const activeIndex = phaseOrder.indexOf(phase);
 
 	return (
