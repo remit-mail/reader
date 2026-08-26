@@ -5,6 +5,7 @@ import {
 	type FolderTreeNode,
 	FolderTreePicker,
 	PopoverMenuPortal,
+	useOverlayScope,
 } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { FolderInput } from "lucide-react";
@@ -145,7 +146,16 @@ export const MoveToTrigger = ({
 		onMove(picked.id);
 	}, [picked, close, onMove]);
 
-	// Desktop popover: dismiss on outside click + Escape.
+	// The popover owns Escape while it is open (#732): on the shared overlay
+	// stack, so the triage layer underneath never maps the same press to `back`
+	// and closes the conversation with it. A second Escape closes as usual.
+	useOverlayScope({
+		id: "move-to",
+		open: isOpen && isDesktop,
+		handlers: { back: close },
+	});
+
+	// Desktop popover: dismiss on outside click.
 	useEffect(() => {
 		if (!isOpen || !isDesktop) return;
 		const handlePointer = (event: MouseEvent) => {
@@ -157,22 +167,8 @@ export const MoveToTrigger = ({
 			if (panelRef.current?.contains(target)) return;
 			close();
 		};
-		// The popover owns Escape while it is open (#732). The global triage
-		// layer listens on window and maps Escape to `back`, which closes the
-		// conversation; stopping propagation keeps one press from dismissing
-		// both. A second Escape then reaches the layer and closes as usual.
-		const handleKey = (event: KeyboardEvent) => {
-			if (event.key === "Escape") {
-				event.stopPropagation();
-				close();
-			}
-		};
 		document.addEventListener("mousedown", handlePointer);
-		document.addEventListener("keydown", handleKey);
-		return () => {
-			document.removeEventListener("mousedown", handlePointer);
-			document.removeEventListener("keydown", handleKey);
-		};
+		return () => document.removeEventListener("mousedown", handlePointer);
 	}, [isOpen, isDesktop, close]);
 
 	const anchorRect = () =>

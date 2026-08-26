@@ -214,7 +214,6 @@ interface MailboxPaneContextValue {
 		focusedMessageId: string | undefined;
 		selectedIds: string[];
 		hasList: boolean;
-		blocksKeyboard: boolean;
 	}) => void;
 	/** Where the list publishes the commands the keyboard layer drives. */
 	listCommandsRef: RefObject<MessageListCommands | null>;

@@ -6,6 +6,7 @@ import {
 	isEditableTarget,
 	type SequencePrefix,
 } from "./keymap-dispatch.js";
+import { resolveAgainstOverlays } from "./overlay-scope.js";
 
 interface UseTriageKeyboardOptions {
 	handlers: TriageHandlers;
@@ -46,6 +47,11 @@ interface UseTriageKeyboardOptions {
  * own — `?` at the mail layout, `/` in SearchBar, Esc in the compose and
  * conversation views. They bind disjoint keys; only the list's competing
  * listener was removed.
+ *
+ * An open overlay pre-empts the whole layer. Every mounted modal, drawer and
+ * menu declares itself through `overlay-scope`, and each action is resolved
+ * against that stack before a handler runs, so no layer acts through a surface
+ * the reader has on top of it.
  *
  * Per-action targeting (focused row vs selection) and the actual mutations live
  * in the handlers the caller passes in — this hook only dispatches.
@@ -98,6 +104,12 @@ export function useTriageKeyboard({
 			}
 
 			if (result.action === null) return;
+
+			// An overlay is the leaf of the shortcut tree: while one is on screen it
+			// answers what it serves and contains the rest, so this layer stays out
+			// of the way either way rather than acting through the modal (#959). The
+			// key is left undefaulted — a contained action was never ours to consume.
+			if (resolveAgainstOverlays(result.action) !== null) return;
 
 			const handler = handlersRef.current[result.action];
 			if (!handler) return;

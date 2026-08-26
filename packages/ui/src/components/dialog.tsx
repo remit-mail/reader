@@ -1,5 +1,6 @@
-import { type ReactNode, useCallback, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { cn } from "../lib/cn.js";
+import { useOverlayScope } from "../lib/overlay-scope.js";
 import { DialogBackdrop } from "./dialog-backdrop.js";
 
 export interface DialogProps {
@@ -27,27 +28,7 @@ export function Dialog({
 }: DialogProps) {
 	const dialogRef = useRef<HTMLDivElement>(null);
 
-	const handleKeyDown = useCallback(
-		(e: KeyboardEvent) => {
-			if (e.key !== "Escape") return;
-			// A control inside the dialog can own Escape while it has something of
-			// its own to close — an open suggestion list. Escape closes that first;
-			// the next Escape closes the dialog.
-			const focused = document.activeElement;
-			if (focused instanceof Element && focused.closest("[data-escape-owner]"))
-				return;
-			e.preventDefault();
-			e.stopImmediatePropagation();
-			onClose();
-		},
-		[onClose],
-	);
-
-	useEffect(() => {
-		if (!open) return;
-		window.addEventListener("keydown", handleKeyDown, true);
-		return () => window.removeEventListener("keydown", handleKeyDown, true);
-	}, [open, handleKeyDown]);
+	useOverlayScope({ id: "dialog", open, handlers: { back: onClose } });
 
 	useEffect(() => {
 		if (!open) return;

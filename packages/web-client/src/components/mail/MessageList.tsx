@@ -160,14 +160,6 @@ interface MessageListProps {
 		 * owns (Enter, Space, ⌘A) are left to the browser everywhere else.
 		 */
 		hasList: boolean;
-		/**
-		 * Whether the list has a modal open that owns the keyboard — the delete
-		 * confirmation, or the wizard. The route suspends the whole triage layer
-		 * while it does, so no shortcut can act behind it: a second Delete press
-		 * must not reach a delete, and none may start a second flow behind the
-		 * screen already asking about one.
-		 */
-		blocksKeyboard: boolean;
 	}) => void;
 	/**
 	 * Ref the list publishes its {@link MessageListCommands} into, so the route's
@@ -432,9 +424,8 @@ export const MessageList = ({
 	// Whether the list can serve keyboard commands at all. It stays true while
 	// the delete confirmation is open — withdrawing the commands there would let
 	// the route fall through to its own unconfirmed delete on a second Delete
-	// press. The route suspends the whole keyboard layer for the dialog instead.
+	// press. The dialog is on the overlay stack, which suspends every layer.
 	const commandsAvailable = !isLoading && threads.length > 0;
-	const confirmOpen = pendingDelete !== null;
 
 	const virtualizer = useVirtualizer({
 		count: threads.length,
@@ -908,16 +899,8 @@ export const MessageList = ({
 			focusedMessageId,
 			selectedIds: Array.from(selectedIds),
 			hasList: commandsAvailable,
-			blocksKeyboard: confirmOpen || wizard.isOpen,
 		});
-	}, [
-		focusedMessageId,
-		selectedIds,
-		commandsAvailable,
-		confirmOpen,
-		wizard.isOpen,
-		onTriageContextChange,
-	]);
+	}, [focusedMessageId, selectedIds, commandsAvailable, onTriageContextChange]);
 
 	// Retract the context when the list goes away (drafts view, phone reading
 	// view). Without this the route keeps its list key handlers registered
@@ -931,7 +914,6 @@ export const MessageList = ({
 				focusedMessageId: undefined,
 				selectedIds: [],
 				hasList: false,
-				blocksKeyboard: false,
 			}),
 		[],
 	);

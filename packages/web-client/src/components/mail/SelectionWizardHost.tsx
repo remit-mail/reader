@@ -22,6 +22,7 @@ import {
 	stepIndex,
 	stepsFor,
 	suggestRuleName,
+	useOverlayScope,
 	type Verb,
 	type WizardDraft,
 	type WizardMessage,
@@ -1097,6 +1098,10 @@ export function SelectionWizardHost(props: SelectionWizardHostProps) {
 	const { step, goToStep, goBack, closeWizard } = useWizardStep(
 		fromSearch ? "properties" : "match",
 	);
+	// A walk in progress owns the keyboard. It answers nothing itself — Back and
+	// Close are on screen, and Escape abandoning a half-run selection is not what
+	// the reader asked for — so every triage key is contained until it closes.
+	useOverlayScope({ id: "selection-wizard", open: step !== undefined });
 	if (!step) return null;
 	const conversion = fromSearch
 		? (searchConversion ?? NO_CONVERSION)

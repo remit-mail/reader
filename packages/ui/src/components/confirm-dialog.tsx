@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { cn } from "../lib/cn.js";
+import { useOverlayScope } from "../lib/overlay-scope.js";
 import { DialogBackdrop } from "./dialog-backdrop.js";
 
 export interface ConfirmDialogProps {
@@ -38,25 +39,11 @@ export const ConfirmDialog = ({
 }: ConfirmDialogProps) => {
 	const cancelRef = useRef<HTMLButtonElement>(null);
 
-	const handleKeyDown = useCallback(
-		(event: KeyboardEvent) => {
-			if (event.key === "Escape") {
-				event.preventDefault();
-				event.stopPropagation();
-				event.stopImmediatePropagation();
-				onCancel();
-			}
-		},
-		[onCancel],
-	);
-
-	useEffect(() => {
-		if (!isOpen) return;
-		// Capture phase so Esc closes the dialog before any list-level Esc
-		// handler (e.g. clearSelection) also fires on the same keystroke.
-		window.addEventListener("keydown", handleKeyDown, true);
-		return () => window.removeEventListener("keydown", handleKeyDown, true);
-	}, [isOpen, handleKeyDown]);
+	useOverlayScope({
+		id: "confirm-dialog",
+		open: isOpen,
+		handlers: { back: onCancel },
+	});
 
 	// Whoever opened the dialog gets the focus back when it closes. Without this
 	// a cancelled confirmation drops focus to the body, and the control the user

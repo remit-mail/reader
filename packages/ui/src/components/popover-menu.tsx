@@ -9,6 +9,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../lib/cn.js";
+import { useOverlayScope } from "../lib/overlay-scope.js";
 import { Button } from "./button.js";
 
 /** Viewport-relative bounding box of whatever a menu opens against. */
@@ -293,6 +294,12 @@ export function PopoverMenu({
 	const containerRef = useRef<HTMLDivElement>(null);
 	const panelRef = useRef<HTMLDivElement>(null);
 
+	useOverlayScope({
+		id: "popover-menu",
+		open,
+		handlers: { back: () => setOpen(false) },
+	});
+
 	useEffect(() => {
 		if (!open) return;
 		const onPointer = (event: MouseEvent) => {
@@ -304,15 +311,8 @@ export function PopoverMenu({
 				return;
 			setOpen(false);
 		};
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key === "Escape") setOpen(false);
-		};
 		document.addEventListener("mousedown", onPointer);
-		document.addEventListener("keydown", onKey);
-		return () => {
-			document.removeEventListener("mousedown", onPointer);
-			document.removeEventListener("keydown", onKey);
-		};
+		return () => document.removeEventListener("mousedown", onPointer);
 	}, [open]);
 
 	if (items.length === 0 && !children) return null;

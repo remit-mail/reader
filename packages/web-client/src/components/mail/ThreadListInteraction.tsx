@@ -177,8 +177,6 @@ interface ThreadListInteractionProps {
 	 * second unreviewed route to the same verb.
 	 */
 	onSelectionVerb: (verb: Verb) => void;
-	/** The wizard owns the screen, so this list's keyboard layer stands down. */
-	wizardOpen?: boolean;
 	isDeleting?: boolean;
 	commandsRef?: RefObject<MessageListCommands | null>;
 	onTriageContextChange?: (context: TriageContextUpdate) => void;
@@ -191,7 +189,6 @@ export function ThreadListInteraction({
 	onOpen,
 	onDeleteMessages,
 	onSelectionVerb,
-	wizardOpen = false,
 	isDeleting = false,
 	commandsRef,
 	onTriageContextChange,
@@ -408,11 +405,6 @@ export function ThreadListInteraction({
 			selectedIds: selectedIdList,
 			orderedIds,
 			hasList,
-			// The dialog and the wizard each own the keyboard while they are up, so
-			// the triage layer suspends rather than acting behind them: a second
-			// Delete must not reach a delete, and no shortcut may start a second flow
-			// behind the screen already asking about one.
-			blocksKeyboard: confirmOpen || wizardOpen,
 		});
 	}, [
 		onTriageContextChange,
@@ -420,8 +412,6 @@ export function ThreadListInteraction({
 		selectedIdList,
 		orderedIds,
 		hasList,
-		confirmOpen,
-		wizardOpen,
 	]);
 
 	const tabStop = tabStopId(orderedIds, focusedMessageId);

@@ -138,7 +138,9 @@ function MailLayout() {
 	// `c` / ⌘N off the mailbox routes — the brief, Flagged, the outbox. On a
 	// mailbox the pane's own triage layer owns the key, so this is disabled there
 	// rather than firing a second compose alongside it, and while the composer is
-	// up the key belongs to whatever is being typed.
+	// up the key belongs to whatever is being typed. An open modal contains the
+	// key through the shared overlay stack, so this layer never opens compose out
+	// from under one (#959).
 	const openCompose = useOpenCompose();
 	const isComposing = useIsComposing();
 	const onMailbox = useRouterState({
