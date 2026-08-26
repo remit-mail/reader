@@ -34,7 +34,8 @@ import {
 	type ThreadMutationContext,
 	threadListCacheKeys,
 } from "@/lib/thread-list-cache";
-import { useCloseThread, useOpenThreadPath } from "@/routing";
+import { useNavigate } from "@tanstack/react-router";
+import { useOpenThreadPath } from "@/routing";
 import { MoveToTrigger } from "./MoveToTrigger";
 
 interface MessageActionMenuProps {
@@ -84,7 +85,7 @@ export const MessageActionMenu = ({
 	onToggleRaw,
 }: MessageActionMenuProps) => {
 	const queryClient = useQueryClient();
-	const closeThread = useCloseThread();
+	const navigate = useNavigate();
 	const { pushError } = useErrorBanners();
 	const selectedMessageId = useOpenThreadPath()?.messageId;
 
@@ -171,9 +172,9 @@ export const MessageActionMenu = ({
 		(removedIds: string[]) => {
 			if (!selectedMessageId) return;
 			if (!removedIds.includes(selectedMessageId)) return;
-			closeThread();
+			navigate({ to: "/mail/$mailboxId", params: { mailboxId } });
 		},
-		[selectedMessageId, closeThread],
+		[selectedMessageId, navigate, mailboxId],
 	);
 
 	const { deleteMessages, isPending: isDeleting } = useDeleteMessages({
