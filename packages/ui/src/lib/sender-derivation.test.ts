@@ -5,8 +5,36 @@ import {
 	deriveSenderClauses,
 	distinctSenders,
 	dominantSender,
+	senderDomain,
 	senderLabel,
 } from "./sender-derivation.js";
+
+describe("senderDomain", () => {
+	it("keeps the label sitting under a multi-part public suffix", () => {
+		assert.equal(senderDomain("a@bbc.co.uk"), "bbc.co.uk");
+		assert.equal(senderDomain("a@shop.example.com.au"), "example.com.au");
+	});
+
+	it("strips subdomains down to the registrable domain", () => {
+		assert.equal(senderDomain("news@mail.bbc.co.uk"), "bbc.co.uk");
+	});
+
+	it("reads the suffix list rather than the trailing labels, so a crafted host cannot pose as one", () => {
+		assert.equal(senderDomain("hr@example.co.uk.evil.example"), "evil.example");
+	});
+
+	it("has no domain for a bare public suffix, or for a host carrying none", () => {
+		assert.equal(senderDomain("a@co.uk"), null);
+		assert.equal(senderDomain("postmaster"), null);
+	});
+
+	it("agrees with the clause the wizard derives, so a suggested domain is one the matcher produces", () => {
+		assert.deepEqual(
+			deriveSenderClauses(["news@mail.bbc.co.uk", "sport@bbc.co.uk"]),
+			[{ field: "FromDomain", value: senderDomain("news@mail.bbc.co.uk") }],
+		);
+	});
+});
 
 describe("distinctSenders", () => {
 	it("drops empties and blanks, trimming what remains", () => {

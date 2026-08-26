@@ -44,10 +44,11 @@ describe("buildClauseSuggestions", () => {
 			{ email: "receipts@mail.stripe.com" },
 			{ email: "invoices@stripe.com" },
 			{ email: "rides@lyft.co.uk" },
+			{ email: "news@mail.bbc.co.uk" },
 		]);
 		assert.deepEqual(
 			suggestions.map((s) => s.value),
-			["stripe.com", "lyft.co.uk"],
+			["stripe.com", "lyft.co.uk", "bbc.co.uk"],
 		);
 	});
 
