@@ -877,8 +877,14 @@ cmd_status() {
 	printf 'Tag:       %s\n' "$(get_var REMIT_TAG)"
 	printf 'Origin:    %s\n' "$_origin"
 	report_reachability "$_origin"
-	report_check
-	report_last_run
+	read_update_record
+	if [ -n "$UPDATE_RECORD_UNREADABLE" ]; then
+		printf 'Updates:   unknown — the updater state volume (%s) could not be read\n' \
+			"$(updater_state_volume)"
+	else
+		report_check "$UPDATE_CHECK_JSON"
+		report_last_run "$UPDATE_RUN_JSON"
+	fi
 	printf '\n'
 	compose ps
 }
@@ -1648,6 +1654,29 @@ sqlite_volume() {
 		return 0
 	fi
 	printf '%s_sqlite_data' "$(compose_project)"
+}
+
+# The volume the updater keeps its own state on — the lock, the breadcrumb, the
+# snapshots, check.json and run.json. Compose names it after the project, the
+# same way it names the database volume. Inside the updater this is where
+# STATE_DIR already points; from a host shell it is the only way to reach it.
+updater_state_volume() {
+	if [ -n "${REMIT_UPDATE_STATE_VOLUME:-}" ]; then
+		printf '%s' "$REMIT_UPDATE_STATE_VOLUME"
+		return 0
+	fi
+	printf '%s_updater_state' "$(compose_project)"
+}
+
+# One flat file off that volume, for a shell that cannot reach it directly. The
+# `|| true` runs inside the container so an absent file and a docker that never
+# answered are not the same empty string: only the second one fails, and the
+# caller can say so instead of reporting a box that has never checked.
+updater_state_file() {
+	capped_run "$HELPER_RUN_TIMEOUT" docker run --rm \
+		-v "$(updater_state_volume):/state" \
+		--entrypoint sh "$HELPER_IMAGE" \
+		-c "cat /state/$1 2>/dev/null || true" 2>/dev/null
 }
 
 volume_run() {
@@ -2420,7 +2449,7 @@ cmd_update() {
 	do_check || true
 
 	if [ "$_mode" = "check" ]; then
-		report_check
+		report_check "$(cat "$STATE_DIR/check.json" 2>/dev/null || true)"
 		return 0
 	fi
 
@@ -2472,7 +2501,7 @@ cmd_update() {
 	fi
 	if [ -z "$_tag" ]; then
 		if [ -n "$(manifest_url)" ]; then
-			report_check
+			report_check "$(cat "$STATE_DIR/check.json" 2>/dev/null || true)"
 			return 0
 		fi
 		plain_update ""
@@ -2482,12 +2511,49 @@ cmd_update() {
 	run_update "$_tag"
 }
 
+# Where the record `remit status` renders comes from. install.sh's first update
+# is the only one that ever runs in the operator's shell, so the copy it leaves
+# beside .env is an install-time snapshot; every run after it happens in the
+# updater container, whose STATE_DIR is the updater_state volume. Nothing writes
+# the directory copy again, so a shell that reads it reports the install forever
+# while the app reports the run that actually happened (reader#573). The volume
+# is the record wherever there is one; the directory answers only for a
+# deployment that has no updater volume at all.
+#
+# The two flat files, never the composed control/state.json: the check block and
+# the run block there repeat the field names json_string matches, so a read of
+# the document returns whichever of the two sed reached first.
+UPDATE_CHECK_JSON=""
+UPDATE_RUN_JSON=""
+UPDATE_RECORD_UNREADABLE=""
+
+# Inside the updater STATE_DIR is the volume itself, and a deployment with no
+# updater volume has nowhere else its record could be.
+state_dir_is_record() {
+	[ -z "${REMIT_UPDATE_STATE_DIR:-}" ] || return 0
+	! docker volume inspect "$(updater_state_volume)" >/dev/null 2>&1
+}
+
+read_update_record() {
+	UPDATE_CHECK_JSON=""
+	UPDATE_RUN_JSON=""
+	UPDATE_RECORD_UNREADABLE=""
+	if state_dir_is_record; then
+		[ ! -f "$STATE_DIR/check.json" ] || UPDATE_CHECK_JSON=$(cat "$STATE_DIR/check.json")
+		[ ! -f "$STATE_DIR/run.json" ] || UPDATE_RUN_JSON=$(cat "$STATE_DIR/run.json")
+		return 0
+	fi
+	UPDATE_CHECK_JSON=$(updater_state_file check.json) || UPDATE_RECORD_UNREADABLE=1
+	UPDATE_RUN_JSON=$(updater_state_file run.json) || UPDATE_RECORD_UNREADABLE=1
+	return 0
+}
+
 report_check() {
-	if [ ! -f "$STATE_DIR/check.json" ]; then
+	_c=$1
+	if [ -z "$_c" ]; then
 		printf 'Updates:   never checked — run '\''remit update --check'\''\n'
 		return 0
 	fi
-	_c=$(cat "$STATE_DIR/check.json")
 	case "$(json_string "$_c" status)" in
 	disabled)
 		printf 'Updates:   not configured (REMIT_UPDATE_MANIFEST_URL is unset)\n'
@@ -2511,8 +2577,8 @@ report_check() {
 # The last run, as a sentence. message and logCommand are the same strings the
 # app renders, so a shell and a browser never tell the operator two stories.
 report_last_run() {
-	[ -f "$STATE_DIR/run.json" ] || return 0
-	_r=$(cat "$STATE_DIR/run.json")
+	_r=$1
+	[ -n "$_r" ] || return 0
 	_outcome=$(json_string "$_r" outcome)
 	if [ -z "$_outcome" ]; then
 		printf 'Update:    in progress (%s) — %s\n' \

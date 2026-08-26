@@ -729,6 +729,15 @@ run_cmd() {
 		exit 0
 		;;
 	esac
+	# `remit status` reading the update record off the updater's state volume
+	# (reader#573): one flat file, answered from the directory the -v named.
+	case "$_script" in
+	"cat /state/"*)
+		log "run state-read src=$_statesrc"
+		printf '%s' "$_script" | sed -e "s#/state#$_statesrc#g" | sh
+		exit $?
+		;;
+	esac
 	{
 		printf -- '--- volume script ---\n'
 		printf '%s\n' "$_script"
@@ -789,6 +798,15 @@ inspect)
 run)
 	shift
 	run_cmd "$@"
+	;;
+volume)
+	# How the wrapper asks whether this deployment has an updater volume at all.
+	# `updater_volume=absent` is the box that never had one, where the record
+	# beside .env is the only one there is.
+	shift
+	log "volume $*"
+	if [ "$(val updater_volume present)" = "absent" ]; then exit 1; fi
+	exit 0
 	;;
 *)
 	log "docker $*"

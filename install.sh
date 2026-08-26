@@ -732,6 +732,12 @@ validate_compose() {
 bring_up() {
 	say "Pulling images and starting reader"
 	REMIT_DIR="$DIR" REMIT_QUIET=1 "$DIR/remit" update
+	# That run happened in this shell, so its lock, breadcrumb and state landed
+	# beside .env. Every run after it happens in the updater container, which
+	# keeps all of it on its own volume and never writes here again — left in
+	# place, this directory is a record of the install that nothing supersedes
+	# and that outlives what it describes (reader#573).
+	rm -rf "$DIR/.update"
 }
 
 # A warning emitted before the pull is minutes of image progress behind by the
