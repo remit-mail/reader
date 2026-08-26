@@ -113,6 +113,7 @@ export const SyncOperations: Record<
 			syncPhase: account.syncPhase,
 			mailboxCountTotal: account.mailboxCountTotal,
 			mailboxCountSynced: account.mailboxCountSynced,
+			lastSyncAt: account.lastSyncAt,
 			mailboxes: mailboxes.map((mailbox) => ({
 				mailboxId: mailbox.mailboxId,
 				fullPath: mailbox.fullPath,
