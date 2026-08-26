@@ -181,7 +181,7 @@ namespace RemitApi {
     op createFilter(
       @path accountId: UUID,
       @body input: CreateFilterInput,
-    ): FilterResponse;
+    ): FilterResponse | ValidationError;
   }
 
   @route("/accounts/{accountId}/filters/{filterId}")
@@ -259,7 +259,7 @@ namespace RemitApi {
     op createOrganizeJob(
       @path accountId: UUID,
       @body input: OrganizeInput,
-    ): CreateOrganizeJobResponse;
+    ): CreateOrganizeJobResponse | ValidationError;
 
     @doc("Preview an \"all like these\" back-apply: run the exact same matcher read-only and return the messages the action would be applied to, without applying it. The previewed set equals the set a job with the same input would apply to.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -268,7 +268,7 @@ namespace RemitApi {
     op previewOrganize(
       @path accountId: UUID,
       @body input: OrganizeInput,
-    ): OrganizePreviewResponse;
+    ): OrganizePreviewResponse | ValidationError;
   }
 
   @route("/accounts/{accountId}/organize/{organizeJobId}")

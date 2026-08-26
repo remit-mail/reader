@@ -199,8 +199,8 @@ export const rulePredicate = (
  * all. Without an anchor it takes the vector-free literal arm, which reads no
  * message body and rejects a `HasWords` clause rather than narrowing the match
  * silently (`bodyContentRejection`, backend/service/organize.ts). Asking it
- * anyway is refused — a 400 on preview, a failed job row on a back-apply — so
- * the caller must not ask.
+ * anyway is refused with a 400, on preview and on a back-apply alike, so the
+ * caller must not ask.
  */
 export const isEvaluablePredicate = (
 	predicate: OrganizeMatchPredicate,
