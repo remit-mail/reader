@@ -1,32 +1,16 @@
+import type {
+	MessageFlagPushItem,
+	PutMessageFlagPushInput,
+} from "@remit/data-ports";
 import { and, eq } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { messageFlagPushTable } from "../schema/i4-message-flag-push.js";
 
 type DB = Db<Record<string, unknown>>;
 
-export type FlagPushOperation = "add" | "remove";
-export type MessageFlagPushState =
-	| "pending"
-	| "queued"
-	| "processing"
-	| "processed";
-
-export interface MessageFlagPushItem {
-	messageId: string;
-	flagName: string;
-	accountId: string;
-	accountConfigId: string;
-	mailboxId: string;
-	operation: FlagPushOperation;
-	state: MessageFlagPushState;
-	createdAt: number;
-	updatedAt: number;
-}
-
-export type PutMessageFlagPushInput = Omit<
-	MessageFlagPushItem,
-	"state" | "createdAt" | "updatedAt"
->;
+export type { MessageFlagPushItem, PutMessageFlagPushInput };
+export type FlagPushOperation = MessageFlagPushItem["operation"];
+export type MessageFlagPushState = MessageFlagPushItem["state"];
 
 const DEFAULT_STATE: MessageFlagPushState = "pending";
 
