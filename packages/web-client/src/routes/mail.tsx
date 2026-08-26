@@ -128,6 +128,7 @@ function MailLayout() {
 		bindings: [
 			{
 				key: "?",
+				action: "help",
 				handler: () => showOverlay("shortcuts"),
 				noModifiers: false, // Allow shift+/
 				preventDefault: true,

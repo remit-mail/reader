@@ -10,6 +10,7 @@ import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
 	type OverlayAnswers,
+	overlayStack,
 	resolveAgainstOverlays,
 	useOverlayScope,
 } from "./overlay-scope.js";
@@ -33,13 +34,16 @@ afterEach(() => {
 	act(() => root.unmount());
 });
 
-const press = (key: string) => {
+const press = (key: string, from: EventTarget = document.body) => {
 	act(() => {
-		document.body.dispatchEvent(
+		from.dispatchEvent(
 			new window.KeyboardEvent("keydown", { key, bubbles: true }),
 		);
 	});
 };
+
+const field = (id: string): HTMLInputElement =>
+	document.getElementById(id) as HTMLInputElement;
 
 function Scope({
 	id,
@@ -90,9 +94,12 @@ describe("an overlay on the stack", () => {
 		assert.deepEqual(seen, ["Escape"]);
 	});
 
-	it("dismisses the last overlay to open, not the one under it", () => {
+	// Both open in one render, which is the case mount order gets wrong: React
+	// runs the inner overlay's effects first, so registration order would put the
+	// drawer on top of the confirmation it contains.
+	it("is answered by the innermost overlay, however the two came to be open", () => {
 		const dismissed: string[] = [];
-		const stack = (confirming: boolean) =>
+		const stack = () =>
 			createElement(Scope, {
 				id: "drawer",
 				open: true,
@@ -100,20 +107,55 @@ describe("an overlay on the stack", () => {
 				// biome-ignore lint/correctness/noChildrenProp: no JSX in a `.ts` test
 				children: createElement(Scope, {
 					id: "confirm",
-					open: confirming,
+					open: true,
 					answers: { back: () => dismissed.push("confirm") },
 				}),
 			});
 
-		render(stack(false));
-		render(stack(true));
+		render(stack());
+		press("Escape");
+		assert.deepEqual(
+			dismissed,
+			["confirm"],
+			"the drawer under the confirmation answered for it",
+		);
+
+		assert.deepEqual(
+			overlayStack().map((frame) => frame.id),
+			["drawer", "confirm"],
+			"the stack is not ordered outside-in",
+		);
+	});
+
+	it("says what it answers without leaving the stack to say it", () => {
+		const rung: string[] = [];
+		const scope = (serving: boolean) =>
+			createElement(Scope, {
+				id: "drawer",
+				open: true,
+				answers: serving
+					? {
+							back: () => rung.push("back"),
+							toggleIntelligence: () => rung.push("toggleIntelligence"),
+						}
+					: { back: () => rung.push("back") },
+				// biome-ignore lint/correctness/noChildrenProp: no JSX in a `.ts` test
+				children: createElement(Scope, {
+					id: "confirm",
+					open: true,
+					answers: { back: () => rung.push("confirm") },
+				}),
+			});
+
+		render(scope(false));
+		render(scope(true));
 
 		press("Escape");
 
 		assert.deepEqual(
-			dismissed,
+			rung,
 			["confirm"],
-			"the drawer under the confirmation closed on the same press",
+			"changing what the drawer answers moved it above the confirmation",
 		);
 	});
 
@@ -137,6 +179,30 @@ describe("an overlay on the stack", () => {
 		// Only what the drawer answered is swallowed. A key it does not serve is
 		// left to travel; what stops it is the triage layer declining to run it.
 		assert.deepEqual(seen, ["j"], "the drawer ate a key it never answered");
+	});
+
+	it("is not answered by a key typed into a field inside it", () => {
+		const rung: string[] = [];
+		render(
+			createElement(Scope, {
+				id: "drawer",
+				open: true,
+				answers: {
+					back: () => rung.push("back"),
+					toggleIntelligence: () => rung.push("toggleIntelligence"),
+				},
+				// biome-ignore lint/correctness/noChildrenProp: no JSX in a `.ts` test
+				children: createElement("input", { id: "typing" }),
+			}),
+		);
+
+		press("i", field("typing"));
+
+		assert.deepEqual(
+			rung,
+			[],
+			"a letter typed into the field closed the drawer",
+		);
 	});
 
 	it("yields Escape to a control inside it that owns one", () => {
@@ -170,6 +236,60 @@ describe("what the surfaces under an overlay may act on", () => {
 
 	it("resolves to nothing at all with no overlay up", () => {
 		assert.equal(resolveAgainstOverlays("compose"), null);
+	});
+
+	it("leaves c and i typed into a field under an overlay inert (#959)", () => {
+		const ran: string[] = [];
+		function Layer() {
+			useTriageKeyboard({
+				handlers: {
+					compose: () => ran.push("compose"),
+					toggleIntelligence: () => ran.push("toggleIntelligence"),
+				},
+			});
+			return createElement(Scope, {
+				id: "sheet",
+				open: true,
+				answers: { back: () => undefined },
+				// biome-ignore lint/correctness/noChildrenProp: no JSX in a `.ts` test
+				children: createElement("input", { id: "typing" }),
+			});
+		}
+
+		render(createElement(Layer));
+
+		press("c", field("typing"));
+		press("i", field("typing"));
+
+		assert.deepEqual(
+			ran,
+			[],
+			"typing under an overlay reached the layer below",
+		);
+	});
+
+	it("drops a g prefix rather than arming one behind the overlay", () => {
+		const went: string[] = [];
+		function Layer({ modal }: { modal: boolean }) {
+			useTriageKeyboard({ handlers: { goBrief: () => went.push("goBrief") } });
+			return createElement(Scope, {
+				id: "sheet",
+				open: modal,
+				answers: { back: () => undefined },
+			});
+		}
+
+		// `g` over the modal must not leave a prefix behind for the `b` that
+		// follows it, which lands after the overlay has gone.
+		render(createElement(Layer, { modal: true }));
+		press("g");
+		render(createElement(Layer, { modal: false }));
+		press("b");
+		assert.deepEqual(went, [], "a sequence completed across the modal");
+
+		press("g");
+		press("b");
+		assert.deepEqual(went, ["goBrief"], "g stayed dead after the modal closed");
 	});
 
 	it("leaves a triage layer's compose inert under a modal (#959)", () => {

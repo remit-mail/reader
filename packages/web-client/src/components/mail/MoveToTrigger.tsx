@@ -146,14 +146,12 @@ export const MoveToTrigger = ({
 		onMove(picked.id);
 	}, [picked, close, onMove]);
 
-	// The popover owns Escape while it is open (#732): on the shared overlay
-	// stack, so the triage layer underneath never maps the same press to `back`
-	// and closes the conversation with it. A second Escape closes as usual.
-	useOverlayScope({
-		id: "move-to",
-		open: isOpen && isDesktop,
-		answers: { back: close },
-	});
+	// The picker owns Escape while it is open (#732): on the shared overlay stack,
+	// so the triage layer underneath never maps the same press to `back` and
+	// closes the conversation with it. A second Escape closes as usual. Both
+	// surfaces register — the phone's vaul drawer is a modal like any other, and
+	// a narrow window with a keyboard attached is an ordinary way to meet it.
+	useOverlayScope({ id: "move-to", open: isOpen, answers: { back: close } });
 
 	// Desktop popover: dismiss on outside click.
 	useEffect(() => {

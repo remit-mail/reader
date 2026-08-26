@@ -26,16 +26,20 @@
  * and Close and wants Escape to do neither — declares no answers and still
  * contains the keyboard while it is up.
  *
- * The stack is in the order the overlays opened, which is the order they are
- * stacked: a confirmation raised from inside a drawer joins after it and is the
- * one Escape reaches.
+ * The stack is ordered by where each overlay sits in the React tree, taken once
+ * at its first render: an overlay is above every overlay it renders inside. That
+ * is the invariant a nested pair needs — a confirmation raised from inside a
+ * drawer is the one Escape reaches — and it holds however the two came to be
+ * open, including a remount that mounts both in one commit. Registration order
+ * cannot state it: React runs a child's effects before its parent's, so
+ * registering on mount puts the inner overlay underneath the one containing it.
  *
  * The stack is module state rather than a React context on purpose: a window
  * listener is global, so the register it answers from is too, and an overlay
  * rendered through a portal or mounted in a Storybook story needs no provider
  * above it to be seen.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { TriageAction } from "./keymap.js";
 import {
 	dispatchKey,
@@ -52,7 +56,9 @@ import {
 export type OverlayAnswers = Partial<Record<TriageAction, () => void>>;
 
 interface ScopeEntry {
-	frame: OverlayFrame;
+	id: string;
+	/** Position in the React tree, ascending outward-in. See the module note. */
+	depth: number;
 	run: () => OverlayAnswers;
 }
 
@@ -60,9 +66,35 @@ const ESCAPE_OWNER_SELECTOR = "[data-escape-owner]";
 
 let entries: ScopeEntry[] = [];
 
-/** The frames on screen, root first — the tree's `overlays`. */
+/** Handed out by `useState` during render, so parents are numbered before children. */
+let renderedOverlays = 0;
+const nextDepth = (): number => ++renderedOverlays;
+
+const byDepth = (a: ScopeEntry, b: ScopeEntry): number => a.depth - b.depth;
+
+/**
+ * The frames on screen, root first — the tree's `overlays`.
+ *
+ * Built on demand rather than stored, so an overlay that gains or loses an
+ * answer while it is open says so without leaving the stack and rejoining it at
+ * the top.
+ */
 export function overlayStack(): readonly OverlayFrame[] {
-	return entries.map((entry) => entry.frame);
+	return [...entries].sort(byDepth).map((entry) => ({
+		id: entry.id,
+		handles: Object.entries(entry.run())
+			.filter(([, answer]) => answer)
+			.map(([action]) => action as TriageAction),
+	}));
+}
+
+/** The innermost overlay on screen — the leaf that answers first. */
+function topEntry(): ScopeEntry | undefined {
+	let top: ScopeEntry | undefined;
+	for (const entry of entries) {
+		if (!top || entry.depth > top.depth) top = entry;
+	}
+	return top;
 }
 
 /**
@@ -107,7 +139,7 @@ function overlayAction(event: KeyboardEvent): TriageAction | null {
 }
 
 function onOverlayKey(event: KeyboardEvent): void {
-	const top = entries.at(-1);
+	const top = topEntry();
 	if (!top) return;
 	const action = overlayAction(event);
 	if (!action) return;
@@ -153,25 +185,21 @@ export function useOverlayScope({
 	open,
 	answers = {},
 }: OverlayScopeOptions): void {
-	// Read at keystroke time so a re-rendered answer never re-registers the
-	// frame — a frame that leaves and rejoins the stack loses its place in it.
+	// Read at keystroke time, so neither a re-rendered answer nor a changed set
+	// of them re-registers the frame.
 	const answersRef = useRef(answers);
 	answersRef.current = answers;
 
-	const served = Object.keys(answers).sort().join(",");
+	// Numbered during the first render, where React is still going parent before
+	// child — the one moment nesting is legible from inside a hook.
+	const [depth] = useState(nextDepth);
 
 	useEffect(() => {
 		if (!open) return;
-		const entry: ScopeEntry = {
-			frame: {
-				id,
-				handles: served === "" ? [] : (served.split(",") as TriageAction[]),
-			},
-			run: () => answersRef.current,
-		};
+		const entry: ScopeEntry = { id, depth, run: () => answersRef.current };
 		setEntries([...entries, entry]);
 		return () => {
 			setEntries(entries.filter((candidate) => candidate !== entry));
 		};
-	}, [id, open, served]);
+	}, [id, open, depth]);
 }

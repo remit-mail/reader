@@ -6,7 +6,7 @@ import {
 	isEditableTarget,
 	type SequencePrefix,
 } from "./keymap-dispatch.js";
-import { resolveAgainstOverlays } from "./overlay-scope.js";
+import { overlayStack, resolveAgainstOverlays } from "./overlay-scope.js";
 
 interface UseTriageKeyboardOptions {
 	handlers: TriageHandlers;
@@ -93,6 +93,17 @@ export function useTriageKeyboard({
 				prefixRef.current,
 			);
 
+			// An overlay is the leaf of the shortcut tree: while one is on screen it
+			// answers what it serves — through `overlay-scope`'s own listener, which
+			// has already run and swallowed the key — and contains the rest. The
+			// pending prefix is contained with it: a `g` pressed over a modal must
+			// not arm a sequence whose second key lands on the surface behind it.
+			if (overlayStack().length > 0) {
+				clearPrefixTimer();
+				prefixRef.current = null;
+				return;
+			}
+
 			// Update the pending prefix and (re)arm / clear its reset timer.
 			clearPrefixTimer();
 			prefixRef.current = result.nextPrefix;
@@ -105,11 +116,8 @@ export function useTriageKeyboard({
 
 			if (result.action === null) return;
 
-			// An overlay is the leaf of the shortcut tree: while one is on screen it
-			// answers what it serves — through `overlay-scope`'s own listener, which
-			// has already run and swallowed the key — and contains the rest. Either
-			// way this layer stays out of the way rather than acting through the
-			// modal (#959). A contained key is left undefaulted; it was never ours.
+			// The same rule, per action: a contained key is left undefaulted, because
+			// it was never ours to consume.
 			if (resolveAgainstOverlays(result.action) !== null) return;
 
 			const handler = handlersRef.current[result.action];

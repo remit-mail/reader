@@ -1,3 +1,4 @@
+import { resolveAgainstOverlays, type TriageAction } from "@remit/ui";
 import { useCallback, useEffect } from "react";
 
 type KeyHandler = (event: KeyboardEvent) => void;
@@ -29,6 +30,14 @@ interface KeyBinding {
 	 * pre-empt a route-level Esc that would also navigate).
 	 */
 	stopPropagation?: boolean;
+	/**
+	 * Which triage action this key means. Naming it puts the binding under the
+	 * overlay stack: an open overlay answers the action itself or contains it,
+	 * and either way this binding stands down. Every key that also exists in the
+	 * global key map owes one, or it acts through whatever is on top of it —
+	 * `r` opening a reply behind the Move popover (#959) is that bug.
+	 */
+	action?: TriageAction;
 }
 
 interface UseKeyboardNavigationOptions {
@@ -70,6 +79,8 @@ export const useKeyboardNavigation = ({
 				const keyMatches =
 					event.key.toLowerCase() === binding.key.toLowerCase();
 				if (!keyMatches) continue;
+
+				if (binding.action && resolveAgainstOverlays(binding.action)) continue;
 
 				// Shift gate: when a binding pins shift on/off, it only matches that
 				// exact state so plain and shift variants stay distinct.
