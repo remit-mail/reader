@@ -7,10 +7,7 @@ import type {
 import { holdsRoom } from "@remit/data-ports";
 import { ConflictError } from "@remit/data-ports/errors";
 import { base36uuid } from "@remit/data-ports/id";
-import {
-	OutboxAttachmentRejectionReason,
-	OutboxMessageStatus,
-} from "@remit/domain-enums";
+import { OutboxAttachmentRejectionReason } from "@remit/domain-enums";
 import type { StorageService } from "@remit/storage-service";
 import {
 	buildOutboxAttachmentKey,
@@ -20,6 +17,7 @@ import {
 	normalizeAttachmentContentType,
 	sanitizeAttachmentFilename,
 } from "./outbox-attachment-filename.js";
+import { isOpenForWork } from "./outbox-status.js";
 
 /**
  * 25 MB is what most receiving servers accept, and base64 inflates it to roughly
@@ -111,9 +109,14 @@ export class OutboxAttachmentService {
 	 * Resolve a draft the caller is entitled to act on.
 	 *
 	 * Mode "act": the caller has named the draft, so a foreign one is denied with
-	 * 403 rather than feigned as a 404. An entry that has left draft is a
-	 * conflict. Both abort the request — only the file itself comes back as a
-	 * result the composer can render next to the row it refused.
+	 * 403 rather than feigned as a 404. An entry the user can no longer work on
+	 * is a conflict. Both abort the request — only the file itself comes back as
+	 * a result the composer can render next to the row it refused.
+	 *
+	 * Same predicate the composer's other two writes use. A `failed` message is
+	 * editable and sendable again (#933), and an attachment is part of what the
+	 * correction may be — a message refused for the wrong file would otherwise
+	 * still be stuck.
 	 */
 	private getWritableDraft = async (
 		accountConfigId: string,
@@ -125,7 +128,7 @@ export class OutboxAttachmentService {
 			"act",
 		);
 
-		if (outbox.status !== OutboxMessageStatus.draft) {
+		if (!isOpenForWork(outbox.status)) {
 			throw new ConflictError(
 				`This message is already ${outbox.status} and can no longer take an attachment. Start a new message to change it.`,
 			);

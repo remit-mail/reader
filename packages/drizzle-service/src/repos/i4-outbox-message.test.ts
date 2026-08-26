@@ -105,6 +105,52 @@ describe("OutboxMessageRepo", () => {
 		await repo.delete(accountConfigId, msg.outboxMessageId);
 	});
 
+	test("updateIfStatus writes on the expected status and refuses any other", async () => {
+		const accountConfigId = randomId();
+		const msg = await repo.create(makeOutboxInput(randomId(), accountConfigId));
+
+		const written = await repo.updateIfStatus(
+			accountConfigId,
+			msg.outboxMessageId,
+			"queued",
+			{ status: "failed", lastError: "the queue refused it" },
+		);
+		assert.equal(written?.status, "failed");
+
+		// The compare-and-set every outbox transition rests on: a caller that read
+		// `queued` and decided on it must not overwrite a row the worker has since
+		// moved. `null` says another writer got there first.
+		const refused = await repo.updateIfStatus(
+			accountConfigId,
+			msg.outboxMessageId,
+			"queued",
+			{ status: "draft" },
+		);
+		assert.equal(refused, null);
+		const still = await repo.get(accountConfigId, msg.outboxMessageId);
+		assert.equal(still.status, "failed");
+
+		await repo.delete(accountConfigId, msg.outboxMessageId);
+	});
+
+	test("cross-tenant: updateIfStatus refuses a foreign accountConfig", async () => {
+		const accountConfigId = randomId();
+		const other = randomId();
+		const msg = await repo.create(makeOutboxInput(randomId(), accountConfigId));
+
+		const refused = await repo.updateIfStatus(
+			other,
+			msg.outboxMessageId,
+			"queued",
+			{ status: "failed" },
+		);
+		assert.equal(refused, null);
+		const still = await repo.get(accountConfigId, msg.outboxMessageId);
+		assert.equal(still.status, "queued");
+
+		await repo.delete(accountConfigId, msg.outboxMessageId);
+	});
+
 	test("markSent clears lastError and lastSmtpCode", async () => {
 		const accountConfigId = randomId();
 		const msg = await repo.create({

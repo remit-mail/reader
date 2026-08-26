@@ -99,11 +99,12 @@ services:
       MP_MAX_MESSAGES: "0"
       # The refusal, and the whole difference between this lane and the one
       # above. Mailpit's recipient allowlist is a regular expression matched at
-      # RCPT TO, and this one names an address no spec sends to, so every
-      # recipient is answered `550 5.1.0 Requested action not taken: mailbox
-      # unavailable` and the submission ends with nothing accepted. Set it to
-      # something a spec does address if a lane that accepts some recipients and
-      # refuses others is ever wanted.
+      # RCPT TO: every address outside it is answered `550 5.1.0 Requested
+      # action not taken: mailbox unavailable` and the submission ends with
+      # nothing accepted. It names exactly one address a spec sends to, so the
+      # lane refuses a first send and accepts the same message once its
+      # recipient has been corrected — which is what makes a refused message's
+      # recovery testable without also changing the account (#933).
       MP_SMTP_ALLOWED_RECIPIENTS: ${E2E_SMTP_REJECT_ALLOWED_RECIPIENTS:?set E2E_SMTP_REJECT_ALLOWED_RECIPIENTS}
     ports:
       # Same split as the lane above: submission, then the HTTP API. The API is
