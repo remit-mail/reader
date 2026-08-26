@@ -1,5 +1,6 @@
 import { getClient } from "@remit/backend/client";
 import type {
+	IMessageRepository,
 	IThreadMessageRepository,
 	ThreadMessageItem,
 } from "@remit/data-ports";
@@ -8,6 +9,7 @@ import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
 	guardConnectionCursor,
+	type IImapConnection,
 	isCursorRebuildNeeded,
 	isMessageGoneFromOpenMailbox,
 	MailboxCursorPausedError,
@@ -18,6 +20,7 @@ import type { MessageDeleteEvent } from "../events.js";
 import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
+import { searchMailboxByMessageId } from "./message-move.js";
 
 /**
  * Delete every ThreadMessage row that points at this messageId.
@@ -121,6 +124,49 @@ export const buildThreadMessageUndelete = (
 	set: { isDeleted: false },
 	composites: currentComposites(threadMessage),
 });
+
+/**
+ * Settle a move to Trash the server left unconfirmed, by asking it two
+ * read-only questions instead of one. Both handles wrap the SAME connection but
+ * are scoped to their own mailbox: a `guardConnectionCursor` wrap binds its
+ * checks to the ONE mailbox snapshot it was built with, so the destination must
+ * never be opened through the source's guard.
+ *
+ * The source is asked first, and a source that still holds the uid ends it: the
+ * MOVE did not happen, so nothing at the destination can be this message.
+ * Skipping that question is not safe, because `searchMailboxByMessageId`
+ * returns the LOWEST matching uid rather than the one that just arrived, and
+ * one Message-ID can have several server copies in one account (a sieve
+ * `fileinto` + `keep`, a multi-label store, a resend) while
+ * `deriveMessageId` is folder-independent and gives them one local row. An
+ * ungated probe can hand back an earlier copy's uid, and Empty Trash then
+ * expunges by that uid. It also closes the second half of #912: an empty
+ * `uidMap` can mean the MOVE matched nothing at all.
+ *
+ * A row with no `messageIdHeader` has nothing to probe with, so it stays
+ * unconfirmed rather than guessing.
+ */
+const confirmTrashMoveUid = async (
+	sourceConnection: IImapConnection,
+	destinationConnection: IImapConnection,
+	messageService: Pick<IMessageRepository, "get">,
+	messageId: string,
+	sourceMailboxPath: string,
+	destinationMailboxPath: string,
+	uid: number,
+): Promise<number | null> => {
+	await sourceConnection.openBox(sourceMailboxPath, true);
+	if (!(await isMessageGoneFromOpenMailbox(sourceConnection, uid))) return null;
+
+	const [message] = await messageService.get([messageId]);
+	if (!message?.messageIdHeader) return null;
+
+	return searchMailboxByMessageId(
+		destinationConnection,
+		destinationMailboxPath,
+		message.messageIdHeader,
+	);
+};
 
 export interface MessageDeleteDeps {
 	getClient: typeof getClient;
@@ -324,15 +370,57 @@ export const handleMessageDelete = async (
 							"Refused to delete: move to trash carries no destination mailbox",
 							"message_delete_missing_destination",
 						);
-					} else if (operation === "move_to_trash" && destinationMailboxPath) {
+					} else if (
+						operation === "move_to_trash" &&
+						destinationMailboxPath &&
+						destinationMailboxId
+					) {
 						// Move to Trash
 						const result = await connection.moveMessages(
 							[uid],
 							destinationMailboxPath,
 						);
-						const newUid = result.uidMap.get(uid);
 
-						if (newUid && destinationMailboxId) {
+						// UIDPLUS is an extension. A server without it answers a
+						// perfectly successful MOVE with no COPYUID entry, so an empty
+						// map is UNCONFIRMED, never evidence the move failed: the server
+						// is asked before any verdict, exactly as `handleMessageMove` and
+						// `attemptMove` do. Reading the empty map as a failure left the
+						// message in Trash under a uid nothing local knew, while the row
+						// kept the SOURCE folder's uid — which Empty Trash then decides
+						// by (issues #979, #665).
+						//
+						// A probe that cannot answer counts as not-confirmed, never as a
+						// throw. The MOVE has already run by this point, so throwing here
+						// would redeliver on the account's per-group FIFO and re-MOVE a
+						// uid the source no longer holds — head-of-line blocking the
+						// whole account's deletes over a transient NO, a renamed folder
+						// or a SEARCH the server refused.
+						const newUid =
+							result.uidMap.get(uid) ??
+							(await confirmTrashMoveUid(
+								connection,
+								rawConnection,
+								messageService,
+								messageId,
+								mailboxPath,
+								destinationMailboxPath,
+								uid,
+							).catch((probeError: unknown) => {
+								log.warn(
+									{
+										messageId,
+										uid,
+										mailboxPath,
+										destinationMailboxPath,
+										probeError,
+									},
+									"Could not confirm the move to trash; keeping local rows",
+								);
+								return null;
+							}));
+
+						if (newUid) {
 							// Update message with new UID in Trash
 							await messageService.updateUid(
 								messageId,
@@ -361,9 +449,33 @@ export const handleMessageDelete = async (
 
 							log.info({ messageId, newUid }, "Message moved to trash");
 						} else {
+							// Unconfirmed, not failed. A MOVE that ran server-side but
+							// dropped before the tagged OK is indistinguishable from one
+							// that never ran, so local state is left exactly as it stands:
+							// nothing is reverted and nothing is deleted. Reverting on that
+							// ambiguity is the blind revert #655 recorded when it was
+							// pulled from PR #652.
+							//
+							// This marks and returns rather than throwing. Throwing is the
+							// shape `handleMessageMove` uses, but it can only carry a
+							// budget: this handler has no `receiveCount`, no MAX_ATTEMPTS
+							// and no exhaustion path, so every redelivery on the account's
+							// per-group FIFO would re-MOVE a uid the source no longer
+							// holds, fail identically, and stall that account's whole
+							// delete pipeline (#287, #289, #290) until the queue's
+							// maxReceiveCount dead-letters it — leaving the row in this
+							// same state, minus the pipeline. Issue #980 wires the budget;
+							// the throw belongs with it, not ahead of it.
 							log.error(
-								{ messageId, uid },
-								"Failed to get new UID after move to trash",
+								{
+									alert: "message_delete_trash_move_unconfirmed",
+									accountId,
+									messageId,
+									uid,
+									mailboxPath,
+									destinationMailboxPath,
+								},
+								"Move to trash unconfirmed: no COPYUID entry, and the server did not confirm the message at the destination; local rows left as they stand",
 							);
 							await messageService.update(messageId, {
 								syncStatus: MessageSyncStatus.failed,
