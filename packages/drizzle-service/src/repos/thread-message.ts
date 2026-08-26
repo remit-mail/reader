@@ -19,26 +19,17 @@ import {
 	type SQL,
 	sql,
 } from "drizzle-orm";
-import shortUuid from "short-uuid";
-import { v5 as uuidv5 } from "uuid";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
+import { deterministicBase36Id } from "../id.js";
 import { decodeToken } from "../pagination.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { fromMatch, subjectMatch } from "./thread-search-predicates.js";
 
-// ─── ID generation (mirrors remit-electrodb-service/src/id.ts) ───────────────
-
-const REMIT_NAMESPACE = "9e89694d-214b-4d9b-99f5-214b4d9b99f5";
-const translator = shortUuid.createTranslator(shortUuid.constants.uuid25Base36);
-
-const base36uuidv5 = (name: string): string =>
-	translator.fromUUID(uuidv5(name, REMIT_NAMESPACE));
-
 export const deriveThreadMessageId = (
 	threadId: string,
 	messageId: string,
-): string => base36uuidv5(`threadmsg:${threadId}:${messageId}`);
+): string => deterministicBase36Id(`threadmsg:${threadId}:${messageId}`);
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
