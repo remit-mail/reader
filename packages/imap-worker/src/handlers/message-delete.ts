@@ -18,7 +18,7 @@ import {
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
-import type { MessageDeleteEvent } from "../events.js";
+import type { MessageDeleteEvent, SyncMessagesEvent } from "../events.js";
 import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
@@ -46,13 +46,17 @@ export const getMessageDeleteMaxAttempts = (
 
 export const MESSAGE_DELETE_MAX_ATTEMPTS = getMessageDeleteMaxAttempts();
 
+type EmitSyncMessages = (
+	event: Omit<SyncMessagesEvent, "eventId" | "timestamp">,
+) => Promise<unknown>;
+
 /**
  * The message left the folder the event named, so both folders' counts are a
  * projection that no longer matches IMAP. Re-read them through the existing
  * per-folder sync rather than mutating counts locally.
  */
 const emitDeleteResync = async (
-	emit: MessageDeleteDeps["emitEvent"],
+	emit: EmitSyncMessages,
 	params: {
 		accountId: string;
 		sourceMailboxId: string;
