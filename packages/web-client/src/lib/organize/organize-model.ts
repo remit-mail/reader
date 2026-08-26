@@ -76,7 +76,7 @@ export const hasCommittableAction = (draft: OrganizeDraft): boolean =>
  * Whether the draft's predicate can be back-applied over the existing corpus. A
  * `HasWords` clause matches the full message body, which only the live
  * index-time filter and the vector widen evaluate — the vector-free back-apply
- * projection carries no body and rejects it (`assertNoBodyContentClause`,
+ * projection carries no body and rejects it (`bodyContentRejection`,
  * organize.ts). A rule that carries one is still a valid standing filter for
  * incoming mail, so the back-apply is skipped, not run into that guard.
  */

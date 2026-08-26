@@ -5,7 +5,7 @@ import type {
 	OrganizeJobResponse,
 	OrganizePreviewResponse,
 } from "@remit/api-openapi-types";
-import { NotFoundError } from "@remit/data-ports/errors";
+import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { logger } from "@remit/logger-lambda";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
@@ -157,18 +157,19 @@ export const OrganizeOperations: Record<
 		const client = await getClient();
 		await assertAccount(client, accountId, accountConfigId, "read");
 
-		const { messageIds, semanticUnavailable } = await matchOrganize(
+		const result = await matchOrganize(
 			buildOrganizeMatchDeps(client),
 			accountConfigId,
 			predicateFromInput(input),
 			ORGANIZE_MATCH_LIMIT,
 		);
+		if (result.rejected) throw new BadRequestError(result.rejected.message);
 
 		const response: OrganizePreviewResponse = {
-			matchedCount: messageIds.length,
-			messageIds,
+			matchedCount: result.messageIds.length,
+			messageIds: result.messageIds,
 		};
-		if (semanticUnavailable) response.semanticUnavailable = true;
+		if (result.semanticUnavailable) response.semanticUnavailable = true;
 		return response;
 	},
 };

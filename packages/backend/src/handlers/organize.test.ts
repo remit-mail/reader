@@ -44,11 +44,11 @@ describe("predicateFromInput (move back-apply accepted)", () => {
 	});
 });
 
-// previewOrganize rejects a body-content (HasWords) clause by throwing
-// BadRequestError (see service/organize.test.ts for the throw site). Proving
-// the 4xx actually reaches the wire — not just that the right class is
-// thrown — means proving the shared error handler maps it, since a plain
-// Error would otherwise fall through to a 500 (reader #457).
+// The matcher returns a body-content (HasWords) refusal as a result (see
+// service/organize.test.ts); previewOrganize is the boundary that words it as a
+// BadRequestError. Proving the 4xx actually reaches the wire — not just that the
+// right class is raised — means proving the shared error handler maps it, since
+// a plain Error would otherwise fall through to a 500 (reader #457).
 describe("previewOrganize rejected-rule response (reader #457)", () => {
 	it("maps a rejected HasWords clause to a 400 naming the reason, not a 500", async () => {
 		const error = new BadRequestError(

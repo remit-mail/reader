@@ -157,7 +157,7 @@ export function clauseFieldHint(field: ClauseField): string | undefined {
  *
  * The vector-free matcher serves `From`/`Subject` from the core thread rows and
  * carries no faithful body, so it rejects a body-text clause outright rather
- * than narrowing the match silently (`assertNoBodyContentClause`,
+ * than narrowing the match silently (`bodyContentRejection`,
  * backend/service/organize.ts). A rule with no active widen therefore cannot be
  * counted or applied one-time with such a clause in it — it can only be a
  * standing rule, where the index-time matcher reads the whole body.

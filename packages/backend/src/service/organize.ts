@@ -5,7 +5,7 @@ import type {
 	IFilterAnchorRepository,
 	OrganizeJobRequestItem,
 } from "@remit/data-ports";
-import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
+import { NotFoundError } from "@remit/data-ports/errors";
 import { FilterClauseField, FilterState } from "@remit/domain-enums";
 import { logger } from "@remit/logger-lambda";
 import {
@@ -154,11 +154,31 @@ export interface OrganizeMatchDeps {
 	filterAnchors: Pick<IFilterAnchorRepository, "listByAccountConfig" | "put">;
 }
 
+/**
+ * Why the matcher refused a predicate. A refusal is an expected outcome of
+ * asking for a rule this deployment cannot evaluate, not a fault: the HTTP
+ * boundary words it as a 400 and the back-apply worker fails the job row on it,
+ * neither of which may treat it as the infrastructure failure a throw would
+ * make it (reader #463).
+ */
+export interface OrganizeRejection {
+	reason: "BodyContentWithoutVectorPipeline";
+	message: string;
+}
+
 /** The matched ids plus whether the semantic widen was skipped as unavailable. */
-export interface OrganizeMatchResult {
+export interface OrganizeMatched {
+	rejected: null;
 	messageIds: string[];
 	semanticUnavailable: boolean;
 }
+
+/** The predicate was refused: nothing matched, and nothing may be applied. */
+export interface OrganizeMatchRejected {
+	rejected: OrganizeRejection;
+}
+
+export type OrganizeMatchResult = OrganizeMatched | OrganizeMatchRejected;
 
 const hasAnchor = (predicate: OrganizePredicate): boolean =>
 	predicate.anchorMessageId !== NO_ACTION && predicate.anchorMessageId !== "";
@@ -334,18 +354,21 @@ const matchSemantic = async (
  * happened to be indexed. Body-content matching therefore requires the widen
  * (vector) path — {@link matchSemantic} reconstructs body text from chunk
  * previews there. This guard keeps the two matchers from diverging silently: a
- * body-content clause reaching the vector-free path is rejected instead of
+ * body-content clause reaching the vector-free path is refused instead of
  * returning a wrong set.
  */
-const assertNoBodyContentClause = (
+export const BODY_CONTENT_REJECTION_MESSAGE =
+	"Organize literal matching cannot evaluate a body-content (HasWords) clause without the vector pipeline — it requires the semantic widen path";
+
+const bodyContentRejection = (
 	clauses: OrganizePredicate["literalClauses"],
-): void => {
-	if (clauses.some((clause) => clause.field === FilterClauseField.HasWords)) {
-		throw new BadRequestError(
-			"Organize literal matching cannot evaluate a body-content (HasWords) clause without the vector pipeline — it requires the semantic widen path",
-		);
-	}
-};
+): OrganizeRejection | null =>
+	clauses.some((clause) => clause.field === FilterClauseField.HasWords)
+		? {
+				reason: "BodyContentWithoutVectorPipeline",
+				message: BODY_CONTENT_REJECTION_MESSAGE,
+			}
+		: null;
 
 /**
  * The literal-only arm: scan a bounded, vector-free slice of the corpus and keep
@@ -353,7 +376,7 @@ const assertNoBodyContentClause = (
  * predicate and as the degraded fallback when a widen is requested on a
  * deployment without the vector pipeline. Serves `From`/`Subject` clauses at
  * full fidelity from the core thread rows; body-content (`HasWords`) clauses are
- * rejected up front (see {@link assertNoBodyContentClause}).
+ * refused before this runs (see {@link bodyContentRejection}).
  */
 const matchLiteral = async (
 	deps: OrganizeMatchDeps,
@@ -362,7 +385,6 @@ const matchLiteral = async (
 	limit: number,
 ): Promise<string[]> => {
 	const clauses = predicate.literalClauses;
-	assertNoBodyContentClause(clauses);
 	const candidates = await deps.listAccountFilterMessages(
 		accountConfigId,
 		limit,
@@ -395,6 +417,9 @@ const matchLiteral = async (
  *   capability-absence is absorbed exactly as `/search/semantic` absorbs it:
  *   the literal matches are returned (empty for an anchor-only predicate) with
  *   `semanticUnavailable` set, never a 500. Any other failure propagates.
+ * - A predicate the vector-free path cannot evaluate (a body-content clause,
+ *   see {@link bodyContentRejection}) comes back as a rejection, so a caller
+ *   can tell a refused rule from a broken deployment (reader #463).
  */
 export const matchOrganize = async (
 	deps: OrganizeMatchDeps,
@@ -405,17 +430,19 @@ export const matchOrganize = async (
 	const anchored = hasAnchor(predicate);
 	const clauses = predicate.literalClauses;
 	if (!anchored && clauses.length === 0) {
-		return { messageIds: [], semanticUnavailable: false };
+		return { rejected: null, messageIds: [], semanticUnavailable: false };
 	}
 
 	if (!anchored) {
+		const rejection = bodyContentRejection(clauses);
+		if (rejection) return { rejected: rejection };
 		const messageIds = await matchLiteral(
 			deps,
 			accountConfigId,
 			predicate,
 			limit,
 		);
-		return { messageIds, semanticUnavailable: false };
+		return { rejected: null, messageIds, semanticUnavailable: false };
 	}
 
 	try {
@@ -425,22 +452,28 @@ export const matchOrganize = async (
 			predicate,
 			limit,
 		);
-		return { messageIds: semanticIds ?? [], semanticUnavailable: false };
+		return {
+			rejected: null,
+			messageIds: semanticIds ?? [],
+			semanticUnavailable: false,
+		};
 	} catch (error) {
 		if (!noteSemanticCapabilityAbsence(error)) throw error;
 		// The widen cannot run on this deployment. Fall back to the literal
 		// clauses over the corpus — nothing when the predicate is anchor-only —
 		// and flag the absence so the client can say so.
 		if (clauses.length === 0) {
-			return { messageIds: [], semanticUnavailable: true };
+			return { rejected: null, messageIds: [], semanticUnavailable: true };
 		}
+		const rejection = bodyContentRejection(clauses);
+		if (rejection) return { rejected: rejection };
 		const messageIds = await matchLiteral(
 			deps,
 			accountConfigId,
 			predicate,
 			limit,
 		);
-		return { messageIds, semanticUnavailable: true };
+		return { rejected: null, messageIds, semanticUnavailable: true };
 	}
 };
 
@@ -480,7 +513,7 @@ const buildSemanticFromEnv = (): OrganizeSemanticDeps => {
  * only a truncated `snippet`, and matching
  * a body-content clause against a preview would silently diverge from the live
  * index-time filter's full-body match. Body-content (`HasWords`) clauses are
- * rejected before this is read (see {@link assertNoBodyContentClause}), so the
+ * rejected before this is read (see {@link bodyContentRejection}), so the
  * empty `text` is never matched against.
  */
 const listAccountFilterMessagesFromClient =
