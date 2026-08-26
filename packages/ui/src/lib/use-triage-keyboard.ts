@@ -106,9 +106,10 @@ export function useTriageKeyboard({
 			if (result.action === null) return;
 
 			// An overlay is the leaf of the shortcut tree: while one is on screen it
-			// answers what it serves and contains the rest, so this layer stays out
-			// of the way either way rather than acting through the modal (#959). The
-			// key is left undefaulted — a contained action was never ours to consume.
+			// answers what it serves — through `overlay-scope`'s own listener, which
+			// has already run and swallowed the key — and contains the rest. Either
+			// way this layer stays out of the way rather than acting through the
+			// modal (#959). A contained key is left undefaulted; it was never ours.
 			if (resolveAgainstOverlays(result.action) !== null) return;
 
 			const handler = handlersRef.current[result.action];

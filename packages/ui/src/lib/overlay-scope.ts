@@ -12,12 +12,13 @@
  * A mounted overlay declares itself here for as long as it is on screen, with
  * what it answers for, and the rest follows from that one declaration:
  *
- * - Escape is answered by one listener, shared by every overlay. It sits on
- *   `window` in the capture phase, ahead of the triage layers and of every other
- *   window listener the app binds, runs the top frame's `back` and swallows the
- *   key. A control inside an overlay with something of its own to close marks
- *   itself `[data-escape-owner]` and keeps Escape while it holds focus.
- * - Every other action is contained rather than swallowed: `useTriageKeyboard`
+ * - What the top frame answers is run by one listener, shared by every overlay.
+ *   It sits on `window` in the capture phase, ahead of the triage layers and of
+ *   every other window listener the app binds, and swallows the key it ran —
+ *   Escape for a dismissal, and `i` for the drawer that key opened. A control
+ *   inside an overlay with something of its own to close marks itself
+ *   `[data-escape-owner]` and keeps Escape while it holds focus.
+ * - Everything else is contained rather than swallowed: `useTriageKeyboard`
  *   resolves through {@link resolveAgainstOverlays} and declines to run a handler
  *   the top frame does not serve, so the key is inert instead of racing.
  *
@@ -36,6 +37,11 @@
  */
 import { useEffect, useRef } from "react";
 import type { TriageAction } from "./keymap.js";
+import {
+	dispatchKey,
+	isControlTarget,
+	isEditableTarget,
+} from "./keymap-dispatch.js";
 import {
 	type OverlayFrame,
 	type Resolution,
@@ -70,22 +76,46 @@ export function resolveAgainstOverlays(
 	return resolveOverlays(action, overlayStack());
 }
 
-function onEscape(event: KeyboardEvent): void {
-	if (event.key !== "Escape") return;
+/**
+ * What this keystroke means to an overlay. Escape reaches one from anywhere
+ * inside it, a focused field included — unless a control in there has its own
+ * thing to close, which takes the press and leaves the next one for the overlay.
+ * Every other key goes through the ordinary dispatch, so `i` typed into a field
+ * inside a drawer is a letter and not a dismissal. A `g …` sequence is never an
+ * overlay's to answer, so the prefix state is not carried here.
+ */
+function overlayAction(event: KeyboardEvent): TriageAction | null {
+	if (event.key === "Escape") {
+		const focused = document.activeElement;
+		if (focused instanceof Element && focused.closest(ESCAPE_OWNER_SELECTOR)) {
+			return null;
+		}
+		return "back";
+	}
+	return dispatchKey(
+		{
+			key: event.key,
+			shiftKey: event.shiftKey,
+			metaKey: event.metaKey,
+			ctrlKey: event.ctrlKey,
+			altKey: event.altKey,
+			inEditable: isEditableTarget(event.target),
+			onControl: isControlTarget(event.target),
+		},
+		null,
+	).action;
+}
+
+function onOverlayKey(event: KeyboardEvent): void {
 	const top = entries.at(-1);
 	if (!top) return;
-	const back = top.run().back;
-	if (!back) return;
-	// A suggestion list, an inline draft form, a correction menu: the control has
-	// its own thing to close, so Escape closes that and the next press reaches
-	// the overlay.
-	const focused = document.activeElement;
-	if (focused instanceof Element && focused.closest(ESCAPE_OWNER_SELECTOR)) {
-		return;
-	}
+	const action = overlayAction(event);
+	if (!action) return;
+	const answer = top.run()[action];
+	if (!answer) return;
 	event.preventDefault();
 	event.stopImmediatePropagation();
-	back();
+	answer();
 }
 
 function setEntries(next: ScopeEntry[]): void {
@@ -93,10 +123,10 @@ function setEntries(next: ScopeEntry[]): void {
 	entries = next;
 	if (wasEmpty === (next.length === 0)) return;
 	if (next.length > 0) {
-		window.addEventListener("keydown", onEscape, true);
+		window.addEventListener("keydown", onOverlayKey, true);
 		return;
 	}
-	window.removeEventListener("keydown", onEscape, true);
+	window.removeEventListener("keydown", onOverlayKey, true);
 }
 
 export interface OverlayScopeOptions {
@@ -105,9 +135,10 @@ export interface OverlayScopeOptions {
 	/** On screen. A closed overlay leaves the stack and contains nothing. */
 	open: boolean;
 	/**
-	 * What this overlay answers. `back` is Escape, and dismissing is what a
-	 * modal, a drawer and a menu all want it to mean. Every action outside the
-	 * table is contained: inert for the surfaces underneath, never forwarded.
+	 * What this overlay answers, run by the shared listener before any layer
+	 * underneath sees the key. `back` is Escape, and dismissing is what a modal,
+	 * a drawer and a menu all want it to mean. Every action outside the table is
+	 * contained: inert for the surfaces underneath, never forwarded.
 	 */
 	answers?: OverlayAnswers;
 }

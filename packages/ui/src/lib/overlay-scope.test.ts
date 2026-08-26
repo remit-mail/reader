@@ -117,6 +117,28 @@ describe("an overlay on the stack", () => {
 		);
 	});
 
+	it("keeps serving the key that opened it, and nothing else", () => {
+		const rung: string[] = [];
+		render(
+			createElement(Scope, {
+				id: "drawer",
+				open: true,
+				answers: {
+					back: () => rung.push("back"),
+					toggleIntelligence: () => rung.push("toggleIntelligence"),
+				},
+			}),
+		);
+
+		press("i");
+		press("j");
+
+		assert.deepEqual(rung, ["toggleIntelligence"]);
+		// Only what the drawer answered is swallowed. A key it does not serve is
+		// left to travel; what stops it is the triage layer declining to run it.
+		assert.deepEqual(seen, ["j"], "the drawer ate a key it never answered");
+	});
+
 	it("yields Escape to a control inside it that owns one", () => {
 		const dismissed: string[] = [];
 		render(

@@ -1,4 +1,4 @@
-import { cn, useOverlayScope } from "@remit/ui";
+import { cn, type OverlayAnswers, useOverlayScope } from "@remit/ui";
 import { X } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
 
@@ -40,6 +40,13 @@ interface DrawerProps {
 	ariaLabel?: string;
 	side?: "left" | "right";
 	widthClassName?: string;
+	/**
+	 * Shortcuts the drawer keeps serving while it is up, beyond Escape. The key
+	 * that opened it is the one that has to reach it — `i` closes the
+	 * intelligence drawer it opened — and everything left undeclared is
+	 * contained, so no verb acts on the list behind the scrim.
+	 */
+	answers?: OverlayAnswers;
 }
 
 /**
@@ -58,11 +65,16 @@ export const Drawer = ({
 	ariaLabel = "Navigation",
 	side = "left",
 	widthClassName = "w-[80vw] max-w-[320px]",
+	answers,
 }: DrawerProps) => {
 	const drawerRef = useRef<HTMLDivElement>(null);
 	const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
-	useOverlayScope({ id: "drawer", open: isOpen, answers: { back: onClose } });
+	useOverlayScope({
+		id: "drawer",
+		open: isOpen,
+		answers: { back: onClose, ...answers },
+	});
 
 	useEffect(() => {
 		if (!isOpen) return;
