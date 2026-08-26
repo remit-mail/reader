@@ -440,8 +440,9 @@ describe("handleMessageDelete", () => {
 	// UNCONFIRMED, and the destination is asked by Message-ID before any
 	// verdict — the rule every sibling handler already carries. Issue #979.
 	describe("no COPYUID entry on the move to trash", () => {
-		it("settles the row on the probed uid when the message is at the destination (non-UIDPLUS server, genuine success)", async () => {
+		it("settles the row on the probed uid when the message left the source and is at the destination (non-UIDPLUS server, genuine success)", async () => {
 			h.connection.moveMessages = async () => ({ uidMap: new Map() });
+			sourceNoLongerHoldsTheUid();
 			h.destinationSearchUids = [77];
 
 			await handleMessageDelete(moveEvent, noopLog, deps());
@@ -465,6 +466,7 @@ describe("handleMessageDelete", () => {
 
 		it("probes the DESTINATION mailbox, read-only, by Message-ID", async () => {
 			h.connection.moveMessages = async () => ({ uidMap: new Map() });
+			sourceNoLongerHoldsTheUid();
 			h.destinationSearchUids = [77];
 			const opened: unknown[][] = [];
 			h.connection.openBox = (async (...args: unknown[]) => {
@@ -486,6 +488,7 @@ describe("handleMessageDelete", () => {
 
 		it("leaves local state alone when the probe finds nothing — never reverts, never deletes (#655)", async () => {
 			h.connection.moveMessages = async () => ({ uidMap: new Map() });
+			sourceNoLongerHoldsTheUid();
 			h.destinationSearchUids = [];
 
 			await handleMessageDelete(moveEvent, noopLog, deps());
@@ -515,17 +518,73 @@ describe("handleMessageDelete", () => {
 
 		it("does not probe when the row carries no Message-ID header", async () => {
 			h.connection.moveMessages = async () => ({ uidMap: new Map() });
+			sourceNoLongerHoldsTheUid();
 			h.messageRow = {};
 
 			await handleMessageDelete(moveEvent, noopLog, deps());
 
-			assert.equal(called("connection.search").length, 0);
+			assert.equal(
+				called("connection.search").filter((c) =>
+					JSON.stringify(c.args).includes("HEADER"),
+				).length,
+				0,
+			);
 			assert.equal(called("message.updateUid").length, 0);
 			assert.equal(
 				(called("message.update")[0]?.args[1] as { syncStatus?: string })
 					?.syncStatus,
 				"failed",
 			);
+		});
+
+		// `searchMailboxByMessageId` returns the LOWEST matching uid, and one
+		// Message-ID can have several server copies in one account while
+		// `deriveMessageId` gives them one local row. A source that still holds
+		// the uid proves the MOVE did not happen, so any hit at the destination
+		// is a different copy.
+		it("never takes a destination hit while the source still holds the uid (duplicate Message-ID)", async () => {
+			h.connection.moveMessages = async () => ({ uidMap: new Map() });
+			h.destinationSearchUids = [100];
+
+			await handleMessageDelete(moveEvent, noopLog, deps());
+
+			assert.equal(
+				called("message.updateUid").length,
+				0,
+				"an earlier copy's uid must never settle this row",
+			);
+			assert.equal(called("threadMessage.update").length, 0);
+			assert.equal(called("message.delete").length, 0);
+			assert.equal(
+				(called("message.update")[0]?.args[1] as { syncStatus?: string })
+					?.syncStatus,
+				"failed",
+			);
+		});
+
+		// The MOVE has already run by the time the probe goes out, so a probe
+		// that cannot answer counts as not-confirmed. Throwing would redeliver
+		// on the account's per-group FIFO and re-MOVE a uid the source no longer
+		// holds, head-of-line blocking every other delete on the account.
+		it("treats an unanswerable probe as unconfirmed rather than throwing", async () => {
+			h.connection.moveMessages = async () => ({ uidMap: new Map() });
+			h.connection.openBox = (async (_path: string, readOnly?: boolean) => {
+				if (readOnly) throw new Error("NO [SERVERBUG] EXAMINE failed");
+				return { uidvalidity: 1 };
+			}) as Connection["openBox"];
+
+			await handleMessageDelete(moveEvent, noopLog, deps());
+
+			assert.equal(called("message.updateUid").length, 0);
+			assert.equal(called("message.delete").length, 0);
+			assert.equal(called("threadMessage.delete").length, 0);
+			assert.equal(called("threadMessage.update").length, 0);
+			assert.equal(
+				(called("message.update")[0]?.args[1] as { syncStatus?: string })
+					?.syncStatus,
+				"failed",
+			);
+			assert.equal(h.disconnectCount, 1);
 		});
 	});
 
