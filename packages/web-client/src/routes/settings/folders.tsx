@@ -16,6 +16,7 @@ import {
 	FolderManager,
 	FolderRenameDialog,
 	type FolderRole,
+	folderRolesHelp,
 	type ManagedFolder,
 	type RoleAppointment,
 	RoleAppointmentList,
@@ -41,27 +42,6 @@ import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
 export const Route = createFileRoute("/settings/folders")({
 	component: FoldersSettings,
 });
-
-const foldersHelp = (
-	<div className="space-y-3">
-		<p>
-			Each canonical role — Inbox, Drafts, Sent, Archive, Spam, Trash — points
-			at one of your account's real folders. Pick the one that actually holds
-			the mail; the message counts tell real folders from empty look-alikes.
-		</p>
-		<p>
-			Appointing a folder to a role here doesn't touch any other role, and
-			doesn't move or rename anything on the server — it just tells Remit which
-			folder to treat as e.g. "Drafts" everywhere (sidebar, unread badges, the
-			compose flow).
-		</p>
-		<p>
-			<strong className="text-fg">Your folders</strong> is the account's real
-			hierarchy. Open a folder to see what's inside it, make a new one where
-			you're looking, and rename or delete any of them from its row.
-		</p>
-	</div>
-);
 
 /** One account's folder roles and its folder hierarchy. Owns its own queries + mutations. */
 function AccountFolders({ account }: { account: RemitImapAccountResponse }) {
@@ -309,7 +289,7 @@ function FoldersSettings() {
 			activeId="folders"
 			title="Folder roles"
 			description="Appoint which real folder fills each canonical role, per account."
-			help={foldersHelp}
+			help={folderRolesHelp}
 			helpOpen={helpOpen}
 			onToggleHelp={() => setHelpOpen((v) => !v)}
 			onSelect={handleSelectNav}

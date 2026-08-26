@@ -1,5 +1,5 @@
 import { Check, Folder } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { folderLeaf } from "../lib/folder-tree.js";
 import { Banner } from "./banner.js";
 import { Button } from "./button.js";
@@ -258,6 +258,28 @@ function RoleAppointmentRow({
 	);
 }
 
+/** The help-rail copy for the folder-roles settings screen. */
+export const folderRolesHelp: ReactNode = (
+	<div className="space-y-3">
+		<p>
+			Each canonical role — Inbox, Drafts, Sent, Archive, Spam, Trash — points
+			at one of your account's real folders. Pick the one that actually holds
+			the mail; the message counts tell real folders from empty look-alikes.
+		</p>
+		<p>
+			Appointing a folder to a role here doesn't touch any other role, and
+			doesn't move or rename anything on the server — it just tells Remit which
+			folder to treat as e.g. "Drafts" everywhere (sidebar, unread badges, the
+			compose flow).
+		</p>
+		<p>
+			<strong className="text-fg">Your folders</strong> is the account's real
+			hierarchy. Open a folder to see what's inside it, make a new one where
+			you're looking, and rename or delete any of them from its row.
+		</p>
+	</div>
+);
+
 export interface RoleAppointmentListProps {
 	accountEmail: string;
 	/** Every folder the account exposes (candidates for any role). */
@@ -299,10 +321,8 @@ export function RoleAppointmentList({
 					Folder roles — {accountEmail}
 				</h2>
 				<p className="text-xs text-fg-muted">
-					Each role points to one folder. Pick the folder that holds the mail —
-					the counts help you tell real folders from empty look-alikes. Each row
-					says where its answer came from — your choice, the mail server's own
-					flag, or a name reader matched.
+					Each row says where its answer came from — your choice, the mail
+					server's own flag, or a name reader matched.
 				</p>
 			</header>
 			<div className="rounded-sm border border-line bg-surface">

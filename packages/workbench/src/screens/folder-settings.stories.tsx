@@ -3,6 +3,7 @@ import {
 	FolderRenameDialog,
 	type FolderRole,
 	type FolderTreeNode,
+	folderRolesHelp,
 	type ManagedFolder,
 	type RoleAppointment,
 	RoleAppointmentList,
@@ -122,21 +123,6 @@ const initialAppointments: Record<string, RoleAppointment> = {
 	trash: { mailboxId: "mbx-trash", source: "Proposed" },
 };
 
-const foldersHelp = (
-	<div className="space-y-3">
-		<p>
-			Each canonical role — Inbox, Drafts, Sent, Archive, Spam, Trash — points
-			at one of your account's real folders. Pick the one that actually holds
-			the mail; the message counts tell real folders from empty look-alikes.
-		</p>
-		<p>
-			<strong className="text-fg">Your folders</strong> is the account's real
-			hierarchy. Open a folder to see what's inside it, make a new one where
-			you're looking, and rename or delete any of them from its row.
-		</p>
-	</div>
-);
-
 let createdSeq = 0;
 const createFolder = (
 	name: string,
@@ -186,7 +172,7 @@ function FolderSettingsPage({ renaming = false }: { renaming?: boolean }) {
 			activeId="folders"
 			title="Folder roles"
 			description="Appoint which real folder fills each canonical role, per account."
-			help={foldersHelp}
+			help={folderRolesHelp}
 			helpOpen={helpOpen}
 			onToggleHelp={() => setHelpOpen((open) => !open)}
 			onBackToMail={() => undefined}
