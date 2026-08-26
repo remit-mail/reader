@@ -418,6 +418,14 @@ describe("handleMessageDelete", () => {
 		h = fresh();
 	});
 
+	it("PROOF #980: an unconfirmed move to trash redelivers instead of settling", async () => {
+		h.connection.moveMessages = async () => ({ uidMap: new Map() });
+		sourceNoLongerHoldsTheUid();
+		h.destinationSearchUids = [];
+
+		await assert.rejects(handleMessageDelete(moveEvent, noopLog, deps()));
+	});
+
 	it("moves to trash, rewrites the uid, and flips the thread row to deleted", async () => {
 		await handleMessageDelete(moveEvent, noopLog, deps());
 
