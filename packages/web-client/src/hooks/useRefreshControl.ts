@@ -3,7 +3,7 @@ import {
 	syncOperationsGetSyncStatusOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { syncOperationsTriggerSync } from "@remit/api-http-client/sdk.gen.ts";
-import type { RemitImapMailboxSyncProgress } from "@remit/api-http-client/types.gen.ts";
+import type { RemitImapSyncPhase } from "@remit/api-http-client/types.gen.ts";
 import type { RefreshControlState } from "@remit/ui";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -41,14 +41,6 @@ const escalateIfFatal = (error: unknown): void => {
 	}
 };
 
-const maxLastSynced = (
-	mailboxes: readonly RemitImapMailboxSyncProgress[],
-): number =>
-	mailboxes.reduce(
-		(max, mailbox) => Math.max(max, mailbox.lastSyncedAt ?? 0),
-		0,
-	);
-
 /**
  * `getSyncStatus` for one account, always as a real network read: `staleTime:
  * 0` means even a reading `MailFreshnessProvider` fetched a moment ago is
@@ -71,59 +63,74 @@ const fetchStatus = (queryClient: QueryClient, accountId: string) =>
 		staleTime: 0,
 	});
 
-interface AccountOutcome {
+export interface AccountOutcome {
 	accountId: string;
 	message?: string;
 }
 
+/** The two fields of `getSyncStatus` that identify a round, named so the wait
+ * below can be driven from a scripted sequence of readings. */
+export interface SyncStatusReading {
+	syncPhase?: RemitImapSyncPhase;
+	lastSyncAt?: number;
+}
+
+export interface WaitForSettledOptions {
+	accountId: string;
+	readStatus: () => Promise<SyncStatusReading>;
+	/** `lastSyncAt` as it read immediately before this refresh triggered. */
+	baselineLastSyncAt: number;
+	deadline: number;
+	pollMs?: number;
+}
+
 /**
- * Poll one account's sync status until a round that started after
- * `baselineMaxLastSynced` was captured has settled, or `deadline` passes.
+ * Poll one account's sync status until a round that started at or after this
+ * refresh triggered has settled, or `deadline` passes.
  *
- * `POST /sync` only enqueues the round (the worker runs it later), so the
- * very first status read after triggering can still show the *previous*
- * round's phase — reading that as "settled" would report success, or a
- * stale failed phase, before the new round ever ran (#582 review). This
- * waits for positive evidence the triggered round actually happened: either
- * the phase was observed mid-flight, or some mailbox's `lastSyncedAt`
- * advanced past the baseline taken before the trigger.
+ * `account.lastSyncAt` is the worker's own once-per-round stamp, and it is the
+ * only thing here that tells one round from another. A phase seen mid-flight
+ * does not: the tab's background poll, another tab, and every `GET /config`
+ * trigger rounds nobody clicked for, so a click landing while one of those is
+ * in flight used to confirm on it — a checkmark and an invalidated list with
+ * the clicked round still unrun, and the new mail it would have fetched unseen
+ * until the next poll (#953). Requiring the stamp to pass the reading taken
+ * before the trigger admits only a round that started after it.
+ *
+ * `POST /sync` enqueues and returns, so the first reading after triggering
+ * still shows the previous round — including a previous round's `error` phase,
+ * which is why that phase only speaks once the stamp has moved.
  *
  * Read-only (`getSyncStatus`, no IMAP call, no queue write), so waiting costs
  * a handful of cheap GETs — never a refetch of the account's own message
  * list.
  */
-const waitForSettled = async (
-	queryClient: QueryClient,
-	accountId: string,
-	baselineMaxLastSynced: number,
-	deadline: number,
-): Promise<AccountOutcome | undefined> => {
-	let observedInProgress = false;
+export const waitForSettled = async ({
+	accountId,
+	readStatus,
+	baselineLastSyncAt,
+	deadline,
+	pollMs = REFRESH_POLL_MS,
+}: WaitForSettledOptions): Promise<AccountOutcome | undefined> => {
 	for (;;) {
-		const outcome = await fetchStatus(queryClient, accountId)
+		const outcome = await readStatus()
 			.then((data) => ({ ok: true as const, data }))
 			.catch((error: unknown) => ({ ok: false as const, error }));
 		if (!outcome.ok) {
 			return { accountId, message: messageFor(outcome.error) };
 		}
-		const { syncPhase, mailboxes } = outcome.data;
-		if (isSyncingPhase(syncPhase)) {
-			observedInProgress = true;
-		} else {
-			const confirmed =
-				observedInProgress ||
-				maxLastSynced(mailboxes ?? []) > baselineMaxLastSynced;
-			if (confirmed) {
-				if (syncPhase === "error") {
-					return { accountId, message: "Sync failed for this account" };
-				}
-				return undefined;
+		const { syncPhase, lastSyncAt } = outcome.data;
+		const startedAfterTrigger = (lastSyncAt ?? 0) > baselineLastSyncAt;
+		if (startedAfterTrigger && !isSyncingPhase(syncPhase)) {
+			if (syncPhase === "error") {
+				return { accountId, message: "Sync failed for this account" };
 			}
+			return undefined;
 		}
 		if (Date.now() >= deadline) {
 			return { accountId, message: "Refresh is taking longer than usual" };
 		}
-		await sleep(REFRESH_POLL_MS);
+		await sleep(pollMs);
 	}
 };
 
@@ -146,7 +153,7 @@ const refreshOneAccount = async (
 	const baseline = await fetchStatus(queryClient, accountId)
 		.then((data) => ({
 			ok: true as const,
-			maxLastSynced: maxLastSynced(data.mailboxes ?? []),
+			lastSyncAt: data.lastSyncAt ?? 0,
 		}))
 		.catch((error: unknown) => ({ ok: false as const, error }));
 	if (!baseline.ok) {
@@ -175,12 +182,12 @@ const refreshOneAccount = async (
 	}
 	telemetry.recordEvent("sync.triggered");
 
-	const settled = await waitForSettled(
-		queryClient,
+	const settled = await waitForSettled({
 		accountId,
-		baseline.maxLastSynced,
+		readStatus: () => fetchStatus(queryClient, accountId),
+		baselineLastSyncAt: baseline.lastSyncAt,
 		deadline,
-	);
+	});
 	if (settled)
 		return { accountId, enqueued: true, ok: false, message: settled.message };
 	return { accountId, enqueued: true, ok: true };

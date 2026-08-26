@@ -319,6 +319,9 @@ model AccountSyncStatusResponse {
   @doc("Number of mailboxes whose initial message sync has completed")
   mailboxCountSynced?: int32;
 
+  @doc("When the account's most recent sync round started, stamped once per round by the worker. A client that triggered a sync compares this against the reading it took before triggering, so it confirms only on a round of its own rather than one already in flight.")
+  lastSyncAt?: int64;
+
   @doc("Per-mailbox sync progress")
   mailboxes: MailboxSyncProgress[];
 }
