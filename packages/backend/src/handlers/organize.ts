@@ -5,7 +5,7 @@ import type {
 	OrganizeJobResponse,
 	OrganizePreviewResponse,
 } from "@remit/api-openapi-types";
-import { NotFoundError } from "@remit/data-ports/errors";
+import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { logger } from "@remit/logger-lambda";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
@@ -17,6 +17,7 @@ import {
 	matchOrganize,
 	ORGANIZE_MATCH_LIMIT,
 	type OrganizePredicate,
+	organizePredicateRejection,
 } from "../service/organize.js";
 import { sqsClient } from "../service/sqs.js";
 import type {
@@ -107,6 +108,11 @@ export const OrganizeOperations: Record<
 		await assertAccount(client, accountId, accountConfigId, "act");
 
 		const predicate = predicateFromInput(input);
+		// A rule the matcher can never honour is answered here, not with a 202
+		// the worker has to fail later (reader #463).
+		const rejection = organizePredicateRejection(predicate);
+		if (rejection) throw new BadRequestError(rejection.message);
+
 		const ttl = Math.floor(Date.now() / 1000) + ORGANIZE_JOB_TTL_SECONDS;
 
 		const job = await client.organizeJobRequest.create({
@@ -157,18 +163,19 @@ export const OrganizeOperations: Record<
 		const client = await getClient();
 		await assertAccount(client, accountId, accountConfigId, "read");
 
-		const { messageIds, semanticUnavailable } = await matchOrganize(
+		const result = await matchOrganize(
 			buildOrganizeMatchDeps(client),
 			accountConfigId,
 			predicateFromInput(input),
 			ORGANIZE_MATCH_LIMIT,
 		);
+		if (result.rejected) throw new BadRequestError(result.rejected.message);
 
 		const response: OrganizePreviewResponse = {
-			matchedCount: messageIds.length,
-			messageIds,
+			matchedCount: result.messageIds.length,
+			messageIds: result.messageIds,
 		};
-		if (semanticUnavailable) response.semanticUnavailable = true;
+		if (result.semanticUnavailable) response.semanticUnavailable = true;
 		return response;
 	},
 };

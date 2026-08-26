@@ -4,6 +4,7 @@ import type { OrganizeInput } from "@remit/api-openapi-types";
 import { BadRequestError } from "@remit/data-ports/errors";
 import { FilterMatchOperator } from "@remit/domain-enums";
 import { handleError } from "../error.js";
+import { organizePredicateRejection } from "../service/organize.js";
 import { predicateFromInput } from "./organize.js";
 
 const input = (over: Partial<OrganizeInput> = {}): OrganizeInput => ({
@@ -44,11 +45,41 @@ describe("predicateFromInput (move back-apply accepted)", () => {
 	});
 });
 
-// previewOrganize rejects a body-content (HasWords) clause by throwing
-// BadRequestError (see service/organize.test.ts for the throw site). Proving
-// the 4xx actually reaches the wire — not just that the right class is
-// thrown — means proving the shared error handler maps it, since a plain
-// Error would otherwise fall through to a 500 (reader #457).
+// createOrganizeJob refuses the same rule preview refuses, on the request,
+// instead of handing back a 202 for a job the worker can only fail (reader
+// #463). The check runs on the flattened predicate, so the proof is that a
+// request body the client actually sends still reaches it.
+describe("createOrganizeJob rejected-rule refusal (reader #463)", () => {
+	it("refuses an anchorless body-content clause before a job row exists", () => {
+		const rejection = organizePredicateRejection(
+			predicateFromInput(
+				input({ literalClauses: [{ field: "HasWords", value: "invoice" }] }),
+			),
+		);
+
+		assert.match(String(rejection?.message), /HasWords/);
+	});
+
+	it("accepts the same clause when the request carries an anchor to widen from", () => {
+		assert.equal(
+			organizePredicateRejection(
+				predicateFromInput(
+					input({
+						anchorMessageId: "msg-anchor",
+						literalClauses: [{ field: "HasWords", value: "invoice" }],
+					}),
+				),
+			),
+			null,
+		);
+	});
+});
+
+// The matcher returns a body-content (HasWords) refusal as a result (see
+// service/organize.test.ts); previewOrganize is the boundary that words it as a
+// BadRequestError. Proving the 4xx actually reaches the wire — not just that the
+// right class is raised — means proving the shared error handler maps it, since
+// a plain Error would otherwise fall through to a 500 (reader #457).
 describe("previewOrganize rejected-rule response (reader #457)", () => {
 	it("maps a rejected HasWords clause to a 400 naming the reason, not a 500", async () => {
 		const error = new BadRequestError(

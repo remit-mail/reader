@@ -5,7 +5,7 @@ import type {
 	FilterAnchorItem,
 	FilterItem,
 } from "@remit/data-ports";
-import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
+import { NotFoundError } from "@remit/data-ports/errors";
 import { FilterMatchOperator, FilterState } from "@remit/domain-enums";
 import type {
 	AnchorPayload,
@@ -16,10 +16,13 @@ import { createMemoryVectorStore } from "@remit/search-service";
 import type { RemitClient } from "./data-client.js";
 import {
 	applyOrganize,
+	BODY_CONTENT_REJECTION_MESSAGE,
 	matchOrganize,
 	type OrganizeCandidate,
 	type OrganizeMatchDeps,
+	type OrganizeMatched,
 	type OrganizePredicate,
+	organizePredicateRejection,
 } from "./organize.js";
 import {
 	_resetSemanticCapabilityForTest,
@@ -81,6 +84,23 @@ const predicate = (
 	actionMailboxId: "None",
 	...over,
 });
+
+/**
+ * Run the matcher and assert it accepted the predicate, so every test that only
+ * cares about the matched set reads the accepted arm directly. A rejection is a
+ * result, not a throw (reader #463), so without this the two would be silently
+ * interchangeable at the call site.
+ */
+const matchAccepted = async (
+	...args: Parameters<typeof matchOrganize>
+): Promise<OrganizeMatched> => {
+	const result = await matchOrganize(...args);
+	assert.ok(
+		result.rejected === null,
+		`expected an accepted match, got: ${result.rejected?.message}`,
+	);
+	return result;
+};
 
 /** A standing filter fixture — the "other" filters the precedence check reads. */
 const filterItem = (over: Partial<FilterItem> = {}): FilterItem => ({
@@ -329,6 +349,40 @@ const candidate = (
 	},
 });
 
+describe("organizePredicateRejection (reader #463)", () => {
+	it("refuses an anchorless body-content predicate without reading the corpus", () => {
+		const rejection = organizePredicateRejection({
+			...predicate(),
+			anchorMessageId: "None",
+			literalClauses: [{ field: "HasWords", value: "invoice" }],
+		});
+
+		assert.equal(rejection?.reason, "BodyContentWithoutVectorPipeline");
+		assert.equal(rejection?.message, BODY_CONTENT_REJECTION_MESSAGE);
+	});
+
+	it("accepts a body-content predicate that carries an anchor, which the widen can evaluate", () => {
+		assert.equal(
+			organizePredicateRejection({
+				...predicate(),
+				literalClauses: [{ field: "HasWords", value: "invoice" }],
+			}),
+			null,
+		);
+	});
+
+	it("accepts an anchorless predicate whose clauses the corpus slice serves", () => {
+		assert.equal(
+			organizePredicateRejection({
+				...predicate(),
+				anchorMessageId: "None",
+				literalClauses: [{ field: "Subject", value: "reservation" }],
+			}),
+			null,
+		);
+	});
+});
+
 describe("matchOrganize", () => {
 	it("returns every semantically matching message and excludes the misses", async () => {
 		const store = createMemoryVectorStore();
@@ -338,7 +392,7 @@ describe("matchOrganize", () => {
 			bodyChunk("msg-miss", ORTHOGONAL_VECTOR),
 		]);
 
-		const { messageIds, semanticUnavailable } = await matchOrganize(
+		const { messageIds, semanticUnavailable } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			predicate({ actionLabelId: "lbl-1" }),
@@ -352,7 +406,7 @@ describe("matchOrganize", () => {
 		const store = createMemoryVectorStore();
 		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
 
-		const { messageIds } = await matchOrganize(
+		const { messageIds } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			{
@@ -377,7 +431,7 @@ describe("matchOrganize", () => {
 			}),
 		]);
 
-		const { messageIds } = await matchOrganize(
+		const { messageIds } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			{
@@ -396,7 +450,7 @@ describe("matchOrganize", () => {
 			candidate("msg-2", { subject: "Newsletter" }),
 		]);
 
-		const { messageIds } = await matchOrganize(deps, ACCOUNT_CONFIG_ID, {
+		const { messageIds } = await matchAccepted(deps, ACCOUNT_CONFIG_ID, {
 			...predicate(),
 			anchorMessageId: "None",
 			literalClauses: [{ field: "Subject", value: "reservation" }],
@@ -453,7 +507,7 @@ describe("matchOrganize honors the persisted FilterAnchor (reader #350)", () => 
 			},
 		};
 
-		const { messageIds } = await matchOrganize(
+		const { messageIds } = await matchAccepted(
 			deps,
 			ACCOUNT_CONFIG_ID,
 			predicate(),
@@ -478,7 +532,7 @@ describe("matchOrganize honors the persisted FilterAnchor (reader #350)", () => 
 		// No persisted FilterAnchor names this anchorMessageId — an ad hoc "all
 		// like these" widen over a bare message selection, never tied to a
 		// standing filter.
-		const { messageIds } = await matchOrganize(
+		const { messageIds } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			predicate(),
@@ -507,7 +561,7 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 			candidate("msg-3", { subject: "Table reservation confirmed" }),
 		]);
 
-		const { messageIds, semanticUnavailable } = await matchOrganize(
+		const { messageIds, semanticUnavailable } = await matchAccepted(
 			deps,
 			ACCOUNT_CONFIG_ID,
 			{
@@ -526,27 +580,42 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 		);
 	});
 
-	it("rejects a body-content (HasWords) clause as a 400 rather than matching it against a preview", async () => {
+	it("refuses a body-content (HasWords) clause as a result rather than matching it against a preview", async () => {
 		const deps = vectorlessDeps([
 			candidate("msg-1", { subject: "Dinner reservation" }),
 		]);
 
-		await assert.rejects(
-			() =>
-				matchOrganize(deps, ACCOUNT_CONFIG_ID, {
-					...predicate(),
-					anchorMessageId: "None",
-					literalClauses: [{ field: "HasWords", value: "invoice" }],
-				}),
-			(error: unknown) => {
-				assert.ok(error instanceof BadRequestError);
-				assert.equal(error.statusCode, 400);
-				assert.match(error.message, /HasWords/);
-				return true;
+		const result = await matchOrganize(deps, ACCOUNT_CONFIG_ID, {
+			...predicate(),
+			anchorMessageId: "None",
+			literalClauses: [{ field: "HasWords", value: "invoice" }],
+		});
+
+		assert.deepEqual(
+			result.rejected,
+			{
+				reason: "BodyContentWithoutVectorPipeline",
+				message: BODY_CONTENT_REJECTION_MESSAGE,
 			},
 			"the vector-free literal path must not silently narrow a body match to a preview",
 		);
 		assert.equal(deps.semanticUsed(), false);
+	});
+
+	// The refusal is the same whichever way the vector-free path is reached, so
+	// an anchored predicate that degrades onto it cannot land in the corpus scan
+	// with a body clause it can only mis-evaluate (reader #463).
+	it("refuses a body-content clause reached through the degraded widen fallback", async () => {
+		const deps = vectorlessDeps([
+			candidate("msg-1", { subject: "Dinner reservation" }),
+		]);
+
+		const result = await matchOrganize(deps, ACCOUNT_CONFIG_ID, {
+			...predicate(),
+			literalClauses: [{ field: "HasWords", value: "invoice" }],
+		});
+
+		assert.equal(result.rejected?.reason, "BodyContentWithoutVectorPipeline");
 	});
 
 	it("degrades an anchor+clauses widen to the literal matches, flagged, instead of crashing", async () => {
@@ -555,7 +624,7 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 			candidate("msg-2", { subject: "Weekly newsletter" }),
 		]);
 
-		const { messageIds, semanticUnavailable } = await matchOrganize(
+		const { messageIds, semanticUnavailable } = await matchAccepted(
 			deps,
 			ACCOUNT_CONFIG_ID,
 			{
@@ -571,7 +640,7 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 	it("degrades an anchor-only widen to an empty flagged result instead of crashing", async () => {
 		const deps = vectorlessDeps([candidate("msg-1"), candidate("msg-2")]);
 
-		const { messageIds, semanticUnavailable } = await matchOrganize(
+		const { messageIds, semanticUnavailable } = await matchAccepted(
 			deps,
 			ACCOUNT_CONFIG_ID,
 			predicate(),
@@ -623,7 +692,7 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 			},
 		};
 
-		const { messageIds, semanticUnavailable } = await matchOrganize(
+		const { messageIds, semanticUnavailable } = await matchAccepted(
 			deps,
 			ACCOUNT_CONFIG_ID,
 			predicate(),
@@ -684,12 +753,12 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 
 		// The preview and the apply share the same matcher — the previewed set is
 		// exactly what gets applied.
-		const previewed = await matchOrganize(
+		const previewed = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			p,
 		);
-		const applied = await matchOrganize(matchDeps(store), ACCOUNT_CONFIG_ID, p);
+		const applied = await matchAccepted(matchDeps(store), ACCOUNT_CONFIG_ID, p);
 		assert.deepEqual(previewed, applied);
 
 		const tracked = trackingClient();
@@ -723,7 +792,7 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
 		const p = predicate({ actionMailboxId: "mbox-target" });
 
-		const { messageIds: matched } = await matchOrganize(
+		const { messageIds: matched } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			p,
@@ -749,7 +818,7 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 		]);
 		const p = predicate({ actionMailboxId: "mbox-target" });
 
-		const { messageIds: matched } = await matchOrganize(
+		const { messageIds: matched } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			p,
@@ -799,7 +868,7 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 			actionMailboxId: "mbox-target",
 		});
 
-		const { messageIds: matched } = await matchOrganize(
+		const { messageIds: matched } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			p,
@@ -834,7 +903,7 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 		await store.upsert(matching.map((id) => bodyChunk(id, ANCHOR_VECTOR)));
 		const p = predicate({ actionMailboxId: "mbox-target" });
 
-		const { messageIds: matched } = await matchOrganize(
+		const { messageIds: matched } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			p,
@@ -897,7 +966,7 @@ describe("applyOrganize resolves move precedence against current Active filters 
 			literalClauses: [{ field: "Subject", value: "reservation" }],
 		});
 
-		const { messageIds: matched } = await matchOrganize(
+		const { messageIds: matched } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			p,
@@ -946,7 +1015,7 @@ describe("applyOrganize resolves move precedence against current Active filters 
 			literalClauses: [{ field: "Subject", value: "reservation" }],
 		});
 
-		const { messageIds: matched } = await matchOrganize(
+		const { messageIds: matched } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			p,
@@ -998,7 +1067,7 @@ describe("applyOrganize resolves move precedence against current Active filters 
 			updatedAt: 0,
 		};
 
-		const { messageIds: matched } = await matchOrganize(
+		const { messageIds: matched } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			p,
@@ -1090,7 +1159,7 @@ describe("back-apply repairs a drifted anchor the way index-time matching does (
 		]);
 		const deps = currentModelDeps(store, [staleAnchor("filter-a")]);
 
-		const { messageIds } = await matchOrganize(
+		const { messageIds } = await matchAccepted(
 			deps,
 			ACCOUNT_CONFIG_ID,
 			predicate(),
@@ -1126,7 +1195,7 @@ describe("back-apply repairs a drifted anchor the way index-time matching does (
 		});
 		const drifted = staleAnchor("filter-newer-semantic");
 
-		const { messageIds: matched } = await matchOrganize(
+		const { messageIds: matched } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			p,
@@ -1232,7 +1301,7 @@ describe("matchOrganize with ListId and FromDomain clauses", () => {
 			candidate("msg-3", {}),
 		]);
 
-		const { messageIds } = await matchOrganize(deps, ACCOUNT_CONFIG_ID, {
+		const { messageIds } = await matchAccepted(deps, ACCOUNT_CONFIG_ID, {
 			...predicate(),
 			anchorMessageId: "None",
 			literalClauses: [{ field: "ListId", value: "weekly.news.example.com" }],
@@ -1248,7 +1317,7 @@ describe("matchOrganize with ListId and FromDomain clauses", () => {
 			candidate("msg-3", { from: "attacker@github.com.evil.example" }),
 		]);
 
-		const { messageIds } = await matchOrganize(deps, ACCOUNT_CONFIG_ID, {
+		const { messageIds } = await matchAccepted(deps, ACCOUNT_CONFIG_ID, {
 			...predicate(),
 			anchorMessageId: "None",
 			literalClauses: [{ field: "FromDomain", value: "github.com" }],
@@ -1270,13 +1339,13 @@ describe("matchOrganize with ListId and FromDomain clauses", () => {
 			bodyChunk("msg-2", ANCHOR_VECTOR, { listId: "other.list.example" }),
 		]);
 
-		const byListId = await matchOrganize(matchDeps(store), ACCOUNT_CONFIG_ID, {
+		const byListId = await matchAccepted(matchDeps(store), ACCOUNT_CONFIG_ID, {
 			...predicate(),
 			literalClauses: [{ field: "ListId", value: "actions.github.com" }],
 		});
 		assert.deepEqual(byListId.messageIds, ["msg-1"]);
 
-		const byFromDomain = await matchOrganize(
+		const byFromDomain = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			{
@@ -1299,8 +1368,8 @@ describe("matchOrganize with ListId and FromDomain clauses", () => {
 			literalClauses: [{ field: "ListId", value: "weekly.news.example.com" }],
 		});
 
-		const previewed = await matchOrganize(deps, ACCOUNT_CONFIG_ID, p);
-		const applied = await matchOrganize(deps, ACCOUNT_CONFIG_ID, p);
+		const previewed = await matchAccepted(deps, ACCOUNT_CONFIG_ID, p);
+		const applied = await matchAccepted(deps, ACCOUNT_CONFIG_ID, p);
 		assert.deepEqual(previewed, applied);
 		assert.deepEqual(previewed.messageIds, ["msg-1", "msg-2"]);
 

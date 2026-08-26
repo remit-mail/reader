@@ -198,7 +198,7 @@ export const rulePredicate = (
  * Whether the matcher behind `/organize/preview` can evaluate this predicate at
  * all. Without an anchor it takes the vector-free literal arm, which reads no
  * message body and rejects a `HasWords` clause rather than narrowing the match
- * silently (`assertNoBodyContentClause`, backend/service/organize.ts). Asking it
+ * silently (`bodyContentRejection`, backend/service/organize.ts). Asking it
  * anyway is a 500, so the caller must not ask.
  */
 export const isEvaluablePredicate = (
