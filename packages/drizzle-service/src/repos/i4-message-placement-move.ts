@@ -1,32 +1,14 @@
+import type {
+	MessagePlacementMoveItem,
+	PutMessagePlacementMoveInput,
+} from "@remit/data-ports";
 import { eq } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { messagePlacementMoveTable } from "../schema/i4-message-placement-move.js";
 
 type DB = Db<Record<string, unknown>>;
 
-export type MessagePlacementMoveState =
-	| "pending"
-	| "queued"
-	| "processing"
-	| "processed";
-
-export interface MessagePlacementMoveItem {
-	messageId: string;
-	accountId: string;
-	accountConfigId: string;
-	sourceMailboxId: string;
-	destinationMailboxId: string;
-	state: MessagePlacementMoveState;
-	createdAt: number;
-	updatedAt: number;
-}
-
-export type PutMessagePlacementMoveInput = Omit<
-	MessagePlacementMoveItem,
-	"state" | "createdAt" | "updatedAt"
->;
-
-const DEFAULT_STATE: MessagePlacementMoveState = "pending";
+const DEFAULT_STATE: MessagePlacementMoveItem["state"] = "pending";
 
 function rowToItem(
 	row: typeof messagePlacementMoveTable.$inferSelect,
@@ -112,7 +94,7 @@ export class MessagePlacementMoveRepo {
 	 */
 	updateState = async (
 		messageId: string,
-		state: MessagePlacementMoveState,
+		state: MessagePlacementMoveItem["state"],
 	): Promise<MessagePlacementMoveItem> => {
 		const [row] = await this.db
 			.update(messagePlacementMoveTable)
