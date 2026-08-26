@@ -24,6 +24,10 @@ const E404 = execFailure(
 
 const OFFLINE = execFailure("npm error code EAI_AGAIN\nnpm error network\n");
 
+const OFFLINE_LOGGED = execFailure(
+	"npm error code EAI_AGAIN\nnpm error network request to https://registry.npmjs.org/@remit%2fui failed\nnpm error A complete log of this run can be found in: /home/runner/.npm/_logs/2026-08-26T09_12_31_404Z-debug-0.log\n",
+);
+
 describe("isMissingVersion", () => {
 	it("reads the version a publish has not propagated yet", () => {
 		assert.equal(isMissingVersion(ETARGET), true);
@@ -49,6 +53,18 @@ describe("isMissingPackage", () => {
 
 	it("reads the code out of a message-only error", () => {
 		assert.equal(isMissingPackage(new Error("npm error 404 Not Found")), true);
+	});
+
+	it("does not read a network failure as an absent package", () => {
+		assert.equal(isMissingPackage(OFFLINE), false);
+	});
+
+	it("does not read 404 in the debug-log path as an absent package", () => {
+		assert.equal(
+			isMissingPackage(OFFLINE_LOGGED),
+			false,
+			"a milliseconds field of 404 must not seed a package at 0.0.1",
+		);
 	});
 });
 

@@ -9,7 +9,13 @@
 const errorText = (error) =>
 	`${error.stdout ?? ""}${error.stderr ?? ""}${error.message ?? ""}`;
 
-export const isMissingPackage = (error) => errorText(error).includes("404");
+// npm closes every failure with the path to its debug log, whose millisecond
+// field is `404` about one run in a thousand. Only npm's own code line and its
+// numbered error line say the package is absent.
+const MISSING_PACKAGE = /\bE404\b|npm error 404\b/;
+
+export const isMissingPackage = (error) =>
+	MISSING_PACKAGE.test(errorText(error));
 
 export const isMissingVersion = (error) => errorText(error).includes("ETARGET");
 
