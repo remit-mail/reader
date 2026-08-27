@@ -395,6 +395,12 @@ export class MessageMoveService {
 
 		// Process move to trash
 		if (trashMailbox && moveToTrashMessages.length > 0) {
+			// Every message in the batch shares the config, so its Junk and Trash
+			// folders resolve once rather than once per message.
+			const configJunkRoles =
+				await this.mailboxSpecialUseService.resolveJunkRolesForConfig(
+					accountConfigId,
+				);
 			for (const { messageId, message, sourceMailbox } of moveToTrashMessages) {
 				// Update local state optimistically
 				await this.messageService.updateForMove(messageId, {
@@ -415,9 +421,7 @@ export class MessageMoveService {
 
 				await this.addressService.reconcileJunkOnlyForMessage(
 					messageId,
-					await this.mailboxSpecialUseService.resolveJunkRolesForConfig(
-						accountConfigId,
-					),
+					configJunkRoles,
 				);
 
 				events.push({
