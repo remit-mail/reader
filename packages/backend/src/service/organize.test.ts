@@ -101,7 +101,7 @@ const matchAccepted = async (
 	return result;
 };
 
-/** A standing filter fixture — the "other" filters the precedence check reads. */
+/** A standing filter fixture — the account's already-existing rules. */
 const filterItem = (over: Partial<FilterItem> = {}): FilterItem => ({
 	filterId: "filter-other",
 	accountConfigId: ACCOUNT_CONFIG_ID,
@@ -126,10 +126,9 @@ const filterItem = (over: Partial<FilterItem> = {}): FilterItem => ({
  * persists a standing rule.
  *
  * `activeFilters`/`filterAnchorRows`/`threadMessages` model the account's
- * *other*, already-existing standing filters and message rows the exclusive-
- * move precedence check (reader #350) reads — empty by default, so every
- * existing test (which never seeded a competing filter) is unaffected and the
- * precedence check is a same-length no-op.
+ * *other*, already-existing standing filters and message rows. A back-apply
+ * never arbitrates against them (reader #497), so `filterReads` pins that the
+ * Active filter set is not even consulted.
  */
 const trackingClient = (
 	seed: {
@@ -143,6 +142,7 @@ const trackingClient = (
 ) => {
 	const labeled: Array<{ messageId: string; labelId: string }> = [];
 	let filterWrites = 0;
+	let filterReads = 0;
 	let filterAnchorWrites = 0;
 	const anchorPuts: CreateFilterAnchorInput[] = [];
 	const activeFilters = seed.activeFilters ?? [];
@@ -190,7 +190,10 @@ const trackingClient = (
 				filterWrites += 1;
 				return {} as never;
 			},
-			listByAccountAndState: async () => activeFilters,
+			listByAccountAndState: async () => {
+				filterReads += 1;
+				return activeFilters;
+			},
 			refreshExpiry: async (filter: FilterItem) => filter,
 		},
 		filterAnchor: {
@@ -214,6 +217,7 @@ const trackingClient = (
 		client,
 		labeled,
 		filterWrites: () => filterWrites,
+		filterReads: () => filterReads,
 		filterAnchorWrites: () => filterAnchorWrites,
 		anchorPuts,
 	};
@@ -728,7 +732,7 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 
 		const tracked = trackingClient();
 		const result = await applyOrganize(
-			{ client: tracked.client, match: matchDeps(store) },
+			{ client: tracked.client },
 			ACCOUNT_CONFIG_ID,
 			applied.messageIds,
 			p,
@@ -764,7 +768,7 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 		);
 		const tracked = trackingClient();
 		const result = await applyOrganize(
-			{ client: tracked.client, match: matchDeps(store) },
+			{ client: tracked.client },
 			ACCOUNT_CONFIG_ID,
 			matched,
 			p,
@@ -794,7 +798,6 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 			{
 				client: tracked.client,
 				moveService: mover.moveService,
-				match: matchDeps(store),
 			},
 			ACCOUNT_CONFIG_ID,
 			matched,
@@ -844,7 +847,6 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 			{
 				client: tracked.client,
 				moveService: mover.moveService,
-				match: matchDeps(store),
 			},
 			ACCOUNT_CONFIG_ID,
 			matched,
@@ -880,7 +882,6 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 			{
 				client: tracked.client,
 				moveService: mover.moveService,
-				match: matchDeps(store),
 			},
 			ACCOUNT_CONFIG_ID,
 			matched,
@@ -890,7 +891,6 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 			{
 				client: tracked.client,
 				moveService: mover.moveService,
-				match: matchDeps(store),
 			},
 			ACCOUNT_CONFIG_ID,
 			matched,
@@ -912,22 +912,25 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 	});
 });
 
-describe("applyOrganize resolves move precedence against current Active filters (reader #350)", () => {
-	it("suppresses an out-ranked move but still applies the label", async () => {
+/**
+ * A standing filter acts when a message is first seen and when the user presses
+ * "run rules now", and holds no claim afterwards. A later apply is the newer
+ * event, so it moves the mail — and because nothing is suppressed, `applied`
+ * counts moves that happened rather than moves that were skipped (reader #497).
+ */
+describe("a user-initiated apply outranks every standing filter (reader #497)", () => {
+	it("moves a hand-picked selection a standing filter claims for a different mailbox", async () => {
 		const store = createMemoryVectorStore();
-		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
-		// The back-applied filter — "move to mbox-old" — is out-ranked by a
-		// more-recently-changed standing filter that currently claims msg-1 for a
-		// different destination.
-		const p = predicate({
-			actionLabelId: "lbl-1",
-			actionMailboxId: "mbox-old",
-		});
-		const newerFilter = filterItem({
-			filterId: "filter-newer",
+		const picked = ["msg-1", "msg-2", "msg-3"];
+		await store.upsert(picked.map((id) => bodyChunk(id, ANCHOR_VECTOR)));
+		const p = predicate({ actionMailboxId: "mbox-projects" });
+		// The standing rule that filed all three into Archive in the first place —
+		// moving them back out is the whole point of the button.
+		const standing = filterItem({
+			filterId: "filter-github",
 			ruleChangedAt: 1_000,
 			actionChangedAt: 1_000,
-			actionMailboxId: "mbox-new",
+			actionMailboxId: "mbox-archive",
 			literalClauses: [{ field: "Subject", value: "reservation" }],
 		});
 
@@ -937,128 +940,40 @@ describe("applyOrganize resolves move precedence against current Active filters 
 			p,
 		);
 		const tracked = trackingClient({
-			activeFilters: [newerFilter],
-			threadMessages: { "msg-1": { subject: "Dinner reservation" } },
+			activeFilters: [standing],
+			threadMessages: Object.fromEntries(
+				picked.map((id) => [id, { subject: "Dinner reservation" }]),
+			),
 		});
 		const mover = trackingMoveService();
 		const result = await applyOrganize(
-			{
-				client: tracked.client,
-				moveService: mover.moveService,
-				match: matchDeps(store),
-			},
+			{ client: tracked.client, moveService: mover.moveService },
 			ACCOUNT_CONFIG_ID,
 			matched,
 			p,
 		);
 
-		assert.equal(result.applied, 1, "a suppressed move is not a failure");
+		assert.deepEqual(
+			mover.moves.map((move) => move.messageId).sort(),
+			picked,
+			"every hand-picked message moves",
+		);
+		assert.ok(
+			mover.moves.every(
+				(move) => move.destinationMailboxId === "mbox-projects",
+			),
+			"the destination is the one the user picked, not the standing filter's",
+		);
+		assert.equal(
+			result.applied,
+			mover.moves.length,
+			"the reported count equals the moves that actually happened",
+		);
 		assert.equal(result.failed, 0);
-		assert.deepEqual(
-			tracked.labeled,
-			[{ messageId: "msg-1", labelId: "lbl-1" }],
-			"the additive label still applies even though the move is suppressed",
-		);
-		assert.deepEqual(
-			mover.moves,
-			[],
-			"the exclusive move is skipped in favor of the newer filter's own move",
-		);
-	});
-
-	it("moves the message when no other Active filter currently outranks it", async () => {
-		const store = createMemoryVectorStore();
-		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
-		const p = predicate({ actionMailboxId: "mbox-target" });
-		// A different standing filter matches this message too, but agrees on the
-		// same destination — nothing to defer to.
-		const agreeingFilter = filterItem({
-			filterId: "filter-agrees",
-			ruleChangedAt: 1_000,
-			actionChangedAt: 1_000,
-			actionMailboxId: "mbox-target",
-			literalClauses: [{ field: "Subject", value: "reservation" }],
-		});
-
-		const { messageIds: matched } = await matchAccepted(
-			matchDeps(store),
-			ACCOUNT_CONFIG_ID,
-			p,
-		);
-		const tracked = trackingClient({
-			activeFilters: [agreeingFilter],
-			threadMessages: { "msg-1": { subject: "Dinner reservation" } },
-		});
-		const mover = trackingMoveService();
-		const result = await applyOrganize(
-			{
-				client: tracked.client,
-				moveService: mover.moveService,
-				match: matchDeps(store),
-			},
-			ACCOUNT_CONFIG_ID,
-			matched,
-			p,
-		);
-
-		assert.equal(result.applied, 1);
-		assert.equal(result.failed, 0);
-		assert.deepEqual(
-			mover.moves.map((m) => m.messageId),
-			["msg-1"],
-			"the move proceeds exactly as it would have before this check existed",
-		);
-	});
-
-	it("suppresses an out-ranked move by a newer *semantic* filter's persisted anchor", async () => {
-		const store = createMemoryVectorStore();
-		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
-		const p = predicate({ actionMailboxId: "mbox-old" });
-		const newerSemanticFilter = filterItem({
-			filterId: "filter-newer-semantic",
-			ruleChangedAt: 1_000,
-			actionChangedAt: 1_000,
-			actionMailboxId: "mbox-new",
-			hasAnchor: true,
-		});
-		const persistedAnchor: FilterAnchorItem = {
-			accountConfigId: ACCOUNT_CONFIG_ID,
-			filterId: "filter-newer-semantic",
-			anchorEmbedding: ANCHOR_VECTOR,
-			anchorEmbeddingId: CURRENT_EMBEDDING_ID,
-			anchorSourceText: ANCHOR_SOURCE_TEXT,
-			anchorMessageId: "msg-anchor-2",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-
-		const { messageIds: matched } = await matchAccepted(
-			matchDeps(store),
-			ACCOUNT_CONFIG_ID,
-			p,
-		);
-		const tracked = trackingClient({
-			activeFilters: [newerSemanticFilter],
-			filterAnchorRows: [persistedAnchor],
-			threadMessages: { "msg-1": { subject: "Dinner reservation" } },
-		});
-		const mover = trackingMoveService();
-		const result = await applyOrganize(
-			{
-				client: tracked.client,
-				moveService: mover.moveService,
-				match: matchDeps(store, [], [persistedAnchor]),
-			},
-			ACCOUNT_CONFIG_ID,
-			matched,
-			p,
-		);
-
-		assert.equal(result.applied, 1);
-		assert.deepEqual(
-			mover.moves,
-			[],
-			"a newer semantic filter's own persisted anchor outranks the move",
+		assert.equal(
+			tracked.filterReads(),
+			0,
+			"the account's standing filters are not consulted at all",
 		);
 	});
 });
@@ -1067,20 +982,16 @@ describe("applyOrganize resolves move precedence against current Active filters 
  * A same-dimension embedding-model swap leaves every persisted FilterAnchor
  * stamped with the old model's id and its vector in the old model's space.
  * Index-time matching repairs that lazily (RFC 039 Decision 1a); the
- * back-apply paths must do the same, or they score a current-model vector
- * against a stale-model anchor and silently disagree with the pipeline they
- * claim to mirror (reader #399).
+ * back-apply widen must do the same, or it queries with a stale-model vector
+ * and silently disagrees with the pipeline it claims to mirror (reader #399).
  */
 describe("back-apply repairs a drifted anchor the way index-time matching does (reader #399)", () => {
-	const staleAnchor = (
-		filterId: string,
-		// Written under the previous model: same dimensions, different space, so
-		// nothing but the id stamp distinguishes it from a usable anchor.
-		anchorEmbedding: number[] = ORTHOGONAL_VECTOR,
-	): FilterAnchorItem => ({
+	// Written under the previous model: same dimensions, different space, so
+	// nothing but the id stamp distinguishes it from a usable anchor.
+	const staleAnchor = (filterId: string): FilterAnchorItem => ({
 		accountConfigId: ACCOUNT_CONFIG_ID,
 		filterId,
-		anchorEmbedding,
+		anchorEmbedding: ORTHOGONAL_VECTOR,
 		anchorEmbeddingId: STALE_EMBEDDING_ID,
 		anchorSourceText: ANCHOR_SOURCE_TEXT,
 		anchorMessageId: "msg-anchor",
@@ -1142,104 +1053,6 @@ describe("back-apply repairs a drifted anchor the way index-time matching does (
 		);
 		assert.deepEqual(deps.anchorPuts[0].anchorEmbedding, ANCHOR_VECTOR);
 		assert.equal(deps.anchorPuts[0].anchorSourceText, ANCHOR_SOURCE_TEXT);
-	});
-
-	it("filterCurrentlyMatches re-embeds a drifted anchor, so the drifted filter still outranks the move", async () => {
-		const store = createMemoryVectorStore();
-		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
-		const p = predicate({
-			actionLabelId: "lbl-1",
-			actionMailboxId: "mbox-old",
-		});
-		const newerSemanticFilter = filterItem({
-			filterId: "filter-newer-semantic",
-			ruleChangedAt: 1_000,
-			actionChangedAt: 1_000,
-			actionMailboxId: "mbox-new",
-			hasAnchor: true,
-		});
-		const drifted = staleAnchor("filter-newer-semantic");
-
-		const { messageIds: matched } = await matchAccepted(
-			matchDeps(store),
-			ACCOUNT_CONFIG_ID,
-			p,
-		);
-		const tracked = trackingClient({
-			activeFilters: [newerSemanticFilter],
-			filterAnchorRows: [drifted],
-			threadMessages: { "msg-1": { subject: "Dinner reservation" } },
-		});
-		const mover = trackingMoveService();
-		const result = await applyOrganize(
-			{
-				client: tracked.client,
-				moveService: mover.moveService,
-				match: currentModelDeps(store, [drifted]),
-			},
-			ACCOUNT_CONFIG_ID,
-			matched,
-			p,
-		);
-
-		assert.equal(result.applied, 1);
-		assert.deepEqual(
-			mover.moves,
-			[],
-			"scored against the re-embedded anchor the newer filter contests the move; against the stale one it would silently lose",
-		);
-		assert.deepEqual(
-			tracked.anchorPuts.map((put) => [put.filterId, put.anchorEmbeddingId]),
-			[["filter-newer-semantic", CURRENT_EMBEDDING_ID]],
-			"the repair is written back in place, not left for the next pass",
-		);
-	});
-
-	it("keeps a failed re-embed isolated to its own filter rather than throwing out of the arbitration", async () => {
-		const store = createMemoryVectorStore();
-		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
-		const p = predicate({ actionMailboxId: "mbox-target" });
-		// The stale vector would score a match, so scoring against it — which is
-		// exactly what this path did before the repair existed — suppresses the
-		// move. A stamp that cannot be honoured is not a match: the filter is
-		// skipped and loudly logged, and the rest of the pass is unaffected.
-		const drifted = staleAnchor("filter-broken-anchor", ANCHOR_VECTOR);
-		const tracked = trackingClient({
-			activeFilters: [
-				filterItem({
-					filterId: "filter-broken-anchor",
-					ruleChangedAt: 1_000,
-					actionChangedAt: 1_000,
-					actionMailboxId: "mbox-elsewhere",
-					hasAnchor: true,
-				}),
-			],
-			filterAnchorRows: [drifted],
-			threadMessages: { "msg-1": { subject: "Dinner reservation" } },
-		});
-		const mover = trackingMoveService();
-
-		const result = await applyOrganize(
-			{
-				client: tracked.client,
-				moveService: mover.moveService,
-				match: currentModelDeps(store, [drifted], async (text) => {
-					if (text === ANCHOR_SOURCE_TEXT) throw new Error("embedder refused");
-					return ANCHOR_VECTOR;
-				}),
-			},
-			ACCOUNT_CONFIG_ID,
-			["msg-1"],
-			p,
-		);
-
-		assert.equal(result.applied, 1);
-		assert.equal(result.failed, 0);
-		assert.deepEqual(
-			mover.moves.map((move) => move.destinationMailboxId),
-			["mbox-target"],
-			"an un-repairable anchor skips its own filter — it neither decides the arbitration on a stale score nor aborts the pass",
-		);
 	});
 });
 
@@ -1340,7 +1153,7 @@ describe("matchOrganize with ListId and FromDomain clauses", () => {
 
 		const tracked = trackingClient();
 		const result = await applyOrganize(
-			{ client: tracked.client, match: deps },
+			{ client: tracked.client },
 			ACCOUNT_CONFIG_ID,
 			applied.messageIds,
 			p,
