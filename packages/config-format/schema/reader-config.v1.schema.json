@@ -1,0 +1,840 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"type": "object",
+	"properties": {
+		"kind": {
+			"type": "string",
+			"const": "reader.config"
+		},
+		"schemaVersion": {
+			"type": "number",
+			"const": 1
+		},
+		"generator": {
+			"description": "Which reader wrote this file, and when.",
+			"type": "object",
+			"properties": {
+				"app": {
+					"type": "string",
+					"minLength": 1
+				},
+				"version": {
+					"type": "string",
+					"minLength": 1
+				},
+				"exportedAt": {
+					"type": "string",
+					"format": "date-time",
+					"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-]\\d{2}:\\d{2})))$"
+				}
+			},
+			"required": [
+				"app",
+				"version",
+				"exportedAt"
+			],
+			"additionalProperties": false
+		},
+		"provenance": {
+			"description": "The instance this file was exported from. Never applied.",
+			"type": "object",
+			"properties": {
+				"accountConfigId": {
+					"type": "string",
+					"format": "uuid",
+					"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000)$"
+				},
+				"instance": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"accountConfigId",
+				"instance"
+			],
+			"additionalProperties": false
+		},
+		"accountConfig": {
+			"type": "object",
+			"properties": {
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"name"
+			],
+			"additionalProperties": false
+		},
+		"accounts": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"accountId": {
+						"type": "string",
+						"format": "uuid",
+						"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000)$"
+					},
+					"email": {
+						"type": "string",
+						"minLength": 1
+					},
+					"username": {
+						"type": "string",
+						"minLength": 1
+					},
+					"authType": {
+						"type": "string",
+						"enum": [
+							"password",
+							"oauthMicrosoft"
+						]
+					},
+					"credentials": {
+						"type": "object",
+						"properties": {
+							"required": {
+								"type": "string",
+								"enum": [
+									"password",
+									"oauth"
+								]
+							},
+							"provider": {
+								"type": "string",
+								"const": "microsoft"
+							}
+						},
+						"required": [
+							"required"
+						],
+						"additionalProperties": false
+					},
+					"isActive": {
+						"type": "boolean"
+					},
+					"imap": {
+						"type": "object",
+						"properties": {
+							"host": {
+								"type": "string",
+								"minLength": 1
+							},
+							"port": {
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 65535
+							},
+							"tls": {
+								"type": "boolean"
+							},
+							"startTls": {
+								"type": "boolean"
+							}
+						},
+						"required": [
+							"host",
+							"port",
+							"tls",
+							"startTls"
+						],
+						"additionalProperties": false
+					},
+					"smtp": {
+						"type": "object",
+						"properties": {
+							"enabled": {
+								"type": "boolean"
+							},
+							"host": {
+								"type": "string"
+							},
+							"port": {
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 65535
+							},
+							"tls": {
+								"type": "boolean"
+							},
+							"startTls": {
+								"type": "boolean"
+							},
+							"username": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"enabled",
+							"host",
+							"port",
+							"tls",
+							"startTls",
+							"username"
+						],
+						"additionalProperties": false
+					},
+					"displayName": {
+						"type": "string"
+					},
+					"muted": {
+						"anyOf": [
+							{
+								"type": "object",
+								"properties": {
+									"value": {
+										"type": "boolean"
+									},
+									"setAt": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"setBy": {
+										"type": "string"
+									},
+									"expiresAt": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"reason": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"value",
+									"setAt"
+								],
+								"additionalProperties": false
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"composeLanguages": {
+						"type": "array",
+						"items": {
+							"type": "string",
+							"minLength": 1
+						}
+					},
+					"signature": {
+						"type": "object",
+						"properties": {
+							"plainText": {
+								"type": "string"
+							},
+							"html": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"plainText",
+							"html"
+						],
+						"additionalProperties": false
+					},
+					"folderRoles": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"properties": {
+								"role": {
+									"type": "string",
+									"enum": [
+										"Inbox",
+										"Drafts",
+										"Sent",
+										"Archive",
+										"Junk",
+										"Trash",
+										"All",
+										"Flagged"
+									]
+								},
+								"folderPath": {
+									"type": "string",
+									"minLength": 1,
+									"maxLength": 512
+								}
+							},
+							"required": [
+								"role",
+								"folderPath"
+							],
+							"additionalProperties": false
+						}
+					},
+					"folderOverrides": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"properties": {
+								"folderPath": {
+									"type": "string",
+									"minLength": 1,
+									"maxLength": 512
+								},
+								"displayName": {
+									"type": "string"
+								},
+								"muted": {
+									"anyOf": [
+										{
+											"type": "object",
+											"properties": {
+												"value": {
+													"type": "boolean"
+												},
+												"setAt": {
+													"type": "integer",
+													"minimum": -9007199254740991,
+													"maximum": 9007199254740991
+												},
+												"setBy": {
+													"type": "string"
+												},
+												"expiresAt": {
+													"type": "integer",
+													"minimum": -9007199254740991,
+													"maximum": 9007199254740991
+												},
+												"reason": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"value",
+												"setAt"
+											],
+											"additionalProperties": false
+										},
+										{
+											"type": "null"
+										}
+									]
+								}
+							},
+							"required": [
+								"folderPath",
+								"displayName",
+								"muted"
+							],
+							"additionalProperties": false
+						}
+					},
+					"pinnedFolders": {
+						"type": "array",
+						"items": {
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 512
+						}
+					}
+				},
+				"required": [
+					"accountId",
+					"email",
+					"username",
+					"authType",
+					"credentials",
+					"isActive",
+					"imap",
+					"smtp",
+					"displayName",
+					"muted",
+					"composeLanguages",
+					"signature",
+					"folderRoles",
+					"folderOverrides",
+					"pinnedFolders"
+				],
+				"additionalProperties": false
+			}
+		},
+		"labels": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"name": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 140
+					},
+					"color": {
+						"type": "string",
+						"enum": [
+							"Default",
+							"Red",
+							"Orange",
+							"Yellow",
+							"Green",
+							"Teal",
+							"Blue",
+							"Purple",
+							"Gray"
+						]
+					}
+				},
+				"required": [
+					"name",
+					"color"
+				],
+				"additionalProperties": false
+			}
+		},
+		"filters": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"name": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 256
+					},
+					"scope": {
+						"type": "string",
+						"enum": [
+							"Standing",
+							"Temporary"
+						]
+					},
+					"expiresAt": {
+						"anyOf": [
+							{
+								"type": "string",
+								"format": "date-time",
+								"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-]\\d{2}:\\d{2})))$"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"matchOperator": {
+						"type": "string",
+						"enum": [
+							"And",
+							"Or"
+						]
+					},
+					"literalClauses": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"properties": {
+								"field": {
+									"type": "string",
+									"enum": [
+										"From",
+										"Subject",
+										"HasWords",
+										"ListId",
+										"FromDomain"
+									]
+								},
+								"value": {
+									"type": "string",
+									"minLength": 1,
+									"maxLength": 256
+								}
+							},
+							"required": [
+								"field",
+								"value"
+							],
+							"additionalProperties": false
+						}
+					},
+					"actionLabelName": {
+						"anyOf": [
+							{
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 140
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"actionFolder": {
+						"anyOf": [
+							{
+								"type": "object",
+								"properties": {
+									"accountId": {
+										"type": "string",
+										"format": "uuid",
+										"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000)$"
+									},
+									"folderPath": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 512
+									}
+								},
+								"required": [
+									"accountId",
+									"folderPath"
+								],
+								"additionalProperties": false
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"anchor": {
+						"anyOf": [
+							{
+								"type": "object",
+								"properties": {
+									"sourceText": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 512
+									},
+									"embeddingId": {
+										"type": "string",
+										"minLength": 1
+									},
+									"sourceMessageId": {
+										"type": "string",
+										"format": "uuid",
+										"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000)$"
+									}
+								},
+								"required": [
+									"sourceText",
+									"embeddingId",
+									"sourceMessageId"
+								],
+								"additionalProperties": false
+							},
+							{
+								"type": "null"
+							}
+						]
+					}
+				},
+				"required": [
+					"name",
+					"scope",
+					"expiresAt",
+					"matchOperator",
+					"literalClauses",
+					"actionLabelName",
+					"actionFolder",
+					"anchor"
+				],
+				"additionalProperties": false
+			}
+		},
+		"addressFlags": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"normalizedEmail": {
+						"type": "string",
+						"minLength": 1
+					},
+					"displayName": {
+						"type": "string"
+					},
+					"flags": {
+						"type": "object",
+						"properties": {
+							"trusted": {
+								"type": "object",
+								"properties": {
+									"value": {
+										"type": "boolean"
+									},
+									"setAt": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"setBy": {
+										"type": "string"
+									},
+									"expiresAt": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"reason": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"value",
+									"setAt"
+								],
+								"additionalProperties": false
+							},
+							"blocked": {
+								"type": "object",
+								"properties": {
+									"value": {
+										"type": "boolean"
+									},
+									"setAt": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"setBy": {
+										"type": "string"
+									},
+									"expiresAt": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"reason": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"value",
+									"setAt"
+								],
+								"additionalProperties": false
+							},
+							"muted": {
+								"type": "object",
+								"properties": {
+									"value": {
+										"type": "boolean"
+									},
+									"setAt": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"setBy": {
+										"type": "string"
+									},
+									"expiresAt": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"reason": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"value",
+									"setAt"
+								],
+								"additionalProperties": false
+							},
+							"vip": {
+								"type": "object",
+								"properties": {
+									"value": {
+										"type": "boolean"
+									},
+									"setAt": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"setBy": {
+										"type": "string"
+									},
+									"expiresAt": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"reason": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"value",
+									"setAt"
+								],
+								"additionalProperties": false
+							},
+							"category": {
+								"type": "object",
+								"properties": {
+									"value": {
+										"type": "string",
+										"enum": [
+											"uncategorized",
+											"personal",
+											"newsletter",
+											"marketing",
+											"automated",
+											"transactional",
+											"social"
+										]
+									},
+									"setAt": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"setBy": {
+										"type": "string"
+									},
+									"expiresAt": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"reason": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"value",
+									"setAt"
+								],
+								"additionalProperties": false
+							},
+							"autoArchive": {
+								"type": "object",
+								"properties": {
+									"value": {
+										"type": "boolean"
+									},
+									"setAt": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"setBy": {
+										"type": "string"
+									},
+									"expiresAt": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"reason": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"value",
+									"setAt"
+								],
+								"additionalProperties": false
+							},
+							"unsubscribed": {
+								"type": "object",
+								"properties": {
+									"value": {
+										"type": "boolean"
+									},
+									"setAt": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"setBy": {
+										"type": "string"
+									},
+									"expiresAt": {
+										"type": "integer",
+										"minimum": -9007199254740991,
+										"maximum": 9007199254740991
+									},
+									"reason": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"value",
+									"setAt"
+								],
+								"additionalProperties": false
+							}
+						},
+						"additionalProperties": false
+					}
+				},
+				"required": [
+					"normalizedEmail",
+					"displayName",
+					"flags"
+				],
+				"additionalProperties": false
+			}
+		},
+		"clientPreferences": {
+			"type": "object",
+			"properties": {
+				"theme": {
+					"type": "string"
+				},
+				"density": {
+					"type": "string"
+				},
+				"defaultComposerFormat": {
+					"type": "string"
+				},
+				"savedSearches": {
+					"type": "array",
+					"items": {
+						"type": "object",
+						"properties": {
+							"name": {
+								"type": "string",
+								"minLength": 1
+							},
+							"query": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"name",
+							"query"
+						],
+						"additionalProperties": false
+					}
+				}
+			},
+			"required": [
+				"theme",
+				"density",
+				"defaultComposerFormat",
+				"savedSearches"
+			],
+			"additionalProperties": false
+		},
+		"messageDecisions": {
+			"description": "Reserved for a later schema version; must be empty in v1.",
+			"maxItems": 0,
+			"type": "array",
+			"items": {}
+		}
+	},
+	"required": [
+		"kind",
+		"schemaVersion",
+		"generator",
+		"provenance",
+		"accountConfig",
+		"accounts",
+		"labels",
+		"filters",
+		"addressFlags"
+	],
+	"additionalProperties": false,
+	"$id": "https://schemas.remit.email/reader-config.v1.schema.json",
+	"title": "reader configuration document, v1"
+}

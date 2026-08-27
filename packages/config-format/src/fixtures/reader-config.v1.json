@@ -1,0 +1,169 @@
+{
+	"kind": "reader.config",
+	"schemaVersion": 1,
+	"generator": {
+		"app": "reader",
+		"version": "0.1.0",
+		"exportedAt": "2026-08-27T09:15:00+02:00"
+	},
+	"provenance": {
+		"accountConfigId": "0d9c8b7a-6e5f-4d3c-b2a1-0f9e8d7c6b5a",
+		"instance": "reader.ischen.nl"
+	},
+	"accountConfig": {
+		"name": "Matthijs"
+	},
+	"accounts": [
+		{
+			"accountId": "6f4c2c30-9a2c-4a7f-9f9f-1f2c3d4e5a6b",
+			"email": "matthijs@ischen.nl",
+			"username": "matthijs@ischen.nl",
+			"authType": "password",
+			"credentials": { "required": "password" },
+			"isActive": true,
+			"imap": {
+				"host": "imap.ischen.nl",
+				"port": 993,
+				"tls": true,
+				"startTls": false
+			},
+			"smtp": {
+				"enabled": true,
+				"host": "smtp.ischen.nl",
+				"port": 587,
+				"tls": false,
+				"startTls": true,
+				"username": ""
+			},
+			"displayName": "Matthijs van Henten",
+			"muted": null,
+			"composeLanguages": ["nl-NL", "en-GB"],
+			"signature": {
+				"plainText": "Matthijs van Henten\n",
+				"html": "<p>Matthijs van Henten</p>"
+			},
+			"folderRoles": [
+				{ "role": "Inbox", "folderPath": "INBOX" },
+				{ "role": "Sent", "folderPath": "INBOX.Sent" },
+				{ "role": "Junk", "folderPath": "INBOX.Junk" },
+				{ "role": "Trash", "folderPath": "INBOX.Trash" }
+			],
+			"folderOverrides": [
+				{
+					"folderPath": "INBOX.Lists.dev-null",
+					"displayName": "dev/null",
+					"muted": {
+						"value": true,
+						"setAt": 1756281600000,
+						"setBy": "web-client",
+						"reason": "high volume, read on demand"
+					}
+				}
+			],
+			"pinnedFolders": ["INBOX", "INBOX.Facturen"]
+		},
+		{
+			"accountId": "b3a1d0c7-5e64-4f1b-8c2a-77e9d3b40f18",
+			"email": "work@example.com",
+			"username": "work@example.com",
+			"authType": "oauthMicrosoft",
+			"credentials": { "required": "oauth", "provider": "microsoft" },
+			"isActive": true,
+			"imap": {
+				"host": "outlook.office365.com",
+				"port": 993,
+				"tls": true,
+				"startTls": false
+			},
+			"smtp": {
+				"enabled": false,
+				"host": "",
+				"port": 587,
+				"tls": false,
+				"startTls": true,
+				"username": ""
+			},
+			"displayName": "",
+			"muted": null,
+			"composeLanguages": [],
+			"signature": { "plainText": "", "html": "" },
+			"folderRoles": [{ "role": "Inbox", "folderPath": "INBOX" }],
+			"folderOverrides": [],
+			"pinnedFolders": []
+		}
+	],
+	"labels": [
+		{ "name": "Facturen", "color": "Blue" },
+		{ "name": "Te lezen", "color": "Default" }
+	],
+	"filters": [
+		{
+			"name": "Invoices to Facturen",
+			"scope": "Standing",
+			"expiresAt": null,
+			"matchOperator": "Or",
+			"literalClauses": [
+				{ "field": "Subject", "value": "factuur" },
+				{ "field": "FromDomain", "value": "moneybird.com" }
+			],
+			"actionLabelName": "Facturen",
+			"actionFolder": {
+				"accountId": "6f4c2c30-9a2c-4a7f-9f9f-1f2c3d4e5a6b",
+				"folderPath": "INBOX.Facturen"
+			},
+			"anchor": null
+		},
+		{
+			"name": "Anything like this release note",
+			"scope": "Temporary",
+			"expiresAt": "2026-12-31T23:59:59+01:00",
+			"matchOperator": "And",
+			"literalClauses": [],
+			"actionLabelName": "Te lezen",
+			"actionFolder": null,
+			"anchor": {
+				"sourceText": "We have shipped version 4.2 of the runtime; the changelog covers the new scheduler.",
+				"embeddingId": "amazon.titan-embed-text-v2:0@1024",
+				"sourceMessageId": "2c9e4b11-7d5a-4f60-9a31-5b8c0e7f2d44"
+			}
+		}
+	],
+	"addressFlags": [
+		{
+			"normalizedEmail": "post@bank.example",
+			"displayName": "Bank",
+			"flags": {
+				"vip": {
+					"value": true,
+					"setAt": 1750000000000,
+					"setBy": "web-client",
+					"reason": "payment alerts"
+				},
+				"category": {
+					"value": "transactional",
+					"setAt": 1750000000000
+				}
+			}
+		},
+		{
+			"normalizedEmail": "noreply@newsletter.example",
+			"displayName": "Weekly Roundup",
+			"flags": {
+				"unsubscribed": {
+					"value": true,
+					"setAt": 1755000000000,
+					"expiresAt": 1790000000000,
+					"reason": "unsubscribe link never worked"
+				},
+				"muted": { "value": true, "setAt": 1755000000000 }
+			}
+		}
+	],
+	"clientPreferences": {
+		"theme": "dark",
+		"density": "comfortable",
+		"defaultComposerFormat": "markdown",
+		"savedSearches": [{ "name": "Unpaid invoices", "query": "label:Facturen is:unread" }]
+	},
+	"messageDecisions": []
+}
