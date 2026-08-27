@@ -26,12 +26,15 @@ import { NotFoundError } from "../error.js";
 import { envelopeAddressId } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
 import {
+	type BoundSql,
 	JUNK_ONLY_FLAG,
+	type JunkOnlyRoleMailboxes,
 	restoreSql,
 	withholdSql,
 } from "../repair/junk-only-address.js";
 import { addressTable } from "../schema/i4-address.js";
-import { envelopeAddressTable } from "../schema/message-data.js";
+import { mailboxTable } from "../schema/i4-mailbox.js";
+import { envelopeAddressTable, messageTable } from "../schema/message-data.js";
 import { runInTransaction } from "../tx.js";
 import {
 	addressCorrespondence,
@@ -41,6 +44,7 @@ import {
 	addressRecency,
 	addressSearchMatch,
 } from "./address-search-predicates.js";
+import { MailboxSpecialUseRepo } from "./i4-mailbox-special-use.js";
 
 type DB = Db<Record<string, unknown>>;
 
@@ -193,7 +197,11 @@ const boundToDrizzle = (query: string, params: readonly unknown[]): SQL => {
 };
 
 export class AddressRepo implements IAddressRepository {
-	constructor(private db: DB) {}
+	private readonly mailboxSpecialUse: MailboxSpecialUseRepo;
+
+	constructor(private db: DB) {
+		this.mailboxSpecialUse = new MailboxSpecialUseRepo(db);
+	}
 
 	async createAddress(input: CreateAddressInput): Promise<AddressItem> {
 		const now = Date.now();
@@ -331,15 +339,50 @@ export class AddressRepo implements IAddressRepository {
 		return rowToAddress(row);
 	}
 
+	/**
+	 * The account comes from the message's own mailbox rather than from the
+	 * caller: every path that moves a message already holds the mailbox row, and
+	 * a threaded-in account id is one more argument three callers could pass
+	 * wrong. A message that is gone reconciles nothing.
+	 */
 	async reconcileJunkOnlyForMessage(messageId: string): Promise<void> {
-		const scope = ` AND address.address_id IN (
+		const roles = await this.roleMailboxesForMessage(messageId);
+		if (!roles) return;
+
+		const scope: BoundSql = {
+			sql: ` AND address.address_id IN (
 			SELECT address_id FROM envelope_address WHERE message_id = ?
-		)`;
+		)`,
+			params: [messageId],
+		};
 		const now = Date.now();
-		await this.db.run(
-			boundToDrizzle(withholdSql(scope), [now, JUNK_MOVE, now, messageId]),
-		);
-		await this.db.run(boundToDrizzle(restoreSql(scope), [now, messageId]));
+		const withhold = withholdSql(roles, now, JUNK_MOVE, scope);
+		await this.db.run(boundToDrizzle(withhold.sql, withhold.params));
+		const restore = restoreSql(roles, now, scope);
+		await this.db.run(boundToDrizzle(restore.sql, restore.params));
+	}
+
+	private async roleMailboxesForMessage(
+		messageId: string,
+	): Promise<JunkOnlyRoleMailboxes | null> {
+		const [row] = await this.db
+			.select({ accountId: mailboxTable.accountId })
+			.from(messageTable)
+			.innerJoin(
+				mailboxTable,
+				eq(mailboxTable.mailboxId, messageTable.mailboxId),
+			)
+			.where(eq(messageTable.messageId, messageId));
+		if (!row) return null;
+
+		const [junk, trash] = await Promise.all([
+			this.mailboxSpecialUse.findJunkMailbox(row.accountId),
+			this.mailboxSpecialUse.findTrashMailbox(row.accountId),
+		]);
+		return {
+			junkMailboxIds: junk ? [junk.mailboxId] : [],
+			trashMailboxIds: trash ? [trash.mailboxId] : [],
+		};
 	}
 
 	async getAddress(

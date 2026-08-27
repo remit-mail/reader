@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { after, before, beforeEach, describe, test } from "node:test";
+import { composeFolderRoleAppointmentName } from "@remit/data-ports/folder-role";
+import { CanonicalMailboxRole } from "@remit/domain-enums";
 import Database from "better-sqlite3";
 import { shippedTableDdl } from "../test-shipped-sqlite-schema.js";
 import {
@@ -23,7 +25,15 @@ interface AddressRow {
 describe("addresses standing only on mail in Junk", () => {
 	let sqlite: Database.Database;
 
-	const mailbox = (mailboxId: string, specialUse: string | null): void => {
+	const mailbox = (
+		mailboxId: string,
+		specialUse: string | null,
+		folder: {
+			accountId?: string;
+			fullPath?: string;
+			hierarchyDelimiter?: string;
+		} = {},
+	): void => {
 		sqlite
 			.prepare(
 				`INSERT INTO mailbox (
@@ -32,9 +42,30 @@ describe("addresses standing only on mail in Junk", () => {
 					unseen_count, deleted_count, total_size, last_sync_uid,
 					high_water_mark_uid, last_message_sync_at, special_use,
 					created_at, updated_at
-				) VALUES (?, 'acc', '', '/', ?, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, ?, 0, 0)`,
+				) VALUES (?, ?, '', ?, ?, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, ?, 0, 0)`,
 			)
-			.run(mailboxId, mailboxId, specialUse);
+			.run(
+				mailboxId,
+				folder.accountId ?? "acc",
+				folder.hierarchyDelimiter ?? "/",
+				folder.fullPath ?? mailboxId,
+				specialUse,
+			);
+	};
+
+	const appointJunk = (accountId: string, mailboxId: string): void => {
+		sqlite
+			.prepare(
+				`INSERT INTO account_setting (
+					account_setting_id, account_config_id, name, value,
+					created_at, updated_at
+				) VALUES (?, 'cfg-1', ?, ?, 0, 0)`,
+			)
+			.run(
+				`${accountId}-junk`,
+				composeFolderRoleAppointmentName(accountId, CanonicalMailboxRole.Junk),
+				JSON.stringify({ kind: "String", value: mailboxId }),
+			);
 	};
 
 	const specialUseEntry = (mailboxId: string, specialUse: string): void => {
@@ -123,6 +154,7 @@ describe("addresses standing only on mail in Junk", () => {
 			"message",
 			"mailbox",
 			"mailbox_special_use_entry",
+			"account_setting",
 		]) {
 			sqlite.exec(shippedTableDdl(DDL_TAG, table));
 		}
@@ -148,6 +180,7 @@ describe("addresses standing only on mail in Junk", () => {
 			"message",
 			"mailbox",
 			"mailbox_special_use_entry",
+			"account_setting",
 		]) {
 			sqlite.exec(`DELETE FROM ${table}`);
 		}
@@ -380,13 +413,10 @@ describe("addresses standing only on mail in Junk", () => {
 	});
 
 	test("reads a Junk folder a server does not designate", async () => {
-		mailbox("named-spam", null);
+		mailbox("named-spam", null, { accountId: "acc-named", fullPath: "Spam" });
 		message("spam-5", "named-spam");
 		address("by-name");
 		sighting("by-name", "spam-5");
-		sqlite
-			.prepare("UPDATE mailbox SET full_path = 'Spam' WHERE mailbox_id = ?")
-			.run("named-spam");
 
 		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
 
@@ -394,15 +424,13 @@ describe("addresses standing only on mail in Junk", () => {
 	});
 
 	test("reads a Junk folder nested under any prefix", async () => {
-		mailbox("nested-spam", null);
+		mailbox("nested-spam", null, {
+			accountId: "acc-nested",
+			fullPath: "INBOX/Spam",
+		});
 		message("spam-6", "nested-spam");
 		address("nested");
 		sighting("nested", "spam-6");
-		sqlite
-			.prepare(
-				"UPDATE mailbox SET full_path = 'INBOX/Spam' WHERE mailbox_id = ?",
-			)
-			.run("nested-spam");
 
 		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
 
@@ -410,16 +438,14 @@ describe("addresses standing only on mail in Junk", () => {
 	});
 
 	test("reads a Junk folder under a delimiter that is not a slash", async () => {
-		mailbox("dotted-spam", null);
+		mailbox("dotted-spam", null, {
+			accountId: "acc-dotted",
+			fullPath: "Mail.Junk E-mail",
+			hierarchyDelimiter: ".",
+		});
 		message("spam-7", "dotted-spam");
 		address("dotted");
 		sighting("dotted", "spam-7");
-		sqlite
-			.prepare(
-				`UPDATE mailbox SET full_path = 'Mail.Junk E-mail',
-					hierarchy_delimiter = '.' WHERE mailbox_id = ?`,
-			)
-			.run("dotted-spam");
 
 		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
 
@@ -427,36 +453,95 @@ describe("addresses standing only on mail in Junk", () => {
 	});
 
 	test("never reads a prefix as the folder it names", async () => {
-		mailbox("spam-parent", null);
+		mailbox("spam-parent", null, {
+			accountId: "acc-parent",
+			fullPath: "Spam/Receipts",
+		});
 		message("mail-2", "spam-parent");
 		address("under-spam");
 		sighting("under-spam", "mail-2");
-		sqlite
-			.prepare(
-				"UPDATE mailbox SET full_path = 'Spam/Receipts' WHERE mailbox_id = ?",
-			)
-			.run("spam-parent");
 
 		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
 
 		assert.equal(withheld("under-spam"), false);
 	});
 
-	test("reads the designation from either place it is stored", async () => {
-		mailbox("column-only", '["Junk"]');
-		mailbox("entry-only", null);
+	test("reads the designation the mailbox sync stored", async () => {
+		mailbox("entry-only", null, {
+			accountId: "acc-entry",
+			fullPath: "Bulk",
+		});
 		specialUseEntry("entry-only", "Junk");
-		message("spam-3", "column-only");
 		message("spam-4", "entry-only");
-		address("by-column");
 		address("by-entry");
-		sighting("by-column", "spam-3");
 		sighting("by-entry", "spam-4");
 
 		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
 
-		assert.equal(withheld("by-column"), true);
 		assert.equal(withheld("by-entry"), true);
+	});
+
+	test("a second folder named Spam never claims the role", async () => {
+		mailbox("second-spam", null, { fullPath: "Archive/Spam" });
+		message("spam-3", "second-spam");
+		address("filed-away");
+		sighting("filed-away", "spam-3");
+
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		assert.equal(withheld("filed-away"), false);
+	});
+
+	test("withholds on the Junk folder the account appointed", async () => {
+		mailbox("rubbish", null, {
+			accountId: "acc-appointed",
+			fullPath: "INBOX/Rubbish",
+		});
+		appointJunk("acc-appointed", "rubbish");
+		message("spam-8", "rubbish");
+		address("appointed-spammer");
+		sighting("appointed-spammer", "spam-8");
+
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		assert.equal(withheld("appointed-spammer"), true);
+	});
+
+	test("leaves the same folder alone when nobody appointed it", async () => {
+		mailbox("unclaimed-rubbish", null, {
+			accountId: "acc-unappointed",
+			fullPath: "INBOX/Rubbish",
+		});
+		message("spam-9", "unclaimed-rubbish");
+		address("stranger");
+		sighting("stranger", "spam-9");
+
+		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		assert.equal(withheld("stranger"), false);
+	});
+
+	test("an instance with no Junk folder withholds nobody", async () => {
+		for (const table of [
+			"envelope_address",
+			"message",
+			"mailbox",
+			"mailbox_special_use_entry",
+		]) {
+			sqlite.exec(`DELETE FROM ${table}`);
+		}
+		mailbox("plain-inbox", null, { fullPath: "INBOX" });
+		message("mail-9", "plain-inbox");
+		address("colleague");
+		address("misfiled", {}, '{"junkOnly":{"value":true,"setAt":1}}');
+		sighting("colleague", "mail-9");
+		sighting("misfiled", "mail-9");
+
+		const report = await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+
+		assert.equal(report.withholdable, 0);
+		assert.equal(withheld("colleague"), false);
+		assert.equal(withheld("misfiled"), false);
 	});
 
 	test("leaves an address no message has ever carried alone", async () => {

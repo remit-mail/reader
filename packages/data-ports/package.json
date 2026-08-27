@@ -25,10 +25,6 @@
 			"types": "./src/account-settings.ts",
 			"default": "./src/account-settings.ts"
 		},
-		"./mailbox-role": {
-			"types": "./src/mailbox-role.ts",
-			"default": "./src/mailbox-role.ts"
-		},
 		"./display-name": {
 			"types": "./src/display-name.ts",
 			"default": "./src/display-name.ts"
