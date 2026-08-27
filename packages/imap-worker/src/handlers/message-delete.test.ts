@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { beforeEach, describe, it, mock } from "node:test";
 import type { ThreadMessageItem } from "@remit/data-ports";
 import type { Logger } from "@remit/logger-lambda";
+import { renderMetrics, resetMetrics } from "@remit/logger-lambda";
 import type { MessageDeleteEvent } from "../events.js";
 import {
 	buildThreadMessageTrashUpdate,
@@ -449,9 +450,22 @@ const permanentEvent: MessageDeleteEvent = {
 const called = (method: string): Call[] =>
 	h.calls.filter((c) => c.method === method);
 
+// Label order in the rendered text is prom-client's, not ours.
+const imapFailures = async (operation: string): Promise<number> => {
+	const line = (await renderMetrics())
+		.split("\n")
+		.find(
+			(candidate) =>
+				candidate.startsWith("remit_imap_failures_total{") &&
+				candidate.includes(`operation="${operation}"`),
+		);
+	return line ? Number(line.slice(line.lastIndexOf(" ") + 1)) : 0;
+};
+
 describe("handleMessageDelete", () => {
 	beforeEach(() => {
 		h = fresh();
+		resetMetrics();
 	});
 
 	it("moves to trash, rewrites the uid, and flips the thread row to deleted", async () => {
@@ -612,6 +626,10 @@ describe("handleMessageDelete", () => {
 				"an unprobeable row settles instead of spending the whole budget",
 			);
 			assert.equal(called("emitEvent").length, 2);
+			assert.equal(
+				await imapFailures("MESSAGE_DELETE_TRASH_MOVE_UNCONFIRMED"),
+				1,
+			);
 		});
 
 		// The row this event names was already deleted, so there is nothing to
@@ -672,11 +690,74 @@ describe("handleMessageDelete", () => {
 			assert.equal(called("threadMessage.deleteMany").length, 0);
 			assert.equal(called("threadMessage.update").length, 0);
 			assert.equal(called("emitEvent").length, 0);
-			assert.equal(
-				(called("message.update")[0]?.args[1] as { syncStatus?: string })
-					?.syncStatus,
-				"failed",
-			);
+
+			// The row's mailbox and uid stay put, but `status` must leave
+			// `moving`: `isPlacementUnsettled` reads exactly that value, so a row
+			// left mid-mutation makes every later delete of this message wait on
+			// a mutation that has already terminated.
+			assert.deepEqual(called("message.update").at(-1)?.args[1], {
+				status: "active",
+				syncStatus: "failed",
+			});
+			assert.equal(await imapFailures("MESSAGE_DELETE_EXHAUSTED"), 1);
+		});
+
+		// Issue #980, the failure the budget exists for: every redelivery
+		// re-MOVEs a uid the source no longer holds and throws identically. The
+		// ceiling lives in the error catch, so a throwing `moveMessages` settles
+		// there rather than running past the budget into the dead-letter queue.
+		describe("a re-MOVE that throws", () => {
+			const moveThrows = (): void => {
+				h.connection.moveMessages = async () => {
+					throw new Error(
+						"NO [TRYAGAIN] UID MOVE failed: no matching messages",
+					);
+				};
+			};
+
+			it("re-throws inside the budget so the queue redelivers", async () => {
+				moveThrows();
+
+				await assert.rejects(
+					handleMessageDelete(moveEvent, noopLog, 1, deps()),
+					/UID MOVE failed/,
+				);
+
+				assert.equal(called("message.delete").length, 0);
+				assert.equal(called("threadMessage.deleteMany").length, 0);
+				assert.equal(
+					(called("message.update")[0]?.args[1] as { syncStatus?: string })
+						?.syncStatus,
+					"failed",
+				);
+			});
+
+			it("settles at the ceiling instead of dead-lettering undiagnosed", async () => {
+				moveThrows();
+				sourceNoLongerHoldsTheUid();
+
+				await handleMessageDelete(moveEvent, noopLog, 3, deps());
+
+				assert.equal(
+					called("threadMessage.deleteMany").length,
+					1,
+					"the ceiling must diagnose the failure, not hand it to the DLQ",
+				);
+				assert.equal(called("message.delete").length, 1);
+				assert.equal(called("emitEvent").length, 2);
+			});
+
+			it("settles a still-present message at the ceiling out of `moving`", async () => {
+				moveThrows();
+
+				await handleMessageDelete(moveEvent, noopLog, 3, deps());
+
+				assert.deepEqual(called("message.update").at(-1)?.args[1], {
+					status: "active",
+					syncStatus: "failed",
+				});
+				assert.equal(await imapFailures("MESSAGE_DELETE_EXHAUSTED"), 1);
+			});
 		});
 
 		// A probe the server refused says nothing either way, so it counts as
