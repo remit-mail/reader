@@ -38,7 +38,7 @@ export const processEvent = async (
 		case "MAILBOX_DELETE":
 			return processMailboxManagement(event, log);
 		case "MESSAGE_DELETE":
-			return handleMessageDelete(event, log);
+			return handleMessageDelete(event, log, receiveCount);
 		case "MESSAGE_MOVE":
 			return handleMessageMove(event, log, receiveCount);
 		case "PLACEMENT_MOVE_PUSH":
