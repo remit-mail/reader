@@ -413,7 +413,12 @@ export class MessageMoveService {
 					true,
 				);
 
-				await this.addressService.reconcileJunkOnlyForMessage(messageId);
+				await this.addressService.reconcileJunkOnlyForMessage(
+					messageId,
+					await this.mailboxSpecialUseService.resolveJunkRolesForConfig(
+						accountConfigId,
+					),
+				);
 
 				events.push({
 					type: "MESSAGE_DELETE",
@@ -548,7 +553,12 @@ export class MessageMoveService {
 			isMovingToTrash,
 		);
 
-		await this.addressService.reconcileJunkOnlyForMessage(messageId);
+		await this.addressService.reconcileJunkOnlyForMessage(
+			messageId,
+			await this.mailboxSpecialUseService.resolveJunkRolesForConfig(
+				accountConfigId,
+			),
+		);
 
 		// If moving FROM Trash, clear isDeleted
 		if (isMovingFromTrash) {

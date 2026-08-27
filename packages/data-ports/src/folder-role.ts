@@ -168,6 +168,21 @@ export const STALE_TRASH_FOLDER_REASON = `The folder appointed as this account's
  */
 export const UNCONFIRMED_TRASH_FOLDER_REASON = `Nobody has confirmed which folder is this account's Trash, so nothing was deleted. Appoint one under ${FOLDER_ROLES_SETTINGS_PATH}, then try again.`;
 
+/**
+ * The mailboxes holding Junk and Trash across a set of accounts, as ids. The
+ * shape a SQL predicate needs when it must ask "is this message in Junk"
+ * without spelling the rule a second time: resolution happens once, here, and
+ * SQL compares mailbox ids.
+ *
+ * A role resolves to at most one mailbox per account, so each list holds one id
+ * per account that has that folder — and no entry at all for an account that
+ * has none.
+ */
+export interface JunkRoleMailboxes {
+	readonly junkMailboxIds: readonly string[];
+	readonly trashMailboxIds: readonly string[];
+}
+
 /** The minimal mailbox shape role resolution reads. */
 export interface RoleMailboxCandidate extends MailboxNameCandidate {
 	specialUse?: readonly string[];

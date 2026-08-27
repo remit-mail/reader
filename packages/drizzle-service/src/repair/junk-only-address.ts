@@ -1,10 +1,4 @@
-import {
-	type CanonicalMailboxRoleValue,
-	composeFolderRoleAppointmentName,
-	type RoleMailboxCandidate,
-	resolveMailboxForRole,
-} from "@remit/data-ports/folder-role";
-import { CanonicalMailboxRole } from "@remit/domain-enums";
+import type { JunkRoleMailboxes } from "@remit/data-ports/folder-role";
 
 export interface JunkOnlyRepairClient {
 	all(sql: string, params: readonly unknown[]): Promise<unknown[]>;
@@ -27,18 +21,6 @@ export interface BoundSql {
 	readonly params: readonly unknown[];
 }
 
-/**
- * The mailboxes holding the Junk and Trash roles, one per account, resolved by
- * `resolveMailboxForRole` — the same rule, and the same appointment, every
- * other special-folder lookup reads. SQL below compares mailbox ids against
- * these and never looks at a folder name, so the repair cannot answer "is this
- * message in Junk" differently from the code that harvested the address.
- */
-export interface JunkOnlyRoleMailboxes {
-	readonly junkMailboxIds: readonly string[];
-	readonly trashMailboxIds: readonly string[];
-}
-
 export const JUNK_ONLY_FLAG = "junkOnly";
 
 const STORED_FLAGS = "coalesce(nullif(address.flags, ''), '{}')";
@@ -48,10 +30,13 @@ const flagIsSet = (name: string): string =>
 
 const EMPTY: BoundSql = { sql: "", params: [] };
 
+const MATCHES_NOTHING: BoundSql = { sql: "0 = 1", params: [] };
+
 /**
- * An account with no resolvable folder for the role contributes no id, and an
- * empty id list must match no message at all: read the other way round it would
- * make every message in the instance junk, and withhold every contact.
+ * Whether the message sits in one of these mailboxes. An empty list is
+ * false — no mailbox holds the role, so no message is in one. That reading is
+ * right for Trash and wrong for Junk, which is why an unresolvable Junk folder
+ * is handled before this is ever reached.
  */
 const inMailboxes = (mailboxIds: readonly string[]): BoundSql =>
 	mailboxIds.length === 0
@@ -74,7 +59,14 @@ const ACCOUNT_HAS_CORRESPONDED = `(
 	OR ${flagIsSet("trusted")}
 )`;
 
-const withholdable = (roles: JunkOnlyRoleMailboxes): BoundSql => {
+/**
+ * No account in scope has a Junk folder, so nothing is known about any
+ * sighting: the mark cannot be earned. Silence is not the same as "every
+ * message is live mail" — read that way, one move would restore every address
+ * the sweep had withheld.
+ */
+const withholdable = (roles: JunkRoleMailboxes): BoundSql => {
+	if (roles.junkMailboxIds.length === 0) return MATCHES_NOTHING;
 	const inJunk = inMailboxes(roles.junkMailboxIds);
 	const inTrash = inMailboxes(roles.trashMailboxIds);
 	return {
@@ -86,7 +78,19 @@ const withholdable = (roles: JunkOnlyRoleMailboxes): BoundSql => {
 	};
 };
 
-const restorable = (roles: JunkOnlyRoleMailboxes): BoundSql => {
+/**
+ * The same silence lifts no mark either — "stands on live mail" is
+ * unanswerable without knowing which folder is Junk. Standing the account
+ * gave the address itself still lifts it: that evidence needs no folder.
+ */
+const restorable = (roles: JunkRoleMailboxes): BoundSql => {
+	if (roles.junkMailboxIds.length === 0) {
+		return {
+			sql: `${flagIsSet(JUNK_ONLY_FLAG)}
+	AND ${ACCOUNT_HAS_CORRESPONDED}`,
+			params: [],
+		};
+	}
 	const inJunk = inMailboxes(roles.junkMailboxIds);
 	const inTrash = inMailboxes(roles.trashMailboxIds);
 	return {
@@ -98,7 +102,7 @@ const restorable = (roles: JunkOnlyRoleMailboxes): BoundSql => {
 };
 
 export const withholdSql = (
-	roles: JunkOnlyRoleMailboxes,
+	roles: JunkRoleMailboxes,
 	now: number,
 	setBy: string,
 	scope: BoundSql = EMPTY,
@@ -115,7 +119,7 @@ export const withholdSql = (
 };
 
 export const restoreSql = (
-	roles: JunkOnlyRoleMailboxes,
+	roles: JunkRoleMailboxes,
 	now: number,
 	scope: BoundSql = EMPTY,
 ): BoundSql => {
@@ -129,120 +133,6 @@ export const restoreSql = (
 };
 
 const REPAIR_SET_BY = "junk-only-repair";
-
-const isRow = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null;
-
-const textOf = (row: Record<string, unknown>, column: string): string => {
-	const value = row[column];
-	if (typeof value !== "string") {
-		throw new Error(`${column} is not text`);
-	}
-	return value;
-};
-
-const rowsOf = (rows: readonly unknown[]): Record<string, unknown>[] =>
-	rows.map((row) => {
-		if (!isRow(row)) throw new Error("query returned a non-row value");
-		return row;
-	});
-
-const designationsByMailbox = async (
-	client: JunkOnlyRepairClient,
-): Promise<Map<string, string[]>> => {
-	const rows = rowsOf(
-		await client.all(
-			"SELECT mailbox_id, special_use FROM mailbox_special_use_entry",
-			[],
-		),
-	);
-	const byMailbox = new Map<string, string[]>();
-	for (const row of rows) {
-		const mailboxId = textOf(row, "mailbox_id");
-		const designations = byMailbox.get(mailboxId) ?? [];
-		designations.push(textOf(row, "special_use"));
-		byMailbox.set(mailboxId, designations);
-	}
-	return byMailbox;
-};
-
-const candidatesByAccount = async (
-	client: JunkOnlyRepairClient,
-): Promise<Map<string, RoleMailboxCandidate[]>> => {
-	const [rows, designations] = await Promise.all([
-		client
-			.all(
-				"SELECT mailbox_id, account_id, full_path, hierarchy_delimiter FROM mailbox",
-				[],
-			)
-			.then(rowsOf),
-		designationsByMailbox(client),
-	]);
-	const byAccount = new Map<string, RoleMailboxCandidate[]>();
-	for (const row of rows) {
-		const mailboxId = textOf(row, "mailbox_id");
-		const accountId = textOf(row, "account_id");
-		const candidates = byAccount.get(accountId) ?? [];
-		candidates.push({
-			mailboxId,
-			fullPath: textOf(row, "full_path"),
-			hierarchyDelimiter: textOf(row, "hierarchy_delimiter"),
-			specialUse: designations.get(mailboxId) ?? [],
-		});
-		byAccount.set(accountId, candidates);
-	}
-	return byAccount;
-};
-
-const stringSettingsByName = async (
-	client: JunkOnlyRepairClient,
-): Promise<Map<string, string>> => {
-	const rows = rowsOf(
-		await client.all("SELECT name, value FROM account_setting", []),
-	);
-	const byName = new Map<string, string>();
-	for (const row of rows) {
-		const value: unknown = JSON.parse(textOf(row, "value"));
-		if (!isRow(value)) continue;
-		if (value.kind !== "String" || typeof value.value !== "string") continue;
-		byName.set(textOf(row, "name"), value.value);
-	}
-	return byName;
-};
-
-/**
- * Every account's Junk and Trash folder, in one pass over the instance. The
- * sweep runs across accounts and mailbox ids are unique, so one union of ids
- * per role is exactly as selective as asking each account separately.
- */
-const loadJunkOnlyRoleMailboxes = async (
-	client: JunkOnlyRepairClient,
-): Promise<JunkOnlyRoleMailboxes> => {
-	const [byAccount, settings] = await Promise.all([
-		candidatesByAccount(client),
-		stringSettingsByName(client),
-	]);
-
-	const junkMailboxIds: string[] = [];
-	const trashMailboxIds: string[] = [];
-	for (const [accountId, candidates] of byAccount) {
-		const appointed = (role: CanonicalMailboxRoleValue): string | undefined =>
-			settings.get(composeFolderRoleAppointmentName(accountId, role));
-		const junk = resolveMailboxForRole(
-			CanonicalMailboxRole.Junk,
-			candidates,
-			appointed(CanonicalMailboxRole.Junk),
-		);
-		if (junk) junkMailboxIds.push(junk.mailboxId);
-		const trash = resolveMailboxForRole(
-			CanonicalMailboxRole.Trash,
-			candidates,
-			appointed(CanonicalMailboxRole.Trash),
-		);
-		if (trash) trashMailboxIds.push(trash.mailboxId);
-	}
-	return { junkMailboxIds, trashMailboxIds };
-};
 
 const countWhere = async (
 	client: JunkOnlyRepairClient,
@@ -258,9 +148,9 @@ const countWhere = async (
 export const sweepJunkOnlyAddresses = async (
 	client: JunkOnlyRepairClient,
 	mode: JunkOnlyRepairMode,
+	roles: JunkRoleMailboxes,
 	now: number = Date.now(),
 ): Promise<JunkOnlyReport> => {
-	const roles = await loadJunkOnlyRoleMailboxes(client);
 	const withholdableCount = await countWhere(client, withholdable(roles));
 	const restorableCount = await countWhere(client, restorable(roles));
 

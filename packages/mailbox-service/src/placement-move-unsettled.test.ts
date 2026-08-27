@@ -20,6 +20,7 @@ import type {
 	UpdateMessageMoveInput,
 } from "@remit/data-ports";
 import { PlacementMoveService } from "./placement-move.js";
+import { noFolderRoles } from "./test-helpers/folder-roles.js";
 
 const ACCOUNT_ID = "acc-pm";
 const ACCOUNT_CONFIG_ID = "cfg-pm";
@@ -111,6 +112,7 @@ const buildHarness = (): Harness => {
 		threadMessageService,
 		markerService,
 		addressService,
+		mailboxSpecialUseService: noFolderRoles,
 		sqsQueueUrl: "https://sqs.eu-west-1.amazonaws.com/000/message-mgmt",
 		moveSettleTimeoutMs: 200,
 		moveSettlePollMs: 10,

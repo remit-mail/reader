@@ -330,6 +330,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 				threadMessageService: repositories.threadMessage,
 				markerService: repositories.placementMove,
 				addressService: repositories.address,
+				mailboxSpecialUseService: repositories.mailboxSpecialUse,
 				sqsQueueUrl: placementMoveQueueUrl,
 			})
 		: undefined;

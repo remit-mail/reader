@@ -13,6 +13,7 @@ import type {
 	ThreadMessageItem,
 } from "@remit/data-ports";
 import { storedDisplayName } from "@remit/data-ports/display-name";
+import type { JunkRoleMailboxes } from "@remit/data-ports/folder-role";
 import {
 	deriveAddressId,
 	deriveBodyPartId,
@@ -92,6 +93,14 @@ export type AddressSighting = "junk" | "discarded" | "correspondent";
 export interface AccountFolderRoles {
 	readonly junkMailboxId: string | null;
 	readonly trashMailboxId: string | null;
+	/**
+	 * The same two roles across every account under the config, for the
+	 * reconcile that follows a save into Junk. The address book is keyed by
+	 * config, so a predicate over an address weighs sightings from all of them —
+	 * resolving only this account withholds a sender on one and restores it on
+	 * the next.
+	 */
+	readonly configJunkRoles: JunkRoleMailboxes;
 }
 
 /**
@@ -462,7 +471,7 @@ export class MessageSyncService {
 		// which catches its own error and reports a `failed` outcome instead of
 		// rejecting. So one bad message can no longer abort the whole batch (the
 		// poison pill that previously froze the mailbox, #817).
-		const roles = await this.folderRolesFor(accountId);
+		const roles = await this.folderRolesFor(accountId, accountConfigId);
 		const outcomes = await pMap(
 			applicable,
 			(msg) =>
@@ -697,7 +706,7 @@ export class MessageSyncService {
 		const newMessages =
 			newUids.length > 0 ? await this.fetchMessageBatch(newUids) : [];
 		const applicable = newMessages.filter((msg) => msg.envelope !== undefined);
-		const roles = await this.folderRolesFor(accountId);
+		const roles = await this.folderRolesFor(accountId, accountConfigId);
 		const outcomes = await pMap(
 			applicable,
 			(msg) =>
@@ -925,7 +934,7 @@ export class MessageSyncService {
 			);
 		}
 
-		const roles = await this.folderRolesFor(accountId);
+		const roles = await this.folderRolesFor(accountId, accountConfigId);
 		const outcomes = await pMap(
 			applicable,
 			(msg) =>
@@ -1280,14 +1289,19 @@ export class MessageSyncService {
 	 * batch rather than per message: the lookup reads an appointment row and
 	 * the account’s mailbox list, and every message in a batch shares both.
 	 */
-	private async folderRolesFor(accountId: string): Promise<AccountFolderRoles> {
-		const [junk, trash] = await Promise.all([
+	private async folderRolesFor(
+		accountId: string,
+		accountConfigId: string,
+	): Promise<AccountFolderRoles> {
+		const [junk, trash, configJunkRoles] = await Promise.all([
 			this.mailboxSpecialUseService.findJunkMailbox(accountId),
 			this.mailboxSpecialUseService.findTrashMailbox(accountId),
+			this.mailboxSpecialUseService.resolveJunkRolesForConfig(accountConfigId),
 		]);
 		return {
 			junkMailboxId: junk?.mailboxId ?? null,
 			trashMailboxId: trash?.mailboxId ?? null,
+			configJunkRoles,
 		};
 	}
 
@@ -1432,7 +1446,10 @@ export class MessageSyncService {
 			owned = created || item.mailboxId === mailboxId;
 
 			if (sighting === "junk") {
-				await repos.address.reconcileJunkOnlyForMessage(messageId);
+				await repos.address.reconcileJunkOnlyForMessage(
+					messageId,
+					roles.configJunkRoles,
+				);
 			}
 
 			await this.createThreadForMessage(

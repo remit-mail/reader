@@ -1,3 +1,4 @@
+import type { JunkRoleMailboxes } from "../folder-role.js";
 import type {
 	AddressItem,
 	CreateAddressInput,
@@ -13,7 +14,15 @@ export interface IAddressRepository {
 	upsertAddress(input: CreateAddressInput): Promise<AddressItem>;
 	upsertCorrespondentAddress(input: CreateAddressInput): Promise<AddressItem>;
 	upsertJunkAddress(input: CreateAddressInput): Promise<AddressItem>;
-	reconcileJunkOnlyForMessage(messageId: string): Promise<void>;
+	/**
+	 * `roles` covers every account under the message's config, resolved by the
+	 * caller once per batch: this runs inside the per-message sync loop, and
+	 * role resolution is deliberately uncached.
+	 */
+	reconcileJunkOnlyForMessage(
+		messageId: string,
+		roles: JunkRoleMailboxes,
+	): Promise<void>;
 	getAddress(accountConfigId: string, addressId: string): Promise<AddressItem>;
 	getAddress(
 		accountConfigId: string,
