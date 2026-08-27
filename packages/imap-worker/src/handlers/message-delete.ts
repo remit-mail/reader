@@ -7,6 +7,7 @@ import type {
 import { isCurrentSchemaVersion } from "@remit/data-ports/mutation-events";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
+import { recordImapFailure } from "@remit/logger-lambda";
 import {
 	guardConnectionCursor,
 	type IImapConnection,
@@ -16,11 +17,34 @@ import {
 } from "@remit/mailbox-service";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
+import { emitEvent } from "../emit.js";
 import type { MessageDeleteEvent } from "../events.js";
 import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
-import { searchMailboxByMessageId } from "./message-move.js";
+import { resolveExhaustedMessageDeleteFailure } from "./message-delete-terminal.js";
+import { emitMoveResync, searchMailboxByMessageId } from "./message-move.js";
+
+/**
+ * Fallback when `MESSAGE_DELETE_MAX_ATTEMPTS` is unset (local dev, unit tests).
+ * Matches the `maxReceiveCount` the redrive policy of the queue `emit.ts`
+ * routes MESSAGE_DELETE onto uses (`remit-message-mgmt`,
+ * `deploy/vps/queues.json`), same pattern as `MESSAGE_MOVE_MAX_ATTEMPTS`.
+ */
+const DEFAULT_MESSAGE_DELETE_MAX_ATTEMPTS = 3;
+
+export const getMessageDeleteMaxAttempts = (
+	processEnv: NodeJS.ProcessEnv = process.env,
+): number => {
+	const raw = processEnv.MESSAGE_DELETE_MAX_ATTEMPTS;
+	if (!raw) return DEFAULT_MESSAGE_DELETE_MAX_ATTEMPTS;
+	const parsed = Number.parseInt(raw, 10);
+	return Number.isFinite(parsed) && parsed > 0
+		? parsed
+		: DEFAULT_MESSAGE_DELETE_MAX_ATTEMPTS;
+};
+
+export const MESSAGE_DELETE_MAX_ATTEMPTS = getMessageDeleteMaxAttempts();
 
 /**
  * Delete every ThreadMessage row that points at this messageId.
@@ -143,9 +167,17 @@ export const buildThreadMessageUndelete = (
  * expunges by that uid. It also closes the second half of #912: an empty
  * `uidMap` can mean the MOVE matched nothing at all.
  *
- * A row with no `messageIdHeader` has nothing to probe with, so it stays
- * unconfirmed rather than guessing.
+ * A row with no `messageIdHeader`, and a row that is already deleted, have
+ * nothing to probe with; they are distinct verdicts because no redelivery can
+ * change either answer.
  */
+export type TrashMoveConfirmation =
+	| { outcome: "confirmed"; uid: number }
+	| { outcome: "still-at-source" }
+	| { outcome: "row-gone" }
+	| { outcome: "unprobeable" }
+	| { outcome: "unconfirmed" };
+
 const confirmTrashMoveUid = async (
 	sourceConnection: IImapConnection,
 	destinationConnection: IImapConnection,
@@ -154,18 +186,24 @@ const confirmTrashMoveUid = async (
 	sourceMailboxPath: string,
 	destinationMailboxPath: string,
 	uid: number,
-): Promise<number | null> => {
+): Promise<TrashMoveConfirmation> => {
 	await sourceConnection.openBox(sourceMailboxPath, true);
-	if (!(await isMessageGoneFromOpenMailbox(sourceConnection, uid))) return null;
+	if (!(await isMessageGoneFromOpenMailbox(sourceConnection, uid))) {
+		return { outcome: "still-at-source" };
+	}
 
 	const [message] = await messageService.get([messageId]);
-	if (!message?.messageIdHeader) return null;
+	if (!message) return { outcome: "row-gone" };
+	if (!message.messageIdHeader) return { outcome: "unprobeable" };
 
-	return searchMailboxByMessageId(
+	const probedUid = await searchMailboxByMessageId(
 		destinationConnection,
 		destinationMailboxPath,
 		message.messageIdHeader,
 	);
+	return probedUid === null
+		? { outcome: "unconfirmed" }
+		: { outcome: "confirmed", uid: probedUid };
 };
 
 export interface MessageDeleteDeps {
@@ -173,6 +211,7 @@ export interface MessageDeleteDeps {
 	buildLifecycleDeps: typeof buildLifecycleDeps;
 	withOAuthLifecycle: typeof withOAuthLifecycle;
 	createConnectionScope: typeof createConnectionScopeWithCredentials;
+	emitEvent: typeof emitEvent;
 }
 
 const defaultDeps: MessageDeleteDeps = {
@@ -180,15 +219,22 @@ const defaultDeps: MessageDeleteDeps = {
 	buildLifecycleDeps,
 	withOAuthLifecycle,
 	createConnectionScope: createConnectionScopeWithCredentials,
+	emitEvent,
 };
 
 /**
  * Handle MESSAGE_DELETE events.
  * Either moves to Trash (IMAP MOVE) or permanently deletes (IMAP DELETE).
+ *
+ * A failing delete retries on redelivery until `receiveCount` reaches
+ * {@link MESSAGE_DELETE_MAX_ATTEMPTS}, at which point
+ * {@link resolveExhaustedMessageDeleteFailure} asks IMAP where the message
+ * actually is and settles the row into one terminal outcome (issue #980).
  */
 export const handleMessageDelete = async (
 	event: MessageDeleteEvent,
 	log: Logger,
+	receiveCount = 1,
 	deps: MessageDeleteDeps = defaultDeps,
 ): Promise<void> => {
 	const {
@@ -196,6 +242,7 @@ export const handleMessageDelete = async (
 		buildLifecycleDeps,
 		withOAuthLifecycle,
 		createConnectionScope: createConnectionScopeWithCredentials,
+		emitEvent,
 	} = deps;
 
 	const {
@@ -292,6 +339,80 @@ export const handleMessageDelete = async (
 		}
 	};
 
+	const settleExhaustedDelete = async (
+		accountConfigId: string,
+		getConnection: () => Promise<IImapConnection>,
+	): Promise<void> => {
+		const { outcome } = await resolveExhaustedMessageDeleteFailure(
+			{ messageService, threadMessageService, log },
+			{
+				accountId,
+				accountConfigId,
+				messageId,
+				uid,
+				sourceMailboxPath: mailboxPath,
+				getConnection,
+			},
+		);
+
+		if (outcome === "broken") {
+			recordImapFailure("MESSAGE_DELETE_EXHAUSTED", "other");
+			return;
+		}
+
+		if (destinationMailboxId) {
+			await emitMoveResync(emitEvent, {
+				accountId,
+				sourceMailboxId: mailboxId,
+				destinationMailboxId,
+			});
+		}
+	};
+
+	/**
+	 * Decide what an unconfirmed move to Trash does with this delivery. The
+	 * settle itself is `resolveExhaustedMessageDeleteFailure`, reached through
+	 * the attempt budget in the catch below — the two verdicts handled here are
+	 * the ones a redelivery could never answer.
+	 */
+	const settleUnconfirmedTrashMove = async (
+		confirmation: Exclude<TrashMoveConfirmation, { outcome: "confirmed" }>,
+		accountConfigId: string,
+		getConnection: () => Promise<IImapConnection>,
+	): Promise<void> => {
+		const context = {
+			accountId,
+			accountConfigId,
+			messageId,
+			uid,
+			mailboxPath,
+			receiveCount,
+			confirmation: confirmation.outcome,
+		};
+
+		if (confirmation.outcome === "row-gone") {
+			log.warn(
+				context,
+				"Move to trash unconfirmed and the local row is already gone; nothing left to settle",
+			);
+			return;
+		}
+
+		if (confirmation.outcome === "unprobeable") {
+			recordImapFailure("MESSAGE_DELETE_TRASH_MOVE_UNCONFIRMED", "other");
+			log.info(
+				context,
+				"Move to trash carries no Message-ID header to probe the destination with; settling on the source's answer alone",
+			);
+			await settleExhaustedDelete(accountConfigId, getConnection);
+			return;
+		}
+
+		throw new Error(
+			`Move to trash unconfirmed for message ${messageId} (attempt ${receiveCount}/${MESSAGE_DELETE_MAX_ATTEMPTS})`,
+		);
+	};
+
 	if (!isCurrentSchemaVersion(event.schemaVersion)) {
 		await abandonDelete(
 			"Refused to delete: event was minted under an unknown contract",
@@ -385,42 +506,35 @@ export const handleMessageDelete = async (
 						// perfectly successful MOVE with no COPYUID entry, so an empty
 						// map is UNCONFIRMED, never evidence the move failed: the server
 						// is asked before any verdict, exactly as `handleMessageMove` and
-						// `attemptMove` do. Reading the empty map as a failure left the
-						// message in Trash under a uid nothing local knew, while the row
-						// kept the SOURCE folder's uid — which Empty Trash then decides
-						// by (issues #979, #665).
-						//
-						// A probe that cannot answer counts as not-confirmed, never as a
-						// throw. The MOVE has already run by this point, so throwing here
-						// would redeliver on the account's per-group FIFO and re-MOVE a
-						// uid the source no longer holds — head-of-line blocking the
-						// whole account's deletes over a transient NO, a renamed folder
-						// or a SEARCH the server refused.
-						const newUid =
-							result.uidMap.get(uid) ??
-							(await confirmTrashMoveUid(
-								connection,
-								rawConnection,
-								messageService,
-								messageId,
-								mailboxPath,
-								destinationMailboxPath,
-								uid,
-							).catch((probeError: unknown) => {
-								log.warn(
-									{
-										messageId,
-										uid,
-										mailboxPath,
-										destinationMailboxPath,
-										probeError,
-									},
-									"Could not confirm the move to trash; keeping local rows",
-								);
-								return null;
-							}));
+						// `attemptMove` do (issues #979, #665). A probe the server refused
+						// says nothing either way and counts as unconfirmed.
+						const copyUid = result.uidMap.get(uid);
+						const confirmation: TrashMoveConfirmation = copyUid
+							? { outcome: "confirmed", uid: copyUid }
+							: await confirmTrashMoveUid(
+									connection,
+									rawConnection,
+									messageService,
+									messageId,
+									mailboxPath,
+									destinationMailboxPath,
+									uid,
+								).catch((probeError: unknown) => {
+									log.warn(
+										{
+											messageId,
+											uid,
+											mailboxPath,
+											destinationMailboxPath,
+											probeError,
+										},
+										"Could not confirm the move to trash; keeping local rows",
+									);
+									return { outcome: "unconfirmed" } as const;
+								});
 
-						if (newUid) {
+						if (confirmation.outcome === "confirmed") {
+							const newUid = confirmation.uid;
 							// Update message with new UID in Trash
 							await messageService.updateUid(
 								messageId,
@@ -448,39 +562,14 @@ export const handleMessageDelete = async (
 							}
 
 							log.info({ messageId, newUid }, "Message moved to trash");
-						} else {
-							// Unconfirmed, not failed. A MOVE that ran server-side but
-							// dropped before the tagged OK is indistinguishable from one
-							// that never ran, so local state is left exactly as it stands:
-							// nothing is reverted and nothing is deleted. Reverting on that
-							// ambiguity is the blind revert #655 recorded when it was
-							// pulled from PR #652.
-							//
-							// This marks and returns rather than throwing. Throwing is the
-							// shape `handleMessageMove` uses, but it can only carry a
-							// budget: this handler has no `receiveCount`, no MAX_ATTEMPTS
-							// and no exhaustion path, so every redelivery on the account's
-							// per-group FIFO would re-MOVE a uid the source no longer
-							// holds, fail identically, and stall that account's whole
-							// delete pipeline (#287, #289, #290) until the queue's
-							// maxReceiveCount dead-letters it — leaving the row in this
-							// same state, minus the pipeline. Issue #980 wires the budget;
-							// the throw belongs with it, not ahead of it.
-							log.error(
-								{
-									alert: "message_delete_trash_move_unconfirmed",
-									accountId,
-									messageId,
-									uid,
-									mailboxPath,
-									destinationMailboxPath,
-								},
-								"Move to trash unconfirmed: no COPYUID entry, and the server did not confirm the message at the destination; local rows left as they stand",
-							);
-							await messageService.update(messageId, {
-								syncStatus: MessageSyncStatus.failed,
-							});
+							return;
 						}
+
+						await settleUnconfirmedTrashMove(
+							confirmation,
+							account.accountConfigId,
+							scope.getConnection,
+						);
 					} else {
 						// Permanent delete — reached only by `operation === "permanent_delete"`.
 						await connection.deleteMessages([uid]);
@@ -567,11 +656,28 @@ export const handleMessageDelete = async (
 						return;
 					}
 
-					// Mark as failed for other errors
-					await messageService.update(messageId, {
-						syncStatus: MessageSyncStatus.failed,
-					});
-					throw error;
+					if (receiveCount < MESSAGE_DELETE_MAX_ATTEMPTS) {
+						// Transient failure — connections drop. No alarm; redelivery
+						// retries, and `failed` marks the row unsettled meanwhile. It is
+						// not a terminal signal: only the resolver below settles anything.
+						await messageService.update(messageId, {
+							syncStatus: MessageSyncStatus.failed,
+						});
+						throw error;
+					}
+
+					// Budget exhausted. Settling here is what keeps a throwing
+					// `moveMessages` inside the ceiling: re-MOVEing a uid the source no
+					// longer holds fails identically on every redelivery, which is the
+					// failure this budget exists for.
+					await settleExhaustedDelete(
+						account.accountConfigId,
+						scope.getConnection,
+					);
+					log.error(
+						{ accountId, messageId, uid, mailboxPath, error: errorMessage },
+						"Delete retry exhausted; settled into a terminal outcome",
+					);
 				})
 				.finally(() => scope.disconnect());
 		},
