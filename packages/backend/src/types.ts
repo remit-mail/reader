@@ -12,6 +12,7 @@ export type OperationIds =
 	| "MeOperations_getExport"
 	| "MeOperations_listQuarantine"
 	| "ConfigOperations_getConfig"
+	| "ConfigOperations_exportConfig"
 	| "SystemOperations_getSystemUpdate"
 	| "SystemOperations_applySystemUpdate"
 	| "AccountOperations_createAccount"

@@ -52,6 +52,8 @@
     "tsx": "*"
   },
   "dependencies": {
+    "@remit/config-format": "*",
+    "@remit/config-transfer": "*",
     "@remit/data-ports": "*",
     "@remit/domain-enums": "*",
     "@remit/api-openapi-types": "*",

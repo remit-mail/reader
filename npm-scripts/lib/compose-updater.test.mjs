@@ -63,15 +63,34 @@ function serviceVolumes(source) {
 const normalize = (entry) =>
 	entry.replace(/\$\{([A-Za-z0-9_]+)(:[-?][^}]*)?\}/g, "${$1}");
 const source = (entry) => normalize(entry).split(":")[0];
+const readOnly = (entry) => normalize(entry).split(":")[2] === "ro";
 const volumes = serviceVolumes(text);
 const mounts = (svc) => (volumes[svc] ?? []).map(source);
 const mountsOf = (name) =>
 	Object.keys(volumes).filter((svc) => mounts(svc).includes(name));
+const writersOf = (name) =>
+	Object.keys(volumes).filter((svc) =>
+		(volumes[svc] ?? []).some(
+			(entry) => source(entry) === name && !readOnly(entry),
+		),
+	);
 
 describe("the updater compose surface", () => {
-	it("mounts the control volume into backend and updater, and no other service", () => {
+	// Writing the seam is what triggers an update, so that half stays closed to
+	// two services. Reading it is how anything else learns the running version —
+	// `remit config save` stamps it into the file it writes — which is why the
+	// property asserted here is the write, not the mount.
+	it("lets only backend and updater write the control volume", () => {
+		assert.deepEqual(writersOf("updater_control").sort(), [
+			"backend",
+			"updater",
+		]);
+	});
+
+	it("mounts the control volume nowhere beyond those two and migrate", () => {
 		assert.deepEqual(mountsOf("updater_control").sort(), [
 			"backend",
+			"migrate",
 			"updater",
 		]);
 	});

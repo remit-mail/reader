@@ -3,6 +3,8 @@ import type {
 	AccountConfigResponse,
 	ConfigDescriptionResponse,
 } from "@remit/api-openapi-types";
+import type { ReaderConfigDocument } from "@remit/config-format";
+import { readConfigForExport } from "@remit/config-transfer";
 import type { AccountConfigItem, MailboxItem } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import { logger } from "@remit/logger-lambda";
@@ -11,6 +13,7 @@ import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
 import { getClient } from "../service/data-client.js";
+import { exportIdentity } from "../service/export-identity.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
 import { sqsClient } from "../service/sqs.js";
 import { triggerAccountSync } from "../service/trigger-sync.js";
@@ -215,5 +218,20 @@ export const ConfigOperations: Record<
 				),
 			),
 		};
+	},
+
+	ConfigOperations_exportConfig: async (
+		_context: Context,
+		...args: unknown[]
+	): Promise<{ schemaVersion: number; document: ReaderConfigDocument }> => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const client = await getClient();
+		const document = await readConfigForExport(
+			client,
+			accountConfigId,
+			exportIdentity(),
+		);
+		return { schemaVersion: document.schemaVersion, document };
 	},
 };

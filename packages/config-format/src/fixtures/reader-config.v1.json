@@ -7,15 +7,16 @@
 		"exportedAt": "2026-08-27T09:15:00+02:00"
 	},
 	"provenance": {
-		"accountConfigId": "0d9c8b7a-6e5f-4d3c-b2a1-0f9e8d7c6b5a",
+		"accountConfigId": "0d9c8b7a6e5f4d3cb2a10f9e8",
 		"instance": "reader.ischen.nl"
 	},
 	"accountConfig": {
-		"name": "Matthijs"
+		"name": "Matthijs",
+		"defaultComposerFormat": "markdown"
 	},
 	"accounts": [
 		{
-			"accountId": "6f4c2c30-9a2c-4a7f-9f9f-1f2c3d4e5a6b",
+			"accountId": "6f4c2c309a2c4a7f9f9f1f2c3",
 			"email": "matthijs@ischen.nl",
 			"username": "matthijs@ischen.nl",
 			"authType": "password",
@@ -63,7 +64,7 @@
 			"pinnedFolders": ["INBOX", "INBOX.Facturen"]
 		},
 		{
-			"accountId": "b3a1d0c7-5e64-4f1b-8c2a-77e9d3b40f18",
+			"accountId": "b3a1d0c75e644f1b8c2a77e9d",
 			"email": "work@example.com",
 			"username": "work@example.com",
 			"authType": "oauthMicrosoft",
@@ -108,7 +109,7 @@
 			],
 			"actionLabelName": "Facturen",
 			"actionFolder": {
-				"accountId": "6f4c2c30-9a2c-4a7f-9f9f-1f2c3d4e5a6b",
+				"accountId": "6f4c2c309a2c4a7f9f9f1f2c3",
 				"folderPath": "INBOX.Facturen"
 			},
 			"anchor": null
@@ -124,7 +125,7 @@
 			"anchor": {
 				"sourceText": "We have shipped version 4.2 of the runtime; the changelog covers the new scheduler.",
 				"embeddingId": "amazon.titan-embed-text-v2:0@1024",
-				"sourceMessageId": "2c9e4b11-7d5a-4f60-9a31-5b8c0e7f2d44"
+				"sourceMessageId": "2c9e4b117d5a4f609a315b8c0"
 			}
 		}
 	],
@@ -162,7 +163,6 @@
 	"clientPreferences": {
 		"theme": "dark",
 		"density": "comfortable",
-		"defaultComposerFormat": "markdown",
 		"savedSearches": [{ "name": "Unpaid invoices", "query": "label:Facturen is:unread" }]
 	},
 	"messageDecisions": []

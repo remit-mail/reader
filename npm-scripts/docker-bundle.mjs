@@ -198,6 +198,16 @@ export const TARGETS = [
 		outfile: "dist-docker/backend/backfill-list-id.mjs",
 		external: [SQLITE],
 	},
+	// `remit config save` (issue #1021). The same shape again, and for the same
+	// reason the exec seam exists: the operator runs it before a migration drops
+	// the database, with no browser and no session, over the identical reader
+	// the export endpoint uses.
+	{
+		name: "backend-config-save",
+		entry: "packages/backend/scripts/config-save.ts",
+		outfile: "dist-docker/backend/config-save.mjs",
+		external: [SQLITE],
+	},
 ];
 
 async function main() {

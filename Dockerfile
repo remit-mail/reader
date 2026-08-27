@@ -277,6 +277,10 @@ COPY --from=builder --chown=node:node /app/dist-docker/backend/migrate.mjs ./mig
 # alternate entrypoint, never wired into a compose one-shot — see
 # packages/backend/scripts/backfill-list-id.ts.
 COPY --from=builder --chown=node:node /app/dist-docker/backend/backfill-list-id.mjs ./backfill-list-id.mjs
+# Same shape again, for `remit config save` (issue #1021): the operator exports
+# their configuration before a migration drops the database, with no browser and
+# no session — see packages/backend/scripts/config-save.ts.
+COPY --from=builder --chown=node:node /app/dist-docker/backend/config-save.mjs ./config-save.mjs
 # The migration set, staged in the builder into one directory so this COPY has a
 # single stable source. The migrate entrypoint applies ./migrations-sqlite.
 COPY --from=builder --chown=node:node /app/dist-docker/backend-migrations/ ./

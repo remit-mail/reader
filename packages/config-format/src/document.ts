@@ -11,7 +11,15 @@ import { z } from "zod/v4";
 import { CONFIG_KIND, CURRENT_SCHEMA_VERSION } from "./version.js";
 
 const NonEmpty = z.string().min(1);
-const Uuid = z.uuid();
+
+/**
+ * A reader identifier in the form it is stored and travels: a UUID re-encoded
+ * base36 to a fixed 25 characters, which is what the `UUID` scalar in the API
+ * contract means here and what every id in the database actually holds. The
+ * account id crosses verbatim — resynced message ids hash from it — so the file
+ * has to accept the stored spelling rather than the RFC 4122 one.
+ */
+const StoredId = z.string().length(25);
 const IsoDateTime = z.iso.datetime({ offset: true });
 const Port = z.int().min(1).max(65535);
 const FlagTimestamp = z.int();
@@ -42,7 +50,7 @@ export const GeneratorSchema = z
  */
 export const ProvenanceSchema = z
 	.strictObject({
-		accountConfigId: Uuid,
+		accountConfigId: StoredId,
 		instance: z.string(),
 	})
 	.describe("The instance this file was exported from. Never applied.");
@@ -145,7 +153,7 @@ export const FolderOverrideSchema = z.strictObject({
 });
 
 export const AccountSchema = z.strictObject({
-	accountId: Uuid,
+	accountId: StoredId,
 	email: NonEmpty,
 	username: NonEmpty,
 	authType: z.enum(AccountAuthType),
@@ -165,6 +173,13 @@ export const AccountSchema = z.strictObject({
 
 export const AccountConfigSchema = z.strictObject({
 	name: z.string(),
+	/**
+	 * Which body format the composer opens on. A server-held setting rather than
+	 * a browser one — it is stored per configuration and travels with it, so a
+	 * database drop loses it unless the file carries it. Optional because a
+	 * configuration that has never been asked holds no row.
+	 */
+	defaultComposerFormat: z.string().optional(),
 });
 
 export const LabelSchema = z.strictObject({
@@ -187,12 +202,12 @@ export const FilterAnchorSchema = z.strictObject({
 	sourceText: z.string().min(1).max(512),
 	/** `<modelId>@<dimensions>` the vector was built with, for provenance. */
 	embeddingId: NonEmpty,
-	sourceMessageId: Uuid,
+	sourceMessageId: StoredId,
 });
 
 /** A folder named the only way it can be named across instances. */
 export const FolderRefSchema = z.strictObject({
-	accountId: Uuid,
+	accountId: StoredId,
 	folderPath: ImapPath,
 });
 
@@ -222,7 +237,6 @@ export const SavedSearchSchema = z.strictObject({
 export const ClientPreferencesSchema = z.strictObject({
 	theme: z.string(),
 	density: z.string(),
-	defaultComposerFormat: z.string(),
 	savedSearches: z.array(SavedSearchSchema),
 });
 

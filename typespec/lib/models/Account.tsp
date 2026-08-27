@@ -422,6 +422,15 @@ model ConfigDescriptionResponse {
   accounts: AccountResponse[];
 }
 
+@doc("A configuration export: one versioned document carrying every user decision this instance holds, and no credential.")
+model ConfigExportResponse {
+  @doc("Schema version of the document below")
+  schemaVersion: int32;
+
+  @doc("The config document. Opaque here; the JSON Schema for `schemaVersion` is its contract.")
+  document: Record<unknown>;
+}
+
 // ============================================
 // Account Management Input Models
 // ============================================
