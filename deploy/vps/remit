@@ -151,6 +151,13 @@ Usage: $PROG <command> [args]
                        could be produced, so cron or an external monitor can
                        call it directly.
   config               Print the effective configuration, secrets redacted.
+  config save <file>   Write every setting — accounts, filters, labels, folder
+    [--user <email>]   roles, signatures, flagged senders — to <file> as one
+                       versioned JSON document. No password and no OAuth token
+                       goes in it, so importing it asks for each account's
+                       credentials again. Run it before anything that drops the
+                       database. --user picks the sign-in on an instance that
+                       holds more than one.
   check-categories     Report whether the mail list's category column agrees
                        with the messages it copies, per cause. Reads the
                        database and writes nothing. The repair itself runs on
@@ -2736,6 +2743,12 @@ shows caddy running, then try again."
 # matched after stripping either.
 cmd_config() {
 	require_deployment
+	if [ "${1:-}" = "save" ]; then
+		shift
+		cmd_config_save "$@"
+		return
+	fi
+	[ $# -eq 0 ] || die "config: unknown argument '$1'"
 	awk '
 		/^[ \t]*#/ { next }
 		/^[ \t]*$/ { next }
@@ -2758,6 +2771,63 @@ cmd_config() {
 			print k "=" v
 		}
 	' "$REMIT_DIR/.env"
+}
+
+# `remit config save <file> [--user <email>]` (issue #1021).
+#
+# The document is built inside the backend image, over the same reader the
+# export endpoint uses, and comes back on stdout. It is redirected to a host
+# path here rather than written inside a container: the file exists to outlive
+# the deployment it describes, and this way it lands owned by whoever ran the
+# command instead of root-owned inside a volume.
+#
+# --no-deps is load-bearing for the reason check-categories has it: `compose
+# run` would otherwise start the service's dependencies, and volume-init chowns
+# the data volumes as root — writes, from a command that only reads.
+#
+# Written beside the target and renamed, so an export that dies half way through
+# leaves nothing that looks like a configuration file.
+cmd_config_save() {
+	_file=""
+	_user=""
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--user)
+			[ $# -ge 2 ] || die "config save: --user needs an email address"
+			_user=$2
+			shift 2
+			;;
+		-*) die "config save: unknown option '$1'" ;;
+		*)
+			[ -z "$_file" ] || die "config save: takes one file"
+			_file=$1
+			shift
+			;;
+		esac
+	done
+	[ -n "$_file" ] ||
+		die "config save: needs a file to write, e.g. '$PROG config save reader-config.json'"
+
+	_dir=$(dirname "$_file")
+	[ -d "$_dir" ] || die "config save: there is no directory '$_dir'"
+	_tmp="$_dir/.$(basename "$_file").writing.$$"
+
+	_rc=0
+	if [ -n "$_user" ]; then
+		compose run --rm --no-deps -T migrate \
+			node config-save.mjs --user "$_user" >"$_tmp" || _rc=$?
+	else
+		compose run --rm --no-deps -T migrate \
+			node config-save.mjs >"$_tmp" || _rc=$?
+	fi
+	if [ "$_rc" != "0" ]; then
+		rm -f "$_tmp"
+		die "config save: the export did not finish, so nothing was written"
+	fi
+
+	mv "$_tmp" "$_file"
+	printf 'Wrote %s.\n' "$_file"
+	printf 'It carries no password and no OAuth token — importing it asks for each account again.\n'
 }
 
 # The migrate entrypoint's read-only mode. --no-deps is load-bearing: without it

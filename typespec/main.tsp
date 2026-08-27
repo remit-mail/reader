@@ -79,6 +79,12 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
     op getConfig(): ConfigDescriptionResponse;
+
+    @doc("Export every configured setting for the caller as one versioned JSON document. Contains no credentials: no IMAP/SMTP password and no OAuth token, encrypted or otherwise, and the credential fields are structurally absent rather than blank. The document's own shape is not defined here - it is defined by the published JSON Schema for its `schemaVersion` (build/config-schema/reader-config.v<N>.schema.json), so a file keeps validating independent of this API's models.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    @route("/export")
+    op exportConfig(): ConfigExportResponse;
   }
 
   // ============================================

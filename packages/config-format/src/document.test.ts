@@ -94,7 +94,7 @@ test("a filter names its label by name and its folder by account and path", () =
 		literalClauses: [{ field: FilterClauseField.ListId, value: "x.example" }],
 		actionLabelName: "Facturen",
 		actionFolder: {
-			accountId: "6f4c2c30-9a2c-4a7f-9f9f-1f2c3d4e5a6b",
+			accountId: "6f4c2c309a2c4a7f9f9f1f2c3",
 			folderPath: "INBOX.Facturen",
 		},
 		anchor: null,
@@ -108,7 +108,7 @@ test("a filter names its label by name and its folder by account and path", () =
 	assert.equal(
 		FilterSchema.safeParse({
 			...filter,
-			actionFolder: { mailboxId: "6f4c2c30-9a2c-4a7f-9f9f-1f2c3d4e5a6b" },
+			actionFolder: { mailboxId: "6f4c2c309a2c4a7f9f9f1f2c3" },
 		}).success,
 		false,
 	);
@@ -126,7 +126,7 @@ test("a filter anchor carries its source text and no vector", () => {
 		anchor: {
 			sourceText: "the release note we file every month",
 			embeddingId: "amazon.titan-embed-text-v2:0@1024",
-			sourceMessageId: "2c9e4b11-7d5a-4f60-9a31-5b8c0e7f2d44",
+			sourceMessageId: "2c9e4b117d5a4f609a315b8c0",
 		},
 	};
 
@@ -137,7 +137,7 @@ test("a filter anchor carries its source text and no vector", () => {
 			anchor: {
 				sourceText: "x",
 				embeddingId: "m@1",
-				sourceMessageId: "2c9e4b11-7d5a-4f60-9a31-5b8c0e7f2d44",
+				sourceMessageId: "2c9e4b117d5a4f609a315b8c0",
 				anchorEmbedding: [0.1, 0.2],
 			},
 		}).success,
