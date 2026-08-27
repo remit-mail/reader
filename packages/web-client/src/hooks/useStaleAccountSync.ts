@@ -6,6 +6,11 @@ import pMap from "p-map";
 import { useEffect, useRef } from "react";
 import { shouldEscalate } from "@/lib/error-classifier";
 import { reportFatalError } from "@/lib/fatal-error";
+import {
+	HOT_POLL_INTERVAL_MS,
+	isHotSyncWindowActive,
+	subscribeHotSyncWindow,
+} from "@/lib/hot-sync-window";
 import { getRuntimeConfig } from "@/runtime-config";
 
 /**
@@ -14,7 +19,7 @@ import { getRuntimeConfig } from "@/runtime-config";
  */
 export const STALENESS_THRESHOLD_MS = 15 * 60 * 1000;
 
-const DEFAULT_POLL_INTERVAL_SECONDS = 5 * 60;
+const DEFAULT_POLL_INTERVAL_SECONDS = 30;
 
 const parsePositiveIntSeconds = (
 	raw: string | undefined,
@@ -26,19 +31,18 @@ const parsePositiveIntSeconds = (
 };
 
 /**
- * Floor for the poll interval, matching `MAILBOX_FRESHNESS_MS` in the
- * imap-worker's sync-mailboxes fan-out.
+ * Floor for the poll interval.
  *
  * This poll uses POST /sync, the same endpoint as a person pressing refresh,
- * and that endpoint's triggers skip the server's per-mailbox freshness gate.
- * A timer is not a person: polling faster than the gate's own window would
- * make every tick a full folder-by-folder re-enumeration for every open
- * account — the fan-out storm the gate exists to prevent, reintroduced by a
- * config value. `mailboxPollIntervalSeconds` can lengthen the interval, never
- * shorten it past this: below the window there is nothing to gain, since no
- * mailbox can have become stale in the meantime.
+ * and that endpoint's triggers skip the server's per-mailbox freshness gate
+ * (`MAILBOX_FRESHNESS_MS`, 60s). A timer is not a person: every tick is a full
+ * folder-by-folder re-enumeration for every open account, so the interval is
+ * what bounds that work. Thirty seconds is the answer to how stale an open
+ * tab's mail may be, and buys it at twice the fan-out the gate's own window
+ * would allow. `mailboxPollIntervalSeconds` can lengthen the interval, never
+ * shorten it past this.
  */
-export const MIN_POLL_INTERVAL_MS = 60 * 1000;
+export const MIN_POLL_INTERVAL_MS = 30 * 1000;
 
 /**
  * Resolve the configured poll interval, never returning less than
@@ -61,6 +65,21 @@ export const resolvePollIntervalMs = (
 export const POLL_INTERVAL_MS = resolvePollIntervalMs(
 	getRuntimeConfig().mailboxPollIntervalSeconds,
 );
+
+/**
+ * The interval this tab is currently due on: the hot one while a refresh press
+ * is still recent, the configured ambient one otherwise. A deployment that has
+ * lengthened `mailboxPollIntervalSeconds` still gets the hot cadence for the
+ * few minutes after a press, which is what makes a press mean "and keep
+ * looking".
+ */
+export const currentPollIntervalMs = (
+	now: number = Date.now(),
+	ambientMs: number = POLL_INTERVAL_MS,
+): number =>
+	isHotSyncWindowActive(now)
+		? Math.min(HOT_POLL_INTERVAL_MS, ambientMs)
+		: ambientMs;
 
 /**
  * Bounded concurrency for the per-poll fan-out across open accounts —
@@ -186,6 +205,8 @@ const runBackgroundSync = (
  * first time MailLayout mounts in a session, then keep it fresh with a
  * recurring online poll for as long as the mail app stays open (#1251) —
  * the client-side replacement for the server's removed "online" sync tier.
+ * The poll runs on the ambient interval, or the hot one for the few minutes
+ * after somebody presses refresh, and only while the tab is visible.
  * Fire-and-forget: does not block render, and silently logs failures (this
  * is a best-effort background refresh — the user-visible UI for triggering
  * is the "Refresh mailboxes" button in Settings).
@@ -250,27 +271,48 @@ export const useStaleAccountSync = (
 		const tick = () => {
 			if (document.visibilityState === "visible") {
 				poll();
-				timeoutId = setTimeout(tick, POLL_INTERVAL_MS);
+				timeoutId = setTimeout(tick, currentPollIntervalMs());
 				return;
 			}
 			// Hidden: don't reschedule. `handleVisibilityChange` resumes the loop
 			// (with an immediate catch-up poll) once the tab is visible again.
+			// A hot window running out while the tab is away costs nothing —
+			// there is nobody watching a list to keep current.
 		};
 
 		const handleVisibilityChange = () => {
 			if (document.visibilityState !== "visible") return;
-			if (!hasPollIntervalElapsed(Date.now(), lastPollAt)) return;
+			if (
+				!hasPollIntervalElapsed(Date.now(), lastPollAt, currentPollIntervalMs())
+			) {
+				return;
+			}
 			if (timeoutId !== undefined) clearTimeout(timeoutId);
 			poll();
-			timeoutId = setTimeout(tick, POLL_INTERVAL_MS);
+			timeoutId = setTimeout(tick, currentPollIntervalMs());
 		};
 
-		timeoutId = setTimeout(tick, POLL_INTERVAL_MS);
+		// A press opens the hot window, but this loop may already be asleep on a
+		// long ambient interval — reschedule onto the hot one rather than sit
+		// out the rest of that wait. The press has just triggered its own sync,
+		// so this only moves the *next* tick: never a poll on the press itself,
+		// and never a tighter loop than the interval (POST /sync is deliberately
+		// never coalesced, #37).
+		const handleHotWindow = () => {
+			if (document.visibilityState !== "visible") return;
+			if (timeoutId !== undefined) clearTimeout(timeoutId);
+			lastPollAt = Date.now();
+			timeoutId = setTimeout(tick, currentPollIntervalMs());
+		};
+
+		timeoutId = setTimeout(tick, currentPollIntervalMs());
 		document.addEventListener("visibilitychange", handleVisibilityChange);
+		const unsubscribeHotWindow = subscribeHotSyncWindow(handleHotWindow);
 
 		return () => {
 			if (timeoutId !== undefined) clearTimeout(timeoutId);
 			document.removeEventListener("visibilitychange", handleVisibilityChange);
+			unsubscribeHotWindow();
 		};
 	}, [stableKey, queryClient]);
 };
