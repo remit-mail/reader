@@ -689,7 +689,6 @@ describe("handleMessageDelete", () => {
 			assert.equal(called("message.delete").length, 0);
 			assert.equal(called("threadMessage.deleteMany").length, 0);
 			assert.equal(called("threadMessage.update").length, 0);
-			assert.equal(called("emitEvent").length, 0);
 
 			// The row's mailbox and uid stay put, but `status` must leave
 			// `moving`: `isPlacementUnsettled` reads exactly that value, so a row
@@ -700,6 +699,27 @@ describe("handleMessageDelete", () => {
 				syncStatus: "failed",
 			});
 			assert.equal(await imapFailures("MESSAGE_DELETE_EXHAUSTED"), 1);
+		});
+
+		// The optimistic `updateForMove` already pointed the row at Trash. The
+		// server has now confirmed the message never left the source, so the row
+		// and the server disagree about where the mail is, and only a resync of
+		// both folders settles that. Without it the user is shown the message in
+		// Trash indefinitely while it sits in the source folder.
+		it("resyncs both folders when the server confirms the message never left the source", async () => {
+			h.connection.moveMessages = async () => ({ uidMap: new Map() });
+			h.destinationSearchUids = [100];
+
+			await handleMessageDelete(moveEvent, noopLog, 3, deps());
+
+			assert.deepEqual(
+				called("emitEvent").map((c) => c.args[0]),
+				[
+					{ type: "SYNC_MESSAGES", accountId: "acc-1", mailboxId: "src-mbx" },
+					{ type: "SYNC_MESSAGES", accountId: "acc-1", mailboxId: "trash-mbx" },
+				],
+				"a confirmed divergence resyncs on the broken verdict too, not only on the reconciled one",
+			);
 		});
 
 		// Issue #980, the failure the budget exists for: every redelivery
