@@ -99,6 +99,25 @@ export class MailboxNotSettledError extends ConflictError {
 }
 
 /**
+ * A delete or copy was refused because the message's placement is still an
+ * unconfirmed move (imap-mutations R2: wait). Its own code, because nothing is
+ * unresolved and nothing is missing — the row's folder and uid simply do not
+ * name the same message yet, and acting on that pair destroys or duplicates a
+ * different one. The client words a wait and a retry against the same message.
+ */
+export class MessagePlacementUnsettledError extends ConflictError {
+	name = "MessagePlacementUnsettledError";
+
+	constructor(message: string, accountId: string, messageId: string) {
+		super(message);
+		this.publicApiError = {
+			code: "message_placement_unsettled",
+			details: { accountId, messageId },
+		};
+	}
+}
+
+/**
  * A message exists but its body could not be fetched/parsed after every
  * body-sync retry was spent (issue #1270 / epic #1281 invariant 3). This is
  * distinct from `NotFoundError`: the message is real, but its content is
