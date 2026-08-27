@@ -31,9 +31,9 @@ const EVENT_EMIT_CONCURRENCY = 20;
  * client produces when it loads (`GET /config` triggers a sync per account)
  * into one round of IMAP work.
  *
- * The web client floors its automatic poll at this same window
- * (`MIN_POLL_INTERVAL_MS` in useStaleAccountSync), so the one caller that
- * skips this gate on a timer still cannot drive a fan-out faster than it.
+ * This gates side-effect triggers only. The web client's automatic poll asks
+ * by name and so skips it; what bounds that one is its own floor
+ * (`MIN_POLL_INTERVAL_MS` in useStaleAccountSync, 30s).
  */
 export const DEFAULT_MAILBOX_FRESHNESS_MS = 60_000;
 
@@ -264,20 +264,54 @@ const syncMailboxesForAccount = async (
 		mailboxCountSynced: skipped,
 	});
 
-	// Emit events in parallel with concurrency limit
-	// INBOX is first in the sorted list, so it gets priority
-	await pMap(
-		mailboxes,
-		({ mailboxId }) => {
-			const syncEvent: Omit<SyncMessagesEvent, "eventId" | "timestamp"> = {
-				type: "SYNC_MESSAGES",
-				accountId,
-				mailboxId,
-			};
-			return emitEvent(syncEvent);
-		},
-		{ concurrency: EVENT_EMIT_CONCURRENCY },
+	await emitSyncMessagesEvents(accountId, mailboxes, emitEvent);
+};
+
+type SyncMessagesInput = Omit<SyncMessagesEvent, "eventId" | "timestamp">;
+
+/**
+ * Separate INBOX from the rest of the fan-out. `collectAllMailboxes` sorts it
+ * first, but sort order alone decides nothing once the emits go out together.
+ */
+export const splitInboxFirst = <T extends { fullPath: string }>(
+	mailboxes: readonly T[],
+): { inbox: T | undefined; rest: T[] } => {
+	const at = mailboxes.findIndex(
+		(mailbox) => mailbox.fullPath.toUpperCase() === "INBOX",
 	);
+	if (at === -1) return { inbox: undefined, rest: [...mailboxes] };
+	return {
+		inbox: mailboxes[at],
+		rest: mailboxes.filter((_, index) => index !== at),
+	};
+};
+
+/**
+ * Emit INBOX's SYNC_MESSAGES event and wait for it before emitting the rest.
+ *
+ * Every event of an account shares one FIFO group (`MessageGroupId =
+ * accountId`), so the queue serves them strictly in arrival order. Emitting
+ * the whole list through `pMap` only bounds concurrency — it races the writes,
+ * and INBOX could land behind up to `EVENT_EMIT_CONCURRENCY - 1` other
+ * folders. The mail a person pressed refresh for then arrived only after every
+ * one of those folders had finished syncing.
+ */
+export const emitSyncMessagesEvents = async (
+	accountId: string,
+	mailboxes: readonly { mailboxId: string; fullPath: string }[],
+	emit: (event: SyncMessagesInput) => Promise<unknown>,
+): Promise<void> => {
+	const eventFor = (mailboxId: string): SyncMessagesInput => ({
+		type: "SYNC_MESSAGES",
+		accountId,
+		mailboxId,
+	});
+
+	const { inbox, rest } = splitInboxFirst(mailboxes);
+	if (inbox) await emit(eventFor(inbox.mailboxId));
+	await pMap(rest, ({ mailboxId }) => emit(eventFor(mailboxId)), {
+		concurrency: EVENT_EMIT_CONCURRENCY,
+	});
 };
 
 type MailboxSortEntry = {

@@ -14,6 +14,10 @@ import {
 } from "react";
 import { useMailContext } from "@/lib/mail-context";
 import type { ResultFolderIndex } from "@/lib/result-folder";
+import {
+	invalidateThreadListQueries,
+	threadListCacheKeys,
+} from "@/lib/thread-list-cache";
 
 /**
  * How often the background poll re-reads each open account's sync status.
@@ -55,21 +59,28 @@ export const totalsFrom = (
 };
 
 /**
- * Whether any mailbox's message total grew since the baseline. Pure so the
- * "did mail arrive" call is unit-testable without a DOM or a QueryClient. A
- * mailbox missing from the baseline (new folder, first-ever reading) counts
- * from zero rather than being skipped, so mail landing in a folder created
- * since the last look still counts as an arrival.
+ * Which mailboxes' totals grew since the baseline. Pure so the "did mail
+ * arrive" call is unit-testable without a DOM or a QueryClient. A mailbox
+ * missing from the baseline (new folder, first-ever reading) counts from zero
+ * rather than being skipped, so mail landing in a folder created since the last
+ * look still counts as an arrival.
  */
+export const grownMailboxIds = (
+	baseline: MailboxTotals,
+	current: MailboxTotals,
+): string[] => {
+	const grown: string[] = [];
+	for (const [mailboxId, total] of current) {
+		if (total > (baseline.get(mailboxId) ?? 0)) grown.push(mailboxId);
+	}
+	return grown;
+};
+
+/** Whether any mailbox grew at all — the dot's own question. */
 export const hasGrown = (
 	baseline: MailboxTotals,
 	current: MailboxTotals,
-): boolean => {
-	for (const [mailboxId, total] of current) {
-		if (total > (baseline.get(mailboxId) ?? 0)) return true;
-	}
-	return false;
-};
+): boolean => grownMailboxIds(baseline, current).length > 0;
 
 interface MailFreshnessContextValue {
 	/** True once any of these accounts has grown since it was last acknowledged. */
@@ -102,10 +113,13 @@ interface MailFreshnessProviderProps {
 /**
  * Watches every open account's sync status once a minute and flags which
  * accounts have grown since they were last shown to the user (#582 clause
- * 4). The flag is sticky until acknowledged — a background tick never
- * invalidates or reorders anything on its own, it only lights the dot on
- * whichever `RefreshButton` reads this context, leaving the choice to load
- * it with the user.
+ * 4). The flag is sticky until acknowledged: it lights the dot on whichever
+ * `RefreshButton` reads this context and stays lit until a refresh clears it.
+ *
+ * A tick that sees a folder's total move also invalidates that folder's thread
+ * listing. It reorders nothing and asks the mail server for nothing — the
+ * message is already on our side, so an open list showing it is a cache read,
+ * not IMAP work. The dot is still the account-level signal.
  */
 export function MailFreshnessProvider({
 	accountIds,
@@ -115,6 +129,10 @@ export function MailFreshnessProvider({
 	const { resultFolderIndex } = useMailContext();
 	const baselineRef = useRef(new Map<string, MailboxTotals>());
 	const seededRef = useRef(new Set<string>());
+	// The previous tick's reading, distinct from the dot's baseline: the dot's
+	// baseline is sticky until acknowledged, so comparing against it would
+	// re-invalidate on every tick for as long as the dot stays lit.
+	const previousTotalsRef = useRef(new Map<string, MailboxTotals>());
 	const [newMail, setNewMail] = useState<ReadonlySet<string>>(new Set());
 
 	const queries = useQueries({
@@ -136,6 +154,20 @@ export function MailFreshnessProvider({
 			const data = queries[index]?.data;
 			if (!data) return;
 			const current = totalsFrom(data.mailboxes ?? [], resultFolderIndex);
+
+			// Mail that has already landed on the server costs nothing more to
+			// show, so a folder whose total moved since the last tick reloads
+			// its listing here. That caps how stale an open tab's list can get
+			// at this poll's own interval, without a single extra IMAP round.
+			const previous = previousTotalsRef.current.get(accountId);
+			previousTotalsRef.current.set(accountId, current);
+			if (previous) {
+				const grown = grownMailboxIds(previous, current);
+				if (grown.length > 0) {
+					invalidateThreadListQueries(queryClient, threadListCacheKeys(grown));
+				}
+			}
+
 			if (!seededRef.current.has(accountId)) {
 				seededRef.current.add(accountId);
 				baselineRef.current.set(accountId, current);

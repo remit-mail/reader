@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import type { RemitImapMailboxSyncProgress } from "@remit/api-http-client/types.gen.ts";
 import type { NavMailboxRole } from "@remit/ui";
 import type { ResultFolderIndex } from "@/lib/result-folder";
-import { hasGrown, totalsFrom } from "./mail-freshness.js";
+import { grownMailboxIds, hasGrown, totalsFrom } from "./mail-freshness.js";
 
 const mailbox = (
 	mailboxId: string,
@@ -112,5 +112,35 @@ describe("totalsFrom", () => {
 			folders,
 		);
 		assert.equal(hasGrown(baseline, afterArrivalAndDelete), true);
+	});
+});
+
+describe("grownMailboxIds", () => {
+	// The invalidation half of the same reading: which folders' listings are
+	// now behind the server, so an open tab reloads exactly those.
+	test("names only the mailboxes whose totals moved up", () => {
+		const baseline = new Map([
+			["mb-1", 10],
+			["mb-2", 4],
+			["mb-3", 7],
+		]);
+		const current = new Map([
+			["mb-1", 12],
+			["mb-2", 4],
+			["mb-3", 6],
+		]);
+
+		assert.deepEqual(grownMailboxIds(baseline, current), ["mb-1"]);
+	});
+
+	test("counts a folder absent from the baseline from zero", () => {
+		assert.deepEqual(grownMailboxIds(new Map(), new Map([["mb-new", 3]])), [
+			"mb-new",
+		]);
+	});
+
+	test("is empty when nothing moved", () => {
+		const totals = new Map([["mb-1", 10]]);
+		assert.deepEqual(grownMailboxIds(totals, new Map(totals)), []);
 	});
 });

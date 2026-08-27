@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
 	DEFAULT_MAILBOX_FRESHNESS_MS,
+	emitSyncMessagesEvents,
 	MAILBOX_FRESHNESS_MS,
 	mailboxNeedsSync,
 	resolveMailboxFreshnessMs,
+	splitInboxFirst,
 } from "./sync-mailboxes.js";
 
 const NOW = 1_700_000_000_000;
@@ -82,5 +84,101 @@ describe("resolveMailboxFreshnessMs", () => {
 			resolveMailboxFreshnessMs({ MAILBOX_FRESHNESS_MS: "1.5" }),
 			DEFAULT_MAILBOX_FRESHNESS_MS,
 		);
+	});
+});
+
+describe("splitInboxFirst", () => {
+	it("pulls INBOX out of the list whatever case it is spelled in", () => {
+		const { inbox, rest } = splitInboxFirst([
+			{ mailboxId: "mb-sent", fullPath: "Sent" },
+			{ mailboxId: "mb-inbox", fullPath: "Inbox" },
+			{ mailboxId: "mb-junk", fullPath: "Junk" },
+		]);
+
+		assert.equal(inbox?.mailboxId, "mb-inbox");
+		assert.deepEqual(
+			rest.map((mailbox) => mailbox.mailboxId),
+			["mb-sent", "mb-junk"],
+		);
+	});
+
+	it("leaves an account without an INBOX intact", () => {
+		const { inbox, rest } = splitInboxFirst([
+			{ mailboxId: "mb-sent", fullPath: "Sent" },
+		]);
+
+		assert.equal(inbox, undefined);
+		assert.deepEqual(
+			rest.map((mailbox) => mailbox.mailboxId),
+			["mb-sent"],
+		);
+	});
+});
+
+describe("emitSyncMessagesEvents", () => {
+	// Every event of an account shares one FIFO group, so arrival order is
+	// service order. pMap only bounds concurrency: it used to race all the
+	// emits, letting INBOX queue behind up to nineteen other folders while a
+	// person waited for their new mail.
+	it("emits INBOX before any other folder", async () => {
+		const emitted: string[] = [];
+		const mailboxes = Array.from({ length: 25 }, (_, index) => ({
+			mailboxId: `mb-${index}`,
+			fullPath: `Folder ${index}`,
+		}));
+		mailboxes.push({ mailboxId: "mb-inbox", fullPath: "INBOX" });
+
+		await emitSyncMessagesEvents("acc-1", mailboxes, async (event) => {
+			emitted.push(event.mailboxId);
+		});
+
+		assert.equal(emitted[0], "mb-inbox");
+		assert.equal(emitted.length, 26);
+	});
+
+	// Emitting INBOX and awaiting it is the whole fix: a fire-and-forget emit
+	// would leave it racing the fan-out again.
+	it("waits for the INBOX emit to resolve before emitting the rest", async () => {
+		const emitted: string[] = [];
+		let releaseInbox: () => void = () => {};
+		const inboxEmitted = new Promise<void>((resolve) => {
+			releaseInbox = resolve;
+		});
+
+		const done = emitSyncMessagesEvents(
+			"acc-1",
+			[
+				{ mailboxId: "mb-inbox", fullPath: "INBOX" },
+				{ mailboxId: "mb-sent", fullPath: "Sent" },
+			],
+			async (event) => {
+				emitted.push(event.mailboxId);
+				if (event.mailboxId === "mb-inbox") await inboxEmitted;
+			},
+		);
+
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.deepEqual(emitted, ["mb-inbox"]);
+
+		releaseInbox();
+		await done;
+		assert.deepEqual(emitted, ["mb-inbox", "mb-sent"]);
+	});
+
+	it("emits every folder for an account with no INBOX", async () => {
+		const emitted: string[] = [];
+
+		await emitSyncMessagesEvents(
+			"acc-1",
+			[
+				{ mailboxId: "mb-sent", fullPath: "Sent" },
+				{ mailboxId: "mb-junk", fullPath: "Junk" },
+			],
+			async (event) => {
+				emitted.push(event.mailboxId);
+			},
+		);
+
+		assert.deepEqual(emitted.sort(), ["mb-junk", "mb-sent"]);
 	});
 });

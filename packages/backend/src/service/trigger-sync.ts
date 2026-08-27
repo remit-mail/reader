@@ -24,10 +24,10 @@ interface TriggerAccountSyncInput {
 	 * this unset, and takes the freshness gate — see `mailboxNeedsSync` in
 	 * imap-worker's sync-mailboxes handler.
 	 *
-	 * The poll cannot use this to outrun the gate: its interval is floored at
-	 * the gate's own window (`MIN_POLL_INTERVAL_MS` in the client hook), so
-	 * however low `mailboxPollIntervalSeconds` is set, a timer never fans out
-	 * more often than the gate would have allowed anyway.
+	 * How often a timer may do that is bounded on the client, by the poll's own
+	 * floor (`MIN_POLL_INTERVAL_MS` in the client hook, 30s) rather than by the
+	 * gate: `mailboxPollIntervalSeconds` can lengthen the interval, never
+	 * shorten it past that.
 	 */
 	explicitRequest?: boolean;
 	/**

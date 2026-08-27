@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { type SyncStatusReading, waitForSettled } from "./useRefreshControl.js";
+import {
+	inboxSyncedAt,
+	type SyncStatusReading,
+	waitForSettled,
+} from "./useRefreshControl.js";
 
 const BASELINE = 1_700_000_000_000;
 const LATER = BASELINE + 5_000;
@@ -125,5 +129,159 @@ describe("waitForSettled", () => {
 		});
 
 		assert.deepEqual(outcome, { accountId: "a-1", message: "signed out" });
+	});
+});
+
+const inbox = (lastSyncedAt: number) => ({
+	fullPath: "INBOX",
+	lastSyncedAt,
+});
+const junk = (lastSyncedAt: number) => ({
+	fullPath: "Junk",
+	lastSyncedAt,
+});
+
+describe("inboxSyncedAt", () => {
+	test("reads the INBOX stamp whatever case the server spells it in", () => {
+		assert.equal(
+			inboxSyncedAt({
+				mailboxes: [junk(LATER), { fullPath: "Inbox", lastSyncedAt: BASELINE }],
+			}),
+			BASELINE,
+		);
+	});
+
+	test("is zero for an account with no INBOX or no stamp yet", () => {
+		assert.equal(inboxSyncedAt({ mailboxes: [junk(LATER)] }), 0);
+		assert.equal(inboxSyncedAt({ mailboxes: [{ fullPath: "INBOX" }] }), 0);
+		assert.equal(inboxSyncedAt({}), 0);
+	});
+});
+
+describe("waitForSettled inbox handoff", () => {
+	// A round is every folder in queue order, but the mail somebody pressed
+	// refresh for is in their inbox. Waiting for the whole round meant the new
+	// mail sat unshown while Junk and Trash went by.
+	test("announces the inbox while the round is still running", async () => {
+		const announced: number[] = [];
+		const { state, readStatus } = scriptedReader([
+			{
+				syncPhase: "syncing_inbox",
+				lastSyncAt: LATER,
+				mailboxes: [inbox(BASELINE)],
+			},
+			{
+				syncPhase: "syncing_others",
+				lastSyncAt: LATER,
+				mailboxes: [inbox(LATER)],
+			},
+			{
+				syncPhase: "syncing_others",
+				lastSyncAt: LATER,
+				mailboxes: [inbox(LATER)],
+			},
+			{
+				syncPhase: "complete",
+				lastSyncAt: LATER,
+				mailboxes: [inbox(LATER)],
+			},
+		]);
+
+		const outcome = await waitForSettled({
+			accountId: "a-1",
+			readStatus,
+			baselineLastSyncAt: BASELINE,
+			baselineInboxSyncedAt: BASELINE,
+			onInboxSynced: () => announced.push(state.reads),
+			deadline: Date.now() + 10_000,
+			pollMs: 0,
+		});
+
+		assert.equal(outcome, undefined);
+		// Second reading, two readings before the round confirmed.
+		assert.deepEqual(announced, [2]);
+		assert.equal(state.reads, 4);
+	});
+
+	test("announces the inbox once, not on every poll", async () => {
+		let announced = 0;
+		const { readStatus } = scriptedReader([
+			{
+				syncPhase: "syncing_others",
+				lastSyncAt: LATER,
+				mailboxes: [inbox(LATER)],
+			},
+			{
+				syncPhase: "syncing_others",
+				lastSyncAt: LATER,
+				mailboxes: [inbox(LATER)],
+			},
+			{
+				syncPhase: "complete",
+				lastSyncAt: LATER,
+				mailboxes: [inbox(LATER)],
+			},
+		]);
+
+		await waitForSettled({
+			accountId: "a-1",
+			readStatus,
+			baselineLastSyncAt: BASELINE,
+			baselineInboxSyncedAt: BASELINE,
+			onInboxSynced: () => {
+				announced += 1;
+			},
+			deadline: Date.now() + 10_000,
+			pollMs: 0,
+		});
+
+		assert.equal(announced, 1);
+	});
+
+	// The caller already treats a settled round as the confirmed state and
+	// reloads there, so announcing on the same reading would double the work.
+	test("does not announce when the round settles first", async () => {
+		let announced = 0;
+
+		await waitForSettled({
+			accountId: "a-1",
+			readStatus: async () => ({
+				syncPhase: "complete" as const,
+				lastSyncAt: LATER,
+				mailboxes: [inbox(LATER)],
+			}),
+			baselineLastSyncAt: BASELINE,
+			baselineInboxSyncedAt: BASELINE,
+			onInboxSynced: () => {
+				announced += 1;
+			},
+			deadline: Date.now() + 10_000,
+			pollMs: 0,
+		});
+
+		assert.equal(announced, 0);
+	});
+
+	// A folder other than INBOX syncing is not the mail being waited for.
+	test("does not announce on another folder's stamp moving", async () => {
+		let announced = 0;
+
+		await waitForSettled({
+			accountId: "a-1",
+			readStatus: async () => ({
+				syncPhase: "syncing_others" as const,
+				lastSyncAt: LATER,
+				mailboxes: [inbox(BASELINE), junk(LATER)],
+			}),
+			baselineLastSyncAt: BASELINE,
+			baselineInboxSyncedAt: BASELINE,
+			onInboxSynced: () => {
+				announced += 1;
+			},
+			deadline: Date.now() - 1,
+			pollMs: 0,
+		});
+
+		assert.equal(announced, 0);
 	});
 });
