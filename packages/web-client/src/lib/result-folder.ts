@@ -7,6 +7,10 @@
  * sidebar already loads: the id → folder map here is the only thing either
  * needs, so neither the search API nor the semantic index has to carry a folder.
  *
+ * The mailbox row carries the hierarchy delimiter its own server reports, and it
+ * is kept alongside the path: a chip labelled by path shows the folder's own
+ * name, which on a `.`-delimited account cannot be cut on a slash.
+ *
  * The role comes from the account's `folderAppointments` map (RFC 032), which
  * the server resolves from the IMAP SPECIAL-USE attributes — so `junk` means the
  * folder the account advertises as `\Junk`, whatever it is called. Names are
@@ -27,7 +31,7 @@ export interface AccountMailboxes {
 	folderAppointments: readonly RemitImapFolderAppointment[];
 	mailboxes: readonly Pick<
 		RemitImapMailboxResponse,
-		"mailboxId" | "fullPath"
+		"mailboxId" | "fullPath" | "hierarchyDelimiter"
 	>[];
 }
 
@@ -46,10 +50,11 @@ export function buildResultFolderIndex(
 		for (const [mailboxId, role] of roles) index.set(mailboxId, { role });
 		for (const mailbox of account.mailboxes) {
 			const role = roles.get(mailbox.mailboxId);
-			index.set(mailbox.mailboxId, {
-				...(role ? { role } : {}),
+			const path = {
 				providerPath: mailbox.fullPath,
-			});
+				hierarchyDelimiter: mailbox.hierarchyDelimiter,
+			};
+			index.set(mailbox.mailboxId, role ? { role, ...path } : path);
 		}
 	}
 	return index;

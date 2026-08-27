@@ -112,7 +112,7 @@ const crossFolderMatches: SearchResult[] = [
 		subject: "Invoices for the quarter",
 		snippet: "The quarterly set, filed with the rest of the bookkeeping.",
 		date: "Jan 30",
-		folder: { providerPath: "Projects/Bookkeeping" },
+		folder: { providerPath: "Projects/Bookkeeping", hierarchyDelimiter: "/" },
 	},
 ];
 
@@ -355,7 +355,10 @@ export const VirtualFoldersGoUnlabelled: Story = {
 						{
 							...topMatches[2],
 							id: "v3",
-							folder: { providerPath: "[Gmail]/Important" },
+							folder: {
+								providerPath: "[Gmail]/Important",
+								hierarchyDelimiter: "/",
+							},
 						},
 						...crossFolderMatches.slice(0, 1),
 					],

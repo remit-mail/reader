@@ -235,7 +235,10 @@ describe("SearchResults provenance labels", () => {
 							{
 								...result,
 								id: "c1",
-								folder: { providerPath: "Projects/Books" },
+								folder: {
+									providerPath: "Projects/Books",
+									hierarchyDelimiter: "/",
+								},
 							},
 						],
 					},
@@ -274,7 +277,10 @@ describe("SearchResults provenance labels", () => {
 							{
 								...result,
 								id: "v3",
-								folder: { providerPath: "[Gmail]/Important" },
+								folder: {
+									providerPath: "[Gmail]/Important",
+									hierarchyDelimiter: "/",
+								},
 							},
 						],
 					},

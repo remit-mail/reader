@@ -7,6 +7,7 @@
  * failure to read it at all. None of them is an empty panel.
  */
 import { meOperationsListQuarantineOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import type { RemitImapQuarantineResponse } from "@remit/api-http-client/types.gen.ts";
 import {
 	Button,
 	QuarantineBugDialog,
@@ -17,10 +18,14 @@ import {
 } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { Bug } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
+import { useAccountDelimiters } from "@/hooks/useAccountDelimiters";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import { toQuarantineEntry } from "@/lib/quarantine-entries";
+
+/** Stable identity, so an empty list does not rebuild the memos below. */
+const EMPTY_WIRE_ENTRIES: readonly RemitImapQuarantineResponse[] = [];
 
 function openIssue(url: string): void {
 	window.open(url, "_blank", "noopener,noreferrer");
@@ -126,9 +131,23 @@ export function QuarantinePanel() {
 		meOperationsListQuarantineOptions(),
 	);
 
+	const wireEntries = data?.entries ?? EMPTY_WIRE_ENTRIES;
+	const accountIds = useMemo(
+		() => [...new Set(wireEntries.map((entry) => entry.accountId))],
+		[wireEntries],
+	);
+	const delimiters = useAccountDelimiters(accountIds);
+	const entries = useMemo(
+		() =>
+			wireEntries.map((entry) =>
+				toQuarantineEntry(entry, delimiters.get(entry.accountId) ?? "/"),
+			),
+		[wireEntries, delimiters],
+	);
+
 	return (
 		<QuarantinePanelView
-			entries={(data?.entries ?? []).map(toQuarantineEntry)}
+			entries={entries}
 			isPending={isPending}
 			error={error}
 		/>

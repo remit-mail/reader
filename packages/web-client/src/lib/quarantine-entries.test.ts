@@ -34,16 +34,16 @@ const wire: RemitImapQuarantineResponse = {
 
 describe("toQuarantineEntry", () => {
 	it("spells the folder role the way the kit does", () => {
-		assert.equal(toQuarantineEntry(wire).mailboxRole, "junk");
+		assert.equal(toQuarantineEntry(wire, "/").mailboxRole, "junk");
 	});
 
 	it("leaves the role absent when the folder has none appointed", () => {
 		const { mailboxRole: _dropped, ...roleless } = wire;
-		assert.equal(toQuarantineEntry(roleless).mailboxRole, undefined);
+		assert.equal(toQuarantineEntry(roleless, "/").mailboxRole, undefined);
 	});
 
 	it("carries every field the report and the row are built from", () => {
-		const entry = toQuarantineEntry(wire);
+		const entry = toQuarantineEntry(wire, "/");
 		assert.equal(entry.quarantineId, wire.quarantineId);
 		assert.equal(entry.uid, wire.uid);
 		assert.equal(entry.uidValidity, wire.uidValidity);
@@ -63,8 +63,13 @@ describe("toQuarantineEntry", () => {
 		assert.deepEqual(entry.structure, wire.structure);
 	});
 
+	it("carries the delimiter the caller resolved, which the wire has not", () => {
+		assert.equal("mailboxDelimiter" in wire, false);
+		assert.equal(toQuarantineEntry(wire, ".").mailboxDelimiter, ".");
+	});
+
 	it("drops the fields the settings surface has no use for", () => {
-		const entry = toQuarantineEntry(wire);
+		const entry = toQuarantineEntry(wire, "/");
 		assert.equal("accountConfigId" in entry, false);
 		assert.equal("createdAt" in entry, false);
 		assert.equal("updatedAt" in entry, false);
