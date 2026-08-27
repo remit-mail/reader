@@ -357,9 +357,16 @@ export const handleMessageDelete = async (
 
 		if (outcome === "broken") {
 			recordImapFailure("MESSAGE_DELETE_EXHAUSTED", "other");
-			return;
 		}
 
+		// Both verdicts end in a row the server has contradicted, so this delete
+		// reconciles rather than waits (R2): whichever folder actually holds the
+		// message re-projects it with the server's own uid. RECONCILED, the local
+		// rows are gone and the resync rebuilds them. BROKEN, the server has just
+		// confirmed the message is still at the source while the optimistic
+		// `updateForMove` left the row pointing at Trash — without the resync the
+		// user sees it in Trash for as long as that row stands, which is the
+		// silent misdirection the settle exists to end.
 		if (destinationMailboxId) {
 			await emitMoveResync(emitEvent, {
 				accountId,
