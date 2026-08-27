@@ -1,5 +1,4 @@
 import type {
-	AccountSettingValue,
 	IMailboxSpecialUseRepository,
 	MailboxSpecialUseItem,
 	MailboxSpecialUseValue,
@@ -15,11 +14,10 @@ import {
 	type UnappointedRoleResolution,
 } from "@remit/data-ports/folder-role";
 import { CanonicalMailboxRole } from "@remit/domain-enums";
-import { and, eq, inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { randomId } from "../id.js";
 import { accountTable } from "../schema/i4-account-config.js";
-import { accountSettingTable } from "../schema/i4-account-setting.js";
 import { mailboxSpecialUseTable, mailboxTable } from "../schema/i4-mailbox.js";
 import { AccountSettingRepo } from "./i4-account-setting.js";
 
@@ -34,6 +32,13 @@ const appointmentKey = (
 	accountId: string,
 	role: CanonicalMailboxRoleValue,
 ): string => `${accountId}\u0000${role}`;
+
+// The only place this repository names an appointment setting, so that no read
+// here can reach the display-only label row sitting beside it (#887).
+const appointmentSettingName = (
+	accountId: string,
+	role: CanonicalMailboxRoleValue,
+): string => composeFolderRoleAppointmentName(accountId, role);
 
 interface RoleCandidate extends RoleMailboxCandidate {
 	fullPath: string;
@@ -268,35 +273,23 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 		for (const account of accounts) {
 			for (const role of roles) {
 				wanted.set(
-					composeFolderRoleAppointmentName(account.accountId, role),
+					appointmentSettingName(account.accountId, role),
 					appointmentKey(account.accountId, role),
 				);
 			}
 		}
 
-		const rows = await this.db
-			.select({
-				name: accountSettingTable.name,
-				value: accountSettingTable.value,
-			})
-			.from(accountSettingTable)
-			.where(
-				and(
-					inArray(
-						accountSettingTable.accountConfigId,
-						accounts.map((account) => account.accountConfigId),
-					),
-					inArray(accountSettingTable.name, [...wanted.keys()]),
-				),
-			);
+		const settings = await this.accountSetting.getMany(
+			accounts.map((account) => account.accountConfigId),
+			[...wanted.keys()],
+		);
 
 		const appointed = new Map<string, string>();
-		for (const row of rows) {
-			const key = wanted.get(row.name);
+		for (const setting of settings) {
+			const key = wanted.get(setting.name);
 			if (!key) continue;
-			const value = row.value as AccountSettingValue;
-			if (value.kind !== "String") continue;
-			appointed.set(key, value.value);
+			if (setting.value.kind !== "String") continue;
+			appointed.set(key, setting.value.value);
 		}
 		return appointed;
 	}
@@ -378,7 +371,7 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 
 		const setting = await this.accountSetting.get(
 			account.accountConfigId,
-			composeFolderRoleAppointmentName(accountId, role),
+			appointmentSettingName(accountId, role),
 		);
 		if (!setting || setting.value.kind !== "String") return undefined;
 		return setting.value.value;
