@@ -22,6 +22,7 @@ import {
 	StaleTrashAppointmentError,
 	UnconfirmedTrashMailboxError,
 } from "./message-move.js";
+import { NO_JUNK_ROLES } from "./test-helpers/folder-roles.js";
 
 const ACCOUNT = "acc-1";
 const ACCOUNT_CONFIG = "cfg-1";
@@ -100,6 +101,7 @@ const buildWorld = (
 		} as unknown as IAddressRepository,
 		mailboxSpecialUseService: {
 			resolveTrashRole: async () => trashResolution,
+			resolveJunkRolesForConfig: async () => NO_JUNK_ROLES,
 		} as unknown as IMailboxSpecialUseRepository,
 		threadMessageService,
 		sqsQueueUrl: "http://localhost:9324/000000000000/remit-messages.fifo",

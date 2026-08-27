@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { after, before, beforeEach, describe, test } from "node:test";
+import { composeFolderRoleAppointmentName } from "@remit/data-ports/folder-role";
+import { CanonicalMailboxRole } from "@remit/domain-enums";
 import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { AccountSettingRepo } from "../repos/i4-account-setting.js";
+import { MailboxSpecialUseRepo } from "../repos/i4-mailbox-special-use.js";
 import { shippedTableDdl } from "../test-shipped-sqlite-schema.js";
 import {
 	type JunkOnlyRepairClient,
+	type JunkOnlyRepairMode,
+	type JunkOnlyReport,
 	sweepJunkOnlyAddresses,
 } from "./junk-only-address.js";
 
@@ -22,8 +29,47 @@ interface AddressRow {
 
 describe("addresses standing only on mail in Junk", () => {
 	let sqlite: Database.Database;
+	let specialUse: MailboxSpecialUseRepo;
+	let accountSetting: AccountSettingRepo;
 
-	const mailbox = (mailboxId: string, specialUse: string | null): void => {
+	/**
+	 * Which folder holds Junk is resolved through the repository seam every
+	 * other special-folder lookup reads, so the sweep honours an appointment and
+	 * cannot disagree with the sync that harvested the address.
+	 */
+	const sweep = async (
+		mode: JunkOnlyRepairMode = "repair",
+	): Promise<JunkOnlyReport> =>
+		sweepJunkOnlyAddresses(
+			clientOver(sqlite),
+			mode,
+			await specialUse.resolveJunkRolesForInstance(),
+		);
+
+	const account = (accountId: string): void => {
+		sqlite
+			.prepare(
+				`INSERT OR IGNORE INTO account (
+					account_id, account_config_id, username, email, imap_host,
+					imap_port, imap_tls, imap_start_tls, smtp_port, is_active,
+					connection_state, created_at, updated_at
+				) VALUES (?, 'cfg-1', 'user', 'user@example.com', 'imap.example.com',
+					993, 1, 0, 465, 1, 'disconnected', 0, 0)`,
+			)
+			.run(accountId);
+	};
+
+	const mailbox = (
+		mailboxId: string,
+		designation: string | null,
+		folder: {
+			accountId?: string;
+			fullPath?: string;
+			hierarchyDelimiter?: string;
+		} = {},
+	): void => {
+		const accountId = folder.accountId ?? "acc";
+		account(accountId);
 		sqlite
 			.prepare(
 				`INSERT INTO mailbox (
@@ -32,9 +78,29 @@ describe("addresses standing only on mail in Junk", () => {
 					unseen_count, deleted_count, total_size, last_sync_uid,
 					high_water_mark_uid, last_message_sync_at, special_use,
 					created_at, updated_at
-				) VALUES (?, 'acc', '', '/', ?, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, ?, 0, 0)`,
+				) VALUES (?, ?, '', ?, ?, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, ?, 0, 0)`,
 			)
-			.run(mailboxId, mailboxId, specialUse);
+			.run(
+				mailboxId,
+				accountId,
+				folder.hierarchyDelimiter ?? "/",
+				folder.fullPath ?? mailboxId,
+				designation,
+			);
+	};
+
+	const appointJunk = async (
+		accountId: string,
+		mailboxId: string,
+	): Promise<void> => {
+		await accountSetting.upsert({
+			accountConfigId: "cfg-1",
+			name: composeFolderRoleAppointmentName(
+				accountId,
+				CanonicalMailboxRole.Junk,
+			),
+			value: { kind: "String", value: mailboxId },
+		});
 	};
 
 	const specialUseEntry = (mailboxId: string, specialUse: string): void => {
@@ -117,12 +183,17 @@ describe("addresses standing only on mail in Junk", () => {
 
 	before(() => {
 		sqlite = new Database(":memory:");
+		const db = drizzle(sqlite);
+		specialUse = new MailboxSpecialUseRepo(db as never);
+		accountSetting = new AccountSettingRepo(db as never);
 		for (const table of [
 			"address",
 			"envelope_address",
 			"message",
 			"mailbox",
 			"mailbox_special_use_entry",
+			"account_setting",
+			"account",
 		]) {
 			sqlite.exec(shippedTableDdl(DDL_TAG, table));
 		}
@@ -148,6 +219,8 @@ describe("addresses standing only on mail in Junk", () => {
 			"message",
 			"mailbox",
 			"mailbox_special_use_entry",
+			"account_setting",
+			"account",
 		]) {
 			sqlite.exec(`DELETE FROM ${table}`);
 		}
@@ -167,7 +240,7 @@ describe("addresses standing only on mail in Junk", () => {
 		sighting("spammer", "spam-1");
 		sighting("spammer", "spam-2");
 
-		const report = await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		const report = await sweep();
 
 		assert.equal(report.withholdable, 1);
 		assert.equal(report.withheld, 1);
@@ -181,7 +254,7 @@ describe("addresses standing only on mail in Junk", () => {
 		sighting("colleague", "spam-1");
 		sighting("colleague", "mail-1");
 
-		const report = await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		const report = await sweep();
 
 		assert.equal(report.withholdable, 0);
 		assert.equal(withheld("colleague"), false);
@@ -194,7 +267,7 @@ describe("addresses standing only on mail in Junk", () => {
 			.prepare("UPDATE message SET mailbox_id = 'junk' WHERE message_id = ?")
 			.run("mail-1");
 
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		assert.equal(withheld("newsletter"), true);
 	});
@@ -202,13 +275,13 @@ describe("addresses standing only on mail in Junk", () => {
 	test("restores an address whose message moved out of Junk", async () => {
 		address("misfiled");
 		sighting("misfiled", "spam-1");
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 		assert.equal(withheld("misfiled"), true);
 
 		sqlite
 			.prepare("UPDATE message SET mailbox_id = 'inbox' WHERE message_id = ?")
 			.run("spam-1");
-		const report = await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		const report = await sweep();
 
 		assert.equal(report.restorable, 1);
 		assert.equal(report.restored, 1);
@@ -219,7 +292,7 @@ describe("addresses standing only on mail in Junk", () => {
 		address("client", { outbound: 1 });
 		sighting("client", "spam-1");
 
-		const report = await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		const report = await sweep();
 
 		assert.equal(report.withholdable, 0);
 		assert.equal(withheld("client"), false);
@@ -229,7 +302,7 @@ describe("addresses standing only on mail in Junk", () => {
 		address("friend", { reply: 2 });
 		sighting("friend", "spam-1");
 
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		assert.equal(withheld("friend"), false);
 	});
@@ -238,7 +311,7 @@ describe("addresses standing only on mail in Junk", () => {
 		address("boss", {}, '{"vip":{"value":true,"setAt":1}}');
 		sighting("boss", "spam-1");
 
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		assert.equal(withheld("boss"), false);
 	});
@@ -247,13 +320,13 @@ describe("addresses standing only on mail in Junk", () => {
 		address("reformed", {}, '{"junkOnly":{"value":true,"setAt":1}}');
 		sighting("reformed", "spam-1");
 
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 		assert.equal(withheld("reformed"), true);
 
 		sqlite
 			.prepare("UPDATE address SET outbound_count = 1 WHERE address_id = ?")
 			.run("reformed");
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		assert.equal(withheld("reformed"), false);
 	});
@@ -262,7 +335,7 @@ describe("addresses standing only on mail in Junk", () => {
 		address("ex-colleague");
 		sighting("ex-colleague", "bin-1");
 
-		const report = await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		const report = await sweep();
 
 		assert.equal(report.withholdable, 0);
 		assert.equal(withheld("ex-colleague"), false);
@@ -273,7 +346,7 @@ describe("addresses standing only on mail in Junk", () => {
 		sighting("spammer", "spam-1");
 		sighting("spammer", "bin-1");
 
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		assert.equal(withheld("spammer"), true);
 	});
@@ -282,14 +355,14 @@ describe("addresses standing only on mail in Junk", () => {
 		address("junk-then-bin");
 		address("bin-then-junk");
 		sighting("junk-then-bin", "spam-1");
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 		sighting("junk-then-bin", "bin-1");
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		sighting("bin-then-junk", "bin-1");
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 		sighting("bin-then-junk", "spam-1");
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		assert.equal(withheld("junk-then-bin"), true);
 		assert.equal(withheld("bin-then-junk"), true);
@@ -299,12 +372,12 @@ describe("addresses standing only on mail in Junk", () => {
 		address("spammer");
 		sighting("spammer", "spam-1");
 		sighting("spammer", "bin-1");
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		sqlite
 			.prepare("UPDATE address SET flags = '{}' WHERE address_id = ?")
 			.run("spammer");
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		assert.equal(withheld("spammer"), true);
 	});
@@ -312,12 +385,12 @@ describe("addresses standing only on mail in Junk", () => {
 	test("deleting every spam message leaves the mark standing", async () => {
 		address("spammer");
 		sighting("spammer", "spam-1");
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		sqlite
 			.prepare("UPDATE message SET mailbox_id = 'trash' WHERE message_id = ?")
 			.run("spam-1");
-		const report = await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		const report = await sweep();
 
 		assert.equal(report.restorable, 0);
 		assert.equal(withheld("spammer"), true);
@@ -326,12 +399,12 @@ describe("addresses standing only on mail in Junk", () => {
 	test("deleting the spam does not put its sender back", async () => {
 		address("spammer");
 		sighting("spammer", "spam-1");
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		sqlite
 			.prepare("UPDATE message SET mailbox_id = 'trash' WHERE message_id = ?")
 			.run("spam-1");
-		const report = await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		const report = await sweep();
 
 		assert.equal(report.restorable, 0);
 		assert.equal(withheld("spammer"), true);
@@ -340,10 +413,10 @@ describe("addresses standing only on mail in Junk", () => {
 	test("purging the spam does not put its sender back", async () => {
 		address("spammer");
 		sighting("spammer", "spam-1");
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		sqlite.prepare("DELETE FROM message WHERE message_id = ?").run("spam-1");
-		const report = await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		const report = await sweep();
 
 		assert.equal(report.restorable, 0);
 		assert.equal(withheld("spammer"), true);
@@ -355,7 +428,7 @@ describe("addresses standing only on mail in Junk", () => {
 		sighting("reported", "spam-1");
 		sighting("hushed", "spam-1");
 
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		assert.equal(withheld("reported"), true);
 		assert.equal(withheld("hushed"), true);
@@ -364,7 +437,7 @@ describe("addresses standing only on mail in Junk", () => {
 	test("blocking a withheld sender never lifts the mark", async () => {
 		address("spammer");
 		sighting("spammer", "spam-1");
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		sqlite
 			.prepare(
@@ -373,96 +446,172 @@ describe("addresses standing only on mail in Junk", () => {
 				 WHERE address_id = ?`,
 			)
 			.run("spammer");
-		const report = await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		const report = await sweep();
 
 		assert.equal(report.restorable, 0);
 		assert.equal(withheld("spammer"), true);
 	});
 
 	test("reads a Junk folder a server does not designate", async () => {
-		mailbox("named-spam", null);
+		mailbox("named-spam", null, { accountId: "acc-named", fullPath: "Spam" });
 		message("spam-5", "named-spam");
 		address("by-name");
 		sighting("by-name", "spam-5");
-		sqlite
-			.prepare("UPDATE mailbox SET full_path = 'Spam' WHERE mailbox_id = ?")
-			.run("named-spam");
 
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		assert.equal(withheld("by-name"), true);
 	});
 
 	test("reads a Junk folder nested under any prefix", async () => {
-		mailbox("nested-spam", null);
+		mailbox("nested-spam", null, {
+			accountId: "acc-nested",
+			fullPath: "INBOX/Spam",
+		});
 		message("spam-6", "nested-spam");
 		address("nested");
 		sighting("nested", "spam-6");
-		sqlite
-			.prepare(
-				"UPDATE mailbox SET full_path = 'INBOX/Spam' WHERE mailbox_id = ?",
-			)
-			.run("nested-spam");
 
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		assert.equal(withheld("nested"), true);
 	});
 
 	test("reads a Junk folder under a delimiter that is not a slash", async () => {
-		mailbox("dotted-spam", null);
+		mailbox("dotted-spam", null, {
+			accountId: "acc-dotted",
+			fullPath: "Mail.Junk E-mail",
+			hierarchyDelimiter: ".",
+		});
 		message("spam-7", "dotted-spam");
 		address("dotted");
 		sighting("dotted", "spam-7");
-		sqlite
-			.prepare(
-				`UPDATE mailbox SET full_path = 'Mail.Junk E-mail',
-					hierarchy_delimiter = '.' WHERE mailbox_id = ?`,
-			)
-			.run("dotted-spam");
 
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		assert.equal(withheld("dotted"), true);
 	});
 
 	test("never reads a prefix as the folder it names", async () => {
-		mailbox("spam-parent", null);
+		mailbox("spam-parent", null, {
+			accountId: "acc-parent",
+			fullPath: "Spam/Receipts",
+		});
 		message("mail-2", "spam-parent");
 		address("under-spam");
 		sighting("under-spam", "mail-2");
-		sqlite
-			.prepare(
-				"UPDATE mailbox SET full_path = 'Spam/Receipts' WHERE mailbox_id = ?",
-			)
-			.run("spam-parent");
 
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		assert.equal(withheld("under-spam"), false);
 	});
 
-	test("reads the designation from either place it is stored", async () => {
-		mailbox("column-only", '["Junk"]');
-		mailbox("entry-only", null);
+	test("reads the designation the mailbox sync stored", async () => {
+		mailbox("entry-only", null, {
+			accountId: "acc-entry",
+			fullPath: "Bulk",
+		});
 		specialUseEntry("entry-only", "Junk");
-		message("spam-3", "column-only");
 		message("spam-4", "entry-only");
-		address("by-column");
 		address("by-entry");
-		sighting("by-column", "spam-3");
 		sighting("by-entry", "spam-4");
 
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
-		assert.equal(withheld("by-column"), true);
 		assert.equal(withheld("by-entry"), true);
+	});
+
+	test("a second folder named Spam never claims the role", async () => {
+		mailbox("second-spam", null, { fullPath: "Archive/Spam" });
+		message("spam-3", "second-spam");
+		address("filed-away");
+		sighting("filed-away", "spam-3");
+
+		await sweep();
+
+		assert.equal(withheld("filed-away"), false);
+	});
+
+	test("withholds on the Junk folder the account appointed", async () => {
+		mailbox("rubbish", null, {
+			accountId: "acc-appointed",
+			fullPath: "INBOX/Rubbish",
+		});
+		await appointJunk("acc-appointed", "rubbish");
+		message("spam-8", "rubbish");
+		address("appointed-spammer");
+		sighting("appointed-spammer", "spam-8");
+
+		await sweep();
+
+		assert.equal(withheld("appointed-spammer"), true);
+	});
+
+	test("leaves the same folder alone when nobody appointed it", async () => {
+		mailbox("unclaimed-rubbish", null, {
+			accountId: "acc-unappointed",
+			fullPath: "INBOX/Rubbish",
+		});
+		message("spam-9", "unclaimed-rubbish");
+		address("stranger");
+		sighting("stranger", "spam-9");
+
+		await sweep();
+
+		assert.equal(withheld("stranger"), false);
+	});
+
+	/**
+	 * No folder holds Junk anywhere, so nothing is known about any sighting. The
+	 * predicate must be silent in both directions: an empty id list read as "no
+	 * message is in Junk" would make every sighting live mail and hand back
+	 * every mark the instance had earned.
+	 */
+	test("an instance with no Junk folder neither withholds nor restores", async () => {
+		for (const table of [
+			"envelope_address",
+			"message",
+			"mailbox",
+			"mailbox_special_use_entry",
+		]) {
+			sqlite.exec(`DELETE FROM ${table}`);
+		}
+		mailbox("plain-inbox", null, { fullPath: "INBOX" });
+		message("mail-9", "plain-inbox");
+		address("colleague");
+		address("misfiled", {}, '{"junkOnly":{"value":true,"setAt":1}}');
+		sighting("colleague", "mail-9");
+		sighting("misfiled", "mail-9");
+
+		const report = await sweep();
+
+		assert.equal(report.withholdable, 0);
+		assert.equal(report.restorable, 0);
+		assert.equal(withheld("colleague"), false);
+		assert.equal(withheld("misfiled"), true);
+	});
+
+	test("standing the account gave an address lifts its mark regardless", async () => {
+		for (const table of ["mailbox", "mailbox_special_use_entry"]) {
+			sqlite.exec(`DELETE FROM ${table}`);
+		}
+		mailbox("plain-inbox", null, { fullPath: "INBOX" });
+		address(
+			"reformed",
+			{ outbound: 1 },
+			'{"junkOnly":{"value":true,"setAt":1}}',
+		);
+
+		const report = await sweep();
+
+		assert.equal(report.restorable, 1);
+		assert.equal(withheld("reformed"), false);
 	});
 
 	test("leaves an address no message has ever carried alone", async () => {
 		address("orphan");
 
-		const report = await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		const report = await sweep();
 
 		assert.equal(report.withholdable, 0);
 		assert.equal(withheld("orphan"), false);
@@ -476,7 +625,7 @@ describe("addresses standing only on mail in Junk", () => {
 		sighting("colleague", "mail-1");
 		sighting("client", "spam-2");
 
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		assert.equal(addressCount(), 3);
 	});
@@ -485,7 +634,7 @@ describe("addresses standing only on mail in Junk", () => {
 		address("noisy", {}, '{"muted":{"value":true,"setAt":7}}');
 		sighting("noisy", "spam-1");
 
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		assert.deepEqual(JSON.parse(read("noisy").flags).muted, {
 			value: true,
@@ -496,10 +645,10 @@ describe("addresses standing only on mail in Junk", () => {
 	test("a second run writes nothing", async () => {
 		address("spammer");
 		sighting("spammer", "spam-1");
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 		const first = read("spammer");
 
-		const report = await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		const report = await sweep();
 
 		assert.equal(report.withholdable, 0);
 		assert.equal(report.restorable, 0);
@@ -514,7 +663,7 @@ describe("addresses standing only on mail in Junk", () => {
 		address("misfiled", {}, '{"junkOnly":{"value":true,"setAt":1}}');
 		sighting("misfiled", "mail-1");
 
-		const report = await sweepJunkOnlyAddresses(clientOver(sqlite), "check");
+		const report = await sweep("check");
 
 		assert.equal(report.withholdable, 1);
 		assert.equal(report.restorable, 1);
@@ -528,7 +677,7 @@ describe("addresses standing only on mail in Junk", () => {
 		address("legacy", {}, "");
 		sighting("legacy", "spam-1");
 
-		await sweepJunkOnlyAddresses(clientOver(sqlite), "repair");
+		await sweep();
 
 		assert.equal(withheld("legacy"), true);
 	});

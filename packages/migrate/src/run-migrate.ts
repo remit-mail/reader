@@ -31,9 +31,11 @@ import {
 	readResidual,
 	repairThreadMessageCategory,
 } from "../../drizzle-service/src/repair/thread-message-category.js";
+import { MailboxSpecialUseRepo } from "../../drizzle-service/src/repos/i4-mailbox-special-use.js";
 // Reached by module path rather than through either package's entry point: this
-// entrypoint is bundled by esbuild, and the repair modules import nothing but a
-// pure predicate, so bundling them drags in no schema or driver.
+// entrypoint is bundled by esbuild, and everything reached this way is pure
+// TypeScript over the drizzle query builder, so bundling it drags in no native
+// driver — better-sqlite3 stays external and dynamically imported below.
 import { logger } from "../../logger-lambda/src/logger.js";
 
 /**
@@ -193,11 +195,19 @@ const strandedSentStep = async (
 	}
 };
 
+/**
+ * Which folder holds Junk is decided once, in TypeScript, through the same
+ * repository seam every other special-folder lookup reads — so the sweep
+ * honours a folder-role appointment and cannot disagree with the sync that
+ * harvested the address. The predicate below only compares mailbox ids.
+ */
 const junkOnlyAddressStep = async (
 	client: JunkOnlyRepairClient,
+	specialUse: MailboxSpecialUseRepo,
 	mode: JunkOnlyRepairMode,
 ): Promise<void> => {
-	const report = await sweepJunkOnlyAddresses(client, mode);
+	const roles = await specialUse.resolveJunkRolesForInstance();
+	const report = await sweepJunkOnlyAddresses(client, mode, roles);
 	for (const line of formatJunkOnlyReport(report)) {
 		logStep({ step: "junk-only-address-repair" }, line);
 	}
@@ -235,12 +245,14 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		all: async (sql, params) => sqlite.prepare(sql).all(...params),
 		run: async (sql, params) => sqlite.prepare(sql).run(...params).changes,
 	};
+	const db = sqliteDrizzle(sqlite);
+	const specialUse = new MailboxSpecialUseRepo(db);
 	try {
 		if (mode === "check") {
 			logReport(await checkThreadMessageCategory(sqliteRepairClient));
 			await displayNameStep(paramRepairClient, "check");
 			await strandedSentStep(paramRepairClient, "check");
-			await junkOnlyAddressStep(paramRepairClient, "check");
+			await junkOnlyAddressStep(paramRepairClient, specialUse, "check");
 			return;
 		}
 
@@ -250,8 +262,6 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		sqlite.pragma("journal_mode = WAL");
 		sqlite.pragma("busy_timeout = 5000");
 		sqlite.pragma("foreign_keys = ON");
-
-		const db = sqliteDrizzle(sqlite);
 
 		logStep({}, "applying entity schema migrations (sqlite)");
 		sqliteMigrate(db, {
@@ -293,7 +303,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		logStep({}, "installing address-sightings index (sqlite)");
 		sqlite.exec(sqliteAddressSightingsIndexSql);
 
-		await junkOnlyAddressStep(paramRepairClient, "repair");
+		await junkOnlyAddressStep(paramRepairClient, specialUse, "repair");
 
 		// The external-content FTS5 trigram table + its thread_message
 		// maintenance triggers, the final idempotent step (RFC 036 D4). The

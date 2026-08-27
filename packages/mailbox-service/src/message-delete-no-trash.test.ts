@@ -15,6 +15,7 @@ import {
 	StaleTrashAppointmentError,
 	UnconfirmedTrashMailboxError,
 } from "./message-move.js";
+import { NO_JUNK_ROLES } from "./test-helpers/folder-roles.js";
 
 const ACCOUNT = "acc-1";
 const ACCOUNT_CONFIG = "cfg-1";
@@ -80,6 +81,7 @@ const buildWorld = (
 
 	const mailboxSpecialUseService = {
 		resolveTrashRole: async () => trashResolution,
+		resolveJunkRolesForConfig: async () => NO_JUNK_ROLES,
 	} as unknown as IMailboxSpecialUseRepository;
 
 	const addressService = {

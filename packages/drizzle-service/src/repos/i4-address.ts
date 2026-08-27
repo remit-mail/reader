@@ -10,6 +10,7 @@ import type {
 	UpdateAddressInput,
 } from "@remit/data-ports";
 import { BadRequestError } from "@remit/data-ports/errors";
+import type { JunkRoleMailboxes } from "@remit/data-ports/folder-role";
 import { shouldPromoteWellknown } from "@remit/data-ports/wellknown";
 import {
 	and,
@@ -26,6 +27,7 @@ import { NotFoundError } from "../error.js";
 import { envelopeAddressId } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
 import {
+	type BoundSql,
 	JUNK_ONLY_FLAG,
 	restoreSql,
 	withholdSql,
@@ -331,15 +333,21 @@ export class AddressRepo implements IAddressRepository {
 		return rowToAddress(row);
 	}
 
-	async reconcileJunkOnlyForMessage(messageId: string): Promise<void> {
-		const scope = ` AND address.address_id IN (
+	async reconcileJunkOnlyForMessage(
+		messageId: string,
+		roles: JunkRoleMailboxes,
+	): Promise<void> {
+		const scope: BoundSql = {
+			sql: ` AND address.address_id IN (
 			SELECT address_id FROM envelope_address WHERE message_id = ?
-		)`;
+		)`,
+			params: [messageId],
+		};
 		const now = Date.now();
-		await this.db.run(
-			boundToDrizzle(withholdSql(scope), [now, JUNK_MOVE, now, messageId]),
-		);
-		await this.db.run(boundToDrizzle(restoreSql(scope), [now, messageId]));
+		const withhold = withholdSql(roles, now, JUNK_MOVE, scope);
+		await this.db.run(boundToDrizzle(withhold.sql, withhold.params));
+		const restore = restoreSql(roles, now, scope);
+		await this.db.run(boundToDrizzle(restore.sql, restore.params));
 	}
 
 	async getAddress(

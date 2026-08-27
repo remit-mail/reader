@@ -594,6 +594,7 @@ export const buildOrganizeMoveService = (
 		threadMessageService: client.threadMessage,
 		markerService: client.placementMove,
 		addressService: client.address,
+		mailboxSpecialUseService: client.mailboxSpecialUse,
 		sqsQueueUrl: queueUrl,
 	});
 };

@@ -17,6 +17,7 @@ import { SQSClient } from "@aws-sdk/client-sqs";
 import { getClient, type RemitClient, setClient } from "@remit/backend/client";
 import type {
 	IAddressRepository,
+	IMailboxSpecialUseRepository,
 	IMessageFlagPushRepository,
 	IMessageFlagRepository,
 	IMessagePlacementMoveRepository,
@@ -181,6 +182,12 @@ const buildHarness = (): Harness => {
 		addressService: {
 			reconcileJunkOnlyForMessage: async () => {},
 		} as unknown as IAddressRepository,
+		mailboxSpecialUseService: {
+			resolveJunkRolesForConfig: async () => ({
+				junkMailboxIds: [],
+				trashMailboxIds: [],
+			}),
+		} as unknown as IMailboxSpecialUseRepository,
 		sqsQueueUrl: "https://sqs.eu-west-1.amazonaws.com/000/message-mgmt",
 	});
 

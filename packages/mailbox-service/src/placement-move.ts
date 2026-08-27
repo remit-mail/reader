@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import type {
 	IAddressRepository,
+	IMailboxSpecialUseRepository,
 	IMessagePlacementMoveRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
@@ -44,6 +45,12 @@ export interface PlacementMoveConfig {
 	threadMessageService: IThreadMessageRepository;
 	markerService: IMessagePlacementMoveRepository;
 	addressService: IAddressRepository;
+	/**
+	 * Required, not optional: this mover carries automatic spam placement, and
+	 * one built without the folder-role seam would silently leave the sender of
+	 * every auto-filed spam suggestible in the compose picker.
+	 */
+	mailboxSpecialUseService: IMailboxSpecialUseRepository;
 	sqsQueueUrl: string;
 	sqsEndpoint?: string;
 	logger?: PlacementMoveLogger;
@@ -87,6 +94,7 @@ export class PlacementMoveService {
 	private threadMessageService: IThreadMessageRepository;
 	private markerService: IMessagePlacementMoveRepository;
 	private addressService: IAddressRepository;
+	private mailboxSpecialUseService: IMailboxSpecialUseRepository;
 	private sqs: SQSClient;
 	private queueUrl: string;
 	private log: PlacementMoveLogger;
@@ -98,6 +106,7 @@ export class PlacementMoveService {
 		this.threadMessageService = config.threadMessageService;
 		this.markerService = config.markerService;
 		this.addressService = config.addressService;
+		this.mailboxSpecialUseService = config.mailboxSpecialUseService;
 		this.queueUrl = config.sqsQueueUrl;
 		this.log = config.logger ?? noopLogger;
 		this.moveSettleTimeoutMs =
@@ -200,7 +209,12 @@ export class PlacementMoveService {
 			originalUid: message.uid,
 		});
 
-		await this.addressService.reconcileJunkOnlyForMessage(messageId);
+		await this.addressService.reconcileJunkOnlyForMessage(
+			messageId,
+			await this.mailboxSpecialUseService.resolveJunkRolesForConfig(
+				accountConfigId,
+			),
+		);
 
 		// The queue kick is a serious operational step, not a routine one — a
 		// failure here MUST propagate (never swallowed): the marker stays
