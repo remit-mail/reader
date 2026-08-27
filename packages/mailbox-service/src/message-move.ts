@@ -34,7 +34,8 @@ import {
 } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import {
-	isPlacementUnsettled,
+	type PlacementBinding,
+	placementBindingOf,
 	waitForPlacementToSettle,
 } from "./placement-settled.js";
 
@@ -310,16 +311,9 @@ export class MessageMoveService {
 		const rows = await this.messageService.get(messageIds);
 		if (rows.length === 0) return;
 
-		// A delete binds a folder and a uid, and while an earlier move is still
-		// unconfirmed the row carries the destination folder with the SOURCE
-		// folder's uid. The worker would open the destination and expunge
-		// whatever sits at that uid there — an unrelated message, destroyed for
-		// good. Wait for every pair to become consistent before anything below
-		// reads one, and refuse the whole batch if one does not
-		// (docs/architecture/imap-mutations.md R2: wait). Placed ahead of the
-		// Trash gates too: those compare `mailboxId` against the Trash folder,
-		// and an in-flight move makes that comparison answer for a folder the
-		// message has not reached.
+		// Ahead of the Trash gates below, which compare `mailboxId` against the
+		// Trash folder: an in-flight move makes that comparison answer for a
+		// folder the message has not reached.
 		const messages = await this.settledPlacements(rows, accountId);
 
 		// Get unique mailbox IDs and batch fetch mailboxes
@@ -650,13 +644,24 @@ export class MessageMoveService {
 		destinationMailboxId: string,
 		accountId: string,
 	): Promise<string> => {
-		// Same pair, same hazard as the delete above: a COPY event carries the
-		// row's folder and uid, so an unconfirmed move sends the worker to copy
-		// the destination folder's own message at that uid.
-		const sourceMessage = await this.settledPlacement(
-			await this.messageService.get(messageId),
+		return this.copySettledMessage(
+			accountConfigId,
+			await this.settledPlacement(
+				await this.messageService.get(messageId),
+				accountId,
+			),
+			destinationMailboxId,
 			accountId,
 		);
+	};
+
+	private copySettledMessage = async (
+		accountConfigId: string,
+		sourceMessage: MessageItem,
+		destinationMailboxId: string,
+		accountId: string,
+	): Promise<string> => {
+		const messageId = sourceMessage.messageId;
 		const sourceMailbox = await this.mailboxService.get(
 			accountId,
 			sourceMessage.mailboxId,
@@ -773,15 +778,24 @@ export class MessageMoveService {
 		destinationMailboxId: string,
 		accountId: string,
 	): Promise<string[]> => {
+		// Every row is settled before the first copy is written, so the batch's
+		// wait is one row's ceiling rather than the sum across it, and a refusal
+		// lands before any part of the batch has committed.
+		const sources = await this.settledPlacements(
+			await this.messageService.get(messageIds),
+			accountId,
+		);
+
 		const newMessageIds: string[] = [];
-		for (const messageId of messageIds) {
-			const newId = await this.copyMessage(
-				accountConfigId,
-				messageId,
-				destinationMailboxId,
-				accountId,
+		for (const source of sources) {
+			newMessageIds.push(
+				await this.copySettledMessage(
+					accountConfigId,
+					source,
+					destinationMailboxId,
+					accountId,
+				),
 			);
-			newMessageIds.push(newId);
 		}
 		return newMessageIds;
 	};
@@ -890,20 +904,34 @@ export class MessageMoveService {
 		return { deletedCount: messages.length };
 	};
 
-	/**
-	 * The row once its folder and uid name the same message, or a refusal.
-	 *
-	 * A mutation that resolves both halves from an unsettled row addresses the
-	 * destination folder's OWN message at the source folder's uid. Waiting is
-	 * the cheap half of imap-mutations R2 — a move settles in well under a
-	 * second — and the alternative does not exist for a delete: reconciling an
-	 * expunge means repairing a message the server no longer holds.
-	 */
+	private refusePlacement = (
+		message: MessageItem,
+		accountId: string,
+		binding: Exclude<PlacementBinding, "consistent">,
+	): never => {
+		this.log.error(
+			{ accountId, messageId: message.messageId, binding },
+			"Refused: this message's folder and uid do not name the same message",
+		);
+		throw new MessagePlacementUnsettledError(
+			`Message ${message.messageId} was not acted on: its folder and uid do not name the same message`,
+			accountId,
+			message.messageId,
+			binding === "abandoned" ? "unverified" : "in_flight",
+		);
+	};
+
 	private settledPlacement = async (
 		message: MessageItem,
 		accountId: string,
 	): Promise<MessageItem> => {
-		if (!isPlacementUnsettled(message)) return message;
+		const binding = placementBindingOf(message);
+		if (binding === "consistent") return message;
+
+		// An abandoned move is never coming back, so the ceiling would be spent
+		// only to reach the same answer.
+		if (binding === "abandoned")
+			return this.refusePlacement(message, accountId, binding);
 
 		const settled = await waitForPlacementToSettle(
 			this.messageService,
@@ -913,22 +941,15 @@ export class MessageMoveService {
 				pollMs: this.moveSettlePollMs,
 			},
 		);
-		if (!isPlacementUnsettled(settled)) return settled;
-
-		this.log.error(
-			{ accountId, messageId: message.messageId },
-			"Refused: an earlier move of this message has not settled",
-		);
-		throw new MessagePlacementUnsettledError(
-			`Message ${message.messageId} was not acted on: an earlier move has not settled`,
-			accountId,
-			message.messageId,
-		);
+		const settledBinding = placementBindingOf(settled);
+		if (settledBinding === "consistent") return settled;
+		return this.refusePlacement(settled, accountId, settledBinding);
 	};
 
 	/**
 	 * Settle a whole batch before any of it is acted on, so one unsettled row
-	 * refuses the batch whole rather than leaving part of it expunged.
+	 * refuses the batch whole rather than leaving part of it expunged, and the
+	 * batch's total wait is one row's ceiling rather than the sum across it.
 	 */
 	private settledPlacements = async (
 		messages: MessageItem[],

@@ -723,7 +723,7 @@ namespace RemitApi {
     @route("/delete")
     op deleteMessages(
       @body input: DeleteMessagesInput,
-    ): MessageBulkOperationResult | FolderRoleConflict;
+    ): MessageBulkOperationResult | DeleteMessagesConflict;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
@@ -734,7 +734,9 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/copy")
-    op copyMessages(@body input: CopyMessagesInput): MessageBulkOperationResult;
+    op copyMessages(
+      @body input: CopyMessagesInput,
+    ): MessageBulkOperationResult | MessagePlacementConflict;
 
     @doc("Apply or remove a label on multiple messages — the manual \"just these\" scope (RFC 034 recap, issue #26). `appliedByFilterId` stays absent on the resulting `MessageLabel` rows; that provenance is reserved for filter/organize applies.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)

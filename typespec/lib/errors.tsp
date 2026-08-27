@@ -62,3 +62,22 @@ model FolderRoleConflict {
   `code: "mailbox_not_settled"` — the mailbox being appointed is still being created or deleted on the mail server, so it cannot yet hold a role. `details` carries `mailboxId` and `syncStatus`. Clearing a role is never refused this way.
   """)
 model AppointFolderRoleConflict is FolderRoleConflict;
+
+@doc("""
+  The same flat 409 body, for a message whose folder and uid do not name the same message.
+  
+  `code: "message_placement_unsettled"` — the message is mid-move, so its row names the destination folder while its uid still belongs to the source; acting on that pair would hit whatever the destination holds at that uid. `details` carries `accountId`, `messageId` and `reason`, one of: `in_flight` (the move is still running, and the same request succeeds once it confirms) or `unverified` (the move gave up without confirming, so where the message sits is unknown until the folder is resynced).
+  """)
+model MessagePlacementConflict {
+  @statusCode statusCode: 409;
+  ...ApiError;
+}
+
+@doc("""
+  The same flat 409 body, with the two codes this endpoint can answer with.
+  
+  `code: "folder_role_unresolved"` — as everywhere else, with `details` carrying `role`, `accountId` and `reason`.
+  
+  `code: "message_placement_unsettled"` — as `MessagePlacementConflict`, with `details` carrying `accountId`, `messageId` and `reason`.
+  """)
+model DeleteMessagesConflict is FolderRoleConflict;

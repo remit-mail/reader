@@ -99,20 +99,25 @@ export class MailboxNotSettledError extends ConflictError {
 }
 
 /**
- * A delete or copy was refused because the message's placement is still an
- * unconfirmed move (imap-mutations R2: wait). Its own code, because nothing is
- * unresolved and nothing is missing — the row's folder and uid simply do not
- * name the same message yet, and acting on that pair destroys or duplicates a
- * different one. The client words a wait and a retry against the same message.
+ * Why the row's folder and uid do not name the same message. `in_flight` clears
+ * on its own, so the client words a wait; `unverified` does not, so it words a
+ * resync instead.
  */
+export type MessagePlacementUnsettledReason = "in_flight" | "unverified";
+
 export class MessagePlacementUnsettledError extends ConflictError {
 	name = "MessagePlacementUnsettledError";
 
-	constructor(message: string, accountId: string, messageId: string) {
+	constructor(
+		message: string,
+		accountId: string,
+		messageId: string,
+		reason: MessagePlacementUnsettledReason,
+	) {
 		super(message);
 		this.publicApiError = {
 			code: "message_placement_unsettled",
-			details: { accountId, messageId },
+			details: { accountId, messageId, reason },
 		};
 	}
 }
