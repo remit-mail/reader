@@ -79,11 +79,7 @@ export const processOrganizeJob = async (
 
 		const { messageIds, semanticUnavailable } = match;
 		const { applied, failed } = await applyOrganize(
-			{
-				client,
-				moveService: buildOrganizeMoveService(client),
-				match: matchDeps,
-			},
+			{ client, moveService: buildOrganizeMoveService(client) },
 			accountConfigId,
 			messageIds,
 			predicate,

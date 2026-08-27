@@ -44,11 +44,11 @@ const senderFilter = (destinationMailboxId: string): FilterItem =>
 		updatedAt: 1,
 	}) as unknown as FilterItem;
 
-const buildPipeline = (filter: FilterItem) => {
+const buildPipeline = (...filters: FilterItem[]) => {
 	const state = { embedCalls: 0 };
 	const config: FilterConfig = {
 		filterService: {
-			listByAccountAndState: async () => [filter],
+			listByAccountAndState: async () => filters,
 			refreshExpiry: async (f: FilterItem) => f,
 		} as unknown as IFilterRepository,
 		filterAnchorService: {
@@ -100,6 +100,42 @@ describe("FilterPipeline — anchorless From/Or filter at index time", () => {
 		assert.equal(decision.move, undefined);
 		assert.deepEqual(decision.labels, []);
 		assert.equal(state.embedCalls, 0);
+	});
+});
+
+/**
+ * Arbitration survives exactly here: two standing filters colliding over the
+ * same message at the same trigger. A move is exclusive, so the pass resolves
+ * one destination — the more-recently-changed action wins (reader #497 leaves
+ * this untouched while removing arbitration from the user-initiated apply).
+ */
+describe("FilterPipeline — two standing filters colliding on one message", () => {
+	const rivalFilter = (): FilterItem =>
+		({
+			...senderFilter("mbx-projects"),
+			filterId: "flt-rival",
+			name: "github to projects",
+			actionChangedAt: 2,
+		}) as unknown as FilterItem;
+
+	it("resolves a single destination from the more-recently-changed action", async () => {
+		const older = {
+			...senderFilter("mbx-archive"),
+			actionChangedAt: 1,
+		} as unknown as FilterItem;
+		const { pipeline } = buildPipeline(older, rivalFilter());
+		const decision = await pipeline.evaluate("cfg-1", "m-3", {
+			from: "npm@github.com",
+			fromName: "npm",
+			subject: "A new version of left-pad is available",
+			text: "body",
+			listId: "",
+		});
+
+		assert.deepEqual(decision.move, {
+			destinationMailboxId: "mbx-projects",
+			filterId: "flt-rival",
+		});
 	});
 });
 
