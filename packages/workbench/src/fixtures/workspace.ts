@@ -1244,9 +1244,12 @@ const resultFolders: Record<string, ResultFolder> = {
 	thr_bol: { role: "inbox" },
 	thr_arch_postnl: { role: "archive" },
 	thr_arch_dhl: { role: "archive" },
-	thr_arch_etsy: { providerPath: "Shopping/Orders" },
+	thr_arch_etsy: { providerPath: "Shopping/Orders", hierarchyDelimiter: "/" },
 	thr_arch_ups: { role: "archive" },
-	thr_arch_coolblue: { providerPath: "Shopping/Orders" },
+	thr_arch_coolblue: {
+		providerPath: "Shopping/Orders",
+		hierarchyDelimiter: "/",
+	},
 };
 
 const categoryLabels: Partial<

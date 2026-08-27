@@ -354,7 +354,6 @@ export {
 	type FolderRole,
 	isVirtualFolderRole,
 	provenanceFolderLabel,
-	providerLeaf,
 	type ResultFolder,
 	roleIcon,
 } from "./components/folder-role.js";

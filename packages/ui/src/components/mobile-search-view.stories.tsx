@@ -123,7 +123,7 @@ const crossFolderMatches: SearchResult[] = [
 		subject: "Invoices for the quarter",
 		snippet: "The quarterly set, filed with the rest of the bookkeeping.",
 		date: "Jan 30",
-		folder: { providerPath: "Projects/Bookkeeping" },
+		folder: { providerPath: "Projects/Bookkeeping", hierarchyDelimiter: "/" },
 	},
 ];
 

@@ -9,6 +9,7 @@ import {
 	Trash2,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { folderLeaf, folderPathSegments } from "../lib/folder-tree.js";
 
 /* ------------------------------------------------------------------ */
 /* Folder role vocabulary (RFC 032 exclusive-folder-appointment,       */
@@ -48,30 +49,28 @@ export function canonicalRoleLabel(role: FolderRole): string {
 	return ROLE_LABEL[role];
 }
 
-/**
- * Leaf segment of a provider path (`INBOX/Spam` → `Spam`). Only for the two
- * surfaces whose wire payload carries no `hierarchyDelimiter` — quarantine
- * entries and search-result provenance. Everything else: `folderLeaf`.
- */
-export function providerLeaf(providerPath: string): string {
-	const parts = providerPath.split("/");
-	return parts[parts.length - 1] || providerPath;
-}
-
 /* ------------------------------------------------------------------ */
 /* Provenance: where a search result actually lives                    */
 /* ------------------------------------------------------------------ */
 
 /**
  * The folder a search result was read from. `role` is the account's IMAP
- * special-use appointment (`junk` is `\Junk`); accounts that expose a folder
- * nobody appointed carry only a `providerPath`.
+ * special-use appointment (`junk` is `\Junk`); a folder nobody appointed a role
+ * to carries only its path.
+ *
+ * The path and the separator its own server cuts it on travel together or not
+ * at all: `INBOX.Projects.Q3` is three segments on a `.`-delimited server and a
+ * single folder name on a `/`-delimited one, so a path alone cannot be cut.
  */
-export interface ResultFolder {
-	role?: FolderRole;
-	/** Provider path as the server spells it, e.g. `Projects/Bookkeeping`. */
-	providerPath?: string;
-}
+export type ResultFolder =
+	| {
+			role?: FolderRole;
+			/** Provider path as the server spells it, e.g. `Projects/Bookkeeping`. */
+			providerPath: string;
+			/** The account's own hierarchy separator; `""` means a flat namespace. */
+			hierarchyDelimiter: string;
+	  }
+	| { role?: FolderRole; providerPath?: never; hierarchyDelimiter?: never };
 
 /**
  * Roles that name a view rather than a place a message is filed. A message in
@@ -113,8 +112,12 @@ export function provenanceFolderLabel(
 		return canonicalRoleLabel(folder.role);
 	}
 	if (!folder.providerPath) return undefined;
-	if (GMAIL_NAMESPACES.has(folder.providerPath.split("/")[0])) return undefined;
-	return providerLeaf(folder.providerPath);
+	const segments = folderPathSegments(
+		folder.providerPath,
+		folder.hierarchyDelimiter,
+	);
+	if (GMAIL_NAMESPACES.has(segments[0])) return undefined;
+	return folderLeaf(folder.providerPath, folder.hierarchyDelimiter);
 }
 
 export function roleIcon(role: FolderRole): ReactNode {
