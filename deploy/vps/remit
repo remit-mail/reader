@@ -2787,6 +2787,14 @@ cmd_config() {
 #
 # Written beside the target and renamed, so an export that dies half way through
 # leaves nothing that looks like a configuration file.
+#
+# Exit 0 is not enough to rename on. The composition this entrypoint builds logs
+# to stdout, and `compose run` merges a container's streams, so one stray line
+# lands in the middle of the document and the command still succeeds. This file
+# is the safety net an operator takes before dropping their database, and a
+# corrupt one is worse than none: it is only discovered on the import that needed
+# it. Same document-closed test `remit doctor` applies to the checker's JSON, for
+# the same reason.
 cmd_config_save() {
 	_file=""
 	_user=""
@@ -2823,6 +2831,10 @@ cmd_config_save() {
 	if [ "$_rc" != "0" ]; then
 		rm -f "$_tmp"
 		die "config save: the export did not finish, so nothing was written"
+	fi
+	if ! doctor_json_closed "$_tmp"; then
+		rm -f "$_tmp"
+		die "config save: what came back is not a closed JSON document, so nothing was written — '$PROG logs backend' may say why"
 	fi
 
 	mv "$_tmp" "$_file"

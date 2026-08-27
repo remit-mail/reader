@@ -14,7 +14,6 @@ export interface AccountSettingsView {
 	composeLanguages: string[];
 	signaturePlainText: string;
 	signatureHtml: string;
-	pinnedFolders: string[];
 	/** role → the mailbox appointed to it, and the path it had when appointed. */
 	roles: Map<CanonicalMailboxRoleValue, RoleAppointmentView>;
 }
@@ -36,6 +35,13 @@ export type MutedValue = Extract<
 
 export interface SettingsView {
 	defaultComposerFormat: string | undefined;
+	/**
+	 * The folder paths the user pinned. Stored once for the whole configuration,
+	 * un-suffixed, which is the only per-target setting the registry does not
+	 * spell per account — so it is read here rather than under an account, and
+	 * the export resolves each path against the account that holds it.
+	 */
+	pinnedFolders: string[];
 	byAccount: Map<string, AccountSettingsView>;
 	byMailbox: Map<string, MailboxSettingsView>;
 }
@@ -47,7 +53,6 @@ export const emptyAccountSettings = (): AccountSettingsView => ({
 	composeLanguages: [],
 	signaturePlainText: "",
 	signatureHtml: "",
-	pinnedFolders: [],
 	roles: new Map(),
 });
 
@@ -87,6 +92,7 @@ const mutedOf = (item: AccountSettingItem): MutedValue | undefined =>
 export const readSettings = (settings: AccountSettingItem[]): SettingsView => {
 	const view: SettingsView = {
 		defaultComposerFormat: undefined,
+		pinnedFolders: [],
 		byAccount: new Map(),
 		byMailbox: new Map(),
 	};
@@ -121,6 +127,11 @@ export const readSettings = (settings: AccountSettingItem[]): SettingsView => {
 			continue;
 		}
 
+		if (base === AccountSettingName.PinnedFolders) {
+			view.pinnedFolders = stringListOf(setting) ?? [];
+			continue;
+		}
+
 		if (target === "") continue;
 
 		switch (base) {
@@ -147,11 +158,6 @@ export const readSettings = (settings: AccountSettingItem[]): SettingsView => {
 			case AccountSettingName.AccountSignatureHtml: {
 				const value = stringOf(setting);
 				if (value !== undefined) account(target).signatureHtml = value;
-				break;
-			}
-			case AccountSettingName.PinnedFolders: {
-				const value = stringListOf(setting);
-				if (value !== undefined) account(target).pinnedFolders = value;
 				break;
 			}
 			case AccountSettingName.MailboxDisplayName: {

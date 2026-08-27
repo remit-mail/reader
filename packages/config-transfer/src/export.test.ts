@@ -79,9 +79,11 @@ const fullFixture = (): ConfigFixture => ({
 			kind: "MutedFlag",
 			value: { value: true, setAt: 1750000000000, setBy: "web-client" },
 		}),
-		makeSetting(`PinnedFolders#${PASSWORD_ACCOUNT_ID}`, {
+		// One list for the whole configuration, which is how the registry spells
+		// it — INBOX.Werk is on neither account and INBOX is on both.
+		makeSetting("PinnedFolders", {
 			kind: "StringList",
-			value: ["INBOX", "INBOX.Facturen"],
+			value: ["INBOX", "INBOX.Facturen", "INBOX.Werk"],
 		}),
 		makeSetting(`MailboxDisplayName#${LISTS_ID}`, {
 			kind: "String",
@@ -296,14 +298,20 @@ test("per-account settings land on the account that holds them", async () => {
 		plainText: "Matthijs\n",
 		html: "<p>Matthijs</p>",
 	});
-	assert.deepEqual(password?.pinnedFolders, ["INBOX", "INBOX.Facturen"]);
 	assert.equal(password?.muted, null);
 
 	assert.equal(oauth?.displayName, "");
 	assert.deepEqual(oauth?.composeLanguages, []);
 	assert.deepEqual(oauth?.signature, { plainText: "", html: "" });
-	assert.deepEqual(oauth?.pinnedFolders, []);
 	assert.equal(oauth?.muted?.value, true);
+});
+
+test("a pinned folder lands on each account that holds it, and nowhere else", async () => {
+	const document = await exportFixture(fullFixture());
+	const [password, oauth] = document.accounts;
+
+	assert.deepEqual(password?.pinnedFolders, ["INBOX", "INBOX.Facturen"]);
+	assert.deepEqual(oauth?.pinnedFolders, ["INBOX"]);
 });
 
 test("every folder reference travels as an IMAP path", async () => {
@@ -407,6 +415,19 @@ test("an anchor exports its text and its provenance, never its vector", async ()
 	});
 	assert.equal(JSON.stringify(document).includes("anchorEmbedding"), false);
 	assert.equal(JSON.stringify(document).includes("0.22"), false);
+});
+
+test("a filter claiming an anchor it has no row for exports without one", async () => {
+	// hasAnchor is a cache of whether the sibling row exists, and a write that
+	// failed after the filter landed leaves it saying yes over nothing. The
+	// export answers with the rows it can read, never with the flag.
+	const fixture = fullFixture();
+	fixture.anchors = [];
+
+	const document = await exportFixture(fixture);
+
+	assert.equal(document.filters[1]?.anchor, null);
+	assert.equal(ReaderConfigDocumentSchema.safeParse(document).success, true);
 });
 
 test("labels export by name and colour", async () => {

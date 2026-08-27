@@ -71,6 +71,7 @@ remit update              # install the current release, atomically
 remit update --check      # what is available, changing nothing
 remit down                # stop serving; remit restart brings it back
 remit config              # the effective configuration, secrets redacted
+remit config save <file>  # every setting to <file>, before a drop; no password
 remit cert                # export Caddy's root CA (TLS_MODE=internal)
 remit purge --yes         # destroy the deployment, data included
 remit probe-host <origin> # check how a name resolves from this box

@@ -117,9 +117,25 @@ const folderOverridesOf = (
 	return overrides;
 };
 
+/**
+ * The pinned folders this account holds. The setting is one list for the whole
+ * configuration while the document spells the list per account, so each path is
+ * resolved against the account's own folders — the same rule every other folder
+ * reference here follows, and the only one that cannot put a path on an account
+ * that has no such folder.
+ */
+const pinnedFoldersOf = (
+	pinned: readonly string[],
+	paths: ReadonlyMap<string, string>,
+): ConfigAccount["pinnedFolders"] => {
+	const held = new Set(paths.values());
+	return pinned.filter((folderPath) => held.has(folderPath));
+};
+
 const toConfigAccount = (
 	account: AccountItem,
 	settings: AccountSettingsView,
+	pinned: readonly string[],
 	index: MailboxIndex,
 	byMailbox: ReadonlyMap<string, MailboxSettingsView>,
 ): ConfigAccount => ({
@@ -155,7 +171,10 @@ const toConfigAccount = (
 	},
 	folderRoles: folderRolesOf(settings, index.pathsOfAccount(account.accountId)),
 	folderOverrides: folderOverridesOf(account.accountId, index, byMailbox),
-	pinnedFolders: settings.pinnedFolders,
+	pinnedFolders: pinnedFoldersOf(
+		pinned,
+		index.pathsOfAccount(account.accountId),
+	),
 });
 
 const toConfigLabel = (label: LabelItem): ConfigLabel => ({
@@ -342,6 +361,7 @@ export const readConfigForExport = async (
 			toConfigAccount(
 				account,
 				accountSettingsOf(settings, account.accountId),
+				settings.pinnedFolders,
 				index,
 				settings.byMailbox,
 			),

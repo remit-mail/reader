@@ -205,6 +205,46 @@ test("the reserved decisions slot is defined and empty", () => {
 	assert.equal(MessageDecisionsSchema.safeParse([{}]).success, false);
 });
 
+test("an id is the stored 25-character form, never the RFC 4122 spelling", () => {
+	// Every id in this database is a UUID re-encoded base36 to 25 characters,
+	// and `UUID` in the API contract means exactly that. A schema that took the
+	// dashed spelling would refuse every id a real export produces, so the
+	// dashed one has to fail here for the stored one to be the contract.
+	const account = goldenAccount();
+	account.accountId = "6f4c2c30-9a2c-4a7f-9f9f-1f2c3d4e5a6b";
+
+	assert.equal(AccountSchema.safeParse(account).success, false);
+	assert.equal(
+		AccountSchema.safeParse({
+			...goldenAccount(),
+			accountId: "6f4c2c309a2c4a7f9f9f1f2c3",
+		}).success,
+		true,
+	);
+});
+
+test("the composer format is a server setting, not a browser one", () => {
+	// It lives in an AccountSetting row the server owns and a database drop
+	// takes with it, so it rides `accountConfig`. Carrying it in the block the
+	// server ignores would have the file record it and the import discard it.
+	const source = readGoldenConfigDocument() as {
+		accountConfig: Record<string, unknown>;
+		clientPreferences: Record<string, unknown>;
+	};
+
+	assert.equal(source.accountConfig.defaultComposerFormat, "markdown");
+	assert.equal(
+		ReaderConfigDocumentSchema.safeParse({
+			...source,
+			clientPreferences: {
+				...source.clientPreferences,
+				defaultComposerFormat: "markdown",
+			},
+		}).success,
+		false,
+	);
+});
+
 test("the document schema refuses an unknown top-level section", () => {
 	const source = readGoldenConfigDocument() as Record<string, unknown>;
 
