@@ -1,0 +1,1170 @@
+import {
+	configOperationsGetConfigOptions,
+	outboxDetailOperationsDeleteOutboxMessageMutation,
+	outboxDetailOperationsGetOutboxMessageOptions,
+	outboxDetailOperationsSendOutboxMessageMutation,
+} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import type {
+	RemitImapAccountResponse,
+	RemitImapDescribeMessageResponse,
+} from "@remit/api-http-client/types.gen.ts";
+import {
+	Banner,
+	ComposeActionBar,
+	ComposeBodySkeleton,
+	ComposeFormShell,
+	ComposeHeader,
+	type ComposeSendState,
+	type ComposeShellLayout,
+	ComposeSubjectField,
+	composeHeaderSummary,
+	defaultComposeLanguages,
+	modeOfDraft,
+	QuotedText,
+	type RichTextValue,
+	SMTP_MISSING_MESSAGE,
+	sanitizeQuotedHtml,
+	unwrapLanguage,
+} from "@remit/ui";
+import type { ComposeBodyMode } from "@remit/ui/rich-text";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import type { RefObject } from "react";
+import {
+	lazy,
+	Suspense,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
+import { useMessageBodyContent } from "../../hooks/useMessageBodyContent";
+import { useSaveDraft } from "../../hooks/useSaveDraft";
+import { useSignature } from "../../hooks/useSignature.js";
+import { isNotFound, softErrorMeta } from "../../lib/error-classifier";
+import { accountIsMissingSmtp } from "../settings/account-form-helpers.js";
+import { useErrorBanners } from "../ui/ErrorBannerProvider.js";
+import {
+	buildMutationErrorBanner,
+	formatErrorDetail,
+} from "../ui/error-banners.js";
+import type {
+	AddressEntry,
+	ComposeAddressFieldHandle,
+	ParsedAddressInput,
+} from "./AddressField";
+import { AddressField } from "./AddressField";
+import { ComposeSmtpMissingBanner } from "./ComposeSmtpMissingBanner";
+import { composeSpellcheck } from "./compose-spellcheck.js";
+import {
+	buildQuotedBlock,
+	outgoingBody,
+	type QuotedBlock,
+	type QuotedSourceBody,
+	textToHtml,
+} from "./quoted-message.js";
+
+const LazyComposeBody = lazy(() =>
+	import("@remit/ui/rich-text").then((m) => ({ default: m.ComposeBody })),
+);
+
+import { useIsDesktop } from "../../hooks/useMediaQuery.js";
+import { useVisualViewport } from "../../hooks/useVisualViewport.js";
+import type { ComposeMode } from "./ComposeProvider";
+import { OUTBOX_ROW_META, useCompose } from "./ComposeProvider";
+import { FromSelector } from "./FromSelector";
+
+interface ComposeFormProps {
+	mode: ComposeMode;
+	account?: RemitImapAccountResponse;
+	sourceMessage?: RemitImapDescribeMessageResponse;
+	/**
+	 * The draft this composer writes to. Absent until there is one, and owned by
+	 * whoever mounted the form — the address for the compose route, the inline
+	 * composer's own state for a reply. A composer that read it from somewhere
+	 * shared would open on the last draft any other composer touched.
+	 */
+	outboxMessageId?: string;
+	/** The draft the first autosave created, for the owner to record. */
+	onDraftCreated: (outboxMessageId: string) => void;
+	onClose: () => void;
+	onAccountChange?: (account: RemitImapAccountResponse) => void;
+	/**
+	 * How the surface takes its height. A window in its own pane fills that
+	 * pane; one opened as a block of the conversation grows with what is written
+	 * in it and leaves the pane the only scroller.
+	 */
+	layout?: ComposeShellLayout;
+}
+
+const buildInitialHtml = (signaturePlainText: string): string => {
+	if (!signaturePlainText) return "";
+	return `<p></p><p>-- </p>${textToHtml(signaturePlainText)}`;
+};
+
+/**
+ * The document a new message opens on. One definition, because a form that
+ * starts a second message without remounting has to open on the same thing the
+ * first one did.
+ */
+const freshDocument = (
+	signaturePlainText: string,
+): { html: string; text: string } => ({
+	html: buildInitialHtml(signaturePlainText),
+	text: signaturePlainText,
+});
+
+const buildReplySubject = (subject?: string): string => {
+	if (!subject) return "Re: ";
+	if (/^re:\s/i.test(subject)) return subject;
+	return `Re: ${subject}`;
+};
+
+const buildForwardSubject = (subject?: string): string => {
+	if (!subject) return "Fwd: ";
+	if (/^fwd?:\s/i.test(subject)) return subject;
+	return `Fwd: ${subject}`;
+};
+
+const getReplyAddresses = (
+	msg: RemitImapDescribeMessageResponse,
+	mode: ComposeMode,
+	myEmail?: string,
+): { to: AddressEntry[]; cc: AddressEntry[] } => {
+	const { envelope } = msg;
+	const replyTo =
+		envelope.replyTo.length > 0 ? envelope.replyTo : envelope.from;
+
+	const to: AddressEntry[] = replyTo.map((a) => ({
+		email: a.normalizedEmail,
+		displayName: a.displayName,
+	}));
+
+	if (mode !== "reply-all") return { to, cc: [] };
+
+	const myEmailLower = myEmail?.toLowerCase();
+	const toEmails = new Set(to.map((a) => a.email.toLowerCase()));
+
+	const cc: AddressEntry[] = [...envelope.to, ...envelope.cc]
+		.filter(
+			(a) =>
+				a.normalizedEmail.toLowerCase() !== myEmailLower &&
+				!toEmails.has(a.normalizedEmail.toLowerCase()),
+		)
+		.map((a) => ({
+			email: a.normalizedEmail,
+			displayName: a.displayName,
+		}));
+
+	return { to, cc };
+};
+
+const getReferences = (
+	msg: RemitImapDescribeMessageResponse,
+): { inReplyTo?: string; references: string[] } => {
+	const messageIdValue = msg.envelope.messageIdValue;
+	const existingRefs = msg.references
+		.filter((r) => r.referenceType === "references")
+		.sort((a, b) => a.referenceOrder - b.referenceOrder)
+		.map((r) => r.messageIdValue);
+
+	const references = [...existingRefs];
+	if (messageIdValue && !references.includes(messageIdValue)) {
+		references.push(messageIdValue);
+	}
+
+	return {
+		inReplyTo: messageIdValue,
+		references,
+	};
+};
+
+type SendReadiness =
+	| { status: "sending" }
+	| { status: "blocked"; reason: string }
+	| { status: "ready"; accountId: string };
+
+/** The three recipient lists a send goes out with. */
+interface Recipients {
+	to: AddressEntry[];
+	cc: AddressEntry[];
+	bcc: AddressEntry[];
+}
+
+/** The fields a send takes its recipients from, in the order they are read. */
+interface AddressFieldHandles {
+	to: RefObject<ComposeAddressFieldHandle | null>;
+	cc: RefObject<ComposeAddressFieldHandle | null>;
+	bcc: RefObject<ComposeAddressFieldHandle | null>;
+}
+
+/**
+ * Naming To, not "a recipient". Sending goes through the draft, and a draft is
+ * created against `CreateOutboxMessageInput`, whose `@minItems(1)` is on
+ * `toAddresses` alone — so a message addressed only in Cc has a recipient and
+ * still cannot be sent from here, and being told to add one it can already see
+ * leaves it with nothing to do. The server's own send guard counts Cc and Bcc,
+ * because a Bcc-only envelope is real mail; it is answering whether the message
+ * has anywhere to go, which is not the question this one asks.
+ */
+const NO_TO_ADDRESS_MESSAGE = "Add a To address before sending.";
+
+/**
+ * Send waits for the message being quoted. Pressed before it lands, the send
+ * would go out carrying the answer and nothing of what it answers — the defect
+ * this refusal exists to make impossible rather than merely unlikely (#845.5).
+ */
+const QUOTE_LOADING_MESSAGE = "Loading the message you're quoting.";
+
+/**
+ * The quoted original could not be fetched. A forward without it is an empty
+ * message and a reply without it drops the thread, so the composer says so
+ * where the message is being written instead of sending a message the user
+ * believes carries the original.
+ */
+const QUOTE_FAILED_MESSAGE =
+	"The message you're quoting couldn't be loaded, so it won't be included.";
+
+/** A field holding text that is not an address, and which field it is. */
+interface UnparsedField {
+	label: string;
+	text: string;
+}
+
+/**
+ * Text a recipient field could not read as an address stops the send and is
+ * quoted back. It is on screen and it was meant for somebody, so sending
+ * without it would deliver a message to fewer people than it was addressed to,
+ * and the composer closing on the send would take the text with it.
+ */
+const unparsedRefusal = ({ label, text }: UnparsedField): string =>
+	`${label} holds "${text}", which is not an address.`;
+
+const firstUnparsed = (
+	fields: readonly UnparsedField[],
+): UnparsedField | undefined =>
+	fields.find((field) => field.text.trim() !== "");
+
+const EMPTY_PENDING: ParsedAddressInput = { entries: [], unparsed: "" };
+
+const isFormEmpty = (
+	toAddresses: AddressEntry[],
+	ccAddresses: AddressEntry[],
+	bccAddresses: AddressEntry[],
+	subject: string,
+	body: RichTextValue,
+): boolean =>
+	toAddresses.length === 0 &&
+	ccAddresses.length === 0 &&
+	bccAddresses.length === 0 &&
+	subject.trim() === "" &&
+	body.text.trim() === "";
+
+// ---------------------------------------------------------------------------
+// WiredComposeHeader — the shared header, with the app's fields in its slots
+// ---------------------------------------------------------------------------
+
+interface WiredComposeHeaderProps {
+	documentGeneration: number;
+	selectedAccountId?: string;
+	onAccountChange: (account: RemitImapAccountResponse) => void;
+	toAddresses: AddressEntry[];
+	setToAddresses: (v: AddressEntry[]) => void;
+	ccAddresses: AddressEntry[];
+	setCcAddresses: (v: AddressEntry[]) => void;
+	bccAddresses: AddressEntry[];
+	setBccAddresses: (v: AddressEntry[]) => void;
+	showCc: boolean;
+	setShowCc: (v: boolean) => void;
+	showBcc: boolean;
+	setShowBcc: (v: boolean) => void;
+	subject: string;
+	setSubject: (v: string) => void;
+	fieldHandles: AddressFieldHandles;
+	onToPendingChange: (pending: ParsedAddressInput) => void;
+}
+
+const WiredComposeHeader = ({
+	documentGeneration,
+	selectedAccountId,
+	onAccountChange,
+	toAddresses,
+	setToAddresses,
+	ccAddresses,
+	setCcAddresses,
+	bccAddresses,
+	setBccAddresses,
+	showCc,
+	setShowCc,
+	showBcc,
+	setShowBcc,
+	subject,
+	setSubject,
+	fieldHandles,
+	onToPendingChange,
+}: WiredComposeHeaderProps) => {
+	const isDesktop = useIsDesktop();
+	const { isKeyboardOpen } = useVisualViewport();
+	// What the user asked to see belongs to the document being written, not to
+	// the keyboard. Tying it to the keyboard collapsed the rows again the moment
+	// one came back up — over the recipient field being typed into, which took
+	// the keyboard down with it and started the cycle over.
+	const [expandedFor, setExpandedFor] = useState<number | undefined>(undefined);
+	const expanded = expandedFor === documentGeneration;
+
+	return (
+		<ComposeHeader
+			collapsed={!isDesktop && isKeyboardOpen && !expanded}
+			onExpand={() => setExpandedFor(documentGeneration)}
+			summary={composeHeaderSummary({
+				to: toAddresses,
+				cc: ccAddresses,
+				bcc: bccAddresses,
+				subject,
+			})}
+			from={
+				<FromSelector
+					selectedAccountId={selectedAccountId}
+					onSelect={onAccountChange}
+				/>
+			}
+			to={
+				<AddressField
+					label="To"
+					addresses={toAddresses}
+					onChange={setToAddresses}
+					placeholder="Recipients"
+					onPendingChange={onToPendingChange}
+					ref={fieldHandles.to}
+				/>
+			}
+			cc={
+				showCc ? (
+					<AddressField
+						label="Cc"
+						addresses={ccAddresses}
+						onChange={setCcAddresses}
+						ref={fieldHandles.cc}
+					/>
+				) : undefined
+			}
+			bcc={
+				showBcc ? (
+					<AddressField
+						label="Bcc"
+						addresses={bccAddresses}
+						onChange={setBccAddresses}
+						ref={fieldHandles.bcc}
+					/>
+				) : undefined
+			}
+			subject={<ComposeSubjectField value={subject} onChange={setSubject} />}
+			onShowCc={() => setShowCc(true)}
+			onShowBcc={() => setShowBcc(true)}
+		/>
+	);
+};
+
+export const ComposeForm = ({
+	mode,
+	account,
+	sourceMessage,
+	outboxMessageId,
+	onDraftCreated,
+	onClose,
+	onAccountChange,
+	layout = "fill",
+}: ComposeFormProps) => {
+	const { startSendPolling } = useCompose();
+	const { pushError } = useErrorBanners();
+
+	const [toAddresses, setToAddresses] = useState<AddressEntry[]>([]);
+	const [ccAddresses, setCcAddresses] = useState<AddressEntry[]>([]);
+	const [bccAddresses, setBccAddresses] = useState<AddressEntry[]>([]);
+	/**
+	 * What To is holding but has not committed. A press on Send takes it, so the
+	 * refusal for having no recipient must not stand while an address is on
+	 * screen — the button's own reason comes from this state, before the press.
+	 */
+	const [pendingTo, setPendingTo] = useState<ParsedAddressInput>(EMPTY_PENDING);
+	const toFieldRef = useRef<ComposeAddressFieldHandle>(null);
+	const ccFieldRef = useRef<ComposeAddressFieldHandle>(null);
+	const bccFieldRef = useRef<ComposeAddressFieldHandle>(null);
+	const fieldHandles = useMemo<AddressFieldHandles>(
+		() => ({ to: toFieldRef, cc: ccFieldRef, bcc: bccFieldRef }),
+		[],
+	);
+	/** A new document leaves nothing typed behind in a field that did not remount. */
+	const clearPendingFields = useCallback(() => {
+		toFieldRef.current?.clearPending();
+		ccFieldRef.current?.clearPending();
+		bccFieldRef.current?.clearPending();
+	}, []);
+	const [subject, setSubject] = useState("");
+	const [showCc, setShowCc] = useState(false);
+	const [showBcc, setShowBcc] = useState(false);
+	const [selectedAccountId, setSelectedAccountId] = useState(
+		account?.accountId,
+	);
+	const [draftLoaded, setDraftLoaded] = useState(false);
+	/**
+	 * The document the fields on screen belong to. It trails `outboxMessageId`
+	 * for one commit whenever the document changes, and autosave has to sit that
+	 * commit out — the fields still hold the message that has just been left.
+	 */
+	const [openDocumentId, setOpenDocumentId] = useState(outboxMessageId);
+	/**
+	 * What the server's copy of this document would autosave as, so a draft that
+	 * is only being looked at writes nothing.
+	 *
+	 * Opening one runs the autosave effect on the render that fills the fields
+	 * from the read, and that write is no longer free: an edit returns a settled
+	 * failure to `draft` (#933), so opening a Failed message and pressing Escape
+	 * would take it out of the Outbox with the reader having changed nothing. The
+	 * first run after a load records what was loaded; only a payload that differs
+	 * from it is an edit. Nothing updates it afterwards — once the reader has
+	 * touched the document, every later run saves as it always did, retries of a
+	 * failed write included.
+	 */
+	const loadedPayloadRef = useRef<string | undefined>(undefined);
+	const captureLoadedPayloadRef = useRef(false);
+	const smtpConfigureRef = useRef<HTMLButtonElement>(null);
+	const prevOutboxMessageIdRef = useRef<string | undefined>(outboxMessageId);
+	/**
+	 * Whether the document on screen came from a draft the server already held.
+	 * A reply carries the message it answers whether it is being started or being
+	 * resumed, so this is what separates the two: the source seeds a reply that
+	 * has nothing behind it, and leaves a saved one holding the recipients and
+	 * the subject the reader edited.
+	 */
+	const resumedDraftRef = useRef(outboxMessageId !== undefined);
+	/**
+	 * Whether the document on screen already carries the quoted original. True of
+	 * exactly one thing: a draft read back from the server, which was saved with
+	 * the quote in its body. Held as state rather than read off `resumedDraftRef`
+	 * because the quote is assembled during render.
+	 */
+	const [documentHoldsQuote, setDocumentHoldsQuote] = useState(
+		outboxMessageId !== undefined,
+	);
+	/**
+	 * The mode the fields on screen were last written for. A draft that is
+	 * resumed holds what its reader saved and must not be overwritten when it
+	 * mounts — but a switch of mode over the same message asks for different
+	 * recipients, which is how Reply All reaches the Cc field (#796).
+	 *
+	 * Taken at mount rather than on the first run that has a source: the source
+	 * is fetched fresh after a reload, so a reader who presses Reply All before
+	 * it lands would otherwise have that press recorded as the mode the draft
+	 * opened under, and Reply All would stay dead.
+	 */
+	const seededModeRef = useRef<ComposeMode | undefined>(
+		outboxMessageId !== undefined ? mode : undefined,
+	);
+	/**
+	 * The reader's own address the recipients were last written against, absent
+	 * until something has been written. The account resolves from the source's
+	 * mailbox, so it lands after the source: a seed made before it arrived kept
+	 * the reader in their own Cc (#819), and is redone once it does.
+	 */
+	const seededMyEmailRef = useRef<{ myEmail: string | undefined } | undefined>(
+		undefined,
+	);
+	// Read where a mode change must not itself be the trigger.
+	const modeRef = useRef(mode);
+	modeRef.current = mode;
+	/**
+	 * The identity this form has already taken from the surface that mounted it.
+	 * A reply learns which account the message reached only once the mailbox it
+	 * was delivered to resolves, which lands after the first render — so From
+	 * follows the prop instead of only its initial value. Applied once per
+	 * identity, so a reader who then picks another one keeps it.
+	 */
+	const appliedAccountIdRef = useRef(account?.accountId);
+
+	useEffect(() => {
+		const accountId = account?.accountId;
+		if (!accountId || appliedAccountIdRef.current === accountId) return;
+		appliedAccountIdRef.current = accountId;
+		// A saved draft carries the account it was written from; that is the one
+		// it reopens on.
+		if (resumedDraftRef.current) return;
+		setSelectedAccountId(accountId);
+	}, [account?.accountId]);
+
+	// The document this form is on changed under it, so it starts again: another
+	// draft, or no draft at all. Without this the previous one's fields stay on
+	// screen and the new one never loads, because `draftLoaded` is still true
+	// from the session before (#536).
+	//
+	// "No draft at all" is Compose pressed while already composing — the address
+	// drops the draft segment and the same route stays matched, so nothing
+	// remounts the form. Leaving it alone there showed the old message under an
+	// address that said new one, and the next autosave took the create branch
+	// and wrote a second draft holding the first one's content.
+	//
+	// The one change that is not a different document is the first autosave
+	// adopting the id it just created. That is this session's own content coming
+	// back, and blanking the form there would throw away what is being typed.
+	useEffect(() => {
+		const previous = prevOutboxMessageIdRef.current;
+		if (previous === outboxMessageId) return;
+		prevOutboxMessageIdRef.current = outboxMessageId;
+		if (previous === undefined) return;
+		resumedDraftRef.current = outboxMessageId !== undefined;
+		setDocumentHoldsQuote(outboxMessageId !== undefined);
+		seededModeRef.current =
+			outboxMessageId !== undefined ? modeRef.current : undefined;
+		seededMyEmailRef.current = undefined;
+		// A draft brings its own body along in a moment; a new message opens on
+		// the signature, the same document a fresh mount would have started on.
+		const opening = outboxMessageId
+			? { html: "", text: "" }
+			: freshDocument(signatureRef.current);
+		setToAddresses([]);
+		setCcAddresses([]);
+		setBccAddresses([]);
+		clearPendingFields();
+		setSubject("");
+		setShowCc(false);
+		setShowBcc(false);
+		setInitialHtml(opening.html);
+		setInitialText(opening.text);
+		setBodyMode("rich");
+		setDraftLanguage(undefined);
+		setBody({ ...opening, formatting: [] });
+		setDocumentGeneration((generation) => generation + 1);
+		setDraftLoaded(false);
+		loadedPayloadRef.current = undefined;
+		captureLoadedPayloadRef.current = false;
+		setOpenDocumentId(outboxMessageId);
+	}, [outboxMessageId, clearPendingFields]);
+
+	const { signature } = useSignature(selectedAccountId);
+	// Read when a new message starts, never depended on: a signature arriving is
+	// not a reason to reopen the document somebody is typing in.
+	const signatureRef = useRef(signature.plainText);
+	signatureRef.current = signature.plainText;
+	// The editor reads its document once, so this is the document it opens on,
+	// not the live value, and it is remounted when the generation changes. Only
+	// loading a different document bumps that — remounting mid-compose would take
+	// the caret, the focus and the undo history with it.
+	const [documentGeneration, setDocumentGeneration] = useState(0);
+	const [initialHtml, setInitialHtml] = useState(
+		() => freshDocument(signature.plainText).html,
+	);
+	const [initialText, setInitialText] = useState(signature.plainText);
+	const [bodyMode, setBodyMode] = useState<ComposeBodyMode>("rich");
+	// What the body is tagged with on the way out. The composer owns the value —
+	// it is the surface that has the text detection reads — and reports it here,
+	// because this is where a draft is written and where a send is assembled.
+	const [composeLanguage, setComposeLanguage] = useState("en");
+	const [draftLanguage, setDraftLanguage] = useState<string | undefined>();
+	const [body, setBody] = useState<RichTextValue>(() => ({
+		...freshDocument(signature.plainText),
+		formatting: [],
+	}));
+
+	const { data: draftData, error: draftError } = useQuery({
+		...outboxDetailOperationsGetOutboxMessageOptions({
+			path: { outboxMessageId: outboxMessageId ?? "" },
+		}),
+		enabled: !!outboxMessageId && !draftLoaded,
+		meta: OUTBOX_ROW_META,
+		retry: (failureCount, error) => !isNotFound(error) && failureCount < 1,
+	});
+
+	// The draft id is a path segment, so Back after a send — or a restored tab —
+	// reopens the composer on a row the send already filed and deleted. There is
+	// no document left to reopen and nothing failed, so the surface closes the way
+	// it closes on Send. Only the 404 is read this way; a lapsed session still
+	// escalates.
+	useEffect(() => {
+		if (!isNotFound(draftError)) return;
+		onClose();
+	}, [draftError, onClose]);
+
+	useEffect(() => {
+		if (!draftData || draftLoaded) return;
+
+		setToAddresses(
+			draftData.toAddresses.map((email) => ({ email, displayName: undefined })),
+		);
+		if (draftData.ccAddresses && draftData.ccAddresses.length > 0) {
+			setCcAddresses(
+				draftData.ccAddresses.map((email) => ({
+					email,
+					displayName: undefined,
+				})),
+			);
+			setShowCc(true);
+		}
+		if (draftData.bccAddresses && draftData.bccAddresses.length > 0) {
+			setBccAddresses(
+				draftData.bccAddresses.map((email) => ({
+					email,
+					displayName: undefined,
+				})),
+			);
+			setShowBcc(true);
+		}
+		if (draftData.subject) setSubject(draftData.subject);
+		// A draft stores what would have been sent, so which surface it reopens in
+		// is read off that rather than a field of its own. A rich draft comes back
+		// from its HTML — reading its text into one paragraph, as this did, brought
+		// a formatted message back flattened.
+		// A rich draft carries its language in the `<div lang>` it was stored
+		// under; the editor reopens on what is inside that, so a reopened draft
+		// does not gain a second wrapper on its next autosave. A plain draft has
+		// no HTML to have carried one, and comes back on the account default.
+		const stored = unwrapLanguage(draftData.htmlBody ?? "");
+		const loadedHtml = stored.html;
+		const loadedText = draftData.textBody ?? "";
+		setBodyMode(modeOfDraft(draftData.htmlBody));
+		setDraftLanguage(stored.language ?? undefined);
+		setInitialHtml(loadedHtml);
+		setInitialText(loadedText);
+		setBody({ html: loadedHtml, text: loadedText, formatting: [] });
+		setDocumentGeneration((generation) => generation + 1);
+		setSelectedAccountId(draftData.accountId);
+		setDraftLoaded(true);
+		captureLoadedPayloadRef.current = true;
+	}, [draftData, draftLoaded]);
+
+	useEffect(() => {
+		if (!sourceMessage) return;
+		// A draft the reader came back to holds what they saved, so mounting over
+		// it seeds nothing — but a switch of mode over the same message asks for
+		// a different answer, and rewrites the fields for it (#796). A rewrite
+		// made before the account resolved is redone when its address arrives,
+		// which is what takes the reader back out of their own Cc (#819).
+		if (resumedDraftRef.current && seededModeRef.current === mode) {
+			const seeded = seededMyEmailRef.current;
+			if (!seeded || seeded.myEmail === account?.email) return;
+		}
+		seededModeRef.current = mode;
+		seededMyEmailRef.current = { myEmail: account?.email };
+
+		// The fields are being rewritten for a different answer, so what was typed
+		// into one and left there belongs to the answer being left behind. Without
+		// this the blur timer commits it into the new one 150 ms later.
+		clearPendingFields();
+
+		if (mode === "reply" || mode === "reply-all") {
+			const { to, cc } = getReplyAddresses(sourceMessage, mode, account?.email);
+			setToAddresses(to);
+			setCcAddresses(cc);
+			if (cc.length > 0) setShowCc(true);
+			setSubject(buildReplySubject(sourceMessage.envelope.subject));
+		}
+
+		// A forward is addressed to nobody, so it writes the address fields the
+		// way a reply writes them. Setting only the subject read as "keep what is
+		// already there", which sent the forward to the person being answered
+		// (#797).
+		if (mode === "forward") {
+			setToAddresses([]);
+			setCcAddresses([]);
+			setBccAddresses([]);
+			setSubject(buildForwardSubject(sourceMessage.envelope.subject));
+		}
+	}, [mode, sourceMessage, account?.email, clearPendingFields]);
+
+	// Quoted reply/forward content lives at the per-part `contentUrl` since
+	// #224 PR 3 — fetch it via the same hook MessageBody uses.
+	const isQuoting =
+		mode === "reply" || mode === "reply-all" || mode === "forward";
+	const {
+		data: sourceBody,
+		isLoading: quoteIsLoading,
+		isError: quoteFailed,
+		refetch: refetchQuote,
+	} = useMessageBodyContent({
+		messageId: sourceMessage?.message.messageId,
+		bodyParts: sourceMessage?.bodyParts,
+		enabled: isQuoting && !!sourceMessage,
+	});
+
+	/**
+	 * The original as it will be sent, and as it is shown while the answer is
+	 * written — one value for both, because the two disagreeing is the whole of
+	 * #845.5.
+	 *
+	 * Absent for a draft read back from the server: that document was saved with
+	 * the quote already in it, so the editor holds it and appending a second copy
+	 * would send the original twice.
+	 */
+	const quotedBlock = useMemo<QuotedBlock | undefined>(() => {
+		if (!isQuoting || !sourceMessage || documentHoldsQuote) return undefined;
+		if (!sourceBody) return undefined;
+		const body: QuotedSourceBody =
+			sourceBody.kind === "html"
+				? { kind: "html", content: sanitizeQuotedHtml(sourceBody.body) }
+				: { kind: "text", content: sourceBody.body };
+		return buildQuotedBlock(
+			mode === "forward" ? "forward" : "reply",
+			sourceMessage.envelope,
+			body,
+		);
+	}, [isQuoting, sourceMessage, documentHoldsQuote, sourceBody, mode]);
+
+	const senderName =
+		sourceMessage?.envelope.from[0]?.displayName ??
+		sourceMessage?.envelope.from[0]?.normalizedEmail;
+
+	// The draft this session just created holds what is already on screen, so
+	// there is nothing to read back — and reading it back would replace the
+	// document under the caret with the server's copy of it.
+	const adoptCreatedDraft = useCallback(
+		(createdId: string) => {
+			setDraftLoaded(true);
+			// What is on screen is what was just written, so the fields belong to
+			// the new draft the moment it exists — before the id has travelled out
+			// through the address and back. Waiting for that would hold the next
+			// autosave, and the last thing typed before a pause would not be saved.
+			setOpenDocumentId(createdId);
+			onDraftCreated(createdId);
+		},
+		[onDraftCreated],
+	);
+
+	const { saveState, saveError, saveDraft, saveImmediately, stopAutoSave } =
+		useSaveDraft({
+			outboxMessageId,
+			onDraftCreated: adoptCreatedDraft,
+		});
+
+	// Auto-save runs on a debounce, so a failure has no inline call site to
+	// surface it. Push the real error detail to a banner instead of leaving only
+	// the muted "Save failed" status dot. A fatal 5xx also hits the global
+	// escalation overlay via MutationCache.onError.
+	useEffect(() => {
+		if (!saveError) return;
+		pushError({
+			title: "Couldn't save draft",
+			detail: formatErrorDetail(saveError) ?? "Saving the draft failed.",
+			error: saveError,
+		});
+	}, [saveError, pushError]);
+
+	// A refused send is reported below, next to the message it did not send, and
+	// the composer stays up so the user can fix the address and press it again.
+	// A 5xx still escalates.
+	const sendMutation = useMutation({
+		...outboxDetailOperationsSendOutboxMessageMutation(),
+		meta: softErrorMeta,
+	});
+
+	const deleteMutation = useMutation({
+		...outboxDetailOperationsDeleteOutboxMessageMutation(),
+		meta: softErrorMeta,
+		onError: (error) => {
+			// Discard closes the dialog optimistically. A soft 4xx (409/404 the
+			// draft is already gone) must not pass silently as success — surface a
+			// banner. A fatal 5xx still escalates through MutationCache.onError.
+			pushError(
+				buildMutationErrorBanner(
+					"Couldn't discard draft",
+					"The draft wasn't discarded.",
+					error,
+				),
+			);
+		},
+	});
+
+	const { data: config } = useQuery({
+		...configOperationsGetConfigOptions(),
+		staleTime: Infinity,
+	});
+
+	const selectedAccount = config?.accounts.find(
+		(a) => a.accountId === selectedAccountId,
+	);
+	const selectedAccountMissingSmtp = selectedAccount
+		? accountIsMissingSmtp(selectedAccount)
+		: false;
+
+	// An account that has never been to the language setting falls back to what
+	// the browser already knows the user reads, which is an ordered answer.
+	const configured = selectedAccount?.composeLanguages;
+	const accountLanguages = useMemo(
+		() =>
+			configured && configured.length > 0
+				? configured
+				: defaultComposeLanguages(navigator.languages),
+		[configured],
+	);
+
+	// The editor reopens the checker whenever the composer's language changes,
+	// so the tag the chip and detection settle on is the only one it is ever
+	// asked for.
+	const spellcheck = useMemo(() => composeSpellcheck(pushError), [pushError]);
+
+	// The action bar refuses a second press while one is in flight, but the
+	// editor's own Cmd+Enter goes straight to `attemptSend`, and the write that
+	// now precedes the request widens the window a second press lands in.
+	const sendInFlightRef = useRef(false);
+	const [isSending, setIsSending] = useState(false);
+	// Every refusal carries the sentence that explains it. Send is never a
+	// no-op: the state it reads has no way to be blocked without a reason. A
+	// ready state carries the account the message goes out from, so the send
+	// path has no condition of its own left to refuse on in silence.
+	const readinessFor = useCallback(
+		(toCount: number, unparsed: UnparsedField | undefined): SendReadiness => {
+			if (isSending) return { status: "sending" };
+			if (!selectedAccountId) {
+				return { status: "blocked", reason: "Choose an account to send from." };
+			}
+			if (selectedAccountMissingSmtp) {
+				return { status: "blocked", reason: SMTP_MISSING_MESSAGE };
+			}
+			if (quoteIsLoading) {
+				return { status: "blocked", reason: QUOTE_LOADING_MESSAGE };
+			}
+			if (unparsed) {
+				return { status: "blocked", reason: unparsedRefusal(unparsed) };
+			}
+			if (toCount === 0) {
+				return { status: "blocked", reason: NO_TO_ADDRESS_MESSAGE };
+			}
+			return { status: "ready", accountId: selectedAccountId };
+		},
+		[isSending, selectedAccountId, selectedAccountMissingSmtp, quoteIsLoading],
+	);
+	const sendReadiness = useMemo<SendReadiness>(
+		() =>
+			readinessFor(
+				toAddresses.length + pendingTo.entries.length,
+				firstUnparsed([{ label: "To", text: pendingTo.unparsed }]),
+			),
+		[readinessFor, toAddresses.length, pendingTo],
+	);
+	const sendState: ComposeSendState = sendReadiness;
+
+	useEffect(() => {
+		if (!selectedAccountId) return;
+		// Nor one that is on its way out. Send commits the address fields as it
+		// goes, which lands here as a recipient change and would re-arm the timer
+		// `stopAutoSave` has just dropped — a draft write arriving after the send
+		// took the row out of draft (#845.6).
+		if (sendInFlightRef.current) return;
+		// Don't autosave a document the fields are no longer on. They trail the
+		// address by a commit whenever it changes, so writing here sends the
+		// message just left to whatever the address now names — the previous
+		// draft's content onto the next draft, or, with no draft named at all, a
+		// spurious second one holding it (#535/#536).
+		if (openDocumentId !== undefined && openDocumentId !== outboxMessageId)
+			return;
+		// Nor one still arriving: opening an existing draft leaves the fields
+		// mid-population until the read lands.
+		if (outboxMessageId && !draftLoaded) return;
+		if (isFormEmpty(toAddresses, ccAddresses, bccAddresses, subject, body))
+			return;
+
+		const { htmlBody, textBody } = outgoingBody(
+			bodyMode,
+			body,
+			composeLanguage,
+			quotedBlock,
+		);
+
+		const payload = {
+			accountId: selectedAccountId,
+			toAddresses: toAddresses.map((a) => a.email),
+			ccAddresses:
+				ccAddresses.length > 0 ? ccAddresses.map((a) => a.email) : undefined,
+			bccAddresses:
+				bccAddresses.length > 0 ? bccAddresses.map((a) => a.email) : undefined,
+			subject: subject || undefined,
+			textBody,
+			htmlBody,
+		};
+
+		// Nor a document nobody has touched. Reopening one is not editing it, and
+		// a PATCH is now a status change as well as a content one (#933).
+		const fingerprint = JSON.stringify(payload);
+		if (captureLoadedPayloadRef.current) {
+			captureLoadedPayloadRef.current = false;
+			loadedPayloadRef.current = fingerprint;
+			return;
+		}
+		if (loadedPayloadRef.current === fingerprint) return;
+
+		saveDraft(payload);
+	}, [
+		selectedAccountId,
+		outboxMessageId,
+		openDocumentId,
+		draftLoaded,
+		toAddresses,
+		ccAddresses,
+		bccAddresses,
+		subject,
+		body,
+		bodyMode,
+		composeLanguage,
+		quotedBlock,
+		saveDraft,
+	]);
+
+	const handleSend = useCallback(
+		async (accountId: string, recipients: Recipients) => {
+			if (sendInFlightRef.current) return;
+
+			sendInFlightRef.current = true;
+			setIsSending(true);
+			try {
+				stopAutoSave();
+
+				const replyData =
+					sourceMessage && (mode === "reply" || mode === "reply-all")
+						? getReferences(sourceMessage)
+						: {};
+
+				const { htmlBody, textBody } = outgoingBody(
+					bodyMode,
+					body,
+					composeLanguage,
+					quotedBlock,
+				);
+				const createdThisAttempt = !outboxMessageId;
+
+				// The debounce dropped above may have been holding the last two seconds
+				// of typing, and an existing entry would otherwise go out as the server
+				// last saw it (#674). What is on screen is written first, and a write
+				// that fails stops the send rather than transmitting the older copy.
+				const flushed = await saveImmediately({
+					accountId,
+					toAddresses: recipients.to.map((a) => a.email),
+					ccAddresses:
+						recipients.cc.length > 0
+							? recipients.cc.map((a) => a.email)
+							: undefined,
+					bccAddresses:
+						recipients.bcc.length > 0
+							? recipients.bcc.map((a) => a.email)
+							: undefined,
+					subject: subject || undefined,
+					textBody,
+					htmlBody,
+					...replyData,
+				});
+
+				if (flushed.outcome === "failed") {
+					pushError({
+						title: "Couldn't send message",
+						detail:
+							formatErrorDetail(flushed.error) ??
+							"Saving the message failed, so nothing was sent. Try again.",
+						error: flushed.error,
+					});
+					return;
+				}
+
+				const messageId = flushed.outboxMessageId;
+
+				const sent = await sendMutation
+					.mutateAsync({
+						path: { outboxMessageId: messageId },
+					})
+					.catch((error: unknown) => {
+						pushError({
+							title: "Couldn't send message",
+							detail:
+								formatErrorDetail(error) ??
+								(createdThisAttempt
+									? "The draft was saved but the send request failed. Try again from the Outbox."
+									: "The send request failed. Try again."),
+							error,
+						});
+						return null;
+					});
+				if (sent === null) return;
+
+				stopAutoSave(messageId);
+				startSendPolling(messageId);
+				onClose();
+			} finally {
+				sendInFlightRef.current = false;
+				setIsSending(false);
+			}
+		},
+		[
+			subject,
+			body,
+			bodyMode,
+			composeLanguage,
+			quotedBlock,
+			mode,
+			sourceMessage,
+			outboxMessageId,
+			saveImmediately,
+			sendMutation,
+			stopAutoSave,
+			startSendPolling,
+			pushError,
+			onClose,
+		],
+	);
+
+	const handleDiscard = useCallback(() => {
+		stopAutoSave(outboxMessageId);
+		if (outboxMessageId) {
+			deleteMutation.mutate({
+				path: { outboxMessageId },
+			});
+		}
+		onClose();
+	}, [stopAutoSave, outboxMessageId, deleteMutation, onClose]);
+
+	// The refusal is announced first and moved to second. Focus alone carried
+	// nothing to a screen reader — the banner above was already on screen, so
+	// the press read as the button doing nothing.
+	const reportBlocked = useCallback(
+		(reason: string) => {
+			pushError({ title: "Can't send yet", detail: reason });
+			if (reason !== SMTP_MISSING_MESSAGE) return;
+			smtpConfigureRef.current?.focus();
+		},
+		[pushError],
+	);
+
+	/**
+	 * Send goes out to the addresses on screen, not to the ones the fields have
+	 * got round to committing. Each field commits on blur behind a timer, and the
+	 * press that sends is the press that blurs — so a recipient typed and left in
+	 * the field is taken here, in the same tick, before the message is judged to
+	 * have anywhere to go (#845.6).
+	 */
+	const attemptSend = useCallback(() => {
+		if (sendReadiness.status === "sending") return;
+
+		const to = fieldHandles.to.current?.commitPending();
+		const cc = fieldHandles.cc.current?.commitPending();
+		const bcc = fieldHandles.bcc.current?.commitPending();
+		const recipients: Recipients = {
+			to: to?.addresses ?? toAddresses,
+			cc: cc?.addresses ?? ccAddresses,
+			bcc: bcc?.addresses ?? bccAddresses,
+		};
+
+		const readiness = readinessFor(
+			recipients.to.length,
+			firstUnparsed([
+				{ label: "To", text: to?.unparsed ?? "" },
+				{ label: "Cc", text: cc?.unparsed ?? "" },
+				{ label: "Bcc", text: bcc?.unparsed ?? "" },
+			]),
+		);
+		if (readiness.status === "sending") return;
+		if (readiness.status === "blocked") {
+			reportBlocked(readiness.reason);
+			return;
+		}
+		void handleSend(readiness.accountId, recipients);
+	}, [
+		sendReadiness.status,
+		fieldHandles,
+		toAddresses,
+		ccAddresses,
+		bccAddresses,
+		readinessFor,
+		reportBlocked,
+		handleSend,
+	]);
+
+	const handleAccountChange = useCallback(
+		(acct: RemitImapAccountResponse) => {
+			setSelectedAccountId(acct.accountId);
+			onAccountChange?.(acct);
+		},
+		[onAccountChange],
+	);
+
+	return (
+		<ComposeFormShell
+			layout={layout}
+			banner={
+				<>
+					{selectedAccount && selectedAccountMissingSmtp ? (
+						<ComposeSmtpMissingBanner
+							accountId={selectedAccount.accountId}
+							configureRef={smtpConfigureRef}
+						/>
+					) : null}
+					{quoteFailed ? (
+						<Banner tone="warning" data-testid="compose-quote-failed">
+							<span>{QUOTE_FAILED_MESSAGE}</span>{" "}
+							<button
+								type="button"
+								className="underline"
+								onClick={() => {
+									void refetchQuote();
+								}}
+							>
+								Try again
+							</button>
+						</Banner>
+					) : null}
+				</>
+			}
+			header={
+				<WiredComposeHeader
+					documentGeneration={documentGeneration}
+					selectedAccountId={selectedAccountId}
+					onAccountChange={handleAccountChange}
+					toAddresses={toAddresses}
+					setToAddresses={setToAddresses}
+					ccAddresses={ccAddresses}
+					setCcAddresses={setCcAddresses}
+					bccAddresses={bccAddresses}
+					setBccAddresses={setBccAddresses}
+					showCc={showCc}
+					setShowCc={setShowCc}
+					showBcc={showBcc}
+					setShowBcc={setShowBcc}
+					subject={subject}
+					setSubject={setSubject}
+					fieldHandles={fieldHandles}
+					onToPendingChange={setPendingTo}
+				/>
+			}
+			quoted={
+				quotedBlock ? (
+					<QuotedText
+						text={quotedBlock.text}
+						html={quotedBlock.html}
+						senderName={senderName}
+					/>
+				) : undefined
+			}
+			actionBar={
+				<ComposeActionBar
+					send={sendState}
+					onSend={attemptSend}
+					onBlocked={reportBlocked}
+					onDiscard={handleDiscard}
+					save={saveState}
+				/>
+			}
+		>
+			<Suspense fallback={<ComposeBodySkeleton />}>
+				<LazyComposeBody
+					key={documentGeneration}
+					mode={bodyMode}
+					onModeChange={setBodyMode}
+					initialHtml={initialHtml}
+					initialText={initialText}
+					onChange={setBody}
+					onSubmit={attemptSend}
+					initialCaret={mode === "new" ? "start" : undefined}
+					onConversionError={pushError}
+					languages={accountLanguages}
+					initialLanguage={draftLanguage}
+					onLanguageChange={setComposeLanguage}
+					spellcheck={spellcheck}
+				/>
+			</Suspense>
+		</ComposeFormShell>
+	);
+};
