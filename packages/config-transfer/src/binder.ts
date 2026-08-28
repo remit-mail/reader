@@ -9,14 +9,11 @@ import type {
 } from "@remit/data-ports";
 import { composeSettingName } from "@remit/data-ports/account-settings";
 import {
-	type CanonicalMailboxRoleValue,
-	composeFolderRoleAppointmentName,
-} from "@remit/data-ports/folder-role";
-import {
 	AccountSettingName,
 	ConfigImportRefKind,
 	ConfigImportState,
 } from "@remit/domain-enums";
+import type { AppointFolderRole } from "./import-repositories.js";
 
 export interface ConfigBinderRepositories {
 	configImport: Pick<IConfigImportRepository, "listByAccountConfig" | "update">;
@@ -27,6 +24,7 @@ export interface ConfigBinderRepositories {
 
 export interface ConfigBinderDeps {
 	repositories: ConfigBinderRepositories;
+	appointFolderRole: AppointFolderRole;
 	now?: () => number;
 }
 
@@ -86,7 +84,7 @@ export const bindImportedFolders = async (
 				remaining.push(ref);
 				continue;
 			}
-			await bindRef(repositories, accountConfigId, ref, mailboxId, document);
+			await bindRef(deps, accountConfigId, ref, mailboxId, document);
 			bound++;
 		}
 
@@ -107,12 +105,13 @@ export const bindImportedFolders = async (
 type BoundDocument = ReturnType<typeof readConfigDocument>;
 
 const bindRef = async (
-	repositories: ConfigBinderRepositories,
+	deps: ConfigBinderDeps,
 	accountConfigId: string,
 	ref: ConfigImportUnresolvedRefItem,
 	mailboxId: string,
 	document: BoundDocument,
 ): Promise<void> => {
+	const { repositories } = deps;
 	if (ref.kind === ConfigImportRefKind.FilterAction) {
 		await repositories.filter.update(accountConfigId, ref.target, {
 			actionMailboxId: mailboxId,
@@ -121,14 +120,13 @@ const bindRef = async (
 	}
 
 	if (ref.kind === ConfigImportRefKind.FolderRole) {
-		await repositories.accountSetting.upsert({
+		await deps.appointFolderRole(
 			accountConfigId,
-			name: composeFolderRoleAppointmentName(
-				ref.accountId,
-				ref.target as CanonicalMailboxRoleValue,
-			),
-			value: { kind: "String", value: mailboxId },
-		});
+			ref.accountId,
+			ref.target,
+			mailboxId,
+			ref.folderPath,
+		);
 		return;
 	}
 

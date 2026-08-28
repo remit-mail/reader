@@ -12,6 +12,7 @@ import {
 } from "@remit/config-transfer";
 import type { AccountConfigItem, MailboxItem } from "@remit/data-ports";
 import { ConfigNotEmptyError, NotFoundError } from "@remit/data-ports/errors";
+import type { CanonicalMailboxRoleValue } from "@remit/data-ports/folder-role";
 import { logger } from "@remit/logger-lambda";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
@@ -36,6 +37,7 @@ import {
 import {
 	groupFolderAppointmentsByAccount,
 	resolveFolderAppointments,
+	writeFolderRoleAppointment,
 } from "./folder-role-appointments.js";
 
 type StructuredLog = (fields: Record<string, unknown>, message: string) => void;
@@ -268,6 +270,21 @@ export const ConfigOperations: Record<
 				// has already validated whole by the time the first write goes out,
 				// and the report names where an apply stopped.
 				transaction: client.writeSet ?? ((run) => run()),
+				appointFolderRole: (
+					configId,
+					accountId,
+					role,
+					mailboxId,
+					lastKnownPath,
+				) =>
+					writeFolderRoleAppointment(
+						client.accountSetting,
+						configId,
+						accountId,
+						role as CanonicalMailboxRoleValue,
+						mailboxId,
+						lastKnownPath,
+					),
 				embedAnchor: embedAnchorText,
 			},
 			{

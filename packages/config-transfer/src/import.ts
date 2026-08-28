@@ -14,12 +14,11 @@ import {
 	type FilterItem,
 	type LabelItem,
 } from "@remit/data-ports";
-import { composeSettingName } from "@remit/data-ports/account-settings";
 import {
-	type CanonicalMailboxRoleValue,
-	composeFolderRoleAppointmentLabelName,
-	composeFolderRoleAppointmentName,
-} from "@remit/data-ports/folder-role";
+	type AccountSettingNameValue,
+	composeSettingName,
+} from "@remit/data-ports/account-settings";
+import type { CanonicalMailboxRoleValue } from "@remit/data-ports/folder-role";
 import { deriveAddressId } from "@remit/data-ports/id";
 import {
 	AccountSettingName,
@@ -710,7 +709,8 @@ class SettingWriter {
 	}
 
 	async writeAccount(account: ConfigAccount, accountId: string): Promise<void> {
-		const per = (base: string): string => composeSettingName(base, accountId);
+		const per = (base: AccountSettingNameValue): string =>
+			composeSettingName(base, accountId);
 
 		if (account.displayName !== "") {
 			await this.put(per(AccountSettingName.AccountDisplayName), {
@@ -745,9 +745,9 @@ class SettingWriter {
 	}
 
 	/**
-	 * The folder-keyed half. A role's recorded path is written whatever happens —
-	 * it is the user's decision, and it is what the binder resolves against
-	 * later; only the appointment itself waits for a mailbox to exist.
+	 * The folder-keyed half. A role whose folder is not here yet waits whole:
+	 * the appointment and the path it was made on are one decision, and half of
+	 * one is read by nothing.
 	 */
 	async writeFolders(
 		account: ConfigAccount,
@@ -757,13 +757,6 @@ class SettingWriter {
 		const pending: ConfigImportUnresolvedRefItem[] = [];
 
 		for (const role of account.folderRoles) {
-			await this.put(
-				composeFolderRoleAppointmentLabelName(
-					accountId,
-					role.role as CanonicalMailboxRoleValue,
-				),
-				{ kind: "String", value: role.folderPath },
-			);
 			const mailboxId = folders.get(role.folderPath);
 			if (mailboxId === undefined) {
 				pending.push({
@@ -774,12 +767,12 @@ class SettingWriter {
 				});
 				continue;
 			}
-			await this.put(
-				composeFolderRoleAppointmentName(
-					accountId,
-					role.role as CanonicalMailboxRoleValue,
-				),
-				{ kind: "String", value: mailboxId },
+			await this.deps.appointFolderRole(
+				this.accountConfigId,
+				accountId,
+				role.role as CanonicalMailboxRoleValue,
+				mailboxId,
+				role.folderPath,
 			);
 		}
 

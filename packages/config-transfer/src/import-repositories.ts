@@ -64,8 +64,23 @@ export type EmbedAnchor = (
 	sourceText: string,
 ) => Promise<{ embedding: number[]; embeddingId: string } | undefined>;
 
+/**
+ * Persist one role's folder appointment. Injected rather than composed here:
+ * an appointment row means a person decided, and it keeps that meaning only
+ * while one writer produces it — the same one every other appointment in the
+ * repo goes through.
+ */
+export type AppointFolderRole = (
+	accountConfigId: string,
+	accountId: string,
+	role: string,
+	mailboxId: string,
+	lastKnownPath: string,
+) => Promise<void>;
+
 export interface ConfigImportDeps {
 	repositories: ConfigImportRepositories;
+	appointFolderRole: AppointFolderRole;
 	/**
 	 * Runs the whole apply as one write set. Nothing is written until the
 	 * document has validated, and a failure inside this aborts the remainder.

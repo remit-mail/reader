@@ -313,12 +313,41 @@ const repositoriesOf = (store: Store, accountConfigId: string): any => {
 	};
 };
 
+/**
+ * The one writer of a folder-role appointment, stood in for. The pair of rows
+ * moves together, the way `writeFolderRoleAppointment` writes them.
+ */
+const appointFolderRoleInto =
+	(store: Store) =>
+	async (
+		_accountConfigId: string,
+		accountId: string,
+		role: string,
+		mailboxId: string,
+		lastKnownPath: string,
+	): Promise<void> => {
+		const named = composeFolderRoleAppointmentName(accountId, role as "Sent");
+		const labelled = composeFolderRoleAppointmentLabelName(
+			accountId,
+			role as "Sent",
+		);
+		store.settings.set(
+			named,
+			makeSetting(named, { kind: "String", value: mailboxId }),
+		);
+		store.settings.set(
+			labelled,
+			makeSetting(labelled, { kind: "String", value: lastKnownPath }),
+		);
+	};
+
 const depsOf = (
 	store: Store,
 	accountConfigId: string,
 	embed = true,
 ): ConfigImportDeps => ({
 	repositories: repositoriesOf(store, accountConfigId),
+	appointFolderRole: appointFolderRoleInto(store),
 	transaction: (run) => run(),
 	embedAnchor: embed
 		? async () => ({ embedding: [0.11, 0.22, 0.33], embeddingId: EMBEDDING_ID })
@@ -523,7 +552,10 @@ test("a configuration survives an export, an import and a discovery unchanged", 
 	]);
 	discover(store, OAUTH_ACCOUNT_ID, ["INBOX"]);
 
-	const binder = { repositories: repositoriesOf(store, TARGET_CONFIG_ID) };
+	const binder = {
+		repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+		appointFolderRole: appointFolderRoleInto(store),
+	};
 	await bindImportedFolders(binder, TARGET_CONFIG_ID, PASSWORD_ACCOUNT_ID);
 	await bindImportedFolders(binder, TARGET_CONFIG_ID, OAUTH_ACCOUNT_ID);
 
@@ -560,8 +592,8 @@ test("imported accounts land inactive, each needing the credential the file name
 	const report = reportOf(await apply(store, document));
 
 	assert.deepEqual(
-		report.accountsNeedingCredentials.toSorted(),
-		[OAUTH_ACCOUNT_ID, PASSWORD_ACCOUNT_ID].toSorted(),
+		[...report.accountsNeedingCredentials].sort(),
+		[OAUTH_ACCOUNT_ID, PASSWORD_ACCOUNT_ID].sort(),
 	);
 
 	const password = store.accounts.find(
@@ -728,7 +760,10 @@ test("a folder no mailbox answers to yet is kept, then bound when discovery find
 	);
 
 	discover(store, PASSWORD_ACCOUNT_ID, ["INBOX", "INBOX.Facturen"]);
-	const binder = { repositories: repositoriesOf(store, TARGET_CONFIG_ID) };
+	const binder = {
+		repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+		appointFolderRole: appointFolderRoleInto(store),
+	};
 	const first = await bindImportedFolders(
 		binder,
 		TARGET_CONFIG_ID,
@@ -1000,7 +1035,10 @@ test("a second import of the same file over the same configuration changes nothi
 test("a binder run on a configuration with no import does nothing", async () => {
 	const store = emptyStore();
 	const result = await bindImportedFolders(
-		{ repositories: repositoriesOf(store, TARGET_CONFIG_ID) },
+		{
+			repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+			appointFolderRole: appointFolderRoleInto(store),
+		},
 		TARGET_CONFIG_ID,
 		PASSWORD_ACCOUNT_ID,
 	);

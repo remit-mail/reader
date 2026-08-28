@@ -1,12 +1,16 @@
 import { getClient } from "@remit/backend/client";
-import type { ConfigBinderRepositories } from "@remit/config-transfer";
-import { bindImportedFolders } from "@remit/config-transfer";
+import { writeFolderRoleAppointment } from "@remit/backend/folder-role-appointments";
+import {
+	bindImportedFolders,
+	type ConfigBinderDeps,
+} from "@remit/config-transfer";
 import type {
 	AccountItem,
 	IAccountRepository,
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
 } from "@remit/data-ports";
+import type { CanonicalMailboxRoleValue } from "@remit/data-ports/folder-role";
 import { SyncPhase } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
@@ -91,7 +95,18 @@ export const syncMailboxes = async (
 		mailboxSpecialUse: mailboxSpecialUseService,
 		secrets,
 	} = client;
-	const binderRepositories: ConfigBinderRepositories = client;
+	const binder: ConfigBinderDeps = {
+		repositories: client,
+		appointFolderRole: (configId, accountId, role, mailboxId, lastKnownPath) =>
+			writeFolderRoleAppointment(
+				client.accountSetting,
+				configId,
+				accountId,
+				role as CanonicalMailboxRoleValue,
+				mailboxId,
+				lastKnownPath,
+			),
+	};
 
 	const { accountId } = event;
 	log.info({ event: event.type, accountId }, "Handling event");
@@ -129,7 +144,7 @@ export const syncMailboxes = async (
 					mailboxService,
 					mailboxSpecialUseService,
 					accountService,
-					binderRepositories,
+					binder,
 					log,
 				);
 			} catch (err) {
@@ -162,7 +177,7 @@ const syncMailboxesForAccount = async (
 	mailboxService: IMailboxRepository,
 	mailboxSpecialUseService: IMailboxSpecialUseRepository,
 	accountService: IAccountRepository,
-	binderRepositories: ConfigBinderRepositories,
+	binder: ConfigBinderDeps,
 	log: Logger,
 ): Promise<void> => {
 	const { accountId } = account;
@@ -206,7 +221,7 @@ const syncMailboxesForAccount = async (
 	// belongs at exactly this point, and is idempotent, so a later discovery
 	// simply finds nothing left to do.
 	const bound = await bindImportedFolders(
-		{ repositories: binderRepositories },
+		binder,
 		account.accountConfigId,
 		accountId,
 	);

@@ -12,6 +12,7 @@ export {
 	importConfig,
 } from "./import.js";
 export type {
+	AppointFolderRole,
 	ConfigImportDeps,
 	ConfigImportRepositories,
 	EmbedAnchor,
