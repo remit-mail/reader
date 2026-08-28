@@ -99,6 +99,30 @@ export class MailboxNotSettledError extends ConflictError {
 }
 
 /**
+ * Why the row's folder and uid do not name the same message. `in_flight` clears
+ * on its own, so the client words a wait; `unverified` does not, so it words a
+ * resync instead.
+ */
+export type MessagePlacementUnsettledReason = "in_flight" | "unverified";
+
+export class MessagePlacementUnsettledError extends ConflictError {
+	name = "MessagePlacementUnsettledError";
+
+	constructor(
+		message: string,
+		accountId: string,
+		messageId: string,
+		reason: MessagePlacementUnsettledReason,
+	) {
+		super(message);
+		this.publicApiError = {
+			code: "message_placement_unsettled",
+			details: { accountId, messageId, reason },
+		};
+	}
+}
+
+/**
  * A message exists but its body could not be fetched/parsed after every
  * body-sync retry was spent (issue #1270 / epic #1281 invariant 3). This is
  * distinct from `NotFoundError`: the message is real, but its content is

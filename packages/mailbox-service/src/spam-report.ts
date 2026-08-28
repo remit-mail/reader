@@ -3,16 +3,15 @@ import type {
 	IAddressRepository,
 	IMailboxSpecialUseRepository,
 	IMessageRepository,
-	MessageItem,
 } from "@remit/data-ports";
 import { deriveAddressId } from "@remit/data-ports/id";
-import {
-	AddressRole,
-	MessageKeywordFlag,
-	MessageStatus,
-} from "@remit/domain-enums";
+import { AddressRole, MessageKeywordFlag } from "@remit/domain-enums";
 import type { FlagPushService } from "./flag-push.js";
 import type { MessageMoveService } from "./message-move.js";
+import {
+	isPlacementUnsettled,
+	waitForPlacementToSettle,
+} from "./placement-settled.js";
 
 export interface SpamReportLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
@@ -185,31 +184,6 @@ export class SpamReportService {
 		});
 	};
 
-	/**
-	 * R2 wait (docs/architecture/imap-mutations.md): `notSpam`'s restore is a
-	 * dependent write against report-spam's own move — enqueuing it while that
-	 * move is still in flight (`status === moving`) would carry the message's
-	 * pre-move `uid` (only a CONFIRMED move updates it, via `updateUid`) and
-	 * risk acting on the wrong server-side message once both moves are
-	 * in-flight at once. Cheap to block per the doc's default guidance: a move
-	 * ordinarily settles in well under a second. On timeout the dependent
-	 * write is not made — the caller is told to retry, and retrying is safe
-	 * (this whole flow is idempotent).
-	 */
-	private waitForMoveToSettle = async (
-		messageId: string,
-	): Promise<MessageItem> => {
-		const deadline = Date.now() + this.moveSettleTimeoutMs;
-		let message = await this.messageService.get(messageId);
-		while (message.status === MessageStatus.moving && Date.now() < deadline) {
-			await new Promise((resolve) =>
-				setTimeout(resolve, this.moveSettlePollMs),
-			);
-			message = await this.messageService.get(messageId);
-		}
-		return message;
-	};
-
 	reportSpam = async (params: SpamReportParams): Promise<void> => {
 		const { accountConfigId, accountId, messageId, setBy } = params;
 		const now = Date.now();
@@ -308,8 +282,15 @@ export class SpamReportService {
 			// Only wait on the move's settlement when there is actually a
 			// dependent write to make (the restore below) — a move in flight for
 			// an unrelated reason is not this operation's concern.
-			const settled = await this.waitForMoveToSettle(messageId);
-			if (settled.status === MessageStatus.moving) {
+			const settled = await waitForPlacementToSettle(
+				this.messageService,
+				messageId,
+				{
+					timeoutMs: this.moveSettleTimeoutMs,
+					pollMs: this.moveSettlePollMs,
+				},
+			);
+			if (isPlacementUnsettled(settled)) {
 				throw new MoveNotSettledError(messageId);
 			}
 

@@ -10,6 +10,10 @@ import { useRoleAppointmentPrompt } from "@/components/mail/RoleAppointmentPromp
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
 import { isFolderRoleRefusal } from "@/components/ui/folder-role-refusal";
+import {
+	isPlacementRefusal,
+	placementRefusalBanner,
+} from "@/components/ui/placement-refusal";
 import { resolveMailboxesForMessages } from "@/hooks/useMarkAsRead";
 import { runChunkedMutation } from "@/lib/bulk-actions";
 import {
@@ -175,6 +179,11 @@ export const useDeleteMessages = ({
 				return;
 			}
 			const count = vars.body.messageIds?.length ?? 0;
+			const placement = isPlacementRefusal(err);
+			if (placement) {
+				pushError(placementRefusalBanner(placement, count));
+				return;
+			}
 			pushError({
 				title:
 					count > 1

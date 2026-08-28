@@ -10,8 +10,12 @@ import type {
 	IMailboxSpecialUseRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
+	MessageItem,
 } from "@remit/data-ports";
-import { FolderRoleUnresolvedError } from "@remit/data-ports/errors";
+import {
+	FolderRoleUnresolvedError,
+	MessagePlacementUnsettledError,
+} from "@remit/data-ports/errors";
 import {
 	type FolderRoleUnresolvedReason,
 	NO_TRASH_FOLDER_REASON,
@@ -29,6 +33,11 @@ import {
 	MessageSyncStatus,
 } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
+import {
+	type PlacementBinding,
+	placementBindingOf,
+	waitForPlacementToSettle,
+} from "./placement-settled.js";
 
 /**
  * Event types for message move/delete operations.
@@ -120,7 +129,12 @@ export interface MessageMoveConfig {
 	sqsQueueUrl: string;
 	sqsEndpoint?: string;
 	logger?: MessageMoveLogger;
+	moveSettleTimeoutMs?: number;
+	moveSettlePollMs?: number;
 }
+
+const DEFAULT_MOVE_SETTLE_TIMEOUT_MS = 5_000;
+const DEFAULT_MOVE_SETTLE_POLL_MS = 250;
 
 /**
  * The account resolves no Trash folder, so a move-to-Trash delete has nowhere
@@ -239,6 +253,8 @@ export class MessageMoveService {
 	private sqs: SQSClient;
 	private queueUrl: string;
 	private log: MessageMoveLogger;
+	private moveSettleTimeoutMs: number;
+	private moveSettlePollMs: number;
 
 	constructor(config: MessageMoveConfig) {
 		this.messageService = config.messageService;
@@ -248,6 +264,10 @@ export class MessageMoveService {
 		this.addressService = config.addressService;
 		this.queueUrl = config.sqsQueueUrl;
 		this.log = config.logger ?? noopLogger;
+		this.moveSettleTimeoutMs =
+			config.moveSettleTimeoutMs ?? DEFAULT_MOVE_SETTLE_TIMEOUT_MS;
+		this.moveSettlePollMs =
+			config.moveSettlePollMs ?? DEFAULT_MOVE_SETTLE_POLL_MS;
 
 		this.sqs = createQueueProducer({
 			queueUrl: config.sqsQueueUrl,
@@ -288,8 +308,13 @@ export class MessageMoveService {
 		if (messageIds.length === 0) return;
 
 		// Batch get all messages
-		const messages = await this.messageService.get(messageIds);
-		if (messages.length === 0) return;
+		const rows = await this.messageService.get(messageIds);
+		if (rows.length === 0) return;
+
+		// Ahead of the Trash gates below, which compare `mailboxId` against the
+		// Trash folder: an in-flight move makes that comparison answer for a
+		// folder the message has not reached.
+		const messages = await this.settledPlacements(rows, accountId);
 
 		// Get unique mailbox IDs and batch fetch mailboxes
 		const uniqueMailboxIds = [...new Set(messages.map((m) => m.mailboxId))];
@@ -633,7 +658,24 @@ export class MessageMoveService {
 		destinationMailboxId: string,
 		accountId: string,
 	): Promise<string> => {
-		const sourceMessage = await this.messageService.get(messageId);
+		return this.copySettledMessage(
+			accountConfigId,
+			await this.settledPlacement(
+				await this.messageService.get(messageId),
+				accountId,
+			),
+			destinationMailboxId,
+			accountId,
+		);
+	};
+
+	private copySettledMessage = async (
+		accountConfigId: string,
+		sourceMessage: MessageItem,
+		destinationMailboxId: string,
+		accountId: string,
+	): Promise<string> => {
+		const messageId = sourceMessage.messageId;
 		const sourceMailbox = await this.mailboxService.get(
 			accountId,
 			sourceMessage.mailboxId,
@@ -750,15 +792,24 @@ export class MessageMoveService {
 		destinationMailboxId: string,
 		accountId: string,
 	): Promise<string[]> => {
+		// Every row is settled before the first copy is written, so the batch's
+		// wait is one row's ceiling rather than the sum across it, and a refusal
+		// lands before any part of the batch has committed.
+		const sources = await this.settledPlacements(
+			await this.messageService.get(messageIds),
+			accountId,
+		);
+
 		const newMessageIds: string[] = [];
-		for (const messageId of messageIds) {
-			const newId = await this.copyMessage(
-				accountConfigId,
-				messageId,
-				destinationMailboxId,
-				accountId,
+		for (const source of sources) {
+			newMessageIds.push(
+				await this.copySettledMessage(
+					accountConfigId,
+					source,
+					destinationMailboxId,
+					accountId,
+				),
 			);
-			newMessageIds.push(newId);
 		}
 		return newMessageIds;
 	};
@@ -866,6 +917,61 @@ export class MessageMoveService {
 
 		return { deletedCount: messages.length };
 	};
+
+	private refusePlacement = (
+		message: MessageItem,
+		accountId: string,
+		binding: Exclude<PlacementBinding, "consistent">,
+	): never => {
+		this.log.error(
+			{ accountId, messageId: message.messageId, binding },
+			"Refused: this message's folder and uid do not name the same message",
+		);
+		throw new MessagePlacementUnsettledError(
+			`Message ${message.messageId} was not acted on: its folder and uid do not name the same message`,
+			accountId,
+			message.messageId,
+			binding === "abandoned" ? "unverified" : "in_flight",
+		);
+	};
+
+	private settledPlacement = async (
+		message: MessageItem,
+		accountId: string,
+	): Promise<MessageItem> => {
+		const binding = placementBindingOf(message);
+		if (binding === "consistent") return message;
+
+		// An abandoned move is never coming back, so the ceiling would be spent
+		// only to reach the same answer.
+		if (binding === "abandoned")
+			return this.refusePlacement(message, accountId, binding);
+
+		const settled = await waitForPlacementToSettle(
+			this.messageService,
+			message.messageId,
+			{
+				timeoutMs: this.moveSettleTimeoutMs,
+				pollMs: this.moveSettlePollMs,
+			},
+		);
+		const settledBinding = placementBindingOf(settled);
+		if (settledBinding === "consistent") return settled;
+		return this.refusePlacement(settled, accountId, settledBinding);
+	};
+
+	/**
+	 * Settle a whole batch before any of it is acted on, so one unsettled row
+	 * refuses the batch whole rather than leaving part of it expunged, and the
+	 * batch's total wait is one row's ceiling rather than the sum across it.
+	 */
+	private settledPlacements = async (
+		messages: MessageItem[],
+		accountId: string,
+	): Promise<MessageItem[]> =>
+		Promise.all(
+			messages.map((message) => this.settledPlacement(message, accountId)),
+		);
 
 	/**
 	 * Update ThreadMessage for move operations.
