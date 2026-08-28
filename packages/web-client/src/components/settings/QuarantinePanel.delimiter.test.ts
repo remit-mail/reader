@@ -71,6 +71,10 @@ const mount = async (mailboxes: () => unknown): Promise<DomHarness> => {
 	});
 	harness = createDomHarness();
 	harness.renderApp(createElement(QuarantinePanel));
+	// Two waves: the mailbox-list fan-out is keyed on the accounts `/config`
+	// returns, so it cannot even start until that first read has settled.
+	await harness.flush();
+	await harness.wait(0);
 	await harness.flush();
 	return harness;
 };
