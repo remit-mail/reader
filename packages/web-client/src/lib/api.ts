@@ -1,3 +1,4 @@
+import type { ApiError as ApiErrorWireBody } from "@remit/api-http-client/types.gen.ts";
 import { taggedFetch } from "./network-error";
 
 export class ApiError extends Error {
@@ -10,6 +11,45 @@ export class ApiError extends Error {
 		this.name = "ApiError";
 	}
 }
+
+/**
+ * The wire body's coded half, re-checked at runtime. `ApiErrorWireBody` is the
+ * generated flat shape the API sends; `ApiError` is the class every HTTP
+ * failure arrives in, carrying that body at `.body`. Reading `code` off the
+ * class is the bug #1004 is about, so nothing outside this module reaches for
+ * either shape directly.
+ */
+export interface CodedApiErrorBody {
+	code: ApiErrorWireBody["code"];
+	details: Record<string, unknown> | undefined;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === "object" && value !== null;
+
+export const codedApiErrorBody = (
+	error: unknown,
+): CodedApiErrorBody | undefined => {
+	const body = error instanceof ApiError ? error.body : error;
+	if (!isRecord(body)) return undefined;
+	const { code, details } = body;
+	if (typeof code !== "string") return undefined;
+	return { code, details: isRecord(details) ? details : undefined };
+};
+
+const failureMessage = (body: unknown, status: number): string => {
+	if (isRecord(body) && typeof body.message === "string" && body.message) {
+		return body.message;
+	}
+	return `Request failed with status ${status}`;
+};
+
+/**
+ * The one place an HTTP failure becomes an `ApiError`, so a test can hand a
+ * consumer the exact value the error interceptor produces.
+ */
+export const wrapHttpFailure = (body: unknown, status: number): ApiError =>
+	new ApiError(failureMessage(body, status), status, body);
 
 interface RequestOptions extends Omit<RequestInit, "body"> {
 	params?: Record<string, string | number | boolean | undefined>;
@@ -52,11 +92,7 @@ const request = async <T>(
 
 	if (!response.ok) {
 		const errorBody = await response.json().catch(() => undefined);
-		throw new ApiError(
-			errorBody?.message || `Request failed with status ${response.status}`,
-			response.status,
-			errorBody,
-		);
+		throw wrapHttpFailure(errorBody, response.status);
 	}
 
 	if (response.status === 204) {

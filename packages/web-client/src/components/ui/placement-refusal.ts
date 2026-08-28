@@ -4,8 +4,8 @@
  * server's sentence names a uuid and no remedy, and a message-string match
  * would start firing on an unrelated conflict the moment the copy changes.
  */
-import type { ApiError } from "@remit/api-http-client/types.gen.ts";
 import type { PushErrorInput } from "@/components/ui/error-banners";
+import { type CodedApiErrorBody, codedApiErrorBody } from "@/lib/api";
 
 /**
  * `in_flight` clears on its own once the mail server confirms the move;
@@ -25,7 +25,7 @@ const REASONS: ReadonlySet<string> = new Set<PlacementRefusalReason>([
 ]);
 
 const stringAt = (
-	details: ApiError["details"],
+	details: CodedApiErrorBody["details"],
 	key: string,
 ): string | undefined => {
 	const value = details?.[key];
@@ -35,11 +35,10 @@ const stringAt = (
 export const isPlacementRefusal = (
 	error: unknown,
 ): PlacementRefusal | undefined => {
-	if (typeof error !== "object" || error === null) return undefined;
-	const body = error as Partial<ApiError>;
-	if (body.code !== "message_placement_unsettled") return undefined;
+	const body = codedApiErrorBody(error);
+	if (body?.code !== "message_placement_unsettled") return undefined;
 	const { details } = body;
-	if (typeof details !== "object" || details === null) return undefined;
+	if (!details) return undefined;
 	const reason = stringAt(details, "reason");
 	const messageId = stringAt(details, "messageId");
 	if (!reason || !REASONS.has(reason) || !messageId) return undefined;
