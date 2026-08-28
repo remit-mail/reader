@@ -62,6 +62,12 @@ export interface EventSuggestionCardProps {
 	/** The clock picked so far. Omit to let the card hold the choice itself. */
 	zoneChoice?: string;
 	onZoneChoice?: (timeZone: string) => void;
+	/**
+	 * What the confirming button says. A surface sitting beside the mail spells
+	 * out where the press lands ("Add to calendar"); a surface already inside
+	 * the calendar does not need to.
+	 */
+	addLabel?: string;
 	touch?: boolean;
 	className?: string;
 }
@@ -93,6 +99,7 @@ export function EventSuggestionCard({
 	onOpenThread,
 	zoneChoice,
 	onZoneChoice,
+	addLabel = "Add",
 	touch,
 	className,
 }: EventSuggestionCardProps) {
@@ -220,7 +227,7 @@ export function EventSuggestionCard({
 						!settlement.settled && "opacity-55",
 					)}
 				>
-					Add
+					{addLabel}
 				</Button>
 				<Button
 					variant="secondary"
