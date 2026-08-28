@@ -341,6 +341,33 @@ const appointFolderRoleInto =
 		);
 	};
 
+/**
+ * A transaction that actually rolls back. The backend's `writeSet` discards
+ * every write on a throw, so a fake that merely called through would let an
+ * atomicity test pass over a store that had kept half a document — which is the
+ * one thing these tests exist to catch. Each collection is restored to the
+ * instance it had on entry.
+ */
+const transactionOver =
+	(store: Store) =>
+	async <T>(run: () => Promise<T>): Promise<T> => {
+		const before = {
+			accountConfigs: new Map(store.accountConfigs),
+			accounts: [...store.accounts],
+			settings: new Map(store.settings),
+			mailboxes: [...store.mailboxes],
+			labels: [...store.labels],
+			filters: [...store.filters],
+			anchors: [...store.anchors],
+			addresses: [...store.addresses],
+			imports: [...store.imports],
+		};
+		return run().catch((error: unknown) => {
+			Object.assign(store, before);
+			throw error;
+		});
+	};
+
 const depsOf = (
 	store: Store,
 	accountConfigId: string,
@@ -348,7 +375,7 @@ const depsOf = (
 ): ConfigImportDeps => ({
 	repositories: repositoriesOf(store, accountConfigId),
 	appointFolderRole: appointFolderRoleInto(store),
-	transaction: (run) => run(),
+	transaction: transactionOver(store),
 	embedAnchor: embed
 		? async () => ({ embedding: [0.11, 0.22, 0.33], embeddingId: EMBEDDING_ID })
 		: undefined,
@@ -973,6 +1000,69 @@ test("an anchor this deployment cannot embed is stored as text for the repair to
 	);
 });
 
+test("an embedder that fails costs the anchor its vector, not the import", async () => {
+	const document = await exportSource();
+	const store = emptyStore();
+	const deps = depsOf(store, TARGET_CONFIG_ID);
+
+	const report = reportOf(
+		await importConfig(
+			{
+				...deps,
+				embedAnchor: () => Promise.reject(new Error("embedder unavailable")),
+			},
+			{
+				accountConfigId: TARGET_CONFIG_ID,
+				userId: TARGET_USER_ID,
+				document,
+				mode: "apply",
+				onExisting: "abort",
+			},
+		),
+	);
+
+	assert.equal(report.applied, true);
+	assert.deepEqual(report.errors, []);
+	assert.equal(
+		report.warnings.some((warning) => warning.code === "anchor_not_embedded"),
+		true,
+	);
+	assert.equal(store.anchors[0]?.anchorEmbeddingId, ANCHOR_EMBEDDING_PENDING);
+	assert.equal(
+		store.anchors[0]?.anchorSourceText,
+		"the release note this filter was drawn from",
+	);
+	assert.equal(store.accounts.length > 0, true);
+});
+
+test("the dry run names the same folders and credentials the apply does", async () => {
+	const document = await exportSource();
+	const planStore = emptyStore();
+
+	const planned = reportOf(
+		await importConfig(depsOf(planStore, TARGET_CONFIG_ID), {
+			accountConfigId: TARGET_CONFIG_ID,
+			userId: TARGET_USER_ID,
+			document,
+			mode: "validate",
+			onExisting: "abort",
+		}),
+	);
+
+	const applied = reportOf(await apply(emptyStore(), document));
+
+	const codes = (report: { warnings: { code: string }[] }) =>
+		report.warnings.map((warning) => warning.code).sort();
+
+	assert.equal(planned.warnings.length > 0, true);
+	assert.deepEqual(codes(planned), codes(applied));
+	assert.deepEqual(
+		[...planned.accountsNeedingCredentials].sort(),
+		[...applied.accountsNeedingCredentials].sort(),
+	);
+	assert.deepEqual(planStore.accounts, []);
+});
+
 test("a write that fails after validation leaves nothing behind and names where it stopped", async () => {
 	const document = await exportSource();
 	const store = emptyStore();
@@ -984,8 +1074,46 @@ test("a write that fails after validation leaves nothing behind and names where 
 	assert.equal(report.applied, false);
 	assert.equal(report.errors[0]?.code, "import_write_failed");
 	assert.equal(report.errors[0]?.details?.section, "filters");
+	assert.match(report.errors[0]?.message ?? "", /Nothing was written/);
 	assert.equal(report.items[0]?.verdict, "rejected");
+
+	// Filters fail after accounts and labels have been written, so these are the
+	// assertions that make the claim: the rollback undid them too.
 	assert.deepEqual(store.imports, []);
+	assert.deepEqual(store.accounts, []);
+	assert.deepEqual(store.labels, []);
+	assert.deepEqual(store.filters, []);
+	assert.equal(store.accountConfigs.size, 0);
+});
+
+test("a write that fails without a transaction reports what it did leave behind", async () => {
+	const document = await exportSource();
+	const store = emptyStore();
+	store.failOn = "filter";
+
+	const deps = depsOf(store, TARGET_CONFIG_ID);
+	const report = reportOf(
+		await importConfig(
+			{ ...deps, transaction: undefined },
+			{
+				accountConfigId: TARGET_CONFIG_ID,
+				userId: TARGET_USER_ID,
+				document,
+				mode: "apply",
+				onExisting: "abort",
+			},
+		),
+	);
+
+	assert.equal(report.applied, true);
+	assert.match(report.errors[0]?.message ?? "", /were written and remain/);
+	assert.equal(
+		report.items.some(
+			(item) => item.section === "accounts" && item.verdict === "created",
+		),
+		true,
+	);
+	assert.equal(store.accounts.length > 0, true);
 });
 
 test("the configuration row is created when the database holds none, and named from the file", async () => {

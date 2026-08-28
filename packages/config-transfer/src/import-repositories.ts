@@ -82,10 +82,16 @@ export interface ConfigImportDeps {
 	repositories: ConfigImportRepositories;
 	appointFolderRole: AppointFolderRole;
 	/**
-	 * Runs the whole apply as one write set. Nothing is written until the
-	 * document has validated, and a failure inside this aborts the remainder.
+	 * Runs the whole apply as one write set, rolling back on any throw.
+	 *
+	 * Optional, and its presence is the fact the report words itself from: a
+	 * backend that supplies this rolls a failed apply back to nothing, and one
+	 * that does not leaves behind whatever landed before the failure. Only the
+	 * caller knows which, so it says so by passing this or omitting it rather
+	 * than by handing over a pass-through that would claim atomicity it has not
+	 * got.
 	 */
-	transaction: <T>(run: () => Promise<T>) => Promise<T>;
+	transaction?: <T>(run: () => Promise<T>) => Promise<T>;
 	embedAnchor?: EmbedAnchor;
 	now?: () => number;
 }

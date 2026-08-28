@@ -18,6 +18,7 @@
     "fix": "biome check --write src"
   },
   "devDependencies": {
+    "@remit/config-transfer": "*",
     "drizzle-kit": "^0.31.1",
     "tsx": "*"
   },

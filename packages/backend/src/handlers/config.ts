@@ -2,10 +2,10 @@ import type { SQSClient } from "@aws-sdk/client-sqs";
 import type {
 	AccountConfigResponse,
 	ConfigDescriptionResponse,
+	ConfigImportReport,
 } from "@remit/api-openapi-types";
 import type { ReaderConfigDocument } from "@remit/config-format";
 import {
-	type ConfigImportReport,
 	importConfig,
 	pendingImportOf,
 	readConfigForExport,
@@ -266,10 +266,10 @@ export const ConfigOperations: Record<
 		const outcome = await importConfig(
 			{
 				repositories: client,
-				// Absent on a backend with no cross-entity transaction: the document
-				// has already validated whole by the time the first write goes out,
-				// and the report names where an apply stopped.
-				transaction: client.writeSet ?? ((run) => run()),
+				// Passed through as-is, undefined included: a backend with no
+				// cross-entity transaction writes without one, and the report words
+				// what survived a failure from whether this is here.
+				transaction: client.writeSet,
 				appointFolderRole: (
 					configId,
 					accountId,

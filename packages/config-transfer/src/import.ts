@@ -18,6 +18,7 @@ import {
 	type AccountSettingNameValue,
 	composeSettingName,
 } from "@remit/data-ports/account-settings";
+import { NotFoundError } from "@remit/data-ports/errors";
 import type { CanonicalMailboxRoleValue } from "@remit/data-ports/folder-role";
 import { deriveAddressId } from "@remit/data-ports/id";
 import {
@@ -253,13 +254,113 @@ const landingState = (
 		? ConnectionState.ReauthRequired
 		: ConnectionState.CredentialsMissing;
 
-interface ApplyResult {
+/**
+ * What the apply has decided so far. Owned by `importConfig` rather than by
+ * `applyDocument` so a write that fails part-way still has it: on a backend
+ * without a transaction those items are what actually landed, and a report that
+ * threw them away would name a stopping point without naming the state.
+ */
+interface ApplyProgress {
 	items: ConfigImportItemReport[];
 	warnings: ConfigImportProblem[];
 	accountsNeedingCredentials: string[];
 	unresolvedRefs: ConfigImportUnresolvedRefItem[];
-	importId: string;
 }
+
+const emptyProgress = (): ApplyProgress => ({
+	items: [],
+	warnings: [],
+	accountsNeedingCredentials: [],
+	unresolvedRefs: [],
+});
+
+interface AnchorVector {
+	embedding: number[];
+	embeddingId: string;
+}
+
+/**
+ * Every anchor's vector, computed before the transaction opens.
+ *
+ * Two reasons it happens here and not at the point of write. An embedder is a
+ * network round trip and the sqlite write queue is process-wide, so embedding
+ * inside the transaction holds that queue against every other writer for the
+ * length of the call. And a failed embed is not a failed import: it degrades
+ * exactly the way a deployment that ships no embedder does, landing the anchor
+ * stamped `ANCHOR_EMBEDDING_PENDING` for the lazy repair to rebuild the first
+ * time the filter runs. A 503 from the embedder must not cost a person their
+ * configuration.
+ */
+const embedAnchors = async (
+	deps: ConfigImportDeps,
+	document: ReaderConfigDocument,
+	warnings: ConfigImportProblem[],
+): Promise<Map<string, AnchorVector>> => {
+	const vectors = new Map<string, AnchorVector>();
+	const { embedAnchor } = deps;
+
+	for (const filter of document.filters) {
+		const { anchor } = filter;
+		if (anchor === null) continue;
+
+		const embedded = embedAnchor
+			? await embedAnchor(anchor.sourceText).catch(() => undefined)
+			: undefined;
+
+		if (embedded) {
+			vectors.set(normalize(filter.name), embedded);
+			continue;
+		}
+
+		warnings.push(
+			problem(
+				"anchor_not_embedded",
+				`The example behind filter "${filter.name}" is carried as text; its vector is rebuilt the first time the filter runs.`,
+				{ filter: filter.name },
+			),
+		);
+	}
+
+	return vectors;
+};
+
+/**
+ * The id this instance will hold each account in the file under: the one it
+ * already has for that id or email, or the file's own, which `create` preserves
+ * verbatim. Derived before any write so the dry run resolves folders against
+ * exactly the accounts an apply would.
+ */
+const resolveLiveAccountIds = (
+	document: ReaderConfigDocument,
+	existing: ExistingConfig,
+): Map<string, string> => {
+	const byId = new Map(
+		existing.accounts.map((account) => [account.accountId, account] as const),
+	);
+	const byEmail = new Map(
+		existing.accounts.map(
+			(account) => [normalize(account.email), account] as const,
+		),
+	);
+
+	return new Map(
+		document.accounts.map((account) => {
+			const held =
+				byId.get(account.accountId) ?? byEmail.get(normalize(account.email));
+			return [account.accountId, held?.accountId ?? account.accountId] as const;
+		}),
+	);
+};
+
+/** The folders this instance holds for an account the file names, by IMAP path. */
+const foldersFor = (
+	existing: ExistingConfig,
+	liveAccountId: ReadonlyMap<string, string>,
+	fileAccountId: string,
+): Map<string, string> =>
+	existing.mailboxPaths.get(
+		liveAccountId.get(fileAccountId) ?? fileAccountId,
+	) ?? new Map();
 
 /**
  * A write that failed after validation. It carries the item it stopped on so
@@ -284,15 +385,15 @@ const applyDocument = async (
 	input: ImportConfigInput,
 	document: ReaderConfigDocument,
 	existing: ExistingConfig,
-): Promise<ApplyResult> => {
+	anchorVectors: ReadonlyMap<string, AnchorVector>,
+	progress: ApplyProgress,
+): Promise<string> => {
 	const { repositories } = deps;
 	const now = deps.now ?? Date.now;
 	const { accountConfigId } = input;
 
-	const items: ConfigImportItemReport[] = [];
-	const warnings: ConfigImportProblem[] = [];
-	const accountsNeedingCredentials: string[] = [];
-	const unresolvedRefs: ConfigImportUnresolvedRefItem[] = [];
+	const { items, warnings, accountsNeedingCredentials, unresolvedRefs } =
+		progress;
 
 	const record = (
 		section: ConfigImportItemReport["section"],
@@ -311,6 +412,13 @@ const applyDocument = async (
 			throw new ImportWriteError(section, key, error);
 		});
 
+	// ---- the configuration row ------------------------------------------
+	// First: everything below hangs off it, and on a fresh instance there is no
+	// row for an account to reference until this has run.
+	await write(ConfigImportSection.Settings, "accountConfig", () =>
+		ensureAccountConfig(deps, input, document),
+	);
+
 	// ---- accounts -------------------------------------------------------
 	const existingByEmail = new Map(
 		existing.accounts.map(
@@ -321,7 +429,7 @@ const applyDocument = async (
 		existing.accounts.map((account) => [account.accountId, account] as const),
 	);
 	/** The id in the file → the id this instance actually holds it under. */
-	const liveAccountId = new Map<string, string>();
+	const liveAccountId = resolveLiveAccountIds(document, existing);
 
 	for (const account of document.accounts) {
 		const held =
@@ -382,9 +490,7 @@ const applyDocument = async (
 	}
 
 	const foldersOf = (fileAccountId: string): Map<string, string> =>
-		existing.mailboxPaths.get(
-			liveAccountId.get(fileAccountId) ?? fileAccountId,
-		) ?? new Map();
+		foldersFor(existing, liveAccountId, fileAccountId);
 
 	// ---- labels ---------------------------------------------------------
 	const labelIdByName = new Map(
@@ -504,28 +610,20 @@ const applyDocument = async (
 	}
 
 	// ---- anchors --------------------------------------------------------
+	// Vectors were computed before the transaction opened; a missing one is an
+	// anchor carried as text, already warned about there.
 	for (const filter of document.filters) {
 		const { anchor } = filter;
 		if (anchor === null) continue;
-		const filterId = filterIdByName.get(normalize(filter.name));
-		if (filterId === undefined) continue;
-
-		const { embedAnchor } = deps;
-		const embedded = embedAnchor
-			? await write(ConfigImportSection.Filters, filter.name, () =>
-					embedAnchor(anchor.sourceText),
-				)
-			: undefined;
-
-		if (!embedded) {
-			warnings.push(
-				problem(
-					"anchor_not_embedded",
-					`The example behind filter "${filter.name}" is carried as text; its vector is rebuilt the first time the filter runs.`,
-					{ filter: filter.name },
-				),
+		const key = normalize(filter.name);
+		const filterId = filterIdByName.get(key);
+		if (filterId === undefined) {
+			throw new Error(
+				`Filter "${filter.name}" carries an anchor but the filter loop minted no id for it. The two loops read the same documents.filters, so this cannot happen without one of them changing.`,
 			);
 		}
+
+		const embedded = anchorVectors.get(key);
 
 		await write(ConfigImportSection.Filters, filter.name, () =>
 			repositories.filterAnchor.put({
@@ -556,15 +654,12 @@ const applyDocument = async (
 	// ---- settings -------------------------------------------------------
 	const settings = new SettingWriter(deps, accountConfigId);
 
-	await write(ConfigImportSection.Settings, "accountConfig", () =>
-		ensureAccountConfig(deps, input, document),
-	);
-
-	if (document.accountConfig.defaultComposerFormat !== undefined) {
+	const composerFormat = document.accountConfig.defaultComposerFormat;
+	if (composerFormat !== undefined) {
 		await write(ConfigImportSection.Settings, "composer format", () =>
 			settings.put(AccountSettingName.DefaultComposerFormat, {
 				kind: "String",
-				value: document.accountConfig.defaultComposerFormat as string,
+				value: composerFormat,
 			}),
 		);
 	}
@@ -623,13 +718,7 @@ const applyDocument = async (
 		}),
 	);
 
-	return {
-		items,
-		warnings,
-		accountsNeedingCredentials,
-		unresolvedRefs,
-		importId: row.importId,
-	};
+	return row.importId;
 };
 
 /**
@@ -675,9 +764,14 @@ const ensureAccountConfig = async (
 	document: ReaderConfigDocument,
 ): Promise<void> => {
 	const { accountConfig } = deps.repositories;
+	// Absence is the expected answer on a fresh instance and the only one that
+	// means "create it"; anything else is a store fault and belongs to the caller.
 	const held = await accountConfig
 		.get(input.accountConfigId)
-		.catch(() => undefined);
+		.catch((error: unknown) => {
+			if (error instanceof NotFoundError) return undefined;
+			throw error;
+		});
 	const name = document.accountConfig.name;
 
 	if (!held) {
@@ -867,48 +961,61 @@ export const importConfig = async (
 	if (errors.length > 0) return rejected(document.schemaVersion, errors);
 
 	if (input.mode === "validate") {
+		const dryRun = plan(document, existing);
 		return {
 			outcome: "report",
 			report: {
 				valid: true,
 				schemaVersion: document.schemaVersion,
 				applied: false,
-				items: plan(document, existing),
+				items: dryRun.items,
 				errors: [],
-				warnings: [],
-				accountsNeedingCredentials: [],
+				warnings: dryRun.warnings,
+				accountsNeedingCredentials: dryRun.accountsNeedingCredentials,
 			},
 		};
 	}
 
+	// Before the transaction: an embed is a network round trip, and the write
+	// queue it would otherwise hold is process-wide.
+	const embedWarnings: ConfigImportProblem[] = [];
+	const anchorVectors = await embedAnchors(deps, document, embedWarnings);
+
+	const { transaction } = deps;
+	const atomic = transaction !== undefined;
+	const progress = emptyProgress();
+	const apply = (): Promise<string> =>
+		applyDocument(deps, input, document, existing, anchorVectors, progress);
+
 	try {
-		const applied = await deps.transaction(() =>
-			applyDocument(deps, input, document, existing),
-		);
+		const importId = await (transaction ? transaction(apply) : apply());
 		return {
 			outcome: "report",
 			report: {
-				importId: applied.importId,
+				importId,
 				valid: true,
 				schemaVersion: document.schemaVersion,
 				applied: true,
-				items: applied.items,
+				items: progress.items,
 				errors: [],
-				warnings: applied.warnings,
-				accountsNeedingCredentials: applied.accountsNeedingCredentials,
+				warnings: [...embedWarnings, ...progress.warnings],
+				accountsNeedingCredentials: progress.accountsNeedingCredentials,
 			},
 		};
 	} catch (error) {
 		if (!(error instanceof ImportWriteError)) throw error;
-		// The apply is one write set, so a failure part-way through leaves nothing
-		// behind. What the report owes the reader is where it stopped.
+		// What the report owes the reader is where it stopped and what is now in
+		// the store. Under a transaction the answer to the second is "nothing";
+		// without one it is everything recorded up to the failure.
+		const landed = atomic ? emptyProgress() : progress;
 		return {
 			outcome: "report",
 			report: {
 				valid: true,
 				schemaVersion: document.schemaVersion,
-				applied: false,
+				applied: landed.items.length > 0,
 				items: [
+					...landed.items,
 					{
 						section: error.section,
 						key: error.key,
@@ -919,23 +1026,45 @@ export const importConfig = async (
 				errors: [
 					problem(
 						"import_write_failed",
-						`${error.message} Nothing was written; the import stopped here.`,
+						`${error.message} ${
+							atomic
+								? "Nothing was written; the import stopped here."
+								: "The items above it were written and remain; the import stopped here."
+						}`,
 						{ section: error.section, key: error.key },
 					),
 				],
-				warnings: [],
-				accountsNeedingCredentials: [],
+				warnings: [...embedWarnings, ...landed.warnings],
+				accountsNeedingCredentials: landed.accountsNeedingCredentials,
 			},
 		};
 	}
 };
 
-/** What an apply would do, item by item — the dry run's whole answer. */
+interface PlannedImport {
+	items: ConfigImportItemReport[];
+	warnings: ConfigImportProblem[];
+	accountsNeedingCredentials: string[];
+}
+
+/**
+ * What an apply would do — the dry run's whole answer, and the same answer.
+ * The wizard shows this before commit, so it resolves folder references against
+ * the mailboxes already read and names the accounts that would land needing a
+ * credential; a plan that reported neither would show a clean run and then
+ * surprise the person with both.
+ */
 const plan = (
 	document: ReaderConfigDocument,
 	existing: ExistingConfig,
-): ConfigImportItemReport[] => {
+): PlannedImport => {
 	const items: ConfigImportItemReport[] = [];
+	const warnings: ConfigImportProblem[] = [];
+	const accountsNeedingCredentials: string[] = [];
+	const liveAccountId = resolveLiveAccountIds(document, existing);
+	const heldIds = new Set(
+		existing.accounts.map((account) => account.accountId),
+	);
 	const heldEmails = new Set(
 		existing.accounts.map((account) => normalize(account.email)),
 	);
@@ -950,11 +1079,17 @@ const plan = (
 		held ? ConfigImportVerdict.Updated : ConfigImportVerdict.Created;
 
 	for (const account of document.accounts) {
+		const held =
+			heldIds.has(account.accountId) ||
+			heldEmails.has(normalize(account.email));
 		items.push({
 			section: ConfigImportSection.Accounts,
 			key: account.email,
-			verdict: verdict(heldEmails.has(normalize(account.email))),
+			verdict: verdict(held),
 		});
+		// A held account keeps the credential it already has; a new one lands
+		// inactive, exactly as `applyDocument` records it.
+		if (!held) accountsNeedingCredentials.push(account.accountId);
 	}
 	for (const label of document.labels) {
 		items.push({
@@ -986,5 +1121,45 @@ const plan = (
 			verdict: ConfigImportVerdict.Updated,
 		});
 	}
-	return items;
+
+	// Folder references, resolved the way the apply resolves them: a path this
+	// account has not synced yet waits for the binder rather than blocking.
+	for (const filter of document.filters) {
+		const { actionFolder } = filter;
+		if (actionFolder === null) continue;
+		if (
+			foldersFor(existing, liveAccountId, actionFolder.accountId).has(
+				actionFolder.folderPath,
+			)
+		)
+			continue;
+		warnings.push(
+			problem(
+				"folder_not_found_yet",
+				`Filter "${filter.name}" files mail into "${actionFolder.folderPath}", which this account does not hold yet. It is bound once the folder list has been read.`,
+				{ filter: filter.name, folderPath: actionFolder.folderPath },
+			),
+		);
+	}
+
+	for (const account of document.accounts) {
+		const folders = foldersFor(existing, liveAccountId, account.accountId);
+		const accountId = liveAccountId.get(account.accountId) ?? account.accountId;
+		const paths = [
+			...account.folderRoles.map((role) => role.folderPath),
+			...account.folderOverrides.map((override) => override.folderPath),
+		];
+		for (const folderPath of paths) {
+			if (folders.has(folderPath)) continue;
+			warnings.push(
+				problem(
+					"folder_not_found_yet",
+					`"${folderPath}" is not a folder this account holds yet. It is bound once the folder list has been read.`,
+					{ folderPath, accountId },
+				),
+			);
+		}
+	}
+
+	return { items, warnings, accountsNeedingCredentials };
 };
