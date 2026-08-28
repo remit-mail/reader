@@ -6,6 +6,8 @@ import {
 	ButtonLink,
 	DangerZoneSection,
 	Dialog,
+	demoRelease,
+	demoRunId,
 	Input,
 	Kbd,
 	QuarantineBugDialog,
@@ -14,6 +16,8 @@ import {
 	quarantineDemoEntries,
 	quarantineIssueTitle,
 	SegmentedControl,
+	SelfUpdateSection,
+	type SelfUpdateState,
 	SenderFlagRow,
 	SenderGroupSwitch,
 	type SettingsNavItem,
@@ -939,14 +943,22 @@ function QuarantineRows({
 
 type QuarantineReadState = "ready" | "loading" | "failed";
 
+const upToDateUpdate: SelfUpdateState = {
+	status: "upToDate",
+	version: "0.9.3",
+	checkedAt: Date.parse("2026-07-20T11:39:00.000Z"),
+};
+
 function AdvancedPage({
 	quarantined = [],
 	readState = "ready",
 	tlsMode = "off",
+	update = upToDateUpdate,
 }: {
 	quarantined?: readonly QuarantineEntry[];
 	readState?: QuarantineReadState;
 	tlsMode?: "internal" | "acme" | "tailscale" | "off";
+	update?: SelfUpdateState;
 }) {
 	const [helpOpen, setHelpOpen] = useState(true);
 	const [reporting, setReporting] = useState<QuarantineEntry | null>(null);
@@ -962,6 +974,13 @@ function AdvancedPage({
 			onToggleHelp={() => setHelpOpen((v) => !v)}
 			onBackToMail={() => undefined}
 		>
+			<SelfUpdateSection
+				state={update}
+				now={Date.parse("2026-07-20T12:00:00.000Z")}
+				onCheck={() => undefined}
+				onInstall={() => undefined}
+				onDismissResult={() => undefined}
+			/>
 			<QuarantineRows
 				readState={readState}
 				quarantined={quarantined}
@@ -990,6 +1009,25 @@ function AdvancedPage({
 /** Advanced with a clean sync: the quarantine list reassures rather than warns. */
 export const Advanced: Story = {
 	render: () => <AdvancedPage />,
+};
+
+/**
+ * The pane after an update landed. The success banner sits in the flow and
+ * pushes the rest of Advanced down: the running version and its check control
+ * stay on screen and clickable while the banner is up.
+ */
+export const AdvancedUpdated: Story = {
+	render: () => (
+		<AdvancedPage
+			update={{
+				status: "succeeded",
+				runId: demoRunId,
+				version: demoRelease.version,
+				previousVersion: "0.9.3",
+				releaseNotesUrl: demoRelease.releaseNotesUrl,
+			}}
+		/>
+	),
 };
 
 /** One message set aside — a fact on the page, not an incident. */

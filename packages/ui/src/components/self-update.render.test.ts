@@ -204,6 +204,36 @@ describe("SelfUpdateSection", () => {
 		assert.doesNotMatch(html, /running 0\.9\.3 again/);
 	});
 
+	it("keeps the pane's control reachable while the success banner is up", () => {
+		const html = section({
+			status: "succeeded",
+			runId: demoRunId,
+			version: "0.9.4",
+			previousVersion: CURRENT,
+			releaseNotesUrl: demoRelease.releaseNotesUrl,
+		});
+		assert.match(html, /Updated to Remit 0\.9\.4/);
+		assert.match(html, /0\.9\.4 is running/);
+		assert.match(html, /Check for updates/);
+		assert.doesNotMatch(html, /disabled=/);
+	});
+
+	it("stacks the success banner in flow rather than over the row below it", () => {
+		const html = section({
+			status: "succeeded",
+			runId: demoRunId,
+			version: "0.9.4",
+			previousVersion: CURRENT,
+			releaseNotesUrl: demoRelease.releaseNotesUrl,
+		});
+		// A banner that leaves the flow hides the control underneath it and takes
+		// the pane's only way forward with it.
+		assert.doesNotMatch(html, /class="[^"]*\b(?:absolute|fixed)\b/);
+		assert.ok(
+			html.indexOf("Updated to Remit") < html.indexOf("Check for updates"),
+		);
+	});
+
 	it("renders an abandoned run as a no-op that changed nothing", () => {
 		const html = section({
 			status: "abandoned",

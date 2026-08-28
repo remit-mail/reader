@@ -281,23 +281,48 @@ export function SelfUpdateSection({
 
 			case "succeeded":
 				return (
-					<Banner tone="success" onDismiss={onDismissResult}>
-						<div className="space-y-1">
-							<p className="font-semibold">Updated to Remit {state.version}.</p>
-							<p>
-								You were on {state.previousVersion}.{" "}
-								<a
-									href={state.releaseNotesUrl}
-									target="_blank"
-									rel="noopener noreferrer"
-									className="underline"
+					<>
+						<Banner tone="success" onDismiss={onDismissResult}>
+							<div className="space-y-1">
+								<p className="font-semibold">
+									Updated to Remit {state.version}.
+								</p>
+								<p>
+									You were on {state.previousVersion}.{" "}
+									<a
+										href={state.releaseNotesUrl}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="underline"
+									>
+										See what changed
+									</a>
+									.
+								</p>
+							</div>
+						</Banner>
+						<SectionRow>
+							<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+								<div className="flex min-w-0 items-center gap-2">
+									<CheckCircle2
+										className="size-4 shrink-0 text-positive"
+										aria-hidden
+									/>
+									<p className="text-sm text-fg">
+										Remit {state.version} is running.
+									</p>
+								</div>
+								<Button
+									variant="secondary"
+									size="sm"
+									className="shrink-0"
+									onClick={handleCheck}
 								>
-									See what changed
-								</a>
-								.
-							</p>
-						</div>
-					</Banner>
+									Check for updates
+								</Button>
+							</div>
+						</SectionRow>
+					</>
 				);
 
 			case "rolledBack":
