@@ -1,11 +1,13 @@
-import type {
-	CalendarAttendee,
-	CalendarDescriptor,
-	CalendarEventData,
-	EventSuggestion,
-	ThreadData,
+import {
+	buildCalendarDay,
+	type CalendarAttendee,
+	type CalendarDay,
+	type CalendarDescriptor,
+	type CalendarEventData,
+	type EventSuggestion,
+	type ThreadData,
+	wallSpanOn,
 } from "@remit/ui";
-import { wallSpanOn } from "../lib/agenda-time.js";
 import {
 	allThreads,
 	hobbyId,
@@ -619,102 +621,8 @@ export const suggestions: EventSuggestion[] = [
 /* Derived — computed from the week above, never restated by hand      */
 /* ------------------------------------------------------------------ */
 
-export interface CalendarDay {
-	/** `YYYY-MM-DD`. */
-	date: string;
-	weekdayLabel: string;
-	dayNumber: number;
-	isToday: boolean;
-	timed: CalendarEventData[];
-	allDay: CalendarEventData[];
-	/** Minutes of the day covered by at least one timed event. */
-	busyMinutes: number;
-	/**
-	 * Every pile-up on the day: one group per event that something else runs
-	 * into, holding that event and everything overlapping it. Members all meet
-	 * the event the group is built around, not necessarily each other — which is
-	 * what a grid has to lay out. Empty when the day is clean.
-	 */
-	conflicts: string[][];
-}
-
-function ms(iso: string): number {
-	return new Date(iso).getTime();
-}
-
-/** An all-day range ends on the morning after its last day. */
-function coversDay(event: CalendarEventData, date: string): boolean {
-	if (!event.allDay) return event.start.slice(0, 10) === date;
-	return date >= event.start.slice(0, 10) && date < event.end.slice(0, 10);
-}
-
-function overlaps(a: CalendarEventData, b: CalendarEventData): boolean {
-	return ms(a.start) < ms(b.end) && ms(b.start) < ms(a.end);
-}
-
-export function busyMinutesOf(timed: CalendarEventData[]): number {
-	const spans = timed
-		.map((e) => [ms(e.start), ms(e.end)] as const)
-		.sort((a, b) => a[0] - b[0]);
-	let covered = 0;
-	let openFrom = 0;
-	let openTo = 0;
-	for (const [from, to] of spans) {
-		if (from > openTo) {
-			covered += openTo - openFrom;
-			openFrom = from;
-			openTo = to;
-			continue;
-		}
-		openTo = Math.max(openTo, to);
-	}
-	covered += openTo - openFrom;
-	return Math.round(covered / 60_000);
-}
-
-/** Every event that runs into another, grouped around the one it collides with. */
-export function conflictsOf(timed: CalendarEventData[]): string[][] {
-	const groups: string[][] = [];
-	for (const anchor of timed) {
-		const group = timed
-			.filter((other) => other.id === anchor.id || overlaps(anchor, other))
-			.map((e) => e.id)
-			.sort();
-		if (group.length < 2) continue;
-		const key = group.join("|");
-		if (!groups.some((existing) => existing.join("|") === key))
-			groups.push(group);
-	}
-	return groups.filter(
-		(group) =>
-			!groups.some(
-				(other) => other !== group && group.every((id) => other.includes(id)),
-			),
-	);
-}
-
-function weekdayLabel(date: string): string {
-	const [year, month, dayOfMonth] = date.split("-").map(Number);
-	return new Date(year, month - 1, dayOfMonth).toLocaleDateString("en-GB", {
-		weekday: "short",
-	});
-}
-
 export function buildDay(date: string, source = events): CalendarDay {
-	const onDay = source.filter((e) => coversDay(e, date));
-	const timed = onDay
-		.filter((e) => !e.allDay)
-		.sort((a, b) => ms(a.start) - ms(b.start));
-	return {
-		date,
-		weekdayLabel: weekdayLabel(date),
-		dayNumber: Number(date.slice(8)),
-		isToday: date === TODAY,
-		timed,
-		allDay: onDay.filter((e) => e.allDay),
-		busyMinutes: busyMinutesOf(timed),
-		conflicts: conflictsOf(timed),
-	};
+	return buildCalendarDay(date, source, TODAY);
 }
 
 /** Monday through Sunday of the fixture week, computed off `events`. */

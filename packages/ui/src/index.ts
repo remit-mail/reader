@@ -12,6 +12,29 @@ export {
 } from "./components/address-display.js";
 export { AddressTag, type AddressTagProps } from "./components/address-tag.js";
 export {
+	AgendaComposer,
+	type AgendaComposerProps,
+	AgendaPhraseField,
+	type AgendaPhraseFieldProps,
+	PhraseReading,
+} from "./components/agenda-composer.js";
+export {
+	type AgendaDensity,
+	AgendaFlow,
+	type AgendaFlowProps,
+	type AgendaScrollTarget,
+} from "./components/agenda-flow.js";
+export {
+	AgendaDensityControl,
+	type AgendaDensityControlProps,
+	FreeTimeList,
+	type FreeTimeListProps,
+	NextUpCard,
+	type NextUpCardProps,
+	PositionMap,
+	type PositionMapProps,
+} from "./components/agenda-panels.js";
+export {
 	AppPasswordHint,
 	type AppPasswordHintProps,
 } from "./components/app-password-hint.js";
@@ -137,14 +160,20 @@ export {
 	segmentClassName,
 } from "./components/calendar-toolbar.js";
 export {
+	type AgendaParse,
 	type CalendarAttendee,
 	type CalendarColorId,
+	type CalendarDay,
 	type CalendarDescriptor,
 	type CalendarEventData,
+	type CalendarSlotPick,
 	type CalendarViewId,
+	type ChoicePicks,
 	calendarColorIds,
 	type EventDraft,
 	type EventSuggestion,
+	type PhraseChoice,
+	type PhraseChoiceOption,
 	type RecurrenceScope,
 	type RsvpState,
 	type ZoneCertainty,
@@ -797,6 +826,41 @@ export {
 	sanitizeAdoptedHtml,
 	sanitizeQuotedHtml,
 } from "./lib/adopted-html.js";
+export {
+	type AgendaRow,
+	addDays,
+	type BusySpan,
+	buildAgendaRows,
+	buildCalendarDay,
+	busyMinutesOf,
+	busySpansOn,
+	type ClashOptions,
+	clashesWith,
+	conflictsOf,
+	DAY_END_MINUTE,
+	DAY_START_MINUTE,
+	datesBetween,
+	FREE_MINUTES,
+	type FreeStretch,
+	formatMinute,
+	formatRunLabel,
+	formatShortDay,
+	formatSpan,
+	freeAhead,
+	freeStretchesOn,
+	groupOverlapping,
+	isClearDay,
+	isEmptyDay,
+	minuteOfDay,
+	monthLabel,
+	type NextUp,
+	readNextUp,
+	shortMonthLabel,
+	type WallSpan,
+	wallSpanOn,
+	weekdayLongLabel,
+	weekdayShortLabel,
+} from "./lib/agenda-time.js";
 export {
 	DEFAULT_ATTACHMENT_FILENAME,
 	formatByteSize,

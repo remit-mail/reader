@@ -8,15 +8,16 @@
  * eight at night — the reader asks instead of choosing, and the answer is one
  * tap. Correcting the machine happens before the event exists.
  */
-import {
-	type CalendarDescriptor,
-	cn,
-	type EventDraft,
-	EventEditor,
-} from "@remit/ui";
 import { AlertTriangle, Info, Wand2 } from "lucide-react";
-import type { AgendaParse, ChoicePicks } from "../lib/agenda-phrase.js";
 import { formatShortDay } from "../lib/agenda-time.js";
+import { cn } from "../lib/cn.js";
+import type {
+	AgendaParse,
+	CalendarDescriptor,
+	ChoicePicks,
+	EventDraft,
+} from "./calendar-types.js";
+import { EventEditor } from "./event-editor.js";
 
 export interface AgendaComposerProps {
 	phrase: string;

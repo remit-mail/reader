@@ -9,25 +9,9 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { CalendarEventData } from "@remit/ui";
-import {
-	buildDay,
-	eventFromSuggestion,
-	HOME_ZONE,
-	suggestions,
-} from "../fixtures/calendar.js";
-import { agendaEvents } from "../fixtures/calendar-agenda.js";
-import {
-	dayBlocks,
-	dayFree,
-	invite,
-	overlapping,
-	PROPOSED_DATE,
-	proposals,
-	seamWeekEvents,
-} from "../fixtures/calendar-mail.js";
 import {
 	buildAgendaRows,
+	type CalendarEventData,
 	clashesWith,
 	datesBetween,
 	formatMinute,
@@ -36,7 +20,23 @@ import {
 	groupOverlapping,
 	readNextUp,
 	wallSpanOn,
-} from "./agenda-time.js";
+} from "@remit/ui";
+import {
+	buildDay,
+	eventFromSuggestion,
+	HOME_ZONE,
+	suggestions,
+} from "./calendar.js";
+import { agendaEvents } from "./calendar-agenda.js";
+import {
+	dayBlocks,
+	dayFree,
+	invite,
+	overlapping,
+	PROPOSED_DATE,
+	proposals,
+	seamWeekEvents,
+} from "./calendar-mail.js";
 
 const days = datesBetween("2026-06-01", "2026-07-05").map((date) =>
 	buildDay(date, agendaEvents),
