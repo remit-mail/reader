@@ -555,6 +555,7 @@ test("a configuration survives an export, an import and a discovery unchanged", 
 	const binder = {
 		repositories: repositoriesOf(store, TARGET_CONFIG_ID),
 		appointFolderRole: appointFolderRoleInto(store),
+		now: () => NOW,
 	};
 	await bindImportedFolders(binder, TARGET_CONFIG_ID, PASSWORD_ACCOUNT_ID);
 	await bindImportedFolders(binder, TARGET_CONFIG_ID, OAUTH_ACCOUNT_ID);
@@ -763,6 +764,7 @@ test("a folder no mailbox answers to yet is kept, then bound when discovery find
 	const binder = {
 		repositories: repositoriesOf(store, TARGET_CONFIG_ID),
 		appointFolderRole: appointFolderRoleInto(store),
+		now: () => NOW,
 	};
 	const first = await bindImportedFolders(
 		binder,
@@ -1038,6 +1040,7 @@ test("a binder run on a configuration with no import does nothing", async () => 
 		{
 			repositories: repositoriesOf(store, TARGET_CONFIG_ID),
 			appointFolderRole: appointFolderRoleInto(store),
+			now: () => NOW,
 		},
 		TARGET_CONFIG_ID,
 		PASSWORD_ACCOUNT_ID,
