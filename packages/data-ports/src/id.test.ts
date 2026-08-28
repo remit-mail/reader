@@ -199,8 +199,34 @@ describe("deriveCalendarSuggestionId", () => {
 	});
 });
 
+describe("deriveThreadId", () => {
+	const ROOT = "<root@example.com>";
+
+	// #1017: the account is not part of the name, so every mailbox connected to
+	// one config resolves the same root header to one conversation. Keyed on the
+	// account, a reply sent from the second account opened a thread of its own.
+	it("gives one root header one thread across the accounts of a config", () => {
+		assert.equal(deriveThreadId("cfg-1", ROOT), deriveThreadId("cfg-1", ROOT));
+	});
+
+	it("separates two account configs holding the same conversation", () => {
+		assert.notEqual(
+			deriveThreadId("cfg-1", ROOT),
+			deriveThreadId("cfg-2", ROOT),
+		);
+	});
+
+	it("separates two conversations under one config", () => {
+		assert.notEqual(
+			deriveThreadId("cfg-1", ROOT),
+			deriveThreadId("cfg-1", "<other@example.com>"),
+		);
+	});
+});
+
 describe("derived ids are stored primary keys: a changed value orphans every row already written and needs a migration, never a new expectation here", () => {
 	const ACCOUNT = "account-golden";
+	const ACCOUNT_CONFIG = "account-config-golden";
 	const MESSAGE = "message-golden";
 	const MAILBOX = "mailbox-golden";
 	const ABSENT_HEADER_SOURCE = {
@@ -259,10 +285,10 @@ describe("derived ids are stored primary keys: a changed value orphans every row
 		);
 	});
 
-	it("deriveThreadId pins the thread primary key, lowercased root header included", () => {
+	it("deriveThreadId pins the thread primary key, keyed on the account config, lowercased root header included", () => {
 		assert.equal(
-			deriveThreadId(ACCOUNT, "<Golden.Root@Example.COM>"),
-			"bcy76e2uat5yq3xd1p7j7z4pr",
+			deriveThreadId(ACCOUNT_CONFIG, "<Golden.Root@Example.COM>"),
+			"3tl03sgy85b60rfb15u6vtiex",
 		);
 	});
 
