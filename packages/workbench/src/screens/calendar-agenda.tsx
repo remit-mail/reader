@@ -19,7 +19,9 @@ import {
 	Button,
 	CalendarDateNav,
 	type CalendarEventData,
+	CalendarGrid,
 	CalendarList,
+	type CalendarSlotPick,
 	type CalendarViewId,
 	CalendarViewSwitch,
 	type CustomRecurrence,
@@ -66,7 +68,6 @@ import {
 } from "lucide-react";
 import { type ReactNode, useMemo, useRef, useState } from "react";
 import { AttendeeContextCard } from "../components/attendee-context.js";
-import { CalendarGrid, type SlotPick } from "../components/calendar-grid.js";
 import {
 	EVENT_WIZARD_LAST_STEP,
 	EVENT_WIZARD_STEPS,
@@ -139,7 +140,7 @@ function emptyDraft(): EventDraft {
 	};
 }
 
-function draftFromSlot(pick: SlotPick): EventDraft {
+function draftFromSlot(pick: CalendarSlotPick): EventDraft {
 	return {
 		...emptyDraft(),
 		date: pick.date,
@@ -436,7 +437,7 @@ export function CalendarAgenda({
 		setDraft(draftFromPhrase(phrase, next));
 	};
 
-	const openSlot = (pick: SlotPick) => {
+	const openSlot = (pick: CalendarSlotPick) => {
 		setPhrase("");
 		setPicks({});
 		setExpanded(false);
@@ -619,6 +620,8 @@ export function CalendarAgenda({
 				colorByCalendarId={colorByCalendarId}
 				density={gridDensity}
 				selectedEventId={selected}
+				timeZone={HOME_ZONE}
+				now={NOW_ISO}
 				onSelectEvent={openEvent}
 				onPickSlot={openSlot}
 				onRangeChange={() => undefined}

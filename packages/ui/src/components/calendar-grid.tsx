@@ -1,35 +1,42 @@
-/**
- * The grid itself: FullCalendar v7, styled entirely through its per-element
- * `*Class` props so every pixel comes from our tokens. v7 ships a structural
- * `skeleton.css` and nothing else — no theme is imported, and no rule in this
- * repo overrides one of the library's own, because there are none to override.
- *
- * The wrapper stays in the workbench rather than `@remit/ui`: `@remit/ui` is
- * published, and a design prototype has no business adding a calendar engine to
- * its dependency closure. The presentational pieces it composes — the chip, the
- * editor, the calendar list — do live in the kit and know nothing about
- * FullCalendar.
- */
+import type {
+	CalendarRef,
+	EventDisplayInfo,
+	EventInput,
+} from "@fullcalendar/react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/react/daygrid";
 import interactionPlugin from "@fullcalendar/react/interaction";
 import listPlugin from "@fullcalendar/react/list";
 import multiMonthPlugin from "@fullcalendar/react/multimonth";
-import "@fullcalendar/react/skeleton.css";
-import type { CalendarRef, EventApi, EventInput } from "@fullcalendar/react";
 import timeGridPlugin from "@fullcalendar/react/timegrid";
-import {
-	addMinutesToClock,
-	type CalendarColorId,
-	type CalendarEventData,
-	type CalendarViewId,
-	calendarColorClasses,
-	cn,
-	type Density,
-} from "@remit/ui";
-import { Globe, Mail, Repeat } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
-import { HOME_ZONE, NOW_ISO } from "../fixtures/calendar.js";
+import { calendarEventBodyClasses } from "../lib/calendar-event-shell.js";
+import {
+	isDraggedSelection,
+	pointPick,
+	rangePick,
+} from "../lib/calendar-slot-pick.js";
+import { cn } from "../lib/cn.js";
+import type { Density } from "./app-shell-types.js";
+import { CalendarEventChipContent } from "./calendar-event-chip-content.js";
+import type {
+	CalendarColorId,
+	CalendarEventData,
+	CalendarSlotPick,
+	CalendarViewId,
+	RsvpState,
+	ZoneCertainty,
+} from "./calendar-types.js";
+
+/**
+ * One continuous strip of time, at whichever zoom the view names. Every pixel
+ * comes from the kit's tokens: the calendar engine ships a structural skeleton
+ * sheet and no theme, and it is styled entirely through its per-element
+ * `*Class` props, so no rule here overrides one of the library's own.
+ *
+ * The component is presentational. It holds no events of its own, reads no
+ * clock of its own, and every gesture leaves through a callback.
+ */
 
 const PLUGINS = [
 	dayGridPlugin,
@@ -73,29 +80,11 @@ const DENSITY: Record<
 	Density,
 	{ slotMinutes: number; slotMinHeight: number; eventShortHeight: number }
 > = {
-	comfortable: {
-		slotMinutes: 30,
-		slotMinHeight: 26,
-		eventShortHeight: 34,
-	},
-	compact: {
-		slotMinutes: 60,
-		slotMinHeight: 15,
-		eventShortHeight: 22,
-	},
+	comfortable: { slotMinutes: 30, slotMinHeight: 26, eventShortHeight: 34 },
+	compact: { slotMinutes: 60, slotMinHeight: 15, eventShortHeight: 22 },
 };
 
-/** How long a new event is when nobody said — the same hour every other path starts from. */
-const DRAFT_MINUTES = 60;
-
-export interface SlotPick {
-	/** `YYYY-MM-DD`. */
-	date: string;
-	/** `HH:MM`, empty when the pick landed in the all-day band. */
-	startTime: string;
-	endTime: string;
-	allDay: boolean;
-}
+const FALLBACK_COLOR: CalendarColorId = "cal-1";
 
 export interface CalendarGridProps {
 	view: CalendarViewId;
@@ -106,115 +95,49 @@ export interface CalendarGridProps {
 	colorByCalendarId: Record<string, CalendarColorId>;
 	density: Density;
 	selectedEventId: string;
+	/** IANA zone the grid's clock runs on, and the zone a pick is read in. */
+	timeZone: string;
+	/** The instant the grid calls now: the today marker and the now line read it. */
+	now: string;
 	onSelectEvent: (eventId: string) => void;
-	onPickSlot: (pick: SlotPick) => void;
-	/** The range title FullCalendar computed, e.g. "8 – 14 Jun 2026". */
+	onPickSlot: (pick: CalendarSlotPick) => void;
+	/** The range title the grid computed, e.g. "8 – 14 Jun 2026". */
 	onRangeChange: (title: string) => void;
 	className?: string;
 }
 
-interface EventMeta {
-	calendarId: string;
+/**
+ * What drawing one event needs, keyed by id. The engine renders the element and
+ * hands the callback its own `EventApi`, so the data is looked up rather than
+ * smuggled through `extendedProps` and cast back out.
+ */
+interface GridEvent {
 	color: CalendarColorId;
+	rsvp: RsvpState;
+	status: "confirmed" | "tentative";
 	hasThread: boolean;
 	isRecurring: boolean;
-	zoneAmbiguous: boolean;
-	declined: boolean;
-	tentative: boolean;
+	zoneCertainty: ZoneCertainty;
 }
 
-function readMeta(event: EventApi): EventMeta {
-	const raw: unknown = event.extendedProps.meta;
-	if (raw && typeof raw === "object" && "color" in raw) return raw as EventMeta;
-	return {
-		calendarId: "",
-		color: "cal-1",
-		hasThread: false,
-		isRecurring: false,
-		zoneAmbiguous: false,
-		declined: false,
-		tentative: false,
-	};
-}
+/** The placeholder the engine drags under the pointer, which is not one of ours. */
+const MIRROR_EVENT: GridEvent = {
+	color: FALLBACK_COLOR,
+	rsvp: "accepted",
+	status: "confirmed",
+	hasThread: false,
+	isRecurring: false,
+	zoneCertainty: "local",
+};
 
-function toInput(event: CalendarEventData, color: CalendarColorId): EventInput {
-	const meta: EventMeta = {
-		calendarId: event.calendarId,
-		color,
-		hasThread: event.threadId !== "",
-		isRecurring: event.recurrenceRule !== "",
-		zoneAmbiguous: event.zoneCertainty === "ambiguous",
-		declined: event.myRsvp === "declined",
-		tentative: event.status === "tentative" || event.myRsvp === "tentative",
-	};
+function toInput(event: CalendarEventData): EventInput {
 	return {
 		id: event.id,
 		title: event.title,
 		start: event.start,
 		end: event.end,
 		allDay: event.allDay,
-		extendedProps: { meta },
 	};
-}
-
-/**
- * Reads a pick off the ISO strings FullCalendar hands the callback rather than
- * off its `Date`. The calendar runs in `HOME_ZONE`; a `Date` read through
- * `getHours()` is that instant in the host's zone, so a UTC runner would draft
- * 09:00 for a click on 11:00.
- */
-function rangePick(
-	startStr: string,
-	endStr: string,
-	allDay: boolean,
-): SlotPick {
-	if (allDay)
-		return {
-			date: startStr.slice(0, 10),
-			startTime: "",
-			endTime: "",
-			allDay: true,
-		};
-	return {
-		date: startStr.slice(0, 10),
-		startTime: startStr.slice(11, 16),
-		endTime: endStr.slice(11, 16),
-		allDay: false,
-	};
-}
-
-/** A single point on the grid, which is an hour long because nothing said otherwise. */
-function pointPick(dateStr: string, allDay: boolean): SlotPick {
-	if (allDay)
-		return {
-			date: dateStr.slice(0, 10),
-			startTime: "",
-			endTime: "",
-			allDay: true,
-		};
-	const startTime = dateStr.slice(11, 16);
-	return {
-		date: dateStr.slice(0, 10),
-		startTime,
-		endTime: addMinutesToClock(startTime, DRAFT_MINUTES),
-		allDay: false,
-	};
-}
-
-/**
- * Whether a selection was dragged across the grid rather than landing on it.
- * One slot, or one day, is as small as a selection gets, which is exactly what
- * a click leaves behind — and a click is already a pick of its own.
- */
-function isDragged(
-	startStr: string,
-	endStr: string,
-	allDay: boolean,
-	slotMinutes: number,
-): boolean {
-	const span = Date.parse(endStr) - Date.parse(startStr);
-	if (allDay) return Math.round(span / 86_400_000) > 1;
-	return span / 60_000 > slotMinutes;
 }
 
 export function CalendarGrid({
@@ -224,6 +147,8 @@ export function CalendarGrid({
 	colorByCalendarId,
 	density,
 	selectedEventId,
+	timeZone,
+	now,
 	onSelectEvent,
 	onPickSlot,
 	onRangeChange,
@@ -239,31 +164,62 @@ export function CalendarGrid({
 		calendarRef.current?.getApi().gotoDate(date);
 	}, [date]);
 
-	const eventInputs = useMemo(
+	const eventInputs = useMemo(() => events.map(toInput), [events]);
+
+	const byId = useMemo(
 		() =>
-			events.map((event) =>
-				toInput(event, colorByCalendarId[event.calendarId] ?? "cal-1"),
+			new Map<string, GridEvent>(
+				events.map((event) => [
+					event.id,
+					{
+						color: colorByCalendarId[event.calendarId] ?? FALLBACK_COLOR,
+						rsvp: event.myRsvp,
+						status: event.status,
+						hasThread: event.threadId !== "",
+						isRecurring: event.recurrenceRule !== "",
+						zoneCertainty: event.zoneCertainty,
+					},
+				]),
 			),
 		[events, colorByCalendarId],
 	);
 
-	/* The same shell `CalendarEventChip` draws, minus what FullCalendar owns: it
-	   renders the event's element itself, so this is a class string rather than
-	   the component. Every value here is the chip's — see its story. */
-	const eventShell = useMemo(
-		() => (info: { event: EventApi; isSelected: boolean }) => {
-			const meta = readMeta(info.event);
-			const hue = calendarColorClasses(meta.color);
+	const lookup = useMemo(
+		() => (id: string) => byId.get(id) ?? MIRROR_EVENT,
+		[byId],
+	);
+
+	const isRowEvent = useMemo(
+		() => (info: EventDisplayInfo) => info.event.allDay || ROW_VIEWS.has(view),
+		[view],
+	);
+
+	/* The event element the engine built, dressed as the body of a
+	   `CalendarEventChip`: same box, same hue, same states, one definition. A
+	   grid cell is tight whatever the density does to the slots around it. */
+	const eventBody = useMemo(
+		() => (info: EventDisplayInfo) => {
+			const event = lookup(info.event.id);
+			const isRow = isRowEvent(info);
 			return cn(
-				"min-w-0 cursor-pointer overflow-hidden rounded-sm text-2xs outline-none transition-colors",
-				hue.soft,
-				hue.text,
-				meta.tentative && cn("border-y border-r border-dashed", hue.border),
-				meta.declined && "opacity-60",
-				info.event.id === selectedEventId && "ring-2 ring-ring",
+				calendarEventBodyClasses({
+					color: event.color,
+					layout: isRow ? "row" : "column",
+					density: "compact",
+					rsvp: event.rsvp,
+					status: event.status,
+					selected: info.event.id === selectedEventId,
+					stacked: false,
+				}),
+				"cursor-pointer outline-none transition-colors",
+				"focus-visible:ring-2 focus-visible:ring-ring",
+				/* Tighter than a chip drawn on its own: a grid cell is smaller than
+				   anywhere else an event lands, and an all-day pill has to fit a band
+				   one line high. */
+				isRow ? "my-px px-1 py-0" : "px-1 py-0.5",
 			);
 		},
-		[selectedEventId],
+		[lookup, isRowEvent, selectedEventId],
 	);
 
 	const slot = DENSITY[density];
@@ -276,8 +232,8 @@ export function CalendarGrid({
 				plugins={PLUGINS}
 				initialView={FC_VIEW[view]}
 				initialDate={date}
-				now={NOW_ISO}
-				timeZone={HOME_ZONE}
+				now={now}
+				timeZone={timeZone}
 				height="100%"
 				headerToolbar={false}
 				firstDay={1}
@@ -285,6 +241,9 @@ export function CalendarGrid({
 				selectable
 				selectMirror
 				editable={false}
+				/* Events take focus and answer Enter, the way the toolbar's controls
+				   do — the grid is not reachable by pointer only. */
+				eventInteractive
 				expandRows
 				allDayText="All day"
 				dayMaxEvents={isTight ? 2 : 3}
@@ -317,7 +276,7 @@ export function CalendarGrid({
 				dateClick={(info) => onPickSlot(pointPick(info.dateStr, info.allDay))}
 				select={(info) => {
 					if (
-						!isDragged(
+						!isDraggedSelection(
 							info.startStr,
 							info.endStr,
 							info.allDay,
@@ -382,67 +341,27 @@ export function CalendarGrid({
 				listDayBodyClass="border-line"
 				noEventsClass="p-10 text-center"
 				noEventsInnerClass="text-sm text-fg-muted"
+				noEventsContent="Nothing scheduled"
 				singleMonthClass="p-2"
 				singleMonthHeaderClass="pb-1"
 				singleMonthHeaderInnerClass="text-xs font-semibold text-fg"
-				eventClass={eventShell}
-				listItemEventClass={eventShell}
-				columnEventClass={(info) =>
-					cn(
-						"border-l-2 px-1 py-0.5",
-						calendarColorClasses(readMeta(info.event).color).rail,
-					)
-				}
-				rowEventClass={(info) =>
-					cn(
-						"my-px border-l-2 px-1",
-						calendarColorClasses(readMeta(info.event).color).rail,
-					)
-				}
+				eventClass={eventBody}
+				listItemEventClass={eventBody}
 				eventContent={(info) => {
-					const meta = readMeta(info.event);
+					const event = lookup(info.event.id);
 					/* A column an hour wide has room for a time or a title, never
 					   both — the title is the one worth keeping. */
 					const showTime = info.timeText !== "" && !isTight && !info.isNarrow;
-					const isRow = info.event.allDay || ROW_VIEWS.has(view);
-					const marks =
-						meta.isRecurring || meta.hasThread || meta.zoneAmbiguous;
 					return (
-						<span
-							className={cn(
-								"flex min-w-0 items-center gap-1",
-								isRow && "w-full",
-								meta.declined && "line-through",
-							)}
-						>
-							{showTime && (
-								<span className="shrink-0 tabular-nums opacity-80">
-									{info.timeText}
-								</span>
-							)}
-							<span className="truncate font-medium">{info.event.title}</span>
-							{marks && (
-								<span
-									className={cn(
-										"flex shrink-0 items-center gap-1",
-										isRow && "ml-auto",
-									)}
-								>
-									{meta.isRecurring && (
-										<Repeat className="size-2.5" aria-label="Repeats" />
-									)}
-									{meta.hasThread && (
-										<Mail className="size-2.5" aria-label="From mail" />
-									)}
-									{meta.zoneAmbiguous && (
-										<Globe
-											className="size-2.5 text-warning"
-											aria-label="Unclear zone"
-										/>
-									)}
-								</span>
-							)}
-						</span>
+						<CalendarEventChipContent
+							title={info.event.title}
+							timeText={showTime ? info.timeText : ""}
+							layout={isRowEvent(info) ? "row" : "column"}
+							rsvp={event.rsvp}
+							hasThread={event.hasThread}
+							isRecurring={event.isRecurring}
+							zoneCertainty={event.zoneCertainty}
+						/>
 					);
 				}}
 			/>
