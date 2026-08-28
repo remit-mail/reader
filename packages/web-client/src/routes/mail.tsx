@@ -173,7 +173,7 @@ function MailLayout() {
 		[accounts],
 	);
 	const mailboxNameIndex = useMailboxNameIndex(accounts);
-	const resultFolderIndex = useResultFolderIndex(accounts);
+	const resultFolderIndex = useResultFolderIndex(accounts).index;
 	const accountNameIndex = useMemo(
 		() => buildAccountNameIndex(accounts),
 		[accounts],

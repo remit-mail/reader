@@ -6,7 +6,10 @@
  * visible: the list, the reassurance that there is nothing in it, and the
  * failure to read it at all. None of them is an empty panel.
  */
-import { meOperationsListQuarantineOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import {
+	configOperationsGetConfigOptions,
+	meOperationsListQuarantineOptions,
+} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapQuarantineResponse } from "@remit/api-http-client/types.gen.ts";
 import {
 	Button,
@@ -20,9 +23,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Bug } from "lucide-react";
 import { useMemo, useState } from "react";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
-import { useAccountDelimiters } from "@/hooks/useAccountDelimiters";
+import { useResultFolderIndex } from "@/hooks/useResultFolderIndex";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import { toQuarantineEntry } from "@/lib/quarantine-entries";
+import type { ResultFolderIndex } from "@/lib/result-folder";
 
 /** Stable identity, so an empty list does not rebuild the memos below. */
 const EMPTY_WIRE_ENTRIES: readonly RemitImapQuarantineResponse[] = [];
@@ -126,30 +130,49 @@ export function QuarantinePanelView({
 	);
 }
 
-export function QuarantinePanel() {
-	const { data, isPending, error } = useQuery(
-		meOperationsListQuarantineOptions(),
-	);
+/**
+ * A row names the folder it came from by the leaf of its path, which cannot be
+ * cut until that account's own delimiter has arrived. A mailbox the account no
+ * longer lists never gets one, and keeps its whole path — `folderLeaf` on an
+ * empty delimiter is the path itself.
+ */
+function delimiterForMailbox(
+	folders: ResultFolderIndex,
+	mailboxId: string,
+): string {
+	return folders.get(mailboxId)?.hierarchyDelimiter ?? "";
+}
 
-	const wireEntries = data?.entries ?? EMPTY_WIRE_ENTRIES;
-	const accountIds = useMemo(
-		() => [...new Set(wireEntries.map((entry) => entry.accountId))],
-		[wireEntries],
-	);
-	const delimiters = useAccountDelimiters(accountIds);
+/**
+ * The folder names come from the account's mailbox lists, which are a second
+ * read — started alongside the quarantine list, never behind it. Until both have
+ * landed the pane says it is still reading, because a path cut on a delimiter
+ * that has not arrived is a wrong folder name rather than a late one, and a
+ * failure on either read is reported rather than papered over with a guess.
+ */
+export function QuarantinePanel() {
+	const quarantine = useQuery(meOperationsListQuarantineOptions());
+	const config = useQuery(configOperationsGetConfigOptions());
+	const accounts = useMemo(() => config.data?.accounts ?? [], [config.data]);
+	const folders = useResultFolderIndex(accounts);
+
+	const wireEntries = quarantine.data?.entries ?? EMPTY_WIRE_ENTRIES;
 	const entries = useMemo(
 		() =>
 			wireEntries.map((entry) =>
-				toQuarantineEntry(entry, delimiters.get(entry.accountId) ?? "/"),
+				toQuarantineEntry(
+					entry,
+					delimiterForMailbox(folders.index, entry.mailboxId),
+				),
 			),
-		[wireEntries, delimiters],
+		[wireEntries, folders.index],
 	);
 
 	return (
 		<QuarantinePanelView
 			entries={entries}
-			isPending={isPending}
-			error={error}
+			isPending={quarantine.isPending || config.isPending || folders.isPending}
+			error={quarantine.error ?? config.error ?? folders.error}
 		/>
 	);
 }

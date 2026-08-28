@@ -8,9 +8,11 @@ import { CANONICAL_TO_NAV_ROLE } from "./folder-roles";
  * canonical PascalCase the API uses everywhere. Both differences are resolved
  * here rather than by widening the kit's entry type.
  *
- * The record carries no hierarchy delimiter either, so the caller resolves the
- * account's own from its mailbox list and hands it in — the row shows a folder
- * name, and a path cannot be cut into one without it.
+ * The record carries no hierarchy delimiter either, so the caller joins the
+ * mailbox id against the account's own mailbox list and hands the delimiter in
+ * — the row shows a folder name, and a path cannot be cut into one without it.
+ * An empty delimiter means no account lists that mailbox, and the row keeps its
+ * whole path rather than being cut on a guess.
  */
 export function toQuarantineEntry(
 	wire: RemitImapQuarantineResponse,
