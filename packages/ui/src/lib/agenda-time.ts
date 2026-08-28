@@ -7,9 +7,11 @@
  * the answer to "what is the next thing". Every function is pure and reads its
  * clock from a parameter, so a story and a test give the same answer.
  */
-import type { CalendarEventData } from "@remit/ui";
 import { Temporal } from "temporal-polyfill";
-import type { CalendarDay } from "../fixtures/calendar.js";
+import type {
+	CalendarDay,
+	CalendarEventData,
+} from "../components/calendar-types.js";
 
 /** The window a free stretch is measured inside. Nobody wants "free 02:00–07:00". */
 export const DAY_START_MINUTE = 8 * 60;
@@ -100,6 +102,94 @@ export function formatRunLabel(from: string, to: string): string {
 		month: "short",
 	});
 	return `${opening} – ${closing}`;
+}
+
+export function weekdayShortLabel(date: string): string {
+	const [year, month, day] = date.split("-").map(Number);
+	return new Date(year, month - 1, day).toLocaleDateString("en-GB", {
+		weekday: "short",
+	});
+}
+
+function instantOf(iso: string): number {
+	return new Date(iso).getTime();
+}
+
+/** An all-day range ends on the morning after its last day. */
+function coversDay(event: CalendarEventData, date: string): boolean {
+	if (!event.allDay) return event.start.slice(0, 10) === date;
+	return date >= event.start.slice(0, 10) && date < event.end.slice(0, 10);
+}
+
+function overlaps(a: CalendarEventData, b: CalendarEventData): boolean {
+	return (
+		instantOf(a.start) < instantOf(b.end) &&
+		instantOf(b.start) < instantOf(a.end)
+	);
+}
+
+/** Clock time covered by at least one of these, counted once. */
+export function busyMinutesOf(timed: readonly CalendarEventData[]): number {
+	const spans = timed
+		.map((event) => [instantOf(event.start), instantOf(event.end)] as const)
+		.sort((a, b) => a[0] - b[0]);
+	let covered = 0;
+	let openFrom = 0;
+	let openTo = 0;
+	for (const [from, to] of spans) {
+		if (from > openTo) {
+			covered += openTo - openFrom;
+			openFrom = from;
+			openTo = to;
+			continue;
+		}
+		openTo = Math.max(openTo, to);
+	}
+	covered += openTo - openFrom;
+	return Math.round(covered / 60_000);
+}
+
+/** Every event that runs into another, grouped around the one it collides with. */
+export function conflictsOf(timed: readonly CalendarEventData[]): string[][] {
+	const groups: string[][] = [];
+	for (const anchor of timed) {
+		const group = timed
+			.filter((other) => other.id === anchor.id || overlaps(anchor, other))
+			.map((event) => event.id)
+			.sort();
+		if (group.length < 2) continue;
+		const key = group.join("|");
+		if (!groups.some((existing) => existing.join("|") === key))
+			groups.push(group);
+	}
+	return groups.filter(
+		(group) =>
+			!groups.some(
+				(other) => other !== group && group.every((id) => other.includes(id)),
+			),
+	);
+}
+
+/** One day assembled out of a flat event list — the shape every surface takes. */
+export function buildCalendarDay(
+	date: string,
+	events: readonly CalendarEventData[],
+	today: string,
+): CalendarDay {
+	const onDay = events.filter((event) => coversDay(event, date));
+	const timed = onDay
+		.filter((event) => !event.allDay)
+		.sort((a, b) => instantOf(a.start) - instantOf(b.start));
+	return {
+		date,
+		weekdayLabel: weekdayShortLabel(date),
+		dayNumber: Number(date.slice(8)),
+		isToday: date === today,
+		timed,
+		allDay: onDay.filter((event) => event.allDay),
+		busyMinutes: busyMinutesOf(timed),
+		conflicts: conflictsOf(timed),
+	};
 }
 
 export function isEmptyDay(day: CalendarDay): boolean {

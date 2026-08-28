@@ -7,7 +7,8 @@
  * are. None of them is a second copy of the list — each one answers something
  * the rows cannot answer at a glance.
  */
-import { calendarColorClasses, cn, segmentClassName } from "@remit/ui";
+
+import type { LucideIcon } from "lucide-react";
 import {
 	AlignJustify,
 	CalendarOff,
@@ -17,8 +18,7 @@ import {
 	Radio,
 	Sun,
 } from "lucide-react";
-import { type ReactNode, useId } from "react";
-import { type CalendarDay, calendarsById } from "../fixtures/calendar.js";
+import { type ReactNode, useId, useMemo } from "react";
 import {
 	addDays,
 	DAY_END_MINUTE,
@@ -31,7 +31,15 @@ import {
 	type NextUp,
 	shortMonthLabel,
 } from "../lib/agenda-time.js";
+import { calendarColorClasses } from "../lib/calendar-color.js";
+import { cn } from "../lib/cn.js";
 import type { AgendaDensity } from "./agenda-flow.js";
+import { segmentClassName } from "./calendar-toolbar.js";
+import type {
+	CalendarColorId,
+	CalendarDay,
+	CalendarDescriptor,
+} from "./calendar-types.js";
 
 /* ------------------------------------------------------------------ */
 /* Density                                                             */
@@ -40,11 +48,11 @@ import type { AgendaDensity } from "./agenda-flow.js";
 const DENSITY_OPTIONS: {
 	value: AgendaDensity;
 	label: string;
-	icon: ReactNode;
+	Icon: LucideIcon;
 }[] = [
-	{ value: "dots", label: "Dots", icon: <MoreHorizontal className="size-4" /> },
-	{ value: "pills", label: "Rows", icon: <AlignJustify className="size-4" /> },
-	{ value: "detail", label: "Detail", icon: <LayoutList className="size-4" /> },
+	{ value: "dots", label: "Dots", Icon: MoreHorizontal },
+	{ value: "pills", label: "Rows", Icon: AlignJustify },
+	{ value: "detail", label: "Detail", Icon: LayoutList },
 ];
 
 export interface AgendaDensityControlProps {
@@ -89,7 +97,7 @@ export function AgendaDensityControl({
 						onChange={() => onChange(option.value)}
 						className="sr-only"
 					/>
-					{icons ? option.icon : option.label}
+					{icons ? <option.Icon className="size-4" /> : option.label}
 				</label>
 			))}
 		</fieldset>
@@ -102,6 +110,8 @@ export function AgendaDensityControl({
 
 export interface NextUpCardProps {
 	nextUp: NextUp;
+	/** Whose hue each named event is drawn with. */
+	calendars: readonly CalendarDescriptor[];
 	today: string;
 	onSelectEvent: (eventId: string) => void;
 	onGoTo: (date: string) => void;
@@ -116,6 +126,7 @@ export interface NextUpCardProps {
  */
 export function NextUpCard({
 	nextUp,
+	calendars,
 	today,
 	onSelectEvent,
 	onGoTo,
@@ -123,6 +134,13 @@ export function NextUpCard({
 	className,
 }: NextUpCardProps) {
 	const { running, next, minutesUntilNext, after, free } = nextUp;
+	const colorOf = useMemo(() => {
+		const byId = new Map(
+			calendars.map((calendar) => [calendar.id, calendar.color]),
+		);
+		return (calendarId: string): CalendarColorId =>
+			byId.get(calendarId) ?? "cal-1";
+	}, [calendars]);
 
 	return (
 		<section
@@ -139,7 +157,7 @@ export function NextUpCard({
 							key={event.id}
 							eventId={event.id}
 							title={event.title}
-							calendarId={event.calendarId}
+							color={colorOf(event.calendarId)}
 							meta={`until ${event.end.slice(11, 16)}`}
 							onSelect={onSelectEvent}
 							touch={touch}
@@ -156,7 +174,7 @@ export function NextUpCard({
 					<EventButton
 						eventId={next.id}
 						title={next.title}
-						calendarId={next.calendarId}
+						color={colorOf(next.calendarId)}
 						meta={`${dayPrefix(next.start.slice(0, 10), today)}${next.start.slice(
 							11,
 							16,
@@ -210,21 +228,19 @@ function Caption({ icon, children }: { icon: ReactNode; children: ReactNode }) {
 function EventButton({
 	eventId,
 	title,
-	calendarId,
+	color,
 	meta,
 	onSelect,
 	touch,
 }: {
 	eventId: string;
 	title: string;
-	calendarId: string;
+	color: CalendarColorId;
 	meta: string;
 	onSelect: (eventId: string) => void;
 	touch?: boolean;
 }) {
-	const hue = calendarColorClasses(
-		calendarsById.get(calendarId)?.color ?? "cal-1",
-	);
+	const hue = calendarColorClasses(color);
 	return (
 		<button
 			type="button"

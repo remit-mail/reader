@@ -9,6 +9,13 @@
  * days without a seam.
  */
 import {
+	AgendaComposer,
+	type AgendaDensity,
+	AgendaDensityControl,
+	AgendaFlow,
+	AgendaPhraseField,
+	type AgendaScrollTarget,
+	addDays,
 	Button,
 	CalendarDateNav,
 	type CalendarEventData,
@@ -20,6 +27,7 @@ import {
 	CustomRecurrenceEditor,
 	cn,
 	type Density,
+	datesBetween,
 	defaultCustomRecurrence,
 	defaultEndDate,
 	EventDetail,
@@ -28,7 +36,15 @@ import {
 	EventSuggestionCard,
 	FlowScreen,
 	FooterNav,
+	type FreeStretch,
+	FreeTimeList,
 	formatCustomRecurrence,
+	formatMinute,
+	freeAhead,
+	monthLabel,
+	NextUpCard,
+	PhraseReading,
+	PositionMap,
 	ReadingPane,
 	type RecurrenceScope,
 	RecurrenceScopePrompt,
@@ -36,6 +52,7 @@ import {
 	ResizablePanel,
 	ResizablePanelGroup,
 	readCustomRecurrence,
+	readNextUp,
 	type ThreadData,
 	useContainerWidth,
 } from "@remit/ui";
@@ -48,22 +65,6 @@ import {
 	Wand2,
 } from "lucide-react";
 import { type ReactNode, useMemo, useRef, useState } from "react";
-import {
-	AgendaComposer,
-	AgendaPhraseField,
-	PhraseReading,
-} from "../components/agenda-composer.js";
-import {
-	type AgendaDensity,
-	AgendaFlow,
-	type AgendaScrollTarget,
-} from "../components/agenda-flow.js";
-import {
-	AgendaDensityControl,
-	FreeTimeList,
-	NextUpCard,
-	PositionMap,
-} from "../components/agenda-panels.js";
 import { AttendeeContextCard } from "../components/attendee-context.js";
 import { CalendarGrid, type SlotPick } from "../components/calendar-grid.js";
 import {
@@ -96,15 +97,6 @@ import {
 	STRIP_LAST_DATE,
 } from "../fixtures/calendar-agenda.js";
 import { type ChoicePicks, parseAgendaPhrase } from "../lib/agenda-phrase.js";
-import {
-	addDays,
-	datesBetween,
-	type FreeStretch,
-	formatMinute,
-	freeAhead,
-	monthLabel,
-	readNextUp,
-} from "../lib/agenda-time.js";
 import { applyDraft, applyScopedEdit } from "../lib/calendar-edit.js";
 import { railShare } from "../lib/calendar-rail.js";
 import { MailShell } from "./mail-shell.js";
@@ -637,6 +629,7 @@ export function CalendarAgenda({
 	const strip = (
 		<AgendaFlow
 			days={days}
+			calendars={calendars}
 			density={density}
 			today={TODAY}
 			focusDate={focusDate}
@@ -664,6 +657,7 @@ export function CalendarAgenda({
 					<div className="border-b border-line bg-surface-sunken p-3">
 						<NextUpCard
 							nextUp={nextUp}
+							calendars={calendars}
 							today={TODAY}
 							onSelectEvent={openEvent}
 							onGoTo={goTo}
@@ -1243,6 +1237,7 @@ export function CalendarAgenda({
 						<>
 							<NextUpCard
 								nextUp={nextUp}
+								calendars={calendars}
 								today={TODAY}
 								onSelectEvent={openEvent}
 								onGoTo={goTo}

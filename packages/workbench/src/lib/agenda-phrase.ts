@@ -13,51 +13,16 @@
  * handing the remainder to the kit's reader, so there is one implementation of
  * the parts they share.
  */
-import { addMinutesToClock, parseEventPhrase } from "@remit/ui";
+import {
+	type AgendaParse,
+	addMinutesToClock,
+	type ChoicePicks,
+	type PhraseChoice,
+	type PhraseChoiceOption,
+	parseEventPhrase,
+} from "@remit/ui";
 
-export interface PhraseChoiceOption {
-	id: string;
-	label: string;
-	/** Empty leaves the reading from the rest of the sentence alone. */
-	date: string;
-	startTime: string;
-}
-
-export interface PhraseChoice {
-	id: string;
-	question: string;
-	/** The words the question is about. */
-	source: string;
-	options: PhraseChoiceOption[];
-	chosenId: string;
-}
-
-export interface AgendaParse {
-	title: string;
-	date: string;
-	dateText: string;
-	startTime: string;
-	startTimeText: string;
-	endTime: string;
-	durationMinutes: number;
-	durationText: string;
-	attendees: string[];
-	attendeesText: string;
-	location: string;
-	locationText: string;
-	/** Human-readable rule, empty for a one-off. */
-	repeat: string;
-	repeatText: string;
-	/** Defaults the reader applied on its own authority. */
-	assumptions: string[];
-	/** What the sentence never said. */
-	unresolved: string[];
-	/** What the sentence said two ways. */
-	choices: PhraseChoice[];
-}
-
-/** Choice id → option id, as answered by the person typing. */
-export type ChoicePicks = Readonly<Record<string, string>>;
+export type { AgendaParse, ChoicePicks, PhraseChoice, PhraseChoiceOption };
 
 const WEEKDAY_FULL: Record<string, string> = {
 	sun: "Sunday",

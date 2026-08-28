@@ -26,6 +26,7 @@ import {
 	Button,
 	type CalendarAttendee,
 	type CalendarEventData,
+	clashesWith,
 	cn,
 	FlowScreen,
 	FooterNav,
@@ -88,7 +89,6 @@ import {
 	type TimeSlot,
 	toMinutes,
 } from "../fixtures/calendar-mail.js";
-import { clashesWith } from "../lib/agenda-time.js";
 import { MailShell } from "./mail-shell.js";
 
 /** Below this the reading pane has no room for a day beside the thread. */

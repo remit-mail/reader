@@ -1,5 +1,5 @@
 /**
- * The strip: one scrolling list of days, and the primary object of Option C.
+ * The strip: one scrolling list of days.
  *
  * A time grid spends its pixels in proportion to the hours it covers, which is
  * backwards — most days are mostly empty. This list spends them in proportion
@@ -12,25 +12,15 @@
  * and the scroll position is held across the insert, so the strip has no seams
  * and no page boundaries to lose your place at.
  */
-import { type CalendarEventData, calendarColorClasses, cn } from "@remit/ui";
-import {
-	CalendarOff,
-	ChevronRight,
-	Globe,
-	Layers,
-	Mail,
-	MapPin,
-	Repeat,
-	Users,
-} from "lucide-react";
+import { CalendarOff, ChevronRight, Layers, MapPin, Users } from "lucide-react";
 import {
 	type ReactNode,
 	useEffect,
 	useLayoutEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
-import { type CalendarDay, calendarsById } from "../fixtures/calendar.js";
 import {
 	type AgendaRow,
 	buildAgendaRows,
@@ -48,7 +38,16 @@ import {
 	monthLabel,
 	weekdayLongLabel,
 } from "../lib/agenda-time.js";
-import type { SlotPick } from "./calendar-grid.js";
+import { calendarColorClasses } from "../lib/calendar-color.js";
+import { cn } from "../lib/cn.js";
+import { CalendarEventChip } from "./calendar-event-chip.js";
+import type {
+	CalendarColorId,
+	CalendarDay,
+	CalendarDescriptor,
+	CalendarEventData,
+	CalendarSlotPick,
+} from "./calendar-types.js";
 
 /**
  * The reading of the strip, from a month at a glance to one event per card.
@@ -63,22 +62,41 @@ const HEADER_HEIGHT = 32;
 /** A stretch this long stops being a gap and becomes an afternoon. */
 const LONG_FREE_MINUTES = 150;
 
+/** The hue every calendar the caller did not describe falls back to. */
+const FALLBACK_COLOR: CalendarColorId = "cal-1";
+
 export interface AgendaScrollTarget {
 	date: string;
 	/** Changes on every request, so asking twice for the same day works. */
 	token: number;
 }
 
+/** Which calendar owns which hue and name, resolved once per render. */
+interface CalendarLookup {
+	color: (calendarId: string) => CalendarColorId;
+	name: (calendarId: string) => string;
+}
+
+function lookupOf(calendars: readonly CalendarDescriptor[]): CalendarLookup {
+	const byId = new Map(calendars.map((calendar) => [calendar.id, calendar]));
+	return {
+		color: (calendarId) => byId.get(calendarId)?.color ?? FALLBACK_COLOR,
+		name: (calendarId) => byId.get(calendarId)?.name ?? "",
+	};
+}
+
 export interface AgendaFlowProps {
 	/** Contiguous and ascending. */
 	days: CalendarDay[];
+	/** Whose hue and name every event on the strip is drawn with. */
+	calendars: readonly CalendarDescriptor[];
 	density: AgendaDensity;
 	today: string;
 	/** Never collapsed into a run, whatever is on it. */
 	focusDate: string;
 	selectedEventId: string;
 	onSelectEvent: (eventId: string) => void;
-	onPickSlot: (pick: SlotPick) => void;
+	onPickSlot: (pick: CalendarSlotPick) => void;
 	/** Drops out of the list into the day grid. */
 	onZoomDay: (date: string) => void;
 	onReachStart: () => void;
@@ -97,6 +115,7 @@ export interface AgendaFlowProps {
 
 export function AgendaFlow({
 	days,
+	calendars,
 	density,
 	today,
 	focusDate,
@@ -121,6 +140,7 @@ export function AgendaFlow({
 	const landed = useRef(false);
 	const [visibleDate, setVisibleDate] = useState(focusDate);
 
+	const lookup = useMemo(() => lookupOf(calendars), [calendars]);
 	const rows = buildAgendaRows(days, [today, focusDate]);
 	const firstDate = days[0]?.date ?? "";
 	const lastDate = days[days.length - 1]?.date ?? "";
@@ -233,6 +253,7 @@ export function AgendaFlow({
 				<FlowRow
 					key={row.key}
 					row={row}
+					lookup={lookup}
 					density={density}
 					today={today}
 					selectedEventId={selectedEventId}
@@ -256,11 +277,12 @@ export function AgendaFlow({
 
 interface RowProps {
 	row: AgendaRow;
+	lookup: CalendarLookup;
 	density: AgendaDensity;
 	today: string;
 	selectedEventId: string;
 	onSelectEvent: (eventId: string) => void;
-	onPickSlot: (pick: SlotPick) => void;
+	onPickSlot: (pick: CalendarSlotPick) => void;
 	onZoomDay: (date: string) => void;
 	anchorRef: (node: HTMLDivElement | null) => void;
 	lead?: ReactNode;
@@ -269,6 +291,7 @@ interface RowProps {
 
 function FlowRow({
 	row,
+	lookup,
 	density,
 	today,
 	selectedEventId,
@@ -298,6 +321,7 @@ function FlowRow({
 				{lead}
 				<DotsDay
 					day={row.day}
+					lookup={lookup}
 					today={today}
 					onSelectEvent={onSelectEvent}
 					onZoomDay={onZoomDay}
@@ -311,6 +335,7 @@ function FlowRow({
 			{lead}
 			<DayBlock
 				day={row.day}
+				lookup={lookup}
 				density={density}
 				today={today}
 				selectedEventId={selectedEventId}
@@ -337,7 +362,7 @@ function EmptyRun({
 	from: string;
 	to: string;
 	days: number;
-	onPickSlot: (pick: SlotPick) => void;
+	onPickSlot: (pick: CalendarSlotPick) => void;
 	touch?: boolean;
 }) {
 	return (
@@ -371,12 +396,14 @@ function EmptyRun({
 /** The month-at-a-glance reading: one line a day, colour and shape only. */
 function DotsDay({
 	day,
+	lookup,
 	today,
 	selectedEventId,
 	onSelectEvent,
 	onZoomDay,
 }: {
 	day: CalendarDay;
+	lookup: CalendarLookup;
 	today: string;
 	selectedEventId: string;
 	onSelectEvent: (eventId: string) => void;
@@ -403,26 +430,22 @@ function DotsDay({
 				{day.weekdayLabel} {day.dayNumber}
 			</button>
 			<div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
-				{all.map((event) => {
-					const hue = calendarColorClasses(
-						calendarsById.get(event.calendarId)?.color ?? "cal-1",
-					);
-					return (
-						<button
-							key={event.id}
-							type="button"
-							title={event.title}
-							aria-label={event.title}
-							onClick={() => onSelectEvent(event.id)}
-							className={cn(
-								"size-2 shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring",
-								hue.solid,
-								event.id === selectedEventId && "ring-2 ring-ring",
-								event.myRsvp === "declined" && "opacity-40",
-							)}
-						/>
-					);
-				})}
+				{all.map((event) => (
+					<button
+						key={event.id}
+						type="button"
+						title={event.title}
+						aria-label={event.title}
+						aria-pressed={event.id === selectedEventId}
+						onClick={() => onSelectEvent(event.id)}
+						className={cn(
+							"size-2 shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring",
+							calendarColorClasses(lookup.color(event.calendarId)).solid,
+							event.id === selectedEventId && "ring-2 ring-ring",
+							event.myRsvp === "declined" && "opacity-40",
+						)}
+					/>
+				))}
 			</div>
 			<BusyBar day={day} className="w-24 shrink-0" />
 			<span className="w-24 shrink-0 text-right text-2xs text-fg-subtle">
@@ -445,6 +468,7 @@ function glanceLabel(day: CalendarDay): string {
 
 function DayBlock({
 	day,
+	lookup,
 	density,
 	today,
 	selectedEventId,
@@ -454,11 +478,12 @@ function DayBlock({
 	touch,
 }: {
 	day: CalendarDay;
+	lookup: CalendarLookup;
 	density: AgendaDensity;
 	today: string;
 	selectedEventId: string;
 	onSelectEvent: (eventId: string) => void;
-	onPickSlot: (pick: SlotPick) => void;
+	onPickSlot: (pick: CalendarSlotPick) => void;
 	onZoomDay: (date: string) => void;
 	touch?: boolean;
 }) {
@@ -478,6 +503,7 @@ function DayBlock({
 				group.length === 1 ? (
 					<EventLine
 						event={group[0]}
+						lookup={lookup}
 						density={density}
 						selected={group[0].id === selectedEventId}
 						onSelect={() => onSelectEvent(group[0].id)}
@@ -486,6 +512,7 @@ function DayBlock({
 				) : (
 					<ClashGroup
 						events={group}
+						lookup={lookup}
 						density={density}
 						selectedEventId={selectedEventId}
 						onSelectEvent={onSelectEvent}
@@ -562,6 +589,8 @@ function DayBlock({
 					<AllDayLine
 						key={event.id}
 						event={event}
+						lookup={lookup}
+						density={density}
 						selected={event.id === selectedEventId}
 						onSelect={() => onSelectEvent(event.id)}
 						touch={touch}
@@ -626,7 +655,7 @@ function ClearDayLine({
 	touch,
 }: {
 	day: CalendarDay;
-	onPickSlot: (pick: SlotPick) => void;
+	onPickSlot: (pick: CalendarSlotPick) => void;
 	touch?: boolean;
 }) {
 	return (
@@ -682,36 +711,43 @@ function FreeBand({
 	);
 }
 
+function chipDensity(density: AgendaDensity) {
+	return density === "detail" ? ("comfortable" as const) : ("compact" as const);
+}
+
 function AllDayLine({
 	event,
+	lookup,
+	density,
 	selected,
 	onSelect,
 	touch,
 }: {
 	event: CalendarEventData;
+	lookup: CalendarLookup;
+	density: AgendaDensity;
 	selected: boolean;
 	onSelect: () => void;
 	touch?: boolean;
 }) {
-	const hue = calendarColorClasses(
-		calendarsById.get(event.calendarId)?.color ?? "cal-1",
-	);
 	return (
-		<button
-			type="button"
-			onClick={onSelect}
-			className={cn(
-				"mx-row-inset flex items-center gap-2 rounded-sm border-l-2 px-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring",
-				touch ? "min-h-11" : "h-6",
-				hue.soft,
-				hue.text,
-				hue.rail,
-				selected && "ring-2 ring-ring",
-			)}
-		>
-			<span className="truncate text-xs font-medium">{event.title}</span>
-			<span className="ml-auto shrink-0 text-2xs opacity-70">All day</span>
-		</button>
+		<div className={cn("mx-row-inset", touch && "min-h-11")}>
+			<CalendarEventChip
+				title={event.title}
+				timeText=""
+				color={lookup.color(event.calendarId)}
+				layout="row"
+				density={chipDensity(density)}
+				rsvp={event.myRsvp}
+				status={event.status}
+				hasThread={event.threadId !== ""}
+				isRecurring={event.recurrenceRule !== ""}
+				zoneCertainty={event.zoneCertainty}
+				selected={selected}
+				onClick={onSelect}
+				trailing={<span className="text-2xs">All day</span>}
+			/>
+		</div>
 	);
 }
 
@@ -722,6 +758,7 @@ function AllDayLine({
  */
 function ClashGroup({
 	events,
+	lookup,
 	density,
 	selectedEventId,
 	onSelectEvent,
@@ -729,6 +766,7 @@ function ClashGroup({
 	touch,
 }: {
 	events: CalendarEventData[];
+	lookup: CalendarLookup;
 	density: AgendaDensity;
 	selectedEventId: string;
 	onSelectEvent: (eventId: string) => void;
@@ -760,6 +798,7 @@ function ClashGroup({
 					<EventLine
 						key={event.id}
 						event={event}
+						lookup={lookup}
 						density={density}
 						selected={event.id === selectedEventId}
 						onSelect={() => onSelectEvent(event.id)}
@@ -774,6 +813,7 @@ function ClashGroup({
 
 function EventLine({
 	event,
+	lookup,
 	density,
 	selected,
 	onSelect,
@@ -781,93 +821,67 @@ function EventLine({
 	touch,
 }: {
 	event: CalendarEventData;
+	lookup: CalendarLookup;
 	density: AgendaDensity;
 	selected: boolean;
 	onSelect: () => void;
 	inset?: boolean;
 	touch?: boolean;
 }) {
-	const calendar = calendarsById.get(event.calendarId);
-	const hue = calendarColorClasses(calendar?.color ?? "cal-1");
 	const detailed = density === "detail";
-	const declined = event.myRsvp === "declined";
-	const provisional =
-		event.status === "tentative" || event.myRsvp === "tentative";
 	const minutes = minuteOfDay(event.end) - minuteOfDay(event.start);
-	const second = [calendar?.name, event.location]
-		.filter((part) => part !== undefined && part !== "")
+	const second = [lookup.name(event.calendarId), event.location]
+		.filter((part) => part !== "")
 		.join(" · ");
 
 	return (
-		<button
-			type="button"
-			onClick={onSelect}
-			className={cn(
-				"flex w-full items-start gap-2 rounded-md py-0.5 text-left outline-none transition-colors hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-ring",
-				inset ? "px-row-inset" : "px-2",
-				touch && "min-h-12",
-			)}
-		>
-			<span
-				className={cn(
-					"shrink-0 pt-1 text-2xs tabular-nums text-fg-subtle",
-					inset ? "w-14" : "w-11",
-				)}
-			>
-				{event.start.slice(11, 16)}
-				{detailed && (
-					<span className="block opacity-70">{event.end.slice(11, 16)}</span>
-				)}
-			</span>
-			<span
-				className={cn(
-					"flex min-w-0 flex-1 flex-col gap-0.5 rounded-sm border-l-2 px-2 py-1",
-					hue.soft,
-					hue.text,
-					hue.rail,
-					provisional && cn("border-y border-r border-dashed", hue.border),
-					declined && "opacity-60",
-					selected && "ring-2 ring-ring",
-				)}
-			>
-				<span className="flex min-w-0 items-center gap-1.5">
+		<div className={cn(inset ? "px-row-inset" : "px-2", touch && "min-h-12")}>
+			<CalendarEventChip
+				title={event.title}
+				timeText=""
+				color={lookup.color(event.calendarId)}
+				layout="row"
+				density={chipDensity(density)}
+				rsvp={event.myRsvp}
+				status={event.status}
+				hasThread={event.threadId !== ""}
+				isRecurring={event.recurrenceRule !== ""}
+				zoneCertainty={event.zoneCertainty}
+				selected={selected}
+				onClick={onSelect}
+				leading={
 					<span
 						className={cn(
-							"truncate text-xs font-medium",
-							declined && "line-through",
+							"shrink-0 pt-1 text-2xs tabular-nums text-fg-subtle",
+							inset ? "w-14" : "w-11",
 						)}
 					>
-						{event.title}
-					</span>
-					{event.recurrenceRule !== "" && (
-						<Repeat className="size-3 shrink-0" aria-label="Repeats" />
-					)}
-					{event.threadId !== "" && (
-						<Mail className="size-3 shrink-0" aria-label="From mail" />
-					)}
-					{event.zoneCertainty === "ambiguous" && (
-						<Globe
-							className="size-3 shrink-0 text-warning"
-							aria-label="Unclear zone"
-						/>
-					)}
-					<span className="ml-auto shrink-0 text-2xs tabular-nums opacity-70">
-						{formatSpan(minutes)}
-					</span>
-				</span>
-				{detailed && second !== "" && (
-					<span className="flex min-w-0 items-center gap-2 text-2xs opacity-80">
-						{event.location !== "" && <MapPin className="size-3 shrink-0" />}
-						<span className="truncate">{second}</span>
-						{event.attendees.length > 0 && (
-							<span className="ml-auto flex shrink-0 items-center gap-0.5">
-								<Users className="size-3" />
-								{event.attendees.length}
+						{event.start.slice(11, 16)}
+						{detailed && (
+							<span className="block opacity-70">
+								{event.end.slice(11, 16)}
 							</span>
 						)}
 					</span>
-				)}
-			</span>
-		</button>
+				}
+				trailing={
+					<span className="text-2xs tabular-nums">{formatSpan(minutes)}</span>
+				}
+				detail={
+					detailed && second !== "" ? (
+						<span className="flex min-w-0 items-center gap-2 text-2xs opacity-80">
+							{event.location !== "" && <MapPin className="size-3 shrink-0" />}
+							<span className="truncate">{second}</span>
+							{event.attendees.length > 0 && (
+								<span className="ml-auto flex shrink-0 items-center gap-0.5">
+									<Users className="size-3" />
+									{event.attendees.length}
+								</span>
+							)}
+						</span>
+					) : undefined
+				}
+			/>
+		</div>
 	);
 }
