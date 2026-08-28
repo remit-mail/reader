@@ -67,3 +67,11 @@ import "./LabelAction.tsp";
 // Message quarantine (issue #72)
 import "./QuarantineFailureStage.tsp";
 import "./QuarantineFailureCode.tsp";
+
+// Calendar Enums (issue #15)
+import "./CalendarColor.tsp";
+import "./CalendarComponentSet.tsp";
+import "./CalendarSource.tsp";
+import "./CalendarEventStatus.tsp";
+import "./CalendarTransparency.tsp";
+import "./ZoneCertainty.tsp";

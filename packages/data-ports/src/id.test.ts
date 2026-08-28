@@ -4,12 +4,15 @@ import {
 	base36uuidv5,
 	deriveAddressId,
 	deriveBodyPartId,
+	deriveCalendarId,
+	deriveCalendarObjectId,
 	deriveCopyMessageId,
 	deriveEnvelopeId,
 	deriveMessageId,
 	deriveMessageIdFromSource,
 	deriveQuarantineId,
 	deriveThreadId,
+	normalizeCalendarUrlSegment,
 	normalizeMessageIdHeader,
 	quarantineMessageIdHash,
 	REMIT_NAMESPACE,
@@ -100,6 +103,64 @@ describe("quarantineMessageIdHash", () => {
 	});
 });
 
+describe("normalizeCalendarUrlSegment", () => {
+	it("folds a segment to the one form the id and the stored column share", () => {
+		assert.equal(
+			normalizeCalendarUrlSegment("  Work-Calendar "),
+			"work-calendar",
+		);
+	});
+});
+
+describe("deriveCalendarId", () => {
+	it("resolves a DAV path segment case-insensitively", () => {
+		assert.equal(
+			deriveCalendarId(ACCOUNT, "Work"),
+			deriveCalendarId(ACCOUNT, "work"),
+		);
+	});
+
+	it("derives from the folded segment, so a stored segment resolves to its own id", () => {
+		assert.equal(
+			deriveCalendarId(ACCOUNT, " Work "),
+			deriveCalendarId(ACCOUNT, normalizeCalendarUrlSegment(" Work ")),
+		);
+	});
+
+	it("separates the same segment across two account configs", () => {
+		assert.notEqual(
+			deriveCalendarId(ACCOUNT, "default"),
+			deriveCalendarId("acct-2", "default"),
+		);
+	});
+});
+
+describe("deriveCalendarObjectId", () => {
+	it("is stable for the same resource", () => {
+		assert.equal(
+			deriveCalendarObjectId("cal-1", "event.ics"),
+			deriveCalendarObjectId("cal-1", "event.ics"),
+		);
+	});
+
+	it("separates the same resource name across two collections", () => {
+		assert.notEqual(
+			deriveCalendarObjectId("cal-1", "event.ics"),
+			deriveCalendarObjectId("cal-2", "event.ics"),
+		);
+	});
+
+	it("keeps a resource name case-sensitive, unlike a collection segment", () => {
+		// A resource name is the literal last path segment a client PUT to, and
+		// CalDAV lets two resources in one collection differ only by case. Folding
+		// it would merge them into one row and lose the second.
+		assert.notEqual(
+			deriveCalendarObjectId("cal-1", "Event.ics"),
+			deriveCalendarObjectId("cal-1", "event.ics"),
+		);
+	});
+});
+
 describe("derived ids are stored primary keys: a changed value orphans every row already written and needs a migration, never a new expectation here", () => {
 	const ACCOUNT = "account-golden";
 	const MESSAGE = "message-golden";
@@ -183,6 +244,27 @@ describe("derived ids are stored primary keys: a changed value orphans every row
 		assert.equal(
 			deriveQuarantineId(ACCOUNT, MAILBOX, 1_700_000_000, 40217),
 			"4xg2y7x2j7nmvy0wtwgdq8b8p",
+		);
+	});
+
+	it("deriveCalendarId pins the calendar primary key, lowercased segment included", () => {
+		assert.equal(
+			deriveCalendarId(ACCOUNT, "Work-Calendar"),
+			"ckygmpewwbyhzkrjs6ui29iuw",
+		);
+	});
+
+	it("deriveCalendarId pins the key of the default collection every account is provisioned", () => {
+		assert.equal(
+			deriveCalendarId(ACCOUNT, "default"),
+			"bg614rmeq926iyti6npylfzja",
+		);
+	});
+
+	it("deriveCalendarObjectId pins the calendar_object primary key, resource name case intact", () => {
+		assert.equal(
+			deriveCalendarObjectId("calendar-golden", "golden-event.ics"),
+			"aklxxezhc8icpuewggz983okb",
 		);
 	});
 

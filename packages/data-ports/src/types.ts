@@ -6,6 +6,9 @@ import type {
 	BodyPartParameterSchema,
 	BodyPartSchema,
 	BodyPartStorageSchema,
+	CalendarCollectionSchema,
+	CalendarEventIndexSchema,
+	CalendarObjectSchema,
 	ConfigImportSchema,
 	ConfigImportUnresolvedRefSchema,
 	EnvelopeAddressSchema,
@@ -550,6 +553,58 @@ export type UpdateFilterInput = Partial<
 export type CreateFilterAnchorInput = Omit<
 	FilterAnchorItem,
 	"createdAt" | "updatedAt"
+>;
+
+export type CalendarCollectionItem = z.infer<typeof CalendarCollectionSchema>;
+export type CalendarObjectItem = z.infer<typeof CalendarObjectSchema>;
+export type CalendarEventIndexItem = z.infer<typeof CalendarEventIndexSchema>;
+
+// `calendarId` is derived from accountConfigId + urlSegment, and syncSequence
+// starts at zero and only ever moves through the collection's own bump — so
+// neither is ever supplied here.
+export type CreateCalendarCollectionInput = Omit<
+	CalendarCollectionItem,
+	| "calendarId"
+	| "syncSequence"
+	| "createdAt"
+	| "updatedAt"
+	| "color"
+	| "componentSet"
+	| "source"
+	| "timezone"
+> & {
+	color?: CalendarCollectionItem["color"];
+	componentSet?: CalendarCollectionItem["componentSet"];
+	source?: CalendarCollectionItem["source"];
+	timezone?: CalendarCollectionItem["timezone"];
+};
+
+export type UpdateCalendarCollectionInput = Partial<
+	Pick<CalendarCollectionItem, "displayName" | "color" | "timezone">
+>;
+
+/**
+ * A whole calendar resource. Every projected column is supplied together with
+ * the `icalData` it was projected from — the repository never derives one from
+ * the other, so the projection can only ever be produced by the one place that
+ * owns it (`@remit/calendar-service`) and can never drift from the bytes.
+ *
+ * `calendarObjectId` is derived from calendarId + resourceName, so this is an
+ * upsert: writing the same resource twice rewrites its own row.
+ */
+export type PutCalendarObjectInput = Omit<
+	CalendarObjectItem,
+	"calendarObjectId" | "createdAt" | "updatedAt"
+>;
+
+/**
+ * One expanded occurrence. Written only as part of a full replacement of a
+ * resource's occurrences — there is no single-occurrence write, because a row
+ * here is never authoritative and never edited in place.
+ */
+export type CalendarOccurrenceInput = Omit<
+	CalendarEventIndexItem,
+	"calendarId" | "calendarObjectId" | "createdAt" | "updatedAt"
 >;
 
 export type SenderSignerStandingItem = z.infer<
