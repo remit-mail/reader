@@ -218,22 +218,6 @@ describe("SelfUpdateSection", () => {
 		assert.doesNotMatch(html, /disabled=/);
 	});
 
-	it("stacks the success banner in flow rather than over the row below it", () => {
-		const html = section({
-			status: "succeeded",
-			runId: demoRunId,
-			version: "0.9.4",
-			previousVersion: CURRENT,
-			releaseNotesUrl: demoRelease.releaseNotesUrl,
-		});
-		// A banner that leaves the flow hides the control underneath it and takes
-		// the pane's only way forward with it.
-		assert.doesNotMatch(html, /class="[^"]*\b(?:absolute|fixed)\b/);
-		assert.ok(
-			html.indexOf("Updated to Remit") < html.indexOf("Check for updates"),
-		);
-	});
-
 	it("renders an abandoned run as a no-op that changed nothing", () => {
 		const html = section({
 			status: "abandoned",

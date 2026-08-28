@@ -82,6 +82,16 @@ export function SelfUpdateSection({
 		onCheck();
 	};
 
+	// The pane renders one state at a time, and an undismissed run outcome wins
+	// over any check in flight — so a check pressed from the success row would
+	// leave the screen unchanged and surface its verdict, right or wrong, only
+	// once the banner was dismissed. Retiring the outcome is what makes the
+	// press visible, and pressing it is the acknowledgement that retires it.
+	const handleCheckAfterResult = () => {
+		onDismissResult();
+		handleCheck();
+	};
+
 	const handleInstall = () => {
 		if (
 			!installable &&
@@ -316,7 +326,7 @@ export function SelfUpdateSection({
 									variant="secondary"
 									size="sm"
 									className="shrink-0"
-									onClick={handleCheck}
+									onClick={handleCheckAfterResult}
 								>
 									Check for updates
 								</Button>
