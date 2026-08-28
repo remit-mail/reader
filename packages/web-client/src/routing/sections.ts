@@ -11,7 +11,8 @@ export type AppSection =
 	| "flagged"
 	| "outbox"
 	| "settings"
-	| "accounts";
+	| "accounts"
+	| "importConfig";
 
 const sectionRoute = {
 	brief: "/mail/brief",
@@ -19,6 +20,7 @@ const sectionRoute = {
 	outbox: "/mail/outbox",
 	settings: "/settings",
 	accounts: "/settings/accounts",
+	importConfig: "/import",
 } as const satisfies Record<AppSection, string>;
 
 /** Go to a top-level section by name, so no caller writes a path. */

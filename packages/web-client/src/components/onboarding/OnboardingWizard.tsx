@@ -19,14 +19,12 @@
 
 import {
 	accountOperationsCreateAccountMutation,
-	accountOperationsTestConnectionMutation,
 	configOperationsGetConfigOptions,
 	configOperationsGetConfigQueryKey,
 	microsoftOAuthOperationsMicrosoftOAuthStartMutation,
 	syncOperationsGetSyncStatusOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import {
-	AppPasswordHint,
 	Banner,
 	Button,
 	CheckRow,
@@ -34,14 +32,13 @@ import {
 	FieldLabel,
 	Input,
 	Kbd,
-	PasswordInput,
 	Select,
 	ServerFields,
 	securityToApi,
 	WizardShell,
 } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AtSign, Inbox, Loader2, Mail, Server } from "lucide-react";
+import { AtSign, FileJson, Inbox, Loader2, Mail, Server } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	REDIRECT_STALL_MESSAGE,
@@ -53,7 +50,6 @@ import {
 	discoverSettings,
 	getAppPasswordUrl,
 	getDiscoveryStatusMessage,
-	type SecurityMode,
 } from "../../lib/autodiscovery.js";
 import {
 	getPresetById,
@@ -61,6 +57,11 @@ import {
 	presetIdForEmail,
 } from "../../lib/provider-presets.js";
 import { computeSmtpAutoFill } from "../settings/account-form-helpers.js";
+import {
+	ConnectionTestStep,
+	CredentialsStep,
+	type ServerConfig,
+} from "./credential-steps.js";
 
 /* ------------------------------------------------------------------ */
 /* Wizard step definitions                                            */
@@ -101,12 +102,6 @@ const STEP_INDEX: Record<WizardStep, number> = {
 /* State shapes                                                        */
 /* ------------------------------------------------------------------ */
 
-interface ServerConfig {
-	host: string;
-	port: number;
-	security: SecurityMode;
-}
-
 interface WizardState {
 	email: string;
 	displayName: string;
@@ -128,31 +123,22 @@ const DEFAULT_SMTP: ServerConfig = {
 	security: "starttls",
 };
 
-type TestPhase =
-	| "idle"
-	| "running"
-	| "success"
-	| "auth-failure"
-	| "network-failure";
-
-interface TestResult {
-	imapState: "pending" | "running" | "ok" | "failed";
-	smtpState: "pending" | "running" | "ok" | "failed";
-	imapDetail?: string;
-	smtpDetail?: string;
-	rawError?: string;
-	phase: TestPhase;
-}
-
-/* ------------------------------------------------------------------ */
-/* Helpers                                                             */
-/* ------------------------------------------------------------------ */
-
 /* ------------------------------------------------------------------ */
 /* Individual step components                                         */
 /* ------------------------------------------------------------------ */
 
-function StepWelcome({ onStart }: { onStart: () => void }) {
+/**
+ * First run. Importing a config file sits beside adding the first account, not
+ * under it: someone arriving from another Reader has already made every choice
+ * the wizard is about to ask for, and the file is the shorter road.
+ */
+export function StepWelcome({
+	onStart,
+	onImportConfig,
+}: {
+	onStart: () => void;
+	onImportConfig?: () => void;
+}) {
 	// Keyboard: Enter advances
 	useEffect(() => {
 		const handler = (e: KeyboardEvent) => {
@@ -168,12 +154,26 @@ function StepWelcome({ onStart }: { onStart: () => void }) {
 			activeStep={0}
 			hideSteps
 			title="Welcome to Remit"
-			subtitle="One inbox for all your mail, with context about every message."
+			subtitle={
+				onImportConfig
+					? "Set up your first account, or bring the settings from another Reader."
+					: "One inbox for all your mail, with context about every message."
+			}
 			footer={
 				<>
-					<span className="text-2xs text-fg-subtle">
-						<Kbd>Enter</Kbd> to continue
-					</span>
+					{onImportConfig ? (
+						<Button
+							variant="secondary"
+							icon={<FileJson className="size-4" />}
+							onClick={onImportConfig}
+						>
+							Import a config file
+						</Button>
+					) : (
+						<span className="text-2xs text-fg-subtle">
+							<Kbd>Enter</Kbd> to continue
+						</span>
+					)}
 					<Button variant="primary" onClick={onStart}>
 						Add your first account
 					</Button>
@@ -189,6 +189,13 @@ function StepWelcome({ onStart }: { onStart: () => void }) {
 					writing to you — sender history, authenticity checks, and similar
 					messages, right next to every email.
 				</p>
+				{onImportConfig && (
+					<p className="mt-3 max-w-sm text-sm leading-relaxed text-fg-muted">
+						A config file carries your accounts, folder roles, rules, flagged
+						senders and appearance from another Reader. It never carries
+						passwords, so you sign in again here.
+					</p>
+				)}
 			</div>
 		</WizardShell>
 	);
@@ -778,357 +785,6 @@ function StepServers({
 	);
 }
 
-function StepCredentials({
-	email,
-	username,
-	password,
-	onContinue,
-	onBack,
-	onChange,
-}: {
-	email: string;
-	username: string;
-	password: string;
-	onContinue: () => void;
-	onBack: () => void;
-	onChange: (username: string, password: string) => void;
-}) {
-	const [localUsername, setLocalUsername] = useState(username || email);
-	const [localPassword, setLocalPassword] = useState(password);
-	const [error, setError] = useState<string | null>(null);
-
-	const domain = email.split("@")[1] ?? "";
-	const appPasswordUrl = getAppPasswordUrl(email);
-	const isValid = localUsername.trim() !== "" && localPassword.trim() !== "";
-
-	useEffect(() => {
-		onChange(localUsername, localPassword);
-	}, [localUsername, localPassword, onChange]);
-
-	const handleContinue = useCallback(() => {
-		if (!isValid) {
-			setError("Enter your username and password.");
-			return;
-		}
-		setError(null);
-		onContinue();
-	}, [isValid, onContinue]);
-
-	// Keyboard: Enter advances, Esc goes back
-	useEffect(() => {
-		const handler = (e: KeyboardEvent) => {
-			if (e.key === "Enter") handleContinue();
-			if (e.key === "Escape") onBack();
-		};
-		window.addEventListener("keydown", handler);
-		return () => window.removeEventListener("keydown", handler);
-	}, [handleContinue, onBack]);
-
-	return (
-		<WizardShell
-			steps={STEP_LABELS}
-			activeStep={STEP_INDEX.credentials}
-			title={`Sign in to ${domain || "your mail server"}`}
-			subtitle="Many providers require an app password instead of your normal one."
-			footer={
-				<>
-					<Button variant="ghost" onClick={onBack}>
-						Back
-					</Button>
-					<Button variant="primary" onClick={handleContinue}>
-						Test connection
-					</Button>
-				</>
-			}
-		>
-			<div className="space-y-3">
-				{error && (
-					<div className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">
-						{error}
-					</div>
-				)}
-				<div>
-					<FieldLabel htmlFor="credentials-username">Username</FieldLabel>
-					<Input
-						id="credentials-username"
-						value={localUsername}
-						onChange={(e) => {
-							setLocalUsername(e.target.value);
-							setError(null);
-						}}
-						autoComplete="username"
-					/>
-				</div>
-				<div>
-					<FieldLabel htmlFor="credentials-password">
-						Password or app password
-					</FieldLabel>
-					<PasswordInput
-						id="credentials-password"
-						value={localPassword}
-						onChange={(e) => {
-							setLocalPassword(e.target.value);
-							setError(null);
-						}}
-						autoComplete="current-password"
-					/>
-				</div>
-				<AppPasswordHint url={appPasswordUrl} />
-			</div>
-		</WizardShell>
-	);
-}
-
-function StepTest({
-	email,
-	imapConfig,
-	smtpConfig,
-	username,
-	password,
-	onSuccess,
-	onBackToCredentials,
-	onBackToServers,
-}: {
-	email: string;
-	imapConfig: ServerConfig;
-	smtpConfig: ServerConfig;
-	username: string;
-	password: string;
-	onSuccess: () => void;
-	onBackToCredentials: () => void;
-	onBackToServers: () => void;
-}) {
-	const [testResult, setTestResult] = useState<TestResult>({
-		imapState: "running",
-		smtpState: "pending",
-		phase: "running",
-	});
-	const [attempt, setAttempt] = useState(0);
-	const smtpConfigured = smtpConfig.host.trim() !== "";
-	const imapTls = securityToApi(imapConfig.security);
-	const smtpTls = securityToApi(smtpConfig.security);
-
-	const testMutation = useMutation({
-		...accountOperationsTestConnectionMutation(),
-	});
-
-	// biome-ignore lint/correctness/useExhaustiveDependencies: runs on mount and each Retry via `attempt`; the connection inputs are read intentionally and must not re-trigger the test on every render
-	useEffect(() => {
-		let cancelled = false;
-		const timers: number[] = [];
-
-		setTestResult({
-			imapState: "running",
-			smtpState: "pending",
-			phase: "running",
-		});
-
-		testMutation.mutate(
-			{
-				body: {
-					username,
-					password,
-					imapHost: imapConfig.host,
-					imapPort: imapConfig.port,
-					imapTls: imapTls.tls,
-					imapStartTls: imapTls.startTls,
-					smtpHost: smtpConfig.host,
-					smtpPort: smtpConfig.port,
-					smtpTls: smtpTls.tls,
-					smtpStartTls: smtpTls.startTls,
-				},
-			},
-			{
-				onSuccess: (data) => {
-					if (cancelled) return;
-					// Show IMAP result first, then SMTP. SMTP is optional: when no
-					// host was given the account is receive-only, so IMAP alone
-					// decides success.
-					const imapOk = data.imapSuccess;
-					const smtpOk = smtpConfigured ? data.smtpSuccess : true;
-
-					setTestResult({
-						imapState: imapOk ? "ok" : "failed",
-						smtpState: smtpConfigured ? "running" : "ok",
-						imapDetail: imapOk
-							? `Connected — ${imapConfig.host}:${imapConfig.port}`
-							: data.imapError,
-						phase: "running",
-					});
-
-					timers.push(
-						window.setTimeout(() => {
-							if (cancelled) return;
-							// An auth error can come from either protocol; route on the
-							// one that actually failed. IMAP failures take precedence in
-							// the raw-error display since IMAP is tested first.
-							const isAuthError = (msg: string | undefined): boolean => {
-								const m = msg?.toLowerCase() ?? "";
-								return (
-									m.includes("auth") ||
-									m.includes("login") ||
-									m.includes("535") ||
-									m.includes("credential")
-								);
-							};
-							const isAuthFailure =
-								(!imapOk && isAuthError(data.imapError)) ||
-								(imapOk &&
-									smtpConfigured &&
-									!data.smtpSuccess &&
-									isAuthError(data.smtpError));
-
-							setTestResult({
-								imapState: imapOk ? "ok" : "failed",
-								smtpState: !smtpConfigured
-									? "ok"
-									: data.smtpSuccess
-										? "ok"
-										: "failed",
-								imapDetail: imapOk
-									? `Connected — ${imapConfig.host}:${imapConfig.port}`
-									: data.imapError,
-								smtpDetail: !smtpConfigured
-									? "Not set up — receive-only"
-									: data.smtpSuccess
-										? `Connected — ${smtpConfig.host}:${smtpConfig.port}`
-										: data.smtpError,
-								rawError: !imapOk
-									? data.imapError
-									: smtpConfigured && !data.smtpSuccess
-										? data.smtpError
-										: undefined,
-								phase:
-									imapOk && smtpOk
-										? "success"
-										: isAuthFailure
-											? "auth-failure"
-											: "network-failure",
-							});
-
-							if (imapOk && smtpOk) {
-								timers.push(
-									window.setTimeout(() => {
-										if (!cancelled) onSuccess();
-									}, 800),
-								);
-							}
-						}, 400),
-					);
-				},
-				onError: (err) => {
-					if (cancelled) return;
-					const msg = err instanceof Error ? err.message : "Connection failed";
-					setTestResult({
-						imapState: "failed",
-						smtpState: "failed",
-						imapDetail: msg,
-						smtpDetail: msg,
-						rawError: msg,
-						phase: "network-failure",
-					});
-				},
-			},
-		);
-
-		return () => {
-			cancelled = true;
-			for (const t of timers) window.clearTimeout(t);
-		};
-	}, [attempt]);
-
-	const { phase } = testResult;
-
-	// Keyboard: Esc goes back based on failure type
-	useEffect(() => {
-		const handler = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				if (phase === "auth-failure") onBackToCredentials();
-				else if (phase === "network-failure") onBackToServers();
-			}
-		};
-		window.addEventListener("keydown", handler);
-		return () => window.removeEventListener("keydown", handler);
-	}, [phase, onBackToCredentials, onBackToServers]);
-
-	const footer =
-		phase === "auth-failure" ? (
-			<>
-				<Button variant="ghost" onClick={onBackToCredentials}>
-					Back to credentials
-				</Button>
-				<Button variant="primary" onClick={() => setAttempt((a) => a + 1)}>
-					Retry
-				</Button>
-			</>
-		) : phase === "network-failure" ? (
-			<>
-				<Button variant="ghost" onClick={onBackToServers}>
-					Back to servers
-				</Button>
-				<Button variant="primary" onClick={() => setAttempt((a) => a + 1)}>
-					Retry
-				</Button>
-			</>
-		) : phase === "success" ? (
-			<>
-				<span className="text-2xs text-fg-subtle">Connection verified</span>
-				<Button variant="primary" onClick={onSuccess}>
-					Start syncing
-				</Button>
-			</>
-		) : (
-			<>
-				<span className="text-2xs text-fg-subtle">Testing…</span>
-				<span />
-			</>
-		);
-
-	return (
-		<WizardShell
-			steps={STEP_LABELS}
-			activeStep={STEP_INDEX.test}
-			title="Testing the connection"
-			subtitle={`Checking ${email}`}
-			footer={footer}
-		>
-			<div className="divide-y divide-line">
-				<CheckRow
-					label={`IMAP — ${imapConfig.host}:${imapConfig.port}`}
-					detail={testResult.imapDetail}
-					state={testResult.imapState}
-				/>
-				<CheckRow
-					label={
-						smtpConfigured
-							? `SMTP — ${smtpConfig.host}:${smtpConfig.port}`
-							: "SMTP — sending"
-					}
-					detail={
-						smtpConfigured
-							? testResult.smtpDetail
-							: "Not set up — you can add sending later in Settings"
-					}
-					state={testResult.smtpState}
-				/>
-				{(phase === "auth-failure" || phase === "network-failure") &&
-					testResult.rawError && (
-						<div className="py-3">
-							{phase === "auth-failure" && (
-								<p className="mb-2 text-xs text-fg-muted">
-									Check your password — many providers require an app password.
-								</p>
-							)}
-							<code className="block rounded bg-surface-sunken px-2.5 py-2 text-2xs text-fg-muted">
-								{testResult.rawError}
-							</code>
-						</div>
-					)}
-			</div>
-		</WizardShell>
-	);
-}
-
 /**
  * How long the sync step holds "Go to inbox" shut while it waits for the first
  * messages. Long enough for a normal IMAP handshake and first batch, short
@@ -1494,12 +1150,19 @@ export interface OnboardingWizardProps {
 	onComplete: (accountId: string) => void;
 	/** Called when the user cancels (Esc from connector picker) */
 	onCancel?: () => void;
+	/**
+	 * Offered on the welcome step only, beside adding the first account. Absent
+	 * where the wizard is embedded to add an account to an instance that already
+	 * has one — importing a configuration is a first-run move, not an add.
+	 */
+	onImportConfig?: () => void;
 }
 
 export function OnboardingWizard({
 	skipWelcome = false,
 	onComplete,
 	onCancel,
+	onImportConfig,
 }: OnboardingWizardProps) {
 	const [step, setStep] = useState<WizardStep>(
 		skipWelcome ? "connector" : "welcome",
@@ -1599,7 +1262,12 @@ export function OnboardingWizard({
 
 	switch (step) {
 		case "welcome":
-			return <StepWelcome onStart={handleWelcomeStart} />;
+			return (
+				<StepWelcome
+					onStart={handleWelcomeStart}
+					onImportConfig={onImportConfig}
+				/>
+			);
 
 		case "connector":
 			return (
@@ -1644,7 +1312,11 @@ export function OnboardingWizard({
 
 		case "credentials":
 			return (
-				<StepCredentials
+				<CredentialsStep
+					steps={STEP_LABELS}
+					activeStep={STEP_INDEX.credentials}
+					title={`Sign in to ${state.email.split("@")[1] || "your mail server"}`}
+					subtitle="Many providers require an app password instead of your normal one."
 					email={state.email}
 					username={state.username}
 					password={state.password}
@@ -1656,7 +1328,9 @@ export function OnboardingWizard({
 
 		case "test":
 			return (
-				<StepTest
+				<ConnectionTestStep
+					steps={STEP_LABELS}
+					activeStep={STEP_INDEX.test}
 					email={state.email}
 					imapConfig={state.imapConfig}
 					smtpConfig={state.smtpConfig}
