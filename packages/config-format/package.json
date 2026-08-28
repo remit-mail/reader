@@ -43,6 +43,6 @@
 	},
 	"dependencies": {
 		"@remit/domain-enums": "*",
-		"zod": "*"
+		"zod": "^3.25.0"
 	}
 }
