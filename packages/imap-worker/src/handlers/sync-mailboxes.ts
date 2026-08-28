@@ -1,10 +1,16 @@
 import { getClient } from "@remit/backend/client";
+import { writeFolderRoleAppointment } from "@remit/backend/folder-role-appointments";
+import {
+	bindImportedFolders,
+	type ConfigBinderDeps,
+} from "@remit/config-transfer";
 import type {
 	AccountItem,
 	IAccountRepository,
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
 } from "@remit/data-ports";
+import type { CanonicalMailboxRoleValue } from "@remit/data-ports/folder-role";
 import { SyncPhase } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
@@ -82,12 +88,25 @@ export const syncMailboxes = async (
 	event: SyncMailboxesEvent,
 	log: Logger,
 ): Promise<void> => {
+	const client = await getClient();
 	const {
 		account: accountService,
 		mailbox: mailboxService,
 		mailboxSpecialUse: mailboxSpecialUseService,
 		secrets,
-	} = await getClient();
+	} = client;
+	const binder: ConfigBinderDeps = {
+		repositories: client,
+		appointFolderRole: (configId, accountId, role, mailboxId, lastKnownPath) =>
+			writeFolderRoleAppointment(
+				client.accountSetting,
+				configId,
+				accountId,
+				role as CanonicalMailboxRoleValue,
+				mailboxId,
+				lastKnownPath,
+			),
+	};
 
 	const { accountId } = event;
 	log.info({ event: event.type, accountId }, "Handling event");
@@ -125,6 +144,7 @@ export const syncMailboxes = async (
 					mailboxService,
 					mailboxSpecialUseService,
 					accountService,
+					binder,
 					log,
 				);
 			} catch (err) {
@@ -157,6 +177,7 @@ const syncMailboxesForAccount = async (
 	mailboxService: IMailboxRepository,
 	mailboxSpecialUseService: IMailboxSpecialUseRepository,
 	accountService: IAccountRepository,
+	binder: ConfigBinderDeps,
 	log: Logger,
 ): Promise<void> => {
 	const { accountId } = account;
@@ -193,6 +214,20 @@ const syncMailboxesForAccount = async (
 	await accountService.update(accountId, { lastSyncAt: Date.now() });
 
 	log.info({ result }, "Mailbox sync complete");
+
+	// The folder list this account holds is now known, which is the one thing a
+	// configuration import could not know when it ran: every folder in a file is
+	// named by IMAP path, and the ids are minted here. Binding what is bindable
+	// belongs at exactly this point, and is idempotent, so a later discovery
+	// simply finds nothing left to do.
+	const bound = await bindImportedFolders(
+		binder,
+		account.accountConfigId,
+		accountId,
+	);
+	if (bound.bound > 0 || bound.stillPending > 0) {
+		log.info({ accountId, ...bound }, "Bound imported folder references");
+	}
 
 	const allMailboxes = await collectAllMailboxes(accountId, mailboxService);
 

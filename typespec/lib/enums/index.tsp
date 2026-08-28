@@ -42,6 +42,12 @@ import "./SyncPhase.tsp";
 import "./AccountExportState.tsp";
 import "./OrganizeJobState.tsp";
 
+// Configuration import (#1021)
+import "./ConfigImportState.tsp";
+import "./ConfigImportRefKind.tsp";
+import "./ConfigImportMode.tsp";
+import "./ConfigImportOnExisting.tsp";
+
 // Authentication Enums
 import "./AuthResultVerdict.tsp";
 import "./AuthenticityVerdict.tsp";

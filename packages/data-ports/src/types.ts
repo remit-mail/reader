@@ -6,6 +6,8 @@ import type {
 	BodyPartParameterSchema,
 	BodyPartSchema,
 	BodyPartStorageSchema,
+	ConfigImportSchema,
+	ConfigImportUnresolvedRefSchema,
 	EnvelopeAddressSchema,
 	EnvelopeSchema,
 	FilterAnchorSchema,
@@ -254,6 +256,23 @@ export type UpdateOrganizeJobRequestInput = Partial<
 		OrganizeJobRequestItem,
 		"state" | "matchedCount" | "appliedCount" | "failedCount" | "errorMessage"
 	>
+>;
+
+export type ConfigImportItem = z.infer<typeof ConfigImportSchema>;
+export type ConfigImportUnresolvedRefItem = z.infer<
+	typeof ConfigImportUnresolvedRefSchema
+>;
+
+export type CreateConfigImportInput = Omit<
+	ConfigImportItem,
+	"importId" | "createdAt" | "updatedAt" | "state" | "completedAt"
+> & {
+	state?: ConfigImportItem["state"];
+	completedAt?: ConfigImportItem["completedAt"];
+};
+
+export type UpdateConfigImportInput = Partial<
+	Pick<ConfigImportItem, "state" | "unresolvedRefs" | "completedAt">
 >;
 
 export type UpsertAccountSettingInput = {

@@ -3,10 +3,11 @@ import type {
 	FilterResponse,
 	UpdateFilterInput as UpdateFilterRequestBody,
 } from "@remit/api-openapi-types";
-import type {
-	FilterItem,
-	IFilterAnchorTransaction,
-	UpdateFilterInput,
+import {
+	deriveFilterTtl,
+	type FilterItem,
+	type IFilterAnchorTransaction,
+	type UpdateFilterInput,
 } from "@remit/data-ports";
 import { BadRequestError } from "@remit/data-ports/errors";
 import { FilterScope, FilterState } from "@remit/domain-enums";
@@ -40,24 +41,6 @@ export interface FilterCrudDeps {
 		anchorMessageId: string,
 	): Promise<AnchorPayload | null>;
 }
-
-/**
- * Epoch-seconds `ttl` derived from `expiresAt`, set only for a `Temporary`
- * filter (RFC 034 Decision 1.3). A `Standing` filter never carries `ttl` — the
- * reserved table-wide TTL attribute must stay absent, or the row would be swept
- * (Decision 1.4).
- */
-export const deriveFilterTtl = (
-	scope: string,
-	expiresAt: string | undefined,
-): number | undefined => {
-	if (scope !== FilterScope.Temporary || !expiresAt) return undefined;
-	const ms = new Date(expiresAt).getTime();
-	if (Number.isNaN(ms)) {
-		throw new BadRequestError(`Invalid expiresAt: ${expiresAt}`);
-	}
-	return Math.floor(ms / 1000);
-};
 
 /**
  * Reduce a PATCH body to the fields a filter update may set (RFC 034, reader

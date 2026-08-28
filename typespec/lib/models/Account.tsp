@@ -7,6 +7,7 @@ import "../enums/AccountConfigState.tsp";
 import "../enums/SyncPhase.tsp";
 import "../scalars/string.tsp";
 import "./Address.tsp";
+import "./ConfigImport.tsp";
 import "./FolderAppointment.tsp";
 
 using TypeSpec.Http;
@@ -420,6 +421,9 @@ model ConfigDescriptionResponse {
 
   @doc("Associated email accounts")
   accounts: AccountResponse[];
+
+  @doc("Absent unless a configuration import is still waiting on folders IMAP has not produced yet (#1021). Nothing polls a separate route for it.")
+  pendingImport?: PendingConfigImport;
 }
 
 @doc("A configuration export: one versioned document carrying every user decision this instance holds, and no credential.")

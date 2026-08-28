@@ -19,6 +19,10 @@
       "types": "./src/service/create-remit-client.ts",
       "default": "./src/service/create-remit-client.ts"
     },
+    "./folder-role-appointments": {
+      "types": "./src/handlers/folder-role-appointments.ts",
+      "default": "./src/handlers/folder-role-appointments.ts"
+    },
     "./organize": {
       "types": "./src/service/organize.ts",
       "default": "./src/service/organize.ts"
