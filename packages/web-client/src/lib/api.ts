@@ -25,7 +25,7 @@ export interface CodedApiErrorBody {
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null;
+	typeof value === "object" && value !== null && !Array.isArray(value);
 
 export const codedApiErrorBody = (
 	error: unknown,
@@ -38,8 +38,9 @@ export const codedApiErrorBody = (
 };
 
 const failureMessage = (body: unknown, status: number): string => {
-	if (isRecord(body) && typeof body.message === "string" && body.message) {
-		return body.message;
+	if (isRecord(body) && body.message !== undefined && body.message !== null) {
+		const message = String(body.message);
+		if (message) return message;
 	}
 	return `Request failed with status ${status}`;
 };
