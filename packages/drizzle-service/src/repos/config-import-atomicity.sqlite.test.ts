@@ -6,9 +6,16 @@ import {
 } from "@remit/config-transfer";
 import type { Db } from "../db.js";
 import {
-	type MessageDataSchema,
-	messageDataSchema,
-} from "../schema/message-data.js";
+	accountConfigTable,
+	accountSettingTable,
+	accountTable,
+	addressTable,
+	configImportTable,
+	filterAnchorTable,
+	filterTable,
+	labelTable,
+	mailboxTable,
+} from "../schema.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 import { runInTransaction, serializeSqliteWrites } from "../tx.js";
 import { FilterRepo } from "./filter.js";
@@ -27,6 +34,22 @@ import { LabelRepo } from "./label.js";
 // real `runInTransaction` savepoint. A filter write is made to fail after the
 // account, the label and the configuration row have already been inserted — the
 // exact shape of a half-applied import — and nothing may survive it.
+
+// Every table the import touches, and only those: `pushSchema` creates exactly
+// what this object names.
+const IMPORT_SCHEMA = {
+	accountConfig: accountConfigTable,
+	account: accountTable,
+	accountSetting: accountSettingTable,
+	address: addressTable,
+	configImport: configImportTable,
+	filter: filterTable,
+	filterAnchor: filterAnchorTable,
+	label: labelTable,
+	mailbox: mailboxTable,
+};
+
+type ImportSchema = typeof IMPORT_SCHEMA;
 
 const CONFIG_ID = "0d9c8b7a6e5f4d3cb2a10f9e8";
 const ACCOUNT_ID = "6f4c2c309a2c4a7f9f9f1f2c3";
@@ -90,26 +113,27 @@ const document = () => ({
 });
 
 describe("a config import is atomic over the real sqlite savepoint", () => {
-	let db: Db<MessageDataSchema>;
+	let db: Db<ImportSchema>;
 	let close: () => Promise<void>;
 	let repositories: ConfigImportRepositories;
 
 	before(async () => {
-		const created =
-			await createSqliteTestDb<MessageDataSchema>(messageDataSchema);
+		const created = await createSqliteTestDb<ImportSchema>(IMPORT_SCHEMA);
 		close = created.close;
 		db = serializeSqliteWrites(created.db);
 
+		// `as never` is how every repo test hands over a pushed test schema: the
+		// repos declare the widened `Db<Record<string, unknown>>`.
 		repositories = {
-			accountConfig: new AccountConfigRepo(db),
-			account: new AccountRepo(db),
-			accountSetting: new AccountSettingRepo(db),
-			mailbox: new MailboxRepo(db),
-			label: new LabelRepo(db),
-			filter: new FilterRepo(db),
-			filterAnchor: new FilterAnchorRepo(db),
-			address: new AddressRepo(db),
-			configImport: new ConfigImportRepo(db),
+			accountConfig: new AccountConfigRepo(db as never),
+			account: new AccountRepo(db as never),
+			accountSetting: new AccountSettingRepo(db as never),
+			mailbox: new MailboxRepo(db as never),
+			label: new LabelRepo(db as never),
+			filter: new FilterRepo(db as never),
+			filterAnchor: new FilterAnchorRepo(db as never),
+			address: new AddressRepo(db as never),
+			configImport: new ConfigImportRepo(db as never),
 		};
 	});
 
