@@ -17,6 +17,7 @@ import type {
 import { MessagePlacementUnsettledError } from "@remit/data-ports/errors";
 import type { RoleResolution } from "@remit/data-ports/folder-role";
 import { MessageMoveService } from "./message-move.js";
+import { NO_JUNK_ROLES } from "./test-helpers/folder-roles.js";
 
 const ACCOUNT = "acc-1";
 const ACCOUNT_CONFIG = "cfg-1";
@@ -162,6 +163,7 @@ const buildWorld = (seed: Array<Record<string, unknown>>) => {
 	const mailboxSpecialUseService = {
 		resolveTrashRole: async () => flaggedTrash,
 		findTrashMailbox: async () => flaggedTrash.mailbox,
+		resolveJunkRolesForConfig: async () => NO_JUNK_ROLES,
 	} as unknown as IMailboxSpecialUseRepository;
 
 	const addressService = {
