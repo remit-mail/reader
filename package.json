@@ -27,6 +27,7 @@
     "release:dry-run": "node npm-scripts/publish-packages.mjs --dry-run",
     "check:publish-closure": "node npm-scripts/check-publish-closure.mjs",
     "check:consumer-typecheck": "node npm-scripts/check-consumer-typecheck.mjs",
+    "check:clean-install": "node npm-scripts/check-clean-install.mjs",
     "check:web-client-consumer": "node npm-scripts/check-web-client-consumer.mjs",
     "check:patches-applied": "node npm-scripts/check-patches-applied.mjs",
     "check:ci-coverage": "node npm-scripts/check-ci-coverage.mjs",
