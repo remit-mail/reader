@@ -58,7 +58,7 @@
 		"@remit/domain-enums": "*",
 		"short-uuid": "*",
 		"uuid": "*",
-		"zod": "*",
+		"zod": "^3.25.0",
 		"@remit/api-zod-schemas": "*"
 	},
 	"license": "MIT",

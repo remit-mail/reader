@@ -356,8 +356,8 @@ jobs:
         run: npm run e2e:dev:down
 
   # The pre-publish gate: pack every open-core package, check the publish
-  # closure, and install the result from the public registry into a clean
-  # directory. It lives here rather than beside the real publish job in
+  # closure, and install the packed result into a clean directory. It lives
+  # here rather than beside the real publish job in
   # publish.yml because only a job in this workflow can be a dependency of the
   # gate below, and an advisory publish check is one a broken publish surface
   # merges straight past.
@@ -389,18 +389,14 @@ jobs:
       # reaches for the engine's cache directly.
       - uses: ./.github/actions/hunspell
       - run: npm run release:dry-run
-      # Guards install-ability of the published set: a clean directory, outside
-      # the repo, installing @remit/backend alone must pull and resolve its full
-      # transitive @remit closure off the public registry — the failure mode this
-      # pipeline exists to prevent. Each manifest declares its @remit imports, so
-      # one package drags in the rest.
+      # Guards install-ability of this branch's publish surface: a clean
+      # directory, outside the repo, declaring @remit/backend alone must resolve
+      # its full transitive @remit closure — the failure mode this pipeline
+      # exists to prevent. The closure comes from tarballs packed here, so the
+      # verdict is about the branch; third-party dependencies still resolve off
+      # the public registry, so a bad range fails.
       - name: Clean-install acceptance
-        run: |
-          tmp=$(mktemp -d)
-          cd "$tmp"
-          npm init -y >/dev/null
-          npm install @remit/backend --loglevel=error
-          node -e "for (const p of ['@remit/backend','@remit/data-ports','@remit/drizzle-service','@remit/domain-enums','@remit/api-openapi-types','@remit/mailbox-service','@remit/search-service','@remit/storage-service','@remit/auth-service','@remit/secrets-service','@remit/sqs-client','@remit/mail-oauth-service','@remit/logger-lambda','@remit/api-zod-schemas','@remit/drizzle-sqlite-schema']) require.resolve(p)"
+        run: npm run check:clean-install
 
       # Consumer-side acceptance for the web client's published build surface:
       # off the packed tarball, assert the harness toolchain is declared (not
