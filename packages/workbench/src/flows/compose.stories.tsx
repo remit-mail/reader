@@ -519,6 +519,36 @@ export const Inline: Story = {
 };
 
 /**
+ * A forward, and what it carries. The block under the editor is the message
+ * being passed on — the header naming who wrote it, when, about what and to
+ * whom, and then the original whole rather than quoted. It is one value with
+ * what the send writes into the body, so what is shown here is what the
+ * recipient reads (#845.5).
+ */
+export const Forward: Story = {
+	render: () => (
+		<div className="mx-auto mt-8 h-[460px] w-[640px] overflow-auto rounded-md border border-line">
+			<Composer
+				layout="flow"
+				to={[]}
+				subject="Fwd: Lunch Thursday?"
+				body="<p>Passing this on — can you make it?</p>"
+				quoted={[
+					"---------- Forwarded message ----------",
+					"From: Ada Lovelace <ada@example.com>",
+					"Date: Jun 24, 2026, 9:14 AM",
+					"Subject: Lunch Thursday?",
+					"To: Me <me@example.com>",
+					"",
+					"Are we still on for Thursday? I can do 12:30.",
+				].join("\n")}
+				quotedSender="Ada Lovelace"
+			/>
+		</div>
+	),
+};
+
+/**
  * The conversation and the reply it is being written into, arranged the way
  * `ConversationView` arranges them: the subject heading is the pane's own, the
  * reply leads the pane, the thread reads newest first underneath it, and the
