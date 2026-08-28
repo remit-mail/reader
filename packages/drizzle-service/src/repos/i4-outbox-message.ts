@@ -273,7 +273,16 @@ export class OutboxMessageRepo implements IOutboxMessageRepository {
 		accountId: string,
 		options?: { limit?: number; continuationToken?: string },
 	): Promise<ResultList<OutboxMessageItem>> {
+		return this.listByAccounts([accountId], options);
+	}
+
+	async listByAccounts(
+		accountIds: string[],
+		options?: { limit?: number; continuationToken?: string },
+	): Promise<ResultList<OutboxMessageItem>> {
 		const limit = options?.limit ?? 100;
+		if (accountIds.length === 0) return resultList([], limit);
+
 		const cursor = options?.continuationToken
 			? decodeToken(options.continuationToken)
 			: undefined;
@@ -289,7 +298,7 @@ export class OutboxMessageRepo implements IOutboxMessageRepository {
 			.from(outboxMessageTable)
 			.where(
 				and(
-					eq(outboxMessageTable.accountId, accountId),
+					inArray(outboxMessageTable.accountId, accountIds),
 					after
 						? or(
 								lt(outboxMessageTable.createdAt, after.createdAt),

@@ -92,5 +92,15 @@ export interface IOutboxMessageRepository {
 		accountId: string,
 		options?: { limit?: number; continuationToken?: string },
 	): Promise<ResultList<OutboxMessageItem>>;
+	/**
+	 * One keyset scan over several accounts, ordered globally by createdAt then
+	 * outboxMessageId. The continuation token names a position in that single
+	 * ordering rather than one position per account, so a second page stays
+	 * coherent however the accounts' rows interleave.
+	 */
+	listByAccounts(
+		accountIds: string[],
+		options?: { limit?: number; continuationToken?: string },
+	): Promise<ResultList<OutboxMessageItem>>;
 	listQueued(accountId: string): Promise<OutboxMessageItem[]>;
 }
