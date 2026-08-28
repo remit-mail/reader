@@ -37,6 +37,9 @@ import "./SemanticSearch.tsp";
 // Export
 import "./AccountExportRequest.tsp";
 
+// Configuration import (#1021)
+import "./ConfigImport.tsp";
+
 // Smart Organize back-apply job (RFC 034, #1278)
 import "./OrganizeJobRequest.tsp";
 

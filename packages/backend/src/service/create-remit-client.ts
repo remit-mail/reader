@@ -4,6 +4,7 @@ import type {
 	IAccountRepository,
 	IAccountSettingRepository,
 	IAddressRepository,
+	IConfigImportRepository,
 	IEnvelopeRepository,
 	IFilterAnchorRepository,
 	IFilterAnchorTransaction,
@@ -77,6 +78,11 @@ export interface RemitClient {
 	threadMessage: IThreadMessageRepository;
 	envelope: IEnvelopeRepository;
 	accountExportRequest: IAccountExportRequestRepository;
+
+	// Applied configuration imports (#1021), and the folder references each is
+	// still waiting for. Read by GET /config to surface what a file named but
+	// IMAP has not produced yet, and written by the binder when it does.
+	configImport: IConfigImportRepository;
 
 	// Messages the sync path could not read (issue #72). Read-only from the API
 	// process: the sync worker writes the rows, settings lists them.
@@ -163,6 +169,13 @@ export interface RemitClient {
 
 	// Helper to create IMAP connection scope from accountId
 	createConnectionScope: (accountId: string) => Promise<ConnectionScope>;
+
+	// Runs an arbitrary set of repository writes as one transaction. Absent on a
+	// backend with no cross-entity transaction, where the caller's contract is
+	// instead: validate before the first write, fail fast, and report what
+	// landed. The message-save write set has its own bound repositories and uses
+	// `unitOfWork`; this one takes the repos as they are.
+	writeSet?: <T>(run: () => Promise<T>) => Promise<T>;
 }
 
 export interface RemitClientRepositories {
@@ -180,6 +193,7 @@ export interface RemitClientRepositories {
 	threadMessage: IThreadMessageRepository;
 	envelope: IEnvelopeRepository;
 	accountExportRequest: IAccountExportRequestRepository;
+	configImport: IConfigImportRepository;
 	quarantine: IQuarantineRepository;
 	organizeJobRequest: IOrganizeJobRequestRepository;
 	placementMove: IMessagePlacementMoveRepository;
@@ -191,6 +205,7 @@ export interface RemitClientRepositories {
 	messageLabel: IMessageLabelRepository;
 	senderSignerStanding: ISenderSignerStandingRepository;
 	unitOfWork?: IUnitOfWork;
+	writeSet?: <T>(run: () => Promise<T>) => Promise<T>;
 }
 
 export interface RemitClientSharedDeps {
@@ -407,6 +422,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		threadMessage: repositories.threadMessage,
 		envelope: repositories.envelope,
 		accountExportRequest: repositories.accountExportRequest,
+		configImport: repositories.configImport,
 		quarantine: repositories.quarantine,
 		organizeJobRequest: repositories.organizeJobRequest,
 		filter: repositories.filter,
@@ -416,6 +432,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		messageLabel: repositories.messageLabel,
 		senderSignerStanding: repositories.senderSignerStanding,
 		unitOfWork: repositories.unitOfWork,
+		writeSet: repositories.writeSet,
 
 		storage,
 		search,

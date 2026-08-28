@@ -1,4 +1,6 @@
 import { getClient } from "@remit/backend/client";
+import type { ConfigBinderRepositories } from "@remit/config-transfer";
+import { bindImportedFolders } from "@remit/config-transfer";
 import type {
 	AccountItem,
 	IAccountRepository,
@@ -82,12 +84,14 @@ export const syncMailboxes = async (
 	event: SyncMailboxesEvent,
 	log: Logger,
 ): Promise<void> => {
+	const client = await getClient();
 	const {
 		account: accountService,
 		mailbox: mailboxService,
 		mailboxSpecialUse: mailboxSpecialUseService,
 		secrets,
-	} = await getClient();
+	} = client;
+	const binderRepositories: ConfigBinderRepositories = client;
 
 	const { accountId } = event;
 	log.info({ event: event.type, accountId }, "Handling event");
@@ -125,6 +129,7 @@ export const syncMailboxes = async (
 					mailboxService,
 					mailboxSpecialUseService,
 					accountService,
+					binderRepositories,
 					log,
 				);
 			} catch (err) {
@@ -157,6 +162,7 @@ const syncMailboxesForAccount = async (
 	mailboxService: IMailboxRepository,
 	mailboxSpecialUseService: IMailboxSpecialUseRepository,
 	accountService: IAccountRepository,
+	binderRepositories: ConfigBinderRepositories,
 	log: Logger,
 ): Promise<void> => {
 	const { accountId } = account;
@@ -193,6 +199,20 @@ const syncMailboxesForAccount = async (
 	await accountService.update(accountId, { lastSyncAt: Date.now() });
 
 	log.info({ result }, "Mailbox sync complete");
+
+	// The folder list this account holds is now known, which is the one thing a
+	// configuration import could not know when it ran: every folder in a file is
+	// named by IMAP path, and the ids are minted here. Binding what is bindable
+	// belongs at exactly this point, and is idempotent, so a later discovery
+	// simply finds nothing left to do.
+	const bound = await bindImportedFolders(
+		{ repositories: binderRepositories },
+		account.accountConfigId,
+		accountId,
+	);
+	if (bound.bound > 0 || bound.stillPending > 0) {
+		log.info({ accountId, ...bound }, "Bound imported folder references");
+	}
 
 	const allMailboxes = await collectAllMailboxes(accountId, mailboxService);
 

@@ -123,6 +123,23 @@ export class MessagePlacementUnsettledError extends ConflictError {
 }
 
 /**
+ * A configuration import refused because this configuration is not empty
+ * (#1021). The default is to refuse rather than to fold the file in: a person
+ * importing over a configuration they forgot they had should hear about it
+ * before anything moves. `details` counts what is already here, so the client
+ * can say what would be merged, and the same request with `onExisting: merge`
+ * goes through.
+ */
+export class ConfigNotEmptyError extends ConflictError {
+	name = "ConfigNotEmptyError";
+
+	constructor(message: string, details: Record<string, string>) {
+		super(message);
+		this.publicApiError = { code: "config_not_empty", details };
+	}
+}
+
+/**
  * A message exists but its body could not be fetched/parsed after every
  * body-sync retry was spent (issue #1270 / epic #1281 invariant 3). This is
  * distinct from `NotFoundError`: the message is real, but its content is

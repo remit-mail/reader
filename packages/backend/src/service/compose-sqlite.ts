@@ -4,6 +4,7 @@ import {
 	AccountRepo,
 	AccountSettingRepo,
 	AddressRepo,
+	ConfigImportRepo,
 	createSqliteDatabase,
 	DrizzleEnvelopeRepository,
 	DrizzleFilterAnchorTransaction,
@@ -25,6 +26,7 @@ import {
 	OutboxAttachmentRepo,
 	OutboxMessageRepo,
 	QuarantineRepo,
+	runInTransaction,
 	SenderSignerStandingRepo,
 } from "@remit/drizzle-service";
 import { env } from "expect-env";
@@ -65,6 +67,7 @@ export const buildSqliteClient = async (): Promise<RemitClient> => {
 		threadMessage: new DrizzleThreadMessageRepository(genericDb),
 		envelope: new DrizzleEnvelopeRepository(messageDataDb),
 		accountExportRequest: new AccountExportRequestRepo(genericDb),
+		configImport: new ConfigImportRepo(genericDb),
 		quarantine: new QuarantineRepo(genericDb),
 		organizeJobRequest: new OrganizeJobRequestRepo(genericDb),
 		placementMove: new MessagePlacementMoveRepo(genericDb),
@@ -76,6 +79,7 @@ export const buildSqliteClient = async (): Promise<RemitClient> => {
 		messageLabel: new MessageLabelRepo(genericDb),
 		senderSignerStanding: new SenderSignerStandingRepo(genericDb),
 		unitOfWork: new DrizzleUnitOfWork(messageDataDb),
+		writeSet: (run) => runInTransaction(genericDb, () => run()),
 	};
 
 	return createRemitClient({ repositories, ...buildSharedDeps() });

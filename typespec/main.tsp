@@ -85,6 +85,14 @@ namespace RemitApi {
     @get
     @route("/export")
     op exportConfig(): ConfigExportResponse;
+
+    @doc("Validate, or validate and apply, a config document. `mode: validate` (the default) writes nothing and returns the same report an apply would. `onExisting: abort` (the default) refuses with 409 when this configuration already holds accounts, labels, filters or address flags. Nothing is written until the whole document has validated; a write failure after that aborts the remainder and the report names exactly what landed. Imported accounts arrive inactive with `connectionState: credentials_missing` (or `reauth_required` for OAuth) - the credentials the file deliberately omits are re-entered per account afterwards.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/import")
+    op importConfig(
+      @body input: ImportConfigInput,
+    ): ConfigImportReport | ValidationError | ConfigImportConflict;
   }
 
   // ============================================

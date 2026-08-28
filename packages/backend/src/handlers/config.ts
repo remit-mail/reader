@@ -4,14 +4,20 @@ import type {
 	ConfigDescriptionResponse,
 } from "@remit/api-openapi-types";
 import type { ReaderConfigDocument } from "@remit/config-format";
-import { readConfigForExport } from "@remit/config-transfer";
+import {
+	type ConfigImportReport,
+	importConfig,
+	pendingImportOf,
+	readConfigForExport,
+} from "@remit/config-transfer";
 import type { AccountConfigItem, MailboxItem } from "@remit/data-ports";
-import { NotFoundError } from "@remit/data-ports/errors";
+import { ConfigNotEmptyError, NotFoundError } from "@remit/data-ports/errors";
 import { logger } from "@remit/logger-lambda";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
+import { embedAnchorText } from "../service/config-import.js";
 import { getClient } from "../service/data-client.js";
 import { exportIdentity } from "../service/export-identity.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
@@ -204,8 +210,15 @@ export const ConfigOperations: Record<
 			activeAccounts.map((acc) => acc.accountId),
 		);
 
+		// An import that named folders IMAP had not produced yet rides the config
+		// read rather than a route of its own, so nothing has to poll for it.
+		const pendingImport = pendingImportOf(
+			await client.configImport.listByAccountConfig(accountConfigId),
+		);
+
 		return {
 			accountConfig: toAccountConfigResponse(accountConfig),
+			...(pendingImport ? { pendingImport } : {}),
 			accounts: activeAccounts.map((acc) =>
 				toAccountResponse(
 					acc,
@@ -233,5 +246,45 @@ export const ConfigOperations: Record<
 			exportIdentity(),
 		);
 		return { schemaVersion: document.schemaVersion, document };
+	},
+
+	ConfigOperations_importConfig: async (
+		context: Context,
+		...args: unknown[]
+	): Promise<ConfigImportReport> => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const body = (context.request.requestBody ?? {}) as {
+			mode?: "validate" | "apply";
+			onExisting?: "abort" | "merge";
+			document?: unknown;
+		};
+		const client = await getClient();
+
+		const outcome = await importConfig(
+			{
+				repositories: client,
+				// Absent on a backend with no cross-entity transaction: the document
+				// has already validated whole by the time the first write goes out,
+				// and the report names where an apply stopped.
+				transaction: client.writeSet ?? ((run) => run()),
+				embedAnchor: embedAnchorText,
+			},
+			{
+				accountConfigId,
+				userId: getSubFromEvent(event) ?? accountConfigId,
+				document: body.document,
+				mode: body.mode ?? "validate",
+				onExisting: body.onExisting ?? "abort",
+			},
+		);
+
+		if (outcome.outcome === "conflict") {
+			throw new ConfigNotEmptyError(
+				outcome.conflict.message,
+				outcome.conflict.details,
+			);
+		}
+		return outcome.report;
 	},
 };

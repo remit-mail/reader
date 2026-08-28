@@ -13,6 +13,7 @@ export type OperationIds =
 	| "MeOperations_listQuarantine"
 	| "ConfigOperations_getConfig"
 	| "ConfigOperations_exportConfig"
+	| "ConfigOperations_importConfig"
 	| "SystemOperations_getSystemUpdate"
 	| "SystemOperations_applySystemUpdate"
 	| "AccountOperations_createAccount"
