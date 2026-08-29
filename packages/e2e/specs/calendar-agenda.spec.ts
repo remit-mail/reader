@@ -8,7 +8,7 @@
  * against `GET /calendar-events` and `GET /calendar-free-busy`, so a strip
  * drawing its own cache back at itself cannot pass.
  */
-import type { Locator, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import type { CalendarEventResource } from "../src/api.js";
 import { waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
@@ -57,49 +57,6 @@ const dayInPath =
 /** "31 days with nothing booked" — the run's own account of what it swallowed. */
 const runDays = (text: string): number =>
 	Number(/(\d+) days with nothing booked/.exec(text)?.[1] ?? 0);
-
-/**
- * What the strip's sticky header stands clear of: its own height and the margin
- * the day under it is read at. A row has reached the header once it is this far
- * above the top of the pane.
- */
-const HEADER_CLEARANCE = 40;
-
-interface StripGeometry {
-	/** The chrome above the strip, which a viewport height has to carry too. */
-	above: number;
-	content: number;
-	pane: number;
-	/**
-	 * Where the row after the day the address opened on reaches the header. The
-	 * first offset the reader can scroll to that leaves the address somewhere
-	 * new to follow them to.
-	 */
-	boundary: number;
-}
-
-const geometryOf = (strip: Locator): Promise<StripGeometry> =>
-	strip.evaluate((el, clearance) => {
-		const rows = [...el.children].slice(1) as HTMLElement[];
-		const opening = rows.findIndex((row) => row.querySelector("section"));
-		const next = rows[opening + 1] ?? rows[rows.length - 1];
-		return {
-			above: Math.round(el.getBoundingClientRect().top),
-			content: el.scrollHeight,
-			pane: el.clientHeight,
-			boundary: next.offsetTop - clearance,
-		};
-	}, HEADER_CLEARANCE);
-
-/**
- * How far past that boundary the strip can be scrolled. Negative means the pane
- * is taller than the days the strip holds, so the reader can never bring a
- * later day under the header and the address has nothing to follow.
- */
-const reachAtEnd = async (strip: Locator): Promise<number> => {
-	const { content, pane, boundary } = await geometryOf(strip);
-	return content - pane - boundary;
-};
 
 /**
  * The suite shares one account, so an event left behind is the next spec's
@@ -231,28 +188,16 @@ test.describe("The agenda strip", () => {
 				weekReads.push(request.url());
 		});
 
-		// Five weeks with two events in them are a handful of rows, so the pane is
-		// cut down until the strip is a window onto its days rather than all of
-		// them. Sized off the strip's own geometry: a reader who cannot bring a
-		// later day under the header has nothing for the address to follow, and
-		// every claim below would pass on an empty gesture.
-		const drawn = await geometryOf(strip);
-		await page.setViewportSize({
-			width: DESKTOP.width,
-			// One clearance shorter than the bound, so the boundary comes clear of
-			// the header rather than landing exactly on it. The floor keeps a
-			// pathological measurement out of Playwright's own error and leaves the
-			// check below to say what actually went wrong.
-			height: Math.max(
-				160,
-				drawn.above + drawn.content - drawn.boundary - HEADER_CLEARANCE,
-			),
-		});
+		// The strip scrolls only when it is taller than the pane holding it, and
+		// five weeks with two events in them are a handful of rows. A short window
+		// is the honest way to get a scrollbar, rather than inventing a diary the
+		// rest of this test is not about.
+		await page.setViewportSize({ width: DESKTOP.width, height: 320 });
 		await expect
-			.poll(() => reachAtEnd(strip), {
-				message: "the pane to leave a day boundary above the fold",
+			.poll(() => strip.evaluate((el) => el.scrollHeight - el.clientHeight), {
+				message: "the strip to stand taller than the pane holding it",
 			})
-			.toBeGreaterThanOrEqual(0);
+			.toBeGreaterThan(0);
 
 		// Two events five weeks apart draw shorter than the distance the strip
 		// fetches at, so every end is within reach of itself on every layout pass
@@ -276,16 +221,31 @@ test.describe("The agenda strip", () => {
 				message: "the strip to hold days past the range it opened with",
 			})
 			.toBeGreaterThan(opened);
-		expect(weekReads).toHaveLength(1);
+		const ahead = weekReads.length;
+		expect(ahead).toBeGreaterThan(0);
+
+		// Back the other way, far enough to put the days before the anchor under
+		// the header. Which end a reader reaches is theirs to choose, and the run
+		// grows at whichever one they went to.
+		const leading = runs.first();
+		const behind = runDays(await leading.innerText());
+		await page.mouse.wheel(0, -4_000);
+		await expect
+			.poll(async () => runDays(await leading.innerText()), {
+				message: "the strip to hold days before the range it opened with",
+			})
+			.toBeGreaterThan(behind);
+		const asked = weekReads.length;
+		expect(asked).toBeGreaterThan(ahead);
 
 		// The day under the header is written back to the path, in the direction
-		// the reader went: the end of the strip is later than the day it opened
+		// the reader went: the top of the strip is earlier than the day it opened
 		// on, so that is where the address has to be.
 		await expect
 			.poll(dayInPath(page), {
-				message: "the address to follow the strip on to the days it reached",
+				message: "the address to follow the strip back on to the days behind",
 			})
-			.toBeGreaterThan(0);
+			.toBeLessThan(0);
 		const landed = pathDay(page);
 		expect(landed).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 		// Scrolling is not somewhere the reader went, so Back still belongs to the
@@ -301,7 +261,7 @@ test.describe("The agenda strip", () => {
 				message: "the pane to grow back past the strip and clamp its scroll",
 			})
 			.toBe(0);
-		expect(weekReads).toHaveLength(1);
+		expect(weekReads).toHaveLength(asked);
 		expect(pathDay(page)).toBe(landed);
 
 		// Changing zoom keeps the day and the ticked calendars: the grid is a
