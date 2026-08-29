@@ -233,6 +233,24 @@ export const DryRunReportPhone: Story = {
 	),
 };
 
+/**
+ * A household's worth of rules and senders, on the 1512×827 laptop where this
+ * report was found running off the bottom of the screen with "Import n changes"
+ * unreachable below it (#1021). The report scrolls inside the card; the
+ * verdict summary at the top and the import button at the bottom both stay put.
+ */
+export const DryRunReportLongShortViewport: Story = {
+	globals: { viewport: { value: "laptopShort" } },
+	render: () => (
+		<StepDryRunReport
+			sections={groupReportSections(
+				Array.from({ length: 6 }, () => dryRunReport.items).flat(),
+			)}
+			fileName={CONFIG_FILE_NAME}
+		/>
+	),
+};
+
 const HELD =
 	"2 accounts, 14 rules and 31 flagged senders are set up here already.";
 
