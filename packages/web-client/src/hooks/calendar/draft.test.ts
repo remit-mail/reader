@@ -19,6 +19,8 @@ import {
 } from "./draft";
 
 const CALENDAR = "cal_work";
+const AMSTERDAM = "Europe/Amsterdam";
+const NEW_YORK = "America/New_York";
 
 const draft = (over: Partial<EventDraft> = {}): EventDraft => ({
 	...emptyDraft("2026-06-10", CALENDAR),
@@ -36,19 +38,19 @@ const refusal = (result: CreateInput | UpdatePatch): string => {
 
 describe("creating an event", () => {
 	it("sends the calendar, the summary and a start with an offset", () => {
-		const built = createInputFromDraft(draft(), "Europe/Amsterdam");
+		const built = createInputFromDraft(draft(), AMSTERDAM);
 		assert.ok(built.ok);
 		assert.equal(built.input.calendarId, CALENDAR);
 		assert.equal(built.input.summary, "Roadmap review");
-		assert.equal(built.input.timeZone, "Europe/Amsterdam");
-		assert.match(built.input.start, /^2026-06-10T09:00:00[+-]\d{2}:\d{2}$/);
-		assert.match(built.input.end, /^2026-06-10T10:00:00[+-]\d{2}:\d{2}$/);
+		assert.equal(built.input.timeZone, AMSTERDAM);
+		assert.equal(built.input.start, "2026-06-10T09:00:00+02:00");
+		assert.equal(built.input.end, "2026-06-10T10:00:00+02:00");
 	});
 
 	it("makes an all-day event a civil date ending on the next one", () => {
 		const built = createInputFromDraft(
 			draft({ allDay: true, startTime: "", endTime: "" }),
-			"Europe/Amsterdam",
+			AMSTERDAM,
 		);
 		assert.ok(built.ok);
 		assert.equal(built.input.start, "2026-06-10");
@@ -58,7 +60,7 @@ describe("creating an event", () => {
 	it("turns a picked repeat sentence into the rule it means", () => {
 		const built = createInputFromDraft(
 			draft({ repeat: "Every weekday, 09:00" }),
-			"Europe/Amsterdam",
+			AMSTERDAM,
 		);
 		assert.ok(built.ok);
 		assert.equal(
@@ -108,38 +110,103 @@ describe("a refusal", () => {
 describe("editing an event", () => {
 	it("sends only the field that changed", () => {
 		const before = draft({ location: "Room Zuid", notes: "Bring numbers." });
-		const patch = patchFromDrafts(before, { ...before, title: "Roadmap" });
+		const patch = patchFromDrafts(
+			before,
+			{ ...before, title: "Roadmap" },
+			AMSTERDAM,
+		);
 		assert.ok(patch.ok);
 		assert.deepEqual(patch.patch, { summary: "Roadmap" });
 	});
 
 	it("sends both ends and the all-day flag when the event moves", () => {
 		const before = draft();
-		const patch = patchFromDrafts(before, { ...before, startTime: "08:00" });
+		const patch = patchFromDrafts(
+			before,
+			{ ...before, startTime: "08:00" },
+			AMSTERDAM,
+		);
 		assert.ok(patch.ok);
 		assert.equal(patch.patch.allDay, false);
-		assert.match(patch.patch.start ?? "", /^2026-06-10T08:00:00/);
-		assert.match(patch.patch.end ?? "", /^2026-06-10T10:00:00/);
+		assert.equal(patch.patch.start, "2026-06-10T08:00:00+02:00");
+		assert.equal(patch.patch.end, "2026-06-10T10:00:00+02:00");
 	});
 
 	it("leaves an unreadable rule alone rather than refusing every other edit", () => {
 		const before = draft({ repeat: "Repeats" });
-		const patch = patchFromDrafts(before, { ...before, title: "Standup" });
+		const patch = patchFromDrafts(
+			before,
+			{ ...before, title: "Standup" },
+			AMSTERDAM,
+		);
 		assert.ok(patch.ok);
 		assert.deepEqual(patch.patch, { summary: "Standup" });
 	});
 
 	it("drops the rule when the reader turns the repeat off", () => {
 		const before = draft({ repeat: "Every weekday, 09:00" });
-		const patch = patchFromDrafts(before, { ...before, repeat: "" });
+		const patch = patchFromDrafts(before, { ...before, repeat: "" }, AMSTERDAM);
 		assert.ok(patch.ok);
 		assert.equal(patch.patch.recurrenceRule, "");
 	});
 
 	it("changes nothing when nothing was touched", () => {
 		const before = draft();
-		const patch = patchFromDrafts(before, { ...before });
+		const patch = patchFromDrafts(before, { ...before }, AMSTERDAM);
 		assert.ok(patch.ok);
 		assert.deepEqual(patch.patch, {});
+	});
+});
+
+/**
+ * The clock the form shows is the calendar's, not the device's.
+ *
+ * An occurrence is returned in the collection's zone and the form displays
+ * those digits, so rebuilding them with whatever offset the reader's laptop
+ * happens to be on moves the event by the difference — six hours for the same
+ * meeting looked at from New York, with nothing on screen saying it moved.
+ *
+ * Both assertions are absolute rather than "whatever this runner is on": the
+ * bug is precisely that the runner's zone leaked in, so a test that reads it is
+ * a test that cannot see the bug.
+ */
+describe("an event anchored somewhere other than the device", () => {
+	it("keeps a new event on the calendar's clock", () => {
+		const built = createInputFromDraft(draft(), NEW_YORK);
+		assert.ok(built.ok);
+		assert.equal(built.input.start, "2026-06-10T09:00:00-04:00");
+		assert.equal(built.input.timeZone, NEW_YORK);
+	});
+
+	it("moves an event to another day without moving it to another hour", () => {
+		const before = draft();
+		const patch = patchFromDrafts(
+			before,
+			{ ...before, date: "2026-06-17" },
+			AMSTERDAM,
+		);
+		assert.ok(patch.ok);
+		assert.equal(patch.patch.start, "2026-06-17T09:00:00+02:00");
+		assert.equal(patch.patch.end, "2026-06-17T10:00:00+02:00");
+		assert.equal(
+			patch.patch.timeZone,
+			AMSTERDAM,
+			"the offset pins the instant; the zone is what survives a DST change",
+		);
+	});
+
+	it("reads the zone's own winter offset rather than one it saw in June", () => {
+		const built = createInputFromDraft(
+			draft({ date: "2026-01-14" }),
+			AMSTERDAM,
+		);
+		assert.ok(built.ok);
+		assert.equal(built.input.start, "2026-01-14T09:00:00+01:00");
+	});
+
+	it("falls back to the device rather than refusing a zone nothing can resolve", () => {
+		const built = createInputFromDraft(draft(), "Mars/Olympus_Mons");
+		assert.ok(built.ok);
+		assert.match(built.input.start, /^2026-06-10T09:00:00[+-]\d{2}:\d{2}$/);
 	});
 });

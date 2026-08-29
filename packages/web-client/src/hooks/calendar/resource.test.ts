@@ -46,10 +46,32 @@ describe("the text a listing does not carry", () => {
 
 	it("reads a property that carries parameters", () => {
 		assert.equal(
-			textFromIcalData(ics('DESCRIPTION;ALTREP="cid:x":Plain text'))
+			textFromIcalData(ics("DESCRIPTION;LANGUAGE=en:Plain text")).description,
+			"Plain text",
+		);
+	});
+
+	/**
+	 * A parameter value may be quoted precisely so it can hold a colon, which is
+	 * what a URI does. Splitting the line on its first colon hands back the tail
+	 * of that URI as though it were the property's own value.
+	 */
+	it("reads past a colon inside a quoted parameter", () => {
+		assert.equal(
+			textFromIcalData(ics('DESCRIPTION;ALTREP="cid:part1.0":Plain text'))
 				.description,
 			"Plain text",
 		);
+		assert.equal(
+			textFromIcalData(
+				ics('LOCATION;X-ADDRESS="https://maps.example/x:1":Room Zuid'),
+			).location,
+			"Room Zuid",
+		);
+	});
+
+	it("does not answer for a property whose name merely starts the same", () => {
+		assert.equal(textFromIcalData(ics("LOCATION-TYPE:room")).location, "");
 	});
 
 	it("takes the master's value rather than an override's", () => {

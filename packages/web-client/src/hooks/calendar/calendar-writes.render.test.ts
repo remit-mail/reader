@@ -85,10 +85,11 @@ function Probe() {
 
 const mount = async (
 	respond: (call: HttpCall) => unknown,
-	options: { escalating?: boolean } = {},
+	options: { escalating?: boolean; calendarsRespond?: boolean } = {},
 ) => {
+	const serveCalendars = options.calendarsRespond ?? true;
 	http = mockFetch((call) =>
-		call.path.endsWith("/calendars") && call.method === "GET"
+		serveCalendars && call.path.endsWith("/calendars") && call.method === "GET"
 			? { items: calendars }
 			: respond(call),
 	);
@@ -178,10 +179,28 @@ describe("editing one occurrence of a series", () => {
 
 		const patched = (http?.calls ?? []).find((call) => call.method === "PATCH");
 		assert.ok(patched, "the edit was sent");
+		assert.equal(
+			patched.headers["if-match"],
+			"etag-1",
+			"an unconditional write is one that can discard somebody else's edit",
+		);
 		assert.ok(patched.url.includes("scope=This"), patched.url);
 		assert.ok(
 			patched.url.includes(encodeURIComponent("2026-06-11T07:15:00Z")),
 			patched.url,
+		);
+	});
+
+	it("makes the delete conditional on the same version", async () => {
+		await mount(() => ({ items: [] }));
+		await write((writes) => writes.deleteEvent(scopedWrite));
+		const deleted = (http?.calls ?? []).find(
+			(call) => call.method === "DELETE",
+		);
+		assert.equal(
+			deleted?.headers["if-match"],
+			"etag-1",
+			"an unconditional delete removes whatever is there now, not what was read",
 		);
 	});
 });
@@ -231,6 +250,36 @@ describe("a refusal the server states", () => {
 });
 
 describe("a session that has lapsed", () => {
+	/**
+	 * The read is the dangerous one. A calendar that answers a 401 with no
+	 * events draws a clear week, and a clear week is what a reader plans around
+	 * — they never learn their session ended, and neither does the app.
+	 */
+	it("never lets the event listing come back as an empty week", async () => {
+		await mount(
+			(call) =>
+				call.method === "GET"
+					? httpError(401, "session expired")
+					: { items: [] },
+			{ escalating: true, calendarsRespond: false },
+		);
+		assert.ok(
+			harness?.query('[data-testid="fatal-error-overlay"]'),
+			"a refused read must not be drawn as a week with nothing in it",
+		);
+	});
+
+	it("escalates a refused calendar list rather than showing no calendars", async () => {
+		await mount(
+			(call) =>
+				call.path.endsWith("/calendars")
+					? httpError(401, "session expired")
+					: { items: [] },
+			{ escalating: true, calendarsRespond: false },
+		);
+		assert.ok(harness?.query('[data-testid="fatal-error-overlay"]'));
+	});
+
 	it("takes the reader to the page that signs them back in", async () => {
 		await mount(
 			(call) =>

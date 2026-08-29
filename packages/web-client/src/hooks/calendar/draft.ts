@@ -15,7 +15,7 @@ import type {
 } from "@remit/api-http-client/types.gen.ts";
 import type { CalendarEventData, EventDraft } from "@remit/ui";
 import { rruleFromText } from "./recurrence-rule";
-import { addDays, isoAt } from "./window";
+import { addDays, isoAtInZone } from "./window";
 
 export type DraftRefusal = { ok: false; problem: string };
 
@@ -66,11 +66,23 @@ export function draftFromEvent(
 	};
 }
 
-function timesFor(draft: EventDraft): { start: string; end: string } {
+/**
+ * The draft's wall clock, pinned to an instant in the calendar's own zone.
+ *
+ * The zone is the calendar's rather than the device's because that is the clock
+ * the times were read on: the listing returns an occurrence in the collection's
+ * zone, and the form shows those digits. Stamping the device's offset back onto
+ * them moves the event by the difference between the two — silently, and only
+ * for whoever is travelling.
+ */
+function timesFor(
+	draft: EventDraft,
+	timeZone: string,
+): { start: string; end: string } {
 	if (draft.allDay) return { start: draft.date, end: addDays(draft.date, 1) };
 	return {
-		start: isoAt(draft.date, draft.startTime),
-		end: isoAt(draft.date, draft.endTime),
+		start: isoAtInZone(draft.date, draft.startTime, timeZone),
+		end: isoAtInZone(draft.date, draft.endTime, timeZone),
 	};
 }
 
@@ -99,7 +111,7 @@ export function createInputFromDraft(
 ): CreateInput {
 	const problem = refuse(draft, true);
 	if (problem !== "") return { ok: false, problem };
-	const { start, end } = timesFor(draft);
+	const { start, end } = timesFor(draft, timeZone);
 	return {
 		ok: true,
 		input: {
@@ -119,6 +131,7 @@ export function createInputFromDraft(
 export function patchFromDrafts(
 	before: EventDraft,
 	after: EventDraft,
+	timeZone: string,
 ): UpdatePatch {
 	const repeatChanged = after.repeat !== before.repeat;
 	const problem = refuse(after, repeatChanged);
@@ -136,10 +149,13 @@ export function patchFromDrafts(
 		after.endTime !== before.endTime ||
 		after.allDay !== before.allDay;
 	if (moved) {
-		const { start, end } = timesFor(after);
+		const { start, end } = timesFor(after, timeZone);
 		patch.start = start;
 		patch.end = end;
 		patch.allDay = after.allDay;
+		// The offset pins the instant; the zone is what a series needs to keep
+		// meeting at nine when the clocks go back.
+		patch.timeZone = timeZone;
 	}
 
 	if (repeatChanged) patch.recurrenceRule = rruleFromText(after.repeat) ?? "";

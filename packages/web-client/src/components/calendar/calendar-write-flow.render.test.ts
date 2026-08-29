@@ -1,14 +1,11 @@
 /**
  * Writing an event and deleting one, through the addresses that carry them.
  *
- * The routes are the real ones: `/calendar/{view}/{date}/new` and the event
- * segment under the view. What is asserted is the request that left and the
- * address the reader ends up at, because a form that posts and then leaves the
- * composer up looks exactly like one that posted nothing.
- *
- * The grid is left out of the tree on purpose. Nothing here is about how a week
- * is drawn, and the pane routes under the view do not need one mounted beside
- * them to be reached.
+ * The addresses are the real ones — `/calendar/{view}/{date}/new` and the event
+ * segment under the view — and so are the components each mounts. What is
+ * asserted is the request that left and the address the reader ends up at,
+ * because a form that posts and then leaves the composer up looks exactly like
+ * one that posted nothing.
  */
 
 import assert from "node:assert/strict";
@@ -19,13 +16,13 @@ import type {
 	RemitImapCalendarResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import {
-	type AnyRoute,
 	type AnyRouter,
 	createMemoryHistory,
 	createRootRoute,
 	createRoute,
 	createRouter,
 	Outlet,
+	type RouteComponent,
 	RouterProvider,
 } from "@tanstack/react-router";
 import { createElement } from "react";
@@ -60,9 +57,21 @@ afterEach(() => {
 	http = undefined;
 });
 
-type Attachable = { update: (options: unknown) => AnyRoute };
-const attach = (route: unknown, options: unknown): AnyRoute =>
-	(route as Attachable).update(options);
+/**
+ * The component a file route mounts, lifted off the route itself.
+ *
+ * The route objects are module singletons and re-parenting one mutates it for
+ * every other test in the process, so the tree below is built fresh per case
+ * out of the real components rather than out of the real routes. Which routes
+ * an address mounts is `routes/calendar/-calendar-tree.test.ts`'s subject; this
+ * one is about what those components then do.
+ */
+const componentOf = (route: unknown): RouteComponent => {
+	const { component } = (route as { options: { component?: RouteComponent } })
+		.options;
+	if (!component) throw new Error("the route mounts no component");
+	return component;
+};
 
 const calendars: RemitImapCalendarResponse[] = [
 	{
@@ -113,47 +122,62 @@ const resource = {
 } as RemitImapCalendarEventResponse;
 
 /**
- * The view route, standing in for the one the app mounts: the same address, the
- * same search schema and the same seam the composer reads its slot from, with
- * the grid left out.
+ * The calendar's addresses, at the shape the generated tree gives them: the
+ * view, the composer beside the open event, and one occurrence under the series.
+ * The grid is left off — nothing here is about how a week is drawn, and the
+ * pane routes do not need one mounted beside them to be reached.
  */
-const rootRoute = createRootRoute({ component: Outlet });
-const viewRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/calendar/$view/$date",
-	validateSearch: calendarSearchSchema,
-	component: () =>
-		createElement(
-			CalendarComposeSeedProvider,
-			{ pick: undefined },
-			createElement(Outlet),
-		),
-});
-const eventRoute = attach(EventRoute, {
-	path: "$calendarObjectId",
-	getParentRoute: () => viewRoute,
-});
-eventRoute.addChildren([
-	attach(EventIndexRoute, { path: "/", getParentRoute: () => eventRoute }),
-	attach(OccurrenceRoute, {
-		path: "$recurrenceId",
-		getParentRoute: () => eventRoute,
-	}),
-]);
-viewRoute.addChildren([
-	attach(ComposeRoute, { path: "new", getParentRoute: () => viewRoute }),
-	eventRoute,
-]);
-const routeTree = rootRoute.addChildren([viewRoute]) as unknown as AnyRoute;
-
-const mount = async (entry: string, respond: (call: HttpCall) => unknown) => {
-	http = mockFetch(respond);
-	harness = createDomHarness();
-	const router = createRouter({
+const testRouter = (entry: string): AnyRouter => {
+	const rootRoute = createRootRoute({ component: Outlet });
+	const viewRoute = createRoute({
+		getParentRoute: () => rootRoute,
+		path: "/calendar/$view/$date",
+		validateSearch: calendarSearchSchema,
+		component: () =>
+			createElement(
+				CalendarComposeSeedProvider,
+				{ pick: undefined },
+				createElement(Outlet),
+			),
+	});
+	const eventRoute = createRoute({
+		getParentRoute: () => viewRoute,
+		path: "$calendarObjectId",
+		component: componentOf(EventRoute),
+	});
+	const routeTree = rootRoute.addChildren([
+		viewRoute.addChildren([
+			createRoute({
+				getParentRoute: () => viewRoute,
+				path: "new",
+				component: componentOf(ComposeRoute),
+			}),
+			eventRoute.addChildren([
+				createRoute({
+					getParentRoute: () => eventRoute,
+					path: "/",
+					component: componentOf(EventIndexRoute),
+				}),
+				createRoute({
+					getParentRoute: () => eventRoute,
+					path: "$recurrenceId",
+					component: componentOf(OccurrenceRoute),
+				}),
+			]),
+		]),
+	]);
+	return createRouter({
 		routeTree,
 		stringifySearch,
 		history: createMemoryHistory({ initialEntries: [entry] }),
 	}) as unknown as AnyRouter;
+};
+
+const mount = async (entry: string, respond: (call: HttpCall) => unknown) => {
+	http = mockFetch(respond);
+	const router = testRouter(entry);
+	await router.load();
+	harness = createDomHarness();
 	harness.renderApp(createElement(RouterProvider, { router }));
 	await settle();
 	return router;
@@ -263,6 +287,11 @@ describe("deleting an event from the event route", () => {
 		);
 		assert.equal(deleted.length, 1);
 		assert.ok(deleted[0].url.includes(`calendarId=${WORK}`), deleted[0].url);
+		assert.equal(
+			deleted[0].headers["if-match"],
+			"etag-1",
+			"a delete built on a version nobody stated can remove somebody else's event",
+		);
 		assert.equal(router.state.location.pathname, WEEK);
 	});
 });
@@ -274,11 +303,16 @@ describe("editing one morning of a repeating event", () => {
 			answering(() => ({}), [occurrence], series),
 		);
 
-		assert.match(harness?.text() ?? "", /Standup repeats/);
+		assert.doesNotMatch(
+			harness?.text() ?? "",
+			/What should the change apply to/,
+			"the question is asked when Edit is pressed, not before",
+		);
 		harness?.click(harness.byText("button", "Edit"));
 		await settle();
 
 		const asked = harness?.text() ?? "";
+		assert.match(asked, /Standup repeats/);
 		assert.match(asked, /What should the change apply to/);
 		assert.match(
 			asked,
@@ -308,6 +342,11 @@ describe("editing one morning of a repeating event", () => {
 		);
 		assert.equal(patched.length, 1);
 		assert.equal(patched[0].body?.summary, "Standup, short");
+		assert.equal(
+			patched[0].headers["if-match"],
+			"etag-1",
+			"the write is conditional on the version the form was opened from",
+		);
 		assert.ok(patched[0].url.includes("scope=This"), patched[0].url);
 		assert.ok(
 			patched[0].url.includes(encodeURIComponent(RECURRENCE)),

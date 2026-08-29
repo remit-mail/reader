@@ -13,9 +13,10 @@ import { AlertCircle } from "lucide-react";
  * and saves nothing. The route owns the draft and the write, so this renders
  * the same form whichever of the two the address named.
  *
- * Guests are left out because the calendar store has nowhere to put them yet. A
- * field that takes names and drops them is worse than no field: the reader only
- * finds out afterwards, from an event with nobody on it.
+ * Guests are left out because the calendar store has nowhere to put them yet,
+ * which is the kit's default. A field that takes names and drops them is worse
+ * than no field: the reader only finds out afterwards, from an event with
+ * nobody on it.
  */
 export interface CalendarComposePaneProps {
 	/** What the pane is doing: "New event", "Edit event". */
@@ -37,6 +38,12 @@ export interface CalendarComposePaneProps {
 	 * edit scoped to a single occurrence reads it back instead of offering it.
 	 */
 	repeatEditable?: boolean;
+	/**
+	 * Whether the event can still be sent to a different calendar. Writing one
+	 * chooses; editing one cannot, because the collection a resource lives in is
+	 * part of its address and the patch has no field for it.
+	 */
+	calendarEditable?: boolean;
 	onSave: () => void;
 	onCancel: () => void;
 }
@@ -51,6 +58,7 @@ export function CalendarComposePane({
 	saveLabel,
 	isSaving,
 	repeatEditable = true,
+	calendarEditable = true,
 	onSave,
 	onCancel,
 }: CalendarComposePaneProps) {
@@ -62,7 +70,7 @@ export function CalendarComposePane({
 				calendars={calendars}
 				layout="pane"
 				repeatEditable={repeatEditable}
-				guestsEditable={false}
+				calendarEditable={calendarEditable}
 				saveLabel={isSaving ? "Saving…" : saveLabel}
 				onSave={onSave}
 				onCancel={onCancel}

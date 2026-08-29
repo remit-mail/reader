@@ -30,6 +30,17 @@ import { type CalendarWindow, calendarWindow } from "./window";
  */
 const CALENDAR_READ_META = softErrorStatuses(400, 404);
 
+/**
+ * How long a window stays worth reusing.
+ *
+ * Explicit rather than inherited, because prefetching is the whole point: a
+ * warmed week that is already stale by the time the reader steps onto it is
+ * fetched twice and the step waits anyway. Nothing here goes out of date on a
+ * timer — every write invalidates the windows it touched — so this only needs
+ * to outlast the reader moving back and forth across a few weeks.
+ */
+const CALENDAR_WINDOW_STALE_TIME = 5 * 60_000;
+
 export interface CalendarEventWindowRequest extends CalendarWindow {
 	/** Empty asks about every calendar the account holds. */
 	calendarIds: readonly string[];
@@ -65,6 +76,7 @@ export function useCalendarEventWindow(
 			requestOptions(request),
 		),
 		meta: CALENDAR_READ_META,
+		staleTime: CALENDAR_WINDOW_STALE_TIME,
 		enabled: request.enabled ?? true,
 	});
 
@@ -101,11 +113,12 @@ export function usePrefetchAdjacentWindows(
 				view,
 				stepCalendarDate(date, view, direction),
 			);
-			void queryClient.prefetchQuery(
-				calendarEventOperationsListCalendarEventsOptions(
+			void queryClient.prefetchQuery({
+				...calendarEventOperationsListCalendarEventsOptions(
 					requestOptions({ ...neighbour, calendarIds: ids }),
 				),
-			);
+				staleTime: CALENDAR_WINDOW_STALE_TIME,
+			});
 		}
 	}, [queryClient, view, date, key, enabled]);
 }

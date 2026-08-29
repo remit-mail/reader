@@ -53,5 +53,6 @@ export {
 	calendarWindow,
 	calendarWindowOfDays,
 	isoAt,
+	isoAtInZone,
 	startOfDay,
 } from "./window";

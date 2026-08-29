@@ -136,6 +136,7 @@ export function AgendaComposer({
 					onCancel={onCancel}
 					saveLabel={saveLabel}
 					repeatEditable={repeatEditable}
+					guestsEditable
 					onCustomRepeat={onCustomRepeat}
 					touch={touch}
 					header={

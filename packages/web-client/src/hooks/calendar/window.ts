@@ -25,14 +25,86 @@ const civil = (instant: Date): string =>
 		instant.getUTCDate(),
 	)}`;
 
+const formatOffset = (minutes: number): string => {
+	const sign = minutes < 0 ? "-" : "+";
+	const size = Math.abs(minutes);
+	return `${sign}${pad(Math.floor(size / 60))}:${pad(size % 60)}`;
+};
+
 /** A clock time on a civil date, carrying the offset the device is on then. */
 export function isoAt(date: string, time: string): string {
 	const local = new Date(`${date}T${time}:00`);
-	const offset = -local.getTimezoneOffset();
-	const sign = offset < 0 ? "-" : "+";
-	const size = Math.abs(offset);
-	return `${date}T${time}:00${sign}${pad(Math.floor(size / 60))}:${pad(
-		size % 60,
+	return `${date}T${time}:00${formatOffset(-local.getTimezoneOffset())}`;
+}
+
+const zoneReaders = new Map<string, Intl.DateTimeFormat | undefined>();
+
+/**
+ * A zone nothing can resolve is not worth throwing over: the device's own clock
+ * is the honest fallback, and the resource records how its start was zoned.
+ */
+function zoneReader(timeZone: string): Intl.DateTimeFormat | undefined {
+	if (zoneReaders.has(timeZone)) return zoneReaders.get(timeZone);
+	let reader: Intl.DateTimeFormat | undefined;
+	try {
+		reader = new Intl.DateTimeFormat("en-US", {
+			timeZone,
+			hourCycle: "h23",
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit",
+		});
+	} catch {
+		reader = undefined;
+	}
+	zoneReaders.set(timeZone, reader);
+	return reader;
+}
+
+/** How far ahead of UTC a zone is at one instant, in minutes. */
+function zoneOffsetAt(timeZone: string, instant: number): number {
+	const reader = zoneReader(timeZone);
+	if (!reader) return Number.NaN;
+	const parts = reader.formatToParts(new Date(instant));
+	const read = (type: Intl.DateTimeFormatPartTypes): number =>
+		Number(parts.find((part) => part.type === type)?.value);
+	const hour = read("hour") % 24;
+	const reading = Date.UTC(
+		read("year"),
+		read("month") - 1,
+		read("day"),
+		hour,
+		read("minute"),
+		read("second"),
+	);
+	return (reading - instant) / 60_000;
+}
+
+/**
+ * A clock time on a civil date, carrying the offset **that zone** is on then.
+ *
+ * The device's own offset is the wrong one for a calendar anchored elsewhere: a
+ * 10:00 Amsterdam meeting rewritten with a New York offset is a 16:00 Amsterdam
+ * meeting, and nothing on screen says it moved.
+ *
+ * The offset is read twice because reading it needs an instant and the instant
+ * needs the offset. The first pass is off only inside a DST transition, and the
+ * second pass — taken at the instant the first one implies — settles it.
+ */
+export function isoAtInZone(
+	date: string,
+	time: string,
+	timeZone: string,
+): string {
+	const asIfUtc = Date.parse(`${date}T${time}:00Z`);
+	const first = zoneOffsetAt(timeZone, asIfUtc);
+	if (Number.isNaN(first)) return isoAt(date, time);
+	const settled = zoneOffsetAt(timeZone, asIfUtc - first * 60_000);
+	return `${date}T${time}:00${formatOffset(
+		Number.isNaN(settled) ? first : settled,
 	)}`;
 }
 

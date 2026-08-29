@@ -25,14 +25,39 @@ const unescapeText = (value: string): string =>
 		.replace(/\\\\/g, "\\");
 
 /**
+ * Where a content line's parameters end and its value begins.
+ *
+ * The separator is the first colon outside a quoted string, not the first colon
+ * (RFC 5545 3.1). A parameter value is allowed to be quoted precisely so it can
+ * hold one — `ALTREP="cid:part1"` is ordinary — and splitting on the first
+ * colon hands back the tail of a URI as though it were the property's value.
+ */
+function valueAt(line: string, name: string): string | undefined {
+	let quoted = false;
+	for (let index = name.length; index < line.length; index += 1) {
+		const character = line[index];
+		if (index === name.length && character !== ";" && character !== ":")
+			return undefined;
+		if (character === '"') {
+			quoted = !quoted;
+			continue;
+		}
+		if (!quoted && character === ":") return line.slice(index + 1).trim();
+	}
+	return undefined;
+}
+
+/**
  * The first occurrence of a property, parameters and all. The master VEVENT is
  * written before its overrides, so the first match is the series' own value.
  */
 function firstProperty(icalData: string, name: string): string {
-	const line = unfold(icalData).match(
-		new RegExp(`^${name}(?:;[^:\\r\\n]*)?:(.*)$`, "m"),
-	);
-	return line ? line[1].trim() : "";
+	for (const line of unfold(icalData).split(/\r?\n/)) {
+		if (!line.startsWith(name)) continue;
+		const value = valueAt(line, name);
+		if (value !== undefined) return value;
+	}
+	return "";
 }
 
 export const rruleFromIcalData = (icalData: string): string =>

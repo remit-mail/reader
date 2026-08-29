@@ -9,6 +9,7 @@ import { CalendarEventPane } from "@/components/calendar/CalendarEventPane";
 import {
 	type CalendarWriteOutcome,
 	calendarInstanceId,
+	deviceTimeZone,
 	draftFromEvent,
 	patchFromDrafts,
 	rruleFromIcalData,
@@ -54,7 +55,7 @@ export function OpenCalendarEvent({
 }: OpenCalendarEventProps) {
 	const { view, date, calendarIds } = useCalendarAddress();
 	const { events } = useCalendarData({ view, date, calendarIds });
-	const { calendars } = useCalendars();
+	const { calendars, timeZoneByCalendarId } = useCalendars();
 	const { closeEvent } = useCalendarNavigation();
 	const { updateEvent, deleteEvent, isWriting } = useCalendarWrites();
 
@@ -134,7 +135,11 @@ export function OpenCalendarEvent({
 
 	const saveEdit = () => {
 		if (!editing || !draft) return;
-		const patch = patchFromDrafts(editing.before, draft);
+		const patch = patchFromDrafts(
+			editing.before,
+			draft,
+			timeZoneByCalendarId[draft.calendarId] ?? deviceTimeZone(),
+		);
 		if (!patch.ok) {
 			setProblem(patch.problem);
 			return;
@@ -176,6 +181,7 @@ export function OpenCalendarEvent({
 				saveLabel="Save"
 				isSaving={isWriting}
 				repeatEditable={editing.scope === undefined || editing.scope === "all"}
+				calendarEditable={false}
 				onSave={saveEdit}
 				onCancel={() => {
 					setEditing(undefined);

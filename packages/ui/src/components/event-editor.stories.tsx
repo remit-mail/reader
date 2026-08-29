@@ -65,10 +65,12 @@ function Live({
 	startExpanded,
 	seed: initial = seed,
 	guestsEditable,
+	calendarEditable,
 }: {
 	startExpanded: boolean;
 	seed?: EventDraft;
 	guestsEditable?: boolean;
+	calendarEditable?: boolean;
 }) {
 	const [draft, setDraft] = useState(initial);
 	const [expanded, setExpanded] = useState(startExpanded);
@@ -81,6 +83,7 @@ function Live({
 				expanded={expanded}
 				onToggleExpanded={() => setExpanded((open) => !open)}
 				guestsEditable={guestsEditable}
+				calendarEditable={calendarEditable}
 				onSave={() => {}}
 				onCancel={() => {}}
 			/>
@@ -103,12 +106,21 @@ export const EndBeforeStart: Story = {
 };
 
 /**
- * A store with nowhere to put guests leaves the field out. A box that takes
- * names and drops them is worse than no box: the reader only finds out later,
- * from an event with nobody on it.
+ * Guests are opt-in. A store with nowhere to put them leaves the field out, so
+ * the default form has none: a box that takes names and drops them is worse
+ * than no box, because the reader only finds out later.
  */
-export const WithoutGuests: Story = {
-	render: () => <Live startExpanded guestsEditable={false} />,
+export const WithGuests: Story = {
+	render: () => <Live startExpanded guestsEditable />,
+};
+
+/**
+ * Editing an event that already exists. The collection a resource lives in is
+ * part of its address, so the calendar is read-only here rather than a picker
+ * that changes nothing.
+ */
+export const WithoutTheCalendarPicker: Story = {
+	render: () => <Live startExpanded calendarEditable={false} />,
 };
 
 /** All day takes the clock fields away, so there is no range left to reject. */
