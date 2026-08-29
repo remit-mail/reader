@@ -20,6 +20,22 @@ import type {
 export const deviceTimeZone = (): string =>
 	Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+/**
+ * A collection that names no zone of its own, spelled the way the API spells
+ * it: an empty string, which both ends read as UTC.
+ *
+ * There is deliberately no substitute value. The server checks a TZID against
+ * `Intl.supportedValuesOf("timeZone")`, which is the canonical zone list and so
+ * holds no spelling of UTC at all — not `UTC`, not `Etc/UTC` — and refuses
+ * anything else. Sending nothing is what the API asks for, and it is the only
+ * thing it accepts.
+ *
+ * The device's zone is not the fallback either. The listing returns this
+ * collection's occurrences on its own clock, so answering with the reader's
+ * would rewrite every time they saved by the difference between the two.
+ */
+export const UNZONED_CALENDAR = "";
+
 const COLORS: Record<string, CalendarColorId> = {
 	Cal1: "cal-1",
 	Cal2: "cal-2",

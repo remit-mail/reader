@@ -188,6 +188,44 @@ describe("the calendars the address ticked", () => {
 	});
 });
 
+/**
+ * The zone every write is built in, so it has to be one the server will take.
+ *
+ * The server checks a TZID against `Intl.supportedValuesOf("timeZone")` — the
+ * canonical IANA list, which holds no spelling of UTC at all — and refuses
+ * anything absent from it. A collection naming no zone therefore cannot be
+ * answered with a substitute, and above all not with the reader's own: a
+ * browser on a UTC machine resolves that to "UTC", and every event written
+ * from one was refused for a zone nobody had chosen.
+ */
+describe("the zone a collection is read on", () => {
+	const RESOLVABLE = new Set(Intl.supportedValuesOf("timeZone"));
+
+	it("is one the server will take, or none at all", async () => {
+		await mount(
+			"2026-06-10",
+			[],
+			[],
+			[
+				{
+					...calendar(WORK, "Work"),
+					timezone: "",
+				} as RemitImapCalendarResponse,
+			],
+		);
+		const zone = data?.timeZoneByCalendarId[WORK];
+		assert.ok(
+			zone === "" || RESOLVABLE.has(zone ?? ""),
+			`"${zone}" is neither absent nor a zone the server accepts as a TZID`,
+		);
+	});
+
+	it("is the collection's own where it has one", async () => {
+		await mount("2026-06-10", []);
+		assert.equal(data?.timeZoneByCalendarId[WORK], "Europe/Amsterdam");
+	});
+});
+
 describe("what the grid is handed", () => {
 	it("draws the occurrences the server expanded", async () => {
 		await mount(

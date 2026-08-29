@@ -73,7 +73,7 @@ describe("creating an event", () => {
 describe("a refusal", () => {
 	it("names the missing title", () => {
 		assert.match(
-			refusal(createInputFromDraft(draft({ title: "  " }), "UTC")),
+			refusal(createInputFromDraft(draft({ title: "  " }), AMSTERDAM)),
 			/title/i,
 		);
 	});
@@ -83,7 +83,7 @@ describe("a refusal", () => {
 			refusal(
 				createInputFromDraft(
 					draft({ startTime: "11:00", endTime: "10:00" }),
-					"UTC",
+					AMSTERDAM,
 				),
 			),
 			/end time is not after the start time/i,
@@ -92,7 +92,7 @@ describe("a refusal", () => {
 
 	it("names a missing time rather than saving a day-long event nobody asked for", () => {
 		assert.match(
-			refusal(createInputFromDraft(draft({ endTime: "" }), "UTC")),
+			refusal(createInputFromDraft(draft({ endTime: "" }), AMSTERDAM)),
 			/start and an end time/i,
 		);
 	});
@@ -100,7 +100,10 @@ describe("a refusal", () => {
 	it("refuses a repeat rule it cannot store, and says to pick another", () => {
 		assert.match(
 			refusal(
-				createInputFromDraft(draft({ repeat: "Every other Tuesday" }), "UTC"),
+				createInputFromDraft(
+					draft({ repeat: "Every other Tuesday" }),
+					AMSTERDAM,
+				),
 			),
 			/repeat rule/i,
 		);
@@ -208,5 +211,31 @@ describe("an event anchored somewhere other than the device", () => {
 		const built = createInputFromDraft(draft(), "Mars/Olympus_Mons");
 		assert.ok(built.ok);
 		assert.match(built.input.start, /^2026-06-10T09:00:00[+-]\d{2}:\d{2}$/);
+	});
+
+	/**
+	 * The canonical IANA list holds no spelling of UTC, so there is nothing to
+	 * send for a collection that names no zone. Absent is what the API asks for
+	 * and the only thing it takes; the device's zone in its place was refused
+	 * outright on a UTC runner.
+	 */
+	it("sends no zone at all where the collection names none", () => {
+		const built = createInputFromDraft(draft(), "");
+		assert.ok(built.ok);
+		assert.equal(built.input.timeZone, undefined);
+		assert.equal(built.input.start, "2026-06-10T09:00:00+00:00");
+		assert.equal(built.input.end, "2026-06-10T10:00:00+00:00");
+	});
+
+	it("leaves the zone out of an edit on that collection too", () => {
+		const before = draft();
+		const patch = patchFromDrafts(
+			before,
+			{ ...before, date: "2026-06-17" },
+			"",
+		);
+		assert.ok(patch.ok);
+		assert.equal(patch.patch.timeZone, undefined);
+		assert.equal(patch.patch.start, "2026-06-17T09:00:00+00:00");
 	});
 });

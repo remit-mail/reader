@@ -99,6 +99,10 @@ export function isoAtInZone(
 	time: string,
 	timeZone: string,
 ): string {
+	// A collection naming no zone reads as UTC at both ends, and UTC is the one
+	// zone the canonical IANA list holds no name for — so it is handled here
+	// rather than asked about.
+	if (timeZone === "") return `${date}T${time}:00+00:00`;
 	const asIfUtc = Date.parse(`${date}T${time}:00Z`);
 	const first = zoneOffsetAt(timeZone, asIfUtc);
 	if (Number.isNaN(first)) return isoAt(date, time);

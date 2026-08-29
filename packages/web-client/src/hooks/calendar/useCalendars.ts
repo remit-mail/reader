@@ -11,7 +11,7 @@ import { calendarOperationsListCalendarsOptions } from "@remit/api-http-client/@
 import type { CalendarColorId, CalendarDescriptor } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { deviceTimeZone, toCalendarDescriptor } from "./instance";
+import { toCalendarDescriptor } from "./instance";
 
 export interface CalendarsResult {
 	calendars: CalendarDescriptor[];
@@ -29,17 +29,13 @@ export function useCalendars(): CalendarsResult {
 	return useMemo(() => {
 		const items = data?.items ?? [];
 		const calendars = items.map(toCalendarDescriptor);
-		const device = deviceTimeZone();
 		return {
 			calendars,
 			colorByCalendarId: Object.fromEntries(
 				calendars.map((calendar) => [calendar.id, calendar.color]),
 			),
 			timeZoneByCalendarId: Object.fromEntries(
-				items.map((item) => [
-					item.calendarId,
-					item.timezone === "" ? device : item.timezone,
-				]),
+				items.map((item) => [item.calendarId, item.timezone]),
 			),
 			isLoading,
 		};

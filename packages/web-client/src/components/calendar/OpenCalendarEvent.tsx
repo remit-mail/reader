@@ -9,13 +9,13 @@ import { CalendarEventPane } from "@/components/calendar/CalendarEventPane";
 import {
 	type CalendarWriteOutcome,
 	calendarInstanceId,
-	deviceTimeZone,
 	draftFromEvent,
 	patchFromDrafts,
 	rruleFromIcalData,
 	type ScopedWrite,
 	textFromIcalData,
 	textFromRrule,
+	UNZONED_CALENDAR,
 	useCalendarEvent,
 	useCalendars,
 	useCalendarWrites,
@@ -138,7 +138,7 @@ export function OpenCalendarEvent({
 		const patch = patchFromDrafts(
 			editing.before,
 			draft,
-			timeZoneByCalendarId[draft.calendarId] ?? deviceTimeZone(),
+			timeZoneByCalendarId[draft.calendarId] ?? UNZONED_CALENDAR,
 		);
 		if (!patch.ok) {
 			setProblem(patch.problem);

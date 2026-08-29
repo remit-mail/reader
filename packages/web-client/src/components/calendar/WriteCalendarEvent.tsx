@@ -4,8 +4,8 @@ import { CalendarComposePane } from "@/components/calendar/CalendarComposePane";
 import { useCalendarComposeSeed } from "@/components/calendar/CalendarComposeSeed";
 import {
 	createInputFromDraft,
-	deviceTimeZone,
 	emptyDraft,
+	UNZONED_CALENDAR,
 	useCalendars,
 	useCalendarWrites,
 } from "@/hooks/calendar";
@@ -57,7 +57,7 @@ export function WriteCalendarEvent({ onClose }: WriteCalendarEventProps) {
 	const save = () => {
 		const built = createInputFromDraft(
 			draft,
-			timeZoneByCalendarId[draft.calendarId] ?? deviceTimeZone(),
+			timeZoneByCalendarId[draft.calendarId] ?? UNZONED_CALENDAR,
 		);
 		if (!built.ok) {
 			setProblem(built.problem);

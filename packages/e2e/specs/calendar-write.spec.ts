@@ -34,6 +34,10 @@ test.describe("Writing an event", () => {
 		await title.fill(SUMMARY);
 		await page.getByRole("button", { name: "Add", exact: true }).click();
 
+		// Read the refusal before the address, so a write the server turned down
+		// fails with what it said rather than with a URL that did not change.
+		await expect(page.getByRole("alert")).toHaveCount(0);
+
 		// The composer is a route, so a saved event leaves it — proof the write
 		// resolved rather than the button merely having been pressed.
 		await expect(page).toHaveURL(new RegExp(`/calendar/week/${DATE}(\\?|$)`));
@@ -46,9 +50,16 @@ test.describe("Writing an event", () => {
 
 		const stored = written.find((item) => item.summary === SUMMARY);
 		expect(stored).toBeTruthy();
-		expect(stored?.start.slice(0, 10)).toBe(DATE);
 		expect(stored?.allDay).toBe(false);
 		expect(stored?.etag).toBeTruthy();
+
+		// The composer opens at 09:00 on the calendar's own clock, and the default
+		// collection is read as UTC. Compared as instants rather than as strings,
+		// so the assertion is about where the event landed rather than about how
+		// the server spells an offset.
+		expect(Date.parse(stored?.start ?? "")).toBe(
+			Date.parse(`${DATE}T09:00:00Z`),
+		);
 
 		const calendars = await api.listCalendars();
 		expect(calendars.map((calendar) => calendar.calendarId)).toContain(

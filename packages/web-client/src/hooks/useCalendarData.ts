@@ -15,10 +15,10 @@ import { useMemo } from "react";
 import {
 	type CalendarInstanceRef,
 	calendarWindow,
-	deviceTimeZone,
 	isDrawnInstance,
 	readCalendarInstanceId,
 	toCalendarEventData,
+	UNZONED_CALENDAR,
 	useCalendarEventWindow,
 	useCalendars,
 	usePrefetchAdjacentWindows,
@@ -36,6 +36,8 @@ export interface CalendarData {
 	calendars: CalendarDescriptor[];
 	events: CalendarEventData[];
 	colorByCalendarId: Record<string, CalendarColorId>;
+	/** The zone each collection's times are read on — never the device's. */
+	timeZoneByCalendarId: Record<string, string>;
 	isLoading: boolean;
 	/** A refusal the calendar renders itself. Null when the read succeeded. */
 	error: unknown;
@@ -91,7 +93,6 @@ export function useCalendarData({
 	const instances = events.instances;
 
 	const eventData = useMemo(() => {
-		const device = deviceTimeZone();
 		const drawn = new Set(shownKey === "" ? [] : shownKey.split(","));
 		return instances
 			.filter(
@@ -101,7 +102,7 @@ export function useCalendarData({
 			.map((instance) =>
 				toCalendarEventData(
 					instance,
-					timeZoneByCalendarId[instance.calendarId] ?? device,
+					timeZoneByCalendarId[instance.calendarId] ?? UNZONED_CALENDAR,
 				),
 			);
 	}, [instances, timeZoneByCalendarId, shownKey]);
@@ -110,6 +111,7 @@ export function useCalendarData({
 		calendars,
 		events: eventData,
 		colorByCalendarId,
+		timeZoneByCalendarId,
 		isLoading: isLoading || events.isLoading,
 		error: events.error,
 		retry: events.refetch,

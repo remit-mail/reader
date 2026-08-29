@@ -122,7 +122,10 @@ export function createInputFromDraft(
 			start,
 			end,
 			allDay: draft.allDay,
-			timeZone,
+			// Absent anchors the event in UTC, which is exactly what a collection
+			// naming no zone means. There is no spelling of UTC the server takes
+			// as a TZID, so sending one instead is not an option.
+			...(timeZone === "" ? {} : { timeZone }),
 			recurrenceRule: rruleFromText(draft.repeat) ?? "",
 		},
 	};
@@ -154,8 +157,9 @@ export function patchFromDrafts(
 		patch.end = end;
 		patch.allDay = after.allDay;
 		// The offset pins the instant; the zone is what a series needs to keep
-		// meeting at nine when the clocks go back.
-		patch.timeZone = timeZone;
+		// meeting at nine when the clocks go back. A collection with none of its
+		// own says so by sending nothing.
+		if (timeZone !== "") patch.timeZone = timeZone;
 	}
 
 	if (repeatChanged) patch.recurrenceRule = rruleFromText(after.repeat) ?? "";

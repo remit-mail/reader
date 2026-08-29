@@ -22,6 +22,7 @@ export {
 	readCalendarInstanceId,
 	toCalendarDescriptor,
 	toCalendarEventData,
+	UNZONED_CALENDAR,
 } from "./instance";
 export { rruleFromText, textFromRrule } from "./recurrence-rule";
 export {
