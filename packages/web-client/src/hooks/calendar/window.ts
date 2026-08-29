@@ -142,9 +142,14 @@ function bounds(view: CalendarViewId, date: string): [string, string] {
 }
 
 /**
- * The window a view over a day covers. Agenda takes the week it loads, which is
- * also the unit it steps by, so the grid and the strip share a cache entry
- * wherever they are looking at the same days.
+ * The window a view over a day covers.
+ *
+ * The week is the unit every surface reads in. A grid asks for the one week it
+ * draws; the strip holds many days and asks for each of their weeks
+ * (`weekWindowsOver`), because a single read may not cover more than a year and
+ * a range that grows as the reader scrolls would eventually become one. Both
+ * therefore key on the same entries, so dropping into the grid and coming back
+ * out to the strip fetches nothing either of them already holds.
  */
 export function calendarWindow(
 	view: CalendarViewId,

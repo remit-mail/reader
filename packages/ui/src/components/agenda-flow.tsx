@@ -33,7 +33,6 @@ import {
 	formatSpan,
 	freeStretchesOn,
 	groupOverlapping,
-	isClearDay,
 	minuteOfDay,
 	monthLabel,
 	weekdayLongLabel,
@@ -64,6 +63,9 @@ const LONG_FREE_MINUTES = 150;
 
 /** The hue every calendar the caller did not describe falls back to. */
 const FALLBACK_COLOR: CalendarColorId = "cal-1";
+
+/** Nothing outstanding, which is what a caller that never fetches has. */
+const EMPTY_DATES: ReadonlySet<string> = new Set();
 
 export interface AgendaScrollTarget {
 	date: string;
@@ -103,6 +105,20 @@ export interface AgendaFlowProps {
 	onReachEnd: () => void;
 	/** The day under the sticky header, for the position map. */
 	onVisibleDayChange: (date: string) => void;
+	/**
+	 * Days whose events have not arrived. They draw as a skeleton and are never
+	 * collapsed into a run: a day nobody has heard back about is not a day with
+	 * nothing on it, and "6 days with nothing booked" over an unanswered request
+	 * is the one sentence this strip must never print.
+	 */
+	loadingDates?: ReadonlySet<string>;
+	/**
+	 * The free time on a day, where the owner knows more about it than the rows
+	 * do. Busy time on a calendar the strip is not drawing is still not free, so
+	 * an owner holding merged busy spans answers this from those. Absent falls
+	 * back to the gaps between what is on screen.
+	 */
+	freeOn?: (day: CalendarDay) => FreeStretch[];
 	scrollTarget?: AgendaScrollTarget;
 	/**
 	 * Rendered immediately above today, and landed on with it, so what's next is
@@ -126,6 +142,8 @@ export function AgendaFlow({
 	onReachStart,
 	onReachEnd,
 	onVisibleDayChange,
+	loadingDates = EMPTY_DATES,
+	freeOn = freeStretchesOn,
 	scrollTarget,
 	todayLead,
 	touch,
@@ -141,7 +159,7 @@ export function AgendaFlow({
 	const [visibleDate, setVisibleDate] = useState(focusDate);
 
 	const lookup = useMemo(() => lookupOf(calendars), [calendars]);
-	const rows = buildAgendaRows(days, [today, focusDate]);
+	const rows = buildAgendaRows(days, [today, focusDate, ...loadingDates]);
 	const firstDate = days[0]?.date ?? "";
 	const lastDate = days[days.length - 1]?.date ?? "";
 
@@ -256,6 +274,8 @@ export function AgendaFlow({
 					lookup={lookup}
 					density={density}
 					today={today}
+					pending={row.kind === "day" && loadingDates.has(row.day.date)}
+					freeOn={freeOn}
 					selectedEventId={selectedEventId}
 					onSelectEvent={onSelectEvent}
 					onPickSlot={onPickSlot}
@@ -280,6 +300,9 @@ interface RowProps {
 	lookup: CalendarLookup;
 	density: AgendaDensity;
 	today: string;
+	/** This day's events have not arrived yet. */
+	pending: boolean;
+	freeOn: (day: CalendarDay) => FreeStretch[];
 	selectedEventId: string;
 	onSelectEvent: (eventId: string) => void;
 	onPickSlot: (pick: CalendarSlotPick) => void;
@@ -294,6 +317,8 @@ function FlowRow({
 	lookup,
 	density,
 	today,
+	pending,
+	freeOn,
 	selectedEventId,
 	onSelectEvent,
 	onPickSlot,
@@ -315,6 +340,13 @@ function FlowRow({
 			</div>
 		);
 
+	if (pending)
+		return (
+			<div ref={anchorRef}>
+				<PendingDay day={row.day} today={today} />
+			</div>
+		);
+
 	if (density === "dots")
 		return (
 			<div ref={anchorRef}>
@@ -323,6 +355,7 @@ function FlowRow({
 					day={row.day}
 					lookup={lookup}
 					today={today}
+					freeOn={freeOn}
 					onSelectEvent={onSelectEvent}
 					onZoomDay={onZoomDay}
 					selectedEventId={selectedEventId}
@@ -338,6 +371,7 @@ function FlowRow({
 				lookup={lookup}
 				density={density}
 				today={today}
+				freeOn={freeOn}
 				selectedEventId={selectedEventId}
 				onSelectEvent={onSelectEvent}
 				onPickSlot={onPickSlot}
@@ -393,11 +427,52 @@ function EmptyRun({
 	);
 }
 
+/**
+ * A day still being fetched. It keeps the date column, so the strip has the
+ * shape it will have once the answer lands and nothing jumps under the reader,
+ * and it says nothing at all about what is on the day.
+ */
+function PendingDay({ day, today }: { day: CalendarDay; today: string }) {
+	const isToday = day.date === today;
+	return (
+		<section
+			aria-busy="true"
+			data-testid={`agenda-day-pending-${day.date}`}
+			className={cn(
+				"border-b border-line",
+				isToday && "border-l-2 border-l-accent bg-accent-soft/20",
+			)}
+		>
+			<header className="flex h-section-row items-center gap-3 px-row-inset">
+				<div className="flex w-16 shrink-0 items-baseline gap-1.5">
+					<span
+						className={cn(
+							"text-lg font-semibold tabular-nums",
+							isToday ? "text-accent" : "text-fg",
+						)}
+					>
+						{day.dayNumber}
+					</span>
+					<span className="text-2xs uppercase tracking-wider text-fg-subtle">
+						{day.weekdayLabel}
+					</span>
+				</div>
+				<span className="sr-only">Loading {day.date}</span>
+				<span className="h-3 min-w-0 flex-1 animate-pulse rounded-full bg-surface-sunken" />
+			</header>
+			<div className="flex flex-col gap-1 pb-2">
+				<span className="mx-row-inset h-7 animate-pulse rounded-md bg-surface-sunken" />
+			</div>
+		</section>
+	);
+}
+
 /** The month-at-a-glance reading: one line a day, colour and shape only. */
 function DotsDay({
 	day,
 	lookup,
 	today,
+	freeOn,
 	selectedEventId,
 	onSelectEvent,
 	onZoomDay,
@@ -405,6 +480,7 @@ function DotsDay({
 	day: CalendarDay;
 	lookup: CalendarLookup;
 	today: string;
+	freeOn: (day: CalendarDay) => FreeStretch[];
 	selectedEventId: string;
 	onSelectEvent: (eventId: string) => void;
 	onZoomDay: (date: string) => void;
@@ -449,16 +525,20 @@ function DotsDay({
 			</div>
 			<BusyBar day={day} className="w-24 shrink-0" />
 			<span className="w-24 shrink-0 text-right text-2xs text-fg-subtle">
-				{glanceLabel(day)}
+				{glanceLabel(day, freeOn)}
 			</span>
 		</div>
 	);
 }
 
 /** What the day is worth saying in eleven characters. */
-function glanceLabel(day: CalendarDay): string {
-	if (day.timed.length === 0) return "clear";
-	const longest = freeStretchesOn(day).reduce(
+function glanceLabel(
+	day: CalendarDay,
+	freeOn: (day: CalendarDay) => FreeStretch[],
+): string {
+	const free = freeOn(day);
+	if (day.timed.length === 0 && isWholeDayFree(free)) return "clear";
+	const longest = free.reduce(
 		(best, stretch) => Math.max(best, stretch.minutes),
 		0,
 	);
@@ -466,11 +546,17 @@ function glanceLabel(day: CalendarDay): string {
 	return `${formatSpan(day.busyMinutes)} booked`;
 }
 
+/** Nothing takes an hour out of this day, whoever measured it. */
+function isWholeDayFree(free: readonly FreeStretch[]): boolean {
+	return free.length === 1 && free[0].wholeDay;
+}
+
 function DayBlock({
 	day,
 	lookup,
 	density,
 	today,
+	freeOn,
 	selectedEventId,
 	onSelectEvent,
 	onPickSlot,
@@ -481,6 +567,7 @@ function DayBlock({
 	lookup: CalendarLookup;
 	density: AgendaDensity;
 	today: string;
+	freeOn: (day: CalendarDay) => FreeStretch[];
 	selectedEventId: string;
 	onSelectEvent: (eventId: string) => void;
 	onPickSlot: (pick: CalendarSlotPick) => void;
@@ -489,7 +576,12 @@ function DayBlock({
 }) {
 	const isToday = day.date === today;
 	const groups = groupOverlapping(day.timed);
-	const free = freeStretchesOn(day).filter((stretch) => !stretch.wholeDay);
+	const measured = freeOn(day);
+	const free = measured.filter((stretch) => !stretch.wholeDay);
+	/* Nothing on the strip and nothing taking the day out from anywhere else.
+	   A day whose hours went to a calendar the reader has unticked is not free,
+	   so it draws its bands rather than the line that says it is clear. */
+	const clear = day.timed.length === 0 && isWholeDayFree(measured);
 
 	const items: {
 		key: string;
@@ -596,7 +688,7 @@ function DayBlock({
 						touch={touch}
 					/>
 				))}
-				{isClearDay(day) ? (
+				{clear ? (
 					<ClearDayLine day={day} onPickSlot={onPickSlot} touch={touch} />
 				) : (
 					items.map((item) => <div key={item.key}>{item.node}</div>)

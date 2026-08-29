@@ -6,6 +6,22 @@
  * of them are on screen, and a write invalidates what all of them are showing.
  */
 export {
+	type AgendaRange,
+	busySpansByDate,
+	datesInRange,
+	extendRangeEnd,
+	extendRangeStart,
+	type FreeLookup,
+	freeStretchesByDate,
+	LEAD_IN,
+	LEAD_OUT,
+	PAGE,
+	rangeAround,
+	rangeCovering,
+	weekKeyOf,
+	weekWindowsOver,
+} from "./agenda-window";
+export {
 	type CreateInput,
 	createInputFromDraft,
 	type DraftRefusal,
@@ -31,15 +47,28 @@ export {
 	textFromIcalData,
 } from "./resource";
 export {
+	type CalendarSelection,
+	selectCalendarIds,
+	useCalendarSelection,
+	useDrawnEvents,
+} from "./selection";
+export {
 	type CalendarEventResource,
 	useCalendarEvent,
 } from "./useCalendarEvent";
 export {
+	CALENDAR_WINDOW_STALE_TIME,
+	type CalendarEventWeeksResult,
 	type CalendarEventWindowRequest,
 	type CalendarEventWindowResult,
+	useCalendarEventWeeks,
 	useCalendarEventWindow,
 	usePrefetchAdjacentWindows,
 } from "./useCalendarEvents";
+export {
+	type CalendarFreeBusyResult,
+	useCalendarFreeBusyWeeks,
+} from "./useCalendarFreeBusy";
 export { type CalendarsResult, useCalendars } from "./useCalendars";
 export {
 	type CalendarWriteOutcome,

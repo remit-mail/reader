@@ -18,6 +18,9 @@ import { CalendarWorkspace } from "./CalendarWorkspace";
  * state and get the same surface the app renders. What the stories are for is
  * what the markup cannot answer — how a week reads once a day is full, and
  * whether a zoom that is not drawn yet reads as unfinished rather than empty.
+ *
+ * The strip is a slot rather than something this pane builds, so it is storied
+ * under App/Calendar/Agenda and stood in for here.
  */
 const TIME_ZONE = "Europe/Amsterdam";
 const DATE = "2026-06-10";
@@ -123,6 +126,13 @@ function Workspace({
 			date={DATE}
 			events={events}
 			colorByCalendarId={colorByCalendarId}
+			// The strip loads its own days and is storied on its own; here it
+			// stands in for whatever the route mounts at that zoom.
+			agenda={
+				<div className="p-4 text-sm text-fg-muted">
+					The strip, which App/Calendar/Agenda has to itself.
+				</div>
+			}
 			isLoading={isLoading}
 			error={error}
 			onRetry={() => undefined}
@@ -185,7 +195,8 @@ export const YearNotBuiltYet: Story = { args: { initialView: "year" } };
 
 export const MonthNotBuiltYet: Story = { args: { initialView: "month" } };
 
-export const AgendaNotBuiltYet: Story = { args: { initialView: "agenda" } };
+/** The zoom that mounts the strip instead of the grid. */
+export const Agenda: Story = { args: { initialView: "agenda" } };
 
 /**
  * The calendar beside the nav it is reached from. The entry sits under the

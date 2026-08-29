@@ -8,7 +8,7 @@
  * way the intelligence rail's preference is (`lib/intelligence-pref.ts`), and
  * a storage failure falls back to the default rather than crashing.
  */
-import type { Density } from "@remit/ui";
+import type { AgendaDensity, Density } from "@remit/ui";
 
 export const CALENDAR_DENSITY_KEY = "remit:calendar-density";
 
@@ -32,3 +32,15 @@ export function writeCalendarDensity(density: Density): void {
 		// Storage unavailable — the in-memory default stands.
 	}
 }
+
+/**
+ * The same preference, as the strip reads it.
+ *
+ * The strip has three readings and the preference has two, so the third — a
+ * month of coloured dots with no titles on it — is not reachable from Glance.
+ * That is deliberate: the preference says how much of a day this screen shows,
+ * not whether to say what is on it, and one calendar-wide answer beats a second
+ * control that means something different at every zoom.
+ */
+export const agendaDensityOf = (density: Density): AgendaDensity =>
+	density === "compact" ? "pills" : "detail";

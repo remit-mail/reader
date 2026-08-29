@@ -32,14 +32,23 @@ const calendarViewSchema = z.enum(calendarViews);
 export const DEFAULT_CALENDAR_VIEW: CalendarViewId = "week";
 
 /**
- * The views the grid draws today. The other three are named surfaces that
- * arrive in later stages, and they say so on screen rather than matching a
- * route that renders nothing.
+ * The views the grid draws. Year and month are named surfaces that arrive in
+ * later stages, and they say so on screen rather than matching a route that
+ * renders nothing.
  */
 const GRID_VIEWS = new Set<CalendarViewId>(["week", "day"]);
 
 export const calendarViewMountsGrid = (view: CalendarViewId): boolean =>
 	GRID_VIEWS.has(view);
+
+/**
+ * The one view the strip draws. It is a zoom of the same ladder rather than a
+ * different screen: the grid is what a reader drops into for a day that has
+ * earned it, and the strip is what they come back out to, with the day and the
+ * ticked calendars they left with.
+ */
+export const calendarViewMountsAgenda = (view: CalendarViewId): boolean =>
+	view === "agenda";
 
 /** The view a segment names, or `undefined` where it names none. */
 export function parseCalendarView(segment: string): CalendarViewId | undefined {
@@ -101,7 +110,8 @@ export function canonicalCalendarParams(
 /**
  * The day the previous or next screenful starts on. A step is measured in the
  * view's own unit, which is what makes back-and-forward land where the reader
- * came from at every zoom. Agenda steps a week, the range it loads.
+ * came from at every zoom. Agenda steps a week, which is far enough to be worth
+ * a press and near enough to stay inside the days it is already holding.
  */
 export function stepCalendarDate(
 	date: string,
