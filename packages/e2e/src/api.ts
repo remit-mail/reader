@@ -143,6 +143,50 @@ export interface UpdateFilterInput {
 	actionMailboxId?: string;
 }
 
+export interface Label {
+	labelId: string;
+	name: string;
+	color: string;
+}
+
+export interface ConfigAccount {
+	accountId: string;
+	email: string;
+	authType: string;
+	isActive: boolean;
+	connectionState: string;
+	imapHost: string;
+	imapPort: number;
+}
+
+export interface ConfigDescription {
+	accounts: ConfigAccount[];
+	pendingImport?: { importId: string; folderPaths: string[] };
+}
+
+export interface ConfigExport {
+	schemaVersion: number;
+	document: Record<string, unknown>;
+}
+
+export interface ConfigImportItem {
+	section: string;
+	key: string;
+	verdict: string;
+	reason?: string;
+}
+
+export interface ConfigImportReport {
+	importId?: string;
+	valid: boolean;
+	schemaVersion: number;
+	applied: boolean;
+	items: ConfigImportItem[];
+	errors: ApiErrorBody[];
+	warnings: ApiErrorBody[];
+	accountsNeedingCredentials: string[];
+}
+
 interface ResultList<T> {
 	items: T[];
 	continuationToken?: string;
@@ -696,6 +740,47 @@ export class ApiClient {
 
 	deleteFilter(accountId: string, filterId: string): Promise<Response> {
 		return this.request("DELETE", `/accounts/${accountId}/filters/${filterId}`);
+	}
+
+	createLabel(accountId: string, name: string, color: string): Promise<Label> {
+		return this.json("POST", `/accounts/${accountId}/labels`, { name, color });
+	}
+
+	async listLabels(accountId: string): Promise<Label[]> {
+		const result = await this.json<ResultList<Label>>(
+			"GET",
+			`/accounts/${accountId}/labels`,
+		);
+		return result.items ?? [];
+	}
+
+	getConfig(): Promise<ConfigDescription> {
+		return this.json("GET", "/config");
+	}
+
+	/**
+	 * The whole configuration as one versioned document — what the Advanced
+	 * settings card downloads and what `remit config save` writes.
+	 */
+	exportConfig(): Promise<ConfigExport> {
+		return this.json("GET", "/config/export");
+	}
+
+	importConfig(input: {
+		document: unknown;
+		mode?: "validate" | "apply";
+		onExisting?: "abort" | "merge";
+	}): Promise<ConfigImportReport> {
+		return this.json("POST", "/config/import", input);
+	}
+
+	/** The raw response, for a spec asserting the 409 a non-empty instance answers with. */
+	attemptImportConfig(input: {
+		document: unknown;
+		mode?: "validate" | "apply";
+		onExisting?: "abort" | "merge";
+	}): Promise<Response> {
+		return this.request("POST", "/config/import", input);
 	}
 
 	async listThreads(mailboxId: string): Promise<Thread[]> {

@@ -6,6 +6,7 @@
 import { SettingsShell } from "@remit/ui";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { ConfigTransferPanel } from "@/components/settings/ConfigTransferPanel";
 import { QuarantinePanel } from "@/components/settings/QuarantinePanel";
 import { SelfUpdatePanel } from "@/components/settings/SelfUpdatePanel";
 import { TlsRootCaDownload } from "@/components/settings/TlsRootCaDownload";
@@ -41,8 +42,11 @@ function AdvancedSettings() {
 			<SelfUpdatePanel />
 			<QuarantinePanel />
 			<div className="mt-6 border-t border-line pt-4">
+				<ConfigTransferPanel />
+			</div>
+			<div className="mt-6 border-t border-line pt-4">
 				<p className="text-sm text-fg-muted">
-					Notification rules and data export are coming in a future release.
+					Notification rules are coming in a future release.
 				</p>
 			</div>
 			<TlsRootCaDownload />
