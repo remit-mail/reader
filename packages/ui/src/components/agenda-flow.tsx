@@ -248,6 +248,7 @@ export function AgendaFlow({
 		<div
 			ref={scroller}
 			onScroll={handleScroll}
+			data-testid="agenda-strip"
 			className={cn(
 				"relative min-h-0 flex-1 overflow-y-auto bg-surface",
 				className,
