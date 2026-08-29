@@ -1543,6 +1543,85 @@ describe("the updater self-replace survives the wrapper (reader#291)", () => {
 	});
 });
 
+// reader#1048: the pruner ran inside commit_run under `set -eu`, ahead of both
+// the verdict and the self-replace, and never read what `rm -rf` returned. One
+// snapshot left root-owned by an older release aborted the commit — the run
+// record stopped at `committing`, `remit status` read an update still in
+// progress, and the updater stayed on the old image while the rest of the stack
+// moved to the new one.
+describe("a snapshot that cannot be pruned does not hold back the commit (reader#1048)", () => {
+	// The suite runs as one uid, and as root nothing on a volume is unremovable
+	// at all, so the refusal is injected where the wrapper meets it: an `rm` on
+	// PATH that fails for that one path and execs the real one for everything
+	// else.
+	function stuckSnapshotBox() {
+		const box = sandbox({
+			scenario: {
+				probe: "ok",
+				migrate_exit: 0,
+				all_services: `${ALL_SERVICES} migrate volume-init updater`,
+			},
+		});
+		// Named so it is pruned before the removable one: what follows it in the
+		// loop is what proves the failure did not end the sweep.
+		const stuck = join(box.state, "snapshots", "run-2026-07");
+		const removable = join(box.state, "snapshots", "run-2026-08");
+		for (const dir of [stuck, removable]) {
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(join(dir, "remit.db"), "an older release's snapshot");
+		}
+		const realRm = spawnSync("sh", ["-c", "command -v rm"], {
+			encoding: "utf8",
+		}).stdout.trim();
+		writeExecutable(
+			join(box.dir, "bin", "rm"),
+			[
+				"#!/bin/sh",
+				'for a in "$@"; do',
+				`  if [ "$a" = "${stuck}" ]; then`,
+				`    printf "rm: cannot remove '%s': Permission denied\\n" "$a" >&2`,
+				"    exit 1",
+				"  fi",
+				"done",
+				`exec ${realRm} "$@"`,
+				"",
+			].join("\n"),
+		);
+		return { box, result: box.run(["update"]), stuck, removable };
+	}
+
+	const { box, result, stuck, removable } = stuckSnapshotBox();
+
+	it("terminates the run as succeeded", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "succeeded");
+	});
+
+	it("still hands the updater off for replacement", () => {
+		assert.ok(
+			box
+				.log()
+				.split("\n")
+				.some((l) => l.startsWith("run updater-recreate")),
+			"the updater was never handed off for replacement",
+		);
+		assert.match(
+			readFileSync(join(box.state, "updater-handoff"), "utf8"),
+			/tag=v1\.5\.0/,
+		);
+	});
+
+	it("names the snapshot it could not remove, and how to remove it", () => {
+		assert.match(result.stderr, new RegExp(`could not remove.*${stuck}`));
+		assert.match(result.stderr, new RegExp(`sudo rm -rf ${stuck}`));
+	});
+
+	it("leaves the snapshot in place and prunes the rest", () => {
+		assert.ok(existsSync(stuck), "the unremovable snapshot was reported gone");
+		assert.ok(!existsSync(removable), "the sweep stopped at the first failure");
+	});
+});
+
 describe("a boot recover verifies the updater self-replace (reader#291)", () => {
 	const withHandoff = (fields, { done = false, scenario = {} } = {}) => {
 		const box = sandbox({ scenario: { probe: "ok", ...scenario } });
