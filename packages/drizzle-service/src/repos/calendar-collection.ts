@@ -72,6 +72,37 @@ export class CalendarCollectionRepo implements ICalendarCollectionRepository {
 		return rowToCalendar(row);
 	}
 
+	/**
+	 * One statement, so the loser of a race is told the segment is taken rather
+	 * than handed the winner's calendar. A read followed by an insert would let
+	 * both callers see the segment free and one of them silently write into the
+	 * other's collection.
+	 */
+	async createExclusive(
+		input: CreateCalendarCollectionInput,
+	): Promise<CalendarCollectionItem | null> {
+		const now = Date.now();
+		const urlSegment = normalizeCalendarUrlSegment(input.urlSegment);
+		const [row] = await this.db
+			.insert(calendarTable)
+			.values({
+				calendarId: deriveCalendarId(input.accountConfigId, urlSegment),
+				accountConfigId: input.accountConfigId,
+				urlSegment,
+				displayName: input.displayName,
+				color: input.color ?? "Cal1",
+				componentSet: input.componentSet ?? "VeventOnly",
+				source: input.source ?? "UserCreated",
+				timezone: input.timezone ?? "",
+				syncSequence: 0,
+				createdAt: now,
+				updatedAt: now,
+			})
+			.onConflictDoNothing({ target: calendarTable.calendarId })
+			.returning();
+		return row ? rowToCalendar(row) : null;
+	}
+
 	async get(
 		accountConfigId: string,
 		calendarId: string,

@@ -88,6 +88,14 @@ class MemoryCalendarStore implements ICalendarUnitOfWork {
 			[...this.collections.values()].filter(
 				(collection) => collection.accountConfigId === accountConfigId,
 			),
+		createExclusive: async (input: CreateCalendarCollectionInput) => {
+			const calendarId = deriveCalendarId(
+				input.accountConfigId,
+				input.urlSegment,
+			);
+			if (this.collections.has(calendarId)) return null;
+			return this.collectionRepo.create(input);
+		},
 		findByUrlSegment: async (accountConfigId: string, urlSegment: string) =>
 			this.collections.get(deriveCalendarId(accountConfigId, urlSegment)) ??
 			null,
@@ -119,6 +127,15 @@ class MemoryCalendarStore implements ICalendarUnitOfWork {
 			this.objects.set(calendarObjectId, object);
 			return object;
 		},
+		listIncompleteExpansions: async (calendarId: string, instant: string) =>
+			[...this.objects.values()].filter(
+				(object) =>
+					object.calendarId === calendarId &&
+					object.expandedThrough !== "" &&
+					object.expandedThrough < instant,
+			),
+		find: async (_calendarId: string, calendarObjectId: string) =>
+			this.objects.get(calendarObjectId) ?? null,
 		get: async (_calendarId: string, calendarObjectId: string) => {
 			const object = this.objects.get(calendarObjectId);
 			if (!object) throw new MissingRow(calendarObjectId);

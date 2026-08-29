@@ -12,6 +12,18 @@ export interface ICalendarCollectionRepository {
 	 * request without a prior read.
 	 */
 	create(input: CreateCalendarCollectionInput): Promise<CalendarCollectionItem>;
+	/**
+	 * Writes the collection, or answers `null` when its `urlSegment` is already
+	 * taken in this account config.
+	 *
+	 * The distinction from `create` is who asked. Provisioning wants the row
+	 * whoever got there first wrote; a person naming a calendar wants to be told
+	 * the name is taken, and handing them somebody else's calendar instead is a
+	 * silent merge of two things they meant to keep apart.
+	 */
+	createExclusive(
+		input: CreateCalendarCollectionInput,
+	): Promise<CalendarCollectionItem | null>;
 	get(
 		accountConfigId: string,
 		calendarId: string,

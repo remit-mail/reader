@@ -4,6 +4,10 @@ import type {
 	IAccountRepository,
 	IAccountSettingRepository,
 	IAddressRepository,
+	ICalendarCollectionRepository,
+	ICalendarEventIndexRepository,
+	ICalendarObjectRepository,
+	ICalendarUnitOfWork,
 	IConfigImportRepository,
 	IEnvelopeRepository,
 	IFilterAnchorRepository,
@@ -115,6 +119,17 @@ export interface RemitClient {
 	// body-sync, which is its only writer.
 	senderSignerStanding: ISenderSignerStandingRepository;
 
+	// The calendar store (issue #15). Every write goes through
+	// `calendarUnitOfWork`: the object, its occurrence rows and the collection's
+	// sequence bump are one fact, and the three repositories beside it are the
+	// read side. A backend that cannot supply them cannot serve the calendar at
+	// all, so they are part of the client rather than something each handler
+	// checks for.
+	calendarCollection: ICalendarCollectionRepository;
+	calendarObject: ICalendarObjectRepository;
+	calendarEventIndex: ICalendarEventIndexRepository;
+	calendarUnitOfWork: ICalendarUnitOfWork;
+
 	// Atomic write set for a message save. Present on the relational backend (real
 	// transaction); absent on DynamoDB, where callers fall back to per-repo
 	// writes with that backend's own (non-transactional) guarantees.
@@ -204,6 +219,10 @@ export interface RemitClientRepositories {
 	label: ILabelRepository;
 	messageLabel: IMessageLabelRepository;
 	senderSignerStanding: ISenderSignerStandingRepository;
+	calendarCollection: ICalendarCollectionRepository;
+	calendarObject: ICalendarObjectRepository;
+	calendarEventIndex: ICalendarEventIndexRepository;
+	calendarUnitOfWork: ICalendarUnitOfWork;
 	unitOfWork?: IUnitOfWork;
 	writeSet?: <T>(run: () => Promise<T>) => Promise<T>;
 }
@@ -431,6 +450,10 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		label: repositories.label,
 		messageLabel: repositories.messageLabel,
 		senderSignerStanding: repositories.senderSignerStanding,
+		calendarCollection: repositories.calendarCollection,
+		calendarObject: repositories.calendarObject,
+		calendarEventIndex: repositories.calendarEventIndex,
+		calendarUnitOfWork: repositories.calendarUnitOfWork,
 		unitOfWork: repositories.unitOfWork,
 		writeSet: repositories.writeSet,
 

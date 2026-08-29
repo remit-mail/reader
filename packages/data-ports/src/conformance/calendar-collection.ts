@@ -59,6 +59,29 @@ export function calendarCollectionRepositoryConformance(
 			assert.equal(all.length, 1);
 		});
 
+		test("createExclusive refuses a segment the account already uses", async () => {
+			const accountConfigId = harness.makeId();
+
+			const first = await repo.createExclusive({
+				accountConfigId,
+				urlSegment: "work",
+				displayName: "Work",
+			});
+			const second = await repo.createExclusive({
+				accountConfigId,
+				urlSegment: "work",
+				displayName: "Work again",
+			});
+
+			assert.ok(first);
+			assert.equal(second, null);
+			assert.equal(
+				(await repo.get(accountConfigId, first.calendarId)).displayName,
+				"Work",
+				"the loser never overwrote the calendar the winner made",
+			);
+		});
+
 		test("get throws a not-found error for a missing collection", async () => {
 			await assert.rejects(
 				repo.get(harness.makeId(), harness.makeId()),

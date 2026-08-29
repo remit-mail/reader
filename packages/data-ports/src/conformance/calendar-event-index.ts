@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
+import { CalendarEventStatus, CalendarTransparency } from "@remit/domain-enums";
 import type { ICalendarEventIndexRepository } from "../interfaces/calendar-event-index.js";
 import type { CalendarOccurrenceInput } from "../types.js";
 import type { RepositoryConformanceHarness } from "./harness.js";
@@ -8,11 +9,16 @@ const occurrence = (
 	recurrenceId: string,
 	startAt: string,
 	endAt: string,
+	overrides: Partial<CalendarOccurrenceInput> = {},
 ): CalendarOccurrenceInput => ({
 	recurrenceId,
 	startAt,
 	endAt,
 	allDay: false,
+	summary: "Stand-up",
+	status: CalendarEventStatus.Confirmed,
+	transparency: CalendarTransparency.Opaque,
+	...overrides,
 });
 
 export function calendarEventIndexRepositoryConformance(
@@ -137,6 +143,46 @@ export function calendarEventIndexRepositoryConformance(
 				"2026-09-01T00:00:00Z",
 			);
 			assert.equal(rows.length, 1);
+		});
+
+		test("an occurrence keeps its own summary, status and transparency", async () => {
+			const calendarId = harness.makeId();
+			const calendarObjectId = harness.makeId();
+
+			await repo.replaceForObject(calendarId, calendarObjectId, [
+				occurrence(
+					"2026-08-26T07:00:00Z",
+					"2026-08-26T07:00:00Z",
+					"2026-08-26T08:00:00Z",
+				),
+				occurrence(
+					"2026-09-02T07:00:00Z",
+					"2026-09-02T07:00:00Z",
+					"2026-09-02T08:00:00Z",
+					{
+						summary: "Stand-up (moved)",
+						status: CalendarEventStatus.Cancelled,
+						transparency: CalendarTransparency.Transparent,
+					},
+				),
+			]);
+
+			const rows = await repo.listForObject(calendarId, calendarObjectId);
+			assert.deepEqual(
+				rows.map((row) => [row.summary, row.status, row.transparency]),
+				[
+					[
+						"Stand-up",
+						CalendarEventStatus.Confirmed,
+						CalendarTransparency.Opaque,
+					],
+					[
+						"Stand-up (moved)",
+						CalendarEventStatus.Cancelled,
+						CalendarTransparency.Transparent,
+					],
+				],
+			);
 		});
 
 		test("deleteForObject removes every occurrence of one resource", async () => {

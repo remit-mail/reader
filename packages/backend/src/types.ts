@@ -58,6 +58,17 @@ export type OperationIds =
 	| "MessageBulkOperations_updateMessageLabels"
 	| "MessageBulkOperations_reportSpam"
 	| "MessageBulkOperations_notSpam"
+	| "CalendarOperations_listCalendars"
+	| "CalendarOperations_createCalendar"
+	| "CalendarDetailOperations_getCalendar"
+	| "CalendarDetailOperations_updateCalendar"
+	| "CalendarDetailOperations_deleteCalendar"
+	| "CalendarEventOperations_listCalendarEvents"
+	| "CalendarEventOperations_createCalendarEvent"
+	| "CalendarEventDetailOperations_getCalendarEvent"
+	| "CalendarEventDetailOperations_updateCalendarEvent"
+	| "CalendarEventDetailOperations_deleteCalendarEvent"
+	| "CalendarFreeBusyOperations_listCalendarFreeBusy"
 	| "TrashOperations_emptyTrash"
 	| "OutboxOperations_createOutboxMessage"
 	| "OutboxOperations_listOutboxMessages"
@@ -151,6 +162,31 @@ export type MessageOperationIds = MatchPrefix<
 
 export type MessageBulkOperationIds = MatchPrefix<
 	"MessageBulkOperations_",
+	OperationIds
+>;
+
+export type CalendarOperationIds = MatchPrefix<
+	"CalendarOperations_",
+	OperationIds
+>;
+
+export type CalendarDetailOperationIds = MatchPrefix<
+	"CalendarDetailOperations_",
+	OperationIds
+>;
+
+export type CalendarEventOperationIds = MatchPrefix<
+	"CalendarEventOperations_",
+	OperationIds
+>;
+
+export type CalendarEventDetailOperationIds = MatchPrefix<
+	"CalendarEventDetailOperations_",
+	OperationIds
+>;
+
+export type CalendarFreeBusyOperationIds = MatchPrefix<
+	"CalendarFreeBusyOperations_",
 	OperationIds
 >;
 

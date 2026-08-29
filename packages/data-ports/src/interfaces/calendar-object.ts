@@ -6,6 +6,16 @@ export interface ICalendarObjectRepository {
 		calendarId: string,
 		calendarObjectId: string,
 	): Promise<CalendarObjectItem>;
+	/**
+	 * The resource under an id, or `null` when the collection does not hold it.
+	 * `get` throws instead, which is right for a caller that already knows the
+	 * resource exists; a request naming one is asking whether it does, and that
+	 * is an answer rather than a fault.
+	 */
+	find(
+		calendarId: string,
+		calendarObjectId: string,
+	): Promise<CalendarObjectItem | null>;
 	delete(calendarId: string, calendarObjectId: string): Promise<void>;
 	findByResourceName(
 		calendarId: string,
@@ -21,6 +31,17 @@ export interface ICalendarObjectRepository {
 		icalUid: string,
 	): Promise<CalendarObjectItem | null>;
 	listByCalendar(calendarId: string): Promise<CalendarObjectItem[]>;
+	/**
+	 * The resources whose occurrence rows stop before `instant` — the series a
+	 * range read has to expand for itself because the index does not reach that
+	 * far. Narrow by construction: a resource that fits inside the expansion
+	 * horizon carries no `expandedThrough` and never appears here, so a view of
+	 * an ordinary calendar reads no iCalendar text at all.
+	 */
+	listIncompleteExpansions(
+		calendarId: string,
+		instant: string,
+	): Promise<CalendarObjectItem[]>;
 	/**
 	 * Everything written to the collection after `syncSequence`, in change
 	 * order — the read behind a WebDAV-Sync report. Exclusive of the token

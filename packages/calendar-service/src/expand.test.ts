@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { CalendarEventStatus, CalendarTransparency } from "@remit/domain-enums";
 import {
 	CALENDAR_EXPANSION_HORIZON_DAYS,
 	CALENDAR_EXPANSION_MAX_OCCURRENCES,
@@ -40,6 +41,9 @@ describe("expandCalendar", () => {
 				startAt: "2026-08-26T09:00:00Z",
 				endAt: "2026-08-26T10:00:00Z",
 				allDay: false,
+				summary: "",
+				status: CalendarEventStatus.Confirmed,
+				transparency: CalendarTransparency.Opaque,
 			},
 		]);
 		assert.equal(expansion.expandedThrough, "");
@@ -272,12 +276,18 @@ describe("expandCalendar", () => {
 				startAt: "2026-08-25T22:00:00Z",
 				endAt: "2026-08-26T22:00:00Z",
 				allDay: true,
+				summary: "",
+				status: CalendarEventStatus.Confirmed,
+				transparency: CalendarTransparency.Opaque,
 			},
 			{
 				recurrenceId: "2026-08-26T22:00:00Z",
 				startAt: "2026-08-26T22:00:00Z",
 				endAt: "2026-08-27T22:00:00Z",
 				allDay: true,
+				summary: "",
+				status: CalendarEventStatus.Confirmed,
+				transparency: CalendarTransparency.Opaque,
 			},
 		]);
 	});

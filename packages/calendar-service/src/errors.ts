@@ -22,7 +22,19 @@ export type CalendarValidationCode =
 	/** A VEVENT with no DTSTART. */
 	| "MissingDtStart"
 	/** A VEVENT whose end precedes its start. */
-	| "BackwardsEnd";
+	| "BackwardsEnd"
+	/** A start or end that is not a date-time this server can read. */
+	| "InvalidDateTime"
+	/** A time zone name nothing on this platform resolves. */
+	| "UnknownTimeZone"
+	/** An RRULE value ical.js could not read. */
+	| "InvalidRecurrenceRule"
+	/** A scoped write that names one occurrence without saying which. */
+	| "MissingRecurrenceId"
+	/** A per-occurrence scope against an event that has one occurrence. */
+	| "NotRecurring"
+	/** A RECURRENCE-ID naming no occurrence this series produces. */
+	| "UnknownOccurrence";
 
 export interface CalendarValidationError {
 	code: CalendarValidationCode;

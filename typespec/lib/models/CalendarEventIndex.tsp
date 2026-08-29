@@ -1,5 +1,7 @@
 import "typespec-electrodb-emitter";
 
+import "../enums/CalendarEventStatus.tsp";
+import "../enums/CalendarTransparency.tsp";
 import "../scalars/string.tsp";
 
 namespace RemitImap;
@@ -66,6 +68,18 @@ model CalendarEventIndex {
   @doc("Whether this occurrence is all-day, copied from the resource it came from so a range read never has to join back to it. A client renders an all-day occurrence as the civil date its start falls on in the collection's timezone, not as the instant stored here.")
   @visibility(Lifecycle.Read)
   allDay: boolean = false;
+
+  @doc("Projection of this occurrence's own SUMMARY. An overridden occurrence carries the override's, not the master's — an edit to one instance of a series is exactly the thing a range read must show, and a reader that took the summary from the master would draw the old title over the new one.")
+  @visibility(Lifecycle.Read)
+  summary: String512 = "";
+
+  @doc("Projection of this occurrence's own STATUS. Per occurrence for the same reason as `summary`: one cancelled instance of a series is cancelled, and reading the master's status would keep it in a free/busy answer.")
+  @visibility(Lifecycle.Read)
+  status: CalendarEventStatus = CalendarEventStatus.Confirmed;
+
+  @doc("Projection of this occurrence's own TRANSP — whether it consumes free/busy time.")
+  @visibility(Lifecycle.Read)
+  transparency: CalendarTransparency = CalendarTransparency.Opaque;
 
   @visibility(Lifecycle.Read)
   @createdAt
