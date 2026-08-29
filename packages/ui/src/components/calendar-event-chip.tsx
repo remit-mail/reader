@@ -1,8 +1,8 @@
-import { Globe, Mail, Repeat } from "lucide-react";
 import type { ReactNode } from "react";
-import { calendarColorClasses } from "../lib/calendar-color.js";
+import { calendarEventBodyClasses } from "../lib/calendar-event-shell.js";
 import { cn } from "../lib/cn.js";
 import type { Density } from "./app-shell-types.js";
+import { CalendarEventChipContent } from "./calendar-event-chip-content.js";
 import type {
 	CalendarColorId,
 	RsvpState,
@@ -46,11 +46,11 @@ export interface CalendarEventChipProps {
  * carries; the RSVP and the zone ride on shape and mark instead, so a declined
  * event in a green calendar still reads as green and as declined.
  *
- * A FullCalendar grid is the one surface that does not use it — the library
- * renders the event's element itself and takes only a class string and the
- * content inside, so `calendar-grid.tsx` restates this shell there. Every value
- * that can be shared is the same on both sides; what cannot cross is the
- * element itself, and with it `aria-pressed` and the focus ring.
+ * `CalendarGrid` is the one surface that does not render this component — its
+ * engine builds the event's element itself. It draws the same event out of the
+ * same two pieces: `calendarEventBodyClasses` for the box and
+ * `CalendarEventChipContent` for what is written in it. What cannot cross is
+ * the element, and with it `aria-pressed` and the leading slot.
  */
 export function CalendarEventChip({
 	title,
@@ -69,82 +69,7 @@ export function CalendarEventChip({
 	trailing,
 	detail,
 }: CalendarEventChipProps) {
-	const hue = calendarColorClasses(color);
 	const isColumn = layout === "column";
-	const isCompact = density === "compact";
-	const declined = rsvp === "declined";
-	const provisional = rsvp === "tentative" || status === "tentative";
-	const stacked = isColumn || detail !== undefined;
-
-	const head = (
-		<span
-			className={cn(
-				"flex min-w-0 items-center gap-1",
-				isColumn && "w-full",
-				declined && "line-through",
-			)}
-		>
-			{timeText !== "" && (
-				<span className="shrink-0 tabular-nums opacity-80">{timeText}</span>
-			)}
-			<span className="truncate font-medium">{title}</span>
-		</span>
-	);
-
-	const marks = (hasThread || isRecurring || zoneCertainty === "ambiguous") && (
-		<span
-			className={cn(
-				"flex shrink-0 items-center gap-1",
-				isColumn && "mt-0.5",
-				!isColumn && trailing === undefined && "ml-auto",
-			)}
-		>
-			{isRecurring && <Repeat className="size-2.5" aria-label="Repeats" />}
-			{hasThread && <Mail className="size-2.5" aria-label="From mail" />}
-			{zoneCertainty === "ambiguous" && (
-				<Globe className="size-2.5 text-warning" aria-label="Unclear zone" />
-			)}
-		</span>
-	);
-
-	const tail = trailing !== undefined && (
-		<span className={cn("shrink-0 opacity-80", !isColumn && "ml-auto")}>
-			{trailing}
-		</span>
-	);
-
-	const body = (
-		<span
-			className={cn(
-				"flex min-w-0 flex-1 overflow-hidden rounded-sm border-l-2 px-1.5 py-0.5",
-				hue.soft,
-				hue.text,
-				hue.rail,
-				isColumn && "h-full",
-				stacked ? "flex-col" : "items-center gap-1.5",
-				provisional && "border-y border-r border-dashed",
-				provisional && hue.border,
-				declined && "opacity-60",
-				selected && "ring-2 ring-ring",
-				isCompact ? "text-2xs" : "text-xs",
-			)}
-		>
-			{isColumn || detail === undefined ? (
-				<>
-					{head}
-					{marks}
-					{tail}
-				</>
-			) : (
-				<span className="flex min-w-0 items-center gap-1.5">
-					{head}
-					{marks}
-					{tail}
-				</span>
-			)}
-			{detail}
-		</span>
-	);
 
 	return (
 		<button
@@ -159,7 +84,33 @@ export function CalendarEventChip({
 			)}
 		>
 			{leading}
-			{body}
+			<span
+				className={cn(
+					calendarEventBodyClasses({
+						color,
+						layout,
+						density,
+						rsvp,
+						status,
+						selected,
+						stacked: detail !== undefined,
+					}),
+					"flex-1",
+					isColumn && "h-full",
+				)}
+			>
+				<CalendarEventChipContent
+					title={title}
+					timeText={timeText}
+					layout={layout}
+					rsvp={rsvp}
+					hasThread={hasThread}
+					isRecurring={isRecurring}
+					zoneCertainty={zoneCertainty}
+					trailing={trailing}
+					detail={detail}
+				/>
+			</span>
 		</button>
 	);
 }

@@ -15,7 +15,9 @@ import {
 	type CalendarColorId,
 	CalendarDateNav,
 	type CalendarEventData,
+	CalendarGrid,
 	CalendarList,
+	type CalendarSlotPick,
 	type CalendarViewId,
 	CalendarViewSwitch,
 	type CustomRecurrence,
@@ -56,7 +58,6 @@ import {
 	Trash2,
 } from "lucide-react";
 import { type ReactNode, useMemo, useRef, useState } from "react";
-import { CalendarGrid, type SlotPick } from "../components/calendar-grid.js";
 import {
 	EVENT_WIZARD_LAST_STEP,
 	EVENT_WIZARD_STEPS,
@@ -74,6 +75,7 @@ import {
 	formatEventWhen,
 	formatSuggestionWhen,
 	HOME_ZONE,
+	NOW_ISO,
 	events as seedEvents,
 	suggestions as seedSuggestions,
 	TODAY,
@@ -117,7 +119,7 @@ function emptyDraft(): EventDraft {
 	};
 }
 
-function draftFromSlot(pick: SlotPick): EventDraft {
+function draftFromSlot(pick: CalendarSlotPick): EventDraft {
 	return {
 		...emptyDraft(),
 		date: pick.date,
@@ -219,7 +221,7 @@ export interface CalendarDestinationProps {
 	/** Calendars already ticked off, so a story can start filtered. */
 	hiddenCalendarIds?: string[];
 	/** Opens the editor on mount at this slot. */
-	draftAt?: SlotPick;
+	draftAt?: CalendarSlotPick;
 	/** Seeds the quick-entry field and opens the editor with it. */
 	phrase?: string;
 	/** Opens the scope question for this instance of a series. */
@@ -301,7 +303,7 @@ export function CalendarDestination({
 			return next;
 		});
 
-	const openSlot = (pick: SlotPick) => {
+	const openSlot = (pick: CalendarSlotPick) => {
 		setPhrase("");
 		setPanel(createPanel(draftFromSlot(pick)));
 		setStep(0);
@@ -313,7 +315,7 @@ export function CalendarDestination({
 	 * grid to that day. Creating stays on the button, which is where a thumb
 	 * expects it and where a mis-tap costs nothing.
 	 */
-	const pickSlot = (pick: SlotPick) => {
+	const pickSlot = (pick: CalendarSlotPick) => {
 		if (isPhone && view === "month") {
 			setDate(pick.date);
 			return;
@@ -432,6 +434,8 @@ export function CalendarDestination({
 			colorByCalendarId={colorByCalendarId}
 			density="comfortable"
 			selectedEventId={selected}
+			timeZone={HOME_ZONE}
+			now={NOW_ISO}
 			onSelectEvent={openEvent}
 			onPickSlot={pickSlot}
 			onRangeChange={setRangeTitle}

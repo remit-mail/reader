@@ -9,7 +9,8 @@
 		".": "./src/index.ts",
 		"./rich-text": "./src/rich-text.ts",
 		"./spellcheck-worker": "./src/components/rich-text-spellcheck-worker-provider.ts",
-		"./tokens.css": "./src/tokens.css"
+		"./tokens.css": "./src/tokens.css",
+		"./calendar.css": "./src/calendar.css"
 	},
 	"scripts": {
 		"test": "npm run test:typecheck && npm run test:run",
@@ -20,6 +21,7 @@
 		"@fontsource-variable/geist": "^5",
 		"@fontsource-variable/hanken-grotesk": "^5",
 		"@fontsource-variable/inter": "^5",
+		"@fullcalendar/react": "^7.0.2",
 		"@lexical/code-core": "0.49.0",
 		"@lexical/html": "0.49.0",
 		"@lexical/link": "0.49.0",

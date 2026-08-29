@@ -1,0 +1,4 @@
+/* The structural sheet `CalendarGrid`'s engine needs — positioning and nothing
+   else; it ships no theme. Every colour, border and size the grid draws comes
+   from tokens.css instead. An app that renders the grid imports this beside it. */
+@import "@fullcalendar/react/skeleton.css";

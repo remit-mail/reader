@@ -148,6 +148,14 @@ export {
 	type CalendarEventChipProps,
 } from "./components/calendar-event-chip.js";
 export {
+	CalendarEventChipContent,
+	type CalendarEventChipContentProps,
+} from "./components/calendar-event-chip-content.js";
+export {
+	CalendarGrid,
+	type CalendarGridProps,
+} from "./components/calendar-grid.js";
+export {
 	CalendarList,
 	type CalendarListProps,
 } from "./components/calendar-list.js";
@@ -881,6 +889,16 @@ export {
 	type CalendarColorClasses,
 	calendarColorClasses,
 } from "./lib/calendar-color.js";
+export {
+	type CalendarEventShell,
+	calendarEventBodyClasses,
+} from "./lib/calendar-event-shell.js";
+export {
+	DRAFT_MINUTES,
+	isDraggedSelection,
+	pointPick,
+	rangePick,
+} from "./lib/calendar-slot-pick.js";
 export {
 	buildCidResolver,
 	type CidResolvableBodyPart,
