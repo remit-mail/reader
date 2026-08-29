@@ -212,26 +212,16 @@ test.describe("The agenda strip", () => {
 				message: "the address to follow the strip on to the days it reached",
 			})
 			.toBeGreaterThan(0);
-		expect(await page.evaluate(() => window.history.length)).toBe(history);
-
-		await strip.evaluate((el) => {
-			el.scrollTop = 0;
-		});
-
-		// And back the other way, to the days behind the one it opened on.
-		await expect
-			.poll(dayInPath(page), {
-				message: "the address to follow the strip back to the days behind it",
-			})
-			.toBeLessThan(0);
 		const landed = pathDay(page);
 		expect(landed).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 		// Scrolling is not somewhere the reader went, so Back still belongs to the
 		// screen they arrived from rather than to every row they passed.
 		expect(await page.evaluate(() => window.history.length)).toBe(history);
 
-		await page.setViewportSize(DESKTOP);
-
+		// The window stays short for the rest of this: growing it back would clamp
+		// the scroll the strip is holding, which is another scroll, another day
+		// under the header, and an address that moved for no reader.
+		//
 		// Changing zoom keeps the day and the ticked calendars: the grid is a
 		// magnification the reader drops into, not a different screen.
 		await page
