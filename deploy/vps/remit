@@ -1735,13 +1735,22 @@ fi
 chown -R 1000:1000 /data/sqlite"
 }
 
+# Housekeeping, never a gate. A snapshot the updater cannot remove — one left
+# root-owned by an older release, on a volume the updater now enters as another
+# uid — used to abort the whole commit under set -eu, before the run reached a
+# terminal outcome and before the updater replaced itself (reader#1048). Each
+# one that survives is named on stderr and left where it is; the next successful
+# run tries again.
 prune_snapshots() {
 	[ -d "$STATE_DIR/snapshots" ] || return 0
 	for _d in "$STATE_DIR/snapshots"/*; do
 		[ -d "$_d" ] || continue
 		_name=${_d##*/}
 		if [ "$_name" != "$1" ]; then
-			rm -rf "$_d"
+			if ! rm -rf "$_d"; then
+				printf '%s: could not remove the old snapshot at %s. It is taking up disk until you remove it: sudo rm -rf %s\n' \
+					"$PROG" "$_d" "$_d" >&2
+			fi
 		fi
 	done
 }
@@ -2192,12 +2201,14 @@ verify_updater_handoff() {
 commit_run() {
 	phase committing "Starting the rest of the services." "remit logs"
 	start_held_back
-	# This run's snapshot and the previous release's images are retained until
-	# the next successful update; every earlier run's snapshot goes.
-	prune_snapshots "$RUN_ID"
 	recheck_availability
 	terminate succeeded "This instance is now running $RUN_TARGET." "remit logs backend"
 	replace_updater
+	# Last, because it is housekeeping: the verdict is durable and the updater is
+	# handed off before a single byte is deleted. This run's snapshot and the
+	# previous release's images are retained until the next successful update;
+	# every earlier run's snapshot goes.
+	prune_snapshots "$RUN_ID"
 }
 
 roll_back() {
