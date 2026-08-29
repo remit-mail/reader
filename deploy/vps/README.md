@@ -434,6 +434,31 @@ still on the updater's volume under `snapshots/<runId>/` and the previous
 release's images are still pulled: restore the snapshot over `sqlite_data` as
 uid 1000, put the previous tag back in `.env`, and `remit restart`.
 
+## When a release rekeys stored data
+
+A release can change how a stored id is derived, and thread identity is the one
+that has. A thread is keyed on the account configuration rather than on the
+account, so one conversation held by two connected mailboxes is one thread and a
+reply sent from either account joins it. Rows written before that release were
+keyed the old way and a later sync keys the new way, so the two never meet: the
+conversation stays split, and no amount of resyncing on top of the old rows
+mends it.
+
+There is no backfill. Keep the configuration, drop the mail, let it sync again:
+
+```bash
+remit config save reader-config.json   # accounts, filters, labels, roles, signatures
+remit purge --yes                      # every data volume, mail included
+remit restart
+```
+
+Then sign up again on `PUBLIC_ORIGIN` — set `SELF_SIGN_UP_ENABLED=true` in
+`.env` first if you closed it — import the file from Settings → Advanced, and
+give each account its password again, because the export carries no credential
+and no OAuth token. Mail re-syncs from IMAP.
+
+Every thread URL bookmarked before the drop names an id nothing holds any more.
+
 ## Podman
 
 One path is supported: **rootful Podman driving real Compose v2 over Podman's

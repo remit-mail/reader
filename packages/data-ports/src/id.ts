@@ -150,12 +150,22 @@ export const deriveCopyMessageId = (
 		REMIT_NAMESPACE,
 	);
 
+/**
+ * Identity of a conversation (issue #1017). Keyed on the account config, not on
+ * the account: two mailboxes connected to one config hold the same conversation,
+ * and keying on the account gave each of them its own thread rooted at the same
+ * header — so a reply sent from the second account opened a conversation of one
+ * beside the one it answered.
+ *
+ * Messages stay per account (`deriveMessageId`). Each account keeps its own copy
+ * of a mail, and the copies meet in one thread through the shared root header.
+ */
 export const deriveThreadId = (
-	accountId: string,
+	accountConfigId: string,
 	rootMessageIdHeader: string,
 ): string =>
 	base36uuidv5(
-		`thread:${accountId}:${rootMessageIdHeader.toLowerCase()}`,
+		`thread:${accountConfigId}:${rootMessageIdHeader.toLowerCase()}`,
 		REMIT_NAMESPACE,
 	);
 
