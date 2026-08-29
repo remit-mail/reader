@@ -69,6 +69,7 @@ function ConfigImportWalkthrough() {
 		<StepChooseFile
 			key="file"
 			file={{ name: CONFIG_FILE_NAME, size: 18_432 }}
+			ready
 			onNext={() => setIndex(2)}
 		/>,
 		<StepDryRunReport
@@ -81,7 +82,6 @@ function ConfigImportWalkthrough() {
 		<StepCredentialsOverview
 			key="credentials"
 			accounts={importedAccounts}
-			onBack={back}
 			onNext={() => setIndex(4)}
 		/>,
 		<StepPendingFolders
@@ -124,10 +124,20 @@ export const ChooseFileDragging: Story = {
 	render: () => <StepChooseFile state="dragging" />,
 };
 
-/** A file is chosen and read; nothing has been sent yet. */
+/** A file is chosen and parsed; the check is armed, nothing has been sent. */
 export const ChooseFileChosen: Story = {
 	render: () => (
-		<StepChooseFile file={{ name: CONFIG_FILE_NAME, size: 18_432 }} />
+		<StepChooseFile file={{ name: CONFIG_FILE_NAME, size: 18_432 }} ready />
+	),
+};
+
+/** The browser is still pulling the file off disk — there is nothing to send yet. */
+export const ChooseFileReading: Story = {
+	render: () => (
+		<StepChooseFile
+			state="reading"
+			file={{ name: CONFIG_FILE_NAME, size: 18_432 }}
+		/>
 	),
 };
 
@@ -135,8 +145,9 @@ export const ChooseFileChosen: Story = {
 export const ChooseFileChecking: Story = {
 	render: () => (
 		<StepChooseFile
-			state="reading"
+			state="checking"
 			file={{ name: CONFIG_FILE_NAME, size: 18_432 }}
+			ready
 		/>
 	),
 };
@@ -188,6 +199,28 @@ export const DryRunReportApplying: Story = {
 			sections={dryRunSections}
 			fileName={CONFIG_FILE_NAME}
 			applying
+		/>
+	),
+};
+
+/**
+ * A file from a newer Reader carrying a section this one does not know. It gets
+ * its own heading rather than being filed under a section we recognise, because
+ * telling someone their settings landed somewhere they did not is the failure
+ * the whole format exists to prevent.
+ */
+export const DryRunReportUnknownSection: Story = {
+	render: () => (
+		<StepDryRunReport
+			sections={groupReportSections([
+				...dryRunReport.items,
+				{
+					section: "messageDecisions",
+					key: "3.412 message labels",
+					verdict: "created",
+				},
+			])}
+			fileName={CONFIG_FILE_NAME}
 		/>
 	),
 };
@@ -346,6 +379,28 @@ export const RejectedUnknownKey: Story = {
 /** The file carries a password: rejected outright, never quietly stripped. */
 export const RejectedCredentialField: Story = {
 	render: () => <StepFileRejected failure={rejectionFor("credentialField")} />,
+};
+
+/**
+ * The same stop, with a server that did not say where. Nothing here may read
+ * "landed": the reader has to go and look, and the screen says so.
+ */
+export const PartiallyLandedImportUnnamed: Story = {
+	render: () => {
+		const report = {
+			...partialImportReport,
+			errors: [
+				{ code: "import_write_failed", message: "the store refused the write" },
+			],
+		};
+		return (
+			<StepPartialImport
+				results={sectionResults(report)}
+				message={writeFailure(report)?.message ?? ""}
+				raw="import_write_failed: the store refused the write"
+			/>
+		);
+	},
 };
 
 /** An import that stopped half-way, saying exactly what landed. */
