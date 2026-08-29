@@ -19,6 +19,11 @@ initialize({
  * leaves for the page — Android Chrome with its address bar and the system nav
  * showing (411×759, from #405). Anything sized off the viewport height is
  * tightest here, so a surface with a `dvh` ceiling gets a story pinned to it.
+ *
+ * `laptopShort` is the desktop tier at a laptop's real page height rather than
+ * a monitor's — 1512×827, the MacBook the config import wizard was found
+ * unusable on (#1021). Wide enough to be nobody's idea of a small screen, and
+ * short enough that a long step runs off the bottom.
  */
 const appViewports = {
 	desktop: {
@@ -40,6 +45,11 @@ const appViewports = {
 		name: "Mobile (short)",
 		type: "mobile",
 		styles: { width: "411px", height: "759px" },
+	},
+	laptopShort: {
+		name: "Laptop (short)",
+		type: "desktop",
+		styles: { width: "1512px", height: "827px" },
 	},
 } as const;
 
