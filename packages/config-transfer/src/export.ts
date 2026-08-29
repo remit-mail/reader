@@ -9,6 +9,7 @@ import {
 	type ReaderConfigDocument,
 	ReaderConfigDocumentSchema,
 } from "@remit/config-format";
+import { formatPath } from "@remit/config-format/errors";
 import type {
 	AccountItem,
 	AddressFlags,
@@ -39,11 +40,69 @@ import {
  */
 const NO_ACTION = "None";
 
+/**
+ * The instance's own data does not fit the document format. Nothing is written:
+ * a file the import would refuse is worse than no file. Every problem names the
+ * row it came from, because the operator reading this has to go and fix one.
+ */
+export class ConfigExportRefusedError extends Error {
+	readonly problems: readonly string[];
+
+	constructor(problems: readonly string[]) {
+		super(
+			`This configuration cannot be exported as a v${CURRENT_SCHEMA_VERSION} document: ${problems.join("; ")}`,
+		);
+		this.name = "ConfigExportRefusedError";
+		this.problems = problems;
+	}
+}
+
 /** Which credential the account needs before it can sync again. */
 const credentialsFor = (account: AccountItem): ConfigAccount["credentials"] =>
 	account.authType === AccountAuthType.OauthMicrosoft
 		? { required: "oauth", provider: "microsoft" }
 		: { required: "password" };
+
+/**
+ * A flag as the rows actually hold it. `setAt` arrived after the first flags
+ * were written, so rows from before it carry none; the stored type says
+ * otherwise because it describes the shape being written today.
+ */
+interface StoredFlag<TValue> {
+	value: TValue;
+	setAt?: number;
+	setBy?: string;
+	expiresAt?: number;
+	reason?: string;
+}
+
+/** The same flag as the document spells it: `setAt` always present. */
+interface CarriedFlag<TValue> {
+	value: TValue;
+	setAt: number;
+	setBy?: string;
+	expiresAt?: number;
+	reason?: string;
+}
+
+/** The format's sentinel for a flag set before the timestamp was recorded. */
+const SET_AT_UNKNOWN = 0;
+
+/**
+ * One flag, field by field rather than as a copy of the stored object, so no
+ * attribute a later build adds to the row travels without a line here.
+ *
+ * A row with no `setAt` exports at the sentinel. Dropping the flag would lose a
+ * decision its owner made, and stamping the export's own clock would claim it
+ * was made today.
+ */
+const carriedFlag = <TValue>(flag: StoredFlag<TValue>): CarriedFlag<TValue> => ({
+	value: flag.value,
+	setAt: flag.setAt ?? SET_AT_UNKNOWN,
+	...(flag.setBy === undefined ? {} : { setBy: flag.setBy }),
+	...(flag.expiresAt === undefined ? {} : { expiresAt: flag.expiresAt }),
+	...(flag.reason === undefined ? {} : { reason: flag.reason }),
+});
 
 /**
  * Every mailbox in the configuration, by id, plus which account holds it.
@@ -111,7 +170,7 @@ const folderOverridesOf = (
 		overrides.push({
 			folderPath,
 			displayName: override.displayName,
-			muted: override.muted,
+			muted: override.muted === null ? null : carriedFlag(override.muted),
 		});
 	}
 	return overrides;
@@ -163,7 +222,7 @@ const toConfigAccount = (
 		username: account.smtpUsername,
 	},
 	displayName: settings.displayName,
-	muted: settings.muted,
+	muted: settings.muted === null ? null : carriedFlag(settings.muted),
 	composeLanguages: settings.composeLanguages,
 	signature: {
 		plainText: settings.signaturePlainText,
@@ -234,13 +293,14 @@ const toConfigFilter = (
 const userFlagsOf = (flags: AddressFlags | undefined): ConfigAddressFlags => {
 	const stored = flags ?? {};
 	const user: ConfigAddressFlags = {};
-	if (stored.trusted) user.trusted = stored.trusted;
-	if (stored.blocked) user.blocked = stored.blocked;
-	if (stored.muted) user.muted = stored.muted;
-	if (stored.vip) user.vip = stored.vip;
-	if (stored.category) user.category = stored.category;
-	if (stored.autoArchive) user.autoArchive = stored.autoArchive;
-	if (stored.unsubscribed) user.unsubscribed = stored.unsubscribed;
+	if (stored.trusted) user.trusted = carriedFlag(stored.trusted);
+	if (stored.blocked) user.blocked = carriedFlag(stored.blocked);
+	if (stored.muted) user.muted = carriedFlag(stored.muted);
+	if (stored.vip) user.vip = carriedFlag(stored.vip);
+	if (stored.category) user.category = carriedFlag(stored.category);
+	if (stored.autoArchive) user.autoArchive = carriedFlag(stored.autoArchive);
+	if (stored.unsubscribed)
+		user.unsubscribed = carriedFlag(stored.unsubscribed);
 	return user;
 };
 
@@ -276,6 +336,25 @@ const readAddresses = async (
 		cursor = page.continuationToken;
 	} while (cursor);
 	return addresses;
+};
+
+/**
+ * Where a refusal landed, said so an operator can act on it. A path into
+ * `addressFlags` names an array index of a list nobody can look up, so the
+ * index is replaced by the address itself; the flag is already the next segment.
+ */
+const refusalLocation = (
+	path: readonly PropertyKey[],
+	document: ReaderConfigDocument,
+): string => {
+	const [head, index, ...rest] = path;
+	if (head !== "addressFlags" || typeof index !== "number")
+		return formatPath(path);
+	const email = document.addressFlags[index]?.normalizedEmail;
+	if (email === undefined) return formatPath(path);
+	return rest.length === 0
+		? `addressFlags[${email}]`
+		: `addressFlags[${email}].${formatPath(rest)}`;
 };
 
 const accountSettingsOf = (
@@ -380,5 +459,11 @@ export const readConfigForExport = async (
 			.map(toConfigAddressFlags),
 	};
 
-	return ReaderConfigDocumentSchema.parse(document);
+	const parsed = ReaderConfigDocumentSchema.safeParse(document);
+	if (parsed.success) return parsed.data;
+	throw new ConfigExportRefusedError(
+		parsed.error.issues.map(
+			(issue) => `${refusalLocation(issue.path, document)}: ${issue.message}`,
+		),
+	);
 };

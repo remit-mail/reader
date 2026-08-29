@@ -25,6 +25,16 @@ const Port = z.int().min(1).max(65535);
 const FlagTimestamp = z.int();
 
 /**
+ * When a flag was set. Required, with zero as the sentinel for a flag whose
+ * stored row predates the field: the decision is real, the moment it was made
+ * is not known. An exporter fills the sentinel rather than the export's own
+ * clock, which would date an old decision to the day it was copied.
+ */
+const FlagSetAt = FlagTimestamp.describe(
+	"Epoch milliseconds the flag was set. 0 means it was set at an unknown time, on a row written before the field existed.",
+);
+
+/**
  * An IMAP path, as the server spells it. Folders travel by path rather than by
  * id: the ids are local to the instance that wrote the file, the path is what
  * the receiving instance can actually resolve against its own mailbox list.
@@ -58,7 +68,7 @@ export const ProvenanceSchema = z
 /** The audit metadata every sender-level flag and mute carries. */
 export const FlagMetadataSchema = z.strictObject({
 	value: z.boolean(),
-	setAt: FlagTimestamp,
+	setAt: FlagSetAt,
 	setBy: z.string().optional(),
 	expiresAt: FlagTimestamp.optional(),
 	reason: z.string().optional(),
@@ -68,7 +78,7 @@ export const MutedFlagSchema = FlagMetadataSchema;
 
 const CategoryFlagSchema = z.strictObject({
 	value: z.enum(MessageCategory),
-	setAt: FlagTimestamp,
+	setAt: FlagSetAt,
 	setBy: z.string().optional(),
 	expiresAt: FlagTimestamp.optional(),
 	reason: z.string().optional(),
