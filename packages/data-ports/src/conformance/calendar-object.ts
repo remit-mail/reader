@@ -107,6 +107,22 @@ export function calendarObjectRepositoryConformance(
 			);
 		});
 
+		test("find answers with null where get throws", async () => {
+			const calendarId = harness.makeId();
+			const object = await repo.put(objectInput(calendarId));
+
+			assert.equal(
+				(await repo.find(calendarId, object.calendarObjectId))?.icalData,
+				ICAL_DATA,
+			);
+			assert.equal(await repo.find(calendarId, harness.makeId()), null);
+			assert.equal(
+				await repo.find(harness.makeId(), object.calendarObjectId),
+				null,
+				"a resource is only found through the collection that holds it",
+			);
+		});
+
 		test("findByResourceName returns null for a name the collection does not hold", async () => {
 			assert.equal(
 				await repo.findByResourceName(harness.makeId(), "absent.ics"),

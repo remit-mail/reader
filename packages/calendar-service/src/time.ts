@@ -124,6 +124,57 @@ const formatCivil = (
 export const toUtcIso = (instantMs: number): string =>
 	`${new Date(instantMs).toISOString().slice(0, 19)}Z`;
 
+/** Whether this platform can be asked about a zone by name. */
+export const isResolvableZone = (timeZone: string): boolean =>
+	isKnownZone(timeZone);
+
+/**
+ * The wall-clock fields an instant reads as in a zone, with the offset that
+ * zone was at. The zone falls back to UTC when it is one this platform cannot
+ * name, which is the same fallback `resolveTime` takes.
+ */
+export const civilInZone = (
+	instantMs: number,
+	timeZone: string,
+): {
+	year: number;
+	month: number;
+	day: number;
+	hour: number;
+	minute: number;
+	second: number;
+	offsetMinutes: number;
+} => {
+	const zone = isKnownZone(timeZone) ? timeZone : "UTC";
+	const offsetMinutes = zoneOffsetMinutes(zone, instantMs);
+	const shifted = new Date(instantMs + offsetMinutes * 60_000);
+	return {
+		year: shifted.getUTCFullYear(),
+		month: shifted.getUTCMonth() + 1,
+		day: shifted.getUTCDate(),
+		hour: shifted.getUTCHours(),
+		minute: shifted.getUTCMinutes(),
+		second: shifted.getUTCSeconds(),
+		offsetMinutes,
+	};
+};
+
+/**
+ * An instant as the wall time it reads as in a zone, carrying that zone's
+ * offset — the form a client renders.
+ *
+ * The store keeps occurrences as UTC instants because only a fixed-width form
+ * sorts correctly, and a client that was handed those would have to re-derive
+ * the event's own zone to draw it anywhere. This is the other direction, done
+ * once on the server: an occurrence of a 09:00 Amsterdam meeting comes back as
+ * `09:00+02:00` in summer and `09:00+01:00` in winter rather than as two
+ * different times of day.
+ */
+export const toOffsetIso = (instantMs: number, timeZone: string): string => {
+	const civil = civilInZone(instantMs, timeZone);
+	return formatCivil(civil, civil.offsetMinutes);
+};
+
 /**
  * Resolves one iCalendar time to an instant and to its own wall-clock form.
  *
@@ -192,3 +243,18 @@ export const tzidOf = (property: ICAL.Property | null): string => {
 	const tzid = property?.getParameter("tzid");
 	return typeof tzid === "string" ? tzid : "";
 };
+
+/** The zone a component's DTSTART was written in. */
+export const dtStartTzid = (component: ICAL.Component): string =>
+	tzidOf(component.getFirstProperty("dtstart"));
+
+/**
+ * The zone a component's end was written in. DTEND carries its own TZID and
+ * need not match DTSTART's, so an end read with the start's zone silently
+ * changes the event's length. Only a stated DTEND has a zone of its own: an end
+ * derived from a duration is already in the start's zone.
+ */
+export const dtEndTzid = (component: ICAL.Component): string =>
+	component.hasProperty("dtend")
+		? tzidOf(component.getFirstProperty("dtend"))
+		: dtStartTzid(component);

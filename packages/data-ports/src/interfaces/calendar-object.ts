@@ -6,6 +6,16 @@ export interface ICalendarObjectRepository {
 		calendarId: string,
 		calendarObjectId: string,
 	): Promise<CalendarObjectItem>;
+	/**
+	 * The resource under an id, or `null` when the collection does not hold it.
+	 * `get` throws instead, which is right for a caller that already knows the
+	 * resource exists; a request naming one is asking whether it does, and that
+	 * is an answer rather than a fault.
+	 */
+	find(
+		calendarId: string,
+		calendarObjectId: string,
+	): Promise<CalendarObjectItem | null>;
 	delete(calendarId: string, calendarObjectId: string): Promise<void>;
 	findByResourceName(
 		calendarId: string,

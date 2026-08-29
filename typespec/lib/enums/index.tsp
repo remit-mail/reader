@@ -74,4 +74,5 @@ import "./CalendarComponentSet.tsp";
 import "./CalendarSource.tsp";
 import "./CalendarEventStatus.tsp";
 import "./CalendarTransparency.tsp";
+import "./RecurrenceScope.tsp";
 import "./ZoneCertainty.tsp";

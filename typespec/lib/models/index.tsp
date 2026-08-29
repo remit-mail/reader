@@ -50,6 +50,7 @@ import "./SystemUpdate.tsp";
 import "./CalendarCollection.tsp";
 import "./CalendarObject.tsp";
 import "./CalendarEventIndex.tsp";
+import "./CalendarApi.tsp";
 
 // Smart Organize (RFC 030, RFC 034)
 import "./Label.tsp";

@@ -26,6 +26,18 @@ model ValidationError {
   @body error: ApiError;
 }
 
+@doc("""
+  The condition the request stated is no longer true. Answered when an
+  `If-Match` names an etag the stored resource no longer carries: somebody else
+  wrote it in between, so applying this request would silently discard their
+  change. The client re-reads the resource and decides what to do with the
+  version it now has.
+  """)
+model PreconditionFailedError {
+  @statusCode statusCode: 412;
+  @body error: ApiError;
+}
+
 @doc("Internal server error response")
 model InternalServerError {
   @statusCode statusCode: 500;

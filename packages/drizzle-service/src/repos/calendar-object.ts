@@ -82,6 +82,22 @@ export class CalendarObjectRepo implements ICalendarObjectRepository {
 		return rowToCalendarObject(row);
 	}
 
+	async find(
+		calendarId: string,
+		calendarObjectId: string,
+	): Promise<CalendarObjectItem | null> {
+		const [row] = await this.db
+			.select()
+			.from(calendarObjectTable)
+			.where(
+				and(
+					eq(calendarObjectTable.calendarId, calendarId),
+					eq(calendarObjectTable.calendarObjectId, calendarObjectId),
+				),
+			);
+		return row ? rowToCalendarObject(row) : null;
+	}
+
 	async delete(calendarId: string, calendarObjectId: string): Promise<void> {
 		await this.db
 			.delete(calendarObjectTable)

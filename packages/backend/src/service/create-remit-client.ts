@@ -4,6 +4,10 @@ import type {
 	IAccountRepository,
 	IAccountSettingRepository,
 	IAddressRepository,
+	ICalendarCollectionRepository,
+	ICalendarEventIndexRepository,
+	ICalendarObjectRepository,
+	ICalendarUnitOfWork,
 	IConfigImportRepository,
 	IEnvelopeRepository,
 	IFilterAnchorRepository,
@@ -115,6 +119,17 @@ export interface RemitClient {
 	// body-sync, which is its only writer.
 	senderSignerStanding: ISenderSignerStandingRepository;
 
+	// The calendar store (issue #15). Present on the relational backend, absent
+	// on DynamoDB, which has no calendar repositories yet — a handler that needs
+	// one says so rather than silently serving an empty calendar. Every write
+	// goes through `calendarUnitOfWork`: the object, its occurrence rows and the
+	// collection's sequence bump are one fact, and the plain repositories below
+	// are the read side only.
+	calendarCollection?: ICalendarCollectionRepository;
+	calendarObject?: ICalendarObjectRepository;
+	calendarEventIndex?: ICalendarEventIndexRepository;
+	calendarUnitOfWork?: ICalendarUnitOfWork;
+
 	// Atomic write set for a message save. Present on the relational backend (real
 	// transaction); absent on DynamoDB, where callers fall back to per-repo
 	// writes with that backend's own (non-transactional) guarantees.
@@ -204,6 +219,10 @@ export interface RemitClientRepositories {
 	label: ILabelRepository;
 	messageLabel: IMessageLabelRepository;
 	senderSignerStanding: ISenderSignerStandingRepository;
+	calendarCollection?: ICalendarCollectionRepository;
+	calendarObject?: ICalendarObjectRepository;
+	calendarEventIndex?: ICalendarEventIndexRepository;
+	calendarUnitOfWork?: ICalendarUnitOfWork;
 	unitOfWork?: IUnitOfWork;
 	writeSet?: <T>(run: () => Promise<T>) => Promise<T>;
 }
@@ -431,6 +450,10 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		label: repositories.label,
 		messageLabel: repositories.messageLabel,
 		senderSignerStanding: repositories.senderSignerStanding,
+		calendarCollection: repositories.calendarCollection,
+		calendarObject: repositories.calendarObject,
+		calendarEventIndex: repositories.calendarEventIndex,
+		calendarUnitOfWork: repositories.calendarUnitOfWork,
 		unitOfWork: repositories.unitOfWork,
 		writeSet: repositories.writeSet,
 

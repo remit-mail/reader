@@ -1,3 +1,12 @@
+export {
+	applyEventFields,
+	buildEventCalendar,
+	CALENDAR_PRODID,
+	type CalendarEventFields,
+	eventTimeFields,
+	readEventTime,
+	readRecurrenceRule,
+} from "./build.js";
 export type {
 	CalendarResult,
 	CalendarValidationCode,
@@ -7,8 +16,10 @@ export { computeEtag } from "./etag.js";
 export {
 	CALENDAR_EXPANSION_HORIZON_DAYS,
 	CALENDAR_EXPANSION_MAX_OCCURRENCES,
+	CALENDAR_WINDOW_MAX_STEPS,
 	type CalendarExpansion,
 	expandCalendar,
+	expandCalendarWindow,
 } from "./expand.js";
 export {
 	type ParsedCalendar,
@@ -26,4 +37,31 @@ export {
 	provisionDefaultCalendar,
 	putCalendarObject,
 } from "./put.js";
-export { type ResolvedTime, resolveTime, toUtcIso } from "./time.js";
+export {
+	applyScopedDelete,
+	applyScopedUpdate,
+	findOccurrence,
+	type RecurrenceScopeValue,
+	type ScopedWrite,
+	type ScopedWriteInput,
+} from "./scope.js";
+export {
+	civilInZone,
+	isResolvableZone,
+	type ResolvedTime,
+	resolveTime,
+	toOffsetIso,
+	toUtcIso,
+} from "./time.js";
+export {
+	type BusySpan,
+	CALENDAR_WINDOW_LOOKBACK_DAYS,
+	type CalendarInstance,
+	type CalendarWindow,
+	type CalendarWindowRepositories,
+	isBusy,
+	listBusySpans,
+	listCalendarInstances,
+	mergeBusySpans,
+	needsLiveExpansion,
+} from "./window.js";

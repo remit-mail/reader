@@ -2,6 +2,12 @@ import type { OperationHandler, OperationIds } from "../types.js";
 import { AccountDetailOperations, AccountOperations } from "./account.js";
 import { MicrosoftOAuthOperations } from "./account-oauth.js";
 import { AddressDetailOperations, AddressOperations } from "./address.js";
+import { CalendarDetailOperations, CalendarOperations } from "./calendar.js";
+import {
+	CalendarEventDetailOperations,
+	CalendarEventOperations,
+	CalendarFreeBusyOperations,
+} from "./calendar-event.js";
 import { ConfigOperations } from "./config.js";
 import { FilterDetailOperations, FilterOperations } from "./filter.js";
 import { FolderRoleOperations } from "./folder-role.js";
@@ -42,6 +48,11 @@ export const handlers: Record<OperationIds, OperationHandler<any>> = {
 	...LabelDetailOperations,
 	...OrganizeOperations,
 	...OrganizeJobDetailOperations,
+	...CalendarOperations,
+	...CalendarDetailOperations,
+	...CalendarEventOperations,
+	...CalendarEventDetailOperations,
+	...CalendarFreeBusyOperations,
 	...TrashOperations,
 	...SyncOperations,
 	...ThreadDetailOperations,
