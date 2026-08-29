@@ -182,12 +182,23 @@ export const eventTimeFields = (
 /**
  * ical.js's recurrence parser in a promise, so an unreadable rule arrives as a
  * value to branch on rather than a synchronous throw.
+ *
+ * A rule with no FREQ is refused rather than stored. ical.js reads text it
+ * finds no parts in as a rule with a null frequency instead of failing, and
+ * storing that would give somebody an event marked as recurring that produces
+ * nothing — the failure a client cannot see and cannot fix.
  */
 export const readRecurrenceRule = (
 	recurrenceRule: string,
 ): Promise<CalendarResult<ICAL.Recur>> =>
 	new Promise<ICAL.Recur>((resolve) => {
-		resolve(ICAL.Recur.fromString(recurrenceRule));
+		const rule = ICAL.Recur.fromString(recurrenceRule);
+		if (!rule.freq) {
+			throw new Error(
+				`"${recurrenceRule}" names no FREQ, so it is not a recurrence rule`,
+			);
+		}
+		resolve(rule);
 	}).then(
 		(value) => ({ ok: true, value }) as const,
 		(error: unknown) =>
