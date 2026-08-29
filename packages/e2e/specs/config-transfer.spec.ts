@@ -36,6 +36,18 @@ const freshInstance = async (label: string): Promise<ApiClient> => {
 	return new ApiClient({ ...credentials, token });
 };
 
+/**
+ * An identifier in the form the document declares: a UUID re-encoded base36 to
+ * a fixed 25 characters, which is what every reader id is on the wire. A
+ * shorter stand-in is refused by the format before the import sees it.
+ */
+const mintStoredId = (): string =>
+	Array.from(
+		{ length: 25 },
+		() =>
+			"0123456789abcdefghijklmnopqrstuvwxyz"[Math.floor(Math.random() * 36)],
+	).join("");
+
 /** Re-key the one field two coexisting configurations cannot share. */
 const withFreshAccountId = (
 	document: Record<string, unknown>,
@@ -67,16 +79,17 @@ test.describe("A configuration file", () => {
 		// The whole point of the file: it is safe to copy, so it carries no secret.
 		expect(JSON.stringify(exported.document)).not.toContain(imap.password);
 
-		const importedAccountId = `imported-${STAMP}`;
+		const importedAccountId = mintStoredId();
 		const document = withFreshAccountId(exported.document, importedAccountId);
 
 		const target = await freshInstance("E2E Config Import");
 
 		// The dry run writes nothing and answers with the report an apply would.
+		// Errors first: a refusal says why, and `valid` alone would not.
 		const dryRun = await target.importConfig({ document, mode: "validate" });
+		expect(dryRun.errors).toEqual([]);
 		expect(dryRun.valid).toBe(true);
 		expect(dryRun.applied).toBe(false);
-		expect(dryRun.errors).toEqual([]);
 		expect(
 			dryRun.items.some(
 				(entry) => entry.section === "labels" && entry.key === LABEL_NAME,
@@ -85,8 +98,8 @@ test.describe("A configuration file", () => {
 		expect((await target.getConfig()).accounts).toEqual([]);
 
 		const applied = await target.importConfig({ document, mode: "apply" });
-		expect(applied.applied).toBe(true);
 		expect(applied.errors).toEqual([]);
+		expect(applied.applied).toBe(true);
 		expect(applied.accountsNeedingCredentials).toEqual([importedAccountId]);
 
 		// Server truth: the rows are in the second instance's own configuration.
