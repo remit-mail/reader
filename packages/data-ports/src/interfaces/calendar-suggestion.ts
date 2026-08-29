@@ -55,4 +55,19 @@ export interface ICalendarSuggestionRepository {
 		suggestionId: string,
 		input: SettleCalendarSuggestionInput,
 	): Promise<CalendarSuggestionItem>;
+	/**
+	 * Retires a card as `Superseded`, but only while it is still `Pending`.
+	 * Returns the retired row, or `null` when the card had already been
+	 * answered and nothing was written.
+	 *
+	 * A compare-and-set rather than a plain `settle` because the producer reads
+	 * the pending set and writes to it in two steps, and a person can accept a
+	 * card in between. An unconditional write there would overwrite their
+	 * acceptance with `Superseded` and blank `acceptedCalendarObjectId`,
+	 * severing the card from the event it put in their calendar.
+	 */
+	supersedeIfPending(
+		accountConfigId: string,
+		suggestionId: string,
+	): Promise<CalendarSuggestionItem | null>;
 }

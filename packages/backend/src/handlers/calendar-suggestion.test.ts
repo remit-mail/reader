@@ -75,8 +75,10 @@ const repoOf = (
 
 const muteDepsOf = (
 	from: string | null,
+	existing: FilterItem[] = [],
 ): { deps: MuteSenderDeps; created: CreateFilterInput[] } => {
 	const created: CreateFilterInput[] = [];
+	const rules = [...existing];
 	const deps: MuteSenderDeps = {
 		envelope: {
 			getMessageData: async () =>
@@ -87,14 +89,34 @@ const muteDepsOf = (
 				}) as unknown as MessageData,
 		},
 		filter: {
+			listByAccountAndState: async () => rules,
 			create: async (input: CreateFilterInput) => {
 				created.push(input);
-				return input as unknown as FilterItem;
+				const row = {
+					...input,
+					actionLabelId: input.actionLabelId ?? "None",
+					actionMailboxId: input.actionMailboxId ?? "None",
+				} as unknown as FilterItem;
+				rules.push(row);
+				return row;
 			},
 		},
 	};
 	return { deps, created };
 };
+
+const muteRule = (sender: string): FilterItem =>
+	({
+		filterId: `mute-${sender}`,
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		name: `Muted invitations from ${sender}`,
+		scope: "Standing",
+		state: "Active",
+		matchOperator: "And",
+		literalClauses: [{ field: "From", value: sender }],
+		actionLabelId: "None",
+		actionMailboxId: "None",
+	}) as unknown as FilterItem;
 
 describe("toCalendarSuggestionResponse", () => {
 	test("keeps the raw invitation bytes on the server", async () => {
@@ -211,6 +233,38 @@ describe("muteSender", () => {
 			{ field: "From", value: "organizer@example.test" },
 		]);
 		assert.match(created[0]?.name ?? "", /organizer@example\.test/);
+	});
+
+	test("writes one rule however often the dismiss is retried", async () => {
+		// A retried dismiss is the same instruction repeated. A second identical
+		// rule would only be a second row for the user to find and delete twice.
+		const { deps, created } = muteDepsOf("organizer@example.test");
+
+		await muteSender(deps, ACCOUNT_CONFIG_ID, "msg-1");
+		await muteSender(deps, ACCOUNT_CONFIG_ID, "msg-1");
+		await muteSender(deps, ACCOUNT_CONFIG_ID, "msg-2");
+
+		assert.equal(created.length, 1);
+	});
+
+	test("adds nothing when the sender is already muted from another card", async () => {
+		const { deps, created } = muteDepsOf("organizer@example.test", [
+			muteRule("Organizer@Example.test"),
+		]);
+
+		await muteSender(deps, ACCOUNT_CONFIG_ID, "msg-1");
+
+		assert.deepEqual(created, []);
+	});
+
+	test("still writes a rule when the existing one names a different sender", async () => {
+		const { deps, created } = muteDepsOf("organizer@example.test", [
+			muteRule("someone-else@example.test"),
+		]);
+
+		await muteSender(deps, ACCOUNT_CONFIG_ID, "msg-1");
+
+		assert.equal(created.length, 1);
 	});
 
 	test("refuses to mute a message that names no sender", async () => {

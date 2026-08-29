@@ -228,6 +228,56 @@ export function calendarSuggestionRepositoryConformance(
 			assert.equal(settled.acceptedCalendarObjectId, "cal-object-9");
 		});
 
+		test("supersedeIfPending retires a card still waiting on the user", async () => {
+			const accountConfigId = harness.makeId();
+			const written = await repo.put(
+				suggestion(accountConfigId, harness.makeId(), harness.makeId(), "uid"),
+			);
+
+			const retired = await repo.supersedeIfPending(
+				accountConfigId,
+				written.suggestionId,
+			);
+
+			assert.equal(retired?.state, CalendarSuggestionState.Superseded);
+		});
+
+		test("supersedeIfPending leaves an answered card alone and says so", async () => {
+			// The producer reads the pending set and writes to it in two steps. A
+			// person accepting in between must keep their acceptance — and the
+			// link to the event it put in their calendar.
+			const accountConfigId = harness.makeId();
+			const written = await repo.put(
+				suggestion(accountConfigId, harness.makeId(), harness.makeId(), "uid"),
+			);
+			await repo.settle(accountConfigId, written.suggestionId, {
+				state: CalendarSuggestionState.Accepted,
+				acceptedCalendarObjectId: "cal-object-7",
+			});
+
+			const retired = await repo.supersedeIfPending(
+				accountConfigId,
+				written.suggestionId,
+			);
+
+			assert.equal(retired, null);
+			const reread = await repo.get(accountConfigId, written.suggestionId);
+			assert.equal(reread.state, CalendarSuggestionState.Accepted);
+			assert.equal(reread.acceptedCalendarObjectId, "cal-object-7");
+		});
+
+		test("supersedeIfPending scopes to the account config", async () => {
+			const accountConfigId = harness.makeId();
+			const written = await repo.put(
+				suggestion(accountConfigId, harness.makeId(), harness.makeId(), "uid"),
+			);
+
+			assert.equal(
+				await repo.supersedeIfPending(harness.makeId(), written.suggestionId),
+				null,
+			);
+		});
+
 		test("settle rejects a suggestion that is not there", async () => {
 			const accountConfigId = harness.makeId();
 			await assert.rejects(

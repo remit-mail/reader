@@ -117,6 +117,11 @@ export class CalendarSuggestionRepo implements ICalendarSuggestionRepository {
 		return rows.map(rowToCalendarSuggestion);
 	}
 
+	/**
+	 * Newest first, paged on a keyset over `(createdAt, suggestionId)` — the
+	 * exact trailing members of the `byState` index's sort key, read backwards.
+	 * The order is the index's own, never a sort applied on top of it.
+	 */
 	async listByState(
 		accountConfigId: string,
 		state: CalendarSuggestionItem["state"],
@@ -190,5 +195,29 @@ export class CalendarSuggestionRepo implements ICalendarSuggestionRepository {
 			throw new NotFoundError(`Calendar suggestion not found: ${suggestionId}`);
 		}
 		return rowToCalendarSuggestion(row);
+	}
+
+	async supersedeIfPending(
+		accountConfigId: string,
+		suggestionId: string,
+	): Promise<CalendarSuggestionItem | null> {
+		const [row] = await this.db
+			.update(calendarSuggestionTable)
+			.set({
+				state: CalendarSuggestionState.Superseded,
+				acceptedCalendarObjectId: "",
+				updatedAt: Date.now(),
+			})
+			.where(
+				and(
+					eq(calendarSuggestionTable.accountConfigId, accountConfigId),
+					eq(calendarSuggestionTable.suggestionId, suggestionId),
+					// The condition is the point: a card the user answered between
+					// the producer's read and this write must keep their answer.
+					eq(calendarSuggestionTable.state, CalendarSuggestionState.Pending),
+				),
+			)
+			.returning();
+		return row ? rowToCalendarSuggestion(row) : null;
 	}
 }

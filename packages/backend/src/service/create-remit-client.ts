@@ -435,7 +435,8 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		// card (issue #1033, the same argument as the filter wiring above).
 		{
 			calendarSuggestionService: repositories.calendarSuggestion,
-			calendarCollectionService: repositories.calendarCollection,
+			calendarUnitOfWork: repositories.calendarUnitOfWork,
+			filterService: repositories.filter,
 		},
 	);
 

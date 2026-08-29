@@ -50,6 +50,11 @@ export type {
 	IUnitOfWork,
 	UnitOfWorkRepositories,
 } from "./interfaces/unit-of-work.js";
+export {
+	FILTER_NO_ACTION,
+	isSenderMuted,
+	isSenderMuteFilter,
+} from "./sender-mute.js";
 export type {
 	AccountConfigDescription,
 	AccountConfigItem,

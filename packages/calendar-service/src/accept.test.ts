@@ -192,9 +192,9 @@ describe("acceptCalendarSuggestion", () => {
 		);
 		assert.equal(
 			accepted.value.suggestion.acceptedCalendarObjectId,
-			accepted.value.object.calendarObjectId,
+			accepted.value.object?.calendarObjectId,
 		);
-		assert.equal(accepted.value.object.icalUid, UID);
+		assert.equal(accepted.value.object?.icalUid, UID);
 		assert.equal(store.objects.size, 1);
 	});
 
@@ -211,7 +211,8 @@ describe("acceptCalendarSuggestion", () => {
 
 		assert.ok(accepted.ok);
 		assert.equal(
-			store.occurrences.get(accepted.value.object.calendarObjectId)?.length,
+			store.occurrences.get(accepted.value.object?.calendarObjectId ?? "")
+				?.length,
 			1,
 		);
 	});
@@ -237,8 +238,8 @@ describe("acceptCalendarSuggestion", () => {
 		assert.ok(second.ok);
 		assert.equal(store.objects.size, 1);
 		assert.equal(
-			second.value.object.calendarObjectId,
-			first.value.object.calendarObjectId,
+			second.value.object?.calendarObjectId,
+			first.value.object?.calendarObjectId,
 		);
 	});
 
@@ -270,7 +271,44 @@ describe("acceptCalendarSuggestion", () => {
 
 		assert.ok(accepted.ok);
 		assert.equal(store.objects.size, 1);
-		assert.equal(accepted.value.object.sequence, 1);
+		assert.equal(accepted.value.object?.sequence, 1);
+	});
+
+	it("never invents an event just to mark it cancelled", async () => {
+		// The user left the invitation Pending, so nothing is in their calendar.
+		// Accepting the cancellation must clear the card and write nothing —
+		// writing a resource here would put a meeting they never had into their
+		// calendar for the sole purpose of saying it was called off.
+		const { store, calendarId } = await provisioned();
+		const request = await recorded(store, invitation({}), "message-1");
+		const cancel = await recorded(
+			store,
+			invitation({ method: "CANCEL", sequence: 1 }),
+			"message-2",
+		);
+
+		const accepted = await acceptCalendarSuggestion(store, {
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			calendarId,
+			suggestion: cancel,
+			attendee: ATTENDEE,
+		});
+
+		assert.ok(accepted.ok);
+		assert.equal(accepted.value.outcome, "NothingToCancel");
+		assert.equal(accepted.value.object, null);
+		assert.equal(store.objects.size, 0);
+		assert.equal(
+			accepted.value.suggestion.state,
+			CalendarSuggestionState.Dismissed,
+		);
+		assert.equal(accepted.value.suggestion.acceptedCalendarObjectId, "");
+		// The request it superseded is left exactly as the producer left it.
+		const superseded = await store.calendarSuggestion.get(
+			ACCOUNT_CONFIG_ID,
+			request.suggestionId,
+		);
+		assert.equal(superseded.state, CalendarSuggestionState.Superseded);
 	});
 
 	it("a cancellation touches the calendar only once it is accepted", async () => {
@@ -299,7 +337,7 @@ describe("acceptCalendarSuggestion", () => {
 		});
 
 		assert.ok(accepted.ok);
-		assert.equal(accepted.value.object.status, "Cancelled");
+		assert.equal(accepted.value.object?.status, "Cancelled");
 		assert.equal(store.objects.size, 1);
 	});
 

@@ -1,25 +1,28 @@
 import { PassThrough, type Readable } from "node:stream";
 import { inspect } from "node:util";
 import {
-	DEFAULT_CALENDAR_URL_SEGMENT,
+	provisionDefaultCalendar,
 	recordCalendarSuggestion,
 } from "@remit/calendar-service";
-import type {
-	IAddressRepository,
-	ICalendarCollectionRepository,
-	ICalendarSuggestionRepository,
-	IEnvelopeRepository,
-	IMailboxSpecialUseRepository,
-	IMessageRepository,
-	IThreadMessageRepository,
-	MessageItem,
-	ThreadMessageItem,
-	UpdateMessageInput,
+import {
+	type IAddressRepository,
+	type ICalendarSuggestionRepository,
+	type ICalendarUnitOfWork,
+	type IEnvelopeRepository,
+	type IFilterRepository,
+	type IMailboxSpecialUseRepository,
+	type IMessageRepository,
+	type IThreadMessageRepository,
+	isSenderMuted,
+	type MessageItem,
+	type ThreadMessageItem,
+	type UpdateMessageInput,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import { deriveAddressId, deriveBodyPartId } from "@remit/data-ports/id";
 import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
+	FilterState,
 	MessageCategory,
 	PlacementAction,
 	PlacementConfidence,
@@ -326,14 +329,20 @@ export interface UnsubscribeConfig {
 /**
  * What body sync needs to offer a mail's invitation as a card (issue #1033).
  *
- * The collection repository is here for one reason: an invitation whose
- * DTSTART names no zone is RFC 5545 floating time, and the only sensible place
- * to read it is where the user's calendar lives. Without it such an event
- * would be shown in UTC to a user in Amsterdam.
+ * The unit of work is here to provision the account's default collection on
+ * first use, through the one function every other caller provisions with. That
+ * is not bookkeeping: an invitation whose DTSTART names no zone is RFC 5545
+ * floating time, and reading it anywhere but where the user's calendar lives
+ * shows the meeting at the wrong hour. Without a collection there is no zone
+ * to read it in, and every such event silently lands in UTC.
+ *
+ * `filterService` is read to honour `dismiss{muteSender:true}`: a sender the
+ * user muted gets no card at all.
  */
 export interface CalendarSuggestionConfig {
 	calendarSuggestionService: ICalendarSuggestionRepository;
-	calendarCollectionService: ICalendarCollectionRepository;
+	calendarUnitOfWork: ICalendarUnitOfWork;
+	filterService: Pick<IFilterRepository, "listByAccountAndState">;
 }
 
 export class BodySyncService {
@@ -1410,14 +1419,38 @@ export class BodySyncService {
 		const parts = calendarParts(parsed);
 		if (parts.length === 0) return;
 
-		const { calendarCollectionService, calendarSuggestionService } =
+		const { calendarUnitOfWork, calendarSuggestionService, filterService } =
 			this.calendarConfig;
 
 		await Promise.resolve()
 			.then(async () => {
-				const collection = await calendarCollectionService.findByUrlSegment(
+				// `dismiss{muteSender:true}` wrote a standing rule naming this
+				// sender. Honouring it here is what makes that button do anything:
+				// the index-time filter pipeline skips a rule with no label and no
+				// move, so this is the only reader such a rule has.
+				const sender = extractPrimaryFromEmail(parsed);
+				if (sender) {
+					const active = await filterService.listByAccountAndState(
+						accountConfigId,
+						FilterState.Active,
+					);
+					if (isSenderMuted(active, sender)) {
+						this.log.debug?.(
+							{ messageId, sender },
+							"Sender is muted; offering no calendar suggestion",
+						);
+						return;
+					}
+				}
+
+				// Provisioned rather than looked up, through the one function every
+				// caller provisions with. A missing collection has no timezone, and
+				// a floating DTSTART read in UTC puts the meeting hours from where
+				// the organizer meant it. Idempotent: the id is derived, so a second
+				// first use returns the collection the first one made.
+				const collection = await provisionDefaultCalendar(
+					calendarUnitOfWork,
 					accountConfigId,
-					DEFAULT_CALENDAR_URL_SEGMENT,
 				);
 				for (const part of parts) {
 					const recorded = await recordCalendarSuggestion(
@@ -1428,7 +1461,7 @@ export class BodySyncService {
 							bodyPartId: deriveBodyPartId(messageId, part.partPath),
 							source: part.source,
 							icalData: part.icalData,
-							timezone: collection?.timezone ?? "",
+							timezone: collection.timezone,
 						},
 					);
 					if (!recorded.ok) {

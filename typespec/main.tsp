@@ -983,7 +983,7 @@ namespace RemitApi {
     @get
     op listMessageCalendarSuggestions(
       @path messageId: UUID,
-    ): ResultList<CalendarSuggestionResponse>;
+    ): ResultList<CalendarSuggestionResponse> | ValidationError;
   }
 
   @route("/calendar-suggestions/{suggestionId}")

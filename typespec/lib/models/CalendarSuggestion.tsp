@@ -49,17 +49,26 @@ namespace RemitImap;
     sk: [CalendarSuggestion.messageId, CalendarSuggestion.suggestionId],
   }
 )
-// The account's suggestions in one state, which is nearly always the pending
-// ones. It is also how the producer finds the revision a new message
-// supersedes: only a `Pending` suggestion can be superseded — an answered one
-// is a decision already taken — so the set it searches is the set this index
-// returns, and no separate index on `icalUid` has to exist.
+// The account's suggestions in one state, newest first — which is nearly
+// always the pending ones. It is also how the producer finds the revision a
+// new message supersedes: only a `Pending` suggestion can be superseded — an
+// answered one is a decision already taken — so the set it searches is the set
+// this index returns, and no separate index on `icalUid` has to exist.
+//
+// `createdAt` sits in the sort key ahead of `suggestionId` because that is the
+// order the endpoint pages in. Ordering by a column the index does not carry
+// would make the read a sort over the whole partition, which the DynamoDB
+// target cannot express at all.
 @index(
   "byState",
   {
     index: "gsi1",
     pk: [CalendarSuggestion.accountConfigId],
-    sk: [CalendarSuggestion.state, CalendarSuggestion.suggestionId],
+    sk: [
+      CalendarSuggestion.state,
+      CalendarSuggestion.createdAt,
+      CalendarSuggestion.suggestionId
+    ],
   }
 )
 model CalendarSuggestion {

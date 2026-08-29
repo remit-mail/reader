@@ -72,13 +72,15 @@ export const deriveCalendarObjectId = (
  *
  * All three parts are needed. The message alone would merge two invitations
  * sent in one mail; the part alone is not stable enough to key on across a
- * re-parse; and the UID is what makes a resent copy of the same invitation the
- * same suggestion rather than a new one.
+ * re-parse; and the UID keeps two events sent as one part apart.
  *
- * A revision is deliberately NOT the same row: a later message carrying the
- * same UID has its own `messageId`, so it derives its own id and the earlier
+ * The message is in the seed, so identity is per message, not per event: a
+ * later message carrying the same UID derives its own id, and the earlier
  * suggestion survives beside it as `Superseded`. The user can see which
  * revision they are being asked about, and the older message still has a card.
+ * The same holds for a plain resend — a redelivered copy is a new message and
+ * so a new card, which the SEQUENCE comparison then declines to supersede
+ * anything for.
  */
 export const deriveCalendarSuggestionId = (
 	messageId: string,

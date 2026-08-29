@@ -100,7 +100,12 @@ export interface RecordCalendarSuggestionInput {
 	source: CalendarSuggestionItem["source"];
 	/** The VCALENDAR text as it arrived in the message. */
 	icalData: string;
-	/** IANA zone a floating time in the invitation is read in. */
+	/**
+	 * IANA zone a floating time in the invitation is read in — the zone of the
+	 * collection the event would land in. An invitation whose DTSTART names no
+	 * zone is RFC 5545 floating time, and reading it anywhere but where the
+	 * user's calendar lives puts the meeting at the wrong hour.
+	 */
 	timezone: string;
 }
 
@@ -151,6 +156,12 @@ const listPending = async (
  * The new row is written before the old ones are retired. A failure between
  * the two leaves two live cards, which a person can see and act on; the other
  * order would leave the event with none.
+ *
+ * Retiring is a compare-and-set for the same reason the read and the write are
+ * two steps: a person can accept a card between them, and an unconditional
+ * write would replace their acceptance with `Superseded` and blank the id of
+ * the event it put in their calendar. A card answered in the gap keeps its
+ * answer and is simply not reported as superseded.
  */
 export const recordCalendarSuggestion = async (
 	repo: ICalendarSuggestionRepository,
@@ -175,14 +186,13 @@ export const recordCalendarSuggestion = async (
 			candidate.sequence < suggestion.sequence,
 	);
 
-	const superseded = [];
+	const superseded: CalendarSuggestionItem[] = [];
 	for (const candidate of stale) {
-		superseded.push(
-			await repo.settle(input.accountConfigId, candidate.suggestionId, {
-				state: CalendarSuggestionState.Superseded,
-				acceptedCalendarObjectId: "",
-			}),
+		const retired = await repo.supersedeIfPending(
+			input.accountConfigId,
+			candidate.suggestionId,
 		);
+		if (retired) superseded.push(retired);
 	}
 
 	return { ok: true, value: { suggestion, superseded } };

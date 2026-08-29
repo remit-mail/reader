@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import type { CalendarSuggestionItem } from "@remit/data-ports";
 import { deriveCalendarSuggestionId } from "@remit/data-ports/id";
 import {
 	CalendarInviteMethod,
@@ -249,6 +250,54 @@ describe("recordCalendarSuggestion", () => {
 			first.value.suggestion.suggestionId,
 		);
 		assert.equal(answered.state, CalendarSuggestionState.Accepted);
+	});
+
+	it("keeps an acceptance that lands between the read and the retire", async () => {
+		// The producer reads the pending set, then retires what it found. A
+		// person pressing Add to calendar in that gap must keep their event: an
+		// unconditional write here would mark the card Superseded and blank the
+		// id of the resource it just put in their calendar, orphaning it.
+		const store = new MemoryCalendarStore();
+		const first = await record(store, invitation({ sequence: 0 }), "message-1");
+		assert.ok(first.ok);
+		const target = first.value.suggestion.suggestionId;
+
+		const racing = {
+			...store.calendarSuggestion,
+			listByState: async (
+				accountConfigId: string,
+				state: CalendarSuggestionItem["state"],
+			) => {
+				const page = await store.calendarSuggestion.listByState(
+					accountConfigId,
+					state,
+				);
+				// The user accepts, right here.
+				await store.calendarSuggestion.settle(ACCOUNT_CONFIG_ID, target, {
+					state: CalendarSuggestionState.Accepted,
+					acceptedCalendarObjectId: "cal-object-3",
+				});
+				return page;
+			},
+		};
+
+		const second = await recordCalendarSuggestion(racing, {
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			messageId: "message-2",
+			bodyPartId: "body-part-1",
+			source: CalendarSuggestionSource.IcalendarPart,
+			icalData: invitation({ sequence: 1 }),
+			timezone: "Europe/Amsterdam",
+		});
+
+		assert.ok(second.ok);
+		assert.deepEqual(second.value.superseded, []);
+		const answered = await store.calendarSuggestion.get(
+			ACCOUNT_CONFIG_ID,
+			target,
+		);
+		assert.equal(answered.state, CalendarSuggestionState.Accepted);
+		assert.equal(answered.acceptedCalendarObjectId, "cal-object-3");
 	});
 
 	it("records a cancellation as a card of its own, touching nothing", async () => {

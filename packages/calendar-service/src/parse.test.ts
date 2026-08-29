@@ -56,6 +56,17 @@ describe("parseCalendar", () => {
 		);
 	});
 
+	it("refuses empty bytes as a value, naming nothing rather than crashing", async () => {
+		// A suggestion read out of prose carries no iCalendar at all, and the
+		// accept path reaches this with `""`. ical.js reads empty bytes as a
+		// component with no name, so naming what arrived would throw here — a
+		// crash on ordinary input rather than the refusal every caller renders.
+		const refusal = await refusalCode("");
+
+		assert.equal(refusal.code, "NotACalendar");
+		assert.match(refusal.message, /found nothing/);
+	});
+
 	it("refuses a document whose root is not a VCALENDAR", async () => {
 		assert.equal(
 			(

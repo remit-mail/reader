@@ -91,9 +91,23 @@ export interface AcceptCalendarSuggestionInput {
 	attendee: string;
 }
 
+/**
+ * What accepting did.
+ *
+ * `Written` is the ordinary case: a resource is in the calendar and `object`
+ * names it. `NothingToCancel` is a cancellation for a meeting this calendar
+ * never held — the user never accepted the invitation, or accepted it
+ * somewhere else — where the only honest act is to clear the card. Writing a
+ * resource there would put an event in the calendar that exists solely to say
+ * it was cancelled, which is worse than the meeting the user never had.
+ */
+export type AcceptOutcome = "Written" | "NothingToCancel";
+
 export interface AcceptedCalendarSuggestion {
 	suggestion: CalendarSuggestionItem;
-	object: CalendarObjectItem;
+	outcome: AcceptOutcome;
+	/** The resource that was written, `null` for `NothingToCancel`. */
+	object: CalendarObjectItem | null;
 }
 
 /**
@@ -108,8 +122,10 @@ export interface AcceptedCalendarSuggestion {
  * nothing later can repair.
  *
  * Accepting a `Cancel` suggestion writes `STATUS:CANCELLED` through that same
- * path. Nothing withdraws an event on its own — a cancellation reaches the
- * calendar only because a person pressed the button.
+ * path, but only onto a resource that is already there. Nothing withdraws an
+ * event on its own — a cancellation reaches the calendar only because a person
+ * pressed the button, and only when the calendar holds the meeting being
+ * withdrawn.
  *
  * No mail is sent. There is no iMIP reply here and none anywhere on this path;
  * the organizer learns nothing from the user accepting.
@@ -134,6 +150,33 @@ export const acceptCalendarSuggestion = async (
 			input.calendarId,
 			input.suggestion.icalUid,
 		);
+
+		// A cancellation cancels something. With no resource carrying this UID
+		// there is nothing in the calendar to withdraw, and writing one would
+		// invent a meeting the user never had purely to mark it cancelled. Clear
+		// the card and leave the calendar untouched.
+		if (
+			input.suggestion.method === CalendarInviteMethod.Cancel &&
+			existing === null
+		) {
+			const cleared = await repos.calendarSuggestion.settle(
+				input.accountConfigId,
+				input.suggestion.suggestionId,
+				{
+					state: CalendarSuggestionState.Dismissed,
+					acceptedCalendarObjectId: "",
+				},
+			);
+			return {
+				ok: true,
+				value: {
+					suggestion: cleared,
+					outcome: "NothingToCancel",
+					object: null,
+				},
+			};
+		}
+
 		const written = await putCalendarObject(unitOfWork, {
 			accountConfigId: input.accountConfigId,
 			calendarId: input.calendarId,
@@ -152,6 +195,13 @@ export const acceptCalendarSuggestion = async (
 			},
 		);
 
-		return { ok: true, value: { suggestion: settled, object: written.value } };
+		return {
+			ok: true,
+			value: {
+				suggestion: settled,
+				outcome: "Written",
+				object: written.value,
+			},
+		};
 	});
 };

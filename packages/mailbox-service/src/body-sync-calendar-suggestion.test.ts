@@ -9,10 +9,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type {
 	CalendarSuggestionItem,
+	FilterItem,
 	IAddressRepository,
-	ICalendarCollectionRepository,
 	ICalendarSuggestionRepository,
+	ICalendarUnitOfWork,
 	IEnvelopeRepository,
+	IFilterRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
 	PutCalendarSuggestionInput,
@@ -69,6 +71,56 @@ const INVITATION_EML = (sequence = 0, method = "REQUEST"): Buffer =>
 			"",
 		].join("\r\n"),
 	);
+
+/** DTSTART with neither a Z nor a TZID: RFC 5545 floating time. */
+const FLOATING_INVITATION_EML = Buffer.from(
+	[
+		"From: Organizer <organizer@example.test>",
+		"To: user@example.test",
+		"Subject: Quarterly review",
+		'Content-Type: multipart/alternative; boundary="bnd"',
+		"",
+		"--bnd",
+		"Content-Type: text/plain",
+		"",
+		"You are invited.",
+		"--bnd",
+		"Content-Type: text/calendar; method=REQUEST",
+		"",
+		[
+			"BEGIN:VCALENDAR",
+			"VERSION:2.0",
+			"PRODID:-//Example Corp//Scheduler//EN",
+			"METHOD:REQUEST",
+			"BEGIN:VEVENT",
+			`UID:${UID}`,
+			"DTSTAMP:20260801T090000Z",
+			"SEQUENCE:0",
+			"DTSTART:20260901T100000",
+			"DTEND:20260901T110000",
+			"SUMMARY:Quarterly review",
+			"ORGANIZER:mailto:organizer@example.test",
+			"END:VEVENT",
+			"END:VCALENDAR",
+		].join("\r\n"),
+		"--bnd--",
+		"",
+	].join("\r\n"),
+);
+
+/** The shape `dismiss{muteSender:true}` writes: a standing rule, no action. */
+const MUTE_RULE = (sender: string): FilterItem =>
+	({
+		filterId: `mute-${sender}`,
+		accountConfigId: "cfg-1",
+		name: `Muted invitations from ${sender}`,
+		scope: "Standing",
+		state: "Active",
+		matchOperator: "And",
+		literalClauses: [{ field: "From", value: sender }],
+		actionLabelId: "None",
+		actionMailboxId: "None",
+	}) as unknown as FilterItem;
 
 const PLAIN_EML = Buffer.from(
 	[
@@ -145,6 +197,21 @@ class MemorySuggestions implements ICalendarSuggestionRepository {
 		this.rows.set(suggestionId, settled);
 		return settled;
 	}
+
+	async supersedeIfPending(
+		_accountConfigId: string,
+		suggestionId: string,
+	): Promise<CalendarSuggestionItem | null> {
+		const row = this.rows.get(suggestionId);
+		if (!row || row.state !== CalendarSuggestionState.Pending) return null;
+		const retired = {
+			...row,
+			state: CalendarSuggestionState.Superseded,
+			acceptedCalendarObjectId: "",
+		};
+		this.rows.set(suggestionId, retired);
+		return retired;
+	}
 }
 
 interface Harness {
@@ -156,10 +223,12 @@ const buildHarness = ({
 	bodyStorageKey,
 	timezone = "",
 	withCalendarConfig = true,
+	mutedSenderFilters = [] as FilterItem[],
 }: {
 	bodyStorageKey?: string;
 	timezone?: string;
 	withCalendarConfig?: boolean;
+	mutedSenderFilters?: FilterItem[];
 } = {}): Harness => {
 	const suggestions = new MemorySuggestions();
 
@@ -209,9 +278,37 @@ const buildHarness = ({
 		listBodyParts: async () => [],
 	} as unknown as IEnvelopeRepository;
 
-	const calendarCollectionService = {
-		findByUrlSegment: async () => ({ timezone }),
-	} as unknown as ICalendarCollectionRepository;
+	// The producer provisions the default collection through the unit of work,
+	// so this stands in for it — `create` is idempotent on a derived id, which
+	// is why the producer may call it on every calendar-carrying message.
+	const collections = new Map<string, { timezone: string }>();
+	const calendarUnitOfWork = {
+		transaction: <T>(
+			run: (repos: {
+				calendarCollection: {
+					create: (input: {
+						accountConfigId: string;
+					}) => Promise<{ calendarId: string; timezone: string }>;
+				};
+			}) => Promise<T>,
+		) =>
+			run({
+				calendarCollection: {
+					create: async (input: { accountConfigId: string }) => {
+						const existing = collections.get(input.accountConfigId);
+						if (existing) {
+							return { calendarId: "cal-1", timezone: existing.timezone };
+						}
+						collections.set(input.accountConfigId, { timezone });
+						return { calendarId: "cal-1", timezone };
+					},
+				},
+			}),
+	} as unknown as ICalendarUnitOfWork;
+
+	const filterService = {
+		listByAccountAndState: async () => mutedSenderFilters,
+	} as unknown as Pick<IFilterRepository, "listByAccountAndState">;
 
 	const service = new BodySyncService(
 		messageService,
@@ -227,7 +324,8 @@ const buildHarness = ({
 		withCalendarConfig
 			? {
 					calendarSuggestionService: suggestions,
-					calendarCollectionService,
+					calendarUnitOfWork,
+					filterService,
 				}
 			: undefined,
 	);
@@ -277,6 +375,59 @@ describe("mail-derived calendar suggestions (issue #1033)", () => {
 		const row = [...harness.suggestions.rows.values()][0];
 		assert.match(row?.icalData ?? "", /BEGIN:VCALENDAR/);
 		assert.match(row?.icalData ?? "", /UID:invite-4711@example\.test/);
+	});
+
+	it("reads a floating start in the collection's own zone", async () => {
+		// An invitation whose DTSTART names no zone is RFC 5545 floating time.
+		// Read in UTC it lands two hours out for an Amsterdam calendar, and the
+		// user is shown the wrong hour with nothing saying so.
+		const harness = buildHarness({ timezone: "Europe/Amsterdam" });
+
+		await readBody(harness.service, FLOATING_INVITATION_EML);
+
+		const row = [...harness.suggestions.rows.values()][0];
+		assert.equal(row?.dtStart, "2026-09-01T10:00:00+02:00");
+		assert.equal(row?.zoneCertainty, "Local");
+	});
+
+	it("offers no card for a sender the user muted", async () => {
+		// The standing rule `dismiss{muteSender:true}` writes has exactly one
+		// reader, and this is it: the index-time filter pipeline skips a rule
+		// with no label and no move, so without this the button does nothing.
+		const harness = buildHarness({
+			mutedSenderFilters: [MUTE_RULE("organizer@example.test")],
+		});
+
+		await readBody(harness.service, INVITATION_EML());
+
+		assert.equal(harness.suggestions.rows.size, 0);
+	});
+
+	it("still offers a card when the rule names a different sender", async () => {
+		const harness = buildHarness({
+			mutedSenderFilters: [MUTE_RULE("someone-else@example.test")],
+		});
+
+		await readBody(harness.service, INVITATION_EML());
+
+		assert.equal(harness.suggestions.rows.size, 1);
+	});
+
+	it("still offers a card when the rule about this sender does something", async () => {
+		// A rule that labels or moves this sender's mail is an ordinary filter
+		// the pipeline acts on, not the user refusing their invitations.
+		const harness = buildHarness({
+			mutedSenderFilters: [
+				{
+					...MUTE_RULE("organizer@example.test"),
+					actionLabelId: "label-1",
+				} as FilterItem,
+			],
+		});
+
+		await readBody(harness.service, INVITATION_EML());
+
+		assert.equal(harness.suggestions.rows.size, 1);
 	});
 
 	it("offers nothing for a message carrying no calendar part", async () => {

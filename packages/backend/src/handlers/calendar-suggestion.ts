@@ -1,10 +1,11 @@
 import type { CalendarSuggestionResponse } from "@remit/api-openapi-types";
 import { acceptCalendarSuggestion } from "@remit/calendar-service";
-import type {
-	CalendarSuggestionItem,
-	ICalendarSuggestionRepository,
-	IEnvelopeRepository,
-	IFilterRepository,
+import {
+	type CalendarSuggestionItem,
+	type ICalendarSuggestionRepository,
+	type IEnvelopeRepository,
+	type IFilterRepository,
+	isSenderMuted,
 } from "@remit/data-ports";
 import { BadRequestError } from "@remit/data-ports/errors";
 import {
@@ -12,6 +13,7 @@ import {
 	FilterClauseField,
 	FilterMatchOperator,
 	FilterScope,
+	FilterState,
 } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
@@ -75,7 +77,7 @@ const accountEmailForMessage = async (
 /** What muting a sender needs, so it can be driven without a live table. */
 export interface MuteSenderDeps {
 	envelope: Pick<IEnvelopeRepository, "getMessageData">;
-	filter: Pick<IFilterRepository, "create">;
+	filter: Pick<IFilterRepository, "create" | "listByAccountAndState">;
 }
 
 /**
@@ -85,6 +87,11 @@ export interface MuteSenderDeps {
  * editable beside every other rule the user has, and matches on the message's
  * From address rather than on the invitation's ORGANIZER — a `PUBLISH` names
  * no organizer at all, and the sender is who the user is refusing.
+ *
+ * At most one rule per sender. Dismissing the same card twice, or muting a
+ * sender already muted from another card, is the same instruction repeated —
+ * a second identical rule would only be a second row for the settings page to
+ * show and the user to delete twice.
  */
 export const muteSender = async (
 	deps: MuteSenderDeps,
@@ -100,6 +107,11 @@ export const muteSender = async (
 			"This message names no sender, so there is nobody to mute.",
 		);
 	}
+	const active = await deps.filter.listByAccountAndState(
+		accountConfigId,
+		FilterState.Active,
+	);
+	if (isSenderMuted(active, from.normalizedEmail)) return;
 	await deps.filter.create({
 		accountConfigId,
 		name: `Muted invitations from ${from.normalizedEmail}`,
