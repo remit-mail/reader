@@ -96,7 +96,9 @@ const SET_AT_UNKNOWN = 0;
  * decision its owner made, and stamping the export's own clock would claim it
  * was made today.
  */
-const carriedFlag = <TValue>(flag: StoredFlag<TValue>): CarriedFlag<TValue> => ({
+const carriedFlag = <TValue>(
+	flag: StoredFlag<TValue>,
+): CarriedFlag<TValue> => ({
 	value: flag.value,
 	setAt: flag.setAt ?? SET_AT_UNKNOWN,
 	...(flag.setBy === undefined ? {} : { setBy: flag.setBy }),
@@ -299,8 +301,7 @@ const userFlagsOf = (flags: AddressFlags | undefined): ConfigAddressFlags => {
 	if (stored.vip) user.vip = carriedFlag(stored.vip);
 	if (stored.category) user.category = carriedFlag(stored.category);
 	if (stored.autoArchive) user.autoArchive = carriedFlag(stored.autoArchive);
-	if (stored.unsubscribed)
-		user.unsubscribed = carriedFlag(stored.unsubscribed);
+	if (stored.unsubscribed) user.unsubscribed = carriedFlag(stored.unsubscribed);
 	return user;
 };
 

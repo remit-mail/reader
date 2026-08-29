@@ -7,7 +7,7 @@ import {
 	composeFolderRoleAppointmentLabelName,
 	composeFolderRoleAppointmentName,
 } from "@remit/data-ports/folder-role";
-import { readConfigForExport } from "./export.js";
+import { ConfigExportRefusedError, readConfigForExport } from "./export.js";
 import {
 	ACCOUNT_CONFIG_ID,
 	asRepositories,
@@ -18,6 +18,7 @@ import {
 	makeAnchor,
 	makeFilter,
 	makeLabel,
+	makeLegacyFlaggedAddress,
 	makeMailbox,
 	makeSetting,
 	OAUTH_ACCOUNT_ID,
@@ -489,6 +490,55 @@ test("an exported address carries its whole flag payload, and no derived flag", 
 		expiresAt: 1790000000000,
 		reason: "unsubscribe link never worked",
 	});
+});
+
+test("a flag set before the timestamp was recorded exports at the sentinel", async () => {
+	const fixture = fullFixture();
+	fixture.addresses = [makeLegacyFlaggedAddress()];
+
+	const document = await exportFixture(fixture);
+
+	assert.equal(ReaderConfigDocumentSchema.safeParse(document).success, true);
+	assert.deepEqual(document.addressFlags, [
+		{
+			normalizedEmail: "old@legacy.example",
+			displayName: "Legacy",
+			flags: {
+				vip: { value: true, setAt: 0, setBy: "web-client" },
+				category: { value: "newsletter", setAt: 0 },
+			},
+		},
+	]);
+});
+
+test("a flag the format cannot carry is refused by address and by flag", async () => {
+	const fixture = fullFixture();
+	fixture.addresses = [
+		...fixture.addresses,
+		makeAddress({
+			addressId: "adr-broken",
+			normalizedEmail: "broken@example.com",
+			flags: {
+				category: { value: "Nonsense", setAt: 1750000000000 },
+			} as unknown as AddressItem["flags"],
+		}),
+	];
+
+	await assert.rejects(exportFixture(fixture), (error: unknown) => {
+		assert.ok(error instanceof ConfigExportRefusedError);
+		assert.match(
+			error.message,
+			/addressFlags\[broken@example\.com\]\.flags\.category\.value/,
+		);
+		return true;
+	});
+});
+
+test("a refusal outside the address list keeps the path the schema gave it", async () => {
+	const fixture = fullFixture();
+	fixture.labels = [makeLabel({ labelId: "lbl-blank", name: "" })];
+
+	await assert.rejects(exportFixture(fixture), /labels\[0\]\.name/);
 });
 
 test("a configuration that holds no row at all still exports a valid document", async () => {

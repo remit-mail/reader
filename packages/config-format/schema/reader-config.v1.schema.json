@@ -190,6 +190,7 @@
 										"type": "boolean"
 									},
 									"setAt": {
+										"description": "Epoch milliseconds the flag was set. 0 means it was set at an unknown time, on a row written before the field existed.",
 										"type": "integer",
 										"minimum": -9007199254740991,
 										"maximum": 9007199254740991
@@ -293,6 +294,7 @@
 													"type": "boolean"
 												},
 												"setAt": {
+													"description": "Epoch milliseconds the flag was set. 0 means it was set at an unknown time, on a row written before the field existed.",
 													"type": "integer",
 													"minimum": -9007199254740991,
 													"maximum": 9007199254740991
@@ -561,6 +563,7 @@
 										"type": "boolean"
 									},
 									"setAt": {
+										"description": "Epoch milliseconds the flag was set. 0 means it was set at an unknown time, on a row written before the field existed.",
 										"type": "integer",
 										"minimum": -9007199254740991,
 										"maximum": 9007199254740991
@@ -590,6 +593,7 @@
 										"type": "boolean"
 									},
 									"setAt": {
+										"description": "Epoch milliseconds the flag was set. 0 means it was set at an unknown time, on a row written before the field existed.",
 										"type": "integer",
 										"minimum": -9007199254740991,
 										"maximum": 9007199254740991
@@ -619,6 +623,7 @@
 										"type": "boolean"
 									},
 									"setAt": {
+										"description": "Epoch milliseconds the flag was set. 0 means it was set at an unknown time, on a row written before the field existed.",
 										"type": "integer",
 										"minimum": -9007199254740991,
 										"maximum": 9007199254740991
@@ -648,6 +653,7 @@
 										"type": "boolean"
 									},
 									"setAt": {
+										"description": "Epoch milliseconds the flag was set. 0 means it was set at an unknown time, on a row written before the field existed.",
 										"type": "integer",
 										"minimum": -9007199254740991,
 										"maximum": 9007199254740991
@@ -686,6 +692,7 @@
 										]
 									},
 									"setAt": {
+										"description": "Epoch milliseconds the flag was set. 0 means it was set at an unknown time, on a row written before the field existed.",
 										"type": "integer",
 										"minimum": -9007199254740991,
 										"maximum": 9007199254740991
@@ -715,6 +722,7 @@
 										"type": "boolean"
 									},
 									"setAt": {
+										"description": "Epoch milliseconds the flag was set. 0 means it was set at an unknown time, on a row written before the field existed.",
 										"type": "integer",
 										"minimum": -9007199254740991,
 										"maximum": 9007199254740991
@@ -744,6 +752,7 @@
 										"type": "boolean"
 									},
 									"setAt": {
+										"description": "Epoch milliseconds the flag was set. 0 means it was set at an unknown time, on a row written before the field existed.",
 										"type": "integer",
 										"minimum": -9007199254740991,
 										"maximum": 9007199254740991

@@ -29,6 +29,7 @@ import {
 	makeAnchor,
 	makeFilter,
 	makeLabel,
+	makeLegacyFlaggedAddress,
 	makeMailbox,
 	makeSetting,
 	OAUTH_ACCOUNT_ID,
@@ -521,6 +522,7 @@ const sourceFixture = (): ConfigFixture => ({
 				},
 			},
 		}),
+		makeLegacyFlaggedAddress(),
 	],
 });
 
@@ -768,6 +770,19 @@ test("a flagged sender arrives ahead of its mail, keyed on the email string", as
 		deriveAddressId(TARGET_CONFIG_ID, "noreply@newsletter.example"),
 	);
 	assert.equal(news?.flags?.unsubscribed?.value, true);
+});
+
+test("a flag that arrives at the sentinel is stored at the sentinel", async () => {
+	const document = await exportSource();
+	const store = emptyStore();
+
+	await apply(store, document);
+
+	const legacy = store.addresses.find(
+		(address) => address.normalizedEmail === "old@legacy.example",
+	);
+	assert.equal(legacy?.flags?.vip?.setAt, 0);
+	assert.equal(legacy?.flags?.category?.setAt, 0);
 });
 
 test("a folder no mailbox answers to yet is kept, then bound when discovery finds it", async () => {
