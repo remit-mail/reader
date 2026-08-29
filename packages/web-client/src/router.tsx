@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { createRouter } from "@tanstack/react-router";
 import { AppShellSkeleton } from "./components/layout/AppShellSkeleton";
 import { recordRoute } from "./lib/route-breadcrumbs";
+import { stringifySearch } from "./lib/search-params";
 import type { Telemetry } from "./lib/telemetry";
 import { routeTree } from "./routeTree.gen";
 
@@ -16,6 +17,10 @@ export const createAppRouter = (
 	const router = createRouter({
 		routeTree,
 		context: { queryClient },
+		// A query param that carries a list writes one param per value
+		// (`lib/search-params.ts`), which is what the router's own reader already
+		// expects and what a hand-written link says.
+		stringifySearch,
 		defaultPreload: "intent",
 		// A route arrives with its own code, and each mail list carries a whole pane
 		// in it. Without a pending state the router keeps the previous route on

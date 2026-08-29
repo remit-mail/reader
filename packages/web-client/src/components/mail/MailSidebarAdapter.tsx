@@ -219,6 +219,22 @@ export function MailSidebarAdapter({
 				</NavLink>
 			);
 		}
+		if (navId === "calendar") {
+			// No list segment to name: the calendar's index route sends the reader
+			// to the week they are in, so a bookmark of the nav entry keeps working
+			// tomorrow.
+			return (
+				<NavLink
+					to="/calendar"
+					onClick={() => onClick?.()}
+					className={className}
+					aria-label={ariaLabel}
+					title={title}
+				>
+					{children}
+				</NavLink>
+			);
+		}
 		if (navId === "outbox") {
 			return (
 				<NavLink
@@ -332,6 +348,7 @@ export function MailSidebarAdapter({
 			selectedNavId={selectedNavId}
 			onSelectNav={handleSelectNav}
 			linkComponent={linkComponent}
+			calendarNav="shown"
 			variant={variant}
 			savedSearches={savedSearches}
 			saveableQuery={saveableQuery}
