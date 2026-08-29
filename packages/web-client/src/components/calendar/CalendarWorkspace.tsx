@@ -10,11 +10,14 @@ import {
 	segmentClassName,
 } from "@remit/ui";
 import { Loader2 } from "lucide-react";
-import { useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { CalendarViewPlaceholder } from "@/components/calendar/CalendarViewPlaceholder";
 import { NavMenuButton } from "@/components/mail/NavMenuButton";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { calendarViewMountsGrid } from "@/lib/calendar-route";
+import {
+	calendarViewMountsAgenda,
+	calendarViewMountsGrid,
+} from "@/lib/calendar-route";
 
 /**
  * The calendar's own pane: the toolbar that moves it and whatever the current
@@ -38,6 +41,12 @@ export interface CalendarWorkspaceProps {
 	date: string;
 	events: CalendarEventData[];
 	colorByCalendarId: Record<string, CalendarColorId>;
+	/**
+	 * The strip, at the one zoom that draws it. A slot rather than something
+	 * built here because it loads its own days over a rolling range, and this
+	 * pane holds no events and knows no router.
+	 */
+	agenda: ReactNode;
 	/** The first read of this window is still out; the grid has nothing yet. */
 	isLoading?: boolean;
 	/**
@@ -89,6 +98,7 @@ export function CalendarWorkspace({
 	date,
 	events,
 	colorByCalendarId,
+	agenda,
 	isLoading = false,
 	error,
 	onRetry,
@@ -150,43 +160,51 @@ export function CalendarWorkspace({
 				</CalendarDateNav>
 			</div>
 
-			<div className="min-h-0 flex-1">
-				{error !== undefined && error !== null ? (
-					<div className="flex h-full items-center justify-center">
-						<ErrorState
-							title="Couldn't load this week"
-							error={error}
-							onRetry={onRetry}
+			{/* The strip rolls its own range, so it answers for its own days: the
+			    week this pane read is not what it is drawing, and gating it on that
+			    read would blank a strip that has everything it needs. It also
+			    scrolls itself, so it gets a column to fill rather than a box. */}
+			{calendarViewMountsAgenda(view) ? (
+				<div className="flex min-h-0 flex-1 flex-col">{agenda}</div>
+			) : (
+				<div className="min-h-0 flex-1">
+					{error !== undefined && error !== null ? (
+						<div className="flex h-full items-center justify-center">
+							<ErrorState
+								title="Couldn't load this week"
+								error={error}
+								onRetry={onRetry}
+							/>
+						</div>
+					) : isLoading ? (
+						<div
+							role="status"
+							aria-label="Loading the calendar"
+							className="flex h-full items-center justify-center bg-surface"
+						>
+							<Loader2 className="size-6 animate-spin text-fg-subtle" />
+						</div>
+					) : calendarViewMountsGrid(view) ? (
+						<CalendarGrid
+							view={view}
+							date={date}
+							events={events}
+							colorByCalendarId={colorByCalendarId}
+							density={density}
+							selectedEventId={selectedEventId}
+							timeZone={timeZone}
+							now={now}
+							onSelectEvent={onSelectEvent}
+							onPickSlot={onPickSlot}
+							onRangeChange={(measuredTitle) =>
+								setMeasured({ key: addressKey, title: measuredTitle })
+							}
 						/>
-					</div>
-				) : isLoading ? (
-					<div
-						role="status"
-						aria-label="Loading the calendar"
-						className="flex h-full items-center justify-center bg-surface"
-					>
-						<Loader2 className="size-6 animate-spin text-fg-subtle" />
-					</div>
-				) : calendarViewMountsGrid(view) ? (
-					<CalendarGrid
-						view={view}
-						date={date}
-						events={events}
-						colorByCalendarId={colorByCalendarId}
-						density={density}
-						selectedEventId={selectedEventId}
-						timeZone={timeZone}
-						now={now}
-						onSelectEvent={onSelectEvent}
-						onPickSlot={onPickSlot}
-						onRangeChange={(measuredTitle) =>
-							setMeasured({ key: addressKey, title: measuredTitle })
-						}
-					/>
-				) : (
-					<CalendarViewPlaceholder view={view} />
-				)}
-			</div>
+					) : (
+						<CalendarViewPlaceholder view={view} />
+					)}
+				</div>
+			)}
 		</div>
 	);
 }

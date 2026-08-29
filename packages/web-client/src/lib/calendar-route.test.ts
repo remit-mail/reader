@@ -8,6 +8,7 @@ import { describe, it } from "node:test";
 import { CALENDAR_DENSITY_KEY } from "./calendar-density.js";
 import {
 	calendarSearchSchema,
+	calendarViewMountsAgenda,
 	calendarViewMountsGrid,
 	calendarViews,
 	canonicalCalendarParams,
@@ -89,10 +90,28 @@ describe("calendarViewMountsGrid", () => {
 		assert.equal(calendarViewMountsGrid("day"), true);
 	});
 
-	it("has the other three still to come", () => {
+	it("leaves the agenda to the strip and the other two to a later stage", () => {
 		assert.equal(calendarViewMountsGrid("year"), false);
 		assert.equal(calendarViewMountsGrid("month"), false);
 		assert.equal(calendarViewMountsGrid("agenda"), false);
+	});
+});
+
+describe("calendarViewMountsAgenda", () => {
+	it("draws the strip at one zoom and at no other", () => {
+		for (const view of calendarViews) {
+			assert.equal(calendarViewMountsAgenda(view), view === "agenda");
+		}
+	});
+
+	it("never draws the same zoom as the grid", () => {
+		for (const view of calendarViews) {
+			assert.equal(
+				calendarViewMountsAgenda(view) && calendarViewMountsGrid(view),
+				false,
+				`${view} claimed two surfaces`,
+			);
+		}
 	});
 });
 

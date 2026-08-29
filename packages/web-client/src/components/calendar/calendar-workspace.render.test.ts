@@ -24,6 +24,9 @@ const DATE = "2026-06-10";
 const NOW = `${DATE}T09:30:00+02:00`;
 const CALENDAR = "cal_work";
 
+/** Stands in for the strip, which loads its own days and is tested on its own. */
+const AGENDA_SLOT = "the strip";
+
 const colorByCalendarId: Record<string, CalendarColorId> = {
 	[CALENDAR]: "cal-1",
 };
@@ -59,6 +62,7 @@ const workspaceProps = (
 	date: DATE,
 	events,
 	colorByCalendarId,
+	agenda: createElement("p", null, AGENDA_SLOT),
 	density: "comfortable",
 	selectedEventId: "",
 	timeZone: TIME_ZONE,
@@ -110,20 +114,23 @@ describe("the zoom the address names", () => {
 		}
 	});
 
+	it("mounts the strip for the agenda, and not the grid", () => {
+		const html = render("agenda");
+		assert.ok(html.includes(AGENDA_SLOT), "the agenda slot was not mounted");
+		assert.equal(html.includes("Not built yet"), false);
+		assert.equal(html.includes("Roadmap review"), false);
+	});
+
 	it("says so for a zoom that is not drawn yet", () => {
-		for (const view of ["year", "month", "agenda"] as const) {
+		for (const view of ["year", "month"] as const) {
 			const html = render(view);
 			assert.ok(
 				html.includes(`calendar-placeholder-${view}`),
 				`${view} rendered no placeholder`,
 			);
 			assert.ok(html.includes("Not built yet"));
-			assert.ok(html.includes("Week and Day work now."));
+			assert.ok(html.includes("Week, Day and Agenda work now."));
 		}
-	});
-
-	it("names the agenda's own stage rather than a generic one", () => {
-		assert.ok(render("agenda").includes("scrolling day strip"));
 	});
 });
 

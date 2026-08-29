@@ -16,6 +16,7 @@
 import type { CalendarSlotPick } from "@remit/ui";
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
+import { AgendaView } from "@/components/calendar/AgendaView";
 import { CalendarComposeSeedProvider } from "@/components/calendar/CalendarComposeSeed";
 import { CalendarShell } from "@/components/calendar/CalendarShell";
 import { CalendarWorkspace } from "@/components/calendar/CalendarWorkspace";
@@ -93,6 +94,7 @@ function CalendarViewLayout() {
 			date={date}
 			events={events}
 			colorByCalendarId={colorByCalendarId}
+			agenda={<AgendaView density={density} onPickSlot={pickSlot} />}
 			isLoading={isLoading}
 			error={error}
 			onRetry={retry}

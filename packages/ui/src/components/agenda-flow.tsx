@@ -33,7 +33,6 @@ import {
 	formatSpan,
 	freeStretchesOn,
 	groupOverlapping,
-	isClearDay,
 	minuteOfDay,
 	monthLabel,
 	weekdayLongLabel,
@@ -103,6 +102,13 @@ export interface AgendaFlowProps {
 	onReachEnd: () => void;
 	/** The day under the sticky header, for the position map. */
 	onVisibleDayChange: (date: string) => void;
+	/**
+	 * The free time on a day, where the owner knows more about it than the rows
+	 * do. Busy time on a calendar the strip is not drawing is still not free, so
+	 * an owner holding merged busy spans answers this from those. Absent falls
+	 * back to the gaps between what is on screen.
+	 */
+	freeOn?: (day: CalendarDay) => FreeStretch[];
 	scrollTarget?: AgendaScrollTarget;
 	/**
 	 * Rendered immediately above today, and landed on with it, so what's next is
@@ -126,6 +132,7 @@ export function AgendaFlow({
 	onReachStart,
 	onReachEnd,
 	onVisibleDayChange,
+	freeOn = freeStretchesOn,
 	scrollTarget,
 	todayLead,
 	touch,
@@ -256,6 +263,7 @@ export function AgendaFlow({
 					lookup={lookup}
 					density={density}
 					today={today}
+					freeOn={freeOn}
 					selectedEventId={selectedEventId}
 					onSelectEvent={onSelectEvent}
 					onPickSlot={onPickSlot}
@@ -280,6 +288,7 @@ interface RowProps {
 	lookup: CalendarLookup;
 	density: AgendaDensity;
 	today: string;
+	freeOn: (day: CalendarDay) => FreeStretch[];
 	selectedEventId: string;
 	onSelectEvent: (eventId: string) => void;
 	onPickSlot: (pick: CalendarSlotPick) => void;
@@ -294,6 +303,7 @@ function FlowRow({
 	lookup,
 	density,
 	today,
+	freeOn,
 	selectedEventId,
 	onSelectEvent,
 	onPickSlot,
@@ -323,6 +333,7 @@ function FlowRow({
 					day={row.day}
 					lookup={lookup}
 					today={today}
+					freeOn={freeOn}
 					onSelectEvent={onSelectEvent}
 					onZoomDay={onZoomDay}
 					selectedEventId={selectedEventId}
@@ -338,6 +349,7 @@ function FlowRow({
 				lookup={lookup}
 				density={density}
 				today={today}
+				freeOn={freeOn}
 				selectedEventId={selectedEventId}
 				onSelectEvent={onSelectEvent}
 				onPickSlot={onPickSlot}
@@ -398,6 +410,7 @@ function DotsDay({
 	day,
 	lookup,
 	today,
+	freeOn,
 	selectedEventId,
 	onSelectEvent,
 	onZoomDay,
@@ -405,6 +418,7 @@ function DotsDay({
 	day: CalendarDay;
 	lookup: CalendarLookup;
 	today: string;
+	freeOn: (day: CalendarDay) => FreeStretch[];
 	selectedEventId: string;
 	onSelectEvent: (eventId: string) => void;
 	onZoomDay: (date: string) => void;
@@ -449,16 +463,20 @@ function DotsDay({
 			</div>
 			<BusyBar day={day} className="w-24 shrink-0" />
 			<span className="w-24 shrink-0 text-right text-2xs text-fg-subtle">
-				{glanceLabel(day)}
+				{glanceLabel(day, freeOn)}
 			</span>
 		</div>
 	);
 }
 
 /** What the day is worth saying in eleven characters. */
-function glanceLabel(day: CalendarDay): string {
-	if (day.timed.length === 0) return "clear";
-	const longest = freeStretchesOn(day).reduce(
+function glanceLabel(
+	day: CalendarDay,
+	freeOn: (day: CalendarDay) => FreeStretch[],
+): string {
+	const free = freeOn(day);
+	if (day.timed.length === 0 && isWholeDayFree(free)) return "clear";
+	const longest = free.reduce(
 		(best, stretch) => Math.max(best, stretch.minutes),
 		0,
 	);
@@ -466,11 +484,17 @@ function glanceLabel(day: CalendarDay): string {
 	return `${formatSpan(day.busyMinutes)} booked`;
 }
 
+/** Nothing takes an hour out of this day, whoever measured it. */
+function isWholeDayFree(free: readonly FreeStretch[]): boolean {
+	return free.length === 1 && free[0].wholeDay;
+}
+
 function DayBlock({
 	day,
 	lookup,
 	density,
 	today,
+	freeOn,
 	selectedEventId,
 	onSelectEvent,
 	onPickSlot,
@@ -481,6 +505,7 @@ function DayBlock({
 	lookup: CalendarLookup;
 	density: AgendaDensity;
 	today: string;
+	freeOn: (day: CalendarDay) => FreeStretch[];
 	selectedEventId: string;
 	onSelectEvent: (eventId: string) => void;
 	onPickSlot: (pick: CalendarSlotPick) => void;
@@ -489,7 +514,12 @@ function DayBlock({
 }) {
 	const isToday = day.date === today;
 	const groups = groupOverlapping(day.timed);
-	const free = freeStretchesOn(day).filter((stretch) => !stretch.wholeDay);
+	const measured = freeOn(day);
+	const free = measured.filter((stretch) => !stretch.wholeDay);
+	/* Nothing on the strip and nothing taking the day out from anywhere else.
+	   A day whose hours went to a calendar the reader has unticked is not free,
+	   so it draws its bands rather than the line that says it is clear. */
+	const clear = day.timed.length === 0 && isWholeDayFree(measured);
 
 	const items: {
 		key: string;
@@ -596,7 +626,7 @@ function DayBlock({
 						touch={touch}
 					/>
 				))}
-				{isClearDay(day) ? (
+				{clear ? (
 					<ClearDayLine day={day} onPickSlot={onPickSlot} touch={touch} />
 				) : (
 					items.map((item) => <div key={item.key}>{item.node}</div>)

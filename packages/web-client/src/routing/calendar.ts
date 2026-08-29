@@ -83,6 +83,14 @@ export interface CalendarNavigation {
 	/** Home, from every view and every distance away. */
 	goToToday: () => void;
 	/**
+	 * The day the strip has scrolled to, written by `replace`. Scrolling is not
+	 * somewhere the reader went — Back belongs to the screen they arrived from,
+	 * not to every row they passed on the way down.
+	 */
+	setAnchorDate: (date: string) => void;
+	/** Out of the list and into the grid for one day. */
+	zoomToDay: (date: string) => void;
+	/**
 	 * One occurrence names the series it belongs to and the instance under it;
 	 * a resource that does not recur names only itself.
 	 */
@@ -122,6 +130,15 @@ export function useCalendarNavigation(): CalendarNavigation {
 			step: (direction: -1 | 1) =>
 				goTo({ view, date: stepCalendarDate(date, view, direction) }),
 			goToToday: () => goTo({ view, date: isoDate(new Date()) }),
+			setAnchorDate: (next: string) =>
+				navigate({
+					to: VIEW_ROUTE,
+					params: { view, date: next },
+					search: true,
+					hash: retainPanels,
+					replace: true,
+				}),
+			zoomToDay: (next: string) => goTo({ view: "day", date: next }),
 			openEvent: (calendarObjectId: string, recurrenceId?: string) =>
 				recurrenceId === undefined || recurrenceId === ""
 					? navigate({

@@ -27,6 +27,7 @@ import {
 	formatShortDay,
 	formatSpan,
 	freeAhead,
+	freeStretchesFromSpans,
 	freeStretchesOn,
 	groupOverlapping,
 	isClearDay,
@@ -244,6 +245,48 @@ describe("free time", () => {
 		assert.equal(isEmptyDay(dayOn("2026-06-11")), false);
 		assert.equal(isEmptyDay(dayOn("2026-06-14")), true);
 		assert.equal(isClearDay(dayOn(TODAY)), false);
+	});
+});
+
+/**
+ * The same rule, measured off spans nobody drew. `/calendar-free-busy` merges
+ * every calendar the reader holds, so the answer to "am I free" has to come out
+ * of that rather than out of the rows on screen — and it has to be the answer
+ * the rows would have given, or the strip and the server disagree about one
+ * afternoon.
+ */
+describe("freeStretchesFromSpans", () => {
+	const spans = (day: CalendarDay) =>
+		freeStretchesFromSpans(day.date, busySpansOn(day));
+
+	it("gives the same answer as the day it was measured off", () => {
+		for (const date of [TODAY, "2026-06-11", "2026-06-13"]) {
+			const day = dayOn(date);
+			assert.deepEqual(clocks(spans(day)), clocks(freeStretchesOn(day)));
+		}
+	});
+
+	it("takes hours out of a day nothing on the strip is booked in", () => {
+		const busy = [
+			{ from: 9 * 60, to: 12 * 60 },
+			{ from: 13 * 60, to: 16 * 60 },
+		];
+		assert.deepEqual(clocks(freeStretchesFromSpans("2026-06-11", busy)), [
+			"16:00–22:00",
+		]);
+	});
+
+	it("reads no spans at all as free all day", () => {
+		const [whole] = freeStretchesFromSpans("2026-06-11", []);
+		assert.equal(whole.wholeDay, true);
+		assert.deepEqual(clocks([whole]), ["08:00–22:00"]);
+	});
+
+	it("clips a span that runs past the window the day is measured inside", () => {
+		assert.deepEqual(
+			clocks(freeStretchesFromSpans("2026-06-11", [{ from: 0, to: 9 * 60 }])),
+			["09:00–22:00"],
+		);
 	});
 });
 

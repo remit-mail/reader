@@ -6,6 +6,21 @@
  * of them are on screen, and a write invalidates what all of them are showing.
  */
 export {
+	type AgendaRange,
+	agendaWindow,
+	busySpansByDate,
+	datesInRange,
+	extendRangeEnd,
+	extendRangeStart,
+	type FreeLookup,
+	freeStretchesByDate,
+	LEAD_IN,
+	LEAD_OUT,
+	PAGE,
+	rangeAround,
+	rangeCovering,
+} from "./agenda-window";
+export {
 	type CreateInput,
 	createInputFromDraft,
 	type DraftRefusal,
@@ -40,6 +55,10 @@ export {
 	useCalendarEventWindow,
 	usePrefetchAdjacentWindows,
 } from "./useCalendarEvents";
+export {
+	type CalendarFreeBusyResult,
+	useCalendarFreeBusy,
+} from "./useCalendarFreeBusy";
 export { type CalendarsResult, useCalendars } from "./useCalendars";
 export {
 	type CalendarWriteOutcome,

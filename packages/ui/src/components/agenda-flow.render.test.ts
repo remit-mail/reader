@@ -9,7 +9,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { buildCalendarDay } from "../lib/agenda-time.js";
+import {
+	buildCalendarDay,
+	freeStretchesFromSpans,
+} from "../lib/agenda-time.js";
 import { AgendaFlow, type AgendaFlowProps } from "./agenda-flow.js";
 import type {
 	CalendarDescriptor,
@@ -206,6 +209,23 @@ describe("AgendaFlow", () => {
 
 	it("grows every hit target when the surface is touched", () => {
 		assert.match(render({ touch: true }), /min-h-12/);
+	});
+
+	/**
+	 * Busy time on a calendar the strip is not drawing still takes the afternoon.
+	 * Without this, a reader who unticks work reads "Free all day" for a day they
+	 * are booked solid in.
+	 */
+	it("draws the free time its owner measured rather than the gaps on screen", () => {
+		const html = words(
+			render({
+				freeOn: (day) =>
+					freeStretchesFromSpans(day.date, [{ from: 8 * 60, to: 18 * 60 }]),
+			}),
+		);
+		assert.doesNotMatch(html, /Free all day/);
+		assert.match(html, /4h free/);
+		assert.match(html, /18:00 – 22:00/);
 	});
 
 	it("renders whatever the owner leads today with", () => {

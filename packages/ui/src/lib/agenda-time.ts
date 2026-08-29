@@ -245,22 +245,29 @@ function insideWindow(minute: number): number {
 }
 
 /**
- * The gaps between those spans, inside the window worth calling a day.
+ * The gaps between merged busy spans, inside the window worth calling a day.
  *
  * Both ends of every span are pulled into the window before they are measured,
  * and the cursor only ever moves forward, so an event running past the window
  * cannot stretch a band past it either and a span that ends before it starts —
  * an overnight event, which the editor writes onto one date — cannot leave the
  * cursor where the tail would emit a second band over the first.
+ *
+ * Spans rather than a day, because busy time is not always drawn: a calendar
+ * the reader has unticked, and every calendar the server merges into
+ * `/calendar-free-busy`, still take hours out of a Thursday. One rule answers
+ * "when am I free" wherever the busy time was measured, so the strip and the
+ * server cannot disagree about the same afternoon.
  */
-export function freeStretchesOn(
-	day: CalendarDay,
+export function freeStretchesFromSpans(
+	date: string,
+	busy: readonly BusySpan[],
 	minMinutes = FREE_MINUTES,
 ): FreeStretch[] {
-	if (day.timed.length === 0)
+	if (busy.length === 0)
 		return [
 			{
-				date: day.date,
+				date,
 				startMinute: DAY_START_MINUTE,
 				endMinute: DAY_END_MINUTE,
 				minutes: DAY_END_MINUTE - DAY_START_MINUTE,
@@ -268,15 +275,14 @@ export function freeStretchesOn(
 			},
 		];
 
-	const merged = busySpansOn(day);
 	const stretches: FreeStretch[] = [];
 	let cursor = DAY_START_MINUTE;
-	for (const span of merged) {
+	for (const span of busy) {
 		const from = insideWindow(span.from);
 		const to = insideWindow(span.to);
 		if (from - cursor >= minMinutes)
 			stretches.push({
-				date: day.date,
+				date,
 				startMinute: cursor,
 				endMinute: from,
 				minutes: from - cursor,
@@ -286,13 +292,21 @@ export function freeStretchesOn(
 	}
 	if (DAY_END_MINUTE - cursor >= minMinutes)
 		stretches.push({
-			date: day.date,
+			date,
 			startMinute: cursor,
 			endMinute: DAY_END_MINUTE,
 			minutes: DAY_END_MINUTE - cursor,
 			wholeDay: false,
 		});
 	return stretches;
+}
+
+/** The free time left by the events on a day, which is the same rule. */
+export function freeStretchesOn(
+	day: CalendarDay,
+	minMinutes = FREE_MINUTES,
+): FreeStretch[] {
+	return freeStretchesFromSpans(day.date, busySpansOn(day), minMinutes);
 }
 
 export interface ClashOptions {
