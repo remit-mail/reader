@@ -522,16 +522,23 @@ const sourceFixture = (): ConfigFixture => ({
 				},
 			},
 		}),
-		makeLegacyFlaggedAddress(),
 	],
 });
 
-const exportSource = () =>
-	readConfigForExport(
-		asRepositories(sourceFixture()),
-		ACCOUNT_CONFIG_ID,
-		IDENTITY,
-	);
+/**
+ * The same configuration with one sender flagged before `setAt` existed. Held
+ * apart from the source fixture rather than folded into it: half the tests here
+ * count what the file carries, and a legacy row is a fact about the database
+ * this instance happens to hold, not about every configuration.
+ */
+const sourceWithLegacyFlagsFixture = (): ConfigFixture => {
+	const fixture = sourceFixture();
+	fixture.addresses = [...fixture.addresses, makeLegacyFlaggedAddress()];
+	return fixture;
+};
+
+const exportSource = (fixture: ConfigFixture = sourceFixture()) =>
+	readConfigForExport(asRepositories(fixture), ACCOUNT_CONFIG_ID, IDENTITY);
 
 const apply = (
 	store: Store,
@@ -566,7 +573,7 @@ const discover = (
 };
 
 test("a configuration survives an export, an import and a discovery unchanged", async () => {
-	const document = await exportSource();
+	const document = await exportSource(sourceWithLegacyFlagsFixture());
 	const store = emptyStore();
 
 	const report = reportOf(await apply(store, document));
@@ -773,7 +780,7 @@ test("a flagged sender arrives ahead of its mail, keyed on the email string", as
 });
 
 test("a flag that arrives at the sentinel is stored at the sentinel", async () => {
-	const document = await exportSource();
+	const document = await exportSource(sourceWithLegacyFlagsFixture());
 	const store = emptyStore();
 
 	await apply(store, document);
