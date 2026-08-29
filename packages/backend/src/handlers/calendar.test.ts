@@ -43,30 +43,29 @@ import {
 
 /**
  * The calendar store in memory, behind the same ports the relational one
- * implements.
+ * implements — one class per port, because a collection and a resource both
+ * answer to `get` and `delete` with different arguments.
  *
  * Written against the ports rather than stubbed per test so a handler test
- * exercises the real write path — `putCalendarObject` projects, expands and
+ * exercises the real write path: `putCalendarObject` projects, expands and
  * bumps here exactly as it does against sqlite, and a handler that stopped
  * going through it would fail these tests rather than pass them.
  */
-export class InMemoryCalendarStore
-	implements
-		ICalendarCollectionRepository,
-		ICalendarObjectRepository,
-		ICalendarEventIndexRepository,
-		ICalendarUnitOfWork
-{
+class CalendarState {
 	readonly collections = new Map<string, CalendarCollectionItem>();
 	readonly objects = new Map<string, CalendarObjectItem>();
 	readonly occurrences = new Map<string, CalendarEventIndexItem[]>();
+}
+
+class MemoryCollections implements ICalendarCollectionRepository {
+	constructor(private state: CalendarState) {}
 
 	async create(
 		input: CreateCalendarCollectionInput,
 	): Promise<CalendarCollectionItem> {
 		const urlSegment = normalizeCalendarUrlSegment(input.urlSegment);
 		const calendarId = deriveCalendarId(input.accountConfigId, urlSegment);
-		const existing = this.collections.get(calendarId);
+		const existing = this.state.collections.get(calendarId);
 		if (existing) return existing;
 
 		const created: CalendarCollectionItem = {
@@ -82,7 +81,7 @@ export class InMemoryCalendarStore
 			createdAt: 0,
 			updatedAt: 0,
 		};
-		this.collections.set(calendarId, created);
+		this.state.collections.set(calendarId, created);
 		return created;
 	}
 
@@ -90,7 +89,7 @@ export class InMemoryCalendarStore
 		accountConfigId: string,
 		calendarId: string,
 	): Promise<CalendarCollectionItem> {
-		const found = this.collections.get(calendarId);
+		const found = this.state.collections.get(calendarId);
 		if (!found || found.accountConfigId !== accountConfigId) {
 			throw new NotFoundError(`Calendar not found: ${calendarId}`);
 		}
@@ -102,20 +101,22 @@ export class InMemoryCalendarStore
 		calendarId: string,
 		input: UpdateCalendarCollectionInput,
 	): Promise<CalendarCollectionItem> {
-		const current = await this.get(accountConfigId, calendarId);
-		const updated = { ...current, ...input };
-		this.collections.set(calendarId, updated);
+		const updated = {
+			...(await this.get(accountConfigId, calendarId)),
+			...input,
+		};
+		this.state.collections.set(calendarId, updated);
 		return updated;
 	}
 
 	async delete(_accountConfigId: string, calendarId: string): Promise<void> {
-		this.collections.delete(calendarId);
+		this.state.collections.delete(calendarId);
 	}
 
 	async listByAccountConfig(
 		accountConfigId: string,
 	): Promise<CalendarCollectionItem[]> {
-		return [...this.collections.values()]
+		return [...this.state.collections.values()]
 			.filter((item) => item.accountConfigId === accountConfigId)
 			.sort((left, right) => left.urlSegment.localeCompare(right.urlSegment));
 	}
@@ -125,7 +126,7 @@ export class InMemoryCalendarStore
 		urlSegment: string,
 	): Promise<CalendarCollectionItem | null> {
 		return (
-			this.collections.get(
+			this.state.collections.get(
 				deriveCalendarId(
 					accountConfigId,
 					normalizeCalendarUrlSegment(urlSegment),
@@ -140,9 +141,13 @@ export class InMemoryCalendarStore
 	): Promise<number> {
 		const current = await this.get(accountConfigId, calendarId);
 		const bumped = { ...current, syncSequence: current.syncSequence + 1 };
-		this.collections.set(calendarId, bumped);
+		this.state.collections.set(calendarId, bumped);
 		return bumped.syncSequence;
 	}
+}
+
+class MemoryObjects implements ICalendarObjectRepository {
+	constructor(private state: CalendarState) {}
 
 	async put(input: PutCalendarObjectInput): Promise<CalendarObjectItem> {
 		const calendarObjectId = deriveCalendarObjectId(
@@ -155,16 +160,31 @@ export class InMemoryCalendarStore
 			createdAt: 0,
 			updatedAt: 0,
 		};
-		this.objects.set(calendarObjectId, stored);
+		this.state.objects.set(calendarObjectId, stored);
 		return stored;
+	}
+
+	async get(
+		calendarId: string,
+		calendarObjectId: string,
+	): Promise<CalendarObjectItem> {
+		const found = await this.find(calendarId, calendarObjectId);
+		if (!found) {
+			throw new NotFoundError(`Calendar object not found: ${calendarObjectId}`);
+		}
+		return found;
 	}
 
 	async find(
 		calendarId: string,
 		calendarObjectId: string,
 	): Promise<CalendarObjectItem | null> {
-		const found = this.objects.get(calendarObjectId);
+		const found = this.state.objects.get(calendarObjectId);
 		return found && found.calendarId === calendarId ? found : null;
+	}
+
+	async delete(_calendarId: string, calendarObjectId: string): Promise<void> {
+		this.state.objects.delete(calendarObjectId);
 	}
 
 	async findByResourceName(
@@ -182,7 +202,7 @@ export class InMemoryCalendarStore
 		icalUid: string,
 	): Promise<CalendarObjectItem | null> {
 		return (
-			[...this.objects.values()].find(
+			[...this.state.objects.values()].find(
 				(object) =>
 					object.calendarId === calendarId && object.icalUid === icalUid,
 			) ?? null
@@ -190,7 +210,7 @@ export class InMemoryCalendarStore
 	}
 
 	async listByCalendar(calendarId: string): Promise<CalendarObjectItem[]> {
-		return [...this.objects.values()]
+		return [...this.state.objects.values()]
 			.filter((object) => object.calendarId === calendarId)
 			.sort((left, right) =>
 				left.resourceName.localeCompare(right.resourceName),
@@ -205,13 +225,17 @@ export class InMemoryCalendarStore
 			.filter((object) => object.syncSequence > syncSequence)
 			.sort((left, right) => left.syncSequence - right.syncSequence);
 	}
+}
+
+class MemoryOccurrences implements ICalendarEventIndexRepository {
+	constructor(private state: CalendarState) {}
 
 	async replaceForObject(
 		calendarId: string,
 		calendarObjectId: string,
 		occurrences: CalendarOccurrenceInput[],
 	): Promise<void> {
-		this.occurrences.set(
+		this.state.occurrences.set(
 			calendarObjectId,
 			occurrences.map((occurrence) => ({
 				...occurrence,
@@ -227,14 +251,14 @@ export class InMemoryCalendarStore
 		_calendarId: string,
 		calendarObjectId: string,
 	): Promise<void> {
-		this.occurrences.delete(calendarObjectId);
+		this.state.occurrences.delete(calendarObjectId);
 	}
 
 	async listForObject(
 		_calendarId: string,
 		calendarObjectId: string,
 	): Promise<CalendarEventIndexItem[]> {
-		return this.occurrences.get(calendarObjectId) ?? [];
+		return this.state.occurrences.get(calendarObjectId) ?? [];
 	}
 
 	async listByStartRange(
@@ -242,7 +266,7 @@ export class InMemoryCalendarStore
 		startAt: string,
 		endAt: string,
 	): Promise<CalendarEventIndexItem[]> {
-		return [...this.occurrences.values()]
+		return [...this.state.occurrences.values()]
 			.flat()
 			.filter(
 				(row) =>
@@ -251,6 +275,25 @@ export class InMemoryCalendarStore
 					row.startAt < endAt,
 			)
 			.sort((left, right) => left.startAt.localeCompare(right.startAt));
+	}
+}
+
+class InMemoryCalendarStore implements ICalendarUnitOfWork {
+	readonly state = new CalendarState();
+	readonly calendarCollection = new MemoryCollections(this.state);
+	readonly calendarObject = new MemoryObjects(this.state);
+	readonly calendarEventIndex = new MemoryOccurrences(this.state);
+
+	get collections(): Map<string, CalendarCollectionItem> {
+		return this.state.collections;
+	}
+
+	get objects(): Map<string, CalendarObjectItem> {
+		return this.state.objects;
+	}
+
+	get occurrences(): Map<string, CalendarEventIndexItem[]> {
+		return this.state.occurrences;
 	}
 
 	// No isolation to model: the tests that care about atomicity run against
@@ -262,18 +305,14 @@ export class InMemoryCalendarStore
 			calendarEventIndex: ICalendarEventIndexRepository;
 		}) => Promise<T>,
 	): Promise<T> {
-		return fn({
-			calendarCollection: this,
-			calendarObject: this,
-			calendarEventIndex: this,
-		});
+		return fn(this);
 	}
 
 	deps(): CalendarDeps {
 		return {
-			calendarCollection: this,
-			calendarObject: this,
-			calendarEventIndex: this,
+			calendarCollection: this.calendarCollection,
+			calendarObject: this.calendarObject,
+			calendarEventIndex: this.calendarEventIndex,
 			calendarUnitOfWork: this,
 		};
 	}
