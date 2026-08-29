@@ -13,16 +13,18 @@
  * was readable is kept, so `/calendar/fortnight/2026-06-10` lands on that day's
  * week instead of on an error.
  */
+import type { CalendarSlotPick } from "@remit/ui";
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
+import { CalendarComposeSeedProvider } from "@/components/calendar/CalendarComposeSeed";
 import { CalendarShell } from "@/components/calendar/CalendarShell";
 import { CalendarWorkspace } from "@/components/calendar/CalendarWorkspace";
+import { calendarInstanceId, deviceTimeZone } from "@/hooks/calendar";
 import { useCalendarData } from "@/hooks/useCalendarData";
 import {
 	readCalendarDensity,
 	writeCalendarDensity,
 } from "@/lib/calendar-density";
-import { fixtureTimeZone } from "@/lib/calendar-fixtures";
 import {
 	calendarSearchSchema,
 	canonicalCalendarParams,
@@ -53,11 +55,8 @@ export const Route = createFileRoute("/calendar/$view/$date")({
 
 function CalendarViewLayout() {
 	const { view, date, calendarIds } = useCalendarAddress();
-	const { events, colorByCalendarId } = useCalendarData({
-		view,
-		date,
-		calendarIds,
-	});
+	const { events, colorByCalendarId, isLoading, error, retry, instanceOf } =
+		useCalendarData({ view, date, calendarIds });
 	const { goToView, goToToday, step, openEvent, openComposer } =
 		useCalendarNavigation();
 	const openedEvent = useOpenCalendarEvent();
@@ -70,6 +69,23 @@ function CalendarViewLayout() {
 		writeCalendarDensity(next);
 		setDensity(next);
 	}, []);
+	const [pick, setPick] = useState<CalendarSlotPick | undefined>(undefined);
+
+	const selectEvent = useCallback(
+		(eventId: string) => {
+			const instance = instanceOf(eventId);
+			openEvent(instance.calendarObjectId, instance.recurrenceId);
+		},
+		[instanceOf, openEvent],
+	);
+
+	const pickSlot = useCallback(
+		(slot: CalendarSlotPick) => {
+			setPick(slot);
+			openComposer();
+		},
+		[openComposer],
+	);
 
 	const workspace = (
 		<CalendarWorkspace
@@ -77,24 +93,36 @@ function CalendarViewLayout() {
 			date={date}
 			events={events}
 			colorByCalendarId={colorByCalendarId}
+			isLoading={isLoading}
+			error={error}
+			onRetry={retry}
 			density={density}
-			selectedEventId={openedEvent?.calendarObjectId ?? ""}
-			timeZone={fixtureTimeZone()}
+			selectedEventId={
+				openedEvent
+					? calendarInstanceId(
+							openedEvent.calendarObjectId,
+							openedEvent.recurrenceId ?? "",
+						)
+					: ""
+			}
+			timeZone={deviceTimeZone()}
 			now={new Date().toISOString()}
 			onChangeView={goToView}
 			onToday={goToToday}
 			onStep={step}
 			onChangeDensity={changeDensity}
-			onSelectEvent={openEvent}
-			onPickSlot={openComposer}
+			onSelectEvent={selectEvent}
+			onPickSlot={pickSlot}
 		/>
 	);
 
 	return (
-		<CalendarShell
-			workspace={workspace}
-			reading={<Outlet />}
-			hasOpenEvent={openedEvent !== undefined || isWriting}
-		/>
+		<CalendarComposeSeedProvider pick={pick}>
+			<CalendarShell
+				workspace={workspace}
+				reading={<Outlet />}
+				hasOpenEvent={openedEvent !== undefined || isWriting}
+			/>
+		</CalendarComposeSeedProvider>
 	);
 }

@@ -7,12 +7,12 @@
  * move `compose` makes over a mail list.
  */
 import { createFileRoute } from "@tanstack/react-router";
-import { CalendarComposePane } from "@/components/calendar/CalendarComposePane";
+import { WriteCalendarEvent } from "@/components/calendar/WriteCalendarEvent";
 import { useCalendarNavigation } from "@/routing";
 
 function CalendarComposeRoute() {
 	const { closeEvent } = useCalendarNavigation();
-	return <CalendarComposePane onClose={closeEvent} />;
+	return <WriteCalendarEvent onClose={closeEvent} />;
 }
 
 export const Route = createFileRoute("/calendar/$view/$date/new")({

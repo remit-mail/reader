@@ -82,7 +82,11 @@ export interface CalendarNavigation {
 	step: (direction: -1 | 1) => void;
 	/** Home, from every view and every distance away. */
 	goToToday: () => void;
-	openEvent: (calendarObjectId: string) => void;
+	/**
+	 * One occurrence names the series it belongs to and the instance under it;
+	 * a resource that does not recur names only itself.
+	 */
+	openEvent: (calendarObjectId: string, recurrenceId?: string) => void;
 	closeEvent: () => void;
 	openComposer: () => void;
 }
@@ -118,13 +122,20 @@ export function useCalendarNavigation(): CalendarNavigation {
 			step: (direction: -1 | 1) =>
 				goTo({ view, date: stepCalendarDate(date, view, direction) }),
 			goToToday: () => goTo({ view, date: isoDate(new Date()) }),
-			openEvent: (calendarObjectId: string) =>
-				navigate({
-					to: "/calendar/$view/$date/$calendarObjectId",
-					params: { view, date, calendarObjectId },
-					search: true,
-					hash: retainPanels,
-				}),
+			openEvent: (calendarObjectId: string, recurrenceId?: string) =>
+				recurrenceId === undefined || recurrenceId === ""
+					? navigate({
+							to: "/calendar/$view/$date/$calendarObjectId",
+							params: { view, date, calendarObjectId },
+							search: true,
+							hash: retainPanels,
+						})
+					: navigate({
+							to: "/calendar/$view/$date/$calendarObjectId/$recurrenceId",
+							params: { view, date, calendarObjectId, recurrenceId },
+							search: true,
+							hash: retainPanels,
+						}),
 			closeEvent: () => goTo({ view, date }),
 			openComposer: () =>
 				navigate({

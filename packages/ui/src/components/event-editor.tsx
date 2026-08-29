@@ -276,6 +276,12 @@ export interface EventEditorProps {
 	 * a single instance reads the rule back instead of offering to change it.
 	 */
 	repeatEditable?: boolean;
+	/**
+	 * Whether guests can be written here. A surface whose store has nowhere to
+	 * put them leaves the field out: a box that takes names and drops them is
+	 * worse than no box, because the reader only finds out later.
+	 */
+	guestsEditable?: boolean;
 	/** Opens the custom-rule editor. Absent leaves the derived choices alone. */
 	onCustomRepeat?: () => void;
 	/** Grows the controls for a rail. */
@@ -302,6 +308,7 @@ export function EventEditor({
 	saveLabel = "Add",
 	header,
 	repeatEditable = true,
+	guestsEditable = true,
 	onCustomRepeat,
 	touch,
 	className,
@@ -366,7 +373,7 @@ export function EventEditor({
 				<EventField label="Calendar">{calendarPicker}</EventField>
 				<EventField label="Repeat">{repeat}</EventField>
 				<EventField label="Location">{location}</EventField>
-				<EventField label="Guests">{guests}</EventField>
+				{guestsEditable && <EventField label="Guests">{guests}</EventField>}
 				<EventField label="Notes">{notes}</EventField>
 				{actions}
 			</div>
@@ -405,7 +412,7 @@ export function EventEditor({
 			{!folded && (
 				<div className="flex flex-col gap-2 border-t border-line pt-3">
 					{location}
-					{guests}
+					{guestsEditable && guests}
 					{repeat}
 					{notes}
 				</div>

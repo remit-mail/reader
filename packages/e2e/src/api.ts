@@ -149,6 +149,25 @@ export interface Label {
 	color: string;
 }
 
+export interface Calendar {
+	calendarId: string;
+	urlSegment: string;
+	displayName: string;
+}
+
+/** One occurrence as the server expanded it. No client ever reads an RRULE. */
+export interface CalendarEventInstance {
+	calendarId: string;
+	calendarObjectId: string;
+	recurrenceId: string;
+	summary: string;
+	start: string;
+	end: string;
+	allDay: boolean;
+	etag: string;
+	hasRecurrence: boolean;
+}
+
 export interface ConfigAccount {
 	accountId: string;
 	email: string;
@@ -752,6 +771,39 @@ export class ApiClient {
 			`/accounts/${accountId}/labels`,
 		);
 		return result.items ?? [];
+	}
+
+	async listCalendars(): Promise<Calendar[]> {
+		const result = await this.json<ResultList<Calendar>>("GET", "/calendars");
+		return result.items ?? [];
+	}
+
+	/**
+	 * The occurrences the server expanded over a window — what the grid draws,
+	 * asked for the way the grid asks for it. A spec asserting an event exists
+	 * reads this rather than the pixels it just clicked: the deployment's own
+	 * account of what is on the calendar is the only thing worth proving.
+	 */
+	async listCalendarEvents(
+		from: string,
+		to: string,
+	): Promise<CalendarEventInstance[]> {
+		const query = new URLSearchParams({ from, to });
+		const result = await this.json<ResultList<CalendarEventInstance>>(
+			"GET",
+			`/calendar-events?${query}`,
+		);
+		return result.items ?? [];
+	}
+
+	deleteCalendarEvent(
+		calendarObjectId: string,
+		calendarId: string,
+	): Promise<Response> {
+		return this.request(
+			"DELETE",
+			`/calendar-events/${calendarObjectId}?calendarId=${calendarId}&scope=All`,
+		);
 	}
 
 	getConfig(): Promise<ConfigDescription> {

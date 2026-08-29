@@ -64,9 +64,11 @@ const backwards: EventDraft = {
 function Live({
 	startExpanded,
 	seed: initial = seed,
+	guestsEditable,
 }: {
 	startExpanded: boolean;
 	seed?: EventDraft;
+	guestsEditable?: boolean;
 }) {
 	const [draft, setDraft] = useState(initial);
 	const [expanded, setExpanded] = useState(startExpanded);
@@ -78,6 +80,7 @@ function Live({
 				calendars={calendars}
 				expanded={expanded}
 				onToggleExpanded={() => setExpanded((open) => !open)}
+				guestsEditable={guestsEditable}
 				onSave={() => {}}
 				onCancel={() => {}}
 			/>
@@ -97,6 +100,15 @@ export const Unfolded: Story = { render: () => <Live startExpanded /> };
  */
 export const EndBeforeStart: Story = {
 	render: () => <Live startExpanded={false} seed={backwards} />,
+};
+
+/**
+ * A store with nowhere to put guests leaves the field out. A box that takes
+ * names and drops them is worse than no box: the reader only finds out later,
+ * from an event with nobody on it.
+ */
+export const WithoutGuests: Story = {
+	render: () => <Live startExpanded guestsEditable={false} />,
 };
 
 /** All day takes the clock fields away, so there is no range left to reject. */

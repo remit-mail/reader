@@ -9,9 +9,11 @@ import {
 	type Density,
 	segmentClassName,
 } from "@remit/ui";
+import { Loader2 } from "lucide-react";
 import { useId, useState } from "react";
 import { CalendarViewPlaceholder } from "@/components/calendar/CalendarViewPlaceholder";
 import { NavMenuButton } from "@/components/mail/NavMenuButton";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { calendarViewMountsGrid } from "@/lib/calendar-route";
 
 /**
@@ -36,6 +38,15 @@ export interface CalendarWorkspaceProps {
 	date: string;
 	events: CalendarEventData[];
 	colorByCalendarId: Record<string, CalendarColorId>;
+	/** The first read of this window is still out; the grid has nothing yet. */
+	isLoading?: boolean;
+	/**
+	 * A refusal the calendar states in place of the grid. A week drawn empty
+	 * because the read failed is indistinguishable from a week with nothing in
+	 * it, which is the one thing this must never look like.
+	 */
+	error?: unknown;
+	onRetry?: () => void;
 	density: Density;
 	/** The event the reading pane has open, empty for none. */
 	selectedEventId: string;
@@ -78,6 +89,9 @@ export function CalendarWorkspace({
 	date,
 	events,
 	colorByCalendarId,
+	isLoading = false,
+	error,
+	onRetry,
 	density,
 	selectedEventId,
 	timeZone,
@@ -137,7 +151,23 @@ export function CalendarWorkspace({
 			</div>
 
 			<div className="min-h-0 flex-1">
-				{calendarViewMountsGrid(view) ? (
+				{error !== undefined && error !== null ? (
+					<div className="flex h-full items-center justify-center">
+						<ErrorState
+							title="Couldn't load this week"
+							error={error}
+							onRetry={onRetry}
+						/>
+					</div>
+				) : isLoading ? (
+					<div
+						role="status"
+						aria-label="Loading the calendar"
+						className="flex h-full items-center justify-center bg-surface"
+					>
+						<Loader2 className="size-6 animate-spin text-fg-subtle" />
+					</div>
+				) : calendarViewMountsGrid(view) ? (
 					<CalendarGrid
 						view={view}
 						date={date}

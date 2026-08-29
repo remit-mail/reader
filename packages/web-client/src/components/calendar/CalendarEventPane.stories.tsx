@@ -47,7 +47,15 @@ const meta: Meta<typeof CalendarEventPane> = {
 	title: "App/Calendar/Event pane",
 	component: CalendarEventPane,
 	parameters: { layout: "fullscreen" },
-	args: { event, calendar, isOccurrence: false, onClose: () => {} },
+	args: {
+		event,
+		calendar,
+		isOccurrence: false,
+		problem: "",
+		onEdit: () => {},
+		onDelete: () => {},
+		onClose: () => {},
+	},
 	render: (args) => (
 		<div className="h-dvh max-w-xl border-l border-line bg-canvas">
 			<CalendarEventPane {...args} />
@@ -78,4 +86,25 @@ export const Occurrence: Story = {
 /** An old link, or a week the event is not in. Never a blank pane. */
 export const NotOnThisWeek: Story = {
 	args: { event: undefined, calendar: undefined },
+};
+
+/**
+ * The event was replaced somewhere else — over CalDAV, or in another tab —
+ * between it being read and the write going out. Nothing was overwritten, and
+ * the pane says so where the reader is looking rather than anywhere else.
+ */
+export const ChangedElsewhere: Story = {
+	args: {
+		problem:
+			"This event changed somewhere else — over CalDAV, or in another tab. Nothing was saved. Close it and open it again to see the version that's stored now.",
+	},
+};
+
+/**
+ * The resource has not been read yet, so there is no version to write against.
+ * The controls stay off until there is: a write with no etag is one that can
+ * quietly overwrite somebody.
+ */
+export const NotWritableYet: Story = {
+	args: { onEdit: undefined, onDelete: undefined },
 };
