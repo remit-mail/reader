@@ -1,4 +1,10 @@
 export {
+	type AcceptCalendarSuggestionInput,
+	type AcceptedCalendarSuggestion,
+	acceptCalendarSuggestion,
+	buildAcceptedCalendar,
+} from "./accept.js";
+export {
 	applyEventFields,
 	buildEventCalendar,
 	CALENDAR_PRODID,
@@ -45,6 +51,15 @@ export {
 	type ScopedWrite,
 	type ScopedWriteInput,
 } from "./scope.js";
+export {
+	type CalendarSuggestionProjection,
+	inviteMethodOf,
+	mailAddressOf,
+	projectSuggestion,
+	type RecordCalendarSuggestionInput,
+	type RecordedCalendarSuggestion,
+	recordCalendarSuggestion,
+} from "./suggest.js";
 export {
 	civilInZone,
 	isResolvableZone,

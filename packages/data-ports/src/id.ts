@@ -64,6 +64,34 @@ export const deriveCalendarObjectId = (
 ): string =>
 	base36uuidv5(`calendarobject:${calendarId}:${resourceName}`, REMIT_NAMESPACE);
 
+/**
+ * Identity of a suggestion read out of a message (issue #1033). Derived from
+ * the message, the MIME part the bytes came from and the event's iCalendar
+ * UID, so re-reading the same message converges on the row it already wrote
+ * instead of stacking a second card on the message every pass.
+ *
+ * All three parts are needed. The message alone would merge two invitations
+ * sent in one mail; the part alone is not stable enough to key on across a
+ * re-parse; and the UID keeps two events sent as one part apart.
+ *
+ * The message is in the seed, so identity is per message, not per event: a
+ * later message carrying the same UID derives its own id, and the earlier
+ * suggestion survives beside it as `Superseded`. The user can see which
+ * revision they are being asked about, and the older message still has a card.
+ * The same holds for a plain resend — a redelivered copy is a new message and
+ * so a new card, which the SEQUENCE comparison then declines to supersede
+ * anything for.
+ */
+export const deriveCalendarSuggestionId = (
+	messageId: string,
+	bodyPartId: string,
+	icalUid: string,
+): string =>
+	base36uuidv5(
+		`calendarsuggestion:${messageId}:${bodyPartId}:${icalUid}`,
+		REMIT_NAMESPACE,
+	);
+
 export const isValidMessageId = (messageId: string | undefined): boolean => {
 	if (!messageId) return false;
 	const trimmed = messageId.trim();

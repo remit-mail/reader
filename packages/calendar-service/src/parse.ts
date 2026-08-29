@@ -64,9 +64,15 @@ export const parseCalendar = async (
 	const component = read.value;
 
 	if (component.name !== "vcalendar") {
+		// A document with nothing in it names nothing: ical.js reads empty bytes
+		// as a component with no name at all, and a suggestion read out of prose
+		// carries exactly that. Naming what arrived is for a document that has a
+		// root to name.
 		return calendarFailure(
 			"NotACalendar",
-			`expected a VCALENDAR, found ${component.name.toUpperCase()}`,
+			component.name
+				? `expected a VCALENDAR, found ${component.name.toUpperCase()}`
+				: "expected a VCALENDAR, found nothing",
 		);
 	}
 

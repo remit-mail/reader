@@ -79,7 +79,12 @@ export type OperationIds =
 	| "OutboxDetailOperations_mintOutboxAttachment"
 	| "OutboxAttachmentOperations_completeOutboxAttachment"
 	| "AddressOperations_searchAddresses"
-	| "AddressDetailOperations_updateAddress";
+	| "AddressDetailOperations_updateAddress"
+	| "CalendarSuggestionOperations_listCalendarSuggestions"
+	| "MessageCalendarSuggestionOperations_listMessageCalendarSuggestions"
+	| "CalendarSuggestionActionOperations_acceptCalendarSuggestion"
+	| "CalendarSuggestionActionOperations_declineCalendarSuggestion"
+	| "CalendarSuggestionActionOperations_dismissCalendarSuggestion";
 
 export type MeOperationIds = MatchPrefix<"MeOperations_", OperationIds>;
 
@@ -216,6 +221,21 @@ export type AddressDetailOperationIds = MatchPrefix<
 
 export type MicrosoftOAuthOperationIds = MatchPrefix<
 	"MicrosoftOAuthOperations_",
+	OperationIds
+>;
+
+export type CalendarSuggestionOperationIds = MatchPrefix<
+	"CalendarSuggestionOperations_",
+	OperationIds
+>;
+
+export type MessageCalendarSuggestionOperationIds = MatchPrefix<
+	"MessageCalendarSuggestionOperations_",
+	OperationIds
+>;
+
+export type CalendarSuggestionActionOperationIds = MatchPrefix<
+	"CalendarSuggestionActionOperations_",
 	OperationIds
 >;
 

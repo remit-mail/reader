@@ -52,6 +52,9 @@ import "./CalendarObject.tsp";
 import "./CalendarEventIndex.tsp";
 import "./CalendarApi.tsp";
 
+// Mail-derived calendar suggestions (issue #1033 stage 0.3)
+import "./CalendarSuggestion.tsp";
+
 // Smart Organize (RFC 030, RFC 034)
 import "./Label.tsp";
 import "./MessageLabel.tsp";

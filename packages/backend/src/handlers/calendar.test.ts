@@ -5,24 +5,32 @@ import type {
 	CalendarEventIndexItem,
 	CalendarObjectItem,
 	CalendarOccurrenceInput,
+	CalendarSuggestionItem,
+	CalendarUnitOfWorkRepositories,
 	CreateCalendarCollectionInput,
 	ICalendarCollectionRepository,
 	ICalendarEventIndexRepository,
 	ICalendarObjectRepository,
+	ICalendarSuggestionRepository,
 	ICalendarUnitOfWork,
 	PutCalendarObjectInput,
+	PutCalendarSuggestionInput,
+	ResultList,
+	SettleCalendarSuggestionInput,
 	UpdateCalendarCollectionInput,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import {
 	deriveCalendarId,
 	deriveCalendarObjectId,
+	deriveCalendarSuggestionId,
 	normalizeCalendarUrlSegment,
 } from "@remit/data-ports/id";
 import {
 	CalendarColor,
 	CalendarComponentSet,
 	CalendarSource,
+	CalendarSuggestionState,
 	RecurrenceScope,
 } from "@remit/domain-enums";
 import {
@@ -58,6 +66,107 @@ class CalendarState {
 	readonly collections = new Map<string, CalendarCollectionItem>();
 	readonly objects = new Map<string, CalendarObjectItem>();
 	readonly occurrences = new Map<string, CalendarEventIndexItem[]>();
+	readonly suggestions = new Map<string, CalendarSuggestionItem>();
+}
+
+/**
+ * Suggestions are bound to the same unit of work so accepting a card and
+ * writing its resource commit together (issue #1033). Nothing in this file
+ * exercises them; they are here so the store answers the whole port.
+ */
+class MemorySuggestions implements ICalendarSuggestionRepository {
+	constructor(private state: CalendarState) {}
+
+	async put(
+		input: PutCalendarSuggestionInput,
+	): Promise<CalendarSuggestionItem> {
+		const suggestionId = deriveCalendarSuggestionId(
+			input.messageId,
+			input.bodyPartId,
+			input.icalUid,
+		);
+		const existing = this.state.suggestions.get(suggestionId);
+		const now = Date.now();
+		const suggestion: CalendarSuggestionItem = {
+			...input,
+			suggestionId,
+			state: existing?.state ?? CalendarSuggestionState.Pending,
+			acceptedCalendarObjectId: existing?.acceptedCalendarObjectId ?? "",
+			createdAt: existing?.createdAt ?? now,
+			updatedAt: now,
+		};
+		this.state.suggestions.set(suggestionId, suggestion);
+		return suggestion;
+	}
+
+	async get(
+		accountConfigId: string,
+		suggestionId: string,
+	): Promise<CalendarSuggestionItem> {
+		const suggestion = this.state.suggestions.get(suggestionId);
+		if (!suggestion || suggestion.accountConfigId !== accountConfigId) {
+			throw new NotFoundError(`Calendar suggestion not found: ${suggestionId}`);
+		}
+		return suggestion;
+	}
+
+	async listByMessage(
+		accountConfigId: string,
+		messageId: string,
+	): Promise<CalendarSuggestionItem[]> {
+		return [...this.state.suggestions.values()].filter(
+			(suggestion) =>
+				suggestion.accountConfigId === accountConfigId &&
+				suggestion.messageId === messageId,
+		);
+	}
+
+	async listByState(
+		accountConfigId: string,
+		state: CalendarSuggestionItem["state"],
+	): Promise<ResultList<CalendarSuggestionItem>> {
+		return {
+			items: [...this.state.suggestions.values()].filter(
+				(suggestion) =>
+					suggestion.accountConfigId === accountConfigId &&
+					suggestion.state === state,
+			),
+			continuationToken: undefined,
+		};
+	}
+
+	async settle(
+		accountConfigId: string,
+		suggestionId: string,
+		input: SettleCalendarSuggestionInput,
+	): Promise<CalendarSuggestionItem> {
+		const suggestion = await this.get(accountConfigId, suggestionId);
+		const settled = { ...suggestion, ...input, updatedAt: Date.now() };
+		this.state.suggestions.set(suggestionId, settled);
+		return settled;
+	}
+
+	async supersedeIfPending(
+		accountConfigId: string,
+		suggestionId: string,
+	): Promise<CalendarSuggestionItem | null> {
+		const suggestion = this.state.suggestions.get(suggestionId);
+		if (
+			!suggestion ||
+			suggestion.accountConfigId !== accountConfigId ||
+			suggestion.state !== CalendarSuggestionState.Pending
+		) {
+			return null;
+		}
+		const retired = {
+			...suggestion,
+			state: CalendarSuggestionState.Superseded,
+			acceptedCalendarObjectId: "",
+			updatedAt: Date.now(),
+		};
+		this.state.suggestions.set(suggestionId, retired);
+		return retired;
+	}
 }
 
 class MemoryCollections implements ICalendarCollectionRepository {
@@ -307,6 +416,7 @@ class InMemoryCalendarStore implements ICalendarUnitOfWork {
 	readonly calendarCollection = new MemoryCollections(this.state);
 	readonly calendarObject = new MemoryObjects(this.state);
 	readonly calendarEventIndex = new MemoryOccurrences(this.state);
+	readonly calendarSuggestion = new MemorySuggestions(this.state);
 
 	get collections(): Map<string, CalendarCollectionItem> {
 		return this.state.collections;
@@ -323,11 +433,7 @@ class InMemoryCalendarStore implements ICalendarUnitOfWork {
 	// No isolation to model: the tests that care about atomicity run against
 	// sqlite, where the transaction is real.
 	transaction<T>(
-		fn: (repos: {
-			calendarCollection: ICalendarCollectionRepository;
-			calendarObject: ICalendarObjectRepository;
-			calendarEventIndex: ICalendarEventIndexRepository;
-		}) => Promise<T>,
+		fn: (repos: CalendarUnitOfWorkRepositories) => Promise<T>,
 	): Promise<T> {
 		return fn(this);
 	}

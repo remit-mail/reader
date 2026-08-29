@@ -1,4 +1,4 @@
-import type { FilterItem } from "@remit/data-ports";
+import { FILTER_NO_ACTION, type FilterItem } from "@remit/data-ports";
 import { FilterClauseField, FilterMatchOperator } from "@remit/domain-enums";
 import { getDomain } from "tldts";
 import { normalizeListId } from "./list-id.js";
@@ -10,7 +10,7 @@ type FilterClause = FilterItem["literalClauses"][number];
  * absent (RFC 034 Decision 3.1) — `actionLabelId`/`actionMailboxId` are never
  * empty/optional strings, so a missing action is this exact value, never `""`.
  */
-export const NO_ACTION = "None";
+export const NO_ACTION = FILTER_NO_ACTION;
 
 /**
  * Default cosine cut-off for a semantic-anchor match (RFC 031 "the semantic

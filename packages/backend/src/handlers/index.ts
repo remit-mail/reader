@@ -8,6 +8,11 @@ import {
 	CalendarEventOperations,
 	CalendarFreeBusyOperations,
 } from "./calendar-event.js";
+import {
+	CalendarSuggestionActionOperations,
+	CalendarSuggestionOperations,
+	MessageCalendarSuggestionOperations,
+} from "./calendar-suggestion.js";
 import { ConfigOperations } from "./config.js";
 import { FilterDetailOperations, FilterOperations } from "./filter.js";
 import { FolderRoleOperations } from "./folder-role.js";
@@ -66,4 +71,7 @@ export const handlers: Record<OperationIds, OperationHandler<any>> = {
 	...AddressOperations,
 	...AddressDetailOperations,
 	...SemanticSearchOperations,
+	...CalendarSuggestionOperations,
+	...MessageCalendarSuggestionOperations,
+	...CalendarSuggestionActionOperations,
 };

@@ -957,4 +957,78 @@ namespace RemitApi {
     @route("/not-spam")
     op notSpam(@body input: BulkMessageInput): SpamReportBulkResult;
   }
+
+  // ============================================
+  // Calendar Suggestion Operations (issue #1033 stage 0.3)
+  // ============================================
+
+  @route("/calendar-suggestions")
+  namespace CalendarSuggestionOperations {
+    @doc("List the caller's suggestions in one state, newest first. `Pending` is the set that is waiting on a person and the one a client normally asks for.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op listCalendarSuggestions(
+      @query(#{ explode: true }) state: CalendarSuggestionState,
+
+      @query(#{ explode: true })
+      @continuationToken
+      continuationToken?: string,
+    ): ResultList<CalendarSuggestionResponse> | ValidationError;
+  }
+
+  @route("/messages/{messageId}/calendar-suggestions")
+  namespace MessageCalendarSuggestionOperations {
+    @doc("Every suggestion read out of one message, in whatever state each has reached — a superseded revision included, so the card can say which revision replaced it.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op listMessageCalendarSuggestions(
+      @path messageId: UUID,
+    ): ResultList<CalendarSuggestionResponse> | ValidationError;
+  }
+
+  @route("/calendar-suggestions/{suggestionId}")
+  namespace CalendarSuggestionActionOperations {
+    @doc("""
+      Add the suggested event to a calendar. One transaction: a VCALENDAR is
+      built from the invitation's own bytes, keeping its UID and SEQUENCE and
+      marking the user `ATTENDEE;PARTSTAT=ACCEPTED`, and written through the
+      same service function every other calendar write goes through — so a web
+      edit and a native edit of that event cannot diverge. Accepting a `Cancel`
+      suggestion writes `STATUS:CANCELLED` on the resource the same way.
+      
+      No reply is sent to the organizer. This endpoint sends no mail at all,
+      and the card says so.
+      
+      Idempotent: accepting an already-accepted suggestion rewrites the same
+      resource and returns the same suggestion, because both the resource id
+      and the suggestion id are derived rather than minted.
+      
+      400 when the suggestion is not one that can be accepted — already
+      declined, dismissed or superseded — or when its iCalendar will not parse.
+      """)
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/accept")
+    op acceptCalendarSuggestion(
+      @path suggestionId: UUID,
+      @body input: AcceptCalendarSuggestionInput,
+    ): CalendarSuggestionResponse | ValidationError;
+
+    @doc("Say no. Writes no calendar object and sends no reply to the organizer. Idempotent; 400 when the suggestion was already accepted, since a resource exists and declining would not remove it.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/decline")
+    op declineCalendarSuggestion(
+      @path suggestionId: UUID,
+    ): CalendarSuggestionResponse | ValidationError;
+
+    @doc("Wave the card away. Writes no calendar object. With `muteSender`, also writes a standing `Filter` rule on the message's sender so their invitations stop being offered. Idempotent; 400 when the suggestion was already accepted.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/dismiss")
+    op dismissCalendarSuggestion(
+      @path suggestionId: UUID,
+      @body input: DismissCalendarSuggestionInput,
+    ): CalendarSuggestionResponse | ValidationError;
+  }
 }

@@ -9,6 +9,7 @@ import type {
 	CalendarCollectionSchema,
 	CalendarEventIndexSchema,
 	CalendarObjectSchema,
+	CalendarSuggestionSchema,
 	ConfigImportSchema,
 	ConfigImportUnresolvedRefSchema,
 	EnvelopeAddressSchema,
@@ -605,6 +606,29 @@ export type PutCalendarObjectInput = Omit<
 export type CalendarOccurrenceInput = Omit<
 	CalendarEventIndexItem,
 	"calendarId" | "calendarObjectId" | "createdAt" | "updatedAt"
+>;
+
+export type CalendarSuggestionItem = z.infer<typeof CalendarSuggestionSchema>;
+
+/**
+ * A whole suggestion, as the producer read it out of a message. Every field is
+ * derived from the message — nothing here is client-supplied — and
+ * `suggestionId` is derived from messageId + bodyPartId + icalUid, so this is
+ * an upsert: re-reading the same message rewrites its own row rather than
+ * stacking a second card on the message.
+ *
+ * `state` and `acceptedCalendarObjectId` are excluded: a producer only ever
+ * writes a `Pending` suggestion, and the two fields that record what a person
+ * decided move exclusively through `settle`, so a re-sync can never walk an
+ * answered card back to Pending.
+ */
+export type PutCalendarSuggestionInput = Omit<
+	CalendarSuggestionItem,
+	| "suggestionId"
+	| "state"
+	| "acceptedCalendarObjectId"
+	| "createdAt"
+	| "updatedAt"
 >;
 
 export type SenderSignerStandingItem = z.infer<
