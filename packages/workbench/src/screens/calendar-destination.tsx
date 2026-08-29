@@ -515,6 +515,7 @@ export function CalendarDestination({
 				onCancel={dismissPanel}
 				saveLabel={panel.kind === "edit" ? "Save" : "Add"}
 				repeatEditable={repeatEditable}
+				guestsEditable
 				onCustomRepeat={openCustomRepeat}
 				header={quickEntry(false)}
 			/>

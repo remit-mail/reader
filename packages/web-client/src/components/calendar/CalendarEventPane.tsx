@@ -1,16 +1,15 @@
 import type { CalendarDescriptor, CalendarEventData } from "@remit/ui";
 import { EventDetail } from "@remit/ui";
-import { CalendarDays } from "lucide-react";
+import { AlertCircle, CalendarDays } from "lucide-react";
 import { formatEventWhen } from "@/lib/calendar-format";
 
 /**
  * The event the address has open.
  *
  * Presentational, like the workspace beside it: the route resolves the event
- * and turns closing into a navigation, so this renders what it is handed and
- * nothing else. Editing and deleting arrive with the calendar API, and until
- * then the header offers neither — a control that leads nowhere is worse than
- * no control.
+ * and turns closing, editing and deleting into things it does, so this renders
+ * what it is handed and nothing else. Each control appears only when the route
+ * gave it somewhere to go — a control that leads nowhere is worse than none.
  */
 export interface CalendarEventPaneProps {
 	/** Absent when the address names an event the calendar does not have. */
@@ -18,6 +17,13 @@ export interface CalendarEventPaneProps {
 	calendar: CalendarDescriptor | undefined;
 	/** Whether the address names one occurrence rather than the series. */
 	isOccurrence: boolean;
+	/**
+	 * A write that did not happen, stated where the reader is looking. Empty
+	 * when the last one did.
+	 */
+	problem?: string;
+	onEdit?: () => void;
+	onDelete?: () => void;
 	onClose: () => void;
 }
 
@@ -25,6 +31,9 @@ export function CalendarEventPane({
 	event,
 	calendar,
 	isOccurrence,
+	problem = "",
+	onEdit,
+	onDelete,
 	onClose,
 }: CalendarEventPaneProps) {
 	if (!event || !calendar) {
@@ -55,10 +64,24 @@ export function CalendarEventPane({
 					One occurrence of a repeating event
 				</p>
 			)}
+			{problem !== "" && (
+				<div
+					role="alert"
+					className="flex shrink-0 items-start gap-2 border-b border-danger/40 bg-danger-soft px-row-inset py-2 text-sm"
+				>
+					<AlertCircle
+						className="mt-0.5 size-4 shrink-0 text-danger"
+						aria-hidden="true"
+					/>
+					<p className="min-w-0 flex-1 break-words text-fg">{problem}</p>
+				</div>
+			)}
 			<EventDetail
 				event={event}
 				calendar={calendar}
 				whenText={formatEventWhen(event)}
+				onEdit={onEdit}
+				onDelete={onDelete}
 				onClose={onClose}
 				className="min-h-0 flex-1"
 			/>

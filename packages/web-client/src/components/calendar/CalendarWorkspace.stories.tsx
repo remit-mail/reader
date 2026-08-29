@@ -106,9 +106,13 @@ const week: CalendarEventData[] = [
 function Workspace({
 	initialView,
 	events,
+	isLoading,
+	error,
 }: {
 	initialView: CalendarViewId;
 	events: CalendarEventData[];
+	isLoading?: boolean;
+	error?: unknown;
 }) {
 	const [view, setView] = useState<CalendarViewId>(initialView);
 	const [density, setDensity] = useState<Density>("comfortable");
@@ -119,6 +123,9 @@ function Workspace({
 			date={DATE}
 			events={events}
 			colorByCalendarId={colorByCalendarId}
+			isLoading={isLoading}
+			error={error}
+			onRetry={() => undefined}
 			density={density}
 			selectedEventId={selected}
 			timeZone={TIME_ZONE}
@@ -154,6 +161,21 @@ export const Day: Story = { args: { initialView: "day" } };
 
 /** Nothing scheduled is still a grid, never a "nothing here" surface. */
 export const EmptyWeek: Story = { args: { events: [] } };
+
+/** The first read of a week, before the server has answered. */
+export const Loading: Story = { args: { events: [], isLoading: true } };
+
+/**
+ * The read was refused. This is the state an empty grid must never be confused
+ * with: a week drawn blank because the request failed reads as a week with
+ * nothing in it, and the reader plans their day around it.
+ */
+export const CouldNotLoad: Story = {
+	args: {
+		events: [],
+		error: new Error("The window has to be shorter than a year."),
+	},
+};
 
 /**
  * The three zooms that are named but not drawn yet. Each says what it is

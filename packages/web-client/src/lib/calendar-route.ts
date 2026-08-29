@@ -137,9 +137,13 @@ function clampedDate(year: number, month: number, day: number): string {
 }
 
 /**
- * A calendar's id, as the URL carries it. A hand-written schema is a second
- * owner of a shape the domain will publish, so stage A.3 replaces this with
- * the generated one and every read site keeps working.
+ * A calendar's id, as the URL carries it.
+ *
+ * Deliberately looser than the id the API mints. An address is something people
+ * paste, bookmark and hand-edit, and what to do with an id that names no
+ * calendar is already settled downstream: the reader is shown the calendars
+ * that do exist. Refusing the segment here would turn a stale link into an
+ * error page instead of a calendar.
  */
 const calendarIdSchema = z.string().min(1);
 
