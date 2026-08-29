@@ -15,7 +15,11 @@ import {
 	extendRangeEnd,
 	extendRangeStart,
 	freeStretchesByDate,
+	liftRangeCeiling,
+	liftRangeFloor,
 	rangeAround,
+	rangeAtCeiling,
+	rangeAtFloor,
 	rangeCovering,
 	readCalendarInstanceId,
 	useCalendarEventWeeks,
@@ -44,16 +48,22 @@ import {
  * you drop into and leave" means in practice.
  *
  * The days it holds are fetched a week at a time, on the grid's own cache keys.
- * That is what makes the range able to grow without limit — a single read may
- * not cover more than a year, and one request that widened every time the
- * reader reached an end would eventually be refused and replace the strip with
- * the refusal — and it is what makes the two zooms share everything they have
- * already read.
+ * That is what lets the range grow at all — a single read may not cover more
+ * than a year, and one request that widened every time the reader reached an
+ * end would eventually be refused and replace the strip with the refusal — and
+ * it is what makes the two zooms share everything they have already read.
+ *
+ * It grows on the reader's scroll and on nothing else, a week at a time, and
+ * only as far as a year either way. Past that it says so and offers the next
+ * stretch: a sparse diary draws shorter than the distance the strip fetches at,
+ * so an end measured off the content alone is reached on the first layout pass
+ * and never stops being reached.
  *
  * Scrolling writes the day back to the address, debounced and by `replace`.
  * Debounced because a flick past a fortnight is one move rather than fourteen,
  * and `replace` because scrolling is not somewhere a reader went — Back belongs
- * to the screen they came from, not to the row they scrolled past.
+ * to the screen they came from, not to the row they scrolled past. Growing the
+ * range writes nothing: days arriving at an end is not the reader moving.
  */
 
 /** Long enough that a flick lands before the address moves. */
@@ -183,6 +193,11 @@ export function AgendaView({ density, onPickSlot }: AgendaViewProps) {
 		[openEvent],
 	);
 
+	const growStart = useCallback(() => setRange(extendRangeStart), []);
+	const growEnd = useCallback(() => setRange(extendRangeEnd), []);
+	const loadEarlier = useCallback(() => setRange(liftRangeFloor), []);
+	const loadLater = useCallback(() => setRange(liftRangeCeiling), []);
+
 	/** Whichever read was refused is the one a retry re-sends. */
 	const retry = useCallback(() => {
 		events.refetch();
@@ -214,8 +229,12 @@ export function AgendaView({ density, onPickSlot }: AgendaViewProps) {
 			onPickSlot={onPickSlot}
 			onZoomDay={zoomToDay}
 			onGoToDate={goToDate}
-			onReachStart={() => setRange(extendRangeStart)}
-			onReachEnd={() => setRange(extendRangeEnd)}
+			onReachStart={growStart}
+			onReachEnd={growEnd}
+			atStartCap={rangeAtFloor(range)}
+			atEndCap={rangeAtCeiling(range)}
+			onLoadEarlier={loadEarlier}
+			onLoadLater={loadLater}
 			onVisibleDayChange={setVisibleDate}
 		/>
 	);

@@ -13,19 +13,24 @@ import { describe, it } from "node:test";
 import { freeStretchesFromSpans } from "@remit/ui";
 import {
 	busySpansByDate,
+	CAP_WEEKS,
 	datesInRange,
 	extendRangeEnd,
 	extendRangeStart,
 	freeStretchesByDate,
 	LEAD_IN,
 	LEAD_OUT,
+	liftRangeCeiling,
+	liftRangeFloor,
 	PAGE,
 	rangeAround,
+	rangeAtCeiling,
+	rangeAtFloor,
 	rangeCovering,
 	weekKeyOf,
 	weekWindowsOver,
 } from "./agenda-window.js";
-import { calendarWindow, startOfDay } from "./window.js";
+import { addDays, calendarWindow, startOfDay } from "./window.js";
 
 const DATE = "2026-06-10";
 
@@ -53,14 +58,8 @@ describe("the days the strip holds", () => {
 
 	it("grows the run at whichever end was reached, keeping the other", () => {
 		const range = rangeAround(DATE);
-		assert.deepEqual(extendRangeStart(range), {
-			from: "2026-05-17",
-			to: range.to,
-		});
-		assert.deepEqual(extendRangeEnd(range), {
-			from: range.from,
-			to: "2026-07-18",
-		});
+		assert.deepEqual(extendRangeStart(range), { ...range, from: "2026-05-24" });
+		assert.deepEqual(extendRangeEnd(range), { ...range, to: "2026-07-11" });
 		assert.equal(
 			datesInRange(extendRangeEnd(range)).length,
 			datesInRange(range).length + PAGE,
@@ -88,6 +87,71 @@ describe("the days the strip holds", () => {
 });
 
 /**
+ * The strip is shorter than the distance it fetches at whenever the diary is
+ * sparse, so an end measured off the content is reached on the first layout
+ * pass and stays reached however many days arrive. What stops that is the
+ * strip only growing on a scroll the reader drove; this is the backstop that
+ * makes the runaway it caused — a two-event diary walking out to 2032, with the
+ * address following it — arithmetically impossible rather than merely unlikely.
+ */
+describe("how far the run grows before it asks", () => {
+	const CAP_DAYS = CAP_WEEKS * 7;
+
+	/** Far more reaches than a year of weeks needs, so the cap is what stops it. */
+	const reachEnd = (range = rangeAround(DATE), times = 200) => {
+		let grown = range;
+		for (let reach = 0; reach < times; reach += 1)
+			grown = extendRangeEnd(grown);
+		return grown;
+	};
+
+	const reachStart = (range = rangeAround(DATE), times = 200) => {
+		let grown = range;
+		for (let reach = 0; reach < times; reach += 1)
+			grown = extendRangeStart(grown);
+		return grown;
+	};
+
+	it("stops a year either way, however often an end is reached", () => {
+		const range = reachEnd(reachStart());
+		assert.equal(range.from, addDays(DATE, -CAP_DAYS));
+		assert.equal(range.to, addDays(DATE, CAP_DAYS));
+		assert.equal(rangeAtFloor(range), true);
+		assert.equal(rangeAtCeiling(range), true);
+	});
+
+	it("hands back the run it was given at the cap, so nothing refetches", () => {
+		const capped = reachEnd();
+		assert.equal(extendRangeEnd(capped), capped);
+		const behind = reachStart();
+		assert.equal(extendRangeStart(behind), behind);
+	});
+
+	it("opens the next year where the reader asked, keeping the days held", () => {
+		const capped = reachEnd();
+		const more = liftRangeCeiling(capped);
+		assert.equal(more.from, capped.from);
+		assert.equal(more.to, addDays(capped.to, PAGE));
+		assert.equal(rangeAtCeiling(more), false);
+		assert.equal(rangeAtFloor(more), false);
+	});
+
+	it("does the same behind, without moving the end ahead", () => {
+		const capped = reachStart();
+		const more = liftRangeFloor(capped);
+		assert.equal(more.to, capped.to);
+		assert.equal(more.from, addDays(capped.from, -PAGE));
+		assert.equal(rangeAtFloor(more), false);
+	});
+
+	it("gives a jump its own year, measured from where it landed", () => {
+		const jumped = rangeCovering(reachEnd(), "2028-03-01");
+		assert.deepEqual(jumped, rangeAround("2028-03-01"));
+		assert.equal(rangeAtCeiling(jumped), false);
+	});
+});
+
+/**
  * The range is not a window. A read may not cover more than a year
  * (`CALENDAR_MAX_WINDOW_DAYS`), and the strip's range grows every time the
  * reader reaches an end, so the range names weeks to fetch rather than being
@@ -103,6 +167,15 @@ describe("the weeks a range is fetched as", () => {
 			);
 		}
 		assert.equal(new Set(windows.map((w) => w.from)).size, windows.length);
+	});
+
+	/**
+	 * What a strip that has just opened issues, and all it issues: the six weeks
+	 * its opening run falls in. Anything past those is a week the reader has
+	 * scrolled to.
+	 */
+	it("is the six weeks the opening run falls in, and no more", () => {
+		assert.equal(weekWindowsOver(datesInRange(rangeAround(DATE))).length, 6);
 	});
 
 	it("covers every day the strip holds and nothing before or after", () => {

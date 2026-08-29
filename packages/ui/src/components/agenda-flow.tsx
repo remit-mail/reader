@@ -11,6 +11,13 @@
  * Scrolling never paginates. Reaching either end asks the owner for more days
  * and the scroll position is held across the insert, so the strip has no seams
  * and no page boundaries to lose your place at.
+ *
+ * Reaching an end is something a reader does, never something a layout is. A
+ * sparse diary draws shorter than the distance either end is fetched at, so an
+ * end measured off the content alone is reached the moment the strip mounts and
+ * stays reached however many days arrive — which walked the range, and the
+ * address with it, out into empty years. What asks for more days is a scroll
+ * the reader drove, moving toward the end it asks about.
  */
 import { CalendarOff, ChevronRight, Layers, MapPin, Users } from "lucide-react";
 import {
@@ -64,6 +71,17 @@ const LONG_FREE_MINUTES = 150;
 /** The hue every calendar the caller did not describe falls back to. */
 const FALLBACK_COLOR: CalendarColorId = "cal-1";
 
+/** How close to either end a scroll has to come before more days are asked for. */
+const REACH_BEHIND = 600;
+const REACH_AHEAD = 900;
+
+/**
+ * How long after a wheel, a drag, a touch or a key a scroll is still the
+ * reader's. Momentum and a held key both keep scrolling after the input stops;
+ * a layout pass or a resize minutes later does not get to borrow the gesture.
+ */
+const INTENT_MS = 1_500;
+
 /** Nothing outstanding, which is what a caller that never fetches has. */
 const EMPTY_DATES: ReadonlySet<string> = new Set();
 
@@ -106,6 +124,15 @@ export interface AgendaFlowProps {
 	/** The day under the sticky header, for the position map. */
 	onVisibleDayChange: (date: string) => void;
 	/**
+	 * The run has grown as far as it goes without being asked. The strip says so
+	 * at that end and offers the reader the next stretch, rather than fetching
+	 * its way across a decade nobody scrolled to.
+	 */
+	atStartCap?: boolean;
+	atEndCap?: boolean;
+	onLoadEarlier?: () => void;
+	onLoadLater?: () => void;
+	/**
 	 * Days whose events have not arrived. They draw as a skeleton and are never
 	 * collapsed into a run: a day nobody has heard back about is not a day with
 	 * nothing on it, and "6 days with nothing booked" over an unanswered request
@@ -142,6 +169,10 @@ export function AgendaFlow({
 	onReachStart,
 	onReachEnd,
 	onVisibleDayChange,
+	atStartCap = false,
+	atEndCap = false,
+	onLoadEarlier,
+	onLoadLater,
 	loadingDates = EMPTY_DATES,
 	freeOn = freeStretchesOn,
 	scrollTarget,
@@ -156,6 +187,15 @@ export function AgendaFlow({
 	const askedStart = useRef("");
 	const askedEnd = useRef("");
 	const landed = useRef(false);
+	/*
+	 * Where the scroller was left, so the next scroll event can be read as a
+	 * movement and in which direction. Every offset this component writes itself
+	 * records itself here, which is what makes the take-back after a prepend, and
+	 * the landing, read as no movement at all.
+	 */
+	const resting = useRef(0);
+	/** When the reader last touched the strip. */
+	const reached = useRef(0);
 	const [visibleDate, setVisibleDate] = useState(focusDate);
 
 	const lookup = useMemo(() => lookupOf(calendars), [calendars]);
@@ -172,6 +212,7 @@ export function AgendaFlow({
 			element.scrollTop += element.scrollHeight - previousHeight.current;
 		previousFirst.current = firstDate;
 		previousHeight.current = element.scrollHeight;
+		resting.current = element.scrollTop;
 	});
 
 	/* Landing puts you on the focused day; after that the strip is yours. Rows
@@ -188,6 +229,7 @@ export function AgendaFlow({
 			const anchor = anchors.current.get(focusDate);
 			if (dropped || !anchor) return;
 			element.scrollTop = anchor.offsetTop - HEADER_HEIGHT;
+			resting.current = element.scrollTop;
 		};
 		settle();
 		setVisibleDate(focusDate);
@@ -205,20 +247,58 @@ export function AgendaFlow({
 		const anchor = anchors.current.get(scrollTarget.date);
 		if (!element || !anchor) return;
 		element.scrollTop = anchor.offsetTop - HEADER_HEIGHT;
+		resting.current = element.scrollTop;
 		setVisibleDate(scrollTarget.date);
 		onVisibleDayChange(scrollTarget.date);
 	}, [scrollTarget, onVisibleDayChange]);
 
+	/*
+	 * A wheel, a drag, a touch or a key: the strip is the reader's from here.
+	 * Listened for natively rather than through React, because a `div` carrying
+	 * key and pointer handlers has to claim a role to be one, and the strip is a
+	 * scroller rather than a control — announcing it as one would be a lie told
+	 * to a screen reader for the sake of a lint rule.
+	 */
+	useEffect(() => {
+		const element = scroller.current;
+		if (!element) return;
+		const note = () => {
+			reached.current = Date.now();
+		};
+		const kinds = [
+			"wheel",
+			"pointerdown",
+			"touchstart",
+			"touchmove",
+			"keydown",
+		];
+		for (const kind of kinds)
+			element.addEventListener(kind, note, { passive: true });
+		return () => {
+			for (const kind of kinds) element.removeEventListener(kind, note);
+		};
+	}, []);
+
 	const handleScroll = () => {
 		const element = scroller.current;
 		if (!element) return;
+
+		const top = element.scrollTop;
+		const moved = top - resting.current;
+		resting.current = top;
+
+		/* Everything below follows the reader and only the reader. A mount, a
+		   resize, a font swap and the offset taken back after a prepend all raise
+		   this event without anybody having scrolled, and answering them is how
+		   the range and the address walked off on their own. */
+		if (moved === 0 || Date.now() - reached.current > INTENT_MS) return;
 
 		const seen = [...anchors.current.entries()]
 			.filter(([, node]) => node.isConnected)
 			.sort((a, b) => a[1].offsetTop - b[1].offsetTop);
 		let current = "";
 		for (const [date, node] of seen) {
-			if (node.offsetTop - HEADER_HEIGHT - 8 > element.scrollTop) break;
+			if (node.offsetTop - HEADER_HEIGHT - 8 > top) break;
 			current = date;
 		}
 		if (current !== "" && current !== visibleDate) {
@@ -226,12 +306,13 @@ export function AgendaFlow({
 			onVisibleDayChange(current);
 		}
 
-		if (element.scrollTop < 600 && askedStart.current !== firstDate) {
+		if (moved < 0 && top < REACH_BEHIND && askedStart.current !== firstDate) {
 			askedStart.current = firstDate;
 			onReachStart();
 		}
 		if (
-			element.scrollTop + element.clientHeight > element.scrollHeight - 900 &&
+			moved > 0 &&
+			top + element.clientHeight > element.scrollHeight - REACH_AHEAD &&
 			askedEnd.current !== lastDate
 		) {
 			askedEnd.current = lastDate;
@@ -268,6 +349,15 @@ export function AgendaFlow({
 				)}
 			</div>
 
+			{atStartCap && onLoadEarlier && (
+				<CapEdge
+					label="Show earlier days"
+					testId="agenda-load-earlier"
+					onLoad={onLoadEarlier}
+					touch={touch}
+				/>
+			)}
+
 			{rows.map((row) => (
 				<FlowRow
 					key={row.key}
@@ -288,7 +378,48 @@ export function AgendaFlow({
 					touch={touch}
 				/>
 			))}
+
+			{atEndCap && onLoadLater && (
+				<CapEdge
+					label="Show later days"
+					testId="agenda-load-later"
+					onLoad={onLoadLater}
+					touch={touch}
+				/>
+			)}
 		</div>
+	);
+}
+
+/**
+ * Where the run stops growing on its own. A year either way is further than a
+ * reader scrolls in one sitting, so this is rarely on screen — and when it is,
+ * the next stretch costs a click rather than arriving because the strip decided
+ * it had reached the end of itself.
+ */
+function CapEdge({
+	label,
+	testId,
+	onLoad,
+	touch,
+}: {
+	label: string;
+	testId: string;
+	onLoad: () => void;
+	touch?: boolean;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onLoad}
+			data-testid={testId}
+			className={cn(
+				"flex w-full items-center justify-center gap-2 border-y border-dashed border-line bg-surface-sunken px-row-inset text-xs font-medium text-fg-muted outline-none transition-colors hover:border-accent hover:text-accent focus-visible:ring-2 focus-visible:ring-ring",
+				touch ? "min-h-14 py-3" : "py-2",
+			)}
+		>
+			{label}
+		</button>
 	);
 }
 

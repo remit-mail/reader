@@ -176,6 +176,22 @@ export const EmptyRun: Story = {
 	args: { ...base, density: "pills", focusDate: "2026-06-18" },
 };
 
+/**
+ * A year either way is as far as the strip grows on the scroll. Past that the
+ * reader says so, rather than the strip fetching its way across a decade
+ * because a sparse diary never fills the pane.
+ */
+export const AtTheCap: Story = {
+	args: {
+		...base,
+		density: "pills",
+		atStartCap: true,
+		atEndCap: true,
+		onLoadEarlier: () => {},
+		onLoadLater: () => {},
+	},
+};
+
 /** The selection is a state of the row, not a colour laid over it. */
 export const Selected: Story = {
 	args: { ...base, density: "detail", selectedEventId: "evt_roadmap" },

@@ -175,26 +175,30 @@ test.describe("The agenda strip", () => {
 		await expect(free.first()).toBeVisible();
 		await expect(free.first()).toContainText(/\d+h( \d+m)? free/);
 
-		// The strip scrolls only when it is taller than the pane holding it, and
-		// five weeks with two events in them are a handful of rows. A short window
-		// is the honest way to get a scrollbar, rather than inventing a diary the
-		// rest of this test is not about.
+		const trailing = runs.last();
+		const opened = runDays(await trailing.innerText());
+		expect(opened).toBeGreaterThan(0);
+
+		// Two events five weeks apart draw shorter than the distance the strip
+		// fetches at, so every end is within reach of itself from the first layout
+		// pass. Nobody has scrolled, so nothing grows and the address stays on the
+		// day it was opened with: the strip used to walk out to 2032 here, taking
+		// the path along with it.
 		await page.setViewportSize({ width: DESKTOP.width, height: 320 });
 		await expect
 			.poll(() => strip.evaluate((el) => el.scrollHeight - el.clientHeight), {
 				message: "the strip to stand taller than the pane holding it",
 			})
 			.toBeGreaterThan(0);
-
-		const trailing = runs.last();
-		const held = runDays(await trailing.innerText());
-		expect(held).toBeGreaterThan(0);
+		await page.waitForTimeout(1_000);
+		expect(runDays(await trailing.innerText())).toBe(opened);
+		expect(pathDay(page)).toBe(ANCHOR);
 
 		const history = await page.evaluate(() => window.history.length);
 
-		await strip.evaluate((el) => {
-			el.scrollTop = el.scrollHeight;
-		});
+		// The reader's own scroll, which is the only thing that grows the run.
+		await strip.hover();
+		await page.mouse.wheel(0, 4_000);
 
 		// Reaching the end grew the range: the last run now accounts for days the
 		// strip had never asked about when it opened.
@@ -202,7 +206,7 @@ test.describe("The agenda strip", () => {
 			.poll(async () => runDays(await trailing.innerText()), {
 				message: "the strip to hold days past the range it opened with",
 			})
-			.toBeGreaterThan(held);
+			.toBeGreaterThan(opened);
 
 		// The day under the header is written back to the path, in the direction
 		// the reader went: the end of the strip is later than the day it opened
@@ -218,10 +222,13 @@ test.describe("The agenda strip", () => {
 		// screen they arrived from rather than to every row they passed.
 		expect(await page.evaluate(() => window.history.length)).toBe(history);
 
-		// The window stays short for the rest of this: growing it back would clamp
-		// the scroll the strip is holding, which is another scroll, another day
-		// under the header, and an address that moved for no reader.
-		//
+		// The pane grows back, which clamps the scroll the strip is holding. That
+		// is a scroll event with nobody behind it, so the address stays where the
+		// reader left it.
+		await page.setViewportSize(DESKTOP);
+		await page.waitForTimeout(1_000);
+		expect(pathDay(page)).toBe(landed);
+
 		// Changing zoom keeps the day and the ticked calendars: the grid is a
 		// magnification the reader drops into, not a different screen.
 		await page
