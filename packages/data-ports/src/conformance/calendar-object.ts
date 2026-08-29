@@ -123,6 +123,33 @@ export function calendarObjectRepositoryConformance(
 			);
 		});
 
+		test("listIncompleteExpansions returns only the series whose index stops short", async () => {
+			const calendarId = harness.makeId();
+			await repo.put(objectInput(calendarId, { resourceName: "complete.ics" }));
+			const incomplete = await repo.put(
+				objectInput(calendarId, {
+					resourceName: "incomplete.ics",
+					expandedThrough: "2026-01-01T00:00:00Z",
+				}),
+			);
+
+			assert.deepEqual(
+				(
+					await repo.listIncompleteExpansions(
+						calendarId,
+						"2026-06-01T00:00:00Z",
+					)
+				).map((object) => object.calendarObjectId),
+				[incomplete.calendarObjectId],
+				"a resource with no expandedThrough is complete and never appears",
+			);
+			assert.deepEqual(
+				await repo.listIncompleteExpansions(calendarId, "2025-06-01T00:00:00Z"),
+				[],
+				"and one whose index already reaches the window does not either",
+			);
+		});
+
 		test("findByResourceName returns null for a name the collection does not hold", async () => {
 			assert.equal(
 				await repo.findByResourceName(harness.makeId(), "absent.ics"),

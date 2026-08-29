@@ -192,15 +192,15 @@ export const readRecurrenceRule = (
 	recurrenceRule: string,
 ): Promise<CalendarResult<ICAL.Recur>> =>
 	new Promise<ICAL.Recur>((resolve) => {
-		const rule = ICAL.Recur.fromString(recurrenceRule);
-		if (!rule.freq) {
-			throw new Error(
-				`"${recurrenceRule}" names no FREQ, so it is not a recurrence rule`,
-			);
-		}
-		resolve(rule);
+		resolve(ICAL.Recur.fromString(recurrenceRule));
 	}).then(
-		(value) => ({ ok: true, value }) as const,
+		(value) =>
+			value.freq
+				? ({ ok: true, value } as const)
+				: calendarFailure<ICAL.Recur>(
+						"InvalidRecurrenceRule",
+						`"${recurrenceRule}" names no FREQ, so it is not a recurrence rule`,
+					),
 		(error: unknown) =>
 			calendarFailure<ICAL.Recur>(
 				"InvalidRecurrenceRule",

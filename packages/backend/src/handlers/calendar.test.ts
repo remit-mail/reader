@@ -30,6 +30,8 @@ import {
 	createCalendarFor,
 	deleteCalendarFor,
 	listCalendarsFor,
+	readCollectionTimezone,
+	updateCalendarFor,
 } from "./calendar.js";
 import {
 	type CalendarEventDeps,
@@ -37,6 +39,7 @@ import {
 	deleteCalendarEventFor,
 	etagMatches,
 	pickEventUpdate,
+	readScope,
 	readWindow,
 	updateCalendarEventFor,
 } from "./calendar-event.js";
@@ -83,6 +86,17 @@ class MemoryCollections implements ICalendarCollectionRepository {
 		};
 		this.state.collections.set(calendarId, created);
 		return created;
+	}
+
+	async createExclusive(
+		input: CreateCalendarCollectionInput,
+	): Promise<CalendarCollectionItem | null> {
+		const calendarId = deriveCalendarId(
+			input.accountConfigId,
+			normalizeCalendarUrlSegment(input.urlSegment),
+		);
+		if (this.state.collections.has(calendarId)) return null;
+		return this.create(input);
 	}
 
 	async get(
@@ -215,6 +229,16 @@ class MemoryObjects implements ICalendarObjectRepository {
 			.sort((left, right) =>
 				left.resourceName.localeCompare(right.resourceName),
 			);
+	}
+
+	async listIncompleteExpansions(
+		calendarId: string,
+		instant: string,
+	): Promise<CalendarObjectItem[]> {
+		return (await this.listByCalendar(calendarId)).filter(
+			(object) =>
+				object.expandedThrough !== "" && object.expandedThrough < instant,
+		);
 	}
 
 	async listChangedSince(
@@ -389,6 +413,11 @@ describe("createCalendarFor", () => {
 		assert.ok(!second.ok);
 		assert.equal(second.error.code, "UrlSegmentTaken");
 		assert.equal(store.collections.size, 1);
+		assert.equal(
+			[...store.collections.values()][0]?.displayName,
+			"Work",
+			"the refused create never wrote over the calendar that holds the segment",
+		);
 	});
 
 	it("refuses an empty url segment", async () => {
@@ -586,6 +615,12 @@ describe("updateCalendarEventFor", () => {
 		assert.equal(head?.summary, "Stand-up");
 		assert.equal(tail?.summary, "Stand-up (new format)");
 		assert.notEqual(head?.icalUid, tail?.icalUid);
+		assert.equal(
+			split.value?.calendarObjectId,
+			tail?.calendarObjectId,
+			"the caller is handed the remainder, which is where their edit landed",
+		);
+		assert.notEqual(split.value?.calendarObjectId, event.calendarObjectId);
 	});
 
 	it("answers not-found for an event the calendar does not hold", async () => {
@@ -712,5 +747,130 @@ describe("createCalendarEventFor", () => {
 		assert.ok(!created.ok);
 		assert.equal(created.error.code, "BackwardsEnd");
 		assert.equal(store.objects.size, 0);
+	});
+});
+
+describe("readScope", () => {
+	it("reads an absent scope as the whole series", () => {
+		const scope = readScope(undefined);
+		assert.ok(scope.ok);
+		assert.equal(scope.value, RecurrenceScope.All);
+	});
+
+	it("refuses a scope it does not recognise rather than widening it", () => {
+		const scope = readScope("Everything");
+		assert.ok(!scope.ok);
+		assert.equal(scope.error.code, "InvalidScope");
+	});
+});
+
+describe("readCollectionTimezone", () => {
+	it("accepts an IANA name and an absent one", () => {
+		assert.deepEqual(readCollectionTimezone("Europe/Amsterdam"), {
+			ok: true,
+			value: "Europe/Amsterdam",
+		});
+		assert.deepEqual(readCollectionTimezone(undefined), {
+			ok: true,
+			value: "",
+		});
+	});
+
+	it("refuses a zone this server cannot resolve", () => {
+		const timezone = readCollectionTimezone("Pacific Standard Time");
+		assert.ok(!timezone.ok);
+		assert.equal(timezone.error.code, "UnknownTimeZone");
+	});
+});
+
+describe("updateCalendarFor", () => {
+	const allDay = {
+		summary: "Leave",
+		start: "2026-06-01",
+		end: "2026-06-02",
+		allDay: true,
+	};
+
+	it("refuses a timezone this server cannot resolve", async () => {
+		const store = new InMemoryCalendarStore();
+		const deps = store.deps();
+		const [calendar] = await listCalendarsFor(deps, ACCOUNT);
+		assert.ok(calendar);
+
+		const updated = await updateCalendarFor(
+			deps,
+			ACCOUNT,
+			calendar.calendarId,
+			{
+				timezone: "Pacific Standard Time",
+			},
+		);
+
+		assert.ok(!updated.ok);
+		assert.equal(updated.error.code, "UnknownTimeZone");
+		assert.equal(store.collections.get(calendar.calendarId)?.timezone, "");
+	});
+
+	it("re-expands the calendar's events when its timezone changes", async () => {
+		const store = new InMemoryCalendarStore();
+		const deps = eventDeps(store);
+		const [calendar] = await listCalendarsFor(deps, ACCOUNT);
+		assert.ok(calendar);
+		const created = await createCalendarEventFor(deps, ACCOUNT, {
+			calendarId: calendar.calendarId,
+			...allDay,
+		});
+		assert.ok(created.ok, JSON.stringify(created));
+		assert.equal(
+			store.occurrences.get(created.value.calendarObjectId)?.[0]?.startAt,
+			"2026-06-01T00:00:00Z",
+			"an all-day event in a calendar with no zone starts at midnight UTC",
+		);
+
+		const updated = await updateCalendarFor(
+			deps,
+			ACCOUNT,
+			calendar.calendarId,
+			{
+				timezone: "America/New_York",
+			},
+		);
+
+		assert.ok(updated.ok, JSON.stringify(updated));
+		assert.equal(
+			store.occurrences.get(created.value.calendarObjectId)?.[0]?.startAt,
+			"2026-06-01T04:00:00Z",
+			"and midnight in the calendar's new zone once it has one",
+		);
+		assert.ok(
+			updated.value.syncSequence > calendar.syncSequence,
+			"a syncing client is told the calendar changed",
+		);
+	});
+
+	it("leaves the events alone when only the name changes", async () => {
+		const store = new InMemoryCalendarStore();
+		const deps = eventDeps(store);
+		const [calendar] = await listCalendarsFor(deps, ACCOUNT);
+		assert.ok(calendar);
+		const created = await createCalendarEventFor(deps, ACCOUNT, {
+			calendarId: calendar.calendarId,
+			...allDay,
+		});
+		assert.ok(created.ok);
+		const before = store.collections.get(calendar.calendarId)?.syncSequence;
+
+		const updated = await updateCalendarFor(
+			deps,
+			ACCOUNT,
+			calendar.calendarId,
+			{
+				displayName: "Renamed",
+			},
+		);
+
+		assert.ok(updated.ok);
+		assert.equal(updated.value.displayName, "Renamed");
+		assert.equal(updated.value.syncSequence, before);
 	});
 });

@@ -202,6 +202,31 @@ const keepDateValues = (
 };
 
 /**
+ * The last value the truncated series still covers, in the frame its own
+ * DTSTART is written in.
+ *
+ * UNTIL has to be comparable to the values the rule produces, and an expander
+ * compares them as they are written rather than as this server resolves them.
+ * A UTC instant against a floating or all-day series is therefore off by the
+ * collection's offset, and in a zone behind UTC that leaves the split
+ * occurrence in both halves of the split. So the value is derived from the slot
+ * itself: a date for a date series, the same wall clock for a floating one, and
+ * UTC where the slot really is an instant — which is also what RFC 5545 3.3.10
+ * asks for in each of those cases.
+ */
+const untilBefore = (slot: ICAL.Time): ICAL.Time => {
+	const until = slot.clone();
+	if (until.isDate) {
+		until.adjust(-1, 0, 0, 0);
+		return until;
+	}
+	until.adjust(0, 0, 0, -1);
+	return until.zone === ICAL.Timezone.localTimezone
+		? until
+		: until.convertToZone(ICAL.Timezone.utcTimezone);
+};
+
+/**
  * Ends the master's rule just before an occurrence.
  *
  * A COUNT rule is truncated by count and an open or UNTIL rule by UNTIL,
@@ -212,7 +237,6 @@ const keepDateValues = (
 const truncateRule = (
 	master: ICAL.Component,
 	occurrence: FoundOccurrence,
-	splitMs: number,
 ): void => {
 	const property = master.getFirstProperty("rrule");
 	if (!property) return;
@@ -223,9 +247,7 @@ const truncateRule = (
 		rule.count = occurrence.index;
 		rule.until = null;
 	} else {
-		// UNTIL is inclusive (RFC 5545 3.3.10), so it names the last instant the
-		// series still covers — a second before the occurrence being split off.
-		rule.until = ICAL.Time.fromJSDate(new Date(splitMs - 1000), true);
+		rule.until = untilBefore(occurrence.slot);
 		rule.count = null;
 	}
 	property.setValue(rule);
@@ -383,7 +405,7 @@ export const applyScopedUpdate = async (
 	const before = (slotMs: number) => slotMs < splitMs;
 	const fromHere = (slotMs: number) => slotMs >= splitMs;
 
-	truncateRule(calendar.master, occurrence, splitMs);
+	truncateRule(calendar.master, occurrence);
 	keepOverrides(calendar, collectionTimezone, before);
 	keepDateValues(calendar.master, "rdate", collectionTimezone, before);
 	keepDateValues(calendar.master, "exdate", collectionTimezone, before);
@@ -448,7 +470,7 @@ export const applyScopedDelete = async (
 
 	if (input.scope === RecurrenceScope.Following) {
 		const before = (slotMs: number) => slotMs < splitMs;
-		truncateRule(calendar.master, occurrence, splitMs);
+		truncateRule(calendar.master, occurrence);
 		keepOverrides(calendar, collectionTimezone, before);
 		keepDateValues(calendar.master, "rdate", collectionTimezone, before);
 		keepDateValues(calendar.master, "exdate", collectionTimezone, before);

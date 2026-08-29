@@ -16,6 +16,7 @@ import {
 	listBusySpans,
 	listCalendarInstances,
 	parseCalendar,
+	projectCalendar,
 	putCalendarObject,
 	type RecurrenceScopeValue,
 	type ScopedWrite,
@@ -233,10 +234,30 @@ export const etagMatches = (
 		.some((candidate) => candidate === "*" || candidate === etag);
 };
 
-const readScope = (value: unknown): RecurrenceScopeValue =>
-	value === RecurrenceScope.This || value === RecurrenceScope.Following
-		? value
-		: RecurrenceScope.All;
+/**
+ * An absent scope means the whole series, which is what a client editing an
+ * event that does not recur sends. A scope that is present but not one of the
+ * three is refused rather than read as `All`: the widest, most destructive
+ * reading is the worst possible answer to a typo.
+ */
+export const readScope = (
+	value: unknown,
+): CalendarOutcome<RecurrenceScopeValue> => {
+	if (value === undefined || value === "") {
+		return { ok: true, value: RecurrenceScope.All };
+	}
+	if (
+		value === RecurrenceScope.This ||
+		value === RecurrenceScope.Following ||
+		value === RecurrenceScope.All
+	) {
+		return { ok: true, value };
+	}
+	return refuseCalendar(
+		"InvalidScope",
+		`scope must be one of This, Following or All, and this request sent "${String(value)}"`,
+	);
+};
 
 /**
  * Writes what a scoped edit resolved to.
@@ -249,6 +270,7 @@ export const commitScopedWrite = async (
 	deps: CalendarEventDeps,
 	accountConfigId: string,
 	object: CalendarObjectItem,
+	collectionTimezone: string,
 	write: ScopedWrite,
 ): Promise<CalendarOutcome<CalendarObjectItem | null>> => {
 	if (write.kind === "Delete") {
@@ -260,6 +282,19 @@ export const commitScopedWrite = async (
 		return { ok: true, value: null };
 	}
 
+	// Both resources are read before either is written. A refusal returned from
+	// inside the write set would commit it — the truncated head alone, with the
+	// remainder of the series gone — so nothing that can be refused is left
+	// inside it, and a refusal from the write path there is a broken invariant
+	// rather than an outcome.
+	const checked = await Promise.all(
+		[write.icalData, ...(write.kind === "Split" ? [write.following] : [])].map(
+			(icalData) => readWritableCalendar(icalData, collectionTimezone),
+		),
+	);
+	const refused = checked.find((result) => !result.ok);
+	if (refused && !refused.ok) return refused;
+
 	return deps.calendarUnitOfWork.transaction(async () => {
 		const head = await putCalendarObject(deps.calendarUnitOfWork, {
 			accountConfigId,
@@ -267,7 +302,7 @@ export const commitScopedWrite = async (
 			resourceName: object.resourceName,
 			icalData: write.icalData,
 		});
-		if (!head.ok) return head;
+		if (!head.ok) throw refusedAfterValidation(head.error.code);
 		if (write.kind === "Replace") return { ok: true, value: head.value };
 
 		const following = await putCalendarObject(deps.calendarUnitOfWork, {
@@ -276,9 +311,29 @@ export const commitScopedWrite = async (
 			resourceName: `${deps.newId()}.ics`,
 			icalData: write.following,
 		});
-		if (!following.ok) return following;
-		return { ok: true, value: head.value };
+		if (!following.ok) throw refusedAfterValidation(following.error.code);
+		// The remainder is what the patch applied to, and it lives under an id the
+		// caller has never seen — returning the truncated head instead would leave
+		// them holding the resource their edit is not in.
+		return { ok: true, value: following.value };
 	});
+};
+
+const refusedAfterValidation = (code: string): Error =>
+	new Error(
+		`the calendar write path refused text this request had already validated (${code})`,
+	);
+
+/** Reads a resource the same way the write path will, without writing it. */
+const readWritableCalendar = async (
+	icalData: string,
+	collectionTimezone: string,
+): Promise<CalendarOutcome<null>> => {
+	const parsed = await parseCalendar(icalData);
+	if (!parsed.ok) return parsed;
+	const projected = projectCalendar(parsed.value, collectionTimezone);
+	if (!projected.ok) return projected;
+	return { ok: true, value: null };
 };
 
 export const createCalendarEventFor = async (
@@ -382,7 +437,13 @@ export const updateCalendarEventFor = async (
 		patch,
 	);
 	if (!write.ok) return write;
-	return commitScopedWrite(deps, accountConfigId, object, write.value);
+	return commitScopedWrite(
+		deps,
+		accountConfigId,
+		object,
+		collection.timezone,
+		write.value,
+	);
 };
 
 export const deleteCalendarEventFor = async (
@@ -414,7 +475,13 @@ export const deleteCalendarEventFor = async (
 		followingUid: "",
 	});
 	if (!write.ok) return write;
-	return commitScopedWrite(deps, accountConfigId, object, write.value);
+	return commitScopedWrite(
+		deps,
+		accountConfigId,
+		object,
+		collection.timezone,
+		write.value,
+	);
 };
 
 const readCalendarIds = (value: unknown): string[] => {
@@ -432,23 +499,29 @@ const answerRefusal = (error: { code: string; message: string }) =>
 
 const scopedRequestOf = (
 	context: Parameters<OperationHandler>[0],
-): ScopedRequest => {
+): CalendarOutcome<ScopedRequest> => {
 	const params = context.request.params as { calendarObjectId: string };
 	const query = context.request.query as {
 		calendarId?: string;
 		scope?: string;
 		recurrenceId?: string;
 	};
+	const scope = readScope(query.scope);
+	if (!scope.ok) return scope;
+
 	const headers = (context.request.headers ?? {}) as Record<string, string>;
 	const ifMatch = Object.entries(headers).find(
 		([name]) => name.toLowerCase() === "if-match",
 	)?.[1];
 	return {
-		calendarId: query.calendarId ?? "",
-		calendarObjectId: params.calendarObjectId,
-		scope: readScope(query.scope),
-		recurrenceId: query.recurrenceId ?? "",
-		ifMatch,
+		ok: true,
+		value: {
+			calendarId: query.calendarId ?? "",
+			calendarObjectId: params.calendarObjectId,
+			scope: scope.value,
+			recurrenceId: query.recurrenceId ?? "",
+			ifMatch,
+		},
 	};
 };
 
@@ -512,9 +585,14 @@ export const CalendarEventDetailOperations: Record<
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const request = scopedRequestOf(context);
+		if (!request.ok) return badRequest(request.error);
 		const deps = calendarEventDepsOf(calendarDepsOf(await getClient()));
 
-		const resolved = await resolveResource(deps, accountConfigId, request);
+		const resolved = await resolveResource(
+			deps,
+			accountConfigId,
+			request.value,
+		);
 		if (!resolved.ok) return answerRefusal(resolved.error);
 		return toEventResponse(resolved.value.object);
 	},
@@ -527,12 +605,14 @@ export const CalendarEventDetailOperations: Record<
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const body = context.request
 			.requestBody as Partial<UpdateCalendarEventInput>;
+		const request = scopedRequestOf(context);
+		if (!request.ok) return badRequest(request.error);
 		const deps = calendarEventDepsOf(calendarDepsOf(await getClient()));
 
 		const updated = await updateCalendarEventFor(
 			deps,
 			accountConfigId,
-			scopedRequestOf(context),
+			request.value,
 			pickEventUpdate(body),
 		);
 		if (!updated.ok) return answerRefusal(updated.error);
@@ -548,12 +628,14 @@ export const CalendarEventDetailOperations: Record<
 	) => {
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const request = scopedRequestOf(context);
+		if (!request.ok) return badRequest(request.error);
 		const deps = calendarEventDepsOf(calendarDepsOf(await getClient()));
 
 		const removed = await deleteCalendarEventFor(
 			deps,
 			accountConfigId,
-			scopedRequestOf(context),
+			request.value,
 		);
 		if (!removed.ok) return answerRefusal(removed.error);
 		return { statusCode: 204 };

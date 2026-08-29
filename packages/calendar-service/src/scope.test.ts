@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { RecurrenceScope } from "@remit/domain-enums";
+import { expandCalendar } from "./expand.js";
 import { AMSTERDAM_VTIMEZONE, ical, singleEvent } from "./fixtures.js";
 import { parseCalendar } from "./parse.js";
 import { applyScopedDelete, applyScopedUpdate } from "./scope.js";
@@ -386,5 +387,86 @@ describe("applyScopedDelete", () => {
 
 		assert.ok(write.ok);
 		assert.equal(write.value.kind, "Delete");
+	});
+});
+
+describe("splitting a series whose DTSTART is not a UTC instant", () => {
+	const openEnded = (...dtLines: string[]) =>
+		ical(
+			"BEGIN:VCALENDAR",
+			"VERSION:2.0",
+			"BEGIN:VEVENT",
+			"UID:series@example.com",
+			...dtLines,
+			"SUMMARY:Series",
+			"RRULE:FREQ=WEEKLY",
+			"END:VEVENT",
+			"END:VCALENDAR",
+		);
+
+	// A zone behind UTC is what exposes it: a UTC UNTIL derived from the split
+	// instant lands after the raw value the expander compares it to, so the head
+	// keeps the occurrence the tail already starts with.
+	const BEHIND_UTC = "America/New_York";
+
+	const splitAtSecondSlot = async (icalData: string) => {
+		const before = expandCalendar(await read(icalData), BEHIND_UTC);
+		const at = before.occurrences[1]?.startAt as string;
+		const write = await applyScopedUpdate(
+			await read(icalData),
+			BEHIND_UTC,
+			input(RecurrenceScope.Following, at),
+			{ summary: "Series (changed)" },
+		);
+		assert.ok(write.ok, JSON.stringify(write));
+		assert.ok(write.value.kind === "Split");
+		return {
+			at,
+			head: expandCalendar(await read(write.value.icalData), BEHIND_UTC),
+			tail: expandCalendar(await read(write.value.following), BEHIND_UTC),
+			rule: write.value.icalData
+				.split("\r\n")
+				.find((line) => line.startsWith("RRULE")),
+		};
+	};
+
+	for (const [frame, dtLines] of Object.entries({
+		"an all-day series": [
+			"DTSTART;VALUE=DATE:20260601",
+			"DTEND;VALUE=DATE:20260602",
+		],
+		"a floating series": ["DTSTART:20260601T090000", "DTEND:20260601T100000"],
+		"a series naming a zone the resource does not define": [
+			"DTSTART;TZID=Europe/Amsterdam:20260601T090000",
+			"DTEND;TZID=Europe/Amsterdam:20260601T100000",
+		],
+		"a UTC series": ["DTSTART:20260601T090000Z", "DTEND:20260601T100000Z"],
+	})) {
+		it(`leaves the split occurrence to the remainder for ${frame}`, async () => {
+			const { at, head, tail } = await splitAtSecondSlot(openEnded(...dtLines));
+
+			assert.equal(
+				head.occurrences.some((occurrence) => occurrence.startAt === at),
+				false,
+				"the truncated head still produced the occurrence it was split at",
+			);
+			assert.equal(tail.occurrences[0]?.startAt, at);
+		});
+	}
+
+	it("writes UNTIL as a date for an all-day series, as RFC 5545 3.3.10 requires", async () => {
+		const { rule } = await splitAtSecondSlot(
+			openEnded("DTSTART;VALUE=DATE:20260601", "DTEND;VALUE=DATE:20260602"),
+		);
+
+		assert.equal(rule, "RRULE:FREQ=WEEKLY;UNTIL=20260607");
+	});
+
+	it("writes UNTIL in UTC for a series that names an instant", async () => {
+		const { rule } = await splitAtSecondSlot(
+			openEnded("DTSTART:20260601T090000Z", "DTEND:20260601T100000Z"),
+		);
+
+		assert.equal(rule, "RRULE:FREQ=WEEKLY;UNTIL=20260608T085959Z");
 	});
 });

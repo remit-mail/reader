@@ -5,7 +5,9 @@ import type {
 } from "@remit/api-openapi-types";
 import {
 	DEFAULT_CALENDAR_URL_SEGMENT,
+	isResolvableZone,
 	provisionDefaultCalendar,
+	putCalendarObject,
 } from "@remit/calendar-service";
 import type {
 	CalendarCollectionItem,
@@ -71,36 +73,13 @@ export const preconditionFailed = (message: string) => ({
 	body: { code: "EtagMismatch", message },
 });
 
-/**
- * A backend with no calendar repositories cannot serve these endpoints, and
- * pretending otherwise would answer an empty calendar to somebody who has one.
- * This is a composition mistake rather than anything a caller did, so it fails
- * the request loudly.
- */
-export const calendarDepsOf = (client: RemitClient): CalendarDeps => {
-	const {
-		calendarCollection,
-		calendarObject,
-		calendarEventIndex,
-		calendarUnitOfWork,
-	} = client;
-	if (
-		!calendarCollection ||
-		!calendarObject ||
-		!calendarEventIndex ||
-		!calendarUnitOfWork
-	) {
-		throw new Error(
-			"no calendar store on this data backend — register a client whose repositories include one",
-		);
-	}
-	return {
-		calendarCollection,
-		calendarObject,
-		calendarEventIndex,
-		calendarUnitOfWork,
-	};
-};
+/** The calendar half of the client, named so a handler takes only what it uses. */
+export const calendarDepsOf = (client: RemitClient): CalendarDeps => ({
+	calendarCollection: client.calendarCollection,
+	calendarObject: client.calendarObject,
+	calendarEventIndex: client.calendarEventIndex,
+	calendarUnitOfWork: client.calendarUnitOfWork,
+});
 
 const toCalendarResponse = (
 	item: CalendarCollectionItem,
@@ -159,6 +138,26 @@ export const findCalendarFor = async (
 	return { ok: true, value: found };
 };
 
+/**
+ * A collection's timezone is what every floating time in it is read in, so a
+ * name this server cannot resolve is not a cosmetic setting — it silently moves
+ * every all-day and unzoned event in the calendar. A Windows zone name, which
+ * is what a client that has not normalised its input sends, is refused here
+ * rather than stored and quietly read as UTC.
+ */
+export const readCollectionTimezone = (
+	timezone: string | undefined,
+): CalendarOutcome<string> => {
+	if (timezone === undefined || timezone === "") return { ok: true, value: "" };
+	if (!isResolvableZone(timezone)) {
+		return refuseCalendar(
+			"UnknownTimeZone",
+			`"${timezone}" is not a time zone this server can resolve — use an IANA name such as "Europe/Amsterdam"`,
+		);
+	}
+	return { ok: true, value: timezone };
+};
+
 export const createCalendarFor = async (
 	deps: CalendarDeps,
 	accountConfigId: string,
@@ -172,27 +171,28 @@ export const createCalendarFor = async (
 		);
 	}
 
-	const taken = await deps.calendarCollection.findByUrlSegment(
-		accountConfigId,
-		urlSegment,
-	);
-	if (taken) {
-		return refuseCalendar(
-			"UrlSegmentTaken",
-			`"${urlSegment}" already addresses the calendar "${taken.displayName}" — pick another`,
-		);
-	}
+	const timezone = readCollectionTimezone(input.timezone);
+	if (!timezone.ok) return timezone;
 
+	// The write decides, not a prior read: two creates of one segment arriving
+	// together would both find it free, and the loser would silently be handed
+	// the winner's calendar to write into.
 	const created = await deps.calendarUnitOfWork.transaction((repos) =>
-		repos.calendarCollection.create({
+		repos.calendarCollection.createExclusive({
 			accountConfigId,
 			urlSegment,
 			displayName: input.displayName,
 			color: input.color,
-			timezone: input.timezone,
+			timezone: timezone.value,
 			source: CalendarSource.UserCreated,
 		}),
 	);
+	if (!created) {
+		return refuseCalendar(
+			"UrlSegmentTaken",
+			`"${urlSegment}" already addresses a calendar on this account — pick another`,
+		);
+	}
 	return { ok: true, value: created };
 };
 
@@ -245,6 +245,62 @@ export const pickCalendarUpdate = (
 	return patch;
 };
 
+/**
+ * Applies a collection patch, rewriting what the collection's timezone decides.
+ *
+ * The timezone is not a label. Every floating and all-day time in the
+ * collection is read in it, so changing it moves every occurrence row those
+ * resources produced — and a row left at the old zone is an event drawn hours
+ * from where the calendar now says it is. Each resource is therefore written
+ * again from its own stored bytes, which re-projects and re-expands it and
+ * bumps the collection's sequence so a syncing client sees the change. The
+ * whole set is one unit: a half-converted calendar is worse than either zone.
+ */
+export const updateCalendarFor = async (
+	deps: CalendarDeps,
+	accountConfigId: string,
+	calendarId: string,
+	body: Partial<UpdateCalendarInput>,
+): Promise<CalendarOutcome<CalendarCollectionItem>> => {
+	const current = await findCalendarFor(deps, accountConfigId, calendarId);
+	if (!current.ok) return current;
+
+	const patch = pickCalendarUpdate(body);
+	if (patch.timezone !== undefined) {
+		const timezone = readCollectionTimezone(patch.timezone);
+		if (!timezone.ok) return timezone;
+		patch.timezone = timezone.value;
+	}
+	const rezone =
+		patch.timezone !== undefined && patch.timezone !== current.value.timezone;
+
+	const updated = await deps.calendarUnitOfWork.transaction(async (repos) => {
+		const collection = await repos.calendarCollection.update(
+			accountConfigId,
+			calendarId,
+			patch,
+		);
+		if (!rezone) return collection;
+
+		const objects = await repos.calendarObject.listByCalendar(calendarId);
+		for (const object of objects) {
+			const rewritten = await putCalendarObject(deps.calendarUnitOfWork, {
+				accountConfigId,
+				calendarId,
+				resourceName: object.resourceName,
+				icalData: object.icalData,
+			});
+			if (!rewritten.ok) {
+				throw new Error(
+					`stored calendar object ${object.calendarObjectId} was refused on re-expansion: ${rewritten.error.code}`,
+				);
+			}
+		}
+		return repos.calendarCollection.get(accountConfigId, calendarId);
+	});
+	return { ok: true, value: updated };
+};
+
 export const CalendarOperations: Record<
 	CalendarOperationIds,
 	OperationHandler<CalendarOperationIds>
@@ -294,15 +350,18 @@ export const CalendarDetailOperations: Record<
 		const body = context.request.requestBody as Partial<UpdateCalendarInput>;
 		const deps = calendarDepsOf(await getClient());
 
-		const found = await findCalendarFor(deps, accountConfigId, calendarId);
-		if (!found.ok) return notFound(found.error.message);
-
-		const updated = await deps.calendarCollection.update(
+		const updated = await updateCalendarFor(
+			deps,
 			accountConfigId,
 			calendarId,
-			pickCalendarUpdate(body),
+			body,
 		);
-		return toCalendarResponse(updated);
+		if (!updated.ok) {
+			return updated.error.code === "NotFound"
+				? notFound(updated.error.message)
+				: badRequest(updated.error);
+		}
+		return toCalendarResponse(updated.value);
 	},
 
 	CalendarDetailOperations_deleteCalendar: async (

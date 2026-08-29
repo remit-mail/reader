@@ -63,5 +63,4 @@ export {
 	listBusySpans,
 	listCalendarInstances,
 	mergeBusySpans,
-	needsLiveExpansion,
 } from "./window.js";

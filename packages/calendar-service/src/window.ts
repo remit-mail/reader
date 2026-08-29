@@ -47,7 +47,10 @@ export interface CalendarInstance {
 }
 
 export interface CalendarWindowRepositories {
-	calendarObject: Pick<ICalendarObjectRepository, "listByCalendar">;
+	calendarObject: Pick<
+		ICalendarObjectRepository,
+		"find" | "listIncompleteExpansions"
+	>;
 	calendarEventIndex: Pick<ICalendarEventIndexRepository, "listByStartRange">;
 }
 
@@ -67,32 +70,18 @@ const instanceOf = (
 	calendarObjectId: object.calendarObjectId,
 	recurrenceId: occurrence.recurrenceId,
 	icalUid: object.icalUid,
-	summary: object.summary,
+	summary: occurrence.summary,
 	start: toOffsetIso(Date.parse(occurrence.startAt), collection.timezone),
 	end: toOffsetIso(Date.parse(occurrence.endAt), collection.timezone),
 	startAt: occurrence.startAt,
 	endAt: occurrence.endAt,
 	allDay: occurrence.allDay,
-	status: object.status,
-	transparency: object.transparency,
+	status: occurrence.status,
+	transparency: occurrence.transparency,
 	zoneCertainty: object.zoneCertainty,
 	etag: object.etag,
 	hasRecurrence: object.hasRecurrence,
 });
-
-/**
- * Whether a resource's stored occurrences reach the end of the window.
- *
- * `expandedThrough` is set only when a series ran past the expansion horizon,
- * and the horizon is anchored at the series' own start — so an open-ended
- * meeting written years ago has an index that stops long before today, and the
- * index alone would show a client an empty week for a meeting they still have.
- */
-export const needsLiveExpansion = (
-	object: CalendarObjectItem,
-	window: CalendarWindow,
-): boolean =>
-	object.expandedThrough !== "" && object.expandedThrough < window.to;
 
 /**
  * Every occurrence in a window, across the collections given.
@@ -113,23 +102,36 @@ export const listCalendarInstances = async (
 
 	const instances: CalendarInstance[] = [];
 	for (const collection of collections) {
-		const objects = await repositories.calendarObject.listByCalendar(
+		// Both reads are bounded by the window: the occurrence rows that start in
+		// it, and the handful of series whose index stops short of it. Neither
+		// grows with the size of the calendar.
+		const live = await repositories.calendarObject.listIncompleteExpansions(
 			collection.calendarId,
+			window.to,
 		);
-		const byId = new Map(
-			objects.map((object) => [object.calendarObjectId, object]),
-		);
-		const live = objects.filter((object) => needsLiveExpansion(object, window));
 		const liveIds = new Set(live.map((object) => object.calendarObjectId));
-
 		const rows = await repositories.calendarEventIndex.listByStartRange(
 			collection.calendarId,
 			lookbackFrom,
 			window.to,
 		);
+
+		// One read per resource that actually appears in the window, cached across
+		// its own occurrences.
+		const byId = new Map<string, CalendarObjectItem | null>();
 		for (const row of rows) {
+			if (liveIds.has(row.calendarObjectId)) continue;
+			if (!byId.has(row.calendarObjectId)) {
+				byId.set(
+					row.calendarObjectId,
+					await repositories.calendarObject.find(
+						collection.calendarId,
+						row.calendarObjectId,
+					),
+				);
+			}
 			const object = byId.get(row.calendarObjectId);
-			if (!object || liveIds.has(row.calendarObjectId)) continue;
+			if (!object) continue;
 			instances.push(instanceOf(collection, object, row));
 		}
 

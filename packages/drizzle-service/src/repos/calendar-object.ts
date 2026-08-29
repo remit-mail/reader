@@ -4,7 +4,7 @@ import type {
 	PutCalendarObjectInput,
 } from "@remit/data-ports";
 import { deriveCalendarObjectId } from "@remit/data-ports/id";
-import { and, asc, eq, gt } from "drizzle-orm";
+import { and, asc, eq, gt, lt, ne } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { calendarObjectTable } from "../schema.js";
@@ -152,6 +152,24 @@ export class CalendarObjectRepo implements ICalendarObjectRepository {
 			.from(calendarObjectTable)
 			.where(eq(calendarObjectTable.calendarId, calendarId))
 			.orderBy(asc(calendarObjectTable.resourceName));
+		return rows.map(rowToCalendarObject);
+	}
+
+	async listIncompleteExpansions(
+		calendarId: string,
+		instant: string,
+	): Promise<CalendarObjectItem[]> {
+		const rows = await this.db
+			.select()
+			.from(calendarObjectTable)
+			.where(
+				and(
+					eq(calendarObjectTable.calendarId, calendarId),
+					ne(calendarObjectTable.expandedThrough, ""),
+					lt(calendarObjectTable.expandedThrough, instant),
+				),
+			)
+			.orderBy(asc(calendarObjectTable.calendarObjectId));
 		return rows.map(rowToCalendarObject);
 	}
 

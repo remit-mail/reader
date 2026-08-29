@@ -92,10 +92,23 @@ const repositories = (
 	resources: StoredResource[],
 ): CalendarWindowRepositories => ({
 	calendarObject: {
-		listByCalendar: async (calendarId) =>
+		find: async (calendarId, calendarObjectId) =>
 			resources
 				.map((resource) => resource.object)
-				.filter((object) => object.calendarId === calendarId),
+				.find(
+					(object) =>
+						object.calendarId === calendarId &&
+						object.calendarObjectId === calendarObjectId,
+				) ?? null,
+		listIncompleteExpansions: async (calendarId, instant) =>
+			resources
+				.map((resource) => resource.object)
+				.filter(
+					(object) =>
+						object.calendarId === calendarId &&
+						object.expandedThrough !== "" &&
+						object.expandedThrough < instant,
+				),
 	},
 	calendarEventIndex: {
 		listByStartRange: async (calendarId, startAt, endAt) =>
@@ -425,5 +438,87 @@ describe("listBusySpans", () => {
 				endMs: Date.parse("2026-09-14T01:00:00Z"),
 			},
 		]);
+	});
+});
+
+describe("an occurrence a client edited on its own", () => {
+	const withOverride = (...overrideLines: string[]) =>
+		ical(
+			"BEGIN:VCALENDAR",
+			"VERSION:2.0",
+			"BEGIN:VEVENT",
+			"UID:weekly@example.com",
+			"DTSTART:20260907T090000Z",
+			"DTEND:20260907T100000Z",
+			"SUMMARY:Stand-up",
+			"RRULE:FREQ=WEEKLY;COUNT=3",
+			"END:VEVENT",
+			"BEGIN:VEVENT",
+			"UID:weekly@example.com",
+			"RECURRENCE-ID:20260914T090000Z",
+			"DTSTART:20260914T090000Z",
+			"DTEND:20260914T100000Z",
+			...overrideLines,
+			"END:VEVENT",
+			"END:VCALENDAR",
+		);
+
+	const window = { from: "2026-09-01T00:00:00Z", to: "2026-09-30T00:00:00Z" };
+
+	it("shows the override's summary, not the one the series carries", async () => {
+		const calendar = collection();
+		const stored = await store(
+			calendar,
+			"weekly.ics",
+			withOverride("SUMMARY:Stand-up (with the client team)"),
+		);
+
+		const instances = await listCalendarInstances(
+			repositories([stored]),
+			[calendar],
+			window,
+		);
+
+		assert.deepEqual(
+			instances.map((instance) => instance.summary),
+			["Stand-up", "Stand-up (with the client team)", "Stand-up"],
+		);
+	});
+
+	it("stops counting one cancelled occurrence as busy time", async () => {
+		const calendar = collection();
+		const stored = await store(
+			calendar,
+			"weekly.ics",
+			withOverride("SUMMARY:Stand-up", "STATUS:CANCELLED"),
+		);
+
+		const spans = await listBusySpans(
+			repositories([stored]),
+			[calendar],
+			window,
+		);
+
+		assert.deepEqual(
+			spans.map((span) => new Date(span.startMs).toISOString()),
+			["2026-09-07T09:00:00.000Z", "2026-09-21T09:00:00.000Z"],
+		);
+	});
+
+	it("stops counting one occurrence marked transparent as busy time", async () => {
+		const calendar = collection();
+		const stored = await store(
+			calendar,
+			"weekly.ics",
+			withOverride("SUMMARY:Stand-up", "TRANSP:TRANSPARENT"),
+		);
+
+		const spans = await listBusySpans(
+			repositories([stored]),
+			[calendar],
+			window,
+		);
+
+		assert.equal(spans.length, 2);
 	});
 });

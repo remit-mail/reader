@@ -1,7 +1,7 @@
 import type { CalendarOccurrenceInput } from "@remit/data-ports";
 import ICAL from "ical.js";
 import type { ParsedCalendar } from "./parse.js";
-import { hasRecurrence } from "./project.js";
+import { hasRecurrence, projectEventDisplay } from "./project.js";
 import {
 	dtEndTzid,
 	dtStartTzid,
@@ -54,6 +54,7 @@ export interface CalendarExpansion {
 const occurrenceOf = (
 	collectionTimezone: string,
 	recurrenceId: string,
+	source: ICAL.Component,
 	startDate: ICAL.Time,
 	endDate: ICAL.Time,
 	startTzid: string,
@@ -66,6 +67,7 @@ const occurrenceOf = (
 		startAt: start.isoUtc,
 		endAt: end.isoUtc,
 		allDay: start.isDate,
+		...projectEventDisplay(source),
 	};
 };
 
@@ -163,6 +165,7 @@ const walkOccurrences = (
 				occurrenceOf(
 					collectionTimezone,
 					slot.isoUtc,
+					source ?? calendar.master,
 					details.startDate,
 					details.endDate,
 					dtStartTzid(source ?? calendar.master),
@@ -183,6 +186,7 @@ const walkOccurrences = (
 		const occurrence = occurrenceOf(
 			collectionTimezone,
 			slot,
+			override,
 			overrideEvent.startDate,
 			overrideEvent.endDate,
 			dtStartTzid(override),
@@ -207,6 +211,7 @@ const singleOccurrence = (
 	return occurrenceOf(
 		collectionTimezone,
 		"",
+		calendar.master,
 		event.startDate,
 		event.endDate,
 		dtStartTzid(calendar.master),

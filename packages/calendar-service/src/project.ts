@@ -48,6 +48,31 @@ const readString = (component: ICAL.Component, name: string): string => {
  * but a master and its exceptions, and every one of those is still an
  * occurrence somebody has to see.
  */
+/**
+ * The fields that describe one VEVENT rather than the series it belongs to.
+ *
+ * Read per occurrence as well as per resource: an override VEVENT carries its
+ * own summary, status and transparency, and a range read that took them from
+ * the master would draw the old title over an edited instance and count a
+ * cancelled one as busy time.
+ */
+export type CalendarEventDisplay = Pick<
+	CalendarObjectItem,
+	"summary" | "status" | "transparency"
+>;
+
+export const projectEventDisplay = (
+	component: ICAL.Component,
+): CalendarEventDisplay => ({
+	summary: readString(component, "summary"),
+	status:
+		STATUS_BY_ICAL[readString(component, "status").toUpperCase()] ??
+		CalendarEventStatus.Confirmed,
+	transparency:
+		TRANSPARENCY_BY_ICAL[readString(component, "transp").toUpperCase()] ??
+		CalendarTransparency.Opaque,
+});
+
 export const hasRecurrence = (calendar: ParsedCalendar): boolean =>
 	calendar.master.hasProperty("rrule") ||
 	calendar.master.hasProperty("rdate") ||
@@ -85,18 +110,11 @@ export const projectCalendar = (
 		ok: true,
 		value: {
 			icalUid: calendar.uid,
-			summary: readString(calendar.master, "summary"),
 			dtStart: start.isoOffset,
 			dtEnd: end.isoOffset,
 			allDay: start.isDate,
 			zoneCertainty: start.certainty,
-			status:
-				STATUS_BY_ICAL[readString(calendar.master, "status").toUpperCase()] ??
-				CalendarEventStatus.Confirmed,
-			transparency:
-				TRANSPARENCY_BY_ICAL[
-					readString(calendar.master, "transp").toUpperCase()
-				] ?? CalendarTransparency.Opaque,
+			...projectEventDisplay(calendar.master),
 			hasRecurrence: hasRecurrence(calendar),
 			sequence: typeof sequence === "number" ? sequence : 0,
 		},
