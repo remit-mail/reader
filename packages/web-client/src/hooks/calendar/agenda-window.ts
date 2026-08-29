@@ -28,30 +28,70 @@ import { addDays, type CalendarWindow, calendarWindow } from "./window";
 export const LEAD_IN = 10;
 export const LEAD_OUT = 24;
 
-/** What reaching an end adds to it. */
-export const PAGE = 14;
+/** What reaching an end adds to it: the next week, and no more. */
+export const PAGE = 7;
+
+/**
+ * How far the run grows on the reader's scroll before it stops and asks.
+ *
+ * A year either way is further than anyone scrolls in one sitting, so the cap
+ * costs a reader nothing and bounds the damage of anything that asks for more
+ * days without one behind it. The strip is shorter than the reach it fetches at
+ * whenever the diary is sparse, and a run that grew on that alone walked out to
+ * a decade of empty weeks and took the address with it.
+ */
+export const CAP_WEEKS = 52;
+const CAP_DAYS = CAP_WEEKS * 7;
 
 export interface AgendaRange {
 	/** `YYYY-MM-DD`, inclusive. */
 	from: string;
 	/** `YYYY-MM-DD`, inclusive. */
 	to: string;
+	/** The earliest day scrolling alone may reach. */
+	floor: string;
+	/** The latest. */
+	ceiling: string;
 }
 
 export const rangeAround = (date: string): AgendaRange => ({
 	from: addDays(date, -LEAD_IN),
 	to: addDays(date, LEAD_OUT),
+	floor: addDays(date, -CAP_DAYS),
+	ceiling: addDays(date, CAP_DAYS),
 });
 
-export const extendRangeStart = (range: AgendaRange): AgendaRange => ({
-	...range,
-	from: addDays(range.from, -PAGE),
-});
+/** The run has grown as far back as it may on its own. */
+export const rangeAtFloor = (range: AgendaRange): boolean =>
+	range.from <= range.floor;
 
-export const extendRangeEnd = (range: AgendaRange): AgendaRange => ({
-	...range,
-	to: addDays(range.to, PAGE),
-});
+export const rangeAtCeiling = (range: AgendaRange): boolean =>
+	range.to >= range.ceiling;
+
+const later = (a: string, b: string): string => (a > b ? a : b);
+const earlier = (a: string, b: string): string => (a < b ? a : b);
+
+/** At the cap this is the range it was given, identically, so nothing refetches. */
+export const extendRangeStart = (range: AgendaRange): AgendaRange =>
+	rangeAtFloor(range)
+		? range
+		: { ...range, from: later(addDays(range.from, -PAGE), range.floor) };
+
+export const extendRangeEnd = (range: AgendaRange): AgendaRange =>
+	rangeAtCeiling(range)
+		? range
+		: { ...range, to: earlier(addDays(range.to, PAGE), range.ceiling) };
+
+/**
+ * The cap lifted, by a reader who said so. Another year opens behind the day
+ * the run has reached and the days already held stay where they are, so the
+ * strip keeps growing on the scroll from there.
+ */
+export const liftRangeFloor = (range: AgendaRange): AgendaRange =>
+	extendRangeStart({ ...range, floor: addDays(range.from, -CAP_DAYS) });
+
+export const liftRangeCeiling = (range: AgendaRange): AgendaRange =>
+	extendRangeEnd({ ...range, ceiling: addDays(range.to, CAP_DAYS) });
 
 /**
  * The range that has a day in it. A day already held keeps the range it is in —

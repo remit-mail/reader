@@ -1,14 +1,14 @@
 /**
  * The strip and the address, bound together.
  *
- * Three claims, and every one of them is about the URL rather than about
- * pixels: the strip opens on the day the path names, reaching an end asks for
- * more days rather than replacing the ones on screen, and the day the reader
- * scrolls to is written by `replace` — scrolling is not somewhere they went, so
- * Back belongs to the screen they arrived from and not to every row they
- * passed. The last one is the reason this suite drives the real router instead
- * of a callback: a `push` here would bury the way out under a fortnight of
- * history entries.
+ * Four claims, and every one of them is about the URL rather than about pixels:
+ * the strip opens on the day the path names, the reader reaching an end asks
+ * for a week more rather than replacing the days on screen, a strip nobody
+ * scrolled asks for nothing at all, and the day the reader scrolls to is
+ * written by `replace` — scrolling is not somewhere they went, so Back belongs
+ * to the screen they arrived from and not to every row they passed. The last
+ * one is the reason this suite drives the real router instead of a callback: a
+ * `push` here would bury the way out under a fortnight of history entries.
  */
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
@@ -201,15 +201,49 @@ const mount = async (path = `/calendar/agenda/${DATE}`): Promise<Mounted> => {
 	};
 };
 
-/** The one element the strip scrolls; jsdom has no layout, only the event. */
-const scroller = (dom: DomHarness): Element => {
-	const found = dom.query(".overflow-y-auto");
+/**
+ * The one element the strip scrolls. jsdom has no layout, so it is given the
+ * one part of it these cases turn on: an offset that moves and stays where it
+ * was put. Everything else about the strip's geometry is zero, which is the
+ * sparse diary this suite is about — every end within reach of every other.
+ */
+const stubbed = new WeakSet<Element>();
+
+const scroller = (dom: DomHarness): HTMLElement => {
+	const found = dom.query<HTMLElement>(".overflow-y-auto");
 	if (!found) throw new Error("the strip rendered no scroller");
+	if (stubbed.has(found)) return found;
+	let top = 0;
+	Object.defineProperty(found, "scrollTop", {
+		configurable: true,
+		get: () => top,
+		set: (next: number) => {
+			top = Math.max(0, next);
+		},
+	});
+	stubbed.add(found);
 	return found;
 };
 
-const scroll = (dom: DomHarness) => {
-	dom.dispatch(scroller(dom), new Event("scroll", { bubbles: false }));
+/** A reader scrolling: the gesture, where it took the strip, then the event. */
+const scrollBy = (dom: DomHarness, delta: number) => {
+	const element = scroller(dom);
+	dom.dispatch(element, new Event("wheel", { bubbles: true }));
+	element.scrollTop += delta;
+	dom.dispatch(element, new Event("scroll", { bubbles: false }));
+};
+
+const scrollDown = (dom: DomHarness) => scrollBy(dom, 200);
+const scrollUp = (dom: DomHarness) => scrollBy(dom, -400);
+
+/**
+ * The same movement with nobody behind it: a font swapping under a month of
+ * rows, a pane resized, the offset taken back after days were prepended.
+ */
+const settle = (dom: DomHarness) => {
+	const element = scroller(dom);
+	element.scrollTop += 120;
+	dom.dispatch(element, new Event("scroll", { bubbles: false }));
 };
 
 describe("the day the address names", () => {
@@ -238,21 +272,35 @@ describe("reaching an end of the strip", () => {
 	it("asks for more days without giving up the ones on screen", async () => {
 		const { dom } = await mount();
 		const before = dom.text();
-		assert.doesNotMatch(before, /17 May/);
+		assert.doesNotMatch(before, /11 Jul/);
 
-		scroll(dom);
+		scrollDown(dom);
 		await dom.flush();
 
 		const after = dom.text();
-		assert.match(after, /17 May/, "the days before the window did not arrive");
+		assert.match(after, /11 Jul/, "the days past the window did not arrive");
 		assert.match(after, /9 Jun/, "the days it opened with were thrown away");
+	});
+
+	it("grows the end the reader went to, a week at a time, and only that one", async () => {
+		const { dom } = await mount();
+		scrollDown(dom);
+		await dom.flush();
+		assert.match(dom.text(), /11 Jul/);
+		assert.doesNotMatch(dom.text(), /24 May/, "the end nobody went to grew");
+
+		scrollUp(dom);
+		await dom.flush();
+		assert.match(dom.text(), /24 May/, "the days behind never arrived");
 	});
 
 	it("adds week keys rather than widening the one it holds", async () => {
 		const { dom } = await mount();
 		const opening = eventWindows(dom).map((window) => window.from);
 
-		scroll(dom);
+		scrollDown(dom);
+		await dom.flush();
+		scrollUp(dom);
 		await dom.flush();
 
 		const after = eventWindows(dom).map((window) => window.from);
@@ -269,7 +317,7 @@ describe("reaching an end of the strip", () => {
 	it("never grows a single read past what the server will answer", async () => {
 		const { dom } = await mount();
 		for (let reach = 0; reach < 6; reach += 1) {
-			scroll(dom);
+			scrollDown(dom);
 			await dom.flush();
 		}
 		for (const window of eventWindows(dom)) {
@@ -280,10 +328,50 @@ describe("reaching an end of the strip", () => {
 	});
 });
 
+/**
+ * The bug this suite exists to keep out. A diary with two events in it draws
+ * shorter than the distance the strip fetches at, so both ends are reached from
+ * the first layout pass, and every extension raised another scroll event to
+ * reach them again. Left to run it walked a five-week window out to 2032 and
+ * wrote every day of the way into the path.
+ */
+describe("a strip nobody has scrolled", () => {
+	it("asks for the weeks it opened with and no others", async () => {
+		const { dom } = await mount();
+		const opening = eventWindows(dom)
+			.map((window) => window.from)
+			.sort();
+
+		for (let pass = 0; pass < 5; pass += 1) {
+			settle(dom);
+			await dom.flush();
+		}
+
+		assert.deepEqual(
+			eventWindows(dom)
+				.map((window) => window.from)
+				.sort(),
+			opening,
+		);
+	});
+
+	it("leaves the address on the day it was opened with", async () => {
+		const { dom, router } = await mount();
+		for (let pass = 0; pass < 5; pass += 1) {
+			settle(dom);
+			await dom.flush();
+		}
+		await dom.wait(600);
+		await dom.flush();
+
+		assert.equal(router.state.location.pathname, `/calendar/agenda/${DATE}`);
+	});
+});
+
 describe("the day the reader scrolled to", () => {
 	it("is written to the path, so a reload comes back to it", async () => {
 		const { dom, router } = await mount();
-		scroll(dom);
+		scrollDown(dom);
 		await dom.wait(600);
 		await dom.flush();
 
@@ -297,12 +385,28 @@ describe("the day the reader scrolled to", () => {
 
 	it("replaces rather than pushes, so Back is still the way out", async () => {
 		const mounted = await mount();
-		scroll(mounted.dom);
+		scrollDown(mounted.dom);
 		await mounted.dom.wait(600);
 		await mounted.dom.flush();
 
 		assert.ok(mounted.replaces > 0, "the address was never written");
 		assert.equal(mounted.pushes, 0, "scrolling stacked up history entries");
+	});
+
+	it("stays there while the days it asked for arrive", async () => {
+		const { dom, router } = await mount();
+		scrollDown(dom);
+		await dom.wait(600);
+		await dom.flush();
+		const landed = router.state.location.pathname;
+
+		// The prepend takes the scroll offset back, which is another scroll event.
+		// It is not the reader moving, so it writes nothing.
+		settle(dom);
+		await dom.wait(600);
+		await dom.flush();
+
+		assert.equal(router.state.location.pathname, landed);
 	});
 });
 

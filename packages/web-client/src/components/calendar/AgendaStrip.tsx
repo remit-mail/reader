@@ -63,6 +63,15 @@ export interface AgendaStripProps {
 	onGoToDate: (date: string) => void;
 	onReachStart: () => void;
 	onReachEnd: () => void;
+	/**
+	 * The run has grown as far as scrolling takes it. The strip says so at that
+	 * end and offers the next stretch, so a diary too sparse to fill the pane
+	 * cannot fetch its way across years nobody asked for.
+	 */
+	atStartCap?: boolean;
+	atEndCap?: boolean;
+	onLoadEarlier?: () => void;
+	onLoadLater?: () => void;
 	/** The day under the sticky header, which the address follows. */
 	onVisibleDayChange: (date: string) => void;
 }
@@ -86,6 +95,10 @@ export function AgendaStrip({
 	onGoToDate,
 	onReachStart,
 	onReachEnd,
+	atStartCap,
+	atEndCap,
+	onLoadEarlier,
+	onLoadLater,
 	onVisibleDayChange,
 }: AgendaStripProps) {
 	const nextUp = useMemo(() => readNextUp(days, now), [days, now]);
@@ -126,6 +139,10 @@ export function AgendaStrip({
 			onZoomDay={onZoomDay}
 			onReachStart={onReachStart}
 			onReachEnd={onReachEnd}
+			atStartCap={atStartCap}
+			atEndCap={atEndCap}
+			onLoadEarlier={onLoadEarlier}
+			onLoadLater={onLoadLater}
 			onVisibleDayChange={onVisibleDayChange}
 			todayLead={
 				settledToday ? (

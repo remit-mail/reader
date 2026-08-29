@@ -175,6 +175,19 @@ test.describe("The agenda strip", () => {
 		await expect(free.first()).toBeVisible();
 		await expect(free.first()).toContainText(/\d+h( \d+m)? free/);
 
+		const trailing = runs.last();
+		const opened = runDays(await trailing.innerText());
+		expect(opened).toBeGreaterThan(0);
+
+		// Every week the strip asks for from here. A run that grows on its own
+		// fetches one per layout pass, so this is the app's own account of whether
+		// anything moved, and it needs no waiting to read.
+		const weekReads: string[] = [];
+		page.on("request", (request) => {
+			if (request.url().includes("/calendar-events"))
+				weekReads.push(request.url());
+		});
+
 		// The strip scrolls only when it is taller than the pane holding it, and
 		// five weeks with two events in them are a handful of rows. A short window
 		// is the honest way to get a scrollbar, rather than inventing a diary the
@@ -186,42 +199,71 @@ test.describe("The agenda strip", () => {
 			})
 			.toBeGreaterThan(0);
 
-		const trailing = runs.last();
-		const held = runDays(await trailing.innerText());
-		expect(held).toBeGreaterThan(0);
+		// Two events five weeks apart draw shorter than the distance the strip
+		// fetches at, so every end is within reach of itself on every layout pass
+		// — and resizing the pane is a whole run of them. Nobody scrolled, so
+		// nothing is asked for and the address stays on the day it was opened
+		// with: the strip used to walk out to 2032 here, taking the path with it.
+		expect(weekReads).toEqual([]);
+		expect(runDays(await trailing.innerText())).toBe(opened);
+		expect(pathDay(page)).toBe(ANCHOR);
 
 		const history = await page.evaluate(() => window.history.length);
 
-		await strip.evaluate((el) => {
-			el.scrollTop = el.scrollHeight;
-		});
+		// The reader's own scroll, which is the only thing that grows the run.
+		await strip.hover();
+		await page.mouse.wheel(0, 4_000);
 
-		// Reaching the end grew the range: the last run now accounts for days the
-		// strip had never asked about when it opened.
+		// Reaching the end grew the range by a week: the last run now accounts for
+		// days the strip had never asked about when it opened.
 		await expect
 			.poll(async () => runDays(await trailing.innerText()), {
 				message: "the strip to hold days past the range it opened with",
 			})
-			.toBeGreaterThan(held);
+			.toBeGreaterThan(opened);
+		const ahead = weekReads.length;
+		expect(ahead).toBeGreaterThan(0);
+
+		// Back the other way, far enough to put the days before the anchor under
+		// the header. Which end a reader reaches is theirs to choose, and the run
+		// grows at whichever one they went to.
+		const leading = runs.first();
+		const behind = runDays(await leading.innerText());
+		await page.mouse.wheel(0, -4_000);
+		await expect
+			.poll(async () => runDays(await leading.innerText()), {
+				message: "the strip to hold days before the range it opened with",
+			})
+			.toBeGreaterThan(behind);
+		const asked = weekReads.length;
+		expect(asked).toBeGreaterThan(ahead);
 
 		// The day under the header is written back to the path, in the direction
-		// the reader went: the end of the strip is later than the day it opened
+		// the reader went: the top of the strip is earlier than the day it opened
 		// on, so that is where the address has to be.
 		await expect
 			.poll(dayInPath(page), {
-				message: "the address to follow the strip on to the days it reached",
+				message: "the address to follow the strip back on to the days behind",
 			})
-			.toBeGreaterThan(0);
+			.toBeLessThan(0);
 		const landed = pathDay(page);
 		expect(landed).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 		// Scrolling is not somewhere the reader went, so Back still belongs to the
 		// screen they arrived from rather than to every row they passed.
 		expect(await page.evaluate(() => window.history.length)).toBe(history);
 
-		// The window stays short for the rest of this: growing it back would clamp
-		// the scroll the strip is holding, which is another scroll, another day
-		// under the header, and an address that moved for no reader.
-		//
+		// The pane grows back around the strip and takes its scroll with it. That
+		// is a scroll event with nobody behind it, so nothing is fetched and the
+		// address stays where the reader left it.
+		await page.setViewportSize(DESKTOP);
+		await expect
+			.poll(() => strip.evaluate((el) => el.scrollHeight - el.clientHeight), {
+				message: "the pane to grow back past the strip and clamp its scroll",
+			})
+			.toBe(0);
+		expect(weekReads).toHaveLength(asked);
+		expect(pathDay(page)).toBe(landed);
+
 		// Changing zoom keeps the day and the ticked calendars: the grid is a
 		// magnification the reader drops into, not a different screen.
 		await page
