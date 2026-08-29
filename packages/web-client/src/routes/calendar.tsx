@@ -18,7 +18,7 @@ import { CalendarShellProvider } from "@/components/calendar/CalendarShell";
 import { MailNav } from "@/components/mail/MailNav";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
-import { isOverlayPanel, useOpenPanels, useSetOpenPanels } from "@/routing";
+import { panelsWithOverlay, useOpenPanels, useSetOpenPanels } from "@/routing";
 import "@/lib/client";
 
 export const Route = createFileRoute("/calendar")({
@@ -39,10 +39,7 @@ function CalendarLayout() {
 	const navOpen = openPanels.includes("nav");
 	const showNav = useCallback(
 		(open: boolean) => {
-			setOpenPanels([
-				...openPanels.filter((panel) => !isOverlayPanel(panel)),
-				...(open ? (["nav"] as const) : []),
-			]);
+			setOpenPanels(panelsWithOverlay(openPanels, open ? "nav" : undefined));
 		},
 		[openPanels, setOpenPanels],
 	);

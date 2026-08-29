@@ -11,6 +11,7 @@ import {
 } from "@remit/ui";
 import { useId, useState } from "react";
 import { CalendarViewPlaceholder } from "@/components/calendar/CalendarViewPlaceholder";
+import { NavMenuButton } from "@/components/mail/NavMenuButton";
 import { calendarViewMountsGrid } from "@/lib/calendar-route";
 
 /**
@@ -102,6 +103,10 @@ export function CalendarWorkspace({
 	return (
 		<div className="flex h-full min-h-0 flex-col bg-surface">
 			<div className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-2">
+				{/* Below the nav pane the sidebar is a slide-over with nothing to open
+				    it: the calendar is a whole surface of its own, so without this
+				    the reader has no way back to their mail. */}
+				<NavMenuButton />
 				<CalendarDateNav
 					title={title}
 					onPrev={() => onStep(-1)}

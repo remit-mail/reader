@@ -27,6 +27,7 @@ export {
 	overlayPanels,
 	type PanelFragment,
 	panelFragments,
+	panelsWithOverlay,
 	parseOpenPanels,
 	retainOpenPanelsAtTier,
 	useOpenPanels,

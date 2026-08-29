@@ -146,12 +146,11 @@ const calendarIdSchema = z.string().min(1);
 /**
  * The calendars a query string has ticked.
  *
- * Repeated `calendarId=` params are what a link written by hand carries, and
- * the router hands a single one through as a scalar and a numeric-looking one
- * as a number, so all three readings arrive here. One set of ticked calendars
- * has one spelling — which is what deduplicating and sorting is for — and the
- * router writes that set back as the validated list R5 allows, so a link
- * arriving in either spelling opens the same calendars.
+ * Repeated `calendarId=` params are the shape, and the shape the address is
+ * written back in (`lib/search-params.ts`). They arrive here in three readings
+ * all the same: a list from repeated params, a scalar from a single one, and a
+ * number where the id looked like one. One set of ticked calendars has one
+ * spelling, which is what deduplicating and sorting is for.
  */
 export function readCalendarIds(value: unknown): string[] {
 	const raw = value === undefined || value === null ? [] : [value].flat();

@@ -4,11 +4,11 @@
  * `$recurrenceId` segment beside this one.
  */
 import { createFileRoute } from "@tanstack/react-router";
-import { CalendarEventPane } from "@/components/calendar/CalendarEventPane";
+import { OpenCalendarEvent } from "@/components/calendar/OpenCalendarEvent";
 
 function CalendarEventRoute() {
 	const { calendarObjectId } = Route.useParams();
-	return <CalendarEventPane calendarObjectId={calendarObjectId} />;
+	return <OpenCalendarEvent calendarObjectId={calendarObjectId} />;
 }
 
 export const Route = createFileRoute(

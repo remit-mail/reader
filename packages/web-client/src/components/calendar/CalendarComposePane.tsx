@@ -1,5 +1,4 @@
 import { CalendarPlus } from "lucide-react";
-import { useCalendarNavigation } from "@/routing";
 
 /**
  * Writing a new event.
@@ -11,8 +10,11 @@ import { useCalendarNavigation } from "@/routing";
  * The editor itself needs somewhere to save to, so it arrives with the calendar
  * API. The route says that rather than rendering an empty pane.
  */
-export function CalendarComposePane() {
-	const { closeEvent } = useCalendarNavigation();
+export interface CalendarComposePaneProps {
+	onClose: () => void;
+}
+
+export function CalendarComposePane({ onClose }: CalendarComposePaneProps) {
 	return (
 		<div className="flex h-full flex-col items-center justify-center gap-2 bg-surface p-8 text-center">
 			<CalendarPlus className="size-8 text-fg-subtle" aria-hidden="true" />
@@ -22,7 +24,7 @@ export function CalendarComposePane() {
 			</p>
 			<button
 				type="button"
-				onClick={closeEvent}
+				onClick={onClose}
 				className="rounded-md border border-line px-2.5 py-1 text-sm font-medium text-fg outline-none hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-ring"
 			>
 				Back to the calendar

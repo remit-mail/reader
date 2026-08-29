@@ -1,4 +1,3 @@
-// biome-ignore lint/style/useFilenamingConvention: TanStack Router convention
 /**
  * /calendar/{view}/{date}/new — writing an event.
  *
@@ -9,7 +8,13 @@
  */
 import { createFileRoute } from "@tanstack/react-router";
 import { CalendarComposePane } from "@/components/calendar/CalendarComposePane";
+import { useCalendarNavigation } from "@/routing";
+
+function CalendarComposeRoute() {
+	const { closeEvent } = useCalendarNavigation();
+	return <CalendarComposePane onClose={closeEvent} />;
+}
 
 export const Route = createFileRoute("/calendar/$view/$date/new")({
-	component: CalendarComposePane,
+	component: CalendarComposeRoute,
 });

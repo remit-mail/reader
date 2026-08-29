@@ -20,7 +20,12 @@ import {
 	isRedirect,
 	Outlet,
 } from "@tanstack/react-router";
-import { calendarSearchSchema, isoDate } from "@/lib/calendar-route";
+import {
+	calendarSearchSchema,
+	isoDate,
+	stepCalendarDate,
+} from "@/lib/calendar-route";
+import { stringifySearch } from "@/lib/search-params";
 import { Route as OccurrenceRoute } from "./$view.$date/$calendarObjectId/$recurrenceId.js";
 import { Route as EventIndexRoute } from "./$view.$date/$calendarObjectId/index.js";
 import { Route as EventRoute } from "./$view.$date/$calendarObjectId.js";
@@ -78,12 +83,17 @@ interface Match {
 	params: Record<string, string>;
 }
 
-/** The routes an address mounts, deepest last. */
-function match(entry: string): Match {
-	const router = createRouter({
+/** A router over the tree, spelling its query string the way the app does. */
+const routerAt = (entry: string): AnyRouter =>
+	createRouter({
 		routeTree,
+		stringifySearch,
 		history: createMemoryHistory({ initialEntries: [entry] }),
 	}) as unknown as AnyRouter;
+
+/** The routes an address mounts, deepest last. */
+function match(entry: string): Match {
+	const router = routerAt(entry);
 	const matches = router.matchRoutes(router.state.location);
 	return {
 		routeIds: matches.map((one: { routeId: string }) => one.routeId),
@@ -94,6 +104,7 @@ function match(entry: string): Match {
 interface SentTo {
 	to?: string;
 	params?: Record<string, string>;
+	search?: Record<string, unknown>;
 }
 
 const beforeLoadOf = (route: unknown): ((args: unknown) => void) => {
@@ -136,6 +147,14 @@ describe("/calendar", () => {
 		const sent = sentTo(CalendarIndexRoute, { params: {}, search: {} });
 		assert.equal(sent.to, "/calendar/$view/$date");
 		assert.deepEqual(sent.params, { view: "week", date: TODAY });
+	});
+
+	it("takes whatever the link ticked off with it", () => {
+		const sent = sentTo(CalendarIndexRoute, {
+			params: {},
+			search: { calendarId: ["cal_a"] },
+		});
+		assert.deepEqual(sent.search, { calendarId: ["cal_a"] });
 	});
 });
 
@@ -181,6 +200,36 @@ describe("the ticked calendars", () => {
 				.validateSearch,
 			calendarSearchSchema,
 		);
+	});
+
+	/**
+	 * The address the toolbar's Next writes. Repeated params are the shape the
+	 * issue pins and the shape A.3 and C.2 inherit, so what a step writes is
+	 * asserted rather than assumed: the router's own serializer would have made
+	 * this a JSON blob.
+	 */
+	it("are written as repeated params when the week steps", () => {
+		const router = routerAt("/calendar/week/2026-06-10?calendarId=cal_a");
+		const next = router.buildLocation({
+			to: "/calendar/$view/$date",
+			params: {
+				view: "week",
+				date: stepCalendarDate("2026-06-10", "week", 1),
+			},
+			search: { calendarId: ["cal_a", "cal_b"] },
+		});
+		assert.equal(next.pathname, "/calendar/week/2026-06-17");
+		assert.equal(next.searchStr, "?calendarId=cal_a&calendarId=cal_b");
+	});
+
+	it("leave the query out of a step that has nothing ticked", () => {
+		const router = routerAt("/calendar/week/2026-06-10");
+		const next = router.buildLocation({
+			to: "/calendar/$view/$date",
+			params: { view: "week", date: "2026-06-17" },
+			search: {},
+		});
+		assert.equal(next.searchStr, "");
 	});
 });
 

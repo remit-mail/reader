@@ -11,9 +11,13 @@ import "@remit/test-dom";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { CalendarColorId, CalendarEventData } from "@remit/ui";
-import { createElement } from "react";
+import { AppShellSlotted } from "@remit/ui";
+import { createElement, type ReactElement } from "react";
 import { renderToString } from "react-dom/server";
-import { CalendarWorkspace } from "./CalendarWorkspace.js";
+import {
+	CalendarWorkspace,
+	type CalendarWorkspaceProps,
+} from "./CalendarWorkspace.js";
 
 const TIME_ZONE = "Europe/Amsterdam";
 const DATE = "2026-06-10";
@@ -47,15 +51,32 @@ const roadmap: CalendarEventData = {
 
 const noop = () => {};
 
+const workspaceProps = (
+	view: "year" | "month" | "week" | "day" | "agenda",
+	events: CalendarEventData[] = [roadmap],
+): CalendarWorkspaceProps => ({
+	view,
+	date: DATE,
+	events,
+	colorByCalendarId,
+	density: "comfortable",
+	selectedEventId: "",
+	timeZone: TIME_ZONE,
+	now: NOW,
+	onChangeView: noop,
+	onToday: noop,
+	onStep: noop,
+	onChangeDensity: noop,
+	onSelectEvent: noop,
+	onPickSlot: noop,
+});
+
 /**
  * The calendar engine schedules browser timers while it renders. Nothing mounts
  * here, so nothing ever clears them and the suite would sit on a live event
  * loop after its last assertion. Take them back.
  */
-const render = (
-	view: "year" | "month" | "week" | "day" | "agenda",
-	events: CalendarEventData[] = [roadmap],
-): string => {
+function renderQuietly(element: ReactElement): string {
 	const scheduled: ReturnType<typeof setTimeout>[] = [];
 	const native = globalThis.setTimeout;
 	globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
@@ -64,29 +85,18 @@ const render = (
 		return handle;
 	}) as typeof globalThis.setTimeout;
 	try {
-		return renderToString(
-			createElement(CalendarWorkspace, {
-				view,
-				date: DATE,
-				events,
-				colorByCalendarId,
-				density: "comfortable" as const,
-				selectedEventId: "",
-				timeZone: TIME_ZONE,
-				now: NOW,
-				onChangeView: noop,
-				onToday: noop,
-				onStep: noop,
-				onChangeDensity: noop,
-				onSelectEvent: noop,
-				onPickSlot: noop,
-			}),
-		);
+		return renderToString(element);
 	} finally {
 		globalThis.setTimeout = native;
 		for (const handle of scheduled) clearTimeout(handle);
 	}
-};
+}
+
+const render = (
+	view: "year" | "month" | "week" | "day" | "agenda",
+	events: CalendarEventData[] = [roadmap],
+): string =>
+	renderQuietly(createElement(CalendarWorkspace, workspaceProps(view, events)));
 
 describe("the zoom the address names", () => {
 	it("draws the grid for the week and the day", () => {
@@ -152,5 +162,32 @@ describe("a week with nothing in it", () => {
 		const html = render("week", []);
 		assert.equal(html.includes("Not built yet"), false);
 		assert.ok(html.includes('aria-label="Previous"'));
+	});
+});
+
+/**
+ * The way back to the mail, at a width where the nav is not a pane.
+ *
+ * The shell renders the sidebar as a slide-over below 1024px and nothing opens
+ * a slide-over on its own, so a surface that is the whole width of the app has
+ * to carry the control itself — mail's own list headers do, and the calendar is
+ * reached from the same sidebar it would otherwise strand a reader away from.
+ */
+describe("the folders control", () => {
+	const shell = (width: number): string =>
+		renderQuietly(
+			createElement(AppShellSlotted, {
+				initialWidth: width,
+				nav: createElement("nav", null, "Folders"),
+				list: createElement(CalendarWorkspace, workspaceProps("week")),
+			}),
+		);
+
+	it("is in the calendar's header where the nav is a slide-over", () => {
+		assert.match(shell(900), /aria-label="Open folders"/);
+	});
+
+	it("is absent where the nav is a pane of its own", () => {
+		assert.doesNotMatch(shell(1440), /aria-label="Open folders"/);
 	});
 });
