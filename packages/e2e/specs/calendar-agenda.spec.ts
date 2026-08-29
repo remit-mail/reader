@@ -8,6 +8,7 @@
  * against `GET /calendar-events` and `GET /calendar-free-busy`, so a strip
  * drawing its own cache back at itself cannot pass.
  */
+import type { Page } from "@playwright/test";
 import type { CalendarEventResource } from "../src/api.js";
 import { waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
@@ -40,6 +41,18 @@ const startOfDay = (date: string): string => `${date}T00:00:00+00:00`;
 const dayNumber = (date: string): string => String(Number(date.slice(8)));
 
 const agendaPath = (date: string): string => `/calendar/agenda/${date}`;
+
+/** The day the address names, or `""` when it is not naming one at all. */
+const pathDay = (page: Page): string =>
+	/^\/calendar\/agenda\/(\d{4}-\d{2}-\d{2})$/.exec(
+		new URL(page.url()).pathname,
+	)?.[1] ?? "";
+
+/** Which side of the day the strip opened on the address has reached. */
+const dayInPath =
+	(page: Page): (() => number) =>
+	() =>
+		pathDay(page).localeCompare(ANCHOR);
 
 /** "31 days with nothing booked" — the run's own account of what it swallowed. */
 const runDays = (text: string): number =>
@@ -191,23 +204,30 @@ test.describe("The agenda strip", () => {
 			})
 			.toBeGreaterThan(held);
 
+		// The day under the header is written back to the path, in the direction
+		// the reader went: the end of the strip is later than the day it opened
+		// on, so that is where the address has to be.
+		await expect
+			.poll(dayInPath(page), {
+				message: "the address to follow the strip on to the days it reached",
+			})
+			.toBeGreaterThan(0);
+		expect(await page.evaluate(() => window.history.length)).toBe(history);
+
 		await strip.evaluate((el) => {
 			el.scrollTop = 0;
 		});
 
-		// The day under the header is written back to the path, and Back still
-		// belongs to the screen the reader arrived from rather than to every row
-		// they passed on the way.
+		// And back the other way, to the days behind the one it opened on.
 		await expect
-			.poll(() => new URL(page.url()).pathname, {
-				message: "the address to follow the strip to the day it scrolled to",
+			.poll(dayInPath(page), {
+				message: "the address to follow the strip back to the days behind it",
 			})
-			.not.toBe(agendaPath(ANCHOR));
-		const scrolled = new URL(page.url()).pathname;
-		expect(scrolled).toMatch(/^\/calendar\/agenda\/\d{4}-\d{2}-\d{2}$/);
-		// Behind the day it opened on, which is where the reader scrolled to.
-		const landed = scrolled.split("/").pop() ?? "";
-		expect(landed.localeCompare(ANCHOR)).toBeLessThan(0);
+			.toBeLessThan(0);
+		const landed = pathDay(page);
+		expect(landed).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+		// Scrolling is not somewhere the reader went, so Back still belongs to the
+		// screen they arrived from rather than to every row they passed.
 		expect(await page.evaluate(() => window.history.length)).toBe(history);
 
 		await page.setViewportSize(DESKTOP);
