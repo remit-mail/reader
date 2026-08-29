@@ -132,17 +132,27 @@ const denseDay: CalendarEventData[] = [
 
 const dates = datesBetween("2026-06-01", "2026-06-24");
 
+const pendingDates = (
+	loading: "none" | "all" | "week",
+): ReadonlySet<string> => {
+	if (loading === "all") return new Set(dates);
+	if (loading === "week")
+		return new Set(datesBetween("2026-06-15", "2026-06-21"));
+	return new Set();
+};
+
 /** The reader drives density; everything else is the address's in the app. */
 function Strip({
 	events,
 	initialDensity,
-	isLoading,
+	loading,
 	error,
 	busy,
 }: {
 	events: CalendarEventData[];
 	initialDensity: Density;
-	isLoading: boolean;
+	/** Which days have not answered: "all", "none", or one week of them. */
+	loading: "none" | "all" | "week";
 	error?: unknown;
 	/** Busy time the strip is not drawing, as `/calendar-free-busy` returns it. */
 	busy: { start: string; end: string }[];
@@ -166,7 +176,7 @@ function Strip({
 					? freeStretchesOn(day)
 					: (measured.get(day.date) ?? freeStretchesOn(day))
 			}
-			isLoading={isLoading}
+			loadingDates={pendingDates(loading)}
 			error={error}
 			onRetry={() => undefined}
 			onSelectEvent={setSelected}
@@ -187,7 +197,7 @@ const meta: Meta<typeof Strip> = {
 	args: {
 		events: fortnight,
 		initialDensity: "comfortable",
-		isLoading: false,
+		loading: "none",
 		busy: [],
 	},
 	render: (args) => (
@@ -203,8 +213,15 @@ type Story = StoryObj<typeof Strip>;
 /** A fortnight: two busy days, a pile-up, and the quiet in between named. */
 export const PopulatedFortnight: Story = {};
 
-/** Before the first window lands. Not an empty diary, and it says so. */
-export const Loading: Story = { args: { isLoading: true, events: [] } };
+/**
+ * Before any week has answered. Every day is a skeleton on the date it will
+ * occupy, so nothing jumps when the answers land — and, crucially, this does
+ * not read as a fortnight with nothing booked.
+ */
+export const Loading: Story = { args: { loading: "all", events: [] } };
+
+/** One week still in flight, with the answered days around it drawn. */
+export const OneWeekStillLoading: Story = { args: { loading: "week" } };
 
 /**
  * Nothing booked for weeks. The claim this view makes is that one sentence is a

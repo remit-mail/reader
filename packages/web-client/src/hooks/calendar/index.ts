@@ -7,7 +7,6 @@
  */
 export {
 	type AgendaRange,
-	agendaWindow,
 	busySpansByDate,
 	datesInRange,
 	extendRangeEnd,
@@ -19,6 +18,8 @@ export {
 	PAGE,
 	rangeAround,
 	rangeCovering,
+	weekKeyOf,
+	weekWindowsOver,
 } from "./agenda-window";
 export {
 	type CreateInput,
@@ -46,18 +47,27 @@ export {
 	textFromIcalData,
 } from "./resource";
 export {
+	type CalendarSelection,
+	selectCalendarIds,
+	useCalendarSelection,
+	useDrawnEvents,
+} from "./selection";
+export {
 	type CalendarEventResource,
 	useCalendarEvent,
 } from "./useCalendarEvent";
 export {
+	CALENDAR_WINDOW_STALE_TIME,
+	type CalendarEventWeeksResult,
 	type CalendarEventWindowRequest,
 	type CalendarEventWindowResult,
+	useCalendarEventWeeks,
 	useCalendarEventWindow,
 	usePrefetchAdjacentWindows,
 } from "./useCalendarEvents";
 export {
 	type CalendarFreeBusyResult,
-	useCalendarFreeBusy,
+	useCalendarFreeBusyWeeks,
 } from "./useCalendarFreeBusy";
 export { type CalendarsResult, useCalendars } from "./useCalendars";
 export {

@@ -8,7 +8,6 @@ import {
 	NextUpCard,
 	readNextUp,
 } from "@remit/ui";
-import { Loader2 } from "lucide-react";
 import { useMemo } from "react";
 import { ErrorState } from "@/components/ui/ErrorState";
 import type { FreeLookup } from "@/hooks/calendar";
@@ -42,8 +41,13 @@ export interface AgendaStripProps {
 	selectedEventId: string;
 	/** What is still open on a day, measured off merged busy time. */
 	freeOn: FreeLookup;
-	/** No days have arrived yet. */
-	isLoading: boolean;
+	/**
+	 * Days whose week has not answered yet. They draw as skeletons: a day
+	 * nobody has heard back about and a day with nothing on it are otherwise
+	 * the same picture, and the strip would be claiming a free fortnight it has
+	 * no grounds for.
+	 */
+	loadingDates: ReadonlySet<string>;
 	/**
 	 * A refusal stated in place of the strip. A diary drawn empty because the
 	 * read failed is indistinguishable from a diary with nothing in it, which is
@@ -72,7 +76,7 @@ export function AgendaStrip({
 	now,
 	selectedEventId,
 	freeOn,
-	isLoading,
+	loadingDates,
 	error,
 	onRetry,
 	scrollTarget,
@@ -85,6 +89,12 @@ export function AgendaStrip({
 	onVisibleDayChange,
 }: AgendaStripProps) {
 	const nextUp = useMemo(() => readNextUp(days, now), [days, now]);
+	/*
+	 * "What is next" is an answer about days that have arrived. Drawn over a
+	 * today whose week is still out it reads "Nothing else booked", which is a
+	 * claim rather than a delay.
+	 */
+	const settledToday = !loadingDates.has(today);
 
 	if (error !== undefined && error !== null)
 		return (
@@ -97,19 +107,9 @@ export function AgendaStrip({
 			</div>
 		);
 
-	/* Days already on screen stay while more are on the way; only a strip with
-	   nothing at all says so, because blank rows read as a free fortnight. */
-	if (isLoading && days.length === 0)
-		return (
-			<div
-				role="status"
-				aria-label="Loading the agenda"
-				className="flex h-full items-center justify-center bg-surface"
-			>
-				<Loader2 className="size-6 animate-spin text-fg-subtle" />
-			</div>
-		);
-
+	/* No spinner over the whole strip. Days already fetched stay put while their
+	   neighbours arrive, and a day still outstanding says so where it will be
+	   drawn — which is also what stops the rows jumping when it lands. */
 	return (
 		<AgendaFlow
 			days={days}
@@ -119,6 +119,7 @@ export function AgendaStrip({
 			focusDate={anchorDate}
 			selectedEventId={selectedEventId}
 			freeOn={freeOn}
+			loadingDates={loadingDates}
 			scrollTarget={scrollTarget}
 			onSelectEvent={onSelectEvent}
 			onPickSlot={onPickSlot}
@@ -127,15 +128,17 @@ export function AgendaStrip({
 			onReachEnd={onReachEnd}
 			onVisibleDayChange={onVisibleDayChange}
 			todayLead={
-				<div className="border-b border-line bg-surface-sunken p-3">
-					<NextUpCard
-						nextUp={nextUp}
-						calendars={calendars}
-						today={today}
-						onSelectEvent={onSelectEvent}
-						onGoTo={onGoToDate}
-					/>
-				</div>
+				settledToday ? (
+					<div className="border-b border-line bg-surface-sunken p-3">
+						<NextUpCard
+							nextUp={nextUp}
+							calendars={calendars}
+							today={today}
+							onSelectEvent={onSelectEvent}
+							onGoTo={onGoToDate}
+						/>
+					</div>
+				) : undefined
 			}
 		/>
 	);

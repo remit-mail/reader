@@ -26,16 +26,22 @@ import {
 	Outlet,
 	RouterProvider,
 } from "@tanstack/react-router";
-import { act, createElement } from "react";
+import { act, createElement, type ReactNode } from "react";
 import {
-	agendaWindow,
+	calendarWindow,
+	datesInRange,
 	extendRangeEnd,
 	extendRangeStart,
 	rangeAround,
+	weekWindowsOver,
 } from "@/hooks/calendar";
-import { useCalendarNavigation } from "@/routing";
+import { useCalendarData } from "@/hooks/useCalendarData";
+import { useCalendarAddress, useCalendarNavigation } from "@/routing";
 import { createDomHarness, type DomHarness } from "@/test-support/dom";
-import { calendarSearchSchema } from "../../lib/calendar-route";
+import {
+	calendarSearchSchema,
+	calendarViewMountsAgenda,
+} from "../../lib/calendar-route";
 import { stringifySearch } from "../../lib/search-params";
 import { AgendaView } from "./AgendaView";
 
@@ -78,13 +84,16 @@ function CalendarLayout() {
 	);
 }
 
-const testRouter = (path: string): AnyRouter => {
+const testRouter = (
+	path: string,
+	component: () => ReactNode = CalendarLayout,
+): AnyRouter => {
 	const rootRoute = createRootRoute({ component: Outlet });
 	const viewRoute = createRoute({
 		getParentRoute: () => rootRoute,
 		path: "/calendar/$view/$date",
 		validateSearch: calendarSearchSchema,
-		component: CalendarLayout,
+		component,
 	});
 	// The strip reads whether an event is open, which is a child of this route.
 	const eventRoute = createRoute({
@@ -117,22 +126,28 @@ const testRouter = (path: string): AnyRouter => {
 	}) as unknown as AnyRouter;
 };
 
+/** How many times a case reaches an end, and so how far the strip can go. */
+const REACHES = 8;
+
+/** Every week the strip can reach, given that many pulls at either end. */
+const reachableWeeks = () => {
+	let range = rangeAround(DATE);
+	for (let reach = 0; reach < REACHES; reach += 1) {
+		range = extendRangeEnd(extendRangeStart(range));
+	}
+	return weekWindowsOver(datesInRange(range));
+};
+
 /**
- * Every window the strip can ask for in one case, answered from the cache. A
- * window nobody seeded would fire a real request, and what these cases are
- * about is which windows get asked for, not what comes back.
+ * Every week the strip can ask for, answered from the cache. A week nobody
+ * seeded would fire a real request, and what these cases are about is which
+ * weeks get asked for, not what comes back.
  */
 const seed = (dom: DomHarness) => {
-	const opening = rangeAround(DATE);
-	const windows = [
-		agendaWindow(opening),
-		agendaWindow(extendRangeStart(opening)),
-		agendaWindow(extendRangeEnd(opening)),
-	];
 	dom.queryClient.setQueryData(calendarOperationsListCalendarsQueryKey(), {
 		items: [],
 	});
-	for (const window of windows) {
+	for (const window of reachableWeeks()) {
 		dom.queryClient.setQueryData(
 			calendarEventOperationsListCalendarEventsQueryKey({ query: window }),
 			{ items: [] },
@@ -203,11 +218,19 @@ describe("the day the address names", () => {
 		assert.match(dom.text(), /Wednesday/, "the header names another day");
 	});
 
-	it("asks only for the days around it, not for the year", async () => {
+	it("asks for the weeks around it, one request each", async () => {
 		const { dom } = await mount();
 		const asked = eventWindows(dom);
-		assert.equal(asked.length, 1);
-		assert.deepEqual(asked[0], agendaWindow(rangeAround(DATE)));
+		const expected = weekWindowsOver(datesInRange(rangeAround(DATE)));
+		assert.deepEqual(
+			asked.map((window) => window.from).sort(),
+			expected.map((window) => window.from).sort(),
+		);
+		for (const window of asked) {
+			const days =
+				(Date.parse(window.to) - Date.parse(window.from)) / 86_400_000;
+			assert.equal(days, 7, "a read covered more than one week");
+		}
 	});
 });
 
@@ -225,16 +248,35 @@ describe("reaching an end of the strip", () => {
 		assert.match(after, /9 Jun/, "the days it opened with were thrown away");
 	});
 
-	it("asks for a window it did not already hold", async () => {
+	it("adds week keys rather than widening the one it holds", async () => {
 		const { dom } = await mount();
+		const opening = eventWindows(dom).map((window) => window.from);
+
 		scroll(dom);
 		await dom.flush();
 
-		const opening = agendaWindow(rangeAround(DATE));
+		const after = eventWindows(dom).map((window) => window.from);
+		for (const from of opening) {
+			assert.ok(after.includes(from), `${from} was given up to fetch more`);
+		}
+		assert.ok(after.length > opening.length, "no week was added");
 		assert.ok(
-			eventWindows(dom).some((window) => window.from < opening.from),
-			"no window reached further back than the one it opened with",
+			after.some((from) => from < opening[0]),
+			"nothing reached further back than the week it opened with",
 		);
+	});
+
+	it("never grows a single read past what the server will answer", async () => {
+		const { dom } = await mount();
+		for (let reach = 0; reach < 6; reach += 1) {
+			scroll(dom);
+			await dom.flush();
+		}
+		for (const window of eventWindows(dom)) {
+			const days =
+				(Date.parse(window.to) - Date.parse(window.from)) / 86_400_000;
+			assert.equal(days, 7, `a read covered ${days} days`);
+		}
 	});
 });
 
@@ -281,6 +323,52 @@ describe("dropping into the grid and back out", () => {
 
 		assert.equal(router.state.location.pathname, `/calendar/week/${DATE}`);
 		assert.deepEqual(router.state.location.search.calendarId, [HOME, WORK]);
+	});
+});
+
+/**
+ * The layout's own read, bound exactly as the route binds it. Mounted without
+ * the strip, so any window in the cache came from here.
+ */
+function LayoutOnly() {
+	const { view, date, calendarIds } = useCalendarAddress();
+	useCalendarData({
+		view,
+		date,
+		calendarIds,
+		enabled: !calendarViewMountsAgenda(view),
+	});
+	return createElement("div", { "data-testid": "layout-only" });
+}
+
+describe("the layout's own week, at a zoom that does not draw it", () => {
+	const mountLayout = async (view: string): Promise<DomHarness> => {
+		const dom = createDomHarness();
+		harness = dom;
+		seed(dom);
+		const router = testRouter(`/calendar/${view}/${DATE}`, LayoutOnly);
+		await router.load();
+		dom.renderApp(createElement(RouterProvider, { router }));
+		await dom.flush();
+		return dom;
+	};
+
+	it("reads the week the grid draws", async () => {
+		const dom = await mountLayout("week");
+		assert.deepEqual(
+			eventWindows(dom).map((window) => window.from),
+			[calendarWindow("week", DATE).from],
+		);
+	});
+
+	/*
+	 * The strip fetches its own weeks, so this read renders nothing — and the
+	 * address rewrites on every scroll, so leaving it on would ask again, with
+	 * its two neighbours prefetched, all the way down the strip.
+	 */
+	it("asks for nothing at all at the agenda zoom", async () => {
+		const dom = await mountLayout("agenda");
+		assert.deepEqual(eventWindows(dom), []);
 	});
 });
 

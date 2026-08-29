@@ -282,6 +282,22 @@ describe("freeStretchesFromSpans", () => {
 		assert.deepEqual(clocks([whole]), ["08:00–22:00"]);
 	});
 
+	/**
+	 * The cursor only moves forward, so spans arriving out of order used to emit
+	 * a band across time that is booked. A caller cannot be asked to remember a
+	 * precondition whose only symptom is being told an afternoon is free.
+	 */
+	it("orders and joins the spans it was given, however they arrive", () => {
+		const scrambled = [
+			{ from: 13 * 60, to: 16 * 60 },
+			{ from: 9 * 60, to: 12 * 60 },
+			{ from: 11 * 60, to: 13 * 60 },
+		];
+		assert.deepEqual(clocks(freeStretchesFromSpans("2026-06-11", scrambled)), [
+			"16:00–22:00",
+		]);
+	});
+
 	it("clips a span that runs past the window the day is measured inside", () => {
 		assert.deepEqual(
 			clocks(freeStretchesFromSpans("2026-06-11", [{ from: 0, to: 9 * 60 }])),

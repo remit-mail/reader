@@ -18,7 +18,7 @@ import {
 	freeStretchesFromSpans,
 } from "@remit/ui";
 import { isoDate } from "@/lib/calendar-route";
-import { addDays, type CalendarWindow, startOfDay } from "./window";
+import { addDays, type CalendarWindow, calendarWindow } from "./window";
 
 /**
  * Days held behind and ahead of the day the address opened on. More ahead than
@@ -66,14 +66,31 @@ export function rangeCovering(range: AgendaRange, date: string): AgendaRange {
 }
 
 /**
- * The range as a window the reads take. `to` is exclusive, so it is the morning
- * after the last day the strip holds — a meeting at 23:00 on that day is inside
- * the window it is drawn in.
+ * The week each day of the range is served by, deduplicated and in order.
+ *
+ * The strip holds more days than one read may ask for — the server refuses a
+ * window over a year — so the range says which weeks to fetch rather than being
+ * a window itself. Reaching an end then adds a week to this list instead of
+ * widening a single request, which is what keeps the days already on screen
+ * where they are.
+ *
+ * The weeks are `calendarWindow("week", …)` exactly, so they are the grid's own
+ * cache entries: a reader who drops into the week grid and comes back out draws
+ * from what the strip fetched, and a week the grid has already read costs the
+ * strip nothing.
  */
-export const agendaWindow = (range: AgendaRange): CalendarWindow => ({
-	from: startOfDay(range.from),
-	to: startOfDay(addDays(range.to, 1)),
-});
+export function weekWindowsOver(dates: readonly string[]): CalendarWindow[] {
+	const byStart = new Map<string, CalendarWindow>();
+	for (const date of dates) {
+		const week = calendarWindow("week", date);
+		if (!byStart.has(week.from)) byStart.set(week.from, week);
+	}
+	return [...byStart.values()];
+}
+
+/** The week window a day belongs to, named by its `from`. */
+export const weekKeyOf = (date: string): string =>
+	calendarWindow("week", date).from;
 
 const MINUTES_IN_DAY = 24 * 60;
 

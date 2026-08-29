@@ -228,6 +228,28 @@ describe("AgendaFlow", () => {
 		assert.match(html, /18:00 – 22:00/);
 	});
 
+	/**
+	 * A day whose events have not arrived has no events, which is the same shape
+	 * as a day with none. Collapsed into a run it becomes "5 days with nothing
+	 * booked" — a claim about a diary nobody has read yet.
+	 */
+	it("draws a day still being fetched as a skeleton, out of every run", () => {
+		const html = words(
+			render({ loadingDates: new Set(["2026-06-13", "2026-06-14"]) }),
+		);
+		assert.match(html, /agenda-day-pending-2026-06-13/);
+		assert.match(html, /agenda-day-pending-2026-06-14/);
+		assert.match(html, /aria-busy="true"/);
+		assert.doesNotMatch(html, /5 days with nothing booked/);
+		// The days either side of them answered, and still collapse.
+		assert.match(html, /2 days with nothing booked/);
+	});
+
+	it("says nothing about what is on a day it has not heard about", () => {
+		const html = words(render({ loadingDates: new Set(["2026-06-13"]) }));
+		assert.match(html, /Loading 2026-06-13/);
+	});
+
 	it("renders whatever the owner leads today with", () => {
 		const html = render({
 			todayLead: createElement("p", null, "Next up in 30m"),

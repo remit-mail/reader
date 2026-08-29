@@ -14,28 +14,67 @@
  */
 import { calendarFreeBusyOperationsListCalendarFreeBusyOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapCalendarFreeBusySpan } from "@remit/api-http-client/types.gen.ts";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { softErrorStatuses } from "@/lib/error-classifier";
+import { CALENDAR_WINDOW_STALE_TIME } from "./useCalendarEvents";
 import type { CalendarWindow } from "./window";
 
 const CALENDAR_READ_META = softErrorStatuses(400, 404);
 
 export interface CalendarFreeBusyResult {
 	spans: RemitImapCalendarFreeBusySpan[];
-	isLoading: boolean;
-	/** A refusal the surface renders inline. Null when the read succeeded. */
+	/** Windows whose answer has not arrived, by their `from`. */
+	pendingWindows: Set<string>;
 	error: unknown;
+	refetch: () => void;
 }
 
-export function useCalendarFreeBusy(
-	window: CalendarWindow,
+/**
+ * Busy time a window at a time, for the same reason the events are read that
+ * way: this endpoint refuses a window over a year too, so a range that grows
+ * as the reader scrolls cannot be one request.
+ */
+export function useCalendarFreeBusyWeeks(
+	windows: readonly CalendarWindow[],
 ): CalendarFreeBusyResult {
-	const { data, isLoading, error } = useQuery({
-		...calendarFreeBusyOperationsListCalendarFreeBusyOptions({
-			query: { from: window.from, to: window.to },
-		}),
-		meta: CALENDAR_READ_META,
+	const results = useQueries({
+		queries: windows.map((window) => ({
+			...calendarFreeBusyOperationsListCalendarFreeBusyOptions({
+				query: { from: window.from, to: window.to },
+			}),
+			meta: CALENDAR_READ_META,
+			staleTime: CALENDAR_WINDOW_STALE_TIME,
+		})),
 	});
 
-	return { spans: data?.items ?? [], isLoading, error };
+	const froms = windows.map((window) => window.from).join("|");
+	const settled = results.map((result) => result.data);
+	const pendingKey = results.map((result) => result.isPending).join("|");
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the joined keys stand for the per-window results, which are a new array every render
+	const spans = useMemo(
+		() => settled.flatMap((data) => data?.items ?? []),
+		[froms, pendingKey],
+	);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: as above
+	const pendingWindows = useMemo(() => {
+		const pending = new Set<string>();
+		windows.forEach((window, index) => {
+			if (results[index]?.isPending) pending.add(window.from);
+		});
+		return pending;
+	}, [froms, pendingKey]);
+
+	return {
+		spans,
+		pendingWindows,
+		error: results.find((result) => result.error)?.error ?? null,
+		refetch: () => {
+			for (const result of results) {
+				if (result.error) result.refetch();
+			}
+		},
+	};
 }

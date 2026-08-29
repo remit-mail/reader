@@ -221,15 +221,25 @@ export interface BusySpan {
  * option is measured off that rather than off a row count.
  */
 export function busySpansOn(day: CalendarDay): BusySpan[] {
-	const spans = day.timed
-		.map((event) => ({
+	return mergeBusySpans(
+		day.timed.map((event) => ({
 			from: minuteOfDay(event.start),
 			to: minuteOfDay(event.end),
-		}))
-		.sort((a, b) => a.from - b.from);
+		})),
+	);
+}
 
+/**
+ * Spans in start order, with anything that runs into its neighbour joined to
+ * it. Every reading of busy time goes through this, so a caller never has to
+ * know whether the spans it holds were already in order — one meeting split
+ * across two calendars and one that ran late are the same shape by the time
+ * anything measures free time against them.
+ */
+export function mergeBusySpans(spans: readonly BusySpan[]): BusySpan[] {
+	const sorted = [...spans].sort((a, b) => a.from - b.from);
 	const merged: BusySpan[] = [];
-	for (const span of spans) {
+	for (const span of sorted) {
 		const last = merged[merged.length - 1];
 		if (last && span.from <= last.to) {
 			last.to = Math.max(last.to, span.to);
@@ -258,12 +268,19 @@ function insideWindow(minute: number): number {
  * `/calendar-free-busy`, still take hours out of a Thursday. One rule answers
  * "when am I free" wherever the busy time was measured, so the strip and the
  * server cannot disagree about the same afternoon.
+ *
+ * The spans are put in order and joined here rather than being required that
+ * way. The cursor only moves forward, so spans handed over out of order would
+ * silently emit a band across time that is booked — a caller cannot be asked to
+ * remember a precondition whose only symptom is being told an afternoon is free
+ * when it is not.
  */
 export function freeStretchesFromSpans(
 	date: string,
-	busy: readonly BusySpan[],
+	spans: readonly BusySpan[],
 	minMinutes = FREE_MINUTES,
 ): FreeStretch[] {
+	const busy = mergeBusySpans(spans);
 	if (busy.length === 0)
 		return [
 			{

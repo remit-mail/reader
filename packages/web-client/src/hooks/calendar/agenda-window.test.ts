@@ -12,7 +12,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { freeStretchesFromSpans } from "@remit/ui";
 import {
-	agendaWindow,
 	busySpansByDate,
 	datesInRange,
 	extendRangeEnd,
@@ -23,8 +22,10 @@ import {
 	PAGE,
 	rangeAround,
 	rangeCovering,
+	weekKeyOf,
+	weekWindowsOver,
 } from "./agenda-window.js";
-import { startOfDay } from "./window.js";
+import { calendarWindow, startOfDay } from "./window.js";
 
 const DATE = "2026-06-10";
 
@@ -86,18 +87,64 @@ describe("the days the strip holds", () => {
 	});
 });
 
-describe("the window the API is asked for", () => {
-	it("runs to the morning after the last day, so its evening is in it", () => {
-		const window = agendaWindow({ from: "2026-06-01", to: "2026-06-03" });
-		assert.equal(window.from, startOfDay("2026-06-01"));
-		assert.equal(window.to, startOfDay("2026-06-04"));
+/**
+ * The range is not a window. A read may not cover more than a year
+ * (`CALENDAR_MAX_WINDOW_DAYS`), and the strip's range grows every time the
+ * reader reaches an end, so the range names weeks to fetch rather than being
+ * one request that eventually gets refused.
+ */
+describe("the weeks a range is fetched as", () => {
+	it("is the grid's own window for each week, once each", () => {
+		const windows = weekWindowsOver(datesInRange(rangeAround(DATE)));
+		for (const window of windows) {
+			assert.deepEqual(
+				window,
+				calendarWindow("week", window.from.slice(0, 10)),
+			);
+		}
+		assert.equal(new Set(windows.map((w) => w.from)).size, windows.length);
 	});
 
-	it("carries an explicit offset, which is what the endpoint takes", () => {
-		assert.match(
-			agendaWindow({ from: "2026-06-01", to: "2026-06-03" }).from,
-			/^2026-06-01T00:00:00[+-]\d{2}:\d{2}$/,
+	it("covers every day the strip holds and nothing before or after", () => {
+		const dates = datesInRange(rangeAround(DATE));
+		const held = new Set(weekWindowsOver(dates).map((window) => window.from));
+		for (const date of dates) assert.ok(held.has(weekKeyOf(date)));
+	});
+
+	it("names the week a day belongs to, Monday to Monday", () => {
+		// 2026-06-10 is a Wednesday; its week opens on the 8th.
+		assert.equal(weekKeyOf("2026-06-10"), startOfDay("2026-06-08"));
+		assert.equal(weekKeyOf("2026-06-08"), startOfDay("2026-06-08"));
+		assert.equal(weekKeyOf("2026-06-14"), startOfDay("2026-06-08"));
+		assert.equal(weekKeyOf("2026-06-15"), startOfDay("2026-06-15"));
+	});
+
+	it("asks for one week however far the reader scrolls", () => {
+		// Past the server's 366-day ceiling in both directions.
+		let range = rangeAround(DATE);
+		for (let reach = 0; reach < 30; reach += 1) {
+			range = extendRangeEnd(extendRangeStart(range));
+		}
+		const dates = datesInRange(range);
+		assert.ok(dates.length > 366, "the range never grew past the ceiling");
+
+		for (const window of weekWindowsOver(dates)) {
+			const days =
+				(Date.parse(window.to) - Date.parse(window.from)) / 86_400_000;
+			assert.equal(days, 7, `a window covered ${days} days`);
+		}
+	});
+
+	it("grows by adding weeks rather than by widening one", () => {
+		const opening = weekWindowsOver(datesInRange(rangeAround(DATE)));
+		const wider = weekWindowsOver(
+			datesInRange(extendRangeStart(rangeAround(DATE))),
 		);
+		const kept = new Set(wider.map((window) => window.from));
+		for (const window of opening) {
+			assert.ok(kept.has(window.from), `${window.from} was given up`);
+		}
+		assert.ok(wider.length > opening.length);
 	});
 });
 

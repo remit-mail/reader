@@ -10,23 +10,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AgendaStrip } from "@/components/calendar/AgendaStrip";
 import {
 	type AgendaRange,
-	agendaWindow,
 	calendarInstanceId,
 	datesInRange,
-	deviceTimeZone,
 	extendRangeEnd,
 	extendRangeStart,
 	freeStretchesByDate,
-	isDrawnInstance,
 	rangeAround,
 	rangeCovering,
 	readCalendarInstanceId,
-	toCalendarEventData,
-	useCalendarEventWindow,
-	useCalendarFreeBusy,
-	useCalendars,
+	useCalendarEventWeeks,
+	useCalendarFreeBusyWeeks,
+	useCalendarSelection,
+	useDrawnEvents,
+	weekKeyOf,
+	weekWindowsOver,
 } from "@/hooks/calendar";
-import { selectCalendarIds } from "@/hooks/useCalendarData";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { isoDate } from "@/lib/calendar-route";
 import {
@@ -44,6 +42,13 @@ import {
  * calendars ticked in the query, which narrow what it draws. Switching to the
  * week grid and back changes neither, which is what "the grid is a zoom level
  * you drop into and leave" means in practice.
+ *
+ * The days it holds are fetched a week at a time, on the grid's own cache keys.
+ * That is what makes the range able to grow without limit — a single read may
+ * not cover more than a year, and one request that widened every time the
+ * reader reached an end would eventually be refused and replace the strip with
+ * the refusal — and it is what makes the two zooms share everything they have
+ * already read.
  *
  * Scrolling writes the day back to the address, debounced and by `replace`.
  * Debounced because a flick past a fortnight is one move rather than fourteen,
@@ -108,45 +113,21 @@ export function AgendaView({ density, onPickSlot }: AgendaViewProps) {
 		setAnchorDate(anchor);
 	}, [anchor, setAnchorDate]);
 
-	const window = useMemo(() => agendaWindow(range), [range]);
 	const dates = useMemo(() => datesInRange(range), [range]);
+	const windows = useMemo(() => weekWindowsOver(dates), [dates]);
 
 	const {
 		calendars,
 		timeZoneByCalendarId,
+		shown,
+		narrowed,
+		resolved,
 		isLoading: loadingCalendars,
-	} = useCalendars();
-	const shown = selectCalendarIds(calendars, calendarIds);
-	// Asking for every calendar by name and asking for all of them are the same
-	// question, so they share a cache entry with whatever the grid asked.
-	const narrowed = shown.length === calendars.length ? [] : shown;
-	// A tick list can only be resolved against calendars that have loaded.
-	const resolved = calendarIds.length === 0 || calendars.length > 0;
+	} = useCalendarSelection(calendarIds);
 
-	const events = useCalendarEventWindow({
-		...window,
-		calendarIds: narrowed,
-		enabled: resolved,
-	});
-	const busy = useCalendarFreeBusy(window);
-
-	const shownKey = shown.join(",");
-	const instances = events.instances;
-	const drawn = useMemo(() => {
-		const device = deviceTimeZone();
-		const visible = new Set(shownKey === "" ? [] : shownKey.split(","));
-		return instances
-			.filter(
-				(instance) =>
-					isDrawnInstance(instance) && visible.has(instance.calendarId),
-			)
-			.map((instance) =>
-				toCalendarEventData(
-					instance,
-					timeZoneByCalendarId[instance.calendarId] ?? device,
-				),
-			);
-	}, [instances, timeZoneByCalendarId, shownKey]);
+	const events = useCalendarEventWeeks(windows, narrowed, resolved);
+	const busy = useCalendarFreeBusyWeeks(windows);
+	const drawn = useDrawnEvents(events.instances, timeZoneByCalendarId, shown);
 
 	const days = useMemo(
 		() => dates.map((day) => buildCalendarDay(day, drawn, today)),
@@ -154,19 +135,36 @@ export function AgendaView({ density, onPickSlot }: AgendaViewProps) {
 	);
 
 	/*
+	 * A day whose week has not answered yet, or whose calendars are not known.
+	 * It draws as a skeleton rather than as a day with nothing on it, because
+	 * those two pictures are otherwise the same one and only one of them is true.
+	 */
+	const loadingDates = useMemo(() => {
+		const pending = new Set<string>();
+		if (loadingCalendars || !resolved) return new Set(dates);
+		for (const day of dates) {
+			if (events.pendingWindows.has(weekKeyOf(day))) pending.add(day);
+		}
+		return pending;
+	}, [dates, events.pendingWindows, loadingCalendars, resolved]);
+
+	/*
 	 * Free time comes from the merged busy spans, which cover every calendar the
-	 * reader holds rather than the ones the strip is drawing. Until that answer
-	 * lands the gaps between the rows are the honest reading: calling an
+	 * reader holds rather than the ones the strip is drawing. A week whose spans
+	 * have not landed falls back to the gaps between its own rows: calling an
 	 * afternoon clear on the strength of nothing at all is the one mistake this
 	 * view exists to avoid.
 	 */
 	const freeByDate = useMemo(
-		() => (busy.isLoading ? undefined : freeStretchesByDate(dates, busy.spans)),
-		[dates, busy.isLoading, busy.spans],
+		() => freeStretchesByDate(dates, busy.spans),
+		[dates, busy.spans],
 	);
 	const freeOn = useCallback(
-		(day: CalendarDay) => freeByDate?.get(day.date) ?? freeStretchesOn(day),
-		[freeByDate],
+		(day: CalendarDay) =>
+			busy.pendingWindows.has(weekKeyOf(day.date))
+				? freeStretchesOn(day)
+				: (freeByDate.get(day.date) ?? freeStretchesOn(day)),
+		[freeByDate, busy.pendingWindows],
 	);
 
 	const goToDate = useCallback(
@@ -185,6 +183,12 @@ export function AgendaView({ density, onPickSlot }: AgendaViewProps) {
 		[openEvent],
 	);
 
+	/** Whichever read was refused is the one a retry re-sends. */
+	const retry = useCallback(() => {
+		events.refetch();
+		busy.refetch();
+	}, [events.refetch, busy.refetch]);
+
 	return (
 		<AgendaStrip
 			days={days}
@@ -202,9 +206,9 @@ export function AgendaView({ density, onPickSlot }: AgendaViewProps) {
 					: ""
 			}
 			freeOn={freeOn}
-			isLoading={loadingCalendars || events.isLoading}
+			loadingDates={loadingDates}
 			error={events.error ?? busy.error}
-			onRetry={events.refetch}
+			onRetry={retry}
 			scrollTarget={scrollTarget}
 			onSelectEvent={selectEvent}
 			onPickSlot={onPickSlot}

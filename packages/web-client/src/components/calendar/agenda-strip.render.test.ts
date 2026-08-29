@@ -81,6 +81,9 @@ const days = dates.map((date) => buildCalendarDay(date, events, TODAY));
 
 const noop = () => {};
 
+/** Every day answered for, which is what the cases below are about. */
+const NOTHING_PENDING: ReadonlySet<string> = new Set();
+
 const base: AgendaStripProps = {
 	days,
 	calendars,
@@ -92,7 +95,7 @@ const base: AgendaStripProps = {
 	// The gaps between the rows: what the strip reads before the merged busy
 	// spans land, and what every case here but one is measured against.
 	freeOn: freeStretchesOn,
-	isLoading: false,
+	loadingDates: NOTHING_PENDING,
 	onSelectEvent: noop,
 	onPickSlot: noop,
 	onZoomDay: noop,
@@ -206,12 +209,33 @@ describe("a read that did not happen", () => {
 		assert.doesNotMatch(html, /days with nothing booked/);
 	});
 
-	it("says the days are still coming rather than drawing none", () => {
-		const html = render({ isLoading: true, days: [] });
-		assert.match(html, /Loading the agenda/);
+	/**
+	 * The bug this pins: a week still in flight has no events, so every day of
+	 * it built as "nothing booked" and a run of them collapsed into "7 days with
+	 * nothing booked" — a claim about a diary nobody had read yet.
+	 */
+	it("draws an unanswered day as a skeleton, never as a day with nothing on it", () => {
+		const pending = new Set(["2026-06-11", "2026-06-12", "2026-06-13"]);
+		const html = render({ loadingDates: pending });
+		for (const date of pending) {
+			assert.match(html, new RegExp(`agenda-day-pending-${date}`));
+		}
+		assert.match(html, /aria-busy="true"/);
+		// The run that would have swallowed them, had they been read as empty.
+		assert.doesNotMatch(html, /Thu 11 – /);
 	});
 
-	it("keeps the days it already has while more are on the way", () => {
-		assert.match(render({ isLoading: true }), /Q3 roadmap review/);
+	it("keeps the days that have answered while their neighbours arrive", () => {
+		const html = render({ loadingDates: new Set(["2026-06-11"]) });
+		assert.match(html, /Q3 roadmap review/);
+		assert.match(html, /agenda-day-pending-2026-06-11/);
+	});
+
+	it("holds back what is next until today has answered", () => {
+		assert.match(render(), /Next · in 30m/);
+		assert.doesNotMatch(
+			render({ loadingDates: new Set([TODAY]) }),
+			/Nothing else booked/,
+		);
 	});
 });

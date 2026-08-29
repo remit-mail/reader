@@ -64,6 +64,9 @@ const LONG_FREE_MINUTES = 150;
 /** The hue every calendar the caller did not describe falls back to. */
 const FALLBACK_COLOR: CalendarColorId = "cal-1";
 
+/** Nothing outstanding, which is what a caller that never fetches has. */
+const EMPTY_DATES: ReadonlySet<string> = new Set();
+
 export interface AgendaScrollTarget {
 	date: string;
 	/** Changes on every request, so asking twice for the same day works. */
@@ -103,6 +106,13 @@ export interface AgendaFlowProps {
 	/** The day under the sticky header, for the position map. */
 	onVisibleDayChange: (date: string) => void;
 	/**
+	 * Days whose events have not arrived. They draw as a skeleton and are never
+	 * collapsed into a run: a day nobody has heard back about is not a day with
+	 * nothing on it, and "6 days with nothing booked" over an unanswered request
+	 * is the one sentence this strip must never print.
+	 */
+	loadingDates?: ReadonlySet<string>;
+	/**
 	 * The free time on a day, where the owner knows more about it than the rows
 	 * do. Busy time on a calendar the strip is not drawing is still not free, so
 	 * an owner holding merged busy spans answers this from those. Absent falls
@@ -132,6 +142,7 @@ export function AgendaFlow({
 	onReachStart,
 	onReachEnd,
 	onVisibleDayChange,
+	loadingDates = EMPTY_DATES,
 	freeOn = freeStretchesOn,
 	scrollTarget,
 	todayLead,
@@ -148,7 +159,7 @@ export function AgendaFlow({
 	const [visibleDate, setVisibleDate] = useState(focusDate);
 
 	const lookup = useMemo(() => lookupOf(calendars), [calendars]);
-	const rows = buildAgendaRows(days, [today, focusDate]);
+	const rows = buildAgendaRows(days, [today, focusDate, ...loadingDates]);
 	const firstDate = days[0]?.date ?? "";
 	const lastDate = days[days.length - 1]?.date ?? "";
 
@@ -263,6 +274,7 @@ export function AgendaFlow({
 					lookup={lookup}
 					density={density}
 					today={today}
+					pending={row.kind === "day" && loadingDates.has(row.day.date)}
 					freeOn={freeOn}
 					selectedEventId={selectedEventId}
 					onSelectEvent={onSelectEvent}
@@ -288,6 +300,8 @@ interface RowProps {
 	lookup: CalendarLookup;
 	density: AgendaDensity;
 	today: string;
+	/** This day's events have not arrived yet. */
+	pending: boolean;
 	freeOn: (day: CalendarDay) => FreeStretch[];
 	selectedEventId: string;
 	onSelectEvent: (eventId: string) => void;
@@ -303,6 +317,7 @@ function FlowRow({
 	lookup,
 	density,
 	today,
+	pending,
 	freeOn,
 	selectedEventId,
 	onSelectEvent,
@@ -322,6 +337,13 @@ function FlowRow({
 					onPickSlot={onPickSlot}
 					touch={touch}
 				/>
+			</div>
+		);
+
+	if (pending)
+		return (
+			<div ref={anchorRef}>
+				<PendingDay day={row.day} today={today} />
 			</div>
 		);
 
@@ -402,6 +424,46 @@ function EmptyRun({
 			</span>
 			<span className="ml-auto shrink-0 text-2xs text-fg-subtle">Add</span>
 		</button>
+	);
+}
+
+/**
+ * A day still being fetched. It keeps the date column, so the strip has the
+ * shape it will have once the answer lands and nothing jumps under the reader,
+ * and it says nothing at all about what is on the day.
+ */
+function PendingDay({ day, today }: { day: CalendarDay; today: string }) {
+	const isToday = day.date === today;
+	return (
+		<section
+			aria-busy="true"
+			data-testid={`agenda-day-pending-${day.date}`}
+			className={cn(
+				"border-b border-line",
+				isToday && "border-l-2 border-l-accent bg-accent-soft/20",
+			)}
+		>
+			<header className="flex h-section-row items-center gap-3 px-row-inset">
+				<div className="flex w-16 shrink-0 items-baseline gap-1.5">
+					<span
+						className={cn(
+							"text-lg font-semibold tabular-nums",
+							isToday ? "text-accent" : "text-fg",
+						)}
+					>
+						{day.dayNumber}
+					</span>
+					<span className="text-2xs uppercase tracking-wider text-fg-subtle">
+						{day.weekdayLabel}
+					</span>
+				</div>
+				<span className="sr-only">Loading {day.date}</span>
+				<span className="h-3 min-w-0 flex-1 animate-pulse rounded-full bg-surface-sunken" />
+			</header>
+			<div className="flex flex-col gap-1 pb-2">
+				<span className="mx-row-inset h-7 animate-pulse rounded-md bg-surface-sunken" />
+			</div>
+		</section>
 	);
 }
 

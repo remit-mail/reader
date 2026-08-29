@@ -28,6 +28,7 @@ import {
 } from "@/lib/calendar-density";
 import {
 	calendarSearchSchema,
+	calendarViewMountsAgenda,
 	canonicalCalendarParams,
 	isoDate,
 } from "@/lib/calendar-route";
@@ -56,8 +57,13 @@ export const Route = createFileRoute("/calendar/$view/$date")({
 
 function CalendarViewLayout() {
 	const { view, date, calendarIds } = useCalendarAddress();
+	// The strip fetches the days it holds a week at a time and draws none of
+	// this, so at that zoom the layout asks for nothing: the address rewrites on
+	// every scroll, and each rewrite would otherwise fetch a week nobody renders
+	// along with the two beside it.
+	const drawsGrid = !calendarViewMountsAgenda(view);
 	const { events, colorByCalendarId, isLoading, error, retry, instanceOf } =
-		useCalendarData({ view, date, calendarIds });
+		useCalendarData({ view, date, calendarIds, enabled: drawsGrid });
 	const { goToView, goToToday, step, openEvent, openComposer } =
 		useCalendarNavigation();
 	const openedEvent = useOpenCalendarEvent();
