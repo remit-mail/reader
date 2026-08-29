@@ -76,3 +76,8 @@ import "./CalendarEventStatus.tsp";
 import "./CalendarTransparency.tsp";
 import "./RecurrenceScope.tsp";
 import "./ZoneCertainty.tsp";
+
+// Calendar Suggestion Enums (issue #1033 stage 0.3)
+import "./CalendarInviteMethod.tsp";
+import "./CalendarSuggestionSource.tsp";
+import "./CalendarSuggestionState.tsp";

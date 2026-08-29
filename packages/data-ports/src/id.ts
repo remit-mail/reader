@@ -64,6 +64,32 @@ export const deriveCalendarObjectId = (
 ): string =>
 	base36uuidv5(`calendarobject:${calendarId}:${resourceName}`, REMIT_NAMESPACE);
 
+/**
+ * Identity of a suggestion read out of a message (issue #1033). Derived from
+ * the message, the MIME part the bytes came from and the event's iCalendar
+ * UID, so re-reading the same message converges on the row it already wrote
+ * instead of stacking a second card on the message every pass.
+ *
+ * All three parts are needed. The message alone would merge two invitations
+ * sent in one mail; the part alone is not stable enough to key on across a
+ * re-parse; and the UID is what makes a resent copy of the same invitation the
+ * same suggestion rather than a new one.
+ *
+ * A revision is deliberately NOT the same row: a later message carrying the
+ * same UID has its own `messageId`, so it derives its own id and the earlier
+ * suggestion survives beside it as `Superseded`. The user can see which
+ * revision they are being asked about, and the older message still has a card.
+ */
+export const deriveCalendarSuggestionId = (
+	messageId: string,
+	bodyPartId: string,
+	icalUid: string,
+): string =>
+	base36uuidv5(
+		`calendarsuggestion:${messageId}:${bodyPartId}:${icalUid}`,
+		REMIT_NAMESPACE,
+	);
+
 export const isValidMessageId = (messageId: string | undefined): boolean => {
 	if (!messageId) return false;
 	const trimmed = messageId.trim();

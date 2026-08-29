@@ -1,6 +1,7 @@
 import type { ICalendarCollectionRepository } from "./calendar-collection.js";
 import type { ICalendarEventIndexRepository } from "./calendar-event-index.js";
 import type { ICalendarObjectRepository } from "./calendar-object.js";
+import type { ICalendarSuggestionRepository } from "./calendar-suggestion.js";
 
 /**
  * The repositories one calendar write set touches, bound to a single unit of
@@ -10,6 +11,13 @@ export interface CalendarUnitOfWorkRepositories {
 	calendarCollection: ICalendarCollectionRepository;
 	calendarObject: ICalendarObjectRepository;
 	calendarEventIndex: ICalendarEventIndexRepository;
+	/**
+	 * Present so accepting a suggestion settles the card in the same unit that
+	 * writes the resource (issue #1033). The two are one fact: a card still
+	 * asking with the event already in the calendar, or a card marked accepted
+	 * with no event behind it, is a state nothing later can repair.
+	 */
+	calendarSuggestion: ICalendarSuggestionRepository;
 }
 
 /**

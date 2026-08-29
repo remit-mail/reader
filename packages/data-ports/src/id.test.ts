@@ -6,6 +6,7 @@ import {
 	deriveBodyPartId,
 	deriveCalendarId,
 	deriveCalendarObjectId,
+	deriveCalendarSuggestionId,
 	deriveCopyMessageId,
 	deriveEnvelopeId,
 	deriveMessageId,
@@ -161,6 +162,43 @@ describe("deriveCalendarObjectId", () => {
 	});
 });
 
+describe("deriveCalendarSuggestionId", () => {
+	const MESSAGE = "msg-1";
+	const PART = "part-1";
+	const UID = "invite@example.com";
+
+	it("converges a re-read of the same message on one row", () => {
+		assert.equal(
+			deriveCalendarSuggestionId(MESSAGE, PART, UID),
+			deriveCalendarSuggestionId(MESSAGE, PART, UID),
+		);
+	});
+
+	it("keeps two invitations in one message apart", () => {
+		assert.notEqual(
+			deriveCalendarSuggestionId(MESSAGE, PART, UID),
+			deriveCalendarSuggestionId(MESSAGE, "part-2", UID),
+		);
+	});
+
+	it("gives a revision its own row, so the superseded card survives", () => {
+		// A later message carrying the same UID is a second suggestion, never an
+		// overwrite of the first: the older message keeps its card and the user
+		// can see which revision replaced which.
+		assert.notEqual(
+			deriveCalendarSuggestionId(MESSAGE, PART, UID),
+			deriveCalendarSuggestionId("msg-2", PART, UID),
+		);
+	});
+
+	it("separates two events sent as one part", () => {
+		assert.notEqual(
+			deriveCalendarSuggestionId(MESSAGE, PART, UID),
+			deriveCalendarSuggestionId(MESSAGE, PART, "other@example.com"),
+		);
+	});
+});
+
 describe("derived ids are stored primary keys: a changed value orphans every row already written and needs a migration, never a new expectation here", () => {
 	const ACCOUNT = "account-golden";
 	const MESSAGE = "message-golden";
@@ -265,6 +303,17 @@ describe("derived ids are stored primary keys: a changed value orphans every row
 		assert.equal(
 			deriveCalendarObjectId("calendar-golden", "golden-event.ics"),
 			"aklxxezhc8icpuewggz983okb",
+		);
+	});
+
+	it("deriveCalendarSuggestionId pins the calendar_suggestion primary key", () => {
+		assert.equal(
+			deriveCalendarSuggestionId(
+				MESSAGE,
+				"bodypart-golden",
+				"golden-invite@example.com",
+			),
+			"1pesdr3fl02uyoz5k1qrfik3e",
 		);
 	});
 

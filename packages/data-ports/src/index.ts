@@ -8,6 +8,10 @@ export type { ICalendarCollectionRepository } from "./interfaces/calendar-collec
 export type { ICalendarEventIndexRepository } from "./interfaces/calendar-event-index.js";
 export type { ICalendarObjectRepository } from "./interfaces/calendar-object.js";
 export type {
+	ICalendarSuggestionRepository,
+	SettleCalendarSuggestionInput,
+} from "./interfaces/calendar-suggestion.js";
+export type {
 	CalendarUnitOfWorkRepositories,
 	ICalendarUnitOfWork,
 } from "./interfaces/calendar-unit-of-work.js";
@@ -68,6 +72,7 @@ export type {
 	CalendarEventIndexItem,
 	CalendarObjectItem,
 	CalendarOccurrenceInput,
+	CalendarSuggestionItem,
 	ConfigImportItem,
 	ConfigImportUnresolvedRefItem,
 	CreateAccountConfigInput,
@@ -113,6 +118,7 @@ export type {
 	OutboxAttachmentItem,
 	OutboxMessageItem,
 	PutCalendarObjectInput,
+	PutCalendarSuggestionInput,
 	PutMessageFlagPushInput,
 	PutMessagePlacementMoveInput,
 	QuarantineItem,

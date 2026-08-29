@@ -158,6 +158,8 @@ export const syncMessageBody = async (
 		mailboxSpecialUse: mailboxSpecialUseRepository,
 		quarantine: quarantineRepository,
 		flagQueue: flagQueueService,
+		calendarSuggestion: calendarSuggestionService,
+		calendarCollection: calendarCollectionService,
 	} = await getClient();
 
 	const account = await accountService.get(accountId);
@@ -274,6 +276,9 @@ export const syncMessageBody = async (
 					attempts: receiveCount,
 				},
 				{ flagQueueService },
+				// An invitation becomes a card the first time the message is seen,
+				// alongside the filters that run on the same pass (issue #1033).
+				{ calendarSuggestionService, calendarCollectionService },
 			);
 
 			// Guard at the openBox choke point (epic #1281 invariants 3 & 5). The

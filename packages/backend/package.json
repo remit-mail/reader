@@ -70,6 +70,7 @@
     "@remit/storage-service": "*",
     "@remit/auth-service": "*",
     "@remit/drizzle-service": "*",
+    "@remit/calendar-service": "*",
     "@remit/sqs-client": "*",
     "@aws-sdk/client-secrets-manager": "*",
     "@aws-sdk/client-sqs": "*",

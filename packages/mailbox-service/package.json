@@ -43,7 +43,8 @@
 		"stopword": "*",
 		"@types/mailparser": "*",
 		"@types/nodemailer": "*",
-		"@types/stopword": "^2.0.3"
+		"@types/stopword": "^2.0.3",
+		"@remit/calendar-service": "*"
 	},
 	"license": "MIT",
 	"publishConfig": {

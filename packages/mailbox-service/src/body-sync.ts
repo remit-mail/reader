@@ -1,7 +1,13 @@
 import { PassThrough, type Readable } from "node:stream";
 import { inspect } from "node:util";
+import {
+	DEFAULT_CALENDAR_URL_SEGMENT,
+	recordCalendarSuggestion,
+} from "@remit/calendar-service";
 import type {
 	IAddressRepository,
+	ICalendarCollectionRepository,
+	ICalendarSuggestionRepository,
 	IEnvelopeRepository,
 	IMailboxSpecialUseRepository,
 	IMessageRepository,
@@ -11,7 +17,7 @@ import type {
 	UpdateMessageInput,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
-import { deriveAddressId } from "@remit/data-ports/id";
+import { deriveAddressId, deriveBodyPartId } from "@remit/data-ports/id";
 import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
 	MessageCategory,
@@ -29,6 +35,7 @@ import { type ParsedMail, simpleParser } from "mailparser";
 import pMap from "p-map";
 import { BodyParseError, parseMessageBody } from "./body-parse.js";
 import { mapBodyPartsToContent } from "./body-part-mapper.js";
+import { calendarParts } from "./calendar-parts.js";
 import { extractListId } from "./filters/list-id.js";
 import type { FilterMessage } from "./filters/match.js";
 import {
@@ -316,6 +323,19 @@ export interface UnsubscribeConfig {
 	flagQueueService: FlagQueueService;
 }
 
+/**
+ * What body sync needs to offer a mail's invitation as a card (issue #1033).
+ *
+ * The collection repository is here for one reason: an invitation whose
+ * DTSTART names no zone is RFC 5545 floating time, and the only sensible place
+ * to read it is where the user's calendar lives. Without it such an event
+ * would be shown in UTC to a user in Amsterdam.
+ */
+export interface CalendarSuggestionConfig {
+	calendarSuggestionService: ICalendarSuggestionRepository;
+	calendarCollectionService: ICalendarCollectionRepository;
+}
+
 export class BodySyncService {
 	private log: BodySyncLogger;
 	private readonly filterPipeline?: FilterPipeline;
@@ -331,6 +351,7 @@ export class BodySyncService {
 		private readonly filterConfig?: FilterConfig,
 		private readonly quarantineConfig?: QuarantineConfig,
 		private readonly unsubscribeConfig?: UnsubscribeConfig,
+		private readonly calendarConfig?: CalendarSuggestionConfig,
 	) {
 		this.log = logger ?? noopLogger;
 		this.filterPipeline = filterConfig
@@ -900,6 +921,13 @@ export class BodySyncService {
 			existingMessage.bodyStorageKey,
 		);
 
+		await this.deriveCalendarSuggestions(
+			messageId,
+			accountConfigId,
+			parsed,
+			existingMessage.bodyStorageKey,
+		);
+
 		const moved = Boolean(resolved.move || filterMoved);
 
 		// ONE Message UpdateItem per synced message: bodyStorageKey + every
@@ -1349,6 +1377,79 @@ export class BodySyncService {
 			messageId,
 			accountId,
 		);
+	}
+
+	/**
+	 * Offer what a message's `text/calendar` parts propose, as cards beside the
+	 * message (issue #1033). Nothing here reaches a calendar: a suggestion is
+	 * written `Pending` and waits for a person, and a `METHOD:CANCEL` is a card
+	 * of its own rather than a withdrawal of an event the user added.
+	 *
+	 * Write-once per message, like the `category`, placement and read-state
+	 * derivations alongside it (issues #499, #1011): a card is offered on the
+	 * pass that first classifies a message — the same moment the account's
+	 * filters run — and never again. The two re-entrant paths a forced body
+	 * re-sync goes through (`fetchAndGetBody`'s `NoSuchKey` fallback,
+	 * `syncBodies(..., force: true)`) reach this with `bodyStorageKey` already
+	 * set, and re-offering there would resurrect a card the user dismissed.
+	 *
+	 * Isolated the same way placement and filters are: a card is auxiliary to
+	 * storing the mail, which is already durable by the time this runs. A
+	 * repository failure here is logged loudly with the messageId rather than
+	 * failing a body store that otherwise succeeded.
+	 */
+	private async deriveCalendarSuggestions(
+		messageId: string,
+		accountConfigId: string,
+		parsed: ParsedMail,
+		storedBodyKey: string | undefined,
+	): Promise<void> {
+		if (!this.calendarConfig) return;
+		if (hasClassifiedBody(storedBodyKey)) return;
+
+		const parts = calendarParts(parsed);
+		if (parts.length === 0) return;
+
+		const { calendarCollectionService, calendarSuggestionService } =
+			this.calendarConfig;
+
+		await Promise.resolve()
+			.then(async () => {
+				const collection = await calendarCollectionService.findByUrlSegment(
+					accountConfigId,
+					DEFAULT_CALENDAR_URL_SEGMENT,
+				);
+				for (const part of parts) {
+					const recorded = await recordCalendarSuggestion(
+						calendarSuggestionService,
+						{
+							accountConfigId,
+							messageId,
+							bodyPartId: deriveBodyPartId(messageId, part.partPath),
+							source: part.source,
+							icalData: part.icalData,
+							timezone: collection?.timezone ?? "",
+						},
+					);
+					if (!recorded.ok) {
+						this.log.info(
+							{
+								messageId,
+								partPath: part.partPath,
+								code: recorded.error.code,
+								reason: recorded.error.message,
+							},
+							"Message carries iCalendar this cannot read; no suggestion offered",
+						);
+					}
+				}
+			})
+			.catch((error: unknown) => {
+				this.log.error?.(
+					{ messageId, accountConfigId, error: inspect(error) },
+					"Calendar suggestion derivation failed; body is stored without a card",
+				);
+			});
 	}
 
 	private async deriveSenderUnsubscribed(
