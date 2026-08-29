@@ -168,6 +168,34 @@ export interface CalendarEventInstance {
 	hasRecurrence: boolean;
 }
 
+/** A stretch the caller is busy in, merged across every calendar they hold. */
+export interface CalendarFreeBusySpan {
+	start: string;
+	end: string;
+}
+
+/**
+ * An event written straight at the API. A spec whose subject is what the
+ * calendar draws rather than what the composer posts says what it wants here
+ * and reads the drawing back off the screen.
+ */
+export interface CreateCalendarEventInput {
+	calendarId: string;
+	summary: string;
+	/** ISO 8601 with an offset, or a bare `YYYY-MM-DD` when `allDay` is set. */
+	start: string;
+	end: string;
+	allDay?: boolean;
+	timeZone?: string;
+}
+
+/** The stored resource a write comes back as, which is what a delete names. */
+export interface CalendarEventResource {
+	calendarObjectId: string;
+	calendarId: string;
+	icalUid: string;
+}
+
 export interface ConfigAccount {
 	accountId: string;
 	email: string;
@@ -792,6 +820,29 @@ export class ApiClient {
 		const result = await this.json<ResultList<CalendarEventInstance>>(
 			"GET",
 			`/calendar-events?${query}`,
+		);
+		return result.items ?? [];
+	}
+
+	createCalendarEvent(
+		input: CreateCalendarEventInput,
+	): Promise<CalendarEventResource> {
+		return this.json("POST", "/calendar-events", input);
+	}
+
+	/**
+	 * The busy time the server merged over a window. The strip measures its free
+	 * stretches off this rather than off the rows it drew, so a spec about a free
+	 * band asserts against the same answer the strip was given.
+	 */
+	async listCalendarFreeBusy(
+		from: string,
+		to: string,
+	): Promise<CalendarFreeBusySpan[]> {
+		const query = new URLSearchParams({ from, to });
+		const result = await this.json<ResultList<CalendarFreeBusySpan>>(
+			"GET",
+			`/calendar-free-busy?${query}`,
 		);
 		return result.items ?? [];
 	}
