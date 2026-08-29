@@ -71,7 +71,19 @@ let reachedStart: number;
 let reachedEnd: number;
 let visited: string[];
 
+/**
+ * A gesture goes stale, so the wall clock is one of the strip's inputs and the
+ * cases that turn on it hold it themselves.
+ */
+const realNow = Date.now;
+let clock = 0;
+const advance = (ms: number) => {
+	clock += ms;
+};
+
 beforeEach(() => {
+	clock = 1_700_000_000_000;
+	Date.now = () => clock;
 	container = document.createElement("div");
 	document.body.appendChild(container);
 	root = createRoot(container);
@@ -83,6 +95,7 @@ beforeEach(() => {
 afterEach(() => {
 	act(() => root.unmount());
 	container.remove();
+	Date.now = realNow;
 });
 
 const props = (extra: Partial<AgendaFlowProps> = {}): AgendaFlowProps => ({
@@ -118,6 +131,10 @@ const render = (extra: Partial<AgendaFlowProps> = {}) => {
  */
 interface Strip {
 	element: HTMLElement;
+	/** An input the reader made on the strip, whatever kind it was. */
+	input: (event: Event) => void;
+	/** Where the strip ended up, and the event the browser raises to say so. */
+	moveTo: (top: number) => void;
 	/** The reader's own scroll: a wheel, then the offset it landed at. */
 	scroll: (top: number) => void;
 	/** The same movement with nobody behind it: a resize, a reflow, a landing. */
@@ -161,19 +178,26 @@ const stripWithLayout = (scrollHeight: number, clientHeight: number): Strip => {
 		});
 	};
 
+	const input = (event: Event) => {
+		act(() => {
+			element.dispatchEvent(event);
+		});
+	};
+
+	const moveTo = (next: number) => {
+		element.scrollTop = next;
+		raise();
+	};
+
 	return {
 		element,
+		input,
+		moveTo,
 		scroll: (next) => {
-			act(() => {
-				element.dispatchEvent(new Event("wheel", { bubbles: true }));
-			});
-			element.scrollTop = next;
-			raise();
+			input(new Event("wheel", { bubbles: true }));
+			moveTo(next);
 		},
-		settle: (next) => {
-			element.scrollTop = next;
-			raise();
-		},
+		settle: moveTo,
 		resize: (next) => {
 			Object.assign(size, next);
 			// A pane that shrank around a scroller takes its offset back with it,
@@ -260,6 +284,52 @@ describe("a reader scrolling the strip", () => {
 		strip.scroll(LONG.scrollHeight - LONG.clientHeight);
 		strip.settle(LONG.scrollHeight - LONG.clientHeight);
 		assert.equal(reachedEnd, 1);
+	});
+
+	/**
+	 * Every way a reader moves a scroller counts, and the strip knows nothing
+	 * about which one it was: a wheel, a key held on a focused row, a scrollbar
+	 * dragged for as long as the reader likes. What it rejects is movement with
+	 * nobody behind it, not movement of the wrong kind.
+	 */
+	it("takes a key press for a gesture", () => {
+		render();
+		const strip = stripWithLayout(LONG.scrollHeight, LONG.clientHeight);
+		strip.input(
+			new KeyboardEvent("keydown", { key: "PageDown", bubbles: true }),
+		);
+		strip.moveTo(LONG.scrollHeight - LONG.clientHeight);
+		assert.equal(reachedEnd, 1);
+	});
+
+	it("takes a scrollbar drag, however long the reader holds it", () => {
+		render();
+		const strip = stripWithLayout(LONG.scrollHeight, LONG.clientHeight);
+		strip.input(new PointerEvent("pointerdown", { bubbles: true }));
+		strip.moveTo(2_000);
+		// Long enough that the press alone has gone stale; the drag is what is
+		// still keeping the strip theirs.
+		advance(5_000);
+		strip.input(new PointerEvent("pointermove", { bubbles: true, buttons: 1 }));
+		strip.moveTo(LONG.scrollHeight - LONG.clientHeight);
+		assert.equal(reachedEnd, 1);
+	});
+
+	it("does not take a cursor merely resting over it", () => {
+		render();
+		const strip = stripWithLayout(LONG.scrollHeight, LONG.clientHeight);
+		strip.input(new PointerEvent("pointermove", { bubbles: true, buttons: 0 }));
+		strip.moveTo(LONG.scrollHeight - LONG.clientHeight);
+		assert.equal(reachedEnd, 0);
+	});
+
+	it("lets a gesture go stale rather than holding it open", () => {
+		render();
+		const strip = stripWithLayout(LONG.scrollHeight, LONG.clientHeight);
+		strip.input(new Event("wheel", { bubbles: true }));
+		advance(5_000);
+		strip.moveTo(LONG.scrollHeight - LONG.clientHeight);
+		assert.equal(reachedEnd, 0);
 	});
 
 	it("asks for the days behind only on the way back to the start", () => {

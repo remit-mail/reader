@@ -272,10 +272,18 @@ export function AgendaFlow({
 			"touchmove",
 			"keydown",
 		];
+		// A scrollbar dragged slowly is one press and then nothing but movement,
+		// which would otherwise run out of gesture halfway down the strip. Held
+		// buttons only: a cursor resting over the strip is not scrolling it.
+		const drag = (event: PointerEvent) => {
+			if (event.buttons !== 0) note();
+		};
 		for (const kind of kinds)
 			element.addEventListener(kind, note, { passive: true });
+		element.addEventListener("pointermove", drag, { passive: true });
 		return () => {
 			for (const kind of kinds) element.removeEventListener(kind, note);
+			element.removeEventListener("pointermove", drag);
 		};
 	}, []);
 
