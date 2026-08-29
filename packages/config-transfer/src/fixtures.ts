@@ -168,6 +168,23 @@ export const makeAddress = (
 	...overrides,
 });
 
+/**
+ * An address flagged before `setAt` was recorded, as v0.6 left it in the
+ * database. The stored type cannot spell the row — it describes what is written
+ * today — so the fixture asserts the shape rather than deriving it, which is
+ * the whole point: this is what the live instance actually holds.
+ */
+export const makeLegacyFlaggedAddress = (): AddressItem =>
+	makeAddress({
+		addressId: "adr-legacy",
+		normalizedEmail: "old@legacy.example",
+		displayName: "Legacy",
+		flags: {
+			vip: { value: true, setBy: "web-client" },
+			category: { value: "newsletter" },
+		} as unknown as AddressItem["flags"],
+	});
+
 /** The fixture, behind the repository interfaces the export takes. */
 export const asRepositories = (
 	fixture: ConfigFixture,

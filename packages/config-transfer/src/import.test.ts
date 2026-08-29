@@ -29,6 +29,7 @@ import {
 	makeAnchor,
 	makeFilter,
 	makeLabel,
+	makeLegacyFlaggedAddress,
 	makeMailbox,
 	makeSetting,
 	OAUTH_ACCOUNT_ID,
@@ -524,12 +525,20 @@ const sourceFixture = (): ConfigFixture => ({
 	],
 });
 
-const exportSource = () =>
-	readConfigForExport(
-		asRepositories(sourceFixture()),
-		ACCOUNT_CONFIG_ID,
-		IDENTITY,
-	);
+/**
+ * The same configuration with one sender flagged before `setAt` existed. Held
+ * apart from the source fixture rather than folded into it: half the tests here
+ * count what the file carries, and a legacy row is a fact about the database
+ * this instance happens to hold, not about every configuration.
+ */
+const sourceWithLegacyFlagsFixture = (): ConfigFixture => {
+	const fixture = sourceFixture();
+	fixture.addresses = [...fixture.addresses, makeLegacyFlaggedAddress()];
+	return fixture;
+};
+
+const exportSource = (fixture: ConfigFixture = sourceFixture()) =>
+	readConfigForExport(asRepositories(fixture), ACCOUNT_CONFIG_ID, IDENTITY);
 
 const apply = (
 	store: Store,
@@ -564,7 +573,7 @@ const discover = (
 };
 
 test("a configuration survives an export, an import and a discovery unchanged", async () => {
-	const document = await exportSource();
+	const document = await exportSource(sourceWithLegacyFlagsFixture());
 	const store = emptyStore();
 
 	const report = reportOf(await apply(store, document));
@@ -768,6 +777,19 @@ test("a flagged sender arrives ahead of its mail, keyed on the email string", as
 		deriveAddressId(TARGET_CONFIG_ID, "noreply@newsletter.example"),
 	);
 	assert.equal(news?.flags?.unsubscribed?.value, true);
+});
+
+test("a flag that arrives at the sentinel is stored at the sentinel", async () => {
+	const document = await exportSource(sourceWithLegacyFlagsFixture());
+	const store = emptyStore();
+
+	await apply(store, document);
+
+	const legacy = store.addresses.find(
+		(address) => address.normalizedEmail === "old@legacy.example",
+	);
+	assert.equal(legacy?.flags?.vip?.setAt, 0);
+	assert.equal(legacy?.flags?.category?.setAt, 0);
 });
 
 test("a folder no mailbox answers to yet is kept, then bound when discovery finds it", async () => {
