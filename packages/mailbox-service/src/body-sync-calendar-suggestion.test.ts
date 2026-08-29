@@ -189,6 +189,12 @@ const buildHarness = ({
 	} as unknown as IThreadMessageRepository;
 
 	const storageService = {
+		// The read-miss the forced re-sync rides in on: the row says the body is
+		// stored, the object is gone, so the pass re-fetches and re-enters
+		// applyPostStoreSteps with `bodyStorageKey` already set.
+		retrieve: async () => {
+			throw Object.assign(new Error("gone"), { name: "NoSuchKey" });
+		},
 		storeMessageBody: async () => ({ uri: "s3://bodies/stored" }),
 		storeParsedBody: async () => {},
 		listBodyParts: async () => [],
@@ -288,8 +294,11 @@ describe("mail-derived calendar suggestions (issue #1033)", () => {
 		// resurrect a card the user dismissed.
 		const harness = buildHarness({ bodyStorageKey: "s3://bodies/m-1" });
 
-		await readBody(harness.service, INVITATION_EML());
+		const result = await readBody(harness.service, INVITATION_EML());
 
+		// The pass genuinely ran — the body was re-fetched and re-stored — and
+		// still offered nothing.
+		assert.equal(result.storedAt, "s3://bodies/m-1");
 		assert.equal(harness.suggestions.rows.size, 0);
 	});
 
@@ -342,7 +351,7 @@ describe("mail-derived calendar suggestions (issue #1033)", () => {
 
 		const result = await readBody(harness.service, broken);
 
-		assert.equal(result.storedAt, "s3://bodies/stored");
+		assert.equal(result.storedAt, "newly-stored");
 		assert.equal(harness.suggestions.rows.size, 0);
 	});
 
