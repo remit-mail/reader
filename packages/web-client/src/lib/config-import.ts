@@ -237,14 +237,18 @@ export interface ImportConflict {
 /**
  * The 409 a non-empty configuration answers with, or nothing.
  *
- * `lib/client.ts` re-wraps every HTTP failure as an `ApiError` so the fail-fast
- * classifier can read a status off it, which puts the endpoint's own flat body
- * — `code`, `message`, `details` — on `error.body` rather than on the error.
- * Reading the code off the error itself finds nothing and turns every refusal
- * into "check your connection".
+ * The endpoint's body is flat — `code`, `message`, `details` — but it does not
+ * always arrive that way: `lib/client.ts` re-wraps every HTTP failure as an
+ * `ApiError` so the fail-fast classifier can read a status off it, and that
+ * moves the body onto `error.body`. Reading the code off the error itself finds
+ * nothing there and turns the refusal into "check your connection", which is
+ * how the abort-or-merge screen became unreachable. Both shapes are checked,
+ * and the code is what decides: a status is confirmation where there is one,
+ * never the thing being matched on.
  */
 export const readConflict = (error: unknown): ImportConflict | undefined => {
-	if (getErrorStatus(error) !== 409) return undefined;
+	const status = getErrorStatus(error);
+	if (status !== undefined && status !== 409) return undefined;
 	const body: unknown = error instanceof ThrownApiError ? error.body : error;
 	if (typeof body !== "object" || body === null) return undefined;
 	const flat = body as {

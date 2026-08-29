@@ -4,12 +4,14 @@ import type {
 	RemitImapConfigImportItemReport,
 	RemitImapConfigImportReport,
 } from "@remit/api-http-client/types.gen.ts";
+import { ApiError } from "./api.js";
 import {
 	countVerdicts,
 	groupReportSections,
 	MAX_CONFIG_FILE_BYTES,
 	pendingFolders,
 	readConfigText,
+	readConflict,
 	readFailure,
 	sectionResults,
 	writeFailure,
@@ -220,4 +222,85 @@ test("a file that is not a configuration is refused before anything is sent", as
 	assert.deepEqual(good.ok === true && good.document, {
 		kind: "reader.config",
 	});
+});
+
+test("an unrecognised section gets its own heading rather than being filed under one we know", () => {
+	const sections = groupReportSections([
+		item("accounts", "a@example.test", "created"),
+		item("messageDecisions", "some-message", "created"),
+	]);
+
+	assert.deepEqual(
+		sections.map((section) => section.id),
+		["accounts", "unknown"],
+	);
+	assert.equal(sections[1].title, "Not recognised");
+	assert.match(
+		sections[1].entries[0].reason ?? "",
+		/does not know the "messageDecisions" section/,
+	);
+});
+
+test("a write failure that names no section leaves every section unknown, never landed", () => {
+	const results = sectionResults(
+		reportOf({
+			applied: true,
+			items: [item("accounts", "a@example.test", "created")],
+			errors: [{ code: "import_write_failed", message: "the store refused" }],
+		}),
+	);
+
+	assert.deepEqual(
+		[...new Set(results.map((result) => result.state))],
+		["unknown"],
+	);
+	assert.match(results[0].detail, /without naming where/);
+});
+
+test("a write failure naming a section this client does not know is also unknown", () => {
+	const results = sectionResults(
+		reportOf({
+			applied: true,
+			errors: [
+				{
+					code: "import_write_failed",
+					message: "the store refused",
+					details: { section: "messageDecisions" },
+				},
+			],
+		}),
+	);
+
+	assert.deepEqual(
+		[...new Set(results.map((result) => result.state))],
+		["unknown"],
+	);
+	assert.match(results[0].detail, /"messageDecisions"/);
+});
+
+test("the 409 is read off the wrapper the client throws, not off the error itself", () => {
+	const body = {
+		code: "config_not_empty",
+		message: "already holds configuration",
+		details: { accounts: "2" },
+	};
+
+	const wrapped = readConflict(new ApiError("already holds", 409, body));
+	assert.equal(wrapped?.message, "already holds configuration");
+	assert.deepEqual(wrapped?.details, { accounts: "2" });
+
+	// Belt and braces: the same body thrown unwrapped still reaches the screen.
+	assert.equal(readConflict(body)?.message, "already holds configuration");
+});
+
+test("only the config conflict reads as one", () => {
+	assert.equal(
+		readConflict(new ApiError("nope", 409, { code: "other" })),
+		undefined,
+	);
+	assert.equal(
+		readConflict(new ApiError("nope", 500, { code: "config_not_empty" })),
+		undefined,
+	);
+	assert.equal(readConflict(new Error("boom")), undefined);
 });
