@@ -1,0 +1,100 @@
+// biome-ignore lint/style/useFilenamingConvention: TanStack Router convention
+/**
+ * /calendar/{view}/{date} — the calendar, at one zoom, on one day.
+ *
+ * Both are path segments. The five zooms are mutually exclusive and each is a
+ * different surface, so sibling routes cannot both match (R5); the day is a
+ * segment because the strip is infinite and the address has to name where it
+ * opened — a `?date=` param would be the query compensating for a missing
+ * segment (R4).
+ *
+ * A segment the calendar cannot read is rewritten rather than refused. A
+ * hand-edited or stale address is a normal thing to receive, and the half that
+ * was readable is kept, so `/calendar/fortnight/2026-06-10` lands on that day's
+ * week instead of on an error.
+ */
+import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
+import { useCallback, useState } from "react";
+import { CalendarShell } from "@/components/calendar/CalendarShell";
+import { CalendarWorkspace } from "@/components/calendar/CalendarWorkspace";
+import { useCalendarData } from "@/hooks/useCalendarData";
+import {
+	readCalendarDensity,
+	writeCalendarDensity,
+} from "@/lib/calendar-density";
+import { fixtureTimeZone } from "@/lib/calendar-fixtures";
+import {
+	calendarSearchSchema,
+	canonicalCalendarParams,
+	isoDate,
+} from "@/lib/calendar-route";
+import {
+	useCalendarAddress,
+	useCalendarNavigation,
+	useIsWritingEvent,
+	useOpenCalendarEvent,
+} from "@/routing";
+
+export const Route = createFileRoute("/calendar/$view/$date")({
+	validateSearch: calendarSearchSchema,
+	beforeLoad: ({ params, search }) => {
+		const canonical = canonicalCalendarParams(params, isoDate(new Date()));
+		if (canonical.view === params.view && canonical.date === params.date)
+			return;
+		throw redirect({
+			to: "/calendar/$view/$date",
+			params: canonical,
+			search,
+			replace: true,
+		});
+	},
+	component: CalendarViewLayout,
+});
+
+function CalendarViewLayout() {
+	const { view, date, calendarIds } = useCalendarAddress();
+	const { events, colorByCalendarId } = useCalendarData({
+		view,
+		date,
+		calendarIds,
+	});
+	const { goToView, goToToday, step, openEvent, openComposer } =
+		useCalendarNavigation();
+	const openedEvent = useOpenCalendarEvent();
+	const isWriting = useIsWritingEvent();
+	// Held in state rather than read back from storage each render: how much of
+	// a day this device shows is not a fact about the calendar, so changing it
+	// changes nothing about the address.
+	const [density, setDensity] = useState(readCalendarDensity);
+	const changeDensity = useCallback((next: typeof density) => {
+		writeCalendarDensity(next);
+		setDensity(next);
+	}, []);
+
+	const workspace = (
+		<CalendarWorkspace
+			view={view}
+			date={date}
+			events={events}
+			colorByCalendarId={colorByCalendarId}
+			density={density}
+			selectedEventId={openedEvent?.calendarObjectId ?? ""}
+			timeZone={fixtureTimeZone()}
+			now={new Date().toISOString()}
+			onChangeView={goToView}
+			onToday={goToToday}
+			onStep={step}
+			onChangeDensity={changeDensity}
+			onSelectEvent={openEvent}
+			onPickSlot={openComposer}
+		/>
+	);
+
+	return (
+		<CalendarShell
+			workspace={workspace}
+			reading={<Outlet />}
+			hasOpenEvent={openedEvent !== undefined || isWriting}
+		/>
+	);
+}

@@ -23,8 +23,13 @@ export interface EventDetailProps {
 	calendar: CalendarDescriptor;
 	/** Already formatted by the caller — the component owns no clock. */
 	whenText: string;
-	onEdit: () => void;
-	onDelete: () => void;
+	/**
+	 * Absent where the surface cannot write yet. A control that leads nowhere is
+	 * worse than no control, so the header renders each one only when it has
+	 * somewhere to go.
+	 */
+	onEdit?: () => void;
+	onDelete?: () => void;
 	/** Absent when the event was never born from a mail. */
 	onOpenThread?: () => void;
 	/** Puts the pane back to whatever it shows with nothing selected. */
@@ -171,23 +176,27 @@ export function EventDetail({
 				<span className="min-w-0 flex-1 truncate text-xs text-fg-muted">
 					{calendar.name} · {calendar.accountLabel}
 				</span>
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={<Pencil className="size-3.5" />}
-					onClick={onEdit}
-				>
-					Edit
-				</Button>
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={<Trash2 className="size-3.5" />}
-					onClick={onDelete}
-					className="text-danger"
-				>
-					Delete
-				</Button>
+				{onEdit && (
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<Pencil className="size-3.5" />}
+						onClick={onEdit}
+					>
+						Edit
+					</Button>
+				)}
+				{onDelete && (
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<Trash2 className="size-3.5" />}
+						onClick={onDelete}
+						className="text-danger"
+					>
+						Delete
+					</Button>
+				)}
 				{onClose && (
 					<button
 						type="button"
