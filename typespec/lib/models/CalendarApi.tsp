@@ -1,5 +1,6 @@
 import "@typespec/http";
 
+import "../enums/CalendarColor.tsp";
 import "../enums/CalendarEventStatus.tsp";
 import "../enums/CalendarTransparency.tsp";
 import "../enums/ZoneCertainty.tsp";
@@ -26,10 +27,16 @@ namespace RemitImap;
   mutable overlay; this is the address.
   """)
 model CreateCalendarInput {
-  ...Create<CalendarCollection>;
+  ...OmitProperties<Create<CalendarCollection>, "color" | "timezone">;
 
   @doc("Path segment addressing this collection, unique within the account config. Case-folded on write, so \"Work\" and \"work\" name the same collection and the second create is refused rather than silently merged into the first.")
   urlSegment: String64;
+
+  @doc("Display colour slot. Absent takes the collection's own default.")
+  color?: CalendarColor;
+
+  @doc("IANA time zone this collection's floating times are read in. Absent reads them as UTC.")
+  timezone?: String64;
 }
 
 @doc("Input for updating a calendar collection. The name, colour and timezone are the mutable overlay; `urlSegment` is not among them, because it is the collection's identity and the path a client has bookmarked.")
@@ -132,11 +139,11 @@ model CreateCalendarEventInput {
   @doc("SUMMARY of the event")
   summary: String512;
 
-  @doc("DESCRIPTION of the event. `\"\"` writes none.")
-  description: String2048 = "";
+  @doc("DESCRIPTION of the event. Absent writes none.")
+  description?: String2048;
 
-  @doc("LOCATION of the event. `\"\"` writes none.")
-  location: String512 = "";
+  @doc("LOCATION of the event. Absent writes none.")
+  location?: String512;
 
   @doc("When the event starts: an ISO 8601 date-time with zone offset, or a `YYYY-MM-DD` date when `allDay` is set.")
   start: String64;
@@ -145,19 +152,19 @@ model CreateCalendarEventInput {
   end: String64;
 
   @doc("Whether this is an all-day event, whose times are civil dates rather than instants")
-  allDay: boolean = false;
+  allDay?: boolean;
 
-  @doc("IANA time zone the event is anchored in, e.g. \"Europe/Amsterdam\", written as the DTSTART TZID. `\"\"` anchors the event in UTC. Refused with 400 when the zone is one this server cannot resolve — a calendar that accepted an unknown zone would draw the event hours away from where it belongs.")
-  timeZone: String64 = "";
+  @doc("IANA time zone the event is anchored in, e.g. \"Europe/Amsterdam\", written as the DTSTART TZID. Absent anchors the event in UTC. Refused with 400 when the zone is one this server cannot resolve — a calendar that accepted an unknown zone would draw the event hours away from where it belongs.")
+  timeZone?: String64;
 
   @doc("STATUS of the event")
-  status: CalendarEventStatus = CalendarEventStatus.Confirmed;
+  status?: CalendarEventStatus;
 
   @doc("TRANSP of the event — whether it consumes free/busy time")
-  transparency: CalendarTransparency = CalendarTransparency.Opaque;
+  transparency?: CalendarTransparency;
 
   @doc("RRULE value for a recurring event, e.g. \"FREQ=WEEKLY;BYDAY=MO\" (RFC 5545 3.8.5.3), without the property name. `\"\"` creates a single event. Refused with 400 when it is not a rule this server can read.")
-  recurrenceRule: String512 = "";
+  recurrenceRule?: String512;
 }
 
 @doc("""

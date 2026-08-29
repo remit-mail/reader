@@ -119,6 +119,8 @@ class MemoryCalendarStore implements ICalendarUnitOfWork {
 			this.objects.set(calendarObjectId, object);
 			return object;
 		},
+		find: async (_calendarId: string, calendarObjectId: string) =>
+			this.objects.get(calendarObjectId) ?? null,
 		get: async (_calendarId: string, calendarObjectId: string) => {
 			const object = this.objects.get(calendarObjectId);
 			if (!object) throw new MissingRow(calendarObjectId);
