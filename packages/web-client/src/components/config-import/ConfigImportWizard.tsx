@@ -40,13 +40,17 @@ import {
 	type ConfigDocument,
 	type FailureCopy,
 	groupReportSections,
+	type ImportConflict,
 	type PendingFolder,
 	pendingFolders,
 	readConfigText,
+	readConflict,
 	readFailure,
 	sectionResults,
+	WRITE_FAILURE_CODE,
 	writeFailure,
 } from "@/lib/config-import";
+import { softErrorStatuses } from "@/lib/error-classifier";
 import {
 	ConnectionTestStep,
 	CredentialsStep,
@@ -94,21 +98,27 @@ const smtpOf = (account: RemitImapAccountResponse): ServerConfig => ({
 });
 
 /**
- * An account the import landed, as the credentials screen reads it. A password
- * account is ready once it has a stored credential — `credentials_missing` is
- * the marker the import wrote, and it clears on the first successful connect —
- * and an OAuth account once it stops asking to be re-authenticated.
+ * An account the import landed, as the credentials screen reads it.
+ *
+ * `connectionState` is the server's eventual truth and not this screen's: the
+ * import writes `credentials_missing`, and only the imap worker clears it, on
+ * its next connection, minutes later. Reading readiness off that field alone
+ * left an account the reader had just signed in to sitting red with an "Enter
+ * password" button, so a credential this wizard verified and stored counts here
+ * and the field catches up behind it.
  */
 const asImportedAccount = (
 	account: RemitImapAccountResponse,
 	failure: string | undefined,
+	verified: boolean,
 ): ImportedAccount => {
 	const connector =
 		account.authType === "oauthMicrosoft" ? "microsoft" : "imap";
 	const waiting =
-		connector === "microsoft"
+		!verified &&
+		(connector === "microsoft"
 			? account.connectionState === "reauth_required"
-			: account.connectionState === "credentials_missing";
+			: account.connectionState === "credentials_missing");
 	return {
 		accountId: account.accountId,
 		address: account.email,
@@ -139,26 +149,6 @@ const heldSummary = (details: Record<string, string> | undefined): string => {
 	return `${parts.join(", ")} are set up here already.`;
 };
 
-/** The 409 body is flat: `code`, `message` and `details` at the top level. */
-const conflictOf = (
-	error: unknown,
-): { message: string; details?: Record<string, string> } | undefined => {
-	if (typeof error !== "object" || error === null) return undefined;
-	const body = error as {
-		code?: unknown;
-		message?: unknown;
-		details?: unknown;
-	};
-	if (body.code !== "config_not_empty") return undefined;
-	return {
-		message: typeof body.message === "string" ? body.message : "",
-		details:
-			typeof body.details === "object" && body.details !== null
-				? (body.details as Record<string, string>)
-				: undefined,
-	};
-};
-
 const errorText = (error: unknown, fallback: string): string => {
 	if (error instanceof Error) return error.message;
 	if (typeof error === "object" && error !== null) {
@@ -169,8 +159,12 @@ const errorText = (error: unknown, fallback: string): string => {
 };
 
 export interface ConfigImportWizardProps {
-	/** Where "Go to inbox" and a cancelled import land. */
-	onDone: () => void;
+	/**
+	 * Leaving the wizard. `imported` only where an apply actually wrote — an
+	 * abandoned 409 and a wizard closed on a rejected file are both `abandoned`,
+	 * so nothing downstream records an import that never happened.
+	 */
+	onDone: (outcome: "imported" | "abandoned") => void;
 }
 
 export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
@@ -178,6 +172,7 @@ export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
 
 	const [step, setStep] = useState<Step>("file");
 	const [dragging, setDragging] = useState(false);
+	const [readingFile, setReadingFile] = useState(false);
 	const [file, setFile] = useState<ChosenFile | undefined>(undefined);
 	const [document, setDocument] = useState<ConfigDocument | undefined>(
 		undefined,
@@ -192,10 +187,12 @@ export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
 	const [conflictChoice, setConflictChoice] = useState<
 		"abort" | "merge" | undefined
 	>(undefined);
-	const [conflict, setConflict] = useState<
-		{ message: string; details?: Record<string, string> } | undefined
-	>(undefined);
+	const [conflict, setConflict] = useState<ImportConflict | undefined>(
+		undefined,
+	);
 	const [needingCredentials, setNeedingCredentials] = useState<string[]>([]);
+	/** Accounts this wizard signed in and stored a credential for. */
+	const [verifiedAccountIds, setVerifiedAccountIds] = useState<string[]>([]);
 	const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
 	const [credentials, setCredentials] = useState({
 		username: "",
@@ -231,9 +228,13 @@ export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
 				.map((accountId) => accountsById.get(accountId))
 				.filter((account): account is RemitImapAccountResponse => !!account)
 				.map((account) =>
-					asImportedAccount(account, accountFailures[account.accountId]),
+					asImportedAccount(
+						account,
+						accountFailures[account.accountId],
+						verifiedAccountIds.includes(account.accountId),
+					),
 				),
-		[needingCredentials, accountsById, accountFailures],
+		[needingCredentials, accountsById, accountFailures, verifiedAccountIds],
 	);
 
 	const activeAccount = activeAccountId
@@ -243,11 +244,25 @@ export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
 		? needingCredentials.indexOf(activeAccountId) + 1
 		: 0;
 
-	const importMutation = useMutation(configOperationsImportConfigMutation());
-	const updateAccount = useMutation(
-		accountDetailOperationsUpdateAccountMutation(),
-	);
+	// Each of these owns exactly the refusals it renders, and nothing else. A
+	// blanket `softError` would also swallow the 401 that has to escalate to the
+	// signed-out state, and a 5xx escalates regardless of what is asked for here.
+	const importMutation = useMutation({
+		...configOperationsImportConfigMutation(),
+		// 409 `config_not_empty` is not a fault: it is the abort-or-merge screen.
+		meta: softErrorStatuses(409),
+	});
+	const updateAccount = useMutation({
+		...accountDetailOperationsUpdateAccountMutation(),
+		// The account is gone (404) or is not this configuration's (403); the
+		// credentials row states either where it stands.
+		meta: softErrorStatuses(403, 404),
+	});
 	const triggerSync = useMutation(syncOperationsTriggerSyncMutation());
+	// No meta: `POST /oauth/microsoft/start` declares no refusal. It answers 5xx
+	// when the tenant secret is missing, which must reach the fatal page rather
+	// than a wizard banner, and a transport failure is soft already — which is
+	// the failure the reconnect screen's own error line renders.
 	const oauthStart = useMutation(
 		microsoftOAuthOperationsMicrosoftOAuthStartMutation(),
 	);
@@ -270,6 +285,7 @@ export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
 
 	const handleChoose = useCallback((picked: File) => {
 		setDragging(false);
+		setReadingFile(true);
 		setFile({ name: picked.name, size: picked.size });
 		setReadFailureCopy(undefined);
 		setDocument(undefined);
@@ -277,6 +293,7 @@ export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
 			.text()
 			.then((text) => readConfigText(picked.name, picked.size, text))
 			.then((result) => {
+				setReadingFile(false);
 				if (!result.ok) {
 					setReadFailureCopy(result.failure);
 					return;
@@ -284,6 +301,7 @@ export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
 				setDocument(result.document);
 			})
 			.catch((cause: unknown) => {
+				setReadingFile(false);
 				setReadFailureCopy({
 					title: "That file could not be read",
 					explanation: `The browser could not read ${picked.name} from disk, so nothing was sent.`,
@@ -326,7 +344,7 @@ export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
 						setStep("folders");
 					},
 					onError: (cause: unknown) => {
-						const refused = conflictOf(cause);
+						const refused = readConflict(cause);
 						if (refused) {
 							setConflict(refused);
 							setConflictChoice(undefined);
@@ -376,6 +394,9 @@ export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
 			{
 				onSuccess: () => {
 					triggerSync.mutate({ path: { accountId: activeAccountId } });
+					setVerifiedAccountIds((ids) =>
+						ids.includes(activeAccountId) ? ids : [...ids, activeAccountId],
+					);
 					setAccountFailures((failures) => {
 						const next = { ...failures };
 						delete next[activeAccountId];
@@ -473,13 +494,16 @@ export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
 			return (
 				<StepChooseFile
 					state={
-						importMutation.isPending
+						readingFile
 							? "reading"
-							: dragging
-								? "dragging"
-								: "idle"
+							: importMutation.isPending
+								? "checking"
+								: dragging
+									? "dragging"
+									: "idle"
 					}
 					file={file}
+					ready={document !== undefined}
 					failure={readFailureCopy}
 					onChoose={handleChoose}
 					onDragStateChange={setDragging}
@@ -512,7 +536,7 @@ export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
 					onBack={goToFile}
 					onNext={() => {
 						if (conflictChoice === "abort") {
-							onDone();
+							onDone("abandoned");
 							return;
 						}
 						setOnExisting("merge");
@@ -533,22 +557,19 @@ export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
 				/>
 			);
 
-		case "partial":
+		case "partial": {
+			if (!report) return <StepMissingReport onBack={goToFile} />;
+			const failed = writeFailure(report);
 			return (
 				<StepPartialImport
-					results={report ? sectionResults(report) : []}
-					message={
-						writeFailure(report ?? ({} as RemitImapConfigImportReport))
-							?.message ?? "The import stopped before it finished."
-					}
-					raw={`import_write_failed: ${
-						writeFailure(report ?? ({} as RemitImapConfigImportReport))
-							?.message ?? ""
-					}`}
+					results={sectionResults(report)}
+					message={failed?.message ?? "The import stopped before it finished."}
+					raw={`${failed?.code ?? WRITE_FAILURE_CODE}: ${failed?.message ?? "no message"}`}
 					onBack={goToFile}
 					onNext={() => runImport("apply", "merge")}
 				/>
 			);
+		}
 
 		case "credentials":
 			return (
@@ -557,13 +578,17 @@ export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
 					busyAccountId={reconnectingAccountId ?? undefined}
 					error={overviewError}
 					onOpen={openAccount}
-					onBack={() => setStep("review")}
+					// No way back: the apply has run, and the step behind this one is the
+					// dry run whose primary action would apply the same file again to an
+					// instance that is no longer empty.
 					onNext={() => setStep("folders")}
 				/>
 			);
 
 		case "account-password":
-			if (!activeAccount) return <StepMissingAccount onBack={onDone} />;
+			if (!activeAccount) {
+				return <StepMissingAccount onBack={() => onDone("abandoned")} />;
+			}
 			return (
 				<CredentialsStep
 					steps={IMPORT_STEPS}
@@ -592,7 +617,9 @@ export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
 			);
 
 		case "account-test":
-			if (!activeAccount) return <StepMissingAccount onBack={onDone} />;
+			if (!activeAccount) {
+				return <StepMissingAccount onBack={() => onDone("abandoned")} />;
+			}
 			return (
 				<ConnectionTestStep
 					steps={IMPORT_STEPS}
@@ -612,12 +639,15 @@ export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
 			);
 
 		case "account-oauth":
-			if (!activeAccount) return <StepMissingAccount onBack={onDone} />;
+			if (!activeAccount) {
+				return <StepMissingAccount onBack={() => onDone("abandoned")} />;
+			}
 			return (
 				<StepAccountReconnectMicrosoft
 					account={asImportedAccount(
 						activeAccount,
 						accountFailures[activeAccount.accountId],
+						verifiedAccountIds.includes(activeAccount.accountId),
 					)}
 					position={activePosition}
 					total={needingCredentials.length}
@@ -633,9 +663,35 @@ export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
 
 		case "folders":
 			return (
-				<StepPendingFolders folders={foldersStillPending} onNext={onDone} />
+				<StepPendingFolders
+					folders={foldersStillPending}
+					onNext={() => onDone("imported")}
+				/>
 			);
 	}
+}
+
+function DeadEnd({
+	children,
+	label,
+	onBack,
+}: {
+	children: string;
+	label: string;
+	onBack: () => void;
+}) {
+	return (
+		<div className="mx-auto max-w-lg p-6">
+			<Banner tone="danger">{children}</Banner>
+			<button
+				type="button"
+				className="mt-3 text-sm text-accent underline"
+				onClick={onBack}
+			>
+				{label}
+			</button>
+		</div>
+	);
 }
 
 /**
@@ -645,19 +701,20 @@ export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
  */
 function StepMissingAccount({ onBack }: { onBack: () => void }) {
 	return (
-		<div className="mx-auto max-w-lg p-6">
-			<Banner tone="danger">
-				That account is no longer in this instance's configuration, so there is
-				nothing left to sign in to. Open Settings › Accounts to see what is
-				here.
-			</Banner>
-			<button
-				type="button"
-				className="mt-3 text-sm text-accent underline"
-				onClick={onBack}
-			>
-				Go to inbox
-			</button>
-		</div>
+		<DeadEnd label="Go to inbox" onBack={onBack}>
+			That account is no longer in this instance's configuration, so there is
+			nothing left to sign in to. Open Settings › Accounts to see what is here.
+		</DeadEnd>
+	);
+}
+
+/** The partial-import screen with no report behind it — only reachable from a bug. */
+function StepMissingReport({ onBack }: { onBack: () => void }) {
+	return (
+		<DeadEnd label="Choose another file" onBack={onBack}>
+			The import stopped but produced no report, so nothing here can say what it
+			wrote. Open Settings to see what this instance holds before importing
+			again.
+		</DeadEnd>
 	);
 }

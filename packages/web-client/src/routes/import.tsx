@@ -26,15 +26,26 @@ function ConfigImportPage() {
 	// first-run guard reads the account list out of that cache — a stale
 	// zero-account entry would bounce a freshly imported instance straight back
 	// into onboarding. A document load starts from an empty cache.
-	const handleDone = useCallback(() => {
-		void completeOnboarding({
-			queryClient,
-			recordCompleted: () => telemetry.recordEvent("config.imported"),
-			navigateToInbox: () => {
-				window.location.assign("/mail");
-			},
-		});
-	}, [telemetry, queryClient]);
+	//
+	// The event records an import, so only an apply that wrote may raise it: a
+	// 409 the reader aborted and a file that was refused both leave by the same
+	// door and neither imported anything.
+	const handleDone = useCallback(
+		(outcome: "imported" | "abandoned") => {
+			void completeOnboarding({
+				queryClient,
+				recordCompleted: () => {
+					if (outcome === "imported") {
+						telemetry.recordEvent("config.imported");
+					}
+				},
+				navigateToInbox: () => {
+					window.location.assign("/mail");
+				},
+			});
+		},
+		[telemetry, queryClient],
+	);
 
 	return <ConfigImportWizard onDone={handleDone} />;
 }

@@ -13,6 +13,10 @@ import type {
 	RemitImapConfigImportItemReport,
 	RemitImapConfigImportReport,
 } from "@remit/api-http-client/types.gen.ts";
+// `ApiError` above is the wire model for an error body; this is the thrown
+// wrapper `lib/client.ts` puts every HTTP failure in.
+import { ApiError as ThrownApiError } from "./api.js";
+import { getErrorStatus } from "./error-classifier.js";
 import { safeJsonParse } from "./json.js";
 
 export const IMPORT_SECTION_ORDER = [
@@ -64,10 +68,21 @@ export const asVerdict = (value: string): ImportVerdict =>
 		? (value as ImportVerdict)
 		: "rejected";
 
-const asSection = (value: string): ImportSection =>
+/**
+ * A section this client does not know is not folded into one it does. Quietly
+ * filing an unrecognised item under "settings" would tell the reader something
+ * false about what a newer Reader's file is doing to their configuration, which
+ * is the failure the whole format exists to prevent. Unknown reads as unknown,
+ * and the screen shows it under its own heading.
+ */
+export const UNKNOWN_SECTION = "unknown" as const;
+
+export type ReportSectionId = ImportSection | typeof UNKNOWN_SECTION;
+
+export const asSection = (value: string): ImportSection | undefined =>
 	(IMPORT_SECTION_ORDER as readonly string[]).includes(value)
 		? (value as ImportSection)
-		: "settings";
+		: undefined;
 
 export interface ReportEntry {
 	id: string;
@@ -77,7 +92,7 @@ export interface ReportEntry {
 }
 
 export interface ReportSection {
-	id: ImportSection;
+	id: ReportSectionId;
 	title: string;
 	entries: ReportEntry[];
 }
@@ -85,25 +100,33 @@ export interface ReportSection {
 export const groupReportSections = (
 	items: readonly RemitImapConfigImportItemReport[],
 ): ReportSection[] => {
-	const grouped = new Map<ImportSection, ReportEntry[]>();
+	const grouped = new Map<ReportSectionId, ReportEntry[]>();
 	items.forEach((item, index) => {
-		const section = asSection(item.section);
+		const section = asSection(item.section) ?? UNKNOWN_SECTION;
 		const entries = grouped.get(section) ?? [];
 		entries.push({
 			id: `${section}-${item.key}-${index}`,
 			label: item.key,
 			verdict: asVerdict(item.verdict),
-			reason: item.reason,
+			reason:
+				section === UNKNOWN_SECTION
+					? (item.reason ??
+						`This instance does not know the "${item.section}" section, so it cannot say what this entry does.`)
+					: item.reason,
 		});
 		grouped.set(section, entries);
 	});
-	return IMPORT_SECTION_ORDER.filter((section) => grouped.has(section)).map(
-		(section) => ({
+	const ordered: ReportSectionId[] = [...IMPORT_SECTION_ORDER, UNKNOWN_SECTION];
+	return ordered
+		.filter((section) => grouped.has(section))
+		.map((section) => ({
 			id: section,
-			title: SECTION_TITLES[section],
+			title:
+				section === UNKNOWN_SECTION
+					? "Not recognised"
+					: SECTION_TITLES[section],
 			entries: grouped.get(section) ?? [],
-		}),
-	);
+		}));
 };
 
 export type VerdictCounts = Record<ImportVerdict, number>;
@@ -204,6 +227,41 @@ const UNRECOGNISED_FAILURE = (error: ApiError): Omit<FailureCopy, "raw"> => ({
 
 export const WRITE_FAILURE_CODE = "import_write_failed";
 
+export const CONFLICT_CODE = "config_not_empty";
+
+export interface ImportConflict {
+	message: string;
+	details?: Record<string, string>;
+}
+
+/**
+ * The 409 a non-empty configuration answers with, or nothing.
+ *
+ * `lib/client.ts` re-wraps every HTTP failure as an `ApiError` so the fail-fast
+ * classifier can read a status off it, which puts the endpoint's own flat body
+ * — `code`, `message`, `details` — on `error.body` rather than on the error.
+ * Reading the code off the error itself finds nothing and turns every refusal
+ * into "check your connection".
+ */
+export const readConflict = (error: unknown): ImportConflict | undefined => {
+	if (getErrorStatus(error) !== 409) return undefined;
+	const body: unknown = error instanceof ThrownApiError ? error.body : error;
+	if (typeof body !== "object" || body === null) return undefined;
+	const flat = body as {
+		code?: unknown;
+		message?: unknown;
+		details?: unknown;
+	};
+	if (flat.code !== CONFLICT_CODE) return undefined;
+	return {
+		message: typeof flat.message === "string" ? flat.message : "",
+		details:
+			typeof flat.details === "object" && flat.details !== null
+				? (flat.details as Record<string, string>)
+				: undefined,
+	};
+};
+
 /**
  * The blocking failure to render, when there is one. `import_write_failed` is
  * deliberately not one of these: the import got past validation and part of it
@@ -223,7 +281,7 @@ export const writeFailure = (
 ): ApiError | undefined =>
 	report.errors.find((it) => it.code === WRITE_FAILURE_CODE);
 
-export type SectionOutcome = "landed" | "failed" | "not-attempted";
+export type SectionOutcome = "landed" | "failed" | "not-attempted" | "unknown";
 
 export interface SectionResult {
 	section: ImportSection;
@@ -238,23 +296,39 @@ export interface SectionResult {
  * before it ran, it did not, and what is after it was never reached. The
  * server's own sentence says whether the earlier writes survived, because only
  * the backend knows whether it had a transaction.
+ *
+ * A failure that names no section leaves that split undecidable, and every
+ * section reads `unknown` rather than `landed`. Telling someone their accounts
+ * are in when nothing said so is the one answer this screen must never give:
+ * they would stop looking.
  */
 export const sectionResults = (
 	report: RemitImapConfigImportReport,
 ): SectionResult[] => {
 	const failure = writeFailure(report);
-	const failedSection = failure?.details?.section
-		? asSection(failure.details.section)
-		: undefined;
-	const failedAt = failedSection
-		? IMPORT_SECTION_ORDER.indexOf(failedSection)
-		: IMPORT_SECTION_ORDER.length;
+	const named = failure?.details?.section;
+	const failedSection = named ? asSection(named) : undefined;
 	const counts = new Map<ImportSection, number>();
 	for (const item of report.items) {
 		if (asVerdict(item.verdict) === "rejected") continue;
 		const section = asSection(item.section);
+		if (!section) continue;
 		counts.set(section, (counts.get(section) ?? 0) + 1);
 	}
+
+	if (!failedSection) {
+		const detail = named
+			? `The import stopped in "${named}", which this instance does not recognise, so it cannot say whether this section was written.`
+			: "The import stopped without naming where, so it cannot say whether this section was written. Open Settings to see what is here.";
+		return IMPORT_SECTION_ORDER.map((section) => ({
+			section,
+			title: SECTION_TITLES[section],
+			state: "unknown" as const,
+			detail,
+		}));
+	}
+
+	const failedAt = IMPORT_SECTION_ORDER.indexOf(failedSection);
 
 	return IMPORT_SECTION_ORDER.map((section, index) => {
 		const title = SECTION_TITLES[section];

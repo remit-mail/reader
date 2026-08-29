@@ -146,18 +146,27 @@ test.describe("A configuration file", () => {
 		);
 		expect(mailboxes.map((box) => box.fullPath)).toContain("INBOX");
 
-		const active = await waitFor(
+		// `isActive` is what the PATCH above set, so asserting it would only prove
+		// the spec's own write. `connectionState` is the mail server's answer: the
+		// imap worker writes `authenticated` once it has actually logged in with
+		// the credential that was entered, and nothing else can produce it.
+		const connected = await waitFor(
 			() => target.getConfig(),
 			(config) =>
 				config.accounts.some(
 					(account) =>
-						account.accountId === importedAccountId && account.isActive,
+						account.accountId === importedAccountId &&
+						account.connectionState === "authenticated",
 				),
-			{ timeoutMs: 60_000, what: "the imported account to become active" },
+			{
+				timeoutMs: 120_000,
+				what: "the imported account to authenticate with the entered password",
+			},
 		);
 		expect(
-			active.accounts.find((account) => account.accountId === importedAccountId)
-				?.isActive,
-		).toBe(true);
+			connected.accounts.find(
+				(account) => account.accountId === importedAccountId,
+			)?.connectionState,
+		).toBe("authenticated");
 	});
 });

@@ -57,16 +57,31 @@ export interface ChosenFile {
 	size: number;
 }
 
+/**
+ * Where the file has got to. `reading` is the browser pulling it off disk;
+ * `checking` is the dry run in flight at the server. They are different waits
+ * with different failures, and a control that cannot tell them apart lands the
+ * reader on a button that looks ready before there is anything to send.
+ */
+export type ChooseFileState = "idle" | "dragging" | "reading" | "checking";
+
 export function StepChooseFile({
 	state = "idle",
 	file,
+	ready = false,
 	failure,
 	onChoose,
 	onDragStateChange,
 	onNext,
 }: {
-	state?: "idle" | "dragging" | "reading";
+	state?: ChooseFileState;
 	file?: ChosenFile;
+	/**
+	 * A document has parsed and is there to send. Without it "Check the file"
+	 * would offer to send what the browser has not finished reading, or what
+	 * turned out not to be a configuration at all.
+	 */
+	ready?: boolean;
 	/** A file that could not even be read as a configuration document. */
 	failure?: FailureCopy;
 	onChoose?: (file: File) => void;
@@ -76,6 +91,8 @@ export function StepChooseFile({
 	const inputRef = useRef<HTMLInputElement>(null);
 	const dragging = state === "dragging";
 	const reading = state === "reading";
+	const checking = state === "checking";
+	const busy = reading || checking;
 
 	const handleDrop = (event: DragEvent<HTMLDivElement>) => {
 		event.preventDefault();
@@ -97,15 +114,13 @@ export function StepChooseFile({
 					</span>
 					<Button
 						variant="primary"
-						disabled={reading || !file}
+						disabled={busy || !ready}
 						icon={
-							reading ? (
-								<Loader2 className="size-3.5 animate-spin" />
-							) : undefined
+							busy ? <Loader2 className="size-3.5 animate-spin" /> : undefined
 						}
 						onClick={onNext}
 					>
-						{reading ? "Checking…" : "Check the file"}
+						{reading ? "Reading…" : checking ? "Checking…" : "Check the file"}
 					</Button>
 				</>
 			}
@@ -172,7 +187,14 @@ export function StepChooseFile({
 						<div className="min-w-0">
 							<p className="truncate text-sm text-fg">{file.name}</p>
 							<p className="mt-0.5 text-xs text-fg-subtle">
-								{formatFileSize(file.size)} · nothing has been sent yet
+								{formatFileSize(file.size)} ·{" "}
+								{reading
+									? "reading it from disk"
+									: checking
+										? "checking it against this instance"
+										: ready
+											? "ready to check — nothing has been sent yet"
+											: "not a configuration this instance can read"}
 							</p>
 						</div>
 					</div>
@@ -481,7 +503,6 @@ export function StepCredentialsOverview({
 	busyAccountId,
 	error,
 	onOpen,
-	onBack,
 	onNext,
 }: {
 	accounts: ImportedAccount[];
@@ -500,9 +521,11 @@ export function StepCredentialsOverview({
 			subtitle="The config file carries servers and settings. Passwords and Microsoft sign-ins it deliberately leaves out."
 			footer={
 				<>
-					<Button variant="ghost" onClick={onBack}>
-						Back
-					</Button>
+					<span className="text-2xs text-fg-subtle">
+						{outstanding > 0
+							? "Settings › Accounts keeps asking until every account is signed in."
+							: "Every account can sync."}
+					</span>
 					<Button variant="primary" onClick={onNext}>
 						{outstanding > 0 ? "Finish later" : "All accounts connected"}
 					</Button>
@@ -680,9 +703,14 @@ export function StepFileRejected({
 	);
 }
 
+/**
+ * A section nobody can vouch for reads as failed, never as pending. Pending
+ * says "still coming"; this section is finished and its outcome is unknown,
+ * which is the row the reader has to go and check for themselves.
+ */
 function resultState(state: SectionResult["state"]) {
 	if (state === "landed") return "ok" as const;
-	if (state === "failed") return "failed" as const;
+	if (state === "failed" || state === "unknown") return "failed" as const;
 	return "pending" as const;
 }
 
@@ -699,12 +727,17 @@ export function StepPartialImport({
 	raw: string;
 } & StepNav) {
 	const landed = results.filter((result) => result.state === "landed").length;
+	const unknown = results.some((result) => result.state === "unknown");
 	return (
 		<WizardShell
 			steps={IMPORT_STEPS}
 			activeStep={1}
 			title="The import stopped part-way"
-			subtitle={`${landed} of ${results.length} sections landed.`}
+			subtitle={
+				unknown
+					? "It did not say how far it got, so check Settings before importing again."
+					: `${landed} of ${results.length} sections landed.`
+			}
 			footer={
 				<>
 					<Button variant="ghost" onClick={onBack}>
