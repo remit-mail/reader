@@ -10,7 +10,7 @@ import {
 	Star,
 	X,
 } from "lucide-react";
-import { type ReactElement, type ReactNode, useState } from "react";
+import { type ReactElement, type ReactNode, useId, useState } from "react";
 import { cn } from "../lib/cn.js";
 import { categoryTone, type ThreadCategory } from "./app-shell-types.js";
 import { Avatar } from "./avatar.js";
@@ -426,6 +426,7 @@ export function IntelligencePanel({
 }: IntelligencePanelProps) {
 	const { sender, authenticity, category, flags = {}, similar } = data;
 	const [ownTab, setOwnTab] = useState<IntelligenceTabId>(defaultTab);
+	const tabStripName = useId();
 	const activeTab = tab ?? ownTab;
 	const calendarTab =
 		calendar !== undefined && activeTab === "calendar" ? calendar : undefined;
@@ -456,14 +457,14 @@ export function IntelligencePanel({
 			{calendar && (
 				<div className="flex shrink-0 justify-center border-b border-line px-row-inset py-2">
 					<SegmentedControl
-						name="intelligence-tab"
+						name={tabStripName}
 						aria-label="What this panel is showing"
 						size="sm"
 						options={tabOptions}
 						value={activeTab}
 						onChange={(next) => {
-							if (onTabChange) onTabChange(next);
-							else setOwnTab(next);
+							if (tab === undefined) setOwnTab(next);
+							onTabChange?.(next);
 						}}
 					/>
 				</div>
