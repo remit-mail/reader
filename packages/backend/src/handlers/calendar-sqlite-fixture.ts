@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -46,15 +46,19 @@ const applyEntityMigrations = (sqlite: Database.Database): void => {
  * calendar row is scoped by account config, so a test that mints its own
  * account config sees only what it wrote.
  */
-export const createCalendarSqliteClient = async (): Promise<RemitClient> => {
-	const path = join(
-		mkdtempSync(join(tmpdir(), "remit-calendar-handlers-")),
-		"remit.db",
-	);
+export const createCalendarSqliteClient = async (): Promise<{
+	client: RemitClient;
+	cleanup: () => void;
+}> => {
+	const directory = mkdtempSync(join(tmpdir(), "remit-calendar-handlers-"));
+	const path = join(directory, "remit.db");
 	const sqlite = new Database(path);
 	applyEntityMigrations(sqlite);
 	sqlite.close();
 
 	process.env.SQLITE_DB_PATH = path;
-	return buildSqliteClient();
+	return {
+		client: await buildSqliteClient(),
+		cleanup: () => rmSync(directory, { recursive: true, force: true }),
+	};
 };

@@ -7,7 +7,6 @@ import type {
 	ICalendarSuggestionRepository,
 	MessageData,
 	PutCalendarSuggestionInput,
-	ResultList,
 	SettleCalendarSuggestionInput,
 } from "@remit/data-ports";
 import {
@@ -315,6 +314,7 @@ interface Card {
 }
 
 let client: RemitClient;
+let cleanup: () => void;
 let mintedSubs = 0;
 
 const contextOf = (request: {
@@ -398,12 +398,13 @@ const seedMessageFrom = async (
 
 before(async () => {
 	_resetForTest();
-	client = await createCalendarSqliteClient();
+	({ client, cleanup } = await createCalendarSqliteClient());
 	setClient(client);
 });
 
 after(() => {
 	_resetForTest();
+	cleanup();
 });
 
 describe("GET /calendar-suggestions", () => {

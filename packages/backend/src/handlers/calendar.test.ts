@@ -1,40 +1,24 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import type {
 	CalendarCollectionItem,
 	CalendarEventIndexItem,
 	CalendarObjectItem,
-	CalendarOccurrenceInput,
-	CalendarSuggestionItem,
-	CalendarUnitOfWorkRepositories,
-	CreateCalendarCollectionInput,
-	ICalendarCollectionRepository,
-	ICalendarEventIndexRepository,
-	ICalendarObjectRepository,
-	ICalendarSuggestionRepository,
-	ICalendarUnitOfWork,
-	PutCalendarObjectInput,
-	PutCalendarSuggestionInput,
-	ResultList,
-	SettleCalendarSuggestionInput,
-	UpdateCalendarCollectionInput,
 } from "@remit/data-ports";
-import { NotFoundError } from "@remit/data-ports/errors";
+import { CalendarSource, RecurrenceScope } from "@remit/domain-enums";
+import type { APIGatewayProxyEvent } from "aws-lambda";
+import type { Context } from "openapi-backend";
+import { deriveAccountConfigId } from "../auth.js";
 import {
-	deriveCalendarId,
-	deriveCalendarObjectId,
-	deriveCalendarSuggestionId,
-	normalizeCalendarUrlSegment,
-} from "@remit/data-ports/id";
-import {
-	CalendarColor,
-	CalendarComponentSet,
-	CalendarSource,
-	CalendarSuggestionState,
-	RecurrenceScope,
-} from "@remit/domain-enums";
+	_resetForTest,
+	type RemitClient,
+	setClient,
+} from "../service/data-client.js";
 import {
 	type CalendarDeps,
+	CalendarDetailOperations,
+	CalendarOperations,
+	calendarDepsOf,
 	createCalendarFor,
 	deleteCalendarFor,
 	listCalendarsFor,
@@ -51,423 +35,112 @@ import {
 	readWindow,
 	updateCalendarEventFor,
 } from "./calendar-event.js";
+import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
 
 /**
- * The calendar store in memory, behind the same ports the relational one
- * implements — one class per port, because a collection and a resource both
- * answer to `get` and `delete` with different arguments.
+ * The calendar handlers against the store the self-host build ships.
  *
- * Written against the ports rather than stubbed per test so a handler test
- * exercises the real write path: `putCalendarObject` projects, expands and
- * bumps here exactly as it does against sqlite, and a handler that stopped
- * going through it would fail these tests rather than pass them.
+ * This file used to run on a set of in-memory port implementations that claimed
+ * to behave exactly as sqlite. Nothing checked the claim, so it was worth
+ * nothing: `putCalendarObject` projects, expands and bumps the sequence, and a
+ * memory twin of that is a second implementation of the write path that can
+ * drift from the real one silently. Every test here now writes through the
+ * drizzle repositories, so the projection, the expansion and the transaction
+ * are the shipped ones.
+ *
+ * One database serves the file. Every calendar row is scoped by account config
+ * and `calendarId` is derived from it, so a test that mints its own account
+ * sees only what it wrote.
  */
-class CalendarState {
-	readonly collections = new Map<string, CalendarCollectionItem>();
-	readonly objects = new Map<string, CalendarObjectItem>();
-	readonly occurrences = new Map<string, CalendarEventIndexItem[]>();
-	readonly suggestions = new Map<string, CalendarSuggestionItem>();
-}
 
-/**
- * Suggestions are bound to the same unit of work so accepting a card and
- * writing its resource commit together (issue #1033). Nothing in this file
- * exercises them; they are here so the store answers the whole port.
- */
-class MemorySuggestions implements ICalendarSuggestionRepository {
-	constructor(private state: CalendarState) {}
+let client: RemitClient;
+let cleanup: () => void;
+let mintedAccounts = 0;
 
-	async put(
-		input: PutCalendarSuggestionInput,
-	): Promise<CalendarSuggestionItem> {
-		const suggestionId = deriveCalendarSuggestionId(
-			input.messageId,
-			input.bodyPartId,
-			input.icalUid,
-		);
-		const existing = this.state.suggestions.get(suggestionId);
-		const now = Date.now();
-		const suggestion: CalendarSuggestionItem = {
-			...input,
-			suggestionId,
-			state: existing?.state ?? CalendarSuggestionState.Pending,
-			acceptedCalendarObjectId: existing?.acceptedCalendarObjectId ?? "",
-			createdAt: existing?.createdAt ?? now,
-			updatedAt: now,
-		};
-		this.state.suggestions.set(suggestionId, suggestion);
-		return suggestion;
+/** One caller's calendars, and the two ways the handlers reach them. */
+class CalendarAccount {
+	readonly accountConfigId: string;
+
+	constructor(readonly sub: string) {
+		this.accountConfigId = deriveAccountConfigId(sub);
 	}
 
-	async get(
-		accountConfigId: string,
-		suggestionId: string,
-	): Promise<CalendarSuggestionItem> {
-		const suggestion = this.state.suggestions.get(suggestionId);
-		if (!suggestion || suggestion.accountConfigId !== accountConfigId) {
-			throw new NotFoundError(`Calendar suggestion not found: ${suggestionId}`);
-		}
-		return suggestion;
-	}
-
-	async listByMessage(
-		accountConfigId: string,
-		messageId: string,
-	): Promise<CalendarSuggestionItem[]> {
-		return [...this.state.suggestions.values()].filter(
-			(suggestion) =>
-				suggestion.accountConfigId === accountConfigId &&
-				suggestion.messageId === messageId,
-		);
-	}
-
-	async listByState(
-		accountConfigId: string,
-		state: CalendarSuggestionItem["state"],
-	): Promise<ResultList<CalendarSuggestionItem>> {
+	/** The request an authenticated caller of this account arrives on. */
+	request(): APIGatewayProxyEvent {
 		return {
-			items: [...this.state.suggestions.values()].filter(
-				(suggestion) =>
-					suggestion.accountConfigId === accountConfigId &&
-					suggestion.state === state,
-			),
-			continuationToken: undefined,
-		};
-	}
-
-	async settle(
-		accountConfigId: string,
-		suggestionId: string,
-		input: SettleCalendarSuggestionInput,
-	): Promise<CalendarSuggestionItem> {
-		const suggestion = await this.get(accountConfigId, suggestionId);
-		const settled = { ...suggestion, ...input, updatedAt: Date.now() };
-		this.state.suggestions.set(suggestionId, settled);
-		return settled;
-	}
-
-	async supersedeIfPending(
-		accountConfigId: string,
-		suggestionId: string,
-	): Promise<CalendarSuggestionItem | null> {
-		const suggestion = this.state.suggestions.get(suggestionId);
-		if (
-			!suggestion ||
-			suggestion.accountConfigId !== accountConfigId ||
-			suggestion.state !== CalendarSuggestionState.Pending
-		) {
-			return null;
-		}
-		const retired = {
-			...suggestion,
-			state: CalendarSuggestionState.Superseded,
-			acceptedCalendarObjectId: "",
-			updatedAt: Date.now(),
-		};
-		this.state.suggestions.set(suggestionId, retired);
-		return retired;
-	}
-}
-
-class MemoryCollections implements ICalendarCollectionRepository {
-	constructor(private state: CalendarState) {}
-
-	async create(
-		input: CreateCalendarCollectionInput,
-	): Promise<CalendarCollectionItem> {
-		const urlSegment = normalizeCalendarUrlSegment(input.urlSegment);
-		const calendarId = deriveCalendarId(input.accountConfigId, urlSegment);
-		const existing = this.state.collections.get(calendarId);
-		if (existing) return existing;
-
-		const created: CalendarCollectionItem = {
-			calendarId,
-			accountConfigId: input.accountConfigId,
-			urlSegment,
-			displayName: input.displayName,
-			color: input.color ?? CalendarColor.Cal1,
-			componentSet: input.componentSet ?? CalendarComponentSet.VeventOnly,
-			source: input.source ?? CalendarSource.UserCreated,
-			timezone: input.timezone ?? "",
-			syncSequence: 0,
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		this.state.collections.set(calendarId, created);
-		return created;
-	}
-
-	async createExclusive(
-		input: CreateCalendarCollectionInput,
-	): Promise<CalendarCollectionItem | null> {
-		const calendarId = deriveCalendarId(
-			input.accountConfigId,
-			normalizeCalendarUrlSegment(input.urlSegment),
-		);
-		if (this.state.collections.has(calendarId)) return null;
-		return this.create(input);
-	}
-
-	async get(
-		accountConfigId: string,
-		calendarId: string,
-	): Promise<CalendarCollectionItem> {
-		const found = this.state.collections.get(calendarId);
-		if (!found || found.accountConfigId !== accountConfigId) {
-			throw new NotFoundError(`Calendar not found: ${calendarId}`);
-		}
-		return found;
-	}
-
-	async update(
-		accountConfigId: string,
-		calendarId: string,
-		input: UpdateCalendarCollectionInput,
-	): Promise<CalendarCollectionItem> {
-		const updated = {
-			...(await this.get(accountConfigId, calendarId)),
-			...input,
-		};
-		this.state.collections.set(calendarId, updated);
-		return updated;
-	}
-
-	async delete(_accountConfigId: string, calendarId: string): Promise<void> {
-		this.state.collections.delete(calendarId);
-	}
-
-	async listByAccountConfig(
-		accountConfigId: string,
-	): Promise<CalendarCollectionItem[]> {
-		return [...this.state.collections.values()]
-			.filter((item) => item.accountConfigId === accountConfigId)
-			.sort((left, right) => left.urlSegment.localeCompare(right.urlSegment));
-	}
-
-	async findByUrlSegment(
-		accountConfigId: string,
-		urlSegment: string,
-	): Promise<CalendarCollectionItem | null> {
-		return (
-			this.state.collections.get(
-				deriveCalendarId(
-					accountConfigId,
-					normalizeCalendarUrlSegment(urlSegment),
-				),
-			) ?? null
-		);
-	}
-
-	async bumpSyncSequence(
-		accountConfigId: string,
-		calendarId: string,
-	): Promise<number> {
-		const current = await this.get(accountConfigId, calendarId);
-		const bumped = { ...current, syncSequence: current.syncSequence + 1 };
-		this.state.collections.set(calendarId, bumped);
-		return bumped.syncSequence;
-	}
-}
-
-class MemoryObjects implements ICalendarObjectRepository {
-	constructor(private state: CalendarState) {}
-
-	async put(input: PutCalendarObjectInput): Promise<CalendarObjectItem> {
-		const calendarObjectId = deriveCalendarObjectId(
-			input.calendarId,
-			input.resourceName,
-		);
-		const stored: CalendarObjectItem = {
-			...input,
-			calendarObjectId,
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		this.state.objects.set(calendarObjectId, stored);
-		return stored;
-	}
-
-	async get(
-		calendarId: string,
-		calendarObjectId: string,
-	): Promise<CalendarObjectItem> {
-		const found = await this.find(calendarId, calendarObjectId);
-		if (!found) {
-			throw new NotFoundError(`Calendar object not found: ${calendarObjectId}`);
-		}
-		return found;
-	}
-
-	async find(
-		calendarId: string,
-		calendarObjectId: string,
-	): Promise<CalendarObjectItem | null> {
-		const found = this.state.objects.get(calendarObjectId);
-		return found && found.calendarId === calendarId ? found : null;
-	}
-
-	async delete(_calendarId: string, calendarObjectId: string): Promise<void> {
-		this.state.objects.delete(calendarObjectId);
-	}
-
-	async findByResourceName(
-		calendarId: string,
-		resourceName: string,
-	): Promise<CalendarObjectItem | null> {
-		return this.find(
-			calendarId,
-			deriveCalendarObjectId(calendarId, resourceName),
-		);
-	}
-
-	async findByUid(
-		calendarId: string,
-		icalUid: string,
-	): Promise<CalendarObjectItem | null> {
-		return (
-			[...this.state.objects.values()].find(
-				(object) =>
-					object.calendarId === calendarId && object.icalUid === icalUid,
-			) ?? null
-		);
-	}
-
-	async listByCalendar(calendarId: string): Promise<CalendarObjectItem[]> {
-		return [...this.state.objects.values()]
-			.filter((object) => object.calendarId === calendarId)
-			.sort((left, right) =>
-				left.resourceName.localeCompare(right.resourceName),
-			);
-	}
-
-	async listIncompleteExpansions(
-		calendarId: string,
-		instant: string,
-	): Promise<CalendarObjectItem[]> {
-		return (await this.listByCalendar(calendarId)).filter(
-			(object) =>
-				object.expandedThrough !== "" && object.expandedThrough < instant,
-		);
-	}
-
-	async listChangedSince(
-		calendarId: string,
-		syncSequence: number,
-	): Promise<CalendarObjectItem[]> {
-		return (await this.listByCalendar(calendarId))
-			.filter((object) => object.syncSequence > syncSequence)
-			.sort((left, right) => left.syncSequence - right.syncSequence);
-	}
-}
-
-class MemoryOccurrences implements ICalendarEventIndexRepository {
-	constructor(private state: CalendarState) {}
-
-	async replaceForObject(
-		calendarId: string,
-		calendarObjectId: string,
-		occurrences: CalendarOccurrenceInput[],
-	): Promise<void> {
-		this.state.occurrences.set(
-			calendarObjectId,
-			occurrences.map((occurrence) => ({
-				...occurrence,
-				calendarId,
-				calendarObjectId,
-				createdAt: 0,
-				updatedAt: 0,
-			})),
-		);
-	}
-
-	async deleteForObject(
-		_calendarId: string,
-		calendarObjectId: string,
-	): Promise<void> {
-		this.state.occurrences.delete(calendarObjectId);
-	}
-
-	async listForObject(
-		_calendarId: string,
-		calendarObjectId: string,
-	): Promise<CalendarEventIndexItem[]> {
-		return this.state.occurrences.get(calendarObjectId) ?? [];
-	}
-
-	async listByStartRange(
-		calendarId: string,
-		startAt: string,
-		endAt: string,
-	): Promise<CalendarEventIndexItem[]> {
-		return [...this.state.occurrences.values()]
-			.flat()
-			.filter(
-				(row) =>
-					row.calendarId === calendarId &&
-					row.startAt >= startAt &&
-					row.startAt < endAt,
-			)
-			.sort((left, right) => left.startAt.localeCompare(right.startAt));
-	}
-}
-
-class InMemoryCalendarStore implements ICalendarUnitOfWork {
-	readonly state = new CalendarState();
-	readonly calendarCollection = new MemoryCollections(this.state);
-	readonly calendarObject = new MemoryObjects(this.state);
-	readonly calendarEventIndex = new MemoryOccurrences(this.state);
-	readonly calendarSuggestion = new MemorySuggestions(this.state);
-
-	get collections(): Map<string, CalendarCollectionItem> {
-		return this.state.collections;
-	}
-
-	get objects(): Map<string, CalendarObjectItem> {
-		return this.state.objects;
-	}
-
-	get occurrences(): Map<string, CalendarEventIndexItem[]> {
-		return this.state.occurrences;
-	}
-
-	// No isolation to model: the tests that care about atomicity run against
-	// sqlite, where the transaction is real.
-	transaction<T>(
-		fn: (repos: CalendarUnitOfWorkRepositories) => Promise<T>,
-	): Promise<T> {
-		return fn(this);
+			requestContext: { authorizer: { claims: { sub: this.sub } } },
+		} as unknown as APIGatewayProxyEvent;
 	}
 
 	deps(): CalendarDeps {
+		return calendarDepsOf(client);
+	}
+
+	/** The same deps with id minting and the clock pinned. */
+	eventDeps(): CalendarEventDeps {
+		let minted = 0;
 		return {
-			calendarCollection: this.calendarCollection,
-			calendarObject: this.calendarObject,
-			calendarEventIndex: this.calendarEventIndex,
-			calendarUnitOfWork: this,
+			...this.deps(),
+			newId: () => {
+				minted += 1;
+				return `${this.accountConfigId}-minted-${minted}`;
+			},
+			now: () => new Date("2026-08-29T00:00:00Z"),
 		};
+	}
+
+	collections(): Promise<CalendarCollectionItem[]> {
+		return client.calendarCollection.listByAccountConfig(this.accountConfigId);
+	}
+
+	async collection(calendarId: string): Promise<CalendarCollectionItem | null> {
+		const held = await this.collections();
+		return (
+			held.find((collection) => collection.calendarId === calendarId) ?? null
+		);
+	}
+
+	async objects(): Promise<CalendarObjectItem[]> {
+		const held = await this.collections();
+		const objects: CalendarObjectItem[] = [];
+		for (const collection of held) {
+			objects.push(
+				...(await client.calendarObject.listByCalendar(collection.calendarId)),
+			);
+		}
+		return objects;
+	}
+
+	object(
+		calendarId: string,
+		calendarObjectId: string,
+	): Promise<CalendarObjectItem | null> {
+		return client.calendarObject.find(calendarId, calendarObjectId);
+	}
+
+	occurrences(object: {
+		calendarId: string;
+		calendarObjectId: string;
+	}): Promise<CalendarEventIndexItem[]> {
+		return client.calendarEventIndex.listForObject(
+			object.calendarId,
+			object.calendarObjectId,
+		);
 	}
 }
 
-const ACCOUNT = "account-config-1";
-
-const eventDeps = (store: InMemoryCalendarStore): CalendarEventDeps => {
-	let minted = 0;
-	return {
-		...store.deps(),
-		newId: () => {
-			minted += 1;
-			return `minted-${minted}`;
-		},
-		now: () => new Date("2026-08-29T00:00:00Z"),
-	};
+const anAccount = (): CalendarAccount => {
+	mintedAccounts += 1;
+	return new CalendarAccount(`calendar-sub-${mintedAccounts}`);
 };
 
 const seedWeekly = async (
 	deps: CalendarEventDeps,
+	accountConfigId: string,
 	calendarId: string,
 	recurrenceRule = "FREQ=WEEKLY;COUNT=5",
 ) => {
-	const created = await createCalendarEventFor(deps, ACCOUNT, {
+	const created = await createCalendarEventFor(deps, accountConfigId, {
 		calendarId,
 		summary: "Stand-up",
 		start: "2026-09-07T09:00:00Z",
@@ -478,11 +151,25 @@ const seedWeekly = async (
 	return created.value;
 };
 
+before(async () => {
+	_resetForTest();
+	({ client, cleanup } = await createCalendarSqliteClient());
+	setClient(client);
+});
+
+after(() => {
+	_resetForTest();
+	cleanup();
+});
+
 describe("listCalendarsFor", () => {
 	it("provisions the default calendar on a first read", async () => {
-		const store = new InMemoryCalendarStore();
+		const account = anAccount();
 
-		const calendars = await listCalendarsFor(store.deps(), ACCOUNT);
+		const calendars = await listCalendarsFor(
+			account.deps(),
+			account.accountConfigId,
+		);
 
 		assert.equal(calendars.length, 1);
 		assert.equal(calendars[0]?.urlSegment, "default");
@@ -490,13 +177,15 @@ describe("listCalendarsFor", () => {
 	});
 
 	it("provisions it exactly once when several reads arrive together", async () => {
-		const store = new InMemoryCalendarStore();
+		const account = anAccount();
 
 		const reads = await Promise.all(
-			Array.from({ length: 8 }, () => listCalendarsFor(store.deps(), ACCOUNT)),
+			Array.from({ length: 8 }, () =>
+				listCalendarsFor(account.deps(), account.accountConfigId),
+			),
 		);
 
-		assert.equal(store.collections.size, 1);
+		assert.equal((await account.collections()).length, 1);
 		const ids = new Set(reads.flat().map((calendar) => calendar.calendarId));
 		assert.equal(ids.size, 1);
 	});
@@ -504,35 +193,40 @@ describe("listCalendarsFor", () => {
 
 describe("createCalendarFor", () => {
 	it("refuses a url segment the account already uses", async () => {
-		const store = new InMemoryCalendarStore();
-		const deps = store.deps();
-		await createCalendarFor(deps, ACCOUNT, {
+		const account = anAccount();
+		const deps = account.deps();
+		await createCalendarFor(deps, account.accountConfigId, {
 			urlSegment: "work",
 			displayName: "Work",
 		});
 
-		const second = await createCalendarFor(deps, ACCOUNT, {
+		const second = await createCalendarFor(deps, account.accountConfigId, {
 			urlSegment: "WORK",
 			displayName: "Work again",
 		});
 
 		assert.ok(!second.ok);
 		assert.equal(second.error.code, "UrlSegmentTaken");
-		assert.equal(store.collections.size, 1);
+		const held = await account.collections();
+		assert.equal(held.length, 1);
 		assert.equal(
-			[...store.collections.values()][0]?.displayName,
+			held[0]?.displayName,
 			"Work",
 			"the refused create never wrote over the calendar that holds the segment",
 		);
 	});
 
 	it("refuses an empty url segment", async () => {
-		const store = new InMemoryCalendarStore();
+		const account = anAccount();
 
-		const created = await createCalendarFor(store.deps(), ACCOUNT, {
-			urlSegment: "  ",
-			displayName: "Nameless",
-		});
+		const created = await createCalendarFor(
+			account.deps(),
+			account.accountConfigId,
+			{
+				urlSegment: "  ",
+				displayName: "Nameless",
+			},
+		);
 
 		assert.ok(!created.ok);
 		assert.equal(created.error.code, "InvalidUrlSegment");
@@ -541,49 +235,57 @@ describe("createCalendarFor", () => {
 
 describe("deleteCalendarFor", () => {
 	it("refuses to remove the calendar events fall back to", async () => {
-		const store = new InMemoryCalendarStore();
-		const deps = store.deps();
-		const [fallback] = await listCalendarsFor(deps, ACCOUNT);
+		const account = anAccount();
+		const deps = account.deps();
+		const [fallback] = await listCalendarsFor(deps, account.accountConfigId);
 		assert.ok(fallback);
 
-		const removed = await deleteCalendarFor(deps, ACCOUNT, fallback.calendarId);
+		const removed = await deleteCalendarFor(
+			deps,
+			account.accountConfigId,
+			fallback.calendarId,
+		);
 
 		assert.ok(!removed.ok);
 		assert.equal(removed.error.code, "DefaultCalendarUndeletable");
-		assert.equal(store.collections.size, 1);
+		assert.equal((await account.collections()).length, 1);
 	});
 
 	it("takes the events and their occurrences with a calendar it does remove", async () => {
-		const store = new InMemoryCalendarStore();
-		const deps = eventDeps(store);
-		const created = await createCalendarFor(deps, ACCOUNT, {
+		const account = anAccount();
+		const deps = account.eventDeps();
+		const created = await createCalendarFor(deps, account.accountConfigId, {
 			urlSegment: "work",
 			displayName: "Work",
 		});
 		assert.ok(created.ok);
-		await seedWeekly(deps, created.value.calendarId);
-		assert.equal(store.objects.size, 1);
+		const event = await seedWeekly(
+			deps,
+			account.accountConfigId,
+			created.value.calendarId,
+		);
+		assert.equal((await account.objects()).length, 1);
 
 		const removed = await deleteCalendarFor(
 			deps,
-			ACCOUNT,
+			account.accountConfigId,
 			created.value.calendarId,
 		);
 
 		assert.ok(removed.ok);
-		assert.equal(store.objects.size, 0);
-		assert.equal(store.occurrences.size, 0);
+		assert.deepEqual(await account.objects(), []);
+		assert.deepEqual(await account.occurrences(event), []);
 	});
 
 	it("answers not-found for a calendar on another account", async () => {
-		const store = new InMemoryCalendarStore();
-		const deps = store.deps();
-		const [mine] = await listCalendarsFor(deps, ACCOUNT);
+		const account = anAccount();
+		const deps = account.deps();
+		const [mine] = await listCalendarsFor(deps, account.accountConfigId);
 		assert.ok(mine);
 
 		const removed = await deleteCalendarFor(
 			deps,
-			"someone-else",
+			anAccount().accountConfigId,
 			mine.calendarId,
 		);
 
@@ -651,15 +353,19 @@ describe("pickEventUpdate", () => {
 
 describe("updateCalendarEventFor", () => {
 	it("refuses a write built on an etag the resource no longer carries", async () => {
-		const store = new InMemoryCalendarStore();
-		const deps = eventDeps(store);
-		const [calendar] = await listCalendarsFor(deps, ACCOUNT);
+		const account = anAccount();
+		const deps = account.eventDeps();
+		const [calendar] = await listCalendarsFor(deps, account.accountConfigId);
 		assert.ok(calendar);
-		const event = await seedWeekly(deps, calendar.calendarId);
+		const event = await seedWeekly(
+			deps,
+			account.accountConfigId,
+			calendar.calendarId,
+		);
 
 		const first = await updateCalendarEventFor(
 			deps,
-			ACCOUNT,
+			account.accountConfigId,
 			{
 				calendarId: calendar.calendarId,
 				calendarObjectId: event.calendarObjectId,
@@ -673,7 +379,7 @@ describe("updateCalendarEventFor", () => {
 
 		const stale = await updateCalendarEventFor(
 			deps,
-			ACCOUNT,
+			account.accountConfigId,
 			{
 				calendarId: calendar.calendarId,
 				calendarObjectId: event.calendarObjectId,
@@ -686,23 +392,31 @@ describe("updateCalendarEventFor", () => {
 
 		assert.ok(!stale.ok);
 		assert.equal(stale.error.code, "EtagMismatch");
+		const survivor = await account.object(
+			calendar.calendarId,
+			event.calendarObjectId,
+		);
 		assert.equal(
-			store.objects.get(event.calendarObjectId)?.summary,
+			survivor?.summary,
 			"Stand-up (renamed)",
 			"the losing write left the resource alone",
 		);
 	});
 
 	it("writes both resources of a Following split", async () => {
-		const store = new InMemoryCalendarStore();
-		const deps = eventDeps(store);
-		const [calendar] = await listCalendarsFor(deps, ACCOUNT);
+		const account = anAccount();
+		const deps = account.eventDeps();
+		const [calendar] = await listCalendarsFor(deps, account.accountConfigId);
 		assert.ok(calendar);
-		const event = await seedWeekly(deps, calendar.calendarId);
+		const event = await seedWeekly(
+			deps,
+			account.accountConfigId,
+			calendar.calendarId,
+		);
 
 		const split = await updateCalendarEventFor(
 			deps,
-			ACCOUNT,
+			account.accountConfigId,
 			{
 				calendarId: calendar.calendarId,
 				calendarObjectId: event.calendarObjectId,
@@ -714,10 +428,11 @@ describe("updateCalendarEventFor", () => {
 		);
 
 		assert.ok(split.ok, JSON.stringify(split));
-		assert.equal(store.objects.size, 2);
-		const [head, tail] = [...store.objects.values()].sort((left, right) =>
+		const objects = (await account.objects()).sort((left, right) =>
 			left.dtStart.localeCompare(right.dtStart),
 		);
+		assert.equal(objects.length, 2);
+		const [head, tail] = objects;
 		assert.equal(head?.summary, "Stand-up");
 		assert.equal(tail?.summary, "Stand-up (new format)");
 		assert.notEqual(head?.icalUid, tail?.icalUid);
@@ -730,14 +445,14 @@ describe("updateCalendarEventFor", () => {
 	});
 
 	it("answers not-found for an event the calendar does not hold", async () => {
-		const store = new InMemoryCalendarStore();
-		const deps = eventDeps(store);
-		const [calendar] = await listCalendarsFor(deps, ACCOUNT);
+		const account = anAccount();
+		const deps = account.eventDeps();
+		const [calendar] = await listCalendarsFor(deps, account.accountConfigId);
 		assert.ok(calendar);
 
 		const updated = await updateCalendarEventFor(
 			deps,
-			ACCOUNT,
+			account.accountConfigId,
 			{
 				calendarId: calendar.calendarId,
 				calendarObjectId: "absent",
@@ -755,44 +470,60 @@ describe("updateCalendarEventFor", () => {
 
 describe("deleteCalendarEventFor", () => {
 	it("removes the resource and its occurrences under scope=All", async () => {
-		const store = new InMemoryCalendarStore();
-		const deps = eventDeps(store);
-		const [calendar] = await listCalendarsFor(deps, ACCOUNT);
+		const account = anAccount();
+		const deps = account.eventDeps();
+		const [calendar] = await listCalendarsFor(deps, account.accountConfigId);
 		assert.ok(calendar);
-		const event = await seedWeekly(deps, calendar.calendarId);
+		const event = await seedWeekly(
+			deps,
+			account.accountConfigId,
+			calendar.calendarId,
+		);
 
-		const removed = await deleteCalendarEventFor(deps, ACCOUNT, {
-			calendarId: calendar.calendarId,
-			calendarObjectId: event.calendarObjectId,
-			scope: RecurrenceScope.All,
-			recurrenceId: "",
-			ifMatch: undefined,
-		});
+		const removed = await deleteCalendarEventFor(
+			deps,
+			account.accountConfigId,
+			{
+				calendarId: calendar.calendarId,
+				calendarObjectId: event.calendarObjectId,
+				scope: RecurrenceScope.All,
+				recurrenceId: "",
+				ifMatch: undefined,
+			},
+		);
 
 		assert.ok(removed.ok);
-		assert.equal(store.objects.size, 0);
-		assert.equal(store.occurrences.size, 0);
+		assert.deepEqual(await account.objects(), []);
+		assert.deepEqual(await account.occurrences(event), []);
 	});
 
 	it("keeps the series under scope=This and drops one occurrence from it", async () => {
-		const store = new InMemoryCalendarStore();
-		const deps = eventDeps(store);
-		const [calendar] = await listCalendarsFor(deps, ACCOUNT);
+		const account = anAccount();
+		const deps = account.eventDeps();
+		const [calendar] = await listCalendarsFor(deps, account.accountConfigId);
 		assert.ok(calendar);
-		const event = await seedWeekly(deps, calendar.calendarId);
-		assert.equal(store.occurrences.get(event.calendarObjectId)?.length, 5);
+		const event = await seedWeekly(
+			deps,
+			account.accountConfigId,
+			calendar.calendarId,
+		);
+		assert.equal((await account.occurrences(event)).length, 5);
 
-		const removed = await deleteCalendarEventFor(deps, ACCOUNT, {
-			calendarId: calendar.calendarId,
-			calendarObjectId: event.calendarObjectId,
-			scope: RecurrenceScope.This,
-			recurrenceId: "2026-09-21T09:00:00Z",
-			ifMatch: undefined,
-		});
+		const removed = await deleteCalendarEventFor(
+			deps,
+			account.accountConfigId,
+			{
+				calendarId: calendar.calendarId,
+				calendarObjectId: event.calendarObjectId,
+				scope: RecurrenceScope.This,
+				recurrenceId: "2026-09-21T09:00:00Z",
+				ifMatch: undefined,
+			},
+		);
 
 		assert.ok(removed.ok);
-		assert.equal(store.objects.size, 1);
-		const rows = store.occurrences.get(event.calendarObjectId) ?? [];
+		assert.equal((await account.objects()).length, 1);
+		const rows = await account.occurrences(event);
 		assert.equal(rows.length, 4);
 		assert.equal(
 			rows.some((row) => row.startAt === "2026-09-21T09:00:00Z"),
@@ -801,58 +532,75 @@ describe("deleteCalendarEventFor", () => {
 	});
 
 	it("refuses a per-occurrence delete of an event that happens once", async () => {
-		const store = new InMemoryCalendarStore();
-		const deps = eventDeps(store);
-		const [calendar] = await listCalendarsFor(deps, ACCOUNT);
+		const account = anAccount();
+		const deps = account.eventDeps();
+		const [calendar] = await listCalendarsFor(deps, account.accountConfigId);
 		assert.ok(calendar);
-		const event = await seedWeekly(deps, calendar.calendarId, "");
+		const event = await seedWeekly(
+			deps,
+			account.accountConfigId,
+			calendar.calendarId,
+			"",
+		);
 
-		const removed = await deleteCalendarEventFor(deps, ACCOUNT, {
-			calendarId: calendar.calendarId,
-			calendarObjectId: event.calendarObjectId,
-			scope: RecurrenceScope.This,
-			recurrenceId: "2026-09-07T09:00:00Z",
-			ifMatch: undefined,
-		});
+		const removed = await deleteCalendarEventFor(
+			deps,
+			account.accountConfigId,
+			{
+				calendarId: calendar.calendarId,
+				calendarObjectId: event.calendarObjectId,
+				scope: RecurrenceScope.This,
+				recurrenceId: "2026-09-07T09:00:00Z",
+				ifMatch: undefined,
+			},
+		);
 
 		assert.ok(!removed.ok);
 		assert.equal(removed.error.code, "NotRecurring");
-		assert.equal(store.objects.size, 1);
+		assert.equal((await account.objects()).length, 1);
 	});
 });
 
 describe("createCalendarEventFor", () => {
 	it("refuses an event aimed at a calendar the account does not hold", async () => {
-		const store = new InMemoryCalendarStore();
-		const deps = eventDeps(store);
+		const account = anAccount();
+		const deps = account.eventDeps();
 
-		const created = await createCalendarEventFor(deps, ACCOUNT, {
-			calendarId: "someone-elses-calendar",
-			summary: "Stand-up",
-			start: "2026-09-07T09:00:00Z",
-			end: "2026-09-07T10:00:00Z",
-		});
+		const created = await createCalendarEventFor(
+			deps,
+			account.accountConfigId,
+			{
+				calendarId: "someone-elses-calendar",
+				summary: "Stand-up",
+				start: "2026-09-07T09:00:00Z",
+				end: "2026-09-07T10:00:00Z",
+			},
+		);
 
 		assert.ok(!created.ok);
 		assert.equal(created.error.code, "NotFound");
 	});
 
 	it("refuses an event that ends before it starts", async () => {
-		const store = new InMemoryCalendarStore();
-		const deps = eventDeps(store);
-		const [calendar] = await listCalendarsFor(deps, ACCOUNT);
+		const account = anAccount();
+		const deps = account.eventDeps();
+		const [calendar] = await listCalendarsFor(deps, account.accountConfigId);
 		assert.ok(calendar);
 
-		const created = await createCalendarEventFor(deps, ACCOUNT, {
-			calendarId: calendar.calendarId,
-			summary: "Backwards",
-			start: "2026-09-07T10:00:00Z",
-			end: "2026-09-07T09:00:00Z",
-		});
+		const created = await createCalendarEventFor(
+			deps,
+			account.accountConfigId,
+			{
+				calendarId: calendar.calendarId,
+				summary: "Backwards",
+				start: "2026-09-07T10:00:00Z",
+				end: "2026-09-07T09:00:00Z",
+			},
+		);
 
 		assert.ok(!created.ok);
 		assert.equal(created.error.code, "BackwardsEnd");
-		assert.equal(store.objects.size, 0);
+		assert.deepEqual(await account.objects(), []);
 	});
 });
 
@@ -898,53 +646,50 @@ describe("updateCalendarFor", () => {
 	};
 
 	it("refuses a timezone this server cannot resolve", async () => {
-		const store = new InMemoryCalendarStore();
-		const deps = store.deps();
-		const [calendar] = await listCalendarsFor(deps, ACCOUNT);
+		const account = anAccount();
+		const deps = account.deps();
+		const [calendar] = await listCalendarsFor(deps, account.accountConfigId);
 		assert.ok(calendar);
 
 		const updated = await updateCalendarFor(
 			deps,
-			ACCOUNT,
+			account.accountConfigId,
 			calendar.calendarId,
-			{
-				timezone: "Pacific Standard Time",
-			},
+			{ timezone: "Pacific Standard Time" },
 		);
 
 		assert.ok(!updated.ok);
 		assert.equal(updated.error.code, "UnknownTimeZone");
-		assert.equal(store.collections.get(calendar.calendarId)?.timezone, "");
+		assert.equal((await account.collection(calendar.calendarId))?.timezone, "");
 	});
 
 	it("re-expands the calendar's events when its timezone changes", async () => {
-		const store = new InMemoryCalendarStore();
-		const deps = eventDeps(store);
-		const [calendar] = await listCalendarsFor(deps, ACCOUNT);
+		const account = anAccount();
+		const deps = account.eventDeps();
+		const [calendar] = await listCalendarsFor(deps, account.accountConfigId);
 		assert.ok(calendar);
-		const created = await createCalendarEventFor(deps, ACCOUNT, {
-			calendarId: calendar.calendarId,
-			...allDay,
-		});
+		const created = await createCalendarEventFor(
+			deps,
+			account.accountConfigId,
+			{ calendarId: calendar.calendarId, ...allDay },
+		);
 		assert.ok(created.ok, JSON.stringify(created));
 		assert.equal(
-			store.occurrences.get(created.value.calendarObjectId)?.[0]?.startAt,
+			(await account.occurrences(created.value))[0]?.startAt,
 			"2026-06-01T00:00:00Z",
 			"an all-day event in a calendar with no zone starts at midnight UTC",
 		);
 
 		const updated = await updateCalendarFor(
 			deps,
-			ACCOUNT,
+			account.accountConfigId,
 			calendar.calendarId,
-			{
-				timezone: "America/New_York",
-			},
+			{ timezone: "America/New_York" },
 		);
 
 		assert.ok(updated.ok, JSON.stringify(updated));
 		assert.equal(
-			store.occurrences.get(created.value.calendarObjectId)?.[0]?.startAt,
+			(await account.occurrences(created.value))[0]?.startAt,
 			"2026-06-01T04:00:00Z",
 			"and midnight in the calendar's new zone once it has one",
 		);
@@ -955,28 +700,144 @@ describe("updateCalendarFor", () => {
 	});
 
 	it("leaves the events alone when only the name changes", async () => {
-		const store = new InMemoryCalendarStore();
-		const deps = eventDeps(store);
-		const [calendar] = await listCalendarsFor(deps, ACCOUNT);
+		const account = anAccount();
+		const deps = account.eventDeps();
+		const [calendar] = await listCalendarsFor(deps, account.accountConfigId);
 		assert.ok(calendar);
-		const created = await createCalendarEventFor(deps, ACCOUNT, {
-			calendarId: calendar.calendarId,
-			...allDay,
-		});
+		const created = await createCalendarEventFor(
+			deps,
+			account.accountConfigId,
+			{ calendarId: calendar.calendarId, ...allDay },
+		);
 		assert.ok(created.ok);
-		const before = store.collections.get(calendar.calendarId)?.syncSequence;
+		const before = (await account.collection(calendar.calendarId))
+			?.syncSequence;
 
 		const updated = await updateCalendarFor(
 			deps,
-			ACCOUNT,
+			account.accountConfigId,
 			calendar.calendarId,
-			{
-				displayName: "Renamed",
-			},
+			{ displayName: "Renamed" },
 		);
 
 		assert.ok(updated.ok);
 		assert.equal(updated.value.displayName, "Renamed");
 		assert.equal(updated.value.syncSequence, before);
+	});
+});
+
+/**
+ * The collection wrappers, driven the way an HTTP request drives them. The
+ * suites above hold the inner functions; these hold what the API answers with.
+ */
+
+type Handler = (
+	context: Context,
+	event: APIGatewayProxyEvent,
+) => Promise<Record<string, unknown>>;
+
+const createCalendar =
+	CalendarOperations.CalendarOperations_createCalendar as Handler;
+const getCalendar =
+	CalendarDetailOperations.CalendarDetailOperations_getCalendar as Handler;
+const updateCalendar =
+	CalendarDetailOperations.CalendarDetailOperations_updateCalendar as Handler;
+const deleteCalendar =
+	CalendarDetailOperations.CalendarDetailOperations_deleteCalendar as Handler;
+
+const contextOf = (request: {
+	params?: Record<string, string>;
+	requestBody?: unknown;
+}): Context => ({ request }) as unknown as Context;
+
+describe("the calendar collection wrappers", () => {
+	it("answers not-found for a collection on another account", async () => {
+		const stranger = anAccount();
+		const [theirs] = await listCalendarsFor(
+			stranger.deps(),
+			stranger.accountConfigId,
+		);
+		assert.ok(theirs);
+		const event = anAccount().request();
+
+		const read = await getCalendar(
+			contextOf({ params: { calendarId: theirs.calendarId } }),
+			event,
+		);
+
+		assert.equal(read.statusCode, 404);
+		assert.equal((read.body as { code: string }).code, "NotFound");
+	});
+
+	it("refuses a second calendar under a segment the account already uses", async () => {
+		const event = anAccount().request();
+		await createCalendar(
+			contextOf({ requestBody: { urlSegment: "work", displayName: "Work" } }),
+			event,
+		);
+
+		const second = await createCalendar(
+			contextOf({
+				requestBody: { urlSegment: "Work", displayName: "Work again" },
+			}),
+			event,
+		);
+
+		assert.equal(second.statusCode, 400);
+		assert.equal((second.body as { code: string }).code, "UrlSegmentTaken");
+	});
+
+	it("refuses a rename that names a zone this server cannot resolve", async () => {
+		const account = anAccount();
+		const event = account.request();
+		const [calendar] = await listCalendarsFor(
+			account.deps(),
+			account.accountConfigId,
+		);
+		assert.ok(calendar);
+
+		const updated = await updateCalendar(
+			contextOf({
+				params: { calendarId: calendar.calendarId },
+				requestBody: { timezone: "Pacific Standard Time" },
+			}),
+			event,
+		);
+
+		assert.equal(updated.statusCode, 400);
+		assert.equal((updated.body as { code: string }).code, "UnknownTimeZone");
+	});
+
+	it("answers 204 for a calendar it removed and 400 for the default one", async () => {
+		const account = anAccount();
+		const event = account.request();
+		const held = await listCalendarsFor(
+			account.deps(),
+			account.accountConfigId,
+		);
+		const fallback = held.find(
+			(collection) => collection.source === CalendarSource.Default,
+		);
+		assert.ok(fallback);
+		const created = (await createCalendar(
+			contextOf({ requestBody: { urlSegment: "work", displayName: "Work" } }),
+			event,
+		)) as unknown as { calendarId: string };
+
+		const removed = await deleteCalendar(
+			contextOf({ params: { calendarId: created.calendarId } }),
+			event,
+		);
+		const refused = await deleteCalendar(
+			contextOf({ params: { calendarId: fallback.calendarId } }),
+			event,
+		);
+
+		assert.equal(removed.statusCode, 204);
+		assert.equal(refused.statusCode, 400);
+		assert.equal(
+			(refused.body as { code: string }).code,
+			"DefaultCalendarUndeletable",
+		);
 	});
 });

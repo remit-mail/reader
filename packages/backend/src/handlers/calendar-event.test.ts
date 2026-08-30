@@ -60,6 +60,7 @@ interface Span {
 const WINDOW = { from: "2026-09-01T00:00:00Z", to: "2026-10-31T00:00:00Z" };
 
 let client: RemitClient;
+let cleanup: () => void;
 let minted = 0;
 
 const contextOf = (request: {
@@ -118,12 +119,13 @@ const seedEvent = async (
 
 before(async () => {
 	_resetForTest();
-	client = await createCalendarSqliteClient();
+	({ client, cleanup } = await createCalendarSqliteClient());
 	setClient(client);
 });
 
 after(() => {
 	_resetForTest();
+	cleanup();
 });
 
 describe("an unauthenticated calendar request", () => {
