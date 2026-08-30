@@ -12,6 +12,11 @@ import {
 } from "lucide-react";
 import type { ReactElement, ReactNode } from "react";
 import { cn } from "../lib/cn.js";
+import {
+	SEMANTIC_OFF_BUYS,
+	SEMANTIC_OFF_COMMAND,
+	SEMANTIC_OFF_TITLE,
+} from "../lib/semantic-off.js";
 import { categoryTone, type ThreadCategory } from "./app-shell-types.js";
 import { Avatar } from "./avatar.js";
 import { Badge } from "./badge.js";
@@ -158,12 +163,16 @@ export interface IntelligenceQuickActions {
 }
 
 /**
- * Async state for the similar-messages section. The host computes these from
- * the semantic-search query so the panel can show a skeleton while in flight
- * and "similarity search unavailable" on failure (the rest of the sidebar
- * still renders). Defaults to "ready" when omitted.
+ * State of the similar-messages section. The host computes these from the
+ * semantic-search query so the panel can show a skeleton while in flight and
+ * "similarity search unavailable" on failure (the rest of the sidebar still
+ * renders). Defaults to "ready" when omitted.
+ *
+ * "off" is not a failure and not a slow query: this instance stores no message
+ * vectors, and it says so with the command that changes it. Without it the
+ * section renders nothing at all, which reads as a sender nothing resembles.
  */
-export type SimilarState = "loading" | "error" | "ready";
+export type SimilarState = "loading" | "error" | "off" | "ready";
 
 export interface IntelligencePanelProps {
 	data: IntelligenceData;
@@ -514,6 +523,18 @@ export function IntelligencePanel({
 						<p className="text-xs text-fg-subtle">
 							Similarity search unavailable
 						</p>
+					) : similarState === "off" ? (
+						<div className="space-y-1.5 text-xs text-fg-subtle">
+							<p className="text-fg-muted">{SEMANTIC_OFF_TITLE}</p>
+							<p>{SEMANTIC_OFF_BUYS}</p>
+							<p>
+								Run{" "}
+								<code className="rounded bg-surface-sunken px-1 py-px text-2xs text-fg-muted">
+									{SEMANTIC_OFF_COMMAND}
+								</code>{" "}
+								on the server.
+							</p>
+						</div>
 					) : (
 						<ul className="-mx-1 space-y-1">
 							{similar.map((s) => {

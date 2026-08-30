@@ -18,6 +18,7 @@ import type {
 import { isThreadCategory } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
+import { useSemanticSearchEnabled } from "@/hooks/useSemanticSearchEnabled";
 import { isServerError } from "@/lib/error-classifier";
 import { formatDate, formatEmailDate } from "@/lib/format";
 import {
@@ -292,6 +293,12 @@ export interface UseIntelligenceDataResult {
 	 */
 	similarErrorIsFatal: boolean;
 	/**
+	 * False on an instance with semantic search off (#1068): nothing is embedded,
+	 * so the query is never sent and the section states the setting instead of
+	 * rendering an empty list. `undefined` until the config read answers.
+	 */
+	semanticEnabled: boolean | undefined;
+	/**
 	 * True when the address lookup failed with a fatal first-party 5xx. The panel
 	 * must not silently render the sender's flags (VIP/muted/blocked) as absent —
 	 * that misrepresents the sender's real state. Escalation covers it.
@@ -342,6 +349,7 @@ export function useIntelligenceData(
 	);
 
 	// --- Semantic search: similar messages ---
+	const semanticEnabled = useSemanticSearchEnabled();
 	const semanticQuery = [subject, senderEmail].filter(Boolean).join(" ");
 	const {
 		data: semanticResult,
@@ -351,7 +359,11 @@ export function useIntelligenceData(
 		...semanticSearchOperationsSemanticSearchOptions({
 			query: { query: semanticQuery, limit: 5 },
 		}),
-		enabled: Boolean(thread && semanticQuery.length > 3),
+		// Never sent while the instance embeds nothing: the endpoint answers such a
+		// query with an empty list, which the panel cannot tell from a sender
+		// nothing resembles.
+		enabled:
+			Boolean(thread && semanticQuery.length > 3) && semanticEnabled !== false,
 		staleTime: 60_000,
 		// A non-fatal failure (e.g. 404, no index yet) is acceptable — the sidebar
 		// degrades gracefully. A 5xx is NOT acceptable: it escalates globally and
@@ -397,6 +409,7 @@ export function useIntelligenceData(
 		isSimilarLoading,
 		similarError,
 		similarErrorIsFatal: isServerError(similarError),
+		semanticEnabled,
 		addressErrorIsFatal: isServerError(addressError),
 		addressId: address?.addressId,
 		address,

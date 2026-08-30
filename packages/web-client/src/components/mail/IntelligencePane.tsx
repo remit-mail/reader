@@ -82,6 +82,11 @@ export const resolveSpamAction = (thread: {
 /**
  * Decide the "Similar messages" section state from the semantic-search query.
  *
+ * An instance with semantic search off leads, before any error or in-flight
+ * state: nothing is embedded, no query was sent, and the section states the
+ * setting (#1068). Only `false` counts — the config read has not answered yet
+ * while it is `undefined`, and an off state shown then would be a guess.
+ *
  * The fail-fast rule: a fatal first-party 5xx must NEVER degrade to the benign
  * grey "Similarity search unavailable" label — it escalates to the global red
  * overlay instead, so this returns `"ready"` for it (the section then renders
@@ -93,8 +98,15 @@ export const resolveSimilarState = (input: {
 	similarError: unknown;
 	similarErrorIsFatal: boolean;
 	isSimilarLoading: boolean;
+	semanticEnabled: boolean | undefined;
 }): SimilarState => {
-	const { similarError, similarErrorIsFatal, isSimilarLoading } = input;
+	const {
+		similarError,
+		similarErrorIsFatal,
+		isSimilarLoading,
+		semanticEnabled,
+	} = input;
+	if (semanticEnabled === false) return "off";
 	if (similarError && !similarErrorIsFatal) return "error";
 	if (isSimilarLoading) return "loading";
 	return "ready";
@@ -228,6 +240,7 @@ function WiredPanel({
 		isSimilarLoading,
 		similarError,
 		similarErrorIsFatal,
+		semanticEnabled,
 	} = useIntelligenceData(thread, mailboxId);
 	const [reclassifyOpen, setReclassifyOpen] = useState(false);
 	const senderEmail = thread.fromEmail ?? undefined;
@@ -336,6 +349,7 @@ function WiredPanel({
 		similarError,
 		similarErrorIsFatal,
 		isSimilarLoading,
+		semanticEnabled,
 	});
 
 	return (

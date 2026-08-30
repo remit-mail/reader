@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Fragment, type ReactNode, useEffect, useId, useRef } from "react";
 import { cn } from "../lib/cn.js";
+import { semanticOffReason } from "../lib/semantic-off.js";
 import {
 	backExits,
 	crossAccountMatchReason,
@@ -385,6 +386,12 @@ export interface MatchStepProps {
 	 */
 	semanticUnavailable?: boolean;
 	/**
+	 * Semantic search is off on this instance (#1068) — a deployment setting, so
+	 * the door is dimmed for a reason an operator can act on rather than a
+	 * failure the user should retry. It supersedes the runtime copy above.
+	 */
+	semanticOff?: boolean;
+	/**
 	 * What the mail server said when the widen was asked to run and failed. A
 	 * failure is a reason the door cannot run, so it dims the door like any other
 	 * — with the server's own words under it rather than a generic line.
@@ -408,6 +415,7 @@ export function MatchStepBody({
 	accountId,
 	onModeChange,
 	semanticUnavailable,
+	semanticOff,
 	semanticErrorDetail,
 	semanticFallbackTaken,
 	onSemanticFallback,
@@ -431,6 +439,7 @@ export function MatchStepBody({
 	}
 	const doors = matchDoorsFor(accountId);
 	const widened = doors.length > 1;
+	const widenBlocked = semanticOff || semanticUnavailable;
 	return (
 		<>
 			<div className="space-y-2">
@@ -448,25 +457,32 @@ export function MatchStepBody({
 				{widened && (
 					<ChoiceCard
 						selected={mode === "similar"}
-						unavailable={semanticUnavailable}
+						unavailable={widenBlocked}
 						onSelect={
-							semanticUnavailable
-								? onSemanticFallback
-								: () => onModeChange("similar")
+							widenBlocked ? onSemanticFallback : () => onModeChange("similar")
 						}
 						title={matchDoorLabel("similar", selectedCount)}
 						description={matchDoorHint("similar")}
 					>
-						{semanticErrorDetail && (
-							<p role="status" className="px-1 text-2xs text-danger">
-								Couldn't find similar messages: {semanticErrorDetail}
-							</p>
-						)}
-						{semanticFallbackTaken && (
+						{semanticOff ? (
 							<p role="status" className="px-1 text-2xs text-fg-subtle">
-								Similar-mail matching is unavailable right now — matching on the
-								senders instead.
+								{semanticOffReason}
+								{semanticFallbackTaken && " Matching on the senders instead."}
 							</p>
+						) : (
+							<>
+								{semanticErrorDetail && (
+									<p role="status" className="px-1 text-2xs text-danger">
+										Couldn't find similar messages: {semanticErrorDetail}
+									</p>
+								)}
+								{semanticFallbackTaken && (
+									<p role="status" className="px-1 text-2xs text-fg-subtle">
+										Similar-mail matching is unavailable right now — matching on
+										the senders instead.
+									</p>
+								)}
+							</>
 						)}
 					</ChoiceCard>
 				)}
