@@ -811,6 +811,7 @@ export function MailShell({
 						calendar={calendar}
 						defaultTab={intelligenceTab}
 						onClose={() => setRailOpen(false)}
+						touch={singlePane}
 						className="h-full w-full border-l-0"
 					/>
 				) : undefined
