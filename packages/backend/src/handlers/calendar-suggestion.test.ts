@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import { after, before, describe, test } from "node:test";
 import type {
 	CalendarSuggestionItem,
 	CreateFilterInput,
 	FilterItem,
 	ICalendarSuggestionRepository,
 	MessageData,
+	PutCalendarSuggestionInput,
 	ResultList,
 	SettleCalendarSuggestionInput,
 } from "@remit/data-ports";
@@ -13,9 +14,21 @@ import {
 	CalendarInviteMethod,
 	CalendarSuggestionSource,
 	CalendarSuggestionState,
+	FilterState,
 } from "@remit/domain-enums";
+import type { APIGatewayProxyEvent } from "aws-lambda";
+import type { Context } from "openapi-backend";
+import { deriveAccountConfigId } from "../auth.js";
+import {
+	_resetForTest,
+	type RemitClient,
+	setClient,
+} from "../service/data-client.js";
+import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
 import {
 	assertSettleable,
+	CalendarSuggestionActionOperations,
+	CalendarSuggestionOperations,
 	type MuteSenderDeps,
 	muteSender,
 	settleSuggestion,
@@ -275,5 +288,270 @@ describe("muteSender", () => {
 			/nobody to mute/,
 		);
 		assert.deepEqual(created, []);
+	});
+});
+
+/**
+ * The suggestion wrappers driven the way an HTTP request drives them — through
+ * the registered client — against the SQLite store the self-host build ships.
+ * The unit tests above pin each half; these pin what one request does.
+ */
+
+type Handler = (
+	context: Context,
+	event: APIGatewayProxyEvent,
+) => Promise<Record<string, unknown>>;
+
+const listSuggestions =
+	CalendarSuggestionOperations.CalendarSuggestionOperations_listCalendarSuggestions as Handler;
+const acceptSuggestion =
+	CalendarSuggestionActionOperations.CalendarSuggestionActionOperations_acceptCalendarSuggestion as Handler;
+const dismissSuggestion =
+	CalendarSuggestionActionOperations.CalendarSuggestionActionOperations_dismissCalendarSuggestion as Handler;
+
+interface Card {
+	suggestionId: string;
+	state: string;
+}
+
+let client: RemitClient;
+let mintedSubs = 0;
+
+const contextOf = (request: {
+	params?: Record<string, string>;
+	query?: Record<string, unknown>;
+	requestBody?: unknown;
+}): Context => ({ request }) as unknown as Context;
+
+const anAccount = (): {
+	accountConfigId: string;
+	event: APIGatewayProxyEvent;
+} => {
+	mintedSubs += 1;
+	const sub = `calendar-suggestion-sub-${mintedSubs}`;
+	return {
+		accountConfigId: deriveAccountConfigId(sub),
+		event: {
+			requestContext: { authorizer: { claims: { sub } } },
+		} as unknown as APIGatewayProxyEvent,
+	};
+};
+
+const INVITATION = [
+	"BEGIN:VCALENDAR",
+	"VERSION:2.0",
+	"METHOD:REQUEST",
+	"BEGIN:VEVENT",
+	"UID:invite@example.test",
+	"DTSTART:20260901T080000Z",
+	"DTEND:20260901T090000Z",
+	"SUMMARY:Quarterly review",
+	"END:VEVENT",
+	"END:VCALENDAR",
+	"",
+].join("\r\n");
+
+const putSuggestion = (
+	accountConfigId: string,
+	messageId: string,
+): Promise<CalendarSuggestionItem> =>
+	client.calendarSuggestion.put({
+		accountConfigId,
+		messageId,
+		bodyPartId: "part-1",
+		icalUid: "invite@example.test",
+		sequence: 0,
+		method: CalendarInviteMethod.Request,
+		source: CalendarSuggestionSource.IcalendarPart,
+		summary: "Quarterly review",
+		dtStart: "2026-09-01T10:00:00+02:00",
+		dtEnd: "2026-09-01T11:00:00+02:00",
+		allDay: false,
+		location: "Room 4",
+		organizer: "organizer@example.test",
+		zoneCertainty: "Explicit",
+		icalData: INVITATION,
+	} as PutCalendarSuggestionInput);
+
+/** A message with a From address, which is all muting a sender reads. */
+const seedMessageFrom = async (
+	messageId: string,
+	sender: string,
+): Promise<void> => {
+	await client.envelope.createEnvelope({
+		envelopeId: "",
+		messageId,
+		dateValue: Date.parse("2026-08-30T08:00:00Z"),
+		dateRaw: "Sun, 30 Aug 2026 08:00:00 +0000",
+		subject: "Invitation: Quarterly review",
+		messageIdValue: `<${messageId}@example.test>`,
+	});
+	await client.address.createEnvelopeAddress({
+		messageId,
+		addressId: `address-${messageId}`,
+		displayName: "The organiser",
+		normalizedEmail: sender,
+		addressRole: "from",
+		addressOrder: 0,
+	});
+};
+
+before(async () => {
+	_resetForTest();
+	client = await createCalendarSqliteClient();
+	setClient(client);
+});
+
+after(() => {
+	_resetForTest();
+});
+
+describe("GET /calendar-suggestions", () => {
+	test("hands the pending set back one page at a time", async () => {
+		const { accountConfigId, event } = anAccount();
+		const seeded = await Promise.all(
+			Array.from({ length: 101 }, (_unused, index) =>
+				putSuggestion(accountConfigId, `msg-page-${index}`),
+			),
+		);
+
+		const first = (await listSuggestions(
+			contextOf({ query: { state: CalendarSuggestionState.Pending } }),
+			event,
+		)) as unknown as { items: Card[]; continuationToken?: string };
+		assert.equal(first.items.length, 100);
+		assert.ok(first.continuationToken, "a full page names where to continue");
+
+		const second = (await listSuggestions(
+			contextOf({
+				query: {
+					state: CalendarSuggestionState.Pending,
+					continuationToken: first.continuationToken,
+				},
+			}),
+			event,
+		)) as unknown as { items: Card[]; continuationToken?: string };
+
+		assert.equal(second.items.length, 1);
+		assert.equal(second.continuationToken, undefined);
+		const paged = new Set(
+			[...first.items, ...second.items].map((card) => card.suggestionId),
+		);
+		assert.equal(
+			paged.size,
+			seeded.length,
+			"the two pages cover the set once each, with no card in both",
+		);
+	});
+
+	test("answers only the state that was asked for, and keeps the raw bytes back", async () => {
+		const { accountConfigId, event } = anAccount();
+		await putSuggestion(accountConfigId, "msg-pending");
+		const dismissed = await putSuggestion(accountConfigId, "msg-dismissed");
+		await client.calendarSuggestion.settle(
+			accountConfigId,
+			dismissed.suggestionId,
+			{
+				state: CalendarSuggestionState.Dismissed,
+				acceptedCalendarObjectId: "",
+			},
+		);
+
+		const pending = (await listSuggestions(
+			contextOf({ query: { state: CalendarSuggestionState.Pending } }),
+			event,
+		)) as unknown as { items: Card[] };
+
+		assert.deepEqual(
+			pending.items.map((card) => card.state),
+			[CalendarSuggestionState.Pending],
+		);
+		assert.equal("icalData" in (pending.items[0] ?? {}), false);
+	});
+});
+
+describe("POST /calendar-suggestions/{suggestionId}/accept", () => {
+	test("answers not-found for a calendar on another account, before writing anything", async () => {
+		const stranger = anAccount();
+		const strangersCalendar = await client.calendarCollection.create({
+			accountConfigId: stranger.accountConfigId,
+			urlSegment: "default",
+			displayName: "Calendar",
+		});
+		const { accountConfigId, event } = anAccount();
+		const card = await putSuggestion(accountConfigId, "msg-cross-account");
+
+		await assert.rejects(
+			() =>
+				acceptSuggestion(
+					contextOf({
+						params: { suggestionId: card.suggestionId },
+						requestBody: { calendarId: strangersCalendar.calendarId },
+					}),
+					event,
+				),
+			(error: unknown) => (error as { statusCode?: number }).statusCode === 404,
+		);
+
+		assert.deepEqual(
+			await client.calendarObject.listByCalendar(strangersCalendar.calendarId),
+			[],
+			"nothing was written into the calendar the caller does not hold",
+		);
+		const untouched = await client.calendarSuggestion.get(
+			accountConfigId,
+			card.suggestionId,
+		);
+		assert.equal(untouched.state, CalendarSuggestionState.Pending);
+		assert.equal(untouched.acceptedCalendarObjectId, "");
+	});
+});
+
+describe("POST /calendar-suggestions/{suggestionId}/dismiss", () => {
+	test("settles the card and writes the sender's mute rule in one request", async () => {
+		const { accountConfigId, event } = anAccount();
+		const card = await putSuggestion(accountConfigId, "msg-mute");
+		await seedMessageFrom("msg-mute", "organizer@example.test");
+
+		const dismissed = (await dismissSuggestion(
+			contextOf({
+				params: { suggestionId: card.suggestionId },
+				requestBody: { muteSender: true },
+			}),
+			event,
+		)) as unknown as Card;
+
+		assert.equal(dismissed.state, CalendarSuggestionState.Dismissed);
+		const rules = await client.filter.listByAccountAndState(
+			accountConfigId,
+			FilterState.Active,
+		);
+		assert.equal(rules.length, 1);
+		assert.deepEqual(rules[0]?.literalClauses, [
+			{ field: "From", value: "organizer@example.test" },
+		]);
+	});
+
+	test("writes no rule when the request does not ask to mute", async () => {
+		const { accountConfigId, event } = anAccount();
+		const card = await putSuggestion(accountConfigId, "msg-quiet");
+		await seedMessageFrom("msg-quiet", "organizer@example.test");
+
+		const dismissed = (await dismissSuggestion(
+			contextOf({
+				params: { suggestionId: card.suggestionId },
+				requestBody: {},
+			}),
+			event,
+		)) as unknown as Card;
+
+		assert.equal(dismissed.state, CalendarSuggestionState.Dismissed);
+		assert.deepEqual(
+			await client.filter.listByAccountAndState(
+				accountConfigId,
+				FilterState.Active,
+			),
+			[],
+		);
 	});
 });
