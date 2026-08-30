@@ -203,3 +203,52 @@ export class LocalEmbeddingService implements EmbeddingService {
 export const createLocalEmbeddingService = (
 	config?: LocalEmbeddingConfig,
 ): EmbeddingService => new LocalEmbeddingService(config);
+
+/**
+ * Semantic search is off on this instance (`SEARCH_EMBEDDING_PROVIDER=off`).
+ *
+ * It carries the same `code` a missing model raises, because it is the same
+ * capability absence from every caller's point of view: the backend's semantic
+ * paths classify it through `noteSemanticCapabilityAbsence` and take the route
+ * they already have for a deployment that cannot embed
+ * (packages/backend/src/service/semantic-capability.ts). Returning empty
+ * results from the embedder instead would report an unavailable pipeline as a
+ * search that found nothing.
+ */
+export class EmbeddingDisabledError extends Error {
+	readonly code = "ERR_EMBEDDING_MODEL_UNAVAILABLE";
+	constructor() {
+		super(
+			"Semantic search is off on this instance (SEARCH_EMBEDDING_PROVIDER=off)",
+		);
+		this.name = "EmbeddingDisabledError";
+	}
+}
+
+/**
+ * The embedder for `SEARCH_EMBEDDING_PROVIDER=off`: nothing is embedded, and
+ * the first caller that asks gets the typed absence above.
+ *
+ * It still reports a dimension count, because the vector store's column is
+ * created from it (`buildVectorStoreFromEnv`) and the stored vectors outlive
+ * the setting — turning semantic search off keeps `vec.db` as it is, and
+ * turning it back on must find the same 384-wide column rather than a store
+ * that disagrees with the embedder.
+ */
+export class DisabledEmbeddingService implements EmbeddingService {
+	readonly dimensions: number;
+	readonly embeddingId: string;
+
+	constructor(dimensions: number = DEFAULT_LOCAL_DIMENSIONS) {
+		this.dimensions = dimensions;
+		this.embeddingId = `off@${this.dimensions}`;
+	}
+
+	embed = async (): Promise<number[][]> => {
+		throw new EmbeddingDisabledError();
+	};
+}
+
+export const createDisabledEmbeddingService = (
+	dimensions?: number,
+): EmbeddingService => new DisabledEmbeddingService(dimensions);

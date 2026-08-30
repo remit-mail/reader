@@ -33,9 +33,12 @@ export {
 export { computeContentHash } from "./content-hash.js";
 export {
 	createDeterministicEmbeddingService,
+	createDisabledEmbeddingService,
 	createLocalEmbeddingService,
 	type DeterministicEmbeddingConfig,
 	DeterministicEmbeddingService,
+	DisabledEmbeddingService,
+	EmbeddingDisabledError,
 	EmbeddingModelUnavailableError,
 	type EmbeddingService,
 	type LocalEmbeddingConfig,

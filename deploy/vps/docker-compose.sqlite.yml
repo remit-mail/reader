@@ -257,6 +257,8 @@ services:
   # ---------------------------------------------------------------------
   # Workers — the queue pollers. Each opens the shared SQLite file (WAL) for its
   # writes, and search-index-worker drains the outbox on a 2 s poll (RFC 036 D2).
+  # Three are always on; search-index-worker sits behind the `semantic` profile
+  # and only runs on an instance that opted into vector search (issue #1068).
   #
   # All four are healthchecked on heartbeat files (D1 of
   # docs/design/standalone-observability.md), one per poll loop:
@@ -372,12 +374,38 @@ services:
     stop_grace_period: 30s
     restart: unless-stopped
 
+  # Semantic search (issue #1068) — OFF by default, the only worker behind a
+  # profile. Turn it on with:
+  #
+  #   remit semantic on
+  #
+  # which writes SEARCH_EMBEDDING_PROVIDER in .env and brings this service up.
+  # FTS5 text search is on for every install and needs none of this.
+  #
+  # WHY IT IS OPT-IN. This image is ~1.36 GB of the ~4 GB a first install used
+  # to pull, and it is the only one carrying an inference runtime. A first index
+  # of 30,906 messages measured ~30 messages/min — about 17 hours — holding
+  # ~150-190% of a 2-vCPU box throughout (#1064). That is a cost an operator
+  # chooses, not one an install imposes: with the profile inactive `compose pull`
+  # never fetches the image and nothing here runs.
+  #
+  # WHAT AN OFF INSTANCE STILL DOES. The transactional outbox keeps recording
+  # committed message changes (RFC 036 D2). Those rows are the work ledger, not
+  # the work: nothing embeds, nothing reaches the search-index queue, and the
+  # backend's semantic paths take their existing unavailable route
+  # (packages/backend/src/service/semantic-capability.ts). It is also what makes
+  # `remit semantic on` index the mail already on the box — the boot drain below
+  # relays what accrued while this container was down, so the opt-in covers the
+  # back catalogue rather than only new mail. Turning it back off keeps the
+  # vectors in vec.db.
+  #
   # The outbox drain (RFC 036 D2) runs inside this container: a 2 s poll over
   # the shared file's unprocessed outbox rows, relaying them onto the
   # search-index queue. It needs SQLITE_DB_PATH (drain source) and
   # LOCAL_VECTORDB_PATH (vector writes) — both set in the shared app env above.
   search-index-worker:
     image: ghcr.io/remit-mail/reader/search-index-worker:${REMIT_TAG:-latest}
+    profiles: ["semantic"]
     <<: *app-env
     environment:
       <<: *app-environment
@@ -604,6 +632,14 @@ services:
       # generic — another edge brings its own.
       DOCTOR_TLS_MODE: ${TLS_MODE:-off}
       DOCTOR_TUNNEL_READY_URL: ${DOCTOR_TUNNEL_READY_URL:-}
+      # Same reasoning as TLS_MODE: which services are in the stack is a
+      # property of how the deployment is configured. On `off` the
+      # search-index-worker sits behind the `semantic` profile and writes no
+      # heartbeat, so watching for one would report an opt-out as a fault on
+      # every check. It is also the value `remit doctor` prints, so an operator
+      # reading "no semantic results" can tell nothing matched from nothing
+      # indexed.
+      DOCTOR_SEARCH_EMBEDDING_PROVIDER: ${SEARCH_EMBEDDING_PROVIDER:-off}
       # A runtime ceiling, not configuration. The checker holds no path, no
       # secret and no credential, and this carries none either.
       NODE_OPTIONS: "--max-old-space-size=${REMIT_NODE_HEAP_MB:-512}"

@@ -8,6 +8,8 @@ import {
 import {
 	buildEmbeddingServiceFromEnv,
 	buildVectorStoreFromEnv,
+	EMBEDDING_PROVIDER_OFF,
+	readEmbeddingProviderFromEnv,
 } from "@remit/search-service/from-env";
 import { createHeartbeat } from "@remit/sqs-client/heartbeat";
 import type { StorageService } from "@remit/storage-service";
@@ -74,7 +76,7 @@ let governorResolved = false;
 export const getMemoryGovernor = (): MemoryGovernor | undefined => {
 	if (governorResolved) return governor;
 	governorResolved = true;
-	if (process.env.SEARCH_EMBEDDING_PROVIDER !== "local") return undefined;
+	if (readEmbeddingProviderFromEnv() !== "local") return undefined;
 
 	const config = readAdaptiveEmbeddingConfigFromEnv();
 	const metrics = registerAdaptiveEmbedding({
@@ -117,6 +119,19 @@ const governed = (embedder: EmbeddingService): EmbeddingService => {
 
 export const getServices = async (): Promise<Services> => {
 	if (cached) return cached;
+
+	// This process exists to embed. `off` is the self-host default and holds the
+	// container down behind the `semantic` compose profile
+	// (deploy/vps/docker-compose.sqlite.yml), so reaching here with it set means
+	// the worker was started against a deployment that asked for no embedding:
+	// every message it took off the queue would fail one at a time, forever. Say
+	// so once, at startup, and name the command that settles it.
+	if (readEmbeddingProviderFromEnv() === EMBEDDING_PROVIDER_OFF) {
+		throw new Error(
+			"SEARCH_EMBEDDING_PROVIDER is off, so there is nothing for this worker to embed. " +
+				"Turn semantic search on with 'remit semantic on', or leave this service down.",
+		);
+	}
 
 	const dataPorts = await buildDataPortsFromEnv();
 

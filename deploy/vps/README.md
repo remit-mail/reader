@@ -70,6 +70,9 @@ remit restart             # apply an edit to .env
 remit update              # install the current release, atomically
 remit update --check      # what is available, changing nothing
 remit down                # stop serving; remit restart brings it back
+remit semantic            # whether semantic search is on, and how
+remit semantic on         # turn it on (downloads a model image; see Search)
+remit semantic off        # turn it back off; stored vectors are kept
 remit config              # the effective configuration, secrets redacted
 remit config save <file>  # every setting to <file>, before a drop; no password
 remit cert                # export Caddy's root CA (TLS_MODE=internal)
@@ -169,7 +172,8 @@ signing in at the address you set as `PUBLIC_ORIGIN`.
 | `apisix` | `ghcr.io/remit-mail/reader/apisix` | Edge JWT gate, with the generated route table baked in. |
 | `web` | `ghcr.io/remit-mail/reader/web` | Static server for the built web client. |
 | `backend` | `ghcr.io/remit-mail/reader/backend` | The API. Also the image the `migrate` and `volume-init` one-shots run. |
-| `imap-worker`, `smtp-worker`, `account-worker`, `search-index-worker` | `ghcr.io/remit-mail/reader/*` | Queue pollers: sync mail, push flag and folder changes back, send outgoing mail, and build the search index. |
+| `imap-worker`, `smtp-worker`, `account-worker` | `ghcr.io/remit-mail/reader/*` | Queue pollers: sync mail, push flag and folder changes back, and send outgoing mail. |
+| `search-index-worker` | `ghcr.io/remit-mail/reader/search-index-worker` | Off by default (`profiles: ["semantic"]`). Embeds message bodies into the vector store. Turned on with `remit semantic on`. See [Search](#search). |
 | `scheduler` | `ghcr.io/remit-mail/reader/imap-worker` (command override) | The periodic mailbox-sync tick: enqueues a sync for every account whose last one is older than `MAILBOX_SYNC_OFFLINE_INTERVAL_SECONDS`. This is what fetches mail when no browser is open. See [Mail sync cadence](#mail-sync-cadence). |
 | `queue` | `ghcr.io/remit-mail/reader/queue-sidecar` | The SQS-compatible queue seam: a SQLite-backed sidecar speaking the SQS wire protocol, persisting enqueued work to its own volume. |
 | `migrate` | `ghcr.io/remit-mail/reader/backend` (command override) | One-shot: applies the SQLite migrations, repairs `thread_message.category`, and installs the FTS5 search index before any app service starts. See [maintenance.md](maintenance.md). |
@@ -194,6 +198,8 @@ see [Indexing on a small box](#indexing-on-a-small-box). The containers carry no
 hard memory limit: one would turn a slow job into an OOM kill.
 
 ### Indexing on a small box
+
+Only on an instance that ran `remit semantic on` — see [Search](#search).
 
 The `search-index-worker` holds the embedding model, and the model, its
 inference arenas and its per-batch tensors are all allocated by onnxruntime,
@@ -281,13 +287,41 @@ off the sync age.
 
 ## Search
 
-Text search is FTS5 over subjects and senders, and needs no configuration.
+Two searches. Text search is on for every install; semantic search is opt-in.
 
-Free-text semantic search is not served: the `backend` image ships without the
-embedding runtime, so `/search/semantic` returns empty results and the web
-client's "Related" section stays blank. The `search-index-worker` still writes
-embeddings, and the Organize "find similar" widen reads those stored vectors and
-does work.
+**Text search** is FTS5 over subjects and senders. It needs no configuration, no
+extra container and no model, and it covers every message as it syncs.
+
+**Semantic search** is vector search over message bodies: the "Related" and
+"Similar messages" panels, and the semantic widen behind Organize filters. It is
+off on a new install because of what it costs on the box this deployment is
+sized for. The `search-index-worker` image is ~1.36 GB, of a first-install pull
+that is otherwise ~2.6 GB. On a 2 vCPU box a first index of 30,906 messages
+drained at ~30 messages a minute — about 17 hours — holding ~150-190% CPU
+throughout. That is a once-per-mailbox cost; after it, the worker follows new
+mail.
+
+Turn it on when you want it:
+
+```bash
+remit semantic on     # writes SEARCH_EMBEDDING_PROVIDER=local and starts the worker
+remit semantic        # print the current state
+remit semantic off    # stop the worker; the vectors already built are kept
+```
+
+`remit status` and `remit doctor` both report the provider, so an empty "Related"
+panel can be told apart from a mailbox with nothing similar in it.
+
+While it is off nothing embeds and nothing indexes: `/search/semantic` serves
+the unavailable outcome it already has for a deployment without the pipeline,
+and the model image is never pulled. Committed message changes are still
+recorded in the transactional outbox, which is what makes `remit semantic on`
+index the mail already on the box rather than only what arrives afterwards.
+
+The alternative to paying the CPU here is paying it elsewhere: set
+`SEARCH_EMBEDDING_PROVIDER=bedrock` in `.env` and the embedding happens at AWS
+Bedrock, billed per request, with AWS credentials in `.env` and no model on this
+box. `remit semantic on` leaves that setting alone; it only replaces `off`.
 
 ## TLS
 

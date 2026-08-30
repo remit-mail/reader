@@ -605,6 +605,23 @@ compose_cmd() {
 		if [ -f "$S/exec-err" ]; then cat "$S/exec-err" >&2; fi
 		exit "$(val exec_exit 0)"
 		;;
+	# `rm --force --stop <service>`: the container goes, not just its process.
+	# The wrapper uses it to take a profile service out of the deployment rather
+	# than leave a stopped one behind, and a stand-in that only forgot the `up`
+	# marker would report that container as still existing — which is exactly the
+	# state the wrapper is avoiding.
+	rm)
+		for _a in "$@"; do
+			case "$_a" in
+			-*) continue ;;
+			esac
+			rm -f "$S/up-$_a"
+			_rmcid=$(cat "$S/cid-$_a" 2>/dev/null || printf '')
+			if [ -n "$_rmcid" ]; then rm -f "$S/svc-$_rmcid"; fi
+			rm -f "$S/cid-$_a"
+		done
+		exit 0
+		;;
 	*) exit 0 ;;
 	esac
 }

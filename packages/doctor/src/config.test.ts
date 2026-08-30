@@ -21,6 +21,46 @@ describe("loadConfig", () => {
 		]);
 		assert.equal(config.tlsMode, "off");
 		assert.equal(config.tunnelReadyUrl, "http://tunnel:2000/ready");
+		assert.equal(config.searchEmbeddingProvider, "unknown");
+	});
+
+	// `search-index-worker` writes a heartbeat only while it is running, and on
+	// `off` it sits behind the `semantic` compose profile and is not. Watching
+	// for a file a deliberate opt-out never writes reports that opt-out as a
+	// fault, on every check, forever.
+	it("stops watching search-index-worker when semantic search is off", () => {
+		const config = loadConfig({ DOCTOR_SEARCH_EMBEDDING_PROVIDER: "off" });
+		assert.equal(config.searchEmbeddingProvider, "off");
+		assert.deepEqual(config.heartbeatServices, [
+			"imap-worker",
+			"smtp-worker",
+			"account-worker",
+		]);
+	});
+
+	it("keeps watching it on every provider that runs the worker", () => {
+		for (const provider of ["local", "bedrock"]) {
+			const config = loadConfig({
+				DOCTOR_SEARCH_EMBEDDING_PROVIDER: provider,
+			});
+			assert.equal(config.searchEmbeddingProvider, provider);
+			assert.ok(config.heartbeatServices.includes("search-index-worker"));
+		}
+	});
+
+	it("keeps watching it when nothing named a provider, rather than assuming off", () => {
+		assert.ok(loadConfig({}).heartbeatServices.includes("search-index-worker"));
+	});
+
+	it("leaves an explicit heartbeat list alone, off or not", () => {
+		const config = loadConfig({
+			DOCTOR_SEARCH_EMBEDDING_PROVIDER: "off",
+			DOCTOR_HEARTBEAT_SERVICES: "imap-worker, search-index-worker",
+		});
+		assert.deepEqual(config.heartbeatServices, [
+			"imap-worker",
+			"search-index-worker",
+		]);
 	});
 
 	it("takes the deployment's serving mode and the edge's readiness endpoint", () => {

@@ -767,6 +767,29 @@ project_block() {
 EOF
 }
 
+# Search is two features, and an installer that says "search works" is only half
+# right. The half that is off is off because of what it costs on this box, so the
+# numbers are here rather than in a footnote, and so is the one command.
+search_block() {
+	local remit="$WRAPPER_NAME"
+	[ -n "$WRAPPER_ON_PATH" ] || remit="cd $DIR && ./remit"
+	cat <<EOF
+  Search      Text search works now, over every message as it syncs. Nothing to
+              turn on.
+
+              Semantic search — the "Related" and "Similar messages" panels, and
+              the semantic widen behind Organize filters — is off. It needs an
+              embedding model: a ~1.4 GB image, and a first index of a 31k
+              mailbox measured about 17 hours at 150-190% of a 2 vCPU box. Turn
+              it on when you want it:
+
+                $remit semantic on
+
+              '$remit semantic' prints the state, and 'off' turns it back off
+              and keeps the vectors it built.
+EOF
+}
+
 manage_block() {
 	local remit="$WRAPPER_NAME" indent="              "
 	if [ -n "$WRAPPER_ON_PATH" ]; then
@@ -779,6 +802,7 @@ manage_block() {
 	printf '%s%s %-8s Follow the logs.\n' "$indent" "$remit" logs
 	printf '%s%s %-8s Apply an edit to .env.\n' "$indent" "$remit" restart
 	printf '%s%s %-8s Install a release. Atomic: gated, rolls back on failure.\n' "$indent" "$remit" update
+	printf '%s%s %-8s Turn semantic search on or off; prints the state.\n' "$indent" "$remit" semantic
 	printf '%s%s %-8s Stop serving; %s restart brings it back.\n' "$indent" "$remit" down "$remit"
 	printf '%s%s %-8s Every command, including the destructive one.\n' "$indent" "$remit" help
 }
@@ -836,6 +860,8 @@ EOF
 EOF
 	project_block
 	printf '\n'
+	search_block
+	printf '\n'
 	manage_block
 	cat <<EOF
 
@@ -889,7 +915,9 @@ main() {
 	write_env
 	place_wrapper
 	# Needs the wrapper on disk, and belongs before the pull: a wrong origin
-	# caught here costs nothing, caught after it costs ~4 GB and an install.
+	# caught here costs nothing, caught after it costs ~2.6 GB and an install.
+	# (~4 GB before the search-index-worker image moved behind the `semantic`
+	# profile — see deploy/vps/docker-compose.sqlite.yml.)
 	check_origin_dns
 	validate_compose
 	if [ "$DRY_RUN" = "1" ]; then

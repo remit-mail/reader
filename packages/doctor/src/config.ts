@@ -41,6 +41,15 @@ export interface DoctorConfig {
 	 */
 	readonly tlsMode: string;
 	readonly tunnelReadyUrl: string;
+	/**
+	 * The deployment's `SEARCH_EMBEDDING_PROVIDER`, verbatim, handed through as
+	 * `DOCTOR_SEARCH_EMBEDDING_PROVIDER` for the same reason `tlsMode` is: which
+	 * services are in the stack is a property of how the deployment is
+	 * configured. `off` holds `search-index-worker` down behind the `semantic`
+	 * compose profile, and a heartbeat file for a service that is deliberately
+	 * not running would report an opt-out as a fault forever.
+	 */
+	readonly searchEmbeddingProvider: string;
 }
 
 /**
@@ -63,6 +72,25 @@ const DEFAULT_HEARTBEAT_SERVICES = [
 	"account-worker",
 	"search-index-worker",
 ];
+
+/**
+ * What the checker reports when nothing told it which provider is configured.
+ * The compose service always passes the value through, so this is a container
+ * started some other way — and the answer is to say it was not told and keep
+ * every signal on, never to drop a worker from the watch on an assumption. A
+ * check that quietly stops checking is the failure this design exists to remove.
+ */
+const DEFAULT_SEARCH_EMBEDDING_PROVIDER = "unknown";
+
+/** The provider under which `search-index-worker` is in the stack at all. */
+const SEARCH_EMBEDDING_OFF = "off";
+
+/**
+ * The worker whose liveness only exists when semantic search is on. Dropped
+ * from the default set rather than from the reading, so an operator who names
+ * DOCTOR_HEARTBEAT_SERVICES themselves still gets exactly what they asked for.
+ */
+const SEARCH_INDEX_WORKER = "search-index-worker";
 
 /** The same 420 s the workers' own compose healthcheck uses; one threshold. */
 const DEFAULT_HEARTBEAT_MAX_AGE_SECONDS = 420;
@@ -210,6 +238,15 @@ export const loadConfig = (env: Env = process.env): DoctorConfig => {
 
 	const targetsRaw = text(env, "DOCTOR_TARGETS");
 	const servicesRaw = text(env, "DOCTOR_HEARTBEAT_SERVICES");
+	const searchEmbeddingProvider =
+		text(env, "DOCTOR_SEARCH_EMBEDDING_PROVIDER") ??
+		DEFAULT_SEARCH_EMBEDDING_PROVIDER;
+	const defaultHeartbeatServices =
+		searchEmbeddingProvider === SEARCH_EMBEDDING_OFF
+			? DEFAULT_HEARTBEAT_SERVICES.filter(
+					(name) => name !== SEARCH_INDEX_WORKER,
+				)
+			: DEFAULT_HEARTBEAT_SERVICES;
 
 	return {
 		intervalMs:
@@ -226,7 +263,7 @@ export const loadConfig = (env: Env = process.env): DoctorConfig => {
 		heartbeatDir: text(env, "DOCTOR_HEARTBEAT_DIR") ?? "/data/heartbeat",
 		heartbeatServices:
 			servicesRaw === undefined
-				? DEFAULT_HEARTBEAT_SERVICES
+				? defaultHeartbeatServices
 				: servicesRaw
 						.split(",")
 						.map((name) => name.trim())
@@ -271,5 +308,6 @@ export const loadConfig = (env: Env = process.env): DoctorConfig => {
 		tlsMode: text(env, "DOCTOR_TLS_MODE") ?? DEFAULT_TLS_MODE,
 		tunnelReadyUrl:
 			text(env, "DOCTOR_TUNNEL_READY_URL") ?? DEFAULT_TUNNEL_READY_URL,
+		searchEmbeddingProvider,
 	};
 };

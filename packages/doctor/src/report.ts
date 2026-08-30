@@ -18,6 +18,7 @@ import type { CheckResult } from "./verdict.js";
  *   summary     one-line headline, no reason detail
  *   reason      <code> <summary>   — zero or more, stable order
  *   detail      <code> <detail>    — zero or more, only for reasons that have one
+ *   semantic    the deployment's SEARCH_EMBEDDING_PROVIDER, verbatim
  *
  * `reason` summaries carry counts, service names and queue names (D10).
  * `detail` carries the account ids behind them and is printed here because this
@@ -61,11 +62,15 @@ const oneLine = (value: string): string => {
 	return out;
 };
 
-export const renderLines = (result: CheckResult): string => {
+export const renderLines = (
+	result: CheckResult,
+	searchEmbeddingProvider: string,
+): string => {
 	const lines = [
 		`verdict ${result.verdict}`,
 		`checked-at ${result.checkedAt}`,
 		`summary ${oneLine(result.summary)}`,
+		`semantic ${oneLine(searchEmbeddingProvider)}`,
 	];
 	for (const reason of result.reasons) {
 		lines.push(`reason ${reason.code} ${oneLine(reason.summary)}`);
@@ -78,12 +83,16 @@ export const renderLines = (result: CheckResult): string => {
 	return `${lines.join("\n")}\n`;
 };
 
-export const renderJson = (result: CheckResult): string =>
+export const renderJson = (
+	result: CheckResult,
+	searchEmbeddingProvider: string,
+): string =>
 	`${JSON.stringify(
 		{
 			verdict: result.verdict,
 			checkedAt: result.checkedAt,
 			summary: result.summary,
+			semantic: searchEmbeddingProvider,
 			reasons: result.reasons.map((reason) => ({
 				code: reason.code,
 				summary: reason.summary,
