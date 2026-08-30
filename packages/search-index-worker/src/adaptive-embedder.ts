@@ -15,23 +15,39 @@ export interface AdaptiveEmbeddingConfig {
 	readonly minBatchSize: number;
 	readonly maxBatchSize: number;
 	readonly maxConcurrency: number;
-	/** Ramp only while `MemAvailable` stays above this. */
+	/** Shed below this much free memory on the box. */
 	readonly headroomBytes: number;
-	/** Stop and wait while `MemAvailable` is below this. */
+	/** Ramp only above `headroomBytes + rampMarginBytes`. */
+	readonly rampMarginBytes: number;
+	/** Consecutive comfortable readings a ramp costs. */
+	readonly rampAfterReadings: number;
+	/** Shed at or above this much resident memory in this process. */
+	readonly rssCeilingBytes: number;
+	/** Stop and wait while free memory on the box is below this. */
 	readonly criticalBytes: number;
 	/** Wait between batches after shedding, and between reads while stopped. */
 	readonly pauseMs: number;
+	/** Give the message back to the queue after stopping this long. */
+	readonly stallMaxMs: number;
 }
 
 export interface GovernorLog {
 	info(message: string, fields?: Record<string, unknown>): void;
 	warn(message: string, fields?: Record<string, unknown>): void;
+	error(message: string, fields?: Record<string, unknown>): void;
 }
 
 export interface GovernorDeps {
 	readonly readMemory: MemoryReader;
 	readonly sleep: (ms: number) => Promise<void>;
+	readonly now: () => number;
 	readonly log: GovernorLog;
+	/**
+	 * The poll loop's own liveness file. A stop happens inside a handler, which
+	 * is between two receives and so between two beats — without this the
+	 * container's healthcheck reads a stall as a wedged loop.
+	 */
+	readonly beat?: () => Promise<void>;
 	readonly onPlan?: (plan: EmbeddingPlan) => void;
 	readonly onStall?: () => void;
 }
@@ -43,9 +59,31 @@ export const DEFAULT_ADAPTIVE_EMBEDDING_CONFIG: AdaptiveEmbeddingConfig = {
 	maxBatchSize: 32,
 	maxConcurrency: 2,
 	headroomBytes: 768 * MB,
+	rampMarginBytes: 256 * MB,
+	rampAfterReadings: 3,
+	rssCeilingBytes: 1536 * MB,
 	criticalBytes: 384 * MB,
 	pauseMs: 2000,
+	stallMaxMs: 240_000,
 };
+
+/**
+ * Raised when the box stayed below the critical floor for the whole stall
+ * budget. The handler already treats any throw from an upsert as a per-message
+ * failure, which is exactly the wanted outcome: the record is reported as a
+ * batch item failure and redelivered, rather than held past the queue's
+ * visibility timeout while the process waits.
+ */
+export class MemoryStallTimeoutError extends Error {
+	readonly code = "ERR_SEARCH_INDEX_MEMORY_STALL";
+	constructor(waitedMs: number) {
+		super(
+			`Search index waited ${Math.round(waitedMs / 1000)}s for the box to ` +
+				"free memory and gave up; the message goes back on the queue",
+		);
+		this.name = "MemoryStallTimeoutError";
+	}
+}
 
 const positiveInt = (name: string, raw: string): number => {
 	const parsed = Number(raw);
@@ -55,6 +93,7 @@ const positiveInt = (name: string, raw: string): number => {
 	return parsed;
 };
 
+/** `fallback` is already in the target unit; `scale` converts the env value. */
 const fromEnv = (name: string, fallback: number, scale = 1): number => {
 	const raw = process.env[name];
 	if (!raw) return fallback;
@@ -69,33 +108,40 @@ const fromEnv = (name: string, fallback: number, scale = 1): number => {
  */
 export const readAdaptiveEmbeddingConfigFromEnv =
 	(): AdaptiveEmbeddingConfig => {
+		const d = DEFAULT_ADAPTIVE_EMBEDDING_CONFIG;
 		const config: AdaptiveEmbeddingConfig = {
-			minBatchSize: fromEnv(
-				"SEARCH_INDEX_EMBED_BATCH_MIN",
-				DEFAULT_ADAPTIVE_EMBEDDING_CONFIG.minBatchSize,
-			),
-			maxBatchSize: fromEnv(
-				"SEARCH_INDEX_EMBED_BATCH_MAX",
-				DEFAULT_ADAPTIVE_EMBEDDING_CONFIG.maxBatchSize,
-			),
+			minBatchSize: fromEnv("SEARCH_INDEX_EMBED_BATCH_MIN", d.minBatchSize),
+			maxBatchSize: fromEnv("SEARCH_INDEX_EMBED_BATCH_MAX", d.maxBatchSize),
 			maxConcurrency: fromEnv(
 				"SEARCH_INDEX_EMBED_CONCURRENCY_MAX",
-				DEFAULT_ADAPTIVE_EMBEDDING_CONFIG.maxConcurrency,
+				d.maxConcurrency,
+			),
+			rampAfterReadings: fromEnv(
+				"SEARCH_INDEX_EMBED_RAMP_AFTER",
+				d.rampAfterReadings,
 			),
 			headroomBytes: fromEnv(
 				"SEARCH_INDEX_MEMORY_HEADROOM_MB",
-				DEFAULT_ADAPTIVE_EMBEDDING_CONFIG.headroomBytes / MB,
+				d.headroomBytes,
+				MB,
+			),
+			rampMarginBytes: fromEnv(
+				"SEARCH_INDEX_MEMORY_RAMP_MARGIN_MB",
+				d.rampMarginBytes,
+				MB,
+			),
+			rssCeilingBytes: fromEnv(
+				"SEARCH_INDEX_RSS_CEILING_MB",
+				d.rssCeilingBytes,
 				MB,
 			),
 			criticalBytes: fromEnv(
 				"SEARCH_INDEX_MEMORY_CRITICAL_MB",
-				DEFAULT_ADAPTIVE_EMBEDDING_CONFIG.criticalBytes / MB,
+				d.criticalBytes,
 				MB,
 			),
-			pauseMs: fromEnv(
-				"SEARCH_INDEX_MEMORY_PAUSE_MS",
-				DEFAULT_ADAPTIVE_EMBEDDING_CONFIG.pauseMs,
-			),
+			pauseMs: fromEnv("SEARCH_INDEX_MEMORY_PAUSE_MS", d.pauseMs),
+			stallMaxMs: fromEnv("SEARCH_INDEX_MEMORY_STALL_MAX_MS", d.stallMaxMs),
 		};
 		if (config.minBatchSize > config.maxBatchSize) {
 			throw new Error(
@@ -110,23 +156,38 @@ export const readAdaptiveEmbeddingConfigFromEnv =
 		return config;
 	};
 
+type Admission = "admitted" | "expired";
+
 /**
  * Bounds the worker's resident memory against the box it shares, which
- * `--max-old-space-size` cannot: the embedding model, its arenas and its
- * tensors are native allocations outside V8's old space (#585).
+ * `--max-old-space-size` cannot: the embedding model, its inference arenas and
+ * its tensors are native allocations outside V8's old space (#585).
  *
- * It starts at the floor — the smallest batch, one inference — and ramps only
- * on measured headroom, so a first index of a large mailbox uses a big box
- * fully and crawls on a small one instead of taking the box down. Under
- * pressure it halves the batch, drops back to one inference and paces itself;
- * below the critical floor it stops entirely and waits rather than pushing the
- * host into swap, where the kernel's OOM killer picks a victim by size and
- * takes the backend rather than the indexer.
+ * It steers on two numbers, because neither is sufficient alone. The box's
+ * `MemAvailable` says whether the rest of the stack still has room. This
+ * process's own RSS says whether the worker is the reason it does not — and it
+ * is the one a shed cannot walk back: onnxruntime sizes its CPU arena to the
+ * largest batch it has ever run and does not hand that back, so a plan that
+ * ramps on free memory alone raises a floor it can never lower. Above the RSS
+ * ceiling the worker sheds and stays shed.
+ *
+ * Ramping costs several consecutive comfortable readings and needs a margin
+ * above the shed threshold; shedding is immediate at it. Without that gap a box
+ * sitting near the threshold — the ordinary steady state — would ramp and shed
+ * on alternate batches, logging every one of them and halving throughput for
+ * nothing.
+ *
+ * Below the critical floor it stops entirely rather than pushing the host into
+ * swap, where the kernel picks its OOM victim by size and takes the backend
+ * rather than the indexer. That stop is bounded: past the budget the message
+ * goes back on the queue, because a handler that waits longer than the queue's
+ * visibility timeout has its record redelivered underneath it anyway.
  */
 export class MemoryGovernor {
 	private batchSize: number;
 	private concurrency = 1;
 	private pauseBeforeNextBatch = false;
+	private comfortableReadings = 0;
 
 	constructor(
 		private readonly config: AdaptiveEmbeddingConfig,
@@ -139,14 +200,14 @@ export class MemoryGovernor {
 		return { batchSize: this.batchSize, concurrency: this.concurrency };
 	}
 
-	/** Blocks until the box can afford the next batch. */
-	admit = async (): Promise<void> => {
+	/** Blocks until the box can afford the next batch, or the budget runs out. */
+	admit = async (): Promise<Admission> => {
 		let reading = this.deps.readMemory();
 		if (reading.availableBytes >= this.config.criticalBytes) {
-			if (!this.pauseBeforeNextBatch) return;
+			if (!this.pauseBeforeNextBatch) return "admitted";
 			this.pauseBeforeNextBatch = false;
 			await this.deps.sleep(this.config.pauseMs);
-			return;
+			return "admitted";
 		}
 
 		this.deps.onStall?.();
@@ -155,7 +216,17 @@ export class MemoryGovernor {
 			this.fields(reading),
 		);
 		this.reset();
+		const startedAt = this.deps.now();
 		while (reading.availableBytes < this.config.criticalBytes) {
+			const waitedMs = this.deps.now() - startedAt;
+			if (waitedMs >= this.config.stallMaxMs) {
+				this.deps.log.warn("Search index gave up waiting for memory", {
+					waitedMs,
+					...this.fields(reading),
+				});
+				return "expired";
+			}
+			await this.keepAlive();
 			await this.deps.sleep(this.config.pauseMs);
 			reading = this.deps.readMemory();
 		}
@@ -164,16 +235,51 @@ export class MemoryGovernor {
 			"Search index resumed: memory recovered",
 			this.fields(reading),
 		);
+		return "admitted";
 	};
 
-	/** Measures what the batch just cost and moves the plan one step. */
+	/** Measures what the batch just cost and moves the plan at most one step. */
 	settle = (): void => {
 		const reading = this.deps.readMemory();
-		if (reading.availableBytes < this.config.headroomBytes) {
+		if (this.underPressure(reading)) {
+			this.comfortableReadings = 0;
 			this.shed(reading);
 			return;
 		}
+		if (!this.roomToGrow(reading)) {
+			this.comfortableReadings = 0;
+			return;
+		}
+		this.comfortableReadings += 1;
+		if (this.comfortableReadings < this.config.rampAfterReadings) return;
+		this.comfortableReadings = 0;
 		this.ramp(reading);
+	};
+
+	private underPressure(reading: MemoryReading): boolean {
+		return (
+			reading.rssBytes >= this.config.rssCeilingBytes ||
+			reading.availableBytes < this.config.headroomBytes
+		);
+	}
+
+	private roomToGrow(reading: MemoryReading): boolean {
+		return (
+			reading.rssBytes < this.config.rssCeilingBytes &&
+			reading.availableBytes >=
+				this.config.headroomBytes + this.config.rampMarginBytes
+		);
+	}
+
+	// A write that fails must not take the worker down with it, for the same
+	// reason the poll loop's own beat does not: a full disk is the likeliest
+	// cause and the moment to stay up. The missed beat is itself the signal.
+	private keepAlive = async (): Promise<void> => {
+		await this.deps.beat?.().catch((error: unknown) => {
+			this.deps.log.error("Search index heartbeat write failed", {
+				error: String(error),
+			});
+		});
 	};
 
 	private shed(reading: MemoryReading): void {
@@ -204,6 +310,7 @@ export class MemoryGovernor {
 	private reset(): void {
 		this.batchSize = this.config.minBatchSize;
 		this.concurrency = 1;
+		this.comfortableReadings = 0;
 		this.deps.onPlan?.(this.plan);
 	}
 
@@ -224,6 +331,7 @@ export class MemoryGovernor {
 			rssMb: Math.round(reading.rssBytes / MB),
 			headroomMb: Math.round(this.config.headroomBytes / MB),
 			criticalMb: Math.round(this.config.criticalBytes / MB),
+			rssCeilingMb: Math.round(this.config.rssCeilingBytes / MB),
 		};
 	}
 }
@@ -241,6 +349,7 @@ export class MemoryGovernor {
 export const createAdaptiveEmbeddingService = (
 	inner: EmbeddingService,
 	governor: MemoryGovernor,
+	stallMaxMs: number = DEFAULT_ADAPTIVE_EMBEDDING_CONFIG.stallMaxMs,
 ): EmbeddingService => ({
 	dimensions: inner.dimensions,
 	embeddingId: inner.embeddingId,
@@ -248,7 +357,9 @@ export const createAdaptiveEmbeddingService = (
 		const vectors: number[][] = [];
 		let next = 0;
 		while (next < texts.length) {
-			await governor.admit();
+			if ((await governor.admit()) === "expired") {
+				throw new MemoryStallTimeoutError(stallMaxMs);
+			}
 			const { batchSize, concurrency } = governor.plan;
 			const wave: string[][] = [];
 			while (wave.length < concurrency && next < texts.length) {

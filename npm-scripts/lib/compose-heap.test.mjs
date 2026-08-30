@@ -208,10 +208,18 @@ describe("the search-index-worker's own memory thresholds", () => {
 		SEARCH_INDEX_EMBED_BATCH_MIN: 4,
 		SEARCH_INDEX_EMBED_BATCH_MAX: 32,
 		SEARCH_INDEX_EMBED_CONCURRENCY_MAX: 2,
+		SEARCH_INDEX_EMBED_RAMP_AFTER: 3,
 		SEARCH_INDEX_MEMORY_HEADROOM_MB: 768,
+		SEARCH_INDEX_MEMORY_RAMP_MARGIN_MB: 256,
+		SEARCH_INDEX_RSS_CEILING_MB: 1536,
 		SEARCH_INDEX_MEMORY_CRITICAL_MB: 384,
 		SEARCH_INDEX_MEMORY_PAUSE_MS: 2000,
+		SEARCH_INDEX_MEMORY_STALL_MAX_MS: 240000,
 	};
+
+	// The poller's own default (packages/sqs-client/src/poller.ts): a stop that
+	// outlasts it has its record redelivered underneath the handler.
+	const VISIBILITY_TIMEOUT_MS = 300_000;
 
 	for (const [name, fallback] of Object.entries(GOVERNOR)) {
 		it(`declares ${name}, overridable from .env`, () => {
@@ -230,6 +238,12 @@ describe("the search-index-worker's own memory thresholds", () => {
 		assert.ok(
 			GOVERNOR.SEARCH_INDEX_MEMORY_CRITICAL_MB <
 				GOVERNOR.SEARCH_INDEX_MEMORY_HEADROOM_MB,
+		);
+	});
+
+	it("ends a stop before the queue redelivers the record underneath it", () => {
+		assert.ok(
+			GOVERNOR.SEARCH_INDEX_MEMORY_STALL_MAX_MS < VISIBILITY_TIMEOUT_MS,
 		);
 	});
 });

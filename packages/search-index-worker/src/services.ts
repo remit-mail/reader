@@ -9,9 +9,11 @@ import {
 	buildEmbeddingServiceFromEnv,
 	buildVectorStoreFromEnv,
 } from "@remit/search-service/from-env";
+import { createHeartbeat } from "@remit/sqs-client/heartbeat";
 import type { StorageService } from "@remit/storage-service";
 import { createStorageService } from "@remit/storage-service/s3";
 import {
+	type AdaptiveEmbeddingConfig,
 	createAdaptiveEmbeddingService,
 	MemoryGovernor,
 	readAdaptiveEmbeddingConfigFromEnv,
@@ -40,35 +42,77 @@ export interface Services {
 
 let cached: Services | undefined;
 
+const MB = 1024 * 1024;
+
 /**
- * The in-process embedder is the one whose memory is native and unbounded — the
- * model, its arenas and its tensors are onnxruntime allocations that no V8 heap
- * ceiling covers (#585), so it runs under the governor. Bedrock and the
- * deterministic test embedder hold nothing on this box and are left alone.
+ * The stall's heartbeat writes the poll loop's own file, not a second one. A
+ * file of its own would be fresh only while stalling and stale the rest of the
+ * time, and the healthcheck reads the oldest file it finds — an idle worker
+ * would report unhealthy. Undefined off the standalone deployment, where
+ * `createHeartbeat` writes nothing anyway.
  */
-const governed = (embedder: EmbeddingService): EmbeddingService => {
-	if (process.env.SEARCH_EMBEDDING_PROVIDER !== "local") return embedder;
+const searchIndexQueueName = (): string | undefined => {
+	const url = process.env.SQS_QUEUE_URL_SEARCH_INDEX;
+	if (!url) return undefined;
+	return new URL(url).pathname.split("/").pop();
+};
+
+let governor: MemoryGovernor | undefined;
+let governorConfig: AdaptiveEmbeddingConfig | undefined;
+let governorResolved = false;
+
+/**
+ * Built at startup rather than on the first message, so a threshold the
+ * operator typed wrong fails the container instead of one email, and so the
+ * gauges render from the first scrape instead of from whenever mail arrives.
+ *
+ * Only the in-process embedder gets one: its memory is native and unbounded —
+ * the model, its arenas and its tensors are onnxruntime allocations that no V8
+ * heap ceiling covers (#585). Bedrock and the deterministic test embedder hold
+ * nothing on this box and are left alone.
+ */
+export const getMemoryGovernor = (): MemoryGovernor | undefined => {
+	if (governorResolved) return governor;
+	governorResolved = true;
+	if (process.env.SEARCH_EMBEDDING_PROVIDER !== "local") return undefined;
+
 	const config = readAdaptiveEmbeddingConfigFromEnv();
 	const metrics = registerAdaptiveEmbedding({
 		batchSize: config.minBatchSize,
 		concurrency: 1,
 	});
 	const log = createLogger();
-	log.info("Search index embedding governed by available memory", {
+	log.info("Search index embedding governed by memory", {
 		batchSize: config.minBatchSize,
 		maxBatchSize: config.maxBatchSize,
 		maxConcurrency: config.maxConcurrency,
-		headroomMb: Math.round(config.headroomBytes / (1024 * 1024)),
-		criticalMb: Math.round(config.criticalBytes / (1024 * 1024)),
+		headroomMb: Math.round(config.headroomBytes / MB),
+		criticalMb: Math.round(config.criticalBytes / MB),
+		rssCeilingMb: Math.round(config.rssCeilingBytes / MB),
+		stallMaxMs: config.stallMaxMs,
 	});
-	const governor = new MemoryGovernor(config, {
+	const queueName = searchIndexQueueName();
+	governorConfig = config;
+	governor = new MemoryGovernor(config, {
 		readMemory: readSystemMemory,
 		sleep: (ms) => delay(ms),
+		now: () => Date.now(),
 		log,
+		beat: queueName ? createHeartbeat(queueName) : undefined,
 		onPlan: metrics.recordPlan,
 		onStall: metrics.recordStall,
 	});
-	return createAdaptiveEmbeddingService(embedder, governor);
+	return governor;
+};
+
+const governed = (embedder: EmbeddingService): EmbeddingService => {
+	const memoryGovernor = getMemoryGovernor();
+	if (!memoryGovernor) return embedder;
+	return createAdaptiveEmbeddingService(
+		embedder,
+		memoryGovernor,
+		governorConfig?.stallMaxMs,
+	);
 };
 
 export const getServices = async (): Promise<Services> => {

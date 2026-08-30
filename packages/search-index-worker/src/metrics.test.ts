@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import { renderMetrics, resetMetrics } from "@remit/logger-lambda/metrics";
-import { registerSearchIndexBacklog } from "./metrics.js";
+import {
+	registerAdaptiveEmbedding,
+	registerSearchIndexBacklog,
+} from "./metrics.js";
 
 const backlogLines = (text: string): string[] =>
 	text
@@ -43,5 +46,37 @@ describe("the search index backlog series", () => {
 			throw new Error("database is locked");
 		});
 		await assert.rejects(renderMetrics(), /database is locked/);
+	});
+});
+
+describe("the adaptive embedding series", () => {
+	beforeEach(() => resetMetrics());
+
+	it("reports the plan it starts at, and each change after it", async () => {
+		const metrics = registerAdaptiveEmbedding({
+			batchSize: 4,
+			concurrency: 1,
+		});
+		const start = await renderMetrics();
+		assert.match(start, /^remit_search_index_embed_batch_size 4$/m);
+		assert.match(start, /^remit_search_index_embed_concurrency 1$/m);
+
+		metrics.recordPlan({ batchSize: 16, concurrency: 2 });
+		const ramped = await renderMetrics();
+		assert.match(ramped, /^remit_search_index_embed_batch_size 16$/m);
+		assert.match(ramped, /^remit_search_index_embed_concurrency 2$/m);
+	});
+
+	it("counts every stop, which is what a slow first index is diagnosed from", async () => {
+		const metrics = registerAdaptiveEmbedding({
+			batchSize: 4,
+			concurrency: 1,
+		});
+		metrics.recordStall();
+		metrics.recordStall();
+		assert.match(
+			await renderMetrics(),
+			/^remit_search_index_memory_stalls_total 2$/m,
+		);
 	});
 });
