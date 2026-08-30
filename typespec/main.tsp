@@ -104,7 +104,10 @@ namespace RemitApi {
     @doc("Read the self-update resource: the running version, the outcome of the most recent manifest check, and the state of the current or last run. With `refresh=true`, records a check request on the control volume for the updater to pick up and answers with the stored state as it stands; the caller watches `check.lastCheckedAt` for the updater's answer. Owner-only, and absent (404) unless a manifest URL is configured (RFC 037 D7, D8).")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
-    op getSystemUpdate(@query refresh?: boolean): SystemUpdateResponse;
+    op getSystemUpdate(
+      @query(#{ explode: true })
+      refresh?: boolean,
+    ): SystemUpdateResponse;
 
     @doc("Request installation of a specific release. Writes the request to the control seam and returns 202 with the same resource, including a runId. 409 when a run is in flight, 422 when the target is not the manifest's version. Owner-only, and absent (404) unless a manifest URL is configured (RFC 037 D7, D8).")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -561,9 +564,14 @@ namespace RemitApi {
     @get
     @route("/callback")
     op microsoftOAuthCallback(
-      @query code?: string,
-      @query state?: string,
-      @query error?: string,
+      @query(#{ explode: true })
+      code?: string,
+
+      @query(#{ explode: true })
+      state?: string,
+
+      @query(#{ explode: true })
+      error?: string,
     ): {
       @statusCode statusCode: 302;
       @header Location: string;

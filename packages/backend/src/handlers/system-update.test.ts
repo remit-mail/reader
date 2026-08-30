@@ -10,8 +10,9 @@ import {
 import { join } from "node:path";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import type { APIGatewayProxyEvent } from "aws-lambda";
+import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
+import { normalizeRequest } from "../request.js";
 import { SystemOperations } from "./system-update.js";
 
 const tmpRoot = join(
@@ -413,5 +414,37 @@ describe("POST /system/update", () => {
 		);
 		const stamped = Date.parse(request.requestedAt);
 		assert.ok(stamped >= before - 1000 && stamped <= after + 1000);
+	});
+});
+
+describe("GET /system/update through the whole request pipeline", () => {
+	it("records the check for ?refresh=true off the wire", async () => {
+		// The rest of this file hands the handler a query the validator has already
+		// coerced. Here the query arrives as API Gateway delivers it — every value a
+		// string — and goes through the real built spec, which is where the press
+		// was being answered with 400 instead of reaching the handler at all.
+		writeState(okState);
+		const { api } = await import("../index.js");
+
+		const event = {
+			httpMethod: "GET",
+			path: "/system/update",
+			queryStringParameters: { refresh: "true" },
+			headers: {},
+			requestContext: { authorizer: { claims: { sub: USER } } },
+		} as unknown as APIGatewayProxyEvent;
+
+		const result = (await api.handleRequest(
+			normalizeRequest(event),
+			event,
+			{} as never,
+		)) as APIGatewayProxyResult;
+
+		assert.equal(result.statusCode, 200);
+		assert.deepEqual(
+			JSON.parse(readFileSync(join(controlDir, "check-request.json"), "utf8")),
+			{},
+		);
+		assert.deepEqual(JSON.parse(result.body), okState);
 	});
 });
