@@ -2,6 +2,9 @@ import type {
 	CalendarAttendee,
 	CalendarColorId,
 	CalendarEventData,
+	CalendarInvite,
+	CalendarParseMethod,
+	CalendarSlotPick,
 	EventSuggestion,
 	ThreadRowData,
 	ThreadSection,
@@ -122,30 +125,6 @@ export const seamWeekEvents: CalendarEventData[] = [
 	...baseEvents,
 	...seamEvents,
 ];
-
-/* ------------------------------------------------------------------ */
-/* Where a reading came from                                           */
-/* ------------------------------------------------------------------ */
-
-/**
- * The ladder a mail is put through, in order. Anything a lower rung settles is
- * never handed to the rung above it, and the surface says which one answered.
- */
-export type ParseMethod = "ics" | "markup" | "pattern";
-
-export const parseMethodLabel: Record<ParseMethod, string> = {
-	ics: "Attached invitation",
-	markup: "Structured markup",
-	pattern: "Read from the words",
-};
-
-export const parseMethodNote: Record<ParseMethod, string> = {
-	ics: "A text/calendar part came with the mail. These are the sender's own fields, copied.",
-	markup:
-		"The mail carried a machine-readable booking block. The fields below are copied out of it.",
-	pattern:
-		"Nothing machine-readable came with this. The fields below are a reading of the prose, and a reading can be wrong.",
-};
 
 /* ------------------------------------------------------------------ */
 /* Mail this option adds                                               */
@@ -347,16 +326,8 @@ export function seamSections(): ThreadSection[] {
 /* The invitation                                                      */
 /* ------------------------------------------------------------------ */
 
-export interface InviteData {
-	threadId: string;
-	/** The event exactly as the organiser sent it — not yet on any calendar. */
-	proposed: CalendarEventData;
-	organizerName: string;
-	method: ParseMethod;
-	evidence: string;
-}
-
-export const invite: InviteData = {
+export const invite: CalendarInvite = {
+	id: "inv_billing",
 	threadId: inviteThreadId,
 	proposed: event({
 		id: "evt_invite_billing",
@@ -382,8 +353,11 @@ export const invite: InviteData = {
 		],
 	}),
 	organizerName: "Priya Natarajan",
+	organizerEmail: "priya@northwind.example",
 	method: "ics",
 	evidence: "invite.ics · METHOD:REQUEST · DTSTART;TZID=Europe/Amsterdam",
+	state: "pending",
+	sequence: 0,
 };
 
 /* ------------------------------------------------------------------ */
@@ -471,11 +445,6 @@ export interface FreeBlock {
 	minutes: number;
 }
 
-export interface TimeSlot {
-	start: string;
-	end: string;
-}
-
 function clip(value: number): number {
 	return Math.min(Math.max(value, toMinutes(DAY_START)), toMinutes(DAY_END));
 }
@@ -553,17 +522,19 @@ export function slotOffers(
 	minutes: number,
 	limit = 6,
 	notBefore = "09:30",
-): TimeSlot[] {
+): CalendarSlotPick[] {
 	const floor = toMinutes(notBefore);
-	const slots: TimeSlot[] = [];
+	const slots: CalendarSlotPick[] = [];
 	for (const gap of free) {
 		let cursor = Math.max(toMinutes(gap.start), floor);
 		cursor = Math.ceil(cursor / 15) * 15;
 		const end = toMinutes(gap.end);
 		while (cursor + minutes <= end && slots.length < limit) {
 			slots.push({
-				start: fromMinutes(cursor),
-				end: fromMinutes(cursor + minutes),
+				date: PROPOSED_DATE,
+				startTime: fromMinutes(cursor),
+				endTime: fromMinutes(cursor + minutes),
+				allDay: false,
 			});
 			cursor += minutes;
 		}
@@ -606,7 +577,7 @@ export const HOLD_EXPIRY_LABEL = "Friday 09:00";
 
 export interface SeamSuggestion {
 	suggestion: EventSuggestion;
-	method: ParseMethod;
+	method: CalendarParseMethod;
 	/** The exact field or words the reading rests on. */
 	evidence: string;
 	fields: { label: string; value: string; source: string }[];

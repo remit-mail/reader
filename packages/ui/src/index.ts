@@ -144,6 +144,10 @@ export {
 	type ButtonProps,
 } from "./components/button.js";
 export {
+	CalendarClashStrip,
+	type CalendarClashStripProps,
+} from "./components/calendar-clash-strip.js";
+export {
 	CalendarEventChip,
 	type CalendarEventChipProps,
 } from "./components/calendar-event-chip.js";
@@ -156,9 +160,27 @@ export {
 	type CalendarGridProps,
 } from "./components/calendar-grid.js";
 export {
+	CalendarInviteCard,
+	type CalendarInviteCardProps,
+} from "./components/calendar-invite-card.js";
+export {
 	CalendarList,
 	type CalendarListProps,
 } from "./components/calendar-list.js";
+export {
+	CalendarParseBadge,
+	type CalendarParseBadgeProps,
+	calendarParseLabel,
+	calendarParseNote,
+} from "./components/calendar-parse-badge.js";
+export {
+	CalendarSlotOffers,
+	type CalendarSlotOffersProps,
+} from "./components/calendar-slot-offers.js";
+export {
+	CalendarSuggestionDeck,
+	type CalendarSuggestionDeckProps,
+} from "./components/calendar-suggestion-deck.js";
 export {
 	CalendarDateNav,
 	type CalendarDateNavProps,
@@ -170,10 +192,15 @@ export {
 export {
 	type AgendaParse,
 	type CalendarAttendee,
+	type CalendarClash,
 	type CalendarColorId,
 	type CalendarDay,
 	type CalendarDescriptor,
 	type CalendarEventData,
+	type CalendarInvite,
+	type CalendarInviteState,
+	type CalendarParseMethod,
+	type CalendarProposal,
 	type CalendarSlotPick,
 	type CalendarViewId,
 	type ChoicePicks,
@@ -411,11 +438,23 @@ export {
 	type InputVariant,
 } from "./components/input.js";
 export {
+	type CalendarDayEntry,
+	type CalendarInviteIntel,
+	type CalendarProseIntel,
+	type CalendarSuggestionIntel,
+	IntelligenceCalendar,
+	type IntelligenceCalendarActions,
+	type IntelligenceCalendarData,
+	type IntelligenceCalendarProps,
+} from "./components/intelligence-calendar.js";
+export {
 	type AuthenticityIntel,
+	type IntelligenceCalendarSurface,
 	type IntelligenceData,
 	IntelligencePanel,
 	type IntelligencePanelProps,
 	type IntelligenceQuickActions,
+	type IntelligenceTabId,
 	type MatchedChunk,
 	type SenderFlagsIntel,
 	type SenderIntel,
@@ -425,6 +464,7 @@ export {
 	type SimilarMessageLinkProps,
 	type SimilarState,
 } from "./components/intelligence-panel.js";
+export { IntelligenceSection } from "./components/intelligence-section.js";
 export {
 	IntelligenceToggle,
 	type IntelligenceToggleProps,

@@ -219,6 +219,63 @@ export interface EventSuggestion {
 	zoneOptions?: ZoneOptions;
 }
 
+/**
+ * The rung of the reading ladder that answered. Deterministic readings run
+ * first — an attached invitation, then machine-readable markup — and only what
+ * neither settles is left to a pattern in the prose. A field the sender stated
+ * and a phrase software interpreted are not the same claim, so every surface
+ * that shows a reading also says which rung produced it.
+ */
+export type CalendarParseMethod = "ics" | "markup" | "pattern";
+
+/**
+ * Where an invitation stands. `superseded` is a later message carrying a higher
+ * SEQUENCE for the same UID. `cancelled` is a METHOD:CANCEL that still needs
+ * the reader to act, because nothing leaves the calendar without a person
+ * saying so either.
+ */
+export type CalendarInviteState =
+	| "pending"
+	| "answered"
+	| "superseded"
+	| "cancelled";
+
+/** An invitation as it arrived, before any of it reaches a calendar. */
+export interface CalendarInvite {
+	id: string;
+	/** The thread it came in on. The mail stays behind every calendar surface. */
+	threadId: string;
+	/** The event exactly as the organiser sent it — not yet on any calendar. */
+	proposed: CalendarEventData;
+	organizerName: string;
+	organizerEmail: string;
+	method: CalendarParseMethod;
+	/** The field or phrase the reading rests on. */
+	evidence: string;
+	state: CalendarInviteState;
+	/** iCalendar SEQUENCE. A higher one for the same UID supersedes this. */
+	sequence: number;
+}
+
+/**
+ * Something already agreed to that a candidate span runs into. The label is
+ * written by the caller, which is the side that knows the calendar and the
+ * account the clash sits on.
+ */
+export interface CalendarClash {
+	id: string;
+	label: string;
+}
+
+/** A time named in prose, already checked against the day it names. */
+export interface CalendarProposal {
+	id: string;
+	/** The words in the mail, quoted back. */
+	phrase: string;
+	/** What is already booked over it; empty when nothing is. */
+	clashTitle: string;
+}
+
 /** Which instances of a series an edit applies to, chosen before the edit. */
 export type RecurrenceScope = "this" | "following" | "all";
 

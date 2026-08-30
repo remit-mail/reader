@@ -3,7 +3,12 @@ import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { categoryTone, isThreadCategory } from "./app-shell-types.js";
-import type { IntelligenceData } from "./intelligence-panel.js";
+import type { IntelligenceCalendarActions } from "./intelligence-calendar.js";
+import { inviteWithClash } from "./intelligence-calendar-fixtures.js";
+import type {
+	IntelligenceData,
+	IntelligenceTabId,
+} from "./intelligence-panel.js";
 import { IntelligencePanel } from "./intelligence-panel.js";
 
 const vipWithFailingAuthenticity: IntelligenceData = {
@@ -76,6 +81,64 @@ describe("IntelligencePanel category chip", () => {
 		});
 		assert.match(chip, /text-fg-muted/);
 		assert.doesNotMatch(chip, /danger/);
+	});
+});
+
+const inertCalendar: IntelligenceCalendarActions = {
+	onAddInvite: () => undefined,
+	onTentativeInvite: () => undefined,
+	onDeclineInvite: () => undefined,
+	onReopenInvite: () => undefined,
+	onOfferOtherTimes: () => undefined,
+	onRemoveInvite: () => undefined,
+	onOpenNewerInvite: () => undefined,
+	onToggleSlot: () => undefined,
+	onAddSuggestion: () => undefined,
+	onReviewSuggestion: () => undefined,
+	onDismissSuggestion: () => undefined,
+	onOpenThread: () => undefined,
+	onSelectEvent: () => undefined,
+};
+
+function panel(tab: IntelligenceTabId): string {
+	return renderToString(
+		createElement(IntelligencePanel, {
+			data: vipWithFailingAuthenticity,
+			calendar: { data: inviteWithClash, actions: inertCalendar },
+			tab,
+		}),
+	);
+}
+
+describe("IntelligencePanel tab strip", () => {
+	it("offers no strip to a host that wired no calendar", () => {
+		const html = renderToString(
+			createElement(IntelligencePanel, { data: vipWithFailingAuthenticity }),
+		);
+		assert.doesNotMatch(html, /radiogroup/);
+		assert.match(html, /Authenticity/);
+	});
+
+	it("leaves the sender stack exactly where it was", () => {
+		const withStrip = panel("sender");
+		assert.match(withStrip, /radiogroup/);
+		for (const section of [
+			"Sender",
+			"Authenticity",
+			"Category",
+			"Quick actions",
+			"Coming soon",
+		]) {
+			assert.match(withStrip, new RegExp(section), section);
+		}
+		assert.doesNotMatch(withStrip, /Add to calendar/);
+	});
+
+	it("swaps the stack for the calendar rather than stacking both", () => {
+		const calendar = panel("calendar");
+		assert.match(calendar, /Add to calendar/);
+		assert.doesNotMatch(calendar, /Coming soon/);
+		assert.doesNotMatch(calendar, /Quick actions/);
 	});
 });
 

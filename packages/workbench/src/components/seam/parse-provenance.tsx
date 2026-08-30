@@ -1,52 +1,11 @@
-import { cn } from "@remit/ui";
-import { Code2, FileText, TextSearch } from "lucide-react";
-import {
-	type ParseMethod,
-	parseMethodLabel,
-	parseMethodNote,
-} from "../../fixtures/calendar-mail.js";
+import { type CalendarParseMethod, calendarParseNote, cn } from "@remit/ui";
 
 /**
- * Which rung of the ladder answered. Deterministic readings run first — an
- * attached invitation, then machine-readable markup — and only what neither
- * settles is left to a pattern in the prose. Saying which one fired is not
- * trivia: it is the difference between a fact the sender stated and a guess the
- * reader made, and the reader is the one who has to decide how hard to check.
+ * The reading, opened up: the note for the rung that answered, the exact field
+ * or words it rests on, and each value with the source that produced it. The
+ * badge that names the rung lives in the kit — every surface that shows a
+ * reading shows the same one.
  */
-
-const icons: Record<ParseMethod, typeof FileText> = {
-	ics: FileText,
-	markup: Code2,
-	pattern: TextSearch,
-};
-
-const tones: Record<ParseMethod, string> = {
-	ics: "border-positive/50 text-positive",
-	markup: "border-accent-2/50 text-accent-2",
-	pattern: "border-warning/50 text-warning",
-};
-
-export function ParseBadge({
-	method,
-	className,
-}: {
-	method: ParseMethod;
-	className?: string;
-}) {
-	const Icon = icons[method];
-	return (
-		<span
-			className={cn(
-				"inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-2xs font-medium",
-				tones[method],
-				className,
-			)}
-		>
-			<Icon className="size-3" aria-hidden />
-			{parseMethodLabel[method]}
-		</span>
-	);
-}
 
 export function ParseProvenance({
 	method,
@@ -54,14 +13,14 @@ export function ParseProvenance({
 	fields,
 	className,
 }: {
-	method: ParseMethod;
+	method: CalendarParseMethod;
 	evidence: string;
 	fields?: { label: string; value: string; source: string }[];
 	className?: string;
 }) {
 	return (
 		<div className={cn("flex flex-col gap-2", className)}>
-			<p className="text-2xs text-fg-muted">{parseMethodNote[method]}</p>
+			<p className="text-2xs text-fg-muted">{calendarParseNote[method]}</p>
 			<p className="truncate rounded-sm bg-surface-sunken px-2 py-1 font-mono text-2xs text-fg-subtle">
 				{evidence}
 			</p>

@@ -1,4 +1,4 @@
-import { Button, cn, settleZone } from "@remit/ui";
+import { Button, CalendarParseBadge, cn, settleZone } from "@remit/ui";
 import {
 	Check,
 	ChevronDown,
@@ -9,9 +9,9 @@ import {
 	TriangleAlert,
 	X,
 } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 import type { SeamSuggestion } from "../../fixtures/calendar-mail.js";
-import { ParseBadge, ParseProvenance } from "./parse-provenance.js";
+import { ParseProvenance } from "./parse-provenance.js";
 
 /**
  * Everything the reader has found in mail and has not been allowed to act on.
@@ -63,7 +63,7 @@ export function SuggestionCard({
 				<span className="min-w-0 flex-1 truncate text-2xs uppercase tracking-wider text-fg-subtle">
 					Not on your calendar
 				</span>
-				<ParseBadge method={entry.method} />
+				<CalendarParseBadge method={entry.method} />
 			</div>
 
 			<div>
@@ -212,110 +212,6 @@ export function SuggestionHeading({
 				</span>
 			)}
 			{children}
-		</div>
-	);
-}
-
-/* ------------------------------------------------------------------ */
-/* Phone: one card at a time, swiped                                   */
-/* ------------------------------------------------------------------ */
-
-const COMMIT_DISTANCE = 96;
-
-export interface SuggestionDeckProps {
-	children: ReactNode;
-	/** Empty when the deck has nothing left. */
-	hasCard: boolean;
-	onConfirm: () => void;
-	onReject: () => void;
-	blocked: boolean;
-	blockedReason: string;
-	remaining: number;
-}
-
-/**
- * The same cards on a phone, as a deck rather than a column: one decision
- * fills the screen, and the gesture is the fast path over the buttons that are
- * always there under it. A gesture is never the only way to answer.
- */
-export function SuggestionDeck({
-	children,
-	hasCard,
-	onConfirm,
-	onReject,
-	blocked,
-	blockedReason,
-	remaining,
-}: SuggestionDeckProps) {
-	const [drag, setDrag] = useState(0);
-	const [from, setFrom] = useState<number | null>(null);
-
-	if (!hasCard)
-		return (
-			<div className="flex flex-col items-center gap-2 p-8 text-center">
-				<Sparkles className="size-6 text-fg-subtle" aria-hidden />
-				<p className="text-sm text-fg-muted">
-					Nothing in your mail is waiting on a decision about time.
-				</p>
-			</div>
-		);
-
-	const committing = Math.abs(drag) > COMMIT_DISTANCE;
-	const towardsConfirm = drag > 0;
-
-	return (
-		<div className="flex flex-col gap-3 px-4 pb-4">
-			<div className="relative">
-				<div
-					className="touch-pan-y select-none"
-					style={{
-						transform: `translateX(${drag}px) rotate(${drag / 40}deg)`,
-						transition: from === null ? "transform 180ms ease-out" : "none",
-					}}
-					onPointerDown={(e) => {
-						e.currentTarget.setPointerCapture(e.pointerId);
-						setFrom(e.clientX);
-					}}
-					onPointerMove={(e) => {
-						if (from === null) return;
-						setDrag(e.clientX - from);
-					}}
-					onPointerUp={() => {
-						if (Math.abs(drag) > COMMIT_DISTANCE) {
-							if (drag > 0 && !blocked) onConfirm();
-							if (drag < 0) onReject();
-						}
-						setFrom(null);
-						setDrag(0);
-					}}
-					onPointerCancel={() => {
-						setFrom(null);
-						setDrag(0);
-					}}
-				>
-					{children}
-				</div>
-				{committing && (
-					<span
-						className={cn(
-							"pointer-events-none absolute top-3 rounded-md px-2 py-1 text-xs font-semibold",
-							towardsConfirm
-								? "right-3 bg-accent-soft text-accent"
-								: "left-3 bg-danger-soft text-danger",
-						)}
-					>
-						{towardsConfirm
-							? blocked
-								? blockedReason
-								: "Confirm"
-							: "Not this"}
-					</span>
-				)}
-			</div>
-			<p className="text-center text-2xs text-fg-subtle">
-				{remaining} left · swipe right to confirm, left to drop, or use the
-				buttons
-			</p>
 		</div>
 	);
 }

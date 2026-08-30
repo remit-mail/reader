@@ -1,10 +1,9 @@
-import { calendarColorClasses, cn } from "@remit/ui";
+import { type CalendarSlotPick, calendarColorClasses, cn } from "@remit/ui";
 import {
 	type BusyBlock,
 	DAY_END,
 	DAY_START,
 	type SoftHold,
-	type TimeSlot,
 	toMinutes,
 } from "../../fixtures/calendar-mail.js";
 
@@ -45,7 +44,7 @@ export interface AvailabilityStripProps {
 	holds?: SoftHold[];
 	marks?: AvailabilityMark[];
 	/** Slots the reader has ticked but not sent yet. */
-	picked?: TimeSlot[];
+	picked?: CalendarSlotPick[];
 	/** Pixels per minute; the caller sizes the strip to the room it has. */
 	minuteHeight?: number;
 	onSelectBlock?: (eventId: string) => void;
@@ -138,18 +137,19 @@ export function AvailabilityStrip({
 
 				{picked.map((slot) => (
 					<div
-						key={`pick-${slot.start}`}
+						key={`pick-${slot.startTime}`}
 						className="absolute inset-x-0 rounded-xs border border-dashed border-accent bg-accent-soft"
 						style={{
-							top: offsetOf(slot.start) * minuteHeight,
+							top: offsetOf(slot.startTime) * minuteHeight,
 							height: Math.max(
-								(toMinutes(slot.end) - toMinutes(slot.start)) * minuteHeight,
+								(toMinutes(slot.endTime) - toMinutes(slot.startTime)) *
+									minuteHeight,
 								8,
 							),
 						}}
 					>
 						<span className="block truncate px-1 text-2xs font-medium leading-tight text-accent">
-							Offering {slot.start}
+							Offering {slot.startTime}
 						</span>
 					</div>
 				))}
@@ -200,64 +200,6 @@ export function AvailabilityStrip({
 					</div>
 				))}
 			</div>
-		</div>
-	);
-}
-
-export interface SlotOfferRailProps {
-	slots: TimeSlot[];
-	picked: ReadonlySet<string>;
-	onToggle: (slot: TimeSlot) => void;
-	touch?: boolean;
-	/** Lays the chips out in a scrolling row rather than a wrapping block. */
-	scroll?: boolean;
-	className?: string;
-}
-
-/** The free slots, as things you can hand to someone rather than read off. */
-export function SlotOfferRail({
-	slots,
-	picked,
-	onToggle,
-	touch,
-	scroll,
-	className,
-}: SlotOfferRailProps) {
-	if (slots.length === 0)
-		return (
-			<p className={cn("text-xs text-fg-muted", className)}>
-				Nothing free that day at this length.
-			</p>
-		);
-
-	return (
-		<div
-			className={cn(
-				"flex gap-2",
-				scroll ? "overflow-x-auto pb-1" : "flex-wrap",
-				className,
-			)}
-		>
-			{slots.map((slot) => {
-				const on = picked.has(slot.start);
-				return (
-					<button
-						key={slot.start}
-						type="button"
-						aria-pressed={on}
-						onClick={() => onToggle(slot)}
-						className={cn(
-							"shrink-0 rounded-md border px-2 text-xs tabular-nums outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-							touch ? "min-h-11 px-3" : "h-7",
-							on
-								? "border-accent bg-accent-soft font-semibold text-accent"
-								: "border-line bg-surface text-fg-muted hover:border-line-strong hover:text-fg",
-						)}
-					>
-						{slot.start} – {slot.end}
-					</button>
-				);
-			})}
 		</div>
 	);
 }

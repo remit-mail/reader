@@ -25,7 +25,12 @@
 import {
 	Button,
 	type CalendarAttendee,
+	type CalendarClash,
 	type CalendarEventData,
+	CalendarInviteCard,
+	CalendarSlotOffers,
+	type CalendarSlotPick,
+	CalendarSuggestionDeck,
 	clashesWith,
 	cn,
 	FlowScreen,
@@ -42,14 +47,15 @@ import {
 	Sparkles,
 } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
-import { AttendeeContextCard } from "../components/attendee-context.js";
+import {
+	AttendeeContextCard,
+	AttendeeStrip,
+} from "../components/attendee-context.js";
 import { RejectedNotice } from "../components/rejected-notice.js";
 import {
 	type AvailabilityMark,
 	AvailabilityStrip,
-	SlotOfferRail,
 } from "../components/seam/availability-strip.js";
-import { InviteCard } from "../components/seam/invite-card.js";
 import {
 	composeReply,
 	ReplyWithTimes,
@@ -57,7 +63,6 @@ import {
 import { SeamEventDetail } from "../components/seam/seam-event-detail.js";
 import {
 	SuggestionCard,
-	SuggestionDeck,
 	SuggestionHeading,
 } from "../components/seam/suggestion-strip.js";
 import { ThreadTranscript } from "../components/seam/thread-view.js";
@@ -86,7 +91,6 @@ import {
 	seamSuggestions,
 	seamWeekEvents,
 	slotOffers,
-	type TimeSlot,
 	toMinutes,
 } from "../fixtures/calendar-mail.js";
 import { MailShell } from "./mail-shell.js";
@@ -151,13 +155,17 @@ function conflictLabel(event: CalendarEventData): string {
 	} (${calendar?.accountLabel ?? ""})`;
 }
 
+function toClash(event: CalendarEventData): CalendarClash {
+	return { id: event.id, label: conflictLabel(event) };
+}
+
 /** The slots a story says are already ticked, resolved against the bare week. */
-function seedSlots(starts: string[]): TimeSlot[] {
+function seedSlots(starts: string[]): CalendarSlotPick[] {
 	return slotOffers(
 		dayFree(dayBlocks(PROPOSED_DATE, seamWeekEvents)),
 		OFFER_MINUTES,
 		8,
-	).filter((slot) => starts.includes(slot.start));
+	).filter((slot) => starts.includes(slot.startTime));
 }
 
 function busySummary(blocks: BusyBlock[]): string {
@@ -200,10 +208,10 @@ export function CalendarSeam({
 	const [holds, setHolds] = useState<SoftHold[]>(() =>
 		replySent
 			? seedSlots(pickedSlots).map((slot) => ({
-					id: `hold_${slot.start}`,
+					id: `hold_${slot.startTime}`,
 					date: PROPOSED_DATE,
-					startTime: slot.start,
-					endTime: slot.end,
+					startTime: slot.startTime,
+					endTime: slot.endTime,
 					expiresLabel: HOLD_EXPIRY_LABEL,
 				}))
 			: [],
@@ -246,6 +254,13 @@ export function CalendarSeam({
 
 	/* --- the calendar this option is arguing with ---------------------- */
 
+	const inviteCalendar = calendarsById.get(invite.proposed.calendarId);
+
+	const answerInvite = (next: RsvpState) => {
+		setRsvp(next);
+		if (next !== "declined") setReplyOpen(false);
+	};
+
 	const inviteEvent: CalendarEventData | undefined =
 		rsvp === "noReply"
 			? undefined
@@ -271,7 +286,7 @@ export function CalendarSeam({
 		[free, isPhone],
 	);
 
-	const [picked, setPicked] = useState<TimeSlot[]>(() =>
+	const [picked, setPicked] = useState<CalendarSlotPick[]>(() =>
 		seedSlots(pickedSlots),
 	);
 	const [draft, setDraft] = useState(() =>
@@ -283,14 +298,16 @@ export function CalendarSeam({
 	);
 
 	const pickedKeys = useMemo(
-		() => new Set(picked.map((slot) => slot.start)),
+		() => new Set(picked.map((slot) => slot.startTime)),
 		[picked],
 	);
 
-	const togglePick = (slot: TimeSlot) => {
-		const next = pickedKeys.has(slot.start)
-			? picked.filter((item) => item.start !== slot.start)
-			: [...picked, slot].sort((a, b) => a.start.localeCompare(b.start));
+	const togglePick = (slot: CalendarSlotPick) => {
+		const next = pickedKeys.has(slot.startTime)
+			? picked.filter((item) => item.startTime !== slot.startTime)
+			: [...picked, slot].sort((a, b) =>
+					a.startTime.localeCompare(b.startTime),
+				);
 		setPicked(next);
 		setDraft(composeReply("Sofia", formatDayLabel(PROPOSED_DATE), next));
 		setReplyOpen(true);
@@ -301,10 +318,10 @@ export function CalendarSeam({
 		setSent(true);
 		setHolds(
 			picked.map((slot) => ({
-				id: `hold_${slot.start}`,
+				id: `hold_${slot.startTime}`,
 				date: PROPOSED_DATE,
-				startTime: slot.start,
-				endTime: slot.end,
+				startTime: slot.startTime,
+				endTime: slot.endTime,
 				expiresLabel: HOLD_EXPIRY_LABEL,
 			})),
 		);
@@ -481,7 +498,7 @@ export function CalendarSeam({
 			<p className="text-2xs uppercase tracking-wider text-fg-subtle">
 				Free, half an hour each
 			</p>
-			<SlotOfferRail
+			<CalendarSlotOffers
 				slots={offers}
 				picked={pickedKeys}
 				onToggle={togglePick}
@@ -502,22 +519,34 @@ export function CalendarSeam({
 		<div className="mt-3 flex flex-col gap-3">
 			{openInvite && messageId === "msg_invite_1" && (
 				<>
-					<InviteCard
+					<CalendarInviteCard
 						invite={invite}
 						whenText={formatEventWhen(invite.proposed)}
+						calendarName={inviteCalendar?.name ?? "Calendar"}
+						color={inviteCalendar?.color ?? "cal-1"}
+						clashes={conflicts.map(toClash)}
 						rsvp={rsvp}
-						onRsvp={(next) => {
-							setRsvp(next);
-							if (next !== "declined") setReplyOpen(false);
-						}}
-						conflicts={conflicts}
-						conflictLabel={conflictLabel}
-						activeAttendee={attendee}
-						onActivateAttendee={(email) => {
-							setAttendee(email);
-							if (touch) setFlow("attendee");
-						}}
-						onProposeOther={() => setReplyOpen(true)}
+						onAdd={() => answerInvite("accepted")}
+						onTentative={() => answerInvite("tentative")}
+						onDecline={() => answerInvite("declined")}
+						onReopen={() => setRsvp("noReply")}
+						onOfferOtherTimes={() => setReplyOpen(true)}
+						guests={
+							<div>
+								<p className="pb-1.5 text-2xs uppercase tracking-wider text-fg-subtle">
+									{invite.proposed.attendees.length} guests
+								</p>
+								<AttendeeStrip
+									attendees={invite.proposed.attendees}
+									activeEmail={attendee}
+									onActivate={(email) => {
+										setAttendee(email);
+										if (touch) setFlow("attendee");
+									}}
+									touch={touch}
+								/>
+							</div>
+						}
 						touch={touch}
 					/>
 					{attendeePerson && !touch && (
@@ -734,11 +763,13 @@ export function CalendarSeam({
 					ruleCount={rules.length}
 					touch
 				/>
-				<SuggestionDeck
+				<CalendarSuggestionDeck
+					className="px-4 pb-4"
 					hasCard={pending.length > 0 || rejected !== null}
 					remaining={pending.length}
 					blocked={topCardBlocked}
 					blockedReason="Pick a clock"
+					confirmLabel="Confirm"
 					onConfirm={() => {
 						if (topCard) confirmSuggestion(topCard);
 					}}
@@ -785,7 +816,7 @@ export function CalendarSeam({
 							/>
 						)
 					)}
-				</SuggestionDeck>
+				</CalendarSuggestionDeck>
 			</FlowScreen>
 		);
 

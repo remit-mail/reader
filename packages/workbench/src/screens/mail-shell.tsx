@@ -49,8 +49,10 @@ import {
 	FilterSheet,
 	type FilterSheetProps,
 	FilterToggle,
+	type IntelligenceCalendarSurface,
 	type IntelligenceData,
 	IntelligencePanel,
+	type IntelligenceTabId,
 	isBriefCategory,
 	isBriefFilterId,
 	type ListState,
@@ -157,6 +159,10 @@ export interface MailShellProps {
 	 */
 	searchResultsInBody?: boolean;
 	intelligence?: IntelligenceData;
+	/** The panel's calendar half. Without it the panel shows no tab strip. */
+	calendar?: IntelligenceCalendarSurface;
+	/** Which half of the panel a story opens on. */
+	intelligenceTab?: IntelligenceTabId;
 	intelligenceOpen?: boolean;
 	isLoading?: boolean;
 	/** The scope the route carries into the field, e.g. `in:spam`. */
@@ -680,6 +686,8 @@ export function MailShell({
 	onSelectThread,
 	searchResultsInBody,
 	intelligence,
+	calendar,
+	intelligenceTab,
 	intelligenceOpen = true,
 	isLoading,
 	scopeChip,
@@ -800,7 +808,10 @@ export function MailShell({
 				intelligence ? (
 					<IntelligencePanel
 						data={intelligence}
+						calendar={calendar}
+						defaultTab={intelligenceTab}
 						onClose={() => setRailOpen(false)}
+						touch={singlePane}
 						className="h-full w-full border-l-0"
 					/>
 				) : undefined
