@@ -36,6 +36,7 @@ describe("resolveSimilarState — fail-fast on similar-messages search", () => {
 				similarError: new Error("500"),
 				similarErrorIsFatal: true,
 				isSimilarLoading: false,
+				semanticEnabled: true,
 			}),
 			"ready",
 		);
@@ -47,6 +48,7 @@ describe("resolveSimilarState — fail-fast on similar-messages search", () => {
 				similarError: new Error("404"),
 				similarErrorIsFatal: false,
 				isSimilarLoading: false,
+				semanticEnabled: true,
 			}),
 			"error",
 		);
@@ -58,6 +60,7 @@ describe("resolveSimilarState — fail-fast on similar-messages search", () => {
 				similarError: null,
 				similarErrorIsFatal: false,
 				isSimilarLoading: false,
+				semanticEnabled: true,
 			}),
 			"ready",
 		);
@@ -69,8 +72,39 @@ describe("resolveSimilarState — fail-fast on similar-messages search", () => {
 				similarError: null,
 				similarErrorIsFatal: false,
 				isSimilarLoading: true,
+				semanticEnabled: true,
 			}),
 			"loading",
+		);
+	});
+});
+
+// Off is a property of the deployment, and it leads: nothing was embedded, so
+// there was no query, and the section states the setting instead of an empty
+// list (#1068). `undefined` is the config read still in flight, which is not
+// an answer.
+describe("resolveSimilarState — semantic search off on this instance", () => {
+	test("off wins over every runtime state", () => {
+		assert.equal(
+			resolveSimilarState({
+				similarError: new Error("404"),
+				similarErrorIsFatal: false,
+				isSimilarLoading: true,
+				semanticEnabled: false,
+			}),
+			"off",
+		);
+	});
+
+	test("a config read still in flight is not an off state", () => {
+		assert.equal(
+			resolveSimilarState({
+				similarError: null,
+				similarErrorIsFatal: false,
+				isSimilarLoading: false,
+				semanticEnabled: undefined,
+			}),
+			"ready",
 		);
 	});
 });

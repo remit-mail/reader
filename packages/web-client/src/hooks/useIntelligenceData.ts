@@ -359,11 +359,13 @@ export function useIntelligenceData(
 		...semanticSearchOperationsSemanticSearchOptions({
 			query: { query: semanticQuery, limit: 5 },
 		}),
-		// Never sent while the instance embeds nothing: the endpoint answers such a
-		// query with an empty list, which the panel cannot tell from a sender
-		// nothing resembles.
+		// Waits for the config read rather than racing it. An off instance answers
+		// this query with an empty list, which the panel cannot tell from a sender
+		// nothing resembles, so the request is not worth sending on the chance the
+		// instance turns out to be on. `undefined` is that read still in flight;
+		// it is cached process-wide and every other surface already made it.
 		enabled:
-			Boolean(thread && semanticQuery.length > 3) && semanticEnabled !== false,
+			Boolean(thread && semanticQuery.length > 3) && semanticEnabled === true,
 		staleTime: 60_000,
 		// A non-fatal failure (e.g. 404, no index yet) is acceptable — the sidebar
 		// degrades gracefully. A 5xx is NOT acceptable: it escalates globally and
