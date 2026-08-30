@@ -130,4 +130,25 @@ describe("CalendarFeedCard", () => {
 		assert.match(html, /disabled/);
 		assert.match(html, /Creating…/);
 	});
+
+	/**
+	 * The mint's invalidate() re-reads the feed, and that read passes back
+	 * through "loading" before it settles as "active". A skeleton drawn over
+	 * the address already on screen carries a name that is a substring of the
+	 * address input's own label, so the two collide under one accessible name.
+	 */
+	it("does not draw the loading skeleton over an address just minted", () => {
+		const html = render({ status: "loading" }, { mintedUrl: ADDRESS });
+		assert.match(html, /webcal:\/\/mail\.example\.com/);
+		assert.doesNotMatch(html, /Loading the subscription address/);
+	});
+
+	it("does not draw a read failure over an address just minted", () => {
+		const html = render(
+			{ status: "unreadable", error: new Error("Service unavailable") },
+			{ mintedUrl: ADDRESS },
+		);
+		assert.match(html, /webcal:\/\/mail\.example\.com/);
+		assert.doesNotMatch(html, /Couldn.{0,6}t read whether/);
+	});
 });

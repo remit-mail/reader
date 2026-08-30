@@ -200,7 +200,7 @@ export function CalendarFeedCard({
 				<CardTitle id={titleId}>{calendarName}</CardTitle>
 			</CardHeader>
 			<CardBody>
-				{state.status === "loading" && (
+				{state.status === "loading" && mintedUrl === "" && (
 					// biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label on a loading skeleton is what assistive tech has to go on
 					<div
 						className="h-12 animate-pulse rounded-sm bg-surface-sunken"
@@ -209,7 +209,7 @@ export function CalendarFeedCard({
 					/>
 				)}
 
-				{state.status === "unreadable" && (
+				{state.status === "unreadable" && mintedUrl === "" && (
 					<ErrorState
 						variant="inline"
 						title={`Couldn't read whether ${calendarName} is shared`}
@@ -218,7 +218,7 @@ export function CalendarFeedCard({
 					/>
 				)}
 
-				{state.status === "absent" && (
+				{state.status === "absent" && mintedUrl === "" && (
 					<div className="space-y-2">
 						<p className="text-sm text-fg-muted">
 							Give this calendar a secret address and Apple Calendar, Google
