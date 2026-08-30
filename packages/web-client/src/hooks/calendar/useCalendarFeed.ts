@@ -7,10 +7,11 @@
  * back — the server stores a hash, so a lost address is rotated rather than
  * recovered.
  *
- * The read owns its 404 and nothing else. "This calendar has no feed" is a
- * legitimate answer to it, but a 401 or a 403 there is a session or a scope
- * problem, and a card that drew "not shared yet" for either would tell the
- * reader their calendar is private when nobody actually asked the server.
+ * The read owns its 404 and its 403 and nothing else. "This calendar has no
+ * feed" and "this calendar is not yours" are both answers the card states where
+ * it stands — the 404 as the offer to create one, the 403 as "couldn't read
+ * whether it is shared", never as "not shared yet". A 401 is the session gone,
+ * and no banner on this card signs anyone back in, so it escalates.
  */
 import {
 	calendarDetailOperationsGetCalendarFeedOptions,
@@ -19,7 +20,7 @@ import {
 	calendarDetailOperationsRevokeCalendarFeedMutation,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { calendarFeedUrl } from "@/lib/calendar-feed-url";
 import {
 	isNotFound,
@@ -60,7 +61,7 @@ export function useCalendarFeed(calendarId: string): CalendarFeedControls {
 		...calendarDetailOperationsGetCalendarFeedOptions({
 			path: { calendarId },
 		}),
-		meta: softErrorStatuses(404),
+		meta: softErrorStatuses(404, 403),
 		retry: false,
 	});
 
@@ -68,25 +69,44 @@ export function useCalendarFeed(calendarId: string): CalendarFeedControls {
 		queryClient.invalidateQueries({ queryKey });
 	};
 
-	const mintMutation = useMutation({
-		...calendarDetailOperationsPutCalendarFeedMutation(),
-		meta: softErrorMeta,
-		onSuccess: (data) => {
-			setMintedUrl(calendarFeedUrl(window.location.host, data.feedToken));
-			invalidate();
-		},
-	});
+	// Each write clears the other's refusal as it starts, so the card never
+	// states a failure the reader has already written past. Only one of the two
+	// can name the other directly; the revoke is declared first and reaches
+	// forward through this ref.
+	const resetMint = useRef<() => void>(() => {});
 
 	const revokeMutation = useMutation({
 		...calendarDetailOperationsRevokeCalendarFeedMutation(),
 		meta: softErrorMeta,
+		onMutate: () => {
+			resetMint.current();
+		},
 		onSuccess: () => {
 			setMintedUrl("");
 			invalidate();
 		},
 	});
 
-	const { mutate: mintFeed } = mintMutation;
+	const mintMutation = useMutation({
+		...calendarDetailOperationsPutCalendarFeedMutation(),
+		meta: softErrorMeta,
+		// The answer to this write is the plaintext token. Nothing may hold it
+		// once the surface showing it lets go, so it is collected the moment the
+		// observer detaches — on dismissal, and on leaving the page — instead of
+		// sitting in the mutation cache for the default five minutes.
+		gcTime: 0,
+		onMutate: () => {
+			revokeMutation.reset();
+		},
+		onSuccess: (data) => {
+			setMintedUrl(calendarFeedUrl(window.location.host, data.feedToken));
+			invalidate();
+		},
+	});
+
+	resetMint.current = mintMutation.reset;
+
+	const { mutate: mintFeed, reset: resetMintMutation } = mintMutation;
 	const { mutate: revokeFeed } = revokeMutation;
 
 	const mint = useCallback(() => {
@@ -97,7 +117,13 @@ export function useCalendarFeed(calendarId: string): CalendarFeedControls {
 		revokeFeed({ path: { calendarId } });
 	}, [calendarId, revokeFeed]);
 
-	const dismissMinted = useCallback(() => setMintedUrl(""), []);
+	// Resetting the mutation drops the answer that carried the plaintext token,
+	// which otherwise sits in the mutation cache for its whole gcTime after the
+	// reader has said they saved it.
+	const dismissMinted = useCallback(() => {
+		setMintedUrl("");
+		resetMintMutation();
+	}, [resetMintMutation]);
 
 	const { refetch } = query;
 	const retry = useCallback(() => {

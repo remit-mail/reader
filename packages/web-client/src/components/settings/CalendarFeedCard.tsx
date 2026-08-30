@@ -17,7 +17,7 @@ import {
 	ConfirmDialog,
 } from "@remit/ui";
 import { Check, Copy, Link2, RefreshCw, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ErrorState, formatErrorMessage } from "@/components/ui/ErrorState";
 import type { CalendarFeedState } from "@/hooks/calendar/useCalendarFeed";
 import {
@@ -53,6 +53,9 @@ function MintedAddress({
 }) {
 	const [copied, setCopied] = useState(false);
 	const [copyFailed, setCopyFailed] = useState(false);
+	const revert = useRef(0);
+
+	useEffect(() => () => window.clearTimeout(revert.current), []);
 
 	const copy = () => {
 		navigator.clipboard
@@ -60,7 +63,7 @@ function MintedAddress({
 			.then(() => {
 				setCopyFailed(false);
 				setCopied(true);
-				window.setTimeout(() => setCopied(false), 2000);
+				revert.current = window.setTimeout(() => setCopied(false), 2000);
 			})
 			.catch(() => setCopyFailed(true));
 	};
@@ -174,6 +177,7 @@ export function CalendarFeedCard({
 	onRetry,
 }: CalendarFeedCardProps) {
 	const [pending, setPending] = useState<Pending>("none");
+	const titleId = useId();
 
 	const confirm = () => {
 		const action = pending;
@@ -188,9 +192,12 @@ export function CalendarFeedCard({
 			: rotateFeedConfirmCopy(calendarName);
 
 	return (
-		<Card className="max-w-xl">
+		// Named region: the settings page draws one of these per calendar, and every
+		// control in them is worded identically, so the calendar's name is the only
+		// thing telling two cards apart.
+		<Card className="max-w-xl" role="region" aria-labelledby={titleId}>
 			<CardHeader>
-				<CardTitle>{calendarName}</CardTitle>
+				<CardTitle id={titleId}>{calendarName}</CardTitle>
 			</CardHeader>
 			<CardBody>
 				{state.status === "loading" && (
@@ -267,7 +274,6 @@ export function CalendarFeedCard({
 				description={copy.description}
 				confirmLabel={pending === "revoke" ? "Stop sharing" : "Replace address"}
 				destructive
-				isBusy={isBusy}
 				onConfirm={confirm}
 				onCancel={() => setPending("none")}
 			/>

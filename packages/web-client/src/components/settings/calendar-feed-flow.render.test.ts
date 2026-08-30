@@ -4,12 +4,25 @@
  * What is asserted is the request that left and what the panel then shows,
  * because the address is only legible for one render: a control that posted
  * nothing and a control that posted and dropped the answer look identical.
+ *
+ * Held with the real caches from `lib/query-error-handler.ts` and the overlay
+ * they escalate to. Which failures this card owns and which take the whole
+ * screen is the decision under test: on the harness's quiet default client
+ * every status stays inline, so a card that had quietly lost its 403 would
+ * still pass.
  */
 
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { createElement } from "react";
+import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
+import { createElement, Fragment } from "react";
 import { CalendarFeedPanel } from "@/components/settings/CalendarFeedPanel";
+import { FatalErrorOverlay } from "@/components/ui/FatalErrorOverlay";
+import { __resetFatalError } from "@/lib/fatal-error";
+import {
+	handleMutationCacheError,
+	handleQueryCacheError,
+} from "@/lib/query-error-handler";
 import { createDomHarness, type DomHarness } from "../../test-support/dom";
 import {
 	type HttpCall,
@@ -32,23 +45,40 @@ afterEach(() => {
 	harness = undefined;
 	http?.restore();
 	http = undefined;
+	__resetFatalError();
 });
 
 type Responder = (call: HttpCall) => unknown;
 
+const escalatingClient = (): QueryClient =>
+	new QueryClient({
+		queryCache: new QueryCache({ onError: handleQueryCacheError }),
+		mutationCache: new MutationCache({ onError: handleMutationCacheError }),
+		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+	});
+
 const mount = async (responder: Responder) => {
 	http = mockFetch(responder);
-	harness = createDomHarness();
+	harness = createDomHarness({ queryClient: escalatingClient() });
 	harness.renderApp(
-		createElement(CalendarFeedPanel, {
-			calendarId: WORK,
-			calendarName: "Work",
-		}),
+		createElement(
+			Fragment,
+			null,
+			createElement(FatalErrorOverlay),
+			createElement(CalendarFeedPanel, {
+				calendarId: WORK,
+				calendarName: "Work",
+			}),
+		),
 	);
 	await harness.flush();
 	await harness.wait(20);
 	await harness.flush();
 };
+
+/** The full-screen page took over, instead of this card answering for itself. */
+const escalated = (): boolean =>
+	harness?.query('[data-testid="fatal-error-overlay"]') != null;
 
 const settle = async () => {
 	await harness?.flush();
@@ -178,6 +208,50 @@ describe("a calendar that is not shared", () => {
 		assert.match(harness?.text() ?? "", /Address created/);
 	});
 
+	/**
+	 * Off the screen is not gone. React Query keeps a mutation's answer for its
+	 * whole gcTime, and that answer is the plaintext token — the one thing this
+	 * feature promises exists nowhere it can be read back from.
+	 */
+	it("drops the minted token from the mutation cache when it is dismissed", async () => {
+		let feed: unknown;
+		await mount((call) => {
+			if (call.method === "PUT") {
+				feed = {
+					calendarId: WORK,
+					feedToken: TOKEN,
+					createdAt: CREATED,
+					rotatedAt: 0,
+				};
+				return feed;
+			}
+			if (feed) return feed;
+			return httpError(404, "no feed");
+		});
+
+		harness?.click(button("Create subscription address"));
+		await settle();
+
+		const cached = () =>
+			(harness?.queryClient.getMutationCache().getAll() ?? []).filter(
+				(mutation) => mutation.state.data !== undefined,
+			);
+		assert.equal(cached().length, 1, "the answer is held while it is shown");
+
+		harness?.click(button("I've saved it"));
+		await settle();
+
+		assert.deepEqual(cached(), [], "no cached answer still holds the token");
+		assert.ok(
+			!JSON.stringify(
+				(harness?.queryClient.getMutationCache().getAll() ?? []).map(
+					(mutation) => mutation.state,
+				),
+			).includes(TOKEN),
+			"the token survived in the mutation cache",
+		);
+	});
+
 	it("states a refused write where the button is", async () => {
 		await mount((call) => {
 			if (call.method === "PUT") return httpError(404, "Calendar not found");
@@ -189,6 +263,7 @@ describe("a calendar that is not shared", () => {
 
 		assert.match(harness?.text() ?? "", /was not changed/);
 		assert.match(harness?.text() ?? "", /Calendar not found/);
+		assert.ok(!escalated(), "the card owns a refused write, inline");
 	});
 });
 
@@ -288,6 +363,56 @@ describe("a calendar that is shared", () => {
 		assert.ok(hasButton("Create subscription address"));
 		assert.doesNotMatch(harness?.text() ?? "", /Address created/);
 	});
+
+	/**
+	 * A refusal is about the write that was refused, not about the card. Left
+	 * standing, it reads as if the replacement that just landed had failed too —
+	 * over an address that is on screen and working.
+	 */
+	it("clears a refused revoke once the next write succeeds", async () => {
+		let rotated = false;
+		await mount((call) => {
+			if (call.method === "DELETE") return httpError(409, "Feed is locked");
+			if (call.method === "PUT") {
+				rotated = true;
+				return {
+					calendarId: WORK,
+					feedToken: NEXT_TOKEN,
+					createdAt: CREATED,
+					rotatedAt: CREATED + 1000,
+				};
+			}
+			return {
+				calendarId: WORK,
+				createdAt: CREATED,
+				rotatedAt: rotated ? CREATED + 1000 : 0,
+			};
+		});
+
+		harness?.click(button("Stop sharing"));
+		await settle();
+		harness?.click(confirmButton("Stop sharing"));
+		await settle();
+		assert.match(harness?.text() ?? "", /Feed is locked/);
+
+		harness?.click(button("Replace address"));
+		await settle();
+		harness?.click(confirmButton("Replace address"));
+		await settle();
+
+		assert.doesNotMatch(
+			harness?.text() ?? "",
+			/was not changed/,
+			"the refused revoke outlived the replacement that succeeded",
+		);
+		assert.doesNotMatch(harness?.text() ?? "", /Feed is locked/);
+		assert.ok(
+			harness
+				?.queryAll<HTMLInputElement>("input")
+				.some((input) => input.value.includes(NEXT_TOKEN)),
+			"the replacement address was shown",
+		);
+	});
 });
 
 describe("a read the server refuses", () => {
@@ -301,7 +426,24 @@ describe("a read the server refuses", () => {
 			return {};
 		});
 
+		assert.ok(
+			!escalated(),
+			"a 403 the card draws inline must not take the whole screen",
+		);
 		assert.match(harness?.text() ?? "", /Couldn't read whether Work is shared/);
 		assert.ok(!hasButton("Create subscription address"));
+	});
+
+	/**
+	 * The one status this card may not keep to itself. No banner here signs
+	 * anyone back in, so a 401 belongs on the page that does.
+	 */
+	it("escalates a lapsed session instead of drawing it in the card", async () => {
+		await mount((call) => {
+			if (call.method === "GET") return httpError(401, "signed out");
+			return {};
+		});
+
+		assert.ok(escalated(), "a 401 on the read stayed inside the card");
 	});
 });
