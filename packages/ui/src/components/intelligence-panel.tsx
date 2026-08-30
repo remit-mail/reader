@@ -10,12 +10,19 @@ import {
 	Star,
 	X,
 } from "lucide-react";
-import type { ReactElement, ReactNode } from "react";
+import { type ReactElement, type ReactNode, useId, useState } from "react";
 import { cn } from "../lib/cn.js";
 import { categoryTone, type ThreadCategory } from "./app-shell-types.js";
 import { Avatar } from "./avatar.js";
 import { Badge } from "./badge.js";
 import { Button } from "./button.js";
+import {
+	IntelligenceCalendar,
+	type IntelligenceCalendarActions,
+	type IntelligenceCalendarData,
+} from "./intelligence-calendar.js";
+import { IntelligenceSection } from "./intelligence-section.js";
+import { SegmentedControl } from "./segmented-control.js";
 
 /* ------------------------------------------------------------------ */
 /* The fourth pane: mail intelligence. Driven by real backend signals */
@@ -165,6 +172,32 @@ export interface IntelligenceQuickActions {
  */
 export type SimilarState = "loading" | "error" | "ready";
 
+/**
+ * The two halves of the panel. Sender is what this message is; Calendar is what
+ * it would cost. They are tabs rather than one long column because the second
+ * half only matters while a decision about time is open, and because both hosts
+ * — the rail at 1280 and up, the drawer below it — mount this same component
+ * and so inherit whatever the strip does.
+ */
+export type IntelligenceTabId = "sender" | "calendar";
+
+const tabOptions: { value: IntelligenceTabId; label: string }[] = [
+	{ value: "sender", label: "Sender" },
+	{ value: "calendar", label: "Calendar" },
+];
+
+/**
+ * The calendar tab's data and its callbacks, which arrive together or not at
+ * all: a tab whose buttons cannot be serviced is a row of dead controls, so a
+ * host with no calendar wiring gets no tab strip.
+ */
+export interface IntelligenceCalendarSurface {
+	data: IntelligenceCalendarData;
+	actions: IntelligenceCalendarActions;
+	/** The event the day list shows as selected; empty when none is. */
+	selectedEventId?: string;
+}
+
 export interface IntelligencePanelProps {
 	data: IntelligenceData;
 	onClose?: () => void;
@@ -202,6 +235,15 @@ export interface IntelligencePanelProps {
 	reportSpamPending?: boolean;
 	/** True while a "Not spam" (undo) press is in flight. Same treatment as `reportSpamPending`. */
 	notSpamPending?: boolean;
+	/** The calendar half. Omit it and the panel is the Sender stack alone. */
+	calendar?: IntelligenceCalendarSurface;
+	/** The tab showing. Omit to let the panel hold the choice itself. */
+	tab?: IntelligenceTabId;
+	onTabChange?: (tab: IntelligenceTabId) => void;
+	/** Which tab a panel holding its own choice opens on. */
+	defaultTab?: IntelligenceTabId;
+	/** Larger hit targets, for the drawer host on a touch screen. */
+	touch?: boolean;
 }
 
 const trustLabel: Record<
@@ -212,27 +254,6 @@ const trustLabel: Record<
 	wellknown: { label: "Known sender", tone: "positive" },
 	vip: { label: "VIP", tone: "accent" },
 };
-
-function Section({
-	label,
-	children,
-	className,
-}: {
-	label: string;
-	children: ReactNode;
-	className?: string;
-}) {
-	return (
-		<section
-			className={cn("border-b border-line px-row-inset py-3", className)}
-		>
-			<h3 className="text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
-				{label}
-			</h3>
-			<div className="mt-2">{children}</div>
-		</section>
-	);
-}
 
 function SenderCard({ sender }: { sender: SenderIntel }) {
 	const trust = trustLabel[sender.trust];
@@ -397,8 +418,18 @@ export function IntelligencePanel({
 	hideCloseButton = false,
 	reportSpamPending = false,
 	notSpamPending = false,
+	calendar,
+	tab,
+	onTabChange,
+	defaultTab = "sender",
+	touch,
 }: IntelligencePanelProps) {
 	const { sender, authenticity, category, flags = {}, similar } = data;
+	const [ownTab, setOwnTab] = useState<IntelligenceTabId>(defaultTab);
+	const tabStripName = useId();
+	const activeTab = tab ?? ownTab;
+	const calendarTab =
+		calendar !== undefined && activeTab === "calendar" ? calendar : undefined;
 
 	return (
 		<aside
@@ -423,169 +454,203 @@ export function IntelligencePanel({
 				)}
 			</header>
 
-			<Section label="Sender">
-				<SenderCard sender={sender} />
-			</Section>
-
-			<Section label="Authenticity">
-				<Authenticity auth={authenticity} onShowSimilar={onShowSimilar} />
-			</Section>
-
-			<Section label="Category">
-				<div className="flex items-center gap-2">
-					<Badge tone={categoryTone[category.value]}>{category.value}</Badge>
-					{category.overridden && (
-						<span className="text-2xs text-fg-subtle">your override</span>
-					)}
-					<button
-						type="button"
-						className={cn(
-							"ml-auto text-2xs text-accent hover:underline",
-							!actions?.onReclassify &&
-								"cursor-not-allowed opacity-50 hover:no-underline",
-						)}
-						disabled={!actions?.onReclassify}
-						onClick={actions?.onReclassify}
-					>
-						reclassify
-					</button>
-				</div>
-			</Section>
-
-			<Section label="Quick actions">
-				<div className="flex flex-wrap gap-1.5">
-					<QuickAction
-						icon={<Star className="size-3.5" />}
-						label="VIP"
-						active={flags.vip}
-						onClick={actions?.onToggleVip}
-					/>
-					<QuickAction
-						icon={<BellOff className="size-3.5" />}
-						label="Mute"
-						active={flags.muted}
-						onClick={actions?.onToggleMute}
-					/>
-					{actions?.onNotSpam && (
-						<QuickAction
-							icon={<MailCheck className="size-3.5" />}
-							label={notSpamPending ? "Undoing…" : "Not spam"}
-							active
-							onClick={actions.onNotSpam}
-							pending={notSpamPending}
-						/>
-					)}
-					{actions?.onReportSpam && (
-						<QuickAction
-							icon={<ShieldX className="size-3.5" />}
-							label={reportSpamPending ? "Reporting…" : "Report spam"}
-							danger
-							onClick={actions.onReportSpam}
-							pending={reportSpamPending}
-						/>
-					)}
-					<QuickAction
-						icon={<MailX className="size-3.5" />}
-						label="Unsubscribe"
-						active={flags.unsubscribed}
-						onClick={actions?.onToggleUnsubscribe}
+			{calendar && (
+				<div className="flex shrink-0 justify-center border-b border-line px-row-inset py-2">
+					<SegmentedControl
+						name={tabStripName}
+						aria-label="What this panel is showing"
+						size="sm"
+						options={tabOptions}
+						value={activeTab}
+						onChange={(next) => {
+							if (tab === undefined) setOwnTab(next);
+							onTabChange?.(next);
+						}}
 					/>
 				</div>
-				{actions?.onNotSpam && (
-					<p className="mt-1.5 text-2xs text-fg-subtle">
-						You reported this message as spam
-					</p>
-				)}
-			</Section>
-
-			{(similarState !== "ready" || similar.length > 0) && (
-				<Section label="Similar messages">
-					{similarState === "loading" ? (
-						<div className="animate-pulse space-y-2">
-							{Array.from({ length: 3 }).map((_, i) => (
-								// biome-ignore lint/suspicious/noArrayIndexKey: list is static, no stable id
-								<div key={i} className="space-y-1">
-									<div className="h-3 w-3/4 rounded bg-surface-sunken" />
-									<div className="h-2.5 w-1/2 rounded bg-surface-sunken" />
-								</div>
-							))}
-						</div>
-					) : similarState === "error" ? (
-						<p className="text-xs text-fg-subtle">
-							Similarity search unavailable
-						</p>
-					) : (
-						<ul className="-mx-1 space-y-1">
-							{similar.map((s) => {
-								const rowClass =
-									"block w-full rounded-md px-1 py-1 text-left hover:bg-surface-sunken";
-								const ariaLabel = `Open message from ${s.fromName || "unknown sender"}: ${s.subject}`;
-								const inner = (
-									<>
-										<div className="flex items-baseline justify-between gap-2">
-											<span className="truncate text-xs font-medium text-fg">
-												{s.fromName}
-											</span>
-											<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
-												{s.timeLabel}
-											</span>
-										</div>
-										<div className="truncate text-xs text-fg-muted">
-											{s.subject}
-										</div>
-										<span className="mt-1 inline-block rounded-full bg-surface-sunken px-1.5 py-px text-2xs text-fg-subtle">
-											{matchTone[s.matched]}
-										</span>
-									</>
-								);
-								return (
-									<li key={s.id}>
-										{similarLinkComponent ? (
-											similarLinkComponent({
-												mailboxId: s.mailboxId,
-												threadId: s.threadId,
-												messageId: s.id,
-												className: rowClass,
-												ariaLabel,
-												children: inner,
-											})
-										) : (
-											<div className={rowClass}>{inner}</div>
-										)}
-									</li>
-								);
-							})}
-						</ul>
-					)}
-				</Section>
 			)}
 
-			<Section label="Coming soon" className="border-b-0 opacity-70">
-				<div className="space-y-2">
-					<div className="flex items-start gap-2 rounded-md border border-dashed border-line p-2">
-						<Sparkles className="mt-0.5 size-3.5 shrink-0 text-fg-subtle" />
-						<div>
-							<div className="text-xs font-medium text-fg-muted">
-								Suggested actions
+			{calendarTab && (
+				<IntelligenceCalendar
+					data={calendarTab.data}
+					actions={calendarTab.actions}
+					selectedEventId={calendarTab.selectedEventId}
+					touch={touch}
+				/>
+			)}
+
+			{calendarTab === undefined && (
+				<>
+					<IntelligenceSection label="Sender">
+						<SenderCard sender={sender} />
+					</IntelligenceSection>
+
+					<IntelligenceSection label="Authenticity">
+						<Authenticity auth={authenticity} onShowSimilar={onShowSimilar} />
+					</IntelligenceSection>
+
+					<IntelligenceSection label="Category">
+						<div className="flex items-center gap-2">
+							<Badge tone={categoryTone[category.value]}>
+								{category.value}
+							</Badge>
+							{category.overridden && (
+								<span className="text-2xs text-fg-subtle">your override</span>
+							)}
+							<button
+								type="button"
+								className={cn(
+									"ml-auto text-2xs text-accent hover:underline",
+									!actions?.onReclassify &&
+										"cursor-not-allowed opacity-50 hover:no-underline",
+								)}
+								disabled={!actions?.onReclassify}
+								onClick={actions?.onReclassify}
+							>
+								reclassify
+							</button>
+						</div>
+					</IntelligenceSection>
+
+					<IntelligenceSection label="Quick actions">
+						<div className="flex flex-wrap gap-1.5">
+							<QuickAction
+								icon={<Star className="size-3.5" />}
+								label="VIP"
+								active={flags.vip}
+								onClick={actions?.onToggleVip}
+							/>
+							<QuickAction
+								icon={<BellOff className="size-3.5" />}
+								label="Mute"
+								active={flags.muted}
+								onClick={actions?.onToggleMute}
+							/>
+							{actions?.onNotSpam && (
+								<QuickAction
+									icon={<MailCheck className="size-3.5" />}
+									label={notSpamPending ? "Undoing…" : "Not spam"}
+									active
+									onClick={actions.onNotSpam}
+									pending={notSpamPending}
+								/>
+							)}
+							{actions?.onReportSpam && (
+								<QuickAction
+									icon={<ShieldX className="size-3.5" />}
+									label={reportSpamPending ? "Reporting…" : "Report spam"}
+									danger
+									onClick={actions.onReportSpam}
+									pending={reportSpamPending}
+								/>
+							)}
+							<QuickAction
+								icon={<MailX className="size-3.5" />}
+								label="Unsubscribe"
+								active={flags.unsubscribed}
+								onClick={actions?.onToggleUnsubscribe}
+							/>
+						</div>
+						{actions?.onNotSpam && (
+							<p className="mt-1.5 text-2xs text-fg-subtle">
+								You reported this message as spam
+							</p>
+						)}
+					</IntelligenceSection>
+
+					{(similarState !== "ready" || similar.length > 0) && (
+						<IntelligenceSection label="Similar messages">
+							{similarState === "loading" ? (
+								<div className="animate-pulse space-y-2">
+									{Array.from({ length: 3 }).map((_, i) => (
+										// biome-ignore lint/suspicious/noArrayIndexKey: list is static, no stable id
+										<div key={i} className="space-y-1">
+											<div className="h-3 w-3/4 rounded bg-surface-sunken" />
+											<div className="h-2.5 w-1/2 rounded bg-surface-sunken" />
+										</div>
+									))}
+								</div>
+							) : similarState === "error" ? (
+								<p className="text-xs text-fg-subtle">
+									Similarity search unavailable
+								</p>
+							) : (
+								<ul className="-mx-1 space-y-1">
+									{similar.map((s) => {
+										const rowClass =
+											"block w-full rounded-md px-1 py-1 text-left hover:bg-surface-sunken";
+										const ariaLabel = `Open message from ${s.fromName || "unknown sender"}: ${s.subject}`;
+										const inner = (
+											<>
+												<div className="flex items-baseline justify-between gap-2">
+													<span className="truncate text-xs font-medium text-fg">
+														{s.fromName}
+													</span>
+													<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
+														{s.timeLabel}
+													</span>
+												</div>
+												<div className="truncate text-xs text-fg-muted">
+													{s.subject}
+												</div>
+												<span className="mt-1 inline-block rounded-full bg-surface-sunken px-1.5 py-px text-2xs text-fg-subtle">
+													{matchTone[s.matched]}
+												</span>
+											</>
+										);
+										return (
+											<li key={s.id}>
+												{similarLinkComponent ? (
+													similarLinkComponent({
+														mailboxId: s.mailboxId,
+														threadId: s.threadId,
+														messageId: s.id,
+														className: rowClass,
+														ariaLabel,
+														children: inner,
+													})
+												) : (
+													<div className={rowClass}>{inner}</div>
+												)}
+											</li>
+										);
+									})}
+								</ul>
+							)}
+						</IntelligenceSection>
+					)}
+
+					<IntelligenceSection
+						label="Coming soon"
+						className="border-b-0 opacity-70"
+					>
+						<div className="space-y-2">
+							<div className="flex items-start gap-2 rounded-md border border-dashed border-line p-2">
+								<Sparkles className="mt-0.5 size-3.5 shrink-0 text-fg-subtle" />
+								<div>
+									<div className="text-xs font-medium text-fg-muted">
+										Suggested actions
+									</div>
+									<div className="text-2xs text-fg-subtle">
+										"Create a filter for messages like this" — on-device model
+									</div>
+								</div>
 							</div>
-							<div className="text-2xs text-fg-subtle">
-								"Create a filter for messages like this" — on-device model
+							<div className="flex items-start gap-2 rounded-md border border-dashed border-line p-2">
+								<Sparkles className="mt-0.5 size-3.5 shrink-0 text-fg-subtle" />
+								<div>
+									<div className="text-xs font-medium text-fg-muted">
+										Thread summary
+									</div>
+									<div className="text-2xs text-fg-subtle">
+										One-paragraph digest — Bedrock
+									</div>
+								</div>
 							</div>
 						</div>
-					</div>
-					<div className="flex items-start gap-2 rounded-md border border-dashed border-line p-2">
-						<Sparkles className="mt-0.5 size-3.5 shrink-0 text-fg-subtle" />
-						<div>
-							<div className="text-xs font-medium text-fg-muted">
-								Thread summary
-							</div>
-							<div className="text-2xs text-fg-subtle">
-								One-paragraph digest — Bedrock
-							</div>
-						</div>
-					</div>
-				</div>
-			</Section>
+					</IntelligenceSection>
+				</>
+			)}
 		</aside>
 	);
 }
