@@ -13,6 +13,7 @@ import type {
 	CalendarCollectionItem,
 	ICalendarCollectionRepository,
 	ICalendarEventIndexRepository,
+	ICalendarFeedTokenRepository,
 	ICalendarObjectRepository,
 	ICalendarUnitOfWork,
 	UpdateCalendarCollectionInput,
@@ -24,6 +25,7 @@ import { getAccountConfigIdFromEvent } from "../auth.js";
 import type { RemitClient } from "../service/data-client.js";
 import { getClient } from "../service/data-client.js";
 import type {
+	CalendarCollectionDetailOperationIds,
 	CalendarDetailOperationIds,
 	CalendarOperationIds,
 	OperationHandler,
@@ -34,6 +36,7 @@ export interface CalendarDeps {
 	calendarCollection: ICalendarCollectionRepository;
 	calendarObject: ICalendarObjectRepository;
 	calendarEventIndex: ICalendarEventIndexRepository;
+	calendarFeedToken: ICalendarFeedTokenRepository;
 	calendarUnitOfWork: ICalendarUnitOfWork;
 }
 
@@ -78,6 +81,7 @@ export const calendarDepsOf = (client: RemitClient): CalendarDeps => ({
 	calendarCollection: client.calendarCollection,
 	calendarObject: client.calendarObject,
 	calendarEventIndex: client.calendarEventIndex,
+	calendarFeedToken: client.calendarFeedToken,
 	calendarUnitOfWork: client.calendarUnitOfWork,
 });
 
@@ -225,6 +229,7 @@ export const deleteCalendarFor = async (
 			);
 			await repos.calendarObject.delete(calendarId, object.calendarObjectId);
 		}
+		await repos.calendarFeedToken.delete(accountConfigId, calendarId);
 		await repos.calendarCollection.delete(accountConfigId, calendarId);
 	});
 	return { ok: true, value: null };
@@ -326,7 +331,7 @@ export const CalendarOperations: Record<
 };
 
 export const CalendarDetailOperations: Record<
-	CalendarDetailOperationIds,
+	CalendarCollectionDetailOperationIds,
 	OperationHandler<CalendarDetailOperationIds>
 > = {
 	CalendarDetailOperations_getCalendar: async (context, ...args: unknown[]) => {

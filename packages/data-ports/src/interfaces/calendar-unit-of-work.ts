@@ -1,5 +1,6 @@
 import type { ICalendarCollectionRepository } from "./calendar-collection.js";
 import type { ICalendarEventIndexRepository } from "./calendar-event-index.js";
+import type { ICalendarFeedTokenRepository } from "./calendar-feed-token.js";
 import type { ICalendarObjectRepository } from "./calendar-object.js";
 import type { ICalendarSuggestionRepository } from "./calendar-suggestion.js";
 
@@ -18,6 +19,13 @@ export interface CalendarUnitOfWorkRepositories {
 	 * with no event behind it, is a state nothing later can repair.
 	 */
 	calendarSuggestion: ICalendarSuggestionRepository;
+	/**
+	 * Present so removing a calendar takes its feed address with it (issue
+	 * #1067). A token row outliving its collection is a credential pointing at
+	 * nothing — it answers 404, but nobody can see it to revoke it, and a later
+	 * calendar under the same derived id would inherit it.
+	 */
+	calendarFeedToken: ICalendarFeedTokenRepository;
 }
 
 /**

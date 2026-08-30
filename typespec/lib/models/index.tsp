@@ -50,6 +50,7 @@ import "./SystemUpdate.tsp";
 import "./CalendarCollection.tsp";
 import "./CalendarObject.tsp";
 import "./CalendarEventIndex.tsp";
+import "./CalendarFeedToken.tsp";
 import "./CalendarApi.tsp";
 
 // Mail-derived calendar suggestions (issue #1033 stage 0.3)

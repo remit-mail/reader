@@ -1,0 +1,238 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import type {
+	CalendarCollectionItem,
+	CalendarObjectItem,
+} from "@remit/data-ports";
+import {
+	buildCalendarFeed,
+	CALENDAR_FEED_TOKEN_BYTES,
+	calendarFeedIsUnchanged,
+	calendarFeedPath,
+	calendarFeedTokenMatches,
+	hashCalendarFeedToken,
+	isCalendarFeedToken,
+	mintCalendarFeedToken,
+	readCalendarFeedToken,
+} from "./feed.js";
+import { AMSTERDAM_VTIMEZONE, ical, singleEvent } from "./fixtures.js";
+
+const collection = (
+	overrides: Partial<CalendarCollectionItem> = {},
+): CalendarCollectionItem =>
+	({
+		calendarId: "cal-1",
+		accountConfigId: "acc-1",
+		urlSegment: "work",
+		displayName: "Work",
+		color: "Cal1",
+		componentSet: "VeventOnly",
+		source: "UserCreated",
+		timezone: "",
+		syncSequence: 3,
+		createdAt: 1_700_000_000_000,
+		updatedAt: 1_700_000_000_000,
+		...overrides,
+	}) as CalendarCollectionItem;
+
+const object = (
+	resourceName: string,
+	icalData: string,
+	updatedAt = 1_700_000_100_000,
+): CalendarObjectItem =>
+	({
+		calendarObjectId: `obj-${resourceName}`,
+		calendarId: "cal-1",
+		resourceName,
+		icalData,
+		updatedAt,
+	}) as CalendarObjectItem;
+
+describe("a feed token", () => {
+	it("is base64url over the declared number of random bytes", () => {
+		const minted = mintCalendarFeedToken();
+
+		assert.equal(
+			Buffer.from(minted.token, "base64url").length,
+			CALENDAR_FEED_TOKEN_BYTES,
+		);
+		assert.ok(isCalendarFeedToken(minted.token));
+		assert.equal(minted.tokenHash, hashCalendarFeedToken(minted.token));
+		assert.equal(minted.tokenHash.length, 64);
+		assert.equal(
+			minted.tokenHash.includes(minted.token),
+			false,
+			"the stored value is a digest, not the secret",
+		);
+	});
+
+	it("is never the same twice", () => {
+		const minted = new Set(
+			Array.from({ length: 64 }, () => mintCalendarFeedToken().token),
+		);
+
+		assert.equal(minted.size, 64);
+	});
+
+	it("refuses anything that is not the shape of one", () => {
+		for (const candidate of [
+			"",
+			"short",
+			"a".repeat(42),
+			"a".repeat(44),
+			`${"a".repeat(42)}/`,
+			`${"a".repeat(42)}.`,
+			"../../etc/passwd",
+		]) {
+			assert.equal(isCalendarFeedToken(candidate), false, candidate);
+		}
+	});
+
+	it("matches only its own digest", () => {
+		const minted = mintCalendarFeedToken();
+		const other = mintCalendarFeedToken();
+
+		assert.ok(calendarFeedTokenMatches(minted.tokenHash, minted.tokenHash));
+		assert.equal(
+			calendarFeedTokenMatches(minted.tokenHash, other.tokenHash),
+			false,
+		);
+		assert.equal(calendarFeedTokenMatches(minted.tokenHash, "short"), false);
+	});
+});
+
+describe("a feed address", () => {
+	it("reads back the token it was written from", () => {
+		const minted = mintCalendarFeedToken();
+
+		assert.equal(
+			readCalendarFeedToken(calendarFeedPath(minted.token)),
+			minted.token,
+		);
+	});
+
+	it("is not a feed address without the path and the suffix", () => {
+		assert.equal(readCalendarFeedToken("/feeds/calendar/abc"), null);
+		assert.equal(readCalendarFeedToken("/calendars/abc.ics"), null);
+		assert.equal(readCalendarFeedToken("/feeds/calendar/a/b.ics"), null);
+	});
+});
+
+describe("the calendar a feed serves", () => {
+	it("names itself from the collection and terminates its last line", () => {
+		const feed = buildCalendarFeed(collection({ displayName: "Team" }), [
+			object(
+				"a.ics",
+				singleEvent("SUMMARY:Stand-up", "DTSTART:20260907T090000Z"),
+			),
+		]);
+
+		assert.match(feed.icalData, /^BEGIN:VCALENDAR\r\n/);
+		assert.match(feed.icalData, /X-WR-CALNAME:Team\r\n/);
+		assert.match(feed.icalData, /END:VCALENDAR\r\n$/);
+		assert.match(feed.icalData, /SUMMARY:Stand-up/);
+	});
+
+	it("carries the collection's zone so a client reads floating times the same way", () => {
+		const feed = buildCalendarFeed(
+			collection({ timezone: "Europe/Amsterdam" }),
+			[],
+		);
+
+		assert.match(feed.icalData, /X-WR-TIMEZONE:Europe\/Amsterdam\r\n/);
+	});
+
+	it("keeps the rule rather than the occurrences it would produce", () => {
+		const feed = buildCalendarFeed(collection(), [
+			object(
+				"a.ics",
+				singleEvent(
+					"SUMMARY:Weekly",
+					"DTSTART:20260907T090000Z",
+					"RRULE:FREQ=WEEKLY;COUNT=5",
+				),
+			),
+		]);
+
+		assert.equal(feed.icalData.match(/BEGIN:VEVENT/g)?.length, 1);
+		assert.match(feed.icalData, /RRULE:FREQ=WEEKLY;COUNT=5/);
+	});
+
+	it("carries one copy of a VTIMEZONE two resources both declare", () => {
+		const withZone = (uid: string) =>
+			ical(
+				"BEGIN:VCALENDAR",
+				"VERSION:2.0",
+				"PRODID:-//Remit//Calendar Tests//EN",
+				...AMSTERDAM_VTIMEZONE,
+				"BEGIN:VEVENT",
+				`UID:${uid}`,
+				"DTSTAMP:20260801T090000Z",
+				"DTSTART;TZID=Europe/Amsterdam:20260907T090000",
+				"END:VEVENT",
+				"END:VCALENDAR",
+			);
+
+		const feed = buildCalendarFeed(collection(), [
+			object("a.ics", withZone("a@example.com")),
+			object("b.ics", withZone("b@example.com")),
+		]);
+
+		assert.equal(feed.icalData.match(/BEGIN:VTIMEZONE/g)?.length, 1);
+		assert.equal(feed.icalData.match(/BEGIN:VEVENT/g)?.length, 2);
+	});
+
+	it("declares one VERSION however many resources it gathered", () => {
+		const feed = buildCalendarFeed(collection(), [
+			object("a.ics", singleEvent("DTSTART:20260907T090000Z")),
+			object("b.ics", singleEvent("DTSTART:20260908T090000Z")),
+		]);
+
+		assert.equal(feed.icalData.match(/^VERSION:/gm)?.length, 1);
+		assert.equal(feed.icalData.match(/^PRODID:/gm)?.length, 1);
+	});
+
+	it("moves its tag when the bytes change and holds it when they do not", () => {
+		const one = object("a.ics", singleEvent("DTSTART:20260907T090000Z"));
+		const two = object("b.ics", singleEvent("DTSTART:20260908T090000Z"));
+
+		const first = buildCalendarFeed(collection(), [one]);
+		const again = buildCalendarFeed(collection(), [one]);
+		const grown = buildCalendarFeed(collection(), [one, two]);
+		const renamed = buildCalendarFeed(collection({ displayName: "Team" }), [
+			one,
+		]);
+
+		assert.equal(again.etag, first.etag);
+		assert.notEqual(grown.etag, first.etag);
+		assert.notEqual(renamed.etag, first.etag);
+	});
+
+	it("reports the most recent change to the calendar or anything in it", () => {
+		const feed = buildCalendarFeed(collection({ updatedAt: 500 }), [
+			object("a.ics", singleEvent("DTSTART:20260907T090000Z"), 100),
+			object("b.ics", singleEvent("DTSTART:20260908T090000Z"), 900),
+		]);
+
+		assert.equal(feed.lastModifiedAt, 900);
+		assert.equal(
+			buildCalendarFeed(collection({ updatedAt: 500 }), []).lastModifiedAt,
+			500,
+			"an empty calendar was still last touched when it was made",
+		);
+	});
+});
+
+describe("a conditional poll", () => {
+	it("is unchanged for the tag it holds, quoted, weak or in a list", () => {
+		for (const header of ['"abc"', "abc", 'W/"abc"', '"other", "abc"', "*"]) {
+			assert.ok(calendarFeedIsUnchanged(header, "abc"), header);
+		}
+	});
+
+	it("is changed with no header, an empty one, or somebody else's tag", () => {
+		for (const header of [undefined, "", '"other"', 'W/"other"']) {
+			assert.equal(calendarFeedIsUnchanged(header, "abc"), false, header);
+		}
+	});
+});

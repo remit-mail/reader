@@ -9,6 +9,10 @@ import {
 	CalendarFreeBusyOperations,
 } from "./calendar-event.js";
 import {
+	CalendarFeedDetailOperations,
+	CalendarFeedOperations,
+} from "./calendar-feed.js";
+import {
 	CalendarSuggestionActionOperations,
 	CalendarSuggestionOperations,
 	MessageCalendarSuggestionOperations,
@@ -55,6 +59,8 @@ export const handlers: Record<OperationIds, OperationHandler<any>> = {
 	...OrganizeJobDetailOperations,
 	...CalendarOperations,
 	...CalendarDetailOperations,
+	...CalendarFeedDetailOperations,
+	...CalendarFeedOperations,
 	...CalendarEventOperations,
 	...CalendarEventDetailOperations,
 	...CalendarFreeBusyOperations,

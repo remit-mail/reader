@@ -48,6 +48,15 @@ export const deriveCalendarId = (
 	);
 
 /**
+ * Identity of a calendar's feed address (issue #1067). Derived from the
+ * collection, so one calendar holds one active token by construction: rotating
+ * rewrites the row it already has instead of leaving a second live address
+ * nobody can see to revoke.
+ */
+export const deriveCalendarFeedTokenId = (calendarId: string): string =>
+	base36uuidv5(`calendarfeedtoken:${calendarId}`, REMIT_NAMESPACE);
+
+/**
  * Identity of a calendar resource (issue #15). Derived from its collection and
  * its resource name — the last path segment of the resource's URL — so a
  * repeated PUT of the same resource rewrites its own row instead of forking a

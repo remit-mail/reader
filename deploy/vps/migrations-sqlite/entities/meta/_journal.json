@@ -134,6 +134,13 @@
       "when": 1787976807382,
       "tag": "0019_loving_abomination",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1788106189615,
+      "tag": "0020_secret_madame_masque",
+      "breakpoints": true
     }
   ]
 }

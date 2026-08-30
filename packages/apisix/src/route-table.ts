@@ -1,10 +1,14 @@
 /**
- * The one path the edge lets through unauthenticated.
+ * The paths the edge lets through unauthenticated.
  *
  * Microsoft redirects the browser here after consent, so the request arrives
  * with no Authorization header and nothing to mint one from; gating it 401s the
  * OAuth flow before the proxy hop. The HMAC-signed `state` parameter the handler
  * validates is what protects the callback, not a token.
+ *
+ * A calendar feed is the same shape of problem: Apple Calendar, Google Calendar
+ * and Thunderbird poll a URL and send no credential, so the token in the path is
+ * the credential and a bearer gate here would refuse every subscriber.
  *
  * Hardcoded, and deliberately not read out of the spec: an operation marked
  * `NoAuth` does not become public at the edge by saying so. A future public
@@ -12,6 +16,7 @@
  */
 export const PUBLIC_ROUTES: readonly { method: string; path: string }[] = [
 	{ method: "GET", path: "/accounts/oauth/microsoft/callback" },
+	{ method: "GET", path: "/feeds/calendar/{feedToken}.ics" },
 ];
 
 export interface Route {
@@ -21,8 +26,33 @@ export interface Route {
 	authenticated: boolean;
 }
 
-const toApisixUri = (openapiPath: string): string =>
-	openapiPath.replace(/\{([^}]+)\}/g, ":$1");
+/**
+ * The APISIX form of an OpenAPI path.
+ *
+ * A segment that is exactly one parameter becomes `:name`. A segment that mixes
+ * a parameter with literal text — `{feedToken}.ics` — has no `:name` spelling
+ * radixtree can express, so the route ends in the `*` wildcard instead. That
+ * only holds on the last segment, and a spec that puts such a segment anywhere
+ * else fails the generator rather than being written out as a route that
+ * silently matches the wrong requests.
+ */
+const toApisixUri = (openapiPath: string): string => {
+	const segments = openapiPath.split("/");
+	const mixed = segments.findIndex(
+		(segment) => /\{[^}]+\}/.test(segment) && !/^\{[^}]+\}$/.test(segment),
+	);
+	if (mixed === -1) {
+		return openapiPath.replace(/\{([^}]+)\}/g, ":$1");
+	}
+	if (mixed !== segments.length - 1) {
+		throw new Error(
+			`apisix: ${openapiPath} mixes a path parameter with literal text outside its last segment, which has no route form`,
+		);
+	}
+	return [...segments.slice(0, mixed), "*"]
+		.join("/")
+		.replace(/\{([^}]+)\}/g, ":$1");
+};
 
 const publicRoute = (path: string): { method: string } | undefined =>
 	PUBLIC_ROUTES.find((route) => route.path === path);

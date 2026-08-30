@@ -1,21 +1,25 @@
 import type {
 	CalendarCollectionItem,
 	CalendarEventIndexItem,
+	CalendarFeedTokenItem,
 	CalendarObjectItem,
 	CalendarOccurrenceInput,
 	CalendarSuggestionItem,
 	CreateCalendarCollectionInput,
 	ICalendarCollectionRepository,
 	ICalendarEventIndexRepository,
+	ICalendarFeedTokenRepository,
 	ICalendarObjectRepository,
 	ICalendarSuggestionRepository,
 	ICalendarUnitOfWork,
+	PutCalendarFeedTokenInput,
 	PutCalendarObjectInput as PutCalendarObjectRow,
 	PutCalendarSuggestionInput,
 	SettleCalendarSuggestionInput,
 	UpdateCalendarCollectionInput,
 } from "@remit/data-ports";
 import {
+	deriveCalendarFeedTokenId,
 	deriveCalendarId,
 	deriveCalendarObjectId,
 	deriveCalendarSuggestionId,
@@ -37,6 +41,7 @@ export class MemoryCalendarStore implements ICalendarUnitOfWork {
 	readonly objects = new Map<string, CalendarObjectItem>();
 	readonly occurrences = new Map<string, CalendarEventIndexItem[]>();
 	readonly suggestions = new Map<string, CalendarSuggestionItem>();
+	readonly feedTokens = new Map<string, CalendarFeedTokenItem>();
 
 	private readonly collectionRepo: ICalendarCollectionRepository = {
 		create: async (input: CreateCalendarCollectionInput) => {
@@ -281,6 +286,40 @@ export class MemoryCalendarStore implements ICalendarUnitOfWork {
 		},
 	};
 
+	private readonly feedTokenRepo: ICalendarFeedTokenRepository = {
+		put: async (input: PutCalendarFeedTokenInput) => {
+			const feedTokenId = deriveCalendarFeedTokenId(input.calendarId);
+			const now = Date.now();
+			const existing = this.feedTokens.get(feedTokenId);
+			const token: CalendarFeedTokenItem = {
+				feedTokenId,
+				accountConfigId: input.accountConfigId,
+				calendarId: input.calendarId,
+				tokenHash: input.tokenHash,
+				createdAt: existing?.createdAt ?? now,
+				rotatedAt: existing ? now : 0,
+				updatedAt: now,
+			};
+			this.feedTokens.set(feedTokenId, token);
+			return token;
+		},
+		findByCalendar: async (accountConfigId: string, calendarId: string) => {
+			const token = this.feedTokens.get(deriveCalendarFeedTokenId(calendarId));
+			if (!token || token.accountConfigId !== accountConfigId) return null;
+			return token;
+		},
+		findByTokenHash: async (tokenHash: string) =>
+			[...this.feedTokens.values()].find(
+				(token) => token.tokenHash === tokenHash,
+			) ?? null,
+		delete: async (accountConfigId: string, calendarId: string) => {
+			const feedTokenId = deriveCalendarFeedTokenId(calendarId);
+			const token = this.feedTokens.get(feedTokenId);
+			if (!token || token.accountConfigId !== accountConfigId) return;
+			this.feedTokens.delete(feedTokenId);
+		},
+	};
+
 	get calendarSuggestion(): ICalendarSuggestionRepository {
 		return this.suggestionRepo;
 	}
@@ -291,6 +330,7 @@ export class MemoryCalendarStore implements ICalendarUnitOfWork {
 			calendarObject: ICalendarObjectRepository;
 			calendarEventIndex: ICalendarEventIndexRepository;
 			calendarSuggestion: ICalendarSuggestionRepository;
+			calendarFeedToken: ICalendarFeedTokenRepository;
 		}) => Promise<T>,
 	): Promise<T> {
 		return fn({
@@ -298,6 +338,7 @@ export class MemoryCalendarStore implements ICalendarUnitOfWork {
 			calendarObject: this.objectRepo,
 			calendarEventIndex: this.eventIndexRepo,
 			calendarSuggestion: this.suggestionRepo,
+			calendarFeedToken: this.feedTokenRepo,
 		});
 	}
 }

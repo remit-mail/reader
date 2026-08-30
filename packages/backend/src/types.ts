@@ -63,6 +63,10 @@ export type OperationIds =
 	| "CalendarDetailOperations_getCalendar"
 	| "CalendarDetailOperations_updateCalendar"
 	| "CalendarDetailOperations_deleteCalendar"
+	| "CalendarDetailOperations_getCalendarFeed"
+	| "CalendarDetailOperations_putCalendarFeed"
+	| "CalendarDetailOperations_revokeCalendarFeed"
+	| "CalendarFeedOperations_getCalendarFeedIcal"
 	| "CalendarEventOperations_listCalendarEvents"
 	| "CalendarEventOperations_createCalendarEvent"
 	| "CalendarEventDetailOperations_getCalendarEvent"
@@ -177,6 +181,26 @@ export type CalendarOperationIds = MatchPrefix<
 
 export type CalendarDetailOperationIds = MatchPrefix<
 	"CalendarDetailOperations_",
+	OperationIds
+>;
+
+/**
+ * The feed sub-resource of `/calendars/{calendarId}`, handled beside the
+ * collection itself rather than inside it: minting a credential and serving one
+ * calendar's settings are different jobs on the same path.
+ */
+export type CalendarFeedDetailOperationIds =
+	| "CalendarDetailOperations_getCalendarFeed"
+	| "CalendarDetailOperations_putCalendarFeed"
+	| "CalendarDetailOperations_revokeCalendarFeed";
+
+export type CalendarCollectionDetailOperationIds = Exclude<
+	CalendarDetailOperationIds,
+	CalendarFeedDetailOperationIds
+>;
+
+export type CalendarFeedOperationIds = MatchPrefix<
+	"CalendarFeedOperations_",
 	OperationIds
 >;
 
