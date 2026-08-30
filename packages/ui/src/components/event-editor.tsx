@@ -276,6 +276,18 @@ export interface EventEditorProps {
 	 * a single instance reads the rule back instead of offering to change it.
 	 */
 	repeatEditable?: boolean;
+	/**
+	 * Whether guests can be written here. Off unless a surface says otherwise: a
+	 * box that takes names and drops them is worse than no box, because the
+	 * reader only finds out later, from an event with nobody on it.
+	 */
+	guestsEditable?: boolean;
+	/**
+	 * Whether the event can be moved to another calendar. An edit cannot: the
+	 * collection a resource lives in is part of its address, so a picker that
+	 * changes it and saves nothing is a control that lies.
+	 */
+	calendarEditable?: boolean;
 	/** Opens the custom-rule editor. Absent leaves the derived choices alone. */
 	onCustomRepeat?: () => void;
 	/** Grows the controls for a rail. */
@@ -302,6 +314,8 @@ export function EventEditor({
 	saveLabel = "Add",
 	header,
 	repeatEditable = true,
+	guestsEditable = false,
+	calendarEditable = true,
 	onCustomRepeat,
 	touch,
 	className,
@@ -363,10 +377,12 @@ export function EventEditor({
 				{header}
 				<EventField label="Title">{title}</EventField>
 				<EventField label="When">{when}</EventField>
-				<EventField label="Calendar">{calendarPicker}</EventField>
+				{calendarEditable && (
+					<EventField label="Calendar">{calendarPicker}</EventField>
+				)}
 				<EventField label="Repeat">{repeat}</EventField>
 				<EventField label="Location">{location}</EventField>
-				<EventField label="Guests">{guests}</EventField>
+				{guestsEditable && <EventField label="Guests">{guests}</EventField>}
 				<EventField label="Notes">{notes}</EventField>
 				{actions}
 			</div>
@@ -381,7 +397,7 @@ export function EventEditor({
 
 			{title}
 			{when}
-			{calendarPicker}
+			{calendarEditable && calendarPicker}
 
 			{onToggleExpanded && (
 				<button
@@ -405,7 +421,7 @@ export function EventEditor({
 			{!folded && (
 				<div className="flex flex-col gap-2 border-t border-line pt-3">
 					{location}
-					{guests}
+					{guestsEditable && guests}
 					{repeat}
 					{notes}
 				</div>

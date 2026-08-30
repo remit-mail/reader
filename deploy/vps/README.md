@@ -187,9 +187,58 @@ file next to the database that does not work over NFS/CIFS. Message bodies live
 on the `message_storage` named volume and are not part of the nightly snapshot
 (see [Backups](#backups)).
 
-Every Node service runs under a 512 MB V8 heap ceiling. Move it with
-`REMIT_NODE_HEAP_MB` in `.env`; raise it on a larger box if indexing a big
-mailbox runs out of memory. The containers carry no hard memory limit.
+Every Node service runs under a 512 MB V8 heap ceiling, moved with
+`REMIT_NODE_HEAP_MB` in `.env`. It bounds JavaScript objects and nothing else,
+so it is not the answer to a worker that runs out of memory while indexing —
+see [Indexing on a small box](#indexing-on-a-small-box). The containers carry no
+hard memory limit: one would turn a slow job into an OOM kill.
+
+### Indexing on a small box
+
+The `search-index-worker` holds the embedding model, and the model, its
+inference arenas and its per-batch tensors are all allocated by onnxruntime,
+outside the V8 heap the ceiling above bounds. A first index of a large mailbox
+is the job that can exhaust a 4 GB box, and the kernel then picks its OOM victim
+by size — usually the backend, not the indexer.
+
+So the worker bounds itself. It starts at the smallest batch with one inference
+in flight and measures two numbers after every batch: the box's free memory, and
+its own resident size. Both matter. Free memory says whether the rest of the
+stack still has room; the worker's own size says whether it is the reason it
+does not — and that one a shed cannot walk back, because onnxruntime sizes its
+arena to the widest batch it has ever run and keeps it.
+
+Ramping costs three consecutive readings that leave more than 1024 MB free and
+keep the worker under 1536 MB resident. Shedding is immediate at 768 MB free or
+1536 MB resident: it halves the batch, drops back to one inference and paces
+itself. The gap between the two thresholds is deliberate — without it a box
+parked near the line would ramp and shed on alternate batches.
+
+Under 384 MB free it stops and waits rather than pushing the host into swap,
+logging a line and counting `remit_search_index_memory_stalls_total`. That stop
+ends after four minutes and the message goes back on the queue for redelivery,
+because the queue's visibility timeout is five. Each change of plan logs once,
+and `remit_search_index_embed_batch_size` shows where it settled.
+
+The cost is deliberate: a first index uses a large box fully and crawls on a
+small one. Ten variables in `.env` move it, all optional:
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `SEARCH_INDEX_MEMORY_HEADROOM_MB` | `768` | Free memory below which the worker sheds. |
+| `SEARCH_INDEX_MEMORY_RAMP_MARGIN_MB` | `256` | Extra free memory a ramp needs on top of the headroom. |
+| `SEARCH_INDEX_RSS_CEILING_MB` | `1536` | Resident size at which the worker sheds and stops ramping. |
+| `SEARCH_INDEX_MEMORY_CRITICAL_MB` | `384` | Free memory below which indexing stops and waits. Must be below the headroom. |
+| `SEARCH_INDEX_EMBED_BATCH_MIN` | `4` | Chunks per embedding call at the floor, and after shedding. |
+| `SEARCH_INDEX_EMBED_BATCH_MAX` | `32` | Chunks per embedding call at full ramp. |
+| `SEARCH_INDEX_EMBED_CONCURRENCY_MAX` | `2` | Embedding calls in flight at full ramp. |
+| `SEARCH_INDEX_EMBED_RAMP_AFTER` | `3` | Consecutive comfortable readings a ramp costs. |
+| `SEARCH_INDEX_MEMORY_PAUSE_MS` | `2000` | Wait between batches while shedding, and between reads while stopped. |
+| `SEARCH_INDEX_MEMORY_STALL_MAX_MS` | `240000` | How long a stop waits before the message goes back on the queue. Must stay under 300000. |
+
+On a box with memory to spare, raising `SEARCH_INDEX_EMBED_BATCH_MAX`,
+`SEARCH_INDEX_MEMORY_HEADROOM_MB` and `SEARCH_INDEX_RSS_CEILING_MB` together is
+what makes a first index finish sooner.
 
 Each worker's health is a heartbeat. A worker polls one queue per kind of work
 (`imap-worker` six of them), each loop rewrites its own timestamp file on the
@@ -433,6 +482,31 @@ never locks its own recovery out.
 still on the updater's volume under `snapshots/<runId>/` and the previous
 release's images are still pulled: restore the snapshot over `sqlite_data` as
 uid 1000, put the previous tag back in `.env`, and `remit restart`.
+
+## When a release rekeys stored data
+
+A release can change how a stored id is derived, and thread identity is the one
+that has. A thread is keyed on the account configuration rather than on the
+account, so one conversation held by two connected mailboxes is one thread and a
+reply sent from either account joins it. Rows written before that release were
+keyed the old way and a later sync keys the new way, so the two never meet: the
+conversation stays split, and no amount of resyncing on top of the old rows
+mends it.
+
+There is no backfill. Keep the configuration, drop the mail, let it sync again:
+
+```bash
+remit config save reader-config.json   # accounts, filters, labels, roles, signatures
+remit purge --yes                      # every data volume, mail included
+remit restart
+```
+
+Then sign up again on `PUBLIC_ORIGIN` — set `SELF_SIGN_UP_ENABLED=true` in
+`.env` first if you closed it — import the file from Settings → Advanced, and
+give each account its password again, because the export carries no credential
+and no OAuth token. Mail re-syncs from IMAP.
+
+Every thread URL bookmarked before the drop names an id nothing holds any more.
 
 ## Podman
 

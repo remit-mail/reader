@@ -1456,7 +1456,6 @@ export class MessageSyncService {
 				repos.threadMessage,
 				messageId,
 				mailboxId,
-				accountId,
 				accountConfigId,
 				msg.uid,
 				msg.internalDate.getTime(),
@@ -1569,7 +1568,6 @@ export class MessageSyncService {
 		threadMessageService: IThreadMessageRepository,
 		messageId: string,
 		mailboxId: string,
-		accountId: string,
 		accountConfigId: string,
 		uid: number,
 		internalDate: number,
@@ -1603,7 +1601,7 @@ export class MessageSyncService {
 		}
 
 		// Derive threadId from the root Message-ID (deterministic)
-		const threadId = deriveThreadId(accountId, rootMessageIdHeader);
+		const threadId = deriveThreadId(accountConfigId, rootMessageIdHeader);
 
 		const isRead = flags.includes(MessageSystemFlag.Seen);
 

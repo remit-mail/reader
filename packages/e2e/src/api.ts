@@ -143,6 +143,124 @@ export interface UpdateFilterInput {
 	actionMailboxId?: string;
 }
 
+export interface Label {
+	labelId: string;
+	name: string;
+	color: string;
+}
+
+export interface Calendar {
+	calendarId: string;
+	urlSegment: string;
+	displayName: string;
+}
+
+/** One occurrence as the server expanded it. No client ever reads an RRULE. */
+export interface CalendarEventInstance {
+	calendarId: string;
+	calendarObjectId: string;
+	recurrenceId: string;
+	summary: string;
+	start: string;
+	end: string;
+	allDay: boolean;
+	etag: string;
+	hasRecurrence: boolean;
+}
+
+/** A stretch the caller is busy in, merged across every calendar they hold. */
+export interface CalendarFreeBusySpan {
+	start: string;
+	end: string;
+}
+
+/**
+ * An event written straight at the API. A spec whose subject is what the
+ * calendar draws rather than what the composer posts says what it wants here
+ * and reads the drawing back off the screen.
+ */
+export interface CreateCalendarEventInput {
+	calendarId: string;
+	summary: string;
+	/** ISO 8601 with an offset, or a bare `YYYY-MM-DD` when `allDay` is set. */
+	start: string;
+	end: string;
+	allDay?: boolean;
+	timeZone?: string;
+	/** An RRULE value without the property name, e.g. `"FREQ=WEEKLY;COUNT=5"`. */
+	recurrenceRule?: string;
+}
+
+/** The fields an edit may carry. Absence means untouched, as on the API. */
+export interface UpdateCalendarEventInput {
+	summary?: string;
+	start?: string;
+	end?: string;
+	allDay?: boolean;
+	recurrenceRule?: string;
+}
+
+/**
+ * Which occurrences a scoped write reaches, and the occurrence it is anchored
+ * at. `All` needs no anchor and is the default.
+ */
+export interface RecurrenceScopeInput {
+	scope: "This" | "Following" | "All";
+	/** The `recurrenceId` a listing returned for the occurrence. */
+	recurrenceId?: string;
+}
+
+/** A collection written straight at the API, for a spec about the tick list. */
+export interface CreateCalendarInput {
+	urlSegment: string;
+	displayName: string;
+}
+
+/** The stored resource a write comes back as, which is what a delete names. */
+export interface CalendarEventResource {
+	calendarObjectId: string;
+	calendarId: string;
+	icalUid: string;
+}
+
+export interface ConfigAccount {
+	accountId: string;
+	email: string;
+	authType: string;
+	isActive: boolean;
+	connectionState: string;
+	imapHost: string;
+	imapPort: number;
+}
+
+export interface ConfigDescription {
+	accounts: ConfigAccount[];
+	pendingImport?: { importId: string; folderPaths: string[] };
+}
+
+export interface ConfigExport {
+	schemaVersion: number;
+	document: Record<string, unknown>;
+}
+
+export interface ConfigImportItem {
+	section: string;
+	key: string;
+	verdict: string;
+	reason?: string;
+}
+
+export interface ConfigImportReport {
+	importId?: string;
+	valid: boolean;
+	schemaVersion: number;
+	applied: boolean;
+	items: ConfigImportItem[];
+	errors: ApiErrorBody[];
+	warnings: ApiErrorBody[];
+	accountsNeedingCredentials: string[];
+}
+
 interface ResultList<T> {
 	items: T[];
 	continuationToken?: string;
@@ -249,6 +367,22 @@ export interface ApiSession {
 	password: string;
 	token: string;
 }
+
+/**
+ * The query a scoped write is addressed by. `All` is the server's default and
+ * carries no anchor, so it is spelled out only when a caller means it.
+ */
+const calendarEventScopeQuery = (
+	calendarId: string,
+	scope?: RecurrenceScopeInput,
+): string =>
+	new URLSearchParams({
+		calendarId,
+		...(scope === undefined ? {} : { scope: scope.scope }),
+		...(scope?.recurrenceId === undefined
+			? {}
+			: { recurrenceId: scope.recurrenceId }),
+	}).toString();
 
 export class ApiClient {
 	private token: string;
@@ -696,6 +830,129 @@ export class ApiClient {
 
 	deleteFilter(accountId: string, filterId: string): Promise<Response> {
 		return this.request("DELETE", `/accounts/${accountId}/filters/${filterId}`);
+	}
+
+	createLabel(accountId: string, name: string, color: string): Promise<Label> {
+		return this.json("POST", `/accounts/${accountId}/labels`, { name, color });
+	}
+
+	async listLabels(accountId: string): Promise<Label[]> {
+		const result = await this.json<ResultList<Label>>(
+			"GET",
+			`/accounts/${accountId}/labels`,
+		);
+		return result.items ?? [];
+	}
+
+	async listCalendars(): Promise<Calendar[]> {
+		const result = await this.json<ResultList<Calendar>>("GET", "/calendars");
+		return result.items ?? [];
+	}
+
+	/**
+	 * The occurrences the server expanded over a window — what the grid draws,
+	 * asked for the way the grid asks for it. A spec asserting an event exists
+	 * reads this rather than the pixels it just clicked: the deployment's own
+	 * account of what is on the calendar is the only thing worth proving.
+	 */
+	async listCalendarEvents(
+		from: string,
+		to: string,
+	): Promise<CalendarEventInstance[]> {
+		const query = new URLSearchParams({ from, to });
+		const result = await this.json<ResultList<CalendarEventInstance>>(
+			"GET",
+			`/calendar-events?${query}`,
+		);
+		return result.items ?? [];
+	}
+
+	createCalendar(input: CreateCalendarInput): Promise<Calendar> {
+		return this.json("POST", "/calendars", input);
+	}
+
+	deleteCalendar(calendarId: string): Promise<Response> {
+		return this.request("DELETE", `/calendars/${calendarId}`);
+	}
+
+	createCalendarEvent(
+		input: CreateCalendarEventInput,
+	): Promise<CalendarEventResource> {
+		return this.json("POST", "/calendar-events", input);
+	}
+
+	/**
+	 * An edit made straight at the API, which is how a spec changes an event
+	 * behind the browser's back: no `If-Match`, because the point is to be the
+	 * writer who got there first and left the reader holding a stale version.
+	 */
+	updateCalendarEvent(
+		calendarObjectId: string,
+		calendarId: string,
+		patch: UpdateCalendarEventInput,
+		scope?: RecurrenceScopeInput,
+	): Promise<CalendarEventResource> {
+		return this.json(
+			"PATCH",
+			`/calendar-events/${calendarObjectId}?${calendarEventScopeQuery(calendarId, scope)}`,
+			patch,
+		);
+	}
+
+	/**
+	 * The busy time the server merged over a window. The strip measures its free
+	 * stretches off this rather than off the rows it drew, so a spec about a free
+	 * band asserts against the same answer the strip was given.
+	 */
+	async listCalendarFreeBusy(
+		from: string,
+		to: string,
+	): Promise<CalendarFreeBusySpan[]> {
+		const query = new URLSearchParams({ from, to });
+		const result = await this.json<ResultList<CalendarFreeBusySpan>>(
+			"GET",
+			`/calendar-free-busy?${query}`,
+		);
+		return result.items ?? [];
+	}
+
+	deleteCalendarEvent(
+		calendarObjectId: string,
+		calendarId: string,
+	): Promise<Response> {
+		return this.request(
+			"DELETE",
+			`/calendar-events/${calendarObjectId}?calendarId=${calendarId}&scope=All`,
+		);
+	}
+
+	getConfig(): Promise<ConfigDescription> {
+		return this.json("GET", "/config");
+	}
+
+	/**
+	 * The whole configuration as one versioned document — what the Advanced
+	 * settings card downloads and what `remit config save` writes.
+	 */
+	exportConfig(): Promise<ConfigExport> {
+		return this.json("GET", "/config/export");
+	}
+
+	importConfig(input: {
+		document: unknown;
+		mode?: "validate" | "apply";
+		onExisting?: "abort" | "merge";
+	}): Promise<ConfigImportReport> {
+		return this.json("POST", "/config/import", input);
+	}
+
+	/** The raw response, for a spec asserting the 409 a non-empty instance answers with. */
+	attemptImportConfig(input: {
+		document: unknown;
+		mode?: "validate" | "apply";
+		onExisting?: "abort" | "merge";
+	}): Promise<Response> {
+		return this.request("POST", "/config/import", input);
 	}
 
 	async listThreads(mailboxId: string): Promise<Thread[]> {

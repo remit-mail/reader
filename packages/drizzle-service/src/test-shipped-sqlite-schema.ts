@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import type Database from "better-sqlite3";
 
 // Read the committed SQLite entity migrations — the DDL a self-host deployment
@@ -16,6 +16,42 @@ const MIGRATIONS_DIR = new URL(
 
 export const migrationSql = (tag: string): string =>
 	readFileSync(new URL(`${tag}.sql`, MIGRATIONS_DIR), "utf8");
+
+export interface MigrationJournalEntry {
+	idx: number;
+	tag: string;
+}
+
+/** Every committed entity migration, in the order the migrator runs them. */
+export const migrationJournal = (): MigrationJournalEntry[] =>
+	(
+		JSON.parse(
+			readFileSync(new URL("meta/_journal.json", MIGRATIONS_DIR), "utf8"),
+		) as { entries: MigrationJournalEntry[] }
+	).entries;
+
+/** The `.sql` files present on disk, whatever the journal says about them. */
+export const migrationTagsOnDisk = (): string[] =>
+	readdirSync(MIGRATIONS_DIR)
+		.filter((name) => name.endsWith(".sql"))
+		.map((name) => name.slice(0, -".sql".length))
+		.sort();
+
+export interface MigrationSnapshot {
+	id: string;
+	prevId: string;
+}
+
+export const migrationSnapshot = (idx: number): MigrationSnapshot =>
+	JSON.parse(
+		readFileSync(
+			new URL(
+				`meta/${String(idx).padStart(4, "0")}_snapshot.json`,
+				MIGRATIONS_DIR,
+			),
+			"utf8",
+		),
+	) as MigrationSnapshot;
 
 /** The `CREATE TABLE` block for one table, as that migration declares it. */
 export const shippedTableDdl = (tag: string, table: string): string => {

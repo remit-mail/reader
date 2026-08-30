@@ -11,6 +11,13 @@
  * Scrolling never paginates. Reaching either end asks the owner for more days
  * and the scroll position is held across the insert, so the strip has no seams
  * and no page boundaries to lose your place at.
+ *
+ * Reaching an end is something a reader does, never something a layout is. A
+ * sparse diary draws shorter than the distance either end is fetched at, so an
+ * end measured off the content alone is reached the moment the strip mounts and
+ * stays reached however many days arrive — which walked the range, and the
+ * address with it, out into empty years. What asks for more days is a scroll
+ * the reader drove, moving toward the end it asks about.
  */
 import { CalendarOff, ChevronRight, Layers, MapPin, Users } from "lucide-react";
 import {
@@ -33,7 +40,6 @@ import {
 	formatSpan,
 	freeStretchesOn,
 	groupOverlapping,
-	isClearDay,
 	minuteOfDay,
 	monthLabel,
 	weekdayLongLabel,
@@ -64,6 +70,20 @@ const LONG_FREE_MINUTES = 150;
 
 /** The hue every calendar the caller did not describe falls back to. */
 const FALLBACK_COLOR: CalendarColorId = "cal-1";
+
+/** How close to either end a scroll has to come before more days are asked for. */
+const REACH_BEHIND = 600;
+const REACH_AHEAD = 900;
+
+/**
+ * How long after a wheel, a drag, a touch or a key a scroll is still the
+ * reader's. Momentum and a held key both keep scrolling after the input stops;
+ * a layout pass or a resize minutes later does not get to borrow the gesture.
+ */
+const INTENT_MS = 1_500;
+
+/** Nothing outstanding, which is what a caller that never fetches has. */
+const EMPTY_DATES: ReadonlySet<string> = new Set();
 
 export interface AgendaScrollTarget {
 	date: string;
@@ -103,6 +123,29 @@ export interface AgendaFlowProps {
 	onReachEnd: () => void;
 	/** The day under the sticky header, for the position map. */
 	onVisibleDayChange: (date: string) => void;
+	/**
+	 * The run has grown as far as it goes without being asked. The strip says so
+	 * at that end and offers the reader the next stretch, rather than fetching
+	 * its way across a decade nobody scrolled to.
+	 */
+	atStartCap?: boolean;
+	atEndCap?: boolean;
+	onLoadEarlier?: () => void;
+	onLoadLater?: () => void;
+	/**
+	 * Days whose events have not arrived. They draw as a skeleton and are never
+	 * collapsed into a run: a day nobody has heard back about is not a day with
+	 * nothing on it, and "6 days with nothing booked" over an unanswered request
+	 * is the one sentence this strip must never print.
+	 */
+	loadingDates?: ReadonlySet<string>;
+	/**
+	 * The free time on a day, where the owner knows more about it than the rows
+	 * do. Busy time on a calendar the strip is not drawing is still not free, so
+	 * an owner holding merged busy spans answers this from those. Absent falls
+	 * back to the gaps between what is on screen.
+	 */
+	freeOn?: (day: CalendarDay) => FreeStretch[];
 	scrollTarget?: AgendaScrollTarget;
 	/**
 	 * Rendered immediately above today, and landed on with it, so what's next is
@@ -126,6 +169,12 @@ export function AgendaFlow({
 	onReachStart,
 	onReachEnd,
 	onVisibleDayChange,
+	atStartCap = false,
+	atEndCap = false,
+	onLoadEarlier,
+	onLoadLater,
+	loadingDates = EMPTY_DATES,
+	freeOn = freeStretchesOn,
 	scrollTarget,
 	todayLead,
 	touch,
@@ -138,10 +187,19 @@ export function AgendaFlow({
 	const askedStart = useRef("");
 	const askedEnd = useRef("");
 	const landed = useRef(false);
+	/*
+	 * Where the scroller was left, so the next scroll event can be read as a
+	 * movement and in which direction. Every offset this component writes itself
+	 * records itself here, which is what makes the take-back after a prepend, and
+	 * the landing, read as no movement at all.
+	 */
+	const resting = useRef(0);
+	/** When the reader last touched the strip. */
+	const reached = useRef(0);
 	const [visibleDate, setVisibleDate] = useState(focusDate);
 
 	const lookup = useMemo(() => lookupOf(calendars), [calendars]);
-	const rows = buildAgendaRows(days, [today, focusDate]);
+	const rows = buildAgendaRows(days, [today, focusDate, ...loadingDates]);
 	const firstDate = days[0]?.date ?? "";
 	const lastDate = days[days.length - 1]?.date ?? "";
 
@@ -154,6 +212,7 @@ export function AgendaFlow({
 			element.scrollTop += element.scrollHeight - previousHeight.current;
 		previousFirst.current = firstDate;
 		previousHeight.current = element.scrollHeight;
+		resting.current = element.scrollTop;
 	});
 
 	/* Landing puts you on the focused day; after that the strip is yours. Rows
@@ -170,6 +229,7 @@ export function AgendaFlow({
 			const anchor = anchors.current.get(focusDate);
 			if (dropped || !anchor) return;
 			element.scrollTop = anchor.offsetTop - HEADER_HEIGHT;
+			resting.current = element.scrollTop;
 		};
 		settle();
 		setVisibleDate(focusDate);
@@ -187,20 +247,66 @@ export function AgendaFlow({
 		const anchor = anchors.current.get(scrollTarget.date);
 		if (!element || !anchor) return;
 		element.scrollTop = anchor.offsetTop - HEADER_HEIGHT;
+		resting.current = element.scrollTop;
 		setVisibleDate(scrollTarget.date);
 		onVisibleDayChange(scrollTarget.date);
 	}, [scrollTarget, onVisibleDayChange]);
 
+	/*
+	 * A wheel, a drag, a touch or a key: the strip is the reader's from here.
+	 * Listened for natively rather than through React, because a `div` carrying
+	 * key and pointer handlers has to claim a role to be one, and the strip is a
+	 * scroller rather than a control — announcing it as one would be a lie told
+	 * to a screen reader for the sake of a lint rule.
+	 */
+	useEffect(() => {
+		const element = scroller.current;
+		if (!element) return;
+		const note = () => {
+			reached.current = Date.now();
+		};
+		const kinds = [
+			"wheel",
+			"pointerdown",
+			"touchstart",
+			"touchmove",
+			"keydown",
+		];
+		// A scrollbar dragged slowly is one press and then nothing but movement,
+		// which would otherwise run out of gesture halfway down the strip. Held
+		// buttons only: a cursor resting over the strip is not scrolling it.
+		const drag = (event: PointerEvent) => {
+			if (event.buttons !== 0) note();
+		};
+		for (const kind of kinds)
+			element.addEventListener(kind, note, { passive: true });
+		element.addEventListener("pointermove", drag, { passive: true });
+		return () => {
+			for (const kind of kinds) element.removeEventListener(kind, note);
+			element.removeEventListener("pointermove", drag);
+		};
+	}, []);
+
 	const handleScroll = () => {
 		const element = scroller.current;
 		if (!element) return;
+
+		const top = element.scrollTop;
+		const moved = top - resting.current;
+		resting.current = top;
+
+		/* Everything below follows the reader and only the reader. A mount, a
+		   resize, a font swap and the offset taken back after a prepend all raise
+		   this event without anybody having scrolled, and answering them is how
+		   the range and the address walked off on their own. */
+		if (moved === 0 || Date.now() - reached.current > INTENT_MS) return;
 
 		const seen = [...anchors.current.entries()]
 			.filter(([, node]) => node.isConnected)
 			.sort((a, b) => a[1].offsetTop - b[1].offsetTop);
 		let current = "";
 		for (const [date, node] of seen) {
-			if (node.offsetTop - HEADER_HEIGHT - 8 > element.scrollTop) break;
+			if (node.offsetTop - HEADER_HEIGHT - 8 > top) break;
 			current = date;
 		}
 		if (current !== "" && current !== visibleDate) {
@@ -208,12 +314,13 @@ export function AgendaFlow({
 			onVisibleDayChange(current);
 		}
 
-		if (element.scrollTop < 600 && askedStart.current !== firstDate) {
+		if (moved < 0 && top < REACH_BEHIND && askedStart.current !== firstDate) {
 			askedStart.current = firstDate;
 			onReachStart();
 		}
 		if (
-			element.scrollTop + element.clientHeight > element.scrollHeight - 900 &&
+			moved > 0 &&
+			top + element.clientHeight > element.scrollHeight - REACH_AHEAD &&
 			askedEnd.current !== lastDate
 		) {
 			askedEnd.current = lastDate;
@@ -230,6 +337,7 @@ export function AgendaFlow({
 		<div
 			ref={scroller}
 			onScroll={handleScroll}
+			data-testid="agenda-strip"
 			className={cn(
 				"relative min-h-0 flex-1 overflow-y-auto bg-surface",
 				className,
@@ -249,6 +357,15 @@ export function AgendaFlow({
 				)}
 			</div>
 
+			{atStartCap && onLoadEarlier && (
+				<CapEdge
+					label="Show earlier days"
+					testId="agenda-load-earlier"
+					onLoad={onLoadEarlier}
+					touch={touch}
+				/>
+			)}
+
 			{rows.map((row) => (
 				<FlowRow
 					key={row.key}
@@ -256,6 +373,8 @@ export function AgendaFlow({
 					lookup={lookup}
 					density={density}
 					today={today}
+					pending={row.kind === "day" && loadingDates.has(row.day.date)}
+					freeOn={freeOn}
 					selectedEventId={selectedEventId}
 					onSelectEvent={onSelectEvent}
 					onPickSlot={onPickSlot}
@@ -267,7 +386,48 @@ export function AgendaFlow({
 					touch={touch}
 				/>
 			))}
+
+			{atEndCap && onLoadLater && (
+				<CapEdge
+					label="Show later days"
+					testId="agenda-load-later"
+					onLoad={onLoadLater}
+					touch={touch}
+				/>
+			)}
 		</div>
+	);
+}
+
+/**
+ * Where the run stops growing on its own. A year either way is further than a
+ * reader scrolls in one sitting, so this is rarely on screen — and when it is,
+ * the next stretch costs a click rather than arriving because the strip decided
+ * it had reached the end of itself.
+ */
+function CapEdge({
+	label,
+	testId,
+	onLoad,
+	touch,
+}: {
+	label: string;
+	testId: string;
+	onLoad: () => void;
+	touch?: boolean;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onLoad}
+			data-testid={testId}
+			className={cn(
+				"flex w-full items-center justify-center gap-2 border-y border-dashed border-line bg-surface-sunken px-row-inset text-xs font-medium text-fg-muted outline-none transition-colors hover:border-accent hover:text-accent focus-visible:ring-2 focus-visible:ring-ring",
+				touch ? "min-h-14 py-3" : "py-2",
+			)}
+		>
+			{label}
+		</button>
 	);
 }
 
@@ -280,6 +440,9 @@ interface RowProps {
 	lookup: CalendarLookup;
 	density: AgendaDensity;
 	today: string;
+	/** This day's events have not arrived yet. */
+	pending: boolean;
+	freeOn: (day: CalendarDay) => FreeStretch[];
 	selectedEventId: string;
 	onSelectEvent: (eventId: string) => void;
 	onPickSlot: (pick: CalendarSlotPick) => void;
@@ -294,6 +457,8 @@ function FlowRow({
 	lookup,
 	density,
 	today,
+	pending,
+	freeOn,
 	selectedEventId,
 	onSelectEvent,
 	onPickSlot,
@@ -315,6 +480,13 @@ function FlowRow({
 			</div>
 		);
 
+	if (pending)
+		return (
+			<div ref={anchorRef}>
+				<PendingDay day={row.day} today={today} />
+			</div>
+		);
+
 	if (density === "dots")
 		return (
 			<div ref={anchorRef}>
@@ -323,6 +495,7 @@ function FlowRow({
 					day={row.day}
 					lookup={lookup}
 					today={today}
+					freeOn={freeOn}
 					onSelectEvent={onSelectEvent}
 					onZoomDay={onZoomDay}
 					selectedEventId={selectedEventId}
@@ -338,6 +511,7 @@ function FlowRow({
 				lookup={lookup}
 				density={density}
 				today={today}
+				freeOn={freeOn}
 				selectedEventId={selectedEventId}
 				onSelectEvent={onSelectEvent}
 				onPickSlot={onPickSlot}
@@ -393,11 +567,52 @@ function EmptyRun({
 	);
 }
 
+/**
+ * A day still being fetched. It keeps the date column, so the strip has the
+ * shape it will have once the answer lands and nothing jumps under the reader,
+ * and it says nothing at all about what is on the day.
+ */
+function PendingDay({ day, today }: { day: CalendarDay; today: string }) {
+	const isToday = day.date === today;
+	return (
+		<section
+			aria-busy="true"
+			data-testid={`agenda-day-pending-${day.date}`}
+			className={cn(
+				"border-b border-line",
+				isToday && "border-l-2 border-l-accent bg-accent-soft/20",
+			)}
+		>
+			<header className="flex h-section-row items-center gap-3 px-row-inset">
+				<div className="flex w-16 shrink-0 items-baseline gap-1.5">
+					<span
+						className={cn(
+							"text-lg font-semibold tabular-nums",
+							isToday ? "text-accent" : "text-fg",
+						)}
+					>
+						{day.dayNumber}
+					</span>
+					<span className="text-2xs uppercase tracking-wider text-fg-subtle">
+						{day.weekdayLabel}
+					</span>
+				</div>
+				<span className="sr-only">Loading {day.date}</span>
+				<span className="h-3 min-w-0 flex-1 animate-pulse rounded-full bg-surface-sunken" />
+			</header>
+			<div className="flex flex-col gap-1 pb-2">
+				<span className="mx-row-inset h-7 animate-pulse rounded-md bg-surface-sunken" />
+			</div>
+		</section>
+	);
+}
+
 /** The month-at-a-glance reading: one line a day, colour and shape only. */
 function DotsDay({
 	day,
 	lookup,
 	today,
+	freeOn,
 	selectedEventId,
 	onSelectEvent,
 	onZoomDay,
@@ -405,6 +620,7 @@ function DotsDay({
 	day: CalendarDay;
 	lookup: CalendarLookup;
 	today: string;
+	freeOn: (day: CalendarDay) => FreeStretch[];
 	selectedEventId: string;
 	onSelectEvent: (eventId: string) => void;
 	onZoomDay: (date: string) => void;
@@ -449,16 +665,20 @@ function DotsDay({
 			</div>
 			<BusyBar day={day} className="w-24 shrink-0" />
 			<span className="w-24 shrink-0 text-right text-2xs text-fg-subtle">
-				{glanceLabel(day)}
+				{glanceLabel(day, freeOn)}
 			</span>
 		</div>
 	);
 }
 
 /** What the day is worth saying in eleven characters. */
-function glanceLabel(day: CalendarDay): string {
-	if (day.timed.length === 0) return "clear";
-	const longest = freeStretchesOn(day).reduce(
+function glanceLabel(
+	day: CalendarDay,
+	freeOn: (day: CalendarDay) => FreeStretch[],
+): string {
+	const free = freeOn(day);
+	if (day.timed.length === 0 && isWholeDayFree(free)) return "clear";
+	const longest = free.reduce(
 		(best, stretch) => Math.max(best, stretch.minutes),
 		0,
 	);
@@ -466,11 +686,17 @@ function glanceLabel(day: CalendarDay): string {
 	return `${formatSpan(day.busyMinutes)} booked`;
 }
 
+/** Nothing takes an hour out of this day, whoever measured it. */
+function isWholeDayFree(free: readonly FreeStretch[]): boolean {
+	return free.length === 1 && free[0].wholeDay;
+}
+
 function DayBlock({
 	day,
 	lookup,
 	density,
 	today,
+	freeOn,
 	selectedEventId,
 	onSelectEvent,
 	onPickSlot,
@@ -481,6 +707,7 @@ function DayBlock({
 	lookup: CalendarLookup;
 	density: AgendaDensity;
 	today: string;
+	freeOn: (day: CalendarDay) => FreeStretch[];
 	selectedEventId: string;
 	onSelectEvent: (eventId: string) => void;
 	onPickSlot: (pick: CalendarSlotPick) => void;
@@ -489,7 +716,12 @@ function DayBlock({
 }) {
 	const isToday = day.date === today;
 	const groups = groupOverlapping(day.timed);
-	const free = freeStretchesOn(day).filter((stretch) => !stretch.wholeDay);
+	const measured = freeOn(day);
+	const free = measured.filter((stretch) => !stretch.wholeDay);
+	/* Nothing on the strip and nothing taking the day out from anywhere else.
+	   A day whose hours went to a calendar the reader has unticked is not free,
+	   so it draws its bands rather than the line that says it is clear. */
+	const clear = day.timed.length === 0 && isWholeDayFree(measured);
 
 	const items: {
 		key: string;
@@ -596,7 +828,7 @@ function DayBlock({
 						touch={touch}
 					/>
 				))}
-				{isClearDay(day) ? (
+				{clear ? (
 					<ClearDayLine day={day} onPickSlot={onPickSlot} touch={touch} />
 				) : (
 					items.map((item) => <div key={item.key}>{item.node}</div>)

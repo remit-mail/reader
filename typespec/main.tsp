@@ -297,6 +297,191 @@ namespace RemitApi {
   }
 
   // ============================================
+  // Calendar Operations (issue #15, project 0)
+  // ============================================
+
+  @route("/calendars")
+  namespace CalendarOperations {
+    @doc("List the caller's calendar collections. Provisions the account config's default collection when it has none, so a first read never comes back empty and no client has to know how a calendar gets made.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op listCalendars(): CalendarListResponse;
+
+    @doc("Create a calendar collection. Refused with 400 when `urlSegment` is empty or already taken in this account config — the segment is the collection's identity, so a second create under the same one would otherwise silently return the collection that already exists.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    op createCalendar(
+      @body input: CreateCalendarInput,
+    ): CalendarResponse | ValidationError;
+  }
+
+  @route("/calendars/{calendarId}")
+  namespace CalendarDetailOperations {
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op getCalendar(@path calendarId: UUID): CalendarResponse | NotFoundError;
+
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @patch(#{ implicitOptionality: true })
+    op updateCalendar(
+      @path calendarId: UUID,
+      @body input: UpdateCalendarInput,
+    ): CalendarResponse | ValidationError | NotFoundError;
+
+    @doc("Delete a calendar collection and every event in it. Refused with 400 for the account's default collection: it is the one place an accepted invitation or a first event can land, and an account with no calendar has nowhere to put an event.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @delete
+    op deleteCalendar(
+      @path calendarId: UUID,
+    ): CalendarNoContent | ValidationError | NotFoundError;
+  }
+
+  @route("/calendar-events")
+  namespace CalendarEventOperations {
+    @doc("""
+      Expanded event occurrences in a window. The server does the recurrence
+      expansion and the client renders instances — no RRULE is ever evaluated
+      in a browser, so a week grid and a day strip agree with each other and
+      with what a native client will later read over CalDAV.
+      
+      Occurrences are served from the stored occurrence index. A series whose
+      index stops before `to` — an open-ended event older than the expansion
+      horizon — is expanded live for this window instead, and nothing
+      unbounded is written to serve a read.
+      
+      Refused with 400 when `from` and `to` are not ISO 8601 date-times, when
+      `to` is not after `from`, or when the window is wider than a year.
+      """)
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op listCalendarEvents(
+      @doc("Start of the window, an ISO 8601 date-time with zone offset. Inclusive.")
+      @query(#{ explode: true })
+      from: string,
+
+      @doc("End of the window, an ISO 8601 date-time with zone offset. Exclusive.")
+      @query(#{ explode: true })
+      to: string,
+
+      @doc("Restrict to these collections, repeated once per calendar. Omitted means every calendar the caller holds.")
+      @query(#{ explode: true })
+      calendarId?: UUID[],
+    ): CalendarEventListResponse | ValidationError | NotFoundError;
+
+    @doc("Create an event. The server builds the VEVENT and writes it through the single calendar write path — the same one an accepted invitation and a later CalDAV PUT go through — so the object, its expanded occurrences and the collection's sync sequence land together or not at all.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    op createCalendarEvent(
+      @body input: CreateCalendarEventInput,
+    ): CalendarEventResponse | ValidationError | NotFoundError;
+  }
+
+  @route("/calendar-events/{calendarObjectId}")
+  namespace CalendarEventDetailOperations {
+    @doc("Get one stored event, including its canonical iCalendar text and its etag.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op getCalendarEvent(
+      @path calendarObjectId: UUID,
+
+      @doc("Collection the resource lives in. A resource is addressed by its collection and its own id, which is what a client holds: every occurrence a listing returns carries both.")
+      @query(#{ explode: true })
+      calendarId: UUID,
+    ): CalendarEventResponse | ValidationError | NotFoundError;
+
+    @doc("""
+      Update an event. `scope` says what the caller meant by editing one
+      drawing of a series: `All` rewrites the master, `This` writes a
+      RECURRENCE-ID override for the named occurrence, and `Following` splits
+      the series — the master's rule is truncated and a second resource carries
+      the remainder under a UID of its own.
+      
+      `recurrenceId` is required for `This` and `Following` and is refused with
+      400 otherwise, along with a scope other than `All` on an event that does
+      not recur, and a `recurrenceId` naming no occurrence of the series.
+      
+      `If-Match` makes the write conditional on the etag the caller read. A
+      mismatch is 412: somebody replaced the resource in between, and applying
+      this patch would discard their change without either of them seeing it.
+      """)
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @patch(#{ implicitOptionality: true })
+    op updateCalendarEvent(
+      @path calendarObjectId: UUID,
+
+      @doc("Collection the resource lives in")
+      @query(#{ explode: true })
+      calendarId: UUID,
+
+      @doc("Which occurrences this update applies to. Defaults to `All`.")
+      @query(#{ explode: true })
+      scope?: RecurrenceScope,
+
+      @doc("RECURRENCE-ID of the occurrence the update is anchored at, as the ISO 8601 UTC instant a listing returned. Required for `This` and `Following`.")
+      @query(#{ explode: true })
+      recurrenceId?: string,
+
+      @header("If-Match")
+      ifMatch?: string,
+
+      @body input: UpdateCalendarEventInput,
+    ):
+      | CalendarEventResponse
+      | ValidationError
+      | NotFoundError
+      | PreconditionFailedError;
+
+    @doc("""
+      Delete an event. `All` removes the resource and every occurrence it
+      produced; `This` writes an EXDATE for the named occurrence and keeps the
+      rest of the series; `Following` truncates the series to end just before
+      it.
+      
+      Same refusals and the same `If-Match` precondition as the update.
+      """)
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @delete
+    op deleteCalendarEvent(
+      @path calendarObjectId: UUID,
+
+      @doc("Collection the resource lives in")
+      @query(#{ explode: true })
+      calendarId: UUID,
+
+      @doc("Which occurrences this delete applies to. Defaults to `All`.")
+      @query(#{ explode: true })
+      scope?: RecurrenceScope,
+
+      @doc("RECURRENCE-ID of the occurrence the delete is anchored at. Required for `This` and `Following`.")
+      @query(#{ explode: true })
+      recurrenceId?: string,
+
+      @header("If-Match")
+      ifMatch?: string,
+    ):
+      | CalendarNoContent
+      | ValidationError
+      | NotFoundError
+      | PreconditionFailedError;
+  }
+
+  @route("/calendar-free-busy")
+  namespace CalendarFreeBusyOperations {
+    @doc("Busy spans over a window, merged across every calendar the caller holds. Backs the clash check beside a mail invitation and the free-stretch maths in the day strip, neither of which should have to fetch every event and merge them itself. Refused with 400 on the same window rules as the event listing.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op listCalendarFreeBusy(
+      @doc("Start of the window, an ISO 8601 date-time with zone offset. Inclusive.")
+      @query(#{ explode: true })
+      from: string,
+
+      @doc("End of the window, an ISO 8601 date-time with zone offset. Exclusive.")
+      @query(#{ explode: true })
+      to: string,
+    ): CalendarFreeBusyResponse | ValidationError;
+  }
+
+  // ============================================
   // Trash Operations
   // ============================================
 
@@ -771,5 +956,79 @@ namespace RemitApi {
     @post
     @route("/not-spam")
     op notSpam(@body input: BulkMessageInput): SpamReportBulkResult;
+  }
+
+  // ============================================
+  // Calendar Suggestion Operations (issue #1033 stage 0.3)
+  // ============================================
+
+  @route("/calendar-suggestions")
+  namespace CalendarSuggestionOperations {
+    @doc("List the caller's suggestions in one state, newest first. `Pending` is the set that is waiting on a person and the one a client normally asks for.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op listCalendarSuggestions(
+      @query(#{ explode: true }) state: CalendarSuggestionState,
+
+      @query(#{ explode: true })
+      @continuationToken
+      continuationToken?: string,
+    ): ResultList<CalendarSuggestionResponse> | ValidationError;
+  }
+
+  @route("/messages/{messageId}/calendar-suggestions")
+  namespace MessageCalendarSuggestionOperations {
+    @doc("Every suggestion read out of one message, in whatever state each has reached — a superseded revision included, so the card can say which revision replaced it.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op listMessageCalendarSuggestions(
+      @path messageId: UUID,
+    ): ResultList<CalendarSuggestionResponse> | ValidationError;
+  }
+
+  @route("/calendar-suggestions/{suggestionId}")
+  namespace CalendarSuggestionActionOperations {
+    @doc("""
+      Add the suggested event to a calendar. One transaction: a VCALENDAR is
+      built from the invitation's own bytes, keeping its UID and SEQUENCE and
+      marking the user `ATTENDEE;PARTSTAT=ACCEPTED`, and written through the
+      same service function every other calendar write goes through — so a web
+      edit and a native edit of that event cannot diverge. Accepting a `Cancel`
+      suggestion writes `STATUS:CANCELLED` on the resource the same way.
+      
+      No reply is sent to the organizer. This endpoint sends no mail at all,
+      and the card says so.
+      
+      Idempotent: accepting an already-accepted suggestion rewrites the same
+      resource and returns the same suggestion, because both the resource id
+      and the suggestion id are derived rather than minted.
+      
+      400 when the suggestion is not one that can be accepted — already
+      declined, dismissed or superseded — or when its iCalendar will not parse.
+      """)
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/accept")
+    op acceptCalendarSuggestion(
+      @path suggestionId: UUID,
+      @body input: AcceptCalendarSuggestionInput,
+    ): CalendarSuggestionResponse | ValidationError;
+
+    @doc("Say no. Writes no calendar object and sends no reply to the organizer. Idempotent; 400 when the suggestion was already accepted, since a resource exists and declining would not remove it.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/decline")
+    op declineCalendarSuggestion(
+      @path suggestionId: UUID,
+    ): CalendarSuggestionResponse | ValidationError;
+
+    @doc("Wave the card away. Writes no calendar object. With `muteSender`, also writes a standing `Filter` rule on the message's sender so their invitations stop being offered. Idempotent; 400 when the suggestion was already accepted.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/dismiss")
+    op dismissCalendarSuggestion(
+      @path suggestionId: UUID,
+      @body input: DismissCalendarSuggestionInput,
+    ): CalendarSuggestionResponse | ValidationError;
   }
 }

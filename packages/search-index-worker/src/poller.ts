@@ -3,6 +3,7 @@ import { runQueuePoller } from "@remit/sqs-client/poller";
 import { env } from "expect-env";
 import { handler } from "./index.js";
 import { registerSearchIndexBacklog } from "./metrics.js";
+import { getMemoryGovernor } from "./services.js";
 import { maybeStartSqliteOutboxDrain } from "./sqlite-outbox-drain.js";
 
 /** Production queue poller — no e2e shim exists for this queue today (the
@@ -23,6 +24,11 @@ const drain = await maybeStartSqliteOutboxDrain(log);
 if (drain) {
 	registerSearchIndexBacklog(() => drain.countBacklog());
 }
+
+// The memory governor (#585) is built here, before the first message: a
+// threshold the operator typed wrong must fail the container rather than one
+// email, and its gauges must be on the registry before the first scrape.
+getMemoryGovernor();
 
 // /metrics and nothing else, on the compose network (D2). Started before the
 // poll loop, which blocks until shutdown.

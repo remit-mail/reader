@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
+import { expect, userEvent, within } from "storybook/test";
 import { CalendarList } from "./calendar-list.js";
 import type { CalendarDescriptor } from "./calendar-types.js";
 
@@ -127,4 +128,81 @@ export const AllHidden: Story = {
 			onToggle={() => {}}
 		/>
 	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		for (const box of canvas.getAllByRole("checkbox")) {
+			await expect(box).not.toBeChecked();
+		}
+		await expect(canvas.getByText("Travel")).toBeVisible();
+	},
+};
+
+/**
+ * One account with one calendar in it, which is what a new install looks like.
+ * The control is still the legend, so it stays on screen: a grid whose single
+ * colour is unexplained is no more readable than one with six.
+ */
+export const SingleCalendar: Story = {
+	render: () => {
+		const only = calendars.slice(0, 1);
+		const [visible, setVisible] = useState(new Set([only[0].id]));
+		return (
+			<CalendarList
+				calendars={only}
+				visible={visible}
+				onToggle={(id) =>
+					setVisible((prev) => {
+						const next = new Set(prev);
+						if (!next.delete(id)) next.add(id);
+						return next;
+					})
+				}
+			/>
+		);
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const northwind = canvas.getByRole("checkbox", { name: "Northwind" });
+		await expect(northwind).toBeChecked();
+		await userEvent.click(canvas.getByText("Northwind"));
+		await expect(northwind).not.toBeChecked();
+	},
+};
+
+/**
+ * The same control on a surface with no room for a rail: a scrolling row of
+ * chips at thumb size. It is laid out differently and it is not a popover —
+ * turning a calendar off stays one press away from the grid.
+ */
+export const AsAStrip: Story = {
+	render: () => {
+		const [visible, setVisible] = useState(new Set(calendars.map((c) => c.id)));
+		return (
+			<CalendarList
+				calendars={calendars}
+				layout="strip"
+				touch
+				visible={visible}
+				onToggle={(id) =>
+					setVisible((prev) => {
+						const next = new Set(prev);
+						if (!next.delete(id)) next.add(id);
+						return next;
+					})
+				}
+			/>
+		);
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(canvas.getAllByRole("checkbox")).toHaveLength(
+			calendars.length,
+		);
+		const onCall = canvas.getByRole("checkbox", { name: "On-call" });
+		await userEvent.click(canvas.getByText("On-call"));
+		await expect(onCall).not.toBeChecked();
+		await expect(
+			canvas.getByRole("checkbox", { name: "Northwind" }),
+		).toBeChecked();
+	},
 };

@@ -8,6 +8,10 @@
 
 import * as entities from "@remit/drizzle-sqlite-schema";
 
+export const calendarTable = entities.calendarCollections;
+export const calendarObjectTable = entities.calendarObjects;
+export const calendarEventIndexTable = entities.calendarEventIndexes;
+export const calendarSuggestionTable = entities.calendarSuggestions;
 export const filterAnchorTable = entities.filterAnchors;
 export const filterTable = entities.filters;
 export const labelTable = entities.labels;

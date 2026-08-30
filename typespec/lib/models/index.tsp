@@ -46,6 +46,15 @@ import "./OrganizeJobRequest.tsp";
 // Standalone self-update (RFC 037)
 import "./SystemUpdate.tsp";
 
+// Calendar Layer (iCalendar RFC 5545, CalDAV RFC 4791, issue #15)
+import "./CalendarCollection.tsp";
+import "./CalendarObject.tsp";
+import "./CalendarEventIndex.tsp";
+import "./CalendarApi.tsp";
+
+// Mail-derived calendar suggestions (issue #1033 stage 0.3)
+import "./CalendarSuggestion.tsp";
+
 // Smart Organize (RFC 030, RFC 034)
 import "./Label.tsp";
 import "./MessageLabel.tsp";

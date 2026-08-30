@@ -164,6 +164,15 @@ export class LocalEmbeddingService implements EmbeddingService {
 		try {
 			return await pipeline("feature-extraction", this.modelId, {
 				dtype: this.dtype,
+				// onnxruntime's CPU arena is a high-water mark: it sizes itself to the
+				// largest batch the session has ever run and never returns that memory
+				// to the OS. On a shared 4 GB box that makes one wide batch permanent
+				// resident memory, so the search-index worker's throttle (#585) could
+				// only ever stop the growth, never walk it back. Off, allocations go
+				// through the ordinary allocator and freed tensors are actually
+				// released; the cost is per-inference malloc traffic, which is noise
+				// next to the model's own work.
+				session_options: { enableCpuMemArena: false },
 			});
 		} catch (error) {
 			throw new EmbeddingModelUnavailableError(this.modelId, { cause: error });
@@ -177,7 +186,17 @@ export class LocalEmbeddingService implements EmbeddingService {
 			pooling: "mean",
 			normalize: true,
 		});
-		return tensor.tolist() as number[][];
+		try {
+			return tensor.tolist() as number[][];
+		} finally {
+			// The pooled, normalized output — one vector per text, not the
+			// per-token hidden states, which the pipeline drops itself. Small per
+			// call, and its buffer is a native allocation outside the V8 heap
+			// (#585), so it is released here rather than whenever GC gets to a JS
+			// wrapper that looks cheap. `tolist` has already copied what the caller
+			// needs. The arena setting above is what bounds the large allocations.
+			tensor.dispose();
+		}
 	};
 }
 

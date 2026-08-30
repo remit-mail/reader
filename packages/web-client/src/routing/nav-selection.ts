@@ -5,6 +5,7 @@ import { locationIsOnList } from "@/lib/mail-route";
  * The nav entry the address selects, or `""` where none does.
  *
  *   - `/settings/*` → "settings"
+ *   - `/calendar/*` → "calendar"
  *   - `/mail/outbox`, `/mail/flagged`, `/mail/brief` → that list
  *   - `/mail/$mailboxId` → the mailbox id, which is what the sidebar keys on
  *
@@ -17,6 +18,7 @@ export function useSelectedNavId(): string {
 	const mailbox = useParams({ from: "/mail/$mailboxId", shouldThrow: false });
 
 	if (locationIsOnList(pathname, "/settings")) return "settings";
+	if (locationIsOnList(pathname, "/calendar")) return "calendar";
 	if (locationIsOnList(pathname, "/mail/outbox")) return "outbox";
 	if (locationIsOnList(pathname, "/mail/flagged")) return "flagged";
 	if (locationIsOnList(pathname, "/mail/brief")) return "brief";

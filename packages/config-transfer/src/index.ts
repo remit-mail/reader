@@ -5,7 +5,11 @@ export {
 	type ConfigBinderRepositories,
 	pendingImportOf,
 } from "./binder.js";
-export { carriesUserFlag, readConfigForExport } from "./export.js";
+export {
+	ConfigExportRefusedError,
+	carriesUserFlag,
+	readConfigForExport,
+} from "./export.js";
 export {
 	ANCHOR_EMBEDDING_PENDING,
 	type ImportConfigInput,

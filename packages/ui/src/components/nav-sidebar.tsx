@@ -560,9 +560,9 @@ export interface NavSidebarProps
 	 */
 	linkComponent?: NavLinkComponent;
 	/**
-	 * Whether the calendar destination sits under the daily brief. It is
-	 * "hidden" until the app has a route behind it — the prototype turns it on,
-	 * the shipping nav does not offer an entry that leads nowhere.
+	 * Whether the calendar destination sits under the daily brief. Hidden by
+	 * default so a host with no calendar route behind it does not offer an entry
+	 * that leads nowhere.
 	 */
 	calendarNav?: "hidden" | "shown";
 	/** Every saved query, most recently saved first. See `SavedSearchesGroup`. */

@@ -895,6 +895,7 @@ export {
 	formatShortDay,
 	formatSpan,
 	freeAhead,
+	freeStretchesFromSpans,
 	freeStretchesOn,
 	groupOverlapping,
 	isClearDay,

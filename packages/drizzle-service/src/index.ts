@@ -1,4 +1,9 @@
 export { CreateFailedConflictError, NotFoundError } from "./error.js";
+export { CalendarCollectionRepo } from "./repos/calendar-collection.js";
+export { CalendarEventIndexRepo } from "./repos/calendar-event-index.js";
+export { CalendarObjectRepo } from "./repos/calendar-object.js";
+export { CalendarSuggestionRepo } from "./repos/calendar-suggestion.js";
+export { DrizzleCalendarUnitOfWork } from "./repos/calendar-unit-of-work.js";
 export {
 	type CascadeDeleteLogger,
 	type CascadeDeleter,

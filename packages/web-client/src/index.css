@@ -4,6 +4,13 @@
    the .dark ancestor scope used everywhere in this app. */
 @import "@remit/ui/tokens.css";
 
+/* The structural sheet the calendar grid's engine needs, which the kit ships
+   beside the component and every app that mounts it has to ask for. Without it
+   the week and day grids collapse into a stack and draw no events at all: the
+   engine lays its columns out against this sheet, and a column with no
+   geometry has nowhere to put an occurrence. */
+@import "@remit/ui/calendar.css";
+
 /* Tailwind v4 content scanning: name every source Tailwind must inspect for
    utility class usage. Automatic detection is rooted at the Vite root, which
    for the distributor harness build is a throwaway directory holding only the

@@ -58,6 +58,7 @@
   "dependencies": {
     "@remit/config-format": "*",
     "@remit/config-transfer": "*",
+    "@remit/calendar-service": "*",
     "@remit/data-ports": "*",
     "@remit/domain-enums": "*",
     "@remit/api-openapi-types": "*",

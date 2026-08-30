@@ -4,6 +4,11 @@ import type {
 	IAccountRepository,
 	IAccountSettingRepository,
 	IAddressRepository,
+	ICalendarCollectionRepository,
+	ICalendarEventIndexRepository,
+	ICalendarObjectRepository,
+	ICalendarSuggestionRepository,
+	ICalendarUnitOfWork,
 	IConfigImportRepository,
 	IEnvelopeRepository,
 	IFilterAnchorRepository,
@@ -115,6 +120,19 @@ export interface RemitClient {
 	// body-sync, which is its only writer.
 	senderSignerStanding: ISenderSignerStandingRepository;
 
+	// The calendar store (issue #15) and the cards a message offers into it
+	// (issue #1033). Every write goes through `calendarUnitOfWork`: the object,
+	// its occurrence rows, the collection's sequence bump and — when the write
+	// came from accepting a suggestion — that suggestion's own state are one
+	// fact, and the repositories beside it are the read side. A backend that
+	// cannot supply them cannot serve the calendar at all, so they are part of
+	// the client rather than something each handler checks for.
+	calendarCollection: ICalendarCollectionRepository;
+	calendarObject: ICalendarObjectRepository;
+	calendarEventIndex: ICalendarEventIndexRepository;
+	calendarSuggestion: ICalendarSuggestionRepository;
+	calendarUnitOfWork: ICalendarUnitOfWork;
+
 	// Atomic write set for a message save. Present on the relational backend (real
 	// transaction); absent on DynamoDB, where callers fall back to per-repo
 	// writes with that backend's own (non-transactional) guarantees.
@@ -204,6 +222,11 @@ export interface RemitClientRepositories {
 	label: ILabelRepository;
 	messageLabel: IMessageLabelRepository;
 	senderSignerStanding: ISenderSignerStandingRepository;
+	calendarCollection: ICalendarCollectionRepository;
+	calendarObject: ICalendarObjectRepository;
+	calendarEventIndex: ICalendarEventIndexRepository;
+	calendarSuggestion: ICalendarSuggestionRepository;
+	calendarUnitOfWork: ICalendarUnitOfWork;
 	unitOfWork?: IUnitOfWork;
 	writeSet?: <T>(run: () => Promise<T>) => Promise<T>;
 }
@@ -406,6 +429,15 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		filterConfig,
 		undefined,
 		{ flagQueueService },
+		// The read-path backfill materializes a body the sync path never got to,
+		// so it is a message's first sight as much as the sync pass is — and an
+		// invitation the user opens before background sync must still get its
+		// card (issue #1033, the same argument as the filter wiring above).
+		{
+			calendarSuggestionService: repositories.calendarSuggestion,
+			calendarUnitOfWork: repositories.calendarUnitOfWork,
+			filterService: repositories.filter,
+		},
 	);
 
 	return {
@@ -431,6 +463,11 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		label: repositories.label,
 		messageLabel: repositories.messageLabel,
 		senderSignerStanding: repositories.senderSignerStanding,
+		calendarCollection: repositories.calendarCollection,
+		calendarObject: repositories.calendarObject,
+		calendarEventIndex: repositories.calendarEventIndex,
+		calendarSuggestion: repositories.calendarSuggestion,
+		calendarUnitOfWork: repositories.calendarUnitOfWork,
 		unitOfWork: repositories.unitOfWork,
 		writeSet: repositories.writeSet,
 

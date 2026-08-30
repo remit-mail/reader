@@ -4,6 +4,17 @@ export type { IAccountConfigRepository } from "./interfaces/account-config.js";
 export type { IAccountExportRequestRepository } from "./interfaces/account-export-request.js";
 export type { IAccountSettingRepository } from "./interfaces/account-setting.js";
 export type { IAddressRepository } from "./interfaces/address.js";
+export type { ICalendarCollectionRepository } from "./interfaces/calendar-collection.js";
+export type { ICalendarEventIndexRepository } from "./interfaces/calendar-event-index.js";
+export type { ICalendarObjectRepository } from "./interfaces/calendar-object.js";
+export type {
+	ICalendarSuggestionRepository,
+	SettleCalendarSuggestionInput,
+} from "./interfaces/calendar-suggestion.js";
+export type {
+	CalendarUnitOfWorkRepositories,
+	ICalendarUnitOfWork,
+} from "./interfaces/calendar-unit-of-work.js";
 export type { IConfigImportRepository } from "./interfaces/config-import.js";
 export type { IEnvelopeRepository } from "./interfaces/envelope.js";
 export type { IFilterRepository } from "./interfaces/filter.js";
@@ -39,6 +50,11 @@ export type {
 	IUnitOfWork,
 	UnitOfWorkRepositories,
 } from "./interfaces/unit-of-work.js";
+export {
+	FILTER_NO_ACTION,
+	isSenderMuted,
+	isSenderMuteFilter,
+} from "./sender-mute.js";
 export type {
 	AccountConfigDescription,
 	AccountConfigItem,
@@ -57,12 +73,18 @@ export type {
 	BodyPartParameterUpsertInput,
 	BodyPartStorageItem,
 	BodyPartUpsertInput,
+	CalendarCollectionItem,
+	CalendarEventIndexItem,
+	CalendarObjectItem,
+	CalendarOccurrenceInput,
+	CalendarSuggestionItem,
 	ConfigImportItem,
 	ConfigImportUnresolvedRefItem,
 	CreateAccountConfigInput,
 	CreateAccountExportRequestInput,
 	CreateAccountInput,
 	CreateAddressInput,
+	CreateCalendarCollectionInput,
 	CreateConfigImportInput,
 	CreateEnvelopeAddressInput,
 	CreateEnvelopeInput,
@@ -100,6 +122,8 @@ export type {
 	OrganizeJobRequestItem,
 	OutboxAttachmentItem,
 	OutboxMessageItem,
+	PutCalendarObjectInput,
+	PutCalendarSuggestionInput,
 	PutMessageFlagPushInput,
 	PutMessagePlacementMoveInput,
 	QuarantineItem,
@@ -114,6 +138,7 @@ export type {
 	UpdateAccountExportRequestInput,
 	UpdateAccountInput,
 	UpdateAddressInput,
+	UpdateCalendarCollectionInput,
 	UpdateConfigImportInput,
 	UpdateEnvelopeInput,
 	UpdateFilterInput,

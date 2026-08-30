@@ -78,9 +78,25 @@ describe("EventEditor", () => {
 	it("reveals the rest on request", () => {
 		const html = render({ expanded: true });
 		assert.match(html, /aria-label="Location"/);
-		assert.match(html, /aria-label="Guests"/);
 		assert.match(html, /aria-label="Repeat"/);
 		assert.match(html, /Fewer details/);
+	});
+
+	it("takes no guests until a surface says it can store them", () => {
+		assert.doesNotMatch(render({ expanded: true }), /aria-label="Guests"/);
+		assert.match(
+			render({ expanded: true, guestsEditable: true }),
+			/aria-label="Guests"/,
+		);
+	});
+
+	it("drops the calendar picker where the event cannot be moved", () => {
+		assert.match(render({}), /Northwind/);
+		assert.doesNotMatch(render({ calendarEditable: false }), /Northwind/);
+		assert.doesNotMatch(
+			render({ expanded: true, calendarEditable: false }),
+			/Northwind/,
+		);
 	});
 
 	it("drops the clock fields for an all-day entry", () => {

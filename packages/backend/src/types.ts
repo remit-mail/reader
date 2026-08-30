@@ -58,6 +58,17 @@ export type OperationIds =
 	| "MessageBulkOperations_updateMessageLabels"
 	| "MessageBulkOperations_reportSpam"
 	| "MessageBulkOperations_notSpam"
+	| "CalendarOperations_listCalendars"
+	| "CalendarOperations_createCalendar"
+	| "CalendarDetailOperations_getCalendar"
+	| "CalendarDetailOperations_updateCalendar"
+	| "CalendarDetailOperations_deleteCalendar"
+	| "CalendarEventOperations_listCalendarEvents"
+	| "CalendarEventOperations_createCalendarEvent"
+	| "CalendarEventDetailOperations_getCalendarEvent"
+	| "CalendarEventDetailOperations_updateCalendarEvent"
+	| "CalendarEventDetailOperations_deleteCalendarEvent"
+	| "CalendarFreeBusyOperations_listCalendarFreeBusy"
 	| "TrashOperations_emptyTrash"
 	| "OutboxOperations_createOutboxMessage"
 	| "OutboxOperations_listOutboxMessages"
@@ -68,7 +79,12 @@ export type OperationIds =
 	| "OutboxDetailOperations_mintOutboxAttachment"
 	| "OutboxAttachmentOperations_completeOutboxAttachment"
 	| "AddressOperations_searchAddresses"
-	| "AddressDetailOperations_updateAddress";
+	| "AddressDetailOperations_updateAddress"
+	| "CalendarSuggestionOperations_listCalendarSuggestions"
+	| "MessageCalendarSuggestionOperations_listMessageCalendarSuggestions"
+	| "CalendarSuggestionActionOperations_acceptCalendarSuggestion"
+	| "CalendarSuggestionActionOperations_declineCalendarSuggestion"
+	| "CalendarSuggestionActionOperations_dismissCalendarSuggestion";
 
 export type MeOperationIds = MatchPrefix<"MeOperations_", OperationIds>;
 
@@ -154,6 +170,31 @@ export type MessageBulkOperationIds = MatchPrefix<
 	OperationIds
 >;
 
+export type CalendarOperationIds = MatchPrefix<
+	"CalendarOperations_",
+	OperationIds
+>;
+
+export type CalendarDetailOperationIds = MatchPrefix<
+	"CalendarDetailOperations_",
+	OperationIds
+>;
+
+export type CalendarEventOperationIds = MatchPrefix<
+	"CalendarEventOperations_",
+	OperationIds
+>;
+
+export type CalendarEventDetailOperationIds = MatchPrefix<
+	"CalendarEventDetailOperations_",
+	OperationIds
+>;
+
+export type CalendarFreeBusyOperationIds = MatchPrefix<
+	"CalendarFreeBusyOperations_",
+	OperationIds
+>;
+
 export type TrashOperationIds = MatchPrefix<"TrashOperations_", OperationIds>;
 
 export type OutboxOperationIds = MatchPrefix<"OutboxOperations_", OperationIds>;
@@ -180,6 +221,21 @@ export type AddressDetailOperationIds = MatchPrefix<
 
 export type MicrosoftOAuthOperationIds = MatchPrefix<
 	"MicrosoftOAuthOperations_",
+	OperationIds
+>;
+
+export type CalendarSuggestionOperationIds = MatchPrefix<
+	"CalendarSuggestionOperations_",
+	OperationIds
+>;
+
+export type MessageCalendarSuggestionOperationIds = MatchPrefix<
+	"MessageCalendarSuggestionOperations_",
+	OperationIds
+>;
+
+export type CalendarSuggestionActionOperationIds = MatchPrefix<
+	"CalendarSuggestionActionOperations_",
 	OperationIds
 >;
 

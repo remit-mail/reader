@@ -126,6 +126,17 @@ function needsReauth(account: RemitImapAccountResponse): boolean {
 	return account.connectionState === "reauth_required";
 }
 
+/**
+ * The account arrived from a config file, which never carries a password, so it
+ * has none yet (#1021). It cannot sync until someone enters one, and the import
+ * wizard's "Finish later" leaves exactly these rows behind — so this screen has
+ * to offer the same way in, or the account is stranded with a red dot and no
+ * control that fixes it.
+ */
+function needsPassword(account: RemitImapAccountResponse): boolean {
+	return account.connectionState === "credentials_missing";
+}
+
 /* ------------------------------------------------------------------ */
 /* Loading skeleton                                                   */
 /* ------------------------------------------------------------------ */
@@ -410,6 +421,7 @@ function AccountsSettings() {
 				<div className="space-y-3">
 					{config.accounts.map((account) => {
 						const isReauth = needsReauth(account);
+						const isMissingPassword = needsPassword(account);
 						const isOAuthAccount = account.authType === "oauthMicrosoft";
 						// The mutation settling does not mean the window has gone anywhere:
 						// `assign` leaves the page here while the browser fetches Microsoft's
@@ -432,17 +444,23 @@ function AccountsSettings() {
 											});
 										},
 									}
-								: deriveState(account) === "error"
+								: isMissingPassword
 									? {
-											label: "Reconnect",
+											label: "Enter password",
 											variant: "secondary",
 											onClick: () => setEditingAccountId(account.accountId),
 										}
-									: {
-											label: "Manage",
-											variant: "ghost",
-											onClick: () => setEditingAccountId(account.accountId),
-										};
+									: deriveState(account) === "error"
+										? {
+												label: "Reconnect",
+												variant: "secondary",
+												onClick: () => setEditingAccountId(account.accountId),
+											}
+										: {
+												label: "Manage",
+												variant: "ghost",
+												onClick: () => setEditingAccountId(account.accountId),
+											};
 
 						const trailingButton = (
 							<RowActions
@@ -465,7 +483,11 @@ function AccountsSettings() {
 								syncLabel={deriveSyncLabel(account)}
 								state={deriveState(account)}
 								errorDetail={
-									isReauth ? "Re-authentication required" : account.lastError
+									isReauth
+										? "Re-authentication required"
+										: isMissingPassword
+											? "Imported from a config file, which carries no password. Enter one to start syncing."
+											: account.lastError
 								}
 								trailing={trailingButton}
 							/>
