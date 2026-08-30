@@ -266,6 +266,38 @@ describe("MatchStepBody", () => {
 		assert.match(html, /matching on the\s+senders instead/);
 	});
 
+	// Off is a property of the deployment, so the door says what an operator can
+	// do about it rather than "unavailable right now", which invites a retry that
+	// cannot succeed (#1068).
+	it("names the setting and the command when semantic search is off", () => {
+		const html = renderToString(
+			createElement(MatchStepBody, {
+				...matchProps,
+				semanticOff: true,
+			}),
+		);
+		assert.match(html, /opacity-55/);
+		assert.doesNotMatch(html, /disabled=""/);
+		assert.match(text(html), /Semantic search is off on this instance/);
+		assert.match(text(html), /remit semantic on/);
+		assert.doesNotMatch(text(html), /unavailable right now/);
+	});
+
+	it("supersedes the runtime failure copy, which would tell the user to retry", () => {
+		const html = renderToString(
+			createElement(MatchStepBody, {
+				...matchProps,
+				semanticOff: true,
+				semanticUnavailable: true,
+				semanticErrorDetail: "no vector index",
+				semanticFallbackTaken: true,
+			}),
+		);
+		assert.doesNotMatch(text(html), /no vector index/);
+		assert.match(text(html), /Semantic search is off on this instance/);
+		assert.match(text(html), /Matching on the senders instead/);
+	});
+
 	it("names what an escalated predicate covers instead of offering doors", () => {
 		const html = renderToString(
 			createElement(MatchStepBody, {

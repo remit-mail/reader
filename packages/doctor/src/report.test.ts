@@ -48,7 +48,7 @@ const parseLines = (out: string): [string, string][] =>
 
 describe("the line format", () => {
 	it("opens with the verdict, the timestamp and the headline", () => {
-		const records = parseLines(renderLines(degraded));
+		const records = parseLines(renderLines(degraded, "off"));
 		assert.deepEqual(records.slice(0, 3), [
 			["verdict", "degraded"],
 			["checked-at", "2026-07-27T10:00:00.000Z"],
@@ -57,7 +57,7 @@ describe("the line format", () => {
 	});
 
 	it("carries one record per reason, then the details", () => {
-		const records = parseLines(renderLines(degraded));
+		const records = parseLines(renderLines(degraded, "off"));
 		assert.deepEqual(
 			records.filter(([key]) => key === "reason").map(([, value]) => value),
 			[
@@ -72,23 +72,26 @@ describe("the line format", () => {
 	});
 
 	it("uses a closed key vocabulary, so an unknown key is a version skew and not a value", () => {
-		const keys = new Set(parseLines(renderLines(degraded)).map(([key]) => key));
+		const keys = new Set(
+			parseLines(renderLines(degraded, "off")).map(([key]) => key),
+		);
 		assert.deepEqual([...keys].sort(), [
 			"checked-at",
 			"detail",
 			"reason",
+			"semantic",
 			"summary",
 			"verdict",
 		]);
 	});
 
 	it("puts no reason records in a healthy report", () => {
-		const records = parseLines(renderLines(healthy));
-		assert.equal(records.length, 3);
+		const records = parseLines(renderLines(healthy, "off"));
+		assert.equal(records.length, 4);
 	});
 
 	it("never wraps a record, so one line is always one record", () => {
-		for (const line of renderLines(degraded).trimEnd().split("\n")) {
+		for (const line of renderLines(degraded, "off").trimEnd().split("\n")) {
 			assert.ok(line.length > 0);
 			assert.ok(!line.includes("\n"));
 		}
@@ -111,8 +114,8 @@ describe("the line format", () => {
 				},
 			],
 		};
-		const out = renderLines(nasty);
-		assert.equal(out.trimEnd().split("\n").length, 5);
+		const out = renderLines(nasty, "off");
+		assert.equal(out.trimEnd().split("\n").length, 6);
 		const records = parseLines(out);
 		assert.deepEqual(
 			records.filter(([key]) => key === "reason").map(([, value]) => value),
@@ -127,24 +130,40 @@ describe("the line format", () => {
 	});
 
 	it("collapses every C0 control character, not only the newline", () => {
-		const out = renderLines({
-			...degraded,
-			reasons: [
-				{
-					code: "scrape_failed",
-					summary: "a\u0000b\u001bc\u007fd",
-					detail: undefined,
-				},
-			],
-		});
-		assert.equal(out.trimEnd().split("\n").length, 4);
+		const out = renderLines(
+			{
+				...degraded,
+				reasons: [
+					{
+						code: "scrape_failed",
+						summary: "a\u0000b\u001bc\u007fd",
+						detail: undefined,
+					},
+				],
+			},
+			"off",
+		);
+		assert.equal(out.trimEnd().split("\n").length, 5);
 		assert.match(out, /reason scrape_failed a b c d/);
+	});
+
+	// The one record an operator reads to know whether "no semantic hits" means
+	// nothing matched or nothing is indexed. Verbatim, so `bedrock` and a value
+	// the wrapper does not know both arrive as themselves.
+	it("carries the deployment's embedding provider", () => {
+		for (const provider of ["off", "local", "bedrock"]) {
+			const records = parseLines(renderLines(healthy, provider));
+			assert.deepEqual(
+				records.filter(([key]) => key === "semantic"),
+				[["semantic", provider]],
+			);
+		}
 	});
 });
 
 describe("the json format", () => {
 	it("parses, and carries the same verdict and reasons", () => {
-		const parsed = JSON.parse(renderJson(degraded)) as {
+		const parsed = JSON.parse(renderJson(degraded, "off")) as {
 			verdict: string;
 			reasons: { code: string; summary: string; detail: string | null }[];
 		};
@@ -157,7 +176,9 @@ describe("the json format", () => {
 	});
 
 	it("renders a healthy verdict as an empty reason list, not an absent key", () => {
-		const parsed = JSON.parse(renderJson(healthy)) as { reasons: unknown[] };
+		const parsed = JSON.parse(renderJson(healthy, "off")) as {
+			reasons: unknown[];
+		};
 		assert.deepEqual(parsed.reasons, []);
 	});
 });
@@ -196,14 +217,16 @@ describe("writeVerdict", () => {
 	it("does not resolve until the stream drains", async () => {
 		const sink = backPressured();
 		let settled = false;
-		const done = writeVerdict(sink.stream, renderLines(degraded)).then(() => {
-			settled = true;
-		});
+		const done = writeVerdict(sink.stream, renderLines(degraded, "off")).then(
+			() => {
+				settled = true;
+			},
+		);
 		await new Promise((resolve) => setImmediate(resolve));
 		assert.equal(settled, false, "resolved before the stream drained");
 		sink.release();
 		await done;
-		assert.equal(sink.chunks.join(""), renderLines(degraded));
+		assert.equal(sink.chunks.join(""), renderLines(degraded, "off"));
 	});
 
 	it("resolves straight away when the write was taken", async () => {
@@ -217,7 +240,7 @@ describe("writeVerdict", () => {
 				assert.fail("waited on drain after a write that was taken");
 			},
 		} as unknown as NodeJS.WritableStream;
-		await writeVerdict(stream, renderJson(healthy));
-		assert.equal(chunks.join(""), renderJson(healthy));
+		await writeVerdict(stream, renderJson(healthy, "off"));
+		assert.equal(chunks.join(""), renderJson(healthy, "off"));
 	});
 });

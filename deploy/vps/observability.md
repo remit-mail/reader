@@ -24,7 +24,7 @@ Nothing is ever pushed. If you run none and want one on the box, the optional
 | `remit_smtp_failures_total{kind}` | `smtp-worker` — same split |
 | `remit_queue_event_duration_seconds{queue,event_type,outcome}` | each worker — per-message duration and outcome |
 | `remit_handler_duration_seconds{handler,outcome}` | each worker — per-invocation duration and outcome |
-| `remit_search_index_backlog_rows` | `search-index-worker` — outbox rows not yet relayed |
+| `remit_search_index_backlog_rows` | `search-index-worker` — outbox rows not yet relayed. Absent where semantic search is off, which is the default: the worker sits behind the `semantic` profile (README: Search) |
 
 Host CPU, memory, disk and network are not here. Per-account series are labelled
 by account id and never by address. Update state is not here either; it lives on
@@ -59,7 +59,7 @@ It is degraded when any of these is true:
 | Reason | Threshold |
 |---|---|
 | `scrape_failed` | A service is not answering `/metrics` |
-| `worker_heartbeat_stale` | A worker's slowest poll loop has not written for 7 minutes, or has written nothing at all |
+| `worker_heartbeat_stale` | A worker's slowest poll loop has not written for 7 minutes, or has written nothing at all. `search-index-worker` is watched only where semantic search is on, so an instance that never opted in is not reported as missing it |
 | `account_sync_stalled` | An account has not completed a sync round in an hour, against a healthy peak of about 25 minutes at the default [sync cadence](README.md#mail-sync-cadence) |
 | `mail_auth_failing` | An IMAP or SMTP authentication failure counter has gone up in the last hour |
 | `dead_letter_queue_not_empty` | Anything is quarantined on any DLQ |

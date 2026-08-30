@@ -24,6 +24,13 @@ import {
 
 const DRAIN_INTERVAL_MS = 2_000;
 
+// How many distinct messages one drain pass relays. `remit semantic on` on an
+// existing mailbox makes the first pass the whole back catalogue — tens of
+// thousands of rows read, enqueued and marked in one tick — so the pass is
+// bounded and the next tick, 2 s later, takes the following batch. Nothing is
+// dropped: unmarked rows stay unprocessed and are what the next pass selects.
+const DRAIN_BATCH_SIZE = 500;
+
 // A minimal view of the better-sqlite3 surface used here, so the module carries
 // no static type dependency on the native package (imported dynamically to stay
 // out of the Lambda bundle).
@@ -46,7 +53,9 @@ export class SqliteOutboxStore implements OutboxStore {
 		const rows = this.db
 			.prepare(
 				`SELECT DISTINCT message_id, event FROM outbox
-				 WHERE event IN (${placeholders}) AND processed_at IS NULL`,
+				 WHERE event IN (${placeholders}) AND processed_at IS NULL
+				 ORDER BY message_id
+				 LIMIT ${DRAIN_BATCH_SIZE}`,
 			)
 			.all(...DRAIN_EVENTS) as Array<{ message_id: string; event: string }>;
 		return rows.map((row) => ({

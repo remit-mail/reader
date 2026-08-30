@@ -84,6 +84,11 @@ interface WizardEntry {
 	escalatedTotal?: number;
 	scope?: RuleScope;
 	semanticUnavailable?: boolean;
+	/**
+	 * Semantic search is off on this instance (#1068). A deployment setting, so
+	 * the door names the command that changes it rather than inviting a retry.
+	 */
+	semanticOff?: boolean;
 	/** What the mail server said when the widen was asked to run and failed. */
 	semanticError?: string;
 	/**
@@ -215,7 +220,7 @@ function WizardDriver({
 	const [until, setUntil] = useState("");
 	const [typedName, setTypedName] = useState<string>();
 	const [semanticFallbackTaken, setSemanticFallbackTaken] = useState(
-		Boolean(entry.semanticUnavailable) &&
+		Boolean(entry.semanticUnavailable || entry.semanticOff) &&
 			(entry.startMode === "properties" || entry.startAt === "properties"),
 	);
 	const [nudged, setNudged] = useState(false);
@@ -374,7 +379,11 @@ function WizardDriver({
 				mode,
 				accountId: wizardScope.accountId,
 				onModeChange: setMode,
-				semanticUnavailable: entry.semanticUnavailable || !!entry.semanticError,
+				semanticUnavailable:
+					entry.semanticUnavailable ||
+					entry.semanticOff ||
+					!!entry.semanticError,
+				semanticOff: entry.semanticOff,
 				semanticErrorDetail: entry.semanticError,
 				semanticFallbackTaken,
 				onSemanticFallback: fallBackToProperties,
@@ -996,6 +1005,21 @@ export const OrganizeSemanticUnavailable: Story = {
 		<SelectionFlow
 			preselected={3}
 			openAt={{ verb: "organize", startAt: "match", semanticUnavailable: true }}
+		/>
+	),
+};
+
+/**
+ * The same door on an instance that never turned semantic search on (#1068).
+ * The distinction matters: nothing here is going to work on a retry, and the
+ * fix is a command on the server, so that is what the door says.
+ */
+export const OrganizeSemanticOff: Story = {
+	name: "Organize — semantic search off",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{ verb: "organize", startAt: "match", semanticOff: true }}
 		/>
 	),
 };

@@ -49,6 +49,7 @@ import { useOrganizeJob } from "@/hooks/useOrganizeJob";
 import { useOrganizeWiden } from "@/hooks/useOrganizeWiden";
 import { useRulePreview } from "@/hooks/useRulePreview";
 import { useSelectedSubjects } from "@/hooks/useSelectedSubjects";
+import { useSemanticSearchEnabled } from "@/hooks/useSemanticSearchEnabled";
 import type {
 	BulkActionProgress,
 	BulkActionTarget,
@@ -563,7 +564,12 @@ function SelectionWizardSession({
 	// unavailable while the user is already holding it. The fallback is taken then
 	// rather than left as a door that counts nothing: the property step says, in
 	// so many words, that these are the senders it substituted (#477 3.6).
-	const semanticUnavailable = widen.semanticUnavailable || widen.isError;
+	// Off is a deployment setting, not a probe result, and it reaches the door the
+	// same way the runtime failure does: dimmed, pressable, and falling back to
+	// the senders. Only the copy differs (#1068).
+	const semanticOff = useSemanticSearchEnabled() === false;
+	const semanticUnavailable =
+		semanticOff || widen.semanticUnavailable || widen.isError;
 	// Only while the door is the screen: the probe re-fires when the anchor
 	// changes under a background refetch, and a late answer that moved the step
 	// from Review would push an entry the wizard does not own and leave the count
@@ -1001,6 +1007,7 @@ function SelectionWizardSession({
 				accountId: wizardScope.accountId,
 				onModeChange: changeMode,
 				semanticUnavailable,
+				semanticOff,
 				semanticErrorDetail:
 					widen.error instanceof Error ? widen.error.message : undefined,
 				semanticFallbackTaken,

@@ -257,6 +257,8 @@ services:
   # ---------------------------------------------------------------------
   # Workers — the queue pollers. Each opens the shared SQLite file (WAL) for its
   # writes, and search-index-worker drains the outbox on a 2 s poll (RFC 036 D2).
+  # Three are always on; search-index-worker sits behind the `semantic` profile
+  # and only runs on an instance that opted into vector search (issue #1068).
   #
   # All four are healthchecked on heartbeat files (D1 of
   # docs/design/standalone-observability.md), one per poll loop:
@@ -372,12 +374,16 @@ services:
     stop_grace_period: 30s
     restart: unless-stopped
 
+  # Off by default behind the `semantic` profile; `remit semantic on` moves the
+  # profile and SEARCH_EMBEDDING_PROVIDER together. Costs: README.md, Search.
+  #
   # The outbox drain (RFC 036 D2) runs inside this container: a 2 s poll over
   # the shared file's unprocessed outbox rows, relaying them onto the
   # search-index queue. It needs SQLITE_DB_PATH (drain source) and
   # LOCAL_VECTORDB_PATH (vector writes) — both set in the shared app env above.
   search-index-worker:
     image: ghcr.io/remit-mail/reader/search-index-worker:${REMIT_TAG:-latest}
+    profiles: ["semantic"]
     <<: *app-env
     environment:
       <<: *app-environment
@@ -604,6 +610,14 @@ services:
       # generic — another edge brings its own.
       DOCTOR_TLS_MODE: ${TLS_MODE:-off}
       DOCTOR_TUNNEL_READY_URL: ${DOCTOR_TUNNEL_READY_URL:-}
+      # Same reasoning as TLS_MODE: which services are in the stack is a
+      # property of how the deployment is configured. On `off` the
+      # search-index-worker sits behind the `semantic` profile and writes no
+      # heartbeat, so watching for one would report an opt-out as a fault on
+      # every check. It is also the value `remit doctor` prints, so an operator
+      # reading "no semantic results" can tell nothing matched from nothing
+      # indexed.
+      DOCTOR_SEARCH_EMBEDDING_PROVIDER: ${SEARCH_EMBEDDING_PROVIDER:-off}
       # A runtime ceiling, not configuration. The checker holds no path, no
       # secret and no credential, and this carries none either.
       NODE_OPTIONS: "--max-old-space-size=${REMIT_NODE_HEAP_MB:-512}"

@@ -424,6 +424,9 @@ model ConfigDescriptionResponse {
 
   @doc("Absent unless a configuration import is still waiting on folders IMAP has not produced yet (#1021). Nothing polls a separate route for it.")
   pendingImport?: PendingConfigImport;
+
+  @doc("Whether this instance stores a vector for every message — SEARCH_EMBEDDING_PROVIDER is anything but `off`. False is a setting an operator turns on (`remit semantic on`), not a failure: the Organize semantic widen and semantic (anchor) filters read stored vectors and have none, so they render an off state rather than an empty result. It rides the config read because it is a property of the deployment, not of a query (#1068).")
+  semanticSearchEnabled: boolean;
 }
 
 @doc("A configuration export: one versioned document carrying every user decision this instance holds, and no credential.")

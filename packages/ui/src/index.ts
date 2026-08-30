@@ -1084,6 +1084,12 @@ export {
 	searchConversionNotice,
 } from "./lib/search-rule.js";
 export {
+	SEMANTIC_OFF_BUYS,
+	SEMANTIC_OFF_COMMAND,
+	SEMANTIC_OFF_TITLE,
+	semanticOffReason,
+} from "./lib/semantic-off.js";
+export {
 	collapsibleDomain,
 	deriveSenderClauses,
 	distinctSenders,

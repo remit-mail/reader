@@ -87,6 +87,7 @@ export const makeThreadMessage = (
 
 export const makeConfig = (
 	accounts: RemitImapAccountResponse[],
+	overrides: Partial<RemitImapConfigDescriptionResponse> = {},
 ): RemitImapConfigDescriptionResponse => ({
 	accountConfig: {
 		accountConfigId: "cfg-1",
@@ -96,4 +97,6 @@ export const makeConfig = (
 		updatedAt: 0,
 	},
 	accounts,
+	semanticSearchEnabled: true,
+	...overrides,
 });

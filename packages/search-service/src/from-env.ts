@@ -6,9 +6,51 @@ import { createS3VectorsBackend } from "./backends/s3-vectors.js";
 import { createSqliteVectorStore } from "./backends/sqlite-vec.js";
 import {
 	createDeterministicEmbeddingService,
+	createDisabledEmbeddingService,
 	createLocalEmbeddingService,
 	type EmbeddingService,
 } from "./embeddings.js";
+
+/**
+ * The embedding providers this deployment understands.
+ *
+ * `off` is a first-class value, not an absent one: the self-host stack ships
+ * with semantic search off (deploy/vps/remit.env.template), and an operator
+ * turns it on with `remit semantic on`. `deterministic` is the unit-test and
+ * e2e embedder, named here so an environment can ask for it rather than
+ * getting it by falling through.
+ *
+ * Anything else fails the process at startup. A typo used to select the
+ * deterministic embedder, which writes real-looking vectors nothing can match
+ * a query against — a silently useless index on a box that reported success.
+ */
+const PROVIDERS = ["off", "local", "bedrock", "deterministic"] as const;
+
+export type EmbeddingProvider = (typeof PROVIDERS)[number];
+
+/** The provider when `SEARCH_EMBEDDING_PROVIDER` is unset: unit tests and the shims. */
+const DEFAULT_PROVIDER: EmbeddingProvider = "deterministic";
+
+export const EMBEDDING_PROVIDER_OFF: EmbeddingProvider = "off";
+
+const isProvider = (value: string): value is EmbeddingProvider =>
+	(PROVIDERS as readonly string[]).includes(value);
+
+/**
+ * `SEARCH_EMBEDDING_PROVIDER`, validated. Shared with the search-index worker,
+ * which gates its own memory governor and its startup on the same value, so the
+ * vocabulary and the rejection live in one place.
+ */
+export const readEmbeddingProviderFromEnv = (): EmbeddingProvider => {
+	const raw = process.env.SEARCH_EMBEDDING_PROVIDER;
+	if (raw === undefined || raw === "") return DEFAULT_PROVIDER;
+	if (!isProvider(raw)) {
+		throw new Error(
+			`SEARCH_EMBEDDING_PROVIDER must be one of ${PROVIDERS.join(", ")}, got: ${raw}`,
+		);
+	}
+	return raw;
+};
 
 const parseDimensions = (): number | undefined => {
 	const raw = process.env.SEARCH_EMBEDDING_DIMENSIONS;
@@ -86,12 +128,19 @@ export const buildVectorStoreFromEnv = (
 /**
  * Select an embedder from the environment, mirroring `buildVectorStoreFromEnv`:
  *
+ * - `SEARCH_EMBEDDING_PROVIDER=off` → nothing embeds. The self-host default: the
+ *   search-index worker sits behind the `semantic` compose profile and is not
+ *   running, and the backend's semantic paths take their existing unavailable
+ *   route (packages/backend/src/service/semantic-capability.ts) rather than
+ *   reporting an unavailable pipeline as a search that found nothing. FTS5 text
+ *   search is unaffected.
  * - `SEARCH_EMBEDDING_PROVIDER=local` → Transformers.js model (local dev). The
  *   model is `SEARCH_EMBEDDING_MODEL_ID` (default MiniLM); the self-host stack
  *   points it at a multilingual MiniLM so the ~50% non-English mail corpus
  *   embeds well. Both models are 384-dim, so the vector column is stable.
  * - `SEARCH_EMBEDDING_PROVIDER=bedrock` → Bedrock Titan (prod).
- * - otherwise → deterministic bag-of-words embedder (unit tests / default).
+ * - `SEARCH_EMBEDDING_PROVIDER=deterministic`, or unset → deterministic
+ *   bag-of-words embedder (unit tests / default). Any other value fails here.
  *
  * `SEARCH_EMBEDDING_DIMENSIONS`, when set, pins the dimension count for the local
  * and deterministic embedders so the store's vector column and the embedder
@@ -102,8 +151,11 @@ export const buildVectorStoreFromEnv = (
  * `fp32`. The search-index-worker container sets `q8` and bakes the matching file.
  */
 export const buildEmbeddingServiceFromEnv = (): EmbeddingService => {
-	const provider = process.env.SEARCH_EMBEDDING_PROVIDER;
+	const provider = readEmbeddingProviderFromEnv();
 	const dimensions = parseDimensions();
+	if (provider === "off") {
+		return createDisabledEmbeddingService(dimensions);
+	}
 	if (provider === "local") {
 		return createLocalEmbeddingService({
 			modelId: process.env.SEARCH_EMBEDDING_MODEL_ID,

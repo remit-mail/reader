@@ -15,6 +15,7 @@ import {
 	type PlacementMoveService,
 } from "@remit/mailbox-service";
 import { buildFilterConfig, type FilterConfigDeps } from "./filter-config.js";
+import { _resetMessageEmbedderForTest } from "./message-embedder.js";
 
 const anchorOnlyFilter = (destinationMailboxId: string): FilterItem =>
 	({
@@ -115,5 +116,56 @@ describe("buildFilterConfig", () => {
 		}).evaluate("cfg-1", "m-2", message);
 
 		assert.equal(decision.move, undefined);
+	});
+});
+
+// An instance with semantic search off (issue #1068). `off` selects an embedder
+// that throws by design, and the throw lands in the pipeline's per-filter catch:
+// one error-level `filter_anchor_match_failed` for every semantic filter on
+// every message it syncs. The pipeline already has a designed skip for a
+// missing embedder, so the config passes none.
+describe("buildFilterConfig with semantic search off", () => {
+	const withProviderOff = async (body: () => Promise<void>): Promise<void> => {
+		const previous = process.env.SEARCH_EMBEDDING_PROVIDER;
+		process.env.SEARCH_EMBEDDING_PROVIDER = "off";
+		_resetMessageEmbedderForTest();
+		try {
+			await body();
+		} finally {
+			if (previous === undefined) {
+				delete process.env.SEARCH_EMBEDDING_PROVIDER;
+			} else {
+				process.env.SEARCH_EMBEDDING_PROVIDER = previous;
+			}
+			_resetMessageEmbedderForTest();
+		}
+	};
+
+	it("wires no embedder", async () => {
+		await withProviderOff(async () => {
+			const config = buildFilterConfig(repos(anchorOnlyFilter("mbx-archive")));
+
+			assert.ok(config);
+			assert.equal(config.embedder, undefined);
+		});
+	});
+
+	it("skips the semantic filter without logging an error", async () => {
+		await withProviderOff(async () => {
+			const config = buildFilterConfig(repos(anchorOnlyFilter("mbx-archive")));
+			assert.ok(config);
+
+			const errors: unknown[] = [];
+			const decision = await new FilterPipeline(config, {
+				info: () => {},
+				debug: () => {},
+				warn: () => {},
+				error: (fields) => errors.push(fields.alert),
+			}).evaluate("cfg-1", "m-off", message);
+
+			assert.deepEqual(decision.labels, []);
+			assert.equal(decision.move, undefined);
+			assert.deepEqual(errors, []);
+		});
 	});
 });

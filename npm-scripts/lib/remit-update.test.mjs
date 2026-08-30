@@ -66,7 +66,10 @@ const ALL_SERVICES =
 	"queue backend caddy web apisix imap-worker smtp-worker account-worker search-index-worker";
 
 // The always-on stack the shipped compose file declares — every service with no
-// `profiles:` key. The stand-in answers `config --services` from that file, so
+// `profiles:` key. `search-index-worker` is not one of them: it sits behind the
+// `semantic` profile and only runs where an operator asked for vector search
+// (issue #1068), so an update on a stopped box brings it back no more than it
+// brings back the tunnel agent or the metrics containers. The stand-in answers `config --services` from that file, so
 // this is the list the wrapper derives its held-back set from, and "the whole
 // always-on stack" means this rather than whatever a sandbox happens to seed.
 // A service added to the deployment fails the check that compares the two.
@@ -80,7 +83,6 @@ const COMPOSE_ALWAYS_ON = [
 	"migrate",
 	"queue",
 	"scheduler",
-	"search-index-worker",
 	"smtp-worker",
 	"updater",
 	"volume-init",
@@ -443,7 +445,13 @@ describe("the stand-in's service list is the compose file's", () => {
 
 	it("hides a service behind an inactive profile, the way compose does", () => {
 		const box = sandbox();
-		for (const service of ["tunnel", "backup", "dozzle", "victoriametrics"]) {
+		for (const service of [
+			"tunnel",
+			"backup",
+			"dozzle",
+			"victoriametrics",
+			"search-index-worker",
+		]) {
 			assert.ok(
 				!composeServices(box).includes(service),
 				`${service} is listed on a deployment whose profile is off`,
@@ -467,6 +475,7 @@ describe("the stand-in's service list is the compose file's", () => {
 				...COMPOSE_ALWAYS_ON,
 				"backup",
 				"dozzle",
+				"search-index-worker",
 				"tunnel",
 				"victoriametrics",
 			].sort(),

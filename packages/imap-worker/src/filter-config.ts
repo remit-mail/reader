@@ -8,6 +8,10 @@ import type {
 	MessageEmbedder,
 	PlacementMoveService,
 } from "@remit/mailbox-service";
+import {
+	EMBEDDING_PROVIDER_OFF,
+	readEmbeddingProviderFromEnv,
+} from "@remit/search-service/from-env";
 import { getMessageEmbedder } from "./message-embedder.js";
 
 export interface FilterConfigDeps {
@@ -16,6 +20,21 @@ export interface FilterConfigDeps {
 	messageLabelService: IMessageLabelRepository;
 	placementMoveService?: PlacementMoveService;
 }
+
+/**
+ * The env-selected embedder, or none on an instance with semantic search off.
+ *
+ * `off` embeds nothing by design, and its embedder says so by throwing
+ * (EmbeddingDisabledError). The pipeline has a designed skip for a *missing*
+ * embedder — semantic filters are passed over and logged at debug — but a
+ * present embedder that throws lands in the per-filter catch instead, which is
+ * an error-level `filter_anchor_match_failed` for every semantic filter on
+ * every synced message. Same outcome, a log nobody can read.
+ */
+const embedderFromEnv = (): MessageEmbedder | undefined =>
+	readEmbeddingProviderFromEnv() === EMBEDDING_PROVIDER_OFF
+		? undefined
+		: getMessageEmbedder();
 
 /**
  * Assemble the index-time filter config the body-sync pass runs (RFC 034). The
@@ -33,11 +52,12 @@ export const buildFilterConfig = (
 ): FilterConfig | undefined => {
 	const { placementMoveService } = deps;
 	if (!placementMoveService) return undefined;
+	const resolved = embedder ?? embedderFromEnv();
 	return {
 		filterService: deps.filterService,
 		filterAnchorService: deps.filterAnchorService,
 		messageLabelService: deps.messageLabelService,
 		placementMoveService,
-		embedder: embedder ?? getMessageEmbedder(),
+		...(resolved ? { embedder: resolved } : {}),
 	};
 };
