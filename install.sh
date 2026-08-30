@@ -768,8 +768,8 @@ EOF
 }
 
 # Search is two features, and an installer that says "search works" is only half
-# right. The half that is off is off because of what it costs on this box, so the
-# numbers are here rather than in a footnote, and so is the one command.
+# right. What the other half is, and what turning it on does and does not buy,
+# is what belongs here; the numbers live in README.md.
 search_block() {
 	local remit="$WRAPPER_NAME"
 	[ -n "$WRAPPER_ON_PATH" ] || remit="cd $DIR && ./remit"
@@ -777,11 +777,13 @@ search_block() {
   Search      Text search works now, over every message as it syncs. Nothing to
               turn on.
 
-              Semantic search — the "Related" and "Similar messages" panels, and
-              the semantic widen behind Organize filters — is off. It needs an
-              embedding model: a ~1.4 GB image, and a first index of a 31k
-              mailbox measured about 17 hours at 150-190% of a 2 vCPU box. Turn
-              it on when you want it:
+              Semantic search is off. On, it stores a vector for every message,
+              which is what the Organize semantic widen and semantic filters
+              read. The "Similar messages" panel needs your typed query
+              embedded and no image here does that, so it stays empty either
+              way. Turning it on pulls a large model image and spends hours of
+              CPU indexing the mailbox once; README.md, under Search, has the
+              numbers.
 
                 $remit semantic on
 
@@ -915,9 +917,7 @@ main() {
 	write_env
 	place_wrapper
 	# Needs the wrapper on disk, and belongs before the pull: a wrong origin
-	# caught here costs nothing, caught after it costs ~2.6 GB and an install.
-	# (~4 GB before the search-index-worker image moved behind the `semantic`
-	# profile — see deploy/vps/docker-compose.sqlite.yml.)
+	# caught here costs nothing, caught after it costs gigabytes and an install.
 	check_origin_dns
 	validate_compose
 	if [ "$DRY_RUN" = "1" ]; then

@@ -374,30 +374,8 @@ services:
     stop_grace_period: 30s
     restart: unless-stopped
 
-  # Semantic search (issue #1068) — OFF by default, the only worker behind a
-  # profile. Turn it on with:
-  #
-  #   remit semantic on
-  #
-  # which writes SEARCH_EMBEDDING_PROVIDER in .env and brings this service up.
-  # FTS5 text search is on for every install and needs none of this.
-  #
-  # WHY IT IS OPT-IN. This image is ~1.36 GB of the ~4 GB a first install used
-  # to pull, and it is the only one carrying an inference runtime. A first index
-  # of 30,906 messages measured ~30 messages/min — about 17 hours — holding
-  # ~150-190% of a 2-vCPU box throughout (#1064). That is a cost an operator
-  # chooses, not one an install imposes: with the profile inactive `compose pull`
-  # never fetches the image and nothing here runs.
-  #
-  # WHAT AN OFF INSTANCE STILL DOES. The transactional outbox keeps recording
-  # committed message changes (RFC 036 D2). Those rows are the work ledger, not
-  # the work: nothing embeds, nothing reaches the search-index queue, and the
-  # backend's semantic paths take their existing unavailable route
-  # (packages/backend/src/service/semantic-capability.ts). It is also what makes
-  # `remit semantic on` index the mail already on the box — the boot drain below
-  # relays what accrued while this container was down, so the opt-in covers the
-  # back catalogue rather than only new mail. Turning it back off keeps the
-  # vectors in vec.db.
+  # Off by default behind the `semantic` profile; `remit semantic on` moves the
+  # profile and SEARCH_EMBEDDING_PROVIDER together. Costs: README.md, Search.
   #
   # The outbox drain (RFC 036 D2) runs inside this container: a 2 s poll over
   # the shared file's unprocessed outbox rows, relaying them onto the

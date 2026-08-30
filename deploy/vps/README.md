@@ -292,14 +292,24 @@ Two searches. Text search is on for every install; semantic search is opt-in.
 **Text search** is FTS5 over subjects and senders. It needs no configuration, no
 extra container and no model, and it covers every message as it syncs.
 
-**Semantic search** is vector search over message bodies: the "Related" and
-"Similar messages" panels, and the semantic widen behind Organize filters. It is
-off on a new install because of what it costs on the box this deployment is
-sized for. The `search-index-worker` image is ~1.36 GB, of a first-install pull
-that is otherwise ~2.6 GB. On a 2 vCPU box a first index of 30,906 messages
+**Semantic search** stores a vector for every message body. What reads those
+vectors is the semantic widen behind Organize filters — "and anything similar" —
+and semantic (anchor) filters, which match incoming mail against a saved
+example. That is what `remit semantic on` buys.
+
+Free-text semantic search is not served on this deployment either way: the
+`backend` image ships without the embedding runtime, so answering a typed query
+is something no container here can do. `/search/semantic` returns empty results
+and the web client says so — the "Related" and "Similar messages" panels state
+that semantic search is off rather than showing an empty list.
+
+It is off on a new install because of what it costs on the box this deployment
+is sized for. The `search-index-worker` image is ~1.36 GB, of a first-install
+pull that is otherwise ~2.6 GB. On a 2 vCPU box a first index of 30,906 messages
 drained at ~30 messages a minute — about 17 hours — holding ~150-190% CPU
 throughout. That is a once-per-mailbox cost; after it, the worker follows new
-mail.
+mail. These are the numbers; every other place that mentions the cost points
+here.
 
 Turn it on when you want it:
 
@@ -309,19 +319,19 @@ remit semantic        # print the current state
 remit semantic off    # stop the worker; the vectors already built are kept
 ```
 
-`remit status` and `remit doctor` both report the provider, so an empty "Related"
-panel can be told apart from a mailbox with nothing similar in it.
+`remit status` and `remit doctor` both report the provider, so an Organize widen
+that counts nothing can be told apart from a mailbox with nothing similar in it.
 
-While it is off nothing embeds and nothing indexes: `/search/semantic` serves
-the unavailable outcome it already has for a deployment without the pipeline,
-and the model image is never pulled. Committed message changes are still
-recorded in the transactional outbox, which is what makes `remit semantic on`
-index the mail already on the box rather than only what arrives afterwards.
+While it is off nothing embeds and nothing indexes, and the model image is never
+pulled. Committed message changes are still recorded in the transactional
+outbox, which is what makes `remit semantic on` index the mail already on the
+box rather than only what arrives afterwards.
 
 The alternative to paying the CPU here is paying it elsewhere: set
 `SEARCH_EMBEDDING_PROVIDER=bedrock` in `.env` and the embedding happens at AWS
 Bedrock, billed per request, with AWS credentials in `.env` and no model on this
-box. `remit semantic on` leaves that setting alone; it only replaces `off`.
+box. `remit semantic on` leaves that setting alone; every other value it
+replaces with `local`.
 
 ## TLS
 

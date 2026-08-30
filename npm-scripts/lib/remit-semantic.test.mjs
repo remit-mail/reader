@@ -131,6 +131,10 @@ function sandbox({ provider = "off", workerUp = false } = {}) {
 				.split("\n")
 				.filter((l) => l.startsWith("SEARCH_EMBEDDING_PROVIDER="));
 		},
+		// Every docker invocation the run made, in order.
+		log() {
+			return readFileSync(join(fake, "log"), "utf8");
+		},
 		// The .env a service was created with, as the stand-in recorded it. A
 		// change here is the only way an edit reaches a running container.
 		envSeen(service) {
@@ -149,7 +153,7 @@ describe("remit semantic, with no argument", () => {
 		const run = box.run(["semantic"]);
 
 		assert.equal(run.status, 0, `${run.stdout}${run.stderr}`);
-		assert.match(run.stdout, /^Semantic search: off/m);
+		assert.match(run.stdout, /^Semantic search: +off/m);
 		assert.match(run.stdout, /remit semantic on/);
 	});
 
@@ -158,10 +162,29 @@ describe("remit semantic, with no argument", () => {
 		assert.match(run.stdout, /^Text search: +on/m);
 	});
 
-	it("states the cost, so turning it on is a decision and not a surprise", () => {
+	it("says what turning it on buys, and where the cost is written down", () => {
 		const run = sandbox().run(["semantic"]);
-		assert.match(run.stdout, /1\.4 GB/);
-		assert.match(run.stdout, /17 hours/);
+		assert.match(run.stdout, /Organize/);
+		assert.match(run.stdout, /filters/);
+		assert.match(run.stdout, /README\.md/);
+	});
+
+	// The panel needs the typed query embedded and no image in this deployment
+	// carries a query embedder, so an operator told "turn it on and Related
+	// fills" is being told something untrue. The numbers live in README.md and
+	// nowhere else, so a copy of them appearing here is a second source.
+	it("does not promise the panel no image here can serve", () => {
+		const run = sandbox().run(["semantic"]);
+		assert.match(run.stdout, /^Similar messages: +off/m);
+		assert.doesNotMatch(run.stdout, /1\.4 GB|1\.36 GB|17 hours|150-190/);
+	});
+
+	it("reports the test embedder as off, because its vectors match nothing", () => {
+		const run = sandbox({ provider: "deterministic", workerUp: true }).run([
+			"semantic",
+		]);
+		assert.match(run.stdout, /^Semantic search: +off/m);
+		assert.match(run.stdout, /deterministic/);
 	});
 
 	it("reports on, and which side does the embedding", () => {
@@ -169,7 +192,7 @@ describe("remit semantic, with no argument", () => {
 		const run = box.run(["semantic"]);
 
 		assert.equal(run.status, 0, `${run.stdout}${run.stderr}`);
-		assert.match(run.stdout, /^Semantic search: on/m);
+		assert.match(run.stdout, /^Semantic search: +on/m);
 		assert.match(run.stdout, /^Worker: +search-index-worker running$/m);
 	});
 
@@ -177,7 +200,7 @@ describe("remit semantic, with no argument", () => {
 		const run = sandbox({ provider: "bedrock", workerUp: true }).run([
 			"semantic",
 		]);
-		assert.match(run.stdout, /^Semantic search: on — embedded by bedrock$/m);
+		assert.match(run.stdout, /^Semantic search: +on — embedded by bedrock$/m);
 	});
 
 	it("changes nothing", () => {
@@ -214,7 +237,7 @@ describe("remit semantic on", () => {
 	});
 
 	it("prints the resulting state", () => {
-		assert.match(run.stdout, /^Semantic search: on/m);
+		assert.match(run.stdout, /^Semantic search: +on/m);
 		assert.match(run.stdout, /^Worker: +search-index-worker running$/m);
 	});
 });
@@ -246,7 +269,7 @@ describe("remit semantic off", () => {
 	});
 
 	it("prints the resulting state", () => {
-		assert.match(run.stdout, /^Semantic search: off/m);
+		assert.match(run.stdout, /^Semantic search: +off/m);
 	});
 });
 
@@ -301,6 +324,58 @@ describe("the profile follows the setting, both ways", () => {
 		assert.equal(run.status, 0, `${run.stdout}${run.stderr}`);
 		assert.match(run.stdout, /search-index-worker/);
 		assert.match(run.stdout, /remit semantic on/);
+	});
+});
+
+// `on` writes `local` over every value that embeds nothing an operator can
+// search, and leaves exactly one alone.
+describe("remit semantic on, over a value that is not off", () => {
+	it("replaces the test embedder", () => {
+		const box = sandbox({ provider: "deterministic" });
+
+		const run = box.run(["semantic", "on"]);
+
+		assert.equal(run.status, 0, `${run.stdout}${run.stderr}`);
+		assert.deepEqual(box.providerLines(), ["SEARCH_EMBEDDING_PROVIDER=local"]);
+		assert.equal(box.isUp(WORKER), true);
+	});
+
+	it("leaves a remote provider alone rather than pulling a model onto the box", () => {
+		const box = sandbox({ provider: "bedrock", workerUp: true });
+
+		const run = box.run(["semantic", "on"]);
+
+		assert.equal(run.status, 0, `${run.stdout}${run.stderr}`);
+		assert.deepEqual(box.providerLines(), [
+			"SEARCH_EMBEDDING_PROVIDER=bedrock",
+		]);
+	});
+});
+
+// An unscoped `compose pull` walks past a service behind an inactive profile,
+// so without naming it the one image carrying the model is the one image an
+// update leaves at the old tag.
+describe("remit update", () => {
+	it("pulls the model image while semantic search is on", () => {
+		const box = sandbox({ provider: "local", workerUp: true });
+
+		const run = box.run(["update"]);
+
+		assert.equal(run.status, 0, `${run.stdout}${run.stderr}`);
+		assert.match(box.log(), /compose pull search-index-worker/);
+	});
+
+	it("does not pull it while semantic search is off", () => {
+		const box = sandbox();
+
+		const run = box.run(["update"]);
+
+		assert.equal(run.status, 0, `${run.stdout}${run.stderr}`);
+		assert.match(box.log(), /compose pull/);
+		assert.ok(
+			!box.log().includes("compose pull search-index-worker"),
+			"an off instance pulled the model image",
+		);
 	});
 });
 

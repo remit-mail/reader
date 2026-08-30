@@ -150,13 +150,14 @@ Usage: $PROG <command> [args]
                        failing. Exits 0 healthy, 1 degraded, 2 when no verdict
                        could be produced, so cron or an external monitor can
                        call it directly.
-  semantic [on|off]    Turn semantic search — vector search over message
-                       bodies — on or off, and print the resulting state. With
-                       no argument it only prints the state. Text search works
-                       on every install and is not this setting. Turning it on
-                       downloads a ~1.4 GB image and indexes the whole mailbox,
-                       which takes hours at high CPU on a small box; a remote
-                       provider does the embedding elsewhere (README.md).
+  semantic [on|off]    Store a vector for every message, or stop. That is what
+                       the Organize semantic widen and semantic filters read.
+                       With no argument it only prints the state. Text search
+                       works on every install and is not this setting, and the
+                       "Similar messages" panel needs a query embedder no image
+                       here carries, so it stays empty either way. What turning
+                       it on costs, and the remote-provider alternative: the
+                       Search section of README.md.
   config               Print the effective configuration, secrets redacted.
   config save <file>   Write every setting — accounts, filters, labels, folder
     [--user <email>]   roles, signatures, flagged senders — to <file> as one
@@ -521,10 +522,10 @@ set_var() {
 # Shared by `update` and by install.sh, which calls this wrapper rather than
 # repeating the pull/up/migrate-gate sequence.
 #
-# The pull moves ~4 GB on a first install (search-index-worker alone is
-# ~1.36 GB), so its progress is streamed rather than buffered for a diagnosis
-# that is usually never needed — buffering makes a working install look hung
-# for minutes. The copy kept on the side is only there to classify a failure,
+# The pull moves gigabytes (README.md, Search), so its progress is streamed
+# rather than buffered for a diagnosis that is usually never needed — buffering
+# makes a working install look hung for minutes. The copy kept on the side is
+# only there to classify a failure,
 # and the pull's own exit status has to be carried out of the pipeline by hand
 # because the pipeline reports tee's.
 pull_images() {
@@ -536,6 +537,14 @@ pull_images() {
 	{
 		_rc=0
 		compose pull 2>&1 || _rc=$?
+		# An unscoped pull never names a service behind an inactive profile, so on
+		# an instance that turned semantic search on the one image carrying the
+		# model is the one image `update` would leave at its old tag. Naming it
+		# enables its profile. Inside the same pipeline, so the same log and the
+		# same failure classification cover it.
+		if [ "$_rc" = "0" ] && ! semantic_is_off; then
+			compose pull "$SEMANTIC_SERVICE" 2>&1 || _rc=$?
+		fi
 		printf '%s' "$_rc" >"$_status"
 	} | tee "$_log"
 	_code=$(cat "$_status" 2>/dev/null || printf 1)
@@ -677,31 +686,27 @@ cmd_logs() {
 
 # --- semantic search (issue #1068) ------------------------------------------
 #
-# Two searches, one of them optional. Text search (FTS5) is part of the
-# database and is on for every install; nothing here turns it off. What this
-# turns on is vector search over message bodies — the "Related" and "Similar
-# messages" surfaces, and the semantic widen behind Organize filters.
+# What this turns on is a stored vector per message, which the Organize semantic
+# widen and semantic (anchor) filters read. Text search (FTS5) is part of the
+# database and unaffected; the "Similar messages" panel needs the typed query
+# embedded and no image here does that. Costs and the remote alternative are in
+# the Search section of README.md.
 #
-# It is opt-in because of what it costs on the box this deployment is sized for:
-# the search-index-worker image is ~1.36 GB of the pull, a first index of 30,906
-# messages measured ~30 messages/min (about 17 hours) and held ~150-190% of a
-# 2-vCPU box throughout (#1064). A remote provider (`bedrock`) does the
-# embedding elsewhere instead.
-#
-# ONE COMMAND, BECAUSE THERE ARE TWO THINGS TO MOVE. SEARCH_EMBEDDING_PROVIDER
-# in .env decides whether anything embeds; the `semantic` compose profile
-# decides whether the worker that does it is running. Moving one without the
-# other is broken in both directions — a provider with no worker queues work
-# nothing drains, and a worker with the provider off refuses at startup by
-# design (packages/search-index-worker/src/services.ts). So this is the only
-# place either moves.
+# SEARCH_EMBEDDING_PROVIDER decides whether anything embeds and the `semantic`
+# compose profile decides whether the worker that does it runs. Moving one
+# without the other is broken both ways, so this is the only place either moves.
 SEMANTIC_PROFILE=semantic
 SEMANTIC_SERVICE=search-index-worker
 SEMANTIC_VAR=SEARCH_EMBEDDING_PROVIDER
 SEMANTIC_OFF=off
-# What `semantic on` writes when the setting is off. `bedrock` is left alone: an
+# What `semantic on` writes. `bedrock` is the one value it leaves alone: an
 # operator who pointed this at a remote provider did not ask for a local model.
 SEMANTIC_LOCAL=local
+SEMANTIC_REMOTE=bedrock
+# The unit-test and e2e embedder, which the setting also accepts. It writes
+# real-looking vectors no query can be matched against, so on a deployment it is
+# off with extra steps — reported as off, and replaced by `semantic on`.
+SEMANTIC_DETERMINISTIC=deterministic
 
 semantic_compose() {
 	docker compose \
@@ -721,13 +726,26 @@ semantic_provider() {
 	printf '%s' "$_sp"
 }
 
+# Whether this deployment embeds nothing. Two values mean that, and every
+# command that branches on the state asks here rather than comparing to `off`.
+semantic_is_off() {
+	case "$(semantic_provider)" in
+	"$SEMANTIC_OFF" | "$SEMANTIC_DETERMINISTIC") return 0 ;;
+	esac
+	return 1
+}
+
 # One line for `remit status`, where every other line is one fact wide. It has
-# to answer the question an empty "Related" panel raises — nothing matched, or
-# nothing indexed — so `off` carries the command that changes it.
+# to answer the question an empty "Similar messages" panel raises — nothing
+# matched, or nothing indexed — so `off` carries the command that changes it.
 semantic_summary() {
 	case "$(semantic_provider)" in
 	"$SEMANTIC_OFF")
 		printf "off — text search only ('%s semantic on' turns it on)" "$PROG"
+		;;
+	"$SEMANTIC_DETERMINISTIC")
+		printf "off — %s is the test embedder, whose vectors match nothing ('%s semantic on' turns it on)" \
+			"$SEMANTIC_DETERMINISTIC" "$PROG"
 		;;
 	"$SEMANTIC_LOCAL")
 		printf 'on — embedded on this box by %s' "$SEMANTIC_SERVICE"
@@ -750,13 +768,18 @@ semantic_worker_state() {
 # nothing included. A setting that reports only when it moves is one nobody can
 # check.
 semantic_report() {
-	printf 'Semantic search: %s\n' "$(semantic_summary)"
-	printf 'Worker:          %s %s\n' "$SEMANTIC_SERVICE" "$(semantic_worker_state)"
-	printf 'Text search:     on — FTS5, on every install, unaffected by this setting\n'
-	if [ "$(semantic_provider)" = "$SEMANTIC_OFF" ]; then
-		printf "\nTurning it on downloads a ~1.4 GB image and indexes the whole mailbox: on a\n"
-		printf "2 vCPU box that measured ~30 messages a minute at 150-190%% CPU, so a 31k\n"
-		printf "mailbox takes about 17 hours. Stored vectors are kept while it is off.\n"
+	printf 'Semantic search:  %s\n' "$(semantic_summary)"
+	printf 'Worker:           %s %s\n' "$SEMANTIC_SERVICE" "$(semantic_worker_state)"
+	printf 'Text search:      on — FTS5, on every install, unaffected by this setting\n'
+	printf 'Similar messages: off — no image here embeds a typed query, either way\n'
+	if semantic_is_off; then
+		printf '\nOn, it stores a vector for every message, which is what the Organize\n'
+		printf 'semantic widen and semantic (anchor) filters read. The "Similar messages"\n'
+		printf 'panel needs the typed query embedded and no image here does that, so it\n'
+		printf 'stays empty whichever way this is set.\n'
+		printf '\nIt costs a large image pull and hours of CPU to index an existing mailbox\n'
+		printf 'once — the numbers are in the Search section of README.md. Stored vectors\n'
+		printf 'are kept while it is off.\n'
 	fi
 }
 
@@ -769,7 +792,10 @@ cmd_semantic() {
 		semantic_report
 		;;
 	on)
-		if [ "$(semantic_provider)" = "$SEMANTIC_OFF" ]; then
+		# `bedrock` is the one value left alone. Every other value that is not
+		# already `local` embeds nothing an operator can search — `off`, and the
+		# `deterministic` test embedder — so `on` replaces it.
+		if [ "$(semantic_provider)" != "$SEMANTIC_REMOTE" ]; then
 			set_var "$SEMANTIC_VAR" "$SEMANTIC_LOCAL"
 		fi
 		# The always-on services first, and through `up -d`: they read this
@@ -780,7 +806,7 @@ cmd_semantic() {
 		# Then the worker, named rather than reached with --profile: naming a
 		# service on the command line enables its profile, which is how every
 		# other command in here starts one. The image is not on the box yet, so
-		# this is where the ~1.4 GB pull happens; its progress streams rather than
+		# this is where the model image pull happens; its progress streams rather than
 		# sitting buffered behind a command that looks hung for minutes.
 		compose up -d "$SEMANTIC_SERVICE" || true
 		if [ -n "$(stopped_among "$SEMANTIC_SERVICE")" ]; then
