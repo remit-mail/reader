@@ -1,4 +1,5 @@
 import { CalendarDays } from "lucide-react";
+import { useState } from "react";
 import { cn } from "../lib/cn.js";
 import { CalendarEventChip } from "./calendar-event-chip.js";
 import { CalendarInviteCard } from "./calendar-invite-card.js";
@@ -14,7 +15,11 @@ import type {
 	EventSuggestion,
 	RsvpState,
 } from "./calendar-types.js";
-import { EventSuggestionCard } from "./event-suggestion-card.js";
+import {
+	EventSuggestionCard,
+	settleZone,
+	ZONE_UNSETTLED_REASON,
+} from "./event-suggestion-card.js";
 import { IntelligenceSection } from "./intelligence-section.js";
 
 /**
@@ -109,7 +114,12 @@ export function IntelligenceCalendar({
 	className,
 }: IntelligenceCalendarProps) {
 	const { invite, prose, suggestions, day, dayLabel } = data;
+	const [zoneChoices, setZoneChoices] = useState<Record<string, string>>({});
 	const top = suggestions[0];
+	const topChoice =
+		top === undefined ? "" : (zoneChoices[top.suggestion.id] ?? "");
+	const topSettlement =
+		top === undefined ? undefined : settleZone(top.suggestion, topChoice);
 	const picked = new Set(prose?.picked ?? []);
 	const nothingToSay =
 		invite === undefined &&
@@ -203,10 +213,14 @@ export function IntelligenceCalendar({
 					<CalendarSuggestionDeck
 						hasCard={top !== undefined}
 						remaining={suggestions.length}
-						blocked={false}
-						blockedReason=""
+						blocked={topSettlement !== undefined && !topSettlement.settled}
+						blockedReason={ZONE_UNSETTLED_REASON}
 						onConfirm={() => {
-							if (top) actions.onAddSuggestion(top.suggestion.id, "");
+							if (top && topSettlement?.settled)
+								actions.onAddSuggestion(
+									top.suggestion.id,
+									topSettlement.timeZone,
+								);
 						}}
 						onReject={() => {
 							if (top) actions.onDismissSuggestion(top.suggestion.id);
@@ -217,6 +231,13 @@ export function IntelligenceCalendar({
 								suggestion={top.suggestion}
 								whenText={top.whenText}
 								addLabel="Add to calendar"
+								zoneChoice={topChoice}
+								onZoneChoice={(timeZone) =>
+									setZoneChoices((prev) => ({
+										...prev,
+										[top.suggestion.id]: timeZone,
+									}))
+								}
 								onAdd={(timeZone) =>
 									actions.onAddSuggestion(top.suggestion.id, timeZone)
 								}
