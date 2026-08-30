@@ -177,7 +177,16 @@ export class LocalEmbeddingService implements EmbeddingService {
 			pooling: "mean",
 			normalize: true,
 		});
-		return tensor.tolist() as number[][];
+		try {
+			return tensor.tolist() as number[][];
+		} finally {
+			// The output buffer is an onnxruntime allocation, outside the V8 heap and
+			// so outside `--max-old-space-size` (#585). Waiting for GC to notice a
+			// small JS wrapper holding a large native buffer is how the worker's
+			// resident memory ran away on a 4 GB box; `tolist` has already copied
+			// what the caller needs.
+			tensor.dispose();
+		}
 	};
 }
 

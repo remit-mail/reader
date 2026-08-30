@@ -1,4 +1,10 @@
-import { createSearchService, type SearchService } from "@remit/search-service";
+import { setTimeout as delay } from "node:timers/promises";
+import { createLogger } from "@remit/logger-lambda";
+import {
+	createSearchService,
+	type EmbeddingService,
+	type SearchService,
+} from "@remit/search-service";
 import {
 	buildEmbeddingServiceFromEnv,
 	buildVectorStoreFromEnv,
@@ -6,10 +12,17 @@ import {
 import type { StorageService } from "@remit/storage-service";
 import { createStorageService } from "@remit/storage-service/s3";
 import {
+	createAdaptiveEmbeddingService,
+	MemoryGovernor,
+	readAdaptiveEmbeddingConfigFromEnv,
+} from "./adaptive-embedder.js";
+import {
 	buildDataPortsFromEnv,
 	type SearchIndexDataPorts,
 } from "./data-ports.js";
 import type { IndexOutcome } from "./handler.js";
+import { readSystemMemory } from "./memory.js";
+import { registerAdaptiveEmbedding } from "./metrics.js";
 
 export interface Services {
 	accountService: SearchIndexDataPorts["account"];
@@ -26,6 +39,37 @@ export interface Services {
 }
 
 let cached: Services | undefined;
+
+/**
+ * The in-process embedder is the one whose memory is native and unbounded — the
+ * model, its arenas and its tensors are onnxruntime allocations that no V8 heap
+ * ceiling covers (#585), so it runs under the governor. Bedrock and the
+ * deterministic test embedder hold nothing on this box and are left alone.
+ */
+const governed = (embedder: EmbeddingService): EmbeddingService => {
+	if (process.env.SEARCH_EMBEDDING_PROVIDER !== "local") return embedder;
+	const config = readAdaptiveEmbeddingConfigFromEnv();
+	const metrics = registerAdaptiveEmbedding({
+		batchSize: config.minBatchSize,
+		concurrency: 1,
+	});
+	const log = createLogger();
+	log.info("Search index embedding governed by available memory", {
+		batchSize: config.minBatchSize,
+		maxBatchSize: config.maxBatchSize,
+		maxConcurrency: config.maxConcurrency,
+		headroomMb: Math.round(config.headroomBytes / (1024 * 1024)),
+		criticalMb: Math.round(config.criticalBytes / (1024 * 1024)),
+	});
+	const governor = new MemoryGovernor(config, {
+		readMemory: readSystemMemory,
+		sleep: (ms) => delay(ms),
+		log,
+		onPlan: metrics.recordPlan,
+		onStall: metrics.recordStall,
+	});
+	return createAdaptiveEmbeddingService(embedder, governor);
+};
 
 export const getServices = async (): Promise<Services> => {
 	if (cached) return cached;
@@ -50,7 +94,7 @@ export const getServices = async (): Promise<Services> => {
 
 	// Build the embedder first so we can pass its dimension count to the
 	// sqlite-vec store — the vec0 table dimension must match the embedder.
-	const embedder = buildEmbeddingServiceFromEnv();
+	const embedder = governed(buildEmbeddingServiceFromEnv());
 	const searchService = createSearchService({
 		store: buildVectorStoreFromEnv(embedder.dimensions),
 		embedder,

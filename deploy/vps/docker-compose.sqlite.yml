@@ -382,6 +382,27 @@ services:
     environment:
       <<: *app-environment
       WORKER_HEARTBEAT_PREFIX: /data/heartbeat/search-index-worker
+      # This worker bounds its own resident memory against the box, because the
+      # heap ceiling above cannot: the embedding model, its inference arenas and
+      # its per-batch tensors are onnxruntime allocations outside V8's old space
+      # (#585). It starts at BATCH_MIN with one inference in flight, measures
+      # MemAvailable after every batch, and ramps towards BATCH_MAX and
+      # CONCURRENCY_MAX only while more than HEADROOM_MB stays free. Below that
+      # it halves the batch, drops back to one inference and waits PAUSE_MS
+      # between batches; below CRITICAL_MB it stops and waits outright rather
+      # than pushing the host into swap, where the kernel picks its OOM victim
+      # by size and takes the backend instead of the indexer. Still deliberately
+      # no `mem_limit`: this slows a first index down, it never kills it.
+      #
+      # The defaults suit the 4 GB reference box. Raise HEADROOM_MB and
+      # BATCH_MAX on a larger one to let a first index finish sooner; raise
+      # CRITICAL_MB (below HEADROOM_MB) to leave the rest of the stack more room.
+      SEARCH_INDEX_EMBED_BATCH_MIN: ${SEARCH_INDEX_EMBED_BATCH_MIN:-4}
+      SEARCH_INDEX_EMBED_BATCH_MAX: ${SEARCH_INDEX_EMBED_BATCH_MAX:-32}
+      SEARCH_INDEX_EMBED_CONCURRENCY_MAX: ${SEARCH_INDEX_EMBED_CONCURRENCY_MAX:-2}
+      SEARCH_INDEX_MEMORY_HEADROOM_MB: ${SEARCH_INDEX_MEMORY_HEADROOM_MB:-768}
+      SEARCH_INDEX_MEMORY_CRITICAL_MB: ${SEARCH_INDEX_MEMORY_CRITICAL_MB:-384}
+      SEARCH_INDEX_MEMORY_PAUSE_MS: ${SEARCH_INDEX_MEMORY_PAUSE_MS:-2000}
     volumes:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite

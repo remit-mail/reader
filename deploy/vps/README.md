@@ -187,9 +187,43 @@ file next to the database that does not work over NFS/CIFS. Message bodies live
 on the `message_storage` named volume and are not part of the nightly snapshot
 (see [Backups](#backups)).
 
-Every Node service runs under a 512 MB V8 heap ceiling. Move it with
-`REMIT_NODE_HEAP_MB` in `.env`; raise it on a larger box if indexing a big
-mailbox runs out of memory. The containers carry no hard memory limit.
+Every Node service runs under a 512 MB V8 heap ceiling, moved with
+`REMIT_NODE_HEAP_MB` in `.env`. It bounds JavaScript objects and nothing else,
+so it is not the answer to a worker that runs out of memory while indexing —
+see [Indexing on a small box](#indexing-on-a-small-box). The containers carry no
+hard memory limit: one would turn a slow job into an OOM kill.
+
+### Indexing on a small box
+
+The `search-index-worker` holds the embedding model, and the model, its
+inference arenas and its per-batch tensors are all allocated by onnxruntime,
+outside the V8 heap the ceiling above bounds. A first index of a large mailbox
+is the job that can exhaust a 4 GB box, and the kernel then picks its OOM victim
+by size — usually the backend, not the indexer.
+
+So the worker bounds itself. It starts at the smallest batch with one inference
+in flight, reads `MemAvailable` after every batch, and ramps up only while the
+box keeps more than 768 MB free. Under that it halves the batch, drops back to
+one inference and paces itself; under 384 MB it stops and waits, logging a line
+and counting `remit_search_index_memory_stalls_total`, rather than pushing the
+host into swap. Each change of plan logs once, and
+`remit_search_index_embed_batch_size` shows where it settled.
+
+The cost is deliberate: a first index uses a large box fully and crawls on a
+small one. Six variables in `.env` move it, all optional:
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `SEARCH_INDEX_MEMORY_HEADROOM_MB` | `768` | Free memory the box must keep for the worker to ramp up. |
+| `SEARCH_INDEX_MEMORY_CRITICAL_MB` | `384` | Free memory below which indexing stops and waits. Must be below the headroom. |
+| `SEARCH_INDEX_EMBED_BATCH_MIN` | `4` | Chunks per embedding call at the floor, and after shedding. |
+| `SEARCH_INDEX_EMBED_BATCH_MAX` | `32` | Chunks per embedding call at full ramp. |
+| `SEARCH_INDEX_EMBED_CONCURRENCY_MAX` | `2` | Embedding calls in flight at full ramp. |
+| `SEARCH_INDEX_MEMORY_PAUSE_MS` | `2000` | Wait between batches while shedding, and between reads while stopped. |
+
+On a box with memory to spare, raising `SEARCH_INDEX_EMBED_BATCH_MAX` and
+`SEARCH_INDEX_MEMORY_HEADROOM_MB` together is what makes a first index finish
+sooner.
 
 Each worker's health is a heartbeat. A worker polls one queue per kind of work
 (`imap-worker` six of them), each loop rewrites its own timestamp file on the

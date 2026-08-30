@@ -198,3 +198,38 @@ describe("the deployment's Node services run under a heap ceiling", () => {
 		assert.match(TEMPLATE, /^# REMIT_NODE_HEAP_MB=512$/m);
 	});
 });
+
+// What the heap ceiling above cannot bound: the search-index-worker's embedding
+// model, its inference arenas and its tensors are onnxruntime allocations
+// outside V8's old space, so the worker measures the box and paces itself
+// (#585). The thresholds it does that against are deployment configuration.
+describe("the search-index-worker's own memory thresholds", () => {
+	const GOVERNOR = {
+		SEARCH_INDEX_EMBED_BATCH_MIN: 4,
+		SEARCH_INDEX_EMBED_BATCH_MAX: 32,
+		SEARCH_INDEX_EMBED_CONCURRENCY_MAX: 2,
+		SEARCH_INDEX_MEMORY_HEADROOM_MB: 768,
+		SEARCH_INDEX_MEMORY_CRITICAL_MB: 384,
+		SEARCH_INDEX_MEMORY_PAUSE_MS: 2000,
+	};
+
+	for (const [name, fallback] of Object.entries(GOVERNOR)) {
+		it(`declares ${name}, overridable from .env`, () => {
+			assert.equal(
+				value(blocks["search-index-worker"], name),
+				`\${${name}:-${fallback}}`,
+			);
+		});
+
+		it(`documents ${name} where the operator edits configuration`, () => {
+			assert.match(TEMPLATE, new RegExp(`^# ${name}=${fallback}$`, "m"));
+		});
+	}
+
+	it("keeps the stop floor below the ramp headroom", () => {
+		assert.ok(
+			GOVERNOR.SEARCH_INDEX_MEMORY_CRITICAL_MB <
+				GOVERNOR.SEARCH_INDEX_MEMORY_HEADROOM_MB,
+		);
+	});
+});
