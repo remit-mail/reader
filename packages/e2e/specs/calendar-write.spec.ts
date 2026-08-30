@@ -13,7 +13,11 @@ import { expect, test } from "../src/fixtures.js";
 const DESKTOP = { width: 1512, height: 864 };
 test.use({ viewport: DESKTOP });
 
-/** A fixed week, so the window the spec reads back is the week it wrote into. */
+/**
+ * A fixed week, so the window the spec reads back is the week it wrote into,
+ * and one no other spec writes to — the read asserts an exact event on an exact
+ * day, which a second writer on the same week would break.
+ */
 const DATE = "2026-06-10";
 const WINDOW = {
 	from: "2026-06-08T00:00:00+00:00",
@@ -21,6 +25,7 @@ const WINDOW = {
 };
 
 const SUMMARY = "Northwind supplier call";
+const REWRITTEN = "Northwind supplier call, rescheduled";
 
 test.describe("Writing an event", () => {
 	test("stores what the composer typed, and the server serves it back", async ({
@@ -32,6 +37,18 @@ test.describe("Writing an event", () => {
 		const title = page.getByRole("textbox", { name: "Title" });
 		await expect(title).toBeVisible();
 		await title.fill(SUMMARY);
+
+		// What the form told the reader it was about to save. Which hour a blank
+		// composer seeds is the composer's business and changing it is not a
+		// regression; storing something other than what it showed is.
+		const shownDate = await page
+			.getByLabel("Date", { exact: true })
+			.inputValue();
+		const shownStart = await page
+			.getByLabel("Start time", { exact: true })
+			.inputValue();
+		expect(shownDate).toBe(DATE);
+
 		await page.getByRole("button", { name: "Add", exact: true }).click();
 
 		// Read the refusal before the address, so a write the server turned down
@@ -49,26 +66,40 @@ test.describe("Writing an event", () => {
 		);
 
 		const stored = written.find((item) => item.summary === SUMMARY);
-		expect(stored).toBeTruthy();
-		expect(stored?.allDay).toBe(false);
-		expect(stored?.etag).toBeTruthy();
+		if (!stored) throw new Error(`"${SUMMARY}" was accepted but never served`);
+		expect(stored.allDay).toBe(false);
 
-		// The composer opens at 09:00 on the calendar's own clock, and the default
-		// collection is read as UTC. Compared as instants rather than as strings,
-		// so the assertion is about where the event landed rather than about how
-		// the server spells an offset.
-		expect(Date.parse(stored?.start ?? "")).toBe(
-			Date.parse(`${DATE}T09:00:00Z`),
-		);
+		// The occurrence starts on the day and at the clock time the composer
+		// displayed. Read off the string the API serves, which is the collection's
+		// own clock — the same digits the form showed, whatever offset either of
+		// them spells them with.
+		expect(stored.start.slice(0, 10)).toBe(shownDate);
+		expect(stored.start.slice(11, 16)).toBe(shownStart);
 
 		const calendars = await api.listCalendars();
 		expect(calendars.map((calendar) => calendar.calendarId)).toContain(
-			stored?.calendarId,
+			stored.calendarId,
+		);
+
+		// An etag is only worth carrying if it moves. Every conditional write is
+		// built on the version it names, so one that stayed put across a rewrite
+		// would let an edit built on a version somebody has since replaced through
+		// as if nothing had happened.
+		expect(stored.etag).not.toBe("");
+		await api.updateCalendarEvent(stored.calendarObjectId, stored.calendarId, {
+			summary: REWRITTEN,
+		});
+		const rewritten = await waitFor(
+			() => api.listCalendarEvents(WINDOW.from, WINDOW.to),
+			(items) => items.some((item) => item.summary === REWRITTEN),
+			{ what: "the rewritten event to reach the server" },
+		);
+		expect(rewritten.find((item) => item.summary === REWRITTEN)?.etag).not.toBe(
+			stored.etag,
 		);
 
 		// The suite shares one account, and a stray event on a fixed week would
 		// be the next spec's surprise.
-		if (stored)
-			await api.deleteCalendarEvent(stored.calendarObjectId, stored.calendarId);
+		await api.deleteCalendarEvent(stored.calendarObjectId, stored.calendarId);
 	});
 });

@@ -187,6 +187,33 @@ export interface CreateCalendarEventInput {
 	end: string;
 	allDay?: boolean;
 	timeZone?: string;
+	/** An RRULE value without the property name, e.g. `"FREQ=WEEKLY;COUNT=5"`. */
+	recurrenceRule?: string;
+}
+
+/** The fields an edit may carry. Absence means untouched, as on the API. */
+export interface UpdateCalendarEventInput {
+	summary?: string;
+	start?: string;
+	end?: string;
+	allDay?: boolean;
+	recurrenceRule?: string;
+}
+
+/**
+ * Which occurrences a scoped write reaches, and the occurrence it is anchored
+ * at. `All` needs no anchor and is the default.
+ */
+export interface RecurrenceScopeInput {
+	scope: "This" | "Following" | "All";
+	/** The `recurrenceId` a listing returned for the occurrence. */
+	recurrenceId?: string;
+}
+
+/** A collection written straight at the API, for a spec about the tick list. */
+export interface CreateCalendarInput {
+	urlSegment: string;
+	displayName: string;
 }
 
 /** The stored resource a write comes back as, which is what a delete names. */
@@ -340,6 +367,22 @@ export interface ApiSession {
 	password: string;
 	token: string;
 }
+
+/**
+ * The query a scoped write is addressed by. `All` is the server's default and
+ * carries no anchor, so it is spelled out only when a caller means it.
+ */
+const calendarEventScopeQuery = (
+	calendarId: string,
+	scope?: RecurrenceScopeInput,
+): string =>
+	new URLSearchParams({
+		calendarId,
+		...(scope === undefined ? {} : { scope: scope.scope }),
+		...(scope?.recurrenceId === undefined
+			? {}
+			: { recurrenceId: scope.recurrenceId }),
+	}).toString();
 
 export class ApiClient {
 	private token: string;
@@ -824,10 +867,36 @@ export class ApiClient {
 		return result.items ?? [];
 	}
 
+	createCalendar(input: CreateCalendarInput): Promise<Calendar> {
+		return this.json("POST", "/calendars", input);
+	}
+
+	deleteCalendar(calendarId: string): Promise<Response> {
+		return this.request("DELETE", `/calendars/${calendarId}`);
+	}
+
 	createCalendarEvent(
 		input: CreateCalendarEventInput,
 	): Promise<CalendarEventResource> {
 		return this.json("POST", "/calendar-events", input);
+	}
+
+	/**
+	 * An edit made straight at the API, which is how a spec changes an event
+	 * behind the browser's back: no `If-Match`, because the point is to be the
+	 * writer who got there first and left the reader holding a stale version.
+	 */
+	updateCalendarEvent(
+		calendarObjectId: string,
+		calendarId: string,
+		patch: UpdateCalendarEventInput,
+		scope?: RecurrenceScopeInput,
+	): Promise<CalendarEventResource> {
+		return this.json(
+			"PATCH",
+			`/calendar-events/${calendarObjectId}?${calendarEventScopeQuery(calendarId, scope)}`,
+			patch,
+		);
 	}
 
 	/**
