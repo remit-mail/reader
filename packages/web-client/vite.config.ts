@@ -59,9 +59,8 @@ export default defineConfig({
 				target: `http://localhost:${process.env.VITE_PROXY_BACKEND_PORT ?? "5433"}`,
 				changeOrigin: true,
 			},
-			// A calendar feed is subscribed to by clients that cannot sign in, so
-			// its address is the one the token was minted for and carries no /api
-			// prefix. Forwarded unrewritten, the shape caddy serves it in.
+			// Calendar feed addresses carry no /api prefix, so they are forwarded
+			// unrewritten, the shape the reverse proxy serves them in.
 			"/feeds/calendar": {
 				target: `http://localhost:${process.env.VITE_PROXY_BACKEND_PORT ?? "5433"}`,
 				changeOrigin: true,

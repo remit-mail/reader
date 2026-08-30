@@ -54,20 +54,26 @@ test.describe("Subscribing to a calendar", () => {
 
 		await page.goto("/settings/calendars");
 
-		const create = page.getByRole("button", {
+		// The account holds more than one calendar and every card words its
+		// controls the same way, so each locator is scoped to this calendar's.
+		const card = page.getByRole("region", { name: calendar.displayName });
+
+		const create = card.getByRole("button", {
 			name: "Create subscription address",
 		});
 		await expect(create).toBeVisible({ timeout: 30_000 });
 		await create.click();
 
-		// Read the refusal before the address, so a write the server turned down
-		// fails with what it said rather than with an empty field.
-		await expect(page.getByRole("alert")).toHaveCount(0);
-
-		const address = page.getByLabel(
+		const address = card.getByLabel(
 			`Subscription address for ${calendar.displayName}`,
 		);
 		await expect(address).toBeVisible();
+
+		// Only once the address is on screen: a write the server turned down
+		// leaves a banner here, and asserting no alert before the PUT has answered
+		// passes on a card that has not done anything yet.
+		await expect(card.getByRole("alert")).toHaveCount(0);
+
 		const webcalUrl = await address.inputValue();
 		expect(webcalUrl).toMatch(/^webcal:\/\/.+\/feeds\/calendar\/.+\.ics$/);
 		expect(webcalUrl).toContain(new URL(baseUrl).host);
@@ -83,7 +89,7 @@ test.describe("Subscribing to a calendar", () => {
 		expect(ical).toContain("END:VCALENDAR");
 		expect(ical).toContain(SUMMARY);
 
-		await page.getByRole("button", { name: "Stop sharing" }).first().click();
+		await card.getByRole("button", { name: "Stop sharing" }).click();
 		await page
 			.getByRole("dialog")
 			.getByRole("button", { name: "Stop sharing" })
