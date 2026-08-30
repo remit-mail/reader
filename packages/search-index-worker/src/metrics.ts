@@ -1,5 +1,6 @@
 import { onScrape, registry } from "@remit/logger-lambda/metrics";
-import { Gauge } from "prom-client";
+import { Counter, Gauge } from "prom-client";
+import type { EmbeddingPlan } from "./adaptive-embedder.js";
 
 /**
  * Put the search index backlog (standalone-observability D3) on this process's
@@ -28,4 +29,48 @@ export const registerSearchIndexBacklog = (
 		registers: [registry],
 	});
 	onScrape(async () => backlogRows.set(await count()));
+};
+
+const BATCH_SIZE = "remit_search_index_embed_batch_size";
+const CONCURRENCY = "remit_search_index_embed_concurrency";
+const STALLS = "remit_search_index_memory_stalls_total";
+
+export interface AdaptiveEmbeddingMetrics {
+	recordPlan(plan: EmbeddingPlan): void;
+	recordStall(): void;
+}
+
+/**
+ * What the governor (#585) decided, for the same reason as the backlog above:
+ * the three series exist only in the process that computes them. Together they
+ * answer the question a slow first index raises — whether the worker is being
+ * held back by the box, and how often it had to stop outright.
+ */
+export const registerAdaptiveEmbedding = (
+	initial: EmbeddingPlan,
+): AdaptiveEmbeddingMetrics => {
+	for (const name of [BATCH_SIZE, CONCURRENCY, STALLS]) {
+		registry.removeSingleMetric(name);
+	}
+	const batchSize = new Gauge({
+		name: BATCH_SIZE,
+		help: "Chunk texts the search-index worker sends to the embedder per call.",
+		registers: [registry],
+	});
+	const concurrency = new Gauge({
+		name: CONCURRENCY,
+		help: "Embedding calls the search-index worker keeps in flight at once.",
+		registers: [registry],
+	});
+	const stalls = new Counter({
+		name: STALLS,
+		help: "Times indexing stopped and waited for the box to free memory.",
+		registers: [registry],
+	});
+	const recordPlan = (plan: EmbeddingPlan): void => {
+		batchSize.set(plan.batchSize);
+		concurrency.set(plan.concurrency);
+	};
+	recordPlan(initial);
+	return { recordPlan, recordStall: () => stalls.inc() };
 };

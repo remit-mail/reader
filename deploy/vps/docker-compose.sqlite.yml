@@ -382,6 +382,41 @@ services:
     environment:
       <<: *app-environment
       WORKER_HEARTBEAT_PREFIX: /data/heartbeat/search-index-worker
+      # This worker bounds its own resident memory against the box, because the
+      # heap ceiling above cannot: the embedding model, its inference arenas and
+      # its per-batch tensors are onnxruntime allocations outside V8's old space
+      # (#585). It starts at BATCH_MIN with one inference in flight and measures
+      # two numbers after every batch — the box's MemAvailable and its own RSS.
+      #
+      # It ramps towards BATCH_MAX and CONCURRENCY_MAX only after RAMP_AFTER
+      # consecutive readings leave more than HEADROOM_MB + RAMP_MARGIN_MB free
+      # AND keep its own RSS under RSS_CEILING_MB. The margin and the streak are
+      # what stop a box parked near the threshold from ramping and shedding on
+      # alternate batches. The RSS ceiling is the one a shed cannot walk back:
+      # onnxruntime sizes its arena to the widest batch it has ever run.
+      #
+      # Below HEADROOM_MB, or at RSS_CEILING_MB, it halves the batch, drops back
+      # to one inference and waits PAUSE_MS between batches. Below CRITICAL_MB it
+      # stops outright rather than pushing the host into swap, where the kernel
+      # picks its OOM victim by size and takes the backend instead of the
+      # indexer. That stop ends after STALL_MAX_MS and the message goes back on
+      # the queue, because the poller's visibility timeout is 300 s and a longer
+      # wait would have the record redelivered underneath it. Still deliberately
+      # no `mem_limit`: this slows a first index down, it never kills it.
+      #
+      # The defaults suit the 4 GB reference box. Raise HEADROOM_MB, BATCH_MAX
+      # and RSS_CEILING_MB together on a larger one to let a first index finish
+      # sooner. STALL_MAX_MS must stay below the 300 s visibility timeout.
+      SEARCH_INDEX_EMBED_BATCH_MIN: ${SEARCH_INDEX_EMBED_BATCH_MIN:-4}
+      SEARCH_INDEX_EMBED_BATCH_MAX: ${SEARCH_INDEX_EMBED_BATCH_MAX:-32}
+      SEARCH_INDEX_EMBED_CONCURRENCY_MAX: ${SEARCH_INDEX_EMBED_CONCURRENCY_MAX:-2}
+      SEARCH_INDEX_EMBED_RAMP_AFTER: ${SEARCH_INDEX_EMBED_RAMP_AFTER:-3}
+      SEARCH_INDEX_MEMORY_HEADROOM_MB: ${SEARCH_INDEX_MEMORY_HEADROOM_MB:-768}
+      SEARCH_INDEX_MEMORY_RAMP_MARGIN_MB: ${SEARCH_INDEX_MEMORY_RAMP_MARGIN_MB:-256}
+      SEARCH_INDEX_MEMORY_CRITICAL_MB: ${SEARCH_INDEX_MEMORY_CRITICAL_MB:-384}
+      SEARCH_INDEX_RSS_CEILING_MB: ${SEARCH_INDEX_RSS_CEILING_MB:-1536}
+      SEARCH_INDEX_MEMORY_PAUSE_MS: ${SEARCH_INDEX_MEMORY_PAUSE_MS:-2000}
+      SEARCH_INDEX_MEMORY_STALL_MAX_MS: ${SEARCH_INDEX_MEMORY_STALL_MAX_MS:-240000}
     volumes:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite
