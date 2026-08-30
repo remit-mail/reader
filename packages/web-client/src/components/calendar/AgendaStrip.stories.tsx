@@ -8,6 +8,7 @@ import {
 } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
+import { expect, within } from "storybook/test";
 import { freeStretchesByDate } from "@/hooks/calendar";
 import { AgendaStrip } from "./AgendaStrip";
 
@@ -148,6 +149,7 @@ function Strip({
 	loading,
 	error,
 	busy,
+	atCap,
 }: {
 	events: CalendarEventData[];
 	initialDensity: Density;
@@ -156,6 +158,8 @@ function Strip({
 	error?: unknown;
 	/** Busy time the strip is not drawing, as `/calendar-free-busy` returns it. */
 	busy: { start: string; end: string }[];
+	/** The run has grown as far as scrolling takes it, at one end or both. */
+	atCap?: boolean;
 }) {
 	const [density] = useState<Density>(initialDensity);
 	const [selected, setSelected] = useState("");
@@ -185,6 +189,10 @@ function Strip({
 			onGoToDate={() => undefined}
 			onReachStart={() => undefined}
 			onReachEnd={() => undefined}
+			atStartCap={atCap}
+			atEndCap={atCap}
+			onLoadEarlier={() => undefined}
+			onLoadLater={() => undefined}
 			onVisibleDayChange={() => undefined}
 		/>
 	);
@@ -251,6 +259,26 @@ export const BusyOnACalendarNotDrawn: Story = {
 				end: `2026-06-11T16:00:00${OFFSET}`,
 			},
 		],
+	},
+};
+
+/**
+ * The run has grown as far as scrolling takes it, and stops there rather than
+ * fetching its way across years nobody asked for. A sparse diary draws shorter
+ * than the distance the strip fetches at, so an end measured off the content
+ * alone is reached on the first layout pass and never stops being reached —
+ * which is why the cap says so and hands the reader the next stretch instead.
+ */
+export const AtTheCap: Story = {
+	args: { atCap: true },
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			await canvas.findByRole("button", { name: "Show earlier days" }),
+		).toBeVisible();
+		await expect(
+			canvas.getByRole("button", { name: "Show later days" }),
+		).toBeVisible();
 	},
 };
 
