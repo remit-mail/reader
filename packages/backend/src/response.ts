@@ -7,6 +7,69 @@ import {
 	resolveAllowedOrigin,
 } from "./request-context.js";
 
+const RAW_API_RESPONSE: unique symbol = Symbol("remit.rawApiResponse");
+
+/**
+ * A response whose bytes are not JSON — an iCalendar feed, and whatever later
+ * joins it.
+ *
+ * Every other handler returns a plain object and lets this module decide the
+ * status, the content type and the serialization. That is the right default and
+ * stays the default; a handler that has to own its own media type says so with
+ * `rawApiResponse` rather than by returning a shape this one has to guess at.
+ * The CORS and correlation headers are still added here, so a raw response is
+ * not a way around them.
+ */
+export interface RawApiResponse {
+	statusCode: number;
+	headers: Record<string, string>;
+	body: string;
+}
+
+type MarkedRawApiResponse = RawApiResponse & {
+	readonly [RAW_API_RESPONSE]: true;
+};
+
+export const rawApiResponse = (
+	response: RawApiResponse,
+): MarkedRawApiResponse =>
+	Object.assign(response, { [RAW_API_RESPONSE]: true as const });
+
+const isRawApiResponse = (
+	body: Record<string, unknown>,
+): body is MarkedRawApiResponse & Record<string, unknown> =>
+	RAW_API_RESPONSE in body;
+
+/**
+ * The headers every response carries whatever its body is: the CORS grant the
+ * browser needs, and the id the request's log lines are already tagged with.
+ * Returning that id is what makes a bug report's "correlation id" resolve to a
+ * server-side line; the browser can only read a non-safelisted header when it
+ * is exposed.
+ */
+const envelopeHeaders = (): Record<string, string> => {
+	const allowOrigin = resolveAllowedOrigin(getRequestOrigin());
+
+	const headers: Record<string, string> = {
+		"Access-Control-Allow-Origin": allowOrigin,
+		"Access-Control-Allow-Headers": "Authorization,Content-Type",
+		"Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+		Vary: "Origin",
+	};
+
+	if (allowOrigin !== "*") {
+		headers["Access-Control-Allow-Credentials"] = "true";
+	}
+
+	const correlationId = getRequestCorrelationId();
+	if (correlationId) {
+		headers["x-correlation-id"] = correlationId;
+		headers["Access-Control-Expose-Headers"] = "x-correlation-id";
+	}
+
+	return headers;
+};
+
 export const formatResponse = (
 	body: Record<string, unknown>,
 	statusCode = 200,
@@ -15,42 +78,26 @@ export const formatResponse = (
 		statusCode = body.statusCode;
 	}
 
+	if (isRawApiResponse(body)) {
+		logger.debug({ statusCode: body.statusCode }, "response");
+		return {
+			statusCode: body.statusCode,
+			headers: { ...envelopeHeaders(), ...body.headers },
+			body: body.body,
+		};
+	}
+
 	if ("body" in body && body.body && typeof body.body === "object") {
 		body = body.body as Record<string, unknown>;
 	}
 
 	logger.debug({ statusCode }, "response");
 
-	const allowOrigin = resolveAllowedOrigin(getRequestOrigin());
-
-	const corsHeaders: Record<string, string> = {
-		"Access-Control-Allow-Origin": allowOrigin,
-		"Access-Control-Allow-Headers": "Authorization,Content-Type",
-		"Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-		Vary: "Origin",
-	};
-
-	if (allowOrigin !== "*") {
-		corsHeaders["Access-Control-Allow-Credentials"] = "true";
-	}
-
-	// The id the request's log lines are already tagged with. Returning it is
-	// what makes a bug report's "correlation id" resolve to a server-side line;
-	// the browser can only read a non-safelisted header when it is exposed.
-	const correlationId = getRequestCorrelationId();
-	const correlationHeaders: Record<string, string> = correlationId
-		? {
-				"x-correlation-id": correlationId,
-				"Access-Control-Expose-Headers": "x-correlation-id",
-			}
-		: {};
-
 	return {
 		statusCode: statusCode,
 		headers: {
 			"Content-Type": "application/json",
-			...corsHeaders,
-			...correlationHeaders,
+			...envelopeHeaders(),
 		},
 		body: JSON.stringify(body),
 	};

@@ -6,6 +6,7 @@ import type {
 	IAddressRepository,
 	ICalendarCollectionRepository,
 	ICalendarEventIndexRepository,
+	ICalendarFeedTokenRepository,
 	ICalendarObjectRepository,
 	ICalendarSuggestionRepository,
 	ICalendarUnitOfWork,
@@ -130,6 +131,7 @@ export interface RemitClient {
 	calendarCollection: ICalendarCollectionRepository;
 	calendarObject: ICalendarObjectRepository;
 	calendarEventIndex: ICalendarEventIndexRepository;
+	calendarFeedToken: ICalendarFeedTokenRepository;
 	calendarSuggestion: ICalendarSuggestionRepository;
 	calendarUnitOfWork: ICalendarUnitOfWork;
 
@@ -225,6 +227,7 @@ export interface RemitClientRepositories {
 	calendarCollection: ICalendarCollectionRepository;
 	calendarObject: ICalendarObjectRepository;
 	calendarEventIndex: ICalendarEventIndexRepository;
+	calendarFeedToken: ICalendarFeedTokenRepository;
 	calendarSuggestion: ICalendarSuggestionRepository;
 	calendarUnitOfWork: ICalendarUnitOfWork;
 	unitOfWork?: IUnitOfWork;
@@ -466,6 +469,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		calendarCollection: repositories.calendarCollection,
 		calendarObject: repositories.calendarObject,
 		calendarEventIndex: repositories.calendarEventIndex,
+		calendarFeedToken: repositories.calendarFeedToken,
 		calendarSuggestion: repositories.calendarSuggestion,
 		calendarUnitOfWork: repositories.calendarUnitOfWork,
 		unitOfWork: repositories.unitOfWork,

@@ -6,6 +6,7 @@ import type { Db } from "../db.js";
 import { runInTransaction } from "../tx.js";
 import { CalendarCollectionRepo } from "./calendar-collection.js";
 import { CalendarEventIndexRepo } from "./calendar-event-index.js";
+import { CalendarFeedTokenRepo } from "./calendar-feed-token.js";
 import { CalendarObjectRepo } from "./calendar-object.js";
 import { CalendarSuggestionRepo } from "./calendar-suggestion.js";
 
@@ -23,6 +24,7 @@ export class DrizzleCalendarUnitOfWork implements ICalendarUnitOfWork {
 				calendarObject: new CalendarObjectRepo(tx as never),
 				calendarEventIndex: new CalendarEventIndexRepo(tx as never),
 				calendarSuggestion: new CalendarSuggestionRepo(tx as never),
+				calendarFeedToken: new CalendarFeedTokenRepo(tx as never),
 			}),
 		);
 	}

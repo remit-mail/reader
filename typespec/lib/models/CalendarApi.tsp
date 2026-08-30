@@ -218,3 +218,87 @@ model CalendarFreeBusySpan {
 model CalendarFreeBusyResponse {
   items: CalendarFreeBusySpan[];
 }
+
+// ============================================
+// Feeds (issue #1067)
+// ============================================
+
+@doc("""
+  A calendar's secret subscription address, with the token in the clear.
+  
+  Returned by the write that mints it and nowhere else. Only the hash is
+  stored, so a client that loses this value rotates the feed rather than
+  reading it back — which is also what makes the read side safe to leave
+  tokenless.
+  """)
+model CalendarFeedResponse {
+  @doc("Collection this address serves")
+  calendarId: UUID;
+
+  @doc("The token itself, base64url over 32 random bytes. It is the whole credential: the path `/feeds/calendar/{feedToken}.ics` needs nothing else, which is what lets a client that cannot sign in subscribe.")
+  feedToken: String512;
+
+  @doc("When this calendar first got a feed address")
+  createdAt: int64;
+
+  @doc("When the token was last replaced. `0` means it is still the first one.")
+  rotatedAt: int64;
+}
+
+@doc("Whether a calendar has a feed address, and how old it is. The token is deliberately absent — it exists in the clear once, in the answer to the write that minted it.")
+model CalendarFeedStateResponse {
+  @doc("Collection this address serves")
+  calendarId: UUID;
+
+  @doc("When this calendar first got a feed address")
+  createdAt: int64;
+
+  @doc("When the token was last replaced. `0` means it is still the first one.")
+  rotatedAt: int64;
+}
+
+@doc("""
+  A whole calendar as iCalendar text, for a client that subscribed to the
+  secret address.
+  
+  Recurring events are the stored masters with their RRULE, not an expansion:
+  a subscriber renders its own occurrences and expects to keep doing so
+  indefinitely, and an expansion would silently end at whatever horizon this
+  server chose.
+  
+  The calendar's name travels as the `X-WR-CALNAME` property inside the
+  VCALENDAR, which is where Apple Calendar, Google Calendar and Thunderbird
+  read it from.
+  """)
+model CalendarFeedIcalResponse {
+  @header contentType: "text/calendar; charset=utf-8";
+
+  @doc("Strong entity tag over the bytes being served. A subscriber polls often and sends it back as `If-None-Match`.")
+  @header("ETag")
+  etag: string;
+
+  @doc("HTTP-date the collection was last written, which is stamped by every event write and every event delete. The collection's own timestamp rather than its newest event: deleting the newest event leaves every survivor older than the change, and a validator that moved backwards would tell a subscriber its stale copy is current.")
+  @header("Last-Modified")
+  lastModified: string;
+
+  @body icalData: string;
+}
+
+@doc("The subscriber already holds these bytes. Answered when `If-None-Match` carries the tag the feed would serve, or when `If-Modified-Since` is not older than the calendar's last change.")
+model CalendarFeedNotModified {
+  @statusCode statusCode: 304;
+
+  @header("ETag")
+  etag: string;
+
+  @doc("The same validator a 200 would have carried, so a subscriber that polls by date can keep doing so")
+  @header("Last-Modified")
+  lastModified: string;
+}
+
+@doc("No feed answers to this address. Unknown, revoked and malformed tokens are one answer with one body, so a caller learns nothing about which of the three it sent.")
+model CalendarFeedNotFound {
+  @statusCode statusCode: 404;
+  @header contentType: "text/plain; charset=utf-8";
+  @body message: string;
+}

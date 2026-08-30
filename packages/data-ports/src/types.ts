@@ -8,6 +8,7 @@ import type {
 	BodyPartStorageSchema,
 	CalendarCollectionSchema,
 	CalendarEventIndexSchema,
+	CalendarFeedTokenSchema,
 	CalendarObjectSchema,
 	CalendarSuggestionSchema,
 	ConfigImportSchema,
@@ -582,6 +583,16 @@ export type CreateCalendarCollectionInput = Omit<
 
 export type UpdateCalendarCollectionInput = Partial<
 	Pick<CalendarCollectionItem, "displayName" | "color" | "timezone">
+>;
+
+export type CalendarFeedTokenItem = z.infer<typeof CalendarFeedTokenSchema>;
+
+// `feedTokenId` is derived from `calendarId`, which is what makes one active
+// token per calendar structural rather than enforced. `rotatedAt` is the
+// repository's to stamp: only it can tell a mint from a replacement.
+export type PutCalendarFeedTokenInput = Omit<
+	CalendarFeedTokenItem,
+	"feedTokenId" | "rotatedAt" | "createdAt" | "updatedAt"
 >;
 
 /**

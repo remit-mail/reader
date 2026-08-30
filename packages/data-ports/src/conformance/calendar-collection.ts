@@ -204,6 +204,26 @@ export function calendarCollectionRepositoryConformance(
 			assert.equal(reread.syncSequence, 5);
 		});
 
+		// Every write and every delete of an object in the collection goes through
+		// this bump, which makes the collection the one timestamp that only moves
+		// forward — the calendar feed serves it as Last-Modified, and a validator
+		// that moved backwards on a delete would tell a subscriber its stale copy
+		// is still good.
+		test("bumpSyncSequence carries the collection's modification time forward", async () => {
+			const accountConfigId = harness.makeId();
+			const calendar = await repo.create({
+				accountConfigId,
+				urlSegment: "touched",
+				displayName: "Touched",
+			});
+
+			await repo.bumpSyncSequence(accountConfigId, calendar.calendarId);
+			const bumped = await repo.get(accountConfigId, calendar.calendarId);
+
+			assert.ok(bumped.updatedAt >= calendar.updatedAt);
+			assert.equal(bumped.createdAt, calendar.createdAt);
+		});
+
 		test("bumpSyncSequence throws a not-found error for a missing collection", async () => {
 			await assert.rejects(
 				repo.bumpSyncSequence(harness.makeId(), harness.makeId()),

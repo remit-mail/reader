@@ -7,9 +7,19 @@ import type { Db } from "./db.js";
 //
 // better-sqlite3's native transaction runner rejects a callback that returns a
 // promise, and the repos' write sets are async, so drizzle's own
-// `db.transaction()` cannot be used. The callback is bracketed with a SAVEPOINT
-// instead — a savepoint opens a transaction when none is active and commits
-// when the outermost one is released.
+// `db.transaction()` cannot be used. A top-level unit is bracketed with
+// `BEGIN IMMEDIATE` / `COMMIT` instead, and a nested one with a SAVEPOINT.
+//
+// IMMEDIATE, not the deferred transaction a bare `BEGIN` or `SAVEPOINT` opens.
+// A deferred transaction takes its write lock at its first write, and a unit
+// that reads before it writes (every unit that checks a row before updating it)
+// has by then taken a read snapshot. If another process commits in between,
+// SQLite refuses the upgrade with SQLITE_BUSY_SNAPSHOT — and that refusal is
+// immediate, because `busy_timeout` cannot wait out a snapshot that is already
+// stale. Four processes write this file (RFC 036 D3), so the gap is real: it
+// answered a calendar write 500 while the imap-worker was syncing. Taking the
+// write lock at BEGIN closes it — an IMMEDIATE that meets another writer waits
+// out the `busy_timeout` and then proceeds, which is what that timeout is for.
 //
 // All writers on this backend share one better-sqlite3 connection (RFC 036 D3),
 // and every query runs synchronously, but an async callback still yields the
@@ -61,6 +71,27 @@ async function runSqliteSavepoint<TSchema extends Record<string, unknown>, T>(
 	}
 }
 
+async function runSqliteImmediate<TSchema extends Record<string, unknown>, T>(
+	db: Db<TSchema>,
+	fn: (tx: Db<TSchema>) => Promise<T>,
+): Promise<T> {
+	const runner = db as unknown as { run: (query: SQL) => unknown };
+	runner.run(sql.raw("BEGIN IMMEDIATE"));
+	try {
+		const result = await fn(db);
+		runner.run(sql.raw("COMMIT"));
+		return result;
+	} catch (error) {
+		try {
+			runner.run(sql.raw("ROLLBACK"));
+		} catch {
+			// A failed rollback must not mask the error that caused it; surface
+			// the original below.
+		}
+		throw error;
+	}
+}
+
 export async function runInTransaction<
 	TSchema extends Record<string, unknown>,
 	T,
@@ -72,7 +103,7 @@ export async function runInTransaction<
 	}
 
 	return serializeSqlite(() =>
-		inSqliteTx.run(true, () => runSqliteSavepoint(db, fn)),
+		inSqliteTx.run(true, () => runSqliteImmediate(db, fn)),
 	);
 }
 

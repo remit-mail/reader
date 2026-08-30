@@ -6,6 +6,7 @@ export type { IAccountSettingRepository } from "./interfaces/account-setting.js"
 export type { IAddressRepository } from "./interfaces/address.js";
 export type { ICalendarCollectionRepository } from "./interfaces/calendar-collection.js";
 export type { ICalendarEventIndexRepository } from "./interfaces/calendar-event-index.js";
+export type { ICalendarFeedTokenRepository } from "./interfaces/calendar-feed-token.js";
 export type { ICalendarObjectRepository } from "./interfaces/calendar-object.js";
 export type {
 	ICalendarSuggestionRepository,
@@ -75,6 +76,7 @@ export type {
 	BodyPartUpsertInput,
 	CalendarCollectionItem,
 	CalendarEventIndexItem,
+	CalendarFeedTokenItem,
 	CalendarObjectItem,
 	CalendarOccurrenceInput,
 	CalendarSuggestionItem,
@@ -122,6 +124,7 @@ export type {
 	OrganizeJobRequestItem,
 	OutboxAttachmentItem,
 	OutboxMessageItem,
+	PutCalendarFeedTokenInput,
 	PutCalendarObjectInput,
 	PutCalendarSuggestionInput,
 	PutMessageFlagPushInput,

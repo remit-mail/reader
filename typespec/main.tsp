@@ -337,6 +337,74 @@ namespace RemitApi {
     op deleteCalendar(
       @path calendarId: UUID,
     ): CalendarNoContent | ValidationError | NotFoundError;
+
+    @doc("""
+      Read whether this calendar has a feed address. Absent (404) until one is
+      minted. The token is not here: it is stored as a hash, so the only
+      moment it exists in the clear is the answer to the write below.
+      """)
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    @route("/feed")
+    op getCalendarFeed(
+      @path calendarId: UUID,
+    ): CalendarFeedStateResponse | NotFoundError;
+
+    @doc("""
+      Mint the calendar's feed address, or replace the one it has, and answer
+      with the token in the clear. Idempotent in address rather than in value:
+      one calendar holds one token, so a second call rotates — the previous
+      URL stops resolving, which is how a subscription handed to the wrong
+      person is taken back.
+      
+      This is the only response that ever carries the plaintext. A client that
+      does not keep it rotates again.
+      """)
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @put
+    @route("/feed")
+    op putCalendarFeed(
+      @path calendarId: UUID,
+    ): CalendarFeedResponse | NotFoundError;
+
+    @doc("Revoke the calendar's feed address. Every subscribed client starts getting 404 on its next poll. Answered 404 when the calendar has no feed, so a revoke is never reported as having taken something away that was not there.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @delete
+    @route("/feed")
+    op revokeCalendarFeed(
+      @path calendarId: UUID,
+    ): CalendarNoContent | NotFoundError;
+  }
+
+  @route("/feeds/calendar")
+  namespace CalendarFeedOperations {
+    @doc("""
+      Serve a calendar as iCalendar text to whoever holds its secret address
+      (issue #1067).
+      
+      Outside the session-auth surface on purpose: Apple Calendar, Google
+      Calendar, Outlook and Thunderbird subscribe to a URL and never sign in,
+      so the token in the path is the credential and the only one. It is
+      compared against the stored hash rather than looked up in the clear, and
+      an unknown, revoked or malformed token is the same 404 with the same body
+      — a subscriber learns whether it still has access, and nothing else.
+      """)
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @useAuth(NoAuth)
+    @get
+    @route("/{feedToken}.ics")
+    op getCalendarFeedIcal(
+      @doc("The calendar's secret token, base64url. Unconstrained on purpose: a length or pattern here answers an oversize or malformed address with a distinguishable 400, and error-logs the path it was refused for. The handler checks the shape itself and answers the same 404 an unknown token gets.")
+      @path
+      feedToken: string,
+
+      @header("If-None-Match")
+      ifNoneMatch?: string,
+
+      @doc("HTTP-date a subscriber last saw the calendar at. Ignored when `If-None-Match` also arrives (RFC 9110 13.2.2), and compared at whole seconds, which is the resolution the `Last-Modified` it came from has.")
+      @header("If-Modified-Since")
+      ifModifiedSince?: string,
+    ): CalendarFeedIcalResponse | CalendarFeedNotModified | CalendarFeedNotFound;
   }
 
   @route("/calendar-events")

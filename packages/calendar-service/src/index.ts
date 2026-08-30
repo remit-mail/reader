@@ -28,6 +28,22 @@ export {
 	expandCalendarWindow,
 } from "./expand.js";
 export {
+	buildCalendarFeed,
+	CALENDAR_FEED_PATH_PREFIX,
+	CALENDAR_FEED_PATH_SUFFIX,
+	CALENDAR_FEED_TOKEN_BYTES,
+	type CalendarFeed,
+	type CalendarFeedSecret,
+	calendarFeedIsUnchanged,
+	calendarFeedIsUnmodifiedSince,
+	calendarFeedPath,
+	hashCalendarFeedToken,
+	isCalendarFeedToken,
+	mintCalendarFeedToken,
+	readCalendarFeedToken,
+	redactCalendarFeedPath,
+} from "./feed.js";
+export {
 	type ParsedCalendar,
 	parseCalendar,
 	serializeCalendar,
