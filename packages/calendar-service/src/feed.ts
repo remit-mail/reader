@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type {
 	CalendarCollectionItem,
 	CalendarObjectItem,
@@ -50,23 +50,6 @@ export const mintCalendarFeedToken = (): CalendarFeedSecret => {
 export const isCalendarFeedToken = (token: string): boolean =>
 	TOKEN_SHAPE.test(token);
 
-/**
- * Compares two hex digests without leaking where they first differ.
- *
- * The row is found by an indexed lookup on the hash, which is not itself
- * constant-time, but the decision to serve is taken here: a near-miss that
- * somehow reached a row must not be distinguishable by timing from a miss.
- */
-export const calendarFeedTokenMatches = (
-	presentedHash: string,
-	storedHash: string,
-): boolean => {
-	const presented = Buffer.from(presentedHash, "utf8");
-	const stored = Buffer.from(storedHash, "utf8");
-	if (presented.length !== stored.length) return false;
-	return timingSafeEqual(presented, stored);
-};
-
 export const calendarFeedPath = (token: string): string =>
 	`${CALENDAR_FEED_PATH_PREFIX}${token}${CALENDAR_FEED_PATH_SUFFIX}`;
 
@@ -85,11 +68,22 @@ export const readCalendarFeedToken = (path: string): string | null => {
 	return token;
 };
 
+/**
+ * The feed path with its token taken out, for a log line or a metric label.
+ *
+ * The token is the whole credential, so a path that carries one is not a field
+ * that can be recorded. Redacted rather than dropped: which route was served is
+ * what an operator reads a log for, and a blank path loses that too.
+ */
+export const redactCalendarFeedPath = (path: string): string =>
+	readCalendarFeedToken(path) === null
+		? path
+		: `${CALENDAR_FEED_PATH_PREFIX}<redacted>${CALENDAR_FEED_PATH_SUFFIX}`;
+
 /** The bytes a feed serves, and what a conditional request needs to skip them. */
 export interface CalendarFeed {
 	icalData: string;
 	etag: string;
-	lastModifiedAt: number;
 }
 
 /**
@@ -140,12 +134,7 @@ export const buildCalendarFeed = (
 	const icalData = serialized.endsWith("\r\n")
 		? serialized
 		: `${serialized}\r\n`;
-	const lastModifiedAt = objects.reduce(
-		(latest, object) => Math.max(latest, object.updatedAt),
-		collection.updatedAt,
-	);
-
-	return { icalData, etag: computeEtag(icalData), lastModifiedAt };
+	return { icalData, etag: computeEtag(icalData) };
 };
 
 /**
@@ -168,4 +157,26 @@ export const calendarFeedIsUnchanged = (
 			candidate.trim().replace(/^W\//, "").replace(/^"|"$/g, ""),
 		)
 		.includes(etag);
+};
+
+/**
+ * Whether the calendar has stood still since the date an `If-Modified-Since`
+ * carries.
+ *
+ * Compared at whole seconds, which is the resolution an HTTP-date has: a
+ * `Last-Modified` served from a millisecond timestamp is rounded down on the
+ * way out, and comparing the unrounded value against what comes back declares
+ * every calendar modified within the second it was last written.
+ *
+ * An unreadable date is not a condition (RFC 9110 13.1.3) — the full calendar
+ * is served rather than a 304 nobody asked for.
+ */
+export const calendarFeedIsUnmodifiedSince = (
+	ifModifiedSince: string | undefined,
+	lastModifiedAt: number,
+): boolean => {
+	if (ifModifiedSince === undefined || ifModifiedSince === "") return false;
+	const since = Date.parse(ifModifiedSince);
+	if (Number.isNaN(since)) return false;
+	return Math.floor(lastModifiedAt / 1000) * 1000 <= since;
 };

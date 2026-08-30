@@ -32,6 +32,7 @@ interface Requested {
 	sub?: string;
 	body?: Record<string, unknown>;
 	headers?: Record<string, string>;
+	query?: Record<string, string>;
 }
 
 const request = async ({
@@ -40,12 +41,13 @@ const request = async ({
 	sub,
 	body,
 	headers,
+	query,
 }: Requested): Promise<APIGatewayProxyResult> => {
 	const event = {
 		httpMethod: method,
 		path,
 		headers: headers ?? {},
-		queryStringParameters: null,
+		queryStringParameters: query ?? null,
 		body: body === undefined ? null : JSON.stringify(body),
 		requestContext: sub ? { authorizer: { claims: { sub } } } : {},
 	} as unknown as APIGatewayProxyEvent;
@@ -101,6 +103,16 @@ class Subscriber {
 		});
 		assert.equal(created.statusCode, 200, created.body);
 		return json(created);
+	}
+
+	async deleteEvent(calendarId: string, calendarObjectId: string) {
+		const removed = await request({
+			method: "DELETE",
+			path: `/calendar-events/${calendarObjectId}`,
+			sub: this.sub,
+			query: { calendarId },
+		});
+		assert.equal(removed.statusCode, 204, removed.body);
 	}
 
 	async mintFeed(calendarId: string): Promise<string> {
@@ -194,6 +206,11 @@ describe("the feed a subscriber polls", () => {
 		assert.equal(unchanged.statusCode, 304);
 		assert.equal(unchanged.body, "");
 		assert.equal(headerOf(unchanged, "etag"), etag);
+		assert.equal(
+			headerOf(unchanged, "last-modified"),
+			headerOf(first, "last-modified"),
+			"a 304 carries the validators a 200 would have carried",
+		);
 
 		await owner.event(calendarId, "Retro");
 		const changed = await fetchFeed(feedToken, { "If-None-Match": etag });
@@ -205,6 +222,105 @@ describe("the feed a subscriber polls", () => {
 		assert.notEqual(headerOf(changed, "etag"), etag);
 	});
 
+	it("does not serve the feed at an address the token only starts", async () => {
+		// The route is built by substituting the token into the literal path, which
+		// leaves the dot of ".ics" matching any character, so /feeds/calendar/
+		// <token>Xics reaches the feed operation with the token intact. Asserted at
+		// both layers that refuse it: the public-route gate does not recognise the
+		// address, and the handler re-derives the token from the raw path rather
+		// than trusting what the router captured — so a caller who does hold a
+		// session gets the same 404 rather than somebody's calendar.
+		const owner = new Subscriber();
+		const calendarId = await owner.calendar();
+		await owner.event(calendarId, "Stand-up");
+		const feedToken = await owner.mintFeed(calendarId);
+		const nearlyPath = `/feeds/calendar/${feedToken}Xics`;
+
+		const served = await fetchFeed(feedToken);
+		const unauthenticated = await request({ method: "GET", path: nearlyPath });
+		const authenticated = await request({
+			method: "GET",
+			path: nearlyPath,
+			sub: owner.sub,
+		});
+
+		assert.equal(served.statusCode, 200, served.body);
+		assert.equal(unauthenticated.statusCode, 401);
+		assert.equal(authenticated.statusCode, 404);
+		for (const response of [unauthenticated, authenticated]) {
+			assert.equal(
+				response.body.includes("BEGIN:VCALENDAR"),
+				false,
+				"an address that is not the one handed out must not serve the calendar",
+			);
+		}
+	});
+
+	it("answers an oversize token the same 404 as an unknown one", async () => {
+		// Not a 400: a length the spec enforces makes an oversize address
+		// distinguishable from a wrong one, and error-logs the path it refused.
+		const unknown = await fetchFeed("z".repeat(43));
+		const oversize = await fetchFeed("z".repeat(600));
+
+		assert.equal(oversize.statusCode, 404);
+		assert.equal(oversize.body, unknown.body);
+		assert.equal(
+			headerOf(oversize, "content-type"),
+			headerOf(unknown, "content-type"),
+		);
+	});
+
+	it("keeps Last-Modified moving forward when an event is deleted", async () => {
+		// The newest surviving event is not when the calendar last changed: deleting
+		// the newest one leaves every survivor older than the delete, and a
+		// validator that moved backwards would tell a subscriber its stale copy is
+		// still current.
+		const owner = new Subscriber();
+		const calendarId = await owner.calendar();
+		await owner.event(calendarId, "Stand-up");
+		const retro = await owner.event(calendarId, "Retro");
+		const feedToken = await owner.mintFeed(calendarId);
+		const full = await fetchFeed(feedToken);
+		const before = Date.parse(headerOf(full, "last-modified") as string);
+
+		await owner.deleteEvent(calendarId, retro.calendarObjectId as string);
+		const shrunk = await fetchFeed(feedToken);
+
+		assert.equal(shrunk.statusCode, 200, shrunk.body);
+		assert.equal(shrunk.body.includes("SUMMARY:Retro"), false);
+		assert.ok(
+			Date.parse(headerOf(shrunk, "last-modified") as string) >= before,
+			"the calendar changed, so its modification time cannot have gone back",
+		);
+	});
+
+	it("answers 304 to the date it just served, and lets the tag override it", async () => {
+		const owner = new Subscriber();
+		const calendarId = await owner.calendar();
+		await owner.event(calendarId, "Stand-up");
+		const feedToken = await owner.mintFeed(calendarId);
+		const first = await fetchFeed(feedToken);
+		const lastModified = headerOf(first, "last-modified") as string;
+
+		const unchanged = await fetchFeed(feedToken, {
+			"If-Modified-Since": lastModified,
+		});
+
+		assert.equal(unchanged.statusCode, 304);
+		assert.equal(headerOf(unchanged, "etag"), headerOf(first, "etag"));
+		assert.equal(headerOf(unchanged, "last-modified"), lastModified);
+
+		// RFC 9110 13.2.2: a tag that arrives is the whole condition, and the date
+		// is not consulted. Sending a tag nobody served alongside a date that would
+		// have earned a 304 has to re-serve the calendar.
+		const overridden = await fetchFeed(feedToken, {
+			"If-None-Match": '"not-the-tag"',
+			"If-Modified-Since": lastModified,
+		});
+
+		assert.equal(overridden.statusCode, 200);
+		assert.match(overridden.body, /SUMMARY:Stand-up/);
+	});
 	it("answers the same plain 404 to an unknown and to a malformed token", async () => {
 		const owner = new Subscriber();
 		const calendarId = await owner.calendar();

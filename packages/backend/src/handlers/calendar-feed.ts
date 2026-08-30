@@ -5,12 +5,14 @@ import type {
 import {
 	buildCalendarFeed,
 	calendarFeedIsUnchanged,
-	calendarFeedTokenMatches,
+	calendarFeedIsUnmodifiedSince,
 	hashCalendarFeedToken,
 	isCalendarFeedToken,
 	mintCalendarFeedToken,
+	readCalendarFeedToken,
 } from "@remit/calendar-service";
 import type { CalendarFeedTokenItem } from "@remit/data-ports";
+import { NotFoundError } from "@remit/data-ports/errors";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import { type RawApiResponse, rawApiResponse } from "../response.js";
@@ -136,11 +138,16 @@ const feedNotFound = (): RawApiResponse =>
 /**
  * Serves a calendar to whoever holds its secret address.
  *
- * The token is the whole credential, so the checks run in the order that leaks
- * least: a token that cannot be one is refused before anything is hashed, the
- * digest of what arrived is what the store is asked about, and the row it hands
- * back is confirmed against that digest in constant time before a single event
- * is read.
+ * The token is the whole credential, so a value that cannot be one is refused
+ * before anything is hashed, and the digest of what arrived is what the store is
+ * asked about — the plaintext is never compared against a stored one because
+ * none is stored.
+ *
+ * `Last-Modified` is the collection's own timestamp, not the newest event in
+ * it: an event deleted from a calendar leaves every survivor older than the
+ * change, and a validator that moves backwards tells a subscriber its cached
+ * copy is still good. The collection is stamped by the same sequence bump every
+ * write and every delete goes through, so it only ever moves forward.
  *
  * A row whose collection is gone is the same 404. It should not exist — a
  * calendar's delete takes its token with it, in one transaction — and serving a
@@ -149,33 +156,46 @@ const feedNotFound = (): RawApiResponse =>
 export const serveCalendarFeed = async (
 	deps: CalendarDeps,
 	feedToken: string,
-	ifNoneMatch: string | undefined,
+	conditions: {
+		ifNoneMatch: string | undefined;
+		ifModifiedSince: string | undefined;
+	},
 ): Promise<RawApiResponse> => {
 	if (!isCalendarFeedToken(feedToken)) return feedNotFound();
 
-	const presentedHash = hashCalendarFeedToken(feedToken);
-	const stored = await deps.calendarFeedToken.findByTokenHash(presentedHash);
+	const stored = await deps.calendarFeedToken.findByTokenHash(
+		hashCalendarFeedToken(feedToken),
+	);
 	if (!stored) return feedNotFound();
-	if (!calendarFeedTokenMatches(presentedHash, stored.tokenHash)) {
-		return feedNotFound();
-	}
 
-	const collections = await deps.calendarCollection.listByAccountConfig(
-		stored.accountConfigId,
-	);
-	const collection = collections.find(
-		(candidate) => candidate.calendarId === stored.calendarId,
-	);
+	const collection = await deps.calendarCollection
+		.get(stored.accountConfigId, stored.calendarId)
+		.catch((error: unknown) => {
+			if (error instanceof NotFoundError) return null;
+			throw error;
+		});
 	if (!collection) return feedNotFound();
 
 	const objects = await deps.calendarObject.listByCalendar(stored.calendarId);
 	const feed = buildCalendarFeed(collection, objects);
 	const etag = `"${feed.etag}"`;
+	const lastModified = new Date(collection.updatedAt).toUTCString();
 
-	if (calendarFeedIsUnchanged(ifNoneMatch, feed.etag)) {
+	// `If-None-Match` wins outright when both arrive (RFC 9110 13.2.2): the tag
+	// is exact where the date is truncated to the second, so honouring the date
+	// as well could only turn a 200 the tag asked for into a 304.
+	const unchanged =
+		conditions.ifNoneMatch === undefined
+			? calendarFeedIsUnmodifiedSince(
+					conditions.ifModifiedSince,
+					collection.updatedAt,
+				)
+			: calendarFeedIsUnchanged(conditions.ifNoneMatch, feed.etag);
+
+	if (unchanged) {
 		return rawApiResponse({
 			statusCode: 304,
-			headers: { ETag: etag },
+			headers: { ETag: etag, "Last-Modified": lastModified },
 			body: "",
 		});
 	}
@@ -185,7 +205,7 @@ export const serveCalendarFeed = async (
 		headers: {
 			"Content-Type": "text/calendar; charset=utf-8",
 			ETag: etag,
-			"Last-Modified": new Date(feed.lastModifiedAt).toUTCString(),
+			"Last-Modified": lastModified,
 		},
 		body: feed.icalData,
 	});
@@ -246,15 +266,26 @@ export const CalendarFeedOperations: Record<
 	CalendarFeedOperationIds,
 	OperationHandler<CalendarFeedOperationIds>
 > = {
-	CalendarFeedOperations_getCalendarFeedIcal: async (context) => {
-		const { feedToken } = context.request.params as { feedToken: string };
+	CalendarFeedOperations_getCalendarFeedIcal: async (
+		context,
+		...args: unknown[]
+	) => {
+		// From the raw path, not from the router's captured parameter: the matcher
+		// substitutes the parameter into the literal path and leaves the dot of
+		// ".ics" as a regex dot, so /feeds/calendar/<token>Xics routes here too —
+		// and answering it would serve the feed at an address nobody was handed.
+		const event = args[0] as APIGatewayProxyEvent;
+		const feedToken = readCalendarFeedToken(event.path);
+		if (feedToken === null) return feedNotFound();
+
 		const ifNoneMatch = context.request.headers["if-none-match"];
+		const ifModifiedSince = context.request.headers["if-modified-since"];
 		const deps = calendarDepsOf(await getClient());
 
-		return serveCalendarFeed(
-			deps,
-			feedToken,
-			typeof ifNoneMatch === "string" ? ifNoneMatch : undefined,
-		);
+		return serveCalendarFeed(deps, feedToken, {
+			ifNoneMatch: typeof ifNoneMatch === "string" ? ifNoneMatch : undefined,
+			ifModifiedSince:
+				typeof ifModifiedSince === "string" ? ifModifiedSince : undefined,
+		});
 	},
 };

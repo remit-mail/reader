@@ -1,4 +1,19 @@
 /**
+ * An APISIX `vars` expression: field, operator, operand.
+ *
+ * Written out rather than derived, because it narrows an exemption. A route
+ * whose `uri` ends in a wildcard is matched by more requests than the OpenAPI
+ * path it came from, and everything extra it matches is public — so a path that
+ * routes as a wildcard states the shape it actually meant.
+ */
+export type RouteCondition = readonly [string, string, string];
+
+// base64url over the 32 random bytes a feed token is minted from, which is 43
+// characters — the shape @remit/calendar-service mints and checks. The suffix is
+// a literal here, unlike in the router, so `<token>Xics` is not public either.
+const CALENDAR_FEED_URI_PATTERN = "^/feeds/calendar/[A-Za-z0-9_-]{43}\\.ics$";
+
+/**
  * The paths the edge lets through unauthenticated.
  *
  * Microsoft redirects the browser here after consent, so the request arrives
@@ -14,15 +29,24 @@
  * `NoAuth` does not become public at the edge by saying so. A future public
  * route is added to this list by hand, with the same thought behind it.
  */
-export const PUBLIC_ROUTES: readonly { method: string; path: string }[] = [
+export const PUBLIC_ROUTES: readonly {
+	method: string;
+	path: string;
+	vars?: readonly RouteCondition[];
+}[] = [
 	{ method: "GET", path: "/accounts/oauth/microsoft/callback" },
-	{ method: "GET", path: "/feeds/calendar/{feedToken}.ics" },
+	{
+		method: "GET",
+		path: "/feeds/calendar/{feedToken}.ics",
+		vars: [["uri", "~~", CALENDAR_FEED_URI_PATTERN]],
+	},
 ];
 
 export interface Route {
 	id: string;
 	uri: string;
 	methods: readonly string[] | null;
+	vars: readonly RouteCondition[] | null;
 	authenticated: boolean;
 }
 
@@ -54,7 +78,7 @@ const toApisixUri = (openapiPath: string): string => {
 		.replace(/\{([^}]+)\}/g, ":$1");
 };
 
-const publicRoute = (path: string): { method: string } | undefined =>
+const publicRoute = (path: string) =>
 	PUBLIC_ROUTES.find((route) => route.path === path);
 
 export const buildRoutes = (paths: readonly string[]): Route[] =>
@@ -66,6 +90,7 @@ export const buildRoutes = (paths: readonly string[]): Route[] =>
 			// The exemption covers one method. Anything else sent to the path
 			// matches no route and stops at the edge.
 			methods: exempt ? [exempt.method] : null,
+			vars: exempt?.vars ?? null,
 			authenticated: exempt === undefined,
 		};
 	});
@@ -84,9 +109,15 @@ const renderRoute = (route: Route, oidcPlugin: string): string => {
 		route.methods === null
 			? ""
 			: `\n    methods:\n${route.methods.map((method) => `      - ${method}`).join("\n")}`;
+	// JSON flow scalars, so a pattern full of backslashes and brackets needs no
+	// YAML quoting decision taken by hand.
+	const vars =
+		route.vars === null
+			? ""
+			: `\n    vars:\n${route.vars.map((condition) => `      - ${JSON.stringify(condition)}`).join("\n")}`;
 	const plugins = route.authenticated ? `\n    plugins:\n${oidcPlugin}` : "";
 	return `  - id: ${route.id}
-    uri: '${yamlEscape(route.uri)}'${methods}
+    uri: '${yamlEscape(route.uri)}'${methods}${vars}
     upstream_id: backend${plugins}`;
 };
 

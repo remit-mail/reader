@@ -18,6 +18,7 @@ import type {
 	SettleCalendarSuggestionInput,
 	UpdateCalendarCollectionInput,
 } from "@remit/data-ports";
+import { NotFoundError } from "@remit/data-ports/errors";
 import {
 	deriveCalendarFeedTokenId,
 	deriveCalendarId,
@@ -27,7 +28,11 @@ import {
 } from "@remit/data-ports/id";
 import { CalendarSuggestionState } from "@remit/domain-enums";
 
-export class MissingRow extends Error {}
+// The class the port's conformance suite requires a repository to throw for an
+// absent row, so a caller that branches on it — the calendar feed answers 404 to
+// a token whose collection is gone — behaves the same against this double as
+// against a real one.
+export class MissingRow extends NotFoundError {}
 
 /**
  * A pass-through unit of work over plain maps — the shape the port documents
@@ -106,6 +111,7 @@ export class MemoryCalendarStore implements ICalendarUnitOfWork {
 			const bumped = {
 				...collection,
 				syncSequence: collection.syncSequence + 1,
+				updatedAt: Date.now(),
 			};
 			this.collections.set(calendarId, bumped);
 			return bumped.syncSequence;

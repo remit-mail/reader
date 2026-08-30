@@ -391,12 +391,16 @@ namespace RemitApi {
     @get
     @route("/{feedToken}.ics")
     op getCalendarFeedIcal(
-      @doc("The calendar's secret token, base64url")
+      @doc("The calendar's secret token, base64url. Unconstrained on purpose: a length or pattern here answers an oversize or malformed address with a distinguishable 400, and error-logs the path it was refused for. The handler checks the shape itself and answers the same 404 an unknown token gets.")
       @path
-      feedToken: String512,
+      feedToken: string,
 
       @header("If-None-Match")
       ifNoneMatch?: string,
+
+      @doc("HTTP-date a subscriber last saw the calendar at. Ignored when `If-None-Match` also arrives (RFC 9110 13.2.2), and compared at whole seconds, which is the resolution the `Last-Modified` it came from has.")
+      @header("If-Modified-Since")
+      ifModifiedSince?: string,
     ): CalendarFeedIcalResponse | CalendarFeedNotModified | CalendarFeedNotFound;
   }
 

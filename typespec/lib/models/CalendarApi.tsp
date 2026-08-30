@@ -277,19 +277,23 @@ model CalendarFeedIcalResponse {
   @header("ETag")
   etag: string;
 
-  @doc("HTTP-date of the most recent change to the calendar or anything in it")
+  @doc("HTTP-date the collection was last written, which is stamped by every event write and every event delete. The collection's own timestamp rather than its newest event: deleting the newest event leaves every survivor older than the change, and a validator that moved backwards would tell a subscriber its stale copy is current.")
   @header("Last-Modified")
   lastModified: string;
 
   @body icalData: string;
 }
 
-@doc("The subscriber already holds these bytes. Answered when `If-None-Match` carries the tag the feed would serve.")
+@doc("The subscriber already holds these bytes. Answered when `If-None-Match` carries the tag the feed would serve, or when `If-Modified-Since` is not older than the calendar's last change.")
 model CalendarFeedNotModified {
   @statusCode statusCode: 304;
 
   @header("ETag")
   etag: string;
+
+  @doc("The same validator a 200 would have carried, so a subscriber that polls by date can keep doing so")
+  @header("Last-Modified")
+  lastModified: string;
 }
 
 @doc("No feed answers to this address. Unknown, revoked and malformed tokens are one answer with one body, so a caller learns nothing about which of the three it sent.")

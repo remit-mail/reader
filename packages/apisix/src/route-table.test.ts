@@ -20,12 +20,56 @@ const routeBlock = (config: string, uri: string): string =>
 
 test("the exempt paths are the OAuth callback and the calendar feed, GET only", () => {
 	assert.deepEqual(
-		[...PUBLIC_ROUTES],
+		PUBLIC_ROUTES.map((route) => [route.method, route.path]),
 		[
-			{ method: "GET", path: CALLBACK },
-			{ method: "GET", path: FEED },
+			["GET", CALLBACK],
+			["GET", FEED],
 		],
 	);
+});
+
+test("the feed exemption is pinned to the shape of a token, not to the prefix", () => {
+	const config = renderConfig({
+		routes: buildRoutes([FEED]),
+		oidcPlugin: OIDC_PLUGIN,
+		backendHost: "backend",
+		backendPort: 5436,
+	});
+
+	const block = routeBlock(config, "/feeds/calendar/*");
+	const condition = block.match(/^ {6}- (\[.+\])$/m)?.[1];
+	assert.ok(
+		condition,
+		"the wildcard route needs a vars condition or it is the prefix that is public",
+	);
+
+	const [field, operator, pattern] = JSON.parse(condition) as string[];
+	assert.equal(field, "uri");
+	assert.equal(operator, "~~");
+
+	// The exemption must cover exactly the addresses that are handed out: 43
+	// base64url characters, and the suffix as a literal rather than a regex dot.
+	const uri = new RegExp(pattern as string);
+	assert.ok(uri.test(`/feeds/calendar/${"a".repeat(43)}.ics`));
+	assert.equal(uri.test(`/feeds/calendar/${"a".repeat(42)}.ics`), false);
+	assert.equal(uri.test(`/feeds/calendar/${"a".repeat(44)}.ics`), false);
+	assert.equal(uri.test(`/feeds/calendar/${"a".repeat(43)}Xics`), false);
+	assert.equal(
+		uri.test(`/feeds/calendar/${"a".repeat(43)}.ics/../../config`),
+		false,
+	);
+	assert.equal(uri.test("/feeds/calendar/anything-else"), false);
+});
+
+test("a route with no exemption carries no vars condition", () => {
+	const config = renderConfig({
+		routes: buildRoutes([NEIGHBOUR, "/accounts/{accountId}"]),
+		oidcPlugin: OIDC_PLUGIN,
+		backendHost: "backend",
+		backendPort: 5436,
+	});
+
+	assert.equal(config.includes("vars:"), false);
 });
 
 test("a token segment carrying the .ics suffix routes as a trailing wildcard", () => {

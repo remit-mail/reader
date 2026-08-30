@@ -35,12 +35,13 @@ export {
 	type CalendarFeed,
 	type CalendarFeedSecret,
 	calendarFeedIsUnchanged,
+	calendarFeedIsUnmodifiedSince,
 	calendarFeedPath,
-	calendarFeedTokenMatches,
 	hashCalendarFeedToken,
 	isCalendarFeedToken,
 	mintCalendarFeedToken,
 	readCalendarFeedToken,
+	redactCalendarFeedPath,
 } from "./feed.js";
 export {
 	type ParsedCalendar,

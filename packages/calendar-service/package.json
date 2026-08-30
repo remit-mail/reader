@@ -9,6 +9,10 @@
 		".": {
 			"types": "./src/index.ts",
 			"default": "./src/index.ts"
+		},
+		"./memory-store": {
+			"types": "./src/memory-store.ts",
+			"default": "./src/memory-store.ts"
 		}
 	},
 	"scripts": {

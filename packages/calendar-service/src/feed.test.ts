@@ -8,12 +8,13 @@ import {
 	buildCalendarFeed,
 	CALENDAR_FEED_TOKEN_BYTES,
 	calendarFeedIsUnchanged,
+	calendarFeedIsUnmodifiedSince,
 	calendarFeedPath,
-	calendarFeedTokenMatches,
 	hashCalendarFeedToken,
 	isCalendarFeedToken,
 	mintCalendarFeedToken,
 	readCalendarFeedToken,
+	redactCalendarFeedPath,
 } from "./feed.js";
 import { AMSTERDAM_VTIMEZONE, ical, singleEvent } from "./fixtures.js";
 
@@ -86,18 +87,6 @@ describe("a feed token", () => {
 		]) {
 			assert.equal(isCalendarFeedToken(candidate), false, candidate);
 		}
-	});
-
-	it("matches only its own digest", () => {
-		const minted = mintCalendarFeedToken();
-		const other = mintCalendarFeedToken();
-
-		assert.ok(calendarFeedTokenMatches(minted.tokenHash, minted.tokenHash));
-		assert.equal(
-			calendarFeedTokenMatches(minted.tokenHash, other.tokenHash),
-			false,
-		);
-		assert.equal(calendarFeedTokenMatches(minted.tokenHash, "short"), false);
 	});
 });
 
@@ -208,31 +197,90 @@ describe("the calendar a feed serves", () => {
 		assert.notEqual(renamed.etag, first.etag);
 	});
 
-	it("reports the most recent change to the calendar or anything in it", () => {
+	it("carries no modification time of its own", () => {
+		// The newest surviving event is not when the calendar last changed: a
+		// delete removes the newest one and leaves every survivor older than the
+		// change. The collection's own timestamp is what the feed serves, and it
+		// belongs to the store rather than to these bytes (issue #1067).
 		const feed = buildCalendarFeed(collection({ updatedAt: 500 }), [
-			object("a.ics", singleEvent("DTSTART:20260907T090000Z"), 100),
-			object("b.ics", singleEvent("DTSTART:20260908T090000Z"), 900),
+			object("a.ics", singleEvent("DTSTART:20260907T090000Z"), 900),
 		]);
 
-		assert.equal(feed.lastModifiedAt, 900);
-		assert.equal(
-			buildCalendarFeed(collection({ updatedAt: 500 }), []).lastModifiedAt,
-			500,
-			"an empty calendar was still last touched when it was made",
-		);
+		assert.deepEqual(Object.keys(feed).sort(), ["etag", "icalData"]);
 	});
 });
 
 describe("a conditional poll", () => {
 	it("is unchanged for the tag it holds, quoted, weak or in a list", () => {
 		for (const header of ['"abc"', "abc", 'W/"abc"', '"other", "abc"', "*"]) {
-			assert.ok(calendarFeedIsUnchanged(header, "abc"), header);
+			assert.ok(calendarFeedIsUnchanged(header, "abc"), String(header));
 		}
 	});
 
 	it("is changed with no header, an empty one, or somebody else's tag", () => {
 		for (const header of [undefined, "", '"other"', 'W/"other"']) {
-			assert.equal(calendarFeedIsUnchanged(header, "abc"), false, header);
+			assert.equal(
+				calendarFeedIsUnchanged(header, "abc"),
+				false,
+				String(header),
+			);
+		}
+	});
+});
+
+describe("a feed path in a log line", () => {
+	it("keeps the route and drops the token", () => {
+		const minted = mintCalendarFeedToken();
+
+		const redacted = redactCalendarFeedPath(calendarFeedPath(minted.token));
+
+		assert.equal(redacted.includes(minted.token), false);
+		assert.equal(redacted, "/feeds/calendar/<redacted>.ics");
+	});
+
+	it("leaves a path that carries no token alone", () => {
+		for (const path of [
+			"/calendars/abc",
+			"/feeds/calendar/no-suffix",
+			"/health",
+		]) {
+			assert.equal(redactCalendarFeedPath(path), path, path);
+		}
+	});
+});
+
+describe("a poll carrying a date", () => {
+	const lastModified = Date.UTC(2026, 8, 7, 9, 0, 0);
+
+	it("is unmodified for the second it was last written in", () => {
+		// Last-Modified went out truncated to the second, so the value that comes
+		// back is 750ms behind the stored timestamp and still means "the copy I
+		// have is the one you served".
+		assert.ok(
+			calendarFeedIsUnmodifiedSince(
+				new Date(lastModified).toUTCString(),
+				lastModified + 750,
+			),
+		);
+	});
+
+	it("is modified once the calendar moves into a later second", () => {
+		assert.equal(
+			calendarFeedIsUnmodifiedSince(
+				new Date(lastModified).toUTCString(),
+				lastModified + 1000,
+			),
+			false,
+		);
+	});
+
+	it("is not a condition when the date is absent or unreadable", () => {
+		for (const header of [undefined, "", "whenever"]) {
+			assert.equal(
+				calendarFeedIsUnmodifiedSince(header, lastModified),
+				false,
+				String(header),
+			);
 		}
 	});
 });
