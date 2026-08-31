@@ -84,6 +84,11 @@ LOCK_STALE_CEILING="${REMIT_UPDATE_LOCK_STALE:-3600}"
 # to. Unset falls back to the install-directory copy; empty skips the mount.
 SNAPSHOT_LIB_MOUNT="${REMIT_UPDATE_SNAPSHOT_LIB-$REMIT_DIR/backup/snapshot-db.sh}"
 
+# The two host-side files a release owns, under the names it serves them by. The
+# compose file is installed under $COMPOSE_FILE instead, which install.sh stamps
+# as a basename and a second deployment may have set to its own.
+HOST_ASSETS="remit docker-compose.sqlite.yml"
+
 # 300 seconds from `up -d` returning. Generous on purpose: a release that
 # migrates a large mailbox index is the normal slow case, and rolling back a
 # healthy-but-slow upgrade is worse than waiting.
@@ -484,14 +489,17 @@ owner_mode_of() {
 # Restores a captured "uid gid [mode]" onto a path, before it is renamed into
 # place. Best-effort by design: a chown that cannot run is the unprivileged
 # shell where it is already unnecessary.
+# The local is named for this function and nothing else: `_target` was the run's
+# target version to every caller above set_var, and every phase message printed
+# after the tag was written named a .env.tmp path instead of the release.
 restore_owner_mode() {
-	_target=$1
+	_rom_path=$1
 	# shellcheck disable=SC2086 # "uid gid [mode]" is split into fields on purpose
 	set -- $2
 	[ -n "${1:-}" ] && [ -n "${2:-}" ] || return 0
-	chown "$1:$2" "$_target" 2>/dev/null || true
+	chown "$1:$2" "$_rom_path" 2>/dev/null || true
 	if [ -n "${3:-}" ]; then
-		chmod "$3" "$_target" 2>/dev/null || true
+		chmod "$3" "$_rom_path" 2>/dev/null || true
 	fi
 	return 0
 }
@@ -1938,11 +1946,21 @@ volume_run() {
 # apk'd the way the backup sidecar already does; the snapshot runs as uid 1000
 # because opening a WAL database recreates its -shm/-wal sidecars when they are
 # absent, and a root-owned sidecar makes every app writer's next open fail.
+#
+# Only the run's own directory belongs to uid 1000. `snapshots/` is handed to
+# whoever owns the state directory — root on the updater's volume, the operator
+# on a host shell — because unlinking an entry needs write on the parent, and an
+# earlier release that chowned the run directory alone left the parent
+# root-owned and every later prune failing with EACCES (reader#1071). The chown
+# runs on every snapshot, so a directory an older release created wrong is
+# repaired by the next update rather than needing an operator.
 snapshot_databases() {
 	volume_run "set -eu
 command -v sqlite3 >/dev/null 2>&1 || apk add --no-cache sqlite >/dev/null
 command -v su-exec >/dev/null 2>&1 || apk add --no-cache su-exec >/dev/null
+own=\$(stat -c %u:%g /state)
 mkdir -p /state/snapshots/$1
+chown \"\$own\" /state/snapshots
 chown 1000:1000 /state/snapshots/$1
 exec su-exec 1000:1000 sh -c '. /snapshot-db.sh
 snapshot_db /data/sqlite/remit.db /state/snapshots/$1/remit.db
@@ -1972,22 +1990,216 @@ fi
 chown -R 1000:1000 /data/sqlite"
 }
 
+# --- the release's host-side files (reader#1072) ----------------------------
+#
+# A release is not only its images. This wrapper and the compose file are host
+# files, and an update that moves the images and leaves those two where they
+# were hands the operator a box whose commands and whose service definitions
+# belong to the version before it: a verb the release adds answering `unknown
+# command`, a profile the compose file never declares, and `remit doctor`
+# reporting a subsystem the images are running as unknown.
+#
+# They are fetched with the images, so a release that cannot be obtained whole
+# is abandoned before anything is stopped; installed with the stack down and
+# before the gate starts, so the gate's verdict is about the configuration that
+# will run rather than the one it replaces; and snapshotted beside the databases,
+# so a rollback puts the deployment's files back together with its data.
+
+host_files_dir() { printf '%s/host-files/%s' "$STATE_DIR" "$1"; }
+
+# Where a release's host-side files are read from, on the same terms as the
+# manifest: deployment configuration, so .env is where it lives, and the
+# environment overrides it for a one-off. @TAG@ is the release being installed,
+# so one setting covers every release rather than a base that has to be moved on
+# each one. A fork that serves its own manifest sets this too — otherwise its
+# releases would be installed with this repository's wrapper.
+host_asset_base() {
+	if [ -n "${REMIT_UPDATE_ASSET_BASE:-}" ]; then
+		printf '%s' "$REMIT_UPDATE_ASSET_BASE"
+		return 0
+	fi
+	_b=$(get_var REMIT_UPDATE_ASSET_BASE 2>/dev/null || true)
+	if [ -n "$_b" ]; then
+		printf '%s' "$_b"
+		return 0
+	fi
+	printf 'https://raw.githubusercontent.com/remit-mail/reader/@TAG@/deploy/vps'
+}
+
+# The name the release serves a file under, mapped to the name this deployment
+# installs it under.
+host_asset_local() {
+	case "$1" in
+	remit) printf 'remit' ;;
+	*) printf '%s' "$COMPOSE_FILE" ;;
+	esac
+}
+
+# fetch_manifest's sibling: the same two tools, and the same rule that neither
+# being present is a failure rather than a reason to look elsewhere. It writes a
+# file because the wrapper is far larger than any cap a manifest wants, and an
+# empty body is a failed fetch rather than an asset.
+fetch_asset() {
+	if have curl; then
+		curl -fsSL --max-time 60 -o "$2" "$1" 2>/dev/null || return 1
+	elif have wget; then
+		wget -q -T 60 -O "$2" "$1" 2>/dev/null || return 1
+	else
+		return 1
+	fi
+	[ -s "$2" ]
+}
+
+# install.sh's place_wrapper, and deliberately the same three lines: a wrapper
+# that does not know its deployment directory, its compose file and its own name
+# manages the wrong stack or none at all. The values are read from the wrapper
+# this deployment already has rather than from the running one — inside the
+# updater the running copy is the image's, unstamped, so a second deployment's
+# `remit-<project>` would come back named `remit` and pointed at /opt/remit.
+installed_stamp() {
+	_v=$(sed -n "s#^$1=\(.*\)\$#\1#p" "$REMIT_DIR/remit" 2>/dev/null | sed -n 1p)
+	if [ -n "$_v" ]; then
+		printf '%s' "$_v"
+		return 0
+	fi
+	case "$1" in
+	DEFAULT_DIR) printf '%s' "$REMIT_DIR" ;;
+	COMPOSE_FILE) printf '%s' "$COMPOSE_FILE" ;;
+	*) printf '%s' "$PROG" ;;
+	esac
+}
+
+stamp_wrapper() {
+	sed -e "s#^DEFAULT_DIR=.*#DEFAULT_DIR=$(installed_stamp DEFAULT_DIR)#" \
+		-e "s#^COMPOSE_FILE=.*#COMPOSE_FILE=$(installed_stamp COMPOSE_FILE)#" \
+		-e "s#^PROG=.*#PROG=$(installed_stamp PROG)#" \
+		"$1" >"$1.stamped" || return 1
+	mv "$1.stamped" "$1"
+	chmod +x "$1"
+}
+
+# Run in the pulling phase, beside the images. The stamped copies land on the
+# updater's own volume, so a run interrupted between here and the install still
+# has them when it recovers, and the install itself is left with nothing to do
+# but rename. Whether the deployment directory can be written at all is settled
+# here too, while a failure still changes nothing.
+stage_host_files() {
+	_dest=$(host_files_dir "$1")/incoming
+	rm -rf "$_dest"
+	mkdir -p "$_dest"
+	_base=$(printf '%s' "$(host_asset_base)" | sed "s#@TAG@#$2#g")
+	for _a in $HOST_ASSETS; do
+		fetch_asset "$_base/$_a" "$_dest/$(host_asset_local "$_a")" || return 1
+	done
+	stamp_wrapper "$_dest/remit" || return 1
+	touch "$REMIT_DIR/.remit-update-probe" 2>/dev/null || return 1
+	rm -f "$REMIT_DIR/.remit-update-probe"
+}
+
+snapshot_host_files() {
+	_dest=$(host_files_dir "$1")/installed
+	rm -rf "$_dest"
+	mkdir -p "$_dest"
+	for _a in $HOST_ASSETS; do
+		_l=$(host_asset_local "$_a")
+		if [ -f "$REMIT_DIR/$_l" ]; then
+			cp "$REMIT_DIR/$_l" "$_dest/$_l" || return 1
+		fi
+	done
+}
+
+# Rename, never a write in place: this wrapper may be the file being replaced,
+# and /bin/sh reads a script as it runs it. The running copy keeps the inode it
+# was opened on and finishes the run it is in, while the directory entry already
+# names the new one — the same pattern the updater's own self-replace uses
+# (reader#1051). The bytes were fetched and stamped before the stop, so the only
+# work left here is the rename, and re-running it after an interrupted install
+# reaches the same place.
+install_host_files() {
+	_src=$(host_files_dir "$1")/incoming
+	[ -d "$_src" ] || return 1
+	for _a in $HOST_ASSETS; do
+		_l=$(host_asset_local "$_a")
+		[ -f "$_src/$_l" ] || return 1
+		cp "$_src/$_l" "$REMIT_DIR/$_l.incoming" || return 1
+		if [ "$_l" = "remit" ]; then
+			chmod +x "$REMIT_DIR/$_l.incoming"
+		fi
+		mv "$REMIT_DIR/$_l.incoming" "$REMIT_DIR/$_l" || return 1
+	done
+	host_files_current "$1"
+}
+
+# What keeps a release whose wrapper or compose file changed from reporting
+# success while either is still the previous one's.
+host_files_current() {
+	_src=$(host_files_dir "$1")/incoming
+	for _a in $HOST_ASSETS; do
+		_l=$(host_asset_local "$_a")
+		cmp -s "$_src/$_l" "$REMIT_DIR/$_l" || return 1
+	done
+}
+
+# Recovery's form of the install. A breadcrumb written by a release that staged
+# nothing — an interrupted run started before reader#1072 — has no files to
+# install, and that is not a failure; anything else is the install itself.
+resume_host_files() {
+	[ -d "$(host_files_dir "$1")/incoming" ] || return 0
+	install_host_files "$1"
+}
+
+restore_host_files() {
+	_src=$(host_files_dir "$1")/installed
+	[ -d "$_src" ] || return 0
+	for _a in $HOST_ASSETS; do
+		_l=$(host_asset_local "$_a")
+		[ -f "$_src/$_l" ] || continue
+		cp "$_src/$_l" "$REMIT_DIR/$_l.restoring" || return 1
+		if [ "$_l" = "remit" ]; then
+			chmod +x "$REMIT_DIR/$_l.restoring"
+		fi
+		mv "$REMIT_DIR/$_l.restoring" "$REMIT_DIR/$_l" || return 1
+	done
+}
+
 # Housekeeping, never a gate. A snapshot the updater cannot remove — one left
 # root-owned by an older release, on a volume the updater now enters as another
 # uid — used to abort the whole commit under set -eu, before the run reached a
-# terminal outcome and before the updater replaced itself (reader#1048). Each
-# one that survives is named on stderr and left where it is; the next successful
-# run tries again.
+# terminal outcome and before the updater replaced itself (reader#1048).
+#
+# It runs where the directories were made: in the helper container, as root. The
+# host-side loop this replaces ran as the operator against a root-owned parent,
+# so every removal failed with EACCES and the wrapper told the operator to
+# `sudo rm -rf` inside their own deployment (reader#1071). Nothing here asks for
+# root on the host and nothing claims a size — the entries observed were empty
+# directories. One that survives even the helper is named, and the next
+# successful run tries again.
 prune_snapshots() {
-	[ -d "$STATE_DIR/snapshots" ] || return 0
-	for _d in "$STATE_DIR/snapshots"/*; do
-		[ -d "$_d" ] || continue
-		_name=${_d##*/}
-		if [ "$_name" != "$1" ]; then
-			if ! rm -rf "$_d"; then
-				printf '%s: could not remove the old snapshot at %s. It is taking up disk until you remove it: sudo rm -rf %s\n' \
-					"$PROG" "$_d" "$_d" >&2
-			fi
+	_kept=$1
+	_survivors=$(volume_run "# remit-prune-snapshots
+[ -d /state/snapshots ] || exit 0
+for d in /state/snapshots/*; do
+  [ -d \"\$d\" ] || continue
+  n=\${d##*/}
+  [ \"\$n\" = '$_kept' ] && continue
+  rm -rf \"\$d\" 2>/dev/null || printf '%s\n' \"\$n\"
+done" 2>/dev/null) || _survivors=""
+	prune_host_files "$_kept"
+	for _s in $_survivors; do
+		printf '%s: the snapshot from update %s could not be removed; the next successful update will try again.\n' \
+			"$PROG" "$_s" >&2
+	done
+}
+
+# The host-file snapshots (reader#1072) live beside the run's state rather than
+# on the database snapshot's directory, so they are the runner's own to create
+# and to remove — no helper, no uid to hand them to. Retained on the same terms
+# as the databases: this run's copies stay until the next successful update.
+prune_host_files() {
+	[ -d "$STATE_DIR/host-files" ] || return 0
+	for _d in "$STATE_DIR/host-files"/*; do
+		if [ -d "$_d" ] && [ "${_d##*/}" != "$1" ]; then
+			rm -rf "$_d" || true
 		fi
 	done
 }
@@ -2458,6 +2670,15 @@ roll_back() {
 			"remit logs backend"
 		return 1
 	fi
+	# Before the tag and before the gate: what comes back has to be $RUN_FROM's
+	# services under $RUN_FROM's wrapper, not this release's compose file driving
+	# the previous release's images.
+	if ! restore_host_files "$RUN_ID"; then
+		terminate rollbackFailed \
+			"$_why, and the deployment's own wrapper and compose file could not be put back. Copies from before the update are at $(host_files_dir "$RUN_ID")/installed and the previous version is $RUN_FROM." \
+			"remit logs backend"
+		return 1
+	fi
 	set_var REMIT_TAG "$RUN_FROM"
 	REMIT_TAG=$RUN_FROM
 	export REMIT_TAG
@@ -2518,7 +2739,20 @@ run_update() {
 		terminate abandoned \
 			"$_target could not be downloaded, so nothing was changed and this instance is still running $RUN_FROM." \
 			"remit update"
-		rm -rf "$STATE_DIR/snapshots/$RUN_ID"
+		rm -rf "$STATE_DIR/snapshots/$RUN_ID" "$(host_files_dir "$RUN_ID")"
+		return 1
+	fi
+
+	# The release's wrapper and compose file come down with its images and on the
+	# same terms: a release that cannot be obtained whole is not installed, and
+	# failing here aborts having changed nothing.
+	if ! stage_host_files "$RUN_ID" "$_target"; then
+		REMIT_TAG=$RUN_FROM
+		export REMIT_TAG
+		terminate abandoned \
+			"$_target's wrapper and compose file could not be fetched, so nothing was changed and this instance is still running $RUN_FROM." \
+			"remit update"
+		rm -rf "$STATE_DIR/snapshots/$RUN_ID" "$(host_files_dir "$RUN_ID")"
 		return 1
 	fi
 
@@ -2526,13 +2760,13 @@ run_update() {
 	# the stop silently drops every transaction still in the write-ahead log,
 	# and the restore looks clean.
 	phase snapshotting "Taking a snapshot of the database." "remit status"
-	if ! snapshot_databases "$RUN_ID"; then
+	if ! snapshot_databases "$RUN_ID" || ! snapshot_host_files "$RUN_ID"; then
 		REMIT_TAG=$RUN_FROM
 		export REMIT_TAG
 		terminate abandoned \
 			"The database could not be snapshotted, so nothing was changed and this instance is still running $RUN_FROM." \
 			"remit status"
-		rm -rf "$STATE_DIR/snapshots/$RUN_ID"
+		rm -rf "$STATE_DIR/snapshots/$RUN_ID" "$(host_files_dir "$RUN_ID")"
 		return 1
 	fi
 
@@ -2543,6 +2777,16 @@ run_update() {
 
 	phase stopping "Stopping services." "remit status"
 	stop_everything
+
+	# With the stack down and before the gate starts: the stop enumerated the
+	# services the previous release declared, and everything from here on — the
+	# gate set, the migrate one-shot, the held-back services — is the release's
+	# own definition. A gate that passed against the file it was about to replace
+	# would be a verdict on a configuration that never runs.
+	if ! install_host_files "$RUN_ID"; then
+		roll_back "$_target's wrapper and compose file could not be installed into $REMIT_DIR"
+		return 1
+	fi
 
 	phase starting "Starting $_target." "remit logs backend"
 	start_gate_set
@@ -2584,10 +2828,18 @@ recover_run() {
 		terminate abandoned \
 			"The update to $RUN_TARGET was interrupted before anything was changed; this instance is still running $RUN_FROM." \
 			"remit status"
-		rm -rf "$STATE_DIR/snapshots/$RUN_ID"
+		rm -rf "$STATE_DIR/snapshots/$RUN_ID" "$(host_files_dir "$RUN_ID")"
 		;;
 	stopping | starting | verifying)
 		phase verifying "Checking whether $RUN_TARGET came up after an interrupted update." "remit logs backend"
+		# The install may have been what the run died in the middle of, and it is
+		# a rename over files already staged, so re-running it costs nothing and
+		# is what keeps the gate below about the release's own definition. A
+		# breadcrumb from a release that staged nothing has nothing to install.
+		if ! resume_host_files "$RUN_ID"; then
+			roll_back "$RUN_TARGET's wrapper and compose file could not be installed into $REMIT_DIR"
+			return 1
+		fi
 		# A fresh `compose up` here is what re-reads .env: `unless-stopped` does
 		# not restart containers that were explicitly stopped, so a host reboot
 		# between the stop and the start leaves the app plane down until this.
@@ -2605,6 +2857,12 @@ recover_run() {
 		# would destroy those writes, whatever a second gate says about how the
 		# stack is doing now. Bringing the app plane back up is all that is left.
 		phase committing "Finishing the update to $RUN_TARGET." "remit logs backend"
+		if ! resume_host_files "$RUN_ID"; then
+			terminate rollbackFailed \
+				"The update to $RUN_TARGET was interrupted after its gate passed, and its wrapper and compose file could not be installed into $REMIT_DIR. The database is $RUN_TARGET's and must not be rolled back; make $REMIT_DIR writable and run '$PROG update --tag $RUN_TARGET'." \
+				"remit status"
+			return 1
+		fi
 		# shellcheck disable=SC2086 # GATE_SET is a service list, split on purpose
 		compose up -d $GATE_SET
 		commit_run

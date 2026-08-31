@@ -464,23 +464,30 @@ in order:
 1. The manifest at `REMIT_UPDATE_MANIFEST_URL` is fetched and validated. A
    version at or below the running one is refused, as is a manifest naming
    images from outside its own registry.
-2. Every image is pulled at the target version. A failure here has touched
-   nothing and a retry is safe.
+2. Every image is pulled at the target version, and the release's own `remit`
+   wrapper and compose file are fetched with them and stamped for this
+   deployment. A failure here has touched nothing and a retry is safe.
 3. Both databases are snapshotted with `VACUUM INTO` **while the old version is
-   still live**. The work queue is deliberately not part of the snapshot.
+   still live**, and the wrapper and compose file the deployment carries are
+   snapshotted beside them. The work queue is deliberately not part of the
+   snapshot.
 4. `REMIT_TAG` is written to `.env`, before the stop, so a host that reboots
    mid-update comes back on binaries that match the migrated database.
 5. Every service stops. The instance is offline from here.
-6. Only `queue`, `migrate` and `backend` start, so nothing is served and nothing
+6. The release's wrapper and compose file are installed, so everything below is
+   the release's own definition of this deployment rather than the one it
+   replaces.
+7. Only `queue`, `migrate` and `backend` start, so nothing is served and nothing
    is sent, purged or indexed between the snapshot and the verdict.
-7. The gate: this run's `migrate` exited `0`, every recreated service is up and
+8. The gate: this run's `migrate` exited `0`, every recreated service is up and
    not restarting, every healthcheck reports healthy, and `/health` answers
    three times in a row. 300 seconds, then the update has failed.
-8. On a pass the held-back services start and the update is done. Held back is
+9. On a pass the held-back services start and the update is done. Held back is
    what was running when the run began, so a service you had stopped stays
    stopped; on a box where nothing was running it is the whole always-on stack.
-9. On a failure the snapshot and the previous tag are restored, the gate runs
-   again, and the outcome is `rolledBack`, or `rollbackFailed`.
+10. On a failure the snapshot, the wrapper, the compose file and the previous
+    tag are restored, the gate runs again, and the outcome is `rolledBack`, or
+    `rollbackFailed`.
 
 `remit status` reports the running version, the last check and the last run's
 outcome.

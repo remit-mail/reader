@@ -746,6 +746,22 @@ run_cmd() {
 		exit 0
 		;;
 	esac
+	# The snapshot prune (reader#1071), which runs in the helper because the
+	# snapshots directory was made there. It is run for real against the
+	# directory the -v named, so a test reads what actually survived.
+	#
+	# The helper is root, and no mode bit on the volume stops root. The stand-in
+	# is one unprivileged uid, so that is modelled by restoring write on the
+	# directory the script is about to work in — a host-side prune, which is what
+	# reader#1071 was, has no such recourse and fails there with EACCES.
+	case "$_script" in
+	*remit-prune-snapshots*)
+		log "run prune-snapshots src=$_statesrc"
+		chmod u+rwx "$_statesrc/snapshots" 2>/dev/null || true
+		printf '%s' "$_script" | sed -e "s#/state#$_statesrc#g" | sh
+		exit $?
+		;;
+	esac
 	# `remit status` reading the update record off the updater's state volume
 	# (reader#573): one flat file, answered from the directory the -v named.
 	case "$_script" in
