@@ -850,17 +850,21 @@ export const ComposeForm = ({
 			if (quoteIsLoading || quoteSourceIsLoading) {
 				return { status: "blocked", reason: QUOTE_LOADING_MESSAGE };
 			}
-			if (nothingToForward) {
-				return {
-					status: "blocked",
-					reason: NO_QUOTABLE_BODY_FORWARD_MESSAGE,
-				};
-			}
 			if (unparsed) {
 				return { status: "blocked", reason: unparsedRefusal(unparsed) };
 			}
 			if (toCount === 0) {
 				return { status: "blocked", reason: NO_TO_ADDRESS_MESSAGE };
+			}
+			// Last of the refusals: the others name something the writer can go and
+			// fix, and this one names something about the message being forwarded
+			// that they cannot. The banner above states it the whole time either
+			// way, so the press is better spent on the fixable thing.
+			if (nothingToForward) {
+				return {
+					status: "blocked",
+					reason: NO_QUOTABLE_BODY_FORWARD_MESSAGE,
+				};
 			}
 			return { status: "ready", accountId: selectedAccountId };
 		},
