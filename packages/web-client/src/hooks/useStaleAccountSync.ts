@@ -275,21 +275,28 @@ export const useStaleAccountSync = (
 				return;
 			}
 			// Hidden: don't reschedule. `handleVisibilityChange` resumes the loop
-			// (with an immediate catch-up poll) once the tab is visible again.
-			// A hot window running out while the tab is away costs nothing —
-			// there is nobody watching a list to keep current.
+			// (with an immediate catch-up poll if one is due) once the tab is
+			// visible again. A hot window running out while the tab is away costs
+			// nothing — there is nobody watching a list to keep current.
 		};
 
+		// A tick that fired while the tab was hidden left no timer behind, so
+		// coming back is the only thing that can re-arm the loop — it does so
+		// unconditionally. Due-ness decides whether this tab polls *now*, never
+		// whether a next tick exists: a tab that went to sleep on the hot cadence
+		// and came back after the window lapsed is not due against a longer
+		// ambient interval, and used to stop polling for good (#1031).
 		const handleVisibilityChange = () => {
 			if (document.visibilityState !== "visible") return;
-			if (
-				!hasPollIntervalElapsed(Date.now(), lastPollAt, currentPollIntervalMs())
-			) {
+			if (timeoutId !== undefined) clearTimeout(timeoutId);
+			const now = Date.now();
+			const intervalMs = currentPollIntervalMs(now);
+			if (hasPollIntervalElapsed(now, lastPollAt, intervalMs)) {
+				poll();
+				timeoutId = setTimeout(tick, intervalMs);
 				return;
 			}
-			if (timeoutId !== undefined) clearTimeout(timeoutId);
-			poll();
-			timeoutId = setTimeout(tick, currentPollIntervalMs());
+			timeoutId = setTimeout(tick, lastPollAt + intervalMs - now);
 		};
 
 		// A press opens the hot window, but this loop may already be asleep on a
