@@ -246,7 +246,7 @@ const repositoriesOf = (store: Store, accountConfigId: string): any => {
 			listByAccountConfig: async () => [...store.anchors],
 		},
 		address: {
-			listByAccountConfig: async () => ({
+			listAllByAccountConfigPage: async () => ({
 				items: [...store.addresses],
 				continuationToken: undefined,
 			}),
