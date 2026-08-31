@@ -10,6 +10,7 @@ import type {
 	IThreadMessageRepository,
 	IUnitOfWork,
 	MailboxItem,
+	MessageItem,
 	ThreadMessageItem,
 } from "@remit/data-ports";
 import { storedDisplayName } from "@remit/data-ports/display-name";
@@ -17,15 +18,19 @@ import type { JunkRoleMailboxes } from "@remit/data-ports/folder-role";
 import {
 	deriveAddressId,
 	deriveBodyPartId,
+	deriveCopyMessageId,
 	deriveEnvelopeId,
 	deriveMessageIdFromSource,
 	deriveThreadId,
 	isValidMessageId,
 } from "@remit/data-ports/id";
+import { isVirtualCopyMailbox } from "@remit/data-ports/virtual-copy";
 import {
 	AddressRole,
 	MailboxCursorState,
 	MessageKeywordFlag,
+	MessageStatus,
+	MessageSyncStatus,
 	MessageSystemFlag,
 	StarColor,
 } from "@remit/domain-enums";
@@ -129,6 +134,33 @@ export const addressSightingIn = (
 };
 
 /**
+ * Whether a sighting of an already-stored message in this mailbox re-points the
+ * row at this folder (#859). A message lives in one folder and the model never
+ * holds it in two, so a sighting somewhere else is not a rival claim to the
+ * row — it is a move another client made under reader. The last move wins, in
+ * both directions, and junk withholding derives from the pointer that results.
+ *
+ * Two sightings are not moves. Gmail's All Mail, Starred and Important hold
+ * every message that also lives in a real folder, so they are views rather than
+ * filing locations; following one would empty every other folder's listing. And
+ * a row whose own mutation has not settled is in flight, not stale
+ * (imap-mutations R1): the server's answer predates the move reader is still
+ * waiting on, so taking it would undo the optimistic write. That sighting is
+ * reconciled by the next one after the mutation settles.
+ */
+export const repointsOnSighting = (
+	mailbox: MailboxItem,
+	message: Pick<MessageItem, "mailboxId" | "status" | "syncStatus">,
+): boolean => {
+	if (message.mailboxId === mailbox.mailboxId) return false;
+	if (isVirtualCopyMailbox(mailbox)) return false;
+	return (
+		message.status === MessageStatus.active &&
+		message.syncStatus === MessageSyncStatus.synced
+	);
+};
+
+/**
  * The name an envelope carries for an address, as it should be stored: any
  * claim to be some other address removed (issue #826), the rest of the name
  * kept. Refused wherever a name lands — the address book, the envelope the
@@ -194,8 +226,9 @@ export interface SyncedMessage {
 
 /**
  * Per-message save outcome. `owned` is true when the row was created by this
- * sync or already belongs to the current mailbox; false for a residual
- * cross-mailbox collision whose stored row points at a different mailbox.
+ * sync, already belongs to the current mailbox, or was re-pointed at it by this
+ * sighting; false for a collision this sync declined to follow — a virtual-copy
+ * folder, or a row whose own mutation has not settled.
  */
 interface SaveMessageResult extends SyncedMessage {
 	owned: boolean;
@@ -1443,9 +1476,35 @@ export class MessageSyncService {
 				envelopeId,
 				rootBodyPartId,
 			});
-			owned = created || item.mailboxId === mailboxId;
 
-			if (sighting === "junk") {
+			// The server has just named this folder and this UID for a message the
+			// database holds under another folder. `upsertWithStatus` left the row
+			// alone, so the pointer is repaired here — mailbox and UID together,
+			// because a UID only means anything inside the folder that issued it.
+			const repointed =
+				!created &&
+				repointsOnSighting(mailbox, item) &&
+				!(await this.holdsCopyOf(repos.message, messageId, mailboxId));
+			if (repointed) {
+				await repos.message.updateUid(messageId, msg.uid, mailboxId);
+				await this.repointThreadMessage(
+					repos.threadMessage,
+					accountConfigId,
+					messageId,
+					mailboxId,
+					msg.uid,
+					sighting === "discarded",
+				);
+			}
+
+			owned = created || item.mailboxId === mailboxId || repointed;
+
+			// Withholding reads the pointer, so it is re-derived whenever the
+			// pointer could have changed the answer: a save into Junk, and a
+			// re-point in either direction. The reconcile both applies and lifts,
+			// so a sender whose only mail was moved out of Junk is restored by the
+			// same call that would have withheld them (#859).
+			if (sighting === "junk" || repointed) {
 				await repos.address.reconcileJunkOnlyForMessage(
 					messageId,
 					roles.configJunkRoles,
@@ -1477,6 +1536,69 @@ export class MessageSyncService {
 		});
 
 		return { messageId, uid: msg.uid, owned };
+	}
+
+	/**
+	 * Whether this folder already holds a copy the user made of this message
+	 * (#75). A copy is a second row under its own derived id, so the sighting is
+	 * that copy standing where it was put — the original has not moved, and
+	 * following it would take the mail out of the folder the user copied it from.
+	 */
+	private async holdsCopyOf(
+		messageService: IMessageRepository,
+		messageId: string,
+		mailboxId: string,
+	): Promise<boolean> {
+		const rows = await messageService.get([
+			deriveCopyMessageId(messageId, mailboxId),
+		]);
+		return rows.length > 0;
+	}
+
+	/**
+	 * Follow a re-pointed Message with the ThreadMessage row that renders it.
+	 * The listing and every folder count read that row, so leaving it behind
+	 * would show the message in the folder it just left and hide it from the one
+	 * it landed in. `isDeleted` follows the same rule the move path uses — true
+	 * in Trash, false anywhere else — so a message another client rescues out of
+	 * Trash stops being filtered out of listings.
+	 */
+	private async repointThreadMessage(
+		threadMessageService: IThreadMessageRepository,
+		accountConfigId: string,
+		messageId: string,
+		mailboxId: string,
+		uid: number,
+		isDeleted: boolean,
+	): Promise<void> {
+		const row = await threadMessageService.findByMessageId(
+			accountConfigId,
+			messageId,
+		);
+		if (row === null) return;
+		if (
+			row.mailboxId === mailboxId &&
+			row.uid === uid &&
+			row.isDeleted === isDeleted
+		) {
+			return;
+		}
+
+		await threadMessageService.update(
+			row.accountConfigId,
+			row.threadMessageId,
+			{ mailboxId, uid, isDeleted },
+			{
+				composites: {
+					mailboxId: row.mailboxId,
+					sentDate: row.sentDate,
+					isRead: row.isRead,
+					isDeleted: row.isDeleted,
+					hasStars: row.hasStars,
+					hasAttachment: row.hasAttachment,
+				},
+			},
+		);
 	}
 
 	private async saveAddresses(

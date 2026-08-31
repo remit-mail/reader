@@ -37,6 +37,10 @@
 			"types": "./src/mutation-events.ts",
 			"default": "./src/mutation-events.ts"
 		},
+		"./virtual-copy": {
+			"types": "./src/virtual-copy.ts",
+			"default": "./src/virtual-copy.ts"
+		},
 		"./mailbox-name": {
 			"types": "./src/mailbox-name.ts",
 			"default": "./src/mailbox-name.ts"
