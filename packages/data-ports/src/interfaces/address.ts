@@ -95,6 +95,18 @@ export interface IAddressRepository {
 		cursor?: string;
 		limit?: number;
 	}): Promise<ResultList<AddressItem>>;
+	/**
+	 * Every address stored under the configuration, for a reader that must see
+	 * the whole set: nothing is hidden, so a row the machine marked `junkOnly`
+	 * still comes back with whatever the user decided about it. Ordered by
+	 * `addressId`, which no write moves, so a page boundary cannot skip a row
+	 * while message sync updates counts and timestamps underneath the read.
+	 */
+	listAllByAccountConfigPage(input: {
+		accountConfigId: string;
+		cursor?: string;
+		limit?: number;
+	}): Promise<ResultList<AddressItem>>;
 	createEnvelopeAddress(
 		input: CreateEnvelopeAddressInput,
 	): Promise<EnvelopeAddressItem>;

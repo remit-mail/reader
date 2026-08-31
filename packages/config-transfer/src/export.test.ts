@@ -10,6 +10,7 @@ import {
 import { ConfigExportRefusedError, readConfigForExport } from "./export.js";
 import {
 	ACCOUNT_CONFIG_ID,
+	asAddressRepository,
 	asRepositories,
 	type ConfigFixture,
 	makeAccount,
@@ -189,6 +190,23 @@ const fullFixture = (): ConfigFixture => ({
 	],
 	addressPageSize: 1,
 });
+
+/**
+ * The shape #1029 was about: mail the reader unsubscribed from and never
+ * replied to, landing only in Junk, so sync marks the row `junkOnly`. The
+ * autocomplete listing is right to hide it; the export is not.
+ */
+const junkOnlyNewsletter = (): AddressItem =>
+	makeAddress({
+		addressId: "adr-junk-news",
+		normalizedEmail: "sale@junk.example",
+		flags: {
+			junkOnly: { value: true, setAt: 1750000000000 },
+			unsubscribed: { value: true, setAt: 1755000000000 },
+			autoArchive: { value: true, setAt: 1755000000000 },
+			category: { value: "newsletter", setAt: 1755000000000 },
+		},
+	});
 
 const exportFixture = (fixture: ConfigFixture) =>
 	readConfigForExport(asRepositories(fixture), ACCOUNT_CONFIG_ID, IDENTITY);
@@ -463,13 +481,48 @@ test("an address exports only when the user decided something about it", async (
 			},
 		}),
 	];
-	fixture.addresses = [...derivedOnly, ...fixture.addresses];
+	fixture.addresses = [
+		...derivedOnly,
+		...fixture.addresses,
+		junkOnlyNewsletter(),
+	];
 
 	const document = await exportFixture(fixture);
 
 	assert.deepEqual(
 		document.addressFlags.map((entry) => entry.normalizedEmail),
-		["post@bank.example", "noreply@newsletter.example"],
+		["post@bank.example", "sale@junk.example", "noreply@newsletter.example"],
+	);
+});
+
+test("an address the machine marked junk-only still exports the decision on it", async () => {
+	const fixture = fullFixture();
+	fixture.addresses = [...fixture.addresses, junkOnlyNewsletter()];
+
+	const suggested = await asAddressRepository(fixture).listByAccountConfig({
+		accountConfigId: ACCOUNT_CONFIG_ID,
+	});
+	assert.equal(
+		suggested.items.some((item) => item.addressId === "adr-junk-news"),
+		false,
+		"the suggest listing is right to hide it, and is not the export's read",
+	);
+
+	const document = await exportFixture(fixture);
+
+	const exported = document.addressFlags.find(
+		(entry) => entry.normalizedEmail === "sale@junk.example",
+	);
+	assert.deepEqual(exported?.flags.unsubscribed, {
+		value: true,
+		setAt: 1755000000000,
+	});
+	assert.equal(exported?.flags.autoArchive?.value, true);
+	assert.equal(exported?.flags.category?.value, "newsletter");
+	assert.equal(
+		"junkOnly" in (exported?.flags ?? {}),
+		false,
+		"the machine's own flag is still not carried",
 	);
 });
 

@@ -5,6 +5,7 @@ import type {
 	AddressItem,
 	FilterAnchorItem,
 	FilterItem,
+	IAddressRepository,
 	LabelItem,
 	MailboxItem,
 } from "@remit/data-ports";
@@ -185,6 +186,62 @@ export const makeLegacyFlaggedAddress = (): AddressItem =>
 		} as unknown as AddressItem["flags"],
 	});
 
+/**
+ * The suggest predicate the stored listing applies, spelled in JavaScript: an
+ * address is hidden exactly when the machine marked it `junkOnly` and the
+ * account has neither corresponded with the sender nor flagged it. Modelled
+ * rather than ignored, because a stub that filters nothing cannot tell a read
+ * that hides decisions apart from one that does (#1029).
+ */
+const listable = (address: AddressItem): boolean => {
+	const flags = address.flags ?? {};
+	if (flags.junkOnly?.value !== true) return true;
+	const corresponded =
+		address.outboundCount + address.replyCount > 0 ||
+		flags.vip?.value === true ||
+		flags.trusted?.value === true;
+	return (
+		corresponded || flags.blocked?.value === true || flags.muted?.value === true
+	);
+};
+
+const byAddressId = (rows: AddressItem[]): AddressItem[] =>
+	[...rows].sort((left, right) =>
+		left.addressId < right.addressId
+			? -1
+			: left.addressId > right.addressId
+				? 1
+				: 0,
+	);
+
+/**
+ * Both address reads, so a test can hold them against each other: the suggest
+ * listing hides a junk-only row, the export's listing carries every row in
+ * `addressId` order.
+ */
+export const asAddressRepository = (
+	fixture: ConfigFixture,
+): Pick<
+	IAddressRepository,
+	"listByAccountConfig" | "listAllByAccountConfigPage"
+> => {
+	const pageOf = (rows: AddressItem[], cursor: string | undefined) => {
+		const size = fixture.addressPageSize ?? rows.length + 1;
+		const offset = cursor ? Number(cursor) : 0;
+		const next = offset + size;
+		return {
+			items: rows.slice(offset, next),
+			continuationToken: next < rows.length ? String(next) : undefined,
+		};
+	};
+	return {
+		listByAccountConfig: async ({ cursor }) =>
+			pageOf(fixture.addresses.filter(listable), cursor),
+		listAllByAccountConfigPage: async ({ cursor }) =>
+			pageOf(byAddressId(fixture.addresses), cursor),
+	};
+};
+
 /** The fixture, behind the repository interfaces the export takes. */
 export const asRepositories = (
 	fixture: ConfigFixture,
@@ -211,17 +268,5 @@ export const asRepositories = (
 	filterAnchor: {
 		listByAccountConfig: async () => fixture.anchors,
 	},
-	address: {
-		listByAccountConfig: async ({ cursor }) => {
-			const size = fixture.addressPageSize ?? fixture.addresses.length + 1;
-			const offset = cursor ? Number(cursor) : 0;
-			const items = fixture.addresses.slice(offset, offset + size);
-			const next = offset + size;
-			return {
-				items,
-				continuationToken:
-					next < fixture.addresses.length ? String(next) : undefined,
-			};
-		},
-	},
+	address: asAddressRepository(fixture),
 });
