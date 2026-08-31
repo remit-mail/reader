@@ -3021,6 +3021,26 @@ cmd_config() {
 	' "$REMIT_DIR/.env"
 }
 
+# Whether a file holds one JSON document, parsed rather than eyeballed. There is
+# no jq on a self-host box, but the image that wrote the document is already
+# pulled and already carries a parser, so the parse runs in the same place every
+# other read in this command runs. The document arrives on stdin, which the
+# operator's own shell opened, so no mount and no file ownership come into it,
+# and only the exit code is read back — no log line on the container's stdout can
+# move that. 0 it parses, 1 it does not, 2 the parse could not run: a docker that
+# refused has not found a corrupt document and must not be reported as though it
+# had.
+config_json_parses() {
+	_pc=0
+	compose run --rm --no-deps -T migrate node -e \
+		'let d="";process.stdin.setEncoding("utf8").on("data",c=>{d+=c}).on("end",()=>{JSON.parse(d)})' \
+		<"$1" >/dev/null 2>&1 || _pc=$?
+	case "$_pc" in
+	0 | 1) return "$_pc" ;;
+	esac
+	return 2
+}
+
 # `remit config save <file> [--user <email>]` (issue #1021).
 #
 # The document is built inside the backend image, over the same reader the
@@ -3041,8 +3061,9 @@ cmd_config() {
 # lands in the middle of the document and the command still succeeds. This file
 # is the safety net an operator takes before dropping their database, and a
 # corrupt one is worse than none: it is only discovered on the import that needed
-# it. Same document-closed test `remit doctor` applies to the checker's JSON, for
-# the same reason.
+# it. So what is renamed is what parsed, not what opened and closed: the
+# first-and-last-line test `remit doctor` applies catches a document that stopped
+# arriving, and a line landing inside one passes it.
 cmd_config_save() {
 	_file=""
 	_user=""
@@ -3080,9 +3101,15 @@ cmd_config_save() {
 		rm -f "$_tmp"
 		die "config save: the export did not finish, so nothing was written"
 	fi
-	if ! doctor_json_closed "$_tmp"; then
+	_parsed=0
+	config_json_parses "$_tmp" || _parsed=$?
+	if [ "$_parsed" = "2" ]; then
 		rm -f "$_tmp"
-		die "config save: what came back is not a closed JSON document, so nothing was written — '$PROG logs backend' may say why"
+		die "config save: the export could not be checked for damage, so nothing was written — check that the docker daemon is responding, then run '$PROG config save' again"
+	fi
+	if [ "$_parsed" != "0" ]; then
+		rm -f "$_tmp"
+		die "config save: what came back is not a JSON document, so nothing was written — '$PROG logs backend' may say why"
 	fi
 
 	mv "$_tmp" "$_file"
