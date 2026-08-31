@@ -488,10 +488,8 @@ owner_mode_of() {
 
 # Restores a captured "uid gid [mode]" onto a path, before it is renamed into
 # place. Best-effort by design: a chown that cannot run is the unprivileged
-# shell where it is already unnecessary.
-# The local is named for this function and nothing else: `_target` was the run's
-# target version to every caller above set_var, and every phase message printed
-# after the tag was written named a .env.tmp path instead of the release.
+# shell where it is already unnecessary. The local is named for this function
+# and nothing else: a name a caller also uses is a name this overwrites.
 restore_owner_mode() {
 	_rom_path=$1
 	# shellcheck disable=SC2086 # "uid gid [mode]" is split into fields on purpose
@@ -1960,7 +1958,7 @@ command -v sqlite3 >/dev/null 2>&1 || apk add --no-cache sqlite >/dev/null
 command -v su-exec >/dev/null 2>&1 || apk add --no-cache su-exec >/dev/null
 own=\$(stat -c %u:%g /state)
 mkdir -p /state/snapshots/$1
-chown \"\$own\" /state/snapshots
+chown \"\$own\" /state/snapshots 2>/dev/null || true
 chown 1000:1000 /state/snapshots/$1
 exec su-exec 1000:1000 sh -c '. /snapshot-db.sh
 snapshot_db /data/sqlite/remit.db /state/snapshots/$1/remit.db
@@ -2013,17 +2011,45 @@ host_files_dir() { printf '%s/host-files/%s' "$STATE_DIR" "$1"; }
 # so one setting covers every release rather than a base that has to be moved on
 # each one. A fork that serves its own manifest sets this too — otherwise its
 # releases would be installed with this repository's wrapper.
+#
+# What comes back is a shell script this box then runs as root, so a configured
+# base is held to the origin the manifest is already trusted from: a line added
+# to .env cannot move the fetch to a host of its own. A deployment that really
+# does serve its files from a second host names that host in
+# REMIT_UPDATE_ASSET_ORIGIN, which is a statement rather than a side effect. The
+# built-in default is the pair this repository publishes and needs neither.
 host_asset_base() {
-	if [ -n "${REMIT_UPDATE_ASSET_BASE:-}" ]; then
-		printf '%s' "$REMIT_UPDATE_ASSET_BASE"
+	_b=${REMIT_UPDATE_ASSET_BASE:-}
+	if [ -z "$_b" ]; then
+		_b=$(get_var REMIT_UPDATE_ASSET_BASE 2>/dev/null || true)
+	fi
+	if [ -z "$_b" ]; then
+		printf 'https://raw.githubusercontent.com/remit-mail/reader/@TAG@/deploy/vps'
 		return 0
 	fi
-	_b=$(get_var REMIT_UPDATE_ASSET_BASE 2>/dev/null || true)
-	if [ -n "$_b" ]; then
-		printf '%s' "$_b"
-		return 0
+	_bo=$(https_origin "$_b") || return 1
+	_ao=${REMIT_UPDATE_ASSET_ORIGIN:-}
+	if [ -z "$_ao" ]; then
+		_ao=$(get_var REMIT_UPDATE_ASSET_ORIGIN 2>/dev/null || true)
 	fi
-	printf 'https://raw.githubusercontent.com/remit-mail/reader/@TAG@/deploy/vps'
+	if [ -z "$_ao" ]; then
+		_ao=$(https_origin "$(manifest_url)" 2>/dev/null || true)
+	fi
+	[ -n "$_ao" ] && [ "$_bo" = "$_ao" ] || return 1
+	printf '%s' "$_b"
+}
+
+# The scheme and host of an https URL, and nothing at all for anything else: a
+# base that is not https is refused rather than downgraded, because a wrapper
+# fetched over plain HTTP is a wrapper anyone on the path can rewrite.
+https_origin() {
+	case "$1" in
+	https://*) ;;
+	*) return 1 ;;
+	esac
+	_o=${1#https://}
+	[ -n "${_o%%/*}" ] || return 1
+	printf 'https://%s' "${_o%%/*}"
 }
 
 # The name the release serves a file under, mapped to the name this deployment
@@ -2031,7 +2057,7 @@ host_asset_base() {
 host_asset_local() {
 	case "$1" in
 	remit) printf 'remit' ;;
-	*) printf '%s' "$COMPOSE_FILE" ;;
+	*) printf '%s' "$(installed_stamp COMPOSE_FILE)" ;;
 	esac
 }
 
@@ -2074,7 +2100,7 @@ stamp_wrapper() {
 		-e "s#^COMPOSE_FILE=.*#COMPOSE_FILE=$(installed_stamp COMPOSE_FILE)#" \
 		-e "s#^PROG=.*#PROG=$(installed_stamp PROG)#" \
 		"$1" >"$1.stamped" || return 1
-	mv "$1.stamped" "$1"
+	mv "$1.stamped" "$1" || return 1
 	chmod +x "$1"
 }
 
@@ -2087,13 +2113,34 @@ stage_host_files() {
 	_dest=$(host_files_dir "$1")/incoming
 	rm -rf "$_dest"
 	mkdir -p "$_dest"
-	_base=$(printf '%s' "$(host_asset_base)" | sed "s#@TAG@#$2#g")
+	_base=$(host_asset_base) || return 1
+	_base=$(printf '%s' "$_base" | sed "s#@TAG@#$2#g")
 	for _a in $HOST_ASSETS; do
 		fetch_asset "$_base/$_a" "$_dest/$(host_asset_local "$_a")" || return 1
 	done
 	stamp_wrapper "$_dest/remit" || return 1
+	validate_host_files "$_dest" || return 1
+	_shf_own=$(owner_mode_of "$REMIT_DIR/.env")
 	touch "$REMIT_DIR/.remit-update-probe" 2>/dev/null || return 1
+	restore_owner_mode "$REMIT_DIR/.remit-update-probe" "$_shf_own"
 	rm -f "$REMIT_DIR/.remit-update-probe"
+}
+
+# A fetch proves that bytes arrived, not that they are a release's. Both files
+# are read next by something with no way to report the failure — the compose
+# file by the stop and the start on either side of the gate, the wrapper by the
+# next shell an operator types it into — so each goes through its own parser
+# here, while nothing has been stopped and abandoning costs nothing.
+validate_host_files() {
+	for _a in $HOST_ASSETS; do
+		_l=$(host_asset_local "$_a")
+		if [ "$_l" = remit ]; then
+			sh -n "$1/$_l" || return 1
+			continue
+		fi
+		docker compose --project-directory "$REMIT_DIR" -f "$1/$_l" \
+			--env-file "$REMIT_DIR/.env" config >/dev/null || return 1
+	done
 }
 
 snapshot_host_files() {
@@ -2108,20 +2155,21 @@ snapshot_host_files() {
 	done
 }
 
-# Rename, never a write in place: this wrapper may be the file being replaced,
-# and /bin/sh reads a script as it runs it. The running copy keeps the inode it
-# was opened on and finishes the run it is in, while the directory entry already
-# names the new one — the same pattern the updater's own self-replace uses
-# (reader#1051). The bytes were fetched and stamped before the stop, so the only
-# work left here is the rename, and re-running it after an interrupted install
-# reaches the same place.
+# Rename, never a write in place: /bin/sh reads a script as it runs it, so the
+# running copy keeps the inode it was opened on while the directory entry
+# already names the new one (reader#1051). The owner and mode of what is being
+# replaced are carried onto the replacement, the way set_var carries .env's: the
+# updater is root against a bind-mounted deployment, and a wrapper it leaves
+# root:root locks the host user out of their own directory (reader#273).
 install_host_files() {
 	_src=$(host_files_dir "$1")/incoming
 	[ -d "$_src" ] || return 1
 	for _a in $HOST_ASSETS; do
 		_l=$(host_asset_local "$_a")
 		[ -f "$_src/$_l" ] || return 1
+		_ihf_own=$(owner_mode_of "$REMIT_DIR/$_l")
 		cp "$_src/$_l" "$REMIT_DIR/$_l.incoming" || return 1
+		restore_owner_mode "$REMIT_DIR/$_l.incoming" "$_ihf_own"
 		if [ "$_l" = "remit" ]; then
 			chmod +x "$REMIT_DIR/$_l.incoming"
 		fi
@@ -2154,7 +2202,9 @@ restore_host_files() {
 	for _a in $HOST_ASSETS; do
 		_l=$(host_asset_local "$_a")
 		[ -f "$_src/$_l" ] || continue
+		_rhf_own=$(owner_mode_of "$REMIT_DIR/$_l")
 		cp "$_src/$_l" "$REMIT_DIR/$_l.restoring" || return 1
+		restore_owner_mode "$REMIT_DIR/$_l.restoring" "$_rhf_own"
 		if [ "$_l" = "remit" ]; then
 			chmod +x "$REMIT_DIR/$_l.restoring"
 		fi
@@ -2186,8 +2236,8 @@ for d in /state/snapshots/*; do
 done" 2>/dev/null) || _survivors=""
 	prune_host_files "$_kept"
 	for _s in $_survivors; do
-		printf '%s: the snapshot from update %s could not be removed; the next successful update will try again.\n' \
-			"$PROG" "$_s" >&2
+		printf '%s: could not remove the snapshot at %s; the next successful update will try again.\n' \
+			"$PROG" "$STATE_DIR/snapshots/$_s" >&2
 	done
 }
 
@@ -2536,7 +2586,7 @@ start_gate_set() {
 	fi
 	breadcrumb_write
 	# shellcheck disable=SC2086 # GATE_SET is a service list, split on purpose
-	compose up -d $GATE_SET
+	compose up -d $GATE_SET || return 1
 	gate_baseline
 }
 
@@ -2652,12 +2702,14 @@ commit_run() {
 	start_held_back
 	recheck_availability
 	terminate succeeded "This instance is now running $RUN_TARGET." "remit logs backend"
-	replace_updater
-	# Last, because it is housekeeping: the verdict is durable and the updater is
-	# handed off before a single byte is deleted. This run's snapshot and the
-	# previous release's images are retained until the next successful update;
-	# every earlier run's snapshot goes.
+	# Housekeeping, and last of the work: the verdict is durable before a single
+	# byte is deleted. This run's snapshot and the previous release's images are
+	# retained until the next successful update; every earlier run's snapshot
+	# goes. Before the self-replace, not after — the prune drives a helper
+	# container this one starts, and replace_updater recreates the container this
+	# wrapper is running in.
 	prune_snapshots "$RUN_ID"
+	replace_updater
 }
 
 roll_back() {
@@ -2683,7 +2735,12 @@ roll_back() {
 	REMIT_TAG=$RUN_FROM
 	export REMIT_TAG
 	recheck_availability
-	start_gate_set
+	if ! start_gate_set; then
+		terminate rollbackFailed \
+			"$_why, and $RUN_FROM's own services could not be started again. The snapshot taken before the update is at $STATE_DIR/snapshots/$RUN_ID." \
+			"remit logs backend"
+		return 1
+	fi
 	if run_gate "$RUN_MIGRATE_BEFORE"; then
 		start_held_back
 		prune_snapshots "$RUN_ID"
@@ -2697,6 +2754,17 @@ roll_back() {
 		"$_why, and $RUN_FROM did not come back either ($GATE_REASON). The snapshot taken before the update is at $STATE_DIR/snapshots/$RUN_ID." \
 		"remit logs backend"
 	return 1
+}
+
+# Every abandonment before the stop is the same three acts: the tag goes back
+# to what is running, the run is recorded, and what was staged for it is
+# dropped. Only the sentence differs, and a caller that names the wrong step is
+# an operator reading about a snapshot when the download is what failed.
+abandon_run() {
+	REMIT_TAG=$RUN_FROM
+	export REMIT_TAG
+	terminate abandoned "$1" "$2"
+	rm -rf "$STATE_DIR/snapshots/$RUN_ID" "$(host_files_dir "$RUN_ID")"
 }
 
 run_update() {
@@ -2734,12 +2802,9 @@ run_update() {
 	REMIT_TAG=$_target
 	export REMIT_TAG
 	if ! (pull_images); then
-		REMIT_TAG=$RUN_FROM
-		export REMIT_TAG
-		terminate abandoned \
+		abandon_run \
 			"$_target could not be downloaded, so nothing was changed and this instance is still running $RUN_FROM." \
 			"remit update"
-		rm -rf "$STATE_DIR/snapshots/$RUN_ID" "$(host_files_dir "$RUN_ID")"
 		return 1
 	fi
 
@@ -2747,12 +2812,9 @@ run_update() {
 	# same terms: a release that cannot be obtained whole is not installed, and
 	# failing here aborts having changed nothing.
 	if ! stage_host_files "$RUN_ID" "$_target"; then
-		REMIT_TAG=$RUN_FROM
-		export REMIT_TAG
-		terminate abandoned \
-			"$_target's wrapper and compose file could not be fetched, so nothing was changed and this instance is still running $RUN_FROM." \
+		abandon_run \
+			"$_target's wrapper and compose file could not be fetched and checked, so nothing was changed and this instance is still running $RUN_FROM." \
 			"remit update"
-		rm -rf "$STATE_DIR/snapshots/$RUN_ID" "$(host_files_dir "$RUN_ID")"
 		return 1
 	fi
 
@@ -2760,13 +2822,16 @@ run_update() {
 	# the stop silently drops every transaction still in the write-ahead log,
 	# and the restore looks clean.
 	phase snapshotting "Taking a snapshot of the database." "remit status"
-	if ! snapshot_databases "$RUN_ID" || ! snapshot_host_files "$RUN_ID"; then
-		REMIT_TAG=$RUN_FROM
-		export REMIT_TAG
-		terminate abandoned \
+	if ! snapshot_databases "$RUN_ID"; then
+		abandon_run \
 			"The database could not be snapshotted, so nothing was changed and this instance is still running $RUN_FROM." \
 			"remit status"
-		rm -rf "$STATE_DIR/snapshots/$RUN_ID" "$(host_files_dir "$RUN_ID")"
+		return 1
+	fi
+	if ! snapshot_host_files "$RUN_ID"; then
+		abandon_run \
+			"This deployment's own wrapper and compose file could not be copied aside, so nothing was changed and this instance is still running $RUN_FROM. A rollback has to be able to put them back." \
+			"remit status"
 		return 1
 	fi
 
@@ -2789,7 +2854,10 @@ run_update() {
 	fi
 
 	phase starting "Starting $_target." "remit logs backend"
-	start_gate_set
+	if ! start_gate_set; then
+		roll_back "$_target's services could not be started"
+		return 1
+	fi
 
 	phase verifying "Waiting for $_target to answer." "remit logs backend"
 	if run_gate "$RUN_MIGRATE_BEFORE"; then
@@ -2843,7 +2911,10 @@ recover_run() {
 		# A fresh `compose up` here is what re-reads .env: `unless-stopped` does
 		# not restart containers that were explicitly stopped, so a host reboot
 		# between the stop and the start leaves the app plane down until this.
-		start_gate_set
+		if ! start_gate_set; then
+			roll_back "$RUN_TARGET's services could not be started"
+			return 1
+		fi
 		if run_gate "$RUN_MIGRATE_BEFORE"; then
 			commit_run
 			return 0
@@ -3521,7 +3592,35 @@ cmd_doctor() {
 	exit 2
 }
 
+# reader#1082. `remit update` installs the release's wrapper into the
+# deployment directory, so whatever is on PATH has to point at that file rather
+# than be a copy of it: a copy keeps answering with the release it was taken
+# from, and the verb the update added comes back `unknown command` from a file
+# nothing refreshes. install.sh places a one-line exec shim, so an entry that is
+# neither that shim nor the deployment's own wrapper is a copy, and says so.
+unstamped_wrapper() {
+	sed -e 's#^DEFAULT_DIR=.*#DEFAULT_DIR=#' \
+		-e 's#^COMPOSE_FILE=.*#COMPOSE_FILE=#' \
+		-e 's#^PROG=.*#PROG=#' "$1" 2>/dev/null
+}
+
+path_entry_stale() {
+	_pe=${1:-}
+	[ -n "$_pe" ] || return 1
+	[ -r "$_pe" ] || return 1
+	[ -r "$REMIT_DIR/remit" ] || return 1
+	if cmp -s "$_pe" "$REMIT_DIR/remit"; then return 1; fi
+	if grep -q '^exec ".*/remit" "\$@"$' "$_pe" 2>/dev/null; then return 1; fi
+	# The three lines install.sh stamps belong to the deployment rather than to
+	# the release, so an entry differing only there is the same release.
+	[ "$(unstamped_wrapper "$_pe")" != "$(unstamped_wrapper "$REMIT_DIR/remit")" ]
+}
+
 main() {
+	if [ "${REMIT_QUIET:-0}" != "1" ] && path_entry_stale "$0"; then
+		printf '%s: %s is a copy of an older release; %s/remit is the wrapper this deployment updates, and re-running install.sh replaces the copy with a link to it.\n' \
+			"$PROG" "$0" "$REMIT_DIR" >&2
+	fi
 	[ $# -gt 0 ] || {
 		usage >&2
 		exit 2

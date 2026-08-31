@@ -500,6 +500,23 @@ compose_cmd() {
 		*" --volumes "*)
 			volume_names
 			;;
+		*)
+			# The full render, which resolves every interpolation in the file. A
+			# ${VAR:?message} whose variable is unset is what compose refuses, and
+			# refusing it is the whole of what the update's pre-install validation
+			# rests on.
+			[ -f "$_compose_file" ] || exit 1
+			# Split on the opening brace so every reference on a line is seen, not
+			# only the last one a greedy match would leave.
+			for _v in $(tr '{' '\n' <"$_compose_file" |
+				sed -n 's#^\([A-Za-z_][A-Za-z0-9_]*\):\{0,1\}?.*#\1#p' | sort -u); do
+				if [ -n "$_env_file" ] && grep -q "^$_v=" "$_env_file" 2>/dev/null; then continue; fi
+				eval "_set=\${$_v:-}"
+				if [ -n "$_set" ]; then continue; fi
+				printf 'error: required variable %s is missing a value\n' "$_v" >&2
+				exit 1
+			done
+			;;
 		esac
 		exit 0
 		;;
@@ -751,13 +768,13 @@ run_cmd() {
 	# directory the -v named, so a test reads what actually survived.
 	#
 	# The helper is root, and no mode bit on the volume stops root. The stand-in
-	# is one unprivileged uid, so that is modelled by restoring write on the
-	# directory the script is about to work in — a host-side prune, which is what
-	# reader#1071 was, has no such recourse and fails there with EACCES.
+	# is one unprivileged uid, so root's reach is modelled where the wrapper
+	# claims it: the snapshot's chown of the snapshots parent, below. Nothing is
+	# repaired here — a prune that meets a directory an older release left
+	# unwritable has to fail the way reader#1071 did.
 	case "$_script" in
 	*remit-prune-snapshots*)
 		log "run prune-snapshots src=$_statesrc"
-		chmod u+rwx "$_statesrc/snapshots" 2>/dev/null || true
 		printf '%s' "$_script" | sed -e "s#/state#$_statesrc#g" | sh
 		exit $?
 		;;
@@ -806,6 +823,24 @@ run_cmd() {
 		# wrong volume writes a snapshot of an empty database and reports success.
 		log "run snapshot sqlite=$FR_SQLITE"
 		if [ "$(val snapshot ok)" != "ok" ]; then exit 1; fi
+		# The one place the helper's rootness is modelled. The snapshot chowns the
+		# snapshots parent so a directory an older release left root-owned is
+		# repaired by the next update (reader#1071); a chown is a no-op under this
+		# stand-in's single uid, so write is restored instead — and only when the
+		# script actually chowns the parent, so a release that drops that line
+		# leaves the prune below meeting the EACCES the operator met.
+		# shellcheck disable=SC2016 # the helper script's literal text, not an expansion
+		_parent_chown='chown "$own" /state/snapshots'
+		case "$_script" in
+		*"$_parent_chown"*)
+			chmod u+rwx "$_statesrc/snapshots" 2>/dev/null || true
+			;;
+		esac
+		# This run's own snapshot directory, which the prune has to keep.
+		_snapdir=$(printf '%s\n' "$_script" | sed -n 's#^mkdir -p /state/snapshots/##p' | sed -n 1p)
+		if [ -n "$_snapdir" ]; then
+			mkdir -p "$_statesrc/snapshots/$_snapdir"
+		fi
 		if [ "${FAKE_REAL_DB:-0}" = "1" ]; then exec_real "$_script" || exit 1; fi
 		exit 0
 		;;

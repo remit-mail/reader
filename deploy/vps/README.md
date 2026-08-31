@@ -80,9 +80,12 @@ remit purge --yes         # destroy the deployment, data included
 remit probe-host <origin> # check how a name resolves from this box
 ```
 
-When `/usr/local/bin` is writable the installer puts `remit` there; otherwise it
-stays in the install directory and the installer prints the one-line `sudo cp`
-that places it on PATH. `$REMIT_DIR` points it at a different install directory.
+When `/usr/local/bin` is writable the installer puts a one-line shim there that
+execs the install directory's own `remit`; otherwise nothing goes on PATH and
+the installer prints the one-line `sudo ln` that places it. It is a pointer
+rather than a copy because `remit update` installs each release's wrapper into
+the install directory, and a copy would keep answering with the release it was
+taken from. `$REMIT_DIR` points it at a different install directory.
 
 `.env`'s `REMIT_PROJECT` names the Compose project, and containers, volumes and
 the network all carry that name. Two install directories with the same project
@@ -465,8 +468,10 @@ in order:
    version at or below the running one is refused, as is a manifest naming
    images from outside its own registry.
 2. Every image is pulled at the target version, and the release's own `remit`
-   wrapper and compose file are fetched with them and stamped for this
-   deployment. A failure here has touched nothing and a retry is safe.
+   wrapper and compose file are fetched with them, stamped for this deployment
+   and put through `sh -n` and `docker compose config`. A failure here — a
+   refused pull, a compose file this deployment's `.env` cannot resolve — has
+   touched nothing and a retry is safe.
 3. Both databases are snapshotted with `VACUUM INTO` **while the old version is
    still live**, and the wrapper and compose file the deployment carries are
    snapshotted beside them. The work queue is deliberately not part of the
