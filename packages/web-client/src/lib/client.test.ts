@@ -1,10 +1,3 @@
-/**
- * The error interceptor is the only producer of the errors the app's readers
- * narrow, so what it builds is a contract, not an implementation detail (#1004).
- * Everything downstream — the fatal classifier's status, the refusal readers'
- * `code` — is read off the value this pins.
- */
-
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { trashOperationsEmptyTrash } from "@remit/api-http-client/sdk.gen.ts";
