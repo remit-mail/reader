@@ -14,12 +14,15 @@ import {
 	ComposeBodySkeleton,
 	ComposeFormShell,
 	ComposeHeader,
+	ComposeQuoteMissingBanner,
+	type ComposeQuoteMode,
 	type ComposeSendState,
 	type ComposeShellLayout,
 	ComposeSubjectField,
 	composeHeaderSummary,
 	defaultComposeLanguages,
 	modeOfDraft,
+	NO_QUOTABLE_BODY_FORWARD_MESSAGE,
 	QuotedText,
 	type RichTextValue,
 	SMTP_MISSING_MESSAGE,
@@ -678,12 +681,38 @@ export const ComposeForm = ({
 		data: sourceBody,
 		isLoading: quoteIsLoading,
 		isError: quoteFailed,
+		hasNoRenderablePart: sourceHasNoQuotableBody,
 		refetch: refetchQuote,
 	} = useMessageBodyContent({
 		messageId: sourceMessage?.message.messageId,
 		bodyParts: sourceMessage?.bodyParts,
 		enabled: isQuoting && !!sourceMessage,
 	});
+
+	const quoteMode: ComposeQuoteMode = mode === "forward" ? "forward" : "reply";
+
+	/**
+	 * The message being answered has not arrived yet, so the quote's own fetch
+	 * cannot have started — it picks its part out of what has not landed. A send
+	 * pressed in this window went out carrying none of the original and was
+	 * refused by nothing, because "no part picked" reads the same here as "this
+	 * message has no part to pick" (#1030).
+	 */
+	const quoteSourceIsLoading = isQuoting && !sourceMessage;
+
+	/**
+	 * The message being answered arrived carrying attachments and no text. A
+	 * forward of it is refused: the composer sends a text body and an html body
+	 * and no attachments, so the forward would arrive holding nothing of the
+	 * original at all. A reply goes out — it carries the answer and the thread's
+	 * references either way — and says the original is not quoted in it.
+	 *
+	 * Not stated for a resumed draft, whose body already holds whatever quote it
+	 * was saved with; this composer is not the one that assembles it.
+	 */
+	const quoteHasNoBody =
+		isQuoting && !documentHoldsQuote && sourceHasNoQuotableBody;
+	const nothingToForward = quoteHasNoBody && quoteMode === "forward";
 
 	/**
 	 * The original as it will be sent, and as it is shown while the answer is
@@ -818,8 +847,14 @@ export const ComposeForm = ({
 			if (selectedAccountMissingSmtp) {
 				return { status: "blocked", reason: SMTP_MISSING_MESSAGE };
 			}
-			if (quoteIsLoading) {
+			if (quoteIsLoading || quoteSourceIsLoading) {
 				return { status: "blocked", reason: QUOTE_LOADING_MESSAGE };
+			}
+			if (nothingToForward) {
+				return {
+					status: "blocked",
+					reason: NO_QUOTABLE_BODY_FORWARD_MESSAGE,
+				};
 			}
 			if (unparsed) {
 				return { status: "blocked", reason: unparsedRefusal(unparsed) };
@@ -829,7 +864,14 @@ export const ComposeForm = ({
 			}
 			return { status: "ready", accountId: selectedAccountId };
 		},
-		[isSending, selectedAccountId, selectedAccountMissingSmtp, quoteIsLoading],
+		[
+			isSending,
+			selectedAccountId,
+			selectedAccountMissingSmtp,
+			quoteIsLoading,
+			quoteSourceIsLoading,
+			nothingToForward,
+		],
 	);
 	const sendReadiness = useMemo<SendReadiness>(
 		() =>
@@ -1091,6 +1133,9 @@ export const ComposeForm = ({
 							accountId={selectedAccount.accountId}
 							configureRef={smtpConfigureRef}
 						/>
+					) : null}
+					{quoteHasNoBody ? (
+						<ComposeQuoteMissingBanner mode={quoteMode} />
 					) : null}
 					{quoteFailed ? (
 						<Banner tone="warning" data-testid="compose-quote-failed">
