@@ -1,8 +1,10 @@
 import { getClient } from "@remit/backend/client";
+import type { IMessageRepository } from "@remit/data-ports";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
 	guardConnectionCursor,
+	type IImapConnection,
 	isCursorRebuildNeeded,
 	MailboxCursorPausedError,
 } from "@remit/mailbox-service";
@@ -12,6 +14,7 @@ import type { MessageCopyEvent } from "../events.js";
 import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
+import { searchMailboxByMessageId } from "./message-move.js";
 
 export interface MessageCopyDeps {
 	getClient: typeof getClient;
@@ -25,6 +28,33 @@ const defaultDeps: MessageCopyDeps = {
 	buildLifecycleDeps,
 	withOAuthLifecycle,
 	createConnectionScope: createConnectionScopeWithCredentials,
+};
+
+/**
+ * Probe the destination mailbox by the source row's RFC822 Message-ID header
+ * when the COPYUID response names no uid — the fallback for servers without
+ * UIDPLUS, which answer a perfectly successful COPY with no COPYUID entry.
+ * Read-only (EXAMINE). Returns the first matching UID, or `null` when the
+ * source row is gone, carries no Message-ID header, or nothing matched.
+ *
+ * The probe goes through the RAW connection: a `guardConnectionCursor` wrap
+ * binds its checks to the ONE mailbox snapshot it was built with, so the
+ * destination must never be opened through the source's guard (see
+ * `confirmTrashMoveUid` in message-delete.ts).
+ */
+const probeDestinationByMessageId = async (
+	rawConnection: IImapConnection,
+	messageService: Pick<IMessageRepository, "get">,
+	sourceMessageId: string,
+	destinationMailboxPath: string,
+): Promise<number | null> => {
+	const [sourceMessage] = await messageService.get([sourceMessageId]);
+	if (!sourceMessage?.messageIdHeader) return null;
+	return searchMailboxByMessageId(
+		rawConnection,
+		destinationMailboxPath,
+		sourceMessage.messageIdHeader,
+	);
 };
 
 /**
@@ -141,8 +171,24 @@ export const handleMessageCopy = async (
 						destinationMailboxPath,
 					);
 
-					// Get new UID from COPYUID response
-					const newUid = result.uidMap.get(uid);
+					// Get new UID from COPYUID response. UIDPLUS is an extension: a
+					// server without it answers a perfectly successful COPY with no
+					// COPYUID entry, so an absent entry is UNCONFIRMED, never evidence
+					// the copy failed. The destination is probed by Message-ID before
+					// any verdict, exactly as `handleMessageMove` does (issue #1097; the
+					// same shape #979 took out of `message-delete`). Marking the row
+					// `failed` and returning — the old behaviour — left it `uid: 0`,
+					// `status: moving`, `syncStatus: failed` permanently, with no retry,
+					// no DLQ entry and no metric, because a handler that returns never
+					// redelivers.
+					const newUid =
+						result.uidMap.get(uid) ??
+						(await probeDestinationByMessageId(
+							rawConnection,
+							messageService,
+							sourceMessageId,
+							destinationMailboxPath,
+						));
 
 					if (newUid) {
 						// Update the new message with the actual UID
@@ -192,14 +238,14 @@ export const handleMessageCopy = async (
 							"Message copied successfully",
 						);
 					} else {
-						// Source message may have been deleted on server
-						log.error(
-							{ sourceMessageId, uid },
-							"Source message not found in COPYUID response - may have been deleted",
+						// No COPYUID entry and no probe match: the copy is UNCONFIRMED,
+						// not proven failed. Throw so the event redelivers — the generic
+						// catch below marks the row `failed` as the unsettled marker
+						// while the retry is pending. Wording must avoid "not found" and
+						// "NONEXISTENT", which that catch reads as a server-side delete.
+						throw new Error(
+							`Message copy unconfirmed (no COPYUID entry, no match by Message-ID at ${destinationMailboxPath}) — retrying`,
 						);
-						await messageService.update(newMessageId, {
-							syncStatus: MessageSyncStatus.failed,
-						});
 					}
 				})
 				.catch(async (error: unknown) => {
