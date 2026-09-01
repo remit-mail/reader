@@ -403,11 +403,6 @@ export const pendingFolders = (
 	return folders;
 };
 
-export const anchorWarnings = (
-	report: RemitImapConfigImportReport,
-): ApiError[] =>
-	report.warnings.filter((warning) => warning.code !== FOLDER_PENDING_CODE);
-
 /* ------------------------------------------------------------------ */
 /* Reading a file off disk                                            */
 /* ------------------------------------------------------------------ */
