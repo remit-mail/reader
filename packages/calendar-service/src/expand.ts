@@ -107,7 +107,7 @@ interface Walk {
 	occurrences: CalendarOccurrenceInput[];
 	/** Whether the walk stopped on a bound rather than on the series ending. */
 	truncated: boolean;
-	/** Start of the last slot the iterator itself produced, or `""` for none. */
+	/** Start of the last slot the walk collected, or `""` when it collected none. */
 	lastIteratedStart: string;
 }
 
@@ -258,12 +258,19 @@ export const expandCalendar = (
 		maxSteps: Number.POSITIVE_INFINITY,
 	});
 
+	// Every truncated walk is marked, including one that collected nothing — a
+	// series whose first occurrence lands past the horizon. Its index is empty
+	// from the series start, which is the honest floor to write; `""` would
+	// claim the whole series is held and the live expansion would never run.
 	return {
 		occurrences: walk.occurrences,
-		expandedThrough:
-			walk.truncated && walk.lastIteratedStart
-				? toUtcIso(Date.parse(walk.lastIteratedStart))
-				: "",
+		expandedThrough: walk.truncated
+			? toUtcIso(
+					walk.lastIteratedStart
+						? Date.parse(walk.lastIteratedStart)
+						: seriesStart,
+				)
+			: "",
 	};
 };
 

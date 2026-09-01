@@ -245,6 +245,52 @@ describe("listCalendarInstances", () => {
 		assert.equal(instances[0]?.summary, "Weekly one-to-one");
 	});
 
+	it("expands a series whose index is empty because its first occurrence is past the horizon", async () => {
+		const calendar = collection();
+		// The rule's own first instance is excluded, so the first occurrence is in
+		// 2029 and the horizon closed in 2027. The index holds no row at all, and
+		// the only thing that can serve the event is the live expansion.
+		const distant = await store(
+			calendar,
+			"distant.ics",
+			ical(
+				"BEGIN:VCALENDAR",
+				"VERSION:2.0",
+				"BEGIN:VEVENT",
+				"UID:distant@example.com",
+				"DTSTART:20250301T090000Z",
+				"DTEND:20250301T100000Z",
+				"SUMMARY:Leap day review",
+				"RRULE:FREQ=YEARLY;INTERVAL=4",
+				"EXDATE:20250301T090000Z",
+				"END:VEVENT",
+				"END:VCALENDAR",
+			),
+		);
+
+		assert.deepEqual(distant.rows, [], "the index really is empty");
+		assert.deepEqual(
+			await repositories([distant]).calendarObject.listIncompleteExpansions(
+				calendar.calendarId,
+				"2029-04-01T00:00:00Z",
+			),
+			[distant.object],
+			"and the resource is still offered to the live expansion",
+		);
+
+		const instances = await listCalendarInstances(
+			repositories([distant]),
+			[calendar],
+			{ from: "2029-03-01T00:00:00Z", to: "2029-04-01T00:00:00Z" },
+		);
+
+		assert.deepEqual(
+			instances.map((instance) => instance.startAt),
+			["2029-03-01T09:00:00Z"],
+		);
+		assert.equal(instances[0]?.summary, "Leap day review");
+	});
+
 	it("serves a live-expanded series from one source, never twice", async () => {
 		const calendar = collection();
 		const openEnded = await store(
