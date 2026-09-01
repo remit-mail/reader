@@ -60,7 +60,7 @@ const DATE_ONLY = /^\d{4}-\d{2}-\d{2}/;
  * move is asking for a time that happens twice, or not at all — and guessing
  * one is how a calendar quietly puts an event an hour out.
  */
-const OFFSET_BEARING = /(Z|[+-]\d{2}:\d{2})$/;
+export const OFFSET_BEARING = /(Z|[+-]\d{2}:\d{2})$/;
 
 /**
  * Reads one API date-time into the iCalendar time the resource will carry.
