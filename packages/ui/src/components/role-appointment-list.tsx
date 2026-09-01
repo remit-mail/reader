@@ -58,8 +58,8 @@ export interface RoleAppointment {
 	staleFolderPath?: string;
 }
 
-/** Empty <option> value standing for "no folder appointed". */
-const NONE = "";
+/** Value of the placeholder <option>, which is never selectable. */
+const PLACEHOLDER = "";
 
 const UNRESOLVED: RoleAppointment = { mailboxId: null, source: "None" };
 
@@ -94,7 +94,7 @@ interface RoleAppointmentRowProps {
 	appointment: RoleAppointment;
 	/** Committed display-name override for the appointed folder. */
 	displayName: string;
-	onAppoint: (role: FolderRole, mailboxId: string | null) => void;
+	onAppoint: (role: FolderRole, mailboxId: string) => void;
 	onRename: (mailboxId: string, name: string) => void;
 }
 
@@ -180,21 +180,20 @@ function RoleAppointmentRow({
 				<Select
 					ref={selectRef}
 					className="w-56 shrink-0"
-					value={mailboxId ?? NONE}
+					value={appointed?.mailboxId ?? PLACEHOLDER}
 					aria-label={`Folder for ${label}`}
 					// Whichever line the row renders — the provenance subtitle or the
 					// stale callout — is the one that explains this control.
 					aria-describedby={
 						subtitle || source === "Stale" ? subtitleId : undefined
 					}
-					onChange={(event) =>
-						onAppoint(
-							role,
-							event.target.value === NONE ? null : event.target.value,
-						)
-					}
+					onChange={(event) => onAppoint(role, event.target.value)}
 				>
-					<option value={NONE}>None</option>
+					{!appointed && (
+						<option value={PLACEHOLDER} disabled>
+							Choose a folder
+						</option>
+					)}
 					{folders.map((folder) => (
 						<option key={folder.mailboxId} value={folder.mailboxId}>
 							{folderOptionLabel(folder)}
@@ -289,7 +288,7 @@ export interface RoleAppointmentListProps {
 	appointments: Readonly<Record<string, RoleAppointment>>;
 	/** mailboxId → committed display-name override. */
 	displayNames?: Readonly<Record<string, string>>;
-	onAppoint: (role: FolderRole, mailboxId: string | null) => void;
+	onAppoint: (role: FolderRole, mailboxId: string) => void;
 	onRename: (mailboxId: string, name: string) => void;
 }
 
@@ -297,8 +296,12 @@ export interface RoleAppointmentListProps {
  * The per-account folder-roles settings section. Lists the canonical roles,
  * each appointing one existing folder, then the leftover unappointed folders as
  * plain folders. Controlled — the caller owns the appointment map and routes
- * each change back. Pure kit primitives (Select/Input/Button); no disabled
- * controls (a picker always offers "None").
+ * each change back. Pure kit primitives (Select/Input/Button).
+ *
+ * A canonical role is mandatory, so the picker has no unset: a wrong
+ * appointment is fixed by pointing the role at another folder. The only thing
+ * a row can offer besides a folder is a disabled placeholder, and only until
+ * the role has one.
  */
 export function RoleAppointmentList({
 	accountEmail,
