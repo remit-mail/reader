@@ -18,6 +18,7 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -121,6 +122,14 @@ describe("remit config save writes the document the export produced", () => {
 			box.log(),
 			/^compose run --rm --no-deps -T migrate node config-save\.mjs$/m,
 		);
+	});
+
+	it("writes the document at 0600, not the caller's umask", () => {
+		// The document carries the address book, filter text, mail excerpts and
+		// signatures, so the operator's umask must not decide who can read it.
+		// The umask of this process is the default 022, under which an
+		// unguarded write lands at 0644.
+		assert.equal(statSync(box.target).mode & 0o777, 0o600);
 	});
 
 	it("leaves no half-written file beside the target", () => {

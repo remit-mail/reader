@@ -3418,14 +3418,24 @@ cmd_config_save() {
 	[ -d "$_dir" ] || die "config save: there is no directory '$_dir'"
 	_tmp="$_dir/.$(basename "$_file").writing.$$"
 
+	# The saved document carries the address book, filter text, mail excerpts
+	# and signatures (no credentials), so it is written under a 077 umask rather
+	# than chmod'd after the fact — a chmod afterwards leaves it world-readable
+	# for the length of the write, the way set_var reasons about .env (#1095).
+	# The trap covers an interrupted run: without it a compose run killed from
+	# the terminal leaves the .writing.$$ file behind in the operator's out dir.
 	_rc=0
-	if [ -n "$_user" ]; then
-		compose run --rm --no-deps -T migrate \
-			node config-save.mjs --user "$_user" >"$_tmp" || _rc=$?
-	else
-		compose run --rm --no-deps -T migrate \
-			node config-save.mjs >"$_tmp" || _rc=$?
-	fi
+	(
+		umask 077
+		trap 'rm -f "$_tmp"' HUP INT TERM
+		if [ -n "$_user" ]; then
+			compose run --rm --no-deps -T migrate \
+				node config-save.mjs --user "$_user" >"$_tmp"
+		else
+			compose run --rm --no-deps -T migrate \
+				node config-save.mjs >"$_tmp"
+		fi
+	) || _rc=$?
 	if [ "$_rc" != "0" ]; then
 		rm -f "$_tmp"
 		die "config save: the export did not finish, so nothing was written"
