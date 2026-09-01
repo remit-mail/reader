@@ -39,9 +39,14 @@ export interface ConfigImportRepositories {
 	label: Pick<ILabelRepository, "listByAccountConfig" | "create" | "update">;
 	filter: Pick<IFilterRepository, "listByAccountConfig" | "create" | "update">;
 	filterAnchor: Pick<IFilterAnchorRepository, "put">;
+	/**
+	 * Not the suggest listing, for the reason the export refuses it too: what a
+	 * configuration already holds is decided over every stored row, junk-only
+	 * ones included (#1029).
+	 */
 	address: Pick<
 		IAddressRepository,
-		"listByAccountConfig" | "upsertAddress" | "mergeFlags"
+		"listAllByAccountConfigPage" | "upsertAddress" | "mergeFlags"
 	>;
 	configImport: Pick<
 		IConfigImportRepository,

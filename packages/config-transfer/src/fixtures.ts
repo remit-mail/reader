@@ -187,13 +187,30 @@ export const makeLegacyFlaggedAddress = (): AddressItem =>
 	});
 
 /**
+ * The shape #1029 was about: mail the reader unsubscribed from and never
+ * replied to, landing only in Junk, so sync marks the row `junkOnly`. The
+ * autocomplete listing is right to hide it; neither half of the transfer is.
+ */
+export const makeJunkOnlyFlaggedAddress = (): AddressItem =>
+	makeAddress({
+		addressId: "adr-junk-news",
+		normalizedEmail: "sale@junk.example",
+		flags: {
+			junkOnly: { value: true, setAt: 1750000000000 },
+			unsubscribed: { value: true, setAt: 1755000000000 },
+			autoArchive: { value: true, setAt: 1755000000000 },
+			category: { value: "newsletter", setAt: 1755000000000 },
+		},
+	});
+
+/**
  * The suggest predicate the stored listing applies, spelled in JavaScript: an
  * address is hidden exactly when the machine marked it `junkOnly` and the
  * account has neither corresponded with the sender nor flagged it. Modelled
  * rather than ignored, because a stub that filters nothing cannot tell a read
  * that hides decisions apart from one that does (#1029).
  */
-const listable = (address: AddressItem): boolean => {
+export const suggestable = (address: AddressItem): boolean => {
 	const flags = address.flags ?? {};
 	if (flags.junkOnly?.value !== true) return true;
 	const corresponded =
@@ -236,7 +253,7 @@ export const asAddressRepository = (
 	};
 	return {
 		listByAccountConfig: async ({ cursor }) =>
-			pageOf(fixture.addresses.filter(listable), cursor),
+			pageOf(fixture.addresses.filter(suggestable), cursor),
 		listAllByAccountConfigPage: async ({ cursor }) =>
 			pageOf(byAddressId(fixture.addresses), cursor),
 	};

@@ -118,11 +118,14 @@ const readExisting = async (
 	]);
 	const live = accounts.filter((account) => account.deletedAt === undefined);
 
+	// Not the suggest listing: it hides an address the machine marked `junkOnly`,
+	// so a decision the user made about a junk-only sender would read as absent
+	// and be re-created or left out of the conflict count (#1029).
 	let flaggedAddresses = 0;
 	const addressEmails = new Set<string>();
 	let cursor: string | undefined;
 	do {
-		const page = await repositories.address.listByAccountConfig({
+		const page = await repositories.address.listAllByAccountConfigPage({
 			accountConfigId,
 			cursor,
 		});

@@ -18,6 +18,7 @@ import {
 	makeAddress,
 	makeAnchor,
 	makeFilter,
+	makeJunkOnlyFlaggedAddress,
 	makeLabel,
 	makeLegacyFlaggedAddress,
 	makeMailbox,
@@ -190,23 +191,6 @@ const fullFixture = (): ConfigFixture => ({
 	],
 	addressPageSize: 1,
 });
-
-/**
- * The shape #1029 was about: mail the reader unsubscribed from and never
- * replied to, landing only in Junk, so sync marks the row `junkOnly`. The
- * autocomplete listing is right to hide it; the export is not.
- */
-const junkOnlyNewsletter = (): AddressItem =>
-	makeAddress({
-		addressId: "adr-junk-news",
-		normalizedEmail: "sale@junk.example",
-		flags: {
-			junkOnly: { value: true, setAt: 1750000000000 },
-			unsubscribed: { value: true, setAt: 1755000000000 },
-			autoArchive: { value: true, setAt: 1755000000000 },
-			category: { value: "newsletter", setAt: 1755000000000 },
-		},
-	});
 
 const exportFixture = (fixture: ConfigFixture) =>
 	readConfigForExport(asRepositories(fixture), ACCOUNT_CONFIG_ID, IDENTITY);
@@ -484,7 +468,7 @@ test("an address exports only when the user decided something about it", async (
 	fixture.addresses = [
 		...derivedOnly,
 		...fixture.addresses,
-		junkOnlyNewsletter(),
+		makeJunkOnlyFlaggedAddress(),
 	];
 
 	const document = await exportFixture(fixture);
@@ -497,7 +481,7 @@ test("an address exports only when the user decided something about it", async (
 
 test("an address the machine marked junk-only still exports the decision on it", async () => {
 	const fixture = fullFixture();
-	fixture.addresses = [...fixture.addresses, junkOnlyNewsletter()];
+	fixture.addresses = [...fixture.addresses, makeJunkOnlyFlaggedAddress()];
 
 	const suggested = await asAddressRepository(fixture).listByAccountConfig({
 		accountConfigId: ACCOUNT_CONFIG_ID,
