@@ -328,6 +328,24 @@ describe("expandCalendar", () => {
 		assert.notEqual(expansion.expandedThrough, "");
 	});
 
+	it("marks a series whose first occurrence falls past the horizon", async () => {
+		// The rule's own first instance is excluded, so the iterator's first slot
+		// is 2029 and the horizon closes in 2027. Nothing is written, but the
+		// series is not complete: `""` here would hide it from the live expansion
+		// and the event would render nowhere, ever.
+		const expansion = await expand(
+			singleEvent(
+				"DTSTART:20250301T090000Z",
+				"DTEND:20250301T100000Z",
+				"RRULE:FREQ=YEARLY;INTERVAL=4",
+				"EXDATE:20250301T090000Z",
+			),
+		);
+
+		assert.deepEqual(expansion.occurrences, []);
+		assert.equal(expansion.expandedThrough, "2025-03-01T09:00:00Z");
+	});
+
 	it("says nothing about a horizon for a series that ends inside it", async () => {
 		const expansion = await expand(
 			singleEvent(
