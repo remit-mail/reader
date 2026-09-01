@@ -309,10 +309,7 @@ describe("readWindow", () => {
 	});
 
 	it("refuses an end that carries no zone offset", () => {
-		const wallTime = readWindow(
-			"2026-01-01T00:00:00",
-			"2026-01-08T00:00:00Z",
-		);
+		const wallTime = readWindow("2026-01-01T00:00:00", "2026-01-08T00:00:00Z");
 		assert.ok(!wallTime.ok);
 		assert.equal(wallTime.error.code, "InvalidWindow");
 
