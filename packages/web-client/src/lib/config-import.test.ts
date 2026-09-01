@@ -151,6 +151,91 @@ test("a stopped import splits the write order into landed, failed and never reac
 	assert.equal(byId.get("settings")?.state, "not-attempted");
 });
 
+test("a rolled-back import lands nothing, however far the items say it got", () => {
+	// The shape a transactional backend answers with (#1093): `items` holds
+	// only the rejected entry, because the rollback emptied the rest.
+	const rolled = sectionResults(
+		reportOf({
+			applied: false,
+			items: [item("filters", "Receipts", "rejected", "the store refused")],
+			errors: [
+				{
+					code: "import_write_failed",
+					message:
+						"the store refused the write Nothing was written; the import stopped here.",
+					details: { section: "filters", key: "Receipts" },
+				},
+			],
+		}),
+	);
+
+	assert.equal(
+		rolled.some((result) => result.state === "landed"),
+		false,
+	);
+	const byId = new Map(rolled.map((result) => [result.section, result]));
+	assert.equal(byId.get("accounts")?.state, "rolled-back");
+	assert.match(byId.get("accounts")?.detail ?? "", /Nothing was written/);
+	assert.equal(byId.get("labels")?.state, "rolled-back");
+	assert.equal(byId.get("filters")?.state, "failed");
+	assert.match(byId.get("filters")?.detail ?? "", /Nothing was written/);
+	assert.equal(byId.get("addressFlags")?.state, "rolled-back");
+	assert.equal(byId.get("settings")?.state, "rolled-back");
+});
+
+test("item verdicts cannot turn a rolled-back import back into a landed one", () => {
+	// `applied` is the server's own answer, and it outranks the counts: a
+	// report that claims writes while saying nothing was applied still lands
+	// nothing, because "your accounts are in" is the one answer this screen
+	// must never give without the server saying so.
+	const rolled = sectionResults(
+		reportOf({
+			applied: false,
+			items: [
+				item("accounts", "a@example.test", "created"),
+				item("labels", "Receipts", "created"),
+			],
+			errors: [
+				{
+					code: "import_write_failed",
+					message: "the store refused the write",
+					details: { section: "filters", key: "Receipts" },
+				},
+			],
+		}),
+	);
+
+	assert.equal(
+		rolled.some((result) => result.state === "landed"),
+		false,
+	);
+	assert.deepEqual(
+		rolled
+			.filter((result) => result.section !== "filters")
+			.map((result) => result.state),
+		["rolled-back", "rolled-back", "rolled-back", "rolled-back"],
+	);
+});
+
+test("a rolled-back import that names no section still says what happened", () => {
+	const rolled = sectionResults(
+		reportOf({
+			applied: false,
+			errors: [{ code: "import_write_failed", message: "the store refused" }],
+		}),
+	);
+
+	assert.equal(
+		rolled.some((result) => result.state === "landed"),
+		false,
+	);
+	assert.equal(
+		rolled.some((result) => result.state === "unknown"),
+		false,
+	);
+	assert.match(rolled[0].detail, /Nothing was written/);
+});
+
 test("a pending folder names the setting waiting on it, and repeats are folded", () => {
 	const folders = pendingFolders(
 		reportOf({

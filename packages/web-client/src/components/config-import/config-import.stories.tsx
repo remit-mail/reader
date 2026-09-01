@@ -21,6 +21,7 @@ import {
 	importedAccounts,
 	partialImportReport,
 	rejectedReports,
+	rolledBackImportReport,
 } from "./config-import.fixtures";
 import {
 	AccountCredentialsList,
@@ -428,6 +429,26 @@ export const PartiallyLandedImport: Story = {
 			results={sectionResults(partialImportReport)}
 			message={writeFailure(partialImportReport)?.message ?? ""}
 			raw={`import_write_failed: ${writeFailure(partialImportReport)?.message ?? ""}`}
+		/>
+	),
+};
+
+/**
+ * The same stop on a transactional backend: nothing landed, and the screen
+ * says the import was undone rather than counting sections (#1093).
+ */
+export const RolledBackImport: Story = {
+	render: () => (
+		<StepPartialImport
+			results={sectionResults(rolledBackImportReport)}
+			message={
+				writeFailure(rolledBackImportReport)?.message ??
+				"The import stopped before it finished."
+			}
+			raw={`import_write_failed: ${
+				writeFailure(rolledBackImportReport)?.message ?? "no message"
+			}`}
+			undone={!rolledBackImportReport.applied}
 		/>
 	),
 };

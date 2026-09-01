@@ -181,6 +181,32 @@ export const partialImportReport: RemitImapConfigImportReport = report({
 	warnings: folderWarnings,
 });
 
+/**
+ * The same stop on a backend that imports inside one transaction (#1093):
+ * `applied` is false and `items` holds only the rejected entry, because the
+ * rollback emptied the rest. No section may read as landed.
+ */
+export const rolledBackImportReport: RemitImapConfigImportReport = report({
+	applied: false,
+	items: [
+		item(
+			"filters",
+			"Bonnetjes",
+			"rejected",
+			"the filter store refused the write",
+		),
+	],
+	errors: [
+		{
+			code: "import_write_failed",
+			message:
+				"the filter store refused the write Nothing was written; the import stopped here.",
+			details: { section: "filters", key: "Bonnetjes" },
+		},
+	],
+	warnings: [],
+});
+
 export const importedAccounts: ImportedAccount[] = [
 	{
 		accountId: "acct-ischen",

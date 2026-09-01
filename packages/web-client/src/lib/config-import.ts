@@ -285,7 +285,12 @@ export const writeFailure = (
 ): ApiError | undefined =>
 	report.errors.find((it) => it.code === WRITE_FAILURE_CODE);
 
-export type SectionOutcome = "landed" | "failed" | "not-attempted" | "unknown";
+export type SectionOutcome =
+	| "landed"
+	| "failed"
+	| "not-attempted"
+	| "rolled-back"
+	| "unknown";
 
 export interface SectionResult {
 	section: ImportSection;
@@ -305,6 +310,12 @@ export interface SectionResult {
  * section reads `unknown` rather than `landed`. Telling someone their accounts
  * are in when nothing said so is the one answer this screen must never give:
  * they would stop looking.
+ *
+ * `applied` says so when the import ran in a transaction: `false` means the
+ * write was undone whole, and the item counts — empty precisely because the
+ * rollback emptied them — must not turn sections before the failure back into
+ * `landed`. Every section then reads `rolled-back` except the one the failure
+ * named, which keeps its `failed` row and the server's own sentence.
  */
 export const sectionResults = (
 	report: RemitImapConfigImportReport,
@@ -318,6 +329,21 @@ export const sectionResults = (
 		const section = asSection(item.section);
 		if (!section) continue;
 		counts.set(section, (counts.get(section) ?? 0) + 1);
+	}
+
+	if (failure && report.applied === false) {
+		return IMPORT_SECTION_ORDER.map((section) => ({
+			section,
+			title: SECTION_TITLES[section],
+			state:
+				section === failedSection
+					? ("failed" as const)
+					: ("rolled-back" as const),
+			detail:
+				section === failedSection
+					? (failure.message ?? "This section could not be written.")
+					: "Nothing was written — the import ran as one transaction and was undone.",
+		}));
 	}
 
 	if (!failedSection) {
