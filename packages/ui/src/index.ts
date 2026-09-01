@@ -259,6 +259,14 @@ export {
 	type ComposeLanguageSettingProps,
 } from "./components/compose-language-setting.js";
 export {
+	ComposeQuoteMissingBanner,
+	type ComposeQuoteMissingBannerProps,
+	type ComposeQuoteMode,
+	composeQuoteMissingMessage,
+	NO_QUOTABLE_BODY_FORWARD_MESSAGE,
+	NO_QUOTABLE_BODY_REPLY_MESSAGE,
+} from "./components/compose-quote-missing-banner.js";
+export {
 	ComposeSmtpMissingBanner,
 	type ComposeSmtpMissingBannerProps,
 	SMTP_MISSING_MESSAGE,
