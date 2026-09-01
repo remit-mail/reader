@@ -695,6 +695,13 @@ write_tunnel_env() {
 # A named project is placed as `remit-<name>`: one command per deployment, each
 # holding its own install directory, so neither can be typed at the other's
 # stack by accident.
+#
+# What goes on PATH is a one-line exec shim, never a copy. `remit update`
+# installs the release's own wrapper into the install directory (reader#1072),
+# and nothing refreshes a copy taken here: a verb the release adds answered
+# `unknown command` from /usr/local/bin for as long as this was a `cp`
+# (reader#1082). The shim stamps the directory, so the deployment it manages is
+# still settled at install time.
 place_wrapper() {
 	local src="$DIR/remit"
 	[ -f "$src" ] || die "the remit wrapper is missing from $DIR — the asset fetch did not complete."
@@ -708,7 +715,7 @@ place_wrapper() {
 	[ "$DRY_RUN" = "1" ] && return 0
 	local bindir="${REMIT_BINDIR:-/usr/local/bin}"
 	if [ -w "$bindir" ]; then
-		cp "$src" "$bindir/$WRAPPER_NAME"
+		printf '#!/bin/sh\nexec "%s/remit" "$@"\n' "$DIR" >"$bindir/$WRAPPER_NAME"
 		chmod +x "$bindir/$WRAPPER_NAME"
 		WRAPPER_ON_PATH="$bindir/$WRAPPER_NAME"
 		say "  $WRAPPER_NAME: installed at $bindir/$WRAPPER_NAME"
@@ -878,7 +885,7 @@ EOF
 
               /usr/local/bin was not writable, so remit stayed in the install
               directory. To type 'remit' from anywhere instead:
-                sudo cp $DIR/remit /usr/local/bin/$WRAPPER_NAME
+                sudo ln -sf $DIR/remit /usr/local/bin/$WRAPPER_NAME
 EOF
 	fi
 	if [ "$TLS_MODE" = "internal" ]; then
