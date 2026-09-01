@@ -224,6 +224,59 @@ describe("OutboxMessageRepo", () => {
 		await repo.deleteMany(accountConfigId, created);
 	});
 
+	test("listByAccounts pages one ordering over every account (#1013)", async () => {
+		const accountConfigId = randomId();
+		const first = randomId();
+		const second = randomId();
+		const created: string[] = [];
+		const byAccount = new Map<string, string[]>([
+			[first, []],
+			[second, []],
+		]);
+		for (let i = 0; i < 6; i++) {
+			const accountId = i % 2 === 0 ? first : second;
+			const msg = await repo.create(
+				makeOutboxInput(accountId, accountConfigId),
+			);
+			created.push(msg.outboxMessageId);
+			byAccount.get(accountId)?.push(msg.outboxMessageId);
+		}
+
+		const wholeList = await repo.listByAccounts([first, second]);
+		const wholeIds = wholeList.items.map((m) => m.outboxMessageId);
+		for (const ids of byAccount.values()) {
+			for (const id of ids) {
+				assert.ok(wholeIds.includes(id), "every account's rows come back");
+			}
+		}
+
+		const seen: string[] = [];
+		let continuationToken: string | undefined;
+		let pages = 0;
+		do {
+			const page = await repo.listByAccounts([first, second], {
+				limit: 2,
+				continuationToken,
+			});
+			seen.push(...page.items.map((m) => m.outboxMessageId));
+			continuationToken = page.continuationToken;
+			pages++;
+			assert.ok(pages < 10, "pagination must terminate");
+		} while (continuationToken);
+
+		assert.equal(seen.length, 6, "every row returned exactly once");
+		assert.equal(new Set(seen).size, 6, "no duplicates across pages");
+		assert.deepEqual([...seen].sort(), [...created].sort(), "no gaps");
+
+		await repo.deleteMany(accountConfigId, created);
+	});
+
+	test("listByAccounts answers no accounts with no rows", async () => {
+		const list = await repo.listByAccounts([]);
+		assert.deepEqual(list.items, []);
+		assert.equal(list.continuationToken, undefined);
+	});
+
 	test("listQueued returns only queued messages", async () => {
 		const accountId = randomId();
 		const accountConfigId = randomId();

@@ -11,7 +11,6 @@ const packageStubs = new Map([
 	// Stub the package so tests that import a component using
 	// `useAuthenticator` can still be loaded.
 	["@aws-amplify/ui-react", `${stubsDir}aws-amplify-ui-react.mjs`],
-	["@remit/api-http-client/client.gen.ts", `${stubsDir}remit-client.mjs`],
 	["aws-rum-web", `${stubsDir}aws-rum-web.mjs`],
 ]);
 

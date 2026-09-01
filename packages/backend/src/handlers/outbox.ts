@@ -128,15 +128,16 @@ export const OutboxOperations: Record<
 
 		const client = await getClient();
 
-		const accounts = await client.account.list(accountConfigId);
-		if (accounts.items.length === 0) {
+		const accounts =
+			await client.account.listAllByAccountConfig(accountConfigId);
+		if (accounts.length === 0) {
 			return { items: [], continuationToken: null };
 		}
 
-		const accountId = accounts.items[0].accountId;
-		const result = await client.outboxMessage.listByAccount(accountId, {
-			continuationToken,
-		});
+		const result = await client.outboxMessage.listByAccounts(
+			accounts.map((account) => account.accountId),
+			{ continuationToken },
+		);
 
 		return {
 			items: result.items.map((item) => toOutboxMessageResponse(item)),

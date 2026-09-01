@@ -24,6 +24,7 @@ import {
 import { isMailboxNotSettledRefusal } from "@/components/ui/folder-role-refusal";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
+import { softErrorStatuses } from "@/lib/error-classifier";
 import { buildMailboxRoleMap, labelForMailbox } from "@/lib/folder-roles";
 import { buildMoveOptions, folderDelimiter } from "@/lib/move-options";
 
@@ -90,9 +91,12 @@ export const RoleAppointmentPromptProvider = ({
 		enabled: !!accountId,
 	});
 	const { createFolderIn } = useCreateMailbox(accountId);
-	const appointMutation = useMutation(
-		folderRoleOperationsAppointFolderRoleMutation(),
-	);
+	const appointMutation = useMutation({
+		...folderRoleOperationsAppointFolderRoleMutation(),
+		// A mailbox still settling answers 409, and the prompt states that itself
+		// in `appoint-failed`. Escalating would take the screen the prompt is on.
+		meta: softErrorStatuses(409),
+	});
 
 	const account = config?.accounts.find((one) => one.accountId === accountId);
 	const mailboxes = useMemo(() => mailboxData?.items ?? [], [mailboxData]);
