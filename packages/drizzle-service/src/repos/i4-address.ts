@@ -18,6 +18,7 @@ import {
 	desc,
 	eq,
 	getTableColumns,
+	gt,
 	inArray,
 	type SQL,
 	sql,
@@ -745,6 +746,40 @@ export class AddressRepo implements IAddressRepository {
 						addressId: lastRow.addressId,
 					}
 				: undefined,
+		);
+	}
+
+	async listAllByAccountConfigPage(input: {
+		accountConfigId: string;
+		cursor?: string;
+		limit?: number;
+	}): Promise<ResultList<AddressItem>> {
+		const { accountConfigId, cursor, limit = 100 } = input;
+		const afterAddressId = cursor
+			? (decodeToken(cursor).addressId as string)
+			: undefined;
+
+		const rows = await this.db
+			.select()
+			.from(addressTable)
+			.where(
+				and(
+					eq(addressTable.accountConfigId, accountConfigId),
+					afterAddressId
+						? gt(addressTable.addressId, afterAddressId)
+						: undefined,
+				),
+			)
+			.orderBy(asc(addressTable.addressId))
+			.limit(limit + 1);
+
+		const hasMore = rows.length > limit;
+		const items = rows.slice(0, limit).map(rowToAddress);
+		const lastItem = items[items.length - 1];
+		return resultList(
+			items,
+			limit,
+			hasMore && lastItem ? { addressId: lastItem.addressId } : undefined,
 		);
 	}
 

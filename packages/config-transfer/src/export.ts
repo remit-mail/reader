@@ -329,7 +329,7 @@ const readAddresses = async (
 	const addresses: AddressItem[] = [];
 	let cursor: string | undefined;
 	do {
-		const page = await repositories.address.listByAccountConfig({
+		const page = await repositories.address.listAllByAccountConfigPage({
 			accountConfigId,
 			cursor,
 		});

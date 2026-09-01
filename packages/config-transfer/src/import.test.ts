@@ -28,12 +28,14 @@ import {
 	makeAddress,
 	makeAnchor,
 	makeFilter,
+	makeJunkOnlyFlaggedAddress,
 	makeLabel,
 	makeLegacyFlaggedAddress,
 	makeMailbox,
 	makeSetting,
 	OAUTH_ACCOUNT_ID,
 	PASSWORD_ACCOUNT_ID,
+	suggestable,
 } from "./fixtures.js";
 import { ANCHOR_EMBEDDING_PENDING, importConfig } from "./import.js";
 import type { ConfigImportDeps } from "./import-repositories.js";
@@ -246,7 +248,13 @@ const repositoriesOf = (store: Store, accountConfigId: string): any => {
 			listByAccountConfig: async () => [...store.anchors],
 		},
 		address: {
+			// Both reads, so the stub can tell them apart: the suggest listing
+			// hides a junk-only row, and the import must not be reading it (#1029).
 			listByAccountConfig: async () => ({
+				items: store.addresses.filter(suggestable),
+				continuationToken: undefined,
+			}),
+			listAllByAccountConfigPage: async () => ({
 				items: [...store.addresses],
 				continuationToken: undefined,
 			}),
@@ -692,6 +700,31 @@ test("a configuration that already holds something refuses the default import", 
 	assert.equal(outcome.conflict.details.accounts, "2");
 	assert.equal(outcome.conflict.details.labels, "2");
 	assert.equal(outcome.conflict.details.addressFlags, "2");
+});
+
+test("a junk-only sender the user decided about still holds the configuration", async () => {
+	const document = await exportSource();
+	const store = emptyStore();
+	store.addresses.push(makeJunkOnlyFlaggedAddress());
+
+	assert.equal(
+		store.addresses.filter(suggestable).length,
+		0,
+		"the suggest listing hides it, and is not the read the import may use",
+	);
+
+	const outcome = await importConfig(depsOf(store, ACCOUNT_CONFIG_ID), {
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		userId: TARGET_USER_ID,
+		document,
+		mode: "apply",
+		onExisting: "abort",
+	});
+
+	assert.equal(outcome.outcome, "conflict");
+	if (outcome.outcome !== "conflict") throw new Error("unreachable");
+	assert.equal(outcome.conflict.code, "config_not_empty");
+	assert.equal(outcome.conflict.details.addressFlags, "1");
 });
 
 test("merge folds the file in and deletes nothing the file left out", async () => {

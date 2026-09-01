@@ -25,7 +25,13 @@ export interface ConfigExportRepositories {
 	label: Pick<ILabelRepository, "listByAccountConfig">;
 	filter: Pick<IFilterRepository, "listByAccountConfig">;
 	filterAnchor: Pick<IFilterAnchorRepository, "listByAccountConfig">;
-	address: Pick<IAddressRepository, "listByAccountConfig">;
+	/**
+	 * Not the suggest listing: that one hides an address the machine marked
+	 * `junkOnly` unless the account has corresponded with it, which is right for
+	 * autocomplete and wrong for a file whose whole job is to keep the reader's
+	 * decisions (#1029).
+	 */
+	address: Pick<IAddressRepository, "listAllByAccountConfigPage">;
 }
 
 /** Who wrote the file, and where from. Recorded; never authoritative on import. */
