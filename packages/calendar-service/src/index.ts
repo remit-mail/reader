@@ -10,6 +10,7 @@ export {
 	CALENDAR_PRODID,
 	type CalendarEventFields,
 	eventTimeFields,
+	OFFSET_BEARING,
 	readEventTime,
 	readRecurrenceRule,
 } from "./build.js";

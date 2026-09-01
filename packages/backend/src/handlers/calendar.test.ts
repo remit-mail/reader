@@ -308,6 +308,30 @@ describe("readWindow", () => {
 		);
 	});
 
+	it("refuses an end that carries no zone offset", () => {
+		const wallTime = readWindow(
+			"2026-01-01T00:00:00",
+			"2026-01-08T00:00:00Z",
+		);
+		assert.ok(!wallTime.ok);
+		assert.equal(wallTime.error.code, "InvalidWindow");
+
+		const dateOnly = readWindow("2026-01-01T00:00:00Z", "2026-01-08");
+		assert.ok(!dateOnly.ok);
+		assert.equal(dateOnly.error.code, "InvalidWindow");
+	});
+
+	it("accepts either spelling of an offset", () => {
+		assert.equal(
+			readWindow("2026-01-01T00:00:00Z", "2026-01-08T00:00:00Z").ok,
+			true,
+		);
+		assert.equal(
+			readWindow("2026-01-01T00:00:00+02:00", "2026-01-08T00:00:00+02:00").ok,
+			true,
+		);
+	});
+
 	it("normalises both ends to UTC instants", () => {
 		const window = readWindow(
 			"2026-09-07T02:00:00+02:00",

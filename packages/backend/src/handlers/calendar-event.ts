@@ -15,6 +15,7 @@ import {
 	deleteCalendarObject,
 	listBusySpans,
 	listCalendarInstances,
+	OFFSET_BEARING,
 	parseCalendar,
 	projectCalendar,
 	putCalendarObject,
@@ -90,7 +91,12 @@ export const readWindow = (
 	}
 	const fromMs = Date.parse(from);
 	const toMs = Date.parse(to);
-	if (Number.isNaN(fromMs) || Number.isNaN(toMs)) {
+	if (
+		Number.isNaN(fromMs) ||
+		Number.isNaN(toMs) ||
+		!OFFSET_BEARING.test(from) ||
+		!OFFSET_BEARING.test(to)
+	) {
 		return refuseCalendar(
 			"InvalidWindow",
 			"`from` and `to` must be ISO 8601 date-times with a zone offset",
