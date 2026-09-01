@@ -204,6 +204,19 @@ function writeExecutable(path, body) {
 	spawnSync("chmod", ["+x", path]);
 }
 
+// The wrapper as it reaches a box: the release's own file with the three lines
+// install.sh's place_wrapper rewrites pointed at this deployment. An update
+// that installs the release's wrapper has to stamp it the same way, so this is
+// both what a sandbox starts with and what its result is measured against.
+const WRAPPER_SOURCE = readFileSync(REMIT, "utf8");
+
+function stampWrapper(source, { dir, composeFile, prog }) {
+	return source
+		.replace(/^DEFAULT_DIR=.*$/m, `DEFAULT_DIR=${dir}`)
+		.replace(/^COMPOSE_FILE=.*$/m, `COMPOSE_FILE=${composeFile}`)
+		.replace(/^PROG=.*$/m, `PROG=${prog}`);
+}
+
 function sandbox({
 	scenario = {},
 	manifest = MANIFEST,
@@ -213,6 +226,15 @@ function sandbox({
 	bareDb = false,
 	tag = "v1.0.0",
 	tlsMode = "internal",
+	// The release's host-side files, served from the tag the run installs
+	// (reader#1072). Unset, the release ships what this checkout ships, which is
+	// a release that changed neither file. `hostAssets: false` is the release
+	// whose files cannot be fetched at all.
+	hostAssets = true,
+	releaseWrapper = null,
+	releaseCompose = null,
+	installedWrapper = null,
+	prog = "remit",
 	// An operator at a host shell, where REMIT_UPDATE_STATE_DIR is unset and
 	// STATE_DIR falls back to the directory beside .env. Every other test sets
 	// it, which is what kept the divergence between that directory and the
@@ -242,11 +264,37 @@ function sandbox({
 	}
 	copyFileSync(COMPOSE, join(deployment, "docker-compose.sqlite.yml"));
 	copyFileSync(SNAPSHOT_LIB, join(deployment, "backup", "snapshot-db.sh"));
+	writeExecutable(
+		join(deployment, "remit"),
+		typeof installedWrapper === "function"
+			? installedWrapper(deployment)
+			: (installedWrapper ??
+					stampWrapper(WRAPPER_SOURCE, {
+						dir: deployment,
+						composeFile: "docker-compose.sqlite.yml",
+						prog,
+					})),
+	);
+	if (hostAssets) {
+		mkdirSync(join(fake, "assets"), { recursive: true });
+		writeFileSync(
+			join(fake, "assets", "remit"),
+			releaseWrapper ?? WRAPPER_SOURCE,
+		);
+		writeFileSync(
+			join(fake, "assets", "docker-compose.sqlite.yml"),
+			releaseCompose ?? readFileSync(COMPOSE, "utf8"),
+		);
+	}
 	writeFileSync(
 		join(deployment, ".env"),
 		[
 			`REMIT_TAG=${tag}`,
 			"PUBLIC_ORIGIN=https://mail.example.test",
+			// The deployment directory the compose file demands and install.sh
+			// writes. The stand-in resolves interpolations now, so an .env without
+			// it is an .env no `docker compose config` would accept.
+			`REMIT_DEPLOY_DIR=${deployment}`,
 			`TLS_MODE=${tlsMode}`,
 			// Compose reads its active profiles from here, so the mode is what turns
 			// the tunnel agent on — not a scenario key.
@@ -317,6 +365,10 @@ function sandbox({
 		REMIT_DIR: deployment,
 		...(operatorShell ? {} : { REMIT_UPDATE_STATE_DIR: state }),
 		REMIT_UPDATE_STATE_VOLUME: updaterState,
+		// The asset base shares the manifest URL's origin, which is what a
+		// deployment that has not gone out of its way to say otherwise is held to.
+		REMIT_UPDATE_ASSET_BASE:
+			"https://updates.example.test/remit-mail/reader/@TAG@/deploy/vps",
 		REMIT_UPDATE_GATE_BUDGET: "2",
 		REMIT_UPDATE_PROBE_INTERVAL: "0",
 		...(realDb
@@ -391,6 +443,38 @@ function sandbox({
 			} catch {
 				return "";
 			}
+		},
+		// The host-side files as the deployment carries them now, and the URLs
+		// the run asked the release for.
+		installedWrapper() {
+			return readFileSync(join(deployment, "remit"), "utf8");
+		},
+		installedCompose() {
+			return readFileSync(
+				join(deployment, "docker-compose.sqlite.yml"),
+				"utf8",
+			);
+		},
+		assetLog() {
+			try {
+				return readFileSync(join(fake, "asset-log"), "utf8");
+			} catch {
+				return "";
+			}
+		},
+		snapshotDirs() {
+			try {
+				return readdirSync(join(state, "snapshots")).sort();
+			} catch {
+				return [];
+			}
+		},
+		seedSnapshots(names, mode) {
+			mkdirSync(join(state, "snapshots"), { recursive: true });
+			for (const name of names) {
+				mkdirSync(join(state, "snapshots", name), { recursive: true });
+			}
+			if (mode !== undefined) chmodSync(join(state, "snapshots"), mode);
 		},
 		breadcrumb() {
 			return readFileSync(join(state, "breadcrumb"), "utf8");
@@ -588,6 +672,354 @@ describe("remit update — the rollback's own gate fails", () => {
 		assert.equal(run.outcome, "rollbackFailed");
 		assert.match(run.message, /snapshot/);
 		assert.equal(run.logCommand, "remit logs backend");
+	});
+});
+
+// reader#1072. A release is not only its images. The wrapper and the compose
+// file are host files, and an update that moves the images and leaves those two
+// where they were gives the operator a box whose commands and whose service
+// definitions belong to the version before it: a verb the release adds
+// answering `unknown command`, a profile its compose file never declares.
+//
+// The wrapper stand-ins are deliberately tiny. What is being asserted is that
+// the file the deployment carries afterwards is the release's and answers the
+// release's commands, and a real wrapper would prove that no better while
+// costing every assertion a 3000-line diff to read.
+const wrapperWith = (verbs) =>
+	[
+		"#!/bin/sh",
+		"DEFAULT_DIR=/opt/remit",
+		"COMPOSE_FILE=docker-compose.sqlite.yml",
+		"PROG=remit",
+		'case "${1:-}" in',
+		...verbs.map((verb) => `${verb}) printf '${verb}\\n' ;;`),
+		"*) printf 'unknown command\\n' >&2; exit 1 ;;",
+		"esac",
+		"",
+	].join("\n");
+
+// The release adds a verb to the wrapper, an always-on service to the compose
+// file, and a service behind a profile the previous release never declared —
+// the three shapes #1072 was observed in.
+const RELEASE_WRAPPER = wrapperWith(["doctor", "semantic"]);
+const RELEASE_COMPOSE = readFileSync(COMPOSE, "utf8").replace(
+	/^services:$/m,
+	[
+		"services:",
+		"  search-preview:",
+		"    image: ghcr.io/remit-mail/reader/web:${REMIT_TAG:-latest}",
+		"  semantic-indexer:",
+		'    profiles: ["semantic"]',
+		"    image: ghcr.io/remit-mail/reader/web:${REMIT_TAG:-latest}",
+	].join("\n"),
+);
+
+// What this deployment has installed: the previous release's wrapper, stamped
+// the way install.sh stamps it, on a second deployment so the name and the
+// directory are things a re-stamp can lose.
+const installedFor = (dir) =>
+	stampWrapper(wrapperWith(["doctor"]), {
+		dir,
+		composeFile: "docker-compose.sqlite.yml",
+		prog: "remit-blue",
+	});
+
+const wrapperAnswers = (box, verb) =>
+	spawnSync(join(box.deployment, "remit"), [verb], { encoding: "utf8" }).status;
+
+describe("remit update — the release's wrapper and compose file", () => {
+	const box = sandbox({
+		scenario: { probe: "ok", migrate_exit: 0 },
+		releaseWrapper: RELEASE_WRAPPER,
+		releaseCompose: RELEASE_COMPOSE,
+		installedWrapper: installedFor,
+	});
+	const result = box.run(["update"]);
+
+	it("succeeds", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "succeeded");
+	});
+
+	it("fetches both files from the release being installed", () => {
+		const asked = box.assetLog();
+		assert.match(asked, /\/v1\.5\.0\/deploy\/vps\/remit$/m);
+		assert.match(
+			asked,
+			/\/v1\.5\.0\/deploy\/vps\/docker-compose\.sqlite\.yml$/m,
+		);
+	});
+
+	it("leaves the deployment carrying the release's commands", () => {
+		assert.equal(wrapperAnswers(box, "semantic"), 0);
+	});
+
+	it("re-stamps it with this deployment's own values", () => {
+		const lines = box.installedWrapper().split("\n");
+		assert.ok(lines.includes(`DEFAULT_DIR=${box.deployment}`));
+		assert.ok(lines.includes("COMPOSE_FILE=docker-compose.sqlite.yml"));
+		assert.ok(lines.includes("PROG=remit-blue"));
+	});
+
+	it("leaves the compose file declaring the release's services", () => {
+		assert.ok(composeServices(box).includes("search-preview"));
+		assert.ok(
+			composeServices(box, ["--profile", "*"]).includes("semantic-indexer"),
+		);
+	});
+});
+
+describe("remit update — the gate fails on the release's own files", () => {
+	const box = sandbox({
+		scenario: { probe: "fail", probe2: "ok" },
+		releaseWrapper: RELEASE_WRAPPER,
+		releaseCompose: RELEASE_COMPOSE,
+		installedWrapper: installedFor,
+	});
+	const wasInstalled = installedFor(box.deployment);
+	const result = box.run(["update"]);
+
+	it("rolls back", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "rolledBack");
+	});
+
+	// The gate is a verdict on what will run, so the release's compose file is
+	// what the stack was verified against: the stop that begins the rollback
+	// enumerates services the previous release never declared.
+	it("verified the release against the release's compose file", () => {
+		assert.ok(box.log().includes("search-preview"));
+	});
+
+	it("puts the deployment's own wrapper back", () => {
+		assert.equal(box.installedWrapper(), wasInstalled);
+		assert.notEqual(wrapperAnswers(box, "semantic"), 0);
+	});
+
+	it("puts the deployment's own compose file back", () => {
+		assert.equal(box.installedCompose(), readFileSync(COMPOSE, "utf8"));
+		assert.ok(!composeServices(box).includes("search-preview"));
+	});
+});
+
+describe("remit update — the release's host-side files cannot be fetched", () => {
+	const box = sandbox({
+		scenario: { probe: "ok", migrate_exit: 0 },
+		hostAssets: false,
+	});
+	const result = box.run(["update"]);
+
+	it("abandons the run rather than installing half a release", () => {
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
+		assert.match(box.stateJson().run.message, /wrapper and compose file/);
+	});
+
+	it("changes nothing", () => {
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
+		assert.ok(!box.log().includes("compose stop"));
+	});
+});
+
+// A fetch that completed proves bytes arrived and nothing else. Both files are
+// read next by something that cannot report a failure — the compose file by the
+// stop and the start on either side of the gate, the wrapper by the next shell
+// an operator types it into — so both are parsed while the stack is still up
+// and abandoning is free.
+describe("remit update — a release whose compose file will not resolve", () => {
+	const box = sandbox({
+		scenario: { probe: "ok", migrate_exit: 0 },
+		releaseCompose: readFileSync(COMPOSE, "utf8").replace(
+			/^services:$/m,
+			[
+				"services:",
+				"  search-preview:",
+				"    image: ghcr.io/remit-mail/reader/web:${UNSET_VAR:?the release needs it}",
+			].join("\n"),
+		),
+	});
+	const result = box.run(["update"]);
+
+	it("abandons the run", () => {
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
+	});
+
+	it("abandons it before anything is stopped", () => {
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
+		assert.ok(!box.log().includes("compose stop"));
+		assert.equal(box.installedCompose(), readFileSync(COMPOSE, "utf8"));
+	});
+});
+
+describe("remit update — a release whose wrapper will not parse", () => {
+	const box = sandbox({
+		scenario: { probe: "ok", migrate_exit: 0 },
+		releaseWrapper: [
+			"#!/bin/sh",
+			"DEFAULT_DIR=/opt/remit",
+			"COMPOSE_FILE=docker-compose.sqlite.yml",
+			"PROG=remit",
+			'case "${1:-}" in',
+			"",
+		].join("\n"),
+	});
+	const result = box.run(["update"]);
+
+	it("abandons the run before anything is stopped", () => {
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
+		assert.ok(!box.log().includes("compose stop"));
+	});
+});
+
+// What the asset base names is a shell script this box then runs as root, so
+// it is not read on the same terms as any other setting: https, and the origin
+// the manifest is already trusted from unless the deployment says otherwise.
+describe("remit update — where the release's host files may be read from", () => {
+	const attempt = (env) => {
+		const box = sandbox({ scenario: { probe: "ok", migrate_exit: 0 }, env });
+		return { box, result: box.run(["update"]) };
+	};
+
+	it("refuses a base that is not https", () => {
+		const { box, result } = attempt({
+			REMIT_UPDATE_ASSET_BASE:
+				"http://updates.example.test/remit-mail/reader/@TAG@/deploy/vps",
+		});
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
+		assert.equal(box.assetLog(), "");
+	});
+
+	it("refuses an origin the manifest is not served from", () => {
+		const { box, result } = attempt({
+			REMIT_UPDATE_ASSET_BASE:
+				"https://elsewhere.example.test/remit-mail/reader/@TAG@/deploy/vps",
+		});
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
+		assert.equal(box.assetLog(), "");
+	});
+
+	it("reads from a second origin the deployment named", () => {
+		const { box, result } = attempt({
+			REMIT_UPDATE_ASSET_BASE:
+				"https://elsewhere.example.test/remit-mail/reader/@TAG@/deploy/vps",
+			REMIT_UPDATE_ASSET_ORIGIN: "https://elsewhere.example.test",
+		});
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "succeeded");
+		assert.match(box.assetLog(), /^https:\/\/elsewhere\.example\.test\//m);
+	});
+});
+
+// reader#1082. The entry on PATH used to be a copy of the wrapper, and an
+// update installs the release's wrapper into the deployment directory: the copy
+// kept answering with the release it was taken from. install.sh places an exec
+// shim now, and a copy left by an older install says so rather than silently
+// refusing a verb the release added.
+describe("an entry on PATH that is a copy of an older release", () => {
+	const entryBox = (body) => {
+		const dir = mkdtempSync(join(TMP_ROOT, "remit-path-entry-"));
+		sandboxes.push(dir);
+		const deployment = join(dir, "deployment");
+		mkdirSync(deployment, { recursive: true });
+		writeExecutable(
+			join(deployment, "remit"),
+			stampWrapper(WRAPPER_SOURCE, {
+				dir: deployment,
+				composeFile: "docker-compose.sqlite.yml",
+				prog: "remit",
+			}),
+		);
+		const entry = join(dir, "entry");
+		writeExecutable(entry, body(deployment));
+		return spawnSync(
+			"sh",
+			["-c", '. "$0"\npath_entry_stale "$1" && printf stale', REMIT, entry],
+			{
+				env: {
+					...process.env,
+					REMIT_LIB_ONLY: "1",
+					REMIT_DIR: deployment,
+				},
+				encoding: "utf8",
+			},
+		);
+	};
+
+	it("is what a copy of another release is read as", () => {
+		const run = entryBox(() => `${wrapperWith(["doctor"])}\n`);
+		assert.equal(run.stdout, "stale");
+	});
+
+	it("is not what the shim install.sh places is read as", () => {
+		const run = entryBox((dir) => `#!/bin/sh\nexec "${dir}/remit" "$@"\n`);
+		assert.equal(run.stdout, "");
+	});
+
+	// The three lines install.sh stamps belong to the deployment, not to the
+	// release, so a wrapper differing only there is the release that is running.
+	it("is not what the same release under another stamp is read as", () => {
+		const run = entryBox(() =>
+			stampWrapper(WRAPPER_SOURCE, {
+				dir: "/opt/other",
+				composeFile: "docker-compose.sqlite.yml",
+				prog: "remit-other",
+			}),
+		);
+		assert.equal(run.stdout, "");
+	});
+
+	it("says so on stderr, and never tells the operator to sudo", () => {
+		const box = sandbox({
+			scenario: { probe: "ok" },
+			installedWrapper: installedFor,
+		});
+		const result = box.run(["status"]);
+		assert.match(result.stderr, /is a copy of an older release/);
+		assert.ok(!result.stderr.includes("sudo"), result.stderr);
+	});
+});
+
+// reader#1071. The snapshots directory is made by a root helper container, so a
+// prune that runs on the host as the operator cannot unlink anything from it. A
+// release that pruned there failed with EACCES on every old run and told the
+// operator to sudo rm -rf inside their own deployment.
+describe("remit update — the snapshots left by earlier runs", () => {
+	const box = sandbox({ scenario: { probe: "ok", migrate_exit: 0 } });
+	const stale = ["20260101T000000Z-aaaaaaaa", "20260102T000000Z-bbbbbbbb"];
+	box.seedSnapshots(stale, 0o555);
+	const result = box.run(["update"]);
+
+	it("succeeds", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "succeeded");
+	});
+
+	it("removes them where they were made, in the helper", () => {
+		assert.ok(box.log().includes("run prune-snapshots"));
+		for (const dir of stale) {
+			assert.ok(
+				!box.snapshotDirs().includes(dir),
+				`${dir} survived the update`,
+			);
+		}
+	});
+
+	// The sweep keeps exactly one: a rollback after the commit has nothing to
+	// restore from if this run's own snapshot goes with the rest.
+	it("keeps this run's own snapshot", () => {
+		assert.deepEqual(box.snapshotDirs(), [box.stateJson().run.runId]);
+	});
+
+	it("never tells the operator to sudo anything", () => {
+		const output = `${result.stdout}${result.stderr}`;
+		assert.ok(!output.includes("sudo"), output);
+		assert.ok(!output.includes("rm:"), output);
 	});
 });
 
@@ -1620,9 +2052,15 @@ describe("a snapshot that cannot be pruned does not hold back the commit (reader
 		);
 	});
 
-	it("names the snapshot it could not remove, and how to remove it", () => {
-		assert.match(result.stderr, new RegExp(`could not remove.*${stuck}`));
-		assert.match(result.stderr, new RegExp(`sudo rm -rf ${stuck}`));
+	it("names the snapshot it could not remove", () => {
+		assert.match(
+			result.stderr,
+			new RegExp(`could not remove the snapshot at ${stuck}`),
+		);
+	});
+
+	it("never tells the operator to sudo anything", () => {
+		assert.ok(!result.stderr.includes("sudo"), result.stderr);
 	});
 
 	it("leaves the snapshot in place and prunes the rest", () => {
@@ -2501,6 +2939,37 @@ describe("set_var preserves .env ownership (reader#273)", () => {
 			[],
 			`no owner should be restored when stat fails:\n${box.ownerLines.join("\n")}`,
 		);
+	});
+});
+
+// The restore reads a caller-supplied path into a local, and this wrapper has
+// no scoping: a local named for something a caller also uses is that caller's
+// variable. run_update holds the release being installed in `_target` across
+// every set_var, so a restore that borrowed the name left every phase after
+// the tag write naming an .env.tmp path instead of the version.
+describe("restoring an owner leaves its caller's variables alone", () => {
+	it("does not write through the name run_update holds the release in", () => {
+		const dir = mkdtempSync(join(TMP_ROOT, "remit-rom-"));
+		sandboxes.push(dir);
+		const file = join(dir, "subject");
+		writeFileSync(file, "");
+		const run = spawnSync(
+			"sh",
+			[
+				"-c",
+				[
+					'. "$0"',
+					"_target=v1.5.0",
+					'restore_owner_mode "$1" "$(owner_mode_of "$1")"',
+					'printf %s "$_target"',
+				].join("\n"),
+				REMIT,
+				file,
+			],
+			{ env: { ...process.env, REMIT_LIB_ONLY: "1" }, encoding: "utf8" },
+		);
+		assert.equal(run.status, 0, run.stderr);
+		assert.equal(run.stdout, "v1.5.0");
 	});
 });
 
