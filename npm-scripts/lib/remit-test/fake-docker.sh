@@ -17,6 +17,8 @@
 #   migrate_recreate=yes|no   forces whether `up -d` gives migrate a new
 #                             container id; unset, the compose file and .env
 #                             decide, the way Compose decides
+#   run_exit=N                exit code of the `compose run` one-shot
+#   parse=ok|refused          whether docker accepts the `node -e` parse at all
 #   health=healthy|unhealthy  what the gate's healthchecks report
 #   health2=...               the same after a restore
 #   probe=ok|fail             GET /health
@@ -621,6 +623,40 @@ compose_cmd() {
 		if [ -f "$_outfile" ]; then cat "$_outfile"; fi
 		if [ -f "$S/exec-err" ]; then cat "$S/exec-err" >&2; fi
 		exit "$(val exec_exit 0)"
+		;;
+	# `run --rm --no-deps -T <service> <command>`: the alternate-entrypoint seam
+	# `remit config save` drives. The export's stdout comes from $S/run-out and
+	# its exit code from the scenario. The parse that follows it is `node -e`,
+	# which the stand-in runs for real against the wrapper's own stdin — the
+	# container's parser is the entire point of that step, and a stand-in
+	# answering "valid" from a scenario key would prove nothing about it.
+	run)
+		while [ $# -gt 0 ]; do
+			case "$1" in
+			-e | --env | -u | --user | -w | --workdir | -v | --volume | --name | --label | -l | -p | --publish)
+				shift 2
+				continue
+				;;
+			-*)
+				shift
+				continue
+				;;
+			*)
+				shift
+				break
+				;;
+			esac
+		done
+		if [ "${1:-}" = "node" ] && [ "${2:-}" = "-e" ]; then
+			if [ "$(val parse ok)" != "ok" ]; then
+				printf 'Error response from daemon: no such image\n' >&2
+				exit 125
+			fi
+			exec node -e "$3"
+		fi
+		if [ -f "$S/run-out" ]; then cat "$S/run-out"; fi
+		if [ -f "$S/run-err" ]; then cat "$S/run-err" >&2; fi
+		exit "$(val run_exit 0)"
 		;;
 	# `rm --force --stop <service>`: the container goes, not just its process.
 	# The wrapper uses it to take a profile service out of the deployment rather
