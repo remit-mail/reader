@@ -49,6 +49,10 @@ const object = (
 		updatedAt,
 	}) as CalendarObjectItem;
 
+/** Content lines as a subscriber reads them, with RFC 5545 3.1 folding undone. */
+const unfolded = (icalData: string): string =>
+	icalData.replace(/\r\n[ \t]/g, "");
+
 describe("a feed token", () => {
 	it("is base64url over the declared number of random bytes", () => {
 		const minted = mintCalendarFeedToken();
@@ -120,6 +124,49 @@ describe("the calendar a feed serves", () => {
 		assert.match(feed.icalData, /X-WR-CALNAME:Team\r\n/);
 		assert.match(feed.icalData, /END:VCALENDAR\r\n$/);
 		assert.match(feed.icalData, /SUMMARY:Stand-up/);
+	});
+
+	it("escapes the separators a name may carry", () => {
+		const feed = buildCalendarFeed(
+			collection({ displayName: "Work, Home; C:\\shared" }),
+			[],
+		);
+
+		assert.match(
+			unfolded(feed.icalData),
+			/X-WR-CALNAME:Work\\, Home\\; C:\\\\shared\r\n/,
+		);
+	});
+
+	it("cannot be made to smuggle a component through its name", () => {
+		const feed = buildCalendarFeed(
+			collection({
+				displayName:
+					"Work\r\nBEGIN:VEVENT\r\nUID:injected\r\nDTSTART:20250101T000000Z\r\nSUMMARY:pwned\r\nEND:VEVENT",
+			}),
+			[
+				object(
+					"a.ics",
+					singleEvent("SUMMARY:Stand-up", "DTSTART:20260907T090000Z"),
+				),
+			],
+		);
+		const served = unfolded(feed.icalData);
+
+		assert.equal(served.match(/^BEGIN:VEVENT\r\n/gm)?.length, 1);
+		assert.doesNotMatch(served, /^UID:injected/m);
+		assert.doesNotMatch(served, /^SUMMARY:pwned/m);
+		assert.match(served, /X-WR-CALNAME:Work\\nBEGIN:VEVENT\\nUID:injected/);
+	});
+
+	it("leaves no bare carriage return in what it serves", () => {
+		const feed = buildCalendarFeed(
+			collection({ displayName: "Work\rHome" }),
+			[],
+		);
+
+		assert.match(unfolded(feed.icalData), /X-WR-CALNAME:Work\\nHome\r\n/);
+		assert.doesNotMatch(feed.icalData, /\r(?!\n)/);
 	});
 
 	it("carries the collection's zone so a client reads floating times the same way", () => {

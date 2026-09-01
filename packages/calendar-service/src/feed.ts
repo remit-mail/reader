@@ -80,6 +80,24 @@ export const redactCalendarFeedPath = (path: string): string =>
 		? path
 		: `${CALENDAR_FEED_PATH_PREFIX}<redacted>${CALENDAR_FEED_PATH_SUFFIX}`;
 
+/**
+ * A TEXT value as RFC 5545 3.3.11 writes one.
+ *
+ * ical.js escapes TEXT only for the properties in its design set, and no `X-`
+ * property is in it, so a value goes out verbatim: a comma or a semicolon
+ * reads back as a value list, and a line break as the start of a whole
+ * component the subscriber never had. TEXT has no encoding for a control
+ * character, so one is dropped rather than served.
+ */
+const escapeIcalText = (value: string): string =>
+	value
+		.replace(/\\/g, "\\\\")
+		.replace(/;/g, "\\;")
+		.replace(/,/g, "\\,")
+		.replace(/\r\n|\r|\n/g, "\\n")
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: RFC 5545 TEXT excludes CONTROL.
+		.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
+
 /** The bytes a feed serves, and what a conditional request needs to skip them. */
 export interface CalendarFeed {
 	icalData: string;
@@ -106,9 +124,15 @@ export const buildCalendarFeed = (
 	feed.updatePropertyWithValue("prodid", CALENDAR_PRODID);
 	feed.updatePropertyWithValue("version", "2.0");
 	feed.updatePropertyWithValue("calscale", "GREGORIAN");
-	feed.updatePropertyWithValue("x-wr-calname", collection.displayName);
+	feed.updatePropertyWithValue(
+		"x-wr-calname",
+		escapeIcalText(collection.displayName),
+	);
 	if (collection.timezone !== "") {
-		feed.updatePropertyWithValue("x-wr-timezone", collection.timezone);
+		feed.updatePropertyWithValue(
+			"x-wr-timezone",
+			escapeIcalText(collection.timezone),
+		);
 	}
 
 	const zonesSeen = new Set<string>();
