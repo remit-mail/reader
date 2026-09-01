@@ -31,6 +31,7 @@ import { isMailboxNotSettledRefusal } from "@/components/ui/folder-role-refusal"
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
 import { guardFolderDeletion } from "@/lib/delete-folder";
+import { softErrorStatuses } from "@/lib/error-classifier";
 import {
 	buildMailboxRoleMap,
 	CANONICAL_TO_NAV_ROLE,
@@ -57,6 +58,9 @@ function AccountFolders({ account }: { account: RemitImapAccountResponse }) {
 
 	const appointMutation = useMutation({
 		...folderRoleOperationsAppointFolderRoleMutation(),
+		// The pane states a still-settling mailbox inline; see the same meta on
+		// the prompt's own write.
+		meta: softErrorStatuses(409),
 		onSuccess: () => {
 			queryClient.invalidateQueries({
 				queryKey: configOperationsGetConfigQueryKey(),

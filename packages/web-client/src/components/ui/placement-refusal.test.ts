@@ -1,15 +1,23 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { wrapHttpFailure } from "@/lib/api";
 import {
 	isPlacementRefusal,
 	placementRefusalBanner,
 } from "./placement-refusal.js";
 
-const refusal = (reason: string) => ({
-	message: "Message 4f1 was not acted on: its folder and uid do not name...",
-	code: "message_placement_unsettled",
-	details: { accountId: "acc-1", messageId: "msg-1", reason },
-});
+// The reader is handed what the error interceptor produces, not the flat wire
+// body it carries at `.body` (#1004).
+const refusal = (reason: string) =>
+	wrapHttpFailure(
+		{
+			message:
+				"Message 4f1 was not acted on: its folder and uid do not name...",
+			code: "message_placement_unsettled",
+			details: { accountId: "acc-1", messageId: "msg-1", reason },
+		},
+		409,
+	);
 
 describe("isPlacementRefusal", () => {
 	it("reads the reason and the message off the coded body", () => {
@@ -23,7 +31,7 @@ describe("isPlacementRefusal", () => {
 		assert.equal(isPlacementRefusal(undefined), undefined);
 		assert.equal(isPlacementRefusal(new Error("network")), undefined);
 		assert.equal(
-			isPlacementRefusal({ ...refusal("in_flight"), code: "other" }),
+			isPlacementRefusal(wrapHttpFailure({ code: "other" }, 409)),
 			undefined,
 		);
 		assert.equal(isPlacementRefusal(refusal("something_else")), undefined);

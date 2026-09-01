@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/placement-refusal";
 import { resolveMailboxesForMessages } from "@/hooks/useMarkAsRead";
 import { runChunkedMutation } from "@/lib/bulk-actions";
+import { softErrorStatuses } from "@/lib/error-classifier";
 import {
 	cancelThreadListQueries,
 	invalidateThreadListQueries,
@@ -92,6 +93,10 @@ export const useDeleteMessages = ({
 
 	const { mutateAsync, isPending } = useMutation({
 		...messageBulkOperationsDeleteMessagesMutation(),
+		// A coded 409 is answered here — the prompt, or a banner — so it must not
+		// also take the whole screen. Only 409: a 401, 403 or 5xx on a delete is
+		// still the fatal page's (#1059).
+		meta: softErrorStatuses(409),
 		onMutate: async (variables): Promise<ThreadMutationContext> => {
 			const messageIds = new Set(variables.body.messageIds ?? []);
 
