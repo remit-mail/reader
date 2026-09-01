@@ -108,7 +108,7 @@ function AccountFolders({ account }: { account: RemitImapAccountResponse }) {
 		[mailboxes, roleMap, translator, account.folderAppointments],
 	);
 
-	const handleAppoint = (role: FolderRole, mailboxId: string | null) => {
+	const handleAppoint = (role: FolderRole, mailboxId: string) => {
 		appointMutation.mutate({
 			path: { accountId, role: NAV_ROLE_TO_CANONICAL[role] },
 			body: { mailboxId },

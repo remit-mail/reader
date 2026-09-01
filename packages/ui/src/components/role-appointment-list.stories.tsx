@@ -99,12 +99,10 @@ function Harness({
 	const [appointments, setAppointments] = useState(initial);
 	const [displayNames, setDisplayNames] = useState<Record<string, string>>({});
 
-	const handleAppoint = (role: FolderRole, mailboxId: string | null) => {
+	const handleAppoint = (role: FolderRole, mailboxId: string) => {
 		setAppointments((prev) => ({
 			...prev,
-			[role]: mailboxId
-				? { mailboxId, source: "Appointed" }
-				: { mailboxId: null, source: "None" },
+			[role]: { mailboxId, source: "Appointed" },
 		}));
 	};
 
@@ -158,7 +156,11 @@ export const ProposedDefaults: Story = {
 	},
 };
 
-/** `Appointed` — a person decided, and the row says so. */
+/**
+ * `Appointed` — a person decided, and the row says so. Every picker offers
+ * folders only: a canonical role is mandatory, so a wrong choice is fixed by
+ * naming another folder, never by clearing the row.
+ */
 export const AppointedSource: Story = {
 	name: "appointed",
 	args: { folders: HOSTNET_FOLDERS, initial: SETTLED },
@@ -244,7 +246,11 @@ export const StaleSource: Story = {
 	},
 };
 
-/** `None` — a decision waiting to be made. No icon, no danger colour. */
+/**
+ * `None` — a decision waiting to be made. No icon, no danger colour. Trash and
+ * Archive show the disabled "Choose a folder" placeholder; the settled rows
+ * around them have no such option left to fall back to.
+ */
 export const NoneSource: Story = {
 	name: "none",
 	args: {

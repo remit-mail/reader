@@ -150,17 +150,15 @@ function FolderSettingsPage({ renaming = false }: { renaming?: boolean }) {
 	);
 	const [draft, setDraft] = useState("Travel");
 
-	const handleAppoint = (role: FolderRole, mailboxId: string | null) =>
+	const handleAppoint = (role: FolderRole, mailboxId: string) =>
 		setAppointments((current) => {
 			const next: Record<string, RoleAppointment> = {
 				...current,
-				[role]: mailboxId
-					? { mailboxId, source: "Appointed" }
-					: { mailboxId: null, source: "None" },
+				[role]: { mailboxId, source: "Appointed" },
 			};
 			for (const other of Object.keys(next)) {
 				if (other === role) continue;
-				if (!mailboxId || next[other]?.mailboxId !== mailboxId) continue;
+				if (next[other]?.mailboxId !== mailboxId) continue;
 				next[other] = { mailboxId: null, source: "None" };
 			}
 			return next;
