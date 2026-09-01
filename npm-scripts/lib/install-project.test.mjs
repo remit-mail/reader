@@ -389,6 +389,38 @@ describe("the wrapper a deployment is managed with", () => {
 	});
 });
 
+// reader#1082. `remit update` installs the release's own wrapper into the
+// install directory, and nothing refreshes a copy taken at install time: a verb
+// the release added answered `unknown command` from /usr/local/bin until the
+// operator re-ran the installer. What goes on PATH points at the one file.
+describe("the entry on PATH follows the deployment's own wrapper", () => {
+	it("answers a verb an update added to it", () => {
+		const box = sandbox();
+		const dir = join(box.cwd, "reader");
+		const run = box.run(["--origin", ORIGIN, "--dir", dir]);
+		assert.equal(run.status, 0, run.output);
+
+		// The deployment as an update leaves it: the release's wrapper, in place,
+		// answering a verb the installed one never had.
+		script(
+			join(dir, "remit"),
+			[
+				"#!/bin/sh",
+				'case "${1:-}" in',
+				"semantic) printf 'semantic\\n' ;;",
+				"*) exit 1 ;;",
+				"esac",
+				"",
+			].join("\n"),
+		);
+		const typed = spawnSync(join(box.bindir, "remit"), ["semantic"], {
+			encoding: "utf8",
+		});
+		assert.equal(typed.status, 0, typed.stderr);
+		assert.equal(typed.stdout, "semantic\n");
+	});
+});
+
 // What Compose itself makes of a deployment's .env, resolved the way the tunnel
 // suite resolves it: a real `docker compose config` against the committed file.
 // The project name is the one thing every container, volume and network is
