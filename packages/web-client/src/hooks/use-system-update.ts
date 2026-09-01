@@ -249,6 +249,12 @@ export function useSystemUpdate(): SelfUpdateApi {
 		if (shownRunIdRef.current !== null)
 			setDismissedRunId(shownRunIdRef.current);
 		setHeld(null);
+		// Retiring the outcome uncovers the check verdict beneath it. A failure
+		// recorded while the outcome held the pane describes a press the user can
+		// no longer see, and an update run of its own supersedes anything an
+		// earlier check concluded — either way it must not resurface here.
+		setCheckPress(null);
+		setCheckFailure(null);
 	}, []);
 
 	return {

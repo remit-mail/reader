@@ -558,6 +558,110 @@ describe("useSystemUpdate — actions", () => {
 		}
 	});
 
+	test("checking from the success row reaches the pane, not a dead button (#1015)", async () => {
+		// An undismissed run outcome wins over any check in flight, so a press
+		// made while the success banner holds the pane would leave the screen
+		// exactly as it was. The row's control retires the outcome first.
+		const succeeded = {
+			currentVersion: "0.9.4",
+			check: { status: "ok", updateAvailable: false },
+			run: run({ outcome: "succeeded" }),
+		};
+		const { dom } = mountApi(() => succeeded, createElement(SelfUpdatePanel));
+		await settle(dom);
+		assert.match(dom.html(), /Updated to Remit 0\.9\.4/);
+
+		dom.click(dom.byText("button", "Check for updates"));
+		await waitFor(
+			dom,
+			() => /Looking for a newer version/.test(dom.html()),
+			"the pressed check to reach the pane",
+		);
+		assert.doesNotMatch(dom.html(), /Updated to Remit/);
+	});
+
+	test("a check pressed from the success row fails in the open, not behind the banner (#1015)", async () => {
+		const succeeded = {
+			currentVersion: "0.9.4",
+			check: { status: "ok", updateAvailable: false },
+			run: run({ outcome: "succeeded" }),
+		};
+		const { dom } = mountApi(() => succeeded, createElement(SelfUpdatePanel));
+		await settle(dom);
+
+		const control = dom.byText("button", "Check for updates");
+		const realNow = Date.now;
+		try {
+			await act(async () => {
+				// Dispatched inside this `act` rather than through `dom.click`, so
+				// the press is stamped off the real clock and the wait it arms is
+				// measured against one already past the budget.
+				control.dispatchEvent(
+					new MouseEvent("click", { bubbles: true, cancelable: true }),
+				);
+				Date.now = () => realNow() + CHECK_ANSWER_BUDGET_MS + 1_000;
+				await dom.flush();
+			});
+			await dom.wait(5);
+			await dom.flush();
+
+			assert.match(dom.html(), /The updater did not answer/);
+			assert.doesNotMatch(dom.html(), /Updated to Remit/);
+		} finally {
+			Date.now = realNow;
+		}
+	});
+
+	test("dismissing an outcome does not uncover the check verdict it hid", async () => {
+		// The failure belongs to a press made before the run, on a pane the user
+		// has not been able to see since. Serving it as the current verdict claims
+		// a check failed that may well have succeeded.
+		let response: unknown = available;
+		const { dom, api } = mountApi(
+			() => response,
+			createElement(SelfUpdatePanel),
+		);
+		await settle(dom);
+
+		const realNow = Date.now;
+		try {
+			await act(async () => {
+				api().onCheck();
+				Date.now = () => realNow() + CHECK_ANSWER_BUDGET_MS + 1_000;
+				await dom.flush();
+			});
+			await dom.wait(5);
+			await dom.flush();
+			assert.match(dom.html(), /The updater did not answer/);
+		} finally {
+			Date.now = realNow;
+		}
+
+		response = {
+			currentVersion: "0.9.4",
+			check: { status: "ok", updateAvailable: false },
+			run: run({ outcome: "succeeded" }),
+		};
+		await retryConnection(dom, api);
+		await waitFor(
+			dom,
+			() => /Updated to Remit 0\.9\.4/.test(dom.html()),
+			"the finished run to reach the pane",
+		);
+
+		await act(async () => {
+			api().onDismissResult();
+			await dom.flush();
+		});
+		await waitFor(
+			dom,
+			() => !/Updated to Remit/.test(dom.html()),
+			"the outcome to be retired",
+		);
+		assert.doesNotMatch(dom.html(), /The updater did not answer/);
+		assert.match(dom.html(), /0\.9\.4 is the latest version/);
+	});
+
 	test("a refused refresh is shown, never swallowed back into the old verdict (#599)", async () => {
 		let refused = false;
 		const { dom, api } = mountApi(
