@@ -151,6 +151,48 @@ test("a stopped import splits the write order into landed, failed and never reac
 	assert.equal(byId.get("settings")?.state, "not-attempted");
 });
 
+test("a rolled-back import reports no section as landed, whatever ran before the stop", () => {
+	const results = sectionResults(
+		reportOf({
+			applied: false,
+			items: [
+				item("filters", "Receipts", "rejected", "the store refused the write"),
+			],
+			errors: [
+				{
+					code: "import_write_failed",
+					message:
+						"the store refused the write Nothing was written; the import stopped here.",
+					details: { section: "filters", key: "Receipts" },
+				},
+			],
+		}),
+	);
+
+	const byId = new Map(results.map((result) => [result.section, result]));
+	assert.equal(byId.get("accounts")?.state, "rolled-back");
+	assert.match(byId.get("accounts")?.detail ?? "", /Rolled back/);
+	assert.equal(byId.get("labels")?.state, "rolled-back");
+	assert.equal(byId.get("filters")?.state, "failed");
+	assert.equal(byId.get("addressFlags")?.state, "not-attempted");
+	assert.equal(byId.get("settings")?.state, "not-attempted");
+	assert.equal(results.filter((result) => result.state === "landed").length, 0);
+});
+
+test("a rolled-back import that names no section is known to have kept nothing, not unknown", () => {
+	const results = sectionResults(
+		reportOf({
+			applied: false,
+			errors: [{ code: "import_write_failed", message: "the store refused" }],
+		}),
+	);
+
+	assert.deepEqual(
+		[...new Set(results.map((result) => result.state))],
+		["rolled-back"],
+	);
+});
+
 test("a pending folder names the setting waiting on it, and repeats are folded", () => {
 	const folders = pendingFolders(
 		reportOf({

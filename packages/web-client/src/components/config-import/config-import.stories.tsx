@@ -21,6 +21,7 @@ import {
 	importedAccounts,
 	partialImportReport,
 	rejectedReports,
+	rolledBackImportReport,
 } from "./config-import.fixtures";
 import {
 	AccountCredentialsList,
@@ -416,6 +417,7 @@ export const PartiallyLandedImportUnnamed: Story = {
 				results={sectionResults(report)}
 				message={writeFailure(report)?.message ?? ""}
 				raw="import_write_failed: the store refused the write"
+				rolledBack={!report.applied}
 			/>
 		);
 	},
@@ -428,6 +430,23 @@ export const PartiallyLandedImport: Story = {
 			results={sectionResults(partialImportReport)}
 			message={writeFailure(partialImportReport)?.message ?? ""}
 			raw={`import_write_failed: ${writeFailure(partialImportReport)?.message ?? ""}`}
+			rolledBack={!partialImportReport.applied}
+		/>
+	),
+};
+
+/**
+ * The same stop on a store that imports in a transaction (self-host SQLite):
+ * the writes before it are undone, so no section may carry a tick and the
+ * screen counts nothing as landed.
+ */
+export const RolledBackImport: Story = {
+	render: () => (
+		<StepPartialImport
+			results={sectionResults(rolledBackImportReport)}
+			message={writeFailure(rolledBackImportReport)?.message ?? ""}
+			raw={`import_write_failed: ${writeFailure(rolledBackImportReport)?.message ?? ""}`}
+			rolledBack={!rolledBackImportReport.applied}
 		/>
 	),
 };

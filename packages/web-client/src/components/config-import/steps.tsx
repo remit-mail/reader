@@ -706,7 +706,9 @@ export function StepFileRejected({
 /**
  * A section nobody can vouch for reads as failed, never as pending. Pending
  * says "still coming"; this section is finished and its outcome is unknown,
- * which is the row the reader has to go and check for themselves.
+ * which is the row the reader has to go and check for themselves. A rolled-back
+ * section is the empty row it would have been had the import never run, so it
+ * reads as pending and never carries the tick.
  */
 function resultState(state: SectionResult["state"]) {
 	if (state === "landed") return "ok" as const;
@@ -718,6 +720,7 @@ export function StepPartialImport({
 	results,
 	message,
 	raw,
+	rolledBack,
 	onBack,
 	onNext,
 }: {
@@ -725,6 +728,8 @@ export function StepPartialImport({
 	/** The server's own account of what survived, which only it knows. */
 	message: string;
 	raw: string;
+	/** The server reported nothing applied: the store undid the whole import. */
+	rolledBack: boolean;
 } & StepNav) {
 	const landed = results.filter((result) => result.state === "landed").length;
 	const unknown = results.some((result) => result.state === "unknown");
@@ -732,11 +737,17 @@ export function StepPartialImport({
 		<WizardShell
 			steps={IMPORT_STEPS}
 			activeStep={1}
-			title="The import stopped part-way"
+			title={
+				rolledBack
+					? "The import was rolled back"
+					: "The import stopped part-way"
+			}
 			subtitle={
-				unknown
-					? "It did not say how far it got, so check Settings before importing again."
-					: `${landed} of ${results.length} sections landed.`
+				rolledBack
+					? "Nothing was written; this instance is as it was."
+					: unknown
+						? "It did not say how far it got, so check Settings before importing again."
+						: `${landed} of ${results.length} sections landed.`
 			}
 			footer={
 				<>
@@ -744,7 +755,7 @@ export function StepPartialImport({
 						Choose another file
 					</Button>
 					<Button variant="primary" onClick={onNext}>
-						Retry the rest
+						{rolledBack ? "Try the import again" : "Retry the rest"}
 					</Button>
 				</>
 			}
@@ -752,8 +763,9 @@ export function StepPartialImport({
 			<div className="space-y-4">
 				<Banner tone="danger">{message}</Banner>
 				<p className="text-sm text-fg-muted">
-					Retrying is safe: an import folds into what is already here rather
-					than replacing it, so what landed is recognised and left alone.
+					{rolledBack
+						? "Retrying is safe: this instance kept nothing from the stopped run, so the file goes in whole or not at all."
+						: "Retrying is safe: an import folds into what is already here rather than replacing it, so what landed is recognised and left alone."}
 				</p>
 				<div className="divide-y divide-line">
 					{results.map((result) => (
