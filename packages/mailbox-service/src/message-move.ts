@@ -13,6 +13,7 @@ import type {
 	MessageItem,
 } from "@remit/data-ports";
 import {
+	BadRequestError,
 	FolderRoleUnresolvedError,
 	MessagePlacementUnsettledError,
 } from "@remit/data-ports/errors";
@@ -676,6 +677,21 @@ export class MessageMoveService {
 		accountId: string,
 	): Promise<string> => {
 		const messageId = sourceMessage.messageId;
+
+		// A copy whose destination is its own source mailbox is rejected outright,
+		// the way the placement path guards the same shape
+		// (`placement-move.ts`): a same-mailbox COPY is not a no-op — it duplicates
+		// the message on the wire — and without UIDPLUS its copy row can never be
+		// settled honestly, because a destination probe by Message-ID would match
+		// the source message itself and settle the row on the source's own uid:
+		// two rows owning one server message, the actual copy orphaned (review of
+		// #1102).
+		if (sourceMessage.mailboxId === destinationMailboxId) {
+			throw new BadRequestError(
+				"Cannot copy a message into the mailbox it is already in",
+			);
+		}
+
 		const sourceMailbox = await this.mailboxService.get(
 			accountId,
 			sourceMessage.mailboxId,

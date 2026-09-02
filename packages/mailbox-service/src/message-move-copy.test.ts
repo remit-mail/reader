@@ -36,6 +36,7 @@ const ACCOUNT = "acc-1";
 const ACCOUNT_CONFIG = "cfg-1";
 const SOURCE_MAILBOX = "mbx-inbox";
 const DEST_MAILBOX = "mbx-archive";
+const DEST2_MAILBOX = "mbx-work";
 const HEADER = "<abc@example.com>";
 const SOURCE_ID = deriveMessageId(ACCOUNT, HEADER);
 const THREAD_ID = "thread-1";
@@ -92,6 +93,10 @@ const buildWorld = () => {
 		[
 			DEST_MAILBOX,
 			{ mailboxId: DEST_MAILBOX, fullPath: "Archive", accountId: ACCOUNT },
+		],
+		[
+			DEST2_MAILBOX,
+			{ mailboxId: DEST2_MAILBOX, fullPath: "Work", accountId: ACCOUNT },
 		],
 	]);
 
@@ -338,6 +343,29 @@ describe("MessageMoveService.copyMessage — deterministic per-folder identity (
 		assert.equal(copyRow.messageId, expected);
 	});
 
+	// A same-mailbox COPY is not a no-op — it duplicates the message on the
+	// wire, and without UIDPLUS the worker's destination probe would match the
+	// source message itself and settle the copy row on the source's own uid
+	// (review of #1102). Rejected at enqueue, the way the placement path guards
+	// the same shape.
+	it("rejects a copy whose destination is the message's own mailbox", async () => {
+		const { service, messages, threadRows, sent } = buildWorld();
+
+		await assert.rejects(
+			service.copyMessages(
+				ACCOUNT_CONFIG,
+				[SOURCE_ID],
+				SOURCE_MAILBOX,
+				ACCOUNT,
+			),
+			/already in/,
+		);
+
+		assert.equal(messages.size, 1, "no copy row was written");
+		assert.equal(threadRows.length, 1, "no copy thread row was written");
+		assert.equal(sent.length, 0, "no MESSAGE_COPY event was enqueued");
+	});
+
 	it("a replayed copy converges on one row, no duplicate", async () => {
 		const { service, threadRows, messages } = buildWorld();
 
@@ -474,6 +502,9 @@ describe("MessageMoveService.copyMessage — deterministic per-folder identity (
 	it("a copy into two folders is two distinct, reachable rows", async () => {
 		const { service, threadRows } = buildWorld();
 
+		// Two real destinations: the message's OWN folder is no longer a copyable
+		// destination (see the rejection test above), so this pins the
+		// folder-scoped identity across two other folders instead.
 		await service.copyMessages(
 			ACCOUNT_CONFIG,
 			[SOURCE_ID],
@@ -483,14 +514,14 @@ describe("MessageMoveService.copyMessage — deterministic per-folder identity (
 		await service.copyMessages(
 			ACCOUNT_CONFIG,
 			[SOURCE_ID],
-			SOURCE_MAILBOX,
+			DEST2_MAILBOX,
 			ACCOUNT,
 		);
 
 		const idArchive = deriveCopyMessageId(SOURCE_ID, DEST_MAILBOX);
-		const idInbox = deriveCopyMessageId(SOURCE_ID, SOURCE_MAILBOX);
-		assert.notEqual(idArchive, idInbox);
+		const idWork = deriveCopyMessageId(SOURCE_ID, DEST2_MAILBOX);
+		assert.notEqual(idArchive, idWork);
 		assert.equal(threadRows.filter((r) => r.messageId === idArchive).length, 1);
-		assert.equal(threadRows.filter((r) => r.messageId === idInbox).length, 1);
+		assert.equal(threadRows.filter((r) => r.messageId === idWork).length, 1);
 	});
 });

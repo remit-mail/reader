@@ -70,6 +70,16 @@ export const emitMoveResync = async (
  * SEARCH a mailbox for a message by its RFC822 Message-ID header. Read-only
  * (EXAMINE, not SELECT) — this is a verification probe, never a write.
  * Returns the first matching UID, or `null` if nothing matched.
+ *
+ * "First" is the LOWEST uid: UID SEARCH answers ascending, so when one
+ * Message-ID has several copies in the mailbox (a sieve `fileinto` + `keep`,
+ * a resend, an earlier copy of the same message) this returns the OLDEST
+ * match, not the copy that just arrived. A probe settling a FRESH move or
+ * copy can therefore land on an earlier copy's uid and orphan the fresh one
+ * — `confirmTrashMoveUid` in message-delete.ts gates exactly this hazard
+ * source-first, and "highest match" would be strictly better for fresh-copy
+ * probes, but that changes this helper's semantics for every caller; tracked
+ * in #1122.
  */
 export const searchMailboxByMessageId = async (
 	connection: IImapConnection,

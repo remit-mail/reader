@@ -2,6 +2,7 @@ import { getClient } from "@remit/backend/client";
 import type { IMessageRepository } from "@remit/data-ports";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
+import { recordImapFailure } from "@remit/logger-lambda";
 import {
 	guardConnectionCursor,
 	type IImapConnection,
@@ -15,6 +16,27 @@ import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { searchMailboxByMessageId } from "./message-move.js";
+
+/**
+ * Fallback when `MESSAGE_COPY_MAX_ATTEMPTS` is unset (local dev, unit tests).
+ * Matches the `maxReceiveCount` the message queue's redrive policy uses
+ * (`remit-message-mgmt`, `deploy/vps/queues.json`), same pattern as
+ * `MESSAGE_MOVE_MAX_ATTEMPTS` and `PLACEMENT_MOVE_MAX_ATTEMPTS`.
+ */
+const DEFAULT_MESSAGE_COPY_MAX_ATTEMPTS = 3;
+
+export const getMessageCopyMaxAttempts = (
+	processEnv: NodeJS.ProcessEnv = process.env,
+): number => {
+	const raw = processEnv.MESSAGE_COPY_MAX_ATTEMPTS;
+	if (!raw) return DEFAULT_MESSAGE_COPY_MAX_ATTEMPTS;
+	const parsed = Number.parseInt(raw, 10);
+	return Number.isFinite(parsed) && parsed > 0
+		? parsed
+		: DEFAULT_MESSAGE_COPY_MAX_ATTEMPTS;
+};
+
+export const MESSAGE_COPY_MAX_ATTEMPTS = getMessageCopyMaxAttempts();
 
 export interface MessageCopyDeps {
 	getClient: typeof getClient;
@@ -41,13 +63,24 @@ const defaultDeps: MessageCopyDeps = {
  * binds its checks to the ONE mailbox snapshot it was built with, so the
  * destination must never be opened through the source's guard (see
  * `confirmTrashMoveUid` in message-delete.ts).
+ *
+ * `sameMailbox` must skip the probe entirely: a copy onto its own source
+ * succeeds server-side with an empty uidMap, and the probe would then open the
+ * still-selected source (imapflow re-open idempotency) and match the SOURCE
+ * message itself — settling the copy row on the source's own uid, two rows
+ * owning one server message and the actual copy orphaned (review of #1102).
+ * The enqueue path now rejects same-mailbox copies
+ * (`MessageMoveService.copySettledMessage`); this guard covers events already
+ * in flight when that landed.
  */
 const probeDestinationByMessageId = async (
 	rawConnection: IImapConnection,
 	messageService: Pick<IMessageRepository, "get">,
 	sourceMessageId: string,
 	destinationMailboxPath: string,
+	sameMailbox: boolean,
 ): Promise<number | null> => {
+	if (sameMailbox) return null;
 	const [sourceMessage] = await messageService.get([sourceMessageId]);
 	if (!sourceMessage?.messageIdHeader) return null;
 	return searchMailboxByMessageId(
@@ -60,10 +93,19 @@ const probeDestinationByMessageId = async (
 /**
  * Handle MESSAGE_COPY events.
  * Executes IMAP COPY command and updates local state with new UID.
+ *
+ * A failing copy retries on SQS redelivery until `receiveCount` reaches
+ * {@link MESSAGE_COPY_MAX_ATTEMPTS}, at which point it resolves into a terminal
+ * outcome (issue #1270) — the row stays `failed` as the unsettled marker and
+ * an alert is raised — instead of dead-lettering blindly. Until then the
+ * handler is idempotent in the DB (deterministic `newMessageId`) but not on the
+ * wire: a retry re-issues COPY unless the destination probe shows an earlier
+ * attempt already landed the copy (see the pre-probe below).
  */
 export const handleMessageCopy = async (
 	event: MessageCopyEvent,
 	log: Logger,
+	receiveCount = 1,
 	deps: MessageCopyDeps = defaultDeps,
 ): Promise<void> => {
 	const {
@@ -150,6 +192,13 @@ export const handleMessageCopy = async (
 
 			const scope = createConnectionScopeWithCredentials(account, credentials);
 
+			// Same source and destination mailbox: the probe must never run (see
+			// `probeDestinationByMessageId`). The enqueue path rejects this shape;
+			// this also covers events already in flight from before that guard.
+			const sameMailbox =
+				sourceMailboxId === destinationMailboxId ||
+				sourceMailboxPath === destinationMailboxPath;
+
 			await scope
 				.getConnection()
 				.then(async (rawConnection) => {
@@ -162,33 +211,56 @@ export const handleMessageCopy = async (
 						accountId,
 						mailbox,
 					);
-					// Open source mailbox (read-only is fine for COPY)
-					await connection.openBox(sourceMailboxPath, true);
+					// A redelivery re-issues COPY by default, but an earlier attempt
+					// may already have landed the copy its response never confirmed —
+					// the connection can drop after the server executed COPY, which is
+					// exactly the transient failure retries exist for. On redelivery the
+					// destination is therefore asked FIRST: a match settles the row
+					// without a second server-side COPY, which would otherwise
+					// duplicate the message on the wire on every retry (review of
+					// #1102). First delivery skips this — its COPY has not run yet.
+					const probedUid =
+						receiveCount > 1
+							? await probeDestinationByMessageId(
+									rawConnection,
+									messageService,
+									sourceMessageId,
+									destinationMailboxPath,
+									sameMailbox,
+								)
+							: null;
 
-					// Execute IMAP COPY
-					const result = await connection.copyMessages(
-						[uid],
-						destinationMailboxPath,
-					);
+					let newUid = probedUid;
+					if (!newUid) {
+						// Open source mailbox (read-only is fine for COPY)
+						await connection.openBox(sourceMailboxPath, true);
 
-					// Get new UID from COPYUID response. UIDPLUS is an extension: a
-					// server without it answers a perfectly successful COPY with no
-					// COPYUID entry, so an absent entry is UNCONFIRMED, never evidence
-					// the copy failed. The destination is probed by Message-ID before
-					// any verdict, exactly as `handleMessageMove` does (issue #1097; the
-					// same shape #979 took out of `message-delete`). Marking the row
-					// `failed` and returning — the old behaviour — left it `uid: 0`,
-					// `status: moving`, `syncStatus: failed` permanently, with no retry,
-					// no DLQ entry and no metric, because a handler that returns never
-					// redelivers.
-					const newUid =
-						result.uidMap.get(uid) ??
-						(await probeDestinationByMessageId(
-							rawConnection,
-							messageService,
-							sourceMessageId,
+						// Execute IMAP COPY
+						const result = await connection.copyMessages(
+							[uid],
 							destinationMailboxPath,
-						));
+						);
+
+						// Get new UID from COPYUID response. UIDPLUS is an extension: a
+						// server without it answers a perfectly successful COPY with no
+						// COPYUID entry, so an absent entry is UNCONFIRMED, never evidence
+						// the copy failed. The destination is probed by Message-ID before
+						// any verdict, exactly as `handleMessageMove` does (issue #1097; the
+						// same shape #979 took out of `message-delete`). Marking the row
+						// `failed` and returning — the old behaviour — left it `uid: 0`,
+						// `status: moving`, `syncStatus: failed` permanently, with no retry,
+						// no DLQ entry and no metric, because a handler that returns never
+						// redelivers.
+						newUid =
+							result.uidMap.get(uid) ??
+							(await probeDestinationByMessageId(
+								rawConnection,
+								messageService,
+								sourceMessageId,
+								destinationMailboxPath,
+								sameMailbox,
+							));
+					}
 
 					if (newUid) {
 						// Update the new message with the actual UID
@@ -242,9 +314,11 @@ export const handleMessageCopy = async (
 						// not proven failed. Throw so the event redelivers — the generic
 						// catch below marks the row `failed` as the unsettled marker
 						// while the retry is pending. Wording must avoid "not found" and
-						// "NONEXISTENT", which that catch reads as a server-side delete.
+						// "NONEXISTENT", which that catch reads as a server-side delete —
+						// and never interpolates the destination path: a mailbox literally
+						// named "not found" would be misread the same way (review of #1102).
 						throw new Error(
-							`Message copy unconfirmed (no COPYUID entry, no match by Message-ID at ${destinationMailboxPath}) — retrying`,
+							"Message copy unconfirmed (no COPYUID entry, no match by Message-ID in the destination mailbox) — retrying",
 						);
 					}
 				})
@@ -273,7 +347,11 @@ export const handleMessageCopy = async (
 						);
 						const connection = await scope.getConnection();
 						await connection.createMailbox(destinationMailboxPath);
-						// Re-throw to let the event be retried
+						// Re-throw to let the event be retried against the folder just
+						// created. Kept unconditional past the attempt budget: the
+						// destination now exists, so the record is worth redriving from
+						// the DLQ, and there is nothing to settle terminally — the copy
+						// has not been attempted against the folder yet.
 						throw error;
 					}
 
@@ -297,7 +375,30 @@ export const handleMessageCopy = async (
 					await messageService.update(newMessageId, {
 						syncStatus: MessageSyncStatus.failed,
 					});
-					throw error;
+					if (receiveCount < MESSAGE_COPY_MAX_ATTEMPTS) throw error;
+
+					// Redelivery budget exhausted. Unlike MESSAGE_MOVE there is no
+					// honest question left to ask the server: an unconfirmable copy (no
+					// COPYUID entry and no Message-ID to probe with — or a server whose
+					// SEARCH cannot) is precisely one the probes cannot see, so there is
+					// no terminal resolver to run. Local state stays exactly as it stands
+					// (`status: moving`, `syncStatus: failed` — the unsettled marker)
+					// for operator investigation, and the record acks instead of
+					// dead-lettering blindly (issue #1270). Counted here or it is
+					// invisible.
+					recordImapFailure("MESSAGE_COPY_EXHAUSTED", "other");
+					log.error(
+						{
+							alert: "message_copy_failed",
+							accountId,
+							sourceMessageId,
+							newMessageId,
+							receiveCount,
+							error: errorMessage,
+						},
+						"Message copy could not be confirmed or pushed to IMAP after retry exhaustion; local state left for operator investigation",
+					);
+					// Terminal — never re-thrown, so the caller acks either way.
 				})
 				.finally(() => scope.disconnect());
 		},

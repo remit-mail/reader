@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import type { Logger } from "@remit/logger-lambda";
 import type { MessageCopyEvent } from "../events.js";
-import { handleMessageCopy, type MessageCopyDeps } from "./message-copy.js";
+import {
+	getMessageCopyMaxAttempts,
+	handleMessageCopy,
+	MESSAGE_COPY_MAX_ATTEMPTS,
+	type MessageCopyDeps,
+} from "./message-copy.js";
 
 const noopLog = {
 	info: () => {},
@@ -61,8 +66,15 @@ const record =
 		h.calls.push({ method, args });
 	};
 
+// The destination box deliberately answers a DIFFERENT uidvalidity than the
+// source snapshot (h.mailbox.uidValidity = 1): a probe routed through the
+// guardConnectionCursor wrap would compare it against the SOURCE snapshot,
+// trip the mailbox and throw — so any test that settles a probed uid pins the
+// raw-connection wiring structurally (review of #1102).
 const buildConnection = (): Connection => ({
-	openBox: async () => ({ uidvalidity: 1 }),
+	openBox: async (path: string) => ({
+		uidvalidity: path === "INBOX" ? 1 : 2,
+	}),
 	copyMessages: async () => ({ uidMap: new Map([[10, 20]]) }),
 	createMailbox: record("createMailbox") as Connection["createMailbox"],
 	search: async (...args: unknown[]) => {
@@ -156,6 +168,14 @@ const event: MessageCopyEvent = {
 	uid: 10,
 } as MessageCopyEvent;
 
+// A copy whose destination is its own source mailbox — the shape the enqueue
+// path now rejects, but an in-flight event can still carry (review of #1102).
+const sameMailboxEvent: MessageCopyEvent = {
+	...event,
+	destinationMailboxId: "src-mbx",
+	destinationMailboxPath: "INBOX",
+} as MessageCopyEvent;
+
 const called = (method: string): Call[] =>
 	h.calls.filter((c) => c.method === method);
 
@@ -165,7 +185,7 @@ describe("handleMessageCopy", () => {
 	});
 
 	it("writes the new UID, marks the copy synced, and updates the thread row", async () => {
-		await handleMessageCopy(event, noopLog, deps());
+		await handleMessageCopy(event, noopLog, 1, deps());
 
 		assert.deepEqual(called("message.updateUid")[0]?.args, [
 			"new-msg",
@@ -177,7 +197,26 @@ describe("handleMessageCopy", () => {
 			(statusUpdate?.args[1] as { syncStatus?: string })?.syncStatus,
 			"synced",
 		);
+		assert.equal(
+			(statusUpdate?.args[1] as { status?: string })?.status,
+			"active",
+			"the handler writes both status and syncStatus",
+		);
 		assert.equal(called("threadMessage.update").length, 1);
+		// The FULL shape: `set` carries the new values, `composites` the CURRENT
+		// row — new values in `composites` make ElectroDB's conditional check
+		// fail and the update silently drop (the #186 bug class).
+		assert.deepEqual(called("threadMessage.update")[0]?.args[2], { uid: 20 });
+		assert.deepEqual(called("threadMessage.update")[0]?.args[3], {
+			composites: {
+				sentDate: 1,
+				mailboxId: "src-mbx",
+				isRead: false,
+				isDeleted: false,
+				hasStars: false,
+				hasAttachment: false,
+			},
+		});
 		assert.equal(h.disconnectCount, 1, "the scope is always disconnected");
 	});
 
@@ -190,7 +229,7 @@ describe("handleMessageCopy", () => {
 			h.connection.copyMessages = async () => ({ uidMap: new Map() });
 			h.destinationSearchUids = [77];
 
-			await handleMessageCopy(event, noopLog, deps());
+			await handleMessageCopy(event, noopLog, 1, deps());
 
 			assert.deepEqual(called("message.get")[0]?.args, [["src-msg"]]);
 			assert.deepEqual(called("message.updateUid")[0]?.args, [
@@ -206,6 +245,11 @@ describe("handleMessageCopy", () => {
 			assert.deepEqual(called("threadMessage.update")[0]?.args[2], {
 				uid: 77,
 			});
+			assert.equal(
+				called("mailbox.update").length,
+				0,
+				"the probe bypasses the source's cursor guard — the destination's uidvalidity (2) differs from the source snapshot's (1), so a guarded probe would have tripped the mailbox",
+			);
 		});
 
 		it("probes the DESTINATION mailbox, read-only, by Message-ID", async () => {
@@ -214,10 +258,10 @@ describe("handleMessageCopy", () => {
 			const opened: unknown[][] = [];
 			h.connection.openBox = (async (...args: unknown[]) => {
 				opened.push(args);
-				return { uidvalidity: 1 };
+				return { uidvalidity: args[0] === "INBOX" ? 1 : 2 };
 			}) as Connection["openBox"];
 
-			await handleMessageCopy(event, noopLog, deps());
+			await handleMessageCopy(event, noopLog, 1, deps());
 
 			assert.deepEqual(
 				opened,
@@ -225,7 +269,12 @@ describe("handleMessageCopy", () => {
 					["INBOX", true],
 					["Archive", true],
 				],
-				"the source is opened read-only for the COPY, then the destination is EXAMINEd — the probe must never open a box writable",
+				"first delivery opens the source for the COPY first, then EXAMINEd the destination — the probe must never open a box writable, and never pre-probe before the COPY has run",
+			);
+			assert.equal(
+				called("mailbox.update").length,
+				0,
+				"the destination EXAMINE goes through the RAW connection: the destination's uidvalidity (2) differs from the source snapshot's (1), so a probe through the guard would trip the mailbox",
 			);
 			assert.deepEqual(called("connection.search").at(-1)?.args[0], [
 				["HEADER", "Message-ID", "<copied-message@example.com>"],
@@ -237,7 +286,7 @@ describe("handleMessageCopy", () => {
 			h.destinationSearchUids = [];
 
 			await assert.rejects(
-				handleMessageCopy(event, noopLog, deps()),
+				handleMessageCopy(event, noopLog, 1, deps()),
 				/unconfirmed/,
 			);
 
@@ -261,7 +310,7 @@ describe("handleMessageCopy", () => {
 			h.messageRow = {};
 
 			await assert.rejects(
-				handleMessageCopy(event, noopLog, deps()),
+				handleMessageCopy(event, noopLog, 1, deps()),
 				/unconfirmed/,
 			);
 
@@ -273,6 +322,221 @@ describe("handleMessageCopy", () => {
 		});
 	});
 
+	// The budget mirrors the queue's redrive policy (`remit-message-mgmt`,
+	// maxReceiveCount 3) so the handler resolves exhaustion exactly when the
+	// queue would otherwise dead-letter.
+	it("MESSAGE_COPY_MAX_ATTEMPTS falls back to the queue's maxReceiveCount when unset", () => {
+		assert.equal(getMessageCopyMaxAttempts({}), 3);
+		assert.equal(
+			getMessageCopyMaxAttempts({ MESSAGE_COPY_MAX_ATTEMPTS: "3" }),
+			3,
+		);
+		assert.equal(
+			getMessageCopyMaxAttempts({ MESSAGE_COPY_MAX_ATTEMPTS: "5" }),
+			5,
+		);
+		assert.equal(
+			getMessageCopyMaxAttempts({ MESSAGE_COPY_MAX_ATTEMPTS: "nope" }),
+			3,
+		);
+		assert.equal(
+			getMessageCopyMaxAttempts({ MESSAGE_COPY_MAX_ATTEMPTS: "0" }),
+			3,
+		);
+	});
+
+	it("MESSAGE_COPY_MAX_ATTEMPTS is a concrete, positive number at module load", () => {
+		assert.ok(MESSAGE_COPY_MAX_ATTEMPTS > 0);
+	});
+
+	// A copy onto its own source is rejected at enqueue; an event already in
+	// flight must never have its copy row settled on the source's OWN uid. The
+	// probe would open the still-selected source (imapflow re-open idempotency)
+	// and match the source message itself (review of #1102).
+	describe("same source and destination mailbox", () => {
+		it("never probes and stays unconfirmed when the server names no COPYUID", async () => {
+			h.connection.copyMessages = async () => ({ uidMap: new Map() });
+			h.destinationSearchUids = [10]; // the source's own uid — what a broken probe would settle on
+
+			await assert.rejects(
+				handleMessageCopy(sameMailboxEvent, noopLog, 1, deps()),
+				/unconfirmed/,
+			);
+
+			assert.equal(
+				called("connection.search").length,
+				0,
+				"the source itself must never be probed as the copy",
+			);
+			assert.equal(called("message.updateUid").length, 0);
+			assert.equal(called("threadMessage.update").length, 0);
+			const update = called("message.update")[0];
+			assert.equal(
+				(update?.args[1] as { syncStatus?: string })?.syncStatus,
+				"failed",
+			);
+		});
+
+		it("still settles on a COPYUID entry — the same-mailbox copy really is a new uid", async () => {
+			await handleMessageCopy(sameMailboxEvent, noopLog, 1, deps());
+
+			assert.deepEqual(called("message.updateUid")[0]?.args, [
+				"new-msg",
+				20,
+				"src-mbx",
+			]);
+		});
+	});
+
+	// The handler is idempotent in the DB but not on the wire: an unguarded
+	// retry re-issued COPY after COPY, duplicating the message server-side on
+	// every redelivery (review of #1102).
+	describe("redelivery (receiveCount > 1)", () => {
+		it("settles on a probe match without re-issuing COPY — an earlier attempt landed the copy", async () => {
+			h.connection.copyMessages = async () => {
+				throw new Error(
+					"copyMessages must not be re-issued when the probe settles the copy",
+				);
+			};
+			h.destinationSearchUids = [77];
+			const opened: unknown[][] = [];
+			h.connection.openBox = (async (...args: unknown[]) => {
+				opened.push(args);
+				return { uidvalidity: args[0] === "INBOX" ? 1 : 2 };
+			}) as Connection["openBox"];
+
+			await handleMessageCopy(event, noopLog, 2, deps());
+
+			assert.deepEqual(
+				opened,
+				[["Archive", true]],
+				"only the destination is EXAMINEd — a settled retry never opens the source",
+			);
+			assert.deepEqual(called("message.updateUid")[0]?.args, [
+				"new-msg",
+				77,
+				"dst-mbx",
+			]);
+			const statusUpdate = called("message.update")[0];
+			assert.equal(
+				(statusUpdate?.args[1] as { syncStatus?: string })?.syncStatus,
+				"synced",
+			);
+			assert.equal(
+				(statusUpdate?.args[1] as { status?: string })?.status,
+				"active",
+			);
+		});
+
+		it("issues the COPY when the probe finds no earlier copy", async () => {
+			h.destinationSearchUids = [];
+			let copies = 0;
+			h.connection.copyMessages = async () => {
+				copies += 1;
+				return { uidMap: new Map([[10, 20]]) };
+			};
+
+			await handleMessageCopy(event, noopLog, 2, deps());
+
+			assert.equal(copies, 1, "the COPY is issued exactly once");
+			assert.deepEqual(called("message.updateUid")[0]?.args, [
+				"new-msg",
+				20,
+				"dst-mbx",
+			]);
+		});
+
+		it("never pre-probes a same-mailbox copy on retry either", async () => {
+			h.connection.copyMessages = async () => ({ uidMap: new Map() });
+			h.destinationSearchUids = [10];
+
+			await assert.rejects(
+				handleMessageCopy(sameMailboxEvent, noopLog, 2, deps()),
+				/unconfirmed/,
+			);
+
+			assert.equal(called("connection.search").length, 0);
+		});
+	});
+
+	// Issue #1270: resolve retry exhaustion into a terminal outcome instead of
+	// dead-lettering blindly. There is no honest question left to ask the
+	// server — an unconfirmable copy is precisely one the probes cannot see.
+	describe("retry budget exhausted (receiveCount = MESSAGE_COPY_MAX_ATTEMPTS)", () => {
+		it("acks terminally on an unconfirmed copy, leaving the row failed as the unsettled marker", async () => {
+			h.connection.copyMessages = async () => ({ uidMap: new Map() });
+			h.destinationSearchUids = [];
+
+			await handleMessageCopy(
+				event,
+				noopLog,
+				MESSAGE_COPY_MAX_ATTEMPTS,
+				deps(),
+			);
+
+			const update = called("message.update")[0];
+			assert.equal(
+				(update?.args[1] as { syncStatus?: string })?.syncStatus,
+				"failed",
+			);
+			assert.equal(
+				(update?.args[1] as { status?: string })?.status,
+				undefined,
+				"unconfirmed is never read as a server-side delete",
+			);
+			assert.equal(called("message.updateUid").length, 0);
+			assert.equal(h.disconnectCount, 1, "the scope is still disconnected");
+		});
+
+		it("acks terminally on an unclassified IMAP error", async () => {
+			h.connection.copyMessages = async () => {
+				throw new Error("server exploded");
+			};
+
+			await handleMessageCopy(
+				event,
+				noopLog,
+				MESSAGE_COPY_MAX_ATTEMPTS,
+				deps(),
+			);
+
+			const update = called("message.update")[0];
+			assert.equal(
+				(update?.args[1] as { syncStatus?: string })?.syncStatus,
+				"failed",
+			);
+		});
+
+		it("still creates the destination and rethrows on TRYCREATE past the budget", async () => {
+			h.connection.copyMessages = async () => {
+				throw new Error("TRYCREATE: mailbox does not exist");
+			};
+
+			await assert.rejects(
+				handleMessageCopy(event, noopLog, MESSAGE_COPY_MAX_ATTEMPTS, deps()),
+				/TRYCREATE/,
+			);
+
+			assert.equal(called("createMailbox")[0]?.args[0], "Archive");
+		});
+
+		it("still marks the copy deleted when the source is gone on the server", async () => {
+			h.connection.copyMessages = async () => {
+				throw new Error("NONEXISTENT source message");
+			};
+
+			await handleMessageCopy(
+				event,
+				noopLog,
+				MESSAGE_COPY_MAX_ATTEMPTS,
+				deps(),
+			);
+
+			const update = called("message.update")[0];
+			assert.equal((update?.args[1] as { status?: string })?.status, "deleted");
+		});
+	});
+
 	it("returns early without connecting when the account is soft-deleted", async () => {
 		h.account = {
 			accountId: "acc-1",
@@ -280,7 +544,7 @@ describe("handleMessageCopy", () => {
 			deletedAt: Date.now(),
 		};
 
-		await handleMessageCopy(event, noopLog, deps());
+		await handleMessageCopy(event, noopLog, 1, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 	});
@@ -289,7 +553,7 @@ describe("handleMessageCopy", () => {
 		h.account = null;
 
 		await assert.rejects(
-			handleMessageCopy(event, noopLog, deps()),
+			handleMessageCopy(event, noopLog, 1, deps()),
 			/not found/,
 		);
 	});
@@ -297,7 +561,7 @@ describe("handleMessageCopy", () => {
 	it("acks terminally without connecting when the source mailbox was deleted", async () => {
 		h.mailboxError = notFoundError();
 
-		await handleMessageCopy(event, noopLog, deps());
+		await handleMessageCopy(event, noopLog, 1, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("message.updateUid").length, 0);
@@ -311,7 +575,7 @@ describe("handleMessageCopy", () => {
 			cursorState: "rebuilding",
 		};
 
-		await handleMessageCopy(event, noopLog, deps());
+		await handleMessageCopy(event, noopLog, 1, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("message.updateUid").length, 0);
@@ -320,7 +584,7 @@ describe("handleMessageCopy", () => {
 	it("pauses quietly when openBox trips a UIDVALIDITY mismatch", async () => {
 		h.connection.openBox = async () => ({ uidvalidity: 999 });
 
-		await handleMessageCopy(event, noopLog, deps());
+		await handleMessageCopy(event, noopLog, 1, deps());
 
 		assert.equal(
 			(called("mailbox.update")[0]?.args[2] as { cursorState?: string })
@@ -338,7 +602,7 @@ describe("handleMessageCopy", () => {
 		};
 
 		await assert.rejects(
-			handleMessageCopy(event, noopLog, deps()),
+			handleMessageCopy(event, noopLog, 1, deps()),
 			/TRYCREATE/,
 		);
 
@@ -351,7 +615,7 @@ describe("handleMessageCopy", () => {
 			throw new Error("NONEXISTENT source message");
 		};
 
-		await handleMessageCopy(event, noopLog, deps());
+		await handleMessageCopy(event, noopLog, 1, deps());
 
 		const update = called("message.update")[0];
 		assert.equal((update?.args[1] as { status?: string })?.status, "deleted");
@@ -364,7 +628,7 @@ describe("handleMessageCopy", () => {
 		};
 
 		await assert.rejects(
-			handleMessageCopy(event, noopLog, deps()),
+			handleMessageCopy(event, noopLog, 1, deps()),
 			/server exploded/,
 		);
 
