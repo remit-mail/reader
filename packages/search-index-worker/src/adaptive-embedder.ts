@@ -101,10 +101,18 @@ const fromEnv = (name: string, fallback: number, scale = 1): number => {
 };
 
 /**
+ * The queue poller's visibility timeout (`@remit/sqs-client/poller`). A stall
+ * budget that reaches it has the record redelivered underneath the handler
+ * still holding it, which is the redelivery the budget exists to prevent.
+ */
+const VISIBILITY_TIMEOUT_MS = 300_000;
+
+/**
  * Every threshold is an env var so the same image bounds itself against a 4 GB
  * VPS and a 32 GB box without a rebuild. A configuration that cannot hold —
  * a critical floor at or above the ramp headroom, a floor batch above the
- * ceiling — is a startup error, not something to correct silently at runtime.
+ * ceiling, a stall budget at or above the visibility timeout — is a startup
+ * error, not something to correct silently at runtime.
  */
 export const readAdaptiveEmbeddingConfigFromEnv =
 	(): AdaptiveEmbeddingConfig => {
@@ -153,6 +161,11 @@ export const readAdaptiveEmbeddingConfigFromEnv =
 				"SEARCH_INDEX_MEMORY_CRITICAL_MB must be below SEARCH_INDEX_MEMORY_HEADROOM_MB",
 			);
 		}
+		if (config.stallMaxMs >= VISIBILITY_TIMEOUT_MS) {
+			throw new Error(
+				`SEARCH_INDEX_MEMORY_STALL_MAX_MS must be below the queue's ${VISIBILITY_TIMEOUT_MS} ms visibility timeout`,
+			);
+		}
 		return config;
 	};
 
@@ -181,7 +194,9 @@ type Admission = "admitted" | "expired";
  * swap, where the kernel picks its OOM victim by size and takes the backend
  * rather than the indexer. That stop is bounded: past the budget the message
  * goes back on the queue, because a handler that waits longer than the queue's
- * visibility timeout has its record redelivered underneath it anyway.
+ * visibility timeout has its record redelivered underneath it anyway. The
+ * budget belongs to the message, so its deadline is handed in rather than
+ * minted here — one that restarted per stop would bound no handler at all.
  */
 export class MemoryGovernor {
 	private batchSize: number;
@@ -200,8 +215,11 @@ export class MemoryGovernor {
 		return { batchSize: this.batchSize, concurrency: this.concurrency };
 	}
 
+	/** The end of one message's stall budget, taken once per governed call. */
+	stallDeadline = (): number => this.deps.now() + this.config.stallMaxMs;
+
 	/** Blocks until the box can afford the next batch, or the budget runs out. */
-	admit = async (): Promise<Admission> => {
+	admit = async (stallDeadline: number): Promise<Admission> => {
 		let reading = this.deps.readMemory();
 		if (reading.availableBytes >= this.config.criticalBytes) {
 			if (!this.pauseBeforeNextBatch) return "admitted";
@@ -216,12 +234,10 @@ export class MemoryGovernor {
 			this.fields(reading),
 		);
 		this.reset();
-		const startedAt = this.deps.now();
 		while (reading.availableBytes < this.config.criticalBytes) {
-			const waitedMs = this.deps.now() - startedAt;
-			if (waitedMs >= this.config.stallMaxMs) {
+			if (this.deps.now() >= stallDeadline) {
 				this.deps.log.warn("Search index gave up waiting for memory", {
-					waitedMs,
+					stallMaxMs: this.config.stallMaxMs,
 					...this.fields(reading),
 				});
 				return "expired";
@@ -342,6 +358,11 @@ export class MemoryGovernor {
  * governed batches and holds only the current wave's inputs, so the model's
  * outputs from a finished batch are unreachable before the next one starts.
  *
+ * The stall budget is taken once here and spans every wave, because what has to
+ * stay inside the queue's visibility timeout is the handler, not one wave of it:
+ * a box that recovers just inside the budget on each wave would otherwise hold
+ * the record for as many budgets as the email has chunks.
+ *
  * `dimensions` and `embeddingId` pass straight through: `embeddingId` feeds the
  * content hash that decides what needs re-embedding, so wrapping the embedder
  * must not invalidate an existing index.
@@ -355,9 +376,10 @@ export const createAdaptiveEmbeddingService = (
 	embeddingId: inner.embeddingId,
 	embed: async (texts: string[]): Promise<number[][]> => {
 		const vectors: number[][] = [];
+		const deadline = governor.stallDeadline();
 		let next = 0;
 		while (next < texts.length) {
-			if ((await governor.admit()) === "expired") {
+			if ((await governor.admit(deadline)) === "expired") {
 				throw new MemoryStallTimeoutError(stallMaxMs);
 			}
 			const { batchSize, concurrency } = governor.plan;

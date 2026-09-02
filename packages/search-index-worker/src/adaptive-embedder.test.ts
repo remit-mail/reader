@@ -53,6 +53,23 @@ const reads = (script: readonly Reading[]): MemoryReader => {
 const available = (...availableMb: number[]): MemoryReader =>
 	reads(availableMb.map((mb) => ({ availableMb: mb })));
 
+/**
+ * A box that sits below the critical floor, frees memory for exactly one
+ * reading, and dips again — the intermittent shape, as against a sustained
+ * stall. `lowReads` sets how long each dip lasts.
+ */
+const recoveringBox = (lowReads: number): MemoryReader => {
+	let lowLeft = lowReads;
+	return () => {
+		const low = lowLeft > 0;
+		lowLeft = low ? lowLeft - 1 : lowReads;
+		return {
+			availableBytes: (low ? 300 : ROOMY) * MB,
+			rssBytes: 512 * MB,
+		};
+	};
+};
+
 class Harness {
 	readonly plans: EmbeddingPlan[] = [];
 	readonly sleeps: number[] = [];
@@ -223,10 +240,10 @@ describe("the memory governor", () => {
 		const governor = new MemoryGovernor(CONFIG, h.deps);
 		settleTimes(governor, CONFIG.rampAfterReadings + 1);
 
-		assert.equal(await governor.admit(), "admitted");
+		assert.equal(await governor.admit(governor.stallDeadline()), "admitted");
 		assert.deepEqual(h.sleeps, [CONFIG.pauseMs]);
 		// The pause is per shed, not sticky: an admit that follows no shed runs on.
-		assert.equal(await governor.admit(), "admitted");
+		assert.equal(await governor.admit(governor.stallDeadline()), "admitted");
 		assert.deepEqual(h.sleeps, [CONFIG.pauseMs]);
 	});
 
@@ -236,7 +253,7 @@ describe("the memory governor", () => {
 		governor.settle();
 		assert.deepEqual(governor.plan, { batchSize: 2, concurrency: 1 });
 		assert.deepEqual(h.lines, []);
-		assert.equal(await governor.admit(), "admitted");
+		assert.equal(await governor.admit(governor.stallDeadline()), "admitted");
 		assert.deepEqual(h.sleeps, [CONFIG.pauseMs]);
 	});
 
@@ -246,7 +263,7 @@ describe("the memory governor", () => {
 		settleTimes(governor, CONFIG.rampAfterReadings);
 		assert.deepEqual(governor.plan, { batchSize: 4, concurrency: 1 });
 
-		assert.equal(await governor.admit(), "admitted");
+		assert.equal(await governor.admit(governor.stallDeadline()), "admitted");
 		assert.equal(h.stalls, 1);
 		assert.equal(h.sleeps.length, 2);
 		// A stop is the loudest signal the worker has, and it comes back at the
@@ -262,7 +279,7 @@ describe("the memory governor", () => {
 		const h = harness(available(300));
 		const governor = new MemoryGovernor(CONFIG, h.deps);
 
-		assert.equal(await governor.admit(), "expired");
+		assert.equal(await governor.admit(governor.stallDeadline()), "expired");
 		assert.equal(h.clock, CONFIG.stallMaxMs);
 		assert.match(h.lines.at(-1) ?? "", /gave up/);
 	});
@@ -271,7 +288,7 @@ describe("the memory governor", () => {
 		const h = harness(available(300));
 		const governor = new MemoryGovernor(CONFIG, h.deps);
 
-		await governor.admit();
+		await governor.admit(governor.stallDeadline());
 		assert.equal(h.beats, CONFIG.stallMaxMs / CONFIG.pauseMs);
 	});
 
@@ -280,14 +297,14 @@ describe("the memory governor", () => {
 		h.beatFails = true;
 		const governor = new MemoryGovernor(CONFIG, h.deps);
 
-		assert.equal(await governor.admit(), "expired");
+		assert.equal(await governor.admit(governor.stallDeadline()), "expired");
 		assert.ok(h.lines.some((line) => /heartbeat/.test(line)));
 	});
 
 	it("does not stall while the box is merely tight", async () => {
 		const h = harness(available(500));
 		const governor = new MemoryGovernor(CONFIG, h.deps);
-		assert.equal(await governor.admit(), "admitted");
+		assert.equal(await governor.admit(governor.stallDeadline()), "admitted");
 		assert.equal(h.stalls, 0);
 		assert.deepEqual(h.sleeps, []);
 	});
@@ -382,6 +399,29 @@ describe("the governed embedder", () => {
 			(error: unknown) => error instanceof MemoryStallTimeoutError,
 		);
 		assert.deepEqual(inner.batches, []);
+	});
+
+	// The budget bounds the handler, not one wave of it. A box that recovers just
+	// inside it on every wave held the record for waves × budget, well past the
+	// queue's visibility timeout, and reported no failure.
+	it("holds the budget across waves when memory recovers between them", async () => {
+		const inner = embedderRecording();
+		const h = harness(recoveringBox(CONFIG.stallMaxMs / CONFIG.pauseMs - 1));
+		const service = createAdaptiveEmbeddingService(
+			inner.service,
+			new MemoryGovernor(CONFIG, h.deps),
+			CONFIG.stallMaxMs,
+		);
+
+		await assert.rejects(
+			() => service.embed(Array.from({ length: 20 }, (_, i) => `chunk ${i}`)),
+			(error: unknown) => error instanceof MemoryStallTimeoutError,
+		);
+		// Memory did come back and work did get through, so this is the
+		// intermittent stall rather than the sustained one.
+		assert.ok(h.stalls > 1);
+		assert.ok(inner.batches.length > 0);
+		assert.ok(h.clock <= CONFIG.stallMaxMs + CONFIG.pauseMs);
 	});
 
 	// The throttle paces work; it never turns a fault into a quiet retry.
@@ -510,6 +550,17 @@ describe("the configured thresholds", () => {
 				);
 			},
 		);
+	});
+
+	// A budget that reaches the visibility timeout has the record redelivered
+	// underneath the handler still holding it: the redelivery it exists to avoid.
+	it("refuses a stall budget at or above the visibility timeout", () => {
+		withEnv({ ...UNSET, SEARCH_INDEX_MEMORY_STALL_MAX_MS: "300000" }, () => {
+			assert.throws(
+				readAdaptiveEmbeddingConfigFromEnv,
+				/SEARCH_INDEX_MEMORY_STALL_MAX_MS must be below/,
+			);
+		});
 	});
 
 	it("refuses a value that is not a positive integer", () => {
