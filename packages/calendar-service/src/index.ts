@@ -37,7 +37,6 @@ export {
 	type CalendarFeedSecret,
 	calendarFeedIsUnchanged,
 	calendarFeedIsUnmodifiedSince,
-	calendarFeedPath,
 	hashCalendarFeedToken,
 	isCalendarFeedToken,
 	mintCalendarFeedToken,

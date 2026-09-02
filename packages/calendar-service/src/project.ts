@@ -36,18 +36,11 @@ const TRANSPARENCY_BY_ICAL: Record<string, CalendarObjectItem["transparency"]> =
 		TRANSPARENT: CalendarTransparency.Transparent,
 	};
 
-const readString = (component: ICAL.Component, name: string): string => {
+export const readString = (component: ICAL.Component, name: string): string => {
 	const value = component.getFirstPropertyValue(name);
 	return typeof value === "string" ? value : "";
 };
 
-/**
- * Whether the resource expands to more than its master instance — an RRULE, an
- * RDATE, or an override VEVENT. The overrides count: a client that edits one
- * instance of a series and then deletes the rule leaves a resource with nothing
- * but a master and its exceptions, and every one of those is still an
- * occurrence somebody has to see.
- */
 /**
  * The fields that describe one VEVENT rather than the series it belongs to.
  *
@@ -73,6 +66,13 @@ export const projectEventDisplay = (
 		CalendarTransparency.Opaque,
 });
 
+/**
+ * Whether the resource expands to more than its master instance — an RRULE, an
+ * RDATE, or an override VEVENT. The overrides count: a client that edits one
+ * instance of a series and then deletes the rule leaves a resource with nothing
+ * but a master and its exceptions, and every one of those is still an
+ * occurrence somebody has to see.
+ */
 export const hasRecurrence = (calendar: ParsedCalendar): boolean =>
 	calendar.master.hasProperty("rrule") ||
 	calendar.master.hasProperty("rdate") ||
