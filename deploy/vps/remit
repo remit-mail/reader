@@ -3417,14 +3417,29 @@ cmd_config_save() {
 	_dir=$(dirname "$_file")
 	[ -d "$_dir" ] || die "config save: there is no directory '$_dir'"
 	_tmp="$_dir/.$(basename "$_file").writing.$$"
+	trap 'rm -f "$_tmp"' EXIT
+	trap 'exit 129' HUP
+	trap 'exit 130' INT
+	trap 'exit 143' TERM
 
+	# The document carries flagged senders, filter text, mail excerpts,
+	# signatures and account addresses, so it is written under a 077 umask like
+	# .env in set_var rather than chmod'd afterwards: a chmod after the fact
+	# leaves it world-readable for the length of the write, and on a default
+	# umask 022 box that is every account on the machine.
 	_rc=0
 	if [ -n "$_user" ]; then
-		compose run --rm --no-deps -T migrate \
-			node config-save.mjs --user "$_user" >"$_tmp" || _rc=$?
+		(
+			umask 077
+			compose run --rm --no-deps -T migrate \
+				node config-save.mjs --user "$_user" >"$_tmp"
+		) || _rc=$?
 	else
-		compose run --rm --no-deps -T migrate \
-			node config-save.mjs >"$_tmp" || _rc=$?
+		(
+			umask 077
+			compose run --rm --no-deps -T migrate \
+				node config-save.mjs >"$_tmp"
+		) || _rc=$?
 	fi
 	if [ "$_rc" != "0" ]; then
 		rm -f "$_tmp"
@@ -3442,6 +3457,7 @@ cmd_config_save() {
 	fi
 
 	mv "$_tmp" "$_file"
+	trap - EXIT HUP INT TERM
 	printf 'Wrote %s.\n' "$_file"
 	printf 'It carries no password and no OAuth token — importing it asks for each account again.\n'
 }
