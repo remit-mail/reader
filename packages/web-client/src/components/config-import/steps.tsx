@@ -704,9 +704,11 @@ export function StepFileRejected({
 }
 
 /**
- * A section nobody can vouch for reads as failed, never as pending. Pending
- * says "still coming"; this section is finished and its outcome is unknown,
- * which is the row the reader has to go and check for themselves.
+ * A section nobody can vouch for reads as failed, never as pending: it is
+ * finished, and an outcome the reader has to go and check for themselves is
+ * not a quiet empty row. Pending is the empty row — nothing from the file went
+ * into this section, whether the import never reached it or reached it and
+ * wrote none of it — and it is the state that carries no tick.
  */
 function resultState(state: SectionResult["state"]) {
 	if (state === "landed") return "ok" as const;
@@ -718,6 +720,7 @@ export function StepPartialImport({
 	results,
 	message,
 	raw,
+	nothingLanded,
 	onBack,
 	onNext,
 }: {
@@ -725,6 +728,8 @@ export function StepPartialImport({
 	/** The server's own account of what survived, which only it knows. */
 	message: string;
 	raw: string;
+	/** No section of the file was written — not that the instance is unchanged. */
+	nothingLanded: boolean;
 } & StepNav) {
 	const landed = results.filter((result) => result.state === "landed").length;
 	const unknown = results.some((result) => result.state === "unknown");
@@ -732,11 +737,17 @@ export function StepPartialImport({
 		<WizardShell
 			steps={IMPORT_STEPS}
 			activeStep={1}
-			title="The import stopped part-way"
+			title={
+				nothingLanded
+					? "The import stopped, and nothing landed"
+					: "The import stopped part-way"
+			}
 			subtitle={
-				unknown
-					? "It did not say how far it got, so check Settings before importing again."
-					: `${landed} of ${results.length} sections landed.`
+				nothingLanded
+					? "No section of the file was written."
+					: unknown
+						? "It did not say how far it got, so check Settings before importing again."
+						: `${landed} of ${results.length} sections landed.`
 			}
 			footer={
 				<>
@@ -744,7 +755,7 @@ export function StepPartialImport({
 						Choose another file
 					</Button>
 					<Button variant="primary" onClick={onNext}>
-						Retry the rest
+						{nothingLanded ? "Try the import again" : "Retry the rest"}
 					</Button>
 				</>
 			}

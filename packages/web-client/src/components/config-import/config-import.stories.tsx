@@ -19,6 +19,7 @@ import {
 	cleanRunReport,
 	dryRunReport,
 	importedAccounts,
+	nothingLandedImportReport,
 	partialImportReport,
 	rejectedReports,
 } from "./config-import.fixtures";
@@ -416,6 +417,7 @@ export const PartiallyLandedImportUnnamed: Story = {
 				results={sectionResults(report)}
 				message={writeFailure(report)?.message ?? ""}
 				raw="import_write_failed: the store refused the write"
+				nothingLanded={!report.applied}
 			/>
 		);
 	},
@@ -428,6 +430,23 @@ export const PartiallyLandedImport: Story = {
 			results={sectionResults(partialImportReport)}
 			message={writeFailure(partialImportReport)?.message ?? ""}
 			raw={`import_write_failed: ${writeFailure(partialImportReport)?.message ?? ""}`}
+			nothingLanded={!partialImportReport.applied}
+		/>
+	),
+};
+
+/**
+ * The same stop with no section written — a transaction undid the earlier
+ * writes, or the first write was the one that failed. No section may carry a
+ * tick, and the screen counts nothing as landed.
+ */
+export const NothingLandedImport: Story = {
+	render: () => (
+		<StepPartialImport
+			results={sectionResults(nothingLandedImportReport)}
+			message={writeFailure(nothingLandedImportReport)?.message ?? ""}
+			raw={`import_write_failed: ${writeFailure(nothingLandedImportReport)?.message ?? ""}`}
+			nothingLanded={!nothingLandedImportReport.applied}
 		/>
 	),
 };

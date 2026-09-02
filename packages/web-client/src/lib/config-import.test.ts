@@ -151,6 +151,75 @@ test("a stopped import splits the write order into landed, failed and never reac
 	assert.equal(byId.get("settings")?.state, "not-attempted");
 });
 
+test("an import the server says wrote nothing marks no section landed, whatever ran before the stop", () => {
+	const results = sectionResults(
+		reportOf({
+			applied: false,
+			items: [
+				item("filters", "Receipts", "rejected", "the store refused the write"),
+			],
+			errors: [
+				{
+					code: "import_write_failed",
+					message:
+						"the store refused the write Nothing was written; the import stopped here.",
+					details: { section: "filters", key: "Receipts" },
+				},
+			],
+		}),
+	);
+
+	const byId = new Map(results.map((result) => [result.section, result]));
+	assert.equal(byId.get("accounts")?.state, "not-landed");
+	assert.match(
+		byId.get("accounts")?.detail ?? "",
+		/Nothing from this section was written/,
+	);
+	assert.equal(byId.get("labels")?.state, "not-landed");
+	assert.equal(byId.get("filters")?.state, "failed");
+	assert.equal(byId.get("addressFlags")?.state, "not-attempted");
+	assert.equal(byId.get("settings")?.state, "not-attempted");
+	assert.equal(results.filter((result) => result.state === "landed").length, 0);
+});
+
+test("a first write that fails on a store with no transaction lands nothing either", () => {
+	const results = sectionResults(
+		reportOf({
+			applied: false,
+			items: [
+				item("accounts", "a@example.test", "rejected", "the store refused"),
+			],
+			errors: [
+				{
+					code: "import_write_failed",
+					message:
+						"the store refused The items above it were written and remain; the import stopped here.",
+					details: { section: "accounts", key: "a@example.test" },
+				},
+			],
+		}),
+	);
+
+	const byId = new Map(results.map((result) => [result.section, result]));
+	assert.equal(byId.get("accounts")?.state, "failed");
+	assert.equal(byId.get("labels")?.state, "not-attempted");
+	assert.equal(results.filter((result) => result.state === "landed").length, 0);
+});
+
+test("nothing written and no section named is a known outcome, not an unknown one", () => {
+	const results = sectionResults(
+		reportOf({
+			applied: false,
+			errors: [{ code: "import_write_failed", message: "the store refused" }],
+		}),
+	);
+
+	assert.deepEqual(
+		[...new Set(results.map((result) => result.state))],
+		["not-landed"],
+	);
+});
+
 test("a pending folder names the setting waiting on it, and repeats are folded", () => {
 	const folders = pendingFolders(
 		reportOf({
