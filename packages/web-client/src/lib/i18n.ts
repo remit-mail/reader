@@ -11,7 +11,7 @@ i18n
 		fallbackLng: "en",
 		supportedLngs: ["en", "nl", "de", "fr"],
 
-		ns: ["common", "mail", "settings", "errors"],
+		ns: ["common", "mail"],
 		defaultNS: "common",
 
 		backend: {

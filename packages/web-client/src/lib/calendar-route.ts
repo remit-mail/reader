@@ -193,5 +193,3 @@ export const calendarSearchSchema = z.object({
 		.preprocess(readCalendarIds, z.array(calendarIdSchema))
 		.transform((ids) => (ids.length === 0 ? undefined : ids)),
 });
-
-export type CalendarSearch = z.infer<typeof calendarSearchSchema>;
