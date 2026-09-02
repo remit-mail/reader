@@ -69,7 +69,7 @@ It superseded an arrangement in which `countByMailbox` computed the exact SQL co
 
 `count` becomes the number of rows in the mailbox matching the criteria, independent of paging and of `results`. When any off-row criterion is present the exact count is not derivable without enriching every candidate row, so `count` is **absent**, and the surface renders no number rather than a stand-in. Absent is honest; a page length labelled `count` is not.
 
-`count` stays opt-in (`count: true`), because it is an additional read over the whole match set. It must not be coupled to keystrokes: on this mailbox an exact count is one index range scan on SQLite, and a full partition read on DynamoDB.
+`count` stays opt-in (`count: true`), because it is an additional read over the whole match set. It must not be coupled to keystrokes, and it is asked for only where a number is rendered — under a search, and not for a free-text query too short for the index. On this mailbox an exact count is one index range scan on SQLite, and a full partition read on DynamoDB.
 
 Buys: a number the UI can show without hedging, and the removal of `countMatches` (`packages/web-client/src/lib/bulk-actions.ts:218`), which today pages an entire result set through the browser to learn its size. Gives up: one extra query per counted request, and a count that is genuinely expensive on DynamoDB rather than cheap and wrong.
 
