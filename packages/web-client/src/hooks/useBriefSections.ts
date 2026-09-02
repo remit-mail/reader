@@ -16,8 +16,18 @@
  *
  * The counts are the second read. One per displayed section, keyed on the
  * criteria alone so no page, cursor or expansion can trigger another, and held
- * for a minute. The criteria carry the committed query, never the text being
- * typed, so nothing here is on a keystroke path.
+ * for a minute. The criteria are the caller's committed state — the query as it
+ * was submitted, and the chips as that query and the panel leave them — so
+ * nothing here is on a keystroke path.
+ *
+ * Each section loads and fails on its own. Seven requests are seven answers, and
+ * one category's 500 is not a reason to blank the six that came back: a section
+ * carries its own pending and error state, and the brief renders what it has.
+ *
+ * A refetch under the same predicate keeps the rows already on screen. Under a
+ * different one it does not — the previous chip's mail under the new chip is the
+ * defect `sameInboxFilter` exists to stop — so only a change of free text holds
+ * the previous answer while the next one is in flight.
  *
  * Sections are the unsearched brief only. Under a query the brief is one list in
  * one order — see `useBriefSearchRows`.
@@ -27,11 +37,13 @@ import { unifiedThreadOperationsListAllThreads } from "@remit/api-http-client/sd
 import type {
 	RemitImapMessageCategory,
 	RemitImapThreadMessageResponse,
+	RemitImapThreadSearchResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import type { ResultCount } from "@remit/ui";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import type { BriefSectionParams } from "@/lib/brief-criteria";
+import { type InboxFilterParams, sameInboxFilter } from "@/lib/inbox-filters";
 import { toResultCount } from "@/lib/result-count";
 
 /** A minute: a brief reopened straight away costs nothing. */
@@ -42,6 +54,20 @@ const SEARCH_STALE_TIME_MS = 30_000;
 
 /** No number at all, which is what a section shows when nobody counted it. */
 const UNCOUNTED: ResultCount = { kind: "unknown" };
+
+/**
+ * Hold the previous answer while the next one is in flight, but only where the
+ * predicate is unchanged. A chip that changes what is being asked for takes its
+ * rows with it: the previous chip's mail under the new chip, for one round trip,
+ * is what `sameInboxFilter` was written to stop (design D18).
+ */
+const keepUnderSameFilter =
+	(filter: InboxFilterParams) =>
+	(
+		previous: RemitImapThreadSearchResponse | undefined,
+		previousQuery: { queryKey: readonly unknown[] } | undefined,
+	): RemitImapThreadSearchResponse | undefined =>
+		sameInboxFilter(previousQuery?.queryKey, filter) ? previous : undefined;
 
 /** The criteria every section request carries, its own category aside. */
 export interface BriefSectionsCriteria extends BriefSectionParams {
@@ -73,11 +99,33 @@ const sectionCountQuery = (
 	results: false,
 });
 
+/**
+ * What a request under these criteria asks for, as `sameInboxFilter` reads it.
+ * Free text is deliberately not part of it: a query being refined is the one
+ * change that may keep the previous answer on screen.
+ */
+const sectionFilter = (
+	criteria: BriefSectionsCriteria,
+	category: RemitImapMessageCategory,
+): InboxFilterParams => ({
+	category: [category],
+	...(criteria.unread !== undefined ? { unread: criteria.unread } : {}),
+	...(criteria.starred !== undefined ? { starred: criteria.starred } : {}),
+	...(criteria.attachments !== undefined
+		? { attachments: criteria.attachments }
+		: {}),
+});
+
 export interface BriefSectionRows {
 	category: RemitImapMessageCategory;
 	rows: RemitImapThreadMessageResponse[];
 	total: ResultCount;
+	/** Nothing has arrived for this section yet. */
 	loading: boolean;
+	/** This section's own request failed; the others are unaffected. */
+	failed: boolean;
+	/** Ask this one section again. */
+	retry: () => void;
 }
 
 export interface UseBriefSectionsOptions {
@@ -95,7 +143,9 @@ export interface UseBriefSectionsOptions {
 
 export interface UseBriefSections {
 	sections: BriefSectionRows[];
+	/** Nothing has arrived for any section — the brief has nothing to render. */
 	isLoading: boolean;
+	/** Every section failed. One failing section is the section's own state. */
 	isError: boolean;
 	refetch: () => void;
 }
@@ -109,6 +159,7 @@ export function useBriefSections({
 	const rowQueries = useQueries({
 		queries: categories.map((category) => {
 			const query = sectionRowsQuery(criteria, category, limit);
+			const filter = sectionFilter(criteria, category);
 			return {
 				queryKey: unifiedThreadOperationsListAllThreadsQueryKey({ query }),
 				queryFn: async () => {
@@ -118,6 +169,7 @@ export function useBriefSections({
 					});
 					return data;
 				},
+				placeholderData: keepUnderSameFilter(filter),
 				staleTime: BRIEF_STALE_TIME_MS,
 			};
 		}),
@@ -126,6 +178,7 @@ export function useBriefSections({
 	const countQueries = useQueries({
 		queries: categories.map((category) => {
 			const query = sectionCountQuery(criteria, category);
+			const filter = sectionFilter(criteria, category);
 			return {
 				queryKey: unifiedThreadOperationsListAllThreadsQueryKey({ query }),
 				queryFn: async () => {
@@ -136,6 +189,7 @@ export function useBriefSections({
 					return data;
 				},
 				enabled: counted,
+				placeholderData: keepUnderSameFilter(filter),
 				staleTime: BRIEF_STALE_TIME_MS,
 			};
 		}),
@@ -143,16 +197,27 @@ export function useBriefSections({
 
 	const sections = useMemo<BriefSectionRows[]>(
 		() =>
-			categories.map((category, index) => ({
-				category,
-				rows: rowQueries[index]?.data?.items ?? [],
-				// `enabled` gates the request, not the cache: a brief that asks for no
-				// count must not render the one an earlier, narrower brief left behind.
-				total: counted
-					? toResultCount(countQueries[index]?.data?.count)
-					: UNCOUNTED,
-				loading: rowQueries[index]?.isLoading ?? true,
-			})),
+			categories.map((category, index) => {
+				const rows = rowQueries[index];
+				const count = countQueries[index];
+				return {
+					category,
+					rows: rows?.data?.items ?? [],
+					// `enabled` gates the request, not the cache: a brief that asks for
+					// no count must not render the one an earlier, narrower brief left
+					// behind.
+					total: counted ? toResultCount(count?.data?.count) : UNCOUNTED,
+					// Pending, not fetching: a section holding the previous query's rows
+					// has something to render, and replacing it with a skeleton takes the
+					// brief off screen every time the search field is cleared.
+					loading: rows?.isPending ?? true,
+					failed: rows?.isError ?? false,
+					retry: () => {
+						rows?.refetch();
+						count?.refetch();
+					},
+				};
+			}),
 		[categories, rowQueries, countQueries, counted],
 	);
 
@@ -163,8 +228,13 @@ export function useBriefSections({
 
 	return {
 		sections,
-		isLoading: rowQueries.some((query) => query.isLoading),
-		isError: rowQueries.some((query) => query.isError),
+		// The whole-body states are the ones where there is genuinely nothing to
+		// show. A section that is still loading, or that failed on its own, says so
+		// in its own place while the rest of the brief stands.
+		isLoading:
+			rowQueries.length > 0 && rowQueries.every((query) => query.isPending),
+		isError:
+			rowQueries.length > 0 && rowQueries.every((query) => query.isError),
 		refetch,
 	};
 }

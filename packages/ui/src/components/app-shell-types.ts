@@ -324,6 +324,12 @@ export interface ThreadSection {
 	total?: ResultCount;
 	/** The section's own request is still in flight, so it has no rows yet. */
 	loading?: boolean;
+	/**
+	 * The section's own request failed. Each section is its own query, so one
+	 * category's failure states itself where that category would have been and
+	 * leaves the rest of the brief standing.
+	 */
+	error?: boolean;
 }
 
 export interface ThreadMessageData {

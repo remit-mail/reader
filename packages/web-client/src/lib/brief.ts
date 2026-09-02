@@ -84,6 +84,26 @@ export function toThreadRowData(
  * mail, so callers outside the brief (mailbox listings, search) must not
  * apply this filter.
  */
+/**
+ * The section's count, or no number, once mute is taken into account.
+ *
+ * Mute is the one criterion the request cannot be asked about: `listAllThreads`
+ * has no `muted` parameter, so a scope holding a muted sender is counted with
+ * that sender's mail in it while the list renders without it. The header would
+ * overstate, and "Show all" would offer rows the brief will not show.
+ *
+ * Withheld per section rather than for the whole brief — one muted marketer must
+ * not take the number off Personal — and only where a mute is visible in the
+ * rows on hand. A muted sender below a section's page is not visible, so this
+ * suppresses a number known to be wrong rather than certifying the rest.
+ */
+export function briefSectionTotal(
+	total: ResultCount,
+	rows: RemitImapThreadMessageResponse[],
+): ResultCount {
+	return rows.some((row) => row.muted === true) ? { kind: "unknown" } : total;
+}
+
 export function excludeMutedSenders(
 	threads: RemitImapThreadMessageResponse[],
 ): RemitImapThreadMessageResponse[] {
@@ -166,6 +186,8 @@ export interface BriefCategoryResult {
 	total: ResultCount;
 	/** The request has not answered yet. */
 	loading: boolean;
+	/** The request failed. This category alone; the others are unaffected. */
+	failed: boolean;
 }
 
 /**
@@ -176,10 +198,10 @@ export interface BriefCategoryResult {
  * move a section's membership or its total.
  *
  * A category the scope holds none of has no section — a header stating zero is
- * noise, not information. A category still being fetched keeps its section so
- * the loading treatment has somewhere to render, and a category with a real
- * total keeps its section even with no rows left after the chips, so the reader
- * sees which filter emptied it.
+ * noise, not information. A category still being fetched, or whose own request
+ * failed, keeps its section so the loading and error treatments have somewhere
+ * to render, and a category with a real total keeps its section even with no
+ * rows left after the chips, so the reader sees which filter emptied it.
  */
 export function briefSections(
 	results: readonly BriefCategoryResult[],
@@ -193,6 +215,7 @@ export function briefSections(
 		if (!result) continue;
 		const holdsMail =
 			result.loading ||
+			result.failed ||
 			result.rows.length > 0 ||
 			(result.total.kind === "exact" && result.total.value > 0);
 		if (!holdsMail) continue;
@@ -202,6 +225,7 @@ export function briefSections(
 			threads: result.rows,
 			total: result.total,
 			loading: result.loading,
+			error: result.failed,
 		});
 	}
 	return sections;

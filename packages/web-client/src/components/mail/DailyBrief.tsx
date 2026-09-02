@@ -105,6 +105,7 @@ import {
 	BRIEF_CATEGORIES,
 	type BriefCategoryResult,
 	briefSections,
+	briefSectionTotal,
 	excludeMutedSenders,
 	matchesSearchTokens,
 	toThreadRowData,
@@ -120,6 +121,7 @@ import { showInlineSearchResults } from "@/lib/search-surface";
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { resolveSelectionAccountScope } from "@/lib/selection-account-scope";
 import { spamOfferForResults } from "@/lib/spam-offer";
+import { dedupeByThread } from "@/lib/starred-rows";
 import { wizardSelectionFrom } from "@/lib/wizard-selection";
 import {
 	type OpenThreadTarget,
@@ -484,6 +486,21 @@ export function DailyBrief({
 		[searchInput, selectedCategory],
 	);
 
+	// The same two, read off the committed query rather than the field. The chips
+	// above tick as the reader types, which is what the panel is for; the requests
+	// must not. Half-typed `is:unre` would otherwise fire a fresh burst of section
+	// requests on the way to `is:unread`, and the whole point of counting on a
+	// deliberate act is that nothing here rides a keystroke.
+	const requestFilters = useMemo(
+		() => briefChipFilters({ query: searchQuery, ownFilters: activeFilters }),
+		[searchQuery, activeFilters],
+	);
+	const requestCategory = useMemo(
+		() =>
+			briefChipCategory({ query: searchQuery, ownCategory: selectedCategory }),
+		[searchQuery, selectedCategory],
+	);
+
 	const toggleChip = useCallback(
 		(id: BriefFilterId) => {
 			if (!searching || !briefFilterHasTerm(id)) {
@@ -513,12 +530,12 @@ export function DailyBrief({
 	// list already is the destination.
 	const showAllSection = useMemo(
 		() =>
-			chipCategory === "all" && !underQuery
+			requestCategory === "all" && !underQuery
 				? (sectionId: string) => {
 						if (isBriefCategory(sectionId)) selectChipCategory(sectionId);
 					}
 				: undefined,
-		[chipCategory, underQuery, selectChipCategory],
+		[requestCategory, underQuery, selectChipCategory],
 	);
 
 	const clearChips = useCallback(() => {
@@ -578,12 +595,13 @@ export function DailyBrief({
 	// chip decides which sections are on screen rather than narrowing a shared
 	// one.
 	const { criteria: chipCriteria, residual: residualTokens } = useMemo(
-		() => briefCriteria(chipCategory, chipFilters, queryTokens),
-		[chipCategory, chipFilters, queryTokens],
+		() => briefCriteria(requestCategory, requestFilters, queryTokens),
+		[requestCategory, requestFilters, queryTokens],
 	);
 	const shownCategories = useMemo<RemitImapMessageCategory[]>(
-		() => (chipCategory === "all" ? [...BRIEF_CATEGORIES] : [chipCategory]),
-		[chipCategory],
+		() =>
+			requestCategory === "all" ? [...BRIEF_CATEGORIES] : [requestCategory],
+		[requestCategory],
 	);
 	// Under a query the category is a parameter again rather than a section
 	// scope: there is one request, and the chip narrows it.
@@ -591,16 +609,16 @@ export function DailyBrief({
 		() => ({
 			...chipCriteria,
 			query: sq,
-			...(chipCategory === "all" ? {} : { category: [chipCategory] }),
+			...(requestCategory === "all" ? {} : { category: [requestCategory] }),
 		}),
-		[chipCriteria, sq, chipCategory],
+		[chipCriteria, sq, requestCategory],
 	);
 	// The account pills and the tokens no parameter carries narrow the rows after
 	// they arrive, so while either is active the count is of a wider set than the
 	// list and the sections show no number at all.
 	const counted = briefCountsMatchRows({
 		residual: residualTokens,
-		attributes: chipFilters,
+		attributes: requestFilters,
 		accountScoped: selectedAccountId !== "all",
 	});
 
@@ -612,7 +630,7 @@ export function DailyBrief({
 	} = useBriefSections({
 		categories: underQuery ? NO_CATEGORIES : shownCategories,
 		criteria: chipCriteria,
-		limit: chipCategory === "all" ? SECTION_ROW_CAP : CATEGORY_PAGE_SIZE,
+		limit: requestCategory === "all" ? SECTION_ROW_CAP : CATEGORY_PAGE_SIZE,
 		counted,
 	});
 
@@ -644,7 +662,11 @@ export function DailyBrief({
 	// arrived in is kept — narrowing never re-sorts.
 	const narrowRows = useCallback(
 		(rows: RemitImapThreadMessageResponse[]): ThreadRowData[] =>
-			excludeMutedSenders(rows)
+			// One row per conversation, because that is what the server counted:
+			// `count` is thread-distinct, and a list keying on messageId puts twelve
+			// rows under a header reading one. Collapsed before anything reads a
+			// length, so the rows and the number are the same unit.
+			dedupeByThread(excludeMutedSenders(rows))
 				.map(toThreadRowData)
 				.filter(
 					(t) =>
@@ -659,8 +681,9 @@ export function DailyBrief({
 		() =>
 			sectionRows.map((section) => ({
 				category: section.category,
-				total: section.total,
+				total: briefSectionTotal(section.total, section.rows),
 				loading: section.loading,
+				failed: section.failed,
 				rows: narrowRows(section.rows),
 			})),
 		[sectionRows, narrowRows],
@@ -669,6 +692,14 @@ export function DailyBrief({
 	const matchRows = useMemo<ThreadRowData[]>(
 		() => narrowRows(searchRows),
 		[searchRows, narrowRows],
+	);
+
+	// Each section answers for itself, so a retry is that section's own request.
+	const retrySection = useCallback(
+		(sectionId: string) => {
+			sectionRows.find((section) => section.category === sectionId)?.retry();
+		},
+		[sectionRows],
 	);
 
 	const filteredRows = useMemo<ThreadRowData[]>(
@@ -929,6 +960,7 @@ export function DailyBrief({
 					selectedThreadId={selectedMessageId}
 					onSelectThread={openRow}
 					onShowAllSection={showAllSection}
+					onRetrySection={retrySection}
 					flat={underQuery}
 					onSelectBriefCategory={selectChipCategory}
 					sources={accountSources}

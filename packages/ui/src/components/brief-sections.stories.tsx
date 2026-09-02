@@ -121,6 +121,12 @@ const countedSections: ThreadSection[] = [
 		loading: true,
 	},
 	{
+		id: "marketing",
+		label: "Marketing",
+		threads: [],
+		error: true,
+	},
+	{
 		id: "uncategorized",
 		label: "Unclassified",
 		threads: [],
@@ -189,15 +195,17 @@ export const SingleCategoryFlat: Story = {
 
 /**
  * (b2) The live brief: each header carries its category's real size, a section
- * whose rows have not arrived shows the loading treatment under its total, and a
- * section a chip emptied says so. "Show all" hands the reader to that category's
- * own list rather than fetching more rows here.
+ * whose rows have not arrived shows the loading treatment under its total, a
+ * section whose own request failed says so and offers its own retry, and a
+ * section a chip emptied says so too. "Show all" hands the reader to that
+ * category's own list rather than fetching more rows here.
  */
 export const ServerTotals: Story = {
 	args: {
 		sections: countedSections,
 		briefCategory: "all",
 		onShowAllSection: () => undefined,
+		onRetrySection: () => undefined,
 	},
 	render: (args) => (
 		<div className="flex h-screen w-96 flex-col border-r border-line">

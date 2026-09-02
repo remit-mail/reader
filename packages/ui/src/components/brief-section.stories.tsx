@@ -93,6 +93,18 @@ export const Loading: Story = {
 };
 
 /**
+ * This section's own request failed. Each section is its own query, so the
+ * failure states itself here and offers the way to ask again while the rest of
+ * the brief stands.
+ */
+export const Failed: Story = {
+	args: {
+		section: { ...cappedSection, threads: [], error: true },
+		onRetry: () => undefined,
+	},
+};
+
+/**
  * A chip narrowed the section to nothing. The section says so in its own words,
  * and drops its number — a real total above zero rows reads as a broken list.
  */

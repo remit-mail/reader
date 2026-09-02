@@ -156,6 +156,8 @@ interface BriefSectionsBaseProps
 	 * brief itself never grows past its per-section page.
 	 */
 	onShowAllSection?: (sectionId: string) => void;
+	/** Ask one section's own request again, after it failed. */
+	onRetrySection?: (sectionId: string) => void;
 	/**
 	 * Render one list rather than one section per category. A search is answered
 	 * this way: the rows come back in one global order, and a header between them
@@ -190,6 +192,7 @@ export function BriefSections({
 	keyboard,
 	onSelectThread,
 	onShowAllSection,
+	onRetrySection,
 	flat = false,
 	onSelectBriefCategory,
 	sources,
@@ -253,7 +256,8 @@ export function BriefSections({
 			(section) =>
 				section.threads.length > 0 ||
 				section.total !== undefined ||
-				section.loading === true,
+				section.loading === true ||
+				section.error === true,
 		);
 
 	const flatRows = sections.flatMap((s) => s.threads).filter(matches);
@@ -289,6 +293,9 @@ export function BriefSections({
 						onSelectThread={onSelectThread}
 						onShowAll={
 							onShowAllSection ? () => onShowAllSection(section.id) : undefined
+						}
+						onRetry={
+							onRetrySection ? () => onRetrySection(section.id) : undefined
 						}
 					/>
 				))

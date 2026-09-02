@@ -5,6 +5,7 @@ import type { ResultCount, ThreadCategory, ThreadRowData } from "@remit/ui";
 import {
 	type BriefCategoryResult,
 	briefSections,
+	briefSectionTotal,
 	excludeMutedSenders,
 	matchesBriefSearch,
 	matchesSearchTokens,
@@ -90,7 +91,8 @@ describe("briefSections", () => {
 		rows: ThreadRowData[],
 		total: ResultCount = { kind: "exact", value: rows.length },
 		loading = false,
-	): BriefCategoryResult => ({ category, rows, total, loading });
+		failed = false,
+	): BriefCategoryResult => ({ category, rows, total, loading, failed });
 
 	test("returns no sections when the brief asked for nothing", () => {
 		assert.deepStrictEqual(briefSections([]), []);
@@ -150,6 +152,20 @@ describe("briefSections", () => {
 		]);
 		assert.strictEqual(sections.length, 1);
 		assert.strictEqual(sections[0].loading, true);
+	});
+
+	// Seven requests are seven answers. One category's failure states itself where
+	// that category would have been; it does not take the other six down.
+	test("a category whose own request failed keeps its section", () => {
+		const sections = briefSections([
+			result("marketing", [], { kind: "unknown" }, false, true),
+			result("personal", [row({ id: "1", category: "personal" })]),
+		]);
+		assert.deepStrictEqual(
+			sections.map((s) => s.id),
+			["personal", "marketing"],
+		);
+		assert.strictEqual(sections.find((s) => s.id === "marketing")?.error, true);
 	});
 
 	test("a counted category with no rows left keeps its section", () => {
@@ -296,6 +312,7 @@ describe("excludeMutedSenders", () => {
 				rows: kept,
 				total: { kind: "exact", value: kept.length },
 				loading: false,
+				failed: false,
 			},
 		]);
 		const allIds = sections.flatMap((s) => s.threads.map((t) => t.id));
@@ -324,9 +341,43 @@ describe("excludeMutedSenders", () => {
 				rows: kept,
 				total: { kind: "exact", value: 0 },
 				loading: false,
+				failed: false,
 			},
 		]);
 		assert.deepStrictEqual(sections, []);
+	});
+});
+
+// The count is the server's, taken over a scope that includes senders the reader
+// muted — `listAllThreads` has no `muted` parameter. The list drops their mail,
+// so the number would overstate what is on screen.
+describe("briefSectionTotal", () => {
+	const counted: ResultCount = { kind: "exact", value: 4753 };
+
+	test("keeps the count when no sender in the rows is muted", () => {
+		assert.deepStrictEqual(
+			briefSectionTotal(counted, [
+				threadResponse({ threadMessageId: "a" }),
+				threadResponse({ threadMessageId: "b", muted: false }),
+			]),
+			counted,
+		);
+	});
+
+	test("withholds the count when the rows show a muted sender", () => {
+		assert.deepStrictEqual(
+			briefSectionTotal(counted, [
+				threadResponse({ threadMessageId: "a" }),
+				threadResponse({ threadMessageId: "b", muted: true }),
+			]),
+			{ kind: "unknown" },
+		);
+	});
+
+	test("a count nobody took stays absent", () => {
+		assert.deepStrictEqual(briefSectionTotal({ kind: "unknown" }, []), {
+			kind: "unknown",
+		});
 	});
 });
 

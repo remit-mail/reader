@@ -26,6 +26,8 @@ export interface BriefSectionProps {
 	 * control below the rows hands the reader over instead of revealing more.
 	 */
 	onShowAll?: () => void;
+	/** Ask this section's own request again, after it failed. */
+	onRetry?: () => void;
 	onSelectThread?: (id: string) => void;
 }
 
@@ -40,8 +42,9 @@ export interface BriefSectionProps {
  * reading this replaces (#312).
  *
  * A total is never rendered above zero rows. Nothing loaded and the section
- * still fetching is the loading treatment; nothing loaded and the fetch done is
- * a filter that matched nothing, and says so.
+ * still fetching is the loading treatment; nothing loaded because the request
+ * failed says so and offers the retry; nothing loaded and the fetch done is a
+ * filter that matched nothing, and says so.
  *
  * The header is itself a toggle: tapping it collapses the whole section to just
  * the label + total and expands it again. Sections start expanded so the default
@@ -57,6 +60,7 @@ export function BriefSection({
 	initialExpanded = false,
 	initialCollapsed = false,
 	onShowAll,
+	onRetry,
 	onSelectThread,
 }: BriefSectionProps) {
 	const [expanded, setExpanded] = useState(initialExpanded);
@@ -64,6 +68,7 @@ export function BriefSection({
 
 	const loaded = section.threads;
 	const loading = section.loading === true;
+	const failed = section.error === true;
 	const overCap = loaded.length > SECTION_ROW_CAP;
 	const capped = !expanded && overCap;
 	const visible = capped ? loaded.slice(0, SECTION_ROW_CAP) : loaded;
@@ -72,7 +77,7 @@ export function BriefSection({
 	// Nothing fetched and nothing coming: the section has no size to state, only
 	// a filter that matched nothing.
 	const headerTotal =
-		total.kind === "exact" && (loaded.length > 0 || loading)
+		total.kind === "exact" && (loaded.length > 0 || loading) && !failed
 			? formatTotal(total.value)
 			: undefined;
 	// Nothing to show more of: a section a chip emptied offers a way out of the
@@ -114,7 +119,20 @@ export function BriefSection({
 			{!collapsed && (
 				<>
 					{loaded.length === 0 ? (
-						loading ? (
+						failed ? (
+							<div className="flex flex-col items-center gap-1 border-b border-line px-row-inset py-4 text-center text-2xs text-danger">
+								<span>{`Couldn't load ${section.label ?? "these messages"}`}</span>
+								{onRetry && (
+									<button
+										type="button"
+										onClick={onRetry}
+										className="font-medium text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-ring"
+									>
+										Try again
+									</button>
+								)}
+							</div>
+						) : loading ? (
 							<div className="animate-pulse divide-y divide-line">
 								{[0, 1, 2].map((row) => (
 									<div key={row} className="px-row-inset py-3">

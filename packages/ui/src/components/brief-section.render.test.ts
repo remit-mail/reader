@@ -35,10 +35,12 @@ interface Props {
 	count: number;
 	total?: ResultCount;
 	loading?: boolean;
+	failed?: boolean;
 	label?: string;
 	initialExpanded?: boolean;
 	initialCollapsed?: boolean;
 	showAll?: boolean;
+	retry?: boolean;
 }
 
 function section(props: Props): ThreadSection {
@@ -48,6 +50,7 @@ function section(props: Props): ThreadSection {
 		threads: Array.from({ length: props.count }, (_, i) => makeRow(i + 1)),
 		total: props.total,
 		loading: props.loading,
+		error: props.failed,
 	};
 }
 
@@ -59,6 +62,7 @@ function render(props: Props): string {
 			initialExpanded: props.initialExpanded,
 			initialCollapsed: props.initialCollapsed,
 			onShowAll: props.showAll ? () => undefined : undefined,
+			onRetry: props.retry ? () => undefined : undefined,
 			onSelectThread: () => undefined,
 		}),
 	);
@@ -170,6 +174,28 @@ describe("BriefSection", () => {
 		assert.match(html, />3,942</);
 		assert.doesNotMatch(html, /No Personal mail in this brief\./);
 		assert.match(html, /animate-pulse/);
+	});
+
+	// Seven requests are seven answers. A section whose own request failed says so
+	// where that category would have been, and offers the way to ask again — the
+	// six that came back are not blanked by it.
+	it("states its own failure and offers its own retry", () => {
+		const html = render({
+			count: 0,
+			total: exact(3942),
+			failed: true,
+			label: "Marketing",
+			retry: true,
+		});
+		// Server-rendered, so the apostrophe arrives as an entity.
+		assert.match(html, /Couldn&#x27;t load Marketing/);
+		assert.match(html, /Try again/);
+		assert.doesNotMatch(
+			html,
+			/3,942/,
+			"a section that loaded nothing still stated a size",
+		);
+		assert.doesNotMatch(html, /No Marketing mail in this brief\./);
 	});
 
 	// D6 / issue #45: unclassified mail is its own section with its own label,

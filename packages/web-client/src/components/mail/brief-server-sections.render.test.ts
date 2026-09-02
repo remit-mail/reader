@@ -21,6 +21,7 @@ import type {
 	RemitImapMessageCategory,
 	RemitImapThreadMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
+import { SECTION_ROW_CAP } from "@remit/ui";
 import {
 	type AnyRouter,
 	createMemoryHistory,
@@ -37,7 +38,12 @@ import { MailFreshnessProvider } from "@/lib/mail-freshness";
 import { EMPTY_RESULT_FOLDER_INDEX } from "@/lib/result-folder";
 import { createDomHarness, type DomHarness } from "@/test-support/dom";
 import { makeAccount, makeThreadMessage } from "@/test-support/fixtures";
-import { type HttpCall, type HttpMock, mockFetch } from "@/test-support/http";
+import {
+	type HttpCall,
+	type HttpMock,
+	httpError,
+	mockFetch,
+} from "@/test-support/http";
 import { DailyBrief } from "./DailyBrief";
 
 const ACCOUNT_ID = "acc-1";
@@ -47,38 +53,90 @@ const account = makeAccount({ accountId: ACCOUNT_ID });
 const NEWEST = 1_767_225_600_000;
 const DAY = 86_400_000;
 
-const seeded = (
-	prefix: string,
-	category: RemitImapMessageCategory,
-	subjects: string[],
-	oldestFirstDaysAgo: number,
-): RemitImapThreadMessageResponse[] =>
-	subjects.map((subject, index) =>
+interface Seed {
+	prefix: string;
+	category: RemitImapMessageCategory;
+	subject: (index: number) => string;
+	/** Messages to make. More than the section's page, so the page is a page. */
+	messages: number;
+	/** Conversations they belong to — fewer than `messages` when mail threads. */
+	threads: number;
+	/** How far back the newest of them sits. */
+	daysAgo: number;
+}
+
+const seeded = (seed: Seed): RemitImapThreadMessageResponse[] =>
+	Array.from({ length: seed.messages }, (_, index) =>
 		makeThreadMessage({
-			messageId: `${prefix}-${index}`,
-			threadId: `thread-${prefix}-${index}`,
+			messageId: `${seed.prefix}-${index}`,
+			threadId: `thread-${seed.prefix}-${index % seed.threads}`,
 			accountId: ACCOUNT_ID,
-			category,
-			subject,
-			sentDate: NEWEST - (oldestFirstDaysAgo + index) * DAY,
+			category: seed.category,
+			subject: seed.subject(index),
+			sentDate: NEWEST - (seed.daysAgo * DAY + index * 1_000),
 		}),
 	);
 
-/** The newest mail, and the whole of what a unified page would have held. */
-const personalRows = seeded(
-	"personal",
-	"personal",
-	["Design review tomorrow", "Lunch Thursday"],
-	0,
-);
+/**
+ * One conversation, twelve messages. The count is thread-distinct, so this
+ * category holds exactly one — and a list keying on messageId renders ten rows
+ * under a header reading "1", with the rest of the conversation unreachable
+ * because "Show all" is withheld on `1 > 10` being false.
+ */
+const PERSONAL: Seed = {
+	prefix: "personal",
+	category: "personal",
+	subject: (index) => `Design review, message ${index}`,
+	messages: 12,
+	threads: 1,
+	daysAgo: 0,
+};
 
-/** Every one of these is older than every row above. */
-const marketingRows = seeded(
-	"marketing",
-	"marketing",
-	["Spring sale ends soon", "New arrivals", "One last reminder"],
-	400,
-);
+/** Every one of these is older than every row above, and there are more than fit. */
+const MARKETING: Seed = {
+	prefix: "marketing",
+	category: "marketing",
+	subject: (index) => `Spring sale, edition ${index}`,
+	messages: 14,
+	threads: 12,
+	daysAgo: 400,
+};
+
+const UNCLASSIFIED: Seed = {
+	prefix: "unclassified",
+	category: "uncategorized",
+	subject: () => "Nothing classified this yet",
+	messages: 1,
+	threads: 1,
+	daysAgo: 10,
+};
+
+const SEEDS: Seed[] = [PERSONAL, MARKETING, UNCLASSIFIED];
+
+const ROWS: Record<string, RemitImapThreadMessageResponse[]> =
+	Object.fromEntries(SEEDS.map((seed) => [seed.category, seeded(seed)]));
+
+/**
+ * What the server would answer `count: true` with: conversations, not messages,
+ * over the whole scope rather than the page. Derived from the seed rather than
+ * stated, so a header and the rows under it cannot be asserted against two
+ * different ideas of what one row is.
+ */
+const countOf = (category: string): number =>
+	new Set((ROWS[category] ?? []).map((row) => row.threadId)).size;
+
+/** The subjects a section's page actually renders, one per conversation. */
+const renderedSubjects = (category: string, limit: number): string[] => {
+	const page = (ROWS[category] ?? []).slice(0, limit);
+	const seen = new Set<string>();
+	return page
+		.filter((row) => {
+			if (seen.has(row.threadId)) return false;
+			seen.add(row.threadId);
+			return true;
+		})
+		.map((row) => row.subject ?? "");
+};
 
 /**
  * The two matches a search has to order against each other: an old newsletter
@@ -86,33 +144,23 @@ const marketingRows = seeded(
  * the server answers.
  */
 const searchMatches = [
-	...seeded("match-new", "automated", ["Your build passed"], 0),
-	...seeded("match-old", "newsletter", ["Weekly digest for you"], 300),
+	...seeded({
+		prefix: "match-new",
+		category: "automated",
+		subject: () => "Your build passed",
+		messages: 1,
+		threads: 1,
+		daysAgo: 0,
+	}),
+	...seeded({
+		prefix: "match-old",
+		category: "newsletter",
+		subject: () => "Weekly digest for you",
+		messages: 1,
+		threads: 1,
+		daysAgo: 300,
+	}),
 ];
-
-const unclassifiedRows = seeded(
-	"unclassified",
-	"uncategorized",
-	["Nothing classified this yet"],
-	10,
-);
-
-const ROWS: Record<string, RemitImapThreadMessageResponse[]> = {
-	personal: personalRows,
-	marketing: marketingRows,
-	uncategorized: unclassifiedRows,
-};
-
-/** What the whole scope holds, which is nothing like what a page holds. */
-const TOTALS: Record<string, number> = {
-	personal: 4753,
-	marketing: 3942,
-	uncategorized: 12,
-	newsletter: 0,
-	transactional: 0,
-	social: 0,
-	automated: 0,
-};
 
 let harness: DomHarness | undefined;
 let http: HttpMock | undefined;
@@ -218,8 +266,16 @@ const testRouter = (search: string): AnyRouter => {
 	}) as unknown as AnyRouter;
 };
 
-const mount = async (search = ""): Promise<DomHarness> => {
+/** Answer this call instead of the seed, or `undefined` to let the seed answer. */
+type Interception = (call: HttpCall) => unknown;
+
+const mountWith = async (
+	intercept: Interception,
+	search = "",
+): Promise<DomHarness> => {
 	http = mockFetch((call) => {
+		const intercepted = intercept(call);
+		if (intercepted !== undefined) return intercepted;
 		const url = new URL(call.url, "http://localhost");
 		if (url.pathname.endsWith("/config")) return { accounts: [account] };
 		if (url.pathname !== "/threads") return { items: [] };
@@ -228,22 +284,23 @@ const mount = async (search = ""): Promise<DomHarness> => {
 		// Search mode: one request, and the server answers with the whole match
 		// set in one order.
 		if (params.get("query")) return { items: searchMatches };
+		// The count is over the whole scope and counts conversations; the rows are
+		// a page of messages. Answering the way the server does is what makes the
+		// two units visible to the assertions below.
+		if (params.get("count") === "true") {
+			return {
+				items: [],
+				count: categories.reduce((sum, category) => sum + countOf(category), 0),
+			};
+		}
 		// A request naming no category is the unified listing the brief used to be:
 		// it answers with the newest mail, and Marketing is nowhere in it.
 		const rows =
 			categories.length === 0
-				? personalRows
+				? (ROWS.personal ?? [])
 				: categories.flatMap((category) => ROWS[category] ?? []);
-		if (params.get("count") === "true") {
-			return {
-				items: [],
-				count: categories.reduce(
-					(sum, category) => sum + (TOTALS[category] ?? 0),
-					0,
-				),
-			};
-		}
-		return { items: rows };
+		const limit = Number(params.get("limit") ?? rows.length);
+		return { items: rows.slice(0, limit) };
 	});
 
 	const router = testRouter(search);
@@ -256,6 +313,9 @@ const mount = async (search = ""): Promise<DomHarness> => {
 	await mounted.flush();
 	return mounted;
 };
+
+const mount = (search = ""): Promise<DomHarness> =>
+	mountWith(() => undefined, search);
 
 const settled = async (mounted: DomHarness, text: string): Promise<void> => {
 	await mounted.waitFor(
@@ -270,10 +330,10 @@ describe("the brief's sections come from the server (#312)", () => {
 	// a header reading zero.
 	it("renders a category whose mail is all older than the newest unified rows", async () => {
 		const mounted = await mount();
-		await settled(mounted, "Spring sale ends soon");
+		await settled(mounted, renderedSubjects("marketing", SECTION_ROW_CAP)[0]);
 
 		const shown = mounted.text();
-		for (const subject of ["Spring sale ends soon", "New arrivals"]) {
+		for (const subject of renderedSubjects("marketing", SECTION_ROW_CAP)) {
 			assert.ok(shown.includes(subject), `the section lost ${subject}`);
 		}
 		assert.ok(
@@ -286,25 +346,57 @@ describe("the brief's sections come from the server (#312)", () => {
 
 	it("states the category's real size, not the number of rows it loaded", async () => {
 		const mounted = await mount();
-		await settled(mounted, "Spring sale ends soon");
+		await settled(mounted, renderedSubjects("marketing", SECTION_ROW_CAP)[0]);
 
 		const marketing = mounted.byText("button", "Marketing");
 		assert.match(
 			marketing.textContent ?? "",
-			/3,942/,
+			new RegExp(String(countOf("marketing"))),
 			"the Marketing header stated its page length instead of its category",
 		);
-		const personal = mounted.byText("button", "Personal");
-		assert.match(personal.textContent ?? "", /4,753/);
 		assert.ok(
-			mounted.text().includes("Show all 3,942"),
+			mounted.text().includes(`Show all ${countOf("marketing")}`),
 			"the section offered no way to the rest of the category",
+		);
+	});
+
+	// The count is thread-distinct (`countThreadsInScope`); the page is messages.
+	// One twelve-message conversation is therefore one row under a header reading
+	// one — not ten rows under it, with the rest of the conversation behind a
+	// "Show all" the component withholds because `1 > 10` is false.
+	it("renders one row per conversation, the unit the count is in", async () => {
+		assert.equal(
+			countOf("personal"),
+			1,
+			"the seed stopped being one conversation",
+		);
+		const mounted = await mount();
+		await settled(mounted, PERSONAL.subject(0));
+
+		const personal = mounted.byText("button", "Personal");
+		assert.match(personal.textContent ?? "", /1/);
+
+		const shown = mounted.text();
+		const rowsRendered = Array.from({ length: PERSONAL.messages }, (_, index) =>
+			PERSONAL.subject(index),
+		).filter((subject) => shown.includes(subject));
+		assert.deepEqual(
+			rowsRendered,
+			[PERSONAL.subject(0)],
+			"one conversation rendered as several rows, under a header reading one",
+		);
+		// Marketing holds more than its page and offers the rest; Personal does not
+		// and must not, because its one conversation is the whole of it.
+		assert.equal(
+			(shown.match(/Show all/g) ?? []).length,
+			1,
+			"a section holding its whole category offered more of it",
 		);
 	});
 
 	it("asks each section for its own category, newest first", async () => {
 		const mounted = await mount();
-		await settled(mounted, "Spring sale ends soon");
+		await settled(mounted, renderedSubjects("marketing", SECTION_ROW_CAP)[0]);
 
 		const asked = rowRequests().map((call) => ({
 			categories: paramsOf(call).getAll("category"),
@@ -334,7 +426,7 @@ describe("the brief's sections come from the server (#312)", () => {
 	// limit, so nothing about paging can ask for another.
 	it("counts each displayed section once, over the whole scope", async () => {
 		const mounted = await mount();
-		await settled(mounted, "Spring sale ends soon");
+		await settled(mounted, renderedSubjects("marketing", SECTION_ROW_CAP)[0]);
 
 		const counts = countRequests();
 		assert.equal(counts.length, 7, "a section was counted more than once");
@@ -365,7 +457,7 @@ describe("the brief's sections come from the server (#312)", () => {
 		const shown = mounted.text();
 		assert.ok(shown.includes("Unclassified"));
 		const unclassifiedAt = shown.indexOf("Nothing classified this yet");
-		const personalAt = shown.indexOf("Design review tomorrow");
+		const personalAt = shown.indexOf(PERSONAL.subject(0));
 		assert.ok(
 			personalAt < unclassifiedAt,
 			"Unclassified was folded into Personal",
@@ -376,22 +468,47 @@ describe("the brief's sections come from the server (#312)", () => {
 	// and within a section it is the order the server answered in. Nothing here
 	// re-sorts two truncated lists against each other.
 	it("orders sections by display order and rows by the server's answer", async () => {
+		const marketing = renderedSubjects("marketing", SECTION_ROW_CAP);
 		const mounted = await mount();
-		await settled(mounted, "Spring sale ends soon");
+		await settled(mounted, marketing[0]);
 
 		const shown = mounted.text();
 		const at = (text: string) => shown.indexOf(text);
 		assert.ok(
-			at("Design review tomorrow") < at("Spring sale ends soon"),
+			at(PERSONAL.subject(0)) < at(marketing[0]),
 			"Personal did not come before Marketing",
 		);
+		for (let i = 1; i < marketing.length; i += 1) {
+			assert.ok(
+				at(marketing[i - 1]) < at(marketing[i]),
+				"the section reordered the rows the server returned",
+			);
+		}
+	});
+
+	// Seven requests, seven answers. One category's 500 states itself where that
+	// category would have been; the six that came back stay on screen.
+	it("keeps the other sections when one category's request fails", async () => {
+		const mounted = await mountWith((call) => {
+			const params = new URL(call.url, "http://localhost").searchParams;
+			return params.getAll("category").includes("marketing")
+				? httpError(500)
+				: undefined;
+		});
+		await settled(mounted, PERSONAL.subject(0));
+
+		const shown = mounted.text();
 		assert.ok(
-			at("Spring sale ends soon") < at("New arrivals"),
-			"the section reordered the rows the server returned",
+			shown.includes("Couldn't load Marketing"),
+			"the failed section said nothing about failing",
 		);
 		assert.ok(
-			at("New arrivals") < at("One last reminder"),
-			"the section reordered the rows the server returned",
+			shown.includes(PERSONAL.subject(0)),
+			"one category's failure blanked a healthy section",
+		);
+		assert.ok(
+			shown.includes("Nothing classified this yet"),
+			"one category's failure blanked a healthy section",
 		);
 	});
 
@@ -442,7 +559,7 @@ describe("the brief's sections come from the server (#312)", () => {
 	// `is:unread` narrows every section's query rather than the ten rows it got.
 	it("sends a search token that has a server parameter as one", async () => {
 		const mounted = await mount("is:unread");
-		await settled(mounted, "Spring sale ends soon");
+		await settled(mounted, renderedSubjects("marketing", SECTION_ROW_CAP)[0]);
 
 		const unread = threadRequests().filter(
 			(call) => paramsOf(call).get("unread") === "true",
