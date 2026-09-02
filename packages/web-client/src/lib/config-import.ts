@@ -302,15 +302,15 @@ export interface SectionResult {
 const NOT_LANDED_DETAIL = "Nothing from this section was written.";
 
 /**
- * What a stopped import left behind, section by section. The write order is
- * fixed, so the section the failure names splits the document in three: what is
- * before it ran, it did not, and what is after it was never reached.
+ * What a stopped import wrote, section by section. The write order is fixed, so
+ * the section the failure names splits the document in three: what is before it
+ * ran, it did not, and what is after it was never reached.
  *
- * `applied` is the server's answer on whether any of it survived, because only
- * the backend knows whether it had a transaction: false means no section of the
- * file was written, however far the write order got. It does not say why — a
- * transaction undid the earlier writes, or the first one failed — and the
- * report carries no flag that does, so this says what the file put in and
+ * `applied` is the server's answer on whether any of it was written, because
+ * only the backend knows whether it had a transaction: false means no section
+ * of the file was written, however far the write order got. It does not say
+ * why — a transaction undid the earlier writes, or the first one failed — and
+ * the report carries no flag that does, so this says what the file put in and
  * never what the instance now holds.
  *
  * A failure that names no section leaves the split undecidable, and every
