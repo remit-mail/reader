@@ -39,8 +39,12 @@
  * account and source folder from the selection — see
  * `resolveBriefSelectionScope`.
  *
- * Loading: skeleton rows on first paint, patch-in-place on refetch.
- * Error: per-section; the brief still renders other sections.
+ * Loading: skeleton rows on first paint, per-section from then on, and the rows
+ * already on screen stay put while the same predicate is re-fetched.
+ * Error: a section whose own request never got an answer says so in its own
+ * place and the rest of the brief stands. A 5xx is not that case — the API
+ * breaking escalates globally (`shouldEscalate`, #1059), and nothing here softens
+ * it.
  * Empty: "You're caught up", but only once the server confirms no sync is
  * running — while one is, the same empty list says it is still syncing.
  */
@@ -682,6 +686,7 @@ export function DailyBrief({
 			sectionRows.map((section) => ({
 				category: section.category,
 				total: briefSectionTotal(section.total, section.rows),
+				atCap: section.atCap,
 				loading: section.loading,
 				failed: section.failed,
 				rows: narrowRows(section.rows),

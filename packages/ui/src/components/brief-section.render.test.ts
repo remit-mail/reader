@@ -41,6 +41,7 @@ interface Props {
 	initialCollapsed?: boolean;
 	showAll?: boolean;
 	retry?: boolean;
+	atCap?: boolean;
 }
 
 function section(props: Props): ThreadSection {
@@ -49,6 +50,7 @@ function section(props: Props): ThreadSection {
 		label: props.label ?? "Personal",
 		threads: Array.from({ length: props.count }, (_, i) => makeRow(i + 1)),
 		total: props.total,
+		atCap: props.atCap,
 		loading: props.loading,
 		error: props.failed,
 	};
@@ -123,6 +125,28 @@ describe("BriefSection", () => {
 		assert.doesNotMatch(html, /Show all/);
 	});
 
+	// A withheld total must not take the way out with it. The rows beyond this
+	// page are still there — a muted sender or an account pill is a reason not to
+	// state a size, never a reason to strand the reader in the section (#312).
+	it("still offers the whole category when the total was withheld", () => {
+		const html = render({
+			count: SECTION_ROW_CAP,
+			atCap: true,
+			showAll: true,
+		});
+		assert.match(html, /Show all/);
+		assert.doesNotMatch(
+			html,
+			/Show all \d/,
+			"a section with no count put a number on the control",
+		);
+	});
+
+	it("offers nothing beyond a short page with no total", () => {
+		const html = render({ count: 3, showAll: true });
+		assert.doesNotMatch(html, /Show all/);
+	});
+
 	it("caps at SECTION_ROW_CAP with a 'Show N more' control over the cap", () => {
 		const html = render({ count: 18 });
 		assert.strictEqual(rowCount(html), SECTION_ROW_CAP);
@@ -176,9 +200,9 @@ describe("BriefSection", () => {
 		assert.match(html, /animate-pulse/);
 	});
 
-	// Seven requests are seven answers. A section whose own request failed says so
-	// where that category would have been, and offers the way to ask again — the
-	// six that came back are not blanked by it.
+	// Seven requests are seven answers. A section whose own request never got one
+	// says so where that category would have been, and offers the way to ask
+	// again — the six that came back are not blanked by it.
 	it("states its own failure and offers its own retry", () => {
 		const html = render({
 			count: 0,

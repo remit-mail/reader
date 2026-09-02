@@ -184,6 +184,8 @@ export interface BriefCategoryResult {
 	rows: ThreadRowData[];
 	/** The category's size over the whole scope, or no number at all. */
 	total: ResultCount;
+	/** The request came back full, so the category holds more than these rows. */
+	atCap: boolean;
 	/** The request has not answered yet. */
 	loading: boolean;
 	/** The request failed. This category alone; the others are unaffected. */
@@ -224,6 +226,7 @@ export function briefSections(
 			label: section.label,
 			threads: result.rows,
 			total: result.total,
+			atCap: result.atCap,
 			loading: result.loading,
 			error: result.failed,
 		});

@@ -322,6 +322,12 @@ export interface ThreadSection {
 	 * replaces (#312).
 	 */
 	total?: ResultCount;
+	/**
+	 * The section's request came back full, so the category holds more than these
+	 * rows whether or not anyone counted it. It is the only thing that keeps a way
+	 * out of a section whose total was withheld.
+	 */
+	atCap?: boolean;
 	/** The section's own request is still in flight, so it has no rows yet. */
 	loading?: boolean;
 	/**

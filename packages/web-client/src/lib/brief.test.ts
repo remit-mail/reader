@@ -92,7 +92,15 @@ describe("briefSections", () => {
 		total: ResultCount = { kind: "exact", value: rows.length },
 		loading = false,
 		failed = false,
-	): BriefCategoryResult => ({ category, rows, total, loading, failed });
+		atCap = false,
+	): BriefCategoryResult => ({
+		category,
+		rows,
+		total,
+		atCap,
+		loading,
+		failed,
+	});
 
 	test("returns no sections when the brief asked for nothing", () => {
 		assert.deepStrictEqual(briefSections([]), []);
@@ -166,6 +174,23 @@ describe("briefSections", () => {
 			["personal", "marketing"],
 		);
 		assert.strictEqual(sections.find((s) => s.id === "marketing")?.error, true);
+	});
+
+	// The count is withheld whenever something narrows rows after they arrive, and
+	// a full page is then the only thing that says the category holds more. Losing
+	// it would leave the section with no number and no way out (#312).
+	test("carries the full-page flag through to the section", () => {
+		const sections = briefSections([
+			result(
+				"marketing",
+				[row({ id: "1" })],
+				{ kind: "unknown" },
+				false,
+				false,
+				true,
+			),
+		]);
+		assert.strictEqual(sections[0].atCap, true);
 	});
 
 	test("a counted category with no rows left keeps its section", () => {
@@ -311,6 +336,7 @@ describe("excludeMutedSenders", () => {
 				category: "personal",
 				rows: kept,
 				total: { kind: "exact", value: kept.length },
+				atCap: false,
 				loading: false,
 				failed: false,
 			},
@@ -340,6 +366,7 @@ describe("excludeMutedSenders", () => {
 				category: "personal",
 				rows: kept,
 				total: { kind: "exact", value: 0 },
+				atCap: false,
 				loading: false,
 				failed: false,
 			},

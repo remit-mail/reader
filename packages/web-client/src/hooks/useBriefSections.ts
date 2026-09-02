@@ -21,8 +21,12 @@
  * nothing here is on a keystroke path.
  *
  * Each section loads and fails on its own. Seven requests are seven answers, and
- * one category's 500 is not a reason to blank the six that came back: a section
- * carries its own pending and error state, and the brief renders what it has.
+ * one category's failed request is not a reason to blank the six that came back:
+ * a section carries its own pending and error state, and the brief renders what
+ * it has. What reaches that state is a transport failure — a request that never
+ * got an answer. A 5xx is the API breaking rather than this section failing, and
+ * escalates globally on the fail-fast contract (`shouldEscalate`, #1059); there
+ * is no `meta` opt-out here and there must not be one.
  *
  * A refetch under the same predicate keeps the rows already on screen. Under a
  * different one it does not — the previous chip's mail under the new chip is the
@@ -120,6 +124,8 @@ export interface BriefSectionRows {
 	category: RemitImapMessageCategory;
 	rows: RemitImapThreadMessageResponse[];
 	total: ResultCount;
+	/** The request came back full, so the category holds more than these rows. */
+	atCap: boolean;
 	/** Nothing has arrived for this section yet. */
 	loading: boolean;
 	/** This section's own request failed; the others are unaffected. */
@@ -200,9 +206,14 @@ export function useBriefSections({
 			categories.map((category, index) => {
 				const rows = rowQueries[index];
 				const count = countQueries[index];
+				const items = rows?.data?.items ?? [];
 				return {
 					category,
-					rows: rows?.data?.items ?? [],
+					rows: items,
+					// Read off the page rather than the rendered rows: muting and the
+					// thread collapse both shrink what is rendered, and neither means the
+					// category holds no more.
+					atCap: items.length >= limit,
 					// `enabled` gates the request, not the cache: a brief that asks for
 					// no count must not render the one an earlier, narrower brief left
 					// behind.
@@ -214,11 +225,13 @@ export function useBriefSections({
 					failed: rows?.isError ?? false,
 					retry: () => {
 						rows?.refetch();
-						count?.refetch();
+						// `refetch` ignores `enabled`, so an uncounted brief would fetch a
+						// count it has already decided not to render.
+						if (counted) count?.refetch();
 					},
 				};
 			}),
-		[categories, rowQueries, countQueries, counted],
+		[categories, rowQueries, countQueries, counted, limit],
 	);
 
 	const refetch = useCallback(() => {

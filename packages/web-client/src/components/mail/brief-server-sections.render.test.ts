@@ -31,19 +31,14 @@ import {
 	Outlet,
 	RouterProvider,
 } from "@tanstack/react-router";
-import { createElement, type ReactNode } from "react";
+import { createElement, type ReactNode, useEffect, useState } from "react";
 import { ComposeProvider } from "@/components/compose/ComposeProvider";
 import { MailContext, type MailContextValue } from "@/lib/mail-context";
 import { MailFreshnessProvider } from "@/lib/mail-freshness";
 import { EMPTY_RESULT_FOLDER_INDEX } from "@/lib/result-folder";
 import { createDomHarness, type DomHarness } from "@/test-support/dom";
 import { makeAccount, makeThreadMessage } from "@/test-support/fixtures";
-import {
-	type HttpCall,
-	type HttpMock,
-	httpError,
-	mockFetch,
-} from "@/test-support/http";
+import { type HttpCall, type HttpMock, mockFetch } from "@/test-support/http";
 import { DailyBrief } from "./DailyBrief";
 
 const ACCOUNT_ID = "acc-1";
@@ -191,13 +186,32 @@ const countRequests = (): HttpCall[] =>
 const rowRequests = (): HttpCall[] =>
 	threadRequests().filter((call) => paramsOf(call).get("count") !== "true");
 
-const context = (search: string): MailContextValue => ({
+/**
+ * The field being typed into. A keypress moves `searchInput` and leaves
+ * `searchQuery` where it was, which is the state every request must ignore.
+ * Driven by an event so the update lands inside the harness's `act`.
+ */
+const TYPED = "test:typed";
+
+function BriefUnderTest({ search }: { search: string }) {
+	const [input, setInput] = useState(search);
+	useEffect(() => {
+		const onTyped = (event: Event) => {
+			setInput((event as CustomEvent<string>).detail);
+		};
+		window.addEventListener(TYPED, onTyped);
+		return () => window.removeEventListener(TYPED, onTyped);
+	}, []);
+	return brief(search, input);
+}
+
+const context = (search: string, input: string): MailContextValue => ({
 	accounts: [account],
 	mailboxNameIndex: new Map(),
 	accountNameIndex: new Map(),
 	resultFolderIndex: EMPTY_RESULT_FOLDER_INDEX,
 	searchQuery: search,
-	searchInput: search,
+	searchInput: input,
 	searchViewKey: "brief",
 	onSearchChange: () => undefined,
 	onSearchClear: () => undefined,
@@ -207,13 +221,13 @@ const context = (search: string): MailContextValue => ({
 	onRaiseIntelligence: () => undefined,
 });
 
-const brief = (search: string): ReactNode =>
+const brief = (search: string, input: string): ReactNode =>
 	createElement(MailFreshnessProvider, {
 		accountIds: [ACCOUNT_ID],
 		// biome-ignore lint/correctness/noChildrenProp: no JSX in a `.ts` test, and createElement's variadic children do not satisfy a required prop
 		children: createElement(
 			MailContext.Provider,
-			{ value: context(search) },
+			{ value: context(search, input) },
 			createElement(DailyBrief, {
 				accounts: [account],
 				onDeleteMessages: () => undefined,
@@ -242,7 +256,7 @@ const testRouter = (search: string): AnyRouter => {
 	const briefRoute = createRoute({
 		getParentRoute: () => mailRoute,
 		path: "/brief",
-		component: () => brief(search),
+		component: () => createElement(BriefUnderTest, { search }),
 	});
 	const threadRoute = createRoute({
 		getParentRoute: () => briefRoute,
@@ -305,17 +319,34 @@ const mountWith = async (
 
 	const router = testRouter(search);
 	await router.load();
-	const mounted = createDomHarness({ viewportWidth: 1400 });
-	harness = mounted;
-	mounted.renderApp(createElement(RouterProvider, { router }));
-	await mounted.flush();
-	await mounted.wait(20);
-	await mounted.flush();
-	return mounted;
+	const dom = createDomHarness({ viewportWidth: 1400 });
+	harness = dom;
+	dom.renderApp(createElement(RouterProvider, { router }));
+	await dom.flush();
+	await dom.wait(20);
+	await dom.flush();
+	return dom;
 };
 
 const mount = (search = ""): Promise<DomHarness> =>
 	mountWith(() => undefined, search);
+
+/**
+ * Type into the field without submitting: the live input moves, the committed
+ * query does not.
+ */
+const typeWithoutSubmitting = async (
+	dom: DomHarness,
+	value: string,
+): Promise<void> => {
+	dom.dispatch(
+		dom.window,
+		new dom.window.CustomEvent(TYPED, { detail: value }),
+	);
+	await dom.flush();
+	await dom.wait(20);
+	await dom.flush();
+};
 
 const settled = async (mounted: DomHarness, text: string): Promise<void> => {
 	await mounted.waitFor(
@@ -486,18 +517,21 @@ describe("the brief's sections come from the server (#312)", () => {
 		}
 	});
 
-	// Seven requests, seven answers. One category's 500 states itself where that
-	// category would have been; the six that came back stay on screen.
+	// Seven requests, seven answers. A request that never got one states itself
+	// where that category would have been; the six that came back stay on screen.
+	//
+	// A transport failure, not a 5xx: the fail-fast contract escalates every 5xx
+	// to the full-screen overlay and there is no opt-out here, so a 500 would
+	// never reach this state in the app however this test is mounted (#1059).
 	it("keeps the other sections when one category's request fails", async () => {
-		const mounted = await mountWith((call) => {
+		const dom = await mountWith((call) => {
 			const params = new URL(call.url, "http://localhost").searchParams;
-			return params.getAll("category").includes("marketing")
-				? httpError(500)
-				: undefined;
+			if (!params.getAll("category").includes("marketing")) return undefined;
+			throw new TypeError("fetch failed");
 		});
-		await settled(mounted, PERSONAL.subject(0));
+		await settled(dom, PERSONAL.subject(0));
 
-		const shown = mounted.text();
+		const shown = dom.text();
 		assert.ok(
 			shown.includes("Couldn't load Marketing"),
 			"the failed section said nothing about failing",
@@ -509,6 +543,52 @@ describe("the brief's sections come from the server (#312)", () => {
 		assert.ok(
 			shown.includes("Nothing classified this yet"),
 			"one category's failure blanked a healthy section",
+		);
+	});
+
+	// A total is withheld whenever something narrows the rows after they arrive —
+	// here a muted sender. The number goes; the way out of the section must not,
+	// or the rest of the category is unreachable.
+	it("keeps the way to the whole category when the total is withheld", async () => {
+		const dom = await mountWith((call) => {
+			const params = new URL(call.url, "http://localhost").searchParams;
+			if (params.get("count") === "true") return undefined;
+			if (!params.getAll("category").includes("marketing")) return undefined;
+			const page = (ROWS.marketing ?? []).slice(0, SECTION_ROW_CAP);
+			return {
+				items: page.map((row, index) =>
+					index === 0 ? { ...row, muted: true } : row,
+				),
+			};
+		});
+		await settled(dom, renderedSubjects("marketing", SECTION_ROW_CAP)[1]);
+
+		const marketing = dom.byText("button", "Marketing");
+		assert.doesNotMatch(
+			marketing.textContent ?? "",
+			new RegExp(String(countOf("marketing"))),
+			"a count taken with a muted sender in it was stated as the section's size",
+		);
+		assert.ok(
+			dom.text().includes("Show all"),
+			"withholding the number stranded the reader in the section",
+		);
+	});
+
+	// The requests are built from committed state. Typing is not committing: a
+	// half-written `is:unread` must tick its chip and move nothing else, or every
+	// keystroke on the way to it fires seven section requests and seven counts.
+	it("issues no request for a query that has not been submitted", async () => {
+		const dom = await mount();
+		await settled(dom, renderedSubjects("marketing", SECTION_ROW_CAP)[0]);
+		const before = threadRequests().length;
+
+		await typeWithoutSubmitting(dom, "is:unread");
+
+		assert.equal(
+			threadRequests().length,
+			before,
+			"the search field being typed into reached the request criteria",
 		);
 	});
 

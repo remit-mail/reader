@@ -41,6 +41,10 @@ export interface BriefSectionProps {
  * the length of what happens to be loaded, presented as a category size, is the
  * reading this replaces (#312).
  *
+ * The control below the rows is the way to the rest of the category, whether or
+ * not the header carries a number: a section that came back full holds more than
+ * it shows, and says so even where the count was withheld.
+ *
  * A total is never rendered above zero rows. Nothing loaded and the section
  * still fetching is the loading treatment; nothing loaded because the request
  * failed says so and offers the retry; nothing loaded and the fetch done is a
@@ -82,12 +86,20 @@ export function BriefSection({
 			: undefined;
 	// Nothing to show more of: a section a chip emptied offers a way out of the
 	// chip, not a number the reader cannot see any of.
+	// The way out of the section, and the number on it where there is one. A total
+	// the caller withheld — a muted sender, an account pill, a term the request
+	// could not carry — must not take the control with it: the rows beyond this
+	// page are still there, and a section with no number and no control is a dead
+	// end (#312).
+	const holdsMore =
+		total.kind === "exact"
+			? total.value > visible.length
+			: section.atCap === true;
 	const showAllLabel =
-		onShowAll !== undefined &&
-		visible.length > 0 &&
-		total.kind === "exact" &&
-		total.value > visible.length
-			? `Show all ${formatTotal(total.value)}`
+		onShowAll !== undefined && visible.length > 0 && holdsMore
+			? total.kind === "exact"
+				? `Show all ${formatTotal(total.value)}`
+				: "Show all"
 			: undefined;
 	const hiddenHere = loaded.length - visible.length;
 
