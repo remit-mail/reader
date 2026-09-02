@@ -80,7 +80,11 @@ export type CopyProbe =
  * it. The copy row is a reconcile-model dependent (`copySettledMessage` writes
  * its ThreadMessage row at `uid: 0` before the server has confirmed anything,
  * docs/architecture/imap-mutations.md R2) and these terminal settles are its
- * reconciliation path: no outcome leaves the row at `uid: 0`/`moving` (#1097).
+ * reconciliation path: every verdict the server gives an answer for settles the
+ * row out of `uid: 0`/`moving` (#1097). A server that cannot be reached at all
+ * gives no verdict — the record dead-letters with the row untouched, the same
+ * caveat `resolveExhaustedMessageMoveFailure` carries, because absence is only
+ * ever concluded from an answer.
  */
 export const handleMessageCopy = async (
 	event: MessageCopyEvent,
@@ -289,6 +293,16 @@ export const handleMessageCopy = async (
 			// writes for a copy that will not happen, and it keeps `holdsCopyOf`
 			// answering true so a sighting at the destination cannot drag the SOURCE
 			// row out of the folder it was copied from.
+			//
+			// The cost, paid deliberately: if that COPY did land, this row is the
+			// only one the copy will ever have — `holdsCopyOf` tests row existence
+			// alone (`message-sync.ts`), so no sync creates a second one — and
+			// `deleted` hides it. Real mail then sits at the destination on the
+			// server and invisible in the product until an operator acts on the
+			// alert. `settleNeverLanded` has the opposite property: it deletes only
+			// what the server denied holding, and a later sync re-projects anything
+			// that turns out to be there. Silence buys the safer half of one pair
+			// and the worse half of the other.
 			const settleBroken = async (reason: string): Promise<void> => {
 				await messageService.update(newMessageId, {
 					status: MessageStatus.deleted,
@@ -326,11 +340,19 @@ export const handleMessageCopy = async (
 					// A redelivery means the previous attempt threw, which does not
 					// mean its COPY failed — the tagged OK can be lost with the
 					// connection. Ask before copying again, or the retry is what
-					// duplicates the mail.
+					// duplicates the mail. `absent` is an answer the server gave, so
+					// copying again is safe; `unprobeable` is silence, and copying on
+					// silence is the duplicate this guard exists to prevent.
 					if (receiveCount > 1) {
 						const earlier = await probeDestination(rawConnection);
 						if (earlier.kind === "confirmed") {
 							await settleCopied(earlier.uid);
+							return;
+						}
+						if (earlier.kind === "unprobeable") {
+							await settleBroken(
+								"redelivered with no Message-ID to ask the destination with",
+							);
 							return;
 						}
 					}

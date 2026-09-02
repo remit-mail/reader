@@ -275,6 +275,27 @@ describe("handleMessageCopy", () => {
 		]);
 	});
 
+	it("never copies twice when a redelivered copy cannot be probed", async () => {
+		h.copyRow = { ...unsettledCopyRow(), messageIdHeader: undefined };
+		let copies = 0;
+		h.connection.copyMessages = async () => {
+			copies += 1;
+			// The COPY lands, then the tagged OK is lost with the connection.
+			throw new Error("connection reset by peer");
+		};
+
+		await assert.rejects(
+			handleMessageCopy(event, noopLog, 1, deps()),
+			/connection reset/,
+		);
+		await handleMessageCopy(event, noopLog, 2, deps());
+
+		assert.equal(copies, 1, "the redelivery issues no second COPY");
+		assert.equal(called("search").length, 0);
+		const settled = called("message.update").at(-1);
+		assert.equal((settled?.args[1] as { status?: string })?.status, "deleted");
+	});
+
 	it("acks a copy that already settled without touching IMAP", async () => {
 		h.copyRow = {
 			...unsettledCopyRow(),
