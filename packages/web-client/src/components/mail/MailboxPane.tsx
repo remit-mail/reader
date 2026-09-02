@@ -33,7 +33,7 @@ import {
 	type ResultCount,
 	type SearchResult,
 } from "@remit/ui";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import {
 	createContext,
 	type ReactNode,
@@ -88,6 +88,7 @@ import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useRefreshControl } from "@/hooks/useRefreshControl";
 import { useRescueCandidates } from "@/hooks/useRescueCandidates";
+import { useResultCount } from "@/hooks/useResultCount";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useSemanticSearch } from "@/hooks/useSemanticSearch";
 import { useThreadActions } from "@/hooks/useThreadActions";
@@ -112,7 +113,7 @@ import { useMailContext } from "@/lib/mail-context";
 import { useMailFreshness } from "@/lib/mail-freshness";
 import { isRescueCandidate } from "@/lib/rescue-candidates";
 import { recordRescueSentToJunk } from "@/lib/rescue-telemetry";
-import { shouldRequestResultCount, toResultCount } from "@/lib/result-count";
+import { shouldRequestResultCount } from "@/lib/result-count";
 import { normalizeSearchQuery } from "@/lib/search-query";
 import {
 	relatedSearchResults,
@@ -397,33 +398,16 @@ function MailboxPaneProvider({
 				: undefined,
 	});
 
-	// How many messages the search matches, from the server that resolves it —
-	// one request against the criteria, never a walk of the pages. Its own query
-	// so the list can page without re-counting, and a minute of staleness so
-	// returning to a search the reader just left costs nothing.
-	const resultCountQuery = { ...searchCriteria, count: true, results: false };
-	const { data: resultCountData } = useQuery({
-		queryKey: threadOperationsSearchThreadsQueryKey({
-			path: { mailboxId },
-			query: resultCountQuery,
-		}),
-		queryFn: async () => {
-			const { data } = await threadOperationsSearchThreads({
-				path: { mailboxId },
-				query: resultCountQuery,
-				throwOnError: true,
-			});
-			return data;
-		},
-		enabled: shouldRequestResultCount({ hasSearchQuery, freeText }),
-		staleTime: 60_000,
+	// Residual tokens narrow the rows after they arrive, so a count over the
+	// criteria would overstate what the list shows: it is not asked for, and the
+	// header renders no number.
+	const resultCount = useResultCount({
+		mailboxId,
+		criteria: searchCriteria,
+		enabled:
+			residualTokens.length === 0 &&
+			shouldRequestResultCount({ hasSearchQuery, freeText }),
 	});
-	// Residual tokens narrow the rows after they arrive, so the server counted a
-	// wider set than the list shows and the number would overstate it.
-	const resultCount: ResultCount =
-		residualTokens.length > 0
-			? { kind: "unknown" }
-			: toResultCount(resultCountData?.count);
 
 	const { accountId: mailboxAccountId, isLoading: mailboxAccountLoading } =
 		useMailboxAccount(mailboxId);
