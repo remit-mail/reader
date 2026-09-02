@@ -62,23 +62,6 @@ const respond =
 let harness: DomHarness | undefined;
 let http: HttpMock;
 
-const waitFor = async (
-	predicate: () => boolean,
-	timeoutMs = 2000,
-): Promise<void> => {
-	if (!harness) throw new Error("nothing mounted");
-	const deadline = Date.now() + timeoutMs;
-	while (!predicate()) {
-		if (Date.now() > deadline) {
-			throw new Error(
-				`waitFor: condition never became true within ${timeoutMs}ms`,
-			);
-		}
-		await harness.flush();
-		await harness.wait(5);
-	}
-};
-
 afterEach(() => {
 	harness?.close();
 	harness = undefined;
@@ -91,7 +74,7 @@ describe("the Similar messages section on an instance with semantic search off",
 		harness = createDomHarness();
 		harness.renderApp(createElement(SimilarHarness));
 
-		await waitFor(
+		await harness.waitFor(
 			() => harness?.text().includes("Semantic search is off") === true,
 		);
 
@@ -107,7 +90,7 @@ describe("the Similar messages section on an instance with semantic search off",
 		harness = createDomHarness();
 		harness.renderApp(createElement(SimilarHarness));
 
-		await waitFor(
+		await harness.waitFor(
 			() => harness?.text().includes("Semantic search is off") === true,
 		);
 		await harness.wait(30);
@@ -121,7 +104,7 @@ describe("the Similar messages section on an instance with semantic search off",
 		harness = createDomHarness();
 		harness.renderApp(createElement(SimilarHarness));
 
-		await waitFor(() => http.to("/search/semantic").length > 0);
+		await harness.waitFor(() => http.to("/search/semantic").length > 0);
 
 		assert.doesNotMatch(harness.text(), /Semantic search is off/);
 	});
