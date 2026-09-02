@@ -321,6 +321,57 @@ describe("DrizzleThreadMessageRepository.searchByMailboxWindow / countByMailbox"
 		);
 		assert.equal(count, 5, "asc counts the whole match set too");
 	});
+
+	// ── Scenario 7 ────────────────────────────────────────────────────────────
+	// The count and the result set are two answers to one predicate, and the
+	// surfaces that render the number stopped paging to derive it (#307). This
+	// is the guard from the other direction: walk every page and assert the walk
+	// and the count agree, so the number cannot silently drift from the rows.
+	test("the count agrees with a full page-through of the same predicate", async () => {
+		const acct = uuid();
+		const mbx = uuid();
+		const now = Date.now();
+		await seed(acct, mbx, [
+			...Array.from({ length: 17 }, (_, i) => ({
+				subject: `gamma ${i}`,
+				sentDate: now - i,
+				internalDate: now - i,
+			})),
+			{ subject: "delta", sentDate: now - 100, internalDate: now - 100 },
+		]);
+
+		const walked = new Set<string>();
+		let continuationToken: string | undefined;
+		let pages = 0;
+		do {
+			const page = await repo.searchByMailboxWindow(
+				acct,
+				mbx,
+				{ subject: "gamma" },
+				{ excludeDeleted: true, limit: 5, continuationToken },
+			);
+			for (const row of page.items) walked.add(row.threadMessageId);
+			continuationToken = page.continuationToken;
+			pages += 1;
+		} while (continuationToken && pages < 10);
+		assert.ok(
+			!continuationToken,
+			"the walk never reached the end of the pages",
+		);
+
+		const count = await repo.countByMailbox(
+			acct,
+			mbx,
+			{ subject: "gamma" },
+			{ excludeDeleted: true },
+		);
+		assert.equal(
+			count,
+			walked.size,
+			"the count and the rows the predicate returns disagree",
+		);
+		assert.equal(count, 17, "the unmatched row leaked into one of the two");
+	});
 });
 
 // ─── searchByDate: the unified listing's cross-folder search mode ─────────────

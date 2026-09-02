@@ -61,13 +61,13 @@ Buys: a single documented contract; a client that never has to know which backen
 
 **Not implemented.** [`docs/design/mail-list-server-query.md`](../design/mail-list-server-query.md) D14 withdraws the two response fields and the refill loop in D2: there is no second port in this repository to disagree with the SQL one, and the values the fields would have carried were a page length rather than a bound. The divergence stays documented here as the thing to design when a second port lands.
 
-This supersedes the current arrangement, in which `countByMailbox` computes the exact SQL count and then discards it with `Math.min(count, cap)` (`packages/drizzle-service/src/repos/thread-message.ts:883`) purely to imitate DynamoDB's window semantics.
+It superseded an arrangement in which `countByMailbox` computed the exact SQL count and then discarded it with `Math.min(count, cap)`, purely to imitate DynamoDB's window semantics. That clamp is gone: the query is a plain `COUNT(*)` over the criteria (`packages/drizzle-service/src/repos/thread-message.ts:922-945`), so the SQL port answers with the whole match set and has no window to report.
 
 ### D4 — `count` means the exact number of matching rows in the mailbox
 
 `count` currently means four different things depending on which flags accompany it: the length of the returned page when `results` is on, the length of the post-filter page when an off-row criterion is present, and `min(exact, 500)` in count-only mode. None of those is a count of matches.
 
-`count` becomes the number of rows in the mailbox matching the criteria, independent of paging and of `results`. When any off-row criterion is present the exact count is not derivable without enriching every candidate row, so `count` is **absent** and the read-bound fields from D3 stand in its place. Absent is honest; a page length labelled `count` is not.
+`count` becomes the number of rows in the mailbox matching the criteria, independent of paging and of `results`. When any off-row criterion is present the exact count is not derivable without enriching every candidate row, so `count` is **absent**, and the surface renders no number rather than a stand-in. Absent is honest; a page length labelled `count` is not.
 
 `count` stays opt-in (`count: true`), because it is an additional read over the whole match set. It must not be coupled to keystrokes: on this mailbox an exact count is one index range scan on SQLite, and a full partition read on DynamoDB.
 
@@ -79,7 +79,7 @@ Stands as a decision; not implemented in the slice that fixes the reported bug. 
 
 `searchThreads` already accepts `category[]`, `continuationToken`, `order`, `unread`, `starred`, `attachments`, `count`, `results` and `limit` (`typespec/main.tsp:430-483`). The client does not send `category` or `starred` to it, and for an unfiltered listing it uses `listThreads`, which accepts no filters at all.
 
-The correction on the API surface is therefore: no new endpoint, no new query parameter, and no change to any request shape. What changes is the client sending a parameter that already exists, the backend making that parameter behave as documented, and the `@doc` strings on `category`, `count` and `limit` being corrected — they currently describe the defective semantics ("resolved by in-handler enrichment over the capped window", "count of matches within the server-capped window") as if intended. The only additive change is the two D3 response fields.
+The correction on the API surface is therefore: no new endpoint, no new query parameter, and no change to any request shape. What changes is the client sending a parameter that already exists, the backend making that parameter behave as documented, and the `@doc` strings on `category`, `count` and `limit` being corrected — they currently describe the defective semantics ("resolved by in-handler enrichment over the capped window", "count of matches within the server-capped window") as if intended. Nothing is added to the response: the two D3 fields are withdrawn (D14) and `count` was already optional, so an absent count needs no field of its own.
 
 The client routes the mailbox list through `searchThreads` whenever any filter or query is active and keeps `listThreads` for the unfiltered case, passing `limit: 50` explicitly — an unspecified `limit` clamps to 500 (`clampThreadSearchLimit`), so switching paths without it would quietly multiply the page size by ten.
 

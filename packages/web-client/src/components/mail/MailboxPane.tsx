@@ -30,9 +30,10 @@ import {
 	ReadingPaneEmpty,
 	RefreshButton,
 	type RescueCandidate,
+	type ResultCount,
 	type SearchResult,
 } from "@remit/ui";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import {
 	createContext,
 	type ReactNode,
@@ -111,6 +112,7 @@ import { useMailContext } from "@/lib/mail-context";
 import { useMailFreshness } from "@/lib/mail-freshness";
 import { isRescueCandidate } from "@/lib/rescue-candidates";
 import { recordRescueSentToJunk } from "@/lib/rescue-telemetry";
+import { shouldRequestResultCount, toResultCount } from "@/lib/result-count";
 import { normalizeSearchQuery } from "@/lib/search-query";
 import {
 	relatedSearchResults,
@@ -204,6 +206,8 @@ interface MailboxPaneContextValue {
 	 * header, not enough to reproduce the query server-side.
 	 */
 	searchPredicate: EscalationSearchQuery | undefined;
+	/** The server's count of the whole match set, for the result header. */
+	resultCount: ResultCount;
 	// List actions
 	onDeleteMessages: (ids: string[]) => void;
 	onMoveMessages: (ids: string[], dest: string) => void;
@@ -316,14 +320,20 @@ function MailboxPaneProvider({
 		searchTokens,
 		filterParams,
 	);
-	const searchThreadsQuery = {
+	// What the list is asking about, with nothing about paging in it. The count
+	// is a property of the criteria alone, so it keys on this and a page fetch
+	// can never trigger one.
+	const searchCriteria = {
 		order: "desc" as const,
-		// Explicit: an unspecified limit clamps to THREAD_SEARCH_MAX_LIMIT (500),
-		// so switching paths without it multiplies the page size by ten.
-		limit: THREADS_PAGE_SIZE,
 		...(freeText ? { query: freeText } : {}),
 		...tokenParams,
 		...filterParams,
+	};
+	const searchThreadsQuery = {
+		...searchCriteria,
+		// Explicit: an unspecified limit clamps to THREAD_SEARCH_MAX_LIMIT (500),
+		// so switching paths without it multiplies the page size by ten.
+		limit: THREADS_PAGE_SIZE,
 	};
 	// What the request actually narrows by, whoever set it. `placeholderData`
 	// keeps the previous rows only under the same predicate, and a token
@@ -386,6 +396,34 @@ function MailboxPaneProvider({
 				? previousData
 				: undefined,
 	});
+
+	// How many messages the search matches, from the server that resolves it —
+	// one request against the criteria, never a walk of the pages. Its own query
+	// so the list can page without re-counting, and a minute of staleness so
+	// returning to a search the reader just left costs nothing.
+	const resultCountQuery = { ...searchCriteria, count: true, results: false };
+	const { data: resultCountData } = useQuery({
+		queryKey: threadOperationsSearchThreadsQueryKey({
+			path: { mailboxId },
+			query: resultCountQuery,
+		}),
+		queryFn: async () => {
+			const { data } = await threadOperationsSearchThreads({
+				path: { mailboxId },
+				query: resultCountQuery,
+				throwOnError: true,
+			});
+			return data;
+		},
+		enabled: shouldRequestResultCount({ hasSearchQuery, freeText }),
+		staleTime: 60_000,
+	});
+	// Residual tokens narrow the rows after they arrive, so the server counted a
+	// wider set than the list shows and the number would overstate it.
+	const resultCount: ResultCount =
+		residualTokens.length > 0
+			? { kind: "unknown" }
+			: toResultCount(resultCountData?.count);
 
 	const { accountId: mailboxAccountId, isLoading: mailboxAccountLoading } =
 		useMailboxAccount(mailboxId);
@@ -790,6 +828,7 @@ function MailboxPaneProvider({
 			hasSearchQuery && residualTokens.length === 0
 				? searchThreadsQuery
 				: undefined,
+		resultCount,
 		onDeleteMessages: handleDeleteMessages,
 		onMoveMessages: handleMoveMessages,
 		isDeleting,
@@ -854,6 +893,7 @@ function MailboxList() {
 		onClearFilters,
 		listFilter,
 		searchPredicate,
+		resultCount,
 	} = useMailboxPane();
 	const { searchQuery, searchInput, accounts, resultFolderIndex } =
 		useMailContext();
@@ -978,6 +1018,7 @@ function MailboxList() {
 			onRetry={onRetry}
 			searchQuery={searchQuery}
 			searchPredicate={searchPredicate}
+			resultCount={resultCount}
 			onDeleteMessages={onDeleteMessages}
 			isDeleting={isDeleting}
 			isMoving={isMoving}
