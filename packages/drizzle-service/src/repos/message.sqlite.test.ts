@@ -148,6 +148,27 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 		assert.equal(result.item.messageId, MESSAGE_ID);
 	});
 
+	// The state every inbound sync row is born in, and the one the re-point gate
+	// in mailbox-service has to accept (#1096): the sync path supplies no
+	// syncStatus and nothing later promotes what the repository writes here.
+	test("upsertWithStatus writes pending when the caller names no syncStatus", async () => {
+		const inboundId = "00000000-0000-0000-2222-000000000009";
+		const { item, created } = await repo.upsertWithStatus({
+			messageId: inboundId,
+			mailboxId: MAILBOX_ID,
+			uid: 43,
+			sequenceNumber: 2,
+			rfc822Size: 1024,
+			internalDate: NOW,
+			envelopeId: deriveEnvelopeId(inboundId),
+			rootBodyPartId: deriveRootBodyPartId(inboundId),
+		});
+
+		assert.equal(created, true);
+		assert.equal(item.syncStatus, "pending");
+		assert.equal(item.status, "active");
+	});
+
 	test("delete removes the message and appends a removal outbox row", async () => {
 		await repo.delete(MESSAGE_ID);
 		await assert.rejects(() => repo.get(MESSAGE_ID));

@@ -49,6 +49,12 @@ const JUNK = mailboxAt("INBOX/Rubbish");
 const TRASH = mailboxAt("Trash");
 const ALL_MAIL = mailboxAt("[Gmail]/All Mail", ["All"]);
 
+/**
+ * `pending` is what an ordinary inbound row carries: `upsertWithStatus` is
+ * called without a `syncStatus` and the repository defaults to it, and nothing
+ * on the sync path ever promotes it (#1096). The fixture states the reachable
+ * state, not the one the gate used to demand.
+ */
 const storedIn = (
 	mailbox: MailboxItem,
 	overrides: Partial<MessageItem> = {},
@@ -57,7 +63,7 @@ const storedIn = (
 		mailboxId: mailbox.mailboxId,
 		uid: 7,
 		status: MessageStatus.active,
-		syncStatus: MessageSyncStatus.synced,
+		syncStatus: MessageSyncStatus.pending,
 		...overrides,
 	}) as MessageItem;
 
@@ -310,11 +316,57 @@ describe("repointsOnSighting", () => {
 		);
 	});
 
+	it("accepts an ordinary inbound row the sync path left pending", () => {
+		assert.equal(
+			repointsOnSighting(
+				JUNK,
+				storedIn(INBOX, { syncStatus: MessageSyncStatus.pending }),
+			),
+			true,
+		);
+	});
+
+	it("accepts a row a settled mutation marked synced", () => {
+		assert.equal(
+			repointsOnSighting(
+				JUNK,
+				storedIn(INBOX, { syncStatus: MessageSyncStatus.synced }),
+			),
+			true,
+		);
+	});
+
 	it("refuses a row whose move failed and has not been re-tried", () => {
 		assert.equal(
 			repointsOnSighting(
 				JUNK,
 				storedIn(INBOX, { syncStatus: MessageSyncStatus.failed }),
+			),
+			false,
+		);
+	});
+
+	it("refuses a row whose own move is still in flight", () => {
+		assert.equal(
+			repointsOnSighting(
+				JUNK,
+				storedIn(INBOX, {
+					status: MessageStatus.moving,
+					syncStatus: MessageSyncStatus.pending,
+				}),
+			),
+			false,
+		);
+	});
+
+	it("refuses a row whose own delete is still in flight", () => {
+		assert.equal(
+			repointsOnSighting(
+				JUNK,
+				storedIn(INBOX, {
+					status: MessageStatus.deleting,
+					syncStatus: MessageSyncStatus.pending,
+				}),
 			),
 			false,
 		);
