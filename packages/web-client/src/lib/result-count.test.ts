@@ -7,20 +7,29 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { EscalationSearchQuery } from "@/hooks/useEscalatedActions";
-import { shouldRequestResultCount, toResultCount } from "./result-count.js";
+import {
+	type ResultCountRequestInput,
+	shouldRequestResultCount,
+	toResultCount,
+} from "./result-count.js";
+
+const request = (input: Partial<ResultCountRequestInput>): boolean =>
+	shouldRequestResultCount({
+		hasSearchQuery: true,
+		freeText: "",
+		residualTokenCount: 0,
+		...input,
+	});
 
 describe("shouldRequestResultCount", () => {
 	test("browsing a mailbox asks for no count", () => {
-		assert.equal(
-			shouldRequestResultCount({ hasSearchQuery: false, freeText: "" }),
-			false,
-		);
+		assert.equal(request({ hasSearchQuery: false }), false);
 	});
 
 	test("a free-text query is not counted while it is being typed", () => {
 		for (const freeText of ["k", "ku", " ku "]) {
 			assert.equal(
-				shouldRequestResultCount({ hasSearchQuery: true, freeText }),
+				request({ freeText }),
 				false,
 				`"${freeText}" was counted per keystroke`,
 			);
@@ -28,16 +37,29 @@ describe("shouldRequestResultCount", () => {
 	});
 
 	test("a free-text query long enough for the index is counted", () => {
-		assert.equal(
-			shouldRequestResultCount({ hasSearchQuery: true, freeText: "kub" }),
-			true,
-		);
+		assert.equal(request({ freeText: "kub" }), true);
 	});
 
 	test("a query made only of filter tokens is counted straight away", () => {
+		assert.equal(request({}), true);
+	});
+
+	/**
+	 * `before:`/`after:`/`account:` reach the request as nothing, so the server
+	 * would count a wider set than the list shows — and `invoice before:2020`
+	 * sends criteria identical to `invoice`, which is also the previous search's
+	 * cache key.
+	 */
+	test("a term the request could not carry stops the count", () => {
 		assert.equal(
-			shouldRequestResultCount({ hasSearchQuery: true, freeText: "" }),
+			request({ freeText: "invoice", residualTokenCount: 1 }),
+			false,
+			"the count covered rows the list filters back out",
+		);
+		assert.equal(
+			request({ freeText: "invoice", residualTokenCount: 0 }),
 			true,
+			"the same search without the residual term must still be counted",
 		);
 	});
 });

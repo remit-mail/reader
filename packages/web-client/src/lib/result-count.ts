@@ -13,6 +13,12 @@ export interface ResultCountRequestInput {
 	hasSearchQuery: boolean;
 	/** The literal text of the search, with its filter tokens already taken out. */
 	freeText: string;
+	/**
+	 * Tokens the request could not carry — `before:`, `after:`, `account:`, and
+	 * any second value for a parameter that takes one — applied over the rows
+	 * after they arrive.
+	 */
+	residualTokenCount: number;
 }
 
 /**
@@ -22,12 +28,19 @@ export interface ResultCountRequestInput {
  * per click, and the predicate is one the index answers. Free text is counted
  * only once it is long enough to be indexed, which is what keeps a per-character
  * query from paying for a count it will throw away on the next keystroke.
+ *
+ * A residual token stops the count outright. The server never saw that term, so
+ * it would count a wider set than the list shows — and two searches differing
+ * only by one reach the request as the same criteria, so the answer would also
+ * be the one the previous search left in the cache.
  */
 export const shouldRequestResultCount = ({
 	hasSearchQuery,
 	freeText,
+	residualTokenCount,
 }: ResultCountRequestInput): boolean => {
 	if (!hasSearchQuery) return false;
+	if (residualTokenCount > 0) return false;
 	const typed = freeText.trim();
 	return typed.length === 0 || typed.length >= MIN_COUNTED_QUERY_LENGTH;
 };

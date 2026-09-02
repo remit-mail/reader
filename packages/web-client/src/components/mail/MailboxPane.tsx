@@ -398,15 +398,14 @@ function MailboxPaneProvider({
 				: undefined,
 	});
 
-	// Residual tokens narrow the rows after they arrive, so a count over the
-	// criteria would overstate what the list shows: it is not asked for, and the
-	// header renders no number.
 	const resultCount = useResultCount({
 		mailboxId,
 		criteria: searchCriteria,
-		enabled:
-			residualTokens.length === 0 &&
-			shouldRequestResultCount({ hasSearchQuery, freeText }),
+		enabled: shouldRequestResultCount({
+			hasSearchQuery,
+			freeText,
+			residualTokenCount: residualTokens.length,
+		}),
 	});
 
 	const { accountId: mailboxAccountId, isLoading: mailboxAccountLoading } =

@@ -39,25 +39,47 @@ const countRequests = () =>
 			"true",
 	);
 
+interface Probe {
+	count: () => ResultCount;
+	/**
+	 * Render again on the same client, so a second search reaches the cache the
+	 * first one filled — which is the only place a stale count can come from.
+	 */
+	rerender: (next?: {
+		criteria?: ThreadSearchCriteria;
+		enabled?: boolean;
+	}) => Promise<void>;
+}
+
 const mount = async (
 	criteria: ThreadSearchCriteria,
 	enabled: boolean,
 	answer: unknown = { items: [], count: TOTAL_MATCHES },
-): Promise<{ count: () => ResultCount; rerender: () => Promise<void> }> => {
+): Promise<Probe> => {
 	http = mockFetch((call) =>
 		call.path.endsWith("/threads/search") ? answer : { items: [] },
 	);
 
 	let value: ResultCount | undefined;
-	const Probe = ({ search }: { search: ThreadSearchCriteria }) => {
-		value = useResultCount({ mailboxId: INBOX, criteria: search, enabled });
+	const CountProbe = ({
+		search,
+		on,
+	}: {
+		search: ThreadSearchCriteria;
+		on: boolean;
+	}) => {
+		value = useResultCount({ mailboxId: INBOX, criteria: search, enabled: on });
 		return null;
 	};
 
 	const mounted = createDomHarness();
 	harness = mounted;
-	const render = async () => {
-		mounted.renderApp(createElement(Probe, { search: criteria }));
+	let search = criteria;
+	let on = enabled;
+	const render: Probe["rerender"] = async (next) => {
+		if (next?.criteria) search = next.criteria;
+		if (next?.enabled !== undefined) on = next.enabled;
+		mounted.renderApp(createElement(CountProbe, { search, on }));
 		await mounted.flush();
 		await mounted.wait(20);
 		await mounted.flush();
@@ -105,6 +127,26 @@ describe("useResultCount (#307)", () => {
 			{ kind: "unknown" },
 			"an uncounted search reported a number",
 		);
+	});
+
+	/**
+	 * `enabled` gates the request, not the cache. Two searches reach the same key
+	 * whenever what separates them never reaches the request — `invoice` and
+	 * `invoice before:2020` send identical criteria — so the second must not read
+	 * the first one's answer back out of the cache.
+	 */
+	it("forgets the number the moment it stops being asked for", async () => {
+		const probe = await mount({ query: "invoice" }, true);
+		assert.deepEqual(probe.count(), { kind: "exact", value: TOTAL_MATCHES });
+
+		await probe.rerender({ enabled: false });
+
+		assert.deepEqual(
+			probe.count(),
+			{ kind: "unknown" },
+			"a count nobody asked for was served from the cache",
+		);
+		assert.equal(countRequests().length, 1, "the gate stopped gating requests");
 	});
 
 	it("reports no number when the server withholds the count", async () => {

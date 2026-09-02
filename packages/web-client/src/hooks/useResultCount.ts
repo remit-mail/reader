@@ -58,5 +58,11 @@ export const useResultCount = ({
 		enabled,
 		staleTime: COUNT_STALE_TIME_MS,
 	});
-	return toResultCount(data?.count);
+	// `enabled` gates the request, not the cache: a criteria set that asks for no
+	// count still reads whatever the last identical key left behind. Two searches
+	// share a key whenever the terms that separate them reach the request as
+	// nothing — `before:`/`after:`/`account:` are stripped from the free text and
+	// carry no param — so a disabled count that read `data` would render the
+	// previous search's total over this one's rows.
+	return enabled ? toResultCount(data?.count) : { kind: "unknown" };
 };
