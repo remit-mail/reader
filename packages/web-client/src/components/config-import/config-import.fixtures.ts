@@ -182,11 +182,11 @@ export const partialImportReport: RemitImapConfigImportReport = report({
 });
 
 /**
- * The same stop with no section written: a store that holds the import in one
- * transaction undoes the earlier writes, so the report carries no landed item
- * and `applied` is false. Warnings go with them.
+ * The same stop on a backend that imports inside one transaction (#1093):
+ * `applied` is false and `items` holds only the rejected entry, because the
+ * rollback emptied the rest. No section may read as landed.
  */
-export const nothingLandedImportReport: RemitImapConfigImportReport = report({
+export const rolledBackImportReport: RemitImapConfigImportReport = report({
 	applied: false,
 	items: [
 		item(

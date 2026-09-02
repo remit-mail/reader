@@ -565,7 +565,9 @@ export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
 					results={sectionResults(report)}
 					message={failed?.message ?? "The import stopped before it finished."}
 					raw={`${failed?.code ?? WRITE_FAILURE_CODE}: ${failed?.message ?? "no message"}`}
-					nothingLanded={!report.applied}
+					// `applied` is the server's answer to what survived: false means the
+					// write was undone whole, and no section may read as landed.
+					undone={!report.applied}
 					onBack={goToFile}
 					onNext={() => runImport("apply", "merge")}
 				/>

@@ -704,15 +704,16 @@ export function StepFileRejected({
 }
 
 /**
- * A section nobody can vouch for reads as failed, never as pending: it is
- * finished, and an outcome the reader has to go and check for themselves is
- * not a quiet empty row. Pending is the empty row — nothing from the file went
- * into this section, whether the import never reached it or reached it and
- * wrote none of it — and it is the state that carries no tick.
+ * A section nobody can vouch for reads as failed, never as pending. Pending
+ * says "still coming"; this section is finished and its outcome is unknown,
+ * which is the row the reader has to go and check for themselves. A rolled-
+ * back section is the same answer from the server's side: it is not coming,
+ * because the transaction that wrote it undid itself.
  */
 function resultState(state: SectionResult["state"]) {
 	if (state === "landed") return "ok" as const;
-	if (state === "failed" || state === "unknown") return "failed" as const;
+	if (state === "failed" || state === "unknown" || state === "rolled-back")
+		return "failed" as const;
 	return "pending" as const;
 }
 
@@ -720,7 +721,7 @@ export function StepPartialImport({
 	results,
 	message,
 	raw,
-	nothingLanded,
+	undone,
 	onBack,
 	onNext,
 }: {
@@ -728,8 +729,8 @@ export function StepPartialImport({
 	/** The server's own account of what survived, which only it knows. */
 	message: string;
 	raw: string;
-	/** No section of the file was written — not that the instance is unchanged. */
-	nothingLanded: boolean;
+	/** `report.applied === false`: the import ran in a transaction and wrote nothing, so no section landed. */
+	undone?: boolean;
 } & StepNav) {
 	const landed = results.filter((result) => result.state === "landed").length;
 	const unknown = results.some((result) => result.state === "unknown");
@@ -737,14 +738,10 @@ export function StepPartialImport({
 		<WizardShell
 			steps={IMPORT_STEPS}
 			activeStep={1}
-			title={
-				nothingLanded
-					? "The import stopped, and nothing landed"
-					: "The import stopped part-way"
-			}
+			title="The import stopped part-way"
 			subtitle={
-				nothingLanded
-					? "No section of the file was written."
+				undone
+					? "Nothing was written — the whole import was undone."
 					: unknown
 						? "It did not say how far it got, so check Settings before importing again."
 						: `${landed} of ${results.length} sections landed.`
@@ -755,7 +752,7 @@ export function StepPartialImport({
 						Choose another file
 					</Button>
 					<Button variant="primary" onClick={onNext}>
-						{nothingLanded ? "Try the import again" : "Retry the rest"}
+						Retry the rest
 					</Button>
 				</>
 			}
