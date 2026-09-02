@@ -199,6 +199,17 @@ export interface IThreadMessageRepository {
 			excludeDeleted?: boolean;
 		},
 	): Promise<ResultList<ThreadMessageItem>>;
+	/**
+	 * COUNT of matching MESSAGES in one mailbox, under the same predicate
+	 * `searchByMailboxWindow` reads with — the per-mailbox counterpart of
+	 * `countThreadsInScope`, and not distinct on `threadId` because the listing
+	 * it answers for renders a row per message.
+	 *
+	 * The number is over the whole mailbox. No page size bounds it and no cursor
+	 * narrows it, so it does not shrink as the caller pages and does not change
+	 * when the page size does (#305). There is nothing to cap: the count is one
+	 * aggregate read that returns no rows.
+	 */
 	countByMailbox(
 		accountConfigId: string,
 		mailboxId: string,
