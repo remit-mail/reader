@@ -47,6 +47,13 @@ export interface IThreadMessageRepository {
 			continuationToken?: string;
 			inboxMailboxIds?: Set<string>;
 			excludeDeleted?: boolean;
+			/**
+			 * Row criteria applied inside the query, so a page is a page of
+			 * matches however rare the criterion is. Filtering the rows a page
+			 * returned instead is what makes a listing look empty whenever the
+			 * matching mail sits below the newest page (#308).
+			 */
+			search?: SearchOptions;
 		},
 	): Promise<ResultList<ThreadMessageItem>>;
 	/**
@@ -100,8 +107,31 @@ export interface IThreadMessageRepository {
 			continuationToken?: string;
 			mailboxIds?: Set<string>;
 			excludeDeleted?: boolean;
+			/** Row criteria applied inside the query; see `listByDate`. */
+			search?: SearchOptions;
 		},
 	): Promise<ResultList<ThreadMessageItem>>;
+	/**
+	 * COUNT of matching CONVERSATIONS over the same predicate and the same
+	 * mailbox scope the three cross-account listing modes read with — the scoped
+	 * counterpart of `countByMailbox`.
+	 *
+	 * A page size bounds the rows a response carries and has no bearing on how
+	 * much matches, so a count returns no rows and is answered in full.
+	 *
+	 * Distinct on `threadId`, unlike `countByMailbox`, because the cross-account
+	 * listing is collapsed by thread before it is rendered: a row is per mailbox,
+	 * so one message reachable through a real folder and a virtual copy of it is
+	 * several rows, and two matching messages of one conversation are two more.
+	 */
+	countThreadsInScope(
+		accountConfigId: string,
+		search: SearchOptions,
+		options?: {
+			mailboxIds?: Set<string>;
+			excludeDeleted?: boolean;
+		},
+	): Promise<number>;
 	/**
 	 * Every message of a thread, across all mailboxes of the account. A
 	 * conversation spans INBOX, Sent and any folder its messages were filed

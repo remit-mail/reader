@@ -33,6 +33,19 @@ export type ThreadSearchTokenParams = Pick<
 	"from" | "subject" | "category" | "unread" | "starred" | "attachments"
 >;
 
+/** A parameter name a listing endpoint accepts. */
+export type ThreadSearchTokenParamName = keyof ThreadSearchTokenParams;
+
+/**
+ * Every parameter `searchThreads` takes, the default set.
+ *
+ * `listAllThreads` takes all of these except `from` and `subject`, so a caller
+ * on that endpoint names its own set and the two tokens come back as residue
+ * rather than being silently dropped from a request that never carried them.
+ */
+export const THREAD_SEARCH_TOKEN_PARAMS: readonly ThreadSearchTokenParamName[] =
+	["from", "subject", "category", "unread", "starred", "attachments"];
+
 export interface ThreadSearchTokens {
 	/** What the tokens add to the request. */
 	params: ThreadSearchTokenParams;
@@ -106,17 +119,32 @@ const isCarried = (
 	}
 };
 
+const narrowTo = (
+	params: ThreadSearchTokenParams,
+	carries: readonly ThreadSearchTokenParamName[],
+): ThreadSearchTokenParams =>
+	Object.fromEntries(
+		Object.entries(params).filter(([name]) =>
+			carries.includes(name as ThreadSearchTokenParamName),
+		),
+	);
+
 /**
- * Split the tokens into the parameters the thread search takes and the residue
+ * Split the tokens into the parameters the thread listing takes and the residue
  * the caller has to apply itself. `chipParams` are the parameters already set
- * by the inbox filter chips, which win where they overlap.
+ * by the filter chips, which win where they overlap; `carries` names the
+ * parameters the endpoint being called actually accepts.
  */
 export function threadSearchTokens(
 	tokens: readonly SearchToken[],
 	chipParams: InboxFilterParams = {},
+	carries: readonly ThreadSearchTokenParamName[] = THREAD_SEARCH_TOKEN_PARAMS,
 ): ThreadSearchTokens {
-	const params = paramsFromTokens(tokens);
-	const request: ThreadSearchTokenParams = { ...params, ...chipParams };
+	const params = narrowTo(paramsFromTokens(tokens), carries);
+	const request: ThreadSearchTokenParams = {
+		...params,
+		...narrowTo(chipParams, carries),
+	};
 	return {
 		params,
 		residual: tokens.filter((token) => !isCarried(request, token)),

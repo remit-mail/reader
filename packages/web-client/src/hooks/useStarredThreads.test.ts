@@ -22,6 +22,7 @@ import { renderToString } from "react-dom/server";
 import {
 	starredThreadsQueryKey,
 	useStarredThreads,
+	useStarredUnreadCount,
 } from "./useStarredThreads.js";
 
 interface Page {
@@ -139,5 +140,80 @@ describe("useStarredThreads", () => {
 	test("does not read the unfiltered INBOX listing", () => {
 		const threads = renderHook([{ items: [] }], [makeThread("m-inbox")]);
 		assert.deepEqual(threads, []);
+	});
+});
+
+// #308: the chips were a pass over the pages loaded so far, and the header
+// count was their length. Both are the server's answer now.
+describe("starred criteria", () => {
+	test("carries the chips as query parameters", () => {
+		const [params] = starredThreadsQueryKey({
+			category: ["social"],
+			unread: true,
+			attachments: true,
+		}) as [
+			{
+				query?: {
+					starred?: boolean;
+					category?: string[];
+					unread?: boolean;
+					attachments?: boolean;
+				};
+			},
+		];
+		assert.equal(params.query?.starred, true);
+		assert.deepEqual(params.query?.category, ["social"]);
+		assert.equal(params.query?.unread, true);
+		assert.equal(params.query?.attachments, true);
+	});
+
+	test("an unfiltered listing asks for exactly what it asked for before", () => {
+		assert.deepEqual(starredThreadsQueryKey({}), starredThreadsQueryKey());
+	});
+});
+
+describe("useStarredUnreadCount", () => {
+	function renderCount(seed?: { count?: number }): number | undefined {
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		if (seed) {
+			client.setQueryData(
+				unifiedThreadOperationsListAllThreadsQueryKey({
+					query: {
+						starred: true,
+						order: "desc",
+						unread: true,
+						count: true,
+						results: false,
+					},
+				}),
+				seed,
+			);
+		}
+
+		let captured: number | undefined;
+		function Capture() {
+			captured = useStarredUnreadCount();
+			return null;
+		}
+		renderToString(
+			createElement(
+				QueryClientProvider,
+				{ client },
+				createElement(Capture),
+			) as never,
+		);
+		return captured;
+	}
+
+	test("reports the server's count", () => {
+		assert.equal(renderCount({ count: 137 }), 137);
+	});
+
+	// A count the server has not answered is no number at all. A page length
+	// dressed as a total is what this replaces.
+	test("reports nothing when the server has not answered", () => {
+		assert.equal(renderCount(), undefined);
 	});
 });

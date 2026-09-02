@@ -3,20 +3,26 @@ import type {
 	ThreadOperationsSearchThreadsData,
 } from "@remit/api-http-client/types.gen.ts";
 import { MessageCategory } from "@remit/domain-enums";
-import type { FilterReach } from "@remit/ui";
+import { type FilterReach, inboxFilterConfig } from "@remit/ui";
 
 /** The request `threadOperationsSearchThreads` takes, whole. */
 export type ThreadSearchQuery = NonNullable<
 	ThreadOperationsSearchThreadsData["query"]
 >;
 
-/** The parameters the inbox chips set on that request. */
+/**
+ * The parameters the filter chips set on a thread listing.
+ *
+ * Named for the inbox, which had them first, but shared: `listAllThreads` takes
+ * the same four (#308), so the Flagged view sends the chips through this rather
+ * than growing a second translation of the same chip ids.
+ */
 export type InboxFilterParams = Pick<
 	ThreadSearchQuery,
 	"category" | "unread" | "starred" | "attachments"
 >;
 
-/** The chip state the inbox holds: one category, any number of attributes. */
+/** The chip state a filtered list holds: one category, any number of attributes. */
 export interface InboxFilterCriteria {
 	/** A category id, or `"all"` when the category is cleared. */
 	category: string;
@@ -121,3 +127,18 @@ export const sameInboxFilter = (
 	if (!previous) return false;
 	return filterIdentity(previous) === filterIdentity(params);
 };
+
+/**
+ * The label the empty state names an active category filter by, or undefined
+ * when the id names no category — `"all"` is how the category is cleared, not a
+ * category. Read off the preset so the chip and the sentence about it can never
+ * disagree; every list preset draws its categories from the same set.
+ */
+const CATEGORY_LABELS = new Map(
+	inboxFilterConfig()
+		.categories.filter((category) => category.id !== "all")
+		.map((category) => [category.id, category.label]),
+);
+
+export const categoryLabel = (id: string): string | undefined =>
+	CATEGORY_LABELS.get(id);

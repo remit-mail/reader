@@ -472,6 +472,316 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 		);
 	});
 
+	// #308: the Flagged view filtered by category over the pages it had loaded,
+	// so a category whose mail sits below the newest page rendered an empty list
+	// however much of it the collection held. Seeded so the newest page holds
+	// none of the target category: the filter has to run inside the query.
+	test("listByStarred filters by category below the newest page", async () => {
+		const acct = "acct-starred-category";
+		const base = Date.now();
+		const pageSize = 10;
+		for (let i = 0; i < pageSize; i++) {
+			await repo.create(
+				makeInput({
+					accountConfigId: acct,
+					subject: `newest ${i}`,
+					hasStars: true,
+					category: "personal",
+					sentDate: base - i,
+					internalDate: base - i,
+				}),
+			);
+		}
+		for (let i = 0; i < 3; i++) {
+			await repo.create(
+				makeInput({
+					accountConfigId: acct,
+					subject: `older ${i}`,
+					hasStars: true,
+					category: "social",
+					sentDate: base - pageSize - i,
+					internalDate: base - pageSize - i,
+				}),
+			);
+		}
+
+		const unfiltered = await repo.listByStarred(acct, { limit: pageSize });
+		assert.ok(
+			unfiltered.items.every((i) => i.category === "personal"),
+			"the newest page holds none of the target category",
+		);
+
+		const filtered = await repo.listByStarred(acct, {
+			limit: pageSize,
+			search: { category: ["social"] },
+		});
+		assert.deepEqual(
+			filtered.items.map((i) => i.subject),
+			["older 0", "older 1", "older 2"],
+		);
+	});
+
+	test("listByStarred filters by unread and attachment inside the query", async () => {
+		const acct = "acct-starred-attrs";
+		const base = Date.now();
+		await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				subject: "unread with attachment",
+				hasStars: true,
+				isRead: false,
+				hasAttachment: true,
+				sentDate: base,
+				internalDate: base,
+			}),
+		);
+		await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				subject: "read with attachment",
+				hasStars: true,
+				isRead: true,
+				hasAttachment: true,
+				sentDate: base - 1,
+				internalDate: base - 1,
+			}),
+		);
+		await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				subject: "unread without attachment",
+				hasStars: true,
+				isRead: false,
+				hasAttachment: false,
+				sentDate: base - 2,
+				internalDate: base - 2,
+			}),
+		);
+
+		const unread = await repo.listByStarred(acct, {
+			search: { unread: true },
+		});
+		assert.deepEqual(
+			unread.items.map((i) => i.subject),
+			["unread with attachment", "unread without attachment"],
+		);
+
+		const both = await repo.listByStarred(acct, {
+			search: { unread: true, attachments: true },
+		});
+		assert.deepEqual(
+			both.items.map((i) => i.subject),
+			["unread with attachment"],
+		);
+	});
+
+	test("listByDate filters by category inside the query", async () => {
+		const acct = "acct-date-category";
+		const base = Date.now();
+		await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				subject: "social row",
+				category: "social",
+				sentDate: base,
+				internalDate: base,
+			}),
+		);
+		await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				subject: "personal row",
+				category: "personal",
+				sentDate: base - 1,
+				internalDate: base - 1,
+			}),
+		);
+
+		const result = await repo.listByDate(acct, {
+			search: { category: ["social"] },
+		});
+		assert.deepEqual(
+			result.items.map((i) => i.subject),
+			["social row"],
+		);
+	});
+
+	test("countThreadsInScope counts every match, whatever the page size", async () => {
+		const acct = "acct-count-scope";
+		const base = Date.now();
+		for (let i = 0; i < 7; i++) {
+			await repo.create(
+				makeInput({
+					accountConfigId: acct,
+					subject: `unread ${i}`,
+					hasStars: true,
+					isRead: false,
+					sentDate: base - i,
+					internalDate: base - i,
+				}),
+			);
+		}
+		await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				subject: "read",
+				hasStars: true,
+				isRead: true,
+				sentDate: base - 100,
+				internalDate: base - 100,
+			}),
+		);
+
+		const page = await repo.listByStarred(acct, {
+			limit: 2,
+			search: { starred: true, unread: true },
+		});
+		assert.equal(page.items.length, 2);
+
+		const count = await repo.countThreadsInScope(acct, {
+			starred: true,
+			unread: true,
+		});
+		assert.equal(count, 7);
+	});
+
+	test("countThreadsInScope takes a category union and counts uncategorized", async () => {
+		const acct = "acct-count-category";
+		const base = Date.now();
+		const seed = async (
+			category: NonNullable<CreateThreadMessageInput["category"]>,
+			n: number,
+		) => {
+			for (let i = 0; i < n; i++) {
+				await repo.create(
+					makeInput({
+						accountConfigId: acct,
+						subject: `${category} ${i}`,
+						hasStars: true,
+						category,
+						sentDate: base - i,
+						internalDate: base - i,
+					}),
+				);
+			}
+		};
+		await seed("social", 2);
+		await seed("personal", 3);
+		await seed("uncategorized", 4);
+
+		assert.equal(
+			await repo.countThreadsInScope(acct, {
+				starred: true,
+				category: ["social", "personal"],
+			}),
+			5,
+		);
+		assert.equal(
+			await repo.countThreadsInScope(acct, {
+				starred: true,
+				category: ["uncategorized"],
+			}),
+			4,
+		);
+	});
+
+	test("countThreadsInScope narrows to the supplied mailbox set", async () => {
+		const acct = "acct-count-mailboxes";
+		await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				mailboxId: "mbx-in-scope",
+				subject: "in scope",
+				hasStars: true,
+			}),
+		);
+		await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				mailboxId: "mbx-out-of-scope",
+				subject: "out of scope",
+				hasStars: true,
+			}),
+		);
+
+		assert.equal(
+			await repo.countThreadsInScope(
+				acct,
+				{ starred: true },
+				{ mailboxIds: new Set(["mbx-in-scope"]) },
+			),
+			1,
+		);
+	});
+
+	// The count sits above a list that has been collapsed by thread, so it has to
+	// collapse with it. Counting rows would put a third number on screen: the
+	// header would say two where the list shows one conversation.
+	test("countThreadsInScope counts a conversation once, not its messages", async () => {
+		const acct = "acct-count-thread";
+		const base = Date.now();
+		const threadId = "t-shared-conversation";
+		for (let i = 0; i < 2; i++) {
+			await repo.create(
+				makeInput({
+					accountConfigId: acct,
+					threadId,
+					subject: `reply ${i}`,
+					hasStars: true,
+					isRead: false,
+					sentDate: base - i,
+					internalDate: base - i,
+				}),
+			);
+		}
+		await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				subject: "another conversation",
+				hasStars: true,
+				isRead: false,
+				sentDate: base - 10,
+				internalDate: base - 10,
+			}),
+		);
+
+		const rows = await repo.listByStarred(acct, {
+			search: { starred: true, unread: true },
+		});
+		assert.equal(rows.items.length, 3, "three rows, two conversations");
+		assert.equal(
+			await repo.countThreadsInScope(acct, { starred: true, unread: true }),
+			2,
+		);
+	});
+
+	// One message the server offers through a real folder and through two
+	// virtual copies of it. The listing collapses the copies; so does the count.
+	test("countThreadsInScope counts one message once across its copies", async () => {
+		const acct = "acct-count-copies";
+		const threadId = "t-one-message";
+		const base = Date.now();
+		for (const mailboxId of ["mbx-inbox", "mbx-all", "mbx-starred"]) {
+			await repo.create(
+				makeInput({
+					accountConfigId: acct,
+					threadId,
+					mailboxId,
+					subject: "one message, three placements",
+					hasStars: true,
+					isRead: false,
+					sentDate: base,
+					internalDate: base,
+				}),
+			);
+		}
+
+		assert.equal(
+			await repo.countThreadsInScope(acct, { starred: true, unread: true }),
+			1,
+		);
+	});
+
 	test("listByStarred excludes soft-deleted rows when asked", async () => {
 		const acct = "acct-starred-deleted";
 		await repo.create(

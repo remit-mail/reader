@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import type { MessageCategory } from "@remit/api-openapi-types";
 import type {
 	AccountItem,
 	AccountSettingItem,
 	MailboxItem,
+	SearchOptions,
 } from "@remit/data-ports";
 import {
 	buildInboxMailboxMap,
@@ -11,7 +13,10 @@ import {
 	buildListStarredThreadsOptions,
 	buildSearchAllThreadsOptions,
 	dedupeByMessageId,
+	executeUnifiedThreadListing,
 	type InboxMapClient,
+	type UnifiedThreadClient,
+	type UnifiedThreadParams,
 } from "./unified-threads.js";
 
 // #44: Flagged filtered client-side over the newest 50 unified-inbox rows, so a
@@ -430,5 +435,164 @@ describe("buildSearchAllThreadsOptions", () => {
 		const search = buildSearchAllThreadsOptions({}, new Set(["m-inbox"]));
 		const unified = buildListAllThreadsOptions({}, new Set(["m-inbox"]));
 		assert.equal(search.limit, unified.limit);
+	});
+});
+
+// #308: the cross-account collections filtered and counted in the browser, over
+// the pages a client happened to have loaded. Both are the query's job now.
+describe("executeUnifiedThreadListing", () => {
+	interface Call {
+		mode: "listByDate" | "listByStarred" | "searchByDate";
+		search?: SearchOptions;
+		limit?: number;
+		continuationToken?: string;
+	}
+
+	const emptyPage = { items: [], continuationToken: undefined };
+
+	const buildListingClient = (calls: Call[], count = 0) =>
+		({
+			account: { listAllByAccountConfig: async () => [account("a1")] },
+			mailbox: {
+				listAllByAccount: async () => [
+					mailbox("m-inbox", "a1", "INBOX"),
+					mailbox("m-archive", "a1", "Archive"),
+				],
+			},
+			accountSetting: { listByAccountConfig: async () => [] },
+			message: { get: async () => [] },
+			address: { getAddress: async () => [] },
+			messageLabel: { listByMessageIds: async () => [] },
+			label: { listByAccountConfig: async () => [] },
+			threadMessage: {
+				listByDate: async (
+					_config: string,
+					options?: { search?: SearchOptions; limit?: number },
+				) => {
+					calls.push({ mode: "listByDate", ...options });
+					return emptyPage;
+				},
+				listByStarred: async (
+					_config: string,
+					options?: { search?: SearchOptions; limit?: number },
+				) => {
+					calls.push({ mode: "listByStarred", ...options });
+					return emptyPage;
+				},
+				searchByDate: async (
+					_config: string,
+					search: SearchOptions,
+					options?: { limit?: number },
+				) => {
+					calls.push({ mode: "searchByDate", search, ...options });
+					return emptyPage;
+				},
+				countThreadsInScope: async () => count,
+			},
+		}) as unknown as UnifiedThreadClient;
+
+	const params = (
+		overrides: Partial<UnifiedThreadParams> = {},
+	): UnifiedThreadParams => ({
+		starredOnly: false,
+		count: false,
+		results: true,
+		...overrides,
+	});
+
+	test("sends the row filters into the starred query", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(buildListingClient(calls), CONFIG_ID, {
+			...params({ starredOnly: true }),
+			category: ["social", "personal"] as MessageCategory[],
+			unread: true,
+			attachments: true,
+		});
+
+		assert.equal(calls.length, 1);
+		assert.equal(calls[0].mode, "listByStarred");
+		assert.deepEqual(calls[0].search, {
+			starred: true,
+			category: ["social", "personal"],
+			unread: true,
+			attachments: true,
+		});
+	});
+
+	test("sends the row filters into the INBOX query", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(buildListingClient(calls), CONFIG_ID, {
+			...params(),
+			category: ["uncategorized"] as MessageCategory[],
+		});
+
+		assert.equal(calls[0].mode, "listByDate");
+		assert.deepEqual(calls[0].search, { category: ["uncategorized"] });
+	});
+
+	test("sends the row filters into the search query", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(buildListingClient(calls), CONFIG_ID, {
+			...params({ starredOnly: true }),
+			searchText: "invoice",
+			unread: true,
+		});
+
+		assert.equal(calls[0].mode, "searchByDate");
+		assert.deepEqual(calls[0].search, {
+			query: "invoice",
+			starred: true,
+			unread: true,
+		});
+	});
+
+	// The defect the count replaces: a page-length figure grew with every press
+	// of "load more" while the header presented it as a total.
+	test("counts the same however far the caller has paged", async () => {
+		const calls: Call[] = [];
+		const first = await executeUnifiedThreadListing(
+			buildListingClient(calls, 42),
+			CONFIG_ID,
+			params({ starredOnly: true, count: true, unread: true }),
+		);
+		const later = await executeUnifiedThreadListing(
+			buildListingClient(calls, 42),
+			CONFIG_ID,
+			params({
+				starredOnly: true,
+				count: true,
+				unread: true,
+				continuationToken: "page-3",
+				limit: 10,
+			}),
+		);
+
+		assert.equal(first.count, 42);
+		assert.equal(later.count, 42);
+	});
+
+	test("reads the count alone when results are not wanted", async () => {
+		const calls: Call[] = [];
+		const response = await executeUnifiedThreadListing(
+			buildListingClient(calls, 7),
+			CONFIG_ID,
+			params({ starredOnly: true, count: true, results: false }),
+		);
+
+		assert.deepEqual(calls, []);
+		assert.equal(response.items, undefined);
+		assert.equal(response.count, 7);
+	});
+
+	test("omits the count when it was not asked for", async () => {
+		const calls: Call[] = [];
+		const response = await executeUnifiedThreadListing(
+			buildListingClient(calls, 7),
+			CONFIG_ID,
+			params({ starredOnly: true }),
+		);
+
+		assert.equal(response.count, undefined);
+		assert.deepEqual(response.items, []);
 	});
 });
