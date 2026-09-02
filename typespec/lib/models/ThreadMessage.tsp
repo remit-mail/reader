@@ -288,18 +288,23 @@ model ThreadSearchResponse {
   continuationToken?: String800;
 
   @doc("""
-    How much the query matches, over the whole scope and independent of `limit`.
-    Present only when `count=true`.
+    How much the query matches, over the whole scope. Exact: no page size bounds
+    it, no cursor narrows it, so it is the same number on the first page and the
+    last. Present only when `count=true`.
 
     Each operation counts what it lists. `searchThreads` lists messages of one
-    mailbox and counts messages; with `senderTrust` or `dkimMismatch` in the
-    query that count is over the enriched window instead, since those are
-    resolved off the row. `listAllThreads` counts CONVERSATIONS across every
-    non-muted mailbox of every account — a thread holding two matching messages
-    counts once, and so does one message reachable through a real folder and a
-    virtual copy of it — because that is what the cross-account listing renders
-    after collapsing by `threadId`. A count that disagreed with the rows beneath
-    it would be a third number for the same set.
+    mailbox and counts messages. `listAllThreads` counts CONVERSATIONS across
+    every non-muted mailbox of every account — a thread holding two matching
+    messages counts once, and so does one message reachable through a real
+    folder and a virtual copy of it — because that is what the cross-account
+    listing renders after collapsing by `threadId`. A count that disagreed with
+    the rows beneath it would be a third number for the same set.
+
+    Absent when the query carries `senderTrust` or `dkimMismatch`, even with
+    `count=true`. Those are resolved by enriching rows rather than by a
+    predicate, so no exact count exists short of enriching the whole mailbox.
+    Absence says so; a page's post-filter length labelled `count` would be a
+    page length presented as a total. A client with no number renders none.
     """)
   count?: int32;
 }

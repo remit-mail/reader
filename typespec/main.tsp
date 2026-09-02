@@ -747,7 +747,7 @@ namespace RemitApi {
       @query(#{ explode: true })
       attachments?: boolean,
 
-      @doc("Include how many messages the listing matches. Counted over the whole scope, independent of `limit`.")
+      @doc("Include how many conversations the listing matches, exactly, over the whole scope. Opt-in because it is a second read over the entire match set rather than a by-product of the page: ask for it on a deliberate act, never on a keystroke.")
       @query(#{ explode: true })
       count?: boolean,
 
@@ -803,7 +803,7 @@ namespace RemitApi {
       @query(#{ explode: true })
       attachments?: boolean,
 
-      @doc("Filter to messages whose From address has one of these trust levels. Off-row criterion, resolved by in-handler enrichment over the capped window.")
+      @doc("Filter to messages whose From address has one of these trust levels. Off-row criterion: resolved by enriching the rows this page read, not by a predicate over the mailbox, so `count` comes back absent whenever it is supplied.")
       @query(#{ explode: true })
       senderTrust?: SenderTrust[],
 
@@ -811,11 +811,11 @@ namespace RemitApi {
       @query(#{ explode: true })
       category?: MessageCategory[],
 
-      @doc("Filter on the DKIM-alignment signal (true = DKIM mismatch). Off-row criterion; rows without an authenticity signal never match.")
+      @doc("Filter on the DKIM-alignment signal (true = DKIM mismatch). Off-row criterion, like `senderTrust`: rows without an authenticity signal never match, and `count` comes back absent whenever it is supplied.")
       @query(#{ explode: true })
       dkimMismatch?: boolean,
 
-      @doc("Include how many messages the query matches. Counted over the whole mailbox, independent of `limit`.")
+      @doc("Include how many messages the query matches, exactly, over the whole mailbox. Opt-in because it is a second read over the entire match set rather than a by-product of the page: ask for it on a deliberate act, never on a keystroke. Answered as absent — not as a page length — when the query carries `senderTrust` or `dkimMismatch`, which no predicate can count.")
       @query(#{ explode: true })
       count?: boolean,
 
@@ -823,7 +823,7 @@ namespace RemitApi {
       @query(#{ explode: true })
       results?: boolean,
 
-      @doc("Page size for the rows returned, capped server-side at 500. Bounds the read, not the `count`.")
+      @doc("Page size for the rows returned, capped server-side at 500. It bounds this page and nothing else: `count` is over the whole mailbox and does not move when this does.")
       @query(#{ explode: true })
       limit?: int32,
     ): ThreadSearchResponse;
