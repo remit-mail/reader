@@ -621,7 +621,10 @@ const typeFolderName = async (root: HTMLElement, name: string) => {
 };
 
 const QUERY = "npm";
-const RESULTS_TITLE = `Results for "${QUERY}"`;
+/** What the server counts this query as matching. The result header and the
+ *  escalated selection render one figure, from one count (#307). */
+const MATCH_TOTAL = 1284;
+const RESULTS_TITLE = `${MATCH_TOTAL.toLocaleString()} results for “${QUERY}”`;
 
 /** The three Booking.com rows — one sender across the whole selection. */
 const ONE_SENDER = ["m1", "m5", "m8"];
@@ -1604,13 +1607,12 @@ export const RunFailedBeyondNamed: Story = {
 /* ------------------------------------------------------------------ */
 
 const ESCALATED_SCOPE = `matching "${QUERY}"`;
-const ESCALATED_TOTAL = 1284;
 
 const escalatedEntry = (verb: Verb, startAt: StepId): WizardEntry => ({
 	verb,
 	startAt,
 	escalatedScope: ESCALATED_SCOPE,
-	escalatedTotal: ESCALATED_TOTAL,
+	escalatedTotal: MATCH_TOTAL,
 });
 
 /**

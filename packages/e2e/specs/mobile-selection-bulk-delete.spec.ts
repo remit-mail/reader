@@ -168,11 +168,9 @@ const gotoSearch = async (
 ): Promise<void> => {
 	// Wait for the query's own page to land. The committed search re-keys the
 	// list query and the previous rows stand until it answers, so a select-all
-	// taken before then covers the mailbox's rows instead of the query's. This
-	// used to be waited out through the count in the results header; that number
-	// is gone since #306 — a page length labelled a result total contradicts the
-	// completeness a filtered empty state asserts in the same view — and the
-	// response it stood in for is the exact signal.
+	// taken before then covers the mailbox's rows instead of the query's. The
+	// response is the exact signal; the header's count answers a request of its
+	// own (#307) and settles on its own schedule.
 	const answered = page.waitForResponse(
 		(response) =>
 			isBrowsingSearchRequest(response.url(), query) && response.ok(),
@@ -181,9 +179,11 @@ const gotoSearch = async (
 	await page.goto(`/mail/${mailboxId}?q=${encodeURIComponent(query)}`);
 	await answered;
 	await expect(rows(page).first()).toBeVisible({ timeout: 30_000 });
-	await expect(page.getByText(`Results for “${query}”`)).toBeVisible({
-		timeout: 30_000,
-	});
+	// A number, from the server counting the whole match set — never the length
+	// of the page on screen (#307).
+	await expect(
+		page.getByText(new RegExp(`\\d[\\d,.\\s]* results? for “${query}”`)),
+	).toBeVisible({ timeout: 30_000 });
 };
 
 /**

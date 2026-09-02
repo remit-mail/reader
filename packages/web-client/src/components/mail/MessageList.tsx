@@ -4,10 +4,12 @@ import {
 	cn,
 	type Density,
 	deriveIsMultiSelectMode,
+	ListResultHeader,
 	type MessageListFilter,
 	MessageListLoadingMore,
 	MessageListPane,
 	nextFocusId,
+	type ResultCount,
 	type SelectionModifiers,
 	SelectionTopBar,
 	useSelection,
@@ -15,7 +17,6 @@ import {
 } from "@remit/ui";
 import { useBlocker } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Search } from "lucide-react";
 import type { RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
@@ -113,6 +114,12 @@ interface MessageListProps {
 	 * only the display string.
 	 */
 	searchPredicate?: EscalationSearchQuery;
+	/**
+	 * How many messages the search matches, as the server counted them — the
+	 * whole match set, not the pages loaded. Omitted where the count was never
+	 * asked for, which renders the header without a number.
+	 */
+	resultCount?: ResultCount;
 	onDeleteMessages?: (messageIds: string[]) => void;
 	isDeleting?: boolean;
 	isMoving?: boolean;
@@ -189,21 +196,6 @@ const readStoredDensity = (): Density => {
 };
 
 /**
- * Names what the list is showing. No number: the only figure available here is
- * the length of the loaded pages, and a page length presented as a result total
- * contradicts the completeness the filtered empty state states in the same view
- * (#306). The exact count is #307's.
- */
-const SearchResultsHeader = ({ query }: { query: string }) => (
-	<div className="flex items-center gap-2 px-3 py-2 border-b border-line bg-surface-sunken/30">
-		<Search className="size-4 text-fg-muted" />
-		<span className="text-sm text-fg-muted">
-			Results for &ldquo;{query}&rdquo;
-		</span>
-	</div>
-);
-
-/**
  * Why Move is withheld from a selection, in the toolbar's own words. Rows from
  * a per-mailbox endpoint carry no account of their own, so the list's own
  * account stands in for them and a row that does carry one is still compared
@@ -230,6 +222,7 @@ export const MessageList = ({
 	onRetry,
 	searchQuery,
 	searchPredicate,
+	resultCount = { kind: "unknown" },
 	onDeleteMessages,
 	isDeleting = false,
 	isMoving = false,
@@ -1227,7 +1220,7 @@ export const MessageList = ({
 	const virtualBody = (
 		<>
 			{isSearching && searchQuery && (
-				<SearchResultsHeader query={searchQuery} />
+				<ListResultHeader query={searchQuery} count={resultCount} />
 			)}
 			<div
 				ref={parentRef}

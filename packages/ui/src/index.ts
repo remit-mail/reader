@@ -493,6 +493,11 @@ export {
 	type LabelChipProps,
 } from "./components/label-chip.js";
 export {
+	ListResultHeader,
+	type ListResultHeaderProps,
+	type ResultCount,
+} from "./components/list-result-header.js";
+export {
 	type MailAction,
 	MailActionToolbar,
 	type MailActionToolbarProps,

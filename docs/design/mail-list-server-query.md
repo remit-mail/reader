@@ -125,17 +125,17 @@ Buys: the largest table gains one index rather than two, and a wrong cost estima
 
 ## Part 2 — the numbers
 
-### D13 — `count` is exact and free on the SQL port, and is not built here
+### D13 — `count` is exact and free on the SQL port
 
-Recorded because it is settled and cheap; deferred because nothing in the trimmed scope renders a number.
+Recorded because it is settled and cheap; deferred out of the trimmed scope, and built since in #305 and #307.
 
-`countByMailbox` (`packages/drizzle-service/src/repos/thread-message.ts:899-912`) already runs the full `COUNT(*)` and then discards the answer with `Math.min(count, cap)` at `:912`. It also already omits the cursor condition, so the number is the whole match set and does not shrink as the user pages. Dropping the clamp removes a line and costs nothing: the scan already happens. Both properties are accidents today and become contract in #305.
+`countByMailbox` (`packages/drizzle-service/src/repos/thread-message.ts:922-945`) ran the full `COUNT(*)` and then discarded the answer with `Math.min(count, cap)`. The clamp is gone; the query omits the cursor condition, so the number is the whole match set and does not shrink as the user pages. Dropping it removed a line and cost nothing: the scan already happened. Both properties were accidents and are contract now.
 
-When #305 is picked up, `count` stays opt-in and these are requirements, not advice: its own query keyed on the criteria **without** the cursor, so a page fetch can never trigger it; `staleTime` of 60 seconds; requested immediately for chip-driven criteria; and **never for a free-text query under three characters**, because `npm-scripts/sqlite-search-index.sql` documents that sub-three-character queries fall back to an unindexed folded `LIKE` scan, and a count over a predicate the index cannot serve is a mailbox scan per character.
+`count` stays opt-in and these are requirements, not advice: its own query keyed on the criteria **without** the cursor, so a page fetch can never trigger it; `staleTime` of 60 seconds; asked only while a search is active, since that is the only surface rendering the number; requested straight away once the criteria are token- or chip-driven; and **never for a free-text query under three characters**, because `npm-scripts/sqlite-search-index.sql` documents that sub-three-character queries fall back to an unindexed folded `LIKE` scan, and a count over a predicate the index cannot serve is a mailbox scan per character.
 
 `count` is already `count?: int32` on `ThreadSearchResponse`. An absent count therefore needs no new field and no new surface, which is what makes the "no new API surface" claim true rather than nearly true.
 
-Buys: the epic ships without touching the API, and the count's cheapness is recorded while it is fresh rather than rediscovered. Gives up: a number that is free on the SQL port stays unused, and five surfaces keep showing page lengths until #305 and #307 are scheduled.
+Buys: the epic ships without touching the API, and the count's cheapness is recorded while it is fresh rather than rediscovered. Gives up: a number free on the SQL port stayed unused until #305 and #307 were scheduled, and the surfaces that render one showed page lengths meanwhile.
 
 ### D14 — withdrawn: the bounded-read contract is documented, not built
 
