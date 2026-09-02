@@ -61,7 +61,13 @@ export interface RunQueuePollerOptions {
 // the extra receive per message is a millisecond against the local queue
 // sidecar — the same total work either way.
 const DEFAULT_MAX_MESSAGES = 1;
-const DEFAULT_VISIBILITY_TIMEOUT_SECONDS = 300;
+/**
+ * What a handler has before the queue redelivers the record underneath it.
+ * Exported because a handler that budgets its own wait has to agree with it;
+ * `deploy/vps/queues.json` sets the same number on the queue itself, and this
+ * is the one that applies wherever a target passes no override.
+ */
+export const DEFAULT_VISIBILITY_TIMEOUT_SECONDS = 300;
 
 const pollTarget = async (
 	target: QueuePollerTarget,
