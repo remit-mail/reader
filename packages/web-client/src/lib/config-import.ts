@@ -287,7 +287,7 @@ export const writeFailure = (
 
 export type SectionOutcome =
 	| "landed"
-	| "rolled-back"
+	| "not-landed"
 	| "failed"
 	| "not-attempted"
 	| "unknown";
@@ -299,8 +299,7 @@ export interface SectionResult {
 	detail: string;
 }
 
-const ROLLED_BACK_DETAIL =
-	"Rolled back — nothing from this section is on this instance.";
+const NOT_LANDED_DETAIL = "Nothing from this section is on this instance.";
 
 /**
  * What a stopped import left behind, section by section. The write order is
@@ -308,9 +307,11 @@ const ROLLED_BACK_DETAIL =
  * before it ran, it did not, and what is after it was never reached.
  *
  * `applied` is the server's answer on whether any of it survived, because only
- * the backend knows whether it had a transaction. On a store that wraps the
- * import in one, a stop rolls the earlier writes back and `applied` is false:
- * then nothing landed, however far the write order got.
+ * the backend knows whether it had a transaction: false means nothing from the
+ * file is on this instance, however far the write order got. It does not say
+ * why — a transaction undid the earlier writes, or the first one failed and
+ * there was nothing to undo — and the report carries no flag that does, so the
+ * screen states what landed and never how the store got there.
  *
  * A failure that names no section leaves the split undecidable, and every
  * section reads `unknown` rather than `landed`. Telling someone their accounts
@@ -323,7 +324,7 @@ export const sectionResults = (
 	const failure = writeFailure(report);
 	const named = failure?.details?.section;
 	const failedSection = named ? asSection(named) : undefined;
-	const rolledBack = !report.applied;
+	const nothingLanded = !report.applied;
 	const counts = new Map<ImportSection, number>();
 	for (const item of report.items) {
 		if (asVerdict(item.verdict) === "rejected") continue;
@@ -341,7 +342,7 @@ export const sectionResults = (
 		}));
 
 	if (!failedSection) {
-		if (rolledBack) return everySection("rolled-back", ROLLED_BACK_DETAIL);
+		if (nothingLanded) return everySection("not-landed", NOT_LANDED_DETAIL);
 		const detail = named
 			? `The import stopped in "${named}", which this instance does not recognise, so it cannot say whether this section was written.`
 			: "The import stopped without naming where, so it cannot say whether this section was written. Open Settings to see what is here.";
@@ -368,12 +369,12 @@ export const sectionResults = (
 				detail: "Not attempted — the import stopped before this section.",
 			};
 		}
-		if (rolledBack) {
+		if (nothingLanded) {
 			return {
 				section,
 				title,
-				state: "rolled-back" as const,
-				detail: ROLLED_BACK_DETAIL,
+				state: "not-landed" as const,
+				detail: NOT_LANDED_DETAIL,
 			};
 		}
 		const written = counts.get(section) ?? 0;

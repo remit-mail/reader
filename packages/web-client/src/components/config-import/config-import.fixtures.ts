@@ -182,11 +182,11 @@ export const partialImportReport: RemitImapConfigImportReport = report({
 });
 
 /**
- * The same stop on a store that holds the import in one transaction: the
- * earlier writes are undone, so the report carries no landed item and
- * `applied` is false.
+ * The same stop, with nothing left behind: a store that holds the import in one
+ * transaction undoes the earlier writes, so the report carries no landed item
+ * and `applied` is false. Warnings go with them.
  */
-export const rolledBackImportReport: RemitImapConfigImportReport = report({
+export const nothingLandedImportReport: RemitImapConfigImportReport = report({
 	applied: false,
 	items: [
 		item(
@@ -204,7 +204,7 @@ export const rolledBackImportReport: RemitImapConfigImportReport = report({
 			details: { section: "filters", key: "Bonnetjes" },
 		},
 	],
-	warnings: folderWarnings,
+	warnings: [],
 });
 
 export const importedAccounts: ImportedAccount[] = [
