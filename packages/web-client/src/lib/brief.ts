@@ -1,7 +1,7 @@
 /**
- * Daily brief grouping logic.
+ * Daily brief section assembly.
  *
- * Pure function: takes a flat list of thread message rows and returns one
+ * Pure function: takes one complete per-category server response and returns one
  * section per message category, in a fixed display order:
  *
  *  1. Personal
@@ -12,11 +12,15 @@
  *  6. Automated
  *  7. Unclassified
  *
- * Each row lands in the section for its category; a row with no category counts
- * as `uncategorized`, which is its own section rather than being folded into
- * Personal — unclassified mail is missing work, not a decision (issue #45).
- * Starred mail is not a section —
- * the star is a per-row marker, so a starred message stays in its category.
+ * Each section is its own server query, scoped to its category and carrying
+ * every criterion on screen the request can express, plus one count for the
+ * whole category. Nothing here groups a page: a category whose mail is entirely
+ * older than the newest unified page still has a section, and the section's
+ * header states the category's real size rather than how many of a shared window
+ * happened to fall in it (#312). `uncategorized` is its own section rather than
+ * being folded into Personal — unclassified mail is missing work, not a decision
+ * (issue #45). Starred mail is not a section — the star is a per-row marker, so
+ * a starred message stays in its category.
  *
  * Sender trust (vip/wellknown) no longer sections the brief — the signal is
  * still carried on each row (see `toThreadRowData`) for future use, but it does
@@ -24,16 +28,17 @@
  * a high-volume mailbox read≠handled and unread≠important; unread is a
  * user-selectable filter chip instead.
  *
- * Muted senders and empty sections are excluded. Mute filtering happens in
- * `excludeMutedSenders`, applied by the caller to the raw thread rows before
- * `toThreadRowData`/grouping — the server denormalizes `muted` onto each row
- * from the From address's flags (RFC 039 Decision 3, issue #301), so no
+ * Muted senders and categories the scope holds none of are excluded. Mute
+ * filtering happens in `excludeMutedSenders`, applied by the caller to the raw
+ * thread rows before `toThreadRowData` — the server denormalizes `muted` onto
+ * each row from the From address's flags (RFC 039 Decision 3, issue #301), so no
  * client-side Address lookup is needed.
  */
 
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { MessageCategory } from "@remit/domain-enums";
 import type {
+	ResultCount,
 	SenderTrustLevel,
 	ThreadCategory,
 	ThreadRowData,
@@ -79,6 +84,26 @@ export function toThreadRowData(
  * mail, so callers outside the brief (mailbox listings, search) must not
  * apply this filter.
  */
+/**
+ * The section's count, or no number, once mute is taken into account.
+ *
+ * Mute is the one criterion the request cannot be asked about: `listAllThreads`
+ * has no `muted` parameter, so a scope holding a muted sender is counted with
+ * that sender's mail in it while the list renders without it. The header would
+ * overstate, and "Show all" would offer rows the brief will not show.
+ *
+ * Withheld per section rather than for the whole brief — one muted marketer must
+ * not take the number off Personal — and only where a mute is visible in the
+ * rows on hand. A muted sender below a section's page is not visible, so this
+ * suppresses a number known to be wrong rather than certifying the rest.
+ */
+export function briefSectionTotal(
+	total: ResultCount,
+	rows: RemitImapThreadMessageResponse[],
+): ResultCount {
+	return rows.some((row) => row.muted === true) ? { kind: "unknown" } : total;
+}
+
 export function excludeMutedSenders(
 	threads: RemitImapThreadMessageResponse[],
 ): RemitImapThreadMessageResponse[] {
@@ -86,14 +111,19 @@ export function excludeMutedSenders(
 }
 
 /**
- * Union of the brief's own rows with the rows the server's cross-folder search
- * returned, newest first.
+ * Union of a complete server-filtered listing with the rows the server's
+ * cross-folder text search returned, newest first.
  *
- * Both lists are needed. The server matches subject and From only, so a row
- * whose snippet carries the term is found only by the client-side pass over the
- * loaded brief rows; the server pass is the only one that reaches Archive,
- * Sent, Spam and custom folders, which the brief list never loads. The two
- * overlap on INBOX, so rows are deduped by id, the first occurrence winning.
+ * Both lists are needed where the listing itself is complete under its criteria
+ * — the Flagged collection is, and pages to its end. The server matches subject
+ * and From only, so a row whose snippet carries the term is found only by the
+ * client-side pass; the server pass is the only one that reaches Archive, Sent,
+ * Spam and custom folders. The two overlap, so rows are deduped by id, the first
+ * occurrence winning.
+ *
+ * Not for a paginated prefix. The brief's sections are per-category pages, so
+ * merging one with a search window and re-sorting would order two truncated
+ * lists against each other and call the result newest-first (#312).
  *
  * Rows without a `sentDate` sort last; the brief's own list is already newest
  * first, so this only has to re-interleave the two sources.
@@ -114,9 +144,10 @@ export function mergeSearchRows(
 
 /**
  * Category sections in fixed display order. The `id`/`label` drive the rendered
- * section; `category` is the row category that routes into it.
+ * section; `category` is both the section's own scope and the query parameter
+ * the section's request carries.
  */
-const CATEGORY_SECTIONS: ReadonlyArray<{
+export const CATEGORY_SECTIONS: ReadonlyArray<{
 	id: string;
 	label: string;
 	category: ThreadCategory;
@@ -142,36 +173,63 @@ const CATEGORY_SECTIONS: ReadonlyArray<{
 	},
 ];
 
+/** The categories the brief asks for, in the order it renders them. */
+export const BRIEF_CATEGORIES: readonly ThreadCategory[] =
+	CATEGORY_SECTIONS.map((section) => section.category);
+
+/** One category's own server answer: its newest rows and how many it holds. */
+export interface BriefCategoryResult {
+	category: ThreadCategory;
+	/** The newest rows the section's request returned, newest first. */
+	rows: ThreadRowData[];
+	/** The category's size over the whole scope, or no number at all. */
+	total: ResultCount;
+	/** The request came back full, so the category holds more than these rows. */
+	atCap: boolean;
+	/** The request has not answered yet. */
+	loading: boolean;
+	/** The request failed. This category alone; the others are unaffected. */
+	failed: boolean;
+}
+
 /**
- * Group a flat list of thread row data into one section per message category.
- * Rows should already be filtered for the selected account chip (if any) before
- * calling this function.
+ * The per-category server answers as brief sections, in display order.
  *
- * @param rows      Flat array of ThreadRowData, sorted newest-first.
- * @returns         Array of ThreadSection in category display order — empty
- *                  sections are omitted.
+ * A regrouping of complete responses, never of a page: each result already is
+ * its whole category as far as the request was concerned, so no further page can
+ * move a section's membership or its total.
+ *
+ * A category the scope holds none of has no section — a header stating zero is
+ * noise, not information. A category still being fetched, or whose own request
+ * failed, keeps its section so the loading and error treatments have somewhere
+ * to render, and a category with a real total keeps its section even with no
+ * rows left after the chips, so the reader sees which filter emptied it.
  */
-export function groupBriefSections(rows: ThreadRowData[]): ThreadSection[] {
-	const byCategory = new Map<string, ThreadRowData[]>(
-		CATEGORY_SECTIONS.map((s) => [s.category, []]),
+export function briefSections(
+	results: readonly BriefCategoryResult[],
+): ThreadSection[] {
+	const byCategory = new Map(
+		results.map((result) => [result.category, result] as const),
 	);
-
-	for (const row of rows) {
-		const category = row.category ?? MessageCategory.uncategorized;
-		const bucket =
-			byCategory.get(category) ?? byCategory.get(MessageCategory.uncategorized);
-		bucket?.push(row);
-	}
-
 	const sections: ThreadSection[] = [];
 	for (const section of CATEGORY_SECTIONS) {
-		const threads = byCategory.get(section.category);
-		if (threads && threads.length > 0)
-			sections.push({
-				id: section.id,
-				label: section.label,
-				threads,
-			});
+		const result = byCategory.get(section.category);
+		if (!result) continue;
+		const holdsMail =
+			result.loading ||
+			result.failed ||
+			result.rows.length > 0 ||
+			(result.total.kind === "exact" && result.total.value > 0);
+		if (!holdsMail) continue;
+		sections.push({
+			id: section.id,
+			label: section.label,
+			threads: result.rows,
+			total: result.total,
+			atCap: result.atCap,
+			loading: result.loading,
+			error: result.failed,
+		});
 	}
 	return sections;
 }
@@ -190,15 +248,20 @@ export function matchesBriefSearch(t: ThreadRowData, query: string): boolean {
 }
 
 /**
- * Returns true when `t` satisfies every parsed filter token — the client-side
- * counterpart of the params `threadOperationsSearchThreads` accepts, applied
- * over the already-loaded brief/flagged rows (#428). A row without the data a
- * token needs (e.g. no `sentDate` for `before:`/`after:`) never matches that
- * token, so it drops out rather than showing under an unverifiable filter.
- * `in:`/`account:` have no server param at all — this is the entire
- * implementation of both, reusing the same per-account fan-out the daily
- * brief already reads its rows from (`accountId`/`mailboxId` are already on
- * every row).
+ * Returns true when `t` satisfies every token handed to it.
+ *
+ * The residue applier: callers pass the tokens their request could not carry —
+ * `threadSearchTokens` decides which those are by reading the request back — and
+ * this narrows the rows that came back by them. A token the request did carry
+ * must not be passed here; the server already answered it over the whole scope,
+ * and re-answering it over one page is how a criterion ends up meaning "among
+ * the rows fetched so far" (#312).
+ *
+ * Every token is implemented so that a request carrying fewer parameters still
+ * has somewhere to put the rest: `listAllThreads` has no `from` or `subject` of
+ * its own, and no endpoint has `before:`, `after:`, `in:` or `account:`. A row
+ * without the data a token needs (no `sentDate` for `before:`/`after:`) never
+ * matches it, so it drops out rather than showing under an unverifiable filter.
  */
 export function matchesSearchTokens(
 	t: ThreadRowData,

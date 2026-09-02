@@ -84,6 +84,56 @@ const sections: ThreadSection[] = [
 	},
 ];
 
+/**
+ * The live shape: each section is its own category-scoped query, so its header
+ * carries that category's real size and its rows are the newest page of it.
+ */
+const countedSections: ThreadSection[] = [
+	{
+		id: "personal",
+		label: "Personal",
+		threads: [
+			{
+				id: "p1",
+				accountId: "a1",
+				fromName: "Priya Nair",
+				fromEmail: "priya@example.com",
+				subject: "Design review tomorrow",
+				snippet: "Can we move it to 2pm? I have a conflict.",
+				timeLabel: "8:15",
+				isRead: false,
+				category: "personal",
+			},
+		],
+		total: { kind: "exact", value: 4753 },
+	},
+	{
+		id: "newsletter",
+		label: "Newsletter",
+		threads: Array.from({ length: 10 }, (_, i) => newsletterRow(i + 1)),
+		total: { kind: "exact", value: 2295 },
+	},
+	{
+		id: "social",
+		label: "Social",
+		threads: [],
+		total: { kind: "exact", value: 88 },
+		loading: true,
+	},
+	{
+		id: "marketing",
+		label: "Marketing",
+		threads: [],
+		error: true,
+	},
+	{
+		id: "uncategorized",
+		label: "Unclassified",
+		threads: [],
+		total: { kind: "exact", value: 12 },
+	},
+];
+
 const meta: Meta<typeof BriefSections> = {
 	title: "Screens/Kit/BriefSections",
 	component: BriefSections,
@@ -130,12 +180,92 @@ export const AllScopeWithHeaders: Story = {
 };
 
 /**
- * (b) Single-category filter: narrowed to Newsletter, the list renders FLAT with
- * NO section header — the header would be redundant once a single category is
- * selected. This is the behavior the live brief now inherits from the kit.
+ * (b) Single-category filter over uncounted sections: narrowed to Newsletter, the
+ * list renders FLAT with NO section header — with nothing but the label to state,
+ * the header only repeats the chip.
  */
 export const SingleCategoryFlat: Story = {
 	args: { briefCategory: "newsletter" },
+	render: (args) => (
+		<div className="flex h-screen w-96 flex-col border-r border-line">
+			<BriefSections {...args} />
+		</div>
+	),
+};
+
+/**
+ * (b2) The live brief: each header carries its category's real size, a section
+ * whose rows have not arrived shows the loading treatment under its total, a
+ * section whose own request failed says so and offers its own retry, and a
+ * section a chip emptied says so too. "Show all" hands the reader to that
+ * category's own list rather than fetching more rows here.
+ */
+export const ServerTotals: Story = {
+	args: {
+		sections: countedSections,
+		briefCategory: "all",
+		onShowAllSection: () => undefined,
+		onRetrySection: () => undefined,
+	},
+	render: (args) => (
+		<div className="flex h-screen w-96 flex-col border-r border-line">
+			<BriefSections {...args} />
+		</div>
+	),
+};
+
+/**
+ * (b3) The "show all" destination: narrowed to one counted category, the header
+ * stays, because the total is the one thing the chip cannot state.
+ */
+export const SingleCategoryCounted: Story = {
+	args: { sections: countedSections, briefCategory: "newsletter" },
+	render: (args) => (
+		<div className="flex h-screen w-96 flex-col border-r border-line">
+			<BriefSections {...args} />
+		</div>
+	),
+};
+
+/**
+ * (b4) The brief answering a search: no sections at all, one list in the order
+ * the server returned it. A newsletter from last spring under a header would
+ * outrank a mail from this morning, which is the reading a search must not give.
+ */
+export const Searching: Story = {
+	args: {
+		sections: [
+			{
+				id: "matches",
+				threads: [
+					{
+						id: "m1",
+						accountId: "a1",
+						fromName: "CI",
+						fromEmail: "ci@build.example",
+						subject: "Your build passed",
+						snippet: "All checks green on main.",
+						timeLabel: "8:02",
+						isRead: false,
+						category: "automated",
+					},
+					{
+						id: "m2",
+						accountId: "a1",
+						fromName: "Digest",
+						fromEmail: "digest@news.example",
+						subject: "Weekly digest for you",
+						snippet: "Stories you might have missed.",
+						timeLabel: "Mar 4",
+						isRead: true,
+						category: "newsletter",
+					},
+				],
+			},
+		],
+		briefCategory: "all",
+		flat: true,
+	},
 	render: (args) => (
 		<div className="flex h-screen w-96 flex-col border-r border-line">
 			<BriefSections {...args} />
