@@ -171,7 +171,10 @@ test("an import the server says wrote nothing marks no section landed, whatever 
 
 	const byId = new Map(results.map((result) => [result.section, result]));
 	assert.equal(byId.get("accounts")?.state, "not-landed");
-	assert.match(byId.get("accounts")?.detail ?? "", /Nothing from this section/);
+	assert.match(
+		byId.get("accounts")?.detail ?? "",
+		/Nothing from this section was written/,
+	);
 	assert.equal(byId.get("labels")?.state, "not-landed");
 	assert.equal(byId.get("filters")?.state, "failed");
 	assert.equal(byId.get("addressFlags")?.state, "not-attempted");

@@ -436,7 +436,7 @@ export const PartiallyLandedImport: Story = {
 };
 
 /**
- * The same stop with nothing left behind — a transaction undid the earlier
+ * The same stop with no section written — a transaction undid the earlier
  * writes, or the first write was the one that failed. No section may carry a
  * tick, and the screen counts nothing as landed.
  */

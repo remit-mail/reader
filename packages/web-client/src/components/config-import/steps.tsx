@@ -744,7 +744,7 @@ export function StepPartialImport({
 			}
 			subtitle={
 				nothingLanded
-					? "Nothing from the file is here; this instance is as it was."
+					? "No section of the file was written."
 					: unknown
 						? "It did not say how far it got, so check Settings before importing again."
 						: `${landed} of ${results.length} sections landed.`
@@ -763,9 +763,8 @@ export function StepPartialImport({
 			<div className="space-y-4">
 				<Banner tone="danger">{message}</Banner>
 				<p className="text-sm text-fg-muted">
-					{nothingLanded
-						? "Retrying is safe: the stopped run left nothing here, so a retry starts from the instance you had before it."
-						: "Retrying is safe: an import folds into what is already here rather than replacing it, so what landed is recognised and left alone."}
+					Retrying is safe: an import folds into what is already here rather
+					than replacing it, so what landed is recognised and left alone.
 				</p>
 				<div className="divide-y divide-line">
 					{results.map((result) => (

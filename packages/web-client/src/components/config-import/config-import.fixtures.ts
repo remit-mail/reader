@@ -182,7 +182,7 @@ export const partialImportReport: RemitImapConfigImportReport = report({
 });
 
 /**
- * The same stop, with nothing left behind: a store that holds the import in one
+ * The same stop with no section written: a store that holds the import in one
  * transaction undoes the earlier writes, so the report carries no landed item
  * and `applied` is false. Warnings go with them.
  */
