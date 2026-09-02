@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { BriefFilterId } from "../components/brief-sections.js";
 import {
 	briefChipCategory,
 	briefChipFilters,
@@ -11,6 +10,7 @@ import {
 	setBriefCategoryInQuery,
 	toggleBriefFilterInQuery,
 } from "./brief-filter-query.js";
+import type { BriefFilterId } from "./brief-filters.js";
 
 const ids = (filters: ReadonlySet<BriefFilterId>): BriefFilterId[] =>
 	[...filters].sort();

@@ -23,6 +23,12 @@ function newsletterRow(i: number): ThreadRowData {
 	};
 }
 
+const newsletterSection: ThreadSection = {
+	id: "newsletter",
+	label: "Newsletter",
+	threads: Array.from({ length: 14 }, (_, i) => newsletterRow(i + 1)),
+};
+
 const sections: ThreadSection[] = [
 	{
 		id: "flagged",
@@ -77,12 +83,15 @@ const sections: ThreadSection[] = [
 			},
 		],
 	},
-	{
-		id: "newsletter",
-		label: "Newsletter",
-		threads: Array.from({ length: 14 }, (_, i) => newsletterRow(i + 1)),
-	},
+	newsletterSection,
 ];
+
+const countedNewsletter: ThreadSection = {
+	id: "newsletter",
+	label: "Newsletter",
+	threads: Array.from({ length: 10 }, (_, i) => newsletterRow(i + 1)),
+	total: { kind: "exact", value: 2295 },
+};
 
 /**
  * The live shape: each section is its own category-scoped query, so its header
@@ -107,12 +116,7 @@ const countedSections: ThreadSection[] = [
 		],
 		total: { kind: "exact", value: 4753 },
 	},
-	{
-		id: "newsletter",
-		label: "Newsletter",
-		threads: Array.from({ length: 10 }, (_, i) => newsletterRow(i + 1)),
-		total: { kind: "exact", value: 2295 },
-	},
+	countedNewsletter,
 	{
 		id: "social",
 		label: "Social",
@@ -180,12 +184,13 @@ export const AllScopeWithHeaders: Story = {
 };
 
 /**
- * (b) Single-category filter over uncounted sections: narrowed to Newsletter, the
+ * (b) Single-category scope over uncounted sections: narrowed to Newsletter, the
  * list renders FLAT with NO section header — with nothing but the label to state,
- * the header only repeats the chip.
+ * the header only repeats the chip. The scope is one category-scoped request, so
+ * the section handed in is the only one there is.
  */
 export const SingleCategoryFlat: Story = {
-	args: { briefCategory: "newsletter" },
+	args: { sections: [newsletterSection], briefCategory: "newsletter" },
 	render: (args) => (
 		<div className="flex h-screen w-96 flex-col border-r border-line">
 			<BriefSections {...args} />
@@ -219,7 +224,7 @@ export const ServerTotals: Story = {
  * stays, because the total is the one thing the chip cannot state.
  */
 export const SingleCategoryCounted: Story = {
-	args: { sections: countedSections, briefCategory: "newsletter" },
+	args: { sections: [countedNewsletter], briefCategory: "newsletter" },
 	render: (args) => (
 		<div className="flex h-screen w-96 flex-col border-r border-line">
 			<BriefSections {...args} />

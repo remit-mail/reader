@@ -18,6 +18,7 @@
  * the request is wider than the list and the section totals are not the list's
  * size. `briefCountsMatchRows` is how a caller knows to show no number instead.
  */
+import type { BriefFilterId } from "@remit/ui";
 import type { InboxFilterParams } from "./inbox-filters.js";
 import { inboxFilterParams } from "./inbox-filters.js";
 import type { SearchToken } from "./search-tokens.js";
@@ -34,11 +35,22 @@ export const BRIEF_TOKEN_PARAMS: readonly ThreadSearchTokenParamName[] = [
 	"attachments",
 ];
 
-/** Chips the request cannot express, so the kit applies them over the rows. */
-export const BRIEF_CLIENT_ONLY_FILTERS: readonly string[] = [
+/** Chips the request cannot express, so the caller applies them over the rows. */
+export const BRIEF_CLIENT_ONLY_FILTERS: readonly BriefFilterId[] = [
 	"contacts",
 	"today",
 ];
+
+/**
+ * The chips on screen that no request carries, as the set to apply over the rows
+ * that came back. Every other chip was answered by the server over the whole
+ * scope, and applying one of those again here would narrow one page by a
+ * criterion the request already applied to everything (#312).
+ */
+export const briefClientOnlyFilters = (
+	attributes: ReadonlySet<string>,
+): ReadonlySet<BriefFilterId> =>
+	new Set(BRIEF_CLIENT_ONLY_FILTERS.filter((id) => attributes.has(id)));
 
 /** Everything a section request narrows by except its own category. */
 export type BriefSectionParams = Omit<InboxFilterParams, "category">;
