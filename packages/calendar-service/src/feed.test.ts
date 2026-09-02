@@ -9,7 +9,6 @@ import {
 	CALENDAR_FEED_TOKEN_BYTES,
 	calendarFeedIsUnchanged,
 	calendarFeedIsUnmodifiedSince,
-	calendarFeedPath,
 	hashCalendarFeedToken,
 	isCalendarFeedToken,
 	mintCalendarFeedToken,
@@ -99,7 +98,7 @@ describe("a feed address", () => {
 		const minted = mintCalendarFeedToken();
 
 		assert.equal(
-			readCalendarFeedToken(calendarFeedPath(minted.token)),
+			readCalendarFeedToken(`/feeds/calendar/${minted.token}.ics`),
 			minted.token,
 		);
 	});
@@ -279,7 +278,9 @@ describe("a feed path in a log line", () => {
 	it("keeps the route and drops the token", () => {
 		const minted = mintCalendarFeedToken();
 
-		const redacted = redactCalendarFeedPath(calendarFeedPath(minted.token));
+		const redacted = redactCalendarFeedPath(
+			`/feeds/calendar/${minted.token}.ics`,
+		);
 
 		assert.equal(redacted.includes(minted.token), false);
 		assert.equal(redacted, "/feeds/calendar/<redacted>.ics");
