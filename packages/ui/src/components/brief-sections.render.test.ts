@@ -69,4 +69,50 @@ describe("BriefSections", () => {
 		assert.match(html, /Weekly Brief/);
 		assert.doesNotMatch(html, /Priya Nair/);
 	});
+
+	// #312: a section the server answered for is a section, rows or not. Dropping
+	// it would leave the reader unable to tell a chip that matched nothing from a
+	// category the brief never asked about.
+	it("keeps a counted section a chip narrowed to nothing", () => {
+		const html = renderToString(
+			createElement(BriefSections, {
+				sections: [
+					{
+						id: "personal",
+						label: "Personal",
+						threads: [],
+						total: { kind: "exact", value: 4753 },
+					},
+				],
+				Row: ComfortableRow,
+				briefCategory: "all",
+				onSelectThread: () => undefined,
+				onSelectBriefCategory: () => undefined,
+			}),
+		);
+		assert.match(html, /No Personal mail in this brief\./);
+	});
+
+	// Narrowed to one category the label repeats the chip, but the total does
+	// not: it is the only statement of how much mail that category holds.
+	it("keeps the header at a single-category scope once it carries a total", () => {
+		const html = renderToString(
+			createElement(BriefSections, {
+				sections: [
+					{
+						id: "newsletter",
+						label: "Newsletter",
+						threads: sections[1].threads,
+						total: { kind: "exact", value: 2295 },
+					},
+				],
+				Row: ComfortableRow,
+				briefCategory: "newsletter",
+				onSelectThread: () => undefined,
+				onSelectBriefCategory: () => undefined,
+			}),
+		);
+		assert.match(html, /Newsletter/);
+		assert.match(html, />2,295</);
+	});
 });

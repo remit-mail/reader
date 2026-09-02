@@ -8,7 +8,7 @@
  *     the account that owns the open \Drafts mailbox.
  *  2. On the server — IMAP \Drafts thread rows already loaded for the mailbox.
  *
- * Sections with no rows are omitted entirely (mirrors groupBriefSections).
+ * Sections with no rows are omitted entirely (mirrors `briefSections`).
  *
  * --- Dedup note ---
  * Remit draft rows and IMAP \Drafts messages are rendered in both sections

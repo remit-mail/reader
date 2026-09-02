@@ -151,6 +151,12 @@ interface BriefSectionsBaseProps
 	keyboard?: MessageListKeyboard;
 	onSelectThread?: (id: string) => void;
 	/**
+	 * Sends the reader to the filtered list for one section's category. Given, a
+	 * section holding fewer rows than its total offers the way to the rest — the
+	 * brief itself never grows past its per-section page.
+	 */
+	onShowAllSection?: (sectionId: string) => void;
+	/**
 	 * Drop the filter row and its panel, keeping the rows where they are. See
 	 * `FilterSheetProps`.
 	 */
@@ -176,6 +182,7 @@ export function BriefSections({
 	Row,
 	keyboard,
 	onSelectThread,
+	onShowAllSection,
 	onSelectBriefCategory,
 	sources,
 	sourcesNote,
@@ -216,16 +223,28 @@ export function BriefSections({
 		(briefCategory === "all" || t.category === briefCategory) &&
 		matchesBriefFilters(t, active);
 
-	// One section per category only earns its keep at the "all" scope. Narrow to
-	// a single category and the headers are redundant: render a plain flat list.
-	const showSections = briefCategory === "all";
+	// One section per category earns its keep at the "all" scope, and wherever a
+	// header carries the server's total for its category: narrowed to one
+	// category the label restates the chip, but the total does not — it is the
+	// only statement of how much mail that category holds.
+	const showSections =
+		briefCategory === "all" ||
+		sections.some((section) => section.total !== undefined);
 
+	// A section the server answered for stays on screen with no rows: nothing
+	// matching a chip is a state the section states, and is not the same as a
+	// category the brief never asked about.
 	const filtered = sections
 		.map((section) => ({
 			...section,
 			threads: section.threads.filter(matches),
 		}))
-		.filter((section) => section.threads.length > 0);
+		.filter(
+			(section) =>
+				section.threads.length > 0 ||
+				section.total !== undefined ||
+				section.loading === true,
+		);
 
 	const flatRows = sections.flatMap((s) => s.threads).filter(matches);
 
@@ -258,6 +277,9 @@ export function BriefSections({
 						Row={Row}
 						selectedThreadId={selectedThreadId}
 						onSelectThread={onSelectThread}
+						onShowAll={
+							onShowAllSection ? () => onShowAllSection(section.id) : undefined
+						}
 					/>
 				))
 			) : (

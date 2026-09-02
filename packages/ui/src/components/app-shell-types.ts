@@ -12,6 +12,7 @@ import type {
 	IntelligenceData,
 	SenderTrustLevel,
 } from "./intelligence-panel.js";
+import type { ResultCount } from "./list-result-header.js";
 import type { ListState } from "./message-list-state.js";
 
 /** Pane-count thresholds, aligned to Tailwind `lg`/`xl`. The whole shell reflows
@@ -314,6 +315,15 @@ export interface ThreadSection {
 	/** Section label; omit for a flat list. */
 	label?: string;
 	threads: ThreadRowData[];
+	/**
+	 * How much mail the section's category holds, as the server counted it —
+	 * independent of how many rows were fetched. Absent, or `unknown`, renders no
+	 * number: a loaded-row length presented as a category total is the defect this
+	 * replaces (#312).
+	 */
+	total?: ResultCount;
+	/** The section's own request is still in flight, so it has no rows yet. */
+	loading?: boolean;
 }
 
 export interface ThreadMessageData {

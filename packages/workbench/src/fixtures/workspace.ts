@@ -529,8 +529,9 @@ export const flaggedThreads: ThreadRowData[] = allThreads
 /* ------------------------------------------------------------------ */
 
 /**
- * Category-driven brief grouping — mirrors groupBriefSections in the web
- * client so the Storybook prototype stays in lockstep with production logic.
+ * Category-driven brief grouping — the fixture stand-in for the per-category
+ * server queries the live brief issues, so the Storybook prototype renders the
+ * same section set.
  *
  * Each row lands in the section for its category; a row with no category counts
  * as `personal`. Starred mail is not a section — the star is a per-row marker

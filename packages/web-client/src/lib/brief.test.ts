@@ -1,10 +1,11 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import type { ThreadRowData } from "@remit/ui";
+import type { ResultCount, ThreadCategory, ThreadRowData } from "@remit/ui";
 import {
+	type BriefCategoryResult,
+	briefSections,
 	excludeMutedSenders,
-	groupBriefSections,
 	matchesBriefSearch,
 	matchesSearchTokens,
 	mergeSearchRows,
@@ -83,151 +84,131 @@ describe("toThreadRowData", () => {
 	});
 });
 
-describe("groupBriefSections", () => {
-	test("returns empty array when no rows", () => {
-		const sections = groupBriefSections([]);
-		assert.deepStrictEqual(sections, []);
+describe("briefSections", () => {
+	const result = (
+		category: ThreadCategory,
+		rows: ThreadRowData[],
+		total: ResultCount = { kind: "exact", value: rows.length },
+		loading = false,
+	): BriefCategoryResult => ({ category, rows, total, loading });
+
+	test("returns no sections when the brief asked for nothing", () => {
+		assert.deepStrictEqual(briefSections([]), []);
 	});
 
-	// --- One section per category ---
+	test("each category answers for its own section, with its own label", () => {
+		const labels = new Map([
+			["personal", "Personal"],
+			["transactional", "Transactional"],
+			["newsletter", "Newsletter"],
+			["marketing", "Marketing"],
+			["social", "Social"],
+			["automated", "Automated"],
+			["uncategorized", "Unclassified"],
+		]);
+		for (const [category, label] of labels) {
+			const sections = briefSections([
+				result(category as ThreadCategory, [row({ id: "1", category })]),
+			]);
+			assert.strictEqual(sections.length, 1);
+			assert.strictEqual(sections[0].id, category);
+			assert.strictEqual(sections[0].label, label);
+		}
+	});
 
-	test("personal goes to the personal section", () => {
-		const r = row({ id: "1", category: "personal" });
-		const sections = groupBriefSections([r]);
+	// The reading #312 fixes: on a mailbox whose Marketing mail is all older than
+	// the newest unified page, the section held nothing and its header read zero.
+	// Its own request answers over the whole scope, so it has both.
+	test("a category renders its rows and its real size, page order aside", () => {
+		const sections = briefSections([
+			result("marketing", [row({ id: "old-1" }), row({ id: "old-2" })], {
+				kind: "exact",
+				value: 3942,
+			}),
+		]);
+		assert.deepStrictEqual(
+			sections[0].threads.map((t) => t.id),
+			["old-1", "old-2"],
+		);
+		assert.deepStrictEqual(sections[0].total, { kind: "exact", value: 3942 });
+	});
+
+	test("the total is the server's, never the number of rows loaded", () => {
+		const sections = briefSections([
+			result("personal", [row({ id: "1" })], { kind: "exact", value: 4753 }),
+		]);
+		assert.deepStrictEqual(sections[0].total, { kind: "exact", value: 4753 });
+	});
+
+	test("a category the scope holds none of has no section", () => {
+		assert.deepStrictEqual(briefSections([result("social", [])]), []);
+	});
+
+	test("a category still being fetched keeps its section", () => {
+		const sections = briefSections([
+			result("social", [], { kind: "exact", value: 88 }, true),
+		]);
 		assert.strictEqual(sections.length, 1);
-		assert.strictEqual(sections[0].id, "personal");
-		assert.strictEqual(sections[0].label, "Personal");
+		assert.strictEqual(sections[0].loading, true);
 	});
 
-	test("transactional goes to the transactional section", () => {
-		const r = row({ id: "1", category: "transactional" });
-		const sections = groupBriefSections([r]);
-		assert.strictEqual(sections[0].id, "transactional");
-		assert.strictEqual(sections[0].label, "Transactional");
-	});
-
-	test("newsletter goes to the newsletter section", () => {
-		const r = row({ id: "1", category: "newsletter" });
-		const sections = groupBriefSections([r]);
-		assert.strictEqual(sections[0].id, "newsletter");
-		assert.strictEqual(sections[0].label, "Newsletter");
-	});
-
-	test("marketing goes to the marketing section", () => {
-		const r = row({ id: "1", category: "marketing" });
-		const sections = groupBriefSections([r]);
-		assert.strictEqual(sections[0].id, "marketing");
-		assert.strictEqual(sections[0].label, "Marketing");
-	});
-
-	test("social goes to the social section", () => {
-		const r = row({ id: "1", category: "social" });
-		const sections = groupBriefSections([r]);
-		assert.strictEqual(sections[0].id, "social");
-		assert.strictEqual(sections[0].label, "Social");
-	});
-
-	test("automated goes to the automated section", () => {
-		const r = row({ id: "1", category: "automated" });
-		const sections = groupBriefSections([r]);
-		assert.strictEqual(sections[0].id, "automated");
-		assert.strictEqual(sections[0].label, "Automated");
-	});
-
-	// --- Read state is not a routing signal ---
-
-	test("read and unread rows of a category share one section", () => {
-		const rows: ThreadRowData[] = [
-			row({ id: "1", isRead: false, category: "personal" }),
-			row({ id: "2", isRead: true, category: "personal" }),
-		];
-		const sections = groupBriefSections(rows);
+	test("a counted category with no rows left keeps its section", () => {
+		const sections = briefSections([
+			result("personal", [], { kind: "exact", value: 4753 }),
+		]);
 		assert.strictEqual(sections.length, 1);
-		assert.strictEqual(sections[0].id, "personal");
+		assert.deepStrictEqual(sections[0].threads, []);
+	});
+
+	test("an uncounted category with no rows has nothing to render", () => {
+		assert.deepStrictEqual(
+			briefSections([result("personal", [], { kind: "unknown" })]),
+			[],
+		);
+	});
+
+	// --- Row markers do not move a row out of its category ---
+
+	test("read and unread rows share their category's section", () => {
+		const sections = briefSections([
+			result("personal", [
+				row({ id: "1", isRead: false, category: "personal" }),
+				row({ id: "2", isRead: true, category: "personal" }),
+			]),
+		]);
+		assert.strictEqual(sections.length, 1);
 		assert.strictEqual(sections[0].threads.length, 2);
 	});
 
-	// --- Fallback to personal ---
-
-	test("missing category lands in its own Unclassified section", () => {
-		// Never folded into Personal: unclassified mail is work the classifier
-		// has not done, and hiding it inside Personal is what made issue #45
-		// look like a working classifier with a huge personal inbox.
-		const r = row({ id: "1" });
-		const sections = groupBriefSections([r]);
-		assert.strictEqual(sections.length, 1);
-		assert.strictEqual(sections[0].id, "uncategorized");
-	});
-
-	test("uncategorized rows do not inflate the personal section", () => {
-		const sections = groupBriefSections([
-			row({ id: "1", category: "personal" }),
-			row({ id: "2", category: "uncategorized" }),
-			row({ id: "3", category: "uncategorized" }),
-		]);
-		const personal = sections.find((s) => s.id === "personal");
-		const unclassified = sections.find((s) => s.id === "uncategorized");
-		assert.strictEqual(personal?.threads.length, 1);
-		assert.strictEqual(unclassified?.threads.length, 2);
-	});
-
-	// --- Starred is a row marker, not a section (Flagged lives in the nav) ---
-
-	test("a starred newsletter stays in the newsletter section", () => {
-		const r = row({ id: "1", starred: true, category: "newsletter" });
-		const sections = groupBriefSections([r]);
-		assert.strictEqual(sections.length, 1);
-		assert.strictEqual(sections[0].id, "newsletter");
-	});
-
-	test("a starred personal message stays in the personal section", () => {
-		const r = row({ id: "1", starred: true, category: "personal" });
-		const sections = groupBriefSections([r]);
-		assert.strictEqual(sections.length, 1);
-		assert.strictEqual(sections[0].id, "personal");
-	});
-
 	test("starred mail never produces a flagged section", () => {
-		const rows: ThreadRowData[] = [
-			row({ id: "p", category: "personal" }),
-			row({ id: "f", starred: true, category: "automated" }),
-		];
-		const sections = groupBriefSections(rows);
+		const sections = briefSections([
+			result("personal", [row({ id: "p", category: "personal" })]),
+			result("automated", [
+				row({ id: "f", starred: true, category: "automated" }),
+			]),
+		]);
 		assert.deepStrictEqual(
 			sections.map((s) => s.id),
 			["personal", "automated"],
 		);
 	});
 
-	// --- Trust no longer sections ---
-
-	test("a vip newsletter stays in the newsletter section (trust does not section)", () => {
-		const r = row({ id: "1", trust: "vip", category: "newsletter" });
-		const sections = groupBriefSections([r]);
-		assert.strictEqual(sections.length, 1);
-		assert.strictEqual(sections[0].id, "newsletter");
-	});
-
-	test("a wellknown automated row stays in the automated section", () => {
-		const r = row({ id: "1", trust: "wellknown", category: "automated" });
-		const sections = groupBriefSections([r]);
-		assert.strictEqual(sections.length, 1);
-		assert.strictEqual(sections[0].id, "automated");
-	});
-
 	// --- Section order and omission ---
 
-	test("display order is: personal, transactional, newsletter, marketing, social, automated", () => {
-		const rows: ThreadRowData[] = [
-			row({ id: "auto", category: "automated" }),
-			row({ id: "social", category: "social" }),
-			row({ id: "mkt", category: "marketing" }),
-			row({ id: "news", category: "newsletter" }),
-			row({ id: "txn", category: "transactional" }),
-			row({ id: "pers", category: "personal" }),
-			row({ id: "star", starred: true, category: "automated" }),
-		];
-		const sections = groupBriefSections(rows);
+	test("display order is fixed, Unclassified last", () => {
+		const sections = briefSections(
+			[
+				"automated",
+				"social",
+				"marketing",
+				"newsletter",
+				"transactional",
+				"personal",
+				"uncategorized",
+			].map((category) =>
+				result(category as ThreadCategory, [row({ id: category, category })]),
+			),
+		);
 		assert.deepStrictEqual(
 			sections.map((s) => s.id),
 			[
@@ -237,33 +218,30 @@ describe("groupBriefSections", () => {
 				"marketing",
 				"social",
 				"automated",
+				"uncategorized",
 			],
 		);
 	});
 
-	test("empty sections are omitted", () => {
-		const sections = groupBriefSections([row({ id: "1", category: "social" })]);
-		assert.deepStrictEqual(
-			sections.map((s) => s.id),
-			["social"],
+	// D6 / issue #45: unclassified mail is work the classifier has not done, and
+	// hiding it inside Personal is what made #45 look like a working classifier
+	// with a huge personal inbox.
+	test("uncategorized is its own section and never inflates personal", () => {
+		const sections = briefSections([
+			result("personal", [row({ id: "1", category: "personal" })]),
+			result("uncategorized", [
+				row({ id: "2", category: "uncategorized" }),
+				row({ id: "3", category: "uncategorized" }),
+			]),
+		]);
+		assert.strictEqual(
+			sections.find((s) => s.id === "personal")?.threads.length,
+			1,
 		);
-	});
-
-	test("each row appears in exactly one section", () => {
-		const rows: ThreadRowData[] = [
-			row({ id: "1", category: "personal" }),
-			row({ id: "2", starred: true, category: "automated" }),
-			row({ id: "3", category: "automated" }),
-			row({ id: "4", category: "transactional" }),
-			row({ id: "5", starred: true, category: "newsletter" }),
-			row({ id: "6", category: "newsletter" }),
-			row({ id: "7", category: "marketing" }),
-		];
-		const sections = groupBriefSections(rows);
-		const allIds = sections.flatMap((s) => s.threads.map((t) => t.id));
-		assert.strictEqual(allIds.length, rows.length);
-		const uniqueIds = new Set(allIds);
-		assert.strictEqual(uniqueIds.size, rows.length);
+		assert.strictEqual(
+			sections.find((s) => s.id === "uncategorized")?.threads.length,
+			2,
+		);
 	});
 });
 
@@ -310,14 +288,17 @@ describe("excludeMutedSenders", () => {
 				category: "personal",
 			}),
 		];
-		const sections = groupBriefSections(
-			excludeMutedSenders(rows).map(toThreadRowData),
-		);
+		const kept = excludeMutedSenders(rows).map(toThreadRowData);
+		const sections = briefSections([
+			{
+				category: "personal",
+				rows: kept,
+				total: { kind: "exact", value: kept.length },
+				loading: false,
+			},
+		]);
 		const allIds = sections.flatMap((s) => s.threads.map((t) => t.id));
 		assert.deepStrictEqual(allIds, ["kept-personal"]);
-		for (const section of sections) {
-			assert.ok(!section.threads.some((t) => t.id === "muted-personal"));
-		}
 	});
 
 	test("muting every candidate row leaves no sections (brief empty state)", () => {
@@ -335,9 +316,15 @@ describe("excludeMutedSenders", () => {
 				muted: true,
 			}),
 		];
-		const sections = groupBriefSections(
-			excludeMutedSenders(rows).map(toThreadRowData),
-		);
+		const kept = excludeMutedSenders(rows).map(toThreadRowData);
+		const sections = briefSections([
+			{
+				category: "personal",
+				rows: kept,
+				total: { kind: "exact", value: 0 },
+				loading: false,
+			},
+		]);
 		assert.deepStrictEqual(sections, []);
 	});
 });
@@ -580,9 +567,10 @@ describe("matchesSearchTokens", () => {
 	});
 });
 
-// #49: the brief's list is the unified INBOX, so filtering it client-side found
-// only inbox mail. The server's cross-folder search supplies the rest, and the
-// two are merged.
+// #49: a listing complete under its own criteria still cannot see a snippet
+// match, and the server's cross-folder search cannot see one either. The two
+// halves are merged. The brief no longer uses this — its sections are pages, and
+// merging a page with a search window orders two truncated lists (#312).
 describe("mergeSearchRows", () => {
 	test("keeps rows the server found in other folders", () => {
 		const merged = mergeSearchRows(
