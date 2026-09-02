@@ -50,9 +50,6 @@ export const mintCalendarFeedToken = (): CalendarFeedSecret => {
 export const isCalendarFeedToken = (token: string): boolean =>
 	TOKEN_SHAPE.test(token);
 
-export const calendarFeedPath = (token: string): string =>
-	`${CALENDAR_FEED_PATH_PREFIX}${token}${CALENDAR_FEED_PATH_SUFFIX}`;
-
 /**
  * The token a request path carries, or `null` when the path is not a feed
  * address. One segment only: a slash inside it would name a different route.

@@ -3417,6 +3417,10 @@ cmd_config_save() {
 	_dir=$(dirname "$_file")
 	[ -d "$_dir" ] || die "config save: there is no directory '$_dir'"
 	_tmp="$_dir/.$(basename "$_file").writing.$$"
+	trap 'rm -f "$_tmp"' EXIT
+	trap 'exit 129' HUP
+	trap 'exit 130' INT
+	trap 'exit 143' TERM
 
 	# The saved document carries the address book, filter text, mail excerpts
 	# and signatures (no credentials), so it is written under a 077 umask rather
@@ -3452,6 +3456,7 @@ cmd_config_save() {
 	fi
 
 	mv "$_tmp" "$_file"
+	trap - EXIT HUP INT TERM
 	printf 'Wrote %s.\n' "$_file"
 	printf 'It carries no password and no OAuth token — importing it asks for each account again.\n'
 }

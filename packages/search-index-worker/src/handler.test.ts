@@ -68,7 +68,7 @@ describe("a message the worker cannot index right now", () => {
 	it("goes back on the queue when indexing stalls out of memory", async () => {
 		const response = await processBatch(
 			[record()],
-			servicesThatFail(new MemoryStallTimeoutError(240_000)),
+			servicesThatFail(new MemoryStallTimeoutError(240_000, 2_000)),
 			silent,
 		);
 

@@ -9,6 +9,7 @@
 
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
+import { meOperationsListQuarantineOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { createElement } from "react";
 import { createDomHarness, type DomHarness } from "../../test-support/dom";
 import { type HttpMock, httpError, mockFetch } from "../../test-support/http";
@@ -62,26 +63,47 @@ afterEach(() => {
 	http = undefined;
 });
 
-const mount = async (mailboxes: () => unknown): Promise<DomHarness> => {
+/**
+ * The quarantine list is the read that gives the pane something to paint: until
+ * it has landed, an assertion that no path is showing passes because there are
+ * no rows at all, which is not what any of these cases claims to test.
+ */
+const quarantineLanded = (view: DomHarness): boolean =>
+	view.queryClient.getQueryState(meOperationsListQuarantineOptions().queryKey)
+		?.status === "success";
+
+const mount = async (
+	mailboxes: () => unknown,
+	settled: (view: DomHarness) => boolean,
+	description: string,
+): Promise<DomHarness> => {
 	http = mockFetch((call) => {
 		if (call.path.endsWith("/config")) return CONFIG;
 		if (call.path.endsWith("/mailboxes")) return mailboxes();
 		if (call.path.endsWith("/quarantine")) return QUARANTINE;
 		return {};
 	});
-	harness = createDomHarness();
-	harness.renderApp(createElement(QuarantinePanel));
+	const view = createDomHarness();
+	harness = view;
+	view.renderApp(createElement(QuarantinePanel));
 	// Two waves: the mailbox-list fan-out is keyed on the accounts `/config`
-	// returns, so it cannot even start until that first read has settled.
-	await harness.flush();
-	await harness.wait(0);
-	await harness.flush();
-	return harness;
+	// returns, so it cannot even start until that first read has settled. How
+	// many turns those waves take is the runner's business, so each case names
+	// the state it needs instead of counting them.
+	await view.waitFor(() => settled(view), description);
+	return view;
 };
 
 describe("QuarantinePanel folder names", () => {
 	it("waits for the account's delimiter rather than cutting on a guess", async () => {
-		const view = await mount(() => new Promise(() => {}));
+		// The mailbox read never resolves here, so settled means every read that
+		// can land has: the entries are in hand and only the delimiter is missing.
+		const view = await mount(
+			() => new Promise(() => {}),
+			(pane) =>
+				quarantineLanded(pane) && (http?.to("/mailboxes").length ?? 0) > 0,
+			"the quarantine list to land while the mailbox read hangs",
+		);
 
 		assert.match(view.text(), /Checking for messages set aside/);
 		assert.doesNotMatch(
@@ -91,7 +113,11 @@ describe("QuarantinePanel folder names", () => {
 	});
 
 	it("names the folder by its leaf once the delimiter has arrived", async () => {
-		const view = await mount(() => MAILBOXES);
+		const view = await mount(
+			() => MAILBOXES,
+			(pane) => /Q3/.test(pane.text()),
+			"the folder leaf to be named",
+		);
 
 		assert.match(view.text(), /Q3/);
 		assert.doesNotMatch(
@@ -101,7 +127,11 @@ describe("QuarantinePanel folder names", () => {
 	});
 
 	it("reports a failed mailbox read instead of naming folders on a guess", async () => {
-		const view = await mount(() => httpError(500));
+		const view = await mount(
+			() => httpError(500),
+			(pane) => /role="alert"/.test(pane.html()),
+			"the failed mailbox read to be reported",
+		);
 
 		assert.match(view.html(), /role="alert"/);
 		assert.doesNotMatch(

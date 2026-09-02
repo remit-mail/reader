@@ -565,6 +565,7 @@ export function ConfigImportWizard({ onDone }: ConfigImportWizardProps) {
 					results={sectionResults(report)}
 					message={failed?.message ?? "The import stopped before it finished."}
 					raw={`${failed?.code ?? WRITE_FAILURE_CODE}: ${failed?.message ?? "no message"}`}
+					nothingLanded={!report.applied}
 					onBack={goToFile}
 					onNext={() => runImport("apply", "merge")}
 				/>

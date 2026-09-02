@@ -10,7 +10,7 @@ import {
 import type ICAL from "ical.js";
 import type { CalendarResult } from "./errors.js";
 import { parseCalendar } from "./parse.js";
-import { projectCalendar } from "./project.js";
+import { projectCalendar, readString } from "./project.js";
 
 const METHOD_BY_ICAL: Record<string, CalendarSuggestionItem["method"]> = {
 	REQUEST: CalendarInviteMethod.Request,
@@ -18,11 +18,6 @@ const METHOD_BY_ICAL: Record<string, CalendarSuggestionItem["method"]> = {
 	CANCEL: CalendarInviteMethod.Cancel,
 	COUNTER: CalendarInviteMethod.Counter,
 	PUBLISH: CalendarInviteMethod.Publish,
-};
-
-const readString = (component: ICAL.Component, name: string): string => {
-	const value = component.getFirstPropertyValue(name);
-	return typeof value === "string" ? value : "";
 };
 
 /**

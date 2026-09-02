@@ -58,23 +58,6 @@ const UndoHarness = () => {
 let harness: DomHarness | undefined;
 let http: HttpMock;
 
-const waitFor = async (
-	predicate: () => boolean,
-	timeoutMs = 2000,
-): Promise<void> => {
-	if (!harness) throw new Error("nothing mounted");
-	const deadline = Date.now() + timeoutMs;
-	while (!predicate()) {
-		if (Date.now() > deadline) {
-			throw new Error(
-				`waitFor: condition never became true within ${timeoutMs}ms`,
-			);
-		}
-		await harness.flush();
-		await harness.wait(5);
-	}
-};
-
 afterEach(() => {
 	harness?.close();
 	harness = undefined;
@@ -95,14 +78,14 @@ describe("the spam quick action disables itself for the duration of its own requ
 
 		const button = harness.byText("button", "Report spam") as HTMLButtonElement;
 		harness.click(button);
-		await waitFor(() => button.textContent === "Reporting…");
+		await harness.waitFor(() => button.textContent === "Reporting…");
 
 		assert.equal(button.disabled, true, "a control mid-request must disable");
 		harness.click(button);
 
 		assert.ok(resolveRequest, "the request never reached the mock");
 		resolveRequest?.();
-		await waitFor(() => button.textContent === "Report spam");
+		await harness.waitFor(() => button.textContent === "Report spam");
 
 		assert.equal(http.to("/messages/report-spam").length, 1);
 	});
@@ -120,14 +103,14 @@ describe("the spam quick action disables itself for the duration of its own requ
 
 		const button = harness.byText("button", "Not spam") as HTMLButtonElement;
 		harness.click(button);
-		await waitFor(() => button.textContent === "Undoing…");
+		await harness.waitFor(() => button.textContent === "Undoing…");
 
 		assert.equal(button.disabled, true, "a control mid-request must disable");
 		harness.click(button);
 
 		assert.ok(resolveRequest, "the request never reached the mock");
 		resolveRequest?.();
-		await waitFor(() => button.textContent === "Not spam");
+		await harness.waitFor(() => button.textContent === "Not spam");
 
 		assert.equal(http.to("/messages/not-spam").length, 1);
 	});
