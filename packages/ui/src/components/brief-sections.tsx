@@ -20,24 +20,21 @@ import {
 import type { BriefRowComponent } from "./message-row.js";
 
 /**
- * The attribute chips are either this component's own or entirely the
- * consumer's. A consumer narrowing the same rows on a second surface (the phone
- * search takeover) holds the set so both surfaces answer to one selection, and
- * takes every control over it with the set. `onClearFilters` is then the whole
- * of Clear, category scope included — one handler reading one state, rather
- * than two reading the same one and racing to write it.
+ * The attribute chips are the consumer's, always. Nothing here narrows rows, so
+ * a set held in this component would tick a chip and change nothing — the chip
+ * would be a dead control. The host holds the set, answers it (by its request,
+ * or over the rows for the chips no request carries), and hands back what to
+ * draw; a host narrowing the same rows on a second surface (the phone search
+ * takeover) hands both surfaces the one set, so a chip set on either is set on
+ * both. `onClearFilters` is the whole of Clear, category scope included — one
+ * handler reading one state, rather than two reading the same one and racing to
+ * write it.
  */
-export type BriefFilterControl =
-	| {
-			activeFilters: ReadonlySet<BriefFilterId>;
-			onToggleFilter: (id: BriefFilterId) => void;
-			onClearFilters: () => void;
-	  }
-	| {
-			activeFilters?: never;
-			onToggleFilter?: never;
-			onClearFilters?: never;
-	  };
+export interface BriefFilterControl {
+	activeFilters: ReadonlySet<BriefFilterId>;
+	onToggleFilter: (id: BriefFilterId) => void;
+	onClearFilters: () => void;
+}
 
 /** The accounts the aggregate is segmented by, as the FilterSheet draws them. */
 export interface BriefSourceControl {
@@ -142,9 +139,6 @@ export function BriefSections({
 	hideChrome,
 	defaultExpanded = false,
 }: BriefSectionsProps) {
-	const [ownFilters, setOwnFilters] = useState<ReadonlySet<BriefFilterId>>(
-		new Set(),
-	);
 	const [sheetExpanded, setSheetExpanded] = useState(defaultExpanded);
 	const listRef = useRef<HTMLDivElement>(null);
 	useRovingFocus({
@@ -152,21 +146,6 @@ export function BriefSections({
 		itemSelector: LIST_ROW_SELECTOR,
 		enabled: !keyboardWalksRows(keyboard),
 	});
-
-	const active = activeFilters ?? ownFilters;
-
-	const toggleFilter = (id: BriefFilterId) => {
-		if (onToggleFilter) {
-			onToggleFilter(id);
-			return;
-		}
-		setOwnFilters((prev) => {
-			const next = new Set(prev);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-			return next;
-		});
-	};
 
 	// One section per category earns its keep at the "all" scope, and wherever a
 	// header carries the server's total for its category: narrowed to one
@@ -198,15 +177,6 @@ export function BriefSections({
 	}));
 
 	const sheetFilters = briefFilterChips;
-
-	const clearFilters = () => {
-		if (onClearFilters) {
-			onClearFilters();
-			return;
-		}
-		onSelectBriefCategory?.("all");
-		setOwnFilters(new Set());
-	};
 
 	const empty = showSections ? shown.length === 0 : flatRows.length === 0;
 
@@ -260,15 +230,15 @@ export function BriefSections({
 			sources={sources}
 			sourcesNote={sourcesNote}
 			selectedCategory={briefCategory}
-			activeFilters={active}
+			activeFilters={activeFilters}
 			expanded={sheetExpanded}
 			onExpandedChange={setSheetExpanded}
 			onSelectCategory={(id) =>
 				onSelectBriefCategory?.(id as BriefCategoryFilter)
 			}
 			onSelectSource={onSelectSource}
-			onToggleFilter={(id) => toggleFilter(id as BriefFilterId)}
-			onClear={clearFilters}
+			onToggleFilter={(id) => onToggleFilter(id as BriefFilterId)}
+			onClear={onClearFilters}
 			hideChrome={hideChrome}
 		>
 			{listBody}

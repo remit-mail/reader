@@ -44,6 +44,14 @@ const sections: ThreadSection[] = [
 	},
 ];
 
+const NO_CHIPS: ReadonlySet<BriefFilterId> = new Set();
+
+const chipControl = {
+	activeFilters: NO_CHIPS,
+	onToggleFilter: () => undefined,
+	onClearFilters: () => undefined,
+};
+
 function render(briefCategory: BriefCategoryFilter) {
 	return renderToString(
 		createElement(BriefSections, {
@@ -52,6 +60,7 @@ function render(briefCategory: BriefCategoryFilter) {
 			briefCategory,
 			onSelectThread: () => undefined,
 			onSelectBriefCategory: () => undefined,
+			...chipControl,
 		}),
 	);
 }
@@ -109,6 +118,7 @@ describe("BriefSections", () => {
 				briefCategory: "all",
 				onSelectThread: () => undefined,
 				onSelectBriefCategory: () => undefined,
+				...chipControl,
 			}),
 		);
 		assert.match(html, /No Personal mail in this brief\./);
@@ -125,6 +135,7 @@ describe("BriefSections", () => {
 				flat: true,
 				onSelectThread: () => undefined,
 				onSelectBriefCategory: () => undefined,
+				...chipControl,
 			}),
 		);
 		assert.doesNotMatch(html, />Personal</);
@@ -152,6 +163,7 @@ describe("BriefSections", () => {
 				briefCategory: "newsletter",
 				onSelectThread: () => undefined,
 				onSelectBriefCategory: () => undefined,
+				...chipControl,
 			}),
 		);
 		assert.match(html, /Newsletter/);

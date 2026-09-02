@@ -11,7 +11,11 @@
  * anywhere, so the host applies them with `matchesBriefFilters` before it hands
  * the rows down. One table for both, rather than one per surface (#314).
  */
-import type { ThreadRowData } from "../components/app-shell-types.js";
+import type {
+	BriefCategoryFilter,
+	ThreadRowData,
+	ThreadSection,
+} from "../components/app-shell-types.js";
 import type { FilterSheetFilter } from "../components/filter-sheet.js";
 
 export type BriefFilterId = "unread" | "attachment" | "contacts" | "today";
@@ -79,4 +83,29 @@ export function matchesBriefFilters(
 	return briefFilterDefs.every(
 		(f) => !activeFilters.has(f.id) || f.match(thread),
 	);
+}
+
+/**
+ * Each section's rows narrowed to a category scope and a chip set.
+ *
+ * For a host that holds its own rows: the kit's preview shell, the workbench
+ * prototype, a story. The app has no use for it — its requests answer the
+ * category and every chip a parameter can express over the whole scope, and
+ * re-answering those over one page is what #312 removed. Sections come back
+ * whole; `BriefSections` decides which of the emptied ones still has something
+ * to say.
+ */
+export function narrowBriefSections(
+	sections: ThreadSection[],
+	briefCategory: BriefCategoryFilter,
+	activeFilters: ReadonlySet<BriefFilterId>,
+): ThreadSection[] {
+	return sections.map((section) => ({
+		...section,
+		threads: section.threads.filter(
+			(thread) =>
+				(briefCategory === "all" || thread.category === briefCategory) &&
+				matchesBriefFilters(thread, activeFilters),
+		),
+	}));
 }

@@ -89,8 +89,10 @@ export function MessageListPane({
 	 * The brief's category scope, account pills and attribute chips, held by the
 	 * caller. The cross-account brief is segmented from this panel, and a caller
 	 * narrowing the same rows on a second surface hands both the one set it
-	 * holds. Absent, the chips are the brief's own, no source row is offered and
-	 * every category is in scope.
+	 * holds. It comes with `briefFilters`: the list draws these controls and
+	 * applies none of them, so chips with no host behind them would tick and
+	 * change nothing (#314). Without it the pane renders the plain list, chrome
+	 * and all controls left off.
 	 */
 	briefFilter?: BriefFilterSurface;
 	/** Name of the collection, e.g. "Inbox". Passed to the empty state. */
@@ -319,9 +321,9 @@ export function MessageListPane({
 					onRetry={onRetry}
 					onReport={onReportError}
 				/>
-			) : briefFilters ? (
+			) : briefFilters && briefFilter ? (
 				<BriefSections
-					{...(briefFilter ?? {})}
+					{...briefFilter}
 					sections={sections}
 					selectedThreadId={selectedThreadId}
 					Row={BriefRow}

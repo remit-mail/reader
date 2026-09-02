@@ -949,6 +949,7 @@ export {
 	type BriefFilterId,
 	isBriefFilterId,
 	matchesBriefFilters,
+	narrowBriefSections,
 } from "./lib/brief-filters.js";
 export {
 	type CalendarColorClasses,
