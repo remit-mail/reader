@@ -51,6 +51,23 @@ export const Phone: Story = {
 	),
 };
 
+/**
+ * The count the header cannot have. The number beside the title is the server's
+ * own total over the whole starred collection under the active filters; when
+ * the server has not answered it, the header shows no number rather than the
+ * length of the pages that happen to be loaded (#308).
+ */
+export const CountUnavailable: Story = {
+	render: () => (
+		<MailShell
+			selectedNavId="flagged"
+			listTitle="Starred"
+			unreadCount={null}
+			sections={flaggedSection}
+		/>
+	),
+};
+
 /** Nothing flagged yet — the empty state stands in for the rows. */
 export const Empty: Story = {
 	render: () => (

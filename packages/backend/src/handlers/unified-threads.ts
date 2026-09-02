@@ -1,7 +1,14 @@
 import type {
+	MessageCategory,
+	ThreadSearchResponse,
+} from "@remit/api-openapi-types";
+import type {
 	AccountItem,
 	IAccountSettingRepository,
 	MailboxItem,
+	ResultList,
+	SearchOptions,
+	ThreadMessageItem,
 } from "@remit/data-ports";
 import { isVirtualCopyMailbox } from "@remit/data-ports/virtual-copy";
 import { MailboxSpecialUse } from "@remit/domain-enums";
@@ -9,7 +16,10 @@ import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import pMap from "p-map";
 import { getAccountConfigIdFromEvent } from "../auth.js";
-import { enrichThreadRows } from "../derive/enrichThreadRows.js";
+import {
+	type EnrichClient,
+	enrichThreadRows,
+} from "../derive/enrichThreadRows.js";
 import { getClient } from "../service/data-client.js";
 import type { OperationHandler, UnifiedThreadOperationIds } from "../types.js";
 import {
@@ -209,12 +219,14 @@ export const buildListAllThreadsOptions = (
 		limit?: number;
 	},
 	inboxMailboxIds: Set<string>,
+	search?: SearchOptions,
 ) => ({
 	order: query.order ?? ("desc" as const),
 	continuationToken: query.continuationToken,
 	limit: query.limit ?? DEFAULT_UNIFIED_THREADS_PAGE_SIZE,
 	inboxMailboxIds,
 	excludeDeleted: true,
+	search,
 });
 
 /**
@@ -231,12 +243,14 @@ export const buildListStarredThreadsOptions = (
 		limit?: number;
 	},
 	starredMailboxIds: Set<string>,
+	search?: SearchOptions,
 ) => ({
 	order: query.order ?? ("desc" as const),
 	continuationToken: query.continuationToken,
 	limit: query.limit ?? DEFAULT_UNIFIED_THREADS_PAGE_SIZE,
 	mailboxIds: starredMailboxIds,
 	excludeDeleted: true,
+	search,
 });
 
 /**
@@ -311,75 +325,138 @@ export const attachAccountIds = (
 		accountId: mailboxIdToAccountId.get(row.mailboxId),
 	}));
 
-export const UnifiedThreadOperations: Record<
-	UnifiedThreadOperationIds,
-	OperationHandler<UnifiedThreadOperationIds>
-> = {
-	UnifiedThreadOperations_listAllThreads: async (
-		context: Context,
-		...args: unknown[]
-	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
-		const { continuationToken, order, limit, starred, query } = context.request
-			.query as {
-			continuationToken?: string;
-			order?: "asc" | "desc";
-			limit?: number;
-			starred?: boolean | string;
-			query?: string;
+/**
+ * The row criteria the listing carries, whichever mode answers it.
+ *
+ * `category`, `unread` and `attachments` are columns on the ThreadMessage row,
+ * so each is a predicate inside the query. Filtering the rows a page returned
+ * instead is the defect this replaces: a category whose mail sits below the
+ * newest page rendered an empty list however much of it the collection held
+ * (#308). `starred` and `query` are in here too so one `SearchOptions` says
+ * what the whole request narrows by, which is what lets the count run the same
+ * predicate as the listing.
+ */
+export const buildUnifiedThreadSearch = (params: {
+	starredOnly: boolean;
+	searchText?: string;
+	category?: MessageCategory[];
+	unread?: boolean;
+	attachments?: boolean;
+}): SearchOptions => ({
+	...(params.searchText ? { query: params.searchText } : {}),
+	...(params.starredOnly ? { starred: true } : {}),
+	...(params.category?.length ? { category: params.category } : {}),
+	...(params.unread !== undefined ? { unread: params.unread } : {}),
+	...(params.attachments !== undefined
+		? { attachments: params.attachments }
+		: {}),
+});
+
+/**
+ * Minimal client surface `executeUnifiedThreadListing` needs, declared
+ * structurally (like `ThreadSearchClient`) so the mode selection, the row
+ * filters and the count are testable with an in-memory fake.
+ */
+export interface UnifiedThreadClient extends EnrichClient, InboxMapClient {
+	threadMessage: {
+		listByDate(
+			accountConfigId: string,
+			options?: ReturnType<typeof buildListAllThreadsOptions>,
+		): Promise<ResultList<ThreadMessageItem>>;
+		listByStarred(
+			accountConfigId: string,
+			options?: ReturnType<typeof buildListStarredThreadsOptions>,
+		): Promise<ResultList<ThreadMessageItem>>;
+		searchByDate(
+			accountConfigId: string,
+			search: SearchOptions,
+			options?: ReturnType<typeof buildSearchAllThreadsOptions>,
+		): Promise<ResultList<ThreadMessageItem>>;
+		countByDate(
+			accountConfigId: string,
+			search: SearchOptions,
+			options?: { mailboxIds?: Set<string>; excludeDeleted?: boolean },
+		): Promise<number>;
+	};
+}
+
+export type UnifiedThreadParams = {
+	continuationToken?: string;
+	order?: "asc" | "desc";
+	limit?: number;
+	starredOnly: boolean;
+	searchText?: string;
+	category?: MessageCategory[];
+	unread?: boolean;
+	attachments?: boolean;
+	count: boolean;
+	results: boolean;
+};
+
+/**
+ * Run the cross-account listing: pick the mode, apply the row criteria inside
+ * the query, and optionally count the matches.
+ *
+ * `count` names the whole match, never the page: a page size bounds the rows a
+ * response carries and has no bearing on how many messages match, so pressing
+ * "load more" cannot move it. `results: false` reads the count alone, which is
+ * how a header total is fetched without also paying for a page of mail.
+ */
+export const executeUnifiedThreadListing = async (
+	client: UnifiedThreadClient,
+	accountConfigId: string,
+	params: UnifiedThreadParams,
+): Promise<ThreadSearchResponse> => {
+	const searching =
+		params.searchText !== undefined && params.searchText.length > 0;
+	const {
+		mailboxIdToAccountId,
+		inboxMailboxIds,
+		starredMailboxIds,
+		searchMailboxIds,
+		virtualCopyMailboxIds,
+	} = await buildInboxMailboxMap(accountConfigId, client);
+
+	// Search widens past INBOX to every folder it may reach; `starred=true`
+	// still narrows it to the starred scope, so the two compose.
+	const searchScope = params.starredOnly ? starredMailboxIds : searchMailboxIds;
+	const scope = searching
+		? searchScope
+		: params.starredOnly
+			? starredMailboxIds
+			: inboxMailboxIds;
+
+	const search = buildUnifiedThreadSearch(params);
+	const page = {
+		continuationToken: params.continuationToken,
+		order: params.order,
+		limit: params.limit,
+	};
+
+	if (scope.size === 0) {
+		return {
+			...(params.results ? { items: [] } : {}),
+			...(params.count ? { count: 0 } : {}),
 		};
-		const starredOnly = starred === true || starred === "true";
-		// Whitespace-only text is not a search: it would widen the scope to every
-		// folder while matching nothing in particular.
-		const searchText = query?.trim();
-		const searching = searchText !== undefined && searchText.length > 0;
+	}
 
-		const client = await getClient();
+	const response: ThreadSearchResponse = {};
 
-		const {
-			mailboxIdToAccountId,
-			inboxMailboxIds,
-			starredMailboxIds,
-			searchMailboxIds,
-			virtualCopyMailboxIds,
-		} = await buildInboxMailboxMap(accountConfigId, client);
-
-		// Search widens past INBOX to every folder it may reach; `starred=true`
-		// still narrows it to the starred scope, so the two compose.
-		const searchScope = starredOnly ? starredMailboxIds : searchMailboxIds;
-		const scope = searching
-			? searchScope
-			: starredOnly
-				? starredMailboxIds
-				: inboxMailboxIds;
-		if (scope.size === 0) {
-			return { items: [], continuationToken: undefined };
-		}
-
+	if (params.results) {
 		const result = searching
 			? await client.threadMessage.searchByDate(
 					accountConfigId,
-					{ query: searchText, starred: starredOnly ? true : undefined },
-					buildSearchAllThreadsOptions(
-						{ continuationToken, order, limit },
-						searchScope,
-					),
+					search,
+					buildSearchAllThreadsOptions(page, searchScope),
 				)
-			: starredOnly
+			: params.starredOnly
 				? await client.threadMessage.listByStarred(
 						accountConfigId,
-						buildListStarredThreadsOptions(
-							{ continuationToken, order, limit },
-							starredMailboxIds,
-						),
+						buildListStarredThreadsOptions(page, starredMailboxIds, search),
 					)
 				: await client.threadMessage.listByDate(
 						accountConfigId,
-						buildListAllThreadsOptions(
-							{ continuationToken, order, limit },
-							inboxMailboxIds,
-						),
+						buildListAllThreadsOptions(page, inboxMailboxIds, search),
 					);
 
 		// Search spans folders, so it is the one mode that can see the same mail
@@ -393,11 +470,85 @@ export const UnifiedThreadOperations: Record<
 			: result.items;
 
 		const enriched = await enrichThreadRows(rows, client, accountConfigId);
-		const items = attachAccountIds(enriched, mailboxIdToAccountId);
+		response.items = attachAccountIds(enriched, mailboxIdToAccountId);
+		response.continuationToken = result.continuationToken;
+	}
 
-		return {
-			items,
-			continuationToken: result.continuationToken,
+	if (params.count) {
+		response.count = await client.threadMessage.countByDate(
+			accountConfigId,
+			search,
+			{ mailboxIds: scope, excludeDeleted: true },
+		);
+	}
+
+	return response;
+};
+
+const toArray = <T>(value: T | T[] | undefined): T[] | undefined => {
+	if (value === undefined) return undefined;
+	return Array.isArray(value) ? value : [value];
+};
+
+// Query strings carry text; openapi-backend coerces where the schema says
+// boolean and leaves the raw string where it cannot. Both forms mean the same
+// thing to a caller, so both are read.
+const toBoolean = (
+	value: boolean | string | undefined,
+): boolean | undefined => {
+	if (value === undefined) return undefined;
+	return value === true || value === "true";
+};
+
+export const UnifiedThreadOperations: Record<
+	UnifiedThreadOperationIds,
+	OperationHandler<UnifiedThreadOperationIds>
+> = {
+	UnifiedThreadOperations_listAllThreads: async (
+		context: Context,
+		...args: unknown[]
+	) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const {
+			continuationToken,
+			order,
+			limit,
+			starred,
+			query,
+			category,
+			unread,
+			attachments,
+			count,
+			results,
+		} = context.request.query as {
+			continuationToken?: string;
+			order?: "asc" | "desc";
+			limit?: number;
+			starred?: boolean | string;
+			query?: string;
+			category?: MessageCategory | MessageCategory[];
+			unread?: boolean | string;
+			attachments?: boolean | string;
+			count?: boolean | string;
+			results?: boolean | string;
 		};
+
+		// Whitespace-only text is not a search: it would widen the scope to every
+		// folder while matching nothing in particular.
+		const searchText = query?.trim();
+
+		return executeUnifiedThreadListing(await getClient(), accountConfigId, {
+			continuationToken,
+			order,
+			limit,
+			starredOnly: toBoolean(starred) === true,
+			searchText: searchText || undefined,
+			category: toArray(category),
+			unread: toBoolean(unread),
+			attachments: toBoolean(attachments),
+			count: toBoolean(count) === true,
+			results: results !== false && results !== "false",
+		});
 	},
 };

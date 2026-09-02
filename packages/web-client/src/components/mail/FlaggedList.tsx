@@ -12,6 +12,12 @@
  * the `MailHeader` + filter expando; the kit `MessageListPane` (flat, no
  * `briefFilters`) owns the loading / empty / error chrome and keyboard hints,
  * with a consumer-supplied `listBody` so the real rows render at every width.
+ *
+ * The category and attribute chips are query parameters, and the header's
+ * unread count is the server's own (#308). Both used to be computed over the
+ * pages the user happened to have loaded, so a category whose mail sat below
+ * the newest page showed an empty list, and the count grew with every press of
+ * "load more" while being presented as a total.
  */
 import {
 	flaggedFilterConfig,
@@ -24,14 +30,20 @@ import { type RefObject, useCallback, useMemo, useState } from "react";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
-import { useStarredThreads } from "@/hooks/useStarredThreads";
+import {
+	useStarredTextSearch,
+	useStarredThreads,
+	useStarredUnreadCount,
+} from "@/hooks/useStarredThreads";
 import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
 import {
 	matchesBriefSearch,
 	matchesSearchTokens,
+	mergeSearchRows,
 	toThreadRowData,
 } from "@/lib/brief";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
+import { inboxFilterParams } from "@/lib/inbox-filters";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
 import { rowToSearchResult } from "@/lib/search-result";
@@ -51,10 +63,8 @@ import {
 	useThreadListSelection,
 } from "./ThreadListInteraction";
 
-const FILTER_PREDICATES: Record<string, (t: ThreadRowData) => boolean> = {
-	unread: (t) => !t.isRead,
-	attachment: (t) => t.hasAttachment === true,
-};
+/** One page of the server-filtered text search, merged with the listing below. */
+const TEXT_SEARCH_PAGE_SIZE = 200;
 
 /**
  * The wizard this view's verbs walk, and the one its search entry lands on.
@@ -138,6 +148,27 @@ export function FlaggedList({
 		setActiveFilters(new Set());
 	}, []);
 
+	const { freeText: sq, tokens: queryTokens } = parseSearchTokens(
+		searchQuery.trim().toLowerCase(),
+		tokenContext,
+	);
+
+	// The chips as query parameters. `inboxFilterParams` translates the same chip
+	// ids the inbox uses, and `listAllThreads` takes the same parameters, so the
+	// two views narrow their lists through one translation rather than two.
+	const filterParams = useMemo(
+		() =>
+			inboxFilterParams({
+				category: selectedCategory,
+				attributes: activeFilters,
+			}),
+		[selectedCategory, activeFilters],
+	);
+	const textCriteria = useMemo(
+		() => (sq ? { ...filterParams, query: sq } : filterParams),
+		[filterParams, sq],
+	);
+
 	const {
 		threads,
 		isLoading,
@@ -147,27 +178,28 @@ export function FlaggedList({
 		fetchNextPage,
 		hasNextPage,
 		isFetchingNextPage,
-	} = useStarredThreads();
-
-	const { freeText: sq, tokens: queryTokens } = parseSearchTokens(
-		searchQuery.trim().toLowerCase(),
-		tokenContext,
-	);
+	} = useStarredThreads(filterParams);
+	const textMatches = useStarredTextSearch(textCriteria, TEXT_SEARCH_PAGE_SIZE);
 
 	const rows = useMemo<ThreadRowData[]>(() => {
-		const predicates = Array.from(activeFilters)
-			.map((id) => FILTER_PREDICATES[id])
-			.filter((p): p is (t: ThreadRowData) => boolean => p != null);
-		return dedupeByThread(threads)
-			.map(toThreadRowData)
-			.filter(
-				(t) =>
-					(selectedCategory === "all" || t.category === selectedCategory) &&
-					predicates.every((p) => p(t)) &&
-					(!sq || matchesBriefSearch(t, sq)) &&
-					matchesSearchTokens(t, queryTokens),
-			);
-	}, [threads, selectedCategory, activeFilters, sq, queryTokens]);
+		const listed = dedupeByThread(threads).map(toThreadRowData);
+		// No free text: the server-filtered listing as it comes.
+		const matched = sq
+			? mergeSearchRows(
+					// The snippet half, over the rows already loaded. It only ever adds
+					// to the server's set — it is never what decides membership.
+					listed.filter((t) => matchesBriefSearch(t, sq)),
+					dedupeByThread(textMatches).map(toThreadRowData),
+				)
+			: listed;
+		// `before:`/`after:`/`in:`/`account:` have no parameter on this endpoint,
+		// so they stay a pass over the rows the server returned. The collapse runs
+		// last so the two halves of a text search cannot land the same
+		// conversation twice.
+		return dedupeByThread(matched).filter((t) =>
+			matchesSearchTokens(t, queryTokens),
+		);
+	}, [threads, textMatches, sq, queryTokens]);
 
 	const openRow = useCallback(
 		(id: string, options?: OpenMessageOptions) => {
@@ -197,10 +229,10 @@ export function FlaggedList({
 		[rows, resultFolderIndex],
 	);
 
-	const unreadCount = useMemo(
-		() => rows.filter((t) => !t.isRead).length,
-		[rows],
-	);
+	// The server's count over the whole collection under the active criteria.
+	// Undefined while it is in flight and undefined when it cannot be had, and
+	// the header then shows no number — never a page length dressed as a total.
+	const unreadCount = useStarredUnreadCount(textCriteria);
 
 	const listState = isLoading
 		? "loading"

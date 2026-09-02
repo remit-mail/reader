@@ -101,7 +101,12 @@ export interface MailShellProps {
 	width?: number;
 	selectedNavId?: string;
 	listTitle?: string;
-	unreadCount?: number;
+	/**
+	 * Unread count beside the list title. `null` is the state a server count the
+	 * view could not obtain renders as: no number at all, never a figure derived
+	 * from the rows that happen to be loaded (#308).
+	 */
+	unreadCount?: number | null;
 	sections?: ThreadSection[];
 	/** Seeds the brief's category scope; the shell owns it from there. */
 	briefCategory?: BriefCategoryFilter;
@@ -367,7 +372,7 @@ function ListPane({
 	onSearchOpenChange,
 }: {
 	title: string;
-	unreadCount: number;
+	unreadCount: number | null;
 	sections: ThreadSection[];
 	briefFilters?: boolean;
 	briefCategory?: BriefCategoryFilter;
@@ -597,9 +602,11 @@ function ListPane({
 					title={title}
 					titleMeta={
 						<>
-							<span className="shrink-0 text-2xs text-fg-subtle">
-								{unreadCount.toLocaleString()} unread
-							</span>
+							{unreadCount === null ? null : (
+								<span className="shrink-0 text-2xs text-fg-subtle">
+									{unreadCount.toLocaleString()} unread
+								</span>
+							)}
 							<FilterToggle />
 							<RefreshButton
 								state="idle"
@@ -745,7 +752,7 @@ export function MailShell({
 		<NavSidebar
 			accounts={navAccounts}
 			selectedNavId={selectedNavId}
-			briefUnseen={unreadCount}
+			briefUnseen={unreadCount ?? 0}
 			calendarNav={calendarNav}
 			savedSearches={savedSearches}
 			saveableQuery={

@@ -407,6 +407,7 @@ export class DrizzleThreadMessageRepository
 			continuationToken?: string;
 			inboxMailboxIds?: Set<string>;
 			excludeDeleted?: boolean;
+			search?: SearchOptions;
 		},
 	): Promise<ResultList<ThreadMessageItem>> {
 		const order = options?.order ?? "desc";
@@ -446,6 +447,7 @@ export class DrizzleThreadMessageRepository
 					options?.excludeDeleted
 						? eq(threadMessageTable.isDeleted, false)
 						: undefined,
+					...(options?.search ? buildSearchConditions(options.search) : []),
 					cursorCond,
 				),
 			)
@@ -528,6 +530,40 @@ export class DrizzleThreadMessageRepository
 		};
 	}
 
+	/**
+	 * COUNT of matches over the SAME predicate as the cross-account listings,
+	 * across the caller's mailbox scope. `hasStars` is not special-cased: the
+	 * starred mode passes `starred: true` in `search`, so one method counts what
+	 * any of the three modes lists.
+	 */
+	async countByDate(
+		accountConfigId: string,
+		search: SearchOptions,
+		options?: {
+			mailboxIds?: Set<string>;
+			excludeDeleted?: boolean;
+		},
+	): Promise<number> {
+		const mailboxCond = options?.mailboxIds?.size
+			? inArray(threadMessageTable.mailboxId, [...options.mailboxIds])
+			: undefined;
+
+		const [{ count }] = await this.db
+			.select({ count: sql<number>`cast(count(*) as int)` })
+			.from(threadMessageTable)
+			.where(
+				and(
+					eq(threadMessageTable.accountConfigId, accountConfigId),
+					mailboxCond,
+					options?.excludeDeleted
+						? eq(threadMessageTable.isDeleted, false)
+						: undefined,
+					...buildSearchConditions(search),
+				),
+			);
+		return count;
+	}
+
 	async listByStarred(
 		accountConfigId: string,
 		options?: {
@@ -536,6 +572,7 @@ export class DrizzleThreadMessageRepository
 			continuationToken?: string;
 			mailboxIds?: Set<string>;
 			excludeDeleted?: boolean;
+			search?: SearchOptions;
 		},
 	): Promise<ResultList<ThreadMessageItem>> {
 		const order = options?.order ?? "desc";
@@ -561,6 +598,7 @@ export class DrizzleThreadMessageRepository
 					options?.excludeDeleted
 						? eq(threadMessageTable.isDeleted, false)
 						: undefined,
+					...(options?.search ? buildSearchConditions(options.search) : []),
 					sentDateCursorCond(order, cursor),
 				),
 			)

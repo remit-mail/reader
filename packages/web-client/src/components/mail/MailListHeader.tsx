@@ -95,7 +95,12 @@ import {
 
 export interface MailListHeaderProps {
 	title: string;
-	unreadCount: number;
+	/**
+	 * Unread count beside the title. Absent means the number is not known — a
+	 * count the server has not answered is shown as no number rather than as a
+	 * figure derived from the rows that happen to be loaded (#308).
+	 */
+	unreadCount?: number;
 	/** The list body (filter sheet / sections / virtualized rows). */
 	children: ReactNode;
 	/**
@@ -442,9 +447,11 @@ export function MailListHeader({
 			),
 			titleMeta: (
 				<>
-					<span className="shrink-0 text-2xs text-fg-subtle">
-						{unreadCount.toLocaleString()} unread
-					</span>
+					{unreadCount === undefined ? null : (
+						<span className="shrink-0 text-2xs text-fg-subtle">
+							{unreadCount.toLocaleString()} unread
+						</span>
+					)}
 					<FilterToggle />
 					{refreshControl}
 				</>

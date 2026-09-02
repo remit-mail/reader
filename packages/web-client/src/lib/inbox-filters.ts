@@ -10,13 +10,19 @@ export type ThreadSearchQuery = NonNullable<
 	ThreadOperationsSearchThreadsData["query"]
 >;
 
-/** The parameters the inbox chips set on that request. */
+/**
+ * The parameters the filter chips set on a thread listing.
+ *
+ * Named for the inbox, which had them first, but shared: `listAllThreads` takes
+ * the same four (#308), so the Flagged view sends the chips through this rather
+ * than growing a second translation of the same chip ids.
+ */
 export type InboxFilterParams = Pick<
 	ThreadSearchQuery,
 	"category" | "unread" | "starred" | "attachments"
 >;
 
-/** The chip state the inbox holds: one category, any number of attributes. */
+/** The chip state a filtered list holds: one category, any number of attributes. */
 export interface InboxFilterCriteria {
 	/** A category id, or `"all"` when the category is cleared. */
 	category: string;

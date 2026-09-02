@@ -266,11 +266,18 @@ model ThreadMessageResponse {
 }
 
 @doc("""
-  Aggregate response for `searchThreads`. Carries the matching rows (`items`), a
-  pagination `continuationToken`, and an optional `count` of every message the
-  query matches. `items` is omitted when `results=false` (count-only); `count` is
+  Aggregate response for the filterable thread listings — `searchThreads` and
+  `listAllThreads`. Carries the matching rows (`items`), a pagination
+  `continuationToken`, and an optional `count` of every message the query
+  matches. `items` is omitted when `results=false` (count-only); `count` is
   present only when `count=true`. Thread-specific so the shared `ResultList<T>`
   (7 endpoints) stays untouched.
+  
+  `listAllThreads` answers with this model rather than `ResultList<T>` for that
+  same reason: it needs the count field and the shared model cannot carry one.
+  One model over both operations rather than a second of the same shape, so a
+  client reading a filtered thread listing reads one response type whether the
+  listing is scoped to a mailbox or spans every account.
   """)
 model ThreadSearchResponse {
   @doc("Matching thread rows for this page. Omitted when `results=false` (count-only mode).")
@@ -280,6 +287,6 @@ model ThreadSearchResponse {
   @continuationToken
   continuationToken?: String800;
 
-  @doc("How many messages the query matches, over the whole mailbox and independent of `limit`. Present only when `count=true`. With `senderTrust` or `dkimMismatch` in the query the count is over the enriched window instead, since those are resolved off the row.")
+  @doc("How many messages the query matches, over the whole scope — one mailbox for `searchThreads`, every non-muted mailbox of every account for `listAllThreads` — and independent of `limit`. Present only when `count=true`. With `senderTrust` or `dkimMismatch` in the query the count is over the enriched window instead, since those are resolved off the row.")
   count?: int32;
 }

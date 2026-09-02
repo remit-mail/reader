@@ -709,6 +709,10 @@ namespace RemitApi {
       What a row is in search mode: one per message, not one per mailbox. This differs from the starred mode above, where the same mail filed in two folders is two rows sharing a `threadId`. Collapsing by `threadId` is still a client's job if it renders one row per CONVERSATION, since distinct messages in one thread remain distinct rows here.
       
       Callers that omit `query` are unaffected: the INBOX (and starred) listings behave exactly as before.
+      
+      Row filters: `category`, `unread` and `attachments` are columns on the ThreadMessage row, so each is a predicate inside the query rather than a pass over what a page returned. They compose with every mode above — INBOX, starred and search alike — and a page therefore comes back full of matches however rare the criterion is. This is what the cross-account collections need: filtering the pages a client happens to have loaded shows an empty list whenever the matching mail sits below the newest page (#308).
+      
+      Counting: `count=true` answers how many messages match, over the whole scope and independent of `limit`. `results=false` omits the rows, which is how a header total is read without also paying for a page of mail. A count is over rows, taken before the duplicate collapse search mode applies, so it is a count of messages rather than of conversations.
       """)
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
@@ -730,7 +734,27 @@ namespace RemitApi {
       @doc("Free text to match against subject and From address. Supplying it switches the listing into search mode, which widens the scope past INBOX to every non-muted mailbox — see the operation description. Omitting it leaves the listing unchanged.")
       @query(#{ explode: true })
       query?: string,
-    ): ResultList<ThreadMessageResponse>;
+
+      @doc("Filter to messages with one of these header-derived categories, as a union over the values given. Applied as a SQL predicate over the whole scope, so a page comes back full of matches however rare the category is. `uncategorized` is one of them — the pending state's name, never the absence of one.")
+      @query(#{ explode: true })
+      category?: MessageCategory[],
+
+      @doc("When true, return only unread messages. A column on the row, so it narrows the query rather than the page.")
+      @query(#{ explode: true })
+      unread?: boolean,
+
+      @doc("When true, return only messages carrying an attachment. A column on the row, so it narrows the query rather than the page.")
+      @query(#{ explode: true })
+      attachments?: boolean,
+
+      @doc("Include how many messages the listing matches. Counted over the whole scope, independent of `limit`.")
+      @query(#{ explode: true })
+      count?: boolean,
+
+      @doc("Return matching rows. Default true; set false for a count-only response.")
+      @query(#{ explode: true })
+      results?: boolean,
+    ): ThreadSearchResponse;
   }
 
   @route("/mailboxes/{mailboxId}/threads")
