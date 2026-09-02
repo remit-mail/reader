@@ -1,7 +1,8 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../lib/cn.js";
-import type { ResultCount, ThreadSection } from "./app-shell-types.js";
+import type { ThreadSection } from "./app-shell-types.js";
+import type { ResultCount } from "./list-result-header.js";
 import type { BriefRowComponent } from "./message-row.js";
 
 /** Rows a section renders before the reader is sent to the filtered list. */

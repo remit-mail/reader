@@ -97,7 +97,7 @@ describe("briefSections", () => {
 	});
 
 	test("each category answers for its own section, with its own label", () => {
-		const labels = new Map([
+		const labels = new Map<ThreadCategory, string>([
 			["personal", "Personal"],
 			["transactional", "Transactional"],
 			["newsletter", "Newsletter"],
@@ -108,7 +108,7 @@ describe("briefSections", () => {
 		]);
 		for (const [category, label] of labels) {
 			const sections = briefSections([
-				result(category as ThreadCategory, [row({ id: "1", category })]),
+				result(category, [row({ id: "1", category })]),
 			]);
 			assert.strictEqual(sections.length, 1);
 			assert.strictEqual(sections[0].id, category);
@@ -196,17 +196,18 @@ describe("briefSections", () => {
 	// --- Section order and omission ---
 
 	test("display order is fixed, Unclassified last", () => {
+		const seeded: ThreadCategory[] = [
+			"automated",
+			"social",
+			"marketing",
+			"newsletter",
+			"transactional",
+			"personal",
+			"uncategorized",
+		];
 		const sections = briefSections(
-			[
-				"automated",
-				"social",
-				"marketing",
-				"newsletter",
-				"transactional",
-				"personal",
-				"uncategorized",
-			].map((category) =>
-				result(category as ThreadCategory, [row({ id: category, category })]),
+			seeded.map((category) =>
+				result(category, [row({ id: category, category })]),
 			),
 		);
 		assert.deepStrictEqual(

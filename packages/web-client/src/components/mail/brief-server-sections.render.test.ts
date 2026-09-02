@@ -211,6 +211,7 @@ const testRouter = (search: string): AnyRouter => {
 const mount = async (search = ""): Promise<DomHarness> => {
 	http = mockFetch((call) => {
 		const url = new URL(call.url, "http://localhost");
+		if (url.pathname.endsWith("/config")) return { accounts: [account] };
 		if (url.pathname !== "/threads") return { items: [] };
 		const params = url.searchParams;
 		const categories = params.getAll("category");
