@@ -93,6 +93,27 @@ describe("BriefSections", () => {
 		assert.match(html, /No Personal mail in this brief\./);
 	});
 
+	// A search is answered by one ordered list. Sectioning the matches would put
+	// an old newsletter above a newer match, which is what the sections do (#312).
+	it("renders no headers at all under `flat`, keeping the given row order", () => {
+		const html = renderToString(
+			createElement(BriefSections, {
+				sections,
+				Row: ComfortableRow,
+				briefCategory: "all",
+				flat: true,
+				onSelectThread: () => undefined,
+				onSelectBriefCategory: () => undefined,
+			}),
+		);
+		assert.doesNotMatch(html, />Personal</);
+		assert.doesNotMatch(html, />Newsletter</);
+		assert.ok(
+			html.indexOf("Priya Nair") < html.indexOf("Weekly Brief"),
+			"the flat list reordered its rows",
+		);
+	});
+
 	// Narrowed to one category the label repeats the chip, but the total does
 	// not: it is the only statement of how much mail that category holds.
 	it("keeps the header at a single-category scope once it carries a total", () => {

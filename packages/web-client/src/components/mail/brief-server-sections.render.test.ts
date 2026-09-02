@@ -80,6 +80,16 @@ const marketingRows = seeded(
 	400,
 );
 
+/**
+ * The two matches a search has to order against each other: an old newsletter
+ * and a mail from this morning that is not a newsletter. Newest first, the way
+ * the server answers.
+ */
+const searchMatches = [
+	...seeded("match-new", "automated", ["Your build passed"], 0),
+	...seeded("match-old", "newsletter", ["Weekly digest for you"], 300),
+];
+
 const unclassifiedRows = seeded(
 	"unclassified",
 	"uncategorized",
@@ -215,6 +225,9 @@ const mount = async (search = ""): Promise<DomHarness> => {
 		if (url.pathname !== "/threads") return { items: [] };
 		const params = url.searchParams;
 		const categories = params.getAll("category");
+		// Search mode: one request, and the server answers with the whole match
+		// set in one order.
+		if (params.get("query")) return { items: searchMatches };
 		// A request naming no category is the unified listing the brief used to be:
 		// it answers with the newest mail, and Marketing is nowhere in it.
 		const rows =
@@ -379,6 +392,49 @@ describe("the brief's sections come from the server (#312)", () => {
 		assert.ok(
 			at("New arrivals") < at("One last reminder"),
 			"the section reordered the rows the server returned",
+		);
+	});
+
+	// The reading that sent the user here: searching the brief put an old
+	// newsletter above a mail from this morning, because the category sections
+	// ordered the matches by category first and recency second.
+	it("answers a search as one flat list, newest first across categories", async () => {
+		const mounted = await mount("digest");
+		await settled(mounted, "Weekly digest for you");
+
+		const shown = mounted.text();
+		assert.ok(
+			shown.indexOf("Your build passed") <
+				shown.indexOf("Weekly digest for you"),
+			"an old newsletter still outranked a newer match",
+		);
+		for (const label of ["Newsletter", "Automated", "Personal"]) {
+			assert.ok(
+				!shown.includes(label),
+				`the search kept the ${label} section header`,
+			);
+		}
+		assert.equal(
+			mounted.queryAll('button[aria-expanded="true"]').length,
+			0,
+			"the search rendered a section header",
+		);
+	});
+
+	it("asks for a search once, with no category scope of its own", async () => {
+		const mounted = await mount("digest");
+		await settled(mounted, "Weekly digest for you");
+
+		const searched = threadRequests().filter((call) =>
+			paramsOf(call).get("query"),
+		);
+		assert.equal(searched.length, 1, "the search fanned out over categories");
+		assert.deepEqual(paramsOf(searched[0]).getAll("category"), []);
+		assert.equal(paramsOf(searched[0]).get("order"), "desc");
+		assert.equal(
+			countRequests().length,
+			0,
+			"a search asked for section counts it does not render",
 		);
 	});
 

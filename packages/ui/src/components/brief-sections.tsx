@@ -157,6 +157,12 @@ interface BriefSectionsBaseProps
 	 */
 	onShowAllSection?: (sectionId: string) => void;
 	/**
+	 * Render one list rather than one section per category. A search is answered
+	 * this way: the rows come back in one global order, and a header between them
+	 * would put an old match from an earlier category above a newer one (#312).
+	 */
+	flat?: boolean;
+	/**
 	 * Drop the filter row and its panel, keeping the rows where they are. See
 	 * `FilterSheetProps`.
 	 */
@@ -169,7 +175,8 @@ export type BriefSectionsProps = BriefSectionsBaseProps & BriefFilterControl;
 
 /**
  * The daily-brief list body: category pills (single-select) + attribute chips
- * (additive) + one capped section per category (see {@link BriefSection}). Owns
+ * (additive) + one capped section per category (see {@link BriefSection}), or —
+ * under `flat` — one plain list in the order the rows arrived. Owns
  * its own filter state; the category axis is controlled via
  * `briefCategory`/`onSelectBriefCategory`. Consumers pre-filter `sections`
  * (e.g. by search) and pass a `Row` renderer; the web client reuses this so the
@@ -183,6 +190,7 @@ export function BriefSections({
 	keyboard,
 	onSelectThread,
 	onShowAllSection,
+	flat = false,
 	onSelectBriefCategory,
 	sources,
 	sourcesNote,
@@ -226,10 +234,12 @@ export function BriefSections({
 	// One section per category earns its keep at the "all" scope, and wherever a
 	// header carries the server's total for its category: narrowed to one
 	// category the label restates the chip, but the total does not — it is the
-	// only statement of how much mail that category holds.
+	// only statement of how much mail that category holds. A search overrules
+	// both: its answer is one list in one order.
 	const showSections =
-		briefCategory === "all" ||
-		sections.some((section) => section.total !== undefined);
+		!flat &&
+		(briefCategory === "all" ||
+			sections.some((section) => section.total !== undefined));
 
 	// A section the server answered for stays on screen with no rows: nothing
 	// matching a chip is a state the section states, and is not the same as a

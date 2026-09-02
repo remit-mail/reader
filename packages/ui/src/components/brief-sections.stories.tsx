@@ -219,6 +219,52 @@ export const SingleCategoryCounted: Story = {
 	),
 };
 
+/**
+ * (b4) The brief answering a search: no sections at all, one list in the order
+ * the server returned it. A newsletter from last spring under a header would
+ * outrank a mail from this morning, which is the reading a search must not give.
+ */
+export const Searching: Story = {
+	args: {
+		sections: [
+			{
+				id: "matches",
+				threads: [
+					{
+						id: "m1",
+						accountId: "a1",
+						fromName: "CI",
+						fromEmail: "ci@build.example",
+						subject: "Your build passed",
+						snippet: "All checks green on main.",
+						timeLabel: "8:02",
+						isRead: false,
+						category: "automated",
+					},
+					{
+						id: "m2",
+						accountId: "a1",
+						fromName: "Digest",
+						fromEmail: "digest@news.example",
+						subject: "Weekly digest for you",
+						snippet: "Stories you might have missed.",
+						timeLabel: "Mar 4",
+						isRead: true,
+						category: "newsletter",
+					},
+				],
+			},
+		],
+		briefCategory: "all",
+		flat: true,
+	},
+	render: (args) => (
+		<div className="flex h-screen w-96 flex-col border-r border-line">
+			<BriefSections {...args} />
+		</div>
+	),
+};
+
 const accountSources: FilterSheetSource[] = [
 	{ id: "all", label: "All", active: true },
 	{ id: "a1", label: "work", count: 3 },

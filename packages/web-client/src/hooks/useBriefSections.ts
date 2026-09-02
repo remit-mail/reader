@@ -18,6 +18,9 @@
  * criteria alone so no page, cursor or expansion can trigger another, and held
  * for a minute. The criteria carry the committed query, never the text being
  * typed, so nothing here is on a keystroke path.
+ *
+ * Sections are the unsearched brief only. Under a query the brief is one list in
+ * one order — see `useBriefSearchRows`.
  */
 import { unifiedThreadOperationsListAllThreadsQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { unifiedThreadOperationsListAllThreads } from "@remit/api-http-client/sdk.gen.ts";
@@ -26,13 +29,16 @@ import type {
 	RemitImapThreadMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import type { ResultCount } from "@remit/ui";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import type { BriefSectionParams } from "@/lib/brief-criteria";
 import { toResultCount } from "@/lib/result-count";
 
 /** A minute: a brief reopened straight away costs nothing. */
 const BRIEF_STALE_TIME_MS = 60_000;
+
+/** Half a minute: a query being refined re-asks sooner than the brief does. */
+const SEARCH_STALE_TIME_MS = 30_000;
 
 /** No number at all, which is what a section shows when nobody counted it. */
 const UNCOUNTED: ResultCount = { kind: "unknown" };
@@ -160,5 +166,62 @@ export function useBriefSections({
 		isLoading: rowQueries.some((query) => query.isLoading),
 		isError: rowQueries.some((query) => query.isError),
 		refetch,
+	};
+}
+
+/** What a searched brief holds before the reader is told to narrow it. */
+export interface BriefSearchCriteria extends BriefSectionsCriteria {
+	/** A category the chips or a `category:` term narrowed the search to. */
+	category?: RemitImapMessageCategory[];
+}
+
+export interface UseBriefSearchRows {
+	/** Every match the request returned, in the order the server returned them. */
+	rows: RemitImapThreadMessageResponse[];
+	isLoading: boolean;
+	isError: boolean;
+	refetch: () => void;
+}
+
+/**
+ * The brief under a search: one request, one globally newest-first list.
+ *
+ * Not seven category queries stitched back together. A match's category must not
+ * lift it above a newer match, and section headers between the rows would do
+ * exactly that — an old newsletter above a mail that arrived this morning. The
+ * server orders the whole match set; the client renders it in that order (#312).
+ *
+ * Search mode also widens the scope past INBOX to every non-muted folder of every
+ * account, so this is the only request that reaches Archive, Sent and Spam.
+ */
+export function useBriefSearchRows(
+	criteria: BriefSearchCriteria,
+	limit: number,
+	enabled: boolean,
+): UseBriefSearchRows {
+	const query = { ...criteria, limit, order: "desc" as const };
+	const { data, isLoading, isError, refetch } = useQuery({
+		queryKey: unifiedThreadOperationsListAllThreadsQueryKey({ query }),
+		queryFn: async () => {
+			const { data: page } = await unifiedThreadOperationsListAllThreads({
+				query,
+				throwOnError: true,
+			});
+			return page;
+		},
+		enabled,
+		staleTime: SEARCH_STALE_TIME_MS,
+	});
+	const rows = useMemo(
+		() => (enabled ? (data?.items ?? []) : []),
+		[data, enabled],
+	);
+	return {
+		rows,
+		isLoading: enabled && isLoading,
+		isError: enabled && isError,
+		refetch: useCallback(() => {
+			refetch();
+		}, [refetch]),
 	};
 }

@@ -15,6 +15,11 @@
  * hands the reader to the brief's own filtered list for that category; nothing
  * here loads a mailbox.
  *
+ * Sections are the unsearched brief only. A search is one request and one flat
+ * list, newest first across every category: sectioning the matches would order
+ * them by category first and recency second, putting last spring's newsletter
+ * above a mail that arrived this morning.
+ *
  * The list's filter surface is the kit `BriefSections`: categories, attribute
  * chips and the account source group, in a panel the list header's caret opens
  * over the rows. `FilterPanelProvider` shares that panel's open state between
@@ -43,6 +48,7 @@ import { mailboxOperationsListMailboxesOptions } from "@remit/api-http-client/@t
 import type {
 	RemitImapAccountResponse,
 	RemitImapMessageCategory,
+	RemitImapThreadMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import {
 	type BriefCategoryFilter,
@@ -82,7 +88,7 @@ import {
 	useState,
 } from "react";
 import { useJunkMailbox } from "@/hooks/useArchiveMailbox";
-import { useBriefSections } from "@/hooks/useBriefSections";
+import { useBriefSearchRows, useBriefSections } from "@/hooks/useBriefSections";
 import {
 	isSyncingPhase,
 	useInitialSyncProgress,
@@ -137,6 +143,13 @@ import {
    "show all" destination, which is a page of that category rather than the whole
    of it. */
 const CATEGORY_PAGE_SIZE = 50;
+
+/* One page of matches for a searched brief. The server orders the whole match
+   set; this is how much of the front of it the list renders. */
+const SEARCH_PAGE_SIZE = 200;
+
+/* The brief asks for no sections while it is answering a search. */
+const NO_CATEGORIES: RemitImapMessageCategory[] = [];
 
 // ---------------------------------------------------------------------------
 // Skeleton
@@ -446,6 +459,15 @@ export function DailyBrief({
 
 	const searching = searchInput.trim().length > 0;
 
+	// The committed query, split into the free text the request carries and the
+	// tokens. Free text is what turns the brief from seven category sections into
+	// one ordered list of matches, so it is read before anything downstream of it.
+	const { freeText: sq, tokens: queryTokens } = parseSearchTokens(
+		searchQuery.trim().toLowerCase(),
+		tokenContext,
+	);
+	const underQuery = sq.length > 0;
+
 	// Under a query the chips and the query are one state: a chip writes its term
 	// into the query — `is:unread`, `has:attachment`, `category:newsletter` — and
 	// a term typed by hand ticks its chip. What narrows the rows is then legible
@@ -491,12 +513,12 @@ export function DailyBrief({
 	// list already is the destination.
 	const showAllSection = useMemo(
 		() =>
-			chipCategory === "all"
+			chipCategory === "all" && !underQuery
 				? (sectionId: string) => {
 						if (isBriefCategory(sectionId)) selectChipCategory(sectionId);
 					}
 				: undefined,
-		[chipCategory, selectChipCategory],
+		[chipCategory, underQuery, selectChipCategory],
 	);
 
 	const clearChips = useCallback(() => {
@@ -550,28 +572,28 @@ export function DailyBrief({
 		});
 	}, [nonMuted, mailboxQueries]);
 
-	const { freeText: sq, tokens: queryTokens } = parseSearchTokens(
-		searchQuery.trim().toLowerCase(),
-		tokenContext,
-	);
-
-	// --- Per-section queries ---
+	// --- The brief's rows ---
 	// The chips and the tokens as request parameters. The category is not among
 	// them: each section is its own category-scoped request, and the category
 	// chip decides which sections are on screen rather than narrowing a shared
-	// one. A free-text query switches every section into search mode, which
-	// widens its scope past INBOX to every non-muted folder of every account.
+	// one.
 	const { criteria: chipCriteria, residual: residualTokens } = useMemo(
 		() => briefCriteria(chipCategory, chipFilters, queryTokens),
 		[chipCategory, chipFilters, queryTokens],
 	);
-	const sectionCriteria = useMemo(
-		() => (sq ? { ...chipCriteria, query: sq } : chipCriteria),
-		[chipCriteria, sq],
-	);
 	const shownCategories = useMemo<RemitImapMessageCategory[]>(
 		() => (chipCategory === "all" ? [...BRIEF_CATEGORIES] : [chipCategory]),
 		[chipCategory],
+	);
+	// Under a query the category is a parameter again rather than a section
+	// scope: there is one request, and the chip narrows it.
+	const searchCriteria = useMemo(
+		() => ({
+			...chipCriteria,
+			query: sq,
+			...(chipCategory === "all" ? {} : { category: [chipCategory] }),
+		}),
+		[chipCriteria, sq, chipCategory],
 	);
 	// The account pills and the tokens no parameter carries narrow the rows after
 	// they arrive, so while either is active the count is of a wider set than the
@@ -584,41 +606,75 @@ export function DailyBrief({
 
 	const {
 		sections: sectionRows,
-		isLoading,
-		isError,
-		refetch,
+		isLoading: sectionsLoading,
+		isError: sectionsError,
+		refetch: refetchSections,
 	} = useBriefSections({
-		categories: shownCategories,
-		criteria: sectionCriteria,
+		categories: underQuery ? NO_CATEGORIES : shownCategories,
+		criteria: chipCriteria,
 		limit: chipCategory === "all" ? SECTION_ROW_CAP : CATEGORY_PAGE_SIZE,
 		counted,
 	});
 
-	// Each section's own rows as the list renders them: muted senders out, then
-	// the account pill and the residual tokens (`from:`, `subject:`, `before:`,
-	// `after:`, `in:`, `account:`) that `listAllThreads` has no parameter for.
-	// Everything else was answered over the whole scope by the request itself.
+	// A search is answered by one request and rendered as one list. Splitting the
+	// matches into category sections orders them by category first and recency
+	// second, which puts a newsletter from last spring above a mail that arrived
+	// this morning — the reading the search is asked to give (#312).
+	const {
+		rows: searchRows,
+		isLoading: searchLoading,
+		isError: searchError,
+		refetch: refetchSearch,
+	} = useBriefSearchRows(searchCriteria, SEARCH_PAGE_SIZE, underQuery);
+
+	const isLoading = underQuery ? searchLoading : sectionsLoading;
+	const isError = underQuery ? searchError : sectionsError;
+	const refetch = useCallback(() => {
+		if (underQuery) {
+			refetchSearch();
+			return;
+		}
+		refetchSections();
+	}, [underQuery, refetchSearch, refetchSections]);
+
+	// What the request could not carry: muted senders, the account pill, and the
+	// residual tokens (`from:`, `subject:`, `before:`, `after:`, `in:`,
+	// `account:`) that `listAllThreads` has no parameter for. Everything else was
+	// answered over the whole scope by the request itself, and the order the rows
+	// arrived in is kept — narrowing never re-sorts.
+	const narrowRows = useCallback(
+		(rows: RemitImapThreadMessageResponse[]): ThreadRowData[] =>
+			excludeMutedSenders(rows)
+				.map(toThreadRowData)
+				.filter(
+					(t) =>
+						(selectedAccountId === "all" ||
+							t.accountId === selectedAccountId) &&
+						matchesSearchTokens(t, residualTokens),
+				),
+		[selectedAccountId, residualTokens],
+	);
+
 	const briefRows = useMemo<BriefCategoryResult[]>(
 		() =>
 			sectionRows.map((section) => ({
 				category: section.category,
 				total: section.total,
 				loading: section.loading,
-				rows: excludeMutedSenders(section.rows)
-					.map(toThreadRowData)
-					.filter(
-						(t) =>
-							(selectedAccountId === "all" ||
-								t.accountId === selectedAccountId) &&
-							matchesSearchTokens(t, residualTokens),
-					),
+				rows: narrowRows(section.rows),
 			})),
-		[sectionRows, selectedAccountId, residualTokens],
+		[sectionRows, narrowRows],
+	);
+
+	const matchRows = useMemo<ThreadRowData[]>(
+		() => narrowRows(searchRows),
+		[searchRows, narrowRows],
 	);
 
 	const filteredRows = useMemo<ThreadRowData[]>(
-		() => briefRows.flatMap((section) => section.rows),
-		[briefRows],
+		() =>
+			underQuery ? matchRows : briefRows.flatMap((section) => section.rows),
+		[underQuery, matchRows, briefRows],
 	);
 
 	// A search reaches every folder, Spam included, and the brief is the one
@@ -642,18 +698,19 @@ export function DailyBrief({
 		};
 	}, [filteredRows, sq, resultFolderIndex]);
 
-	const sections = useMemo<ThreadSection[]>(
-		() =>
-			briefSections(
-				spamIds === undefined
-					? briefRows
-					: briefRows.map((section) => ({
-							...section,
-							rows: section.rows.filter((row) => !spamIds.has(row.id)),
-						})),
-			),
-		[briefRows, spamIds],
-	);
+	const sections = useMemo<ThreadSection[]>(() => {
+		const keep = (rows: ThreadRowData[]): ThreadRowData[] =>
+			spamIds === undefined ? rows : rows.filter((row) => !spamIds.has(row.id));
+		// One unlabelled section under a query: the body renders it flat, so the
+		// matches stay in the single order the server put them in.
+		if (underQuery) return [{ id: "matches", threads: keep(matchRows) }];
+		return briefSections(
+			briefRows.map((section) => ({
+				...section,
+				rows: keep(section.rows),
+			})),
+		);
+	}, [underQuery, matchRows, briefRows, spamIds]);
 
 	// A committed query puts rows the widened cross-folder search found into the
 	// body, and those messages are in folders the brief itself never loads. They
@@ -872,6 +929,7 @@ export function DailyBrief({
 					selectedThreadId={selectedMessageId}
 					onSelectThread={openRow}
 					onShowAllSection={showAllSection}
+					flat={underQuery}
 					onSelectBriefCategory={selectChipCategory}
 					sources={accountSources}
 					sourcesNote={mutedCount > 0 ? `+${mutedCount} muted` : undefined}
