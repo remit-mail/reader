@@ -3,6 +3,7 @@ import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
 	guardConnectionCursor,
+	type IImapConnection,
 	isCursorRebuildNeeded,
 	MailboxCursorPausedError,
 } from "@remit/mailbox-service";
@@ -12,6 +13,7 @@ import type { MessageCopyEvent } from "../events.js";
 import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
+import { searchMailboxByMessageId } from "./message-move.js";
 
 export interface MessageCopyDeps {
 	getClient: typeof getClient;
@@ -118,6 +120,21 @@ export const handleMessageCopy = async (
 				return;
 			}
 
+			// The copy row carries the source's Message-ID header, so the
+			// destination can be asked whether the COPY landed. A row that is gone,
+			// or one that never carried the header, has nothing to ask with.
+			const probeDestinationUid = async (
+				connection: IImapConnection,
+			): Promise<number | null> => {
+				const [copy] = await messageService.get([newMessageId]);
+				if (!copy?.messageIdHeader) return null;
+				return searchMailboxByMessageId(
+					connection,
+					destinationMailboxPath,
+					copy.messageIdHeader,
+				);
+			};
+
 			const scope = createConnectionScopeWithCredentials(account, credentials);
 
 			await scope
@@ -141,8 +158,16 @@ export const handleMessageCopy = async (
 						destinationMailboxPath,
 					);
 
-					// Get new UID from COPYUID response
-					const newUid = result.uidMap.get(uid);
+					// Get new UID from COPYUID response. A server without UIDPLUS
+					// answers a perfectly successful COPY with no COPYUID entry, so an
+					// empty map is UNCONFIRMED, never evidence the server matched
+					// nothing: the destination is asked by Message-ID before any
+					// verdict, exactly as `message-move.ts` does (#912, #979). The
+					// probe uses the unguarded handle because a `guardConnectionCursor`
+					// wrap is bound to the SOURCE mailbox snapshot alone.
+					const newUid =
+						result.uidMap.get(uid) ??
+						(await probeDestinationUid(rawConnection));
 
 					if (newUid) {
 						// Update the new message with the actual UID
@@ -192,14 +217,15 @@ export const handleMessageCopy = async (
 							"Message copied successfully",
 						);
 					} else {
-						// Source message may have been deleted on server
-						log.error(
-							{ sourceMessageId, uid },
-							"Source message not found in COPYUID response - may have been deleted",
+						// The copy is nowhere: it did not land. Thrown rather than
+						// recorded as a `failed` return, because a handler that returns
+						// is acked — no redelivery, no dead letter, no metric — and the
+						// row then sits at `uid: 0`/`moving` with no repair path, since a
+						// later sync of the destination resolves the server's copy to the
+						// SOURCE messageId and the `holdsCopyOf` guard declines it.
+						throw new Error(
+							`Message copy unconfirmed (no COPYUID entry, absent from ${destinationMailboxPath}) - retrying`,
 						);
-						await messageService.update(newMessageId, {
-							syncStatus: MessageSyncStatus.failed,
-						});
 					}
 				})
 				.catch(async (error: unknown) => {

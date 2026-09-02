@@ -28,6 +28,7 @@ interface Connection {
 		uids: number[],
 		dest: string,
 	) => Promise<{ uidMap: Map<number, number> }>;
+	search: (criteria: unknown[]) => Promise<number[]>;
 	createMailbox: (path: string) => Promise<void>;
 }
 
@@ -40,6 +41,7 @@ interface Harness {
 	} | null;
 	mailbox: { mailboxId: string; uidValidity: number; cursorState?: string };
 	mailboxError?: Error;
+	copyRow: { messageId: string; messageIdHeader?: string } | null;
 	connection: Connection;
 	getConnectionCount: number;
 	disconnectCount: number;
@@ -61,6 +63,7 @@ const record =
 const buildConnection = (): Connection => ({
 	openBox: async () => ({ uidvalidity: 1 }),
 	copyMessages: async () => ({ uidMap: new Map([[10, 20]]) }),
+	search: async () => [],
 	createMailbox: record("createMailbox") as Connection["createMailbox"],
 });
 
@@ -68,6 +71,7 @@ const fresh = (): Harness => ({
 	calls: [],
 	account: { accountId: "acc-1", accountConfigId: "cfg-1" },
 	mailbox: { mailboxId: "src-mbx", uidValidity: 1, cursorState: undefined },
+	copyRow: { messageId: "new-msg", messageIdHeader: "<abc@example.com>" },
 	connection: buildConnection(),
 	getConnectionCount: 0,
 	disconnectCount: 0,
@@ -83,6 +87,10 @@ const deps = (): MessageCopyDeps =>
 				},
 			},
 			message: {
+				get: async (messageIds: string[]) => {
+					h.calls.push({ method: "message.get", args: [messageIds] });
+					return h.copyRow ? [h.copyRow] : [];
+				},
 				updateUid: record("message.updateUid"),
 				update: record("message.update"),
 			},
@@ -163,18 +171,61 @@ describe("handleMessageCopy", () => {
 		assert.equal(h.disconnectCount, 1, "the scope is always disconnected");
 	});
 
-	it("marks the copy failed when the COPYUID response omits the source uid", async () => {
+	it("settles on the destination UID when a server without UIDPLUS omits COPYUID", async () => {
 		h.connection.copyMessages = async () => ({ uidMap: new Map() });
+		h.connection.search = async (criteria: unknown[]) => {
+			h.calls.push({ method: "search", args: criteria });
+			return [42];
+		};
 
 		await handleMessageCopy(event, noopLog, deps());
 
-		assert.equal(called("message.updateUid").length, 0);
-		const update = called("message.update")[0];
+		assert.deepEqual(called("search")[0]?.args[0], [
+			"HEADER",
+			"Message-ID",
+			"<abc@example.com>",
+		]);
+		assert.deepEqual(called("message.updateUid")[0]?.args, [
+			"new-msg",
+			42,
+			"dst-mbx",
+		]);
 		assert.equal(
-			(update?.args[1] as { syncStatus?: string })?.syncStatus,
+			(called("message.update")[0]?.args[1] as { syncStatus?: string })
+				?.syncStatus,
+			"synced",
+		);
+		assert.equal(called("threadMessage.update").length, 1);
+	});
+
+	it("marks failed and rethrows when COPYUID is empty and the destination does not hold the message", async () => {
+		h.connection.copyMessages = async () => ({ uidMap: new Map() });
+
+		await assert.rejects(
+			handleMessageCopy(event, noopLog, deps()),
+			/copy unconfirmed/,
+		);
+
+		assert.equal(called("message.updateUid").length, 0);
+		assert.equal(
+			(called("message.update")[0]?.args[1] as { syncStatus?: string })
+				?.syncStatus,
 			"failed",
 		);
 		assert.equal(called("threadMessage.update").length, 0);
+	});
+
+	it("cannot probe a copy row that carries no Message-ID header", async () => {
+		h.connection.copyMessages = async () => ({ uidMap: new Map() });
+		h.copyRow = { messageId: "new-msg" };
+		h.connection.search = async () => [42];
+
+		await assert.rejects(
+			handleMessageCopy(event, noopLog, deps()),
+			/copy unconfirmed/,
+		);
+
+		assert.equal(called("message.updateUid").length, 0);
 	});
 
 	it("returns early without connecting when the account is soft-deleted", async () => {
