@@ -531,12 +531,20 @@ export class DrizzleThreadMessageRepository
 	}
 
 	/**
-	 * COUNT of matches over the SAME predicate as the cross-account listings,
-	 * across the caller's mailbox scope. `hasStars` is not special-cased: the
-	 * starred mode passes `starred: true` in `search`, so one method counts what
-	 * any of the three modes lists.
+	 * COUNT of matching CONVERSATIONS over the SAME predicate as the
+	 * cross-account listings, across the caller's mailbox scope.
+	 *
+	 * Distinct on `threadId` because that is the unit the listing renders: a row
+	 * is per mailbox, so one message reachable through a real folder and a
+	 * virtual copy of it is several rows, and two matching messages of one
+	 * conversation are two more. Both collapse in the list, and a count that did
+	 * not collapse with them would name a different set than the rows it sits
+	 * above.
+	 *
+	 * `hasStars` is not special-cased: the starred mode passes `starred: true` in
+	 * `search`, so one method counts what any of the three modes lists.
 	 */
-	async countByDate(
+	async countThreadsInScope(
 		accountConfigId: string,
 		search: SearchOptions,
 		options?: {
@@ -549,7 +557,9 @@ export class DrizzleThreadMessageRepository
 			: undefined;
 
 		const [{ count }] = await this.db
-			.select({ count: sql<number>`cast(count(*) as int)` })
+			.select({
+				count: sql<number>`cast(count(distinct ${threadMessageTable.threadId}) as int)`,
+			})
 			.from(threadMessageTable)
 			.where(
 				and(

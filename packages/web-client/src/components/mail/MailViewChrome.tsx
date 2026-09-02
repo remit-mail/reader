@@ -30,8 +30,8 @@ import { MailListHeader } from "./MailListHeader";
 
 interface MailViewChromeProps {
 	title: string;
-	/** Unread count beside the title; absent shows no number — see `MailListHeader`. */
-	unreadCount?: number;
+	/** Unread count beside the title; `null` shows no number — see `MailListHeader`. */
+	unreadCount: number | null;
 	preset: FilterPreset;
 	selectedCategory: string;
 	activeFilters: ReadonlySet<string>;

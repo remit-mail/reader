@@ -96,11 +96,12 @@ import {
 export interface MailListHeaderProps {
 	title: string;
 	/**
-	 * Unread count beside the title. Absent means the number is not known — a
-	 * count the server has not answered is shown as no number rather than as a
-	 * figure derived from the rows that happen to be loaded (#308).
+	 * Unread count beside the title. `null` is the one way to say the number is
+	 * not known, and the header then shows none: a count the server has not
+	 * answered is never replaced by a figure derived from the rows that happen to
+	 * be loaded (#308). Required so a caller that has no number says so.
 	 */
-	unreadCount?: number;
+	unreadCount: number | null;
 	/** The list body (filter sheet / sections / virtualized rows). */
 	children: ReactNode;
 	/**
@@ -447,7 +448,7 @@ export function MailListHeader({
 			),
 			titleMeta: (
 				<>
-					{unreadCount === undefined ? null : (
+					{unreadCount === null ? null : (
 						<span className="shrink-0 text-2xs text-fg-subtle">
 							{unreadCount.toLocaleString()} unread
 						</span>

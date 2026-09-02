@@ -372,7 +372,7 @@ export interface UnifiedThreadClient extends EnrichClient, InboxMapClient {
 			search: SearchOptions,
 			options?: ReturnType<typeof buildSearchAllThreadsOptions>,
 		): Promise<ResultList<ThreadMessageItem>>;
-		countByDate(
+		countThreadsInScope(
 			accountConfigId: string,
 			search: SearchOptions,
 			options?: { mailboxIds?: Set<string>; excludeDeleted?: boolean },
@@ -398,9 +398,11 @@ export type UnifiedThreadParams = {
  * the query, and optionally count the matches.
  *
  * `count` names the whole match, never the page: a page size bounds the rows a
- * response carries and has no bearing on how many messages match, so pressing
- * "load more" cannot move it. `results: false` reads the count alone, which is
- * how a header total is fetched without also paying for a page of mail.
+ * response carries and has no bearing on how much matches, so pressing "load
+ * more" cannot move it. It counts conversations, the unit the listing renders
+ * once its per-mailbox rows are collapsed by `threadId`. `results: false` reads
+ * the count alone, which is how a header total is fetched without also paying
+ * for a page of mail.
  */
 export const executeUnifiedThreadListing = async (
 	client: UnifiedThreadClient,
@@ -475,7 +477,7 @@ export const executeUnifiedThreadListing = async (
 	}
 
 	if (params.count) {
-		response.count = await client.threadMessage.countByDate(
+		response.count = await client.threadMessage.countThreadsInScope(
 			accountConfigId,
 			search,
 			{ mailboxIds: scope, excludeDeleted: true },
@@ -490,14 +492,23 @@ const toArray = <T>(value: T | T[] | undefined): T[] | undefined => {
 	return Array.isArray(value) ? value : [value];
 };
 
-// Query strings carry text; openapi-backend coerces where the schema says
-// boolean and leaves the raw string where it cannot. Both forms mean the same
-// thing to a caller, so both are read.
+/**
+ * A query-string boolean, as three states.
+ *
+ * Query strings carry text; openapi-backend coerces where the schema says
+ * boolean and leaves the raw string where it cannot, so both forms are read.
+ * Anything else — absent, or a value that is neither — is `undefined`, and
+ * every caller below decides what that means for its own parameter. Folding
+ * "not stated" into `false` would turn an absent `unread` into "only read
+ * mail": a filter nobody asked for, and the opposite of the one they might
+ * have meant.
+ */
 const toBoolean = (
 	value: boolean | string | undefined,
 ): boolean | undefined => {
-	if (value === undefined) return undefined;
-	return value === true || value === "true";
+	if (value === true || value === "true") return true;
+	if (value === false || value === "false") return false;
+	return undefined;
 };
 
 export const UnifiedThreadOperations: Record<
@@ -542,13 +553,16 @@ export const UnifiedThreadOperations: Record<
 			continuationToken,
 			order,
 			limit,
+			// Absent means unstated for all five, and each says what it does with
+			// that: the three filters drop out of the predicate, `count` is off
+			// unless it is asked for, and `results` is on unless it is refused.
 			starredOnly: toBoolean(starred) === true,
 			searchText: searchText || undefined,
 			category: toArray(category),
 			unread: toBoolean(unread),
 			attachments: toBoolean(attachments),
 			count: toBoolean(count) === true,
-			results: results !== false && results !== "false",
+			results: toBoolean(results) !== false,
 		});
 	},
 };

@@ -21,6 +21,7 @@
  */
 import {
 	flaggedFilterConfig,
+	type MessageListFilter,
 	MessageListPane,
 	type SearchResult,
 	type ThreadRowData,
@@ -43,7 +44,8 @@ import {
 	toThreadRowData,
 } from "@/lib/brief";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
-import { inboxFilterParams } from "@/lib/inbox-filters";
+import { flaggedCriteria } from "@/lib/flagged-criteria";
+import { categoryLabel } from "@/lib/inbox-filters";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
 import { rowToSearchResult } from "@/lib/search-result";
@@ -153,20 +155,19 @@ export function FlaggedList({
 		tokenContext,
 	);
 
-	// The chips as query parameters. `inboxFilterParams` translates the same chip
-	// ids the inbox uses, and `listAllThreads` takes the same parameters, so the
-	// two views narrow their lists through one translation rather than two.
-	const filterParams = useMemo(
+	// The chips and the tokens together, as query parameters: a category typed as
+	// `category:personal` narrows the request exactly as the chip does.
+	const { criteria, residual: residualTokens } = useMemo(
 		() =>
-			inboxFilterParams({
-				category: selectedCategory,
-				attributes: activeFilters,
-			}),
-		[selectedCategory, activeFilters],
+			flaggedCriteria(
+				{ category: selectedCategory, attributes: activeFilters },
+				queryTokens,
+			),
+		[selectedCategory, activeFilters, queryTokens],
 	);
 	const textCriteria = useMemo(
-		() => (sq ? { ...filterParams, query: sq } : filterParams),
-		[filterParams, sq],
+		() => (sq ? { ...criteria, query: sq } : criteria),
+		[criteria, sq],
 	);
 
 	const {
@@ -178,7 +179,7 @@ export function FlaggedList({
 		fetchNextPage,
 		hasNextPage,
 		isFetchingNextPage,
-	} = useStarredThreads(filterParams);
+	} = useStarredThreads(criteria);
 	const textMatches = useStarredTextSearch(textCriteria, TEXT_SEARCH_PAGE_SIZE);
 
 	const rows = useMemo<ThreadRowData[]>(() => {
@@ -192,14 +193,13 @@ export function FlaggedList({
 					dedupeByThread(textMatches).map(toThreadRowData),
 				)
 			: listed;
-		// `before:`/`after:`/`in:`/`account:` have no parameter on this endpoint,
-		// so they stay a pass over the rows the server returned. The collapse runs
-		// last so the two halves of a text search cannot land the same
-		// conversation twice.
+		// What is left is what no parameter can carry: `before:`, `after:`, `in:`,
+		// `account:`, and a token the chips overruled. The collapse runs last so
+		// the two halves of a text search cannot land one conversation twice.
 		return dedupeByThread(matched).filter((t) =>
-			matchesSearchTokens(t, queryTokens),
+			matchesSearchTokens(t, residualTokens),
 		);
-	}, [threads, textMatches, sq, queryTokens]);
+	}, [threads, textMatches, sq, residualTokens]);
 
 	const openRow = useCallback(
 		(id: string, options?: OpenMessageOptions) => {
@@ -230,9 +230,23 @@ export function FlaggedList({
 	);
 
 	// The server's count over the whole collection under the active criteria.
-	// Undefined while it is in flight and undefined when it cannot be had, and
-	// the header then shows no number — never a page length dressed as a total.
-	const unreadCount = useStarredUnreadCount(textCriteria);
+	// `null` while it is in flight and `null` when it cannot be had, and the
+	// header then shows no number — never a page length dressed as a total.
+	const unreadCount = useStarredUnreadCount(textCriteria) ?? null;
+
+	// An empty list has to say how much was looked at, and the answer comes off
+	// the request. Every chip and every carried token is a column on the row, so
+	// the server answered over the whole collection; a residual token, or the
+	// snippet half of a free-text search, only ever saw the pages loaded so far.
+	const filterLabel = categoryLabel(selectedCategory);
+	const listFilter: MessageListFilter | undefined = filterLabel
+		? {
+				label: filterLabel,
+				reach:
+					residualTokens.length > 0 || sq ? "loaded-pages" : "whole-folder",
+				onClear: clearFilters,
+			}
+		: undefined;
 
 	const listState = isLoading
 		? "loading"
@@ -309,6 +323,10 @@ export function FlaggedList({
 					flatList
 					hideHeader
 					listState={chrome.searchResults ? "ready" : listState}
+					listFilter={listFilter}
+					// Flagged spans accounts and folders, so it is a collection and
+					// never "this mailbox". It names itself.
+					listScopeLabel="Starred"
 					searchQuery={sq ? searchQuery : undefined}
 					errorMessage={isError ? formatErrorMessage(error) : undefined}
 					onRetry={() => refetch()}

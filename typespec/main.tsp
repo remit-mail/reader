@@ -712,7 +712,7 @@ namespace RemitApi {
       
       Row filters: `category`, `unread` and `attachments` are columns on the ThreadMessage row, so each is a predicate inside the query rather than a pass over what a page returned. They compose with every mode above — INBOX, starred and search alike — and a page therefore comes back full of matches however rare the criterion is. This is what the cross-account collections need: filtering the pages a client happens to have loaded shows an empty list whenever the matching mail sits below the newest page (#308).
       
-      Counting: `count=true` answers how many messages match, over the whole scope and independent of `limit`. `results=false` omits the rows, which is how a header total is read without also paying for a page of mail. A count is over rows, taken before the duplicate collapse search mode applies, so it is a count of messages rather than of conversations.
+      Counting: `count=true` answers how many CONVERSATIONS match, over the whole scope and independent of `limit`. `results=false` omits the rows, which is how a header total is read without also paying for a page of mail. Conversations rather than rows because that is what this listing renders: a row is per mailbox, so the same mail filed in two folders is two rows sharing a `threadId`, and clients collapse by it. Counting rows would put a third number beside a list that shows a second one.
       """)
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get

@@ -606,7 +606,7 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 		);
 	});
 
-	test("countByDate counts every match, whatever the page size", async () => {
+	test("countThreadsInScope counts every match, whatever the page size", async () => {
 		const acct = "acct-count-scope";
 		const base = Date.now();
 		for (let i = 0; i < 7; i++) {
@@ -638,14 +638,14 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 		});
 		assert.equal(page.items.length, 2);
 
-		const count = await repo.countByDate(acct, {
+		const count = await repo.countThreadsInScope(acct, {
 			starred: true,
 			unread: true,
 		});
 		assert.equal(count, 7);
 	});
 
-	test("countByDate takes a category union and counts uncategorized", async () => {
+	test("countThreadsInScope takes a category union and counts uncategorized", async () => {
 		const acct = "acct-count-category";
 		const base = Date.now();
 		const seed = async (
@@ -670,14 +670,14 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 		await seed("uncategorized", 4);
 
 		assert.equal(
-			await repo.countByDate(acct, {
+			await repo.countThreadsInScope(acct, {
 				starred: true,
 				category: ["social", "personal"],
 			}),
 			5,
 		);
 		assert.equal(
-			await repo.countByDate(acct, {
+			await repo.countThreadsInScope(acct, {
 				starred: true,
 				category: ["uncategorized"],
 			}),
@@ -685,7 +685,7 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 		);
 	});
 
-	test("countByDate narrows to the supplied mailbox set", async () => {
+	test("countThreadsInScope narrows to the supplied mailbox set", async () => {
 		const acct = "acct-count-mailboxes";
 		await repo.create(
 			makeInput({
@@ -705,11 +705,79 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 		);
 
 		assert.equal(
-			await repo.countByDate(
+			await repo.countThreadsInScope(
 				acct,
 				{ starred: true },
 				{ mailboxIds: new Set(["mbx-in-scope"]) },
 			),
+			1,
+		);
+	});
+
+	// The count sits above a list that has been collapsed by thread, so it has to
+	// collapse with it. Counting rows would put a third number on screen: the
+	// header would say two where the list shows one conversation.
+	test("countThreadsInScope counts a conversation once, not its messages", async () => {
+		const acct = "acct-count-thread";
+		const base = Date.now();
+		const threadId = "t-shared-conversation";
+		for (let i = 0; i < 2; i++) {
+			await repo.create(
+				makeInput({
+					accountConfigId: acct,
+					threadId,
+					subject: `reply ${i}`,
+					hasStars: true,
+					isRead: false,
+					sentDate: base - i,
+					internalDate: base - i,
+				}),
+			);
+		}
+		await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				subject: "another conversation",
+				hasStars: true,
+				isRead: false,
+				sentDate: base - 10,
+				internalDate: base - 10,
+			}),
+		);
+
+		const rows = await repo.listByStarred(acct, {
+			search: { starred: true, unread: true },
+		});
+		assert.equal(rows.items.length, 3, "three rows, two conversations");
+		assert.equal(
+			await repo.countThreadsInScope(acct, { starred: true, unread: true }),
+			2,
+		);
+	});
+
+	// One message the server offers through a real folder and through two
+	// virtual copies of it. The listing collapses the copies; so does the count.
+	test("countThreadsInScope counts one message once across its copies", async () => {
+		const acct = "acct-count-copies";
+		const threadId = "t-one-message";
+		const base = Date.now();
+		for (const mailboxId of ["mbx-inbox", "mbx-all", "mbx-starred"]) {
+			await repo.create(
+				makeInput({
+					accountConfigId: acct,
+					threadId,
+					mailboxId,
+					subject: "one message, three placements",
+					hasStars: true,
+					isRead: false,
+					sentDate: base,
+					internalDate: base,
+				}),
+			);
+		}
+
+		assert.equal(
+			await repo.countThreadsInScope(acct, { starred: true, unread: true }),
 			1,
 		);
 	});

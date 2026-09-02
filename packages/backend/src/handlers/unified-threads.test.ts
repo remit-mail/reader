@@ -487,7 +487,7 @@ describe("executeUnifiedThreadListing", () => {
 					calls.push({ mode: "searchByDate", search, ...options });
 					return emptyPage;
 				},
-				countByDate: async () => count,
+				countThreadsInScope: async () => count,
 			},
 		}) as unknown as UnifiedThreadClient;
 

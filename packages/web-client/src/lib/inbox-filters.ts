@@ -3,7 +3,7 @@ import type {
 	ThreadOperationsSearchThreadsData,
 } from "@remit/api-http-client/types.gen.ts";
 import { MessageCategory } from "@remit/domain-enums";
-import type { FilterReach } from "@remit/ui";
+import { type FilterReach, inboxFilterConfig } from "@remit/ui";
 
 /** The request `threadOperationsSearchThreads` takes, whole. */
 export type ThreadSearchQuery = NonNullable<
@@ -127,3 +127,18 @@ export const sameInboxFilter = (
 	if (!previous) return false;
 	return filterIdentity(previous) === filterIdentity(params);
 };
+
+/**
+ * The label the empty state names an active category filter by, or undefined
+ * when the id names no category — `"all"` is how the category is cleared, not a
+ * category. Read off the preset so the chip and the sentence about it can never
+ * disagree; every list preset draws its categories from the same set.
+ */
+const CATEGORY_LABELS = new Map(
+	inboxFilterConfig()
+		.categories.filter((category) => category.id !== "all")
+		.map((category) => [category.id, category.label]),
+);
+
+export const categoryLabel = (id: string): string | undefined =>
+	CATEGORY_LABELS.get(id);

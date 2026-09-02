@@ -57,6 +57,7 @@ import {
 	isBriefFilterId,
 	type ListState,
 	MakeFilterAction,
+	type MessageListFilter,
 	MessageListPane,
 	MobileSearchView,
 	NavSidebar,
@@ -131,6 +132,19 @@ export interface MailShellProps {
 	onMakeFilter?: () => void;
 	/** The list where it has no rows: empty, loading, error. */
 	listState?: ListState;
+	/**
+	 * The active category filter as the empty state renders it — its label, the
+	 * way out of it, and how far the request that came back empty reached. A
+	 * filtered empty list without it renders the unfiltered copy, which is the
+	 * state D19 exists to tell apart.
+	 */
+	listFilter?: MessageListFilter;
+	/**
+	 * Replaces the rows the pane scrolls, keeping its header, filter panel and
+	 * selection bar — the slot the app uses for a list that owns its own body,
+	 * and the one a story uses to put something below the rows.
+	 */
+	listBody?: ReactNode;
 	/**
 	 * Replaces the list pane whole — a view that brings its own header and body,
 	 * the way Drafts and the Outbox do in the app.
@@ -358,6 +372,8 @@ function ListPane({
 	briefSource,
 	filterOpen,
 	listState,
+	listFilter,
+	listBody,
 	selectedIds,
 	onVerb,
 	preset,
@@ -379,6 +395,8 @@ function ListPane({
 	briefSource?: string;
 	filterOpen?: boolean;
 	listState?: ListState;
+	listFilter?: MessageListFilter;
+	listBody?: ReactNode;
 	selectedIds?: string[];
 	onVerb?: (verb: Verb, selected: ReadonlySet<string>) => void;
 	preset?: FilterPreset;
@@ -555,6 +573,8 @@ function ListPane({
 			briefFilters={briefFilters}
 			briefFilter={briefFilter}
 			listState={listState}
+			listFilter={listFilter}
+			listBody={listBody}
 			listScopeLabel={title}
 			flatList={!briefFilters}
 			selectedThreadId={selectedThreadId}
@@ -683,6 +703,8 @@ export function MailShell({
 	onVerb,
 	onMakeFilter,
 	listState,
+	listFilter,
+	listBody,
 	list: listOverride,
 	reading,
 	onCompose,
@@ -773,6 +795,8 @@ export function MailShell({
 			briefSource={briefSource}
 			filterOpen={filterOpen}
 			listState={listState}
+			listFilter={listFilter}
+			listBody={listBody}
 			selectedIds={selectedIds}
 			onVerb={onVerb}
 			preset={preset}

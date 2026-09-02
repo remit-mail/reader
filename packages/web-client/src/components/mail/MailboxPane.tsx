@@ -98,6 +98,7 @@ import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
 import type { ConversationTarget } from "@/lib/conversation-target";
 import { dedupeThreadMessages } from "@/lib/dedupe-thread-messages";
 import {
+	categoryLabel,
 	filterReach,
 	hasInboxFilter,
 	type InboxFilterCriteria,
@@ -156,7 +157,8 @@ interface MailboxPaneContextValue {
 	mailboxAccountId: string | undefined;
 	mailboxAccountLoading: boolean;
 	mailboxName: string | null;
-	unreadCount: number;
+	/** The mailbox's unseen total, or null until it resolves — never a page length. */
+	unreadCount: number | null;
 	isDraftsMailbox: boolean;
 	// Rescue-from-Spam: true on the account's Junk/Spam folder, with the
 	// suspected-safe messages `useRescueCandidates` fetched. Drives the rescue
@@ -239,14 +241,6 @@ interface MailboxPaneContextValue {
 /** The server's own default page size (`DEFAULT_THREADS_PAGE_SIZE`), sent so the
  *  filtered path pages like the unfiltered one. */
 const THREADS_PAGE_SIZE = 50;
-
-/** Chip id → the label the empty state names the filter by. `all` is absent:
- *  it is how the category is cleared, not a category. */
-const CATEGORY_LABELS = new Map(
-	inboxFilterConfig()
-		.categories.filter((category) => category.id !== "all")
-		.map((category) => [category.id, category.label]),
-);
 
 const MailboxPaneCtx = createContext<MailboxPaneContextValue | null>(null);
 
@@ -433,7 +427,7 @@ function MailboxPaneProvider({
 	// The empty state has to say how much was read, and the reach comes off the
 	// request rather than the call site: the day a chip is answered over a window
 	// instead of the whole mailbox, the sentence changes with it.
-	const filterLabel = CATEGORY_LABELS.get(filterCategory);
+	const filterLabel = categoryLabel(filterCategory);
 	const listFilter: MessageListFilter | undefined = filterLabel
 		? {
 				label: filterLabel,
@@ -512,7 +506,7 @@ function MailboxPaneProvider({
 	// The mailbox's own unseen total. A count over the loaded pages undercounts
 	// every mailbox larger than one page and creeps upward as the user scrolls,
 	// so there is no fallback: until the mailbox resolves there is no number.
-	const unreadCount = useCurrentMailboxUnseenCount({ accounts }) ?? 0;
+	const unreadCount = useCurrentMailboxUnseenCount({ accounts }) ?? null;
 
 	const toolbarActions = useThreadActions({
 		thread: selectedThread,

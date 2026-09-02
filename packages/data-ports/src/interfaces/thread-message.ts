@@ -112,16 +112,19 @@ export interface IThreadMessageRepository {
 		},
 	): Promise<ResultList<ThreadMessageItem>>;
 	/**
-	 * COUNT of matches over the same predicate and the same mailbox scope the
-	 * three cross-account listing modes read with — the scoped counterpart of
-	 * `countByMailbox`.
+	 * COUNT of matching CONVERSATIONS over the same predicate and the same
+	 * mailbox scope the three cross-account listing modes read with — the scoped
+	 * counterpart of `countByMailbox`.
 	 *
 	 * A page size bounds the rows a response carries and has no bearing on how
-	 * many messages match, so a count returns no rows and is answered in full.
-	 * It counts rows, which is what the listing returns: the duplicate collapse
-	 * search mode applies happens after the read and is not reflected here.
+	 * much matches, so a count returns no rows and is answered in full.
+	 *
+	 * Distinct on `threadId`, unlike `countByMailbox`, because the cross-account
+	 * listing is collapsed by thread before it is rendered: a row is per mailbox,
+	 * so one message reachable through a real folder and a virtual copy of it is
+	 * several rows, and two matching messages of one conversation are two more.
 	 */
-	countByDate(
+	countThreadsInScope(
 		accountConfigId: string,
 		search: SearchOptions,
 		options?: {
