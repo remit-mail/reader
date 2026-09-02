@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { EmbeddingService } from "@remit/search-service";
+import { DEFAULT_VISIBILITY_TIMEOUT_SECONDS } from "@remit/sqs-client/poller";
 import {
 	type AdaptiveEmbeddingConfig,
 	createAdaptiveEmbeddingService,
@@ -74,6 +75,7 @@ class Harness {
 	readonly plans: EmbeddingPlan[] = [];
 	readonly sleeps: number[] = [];
 	readonly lines: string[] = [];
+	readonly logged: { message: string; fields?: Record<string, unknown> }[] = [];
 	stalls = 0;
 	beats = 0;
 	clock = 0;
@@ -81,8 +83,9 @@ class Harness {
 	readonly deps: GovernorDeps;
 
 	constructor(readMemory: MemoryReader) {
-		const record = (message: string) => {
+		const record = (message: string, fields?: Record<string, unknown>) => {
 			this.lines.push(message);
+			this.logged.push({ message, fields });
 		};
 		this.deps = {
 			readMemory,
@@ -134,6 +137,26 @@ const embedderRecording = (): {
 				batches.push(texts.length);
 				await Promise.resolve();
 				inFlight -= 1;
+				return texts.map(() => [0, 0, 0]);
+			},
+		},
+	};
+};
+
+/** An embedder whose work advances the fake clock, so waves spend the budget. */
+const embedderCosting = (
+	h: Harness,
+	costMs: number,
+): { service: EmbeddingService; batches: number[] } => {
+	const batches: number[] = [];
+	return {
+		batches,
+		service: {
+			dimensions: 3,
+			embeddingId: "fake@3",
+			embed: async (texts: string[]) => {
+				h.clock += costMs;
+				batches.push(texts.length);
 				return texts.map(() => [0, 0, 0]);
 			},
 		},
@@ -240,10 +263,16 @@ describe("the memory governor", () => {
 		const governor = new MemoryGovernor(CONFIG, h.deps);
 		settleTimes(governor, CONFIG.rampAfterReadings + 1);
 
-		assert.equal(await governor.admit(governor.stallDeadline()), "admitted");
+		assert.equal(
+			(await governor.admit(governor.stallDeadline())).status,
+			"admitted",
+		);
 		assert.deepEqual(h.sleeps, [CONFIG.pauseMs]);
 		// The pause is per shed, not sticky: an admit that follows no shed runs on.
-		assert.equal(await governor.admit(governor.stallDeadline()), "admitted");
+		assert.equal(
+			(await governor.admit(governor.stallDeadline())).status,
+			"admitted",
+		);
 		assert.deepEqual(h.sleeps, [CONFIG.pauseMs]);
 	});
 
@@ -253,7 +282,10 @@ describe("the memory governor", () => {
 		governor.settle();
 		assert.deepEqual(governor.plan, { batchSize: 2, concurrency: 1 });
 		assert.deepEqual(h.lines, []);
-		assert.equal(await governor.admit(governor.stallDeadline()), "admitted");
+		assert.equal(
+			(await governor.admit(governor.stallDeadline())).status,
+			"admitted",
+		);
 		assert.deepEqual(h.sleeps, [CONFIG.pauseMs]);
 	});
 
@@ -263,7 +295,10 @@ describe("the memory governor", () => {
 		settleTimes(governor, CONFIG.rampAfterReadings);
 		assert.deepEqual(governor.plan, { batchSize: 4, concurrency: 1 });
 
-		assert.equal(await governor.admit(governor.stallDeadline()), "admitted");
+		assert.equal(
+			(await governor.admit(governor.stallDeadline())).status,
+			"admitted",
+		);
 		assert.equal(h.stalls, 1);
 		assert.equal(h.sleeps.length, 2);
 		// A stop is the loudest signal the worker has, and it comes back at the
@@ -279,7 +314,10 @@ describe("the memory governor", () => {
 		const h = harness(available(300));
 		const governor = new MemoryGovernor(CONFIG, h.deps);
 
-		assert.equal(await governor.admit(governor.stallDeadline()), "expired");
+		assert.equal(
+			(await governor.admit(governor.stallDeadline())).status,
+			"expired",
+		);
 		assert.equal(h.clock, CONFIG.stallMaxMs);
 		assert.match(h.lines.at(-1) ?? "", /gave up/);
 	});
@@ -297,14 +335,20 @@ describe("the memory governor", () => {
 		h.beatFails = true;
 		const governor = new MemoryGovernor(CONFIG, h.deps);
 
-		assert.equal(await governor.admit(governor.stallDeadline()), "expired");
+		assert.equal(
+			(await governor.admit(governor.stallDeadline())).status,
+			"expired",
+		);
 		assert.ok(h.lines.some((line) => /heartbeat/.test(line)));
 	});
 
 	it("does not stall while the box is merely tight", async () => {
 		const h = harness(available(500));
 		const governor = new MemoryGovernor(CONFIG, h.deps);
-		assert.equal(await governor.admit(governor.stallDeadline()), "admitted");
+		assert.equal(
+			(await governor.admit(governor.stallDeadline())).status,
+			"admitted",
+		);
 		assert.equal(h.stalls, 0);
 		assert.deepEqual(h.sleeps, []);
 	});
@@ -424,6 +468,32 @@ describe("the governed embedder", () => {
 		assert.ok(h.clock <= CONFIG.stallMaxMs + CONFIG.pauseMs);
 	});
 
+	// Waves spend the same budget the stall does, so a message can fail on a dip
+	// that arrives late and is short. What it reports has to be the dip it
+	// measured, not the budget: the two are no longer the same number.
+	it("spends the budget on the waves themselves, and says what it waited", async () => {
+		const h = harness(available(ROOMY, ROOMY, ROOMY, ROOMY, ROOMY, ROOMY, 300));
+		const inner = embedderCosting(h, 30);
+		const service = createAdaptiveEmbeddingService(
+			inner.service,
+			new MemoryGovernor(CONFIG, h.deps),
+			CONFIG.stallMaxMs,
+		);
+
+		await assert.rejects(
+			() => service.embed(Array.from({ length: 20 }, (_, i) => `chunk ${i}`)),
+			(error: unknown) =>
+				error instanceof MemoryStallTimeoutError &&
+				error.waitedMs === CONFIG.pauseMs &&
+				/ran out of its/.test(error.message),
+		);
+		assert.equal(inner.batches.length, 3);
+		assert.equal(h.clock, CONFIG.stallMaxMs);
+		assert.equal(h.stalls, 1);
+		const gaveUp = h.logged.find((line) => /gave up/.test(line.message));
+		assert.equal(gaveUp?.fields?.waitedMs, CONFIG.pauseMs);
+	});
+
 	// The throttle paces work; it never turns a fault into a quiet retry.
 	it("lets a model failure propagate", async () => {
 		const h = harness(available(ROOMY));
@@ -499,7 +569,10 @@ describe("the configured thresholds", () => {
 	// The stall has to end before the queue redelivers the record underneath it.
 	it("gives up well inside the poller's 300 s visibility timeout", () => {
 		withEnv(UNSET, () => {
-			assert.ok(readAdaptiveEmbeddingConfigFromEnv().stallMaxMs < 300_000);
+			assert.ok(
+				readAdaptiveEmbeddingConfigFromEnv().stallMaxMs <
+					DEFAULT_VISIBILITY_TIMEOUT_SECONDS * 1000,
+			);
 		});
 	});
 
@@ -555,12 +628,20 @@ describe("the configured thresholds", () => {
 	// A budget that reaches the visibility timeout has the record redelivered
 	// underneath the handler still holding it: the redelivery it exists to avoid.
 	it("refuses a stall budget at or above the visibility timeout", () => {
-		withEnv({ ...UNSET, SEARCH_INDEX_MEMORY_STALL_MAX_MS: "300000" }, () => {
-			assert.throws(
-				readAdaptiveEmbeddingConfigFromEnv,
-				/SEARCH_INDEX_MEMORY_STALL_MAX_MS must be below/,
-			);
-		});
+		withEnv(
+			{
+				...UNSET,
+				SEARCH_INDEX_MEMORY_STALL_MAX_MS: String(
+					DEFAULT_VISIBILITY_TIMEOUT_SECONDS * 1000,
+				),
+			},
+			() => {
+				assert.throws(
+					readAdaptiveEmbeddingConfigFromEnv,
+					/SEARCH_INDEX_MEMORY_STALL_MAX_MS must be below/,
+				);
+			},
+		);
 	});
 
 	it("refuses a value that is not a positive integer", () => {

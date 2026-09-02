@@ -1,4 +1,5 @@
 import type { EmbeddingService } from "@remit/search-service";
+import { DEFAULT_VISIBILITY_TIMEOUT_SECONDS } from "@remit/sqs-client/poller";
 import type { MemoryReader, MemoryReading } from "./memory.js";
 
 /**
@@ -76,10 +77,14 @@ export const DEFAULT_ADAPTIVE_EMBEDDING_CONFIG: AdaptiveEmbeddingConfig = {
  */
 export class MemoryStallTimeoutError extends Error {
 	readonly code = "ERR_SEARCH_INDEX_MEMORY_STALL";
-	constructor(waitedMs: number) {
+	constructor(
+		stallMaxMs: number,
+		readonly waitedMs: number,
+	) {
 		super(
-			`Search index waited ${Math.round(waitedMs / 1000)}s for the box to ` +
-				"free memory and gave up; the message goes back on the queue",
+			`Search index ran out of its ${Math.round(stallMaxMs / 1000)}s budget ` +
+				`for this message with the box below the memory floor for the last ` +
+				`${Math.round(waitedMs / 1000)}s; the message goes back on the queue`,
 		);
 		this.name = "MemoryStallTimeoutError";
 	}
@@ -101,11 +106,13 @@ const fromEnv = (name: string, fallback: number, scale = 1): number => {
 };
 
 /**
- * The queue poller's visibility timeout (`@remit/sqs-client/poller`). A stall
- * budget that reaches it has the record redelivered underneath the handler
- * still holding it, which is the redelivery the budget exists to prevent.
+ * A stall budget that reaches the queue's visibility timeout has the record
+ * redelivered underneath the handler still holding it, which is the redelivery
+ * the budget exists to prevent. The poller's default is the authority: the
+ * search index queue passes no override, so what `deploy/vps/queues.json` sets
+ * on the queue never reaches this code and has to match it by hand.
  */
-const VISIBILITY_TIMEOUT_MS = 300_000;
+const VISIBILITY_TIMEOUT_MS = DEFAULT_VISIBILITY_TIMEOUT_SECONDS * 1000;
 
 /**
  * Every threshold is an env var so the same image bounds itself against a 4 GB
@@ -169,7 +176,14 @@ export const readAdaptiveEmbeddingConfigFromEnv =
 		return config;
 	};
 
-type Admission = "admitted" | "expired";
+/**
+ * `waitedMs` is the time this stop actually spent below the floor, which the
+ * budget no longer stands in for: embedding work spends the same budget, so a
+ * message can fail on a two-second dip that arrived late.
+ */
+type Admission =
+	| { readonly status: "admitted" }
+	| { readonly status: "expired"; readonly waitedMs: number };
 
 /**
  * Bounds the worker's resident memory against the box it shares, which
@@ -222,10 +236,10 @@ export class MemoryGovernor {
 	admit = async (stallDeadline: number): Promise<Admission> => {
 		let reading = this.deps.readMemory();
 		if (reading.availableBytes >= this.config.criticalBytes) {
-			if (!this.pauseBeforeNextBatch) return "admitted";
+			if (!this.pauseBeforeNextBatch) return { status: "admitted" };
 			this.pauseBeforeNextBatch = false;
 			await this.deps.sleep(this.config.pauseMs);
-			return "admitted";
+			return { status: "admitted" };
 		}
 
 		this.deps.onStall?.();
@@ -234,13 +248,17 @@ export class MemoryGovernor {
 			this.fields(reading),
 		);
 		this.reset();
+		const startedAt = this.deps.now();
 		while (reading.availableBytes < this.config.criticalBytes) {
-			if (this.deps.now() >= stallDeadline) {
-				this.deps.log.warn("Search index gave up waiting for memory", {
+			const now = this.deps.now();
+			if (now >= stallDeadline) {
+				const waitedMs = now - startedAt;
+				this.deps.log.warn("Search index gave up: its memory budget ran out", {
+					waitedMs,
 					stallMaxMs: this.config.stallMaxMs,
 					...this.fields(reading),
 				});
-				return "expired";
+				return { status: "expired", waitedMs };
 			}
 			await this.keepAlive();
 			await this.deps.sleep(this.config.pauseMs);
@@ -251,7 +269,7 @@ export class MemoryGovernor {
 			"Search index resumed: memory recovered",
 			this.fields(reading),
 		);
-		return "admitted";
+		return { status: "admitted" };
 	};
 
 	/** Measures what the batch just cost and moves the plan at most one step. */
@@ -379,8 +397,9 @@ export const createAdaptiveEmbeddingService = (
 		const deadline = governor.stallDeadline();
 		let next = 0;
 		while (next < texts.length) {
-			if ((await governor.admit(deadline)) === "expired") {
-				throw new MemoryStallTimeoutError(stallMaxMs);
+			const admission = await governor.admit(deadline);
+			if (admission.status === "expired") {
+				throw new MemoryStallTimeoutError(stallMaxMs, admission.waitedMs);
 			}
 			const { batchSize, concurrency } = governor.plan;
 			const wave: string[][] = [];
