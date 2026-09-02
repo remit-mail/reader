@@ -33,9 +33,7 @@ process.stdout.write = ((
 
 process.env.LOG_LEVEL = "trace";
 
-const { calendarFeedPath, mintCalendarFeedToken } = await import(
-	"@remit/calendar-service"
-);
+const { mintCalendarFeedToken } = await import("@remit/calendar-service");
 const { _resetForTest, setClient } = await import("./service/data-client.js");
 const { createCalendarSqliteClient } = await import(
 	"./handlers/calendar-sqlite-fixture.js"
@@ -96,7 +94,7 @@ describe("what a request leaves in the log", () => {
 		const { token } = mintCalendarFeedToken();
 
 		const { response, logged } = await capture(() =>
-			send({ httpMethod: "GET", path: calendarFeedPath(token) }),
+			send({ httpMethod: "GET", path: `/feeds/calendar/${token}.ics` }),
 		);
 
 		assert.equal(

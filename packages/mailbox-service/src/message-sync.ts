@@ -145,8 +145,17 @@ export const addressSightingIn = (
  * filing locations; following one would empty every other folder's listing. And
  * a row whose own mutation has not settled is in flight, not stale
  * (imap-mutations R1): the server's answer predates the move reader is still
- * waiting on, so taking it would undo the optimistic write. That sighting is
- * reconciled by the next one after the mutation settles.
+ * waiting on, so taking it would undo the optimistic write. The sync path
+ * reconciles rather than waits (imap-mutations R2): it never blocks on a
+ * mutation, it re-reads the row on the next sighting after the move settles.
+ *
+ * In flight is read off `status`, never off `syncStatus` (#1096). Every
+ * outbound mutation writes `moving` or `deleting` and only settling returns the
+ * row to `active`, while an ordinary inbound row stays `pending` for its whole
+ * life because nothing on the sync path promotes it — so demanding `synced`
+ * here meant ordinary mail never re-pointed at all. `failed` is still refused:
+ * a mutation that gave up leaves it set on a row put back to `active`, and
+ * nothing routine settles that row afterwards.
  */
 export const repointsOnSighting = (
 	mailbox: MailboxItem,
@@ -154,10 +163,8 @@ export const repointsOnSighting = (
 ): boolean => {
 	if (message.mailboxId === mailbox.mailboxId) return false;
 	if (isVirtualCopyMailbox(mailbox)) return false;
-	return (
-		message.status === MessageStatus.active &&
-		message.syncStatus === MessageSyncStatus.synced
-	);
+	if (message.status !== MessageStatus.active) return false;
+	return message.syncStatus !== MessageSyncStatus.failed;
 };
 
 /**

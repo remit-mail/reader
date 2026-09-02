@@ -18,6 +18,7 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -78,18 +79,38 @@ function sandbox({ output = DOCUMENT, exportExit = 0, parse = "ok" } = {}) {
 	return {
 		target,
 		run(args) {
-			return spawnSync("sh", [REMIT, "config", "save", target, ...args], {
-				env: {
-					PATH: `${bin}:${process.env.PATH}`,
-					HOME: dir,
-					FAKE_DOCKER_DIR: fake,
-					REMIT_DIR: deployment,
+			// The permissive umask is the condition the mode assertion below is
+			// about — a VPS shell's default 022. Inheriting the runner's umask
+			// instead would let a 0600 result come from the environment rather
+			// than from the wrapper.
+			return spawnSync(
+				"sh",
+				[
+					"-c",
+					'umask 022; exec sh "$@"',
+					"remit",
+					REMIT,
+					"config",
+					"save",
+					target,
+					...args,
+				],
+				{
+					env: {
+						PATH: `${bin}:${process.env.PATH}`,
+						HOME: dir,
+						FAKE_DOCKER_DIR: fake,
+						REMIT_DIR: deployment,
+					},
+					encoding: "utf8",
 				},
-				encoding: "utf8",
-			});
+			);
 		},
 		written() {
 			return existsSync(target) ? readFileSync(target, "utf8") : null;
+		},
+		mode() {
+			return statSync(target).mode & 0o777;
 		},
 		leftovers() {
 			return readdirSync(out).filter((name) => name.includes(".writing."));
@@ -123,8 +144,24 @@ describe("remit config save writes the document the export produced", () => {
 		);
 	});
 
+	it("writes the document at 0600, not the caller's umask", () => {
+		// The document carries the address book, filter text, mail excerpts and
+		// signatures, so the operator's umask must not decide who can read it.
+		// The umask of this process is the default 022, under which an
+		// unguarded write lands at 0644.
+		assert.equal(statSync(box.target).mode & 0o777, 0o600);
+	});
+
 	it("leaves no half-written file beside the target", () => {
 		assert.deepEqual(box.leftovers(), []);
+	});
+
+	// The document carries flagged senders, filter clause values, up to 512
+	// characters of real mail per anchor, signatures and account addresses. On a
+	// default umask 022 box a mode taken from the caller is 0644 — readable by
+	// every account on the machine — so the mode has to come from the wrapper.
+	it("writes the document only the owner can read", () => {
+		assert.equal(box.mode(), 0o600);
 	});
 });
 
