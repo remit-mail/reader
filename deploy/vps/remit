@@ -3418,30 +3418,48 @@ cmd_config_save() {
 	[ -d "$_dir" ] || die "config save: there is no directory '$_dir'"
 	_tmp="$_dir/.$(basename "$_file").writing.$$"
 
+	# The document carries no credential, but it does carry the address book,
+	# every filter's clause values, up to 512 characters of a real message per
+	# anchor, and the signatures — so it is created under a 077 umask like
+	# set_var's temp file rather than chmod'd afterwards, which would leave it
+	# world-readable for the length of the export. The temp file sits in the
+	# target's own directory, so the rename replaces the destination inode and a
+	# file saved over at 0644 comes out 0600 as well.
+	#
+	# The trap owns removing it, on every exit and on an interrupt: an operator
+	# who gives up on a slow export is the case that leaves the half-written
+	# document behind.
+	trap 'rm -f "$_tmp"' EXIT
+	trap 'exit 130' HUP INT TERM
+
 	_rc=0
 	if [ -n "$_user" ]; then
-		compose run --rm --no-deps -T migrate \
-			node config-save.mjs --user "$_user" >"$_tmp" || _rc=$?
+		(
+			umask 077
+			compose run --rm --no-deps -T migrate \
+				node config-save.mjs --user "$_user" >"$_tmp"
+		) || _rc=$?
 	else
-		compose run --rm --no-deps -T migrate \
-			node config-save.mjs >"$_tmp" || _rc=$?
+		(
+			umask 077
+			compose run --rm --no-deps -T migrate \
+				node config-save.mjs >"$_tmp"
+		) || _rc=$?
 	fi
 	if [ "$_rc" != "0" ]; then
-		rm -f "$_tmp"
 		die "config save: the export did not finish, so nothing was written"
 	fi
 	_parsed=0
 	config_json_parses "$_tmp" || _parsed=$?
 	if [ "$_parsed" = "2" ]; then
-		rm -f "$_tmp"
 		die "config save: the export could not be checked for damage, so nothing was written — check that the docker daemon is responding, then run '$PROG config save' again"
 	fi
 	if [ "$_parsed" != "0" ]; then
-		rm -f "$_tmp"
 		die "config save: what came back is not a JSON document, so nothing was written — '$PROG logs backend' may say why"
 	fi
 
 	mv "$_tmp" "$_file"
+	trap - EXIT HUP INT TERM
 	printf 'Wrote %s.\n' "$_file"
 	printf 'It carries no password and no OAuth token — importing it asks for each account again.\n'
 }

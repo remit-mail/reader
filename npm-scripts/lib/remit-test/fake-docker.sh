@@ -18,6 +18,8 @@
 #                             container id; unset, the compose file and .env
 #                             decide, the way Compose decides
 #   run_exit=N                exit code of the `compose run` one-shot
+#   run_mode=ok|hang          hang models an export that never finishes, the
+#                             window an operator interrupts
 #   parse=ok|refused          whether docker accepts the `node -e` parse at all
 #   health=healthy|unhealthy  what the gate's healthchecks report
 #   health2=...               the same after a restore
@@ -653,6 +655,12 @@ compose_cmd() {
 				exit 125
 			fi
 			exec node -e "$3"
+		fi
+		# An export that has opened its output and not finished it: the window an
+		# operator interrupts. `exec` so the sleep is what the signal reaches.
+		if [ "$(val run_mode ok)" = "hang" ]; then
+			if [ -f "$S/run-out" ]; then cat "$S/run-out"; fi
+			exec sleep "${FAKE_RUN_HANG:-30}"
 		fi
 		if [ -f "$S/run-out" ]; then cat "$S/run-out"; fi
 		if [ -f "$S/run-err" ]; then cat "$S/run-err" >&2; fi

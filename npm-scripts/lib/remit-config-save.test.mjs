@@ -9,8 +9,10 @@
 //
 // Driven against the same docker stand-in the doctor and update suites use.
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import {
+	chmodSync,
 	copyFileSync,
 	existsSync,
 	mkdirSync,
@@ -18,10 +20,12 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { after, describe, it } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -49,10 +53,27 @@ const DOCUMENT = `${JSON.stringify(
 
 const LOG_LINE = "[queue] connected to sqs-elasticmq after 3 attempts";
 
+/** @param {() => boolean} ready */
+async function until(ready) {
+	const deadline = Date.now() + 10_000;
+	while (!ready()) {
+		assert.ok(
+			Date.now() < deadline,
+			"timed out waiting for the export to open",
+		);
+		await delay(20);
+	}
+}
+
 /**
  * @param {{ output?: string, exportExit?: number, parse?: string }} options
  */
-function sandbox({ output = DOCUMENT, exportExit = 0, parse = "ok" } = {}) {
+function sandbox({
+	output = DOCUMENT,
+	exportExit = 0,
+	parse = "ok",
+	runMode = "ok",
+} = {}) {
 	const dir = mkdtempSync(join(TMP_ROOT, "remit-config-save-"));
 	sandboxes.push(dir);
 	const deployment = join(dir, "deployment");
@@ -67,7 +88,12 @@ function sandbox({ output = DOCUMENT, exportExit = 0, parse = "ok" } = {}) {
 	writeFileSync(join(fake, "run-out"), output);
 	writeFileSync(
 		join(fake, "scenario"),
-		[`run_exit=${exportExit}`, `parse=${parse}`, ""].join("\n"),
+		[
+			`run_exit=${exportExit}`,
+			`parse=${parse}`,
+			`run_mode=${runMode}`,
+			"",
+		].join("\n"),
 	);
 
 	const dest = join(bin, "docker");
@@ -75,21 +101,36 @@ function sandbox({ output = DOCUMENT, exportExit = 0, parse = "ok" } = {}) {
 	spawnSync("chmod", ["+x", dest]);
 
 	const target = join(out, "reader-config.json");
+	const env = {
+		PATH: `${bin}:${process.env.PATH}`,
+		HOME: dir,
+		FAKE_DOCKER_DIR: fake,
+		REMIT_DIR: deployment,
+		FAKE_RUN_HANG: "20",
+	};
 	return {
 		target,
 		run(args) {
 			return spawnSync("sh", [REMIT, "config", "save", target, ...args], {
-				env: {
-					PATH: `${bin}:${process.env.PATH}`,
-					HOME: dir,
-					FAKE_DOCKER_DIR: fake,
-					REMIT_DIR: deployment,
-				},
+				env,
 				encoding: "utf8",
+			});
+		},
+		// Its own process group, so the signal reaches the export the wrapper is
+		// waiting on as well as the wrapper — which is what Ctrl-C at a terminal
+		// does, and the only way the shell reaches its trap before the export ends.
+		start() {
+			return spawn("sh", [REMIT, "config", "save", target], {
+				env,
+				detached: true,
+				stdio: "ignore",
 			});
 		},
 		written() {
 			return existsSync(target) ? readFileSync(target, "utf8") : null;
+		},
+		mode() {
+			return statSync(target).mode & 0o777;
 		},
 		leftovers() {
 			return readdirSync(out).filter((name) => name.includes(".writing."));
@@ -125,6 +166,41 @@ describe("remit config save writes the document the export produced", () => {
 
 	it("leaves no half-written file beside the target", () => {
 		assert.deepEqual(box.leftovers(), []);
+	});
+
+	it("writes it readable only by the operator", () => {
+		assert.equal(box.mode(), 0o600);
+	});
+});
+
+describe("saving over a world-readable file tightens it", () => {
+	// The rename replaces the destination inode, so the mode that survives is the
+	// temp file's. A document saved before this fix does not stay at 0644.
+	const box = sandbox();
+	writeFileSync(box.target, "stale\n");
+	chmodSync(box.target, 0o644);
+	const result = box.run([]);
+
+	it("exits 0 and writes the export", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.written(), DOCUMENT);
+	});
+
+	it("leaves the file at 0600", () => {
+		assert.equal(box.mode(), 0o600);
+	});
+});
+
+describe("an export interrupted mid-write leaves nothing behind", () => {
+	it("removes the file it was writing", async () => {
+		const box = sandbox({ runMode: "hang" });
+		const child = box.start();
+		await until(() => box.leftovers().length === 1);
+		process.kill(-child.pid, "SIGINT");
+		await once(child, "exit");
+
+		assert.deepEqual(box.leftovers(), []);
+		assert.equal(box.written(), null);
 	});
 });
 
@@ -191,6 +267,10 @@ describe("an export that failed is refused before it is checked", () => {
 
 	it("says the export did not finish", () => {
 		assert.match(result.stderr, /the export did not finish/);
+	});
+
+	it("removes the file it was writing", () => {
+		assert.deepEqual(box.leftovers(), []);
 	});
 });
 
