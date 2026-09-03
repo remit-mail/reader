@@ -2,7 +2,6 @@ import { getClient } from "@remit/backend/client";
 import type {
 	IMessageRepository,
 	IThreadMessageRepository,
-	ThreadMessageItem,
 } from "@remit/data-ports";
 import { isCurrentSchemaVersion } from "@remit/data-ports/mutation-events";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
@@ -24,6 +23,10 @@ import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { resolveExhaustedMessageDeleteFailure } from "./message-delete-terminal.js";
 import { emitMoveResync, searchMailboxByMessageId } from "./message-move.js";
+import {
+	buildThreadMessageMoveRevert,
+	buildThreadMessageTrashUpdate,
+} from "./thread-message-rows.js";
 
 /**
  * Fallback when `MESSAGE_DELETE_MAX_ATTEMPTS` is unset (local dev, unit tests).
@@ -72,82 +75,6 @@ export const deleteAllThreadMessagesForMessage = async (
 	}
 	return rows.length;
 };
-
-/**
- * Build the `set` and `composites` payload for the ThreadMessage update on a
- * MESSAGE_DELETE move-to-trash.
- *
- * The CURRENT row state goes in `composites`; the NEW values go in `set`.
- * ElectroDB uses `composites` to run the conditional check on the existing row
- * AND to compute the previous sort-key values needed to recompute the new ones.
- * Passing the NEW values in `composites` makes the conditional check fail with
- * ConditionalCheckFailedException, which ElectroDB wraps as NotFoundError, and
- * the caller silently drops the update. Same root cause as PR #186 fixed for
- * `flag-queue.ts`.
- */
-type ThreadMessageRowState = Pick<
-	ThreadMessageItem,
-	| "sentDate"
-	| "mailboxId"
-	| "isRead"
-	| "isDeleted"
-	| "hasStars"
-	| "hasAttachment"
->;
-
-const currentComposites = (threadMessage: ThreadMessageRowState) => ({
-	sentDate: threadMessage.sentDate,
-	mailboxId: threadMessage.mailboxId,
-	isRead: threadMessage.isRead,
-	isDeleted: threadMessage.isDeleted,
-	hasStars: threadMessage.hasStars,
-	hasAttachment: threadMessage.hasAttachment,
-});
-
-export const buildThreadMessageTrashUpdate = (
-	threadMessage: ThreadMessageRowState,
-	newUid: number,
-	destinationMailboxId: string,
-) => ({
-	set: {
-		uid: newUid,
-		mailboxId: destinationMailboxId,
-		isDeleted: true,
-	},
-	composites: currentComposites(threadMessage),
-});
-
-/**
- * The inverse payload: put the thread row back where the message still is on
- * the server. The delete was recorded optimistically, so a delete abandoned
- * before any IMAP write has to hand the row back rather than leave it claiming
- * Trash — an invisible `failed` on a row the user cannot see is the shape of
- * the incident this whole change is about.
- */
-export const buildThreadMessageMoveRevert = (
-	threadMessage: ThreadMessageRowState,
-	sourceUid: number,
-	sourceMailboxId: string,
-) => ({
-	set: {
-		uid: sourceUid,
-		mailboxId: sourceMailboxId,
-		isDeleted: false,
-	},
-	composites: currentComposites(threadMessage),
-});
-
-/**
- * Hand a row back after an abandoned expunge. The mail never left Trash, so
- * only the deletion mark reverts — the uid and mailbox on the row are still
- * where the server has it.
- */
-export const buildThreadMessageUndelete = (
-	threadMessage: ThreadMessageRowState,
-) => ({
-	set: { isDeleted: false },
-	composites: currentComposites(threadMessage),
-});
 
 /**
  * Settle a move to Trash the server left unconfirmed, by asking it two
@@ -349,6 +276,7 @@ export const handleMessageDelete = async (
 				accountId,
 				accountConfigId,
 				messageId,
+				sourceMailboxId: mailboxId,
 				uid,
 				sourceMailboxPath: mailboxPath,
 				getConnection,
@@ -362,11 +290,9 @@ export const handleMessageDelete = async (
 		// Both verdicts end in a row the server has contradicted, so this delete
 		// reconciles rather than waits (R2): whichever folder actually holds the
 		// message re-projects it with the server's own uid. RECONCILED, the local
-		// rows are gone and the resync rebuilds them. BROKEN, the server has just
-		// confirmed the message is still at the source while the optimistic
-		// `updateForMove` left the row pointing at Trash — without the resync the
-		// user sees it in Trash for as long as that row stands, which is the
-		// silent misdirection the settle exists to end.
+		// rows are gone and the resync rebuilds them. BROKEN, the row has just
+		// been put back at the source the server confirmed, and the resync is
+		// what carries any drift either folder has picked up since.
 		if (destinationMailboxId) {
 			await emitMoveResync(emitEvent, {
 				accountId,

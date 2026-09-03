@@ -1,11 +1,14 @@
-import type { IMessageRepository } from "@remit/data-ports";
-import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
+import type {
+	IMessageRepository,
+	IThreadMessageRepository,
+} from "@remit/data-ports";
 import {
 	type IImapConnection,
 	isMessageGoneFromOpenMailbox,
 	reconcileStaleMessage,
 	type StaleMessageReconcileDeps,
 } from "@remit/mailbox-service";
+import { buildThreadMessageMoveRevert } from "./thread-message-rows.js";
 
 export interface MessageDeleteTerminalLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
@@ -14,7 +17,11 @@ export interface MessageDeleteTerminalLogger {
 
 export interface ResolveExhaustedMessageDeleteDeps
 	extends StaleMessageReconcileDeps {
-	messageService: Pick<IMessageRepository, "delete" | "update">;
+	messageService: Pick<IMessageRepository, "delete" | "updateUid">;
+	threadMessageService: Pick<
+		IThreadMessageRepository,
+		"findAllByMessageId" | "deleteMany" | "update"
+	>;
 	log: MessageDeleteTerminalLogger;
 }
 
@@ -22,6 +29,7 @@ export interface ResolveExhaustedMessageDeleteInput {
 	accountId: string;
 	accountConfigId: string;
 	messageId: string;
+	sourceMailboxId: string;
 	uid: number;
 	sourceMailboxPath: string;
 	getConnection: () => Promise<IImapConnection>;
@@ -49,15 +57,18 @@ export interface ResolveExhaustedMessageDeleteResult {
  *    server's own UID. Metric only, no alarm — routine.
  * 2. BROKEN — the message is still at the source, so the delete never took
  *    effect, but it keeps failing: broken code or a broken account, not a
- *    transient blip. The row's mailbox and uid are left exactly as they stand,
- *    because reverting the optimistic move on this ambiguity is what PR #652
- *    was pulled for.
+ *    transient blip. The row is put back where the server has just said the
+ *    message is: `mailboxId` and `uid` return to the delete's source pair, and
+ *    the thread rows lose the deletion mark the optimistic `updateForMove`
+ *    wrote (issue #1098).
  *
- *    `status` does settle, to `active`. It is not a claim about where the
- *    message is — only that this row is no longer mid-mutation. Leaving it
- *    `moving` makes `isPlacementUnsettled` true forever, and every later delete
- *    of that message then waits on a mutation that has already terminated, so
- *    the user is left with mail they cannot delete.
+ *    Settling `status` to `active` while leaving `mailboxId` on Trash is what
+ *    this replaces. `bindsForeignUid` refuses a mismatched pair only while
+ *    `status` is `moving`, so clearing it read as consistent, and the UI then
+ *    offered "Delete permanently" on a Trash mailbox with the source folder's
+ *    uid — an expunge naming a different message. Restoring the pair is not a
+ *    revert on ambiguity (what PR #652 was pulled for): the presence probe
+ *    above has just answered, so this writes a placement the server confirmed.
  *
  * A server that cannot be reached at exhaustion time never reaches either
  * verdict: the probe throws and the record dead-letters with the row untouched.
@@ -71,6 +82,7 @@ export const resolveExhaustedMessageDeleteFailure = async (
 		accountId,
 		accountConfigId,
 		messageId,
+		sourceMailboxId,
 		uid,
 		sourceMailboxPath,
 		getConnection,
@@ -100,10 +112,6 @@ export const resolveExhaustedMessageDeleteFailure = async (
 		return { outcome: "reconciled" };
 	}
 
-	await deps.messageService.update(messageId, {
-		status: MessageStatus.active,
-		syncStatus: MessageSyncStatus.failed,
-	});
 	deps.log.error(
 		{
 			alert: "message_delete_failed",
@@ -111,9 +119,31 @@ export const resolveExhaustedMessageDeleteFailure = async (
 			accountConfigId,
 			messageId,
 			uid,
+			sourceMailboxId,
 			sourceMailboxPath,
 		},
-		"Delete could not be pushed to IMAP after retry exhaustion; the message is still at its source — row settled out of `moving` and left in place for operator investigation",
+		"Delete could not be pushed to IMAP after retry exhaustion; the message is still at its source — row moved back to the source folder",
 	);
+
+	await deps.messageService.updateUid(messageId, uid, sourceMailboxId);
+
+	const threadMessages = await deps.threadMessageService.findAllByMessageId(
+		accountConfigId,
+		messageId,
+	);
+	for (const threadMessage of threadMessages) {
+		const args = buildThreadMessageMoveRevert(
+			threadMessage,
+			uid,
+			sourceMailboxId,
+		);
+		await deps.threadMessageService.update(
+			threadMessage.accountConfigId,
+			threadMessage.threadMessageId,
+			args.set,
+			{ composites: args.composites },
+		);
+	}
+
 	return { outcome: "broken" };
 };

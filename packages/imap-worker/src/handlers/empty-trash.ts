@@ -15,7 +15,7 @@ import type { EmptyTrashEvent } from "../events.js";
 import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
-import { buildThreadMessageUndelete } from "./message-delete.js";
+import { buildThreadMessageUndelete } from "./thread-message-rows.js";
 
 export interface EmptyTrashDeps {
 	getClient: typeof getClient;
