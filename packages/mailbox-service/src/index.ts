@@ -6,8 +6,13 @@
 
 export {
 	type AccountCredentialsDeps,
+	type ConnectionStateValue,
+	type CredentialResolution,
 	encryptRefreshToken,
+	hasStoredCredential,
+	type MissingCredential,
 	resolveConnectionCredentials,
+	type StoredCredentialFields,
 } from "./account-credentials.js";
 export {
 	hasChildren,

@@ -1,58 +1,62 @@
 {
-	"name": "@remit/mailbox-service",
-	"version": "0.0.1",
-	"type": "module",
-	"main": "src/index.ts",
-	"types": "src/index.ts",
-	"exports": {
-		".": {
-			"types": "./src/index.ts",
-			"default": "./src/index.ts"
-		},
-		"./body-sync-queue": {
-			"types": "./src/body-sync-queue.ts",
-			"default": "./src/body-sync-queue.ts"
-		},
-		"./account-credentials": {
-			"types": "./src/account-credentials.ts",
-			"default": "./src/account-credentials.ts"
-		}
-	},
-	"scripts": {
-		"test:typecheck": "tsgo --noEmit",
-		"test:run": "node $NODE_TEST_FLAGS --env-file=../../localhost-test-unit.env --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=86 --test 'src/**/*.test.ts'",
-		"test:integ": "RUN_INTEG_TESTS=1 node --env-file=../../localhost-test-unit.env --import tsx --test 'src/**/*.integ.test.ts'",
-		"test:e2e": "RUN_E2E_TESTS=1 node --env-file=../../localhost-test-e2e.env --import tsx --test --test-concurrency=1 'src/**/*.e2e.test.ts'",
-		"test": "npm run test:typecheck && npm run test:run"
-	},
-	"dependencies": {
-		"imapflow": "^1.3.3",
-		"mailparser": "^3.9.14",
-		"nodemailer": "^9.0.3",
-		"p-map": "^7.0.4",
-		"tldts": "^7.4.9",
-		"@remit/data-ports": "*",
-		"@remit/domain-enums": "*",
-		"@remit/mail-oauth-service": "*",
-		"@remit/secrets-service": "*",
-		"@remit/sqs-client": "*",
-		"@remit/storage-service": "*",
-		"@aws-sdk/client-sqs": "*",
-		"franc": "*",
-		"natural": "^8.1.1",
-		"stopword": "*",
-		"@types/mailparser": "*",
-		"@types/nodemailer": "*",
-		"@types/stopword": "^2.0.3",
-		"@remit/calendar-service": "*"
-	},
-	"license": "MIT",
-	"publishConfig": {
-		"access": "public"
-	},
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/remit-mail/reader.git",
-		"directory": "packages/mailbox-service"
-	}
+  "name": "@remit/mailbox-service",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./body-sync-queue": {
+      "types": "./src/body-sync-queue.ts",
+      "default": "./src/body-sync-queue.ts"
+    },
+    "./account-credentials": {
+      "types": "./src/account-credentials.ts",
+      "default": "./src/account-credentials.ts"
+    },
+    "./types": {
+      "types": "./src/types.ts",
+      "default": "./src/types.ts"
+    }
+  },
+  "scripts": {
+    "test:typecheck": "tsgo --noEmit",
+    "test:run": "node $NODE_TEST_FLAGS --env-file=../../localhost-test-unit.env --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=86 --test 'src/**/*.test.ts'",
+    "test:integ": "RUN_INTEG_TESTS=1 node --env-file=../../localhost-test-unit.env --import tsx --test 'src/**/*.integ.test.ts'",
+    "test:e2e": "RUN_E2E_TESTS=1 node --env-file=../../localhost-test-e2e.env --import tsx --test --test-concurrency=1 'src/**/*.e2e.test.ts'",
+    "test": "npm run test:typecheck && npm run test:run"
+  },
+  "dependencies": {
+    "imapflow": "^1.3.3",
+    "mailparser": "^3.9.14",
+    "nodemailer": "^9.0.3",
+    "p-map": "^7.0.4",
+    "tldts": "^7.4.9",
+    "@remit/data-ports": "*",
+    "@remit/domain-enums": "*",
+    "@remit/mail-oauth-service": "*",
+    "@remit/secrets-service": "*",
+    "@remit/sqs-client": "*",
+    "@remit/storage-service": "*",
+    "@aws-sdk/client-sqs": "*",
+    "franc": "*",
+    "natural": "^8.1.1",
+    "stopword": "*",
+    "@types/mailparser": "*",
+    "@types/nodemailer": "*",
+    "@types/stopword": "^2.0.3",
+    "@remit/calendar-service": "*"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/remit-mail/reader.git",
+    "directory": "packages/mailbox-service"
+  }
 }

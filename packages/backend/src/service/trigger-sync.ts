@@ -66,7 +66,7 @@ export const buildScheduledSyncDedupId = (
 };
 
 export const buildSyncMailboxesCommand = (
-	input: TriggerAccountSyncInput,
+	input: Omit<TriggerAccountSyncInput, "sqsClient">,
 ): SendMessageCommand => {
 	const { queueUrl, accountId, dedupId, explicitRequest } = input;
 	const event: SyncMailboxesEvent = {

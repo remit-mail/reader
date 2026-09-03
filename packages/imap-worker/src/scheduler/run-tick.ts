@@ -5,6 +5,7 @@ import {
 } from "@remit/backend/trigger-sync";
 import type { AccountItem, IAccountRepository } from "@remit/data-ports";
 import type { Logger } from "@remit/logger-lambda";
+import { hasStoredCredential } from "@remit/mailbox-service/account-credentials";
 import pMap from "p-map";
 import {
 	isAccountDeleted,
@@ -79,6 +80,10 @@ const isEligible = (account: AccountItem): boolean => {
 	if (isAccountDeleted(account, silentLogger)) return false;
 	if (isUnsyncableHost(account, silentLogger)) return false;
 	if (isAccountReauthRequired(account, silentLogger)) return false;
+	// An account storing no credential can only produce a sync that fails at
+	// credential resolution (issue #1120); the tick would enqueue one every
+	// tick, forever, for an account the user never finished setting up.
+	if (!hasStoredCredential(account)) return false;
 	return true;
 };
 

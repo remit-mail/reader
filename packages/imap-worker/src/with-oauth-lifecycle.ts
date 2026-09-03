@@ -8,6 +8,11 @@
  *  - Credential resolution AND the per-handler work both run inside one
  *    try/catch so that a revoked OAuth token is caught regardless of where it
  *    surfaces (token mint vs. first IMAP command).
+ *  - An account storing no credential at all is terminal, not transient: the
+ *    account is flipped to the state that describes it and the event is ACKed.
+ *    Retrying instead fenced the account's FIFO group for the message's whole
+ *    visibility timeout, blocking the sync that follows the credential the
+ *    user was still typing (issue #1120).
  *  - On a terminal auth failure (RefreshTokenError reauth-required, or
  *    MailConnectionError auth), flip the account to reauth_required and return
  *    WITHOUT rethrowing — this ACKs the SQS message so it is not retried.
@@ -23,15 +28,17 @@ import type { Logger } from "@remit/logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
 	type AccountCredentialsDeps,
+	type ConnectionStateValue,
+	type CredentialResolution,
+	resolveConnectionCredentials,
+} from "@remit/mailbox-service/account-credentials";
+import {
 	MailConnectionError,
 	type MailCredentials,
-	resolveConnectionCredentials,
-} from "@remit/mailbox-service";
+} from "@remit/mailbox-service/types";
 import { isAccountReauthRequired } from "./account-check.js";
 
-/** ConnectionState is a const object (not a TS enum); this is its value type. */
-export type ConnectionStateValue =
-	(typeof ConnectionState)[keyof typeof ConnectionState];
+export type { ConnectionStateValue };
 
 export interface OAuthLifecycleDeps extends AccountCredentialsDeps {
 	/**
@@ -50,7 +57,7 @@ export interface OAuthLifecycleDeps extends AccountCredentialsDeps {
 	resolveCredentials?: (
 		account: AccountItem,
 		deps: AccountCredentialsDeps,
-	) => Promise<MailCredentials>;
+	) => Promise<CredentialResolution>;
 }
 
 /**
@@ -73,8 +80,23 @@ export const withOAuthLifecycle = async (
 	const resolve = deps.resolveCredentials ?? resolveConnectionCredentials;
 
 	try {
-		const credentials = await resolve(account, deps);
-		await work(credentials);
+		const resolution = await resolve(account, deps);
+		if (resolution.status === "missing") {
+			log.warn(
+				{
+					accountId: account.accountId,
+					reason: resolution.reason,
+					connectionState: resolution.terminalState,
+				},
+				"Account stores no credential; acking the event without IMAP traffic",
+			);
+			await deps.updateConnectionState(
+				account.accountId,
+				resolution.terminalState,
+			);
+			return; // ACK — no retry can produce a credential
+		}
+		await work(resolution.credentials);
 	} catch (err) {
 		// Terminal OAuth failure: token revoked / consent withdrawn.
 		if (err instanceof RefreshTokenError) {
