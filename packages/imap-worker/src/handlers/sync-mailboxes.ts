@@ -2,6 +2,7 @@ import { getClient } from "@remit/backend/client";
 import { writeFolderRoleAppointment } from "@remit/backend/folder-role-appointments";
 import {
 	bindImportedFolders,
+	type BindResult,
 	type ConfigBinderDeps,
 } from "@remit/config-transfer";
 import type {

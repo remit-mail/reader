@@ -18,7 +18,7 @@ import type { AppointFolderRole } from "./import-repositories.js";
 export interface ConfigBinderRepositories {
 	configImport: Pick<IConfigImportRepository, "listByAccountConfig" | "update">;
 	accountSetting: Pick<IAccountSettingRepository, "upsert">;
-	filter: Pick<IFilterRepository, "update">;
+	filter: Pick<IFilterRepository, "listByAccountConfig" | "update">;
 	mailbox: Pick<IMailboxRepository, "listAllByAccount">;
 }
 
@@ -30,10 +30,13 @@ export interface ConfigBinderDeps {
 
 /**
  * What one folder path an import was waiting for is still waiting for, told as
- * a count so a caller can log it without walking the refs again.
+ * a count so a caller can log it without walking the refs again. `dropped` is
+ * the references whose target is gone — the row they would have written no
+ * longer exists, so there is nothing left to wait for.
  */
 export interface BindResult {
 	bound: number;
+	dropped: number;
 	stillPending: number;
 }
 
@@ -46,6 +49,11 @@ export interface BindResult {
  * row each reference belongs to, and drops it. An import whose last reference
  * is gone is Complete; the rest stay, and surface on `GET /config` until the
  * folder they name shows up or the person removes the expectation.
+ *
+ * Removing the expectation means deleting the filter, and a reference to a
+ * filter that is gone is dropped rather than retried: the row it would write
+ * does not exist, and a reference that cannot ever resolve would otherwise be
+ * carried, and re-attempted, on every discovery for the life of the account.
  *
  * Idempotent and replayable: every write is an upsert or an update onto a row
  * the import already created, so a second discovery finds nothing to do rather
@@ -62,7 +70,7 @@ export const bindImportedFolders = async (
 	const imports = (
 		await repositories.configImport.listByAccountConfig(accountConfigId)
 	).filter((row) => row.state === ConfigImportState.Pending);
-	if (imports.length === 0) return { bound: 0, stillPending: 0 };
+	if (imports.length === 0) return { bound: 0, dropped: 0, stillPending: 0 };
 
 	const byPath = new Map(
 		(await repositories.mailbox.listAllByAccount(accountId)).map(
@@ -70,7 +78,15 @@ export const bindImportedFolders = async (
 		),
 	);
 
+	const context: BindContext = {
+		accountConfigId,
+		accountId,
+		mailboxIdByPath: byPath,
+		filterIds: filterIdReader(repositories, accountConfigId),
+	};
+
 	let bound = 0;
+	let dropped = 0;
 	let stillPending = 0;
 
 	for (const row of imports) {
@@ -78,14 +94,13 @@ export const bindImportedFolders = async (
 		const remaining: ConfigImportUnresolvedRefItem[] = [];
 
 		for (const ref of row.unresolvedRefs) {
-			const mailboxId =
-				ref.accountId === accountId ? byPath.get(ref.folderPath) : undefined;
-			if (mailboxId === undefined) {
+			const outcome = await bindRef(deps, context, ref, document);
+			if (outcome === "StillPending") {
 				remaining.push(ref);
 				continue;
 			}
-			await bindRef(deps, accountConfigId, ref, mailboxId, document);
-			bound++;
+			if (outcome === "TargetGone") dropped++;
+			else bound++;
 		}
 
 		stillPending += remaining.length;
@@ -99,35 +114,73 @@ export const bindImportedFolders = async (
 		});
 	}
 
-	return { bound, stillPending };
+	return { bound, dropped, stillPending };
 };
 
 type BoundDocument = ReturnType<typeof readConfigDocument>;
 
+/**
+ * What became of one reference. Every outcome is a designed one: the folder is
+ * here and the row was written, the row the reference names is gone, or the
+ * folder has still not been discovered.
+ */
+type RefOutcome = "Bound" | "TargetGone" | "StillPending";
+
+interface BindContext {
+	accountConfigId: string;
+	accountId: string;
+	mailboxIdByPath: ReadonlyMap<string, string>;
+	filterIds: () => Promise<ReadonlySet<string>>;
+}
+
+/**
+ * Which filters this configuration still holds, read once per bind run and only
+ * if a reference actually reaches a filter. A list is the read that answers
+ * "is it gone" without a throw — `IFilterRepository` has no other.
+ */
+const filterIdReader = (
+	repositories: ConfigBinderRepositories,
+	accountConfigId: string,
+): (() => Promise<ReadonlySet<string>>) => {
+	let held: Promise<ReadonlySet<string>> | undefined;
+	return () => {
+		held ??= repositories.filter
+			.listByAccountConfig(accountConfigId)
+			.then((filters) => new Set(filters.map((filter) => filter.filterId)));
+		return held;
+	};
+};
+
 const bindRef = async (
 	deps: ConfigBinderDeps,
-	accountConfigId: string,
+	context: BindContext,
 	ref: ConfigImportUnresolvedRefItem,
-	mailboxId: string,
 	document: BoundDocument,
-): Promise<void> => {
+): Promise<RefOutcome> => {
 	const { repositories } = deps;
+	const mailboxId =
+		ref.accountId === context.accountId
+			? context.mailboxIdByPath.get(ref.folderPath)
+			: undefined;
+	if (mailboxId === undefined) return "StillPending";
+
 	if (ref.kind === ConfigImportRefKind.FilterAction) {
-		await repositories.filter.update(accountConfigId, ref.target, {
+		if (!(await context.filterIds()).has(ref.target)) return "TargetGone";
+		await repositories.filter.update(context.accountConfigId, ref.target, {
 			actionMailboxId: mailboxId,
 		});
-		return;
+		return "Bound";
 	}
 
 	if (ref.kind === ConfigImportRefKind.FolderRole) {
 		await deps.appointFolderRole(
-			accountConfigId,
+			context.accountConfigId,
 			ref.accountId,
 			ref.target,
 			mailboxId,
 			ref.folderPath,
 		);
-		return;
+		return "Bound";
 	}
 
 	// The account the file named, when this instance still holds it under that
@@ -142,11 +195,11 @@ const bindRef = async (
 			? named.folderOverrides
 			: document.accounts.flatMap((a) => a.folderOverrides)
 	).find((candidate) => candidate.folderPath === ref.folderPath);
-	if (!override) return;
+	if (!override) return "TargetGone";
 
 	if (override.displayName !== "") {
 		await repositories.accountSetting.upsert({
-			accountConfigId,
+			accountConfigId: context.accountConfigId,
 			name: composeSettingName(
 				AccountSettingName.MailboxDisplayName,
 				mailboxId,
@@ -156,11 +209,12 @@ const bindRef = async (
 	}
 	if (override.muted !== null) {
 		await repositories.accountSetting.upsert({
-			accountConfigId,
+			accountConfigId: context.accountConfigId,
 			name: composeSettingName(AccountSettingName.MailboxMuted, mailboxId),
 			value: { kind: "MutedFlag", value: override.muted },
 		});
 	}
+	return "Bound";
 };
 
 /**
