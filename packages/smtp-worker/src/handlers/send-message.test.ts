@@ -145,10 +145,13 @@ const buildDeps = (
 			(async (_account) => {
 				recorded.resolveCalls += 1;
 				return {
-					kind: "password" as const,
-					password: _account.passwordHash
-						? "resolved-password"
-						: "no-password-configured",
+					status: "resolved" as const,
+					credentials: {
+						kind: "password" as const,
+						password: _account.passwordHash
+							? "resolved-password"
+							: "no-password-configured",
+					},
 				};
 			}),
 		updateConnectionState: async (accountId, state) => {
@@ -566,6 +569,25 @@ describe("sendMessage OAuth reauth/ACK contract", () => {
 			accountId: "acc-1",
 			state: "reauth_required",
 		});
+	});
+
+	it("account storing no credential: settles `blocked` and never retries (issue #1120)", async () => {
+		const { deps, recorded } = buildDeps({
+			account: buildAccount({ passwordHash: undefined }),
+			resolveCredentials: async () => ({
+				status: "missing" as const,
+				terminalState: "credentials_missing" as const,
+				reason: "authType=password but no passwordHash",
+			}),
+		});
+
+		await sendMessage(event, silentLogger, deps);
+
+		assert.equal(recorded.sendCalls, 0, "must not send");
+		assert.deepEqual(recorded.connectionStateUpdates, [
+			{ accountId: "acc-1", state: "credentials_missing" },
+		]);
+		assert.equal(recorded.updates[0]?.patch.status, "blocked");
 	});
 
 	it("on transient credential error: rethrows", async () => {

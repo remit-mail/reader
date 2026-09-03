@@ -75,7 +75,7 @@ const buildDeps = (
 			options.resolveCredentials ??
 			(async () => {
 				recorded.resolveCalls += 1;
-				return passwordCreds;
+				return { status: "resolved", credentials: passwordCreds };
 			}),
 	};
 	// Wrap resolveCredentials to record the call count when a custom one is given.
@@ -208,6 +208,36 @@ describe("withOAuthLifecycle", () => {
 			/boom/,
 		);
 		assert.equal(recorded.stateUpdates.length, 0);
+	});
+
+	it("password account with no passwordHash: ACKs and flips to credentials_missing", async () => {
+		const { deps, recorded } = buildDeps();
+		delete deps.resolveCredentials;
+		const account = buildAccount({ authType: AccountAuthType.Password });
+
+		await withOAuthLifecycle(deps, account, silentLogger, async () => {
+			recorded.workCalls += 1;
+		});
+
+		assert.equal(recorded.workCalls, 0, "no IMAP traffic without a credential");
+		assert.deepEqual(recorded.stateUpdates, [
+			{ accountId: "acc-1", state: ConnectionState.CredentialsMissing },
+		]);
+	});
+
+	it("OAuth account with no refresh token: ACKs and flips to reauth_required", async () => {
+		const { deps, recorded } = buildDeps();
+		delete deps.resolveCredentials;
+		const account = buildAccount({ authType: AccountAuthType.OauthMicrosoft });
+
+		await withOAuthLifecycle(deps, account, silentLogger, async () => {
+			recorded.workCalls += 1;
+		});
+
+		assert.equal(recorded.workCalls, 0, "no IMAP traffic without a credential");
+		assert.deepEqual(recorded.stateUpdates, [
+			{ accountId: "acc-1", state: ConnectionState.ReauthRequired },
+		]);
 	});
 
 	it("on RefreshTokenError transient: rethrows", async () => {

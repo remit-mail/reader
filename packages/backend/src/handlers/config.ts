@@ -15,6 +15,10 @@ import { ConfigNotEmptyError, NotFoundError } from "@remit/data-ports/errors";
 import type { CanonicalMailboxRoleValue } from "@remit/data-ports/folder-role";
 import { logger } from "@remit/logger-lambda";
 import {
+	hasStoredCredential,
+	type StoredCredentialFields,
+} from "@remit/mailbox-service";
+import {
 	EMBEDDING_PROVIDER_OFF,
 	readEmbeddingProviderFromEnv,
 } from "@remit/search-service/from-env";
@@ -77,14 +81,20 @@ const defaultConfigSyncTriggerDeps = (): ConfigSyncTriggerDeps => ({
  * Each failure is logged as a distinct structured error carrying the SDK error
  * name/code on dedicated fields plus a stable `alert: "sync_trigger_failed"`
  * discriminator a CloudWatch metric filter / alarm can key off.
+ *
+ * An account storing no credential is not enqueued at all (issue #1120): the
+ * import wizard lands accounts without a password by design, and the client
+ * polls this read while the user is still typing one. The guard is the stored
+ * credential rather than `connectionState`, which stays `credentials_missing`
+ * until a connect succeeds — see `hasStoredCredential`.
  */
 export const triggerConfigLoadSyncs = async (
 	accountConfigId: string,
-	accountIds: ReadonlyArray<string>,
+	accounts: ReadonlyArray<{ accountId: string } & StoredCredentialFields>,
 	deps: ConfigSyncTriggerDeps = defaultConfigSyncTriggerDeps(),
 ): Promise<void> => {
 	await Promise.all(
-		accountIds.map((accountId) =>
+		accounts.filter(hasStoredCredential).map(({ accountId }) =>
 			fireAndForget(
 				async () => {
 					const { eventId } = await triggerAccountSync({
@@ -224,10 +234,7 @@ export const ConfigOperations: Record<
 		// triggerConfigLoadSyncs swallows nothing — it logs each failure loudly
 		// with an alertable structured field — but it also never rejects, so the
 		// `void` here cannot leak an unhandled rejection into a later request.
-		void triggerConfigLoadSyncs(
-			accountConfigId,
-			activeAccounts.map((acc) => acc.accountId),
-		);
+		void triggerConfigLoadSyncs(accountConfigId, activeAccounts);
 
 		// An import that named folders IMAP had not produced yet rides the config
 		// read rather than a route of its own, so nothing has to poll for it.

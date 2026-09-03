@@ -7,6 +7,7 @@ import type {
 import { AccountAuthType, OutboxMessageStatus } from "@remit/domain-enums";
 import { type Logger, recordSmtpFailure } from "@remit/logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
+import type { CredentialResolution } from "@remit/mailbox-service";
 import type { SecretsService } from "@remit/secrets-service";
 import {
 	buildMailMessage,
@@ -72,10 +73,11 @@ export interface SendMessageDeps {
 	 * Resolve credentials for the account. Called after fetching the account.
 	 * For password accounts this may resolve immediately from the stored hash.
 	 * For OAuth accounts this mints an access token via the token service.
+	 * Returns `{ status: "missing" }` when the account stores no credential.
 	 * Throws RefreshTokenError on OAuth failures — callers should not need to
 	 * handle this here; the caller of sendMessage handles it.
 	 */
-	resolveCredentials: (account: AccountItem) => Promise<SmtpCredentials>;
+	resolveCredentials: (account: AccountItem) => Promise<CredentialResolution>;
 	/**
 	 * Persist the account's connectionState. Called when a terminal OAuth/SMTP
 	 * auth failure is detected so the account is fenced off until the user
@@ -203,9 +205,26 @@ export const sendMessage = async (
 	// Resolve credentials. On a terminal OAuth auth failure (token revoked),
 	// flip the account to reauth_required and ACK — do not retry. Transient /
 	// config failures rethrow for SQS retry/backoff.
-	let credentials: SmtpCredentials;
+	let credentials: SmtpCredentials | undefined;
 	try {
-		credentials = await deps.resolveCredentials(account);
+		const resolution = await deps.resolveCredentials(account);
+		if (resolution.status === "missing") {
+			// Terminal, never a retry (issue #1120). The account still sends if it
+			// carries an SMTP-specific credential of its own, so this hands
+			// resolveSmtpConfig no credential and lets it decide; where there is
+			// none either, the send settles `blocked` below.
+			log.warn(
+				{
+					accountId,
+					reason: resolution.reason,
+					connectionState: resolution.terminalState,
+				},
+				"Account stores no credential",
+			);
+			await deps.updateConnectionState(accountId, resolution.terminalState);
+		} else {
+			credentials = resolution.credentials;
+		}
 	} catch (err) {
 		if (err instanceof RefreshTokenError) {
 			if (err.error.kind === "reauth-required") {
