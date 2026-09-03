@@ -15,6 +15,7 @@ import {
 	SmtpConnectionError,
 	type sendMail,
 } from "@remit/smtp-service";
+import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import type { SendMessageEvent } from "../events.js";
 import { writeEngagementCounters } from "./engagement-counters.js";
 import {
@@ -133,24 +134,9 @@ const SENDABLE_STATUSES: ReadonlySet<OutboxMessageItem["status"]> = new Set([
 	OutboxMessageStatus.sending,
 ]);
 
-/**
- * Fallback when `SEND_MESSAGE_MAX_ATTEMPTS` is unset (local dev, unit tests).
- * Matches `remit-smtp`'s `maxReceiveCount` (`deploy/vps/queues.json`), same
- * pattern as `MESSAGE_MOVE_MAX_ATTEMPTS` / `FLAG_PUSH_MAX_ATTEMPTS` in
- * imap-worker.
- */
-const DEFAULT_SEND_MESSAGE_MAX_ATTEMPTS = 3;
-
 export const getSendMessageMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
-): number => {
-	const raw = processEnv.SEND_MESSAGE_MAX_ATTEMPTS;
-	if (!raw) return DEFAULT_SEND_MESSAGE_MAX_ATTEMPTS;
-	const parsed = Number.parseInt(raw, 10);
-	return Number.isFinite(parsed) && parsed > 0
-		? parsed
-		: DEFAULT_SEND_MESSAGE_MAX_ATTEMPTS;
-};
+): number => attemptBudget("SEND_MESSAGE_MAX_ATTEMPTS", 3, processEnv);
 
 export const SEND_MESSAGE_MAX_ATTEMPTS = getSendMessageMaxAttempts();
 
