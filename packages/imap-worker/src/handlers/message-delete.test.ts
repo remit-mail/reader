@@ -5,14 +5,16 @@ import type { Logger } from "@remit/logger-lambda";
 import { renderMetrics, resetMetrics } from "@remit/logger-lambda";
 import type { MessageDeleteEvent } from "../events.js";
 import {
-	buildThreadMessageTrashUpdate,
-	buildThreadMessageUndelete,
 	deleteAllThreadMessagesForMessage,
 	getMessageDeleteMaxAttempts,
 	handleMessageDelete,
 	MESSAGE_DELETE_MAX_ATTEMPTS,
 	type MessageDeleteDeps,
 } from "./message-delete.js";
+import {
+	buildThreadMessageTrashUpdate,
+	buildThreadMessageUndelete,
+} from "./thread-message-rows.js";
 
 describe("getMessageDeleteMaxAttempts — env-derived threshold (#980)", () => {
 	it("parses the injected env var", () => {
@@ -676,28 +678,65 @@ describe("handleMessageDelete", () => {
 			);
 		});
 
-		// A source that still holds the uid at the ceiling means the MOVE never
-		// took effect. Local state is left exactly as it stands — the row is the
-		// only record that this delete is still owed, and a revert races a MOVE
-		// that may yet have landed (#652, #655).
-		it("leaves a message still at its source untouched at the ceiling and never re-throws", async () => {
+		// Issue #1098. A source that still holds the uid at the ceiling means the
+		// MOVE never took effect, so the row goes back to the source folder: the
+		// optimistic `updateForMove` left `mailboxId` on Trash while `uid` still
+		// named the source's message, and settling `status` to `active` on top of
+		// that pair switched off every guard that reads `status === "moving"`.
+		// The UI then resolved a Trash `mailboxId` to "Delete permanently", an
+		// expunge of Trash by a uid belonging to a different message. This is not
+		// a revert on ambiguity (#652, #655): the presence probe has just
+		// answered, so the pair written here is the placement the server holds.
+		it("moves a message still at its source back to the source folder at the ceiling", async () => {
 			h.connection.moveMessages = async () => ({ uidMap: new Map() });
 			h.destinationSearchUids = [100];
+			h.allThreadMessages = [
+				{
+					...baseThreadMessage,
+					accountConfigId: "cfg-1",
+					threadMessageId: "tm-1",
+					mailboxId: "trash-mbx",
+					isDeleted: true,
+				},
+			];
 
 			await handleMessageDelete(moveEvent, noopLog, 3, deps());
 
 			assert.equal(called("message.delete").length, 0);
 			assert.equal(called("threadMessage.deleteMany").length, 0);
-			assert.equal(called("threadMessage.update").length, 0);
 
-			// The row's mailbox and uid stay put, but `status` must leave
-			// `moving`: `isPlacementUnsettled` reads exactly that value, so a row
-			// left mid-mutation makes every later delete of this message wait on
-			// a mutation that has already terminated.
-			assert.deepEqual(called("message.update").at(-1)?.args[1], {
-				status: "active",
-				syncStatus: "failed",
-			});
+			// `mailboxId` and `uid` name the same message again, and `updateUid`
+			// settles `status` out of `moving` in the same write, so no later
+			// delete of this message waits on a mutation that has terminated.
+			assert.deepEqual(called("message.updateUid").at(-1)?.args, [
+				"msg-1",
+				10,
+				"src-mbx",
+			]);
+			assert.equal(
+				called("message.update").length,
+				0,
+				"settling `status` without repairing the pair is what left the row addressable as a Trash expunge",
+			);
+
+			// The listing row follows the Message row out of Trash, which is what
+			// makes "Delete permanently" unreachable: the client resolves that
+			// outcome from a target whose `mailboxId` is the Trash mailbox.
+			assert.deepEqual(called("threadMessage.update").at(-1)?.args, [
+				"cfg-1",
+				"tm-1",
+				{ uid: 10, mailboxId: "src-mbx", isDeleted: false },
+				{
+					composites: {
+						sentDate: baseThreadMessage.sentDate,
+						mailboxId: "trash-mbx",
+						isRead: true,
+						isDeleted: true,
+						hasStars: true,
+						hasAttachment: false,
+					},
+				},
+			]);
 			assert.equal(await imapFailures("MESSAGE_DELETE_EXHAUSTED"), 1);
 		});
 
@@ -767,15 +806,16 @@ describe("handleMessageDelete", () => {
 				assert.equal(called("emitEvent").length, 2);
 			});
 
-			it("settles a still-present message at the ceiling out of `moving`", async () => {
+			it("settles a still-present message at the ceiling back onto its source", async () => {
 				moveThrows();
 
 				await handleMessageDelete(moveEvent, noopLog, 3, deps());
 
-				assert.deepEqual(called("message.update").at(-1)?.args[1], {
-					status: "active",
-					syncStatus: "failed",
-				});
+				assert.deepEqual(called("message.updateUid").at(-1)?.args, [
+					"msg-1",
+					10,
+					"src-mbx",
+				]);
 				assert.equal(await imapFailures("MESSAGE_DELETE_EXHAUSTED"), 1);
 			});
 		});
