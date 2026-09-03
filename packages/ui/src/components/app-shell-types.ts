@@ -14,6 +14,7 @@ import type {
 } from "./intelligence-panel.js";
 import type { ResultCount } from "./list-result-header.js";
 import type { ListState } from "./message-list-state.js";
+import type { RowSettlement } from "./message-settlement.js";
 
 /** Pane-count thresholds, aligned to Tailwind `lg`/`xl`. The whole shell reflows
  *  by its own width: a single responsive surface, not per-device variants.
@@ -308,6 +309,12 @@ export interface ThreadRowData {
 	suspicious?: boolean;
 	/** Labels applied to this message (issue #26) — filter-, organize-, and manually-applied alike. */
 	labels?: ThreadRowLabel[];
+	/**
+	 * The row's last IMAP mutation has not settled, so what this row shows is a
+	 * local write the mail server has not confirmed (issue #1002). Absent means
+	 * settled — the ordinary case, and the only one with no treatment.
+	 */
+	settlement?: RowSettlement;
 }
 
 export interface ThreadSection {

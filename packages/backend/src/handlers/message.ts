@@ -454,6 +454,8 @@ export const MessageOperations: Record<
 			internalDate: message.internalDate,
 			messageIdHeader: message.messageIdHeader,
 			authenticity: message.authenticity,
+			status: message.status,
+			syncStatus: message.syncStatus,
 			...(autoMoved ? { autoMoved } : {}),
 			...(labels.length > 0 ? { labels } : {}),
 			...(message.spamReport ? { spamReport: message.spamReport } : {}),

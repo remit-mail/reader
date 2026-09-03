@@ -537,6 +537,15 @@ export {
 	type RowToggleEvent,
 } from "./components/message-row.js";
 export {
+	MessageSettlementBadge,
+	type MessageSettlementBadgeProps,
+	type MessageSettlementCopy,
+	MessageSettlementNotice,
+	type MessageSettlementNoticeProps,
+	messageSettlementCopy,
+	type RowSettlement,
+} from "./components/message-settlement.js";
+export {
 	type MobileMessageAction,
 	MobileMessageActionBar,
 	type MobileMessageActionBarProps,

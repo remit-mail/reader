@@ -41,3 +41,33 @@ describe("threadToRowData — labels", () => {
 		assert.equal(row.labels, undefined);
 	});
 });
+
+describe("threadToRowData — settlement (issue #1002)", () => {
+	it("marks a row whose move gave up", () => {
+		const row = threadToRowData(
+			baseThread({ status: "moving", syncStatus: "failed" }),
+		);
+		assert.equal(row.settlement, "abandoned");
+	});
+
+	it("marks a row whose delete gave up, which settles status back to active", () => {
+		const row = threadToRowData(
+			baseThread({ status: "active", syncStatus: "failed" }),
+		);
+		assert.equal(row.settlement, "abandoned");
+	});
+
+	it("marks a row whose move is still being pushed", () => {
+		const row = threadToRowData(
+			baseThread({ status: "moving", syncStatus: "pending" }),
+		);
+		assert.equal(row.settlement, "in_flight");
+	});
+
+	it("leaves an ordinary inbound row unmarked, `pending` and all", () => {
+		const row = threadToRowData(
+			baseThread({ status: "active", syncStatus: "pending" }),
+		);
+		assert.equal(row.settlement, undefined);
+	});
+});

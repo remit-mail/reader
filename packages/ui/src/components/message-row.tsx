@@ -12,6 +12,7 @@ import { categoryTone, type ThreadRowData } from "./app-shell-types.js";
 import { Avatar } from "./avatar.js";
 import { Badge } from "./badge.js";
 import { LabelChip } from "./label-chip.js";
+import { MessageSettlementBadge } from "./message-settlement.js";
 
 /** Visible keyboard-focus ring for a row reached by the list's arrow-key cursor. */
 const ROW_FOCUS_RING =
@@ -103,6 +104,9 @@ export function CompactRowBody({ thread }: { thread: ThreadRowData }) {
 					role="img"
 					aria-label="Has an attachment"
 				/>
+			)}
+			{thread.settlement && (
+				<MessageSettlementBadge settlement={thread.settlement} />
 			)}
 			<span className="w-11 shrink-0 text-right text-2xs text-fg-subtle tabular-nums">
 				{thread.timeLabel}
@@ -215,6 +219,9 @@ export function ComfortableRowTextContent({
 				{thread.labels?.map((label) => (
 					<LabelChip key={label.labelId} label={label} className="max-w-20" />
 				))}
+				{thread.settlement && (
+					<MessageSettlementBadge settlement={thread.settlement} />
+				)}
 				{badge}
 			</span>
 		</span>

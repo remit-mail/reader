@@ -17,6 +17,7 @@ import { AutoMovedIndicator } from "./AutoMovedIndicator";
 import { MessageActionMenu } from "./MessageActionMenu";
 import { MessageAttachments } from "./MessageAttachments";
 import { MessageBody } from "./MessageBody";
+import { MessageSettlementAlert } from "./MessageSettlementAlert";
 import { MobileMessageBar } from "./MobileMessageBar";
 import { RawMessageView } from "./RawMessageView";
 
@@ -291,46 +292,52 @@ const ExpandedCard = ({
 				) : undefined
 			}
 			body={
-				isLoading ? (
-					<div className="mt-3 animate-pulse space-y-2">
-						<div className="h-4 bg-surface-sunken rounded w-full" />
-						<div className="h-4 bg-surface-sunken rounded w-3/4" />
-						<div className="h-4 bg-surface-sunken rounded w-1/2" />
-					</div>
-				) : isError && isMessageNotFoundError(error) ? (
-					<div className="mt-3">
-						<EmptyState message="This message has been deleted" />
-					</div>
-				) : isError ? (
-					<div className="mt-3">
-						<ErrorState
-							variant="inline"
-							title="Couldn't load this message"
-							error={error}
-							onRetry={onRetry}
-						/>
-					</div>
-				) : showRaw ? (
-					<div className="mt-3">
-						<RawMessageView messageId={threadMessage.messageId} />
-					</div>
-				) : (
-					<div className="mt-3">
-						<MessageBody
-							bodyParts={messageData?.bodyParts}
-							messageId={threadMessage.messageId}
-							fromAddressId={messageData?.envelope.from[0]?.addressId}
-							isTrusted={isTrusted}
-							category={toDisplayCategory(threadMessage.category)}
-						/>
-						<MessageAttachments
-							messageId={threadMessage.messageId}
-							bodyParts={messageData?.bodyParts}
-							hasAttachment={threadMessage.hasAttachment}
-							className="mt-4"
-						/>
-					</div>
-				)
+				<>
+					<MessageSettlementAlert
+						threadMessage={threadMessage}
+						className="mt-3"
+					/>
+					{isLoading ? (
+						<div className="mt-3 animate-pulse space-y-2">
+							<div className="h-4 bg-surface-sunken rounded w-full" />
+							<div className="h-4 bg-surface-sunken rounded w-3/4" />
+							<div className="h-4 bg-surface-sunken rounded w-1/2" />
+						</div>
+					) : isError && isMessageNotFoundError(error) ? (
+						<div className="mt-3">
+							<EmptyState message="This message has been deleted" />
+						</div>
+					) : isError ? (
+						<div className="mt-3">
+							<ErrorState
+								variant="inline"
+								title="Couldn't load this message"
+								error={error}
+								onRetry={onRetry}
+							/>
+						</div>
+					) : showRaw ? (
+						<div className="mt-3">
+							<RawMessageView messageId={threadMessage.messageId} />
+						</div>
+					) : (
+						<div className="mt-3">
+							<MessageBody
+								bodyParts={messageData?.bodyParts}
+								messageId={threadMessage.messageId}
+								fromAddressId={messageData?.envelope.from[0]?.addressId}
+								isTrusted={isTrusted}
+								category={toDisplayCategory(threadMessage.category)}
+							/>
+							<MessageAttachments
+								messageId={threadMessage.messageId}
+								bodyParts={messageData?.bodyParts}
+								hasAttachment={threadMessage.hasAttachment}
+								className="mt-4"
+							/>
+						</div>
+					)}
+				</>
 			}
 		/>
 	);

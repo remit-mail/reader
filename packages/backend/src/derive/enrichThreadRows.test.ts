@@ -7,7 +7,9 @@ import type {
 	MessageLabelItem,
 	ThreadMessageItem,
 } from "@remit/data-ports";
+import { messageSettlementOf } from "@remit/data-ports";
 import { deriveAddressId } from "@remit/data-ports/id";
+import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import { type EnrichClient, enrichThreadRows } from "./enrichThreadRows.js";
 
 const threadRow = (
@@ -248,5 +250,91 @@ describe("enrichThreadRows — muted", () => {
 		const rows = [threadRow("tm-1", "msg-1")];
 		const [result] = await enrichThreadRows(rows, buildClient([], []), "acc-1");
 		assert.equal(result?.muted, false);
+	});
+});
+
+describe("enrichThreadRows — settlement", () => {
+	const withMessage = (message: Partial<MessageItem>): EnrichClient => ({
+		message: {
+			get: async () =>
+				[{ messageId: "msg-1", ...message }] as unknown as MessageItem[],
+		},
+		address: { getAddress: async () => [] },
+		messageLabel: { listByMessageIds: async () => [] },
+		label: { listByAccountConfig: async () => [] },
+	});
+
+	test("projects the give-up pair a broken move leaves behind", async () => {
+		const client = withMessage({
+			status: MessageStatus.moving,
+			syncStatus: MessageSyncStatus.failed,
+		});
+		const [result] = await enrichThreadRows(
+			[threadRow("tm-1", "msg-1")],
+			client,
+			"acc-1",
+		);
+		assert.equal(result?.status, MessageStatus.moving);
+		assert.equal(result?.syncStatus, MessageSyncStatus.failed);
+		assert.equal(
+			messageSettlementOf({
+				status: result?.status,
+				syncStatus: result?.syncStatus,
+			}),
+			"abandoned",
+		);
+	});
+
+	test("projects the pair a broken delete leaves behind", async () => {
+		const client = withMessage({
+			status: MessageStatus.active,
+			syncStatus: MessageSyncStatus.failed,
+		});
+		const [result] = await enrichThreadRows(
+			[threadRow("tm-1", "msg-1")],
+			client,
+			"acc-1",
+		);
+		assert.equal(
+			messageSettlementOf({
+				status: result?.status,
+				syncStatus: result?.syncStatus,
+			}),
+			"abandoned",
+		);
+	});
+
+	test("an ordinary inbound row reads as settled", async () => {
+		const client = withMessage({
+			status: MessageStatus.active,
+			syncStatus: MessageSyncStatus.pending,
+		});
+		const [result] = await enrichThreadRows(
+			[threadRow("tm-1", "msg-1")],
+			client,
+			"acc-1",
+		);
+		assert.equal(
+			messageSettlementOf({
+				status: result?.status,
+				syncStatus: result?.syncStatus,
+			}),
+			"settled",
+		);
+	});
+
+	test("a row whose Message row is missing claims no mutation", async () => {
+		const [result] = await enrichThreadRows(
+			[threadRow("tm-1", "msg-1")],
+			buildClient([], []),
+			"acc-1",
+		);
+		assert.equal(
+			messageSettlementOf({
+				status: result?.status,
+				syncStatus: result?.syncStatus,
+			}),
+			"settled",
+		);
 	});
 });

@@ -331,6 +331,8 @@ model MessageSummaryResponse {
       | "internalDate"
       | "messageIdHeader"
       | "authenticity"
+      | "status"
+      | "syncStatus"
   >;
 
   @doc("Present only when Remit auto-moved this message on body-sync. Absent means the message was not auto-moved by Remit.")

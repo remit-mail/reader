@@ -146,6 +146,39 @@ const longLabelName: ThreadRowData = {
 	],
 };
 
+const movePending: ThreadRowData = {
+	id: "r-move-pending",
+	accountId: "a1",
+	fromName: "Nadia Haddad",
+	fromEmail: "nadia@example.com",
+	subject: "Warehouse handover checklist",
+	snippet: "Moved to Archive a moment ago; the server has not confirmed it.",
+	timeLabel: "11:20",
+	isRead: true,
+	settlement: "in_flight",
+};
+
+const moveAbandoned: ThreadRowData = {
+	id: "r-move-abandoned",
+	accountId: "a1",
+	fromName: "Tomas Berg",
+	fromEmail: "tomas@example.com",
+	subject: "Signed lease, final version",
+	snippet: "Deleted here; the mail server refused and Remit stopped retrying.",
+	timeLabel: "Mon",
+	isRead: false,
+	settlement: "abandoned",
+};
+
+const abandonedWithLabels: ThreadRowData = {
+	...moveAbandoned,
+	id: "r-abandoned-labels",
+	category: "newsletter",
+	labels: [{ labelId: "l1", name: "Receipts", color: "Blue" }],
+};
+
+const unsettled = [movePending, moveAbandoned, abandonedWithLabels, read];
+
 const labeled = [noLabel, oneLabel, twoLabels, severalLabels, longLabelName];
 
 const all = [read, unread, starred, suspicious, withAttachment, withCategory];
@@ -276,6 +309,49 @@ export const CompactLabelsDark: Story = {
 	render: () => (
 		<List>
 			{labeled.map((thread) => (
+				<CompactRow key={thread.id} thread={thread} />
+			))}
+		</List>
+	),
+};
+
+/**
+ * A row whose last IMAP mutation has not settled (issue #1002). `in_flight`
+ * is the ordinary optimistic case — the move or delete is still being pushed
+ * and clears itself. `abandoned` is the one the user has to know about: the
+ * push gave up, so the message is not where this list says it is. The chip
+ * names the state; the open message carries the full statement and the way
+ * out (`MessageSettlementNotice`).
+ */
+export const Unsettled: Story = {
+	render: () => (
+		<List>
+			{unsettled.map((thread) => (
+				<ComfortableRow key={thread.id} thread={thread} />
+			))}
+		</List>
+	),
+};
+
+/** The same rows on the dark theme. */
+export const UnsettledDark: Story = {
+	name: "Unsettled (dark)",
+	parameters: { theme: "dark" },
+	render: () => (
+		<List>
+			{unsettled.map((thread) => (
+				<ComfortableRow key={thread.id} thread={thread} />
+			))}
+		</List>
+	),
+};
+
+/** Compact density carries the same chip. */
+export const UnsettledCompact: Story = {
+	name: "Unsettled (compact)",
+	render: () => (
+		<List>
+			{unsettled.map((thread) => (
 				<CompactRow key={thread.id} thread={thread} />
 			))}
 		</List>

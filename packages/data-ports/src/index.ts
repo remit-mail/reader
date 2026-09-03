@@ -51,6 +51,15 @@ export type {
 	IUnitOfWork,
 	UnitOfWorkRepositories,
 } from "./interfaces/unit-of-work.js";
+export type {
+	MessageSettlement,
+	MessageSettlementFields,
+} from "./message-settlement.js";
+export {
+	hasAbandonedMutation,
+	hasMutationInFlight,
+	messageSettlementOf,
+} from "./message-settlement.js";
 export {
 	FILTER_NO_ACTION,
 	isSenderMuted,

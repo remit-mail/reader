@@ -35,6 +35,8 @@ function threadResponse(
 		hasStars: false,
 		star: "none",
 		senderTrust: "unknown",
+		status: "active",
+		syncStatus: "pending",
 		muted: false,
 		createdAt: 0,
 		updatedAt: 0,

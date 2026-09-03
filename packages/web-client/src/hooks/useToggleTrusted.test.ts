@@ -68,6 +68,8 @@ describe("patchDescribeMessage", () => {
 				uid: 1,
 				rfc822Size: 1,
 				internalDate: 1,
+				status: "active",
+				syncStatus: "pending",
 			},
 			envelope: {
 				messageId: "m",

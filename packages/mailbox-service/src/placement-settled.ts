@@ -1,5 +1,5 @@
-import type { MessageItem } from "@remit/data-ports";
-import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
+import { hasAbandonedMutation, type MessageItem } from "@remit/data-ports";
+import { MessageStatus } from "@remit/domain-enums";
 
 /**
  * Whether the message row's placement is still an unconfirmed local write
@@ -63,9 +63,7 @@ export const placementBindingOf = (
 	>,
 ): PlacementBinding => {
 	if (!bindsForeignUid(message)) return "consistent";
-	return message.syncStatus === MessageSyncStatus.failed
-		? "abandoned"
-		: "in_flight";
+	return hasAbandonedMutation(message) ? "abandoned" : "in_flight";
 };
 
 export interface PlacementSettleOptions {
