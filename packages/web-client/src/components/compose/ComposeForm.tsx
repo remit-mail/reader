@@ -9,17 +9,20 @@ import type {
 	RemitImapDescribeMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import {
-	Banner,
 	ComposeActionBar,
 	ComposeBodySkeleton,
 	ComposeFormShell,
 	ComposeHeader,
 	type ComposeSendState,
+	ComposeQuoteNotice,
+	type ComposeQuoteNoticeKind,
 	type ComposeShellLayout,
 	ComposeSubjectField,
 	composeHeaderSummary,
 	defaultComposeLanguages,
 	modeOfDraft,
+	QUOTE_EMPTY_FORWARD_MESSAGE,
+	QUOTE_LOADING_MESSAGE,
 	QuotedText,
 	type RichTextValue,
 	SMTP_MISSING_MESSAGE,
@@ -43,6 +46,7 @@ import { useSaveDraft } from "../../hooks/useSaveDraft";
 import { useSignature } from "../../hooks/useSignature.js";
 import { isNotFound, softErrorMeta } from "../../lib/error-classifier";
 import { accountIsMissingSmtp } from "../settings/account-form-helpers.js";
+import { quoteReadiness } from "./quote-readiness.js";
 import { useErrorBanners } from "../ui/ErrorBannerProvider.js";
 import {
 	buildMutationErrorBanner,
@@ -208,22 +212,6 @@ interface AddressFieldHandles {
  * has anywhere to go, which is not the question this one asks.
  */
 const NO_TO_ADDRESS_MESSAGE = "Add a To address before sending.";
-
-/**
- * Send waits for the message being quoted. Pressed before it lands, the send
- * would go out carrying the answer and nothing of what it answers — the defect
- * this refusal exists to make impossible rather than merely unlikely (#845.5).
- */
-const QUOTE_LOADING_MESSAGE = "Loading the message you're quoting.";
-
-/**
- * The quoted original could not be fetched. A forward without it is an empty
- * message and a reply without it drops the thread, so the composer says so
- * where the message is being written instead of sending a message the user
- * believes carries the original.
- */
-const QUOTE_FAILED_MESSAGE =
-	"The message you're quoting couldn't be loaded, so it won't be included.";
 
 /** A field holding text that is not an address, and which field it is. */
 interface UnparsedField {
@@ -676,14 +664,38 @@ export const ComposeForm = ({
 		mode === "reply" || mode === "reply-all" || mode === "forward";
 	const {
 		data: sourceBody,
-		isLoading: quoteIsLoading,
-		isError: quoteFailed,
+		picked: quotablePart,
+		isError: quoteFetchFailed,
 		refetch: refetchQuote,
 	} = useMessageBodyContent({
 		messageId: sourceMessage?.message.messageId,
 		bodyParts: sourceMessage?.bodyParts,
 		enabled: isQuoting && !!sourceMessage,
 	});
+
+	const quoteState = quoteReadiness({
+		isQuoting,
+		documentHoldsQuote,
+		sourceResolved: !!sourceMessage,
+		hasRenderablePart: !!quotablePart,
+		hasBody: !!sourceBody,
+		isError: quoteFetchFailed,
+	});
+
+	/**
+	 * A forward of a message with no text carries nothing: the composer attaches
+	 * no files, so the attachments that are the whole of such a message cannot go
+	 * with it either. It is refused. A reply is the reader's own message and
+	 * still worth sending, so it goes with the banner's account of what is
+	 * missing from it (#1030).
+	 */
+	const quoteNotice = useMemo<ComposeQuoteNoticeKind | undefined>(() => {
+		if (quoteState === "failed") return "failed";
+		if (quoteState !== "unquotable") return undefined;
+		return mode === "forward" ? "empty-forward" : "empty-reply";
+	}, [quoteState, mode]);
+
+	const forwardHasNothingToCarry = quoteNotice === "empty-forward";
 
 	/**
 	 * The original as it will be sent, and as it is shown while the answer is
@@ -818,8 +830,11 @@ export const ComposeForm = ({
 			if (selectedAccountMissingSmtp) {
 				return { status: "blocked", reason: SMTP_MISSING_MESSAGE };
 			}
-			if (quoteIsLoading) {
+			if (quoteState === "pending") {
 				return { status: "blocked", reason: QUOTE_LOADING_MESSAGE };
+			}
+			if (forwardHasNothingToCarry) {
+				return { status: "blocked", reason: QUOTE_EMPTY_FORWARD_MESSAGE };
 			}
 			if (unparsed) {
 				return { status: "blocked", reason: unparsedRefusal(unparsed) };
@@ -829,7 +844,13 @@ export const ComposeForm = ({
 			}
 			return { status: "ready", accountId: selectedAccountId };
 		},
-		[isSending, selectedAccountId, selectedAccountMissingSmtp, quoteIsLoading],
+		[
+			isSending,
+			selectedAccountId,
+			selectedAccountMissingSmtp,
+			quoteState,
+			forwardHasNothingToCarry,
+		],
 	);
 	const sendReadiness = useMemo<SendReadiness>(
 		() =>
@@ -1092,19 +1113,17 @@ export const ComposeForm = ({
 							configureRef={smtpConfigureRef}
 						/>
 					) : null}
-					{quoteFailed ? (
-						<Banner tone="warning" data-testid="compose-quote-failed">
-							<span>{QUOTE_FAILED_MESSAGE}</span>{" "}
-							<button
-								type="button"
-								className="underline"
-								onClick={() => {
-									void refetchQuote();
-								}}
-							>
-								Try again
-							</button>
-						</Banner>
+					{quoteNotice ? (
+						<ComposeQuoteNotice
+							kind={quoteNotice}
+							onRetry={
+								quoteNotice === "failed"
+									? () => {
+											void refetchQuote();
+										}
+									: undefined
+							}
+						/>
 					) : null}
 				</>
 			}

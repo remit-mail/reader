@@ -6,6 +6,8 @@ import {
 	ComposeBodySkeleton,
 	ComposeFormShell,
 	ComposeHeader,
+	ComposeQuoteNotice,
+	type ComposeQuoteNoticeKind,
 	type ComposeSaveState,
 	type ComposeSendState,
 	type ComposeShellLayout,
@@ -14,6 +16,9 @@ import {
 	composeHeaderSummary,
 	ExpandedMessage,
 	inboxFilterConfig,
+	QUOTE_EMPTY_FORWARD_MESSAGE,
+	QUOTE_EMPTY_REPLY_MESSAGE,
+	QUOTE_LOADING_MESSAGE,
 	QuotedText,
 	type RichTextValue,
 	SMTP_MISSING_MESSAGE,
@@ -141,6 +146,8 @@ interface ComposerProps {
 	smtpMissing?: boolean;
 	quoted?: string;
 	quotedSender?: string;
+	/** What the composer says when the quoted original will not be carried. */
+	quoteNotice?: ComposeQuoteNoticeKind;
 	/** Renders the skeleton the app shows while the body's chunk loads. */
 	bodyLoading?: boolean;
 	collapsedHeader?: boolean;
@@ -169,6 +176,7 @@ const Composer = ({
 	smtpMissing = false,
 	quoted,
 	quotedSender,
+	quoteNotice,
 	bodyLoading = false,
 	collapsedHeader = false,
 	layout = "fill",
@@ -235,10 +243,16 @@ const Composer = ({
 		<ComposeFormShell
 			layout={layout}
 			banner={
-				smtpMissing || conversionFailure ? (
+				smtpMissing || conversionFailure || quoteNotice ? (
 					<>
 						{smtpMissing && (
 							<ComposeSmtpMissingBanner onConfigure={configureSmtp} />
+						)}
+						{quoteNotice && (
+							<ComposeQuoteNotice
+								kind={quoteNotice}
+								onRetry={quoteNotice === "failed" ? retryQuote : undefined}
+							/>
 						)}
 						{conversionFailure && (
 							<Banner

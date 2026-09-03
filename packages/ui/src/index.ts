@@ -195,6 +195,15 @@ export {
 	type ComposeLanguageSettingProps,
 } from "./components/compose-language-setting.js";
 export {
+	ComposeQuoteNotice,
+	type ComposeQuoteNoticeKind,
+	type ComposeQuoteNoticeProps,
+	QUOTE_EMPTY_FORWARD_MESSAGE,
+	QUOTE_EMPTY_REPLY_MESSAGE,
+	QUOTE_FAILED_MESSAGE,
+	QUOTE_LOADING_MESSAGE,
+} from "./components/compose-quote-notice.js";
+export {
 	ComposeSmtpMissingBanner,
 	type ComposeSmtpMissingBannerProps,
 	SMTP_MISSING_MESSAGE,
