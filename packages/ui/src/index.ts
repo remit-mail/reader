@@ -913,6 +913,7 @@ export {
 	groupOverlapping,
 	isClearDay,
 	isEmptyDay,
+	mergeBusySpans,
 	minuteOfDay,
 	monthLabel,
 	type NextUp,
