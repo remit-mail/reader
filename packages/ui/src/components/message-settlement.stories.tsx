@@ -16,11 +16,12 @@ const reportHref =
 	"https://github.com/remit-mail/reader/issues/new?title=This+message+was+not+deleted";
 
 /**
- * The one unsettled state the wire can prove (issue #1002): a delete the mail
- * server refused until the mutator stopped trying, which handed the row back to
- * the folder the server still holds it in.
+ * The one unsettled state the wire can prove (issue #1002): a delete Remit
+ * abandoned before it reached the server — most often because the Trash folder
+ * the event named is gone — which handed the row back to the folder the server
+ * still holds the message in.
  *
- * It gets a real Retry, not a report-only dead end: the give-up puts `status`
+ * It gets a real Retry, not a report-only dead end: abandoning puts `status`
  * back to `active`, so the ordinary delete endpoint accepts the row and
  * re-drives it. A move that gave up leaves exactly the fields a move mid-retry
  * leaves, so it gets no treatment at all — no chip, no notice, no promise.

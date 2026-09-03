@@ -3,9 +3,10 @@ import { cn } from "../lib/cn.js";
 import { Badge } from "./badge.js";
 
 /**
- * The one unsettled state a message row can prove from the wire: a delete the
- * mail server never accepted, which the mutator stopped retrying and handed
- * back to the folder it came from (`hasAbandonedDelete` in @remit/data-ports).
+ * The one unsettled state a message row can prove from the wire: a delete Remit
+ * abandoned before running it, which handed the row back to the folder the mail
+ * server still holds the message in (`hasAbandonedDelete` in @remit/data-ports,
+ * which enumerates what this can and cannot see).
  *
  * A one-member union on purpose. A move that gave up leaves exactly the state a
  * move mid-retry leaves, so it is not derivable and gets no treatment here —
@@ -18,9 +19,9 @@ export type RowSettlement = "delete_failed";
 export const messageSettlementCopy = {
 	delete_failed: {
 		label: "Not deleted",
-		title: "This message was not deleted on the mail server",
+		title: "This message was not deleted",
 		detail:
-			"Remit removed it here first, and the mail server refused every attempt. The message is back in this folder because that is where the server still has it.",
+			"Remit removed it here first, then refused to finish the delete on the mail server — most often because the Trash folder it was headed for is not there any more. The message is back in this folder because that is where the server still has it.",
 		retryLabel: "Delete again",
 	},
 } as const;

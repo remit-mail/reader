@@ -152,7 +152,7 @@ const deleteFailed: ThreadRowData = {
 	fromName: "Tomas Berg",
 	fromEmail: "tomas@example.com",
 	subject: "Signed lease, final version",
-	snippet: "Deleted here; the mail server refused and the row came back.",
+	snippet: "Deleted here; Remit refused to finish it and the row came back.",
 	timeLabel: "Mon",
 	isRead: false,
 	settlement: "delete_failed",
@@ -304,12 +304,12 @@ export const CompactLabelsDark: Story = {
 };
 
 /**
- * A row whose delete gave up (issue #1002): the mail server never accepted it
- * and the message came back to this folder, which is where the server still
- * has it. The only unsettled state the wire can prove — a move that gave up
- * leaves the same fields a move mid-retry leaves, so it gets no chip. The chip
- * names the state; the open message carries the statement, a working Delete
- * again, and the report link (`MessageSettlementNotice`).
+ * A row whose delete Remit abandoned (issue #1002): it was removed here, then
+ * refused before it reached the server, so the message came back to the folder
+ * the server still has it in. The only unsettled state the wire can prove — a
+ * move that gave up leaves the same fields a move mid-retry leaves, so it gets
+ * no chip. The chip names the state; the open message carries the statement, a
+ * working Delete again, and the report link (`MessageSettlementNotice`).
  */
 export const DeleteFailed: Story = {
 	render: () => (

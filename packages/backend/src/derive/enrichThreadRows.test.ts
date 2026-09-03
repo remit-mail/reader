@@ -273,7 +273,7 @@ describe("enrichThreadRows — the mutation pair", () => {
 		return result;
 	};
 
-	test("projects the pair a terminal delete leaves behind", async () => {
+	test("projects the pair an abandoned delete leaves behind", async () => {
 		const result = await project({
 			status: MessageStatus.active,
 			syncStatus: MessageSyncStatus.failed,

@@ -4,7 +4,7 @@ import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import { hasAbandonedDelete } from "./message-settlement.js";
 
 describe("hasAbandonedDelete", () => {
-	test("the pair both terminal delete paths write", () => {
+	test("the pair abandonDelete writes, its only writer", () => {
 		assert.equal(
 			hasAbandonedDelete({
 				status: MessageStatus.active,
@@ -15,16 +15,6 @@ describe("hasAbandonedDelete", () => {
 	});
 
 	test("a move mid-retry is not a give-up, whatever `failed` suggests", () => {
-		assert.equal(
-			hasAbandonedDelete({
-				status: MessageStatus.moving,
-				syncStatus: MessageSyncStatus.failed,
-			}),
-			false,
-		);
-	});
-
-	test("a move that gave up is the same pair, so it is refused too", () => {
 		assert.equal(
 			hasAbandonedDelete({
 				status: MessageStatus.moving,
@@ -54,7 +44,13 @@ describe("hasAbandonedDelete", () => {
 		);
 	});
 
-	test("a settled move — `updateUid` writes active and synced together", () => {
+	/**
+	 * Both a settled move (`updateUid`) and a delete that exhausted its retries
+	 * (#1143 repairs the row to where the message actually is) land on this pair.
+	 * The second is a give-up this predicate deliberately cannot see — pinned so
+	 * the gap is a decision on record, not an oversight.
+	 */
+	test("`active` + `synced` is never a give-up, however it was reached", () => {
 		assert.equal(
 			hasAbandonedDelete({
 				status: MessageStatus.active,

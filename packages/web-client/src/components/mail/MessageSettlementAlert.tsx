@@ -6,14 +6,14 @@ import { useDeleteMessages } from "@/hooks/useDeleteMessages";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 
 /**
- * States, on the open message, that its delete gave up (issue #1002) — the
- * failure the list can only chip.
+ * States, on the open message, that Remit abandoned its delete (issue #1002) —
+ * the failure the list can only chip.
  *
- * The retry is the ordinary delete endpoint, not a new one: the give-up put
+ * The retry is the ordinary delete endpoint, not a new one: abandoning put
  * `status` back to `active`, so `settledPlacement` passes the row through and
  * `POST /messages/delete` re-drives it against the folder the server actually
- * holds it in. A move that gave up gets no treatment at all — its state is
- * indistinguishable from a move mid-retry, so there is nothing honest to say.
+ * holds it in. Every other give-up gets no treatment — see `hasAbandonedDelete`
+ * for the three the two fields cannot tell from a healthy row.
  */
 export function MessageSettlementAlert({
 	threadMessage,

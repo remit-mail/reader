@@ -310,10 +310,10 @@ export interface ThreadRowData {
 	/** Labels applied to this message (issue #26) — filter-, organize-, and manually-applied alike. */
 	labels?: ThreadRowLabel[];
 	/**
-	 * A mutation on this row provably gave up — today only a delete the mail
-	 * server never accepted (issue #1002). Absent is the ordinary case AND every
-	 * case the two wire fields cannot tell apart, so absence never means
-	 * "settled", only "nothing this row can state".
+	 * A mutation on this row provably gave up — today only a delete Remit
+	 * abandoned before it reached the server (issue #1002). Absent is the
+	 * ordinary case AND every case the two wire fields cannot tell apart, so
+	 * absence never means "settled", only "nothing this row can state".
 	 */
 	settlement?: RowSettlement;
 }
