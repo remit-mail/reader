@@ -32,6 +32,10 @@ const COPY_ID = "msg-copy";
 const INBOX_UID = 42;
 const ARCHIVE_UID = 907;
 const SETTLED_UID = 11;
+const COPY_UID = 5150;
+
+const SETTLE_CEILING_MS = 200;
+const IN_FLIGHT_BATCH = 6;
 
 type TrashMailbox = { mailboxId: string; fullPath: string };
 
@@ -106,9 +110,9 @@ const buildWorld = (seed: Array<Record<string, unknown>>) => {
 		]),
 	);
 
-	const settle = (messageId: string) => {
+	const settle = (messageId: string, uid: number = ARCHIVE_UID) => {
 		Object.assign(rows.get(messageId) ?? {}, {
-			uid: ARCHIVE_UID,
+			uid,
 			status: "active",
 			syncStatus: "synced",
 		});
@@ -175,7 +179,7 @@ const buildWorld = (seed: Array<Record<string, unknown>>) => {
 		threadMessageService,
 		addressService,
 		sqsQueueUrl: "http://localhost:9324/000000000000/remit-messages.fifo",
-		moveSettleTimeoutMs: 200,
+		moveSettleTimeoutMs: SETTLE_CEILING_MS,
 		moveSettlePollMs: 10,
 	});
 
@@ -191,6 +195,39 @@ const buildWorld = (seed: Array<Record<string, unknown>>) => {
 	};
 
 	return { service, patches, events, rows, settle };
+};
+
+/**
+ * Refuse a batch in which EVERY row is in flight and none ever settles. A
+ * sequential gate spends one ceiling per row; the concurrent one spends a
+ * single ceiling for the batch. With six rows the two are 1200ms apart, so the
+ * assertion below discriminates with room to spare under CI load — a batch
+ * where only one row waits cannot tell them apart at all.
+ */
+const refuseBatchOfInFlightRows = async (
+	run: (service: MessageMoveService, ids: string[]) => Promise<unknown>,
+): Promise<{ elapsed: number }> => {
+	const seed = Array.from({ length: IN_FLIGHT_BATCH }, (_, index) => ({
+		...movingRow(),
+		messageId: `${MOVING_ID}-${index}`,
+	}));
+	const { service } = buildWorld(seed);
+	const ids = seed.map((row) => row.messageId);
+
+	const startedAt = Date.now();
+	await assert.rejects(() => run(service, ids), MessagePlacementUnsettledError);
+	return { elapsed: Date.now() - startedAt };
+};
+
+const assertOneCeiling = (elapsed: number): void => {
+	assert.ok(
+		elapsed >= SETTLE_CEILING_MS,
+		`the batch did wait its ceiling (${elapsed}ms)`,
+	);
+	assert.ok(
+		elapsed < SETTLE_CEILING_MS * 3,
+		`${IN_FLIGHT_BATCH} rows refused within one ${SETTLE_CEILING_MS}ms ceiling, not ${IN_FLIGHT_BATCH} of them (${elapsed}ms)`,
+	);
 };
 
 describe("a delete never binds the folder/uid pair of an in-flight move (#845.3)", () => {
@@ -282,49 +319,51 @@ describe("a delete never binds the folder/uid pair of an in-flight move (#845.3)
 	});
 
 	it("waits one row's ceiling for a batch, not one per row", async () => {
-		// The gate is concurrent. Three in-flight rows that never settle must
-		// refuse at roughly one ceiling — a sequential gate would spend three,
-		// and at the client's 100-id chunk cap that is a gateway timeout.
-		const rows = [movingRow(), movingRow(), movingRow()].map((row, index) => ({
-			...row,
-			messageId: `${MOVING_ID}-${index}`,
-		}));
-		const { service } = buildWorld(rows);
-
-		const startedAt = Date.now();
-		await assert.rejects(
-			() =>
-				service.deleteMessages(
-					ACCOUNT_CONFIG,
-					rows.map((row) => row.messageId),
-					ACCOUNT,
-					{ permanent: true },
-				),
-			MessagePlacementUnsettledError,
+		const { elapsed } = await refuseBatchOfInFlightRows((service, ids) =>
+			service.deleteMessages(ACCOUNT_CONFIG, ids, ACCOUNT, {
+				permanent: true,
+			}),
 		);
 
-		assert.ok(
-			Date.now() - startedAt < 500,
-			"three rows refused within one 200ms ceiling, not three",
-		);
+		assertOneCeiling(elapsed);
 	});
 });
 
 describe("the gate refuses only a uid that names somebody else (#845.3)", () => {
-	it("deletes a freshly copied row rather than waiting on it", async () => {
-		// A copy is `moving` with no server-side uid yet. That uid is not ready,
-		// which is not the same as naming another folder's message, and the
-		// delete of a copy is an ordinary flow that must not stall or refuse.
-		const { service, events } = buildWorld([freshCopyRow()]);
+	it("waits for a copy's uid rather than binding uid 0", async () => {
+		// A copy is `moving` with `uid: 0` until COPYUID lands. Binding that
+		// expunges nothing on the server while the local rows go anyway, so the
+		// server's copy survives and returns on the next sync.
+		const { service, events, settle } = buildWorld([freshCopyRow()]);
 
-		const startedAt = Date.now();
+		setTimeout(() => settle(COPY_ID, COPY_UID), 30);
 		await service.deleteMessages(ACCOUNT_CONFIG, [COPY_ID], ACCOUNT, {
 			permanent: true,
 		});
 
 		assert.equal(events.length, 1);
 		assert.equal(events[0].operation, "permanent_delete");
-		assert.ok(Date.now() - startedAt < 100, "and never entered the wait");
+		assert.equal(
+			events[0].uid,
+			COPY_UID,
+			"the uid the server gave the copy, never 0",
+		);
+	});
+
+	it("refuses a copy whose uid never arrives", async () => {
+		const { service, events } = buildWorld([freshCopyRow()]);
+
+		await assert.rejects(
+			() =>
+				service.deleteMessages(ACCOUNT_CONFIG, [COPY_ID], ACCOUNT, {
+					permanent: true,
+				}),
+			(error: unknown) =>
+				error instanceof MessagePlacementUnsettledError &&
+				error.publicApiError?.details?.reason === "in_flight",
+		);
+
+		assert.deepEqual(events, [], "and binds nothing at uid 0");
 	});
 
 	it("refuses a row stranded by a move that gave up, without spending the ceiling", async () => {
@@ -365,7 +404,6 @@ describe("a copy binds the same pair and takes the same gate (#845.3)", () => {
 		// refusal cannot leave copies already committed and enqueued.
 		const { service, events } = buildWorld([settledRow(), movingRow()]);
 
-		const startedAt = Date.now();
 		await assert.rejects(
 			() =>
 				service.copyMessages(
@@ -378,9 +416,13 @@ describe("a copy binds the same pair and takes the same gate (#845.3)", () => {
 		);
 
 		assert.deepEqual(events, [], "no copy was enqueued");
-		assert.ok(
-			Date.now() - startedAt < 500,
-			"and the batch spent one ceiling, not one per row",
+	});
+
+	it("waits one row's ceiling for a batch copy, not one per row", async () => {
+		const { elapsed } = await refuseBatchOfInFlightRows((service, ids) =>
+			service.copyMessages(ACCOUNT_CONFIG, ids, TRASH, ACCOUNT),
 		);
+
+		assertOneCeiling(elapsed);
 	});
 });

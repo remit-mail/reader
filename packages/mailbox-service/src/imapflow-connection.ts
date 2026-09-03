@@ -740,7 +740,7 @@ export class ImapFlowConnection {
 		});
 
 		// Connection may have been lost during download
-		if (!result || !result.content) {
+		if (!result?.content) {
 			throw new Error(
 				`IMAP connection lost while downloading message UID ${uid}`,
 			);

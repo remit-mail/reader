@@ -123,7 +123,7 @@ const isConnectionDrop = (error: unknown): boolean => {
 
 export const extractPrimaryFromEmail = (parsed: ParsedMail): string | null => {
 	const from = parsed.from;
-	if (!from || !from.value || from.value.length === 0) return null;
+	if (!from?.value || from.value.length === 0) return null;
 	const address = from.value[0]?.address;
 	if (!address) return null;
 	return address.toLowerCase();

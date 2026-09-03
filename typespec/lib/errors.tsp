@@ -2,8 +2,8 @@ import "@typespec/http";
 
 using TypeSpec.Http;
 
-@doc("API error response")
-model ApiError {
+@doc("The body of every failed request: a stable `code` a client branches on, a human-readable `message`, and `details` it words its own copy from. Named `...Body` because it is what sits inside the failure a client catches, never the failure itself.")
+model ApiErrorBody {
   @doc("Error code")
   code: string;
 
@@ -17,31 +17,31 @@ model ApiError {
 @doc("Not found error response")
 model NotFoundError {
   @statusCode statusCode: 404;
-  @body error: ApiError;
+  @body error: ApiErrorBody;
 }
 
 @doc("Validation error response")
 model ValidationError {
   @statusCode statusCode: 400;
-  @body error: ApiError;
+  @body error: ApiErrorBody;
 }
 
 @doc("Internal server error response")
 model InternalServerError {
   @statusCode statusCode: 500;
-  @body error: ApiError;
+  @body error: ApiErrorBody;
 }
 
 @doc("Unauthorized error response")
 model UnauthorizedError {
   @statusCode statusCode: 401;
-  @body error: ApiError;
+  @body error: ApiErrorBody;
 }
 
 @doc("Forbidden error response")
 model ForbiddenError {
   @statusCode statusCode: 403;
-  @body error: ApiError;
+  @body error: ApiErrorBody;
 }
 
 @doc("""
@@ -51,7 +51,7 @@ model ForbiddenError {
   """)
 model FolderRoleConflict {
   @statusCode statusCode: 409;
-  ...ApiError;
+  ...ApiErrorBody;
 }
 
 @doc("""
@@ -70,7 +70,7 @@ model AppointFolderRoleConflict is FolderRoleConflict;
   """)
 model MessagePlacementConflict {
   @statusCode statusCode: 409;
-  ...ApiError;
+  ...ApiErrorBody;
 }
 
 @doc("""

@@ -26,9 +26,7 @@ export const isPlacementUnsettled = (
  * `updateForMove` is the only writer of this shape: it points the row at the
  * destination and records the pre-move pair, leaving `uid` untouched until the
  * server confirms and `updateUid` replaces it. A row with no `originalUid` was
- * never moved, so its uid names nothing but itself — a freshly copied row is
- * `moving` with `uid: 0` until COPYUID lands, which is a uid that is not ready,
- * not a uid that names somebody else's message.
+ * never moved, so its uid names nothing but itself.
  */
 export const bindsForeignUid = (
 	message: Pick<
@@ -41,6 +39,16 @@ export const bindsForeignUid = (
 	message.originalUid === message.uid &&
 	message.originalMailboxId !== undefined &&
 	message.originalMailboxId !== message.mailboxId;
+
+/**
+ * Whether the row has no server-side uid at all. A copy is `moving` with
+ * `uid: 0` until COPYUID lands, so binding it addresses nothing: an expunge of
+ * uid 0 matches no message, and the local rows go anyway, leaving the server's
+ * copy to reappear on the next sync.
+ */
+export const hasNoServerUid = (
+	message: Pick<MessageItem, "status" | "uid">,
+): boolean => isPlacementUnsettled(message) && message.uid === 0;
 
 /**
  * `in_flight` — a mover is still working on the row, so waiting resolves it.
@@ -62,7 +70,8 @@ export const placementBindingOf = (
 		| "originalUid"
 	>,
 ): PlacementBinding => {
-	if (!bindsForeignUid(message)) return "consistent";
+	if (!bindsForeignUid(message) && !hasNoServerUid(message))
+		return "consistent";
 	return message.syncStatus === MessageSyncStatus.failed
 		? "abandoned"
 		: "in_flight";

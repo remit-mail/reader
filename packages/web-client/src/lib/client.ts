@@ -1,6 +1,6 @@
 import { client } from "@remit/api-http-client/client.gen.ts";
 import { getRuntimeConfig } from "../runtime-config";
-import { ApiError } from "./api";
+import { toApiError } from "./api-error-body";
 import { taggedFetch } from "./network-error";
 
 // In production, the config.js apiUrl points at the deployed API Gateway.
@@ -23,17 +23,6 @@ client.setConfig({
  * `ApiError` so existing message-prefix checks (e.g. `isMessageNotFoundError`)
  * keep working.
  */
-client.interceptors.error.use((error, response) => {
-	if (error instanceof ApiError) return error;
-	if (!response) return error;
-
-	const body = error;
-	const message =
-		body && typeof body === "object" && "message" in body
-			? String((body as { message: unknown }).message)
-			: `Request failed with status ${response.status}`;
-
-	return new ApiError(message, response.status, body);
-});
+client.interceptors.error.use(toApiError);
 
 export { client };

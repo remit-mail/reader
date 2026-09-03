@@ -5,11 +5,9 @@
  * appointment prompt over an unrelated conflict. A 409 without one of these
  * codes is somebody else's error and keeps today's banner.
  */
-import type {
-	ApiError,
-	RemitImapCanonicalMailboxRole,
-} from "@remit/api-http-client/types.gen.ts";
+import type { RemitImapCanonicalMailboxRole } from "@remit/api-http-client/types.gen.ts";
 import { CanonicalMailboxRole } from "@remit/domain-enums";
+import { apiErrorBody, apiErrorDetail } from "@/lib/api-error-body";
 
 /** Why the role is unresolved, as the API's `details.reason` spells it. */
 export type FolderRoleRefusalReason = "none" | "stale" | "unconfirmed";
@@ -30,24 +28,6 @@ const REASONS: ReadonlySet<string> = new Set<FolderRoleRefusalReason>([
 const ROLES: ReadonlySet<string> = new Set(Object.values(CanonicalMailboxRole));
 
 /**
- * The wire body as `handleError` emits it — flat, so `code` and `details` sit
- * at the top level. Everything is re-checked at runtime: this is a network
- * boundary, and the type only says what the contract promises.
- */
-const bodyOf = (error: unknown): Partial<ApiError> | undefined =>
-	typeof error === "object" && error !== null
-		? (error as Partial<ApiError>)
-		: undefined;
-
-const stringAt = (
-	details: ApiError["details"],
-	key: string,
-): string | undefined => {
-	const value = details?.[key];
-	return typeof value === "string" ? value : undefined;
-};
-
-/**
  * The refusal, or `undefined` for every other failure. Every fact the prompt
  * needs travels with it: the account to appoint on (the delete endpoint's body
  * carries none), the role, and the reason, which decides the framing.
@@ -55,13 +35,13 @@ const stringAt = (
 export const isFolderRoleRefusal = (
 	error: unknown,
 ): FolderRoleRefusal | undefined => {
-	const body = bodyOf(error);
+	const body = apiErrorBody(error);
 	if (body?.code !== "folder_role_unresolved") return undefined;
 	const { details } = body;
 	if (typeof details !== "object" || details === null) return undefined;
-	const reason = stringAt(details, "reason");
-	const role = stringAt(details, "role");
-	const accountId = stringAt(details, "accountId");
+	const reason = apiErrorDetail(details, "reason");
+	const role = apiErrorDetail(details, "role");
+	const accountId = apiErrorDetail(details, "accountId");
 	if (!reason || !REASONS.has(reason)) return undefined;
 	if (!role || !ROLES.has(role) || !accountId) return undefined;
 	return {
@@ -78,4 +58,4 @@ export const isFolderRoleRefusal = (
  * one, retrying does not.
  */
 export const isMailboxNotSettledRefusal = (error: unknown): boolean =>
-	bodyOf(error)?.code === "mailbox_not_settled";
+	apiErrorBody(error)?.code === "mailbox_not_settled";

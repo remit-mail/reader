@@ -910,11 +910,11 @@ export class MessageMoveService {
 		binding: Exclude<PlacementBinding, "consistent">,
 	): never => {
 		this.log.error(
-			{ accountId, messageId: message.messageId, binding },
-			"Refused: this message's folder and uid do not name the same message",
+			{ accountId, messageId: message.messageId, binding, uid: message.uid },
+			"Refused: this message's uid does not address it on the mail server",
 		);
 		throw new MessagePlacementUnsettledError(
-			`Message ${message.messageId} was not acted on: its folder and uid do not name the same message`,
+			`Message ${message.messageId} was not acted on: its uid does not address it on the mail server`,
 			accountId,
 			message.messageId,
 			binding === "abandoned" ? "unverified" : "in_flight",
