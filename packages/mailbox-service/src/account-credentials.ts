@@ -19,6 +19,52 @@ import {
 } from "@remit/secrets-service";
 import type { MailCredentials } from "./types.js";
 
+/** ConnectionState is a const object (not a TS enum); this is its value type. */
+export type ConnectionStateValue =
+	(typeof ConnectionState)[keyof typeof ConnectionState];
+
+/**
+ * The account stores no credential of the kind its authType needs. An imported
+ * account holds none by design until its owner types one, so this is a normal
+ * state of the world rather than a fault, and no retry can change it — it is
+ * terminal, and distinct from a credential the mail server rejected.
+ *
+ * `terminalState` is the connectionState that describes the account while it
+ * stays this way, decided here so nothing downstream has to branch on
+ * authType again.
+ */
+export class MissingCredentialError extends Error {
+	readonly accountId: string;
+	readonly terminalState: ConnectionStateValue;
+
+	constructor(
+		accountId: string,
+		terminalState: ConnectionStateValue,
+		message: string,
+	) {
+		super(message);
+		this.name = "MissingCredentialError";
+		this.accountId = accountId;
+		this.terminalState = terminalState;
+	}
+}
+
+/**
+ * Whether the account holds the credential its authType requires.
+ *
+ * Keyed on the stored credential, never on `connectionState`: PATCH
+ * /accounts/{id} writes a password without clearing `credentials_missing` —
+ * only a successful sync does, via markAuthenticated — so a state-based check
+ * would go on skipping an account that can sync perfectly well.
+ */
+export const hasStoredCredential = (account: AccountItem): boolean => {
+	const authType = account.authType ?? AccountAuthType.Password;
+	if (authType === AccountAuthType.OauthMicrosoft) {
+		return Boolean(account.oauthRefreshTokenHash);
+	}
+	return Boolean(account.passwordHash);
+};
+
 export interface AccountCredentialsDeps {
 	secrets: Pick<SecretsService, "decrypt" | "encrypt">;
 	tokenService: Pick<MailOAuthService, "getAccessToken">;
@@ -46,6 +92,9 @@ export interface AccountCredentialsDeps {
  * - `kind === "reauth-required"` → set connectionState to reauth_required, ACK
  * - `kind === "transient"` → rethrow (SQS retry)
  * - `kind === "config"` → rethrow (SQS retry / alert)
+ *
+ * Throws `MissingCredentialError` when the account stores no credential at
+ * all; that outcome is terminal and callers ACK it.
  */
 export const resolveConnectionCredentials = async (
 	account: AccountItem,
@@ -66,7 +115,9 @@ const resolvePasswordCredentials = async (
 	secrets: Pick<SecretsService, "decrypt">,
 ): Promise<MailCredentials> => {
 	if (!account.passwordHash) {
-		throw new Error(
+		throw new MissingCredentialError(
+			account.accountId,
+			ConnectionState.CredentialsMissing,
 			`Account ${account.accountId} has authType=password but no passwordHash`,
 		);
 	}
@@ -81,7 +132,9 @@ const resolveOauthCredentials = async (
 	deps: AccountCredentialsDeps,
 ): Promise<MailCredentials> => {
 	if (!account.oauthRefreshTokenHash) {
-		throw new Error(
+		throw new MissingCredentialError(
+			account.accountId,
+			ConnectionState.ReauthRequired,
 			`Account ${account.accountId} has authType=oauthMicrosoft but no oauthRefreshTokenHash`,
 		);
 	}
