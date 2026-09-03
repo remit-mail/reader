@@ -151,13 +151,13 @@ test("a stopped import splits the write order into landed, failed and never reac
 	assert.equal(byId.get("settings")?.state, "not-attempted");
 });
 
-test("a rolled-back import lands nothing, however far the items say it got", () => {
-	// The shape a transactional backend answers with (#1093): `items` holds
-	// only the rejected entry, because the rollback emptied the rest.
-	const rolled = sectionResults(
+test("an import the server says wrote nothing marks no section landed, whatever ran before the stop", () => {
+	const results = sectionResults(
 		reportOf({
 			applied: false,
-			items: [item("filters", "Receipts", "rejected", "the store refused")],
+			items: [
+				item("filters", "Receipts", "rejected", "the store refused the write"),
+			],
 			errors: [
 				{
 					code: "import_write_failed",
@@ -169,71 +169,55 @@ test("a rolled-back import lands nothing, however far the items say it got", () 
 		}),
 	);
 
-	assert.equal(
-		rolled.some((result) => result.state === "landed"),
-		false,
+	const byId = new Map(results.map((result) => [result.section, result]));
+	assert.equal(byId.get("accounts")?.state, "not-landed");
+	assert.match(
+		byId.get("accounts")?.detail ?? "",
+		/Nothing from this section was written/,
 	);
-	const byId = new Map(rolled.map((result) => [result.section, result]));
-	assert.equal(byId.get("accounts")?.state, "rolled-back");
-	assert.match(byId.get("accounts")?.detail ?? "", /Nothing was written/);
-	assert.equal(byId.get("labels")?.state, "rolled-back");
+	assert.equal(byId.get("labels")?.state, "not-landed");
 	assert.equal(byId.get("filters")?.state, "failed");
-	assert.match(byId.get("filters")?.detail ?? "", /Nothing was written/);
-	assert.equal(byId.get("addressFlags")?.state, "rolled-back");
-	assert.equal(byId.get("settings")?.state, "rolled-back");
+	assert.equal(byId.get("addressFlags")?.state, "not-attempted");
+	assert.equal(byId.get("settings")?.state, "not-attempted");
+	assert.equal(results.filter((result) => result.state === "landed").length, 0);
 });
 
-test("item verdicts cannot turn a rolled-back import back into a landed one", () => {
-	// `applied` is the server's own answer, and it outranks the counts: a
-	// report that claims writes while saying nothing was applied still lands
-	// nothing, because "your accounts are in" is the one answer this screen
-	// must never give without the server saying so.
-	const rolled = sectionResults(
+test("a first write that fails on a store with no transaction lands nothing either", () => {
+	const results = sectionResults(
 		reportOf({
 			applied: false,
 			items: [
-				item("accounts", "a@example.test", "created"),
-				item("labels", "Receipts", "created"),
+				item("accounts", "a@example.test", "rejected", "the store refused"),
 			],
 			errors: [
 				{
 					code: "import_write_failed",
-					message: "the store refused the write",
-					details: { section: "filters", key: "Receipts" },
+					message:
+						"the store refused The items above it were written and remain; the import stopped here.",
+					details: { section: "accounts", key: "a@example.test" },
 				},
 			],
 		}),
 	);
 
-	assert.equal(
-		rolled.some((result) => result.state === "landed"),
-		false,
-	);
-	assert.deepEqual(
-		rolled
-			.filter((result) => result.section !== "filters")
-			.map((result) => result.state),
-		["rolled-back", "rolled-back", "rolled-back", "rolled-back"],
-	);
+	const byId = new Map(results.map((result) => [result.section, result]));
+	assert.equal(byId.get("accounts")?.state, "failed");
+	assert.equal(byId.get("labels")?.state, "not-attempted");
+	assert.equal(results.filter((result) => result.state === "landed").length, 0);
 });
 
-test("a rolled-back import that names no section still says what happened", () => {
-	const rolled = sectionResults(
+test("nothing written and no section named is a known outcome, not an unknown one", () => {
+	const results = sectionResults(
 		reportOf({
 			applied: false,
 			errors: [{ code: "import_write_failed", message: "the store refused" }],
 		}),
 	);
 
-	assert.equal(
-		rolled.some((result) => result.state === "landed"),
-		false,
+	assert.deepEqual(
+		[...new Set(results.map((result) => result.state))],
+		["not-landed"],
 	);
-	assert.equal(
-		rolled.some((result) => result.state === "unknown"),
-		false,
-	);
-	assert.match(rolled[0].detail, /Nothing was written/);
 });
 
 test("a pending folder names the setting waiting on it, and repeats are folded", () => {

@@ -287,9 +287,9 @@ export const writeFailure = (
 
 export type SectionOutcome =
 	| "landed"
+	| "not-landed"
 	| "failed"
 	| "not-attempted"
-	| "rolled-back"
 	| "unknown";
 
 export interface SectionResult {
@@ -299,23 +299,24 @@ export interface SectionResult {
 	detail: string;
 }
 
+const NOT_LANDED_DETAIL = "Nothing from this section was written.";
+
 /**
- * What a stopped import left behind, section by section. The write order is
- * fixed, so the section the failure names splits the document in three: what is
- * before it ran, it did not, and what is after it was never reached. The
- * server's own sentence says whether the earlier writes survived, because only
- * the backend knows whether it had a transaction.
+ * What a stopped import wrote, section by section. The write order is fixed, so
+ * the section the failure names splits the document in three: what is before it
+ * ran, it did not, and what is after it was never reached.
  *
- * A failure that names no section leaves that split undecidable, and every
+ * `applied` is the server's answer on whether any of it was written, because
+ * only the backend knows whether it had a transaction: false means no section
+ * of the file was written, however far the write order got. It does not say
+ * why — a transaction undid the earlier writes, or the first one failed — and
+ * the report carries no flag that does, so this says what the file put in and
+ * never what the instance now holds.
+ *
+ * A failure that names no section leaves the split undecidable, and every
  * section reads `unknown` rather than `landed`. Telling someone their accounts
  * are in when nothing said so is the one answer this screen must never give:
  * they would stop looking.
- *
- * `applied` says so when the import ran in a transaction: `false` means the
- * write was undone whole, and the item counts — empty precisely because the
- * rollback emptied them — must not turn sections before the failure back into
- * `landed`. Every section then reads `rolled-back` except the one the failure
- * named, which keeps its `failed` row and the server's own sentence.
  */
 export const sectionResults = (
 	report: RemitImapConfigImportReport,
@@ -323,6 +324,7 @@ export const sectionResults = (
 	const failure = writeFailure(report);
 	const named = failure?.details?.section;
 	const failedSection = named ? asSection(named) : undefined;
+	const nothingLanded = !report.applied;
 	const counts = new Map<ImportSection, number>();
 	for (const item of report.items) {
 		if (asVerdict(item.verdict) === "rejected") continue;
@@ -331,31 +333,20 @@ export const sectionResults = (
 		counts.set(section, (counts.get(section) ?? 0) + 1);
 	}
 
-	if (failure && report.applied === false) {
-		return IMPORT_SECTION_ORDER.map((section) => ({
+	const everySection = (state: SectionOutcome, detail: string) =>
+		IMPORT_SECTION_ORDER.map((section) => ({
 			section,
 			title: SECTION_TITLES[section],
-			state:
-				section === failedSection
-					? ("failed" as const)
-					: ("rolled-back" as const),
-			detail:
-				section === failedSection
-					? (failure.message ?? "This section could not be written.")
-					: "Nothing was written — the import ran as one transaction and was undone.",
+			state,
+			detail,
 		}));
-	}
 
 	if (!failedSection) {
+		if (nothingLanded) return everySection("not-landed", NOT_LANDED_DETAIL);
 		const detail = named
 			? `The import stopped in "${named}", which this instance does not recognise, so it cannot say whether this section was written.`
 			: "The import stopped without naming where, so it cannot say whether this section was written. Open Settings to see what is here.";
-		return IMPORT_SECTION_ORDER.map((section) => ({
-			section,
-			title: SECTION_TITLES[section],
-			state: "unknown" as const,
-			detail,
-		}));
+		return everySection("unknown", detail);
 	}
 
 	const failedAt = IMPORT_SECTION_ORDER.indexOf(failedSection);
@@ -376,6 +367,14 @@ export const sectionResults = (
 				title,
 				state: "not-attempted" as const,
 				detail: "Not attempted — the import stopped before this section.",
+			};
+		}
+		if (nothingLanded) {
+			return {
+				section,
+				title,
+				state: "not-landed" as const,
+				detail: NOT_LANDED_DETAIL,
 			};
 		}
 		const written = counts.get(section) ?? 0;
