@@ -7,7 +7,7 @@ import type {
 import { AccountAuthType, OutboxMessageStatus } from "@remit/domain-enums";
 import { type Logger, recordSmtpFailure } from "@remit/logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
-import type { CredentialResolution } from "@remit/mailbox-service";
+import type { CredentialResolution } from "@remit/mailbox-service/account-credentials";
 import type { SecretsService } from "@remit/secrets-service";
 import {
 	buildMailMessage,

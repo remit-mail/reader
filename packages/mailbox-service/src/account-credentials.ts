@@ -27,9 +27,8 @@ export type ConnectionStateValue =
  * The fields that say whether an account holds a credential at all. Narrower
  * than AccountItem so a caller holding only an account summary can ask.
  */
-export type StoredCredentialFields = Pick<
-	AccountItem,
-	"authType" | "passwordHash" | "oauthRefreshTokenHash"
+export type StoredCredentialFields = Partial<
+	Pick<AccountItem, "authType" | "passwordHash" | "oauthRefreshTokenHash">
 >;
 
 /**

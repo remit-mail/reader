@@ -5,7 +5,7 @@ import {
 } from "@remit/backend/trigger-sync";
 import type { AccountItem, IAccountRepository } from "@remit/data-ports";
 import type { Logger } from "@remit/logger-lambda";
-import { hasStoredCredential } from "@remit/mailbox-service";
+import { hasStoredCredential } from "@remit/mailbox-service/account-credentials";
 import pMap from "p-map";
 import {
 	isAccountDeleted,

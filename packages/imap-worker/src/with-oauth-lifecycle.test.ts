@@ -6,7 +6,7 @@ import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
 	MailConnectionError,
 	type MailCredentials,
-} from "@remit/mailbox-service";
+} from "@remit/mailbox-service/types";
 import {
 	type ConnectionStateValue,
 	type OAuthLifecycleDeps,

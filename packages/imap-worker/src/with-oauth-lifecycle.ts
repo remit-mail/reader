@@ -30,10 +30,12 @@ import {
 	type AccountCredentialsDeps,
 	type ConnectionStateValue,
 	type CredentialResolution,
+	resolveConnectionCredentials,
+} from "@remit/mailbox-service/account-credentials";
+import {
 	MailConnectionError,
 	type MailCredentials,
-	resolveConnectionCredentials,
-} from "@remit/mailbox-service";
+} from "@remit/mailbox-service/types";
 import { isAccountReauthRequired } from "./account-check.js";
 
 export type { ConnectionStateValue };

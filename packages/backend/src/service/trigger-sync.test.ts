@@ -20,7 +20,6 @@ const parseBody = (cmd: SendMessageCommand): Record<string, unknown> => {
 describe("buildSyncMailboxesCommand", () => {
 	it("sets MessageGroupId to accountId for FIFO queues", () => {
 		const cmd = buildSyncMailboxesCommand({
-			sqsClient: {} as SQSClient,
 			queueUrl: FIFO_QUEUE_URL,
 			accountId: "account-abc",
 		});
@@ -30,7 +29,6 @@ describe("buildSyncMailboxesCommand", () => {
 
 	it("defaults MessageDeduplicationId to the event's own id for FIFO queues", () => {
 		const cmd = buildSyncMailboxesCommand({
-			sqsClient: {} as SQSClient,
 			queueUrl: FIFO_QUEUE_URL,
 			accountId: "account-abc",
 		});
@@ -44,12 +42,10 @@ describe("buildSyncMailboxesCommand", () => {
 	// must each reach the queue.
 	it("gives two triggers for one account distinct dedup ids", () => {
 		const first = buildSyncMailboxesCommand({
-			sqsClient: {} as SQSClient,
 			queueUrl: FIFO_QUEUE_URL,
 			accountId: "account-abc",
 		});
 		const second = buildSyncMailboxesCommand({
-			sqsClient: {} as SQSClient,
 			queueUrl: FIFO_QUEUE_URL,
 			accountId: "account-abc",
 		});
@@ -65,7 +61,6 @@ describe("buildSyncMailboxesCommand", () => {
 	// skips the ones that were just enumerated.
 	it("marks an explicitly-requested trigger on the event", () => {
 		const cmd = buildSyncMailboxesCommand({
-			sqsClient: {} as SQSClient,
 			queueUrl: FIFO_QUEUE_URL,
 			accountId: "account-abc",
 			explicitRequest: true,
@@ -76,7 +71,6 @@ describe("buildSyncMailboxesCommand", () => {
 
 	it("leaves a side-effect trigger unmarked", () => {
 		const cmd = buildSyncMailboxesCommand({
-			sqsClient: {} as SQSClient,
 			queueUrl: FIFO_QUEUE_URL,
 			accountId: "account-abc",
 		});
@@ -86,7 +80,6 @@ describe("buildSyncMailboxesCommand", () => {
 
 	it("does not set FIFO params for standard queues", () => {
 		const cmd = buildSyncMailboxesCommand({
-			sqsClient: {} as SQSClient,
 			queueUrl: STANDARD_QUEUE_URL,
 			accountId: "account-abc",
 		});
@@ -97,7 +90,6 @@ describe("buildSyncMailboxesCommand", () => {
 
 	it("builds a SYNC_MAILBOXES event body with accountId and eventId", () => {
 		const cmd = buildSyncMailboxesCommand({
-			sqsClient: {} as SQSClient,
 			queueUrl: FIFO_QUEUE_URL,
 			accountId: "account-abc",
 		});
@@ -111,7 +103,6 @@ describe("buildSyncMailboxesCommand", () => {
 
 	it("targets the configured queue url", () => {
 		const cmd = buildSyncMailboxesCommand({
-			sqsClient: {} as SQSClient,
 			queueUrl: FIFO_QUEUE_URL,
 			accountId: "account-abc",
 		});
@@ -121,7 +112,6 @@ describe("buildSyncMailboxesCommand", () => {
 
 	it("uses the caller-supplied dedupId instead of the manual default", () => {
 		const cmd = buildSyncMailboxesCommand({
-			sqsClient: {} as SQSClient,
 			queueUrl: FIFO_QUEUE_URL,
 			accountId: "account-abc",
 			dedupId: "SYNC_MAILBOXES:scheduled:account-abc:12345",

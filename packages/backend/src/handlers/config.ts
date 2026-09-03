@@ -17,7 +17,7 @@ import { logger } from "@remit/logger-lambda";
 import {
 	hasStoredCredential,
 	type StoredCredentialFields,
-} from "@remit/mailbox-service";
+} from "@remit/mailbox-service/account-credentials";
 import {
 	EMBEDDING_PROVIDER_OFF,
 	readEmbeddingProviderFromEnv,

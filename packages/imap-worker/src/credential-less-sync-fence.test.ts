@@ -133,13 +133,6 @@ describe("a credential-less sync trigger (issue #1120)", () => {
 			},
 		);
 
-		assert.equal(
-			batchItemFailure,
-			undefined,
-			"the event is acked, not retried",
-		);
-		assert.deepEqual(stateUpdates, [ConnectionState.CredentialsMissing]);
-
 		// The refresh the user presses after saving the password.
 		enqueueSync(store, T0 + 2_000);
 		const deliverable = store.receiveMessages({
@@ -153,5 +146,11 @@ describe("a credential-less sync trigger (issue #1120)", () => {
 			1,
 			"the account's group must stay deliverable, not fenced for the visibility timeout",
 		);
+		assert.equal(
+			batchItemFailure,
+			undefined,
+			"the event is acked, not retried",
+		);
+		assert.deepEqual(stateUpdates, [ConnectionState.CredentialsMissing]);
 	});
 });
