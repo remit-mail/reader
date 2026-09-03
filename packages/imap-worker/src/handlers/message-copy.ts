@@ -9,6 +9,7 @@ import {
 	MailboxCursorPausedError,
 	reconcileStaleMessage,
 } from "@remit/mailbox-service";
+import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { MessageCopyEvent } from "../events.js";
@@ -31,24 +32,9 @@ const defaultDeps: MessageCopyDeps = {
 	createConnectionScope: createConnectionScopeWithCredentials,
 };
 
-/**
- * Fallback when `MESSAGE_COPY_MAX_ATTEMPTS` is unset (local dev, unit tests).
- * Matches the `maxReceiveCount` the message queue's redrive policy uses
- * (`remit-messages.fifo`, `deploy/vps/queues.json`), same pattern as
- * `MESSAGE_MOVE_MAX_ATTEMPTS`.
- */
-const DEFAULT_MESSAGE_COPY_MAX_ATTEMPTS = 3;
-
 export const getMessageCopyMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
-): number => {
-	const raw = processEnv.MESSAGE_COPY_MAX_ATTEMPTS;
-	if (!raw) return DEFAULT_MESSAGE_COPY_MAX_ATTEMPTS;
-	const parsed = Number.parseInt(raw, 10);
-	return Number.isFinite(parsed) && parsed > 0
-		? parsed
-		: DEFAULT_MESSAGE_COPY_MAX_ATTEMPTS;
-};
+): number => attemptBudget("MESSAGE_COPY_MAX_ATTEMPTS", 3, processEnv);
 
 export const MESSAGE_COPY_MAX_ATTEMPTS = getMessageCopyMaxAttempts();
 

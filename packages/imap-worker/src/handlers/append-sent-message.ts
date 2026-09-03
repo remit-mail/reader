@@ -10,6 +10,7 @@ import {
 	buildMailMessage,
 	renderRawMessage,
 } from "@remit/smtp-service/message-builder";
+import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { AppendSentMessageEvent } from "../events.js";
@@ -29,23 +30,9 @@ const ROW_SURVIVED_ITS_DELETE =
 const unfiledAppendRefused = (fullPath: string, error: unknown): string =>
 	`Sent, but not filed: the mail server refused to store a copy in ${fullPath} (${error instanceof Error ? error.message : String(error)}).`;
 
-/**
- * Fallback when `APPEND_SENT_MAX_ATTEMPTS` is unset (local dev, unit tests).
- * Matches the shared `MAX_RECEIVE_COUNT` every queue's redrive policy uses,
- * same pattern as `FLAG_PUSH_MAX_ATTEMPTS` / `BODY_SYNC_MAX_ATTEMPTS`.
- */
-const DEFAULT_APPEND_SENT_MAX_ATTEMPTS = 3;
-
 export const getAppendSentMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
-): number => {
-	const raw = processEnv.APPEND_SENT_MAX_ATTEMPTS;
-	if (!raw) return DEFAULT_APPEND_SENT_MAX_ATTEMPTS;
-	const parsed = Number.parseInt(raw, 10);
-	return Number.isFinite(parsed) && parsed > 0
-		? parsed
-		: DEFAULT_APPEND_SENT_MAX_ATTEMPTS;
-};
+): number => attemptBudget("APPEND_SENT_MAX_ATTEMPTS", 3, processEnv);
 
 export const APPEND_SENT_MAX_ATTEMPTS = getAppendSentMaxAttempts();
 

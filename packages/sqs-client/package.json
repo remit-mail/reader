@@ -9,6 +9,10 @@
 			"types": "./src/index.ts",
 			"default": "./src/index.ts"
 		},
+		"./attempt-budget": {
+			"types": "./src/attempt-budget.ts",
+			"default": "./src/attempt-budget.ts"
+		},
 		"./heartbeat": {
 			"types": "./src/heartbeat.ts",
 			"default": "./src/heartbeat.ts"

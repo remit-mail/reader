@@ -8,6 +8,7 @@ import {
 	MailboxCursorPausedError,
 	resolveExhaustedFlagPushFailure,
 } from "@remit/mailbox-service";
+import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { FlagPushEvent } from "../events.js";
@@ -15,24 +16,9 @@ import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
-/**
- * Fallback when `FLAG_PUSH_MAX_ATTEMPTS` is unset (local dev, unit tests).
- * Matches the shared `MAX_RECEIVE_COUNT` every queue's redrive policy uses
- * (`infra/stacks/dev/stacks/remit-queue-stack.ts`), same pattern as
- * `BODY_SYNC_MAX_ATTEMPTS` (#1270) / `PLACEMENT_MOVE_MAX_ATTEMPTS` (#1289).
- */
-const DEFAULT_FLAG_PUSH_MAX_ATTEMPTS = 3;
-
 export const getFlagPushMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
-): number => {
-	const raw = processEnv.FLAG_PUSH_MAX_ATTEMPTS;
-	if (!raw) return DEFAULT_FLAG_PUSH_MAX_ATTEMPTS;
-	const parsed = Number.parseInt(raw, 10);
-	return Number.isFinite(parsed) && parsed > 0
-		? parsed
-		: DEFAULT_FLAG_PUSH_MAX_ATTEMPTS;
-};
+): number => attemptBudget("FLAG_PUSH_MAX_ATTEMPTS", 3, processEnv);
 
 export const FLAG_PUSH_MAX_ATTEMPTS = getFlagPushMaxAttempts();
 

@@ -11,6 +11,7 @@ import {
 	QuarantineService,
 	resolveExhaustedBodySyncFailures,
 } from "@remit/mailbox-service";
+import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
 import { isBodySyncEnabled } from "../body-sync-gate.js";
@@ -27,37 +28,9 @@ import { workerVersion } from "../worker-version.js";
 
 const bodySyncEnabledParameterName = env.BODY_SYNC_ENABLED_PARAMETER_NAME;
 
-/**
- * Fallback when `BODY_SYNC_MAX_ATTEMPTS` is unset (local dev, unit tests).
- * Matches the body queue's own `MAX_RECEIVE_COUNT` default
- * (`infra/stacks/dev/stacks/remit-queue-stack.ts`) so an environment that
- * never injects the var still behaves like production.
- */
-const DEFAULT_BODY_SYNC_MAX_ATTEMPTS = 3;
-
-/**
- * Reads the redelivery-budget-exhaustion threshold. CDK derives
- * `BODY_SYNC_MAX_ATTEMPTS` from the body queue's own `MAX_RECEIVE_COUNT`
- * (`remit-worker-stack.ts`) so the two constants can't drift apart — a
- * hand-copied duplicate here previously risked the worker resolving
- * "last attempt" on a different delivery than the queue's redrive policy
- * actually uses (issue #1270). SQS's own `ApproximateReceiveCount` is the
- * source of truth for how many times a record has been delivered; once it
- * reaches this value, the current invocation is the last attempt before the
- * queue's own redrive would DLQ the record, so retry exhaustion is resolved
- * here (see `resolveExhaustedBodySyncFailures`) instead of letting the
- * record dead-letter with no diagnosis.
- */
 export const getBodySyncMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
-): number => {
-	const raw = processEnv.BODY_SYNC_MAX_ATTEMPTS;
-	if (!raw) return DEFAULT_BODY_SYNC_MAX_ATTEMPTS;
-	const parsed = Number.parseInt(raw, 10);
-	return Number.isFinite(parsed) && parsed > 0
-		? parsed
-		: DEFAULT_BODY_SYNC_MAX_ATTEMPTS;
-};
+): number => attemptBudget("BODY_SYNC_MAX_ATTEMPTS", 3, processEnv);
 
 export const BODY_SYNC_MAX_ATTEMPTS = getBodySyncMaxAttempts();
 

@@ -10,6 +10,7 @@ import {
 	reconcileStaleMessage,
 	resolveExhaustedPlacementMoveFailure,
 } from "@remit/mailbox-service";
+import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
@@ -23,24 +24,9 @@ import {
 	searchMailboxByMessageId,
 } from "./message-move.js";
 
-/**
- * Fallback when `PLACEMENT_MOVE_MAX_ATTEMPTS` is unset (local dev, unit
- * tests). Matches the placement-move queue's own `MAX_RECEIVE_COUNT` default
- * (`infra/stacks/dev/stacks/remit-queue-stack.ts`), same pattern as
- * `BODY_SYNC_MAX_ATTEMPTS` (#1270).
- */
-const DEFAULT_PLACEMENT_MOVE_MAX_ATTEMPTS = 3;
-
 export const getPlacementMoveMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
-): number => {
-	const raw = processEnv.PLACEMENT_MOVE_MAX_ATTEMPTS;
-	if (!raw) return DEFAULT_PLACEMENT_MOVE_MAX_ATTEMPTS;
-	const parsed = Number.parseInt(raw, 10);
-	return Number.isFinite(parsed) && parsed > 0
-		? parsed
-		: DEFAULT_PLACEMENT_MOVE_MAX_ATTEMPTS;
-};
+): number => attemptBudget("PLACEMENT_MOVE_MAX_ATTEMPTS", 3, processEnv);
 
 export const PLACEMENT_MOVE_MAX_ATTEMPTS = getPlacementMoveMaxAttempts();
 
