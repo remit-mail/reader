@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
+import { toImapDraftRowData } from "@/lib/drafts";
 import { threadToRowData } from "./MessageListItem";
+import { swipeableRowData } from "./SwipeableMessageRow";
 
 const baseThread = (
 	overrides: Partial<RemitImapThreadMessageResponse> = {},
@@ -43,31 +45,53 @@ describe("threadToRowData — labels", () => {
 });
 
 describe("threadToRowData — settlement (issue #1002)", () => {
-	it("marks a row whose move gave up", () => {
-		const row = threadToRowData(
-			baseThread({ status: "moving", syncStatus: "failed" }),
-		);
-		assert.equal(row.settlement, "abandoned");
-	});
-
-	it("marks a row whose delete gave up, which settles status back to active", () => {
+	it("marks a row whose delete gave up and came back", () => {
 		const row = threadToRowData(
 			baseThread({ status: "active", syncStatus: "failed" }),
 		);
-		assert.equal(row.settlement, "abandoned");
+		assert.equal(row.settlement, "delete_failed");
 	});
 
-	it("marks a row whose move is still being pushed", () => {
+	it("says nothing about a move mid-retry, which writes the same failed flag", () => {
 		const row = threadToRowData(
-			baseThread({ status: "moving", syncStatus: "pending" }),
+			baseThread({ status: "moving", syncStatus: "failed" }),
 		);
-		assert.equal(row.settlement, "in_flight");
+		assert.equal(row.settlement, undefined);
 	});
 
-	it("leaves an ordinary inbound row unmarked, `pending` and all", () => {
+	it("says nothing about a delete still being pushed", () => {
+		const row = threadToRowData(
+			baseThread({ status: "deleting", syncStatus: "pending" }),
+		);
+		assert.equal(row.settlement, undefined);
+	});
+
+	it("leaves an ordinary inbound row unmarked, pending and all", () => {
 		const row = threadToRowData(
 			baseThread({ status: "active", syncStatus: "pending" }),
 		);
 		assert.equal(row.settlement, undefined);
+	});
+});
+
+describe("the mobile and drafts rows carry the same mark", () => {
+	it("marks the swipeable mobile row", () => {
+		const row = swipeableRowData(
+			baseThread({ status: "active", syncStatus: "failed" }),
+		);
+		assert.equal(row.settlement, "delete_failed");
+	});
+
+	it("marks the drafts row", () => {
+		const row = toImapDraftRowData(
+			baseThread({ status: "active", syncStatus: "failed" }),
+		);
+		assert.equal(row.settlement, "delete_failed");
+	});
+
+	it("leaves a move mid-retry unmarked on both", () => {
+		const thread = baseThread({ status: "moving", syncStatus: "failed" });
+		assert.equal(swipeableRowData(thread).settlement, undefined);
+		assert.equal(toImapDraftRowData(thread).settlement, undefined);
 	});
 });

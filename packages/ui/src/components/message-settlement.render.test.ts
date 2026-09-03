@@ -34,48 +34,54 @@ const compactRow = (settlement?: RowSettlement) =>
 		}),
 	);
 
-describe("an unsettled row says so", () => {
-	it("marks a row whose mutation gave up", () => {
-		const html = row("abandoned");
-		assert.match(html, /data-settlement="abandoned"/);
-		assert.match(html, new RegExp(messageSettlementCopy.abandoned.label));
-	});
-
-	it("marks a row whose mutation is still in flight", () => {
-		const html = row("in_flight");
-		assert.match(html, /data-settlement="in_flight"/);
-		assert.match(html, new RegExp(messageSettlementCopy.in_flight.label));
+describe("a row whose delete gave up says so", () => {
+	it("marks the row", () => {
+		const html = row("delete_failed");
+		assert.match(html, /data-settlement="delete_failed"/);
+		assert.match(html, new RegExp(messageSettlementCopy.delete_failed.label));
 	});
 
 	it("carries the same mark in compact density", () => {
-		assert.match(compactRow("abandoned"), /data-settlement="abandoned"/);
+		assert.match(
+			compactRow("delete_failed"),
+			/data-settlement="delete_failed"/,
+		);
 	});
 
-	it("leaves a settled row exactly as it was", () => {
+	it("leaves every other row exactly as it was", () => {
 		assert.doesNotMatch(row(), /data-settlement/);
 		assert.doesNotMatch(compactRow(), /data-settlement/);
 	});
 });
 
 describe("the reading-pane notice", () => {
-	it("raises an alert and offers the way out when the mutation gave up", () => {
+	it("states the failure and offers both ways out", () => {
 		const html = renderToString(
 			createElement(MessageSettlementNotice, {
-				settlement: "abandoned",
+				settlement: "delete_failed",
+				onRetry: () => undefined,
 				reportHref: "https://example.test/new-issue",
 			}),
 		);
 		assert.match(html, /role="alert"/);
-		assert.match(html, new RegExp(messageSettlementCopy.abandoned.title));
+		assert.match(html, new RegExp(messageSettlementCopy.delete_failed.title));
+		assert.match(
+			html,
+			new RegExp(messageSettlementCopy.delete_failed.retryLabel),
+		);
 		assert.match(html, /Report an issue/);
 		assert.match(html, /https:\/\/example\.test\/new-issue/);
 	});
 
-	it("states an in-flight push without raising an alert or an action", () => {
+	it("disables the retry while one is in flight rather than dropping it", () => {
 		const html = renderToString(
-			createElement(MessageSettlementNotice, { settlement: "in_flight" }),
+			createElement(MessageSettlementNotice, {
+				settlement: "delete_failed",
+				onRetry: () => undefined,
+				retryPending: true,
+			}),
 		);
-		assert.match(html, /role="status"/);
-		assert.doesNotMatch(html, /Report an issue/);
+		assert.match(html, /disabled/);
+		assert.match(html, /Deleting/);
 	});
 });

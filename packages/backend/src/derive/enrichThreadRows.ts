@@ -109,8 +109,8 @@ export const planBatchFetch = (rows: ThreadMessageItem[]): BatchPlan => {
 /**
  * Enrich a page of ThreadMessage rows with `senderTrust` and `muted` (both
  * derived from the From Address's flags map), `authenticity`, `autoMoved` and
- * `spamReport`, and the `status`/`syncStatus` pair an unsettled IMAP mutation
- * leaves behind (all projected straight from the Message row — no ThreadMessage
+ * `spamReport`, and the `status`/`syncStatus` pair an IMAP mutation leaves
+ * behind (all projected straight from the Message row — no ThreadMessage
  * column of their own, see `deriveAutoMoved`). `toResponse` seeds that pair
  * with the ordinary inbound values, which the projection then overwrites; a
  * ThreadMessage row whose Message row is missing from the batch is broken in a

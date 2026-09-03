@@ -295,6 +295,7 @@ const ExpandedCard = ({
 				<>
 					<MessageSettlementAlert
 						threadMessage={threadMessage}
+						accountId={accountId}
 						className="mt-3"
 					/>
 					{isLoading ? (

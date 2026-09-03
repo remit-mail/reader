@@ -1,50 +1,44 @@
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { MessageItem } from "./types.js";
 
-/**
- * What a message row's two mutation fields say about the last IMAP mutation
- * applied to it — the local half of the mutator pattern
- * (docs/architecture/imap-mutations.md R1), read back.
- *
- * - `settled` — nothing is outstanding. The row is what the mail server holds.
- * - `in_flight` — a move or a delete is still being pushed, so the row's folder
- *   is a local write the server has not confirmed yet.
- * - `abandoned` — the mutator gave up. Nothing routine settles such a row:
- *   `repointsOnSighting` refuses to repair it on the next sync sighting, and
- *   `placementBindingOf` refuses to bind a dependent mutation to it. What the
- *   client shows for this message is a local write that never reached the mail
- *   server.
- */
-export type MessageSettlement = "settled" | "in_flight" | "abandoned";
-
 export type MessageSettlementFields = Pick<
 	MessageItem,
 	"status" | "syncStatus"
 >;
 
 /**
- * `failed` is the give-up marker, and only that. Every IMAP mutator writes it
- * when it stops trying — `message-move`, `message-copy` and `message-delete`
- * directly, `placement-move-push` by leaving the row it moved locally where it
- * stands — and nothing on the inbound path clears it.
+ * A delete that gave up: the mail server never accepted it, the mutator stopped
+ * trying, and the row was handed back to the folder it was deleted from.
+ *
+ * `status: active` alongside `syncStatus: failed` is the whole signal, and it is
+ * reachable only from a terminal give-up. Every other writer of one of the two
+ * values writes the other along with it:
+ *
+ * - `updateUid` (`drizzle-service/src/repos/message.ts`) settles a confirmed
+ *   move by writing `active` and `synced` in the same statement, so a move that
+ *   worked after a failed attempt cannot leave `failed` behind.
+ * - `empty-trash` hands a marked row back as `active` + `synced`.
+ * - `abandonDelete` (`imap-worker/src/handlers/message-delete.ts`) and
+ *   `resolveExhaustedMessageDeleteFailure` (…/message-delete-terminal.ts) write
+ *   `active` + `failed` together. They are the only two.
+ * - `upsertWithStatus` leaves an existing row alone, so no inbound sync writes
+ *   either value onto a row that already has them.
+ *
+ * `syncStatus: failed` ON ITS OWN is NOT a give-up marker, whatever
+ * `placement-settled.ts`'s docstring says. `message-move.ts`, `message-delete.ts`
+ * and `message-copy.ts` each write it on an ORDINARY TRANSIENT attempt and then
+ * re-throw for queue redelivery — the row is mid-retry and about to succeed. In
+ * those handlers `status` stays at its in-flight value (`moving`, `deleting`),
+ * which is what separates them from the pair above.
+ *
+ * Two consequences no caller may forget:
+ *
+ * - A MOVE that gave up is NOT derivable. Its terminal outcome leaves
+ *   `moving` + `failed`, the same pair a first dropped connection writes, and
+ *   nothing persisted tells the two apart.
+ * - `flag-push` and `placement-move-push` never write either field at all.
+ *   Their give-up state lives on their own marker rows and is invisible here.
  */
-export const hasAbandonedMutation = (
-	message: Pick<MessageSettlementFields, "syncStatus">,
-): boolean => message.syncStatus === MessageSyncStatus.failed;
-
-/**
- * `status` names an outstanding mutation, `syncStatus` does not: an ordinary
- * inbound row is written `pending` and nothing later promotes it, so `pending`
- * says nothing about whether a mutation is owed (#1096).
- */
-export const hasMutationInFlight = (
-	message: Pick<MessageSettlementFields, "status">,
-): boolean => message.status !== MessageStatus.active;
-
-export const messageSettlementOf = (
-	message: MessageSettlementFields,
-): MessageSettlement => {
-	if (hasAbandonedMutation(message)) return "abandoned";
-	if (hasMutationInFlight(message)) return "in_flight";
-	return "settled";
-};
+export const hasAbandonedDelete = (message: MessageSettlementFields): boolean =>
+	message.status === MessageStatus.active &&
+	message.syncStatus === MessageSyncStatus.failed;

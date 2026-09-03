@@ -26,6 +26,7 @@ import type {
 } from "@remit/api-http-client/types.gen.ts";
 import type { ThreadRowData, ThreadSection } from "@remit/ui";
 import { formatEmailDate } from "./format.js";
+import { rowSettlement } from "./row-settlement.js";
 
 /**
  * Map a Remit outbox draft to the ThreadRowData shape used by remit-ui row
@@ -65,6 +66,7 @@ export function toImapDraftRowData(
 		isRead: thread.isRead,
 		hasAttachment: thread.hasAttachment,
 		starred: thread.hasStars === true,
+		...rowSettlement(thread),
 	};
 }
 

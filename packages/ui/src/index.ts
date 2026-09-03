@@ -539,7 +539,6 @@ export {
 export {
 	MessageSettlementBadge,
 	type MessageSettlementBadgeProps,
-	type MessageSettlementCopy,
 	MessageSettlementNotice,
 	type MessageSettlementNoticeProps,
 	messageSettlementCopy,

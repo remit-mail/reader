@@ -1,54 +1,28 @@
-import { CloudAlert, CloudOff } from "lucide-react";
-import type { ReactNode } from "react";
+import { CloudOff } from "lucide-react";
 import { cn } from "../lib/cn.js";
 import { Badge } from "./badge.js";
 
 /**
- * How far the last IMAP mutation on a message got, as the row can tell.
- * `settled` has no treatment, so it is not a member here: a caller with a
- * settled row passes nothing and nothing renders.
+ * The one unsettled state a message row can prove from the wire: a delete the
+ * mail server never accepted, which the mutator stopped retrying and handed
+ * back to the folder it came from (`hasAbandonedDelete` in @remit/data-ports).
  *
- * The values mirror `messageSettlementOf` in @remit/data-ports, which derives
- * them from the `status`/`syncStatus` pair the message response carries. The
- * derivation lives there and only there; this module owns the words for it.
+ * A one-member union on purpose. A move that gave up leaves exactly the state a
+ * move mid-retry leaves, so it is not derivable and gets no treatment here —
+ * saying "Remit stopped retrying" over a push about to succeed would be a
+ * louder lie than the silence this replaces. Adding a member is what a new
+ * persisted signal would earn.
  */
-export type RowSettlement = "in_flight" | "abandoned";
+export type RowSettlement = "delete_failed";
 
-export interface MessageSettlementCopy {
-	/** Chip text on a list row. */
-	label: string;
-	/** Headline of the reading-pane notice. */
-	title: string;
-	/** What happened and what it means for this message. */
-	detail: string;
-}
-
-export const messageSettlementCopy: Record<
-	RowSettlement,
-	MessageSettlementCopy
-> = {
-	in_flight: {
-		label: "Not synced yet",
-		title: "Waiting for the mail server",
+export const messageSettlementCopy = {
+	delete_failed: {
+		label: "Not deleted",
+		title: "This message was not deleted on the mail server",
 		detail:
-			"This message was moved or deleted here first and the change is still being pushed. It settles on its own, usually within seconds.",
+			"Remit removed it here first, and the mail server refused every attempt. The message is back in this folder because that is where the server still has it.",
+		retryLabel: "Delete again",
 	},
-	abandoned: {
-		label: "Not synced",
-		title: "This change never reached the mail server",
-		detail:
-			"This message was moved or deleted here first, and the push to the mail server failed until Remit stopped retrying. On the server the message is still where it was, and nothing retries it on its own.",
-	},
-};
-
-const tones = {
-	in_flight: "warning",
-	abandoned: "danger",
-} as const;
-
-const icons = {
-	in_flight: CloudAlert,
-	abandoned: CloudOff,
 } as const;
 
 export interface MessageSettlementBadgeProps {
@@ -57,25 +31,23 @@ export interface MessageSettlementBadgeProps {
 }
 
 /**
- * List-row chip for a message whose last mutation has not settled. Sized for a
- * row, carries no action — a row is a link or a button and may not nest one.
- * The full statement and the way out live in {@link MessageSettlementNotice},
- * on the open message.
+ * List-row chip. Carries no action — a row is a link or a button and may not
+ * nest one. The statement and the way out live on the open message, in
+ * {@link MessageSettlementNotice}.
  */
 export function MessageSettlementBadge({
 	settlement,
 	className,
 }: MessageSettlementBadgeProps) {
 	const copy = messageSettlementCopy[settlement];
-	const Icon = icons[settlement];
 	return (
 		<Badge
-			tone={tones[settlement]}
+			tone="danger"
 			className={cn("shrink-0", className)}
 			title={copy.title}
 			data-settlement={settlement}
 		>
-			<Icon className="size-3 shrink-0" aria-hidden />
+			<CloudOff className="size-3 shrink-0" aria-hidden />
 			<span>{copy.label}</span>
 		</Badge>
 	);
@@ -84,65 +56,65 @@ export function MessageSettlementBadge({
 export interface MessageSettlementNoticeProps {
 	settlement: RowSettlement;
 	/**
-	 * Prefilled issue link. Present for `abandoned`, where nothing in the
-	 * product re-drives the mutation and reporting it is the only way out;
-	 * omitted for `in_flight`, which resolves itself.
+	 * Re-drives the delete through the ordinary delete endpoint, which accepts
+	 * this row: the give-up put `status` back to `active`, so the placement
+	 * guard passes it through. Omit only where no delete action is available.
 	 */
+	onRetry?: () => void;
+	retryPending?: boolean;
+	/** Prefilled issue link, for a retry that keeps failing. */
 	reportHref?: string;
 	className?: string;
-	children?: ReactNode;
 }
 
 /**
- * Reading-pane notice for a message whose last mutation has not settled. States
- * what failed and what it means, and — for a mutation that gave up — offers the
- * prefilled issue link, because no endpoint re-drives one.
+ * Reading-pane notice for a delete that gave up: what failed, where the message
+ * actually is, and the two ways out — delete it again, or report it.
  */
 export function MessageSettlementNotice({
 	settlement,
+	onRetry,
+	retryPending,
 	reportHref,
 	className,
-	children,
 }: MessageSettlementNoticeProps) {
 	const copy = messageSettlementCopy[settlement];
-	const Icon = icons[settlement];
-	const abandoned = settlement === "abandoned";
 	return (
 		<div
-			role={abandoned ? "alert" : "status"}
+			role="alert"
 			data-testid="message-settlement-notice"
 			data-settlement={settlement}
 			className={cn(
-				"flex items-start gap-2 rounded-md border px-3 py-2 text-sm",
-				abandoned
-					? "border-danger/40 bg-danger-soft"
-					: "border-line bg-surface-sunken",
+				"flex items-start gap-2 rounded-md border border-danger/40 bg-danger-soft px-3 py-2 text-sm",
 				className,
 			)}
 		>
-			<Icon
-				className={cn(
-					"mt-0.5 size-4 shrink-0",
-					abandoned ? "text-danger" : "text-warning",
-				)}
-				aria-hidden
-			/>
+			<CloudOff className="mt-0.5 size-4 shrink-0 text-danger" aria-hidden />
 			<div className="min-w-0 flex-1">
-				<p className={cn("font-medium", abandoned ? "text-danger" : "text-fg")}>
-					{copy.title}
-				</p>
+				<p className="font-medium text-danger">{copy.title}</p>
 				<p className="mt-1 break-words text-fg-muted">{copy.detail}</p>
-				{reportHref && (
-					<a
-						href={reportHref}
-						target="_blank"
-						rel="noreferrer"
-						className="mt-1 inline-block font-medium text-accent hover:underline"
-					>
-						Report an issue
-					</a>
-				)}
-				{children}
+				<div className="mt-1 flex flex-wrap items-center gap-3">
+					{onRetry && (
+						<button
+							type="button"
+							onClick={onRetry}
+							disabled={retryPending}
+							className="font-medium text-accent hover:underline disabled:opacity-50"
+						>
+							{retryPending ? "Deleting…" : copy.retryLabel}
+						</button>
+					)}
+					{reportHref && (
+						<a
+							href={reportHref}
+							target="_blank"
+							rel="noreferrer"
+							className="font-medium text-accent hover:underline"
+						>
+							Report an issue
+						</a>
+					)}
+				</div>
 			</div>
 		</div>
 	);

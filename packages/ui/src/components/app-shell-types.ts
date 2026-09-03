@@ -310,9 +310,10 @@ export interface ThreadRowData {
 	/** Labels applied to this message (issue #26) — filter-, organize-, and manually-applied alike. */
 	labels?: ThreadRowLabel[];
 	/**
-	 * The row's last IMAP mutation has not settled, so what this row shows is a
-	 * local write the mail server has not confirmed (issue #1002). Absent means
-	 * settled — the ordinary case, and the only one with no treatment.
+	 * A mutation on this row provably gave up — today only a delete the mail
+	 * server never accepted (issue #1002). Absent is the ordinary case AND every
+	 * case the two wire fields cannot tell apart, so absence never means
+	 * "settled", only "nothing this row can state".
 	 */
 	settlement?: RowSettlement;
 }

@@ -254,10 +254,10 @@ model ThreadMessageResponse {
   @doc("Structured sender-authenticity signal derived from DKIM headers at classification time (from the underlying Message). Absent for messages classified before this field was introduced — absence means no signal.")
   authenticity?: MessageAuthenticity;
 
-  @doc("Mutation lifecycle of the underlying Message, projected at read time — the ThreadMessage row has no column of its own. `active` means no mutation is outstanding; `moving` or `deleting` means one is still in flight and this row's folder is not yet confirmed by the server.")
+  @doc("Mutation lifecycle of the underlying Message, projected at read time — the ThreadMessage row has no column of its own. `active` means no move or delete is outstanding; `moving` or `deleting` means one is, and this row's folder is a local write the mail server has not confirmed.")
   status: MessageStatus;
 
-  @doc("Sync status of the underlying Message, projected at read time. `failed` is the give-up marker every IMAP mutator writes when it stops trying, and nothing routine clears it — a row carrying it did not settle, so what the client shows for it is a local write the mail server never confirmed. `pending` is the ordinary inbound value and means nothing is outstanding; `status` names that.")
+  @doc("Sync status of the underlying Message, projected at read time. Read it WITH `status`, never alone: `message-move`, `message-delete` and `message-copy` all write `failed` on an ordinary transient attempt before a redelivery that usually succeeds, so `failed` by itself does not mean a mutator gave up. The one pair that proves a give-up is `active` + `failed`, which only the two terminal delete paths write — a move that gave up leaves `moving` + `failed`, the same pair its first dropped connection leaves, and is not distinguishable here. `flag-push` and `placement-move-push` never write either field; their state lives on their own marker rows.")
   syncStatus: MessageSyncStatus;
 
   @doc("Account identifier attached at read time via a mailboxId→accountId map. Present on rows returned by `GET /threads`; absent on rows from per-mailbox endpoints (clients can resolve from the mailbox cache).")

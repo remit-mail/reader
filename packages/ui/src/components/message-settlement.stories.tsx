@@ -13,43 +13,56 @@ export default meta;
 type Story = StoryObj;
 
 const reportHref =
-	"https://github.com/remit-mail/reader/issues/new?title=This+change+never+reached+the+mail+server";
+	"https://github.com/remit-mail/reader/issues/new?title=This+message+was+not+deleted";
 
 /**
- * The two states a message can be in when its last IMAP mutation has not
- * settled (issue #1002). `in_flight` resolves itself, so it is stated quietly
- * and carries no action. `abandoned` does not: every mutating endpoint refuses
- * a row in that state and the sync path refuses to repair it, so the notice
- * says what happened and offers the prefilled issue link rather than a Retry
- * that would fail on every press.
+ * The one unsettled state the wire can prove (issue #1002): a delete the mail
+ * server refused until the mutator stopped trying, which handed the row back to
+ * the folder the server still holds it in.
+ *
+ * It gets a real Retry, not a report-only dead end: the give-up puts `status`
+ * back to `active`, so the ordinary delete endpoint accepts the row and
+ * re-drives it. A move that gave up leaves exactly the fields a move mid-retry
+ * leaves, so it gets no treatment at all — no chip, no notice, no promise.
  */
-export const Notices: Story = {
+export const Notice: Story = {
 	render: () => (
 		<div className="flex w-xl flex-col gap-3">
-			<MessageSettlementNotice settlement="in_flight" />
-			<MessageSettlementNotice settlement="abandoned" reportHref={reportHref} />
+			<MessageSettlementNotice
+				settlement="delete_failed"
+				onRetry={() => undefined}
+				reportHref={reportHref}
+			/>
+			<MessageSettlementNotice
+				settlement="delete_failed"
+				onRetry={() => undefined}
+				retryPending
+				reportHref={reportHref}
+			/>
 		</div>
 	),
 };
 
-/** The same notices on the dark theme. */
-export const NoticesDark: Story = {
-	name: "Notices (dark)",
+/** The same notice on the dark theme. */
+export const NoticeDark: Story = {
+	name: "Notice (dark)",
 	parameters: { theme: "dark" },
 	render: () => (
 		<div className="flex w-xl flex-col gap-3">
-			<MessageSettlementNotice settlement="in_flight" />
-			<MessageSettlementNotice settlement="abandoned" reportHref={reportHref} />
+			<MessageSettlementNotice
+				settlement="delete_failed"
+				onRetry={() => undefined}
+				reportHref={reportHref}
+			/>
 		</div>
 	),
 };
 
 /** The list-row chip, which carries the label alone — a row may nest no action. */
-export const Badges: Story = {
+export const Badge: Story = {
 	render: () => (
 		<div className="flex items-center gap-2">
-			<MessageSettlementBadge settlement="in_flight" />
-			<MessageSettlementBadge settlement="abandoned" />
+			<MessageSettlementBadge settlement="delete_failed" />
 		</div>
 	),
 };

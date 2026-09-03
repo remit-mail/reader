@@ -7,8 +7,8 @@ import type {
 	MessageLabelItem,
 	ThreadMessageItem,
 } from "@remit/data-ports";
-import { messageSettlementOf } from "@remit/data-ports";
 import { deriveAddressId } from "@remit/data-ports/id";
+import { hasAbandonedDelete } from "@remit/data-ports/message-settlement";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import { type EnrichClient, enrichThreadRows } from "./enrichThreadRows.js";
 
@@ -253,7 +253,7 @@ describe("enrichThreadRows — muted", () => {
 	});
 });
 
-describe("enrichThreadRows — settlement", () => {
+describe("enrichThreadRows — the mutation pair", () => {
 	const withMessage = (message: Partial<MessageItem>): EnrichClient => ({
 		message: {
 			get: async () =>
@@ -264,63 +264,54 @@ describe("enrichThreadRows — settlement", () => {
 		label: { listByAccountConfig: async () => [] },
 	});
 
-	test("projects the give-up pair a broken move leaves behind", async () => {
-		const client = withMessage({
+	const project = async (message: Partial<MessageItem>) => {
+		const [result] = await enrichThreadRows(
+			[threadRow("tm-1", "msg-1")],
+			withMessage(message),
+			"acc-1",
+		);
+		return result;
+	};
+
+	test("projects the pair a terminal delete leaves behind", async () => {
+		const result = await project({
+			status: MessageStatus.active,
+			syncStatus: MessageSyncStatus.failed,
+		});
+		assert.equal(result?.status, MessageStatus.active);
+		assert.equal(result?.syncStatus, MessageSyncStatus.failed);
+		assert.equal(
+			hasAbandonedDelete({
+				status: result?.status,
+				syncStatus: result?.syncStatus,
+			}),
+			true,
+		);
+	});
+
+	test("projects a move mid-retry without calling it a give-up", async () => {
+		const result = await project({
 			status: MessageStatus.moving,
 			syncStatus: MessageSyncStatus.failed,
 		});
-		const [result] = await enrichThreadRows(
-			[threadRow("tm-1", "msg-1")],
-			client,
-			"acc-1",
-		);
 		assert.equal(result?.status, MessageStatus.moving);
 		assert.equal(result?.syncStatus, MessageSyncStatus.failed);
 		assert.equal(
-			messageSettlementOf({
+			hasAbandonedDelete({
 				status: result?.status,
 				syncStatus: result?.syncStatus,
 			}),
-			"abandoned",
+			false,
 		);
 	});
 
-	test("projects the pair a broken delete leaves behind", async () => {
-		const client = withMessage({
-			status: MessageStatus.active,
-			syncStatus: MessageSyncStatus.failed,
-		});
-		const [result] = await enrichThreadRows(
-			[threadRow("tm-1", "msg-1")],
-			client,
-			"acc-1",
-		);
-		assert.equal(
-			messageSettlementOf({
-				status: result?.status,
-				syncStatus: result?.syncStatus,
-			}),
-			"abandoned",
-		);
-	});
-
-	test("an ordinary inbound row reads as settled", async () => {
-		const client = withMessage({
+	test("projects an ordinary inbound row", async () => {
+		const result = await project({
 			status: MessageStatus.active,
 			syncStatus: MessageSyncStatus.pending,
 		});
-		const [result] = await enrichThreadRows(
-			[threadRow("tm-1", "msg-1")],
-			client,
-			"acc-1",
-		);
-		assert.equal(
-			messageSettlementOf({
-				status: result?.status,
-				syncStatus: result?.syncStatus,
-			}),
-			"settled",
-		);
+		assert.equal(result?.status, MessageStatus.active);
+		assert.equal(result?.syncStatus, MessageSyncStatus.pending);
 	});
 
 	test("a row whose Message row is missing claims no mutation", async () => {
@@ -330,11 +321,11 @@ describe("enrichThreadRows — settlement", () => {
 			"acc-1",
 		);
 		assert.equal(
-			messageSettlementOf({
+			hasAbandonedDelete({
 				status: result?.status,
 				syncStatus: result?.syncStatus,
 			}),
-			"settled",
+			false,
 		);
 	});
 });

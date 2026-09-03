@@ -1,56 +1,76 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
-import { messageSettlementOf } from "./message-settlement.js";
+import { hasAbandonedDelete } from "./message-settlement.js";
 
-describe("messageSettlementOf", () => {
-	test("an ordinary inbound row is settled, `pending` and all", () => {
+describe("hasAbandonedDelete", () => {
+	test("the pair both terminal delete paths write", () => {
 		assert.equal(
-			messageSettlementOf({
+			hasAbandonedDelete({
 				status: MessageStatus.active,
-				syncStatus: MessageSyncStatus.pending,
+				syncStatus: MessageSyncStatus.failed,
 			}),
-			"settled",
+			true,
 		);
 	});
 
-	test("a move still being pushed is in flight", () => {
+	test("a move mid-retry is not a give-up, whatever `failed` suggests", () => {
 		assert.equal(
-			messageSettlementOf({
+			hasAbandonedDelete({
 				status: MessageStatus.moving,
-				syncStatus: MessageSyncStatus.pending,
+				syncStatus: MessageSyncStatus.failed,
 			}),
-			"in_flight",
+			false,
 		);
 	});
 
-	test("a delete still being pushed is in flight", () => {
+	test("a move that gave up is the same pair, so it is refused too", () => {
 		assert.equal(
-			messageSettlementOf({
+			hasAbandonedDelete({
+				status: MessageStatus.moving,
+				syncStatus: MessageSyncStatus.failed,
+			}),
+			false,
+		);
+	});
+
+	test("a delete mid-retry keeps `deleting`, so it is not a give-up", () => {
+		assert.equal(
+			hasAbandonedDelete({
 				status: MessageStatus.deleting,
+				syncStatus: MessageSyncStatus.failed,
+			}),
+			false,
+		);
+	});
+
+	test("a copy that gave up hides its row as `deleted` rather than claiming this", () => {
+		assert.equal(
+			hasAbandonedDelete({
+				status: MessageStatus.deleted,
+				syncStatus: MessageSyncStatus.failed,
+			}),
+			false,
+		);
+	});
+
+	test("a settled move — `updateUid` writes active and synced together", () => {
+		assert.equal(
+			hasAbandonedDelete({
+				status: MessageStatus.active,
 				syncStatus: MessageSyncStatus.synced,
 			}),
-			"in_flight",
+			false,
 		);
 	});
 
-	test("a broken move — the pair message-move leaves — is abandoned", () => {
+	test("an ordinary inbound row, `pending` forever, says nothing", () => {
 		assert.equal(
-			messageSettlementOf({
-				status: MessageStatus.moving,
-				syncStatus: MessageSyncStatus.failed,
-			}),
-			"abandoned",
-		);
-	});
-
-	test("a broken delete settles `status` back to active and stays abandoned", () => {
-		assert.equal(
-			messageSettlementOf({
+			hasAbandonedDelete({
 				status: MessageStatus.active,
-				syncStatus: MessageSyncStatus.failed,
+				syncStatus: MessageSyncStatus.pending,
 			}),
-			"abandoned",
+			false,
 		);
 	});
 });
