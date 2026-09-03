@@ -16,6 +16,7 @@ import {
 	datesBetween,
 	type FreeStretch,
 	freeStretchesFromSpans,
+	mergeBusySpans,
 } from "@remit/ui";
 import { isoDate } from "@/lib/calendar-route";
 import { addDays, type CalendarWindow, calendarWindow } from "./window";
@@ -178,22 +179,8 @@ export function busySpansByDate(
 		}
 	}
 
-	for (const [date, day] of byDate) byDate.set(date, mergeSpans(day));
+	for (const [date, day] of byDate) byDate.set(date, mergeBusySpans(day));
 	return byDate;
-}
-
-function mergeSpans(spans: BusySpan[]): BusySpan[] {
-	const sorted = [...spans].sort((a, b) => a.from - b.from);
-	const merged: BusySpan[] = [];
-	for (const span of sorted) {
-		const last = merged[merged.length - 1];
-		if (last && span.from <= last.to) {
-			last.to = Math.max(last.to, span.to);
-			continue;
-		}
-		merged.push({ ...span });
-	}
-	return merged;
 }
 
 /**
