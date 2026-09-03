@@ -261,6 +261,14 @@ const toConfigAddressFlags = (
 	flags: userFlagsOf(address.flags),
 });
 
+/**
+ * Every address row, through the plain keyed paging read rather than the
+ * autocomplete listing. The listing hides a junk-only address nobody
+ * corresponded with, which is right for a suggestion box and wrong here — an
+ * unsubscribed newsletter is exactly that shape, and it was dropped from the
+ * file without a word (#1029). Its order also derives from counters message
+ * sync rewrites, so a row could move between pages and be skipped.
+ */
 const readAddresses = async (
 	repositories: ConfigExportRepositories,
 	accountConfigId: string,
@@ -268,7 +276,7 @@ const readAddresses = async (
 	const addresses: AddressItem[] = [];
 	let cursor: string | undefined;
 	do {
-		const page = await repositories.address.listByAccountConfig({
+		const page = await repositories.address.pageAllByAccountConfig({
 			accountConfigId,
 			cursor,
 		});

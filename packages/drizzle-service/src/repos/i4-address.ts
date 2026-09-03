@@ -18,6 +18,7 @@ import {
 	desc,
 	eq,
 	getTableColumns,
+	gt,
 	inArray,
 	type SQL,
 	sql,
@@ -118,6 +119,14 @@ const decodeAddressCursor = (
 		position[key] = value;
 	}
 	return position as CursorPosition;
+};
+
+const decodeAddressIdCursor = (cursor: string): string => {
+	const { addressId } = decodeToken(cursor);
+	if (typeof addressId !== "string") {
+		throw new BadRequestError("Invalid continuationToken");
+	}
+	return addressId;
 };
 
 /**
@@ -745,6 +754,36 @@ export class AddressRepo implements IAddressRepository {
 						addressId: lastRow.addressId,
 					}
 				: undefined,
+		);
+	}
+
+	async pageAllByAccountConfig(input: {
+		accountConfigId: string;
+		cursor?: string;
+		limit?: number;
+	}): Promise<ResultList<AddressItem>> {
+		const { accountConfigId, cursor, limit = 100 } = input;
+		const after = cursor ? decodeAddressIdCursor(cursor) : undefined;
+
+		const rows = await this.db
+			.select()
+			.from(addressTable)
+			.where(
+				and(
+					eq(addressTable.accountConfigId, accountConfigId),
+					after ? gt(addressTable.addressId, after) : undefined,
+				),
+			)
+			.orderBy(asc(addressTable.addressId))
+			.limit(limit + 1);
+
+		const hasMore = rows.length > limit;
+		const items = rows.slice(0, limit).map(rowToAddress);
+		const lastItem = items[items.length - 1];
+		return resultList(
+			items,
+			limit,
+			hasMore && lastItem ? { addressId: lastItem.addressId } : undefined,
 		);
 	}
 

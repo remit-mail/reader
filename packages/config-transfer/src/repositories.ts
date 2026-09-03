@@ -25,7 +25,7 @@ export interface ConfigExportRepositories {
 	label: Pick<ILabelRepository, "listByAccountConfig">;
 	filter: Pick<IFilterRepository, "listByAccountConfig">;
 	filterAnchor: Pick<IFilterAnchorRepository, "listByAccountConfig">;
-	address: Pick<IAddressRepository, "listByAccountConfig">;
+	address: Pick<IAddressRepository, "pageAllByAccountConfig">;
 }
 
 /** Who wrote the file, and where from. Recorded; never authoritative on import. */

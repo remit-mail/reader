@@ -254,6 +254,82 @@ describe("AddressRepo", () => {
 		await repo.deleteManyAddresses(accountConfigId, created);
 	});
 
+	test("pageAllByAccountConfig returns a junk-only row the listing withholds", async () => {
+		// The listing answers autocomplete and hides a junk-only sender nobody
+		// corresponded with. A reader that has to see every decision — the config
+		// export — must not go through it (#1029).
+		const accountConfigId = randomId();
+		const addr = await repo.createAddress(
+			makeAddressInput(accountConfigId, "offers@junkmail.example"),
+		);
+		await repo.mergeFlags(accountConfigId, addr.addressId, {
+			junkOnly: { value: true, setAt: Date.now() },
+			unsubscribed: { value: true, setAt: Date.now() },
+		});
+
+		const suggested = await repo.listByAccountConfig({ accountConfigId });
+		assert.deepEqual(suggested.items, []);
+
+		const all = await repo.pageAllByAccountConfig({ accountConfigId });
+		assert.deepEqual(
+			all.items.map((a) => a.addressId),
+			[addr.addressId],
+		);
+		assert.equal(all.items[0]?.flags?.unsubscribed?.value, true);
+
+		await repo.deleteAddress(accountConfigId, addr.addressId);
+	});
+
+	test("pageAllByAccountConfig pages a row once even when sync rewrites its counters", async () => {
+		const accountConfigId = randomId();
+		const created: string[] = [];
+		for (const c of ["a", "b", "c", "d", "e"]) {
+			const addr = await repo.createAddress(
+				makeAddressInput(accountConfigId, `${c}@paged.example`),
+			);
+			created.push(addr.addressId);
+		}
+
+		const seen: string[] = [];
+		let cursor: string | undefined;
+		let pages = 0;
+		do {
+			const page = await repo.pageAllByAccountConfig({
+				accountConfigId,
+				limit: 2,
+				cursor,
+			});
+			seen.push(...page.items.map((a) => a.addressId));
+			// The listing sorts on correspondence and recency, so a message
+			// arriving mid-read moves a row and the next page steps over it. The
+			// primary key does not move.
+			for (const addressId of created) {
+				await repo.incrementInboundCount(
+					accountConfigId,
+					addressId,
+					Date.now(),
+				);
+			}
+			cursor = page.continuationToken;
+			pages++;
+			assert.ok(pages < 10, "pagination must terminate");
+		} while (cursor);
+
+		assert.deepEqual([...seen].sort(), [...created].sort());
+		assert.equal(new Set(seen).size, created.length);
+
+		await repo.deleteManyAddresses(accountConfigId, created);
+	});
+
+	test("pageAllByAccountConfig refuses a continuation token it did not mint", async () => {
+		await assert.rejects(
+			repo.pageAllByAccountConfig({
+				accountConfigId: randomId(),
+				cursor: Buffer.from(JSON.stringify({ rank: 1 })).toString("base64url"),
+			}),
+		);
+	});
+
 	test("listByAccountConfig resolves a search by exact email even when the sender has a display name", async () => {
 		const accountConfigId = randomId();
 		const created = await repo.createAddress({

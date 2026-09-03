@@ -5,8 +5,10 @@ import type {
 	AddressItem,
 	FilterAnchorItem,
 	FilterItem,
+	IAddressRepository,
 	LabelItem,
 	MailboxItem,
+	ResultList,
 } from "@remit/data-ports";
 import type { ConfigExportRepositories } from "./repositories.js";
 
@@ -25,7 +27,7 @@ export interface ConfigFixture {
 	filters: FilterItem[];
 	anchors: FilterAnchorItem[];
 	addresses: AddressItem[];
-	/** Page size for the address listing, so paging is exercised. */
+	/** Page size for the address reads, so paging is exercised. */
 	addressPageSize?: number;
 }
 
@@ -168,6 +170,70 @@ export const makeAddress = (
 	...overrides,
 });
 
+/**
+ * `addressListable` as the SQLite listing applies it
+ * (`drizzle-service/src/repos/address-search-predicates.ts`): a junk-only row
+ * the account never corresponded with and never judged is withheld, so the
+ * autocomplete does not offer back what the junk folder is full of.
+ */
+export const listableForSuggestions = (address: AddressItem): boolean => {
+	if (address.flags?.junkOnly?.value !== true) return true;
+	if (
+		address.outboundCount > 0 ||
+		address.replyCount > 0 ||
+		address.flags?.vip?.value === true ||
+		address.flags?.trusted?.value === true
+	) {
+		return true;
+	}
+	return (
+		address.flags?.blocked?.value === true ||
+		address.flags?.muted?.value === true
+	);
+};
+
+const pageOf = (
+	rows: AddressItem[],
+	cursor: string | undefined,
+	size: number,
+): ResultList<AddressItem> => {
+	const start = cursor
+		? rows.findIndex((row) => row.addressId === cursor) + 1
+		: 0;
+	const items = rows.slice(start, start + size);
+	const last = items[items.length - 1];
+	const hasMore = start + size < rows.length;
+	return {
+		items,
+		continuationToken: hasMore && last ? last.addressId : undefined,
+	};
+};
+
+/**
+ * Both reads the address repository offers, so a test can tell them apart. The
+ * listing carries the suggest predicate the real query carries; the paging read
+ * carries none and comes back keyed by the primary key. An export that reaches
+ * for the wrong one drops rows here exactly as it did against SQLite (#1029).
+ */
+const addressReads = (
+	fixture: ConfigFixture,
+): Pick<
+	IAddressRepository,
+	"listByAccountConfig" | "pageAllByAccountConfig"
+> => {
+	const size = () => fixture.addressPageSize ?? fixture.addresses.length + 1;
+	const ordered = () =>
+		[...fixture.addresses].sort((a, b) =>
+			a.addressId < b.addressId ? -1 : a.addressId > b.addressId ? 1 : 0,
+		);
+	return {
+		listByAccountConfig: async ({ cursor }) =>
+			pageOf(fixture.addresses.filter(listableForSuggestions), cursor, size()),
+		pageAllByAccountConfig: async ({ cursor }) =>
+			pageOf(ordered(), cursor, size()),
+	};
+};
+
 /** The fixture, behind the repository interfaces the export takes. */
 export const asRepositories = (
 	fixture: ConfigFixture,
@@ -194,17 +260,5 @@ export const asRepositories = (
 	filterAnchor: {
 		listByAccountConfig: async () => fixture.anchors,
 	},
-	address: {
-		listByAccountConfig: async ({ cursor }) => {
-			const size = fixture.addressPageSize ?? fixture.addresses.length + 1;
-			const offset = cursor ? Number(cursor) : 0;
-			const items = fixture.addresses.slice(offset, offset + size);
-			const next = offset + size;
-			return {
-				items,
-				continuationToken:
-					next < fixture.addresses.length ? String(next) : undefined,
-			};
-		},
-	},
+	address: addressReads(fixture),
 });

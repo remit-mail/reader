@@ -95,6 +95,18 @@ export interface IAddressRepository {
 		cursor?: string;
 		limit?: number;
 	}): Promise<ResultList<AddressItem>>;
+	/**
+	 * Every address the configuration holds, paged by the primary key. Unlike
+	 * `listByAccountConfig` this carries no suggest predicate, so a junk-only
+	 * row nobody corresponded with is still returned, and its order is a column
+	 * no write moves, so a reader paging the whole set sees each row once. That
+	 * is what an export needs and what an autocomplete must not have.
+	 */
+	pageAllByAccountConfig(input: {
+		accountConfigId: string;
+		cursor?: string;
+		limit?: number;
+	}): Promise<ResultList<AddressItem>>;
 	createEnvelopeAddress(
 		input: CreateEnvelopeAddressInput,
 	): Promise<EnvelopeAddressItem>;

@@ -7,11 +7,13 @@ import {
 	composeFolderRoleAppointmentLabelName,
 	composeFolderRoleAppointmentName,
 } from "@remit/data-ports/folder-role";
+import { MessageCategory } from "@remit/domain-enums";
 import { readConfigForExport } from "./export.js";
 import {
 	ACCOUNT_CONFIG_ID,
 	asRepositories,
 	type ConfigFixture,
+	listableForSuggestions,
 	makeAccount,
 	makeAccountConfig,
 	makeAddress,
@@ -469,6 +471,71 @@ test("an address exports only when the user decided something about it", async (
 	assert.deepEqual(
 		document.addressFlags.map((entry) => entry.normalizedEmail),
 		["post@bank.example", "noreply@newsletter.example"],
+	);
+});
+
+test("a junk-only address the user unsubscribed from still exports", async () => {
+	// The shape the autocomplete listing withholds: junk-only, never
+	// corresponded with, never judged. The reader still decided something about
+	// it, so it belongs in the file (#1029).
+	const swallowed = makeAddress({
+		addressId: "adr-swallowed",
+		normalizedEmail: "offers@junkmail.example",
+		flags: {
+			junkOnly: { value: true, setAt: 1750000000000 },
+			unsubscribed: { value: true, setAt: 1755000000000 },
+		},
+	});
+	assert.equal(listableForSuggestions(swallowed), false);
+
+	const fixture = fullFixture();
+	fixture.addresses = [swallowed, ...fixture.addresses];
+
+	const document = await exportFixture(fixture);
+
+	assert.ok(
+		document.addressFlags.some(
+			(entry) => entry.normalizedEmail === "offers@junkmail.example",
+		),
+	);
+});
+
+test("every address decision survives paging, whatever its standing", async () => {
+	const fixture = fullFixture();
+	fixture.addresses = [
+		makeAddress({
+			addressId: "adr-archive",
+			normalizedEmail: "receipts@shop.example",
+			flags: {
+				junkOnly: { value: true, setAt: 1750000000000 },
+				autoArchive: { value: true, setAt: 1750000000000 },
+			},
+		}),
+		makeAddress({
+			addressId: "adr-category",
+			normalizedEmail: "alerts@bank.example",
+			flags: {
+				junkOnly: { value: true, setAt: 1750000000000 },
+				category: {
+					value: MessageCategory.transactional,
+					setAt: 1750000000000,
+				},
+			},
+		}),
+		...fixture.addresses,
+	];
+	fixture.addressPageSize = 1;
+
+	const document = await exportFixture(fixture);
+
+	assert.deepEqual(
+		document.addressFlags.map((entry) => entry.normalizedEmail).sort(),
+		[
+			"alerts@bank.example",
+			"noreply@newsletter.example",
+			"post@bank.example",
+			"receipts@shop.example",
+		],
 	);
 });
 
