@@ -24,6 +24,7 @@ import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
 	FilterState,
 	MessageCategory,
+	MessageClassificationState,
 	PlacementAction,
 	PlacementConfidence,
 	QuarantineFailureStage,
@@ -155,9 +156,7 @@ const toFilterMessage = (parsed: ParsedMail): FilterMessage => ({
 const SNIPPET_LENGTH = 256;
 
 /**
- * The snippet the list row shows, from whichever body part carries text. Shared
- * by both paths that denormalize onto the ThreadMessage so they cannot derive it
- * differently.
+ * The snippet the list row shows, from whichever body part carries text.
  */
 const extractSnippet = (parsed: ParsedMail): string =>
 	extractSnippetFromEmail(
@@ -186,10 +185,14 @@ const alreadyDenormalized = (
 /**
  * RFC 034 Decision 3.1: `Message.category` is written once and never mutated
  * after — RFC 030's message-list GSI sort key depends on it never churning.
- * "Already decided" is any real category; `uncategorized` means the classifier
- * has not run yet and must still classify. The one rule every re-entrant
- * classification path shares — {@link BodySyncService.applyPostStoreSteps}
- * defers to it on every pass that reaches a message a second time.
+ * "Already decided" is any real category, so a message that carries one is
+ * never re-categorized by a re-entrant pass.
+ *
+ * `uncategorized` fails this test whether or not the classifier has run, which
+ * is deliberate: this asks what the row holds, not what was done to it. Whether
+ * the classifier has run is {@link Message.classificationState}, and it is the
+ * skip guard in {@link BodySyncService.syncBodies} — not this one — that keeps
+ * a declined message from being examined twice.
  */
 const hasDecidedCategory = (
 	category: ThreadMessageCategory | undefined,
@@ -210,22 +213,18 @@ const hasDecidedPlacement = (placementDecidedAt: number | undefined): boolean =>
 	placementDecidedAt !== undefined;
 
 /**
- * Issue #499: whether a completed body-sync pass has already classified this
- * message. `bodyStorageKey` is written last, once every derivation of that pass
- * has run, so its presence means the pass that first classified the message
- * finished. The same two re-entrant paths `hasDecidedCategory` and
- * `hasDecidedPlacement` guard (`fetchAndGetBody`'s `NoSuchKey` fallback,
- * `syncBodies(..., force: true)`) are the ones that reach the derivations again
- * with it already set.
+ * Issue #499: whether a completed body-sync pass has already stored this
+ * message's body. `bodyStorageKey` is written last, once every derivation of
+ * that pass has run, so its presence means that pass finished. The same two
+ * re-entrant paths `hasDecidedCategory` and `hasDecidedPlacement` guard
+ * (`fetchAndGetBody`'s `NoSuchKey` fallback, `syncBodies(..., force: true)`)
+ * are the ones that reach the derivations again with it already set.
  *
- * Issue #331: it is also `syncBodies`' own skip guard, and the two readings are
- * the same fact. `applyPostStoreSteps` writes `bodyStorageKey` and `category` in
- * one UpdateItem and the copy path carries both across, so a stored body is an
- * examined body: `uncategorized` next to a key is the answer the classifier
- * gave, not the absence of one. Re-reading the body to be told "nothing" again
- * costs one storage read plus two writes per message per pass, forever.
+ * Key presence, and nothing more. What the classifier decided is
+ * `Message.category`; whether it ran at all is `Message.classificationState`.
+ * Neither is inferred from here — the field this reads is the storage fact.
  */
-const hasClassifiedBody = (bodyStorageKey: string | undefined): boolean =>
+const hasStoredBody = (bodyStorageKey: string | undefined): boolean =>
 	Boolean(bodyStorageKey);
 
 /**
@@ -442,13 +441,15 @@ export class BodySyncService {
 				continue;
 			}
 
-			// A stored body is an examined body (issue #331): the pass that wrote
-			// `bodyStorageKey` wrote `category` in the same UpdateItem, and a copy
-			// inherits both from its source. So there is nothing left to derive from
-			// these bytes — re-reading them to re-derive a category the classifier
-			// already declined to give cost one storage read and two writes per
-			// message on every pass, and never converged.
-			if (hasClassifiedBody(message.bodyStorageKey) && !force) {
+			// The body is stored, so there is nothing to fetch (issue #331). This
+			// used to re-read those bytes from storage to re-derive a category,
+			// keyed on `category === uncategorized` — which is also the classifier's
+			// own "nothing to say", so a message it declined cost one storage read
+			// and two writes on every pass, forever, for the same answer. What the
+			// classifier did is now recorded as `classificationState`, so a sync
+			// pass never has to guess it from the row, and the cohort it has not
+			// reached is selectable by a backfill instead of re-derived here.
+			if (hasStoredBody(message.bodyStorageKey) && !force) {
 				this.log.debug?.({ messageId }, "Body already stored, skipping");
 				skippedCount++;
 				continue;
@@ -935,10 +936,15 @@ export class BodySyncService {
 			listId,
 		);
 
+		// `classificationState` records that the classifier ran, in the same
+		// UpdateItem as the answer it gave (issue #331). Without it `uncategorized`
+		// carries two meanings at once — not reached yet, and reached with nothing
+		// to say — and only one of them should ever be looked at again.
 		const update: UpdateMessageInput = {
 			bodyStorageKey: bodyRef.uri,
 			...classification,
 			category: finalCategory,
+			classificationState: MessageClassificationState.Examined,
 			...(moved ? { movedByRemit: true } : {}),
 			...(resolved.verdict ? { placementVerdict: resolved.verdict } : {}),
 			...(filterMove ? { filterMove } : {}),
@@ -1267,7 +1273,7 @@ export class BodySyncService {
 		storedBodyKey: string | undefined,
 	): Promise<void> {
 		if (!this.unsubscribeConfig) return;
-		if (hasClassifiedBody(storedBodyKey)) return;
+		if (hasStoredBody(storedBodyKey)) return;
 
 		const fromEmail = extractPrimaryFromEmail(parsed);
 		if (!fromEmail) return;
@@ -1311,7 +1317,7 @@ export class BodySyncService {
 		storedBodyKey: string | undefined,
 	): Promise<void> {
 		if (!this.calendarConfig) return;
-		if (hasClassifiedBody(storedBodyKey)) return;
+		if (hasStoredBody(storedBodyKey)) return;
 
 		const parts = calendarParts(parsed);
 		if (parts.length === 0) return;

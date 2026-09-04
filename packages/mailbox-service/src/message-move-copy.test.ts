@@ -67,6 +67,7 @@ const buildWorld = () => {
 				rootBodyPartId: "body-1",
 				bodyStorageKey: "s3://body-1",
 				category: "primary",
+				classificationState: "Examined",
 				hasListUnsubscribe: false,
 			},
 		],
@@ -355,6 +356,25 @@ describe("MessageMoveService.copyMessage — deterministic per-folder identity (
 
 		const copyRow = threadRows.find((r) => r.mailboxId === DEST_MAILBOX);
 		assert.equal(copyRow?.listId, "invitations.linkedin.com");
+	});
+
+	it("carries the source's classification state onto the copy", async () => {
+		// Defaulting the copy to `NotExamined` would put a row no classifier will
+		// ever reach — its body is already stored — into the cohort a backfill
+		// selects as never examined (issue #331).
+		const { service, messages } = buildWorld();
+
+		await service.copyMessages(
+			ACCOUNT_CONFIG,
+			[SOURCE_ID],
+			DEST_MAILBOX,
+			ACCOUNT,
+		);
+
+		const copy = [...messages.values()].find(
+			(m) => m.mailboxId === DEST_MAILBOX,
+		);
+		assert.equal(copy?.classificationState, "Examined");
 	});
 
 	it("a replayed copy converges on one row, no duplicate", async () => {

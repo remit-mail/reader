@@ -88,8 +88,8 @@ const emptyTotals = (): ListIdBackfillTotals => ({
  * Read the stored raw source, derive `List-Id`, and — only when one is
  * present — write it. Kept as its own function (rather than inline in a
  * try/catch) so the caller can contain a failure with `.then(fulfilled,
- * rejected)` instead of a block catch, matching how `BodySyncService`
- * contains a per-message backfill failure.
+ * rejected)` instead of a block catch, which keeps the `try` around the one
+ * call whose failure this contains.
  */
 const deriveAndApplyListId = async (
 	deps: ListIdBackfillDeps,
@@ -141,9 +141,12 @@ const deriveAndApplyListId = async (
  * time in account-id order, so an interrupted run and its resume walk the same
  * sequence. A failure reading or parsing one message's
  * stored body is contained to that message — logged, counted, and the pass
- * continues — the same containment `BodySyncService`'s classification
- * backfill uses for the same reason: one unreadable object must not strand
- * the rest of the corpus.
+ * continues: one unreadable object must not strand the rest of the corpus.
+ *
+ * The shape a later pass over `Message.classificationState` should take
+ * (issue #331): a one-time, resumable, storage-only sweep that selects its
+ * cohort by an explicit field, so it can be run once, deliberately, after a
+ * classifier release — rather than a re-derivation folded into every sync pass.
  */
 export const backfillListIds = async (
 	deps: ListIdBackfillDeps,

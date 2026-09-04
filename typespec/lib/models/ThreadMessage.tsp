@@ -201,7 +201,7 @@ model ThreadMessage {
   @visibility(Lifecycle.Read)
   snippet?: String256;
 
-  @doc("Header-derived category, denormalized from the underlying Message. Defaults to `uncategorized` at metadata-sync and is set to the classified value at body-sync — that pending state is a named value, not absence.")
+  @doc("Header-derived category, denormalized from the underlying Message. Defaults to `uncategorized` at metadata-sync and is set to the classifier's answer at body-sync — `uncategorized` is a named value, not absence, and it is also the answer a classifier with nothing to say gives. Whether the classifier has run at all is `Message.classificationState`; this row has no column for it.")
   @visibility(Lifecycle.Read)
   category: MessageCategory = MessageCategory.uncategorized;
 
@@ -242,7 +242,7 @@ model ThreadMessageResponse {
       | "updatedAt"
   >;
 
-  @doc("Header-derived category for the message, served from the ThreadMessage row. Always present: the column is NOT NULL with an `uncategorized` default, and `uncategorized` is a named value for the not-yet-classified state, never a stand-in for `personal` (issue #45).")
+  @doc("Header-derived category for the message, served from the ThreadMessage row. Always present: the column is NOT NULL with an `uncategorized` default, and `uncategorized` is a named value — no category — never a stand-in for `personal` (issue #45).")
   category: MessageCategory;
 
   @doc("Trust level for the From address, derived from AddressFlags at read time. Defaults to `unknown` when no Address row resolves.")

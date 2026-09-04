@@ -470,7 +470,7 @@ export const describeRepairContract = (
 				"ahead:",
 				"fan-out:",
 				"orphans:",
-				"not-yet-classified:",
+				"uncategorized:",
 				"divergent per mailbox:",
 				"category tally:",
 			]) {

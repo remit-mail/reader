@@ -1,13 +1,17 @@
 /**
  * A body the classifier had nothing to say about is examined once (issue #331).
  *
- * `Message.category` is NOT NULL with an `uncategorized` default, and the pass
- * that stores a body writes both `bodyStorageKey` and `category` in one
- * UpdateItem — so `uncategorized` next to a stored key is the classifier's
- * answer, not the absence of one. Reading it as "not yet classified" made every
- * later sync pass re-read the body from storage and rewrite both rows, for the
- * same answer: a read amplification that scales with sync frequency and never
+ * `Message.category` is NOT NULL with an `uncategorized` default, so that value
+ * means two things at once: a message the classifier has not reached, and one it
+ * reached with nothing to say. Keying "needs classifying" on it made every later
+ * sync pass re-read the body from storage and rewrite both rows for the same
+ * answer — a read amplification that scales with sync frequency and never
  * converges.
+ *
+ * `Message.classificationState` is the fact itself, written in the same
+ * UpdateItem as the answer. It is persistence-only — no response model carries
+ * it — and it is what makes the declined cohort addressable later without a
+ * sync pass guessing at it.
  *
  * The sender in these tests carries a `flags.category` override of
  * `uncategorized` — the Reclassify dialog's own value for "no category" — which
@@ -180,6 +184,11 @@ describe("a body the classifier declined to categorize is examined once", () => 
 		assert.equal(harness.message.category, MessageCategory.uncategorized);
 		assert.equal(harness.message.bodyStorageKey, "s3://bodies/m-1");
 		assert.equal(harness.messageUpdates.length, 1);
+		// The answer and the record that it was given, in one write.
+		assert.equal(
+			harness.messageUpdates[0].input.classificationState,
+			"Examined",
+		);
 
 		const second = await syncPass(harness);
 
@@ -190,13 +199,14 @@ describe("a body the classifier declined to categorize is examined once", () => 
 		assert.equal(harness.threadUpdates.length, 1);
 	});
 
-	it("leaves a message that is already stored and uncategorized alone", async () => {
+	it("leaves a message that is already stored and examined alone", async () => {
 		const harness = buildHarness(
 			{
 				messageId: "m-1",
 				bodyStorageKey: "s3://bodies/m-1",
 				category: MessageCategory.uncategorized,
-			},
+				classificationState: "Examined",
+			} as Partial<MessageItem> & Pick<MessageItem, "messageId">,
 			MessageCategory.uncategorized,
 		);
 
@@ -206,6 +216,28 @@ describe("a body the classifier declined to categorize is examined once", () => 
 		assert.deepEqual(harness.retrieved, []);
 		assert.deepEqual(harness.messageUpdates, []);
 		assert.deepEqual(harness.threadUpdates, []);
+	});
+
+	it("leaves mail stored before the classifier ran marked as never examined", async () => {
+		const harness = buildHarness(
+			{
+				messageId: "m-1",
+				bodyStorageKey: "s3://bodies/m-1",
+				category: MessageCategory.uncategorized,
+				classificationState: "NotExamined",
+			} as Partial<MessageItem> & Pick<MessageItem, "messageId">,
+			MessageCategory.uncategorized,
+		);
+
+		const result = await syncPass(harness);
+
+		// A sync pass does not re-derive this cohort — that is the amplification
+		// #331 removes. It leaves the row saying so, which is what lets a
+		// deliberate backfill select it later.
+		assert.equal(result.skippedCount, 1);
+		assert.deepEqual(harness.retrieved, []);
+		assert.deepEqual(harness.messageUpdates, []);
+		assert.equal(harness.message.classificationState, "NotExamined");
 	});
 
 	it("still fetches and classifies a message whose body has never been stored", async () => {

@@ -1,8 +1,8 @@
 namespace RemitImap;
 
-@doc("Header-derived message category. Set by classifyByHeaders during body-sync. Defaults to `uncategorized` until the message is body-classified.")
+@doc("Header-derived message category. Set by classifyByHeaders during body-sync. Defaults to `uncategorized`, which covers both a message that has not been classified yet and one the classifier declined to categorize; `Message.classificationState` is what tells those apart.")
 enum MessageCategory {
-  @doc("Not yet classified — the message has been metadata-synced but not yet body-classified. The default, never inferred from absence.")
+  @doc("No category. The default, never inferred from absence — and never a stand-in for `personal`. It is the value a metadata-synced message starts at AND the answer the classifier gives when it has nothing to say, so it does not on its own mean \"not classified yet\": `Message.classificationState` carries that.")
   uncategorized: "uncategorized",
 
   @doc("Person-to-person mail (default fallback)")
