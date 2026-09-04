@@ -15,6 +15,14 @@
  * `NoSuchKey` IMAP re-fetch and `syncBodies(..., force: true)` — so a
  * regression that let the override bypass the guard shows up here, not just
  * in an isolated unit check.
+ *
+ * The override reaches a message on the pass that examines it, and only then
+ * (issue #331). Mail already stored and examined is not revisited, whatever the
+ * user later says about the sender: an ordinary sync pass does not re-read a
+ * stored body, and the last test here pins that. Applying a reclassification
+ * backwards over mail already on disk is a deliberate operation over
+ * `Message.classificationState`, tracked in issue #415, and nothing in this
+ * file claims it happens today.
  */
 
 import assert from "node:assert/strict";
@@ -278,15 +286,50 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 		);
 	});
 
-	it("backfillClassification picks up the same override for a body stored before classification existed", async () => {
+	it("reaches a message still awaiting examination on the batch sync path too", async () => {
+		const harness = buildHarness(
+			{ messageId: "m-1", category: MessageCategory.uncategorized },
+			overrideFlags(MessageCategory.transactional),
+		);
+
+		const result = await harness.service.syncBodies(
+			["m-1"],
+			"acc-1",
+			"cfg-1",
+			"INBOX",
+			async () =>
+				({
+					openBox: async () => {},
+					async *fetchMessageBodies(uids: number[]) {
+						for (const uid of uids) {
+							yield { uid, source: Readable.from([LINKEDIN_EML]) };
+						}
+					},
+				}) as unknown as IImapConnection,
+		);
+
+		assert.deepEqual(result.syncedMessageIds, ["m-1"]);
+		assert.equal(harness.messageUpdates.length, 1);
+		assert.equal(
+			harness.messageUpdates[0].input.category,
+			MessageCategory.transactional,
+		);
+		assert.equal(harness.rows[0].category, MessageCategory.transactional);
+		assert.equal(
+			harness.messageUpdates[0].input.classificationState,
+			"Examined",
+		);
+	});
+
+	it("does not reach back to mail it already examined when the sender is reclassified later", async () => {
 		const harness = buildHarness(
 			{
 				messageId: "m-1",
 				bodyStorageKey: "s3://bodies/m-1",
 				category: MessageCategory.uncategorized,
-			},
+				classificationState: "Examined",
+			} as Partial<MessageItem> & Pick<MessageItem, "messageId">,
 			overrideFlags(MessageCategory.transactional),
-			async () => LINKEDIN_EML,
 		);
 
 		const result = await harness.service.syncBodies(
@@ -295,17 +338,18 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 			"cfg-1",
 			"INBOX",
 			async () => {
-				throw new Error("backfill must not open IMAP");
+				throw new Error("an examined message must not be fetched again");
 			},
 		);
 
+		// The harness's default `retrieve` throws, so a storage read would fail
+		// this outright. Issue #415 is where applying the override to this message
+		// deliberately belongs; a sync pass is not it.
 		assert.equal(result.skippedCount, 1);
-		assert.equal(harness.messageUpdates.length, 1);
-		assert.equal(
-			harness.messageUpdates[0].input.category,
-			MessageCategory.transactional,
-		);
-		assert.equal(harness.rows[0].category, MessageCategory.transactional);
+		assert.deepEqual(result.failedMessageIds, []);
+		assert.deepEqual(harness.messageUpdates, []);
+		assert.deepEqual(harness.threadUpdates, []);
+		assert.equal(harness.message.category, MessageCategory.uncategorized);
 	});
 
 	describe("survives a re-entrant pass with a differing override already set", () => {

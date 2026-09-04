@@ -24,6 +24,7 @@ import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
 	FilterState,
 	MessageCategory,
+	MessageClassificationState,
 	PlacementAction,
 	PlacementConfidence,
 	QuarantineFailureStage,
@@ -155,9 +156,7 @@ const toFilterMessage = (parsed: ParsedMail): FilterMessage => ({
 const SNIPPET_LENGTH = 256;
 
 /**
- * The snippet the list row shows, from whichever body part carries text. Shared
- * by both paths that denormalize onto the ThreadMessage so they cannot derive it
- * differently.
+ * The snippet the list row shows, from whichever body part carries text.
  */
 const extractSnippet = (parsed: ParsedMail): string =>
 	extractSnippetFromEmail(
@@ -186,11 +185,14 @@ const alreadyDenormalized = (
 /**
  * RFC 034 Decision 3.1: `Message.category` is written once and never mutated
  * after — RFC 030's message-list GSI sort key depends on it never churning.
- * "Already decided" is any real category; `uncategorized` and the field being
- * absent (rows written before the column existed) both mean "not yet decided"
- * and must still classify. The one rule every re-entrant classification path
- * shares — {@link BodySyncService.backfillClassification} and
- * {@link BodySyncService.applyPostStoreSteps} both defer to it.
+ * "Already decided" is any real category, so a message that carries one is
+ * never re-categorized by a re-entrant pass.
+ *
+ * `uncategorized` fails this test whether or not the classifier has run, which
+ * is deliberate: this asks what the row holds, not what was done to it. Whether
+ * the classifier has run is {@link Message.classificationState}, and it is the
+ * skip guard in {@link BodySyncService.syncBodies} — not this one — that keeps
+ * a declined message from being examined twice.
  */
 const hasDecidedCategory = (
 	category: ThreadMessageCategory | undefined,
@@ -211,15 +213,18 @@ const hasDecidedPlacement = (placementDecidedAt: number | undefined): boolean =>
 	placementDecidedAt !== undefined;
 
 /**
- * Issue #499: whether a completed body-sync pass has already classified this
- * message. `bodyStorageKey` is written last, once every derivation of that pass
- * has run, so its presence means the pass that first classified the message
- * finished. Reads it exactly as `syncBodies`' own skip guard does. The same two
+ * Issue #499: whether a completed body-sync pass has already stored this
+ * message's body. `bodyStorageKey` is written last, once every derivation of
+ * that pass has run, so its presence means that pass finished. The same two
  * re-entrant paths `hasDecidedCategory` and `hasDecidedPlacement` guard
- * (`fetchAndGetBody`'s `NoSuchKey` fallback, `syncBodies(..., force: true)`) are
- * the ones that reach the derivations again with it already set.
+ * (`fetchAndGetBody`'s `NoSuchKey` fallback, `syncBodies(..., force: true)`)
+ * are the ones that reach the derivations again with it already set.
+ *
+ * Key presence, and nothing more. What the classifier decided is
+ * `Message.category`; whether it ran at all is `Message.classificationState`.
+ * Neither is inferred from here — the field this reads is the storage fact.
  */
-const hasClassifiedBody = (bodyStorageKey: string | undefined): boolean =>
+const hasStoredBody = (bodyStorageKey: string | undefined): boolean =>
 	Boolean(bodyStorageKey);
 
 /**
@@ -408,10 +413,6 @@ export class BodySyncService {
 		// messageId so we can match FETCH rows back and re-enqueue any UID the
 		// server never returns.
 		const pending = new Map<number, string>();
-		// Messages that were skipped (body already stored) but whose backfill
-		// classification failed. They are NOT in `pending` — nothing about them
-		// needs fetching — so they are merged into failedMessageIds separately.
-		const backfillFailedMessageIds: string[] = [];
 
 		// One read per round, not per message (issue #72). The list is small by
 		// design and almost always empty, so a lookup per message would put a
@@ -440,54 +441,16 @@ export class BodySyncService {
 				continue;
 			}
 
-			if (message.bodyStorageKey && !force) {
+			// The body is stored, so there is nothing to fetch (issue #331). This
+			// used to re-read those bytes from storage to re-derive a category,
+			// keyed on `category === uncategorized` — which is also the classifier's
+			// own "nothing to say", so a message it declined cost one storage read
+			// and two writes on every pass, forever, for the same answer. What the
+			// classifier did is now recorded as `classificationState`, so a sync
+			// pass never has to guess it from the row, and the cohort it has not
+			// reached is selectable by a backfill instead of re-derived here.
+			if (hasStoredBody(message.bodyStorageKey) && !force) {
 				this.log.debug?.({ messageId }, "Body already stored, skipping");
-				// The skip guard keys on the body, but classification is a separate
-				// derived field written by the same pass. A message that got its body
-				// before it got a classifier — or whose classifying pass failed after
-				// the body landed — is skipped here forever and stays `uncategorized`
-				// (issue #45). Classify it from the stored bytes: no IMAP, no
-				// placement/filter side effects, and it skips cleanly once done.
-				//
-				// Contained per-message: one unreadable body object must not abort a
-				// batch that has not fetched anything yet. The failure is loud and
-				// the id is requeued, but the other messages still get their bodies.
-				const backfillError = await this.backfillClassification(
-					message,
-					accountConfigId,
-				).then(
-					() => null,
-					(error: unknown) => error,
-				);
-				// The stored bytes will not parse, and they will not start parsing on
-				// a later attempt. Requeueing forever is the stall; set the message
-				// aside instead. Everything else this call can throw is storage or
-				// database work and stays on the requeue path below.
-				if (
-					backfillError instanceof BodyParseError &&
-					(await this.quarantineBodyParse(
-						message.messageId,
-						location,
-						backfillError,
-					))
-				) {
-					skippedCount++;
-					continue;
-				}
-				if (backfillError !== null) {
-					this.log.error?.(
-						{
-							messageId,
-							storageKey: message.bodyStorageKey,
-							errorName: (backfillError as { name?: string }).name,
-							errorCode: (backfillError as { Code?: string }).Code,
-							error: inspect(backfillError),
-						},
-						"Classification backfill failed for an already-stored body; leaving for requeue",
-					);
-					backfillFailedMessageIds.push(messageId);
-					continue;
-				}
 				skippedCount++;
 				continue;
 			}
@@ -495,11 +458,7 @@ export class BodySyncService {
 		}
 
 		if (pending.size === 0) {
-			return this.buildResult(
-				syncedMessageIds,
-				skippedCount,
-				backfillFailedMessageIds,
-			);
+			return this.buildResult(syncedMessageIds, skippedCount, []);
 		}
 
 		const connection = await getConnection();
@@ -585,7 +544,7 @@ export class BodySyncService {
 
 		// Anything still pending was never yielded (mid-stream drop or a UID the
 		// server silently omitted) — re-enqueue it.
-		const failedMessageIds = [...pending.values(), ...backfillFailedMessageIds];
+		const failedMessageIds = [...pending.values()];
 
 		this.log.info(
 			{
@@ -953,7 +912,7 @@ export class BodySyncService {
 		// already-classified message through two shipped paths — the `NoSuchKey`
 		// fallback in `fetchAndGetBody` and `syncBodies(..., force: true)` — so a
 		// real, previously-decided category is carried forward unchanged instead
-		// of the just-recomputed one, the same rule `backfillClassification` uses.
+		// of the just-recomputed one.
 		// This also protects a `flags.category` override (issue #299): without
 		// this guard a re-entrant pass would let a *later* override silently
 		// rewrite a category already decided on an earlier message, which is
@@ -977,10 +936,15 @@ export class BodySyncService {
 			listId,
 		);
 
+		// `classificationState` records that the classifier ran, in the same
+		// UpdateItem as the answer it gave (issue #331). Without it `uncategorized`
+		// carries two meanings at once — not reached yet, and reached with nothing
+		// to say — and only one of them should ever be looked at again.
 		const update: UpdateMessageInput = {
 			bodyStorageKey: bodyRef.uri,
 			...classification,
 			category: finalCategory,
+			classificationState: MessageClassificationState.Examined,
 			...(moved ? { movedByRemit: true } : {}),
 			...(resolved.verdict ? { placementVerdict: resolved.verdict } : {}),
 			...(filterMove ? { filterMove } : {}),
@@ -1110,66 +1074,6 @@ export class BodySyncService {
 	}
 
 	/**
-	 * Classify a message whose body is already stored but which carries no
-	 * decided category, reading the body from storage instead of IMAP.
-	 *
-	 * "No decided category" is `uncategorized` OR the field being absent: rows
-	 * written before the column existed have no value at all, and treating that
-	 * as already-classified would strand exactly the oldest mail this backfill
-	 * exists to reach.
-	 *
-	 * Deliberately narrower than {@link applyPostStoreSteps}: it writes the
-	 * derived classification fields and the denormalized ThreadMessage category,
-	 * and nothing else. Placement moves and filter actions are index-time
-	 * decisions that already ran (or were declined) when the body first landed;
-	 * re-running them here would move mail the user has since filed by hand.
-	 *
-	 * A storage or write failure propagates to the caller, which contains it per
-	 * message: the id lands in `failedMessageIds` and SQS requeues it, while the
-	 * rest of the batch still gets its bodies. An unreadable body object is an
-	 * infra fault, never absorbed — but it is also not a reason to abort a batch
-	 * that has fetched nothing yet.
-	 */
-	private async backfillClassification(
-		message: MessageItem,
-		accountConfigId: string,
-	): Promise<void> {
-		if (!message.bodyStorageKey) return;
-		if (hasDecidedCategory(message.category)) return;
-
-		const body = await this.storageService.retrieve(message.bodyStorageKey);
-		const parsed = await parseMessageBody(body);
-		const classification = await this.classifyMessage(accountConfigId, parsed);
-
-		// Same order as {@link applyPostStoreSteps}, for the same reason: the
-		// signal the skip guard reads is written last. `message.category` is that
-		// signal here, so a failure between the two writes leaves both undone and
-		// the requeued retry redoes both. Writing the Message first strands the
-		// denormalized row at `uncategorized` forever — the guard is satisfied and
-		// the retry returns early (issue #320).
-		// The same three denormalized fields the full body-store path writes (see
-		// `applyPostStoreSteps`), not just the category. A copied message
-		// inherits `bodyStorageKey` and a decided category from its source, so it
-		// reaches neither that path nor this one's classification — but nothing
-		// else ever writes `listId`, so leaving it out here made a copy's
-		// `list_id` permanently NULL. Both are derived from the same bytes
-		// already in hand.
-		await this.denormalizeCategory(
-			accountConfigId,
-			message.messageId,
-			classification.category,
-			extractSnippet(parsed),
-			extractListId(parsed),
-		);
-		await this.messageService.update(message.messageId, classification);
-
-		this.log.info(
-			{ messageId: message.messageId, category: classification.category },
-			"Backfilled classification for an already-stored body",
-		);
-	}
-
-	/**
 	 * Header classification, with the sender's `Address.flags.category`
 	 * override (issue #299, RFC 039 Decision 3) substituted for the
 	 * header-derived category when one is set. Returns the subset of the
@@ -1180,11 +1084,10 @@ export class BodySyncService {
 	 *
 	 * The override wins outright rather than blending with the heuristic — RFC
 	 * 039 Decision 3 treats a direct reclassification as final, the same as
-	 * `flags.blocked`/`vip` already override placement. Both callers
-	 * (`applyPostStoreSteps`, `backfillClassification`) already gate on
-	 * `hasDecidedCategory` before this result reaches a write, so a message
-	 * that already carries a real category is never re-touched regardless of
-	 * what this returns.
+	 * `flags.blocked`/`vip` already override placement. The caller
+	 * (`applyPostStoreSteps`) gates on `hasDecidedCategory` before this result
+	 * reaches a write, so a message that already carries a real category is
+	 * never re-touched regardless of what this returns.
 	 */
 	private async classifyMessage(
 		accountConfigId: string,
@@ -1370,7 +1273,7 @@ export class BodySyncService {
 		storedBodyKey: string | undefined,
 	): Promise<void> {
 		if (!this.unsubscribeConfig) return;
-		if (hasClassifiedBody(storedBodyKey)) return;
+		if (hasStoredBody(storedBodyKey)) return;
 
 		const fromEmail = extractPrimaryFromEmail(parsed);
 		if (!fromEmail) return;
@@ -1414,7 +1317,7 @@ export class BodySyncService {
 		storedBodyKey: string | undefined,
 	): Promise<void> {
 		if (!this.calendarConfig) return;
-		if (hasClassifiedBody(storedBodyKey)) return;
+		if (hasStoredBody(storedBodyKey)) return;
 
 		const parts = calendarParts(parsed);
 		if (parts.length === 0) return;

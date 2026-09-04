@@ -141,6 +141,13 @@
       "when": 1788106189615,
       "tag": "0020_secret_madame_masque",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1788540630553,
+      "tag": "0021_legal_bill_hollister",
+      "breakpoints": true
     }
   ]
 }

@@ -53,10 +53,9 @@
  *     `message.category` is still `uncategorized`, so the pending exclusion
  *     above refuses the row outright.
  *
- * Only the fourth is interesting, and it is not impossible. It is unreachable
- * through `backfillClassification`, which returns early once the category is
- * decided. It is reachable through the primary path, which is re-enterable: the
- * skip guard is `if (message.bodyStorageKey && !force)` (`body-sync.ts`), and
+ * Only the fourth is interesting, and it is not impossible. It is reachable
+ * through the one path that classifies, which is re-enterable: the skip guard
+ * is `if (hasStoredBody(message.bodyStorageKey) && !force)` (`body-sync.ts`), and
  * `force` is a live event flag — the read-miss re-arm cue, resolved in the
  * imap-worker's `sync-message-body.ts`. A forced re-fetch re-runs
  * `classifyByHeaders` over the same bytes, so it normally rewrites the value it
@@ -351,7 +350,7 @@ export const formatCheckReport = (
 	`  ahead: ${report.ahead} ${plural(report.ahead)} classified against a pending message — after #326 body-sync writes the row before the message, so this is a classification in flight. Not repaired: pushing it back to pending would undo a correct classification and serve Unclassified for mail that is already classified. Expected non-zero on a live instance mid-sync, zero on a quiescent one.`,
 	`fan-out: ${report.fanOutMessages} messages holding ${report.fanOutRows} thread_message rows — the multi-row shape #326 hardens against. Expected zero: deriveMessageId and deriveThreadMessageId are both mailbox-independent, so a message in two mailboxes collapses to one row, and the reachable case is thread-root drift.`,
 	`orphans: ${report.orphanRows} ${plural(report.orphanRows)} with no message row — not repaired, nothing to copy. Expected zero.`,
-	`not-yet-classified: ${report.notYetClassified} ${plural(report.notYetClassified)} pending against a pending message — not classified yet. Not a defect, not touched by the repair, and unchanged by it. Expected non-zero on a live instance.`,
+	`uncategorized: ${report.notYetClassified} ${plural(report.notYetClassified)} uncategorized against an uncategorized message — the row agrees with its message, so there is nothing to repair and this figure is untouched by the repair. It is NOT the same as "not classified yet": it mixes mail the classifier has not reached with mail it reached and had nothing to say about. Only \`message.classification_state\` separates them (\`SELECT classification_state, count(*) FROM message WHERE category = 'uncategorized' GROUP BY 1\`), and a large \`NotExamined\` count is the cohort worth acting on. Expected non-zero on a live instance.`,
 	`divergent per mailbox: ${
 		report.divergentByMailbox.length === 0
 			? "none"

@@ -385,6 +385,7 @@ export type CreateMessageInput = Omit<
 	| "status"
 	| "syncStatus"
 	| "category"
+	| "classificationState"
 	| "authenticityVerdict"
 	| "hasListUnsubscribe"
 	| "movedByRemit"
@@ -393,6 +394,7 @@ export type CreateMessageInput = Omit<
 	status?: MessageItem["status"];
 	syncStatus?: MessageItem["syncStatus"];
 	category?: MessageItem["category"];
+	classificationState?: MessageItem["classificationState"];
 	authenticityVerdict?: MessageItem["authenticityVerdict"];
 	hasListUnsubscribe?: MessageItem["hasListUnsubscribe"];
 	movedByRemit?: MessageItem["movedByRemit"];
@@ -497,8 +499,10 @@ export type SearchOptions = {
 	 * Any-of set over the denormalized `category` column on the ThreadMessage
 	 * row. An empty or absent set means no category filter. `uncategorized` is
 	 * a member like any other — the column is NOT NULL with that default, so it
-	 * names the not-yet-classified state rather than standing for absence
-	 * (issue #45).
+	 * names "no category" rather than standing for absence (issue #45). It
+	 * matches mail the classifier has not reached and mail it declined to
+	 * categorize alike; `Message.classificationState` is what separates those,
+	 * and no read path filters on it (issue #331).
 	 */
 	category?: ThreadMessageItem["category"][];
 };

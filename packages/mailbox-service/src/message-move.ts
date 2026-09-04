@@ -716,6 +716,11 @@ export class MessageMoveService {
 			// permanently `uncategorized` while its body says it is fully synced
 			// (issue #45).
 			category: sourceMessage.category,
+			// The record of whether that category was the classifier's answer travels
+			// with it (issue #331). Defaulting the copy to `NotExamined` would put a
+			// row no classifier will ever reach — its body is already stored — into
+			// the cohort a backfill selects as never examined.
+			classificationState: sourceMessage.classificationState,
 			hasListUnsubscribe: sourceMessage.hasListUnsubscribe,
 		});
 
@@ -746,6 +751,10 @@ export class MessageMoveService {
 			isDeleted: false,
 			snippet: sourceThreadMessage.snippet,
 			category: sourceThreadMessage.category,
+			// Same reason as `category` above, and the same source row: the copy
+			// inherits a stored body, so no classifying pass ever runs over it to
+			// derive a `listId` of its own (issue #331).
+			listId: sourceThreadMessage.listId,
 		});
 
 		this.log.info(

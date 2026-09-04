@@ -32,6 +32,7 @@ import "./OutboxMessageStatus.tsp";
 import "./OutboxAttachmentRejectionReason.tsp";
 import "./OutboxAttachmentState.tsp";
 import "./MessageCategory.tsp";
+import "./MessageClassificationState.tsp";
 import "./SenderTrust.tsp";
 
 // Account Enums
