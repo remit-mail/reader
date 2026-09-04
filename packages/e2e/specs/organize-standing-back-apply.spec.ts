@@ -15,13 +15,15 @@
  * waits.
  *
  * What this lane proves, in server truth: the standing filter is created and
- * points at the newly-created folder (not a dangling row), and the folder is
- * materialized on Dovecot. What it does not run to completion is the move: the
- * back-apply job is processed by the account-worker, which the source-built
- * e2e-dev stack does not start (only backend, imap-worker and web), so the job
- * stays queued here. The move/apply logic is covered by the mailbox-service and
- * web-client unit suites; the mobile organize spec drives the run screen's
- * progress-to-summary states over a stubbed job.
+ * points at the newly-created folder (not a dangling row), the folder is
+ * materialized on Dovecot, and the back-apply the save entered actually moves
+ * the mail — the selected messages leave the inbox and land in the new folder on
+ * the mail server. That last leg crosses three processes: the account-worker
+ * drains the job off the fan-out queue and applies it, and the move it commits
+ * is pushed to Dovecot by the imap-worker off the message-management queue.
+ *
+ * The mobile organize spec drives the run screen's progress-to-summary states
+ * over a stubbed job; the states are not re-asserted here.
  *
  * Runs as its own throwaway user (src/provision.ts): the flow files a filter and
  * a folder that would otherwise disturb the shared onboarded account.
@@ -29,7 +31,11 @@
 import { ApiClient, waitFor } from "../src/api.js";
 import { baseUrl } from "../src/env.js";
 import { expect, test } from "../src/fixtures.js";
-import { appendMessages, listServerMailboxes } from "../src/imap.js";
+import {
+	appendMessages,
+	listServerMailboxes,
+	waitForServerMailbox,
+} from "../src/imap.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
 import {
 	advanceTo,
@@ -50,6 +56,14 @@ const RULE_NAME = `E2E BackApply rule ${STAMP}`;
 
 const SUBJECTS = [1, 2, 3].map((n) => `E2E Keep ${STAMP} #${n}`);
 
+/**
+ * The two rows the wizard is opened on. Whether the match door widens to the
+ * sender or stays on the ticked rows, these two are in the applied set either
+ * way — so they are what the back-apply is asserted over, and the folder is
+ * never asserted to hold only them.
+ */
+const SELECTED = SUBJECTS.slice(0, 2);
+
 /** The folder list the create's confirmation poll re-reads. */
 const MAILBOX_LIST = /\/mailboxes(\?.*)?$/;
 
@@ -68,7 +82,7 @@ test.describe("Standing filter back-applies over existing mail", () => {
 	test("a folder created on the Move step holds Continue until the server confirms it, and the standing rule binds to it", async ({
 		browser,
 	}) => {
-		test.setTimeout(600_000);
+		test.setTimeout(900_000);
 
 		await appendMessages(
 			run.imapUser,
@@ -109,8 +123,8 @@ test.describe("Standing filter back-applies over existing mail", () => {
 			await expect(row(SUBJECTS[0])).toBeVisible({ timeout: 30_000 });
 
 			// Enter selection on two messages, then organize them into a rule.
-			await row(SUBJECTS[0]).click({ modifiers: ["ControlOrMeta"] });
-			await row(SUBJECTS[1]).click({ modifiers: ["ControlOrMeta"] });
+			await row(SELECTED[0]).click({ modifiers: ["ControlOrMeta"] });
+			await row(SELECTED[1]).click({ modifiers: ["ControlOrMeta"] });
 
 			await barOrganize(page).click();
 			await expect(wizardStep(page)).toHaveText(/^Step 1 of 5 · Apply to$/, {
@@ -206,6 +220,31 @@ test.describe("Standing filter back-applies over existing mail", () => {
 			{
 				timeoutMs: 60_000,
 				what: `the folder "${FOLDER_NAME}" to exist on the IMAP server`,
+			},
+		);
+
+		// Server truth: the back-apply ran to completion. The account-worker took
+		// the job off the fan-out queue, matched the snapshotted predicate and
+		// committed the moves; the imap-worker pushed them to Dovecot. The budget
+		// covers both hops under CI load.
+		await waitForServerMailbox(
+			run.imapUser,
+			FOLDER_NAME,
+			(subjects) => SELECTED.every((subject) => subjects.includes(subject)),
+			{
+				timeoutMs: 180_000,
+				what: `the back-apply to move ${SELECTED.length} messages into "${FOLDER_NAME}"`,
+			},
+		);
+
+		// A move, not a copy: the same messages are gone from the inbox.
+		await waitForServerMailbox(
+			run.imapUser,
+			"INBOX",
+			(subjects) => SELECTED.every((subject) => !subjects.includes(subject)),
+			{
+				timeoutMs: 60_000,
+				what: "the back-applied messages to leave the inbox",
 			},
 		);
 	});
