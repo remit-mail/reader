@@ -1,4 +1,5 @@
 /* The structural sheet `CalendarGrid`'s engine needs — positioning and nothing
    else; it ships no theme. Every colour, border and size the grid draws comes
-   from tokens.css instead. An app that renders the grid imports this beside it. */
+   from tokens.css instead. `calendar-grid.tsx` imports this itself, so it
+   travels with the component and no app has to ask for it. */
 @import "@fullcalendar/react/skeleton.css";
