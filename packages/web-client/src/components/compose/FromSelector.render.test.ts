@@ -9,7 +9,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { configOperationsGetConfigQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import { createElement } from "react";
 import { createDomHarness, type DomHarness } from "../../test-support/dom";
 import { makeAccount, makeConfig } from "../../test-support/fixtures";
@@ -55,29 +54,46 @@ describe("FromSelector with an unresolved account (#1014)", () => {
 
 		assert.equal(node.value, "", "the select should sit on the placeholder");
 
-		const placeholder = node.querySelector('option[value=""]');
+		const placeholder =
+			node.querySelector<HTMLOptionElement>('option[value=""]');
 		assert.ok(placeholder, "no placeholder option was rendered");
 		assert.equal(
-			(placeholder as HTMLOptionElement).disabled,
+			placeholder.disabled,
 			true,
 			"the placeholder option should not be a pickable account",
 		);
 		assert.notEqual(
-			placeholder?.textContent,
+			placeholder.textContent,
 			ACCOUNTS[0]?.email,
 			"the placeholder must not read as the first account's address",
 		);
 	});
 
-	it("carries no placeholder option once an account is resolved", () => {
+	it("selects the resolved account and shows its address", () => {
 		const dom = mount("acc-2");
 		const node = select(dom);
 
 		assert.equal(node.value, "acc-2");
 		assert.equal(
-			node.querySelector('option[value=""]'),
-			null,
-			"a resolved selection should not keep the empty option around",
+			node.selectedOptions[0]?.textContent,
+			"bob@example.com",
+			"the selected option should show the resolved account's address",
+		);
+	});
+
+	it("shows the placeholder when selectedAccountId names an account no longer in config", () => {
+		const dom = mount("acc-missing");
+		const node = select(dom);
+
+		assert.equal(node.value, "", "the select should sit on the placeholder");
+
+		const placeholder =
+			node.querySelector<HTMLOptionElement>('option[value=""]');
+		assert.ok(placeholder, "no placeholder option was rendered");
+		assert.notEqual(
+			node.selectedOptions[0]?.textContent,
+			ACCOUNTS[0]?.email,
+			"an unresolved selection must not read as the first account's address",
 		);
 	});
 });

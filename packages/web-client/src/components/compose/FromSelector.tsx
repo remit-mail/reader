@@ -56,7 +56,7 @@ export const FromSelector = ({
 				}}
 				className="flex-1 px-2 py-1.5 border rounded-md bg-canvas text-sm"
 			>
-				{!selectedAccountId && (
+				{!accounts.some((a) => a.accountId === selectedAccountId) && (
 					<option value="" disabled>
 						Choose an account
 					</option>
