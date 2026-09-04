@@ -49,6 +49,7 @@ interface ThreadRow {
 	messageIdHeader: string;
 	isRead?: boolean;
 	hasStars?: boolean;
+	listId?: string;
 }
 
 const buildWorld = () => {
@@ -81,6 +82,7 @@ const buildWorld = () => {
 			messageIdHeader: HEADER,
 			isRead: false,
 			hasStars: false,
+			listId: "invitations.linkedin.com",
 		},
 	];
 
@@ -144,6 +146,7 @@ const buildWorld = () => {
 				messageId,
 				mailboxId: input.mailboxId as string,
 				messageIdHeader: input.messageIdHeader as string,
+				listId: input.listId as string | undefined,
 			};
 			threadRows.push(row);
 			return row;
@@ -336,6 +339,22 @@ describe("MessageMoveService.copyMessage — deterministic per-folder identity (
 		const copyRow = threadRows.find((r) => r.mailboxId === DEST_MAILBOX);
 		assert.ok(copyRow, "a placement row exists in the destination folder");
 		assert.equal(copyRow.messageId, expected);
+	});
+
+	it("carries the source row's list id onto the copy", async () => {
+		// The copy inherits its source's stored body, so no classifying pass ever
+		// runs over it to derive a list id of its own (issue #331).
+		const { service, threadRows } = buildWorld();
+
+		await service.copyMessages(
+			ACCOUNT_CONFIG,
+			[SOURCE_ID],
+			DEST_MAILBOX,
+			ACCOUNT,
+		);
+
+		const copyRow = threadRows.find((r) => r.mailboxId === DEST_MAILBOX);
+		assert.equal(copyRow?.listId, "invitations.linkedin.com");
 	});
 
 	it("a replayed copy converges on one row, no duplicate", async () => {

@@ -3,21 +3,22 @@
  * on, and its write-path defects only appear under conditions a happy-path test
  * never creates (issue #320).
  *
- * 1. The retro classification path wrote the Message before the ThreadMessage
- *    while its skip guard keyed off `message.category`. A failure between the
- *    two left the guard satisfied and the denormalized row stranded at
- *    `uncategorized` forever, because the requeued retry returned early.
+ * 1. The classifying pass wrote the Message before the ThreadMessage while the
+ *    skip guard keyed off the Message. A failure between the two left the guard
+ *    satisfied and the denormalized row stranded at `uncategorized` forever,
+ *    because the requeued retry returned early.
  * 2. `denormalizeCategory` resolved one arbitrary row per message through an
  *    unordered `.limit(1)`. More than one row per messageId is schema-legal —
  *    reachable through thread-root drift, not through a second mailbox, whose ids
  *    collapse to one row — and every row a message has must end up correct.
- * 3. It also wrote only `category` on the retro path, so a copied message, which
- *    reaches no other denormalizing path, never got a `listId` at all.
+ * 3. It also wrote only `category` on one of its paths, so the snippet and the
+ *    `listId` derived from the same bytes were dropped on the floor.
  *
  * None of these show up on a single row in a single successful pass.
  */
 
 import assert from "node:assert/strict";
+import { Readable } from "node:stream";
 import { describe, it } from "node:test";
 import type {
 	IAddressRepository,
@@ -104,7 +105,6 @@ const buildHarness = (
 	rows: Row[],
 	options: {
 		failThreadUpdates?: number;
-		bodyStored?: boolean;
 	} = {},
 ): Harness => {
 	const messageUpdates: Array<{
@@ -120,9 +120,6 @@ const buildHarness = (
 		mailboxId: "mb-inbox",
 		uid: 1,
 		category: MessageCategory.uncategorized,
-		...(options.bodyStored === false
-			? {}
-			: { bodyStorageKey: "s3://bodies/m-1" }),
 	} as unknown as MessageItem;
 
 	const messageService = {
@@ -164,6 +161,7 @@ const buildHarness = (
 	const storageService = {
 		retrieve: async () => LINKEDIN_EML,
 		storeMessageBody: async () => ({ uri: "s3://bodies/m-1" }),
+		storeMessageBodyStream: async () => ({ uri: "s3://bodies/m-1" }),
 		storeParsedBody: async () => {},
 		listBodyParts: async () => [],
 	} as unknown as StorageService;
@@ -192,10 +190,22 @@ const buildHarness = (
 	};
 };
 
-const backfill = (harness: Harness) =>
-	harness.service.syncBodies(["m-1"], "acc-1", "cfg-1", "INBOX", async () => {
-		throw new Error("the backfill must not open IMAP");
-	});
+const syncBatch = (harness: Harness) =>
+	harness.service.syncBodies(
+		["m-1"],
+		"acc-1",
+		"cfg-1",
+		"INBOX",
+		async () =>
+			({
+				openBox: async () => {},
+				async *fetchMessageBodies(uids: number[]) {
+					for (const uid of uids) {
+						yield { uid, source: Readable.from([LINKEDIN_EML]) };
+					}
+				},
+			}) as unknown as IImapConnection,
+	);
 
 const syncFromImap = (harness: Harness) =>
 	harness.service.fetchAndGetBody(
@@ -210,19 +220,19 @@ const syncFromImap = (harness: Harness) =>
 			}) as unknown as IImapConnection,
 	);
 
-describe("the classification backfill survives an interrupted write", () => {
+describe("the classifying pass survives an interrupted write", () => {
 	it("leaves the Message unclassified when the ThreadMessage write fails, so the retry runs again", async () => {
 		const harness = buildHarness([buildRow({ threadMessageId: "tm-1" })], {
 			failThreadUpdates: 1,
 		});
 
-		const failed = await backfill(harness);
+		const failed = await syncBatch(harness);
 
 		assert.deepEqual(failed.failedMessageIds, ["m-1"]);
 		assert.equal(harness.message.category, MessageCategory.uncategorized);
 		assert.deepEqual(harness.messageUpdates, []);
 
-		const retried = await backfill(harness);
+		const retried = await syncBatch(harness);
 
 		assert.deepEqual(retried.failedMessageIds, []);
 		assert.equal(harness.message.category, MessageCategory.social);
@@ -232,14 +242,14 @@ describe("the classification backfill survives an interrupted write", () => {
 	it("writes the Message only after the denormalized row is durable", async () => {
 		const harness = buildHarness([buildRow({ threadMessageId: "tm-1" })]);
 
-		await backfill(harness);
+		await syncBatch(harness);
 
 		assert.deepEqual(harness.writeOrder, ["thread", "message"]);
 	});
 });
 
 describe("denormalization reaches every row a message has", () => {
-	it("carries the backfilled category onto all of a message's rows", async () => {
+	it("carries the classified category onto all of a message's rows", async () => {
 		const harness = buildHarness([
 			buildRow({ threadMessageId: "tm-inbox", mailboxId: "mb-inbox" }),
 			buildRow({
@@ -249,7 +259,7 @@ describe("denormalization reaches every row a message has", () => {
 			}),
 		]);
 
-		await backfill(harness);
+		await syncBatch(harness);
 
 		assert.deepEqual(
 			harness.rows.map((r) => r.category),
@@ -267,7 +277,7 @@ describe("denormalization reaches every row a message has", () => {
 			}),
 		]);
 
-		await backfill(harness);
+		await syncBatch(harness);
 
 		assert.deepEqual(
 			harness.threadUpdates.map((u) => ({
@@ -286,16 +296,13 @@ describe("denormalization reaches every row a message has", () => {
 		);
 	});
 
-	it("fans the snippet and the list id out to every row on the sync path", async () => {
+	it("fans the snippet and the list id out to every row on the read path", async () => {
 		// A snippet and a List-Id belong to the message, not to the mailbox a row
 		// happens to name, so every row carries them.
-		const harness = buildHarness(
-			[
-				buildRow({ threadMessageId: "tm-inbox", mailboxId: "mb-inbox" }),
-				buildRow({ threadMessageId: "tm-archive", mailboxId: "mb-archive" }),
-			],
-			{ bodyStored: false },
-		);
+		const harness = buildHarness([
+			buildRow({ threadMessageId: "tm-inbox", mailboxId: "mb-inbox" }),
+			buildRow({ threadMessageId: "tm-archive", mailboxId: "mb-archive" }),
+		]);
 
 		await syncFromImap(harness);
 
@@ -318,7 +325,7 @@ describe("denormalization reaches every row a message has", () => {
 			buildRow({ threadMessageId: "tm-archive", mailboxId: "mb-archive" }),
 		]);
 
-		await backfill(harness);
+		await syncBatch(harness);
 
 		assert.deepEqual(
 			harness.threadUpdates.map((u) => u.threadMessageId),
@@ -327,15 +334,13 @@ describe("denormalization reaches every row a message has", () => {
 	});
 });
 
-describe("the classification backfill writes the whole denormalized set", () => {
-	// A copied message inherits its source's stored body AND its decided
-	// category, so the full body-store path skips it and this path's guard
-	// returns early — and nothing but these two paths ever writes `listId`. The
-	// backfill passing only `category` left every copy's `list_id` NULL for good.
+describe("the classifying pass writes the whole denormalized set", () => {
+	// Nothing but this pass ever derives `listId` from a message's bytes, so a
+	// write that carried only `category` left the row's `list_id` NULL for good.
 	it("carries the list id and the snippet, not just the category", async () => {
 		const harness = buildHarness([buildRow({ threadMessageId: "tm-1" })]);
 
-		await backfill(harness);
+		await syncBatch(harness);
 
 		assert.deepEqual(harness.threadUpdates.length, 1);
 		assert.deepEqual(harness.threadUpdates[0].input, {

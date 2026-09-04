@@ -746,6 +746,10 @@ export class MessageMoveService {
 			isDeleted: false,
 			snippet: sourceThreadMessage.snippet,
 			category: sourceThreadMessage.category,
+			// Same reason as `category` above, and the same source row: the copy
+			// inherits a stored body, so no classifying pass ever runs over it to
+			// derive a `listId` of its own (issue #331).
+			listId: sourceThreadMessage.listId,
 		});
 
 		this.log.info(

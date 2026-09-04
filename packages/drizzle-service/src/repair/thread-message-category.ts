@@ -53,10 +53,9 @@
  *     `message.category` is still `uncategorized`, so the pending exclusion
  *     above refuses the row outright.
  *
- * Only the fourth is interesting, and it is not impossible. It is unreachable
- * through `backfillClassification`, which returns early once the category is
- * decided. It is reachable through the primary path, which is re-enterable: the
- * skip guard is `if (message.bodyStorageKey && !force)` (`body-sync.ts`), and
+ * Only the fourth is interesting, and it is not impossible. It is reachable
+ * through the one path that classifies, which is re-enterable: the skip guard
+ * is `if (hasClassifiedBody(message.bodyStorageKey) && !force)` (`body-sync.ts`), and
  * `force` is a live event flag — the read-miss re-arm cue, resolved in the
  * imap-worker's `sync-message-body.ts`. A forced re-fetch re-runs
  * `classifyByHeaders` over the same bytes, so it normally rewrites the value it

@@ -278,15 +278,10 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 		);
 	});
 
-	it("backfillClassification picks up the same override for a body stored before classification existed", async () => {
+	it("applies the override on the batch sync path too, not just a single read", async () => {
 		const harness = buildHarness(
-			{
-				messageId: "m-1",
-				bodyStorageKey: "s3://bodies/m-1",
-				category: MessageCategory.uncategorized,
-			},
+			{ messageId: "m-1", category: MessageCategory.uncategorized },
 			overrideFlags(MessageCategory.transactional),
-			async () => LINKEDIN_EML,
 		);
 
 		const result = await harness.service.syncBodies(
@@ -294,12 +289,18 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 			"acc-1",
 			"cfg-1",
 			"INBOX",
-			async () => {
-				throw new Error("backfill must not open IMAP");
-			},
+			async () =>
+				({
+					openBox: async () => {},
+					async *fetchMessageBodies(uids: number[]) {
+						for (const uid of uids) {
+							yield { uid, source: Readable.from([LINKEDIN_EML]) };
+						}
+					},
+				}) as unknown as IImapConnection,
 		);
 
-		assert.equal(result.skippedCount, 1);
+		assert.deepEqual(result.syncedMessageIds, ["m-1"]);
 		assert.equal(harness.messageUpdates.length, 1);
 		assert.equal(
 			harness.messageUpdates[0].input.category,

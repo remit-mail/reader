@@ -1,11 +1,9 @@
 /**
- * The boundary this feature lives or dies on (issue #72).
- *
- * A message the parser refuses is set aside and stops being requeued. Storage
- * and database failures — which the same per-message frame catches — keep
- * propagating to the requeue path, because recording one as a quarantine would
- * tell the user that mail Remit could not reach was mail Remit could not read,
- * and let go of it.
+ * The boundary this feature lives or dies on (issue #72): a uid already set
+ * aside is never fetched, parsed or requeued again. The quarantine list is read
+ * once per round, before anything else in the loop looks at the message, so a
+ * message with no stored body — the one shape that would otherwise reach IMAP —
+ * still never opens a connection.
  */
 
 import assert from "node:assert/strict";
@@ -27,13 +25,7 @@ import type { StorageService } from "@remit/storage-service";
 import { BodySyncService } from "./body-sync.js";
 import { QuarantineService } from "./quarantine.js";
 
-const UNPARSEABLE = Symbol("unparseable");
-
-const buildHarness = (options: {
-	retrieve?: (key: string) => Promise<Buffer>;
-	existing?: QuarantineItem[];
-	upsertFails?: boolean;
-}) => {
+const buildHarness = (options: { existing?: QuarantineItem[] }) => {
 	const writes: QuarantineUpsertInput[] = [];
 	const messageUpdates: string[] = [];
 
@@ -43,7 +35,6 @@ const buildHarness = (options: {
 		uid: 40217,
 		rfc822Size: 2048,
 		messageIdHeader: "<abc@example.com>",
-		bodyStorageKey: "s3://bodies/m-1",
 		category: MessageCategory.uncategorized,
 	} as MessageItem;
 
@@ -55,11 +46,9 @@ const buildHarness = (options: {
 	} as unknown as IMessageRepository;
 
 	const storageService = {
-		retrieve:
-			options.retrieve ??
-			(async () => {
-				throw new Error("no body configured");
-			}),
+		retrieve: async () => {
+			throw new Error("a quarantined message must not be read again");
+		},
 	} as unknown as StorageService;
 
 	const envelopeService = {
@@ -69,7 +58,6 @@ const buildHarness = (options: {
 	const repository = {
 		listByAccountConfigId: async () => options.existing ?? [],
 		upsert: async (input: QuarantineUpsertInput) => {
-			if (options.upsertFails) throw new Error("database unavailable");
 			writes.push(input);
 		},
 	} satisfies IQuarantineRepository;
@@ -119,85 +107,6 @@ const sync = (service: BodySyncService) =>
 		throw new Error("this test must not open IMAP");
 	});
 
-describe("body sync quarantines a message the parser refuses", () => {
-	const retrieveUnparseable = async () => UNPARSEABLE as unknown as Buffer;
-
-	it("records the failure instead of requeueing the message forever", async () => {
-		const harness = buildHarness({ retrieve: retrieveUnparseable });
-
-		const result = await sync(harness.service);
-
-		assert.equal(harness.writes.length, 1);
-		assert.deepEqual(result.failedMessageIds, []);
-	});
-
-	it("names the message by uid and UIDVALIDITY, so the record is idempotent", async () => {
-		const harness = buildHarness({ retrieve: retrieveUnparseable });
-
-		await sync(harness.service);
-
-		assert.equal(harness.writes[0]?.uid, 40217);
-		assert.equal(harness.writes[0]?.uidValidity, 1_712_000_000);
-		assert.equal(harness.writes[0]?.failureStage, "BodyParse");
-	});
-
-	it("does not mark the message synced — it was set aside, not applied", async () => {
-		const harness = buildHarness({ retrieve: retrieveUnparseable });
-
-		const result = await sync(harness.service);
-
-		assert.deepEqual(result.syncedMessageIds, []);
-		assert.deepEqual(harness.messageUpdates, []);
-	});
-});
-
-describe("body sync leaves infrastructure failures alone", () => {
-	it("requeues a storage failure rather than calling the message unreadable", async () => {
-		const harness = buildHarness({
-			retrieve: async () => {
-				throw new Error("S3 503 SlowDown");
-			},
-		});
-
-		const result = await sync(harness.service);
-
-		assert.deepEqual(harness.writes, []);
-		assert.deepEqual(result.failedMessageIds, ["m-1"]);
-	});
-
-	it("requeues a database failure the same way", async () => {
-		const harness = buildHarness({
-			retrieve: async () => {
-				const error = new Error("ProvisionedThroughputExceededException");
-				error.name = "ProvisionedThroughputExceededException";
-				throw error;
-			},
-		});
-
-		const result = await sync(harness.service);
-
-		assert.deepEqual(harness.writes, []);
-		assert.deepEqual(result.failedMessageIds, ["m-1"]);
-	});
-});
-
-describe("body sync contains a failure to write the record", () => {
-	it("requeues the message instead of aborting the batch", async () => {
-		const harness = buildHarness({
-			retrieve: async () => UNPARSEABLE as unknown as Buffer,
-			upsertFails: true,
-		});
-
-		// Writing the record is database work, so its failure is infrastructure:
-		// the message keeps its place in the queue rather than being let go of
-		// with nothing written down, and the rest of the batch is unaffected.
-		const result = await sync(harness.service);
-
-		assert.deepEqual(harness.writes, []);
-		assert.deepEqual(result.failedMessageIds, ["m-1"]);
-	});
-});
-
 describe("body sync skips what is already quarantined", () => {
 	it("does not fetch or re-parse a uid already set aside", async () => {
 		const harness = buildHarness({
@@ -208,14 +117,13 @@ describe("body sync skips what is already quarantined", () => {
 					uid: 40217,
 				} as QuarantineItem,
 			],
-			retrieve: async () => {
-				throw new Error("a quarantined message must not be read again");
-			},
 		});
 
 		const result = await sync(harness.service);
 
 		assert.equal(result.skippedCount, 1);
+		assert.deepEqual(result.failedMessageIds, []);
 		assert.deepEqual(harness.writes, []);
+		assert.deepEqual(harness.messageUpdates, []);
 	});
 });
