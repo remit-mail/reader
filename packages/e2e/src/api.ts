@@ -114,9 +114,10 @@ export interface MessageSummary {
 	spamReport?: { reportedAt: number };
 }
 
-/** Where the row's own lifecycle stands: `moving` and `deleting` each mean an
- *  IMAP mutation is outstanding and the row's folder is a local write the mail
- *  server has not confirmed. */
+/** Where the row's own lifecycle stands. `moving` is the one a dependent write
+ *  has to wait out: the row carries the destination mailbox with the SOURCE
+ *  folder's uid until the mail server confirms the copy, so its folder and uid
+ *  do not name the same message. */
 export type MessageStatus = "active" | "deleting" | "deleted" | "moving";
 
 /** Read it with `status`, never alone — every handler writes `failed` on an
