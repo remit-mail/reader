@@ -240,7 +240,10 @@ const CASES = {
 				args: ["save", "one.json", "two.json"],
 				message: /^remit: config save: takes one file/m,
 			},
-			{ args: ["save"], message: /^remit: config save: needs a file to write/m },
+			{
+				args: ["save"],
+				message: /^remit: config save: needs a file to write/m,
+			},
 		],
 	},
 	"check-categories": {
@@ -296,7 +299,9 @@ const CASES = {
 };
 
 const form = (args) =>
-	args.length ? args.map((a) => (a === "" ? "''" : a)).join(" ") : "no argument";
+	args.length
+		? args.map((a) => (a === "" ? "''" : a)).join(" ")
+		: "no argument";
 
 describe("the subcommands remit dispatches", () => {
 	it("are all classified here, so a new one arrives with its rule", () => {
