@@ -56,7 +56,11 @@ export const buildLifecycleDeps = (
 	updateConnectionState: async (
 		accountId: string,
 		state: ConnectionStateValue,
+		lastError?: string,
 	) => {
-		await accountService.update(accountId, { connectionState: state });
+		await accountService.update(accountId, {
+			connectionState: state,
+			lastError,
+		});
 	},
 });

@@ -16,6 +16,10 @@
  *  - On a terminal auth failure (RefreshTokenError reauth-required, or
  *    MailConnectionError auth), flip the account to reauth_required and return
  *    WITHOUT rethrowing — this ACKs the SQS message so it is not retried.
+ *    An IMAP refusal is stored with it, because not every refusal a mail server
+ *    hands back is one re-authenticating clears: "SmtpClientAuthentication is
+ *    disabled" needs a tenant setting changed, and an account card that only
+ *    ever says "Re-authentication required" sends the user around a loop.
  *  - On transient / config / network errors, rethrow so SQS retries with
  *    backoff (let-it-crash).
  *
@@ -40,14 +44,24 @@ import { isAccountReauthRequired } from "./account-check.js";
 
 export type { ConnectionStateValue };
 
+/**
+ * A refusal is a sentence, not a transcript. Long enough for what a mail server
+ * says when it refuses a login, short enough that a chatty one cannot fill the
+ * column or the card.
+ */
+const LAST_ERROR_MAX_LENGTH = 500;
+
 export interface OAuthLifecycleDeps extends AccountCredentialsDeps {
 	/**
-	 * Persist the account's connectionState. Called when a terminal auth
-	 * failure is detected so the account is fenced off until the user re-auths.
+	 * Persist the account's connectionState, and with it the sentence the
+	 * account card shows for the failure. `lastError` carries the server's own
+	 * words when the failure came with any; it is absent only when nothing was
+	 * said, as for a credential that was never stored.
 	 */
 	updateConnectionState: (
 		accountId: string,
 		state: ConnectionStateValue,
+		lastError?: string,
 	) => Promise<void>;
 	/**
 	 * Resolve credentials for the account. Defaults to
@@ -131,12 +145,14 @@ export const withOAuthLifecycle = async (
 				{
 					accountId: account.accountId,
 					errorKind: err.kind,
+					error: err.message,
 				},
 				"IMAP auth rejected; marking account reauth_required",
 			);
 			await deps.updateConnectionState(
 				account.accountId,
 				ConnectionState.ReauthRequired,
+				err.message.slice(0, LAST_ERROR_MAX_LENGTH),
 			);
 			return; // ACK — do not retry
 		}

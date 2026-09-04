@@ -482,9 +482,13 @@ function AccountsSettings() {
 								connector={isOAuthAccount ? "Microsoft 365" : "IMAP"}
 								syncLabel={deriveSyncLabel(account)}
 								state={deriveState(account)}
+								// What the mail server said, when it said anything. Not every
+								// refusal that fences an account is one the Reconnect button
+								// clears — "SmtpClientAuthentication is disabled" is a tenant
+								// setting — so the stored reason outranks the generic prompt.
 								errorDetail={
 									isReauth
-										? "Re-authentication required"
+										? (account.lastError ?? "Re-authentication required")
 										: isMissingPassword
 											? "Imported from a config file, which carries no password. Enter one to start syncing."
 											: account.lastError

@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import type { AccountItem } from "@remit/data-ports";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
+import { ImapFlowConnection } from "@remit/mailbox-service";
 import {
 	MailConnectionError,
 	type MailCredentials,
@@ -41,10 +42,18 @@ const buildAccount = (overrides: Partial<AccountItem> = {}): AccountItem =>
 	}) as unknown as AccountItem;
 
 interface Recorded {
-	stateUpdates: Array<{ accountId: string; state: ConnectionStateValue }>;
+	stateUpdates: Array<{
+		accountId: string;
+		state: ConnectionStateValue;
+		lastError?: string;
+	}>;
 	resolveCalls: number;
 	workCalls: number;
 }
+
+/** What Microsoft says to a mailbox whose tenant has IMAP switched off. */
+const REFUSAL =
+	"LOGIN failed. User is authenticated but not connected. SmtpClientAuthentication is disabled for the Tenant.";
 
 const passwordCreds: MailCredentials = {
 	kind: "password",
@@ -68,8 +77,8 @@ const buildDeps = (
 		},
 		tokenService: { getAccessToken: async () => ({}) as never },
 		persistRotatedToken: async () => {},
-		updateConnectionState: async (accountId, state) => {
-			recorded.stateUpdates.push({ accountId, state });
+		updateConnectionState: async (accountId, state, lastError) => {
+			recorded.stateUpdates.push({ accountId, state, lastError });
 		},
 		resolveCredentials:
 			options.resolveCredentials ??
@@ -124,9 +133,12 @@ describe("withOAuthLifecycle", () => {
 			"work must not run after resolve fails",
 		);
 		assert.equal(recorded.stateUpdates.length, 1);
+		// A revoked token has nothing to add: re-authenticating is the whole of
+		// what the account needs, and the card says so on its own.
 		assert.deepEqual(recorded.stateUpdates[0], {
 			accountId: "acc-1",
 			state: ConnectionState.ReauthRequired,
+			lastError: undefined,
 		});
 	});
 
@@ -142,7 +154,59 @@ describe("withOAuthLifecycle", () => {
 		assert.deepEqual(recorded.stateUpdates[0], {
 			accountId: "acc-1",
 			state: ConnectionState.ReauthRequired,
+			lastError: "auth failed",
 		});
+	});
+
+	it("keeps what the server said when it refused, so the card can repeat it", async () => {
+		const { deps, recorded } = buildDeps();
+		const account = buildAccount({ authType: AccountAuthType.OauthMicrosoft });
+
+		// The error an Exchange mailbox with IMAP switched off hands back, built
+		// the way imapflow builds it and classified by the code that ships.
+		const connection = new ImapFlowConnection({
+			host: "outlook.office365.com",
+			port: 993,
+			user: "matthijs@example.com",
+			credentials: { kind: "accessToken", accessToken: "access-token" },
+			tls: true,
+		});
+		mock.method(
+			connection as unknown as { attemptConnect: () => Promise<void> },
+			"attemptConnect",
+			async () => {
+				throw Object.assign(new Error("Command failed"), {
+					authenticationFailed: true,
+					serverResponseCode: "AUTHENTICATIONFAILED",
+					responseText: REFUSAL,
+				});
+			},
+		);
+
+		await withOAuthLifecycle(deps, account, silentLogger, async () => {
+			await connection.connect();
+		});
+
+		assert.equal(recorded.stateUpdates.length, 1);
+		assert.equal(
+			recorded.stateUpdates[0].state,
+			ConnectionState.ReauthRequired,
+		);
+		assert.ok(
+			recorded.stateUpdates[0].lastError?.includes(REFUSAL),
+			`the refusal must survive to the account row, got: ${recorded.stateUpdates[0].lastError}`,
+		);
+	});
+
+	it("stores a chatty refusal at a length a card can hold", async () => {
+		const { deps, recorded } = buildDeps();
+		const account = buildAccount({ authType: AccountAuthType.OauthMicrosoft });
+
+		await withOAuthLifecycle(deps, account, silentLogger, async () => {
+			throw new MailConnectionError("auth", "x".repeat(4000));
+		});
+
+		assert.equal(recorded.stateUpdates[0].lastError?.length, 500);
 	});
 
 	it("on MailConnectionError auth for password account: rethrows (batch item failure, no state flip)", async () => {
@@ -221,7 +285,11 @@ describe("withOAuthLifecycle", () => {
 
 		assert.equal(recorded.workCalls, 0, "no IMAP traffic without a credential");
 		assert.deepEqual(recorded.stateUpdates, [
-			{ accountId: "acc-1", state: ConnectionState.CredentialsMissing },
+			{
+				accountId: "acc-1",
+				state: ConnectionState.CredentialsMissing,
+				lastError: undefined,
+			},
 		]);
 	});
 
@@ -236,7 +304,11 @@ describe("withOAuthLifecycle", () => {
 
 		assert.equal(recorded.workCalls, 0, "no IMAP traffic without a credential");
 		assert.deepEqual(recorded.stateUpdates, [
-			{ accountId: "acc-1", state: ConnectionState.ReauthRequired },
+			{
+				accountId: "acc-1",
+				state: ConnectionState.ReauthRequired,
+				lastError: undefined,
+			},
 		]);
 	});
 

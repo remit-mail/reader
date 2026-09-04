@@ -105,4 +105,30 @@ describe("ImapFlowConnection.connect() retry policy", () => {
 		assert.equal(attempt.mock.callCount(), 1);
 		assert.equal(sleep.mock.callCount(), 0);
 	});
+
+	it("carries the server's own refusal, which is not always a re-auth", async () => {
+		const connection = new ImapFlowConnection(baseConfig);
+		const priv = connection as unknown as WithPrivates;
+
+		// imapflow's shape for a tagged NO: the message is its own, the server's
+		// words are on `responseText`. Signing in again fixes nothing here — the
+		// tenant has IMAP switched off — so the text has to reach the user.
+		mock.method(priv, "attemptConnect", async () => {
+			throw Object.assign(new Error("Command failed"), {
+				authenticationFailed: true,
+				responseText:
+					"LOGIN failed. User is authenticated but not connected. SmtpClientAuthentication is disabled for the Tenant.",
+			});
+		});
+
+		await assert.rejects(
+			() => connection.connect(),
+			(error: unknown) => {
+				assert.ok(error instanceof MailConnectionError);
+				assert.equal(error.kind, "auth");
+				assert.match(error.message, /SmtpClientAuthentication is disabled/);
+				return true;
+			},
+		);
+	});
 });
