@@ -3,7 +3,7 @@ import { describe, it, mock } from "node:test";
 import type { AccountItem } from "@remit/data-ports";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
-import { ImapFlowConnection } from "@remit/mailbox-service";
+import { ImapFlowConnection } from "@remit/mailbox-service/imapflow-connection";
 import {
 	MailConnectionError,
 	type MailCredentials,
@@ -196,17 +196,6 @@ describe("withOAuthLifecycle", () => {
 			recorded.stateUpdates[0].lastError?.includes(REFUSAL),
 			`the refusal must survive to the account row, got: ${recorded.stateUpdates[0].lastError}`,
 		);
-	});
-
-	it("stores a chatty refusal at a length a card can hold", async () => {
-		const { deps, recorded } = buildDeps();
-		const account = buildAccount({ authType: AccountAuthType.OauthMicrosoft });
-
-		await withOAuthLifecycle(deps, account, silentLogger, async () => {
-			throw new MailConnectionError("auth", "x".repeat(4000));
-		});
-
-		assert.equal(recorded.stateUpdates[0].lastError?.length, 500);
 	});
 
 	it("on MailConnectionError auth for password account: rethrows (batch item failure, no state flip)", async () => {

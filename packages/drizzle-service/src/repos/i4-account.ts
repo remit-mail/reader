@@ -19,6 +19,17 @@ import { rowToMailbox } from "./i4-mailbox.js";
 
 type DB = Db<Record<string, unknown>>;
 
+/**
+ * A stored failure is a sentence the account card shows, not a transcript.
+ * Long enough for what a mail server says when it refuses, short enough that a
+ * chatty one — or a stack-carrying `Error.message` from a sync — cannot fill the
+ * column. Clamped here so every writer is bounded, whatever it hands over.
+ */
+const LAST_ERROR_MAX_LENGTH = 500;
+
+const clampLastError = (value: string | undefined): string | undefined =>
+	value === undefined ? undefined : value.slice(0, LAST_ERROR_MAX_LENGTH);
+
 export function rowToAccount(
 	row: typeof accountTable.$inferSelect,
 ): AccountItem {
@@ -88,7 +99,7 @@ export class AccountRepo implements IAccountRepository {
 				connectionState: input.connectionState,
 				lastConnectedAt: input.lastConnectedAt,
 				lastSyncAt: input.lastSyncAt,
-				lastError: input.lastError,
+				lastError: clampLastError(input.lastError),
 				syncPhase: input.syncPhase,
 				mailboxCountTotal: input.mailboxCountTotal,
 				mailboxCountSynced: input.mailboxCountSynced,
@@ -159,7 +170,8 @@ export class AccountRepo implements IAccountRepository {
 		if (input.lastConnectedAt !== undefined)
 			updates.lastConnectedAt = input.lastConnectedAt;
 		if (input.lastSyncAt !== undefined) updates.lastSyncAt = input.lastSyncAt;
-		if (input.lastError !== undefined) updates.lastError = input.lastError;
+		if (input.lastError !== undefined)
+			updates.lastError = clampLastError(input.lastError);
 		if (input.syncPhase !== undefined) updates.syncPhase = input.syncPhase;
 		if (input.mailboxCountTotal !== undefined)
 			updates.mailboxCountTotal = input.mailboxCountTotal;

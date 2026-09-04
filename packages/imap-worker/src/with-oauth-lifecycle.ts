@@ -44,19 +44,14 @@ import { isAccountReauthRequired } from "./account-check.js";
 
 export type { ConnectionStateValue };
 
-/**
- * A refusal is a sentence, not a transcript. Long enough for what a mail server
- * says when it refuses a login, short enough that a chatty one cannot fill the
- * column or the card.
- */
-const LAST_ERROR_MAX_LENGTH = 500;
-
 export interface OAuthLifecycleDeps extends AccountCredentialsDeps {
 	/**
 	 * Persist the account's connectionState, and with it the sentence the
 	 * account card shows for the failure. `lastError` carries the server's own
-	 * words when the failure came with any; it is absent only when nothing was
-	 * said, as for a credential that was never stored.
+	 * words when the failure came with any; it is absent when nothing was said,
+	 * as for a credential that was never stored or a token simply revoked, and
+	 * the stored reason is then cleared rather than left to describe an older
+	 * failure the account has moved on from.
 	 */
 	updateConnectionState: (
 		accountId: string,
@@ -152,7 +147,7 @@ export const withOAuthLifecycle = async (
 			await deps.updateConnectionState(
 				account.accountId,
 				ConnectionState.ReauthRequired,
-				err.message.slice(0, LAST_ERROR_MAX_LENGTH),
+				err.message,
 			);
 			return; // ACK — do not retry
 		}

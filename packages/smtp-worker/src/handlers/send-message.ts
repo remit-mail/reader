@@ -162,12 +162,19 @@ export const handleSendMessage = (
 			secrets,
 			resolveCredentials: (account) =>
 				resolveConnectionCredentials(account, credentialDeps),
-			updateConnectionState: async (id, state) => {
+			// A flip with no reason of its own removes the stored one, so the card
+			// never reads back a failure the account has moved on from.
+			updateConnectionState: async (id, state, lastError) => {
 				const { account } = await getPorts();
-				await account.update(id, {
-					connectionState:
-						state as (typeof ConnectionState)[keyof typeof ConnectionState],
-				});
+				await account.update(
+					id,
+					{
+						connectionState:
+							state as (typeof ConnectionState)[keyof typeof ConnectionState],
+						lastError,
+					},
+					lastError === undefined ? ["lastError"] : undefined,
+				);
 			},
 			send: sendMail,
 			emitAppendSentMessage,

@@ -25,6 +25,7 @@
     "dev": "node --import tsx src/e2e-processor-shim.ts"
   },
   "devDependencies": {
+    "@remit/drizzle-service": "*",
     "@remit/queue-sidecar": "*",
     "@remit/storage-service": "*",
     "aws-sdk-client-mock": "*",
