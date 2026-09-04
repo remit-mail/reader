@@ -1379,12 +1379,19 @@ phase() {
 	fi
 }
 
-terminate() {
+# Records a terminal outcome and says it. It does not touch the breadcrumb, so a
+# settlement that is not the end of the run the breadcrumb describes cannot
+# erase that run's only recovery record (#906).
+settle() {
 	run_state_write "$RUN_PHASE" "$1" "$2" "$3"
-	breadcrumb_clear
 	if [ "${REMIT_QUIET:-0}" != "1" ]; then
 		printf '%s\n' "$2"
 	fi
+}
+
+terminate() {
+	settle "$1" "$2" "$3"
+	breadcrumb_clear
 }
 
 # --- lock -------------------------------------------------------------------
@@ -1799,6 +1806,7 @@ REQUEST_NOT_FLAT=4
 REQUEST_NO_VERSION=5
 REQUEST_WRONG_VERSION=6
 REQUEST_BAD_RUN_ID=7
+REQUEST_BAD_VERSION=8
 
 # Emits the accepted target version, and the run id the request named on a
 # second line — empty when the request carried none. Both are refused together:
@@ -1842,7 +1850,7 @@ EOF
 	fi
 	_want=$(json_string "$_raw" targetVersion)
 	if ! version_valid "$_want"; then
-		return "$REQUEST_NO_VERSION"
+		return "$REQUEST_BAD_VERSION"
 	fi
 	if [ "$_want" != "$CHECK_VERSION" ]; then
 		return "$REQUEST_WRONG_VERSION"
@@ -1877,7 +1885,7 @@ settle_unusable_request() {
 	RUN_STARTED=$(iso_now)
 	RUN_PHASE=checking
 	mkdir -p "$STATE_DIR"
-	terminate abandoned \
+	settle abandoned \
 		"The update request on the control volume $2, so it was $3 rather than installed; this instance is still running $RUN_FROM. Ask for the update again to install it now." \
 		"$PROG update"
 }
@@ -1893,6 +1901,7 @@ discard_expired_request() {
 		_why="was made at $_at, longer ago than the $((REQUEST_MAX_AGE_SECONDS / 60)) minutes a request stays current"
 	fi
 	settle_unusable_request "$1" "$_why" discarded
+	breadcrumb_clear
 }
 
 # Every refusal settles the run, not only the expired one (#906). The backend
@@ -1901,17 +1910,34 @@ discard_expired_request() {
 # never comes — nothing retries, and the file that would explain it is already
 # deleted. An expired request has its own account of itself; the rest name what
 # about the file could not be used, in terms an operator can act on.
+#
+# Every status has its own arm, so a refusal added later reads as the vague
+# fallback in a test rather than inheriting a sentence that describes a
+# different fault.
 settle_refused_request() {
 	case "$2" in
 	"$REQUEST_EXPIRED")
 		discard_expired_request "$1"
 		return 0
 		;;
+	"$REQUEST_UNREADABLE") _why="could not be read" ;;
 	"$REQUEST_TOO_LARGE") _why="is larger than a request may be" ;;
+	"$REQUEST_NOT_FLAT") _why="is not the flat set of fields a request carries" ;;
 	"$REQUEST_NO_VERSION") _why="names no version to install" ;;
-	"$REQUEST_WRONG_VERSION") _why="names a version other than the one this instance was offered" ;;
+	"$REQUEST_BAD_VERSION") _why="carries a target version that is not a version number" ;;
 	"$REQUEST_BAD_RUN_ID") _why="names a run id this instance cannot use" ;;
-	*) _why="is not the flat set of fields a request carries" ;;
+	"$REQUEST_WRONG_VERSION")
+		# A check that could not read the manifest leaves nothing to compare
+		# against, so the request is refused without this instance knowing which
+		# release it was offered. Saying it names the wrong version asserts a
+		# mismatch nobody established.
+		if [ -n "$CHECK_VERSION" ]; then
+			_why="names a version other than the one this instance was offered"
+		else
+			_why="names a version this instance could not confirm, because the release manifest could not be read"
+		fi
+		;;
+	*) _why="could not be used" ;;
 	esac
 	settle_unusable_request "$1" "$_why" rejected
 }

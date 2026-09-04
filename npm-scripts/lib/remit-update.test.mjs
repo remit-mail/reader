@@ -1368,6 +1368,12 @@ describe("the control seam", () => {
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
 		assert.ok(!box.log().includes("compose pull"));
+		const run = box.stateJson().run;
+		assert.equal(run.outcome, "abandoned");
+		assert.match(
+			run.message,
+			/is not the flat set of fields a request carries/,
+		);
 	});
 
 	it("rejects trailing tokens after the object the request ends with", () => {
@@ -1492,6 +1498,28 @@ describe("the control seam", () => {
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
 		assert.ok(!box.log().includes("compose pull"));
+		const run = box.stateJson().run;
+		assert.equal(run.outcome, "abandoned");
+		assert.match(
+			run.message,
+			/names a version other than the one this instance was offered/,
+		);
+	});
+
+	it("does not call a version wrong when it never read the manifest", () => {
+		// A check that could not fetch leaves nothing to compare against, so the
+		// refusal is real but "you named the wrong version" is a mismatch nobody
+		// established — the operator's problem is the fetch.
+		const box = sandbox({ manifest: null, scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({ targetVersion: "v1.5.0", requestedAt: justNow() }),
+		);
+		box.run(["update"]);
+		const run = box.stateJson().run;
+		assert.equal(run.outcome, "abandoned");
+		assert.match(run.message, /release manifest could not be read/);
+		assert.ok(!run.message.includes("other than the one this instance"));
 	});
 
 	it("settles the run the request named when the request is rejected", () => {
@@ -1553,6 +1581,10 @@ describe("the control seam", () => {
 			],
 			[{ requestedBy: "owner@example.test" }, /names no version to install/],
 			[
+				{ targetVersion: "latest" },
+				/carries a target version that is not a version number/,
+			],
+			[
 				{ targetVersion: "v9.9.9" },
 				/names a version other than the one this instance was offered/,
 			],
@@ -1569,6 +1601,60 @@ describe("the control seam", () => {
 			assert.equal(run.runId, "r-said");
 			assert.match(run.message, expected);
 		}
+	});
+
+	it("says an unreadable request could not be read, not that it is malformed", () => {
+		// The file can vanish between the caller's check and the seam's own, and a
+		// read can fail on permissions; neither is a malformed request, and the
+		// catch-all sentence would send the operator after the wrong fault.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		const result = spawnSync(
+			"sh",
+			[
+				"-c",
+				'. "$0"\nsettle_refused_request "$1" "$2"',
+				REMIT,
+				'{"runId":"r-gone"}',
+				"1",
+			],
+			{ env: { ...box.env, REMIT_LIB_ONLY: "1" }, encoding: "utf8" },
+		);
+		assert.equal(result.status, 0, result.stderr);
+		const run = box.stateJson().run;
+		assert.equal(run.outcome, "abandoned");
+		assert.equal(run.runId, "r-gone");
+		assert.match(run.message, /could not be read/);
+		assert.ok(!run.message.includes("flat set of fields"));
+	});
+
+	it("leaves a crashed run's breadcrumb alone when it refuses a request", () => {
+		// The breadcrumb is the only record `remit update --recover` has of a run
+		// that died mid-flight. A malformed request arriving before the recovery
+		// run is not that run ending, so settling it must not erase the recovery.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		box.writeBreadcrumb({
+			runId: "run-1",
+			fromVersion: "v1.0.0",
+			targetVersion: "v1.5.0",
+			startedAt: "2026-07-20T08:00:00Z",
+			snapshot: join(box.state, "snapshots", "run-1"),
+			services: ALL_SERVICES,
+			migrateBefore: "cmigrate-old",
+			phase: "stopping",
+		});
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({
+				runId: "r-bad",
+				targetVersion: "v1.5.0",
+				requestedAt: justNow(),
+				registry: "ghcr.io/attacker",
+			}),
+		);
+		box.run(["update"]);
+		assert.equal(box.stateJson().run.runId, "r-bad");
+		assert.match(box.breadcrumb(), /runId=run-1/);
+		assert.match(box.breadcrumb(), /phase=stopping/);
 	});
 
 	it("discards a request older than the window instead of installing it", () => {
