@@ -8,8 +8,11 @@
  *
  * The semantic widen is a vector query and the index is deliberately not built
  * on the e2e lane (see issue #219 and organize-standing-filter.spec.ts), so the
- * scenarios here take the ticked-list door, whose count is the selection itself
- * and needs no index. Downstream of the review screen, the back-apply job and
+ * one-off scenarios take the ticked-list door, whose count is the selection
+ * itself and needs no index. The two that save a rule take the properties door
+ * instead: a rule needs a predicate to keep matching on, and the ticked rows are
+ * a list of ids rather than one (#1193). Its count comes from the vector-free
+ * preview, which this lane answers. Downstream of the review screen, the back-apply job and
  * the filter create both re-run that absent index server-side, so they are
  * stubbed per scenario and the run screen's states are exercised
  * deterministically. Real filter CRUD is covered by
@@ -31,6 +34,7 @@ import {
 	dismissRun,
 	expectBlockedReason,
 	pickFolder,
+	pickMatchDoor,
 	wizardContinue,
 	wizardStep,
 } from "../src/wizard.js";
@@ -247,6 +251,11 @@ test.describe("Organize through the selection wizard", () => {
 				timeout: 20_000,
 			});
 
+			// A saved rule matches on what the mail has in common, so the walk goes
+			// through the properties door. The ticked rows carry no predicate for a
+			// rule to keep matching on (#1193), and the door adds an editor step.
+			await pickMatchDoor(page, "Its properties");
+			await advanceTo(page, "Properties");
 			await advanceTo(page, "Folder");
 			await pickFolder(page, "Archive");
 			await advanceTo(page, "Rule");
@@ -254,7 +263,7 @@ test.describe("Organize through the selection wizard", () => {
 			// The scope is the second branching answer: it adds the naming step
 			// after the step it is given on.
 			await page.getByText("Until a date", { exact: true }).click();
-			await expect(wizardStep(page)).toHaveText(/^Step 3 of 6 · Rule$/);
+			await expect(wizardStep(page)).toHaveText(/^Step 4 of 7 · Rule$/);
 			await page.getByLabel("Stops on").fill("2030-06-30");
 
 			await advanceTo(page, "Name");
@@ -331,6 +340,8 @@ test.describe("Organize through the selection wizard", () => {
 			await expect(wizardStep(page)).toHaveText(/^Step 1 of 5 · Apply to$/, {
 				timeout: 20_000,
 			});
+			await pickMatchDoor(page, "Its properties");
+			await advanceTo(page, "Properties");
 			await advanceTo(page, "Folder");
 			await pickFolder(page, "Archive");
 			await advanceTo(page, "Rule");
@@ -379,6 +390,52 @@ test.describe("Organize through the selection wizard", () => {
 			await wizardContinue(page).click();
 			await expectBlockedReason(page, "Pick a destination first.");
 			await expect(wizardStep(page)).toHaveText(/· Folder$/);
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("the ticked rows cannot be saved as a rule that matches nothing", async ({
+		page,
+		run,
+		api,
+	}) => {
+		const { first, second, cleanup } = await seedScratch(
+			page,
+			run,
+			api,
+			`wizard-no-predicate ${Date.now()}`,
+		);
+
+		// Every create the walk could send, so "none" is asserted rather than
+		// assumed.
+		const creates: string[] = [];
+		await page.route(/\/filters$/, (route) => {
+			if (route.request().method() === "POST") {
+				creates.push(route.request().url());
+			}
+			return route.continue();
+		});
+
+		try {
+			await selectTwo(page, first, second);
+			await barOrganize(page).click();
+			await advanceTo(page, "Folder");
+			await pickFolder(page, "Archive");
+			await advanceTo(page, "Rule");
+
+			// The ticked rows are a list of ids and no predicate, so a rule saved
+			// through this door would match nothing — the mail already here and the
+			// mail still to come. The step refuses it in the rule editor's words
+			// (#1193) rather than reporting a rule saved.
+			await page.getByText("Keep doing this", { exact: true }).click();
+			await wizardContinue(page).click();
+			await expectBlockedReason(
+				page,
+				"Add a clause so the rule has something to match.",
+			);
+			await expect(wizardStep(page)).toHaveText(/· Rule$/);
+			expect(creates).toHaveLength(0);
 		} finally {
 			await cleanup();
 		}
