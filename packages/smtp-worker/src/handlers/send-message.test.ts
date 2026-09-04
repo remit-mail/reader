@@ -85,6 +85,13 @@ interface Recorded {
 	sendCalls: number;
 	resolveCalls: number;
 	connectionStateUpdates: Array<{ accountId: string; state: string }>;
+	conditionalUpdates: Array<{
+		id: string;
+		expected: OutboxMessageItem["status"];
+		patch: UpdateOutboxMessageInput;
+	}>;
+	/** Ordered names of the writes the handler made, across every recorder. */
+	writeOrder: string[];
 	outboundIncrements: Array<{ addressId: string; now: number }>;
 	replyIncrements: Array<{ addressId: string; now: number }>;
 }
@@ -107,11 +114,14 @@ const buildDeps = (
 		sendCalls: 0,
 		resolveCalls: 0,
 		connectionStateUpdates: [],
+		conditionalUpdates: [],
+		writeOrder: [],
 		outboundIncrements: [],
 		replyIncrements: [],
 	};
 	const outbox = options.outbox ?? buildOutbox();
 	const account = options.account ?? buildAccount();
+	let currentStatus: OutboxMessageItem["status"] = outbox.status;
 	const deps: SendMessageDeps = {
 		getOutbox: async (accountConfigId, id) => {
 			assert.equal(accountConfigId, account.accountConfigId);
@@ -124,11 +134,25 @@ const buildDeps = (
 		},
 		updateOutbox: async (accountConfigId, id, patch) => {
 			assert.equal(accountConfigId, account.accountConfigId);
+			if (patch.status) currentStatus = patch.status;
+			recorded.writeOrder.push("outbox");
 			recorded.updates.push({ id, patch });
 		},
 		updateOutboxStatus: async (accountConfigId, id, status) => {
 			assert.equal(accountConfigId, account.accountConfigId);
+			currentStatus = status;
 			recorded.statuses.push({ id, status });
+		},
+		// Compare-and-set, as the port implements it: the write lands only while
+		// the row still holds `expected`, and answers null when it does not.
+		updateOutboxIfStatus: async (accountConfigId, id, expected, patch) => {
+			assert.equal(accountConfigId, account.accountConfigId);
+			recorded.conditionalUpdates.push({ id, expected, patch });
+			if (expected !== currentStatus) return null;
+			if (patch.status) currentStatus = patch.status;
+			recorded.writeOrder.push("outbox");
+			recorded.updates.push({ id, patch });
+			return {};
 		},
 		markOutboxSent: async (accountConfigId, id, fields) => {
 			assert.equal(accountConfigId, account.accountConfigId);
@@ -155,6 +179,7 @@ const buildDeps = (
 				};
 			}),
 		updateConnectionState: async (accountId, state) => {
+			recorded.writeOrder.push("connectionState");
 			recorded.connectionStateUpdates.push({ accountId, state });
 		},
 		send:
@@ -527,8 +552,20 @@ describe("sendMessage handler", () => {
 	});
 });
 
+/**
+ * The row is the only place the user learns a send stopped on re-auth, so every
+ * branch that abandons the send has to leave a `blocked` row naming the remedy
+ * (issue #1152).
+ */
+const assertBlockedOnReauth = (recorded: Recorded): void => {
+	const settled = recorded.updates.at(-1)?.patch;
+	assert.equal(settled?.status, "blocked");
+	assert.match(String(settled?.lastError), /reconnected/i);
+	assert.match(String(settled?.lastError), /Reconnect/);
+};
+
 describe("sendMessage OAuth reauth/ACK contract", () => {
-	it("skips send when account is reauth_required", async () => {
+	it("blocks the message when the account already needs reauth (issue #1152)", async () => {
 		const { deps, recorded } = buildDeps({
 			account: buildAccount({
 				smtpHost: "smtp.example.com",
@@ -546,7 +583,7 @@ describe("sendMessage OAuth reauth/ACK contract", () => {
 			0,
 			"must not flip connectionState",
 		);
-		assert.equal(recorded.updates.length, 0, "must not update outbox");
+		assertBlockedOnReauth(recorded);
 		assert.equal(recorded.statuses.length, 0, "must not change status");
 	});
 
@@ -569,6 +606,7 @@ describe("sendMessage OAuth reauth/ACK contract", () => {
 			accountId: "acc-1",
 			state: "reauth_required",
 		});
+		assertBlockedOnReauth(recorded);
 	});
 
 	it("account storing no credential: settles `blocked` and never retries (issue #1120)", async () => {
@@ -629,6 +667,7 @@ describe("sendMessage OAuth reauth/ACK contract", () => {
 			accountId: "acc-1",
 			state: "reauth_required",
 		});
+		assertBlockedOnReauth(recorded);
 	});
 
 	it("on SmtpConnectionError auth during credential resolution for password account: rethrows (no state flip)", async () => {
@@ -673,6 +712,7 @@ describe("sendMessage OAuth reauth/ACK contract", () => {
 			accountId: "acc-1",
 			state: "reauth_required",
 		});
+		assertBlockedOnReauth(recorded);
 	});
 
 	it("on SmtpConnectionError auth during send for password account: rethrows (no state flip)", async () => {
@@ -696,6 +736,53 @@ describe("sendMessage OAuth reauth/ACK contract", () => {
 			0,
 			"must not flip connectionState for password account",
 		);
+	});
+
+	it("flips the connection state before it settles the row", async () => {
+		const { deps, recorded } = buildDeps({
+			resolveCredentials: async () => {
+				throw new RefreshTokenError({
+					kind: "reauth-required",
+					code: "invalid_grant",
+				});
+			},
+		});
+
+		await sendMessage(event, silentLogger, deps);
+
+		// A settle that throws after the flip is redelivered into the fence, which
+		// settles the row. The other order leaves the account unfenced, and the
+		// settled row is outside the send fence so no redelivery gets back here.
+		assert.deepEqual(recorded.writeOrder, ["connectionState", "outbox"]);
+	});
+
+	it("leaves a row the user pulled back into the composer alone", async () => {
+		const { deps, recorded } = buildDeps({
+			outbox: buildOutbox({ status: "draft" }),
+			account: buildAccount({ connectionState: "reauth_required" }),
+		});
+
+		await sendMessage(event, silentLogger, deps);
+
+		assert.equal(recorded.updates.length, 0, "must not overwrite the draft");
+		assert.equal(recorded.conditionalUpdates.length, 0, "must not even try");
+	});
+
+	it("settles a send-time rejection against `sending`, the status the row reached", async () => {
+		const { deps, recorded } = buildDeps({
+			account: buildAccount({ authType: AccountAuthType.OauthMicrosoft }),
+			send: async () => {
+				throw new SmtpConnectionError("auth", "535 authentication failed");
+			},
+		});
+
+		await sendMessage(event, silentLogger, deps);
+
+		assert.deepEqual(
+			recorded.conditionalUpdates.map((update) => update.expected),
+			["sending"],
+		);
+		assertBlockedOnReauth(recorded);
 	});
 });
 

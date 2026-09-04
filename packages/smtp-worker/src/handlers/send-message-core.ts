@@ -64,6 +64,13 @@ export interface SendMessageDeps {
 		id: string,
 		status: OutboxMessageItem["status"],
 	) => Promise<unknown>;
+	/** Write the patch only while the row still holds `expected` (compare-and-set). */
+	updateOutboxIfStatus: (
+		accountConfigId: string,
+		id: string,
+		expected: OutboxMessageItem["status"],
+		patch: UpdateOutboxMessageInput,
+	) => Promise<unknown>;
 	markOutboxSent: (
 		accountConfigId: string,
 		id: string,
@@ -95,6 +102,14 @@ export interface SendMessageDeps {
 
 const UNFILED_NOT_QUEUED =
 	"Sent, but not filed: the copy for the Sent folder could not be queued.";
+
+/**
+ * Every re-auth branch settles the row with this, because the row is the only
+ * place the user learns the send stopped: `blocked` shows its reason and offers
+ * no Retry, and a retry cannot succeed until the account is reconnected.
+ */
+const REAUTH_REQUIRED =
+	"This account needs to be reconnected before it can send. Open Settings → Accounts and choose Reconnect, then send this message again.";
 
 const UNFILED_CONNECTION_LOST =
 	"The connection to the outgoing server dropped during the send, so this message may already have been delivered. Check with the recipient before sending it again.";
@@ -169,6 +184,26 @@ export const sendMessage = async (
 		return;
 	}
 
+	// `send` queues a row before it emits, so an event that finds one at `draft`
+	// found a row the user pulled back into the composer after the emit. That is
+	// not a stalled send and it keeps its own state. Every other settle is
+	// conditional on the status the send was decided against, so a row that has
+	// moved on since is not overwritten either.
+	const settleBlockedOnReauth = async (
+		expected: OutboxMessageItem["status"] = outbox.status,
+	): Promise<void> => {
+		if (expected === OutboxMessageStatus.draft) return;
+		await deps.updateOutboxIfStatus(
+			accountConfigId,
+			outboxMessageId,
+			expected,
+			{
+				status: OutboxMessageStatus.blocked,
+				lastError: REAUTH_REQUIRED,
+			},
+		);
+	};
+
 	// Tombstone fence: drop events for deleted accounts (#228)
 	if (account.deletedAt) {
 		log.info(
@@ -181,9 +216,10 @@ export const sendMessage = async (
 	// Reauth fence: skip accounts that need re-authentication. No SMTP traffic
 	// until the user re-auths (mirrors the IMAP reauth/ACK contract, #472).
 	if (account.connectionState === "reauth_required") {
+		await settleBlockedOnReauth();
 		log.info(
 			{ accountId, connectionState: account.connectionState },
-			"Account requires reauth, dropping send event",
+			"Account requires reauth, blocking the message",
 		);
 		return;
 	}
@@ -219,6 +255,7 @@ export const sendMessage = async (
 					"OAuth token revoked; marking account reauth_required",
 				);
 				await deps.updateConnectionState(accountId, "reauth_required");
+				await settleBlockedOnReauth();
 				return; // ACK — do not retry
 			}
 			// transient or config: let-it-crash (SQS retry / DLQ)
@@ -235,6 +272,7 @@ export const sendMessage = async (
 				"SMTP auth rejected; marking account reauth_required",
 			);
 			await deps.updateConnectionState(accountId, "reauth_required");
+			await settleBlockedOnReauth();
 			return; // ACK — do not retry
 		}
 		throw err;
@@ -277,6 +315,7 @@ export const sendMessage = async (
 				"SMTP auth rejected during send; marking account reauth_required",
 			);
 			await deps.updateConnectionState(accountId, "reauth_required");
+			await settleBlockedOnReauth(OutboxMessageStatus.sending);
 			return; // ACK — do not retry
 		}
 		// A password account's auth failure and every network failure retry on
