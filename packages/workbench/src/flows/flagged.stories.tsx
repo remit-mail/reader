@@ -41,7 +41,7 @@ const PERSONAL_UNREAD_TOTAL = 7;
 
 /** The filter as the empty state renders it: label, escape, and how far it read. */
 const personalFilter = {
-	label: "Personal",
+	label: "Personal mail",
 	reach: "whole-folder" as const,
 	onClear: () => undefined,
 };

@@ -45,8 +45,8 @@ import {
 } from "@/lib/brief";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import { flaggedCriteria } from "@/lib/flagged-criteria";
-import { categoryLabel } from "@/lib/inbox-filters";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
+import { listNarrowing } from "@/lib/list-narrowing";
 import { useMailContext } from "@/lib/mail-context";
 import { rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
@@ -126,7 +126,8 @@ export function FlaggedList({
 	onTriageContextChange,
 	onDeleteMessages,
 }: FlaggedListProps) {
-	const { searchQuery, resultFolderIndex } = useMailContext();
+	const { searchQuery, resultFolderIndex, onSearchClearQuery } =
+		useMailContext();
 	const tokenContext = useSearchTokenContext();
 	const isDesktop = useIsDesktop();
 	const wizard = useSelectionWizard();
@@ -150,10 +151,24 @@ export function FlaggedList({
 		setActiveFilters(new Set());
 	}, []);
 
+	// The empty state's way out has to clear everything its headline names, or
+	// it is a button that leaves the list exactly as narrowed as it found it.
+	const clearNarrowing = useCallback(() => {
+		clearFilters();
+		onSearchClearQuery();
+	}, [clearFilters, onSearchClearQuery]);
+
 	const { freeText: sq, tokens: queryTokens } = parseSearchTokens(
 		searchQuery.trim().toLowerCase(),
 		tokenContext,
 	);
+	// The same free text in the reader's own casing. The request's copy is folded
+	// to lowercase so equivalent searches share a cache entry; a sentence quoting
+	// the query back to the reader must not be.
+	const typedFreeText = parseSearchTokens(
+		searchQuery.trim(),
+		tokenContext,
+	).freeText;
 
 	// The chips and the tokens together, as query parameters: a category typed as
 	// `category:personal` narrows the request exactly as the chip does.
@@ -238,15 +253,19 @@ export function FlaggedList({
 	// the request. Every chip and every carried token is a column on the row, so
 	// the server answered over the whole collection; a residual token, or the
 	// snippet half of a free-text search, only ever saw the pages loaded so far.
-	const filterLabel = categoryLabel(selectedCategory);
-	const listFilter: MessageListFilter | undefined = filterLabel
-		? {
-				label: filterLabel,
-				reach:
-					residualTokens.length > 0 || sq ? "loaded-pages" : "whole-folder",
-				onClear: clearFilters,
-			}
-		: undefined;
+	//
+	// `is:starred` is dropped: this view is starred mail, so the token restates
+	// the collection rather than narrowing it.
+	const narrowingTokens = useMemo(
+		() => queryTokens.filter((token) => token.type !== "isStarred"),
+		[queryTokens],
+	);
+	const listFilter: MessageListFilter | undefined = listNarrowing({
+		chips: { category: selectedCategory, attributes: activeFilters },
+		tokens: narrowingTokens,
+		reach: residualTokens.length > 0 || sq ? "loaded-pages" : "whole-folder",
+		onClear: clearNarrowing,
+	});
 
 	const listState = isLoading
 		? "loading"
@@ -327,7 +346,9 @@ export function FlaggedList({
 					// Flagged spans accounts and folders, so it is a collection and
 					// never "this mailbox". It names itself.
 					listScopeLabel="Starred"
-					searchQuery={sq ? searchQuery : undefined}
+					// The typed tokens narrow the list too, but `listFilter` already
+					// names them, and a headline saying one narrowing twice reads as two.
+					searchQuery={typedFreeText || undefined}
 					errorMessage={isError ? formatErrorMessage(error) : undefined}
 					onRetry={() => refetch()}
 					onReportError={handleReportError}

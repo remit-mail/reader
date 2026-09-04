@@ -25,7 +25,7 @@ const literal = (value: string): string =>
 	value.replace(/[.*+?^${}()|[\]\\]/g, (match) => `\\${match}`);
 
 const personalFilter: MessageListFilter = {
-	label: "Personal",
+	label: "Personal mail",
 	reach: "whole-folder",
 	onClear: () => undefined,
 };

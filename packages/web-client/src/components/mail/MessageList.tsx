@@ -142,12 +142,18 @@ interface MessageListProps {
 	 */
 	listMeta?: string;
 	/**
-	 * The active category filter, when the view has one. The empty state needs
-	 * it to say it is filtered and how much of the collection the request
-	 * reached; without it a narrowed list renders as an empty mailbox, which is
-	 * the shape #315's bug hid behind.
+	 * What narrows the list, when anything does. The empty state needs it to say
+	 * it is filtered and how much of the collection the request reached; without
+	 * it a narrowed list renders as an empty mailbox, which is the shape #315's
+	 * bug hid behind.
 	 */
 	listFilter?: MessageListFilter;
+	/**
+	 * The free text the empty state names, which is `searchQuery` with the typed
+	 * filter tokens taken out: `listFilter` already names those, and a headline
+	 * saying one narrowing twice reads as two.
+	 */
+	listSearchText?: string;
 	/** Name of the collection being listed, e.g. "Inbox", for the empty state. */
 	listScopeLabel?: string;
 	/**
@@ -233,6 +239,7 @@ export const MessageList = ({
 	listTitle,
 	listMeta,
 	listFilter,
+	listSearchText,
 	listScopeLabel,
 	onTriageContextChange,
 	commandsRef,
@@ -1301,7 +1308,7 @@ export const MessageList = ({
 				// The results panel is a body, not a list state: it stands in for the
 				// rows and must not fall behind a skeleton while the query re-keys.
 				listState={listHeaderChrome.searchResults ? "ready" : listState}
-				searchQuery={isSearching ? searchQuery : undefined}
+				searchQuery={listSearchText}
 				listFilter={listFilter}
 				listScopeLabel={listScopeLabel}
 				errorMessage={errorMessage}

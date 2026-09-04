@@ -44,7 +44,7 @@ const longRow: ThreadRowData = {
 };
 
 const personalFilter: MessageListFilter = {
-	label: "Personal",
+	label: "Personal mail",
 	reach: "whole-folder",
 	onClear: () => undefined,
 };
@@ -185,6 +185,31 @@ export const FilteredEmpty: Story = {
 	args: { filter: personalFilter, scopeLabel: "Inbox" },
 };
 
+/**
+ * The narrowing is an attribute chip, or a token typed in the field, with no
+ * category chosen. The list is filtered exactly as much as it is under a
+ * category, and used to render as an empty collection instead (#1126).
+ */
+export const FilteredEmptyAttributeOnly: Story = {
+	...inFilteredPane,
+	args: {
+		filter: { ...personalFilter, label: "unread mail" },
+		scopeLabel: "Inbox",
+	},
+};
+
+/** Every dimension at once: category chip, attribute chip and typed token. */
+export const FilteredEmptyEveryNarrowing: Story = {
+	...inFilteredPane,
+	args: {
+		filter: {
+			...personalFilter,
+			label: "Personal unread mail with an attachment",
+		},
+		scopeLabel: "Inbox",
+	},
+};
+
 /** S2 with a search query on top of the filter — same completeness sentence. */
 export const FilteredEmptySearching: Story = {
 	...inFilteredPane,
@@ -216,7 +241,7 @@ export const FilteredEmptyBoundedReach: Story = {
 export const FilteredEmptyUnclassified: Story = {
 	decorators: [paneFrame],
 	args: {
-		filter: { ...personalFilter, label: "Unclassified" },
+		filter: { ...personalFilter, label: "Unclassified mail" },
 		scopeLabel: "Inbox",
 	},
 	render: (args) => (
@@ -230,7 +255,7 @@ export const FilteredEmptyUnclassified: Story = {
 export const FilteredEmptyLongLabels: Story = {
 	...inFilteredPane,
 	args: {
-		filter: { ...personalFilter, label: "Transactional" },
+		filter: { ...personalFilter, label: "Transactional mail" },
 		scopeLabel: "Archive/2024/Suppliers/Netherlands Enterprise Agency",
 	},
 };

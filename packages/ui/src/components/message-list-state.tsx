@@ -49,20 +49,25 @@ export function MessageListLoading() {
 export type FilterReach = "whole-folder" | "loaded-pages";
 
 /**
- * The active category filter, the way out of it, and how far it reached. All
- * three together: the label cannot arrive without its escape, and the reach
- * cannot be left to a default, because it decides which completeness sentence
- * is true.
+ * What narrows the list, the way out of it, and how far it reached. All three
+ * together: the label cannot arrive without its escape, and the reach cannot be
+ * left to a default, because it decides which completeness sentence is true.
  */
 export interface MessageListFilter {
-	/** Display label of the active category, e.g. "Personal". */
+	/**
+	 * The narrowing as a noun phrase the headline reads "No " in front of:
+	 * "Personal mail", "unread mail with an attachment". Whatever narrows the
+	 * list belongs in it — a category chip, an attribute chip, a typed token —
+	 * because this object's presence is what tells the reader the collection is
+	 * filtered rather than empty (#1126).
+	 */
 	label: string;
 	reach: FilterReach;
 	onClear: () => void;
 }
 
 export interface MessageListEmptyProps {
-	/** Absent when no category filter is active. */
+	/** Absent when nothing narrows the list. */
 	filter?: MessageListFilter;
 	/**
 	 * Name of the collection being listed, e.g. "Inbox". Absent for a plain
@@ -140,13 +145,13 @@ function unfilteredCopy(
 
 /** One string, not JSX, so the copy stays a single text node and reads whole. */
 function filteredHeadline(
-	filterLabel: string,
+	narrowing: string,
 	scopeLabel: string | undefined,
 	query: string | undefined,
 ): string {
-	if (query) return `No results for “${query}” in ${filterLabel}`;
-	if (scopeLabel) return `No ${filterLabel} mail in ${scopeLabel}`;
-	return `No ${filterLabel} mail`;
+	if (query) return `No results for “${query}” in ${narrowing}`;
+	if (scopeLabel) return `No ${narrowing} in ${scopeLabel}`;
+	return `No ${narrowing}`;
 }
 
 function EmptyFrame({ children }: { children: ReactNode }) {
