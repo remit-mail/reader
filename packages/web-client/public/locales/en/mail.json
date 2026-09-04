@@ -5,65 +5,8 @@
     "drafts": "Drafts",
     "trash": "Trash",
     "archive": "Archive",
-    "spam": "Spam",
     "junk": "Spam",
     "flagged": "Starred",
-    "all": "All Mail",
-    "noAccounts": "No accounts configured",
-    "noMailboxes": "No mailboxes"
-  },
-  "emptyState": {
-    "selectMailbox": "Select a mailbox to view messages",
-    "selectMessage": "Select a message to read",
-    "noMessages": "No messages in this mailbox",
-    "messageNotFound": "Message not found"
-  },
-  "inbox": {
-    "title": "Inbox",
-    "empty": "No messages in your inbox",
-    "emptyFiltered": "No {{filter}} messages",
-    "noSubject": "(No subject)"
-  },
-  "thread": {
-    "messageCount": "{{count}} message",
-    "messageCount_other": "{{count}} messages",
-    "unreadCount": "{{count}} unread",
-    "participants": "{{count}} participant",
-    "participants_other": "{{count}} participants"
-  },
-  "filters": {
-    "all": "All",
-    "unread": "Unread",
-    "starred": "Starred",
-    "attachments": "Has attachments"
-  },
-  "actions": {
-    "compose": "Compose",
-    "reply": "Reply",
-    "replyAll": "Reply all",
-    "forward": "Forward",
-    "archive": "Archive",
-    "markRead": "Mark as read",
-    "markUnread": "Mark as unread",
-    "star": "Star",
-    "unstar": "Remove star",
-    "moveToTrash": "Move to trash"
-  },
-  "compose": {
-    "title": "New message",
-    "description": "Compose a new email message",
-    "to": "To",
-    "cc": "Cc",
-    "bcc": "Bcc",
-    "subject": "Subject",
-    "body": "Message",
-    "send": "Send",
-    "discard": "Discard",
-    "attachFiles": "Attach files"
-  },
-  "time": {
-    "justNow": "Just now",
-    "today": "Today",
-    "yesterday": "Yesterday"
+    "all": "All Mail"
   }
 }

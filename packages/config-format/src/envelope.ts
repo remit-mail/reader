@@ -11,5 +11,3 @@ export const ConfigEnvelopeSchema = z.object({
 	kind: z.literal(CONFIG_KIND),
 	schemaVersion: z.int().min(1),
 });
-
-export type ConfigEnvelope = z.infer<typeof ConfigEnvelopeSchema>;

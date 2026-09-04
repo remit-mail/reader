@@ -283,4 +283,3 @@ export type ConfigFilter = z.infer<typeof FilterSchema>;
 export type ConfigLabel = z.infer<typeof LabelSchema>;
 export type ConfigAddressFlagsEntry = z.infer<typeof AddressFlagsEntrySchema>;
 export type ConfigAddressFlags = z.infer<typeof AddressFlagsSchema>;
-export type ConfigClientPreferences = z.infer<typeof ClientPreferencesSchema>;

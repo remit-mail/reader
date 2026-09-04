@@ -20,5 +20,3 @@ export const UpdateManifestSchema = z.object({
 	// reads as an unknown schema version rather than an error.
 	schemaVersion: z.number().int().nonnegative().optional(),
 });
-
-export type UpdateManifest = z.infer<typeof UpdateManifestSchema>;
